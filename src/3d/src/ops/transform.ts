@@ -19,10 +19,13 @@ import { currentOrientation, orientationBasis, orientationLabel } from './orient
 import { BUILTIN_ORIENTATIONS } from './orientation_list';
 import { around, basisAxis, bendMatrix, evalNumeric, falloffWeight, randomOffset, seededRandom, shearMatrix, toSpherePoint, warpPoint, type BendFrame } from './transform_math';
 
-export type TransformMode = 'TRANSLATION' | 'ROTATION' | 'RESIZE' | 'TRACKBALL' | 'SHRINKFATTEN' | 'TOSPHERE' | 'SHEAR' | 'PUSHPULL' | 'EDGESLIDE' | 'BEND' | 'WARP' | 'TILT' | 'CURVE_SHRINKFATTEN' | 'MIRROR';
+export type TransformMode = 'TRANSLATION' | 'ROTATION' | 'RESIZE' | 'TRACKBALL' | 'SHRINKFATTEN' | 'TOSPHERE' | 'SHEAR' | 'PUSHPULL' | 'EDGESLIDE' | 'BEND' | 'WARP' | 'TILT' | 'CURVE_SHRINKFATTEN' | 'GPENCIL_OPACITY' | 'MIRROR';
 
 /** Modes that change a per-element value (curve tilt / radius) instead of positions. */
-const VALUE_MODES = new Set<TransformMode>(['TILT', 'CURVE_SHRINKFATTEN']);
+const VALUE_MODES = new Set<TransformMode>(['TILT', 'CURVE_SHRINKFATTEN', 'GPENCIL_OPACITY']);
+
+/** Providers for the value modes (radius / opacity / tilt) of other data types, consulted first. */
+export const valueProviders: TProvider[] = [];
 
 /** An item being transformed. All math happens in world space. */
 export interface TElement {
@@ -305,7 +308,13 @@ function collect(mode?: TransformMode): Collected | null {
   const ts = app.doc.scene.tool_settings;
   const proportional = proportionalEnabled();
   // value modes (tilt, radius) have their own element type
-  if (mode && VALUE_MODES.has(mode)) return valueProvider.collect({ proportional, connected: false, individual: false, mode });
+  if (mode && VALUE_MODES.has(mode)) {
+    for (const vp of valueProviders) {
+      const d = vp.collect({ proportional, connected: false, individual: false, mode });
+      if (d && d.elements.length) return d;
+    }
+    return valueProvider.collect({ proportional, connected: false, individual: false, mode });
+  }
   for (let i = transformProviders.length - 1; i >= 0; i--) {
     const d = transformProviders[i].collect({ proportional, connected: ts.use_proportional_connected, individual: ts.transform_pivot_point === 'INDIVIDUAL_ORIGINS', mode });
     if (d && d.elements.length) return d;
@@ -420,6 +429,7 @@ function elementMatrix(s: Session, st: TState, e: TElement): Matrix4 {
       return T((e.normal ?? new Vector3()).clone().multiplyScalar((st.value[0] ?? 0) * w));
     case 'TILT':
     case 'CURVE_SHRINKFATTEN':
+    case 'GPENCIL_OPACITY':
       return new Matrix4();
     case 'MIRROR': {
       // scale by -1 along the constrained axes
@@ -507,6 +517,7 @@ const MODE_OP: Partial<Record<TransformMode, string>> = {
   WARP: 'transform.vertex_warp',
   TILT: 'transform.tilt',
   CURVE_SHRINKFATTEN: 'transform.transform',
+  GPENCIL_OPACITY: 'transform.transform',
   MIRROR: 'transform.mirror',
 };
 
@@ -540,7 +551,8 @@ export function stateToOperator(st: TState): { idname: string; props: Record<str
     case 'WARP':
       return { idname, props: { warp_angle: v[0], offset_angle: st.warp?.offset ?? 0, min: round(st.warp?.min ?? -1), max: round(st.warp?.max ?? 1), center: st.center?.toArray().map(round) ?? [0, 0, 0], viewmat: orient.orient_matrix } };
     case 'CURVE_SHRINKFATTEN':
-      return { idname, props: { mode: 'CURVE_SHRINKFATTEN', value: [v[0], 0, 0], orient_type: 'GLOBAL' } };
+    case 'GPENCIL_OPACITY':
+      return { idname, props: { mode: st.mode, value: [v[0], 0, 0], orient_type: 'GLOBAL' } };
     case 'MIRROR':
       return { idname, props: { ...orient, ...cons } };
     default:
@@ -676,6 +688,7 @@ function stateFromProps(mode: TransformMode, p: Record<string, unknown>): TState
       break;
     }
     case 'CURVE_SHRINKFATTEN':
+    case 'GPENCIL_OPACITY':
       st.value = [num(p.value, 1)];
       break;
     default:
@@ -1025,7 +1038,7 @@ export function startTransform(
       if (snapOn()) angle = Math.round(angle / rotationStep(precise)) * rotationStep(precise);
       st.value = [vals ? (typed(0) ?? 0) * deg : angle];
       overlay.helpFrom = s!.pivot;
-    } else if (curMode === 'CURVE_SHRINKFATTEN') {
+    } else if (curMode === 'CURVE_SHRINKFATTEN' || curMode === 'GPENCIL_OPACITY') {
       const d0 = Math.hypot(startMouse.x - ps.x, startMouse.y - ps.y),
         d1 = Math.hypot(mouse.x - ps.x, mouse.y - ps.y);
       let f = d0 > 1 ? d1 / d0 : 1;
@@ -1143,7 +1156,7 @@ export function startTransform(
     compute();
   };
 
-  const modeLabel = () => ({ TRANSLATION: 'Move', ROTATION: 'Rotate', RESIZE: 'Resize', TRACKBALL: 'Trackball', SHRINKFATTEN: 'Shrink/Fatten', TOSPHERE: 'To Sphere', SHEAR: 'Shear', PUSHPULL: 'Push/Pull', EDGESLIDE: 'Edge Slide', BEND: 'Bend', WARP: 'Warp', TILT: 'Tilt', CURVE_SHRINKFATTEN: 'Radius', MIRROR: 'Mirror' })[curMode];
+  const modeLabel = () => ({ TRANSLATION: 'Move', ROTATION: 'Rotate', RESIZE: 'Resize', TRACKBALL: 'Trackball', SHRINKFATTEN: 'Shrink/Fatten', TOSPHERE: 'To Sphere', SHEAR: 'Shear', PUSHPULL: 'Push/Pull', EDGESLIDE: 'Edge Slide', BEND: 'Bend', WARP: 'Warp', TILT: 'Tilt', CURVE_SHRINKFATTEN: 'Radius', GPENCIL_OPACITY: 'Opacity', MIRROR: 'Mirror' })[curMode];
 
   const fmt = (x: number) => (Math.abs(x) < 1e-6 ? '0' : x.toFixed(4).replace(/\.?0+$/, ''));
   const fmtDeg = (x: number) => `${fmt((x * 180) / Math.PI)}°`;
@@ -1170,6 +1183,7 @@ export function startTransform(
     else if (curMode === 'TILT') body = `Tilt: ${fmtDeg(v0[0] ?? 0)}`;
     else if (curMode === 'MIRROR') body = constraint ? 'Mirror' : 'Mirror: press X, Y or Z to choose the axis';
     else if (curMode === 'CURVE_SHRINKFATTEN') body = `Shrink/Fatten: ${fmt(v0[0] ?? 1)}`;
+    else if (curMode === 'GPENCIL_OPACITY') body = `Opacity: ${fmt(v0[0] ?? 1)}`;
     else body = `${modeLabel()}: ${fmt(v0[0] ?? 0)} m`;
     return `${body}${cname}${numTxt}${snapOn() ? '  (Snap)' : ''}${prop}`;
   };
@@ -1364,7 +1378,7 @@ export function startTransform(
 
 /** A value reached earlier combined with further mouse-driven change of the same mode. */
 function combineValues(mode: TransformMode, base: number[], next: number[]): number[] {
-  if (mode === 'RESIZE' || mode === 'CURVE_SHRINKFATTEN') return next.map((x, i) => x * (base[i] ?? 1));
+  if (mode === 'RESIZE' || mode === 'CURVE_SHRINKFATTEN' || mode === 'GPENCIL_OPACITY') return next.map((x, i) => x * (base[i] ?? 1));
   if (mode === 'TOSPHERE') return [Math.max(0, Math.min(1, (base[0] ?? 0) + (next[0] ?? 0)))];
   if (mode === 'BEND' || mode === 'WARP') return next;
   return next.map((x, i) => x + (base[i] ?? 0));
@@ -1571,6 +1585,7 @@ const GENERIC_MODES: [string, TransformMode][] = [
   ['PUSHPULL', 'PUSHPULL'],
   ['TILT', 'TILT'],
   ['CURVE_SHRINKFATTEN', 'CURVE_SHRINKFATTEN'],
+  ['GPENCIL_OPACITY', 'GPENCIL_OPACITY'],
 ];
 onAppReady(() => {
   const prev = operators.get('transform.transform');

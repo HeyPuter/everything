@@ -37,7 +37,9 @@ export type Mode =
   | 'TEXTURE_PAINT'
   | 'POSE'
   | 'PAINT_GREASE_PENCIL'
-  | 'SCULPT_GREASE_PENCIL';
+  | 'SCULPT_GREASE_PENCIL'
+  | 'VERTEX_GREASE_PENCIL'
+  | 'WEIGHT_GREASE_PENCIL';
 
 export type SelectMode = 'VERT' | 'EDGE' | 'FACE';
 
@@ -878,6 +880,8 @@ export interface ObjectData {
   use_instance_faces_scale?: boolean;
   instance_faces_scale?: number;
   modifiers: ModifierBase[];
+  /** visual effects of grease pencil objects (Properties ▸ Visual Effects) */
+  shader_effects?: import('../greasepencil/types').ShaderFx[];
   constraints: Constraint[];
   animation_data: AnimData | null;
   pose: Record<string, PoseBone> | null;

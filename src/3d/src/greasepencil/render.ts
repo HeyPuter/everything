@@ -23,6 +23,7 @@ import {
   CustomBlending,
   OneFactor,
   OneMinusSrcAlphaFactor,
+  ZeroFactor,
   DstColorFactor,
   AddEquation,
   ReverseSubtractEquation,
@@ -31,15 +32,21 @@ import {
   AlwaysDepth,
   WebGLRenderTarget,
   UnsignedByteType,
+  HalfFloatType,
   PlaneGeometry,
   OrthographicCamera,
   Scene,
   Color,
+  AlwaysStencilFunc,
+  EqualStencilFunc,
+  ReplaceStencilOp,
+  KeepStencilOp,
   type Camera,
   type WebGLRenderer,
+  type Texture,
 } from 'three';
 import { app } from '../app/app';
-import type { DocumentData } from '../data/types';
+import type { DocumentData, ObjectData } from '../data/types';
 import type { EvalObject } from '../eval/depsgraph';
 import { sceneSyncHooks } from '../render/scene';
 import { drawHooks, type DrawView } from '../editors/view3d/draw';
@@ -48,6 +55,10 @@ import { renderSceneHooks, renderVisibleObjects } from '../render/final/rendersc
 import { buildStrokeBuffers, type StrokeBuffers, type StrokeStyle } from './geometry';
 import { gpOf, frameAt, onionFrames, onionAlpha, slotStyle } from './data';
 import type { GPDrawing, GPLayer, GreasePencilData } from './types';
+import { activeModifiers, layerFrame, evaluateDrawing } from './modifiers';
+import { applyEffects } from './effectsgl';
+import { fadeFactor } from './overlays';
+import type { ShaderFx } from './types';
 
 // ---------------------------------------------------------------------------
 // shader
@@ -65,6 +76,7 @@ attribute vec4 aN1;
 uniform vec2 uViewport;
 uniform float uRadiusScale;
 varying vec2 vPix;
+varying vec2 vUV;
 flat varying vec2 vS0;
 flat varying vec2 vS1;
 flat varying vec2 vR;
@@ -94,7 +106,10 @@ void main() {
   vS1 = vec2(0.0);
   vR = vec2(0.0);
   vZ = vec2(0.5);
+  vUV = aN0.xy;
   if (kind == 0) {
+    // fills: gradient kind and factor
+    vN0 = vec3(0.0, aN0.z, aN0.w);
     gl_Position = c0;
     return;
   }
@@ -147,6 +162,7 @@ uniform float uOrderBase;
 uniform float uOrderEps;
 uniform vec4 uIdColor;
 varying vec2 vPix;
+varying vec2 vUV;
 flat varying vec2 vS0;
 flat varying vec2 vS1;
 flat varying vec2 vR;
@@ -171,6 +187,14 @@ void main() {
   float zReal = gl_FragCoord.z;
   if (kind == 0) {
     col = vC0;
+    if (vN0.y > 0.5) {
+      // gradient: linear along u, or radial from the center; the factor moves the midpoint
+      float g = vN0.y < 1.5 ? vUV.x : length(vUV - 0.5) * 2.0;
+      g = clamp(g, 0.0, 1.0);
+      float f = clamp(vN0.z, 0.01, 0.99);
+      g = g < f ? 0.5 * g / f : 0.5 + 0.5 * (g - f) / (1.0 - f);
+      col = mix(vC0, vC1, g);
+    }
   } else if (kind == 1) {
     vec2 ab = vS1 - vS0;
     float L2 = dot(ab, ab);
@@ -264,6 +288,13 @@ function makeMaterial(idPass: boolean): ShaderMaterial {
 }
 
 function setBlend(m: ShaderMaterial, mode: string) {
+  if (mode === 'HOLDOUT') {
+    // erase: destination × (1 − source alpha), color and alpha alike
+    m.blendEquation = m.blendEquationAlpha = AddEquation;
+    m.blendSrc = m.blendSrcAlpha = ZeroFactor;
+    m.blendDst = m.blendDstAlpha = OneMinusSrcAlphaFactor;
+    return;
+  }
   m.blendEquation = mode === 'SUBTRACT' ? ReverseSubtractEquation : AddEquation;
   m.blendEquationAlpha = AddEquation;
   m.blendSrc = mode === 'MULTIPLY' ? DstColorFactor : OneFactor;
@@ -317,14 +348,14 @@ export function geometryFromBuffers(b: StrokeBuffers): BufferGeometry {
 }
 
 function styleKey(styles: (StrokeStyle | null)[]) {
-  return styles.map((s) => (s ? `${+s.stroke}${+s.fill}${s.mode}${s.alignment ?? ''}${s.color.join(',')}|${s.fillColor.join(',')}` : '-')).join(';');
+  return styles.map((s) => (s ? `${+s.stroke}${+s.fill}${s.mode}${s.alignment ?? ''}${s.color.join(',')}|${s.fillColor.join(',')}|${s.gradient ? JSON.stringify(s.gradient) : ''}|${+!!s.holdoutStroke}${+!!s.holdoutFill}` : '-')).join(';');
 }
 
-function cachedGeometry(d: GPDrawing, styles: (StrokeStyle | null)[], radiusOffset: number): CachedGeo {
-  const key = `${drawingKey(d)}#${styleKey(styles)}#${radiusOffset}`;
+function cachedGeometry(d: GPDrawing, styles: (StrokeStyle | null)[], radiusOffset: number, holdout = false): CachedGeo {
+  const key = `${drawingKey(d)}#${styleKey(styles)}#${radiusOffset}#${+holdout}`;
   let c = geoCache.get(key);
   if (!c) {
-    const b = buildStrokeBuffers(d, styles, 0, radiusOffset);
+    const b = buildStrokeBuffers(d, styles, 0, radiusOffset, holdout);
     c = { geo: geometryFromBuffers(b), orders: b.orderEnd, used: syncTick };
     geoCache.set(key, c);
   }
@@ -357,6 +388,20 @@ export function materialStyles(doc: DocumentData, gp: GreasePencilData, ghost = 
       fillColor: [...st.fill_color],
       mode: st.mode,
       alignment: st.alignment_mode,
+      gradient:
+        st.fill_style === 'GRADIENT'
+          ? {
+              type: st.gradient_type ?? 'LINEAR',
+              mix: [...(st.mix_color ?? [1, 1, 1, 1])] as [number, number, number, number],
+              factor: st.mix_factor ?? 0.5,
+              flip: !!st.flip,
+              offset: [...(st.texture_offset ?? [0, 0])] as [number, number],
+              angle: st.texture_angle ?? 0,
+              scale: [...(st.texture_scale ?? [1, 1])] as [number, number],
+            }
+          : undefined,
+      holdoutStroke: !!st.use_stroke_holdout,
+      holdoutFill: !!st.use_fill_holdout,
     });
   }
   return out;
@@ -380,6 +425,8 @@ interface GPMesh extends Mesh {
     onion: boolean;
     layer: number;
     gpencil: true;
+    holdout?: boolean;
+    maskPass?: boolean;
     idMat?: ShaderMaterial;
     inFront?: boolean;
     mode3D?: boolean;
@@ -392,14 +439,50 @@ interface GPSynced {
   scene: Scene;
   group: Group;
   meshes: GPMesh[];
+  /** stencil passes for layer masks */
+  maskMeshes: Mesh[];
   mode3D: boolean;
   inFront: boolean;
+  /** some layer is masked (needs the offscreen image with a stencil buffer) */
+  masked: boolean;
 }
 
 const synced = new Map<string, GPSynced>();
 
+/** Parent transforms of layers (object space), refreshed on every sync of their object. */
+const layerParents = new WeakMap<GPLayer, Matrix4>();
+
+/** Layer space → object space: the layer's own transform, after its parent's when it has one. */
 export function layerMatrix(l: GPLayer): Matrix4 {
-  return new Matrix4().compose(new Vector3(...l.translation), new Quaternion().setFromEuler(new Euler(l.rotation[0], l.rotation[1], l.rotation[2], 'XYZ')), new Vector3(...l.scale));
+  const m = new Matrix4().compose(new Vector3(...l.translation), new Quaternion().setFromEuler(new Euler(l.rotation[0], l.rotation[1], l.rotation[2], 'XYZ')), new Vector3(...l.scale));
+  const p = l.parent ? layerParents.get(l) : undefined;
+  return p ? p.clone().multiply(m) : m;
+}
+
+/** World matrix a layer parent target has (an object, or one of its pose bones). */
+export function parentWorld(l: GPLayer): Matrix4 | null {
+  const ev = l.parent ? app.graph.get(l.parent) : undefined;
+  if (!ev) return null;
+  const w = ev.world.clone();
+  if (l.parent_type === 'BONE' && l.parent_bone && ev.pose) {
+    const b = ev.pose.bones.get(l.parent_bone);
+    if (b) w.multiply(b.pose);
+  }
+  return w;
+}
+
+/** Update the parent transforms of an object's layers (object space: own⁻¹ · parent · parent inverse). */
+export function updateLayerParents(gp: GreasePencilData, obWorld: Matrix4) {
+  const inv = obWorld.clone().invert();
+  for (const l of gp.layers) {
+    const pw = l.parent ? parentWorld(l) : null;
+    if (!pw) {
+      layerParents.delete(l);
+      continue;
+    }
+    const pinv = l.parent_inverse ? new Matrix4().fromArray(l.parent_inverse) : new Matrix4();
+    layerParents.set(l, inv.clone().multiply(pw).multiply(pinv));
+  }
 }
 
 /** Modes that show onion skins (while drawing/editing). */
@@ -445,6 +528,10 @@ function newGPMesh(id: string): GPMesh {
 }
 
 interface Entry {
+  /** holdout strokes / fills of the layer: they erase what is under them */
+  holdout?: boolean;
+  /** layer masks: geometry of the mask layers (inverted ones cut away) */
+  masks?: { geo: BufferGeometry; layer: GPLayer; invert: boolean }[];
   geo: BufferGeometry;
   orderBase: number;
   layer: GPLayer;
@@ -454,8 +541,11 @@ interface Entry {
   alpha: number;
 }
 
+/** Replace a drawing for display (e.g. weight colors in Weight Paint); null keeps it. */
+export const drawingDisplayHooks: ((ob: ObjectData, gp: GreasePencilData, d: GPDrawing) => GPDrawing | null)[] = [];
+
 /** Everything drawn for a GP object at the current frame (onion skins first, then layers bottom→top). */
-export function objectEntries(doc: DocumentData, gp: GreasePencilData, frame: number, onion: boolean): Entry[] {
+export function objectEntries(doc: DocumentData, gp: GreasePencilData, frame: number, onion: boolean, ob?: ObjectData, render = false): Entry[] {
   const entries: Entry[] = [];
   let order = 0;
   const styles = materialStyles(doc, gp);
@@ -485,13 +575,25 @@ export function objectEntries(doc: DocumentData, gp: GreasePencilData, frame: nu
       }
     });
   }
+  const mods = ob ? activeModifiers(ob, render) : [];
+  const obWorld = ob ? (app.graph.get(ob.id)?.world ?? new Matrix4()) : new Matrix4();
   gp.layers.forEach((layer, li) => {
     if (layer.hide) return;
-    const fr = frameAt(layer, frame);
-    const d = fr ? gp.drawings[fr.drawing] : undefined;
+    const shownFrame = ob && mods.length ? layerFrame(ob, { layer, layerIndex: li, doc, gp }, frame, mods) : frame;
+    const fr = frameAt(layer, shownFrame);
+    let d = fr ? gp.drawings[fr.drawing] : undefined;
     if (!d || d.offsets.length < 2) return;
+    if (ob && mods.length) {
+      const k = layer.frames.indexOf(fr!);
+      const prev = k > 0 ? gp.drawings[layer.frames[k - 1].drawing] : undefined;
+      d = evaluateDrawing(d, { doc, ob, gp, layer, layerIndex: li, frame: shownFrame, keyFrame: fr!.frame_number, nextKeyFrame: layer.frames[k + 1]?.frame_number ?? null, prevStrokeCount: prev ? prev.offsets.length - 1 : 0, world: obWorld.clone().multiply(layerMatrix(layer)) }, mods);
+      if (d.offsets.length < 2) return;
+    }
+    if (ob) for (const hk of drawingDisplayHooks) d = hk(ob, gp, d) ?? d;
     const c = cachedGeometry(d, styles, layer.radius_offset);
+    const masks = layer.use_masks ? maskGeometry(gp, layer, frame, styles) : undefined;
     entries.push({
+      masks,
       geo: c.geo,
       orderBase: order,
       layer,
@@ -500,9 +602,80 @@ export function objectEntries(doc: DocumentData, gp: GreasePencilData, frame: nu
       onionColor: [0, 0, 0, 0],
       alpha: 1,
     });
+    if (styles.some((st) => st?.holdoutStroke || st?.holdoutFill)) {
+      // drawn right after the layer with the same draw orders: strokes above a holdout stay
+      const hc = cachedGeometry(d, styles, layer.radius_offset, true);
+      entries.push({ holdout: true, masks, geo: hc.geo, orderBase: order, layer, layerIndex: li, onion: false, onionColor: [0, 0, 0, 0], alpha: 1 });
+    }
     order += c.orders;
   });
   return entries;
+}
+
+/** Geometry of the layers masking `layer` at a frame (the mask list's own hide toggles apply). */
+function maskGeometry(gp: GreasePencilData, layer: GPLayer, frame: number, styles: (StrokeStyle | null)[]): Entry['masks'] {
+  const out: NonNullable<Entry['masks']> = [];
+  for (const mk of layer.mask_layers ?? []) {
+    if (mk.hide) continue;
+    const ml = gp.layers.find((l) => l.name === mk.name);
+    if (!ml || ml === layer) continue;
+    const fr = frameAt(ml, frame);
+    const d = fr ? gp.drawings[fr.drawing] : undefined;
+    // an empty mask hides the layer completely (or nothing, inverted)
+    out.push({ geo: d && d.offsets.length > 1 ? cachedGeometry(d, styles, ml.radius_offset).geo : new BufferGeometry(), layer: ml, invert: mk.invert });
+  }
+  return out.length ? out : undefined;
+}
+
+const stencilQuadGeo = new PlaneGeometry(2, 2);
+function stencilMaterial(kind: 'CLEAR' | 'MASK', ref: number): ShaderMaterial {
+  const m = kind === 'MASK' ? makeMaterial(false) : new ShaderMaterial({ vertexShader: 'void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }', fragmentShader: 'void main() { gl_FragColor = vec4(0.0); }' });
+  m.colorWrite = false;
+  m.depthWrite = false;
+  m.depthTest = false;
+  m.stencilWrite = true;
+  m.stencilFunc = AlwaysStencilFunc;
+  m.stencilRef = ref;
+  m.stencilZPass = ReplaceStencilOp;
+  m.stencilZFail = ReplaceStencilOp;
+  m.stencilFail = ReplaceStencilOp;
+  return m;
+}
+
+/** Stencil passes in front of a masked layer: reset, then positive masks write 1, inverted ones 0. */
+function syncMasks(s: GPSynced, e: Entry, order: { n: number }, used: { n: number }, mode3D: boolean) {
+  const masks = e.masks!;
+  const anyPositive = masks.some((x) => !x.invert);
+  const take = (kind: 'CLEAR' | 'MASK', ref: number): Mesh => {
+    let m = s.maskMeshes[used.n];
+    if (!m || (m.userData.kind as string) !== `${kind}${ref}`) {
+      if (m) m.removeFromParent();
+      m = kind === 'CLEAR' ? new Mesh(stencilQuadGeo, stencilMaterial('CLEAR', ref)) : newGPMesh(s.id);
+      if (kind === 'MASK') m.material = stencilMaterial('MASK', ref);
+      m.frustumCulled = false;
+      m.matrixAutoUpdate = false;
+      m.userData = { ...(m.userData ?? {}), kind: `${kind}${ref}`, id: s.id, gpencil: true, maskPass: true };
+      s.maskMeshes[used.n] = m;
+      s.group.add(m);
+    }
+    used.n++;
+    m.visible = true;
+    m.renderOrder = order.n++;
+    return m;
+  };
+  take('CLEAR', anyPositive ? 0 : 1);
+  for (const pass of [false, true])
+    for (const mk of masks) {
+      if (mk.invert !== pass) continue;
+      const m = take('MASK', mk.invert ? 0 : 1) as GPMesh;
+      m.geometry = mk.geo;
+      m.userData.mode3D = mode3D;
+      m.userData.onion = false;
+      m.matrix.copy(layerMatrix(mk.layer));
+      const u = m.material.uniforms;
+      u.uOpacity.value = 1;
+      u.uOrderBase.value = e.orderBase;
+    }
 }
 
 function applyEntry(m: GPMesh, e: Entry, ob: { show_in_front: boolean }, mode3D: boolean) {
@@ -512,13 +685,23 @@ function applyEntry(m: GPMesh, e: Entry, ob: { show_in_front: boolean }, mode3D:
   u.uTint.value.set(e.layer.tint_color[0], e.layer.tint_color[1], e.layer.tint_color[2], e.layer.tint_factor);
   u.uOnion.value.set(...e.onionColor);
   u.uOrderBase.value = e.orderBase;
-  setBlend(m.material, e.onion ? 'REGULAR' : e.layer.blend_mode);
+  setBlend(m.material, e.onion ? 'REGULAR' : e.holdout ? 'HOLDOUT' : e.layer.blend_mode);
+  m.material.depthWrite = !e.holdout;
+  m.userData.holdout = !!e.holdout;
   m.userData.onion = e.onion;
   m.userData.layer = e.layerIndex;
   m.userData.inFront = ob.show_in_front;
   m.userData.mode3D = mode3D;
   m.matrix.copy(layerMatrix(e.layer));
   m.visible = true;
+  // masked layers draw only where the stencil passes left a 1
+  const masked = !!e.masks?.length;
+  m.material.stencilWrite = masked;
+  m.material.stencilFunc = EqualStencilFunc;
+  m.material.stencilRef = 1;
+  m.material.stencilZPass = KeepStencilOp;
+  m.material.stencilZFail = KeepStencilOp;
+  m.material.stencilFail = KeepStencilOp;
 }
 
 function syncObject(doc: DocumentData, ev: EvalObject) {
@@ -534,27 +717,38 @@ function syncObject(doc: DocumentData, ev: EvalObject) {
     const group = new Group();
     group.matrixAutoUpdate = false;
     scene.add(group);
-    s = { id: ev.id, scene, group, meshes: [], mode3D: false, inFront: false };
+    s = { id: ev.id, scene, group, meshes: [], maskMeshes: [], mode3D: false, inFront: false, masked: false };
     synced.set(ev.id, s);
   }
   s.mode3D = gp.stroke_depth_order === '3D';
   s.inFront = ev.ob.show_in_front;
   s.group.matrix.copy(ev.world);
-  const entries = objectEntries(doc, gp, doc.scene.frame_current, wantOnion(doc, ev.id));
+  updateLayerParents(gp, ev.world);
+  fillSynced(s, objectEntries(doc, gp, doc.scene.frame_current, wantOnion(doc, ev.id), ev.ob), ev.ob);
+}
+
+/** Fill an object's private scene with meshes for its entries (and the mask stencil passes). */
+function fillSynced(s: GPSynced, entries: Entry[], ob: ObjectData, viewport = true) {
   while (s.meshes.length < entries.length) {
-    const m = newGPMesh(ev.id);
+    const m = newGPMesh(s.id);
     s.meshes.push(m);
     s.group.add(m);
   }
+  const order = { n: 0 },
+    used = { n: 0 };
+  s.masked = entries.some((e) => !!e.masks?.length || !!e.holdout);
   s.meshes.forEach((m, i) => {
     const e = entries[i];
     if (!e) {
       m.visible = false;
       return;
     }
-    applyEntry(m, e, ev.ob, s!.mode3D);
-    m.renderOrder = i;
+    if (e.masks?.length) syncMasks(s, e, order, used, s.mode3D);
+    applyEntry(m, e, ob, s.mode3D);
+    if (viewport && !e.onion && !e.holdout) m.material.uniforms.uOpacity.value *= fadeFactor(s.id, e.layerIndex, gpOf(app.doc, ob)?.active_layer_index ?? -1);
+    m.renderOrder = order.n++;
   });
+  for (let i = used.n; i < s.maskMeshes.length; i++) s.maskMeshes[i].visible = false;
   s.group.updateMatrixWorld(true);
 }
 
@@ -574,7 +768,9 @@ sceneSyncHooks.push((doc, ev) => {
 // viewport passes
 
 let rt: WebGLRenderTarget | null = null;
-const compositeMat = new ShaderMaterial({
+/** Composites an object image (premultiplied) into the scene at a given depth. */
+function makeComposite(): ShaderMaterial {
+  return new ShaderMaterial({
   vertexShader: /* glsl */ `
     varying vec2 vUv;
     void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
@@ -603,6 +799,8 @@ const compositeMat = new ShaderMaterial({
   blendSrcAlpha: OneFactor,
   blendDstAlpha: OneMinusSrcAlphaFactor,
 });
+}
+const compositeMat = makeComposite();
 const compositeQuad = new Mesh(new PlaneGeometry(2, 2), compositeMat);
 compositeQuad.frustumCulled = false;
 const compositeScene = new Scene();
@@ -612,6 +810,11 @@ const compositeCam = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
 // stroke colors are rendered linear (no tone mapping) into the offscreen target; the composite
 // applies the view transform once
 for (const m of [compositeMat]) m.toneMapped = true;
+
+/** Visual effects shown in the viewport for an object. */
+function viewportEffects(id: string): ShaderFx[] {
+  return (app.doc.objects[id]?.shader_effects ?? []).filter((f) => f.show_viewport);
+}
 
 function visibleObjects(view: DrawView): GPSynced[] {
   const sync = renderContext?.sync;
@@ -660,7 +863,8 @@ function drawObjects(view: DrawView, camera: Camera) {
           m.visible = false;
           hidden.push(m);
         }
-    if (s.mode3D) {
+    const fx = viewportEffects(s.id);
+    if (s.mode3D && !fx.length && !s.masked) {
       // real depth, straight into the framebuffer
       r.render(s.scene, camera);
     } else {
@@ -668,15 +872,31 @@ function drawObjects(view: DrawView, camera: Camera) {
         rt = new WebGLRenderTarget(W, H, {
           samples: 4,
           depthBuffer: true,
+          stencilBuffer: true,
           type: UnsignedByteType,
         });
       if (rt.width !== W || rt.height !== H) rt.setSize(W, H);
       r.setRenderTarget(rt);
       r.setClearColor(0x000000, 0);
-      r.clear(true, true, false);
+      r.clear(true, true, true);
       r.render(s.scene, camera);
       r.setRenderTarget(prevTarget);
-      compositeMat.uniforms.tColor.value = rt.texture;
+      let tex: Texture = rt.texture;
+      if (fx.length) {
+        tmpV.setFromMatrixPosition(s.group.matrixWorld).project(camera);
+        const origin = new Vector2((tmpV.x * 0.5 + 0.5) * W, (tmpV.y * 0.5 + 0.5) * H);
+        tex = applyEffects(r, rt.texture, W, H, fx, {
+          origin,
+          scale: 1,
+          objectOrigin: (id) => {
+            const ev = app.graph.get(id);
+            if (!ev) return null;
+            tmpV.setFromMatrixPosition(ev.world).project(camera);
+            return new Vector2((tmpV.x * 0.5 + 0.5) * W, (tmpV.y * 0.5 + 0.5) * H);
+          },
+        });
+      }
+      compositeMat.uniforms.tColor.value = tex;
       compositeMat.uniforms.uDepth.value = s.inFront ? 0 : Math.min(1, Math.max(0, depths.get(s)!));
       compositeMat.depthFunc = s.inFront ? AlwaysDepth : LessEqualDepth;
       r.render(compositeScene, compositeCam);
@@ -700,7 +920,7 @@ function drawIds(view: DrawView, camera: Camera) {
     const base = s.inFront ? 0.02 : originDepth(s, camera);
     for (const m of s.meshes) {
       saved.push([m, m.visible, m.material]);
-      if (m.userData.onion) {
+      if (m.userData.onion || m.userData.holdout || m.userData.maskPass) {
         m.visible = false;
         continue;
       }
@@ -744,11 +964,82 @@ drawHooks.passes.push((pass, view, camera) => {
 
 const renderMeshes = new WeakMap<object, Map<string, GPMesh[]>>();
 
+// objects with visual effects or masked layers render through their own image (see finalImage)
+const finalImages = new WeakMap<object, Map<string, FinalImage>>();
+
+interface FinalImage {
+  s: GPSynced;
+  proxy: Mesh;
+  mat: ShaderMaterial;
+}
+
+let finalRT: WebGLRenderTarget | null = null;
+
+function finalImage(rs: { scene: Scene }, id: string, map: Map<string, FinalImage>): FinalImage {
+  let f = map.get(id);
+  if (f) return f;
+  const scene = new Scene();
+  scene.matrixWorldAutoUpdate = false;
+  const group = new Group();
+  group.matrixAutoUpdate = false;
+  scene.add(group);
+  const mat = makeComposite();
+  mat.toneMapped = true;
+  const proxy = new Mesh(new PlaneGeometry(2, 2), mat);
+  proxy.frustumCulled = false;
+  proxy.matrixAutoUpdate = false;
+  const s: GPSynced = { id, scene, group, meshes: [], maskMeshes: [], mode3D: false, inFront: false, masked: false };
+  f = { s, proxy, mat };
+  // the object's strokes are drawn into an image (stencil masks, effects) right before the quad shows it
+  proxy.onBeforeRender = (renderer: WebGLRenderer, _sc: Scene, camera: Camera) => {
+    const prev = renderer.getRenderTarget();
+    const size = prev ? new Vector2(prev.width, prev.height) : renderer.getDrawingBufferSize(new Vector2());
+    const W = Math.max(1, size.x),
+      H = Math.max(1, size.y);
+    if (!finalRT) finalRT = new WebGLRenderTarget(W, H, { samples: 4, depthBuffer: true, stencilBuffer: true, type: HalfFloatType });
+    if (finalRT.width !== W || finalRT.height !== H) finalRT.setSize(W, H);
+    const clear = renderer.getClearColor(new Color()),
+      alpha = renderer.getClearAlpha();
+    renderer.setRenderTarget(finalRT);
+    renderer.setClearColor(0x000000, 0);
+    renderer.clear(true, true, true);
+    renderer.render(s.scene, camera);
+    let tex: Texture = finalRT.texture;
+    const fx = (app.doc.objects[id]?.shader_effects ?? []).filter((x) => x.show_render);
+    tmpV.setFromMatrixPosition(s.group.matrixWorld).project(camera);
+    const depth = Math.min(1, Math.max(0, tmpV.z * 0.5 + 0.5));
+    if (fx.length) {
+      const origin = new Vector2((tmpV.x * 0.5 + 0.5) * W, (tmpV.y * 0.5 + 0.5) * H);
+      tex = applyEffects(renderer, finalRT.texture, W, H, fx, {
+        origin,
+        scale: 1,
+        objectOrigin: (oid) => {
+          const ev = app.graph.get(oid);
+          if (!ev) return null;
+          const q = new Vector3().setFromMatrixPosition(ev.world).project(camera);
+          return new Vector2((q.x * 0.5 + 0.5) * W, (q.y * 0.5 + 0.5) * H);
+        },
+      });
+    }
+    renderer.setRenderTarget(prev);
+    renderer.setClearColor(clear, alpha);
+    mat.uniforms.tColor.value = tex;
+    mat.uniforms.uDepth.value = s.inFront ? 0 : depth;
+    mat.depthFunc = s.inFront ? AlwaysDepth : LessEqualDepth;
+  };
+  map.set(id, f);
+  rs.scene.add(proxy);
+  return f;
+}
+
 renderSceneHooks.push((rs, appRef, o) => {
   let byOb = renderMeshes.get(rs);
   if (!byOb) renderMeshes.set(rs, (byOb = new Map()));
+  let images = finalImages.get(rs);
+  if (!images) finalImages.set(rs, (images = new Map()));
   const doc = appRef.doc;
   const seen = new Set<string>();
+  const seenImages = new Set<string>();
   if (o.mode === 'raster') {
     const renderable = o.final ? renderVisibleObjects(doc) : null;
     for (const ev of appRef.graph.objects.values()) {
@@ -756,8 +1047,20 @@ renderSceneHooks.push((rs, appRef, o) => {
       if (!gp) continue;
       const visible = renderable ? renderable.has(ev.id) : ev.visible && !ev.ob.hide_render;
       if (!visible || (o.localView && !o.localView.has(ev.id))) continue;
+      updateLayerParents(gp, ev.world);
+      const entries = objectEntries(doc, gp, doc.scene.frame_current, false, ev.ob, !!o.final);
+      if ((ev.ob.shader_effects ?? []).some((f) => f.show_render) || entries.some((e) => e.masks?.length || e.holdout)) {
+        const f = finalImage(rs, ev.id, images);
+        f.s.mode3D = gp.stroke_depth_order === '3D';
+        f.s.inFront = ev.ob.show_in_front;
+        f.s.group.matrix.copy(ev.world);
+        fillSynced(f.s, entries, ev.ob, false);
+        f.proxy.renderOrder = 1000;
+        f.proxy.visible = true;
+        seenImages.add(ev.id);
+        continue;
+      }
       seen.add(ev.id);
-      const entries = objectEntries(doc, gp, doc.scene.frame_current, false);
       let list = byOb.get(ev.id);
       if (!list) byOb.set(ev.id, (list = []));
       while (list.length < entries.length) {
@@ -782,6 +1085,11 @@ renderSceneHooks.push((rs, appRef, o) => {
     if (!seen.has(id)) {
       for (const m of list) rs.scene.remove(m);
       byOb.delete(id);
+    }
+  for (const [id, f] of images)
+    if (!seenImages.has(id)) {
+      rs.scene.remove(f.proxy);
+      images.delete(id);
     }
 });
 

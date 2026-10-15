@@ -15,9 +15,22 @@ import { gpOf, gpTS, gpBrush, activeLayer, frameAt, setKeyframe, emptyDrawing, c
 import { eraseHard, eraseSoft, eraseStrokes, type ScreenFn } from './erase';
 import { Placement } from './placement';
 import { setStrokePreview, layerMatrix } from './render';
-import { smoothPoints } from './strokeops';
-import { fillRegion } from './fill';
+import { smoothPoints, simplifyPoints, subdivideStroke } from './strokeops';
+import { stabilize, trimEnds, noise, type Sample } from './drawproc';
+import { startSculpt } from './sculpt';
+import { guideSettings, guideCenter, guideConstraint } from './guides';
+import { fillRegion, extensionPreview } from './fill';
 import type { GPBrush, GPLayer, GreasePencilData } from './types';
+
+/** Primitive tools → their operators (see primitives.ts). */
+export const PRIM_OPS: Record<string, string> = {
+  'builtin.line': 'grease_pencil.primitive_line',
+  'builtin.polyline': 'grease_pencil.primitive_polyline',
+  'builtin.arc': 'grease_pencil.primitive_arc',
+  'builtin.curve': 'grease_pencil.primitive_curve',
+  'builtin.box': 'grease_pencil.primitive_box',
+  'builtin.circle': 'grease_pencil.primitive_circle',
+};
 
 export const inDrawMode = () => app.doc.mode === 'PAINT_GREASE_PENCIL' && !!gpOf(app.doc, app.activeObject);
 
@@ -48,7 +61,7 @@ export function editableDrawing(gp: GreasePencilData, layer: GPLayer, frame: num
   return cur.drawing;
 }
 
-function checkLayer(layer: GPLayer | null): layer is GPLayer {
+export function checkLayer(layer: GPLayer | null): layer is GPLayer {
   if (!layer) {
     app.report('ERROR', 'No active layer');
     return false;
@@ -84,31 +97,54 @@ export function layerScreen(v: View3D, ob: ObjectData, layer: GPLayer): ScreenFn
 // ---------------------------------------------------------------------------
 // Draw
 
-interface Sample {
-  x: number;
-  y: number;
-  pressure: number;
-}
-
-export function samplesToPoints(pl: Placement, samples: Sample[], b: GPBrush, brushColor: [number, number, number] | null): GPPoint[] {
+export function samplesToPoints(pl: Placement, samples: Sample[], b: GPBrush, brushColor: [number, number, number] | null, seed = 0): GPPoint[] {
   const sc = pl.scale();
   const out: GPPoint[] = [];
-  for (const s of samples) {
+  const rnd = !!b.use_settings_random;
+  samples.forEach((s0, i) => {
+    let s = s0;
+    if (rnd && b.pen_jitter) {
+      // jitter across the stroke direction
+      const a = samples[Math.max(0, i - 1)],
+        c = samples[Math.min(samples.length - 1, i + 1)];
+      const dx = c.x - a.x,
+        dy = c.y - a.y,
+        l = Math.hypot(dx, dy) || 1;
+      const j = noise(seed, i * 3) * b.pen_jitter * (b.size / 2);
+      s = { ...s0, x: s0.x - (dy / l) * j, y: s0.y + (dx / l) * j };
+    }
     const w = pl.project(s.x, s.y);
-    if (!w) continue;
+    if (!w) return;
     const pr = pressureOf(b, s.pressure);
-    const radius = ((b.size / 2) * pr.size * pl.pixelSize(w)) / sc;
+    let radius = ((b.size / 2) * pr.size * pl.pixelSize(w)) / sc;
+    let opacity = b.strength * pr.strength;
+    if (rnd) {
+      radius *= Math.max(0.05, 1 + (b.random_pressure ?? 0) * noise(seed, i * 3 + 1));
+      opacity *= Math.max(0, 1 + (b.random_strength ?? 0) * noise(seed, i * 3 + 2));
+    }
     out.push({
       co: pl.toLocal(w),
       radius: Math.max(1e-5, radius),
-      opacity: Math.max(0, Math.min(1, b.strength * pr.strength)),
+      opacity: Math.max(0, Math.min(1, opacity)),
       vertex_color: brushColor ? [brushColor[0], brushColor[1], brushColor[2], 1] : [0, 0, 0, 0],
     });
+  });
+  return out;
+}
+
+/** Post-processing of a finished Draw stroke: trim, simplify (screen space), then smooth and subdivide. */
+export function postProcess(samples: Sample[], b: GPBrush): Sample[] {
+  if (b.use_settings_postprocess === false) return samples;
+  let out = samples;
+  if (b.use_trim) out = trimEnds(out);
+  if ((b.simplify_factor ?? 0) > 0 && out.length > 2) {
+    const pts = out.map((q) => ({ co: [q.x, q.y, 0] as [number, number, number], radius: q.pressure, opacity: 1, vertex_color: [0, 0, 0, 0] as [number, number, number, number] }));
+    out = simplifyPoints(pts, (b.simplify_factor ?? 0) * 8).map((q) => ({ x: q.co[0], y: q.co[1], pressure: q.radius }));
   }
   return out;
 }
 
-function brushColorFor(b: GPBrush): [number, number, number] | null {
+export function brushColorFor(b: GPBrush): [number, number, number] | null {
   return b.color_mode === 'VERTEXCOLOR' && b.color ? [b.color[0], b.color[1], b.color[2]] : null;
 }
 
@@ -123,7 +159,7 @@ function commitStroke(c: NonNullable<ReturnType<typeof drawContext>>, stroke: GP
   app.changed('doc');
 }
 
-function materialUsable(c: NonNullable<ReturnType<typeof drawContext>>): boolean {
+export function materialUsable(c: NonNullable<ReturnType<typeof drawContext>>): boolean {
   const st = slotStyle(app.doc, c.gp, c.ob.active_material_index);
   if (st?.lock) {
     app.report('ERROR', 'Active material is locked');
@@ -136,6 +172,10 @@ function materialUsable(c: NonNullable<ReturnType<typeof drawContext>>): boolean
   return true;
 }
 
+/** Live stabilizer state for the cursor overlay (lazy line from the drawing point to the pointer). */
+export const lazy = { on: false, x: 0, y: 0, cx: 0, cy: 0, view: null as View3D | null };
+let strokeSeed = 1;
+
 function startDraw(v: View3D, e: PointerEvent) {
   const c = drawContext();
   if (!c || !checkLayer(c.layer) || !materialUsable(c)) return;
@@ -144,29 +184,54 @@ function startDraw(v: View3D, e: PointerEvent) {
   const samples: Sample[] = [];
   const mat = Math.min(c.ob.active_material_index, Math.max(0, c.gp.materials.length - 1));
   const color = brushColorFor(b);
-  const build = () => newStroke(samplesToPoints(pl, samples, b, color), { material_index: mat });
+  const seed = strokeSeed++;
+  const build = (list = samples) => newStroke(samplesToPoints(pl, list, b, color, seed), { material_index: mat });
+  const stab = !!b.use_smooth_stroke;
+  const p0 = v.local(e);
+  Object.assign(lazy, { on: stab, x: p0.x, y: p0.y, cx: p0.x, cy: p0.y, view: v });
+  // drawing guides: lines / circles decided at the start (Grid / Iso by the first movement)
+  const guide = guideSettings();
+  const center = guide.use_guide ? guideCenter(v, guide) : null;
+  let constrain = center && guide.type !== 'GRID' && guide.type !== 'ISO' ? guideConstraint(guide, p0, center) : null;
   runStroke(v, e, {
     spacing: () => 0,
     radiusPx: () => b.size / 2,
     dab: (d) => {
+      let q = { x: d.x, y: d.y };
+      if (stab && samples.length) {
+        q = stabilize({ x: lazy.x, y: lazy.y }, q, b.smooth_stroke_radius ?? 75, b.smooth_stroke_factor ?? 0.9);
+        Object.assign(lazy, { x: q.x, y: q.y, cx: d.x, cy: d.y });
+      }
+      if (center && !constrain && Math.hypot(q.x - p0.x, q.y - p0.y) > 6) {
+        constrain = guideConstraint(guide, p0, center, { x: q.x - p0.x, y: q.y - p0.y });
+        if (constrain) for (const sm of samples) Object.assign(sm, constrain(sm));
+      }
+      if (constrain) q = constrain(q);
       const last = samples[samples.length - 1];
-      if (last && Math.hypot(d.x - last.x, d.y - last.y) < 1.5) return;
-      samples.push({ x: d.x, y: d.y, pressure: d.pressure });
+      if (last && Math.hypot(q.x - last.x, q.y - last.y) < 1.5) return;
+      samples.push({ x: q.x, y: q.y, pressure: d.pressure });
     },
-    update: () => setStrokePreview(c.ob.id, fromStrokes([build()]), c.layer),
+    update: () => {
+      setStrokePreview(c.ob.id, fromStrokes([build()]), c.layer);
+      if (stab) v.drawSvg();
+    },
     end: () => {
+      lazy.on = false;
       setStrokePreview(null, null);
-      const st = build();
+      const st = build(postProcess(samples, b));
       if (!st.points.length) return;
+      const post = b.use_settings_postprocess !== false;
       const steps = b.pen_smooth_steps ?? 1,
         f = b.pen_smooth_factor ?? 0;
-      if (f > 0 && st.points.length > 2)
+      if (post && f > 0 && st.points.length > 2)
         st.points = smoothPoints(st.points, f, steps, false, {
           position: true,
           radius: false,
           opacity: false,
         });
-      commitStroke(c, st);
+      let out = st;
+      if (post) for (let k = 0; k < (b.pen_subdivision_steps ?? 0); k++) out = subdivideStroke(out, 1, false);
+      commitStroke(c, out);
     },
   });
 }
@@ -311,11 +376,13 @@ function startTint(v: View3D, e: PointerEvent) {
 // ---------------------------------------------------------------------------
 // Fill
 
-function doFill(v: View3D, x: number, y: number) {
+function doFill(v: View3D, x: number, y: number, ctrl = false) {
   const c = drawContext();
   if (!c || !checkLayer(c.layer) || !materialUsable(c)) return;
   const b = gpBrush(app.doc, 'builtin.brush.Fill');
-  const res = fillRegion(v, c.ob, c.gp, c.layer!, x, y, b);
+  // Ctrl flips the fill direction for this click
+  const invert = (b.fill_direction === 'INVERT') !== ctrl;
+  const res = fillRegion(v, c.ob, c.gp, c.layer!, x, y, b, invert);
   if (typeof res === 'string') {
     app.report('WARNING', res);
     return;
@@ -347,167 +414,6 @@ function doFill(v: View3D, x: number, y: number) {
 }
 
 // ---------------------------------------------------------------------------
-// Primitives (modal: drag for line / arc / box / circle; click points for polyline)
-
-type PrimType = 'LINE' | 'POLYLINE' | 'ARC' | 'BOX' | 'CIRCLE';
-
-export function primitivePoints(type: PrimType, pts: { x: number; y: number }[], subdiv: number): { x: number; y: number }[] {
-  const out: { x: number; y: number }[] = [];
-  const seg = (a: { x: number; y: number }, b: { x: number; y: number }, n: number, incEnd: boolean) => {
-    for (let i = 0; i <= n; i++) {
-      if (i === n && !incEnd) break;
-      const t = i / n;
-      out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
-    }
-  };
-  const n = Math.max(1, subdiv + 1);
-  if (type === 'LINE' || type === 'POLYLINE') {
-    for (let k = 0; k + 1 < pts.length; k++) seg(pts[k], pts[k + 1], n, k === pts.length - 2);
-    if (pts.length === 1) out.push(pts[0]);
-    return out;
-  }
-  const [a, b] = [pts[0], pts[pts.length - 1]];
-  if (type === 'BOX') {
-    const c = [a, { x: b.x, y: a.y }, b, { x: a.x, y: b.y }];
-    for (let k = 0; k < 4; k++) seg(c[k], c[(k + 1) % 4], n, false);
-    return out;
-  }
-  if (type === 'CIRCLE') {
-    const cx = (a.x + b.x) / 2,
-      cy = (a.y + b.y) / 2,
-      rx = Math.abs(b.x - a.x) / 2,
-      ry = Math.abs(b.y - a.y) / 2;
-    const N = Math.max(8, subdiv);
-    for (let i = 0; i < N; i++) {
-      const t = (i / N) * Math.PI * 2;
-      out.push({ x: cx + Math.cos(t) * rx, y: cy + Math.sin(t) * ry });
-    }
-    return out;
-  }
-  // ARC: quarter ellipse from a to b bulging away from the corner (b.x, a.y)
-  const N = Math.max(4, subdiv);
-  const cx = a.x,
-    cy = b.y;
-  for (let i = 0; i <= N; i++) {
-    const t = (i / N) * (Math.PI / 2);
-    out.push({
-      x: cx + (b.x - a.x) * Math.sin(t),
-      y: cy + (a.y - b.y) * Math.cos(t),
-    });
-  }
-  return out;
-}
-
-const PRIM_TOOLS: Record<string, PrimType> = {
-  'builtin.line': 'LINE',
-  'builtin.polyline': 'POLYLINE',
-  'builtin.arc': 'ARC',
-  'builtin.box': 'BOX',
-  'builtin.circle': 'CIRCLE',
-};
-
-function startPrimitive(v: View3D, e: PointerEvent, tool: string) {
-  const c = drawContext();
-  if (!c || !checkLayer(c.layer) || !materialUsable(c)) return;
-  const type = PRIM_TOOLS[tool];
-  const b = gpBrush(app.doc, tool);
-  const pl = new Placement(v, c.ob, c.gp, c.layer);
-  const p0 = v.local(e);
-  const pts: { x: number; y: number }[] = [p0, { ...p0 }];
-  const mat = Math.min(c.ob.active_material_index, Math.max(0, c.gp.materials.length - 1));
-  const color = brushColorFor(gpBrush(app.doc, 'builtin.brush.Draw'));
-  const build = (): GPStroke => {
-    let ps = pts;
-    if (type !== 'POLYLINE') {
-      const a = pts[0];
-      let bb = pts[pts.length - 1];
-      if (shift && (type === 'BOX' || type === 'CIRCLE')) {
-        const d = Math.max(Math.abs(bb.x - a.x), Math.abs(bb.y - a.y));
-        bb = {
-          x: a.x + Math.sign(bb.x - a.x || 1) * d,
-          y: a.y + Math.sign(bb.y - a.y || 1) * d,
-        };
-      }
-      ps = alt && type !== 'LINE' && type !== 'ARC' ? [{ x: 2 * a.x - bb.x, y: 2 * a.y - bb.y }, bb] : [a, bb];
-    }
-    const sp = primitivePoints(type, ps, b.subdivision ?? 6).map((p) => ({
-      ...p,
-      pressure: 1,
-    }));
-    return newStroke(samplesToPoints(pl, sp, b, color), {
-      material_index: mat,
-      cyclic: type === 'BOX' || type === 'CIRCLE',
-    });
-  };
-  let shift = e.shiftKey,
-    alt = e.altKey;
-  const update = () => setStrokePreview(c.ob.id, fromStrokes([build()]), c.layer);
-  const finish = () => {
-    setStrokePreview(null, null);
-    const st = build();
-    if (st.points.length < 2) return 'CANCELLED' as const;
-    const frame = app.doc.scene.frame_current;
-    const idx = editableDrawing(c.gp, c.layer!, frame, false);
-    const strokes = toStrokes(c.gp.drawings[idx]);
-    strokes.push(st);
-    c.gp.drawings[idx] = fromStrokes(strokes);
-    return 'FINISHED' as const;
-  };
-  update();
-  app.startModal({
-    label: `Grease Pencil ${type[0] + type.slice(1).toLowerCase()}`,
-    cursor: 'crosshair',
-    onPointerMove: (ev) => {
-      shift = ev.shiftKey;
-      alt = ev.altKey;
-      pts[pts.length - 1] = v.local(ev);
-      update();
-    },
-    onPointerUp: () => {
-      if (type === 'POLYLINE') return;
-      const a = pts[0],
-        bb = pts[pts.length - 1];
-      if (Math.hypot(bb.x - a.x, bb.y - a.y) < 3) {
-        setStrokePreview(null, null);
-        return 'CANCELLED';
-      }
-      return finish();
-    },
-    onPointerDown: (ev) => {
-      if (type !== 'POLYLINE') return;
-      if (ev.button === 2) {
-        pts.pop();
-        return pts.length >= 2 ? finish() : (setStrokePreview(null, null), 'CANCELLED');
-      }
-      const q = v.local(ev);
-      const prev = pts[pts.length - 2];
-      // double click on the last point finishes
-      if (prev && Math.hypot(q.x - prev.x, q.y - prev.y) < 4) {
-        pts.pop();
-        return finish();
-      }
-      pts[pts.length - 1] = q;
-      pts.push({ ...q });
-      update();
-    },
-    onKey: (ev) => {
-      if (ev.type !== 'keydown') return true;
-      if (ev.key === 'Escape') return 'CANCELLED';
-      if (ev.key === 'Enter' || ev.key === ' ') {
-        if (type === 'POLYLINE') pts.pop();
-        return finish();
-      }
-      return true;
-    },
-    cancel: () => setStrokePreview(null, null),
-    header: () =>
-      type === 'POLYLINE'
-        ? 'Polyline: click to add points, Enter / right click / double click to confirm, Esc to cancel'
-        : `${type[0] + type.slice(1).toLowerCase()}: drag to size (Shift: square, Alt: from center), Esc to cancel`,
-  });
-}
-
-// ---------------------------------------------------------------------------
 // pointer dispatch & cursor
 
 const cursor = { x: 0, y: 0, inside: false, view: null as View3D | null };
@@ -517,6 +423,7 @@ editModeHooks.pointer.unshift((v, e) => {
   const tool = activeTools[app.doc.mode] ?? 'builtin.brush.Draw';
   if (tool === 'builtin.brush.Draw') {
     if (e.ctrlKey) startErase(v, e);
+    else if (e.shiftKey) startSculpt(v, e, 'builtin.brush.Smooth');
     else startDraw(v, e);
     return true;
   }
@@ -530,18 +437,18 @@ editModeHooks.pointer.unshift((v, e) => {
   }
   if (tool === 'builtin.brush.Fill') {
     const p = v.local(e);
-    doFill(v, p.x, p.y);
+    doFill(v, p.x, p.y, e.ctrlKey || e.metaKey);
     return true;
   }
-  if (PRIM_TOOLS[tool]) {
-    startPrimitive(v, e, tool);
+  if (PRIM_OPS[tool]) {
+    app.run(PRIM_OPS[tool], {}, { event: { x: e.clientX, y: e.clientY, shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey } });
     return true;
   }
   return false;
 });
 
 editModeHooks.hover.push((v, e) => {
-  if (!inDrawMode() && app.doc.mode !== 'SCULPT_GREASE_PENCIL') return;
+  if (!inDrawMode() && app.doc.mode !== 'SCULPT_GREASE_PENCIL' && app.doc.mode !== 'VERTEX_GREASE_PENCIL' && app.doc.mode !== 'WEIGHT_GREASE_PENCIL') return;
   const p = v.local(e);
   cursor.x = p.x;
   cursor.y = p.y;
@@ -561,7 +468,7 @@ export const cursorRadius: { fn: (tool: string) => number | null } = {
 
 editModeHooks.svg.push((v) => {
   const mode = app.doc.mode;
-  if ((mode !== 'PAINT_GREASE_PENCIL' && mode !== 'SCULPT_GREASE_PENCIL') || !cursor.inside || cursor.view !== v || app.modal) return null;
+  if ((mode !== 'PAINT_GREASE_PENCIL' && mode !== 'SCULPT_GREASE_PENCIL' && mode !== 'VERTEX_GREASE_PENCIL' && mode !== 'WEIGHT_GREASE_PENCIL') || !cursor.inside || cursor.view !== v || app.modal) return null;
   const tool = activeTools[mode] ?? '';
   const r = cursorRadius.fn(tool);
   if (r === null) return null;
@@ -589,6 +496,34 @@ editModeHooks.svg.push((v) => {
 });
 
 addEventListener('pointerleave', () => (cursor.inside = false));
+
+// Fill tool: preview of the gap closure lines
+let fillPreview: { key: string; lines: [number, number, number, number][] } = { key: '', lines: [] };
+editModeHooks.svg.push((v) => {
+  if (!inDrawMode() || activeTools[app.doc.mode] !== 'builtin.brush.Fill' || !cursor.inside || cursor.view !== v || app.modal) return null;
+  const b = gpBrush(app.doc, 'builtin.brush.Fill');
+  if (!(b.fill_extend && b.fill_extend > 0) || b.show_fill_extend === false) return null;
+  const c = drawContext();
+  if (!c?.layer) return null;
+  const key = `${app.revision}|${v.camera.matrixWorld.elements.join(',')}|${b.fill_extend}|${b.fill_extend_mode}|${b.use_collide_strokes}|${v.width}x${v.height}`;
+  if (key !== fillPreview.key) fillPreview = { key, lines: extensionPreview(v, c.ob, c.gp, c.layer, b) };
+  return h(
+    'g',
+    { key: 'gp-fill-ext', 'pointer-events': 'none' },
+    fillPreview.lines.map(([x0, y0, x1, y1], i) => h('line', { key: i, x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#00e5ff', 'stroke-width': 1.5, 'stroke-dasharray': b.fill_extend_mode === 'RADIUS' ? '3 2' : undefined })),
+  );
+});
+
+// stabilizer: a lazy line from the drawing point to the pointer while drawing
+editModeHooks.svg.push((v) => {
+  if (!lazy.on || lazy.view !== v) return null;
+  return h(
+    'g',
+    { key: 'gp-lazy', 'pointer-events': 'none' },
+    h('line', { x1: lazy.x, y1: lazy.y, x2: lazy.cx, y2: lazy.cy, stroke: 'rgba(255,255,255,0.8)', 'stroke-width': 1.2, 'stroke-dasharray': '4 3' }),
+    h('circle', { cx: lazy.x, cy: lazy.y, r: 2.5, fill: '#fff' }),
+  );
+});
 
 // ---------------------------------------------------------------------------
 // scripted / testing entry points (stroke from a list of viewport points)
@@ -641,12 +576,13 @@ registerOperators([
     props: [
       { id: 'x', label: 'X', type: 'float', default: 0, hidden: true },
       { id: 'y', label: 'Y', type: 'float', default: 0, hidden: true },
+      { id: 'invert', label: 'Invert', type: 'bool', default: false },
     ],
     poll: () => inDrawMode(),
     exec: (_ctx, p) => {
       const v = activeView3D();
       if (!v) return 'CANCELLED';
-      doFill(v, p.x as number, p.y as number);
+      doFill(v, p.x as number, p.y as number, !!p.invert);
       return 'CANCELLED'; // doFill pushes its own undo step
     },
   },
