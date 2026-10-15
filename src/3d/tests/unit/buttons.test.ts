@@ -78,3 +78,17 @@ describe('UI list filtering', () => {
     expect(visibleIndices(items, { text: 'g*', invert: false, sortAlpha: false, reverse: true })).toEqual([2, 0]);
   });
 });
+
+describe('node input data paths', () => {
+  it('addresses material node inputs through the active material', () => {
+    const mat = Object.values(doc.materials)[0];
+    const node = mat.tree!.nodes.find((n) => n.type === 'ShaderNodeBsdfPrincipled')!;
+    const loc = locateOwner(doc, node.inputs, 7)!;
+    expect(loc.table).toBe('materials');
+    expect(relDataPath(loc, 'Roughness')).toBe(`node_tree.nodes["${node.name}"].inputs["Roughness"].default_value`);
+    expect(fullDataPath(loc, 'Roughness')).toBe(`bpy.data.materials["${mat.name}"].node_tree.nodes["${node.name}"].inputs["Roughness"].default_value`);
+    const t = animTarget(doc, loc, 'Roughness', cube)!;
+    expect(t.ob).toBe(cube);
+    expect(t.path).toBe(`material.nodes["${node.name}"].inputs["Roughness"].default_value`);
+  });
+});

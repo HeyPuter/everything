@@ -103,12 +103,14 @@ export function locateOwner(doc: DocumentData, owner: object, revision = 0): Own
 /** Full scripting path: bpy.data.objects["Cube"].location[0] */
 export function fullDataPath(loc: OwnerLoc, key: string, index?: number): string {
   const base = loc.table === 'scenes' ? `bpy.data.scenes[${q(loc.idName)}]` : `bpy.data.${loc.table}[${q(loc.idName)}]`;
-  const p = join(loc.path, isIdent(key) ? key : `[${q(key)}]`);
-  return `${base}.${p}${index !== undefined && index >= 0 ? `[${index}]` : ''}`;
+  const p = relDataPath(loc, key);
+  return `${base}${p.startsWith('[') ? '' : '.'}${p}${index !== undefined && index >= 0 ? `[${index}]` : ''}`;
 }
 
 /** Data path relative to the data-block, e.g. modifiers["Subdivision"].levels */
 export function relDataPath(loc: OwnerLoc, key: string): string {
+  // node socket values: inputs["Roughness"].default_value
+  if (/(^|\.)(inputs|outputs)$/.test(loc.path)) return `${loc.path}[${q(key)}].default_value`;
   return join(loc.path, isIdent(key) ? key : `[${q(key)}]`);
 }
 

@@ -56,8 +56,8 @@ function animOf(b: PropBinding): { ob: ObjectData; path: string; index: number }
   if (!loc) return null;
   const t = animTarget(app.doc, loc, b.key, app.activeObject);
   if (!t) return null;
-  // the path must address a number / bool / numeric array
-  const v = getValue(app.doc, t.ob, t.path);
+  // the path must address a number / bool / numeric array (a value not stored yet uses its default)
+  const v = getValue(app.doc, t.ob, t.path) ?? (b.owner[b.key] === undefined ? b.def : undefined);
   if (typeof v !== 'number' && typeof v !== 'boolean' && !isArray(v)) return null;
   return { ob: t.ob, path: t.path, index: idx };
 }
@@ -279,6 +279,8 @@ function insertKey(b: PropBinding, all: boolean) {
     app.report('WARNING', `"${b.label}" cannot be animated`);
     return false;
   }
+  // node inputs only store values once edited: store the default so it can be keyed
+  if (b.owner[b.key] === undefined && b.def !== undefined) b.owner[b.key] = structuredClone(b.def);
   keyProperty(app.doc, a.ob, a.path, all ? -1 : a.index);
   return true;
 }
