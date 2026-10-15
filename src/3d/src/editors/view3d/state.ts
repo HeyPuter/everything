@@ -24,6 +24,10 @@ export interface Shading {
   studiolight_intensity: number;
   studiolight_background_alpha: number;
   studiolight_rotate_z: number;
+  /** Preferences ▸ Lights entries used by Solid (studio light, matcap) and Material Preview (HDRI) */
+  studio_light?: string;
+  studio_matcap?: string;
+  studio_hdri?: string;
 }
 
 export interface Overlay {

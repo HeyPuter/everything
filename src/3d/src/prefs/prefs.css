@@ -360,3 +360,130 @@ body.reduce-motion *::after {
 .v3d-info-line.v3d-fps.slow {
   color: var(--c-error-text, #ff6b6b);
 }
+
+/* ------------------------------------------------------------------ studio lights / matcaps / HDRIs */
+
+.studio-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  gap: 4px;
+  margin-top: 4px;
+}
+.studio-grid.hdris {
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+}
+.studio-cell {
+  padding: 2px;
+  border-radius: var(--radius);
+  background: var(--w-field);
+  border: 1px solid transparent;
+  display: grid;
+  place-items: center;
+}
+.studio-cell img {
+  width: 100%;
+  border-radius: 3px;
+  display: block;
+  pointer-events: none;
+}
+.studio-grid.matcaps .studio-cell img {
+  border-radius: 50%;
+  aspect-ratio: 1;
+}
+.studio-cell:hover {
+  border-color: var(--w-regular-hover);
+}
+.studio-cell.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.prefs-btn-row.left {
+  justify-content: flex-start;
+}
+.prefs-grid-lg {
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  max-width: 640px;
+}
+.prefs-grid-lg.hdris {
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+}
+.prefs-grid-lg .studio-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px;
+}
+.studio-name {
+  font-size: 11px;
+  color: var(--c-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.sl-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 640px;
+}
+.sl-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--row);
+  padding: 0 8px;
+  border-radius: var(--radius);
+  background: var(--w-regular);
+}
+.sl-item.on {
+  background: var(--accent);
+  color: var(--c-text-on-accent, #fff);
+}
+.sl-editor {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  max-width: 640px;
+}
+.sl-preview-col {
+  flex: none;
+  width: 160px;
+}
+.sl-preview {
+  width: 160px;
+  height: 160px;
+  cursor: crosshair;
+  background: radial-gradient(circle, rgba(0, 0, 0, 0.25), transparent 70%);
+}
+.sl-fields {
+  flex: 1;
+  min-width: 0;
+}
+.sl-light {
+  border-top: 1px solid var(--c-panel-outline);
+  padding: 4px 0;
+}
+.sl-light-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sl-pick {
+  height: var(--row);
+  padding: 0 8px;
+  border-radius: var(--radius);
+  background: var(--w-regular);
+}
+.sl-pick.on {
+  background: var(--accent);
+  color: var(--c-text-on-accent, #fff);
+}
+.sl-dir {
+  display: flex;
+  gap: 2px;
+}
+.sl-dir > * {
+  flex: 1;
+  min-width: 0;
+}

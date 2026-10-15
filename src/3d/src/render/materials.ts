@@ -2,6 +2,8 @@
 // ID pass for picking/outlines, and wireframe/overlay line materials.
 import { ShaderMaterial, Color, DoubleSide, FrontSide, Vector3, Vector4, type Side, LineBasicMaterial, MeshBasicMaterial } from 'three';
 
+import { STUDIO_GLSL, studioUniforms } from './studiolights';
+
 const solidVert = /* glsl */ `
   #include <common>
   #include <skinning_pars_vertex>
@@ -41,6 +43,7 @@ const solidFrag = /* glsl */ `
   uniform float uSpecular;
   uniform int uLighting; // 0 studio, 1 flat, 2 matcap-ish
   uniform float uCavity;
+  ${STUDIO_GLSL}
   varying vec3 vNormal;
   varying vec3 vViewPos;
   varying vec3 vWorldNormal;
@@ -54,12 +57,16 @@ const solidFrag = /* glsl */ `
     vec3 col;
     if (uLighting == 1) {
       col = base;
+    } else if (uLighting == 2 && uMatcapOn == 1) {
+      col = matcapLighting(base, n);
     } else if (uLighting == 2) {
       // clay matcap look: view-space normal lookup approximated analytically
       vec3 l1 = normalize(vec3(-0.4, 0.6, 0.7));
       float d = max(dot(n, l1), 0.0);
       float rim = pow(1.0 - max(n.z, 0.0), 2.0);
       col = base * (0.25 + 0.75 * d) + vec3(0.25) * rim + vec3(0.25) * pow(max(dot(reflect(-l1, n), vec3(0.0, 0.0, 1.0)), 0.0), 18.0);
+    } else if (uStudioCustom == 1) {
+      col = studioLighting(base, n, normalize(-vViewPos), uSpecular);
     } else {
       // studio lighting: a key light fixed relative to the view plus ambient. The weights set
       // the default Solid shading look (face brightness of the default cube from the default view).
@@ -101,6 +108,8 @@ export function solidMaterial(o: SolidOptions): ShaderMaterial {
       uSpecular: { value: o.specular === false ? 0 : 1 },
       uLighting: { value: o.lighting === 'FLAT' ? 1 : o.lighting === 'MATCAP' ? 2 : 0 },
       uCavity: { value: 0 },
+      // shared objects: Preferences ▸ Lights / the viewport's lighting choice update them per view
+      ...studioUniforms,
     },
     defines: o.vertexColors ? { USE_VCOLOR: '' } : {},
     side: o.backfaceCulling ? FrontSide : DoubleSide,

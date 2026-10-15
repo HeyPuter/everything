@@ -264,3 +264,68 @@ test('auto-save preferences off: changes wait for Save Preferences; revert resto
   expect(await stored()).toBe(false);
   await expectNoErrors(errors);
 });
+
+/** A small PNG made by the page's canvas. */
+async function pngFile(page: Page, color: string) {
+  const b64 = await page.evaluate((c) => {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 8;
+    const g = cv.getContext('2d')!;
+    g.fillStyle = c;
+    g.fillRect(0, 0, 8, 8);
+    return cv.toDataURL('image/png').split(',')[1];
+  }, color);
+  return Buffer.from(b64, 'base64');
+}
+
+test('lights: studio lights drive solid shading, matcaps and HDRIs install and persist', async ({ page }) => {
+  const errors = await openApp(page);
+  await openPrefs(page, 'LIGHTS');
+  // copy a built-in studio light, then turn one of its lights off
+  await page.locator('.sl-item', { hasText: 'Rim Light' }).click();
+  await page.locator('[data-panel="pf-studio"] .btn', { hasText: 'Copy' }).click();
+  await expect(page.locator('.prompt-input')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.sl-item.on')).toContainText('Rim Light Copy');
+  const id = await page.evaluate(async () => (await import('/src/render/studiolights.ts')).library.studio.find((s) => s.name === 'Rim Light Copy')!.id);
+  await page.locator('.sl-light', { hasText: 'Light 2' }).locator('.checkbox').dispatchEvent('pointerdown', { button: 0 });
+  const uniforms = await page.evaluate(async (sid) => {
+    const m = await import('/src/render/studiolights.ts');
+    m.applyStudioLighting({ studio_light: sid });
+    return { custom: m.studioUniforms.uStudioCustom.value, l2: m.studioUniforms.uLightDiffuse.value[1].x, l1: m.studioUniforms.uLightDiffuse.value[0].x };
+  }, id);
+  expect(uniforms.custom).toBe(1);
+  expect(uniforms.l2).toBe(0);
+  expect(uniforms.l1).toBeGreaterThan(0);
+
+  // install a matcap image
+  const chooser = page.waitForEvent('filechooser');
+  await page.locator('[data-panel="pf-matcaps"] .btn', { hasText: 'Install' }).click();
+  await (await chooser).setFiles({ name: 'tiny.png', mimeType: 'image/png', buffer: await pngFile(page, '#3080ff') });
+  await expect(page.locator('[data-panel="pf-matcaps"] .studio-cell', { hasText: 'tiny' })).toBeVisible();
+
+  // a viewport picks the matcap and the studio light from its shading popover
+  await closePrefs(page);
+  const picked = await page.evaluate(async (sid) => {
+    const v = (await import('/src/editors/view3d/view3d.ts')).activeView3D()!;
+    const m = await import('/src/render/studiolights.ts');
+    v.shading.light = 'MATCAP';
+    v.shading.studio_matcap = m.library.matcaps.find((x) => x.name === 'tiny')!.id;
+    v.shading.studio_light = sid;
+    m.applyStudioLighting(v.shading);
+    return m.studioUniforms.uMatcapOn.value;
+  }, id);
+  expect(picked).toBe(1);
+
+  // everything is still there after a reload
+  await page.reload();
+  await page.waitForFunction(() => !!(window as unknown as { app?: unknown }).app);
+  await page.waitForFunction(async () => (await import('/src/render/studiolights.ts')).library.matcaps.some((m) => m.name === 'tiny'));
+  const after = await page.evaluate(async () => {
+    const m = await import('/src/render/studiolights.ts');
+    const s = m.library.studio.find((x) => x.name === 'Rim Light Copy');
+    return { studio: !!s, l2: s?.lights[1].use };
+  });
+  expect(after).toEqual({ studio: true, l2: false });
+  await expectNoErrors(errors);
+});

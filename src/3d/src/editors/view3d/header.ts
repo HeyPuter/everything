@@ -1,4 +1,5 @@
 // 3D viewport header (mode selector, menus, transform settings, shading).
+import { solidLightingChooser, hdriChooser } from './studiochooser';
 import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { openMenu, openPopover, type MenuItem } from '../../ui/menu';
@@ -394,6 +395,7 @@ function shadingPopover(v: View3D): Child {
       h('div', { class: 'pop-title' }, 'Lighting'),
       checkbox('s-lights', 'Scene Lights', s[lightsKey], set(lightsKey)),
       checkbox('s-world', 'Scene World', s[worldKey], set(worldKey)),
+      !s[worldKey] ? hdriChooser(v) : null,
       !s[worldKey] ? numberField({ id: 's-strength', label: 'Strength', value: s.studiolight_intensity, min: 0, max: 2, slider: true, set: (x) => set('studiolight_intensity')(x) }) : null,
       h('div', { class: 'pop-title' }, 'Render Pass'),
       h('div', { class: 'pop-line' }, 'Combined'),
@@ -402,7 +404,7 @@ function shadingPopover(v: View3D): Child {
   return h(
     'div',
     { class: 'pop-panel' },
-    panel('sh-light', 'Lighting', () => [enumRow('s-light', items([['STUDIO', 'Studio'], ['MATCAP', 'MatCap'], ['FLAT', 'Flat']]), s.light, set('light'))], { sub: true }),
+    panel('sh-light', 'Lighting', () => [enumRow('s-light', items([['STUDIO', 'Studio'], ['MATCAP', 'MatCap'], ['FLAT', 'Flat']]), s.light, set('light')), solidLightingChooser(v)], { sub: true }),
     panel('sh-color', 'Color', () => [
       h('div', { class: 'enum-grid' }, enumRow('s-color', items([['MATERIAL', 'Material'], ['OBJECT', 'Object'], ['VERTEX', 'Attribute'], ['SINGLE', 'Single'], ['RANDOM', 'Random'], ['TEXTURE', 'Texture']]), s.color_type, set('color_type'))),
       s.color_type === 'SINGLE' ? colorSwatch('s-single', s.single_color, (c) => set('single_color')(c.slice(0, 3))) : null,
