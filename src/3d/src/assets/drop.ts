@@ -154,6 +154,7 @@ export function startAssetDrag(down: PointerEvent, payload: DragPayload, interna
   let ghost: HTMLElement | null = null;
   let last: Plan | null = null;
   let lastAt = 0;
+  let trailing: ReturnType<typeof setTimeout> | undefined;
   const first = findAsset(payload.refs[0]);
   if (!first) return;
   const draw = (x: number, y: number) => {
@@ -163,12 +164,13 @@ export function startAssetDrag(down: PointerEvent, payload: DragPayload, interna
       document.body.append(ghost);
       document.body.classList.add('ab-dragging');
     }
-    // picking reads the ID buffer: limit how often the plan is recomputed
+    // picking reads the ID buffer: limit how often the plan is recomputed (and catch up after a pause)
     const now = performance.now();
+    clearTimeout(trailing);
     if (!last || now - lastAt > 50) {
       last = plan(payload, x, y, internal);
       lastAt = now;
-    }
+    } else trailing = setTimeout(() => ghost && ((lastAt = 0), draw(x, y)), 60);
     ghost.style.transform = `translate(${x + 14}px, ${y + 10}px)`;
     const meta = first.block.asset_data;
     patch(ghost, [
@@ -177,6 +179,7 @@ export function startAssetDrag(down: PointerEvent, payload: DragPayload, interna
     ]);
   };
   const end = () => {
+    clearTimeout(trailing);
     removeEventListener('pointermove', move, true);
     removeEventListener('pointerup', up, true);
     removeEventListener('keydown', key, true);
