@@ -239,6 +239,16 @@ export function previewRangeMenu(setSelected: string): MenuItem[] {
 export function viewMenuCommon(p: Prefix, ed: AnimEditor): MenuItem[] {
   return [
     { label: 'Show Seconds', checked: ed.showSeconds, op: 'anim.show_seconds_toggle', shortcut: 'Ctrl T' },
+    {
+      label: 'Show Sliders',
+      checked: ed.showSliders,
+      action: () => {
+        ed.showSliders = !ed.showSliders;
+        // make room for the value fields next to the channel names
+        if (ed.showSliders) ed.chWidth = Math.max(ed.chWidth, 300);
+        ed.refresh();
+      },
+    },
     { separator: true },
     { label: 'Frame Selected', op: `${p}.view_selected`, shortcut: 'Numpad .' },
     { label: 'Frame All', op: `${p}.view_all`, shortcut: 'Home' },

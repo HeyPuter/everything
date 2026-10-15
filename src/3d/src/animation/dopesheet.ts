@@ -175,7 +175,7 @@ export class DopeSheet extends AnimEditor {
   // ---------------------------------------------------------------- channels
 
   protected rowExtra(ch: Channel): Child {
-    if (ch.kind !== 'SHAPEKEY' || !ch.shapeKey) return null;
+    if (ch.kind !== 'SHAPEKEY' || !ch.shapeKey) return this.valueSlider(ch);
     const sk: ShapeKey = ch.shapeKey;
     return h(
       'span',

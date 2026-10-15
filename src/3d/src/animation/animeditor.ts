@@ -6,7 +6,9 @@ import { icon } from '../ui/icons';
 import { app, type ChangeKind } from '../app/app';
 import type { Area, Editor } from '../ui/screen';
 import { openMenu, promptText, type MenuItem } from '../ui/menu';
-import { textField } from '../ui/widgets';
+import { textField, numberField } from '../ui/widgets';
+import { getValue, setValue } from '../data/rna';
+import { keyProperty } from '../anim/keyframes';
 import type { ObjectData } from '../data/types';
 import { View2D, frameStep } from './view2d';
 import { C } from './theme';
@@ -84,6 +86,8 @@ export abstract class AnimEditor implements Editor {
   showMarkers = true;
   /** ruler labels in seconds+frames instead of frames */
   showSeconds = false;
+  /** value sliders next to F-Curve channels */
+  showSliders = false;
   hover: Region | null = null;
   private _list: ChannelList = { rows: [], curves: [] };
   private listDoc: unknown = null;
@@ -233,8 +237,33 @@ export abstract class AnimEditor implements Editor {
   protected rowToggles(_ch: Channel): Child {
     return null;
   }
-  protected rowExtra(_ch: Channel): Child {
-    return null;
+  protected rowExtra(ch: Channel): Child {
+    return this.valueSlider(ch);
+  }
+
+  /** Value slider for an F-Curve channel (View ▸ Show Sliders); edits key the value with auto keying. */
+  protected valueSlider(ch: Channel): Child {
+    if (!this.showSliders || ch.kind !== 'FCURVE' || !ch.fc || !ch.ob) return null;
+    const ob = ch.ob,
+      fc = ch.fc;
+    const v = getValue(app.doc, ob, fc.data_path, fc.array_index);
+    if (typeof v !== 'number') return null;
+    return h(
+      'span',
+      { class: 'anim-ch-slider' },
+      numberField({
+        id: `chs-${ch.key}`,
+        value: v,
+        precision: 3,
+        step: 0.1,
+        set: (nv, final) => {
+          setValue(app.doc, ob, fc.data_path, fc.array_index, nv);
+          if (final && app.doc.scene.tool_settings.use_keyframe_insert_auto) keyProperty(app.doc, ob, fc.data_path, fc.array_index);
+          app.changed('doc');
+          if (final) app.pushUndo('Change Channel Value');
+        },
+      }),
+    );
   }
   protected mainContextMenu(): MenuItem[] | null {
     return null;
@@ -266,6 +295,7 @@ export abstract class AnimEditor implements Editor {
       autoSnap: this.autoSnap,
       showMarkers: this.showMarkers,
       showSeconds: this.showSeconds,
+      showSliders: this.showSliders,
       view: {
         x0: this.view.x0,
         ppf: this.view.ppf,
@@ -289,6 +319,7 @@ export abstract class AnimEditor implements Editor {
     if (typeof s.autoSnap === 'boolean') this.autoSnap = s.autoSnap;
     if (typeof s.showMarkers === 'boolean') this.showMarkers = s.showMarkers;
     if (typeof s.showSeconds === 'boolean') this.showSeconds = s.showSeconds;
+    if (typeof s.showSliders === 'boolean') this.showSliders = s.showSliders;
     if (typeof s.scrollY === 'number') this.scrollY = s.scrollY;
     const v = s.view as Record<string, number> | undefined;
     if (v && typeof v.x0 === 'number') {
