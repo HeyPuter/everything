@@ -143,6 +143,17 @@ export const GUIDES: Record<string, Guide> = {
         'Strip fields: frame_start, frame_final_start/end/duration (read), channel, mute, blend_type, blend_alpha, color (COLOR strips), text / font_size (TEXT strips), transform.offset_x… Images, movies and sounds are added in the Video Sequencer (scripts have no file access); strip.retiming_keys.add(timeline_frame) then retiming_keys[i].speed = 2 changes the speed inside a strip (retiming_keys.reset()); strip.connect([other]) / disconnect() / connected_strips keep strips edited together; more in bpy.ops.sequencer.*.',
       ].join('\n'),
   },
+  tools: {
+    title: 'Script tools: operators, panels, menus, properties',
+    text: () =>
+      [
+        "Operators: class AddRow extends bpy.types.Operator { static bl_idname = 'object.add_row'; static bl_label = 'Add Row'; static bl_options = ['REGISTER', 'UNDO']; static properties = { count: bpy.props.IntProperty({default: 5, min: 1}) }; execute(context) { …; return new Set(['FINISHED']) } }; bpy.utils.register_class(AddRow). It then runs as bpy.ops.object.add_row({count: 3}), shows in F3 search and offers its properties in Adjust Last Operation.",
+        "Panels in the 3D viewport sidebar: class P extends bpy.types.Panel { static bl_label = 'Rows'; static bl_category = 'Tool'; draw(context) { this.layout.operator('object.add_row'); this.layout.prop(context.scene.settings, 'count') } }.",
+        "Menus: class M extends bpy.types.Menu { static bl_idname = 'VIEW3D_MT_rows'; static bl_label = 'Rows'; draw(context) { this.layout.operator('object.add_row') } }; open with bpy.ops.wm.call_menu({name: 'VIEW3D_MT_rows'}) or layout.menu('VIEW3D_MT_rows') in a panel.",
+        "Settings stored with the file: class S extends bpy.types.PropertyGroup { static properties = { count: bpy.props.IntProperty({default: 3}) } }; register it, then bpy.types.Scene.settings = bpy.props.PointerProperty({type: S}) (or CollectionProperty, with .add()); bpy.types.Object.weight = bpy.props.FloatProperty({default: 1}) adds a value to every object.",
+        'Registered classes last for the session (not saved with the file); register them only when the user asks for a tool, and say how to remove it (bpy.utils.unregister_class).',
+      ].join('\n'),
+  },
   render: {
     title: 'Render settings and passes',
     text: () =>
@@ -156,6 +167,6 @@ export const GUIDES: Record<string, Guide> = {
 /** The guide for a topic name (case and plural forms ignored), or null. */
 export function findGuide(topic: string): Guide | null {
   const t = topic.trim().toLowerCase().replace(/^bpy\./, '').replace(/s$/, '');
-  for (const [k, g] of Object.entries(GUIDES)) if (k === t || `${k}s` === topic.trim().toLowerCase() || k.replace(/s$/, '') === t || (k === 'grease pencil' && /^(gp|grease ?pencil|grease_pencil)$/.test(t)) || (k === 'animation' && /^(keyframe|driver|nla|keying ?set)$/.test(t)) || (k === 'handlers' && /^(handler|timer|app\.handler|app\.timer)$/.test(t)) || (k === 'render' && /^(render setting|pass|view ?layer)$/.test(t)) || (k === 'geometry nodes' && /^(geometry ?node|gn|geonode|node group|node_group)$/.test(t))) return g;
+  for (const [k, g] of Object.entries(GUIDES)) if (k === t || `${k}s` === topic.trim().toLowerCase() || k.replace(/s$/, '') === t || (k === 'grease pencil' && /^(gp|grease ?pencil|grease_pencil)$/.test(t)) || (k === 'animation' && /^(keyframe|driver|nla|keying ?set)$/.test(t)) || (k === 'handlers' && /^(handler|timer|app\.handler|app\.timer)$/.test(t)) || (k === 'render' && /^(render setting|pass|view ?layer)$/.test(t)) || (k === 'geometry nodes' && /^(geometry ?node|gn|geonode|node group|node_group)$/.test(t)) || (k === 'tools' && /^(tool|addon|operator class|panel|menu|property group|propertygroup|register)$/.test(t))) return g;
   return null;
 }

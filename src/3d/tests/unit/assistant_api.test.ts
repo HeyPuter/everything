@@ -44,6 +44,7 @@ describe('api_help guides', () => {
     expect((await help('context')).content).toMatch(/active_pose_bone/);
     expect((await help('data')).content).toMatch(/grease_pencils/);
     expect((await help('geometry nodes')).content).toContain('interface.new_socket');
+    expect((await help('menu')).content).toContain('bpy.types.Menu');
     const bm = await help('bmesh');
     expect(bm.content).toMatch(/extrude_face_region.*inset_individual|inset_individual.*extrude_face_region/s);
   });
@@ -70,6 +71,25 @@ describe('api_help guides', () => {
     expect(all).not.toMatch(/blender/i);
     expect(SYSTEM_PROMPT).toContain('bmesh');
     expect(SYSTEM_PROMPT).toContain('temp_override');
+  });
+});
+
+describe('the tools guide example', () => {
+  it('registers an operator with properties and a settings group', async () => {
+    const r = await script(`
+      class S extends bpy.types.PropertyGroup { static properties = { count: bpy.props.IntProperty({default: 3}) } }
+      bpy.utils.register_class(S);
+      bpy.types.Scene.settings = bpy.props.PointerProperty({type: S});
+      class AddRow extends bpy.types.Operator {
+        static bl_idname = 'object.add_row'; static bl_label = 'Add Row'; static bl_options = ['REGISTER', 'UNDO'];
+        static properties = { count: bpy.props.IntProperty({default: 5, min: 1}) };
+        execute(context) { for (let i = 0; i < this.count; i++) bpy.ops.mesh.primitive_cube_add({size: 0.2, location: [i * 0.3, 0, 0]}); return new Set(['FINISHED']); }
+      }
+      bpy.utils.register_class(AddRow);
+      bpy.ops.object.add_row({count: C.scene.settings.count});
+    `);
+    expect(r.ok).toBe(true);
+    expect(r.content).toMatch(/Added 3 objects/);
   });
 });
 
