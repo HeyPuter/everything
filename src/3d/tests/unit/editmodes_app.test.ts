@@ -176,3 +176,18 @@ describe('join keeps bone orientation', () => {
     }
   });
 });
+
+describe('select pattern for bones', () => {
+  it('matches bone names in armature Edit Mode', () => {
+    app.run('object.select_all', { action: 'DESELECT' });
+    app.run('object.armature_add');
+    app.run('object.mode_set', { mode: 'EDIT' });
+    const a = app.doc.armatures[app.activeObject!.data!];
+    a.bones[0].name = 'Arm.L';
+    app.run('armature.select_all', { action: 'DESELECT' });
+    app.run('object.select_pattern', { pattern: '*.l', extend: false }, { invoke: false });
+    expect(a.bones[0].select).toBe(true);
+    app.run('object.select_pattern', { pattern: 'Leg*', extend: false }, { invoke: false });
+    expect(a.bones[0].select).toBe(false);
+  });
+});

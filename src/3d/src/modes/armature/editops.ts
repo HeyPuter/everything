@@ -2,7 +2,8 @@
 // (mirror, more/less, linked, similar, hierarchy), names (flip, auto-side), hide/reveal, bone
 // options, interactive roll / envelope distance, and X-Axis Mirror.
 import { Matrix4, Vector3 } from 'three';
-import { app, registerOperators, type OpContext } from '../../app/app';
+import { app, registerOperators, onAppReady, operators, registerOperator, type OpContext } from '../../app/app';
+import { promptText } from '../../ui/menu';
 import { activeView3D, type View3D } from '../../editors/view3d/view3d';
 import { startTransform } from '../../ops/transform';
 import { newArmature, newObject } from '../../data/defaults';
@@ -495,3 +496,34 @@ transformModes.BONE_ENVELOPE_DIST = {
     for (const b of selectedBones()) b.envelope_distance = Math.max(0, b.envelope_distance * (p.value as number));
   },
 };
+
+// ---------------------------------------------------------------------------
+// Select Pattern also matches bone names in armature Edit Mode (and asks for the pattern)
+
+/** Glob-style name match (* and ?). */
+export function patternMatcher(pattern: string, caseSensitive: boolean) {
+  const src = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+  return new RegExp(`^${src}$`, caseSensitive ? '' : 'i');
+}
+
+onAppReady(() => {
+  const prev = operators.get('object.select_pattern');
+  if (!prev) return;
+  registerOperator({
+    ...prev,
+    poll: (ctx) => inArmEdit() || !prev.poll || prev.poll(ctx),
+    invoke: (_ctx, p) => {
+      promptText('Select Pattern', String(p.pattern ?? '*'), (v) => v && app.run('object.select_pattern', { ...p, pattern: v }, { invoke: false }));
+      return 'CANCELLED';
+    },
+    exec: (ctx, p) => {
+      if (!inArmEdit()) return prev.exec ? prev.exec(ctx, p) : 'CANCELLED';
+      const re = patternMatcher(String(p.pattern), !!p.case_sensitive);
+      for (const b of arm().bones) {
+        if (!visible(b)) continue;
+        if (re.test(b.name)) A.setBoneSelected(b, true);
+        else if (!p.extend) A.setBoneSelected(b, false);
+      }
+    },
+  });
+});
