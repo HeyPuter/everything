@@ -507,3 +507,22 @@ test('sequencer: clicking the active strip in the preview again cycles to the st
   expect(await active()).toBe('Text');
   await expectNoErrors(errors);
 });
+
+test('sequencer: dragging the edit point between touching strips rolls the cut', async ({ page }) => {
+  const { errors } = await videoWorkspace(page);
+  const p = await stripPoint(page, 'Color.001', 0);
+  const ppf = await page.evaluate(() => (window as any).app.hoverArea.editor.ppf);
+  await page.mouse.move(p.x + 1, p.y);
+  await page.mouse.down();
+  await page.mouse.move(p.x + 1 + ppf * 10, p.y, { steps: 5 });
+  await page.mouse.up();
+  const r = await page.evaluate(() => {
+    const ss = (window as any).app.doc.scene.sequence_editor.strips;
+    const end = (s: any) => s.frame_start + s.frame_duration - s.frame_offset_end;
+    const start = (s: any) => s.frame_start + s.frame_offset_start;
+    return [end(ss.find((x: any) => x.name === 'Color')), start(ss.find((x: any) => x.name === 'Color.001'))];
+  });
+  expect(r[0]).toBe(r[1]);
+  expect(r[0]).toBeGreaterThan(45);
+  await expectNoErrors(errors);
+});

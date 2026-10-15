@@ -12,7 +12,7 @@ import { frameStep } from '../animation/view2d';
 import type { Strip } from './types';
 import { MAX_CHANNELS } from './types';
 import * as S from './strips';
-import { seqEditor, seqList, seqChannels, hasEditor, activeStrip, toolSettings, sceneFps, type SeqEditorLike, type SeqRegion, type ViewType } from './context';
+import { seqEditor, seqList, seqChannels, hasEditor, activeStrip, setActive, isLocked, toolSettings, sceneFps, type SeqEditorLike, type SeqRegion, type ViewType } from './context';
 import { T, stripColor, cssColor, typeColor } from './theme';
 import { selectStrip, deselectAll, renameChannel } from './ops';
 import { startSlide, startSlip, startRetimingKeyMove } from './transform';
@@ -30,7 +30,7 @@ import type { ScopeMode } from './scopes';
 import { lastOpPanel } from '../ui/redo';
 import { readySource } from '../tracking/source';
 import { clipFrameToSourceIndex } from '../tracking/types';
-import { boxHit, rectCircle, rectLasso, sameTime } from './selection';
+import { boxHit, rectCircle, rectLasso, sameTime, neighbor } from './selection';
 import { connectedOf, isConnected } from './connect';
 import { keysOf, keyValue, fadeProp } from './fades';
 import { keyFrames, KEY_PATHS } from './stripanim';
@@ -1569,9 +1569,16 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     }
     const s = hit.strip;
     const wasSelected = s.select;
+    // press on the edit point between two touching strips: both handles (dragging rolls the cut)
+    const touching = hit.handle && !ctrl && !e.shiftKey ? neighbor(seqList(), s, hit.handle) : null;
+    const roll = !!touching && !isLocked(touching) && !S.inputCount(touching.type);
     // press: make sure the pressed strip is selected so it can be dragged
     if (ctrl) this.selectLinkedTime(hit, e.shiftKey, ignoreConnections);
-    else if (hit.handle) selectStrip(s, { extend: e.shiftKey, handle: hit.handle, ignoreConnections });
+    else if (roll) {
+      selectStrip(s, { handle: hit.handle, ignoreConnections });
+      selectStrip(touching!, { extend: true, handle: hit.handle === 'LEFT' ? 'RIGHT' : 'LEFT', ignoreConnections });
+      setActive(s);
+    } else if (hit.handle) selectStrip(s, { extend: e.shiftKey, handle: hit.handle, ignoreConnections });
     else if (!s.select) selectStrip(s, { extend: e.shiftKey, ignoreConnections });
     else if (s.select_left_handle || s.select_right_handle) selectStrip(s, { extend: true, ignoreConnections });
     app.changed('doc');
@@ -1580,7 +1587,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       if (!dragging && Math.hypot(ev.clientX - x0, ev.clientY - y0) > 4) {
         dragging = true;
         cleanup();
-        if (hit.handle && !ctrl) startSlide(this, x0, y0, { label: 'Trim Strip', ...(ignoreConnections || !isConnected(seqList(), s) ? { handleStrip: s, handleSide: hit.handle } : {}) });
+        if (roll) startSlide(this, x0, y0, { label: 'Roll Edit' });
+        else if (hit.handle && !ctrl) startSlide(this, x0, y0, { label: 'Trim Strip', ...(ignoreConnections || !isConnected(seqList(), s) ? { handleStrip: s, handleSide: hit.handle } : {}) });
         else startSlide(this, x0, y0);
       }
     };
