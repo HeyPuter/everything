@@ -41,7 +41,12 @@
 //       DEFAULT_CLOSED/HIDE_HEADER, poll(), draw(); layout: label, prop (numbers, booleans,
 //       strings, vectors, colours), operator (returns settable properties), row, column, box,
 //       split, separator, enabled/alert flags. Other space types draw in the 3D sidebar too.
-//   Not supported: bmesh, bpy.app.handlers, modal operators, menus, PointerProperty /
+//   bmesh (bmesh*.ts, py/bmesh.py): new(), from_edit_mesh / update_edit_mesh, BMesh from_mesh /
+//       to_mesh / from_object, verts/edges/faces/loops with adjacency and layers (uv, color,
+//       deform, shape, float/int/string), bmesh.ops (create_*, extrude, transforms, delete,
+//       merge, subdivide, triangulate, inset, bevel, bridge, spin, mirror, dissolve, …),
+//       bmesh.utils / bmesh.geometry subsets, bmesh.types for isinstance()
+//   Not supported: bpy.app.handlers, modal operators, menus, PointerProperty /
 //       CollectionProperty, file-system access (images.load etc.).
 import './scripting.css';
 import './icons';
@@ -53,6 +58,7 @@ import './info';
 import './prefs_editor';
 import './wmops';
 import './panels_ui';
+import './bmesh';
 import { applyKeymapOverrides } from './keymap_prefs';
 import { applyPreferences } from './prefs_editor';
 import { bpy } from './api';

@@ -205,6 +205,7 @@ export const bridge = {
   key(o: unknown) {
     if (isIdWrapper(o)) return `${o.__table}:${o.__id}`;
     if (o instanceof Struct) return o.__path;
+    if (!(o instanceof BoundArray) && typeof (o as { __key?: unknown })?.__key === 'string') return (o as { __key: string }).__key;
     return String(o);
   },
   repr(o: { repr?: () => string }) {
