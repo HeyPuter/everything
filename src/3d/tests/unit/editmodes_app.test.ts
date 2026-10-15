@@ -233,3 +233,16 @@ describe('individual origins for bones', () => {
     expect(arm.bones[1].tail.map((v) => +v.toFixed(4))).toEqual([2, 0, 2]);
   });
 });
+
+describe('B-Bone size', () => {
+  it('scales the B-Bone display size of selected bones', () => {
+    app.run('object.select_all', { action: 'DESELECT' });
+    app.run('object.armature_add');
+    app.run('object.mode_set', { mode: 'EDIT' });
+    const b = app.doc.armatures[app.activeObject!.data!].bones[0];
+    app.run('armature.select_all', { action: 'SELECT' });
+    app.run('transform.bbone_resize', { value: 2 }, { invoke: false });
+    expect(b.bbone_x).toBeCloseTo(0.2, 6);
+    expect(b.bbone_z).toBeCloseTo(0.2, 6);
+  });
+});

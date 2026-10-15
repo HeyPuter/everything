@@ -81,7 +81,21 @@ const tab: PropertiesTab = {
           : null,
       ]),
       panel('bone-deform', 'Deform', () => [bool(bone, 'use_deform', 'Deform'), num(bone, 'envelope_distance', 'Envelope Distance', { unit: 'distance', min: 0 }), num(bone, 'head_radius', 'Radius Head', { unit: 'distance', min: 0 }), num(bone, 'tail_radius', 'Tail', { unit: 'distance', min: 0 })], { closed: true }),
-      panel('bone-display', 'Viewport Display', () => [bool(bone, 'hide', 'Hide'), bool(bone as never, 'show_wire' as never, 'Display as Wireframe')], { closed: true }),
+      panel(
+        'bone-display',
+        'Viewport Display',
+        () => {
+          const len = Math.hypot(bone.tail[0] - bone.head[0], bone.tail[1] - bone.head[1], bone.tail[2] - bone.head[2]);
+          bone.bbone_x ??= 0.1 * len;
+          bone.bbone_z ??= 0.1 * len;
+          return [
+            bool(bone, 'hide', 'Hide'),
+            bool(bone as never, 'show_wire' as never, 'Display as Wireframe'),
+            arm.display_type === 'BBONE' ? [num(bone as never, 'bbone_x' as never, 'B-Bone Size X', { unit: 'distance', min: 0 }), num(bone as never, 'bbone_z' as never, 'Z', { unit: 'distance', min: 0 }), num(bone, 'bbone_segments', 'Segments', { int: true, min: 1, max: 32 })] : null,
+          ];
+        },
+        { closed: true },
+      ),
     ];
   },
 };

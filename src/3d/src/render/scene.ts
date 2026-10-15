@@ -173,7 +173,7 @@ export class SceneSync {
     else if (ob.type === 'LATTICE' && ob.data) key = 'T' + doc.lattices[ob.data]?.points.join(',');
     else if (ob.type === 'ARMATURE' && ob.data) {
       const arm = doc.armatures[ob.data];
-      key = 'A' + (ev.pose?.signature ?? '') + arm?.display_type + arm?.bones.length + (arm?.bones.map((b) => (boneVisible(arm, b) ? 1 : 0) + (b.show_wire ? 2 : 0)).join('') ?? '') + (arm?.display_type === 'ENVELOPE' || arm?.display_type === 'BBONE' ? arm.bones.map((b) => `${b.head_radius},${b.tail_radius},${b.bbone_segments}`).join(';') : '');
+      key = 'A' + (ev.pose?.signature ?? '') + arm?.display_type + arm?.bones.length + (arm?.bones.map((b) => (boneVisible(arm, b) ? 1 : 0) + (b.show_wire ? 2 : 0)).join('') ?? '') + (arm?.display_type === 'ENVELOPE' || arm?.display_type === 'BBONE' ? arm.bones.map((b) => `${b.head_radius},${b.tail_radius},${b.bbone_segments},${b.bbone_x},${b.bbone_z}`).join(';') : '');
     }
     if (key !== so.helperKey) {
       so.helperKey = key;

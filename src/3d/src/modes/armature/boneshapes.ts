@@ -108,8 +108,8 @@ export function boneShape(type: ArmatureData['display_type'], bone: Bone | undef
       return { ...b, unit: true };
     }
     case 'BBONE': {
-      const b = box(0.1, 0.1, 1, Math.max(1, Math.min(32, bone?.bbone_segments ?? 1)));
-      return { ...b, unit: true };
+      const b = box(bone?.bbone_x ?? 0.1 * length, bone?.bbone_z ?? 0.1 * length, length, Math.max(1, Math.min(32, bone?.bbone_segments ?? 1)));
+      return { ...b, unit: false };
     }
     case 'ENVELOPE': {
       const out = { lines: [] as number[], tris: [] as number[] };

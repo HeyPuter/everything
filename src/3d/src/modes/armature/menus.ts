@@ -90,6 +90,7 @@ function armatureMenu(): MenuItem[] {
   return [
     transformSubmenu([
       { label: 'Scale Envelope Distance', op: 'transform.transform', props: { mode: 'BONE_ENVELOPE_DIST' }, shortcut: 'Alt S' },
+      { label: 'Scale B-Bone', op: 'transform.bbone_resize', shortcut: 'Shift Ctrl Alt S' },
       { label: 'Align Bones', op: 'armature.align', shortcut: 'Ctrl Alt A' },
     ]),
     mirrorSubmenu(),
@@ -247,6 +248,7 @@ addKeys('Armature', [
   { key: 'R', alt: true, op: 'armature.roll_clear', when: w },
   { key: 'R', ctrl: true, op: 'transform.transform', props: { mode: 'BONE_ROLL' }, when: w },
   { key: 'S', alt: true, op: 'transform.transform', props: { mode: 'BONE_ENVELOPE_DIST' }, when: w },
+  { key: 'S', ctrl: true, alt: true, shift: true, op: 'transform.bbone_resize', when: w },
   { key: 'F', alt: true, op: 'armature.switch_direction', when: w },
   { key: 'A', shift: true, op: 'armature.bone_primitive_add', when: w },
   { key: 'F2', op: 'armature.rename', when: () => w() || pose() },

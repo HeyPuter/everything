@@ -535,3 +535,41 @@ activeElementHooks.push(() => {
   const b = a.bones.find((x) => x.name === a.active_bone && visible(x));
   return b ? new Vector3(...b.head).applyMatrix4(world(ob)) : null;
 });
+
+registerOperators([
+  {
+    idname: 'transform.bbone_resize',
+    label: 'Scale B-Bone',
+    description: 'Scale the B-Bone display size of the selected bones',
+    props: [
+      { id: 'value', label: 'Scale', type: 'float', default: 1, min: 0 },
+      { id: 'release_confirm', label: 'Confirm on Release', type: 'bool', default: false, hidden: true },
+    ],
+    poll: () => inArmEdit() && selectedBones().length > 0,
+    invoke: (ctx, p) => {
+      const bones = selectedBones();
+      const len = (b: Bone) => new Vector3(...b.tail).distanceTo(new Vector3(...b.head));
+      const before = bones.map((b) => [b.bbone_x ?? 0.1 * len(b), b.bbone_z ?? 0.1 * len(b)]);
+      return startValueModal({
+        label: 'Scale B-Bone',
+        kind: 'SCALE',
+        pivot: bonesPivot(bones),
+        event: ctx.event,
+        apply: (v) => bones.forEach((b, i) => ((b.bbone_x = Math.max(0, before[i][0] * v)), (b.bbone_z = Math.max(0, before[i][1] * v)))),
+        restore: () => bones.forEach((b, i) => ((b.bbone_x = before[i][0]), (b.bbone_z = before[i][1]))),
+        redo: (v) => ({ idname: 'transform.bbone_resize', props: { value: v } }),
+        text: (v, t) => `Scale B-Bone: ${t ? t + '|' : v.toFixed(3)}`,
+        releaseConfirm: !!p.release_confirm,
+      })
+        ? 'RUNNING_MODAL'
+        : 'CANCELLED';
+    },
+    exec: (_c, p) => {
+      for (const b of selectedBones()) {
+        const len = new Vector3(...b.tail).distanceTo(new Vector3(...b.head));
+        b.bbone_x = Math.max(0, (b.bbone_x ?? 0.1 * len) * (p.value as number));
+        b.bbone_z = Math.max(0, (b.bbone_z ?? 0.1 * len) * (p.value as number));
+      }
+    },
+  },
+]);

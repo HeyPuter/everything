@@ -312,6 +312,9 @@ export interface Bone {
   collections?: string[];
   /** draw as wireframe only */
   show_wire?: boolean;
+  /** B-Bone display size (default: a tenth of the bone length) */
+  bbone_x?: number;
+  bbone_z?: number;
 }
 
 /** Named group of bones (visibility, selection, organisation). */
