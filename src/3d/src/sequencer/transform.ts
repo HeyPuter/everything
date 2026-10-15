@@ -8,6 +8,7 @@ import { placementMatrix } from './gpu';
 import { layoutTextStrip } from './text';
 import { MAX_CHANNELS } from './types';
 import { restartPlayback } from './audio';
+import { moveKey } from './retime';
 
 interface Snap {
   frame_start: number;
@@ -253,6 +254,57 @@ export function startSlip(ed: SeqEditorLike, x0: number, only?: Strip): boolean 
       app.changed('doc');
     },
     finish() {
+      restartPlayback();
+    },
+  });
+  const dragRelease = pointerIsDown;
+  return true;
+}
+
+/** Drag a retiming key: the segment before it speeds up or slows down, later content follows. */
+export function startRetimingKeyMove(ed: SeqEditorLike, s: Strip, index: number, x0: number): boolean {
+  if (!s.retiming_keys || index <= 0) return false;
+  const orig = { keys: s.retiming_keys.map((k) => ({ ...k })), dur: s.frame_duration, oe: s.frame_offset_end, os: s.frame_offset_start };
+  const st = { text: '', df: 0 };
+  let lx = x0;
+  const reset = () => {
+    s.retiming_keys = orig.keys.map((k) => ({ ...k }));
+    s.frame_duration = orig.dur;
+    s.frame_offset_end = orig.oe;
+    s.frame_offset_start = orig.os;
+  };
+  const apply = () => {
+    reset();
+    const df = st.text && st.text !== '-' ? Math.round(Number(st.text)) || 0 : Math.round((lx - x0) / ed.ppf);
+    st.df = df;
+    moveKey(s, index, df);
+    afterEdit();
+    app.changed('doc');
+  };
+  app.startModal({
+    label: 'Move Retiming Key',
+    cursor: 'ew-resize',
+    header: () => `Retiming Key: ${st.text ? st.text + '|' : st.df}`,
+    onPointerMove(e) {
+      lx = e.clientX;
+      apply();
+    },
+    onPointerDown: (e) => (e.button === 0 ? 'FINISHED' : e.button === 2 ? 'CANCELLED' : undefined),
+    onPointerUp: (e) => (e.button === 0 && dragRelease ? 'FINISHED' : undefined),
+    onKey(e) {
+      if (e.key === 'Escape') return 'CANCELLED';
+      if (e.key === 'Enter') return 'FINISHED';
+      if (numericKeys(st, e)) apply();
+      return true;
+    },
+    cancel() {
+      reset();
+      afterEdit();
+      app.changed('doc');
+    },
+    finish() {
+      resolveOverlap(seqList(), [s], toolSettings().overlap_mode);
+      afterEdit();
       restartPlayback();
     },
   });

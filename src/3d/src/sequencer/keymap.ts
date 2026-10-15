@@ -1,6 +1,6 @@
 // Sequencer keymaps (default left-click-select layout).
 import { addKeys } from '../app/keymap';
-import { addMenu, selectMenu, changeMenu } from './menus';
+import { addMenu, selectMenu, changeMenu, retimingMenu } from './menus';
 
 addKeys('Sequencer', [
   { key: 'A', op: 'sequencer.select_all', props: { action: 'SELECT' } },
@@ -34,12 +34,17 @@ addKeys('Sequencer', [
   { key: 'S', alt: true, op: 'sequencer.swap_inputs' },
   { key: 'O', alt: true, op: 'sequencer.offset_clear' },
   { key: 'D', shift: true, op: 'sequencer.duplicate_move' },
+  { key: 'X', op: 'sequencer.retiming_key_delete' },
+  { key: 'DEL', op: 'sequencer.retiming_key_delete' },
   { key: 'X', op: 'sequencer.delete' },
   { key: 'DEL', op: 'sequencer.delete' },
   { key: 'C', ctrl: true, op: 'sequencer.copy' },
   { key: 'V', ctrl: true, op: 'sequencer.paste' },
   { key: 'V', ctrl: true, shift: true, op: 'sequencer.paste', props: { keep_offset: true } },
   { key: 'Y', op: 'sequencer.images_separate' },
+  { key: 'I', menu: retimingMenu, menuTitle: 'Retiming' },
+  { key: 'R', op: 'sequencer.retiming_segment_speed_set' },
+  { key: 'R', ctrl: true, op: 'sequencer.retiming_show' },
   { key: 'TAB', op: 'sequencer.meta_toggle' },
   { key: 'G', ctrl: true, op: 'sequencer.meta_make' },
   { key: 'G', ctrl: true, alt: true, op: 'sequencer.meta_separate' },

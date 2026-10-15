@@ -150,3 +150,57 @@ test('sequencer: circle select (C) and box select with handles (Ctrl B)', async 
   ]);
   await expectNoErrors(errors);
 });
+
+/** A 4 second sound strip generated in the page (frames 1–97 at 24 fps). */
+async function addTone(page: Page) {
+  await page.evaluate(async () => {
+    const { encodeWav } = await import('/src/sequencer/wav.ts' as any);
+    const { addSound } = await import('/src/sequencer/add.ts' as any);
+    const n = 48000 * 4;
+    const d = new Float32Array(n);
+    for (let i = 0; i < n; i++) d[i] = Math.sin(i * 0.05) * 0.5;
+    await addSound(new File([encodeWav([d], 48000)], 'tone.wav', { type: 'audio/wav' }), 1, 3);
+    const app = (window as any).app;
+    app.pushUndo('Add Sound');
+    app.changed('doc');
+  });
+}
+
+test('sequencer: retiming — set speed (R), freeze frame from the I menu, keys shown, selected and deleted', async ({ page }) => {
+  const { errors, tl } = await videoWorkspace(page);
+  await addTone(page);
+  const len = () => page.evaluate(() => (window as any).app.doc.scene.sequence_editor.strips.find((s: any) => s.type === 'SOUND').frame_duration);
+  const base = await len();
+  await tl.hover();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('r');
+  await expect(page.locator('.popup-layer .pop-title', { hasText: 'Set Speed' })).toBeVisible();
+  await page.evaluate(() => (window as any).app.redoLast({ speed: 50 }));
+  expect(await len()).toBe(base * 2);
+  await page.keyboard.press('Escape');
+  // freeze frame at frame 30
+  await page.evaluate(() => (window as any).app.setFrame(30));
+  await tl.hover();
+  await page.keyboard.press('i');
+  await menuItem(page, 'Add Freeze Frame').click();
+  expect(await len()).toBe(base * 2 + 12);
+  const keys = () => page.evaluate(() => (window as any).app.doc.scene.sequence_editor.strips.find((s: any) => s.type === 'SOUND').retiming_keys);
+  expect((await keys()).length).toBe(4);
+  // click the freeze end key (diamond at the strip bottom) and delete it
+  const p = await page.evaluate(() => {
+    const app = (window as any).app;
+    const ed = app.hoverArea.editor;
+    const s = app.doc.scene.sequence_editor.strips.find((x: any) => x.type === 'SOUND');
+    const r = ed.stripRect(s);
+    const c = document.querySelectorAll('.seq-main canvas');
+    const b = (c[c.length - 1] as HTMLElement).getBoundingClientRect();
+    return { x: b.left + ed.fx(s.frame_start + s.retiming_keys[2].frame), y: b.top + r.y1 - 6 };
+  });
+  await page.mouse.click(p.x, p.y);
+  expect((await keys())[2].select).toBe(true);
+  await page.keyboard.press('x');
+  expect((await keys()).length).toBe(3);
+  await page.keyboard.press('Control+z');
+  expect((await keys()).length).toBe(4);
+  await expectNoErrors(errors);
+});

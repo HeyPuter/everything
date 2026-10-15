@@ -6,6 +6,7 @@ import { Compositor, placementMatrix, isPixelExact, type Source, type Target } f
 import { renderStack, contentFrame, effectFac, effectInputs, findStrip, speedInputFrame, TRANSITIONS, activeAt, allStrips } from './strips';
 import { getMovie, loadImage } from './media';
 import { valueAt } from './fades';
+import { hasRetiming, speedAt } from './retime';
 import { drawTextStrip } from './text';
 import type { RGBA8Image } from './scene';
 
@@ -150,7 +151,7 @@ export class SequencerRender {
         const w = s.orig_width || info.width,
           h = s.orig_height || info.height;
         if (o.live) {
-          const v = m.live(t);
+          const v = m.live(t, hasRetiming(s) ? Math.max(0.0625, Math.min(16, speedAt(s, frame - s.frame_start))) : 1);
           if (!v) return null;
           const src = c.upload(v, w, h);
           const out = this.finish(s, src);

@@ -5,6 +5,7 @@ import './icons';
 import './ops';
 import './selectops';
 import './stripops';
+import './retimeops';
 import './keymap';
 import './output';
 import { app, onAppReady } from '../app/app';

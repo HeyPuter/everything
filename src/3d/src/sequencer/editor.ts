@@ -15,7 +15,8 @@ import * as S from './strips';
 import { seqEditor, seqList, seqChannels, hasEditor, activeStrip, toolSettings, sceneFps, type SeqEditorLike, type SeqRegion, type ViewType } from './context';
 import { T, stripColor, cssColor, typeColor } from './theme';
 import { selectStrip, deselectAll, renameChannel } from './ops';
-import { startSlide, startSlip, startPreviewTransform } from './transform';
+import { startSlide, startSlip, startPreviewTransform, startRetimingKeyMove } from './transform';
+import { retimable, segmentSpeed, mapContent } from './retime';
 import { addMenu, viewMenu, selectMenu, stripMenu, imageMenu, contextMenu, markerMenu } from './menus';
 import { stripTab, modifiersTab, cacheTab } from './sidebar';
 import { PreviewRegion, type PreviewSize } from './preview';
@@ -883,6 +884,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       g.lineWidth = 1;
     }
     this.drawFadeCurve(g, s, x0, y0, w, hgt);
+    if (s.show_retiming_keys && retimable(s)) this.drawRetiming(g, s, x0, y0 + titleH, w, hgt - titleH);
     // handles: shown for the hovered strip and for selected handles
     const hw = this.handleWidth(r);
     if (!S.inputCount(s.type)) {
@@ -945,6 +947,106 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     g.restore();
   }
 
+  /** Retiming keys (diamonds along the bottom) and the speed of each segment. */
+  private drawRetiming(g: CanvasRenderingContext2D, s: Strip, x0: number, y0: number, w: number, h: number) {
+    const keys = s.retiming_keys ?? [
+      { frame: 0, content: 0 },
+      { frame: s.frame_duration, content: s.frame_duration },
+    ];
+    g.fillStyle = 'rgba(0,0,0,0.25)';
+    g.fillRect(x0, y0 + h - 12, w, 12);
+    g.font = '10px Inter, system-ui, sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    for (let i = 0; i < keys.length - 1; i++) {
+      const a = this.fx(s.frame_start + keys[i].frame),
+        b = this.fx(s.frame_start + keys[i + 1].frame);
+      const sp = segmentSpeed(keys, i);
+      const label = keys[i].transition ? 'Transition' : sp === 0 ? 'Freeze' : `${Math.round(sp * 1000) / 10}%`;
+      if (keys[i].transition) {
+        g.fillStyle = 'rgba(255,255,255,0.12)';
+        g.fillRect(a, y0, b - a, h);
+      } else if (sp === 0) {
+        g.fillStyle = 'rgba(80,140,255,0.18)';
+        g.fillRect(a, y0, b - a, h);
+      }
+      const mid = (Math.max(a, x0) + Math.min(b, x0 + w)) / 2;
+      if (b - a > g.measureText(label).width + 8 && (keys.length > 2 || sp !== 1)) {
+        g.fillStyle = 'rgba(255,255,255,0.85)';
+        g.fillText(label, mid, y0 + Math.min(h / 2, h - 18));
+      }
+    }
+    g.textAlign = 'left';
+    g.textBaseline = 'alphabetic';
+    for (const k of keys) {
+      const x = this.fx(s.frame_start + k.frame);
+      const y = y0 + h - 6;
+      g.beginPath();
+      g.moveTo(x, y - 5);
+      g.lineTo(x + 5, y);
+      g.lineTo(x, y + 5);
+      g.lineTo(x - 5, y);
+      g.closePath();
+      g.fillStyle = k.select ? '#ff8f0d' : '#e8e8e8';
+      g.fill();
+      g.strokeStyle = 'rgba(0,0,0,0.7)';
+      g.stroke();
+    }
+  }
+
+  /** Retiming key under a timeline point (strips showing their keys). */
+  private retimingKeyAt(x: number, y: number): { strip: Strip; index: number } | null {
+    if (!hasEditor()) return null;
+    for (const s of [...seqList()].reverse()) {
+      if (!s.show_retiming_keys || !s.retiming_keys) continue;
+      const r = this.stripRect(s);
+      if (y < r.y1 - 14 || y > r.y1 + 1 || x < r.x0 - 6 || x > r.x1 + 6) continue;
+      let best = -1,
+        bd = 7;
+      s.retiming_keys.forEach((k, i) => {
+        const d = Math.abs(this.fx(s.frame_start + k.frame) - x);
+        if (d < bd) {
+          bd = d;
+          best = i;
+        }
+      });
+      if (best >= 0) return { strip: s, index: best };
+    }
+    return null;
+  }
+
+  /** Click / drag on a retiming key: select it (Shift toggles), drag moves it. */
+  private retimingKeyDown(e: PointerEvent, hit: { strip: Strip; index: number }) {
+    const s = hit.strip;
+    const k = s.retiming_keys![hit.index];
+    if (!e.shiftKey) {
+      for (const o of seqList()) for (const x of o.retiming_keys ?? []) x.select = false;
+      k.select = true;
+    } else k.select = !k.select;
+    selectStrip(s, { extend: true, ignoreConnections: true });
+    app.changed('doc');
+    const x0 = e.clientX,
+      y0 = e.clientY;
+    let dragging = false;
+    const move = (ev: PointerEvent) => {
+      if (!dragging && Math.hypot(ev.clientX - x0, ev.clientY - y0) > 4) {
+        dragging = true;
+        cleanup();
+        if (hit.index > 0) startRetimingKeyMove(this, s, hit.index, x0);
+      }
+    };
+    const up = () => {
+      cleanup();
+      if (!dragging) app.pushUndo('Select Retiming Key');
+    };
+    const cleanup = () => {
+      removeEventListener('pointermove', move);
+      removeEventListener('pointerup', up);
+    };
+    addEventListener('pointermove', move);
+    addEventListener('pointerup', up);
+  }
+
   /** Opacity / volume animation as a line over the strip, with the faded part darkened. */
   private drawFadeCurve(g: CanvasRenderingContext2D, s: Strip, x0: number, y0: number, w: number, hgt: number) {
     const keys = keysOf(s, fadeProp(s));
@@ -1001,8 +1103,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
         for (let x = Math.floor(xa); x < xb; x++) {
           const f0 = this.xf(x),
             f1 = this.xf(x + 1);
-          const t0 = (s.animation_offset_start + (f0 - s.frame_start)) / fps + (s.sound_offset ?? 0),
-            t1 = (s.animation_offset_start + (f1 - s.frame_start)) / fps + (s.sound_offset ?? 0);
+          const t0 = (s.animation_offset_start + mapContent(s, f0 - s.frame_start)) / fps + (s.sound_offset ?? 0),
+            t1 = (s.animation_offset_start + mapContent(s, f1 - s.frame_start)) / fps + (s.sound_offset ?? 0);
           const b0 = Math.max(0, Math.floor(t0 * PEAKS_PER_SECOND)),
             b1 = Math.min(n, Math.max(b0 + 1, Math.ceil(t1 * PEAKS_PER_SECOND)));
           let lo = 0,
@@ -1274,6 +1376,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       if (hit) app.run('sequencer.split', { frame: Math.round(this.xf(x)), channel: hit.strip.channel, type: e.shiftKey ? 'HARD' : 'SOFT', use_cursor_position: true, ignore_selection: true, side: 'NO_CHANGE' }, { invoke: false });
       return;
     }
+    const keyHit = this.retimingKeyAt(x, y);
+    if (keyHit) return this.retimingKeyDown(e, keyHit);
     const hit = this.hitTest(x, y);
     if (this.tool === 'slip') {
       if (!hit) return;

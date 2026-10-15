@@ -116,6 +116,15 @@ export interface StripModifier {
   contrast?: number;
 }
 
+/** Retiming key: timeline offset from frame_start → content frame offset. */
+export interface RetimingKey {
+  frame: number;
+  content: number;
+  select?: boolean;
+  /** the segment starting at this key eases between the neighbouring speeds */
+  transition?: boolean;
+}
+
 export interface ImageElement {
   filename: string;
   mime: string;
@@ -234,6 +243,9 @@ export interface Strip {
   channels?: SeqChannel[];
   /** names of the strips this one is connected to (selected and edited together) */
   connections?: string[];
+  /** speed changes (see retime.ts); with keys, frame_duration is the retimed timeline length */
+  retiming_keys?: RetimingKey[];
+  show_retiming_keys?: boolean;
   /** animated opacity / volume (fades): [timeline frame, value] keys, linear */
   keys?: Partial<Record<'blend_alpha' | 'volume', [number, number][]>>;
 }

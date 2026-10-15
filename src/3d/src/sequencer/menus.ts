@@ -215,6 +215,29 @@ function transformItems(preview: boolean): MenuItem[] {
   ];
 }
 
+/** I in the timeline: quick retiming actions. */
+export function retimingMenu(): MenuItem[] {
+  return [
+    { label: 'Add Retiming Key', op: 'sequencer.retiming_key_add' },
+    { label: 'Add Freeze Frame', op: 'sequencer.retiming_freeze_frame_add' },
+  ];
+}
+
+function stripRetimingItems(): MenuItem[] {
+  const act = hasEditor() ? activeStrip() : null;
+  return [
+    { label: 'Add Retiming Key', op: 'sequencer.retiming_key_add' },
+    { label: 'Add Freeze Frame', op: 'sequencer.retiming_freeze_frame_add' },
+    { label: 'Add Speed Transition', op: 'sequencer.retiming_transition_add' },
+    { separator: true },
+    { label: 'Delete Retiming Keys', op: 'sequencer.retiming_key_delete', shortcut: 'X' },
+    { label: 'Reset Retiming', op: 'sequencer.retiming_reset' },
+    { separator: true },
+    { label: 'Set Speed', op: 'sequencer.retiming_segment_speed_set', shortcut: 'R' },
+    { label: 'Show Retiming Keys', checked: !!act?.show_retiming_keys, op: 'sequencer.retiming_show', shortcut: 'Ctrl R' },
+  ];
+}
+
 export function colorTagMenu(): MenuItem[] {
   return COLOR_TAGS.map(([color, label]) => ({ label, icon: color === 'NONE' ? 'x' : `seq_tag_${color.slice(6)}`, op: 'sequencer.strip_color_tag_set', props: { color } }));
 }
@@ -247,6 +270,7 @@ export function changeMenu(): MenuItem[] {
 export function stripMenu(preview = false): MenuItem[] {
   const act = hasEditor() ? activeStrip() : null;
   const items: MenuItem[] = [{ label: 'Transform', submenu: () => transformItems(preview) }];
+  if (!preview) items.push({ label: 'Retiming', submenu: stripRetimingItems });
   if (preview) {
     items.push(
       { separator: true },
