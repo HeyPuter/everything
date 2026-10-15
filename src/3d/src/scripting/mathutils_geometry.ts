@@ -639,6 +639,7 @@ export const geometry = {
       if (area < bestA - 1e-12) {
         bestA = area;
         bestAngle = Math.PI / 2 - Math.atan2(ey, ex);
+        if (bestAngle > Math.PI) bestAngle -= 2 * Math.PI;
       }
     }
     return bestAngle;

@@ -294,6 +294,9 @@ describe('mathutils.geometry', () => {
     expect(G.convex_hull_2d([[0, 0], [1, 0], [0.5, 0.5], [1, 1], [0, 1], [0.5, 2]])).toEqual([0, 1, 3, 5, 4]);
     const a = G.box_fit_2d([[0, 0], [1, 1], [2, 2], [1.5, 2.5], [0.5, -0.5]]);
     expect(r4(a)).toBe(0.5404);
+    const pts = [[-1.192, -1.876], [2.193, -0.109], [1.313, 1.515], [1.285, 1.684], [-0.63, 1.204], [-0.332, 1.742], [2.273, -1.61], [-2.184, -1.132], [2.793, -0.255], [0.76, -0.796], [0.043, -0.457], [-0.895, 0.34]];
+    expect(G.box_fit_2d(pts)).toBeCloseTo(-2.5693, 3);
+    expect(G.box_fit_2d([[0, 0], [1, 0], [1, 1], [0, 1]])).toBeCloseTo(Math.PI / 2);
     const boxes = [[0, 0, 1, 1], [0, 0, 2, 1], [0, 0, 1, 3], [0, 0, 0.5, 0.5]];
     const [w, h] = G.box_pack_2d(boxes);
     expect(w * h).toBeLessThanOrEqual(9 + 1e-9);
