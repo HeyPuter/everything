@@ -194,6 +194,12 @@ test('interface preferences: factor display, header position, status bar, naviga
 
   await setPref(page, 'show_statusbar_scene_duration', true);
   await expect(page.locator('.sb-duration')).toContainText('Frames 250');
+
+  // menus open when the pointer rests on the menu bar
+  await setPref(page, 'use_mouse_over_open', true);
+  await setPref(page, 'open_toplevel_delay', 50);
+  await page.locator('.area[data-editor="VIEW_3D"] .hdr-menu', { hasText: 'View' }).first().hover();
+  await expect(page.locator('.popup-layer .menu').first()).toBeVisible();
   await expectNoErrors(errors);
 });
 
