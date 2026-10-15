@@ -1,6 +1,6 @@
 // Index Switch, Menu Switch, the Menu input and the Warning node.
 import './fdata';
-import { gn, sprop } from './defs';
+import { gn, sprop, idSocketBody } from './defs';
 import { h } from '../../ui/h';
 import { enumMenu } from '../../ui/widgets';
 import { fnField, Field, constOf, type Evaluated } from '../field';
@@ -11,7 +11,7 @@ import { allSockets, getNodeType } from '../../nodes/registry';
 import { ctxOf } from '../../nodes/tree';
 import { app } from '../../app/app';
 import type { DocumentData, NodeData, NodeTreeData } from '../../data/types';
-import type { SocketDef, SocketType } from '../../nodes/types';
+import type { NodeDrawContext, SocketDef, SocketType } from '../../nodes/types';
 import type { Val } from '../exec';
 
 const FIELDABLE = new Set(['FLOAT', 'INT', 'BOOLEAN', 'VECTOR', 'RGBA', 'ROTATION', 'MATRIX']);
@@ -24,6 +24,24 @@ function itemSocketOf(id: string, t: SocketType, name: string, field: boolean): 
   if (t === 'STRING') s.default = '';
   if (t === 'OBJECT' || t === 'COLLECTION' || t === 'MATERIAL' || t === 'IMAGE') s.hide_value = true;
   return s;
+}
+
+const ID_ITEM_TYPES = new Set(['OBJECT', 'COLLECTION', 'MATERIAL']);
+
+/** Data-block selectors for the item inputs of a switch whose items are objects, collections or materials. */
+function idItemsBody(ids: (n: NodeData) => [string, string][]) {
+  return {
+    drawBody: (ctx: NodeDrawContext) => {
+      const t = sprop(ctx.node, 'data_type');
+      if (!ID_ITEM_TYPES.has(t)) return null;
+      const names = ids(ctx.node);
+      return idSocketBody(
+        ctx,
+        names.map(([id, name]) => ({ name, identifier: id, type: t as SocketType })),
+      );
+    },
+    bodyHeight: (n: NodeData) => (ID_ITEM_TYPES.has(sprop(n, 'data_type')) ? 24 * ids(n).length + 2 : 0),
+  };
 }
 
 /** Per-element choice between field values by an integer selector. */
@@ -96,6 +114,7 @@ gn(
       };
     },
     drawOptions: (ctx) => itemListUI(ctx, INDEX_DEF, indexItems(ctx.node)),
+    ...idItemsBody((n) => indexItems(n).map((it, i) => [indexIn(it), String(i)])),
   },
 );
 
@@ -155,6 +174,7 @@ gn(
       };
     },
     drawOptions: (ctx) => itemListUI(ctx, MENU_DEF, menuItems(ctx.node)),
+    ...idItemsBody((n) => menuItems(n).map((it) => [menuIn(it), it.name])),
   },
 );
 
