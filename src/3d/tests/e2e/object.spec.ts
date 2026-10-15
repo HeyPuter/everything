@@ -151,3 +151,16 @@ test('interactive mirror and the vertex weights panel', async ({ page }) => {
   expect(await get(page, `app.doc.meshes[app.activeObject.data].weights[0][0]`)).toBe(0);
   await expectNoErrors(errors);
 });
+
+test('convert text to a curve', async ({ page }) => {
+  const errors = await openApp(page);
+  await run(page, 'object.text_add', { location: [0, 0, 0] });
+  await page.waitForFunction(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    return (a.graph.get(a.activeObject.id)?.mesh?.indices.length ?? 0) > 0;
+  });
+  await run(page, 'object.convert', { target: 'CURVE' });
+  expect(await get(page, `app.activeObject.type`)).toBe('CURVE');
+  expect(await get(page, `app.doc.curves[app.activeObject.data].splines.length > 0`)).toBe(true);
+  await expectNoErrors(errors);
+});

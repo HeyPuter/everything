@@ -235,7 +235,8 @@ function rigidBodyMenu(): MenuItem[] {
 export function convertMenu(): MenuItem[] {
   return [
     { label: 'Mesh', icon: 'outliner_ob_mesh', op: 'object.convert', props: { target: 'MESH' } },
-    { label: 'Curve', icon: 'outliner_ob_curve', op: 'object.convert', props: { target: 'CURVE' }, disabled: !app.selectedObjects().some((o) => o.type === 'MESH') },
+    { label: 'Curve', icon: 'outliner_ob_curve', op: 'object.convert', props: { target: 'CURVE' }, disabled: !app.selectedObjects().some((o) => o.type === 'MESH' || o.type === 'FONT') },
+    { label: 'Point Cloud', icon: 'outliner_ob_pointcloud', op: 'object.convert', props: { target: 'POINTCLOUD' }, disabled: !app.selectedObjects().some((o) => o.type === 'MESH' || o.type === 'CURVE' || o.type === 'FONT') },
   ];
 }
 

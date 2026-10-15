@@ -17,6 +17,7 @@ import { edgeChains, surfaceCenter, volumeCenter } from '../object/core';
 import { startInteractiveMirror } from '../object/mirror';
 import { defaultPoseBone } from '../eval/armature';
 import { newModifier } from '../eval/modifiers';
+import { textToCurves } from '../eval/text';
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -1382,13 +1383,51 @@ registerOperators([
     idname: 'object.convert',
     label: 'Convert To',
     description: 'Convert selected objects to another type, applying modifiers',
-    props: [{ id: 'target', label: 'Target', type: 'enum', default: 'MESH', items: [['MESH', 'Mesh'], ['CURVE', 'Curve']] }, { id: 'keep_original', label: 'Keep Original', type: 'bool', default: false }],
+    props: [{ id: 'target', label: 'Target', type: 'enum', default: 'MESH', items: [['MESH', 'Mesh'], ['CURVE', 'Curve'], ['POINTCLOUD', 'Point Cloud']] }, { id: 'keep_original', label: 'Keep Original', type: 'bool', default: false }],
     poll: (ctx) => ctx.doc.mode === 'OBJECT' && app.selectedObjects().length > 0,
     exec: (ctx, p) => {
       const doc = ctx.doc;
+      if (p.target === 'POINTCLOUD') {
+        let n = 0;
+        for (const ob of app.selectedObjects()) {
+          const m = app.graph.get(ob.id)?.mesh;
+          if (!m || (ob.type !== 'MESH' && ob.type !== 'CURVE' && ob.type !== 'FONT')) continue;
+          const target = p.keep_original ? duplicateObject(doc, ob, true) : ob;
+          // point clouds are meshes made of vertices only
+          const me = newMeshData(uniqueName(doc, ob.name, 'meshes'), { positions: new Float32Array(m.positions), offsets: new Uint32Array([0]), indices: new Uint32Array(0), uvs: new Float32Array(0), normals: new Float32Array(0) });
+          me.materials = [...(ob.data ? (doc.meshes[ob.data] ?? doc.curves[ob.data])?.materials ?? [] : [])];
+          doc.meshes[me.id] = me;
+          target.type = 'MESH';
+          target.data = me.id;
+          target.modifiers = [];
+          n++;
+        }
+        purgeOrphans(doc);
+        return n ? undefined : 'CANCELLED';
+      }
       if (p.target === 'CURVE') {
         let n = 0;
         for (const ob of app.selectedObjects()) {
+          if (ob.type === 'FONT' && ob.data && doc.curves[ob.data]) {
+            // text becomes a plain 2D curve made of its glyph outlines
+            const src = doc.curves[ob.data];
+            const target = p.keep_original ? duplicateObject(doc, ob, true) : ob;
+            const cu = newCurve(uniqueName(doc, ob.name, 'curves'));
+            cu.splines = textToCurves(src).map((sp) => cloneShared(sp));
+            cu.dimensions = '2D';
+            cu.fill_mode = src.fill_mode === 'NONE' ? 'NONE' : 'BOTH';
+            cu.extrude = src.extrude;
+            cu.offset = src.offset;
+            cu.bevel_depth = src.bevel_depth;
+            cu.bevel_resolution = src.bevel_resolution;
+            cu.resolution_u = src.resolution_u;
+            cu.materials = [...src.materials];
+            doc.curves[cu.id] = cu;
+            target.type = 'CURVE';
+            target.data = cu.id;
+            n++;
+            continue;
+          }
           if (ob.type !== 'MESH') continue;
           const m = app.graph.get(ob.id)?.mesh;
           if (!m) continue;
@@ -1413,7 +1452,7 @@ registerOperators([
         }
         purgeOrphans(doc);
         if (!n) {
-          app.report('WARNING', 'Only mesh objects can be converted to curves');
+          app.report('WARNING', 'Only meshes and texts can be converted to curves');
           return 'CANCELLED';
         }
         return;

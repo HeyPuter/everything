@@ -726,3 +726,14 @@ describe('rigid body mass', () => {
     expect(ob.rigid_body.mass).toBeCloseTo(8000);
   });
 });
+
+describe('convert to point cloud', () => {
+  it('keeps only the vertices', () => {
+    const ob = cube();
+    select(ob);
+    run('object.convert', { target: 'POINTCLOUD' });
+    const me = meshOf(ob);
+    expect(me.positions.length).toBe(24);
+    expect(me.offsets.length).toBe(1);
+  });
+});
