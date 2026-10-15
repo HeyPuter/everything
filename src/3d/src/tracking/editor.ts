@@ -27,7 +27,8 @@ import { stabilizationMatrix, autoscaleFactor, type Affine2 } from './stabilize'
 import { drawToolbar, drawSidebar, drawPatternPreviews } from './panels';
 import { drawGraph, drawDopesheet, graphPointer, dopesheetPointer, frameGraphAll, frameDopesheetAll } from './graphs';
 import { jobState } from './jobs';
-import { drawMask, maskPointerDown, hostMask, type MaskHost } from '../mask/clipmask';
+import { drawMask, drawSelectShape, maskPointerDown, hostMask, type MaskHost } from '../mask/clipmask';
+import { clipLasso } from './graphops';
 import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskToolbar, maskSidebar } from '../mask/maskui';
 import { maskTable } from '../mask/types';
 
@@ -387,7 +388,10 @@ export class ClipEditor implements Editor {
     ctx.closePath();
     ctx.stroke();
     if (this.mode === 'MASK') drawMask(this, ctx);
-    else this.drawMarkers(ctx, T);
+    else {
+      this.drawMarkers(ctx, T);
+      drawSelectShape(ctx, this.shapeOverlay);
+    }
     if (this.boxRect) {
       const b = this.boxRect;
       ctx.setLineDash([4, 3]);
@@ -743,6 +747,7 @@ export class ClipEditor implements Editor {
     if (!c || jobState.get()) return;
     e.preventDefault();
     if (this.boxPending) return this.boxSelect(e, start, true);
+    if ((e.ctrlKey || e.metaKey) && e.altKey) return clipLasso(this, e, e.shiftKey ? 'SUB' : 'ADD');
     if (e.ctrlKey || e.metaKey) {
       // add marker and slide it
       const [ix, iy] = this.toImage(start.x, start.y);
@@ -995,7 +1000,7 @@ export class ClipEditor implements Editor {
       menu('View', () => viewMenu(this)),
       this.view === 'CLIP' && this.mode === 'MASK'
         ? [menu('Select', () => maskSelectMenu()), menu('Add', () => maskAddMenu()), menu('Mask', () => maskMenu())]
-        : [this.view !== 'DOPESHEET' ? menu('Select', () => selectMenu()) : null, this.view === 'CLIP' ? [menu('Clip', () => clipMenu()), menu('Track', () => trackMenu()), menu('Reconstruction', () => reconstructionMenu())] : null],
+        : [this.view === 'GRAPH' ? menu('Select', () => graphSelectMenu()) : this.view !== 'DOPESHEET' ? menu('Select', () => selectMenu()) : null, this.view === 'CLIP' ? [menu('Clip', () => clipMenu()), menu('Track', () => trackMenu()), menu('Reconstruction', () => reconstructionMenu())] : null],
       h('div', { class: 'hdr-spacer' }),
       this.view === 'CLIP' && this.mode === 'MASK' ? maskBrowse(this) : null,
       h(
@@ -1204,6 +1209,18 @@ function selectMenu(): MenuItem[] {
     opItem('Inverse', 'clip.select_all', { action: 'INVERT' }),
     { separator: true },
     opItem('Box Select', 'clip.select_box'),
+    opItem('Circle Select', 'clip.select_circle'),
+    {
+      label: 'Lasso Select',
+      submenu: () =>
+        (
+          [
+            ['SET', 'Set'],
+            ['ADD', 'Extend'],
+            ['SUB', 'Subtract'],
+          ] as const
+        ).map(([mode, l]) => opItem(l, 'clip.select_lasso', { mode })),
+    },
     { separator: true },
     {
       label: 'Select Grouped',
@@ -1223,6 +1240,20 @@ function selectMenu(): MenuItem[] {
     { separator: true },
     opItem('Stabilization Tracks', 'clip.stabilize_2d_select'),
     opItem('Stabilization Rotation Tracks', 'clip.stabilize_2d_rotation_select'),
+  ];
+}
+
+function graphSelectMenu(): MenuItem[] {
+  return [
+    opItem('All', 'clip.graph_select_all_markers', { action: 'SELECT' }),
+    opItem('None', 'clip.graph_select_all_markers', { action: 'DESELECT' }),
+    opItem('Invert', 'clip.graph_select_all_markers', { action: 'INVERT' }),
+    { separator: true },
+    opItem('Box Select', 'clip.graph_select_box'),
+    { separator: true },
+    opItem('Delete Knots', 'clip.graph_delete_knot'),
+    opItem('Delete Curve', 'clip.graph_delete_curve'),
+    opItem('Toggle Disabled Knots', 'clip.graph_disable_markers', { action: 'TOGGLE' }),
   ];
 }
 

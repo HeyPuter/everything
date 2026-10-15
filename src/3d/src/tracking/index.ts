@@ -9,6 +9,7 @@ import './style';
 import './follow';
 import './editor';
 import './ops';
+import './graphops';
 import './constraintui';
 import '../mask/index';
 import { registerWorkspaceTemplate, A, H, V } from '../ui/screen';

@@ -142,18 +142,21 @@ export function drawMask(ed: MaskHost, g: CanvasRenderingContext2D) {
       }
     }
   }
-  const sh = ed.shapeOverlay;
-  if (sh) {
-    g.save();
-    g.setLineDash([4, 3]);
-    g.strokeStyle = '#fff';
-    g.beginPath();
-    if (sh.kind === 'circle') g.arc(sh.x, sh.y, sh.r, 0, Math.PI * 2);
-    else sh.pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
-    if (sh.kind === 'lasso') g.closePath();
-    g.stroke();
-    g.restore();
-  }
+  drawSelectShape(g, ed.shapeOverlay);
+}
+
+/** Circle / lasso / box outline while selecting. */
+export function drawSelectShape(g: CanvasRenderingContext2D, sh: MaskHost['shapeOverlay']) {
+  if (!sh) return;
+  g.save();
+  g.setLineDash([4, 3]);
+  g.strokeStyle = '#fff';
+  g.beginPath();
+  if (sh.kind === 'circle') g.arc(sh.x, sh.y, sh.r, 0, Math.PI * 2);
+  else sh.pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+  if (sh.kind === 'lasso') g.closePath();
+  g.stroke();
+  g.restore();
 }
 
 // ---------------------------------------------------------------------------
