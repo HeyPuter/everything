@@ -19,7 +19,7 @@ interface KPoint {
   screen: { x: number; y: number };
 }
 
-let state: { v: View3D; points: KPoint[]; cursor: KPoint | null; cuts: KPoint[][]; cutThrough: boolean; onlySelected: boolean; midpoints: boolean; noSnap: boolean } | null = null;
+let state: { v: View3D; points: KPoint[]; cursor: KPoint | null; cuts: KPoint[][]; cutThrough: boolean; onlySelected: boolean; midpoints: boolean; noSnap: boolean; axis: number; angleSnap: boolean } | null = null;
 
 editModeHooks.svg.push((v) => {
   if (!state || state.v !== v) return null;
@@ -75,6 +75,38 @@ function snap(v: View3D, x: number, y: number): KPoint | null {
     }
   }
   return null;
+}
+
+/** The next cut point under axis or angle constraints (relative to the last point), or null. */
+function constrained(v: View3D, p: { x: number; y: number }): KPoint | null {
+  if (!state) return null;
+  const last = state.points[state.points.length - 1];
+  if (!last || (state.axis < 0 && !state.angleSnap)) return null;
+  if (state.axis >= 0) {
+    // closest point on the axis line through the last point to the mouse ray
+    const dir = new Vector3().setComponent(state.axis, 1);
+    const { origin, dir: rd } = v.ray(p.x, p.y);
+    const w0 = last.world.clone().sub(origin);
+    const b = dir.dot(rd),
+      d = dir.dot(w0),
+      e = rd.dot(w0);
+    const denom = 1 - b * b;
+    const t = Math.abs(denom) < 1e-9 ? 0 : (b * e - d) / denom;
+    const world = last.world.clone().addScaledVector(dir, t);
+    return { world, screen: v.project(world) };
+  }
+  // screen angle snapped to 30° steps
+  const dx = p.x - last.screen.x,
+    dy = p.y - last.screen.y;
+  const len = Math.hypot(dx, dy);
+  const step = Math.PI / 6;
+  const ang = Math.round(Math.atan2(dy, dx) / step) * step;
+  const q = { x: last.screen.x + Math.cos(ang) * len, y: last.screen.y + Math.sin(ang) * len };
+  const saved = state.noSnap;
+  state.noSnap = true;
+  const hit = snap(v, q.x, q.y);
+  state.noSnap = saved;
+  return hit ?? { world: v.unproject(q.x, q.y, last.world), screen: q };
 }
 
 /** Cut faces of one mesh with a segment A→B (world space) seen from the view. */
@@ -246,7 +278,7 @@ export function cutObject(v: View3D, ob: ObjectData, me: MeshData, cuts: KPoint[
 function start(opts: { occlude?: boolean; onlySelected?: boolean } = {}): 'RUNNING_MODAL' | 'CANCELLED' {
   const v = activeView3D();
   if (!v) return 'CANCELLED';
-  state = { v, points: [], cursor: null, cuts: [], cutThrough: opts.occlude === false, onlySelected: !!opts.onlySelected, midpoints: false, noSnap: false };
+  state = { v, points: [], cursor: null, cuts: [], cutThrough: opts.occlude === false, onlySelected: !!opts.onlySelected, midpoints: false, noSnap: false, axis: -1, angleSnap: false };
   const on = (b: boolean) => (b ? 'On' : 'Off');
   const local = (e: { clientX: number; clientY: number }) => {
     const r = v.el.getBoundingClientRect();
@@ -254,12 +286,12 @@ function start(opts: { occlude?: boolean; onlySelected?: boolean } = {}): 'RUNNI
   };
   app.startModal({
     label: 'Knife',
-    header: () => `Knife: [C] Cut Through: ${on(!!state?.cutThrough)}   [Shift] Midpoint Snap: ${on(!!state?.midpoints)}   [Ctrl] Ignore Snap: ${on(!!state?.noSnap)}`,
-    status: () => [['LMB', 'Cut Point'], ['Double-click', 'Close Cut'], ['RMB', 'New Cut'], ['Ctrl Z', 'Undo Point'], ['C', 'Cut Through'], ['Enter', 'Confirm'], ['Esc', 'Cancel']],
+    header: () => `Knife: [C] Cut Through: ${on(!!state?.cutThrough)}   [Shift] Midpoint Snap: ${on(!!state?.midpoints)}   [Ctrl] Ignore Snap: ${on(!!state?.noSnap)}   [A] Angle Snap: ${on(!!state?.angleSnap)}   [X/Y/Z] Axis: ${state && state.axis >= 0 ? 'XYZ'[state.axis] : 'None'}`,
+    status: () => [['LMB', 'Cut Point'], ['Double-click', 'Close Cut'], ['RMB', 'New Cut'], ['Ctrl Z', 'Undo Point'], ['C', 'Cut Through'], ['A', 'Angle Snap'], ['X Y Z', 'Axis'], ['Enter', 'Confirm'], ['Esc', 'Cancel']],
     onPointerMove(e) {
       if (!state) return;
       const p = local(e);
-      state.cursor = snap(v, p.x, p.y) ?? { world: v.unproject(p.x, p.y, state.points[state.points.length - 1]?.world ?? new Vector3(...app.doc.scene.cursor.location)), screen: p };
+      state.cursor = constrained(v, p) ?? snap(v, p.x, p.y) ?? { world: v.unproject(p.x, p.y, state.points[state.points.length - 1]?.world ?? new Vector3(...app.doc.scene.cursor.location)), screen: p };
       v.drawSvg();
     },
     onPointerDown(e) {
@@ -272,7 +304,7 @@ function start(opts: { occlude?: boolean; onlySelected?: boolean } = {}): 'RUNNI
       }
       if (e.button !== 0) return;
       const p = local(e);
-      const k = snap(v, p.x, p.y);
+      const k = constrained(v, p) ?? snap(v, p.x, p.y);
       if (e.detail >= 2) {
         // double-click closes the current cut back to its first point
         if (state.points.length >= 3) state.points.push(state.points[0]);
@@ -304,6 +336,15 @@ function start(opts: { occlude?: boolean; onlySelected?: boolean } = {}): 'RUNNI
       }
       if ((e.key === 'c' || e.key === 'C' || e.key === 'v' || e.key === 'V') && state) {
         state.cutThrough = !state.cutThrough;
+        return true;
+      }
+      const ax = 'xyz'.indexOf(e.key.toLowerCase());
+      if (ax >= 0 && state && !e.ctrlKey && !e.metaKey) {
+        state.axis = state.axis === ax ? -1 : ax;
+        return true;
+      }
+      if ((e.key === 'a' || e.key === 'A') && state) {
+        state.angleSnap = !state.angleSnap;
         return true;
       }
       if (e.key === 'Enter' || e.key === ' ') {
