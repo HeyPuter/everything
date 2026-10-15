@@ -235,3 +235,32 @@ test('smoke renders in the realtime engine and follows volume settings', async (
   expect(difference(shadowed, unlit)).toBeGreaterThan(0.002);
   await expectNoErrors(errors);
 });
+
+test('a bright sky gives up its sun as a shadow-casting light', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const w = a.doc.worlds[a.doc.scene.world];
+    const bg = w.tree.nodes.find((n: any) => n.type === 'ShaderNodeBackground');
+    w.tree.nodes.push({ id: 'sky1', type: 'ShaderNodeTexSky', name: 'Sky Texture', location: [-200, 300], inputs: {}, props: {} });
+    w.tree.links.push({ id: 'lk-sky', from_node: 'sky1', from_socket: 'Color', to_node: bg.id, to_socket: 'Color' });
+    for (const o of Object.values(a.doc.objects) as any[]) if (o.type === 'LIGHT') o.hide_render = true;
+    a.run('mesh.primitive_plane_add', { size: 20, location: [0, 0, -1] });
+    w.sun_threshold = 0;
+    a.changed('doc');
+  });
+  const plain = await renderPixels(page);
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.doc.worlds[a.doc.scene.world].sun_threshold = 5;
+    a.changed('doc');
+  });
+  const sun = await renderPixels(page);
+  expect(difference(plain, sun)).toBeGreaterThan(0.01);
+  // World ▸ Settings ▸ Sun
+  const props = page.locator('.properties').first();
+  await props.locator('.rail-tab[data-tab="WORLD"]').click();
+  await props.locator('[data-panel="wo-rt-settings"] > .panel-header .ph-title').click();
+  await expect(props.getByText('Threshold', { exact: true })).toBeVisible();
+  await expectNoErrors(errors);
+});

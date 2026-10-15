@@ -34,6 +34,11 @@ import { installLightInfluence } from '../realtime/lightinfluence';
 import { shadowSettings, lightShadowOptions, lightRange } from '../realtime/settings';
 import { jitteredLightMatrix, lightShadowMapSize } from '../realtime/shadows';
 import { castsShadow, transparentShadowMaterials } from '../realtime/materialfx';
+import { worldSunOptions } from '../realtime/settings';
+import { splitWorldSun } from '../realtime/worldsun';
+
+/** Entry id of the sun light extracted from the world. */
+const WORLD_SUN = '__world_sun__';
 
 export interface BuildOptions {
   mode: 'raster' | 'pathtrace';
@@ -142,7 +147,7 @@ export class RenderScene {
       }
     }
     for (const [id, e] of this.entries)
-      if (!seen.has(id)) {
+      if (!seen.has(id) && id !== WORLD_SUN) {
         for (const m of e.meshes) this.scene.remove(m);
         if (e.meshes.length) structure = true;
         if (e.light) {
@@ -154,8 +159,9 @@ export class RenderScene {
       }
     if (!box.isEmpty()) box.getBoundingSphere(this.bounds);
     else this.bounds.set(new Vector3(), 1);
-    this.fitSunShadows(doc);
     this.syncEnvironment(doc, o);
+    if (this.syncWorldSun(doc, o)) lights = true;
+    this.fitSunShadows(doc);
     for (const hk of renderSceneHooks) hk(this, app, o);
     for (const e of this.entries.values()) if (e.light) (e.base ??= new Matrix4()).copy(e.light.matrix);
     this.scene.updateMatrixWorld(true);
@@ -367,6 +373,8 @@ export class RenderScene {
         budget: sun ? cascade : cube,
         scale: ss.scale,
       });
+      // keep the normal offset above one texel of the map to avoid shadow acne
+      L.shadow.normalBias = Math.max(0.02, ((sun ? 3 : 1.5) * (sun ? 2 * b.radius : 2 * dist * half)) / size);
       if (L.shadow.mapSize.x !== size) {
         L.shadow.mapSize.set(size, size);
         L.shadow.map?.dispose();
@@ -423,6 +431,59 @@ export class RenderScene {
       cam.far = r * 4;
       cam.updateProjectionMatrix();
     }
+  }
+
+  /**
+   * Realtime: world light above the world's Sun Threshold becomes a sun light (with shadows)
+   * and is removed from the environment lighting. Returns true when the lights changed.
+   */
+  private syncWorldSun(doc: DocumentData, o: BuildOptions): boolean {
+    const world = doc.scene.world ? doc.worlds[doc.scene.world] : null;
+    const opts = worldSunOptions(world);
+    const env = this.mode === 'raster' && o.useSceneWorld !== false && opts.threshold > 0 ? worldEnvironment(doc) : null;
+    const split = env && !env.color ? splitWorldSun(env, opts.threshold) : null;
+    const prev = this.entries.get(WORLD_SUN);
+    if (!split) {
+      if (!prev) return false;
+      if (prev.light) {
+        this.scene.remove(prev.light);
+        prev.light.dispose();
+      }
+      this.entries.delete(WORLD_SUN);
+      return true;
+    }
+    this.scene.environment = split.texture;
+    this.envKey += '|sun';
+    const m = Math.max(...split.irradiance, 1e-6);
+    const la: LightData = {
+      id: WORLD_SUN,
+      name: 'World Sun',
+      type: 'SUN',
+      color: [split.irradiance[0] / m, split.irradiance[1] / m, split.irradiance[2] / m],
+      energy: m,
+      shadow_soft_size: 0,
+      angle: opts.angle,
+      spot_size: 0,
+      spot_blend: 0,
+      show_cone: false,
+      shape: 'SQUARE',
+      size: 0,
+      size_y: 0,
+      use_shadow: opts.shadow,
+      diffuse_factor: 1,
+      specular_factor: 1,
+      volume_factor: 1,
+      use_shadow_jitter: opts.jitter,
+      shadow_jitter_overblur: opts.overblur,
+      shadow_filter_radius: opts.filter,
+      shadow_maximum_resolution: opts.limit,
+    };
+    let e = prev;
+    if (!e) this.entries.set(WORLD_SUN, (e = { meshes: [] }));
+    const d = new Vector3(...split.direction);
+    const up = Math.abs(d.z) > 0.99 ? new Vector3(1, 0, 0) : new Vector3(0, 0, 1);
+    const world4 = new Matrix4().lookAt(d, new Vector3(), up);
+    return this.syncLight(la, world4, e);
   }
 
   private syncEnvironment(doc: DocumentData, o: BuildOptions) {

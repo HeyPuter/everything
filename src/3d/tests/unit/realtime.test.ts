@@ -185,3 +185,34 @@ describe('ambient occlusion pass', async () => {
     expect(b[(H / 2) * W + 1]).toBeGreaterThan(b[(H / 2) * W + W / 2 - 1]);
   });
 });
+
+describe('world sun extraction', async () => {
+  const { extractSun } = await import('../../src/render/realtime/worldsun');
+  const { texelDirection } = await import('../../src/render/final/environment');
+  it('moves light above the threshold into a sun pointing at it', () => {
+    const W = 64,
+      H = 32;
+    const data = new Float32Array(W * H * 4);
+    for (let i = 0; i < W * H; i++) data.set([0.5, 0.5, 0.5, 1], i * 4);
+    // a bright texel up and towards +X
+    const dir: [number, number, number] = [Math.SQRT1_2, 0, Math.SQRT1_2];
+    // the texel whose direction is closest
+    let k = 0,
+      best = -2;
+    for (let j = 0; j < H; j++)
+      for (let i = 0; i < W; i++) {
+        const d = texelDirection((i + 0.5) / W, (j + 0.5) / H);
+        const c = d[0] * dir[0] + d[1] * dir[1] + d[2] * dir[2];
+        if (c > best) [best, k] = [c, (j * W + i) * 4];
+      }
+    data.set([100, 100, 100, 1], k);
+    const s = extractSun(data, W, H, 10)!;
+    expect(s).not.toBeNull();
+    expect(s.direction[0]).toBeGreaterThan(0.6);
+    expect(s.direction[2]).toBeGreaterThan(0.6);
+    expect(s.irradiance[0]).toBeGreaterThan(0);
+    expect(s.data[k]).toBeCloseTo(10);
+    expect(s.data[0]).toBe(0.5);
+    expect(extractSun(data, W, H, 1000)).toBeNull();
+  });
+});
