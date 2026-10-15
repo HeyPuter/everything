@@ -2,72 +2,31 @@
 // and static hair strands with simple children. Evaluated by the Particle System
 // modifier; points/strands are drawn by the viewport overlay (draw.ts), objects are
 // instanced through EvalMesh.instances.
-import { Matrix4, Quaternion, Vector3, Vector3 as V3 } from "three";
-import type { DocumentData, ObjectData, ModifierBase } from "../data/types";
-import type {
-  EvalMesh,
-  GeometryInstance,
-  ModifierContext,
-} from "../eval/types";
-import type { Depsgraph } from "../eval/depsgraph";
-import { meshSignature } from "../eval/depsgraph";
-import { registerModifier } from "../eval/modifiers";
-import {
-  arrayChecksum,
-  frameOf,
-  getCache,
-  motionKey,
-  outOfTime,
-  rand01,
-  strHash,
-  worldAt,
-  type FrameCache,
-  type SimContext,
-} from "./common";
-import {
-  applyGuides,
-  guidesOf,
-  newGuideState,
-  type GuideState,
-} from "./guides";
-import {
-  boidAccelerations,
-  clampSpeed,
-  defaultBoidSettings,
-  ruleObjects,
-  type BoidSettings,
-} from "./boids";
-import {
-  defaultParticleFluid,
-  relaxFluid,
-  type ParticleFluidSettings,
-} from "./sph";
-import { keyedPosition, keyedTargetPositions, type KeyedTarget } from "./keyed";
-import {
-  collectEffectors,
-  effectorForce,
-  fieldsKey,
-  valueNoise,
-} from "./fields";
-import { buildColliders, collidersKey, segmentHit, newHit } from "./colliders";
-import { MeshSampler, newSample, valueAt, type Sample } from "./sampling";
-import { groupWeights } from "../eval/meshbuild";
-import { hairDynKey, hairWithDynamics } from "./hairdyn";
-import { physicsDoc } from "./state";
-import { localMatrix as localMatrixOf } from "../eval/transform";
-import { fps, gravityOf, simDeps } from "./meshsim";
-import {
-  defaultParticleSettings,
-  defaultPointCache,
-  type CollisionSettingsX,
-  type ParticleSettingsX,
-  type ParticleSystemX,
-} from "./types";
+import { Matrix4, Quaternion, Vector3, Vector3 as V3 } from 'three';
+import type { DocumentData, ObjectData, ModifierBase } from '../data/types';
+import type { EvalMesh, GeometryInstance, ModifierContext } from '../eval/types';
+import type { Depsgraph } from '../eval/depsgraph';
+import { meshSignature } from '../eval/depsgraph';
+import { registerModifier } from '../eval/modifiers';
+import { arrayChecksum, frameOf, getCache, motionKey, outOfTime, rand01, strHash, worldAt, type FrameCache, type SimContext } from './common';
+import { applyGuides, guidesOf, newGuideState, type GuideState } from './guides';
+import { boidAccelerations, clampSpeed, defaultBoidSettings, ruleObjects, type BoidSettings } from './boids';
+import { defaultParticleFluid, relaxFluid, type ParticleFluidSettings } from './sph';
+import { keyedPosition, keyedTargetPositions, type KeyedTarget } from './keyed';
+import { collectEffectors, effectorForce, fieldsKey, valueNoise } from './fields';
+import { buildColliders, collidersKey, segmentHit, newHit } from './colliders';
+import { MeshSampler, newSample, valueAt, type Sample } from './sampling';
+import { groupWeights } from '../eval/meshbuild';
+import { hairDynKey, hairWithDynamics } from './hairdyn';
+import { physicsDoc } from './state';
+import { localMatrix as localMatrixOf } from '../eval/transform';
+import { fps, gravityOf, simDeps } from './meshsim';
+import { defaultParticleSettings, defaultPointCache, type CollisionSettingsX, type ParticleSettingsX, type ParticleSystemX } from './types';
 
 export interface ParticleDraw {
   objectId: string;
   /** points (world space when space = 'WORLD', else object space) */
-  space: "WORLD" | "LOCAL";
+  space: 'WORLD' | 'LOCAL';
   points: Float32Array | null;
   sizes: Float32Array | null;
   /** line segments (pairs of points) */
@@ -79,68 +38,53 @@ export interface ParticleDraw {
 /** Latest evaluated draw data per `${object id}:${modifier id}` (viewport evaluation only). */
 export const particleDraw = new Map<string, ParticleDraw>();
 
-export function settingsOf(
-  doc: DocumentData,
-  psys: ParticleSystemX,
-): ParticleSettingsX | null {
+export function settingsOf(doc: DocumentData, psys: ParticleSystemX): ParticleSettingsX | null {
   const s = doc.particles[psys.settings] as ParticleSettingsX | undefined;
-  return s
-    ? ({ ...defaultParticleSettings(s.id, s.name), ...s } as ParticleSettingsX)
-    : null;
+  return s ? ({ ...defaultParticleSettings(s.id, s.name), ...s } as ParticleSettingsX) : null;
 }
 
-export function systemOf(
-  ob: ObjectData,
-  m: ModifierBase,
-): ParticleSystemX | undefined {
+export function systemOf(ob: ObjectData, m: ModifierBase): ParticleSystemX | undefined {
   const id = m.particle_system as string | undefined;
-  return (ob.particle_systems as ParticleSystemX[]).find(
-    (p) => (p as { id?: string }).id === id,
-  );
+  return (ob.particle_systems as ParticleSystemX[]).find((p) => (p as { id?: string }).id === id);
 }
 
 const SIM_KEYS: (keyof ParticleSettingsX)[] = [
-  "type",
-  "count",
-  "frame_start",
-  "frame_end",
-  "lifetime",
-  "lifetime_random",
-  "emit_from",
-  "normal_factor",
-  "object_align_factor",
-  "factor_random",
-  "object_factor",
-  "mass",
-  "effector_weights_gravity",
-  "effector_weights_all",
-  "drag_factor",
-  "brownian_factor",
-  "damping",
-  "physics_type",
-  "timestep_substeps",
-  "use_collision",
-  "seed",
-  "boids",
-  "fluid",
-  "keyed_targets",
-  "keyed_loops",
-  "effector_weights_types",
+  'type',
+  'count',
+  'frame_start',
+  'frame_end',
+  'lifetime',
+  'lifetime_random',
+  'emit_from',
+  'normal_factor',
+  'object_align_factor',
+  'factor_random',
+  'object_factor',
+  'mass',
+  'effector_weights_gravity',
+  'effector_weights_all',
+  'drag_factor',
+  'brownian_factor',
+  'damping',
+  'physics_type',
+  'timestep_substeps',
+  'use_collision',
+  'seed',
+  'boids',
+  'fluid',
+  'keyed_targets',
+  'keyed_loops',
+  'effector_weights_types',
 ];
 
 /** Weights of one of the particle system's vertex groups (inverted when asked), or null. */
-export function psysGroup(
-  mesh: EvalMesh,
-  psys: ParticleSystemX,
-  kind: "density" | "length" | "size" | "velocity",
-): Float32Array | null {
+export function psysGroup(mesh: EvalMesh, psys: ParticleSystemX, kind: 'density' | 'length' | 'size' | 'velocity'): Float32Array | null {
   const name = psys[`vertex_group_${kind}`];
   if (!name) return null;
   const w = groupWeights(mesh, name);
   if (!w) return null;
   const out = Float32Array.from(w);
-  if (psys[`invert_vertex_group_${kind}`])
-    for (let i = 0; i < out.length; i++) out[i] = 1 - out[i];
+  if (psys[`invert_vertex_group_${kind}`]) for (let i = 0; i < out.length; i++) out[i] = 1 - out[i];
   return out;
 }
 
@@ -148,15 +92,7 @@ export function particleCacheKey(ob: ObjectData, m: ModifierBase) {
   return `PARTICLES:${ob.id}:${m.id}`;
 }
 
-function simHash(
-  doc: DocumentData,
-  ob: ObjectData,
-  m: ModifierBase,
-  psys: ParticleSystemX,
-  s: ParticleSettingsX,
-  mesh: EvalMesh | null,
-  source: ModifierContext["source"],
-): string {
+function simHash(doc: DocumentData, ob: ObjectData, m: ModifierBase, psys: ParticleSystemX, s: ParticleSettingsX, mesh: EvalMesh | null, source: ModifierContext['source']): string {
   const pc = psys.point_cache ?? defaultPointCache();
   const before: unknown[] = [];
   for (const x of ob.modifiers) {
@@ -164,43 +100,33 @@ function simHash(
     before.push(x);
   }
   const parts = [
-    SIM_KEYS.map((k) => JSON.stringify(s[k])).join(","),
+    SIM_KEYS.map((k) => JSON.stringify(s[k])).join(','),
     psys.seed,
-    JSON.stringify([
-      psys.vertex_group_density,
-      psys.invert_vertex_group_density,
-      psys.vertex_group_size,
-      psys.invert_vertex_group_size,
-      psys.vertex_group_velocity,
-      psys.invert_vertex_group_velocity,
-    ]),
+    JSON.stringify([psys.vertex_group_density, psys.invert_vertex_group_density, psys.vertex_group_size, psys.invert_vertex_group_size, psys.vertex_group_velocity, psys.invert_vertex_group_velocity]),
     pc.frame_start,
     pc.frame_end,
     JSON.stringify(before),
-    source ? meshSignature(source) : "",
-    mesh ? `${mesh.positions.length}:${arrayChecksum(mesh.indices)}` : "",
+    source ? meshSignature(source) : '',
+    mesh ? `${mesh.positions.length}:${arrayChecksum(mesh.indices)}` : '',
     doc.scene.use_gravity,
-    doc.scene.gravity.join(","),
+    doc.scene.gravity.join(','),
     fps(doc),
     motionKey(doc, ob, pc.frame_start),
-    s.use_collision ? collidersKey(doc, pc.frame_start, ob.id) : "",
+    s.use_collision ? collidersKey(doc, pc.frame_start, ob.id) : '',
     fieldsKey(doc, pc.frame_start),
   ];
   // keyed targets and boid rule objects take part in the motion
-  if (s.physics_type === "KEYED")
+  if (s.physics_type === 'KEYED')
     for (const t of s.keyed_targets ?? []) {
       const o = t.object ? doc.objects[t.object] : undefined;
-      if (o)
-        parts.push(
-          `${o.id}:${JSON.stringify(o.particle_systems)}:${JSON.stringify(o.particle_systems.map((p) => doc.particles[p.settings]))}:${motionKey(doc, o, pc.frame_start)}`,
-        );
+      if (o) parts.push(`${o.id}:${JSON.stringify(o.particle_systems)}:${JSON.stringify(o.particle_systems.map((p) => doc.particles[p.settings]))}:${motionKey(doc, o, pc.frame_start)}`);
     }
-  if (s.physics_type === "BOIDS")
+  if (s.physics_type === 'BOIDS')
     for (const r of s.boids?.rules ?? []) {
       const o = r.object ? doc.objects[r.object] : undefined;
       if (o) parts.push(`${o.id}:${motionKey(doc, o, pc.frame_start)}`);
     }
-  return strHash(parts.join("#"));
+  return strHash(parts.join('#'));
 }
 
 // ---------------------------------------------------------------------------
@@ -240,29 +166,21 @@ export interface EmitterResult {
   sizeMul: Float32Array | null;
 }
 
-function initLive(
-  s: ParticleSettingsX,
-  seed: number,
-  mesh: EvalMesh,
-  psys?: ParticleSystemX,
-): PLive {
+function initLive(s: ParticleSettingsX, seed: number, mesh: EvalMesh, psys?: ParticleSystemX): PLive {
   const n = Math.max(0, Math.floor(s.count));
   const birth = new Float32Array(n),
     life = new Float32Array(n);
   const span = s.frame_end - s.frame_start;
-  const density = psys ? psysGroup(mesh, psys, "density") : null;
-  const sizeW = psys ? psysGroup(mesh, psys, "size") : null;
-  const velW = psys ? psysGroup(mesh, psys, "velocity") : null;
+  const density = psys ? psysGroup(mesh, psys, 'density') : null;
+  const sizeW = psys ? psysGroup(mesh, psys, 'size') : null;
+  const velW = psys ? psysGroup(mesh, psys, 'velocity') : null;
   const sampler = new MeshSampler(mesh, density);
   const samples: Sample[] = [];
   const sizeMul = sizeW ? new Float32Array(n) : null,
     velMul = velW ? new Float32Array(n) : null;
   for (let i = 0; i < n; i++) {
     birth[i] = s.frame_start + (n > 0 ? (span * i) / n : 0);
-    life[i] = Math.max(
-      1,
-      s.lifetime * (1 - s.lifetime_random * rand01(seed, i, 1)),
-    );
+    life[i] = Math.max(1, s.lifetime * (1 - s.lifetime_random * rand01(seed, i, 1)));
     const sm = newSample();
     if (!sampler.sample(s.emit_from, seed, i, sm)) {
       // nothing to emit from (e.g. a density group without weights): never born
@@ -273,19 +191,7 @@ function initLive(
     if (velMul) velMul[i] = valueAt(sampler, velW!, sm);
     samples.push(sm);
   }
-  return {
-    pos: new Float32Array(n * 3),
-    vel: new Float32Array(n * 3),
-    state: new Uint8Array(n),
-    birth,
-    life,
-    samples,
-    sampler,
-    step: 0,
-    guides: newGuideState(),
-    sizeMul,
-    velMul,
-  };
+  return { pos: new Float32Array(n * 3), vel: new Float32Array(n * 3), state: new Uint8Array(n), birth, life, samples, sampler, step: 0, guides: newGuideState(), sizeMul, velMul };
 }
 
 const _v = new Vector3(),
@@ -294,22 +200,12 @@ const _v = new Vector3(),
 const hit = newHit();
 
 function lerpMatrix(a: Matrix4, b: Matrix4, t: number, out: Matrix4) {
-  for (let i = 0; i < 16; i++)
-    out.elements[i] = a.elements[i] + (b.elements[i] - a.elements[i]) * t;
+  for (let i = 0; i < 16; i++) out.elements[i] = a.elements[i] + (b.elements[i] - a.elements[i]) * t;
   return out;
 }
 
 /** Spawn particle i at frame time tb (between frame k-1 matrix A and frame k matrix B). */
-function spawn(
-  L: PLive,
-  s: ParticleSettingsX,
-  seed: number,
-  i: number,
-  A: Matrix4,
-  B: Matrix4,
-  k: number,
-  fpsv: number,
-) {
+function spawn(L: PLive, s: ParticleSettingsX, seed: number, i: number, A: Matrix4, B: Matrix4, k: number, fpsv: number) {
   const tb = L.birth[i];
   const frac = Math.min(1, Math.max(0, tb - (k - 1)));
   const M = lerpMatrix(A, B, frac, new Matrix4());
@@ -318,29 +214,12 @@ function spawn(
   L.pos[i * 3] = _v.x;
   L.pos[i * 3 + 1] = _v.y;
   L.pos[i * 3 + 2] = _v.z;
-  if (s.physics_type === "NO") return;
+  if (s.physics_type === 'NO') return;
   // initial velocity: normal + object aligned + random + emitter motion
-  _n.set(sm.nx, sm.ny, sm.nz)
-    .transformDirection(M)
-    .multiplyScalar(s.normal_factor);
-  _a.set(
-    s.object_align_factor[0],
-    s.object_align_factor[1],
-    s.object_align_factor[2],
-  )
-    .transformDirection(M)
-    .multiplyScalar(Math.hypot(...s.object_align_factor));
+  _n.set(sm.nx, sm.ny, sm.nz).transformDirection(M).multiplyScalar(s.normal_factor);
+  _a.set(s.object_align_factor[0], s.object_align_factor[1], s.object_align_factor[2]).transformDirection(M).multiplyScalar(Math.hypot(...s.object_align_factor));
   _n.add(_a);
-  if (s.factor_random)
-    _n.add(
-      _a
-        .set(
-          rand01(seed, i, 30) * 2 - 1,
-          rand01(seed, i, 31) * 2 - 1,
-          rand01(seed, i, 32) * 2 - 1,
-        )
-        .multiplyScalar(s.factor_random),
-    );
+  if (s.factor_random) _n.add(_a.set(rand01(seed, i, 30) * 2 - 1, rand01(seed, i, 31) * 2 - 1, rand01(seed, i, 32) * 2 - 1).multiplyScalar(s.factor_random));
   if (s.object_factor) {
     const p0 = new Vector3(sm.px, sm.py, sm.pz).applyMatrix4(A),
       p1 = new Vector3(sm.px, sm.py, sm.pz).applyMatrix4(B);
@@ -353,81 +232,34 @@ function spawn(
 }
 
 /** Advance the emitter from frame k-1 to k. */
-export function stepParticles(
-  L: PLive,
-  s: ParticleSettingsX,
-  seed: number,
-  k: number,
-  A: Matrix4,
-  B: Matrix4,
-  ctx: SimContext,
-  ob: ObjectData,
-  timeScale = 1,
-) {
+export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: number, A: Matrix4, B: Matrix4, ctx: SimContext, ob: ObjectData, timeScale = 1) {
   const n = L.state.length;
   const fpsv = fps(ctx.doc);
   const sub = Math.max(1, Math.round(s.timestep_substeps ?? 1));
   const dtf = 1 / sub; // frames per substep
   const dt = (dtf / fpsv) * timeScale;
-  const g = gravityOf(
-    ctx.doc,
-    (s.effector_weights_gravity ?? 1) * (s.effector_weights_all ?? 1),
-  );
+  const g = gravityOf(ctx.doc, (s.effector_weights_gravity ?? 1) * (s.effector_weights_all ?? 1));
   const effs = collectEffectors(ctx, k - 1, ob.id);
-  const cols =
-    s.use_collision !== false && s.physics_type !== "NO"
-      ? buildColliders(ctx, k, ob.id, 0.05)
-      : [];
+  const cols = s.use_collision !== false && s.physics_type !== 'NO' ? buildColliders(ctx, k, ob.id, 0.05) : [];
   const invMass = 1 / Math.max(1e-4, s.mass);
   const f = [0, 0, 0];
   const damp = Math.pow(1 - Math.min(1, Math.max(0, s.damping ?? 0)), dtf);
-  const boids =
-    s.physics_type === "BOIDS"
-      ? ({ ...defaultBoidSettings(), ...(s.boids ?? {}) } as BoidSettings)
-      : null;
-  const fluid =
-    s.physics_type === "FLUID"
-      ? ({
-          ...defaultParticleFluid(),
-          ...(s.fluid ?? {}),
-        } as ParticleFluidSettings)
-      : null;
-  const keyed =
-    s.physics_type === "KEYED"
-      ? keyedTargetPositions(ctx.doc, s.keyed_targets ?? [], k)
-      : null;
+  const boids = s.physics_type === 'BOIDS' ? ({ ...defaultBoidSettings(), ...(s.boids ?? {}) } as BoidSettings) : null;
+  const fluid = s.physics_type === 'FLUID' ? ({ ...defaultParticleFluid(), ...(s.fluid ?? {}) } as ParticleFluidSettings) : null;
+  const keyed = s.physics_type === 'KEYED' ? keyedTargetPositions(ctx.doc, s.keyed_targets ?? [], k) : null;
   const boidAcc = boids ? new Float32Array(n * 3) : null;
   const prevPos = fluid ? new Float32Array(n * 3) : null;
   const alive = (i: number) => L.state[i] === 1;
-  const objects = boids
-    ? ruleObjects(
-        ctx.doc,
-        boids,
-        (id, fr) => {
-          const o = ctx.doc.objects[id];
-          return o ? new V3().setFromMatrixPosition(worldAt(ctx, o, fr)) : null;
-        },
-        k,
-        fpsv,
-      )
-    : null;
+  const objects = boids ? ruleObjects(ctx.doc, boids, (id, fr) => {
+    const o = ctx.doc.objects[id];
+    return o ? new V3().setFromMatrixPosition(worldAt(ctx, o, fr)) : null;
+  }, k, fpsv) : null;
   for (let ss = 0; ss < sub; ss++) {
     const t0 = k - 1 + ss * dtf,
       t1 = t0 + dtf;
     for (const c of cols) c.setTime((ss + 1) / sub);
     L.step++;
-    if (boids && boidAcc)
-      boidAccelerations(
-        boids,
-        L.pos,
-        L.vel,
-        alive,
-        n,
-        objects!,
-        cols,
-        (i, ch) => rand01(seed, i, L.step, 60 + ch),
-        boidAcc,
-      );
+    if (boids && boidAcc) boidAccelerations(boids, L.pos, L.vel, alive, n, objects!, cols, (i, ch) => rand01(seed, i, L.step, 60 + ch), boidAcc);
     if (prevPos) prevPos.set(L.pos);
     for (let i = 0; i < n; i++) {
       let st = L.state[i];
@@ -442,21 +274,14 @@ export function stepParticles(
         L.state[i] = 2;
         continue;
       }
-      if (s.physics_type === "NO") continue;
+      if (s.physics_type === 'NO') continue;
       if (keyed) {
         // keyed particles follow their path from the emission point through the targets
         if (ss === sub - 1) {
           const sm = L.samples[i];
           const start = new V3(sm.px, sm.py, sm.pz).applyMatrix4(B);
           const out = [0, 0, 0];
-          keyedPosition(
-            [start.x, start.y, start.z],
-            keyed,
-            i,
-            (t1 - b) / Math.max(1e-6, L.life[i]),
-            s.keyed_loops ?? 1,
-            out,
-          );
+          keyedPosition([start.x, start.y, start.z], keyed, i, (t1 - b) / Math.max(1e-6, L.life[i]), s.keyed_loops ?? 1, out);
           const j = i * 3;
           L.vel[j] = (out[0] - L.pos[j]) * fpsv;
           L.vel[j + 1] = (out[1] - L.pos[j + 1]) * fpsv;
@@ -478,22 +303,7 @@ export function stepParticles(
         vy = L.vel[j + 1],
         vz = L.vel[j + 2];
       f[0] = f[1] = f[2] = 0;
-      if (effs.length)
-        effectorForce(
-          effs,
-          px,
-          py,
-          pz,
-          vx,
-          vy,
-          vz,
-          t1,
-          f,
-          s.effector_weights_all ?? 1,
-          null,
-          (s as { effector_weights_types?: Record<string, number> })
-            .effector_weights_types ?? null,
-        );
+      if (effs.length) effectorForce(effs, px, py, pz, vx, vy, vz, t1, f, s.effector_weights_all ?? 1, null, (s as { effector_weights_types?: Record<string, number> }).effector_weights_types ?? null);
       // flying boids steer by their rules instead of falling
       let ax = (boidAcc ? boidAcc[i * 3] : g[0]) + f[0] * invMass,
         ay = (boidAcc ? boidAcc[i * 3 + 1] : g[1]) + f[1] * invMass,
@@ -515,12 +325,7 @@ export function stepParticles(
       vz = (vz + az * h) * damp;
       if (boids) {
         const sp = Math.hypot(vx, vy, vz);
-        const t =
-          sp > boids.air_speed_max
-            ? boids.air_speed_max / sp
-            : sp > 1e-9 && sp < boids.air_speed_min
-              ? boids.air_speed_min / sp
-              : 1;
+        const t = sp > boids.air_speed_max ? boids.air_speed_max / sp : sp > 1e-9 && sp < boids.air_speed_min ? boids.air_speed_min / sp : 1;
         vx *= t;
         vy *= t;
         vz *= t;
@@ -530,36 +335,14 @@ export function stepParticles(
         nz = pz + vz * h;
       // collisions: bounce off the first surface crossed during the step
       for (let bounce = 0; bounce < 2 && cols.length; bounce++) {
-        if (
-          !segmentHit(
-            cols,
-            L.pos[j],
-            L.pos[j + 1],
-            L.pos[j + 2],
-            nx,
-            ny,
-            nz,
-            hit,
-          )
-        )
-          break;
+        if (!segmentHit(cols, L.pos[j], L.pos[j + 1], L.pos[j + 2], nx, ny, nz, hit)) break;
         const cs = hit.collider!.settings as CollisionSettingsX;
-        if (
-          (cs.permeability ?? 0) > 0 &&
-          rand01(seed, i, L.step, 50) < (cs.permeability ?? 0)
-        )
-          break;
+        if ((cs.permeability ?? 0) > 0 && rand01(seed, i, L.step, 50) < (cs.permeability ?? 0)) break;
         if (cs.use_particle_kill) {
           L.state[i] = 2;
           break;
         }
-        const side =
-          (L.pos[j] - hit.cx) * hit.nx +
-            (L.pos[j + 1] - hit.cy) * hit.ny +
-            (L.pos[j + 2] - hit.cz) * hit.nz >=
-          0
-            ? 1
-            : -1;
+        const side = (L.pos[j] - hit.cx) * hit.nx + (L.pos[j + 1] - hit.cy) * hit.ny + (L.pos[j + 2] - hit.cz) * hit.nz >= 0 ? 1 : -1;
         const nnx = hit.nx * side,
           nny = hit.ny * side,
           nnz = hit.nz * side;
@@ -572,16 +355,8 @@ export function stepParticles(
           rz = vz - svz;
         const vn = rx * nnx + ry * nny + rz * nnz;
         // per-collision random variation of damping and friction
-        const dmp =
-          (cs.damping_factor ?? 0) +
-          ((cs.damping_random ?? 0)
-            ? (rand01(seed, i, L.step, 51) - 0.5) * (cs.damping_random ?? 0)
-            : 0);
-        const frc =
-          (cs.friction_factor ?? 0) +
-          ((cs.friction_random ?? 0)
-            ? (rand01(seed, i, L.step, 52) - 0.5) * (cs.friction_random ?? 0)
-            : 0);
+        const dmp = (cs.damping_factor ?? 0) + ((cs.damping_random ?? 0) ? (rand01(seed, i, L.step, 51) - 0.5) * (cs.damping_random ?? 0) : 0);
+        const frc = (cs.friction_factor ?? 0) + ((cs.friction_random ?? 0) ? (rand01(seed, i, L.step, 52) - 0.5) * (cs.friction_random ?? 0) : 0);
         const stick = Math.min(1, Math.max(0, cs.stickiness ?? 0));
         const restitution = (1 - Math.min(1, Math.max(0, dmp))) * (1 - stick);
         const keepT = (1 - Math.min(1, Math.max(0, frc))) * (1 - stick);
@@ -608,43 +383,20 @@ export function stepParticles(
       L.vel[j + 1] = vy;
       L.vel[j + 2] = vz;
     }
-    if (fluid && prevPos)
-      relaxFluid(fluid, L.pos, L.vel, prevPos, alive, n, dt);
+    if (fluid && prevPos) relaxFluid(fluid, L.pos, L.vel, prevPos, alive, n, dt);
   }
   // curve guides lead particles along their curves
-  if (s.physics_type !== "NO") {
+  if (s.physics_type !== 'NO') {
     const guides = guidesOf(ctx.doc, effs);
-    if (guides.length)
-      applyGuides(
-        guides,
-        L.guides,
-        L.pos,
-        L.vel,
-        L.state,
-        L.birth,
-        L.life,
-        k,
-        k - 1,
-        (1 / fpsv) * timeScale,
-      );
+    if (guides.length) applyGuides(guides, L.guides, L.pos, L.vel, L.state, L.birth, L.life, k, k - 1, (1 / fpsv) * timeScale);
   }
 }
 
 /** Evaluate the emitter at frame f (stepping the cache from its start frame). */
-export function evaluateEmitter(
-  ob: ObjectData,
-  m: ModifierBase,
-  psys: ParticleSystemX,
-  s: ParticleSettingsX,
-  mesh: EvalMesh,
-  ctx: ModifierContext,
-): EmitterResult | null {
+export function evaluateEmitter(ob: ObjectData, m: ModifierBase, psys: ParticleSystemX, s: ParticleSettingsX, mesh: EvalMesh, ctx: ModifierContext): EmitterResult | null {
   const doc = ctx.doc;
   const pc = psys.point_cache ?? defaultPointCache();
-  const cache = getCache<PFrame, PLive>(particleCacheKey(ob, m)) as FrameCache<
-    PFrame,
-    PLive
-  >;
+  const cache = getCache<PFrame, PLive>(particleCacheKey(ob, m)) as FrameCache<PFrame, PLive>;
   cache.label = `${ob.name} ▸ ${psys.name}`;
   cache.start = pc.frame_start;
   cache.end = pc.frame_end;
@@ -652,15 +404,9 @@ export function evaluateEmitter(
   const seed = hashSeed(psys.seed, s.seed ?? 0);
   const hash = simHash(doc, ob, m, psys, s, mesh, ctx.source);
   const count = Math.max(0, Math.floor(s.count));
-  const usable =
-    pc.is_baked &&
-    cache.frames.size > 0 &&
-    cache.frames.values().next().value?.state.length === count;
+  const usable = pc.is_baked && cache.frames.size > 0 && cache.frames.values().next().value?.state.length === count;
   if (!usable && cache.hash !== hash) cache.reset(hash);
-  const f = Math.min(
-    Math.max(frameOf(ctx.graph), pc.frame_start),
-    pc.frame_end,
-  );
+  const f = Math.min(Math.max(frameOf(ctx.graph), pc.frame_start), pc.frame_end);
   const sctx: SimContext = { doc, graph: ctx.graph };
   if (!cache.frames.has(f)) {
     if (!cache.live || cache.last < pc.frame_start) {
@@ -674,26 +420,14 @@ export function evaluateEmitter(
           spawn(L, s, seed, i, M, M, pc.frame_start, fps(doc));
           L.state[i] = pc.frame_start > L.birth[i] + L.life[i] ? 2 : 1;
         }
-      cache.frames.set(pc.frame_start, {
-        pos: L.pos.slice(),
-        state: L.state.slice(),
-      });
+      cache.frames.set(pc.frame_start, { pos: L.pos.slice(), state: L.state.slice() });
       cache.last = pc.frame_start;
     }
     const L = cache.live!;
     while (cache.last < f) {
       if (cache.last > pc.frame_start && outOfTime()) break;
       const k = cache.last + 1;
-      stepParticles(
-        L,
-        s,
-        seed,
-        k,
-        worldAt(sctx, ob, k - 1),
-        worldAt(sctx, ob, k),
-        sctx,
-        ob,
-      );
+      stepParticles(L, s, seed, k, worldAt(sctx, ob, k - 1), worldAt(sctx, ob, k), sctx, ob);
       cache.frames.set(k, { pos: L.pos.slice(), state: L.state.slice() });
       cache.last = k;
     }
@@ -702,19 +436,10 @@ export function evaluateEmitter(
   if (!frame) return null;
   const birth = cache.live?.birth ?? initLive(s, seed, mesh, psys).birth;
   const life = cache.live?.life ?? new Float32Array(count).fill(s.lifetime);
-  return {
-    frame,
-    birth,
-    life,
-    prev: cache.frames.get(f - 1),
-    samples: cache.live?.samples ?? null,
-    at: f,
-    sizeMul: cache.live?.sizeMul ?? null,
-  };
+  return { frame, birth, life, prev: cache.frames.get(f - 1), samples: cache.live?.samples ?? null, at: f, sizeMul: cache.live?.sizeMul ?? null };
 }
 
-const hashSeed = (a: number, b: number) =>
-  (Math.imul(a | 0, 2654435761) ^ (b | 0)) >>> 0;
+const hashSeed = (a: number, b: number) => (Math.imul(a | 0, 2654435761) ^ (b | 0)) >>> 0;
 
 // ---------------------------------------------------------------------------
 // Hair
@@ -731,57 +456,21 @@ export interface HairResult {
 
 const hairCache = new Map<string, { hash: string; result: HairResult }>();
 
-export function evaluateHair(
-  ob: ObjectData,
-  m: ModifierBase,
-  psys: ParticleSystemX,
-  s: ParticleSettingsX,
-  mesh: EvalMesh,
-): HairResult {
+export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSystemX, s: ParticleSettingsX, mesh: EvalMesh): HairResult {
   const key = particleCacheKey(ob, m);
   const hash = strHash(
-    [
-      JSON.stringify([
-        s.count,
-        s.emit_from,
-        s.normal_factor,
-        s.object_align_factor,
-        s.factor_random,
-        s.hair_length,
-        s.hair_step,
-        s.child_type,
-        s.rendered_child_count,
-        s.child_radius,
-        s.clump_factor,
-        s.roughness_1,
-        s.seed,
-      ]),
-      psys.seed,
-      JSON.stringify([
-        psys.vertex_group_density,
-        psys.invert_vertex_group_density,
-        psys.vertex_group_length,
-        psys.invert_vertex_group_length,
-      ]),
-      mesh.weights ? mesh.weights.map((w) => arrayChecksum(w)).join(",") : "",
-      mesh.positions.length,
-      arrayChecksum(mesh.positions),
-      arrayChecksum(mesh.indices),
-    ].join("#"),
+    [JSON.stringify([s.count, s.emit_from, s.normal_factor, s.object_align_factor, s.factor_random, s.hair_length, s.hair_step, s.child_type, s.rendered_child_count, s.child_radius, s.clump_factor, s.roughness_1, s.seed]), psys.seed, JSON.stringify([psys.vertex_group_density, psys.invert_vertex_group_density, psys.vertex_group_length, psys.invert_vertex_group_length]), mesh.weights ? mesh.weights.map((w) => arrayChecksum(w)).join(',') : '', mesh.positions.length, arrayChecksum(mesh.positions), arrayChecksum(mesh.indices)].join('#'),
   );
   const hit0 = hairCache.get(key);
   if (hit0 && hit0.hash === hash) return hit0.result;
   const seed = hashSeed(psys.seed, s.seed ?? 0);
   const n = Math.max(0, Math.floor(s.count));
   const seg = Math.max(1, Math.round(s.hair_step ?? 5));
-  const children =
-    s.child_type === "SIMPLE"
-      ? Math.max(0, Math.round(s.rendered_child_count ?? 0))
-      : 0;
+  const children = s.child_type === 'SIMPLE' ? Math.max(0, Math.round(s.rendered_child_count ?? 0)) : 0;
   const total = n * (1 + children);
   const pts = new Float32Array(total * (seg + 1) * 3);
-  const sampler = new MeshSampler(mesh, psysGroup(mesh, psys, "density"));
-  const lengthW = psysGroup(mesh, psys, "length");
+  const sampler = new MeshSampler(mesh, psysGroup(mesh, psys, 'density'));
+  const lengthW = psysGroup(mesh, psys, 'length');
   const sm = newSample();
   const dir = new Vector3(),
     tan = new Vector3(),
@@ -794,14 +483,7 @@ export function evaluateHair(
     if (!sampler.sample(s.emit_from, seed, i, sm)) continue;
     dir.set(sm.nx, sm.ny, sm.nz).multiplyScalar(s.normal_factor);
     dir.add(new Vector3(...s.object_align_factor));
-    if (s.factor_random)
-      dir.add(
-        new Vector3(
-          rand01(seed, i, 30) * 2 - 1,
-          rand01(seed, i, 31) * 2 - 1,
-          rand01(seed, i, 32) * 2 - 1,
-        ).multiplyScalar(s.factor_random),
-      );
+    if (s.factor_random) dir.add(new Vector3(rand01(seed, i, 30) * 2 - 1, rand01(seed, i, 31) * 2 - 1, rand01(seed, i, 32) * 2 - 1).multiplyScalar(s.factor_random));
     if (dir.lengthSq() < 1e-12) dir.set(sm.nx, sm.ny, sm.nz);
     dir.normalize();
     parentDirs.push(dir.clone());
@@ -848,13 +530,7 @@ export function evaluateHair(
       }
     }
   }
-  const result: HairResult = {
-    points: w === pts.length ? pts : pts.slice(0, w),
-    segments: seg,
-    strands: w / 3 / (seg + 1),
-    parents,
-    children: childInfo.length ? Float32Array.from(childInfo) : undefined,
-  };
+  const result: HairResult = { points: w === pts.length ? pts : pts.slice(0, w), segments: seg, strands: w / 3 / (seg + 1), parents, children: childInfo.length ? Float32Array.from(childInfo) : undefined };
   hairCache.set(key, { hash, result });
   return result;
 }
@@ -862,67 +538,31 @@ export function evaluateHair(
 // ---------------------------------------------------------------------------
 // Modifier
 
-function materialColor(
-  doc: DocumentData,
-  ob: ObjectData,
-  slot: number,
-): [number, number, number] | null {
+function materialColor(doc: DocumentData, ob: ObjectData, slot: number): [number, number, number] | null {
   const me = ob.data ? doc.meshes[ob.data] : undefined;
   const id = me?.materials[slot - 1];
   const ma = id ? doc.materials[id] : undefined;
-  return ma
-    ? [ma.diffuse_color[0], ma.diffuse_color[1], ma.diffuse_color[2]]
-    : null;
+  return ma ? [ma.diffuse_color[0], ma.diffuse_color[1], ma.diffuse_color[2]] : null;
 }
 
-function instanceMatrix(
-  owner: Matrix4,
-  pos: Vector3,
-  rot: Quaternion,
-  size: number,
-  inst: ObjectData | undefined,
-  useScale: boolean,
-) {
+function instanceMatrix(owner: Matrix4, pos: Vector3, rot: Quaternion, size: number, inst: ObjectData | undefined, useScale: boolean) {
   const sc = new Vector3(size, size, size);
   if (inst && useScale) sc.multiply(new Vector3(...inst.scale));
-  return new Matrix4()
-    .copy(owner)
-    .invert()
-    .multiply(new Matrix4().compose(pos, rot, sc))
-    .toArray();
+  return new Matrix4().copy(owner).invert().multiply(new Matrix4().compose(pos, rot, sc)).toArray();
 }
 
 const X = new Vector3(1, 0, 0);
 
 /** Orientation of an emitted particle (Rotation panel settings). */
-function particleRotation(
-  s: ParticleSettingsX,
-  seed: number,
-  i: number,
-  vel: Vector3 | null,
-  normal: Vector3 | null,
-  owner: Matrix4,
-  ageSec: number,
-): Quaternion {
+function particleRotation(s: ParticleSettingsX, seed: number, i: number, vel: Vector3 | null, normal: Vector3 | null, owner: Matrix4, ageSec: number): Quaternion {
   const q = new Quaternion();
   if (!s.use_rotations) return q;
-  const mode = s.rotation_mode ?? "VEL";
+  const mode = s.rotation_mode ?? 'VEL';
   let dir: Vector3 | null = null;
-  if (mode === "VEL")
-    dir = vel && vel.lengthSq() > 1e-12 ? vel.clone().normalize() : null;
-  else if (mode === "NOR") dir = normal;
-  else if (mode.startsWith("GLOB_"))
-    dir = new Vector3(
-      mode === "GLOB_X" ? 1 : 0,
-      mode === "GLOB_Y" ? 1 : 0,
-      mode === "GLOB_Z" ? 1 : 0,
-    );
-  else if (mode.startsWith("OB_"))
-    dir = new Vector3(
-      mode === "OB_X" ? 1 : 0,
-      mode === "OB_Y" ? 1 : 0,
-      mode === "OB_Z" ? 1 : 0,
-    ).transformDirection(owner);
+  if (mode === 'VEL') dir = vel && vel.lengthSq() > 1e-12 ? vel.clone().normalize() : null;
+  else if (mode === 'NOR') dir = normal;
+  else if (mode.startsWith('GLOB_')) dir = new Vector3(mode === 'GLOB_X' ? 1 : 0, mode === 'GLOB_Y' ? 1 : 0, mode === 'GLOB_Z' ? 1 : 0);
+  else if (mode.startsWith('OB_')) dir = new Vector3(mode === 'OB_X' ? 1 : 0, mode === 'OB_Y' ? 1 : 0, mode === 'OB_Z' ? 1 : 0).transformDirection(owner);
   if (dir) q.setFromUnitVectors(X, dir);
   const rnd = s.rotation_factor_random ?? 0;
   if (rnd > 0) {
@@ -930,50 +570,25 @@ function particleRotation(
     const u1 = rand01(seed, i, 70),
       u2 = rand01(seed, i, 71),
       u3 = rand01(seed, i, 72);
-    const r = new Quaternion(
-      Math.sqrt(1 - u1) * Math.sin(2 * Math.PI * u2),
-      Math.sqrt(1 - u1) * Math.cos(2 * Math.PI * u2),
-      Math.sqrt(u1) * Math.sin(2 * Math.PI * u3),
-      Math.sqrt(u1) * Math.cos(2 * Math.PI * u3),
-    );
+    const r = new Quaternion(Math.sqrt(1 - u1) * Math.sin(2 * Math.PI * u2), Math.sqrt(1 - u1) * Math.cos(2 * Math.PI * u2), Math.sqrt(u1) * Math.sin(2 * Math.PI * u3), Math.sqrt(u1) * Math.cos(2 * Math.PI * u3));
     q.slerp(r, Math.min(1, rnd));
   }
-  const phase =
-    ((s.phase_factor ?? 0) +
-      (s.phase_factor_random ?? 0) * rand01(seed, i, 73)) *
-    Math.PI;
+  const phase = ((s.phase_factor ?? 0) + (s.phase_factor_random ?? 0) * rand01(seed, i, 73)) * Math.PI;
   if (phase) q.multiply(new Quaternion().setFromAxisAngle(X, phase));
-  const av = s.angular_velocity_mode ?? "NONE";
+  const av = s.angular_velocity_mode ?? 'NONE';
   const speed = s.angular_velocity_factor ?? 0;
-  if (av !== "NONE" && speed) {
+  if (av !== 'NONE' && speed) {
     let axis: Vector3;
-    if (av === "GLOBAL_X") axis = new Vector3(1, 0, 0);
-    else if (av === "GLOBAL_Y") axis = new Vector3(0, 1, 0);
-    else if (av === "GLOBAL_Z") axis = new Vector3(0, 0, 1);
-    else if (av === "RAND")
-      axis = new Vector3(
-        rand01(seed, i, 74) - 0.5,
-        rand01(seed, i, 75) - 0.5,
-        rand01(seed, i, 76) - 0.5,
-      ).normalize();
-    else if (av === "VELOCITY")
-      axis =
-        vel && vel.lengthSq() > 1e-12
-          ? vel.clone().normalize()
-          : new Vector3(1, 0, 0);
+    if (av === 'GLOBAL_X') axis = new Vector3(1, 0, 0);
+    else if (av === 'GLOBAL_Y') axis = new Vector3(0, 1, 0);
+    else if (av === 'GLOBAL_Z') axis = new Vector3(0, 0, 1);
+    else if (av === 'RAND') axis = new Vector3(rand01(seed, i, 74) - 0.5, rand01(seed, i, 75) - 0.5, rand01(seed, i, 76) - 0.5).normalize();
+    else if (av === 'VELOCITY') axis = vel && vel.lengthSq() > 1e-12 ? vel.clone().normalize() : new Vector3(1, 0, 0);
     else {
       // horizontal / vertical spin relative to the direction of travel
-      const d =
-        vel && vel.lengthSq() > 1e-12
-          ? vel.clone().normalize()
-          : new Vector3(1, 0, 0);
+      const d = vel && vel.lengthSq() > 1e-12 ? vel.clone().normalize() : new Vector3(1, 0, 0);
       const side = new Vector3().crossVectors(d, new Vector3(0, 0, 1));
-      axis =
-        av === "VERTICAL"
-          ? side.lengthSq() > 1e-9
-            ? side.normalize()
-            : new Vector3(0, 1, 0)
-          : new Vector3(0, 0, 1);
+      axis = av === 'VERTICAL' ? (side.lengthSq() > 1e-9 ? side.normalize() : new Vector3(0, 1, 0)) : new Vector3(0, 0, 1);
     }
     q.premultiply(new Quaternion().setFromAxisAngle(axis, speed * ageSec));
   }
@@ -981,26 +596,15 @@ function particleRotation(
 }
 
 /** Objects of a collection (recursively, by name) for collection instancing. */
-function collectionObjects(
-  doc: DocumentData,
-  cid: string | null | undefined,
-  depth = 0,
-): ObjectData[] {
+function collectionObjects(doc: DocumentData, cid: string | null | undefined, depth = 0): ObjectData[] {
   const c = cid ? doc.collections[cid] : undefined;
   if (!c || depth > 16) return [];
-  const out = c.objects
-    .map((id) => doc.objects[id])
-    .filter((o): o is ObjectData => !!o);
-  for (const ch of c.children)
-    out.push(...collectionObjects(doc, ch, depth + 1));
+  const out = c.objects.map((id) => doc.objects[id]).filter((o): o is ObjectData => !!o);
+  for (const ch of c.children) out.push(...collectionObjects(doc, ch, depth + 1));
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function particleModifierApply(
-  mesh: EvalMesh,
-  m: ModifierBase,
-  ctx: ModifierContext,
-): EvalMesh {
+export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: ModifierContext): EvalMesh {
   const ob = ctx.ob,
     doc = ctx.doc;
   const psys = systemOf(ob, m);
@@ -1011,122 +615,54 @@ export function particleModifierApply(
     return mesh;
   }
   const owner = (ctx.graph as Depsgraph).get(ob.id)?.world ?? new Matrix4();
-  const show = ctx.render ? "RENDER" : (s.display_method ?? "RENDER");
+  const show = ctx.render ? 'RENDER' : s.display_method ?? 'RENDER';
   const color = materialColor(doc, ob, s.material_slot ?? 1) ?? [0.9, 0.9, 0.9];
-  const inst =
-    s.render_type === "OBJECT" && s.instance_object
-      ? doc.objects[s.instance_object]
-      : undefined;
-  const coll =
-    s.render_type === "COLLECTION"
-      ? collectionObjects(doc, s.instance_collection).filter(
-          (o) => o.id !== ob.id,
-        )
-      : [];
-  const wantInstances =
-    show === "RENDER" && ((!!inst && inst.id !== ob.id) || coll.length > 0);
-  const wantPoints =
-    show === "DOT" || (show === "RENDER" && s.render_type === "HALO");
-  const wantLines = show === "RENDER" && s.render_type === "LINE";
+  const inst = s.render_type === 'OBJECT' && s.instance_object ? doc.objects[s.instance_object] : undefined;
+  const coll = s.render_type === 'COLLECTION' ? collectionObjects(doc, s.instance_collection).filter((o) => o.id !== ob.id) : [];
+  const wantInstances = show === 'RENDER' && ((!!inst && inst.id !== ob.id) || coll.length > 0);
+  const wantPoints = show === 'DOT' || (show === 'RENDER' && s.render_type === 'HALO');
+  const wantLines = show === 'RENDER' && s.render_type === 'LINE';
   /** instance(s) of one particle: the object, a picked collection object, or the whole collection */
-  const pushInstances = (
-    out: GeometryInstance[],
-    ow: Matrix4,
-    pos: Vector3,
-    rot: Quaternion,
-    size: number,
-    i: number,
-    seed: number,
-  ) => {
+  const pushInstances = (out: GeometryInstance[], ow: Matrix4, pos: Vector3, rot: Quaternion, size: number, i: number, seed: number) => {
     if (inst) {
-      out.push({
-        objectId: inst.id,
-        matrix: instanceMatrix(
-          ow,
-          pos,
-          rot,
-          size,
-          inst,
-          s.use_scale_instance !== false,
-        ),
-      });
+      out.push({ objectId: inst.id, matrix: instanceMatrix(ow, pos, rot, size, inst, s.use_scale_instance !== false) });
       return;
     }
     if (!coll.length) return;
     if (s.use_whole_collection) {
-      const base = new Matrix4().compose(
-        pos,
-        rot,
-        new Vector3(size, size, size),
-      );
-      const offset = s.instance_collection
-        ? (doc.collections[s.instance_collection]?.instance_offset ?? [0, 0, 0])
-        : [0, 0, 0];
+      const base = new Matrix4().compose(pos, rot, new Vector3(size, size, size));
+      const offset = s.instance_collection ? doc.collections[s.instance_collection]?.instance_offset ?? [0, 0, 0] : [0, 0, 0];
       for (const o of coll) {
-        const local = new Matrix4()
-          .makeTranslation(-offset[0], -offset[1], -offset[2])
-          .multiply(localMatrixOf(o));
-        out.push({
-          objectId: o.id,
-          matrix: new Matrix4()
-            .copy(ow)
-            .invert()
-            .multiply(base)
-            .multiply(local)
-            .toArray(),
-        });
+        const local = new Matrix4().makeTranslation(-offset[0], -offset[1], -offset[2]).multiply(localMatrixOf(o));
+        out.push({ objectId: o.id, matrix: new Matrix4().copy(ow).invert().multiply(base).multiply(local).toArray() });
       }
       return;
     }
-    const o = s.use_collection_pick_random
-      ? coll[Math.floor(rand01(seed, i, 80) * coll.length) % coll.length]
-      : coll[i % coll.length];
-    out.push({
-      objectId: o.id,
-      matrix: instanceMatrix(
-        ow,
-        pos,
-        rot,
-        size,
-        o,
-        s.use_scale_instance !== false,
-      ),
-    });
+    const o = s.use_collection_pick_random ? coll[Math.floor(rand01(seed, i, 80) * coll.length) % coll.length] : coll[i % coll.length];
+    out.push({ objectId: o.id, matrix: instanceMatrix(ow, pos, rot, size, o, s.use_scale_instance !== false) });
   };
   const instances: GeometryInstance[] = [];
   let draw: ParticleDraw | null = null;
-  if (s.type === "HAIR") {
+  if (s.type === 'HAIR') {
     let hair = evaluateHair(ob, m, psys, s, mesh);
-    if (psys.use_hair_dynamics)
-      hair = hairWithDynamics(ob, m, psys, s, hair, ctx) ?? hair;
+    if (psys.use_hair_dynamics) hair = hairWithDynamics(ob, m, psys, s, hair, ctx) ?? hair;
     const per = hair.segments + 1;
     const hpct = ctx.render ? 100 : (s.display_percentage ?? 100);
-    const hvis = (i: number) =>
-      hpct >= 100 || rand01(psys.seed, i, 90) * 100 < hpct;
-    if (
-      show !== "NONE" &&
-      (s.render_type === "PATH" || show === "DOT" || !wantInstances)
-    ) {
+    const hvis = (i: number) => hpct >= 100 || rand01(psys.seed, i, 90) * 100 < hpct;
+    if (show !== 'NONE' && (s.render_type === 'PATH' || show === 'DOT' || !wantInstances)) {
       let shown = 0;
       for (let i = 0; i < hair.strands; i++) if (hvis(i)) shown++;
       const lines = new Float32Array(shown * hair.segments * 6);
       let w = 0;
-      for (let i = 0; i < hair.strands; i++)
-        if (hvis(i))
-          for (let k = 0; k < hair.segments; k++) {
-            const a = (i * per + k) * 3;
-            lines.set(hair.points.subarray(a, a + 6), w);
-            w += 6;
-          }
-      draw = {
-        objectId: ob.id,
-        space: "LOCAL",
-        points: null,
-        sizes: null,
-        lines,
-        color,
-        count: shown,
-      };
+      for (let i = 0; i < hair.strands; i++) {
+        if (!hvis(i)) continue;
+        for (let k = 0; k < hair.segments; k++) {
+          const a = (i * per + k) * 3;
+          lines.set(hair.points.subarray(a, a + 6), w);
+          w += 6;
+        }
+      }
+      draw = { objectId: ob.id, space: 'LOCAL', points: null, sizes: null, lines, color, count: shown };
     }
     if (wantInstances) {
       const ow = owner;
@@ -1134,24 +670,10 @@ export function particleModifierApply(
         if (!hvis(i)) continue;
         const a = i * per * 3,
           b = (i * per + hair.segments) * 3;
-        const root = new Vector3(
-          hair.points[a],
-          hair.points[a + 1],
-          hair.points[a + 2],
-        ).applyMatrix4(ow);
-        const tip = new Vector3(
-          hair.points[b],
-          hair.points[b + 1],
-          hair.points[b + 2],
-        ).applyMatrix4(ow);
-        const rot = s.use_rotations
-          ? new Quaternion().setFromUnitVectors(
-              X,
-              tip.clone().sub(root).normalize(),
-            )
-          : new Quaternion();
-        const size =
-          s.particle_size * (1 - s.size_random * rand01(psys.seed, i, 2));
+        const root = new Vector3(hair.points[a], hair.points[a + 1], hair.points[a + 2]).applyMatrix4(ow);
+        const tip = new Vector3(hair.points[b], hair.points[b + 1], hair.points[b + 2]).applyMatrix4(ow);
+        const rot = s.use_rotations ? new Quaternion().setFromUnitVectors(X, tip.clone().sub(root).normalize()) : new Quaternion();
+        const size = s.particle_size * (1 - s.size_random * rand01(psys.seed, i, 2));
         pushInstances(instances, ow, root, rot, size, i, psys.seed);
       }
     }
@@ -1164,9 +686,7 @@ export function particleModifierApply(
       const seed = hashSeed(psys.seed, s.seed ?? 0);
       // the viewport may show only a share of the particles
       const pct = ctx.render ? 100 : (s.display_percentage ?? 100);
-      const vis = (i: number) =>
-        (frame.state[i] === 1 || (showDead && frame.state[i] === 2)) &&
-        (pct >= 100 || rand01(seed, i, 90) * 100 < pct);
+      const vis = (i: number) => (frame.state[i] === 1 || (showDead && frame.state[i] === 2)) && (pct >= 100 || rand01(seed, i, 90) * 100 < pct);
       let count = 0;
       for (let i = 0; i < n; i++) if (vis(i)) count++;
       if (wantPoints) {
@@ -1176,22 +696,9 @@ export function particleModifierApply(
         for (let i = 0; i < n; i++) {
           if (!vis(i)) continue;
           pts.set(frame.pos.subarray(i * 3, i * 3 + 3), w * 3);
-          sizes[w++] =
-            show === "DOT"
-              ? (s.display_size ?? 0.05)
-              : s.particle_size *
-                (1 - s.size_random * rand01(seed, i, 2)) *
-                (res.sizeMul ? res.sizeMul[i] : 1);
+          sizes[w++] = show === 'DOT' ? s.display_size ?? 0.05 : s.particle_size * (1 - s.size_random * rand01(seed, i, 2)) * (res.sizeMul ? res.sizeMul[i] : 1);
         }
-        draw = {
-          objectId: ob.id,
-          space: "WORLD",
-          points: pts,
-          sizes,
-          lines: null,
-          color,
-          count,
-        };
+        draw = { objectId: ob.id, space: 'WORLD', points: pts, sizes, lines: null, color, count };
       }
       if (wantLines) {
         // a line per particle along its direction of travel
@@ -1220,28 +727,10 @@ export function particleModifierApply(
           }
           const tail = (s.line_length_tail ?? 0) * scale,
             head = (s.line_length_head ?? 0.1) * scale;
-          lines.set(
-            [
-              px - dx * tail,
-              py - dy * tail,
-              pz - dz * tail,
-              px + dx * head,
-              py + dy * head,
-              pz + dz * head,
-            ],
-            w,
-          );
+          lines.set([px - dx * tail, py - dy * tail, pz - dz * tail, px + dx * head, py + dy * head, pz + dz * head], w);
           w += 6;
         }
-        draw = {
-          objectId: ob.id,
-          space: "WORLD",
-          points: null,
-          sizes: null,
-          lines,
-          color,
-          count,
-        };
+        draw = { objectId: ob.id, space: 'WORLD', points: null, sizes: null, lines, color, count };
       }
       if (wantInstances) {
         const p = new Vector3(),
@@ -1253,30 +742,13 @@ export function particleModifierApply(
           p.set(frame.pos[i * 3], frame.pos[i * 3 + 1], frame.pos[i * 3 + 2]);
           let vel: Vector3 | null = null;
           if (res.prev) {
-            d.set(
-              p.x - res.prev.pos[i * 3],
-              p.y - res.prev.pos[i * 3 + 1],
-              p.z - res.prev.pos[i * 3 + 2],
-            );
+            d.set(p.x - res.prev.pos[i * 3], p.y - res.prev.pos[i * 3 + 1], p.z - res.prev.pos[i * 3 + 2]);
             vel = d;
           }
           const sm = res.samples?.[i];
-          const normal = sm
-            ? nrm.set(sm.nx, sm.ny, sm.nz).transformDirection(owner)
-            : null;
-          const q = particleRotation(
-            s,
-            seed,
-            i,
-            vel,
-            normal,
-            owner,
-            Math.max(0, (res.at - res.birth[i]) / fpsv),
-          );
-          const size =
-            s.particle_size *
-            (1 - s.size_random * rand01(seed, i, 2)) *
-            (res.sizeMul ? res.sizeMul[i] : 1);
+          const normal = sm ? nrm.set(sm.nx, sm.ny, sm.nz).transformDirection(owner) : null;
+          const q = particleRotation(s, seed, i, vel, normal, owner, Math.max(0, (res.at - res.birth[i]) / fpsv));
+          const size = s.particle_size * (1 - s.size_random * rand01(seed, i, 2)) * (res.sizeMul ? res.sizeMul[i] : 1);
           pushInstances(instances, owner, p, q, size, i, seed);
         }
       }
@@ -1291,21 +763,20 @@ export function particleModifierApply(
 }
 
 registerModifier({
-  type: "PARTICLE_SYSTEM",
-  label: "Particle System",
-  category: "PHYSICS",
-  icon: "mod_particles",
+  type: 'PARTICLE_SYSTEM',
+  label: 'Particle System',
+  category: 'PHYSICS',
+  icon: 'mod_particles',
   deformOnly: false,
-  defaults: () => ({ particle_system: "" }),
+  defaults: () => ({ particle_system: '' }),
   timeDependent: (m) => {
     const doc = physicsDoc();
     if (!doc) return true;
-    for (const ob of Object.values(doc.objects))
-      if (ob.modifiers.includes(m)) {
-        const ps = systemOf(ob, m);
-        const s = ps ? doc.particles[ps.settings] : undefined;
-        return !s || s.type !== "HAIR" || !!ps?.use_hair_dynamics;
-      }
+    for (const ob of Object.values(doc.objects)) if (ob.modifiers.includes(m)) {
+      const ps = systemOf(ob, m);
+      const s = ps ? doc.particles[ps.settings] : undefined;
+      return !s || s.type !== 'HAIR' || !!ps?.use_hair_dynamics;
+    }
     return true;
   },
   deps: (m) => {
@@ -1317,47 +788,32 @@ registerModifier({
         const ps = systemOf(ob, m);
         const s = ps ? doc.particles[ps.settings] : undefined;
         if (s?.instance_object) out.push(s.instance_object);
-        if (
-          s &&
-          (s.type !== "HAIR" ||
-            (systemOf(ob, m) as ParticleSystemX | undefined)?.use_hair_dynamics)
-        )
-          out.push(...simDeps(doc, ob.id));
+        if (s && (s.type !== 'HAIR' || (systemOf(ob, m) as ParticleSystemX | undefined)?.use_hair_dynamics)) out.push(...simDeps(doc, ob.id));
         const sx = s as ParticleSettingsX | undefined;
-        for (const t of sx?.keyed_targets ?? [])
-          if (t.object && t.object !== ob.id) out.push(t.object);
-        for (const r of sx?.boids?.rules ?? [])
-          if (r.object && r.object !== ob.id) out.push(r.object);
-        if (sx?.render_type === "COLLECTION")
-          for (const o of collectionObjects(doc, sx.instance_collection))
-            if (o.id !== ob.id) out.push(o.id);
+        for (const t of sx?.keyed_targets ?? []) if (t.object && t.object !== ob.id) out.push(t.object);
+        for (const r of sx?.boids?.rules ?? []) if (r.object && r.object !== ob.id) out.push(r.object);
+        if (sx?.render_type === 'COLLECTION') for (const o of collectionObjects(doc, sx.instance_collection)) if (o.id !== ob.id) out.push(o.id);
       }
     return out;
   },
   signature: (m, c) => {
     const ps = systemOf(c.ob, m);
     const s = ps ? c.doc.particles[ps.settings] : undefined;
-    if (!ps || !s) return "none";
-    const base = `${JSON.stringify(s)}:${JSON.stringify(ps)}:${c.doc.materials ? JSON.stringify(materialColor(c.doc, c.ob, (s as ParticleSettingsX).material_slot ?? 1)) : ""}`;
-    if (s.type === "HAIR") {
+    if (!ps || !s) return 'none';
+    const base = `${JSON.stringify(s)}:${JSON.stringify(ps)}:${c.doc.materials ? JSON.stringify(materialColor(c.doc, c.ob, (s as ParticleSettingsX).material_slot ?? 1)) : ''}`;
+    if (s.type === 'HAIR') {
       if (!ps.use_hair_dynamics) return strHash(base);
       // simulated hair changes with the frame and the dynamics cache
       const hc = getCache<Float32Array, unknown>(hairDynKey(c.ob, m));
       const pc = ps.point_cache ?? defaultPointCache();
       const f = Math.min(frameOf(c.graph), pc.frame_end);
-      return `${strHash(base + JSON.stringify(ps.hair_dynamics ?? {}))}:${f <= pc.frame_start ? "rest" : f}:${hc.hash}:${hc.frames.has(f) ? "hit" : "miss" + hc.last}:${hc.frames.size}`;
+      return `${strHash(base + JSON.stringify(ps.hair_dynamics ?? {}))}:${f <= pc.frame_start ? 'rest' : f}:${hc.hash}:${hc.frames.has(f) ? 'hit' : 'miss' + hc.last}:${hc.frames.size}`;
     }
     const cache = getCache<PFrame, PLive>(particleCacheKey(c.ob, m));
     const pc = ps.point_cache ?? defaultPointCache();
-    const f = Math.min(
-      Math.max(frameOf(c.graph), pc.frame_start),
-      pc.frame_end,
-    );
-    const full = {
-      ...defaultParticleSettings(s.id, s.name),
-      ...s,
-    } as ParticleSettingsX;
-    return `${strHash(base)}:${simHash(c.doc, c.ob, m, ps, full, null, null)}:${cache.frames.has(f) ? "hit" : "miss" + cache.last}:${cache.frames.size}`;
+    const f = Math.min(Math.max(frameOf(c.graph), pc.frame_start), pc.frame_end);
+    const full = { ...defaultParticleSettings(s.id, s.name), ...s } as ParticleSettingsX;
+    return `${strHash(base)}:${simHash(c.doc, c.ob, m, ps, full, null, null)}:${cache.frames.has(f) ? 'hit' : 'miss' + cache.last}:${cache.frames.size}`;
   },
   apply: particleModifierApply,
 });
