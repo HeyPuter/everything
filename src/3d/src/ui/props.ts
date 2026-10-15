@@ -5,6 +5,12 @@ import { icon } from './icons';
 import { numberField, checkbox, enumMenu, colorSwatch, textField, decorator, type Unit, type EnumItem } from './widgets';
 import type { ObjectData } from '../data/types';
 import { keyState, keyProperty } from '../anim/keyframes';
+import { bindProp, type PropBinding } from './binding';
+
+/** Register what a widget edits so generic button interactions (ui/buttons.ts) can act on it. */
+function bind(id: string, owner: object, key: string, label: string, kind: PropBinding['kind'], o: PropOpts = {}, extra: Partial<PropBinding> = {}) {
+  bindProp({ id, owner: owner as Record<string, unknown>, key, label, kind, anim: o.anim, min: o.min, max: o.max, int: o.int, onChange: o.onChange, undo: o.undo, disabled: o.disabled, ...extra });
+}
 
 const ids = new WeakMap<object, string>();
 let n = 0;
@@ -66,6 +72,7 @@ export function splitRow(label: string, content: Child, decoration: Child = h('s
 
 export function num<T extends object>(owner: T, key: keyof T & string, label: string, o: PropOpts = {}) {
   const value = owner[key] as unknown as number;
+  bind(`${oid(owner)}.${key}`, owner, key, label, 'number', o);
   return splitRow(
     label,
     numberField({
@@ -93,6 +100,7 @@ export function num<T extends object>(owner: T, key: keyof T & string, label: st
 }
 
 export function bool<T extends object>(owner: T, key: keyof T & string, label: string, o: PropOpts = {}) {
+  bind(`${oid(owner)}.${key}`, owner, key, label, 'bool', o);
   return h(
     'div',
     { class: 'split-row check' },
@@ -111,6 +119,7 @@ export function bool<T extends object>(owner: T, key: keyof T & string, label: s
 
 /** Checkbox with the label in the label column ("heading" style). */
 export function boolHeading<T extends object>(owner: T, key: keyof T & string, heading: string, label = '', o: PropOpts = {}) {
+  bind(`${oid(owner)}.${key}`, owner, key, label || heading, 'bool', o);
   return splitRow(
     heading,
     checkbox(`${oid(owner)}.${key}`, label, !!owner[key], (v) => {
@@ -123,6 +132,7 @@ export function boolHeading<T extends object>(owner: T, key: keyof T & string, h
 
 export function enumProp<T extends object>(owner: T, key: keyof T & string, label: string, items: (EnumItem | [string, string])[], o: PropOpts = {}) {
   const list = items.map((i) => (Array.isArray(i) ? { value: i[0], label: i[1] } : i));
+  bind(`${oid(owner)}.${key}`, owner, key, label, 'enum', o, { items: list.map((x) => x.value) });
   return splitRow(
     label,
     enumMenu(`${oid(owner)}.${key}`, list, String(owner[key]), (v) => {
@@ -134,6 +144,7 @@ export function enumProp<T extends object>(owner: T, key: keyof T & string, labe
 }
 
 export function colorProp<T extends object>(owner: T, key: keyof T & string, label: string, o: PropOpts & { alpha?: boolean } = {}) {
+  bind(`${oid(owner)}.${key}`, owner, key, label, 'color', o);
   return splitRow(
     label,
     colorSwatch(`${oid(owner)}.${key}`, owner[key] as unknown as number[], (v, final) => {
@@ -162,6 +173,7 @@ export function vecProp<T extends object>(owner: T, key: keyof T & string, label
     'div',
     { class: 'vec-prop' },
     arr.map((v, i) => {
+      bind(`${oid(owner)}.${key}.${i}`, owner, key, `${label} ${names[i]}`, 'vector', { ...o, anim: o.anim ? { ...o.anim, index: i } : undefined }, { index: i });
       const field = numberField({
           id: `${oid(owner)}.${key}.${i}`,
           value: v,
@@ -246,6 +258,29 @@ export function axisToggles<T extends object>(owner: T, key: keyof T & string, l
         ),
       ),
     ),
+  );
+}
+
+/** Object reference picker (with an eyedropper on E); `filter` limits the candidates. */
+export function objectProp<T extends object>(owner: T, key: keyof T & string, label: string, o: PropOpts & { filter?: (ob: ObjectData) => boolean; none?: string } = {}) {
+  const candidates = Object.values(app.doc.objects)
+    .filter((ob) => !o.filter || o.filter(ob))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const id = `${oid(owner)}.${key}`;
+  bind(id, owner, key, label, 'object', o, { items: candidates.map((c) => c.id) });
+  return splitRow(
+    label,
+    enumMenu(
+      id,
+      [{ value: '', label: o.none ?? '—' }, ...candidates.map((c) => ({ value: c.id, label: c.name, icon: 'object' }))],
+      String(owner[key] ?? ''),
+      (v) => {
+        (owner as Record<string, unknown>)[key] = v || null;
+        commit(`Set ${label}`, true, o);
+      },
+      { disabled: o.disabled, tip: o.tip ?? `${label}\nPress E over the field to pick an object in the viewport` },
+    ),
+    deco(o),
   );
 }
 

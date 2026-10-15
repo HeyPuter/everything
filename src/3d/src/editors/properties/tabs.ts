@@ -4,7 +4,7 @@ import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
 import { registerTab } from './properties';
 import { panel, enumMenu, button, opButton, textField, enumRow, checkbox, numberField } from '../../ui/widgets';
-import { num, bool, enumProp, colorProp, vecProp, splitRow, textProp, boolHeading, oid } from '../../ui/props';
+import { num, bool, enumProp, colorProp, vecProp, splitRow, textProp, boolHeading, oid, objectProp } from '../../ui/props';
 import type { ObjectData, MaterialData, MeshData, WorldData, LightData, CameraData, CurveData } from '../../data/types';
 import { newMaterial, uid, newWorld } from '../../data/defaults';
 import { uniqueName } from '../../ops/object';
@@ -180,11 +180,10 @@ registerTab({
   poll: () => true,
   draw: () => {
     const s = app.doc.scene;
-    const cams = Object.values(app.doc.objects).filter((o) => o.type === 'CAMERA');
     const worlds = Object.values(app.doc.worlds);
     return [
       panel('sc-scene', 'Scene', () => [
-        splitRow('Camera', enumMenu('sc-cam', [{ value: '', label: '—' }, ...cams.map((c) => ({ value: c.id, label: c.name, icon: 'outliner_ob_camera' }))], s.camera ?? '', (v) => ((s.camera = v || null), changed('Scene Camera')))),
+        objectProp(s, 'camera', 'Camera', { filter: (c) => c.type === 'CAMERA', undo: 'Scene Camera' }),
         splitRow('World', enumMenu('sc-world', [{ value: '', label: '—' }, ...worlds.map((w) => ({ value: w.id, label: w.name, icon: 'world' }))], s.world ?? '', (v) => ((s.world = v || null), changed('Scene World')))),
       ]),
       panel('sc-units', 'Units', () => [
@@ -582,7 +581,7 @@ function cameraData(o: ObjectData, ca: CameraData): Child {
       num(ca, 'clip_end', 'End', { unit: 'distance', min: 1e-6 }),
     ]),
     panel('ca-dof', 'Depth of Field', () => [
-      splitRow('Focus on Object', enumMenu('ca-focus', [{ value: '', label: '—' }, ...Object.values(doc.objects).map((x) => ({ value: x.id, label: x.name }))], ca.dof.focus_object ?? '', (v) => ((ca.dof.focus_object = v || null), changed('Focus Object')))),
+      objectProp(ca.dof, 'focus_object', 'Focus on Object', { undo: 'Focus Object' }),
       num(ca.dof, 'focus_distance', 'Focus Distance', { unit: 'distance', min: 0, anim: { ob: o, path: 'data.dof.focus_distance' } }),
       num(ca.dof, 'aperture_fstop', 'F-Stop', { min: 0.1, softMax: 128, precision: 1 }),
       num(ca.dof, 'aperture_blades', 'Blades', { int: true, min: 0, max: 16 }),

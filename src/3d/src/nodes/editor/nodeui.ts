@@ -5,6 +5,7 @@ import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
 import { numberField, checkbox, enumMenu, colorSwatch, textField, type Unit } from '../../ui/widgets';
 import { openMenu } from '../../ui/menu';
+import { bindProp } from '../../ui/binding';
 import type { NodeData, NodeTreeData, SocketValue } from '../../data/types';
 import { getNodeType, inputValue, nodeLabel, nodePanels, propValue, NODE_CLASS_COLORS, SOCKET_COLORS } from '../registry';
 import type { NodeDrawContext, NodePropDef, ResolvedSocket } from '../types';
@@ -40,6 +41,13 @@ export function unitOf(sub?: string): Unit {
 }
 
 /** Value widget for an unlinked input socket. */
+/** Register node input values for the generic button actions (keyframes, reset, copy/paste, data path). */
+function bindSocket(node: NodeData, s: ResolvedSocket, key: string) {
+  const base = { owner: node.inputs as Record<string, unknown>, key: s.identifier, label: s.label, def: s.default, min: s.min, max: s.max };
+  if (s.type === 'VECTOR' || s.type === 'ROTATION') for (let i = 0; i < (s.dimensions ?? 3); i++) bindProp({ ...base, id: `${key}:${s.identifier}:${i}`, index: i, kind: 'vector' });
+  else bindProp({ ...base, id: `${key}:${s.identifier}`, kind: s.type === 'RGBA' ? 'color' : s.type === 'BOOLEAN' ? 'bool' : s.type === 'MENU' ? 'enum' : 'number', int: s.type === 'INT', items: s.items });
+}
+
 export function socketValueWidget(node: NodeData, s: ResolvedSocket, key: string, opts: { label?: boolean; vectorColumn?: boolean } = {}): Child {
   const v = inputValue(node, s);
   const set = (nv: SocketValue, final: boolean) => {
@@ -47,6 +55,7 @@ export function socketValueWidget(node: NodeData, s: ResolvedSocket, key: string
     nodeChanged(`Change ${s.label}`, final);
   };
   const label = opts.label === false ? undefined : s.label;
+  bindSocket(node, s, key);
   switch (s.type) {
     case 'FLOAT':
     case 'INT':

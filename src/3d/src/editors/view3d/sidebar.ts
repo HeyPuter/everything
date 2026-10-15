@@ -9,12 +9,15 @@ import type { ObjectData } from '../../data/types';
 import { keyState, keyProperty } from '../../anim/keyframes';
 import { renderContext } from '../../render/context';
 import { toolHeader } from './toolbar';
+import { bindProp } from '../../ui/binding';
 
 export const sidebarTabs: { id: string; label: string; draw: (v: View3D) => Child; poll?: () => boolean }[] = [];
 
 /** Bind a vector component of an object property to a number field. */
 export function vecField(ob: ObjectData, key: 'location' | 'rotation_euler' | 'scale' | 'delta_location' | 'delta_scale' | 'delta_rotation_euler', i: number, label: string, unit: 'distance' | 'angle' | 'none') {
   const st = keyState(app.doc, ob, key, i);
+  // generic button actions (I, Backspace, Ctrl+C/V, right-click menu) work on these fields too
+  bindProp({ id: `${ob.id}.${key}.${i}`, owner: ob as unknown as Record<string, unknown>, key, index: i, label: `${key.replace(/_euler$/, '').replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())} ${label}`, kind: 'vector', anim: { ob, path: key, index: i } });
   return h(
     'div',
     { class: 'vec-row', key: `${key}${i}` },
