@@ -4,3 +4,4 @@ import './ops';
 import './keys';
 import './boneik';
 import './affect';
+import './poseik';

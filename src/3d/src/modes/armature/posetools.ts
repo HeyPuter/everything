@@ -982,7 +982,7 @@ const constraintOps: Operator[] = [
     poll: () => inPose() && !!activeArmature()!.arm.active_bone,
     invoke: () => {
       openMenu(
-        CONSTRAINT_ITEMS().map(([v, l]) => ({ label: l, op: 'pose.constraint_add_with_targets', props: { type: v } })),
+        CONSTRAINT_ITEMS().map(([v, l]) => ({ label: l, action: () => app.run('pose.constraint_add_with_targets', { type: v }, { invoke: false }) })),
         { x: app.pointer.x, y: app.pointer.y },
         { title: 'Add Constraint (with Targets)' },
       );

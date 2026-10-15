@@ -394,7 +394,8 @@ function typeProp(bone: boolean): PropDef {
 }
 
 function typeMenu(op: string, bone: boolean) {
-  return availableConstraintTypes(bone).map((t) => ({ label: t.label, op, props: { type: t.type } }));
+  // items run the operator directly (running it with invoke would open this menu again)
+  return availableConstraintTypes(bone).map((t) => ({ label: t.label, action: () => app.run(op, { type: t.type }, { invoke: false }) }));
 }
 
 const addOps: Operator[] = [

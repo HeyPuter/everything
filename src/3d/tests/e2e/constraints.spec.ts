@@ -1,7 +1,7 @@
 // Constraint stacks in the Properties editor: add menus, panel menus, hover shortcuts, apply and
 // disable-and-keep-transform.
 import { test, expect, type Page } from '@playwright/test';
-import { openApp, expectNoErrors } from './helpers';
+import { openApp, expectNoErrors, hoverViewport } from './helpers';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const get = (page: Page, expr: string) => page.evaluate(`(() => { const app = window.app; return ${expr}; })()`);
@@ -59,6 +59,12 @@ test('object constraints: add menu, panel menu, hover shortcuts and apply', asyn
   await page.locator('[data-con="Copy Location.001"] .sr-label', { hasText: 'Axis' }).hover();
   await page.keyboard.press('x');
   await expect(page.locator('[data-con]')).toHaveCount(0);
+  // Object > Constraint > Add Constraint (with Targets) asks for the type, then targets the other selected object
+  await page.locator('.hdr-menu', { hasText: /^Object$/ }).first().dispatchEvent('pointerdown');
+  await item(page, 'Constraint').first().hover();
+  await item(page, 'Add Constraint (with Targets)').first().click();
+  await item(page, 'Track To').first().click();
+  expect(await get(page, `app.activeObject.constraints.map((c) => [c.type, app.doc.objects[c.target]?.name])`)).toEqual([['TRACK_TO', 'Empty']]);
   await expectNoErrors(errors);
 });
 
@@ -95,13 +101,19 @@ test('disable and keep transform, invalid constraints and the bone constraint me
     a.flush();
     a.run('object.mode_set', { mode: 'POSE' });
   });
+  // Shift I: IK with a new empty as target
+  await hoverViewport(page);
+  await page.keyboard.press('Shift+I');
+  await expect(item(page, 'Without Targets')).toBeVisible();
+  await item(page, 'To New Empty Object').click();
+  expect(await get(page, `(() => { const pb = app.activeObject.pose[app.doc.armatures[app.activeObject.data].active_bone]; const c = pb.constraints[0]; return [c.type, app.doc.objects[c.target].type]; })()`)).toEqual(['IK', 'EMPTY']);
   await openTab(page, 'BONE_CONSTRAINT');
   await page.locator('.add-mod', { hasText: 'Add Bone Constraint' }).dispatchEvent('pointerdown');
   await item(page, 'Tracking').first().hover();
   await expect(item(page, 'Inverse Kinematics').first()).toBeVisible();
   await expect(item(page, 'Spline IK').first()).toBeVisible();
-  await item(page, 'Inverse Kinematics').first().click();
-  await expect(page.locator('[data-con="Inverse Kinematics"]')).toBeVisible();
+  await item(page, 'Spline IK').first().click();
+  await expect(page.locator('[data-con="Spline IK"]')).toBeVisible();
   await expect(page.locator('[data-con="Inverse Kinematics"] .sr-label', { hasText: 'Chain Length' })).toBeVisible();
   // the Bone tab has the bone's IK settings
   await openTab(page, 'BONE');
