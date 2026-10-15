@@ -62,3 +62,11 @@ describe('geometry nodes modifier inputs from .blend files', () => {
     expect(m[ids.Scale]).toBe(0.5);
   });
 });
+
+describe('geometry node settings from .blend files', () => {
+  it('reads enums stored in node fields and menu sockets', () => {
+    expect(nodeOf('GeometryNodeMergeByDistance').props.Mode).toBe('Connected');
+    expect(nodeOf('GeometryNodeMeshBoolean').props).toMatchObject({ operation: 'UNION', solver: 'EXACT' });
+    expect(nodeOf('GeometryNodeMeshLine').props.mode).toBe('END_POINTS');
+  });
+});

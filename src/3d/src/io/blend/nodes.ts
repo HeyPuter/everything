@@ -5,6 +5,7 @@ import { uid } from '../../data/defaults';
 import type { BStruct } from './reader';
 import type { Ctx } from './context';
 import { NODE_PROP_RULES } from './nodeprops.gen';
+import { GEO_NODE_PROP_RULES } from './nodeprops_geo.gen';
 import { newZonePending, readZoneNode, finishZones } from './zones';
 
 const NODE_HIDDEN = 8;
@@ -12,6 +13,12 @@ const NODE_DO_OUTPUT = 64;
 const NODE_MUTED = 512;
 
 function readField(node: BStruct, path: string): number | null {
+  if (path.startsWith('socket.')) {
+    // value of a menu socket
+    const sock = node.list('inputs', 1000).find((s) => s.str('identifier') === path.slice(7));
+    const dv = sock?.ref('default_value');
+    return dv && dv.has('value') ? dv.num('value') : null;
+  }
   if (path.startsWith('storage.')) {
     let s: BStruct | null = node.ref('storage');
     const parts = path.slice(8).split('.');
@@ -134,7 +141,7 @@ export function convertNodeTree(nt: BStruct, type: NodeTreeData['type'], ctx: Ct
         if (v !== undefined) node.props[`outputs.${s.str('identifier')}`] = v;
       }
     }
-    const rules = NODE_PROP_RULES[idname];
+    const rules = NODE_PROP_RULES[idname] ?? GEO_NODE_PROP_RULES[idname];
     if (rules) {
       for (const [prop, r] of Object.entries(rules)) {
         const raw = readField(n, r.f);

@@ -62,6 +62,15 @@ bk.bake_items.new('GEOMETRY', 'Geometry')
 L(fo.outputs['Geometry'], bk.inputs['Geometry'])
 L(bk.outputs['Geometry'], go.inputs[0])
 
+# settings stored in node fields and menu sockets (not connected)
+mbd = ng.nodes.new('GeometryNodeMergeByDistance')
+mbd.inputs['Mode'].default_value = 'Connected'
+boo = ng.nodes.new('GeometryNodeMeshBoolean')
+boo.operation = 'UNION'
+boo.solver = 'EXACT'
+line = ng.nodes.new('GeometryNodeMeshLine')
+line.mode = 'END_POINTS'
+
 mod = ob.modifiers.new('GN', 'NODES')
 mod.node_group = ng
 getattr(mod.properties.inputs, vec.identifier).value = (1.0, 2.0, 3.0)
