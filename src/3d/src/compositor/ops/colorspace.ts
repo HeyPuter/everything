@@ -12,14 +12,22 @@ Object.assign(CMP_LIB, {
     code:
       displayGLSL +
       `
-vec3 cmpSrgbDecode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
-// inverse of the Standard / Raw display transform (display-encoded → scene linear)
-vec4 cmpDisplayInverse(vec4 p, int view, float exposure, float invGamma) {
-  vec3 c = clamp(p.rgb, 0.0, 1.0);
-  if (invGamma != 1.0) c = pow(c, vec3(1.0 / invGamma));
-  if (view != 4) c = cmpSrgbDecode(c);
-  c /= max(exposure, 1e-6);
-  return vec4(c * p.a, p.a);
+vec3 cmpSrgbEncodeX(vec3 c) { return mix(c * 12.92, 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
+vec3 cmpSrgbDecodeX(vec3 c) { return mix(c / 12.92, pow(max((c + 0.055) / 1.055, vec3(0.0)), vec3(2.4)), step(vec3(0.04045), c)); }
+// view: 0 standard, 1 agx, 2 filmic, 3 neutral, 4 raw
+vec3 cmpDisplayForward(vec3 c, int view, float exposure, float invGamma) {
+  c *= exposure;
+  if (view == 0) c = cmpSrgbEncodeX(c);
+  else if (view == 1) c = cmSrgb(cmAgx(c));
+  else if (view == 2) c = vec3(cmFilmic1(c.r), cmFilmic1(c.g), cmFilmic1(c.b));
+  else if (view == 3) c = cmSrgb(cmNeutral(c));
+  if (invGamma != 1.0) c = sign(c) * pow(abs(c), vec3(invGamma));
+  return c;
+}
+vec3 cmpDisplayInverse(vec3 c, int view, float exposure, float invGamma) {
+  if (invGamma != 1.0) c = sign(c) * pow(abs(c), vec3(1.0 / invGamma));
+  if (view == 0) c = cmpSrgbDecodeX(c);
+  return c / max(exposure, 1e-6);
 }
 `,
   },
@@ -43,6 +51,8 @@ registerPixel('CompositorNodeConvertColorSpace', (g) => {
   g.out('Image', 'vec4', `vec4(cmpConvertSpace(${c}.rgb, ${TRANSFER_INDEX[a.transfer]}, ${mat3(m)}, ${TRANSFER_INDEX[b.transfer]}), ${c}.a)`);
 });
 
+// the view transform applies to the stored values as they are (no un-premultiplying, alpha kept);
+// Standard is the plain (unclamped) sRGB encoding, which Invert undoes
 registerPixel('CompositorNodeConvertToDisplay', (g) => {
   g.lib('cmp_display');
   const view = VIEW_INDEX[(g.str('view_transform') || 'STANDARD') as ViewTransform] ?? 0;
@@ -51,11 +61,8 @@ registerPixel('CompositorNodeConvertToDisplay', (g) => {
   const ig = gm > 0 ? 1 / gm : 1;
   const c = g.tmp('vec4', g.in('Image', 'vec4'));
   const inv = g.tmp('float', g.in('Invert', 'float'));
-  // the forward transform returns display values with straight alpha: premultiply them back
-  const fwd = g.tmp('vec4', `cmDisplay(${c}, ${view}, ${fmt(ex)}, ${fmt(ig)})`);
-  const back = view === 0 || view === 4 ? `cmpDisplayInverse(${c}, ${view}, ${fmt(ex)}, ${fmt(ig)})` : c;
   if (view !== 0 && view !== 4 && (g.value('Invert') === true || g.linked('Invert'))) g.error('Only the Standard and Raw views can be inverted');
-  g.out('Image', 'vec4', `${inv} > 0.5 ? ${back} : vec4(${fwd}.rgb * ${fwd}.a, ${fwd}.a)`);
+  g.out('Image', 'vec4', `${inv} > 0.5 ? vec4(cmpDisplayInverse(${c}.rgb, ${view}, ${fmt(ex)}, ${fmt(ig)}), ${c}.a) : vec4(cmpDisplayForward(${c}.rgb, ${view}, ${fmt(ex)}, ${fmt(ig)}), ${c}.a)`);
 });
 
 registerPixel('CompositorNodeHueCorrect', (g) => {
