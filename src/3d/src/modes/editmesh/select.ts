@@ -618,7 +618,14 @@ registerOperators([
   {
     idname: 'mesh.select_non_manifold',
     label: 'Select Non-Manifold',
-    props: [{ id: 'extend', label: 'Extend', type: 'bool', default: true }, { id: 'use_wire', label: 'Wire', type: 'bool', default: true }, { id: 'use_boundary', label: 'Boundaries', type: 'bool', default: true }, { id: 'use_multi_face', label: 'Multiple Faces', type: 'bool', default: true }, { id: 'use_verts', label: 'Vertices', type: 'bool', default: true }],
+    props: [
+      { id: 'extend', label: 'Extend', type: 'bool', default: true },
+      { id: 'use_wire', label: 'Wire', type: 'bool', default: true },
+      { id: 'use_boundary', label: 'Boundaries', type: 'bool', default: true },
+      { id: 'use_multi_face', label: 'Multiple Faces', type: 'bool', default: true },
+      { id: 'use_non_contiguous', label: 'Non Contiguous', type: 'bool', default: true },
+      { id: 'use_verts', label: 'Vertices', type: 'bool', default: true },
+    ],
     poll: (ctx) => editPoll(ctx) && selectMode() !== 'FACE',
     exec: (_ctx, p) => {
       eachMesh((me, m) => {
@@ -627,12 +634,27 @@ registerOperators([
         for (const [k, l] of ef) {
           const [a, b] = k.split(':').map(Number);
           if ((p.use_boundary && l.length === 1) || (p.use_multi_face && l.length > 2)) sel[a] = sel[b] = 1;
+          // two faces running the edge the same way: their normals disagree
+          if (p.use_non_contiguous && l.length === 2 && m.faces[l[0][0]].verts[l[0][1]] === m.faces[l[1][0]].verts[l[1][1]]) sel[a] = sel[b] = 1;
         }
         if (p.use_wire) for (const [a, b] of m.looseEdges) sel[a] = sel[b] = 1;
         if (p.use_verts) {
+          // vertices where separate fans of faces (or faces and wires) meet
+          const loose = new Set(m.looseEdges.flat());
           const vf = m.vertexFaces();
           vf.forEach((fs, v) => {
-            if (!fs.length && !m.looseEdges.some((e) => e[0] === v || e[1] === v)) sel[v] = 1;
+            if (fs.length < 2) return;
+            const parent = new Map(fs.map((f) => [f, f]));
+            const find = (f: number): number => {
+              while (parent.get(f) !== f) f = parent.get(f)!;
+              return f;
+            };
+            for (const f of fs) {
+              const vs = m.faces[f].verts;
+              const i = vs.indexOf(v);
+              for (const o of [vs[(i + 1) % vs.length], vs[(i + vs.length - 1) % vs.length]]) for (const [g] of ef.get(edgeKey(v, o)) ?? []) if (parent.has(g)) parent.set(find(f), find(g));
+            }
+            if (new Set(fs.map(find)).size > 1 || loose.has(v)) sel[v] = 1;
           });
         }
         me.select_vert = sel;
