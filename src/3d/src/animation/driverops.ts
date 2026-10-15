@@ -6,7 +6,8 @@ import { openPopover, type MenuItem } from '../ui/menu';
 import { getBinding, buttonHooks } from '../ui/binding';
 import { animOf, buttonDriverItems } from '../ui/buttons';
 import { shell } from '../ui/shell';
-import type { Area } from '../ui/screen';
+import { newAreaId, type Area } from '../ui/screen';
+import { areaWindows, openAreaWindow } from '../ui/areawindow';
 import type { Driver, ObjectData } from '../data/types';
 import { getValue } from '../data/rna';
 import { propertyAnimExtraItems } from '../anim/keyingsets';
@@ -48,18 +49,14 @@ export function openDriverPopover(ob: ObjectData, d: Driver, at?: HTMLElement | 
   );
 }
 
-/** Area showing the Drivers editor, made by splitting the area under the pointer when there is none. */
+/** Area showing the Drivers editor: an existing one, else a new floating window. */
 function driversArea(): Area | null {
-  const screen = shell.screen;
-  const existing = screen.findArea('DRIVERS');
+  const existing = shell.screen.findArea('DRIVERS') ?? [...areaWindows.values()].map((sc) => sc.findArea('DRIVERS')).find(Boolean);
   if (existing) return existing;
-  // the largest area gives up its lower part (the button pressed is usually in a small side area)
-  const base = screen.areas.reduce<Area | null>((best, a) => (!best || a.rect.w * a.rect.h > best.rect.w * best.rect.h ? a : best), null);
-  if (!base) return null;
-  const area = screen.split(base, 'v', 0.55);
-  if (!area) return null;
-  area.setType('DRIVERS');
-  return area;
+  const w = Math.min(980, innerWidth - 80),
+    hh = Math.min(560, innerHeight - 120);
+  const { screen } = openAreaWindow({ id: newAreaId(), type: 'DRIVERS' }, { width: w, height: hh, x: (innerWidth - w) / 2, y: 80 });
+  return screen.areas[0] ?? null;
 }
 
 function focusDriver(area: Area, ob: ObjectData, d: Driver) {

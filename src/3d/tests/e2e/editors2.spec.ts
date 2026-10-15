@@ -48,9 +48,10 @@ test('Ctrl D adds a driver and edits it in a popover; #expression drives a field
   await expect(page.locator('.area[data-editor="DRIVERS"] .anim-ch-row.k-driver')).toContainText('X Location');
   await page.mouse.move(5, 300);
   // "#expr" typed into a field makes a scripted driver
+  await expect(page.locator('.area-window .area[data-editor="DRIVERS"]')).toHaveCount(1);
   await page.evaluate(async () => {
-    const { shell } = await import('/src/ui/shell.ts');
-    shell.screen.close(shell.screen.findArea('DRIVERS'));
+    const w = await import('/src/ui/areawindow.ts');
+    for (const id of [...w.areaWindows.keys()]) w.closeAreaWindow(id);
   });
   await typeInto(page, fields.nth(1), '#frame/4');
   await expect.poll(() => win(page)(() => (window as any).app.activeObject.location[1])).toBe(3);
