@@ -3,7 +3,7 @@
 import { pyError } from './rna';
 import { MeshEdit, edgeKey, type EFace } from '../modes/editmesh/meshedit';
 import { bevelEdges, bevelVertices } from '../modes/editmesh/bevel';
-import { wireframe as wireframeKernel } from '../modes/editmesh/ops-faces';
+import { wireframe as wireframeKernel, gridFill } from '../modes/editmesh/ops-faces';
 import {
   BMesh,
   BMVert,
@@ -846,6 +846,22 @@ defOp(
     return { faces: r.newFaces };
   },
 );
+
+defOp('grid_fill', { edges: [], mat_nr: 0, use_smooth: false, use_interp_simple: false }, (bm, a) => {
+  const edges = new Set(argEdges(a.edges, 'grid_fill(edges)'));
+  const sv = new Set<BMVert>();
+  for (const e of edges) sv.add(e.v1), sv.add(e.v2);
+  const n = sv.size;
+  if (n < 4 || n % 2) throw pyError('RuntimeError', 'grid_fill(): expected one closed loop with an even number of edges (>= 4)');
+  const r = runKernel(bm, sv, edges, (m) => gridFill(m, Math.max(1, Math.round(n / 4)), 0, !!a.use_interp_simple), new Set());
+  if (!r) throw pyError('RuntimeError', 'grid_fill(): the edges must form one closed loop');
+  const mat = argInt(a.mat_nr, 'mat_nr');
+  for (const f of r.newFaces) {
+    if (mat) f.material_index = mat;
+    if (a.use_smooth) f.smooth = true;
+  }
+  return { faces: r.newFaces };
+});
 
 // ---------------------------------------------------------------------------
 // bisect

@@ -104,6 +104,7 @@ const OPS: [string, string, string][] = [
   ['bevel all edges', 'const bm = cube(); const r = bmesh.ops.bevel(bm, {geom: [...bm.edges], offset: 0.2, segments: 1, affect: "EDGES"}); print(cnt(bm), r.faces.length, r.verts.length)', '24,48,26 20 24'],
   ['inset_region of part of a solid', 'const bm = cube(); bmesh.ops.inset_region(bm, {faces: [...bm.faces].slice(0, 3), thickness: 0.1, depth: -0.1}); print(cnt(bm), [...bm.edges].every((e) => e.is_manifold && e.is_contiguous))', '16,28,14 true'],
   ['spin faces all around', 'const bm = grid(1, 1); bmesh.ops.spin(bm, {geom: [...bm.faces], cent: [2, 0, 0], axis: [0, 1, 0], angle: 2 * Math.PI, steps: 8, use_merge: true}); print(cnt(bm), [...bm.edges].every((e) => e.is_manifold && e.is_contiguous))', '32,64,32 true'],
+  ['grid_fill', 'const bm = cube(); bmesh.ops.delete(bm, {geom: top(bm), context: "FACES_ONLY"}); bmesh.ops.subdivide_edges(bm, {edges: [...bm.edges].filter((e) => e.is_boundary), cuts: 1}); const r = bmesh.ops.grid_fill(bm, {edges: [...bm.edges].filter((e) => e.is_boundary)}); print(cnt(bm), r.faces.length, [...bm.edges].every((e) => e.is_manifold && e.is_contiguous))', '13,20,9 4 true'],
   ['bridge_loops', 'const bm = bmesh.new(); bmesh.ops.create_circle(bm, {segments: 8, radius: 1}); bmesh.ops.create_circle(bm, {segments: 8, radius: 1, matrix: mathutils.Matrix.Translation([0, 0, 2])}); const r = bmesh.ops.bridge_loops(bm, {edges: [...bm.edges]}); print(cnt(bm), r.faces.length, r.edges.length)', '16,24,8 8 8'],
   ['holes_fill', 'const bm = cube(); bmesh.ops.delete(bm, {geom: top(bm), context: "FACES_ONLY"}); const r = bmesh.ops.holes_fill(bm, {edges: [...bm.edges], sides: 4}); print(cnt(bm), r.faces[0].normal.z)', '8,12,6 1'],
   ['holes_fill (too many sides)', 'const bm = cube(); bmesh.ops.delete(bm, {geom: top(bm), context: "FACES_ONLY"}); print(bmesh.ops.holes_fill(bm, {edges: [...bm.edges], sides: 3}).faces.length)', '0'],
@@ -399,6 +400,36 @@ describe('bmesh in Python', () => {
       'True None',
       '1 True',
     ]);
+  });
+
+  it('supports element methods with keyword arguments, selection and colors', () => {
+    if (!ok) return;
+    const out = runPy(`
+      import bmesh
+      bm = bmesh.new()
+      bmesh.ops.create_cube(bm, size=2)
+      bm.faces.ensure_lookup_table()
+      f = bm.faces[0]
+      c = f.copy(verts=False, edges=False)
+      print(len(bm.faces), len(bm.verts), c.verts[0] == f.verts[0])
+      bm.faces.remove(c)
+      f.select_set(True)
+      print(sum(v.select for v in bm.verts), sum(e.select for e in bm.edges))
+      for v in bm.verts:
+          v.select = True
+      bm.select_flush(True)
+      print(all(f.select for f in bm.faces))
+      col = bm.loops.layers.color.new('Paint')
+      for face in bm.faces:
+          for l in face.loops:
+              l[col] = (1.0, 0.5, 0.0, 1.0)
+      print(tuple(f.loops[0][col]), bm.loops.layers.float_color.active.name)
+      e = f.edges[0]
+      print(round(e.calc_face_angle(fallback=-1), 4), e.other_vert(e.verts[0]) == e.verts[1], f.verts[0].calc_edge_angle(fallback=-1))
+      bm.faces.active = f
+      print(bm.faces.active == f, len(bm.calc_loop_triangles()))
+    `);
+    expect(out.split('\n')).toEqual(['7 8 True', '4 4', 'True', '(1.0, 0.5, 0.0, 1.0) Paint', '1.5708 True -1', 'True 12']);
   });
 
   it('edits the mesh in Edit Mode and offers utils and geometry', () => {
