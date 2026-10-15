@@ -9,7 +9,8 @@ import type { ObjectData, MaterialData, MeshData, WorldData, LightData, CameraDa
 import { newMaterial, uid, newWorld } from '../../data/defaults';
 import { uniqueName } from '../../ops/object';
 import { cloneShared } from '../../data/cow';
-import { openMenu, type MenuItem } from '../../ui/menu';
+import { openMenu } from '../../ui/menu';
+import { idSelectorMenuHooks } from '../../ui/idmenu';
 import { materialSlots } from '../view3d/draw';
 import { uiList } from './uilist';
 import { cameraPanels } from '../../render/final/props/camera';
@@ -320,8 +321,6 @@ export function customProps(custom: Record<string, unknown>): Child {
 // ---------------------------------------------------------------------------
 // Data-block selector (browse / name / new / unlink)
 
-/** Extra right-click menu entries of data-block selectors (e.g. Mark as Asset), given the shown data-block id. */
-export const idSelectorMenuHooks: ((id: string) => MenuItem[])[] = [];
 
 export function dataBlockSelector<T extends { id: string; name: string; use_fake_user?: boolean }>(id: string, iconName: string, items: T[], current: string | null, set: (id: string | null) => void, create: () => void, opts: { duplicate?: () => void; users?: number; noUnlink?: boolean } = {}): Child {
   const cur = items.find((i) => i.id === current);

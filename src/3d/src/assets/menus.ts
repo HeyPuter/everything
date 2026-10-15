@@ -6,7 +6,7 @@ import type { MenuItem, SearchEntry } from '../ui/menu';
 import { h } from '../ui/h';
 import { icon } from '../ui/icons';
 import { rowMenuHooks, rowBadgeHooks } from '../editors/outliner/menus';
-import { idSelectorMenuHooks } from '../editors/properties/tabs';
+import { idSelectorMenuHooks } from '../ui/idmenu';
 import { addMenuExtras } from '../nodes/editor/context';
 import { contextTargets, metaOf, nodeEditorOf, type NodeEditorLike } from './ops';
 import { libraries, libraryCatalogs, listAssets, libraryDoc, assetRef, type AssetEntry } from './library';
