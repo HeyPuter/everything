@@ -208,6 +208,7 @@ export async function openSnapshot(s: Snapshot): Promise<boolean> {
 }
 
 function snapshotTick() {
+  if ((prefs as unknown as { use_auto_save_temporary_files?: boolean }).use_auto_save_temporary_files === false) return;
   const minutes = Math.max(1, prefs.autosave_interval || 2);
   if (app.revision === lastSnapshotRevision || !app.dirty) return;
   if (Date.now() - lastSnapshotTime < minutes * 60_000) return;
