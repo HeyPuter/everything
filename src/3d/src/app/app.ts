@@ -197,7 +197,15 @@ export class App {
     return this.doc.scene;
   }
 
+  /**
+   * Object that stands in for the active object while a pinned Properties editor draws or handles
+   * an event (set and cleared by that editor), so its buttons and operators act on the pinned object.
+   */
+  contextObject: ObjectData | null = null;
+
   get activeObject(): ObjectData | null {
+    const c = this.contextObject;
+    if (c && this.doc.objects[c.id] === c) return c;
     const id = this.doc.scene.active_object;
     return id ? this.doc.objects[id] ?? null : null;
   }

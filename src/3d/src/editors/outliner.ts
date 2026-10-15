@@ -124,8 +124,11 @@ export class Outliner implements Editor {
     this.boxEl.className = 'ol-box';
     this.boxEl.hidden = true;
     this.el.append(this.list, this.hint, this.boxEl);
-    const st = state as { mode?: DisplayMode; filter?: Partial<OutlinerFilter> } | undefined;
-    if (st?.mode && DISPLAY_MODES.some(([m]) => m === st.mode)) this.displayMode = st.mode;
+    // state from a saved layout or a workspace template: { displayMode, filter, open }
+    const st = state as { displayMode?: DisplayMode; mode?: DisplayMode; filter?: Partial<OutlinerFilter>; open?: [string, boolean][] } | undefined;
+    const mode = st?.displayMode ?? st?.mode;
+    if (mode && DISPLAY_MODES.some(([m]) => m === mode)) this.displayMode = mode;
+    if (Array.isArray(st?.open)) for (const [k, v] of st.open) if (typeof k === 'string') this.open.set(k, !!v);
     if (st?.filter) Object.assign(this.filter, st.filter);
     this.list.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -668,6 +671,7 @@ export class Outliner implements Editor {
                   onblur: (e: FocusEvent) => this.renaming === r.key && this.rename(r, (e.target as HTMLInputElement).value),
                 })
               : h('span', { class: 'ol-name' }, r.label),
+            r.count !== undefined ? h('span', { class: 'ol-count', 'data-tip': `${r.count} data-block${r.count === 1 ? '' : 's'}` }, String(r.count)) : null,
           ),
           r.chips?.length
             ? h(
@@ -1408,7 +1412,7 @@ export class Outliner implements Editor {
   }
 
   serialize() {
-    return { mode: this.displayMode, filter: { ...this.filter } };
+    return { displayMode: this.displayMode, filter: { ...this.filter }, open: [...this.open].slice(-500) };
   }
 
   dispose() {

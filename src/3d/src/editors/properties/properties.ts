@@ -6,7 +6,8 @@ import { app, registerOperators, operators, onAppReady, type ChangeKind, type Op
 import { addKeys } from '../../app/keymap';
 import { registerEditor, type Area, type Editor } from '../../ui/screen';
 import { textField, setPanelSearch, enumRow, checkbox } from '../../ui/widgets';
-import { openPopover } from '../../ui/menu';
+import { openPopover, anyPopupOpen, onMenusClosed } from '../../ui/menu';
+import type { ObjectData } from '../../data/types';
 import './properties.css';
 
 export interface PropertiesTab {
@@ -97,12 +98,14 @@ export class Properties implements Editor {
     this.body.className = 'prop-body';
     main.append(this.crumbs, this.body);
     this.el.append(this.rail, main);
-    const st = state as { tab?: string; panelOrder?: Record<string, string[]>; outlinerSync?: Properties['outlinerSync']; hiddenTabs?: string[]; zoom?: number } | undefined;
+    const st = state as { tab?: string; panelOrder?: Record<string, string[]>; outlinerSync?: Properties['outlinerSync']; hiddenTabs?: string[]; zoom?: number; pinned?: string | null } | undefined;
     if (st?.tab) this.tab = st.tab;
     if (st?.panelOrder) this.panelOrder = { ...st.panelOrder };
     if (st?.outlinerSync) this.outlinerSync = st.outlinerSync;
     if (Array.isArray(st?.hiddenTabs)) this.hiddenTabs = [...st.hiddenTabs];
     if (typeof st?.zoom === 'number' && st.zoom !== 1) this.zoomBy(st.zoom);
+    if (typeof st?.pinned === 'string') this.pinned = st.pinned;
+    pinnable.add(this);
     // Ctrl+wheel cycles the tabs (number fields and menus use it themselves and stop it)
     this.el.addEventListener(
       'wheel',
@@ -124,6 +127,17 @@ export class Properties implements Editor {
         'div',
         { class: 'hdr-search wide' },
         textField('prop-search', this.search, (v) => this.setSearch(v), { placeholder: 'Search (Ctrl F)', icon: 'search', live: true, className: 'prop-search' }),
+      ),
+      h(
+        'button',
+        {
+          class: { 'hdr-toggle': true, 'prop-pin': true, on: !!this.pinned },
+          'data-tip': this.pinned ? 'Unpin\nFollow the active object again' : 'Pin ID\nKeep showing this object even when the active object changes',
+          'aria-pressed': this.pinned ? 'true' : 'false',
+          disabled: !this.pinned && !app.doc.scene.active_object,
+          onclick: () => this.togglePin(),
+        },
+        icon(this.pinned ? 'pinned' : 'unpinned'),
       ),
       h(
         'button',
@@ -264,7 +278,33 @@ export class Properties implements Editor {
     }
   }
 
+  /** The pinned object (unpins when it no longer exists). */
+  pinnedObject(): ObjectData | null {
+    if (!this.pinned) return null;
+    const ob = app.doc.objects[this.pinned];
+    if (!ob) this.pinned = null;
+    return ob ?? null;
+  }
+
+  togglePin() {
+    this.pinned = this.pinned ? null : (app.doc.objects[app.doc.scene.active_object ?? '']?.id ?? null);
+    this.update();
+    this.area.drawHeader();
+  }
+
   update(kinds?: Set<ChangeKind>) {
+    // a pinned editor draws its object as if it were the active one
+    const prev = app.contextObject;
+    const pin = this.pinnedObject();
+    if (pin) app.contextObject = pin;
+    try {
+      this.draw(kinds);
+    } finally {
+      app.contextObject = prev;
+    }
+  }
+
+  private draw(kinds?: Set<ChangeKind>) {
     void kinds;
     const requested = (window as unknown as { __propertiesTab?: string }).__propertiesTab;
     if (requested) {
@@ -314,7 +354,7 @@ export class Properties implements Editor {
           ? h(
               'span',
               { class: 'crumb' },
-              icon('object'),
+              this.pinned ? icon('pinned') : icon('object'),
               ob.name,
               this.tab === 'DATA' && ob.data
                 ? h(
@@ -412,10 +452,62 @@ export class Properties implements Editor {
   }
 
   serialize() {
-    return { tab: this.tab, panelOrder: this.panelOrder, outlinerSync: this.outlinerSync, hiddenTabs: this.hiddenTabs, zoom: this.zoom };
+    return { tab: this.tab, panelOrder: this.panelOrder, outlinerSync: this.outlinerSync, hiddenTabs: this.hiddenTabs, zoom: this.zoom, pinned: this.pinned };
   }
 
-  dispose() {}
+  dispose() {
+    pinnable.delete(this);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pinned editors: events inside them (and in menus they open) see the pinned object as the
+// active one, so buttons and operators act on it. The override only lasts for one event.
+
+const pinnable = new Set<Properties>();
+let popupPin: ObjectData | null = null;
+let clearTimer = 0;
+
+function pinFor(target: EventTarget | null, isKey: boolean): ObjectData | null {
+  const el = target as HTMLElement | null;
+  if (!isKey && el?.closest?.('.popup-layer')) return popupPin;
+  for (const p of pinnable) {
+    if (!p.pinned) continue;
+    const inside = isKey ? (app.hoverArea ?? app.activeArea) === (p.area as unknown) : !!el && p.el.contains(el);
+    if (inside) return p.pinnedObject();
+  }
+  return null;
+}
+
+function beginPinned(e: Event) {
+  const hover = e.type === 'pointerover';
+  // hovering only matters inside menus opened from a pinned editor (submenus poll their items)
+  if (hover && !(popupPin && (e.target as HTMLElement | null)?.closest?.('.popup-layer'))) return;
+  const ob = pinFor(e.target, e.type === 'keydown');
+  if (!ob) return;
+  app.contextObject = ob;
+  if (!hover) redrawAfter = true;
+  clearTimeout(clearTimer);
+  clearTimer = window.setTimeout(endPinned, 0);
+}
+
+let redrawAfter = false;
+
+function endPinned() {
+  if (!app.contextObject) return;
+  const ob = app.contextObject;
+  app.contextObject = null;
+  // a menu opened from the pinned editor keeps acting on the pinned object
+  if (anyPopupOpen() && !popupPin) {
+    popupPin = ob;
+    onMenusClosed(() => (popupPin = null));
+  }
+  if (redrawAfter) app.changed('ui');
+  redrawAfter = false;
+}
+
+for (const type of ['pointerdown', 'pointerup', 'pointerover', 'click', 'dblclick', 'change', 'input', 'keydown', 'wheel', 'contextmenu'] as const) {
+  addEventListener(type, beginPinned, { capture: true, passive: true });
 }
 
 registerEditor({ id: 'PROPERTIES', label: 'Properties', icon: 'properties', group: 'Data', create: (a, s) => new Properties(a, s) });

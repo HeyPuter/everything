@@ -97,6 +97,8 @@ export interface Row {
   /** data-block user count (file / orphan modes) */
   users?: number;
   fakeUser?: boolean;
+  /** number of items in a data-block type group */
+  count?: number;
 }
 
 export interface TreeState {
@@ -121,6 +123,8 @@ interface Node {
   defaultOpen: boolean;
   users?: number;
   fakeUser?: boolean;
+  /** number of items in a data-block type group */
+  count?: number;
   /** search ignores structural rows that only group other elements */
   searchable?: boolean;
   children: () => Node[];
@@ -589,6 +593,7 @@ function buildIdModes(doc: DocumentData, st: TreeState): Node[] {
       label,
       icon: ic,
       table,
+      count: items.length,
       defaultOpen: orphans,
       children: () =>
         items.map((it) =>
@@ -637,6 +642,21 @@ function buildIdModes(doc: DocumentData, st: TreeState): Node[] {
                 },
         ),
     });
+  }
+  if (!orphans) {
+    // the scene is listed with the data-blocks (it is not stored in a table)
+    const scenes: Node = {
+      ekey: 'g:scenes',
+      kind: 'group',
+      label: 'Scenes',
+      icon: 'scene_data',
+      table: 'scenes',
+      count: 1,
+      defaultOpen: false,
+      children: () => [{ ekey: 'id:scenes:scene', kind: 'scene', label: doc.scene.name, icon: 'scene_data', id: 'scene', table: 'scenes', defaultOpen: false, searchable: true, children: () => [] }],
+    };
+    const at = groups.findIndex((g) => g.label.localeCompare('Scenes') > 0);
+    groups.splice(at < 0 ? groups.length : at, 0, scenes);
   }
   if (orphans) return groups;
   return [
@@ -746,6 +766,7 @@ export function buildRows(doc: DocumentData, st: TreeState, tc: TreeContext = ZE
       match: !!search && selfMatch(n),
       users: n.users,
       fakeUser: n.fakeUser,
+      count: n.count,
     });
     if (expanded && depth < 256) for (const c of kidsOf(n)) emit(c, depth + 1, key);
   };

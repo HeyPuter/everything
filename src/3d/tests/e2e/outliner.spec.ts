@@ -204,6 +204,14 @@ test('outliner: drag and drop, restriction columns, filter and search', async ({
   await page.locator('.ol-display-mode').dispatchEvent('pointerdown');
   await page.locator('.menu-item', { hasText: 'Blender File' }).click();
   await expect(page.locator('.outliner .ol-row', { hasText: 'Current File' })).toHaveCount(1);
+  await expect(page.locator('.outliner .ol-row', { hasText: 'Scenes' }).locator('.ol-count')).toHaveText('1');
+  // the display mode is part of the editor state (layouts and workspace templates)
+  expect(
+    await page.evaluate(async () => {
+      const { currentOutliner } = await import('/src/editors/outliner/current.ts');
+      return (currentOutliner() as unknown as { serialize(): { displayMode: string } }).serialize().displayMode;
+    }),
+  ).toBe('BLENDER_FILE');
   await expectNoErrors(errors);
 });
 
@@ -364,6 +372,29 @@ test('properties: search, tab cycling, panel collapse and reorder', async ({ pag
   await page.mouse.move(grip.x + 4, top.y + 3, { steps: 6 });
   await page.mouse.up();
   await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('.prop-body > .panel')].slice(0, 2).map((e) => (e as HTMLElement).dataset.panel))).toEqual(['ob-visibility', first]);
+  // pinning keeps showing the object while another one becomes active, and edits go to it
+  await page.locator('.prop-pin').click();
+  await row(page, 'Light').locator('.ol-name').click();
+  await expect(page.locator('.prop-crumbs')).toContainText('Cube');
+  await page.locator('.rail-tab[data-tab="MODIFIER"]').click();
+  await page.locator('.add-mod').dispatchEvent('pointerdown');
+  await page.locator('.menu-item', { hasText: 'Generate' }).first().hover();
+  await page
+    .locator('.menu-item', { hasText: /^Array/ })
+    .first()
+    .click();
+  expect(
+    await page.evaluate(() =>
+      Object.values((window as unknown as Win).app.doc.objects as Record<string, any>)
+        .map((o) => `${o.name}:${o.modifiers.length}`)
+        .sort(),
+    ),
+  ).toEqual(['Camera:0', 'Cube:1', 'Light:0']);
+  await expect.poll(() => activeName(page)).toBe('Light');
+  await page.locator('.prop-pin').click();
+  await expect(page.locator('.prop-crumbs')).toContainText('Light');
+  await page.locator('.rail-tab[data-tab="OBJECT"]').click();
+  await row(page, 'Cube').locator('.ol-name').click();
   // options popover hides a tab from the rail
   await page.locator('.prop-options-btn').dispatchEvent('pointerdown');
   await page.locator('.prop-opts .olf-check', { hasText: 'Physics' }).locator('.checkbox').dispatchEvent('pointerdown');

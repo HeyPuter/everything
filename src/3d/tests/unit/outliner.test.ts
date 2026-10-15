@@ -132,6 +132,9 @@ describe('outliner tree', () => {
     expect(rows.some((r) => r.label === 'Materials')).toBe(true);
     expect(rows.some((r) => r.kind === 'id' && r.label === 'Material')).toBe(true);
     expect(rows.some((r) => r.label === 'Scene Collection')).toBe(false);
+    expect(rows.find((r) => r.label === 'Materials')!.count).toBe(Object.keys(doc.materials).length);
+    expect(rows.find((r) => r.label === 'Scenes')).toMatchObject({ kind: 'group', count: 1 });
+    expect(buildRows(doc, st({ mode: 'BLENDER_FILE', open: new Map([['g:scenes', true]]) })).some((r) => r.kind === 'scene' && r.label === doc.scene.name)).toBe(true);
     expect(buildRows(doc, st({ mode: 'ORPHAN_DATA' }))).toEqual([]);
     const m = newMaterial('Spare');
     doc.materials[m.id] = m;
