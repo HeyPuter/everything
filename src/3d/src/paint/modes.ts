@@ -84,7 +84,7 @@ modeHandlers.TEXTURE_PAINT = {
     let img = paintImage(ob);
     if (!img) img = addPaintSlot(ob);
     paintDisplay.image = img?.id ?? null;
-    if (!meshHasUVs(me)) app.report('ERROR', 'Missing UVs: the mesh needs a UV map for texture painting (UV ▸ Unwrap in Edit Mode)');
+    if (!meshHasUVs(me)) app.report('WARNING', 'Missing UVs: use Paint ▸ Add Simple UVs, or unwrap the mesh in Edit Mode');
     return true;
   },
   exit: () => {

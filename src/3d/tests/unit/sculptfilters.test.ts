@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { grid, uvSphere } from '../../src/mesh/primitives';
+import { cube, grid, uvSphere } from '../../src/mesh/primitives';
 import { faceNormals, vertexFaces, vertexNeighbors } from '../../src/mesh/mesh';
 import { applyMeshFilter, type FilterMesh } from '../../src/paint/filters';
 import { expandInside, expandValue, geodesicDistances, normalAngles, normalizeField, topologySteps } from '../../src/paint/expandmath';
@@ -201,5 +201,25 @@ describe('symmetrize and fairing', async () => {
     Q[24 * 3 + 2] = 1;
     fairVertices(Q, nb.offsets, nb.neighbors, free, 'TANGENCY', 400);
     expect(Math.abs(Q[24 * 3 + 2])).toBeLessThan(0.2);
+  });
+});
+
+describe('simple UVs', async () => {
+  const { simpleUVs } = await import('../../src/paint/simpleuv');
+  it('box-projects every face into its own atlas cell inside 0..1', () => {
+    const c = cube(2);
+    const uv = simpleUVs(c);
+    expect(uv.length).toBe(c.indices.length * 2);
+    for (const x of uv) {
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThanOrEqual(1);
+    }
+    // six faces → six different cells
+    const cells = new Set<string>();
+    for (let f = 0; f < 6; f++) {
+      const c0 = c.offsets[f];
+      cells.add(`${Math.floor(uv[c0 * 2] * 3)},${Math.floor(uv[c0 * 2 + 1] * 2)}`);
+    }
+    expect(cells.size).toBe(6);
   });
 });

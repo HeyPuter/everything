@@ -18,6 +18,7 @@ import './wpaint';
 import './tpaint';
 import './armweights';
 import './paintops';
+import './simpleuv';
 import './ui';
 import './selmask';
 import './sculptmenus';

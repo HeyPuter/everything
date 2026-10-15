@@ -581,7 +581,7 @@ function brushPanels(mode: BrushMode): Child[] {
     out.push(
       panel('pt-slots', 'Texture Slots', () => [
         img ? h('div', { class: 'sb-label' }, icon('texture'), ` ${img.name} (${img.width}×${img.height})`) : h('div', { class: 'sb-label' }, 'Missing texture'),
-        am && !meshHasUVs(am.me) ? h('div', { class: 'sb-label', style: { color: '#e66' } }, 'Missing UVs') : null,
+        am && !meshHasUVs(am.me) ? [h('div', { class: 'sb-label', style: { color: '#e66' } }, 'Missing UVs'), opButton('paint.add_simple_uvs', 'Add Simple UVs')] : null,
         opButton('paint.add_texture_paint_slot', 'New Base Color Texture', {}, { icon: 'add' }),
       ]),
     );
@@ -715,6 +715,7 @@ modeMenus.TEXTURE_PAINT = {
       'Paint',
       () => [
         { label: 'Add Texture Paint Slot', op: 'paint.add_texture_paint_slot' },
+        { label: 'Add Simple UVs', op: 'paint.add_simple_uvs' },
         { separator: true },
         {
           label: 'Sample Color',

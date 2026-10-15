@@ -544,8 +544,9 @@ const maskKeys: KeyItem[] = [
 ];
 const toggles = (vertex: boolean): KeyItem[] => [{ key: 'ONE', op: 'paint.selection_mask_toggle', props: { mode: 'FACE' } }, ...(vertex ? [{ key: 'TWO', op: 'paint.selection_mask_toggle', props: { mode: 'VERTEX' } }] : [])];
 // mask keys first so they win over the brush keys of the same mode
-addKeys('Vertex Paint', [...toggles(true), ...maskKeys]);
-addKeys('Weight Paint', [...toggles(true), ...maskKeys]);
+const reveal: KeyItem = { key: 'H', alt: true, op: 'paint.face_vert_reveal' };
+addKeys('Vertex Paint', [...toggles(true), ...maskKeys, reveal]);
+addKeys('Weight Paint', [...toggles(true), ...maskKeys, reveal]);
 addKeys('Image Paint', [...toggles(false), ...maskKeys.filter((k) => k.when === faceMaskOn)]);
 
 // ---------------------------------------------------------------------------
