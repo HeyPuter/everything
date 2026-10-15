@@ -50,6 +50,13 @@ export function meshSignature(me: MeshData) {
     .join(',')}:${me.color_attributes.map((c) => aid(c.data)).join(',')}:${me.active_color_index}`;
 }
 
+/** The mesh as if only its active shape key were applied, at full strength (shape key pinning). */
+export function pinnedShapeKey(me: MeshData): MeshData {
+  const act = me.active_shape_key_index;
+  if (me.shape_keys.length < 2 || act <= 0 || act >= me.shape_keys.length) return { ...me, shape_keys: me.shape_keys.map((k) => ({ ...k, value: 0 })) };
+  return { ...me, shape_keys: me.shape_keys.map((k, i) => ({ ...k, value: i === act ? 1 : 0, mute: i === act ? false : k.mute })) };
+}
+
 export function baseEvalMesh(me: MeshData, editMode = false): EvalMesh {
   let positions = me.positions;
   // shape keys (relative to basis = key 0)
@@ -242,7 +249,7 @@ export class Depsgraph {
   /** Signature of all inputs to an object's evaluated geometry. */
   private dataSignature(doc: DocumentData, ob: ObjectData, me: MeshData | null): string {
     const edit = this.editObjects.has(ob.id);
-    let s = `${ob.type}|${edit ? 'E' : ''}|${this.render ? 'R' : ''}|`;
+    let s = `${ob.type}|${edit ? 'E' : ''}|${this.render ? 'R' : ''}|${ob.show_only_shape_key && me ? `pin${me.active_shape_key_index}` : ''}|`;
     if (me) s += meshSignature(me);
     else if (ob.data) {
       const cu = doc.curves[ob.data];
@@ -293,7 +300,7 @@ export class Depsgraph {
     }
     const edit = this.editObjects.has(ob.id);
     let mesh: EvalMesh;
-    if (me) mesh = baseEvalMesh(me, edit);
+    if (me) mesh = baseEvalMesh(ob.show_only_shape_key ? pinnedShapeKey(me) : me, edit);
     else {
       const cu = doc.curves[ob.data!];
       mesh = curveToMesh(cu, ob.type === 'FONT');

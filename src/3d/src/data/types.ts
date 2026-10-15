@@ -739,6 +739,8 @@ export interface ObjectData {
   field: ForceField | null;
   collision: CollisionSettings | null;
   vertex_group_active_index?: number;
+  /** show only the active shape key, at full strength */
+  show_only_shape_key?: boolean;
   pass_index?: number;
   is_shadow_catcher?: boolean;
   is_holdout?: boolean;

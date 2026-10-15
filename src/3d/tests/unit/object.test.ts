@@ -761,3 +761,30 @@ describe('object collections panel ops', () => {
     expect(ob.select).toBe(true);
   });
 });
+
+describe('shape key pinning', () => {
+  it('shows only the active key at full strength', () => {
+    const ob = cube();
+    select(ob);
+    run('object.shape_key_add');
+    run('object.shape_key_add');
+    run('object.shape_key_add');
+    const me = meshOf(ob);
+    const d1 = new Float32Array(me.shape_keys[0].data);
+    d1[0] += 1;
+    const d2 = new Float32Array(me.shape_keys[0].data);
+    d2[2] += 1;
+    me.shape_keys[1] = { ...me.shape_keys[1], data: d1, value: 0.2 };
+    me.shape_keys[2] = { ...me.shape_keys[2], data: d2, value: 0.5 };
+    me.active_shape_key_index = 1;
+    ob.show_only_shape_key = true;
+    app.graph.evaluate(app.doc, false);
+    const P = app.graph.get(ob.id)!.mesh!.positions;
+    expect(P[0]).toBeCloseTo(me.positions[0] + 1);
+    expect(P[2]).toBeCloseTo(me.positions[2]);
+    ob.show_only_shape_key = false;
+    app.graph.evaluate(app.doc, false);
+    const Q = app.graph.get(ob.id)!.mesh!.positions;
+    expect(Q[0]).toBeCloseTo(me.positions[0] + 0.2);
+  });
+});

@@ -552,7 +552,7 @@ function meshData(o: ObjectData, me: MeshData): Child {
         : me.shape_keys.length
           ? h('div', { class: 'prop-note' }, 'The Basis key is the rest shape.')
           : null,
-      me.shape_keys.length ? bool(me as never, 'use_shape_key_edit_mode' as never, 'Shape Key Edit Mode') : null,
+      me.shape_keys.length ? [bool(o as never, 'show_only_shape_key' as never, 'Pin Active Shape Key'), bool(me as never, 'use_shape_key_edit_mode' as never, 'Shape Key Edit Mode')] : null,
     ]),
     panel('me-uvmaps', 'UV Maps', () => [uiList('uv', [{ key: me.uv_map_name, label: me.uv_map_name, icon: 'uv' }], 0, () => {}, { rename: (_i, name) => ((me.uv_map_name = name), changed('Rename UV Map')) })]),
     panel('me-colors', 'Color Attributes', () => [
