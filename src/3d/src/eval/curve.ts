@@ -75,19 +75,21 @@ export function sampleSpline(s: Spline, resolution: number): SampledSpline {
           y = 0,
           z = 0,
           w = 0,
-          r = 0;
+          r = 0,
+          tl = 0;
         for (let i = 0; i < m; i++) {
           const b = basis(i, order, t, knots) * (ctrl[i].co[3] || 1);
           x += ctrl[i].co[0] * b;
           y += ctrl[i].co[1] * b;
           z += ctrl[i].co[2] * b;
           r += ctrl[i].radius * b;
+          tl += ctrl[i].tilt * b;
           w += b;
         }
         if (w > 0) {
           pts.push([x / w, y / w, z / w]);
           rad.push(r / w);
-          tilt.push(0);
+          tilt.push(tl / w);
         }
       }
     }
@@ -107,7 +109,7 @@ function basis(i: number, k: number, t: number, knots: number[]): number {
 }
 
 /** Parallel-transport frames along a polyline. */
-function frames(points: Vec3[], cyclic: boolean, planarZ: boolean) {
+export function frames(points: Vec3[], cyclic: boolean, planarZ: boolean) {
   const n = points.length;
   const T: Vec3[] = [],
     N: Vec3[] = [],

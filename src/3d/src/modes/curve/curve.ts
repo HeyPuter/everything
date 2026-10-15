@@ -15,6 +15,7 @@ import { uniqueName, curveEditHooks } from '../../ops/object';
 import { inSelectRegion } from '../../editors/view3d/selectshapes';
 import type { SelectRegion } from '../../editors/view3d/hooks';
 import * as K from './curveops';
+import { sampleSpline, frames } from '../../eval/curve';
 import { proportionalWeights } from '../proportional';
 
 type Part = 'co' | 'hl' | 'hr';
@@ -66,8 +67,15 @@ function setSelected(cu: CurveData, it: Item, on: boolean) {
   else b.select_right_handle = on;
 }
 
-/** Whether handles are drawn for a point (only for selected points, like the default overlay). */
-function handlesShown(b: BezierPoint) {
+type HandleDisplay = 'ALL' | 'SELECTED' | 'NONE';
+/** Handle display of the viewport being drawn / picked in (overlay setting). */
+let handleDisplay: HandleDisplay = 'SELECTED';
+const useView = (v: View3D) => (handleDisplay = v.overlay.display_handle ?? 'SELECTED');
+
+/** Whether handles are drawn (and pickable) for a point. */
+function handlesShown(b: BezierPoint, mode: HandleDisplay = handleDisplay) {
+  if (mode === 'ALL') return true;
+  if (mode === 'NONE') return false;
   return !!(b.select_control_point || b.select_left_handle || b.select_right_handle);
 }
 
@@ -86,7 +94,7 @@ function allItems(cu: CurveData, withHandles = true): Item[] {
 }
 
 function anySelected(cu: CurveData) {
-  return allItems(cu, false).some((it) => isSelected(cu, it) || (cu.splines[it.s].type === 'BEZIER' && handlesShown(cu.splines[it.s].bezier_points[it.i])));
+  return allItems(cu, false).some((it) => isSelected(cu, it) || (cu.splines[it.s].type === 'BEZIER' && handlesShown(cu.splines[it.s].bezier_points[it.i], 'SELECTED')));
 }
 
 function pointSelected(sp: Spline, i: number) {
@@ -147,6 +155,7 @@ function alignOpposite(b: BezierPoint, moved: 'hl' | 'hr') {
 function pick(v: View3D, x: number, y: number): Item | null {
   const a = activeCurve();
   if (!a) return null;
+  useView(v);
   const w = world(a.ob);
   let best: Item | null = null,
     bd = 12;
@@ -246,9 +255,26 @@ editModeHooks.svg.push((v) => {
   if (!inCurveEdit()) return null;
   const { ob, cu } = activeCurve()!;
   const w = world(ob);
+  useView(v);
   const lines: VNode[] = [],
     dots: VNode[] = [];
   const P = (a: ArrayLike<number>) => v.project(V3(a).applyMatrix4(w));
+  if (v.overlay.show_curve_normals !== false && v.overlay.normals_length > 0) {
+    // normals (rotated by tilt) along the evaluated curve
+    const len = v.overlay.normals_length;
+    for (const sp of cu.splines) {
+      const smp = sampleSpline(sp, cu.resolution_u);
+      if (smp.points.length < 2) continue;
+      const { N, B } = frames(smp.points, smp.cyclic, cu.dimensions === '2D');
+      smp.points.forEach((p, i) => {
+        const t = smp.tilt[i];
+        const n = V3(N[i]).multiplyScalar(Math.cos(t)).add(V3(B[i]).multiplyScalar(Math.sin(t))).multiplyScalar(len * smp.radius[i]);
+        const a = P(p),
+          b = P(V3(p).add(n).toArray());
+        lines.push(h('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: '#7fd0ff', 'stroke-width': 1, opacity: 0.8 }));
+      });
+    }
+  }
   cu.splines.forEach((sp, s) => {
     if (sp.type === 'BEZIER') {
       sp.bezier_points.forEach((b, i) => {
