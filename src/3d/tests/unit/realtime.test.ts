@@ -163,3 +163,25 @@ describe('shadows, materials and probes', async () => {
     for (const t of ['SPHERE', 'PLANE', 'VOLUME'] as const) expect(probeHelperSegments(defaultLightProbe(t)).length % 6).toBe(0);
   });
 });
+
+describe('ambient occlusion pass', async () => {
+  const { ambientOcclusionPass } = await import('../../src/render/realtime/aopass');
+  const { PerspectiveCamera } = await import('three');
+  it('open surfaces are unoccluded, a crease darkens', () => {
+    const cam = new PerspectiveCamera(60, 1, 0.1, 100);
+    cam.updateMatrixWorld(true);
+    const W = 32,
+      H = 32;
+    const flat = new Float32Array(W * H * 4);
+    for (let i = 0; i < W * H; i++) flat.set([0, 0, 1, 5], i * 4);
+    const view = cam.matrixWorldInverse.elements;
+    const a = ambientOcclusionPass(flat, W, H, cam.projectionMatrix.elements, cam.projectionMatrixInverse.elements, view, false, 1);
+    expect(Math.min(...a)).toBeCloseTo(1);
+    // right half is a wall standing closer, facing left: the floor next to it is occluded
+    const crease = new Float32Array(flat);
+    for (let y = 0; y < H; y++) for (let x = W / 2; x < W; x++) crease.set([-1, 0, 0, 4.6], (y * W + x) * 4);
+    const b = ambientOcclusionPass(crease, W, H, cam.projectionMatrix.elements, cam.projectionMatrixInverse.elements, view, false, 1);
+    expect(b[(H / 2) * W + W / 2 - 1]).toBeLessThan(0.95);
+    expect(b[(H / 2) * W + 1]).toBeGreaterThan(b[(H / 2) * W + W / 2 - 1]);
+  });
+});

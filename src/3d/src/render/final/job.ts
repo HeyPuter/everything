@@ -27,6 +27,7 @@ import { passesFromGuide } from './passes';
 import { stampFields, burnStampOverlay, pngWithText } from './stamp';
 import { animationRecorder } from './playback';
 import { extraPasses, wantsExtraPasses } from './extrapasses';
+import { ambientOcclusionPass } from '../realtime/aopass';
 
 type Source = { kind: 'final' } | { kind: 'viewport'; view: View3D };
 
@@ -258,7 +259,8 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
   const restore = saveState(renderer);
   const transparent = filmTransparent(r);
   const passesWanted = { z: r.use_pass_z, normal: r.use_pass_normal, mist: r.use_pass_mist };
-  const needGuide = passesWanted.z || passesWanted.normal || passesWanted.mist || (engine === 'WORKBENCH' && transparent);
+  const wantAo = !!r.use_pass_ambient_occlusion && src.kind === 'final';
+  const needGuide = passesWanted.z || passesWanted.normal || passesWanted.mist || wantAo || (engine === 'WORKBENCH' && transparent);
   try {
     let combined: Float32Array;
     let samples = 1,
@@ -485,6 +487,7 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
         passes,
         passesFromGuide(g, W, H, (camera as PerspectiveCamera).projectionMatrixInverse.elements, ortho, { start: world?.mist_start ?? 5, depth: world?.mist_depth ?? 25, falloff: world?.mist_falloff }, passesWanted),
       );
+      if (wantAo) passes.AO = ambientOcclusionPass(g, W, H, (camera as PerspectiveCamera).projectionMatrix.elements, (camera as PerspectiveCamera).projectionMatrixInverse.elements, camera.matrixWorldInverse.elements, ortho, r.ambient_occlusion_distance ?? 1);
       if (engine === 'WORKBENCH' && transparent) {
         for (let i = 0; i < W * H; i++) {
           const a = g[i * 4 + 3] > 0 ? 1 : 0;

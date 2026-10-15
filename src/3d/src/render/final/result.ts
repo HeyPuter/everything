@@ -2,7 +2,7 @@
 import { toDisplayRGBA8, displayPixel, type ViewSettings } from './colormanage';
 import { compositeOverlay, type StampField } from './stamp';
 
-export type PassName = 'Combined' | 'Depth' | 'Normal' | 'Mist' | 'Position' | 'UV' | 'IndexOB' | 'IndexMA' | 'DiffCol' | 'Emit';
+export type PassName = 'Combined' | 'Depth' | 'Normal' | 'Mist' | 'Position' | 'UV' | 'IndexOB' | 'IndexMA' | 'DiffCol' | 'Emit' | 'AO';
 export type ChannelMode = 'COLOR_ALPHA' | 'COLOR' | 'ALPHA' | 'Z';
 
 export interface RenderInfo {
@@ -57,13 +57,13 @@ export function touchVirtualImage(id: string) {
   for (const fn of virtualListeners) fn(id);
 }
 
-export const PASS_CHANNELS: Record<PassName, number> = { Combined: 4, Depth: 1, Normal: 4, Mist: 1, Position: 4, UV: 4, IndexOB: 1, IndexMA: 1, DiffCol: 4, Emit: 4 };
+export const PASS_CHANNELS: Record<PassName, number> = { Combined: 4, Depth: 1, Normal: 4, Mist: 1, Position: 4, UV: 4, IndexOB: 1, IndexMA: 1, DiffCol: 4, Emit: 4, AO: 1 };
 
 /** Display order of passes (pass menus, Render Layers outputs). */
-export const PASS_ORDER: PassName[] = ['Combined', 'Depth', 'Mist', 'Normal', 'Position', 'UV', 'IndexOB', 'IndexMA', 'DiffCol', 'Emit'];
+export const PASS_ORDER: PassName[] = ['Combined', 'Depth', 'Mist', 'Normal', 'Position', 'UV', 'IndexOB', 'IndexMA', 'DiffCol', 'Emit', 'AO'];
 
 /** Readable pass names. */
-export const PASS_LABELS: Record<PassName, string> = { Combined: 'Combined', Depth: 'Depth', Normal: 'Normal', Mist: 'Mist', Position: 'Position', UV: 'UV', IndexOB: 'Object Index', IndexMA: 'Material Index', DiffCol: 'Diffuse Color', Emit: 'Emission' };
+export const PASS_LABELS: Record<PassName, string> = { Combined: 'Combined', Depth: 'Depth', Normal: 'Normal', Mist: 'Mist', Position: 'Position', UV: 'UV', IndexOB: 'Object Index', IndexMA: 'Material Index', DiffCol: 'Diffuse Color', Emit: 'Emission', AO: 'Ambient Occlusion' };
 
 /** Render slots: renders go into the active slot so earlier ones can be compared. */
 export const RENDER_SLOTS = 8;

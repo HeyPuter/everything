@@ -194,3 +194,21 @@ test('material settings: render method and shadow mode change the render', async
   await expect(props.getByText('Raytraced Transmission')).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('Ambient Occlusion pass reaches the Render Layers node', async ({ page }) => {
+  const errors = await openApp(page);
+  await mirrorFloor(page, 0.5, 0);
+  await renderPixels(page, { use_pass_ambient_occlusion: true, ambient_occlusion_distance: 1 });
+  const res = await page.evaluate(async (imp) => {
+    const { renderResult } = await (0, eval)(imp)('/src/render/final/result.ts');
+    const ao = renderResult.get().passes.AO as Float32Array;
+    const { getNodeType } = await (0, eval)(imp)('/src/nodes/registry.ts');
+    const def = getNodeType('CompositorNodeRLayers');
+    return { min: Math.min(...ao), max: Math.max(...ao), outputs: def.outputs.map((o: any) => o.identifier) };
+  }, IMPORT);
+  expect(res.max).toBeCloseTo(1);
+  // the cube darkens the floor around it
+  expect(res.min).toBeLessThan(0.9);
+  expect(res.outputs).toContain('AO');
+  await expectNoErrors(errors);
+});

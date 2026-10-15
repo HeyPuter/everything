@@ -51,6 +51,7 @@ registerExec('CompositorNodeRLayers', (x) => {
     x.outs.set('Depth', Result.single('FLOAT', 0));
     x.outs.set('Normal', Result.single('VECTOR', [0, 0, 0]));
     x.outs.set('Mist', Result.single('FLOAT', 0));
+    x.outs.set('AO', Result.single('FLOAT', 1));
     return;
   }
   const d: Domain = { w: L.width, h: L.height, xf: ident() };
@@ -70,6 +71,8 @@ registerExec('CompositorNodeRLayers', (x) => {
   if (normal) x.outs.set('Normal', Result.image('VECTOR', normal, d));
   const mist = passTexture(x, 'Mist');
   if (mist) x.outs.set('Mist', Result.image('FLOAT', mist, d));
+  const ao = passTexture(x, 'AO');
+  if (ao) x.outs.set('AO', Result.image('FLOAT', ao, d));
 });
 
 // ---------------------------------------------------------------------------
