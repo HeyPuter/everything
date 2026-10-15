@@ -4,7 +4,7 @@
 //   registry.ts                     script operators & panels, bpy.props / bpy.types / bpy.utils
 //   runner.ts / python.ts           JavaScript execution and lazily loaded Pyodide (Python)
 //   textedit.ts console.ts info.ts  Text Editor, Python Console, Info editors
-//   prefs_editor.ts keymap_prefs.ts Preferences editor/window and keymap overrides
+//   prefs_editor.ts  Preferences editor/window (implemented in src/prefs/)
 //   wmops.ts                        About, Keyboard Shortcuts, Preferences, Recover, Purge operators
 //   panels_ui.ts                    script panels in the 3D viewport sidebar
 //
@@ -53,16 +53,12 @@ import './info';
 import './prefs_editor';
 import './wmops';
 import './panels_ui';
-import { applyKeymapOverrides } from './keymap_prefs';
-import { applyPreferences } from './prefs_editor';
+import { startPreferences } from './prefs_editor';
 import { bpy } from './api';
 import { mathutils } from './mathutils';
 
 // All modules have registered their keymaps once the current task finishes.
-setTimeout(() => {
-  applyKeymapOverrides();
-  applyPreferences();
-}, 0);
+setTimeout(() => startPreferences(), 0);
 
 // Scripting API on the window for browser devtools (same object scripts receive).
 Object.assign(window as unknown as Record<string, unknown>, { bpy, mathutils });

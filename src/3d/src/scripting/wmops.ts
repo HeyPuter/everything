@@ -12,7 +12,6 @@ import { openDialog, closeDialog } from './dialog';
 import { PreferencesEditor, factoryPrefs, saveUserPrefs, itemLabel, type Section } from './prefs_editor';
 import { purgeOrphanData, PURGEABLE } from './api';
 import { PYODIDE_VERSION, PYODIDE_INDEX_URL } from './python';
-import { isActive } from './keymap_prefs';
 import noticesMd from '../../THIRD_PARTY_NOTICES.md?raw';
 import packageJson from '../../package.json?raw';
 
@@ -149,7 +148,7 @@ function keymapReferenceBody(): Child {
     .map(([name, items]) => {
       const seen = new Set<string>();
       const rows = items
-        .filter((k) => isActive(k) && k.key !== 'NONE')
+        .filter((k) => !k.inactive && k.key !== 'NONE')
         .map((k) => ({ label: itemLabel(k), key: keyLabel(k) }))
         .filter((r) => {
           const id = `${r.label}|${r.key}`;

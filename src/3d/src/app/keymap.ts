@@ -19,7 +19,21 @@ export interface KeyItem {
   action?: () => void;
   /** only when this predicate holds */
   when?: () => boolean;
+  /** key event that triggers the item (default PRESS) */
+  value?: KeyValue;
+  /** false: ignore auto-repeated key presses */
+  repeat?: boolean;
+  /** disabled in Preferences ▸ Keymap */
+  inactive?: boolean;
 }
+
+export type KeyValue = 'PRESS' | 'RELEASE' | 'CLICK' | 'DOUBLE_CLICK';
+
+/** Timing used by the dispatcher (milliseconds); Preferences ▸ Input sets it. */
+export const keyTiming = { doubleClick: 350 };
+
+/** Called when items are added after startup (Preferences ▸ Keymap keeps user edits applied). */
+export const keymapHooks: { added?: (name: string, items: KeyItem[]) => void } = {};
 
 export const keymaps: Record<string, KeyItem[]> = {};
 
@@ -28,6 +42,7 @@ export const keyInputHooks: ((e: KeyboardEvent) => boolean)[] = [];
 
 export function addKeys(name: string, items: KeyItem[]) {
   (keymaps[name] ??= []).push(...items);
+  keymapHooks.added?.(name, items);
 }
 
 const CODE_MAP: Record<string, string> = {
@@ -62,7 +77,18 @@ const CODE_MAP: Record<string, string> = {
   NumpadSubtract: 'NUMPAD_MINUS',
   NumpadMultiply: 'NUMPAD_ASTERIX',
   NumpadDivide: 'NUMPAD_SLASH',
+  ShiftLeft: 'LEFT_SHIFT',
+  ShiftRight: 'RIGHT_SHIFT',
+  ControlLeft: 'LEFT_CTRL',
+  ControlRight: 'RIGHT_CTRL',
+  AltLeft: 'LEFT_ALT',
+  AltRight: 'RIGHT_ALT',
+  MetaLeft: 'OSKEY',
+  MetaRight: 'OSKEY',
 };
+
+/** Modifier keys (never bound on their own by the dispatcher's click detection). */
+export const MODIFIER_KEYS = ['LEFT_SHIFT', 'RIGHT_SHIFT', 'LEFT_CTRL', 'RIGHT_CTRL', 'LEFT_ALT', 'RIGHT_ALT', 'OSKEY'];
 const DIGITS = ['ZERO', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE'];
 
 export function keyName(e: KeyboardEvent): string {
@@ -111,12 +137,12 @@ export function keyLabel(k: KeyItem) {
 /** Shortcut label for an operator (first binding found). */
 export function shortcutLabel(idname: string, props?: Record<string, unknown>): string {
   for (const items of Object.values(keymaps))
-    for (const k of items) if (k.op === idname && (!props || Object.entries(props).every(([p, v]) => k.props?.[p] === v))) return keyLabel(k);
+    for (const k of items) if (!k.inactive && k.op === idname && (!props || Object.entries(props).every(([p, v]) => k.props?.[p] === v))) return keyLabel(k);
   return '';
 }
 
 function matches(k: KeyItem, name: string, e: KeyboardEvent) {
-  if (k.key !== name) return false;
+  if (k.key !== name || k.inactive) return false;
   if (k.any) return true;
   const ctrl = e.ctrlKey || e.metaKey;
   return !!k.shift === e.shiftKey && !!k.ctrl === ctrl && !!k.alt === e.altKey;
@@ -125,6 +151,46 @@ function matches(k: KeyItem, name: string, e: KeyboardEvent) {
 function isTyping(e: KeyboardEvent) {
   const t = e.target as HTMLElement;
   return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || !!t.closest?.('.cm-editor, .text-editor-input'));
+}
+
+type EditorKeys = { keymaps?: string[]; onKey?(e: KeyboardEvent): boolean };
+const modsOf = (e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean }) => (e.ctrlKey || e.metaKey ? 1 : 0) | (e.shiftKey ? 2 : 0) | (e.altKey ? 4 : 0);
+let lastPress: { name: string; mods: number; time: number } | null = null;
+let clickCandidate: { name: string; mods: number } | null = null;
+
+/** Run the first matching item of the hovered editor's keymaps for one key event value. */
+function dispatch(e: KeyboardEvent, name: string, area: typeof app.activeArea, editor: EditorKeys | undefined, value: KeyValue, pressMods?: number): boolean {
+  const names = [...(editor?.keymaps ?? []), 'Frames', 'Screen', 'Window'];
+  const seen = new Set<string>();
+  const ev = pressMods === undefined ? e : { ctrlKey: !!(pressMods & 1), metaKey: false, shiftKey: !!(pressMods & 2), altKey: !!(pressMods & 4) };
+  for (const km of names) {
+    if (seen.has(km)) continue;
+    seen.add(km);
+    for (const k of keymaps[km] ?? []) {
+      if ((k.value ?? 'PRESS') !== value) continue;
+      if (!matches(k, name, ev as KeyboardEvent)) continue;
+      if (e.repeat && k.repeat === false) continue;
+      if (k.when && !k.when()) continue;
+      if (k.action) {
+        e.preventDefault();
+        k.action();
+        return true;
+      }
+      if (k.menu) {
+        e.preventDefault();
+        openMenu(k.menu(), { x: app.pointer.x, y: app.pointer.y }, { title: k.menuTitle });
+        return true;
+      }
+      if (!k.op) continue;
+      // a frame change may still be waiting for the next animation frame: evaluate it first
+      app.flushPending();
+      if (!app.poll(k.op, area)) continue;
+      e.preventDefault();
+      app.run(k.op, k.props ?? {}, { area, event: { x: app.pointer.x, y: app.pointer.y } });
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Install the global key handler. Area editors expose `keymaps` (names in priority order). */
@@ -154,7 +220,7 @@ export function installKeyboard() {
           return;
         }
       const area = app.hoverArea ?? app.activeArea;
-      const editor = area?.editor as { keymaps?: string[]; onKey?(e: KeyboardEvent): boolean } | undefined;
+      const editor = area?.editor as EditorKeys | undefined;
       if (editor?.onKey?.(e)) {
         e.preventDefault();
         return;
@@ -162,33 +228,15 @@ export function installKeyboard() {
       let name = keyName(e);
       // laptop numpad emulation: number row acts as numpad in the 3D view
       if (prefs.emulate_numpad && DIGITS.includes(name) && area?.type === 'VIEW_3D' && app.doc.mode !== 'EDIT') name = `NUMPAD_${DIGITS.indexOf(name)}`;
-      const names = [...(editor?.keymaps ?? []), 'Frames', 'Screen', 'Window'];
-      const seen = new Set<string>();
-      for (const km of names) {
-        if (seen.has(km)) continue;
-        seen.add(km);
-        for (const k of keymaps[km] ?? []) {
-          if (!matches(k, name, e)) continue;
-          if (k.when && !k.when()) continue;
-          if (k.action) {
-            e.preventDefault();
-            k.action();
-            return;
-          }
-          if (k.menu) {
-            e.preventDefault();
-            openMenu(k.menu(), { x: app.pointer.x, y: app.pointer.y }, { title: k.menuTitle });
-            return;
-          }
-          if (!k.op) continue;
-          // a frame change may still be waiting for the next animation frame: evaluate it first
-          app.flushPending();
-          if (!app.poll(k.op, area)) continue;
-          e.preventDefault();
-          app.run(k.op, k.props ?? {}, { area, event: { x: app.pointer.x, y: app.pointer.y } });
-          return;
-        }
+      const now = performance.now();
+      const mods = modsOf(e);
+      if (!e.repeat) {
+        const dbl = !!lastPress && lastPress.name === name && lastPress.mods === mods && now - lastPress.time <= keyTiming.doubleClick;
+        lastPress = dbl ? null : { name, mods, time: now };
+        if (!MODIFIER_KEYS.includes(name)) clickCandidate = { name, mods };
+        if (dbl && dispatch(e, name, area, editor, 'DOUBLE_CLICK')) return;
       }
+      if (dispatch(e, name, area, editor, 'PRESS')) return;
       // keep browser shortcuts from stealing editor keys
       if ((e.ctrlKey || e.metaKey) && ['S', 'O', 'N', 'Z', 'Y', 'A', 'D', 'G', 'J', 'P', 'L'].includes(name)) e.preventDefault();
       if (name === 'TAB' || name === 'SPACE' || name === 'F3' || name === 'F12' || name === 'F11') e.preventDefault();
@@ -201,7 +249,18 @@ export function installKeyboard() {
       if (app.modal) {
         const r = app.modal.onKey?.(e);
         if (r === 'FINISHED' || r === 'CANCELLED') app.endModal(r);
+        return;
       }
+      if (pieOpen() || isTyping(e)) return;
+      const area = app.hoverArea ?? app.activeArea;
+      const editor = area?.editor as EditorKeys | undefined;
+      let name = keyName(e);
+      if (prefs.emulate_numpad && DIGITS.includes(name) && area?.type === 'VIEW_3D' && app.doc.mode !== 'EDIT') name = `NUMPAD_${DIGITS.indexOf(name)}`;
+      const click = clickCandidate;
+      if (MODIFIER_KEYS.includes(name)) return;
+      clickCandidate = null;
+      if (click && click.name === name && dispatch(e, name, area, editor, 'CLICK', click.mods)) return;
+      dispatch(e, name, area, editor, 'RELEASE');
     },
     true,
   );
