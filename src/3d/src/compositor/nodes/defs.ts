@@ -288,6 +288,7 @@ function availability(d: NodeTypeDef, rules: Record<string, (n: NodeData) => boo
     { name: 'Depth', identifier: 'Depth', type: 'FLOAT' },
     { name: 'Normal', identifier: 'Normal', type: 'VECTOR' },
     { name: 'Mist', identifier: 'Mist', type: 'FLOAT' },
+    { name: 'AO', identifier: 'AO', type: 'FLOAT' },
   ];
   d.available = (_n, s, out) => {
     if (!out) return true;
@@ -303,6 +304,7 @@ function availability(d: NodeTypeDef, rules: Record<string, (n: NodeData) => boo
     if (s.identifier === 'UV') return !!r.use_pass_uv;
     if (s.identifier === 'DiffCol') return !!r.use_pass_diffuse_color;
     if (s.identifier === 'Emit') return !!r.use_pass_emit;
+    if (s.identifier === 'AO') return !!r.use_pass_ambient_occlusion;
     return true;
   };
   d.outputs.push(

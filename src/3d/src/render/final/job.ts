@@ -10,7 +10,7 @@ import { floatTarget, normalDepthMaterial, renderOverride, renderAlbedo } from '
 import { renderCamera, viewportCameraForAspect, jitterProjection, cameraDof, apertureSample, apertureJitter, regionRect, cropProjection, type PixelRect } from './camera';
 import { renderSize, frameList, jitter, halton, shutterOffset, formatTime, frameFileName, filmTransparent, tileCount, expandRegion } from './units';
 import { filterTable, sampleFilter } from './filter';
-import { renderResult, passToRGBA8, encodeRGBA8, download, toBW, EXT, MIME, renderPostHooks, PASS_CHANNELS, type RenderResult, type FileFormat, type PassName } from './result';
+import { renderResult, passToRGBA8, encodeRGBA8, download, toBW, EXT, MIME, renderPostHooks, passChannels, type RenderResult, type FileFormat, type PassName } from './result';
 import { studioEquirect } from './environment';
 import { hdriEquirect, hdriEnvironment } from '../studiolights';
 import { ZipWriter } from './zip';
@@ -29,6 +29,8 @@ import { stampFields, burnStampOverlay, pngWithText } from './stamp';
 import { animationRecorder } from './playback';
 import { extraPasses, wantsExtraPasses } from './extrapasses';
 import { renderIdPasses, wantsIdPasses } from './idpasses';
+import { ambientOcclusionPass } from '../realtime/aopass';
+import { aovPasses } from '../realtime/aov';
 
 type Source = { kind: 'final' } | { kind: 'viewport'; view: View3D };
 
@@ -260,7 +262,9 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
   const restore = saveState(renderer);
   const transparent = filmTransparent(r);
   const passesWanted = { z: r.use_pass_z, normal: r.use_pass_normal, mist: r.use_pass_mist };
-  const needGuide = passesWanted.z || passesWanted.normal || passesWanted.mist || (engine === 'WORKBENCH' && transparent);
+  const wantAo = !!r.use_pass_ambient_occlusion && src.kind === 'final';
+  const wantAov = src.kind === 'final' && (r.aovs ?? []).some((a) => a.name);
+  const needGuide = passesWanted.z || passesWanted.normal || passesWanted.mist || wantAo || wantAov || (engine === 'WORKBENCH' && transparent);
   try {
     let combined: Float32Array;
     let samples = 1,
@@ -372,6 +376,7 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
       const opts = buildOptions(src, 'raster');
       rs.build(app, opts);
       guideScene = rs;
+      rs.jitterFinal = src.kind === 'final';
       rs.configureShadows(renderer, doc);
       maxSamples = Math.max(1, r.raster_samples);
       job!.maxSamples = maxSamples;
@@ -406,7 +411,8 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
           apertureJitter(camera, basePos, base, ax * dof.radius, ay * dof.radius, dof.focus);
           jitterProjection(camera, (camera as PerspectiveCamera).projectionMatrix.clone(), jx, jy, W, H);
         } else jitterProjection(camera, base, jx, jy, W, H);
-        const tex = raster.render(renderer, rs.scene, camera, W, H, fx);
+        rs.jitterShadows(doc, i);
+        const tex = raster.render(renderer, rs.scene, camera, W, H, { ...fx, sample: i });
         accum.add(renderer, tex);
         job!.sample = i + 1;
         if (performance.now() - last > 30) {
@@ -424,6 +430,7 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
         camera.updateMatrixWorld(true);
         jitterProjection(camera, base, 0, 0, W, H);
       }
+      rs.jitterShadows(doc, 0);
       samples = maxSamples;
       combined = readFloat(renderer, accum.target, W, H);
     } else {
@@ -484,6 +491,8 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
         passes,
         passesFromGuide(g, W, H, (camera as PerspectiveCamera).projectionMatrixInverse.elements, ortho, { start: world?.mist_start ?? 5, depth: world?.mist_depth ?? 25, falloff: world?.mist_falloff }, passesWanted),
       );
+      if (src.kind === 'final') Object.assign(passes, aovPasses(renderer, guideScene, camera, W, H, r, doc));
+      if (wantAo) passes.AO = ambientOcclusionPass(g, W, H, (camera as PerspectiveCamera).projectionMatrix.elements, (camera as PerspectiveCamera).projectionMatrixInverse.elements, camera.matrixWorldInverse.elements, ortho, r.ambient_occlusion_distance ?? 1);
       if (engine === 'WORKBENCH' && transparent) {
         for (let i = 0; i < W * H; i++) {
           const a = g[i * 4 + 3] > 0 ? 1 : 0;
@@ -689,7 +698,7 @@ export async function startRender(o: RenderOptions): Promise<boolean> {
             region,
           );
       const passes: Partial<Record<PassName, Float32Array>> = {};
-      for (const [name, buf] of Object.entries(out.passes) as [PassName, Float32Array][]) passes[name] = place(buf, PASS_CHANNELS[name]);
+      for (const [name, buf] of Object.entries(out.passes) as [PassName, Float32Array][]) passes[name] = place(buf, passChannels(name, buf, out.combined.length / 4));
       result.passes = { Combined: place(out.combined, 4), ...passes };
       const time = (performance.now() - (o.animation ? t0 : job.started)) / 1000;
       result.info = { ...result.info, frame: f, samples: out.samples, maxSamples: out.maxSamples, time };

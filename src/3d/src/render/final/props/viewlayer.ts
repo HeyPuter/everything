@@ -2,7 +2,7 @@
 import { h, type Child } from '../../../ui/h';
 import { registerTab } from '../../../editors/properties/properties';
 import { panel } from '../../../ui/widgets';
-import { bool } from '../../../ui/props';
+import { bool, num } from '../../../ui/props';
 import { renderSettings, sub } from './common';
 
 /** Extra rows of Passes ▸ Data and extra View Layer panels (registered by feature modules). */
@@ -17,6 +17,7 @@ registerTab({
   poll: () => true,
   draw: () => {
     const r = renderSettings();
+    r.ambient_occlusion_distance ??= 1;
     return [
       panel('vl-layer', 'View Layer', () => [bool(r, 'use_view_layer', 'Use for Rendering', { tip: 'Render this view layer (F12 / Ctrl F12)' })]),
       panel('vl-passes', 'Passes', () => [
@@ -35,6 +36,8 @@ registerTab({
         sub('vl-passes-light', 'Light', () => [
           bool(r, 'use_pass_diffuse_color', 'Diffuse Color', { tip: 'Base colour of diffuse surfaces' }),
           bool(r, 'use_pass_emit', 'Emission', { tip: 'Light emitted by surfaces' }),
+          bool(r, 'use_pass_ambient_occlusion', 'Ambient Occlusion', { tip: 'How open each surface point is to its surroundings (1 open, 0 occluded)' }),
+          r.use_pass_ambient_occlusion ? num(r, 'ambient_occlusion_distance', 'AO Distance', { unit: 'distance', min: 0, softMax: 100, tip: 'Distance of objects that occlude in the Ambient Occlusion pass' }) : null,
         ]),
       ]),
       ...viewLayerPanels.map((f) => f()),

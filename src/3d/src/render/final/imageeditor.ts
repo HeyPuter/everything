@@ -11,7 +11,7 @@ import { splitRow } from '../../ui/props';
 import { imageCanvas, imageTexture, touchImage, generatedPixels } from '../images';
 import { lastImage } from '../../ops/data';
 import type { ImageData as Img } from '../../data/types';
-import { renderResult, passToRGBA8, samplePixel, encodeRGBA8, canvasBytes, download, toBW, EXT, virtualImages, onVirtualImageChange, RENDER_SLOTS, PASS_ORDER, PASS_LABELS, type PassName, type ChannelMode, type FileFormat, type RenderResult } from './result';
+import { renderResult, passToRGBA8, samplePixel, encodeRGBA8, canvasBytes, download, toBW, EXT, virtualImages, onVirtualImageChange, RENDER_SLOTS, PASS_ORDER, passLabel, type PassName, type ChannelMode, type FileFormat, type RenderResult } from './result';
 import { renderSize } from './units';
 import { LOOKS } from './colormanage';
 import { pngWithText } from './stamp';
@@ -193,7 +193,7 @@ export class ImageEditor implements Editor, View2D {
   private passes(): PassName[] {
     const r = this.result;
     if (!r) return [];
-    return PASS_ORDER.filter((p) => r.passes[p]);
+    return [...PASS_ORDER.filter((p) => r.passes[p]), ...(Object.keys(r.passes) as PassName[]).filter((p) => p.startsWith('AOV:'))];
   }
 
   private sourceKey(): string {
@@ -517,7 +517,7 @@ export class ImageEditor implements Editor, View2D {
         },
         label,
       );
-    const passItems = this.passes().map((p) => ({ value: p, label: PASS_LABELS[p] }));
+    const passItems = this.passes().map((p) => ({ value: p, label: passLabel(p) }));
     return h(
       'div',
       { class: 'hdr-row ie-header' },
@@ -844,7 +844,7 @@ export class ImageEditor implements Editor, View2D {
     if (r) {
       const row = (k: string, v: string) => splitRow(k, h('span', { class: 'ie-value' }, v));
       body.push(
-        panel('ie-render', 'Image', () => [row('Source', this.sourceLabel() ?? 'Render Result'), row('Resolution', `${r.width} × ${r.height}`), row('Passes', this.passes().map((p) => PASS_LABELS[p]).join(', '))]),
+        panel('ie-render', 'Image', () => [row('Source', this.sourceLabel() ?? 'Render Result'), row('Resolution', `${r.width} × ${r.height}`), row('Passes', this.passes().map((p) => passLabel(p)).join(', '))]),
         ...(this.imageId === RENDER_RESULT
           ? [
               panel('ie-slots', 'Render Slots', () => [

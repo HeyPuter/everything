@@ -4,6 +4,7 @@
 // All typed arrays are treated as immutable once committed to the undo history:
 // edits replace arrays instead of writing into them (see data/cow.ts).
 
+import type { RealtimeRenderSettings, RealtimeLightSettings, RealtimeMaterialSettings, RealtimeWorldSettings, LightProbeSettings } from '../render/realtime/types';
 export type ID = string;
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
@@ -25,7 +26,8 @@ export type ObjectType =
   | 'GREASEPENCIL'
   | 'SPEAKER'
   | 'META'
-  | 'CURVES';
+  | 'CURVES'
+  | 'LIGHT_PROBE';
 
 export type RotationMode = 'XYZ' | 'XZY' | 'YXZ' | 'YZX' | 'ZXY' | 'ZYX' | 'QUATERNION' | 'AXIS_ANGLE';
 
@@ -274,7 +276,7 @@ export interface TextBox {
 // ---------------------------------------------------------------------------
 // Lights / cameras / armatures
 
-export interface LightData {
+export interface LightData extends RealtimeLightSettings {
   id: ID;
   name: string;
   type: 'POINT' | 'SUN' | 'SPOT' | 'AREA';
@@ -512,7 +514,7 @@ export interface NodeGroupData {
   users?: number;
 }
 
-export interface MaterialData {
+export interface MaterialData extends RealtimeMaterialSettings {
   id: ID;
   name: string;
   use_nodes: boolean;
@@ -533,7 +535,7 @@ export interface MaterialData {
   grease_pencil?: import('../greasepencil/types').MaterialGPencilStyle;
 }
 
-export interface WorldData {
+export interface WorldData extends RealtimeWorldSettings {
   id: ID;
   name: string;
   color: Color;
@@ -943,6 +945,8 @@ export interface ObjectData {
   show_only_shape_key?: boolean;
   /** sound settings of a SPEAKER object */
   speaker?: import('../object/speaker').SpeakerSettings;
+  /** settings of a LIGHT_PROBE object (src/render/realtime/probes) */
+  lightprobe?: LightProbeSettings;
   pass_index?: number;
   is_shadow_catcher?: boolean;
   is_holdout?: boolean;
@@ -976,7 +980,7 @@ export interface CollectionData {
 
 export type RenderEngine = 'RASTER' | 'PATHTRACE' | 'SOLID';
 
-export interface RenderSettings {
+export interface RenderSettings extends RealtimeRenderSettings {
   engine: RenderEngine;
   resolution_x: number;
   resolution_y: number;

@@ -39,6 +39,9 @@ src/
               fluid, keyed, hair dynamics), fields, smoke and liquid domains, dynamic paint
   render/final/ Path tracer, raster engine, F12/animation render, Image Editor, color management;
               props/ holds the Render, Output, View Layer and camera-data properties panels
+  render/realtime/ Realtime engine effects injected into the scene materials (fxshader.ts: light
+              influence, screen tracing, horizon scan, planar / volume probes), bloom, shadows,
+              smoke and world volumes, AO / AOV passes, light probe objects (probes/)
   sequencer/  Video Sequencer (strips, effects, preview, audio)
   tracking/   Movie Clip Editor, 2D tracking, stabilization, Follow Track constraint
   mask/       Mask data-blocks (bezier splines with feather, shape keys, track parenting),

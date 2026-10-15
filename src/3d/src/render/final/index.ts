@@ -13,6 +13,7 @@ import './cameraoverlay';
 import './props/render';
 import './props/output';
 import './props/viewlayer';
+import '../realtime';
 
 export { renderResult } from './result';
 export { startRender, cancelRender, renderJob } from './job';

@@ -4,6 +4,7 @@
 import { MeshPhysicalMaterial, Color, DoubleSide, FrontSide, type Material } from 'three';
 import type { DocumentData, MaterialData, NodeData } from '../data/types';
 import { imageTexture } from './images';
+import { applyRealtimeMaterial, withRealtimeFx } from './realtime/materialfx';
 
 export type MaterialCompiler = (doc: DocumentData, ma: MaterialData) => Material;
 
@@ -50,14 +51,20 @@ export function viewportMaterial(doc: DocumentData, id: string | null | undefine
   return mat;
 }
 
-export const defaultMaterial = new MeshPhysicalMaterial({ color: new Color(0.8, 0.8, 0.8), roughness: 0.5, metalness: 0, side: DoubleSide });
-export const errorMaterial = new MeshPhysicalMaterial({ color: new Color(1, 0, 1), roughness: 0.5 });
+export const defaultMaterial = withRealtimeFx(new MeshPhysicalMaterial({ color: new Color(0.8, 0.8, 0.8), roughness: 0.5, metalness: 0, side: DoubleSide }));
+export const errorMaterial = withRealtimeFx(new MeshPhysicalMaterial({ color: new Color(1, 0, 1), roughness: 0.5 }));
 
 function input(n: NodeData, name: string, def: unknown) {
   return n.inputs[name] ?? def;
 }
 
 export function principledFallback(doc: DocumentData, ma: MaterialData): Material {
+  const m = principledBase(doc, ma);
+  applyRealtimeMaterial(m, ma);
+  return withRealtimeFx(m);
+}
+
+function principledBase(doc: DocumentData, ma: MaterialData): Material {
   const out = ma.tree.nodes.find((n) => n.type === 'ShaderNodeOutputMaterial');
   const link = out && ma.tree.links.find((l) => l.to_node === out.id && l.to_socket === 'Surface');
   const bsdf = link ? ma.tree.nodes.find((n) => n.id === link.from_node) : undefined;
@@ -76,7 +83,10 @@ export function principledFallback(doc: DocumentData, ma: MaterialData): Materia
     m.ior = input(bsdf, 'IOR', 1.5) as number;
     const alpha = input(bsdf, 'Alpha', 1) as number;
     m.opacity = alpha;
-    m.transparent = alpha < 1 || ma.blend_method === 'BLEND';
+    // blended transparency sorts; clip cuts; otherwise transparency is dithered
+    m.transparent = ma.blend_method === 'BLEND';
+    m.alphaTest = ma.blend_method === 'CLIP' && alpha < 1 ? Math.max(1e-4, ma.alpha_threshold) : 0;
+    m.alphaHash = alpha < 1 && ma.blend_method !== 'BLEND' && ma.blend_method !== 'CLIP';
     m.transmission = input(bsdf, 'Transmission Weight', 0) as number;
     m.clearcoat = input(bsdf, 'Coat Weight', 0) as number;
     m.clearcoatRoughness = input(bsdf, 'Coat Roughness', 0.03) as number;

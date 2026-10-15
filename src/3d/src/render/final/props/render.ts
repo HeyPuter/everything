@@ -7,6 +7,7 @@ import { LOOKS } from '../colormanage';
 import type { RenderSettings } from '../../../data/types';
 import { renderSettings, changed, headerToggle, sub } from './common';
 import { curveWidget } from './curvewidget';
+import { ensureRealtimeDefaults, samplingShadowsPanel, samplingAdvancedPanel, raytracingPanel, volumesPanel, bloomPanel } from '../../realtime/props';
 
 export const ENGINES = [
   { value: 'RASTER', label: 'Realtime (Raster)', description: 'Realtime rasterization with shadows, ambient occlusion and bloom' },
@@ -110,20 +111,13 @@ function performanceViewport(r: RenderSettings): Child {
 }
 
 function rasterPanels(r: RenderSettings): Child {
+  ensureRealtimeDefaults(r);
   return [
     panel('rs-sampling', 'Sampling', () => [
       sub('rs-samp-vp', 'Viewport', () => [num(r, 'preview_raster_samples', 'Samples', { int: true, min: 1, max: 1024, tip: 'Anti-aliasing samples accumulated in the Rendered viewport while the view is still' })]),
       sub('rs-samp-render', 'Render', () => [num(r, 'raster_samples', 'Samples', { int: true, min: 1, max: 4096, tip: 'Anti-aliasing samples averaged for final renders (also used for depth of field and motion blur)' })]),
-      sub(
-        'rs-samp-shadows',
-        'Shadows',
-        () => [
-          enumProp(r, 'shadow_cube_size', 'Cube Size', [['512', '512 px'], ['1024', '1024 px'], ['2048', '2048 px'], ['4096', '4096 px']].map(([v, l]) => ({ value: v, label: l })), { tip: 'Shadow map resolution of point, spot and area lights' }),
-          enumProp(r, 'shadow_cascade_size', 'Cascade Size', [['512', '512 px'], ['1024', '1024 px'], ['2048', '2048 px'], ['4096', '4096 px']].map(([v, l]) => ({ value: v, label: l })), { tip: 'Shadow map resolution of sun lights' }),
-          bool(r, 'use_soft_shadows', 'Soft Shadows', { tip: 'Blur shadows according to the light size' }),
-        ],
-        { closed: true },
-      ),
+      samplingShadowsPanel(r),
+      samplingAdvancedPanel(r),
     ]),
     panel(
       'rs-lightpaths',
@@ -133,11 +127,18 @@ function rasterPanels(r: RenderSettings): Child {
           num(r, 'direct_light_intensity', 'Direct Light', { min: 0, softMax: 3, tip: 'Strength of light coming from lamps' }),
           num(r, 'indirect_light_intensity', 'Indirect Light', { min: 0, softMax: 3, tip: 'Strength of light coming from the world' }),
         ]),
+        sub('rs-lp-clamp', 'Clamping', () => [
+          sub('rs-lp-clamp-surface', 'Surface', () => [
+            num(r, 'clamp_surface_direct', 'Direct Light', { min: 0, softMax: 100, tip: 'Maximum brightness each light adds to a surface (0 for no limit): removes harsh highlights' }),
+            num(r, 'clamp_surface_indirect', 'Indirect Light', { min: 0, softMax: 100, tip: 'Maximum brightness of light from the world, probes and bounces (0 for no limit)' }),
+          ]),
+        ], { closed: true }),
       ],
       { closed: true },
     ),
-    panel('rs-ao', 'Ambient Occlusion', () => [num(r, 'gtao_distance', 'Distance', { unit: 'distance', min: 0, tip: 'Distance of objects that contribute to the occlusion' })], { header: headerToggle(r, 'use_gtao', 'Ambient Occlusion'), closed: true }),
-    panel('rs-bloom', 'Bloom', () => [num(r, 'bloom_threshold', 'Threshold', { min: 0 }), num(r, 'bloom_intensity', 'Intensity', { min: 0, softMax: 1 }), num(r, 'bloom_radius', 'Radius', { min: 0, softMax: 10 })], { header: headerToggle(r, 'use_bloom', 'Bloom'), closed: true }),
+    raytracingPanel(r),
+    volumesPanel(r),
+    bloomPanel(r),
     simplifyPanel(r),
     panel(
       'rs-dof',
@@ -149,7 +150,19 @@ function rasterPanels(r: RenderSettings): Child {
       { closed: true },
     ),
     motionBlurPanel(r),
-    panel('rs-film', 'Film', () => [num(r, 'filter_size', 'Filter Size', { min: 0, max: 100, softMax: 10, precision: 2, tip: 'Width (pixels) of the anti-aliasing filter: larger values give softer edges' }), bool(r, 'film_transparent', 'Transparent', { tip: 'Render the world background as transparent' })], { closed: true }),
+    panel(
+      'rs-film',
+      'Film',
+      () => [
+        num(r, 'filter_size', 'Filter Size', { min: 0, max: 100, softMax: 10, precision: 2, tip: 'Width (pixels) of the anti-aliasing filter: larger values give softer edges' }),
+        bool(r, 'film_transparent', 'Transparent', { tip: 'Render the world background as transparent' }),
+        sub('rs-film-overscan', 'Overscan', () => [num(r, 'overscan_size', 'Size', { min: 0, max: 50, softMax: 10, precision: 1, tip: 'Margin (percent of the frame) traced around the image: reflections and occlusion near the edges stay stable' })], {
+          closed: true,
+          header: headerToggle(r, 'use_overscan', 'Overscan'),
+        }),
+      ],
+      { closed: true },
+    ),
     panel('rs-perf', 'Performance', () => [performanceViewport(r)], { closed: true }),
   ];
 }

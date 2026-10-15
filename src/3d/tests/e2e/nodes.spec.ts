@@ -329,7 +329,8 @@ test('toolbar tools, snapping and sidebar tabs', async ({ page }) => {
   expect(await withTree(page, `(ed, t) => !!t.nodes.find((n) => n.id === "${bsdf}").mute`)).toBe(true);
   // Options: the material's settings
   await page.locator('.nd-side-tab', { hasText: 'Options' }).click();
-  await page.locator('.nd-sidebar .checkbox', { hasText: 'Backface Culling' }).click();
+  // Settings ▸ Surface ▸ Backface Culling ▸ Camera
+  await page.locator('.nd-sidebar .checkbox', { hasText: /^Camera$/ }).click();
   expect(await page.evaluate('(() => { const a = window.app; return a.doc.materials[a.doc.meshes[a.activeObject.data].materials[0]].use_backface_culling; })()')).toBe(true);
   await expectNoErrors(errors);
 });

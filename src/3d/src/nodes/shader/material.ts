@@ -34,6 +34,8 @@ import { compileTree, DISPLACE_MARK, type CompiledTree, type UniformSpec } from 
 import { app } from '../../app/app';
 import { renderContext } from '../../render/context';
 import { hashName } from './util';
+import { patchFx } from '../../render/realtime/fxshader';
+import { applyRealtimeMaterial, realtimeMaterialKey } from '../../render/realtime/materialfx';
 
 /**
  * Path tracer hints for surface closures the generic conversion does not know: builders keyed by
@@ -328,13 +330,13 @@ function build(doc: DocumentData, ma: MaterialData, ct: CompiledTree, key: strin
   mat.depthWrite = true;
   if (alphaUsed) {
     if (mode === 'CLIP') mat.alphaTest = Math.max(1e-4, ma.alpha_threshold);
-    else if (mode === 'HASHED') mat.alphaHash = true;
+    else if (mode === 'HASHED' || mode === 'OPAQUE') mat.alphaHash = true;
     else if (mode === 'BLEND') {
       mat.transparent = true;
       mat.depthWrite = ma.show_transparent_back === false;
     }
   }
-  const alphaMode = alphaUsed && mode !== 'OPAQUE' ? 'ALPHA' : 'OPAQUE';
+  const alphaMode = alphaUsed ? 'ALPHA' : 'OPAQUE';
   const objectGroup = makeObjectGroup();
   let objectBlock = false;
   let barycentric = false;
@@ -351,7 +353,9 @@ function build(doc: DocumentData, ma: MaterialData, ct: CompiledTree, key: strin
     shader.vertexShader = r.vertex;
     shader.fragmentShader = r.fragment;
     Object.assign(shader.uniforms, uniforms);
+    patchFx(shader);
   };
+  applyRealtimeMaterial(mat, ma);
   mat.customProgramCacheKey = () => `nd:${key}`;
   if (objectBlock) (mat as unknown as { uniformsGroups: UniformsGroup[] }).uniformsGroups = [objectGroup];
   if (objectBlock || barycentric) {
@@ -381,7 +385,7 @@ export function compileMaterial(doc: DocumentData, ma: MaterialData): Material {
   if (!hooked && renderContext) installShaderErrorHook(renderContext.engine.renderer);
   if (!ma.use_nodes) return principledFallback(doc, ma);
   const ct = compileTree(doc, ma.tree, 'MATERIAL');
-  const key = `${ct.key}|${ma.blend_method}|${ma.use_backface_culling ? 1 : 0}|${ma.show_transparent_back === false ? 0 : 1}`;
+  const key = `${ct.key}|${ma.blend_method}|${ma.use_backface_culling ? 1 : 0}|${ma.show_transparent_back === false ? 0 : 1}|${realtimeMaterialKey(ma)}`;
   compileMessages.set(ma.id, ct.errors);
   if (failedKeys.has(key)) return errorMaterial;
   const hit = cache.get(ma.id);

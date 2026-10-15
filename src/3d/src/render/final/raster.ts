@@ -1,46 +1,51 @@
-// Realtime (raster) renderer: HDR scene pass with MSAA, ground-truth ambient occlusion and bloom,
-// producing a scene-linear premultiplied buffer that is colour-managed for display afterwards.
+// Realtime (raster) renderer: HDR scene pass with MSAA, screen-traced reflections and horizon-scan
+// lighting (see ../realtime), and bloom, producing a scene-linear premultiplied buffer that is
+// colour-managed for display afterwards.
 import { Color, ShaderMaterial, NoBlending, Vector2, Vector3, Vector4, MeshBasicMaterial, type Camera, type Scene, type Texture, type WebGLRenderer, type WebGLRenderTarget } from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import type { RenderSettings } from '../../data/types';
 import { floatTarget, Blit } from './gbuffer';
 import { displayGLSL, VIEW_INDEX, lookParams, viewWhiteBalance, viewCurve, CURVE_TABLE_SIZE, type ViewSettings } from './colormanage';
+import { traceSettings, bloomOptions, type TraceSettings } from '../realtime/settings';
+import { TraceBuffer } from '../realtime/trace';
+import { BloomPass, type BloomSettings } from '../realtime/bloom';
+import { beginProbes } from '../realtime/probes/capture';
+import { fxUniforms } from '../realtime/fxshader';
 
 export interface RasterEffects {
+  /** screen effects allowed (tracing / horizon scan); false for quick previews */
   gtao: boolean;
-  gtaoDistance: number;
   bloom: boolean;
-  bloomThreshold: number;
-  bloomIntensity: number;
-  bloomRadius: number;
   transparent: boolean;
+  /** Render ▸ Raytracing options (null: nothing traced) */
+  trace?: TraceSettings | null;
+  bloomSettings?: BloomSettings;
+  /** index of the accumulated sample (varies the tracing noise) */
+  sample?: number;
+  /** sphere probe cubemap resolution */
+  probeResolution?: number;
+  /** Light Paths ▸ Clamping ▸ Surface: direct, indirect (0 = off) */
+  clamp?: [number, number];
 }
 
 export function effectsFrom(r: RenderSettings): RasterEffects {
   return {
-    gtao: r.use_gtao,
-    gtaoDistance: r.gtao_distance,
+    gtao: true,
     bloom: r.use_bloom,
-    bloomThreshold: r.bloom_threshold,
-    bloomIntensity: r.bloom_intensity,
-    bloomRadius: r.bloom_radius,
     transparent: r.film_transparent,
+    trace: traceSettings(r),
+    bloomSettings: bloomOptions(r),
+    probeResolution: Number(r.gi_cubemap_resolution ?? 512) || 512,
+    clamp: [Math.max(0, r.clamp_surface_direct ?? 0), Math.max(0, r.clamp_surface_indirect ?? 10)],
   };
-}
-
-/** Map the scene's bloom settings onto the bloom pass (strength, radius 0..1). */
-export function bloomParams(intensity: number, radius: number): { strength: number; radius: number } {
-  return { strength: Math.max(0, intensity) * 12, radius: Math.min(1, Math.max(0, radius / 10)) };
 }
 
 export class RasterRenderer {
   private composer: EffectComposer | null = null;
   private renderPass: RenderPass | null = null;
-  private gtao: GTAOPass | null = null;
-  private bloom: UnrealBloomPass | null = null;
+  private bloom: BloomPass | null = null;
+  private trace = new TraceBuffer();
   private size = new Vector2();
 
   constructor(private samples = 4) {}
@@ -62,6 +67,11 @@ export class RasterRenderer {
     this.renderPass!.camera = camera;
   }
 
+  /** The bloom glare of the last render (Bloom pass), when bloom is on. */
+  get glare(): Texture | null {
+    return this.bloom?.enabled ? this.bloom.glare : null;
+  }
+
   /** Render into the composer and return the linear HDR result texture. */
   render(renderer: WebGLRenderer, scene: Scene, camera: Camera, w: number, h: number, fx: RasterEffects): Texture {
     this.ensure(renderer, scene, camera, w, h);
@@ -69,49 +79,46 @@ export class RasterRenderer {
     const rp = this.renderPass!;
     rp.clearColor = new Color(0, 0, 0);
     rp.clearAlpha = 0;
-    // ambient occlusion
-    if (fx.gtao) {
-      if (!this.gtao) {
-        this.gtao = new GTAOPass(scene, camera, w, h);
-        composer.insertPass(this.gtao, 1);
-      }
-      this.gtao.scene = scene;
-      this.gtao.camera = camera;
-      this.gtao.enabled = true;
-      this.gtao.updateGtaoMaterial({ radius: Math.max(0.01, fx.gtaoDistance) * 2, distanceExponent: 1, thickness: 1, scale: 1, samples: 16 });
-      this.gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 16 });
-      this.gtao.blendIntensity = 1;
-    } else if (this.gtao) this.gtao.enabled = false;
-    // bloom
+    // bloom (same steps as the compositor's Glare node in Bloom mode)
     if (fx.bloom) {
-      const p = bloomParams(fx.bloomIntensity, fx.bloomRadius);
       if (!this.bloom) {
-        this.bloom = new UnrealBloomPass(new Vector2(w, h), p.strength, p.radius, fx.bloomThreshold);
+        this.bloom = new BloomPass();
         composer.addPass(this.bloom);
       }
       this.bloom.enabled = true;
-      this.bloom.strength = p.strength;
-      this.bloom.radius = p.radius;
-      this.bloom.threshold = fx.bloomThreshold;
+      if (fx.bloomSettings) this.bloom.settings = fx.bloomSettings;
     } else if (this.bloom) this.bloom.enabled = false;
     const tm = renderer.toneMapping;
     const scissor = renderer.getScissorTest();
     const prev = renderer.getRenderTarget();
+    const shadowAuto = renderer.shadowMap.autoUpdate;
     renderer.setScissorTest(false);
     renderer.toneMapping = 0; // NoToneMapping: keep scene-linear values
-    composer.render();
-    renderer.toneMapping = tm;
-    renderer.setRenderTarget(prev);
-    renderer.setScissorTest(scissor);
+    // light probes (captures, planar reflection, per-object environments), then the screen
+    // tracing buffer (which also renders this frame's shadow maps, reused by the main pass)
+    if (fx.clamp) fxUniforms.ndClamp.value.set(fx.clamp[0], fx.clamp[1], 0, 0);
+    const restoreProbes = fx.gtao ? beginProbes(renderer, scene, camera, w, h, fx.probeResolution ?? 512) : null;
+    const traced = this.trace.prepare(renderer, scene, camera, w, h, fx.gtao && fx.trace ? fx.trace : null, fx.sample ?? 0);
+    if (traced) renderer.shadowMap.autoUpdate = false;
+    try {
+      composer.render();
+    } finally {
+      if (traced) this.trace.disarm();
+      restoreProbes?.();
+      fxUniforms.ndClamp.value.set(0, 0, 0, 0);
+      renderer.shadowMap.autoUpdate = shadowAuto;
+      renderer.toneMapping = tm;
+      renderer.setRenderTarget(prev);
+      renderer.setScissorTest(scissor);
+    }
     return composer.readBuffer.texture;
   }
 
   dispose() {
     this.composer?.dispose();
-    this.gtao?.dispose();
     this.bloom?.dispose();
+    this.trace.dispose();
     this.composer = null;
-    this.gtao = null;
     this.bloom = null;
     this.size.set(0, 0);
   }
