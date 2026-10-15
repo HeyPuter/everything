@@ -46,6 +46,13 @@ export const DISPLAY_SIZES: [string, string, number][] = [
   ['LARGE', 'Large', 208],
 ];
 
+const IMPORT_LABELS: Record<ImportSetting, string> = { FOLLOW_PREFS: 'Follow Library', APPEND: 'Append', APPEND_REUSE: 'Append (Reuse Data)' };
+const IMPORT_TIPS: Record<ImportSetting, string> = {
+  FOLLOW_PREFS: 'Use the import method set for each asset’s library (Library ▸ Default Import Method)',
+  APPEND: 'Copy the asset and everything it uses into this file, every time',
+  APPEND_REUSE: 'Copy the asset, but reuse data this file already got from the same library (materials, meshes, node groups…)',
+};
+
 const browsers = new Set<AssetBrowser>();
 onLibrariesChanged(() => browsers.forEach((b) => (b.draw(), b.area.drawHeader())));
 
@@ -252,16 +259,16 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
       menu('Asset', () => this.assetMenu()),
       enumMenu('ab-lib', libs, this.library, (v) => this.setLibrary(v), { tip: 'Asset Library\nThe library whose assets are shown', className: 'ab-lib-menu' }),
       external
-        ? enumMenu(
-            'ab-import',
-            [
-              { value: 'FOLLOW_PREFS', label: 'Follow Library', description: 'Use the import method of each asset’s library' },
-              { value: 'APPEND', label: 'Append', description: 'Copy the asset and everything it uses into this file' },
-              { value: 'APPEND_REUSE', label: 'Append (Reuse Data)', description: 'Copy the asset, but reuse data this file already got from the same library (materials, meshes, …)' },
-            ],
-            this.importMethod,
-            (v) => ((this.importMethod = v as ImportSetting), this.area.drawHeader()),
-            { tip: 'Import Method\nHow assets from other libraries are brought into this file', className: 'ab-import-menu' },
+        ? h(
+            'button',
+            {
+              key: 'import',
+              class: 'enum-menu ab-import-menu',
+              'data-tip': 'Import Settings\nHow assets from other libraries are brought into this file',
+              onclick: (e: MouseEvent) => this.importPopover(e.currentTarget as HTMLElement),
+            },
+            h('span', { class: 'em-label' }, IMPORT_LABELS[this.importMethod]),
+            h('span', { class: 'em-arrow' }, icon('down_arrow_hlt')),
           )
         : null,
       h('div', { class: 'hdr-spacer' }),
@@ -325,6 +332,37 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
     );
   }
 
+  private importPopover(anchor: HTMLElement) {
+    const pop = openPopover(
+      anchor,
+      () =>
+        h(
+          'div',
+          { class: 'ab-pop' },
+          h('div', { class: 'ab-pop-title' }, 'Import Method'),
+          (Object.keys(IMPORT_LABELS) as ImportSetting[]).map((m) =>
+            h(
+              'button',
+              {
+                key: m,
+                class: { 'ab-pop-radio': true, on: this.importMethod === m },
+                'data-tip': IMPORT_TIPS[m],
+                onclick: () => {
+                  this.importMethod = m;
+                  this.area.drawHeader();
+                  pop.redraw();
+                },
+              },
+              IMPORT_LABELS[m],
+            ),
+          ),
+          h('div', { class: 'ab-pop-title' }, 'Collections'),
+          h('div', { class: 'ab-pop-row' }, checkbox('ab-instance', 'Instance Collections', this.instanceCollections, (v) => ((this.instanceCollections = v), pop.redraw()))),
+        ),
+      { width: 220 },
+    );
+  }
+
   private displayPopover(anchor: HTMLElement) {
     const pop = openPopover(
       anchor,
@@ -343,11 +381,6 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
             { class: 'ab-pop-row' },
             h('span', { class: 'ab-pop-label' }, 'Size'),
             enumMenu('ab-size', DISPLAY_SIZES.map(([value, label]) => ({ value, label })), this.size, (v) => ((this.size = v), this.draw(), pop.redraw())),
-          ),
-          h(
-            'div',
-            { class: 'ab-pop-row' },
-            checkbox('ab-instance', 'Instance Collections', this.instanceCollections, (v) => ((this.instanceCollections = v), pop.redraw())),
           ),
         ),
       { width: 220 },
@@ -434,6 +467,7 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
       { separator: true },
       { label: 'Copy to Library…', icon: 'asset_library', op: 'asset.bundle_install' },
       { label: 'Remove from Library', icon: 'trash', op: 'asset.library_remove_assets' },
+      { label: 'Open Library File', icon: 'file_3d', op: 'asset.open_containing_blend_file' },
       { separator: true },
       { label: 'Create Pose Asset…', op: 'poselib.create_pose_asset' },
     ];
@@ -447,8 +481,10 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
     const items: MenuItem[] = [];
     if (act) items.push({ label: 'Use Asset', shortcut: 'Enter', op: 'asset.activate' });
     if (act && this.editable(act)) items.push({ label: 'Rename…', shortcut: 'F2', action: () => this.startRename() });
-    if (local) items.push({ separator: true }, { label: 'Clear Asset', op: 'asset.clear' }, { label: 'Clear Asset (Set Fake User)', op: 'asset.clear', props: { set_fake_user: true } }, { label: 'Copy to Library…', icon: 'asset_library', op: 'asset.bundle_install' });
+    if (local) items.push({ separator: true }, { label: 'Clear Asset', op: 'asset.clear' }, { label: 'Clear Asset (Set Fake User)', op: 'asset.clear', props: { set_fake_user: true } });
+    if (sel.length) items.push({ label: 'Copy to Library…', icon: 'asset_library', op: 'asset.bundle_install' });
     if (user) items.push({ separator: true }, { label: 'Remove from Library', icon: 'trash', op: 'asset.library_remove_assets' });
+    if (act && act.library !== LOCAL) items.push({ label: 'Open Library File', icon: 'file_3d', op: 'asset.open_containing_blend_file' });
     if (act && this.editable(act) && this.catalogs().length) items.push({ separator: true }, { label: 'Move to Catalog', submenu: () => this.catalogPickMenu() });
     items.push({ separator: true }, { label: 'Refresh', shortcut: 'R', op: 'asset.library_refresh' }, { label: 'Select All', shortcut: 'A', op: 'file.select_all', props: { action: 'SELECT' } });
     return items;
@@ -661,10 +697,10 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
         const id = row.dataset.catId!;
         return id ? `Move to “${row.dataset.catName}”` : 'Remove from catalog';
       },
-      drop: (el) => {
+      drop: (el, refs) => {
         const row = el.closest<HTMLElement>('.ab-cat[data-cat-id]');
         if (!row) return false;
-        return app.run('asset.catalog_assign', { catalog_id: row.dataset.catId }, { area: this.area }) === 'FINISHED';
+        return app.run('asset.catalog_assign', { catalog_id: row.dataset.catId, assets: refs.join(',') }, { area: this.area }) === 'FINISHED';
       },
     };
   }

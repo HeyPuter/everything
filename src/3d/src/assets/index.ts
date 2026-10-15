@@ -10,6 +10,10 @@ import './poselib';
 import './browser';
 import './menus';
 import { browserOf } from './state';
+import { idAssetHooks } from '../scripting/api';
+import { markAsset, clearAsset } from './ops';
+import { renderPreview } from './preview';
+import { blockOf, isAssetTable } from './types';
 import { loadLibraryIndex, userLibraries, ensureLibrary } from './library';
 
 registerIcons({
@@ -59,6 +63,21 @@ onAppReady(() => {
   // user libraries are small: load them so menus (node Add menus) can list their assets
   void loadLibraryIndex().then(() => Promise.all(userLibraries().map((l) => ensureLibrary(l.id))));
 });
+
+// scripts: ID.asset_mark() / asset_clear() / asset_generate_preview()
+idAssetHooks.mark = (table, id) => {
+  if (!isAssetTable(table)) throw new Error(`${table} cannot be assets`);
+  markAsset(app.doc, table, id);
+};
+idAssetHooks.clear = (table, id) => {
+  if (isAssetTable(table)) clearAsset(app.doc, table, id, false);
+};
+idAssetHooks.preview = (table, id) => {
+  const m = isAssetTable(table) ? blockOf(app.doc, table, id)?.asset_data : undefined;
+  if (!m) return;
+  const url = renderPreview(app.doc, table as never, id);
+  if (url) m.preview = url;
+};
 
 registerOperators([
   {

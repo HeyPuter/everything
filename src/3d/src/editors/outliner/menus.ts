@@ -74,6 +74,9 @@ const idItem = (type: string, label: string, extra: Partial<MenuItem> = {}): Men
   ...extra,
 });
 
+/** Small badges drawn after a row's name (e.g. the asset mark). */
+export const rowBadgeHooks: ((r: Row) => import('../../ui/h').Child)[] = [];
+
 /** Extra entries of data-block rows (e.g. the Assets submenu), shown before ID Data. */
 export const rowMenuHooks: ((r: Row) => MenuItem[])[] = [];
 const hookItems = (r: Row) => rowMenuHooks.flatMap((f) => f(r));

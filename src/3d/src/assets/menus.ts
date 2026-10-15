@@ -3,7 +3,9 @@
 // (listed under their catalogs).
 import { app } from '../app/app';
 import type { MenuItem, SearchEntry } from '../ui/menu';
-import { rowMenuHooks } from '../editors/outliner/menus';
+import { h } from '../ui/h';
+import { icon } from '../ui/icons';
+import { rowMenuHooks, rowBadgeHooks } from '../editors/outliner/menus';
 import { idSelectorMenuHooks } from '../editors/properties/tabs';
 import { addMenuExtras } from '../nodes/editor/context';
 import { contextTargets, metaOf, nodeEditorOf, type NodeEditorLike } from './ops';
@@ -33,6 +35,14 @@ rowMenuHooks.push((r) => {
   if (!table || !isAssetTable(table)) return [];
   if (r.kind === 'collection' && r.id === app.doc.scene.collection) return [];
   return [{ label: 'Assets', submenu: () => markClearItems(contextTargets(app.context())) }];
+});
+
+// Outliner: assets carry a small mark after their name
+rowBadgeHooks.push((r) => {
+  const table = r.kind === 'object' ? 'objects' : r.kind === 'collection' ? 'collections' : r.table;
+  const id = r.kind === 'object' ? r.ob?.id : r.id;
+  if (!table || !id || !isAssetTable(table) || !blockOf(app.doc, table, id)?.asset_data) return null;
+  return h('span', { key: 'asset', class: 'ol-asset', 'data-tip': 'Asset\nShown in the Asset Browser (Current File)' }, icon('asset_mark'));
 });
 
 // Data-block selectors (material, world, node group, …)

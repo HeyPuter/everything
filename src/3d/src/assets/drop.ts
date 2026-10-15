@@ -25,7 +25,7 @@ export interface DragPayload {
 /** Drop targets inside the Asset Browser (catalogs); return a hint, and handle the drop. */
 export interface InternalTarget {
   hint(el: HTMLElement): string | null;
-  drop(el: HTMLElement): boolean;
+  drop(el: HTMLElement, refs: string[]): boolean;
 }
 
 interface ViewLike {
@@ -59,7 +59,7 @@ function plan(p: DragPayload, x: number, y: number, internal?: InternalTarget): 
   const el = document.elementFromPoint(x, y) as HTMLElement | null;
   if (el && internal) {
     const hint = internal.hint(el);
-    if (hint) return { hint, ok: true, run: () => void internal.drop(el) };
+    if (hint) return { hint, ok: true, run: () => void internal.drop(el, p.refs) };
   }
   const area = areaAt(x, y);
   const first = findAsset(p.refs[0]);

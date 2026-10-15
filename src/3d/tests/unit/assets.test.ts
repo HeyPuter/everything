@@ -13,7 +13,8 @@ import { essentialsDocument } from '../../src/assets/essentials';
 import { assetsOf, decodeTargets, encodeTarget, newMetaData, type AssetCatalog, type AssetMetaData } from '../../src/assets/types';
 import { copyAssetsInto, purgeLibrary, parseAssetRef, assetRef } from '../../src/assets/library';
 import { poseToAction, applyPoseAsset, isPoseAction, poseBones } from '../../src/assets/poselib';
-import '../../src/assets/ops';
+import '../../src/assets/index';
+import { bpy } from '../../src/scripting/api';
 
 type Meta = { asset_data?: AssetMetaData };
 const named = <T extends { name: string }>(t: Record<string, T>, n: string) => Object.values(t).find((x) => x.name === n)!;
@@ -311,5 +312,17 @@ describe('asset operators', () => {
     const act = named(app.doc.actions, 'Rest') as typeof app.doc.actions[string] & Meta;
     expect(act.asset_data).toBeTruthy();
     expect(isPoseAction(act)).toBe(true);
+  });
+
+  it('marks assets from scripts', () => {
+    const B = bpy as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const m = B.data.materials['Material'];
+    expect(m.asset_data).toBeNull();
+    m.asset_mark();
+    expect(m.asset_data).toBeTruthy();
+    m.asset_data.description = 'Grey';
+    expect((named(app.doc.materials, 'Material') as Meta).asset_data!.description).toBe('Grey');
+    m.asset_clear();
+    expect(m.asset_data).toBeNull();
   });
 });

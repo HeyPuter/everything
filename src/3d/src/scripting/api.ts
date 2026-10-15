@@ -119,6 +119,9 @@ function countUsers(id: ID): number {
 // ---------------------------------------------------------------------------
 // ID base
 
+/** Asset marking for scripts (installed by the asset system). */
+export const idAssetHooks: { mark?: (table: string, id: string) => void; clear?: (table: string, id: string) => void; preview?: (table: string, id: string) => void } = {};
+
 export class IDStruct extends Struct {
   readonly __kind: string = 'id';
   constructor(
@@ -186,6 +189,22 @@ export class IDStruct extends Struct {
   }
   user_clear() {
     /* users are derived from references in this implementation */
+  }
+  /** Asset metadata (None unless the data-block is an asset). */
+  get asset_data() {
+    return this.__raw.asset_data ? wrapField(this, 'asset_data', () => this.__resolve()) : null;
+  }
+  asset_mark() {
+    idAssetHooks.mark?.(this.__table, this.__id);
+    touched();
+  }
+  asset_clear() {
+    idAssetHooks.clear?.(this.__table, this.__id);
+    touched();
+  }
+  asset_generate_preview() {
+    idAssetHooks.preview?.(this.__table, this.__id);
+    touched();
   }
   animation_data_create() {
     const raw = this.__raw;

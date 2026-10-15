@@ -438,3 +438,28 @@ body.ab-dragging,
 body.ab-dragging * {
   cursor: copy !important;
 }
+/* the outliner's asset mark */
+.ol-asset {
+  display: inline-grid;
+  place-items: center;
+  margin-left: 4px;
+  opacity: 0.75;
+}
+.ol-asset svg {
+  width: 12px;
+  height: 12px;
+}
+.ab-pop-radio {
+  text-align: left;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 3px;
+  color: #ccc;
+}
+.ab-pop-radio:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.ab-pop-radio.on {
+  background: var(--accent, #4772b3);
+  color: #fff;
+}

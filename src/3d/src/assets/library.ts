@@ -360,12 +360,12 @@ export function copyAssetsInto(lib: DocumentData, src: DocumentData, targets: { 
   return picks.length;
 }
 
-/** Copy assets of the current file into a user library and save it. */
-export async function copyToLibrary(libraryId: string, targets: { table: AssetTable; id: ID }[]): Promise<number> {
+/** Copy assets of a library (default: the current file) into a user library and save it. */
+export async function copyToLibrary(libraryId: string, targets: { table: AssetTable; id: ID }[], src: DocumentData = app.doc): Promise<number> {
   const lib = await ensureLibrary(libraryId);
-  if (!lib) return 0;
+  if (!lib || lib === src) return 0;
   catalogUndoPush(libraryId);
-  const n = copyAssetsInto(lib, app.doc, targets);
+  const n = copyAssetsInto(lib, src, targets);
   if (n) {
     libraryChanged(libraryId);
     await saveLibrary(libraryId, true);
@@ -403,6 +403,19 @@ export async function importLibraryFile(name: string, bytes: Uint8Array): Promis
   await saveLibrary(id, true);
   notifyLibraries();
   return { id, count };
+}
+
+/** Replace a user library with a saved project (the library opened as a file and saved). */
+export async function writeLibraryBytes(id: string, bytes: Uint8Array) {
+  const { doc } = decodeDocument(bytes);
+  doc.asset_catalogs ??= [];
+  const st = state(id);
+  st.doc = doc;
+  st.error = undefined;
+  st.undo = [];
+  st.redo = [];
+  await kvSet(libKey(id), encodeDocument(doc));
+  notifyLibraries();
 }
 
 /** The bytes of a library as a project file (Export Library). */

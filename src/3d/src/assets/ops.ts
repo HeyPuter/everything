@@ -12,6 +12,7 @@ import { newModifier } from '../eval/modifiers';
 import { currentOutliner } from '../editors/outliner/current';
 import { openMenu, promptText, type MenuItem } from '../ui/menu';
 import { download, pickFile } from '../io/native';
+import { openFile, fileEvents } from '../io/files';
 import { renderPreview, previewFromFile } from './preview';
 import { catalogById, deleteCatalog, newCatalog, renameCatalog, moveCatalog } from './catalogs';
 import {
@@ -28,12 +29,14 @@ import {
   removeFromLibrary,
   importLibraryFile,
   exportLibraryBytes,
+  writeLibraryBytes,
   catalogUndoPush,
   catalogUndo,
   canCatalogUndo,
   canCatalogRedo,
   saveLibrary,
   parseAssetRef,
+  assetRef,
   findAsset,
   libraryCatalogs,
   type ImportMethod,
@@ -374,7 +377,7 @@ registerOperators([
     label: 'Assign to Catalog',
     description: 'Put the selected assets into a catalog (an empty catalog id removes them from their catalog)',
     props: [{ id: 'catalog_id', label: 'Catalog ID', type: 'string', default: '' }, { id: 'assets', label: 'Assets', type: 'string', default: '', hidden: true }],
-    poll: (ctx) => catalogEditable(ctx) && !!browserOf(ctx)?.selected.size,
+    poll: (ctx) => catalogEditable(ctx),
     exec: (ctx, p) => {
       const b = browserOf(ctx);
       const refs = p.assets ? String(p.assets).split(',') : [...(b?.selected ?? [])];
@@ -525,17 +528,44 @@ registerOperators([
     },
   },
   {
+    idname: 'asset.open_containing_blend_file',
+    label: 'Open Library File',
+    description: 'Open the library holding the active asset as the current file; for user libraries, saving the file (Ctrl S) updates the library',
+    undo: false,
+    poll: (ctx) => {
+      const e = browserOf(ctx)?.activeAsset();
+      return !!e && e.library !== LOCAL && !!libraryDoc(e.library);
+    },
+    exec: (ctx) => {
+      const e = browserOf(ctx)!.activeAsset()!;
+      const info = libraryInfo(e.library)!;
+      const bytes = exportLibraryBytes(e.library);
+      if (!bytes) return 'CANCELLED';
+      const name = `${info.name}.p3d`;
+      void openFile(new File([bytes as Uint8Array<ArrayBuffer>], name), 'open').then(() => {
+        if (info.kind !== 'USER') return;
+        fileEvents.saveTarget = {
+          name,
+          write: async (b) => {
+            await writeLibraryBytes(info.id, b);
+          },
+        };
+        app.report('INFO', `Opened the library "${info.name}"; save to update it`);
+      });
+    },
+  },
+  {
     idname: 'asset.bundle_install',
     label: 'Copy to Asset Library',
-    description: 'Copy assets of the current file (the selected ones, or all) into a user asset library',
+    description: 'Copy assets into a user asset library: the assets selected in the Asset Browser, or all assets of the current file',
     undo: false,
-    props: [{ id: 'asset_library_reference', label: 'Library', type: 'string', default: '' }, targetsProp],
-    poll: (ctx) => assetsOf(ctx.doc).length > 0,
+    props: [{ id: 'asset_library_reference', label: 'Library', type: 'string', default: '' }, targetsProp, { id: 'assets', label: 'Assets', type: 'string', default: '', hidden: true }],
+    poll: (ctx) => assetsOf(ctx.doc).length > 0 || !!browserOf(ctx)?.selection().length,
     invoke: (ctx, p) => {
-      if (!p.targets) {
-        const b = browserOf(ctx);
-        const sel = b ? b.selection().filter((e) => e.library === LOCAL) : [];
-        p.targets = (sel.length ? sel.map((e) => encodeTarget(e.table, e.id)) : assetsOf(ctx.doc).map(({ table, block }) => encodeTarget(table, block.id))).join('|');
+      if (!p.targets && !p.assets) {
+        const sel = browserOf(ctx)?.selection() ?? [];
+        if (sel.length) p.assets = sel.map((e) => assetRef(e)).join(',');
+        else p.targets = assetsOf(ctx.doc).map(({ table, block }) => encodeTarget(table, block.id)).join('|');
       }
       if (p.asset_library_reference) return bundleExec(ctx, p);
       const items: MenuItem[] = [
@@ -876,7 +906,25 @@ function bundleExec(ctx: OpContext, p: Record<string, unknown>) {
     app.report('ERROR', 'Pick a user asset library to copy to');
     return 'CANCELLED' as const;
   }
+  const done = (n: number) => app.report(n ? 'INFO' : 'WARNING', n ? `Copied ${n} asset${n === 1 ? '' : 's'} to "${info.name}"` : 'No assets to copy');
+  if (p.assets) {
+    // assets of any library, copied library by library
+    const bySource = new Map<string, { table: AssetTable; id: ID }[]>();
+    for (const ref of String(p.assets).split(',')) {
+      const r = parseAssetRef(ref);
+      if (r && r.library !== lib) bySource.set(r.library, [...(bySource.get(r.library) ?? []), { table: r.table, id: r.id }]);
+    }
+    void (async () => {
+      let n = 0;
+      for (const [src, ts] of bySource) {
+        const doc = libraryDoc(src);
+        if (doc) n += await copyToLibrary(lib, ts, doc);
+      }
+      done(n);
+    })();
+    return 'FINISHED' as const;
+  }
   const ts = p.targets ? decodeTargets(String(p.targets)) : assetsOf(ctx.doc).map(({ table, block }) => ({ table, id: block.id }));
-  void copyToLibrary(lib, ts).then((n) => app.report(n ? 'INFO' : 'WARNING', n ? `Copied ${n} asset${n === 1 ? '' : 's'} to "${info.name}"` : 'No assets to copy'));
+  void copyToLibrary(lib, ts).then(done);
   return 'FINISHED' as const;
 }
