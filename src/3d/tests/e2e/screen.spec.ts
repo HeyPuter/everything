@@ -470,3 +470,30 @@ test('Quick Favorites: add from a menu item, open with Q', async ({ page }) => {
   await page.keyboard.press('Escape');
   await expectNoErrors(errors);
 });
+
+test('File > Append copies picked objects from another project', async ({ page }) => {
+  const errors = await openApp(page);
+  // a project file whose cube is renamed
+  const bytes = await page.evaluate(async () => {
+    const { startupDocument } = await import('/src/data/defaults.ts');
+    const { encodeDocument } = await import('/src/io/native.ts');
+    const d = startupDocument();
+    Object.values(d.objects).find((o: any) => o.name === 'Cube')!.name = 'Crate';
+    return Array.from(encodeDocument(d));
+  });
+  page.once('filechooser', (fc) => fc.setFiles({ name: 'library.p3d', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) }));
+  await page.evaluate(() => (window as any).app.run('wm.append'));
+  const dlg = page.locator('.append-dlg');
+  await expect(dlg).toBeVisible();
+  await dlg.locator('.append-item', { hasText: 'Crate' }).click();
+  await dlg.locator('.append-type', { hasText: 'Materials' }).click();
+  await expect(dlg.locator('.append-item', { hasText: 'Material' })).toBeVisible();
+  await dlg.locator('.btn', { hasText: 'Append 1' }).click();
+  await expect(dlg).toHaveCount(0);
+  expect(await get(page, 'app.activeObject.name')).toBe('Crate');
+  expect(await get(page, 'Object.keys(app.doc.objects).length')).toBe(4);
+  // undo removes it again
+  await page.evaluate(() => (window as any).app.undoStep());
+  expect(await get(page, 'Object.keys(app.doc.objects).length')).toBe(3);
+  await expectNoErrors(errors);
+});

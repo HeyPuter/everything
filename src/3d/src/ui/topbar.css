@@ -152,3 +152,107 @@
     flex-direction: column;
   }
 }
+
+/* File > Append dialog */
+.append-dlg {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 8px;
+}
+.append-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--c-text-dim);
+}
+.append-cols {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 8px;
+}
+.append-types {
+  width: 190px;
+  flex: none;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.append-type {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 4px;
+  text-align: left;
+  color: var(--c-text);
+}
+.append-type .grow,
+.append-foot .grow {
+  flex: 1;
+}
+.append-type:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.append-type.on {
+  background: var(--w-menu-item-hl);
+  color: #fff;
+}
+.append-count {
+  font-size: 11px;
+  opacity: 0.7;
+}
+.append-items {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.append-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.18);
+  padding: 3px;
+}
+.append-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 3px;
+}
+.append-item.on {
+  background: rgba(71, 114, 179, 0.35);
+}
+.append-sel,
+.append-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.append-foot {
+  font-size: 11px;
+  color: var(--c-text-dim);
+}
+.append-dialog .dialog-body {
+  display: flex;
+  flex-direction: column;
+}
+.btn.primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn.primary:hover {
+  background: var(--accent-hi);
+}
+.btn.primary:disabled {
+  opacity: 0.5;
+}
