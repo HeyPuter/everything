@@ -1,7 +1,7 @@
 // Edit-mode selection: picking, regions, loops/rings, linked, more/less, similar, etc.
 import { app, registerOperators, type OpContext } from '../../app/app';
 import { editModeHooks } from '../../editors/view3d/hooks';
-import type { View3D } from '../../editors/view3d/view3d';
+import { activeView3D, type View3D } from '../../editors/view3d/view3d';
 import { editMeshObjects, selectMode, active, inMeshEdit, ensureSelection, pushSelectHistory } from './context';
 import { pickContext, nearestVertex, nearestEdge, pickFace, vertsInRegion, facesInRegion, type Region } from './pick';
 import { MeshEdit, edgeKey } from './meshedit';
@@ -175,6 +175,50 @@ editModeHooks.pick.push((v, x, y, o) => {
   return pick(v, x, y, { ...o, loop: !!ev?.altKey && !ev?.ctrlKey, ring: !!ev?.altKey && !!ev?.ctrlKey, path: !!ev?.ctrlKey && !ev?.altKey && !ev?.shiftKey });
 });
 editModeHooks.box.push((v, x0, y0, x1, y1, mode) => region(v, { kind: 'box', x0, y0, x1, y1 }, mode));
+
+/** Run a pick at the operator's mouse position (for the click-select operators). */
+function pickAt(ctx: OpContext, o: Parameters<typeof pick>[3]) {
+  const v = activeView3D();
+  if (!v || !ctx.event) return 'CANCELLED' as const;
+  const r = v.el.getBoundingClientRect();
+  return pick(v, ctx.event.x - r.left, ctx.event.y - r.top, o) ? ('FINISHED' as const) : ('CANCELLED' as const);
+}
+
+registerOperators([
+  {
+    idname: 'mesh.loop_select',
+    label: 'Loop Select',
+    description: 'Select the edge loop under the mouse',
+    props: [
+      { id: 'extend', label: 'Extend', type: 'bool', default: false },
+      { id: 'toggle', label: 'Toggle Select', type: 'bool', default: false },
+      { id: 'ring', label: 'Select Ring', type: 'bool', default: false },
+    ],
+    poll: (ctx) => inMeshEdit() && !!ctx.event,
+    invoke: (ctx, p) => pickAt(ctx, { loop: !p.ring, ring: !!p.ring, extend: !!p.extend || !!p.toggle }),
+    undo: false,
+  },
+  {
+    idname: 'mesh.edgering_select',
+    label: 'Edge Ring Select',
+    description: 'Select the edge ring under the mouse',
+    props: [
+      { id: 'extend', label: 'Extend', type: 'bool', default: false },
+      { id: 'toggle', label: 'Toggle Select', type: 'bool', default: false },
+    ],
+    poll: (ctx) => inMeshEdit() && !!ctx.event,
+    invoke: (ctx, p) => pickAt(ctx, { ring: true, extend: !!p.extend || !!p.toggle }),
+    undo: false,
+  },
+  {
+    idname: 'mesh.shortest_path_pick',
+    label: 'Pick Shortest Path',
+    description: 'Select the shortest path from the active element to the one under the mouse',
+    poll: (ctx) => inMeshEdit() && !!ctx.event,
+    invoke: (ctx) => pickAt(ctx, { path: true }),
+    undo: false,
+  },
+]);
 editModeHooks.region.push((v, r, mode) => region(v, r, mode));
 
 export function selectRegion(v: View3D, r: Region, mode: 'SET' | 'ADD' | 'SUB' | 'AND' | 'XOR') {
