@@ -355,4 +355,20 @@ describe('asset operators', () => {
     expect(mine.sculpt_tool).toBe(brush.sculpt_tool);
     expect(app.doc.asset_catalogs!.find((c) => c.id === mine.asset_data!.catalog_id)!.path).toBe('Brushes/Mine');
   });
+
+  it('copies Essentials assets into a new user library', async () => {
+    const lib = await import('../../src/assets/library');
+    lib.resetLibrariesForTests();
+    const id = await lib.createLibrary('Shelf');
+    const ess = essentialsDocument();
+    const gold = named(ess.materials, 'Polished Gold');
+    const n = await lib.copyToLibrary(id, [{ table: 'materials', id: gold.id }], ess);
+    expect(n).toBe(1);
+    const assets = lib.listAssets(id);
+    expect(assets.map((a) => a.block.name)).toEqual(['Polished Gold']);
+    // the catalog came along
+    expect(lib.libraryCatalogs(id).map((c) => c.path).sort()).toEqual(['Materials', 'Materials/Metal']);
+    // and the essentials library itself is unchanged
+    expect((gold as Meta).asset_data).toBeTruthy();
+  });
 });
