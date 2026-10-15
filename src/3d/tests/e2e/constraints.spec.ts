@@ -61,7 +61,7 @@ test('object constraints: add menu, panel menu, hover shortcuts and apply', asyn
   await expect(page.locator('[data-con]')).toHaveCount(0);
   // Object > Constraint > Add Constraint (with Targets) asks for the type, then targets the other selected object
   await page.locator('.hdr-menu', { hasText: /^Object$/ }).first().dispatchEvent('pointerdown');
-  await item(page, 'Constraint').first().hover();
+  await item(page, 'Constraints').first().hover();
   await item(page, 'Add Constraint (with Targets)').first().click();
   await item(page, 'Track To').first().click();
   expect(await get(page, `app.activeObject.constraints.map((c) => [c.type, app.doc.objects[c.target]?.name])`)).toEqual([['TRACK_TO', 'Empty']]);

@@ -4,6 +4,8 @@ import type { Constraint, ModifierBase } from '../../data/types';
 import { uid } from '../../data/defaults';
 import { modifierTypes, newModifier } from '../../eval/modifiers';
 import { boneOnlyConstraints, constraintTypes, newConstraint } from '../../eval/constraints';
+// registers the constraint types defined outside the core table (Action, Armature, IK, …)
+import '../../eval/constraints_more';
 import type { BStruct } from './reader';
 import type { Ctx } from './context';
 import { importGeometryNodes } from './geonodes';
