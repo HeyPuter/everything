@@ -105,3 +105,12 @@ registerIcons({
   color_filter:
     '<circle class="f" cx="6" cy="6.5" r="3.6" opacity=".45"/><circle class="f" cx="10" cy="6.5" r="3.6" opacity=".7"/><circle class="f" cx="8" cy="10" r="3.6" opacity=".3"/><path class="s" d="M2 14.5h12" stroke-width="1.2" stroke-linecap="round"/>',
 });
+
+registerIcons({
+  brush_sculpt_clay_thumb: '<path class="f" d="M1 12 C3 12 4 8 7 8 H11 C13 8 14 10 15 12 V15 H1Z" opacity=".35"/><path class="s" d="M1 12 C3 12 4 8 7 8 H11 C13 8 14 10 15 12" fill="none" stroke-width="1.4"/><path class="s" d="M6 5.5c1.5-2 4.5-2 6 0" fill="none" stroke-width="1.2" stroke-linecap="round"/>',
+  brush_sculpt_multiplane: '<path class="f" d="M1 13 L8 5 L15 13 V15 H1Z" opacity=".35"/><path class="s" d="M1 13 L8 5 L15 13" fill="none" stroke-width="1.4" stroke-linejoin="round"/><path class="s" d="M3 4 6 2M13 4 10 2" stroke-width="1.1" stroke-linecap="round"/>',
+  brush_sculpt_elastic: '<path class="f" d="M1 12 C4 12 5 6 8 6 S12 12 15 12 V15 H1Z" opacity=".35"/><path class="s" d="M1 12 C4 12 5 6 8 6 S12 12 15 12" fill="none" stroke-width="1.4"/><path class="s" d="M8 6V2" stroke-width="1.2" stroke-dasharray="1.2 1"/><circle class="f" cx="8" cy="2" r="1.3"/>',
+  brush_sculpt_pose: '<path class="s" d="M2 13 L7 9 L13 4" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle class="f" cx="7" cy="9" r="1.8"/><path class="s" d="M10.5 9.5a4 4 0 0 0 1.5-3" fill="none" stroke-width="1" stroke-linecap="round"/>',
+  brush_sculpt_slide: '<path class="f" d="M1 11h14v4H1z" opacity=".35"/><path class="s" d="M1 11h14M4 11V8M8 11V8M12 11V8" stroke-width="1.2"/><path class="s" d="M3 4.5h9" stroke-width="1.2" stroke-linecap="round"/><path class="f" d="M14 4.5 11.5 2.8v3.4z"/>',
+  brush_sculpt_simplify: '<path class="s" d="M2 13 8 3 14 13zM5 8h6M8 13 5 8" fill="none" stroke-width="1.1" stroke-linejoin="round"/><path class="s" d="M11 8 8 13" fill="none" stroke-width="1.1" stroke-dasharray="1.4 1.2"/>',
+});

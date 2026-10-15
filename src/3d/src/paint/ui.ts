@@ -107,8 +107,8 @@ toolSettingsRenderers['builtin.gradient'] = () => {
 // ---------------------------------------------------------------------------
 // shared brush widgets
 
-const DIRECTIONAL = new Set(['DRAW', 'DRAW_SHARP', 'CLAY', 'CLAY_STRIPS', 'LAYER', 'INFLATE', 'BLOB', 'CREASE', 'FLATTEN', 'FILL', 'SCRAPE', 'PINCH', 'MASK']);
-const PLANE_TOOLS = new Set(['CLAY', 'CLAY_STRIPS', 'FLATTEN', 'FILL', 'SCRAPE']);
+const DIRECTIONAL = new Set(['DRAW', 'DRAW_SHARP', 'CLAY', 'CLAY_STRIPS', 'CLAY_THUMB', 'LAYER', 'INFLATE', 'BLOB', 'CREASE', 'FLATTEN', 'FILL', 'SCRAPE', 'MULTIPLANE_SCRAPE', 'PINCH', 'MASK']);
+const PLANE_TOOLS = new Set(['CLAY', 'CLAY_STRIPS', 'CLAY_THUMB', 'FLATTEN', 'FILL', 'SCRAPE', 'MULTIPLANE_SCRAPE']);
 const FALLOFFS: [string, string][] = [
   ['SMOOTH', 'Smooth'],
   ['SPHERE', 'Sphere'],

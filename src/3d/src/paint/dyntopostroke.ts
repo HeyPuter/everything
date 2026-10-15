@@ -132,7 +132,8 @@ function detailLength(s: MeshSession, v: View3D, at: Vector3, brushRadiusLocal: 
   return s.pixelsToLocal(v, at, ts.detail_size ?? 12);
 }
 
-function refineLimits(len: number): [number, number] {
+function refineLimits(len: number, tool?: string): [number, number] {
+  if (tool === 'SIMPLIFY') return [Infinity, len];
   const m = settings().detail_refine_method ?? 'SUBDIVIDE_COLLAPSE';
   return [m === 'COLLAPSE' ? Infinity : len, m === 'SUBDIVIDE' ? 0 : len * 0.4];
 }
@@ -180,7 +181,7 @@ dyntopoHooks.step = (st, force) => {
   for (let i = 0; i < P.length; i++) d.tm.pos[i] = P[i];
   if (d.hasMask && st.mask) for (let v = 0; v < s.nv; v++) d.tm.vattrs[0].data[v] = st.mask[v];
   const at = st.lastHit ? st.lastHit.clone().applyMatrix4(s.world()) : new Vector3().setFromMatrixPosition(s.world());
-  const [maxLen, minLen] = refineLimits(detailLength(s, st.v, at, st.radiusLocal));
+  const [maxLen, minLen] = refineLimits(detailLength(s, st.v, at, st.radiusLocal), st.tool);
   // grow the region by one ring so freshly split edges at its border settle too
   const stats = remeshRegion(d.tm, region, maxLen, minLen, 3000);
   region.clear();
