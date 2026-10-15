@@ -146,7 +146,10 @@ adds entries to File ▸ Import/Export. Native format: `io/native.ts`.
 (the "+" tab menu); layouts are built with `A(type)`, `H(ratio, a, b)`, `V(ratio, a, b)`, `dock()`.
 
 ### Other extension points
-- `eval/modifiers.ts` `registerModifier`, `editors/properties/stack.ts` `modifierFields` (panel rows)
+- `eval/modifiers.ts` `registerModifier`, `editors/properties/stack.ts` `modifierFields` (panel rows);
+  newer modifier families live in `eval/mods/` (pure, unit-tested; bind data in `_bind_*` typed arrays
+  on the modifier) with their panels/operators in `editors/properties/modui/` (`kit.ts` has sub-panels,
+  vertex group + invert rows, curve and texture widgets)
 - `editors/properties/properties.ts` `registerTab`, `tabs.ts` `objectExtraPanels`, `dataTabDrawers` (Object Data tab per object type)
 - `editors/properties/uilist.ts` `uiList(..., { specials, up, down })` for list specials menus and reordering
 - `object/instancing.ts` `objectDuplis` (instances an object shows; drawn via `SyncedObject.duplis`)

@@ -1,6 +1,8 @@
 // Skin modifier: panel, skin data operators (mark root, equalize radii, resize radii) and
 // Create Armature.
-import { h } from '../../../ui/h';
+import { h, type VNode } from '../../../ui/h';
+import { Matrix4, Vector3 } from 'three';
+import { editModeHooks } from '../../view3d/hooks';
 import { num, bool } from '../../../ui/props';
 import { app, onAppReady, operators, registerOperator, registerOperators, type OpContext } from '../../../app/app';
 import { addKeys } from '../../../app/keymap';
@@ -267,3 +269,32 @@ modifierExtraUI.SKIN = (ob, m) => {
     void ob,
   ];
 };
+
+// Edit Mode: show each vertex's skin radius as a circle around it
+editModeHooks.svg.push((v) => {
+  if (app.doc.mode !== 'EDIT') return null;
+  const ob = app.activeObject;
+  const me = meshOf(ob);
+  if (!ob || !me?.skin_vertices || !ob.modifiers.some((m) => m.type === 'SKIN' && m.show_viewport)) return null;
+  const nv = me.positions.length / 3;
+  if (nv > 4000 || me.skin_vertices.length !== nv * SKIN_STRIDE) return null;
+  const world = app.graph.get(ob.id)?.world ?? new Matrix4();
+  const right = new Vector3().setFromMatrixColumn(v.camera.matrixWorld, 0).normalize();
+  const sx = new Vector3().setFromMatrixScale(world);
+  const scale = (sx.x + sx.y + sx.z) / 3;
+  const circles: VNode[] = [];
+  const p = new Vector3();
+  for (let i = 0; i < nv; i++) {
+    if (me.hide_vert?.[i]) continue;
+    p.fromArray(me.positions, i * 3).applyMatrix4(world);
+    const c = v.project(p);
+    if (c.z < -1 || c.z > 1) continue;
+    const r = (me.skin_vertices[i * SKIN_STRIDE] + me.skin_vertices[i * SKIN_STRIDE + 1]) / 2;
+    const e = v.project(p.clone().addScaledVector(right, r * scale));
+    const rad = Math.hypot(e.x - c.x, e.y - c.y);
+    if (rad < 1) continue;
+    const sel = !!me.select_vert?.[i];
+    circles.push(h('circle', { key: `sk${i}`, cx: c.x, cy: c.y, r: rad, fill: 'none', stroke: sel ? '#ffa028' : '#c0c0c0', 'stroke-width': sel ? 1.4 : 1, 'stroke-dasharray': me.skin_vertices[i * SKIN_STRIDE + 2] ? '' : '4 3', opacity: 0.8 }) as VNode);
+  }
+  return h('g', { key: 'skin-radii', 'pointer-events': 'none' }, circles) as VNode;
+});
