@@ -8,6 +8,8 @@ import type { ObjectData } from '../data/types';
 import { addObjectToScene } from '../ops/object';
 import { sceneSyncHooks } from '../render/scene';
 import { loadSound, mediaKind, mimeFor } from '../sequencer/media';
+import { mixdownSources } from '../sequencer/audio';
+import { objectWorldAt } from '../physics/common';
 import type { MediaFile } from '../sequencer/types';
 import { pickFile } from '../io/native';
 import { dataTabDrawers } from '../editors/properties/tabs';
@@ -191,6 +193,18 @@ dataTabDrawers.SPEAKER = (o: ObjectData): Child => {
 // ---------------------------------------------------------------------------
 // playback
 
+function configurePanner(panner: PannerNode, sp: SpeakerSettings): PannerNode {
+  panner.panningModel = 'HRTF';
+  panner.distanceModel = 'inverse';
+  panner.refDistance = Math.max(1e-4, sp.distance_reference);
+  panner.maxDistance = Math.max(panner.refDistance, sp.distance_max);
+  panner.rolloffFactor = Math.max(0, sp.attenuation);
+  panner.coneInnerAngle = (sp.cone_angle_inner * 180) / Math.PI;
+  panner.coneOuterAngle = (sp.cone_angle_outer * 180) / Math.PI;
+  panner.coneOuterGain = sp.cone_volume_outer;
+  return panner;
+}
+
 interface Voice {
   id: string;
   src: AudioBufferSourceNode;
@@ -290,15 +304,7 @@ async function startAt() {
     src.playbackRate.value = pitch;
     const gain = ctx!.createGain();
     gain.gain.value = Math.max(0, sp.volume);
-    const panner = ctx!.createPanner();
-    panner.panningModel = 'HRTF';
-    panner.distanceModel = 'inverse';
-    panner.refDistance = Math.max(1e-4, sp.distance_reference);
-    panner.maxDistance = Math.max(panner.refDistance, sp.distance_max);
-    panner.rolloffFactor = Math.max(0, sp.attenuation);
-    panner.coneInnerAngle = (sp.cone_angle_inner * 180) / Math.PI;
-    panner.coneOuterAngle = (sp.cone_angle_outer * 180) / Math.PI;
-    panner.coneOuterGain = sp.cone_volume_outer;
+    const panner = configurePanner(ctx!.createPanner(), sp);
     src.connect(gain).connect(panner).connect(ctx!.destination);
     const delay = offset < 0 ? -offset / pitch : 0;
     src.start(startTime + delay, Math.max(0, offset));
@@ -333,3 +339,66 @@ export function syncSpeakers() {
 }
 
 onAppReady((a) => a.subscribe(() => syncSpeakers()));
+
+// ---------------------------------------------------------------------------
+// renders (movie audio and mixdown)
+
+mixdownSources.push({
+  active: () => speakers().length > 0,
+  schedule: async (off, fps, from, to) => {
+    const doc = app.doc;
+    const list = speakers();
+    const bufs = await Promise.all(list.map((o) => loadSound(o.speaker!.sound!.bytes)));
+    const cam = doc.scene.camera ? doc.objects[doc.scene.camera] : undefined;
+    // listener and speakers follow their (keyframed) transforms frame by frame
+    const step = Math.max(1, Math.round((to - from) / 2000));
+    const p = new Vector3(),
+      q = new Quaternion(),
+      s = new Vector3();
+    const L = off.listener;
+    for (let f = from; f < to; f += step) {
+      const t = (f - from) / fps;
+      (cam ? objectWorldAt(doc, cam, f) : new Matrix4()).decompose(p, q, s);
+      const fwd = new Vector3(0, 0, -1).applyQuaternion(q),
+        up = new Vector3(0, 1, 0).applyQuaternion(q);
+      if (L.positionX) {
+        L.positionX.setValueAtTime(p.x, t);
+        L.positionY.setValueAtTime(p.y, t);
+        L.positionZ.setValueAtTime(p.z, t);
+        L.forwardX.setValueAtTime(fwd.x, t);
+        L.forwardY.setValueAtTime(fwd.y, t);
+        L.forwardZ.setValueAtTime(fwd.z, t);
+        L.upX.setValueAtTime(up.x, t);
+        L.upY.setValueAtTime(up.y, t);
+        L.upZ.setValueAtTime(up.z, t);
+      }
+    }
+    list.forEach((o, i) => {
+      const buf = bufs[i];
+      const sp = o.speaker!;
+      if (!buf) return;
+      const pitch = Math.max(0.1, sp.pitch);
+      const offset = ((from - sp.frame_start) / fps) * pitch;
+      if (offset >= buf.duration) return;
+      const src = off.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = pitch;
+      const gain = off.createGain();
+      gain.gain.value = Math.max(0, sp.volume);
+      const panner = configurePanner(off.createPanner(), sp);
+      for (let f = from; f < to; f += step) {
+        const t = (f - from) / fps;
+        objectWorldAt(doc, o, f).decompose(p, q, s);
+        const dir = new Vector3(0, 0, -1).applyQuaternion(q);
+        panner.positionX.setValueAtTime(p.x, t);
+        panner.positionY.setValueAtTime(p.y, t);
+        panner.positionZ.setValueAtTime(p.z, t);
+        panner.orientationX.setValueAtTime(dir.x, t);
+        panner.orientationY.setValueAtTime(dir.y, t);
+        panner.orientationZ.setValueAtTime(dir.z, t);
+      }
+      src.connect(gain).connect(panner).connect(off.destination);
+      src.start(offset < 0 ? -offset / pitch : 0, Math.max(0, offset));
+    });
+  },
+});

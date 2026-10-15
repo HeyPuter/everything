@@ -146,21 +146,25 @@ export function restartPlayback() {
 // ---------------------------------------------------------------------------
 // mixdown
 
+/** Other sounds of the scene mixed into renders (e.g. speaker objects). */
+export const mixdownSources: { active: () => boolean; schedule: (ctx: OfflineAudioContext, fps: number, from: number, to: number) => Promise<void> }[] = [];
+
 /** Render the timeline's audio for frames [from, to) into an AudioBuffer. */
-export async function mixdown(ed: SequenceEditor, fps: number, from: number, to: number, rate = MIX_RATE, channels = 2): Promise<AudioBuffer> {
+export async function mixdown(ed: SequenceEditor | null | undefined, fps: number, from: number, to: number, rate = MIX_RATE, channels = 2): Promise<AudioBuffer> {
   const len = Math.max(1, Math.ceil(((to - from) / fps) * rate));
   const off = new OfflineAudioContext(channels, len, rate);
-  const list = soundVoices(ed);
+  const list = ed ? soundVoices(ed) : [];
   const bufs = await Promise.all(list.map((v) => loadSound(v.s.media!.bytes)));
   for (let i = 0; i < list.length; i++) {
     const b = bufs[i];
     if (b) schedule(off, off.destination, b, list[i], fps, from, 0, to);
   }
+  for (const src of mixdownSources) if (src.active()) await src.schedule(off, fps, from, to);
   return off.startRendering();
 }
 
 export function hasSound(ed: SequenceEditor | null | undefined) {
-  return !!ed && soundVoices(ed).length > 0;
+  return (!!ed && soundVoices(ed).length > 0) || mixdownSources.some((s) => s.active());
 }
 
 /** Playback state (for diagnostics and tests). */

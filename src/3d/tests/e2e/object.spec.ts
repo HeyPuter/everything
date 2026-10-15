@@ -219,5 +219,13 @@ test('speaker: add, give it a sound, it plays during playback', async ({ page })
   await run(page, 'screen.animation_play');
   await page.waitForFunction(async () => (await import('/src/object/speaker.ts')).speakerVoiceCount() > 0, null, { timeout: 5000 });
   await run(page, 'screen.animation_play');
+  // the speaker is part of rendered audio
+  const peak = await page.evaluate(async () => {
+    const { mixdown, hasSound } = await import('/src/sequencer/audio.ts');
+    if (!hasSound(null)) return -1;
+    const buf = await mixdown(null, 24, 1, 13);
+    return Math.max(...Array.from(buf.getChannelData(0)).map(Math.abs));
+  });
+  expect(peak).toBeGreaterThan(0.01);
   await expectNoErrors(errors);
 });
