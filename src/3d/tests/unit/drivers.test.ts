@@ -273,3 +273,43 @@ describe('drivers', () => {
     expect(B.location[2]).toBe(9);
   });
 });
+
+describe('drivers from scripts', () => {
+  it('driver_add builds a working driver', async () => {
+    (globalThis as unknown as { requestAnimationFrame: (f: () => void) => number }).requestAnimationFrame = (f) => setTimeout(f, 0) as unknown as number;
+    const A = await import('../../src/app/app');
+    const { startupDocument } = await import('../../src/data/defaults');
+    const { bpy } = await import('../../src/scripting/api');
+    A.setApp(new A.App(startupDocument()));
+    const app = A.app;
+    const B = bpy as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const cube = B.data.objects['Cube'];
+    const cam = B.data.objects['Camera'];
+    const fc = cube.driver_add('location', 2);
+    const d = fc.driver;
+    d.type = 'SCRIPTED';
+    d.expression = 'var * 2 + offset';
+    const v = d.variables.new();
+    v.type = 'TRANSFORMS';
+    v.targets[0].id = cam;
+    v.targets[0].transform_type = 'LOC_X';
+    const o = d.variables.new();
+    o.name = 'offset';
+    o.targets[0].id = cube;
+    o.targets[0].data_path = 'scale[0]';
+    expect(d.variables.length).toBe(2);
+    expect(d.is_valid).toBe(true);
+    expect(d.is_simple_expression).toBe(true);
+    app.evaluate();
+    const camX = app.doc.objects[cam.__id].location[0];
+    expect(app.doc.objects[cube.__id].location[2]).toBeCloseTo(camX * 2 + 1, 5);
+    // keys on the driver curve map the value
+    fc.keyframe_points.insert(0, 0);
+    fc.keyframe_points.insert(100, 50);
+    expect(fc.evaluate(10)).toBeGreaterThan(0);
+    expect(cube.driver_add('scale').length).toBe(3);
+    expect(cube.driver_remove('scale')).toBe(true);
+    d.variables.remove(o);
+    expect(d.variables.length).toBe(1);
+  });
+});

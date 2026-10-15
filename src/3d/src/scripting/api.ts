@@ -21,6 +21,7 @@ import { keyProperty, ensureAction, ensureFCurve } from '../anim/keyframes';
 import { insertKeyframe, evaluateFCurve as evaluateFC } from '../anim/fcurve';
 import { localMatrix, applyMatrixToObject } from '../eval/transform';
 import { getValue } from '../data/rna';
+import { driverAdd, driverRemove } from './driverapi';
 import { uiState } from '../app/prefs';
 import { scriptFile, scriptFileNames } from './files';
 import { Matrix, Vector, mathutils } from './mathutils';
@@ -423,6 +424,13 @@ class ObjectStruct extends IDStruct {
     touched();
     return true;
   }
+  /** Add a driver (one F-Curve, or a list for a whole array when index = -1). */
+  driver_add(data_path: string, index: number = -1) {
+    return driverAdd(this.ob, data_path, index ?? -1, this.__path);
+  }
+  driver_remove(data_path: string, index: number = -1) {
+    return driverRemove(this.ob, data_path, index ?? -1);
+  }
   shape_key_add(name = 'Key', from_mix = true) {
     void from_mix;
     const me = dataRecord(this.ob) as MeshData | null;
@@ -435,6 +443,8 @@ class ObjectStruct extends IDStruct {
   }
 }
 kwMethod(ObjectStruct.prototype, 'keyframe_insert', ['data_path', 'index', 'frame', 'group', 'options', 'keytype']);
+kwMethod(ObjectStruct.prototype, 'driver_add', ['path', 'index']);
+kwMethod(ObjectStruct.prototype, 'driver_remove', ['path', 'index']);
 kwMethod(ObjectStruct.prototype, 'keyframe_delete', ['data_path', 'index', 'frame', 'group']);
 kwMethod(ObjectStruct.prototype, 'select_set', ['state', 'view_layer']);
 kwMethod(ObjectStruct.prototype, 'hide_set', ['state', 'view_layer']);
