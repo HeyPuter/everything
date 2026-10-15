@@ -1154,6 +1154,8 @@ export interface DocumentData {
   fonts?: Record<ID, VectorFontData>;
   /** Grease Pencil data-blocks (src/greasepencil); absent in older files */
   grease_pencils?: Record<ID, import('../greasepencil/types').GreasePencilData>;
+  /** Files stored in the project for geometry import nodes; absent in older files */
+  packed_files?: Record<ID, import('../geonodes/curves/importers').PackedFile>;
   /** Metaball data-blocks (src/metaball); absent in older files */
   metaballs?: Record<ID, import('../metaball/types').MetaballData>;
   /** Mode of the active object */

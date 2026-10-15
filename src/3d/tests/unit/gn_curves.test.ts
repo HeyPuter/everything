@@ -488,3 +488,73 @@ describe('text nodes', () => {
     expect(run(b.t, s2, 'Curve Instances').instances!.count).toBe('cc dd'.length);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Import nodes
+
+import { packFile } from '../../src/geonodes/curves/importers';
+
+const enc = (s: string) => new TextEncoder().encode(s);
+
+describe('import nodes', () => {
+  it('Import OBJ gives one instance per object with the file coordinates', () => {
+    const t = setup();
+    packFile(t.doc, 'two.obj', enc('o First\nv 0 0 0\nv 1 0 0\nv 1 1 0\nf 1 2 3\no Second\nv 0 0 1\nv 0 1 2\nv 1 0 3\nv 1 1 4\nf 4 5 7 6\n'));
+    const imp = node(t, 'GeometryNodeImportOBJ', { Path: 'two.obj' });
+    const r = node(t, 'GeometryNodeRealizeInstances');
+    link(t, imp, 'Instances', r, 'Geometry');
+    const m = run(t, r).mesh!;
+    const sorted = (v: number[][]) => v.map((p) => p.join(',')).sort();
+    expect(sorted(vecs(m.positions))).toEqual(
+      sorted([
+        [0, 0, 0],
+        [1, 0, 0],
+        [1, 1, 0],
+        [0, 0, 1],
+        [0, 1, 2],
+        [1, 0, 3],
+        [1, 1, 4],
+      ]),
+    );
+    expect(Array.from(m.faceOffsets)).toEqual([0, 3, 7]);
+    const t2 = setup();
+    packFile(t2.doc, 'two.obj', enc('o A\nv 0 0 0\nv 1 0 0\nv 1 1 0\nf 1 2 3\no B\nv 0 0 1\nv 0 1 2\nv 1 0 3\nf 4 5 6\n'));
+    expect(run(t2, node(t2, 'GeometryNodeImportOBJ', { Path: 'C:\\models\\two.obj' }), 'Instances').instances!.count).toBe(2);
+  });
+  it('Import CSV makes points with a numeric attribute per column', () => {
+    const t = setup();
+    packFile(t.doc, 'pts.csv', enc('x,y,z,temp,id\n1,2,3,0.5,7\n4,5,6,1.5,8\n-1,0,2,2.5,9\n'));
+    const p = run(t, node(t, 'GeometryNodeImportCSV', { Path: 'pts.csv', Delimiter: ',' }), 'Point Cloud').points!;
+    expect(p.count).toBe(3);
+    expect(Array.from(p.attrs.get('x')!.data)).toEqual([1, 4, -1]);
+    expect(p.attrs.get('id')!.type).toBe('INT');
+    expect(Array.from(p.attrs.get('temp')!.data)).toEqual([0.5, 1.5, 2.5]);
+  });
+  it('Import STL and PLY read meshes; Import Text reads a string; missing files warn', () => {
+    const t = setup();
+    packFile(t.doc, 'tri.stl', enc('solid t\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid t\n'));
+    const m = run(t, node(t, 'GeometryNodeImportSTL', { Path: 'tri.stl' }), 'Mesh').mesh!;
+    expect([m.vertCount, m.faceCount]).toEqual([3, 1]);
+    const t2 = setup();
+    packFile(
+      t2.doc,
+      'q.ply',
+      enc(
+        'ply\nformat ascii 1.0\nelement vertex 4\nproperty float x\nproperty float y\nproperty float z\nelement face 1\nproperty list uchar int vertex_indices\nend_header\n0 0 0\n1 0 0\n1 1 0\n0 1 0\n4 0 1 2 3\n',
+      ),
+    );
+    const q = run(t2, node(t2, 'GeometryNodeImportPLY', { Path: 'q.ply' }), 'Mesh').mesh!;
+    expect([q.vertCount, q.faceCount]).toEqual([4, 1]);
+    const t3 = setup();
+    packFile(t3.doc, 'hello.txt', enc('hi there'));
+    const s = node(t3, 'GeometryNodeStringToCurves');
+    link(t3, node(t3, 'GeometryNodeImportText', { Path: 'hello.txt' }), 'String', s, 'String');
+    expect(run(t3, s, 'Curve Instances').instances!.count).toBe(8);
+    const t4 = setup();
+    const missing = node(t4, 'GeometryNodeImportSTL', { Path: 'nope.stl' });
+    link(t4, missing, 'Mesh', t4.out, 'Geometry');
+    const m4 = { id: 'md', name: 'GN', type: 'NODES', node_group: t4.group.id } as unknown as ModifierBase;
+    const res = evaluateGroup(t4.group, m4, env(t4.doc), GeometrySet.empty(), 'in', 'test/missing', false);
+    expect([...res.log.warnings.values()].flat().join()).toContain('File not found');
+  });
+});
