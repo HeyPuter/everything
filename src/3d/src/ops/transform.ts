@@ -39,6 +39,8 @@ export interface TElement {
   restore(): void;
   /** normal for shrink/fatten (world) */
   normal?: Vector3;
+  /** pivot used with Individual Origins when it differs from `center` (e.g. a selected face region's center) */
+  origin?: Vector3;
 }
 
 export interface TProvider {
@@ -368,7 +370,7 @@ function elementMatrix(s: Session, st: TState, e: TElement): Matrix4 {
   const w = e.weight;
   // Local constraints follow each object's own axes; free moves are shared by all elements
   const B = s.perElement && st.orientType === 'LOCAL' && st.axes ? orthonormalBasis(e.basis) : st.basis;
-  const center = s.individual ? e.center : st.center ?? s.pivot;
+  const center = s.individual ? e.origin ?? e.center : st.center ?? s.pivot;
   switch (st.mode) {
     case 'TRANSLATION': {
       const v = maskedValue(st);

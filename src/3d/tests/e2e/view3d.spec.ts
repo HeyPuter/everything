@@ -469,3 +469,19 @@ test('mirror: menu axes and the interactive mirror', async ({ page }) => {
   expect(Math.max(...xs)).toBeCloseTo(0, 5);
   await expectNoErrors(errors);
 });
+
+test('individual origins scale each selected region around its own center', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  await page.keyboard.press('Tab');
+  await run(page, 'mesh.primitive_cube_add', { location: [4, 0, 0] }, { invoke: false });
+  await page.keyboard.press('a');
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.doc.scene.tool_settings.transform_pivot_point = 'INDIVIDUAL_ORIGINS';
+  });
+  await run(page, 'transform.resize', { value: [0.5, 0.5, 0.5] }, { invoke: false });
+  const xs = await get<number[]>(page, 'Array.from(app.doc.meshes[app.activeObject.data].positions).filter((_, i) => i % 3 === 0).map(v => Math.round(v * 1000) / 1000)');
+  expect([...new Set(xs)].sort((a, b) => a - b)).toEqual([-0.5, 0.5, 3.5, 4.5]);
+  await expectNoErrors(errors);
+});
