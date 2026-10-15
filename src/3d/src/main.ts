@@ -18,6 +18,7 @@ import { installTooltips, pointerDownOutsideMenus } from './ui/menu';
 import { View3D, setLastView3D } from './editors/view3d/view3d';
 import { registerEditor } from './ui/screen';
 import './editors/outliner';
+import './ui/buttons';
 import './editors/properties/properties';
 import './editors/properties/tabs';
 import './editors/properties/stack';

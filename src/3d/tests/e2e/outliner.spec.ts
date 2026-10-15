@@ -189,3 +189,163 @@ test('outliner: drag and drop, restriction columns, filter and search', async ({
   await expect(page.locator('.outliner .ol-row', { hasText: 'Current File' })).toHaveCount(1);
   await expectNoErrors(errors);
 });
+
+const field = (page: Page, suffix: string) => page.locator(`.properties .num-field[data-id$="${suffix}"]`).first();
+const loc = (page: Page) => page.evaluate(() => [...(window as unknown as Win).app.activeObject.location].map((v: number) => Math.round(v * 1000) / 1000));
+
+test('buttons: keyframes, reset, copy/paste, data path and the button menu', async ({ page }) => {
+  const errors = await openApp(page);
+  await field(page, '.location.0').hover();
+  await page.keyboard.press('i');
+  const curves = () =>
+    page.evaluate(() => {
+      const a = (window as unknown as Win).app;
+      const act = a.doc.actions[a.activeObject.animation_data?.action];
+      return act ? act.fcurves.map((f: any) => `${f.data_path}[${f.array_index}]`) : [];
+    });
+  expect(await curves()).toEqual(['location[0]', 'location[1]', 'location[2]']);
+  await expect(field(page, '.location.0')).toHaveClass(/anim-keyed/);
+  // Alt+I deletes the keys on this frame, I again and Shift+Alt+I clears the curves
+  await page.keyboard.press('Alt+i');
+  expect(await curves()).toEqual([]);
+  await page.keyboard.press('i');
+  await page.keyboard.press('Shift+Alt+i');
+  expect(await curves()).toEqual([]);
+  // Backspace resets to the default value
+  await page.evaluate(() => {
+    const a = (window as unknown as Win).app;
+    a.activeObject.location = [1, 2, 3];
+    a.activeObject.scale = [2, 2, 2];
+    a.changed('doc');
+  });
+  await field(page, '.location.1').hover();
+  await page.keyboard.press('Backspace');
+  expect(await loc(page)).toEqual([0, 0, 0]);
+  await field(page, '.scale.0').hover();
+  await page.keyboard.press('Backspace');
+  expect(await page.evaluate(() => [...(window as unknown as Win).app.activeObject.scale])).toEqual([1, 1, 1]);
+  // Ctrl+C / Ctrl+V copy a single value, Ctrl+Alt+C / Ctrl+Alt+V the whole vector
+  await page.evaluate(() => {
+    const a = (window as unknown as Win).app;
+    a.activeObject.scale = [1.5, 2.5, 3.5];
+    a.changed('doc');
+  });
+  await field(page, '.scale.1').hover();
+  await page.keyboard.press('ControlOrMeta+c');
+  await field(page, '.location.0').hover();
+  await page.keyboard.press('ControlOrMeta+v');
+  await expect.poll(() => loc(page)).toEqual([2.5, 0, 0]);
+  await field(page, '.scale.0').hover();
+  await page.keyboard.press('ControlOrMeta+Alt+c');
+  await field(page, '.location.2').hover();
+  await page.keyboard.press('ControlOrMeta+Alt+v');
+  await expect.poll(() => loc(page)).toEqual([1.5, 2.5, 3.5]);
+  // Ctrl+Shift+Alt+C copies the full data path
+  await page.keyboard.press('ControlOrMeta+Shift+Alt+c');
+  expect(await page.evaluate(() => (window as unknown as Win).app.reports.at(-1).message)).toBe('Copied: bpy.data.objects["Cube"].location[2]');
+  // right-click menu on a button
+  await field(page, '.location.2').click({ button: 'right' });
+  await expect(page.locator('.menu-item', { hasText: 'Insert Single Keyframe' })).toBeVisible();
+  await page.locator('.menu-item', { hasText: 'Reset Single to Default Value' }).click();
+  expect(await loc(page)).toEqual([1.5, 2.5, 0]);
+  await expectNoErrors(errors);
+});
+
+test('buttons: multi-drag, Alt copy to selected, eyedropper and enum Ctrl+wheel', async ({ page }) => {
+  const errors = await openApp(page);
+  // drag down over the stacked location fields, then sideways: all three change together
+  const a = (await field(page, '.location.0').boundingBox())!;
+  const c = (await field(page, '.location.2').boundingBox())!;
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(a.x + a.width / 2, a.y + 20, { steps: 3 });
+  await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2, { steps: 4 });
+  await expect(page.locator('.num-field.multi-sel')).toHaveCount(3);
+  await page.mouse.move(c.x + c.width / 2 + 60, c.y + c.height / 2, { steps: 6 });
+  await page.mouse.up();
+  const [x, y, z] = await loc(page);
+  expect(x).toBeGreaterThan(0);
+  expect(y).toBe(x);
+  expect(z).toBe(x);
+  // Alt+drag applies to the other selected objects too
+  await page.evaluate(() => {
+    const ap = (window as unknown as Win).app;
+    for (const o of Object.values(ap.doc.objects as Record<string, any>)) o.select = true;
+    ap.changed('select');
+  });
+  const s = (await field(page, '.scale.2').boundingBox())!;
+  await page.mouse.move(s.x + s.width / 2, s.y + s.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(s.x + s.width / 2 + 40, s.y + s.height / 2, { steps: 5 });
+  await page.keyboard.down('Alt');
+  await page.mouse.up();
+  await page.keyboard.up('Alt');
+  const scales = await page.evaluate(() => Object.values((window as unknown as Win).app.doc.objects as Record<string, any>).map((o) => Math.round(o.scale[2] * 1000)));
+  expect(new Set(scales).size).toBe(1);
+  expect(scales[0]).not.toBe(1000);
+  // object eyedropper on a modifier object field: E, then click an object row in the outliner
+  await page.evaluate(() => {
+    const ap = (window as unknown as Win).app;
+    for (const o of Object.values(ap.doc.objects as Record<string, any>)) o.select = o.name === 'Cube';
+    ap.run('object.modifier_add', { type: 'ARRAY' });
+    (window as unknown as { __propertiesTab?: string }).__propertiesTab = 'MODIFIER';
+    ap.changed('ui');
+  });
+  const obField = page.locator('.properties .enum-menu[data-id$=".offset_object"]').first();
+  await expect(obField).toBeVisible();
+  await obField.hover();
+  await page.keyboard.press('e');
+  await expect(page.locator('body.eyedropper-active')).toHaveCount(1);
+  await row(page, 'Light').locator('.ol-name').click();
+  expect(
+    await page.evaluate(() => {
+      const ap = (window as unknown as Win).app;
+      const cube = Object.values(ap.doc.objects as Record<string, any>).find((o) => o.name === 'Cube');
+      return ap.doc.objects[cube.modifiers[0].offset_object]?.name;
+    }),
+  ).toBe('Light');
+  // Ctrl+wheel over an enum steps through its items
+  const fit = page.locator('.properties .enum-menu[data-id$=".fit_type"]').first();
+  await fit.hover();
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, 100);
+  await page.keyboard.up('Control');
+  await expect.poll(() => page.evaluate(() => (window as unknown as Win).app.activeObject.modifiers[0].fit_type)).not.toBe('FIXED_COUNT');
+  await expectNoErrors(errors);
+});
+
+test('properties: search, tab cycling, panel collapse and reorder', async ({ page }) => {
+  const errors = await openApp(page);
+  const body = (await page.locator('.prop-body').boundingBox())!;
+  await page.mouse.move(body.x + 80, body.y + body.height - 40);
+  await page.keyboard.press('ControlOrMeta+f');
+  await page.keyboard.type('delta');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.prop-body > .panel:visible')).toHaveCount(1);
+  await expect(page.locator('.rail-tab.search-miss').first()).toBeVisible();
+  await page.mouse.move(body.x + 80, body.y + body.height - 40);
+  await page.keyboard.press('Alt+f');
+  await expect(page.locator('.prop-body > .panel:visible').nth(2)).toBeVisible();
+  // Ctrl+wheel cycles tabs
+  const before = await page.locator('.rail-tab.on').getAttribute('data-tab');
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, 100);
+  await page.keyboard.up('Control');
+  await expect(page.locator('.rail-tab.on')).not.toHaveAttribute('data-tab', before!);
+  await page.locator('.rail-tab[data-tab="OBJECT"]').click();
+  await expect(page.locator('.rail-tab.on')).toHaveAttribute('data-tab', 'OBJECT');
+  await page.mouse.move(body.x + 80, body.y + 40);
+  // Ctrl+click on a header opens it and collapses the others
+  await page.locator('.prop-body > .panel > .panel-header', { hasText: 'Visibility' }).click({ modifiers: ['ControlOrMeta'] });
+  await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('.prop-body > .panel.open')].map((e) => (e as HTMLElement).dataset.panel))).toEqual(['ob-visibility']);
+  // drag a panel by its grip to the top
+  const first = await page.evaluate(() => (document.querySelector('.prop-body > .panel') as HTMLElement).dataset.panel);
+  const grip = (await page.locator('.prop-body > .panel', { hasText: 'Visibility' }).locator('.ph-grip').boundingBox())!;
+  const top = (await page.locator('.prop-body > .panel').first().boundingBox())!;
+  await page.mouse.move(grip.x + 4, grip.y + 4);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + 4, top.y + 3, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('.prop-body > .panel')].slice(0, 2).map((e) => (e as HTMLElement).dataset.panel))).toEqual(['ob-visibility', first]);
+  await expectNoErrors(errors);
+});

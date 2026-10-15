@@ -4,7 +4,7 @@ import { icon } from '../../ui/icons';
 import { app, registerOperators } from '../../app/app';
 import { registerTab } from './properties';
 import { panel, enumMenu, textField, isPanelOpen, setPanelOpen, button } from '../../ui/widgets';
-import { num, bool, enumProp, splitRow, axisToggles, vecProp } from '../../ui/props';
+import { num, bool, enumProp, splitRow, axisToggles, vecProp, objectProp } from '../../ui/props';
 import { modifierTypes, newModifier } from '../../eval/modifiers';
 import { constraintTypes, newConstraint, boneOnlyConstraints } from '../../eval/constraints';
 import type { ModifierBase, ObjectData, Constraint } from '../../data/types';
@@ -93,17 +93,8 @@ function fieldWidget(ob: ObjectData, m: Record<string, unknown>, f: Field): Chil
       return axisToggles(m, key, label);
     case 'vec':
       return vecProp(m, key, label, { unit: extra === 'distance' ? 'distance' : 'none' });
-    case 'object': {
-      const candidates = Object.values(doc.objects).filter((o) => o.id !== ob.id && (!extra || o.type === extra));
-      return splitRow(
-        label,
-        enumMenu(`${m.id ?? ''}.${key}`, [{ value: '', label: '—' }, ...candidates.map((o) => ({ value: o.id, label: o.name, icon: 'object' }))], String(m[key] ?? ''), (v) => {
-          m[key] = v || null;
-          app.pushUndo(`Set ${label}`);
-          app.changed('doc');
-        }),
-      );
-    }
+    case 'object':
+      return objectProp(m, key, label, { filter: (o) => o.id !== ob.id && (!extra || o.type === extra), undo: `Set ${label}` });
     case 'vgroup': {
       const me = ob.type === 'MESH' && ob.data ? doc.meshes[ob.data] : undefined;
       return splitRow(
