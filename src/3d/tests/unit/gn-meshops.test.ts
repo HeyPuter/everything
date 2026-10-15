@@ -515,3 +515,39 @@ describe('Mesh Bevel', () => {
       expect(ef.filter(Boolean).length + vf.filter(Boolean).length).toBe(c[2] - 6);
     });
 });
+
+describe('Mesh Bevel (selection and vertices)', () => {
+  for (const [seg, c] of [
+    [1, [12, 20, 10]],
+    [2, [16, 28, 14]],
+    [3, [20, 36, 18]],
+  ] as const)
+    it(`bevels the four top edges with ${seg} segment(s), sharing corners along the side edges`, () => {
+      const t = setup();
+      const b = node(t, 'GeometryNodeMeshBevel', { Offset: 0.2, Segments: seg });
+      link(t, cube(t), 'Mesh', b, 'Mesh');
+      const p = node(t, 'GeometryNodeInputPosition');
+      const sx = node(t, 'ShaderNodeSeparateXYZ');
+      const cmp = node(t, 'FunctionNodeCompare', { B: 0.5 }, { data_type: 'FLOAT', operation: 'GREATER_THAN' });
+      link(t, p, 'Position', sx, 'Vector');
+      link(t, sx, 'Z', cmp, 'A');
+      link(t, cmp, 'Result', b, 'Selection');
+      expect(counts(run(t, b, 'Mesh').geometry)).toEqual([...c]);
+    });
+  for (const [seg, c] of [
+    [1, [24, 36, 14]],
+    [3, [96, 156, 62]],
+  ] as const)
+    it(`bevels every cube vertex with ${seg} segment(s)`, () => {
+      const t = setup();
+      const b = node(t, 'GeometryNodeMeshBevel', { Offset: 0.1, Segments: seg }, { 'Affect Kind': 'Vertices' });
+      link(t, cube(t), 'Mesh', b, 'Mesh');
+      expect(counts(run(t, b, 'Mesh').geometry)).toEqual([...c]);
+    });
+  it('three segments on every edge', () => {
+    const t = setup();
+    const b = node(t, 'GeometryNodeMeshBevel', { Offset: 0.1, Segments: 3 });
+    link(t, cube(t), 'Mesh', b, 'Mesh');
+    expect(counts(run(t, b, 'Mesh').geometry)).toEqual([96, 192, 98]);
+  });
+});
