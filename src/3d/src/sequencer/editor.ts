@@ -27,6 +27,7 @@ import { drawShape, type SelectShape } from './shapes';
 import { boxHit, rectCircle, rectLasso, sameTime } from './selection';
 import { connectedOf, isConnected } from './connect';
 import { keysOf, keyValue, fadeProp } from './fades';
+import { editedText, endTextEdit, startTextEdit, hitsText, indexAt, textEdit } from './textedit';
 
 export const RULER_H = 22;
 export const MARKER_H = 22;
@@ -1237,7 +1238,16 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     pv.addEventListener('pointerdown', (e) => this.onPreviewDown(e));
     pv.addEventListener('wheel', (e) => this.onPreviewWheel(e), { passive: false });
     pv.addEventListener('contextmenu', (e) => e.preventDefault());
-    pv.addEventListener('dblclick', () => this.preview.fit());
+    pv.addEventListener('dblclick', (e) => {
+      // double click on a text strip edits its text; elsewhere fits the preview
+      const hit = hasEditor() ? this.preview.stripAt(e.clientX, e.clientY) : null;
+      if (hit?.type === 'TEXT') {
+        selectStrip(hit, {});
+        const [fx, fy] = this.preview.toFrame(e.clientX, e.clientY);
+        startTextEdit(hit, indexAt(hit, fx, fy));
+        app.changed('doc');
+      } else this.preview.fit();
+    });
     // split grip
     this.grip.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -1865,6 +1875,12 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       return;
     }
     if (e.button !== 0 || !hasEditor()) return;
+    const editing = editedText();
+    if (editing) {
+      const [fx, fy] = this.preview.toFrame(e.clientX, e.clientY);
+      if (hitsText(editing, fx, fy)) return this.textDrag(editing, e);
+      endTextEdit();
+    }
     const hit = this.preview.stripAt(e.clientX, e.clientY);
     const x0 = e.clientX,
       y0 = e.clientY;
@@ -1927,6 +1943,25 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       app.changed('select');
     };
     const cleanup = () => {
+      removeEventListener('pointermove', move);
+      removeEventListener('pointerup', up);
+    };
+    addEventListener('pointermove', move);
+    addEventListener('pointerup', up);
+  }
+
+  /** Click / drag in the edited text: place the cursor, Shift extends, dragging selects. */
+  private textDrag(s: Strip, e: PointerEvent) {
+    e.preventDefault();
+    const at = (ev: { clientX: number; clientY: number }) => indexAt(s, ...this.preview.toFrame(ev.clientX, ev.clientY));
+    textEdit.cursor = at(e);
+    if (!e.shiftKey) textEdit.anchor = textEdit.cursor;
+    this.preview.draw();
+    const move = (ev: PointerEvent) => {
+      textEdit.cursor = at(ev);
+      this.preview.draw();
+    };
+    const up = () => {
       removeEventListener('pointermove', move);
       removeEventListener('pointerup', up);
     };

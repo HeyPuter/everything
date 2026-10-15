@@ -278,6 +278,27 @@ export function stripMenu(preview = false): MenuItem[] {
       { label: 'Paste', op: 'sequencer.paste', shortcut: 'Ctrl V' },
       { label: 'Delete', op: 'sequencer.delete', shortcut: 'X' },
       { separator: true },
+      ...(act?.type === 'TEXT'
+        ? [
+            {
+              label: 'Text',
+              submenu: (): MenuItem[] => [
+                { label: 'Toggle Text Editing', op: 'sequencer.text_edit_mode_toggle', shortcut: 'Tab' },
+                { separator: true },
+                { label: 'Copy', op: 'sequencer.text_edit_copy', shortcut: 'Ctrl C' },
+                { label: 'Paste', op: 'sequencer.text_edit_paste', shortcut: 'Ctrl V' },
+                { label: 'Cut', op: 'sequencer.text_edit_cut', shortcut: 'Ctrl X' },
+                { separator: true },
+                { label: 'Delete', op: 'sequencer.text_delete', props: { type: 'NEXT_OR_SELECTION' }, shortcut: 'Delete' },
+                { label: 'Line Break', op: 'sequencer.text_line_break', shortcut: 'Enter' },
+                { separator: true },
+                { label: 'Select All', op: 'sequencer.text_select_all', shortcut: 'Ctrl A' },
+                { label: 'Deselect All', op: 'sequencer.text_deselect_all', shortcut: 'Esc' },
+              ],
+            } as MenuItem,
+            { separator: true } as MenuItem,
+          ]
+        : []),
       {
         label: 'Show/Hide',
         submenu: () => [

@@ -70,6 +70,7 @@ addKeys('Sequencer', [
 ]);
 
 addKeys('SequencerPreview', [
+  { key: 'TAB', op: 'sequencer.text_edit_mode_toggle' },
   { key: 'A', op: 'sequencer.select_all', props: { action: 'SELECT' } },
   { key: 'A', alt: true, op: 'sequencer.select_all', props: { action: 'DESELECT' } },
   { key: 'I', ctrl: true, op: 'sequencer.select_all', props: { action: 'INVERT' } },

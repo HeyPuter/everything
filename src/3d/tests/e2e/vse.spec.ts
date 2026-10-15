@@ -204,3 +204,29 @@ test('sequencer: retiming — set speed (R), freeze frame from the I menu, keys 
   expect((await keys()).length).toBe(4);
   await expectNoErrors(errors);
 });
+
+test('sequencer: text strips are edited in place in the preview', async ({ page }) => {
+  const { errors } = await videoWorkspace(page);
+  const text = () => page.evaluate(() => (window as any).app.doc.scene.sequence_editor.strips.find((s: any) => s.type === 'TEXT').text);
+  const pv = (await page.locator('.seq-pv').first().boundingBox())!;
+  // double click on the text starts editing at the clicked spot
+  await page.mouse.dblclick(pv.x + pv.width / 2, pv.y + pv.height / 2);
+  await page.keyboard.press('End');
+  await page.keyboard.type(' one');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('two');
+  expect(await text()).toBe('Text one\ntwo');
+  await page.keyboard.press('Shift+ArrowUp');
+  await page.keyboard.press('Backspace');
+  expect((await text()).length).toBeLessThan('Text one\ntwo'.length);
+  await page.keyboard.press('Control+a');
+  await page.keyboard.type('Title');
+  expect(await text()).toBe('Title');
+  await page.keyboard.press('Tab');
+  // leaving edit mode: keys work as shortcuts again (G starts a move in the preview)
+  expect(await page.evaluate(() => (window as any).app.poll('sequencer.text_insert'))).toBe(false);
+  await page.waitForTimeout(700);
+  await page.keyboard.press('Control+z');
+  expect(await text()).not.toBe('Title');
+  await expectNoErrors(errors);
+});

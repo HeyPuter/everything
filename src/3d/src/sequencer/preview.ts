@@ -8,6 +8,7 @@ import { pauseIdleMovies } from './media';
 import { stripImageCorners, previewStrips, pointInPoly } from './transform';
 import { activeStrip, hasEditor } from './context';
 import type { Strip } from './types';
+import { editedText, drawTextEditOverlay } from './textedit';
 import { T } from './theme';
 
 export type PreviewSize = 'AUTO' | 'SCENE' | 'PROXY_75' | 'PROXY_50' | 'PROXY_25';
@@ -245,8 +246,10 @@ export class PreviewRegion {
   private drawOverlays(g: CanvasRenderingContext2D) {
     const [W, H] = this.res();
     const act = activeStrip();
+    const editing = editedText();
+    if (editing) drawTextEditOverlay(g, (x, y) => this.toLocal(x, y));
     for (const s of previewStrips(app.doc.scene.frame_current)) {
-      if (!s.select) continue;
+      if (!s.select || s === editing) continue;
       const pts = stripImageCorners(s, W, H).map(([x, y]) => this.toLocal(x, y));
       g.strokeStyle = s === act ? T.active : T.selected;
       g.lineWidth = s === act ? 2 : 1.5;
