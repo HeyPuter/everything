@@ -160,6 +160,11 @@ registerPrefStore({
 });
 
 let applied = false;
+// apply a stored theme right away so the interface never flashes the default colours
+if (typeof document !== 'undefined' && (themeState.preset !== 'DEFAULT' || Object.keys(themeState.edits).length)) {
+  applyTheme();
+  applied = true;
+}
 onPrefsApply(() => {
   // the theme only needs applying once at startup; changes apply as they are made
   if (applied) return;

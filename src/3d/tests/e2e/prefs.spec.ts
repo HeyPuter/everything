@@ -62,8 +62,15 @@ test('keymap: search by key press, edit operator properties, add and remove item
   await item.locator('.km-oppick').click();
   await page.keyboard.type('wm.search_menu');
   await page.keyboard.press('Enter');
+  // F3 is already Menu Search: both items show a conflict marker
+  await item.locator('.km-key').click();
+  await page.keyboard.press('F3');
+  const search = page.locator('[data-panel="pf-km-Window"] .km-item', { hasText: 'Menu Search' }).first();
+  await expect(search.locator('.km-clash')).toHaveCount(1);
+  await expect(item.locator('.km-clash')).toHaveCount(1);
   await item.locator('.km-key').click();
   await page.keyboard.press('Alt+K');
+  await expect(search.locator('.km-clash')).toHaveCount(0);
   const added = await page.evaluate(async () => {
     const km = await import('/src/app/keymap.ts');
     const k = km.keymaps.Window[0];
@@ -207,7 +214,8 @@ test('editing and animation preferences change what operators do', async ({ page
   await page.evaluate(() => (window as unknown as { app: { run(id: string, p?: object): string } }).app.run('object.mode_set', { mode: 'OBJECT' }));
   await page.evaluate(async () => (await import('/src/prefs/store.ts')).setPref('duplicate', { ...(await import('/src/app/prefs.ts')).prefs.duplicate, MESH: false }));
   const shared = await page.evaluate(async () => {
-    const a = (window as unknown as { app: { run(id: string, p?: object): string; activeObject: { data: string } } }).app;
+    const a = (window as unknown as { app: { run(id: string, p?: object): string; flush(): void; activeObject: { data: string } } }).app;
+    a.flush();
     const before = a.activeObject.data;
     const { duplicateSelected } = await import('/src/ops/object.ts');
     const copies = duplicateSelected((a as unknown as { doc: never }).doc, false);

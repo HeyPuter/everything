@@ -530,3 +530,9 @@ body.reduce-motion *::after {
 .ad-details {
   padding: 4px 8px 8px 34px;
 }
+.km-clash {
+  display: inline-flex;
+  vertical-align: -3px;
+  margin-right: 3px;
+  color: var(--c-warning-text, #ffb54d);
+}

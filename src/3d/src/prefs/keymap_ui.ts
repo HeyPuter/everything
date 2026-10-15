@@ -382,12 +382,22 @@ export class KeymapView {
     this.changed();
   }
 
+  /** Other active items of the same keymap that the same key event would also trigger. */
+  private conflicts(km: string, k: KeyItem): KeyItem[] {
+    if (k.inactive || k.key === 'NONE') return [];
+    const sig = (x: KeyItem) => `${x.key}|${!!x.ctrl}|${!!x.shift}|${!!x.alt}|${!!x.any}|${x.value ?? 'PRESS'}`;
+    const s = sig(k);
+    // items with different context predicates may share keys on purpose
+    return (keymaps[km] ?? []).filter((x) => x !== k && !x.inactive && x.when === k.when && sig(x) === s);
+  }
+
   private itemRow(km: string, k: KeyItem): Child {
     const active = !k.inactive;
     const capturing = this.capturing === k;
     const modified = keyconfig.isModified(k);
     const id = keyconfig.idOf(k) || `${km}-${keymaps[km].indexOf(k)}`;
     const open = this.expanded.has(id);
+    const clash = this.conflicts(km, k);
     return h(
       'div',
       { key: id, class: { 'km-item': true, open } },
@@ -396,7 +406,12 @@ export class KeymapView {
         { class: { 'km-row': true, inactive: !active, modified } },
         h('button', { class: 'km-expand', 'aria-label': open ? 'Collapse' : 'Expand', 'aria-expanded': open ? 'true' : 'false', onclick: () => (open ? this.expanded.delete(id) : this.expanded.add(id), this.redraw()) }, icon(open ? 'disclosure_tri_down' : 'disclosure_tri_right')),
         checkbox(`km-a-${id}`, '', active, (v) => this.edit(k, { active: v }), { tip: 'Active\nTurn this key binding on or off' }),
-        h('span', { class: 'km-name', title: k.op ? `${k.op}${k.props ? ' ' + JSON.stringify(k.props) : ''}` : '' }, itemLabel(k)),
+        h(
+          'span',
+          { class: 'km-name', title: k.op ? `${k.op}${k.props ? ' ' + JSON.stringify(k.props) : ''}` : '' },
+          clash.length ? h('span', { class: 'km-clash', 'data-tip': `Conflict\nThe same key also runs: ${clash.map(itemLabel).join(', ')}. The item listed first wins.` }, icon('error')) : null,
+          itemLabel(k),
+        ),
         h('input', {
           class: { 'km-key': true, capturing },
           readonly: true,

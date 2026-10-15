@@ -306,7 +306,8 @@ export function applyThemeValues(v: ThemeValues) {
   styleEl.textContent = themeCss(v);
   for (const it of ALL_ITEMS) if (it.set) it.set(v[it.id] ?? it.def);
   document.documentElement.dataset.theme = luminance(v.region ?? '#303030') < 0.4 ? 'dark' : 'light';
-  app.changed('ui', 'view', 'select');
+  // (themes also apply before the app exists, so the first frame already has the colours)
+  if (app) app.changed('ui', 'view', 'select');
 }
 
 // ---------------------------------------------------------------------------
