@@ -4,7 +4,7 @@ import { num, bool, enumProp, vecProp, splitRow } from '../../../ui/props';
 import { enumRow, enumMenu } from '../../../ui/widgets';
 import { app } from '../../../app/app';
 import { modifierFields, modifierExtraUI } from '../stack';
-import { sub, headerCheck, objRow, vgroupRow, touch } from './kit';
+import { sub, headerCheck, objRow, vgroupRow, touch, textureRows } from './kit';
 
 type Rec = Record<string, unknown>;
 
@@ -189,5 +189,71 @@ modifierExtraUI.SOLIDIFY = (ob, m) => {
     ]),
     sub(m, 'clamp', 'Thickness Clamp', () => [num(r, 'thickness_clamp', 'Clamp', { min: 0, max: 100, softMax: 2, slider: true })]),
     sub(m, 'vgroups', 'Output Vertex Groups', () => [vgroupRow(ob, m, 'shell_vertex_group', 'Shell'), vgroupRow(ob, m, 'rim_vertex_group', 'Rim')]),
+  ];
+};
+
+// ---------------------------------------------------------------------------
+// Displace
+
+modifierFields.DISPLACE = [];
+modifierExtraUI.DISPLACE = (ob, m) => {
+  const r = m as Rec;
+  const axis = r.direction === 'X' || r.direction === 'Y' || r.direction === 'Z';
+  return [
+    textureRows(m, 'texture'),
+    r.texture
+      ? [
+          enumProp(r, 'texture_coords', 'Coordinates', [
+            ['LOCAL', 'Local'],
+            ['GLOBAL', 'Global'],
+            ['OBJECT', 'Object'],
+            ['UV', 'UV'],
+          ]),
+          r.texture_coords === 'OBJECT' ? objRow(r, 'texture_coords_object', 'Object', (o) => o.id !== ob.id) : null,
+        ]
+      : null,
+    enumProp(r, 'direction', 'Direction', [
+      ['X', 'X'],
+      ['Y', 'Y'],
+      ['Z', 'Z'],
+      ['NORMAL', 'Normal'],
+      ['CUSTOM_NORMAL', 'Custom Normal'],
+    ]),
+    axis
+      ? splitRow(
+          'Space',
+          enumRow(
+            `${m.id}.space`,
+            [
+              { value: 'LOCAL', label: 'Local' },
+              { value: 'GLOBAL', label: 'Global' },
+            ],
+            String(r.space ?? 'LOCAL'),
+            (v) => ((r.space = v), touch('Change Space')),
+          ),
+        )
+      : null,
+    num(r, 'strength', 'Strength', { softMin: -100, softMax: 100, anim: { ob, path: `modifiers["${m.name}"].strength` } }),
+    num(r, 'mid_level', 'Midlevel', { softMin: 0, softMax: 1, slider: true }),
+    vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
+  ];
+};
+
+// ---------------------------------------------------------------------------
+// Wireframe
+
+modifierFields.WIREFRAME = [];
+modifierExtraUI.WIREFRAME = (ob, m) => {
+  const r = m as Rec;
+  return [
+    num(r, 'thickness', 'Thickness', { unit: 'distance' }),
+    num(r, 'offset', 'Offset', { min: -1, max: 1, slider: true }),
+    bool(r, 'use_boundary', 'Boundary'),
+    bool(r, 'use_replace', 'Replace Original'),
+    h('div', { class: 'sub-label' }, 'Thickness'),
+    bool(r, 'use_even_offset', 'Even'),
+    vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
+    r.vertex_group ? num(r, 'thickness_vertex_group', 'Factor', { min: 0, max: 1, slider: true }) : null,
+    num(r, 'material_offset', 'Material Offset', { int: true }),
   ];
 };

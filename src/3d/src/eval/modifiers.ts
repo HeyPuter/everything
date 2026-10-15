@@ -945,42 +945,96 @@ function edgeSplit(m: EvalMesh, mod: ModifierBase): EvalMesh {
 }
 
 function wireframe(m: EvalMesh, mod: ModifierBase): EvalMesh {
-  // Builds a square tube along every edge (simplified, closed per edge).
-  const t = num(mod, 'thickness', 0.02) / 2;
-  const et = edgeTopology(m);
-  const P = m.positions;
-  const b = new MeshBuilder();
-  const up = new Vector3(),
-    side = new Vector3(),
-    dir = new Vector3();
+  // Every face edge becomes a thin square tube: a pair of vertices above/below each vertex and an
+  // inset point per face corner; each edge gets one quad on each side of its face.
+  const P = m.positions,
+    nv = P.length / 3,
+    nf = m.offsets.length - 1;
+  const t = num(mod, 'thickness', 0.02),
+    o = num(mod, 'offset', 0);
   const vn = vertexNormals(m);
-  for (let e = 0; e < et.count; e++) {
-    const a = et.verts[e * 2],
-      c = et.verts[e * 2 + 1];
-    const pa = new Vector3(P[a * 3], P[a * 3 + 1], P[a * 3 + 2]),
-      pc = new Vector3(P[c * 3], P[c * 3 + 1], P[c * 3 + 2]);
-    dir.subVectors(pc, pa).normalize();
-    up.set(vn[a * 3] + vn[c * 3], vn[a * 3 + 1] + vn[c * 3 + 1], vn[a * 3 + 2] + vn[c * 3 + 2]).normalize();
-    if (up.lengthSq() < 1e-6 || Math.abs(up.dot(dir)) > 0.99) up.set(0, 0, 1);
-    side.crossVectors(dir, up).normalize();
-    up.crossVectors(side, dir).normalize();
-    const ring = (p: Vector3) =>
-      [
-        [1, 1],
-        [-1, 1],
-        [-1, -1],
-        [1, -1],
-      ].map(([sx, sy]) => {
-        const q = p.clone().addScaledVector(side, sx * t).addScaledVector(up, sy * t).addScaledVector(dir, 0);
-        return b.addVert(q.x, q.y, q.z);
-      });
-    const ra = ring(pa.clone().addScaledVector(dir, -t)),
-      rc = ring(pc.clone().addScaledVector(dir, t));
-    for (let k = 0; k < 4; k++) b.addFace([ra[k], ra[(k + 1) % 4], rc[(k + 1) % 4], rc[k]]);
-    b.addFace([...ra].reverse());
-    b.addFace(rc);
+  const scale = new Float32Array(nv).fill(1);
+  const gw = groupWeights(m, str(mod, 'vertex_group'));
+  if (gw) {
+    const f = num(mod, 'thickness_vertex_group', 0),
+      inv = bool(mod, 'invert_vertex_group');
+    for (let v = 0; v < nv; v++) scale[v] = f + (1 - f) * (inv ? 1 - gw[v] : gw[v]);
   }
-  return b.build();
+  const even = bool(mod, 'use_even_offset', true);
+  const replace = bool(mod, 'use_replace', true);
+  const matOff = Math.round(num(mod, 'material_offset', 0));
+  const b = new MeshBuilder(m.weights?.length ?? 0, !!m.colors);
+  const keep = new Int32Array(nv);
+  if (!replace) for (let v = 0; v < nv; v++) keep[v] = b.addVert(P[v * 3], P[v * 3 + 1], P[v * 3 + 2], m.origIndex?.[v] ?? v, weightsOf(m, v));
+  const top = new Int32Array(nv),
+    bot = new Int32Array(nv);
+  for (let v = 0; v < nv; v++) {
+    const up = t * (o + 1) * 0.5 * scale[v],
+      dn = t * (o - 1) * 0.5 * scale[v];
+    bot[v] = b.addVert(P[v * 3] + vn[v * 3] * dn, P[v * 3 + 1] + vn[v * 3 + 1] * dn, P[v * 3 + 2] + vn[v * 3 + 2] * dn, replace ? m.origIndex?.[v] ?? v : -1, weightsOf(m, v));
+    top[v] = b.addVert(P[v * 3] + vn[v * 3] * up, P[v * 3 + 1] + vn[v * 3 + 1] * up, P[v * 3 + 2] + vn[v * 3 + 2] * up, -1, weightsOf(m, v));
+  }
+  const et = bool(mod, 'use_boundary') ? edgeTopology(m) : null;
+  const pa = new Vector3(),
+    pp = new Vector3(),
+    pn = new Vector3();
+  for (let f = 0; f < nf; f++) {
+    const s = m.offsets[f],
+      e = m.offsets[f + 1],
+      k = e - s;
+    const inset: number[] = [];
+    const outer: number[] = [];
+    // the inset ring sits between the top and bottom vertices (it follows the offset)
+    const fnrm: [number, number, number] = [0, 0, 0];
+    polyNormal(P, m.indices.subarray(s, e), fnrm);
+    const lift = (t * o) / 2;
+    for (let i = 0; i < k; i++) {
+      const v = m.indices[s + i],
+        vp = m.indices[s + ((i + k - 1) % k)],
+        vx = m.indices[s + ((i + 1) % k)];
+      pa.fromArray(P, v * 3);
+      pp.fromArray(P, vp * 3).sub(pa);
+      pn.fromArray(P, vx * 3).sub(pa);
+      const lp = pp.length(),
+        ln = pn.length();
+      pp.normalize();
+      pn.normalize();
+      const bis = pp.clone().add(pn);
+      const half = pp.angleTo(pn) / 2;
+      // even: keep the wire width constant at any corner angle; otherwise a fixed step along the
+      // bisector (exact for right angles)
+      const d = Math.min(((t / 2) * scale[v]) / (even ? Math.max(0.05, Math.sin(half)) : Math.SQRT1_2), (0.5 * Math.min(lp, ln)) / Math.max(0.05, Math.cos(half)));
+      if (bis.lengthSq() < 1e-12) bis.set(0, 0, 0);
+      else bis.normalize();
+      const q = pa.clone().addScaledVector(bis, d).add(new Vector3(fnrm[0], fnrm[1], fnrm[2]).multiplyScalar(lift * scale[v]));
+      inset.push(b.addVert(q.x, q.y, q.z, -1, weightsOf(m, v)));
+      if (et) {
+        const r = pa.clone().addScaledVector(bis, -d).add(new Vector3(fnrm[0], fnrm[1], fnrm[2]).multiplyScalar(lift * scale[v]));
+        outer.push(b.addVert(r.x, r.y, r.z, -1, weightsOf(m, v)));
+      }
+    }
+    const mat = (m.material_index?.[f] ?? 0) + matOff;
+    const smooth = m.smooth?.[f] ?? 0;
+    for (let i = 0; i < k; i++) {
+      const a = m.indices[s + i],
+        c = m.indices[s + ((i + 1) % k)];
+      const ia = inset[i],
+        ic = inset[(i + 1) % k];
+      b.addFace([ia, ic, bot[c], bot[a]], undefined, smooth, mat);
+      b.addFace([ic, ia, top[a], top[c]], undefined, smooth, mat);
+      if (et) {
+        const edge = et.cornerEdge[s + i];
+        if (et.faceOffsets[edge + 1] - et.faceOffsets[edge] === 1) {
+          const oa = outer[i],
+            oc = outer[(i + 1) % k];
+          b.addFace([oc, oa, bot[a], bot[c]], undefined, smooth, mat);
+          b.addFace([oa, oc, top[c], top[a]], undefined, smooth, mat);
+        }
+      }
+    }
+  }
+  if (!replace) appendMesh(b, m, keep);
+  return b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle });
 }
 
 // ---------------------------------------------------------------------------
@@ -1171,21 +1225,53 @@ function displace(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMes
   const strength = num(mod, 'strength', 1),
     mid = num(mod, 'mid_level', 0.5),
     dir = str(mod, 'direction', 'NORMAL');
-  const vn = dir === 'NORMAL' ? vertexNormals(m) : null;
+  let vn: Float32Array | null = dir === 'NORMAL' ? vertexNormals(m) : null;
+  if (dir === 'CUSTOM_NORMAL') {
+    // average the custom corner normals per vertex (plain normals without custom ones)
+    vn = vertexNormals(m);
+    if (m.custom_normals) {
+      const acc = new Float32Array(vn.length);
+      for (let c = 0; c < m.indices.length; c++) for (let k = 0; k < 3; k++) acc[m.indices[c] * 3 + k] += m.custom_normals[c * 3 + k];
+      for (let v = 0; v < acc.length; v += 3) {
+        const l = Math.hypot(acc[v], acc[v + 1], acc[v + 2]);
+        if (l > 1e-12) vn.set([acc[v] / l, acc[v + 1] / l, acc[v + 2] / l], v);
+      }
+    }
+  }
   const tex = (mod.texture as Record<string, unknown> | null) ?? null;
   const coords = str(mod, 'texture_coords', 'LOCAL');
+  const world = ctx.graph?.get(ctx.ob.id)?.world;
+  const objMat = coords === 'OBJECT' && typeof mod.texture_coords_object === 'string' ? objectSpaceOf(ctx, mod.texture_coords_object)?.invert() ?? null : null;
+  // per-vertex UVs (first corner of each vertex)
+  let vuv: Float32Array | null = null;
+  if (tex && coords === 'UV') {
+    vuv = new Float32Array((m.positions.length / 3) * 2).fill(NaN);
+    for (let c = 0; c < m.indices.length; c++) {
+      const v = m.indices[c];
+      if (Number.isNaN(vuv[v * 2])) {
+        vuv[v * 2] = m.uvs[c * 2] * 2 - 1;
+        vuv[v * 2 + 1] = m.uvs[c * 2 + 1] * 2 - 1;
+      }
+    }
+  }
+  // X/Y/Z in global space: the world axis expressed in local coordinates
+  let axis: Vector3 | null = null;
+  if (dir === 'X' || dir === 'Y' || dir === 'Z') {
+    axis = new Vector3(dir === 'X' ? 1 : 0, dir === 'Y' ? 1 : 0, dir === 'Z' ? 1 : 0);
+    if (str(mod, 'space', 'LOCAL') === 'GLOBAL' && world) axis.transformDirection(world.clone().invert());
+  }
   return deform(m, mod, (p, i) => {
     let value = 1;
-    if (tex) {
+    if (tex && tex.type) {
       let q = p;
-      if (coords === 'GLOBAL') q = p.clone().applyMatrix4(ctx.graph.get(ctx.ob.id)!.world);
+      if (coords === 'GLOBAL' && world) q = p.clone().applyMatrix4(world);
+      else if (objMat) q = p.clone().applyMatrix4(objMat);
+      else if (vuv) q = new Vector3(vuv[i * 2] || 0, vuv[i * 2 + 1] || 0, 0);
       value = proceduralTexture(tex, q.x, q.y, q.z);
     }
     const d = (value - mid) * strength;
     if (vn) p.addScaledVector(new Vector3(vn[i * 3], vn[i * 3 + 1], vn[i * 3 + 2]), d);
-    else if (dir === 'X') p.x += d;
-    else if (dir === 'Y') p.y += d;
-    else if (dir === 'Z') p.z += d;
+    else if (axis) p.addScaledVector(axis, d);
   });
 }
 
@@ -1446,7 +1532,7 @@ export const modifierTypes: Record<string, ModifierType> = {
   },
   TRIANGULATE: { type: 'TRIANGULATE', label: 'Triangulate', category: 'GENERATE', icon: 'mod_triangulate', defaults: base({ quad_method: 'BEAUTY', ngon_method: 'BEAUTY', min_vertices: 4 }), apply: triangulateMeshMod },
   WELD: { type: 'WELD', label: 'Weld', category: 'GENERATE', icon: 'automerge_off', defaults: base({ merge_threshold: 0.001, mode: 'ALL' }), apply: (m, mod) => weld(m, num(mod, 'merge_threshold', 0.001), str(mod, 'mode') === 'CONNECTED') },
-  WIREFRAME: { type: 'WIREFRAME', label: 'Wireframe', category: 'GENERATE', icon: 'mod_wireframe', defaults: base({ thickness: 0.02, use_replace: true }), apply: wireframe },
+  WIREFRAME: { type: 'WIREFRAME', label: 'Wireframe', category: 'GENERATE', icon: 'mod_wireframe', defaults: base({ thickness: 0.02, offset: 0, use_replace: true, use_boundary: false, use_even_offset: true, material_offset: 0, vertex_group: '', invert_vertex_group: false, thickness_vertex_group: 0 }), apply: wireframe },
   // Deform
   ARMATURE: { type: 'ARMATURE', label: 'Armature', category: 'DEFORM', icon: 'mod_armature', deformOnly: true, defaults: base({ object: null, use_vertex_groups: true, use_bone_envelopes: false, use_deform_preserve_volume: false }), deps: (m) => [m.object as string], apply: armatureMod },
   CAST: { type: 'CAST', label: 'Cast', category: 'DEFORM', icon: 'mod_cast', deformOnly: true, defaults: base({ cast_type: 'SPHERE', factor: 0.5, radius: 0, use_x: true, use_y: true, use_z: true, vertex_group: '' }), apply: cast },
@@ -1457,7 +1543,8 @@ export const modifierTypes: Record<string, ModifierType> = {
     category: 'DEFORM',
     icon: 'mod_displace',
     deformOnly: true,
-    defaults: base({ strength: 1, mid_level: 0.5, direction: 'NORMAL', texture_coords: 'LOCAL', vertex_group: '', texture: { type: 'CLOUDS', noise_scale: 0.25, noise_depth: 2, contrast: 1, brightness: 1 } }),
+    defaults: base({ strength: 1, mid_level: 0.5, direction: 'NORMAL', space: 'LOCAL', texture_coords: 'LOCAL', texture_coords_object: null, vertex_group: '', invert_vertex_group: false, texture: null }),
+    deps: (m) => [m.texture_coords_object as string],
     apply: displace,
   },
   HOOK: { type: 'HOOK', label: 'Hook', category: 'DEFORM', icon: 'hook', deformOnly: true, defaults: base({ object: null, strength: 1, falloff_radius: 0, center: [0, 0, 0], vertex_indices: [], matrix_inverse: new Matrix4().toArray(), vertex_group: '' }), deps: (m) => [m.object as string], apply: hookMod },
