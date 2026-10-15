@@ -8,6 +8,7 @@ import './nodes/paths';
 import './nodes/boolean';
 import './nodes/normals';
 import './nodes/uv';
+import './nodes/bevel';
 import { placeMenus } from './gnmesh-menu';
 
 placeMenus();

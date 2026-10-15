@@ -495,3 +495,23 @@ describe('Set Mesh Normal', () => {
     expect(Array.from(em2.smooth!)).toEqual([1, 1, 1, 1, 1, 1]);
   });
 });
+
+describe('Mesh Bevel', () => {
+  for (const [seg, c] of [
+    [1, [24, 48, 26]],
+    [2, [56, 108, 54]],
+  ] as const)
+    it(`bevels every cube edge with ${seg} segment(s)`, () => {
+      const t = setup();
+      const b = node(t, 'GeometryNodeMeshBevel', { Offset: 0.1, Segments: seg });
+      link(t, cube(t), 'Mesh', b, 'Mesh');
+      const st = store(t, [b, 'Mesh'], [b, 'Edge Face'], 'ef', 'FACE', 'BOOLEAN');
+      const st2 = store(t, [st, 'Geometry'], [b, 'Vertex Face'], 'vf', 'FACE', 'BOOLEAN');
+      const g = run(t, st2, 'Geometry').geometry;
+      expect(counts(g)).toEqual([...c]);
+      const ef = attr(g, 'ef', 'FACE', 'BOOLEAN'),
+        vf = attr(g, 'vf', 'FACE', 'BOOLEAN');
+      expect(ef.filter(Boolean).length).toBe(12 * seg);
+      expect(ef.filter(Boolean).length + vf.filter(Boolean).length).toBe(c[2] - 6);
+    });
+});
