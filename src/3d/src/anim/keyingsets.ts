@@ -1,7 +1,7 @@
 // Keying sets: user sets of property paths keyed together (Scene properties ▸ Keying Sets),
 // the active keying set used by Insert Keyframe, and the per-property animation menu
 // (right-click a property's keyframe decorator).
-import { app, registerOperators, type Operator } from '../app/app';
+import { app, registerOperators, onAppReady, operators, type Operator } from '../app/app';
 import type { DocumentData, KeyingSetData, ObjectData } from '../data/types';
 import { h, type Child } from '../ui/h';
 import { panel, checkbox, textField, enumMenu, opButton, numberField } from '../ui/widgets';
@@ -194,7 +194,29 @@ const ops: Operator[] = [
   },
 ];
 
-registerOperators(ops);
+// The *_button operators take an explicit property (decorator menus); without one they defer to
+// the hovered-button versions registered by the UI layer.
+const buttonOps = new Set(['anim.keyframe_insert_button', 'anim.keyframe_delete_button', 'anim.keyframe_clear_button']);
+registerOperators(ops.filter((o) => !buttonOps.has(o.idname)));
+onAppReady(() => {
+  for (const def of ops.filter((o) => buttonOps.has(o.idname))) {
+    const prev = operators.get(def.idname);
+    if (!prev) {
+      registerOperators([def]);
+      continue;
+    }
+    const explicit = (p: Record<string, unknown>) => !!p.data_path;
+    registerOperators([
+      {
+        ...prev,
+        props: [...targetProps.filter((d) => !(prev.props ?? []).some((x) => x.id === d.id)), ...(prev.props ?? [])],
+        // menus pass an explicit property, so the operator stays available without a hovered button
+        poll: () => true,
+        exec: (ctx, p) => (explicit(p) ? def.exec!(ctx, p) : prev.exec && (!prev.poll || prev.poll(ctx)) ? prev.exec(ctx, p) : 'CANCELLED'),
+      },
+    ]);
+  }
+});
 
 /** Extra entries for the property animation menu (drivers, Graph Editor…), added by other modules. */
 export const propertyAnimExtraItems: ((ob: ObjectData, path: string, index: number) => MenuItem[])[] = [];
