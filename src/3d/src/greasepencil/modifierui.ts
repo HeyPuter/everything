@@ -9,7 +9,7 @@ import { modifierExtraUI } from '../editors/properties/stack';
 import type { ModifierBase, ObjectData } from '../data/types';
 import { gpOf, toStrokes, fromStrokes, normalizeDrawing } from './data';
 import { layerMatrix } from './render';
-import { GP_MODIFIERS, evaluateDrawing, activeModifiers, isGPModifier } from './modifiers';
+import { GP_MODIFIERS, evaluateDrawing, activeModifiers, isGPModifier, WEIGHTED } from './modifiers';
 import { Matrix4 } from 'three';
 
 type M = ModifierBase & Record<string, unknown>;
@@ -43,11 +43,23 @@ const invert = (m: M, key: string): Child =>
     icon('gp_invert'),
   );
 
+function groupPicker(ob: ObjectData, m: M): Child {
+  const gp = gpOf(app.doc, ob);
+  const items = [{ value: '', label: '—' }, ...(gp?.vertex_groups ?? []).map((g) => ({ value: g.name, label: g.name, icon: 'group_vertex' }))];
+  return h(
+    'div',
+    { class: 'gpm-filter' },
+    splitRow('Vertex Group', enumMenu(`${m.id}.vg`, items, String(m.vertex_group_name ?? ''), (v) => ((m.vertex_group_name = v), changed('Set Vertex Group')))),
+    invert(m, 'invert_vertex_group'),
+  );
+}
+
 function influence(ob: ObjectData, m: M, withMaterial = true): Child {
   return panel(
     `gpmod-infl-${m.id}`,
     'Influence',
     () => [
+      WEIGHTED.has(m.type) ? groupPicker(ob, m) : null,
       h('div', { class: 'gpm-filter' }, layerPicker(ob, m, 'layer_filter', 'Layer'), invert(m, 'invert_layer_filter')),
       h('div', { class: 'gpm-filter' }, bool(m, 'use_layer_pass_filter', 'Layer Pass'), m.use_layer_pass_filter ? num(m, 'layer_pass_filter', 'Pass', { int: true, min: 0, max: 100 }) : null, m.use_layer_pass_filter ? invert(m, 'invert_layer_pass_filter') : null),
       withMaterial ? h('div', { class: 'gpm-filter' }, materialPicker(ob, m, 'material_filter', 'Material'), invert(m, 'invert_material_filter')) : null,
@@ -100,7 +112,31 @@ function dashSegments(m: M): Child {
   ];
 }
 
+function targetGroup(ob: ObjectData, m: M): Child {
+  const gp = gpOf(app.doc, ob);
+  const items = [{ value: '', label: '—' }, ...(gp?.vertex_groups ?? []).map((g) => ({ value: g.name, label: g.name, icon: 'group_vertex' }))];
+  return splitRow('Vertex Group', enumMenu(`${m.id}.tvg`, items, String(m.target_vertex_group ?? ''), (v) => ((m.target_vertex_group = v), changed('Set Vertex Group'))));
+}
+
+const weightOptions = (m: M): Child => [num(m, 'minimum_weight', 'Lowest', { min: 0, max: 1, slider: true }), bool(m, 'use_multiply', 'Multiply Weights'), bool(m, 'use_invert_output', 'Invert')];
+
 const UI: Record<string, (ob: ObjectData, m: M) => Child> = {
+  GREASE_PENCIL_VERTEX_WEIGHT_ANGLE: (ob, m) => [
+    targetGroup(ob, m),
+    num(m, 'angle', 'Angle', { unit: 'angle' }),
+    enumProp(m, 'axis', 'Axis', E(['X', 'X'], ['Y', 'Y'], ['Z', 'Z'])),
+    enumProp(m, 'space', 'Space', E(['LOCAL', 'Local Space'], ['WORLD', 'World Space'])),
+    weightOptions(m),
+    influence(ob, m),
+  ],
+  GREASE_PENCIL_VERTEX_WEIGHT_PROXIMITY: (ob, m) => [
+    targetGroup(ob, m),
+    objectProp(m, 'object', 'Target Object', { filter: otherObject(ob) }),
+    num(m, 'distance_start', 'Lowest', { unit: 'distance' }),
+    num(m, 'distance_end', 'Highest', { unit: 'distance' }),
+    weightOptions(m),
+    influence(ob, m),
+  ],
   GREASE_PENCIL_TIME: (ob, m) => [
     enumProp(m, 'mode', 'Mode', E(['NORMAL', 'Regular'], ['REVERSE', 'Reverse'], ['FIX', 'Fixed Frame'], ['PINGPONG', 'Ping Pong'])),
     num(m, 'offset', m.mode === 'FIX' ? 'Frame' : 'Frame Offset', { int: true }),

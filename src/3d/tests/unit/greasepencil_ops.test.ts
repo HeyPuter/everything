@@ -645,3 +645,31 @@ describe('layer groups', () => {
     expect(names()).toEqual(['Color']);
   });
 });
+
+import { weighByGroup } from '../../src/greasepencil/modifiers';
+
+describe('modifier vertex group influence', () => {
+  it('blends a result by the point weights', () => {
+    const a = line([0, 1]);
+    a.points[0].weights = { G: 0 };
+    a.points[1].weights = { G: 0.5 };
+    const b = { ...a, points: a.points.map((p) => ({ ...p, co: [p.co[0], 0, 2] as [number, number, number] })) };
+    const out = weighByGroup([a], [b], 'G', false);
+    expect(out[0].points.map((p) => p.co[2])).toEqual([0, 1]);
+    expect(weighByGroup([a], [b], 'G', true)[0].points.map((p) => p.co[2])).toEqual([2, 1]);
+  });
+});
+
+describe('vertex weight modifiers', () => {
+  it('angle weights follow the stroke direction', () => {
+    setApp(new App(startupDocument()));
+    const c = { doc: app.doc, ob: app.activeObject!, gp: newGreasePencil(), layer: newLayer(), layerIndex: 0, frame: 1, keyFrame: 1, nextKeyFrame: null, prevStrokeCount: 0, world: new Matrix4() };
+    const horizontal = line([0, 1, 2]);
+    const vertical = newStroke([newPoint([0, 0, 0]), newPoint([0, 0, 1]), newPoint([0, 0, 2])]);
+    const out = kernels.GREASE_PENCIL_VERTEX_WEIGHT_ANGLE([horizontal, vertical], { target_vertex_group: 'W', axis: 'Y', angle: 0 }, c);
+    expect(out[0].points[1].weights!.W).toBeCloseTo(1);
+    expect(out[1].points[1].weights!.W).toBeCloseTo(0);
+    const inv = kernels.GREASE_PENCIL_VERTEX_WEIGHT_ANGLE([horizontal], { target_vertex_group: 'W', axis: 'Y', angle: 0, use_invert_output: true, minimum_weight: 0.2 }, c);
+    expect(inv[0].points[1].weights!.W).toBeCloseTo(0.2);
+  });
+});

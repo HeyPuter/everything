@@ -433,12 +433,62 @@ export const kernels: Record<string, Kernel> = {
 
   GREASE_PENCIL_BUILD: (ss, m, c) => buildStrokes(ss, m, c),
 
+  GREASE_PENCIL_VERTEX_WEIGHT_PROXIMITY: (ss, m, c) => {
+    const target = str(m, 'target_vertex_group');
+    const ob = typeof m.object === 'string' ? app.graph.get(m.object as string) : null;
+    if (!target || !ob) return ss;
+    const at = new Vector3().setFromMatrixPosition(ob.world);
+    const d0 = num(m, 'distance_start', 0),
+      d1 = num(m, 'distance_end', 20);
+    const v = new Vector3();
+    return writeWeights(ss, m, target, (p) => {
+      const d = v.set(...p.co).applyMatrix4(c.world).distanceTo(at);
+      return d1 !== d0 ? (d - d0) / (d1 - d0) : d >= d1 ? 1 : 0;
+    });
+  },
+
+  GREASE_PENCIL_VERTEX_WEIGHT_ANGLE: (ss, m, c) => {
+    const target = str(m, 'target_vertex_group');
+    if (!target) return ss;
+    const axis = str(m, 'axis', 'Y');
+    const a = num(m, 'angle', 0);
+    // reference direction: in the plane across the axis, turned by the angle
+    const ref = axis === 'X' ? new Vector3(0, Math.cos(a), Math.sin(a)) : axis === 'Z' ? new Vector3(Math.cos(a), Math.sin(a), 0) : new Vector3(Math.cos(a), 0, Math.sin(a));
+    const world = str(m, 'space', 'LOCAL') === 'WORLD';
+    const out: GPStroke[] = [];
+    for (const s of ss) {
+      const P = s.points.map((p) => (world ? new Vector3(...p.co).applyMatrix4(c.world) : new Vector3(...p.co)));
+      out.push(
+        ...writeWeights([s], m, target, (_p, i) => {
+          const d = P[Math.min(P.length - 1, i + 1)].clone().sub(P[Math.max(0, i - 1)]);
+          return d.lengthSq() > 1e-12 ? Math.abs(d.normalize().dot(ref)) : 0;
+        }),
+      );
+    }
+    return out;
+  },
+
   GREASE_PENCIL_LATTICE: (ss, m, c) => viaMeshModifier('LATTICE', { object: m.object, strength: num(m, 'strength', 1), vertex_group: '' }, ss, c),
 
   GREASE_PENCIL_ARMATURE: (ss, m, c) => viaMeshModifier('ARMATURE', { object: m.object, use_vertex_groups: true, use_deform_preserve_volume: bool(m, 'use_deform_preserve_volume') }, ss, c, true),
 
   GREASE_PENCIL_SHRINKWRAP: (ss, m, c) => viaMeshModifier('SHRINKWRAP', { target: m.target, wrap_method: str(m, 'wrap_method', 'NEAREST_SURFACEPOINT'), offset: num(m, 'offset', 0.05), vertex_group: '' }, ss, c),
 };
+
+/** Write weights into a group (minimum, invert, multiply with the existing weights). */
+function writeWeights(ss: GPStroke[], m: M, group: string, fn: (p: GPPoint, i: number) => number): GPStroke[] {
+  const min = num(m, 'minimum_weight', 0);
+  return ss.map((s) => ({
+    ...s,
+    points: s.points.map((p, i) => {
+      let w = Math.max(0, Math.min(1, fn(p, i)));
+      if (bool(m, 'use_invert_output')) w = 1 - w;
+      w = Math.max(min, w);
+      if (bool(m, 'use_multiply')) w *= p.weights?.[group] ?? 0;
+      return { ...p, weights: { ...(p.weights ?? {}), [group]: w } };
+    }),
+  }));
+}
 
 /** Extend (positive) or shorten (negative) both ends of an open stroke by a length. */
 export function changeLength(points: GPPoint[], start: number, end: number): GPPoint[] {
@@ -605,6 +655,34 @@ function passes(m: M, c: GPModContext, s: GPStroke | null): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// vertex group influence: deforming / coloring modifiers act by each point's weight
+
+/** Modifiers that keep the points (their results can be blended per point). */
+export const WEIGHTED = new Set(['GREASE_PENCIL_THICKNESS', 'GREASE_PENCIL_OPACITY', 'GREASE_PENCIL_TINT', 'GREASE_PENCIL_NOISE', 'GREASE_PENCIL_OFFSET', 'GREASE_PENCIL_SMOOTH', 'GREASE_PENCIL_LATTICE', 'GREASE_PENCIL_SHRINKWRAP']);
+
+/** Blend a kernel's result with the input by the points' group weights (unchanged when the topology differs). */
+export function weighByGroup(before: GPStroke[], after: GPStroke[], group: string, invert: boolean): GPStroke[] {
+  if (before.length !== after.length || before.some((s, i) => s.points.length !== after[i].points.length)) return after;
+  return after.map((s, si) => ({
+    ...s,
+    points: s.points.map((q, i) => {
+      const p = before[si].points[i];
+      let w = p.weights?.[group] ?? 0;
+      if (invert) w = 1 - w;
+      if (w >= 1) return q;
+      const l = (a: number, b: number) => a + (b - a) * w;
+      return {
+        ...q,
+        co: [l(p.co[0], q.co[0]), l(p.co[1], q.co[1]), l(p.co[2], q.co[2])],
+        radius: l(p.radius, q.radius),
+        opacity: l(p.opacity, q.opacity),
+        vertex_color: [0, 1, 2, 3].map((k) => l(p.vertex_color[k], q.vertex_color[k])) as GPPoint['vertex_color'],
+      };
+    }),
+  }));
+}
+
+// ---------------------------------------------------------------------------
 // evaluation
 
 export const GP_MOD_PREFIX = 'GREASE_PENCIL_';
@@ -683,6 +761,7 @@ export function evaluateDrawing(d: GPDrawing, c: GPModContext, mods: ModifierBas
     const k = kernels[m.type];
     const inScope = passes(m, c, null);
     if (!inScope) continue;
+    const before = strokes;
     // per stroke material filters: only the passing strokes go through the kernel (order kept)
     const mask = strokes.map((s) => passes(m, c, s));
     if (mask.every(Boolean)) strokes = k(strokes, m, c);
@@ -691,6 +770,8 @@ export function evaluateDrawing(d: GPDrawing, c: GPModContext, mods: ModifierBas
       const rest = strokes.filter((_, i) => !mask[i]);
       strokes = [...rest, ...k(sel, m, c)];
     }
+    const vg = str(m, 'vertex_group_name');
+    if (vg && WEIGHTED.has(m.type) && mask.every(Boolean)) strokes = weighByGroup(before, strokes, vg, bool(m, 'invert_vertex_group'));
   }
   const out = fromStrokes(strokes);
   if (!per) cache.set(d, (per = new Map()));
@@ -725,6 +806,8 @@ interface Def {
 }
 
 export const GP_MODIFIERS: Def[] = [
+  { type: 'GREASE_PENCIL_VERTEX_WEIGHT_ANGLE', label: 'Vertex Weight Angle', category: 'EDIT', icon: 'mod_vertex_weight', defaults: { target_vertex_group: '', angle: 0, axis: 'Y', space: 'LOCAL', minimum_weight: 0, use_multiply: false, use_invert_output: false } },
+  { type: 'GREASE_PENCIL_VERTEX_WEIGHT_PROXIMITY', label: 'Vertex Weight Proximity', category: 'EDIT', icon: 'mod_vertex_weight', defaults: { target_vertex_group: '', object: null, distance_start: 0, distance_end: 20, minimum_weight: 0, use_multiply: false, use_invert_output: false }, deps: (m) => [m.object as string] },
   { type: 'GREASE_PENCIL_TIME', label: 'Time Offset', category: 'EDIT', icon: 'mod_time', defaults: { mode: 'NORMAL', offset: 1, frame_scale: 1, frame_start: 1, frame_end: 250, use_keep_loop: true, use_custom_frame_range: false } },
   { type: 'GREASE_PENCIL_ARRAY', label: 'Array', category: 'GENERATE', icon: 'mod_array', defaults: { count: 2, use_relative_offset: true, relative_offset: [1, 0, 0], use_constant_offset: false, constant_offset: [0, 0, 0], use_object_offset: false, offset_object: null, random_offset: [0, 0, 0], random_rotation: [0, 0, 0], random_scale: [0, 0, 0], use_uniform_random_scale: false, seed: 1, replace_material: 0 }, deps: (m) => [m.offset_object as string] },
   { type: 'GREASE_PENCIL_BUILD', label: 'Build', category: 'GENERATE', icon: 'mod_build', defaults: { mode: 'SEQUENTIAL', transition: 'GROW', time_mode: 'FRAMES', start_delay: 0, length: 100, concurrent_time_alignment: 'START', use_restrict_frame_range: false, frame_start: 1, frame_end: 125, percentage_factor: 0 } },
