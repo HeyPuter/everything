@@ -140,7 +140,7 @@ export const GUIDES: Record<string, Guide> = {
     text: () =>
       [
         "const ed = C.scene.sequence_editor_create(); ed.strips.new_effect(name, 'COLOR'|'TEXT'|'ADJUSTMENT'|'CROSS'|'WIPE'|'ALPHA_OVER'|…, channel, frame_start, {frame_end, input1, input2}); ed.strips.new_scene(name, C.scene, channel, frame_start); ed.strips.new_meta(name, channel, frame_start); ed.strips.remove(strip); ed.active_strip; ed.strips_all.",
-        'Strip fields: frame_start, frame_final_start/end/duration (read), channel, mute, blend_type, blend_alpha, color (COLOR strips), text / font_size (TEXT strips), transform.offset_x… Images, movies and sounds are added in the Video Sequencer (scripts have no file access); retiming and connecting strips are operators in the sequencer module (bpy.ops.sequencer.*).',
+        'Strip fields: frame_start, frame_final_start/end/duration (read), channel, mute, blend_type, blend_alpha, color (COLOR strips), text / font_size (TEXT strips), transform.offset_x… Images, movies and sounds are added in the Video Sequencer (scripts have no file access); strip.retiming_keys.add(timeline_frame) then retiming_keys[i].speed = 2 changes the speed inside a strip (retiming_keys.reset()); strip.connect([other]) / disconnect() / connected_strips keep strips edited together; more in bpy.ops.sequencer.*.',
       ].join('\n'),
   },
   render: {
