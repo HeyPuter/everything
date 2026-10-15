@@ -312,3 +312,28 @@ body.reduce-motion *::after {
   transition-duration: 0s !important;
   animation-duration: 0s !important;
 }
+
+/* ------------------------------------------------------------------ themes */
+
+.th-search {
+  margin-bottom: 8px;
+  max-width: 600px;
+}
+.th-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.th-row {
+  display: grid;
+  grid-template-columns: minmax(0, 600px) 24px;
+  align-items: center;
+  gap: 2px;
+}
+.th-row.edited .split-label {
+  color: var(--c-text-hi);
+  font-weight: 600;
+}
+.th-reset:disabled {
+  opacity: 0.25;
+}

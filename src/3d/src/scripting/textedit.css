@@ -25,7 +25,7 @@
 }
 .te-ac-item.hl {
   background: var(--w-menu-item-hl);
-  color: #fff;
+  color: var(--c-text-on-accent, #fff);
 }
 .te-conflict {
   display: none;
@@ -39,7 +39,7 @@
   padding: 5px 8px;
   border-radius: 5px;
   background: rgba(120, 30, 30, 0.92);
-  color: #fff;
+  color: var(--t-ff, #fff);
   font-size: 12px;
 }
 .te-conflict .grow {
@@ -56,7 +56,7 @@
   padding: 0 5px;
   border-radius: 3px;
   background: var(--accent);
-  color: #fff;
+  color: var(--c-text-on-accent, #fff);
   font-size: 10px;
   font-weight: 600;
 }
@@ -65,6 +65,6 @@
   top: 0;
   bottom: 0;
   width: 1px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.1);
   pointer-events: none;
 }

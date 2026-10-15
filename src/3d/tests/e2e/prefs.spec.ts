@@ -109,3 +109,43 @@ test('keymap: industry standard preset and spacebar option rebind keys; export/i
   expect(await page.evaluate(async () => (await import('/src/app/keymap.ts')).shortcutLabel('wm.search_menu'))).toContain('Space');
   await expectNoErrors(errors);
 });
+
+const rootVar = (page: Page, name: string) => page.evaluate((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name);
+
+test('themes: presets restyle the interface and canvases, edits persist, export/import, factory reset', async ({ page }) => {
+  const errors = await openApp(page);
+  expect(await rootVar(page, '--c-region')).toBe('#303030');
+  await openPrefs(page, 'THEMES');
+  await page.locator('.th-presets .enum-menu').dispatchEvent('pointerdown');
+  await page.locator('.menu-item', { hasText: 'Light' }).click();
+  expect(await rootVar(page, '--c-region')).toBe('#eef0f2');
+  // style sheet greys follow the theme through the ramp
+  expect(await rootVar(page, '--g-1d')).toBe('#ffffff');
+  const canvas = await page.evaluate(async () => {
+    const reg = await import('/src/nodes/registry.ts');
+    const anim = await import('/src/animation/theme.ts');
+    return { nodes: reg.NODE_EDITOR_COLORS.back, anim: anim.C.back };
+  });
+  expect(canvas).toEqual({ nodes: '#d7dade', anim: '#eef0f2' });
+
+  // a colour edit on top of the preset
+  await page.evaluate(async () => (await import('/src/prefs/theme_ui.ts')).setThemeColor('accent', '#aa00aa'));
+  expect(await rootVar(page, '--accent')).toBe('#aa00aa');
+  await expect(page.locator('.th-row.edited')).toHaveCount(1);
+  const text = await page.evaluate(async () => (await import('/src/prefs/theme_ui.ts')).exportThemeText('Mine'));
+
+  await page.reload();
+  await page.waitForFunction(() => !!(window as unknown as { app?: unknown }).app);
+  await page.waitForTimeout(400);
+  expect(await rootVar(page, '--accent')).toBe('#aa00aa');
+  expect(await rootVar(page, '--c-region')).toBe('#eef0f2');
+
+  await page.evaluate(() => (window as unknown as { app: { run(id: string, p: object): void } }).app.run('wm.read_factory_userpref', { confirm: false }));
+  expect(await rootVar(page, '--c-region')).toBe('#303030');
+  expect(await rootVar(page, '--accent')).toBe('#4772b3');
+
+  const name = await page.evaluate(async (t) => (await import('/src/prefs/theme_ui.ts')).importThemeText(t, 'x'), text);
+  expect(name).toBe('Mine');
+  expect(await rootVar(page, '--accent')).toBe('#aa00aa');
+  await expectNoErrors(errors);
+});

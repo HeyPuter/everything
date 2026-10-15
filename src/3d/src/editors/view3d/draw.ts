@@ -96,6 +96,9 @@ export function setThemeBackground(srgb: [number, number, number]) {
 }
 
 const grid = createGrid();
+/** Colour tables of the viewport (Preferences ▸ Themes writes them). */
+export const viewportTheme = theme;
+export const gridMaterial = grid.mat;
 const overlayScene = new Scene();
 overlayScene.add(grid.mesh);
 overlayScene.matrixWorldAutoUpdate = false;

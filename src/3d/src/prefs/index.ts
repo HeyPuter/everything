@@ -8,6 +8,7 @@
 import './prefs.css';
 import './effects';
 import './sections';
+import './theme_ui';
 import './ops';
 import { startKeyconfig } from './keyconfig';
 import { applyPreferences } from './store';
