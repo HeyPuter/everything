@@ -15,7 +15,8 @@ import { defaultParticleFluid, relaxFluid, type ParticleFluidSettings } from './
 import { keyedPosition, keyedTargetPositions, type KeyedTarget } from './keyed';
 import { collectEffectors, effectorForce, fieldsKey, valueNoise } from './fields';
 import { buildColliders, collidersKey, segmentHit, newHit } from './colliders';
-import { MeshSampler, newSample, type Sample } from './sampling';
+import { MeshSampler, newSample, valueAt, type Sample } from './sampling';
+import { groupWeights } from '../eval/meshbuild';
 import { physicsDoc } from './state';
 import { localMatrix as localMatrixOf } from '../eval/transform';
 import { fps, gravityOf, simDeps } from './meshsim';
@@ -75,6 +76,17 @@ const SIM_KEYS: (keyof ParticleSettingsX)[] = [
   'effector_weights_types',
 ];
 
+/** Weights of one of the particle system's vertex groups (inverted when asked), or null. */
+export function psysGroup(mesh: EvalMesh, psys: ParticleSystemX, kind: 'density' | 'length' | 'size' | 'velocity'): Float32Array | null {
+  const name = psys[`vertex_group_${kind}`];
+  if (!name) return null;
+  const w = groupWeights(mesh, name);
+  if (!w) return null;
+  const out = Float32Array.from(w);
+  if (psys[`invert_vertex_group_${kind}`]) for (let i = 0; i < out.length; i++) out[i] = 1 - out[i];
+  return out;
+}
+
 export function particleCacheKey(ob: ObjectData, m: ModifierBase) {
   return `PARTICLES:${ob.id}:${m.id}`;
 }
@@ -89,6 +101,7 @@ function simHash(doc: DocumentData, ob: ObjectData, m: ModifierBase, psys: Parti
   const parts = [
     SIM_KEYS.map((k) => JSON.stringify(s[k])).join(','),
     psys.seed,
+    JSON.stringify([psys.vertex_group_density, psys.invert_vertex_group_density, psys.vertex_group_size, psys.invert_vertex_group_size, psys.vertex_group_velocity, psys.invert_vertex_group_velocity]),
     pc.frame_start,
     pc.frame_end,
     JSON.stringify(before),
@@ -134,6 +147,9 @@ interface PLive {
   sampler: MeshSampler;
   step: number;
   guides: GuideState;
+  /** per particle size and velocity factors from vertex groups */
+  sizeMul: Float32Array | null;
+  velMul: Float32Array | null;
 }
 
 export interface EmitterResult {
@@ -145,23 +161,36 @@ export interface EmitterResult {
   samples: Sample[] | null;
   /** frame of `frame` */
   at: number;
+  /** per particle size factors (size vertex group) */
+  sizeMul: Float32Array | null;
 }
 
-function initLive(s: ParticleSettingsX, seed: number, mesh: EvalMesh): PLive {
+function initLive(s: ParticleSettingsX, seed: number, mesh: EvalMesh, psys?: ParticleSystemX): PLive {
   const n = Math.max(0, Math.floor(s.count));
   const birth = new Float32Array(n),
     life = new Float32Array(n);
   const span = s.frame_end - s.frame_start;
-  const sampler = new MeshSampler(mesh);
+  const density = psys ? psysGroup(mesh, psys, 'density') : null;
+  const sizeW = psys ? psysGroup(mesh, psys, 'size') : null;
+  const velW = psys ? psysGroup(mesh, psys, 'velocity') : null;
+  const sampler = new MeshSampler(mesh, density);
   const samples: Sample[] = [];
+  const sizeMul = sizeW ? new Float32Array(n) : null,
+    velMul = velW ? new Float32Array(n) : null;
   for (let i = 0; i < n; i++) {
     birth[i] = s.frame_start + (n > 0 ? (span * i) / n : 0);
     life[i] = Math.max(1, s.lifetime * (1 - s.lifetime_random * rand01(seed, i, 1)));
     const sm = newSample();
-    if (!sampler.sample(s.emit_from, seed, i, sm)) sm.px = sm.py = sm.pz = 0;
+    if (!sampler.sample(s.emit_from, seed, i, sm)) {
+      // nothing to emit from (e.g. a density group without weights): never born
+      sm.px = sm.py = sm.pz = 0;
+      birth[i] = Infinity;
+    }
+    if (sizeMul) sizeMul[i] = valueAt(sampler, sizeW!, sm);
+    if (velMul) velMul[i] = valueAt(sampler, velW!, sm);
     samples.push(sm);
   }
-  return { pos: new Float32Array(n * 3), vel: new Float32Array(n * 3), state: new Uint8Array(n), birth, life, samples, sampler, step: 0, guides: newGuideState() };
+  return { pos: new Float32Array(n * 3), vel: new Float32Array(n * 3), state: new Uint8Array(n), birth, life, samples, sampler, step: 0, guides: newGuideState(), sizeMul, velMul };
 }
 
 const _v = new Vector3(),
@@ -195,6 +224,7 @@ function spawn(L: PLive, s: ParticleSettingsX, seed: number, i: number, A: Matri
       p1 = new Vector3(sm.px, sm.py, sm.pz).applyMatrix4(B);
     _n.add(p1.sub(p0).multiplyScalar(fpsv * (s.object_factor ?? 0)));
   }
+  if (L.velMul) _n.multiplyScalar(L.velMul[i]);
   L.vel[i * 3] = _n.x;
   L.vel[i * 3 + 1] = _n.y;
   L.vel[i * 3 + 2] = _n.z;
@@ -380,7 +410,7 @@ export function evaluateEmitter(ob: ObjectData, m: ModifierBase, psys: ParticleS
   if (!cache.frames.has(f)) {
     if (!cache.live || cache.last < pc.frame_start) {
       cache.frames.clear();
-      cache.live = initLive(s, seed, mesh);
+      cache.live = initLive(s, seed, mesh, psys);
       const M = worldAt(sctx, ob, pc.frame_start);
       // particles born at or before the start frame appear at their emission points
       const L = cache.live;
@@ -403,9 +433,9 @@ export function evaluateEmitter(ob: ObjectData, m: ModifierBase, psys: ParticleS
   }
   const frame = cache.frames.get(f) ?? cache.nearest(f);
   if (!frame) return null;
-  const birth = cache.live?.birth ?? initLive(s, seed, mesh).birth;
+  const birth = cache.live?.birth ?? initLive(s, seed, mesh, psys).birth;
   const life = cache.live?.life ?? new Float32Array(count).fill(s.lifetime);
-  return { frame, birth, life, prev: cache.frames.get(f - 1), samples: cache.live?.samples ?? null, at: f };
+  return { frame, birth, life, prev: cache.frames.get(f - 1), samples: cache.live?.samples ?? null, at: f, sizeMul: cache.live?.sizeMul ?? null };
 }
 
 const hashSeed = (a: number, b: number) => (Math.imul(a | 0, 2654435761) ^ (b | 0)) >>> 0;
@@ -426,7 +456,7 @@ const hairCache = new Map<string, { hash: string; result: HairResult }>();
 export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSystemX, s: ParticleSettingsX, mesh: EvalMesh): HairResult {
   const key = particleCacheKey(ob, m);
   const hash = strHash(
-    [JSON.stringify([s.count, s.emit_from, s.normal_factor, s.object_align_factor, s.factor_random, s.hair_length, s.hair_step, s.child_type, s.rendered_child_count, s.child_radius, s.clump_factor, s.roughness_1, s.seed]), psys.seed, mesh.positions.length, arrayChecksum(mesh.positions), arrayChecksum(mesh.indices)].join('#'),
+    [JSON.stringify([s.count, s.emit_from, s.normal_factor, s.object_align_factor, s.factor_random, s.hair_length, s.hair_step, s.child_type, s.rendered_child_count, s.child_radius, s.clump_factor, s.roughness_1, s.seed]), psys.seed, JSON.stringify([psys.vertex_group_density, psys.invert_vertex_group_density, psys.vertex_group_length, psys.invert_vertex_group_length]), mesh.weights ? mesh.weights.map((w) => arrayChecksum(w)).join(',') : '', mesh.positions.length, arrayChecksum(mesh.positions), arrayChecksum(mesh.indices)].join('#'),
   );
   const hit0 = hairCache.get(key);
   if (hit0 && hit0.hash === hash) return hit0.result;
@@ -436,7 +466,8 @@ export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSyst
   const children = s.child_type === 'SIMPLE' ? Math.max(0, Math.round(s.rendered_child_count ?? 0)) : 0;
   const total = n * (1 + children);
   const pts = new Float32Array(total * (seg + 1) * 3);
-  const sampler = new MeshSampler(mesh);
+  const sampler = new MeshSampler(mesh, psysGroup(mesh, psys, 'density'));
+  const lengthW = psysGroup(mesh, psys, 'length');
   const sm = newSample();
   const dir = new Vector3(),
     tan = new Vector3(),
@@ -454,8 +485,9 @@ export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSyst
     dir.normalize();
     parentDirs.push(dir.clone());
     parentRoots.push(new Vector3(sm.px, sm.py, sm.pz));
+    const len = s.hair_length * (lengthW ? valueAt(sampler, lengthW, sm) : 1);
     for (let k = 0; k <= seg; k++) {
-      const t = (k / seg) * s.hair_length;
+      const t = (k / seg) * len;
       pts[w++] = sm.px + dir.x * t;
       pts[w++] = sm.py + dir.y * t;
       pts[w++] = sm.pz + dir.z * t;
@@ -648,7 +680,7 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
         for (let i = 0; i < n; i++) {
           if (!(frame.state[i] === 1 || (showDead && frame.state[i] === 2))) continue;
           pts.set(frame.pos.subarray(i * 3, i * 3 + 3), w * 3);
-          sizes[w++] = show === 'DOT' ? s.display_size ?? 0.05 : s.particle_size * (1 - s.size_random * rand01(seed, i, 2));
+          sizes[w++] = show === 'DOT' ? s.display_size ?? 0.05 : s.particle_size * (1 - s.size_random * rand01(seed, i, 2)) * (res.sizeMul ? res.sizeMul[i] : 1);
         }
         draw = { objectId: ob.id, space: 'WORLD', points: pts, sizes, lines: null, color, count };
       }
@@ -700,7 +732,7 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
           const sm = res.samples?.[i];
           const normal = sm ? nrm.set(sm.nx, sm.ny, sm.nz).transformDirection(owner) : null;
           const q = particleRotation(s, seed, i, vel, normal, owner, Math.max(0, (res.at - res.birth[i]) / fpsv));
-          const size = s.particle_size * (1 - s.size_random * rand01(seed, i, 2));
+          const size = s.particle_size * (1 - s.size_random * rand01(seed, i, 2)) * (res.sizeMul ? res.sizeMul[i] : 1);
           pushInstances(instances, owner, p, q, size, i, seed);
         }
       }

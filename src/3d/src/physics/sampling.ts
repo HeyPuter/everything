@@ -27,7 +27,14 @@ export class MeshSampler {
   min = [0, 0, 0];
   max = [0, 0, 0];
 
-  constructor(public mesh: EvalMesh) {
+  /** cumulative per-vertex emission weights (vertex emission with a density group) */
+  vcdf: Float64Array | null = null;
+
+  constructor(
+    public mesh: EvalMesh,
+    /** per-vertex density weights (emission favours heavily weighted areas; zero emits nothing) */
+    public density: ArrayLike<number> | null = null,
+  ) {
     this.tris = triangulate(mesh.positions, mesh.offsets, mesh.indices);
     const P = mesh.positions;
     const nt = this.tris.length / 3;
@@ -43,12 +50,19 @@ export class MeshSampler {
       const e2x = P[c] - P[a],
         e2y = P[c + 1] - P[a + 1],
         e2z = P[c + 2] - P[a + 2];
-      acc += 0.5 * Math.hypot(e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x);
+      const area = 0.5 * Math.hypot(e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x);
+      const wgt = density ? Math.max(0, ((density[this.tris[t * 3]] ?? 0) + (density[this.tris[t * 3 + 1]] ?? 0) + (density[this.tris[t * 3 + 2]] ?? 0)) / 3) : 1;
+      acc += area * wgt;
       this.cdf[t] = acc;
     }
     this.total = acc;
     this.vnormals = vertexNormals(mesh);
     const n = P.length / 3;
+    if (density) {
+      this.vcdf = new Float64Array(n);
+      let va = 0;
+      for (let i = 0; i < n; i++) this.vcdf[i] = va += Math.max(0, density[i] ?? 0);
+    }
     this.min = [Infinity, Infinity, Infinity];
     this.max = [-Infinity, -Infinity, -Infinity];
     for (let i = 0; i < n; i++)
@@ -167,9 +181,24 @@ export class MeshSampler {
     if (from === 'VERT' || !this.cdf.length) {
       const n = this.vertCount;
       if (!n) return false;
+      if (this.vcdf) {
+        const tot = this.vcdf[n - 1];
+        if (tot <= 0) return false;
+        const r = rand01(seed, i, 10) * tot;
+        let lo = 0,
+          hi = n - 1;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (this.vcdf[mid] < r) lo = mid + 1;
+          else hi = mid;
+        }
+        this.evalVert(lo, out);
+        return true;
+      }
       this.evalVert(Math.min(n - 1, Math.floor(rand01(seed, i, 10) * n)), out);
       return true;
     }
+    if (this.density && this.total <= 0) return false;
     if (from === 'VOLUME') {
       for (let k = 0; k < 24; k++) {
         const x = this.min[0] + (this.max[0] - this.min[0]) * rand01(seed, i, 20 + k * 3);
@@ -195,6 +224,16 @@ export class MeshSampler {
     this.faceSample(seed, i, out);
     return true;
   }
+}
+
+/** A per-vertex value (e.g. vertex group weight) at an emission sample. */
+export function valueAt(sampler: MeshSampler, w: ArrayLike<number>, s: Sample): number {
+  if (s.vert >= 0) return w[s.vert] ?? 0;
+  if (s.tri >= 0) {
+    const T = sampler.tris;
+    return (w[T[s.tri * 3]] ?? 0) * (1 - s.u - s.v) + (w[T[s.tri * 3 + 1]] ?? 0) * s.u + (w[T[s.tri * 3 + 2]] ?? 0) * s.v;
+  }
+  return 1;
 }
 
 export const newSample = (): Sample => ({ px: 0, py: 0, pz: 0, nx: 0, ny: 0, nz: 1, tri: -1, u: 0, v: 0, vert: -1 });

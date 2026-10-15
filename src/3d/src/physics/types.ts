@@ -215,6 +215,15 @@ export interface ParticleSettingsX extends ParticleSettings {
 
 export interface ParticleSystemX extends ParticleSystem {
   point_cache?: PointCacheSettings;
+  /** vertex groups shaping the emission (with invert toggles) */
+  vertex_group_density?: string;
+  invert_vertex_group_density?: boolean;
+  vertex_group_length?: string;
+  invert_vertex_group_length?: boolean;
+  vertex_group_size?: string;
+  invert_vertex_group_size?: boolean;
+  vertex_group_velocity?: string;
+  invert_vertex_group_velocity?: boolean;
 }
 
 export interface ObjectPhysics extends ObjectData {

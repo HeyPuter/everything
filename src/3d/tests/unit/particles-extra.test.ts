@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { Matrix4, Vector3 } from 'three';
 import { emptyDocument, newObject, newMeshData, uid, newCollection } from '../../src/data/defaults';
-import { cube, plane } from '../../src/mesh/primitives';
+import { cube, plane, grid } from '../../src/mesh/primitives';
 import { Depsgraph } from '../../src/eval/depsgraph';
 import { newModifier } from '../../src/eval/modifiers';
 import type { DocumentData, ObjectData } from '../../src/data/types';
@@ -117,5 +117,31 @@ describe('particle physics types and rendering', () => {
     const x = new Vector3(1, 0, 0).transformDirection(new Matrix4().fromArray(inst[0].matrix));
     expect(x.z).toBeCloseTo(1, 3);
     void m;
+  });
+});
+
+describe('particle vertex groups', () => {
+  it('a density group limits where particles and hair come from; length and size groups scale them', () => {
+    caches.clear();
+    const doc = emptyDocument();
+    const ob = addMesh(doc, 'Emitter', grid(10, 10, 2) as never);
+    const me = doc.meshes[ob.data!];
+    const nv = me.positions.length / 3;
+    const right = new Float32Array(nv);
+    for (let i = 0; i < nv; i++) right[i] = me.positions[i * 3] > 0.2 ? 1 : 0;
+    me.vertex_groups.push({ name: 'Right' });
+    me.weights.push(right);
+    const { m } = emitter(doc, ob, { physics_type: 'NO', count: 50 });
+    Object.assign(ob.particle_systems[0], { vertex_group_density: 'Right' });
+    const g = new Depsgraph(doc);
+    at(g, doc, 5);
+    const pts = framePos(ob, m, 5);
+    expect(pts.length).toBeGreaterThan(0);
+    for (const p of pts) expect(p.x).toBeGreaterThan(-0.05);
+    // inverted: the other side
+    caches.clear();
+    Object.assign(ob.particle_systems[0], { invert_vertex_group_density: true });
+    at(g, doc, 6);
+    for (const p of framePos(ob, m, 6)) expect(p.x).toBeLessThan(0.45);
   });
 });

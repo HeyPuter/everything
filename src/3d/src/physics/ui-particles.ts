@@ -76,6 +76,7 @@ function emitterPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettin
     ]),
     renderPanel(ob, s),
     displayPanel(s),
+    vertexGroupsPanel(ob, ps, false),
     fieldWeightsPanel('pa-fw', s, d),
     cachePanel('pa-cache', key, pc),
   ];
@@ -138,6 +139,7 @@ function hairPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettingsX
     panel('pa-rot', 'Rotation', () => [note('Instanced objects align their X axis with the hair direction.')], { header: checkbox(`pa-rot-${s.id}`, '', !!s.use_rotations, (v) => ((s.use_rotations = v), changed('Toggle Rotation'))), closed: true }),
     renderPanel(ob, s),
     displayPanel(s),
+    vertexGroupsPanel(ob, ps, true),
     panel('pa-children', 'Children', () => [
       h('div', { class: 'enum-row', style: { margin: '2px 8px' } },
         (['NONE', 'SIMPLE'] as const).map((t) => h('button', { key: t, class: { on: (s.child_type ?? 'NONE') === t }, onclick: () => ((s.child_type = t), changed('Child Type')) }, t === 'NONE' ? 'None' : 'Simple')),
@@ -154,6 +156,26 @@ function hairPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettingsX
         : null,
     ]),
   ];
+}
+
+/** Vertex groups shaping the particle system (density, hair length, size, velocity). */
+function vertexGroupsPanel(ob: ObjectPhysics, ps: ParticleSystemX, hair: boolean): Child {
+  const me = ob.data ? app.doc.meshes[ob.data] : undefined;
+  const groups = [{ value: '', label: '—' }, ...(me?.vertex_groups ?? []).map((g) => ({ value: g.name, label: g.name, icon: 'group_vertex' }))];
+  const row = (kind: 'density' | 'length' | 'size' | 'velocity', label: string) => {
+    const key = `vertex_group_${kind}` as const,
+      inv = `invert_vertex_group_${kind}` as const;
+    return splitRow(
+      label,
+      h(
+        'div',
+        { style: { display: 'flex', gap: '4px', alignItems: 'center', minWidth: '0' } },
+        h('div', { style: { flex: '1', minWidth: '0', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)' } }, enumMenu(`psvg-${kind}-${ob.id}`, groups, ps[key] ?? '', (v) => ((ps[key] = v), changed(`Set ${label} Group`)))),
+        h('button', { class: { tbtn: true, on: !!ps[inv] }, 'data-tip': 'Invert the weights', onclick: () => ((ps[inv] = !ps[inv]), changed(`Invert ${label} Group`)) }, '⇄'),
+      ),
+    );
+  };
+  return panel('pa-vgroups', 'Vertex Groups', () => [row('density', 'Density'), hair ? row('length', 'Length') : null, !hair ? row('size', 'Size') : null, !hair ? row('velocity', 'Velocity') : null], { closed: true });
 }
 
 function rotationPanel(s: ParticleSettingsX): Child {
