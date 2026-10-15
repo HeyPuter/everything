@@ -533,7 +533,8 @@ export interface ActionData {
   fcurves: FCurve[];
   frame_range?: Vec2;
   use_fake_user?: boolean;
-  /** Pose markers etc omitted */
+  /** markers stored with the action (shown in the Action Editor with Show Pose Markers) */
+  pose_markers?: TimelineMarker[];
   users?: number;
 }
 

@@ -9,7 +9,7 @@ import { openMenu, promptText, type MenuItem } from '../ui/menu';
 import { textField, numberField } from '../ui/widgets';
 import { getValue, setValue } from '../data/rna';
 import { keyProperty } from '../anim/keyframes';
-import type { ObjectData } from '../data/types';
+import type { ObjectData, TimelineMarker } from '../data/types';
 import { View2D, frameStep } from './view2d';
 import { C } from './theme';
 import { buildChannels, channelSelected, type ChannelFilter, setChannelSelected, channelCurves, isExpanded, setExpanded, channelState, type Channel, type ChannelList, type SpaceKind, type CurveRef } from './channels';
@@ -148,7 +148,7 @@ export abstract class AnimEditor implements Editor {
     });
     this.canvas.addEventListener('dblclick', (e) => {
       if (this.regionAt(e) === 'markers') {
-        if (app.doc.scene.timeline_markers.some((m) => m.select)) app.run('marker.rename', {}, { area: this.area });
+        if (this.markerList().some((m) => m.select)) app.run('marker.rename', {}, { area: this.area });
         return;
       }
       this.onCanvasDblClick(e);
@@ -406,7 +406,7 @@ export abstract class AnimEditor implements Editor {
     return this.mainEl.clientHeight;
   }
   markersVisible() {
-    return this.showMarkers && app.doc.scene.timeline_markers.length > 0;
+    return this.showMarkers && this.markerList().length > 0;
   }
   /** bottom of the content region (top of the markers row) */
   contentBottom() {
@@ -455,6 +455,14 @@ export abstract class AnimEditor implements Editor {
     channelState.selectedDrivers.clear();
     channelState.selectedShapeKeys.clear();
     for (const ch of this.list.rows) if (ch.kind === 'NLA_TRACK' && ch.track) ch.track.select = false;
+  }
+
+  /** Markers shown in the marker row (the scene's; the Action Editor can show pose markers). */
+  markerList(): TimelineMarker[] {
+    return app.doc.scene.timeline_markers;
+  }
+  setMarkerList(list: TimelineMarker[]) {
+    app.doc.scene.timeline_markers = list;
   }
 
   /** Snap settings for transforms. */
@@ -1018,7 +1026,7 @@ export abstract class AnimEditor implements Editor {
     g.fillRect(0, top, W, MARKER_H);
     g.font = '11px Inter, system-ui, sans-serif';
     g.textAlign = 'left';
-    for (const m of app.doc.scene.timeline_markers) {
+    for (const m of this.markerList()) {
       const x = Math.round(this.view.fx(m.frame)) + 0.5;
       if (x < -100 || x > W + 10) continue;
       g.strokeStyle = m.select ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)';
@@ -1046,7 +1054,7 @@ export abstract class AnimEditor implements Editor {
   protected drawCompactMarkers(g: CanvasRenderingContext2D, W: number, H: number) {
     g.font = '10px Inter, system-ui, sans-serif';
     g.textAlign = 'left';
-    for (const m of app.doc.scene.timeline_markers) {
+    for (const m of this.markerList()) {
       const x = Math.round(this.view.fx(m.frame)) + 0.5;
       if (x < -100 || x > W + 10) continue;
       g.strokeStyle = m.select ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)';
@@ -1117,7 +1125,7 @@ export abstract class AnimEditor implements Editor {
 
   protected markerDown(e: PointerEvent, x: number) {
     if (markersLocked()) return;
-    const list = app.doc.scene.timeline_markers;
+    const list = this.markerList();
     const best = markerAt(this.view.xf(x), this.view.ppf);
     if (!best) {
       // empty marker row: click deselects, drag box-selects markers

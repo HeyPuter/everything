@@ -232,6 +232,23 @@ const ops: Operator[] = [
     },
   },
   {
+    idname: 'action.markers_make_local',
+    label: 'Make Markers Local',
+    description: 'Move the selected scene markers into the active action as pose markers',
+    poll: (ctx) => {
+      const ed = ctx.area?.editor as unknown as { mode?: string } | undefined;
+      return ed?.mode === 'ACTION' && !!app.activeObject?.animation_data?.action && ctx.doc.scene.timeline_markers.some((m) => m.select);
+    },
+    exec: (ctx) => {
+      const act = ctx.doc.actions[app.activeObject!.animation_data!.action!];
+      const sel = ctx.doc.scene.timeline_markers.filter((m) => m.select);
+      (act.pose_markers ??= []).push(...sel.map((m) => ({ name: m.name, frame: m.frame, select: true })));
+      ctx.doc.scene.timeline_markers = ctx.doc.scene.timeline_markers.filter((m) => !m.select);
+      const ed = ctx.area?.editor as unknown as { showPoseMarkers?: boolean; refresh?: () => void };
+      if (ed) ed.showPoseMarkers = true;
+    },
+  },
+  {
     idname: 'nla.action_unlink',
     label: 'Unlink Action',
     description: 'Clear the action assigned to the NLA action line',

@@ -6,7 +6,7 @@ import { registerEditor, type Area } from '../ui/screen';
 import { openMenu, type MenuItem } from '../ui/menu';
 import { numberField, textField, checkbox } from '../ui/widgets';
 import { actionRange } from './actionops';
-import type { ActionData, Keyframe, ShapeKey } from '../data/types';
+import type { ActionData, Keyframe, ShapeKey, TimelineMarker } from '../data/types';
 import { AnimEditor, RULER_H, menuButton, hdrToggle, markerMenu, type Selectable, type SidebarTab } from './animeditor';
 import type { Channel, SpaceKind } from './channels';
 import { C, drawKey, shapeFor } from './theme';
@@ -56,16 +56,19 @@ export class DopeSheet extends AnimEditor {
   mode: DopeSheetMode = 'DOPESHEET';
   showHandlesInterp = true;
   showSummary = true;
+  /** Action Editor: the marker row shows the action's pose markers */
+  showPoseMarkers = false;
 
   constructor(area: Area, state?: unknown) {
     super(area, state);
     const s = (state ?? {}) as Record<string, unknown>;
     if (s.mode === 'ACTION' || s.mode === 'SHAPEKEY' || s.mode === 'DOPESHEET') this.mode = s.mode;
     if (typeof s.showHandlesInterp === 'boolean') this.showHandlesInterp = s.showHandlesInterp;
+    if (typeof s.showPoseMarkers === 'boolean') this.showPoseMarkers = s.showPoseMarkers;
   }
 
   protected serializeExtra() {
-    return { mode: this.mode, showHandlesInterp: this.showHandlesInterp };
+    return { mode: this.mode, showHandlesInterp: this.showHandlesInterp, showPoseMarkers: this.showPoseMarkers };
   }
 
   space(): SpaceKind {
@@ -149,6 +152,23 @@ export class DopeSheet extends AnimEditor {
     );
   }
 
+  private poseMarkerAction(): ActionData | null {
+    if (this.mode !== 'ACTION' || !this.showPoseMarkers) return null;
+    const id = app.activeObject?.animation_data?.action;
+    return id ? (app.doc.actions[id] ?? null) : null;
+  }
+
+  markerList() {
+    const act = this.poseMarkerAction();
+    return act ? (act.pose_markers ??= []) : super.markerList();
+  }
+
+  setMarkerList(list: TimelineMarker[]) {
+    const act = this.poseMarkerAction();
+    if (act) act.pose_markers = list;
+    else super.setMarkerList(list);
+  }
+
   protected sidebarTabs(): SidebarTab[] {
     const ob = app.activeObject;
     const act = ob?.animation_data?.action ? app.doc.actions[ob.animation_data.action] : undefined;
@@ -169,6 +189,9 @@ export class DopeSheet extends AnimEditor {
         checked: this.showMarkers,
         action: () => ((this.showMarkers = !this.showMarkers), this.refresh()),
       },
+      ...(this.mode === 'ACTION'
+        ? [{ label: 'Show Pose Markers', checked: this.showPoseMarkers, action: () => ((this.showPoseMarkers = !this.showPoseMarkers), this.refresh()) }]
+        : []),
       ...viewMenuCommon('action', this),
     ];
   }

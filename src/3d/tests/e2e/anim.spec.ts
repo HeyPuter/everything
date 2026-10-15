@@ -438,3 +438,30 @@ test('graph editor: sound to samples bakes an audio envelope', async ({ page }) 
   expect(sp[sp.length - 1][1]).toBeLessThan(sp[5][1] / 4);
   await expectNoErrors(errors);
 });
+
+test('action editor: make markers local, then add pose markers', async ({ page }) => {
+  const errors = await openApp(page);
+  const box = await setup(page, 'DOPESHEET');
+  await page.evaluate(async () => {
+    const { shell } = await import('/src/ui/shell.ts');
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    shell.screen.areas.find((a: { type: string }) => a.type === 'DOPESHEET').editor.setMode('ACTION');
+    app.doc.scene.timeline_markers.push({ name: 'Contact', frame: 5, select: true });
+    app.changed('doc');
+  });
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await area(page, 'DOPESHEET').locator('.hdr-menu', { hasText: 'Marker' }).click();
+  await page.locator('.menu-item', { hasText: 'Make Markers Local' }).click();
+  const r = await page.evaluate(() => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    return [app.doc.scene.timeline_markers.length, app.doc.actions[app.activeObject.animation_data.action].pose_markers.map((m: { name: string }) => m.name)];
+  });
+  expect(r).toEqual([0, ['Contact']]);
+  // with pose markers shown, M adds to the action
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.evaluate(() => (window as any).app.setFrame(12)); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.keyboard.press('M');
+  expect(await page.evaluate(() => (window as any).app.doc.actions[(window as any).app.activeObject.animation_data.action].pose_markers.length)).toBe(2); // eslint-disable-line @typescript-eslint/no-explicit-any
+  expect(await page.evaluate(() => (window as any).app.doc.scene.timeline_markers.length)).toBe(0); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await expectNoErrors(errors);
+});

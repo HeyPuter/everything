@@ -6,7 +6,17 @@ import { promptText, type MenuItem } from '../ui/menu';
 import type { TimelineMarker } from '../data/types';
 import { hoverEditor } from './animeditor';
 
-const markers = () => app.doc.scene.timeline_markers;
+/** Markers being edited: the action's pose markers when the hovered Action Editor shows them, else the scene's. */
+export function markerList(): TimelineMarker[] {
+  return hoverEditor()?.markerList() ?? app.doc.scene.timeline_markers;
+}
+function setMarkerList(list: TimelineMarker[]) {
+  const ed = hoverEditor();
+  if (ed) ed.setMarkerList(list);
+  else app.doc.scene.timeline_markers = list;
+}
+const markers = markerList;
+const editingPoseMarkers = () => markerList() !== app.doc.scene.timeline_markers;
 const selectedMarkers = () => markers().filter((m) => m.select);
 export const markersLocked = () => !!app.doc.scene.tool_settings.lock_markers;
 const unlocked = () => !markersLocked();
@@ -101,11 +111,11 @@ registerOperators([
     description: 'Add a marker at the current frame',
     poll: pollUnlocked,
     exec: (ctx) => {
-      const s = ctx.doc.scene;
-      const f = s.frame_current;
-      if (s.timeline_markers.some((m) => m.frame === f)) return 'CANCELLED';
-      s.timeline_markers.forEach((m) => (m.select = false));
-      s.timeline_markers.push({ name: markerName(f), frame: f, select: true });
+      const f = ctx.doc.scene.frame_current;
+      const list = markers();
+      if (list.some((m) => m.frame === f)) return 'CANCELLED';
+      list.forEach((m) => (m.select = false));
+      list.push({ name: markerName(f), frame: f, select: true });
     },
   },
   {
@@ -114,8 +124,8 @@ registerOperators([
     description: 'Delete the selected markers',
     props: [{ id: 'confirm', label: 'Confirm', type: 'bool', default: true, hidden: true }],
     poll: pollSel,
-    exec: (ctx) => {
-      ctx.doc.scene.timeline_markers = ctx.doc.scene.timeline_markers.filter((m) => !m.select);
+    exec: () => {
+      setMarkerList(markers().filter((m) => !m.select));
     },
   },
   {
@@ -241,15 +251,14 @@ registerOperators([
     props: [{ id: 'frames', label: 'Frames', type: 'int', default: 0 }],
     poll: pollSel,
     invoke: () => {
-      const s = app.doc.scene;
       const sel = selectedMarkers();
       sel.forEach((m) => (m.select = false));
       const copies = sel.map((m) => ({ ...m, select: true }));
-      s.timeline_markers.push(...copies);
+      markers().push(...copies);
       startMarkerMove(
         'Duplicate Marker',
         () => {
-          s.timeline_markers = s.timeline_markers.filter((m) => !copies.includes(m));
+          setMarkerList(markers().filter((m) => !copies.includes(m)));
           sel.forEach((m) => (m.select = true));
         },
         { idname: 'marker.duplicate', props: {} },
@@ -257,10 +266,9 @@ registerOperators([
       return 'RUNNING_MODAL';
     },
     exec: (_ctx, p) => {
-      const s = app.doc.scene;
       const sel = selectedMarkers();
       sel.forEach((m) => (m.select = false));
-      s.timeline_markers.push(...sel.map((m) => ({ ...m, frame: m.frame + (p.frames as number), select: true })));
+      markers().push(...sel.map((m) => ({ ...m, frame: m.frame + (p.frames as number), select: true })));
     },
   },
   {
@@ -295,7 +303,7 @@ registerOperators([
     idname: 'marker.camera_bind',
     label: 'Bind Camera to Markers',
     description: 'Switch to the active camera at the marker on the current frame (adding a marker when there is none)',
-    poll: (ctx: OpContext) => unlocked() && (app.activeObject?.type === 'CAMERA' || !!ctx.doc.scene.camera),
+    poll: (ctx: OpContext) => unlocked() && !editingPoseMarkers() && (app.activeObject?.type === 'CAMERA' || !!ctx.doc.scene.camera),
     exec: (ctx) => {
       const s = ctx.doc.scene;
       const cam = app.activeObject?.type === 'CAMERA' ? app.activeObject : s.camera ? ctx.doc.objects[s.camera] : null;
@@ -322,7 +330,9 @@ registerOperators([
     undo: false,
     exec: (ctx, p) => {
       const f = ctx.doc.scene.frame_current;
-      const frames = ctx.doc.scene.timeline_markers.map((m) => m.frame).sort((a, b) => a - b);
+      const frames = markers()
+        .map((m) => m.frame)
+        .sort((a, b) => a - b);
       const t = p.next ? frames.find((x) => x > f) : [...frames].reverse().find((x) => x < f);
       if (t === undefined) {
         app.report('INFO', 'No more markers to jump to in this direction');
@@ -371,5 +381,6 @@ export function markerMenu(): MenuItem[] {
     { label: 'Delete Marker', op: 'marker.delete', shortcut: 'X' },
     { label: 'Duplicate Marker', op: 'marker.duplicate', shortcut: 'Shift D' },
     { label: 'Add Marker', op: 'marker.add', shortcut: 'M' },
+    ...(hoverEditor()?.space() === 'ACTION' ? [{ separator: true }, { label: 'Make Markers Local', op: 'action.markers_make_local' }] : []),
   ];
 }
