@@ -367,3 +367,71 @@ describe('edge tools', () => {
     expect(sharp.size).toBe(24);
   });
 });
+
+import { symmetrySnap, sortElements, smoothLaplacian, blendFromShape, propagateToShapes, randomizeVerts } from '../../src/modes/editmesh/ops-vertex';
+import { ripSelection, ripFill, ripEdge } from '../../src/modes/editmesh/rip';
+
+describe('vertex tools', () => {
+  it('snaps near-symmetrical pairs', () => {
+    const m = cube();
+    const v = m.pos.findIndex((_, i) => i % 3 === 0 && m.pos[i] > 0.9 && m.pos[i + 1] > 0.9 && m.pos[i + 2] > 0.9) / 3;
+    m.pos[v * 3] += 0.02;
+    selectAll(m);
+    const r = symmetrySnap(m, 'NEGATIVE_X', 0.05, 0.5, true);
+    expect(r.mirrored).toBe(1);
+    expect(r.already).toBe(3);
+    const pts = sorted(m);
+    expect(pts).toContainEqual([1.01, 1, 1]);
+    expect(pts).toContainEqual([-1.01, 1, 1]);
+  });
+
+  it('sorts selected vertices and keeps faces intact', () => {
+    const m = cube();
+    selectAll(m);
+    const before = counts(m);
+    sortElements(m, 'CURSOR_DISTANCE', ['VERT'], false, 0, { cursor: new Vector3(1, 1, 1) });
+    expect(m.p(0)).toEqual([1, 1, 1]);
+    expect(counts(m)).toEqual(before);
+    expect(manifold(m)).toBe(true);
+    sortElements(m, 'REVERSE', ['VERT'], false, 0, {});
+    expect(m.p(7)).toEqual([1, 1, 1]);
+  });
+
+  it('smooths, blends shapes, propagates and randomizes', () => {
+    const m = cube();
+    selectAll(m);
+    subdivide(m, 2, 0);
+    selectAll(m);
+    expect(smoothLaplacian(m, { repeat: 1, lambda: 0.5, lambdaBorder: 0, axes: [true, true, true], preserveVolume: false })).toBe(true);
+    // the corners round off
+    const cornerness = Math.max(...sorted(m).map((p) => Math.min(...p.map(Math.abs))));
+    expect(cornerness).toBeLessThan(1);
+    expect(cornerness).toBeGreaterThan(0.8);
+    const k = cube();
+    k.keys = [k.pos.slice(), k.pos.map((x) => x * 2)];
+    selectAll(k);
+    blendFromShape(k, 1, 0.5, true);
+    expect(Math.max(...k.pos)).toBeCloseTo(1.5);
+    k.pos = k.pos.map((x) => x + 1);
+    propagateToShapes(k);
+    expect(k.keys[1]).toEqual(k.pos);
+    const r = cube();
+    selectAll(r);
+    randomizeVerts(r, 0.1, 0, 0, 3);
+    expect(r.pos.some((x) => Math.abs(Math.abs(x) - 1) > 1e-6)).toBe(true);
+  });
+
+  it('rips with fill and extends boundary vertices', () => {
+    const m = fromPrim(prim.grid(2, 2));
+    // the middle row of edges along X
+    selectWhere(m, (p) => Math.abs(p[1]) < 1e-6);
+    const map = new Map<number, number>();
+    expect(ripSelection(m, (fi) => m.faceCenter(m.faces[fi])[1], map)).toBe(3);
+    expect(ripFill(m, map)).toBe(2);
+    expect(m.faces.length).toBe(6);
+    const e = fromPrim(prim.plane());
+    selectWhere(e, (p) => p[0] > 0.9 && p[1] > 0.9);
+    expect(ripEdge(e, () => 0)).toBe(1);
+    expect(counts(e)).toEqual([5, 6, 2]);
+  });
+});
