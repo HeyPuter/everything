@@ -56,6 +56,7 @@ interface Glyph {
   width: number;
   isSpace: boolean;
   underline: boolean;
+  material: number;
 }
 
 function rectSpline(x0: number, y0: number, x1: number, y1: number): Spline {
@@ -148,7 +149,7 @@ function layoutCore(cu: CurveData, src: GlyphSource | null): TextLayout & { over
     let width = src.advance(glyph, style) * scale * size * spaceChar;
     if (isSpace) width += (spaceWord - 1) * spaceAdv * size;
     width += (f?.kerning ?? 0) * KERNING_UNIT * size;
-    paragraphs[paragraphs.length - 1].push({ i, ch, glyph, scale, style, width, isSpace, underline: !!f?.use_underline });
+    paragraphs[paragraphs.length - 1].push({ i, ch, glyph, scale, style, width, isSpace, underline: !!f?.use_underline, material: f?.material_index ?? 0 });
     if (pair) i++;
   }
   const boxes = boxesOf(cu);
@@ -248,7 +249,7 @@ function layoutCore(cu: CurveData, src: GlyphSource | null): TextLayout & { over
         const slant = shear + (g.style !== 'REGULAR' && (g.style === 'ITALIC' || g.style === 'BOLD_ITALIC') && !src.hasStyle(g.style) ? OBLIQUE : 0);
         const s = size * g.scale;
         const tr = (p: Vec3): Vec3 => [x + p[0] * s + p[1] * s * slant + ox, y + p[1] * s + oy, 0];
-        for (const sp of out ?? []) splines.push({ ...sp, bezier_points: sp.bezier_points.map((b) => ({ ...b, co: tr(b.co), handle_left: tr(b.handle_left), handle_right: tr(b.handle_right) })) });
+        for (const sp of out ?? []) splines.push({ ...sp, material_index: g.material, bezier_points: sp.bezier_points.map((b) => ({ ...b, co: tr(b.co), handle_left: tr(b.handle_left), handle_right: tr(b.handle_right) })) });
       }
       const adv = g.width + (g.isSpace && idx < l.glyphs.length - 1 ? extra : 0);
       if (g.underline) {

@@ -225,6 +225,8 @@ export interface CharFormat {
   use_underline?: boolean;
   use_small_caps?: boolean;
   kerning?: number;
+  /** material slot of the character */
+  material_index?: number;
 }
 
 export interface TextBox {

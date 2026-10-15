@@ -23,6 +23,7 @@ import './curve/tools';
 import './curve/convert';
 import './curve/bevel';
 import './curve/props';
+import './curve/materials';
 import './transformmodes';
 import './editxform';
 import './sidebar-items';

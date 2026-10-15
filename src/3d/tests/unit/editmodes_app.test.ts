@@ -8,6 +8,7 @@ import { startupDocument } from '../../src/data/defaults';
 import { encodeDocument, decodeDocument } from '../../src/io/native';
 import { bpy } from '../../src/scripting/api';
 import { inScript } from '../../src/scripting/runner';
+import '../../src/ops/data';
 import '../../src/modes/index';
 import type { ArmatureData, CurveData } from '../../src/data/types';
 
@@ -265,5 +266,25 @@ describe('recalculate roll', () => {
     app.run('armature.calculate_roll', { type: 'GLOBAL_POS_X', axis_flip: true });
     const z = new V3(0, 0, 1).transformDirection(boneRestMatrix(arm.bones[0]));
     expect(z.distanceTo(new V3(-1, 0, 0))).toBeLessThan(1e-5);
+  });
+});
+
+describe('material slots in curve Edit Mode', () => {
+  it('assigns the active slot to splines of the selected points and selects by slot', () => {
+    app.run('object.select_all', { action: 'DESELECT' });
+    app.run('curve.primitive_bezier_curve_add');
+    const ob = app.activeObject!;
+    const cu = app.doc.curves[ob.data!];
+    cu.materials = ['m1', 'm2'] as never;
+    app.run('object.mode_set', { mode: 'EDIT' });
+    app.run('curve.primitive_bezier_circle_add');
+    expect(cu.splines.length).toBe(2);
+    ob.active_material_index = 1;
+    expect(app.run('object.material_slot_assign')).toBe('FINISHED');
+    expect(cu.splines.map((s) => s.material_index)).toEqual([0, 1]);
+    app.run('curve.select_all', { action: 'DESELECT' });
+    app.run('object.material_slot_select');
+    expect(cu.splines[1].bezier_points.every((b) => b.select_control_point)).toBe(true);
+    expect(cu.splines[0].bezier_points.some((b) => b.select_control_point)).toBe(false);
   });
 });
