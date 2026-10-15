@@ -27,6 +27,7 @@ import {
   findAsset,
   libraryRevision,
   libraryIndexReady,
+  saveLibrary,
   type AssetEntry,
 } from './library';
 import { activateAsset } from './ops';
@@ -57,7 +58,7 @@ const IMPORT_TIPS: Record<ImportSetting, string> = {
 const browsers = new Set<AssetBrowser>();
 onLibrariesChanged(() => browsers.forEach((b) => (b.draw(), b.area.drawHeader())));
 
-/** Essentials (read-only, in memory) get previews rendered on demand, one per frame. */
+/** Assets without a preview (Essentials, assets read from other files) get one rendered on demand, one per frame. */
 const previewQueue: AssetEntry[] = [];
 let previewScheduled = false;
 function queuePreview(e: AssetEntry) {
@@ -77,6 +78,7 @@ function queuePreview(e: AssetEntry) {
       const url = renderPreview(doc, next.table, next.id);
       // remember that there is nothing to show so it is not tried again
       meta.preview = url ?? '';
+      if (url && next.library !== LOCAL && next.library !== ESSENTIALS) void saveLibrary(next.library);
       browsers.forEach((b) => b.draw());
     }
     requestAnimationFrame(step);
@@ -866,7 +868,7 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
   private itemView(e: AssetEntry): Child {
     const ref = assetRef(e);
     const m = e.block.asset_data!;
-    if (m.preview === undefined && e.library === ESSENTIALS) queuePreview(e);
+    if (m.preview === undefined) queuePreview(e);
     const sel = this.selected.has(ref);
     const info = ASSET_TYPE_INFO[e.table];
     const libName = libraryInfo(e.library)?.name ?? e.library;
