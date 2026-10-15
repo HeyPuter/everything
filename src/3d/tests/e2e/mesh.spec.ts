@@ -213,3 +213,14 @@ test('mesh symmetry: the X toggle in the header mirrors a move to the partner ve
   expect(zs).toEqual([-1, 1]);
   await expectNoErrors(errors);
 });
+
+test('sidebar Item tab shows the median of the selection and edits it', async ({ page }) => {
+  const errors = await editCube(page);
+  await selectTop(page);
+  await hoverViewport(page);
+  await page.keyboard.press('n');
+  await page.locator('.sb-tab', { hasText: 'Item' }).first().click();
+  await expect(page.locator('.panel', { hasText: 'Median:' }).first()).toBeVisible();
+  await expect(page.locator('.panel', { hasText: 'Mean Crease' }).first()).toBeVisible();
+  await expectNoErrors(errors);
+});
