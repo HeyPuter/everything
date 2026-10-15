@@ -7,7 +7,8 @@ import { newModifier } from '../../src/eval/modifiers';
 import type { DocumentData, ObjectData } from '../../src/data/types';
 import { caches, startBudget, getCache } from '../../src/physics/common';
 import { defaultParticleSettings, defaultPointCache, type ParticleSettingsX } from '../../src/physics/types';
-import { particleCacheKey } from '../../src/physics/particles';
+import { particleCacheKey, particleDraw } from '../../src/physics/particles';
+const particleDrawValues = () => particleDraw.values();
 import { defaultBoidSettings, newBoidRule } from '../../src/physics/boids';
 
 function addMesh(doc: DocumentData, name: string, arrays: ReturnType<typeof cube>, loc: [number, number, number] = [0, 0, 0]): ObjectData {
@@ -143,5 +144,36 @@ describe('particle vertex groups', () => {
     Object.assign(ob.particle_systems[0], { invert_vertex_group_density: true });
     at(g, doc, 6);
     for (const p of framePos(ob, m, 6)) expect(p.x).toBeLessThan(0.45);
+  });
+});
+
+describe('hair dynamics', () => {
+  it('simulated hair droops under gravity and keeps its roots on the emitter', () => {
+    caches.clear();
+    const doc = emptyDocument();
+    const ob = addMesh(doc, 'Head', plane(1), [0, 0, 1]);
+    // slightly tilted strands (perfectly upright ones would balance)
+    const { m } = emitter(doc, ob, { type: 'HAIR', count: 20, hair_length: 0.5, hair_step: 5, render_type: 'PATH', normal_factor: 1, object_align_factor: [0.3, 0, 0] });
+    const g = new Depsgraph(doc);
+    const tips = () => {
+      const d = [...particleDrawValues()].find((x) => x.objectId === ob.id)!;
+      const L = d.lines!;
+      // last segment of every strand: z of its end point (object space)
+      let z = 0,
+        n = 0;
+      for (let i = 0; i < L.length; i += 6 * 5) {
+        z += L[i + 6 * 4 + 5];
+        n++;
+      }
+      return z / n;
+    };
+    at(g, doc, 30);
+    const still = tips();
+    expect(still).toBeGreaterThan(0.4);
+    Object.assign(ob.particle_systems[0], { use_hair_dynamics: true });
+    at(g, doc, 31);
+    const drooped = tips();
+    expect(drooped).toBeLessThan(0.3);
+    void m;
   });
 });

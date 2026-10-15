@@ -26,7 +26,7 @@ export function cacheKind(key: string): Kind | null {
   if (key.startsWith('SOFT_BODY')) return 'SOFTBODY';
   if (key.startsWith('CLOTH')) return 'CLOTH';
   if (key.startsWith('FLUID')) return 'SMOKE';
-  if (key.startsWith('PARTICLES') || key.startsWith('PSYS')) return 'PARTICLES';
+  if (key.startsWith('PARTICLES') || key.startsWith('HAIRDYN')) return 'PARTICLES';
   if (key.startsWith('DPAINT')) return 'DYNAMICPAINT';
   return null;
 }

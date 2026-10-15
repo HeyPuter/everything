@@ -6,7 +6,9 @@ import { num, bool, enumProp, splitRow, vecProp } from '../ui/props';
 import { uiList } from '../editors/properties/uilist';
 import { insertTabAfter, changed, note, subHeading, objectRow, cachePanel, fieldWeightsPanel } from './ui-common';
 import { particleCacheKey } from './particles';
-import { defaultParticleSettings, defaultPointCache, type ObjectPhysics, type ParticleSettingsX, type ParticleSystemX } from './types';
+import { defaultHairDynamics, defaultParticleSettings, defaultPointCache, type ObjectPhysics, type ParticleSettingsX, type ParticleSystemX } from './types';
+import { hairDynKey } from './hairdyn';
+import type { ModifierBase } from '../data/types';
 import { BOID_RULES, defaultBoidSettings, newBoidRule } from './boids';
 import { defaultParticleFluid } from './sph';
 import { openMenu } from '../ui/menu';
@@ -121,7 +123,7 @@ function displayPanel(s: ParticleSettingsX): Child {
   ], { closed: true });
 }
 
-function hairPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettingsX): Child[] {
+function hairPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettingsX, m?: ModifierBase): Child[] {
   return [
     panel('pa-emit', 'Emission', () => [
       num(s, 'count', 'Number', { int: true, min: 0, max: 1000000, softMax: 100000 }),
@@ -140,6 +142,7 @@ function hairPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettingsX
     renderPanel(ob, s),
     displayPanel(s),
     vertexGroupsPanel(ob, ps, true),
+    hairDynamicsPanel(ob, ps, m),
     panel('pa-children', 'Children', () => [
       h('div', { class: 'enum-row', style: { margin: '2px 8px' } },
         (['NONE', 'SIMPLE'] as const).map((t) => h('button', { key: t, class: { on: (s.child_type ?? 'NONE') === t }, onclick: () => ((s.child_type = t), changed('Child Type')) }, t === 'NONE' ? 'None' : 'Simple')),
@@ -156,6 +159,29 @@ function hairPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettingsX
         : null,
     ]),
   ];
+}
+
+function hairDynamicsPanel(ob: ObjectPhysics, ps: ParticleSystemX, m: ModifierBase | undefined): Child {
+  const dyn = (ps.hair_dynamics ??= defaultHairDynamics());
+  for (const [k, v] of Object.entries(defaultHairDynamics())) if ((dyn as unknown as Record<string, unknown>)[k] === undefined) (dyn as unknown as Record<string, unknown>)[k] = v;
+  const pc = (ps.point_cache ??= defaultPointCache(app.doc.scene.frame_start, app.doc.scene.frame_end));
+  const on = !!ps.use_hair_dynamics;
+  const d = pc.is_baked || !on;
+  return panel('pa-hairdyn', 'Hair Dynamics', () => [
+    num(dyn, 'quality', 'Quality Steps', { int: true, min: 1, max: 50, disabled: d }),
+    num(dyn, 'pin_stiffness', 'Pin Goal Strength', { min: 0, max: 0.999, slider: true, disabled: d }),
+    panel('pa-hairdyn-struct', 'Structure', () => [
+      num(dyn, 'mass', 'Vertex Mass', { min: 0.001, max: 10, disabled: d }),
+      num(dyn, 'bending_stiffness', 'Stiffness', { min: 0, max: 10000, softMax: 50, disabled: d }),
+      num(dyn, 'bending_damping', 'Damping', { min: 0, max: 50, disabled: d }),
+    ], { sub: true }),
+    panel('pa-hairdyn-vol', 'Volume', () => [num(dyn, 'air_damping', 'Air Drag', { min: 0, max: 10, disabled: d })], { sub: true }),
+    panel('pa-hairdyn-col', 'Collisions', () => [num(dyn, 'collision_distance', 'Distance', { min: 0.001, max: 1, unit: 'distance', disabled: d || !dyn.use_collision })], {
+      sub: true,
+      header: checkbox(`pa-hd-col-${ob.id}`, '', !!dyn.use_collision, (v) => ((dyn.use_collision = v), changed('Toggle Hair Collisions'))),
+    }),
+    m ? cachePanel('pa-hairdyn-cache', hairDynKey(ob, m), pc) : null,
+  ], { header: checkbox(`pa-hd-${ob.id}`, '', on, (v) => ((ps.use_hair_dynamics = v), changed('Toggle Hair Dynamics'))), closed: !on });
 }
 
 /** Vertex groups shaping the particle system (density, hair length, size, velocity). */
@@ -388,7 +414,7 @@ insertTabAfter('CONSTRAINT', {
         ),
       ),
     );
-    if (m) out.push(...(s.type === 'HAIR' ? hairPanels(ob, ps, s) : emitterPanels(ob, ps, s, particleCacheKey(ob, m))));
+    if (m) out.push(...(s.type === 'HAIR' ? hairPanels(ob, ps, s, m) : emitterPanels(ob, ps, s, particleCacheKey(ob, m))));
     return out;
   },
 });

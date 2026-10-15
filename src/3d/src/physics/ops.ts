@@ -14,6 +14,7 @@ import { freeRigidBodyLive, loadRapier, rapierLoaded, rigidBodyMatrix, simulateR
 import { meshSimKey } from './meshsim';
 import { RBC_TYPES, rbcDefaults } from './rbjoints';
 import { dpCacheKey, type DynamicPaintModifier } from './dynpaint';
+import { hairDynKey } from './hairdyn';
 import { particleCacheKey, systemOf } from './particles';
 import { fluidCacheKey } from './fluid';
 import { physicsState } from './runtime';
@@ -64,6 +65,9 @@ export function cacheOwners(doc: DocumentData): CacheOwner[] {
         if (ps && s && s.type !== 'HAIR') {
           ps.point_cache ??= defaultPointCache();
           out.push({ key: particleCacheKey(ob, m), label: `${ob.name} ▸ ${ps.name}`, pc: ps.point_cache });
+        } else if (ps && s && ps.use_hair_dynamics) {
+          ps.point_cache ??= defaultPointCache();
+          out.push({ key: hairDynKey(ob, m), label: `${ob.name} ▸ ${ps.name}`, pc: ps.point_cache });
         }
       }
     }

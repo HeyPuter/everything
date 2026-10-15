@@ -224,6 +224,26 @@ export interface ParticleSystemX extends ParticleSystem {
   invert_vertex_group_size?: boolean;
   vertex_group_velocity?: string;
   invert_vertex_group_velocity?: boolean;
+  /** hair dynamics: strands simulated like cloth chains */
+  use_hair_dynamics?: boolean;
+  hair_dynamics?: HairDynamicsSettings;
+}
+
+export interface HairDynamicsSettings {
+  quality: number;
+  pin_stiffness: number;
+  mass: number;
+  bending_stiffness: number;
+  bending_damping: number;
+  air_damping: number;
+  use_collision: boolean;
+  collision_distance: number;
+  effector_weights_gravity: number;
+  effector_weights_all: number;
+}
+
+export function defaultHairDynamics(): HairDynamicsSettings {
+  return { quality: 5, pin_stiffness: 0, mass: 0.3, bending_stiffness: 0.5, bending_damping: 0.5, air_damping: 1, use_collision: true, collision_distance: 0.005, effector_weights_gravity: 1, effector_weights_all: 1 };
 }
 
 export interface ObjectPhysics extends ObjectData {

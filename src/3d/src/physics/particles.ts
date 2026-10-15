@@ -17,6 +17,7 @@ import { collectEffectors, effectorForce, fieldsKey, valueNoise } from './fields
 import { buildColliders, collidersKey, segmentHit, newHit } from './colliders';
 import { MeshSampler, newSample, valueAt, type Sample } from './sampling';
 import { groupWeights } from '../eval/meshbuild';
+import { hairDynKey, hairWithDynamics } from './hairdyn';
 import { physicsDoc } from './state';
 import { localMatrix as localMatrixOf } from '../eval/transform';
 import { fps, gravityOf, simDeps } from './meshsim';
@@ -449,6 +450,8 @@ export interface HairResult {
   segments: number;
   strands: number;
   parents: number;
+  /** per child: parent index, offset x y z and its noise seed (to rebuild children around moved parents) */
+  children?: Float32Array;
 }
 
 const hairCache = new Map<string, { hash: string; result: HairResult }>();
@@ -494,6 +497,7 @@ export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSyst
     }
   }
   const parents = parentRoots.length;
+  const childInfo: number[] = [];
   for (let i = 0; i < parents && children; i++) {
     const d = parentDirs[i],
       root = parentRoots[i];
@@ -506,6 +510,7 @@ export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSyst
       const ox = tan.x * Math.cos(ang) * rad + bit.x * Math.sin(ang) * rad;
       const oy = tan.y * Math.cos(ang) * rad + bit.y * Math.sin(ang) * rad;
       const oz = tan.z * Math.cos(ang) * rad + bit.z * Math.sin(ang) * rad;
+      childInfo.push(i, ox, oy, oz, seed + c);
       for (let k = 0; k <= seg; k++) {
         const u = k / seg,
           t = u * s.hair_length;
@@ -525,7 +530,7 @@ export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSyst
       }
     }
   }
-  const result: HairResult = { points: w === pts.length ? pts : pts.slice(0, w), segments: seg, strands: w / 3 / (seg + 1), parents };
+  const result: HairResult = { points: w === pts.length ? pts : pts.slice(0, w), segments: seg, strands: w / 3 / (seg + 1), parents, children: childInfo.length ? Float32Array.from(childInfo) : undefined };
   hairCache.set(key, { hash, result });
   return result;
 }
@@ -639,7 +644,8 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
   const instances: GeometryInstance[] = [];
   let draw: ParticleDraw | null = null;
   if (s.type === 'HAIR') {
-    const hair = evaluateHair(ob, m, psys, s, mesh);
+    let hair = evaluateHair(ob, m, psys, s, mesh);
+    if (psys.use_hair_dynamics) hair = hairWithDynamics(ob, m, psys, s, hair, ctx) ?? hair;
     const per = hair.segments + 1;
     if (show !== 'NONE' && (s.render_type === 'PATH' || show === 'DOT' || !wantInstances)) {
       const lines = new Float32Array(hair.strands * hair.segments * 6);
@@ -759,7 +765,7 @@ registerModifier({
     for (const ob of Object.values(doc.objects)) if (ob.modifiers.includes(m)) {
       const ps = systemOf(ob, m);
       const s = ps ? doc.particles[ps.settings] : undefined;
-      return !s || s.type !== 'HAIR';
+      return !s || s.type !== 'HAIR' || !!ps?.use_hair_dynamics;
     }
     return true;
   },
@@ -772,7 +778,7 @@ registerModifier({
         const ps = systemOf(ob, m);
         const s = ps ? doc.particles[ps.settings] : undefined;
         if (s?.instance_object) out.push(s.instance_object);
-        if (s && s.type !== 'HAIR') out.push(...simDeps(doc, ob.id));
+        if (s && (s.type !== 'HAIR' || (systemOf(ob, m) as ParticleSystemX | undefined)?.use_hair_dynamics)) out.push(...simDeps(doc, ob.id));
         const sx = s as ParticleSettingsX | undefined;
         for (const t of sx?.keyed_targets ?? []) if (t.object && t.object !== ob.id) out.push(t.object);
         for (const r of sx?.boids?.rules ?? []) if (r.object && r.object !== ob.id) out.push(r.object);
@@ -785,7 +791,14 @@ registerModifier({
     const s = ps ? c.doc.particles[ps.settings] : undefined;
     if (!ps || !s) return 'none';
     const base = `${JSON.stringify(s)}:${JSON.stringify(ps)}:${c.doc.materials ? JSON.stringify(materialColor(c.doc, c.ob, (s as ParticleSettingsX).material_slot ?? 1)) : ''}`;
-    if (s.type === 'HAIR') return strHash(base);
+    if (s.type === 'HAIR') {
+      if (!ps.use_hair_dynamics) return strHash(base);
+      // simulated hair changes with the frame and the dynamics cache
+      const hc = getCache<Float32Array, unknown>(hairDynKey(c.ob, m));
+      const pc = ps.point_cache ?? defaultPointCache();
+      const f = Math.min(frameOf(c.graph), pc.frame_end);
+      return `${strHash(base + JSON.stringify(ps.hair_dynamics ?? {}))}:${f <= pc.frame_start ? 'rest' : f}:${hc.hash}:${hc.frames.has(f) ? 'hit' : 'miss' + hc.last}:${hc.frames.size}`;
+    }
     const cache = getCache<PFrame, PLive>(particleCacheKey(c.ob, m));
     const pc = ps.point_cache ?? defaultPointCache();
     const f = Math.min(Math.max(frameOf(c.graph), pc.frame_start), pc.frame_end);
