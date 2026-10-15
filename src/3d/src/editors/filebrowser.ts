@@ -226,7 +226,7 @@ export class FileBrowser implements Editor {
       nav('file_parent', 'Parent Directory\n(P, Alt ↑)', this.path.length > 1, () => this.parent()),
       nav('file_refresh', 'Refresh\nRe-read the folder (R)', this.path.length > 0, () => this.refresh()),
       nav('newfolder', 'Create New Directory\n(I)', !!this.dir?.getDirectoryHandle, () => void this.newFolder()),
-      h('div', { class: 'fb-path', title: this.pathLabel() }, this.pathLabel()),
+      h('button', { class: 'fb-path', 'data-tip': `${this.pathLabel()}\nClick to type a folder path (Ctrl L)`, disabled: !this.path.length, onclick: () => app.run('file.edit_directory_path', {}, { area: this.area }) }, this.pathLabel()),
       h('div', { class: 'hdr-spacer' }),
       enumRow(
         'fb-view',
@@ -739,6 +739,53 @@ export class FileBrowser implements Editor {
     redrawAll();
   }
 
+  /** Go to a folder typed as a path ("textures/wood", "../other"); offers to create missing ones. */
+  async goToPath(text: string) {
+    if (!this.path.length) return false;
+    const parts = text.split(/[\\/]+/).filter(Boolean);
+    let path = [...this.path];
+    // an absolute path starts with the root's name
+    if (parts.length && parts[0] === (this.path[0].name || 'Browser Storage')) {
+      path = [this.path[0]];
+      parts.shift();
+    }
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      if (p === '.') continue;
+      if (p === '..') {
+        if (path.length > 1) path.pop();
+        continue;
+      }
+      const cur = path[path.length - 1];
+      try {
+        path.push(await cur.getDirectoryHandle!(p));
+      } catch {
+        const rest = parts.slice(i);
+        openMenu([{ heading: `"${rest.join('/')}" does not exist` }, { label: 'Create New Directory', icon: 'newfolder', action: () => void this.createPath(path, rest) }], { x: app.pointer.x, y: app.pointer.y });
+        return false;
+      }
+    }
+    await this.enter(path);
+    return true;
+  }
+
+  private async createPath(base: DirHandle[], parts: string[]) {
+    if (!(await ensurePermission(base[base.length - 1], 'readwrite'))) return;
+    const path = [...base];
+    try {
+      for (const p of parts) path.push(await path[path.length - 1].getDirectoryHandle!(p, { create: true }));
+    } catch (e) {
+      app.report('ERROR', `Cannot create the folder: ${e instanceof Error ? e.message : e}`);
+      return;
+    }
+    await this.enter(path);
+  }
+
+  editPath() {
+    const cur = this.path.map((d) => d.name || 'Browser Storage').join('/');
+    promptText('Directory', cur, (v) => v && void this.goToPath(v));
+  }
+
   startFilter() {
     this.focusFilter = true;
     this.area.drawHeader();
@@ -1025,6 +1072,7 @@ registerOperators([
       redrawAll();
     },
   },
+  { idname: 'file.edit_directory_path', label: 'Edit Directory Path', description: 'Type the folder to go to (relative paths and .. work)', undo: false, poll: withDir, exec: (ctx) => fbOf(ctx)!.editPath() },
   { idname: 'file.start_filter', label: 'Filter', description: 'Type to filter the files', undo: false, poll: (ctx) => !!fbOf(ctx), exec: (ctx) => fbOf(ctx)!.startFilter() },
   { idname: 'file.hidden_toggle', label: 'Show Hidden', description: 'Show files and folders whose name starts with a dot', undo: false, poll: (ctx) => !!fbOf(ctx), exec: (ctx) => fbOf(ctx)!.toggleHidden() },
   { idname: 'file.sidebar_toggle', label: 'Toggle Sidebar', description: 'Show or hide the places sidebar', undo: false, poll: (ctx) => !!fbOf(ctx), exec: (ctx) => fbOf(ctx)!.toggleSidebar() },
@@ -1064,6 +1112,7 @@ addKeys('File Browser', [
   { key: 'DEL', op: 'file.delete' },
   { key: 'B', ctrl: true, op: 'file.bookmark_add' },
   { key: 'F', ctrl: true, op: 'file.start_filter' },
+  { key: 'L', ctrl: true, op: 'file.edit_directory_path' },
   { key: 'T', op: 'file.sidebar_toggle' },
   { key: 'ACCENT_GRAVE', op: 'file.view_pie' },
   { key: 'W', op: 'file.context_menu' },

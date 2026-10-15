@@ -427,6 +427,13 @@ test('File Browser: browser storage, new folder, rename, keyboard selection, del
   // bookmark the folder
   await page.keyboard.press('Control+b');
   await expect(fb.locator('.fb-side-item', { hasText: 'Browser Storage' })).toHaveCount(2);
+  // type a path: missing folders can be created, .. goes up
+  await page.evaluate(() => (window as any).app.hoverArea.editor.goToPath('art/wood'));
+  await page.locator('.menu .menu-item', { hasText: 'Create New Directory' }).click();
+  await expect(fb.locator('.fb-path')).toHaveText('Browser Storage / art / wood');
+  await page.evaluate(() => (window as any).app.hoverArea.editor.goToPath('../..'));
+  await expect(fb.locator('.fb-path')).toHaveText('Browser Storage');
+  await expect(fb.locator('.fb-item', { hasText: 'art' })).toBeVisible();
   // right-click menu
   await fb.locator('.fb-item', { hasText: 'one.txt' }).click({ button: 'right' });
   await expect(page.locator('.menu .menu-item', { hasText: 'Rename' })).toBeVisible();

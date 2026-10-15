@@ -158,6 +158,9 @@
 }
 .fb-path {
   color: #aaa;
+  height: 20px;
+  border-radius: 4px;
+  text-align: left;
   padding: 0 8px;
   white-space: nowrap;
   overflow: hidden;
@@ -215,4 +218,8 @@
 }
 .fb-filter-wrap {
   display: flex;
+}
+.fb-path:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ddd;
 }
