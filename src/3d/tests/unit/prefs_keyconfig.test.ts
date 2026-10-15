@@ -184,3 +184,15 @@ describe('keyconfig options', () => {
     ]);
   });
 });
+
+describe('item priority', () => {
+  it('puts user items before preset items before factory items', () => {
+    const keymaps: Record<string, KeyItem[]> = { Window: [{ key: 'A', op: 'factory.op' }] };
+    const preset: PresetDef = { id: 'P', label: 'P', description: '', rules: [], add: [{ km: 'Window', set: { key: 'A', op: 'preset.op' } }] };
+    const kc = new KeyconfigState(keymaps, [preset]);
+    kc.snapshot();
+    kc.load({ ...emptyKeyconfig('P') });
+    kc.addItem('Window', { key: 'A', op: 'user.op' });
+    expect(keymaps.Window.map((k) => k.op)).toEqual(['user.op', 'preset.op', 'factory.op']);
+  });
+});

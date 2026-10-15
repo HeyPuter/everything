@@ -254,6 +254,7 @@ export class KeyconfigState {
       }
     // preset / option items, then user items, go first so they win over factory bindings
     const front = new Map<string, KeyItem[]>();
+    const userFront = new Map<string, KeyItem[]>();
     add.forEach((a, i) => {
       const id = `preset:${this.data.preset}:${a.km}:${i}:${bindingText(a.set)}`;
       let like: Factory | undefined;
@@ -284,9 +285,11 @@ export class KeyconfigState {
       const item: KeyItem = reuse.get(`user:${u.uid}`) ?? { key: fields.key };
       this.write(item, { id: `user:${u.uid}`, km: u.km, fields }, fields, false);
       this.inserted.set(item, { id: `user:${u.uid}`, km: u.km, base: fields, user: true });
-      (front.get(u.km) ?? front.set(u.km, []).get(u.km)!).push(item);
+      (userFront.get(u.km) ?? userFront.set(u.km, []).get(u.km)!).push(item);
     }
+    // user items first, then the preset's, then the factory items
     for (const [km, items] of front) (this.keymaps[km] ??= []).unshift(...items);
+    for (const [km, items] of userFront) (this.keymaps[km] ??= []).unshift(...items);
   }
 
   private write(k: KeyItem, f: Factory, v: ItemFields, removed: boolean) {
