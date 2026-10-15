@@ -608,8 +608,12 @@ function curveData(o: ObjectData, cu: CurveData): Child {
       bool(cu, 'use_fill_caps', 'Fill Caps'),
       ...curveGeometryRows.map((f) => f(o, cu)),
     ]),
+    ...curveDataPanels.map((f) => f(o, cu)),
   ];
 }
+
+/** Extra panels at the end of the curve / text Object Data tab (e.g. Active Spline). */
+export const curveDataPanels: ((ob: ObjectData, cu: CurveData) => Child)[] = [];
 
 /** Extra rows at the end of the curve Geometry panel (bevel / taper objects). */
 export const curveGeometryRows: ((ob: ObjectData, cu: CurveData) => Child)[] = [];

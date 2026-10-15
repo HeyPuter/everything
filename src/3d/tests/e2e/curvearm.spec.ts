@@ -497,3 +497,17 @@ test('text follows a curve path', async ({ page }) => {
   expect(extent).toBeLessThan(3.3);
   await expectNoErrors(errors);
 });
+
+test('Active Spline panel edits the spline of the selected points', async ({ page }) => {
+  const errors = await openApp(page);
+  await fresh(page, 'curve.primitive_nurbs_curve_add');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('a');
+  await page.locator('.rail-tab[data-tip="Data"]').first().click();
+  const panelEl = page.locator('section', { hasText: 'Active Spline' }).first();
+  await expect(panelEl).toBeVisible();
+  await panelEl.locator('label.checkbox', { hasText: 'Cyclic U' }).click();
+  expect(await get(page, `${CU}.splines[0].use_cyclic_u`)).toBe(true);
+  await expect(panelEl.locator('.sr-label', { hasText: 'Order U' })).toBeVisible();
+  await expectNoErrors(errors);
+});
