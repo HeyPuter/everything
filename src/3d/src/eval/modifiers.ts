@@ -1,11 +1,12 @@
 // Modifier stack implementations (independently implemented geometry algorithms).
-import { Matrix4, Vector3 } from 'three';
+import { Matrix4, Quaternion, Vector3 } from 'three';
 import type { ModifierBase } from '../data/types';
 import type { EvalMesh, ModifierContext, ModifierType } from './types';
 import { MeshBuilder, appendMesh, weightsOf, groupWeights, vertexNormals } from './meshbuild';
 import { edgeTopology, polyNormal, triangulatePoly, vertexFaces } from '../mesh/mesh';
 import { skinPositions } from './armature';
 import { proceduralTexture } from './textures';
+import { evalCurve } from '../nodes/curves';
 
 const num = (m: ModifierBase, k: string, d = 0) => (typeof m[k] === 'number' ? (m[k] as number) : d);
 const bool = (m: ModifierBase, k: string, d = false) => (typeof m[k] === 'boolean' ? (m[k] as boolean) : d);
@@ -1518,6 +1519,10 @@ function hookMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh
   const strength = num(mod, 'strength', 1),
     falloff = num(mod, 'falloff_radius', 0);
   const center = new Vector3(...((mod.center as number[]) ?? [0, 0, 0]));
+  const ftype = str(mod, 'falloff_type', 'SMOOTH');
+  // uniform falloff: distances measured in world space (unaffected by the object's scale)
+  const uniform = bool(mod, 'use_falloff_uniform');
+  const centerW = center.clone().applyMatrix4(own);
   const verts = new Set((mod.vertex_indices as number[]) ?? []);
   const hasGroup = !!groupWeights(m, str(mod, 'vertex_group'));
   return deform(m, mod, (p, i) => {
@@ -1525,9 +1530,41 @@ function hookMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh
     if (!hasGroup && verts.size && !verts.has(orig)) return;
     const q = p.clone().applyMatrix4(mat);
     let f = strength;
-    if (falloff > 0) f *= Math.max(0, 1 - p.distanceTo(center) / falloff);
+    if (falloff > 0 && ftype !== 'NONE') {
+      const d = uniform ? p.clone().applyMatrix4(own).distanceTo(centerW) : p.distanceTo(center);
+      f *= falloffFactor(ftype, 1 - d / falloff, mod.falloff_curve);
+    }
     p.lerp(q, f);
   });
+}
+
+/** Falloff weight for t = 1 - distance / radius (0 outside the radius). */
+export function falloffFactor(type: string, t: number, curve?: unknown): number {
+  if (type === 'NONE') return 1;
+  if (t <= 0) return 0;
+  t = Math.min(1, t);
+  switch (type) {
+    case 'LINEAR':
+      return t;
+    case 'SHARP':
+      return t * t;
+    case 'SPHERE':
+      return Math.sqrt(2 * t - t * t);
+    case 'ROOT':
+      return Math.sqrt(t);
+    case 'INVERSE_SQUARE':
+      return t * (2 - t);
+    case 'CONSTANT':
+      return 1;
+    case 'CURVE': {
+      const flat = (curve as Record<string, unknown> | null)?.curve_0;
+      if (!Array.isArray(flat)) return t;
+      const pts: { x: number; y: number; handle: number }[] = [];
+      for (let i = 0; i + 2 < flat.length; i += 3) pts.push({ x: flat[i] as number, y: flat[i + 1] as number, handle: flat[i + 2] as number });
+      return evalCurve(pts.sort((a, b) => a.x - b.x), t);
+    }
+  }
+  return t * t * (3 - 2 * t); // SMOOTH
 }
 
 function warpMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
@@ -1536,15 +1573,38 @@ function warpMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh
   if (!from || !to) return m;
   const own = ctx.graph.get(ctx.ob.id)!.world,
     inv = own.clone().invert();
-  const pf = new Vector3().setFromMatrixPosition(from.world).applyMatrix4(inv),
-    pt = new Vector3().setFromMatrixPosition(to.world).applyMatrix4(inv);
+  const fw = from.world.clone(),
+    tw = to.world.clone();
+  const bf = typeof mod.bone_from === 'string' && mod.bone_from ? from.pose?.bones.get(mod.bone_from) : undefined;
+  if (bf) fw.multiply(bf.pose);
+  const bt = typeof mod.bone_to === 'string' && mod.bone_to ? to.pose?.bones.get(mod.bone_to) : undefined;
+  if (bt) tw.multiply(bt.pose);
+  // the full transform taking "from" to "to", in mesh space
+  const T = inv.clone().multiply(tw).multiply(fw.clone().invert()).multiply(own);
+  const pf = new Vector3().setFromMatrixPosition(fw).applyMatrix4(inv);
   const radius = num(mod, 'falloff_radius', 1),
     strength = num(mod, 'strength', 1);
-  const delta = pt.clone().sub(pf);
+  const ftype = str(mod, 'falloff_type', 'SMOOTH');
+  const preserve = bool(mod, 'use_volume_preserve');
+  const tp = new Vector3(),
+    tq = new Quaternion(),
+    ts = new Vector3();
+  T.decompose(tp, tq, ts);
+  const idQ = new Quaternion(),
+    one = new Vector3(1, 1, 1),
+    zero = new Vector3();
+  const tex = mod.texture as Record<string, unknown> | null | undefined;
   return deform(m, mod, (p) => {
     const d = p.distanceTo(pf);
-    const f = d < radius ? (1 - d / radius) ** 2 * (3 - 2 * (1 - d / radius)) : 0;
-    p.addScaledVector(delta, f * strength);
+    let f = (radius > 0 ? falloffFactor(ftype, 1 - d / radius, mod.falloff_curve) : 1) * strength;
+    if (tex && tex.type) f *= proceduralTexture(tex, p.x, p.y, p.z);
+    if (!f) return;
+    if (preserve) {
+      // interpolate the transform itself (rotations stay rotations)
+      const q = idQ.clone().slerp(tq, Math.min(1, Math.max(0, f)));
+      const mat = new Matrix4().compose(zero.clone().lerp(tp, f), q, one.clone().lerp(ts, f));
+      p.applyMatrix4(mat);
+    } else p.lerp(p.clone().applyMatrix4(T), f);
   });
 }
 
@@ -1715,7 +1775,7 @@ export const modifierTypes: Record<string, ModifierType> = {
   // Deform
   ARMATURE: { type: 'ARMATURE', label: 'Armature', category: 'DEFORM', icon: 'mod_armature', deformOnly: true, defaults: base({ object: null, use_vertex_groups: true, use_bone_envelopes: false, use_deform_preserve_volume: false }), deps: (m) => [m.object as string], apply: armatureMod },
   CAST: { type: 'CAST', label: 'Cast', category: 'DEFORM', icon: 'mod_cast', deformOnly: true, defaults: base({ cast_type: 'SPHERE', factor: 0.5, radius: 0, size: 0, use_radius_as_size: true, object: null, use_x: true, use_y: true, use_z: true, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: cast },
-  CURVE: { type: 'CURVE', label: 'Curve', category: 'DEFORM', icon: 'mod_curve', deformOnly: true, defaults: base({ object: null, deform_axis: 'POS_X', vertex_group: '' }), deps: (m) => [m.object as string], apply: curveMod },
+  CURVE: { type: 'CURVE', label: 'Curve', category: 'DEFORM', icon: 'mod_curve', deformOnly: true, defaults: base({ object: null, deform_axis: 'POS_X', vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: curveMod },
   DISPLACE: {
     type: 'DISPLACE',
     label: 'Displace',
@@ -1726,13 +1786,13 @@ export const modifierTypes: Record<string, ModifierType> = {
     deps: (m) => [m.texture_coords_object as string],
     apply: displace,
   },
-  HOOK: { type: 'HOOK', label: 'Hook', category: 'DEFORM', icon: 'hook', deformOnly: true, defaults: base({ object: null, strength: 1, falloff_radius: 0, center: [0, 0, 0], vertex_indices: [], matrix_inverse: new Matrix4().toArray(), vertex_group: '' }), deps: (m) => [m.object as string], apply: hookMod },
+  HOOK: { type: 'HOOK', label: 'Hook', category: 'DEFORM', icon: 'hook', deformOnly: true, defaults: base({ object: null, strength: 1, falloff_type: 'SMOOTH', falloff_radius: 0, use_falloff_uniform: false, center: [0, 0, 0], vertex_indices: [], matrix_inverse: new Matrix4().toArray(), vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: hookMod },
   LAPLACIANSMOOTH: { type: 'LAPLACIANSMOOTH', label: 'Smooth Laplacian', category: 'DEFORM', icon: 'mod_smooth', deformOnly: true, defaults: base({ iterations: 1, lambda_factor: 0.01, lambda_border: 0.01, use_volume_preserve: true, use_normalized: true, use_x: true, use_y: true, use_z: true, vertex_group: '', invert_vertex_group: false }), apply: laplacianSmooth },
-  LATTICE: { type: 'LATTICE', label: 'Lattice', category: 'DEFORM', icon: 'mod_lattice', deformOnly: true, defaults: base({ object: null, strength: 1, vertex_group: '' }), deps: (m) => [m.object as string], apply: latticeMod },
-  SHRINKWRAP: { type: 'SHRINKWRAP', label: 'Shrinkwrap', category: 'DEFORM', icon: 'mod_shrinkwrap', deformOnly: true, defaults: base({ target: null, wrap_method: 'NEAREST_SURFACEPOINT', offset: 0, vertex_group: '' }), deps: (m) => [m.target as string], apply: shrinkwrapMod },
+  LATTICE: { type: 'LATTICE', label: 'Lattice', category: 'DEFORM', icon: 'mod_lattice', deformOnly: true, defaults: base({ object: null, strength: 1, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: latticeMod },
+  SHRINKWRAP: { type: 'SHRINKWRAP', label: 'Shrinkwrap', category: 'DEFORM', icon: 'mod_shrinkwrap', deformOnly: true, defaults: base({ target: null, wrap_method: 'NEAREST_SURFACEPOINT', offset: 0, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.target as string], apply: shrinkwrapMod },
   SIMPLE_DEFORM: { type: 'SIMPLE_DEFORM', label: 'Simple Deform', category: 'DEFORM', icon: 'mod_simpledeform', deformOnly: true, defaults: base({ deform_method: 'TWIST', angle: (45 * Math.PI) / 180, factor: 0.785398, deform_axis: 'Z', origin: null, limits: [0, 1], lock_x: false, lock_y: false, lock_z: false, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.origin as string], apply: simpleDeform },
   SMOOTH: { type: 'SMOOTH', label: 'Smooth', category: 'DEFORM', icon: 'mod_smooth', deformOnly: true, defaults: base({ factor: 0.5, iterations: 1, use_x: true, use_y: true, use_z: true, vertex_group: '' }), apply: smoothMesh },
-  WARP: { type: 'WARP', label: 'Warp', category: 'DEFORM', icon: 'mod_warp', deformOnly: true, defaults: base({ object_from: null, object_to: null, strength: 1, falloff_radius: 1, vertex_group: '' }), deps: (m) => [m.object_from as string, m.object_to as string], apply: warpMod },
+  WARP: { type: 'WARP', label: 'Warp', category: 'DEFORM', icon: 'mod_warp', deformOnly: true, defaults: base({ object_from: null, bone_from: '', object_to: null, bone_to: '', strength: 1, falloff_type: 'SMOOTH', falloff_radius: 1, use_volume_preserve: false, texture: null, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object_from as string, m.object_to as string], apply: warpMod },
   WAVE: {
     type: 'WAVE',
     label: 'Wave',

@@ -58,7 +58,16 @@ export const modifierFields: Record<string, Field[]> = {
   CAST: [['cast_type', 'Shape', 'enum', [['SPHERE', 'Sphere'], ['CYLINDER', 'Cylinder'], ['CUBOID', 'Cuboid']]], ['use_x', 'X', 'bool'], ['use_y', 'Y', 'bool'], ['use_z', 'Z', 'bool'], ['factor', 'Factor', 'num'], ['radius', 'Radius', 'dist'], ['vertex_group', 'Vertex Group', 'vgroup']],
   CURVE: [['object', 'Curve Object', 'object', 'CURVE'], ['deform_axis', 'Deformation Axis', 'enum', [['POS_X', 'X'], ['POS_Y', 'Y'], ['POS_Z', 'Z'], ['NEG_X', '-X'], ['NEG_Y', '-Y'], ['NEG_Z', '-Z']]], ['vertex_group', 'Vertex Group', 'vgroup']],
   DISPLACE: [['direction', 'Direction', 'enum', [['X', 'X'], ['Y', 'Y'], ['Z', 'Z'], ['NORMAL', 'Normal']]], ['texture_coords', 'Coordinates', 'enum', [['LOCAL', 'Local'], ['GLOBAL', 'Global']]], ['strength', 'Strength', 'num'], ['mid_level', 'Midlevel', 'factor'], ['vertex_group', 'Vertex Group', 'vgroup']],
-  HOOK: [['object', 'Object', 'object'], ['subtarget', 'Bone', 'bone'], ['strength', 'Strength', 'factor'], ['falloff_radius', 'Radius', 'dist'], ['vertex_group', 'Vertex Group', 'vgroup']],
+  HOOK: [
+    ['object', 'Object', 'object'],
+    ['subtarget', 'Bone', 'bone'],
+    ['strength', 'Strength', 'factor'],
+    ['vertex_group', 'Vertex Group', 'vgroup'],
+    ['heading', 'Falloff', 'heading'],
+    ['falloff_type', 'Type', 'enum', [['NONE', 'No Falloff'], ['CONSTANT', 'Constant'], ['LINEAR', 'Linear'], ['SHARP', 'Sharp'], ['INVERSE_SQUARE', 'Inverse Square'], ['SMOOTH', 'Smooth'], ['ROOT', 'Root'], ['SPHERE', 'Sphere']]],
+    ['falloff_radius', 'Radius', 'dist'],
+    ['use_falloff_uniform', 'Uniform Falloff', 'bool'],
+  ],
   LAPLACIANSMOOTH: [['iterations', 'Repeat', 'int', { min: 0, max: 200 }], ['lambda_factor', 'Lambda Factor', 'num'], ['use_volume_preserve', 'Preserve Volume', 'bool'], ['vertex_group', 'Vertex Group', 'vgroup']],
   LATTICE: [['object', 'Object', 'object', 'LATTICE'], ['strength', 'Strength', 'factor'], ['vertex_group', 'Vertex Group', 'vgroup']],
   SHRINKWRAP: [['target', 'Target', 'object', 'MESH'], ['offset', 'Offset', 'dist'], ['vertex_group', 'Vertex Group', 'vgroup']],
@@ -97,13 +106,24 @@ function fieldWidget(ob: ObjectData, m: Record<string, unknown>, f: Field): Chil
       return objectProp(m, key, label, { filter: (o) => o.id !== ob.id && (!extra || o.type === extra), undo: `Set ${label}` });
     case 'vgroup': {
       const me = ob.type === 'MESH' && ob.data ? doc.meshes[ob.data] : undefined;
+      const menu = enumMenu(`${m.id ?? ''}.${key}`, [{ value: '', label: '—' }, ...(me?.vertex_groups ?? []).map((g) => ({ value: g.name, label: g.name, icon: 'group_vertex' }))], String(m[key] ?? ''), (v) => {
+        m[key] = v;
+        app.pushUndo(`Set ${label}`);
+        app.changed('doc');
+      });
+      // modifiers with an invert option show its toggle next to the group
+      const invKey = key === 'vertex_group' ? 'invert_vertex_group' : '';
+      const type = modifierTypes[String(m.type ?? '')];
+      const hasInvert = !!invKey && (invKey in m || (type ? invKey in type.defaults() : false));
+      if (!hasInvert) return splitRow(label, menu);
       return splitRow(
         label,
-        enumMenu(`${m.id ?? ''}.${key}`, [{ value: '', label: '—' }, ...(me?.vertex_groups ?? []).map((g) => ({ value: g.name, label: g.name, icon: 'group_vertex' }))], String(m[key] ?? ''), (v) => {
-          m[key] = v;
-          app.pushUndo(`Set ${label}`);
-          app.changed('doc');
-        }),
+        h(
+          'div',
+          { class: 'row-aligned' },
+          menu,
+          h('button', { class: { tbtn: true, 'mod-inv': true, on: !!m[invKey] }, 'data-tip': 'Invert', onclick: () => ((m[invKey] = !m[invKey]), app.pushUndo('Invert Vertex Group'), app.changed('doc')) }, icon('arrow_leftright')),
+        ),
       );
     }
     case 'bone': {

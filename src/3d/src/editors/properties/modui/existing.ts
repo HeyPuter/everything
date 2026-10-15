@@ -1,10 +1,10 @@
 // Fuller panels for long-standing modifiers (sub-panels and options that were missing).
-import { h } from '../../../ui/h';
+import { h, type Child } from '../../../ui/h';
 import { num, bool, enumProp, vecProp, splitRow } from '../../../ui/props';
 import { enumRow, enumMenu } from '../../../ui/widgets';
 import { app } from '../../../app/app';
 import { modifierFields, modifierExtraUI } from '../stack';
-import { sub, headerCheck, objRow, vgroupRow, touch, textureRows, boolToggles } from './kit';
+import { sub, headerCheck, objRow, vgroupRow, touch, textureRows, boolToggles, curveWidget } from './kit';
 import type { ModifierBase } from '../../../data/types';
 
 type Rec = Record<string, unknown>;
@@ -391,5 +391,44 @@ modifierExtraUI.WAVE = (ob, m) => {
     vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
     sub(m, 'start', 'Start Position', () => [objRow(r, 'start_position_object', 'Object', (o) => o.id !== ob.id), !r.start_position_object ? [num(r, 'start_position_x', 'Start Position X', { unit: 'distance' }), num(r, 'start_position_y', 'Y', { unit: 'distance' })] : null]),
     sub(m, 'time', 'Time', () => [num(r, 'time_offset', 'Offset', { anim: a('time_offset') }), num(r, 'lifetime', 'Life', { min: 0 }), num(r, 'damping_time', 'Damping', { min: 0 }), num(r, 'speed', 'Speed', { softMin: -1, softMax: 1, anim: a('speed') })]),
+  ];
+};
+
+// ---------------------------------------------------------------------------
+// Warp
+
+const FALLOFF_TYPES: [string, string][] = [
+  ['NONE', 'No Falloff'],
+  ['CURVE', 'Curve'],
+  ['SMOOTH', 'Smooth'],
+  ['SPHERE', 'Sphere'],
+  ['ROOT', 'Root'],
+  ['INVERSE_SQUARE', 'Inverse Square'],
+  ['SHARP', 'Sharp'],
+  ['LINEAR', 'Linear'],
+  ['CONSTANT', 'Constant'],
+];
+
+function boneRow(r: Rec, objKey: string, key: string): Child {
+  const id = r[objKey] as string | null;
+  const o = id ? app.doc.objects[id] : undefined;
+  const arm = o?.type === 'ARMATURE' && o.data ? app.doc.armatures[o.data] : undefined;
+  if (!arm) return null;
+  return splitRow('Bone', enumMenu(`${String(r.id)}.${key}`, [{ value: '', label: '—' }, ...arm.bones.map((b) => ({ value: b.name, label: b.name, icon: 'bone_data' }))], String(r[key] ?? ''), (v) => ((r[key] = v), touch('Set Bone'))));
+}
+
+modifierFields.WARP = [];
+modifierExtraUI.WARP = (ob, m) => {
+  const r = m as Rec;
+  return [
+    objRow(r, 'object_from', 'Object From', (o) => o.id !== ob.id),
+    boneRow(r, 'object_from', 'bone_from'),
+    objRow(r, 'object_to', 'Object To', (o) => o.id !== ob.id),
+    boneRow(r, 'object_to', 'bone_to'),
+    bool(r, 'use_volume_preserve', 'Preserve Volume'),
+    num(r, 'strength', 'Strength', { softMin: -100, softMax: 100, anim: { ob, path: `modifiers["${m.name}"].strength` } }),
+    vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
+    sub(m, 'falloff', 'Falloff', () => [enumProp(r, 'falloff_type', 'Type', FALLOFF_TYPES), r.falloff_type !== 'NONE' ? num(r, 'falloff_radius', 'Radius', { unit: 'distance', min: 0 }) : null, r.falloff_type === 'CURVE' ? curveWidget(m, 'falloff_curve') : null]),
+    sub(m, 'texture', 'Texture', () => textureRows(m, 'texture')),
   ];
 };
