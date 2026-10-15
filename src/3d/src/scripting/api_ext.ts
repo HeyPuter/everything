@@ -4,3 +4,4 @@ import './api_anim';
 import './api_data';
 import './handlers';
 import './api_context';
+import './api_shapes';

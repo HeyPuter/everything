@@ -228,3 +228,32 @@ describe('handlers and timers', () => {
     expect(obj('Cube').location[0]).toBe(3);
   });
 });
+
+describe('curves and shape keys', () => {
+  it('splines.new and points.add build curves', () => {
+    expect(
+      run(`
+      const cu = D.curves.new('Path', 'CURVE'); cu.dimensions = '3D';
+      const sp = cu.splines.new('BEZIER'); sp.bezier_points.add(2);
+      sp.bezier_points[2].co = [2, 0, 0];
+      const poly = cu.splines.new('POLY'); poly.points.add(3);
+      print(cu.splines.length, sp.bezier_points.length, poly.points.length, sp.bezier_points[2].co.x, poly.points[0].co.w);
+      const ob = D.objects.new('Path', cu); C.collection.objects.link(ob);
+    `),
+    ).toBe('2 3 4 2 1');
+  });
+
+  it('shape keys with point data and keyframed values', () => {
+    expect(
+      run(`
+      const ob = D.objects['Cube'];
+      ob.shape_key_add({name: 'Basis'}); const k = ob.shape_key_add({name: 'Up'});
+      k.data[0].co.z += 1; k.value = 0.5;
+      k.keyframe_insert('value', {frame: 3});
+      const keys = ob.data.shape_keys.key_blocks;
+      print(keys.length, keys['Up'].relative_key.name, ob.active_shape_key_index, ob.animation_data.action.fcurves[0].data_path);
+      ob.shape_key_remove(k); print(ob.data.shape_keys.key_blocks.length);
+    `),
+    ).toBe('2 Basis 0 data.shape_keys.key_blocks["Up"].value\n1');
+  });
+});
