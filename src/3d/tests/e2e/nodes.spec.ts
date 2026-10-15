@@ -360,3 +360,16 @@ test('Esc cancels a link drag, overlays toggle, backdrop sampling', async ({ pag
   expect(px!.map((v) => Math.round(v * 100) / 100)).toEqual([0, 0, 0, 0, 1, 0.5]);
   await expectNoErrors(errors);
 });
+
+test('typing in the Add menu searches nodes', async ({ page }) => {
+  const { errors } = await nodeEditor(page);
+  const before = await withTree<number>(page, '(ed, t) => t.nodes.length');
+  await page.keyboard.press('Shift+A');
+  await page.keyboard.type('invert');
+  await expect(page.locator('.search-input')).toHaveValue('invert');
+  await page.keyboard.press('Enter');
+  await page.mouse.click(400, 600);
+  expect(await withTree(page, '(ed, t) => t.nodes.length')).toBe(before + 1);
+  expect(await withTree(page, '(ed, t) => t.nodes.some((n) => n.type === "ShaderNodeInvert")')).toBe(true);
+  await expectNoErrors(errors);
+});

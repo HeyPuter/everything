@@ -291,7 +291,7 @@ export class CompositorEditor extends NodeEditor {
       { class: 'hdr-row nd-header' },
       menu('View', () => this.compositorViewMenu()),
       menu('Select', () => selectMenu()),
-      menu('Add', () => this.addMenuItems()),
+      this.addMenuButton(),
       menu('Node', () => nodeMenuItems(this)),
       h('div', { class: 'hdr-spacer' }),
       h(

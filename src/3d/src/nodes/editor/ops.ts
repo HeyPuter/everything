@@ -59,7 +59,8 @@ const ops: Operator[] = [
     invoke: (ctx) => {
       const ed = nodeEditorOf(ctx)!;
       const at = { x: app.pointer.x, y: app.pointer.y };
-      openMenu(ed.addMenuItems(at), at, { title: 'Add' });
+      // typing in the Add menu searches all nodes
+      openMenu(ed.addMenuItems(at), at, { title: 'Add', onType: (ch) => ed.addSearch(at, ch) });
       return 'CANCELLED';
     },
   },
@@ -525,7 +526,15 @@ const inTree = () => !!hoverEditor()?.tree();
 
 addKeys('Node Editor', [
   { key: 'A', shift: true, op: 'node.add_menu' },
-  { key: 'S', shift: true, menu: () => hoverEditor()?.swapMenuItems() ?? [], menuTitle: 'Swap', when: () => inTree() && !!hoverEditor()?.selectedIds().length },
+  {
+    key: 'S',
+    shift: true,
+    when: () => inTree() && !!hoverEditor()?.selectedIds().length,
+    action: () => {
+      const ed = hoverEditor()!;
+      openMenu(ed.swapMenuItems(), { x: app.pointer.x, y: app.pointer.y }, { title: 'Swap', onType: (ch) => ed.swapSearch(ch) });
+    },
+  },
   { key: 'A', op: 'node.select_all', props: { action: 'SELECT' } },
   { key: 'A', alt: true, op: 'node.select_all', props: { action: 'DESELECT' } },
   { key: 'I', ctrl: true, op: 'node.select_all', props: { action: 'INVERT' } },

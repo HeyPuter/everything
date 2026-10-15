@@ -250,12 +250,27 @@ export class NodeEditor implements Editor {
       p.headerLeft?.(this) ?? null,
       menu('View', () => viewMenu(this)),
       menu('Select', () => selectMenu()),
-      menu('Add', () => this.addMenuItems()),
+      this.addMenuButton(),
       menu('Node', () => nodeMenuItems(this)),
       h('div', { class: 'hdr-spacer' }),
       p.headerRight?.(this) ?? null,
       h('div', { class: 'hdr-spacer' }),
       this.headerToggles(),
+    );
+  }
+
+  /** The header's Add menu (typing in it searches all nodes). */
+  addMenuButton(): Child {
+    return h(
+      'button',
+      {
+        class: 'hdr-menu',
+        onpointerdown: (e: PointerEvent) => {
+          e.preventDefault();
+          openMenu(this.addMenuItems(), e.currentTarget as HTMLElement, { onType: (ch) => this.addSearch(undefined, ch) });
+        },
+      },
+      'Add',
     );
   }
 
@@ -409,7 +424,7 @@ export class NodeEditor implements Editor {
   }
 
   /** Search entries for adding nodes (including operation variants). */
-  addSearchEntries(at?: { x: number; y: number }): SearchEntry[] {
+  addSearchEntries(at?: { x: number; y: number }, pick: (idname: string, settings: Record<string, unknown>) => void = (i, st) => this.addNodeInteractive(i, st, at)): SearchEntry[] {
     const out: SearchEntry[] = [];
     const walk = (c: MenuCategory, path: string) => {
       for (const it of c.items) {
@@ -421,7 +436,7 @@ export class NodeEditor implements Editor {
           out.push({
             label: it.label ?? def.label,
             path,
-            run: () => this.addNodeInteractive(it.idname, it.settings ?? {}, at),
+            run: () => pick(it.idname, it.settings ?? {}),
           });
           // operation variants (Math ▸ Add, Vector Math ▸ Cross Product, …)
           const op = def.props.find((p) => p.id === 'operation' && p.items);
@@ -430,7 +445,7 @@ export class NodeEditor implements Editor {
               out.push({
                 label: `${def.label} ▸ ${l}`,
                 path,
-                run: () => this.addNodeInteractive(it.idname, { operation: v }, at),
+                run: () => pick(it.idname, { operation: v }),
               });
         } else walk(it, path ? `${path} ▸ ${it.label}` : it.label);
       }
@@ -441,23 +456,29 @@ export class NodeEditor implements Editor {
         label: g.name,
         path: 'Group',
         icon: 'node_tree',
-        run: () => this.addNodeInteractive(groupNodeType(this.treeType()), { node_tree: g.id }, at),
+        run: () => pick(groupNodeType(this.treeType()), { node_tree: g.id }),
       });
     out.push({
       label: 'Frame',
       path: 'Layout',
-      run: () => this.addNodeInteractive('NodeFrame', {}, at),
+      run: () => pick('NodeFrame', {}),
     });
     out.push({
       label: 'Reroute',
       path: 'Layout',
-      run: () => this.addNodeInteractive('NodeReroute', {}, at),
+      run: () => pick('NodeReroute', {}),
     });
     return out;
   }
 
-  addSearch(at?: { x: number; y: number }) {
-    openSearch(() => this.addSearchEntries(at), app.pointer.x - 150, app.pointer.y - 20, 'Search nodes…');
+  addSearch(at?: { x: number; y: number }, initial = '') {
+    openSearch(() => this.addSearchEntries(at), app.pointer.x - 150, app.pointer.y - 20, 'Search nodes…', initial);
+  }
+
+  /** Search for the node type to swap the selected nodes to. */
+  swapSearch(initial = '') {
+    const pick = (type: string, settings: Record<string, unknown>) => app.run('node.swap_node', { type, settings: JSON.stringify(settings) }, { area: this.area });
+    openSearch(() => this.addSearchEntries(undefined, pick), app.pointer.x - 150, app.pointer.y - 20, 'Swap to…', initial);
   }
 
   /** Add a node under the pointer and start moving it (like the reference Add menu). */
