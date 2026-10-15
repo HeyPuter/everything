@@ -55,6 +55,8 @@ export interface BrushInfo {
   icon: string;
   shortcut?: string;
   description: string;
+  /** brushes from asset libraries: how to make it the active brush (instead of selecting `id`) */
+  pick?: () => void;
 }
 
 const S = (id: string, name: string, tool: string, icon: string, description: string, shortcut?: string): BrushInfo => ({ id, name, tool, icon, description, shortcut });

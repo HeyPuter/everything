@@ -6,6 +6,7 @@ import type { MenuItem } from '../ui/menu';
 import { snapMenu } from '../editors/view3d/menus';
 import { addModifierMenu } from '../editors/properties/stack';
 import { objectTransformMenu as transformMenu, mirrorMenu } from '../editors/view3d/transformui';
+import { objectAssetMenu } from '../assets/menus';
 
 export { mirrorMenu };
 
@@ -266,6 +267,7 @@ export function objectMenu(): MenuItem[] {
     { label: 'Copy Objects', op: 'view3d.copybuffer', shortcut: 'Ctrl C' },
     { label: 'Paste Objects', op: 'view3d.pastebuffer', shortcut: 'Ctrl V' },
     { separator: true },
+    { label: 'Asset', submenu: () => objectAssetMenu() },
     { label: 'Collection', submenu: collectionMenu },
     { separator: true },
     { label: 'Relations', submenu: relationsMenu },

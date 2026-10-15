@@ -45,6 +45,9 @@ src/
   prefs/      Preferences editor: sections, keymap editor + key configurations, themes, studio
               lights / MatCaps / HDRIs, add-ons, NDOF devices
   assistant/  AI assistant sidebar (Puter AI): agent loop, scene snapshot, tools over the scripting API
+  assets/     Asset system: asset metadata on data-blocks (asset_data), catalogs, libraries (Current
+              File, built-in Essentials, user libraries in IndexedDB), previews, Asset Browser editor
+              (ASSETS), drag and drop, pose library, import of .blend asset marks (io/blend/assets.ts)
   edit/, modifiers/, storage/document.ts, core/   legacy polygon kernels kept for reuse
                                                  (unwrap/UV) and the legacy .3d.json parser
 ```
@@ -211,6 +214,11 @@ adds entries to File ▸ Import/Export. Native format: `io/native.ts`.
   add entries to the right-click menu of menu items
 - `ui/props.ts` `propertyAnimMenuHook` (right-click menu of keyframe decorators), `anim/keyingsets.ts`
   `propertyAnimExtraItems`; `editors/properties/tabs.ts` `sceneKeyingPanel`, `armatureDataPanels`
+- Assets (`assets/`): any data-block of an asset table can carry `asset_data`; `doc.asset_catalogs`
+  holds the file's catalogs. Menus of other editors are extended through hooks: `rowMenuHooks` /
+  `rowBadgeHooks` (`editors/outliner/menus.ts`), `idSelectorMenuHooks` (`ui/idmenu.ts`, data-block
+  selectors), `addMenuExtras` (`nodes/editor/context.ts`, node Add menu and search),
+  `shelfCategoryHooks` (`paint/assetshelf.ts`), `idAssetHooks` (`scripting/api.ts`, `ID.asset_mark()`)
 - Animation editors (`animation/animeditor.ts`): `selectables()` feeds box/circle/lasso selection,
   `overlay` draws transient circle/lasso/slider readouts, `snapTo()`/`snapHeader()` snapping options;
   key-shaping logic lives in `animation/fcurvetools.ts` (pure) and its operators in `graphtools.ts`

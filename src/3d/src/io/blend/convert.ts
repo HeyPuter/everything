@@ -10,6 +10,7 @@ import { convertMesh } from './mesh';
 import { convertNodeTree } from './nodes';
 import { convertModifiers, convertConstraints } from './modifiers';
 import { convertAnimData, mergeAnimData } from './anim';
+import { readAssetMarks } from './assets';
 
 export interface BlendImport {
   doc: DocumentData;
@@ -800,6 +801,7 @@ export function convertBlend(f: BlendFile): BlendImport {
     }
   }
 
+  readAssetMarks(f, ctx, convertWorld);
   const masterData = doc.collections[masterId];
   return {
     doc,

@@ -1149,6 +1149,8 @@ export function poseMenu(): MenuItem[] {
       ],
     },
     { label: 'Bone Settings', submenu: boneOptionsMenu('TOGGLE'), shortcut: 'Shift W' },
+    { separator: true },
+    { label: 'Create Pose Asset…', op: 'poselib.create_pose_asset' },
   ];
 }
 

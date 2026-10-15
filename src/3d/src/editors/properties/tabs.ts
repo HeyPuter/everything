@@ -10,6 +10,7 @@ import { newMaterial, uid, newWorld } from '../../data/defaults';
 import { uniqueName } from '../../ops/object';
 import { cloneShared } from '../../data/cow';
 import { openMenu } from '../../ui/menu';
+import { idSelectorMenuHooks } from '../../ui/idmenu';
 import { materialSlots } from '../view3d/draw';
 import { uiList } from './uilist';
 import { cameraPanels } from '../../render/final/props/camera';
@@ -326,7 +327,16 @@ export function dataBlockSelector<T extends { id: string; name: string; use_fake
   const cur = items.find((i) => i.id === current);
   return h(
     'div',
-    { class: 'id-selector' },
+    {
+      class: 'id-selector',
+      oncontextmenu: (e: MouseEvent) => {
+        const extra = cur ? idSelectorMenuHooks.flatMap((f) => f(cur.id)) : [];
+        if (!extra.length) return;
+        e.preventDefault();
+        e.stopPropagation();
+        openMenu(extra, { x: e.clientX, y: e.clientY });
+      },
+    },
     h(
       'button',
       {
