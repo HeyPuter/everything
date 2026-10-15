@@ -16,6 +16,7 @@ import { renderContext } from '../render/context';
 import { shell, type Shell } from './shell';
 import './topbar.css';
 import './appenddialog';
+import { externalDataMenu } from '../io/externaldata';
 
 /** File ▸ New entries (application templates, e.g. 2D Animation); modules append to it. */
 export const fileNewTemplates: { label: string; icon?: string; template: string }[] = [{ label: 'General', icon: 'file_blank', template: '' }];
@@ -69,6 +70,7 @@ export function fileMenu(): MenuItem[] {
     { label: 'Import', icon: 'import', submenu: importMenu },
     { label: 'Export', icon: 'export', submenu: exportMenu },
     { separator: true },
+    { label: 'External Data', submenu: externalDataMenu },
     { label: 'Clean Up', submenu: () => [{ label: 'Purge Unused Data…', op: 'outliner.orphans_purge' }] },
     { separator: true },
     {

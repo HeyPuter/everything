@@ -497,3 +497,27 @@ test('File > Append copies picked objects from another project', async ({ page }
   expect(await get(page, 'Object.keys(app.doc.objects).length')).toBe(3);
   await expectNoErrors(errors);
 });
+
+test('File > External Data: report and find missing files, unpack resources', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.doc.images.im_missing = { id: 'im_missing', name: 'wood', filepath: '//textures/wood.png', bytes: null, mime: 'image/png', width: 1, height: 1, source: 'FILE', colorspace: 'sRGB' };
+    a.run('file.report_missing_files');
+  });
+  expect(await get(page, 'app.reports.some(r => r.message.includes("Missing image \\"wood\\""))')).toBe(true);
+  const png = Buffer.from(
+    await page.evaluate(async () => {
+      const c = new OffscreenCanvas(2, 2);
+      c.getContext('2d')!.fillRect(0, 0, 2, 2);
+      return Array.from(new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()));
+    }),
+  );
+  page.once('filechooser', (fc) => fc.setFiles({ name: 'wood.png', mimeType: 'image/png', buffer: png }));
+  await page.evaluate(() => (window as any).app.run('file.find_missing_files'));
+  await expect.poll(() => get(page, 'app.doc.images.im_missing.width')).toBe(2);
+  const dl = page.waitForEvent('download');
+  await page.evaluate(() => (window as any).app.run('file.unpack_all'));
+  expect((await dl).suggestedFilename()).toBe('untitled_resources.zip');
+  await expectNoErrors(errors);
+});
