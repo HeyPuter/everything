@@ -526,3 +526,15 @@ test('sequencer: dragging the edit point between touching strips rolls the cut',
   expect(r[0]).toBeGreaterThan(45);
   await expectNoErrors(errors);
 });
+
+test('sequencer: with "Snap to Strips" the playhead snaps to strip edges while scrubbing', async ({ page }) => {
+  const { errors } = await videoWorkspace(page);
+  await page.evaluate(() => ((window as any).app.doc.scene.tool_settings.sequencer_tool_settings.use_snap_current_frame_to_strips = true));
+  const p = await stripPoint(page, 'Color.001', 0);
+  const ppf = await page.evaluate(() => (window as any).app.hoverArea.editor.ppf);
+  const ruler = (await page.locator('.seq-main canvas').last().boundingBox())!;
+  // press in the ruler a little right of frame 41
+  await page.mouse.click(p.x + Math.min(6, ppf * 2), ruler.y + 10);
+  expect(await page.evaluate(() => (window as any).app.doc.scene.frame_current)).toBe(41);
+  await expectNoErrors(errors);
+});

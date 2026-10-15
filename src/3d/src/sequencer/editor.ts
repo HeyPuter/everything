@@ -447,6 +447,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       h('div', { class: 'pop-label' }, 'Ignore'),
       t('snap_ignore_muted', 'Muted Strips'),
       t('snap_ignore_sound', 'Sound Strips'),
+      h('div', { class: 'pop-label' }, 'Current Frame'),
+      checkbox('seq-snap-playhead', 'Snap to Strips', !!ts.use_snap_current_frame_to_strips, (v) => ((ts.use_snap_current_frame_to_strips = v), app.pushUndo('Snapping'), app.changed('ui'))),
       numberField({ id: 'seq-snap-dist', label: 'Snapping Distance', value: ts.snap_distance, int: true, min: 1, max: 100, unit: 'pixel', set: (v, f) => ((ts.snap_distance = v), f && app.pushUndo('Snapping Distance')) }),
     );
   }
@@ -1903,8 +1905,15 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   }
 
   scrub(e: PointerEvent) {
+    const ts = toolSettings();
+    const snapOn = (ev: PointerEvent) => !!ts.use_snap_current_frame_to_strips && (app.doc.scene.tool_settings.use_snap_sequencer ?? true) !== (ev.ctrlKey || ev.metaKey);
     const set = (ev: PointerEvent) => {
-      const f = Math.round(this.pointerFrame(ev.clientX));
+      let f = Math.round(this.pointerFrame(ev.clientX));
+      if (snapOn(ev) && hasEditor()) {
+        // the nearest strip edge within the snapping distance
+        const d = S.snapOffset([f], S.snapTargets(seqList(), new Set(), { ignoreMuted: ts.snap_ignore_muted, ignoreSound: ts.snap_ignore_sound }), ts.snap_distance / Math.max(1e-6, this.ppf));
+        if (d !== null) f += d;
+      }
       if (f !== app.doc.scene.frame_current) app.setFrame(f);
     };
     set(e);

@@ -317,6 +317,8 @@ export interface SequencerToolSettings {
   snap_ignore_muted: boolean;
   snap_ignore_sound: boolean;
   snap_distance: number;
+  /** scrubbing in the ruler snaps the playhead to strip edges (with snapping on) */
+  use_snap_current_frame_to_strips?: boolean;
   /** preview snapping targets */
   snap_to_borders?: boolean;
   snap_to_center?: boolean;
