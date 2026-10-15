@@ -76,7 +76,7 @@ export class NodeEditor implements Editor {
   /** snap nodes to the grid while moving / resizing (Ctrl inverts) */
   snap = false;
   showOverlays = true;
-  overlays = { wireColors: true, rerouteLabels: true, contextPath: true };
+  overlays = { wireColors: true, rerouteLabels: true, contextPath: true, previews: true };
   /** active toolbar tool and its selection mode */
   tool: NodeTool = 'SELECT_BOX';
   selectMode: SelectMode = 'SET';
@@ -303,7 +303,16 @@ export class NodeEditor implements Editor {
               e.preventDefault();
               openPopover(
                 e.currentTarget as HTMLElement,
-                () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, 'Node Editor Overlays'), ov('wireColors', 'Wire Colors'), ov('rerouteLabels', 'Reroute Auto Labels'), ov('contextPath', 'Context Path')),
+                () =>
+                  h(
+                    'div',
+                    { class: 'pop-panel' },
+                    h('div', { class: 'pop-title' }, 'Node Editor Overlays'),
+                    ov('wireColors', 'Wire Colors'),
+                    ov('rerouteLabels', 'Reroute Auto Labels'),
+                    ov('contextPath', 'Context Path'),
+                    this.providerId === 'SHADER' ? ov('previews', 'Previews') : null,
+                  ),
                 { width: 220 },
               );
             },
@@ -600,7 +609,7 @@ export class NodeEditor implements Editor {
         return (a.id === tree.active_node ? 1 : 0) - (b.id === tree.active_node ? 1 : 0);
       });
       const dim = this.socketDimmer();
-      const ma = tree.nodes.some((n) => n.show_preview) ? this.previewMaterial() : null;
+      const ma = this.showOverlays && this.overlays.previews && tree.nodes.some((n) => n.show_preview) ? this.previewMaterial() : null;
       const pkey = ma ? previewTreeKey(app.doc, ma) : '';
       for (const n of ordered) {
         const l = this.layouts.get(n.id);
@@ -855,7 +864,7 @@ export class NodeEditor implements Editor {
       if (ids && !ids.has(l.node.id)) continue;
       x0 = Math.min(x0, l.x);
       // a preview sits above the node
-      y0 = Math.min(y0, l.node.show_preview && !l.node.hide ? l.y - l.w - 4 : l.y);
+      y0 = Math.min(y0, l.node.show_preview && !l.node.hide && this.overlays.previews && this.previewMaterial() ? l.y - l.w - 4 : l.y);
       x1 = Math.max(x1, l.x + l.w);
       y1 = Math.max(y1, l.y + l.h);
     }
