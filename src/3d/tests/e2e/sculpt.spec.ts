@@ -138,3 +138,23 @@ test('mesh filter tool drag and expand mask (Shift+A)', async ({ page }) => {
   expect(m.masked).toBeLessThan(m.nv);
   await expectNoErrors(errors);
 });
+
+test('box trim tool cuts through the mesh', async ({ page }) => {
+  const errors = await openApp(page);
+  await setup(page, 'SCULPT', 'mesh.primitive_uv_sphere_add', { segments: 32, ring_count: 16, radius: 4 });
+  const c = await viewportCenter(page);
+  await page.evaluate(() => (window as unknown as W).app.run('paint.brush_select', { brush: 'builtin.box_trim' }));
+  await expect(page.locator('.tool-header')).toContainText('Box Trim');
+  const nf0 = (await meshInfo(page)).nf;
+  await page.mouse.move(c.x - 20, c.y - 40);
+  await page.mouse.down();
+  await page.mouse.move(c.x + 20, c.y + 40, { steps: 4 });
+  await page.mouse.up();
+  const after = await page.evaluate(() => {
+    const a = (window as unknown as W).app;
+    return { op: a.lastOp?.idname, nf: a.doc.meshes[a.activeObject.data].offsets.length - 1 };
+  });
+  expect(after.op).toBe('sculpt.trim_box_gesture');
+  expect(after.nf).not.toBe(nf0);
+  await expectNoErrors(errors);
+});

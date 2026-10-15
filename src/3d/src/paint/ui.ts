@@ -898,6 +898,7 @@ editModeHooks.pointer.push((v, e) => {
   const ob = app.activeObject;
   if (!ob || ob.type !== 'MESH') return false;
   const tool = activeTools[mode];
+  if (mode === 'SCULPT' && tool?.startsWith('builtin.') && !gestureTools[tool]) sculptToolSlots((op) => operators.has(op));
   if (mode === 'SCULPT' && gestureTools[tool]) return gestureToolPointer(v, e, tool);
   if (mode === 'SCULPT' && sculptToolHooks.pointer.some((f) => f(v, e, tool))) return true;
   if (mode === 'WEIGHT_PAINT' && tool === 'builtin.sample_weight') {

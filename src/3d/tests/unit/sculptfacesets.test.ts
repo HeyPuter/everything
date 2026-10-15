@@ -158,3 +158,41 @@ describe('gesture shapes', () => {
     expect(gestureFromProps('LASSO', { path: '[[0,0],[1,1]]' })).toBeNull();
   });
 });
+
+describe('trim geometry helpers', async () => {
+  const { cleanPolygon, triangulate2D, closeTJunctions } = await import('../../src/paint/trimmath');
+  it('drops collinear points and triangulates concave polygons', () => {
+    const square = [
+      { x: 0, y: 0 },
+      { x: 5, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 10 },
+      { x: 0, y: 10 },
+    ];
+    expect(cleanPolygon(square)).toHaveLength(4);
+    // an L shape (concave) has 6 corners → 4 triangles
+    const L = [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 4 },
+      { x: 4, y: 4 },
+      { x: 4, y: 10 },
+      { x: 0, y: 10 },
+    ];
+    const t = triangulate2D(L);
+    expect(t).toHaveLength(12);
+    let area = 0;
+    for (let i = 0; i < t.length; i += 3) {
+      const [a, b, c] = [L[t[i]], L[t[i + 1]], L[t[i + 2]]];
+      area += Math.abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) / 2;
+    }
+    expect(area).toBeCloseTo(64);
+  });
+  it('splits triangles at T-junctions', () => {
+    // two triangles on the left share the edge 0-1 split at vertex 4, with one big triangle on the right
+    const P = [0, 0, 0, 0, 2, 0, 1, 1, 0, -1, 1, 0, 0, 1, 0];
+    const faces = [{ verts: [0, 1, 2] }, { verts: [1, 4, 3] }, { verts: [4, 0, 3] }];
+    closeTJunctions(P, faces);
+    expect(faces).toHaveLength(4);
+  });
+});

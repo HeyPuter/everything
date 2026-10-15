@@ -9,6 +9,7 @@ import './gestureops';
 import './meshfilter';
 import './expand';
 import './maskops';
+import './trim';
 import './vpaint';
 import './wpaint';
 import './tpaint';
