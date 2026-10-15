@@ -295,6 +295,8 @@ export interface SequenceEditor {
   active_strip: string | null;
   /** names of the meta strips being edited, outermost first */
   meta_stack: string[];
+  /** play a short piece of the sound when the frame changes while not playing */
+  use_audio_scrub?: boolean;
   /** frame overlay: reference frame offset from the current frame (or the frame itself when locked) */
   overlay_frame?: number;
   show_overlay_frame?: boolean;

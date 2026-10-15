@@ -89,6 +89,16 @@ export function viewMenu(ed: SeqEditorLike & { showToolbar: boolean; showSidebar
       { separator: true },
       { label: 'Show Seconds', shortcut: 'Ctrl T', checked: ed.showSeconds, action: () => ((ed.showSeconds = !ed.showSeconds), ed.redraw(), app.changed('ui')) },
       { label: 'Show Markers', checked: ed.showMarkers, action: () => ((ed.showMarkers = !ed.showMarkers), ed.redraw()) },
+      {
+        label: 'Audio Scrubbing',
+        checked: hasEditor() && !!seqEditor().use_audio_scrub,
+        action: () => {
+          const e = seqEditor();
+          e.use_audio_scrub = !e.use_audio_scrub;
+          app.pushUndo('Audio Scrubbing');
+          app.changed('ui');
+        },
+      },
       { separator: true },
       {
         label: 'Range',

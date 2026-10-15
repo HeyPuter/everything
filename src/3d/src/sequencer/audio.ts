@@ -153,6 +153,38 @@ async function startAt(frame: number) {
   active = true;
 }
 
+let scrubVoices: AudioBufferSourceNode[] = [];
+let scrubFrame = NaN;
+
+/** Audio scrubbing: a frame's worth of sound (a little more) when the frame changes while stopped. */
+export async function scrubAudio(frame: number) {
+  if (frame === scrubFrame) return;
+  scrubFrame = frame;
+  const ed = app.doc.scene.sequence_editor;
+  if (!ed?.use_audio_scrub || app.playing) return;
+  const list = soundVoices(ed);
+  if (!list.length) return;
+  ctx ??= new AudioContext({ latencyHint: 'interactive' });
+  if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+  master ??= ctx.createGain();
+  master.connect(ctx.destination);
+  for (const v of scrubVoices)
+    try {
+      v.stop();
+    } catch {
+      /* ended */
+    }
+  scrubVoices = [];
+  const fps = app.doc.scene.render.fps / (app.doc.scene.render.fps_base || 1);
+  const bufs = await Promise.all(list.map((v) => loadSound(v.s.media!.bytes)));
+  if (frame !== scrubFrame || app.playing) return;
+  const t0 = ctx.currentTime + 0.01;
+  for (let i = 0; i < list.length; i++) {
+    const b = bufs[i];
+    if (b) scrubVoices.push(...schedule(ctx, master, b, list[i], fps, frame, t0, frame + Math.max(1, Math.round(fps / 10))));
+  }
+}
+
 /** Keep audio in step with timeline playback (called on every app update). */
 export function syncPlayback() {
   const s = app.doc.scene;

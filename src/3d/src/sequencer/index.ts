@@ -16,7 +16,7 @@ import { registerEditor, registerWorkspaceTemplate, A, H, V, type EditorTypeId }
 import { registerTab } from '../editors/properties/properties';
 import { SequencerEditor } from './editor';
 import { stripTab, modifiersTab } from './sidebar';
-import { syncPlayback } from './audio';
+import { syncPlayback, scrubAudio } from './audio';
 import { activeStrip, hasEditor } from './context';
 import { allStrips } from './strips';
 import { applyKeys } from './stripanim';
@@ -38,6 +38,8 @@ registerTab({ id: 'STRIP_MODIFIER', label: 'Strip Modifiers', icon: 'modifier', 
 
 // sound strips follow timeline playback (the app instance exists once the entry module has run)
 onAppReady((a) => a.subscribe(() => syncPlayback()));
+// audio scrubbing while stopped
+onAppReady((a) => a.subscribe((kinds) => kinds.has('frame') && !a.playing && a.doc.scene.sequence_editor?.use_audio_scrub && void scrubAudio(a.doc.scene.frame_current)));
 
 // text strips re-render once an embedded font has loaded
 onFontLoaded(() => app.changed('doc'));

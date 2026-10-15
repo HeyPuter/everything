@@ -553,3 +553,14 @@ test('sequencer: File ▸ Import ▸ Subtitles adds text strips', async ({ page 
   ]);
   await expectNoErrors(errors);
 });
+
+test('sequencer: View ▸ Audio Scrubbing toggles scrubbing', async ({ page }) => {
+  const { errors } = await videoWorkspace(page);
+  await addTone(page);
+  await page.locator('.seq-hdr').last().locator('.hdr-menu', { hasText: /^View$/ }).dispatchEvent('pointerdown');
+  await menuItem(page, 'Audio Scrubbing').click();
+  expect(await page.evaluate(() => (window as any).app.doc.scene.sequence_editor.use_audio_scrub)).toBe(true);
+  await page.evaluate(() => (window as any).app.setFrame(10));
+  await page.waitForTimeout(200);
+  await expectNoErrors(errors);
+});
