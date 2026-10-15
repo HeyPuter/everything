@@ -60,6 +60,20 @@ function poseLibrary(): Child {
                       { separator: true },
                       { label: 'Select Pose Bones', op: 'poselib.pose_asset_select_bones', props: { asset: ref, select: true } },
                       { label: 'Deselect Pose Bones', op: 'poselib.pose_asset_select_bones', props: { asset: ref, select: false } },
+                      ...(libraryInfo(e.library)?.editable
+                        ? [
+                            { separator: true },
+                            {
+                              label: 'Modify Pose Asset',
+                              submenu: () => [
+                                { label: 'Replace', op: 'poselib.asset_modify', props: { asset: ref, mode: 'REPLACE' } },
+                                { label: 'Add Selected Bones', op: 'poselib.asset_modify', props: { asset: ref, mode: 'ADD' } },
+                                { label: 'Remove Selected Bones', op: 'poselib.asset_modify', props: { asset: ref, mode: 'REMOVE' } },
+                              ],
+                            },
+                            { label: 'Delete Pose Asset', icon: 'trash', op: 'poselib.asset_delete', props: { asset: ref } },
+                          ]
+                        : []),
                     ],
                     { x: ev.clientX, y: ev.clientY },
                     { title: e.block.name },

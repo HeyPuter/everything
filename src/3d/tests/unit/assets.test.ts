@@ -12,7 +12,7 @@ import { importAsset, copyDatablocks, placeCollection, addCollectionInstance, du
 import { essentialsDocument } from '../../src/assets/essentials';
 import { assetsOf, decodeTargets, encodeTarget, newMetaData, type AssetCatalog, type AssetMetaData } from '../../src/assets/types';
 import { copyAssetsInto, purgeLibrary, parseAssetRef, assetRef } from '../../src/assets/library';
-import { poseToAction, applyPoseAsset, isPoseAction, poseBones } from '../../src/assets/poselib';
+import { poseToAction, applyPoseAsset, isPoseAction, poseBones, modifyPose } from '../../src/assets/poselib';
 import '../../src/assets/index';
 import { bpy } from '../../src/scripting/api';
 
@@ -259,6 +259,17 @@ describe('pose assets', () => {
     applyPoseAsset(emptyDocument(), ob, act, 1);
     expect(ob.pose.Arm.location).toEqual([1, 2, 3]);
     expect(ob.pose.Leg.location).toEqual([0, 0, 0]);
+    // add, remove and replace bones of the pose
+    ob.pose.Leg.select = true;
+    ob.pose.Leg.location = [0, 0, 5];
+    expect(modifyPose(act, ob, 'ADD')).toBe(true);
+    expect(poseBones(act).sort()).toEqual(['Arm', 'Leg']);
+    expect(modifyPose(act, ob, 'REMOVE')).toBe(true);
+    expect(poseBones(act)).toEqual(['Arm']);
+    ob.pose.Leg.select = false;
+    expect(modifyPose(act, ob, 'ADD')).toBe(false);
+    expect(modifyPose(act, ob, 'REPLACE')).toBe(true);
+    expect(poseBones(act).sort()).toEqual(['Arm', 'Leg']);
   });
 });
 

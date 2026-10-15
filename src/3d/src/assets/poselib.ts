@@ -9,7 +9,7 @@ import { promptText } from '../ui/menu';
 import { renderPreview } from './preview';
 import { ensureCatalogPath } from './catalogs';
 import { newMetaData } from './types';
-import { findAsset, libraryDoc } from './library';
+import { findAsset, libraryDoc, libraryInfo, libraryChanged, removeFromLibrary, LOCAL } from './library';
 
 const BONE_PATH = /^pose\.bones\["((?:[^"\\]|\\.)*)"\]\.(location|rotation_quaternion|rotation_euler|rotation_axis_angle|scale)$/;
 
@@ -86,6 +86,26 @@ export function poseToAction(ob: ObjectData, name: string): ActionData | null {
   return act;
 }
 
+/** Change a pose action with the current pose: replace it, add the selected bones, or remove them. */
+export function modifyPose(act: ActionData, ob: ObjectData, mode: 'REPLACE' | 'ADD' | 'REMOVE'): boolean {
+  if (!ob.pose) return false;
+  const sel = Object.entries(ob.pose).filter(([, pb]) => pb.select).map(([n]) => n);
+  if (mode === 'REPLACE') {
+    const fresh = poseToAction(ob, act.name);
+    if (!fresh) return false;
+    act.fcurves = fresh.fcurves;
+    return true;
+  }
+  if (!sel.length) return false;
+  const boneOf = (f: FCurve) => BONE_PATH.exec(f.data_path)?.[1].replace(/\\"/g, '"');
+  act.fcurves = act.fcurves.filter((f) => !sel.includes(boneOf(f) ?? ''));
+  if (mode === 'ADD') {
+    const sub = poseToAction(ob, act.name);
+    if (sub) act.fcurves.push(...sub.fcurves);
+  }
+  return true;
+}
+
 /** A pose action from an asset reference ("library|actions:id"); plain action ids of the file work too. */
 export function poseAsset(ref: string): ActionData | null {
   const e = findAsset(ref);
@@ -150,6 +170,51 @@ registerOperators([
       }
       if (!n) return 'CANCELLED';
       void ctx;
+    },
+  },
+  {
+    idname: 'poselib.asset_modify',
+    label: 'Modify Pose Asset',
+    description: 'Update a pose asset from the current pose: replace it, add the selected bones, or remove them from it',
+    props: [
+      { id: 'asset', label: 'Pose', type: 'string', default: '', hidden: true },
+      { id: 'mode', label: 'Mode', type: 'enum', default: 'REPLACE', items: [['REPLACE', 'Replace'], ['ADD', 'Add Selected Bones'], ['REMOVE', 'Remove Selected Bones']] },
+    ],
+    poll: inPose,
+    exec: (ctx, p) => {
+      const e = findAsset(String(p.asset));
+      const act = e ? poseAsset(String(p.asset)) : null;
+      const ob = app.activeObject;
+      if (!e || !act || !ob || !libraryInfo(e.library)?.editable) {
+        app.report('WARNING', 'Only pose assets of the current file or of user libraries can be changed');
+        return 'CANCELLED';
+      }
+      if (!modifyPose(act, ob, p.mode as 'REPLACE')) {
+        app.report('WARNING', 'Select the bones to add or remove');
+        return 'CANCELLED';
+      }
+      if (e.library !== LOCAL) {
+        libraryChanged(e.library);
+        return 'CANCELLED';
+      }
+      void ctx;
+    },
+  },
+  {
+    idname: 'poselib.asset_delete',
+    label: 'Delete Pose Asset',
+    description: 'Delete a pose asset of the current file (or remove it from its user library)',
+    props: [{ id: 'asset', label: 'Pose', type: 'string', default: '', hidden: true }],
+    exec: (ctx, p) => {
+      const e = findAsset(String(p.asset));
+      if (!e || e.table !== 'actions' || !libraryInfo(e.library)?.editable) return 'CANCELLED';
+      if (e.library === LOCAL) {
+        if (Object.values(ctx.doc.objects).some((o) => o.animation_data?.action === e.id)) delete e.block.asset_data;
+        else delete ctx.doc.actions[e.id];
+        return 'FINISHED';
+      }
+      removeFromLibrary(e.library, [{ table: 'actions', id: e.id }]);
+      return 'CANCELLED';
     },
   },
 ]);
