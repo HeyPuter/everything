@@ -809,3 +809,28 @@ describe('Grease Pencil nodes', () => {
     void greasePencilToCurves;
   });
 });
+
+describe('transform gizmo targets', () => {
+  it('edits a matrix modifier input or the parts of a Combine Transform node', async () => {
+    const { matrixTargets } = await import('../../src/geonodes/curves/gizmos');
+    const t = setup();
+    t.tree.interface!.push({ in_out: 'INPUT', name: 'Xform', socket_type: 'NodeSocketMatrix', identifier: 'Socket_2' });
+    const gi = addNode(t.tree, 'NodeGroupInput', [0, 0]);
+    const gz = node(t, 'GeometryNodeGizmoTransform');
+    link(t, gi, 'Socket_2', gz, 'Value');
+    const mod = { id: 'md', type: 'NODES' } as unknown as ModifierBase;
+    const [mt] = matrixTargets(t.tree, mod, gz);
+    expect(mt.get()).toEqual([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+    mt.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 2, 3, 4, 1]);
+    expect((mod as unknown as Record<string, number[]>).Socket_2.slice(12, 15)).toEqual([2, 3, 4]);
+    // a combine transform node (when registered) gets its unlinked parts edited
+    t.tree.nodes.push({ id: 'ct', type: 'FunctionNodeCombineTransform', name: 'ct', label: '', location: [0, 0], inputs: { Translation: [1, 0, 0] }, props: {} } as never);
+    t.tree.links.push({ id: 'l1', from_node: 'ct', from_socket: 'Transform', to_node: gz.id, to_socket: 'Value' } as never);
+    const ct = matrixTargets(t.tree, mod, gz).find((x) => x.label === 'Combine Transform')!;
+    expect(ct.get().slice(12, 15)).toEqual([1, 0, 0]);
+    ct.set([2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, 5, 6, 7, 1]);
+    const n = t.tree.nodes.find((x) => x.id === 'ct')!;
+    expect(n.inputs.Translation).toEqual([5, 6, 7]);
+    expect((n.inputs.Scale as number[]).map((x) => Math.round(x * 1e6) / 1e6)).toEqual([2, 2, 2]);
+  });
+});

@@ -3,7 +3,7 @@
 // math) that dragging a handle changes.
 import { gn, prop } from './defs';
 import { alwaysEvaluated, type ExecContext } from '../exec';
-import { GeometrySet } from '../geometry';
+import { GeometrySet, composeMat, decomposeMat } from '../geometry';
 import type { DocumentData, LinkData, ModifierBase, NodeData, NodeTreeData } from '../../data/types';
 import { place } from './menu';
 
@@ -203,6 +203,23 @@ export function matrixTargets(tree: NodeTreeData, mod: ModifierBase | null, node
           return Array.isArray(v) && v.length === 16 ? (v as number[]).slice() : ident.slice();
         },
         set: (mat) => (m[id] = mat.slice()),
+      });
+    } else if (from.type === 'FunctionNodeCombineTransform') {
+      // edit the unlinked translation / rotation / scale of the matrix built from parts
+      const free = (sock: string) => !linksTo(tree, from.id, sock).length;
+      const vec = (sock: string, d: number[]) => {
+        const v = from.inputs[sock];
+        return Array.isArray(v) ? [v[0] ?? d[0], v[1] ?? d[1], v[2] ?? d[2]] : d.slice();
+      };
+      out.push({
+        label: from.label || 'Combine Transform',
+        get: () => Array.from(composeMat(vec('Translation', [0, 0, 0]), vec('Rotation', [0, 0, 0]), vec('Scale', [1, 1, 1]))),
+        set: (mat) => {
+          const d = decomposeMat(mat);
+          if (free('Translation')) from.inputs.Translation = d.t;
+          if (free('Rotation')) from.inputs.Rotation = d.r;
+          if (free('Scale')) from.inputs.Scale = d.s;
+        },
       });
     }
   };
