@@ -61,11 +61,11 @@ test('dragging a linear gizmo changes the linked value', async ({ page }) => {
      return v.id;`,
   );
   await page.waitForTimeout(300);
-  const handle = page.locator('[data-gngizmo$="|lin"]').first();
+  const handle = page.locator('.gz-hit[data-gngizmo$="|lin"]').first();
   const b = (await handle.boundingBox())!;
-  await page.mouse.move(b.x + b.width / 2, b.y + b.height - 4);
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height * 0.6);
   await page.mouse.down();
-  await page.mouse.move(b.x + b.width / 2, b.y + b.height - 64, { steps: 8 });
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height * 0.6 - 60, { steps: 8 });
   await page.mouse.up();
   const value = () =>
     page.evaluate(
@@ -107,5 +107,50 @@ test('import nodes store the opened file and read it', async ({ page }) => {
   }, nodeId);
   expect(state).toEqual({ path: 'tri.stl', files: ['tri.stl'] });
   await expect(page.locator(`[data-node="${nodeId}"] .nd-ids-name`)).toHaveText('tri.stl');
+  await expectNoErrors(errors);
+});
+
+test('dial and transform gizmos draw handles and edit their values', async ({ page }) => {
+  const { errors } = await geometryNodes(page);
+  const ids = await inTree<{ val: string; group: string }>(
+    page,
+    `const v = T.addNode(tree, 'ShaderNodeValue', [-500, -200]);
+     v.props['outputs.Value'] = 0;
+     const d = T.addNode(tree, 'GeometryNodeGizmoDial', [-250, -250]);
+     d.inputs.Position = [0, 0, 1.5];
+     T.connect(T.ctxOf(a.doc, tree), v.id, 'Value', d.id, 'Value');
+     const tg = T.addNode(tree, 'GeometryNodeGizmoTransform', [-250, -450]);
+     tg.inputs.Position = [0, 6, 0];
+     a.pushUndo('Add Gizmos');
+     return { val: v.id, group: '' };`,
+  );
+  await page.waitForTimeout(300);
+  // the transform gizmo draws three rings, three arrows and three boxes
+  expect(await page.locator('.gz:not(.gz-hit)[data-gngizmo*="|r:"]').count()).toBe(3);
+  expect(await page.locator('.gz:not(.gz-hit)[data-gngizmo*="|t:"]').count()).toBe(6);
+  expect(await page.locator('[data-gngizmo*="|s:"]').count()).toBe(3);
+  // points along the dial ring (screen space): drag a quarter turn along it
+  const pts = await page.evaluate(() => {
+    const path = document.querySelector('.gz-hit[data-gngizmo$="|dial"]') as SVGPathElement;
+    const m = path.getScreenCTM()!;
+    const len = path.getTotalLength();
+    return Array.from({ length: 9 }, (_, k) => {
+      const p = path.getPointAtLength((k / 8) * len * 0.25);
+      return { x: m.a * p.x + m.c * p.y + m.e, y: m.b * p.x + m.d * p.y + m.f };
+    });
+  });
+  await page.mouse.move(pts[0].x, pts[0].y);
+  await page.mouse.down();
+  for (const p of pts.slice(1)) await page.mouse.move(p.x, p.y, { steps: 2 });
+  await page.mouse.up();
+  const v = await page.evaluate(
+    (id) =>
+      Object.values((window as any).app.doc.node_groups as Record<string, any>)
+        .flatMap((g) => g.tree.nodes)
+        .find((n) => n.id === id).props['outputs.Value'],
+    ids.val,
+  ); // eslint-disable-line @typescript-eslint/no-explicit-any
+  expect(Math.abs(v)).toBeGreaterThan(0.8);
+  expect(Math.abs(v)).toBeLessThan(2.4);
   await expectNoErrors(errors);
 });

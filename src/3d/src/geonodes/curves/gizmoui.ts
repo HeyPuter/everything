@@ -81,7 +81,11 @@ function arrow(v: View3D, from: Vector3, to: Vector3, color: string, style: stri
   const ux = dx / l,
     uy = dy / l;
   const common = { 'data-gngizmo': gizmo, class: 'gz' };
-  const parts: VNode[] = [h('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: color, 'stroke-width': 2.2, ...common })];
+  const parts: VNode[] = [
+    // wide transparent stroke: easier to grab than the visible line
+    h('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: 'transparent', 'stroke-width': 12, 'data-gngizmo': gizmo, class: 'gz gz-hit' }),
+    h('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: color, 'stroke-width': 2.2, ...common }),
+  ];
   if (style === 'CROSS') parts.push(h('path', { d: `M${b.x - 6} ${b.y - 6}L${b.x + 6} ${b.y + 6}M${b.x - 6} ${b.y + 6}L${b.x + 6} ${b.y - 6}`, stroke: color, 'stroke-width': 2.2, ...common }));
   else if (style === 'BOX') parts.push(h('rect', { x: b.x - 5, y: b.y - 5, width: 10, height: 10, fill: color, ...common }));
   else parts.push(h('path', { d: `M${b.x + ux * 12} ${b.y + uy * 12}L${b.x - uy * 5} ${b.y + ux * 5}L${b.x + uy * 5} ${b.y - ux * 5}Z`, fill: color, ...common }));
@@ -109,13 +113,22 @@ function drawGizmo(v: View3D, g: Live): VNode[] {
   if (g.state.kind === 'DIAL') {
     const up = new Vector3(...g.state.axis).applyMatrix3(g.basis);
     if (up.lengthSq() < 1e-12) return [];
-    return [h('path', { d: ringPath(v, g.pos, up.normalize(), dialRadius(v, g)), fill: 'none', stroke: col, 'stroke-width': 2.6, 'data-gngizmo': `${key}|dial`, class: 'gz' })];
+    const d = ringPath(v, g.pos, up.normalize(), dialRadius(v, g));
+    return [
+      h('path', { d, fill: 'none', stroke: 'transparent', 'stroke-width': 12, 'data-gngizmo': `${key}|dial`, class: 'gz gz-hit' }),
+      h('path', { d, fill: 'none', stroke: col, 'stroke-width': 2.6, 'data-gngizmo': `${key}|dial`, class: 'gz' }),
+    ];
   }
   const parts: VNode[] = [];
   const axes = [0, 1, 2].map((i) => new Vector3().setFromMatrix3Column(g.basis, i).normalize());
   const u = g.state.use;
   axes.forEach((ax, i) => {
-    if (u.rotate[i]) parts.push(h('path', { d: ringPath(v, g.pos, ax, size * 0.9), fill: 'none', stroke: AXIS[i], 'stroke-width': 2, 'data-gngizmo': `${key}|r:${i}`, class: 'gz' }));
+    if (!u.rotate[i]) return;
+    const d = ringPath(v, g.pos, ax, size * 0.9);
+    parts.push(
+      h('path', { d, fill: 'none', stroke: 'transparent', 'stroke-width': 10, 'data-gngizmo': `${key}|r:${i}`, class: 'gz gz-hit' }),
+      h('path', { d, fill: 'none', stroke: AXIS[i], 'stroke-width': 2, 'data-gngizmo': `${key}|r:${i}`, class: 'gz' }),
+    );
   });
   axes.forEach((ax, i) => {
     if (u.translate[i]) parts.push(...arrow(v, g.pos.clone().addScaledVector(ax, size * 0.2), g.pos.clone().addScaledVector(ax, size * 1.15), AXIS[i], 'ARROW', `${key}|t:${i}`));
