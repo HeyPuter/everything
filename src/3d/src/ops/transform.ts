@@ -49,6 +49,8 @@ export interface TProvider {
 }
 
 export const transformProviders: TProvider[] = [];
+/** Adjust an object's new loc/rot/scale while it is being transformed (e.g. limit constraints that affect transforms). */
+export const objectTransformFilters: ((ob: ObjectData) => void)[] = [];
 
 type Collected = NonNullable<ReturnType<TProvider['collect']>>;
 
@@ -120,6 +122,7 @@ function objectElement(ob: ObjectData, ids: Set<string>, weight: number, distanc
         }
         if (ob.lock_scale[i]) ob.scale[i] = before.scale[i];
       }
+      for (const f of objectTransformFilters) f(ob);
       originOnly?.apply();
       if (children.length) {
         const newWorld = parentMat.clone().multiply(localMatrix(ob, new Matrix4()));

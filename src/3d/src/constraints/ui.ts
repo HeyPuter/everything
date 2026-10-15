@@ -231,22 +231,26 @@ const drawers: Record<string, (ob: ObjectData, c: C, bone?: string) => Child> = 
       ['LIMITDIST_OUTSIDE', 'Outside'],
       ['LIMITDIST_ONSURFACE', 'On Surface'],
     ]),
+    affect(c, bone),
   ],
-  LIMIT_LOCATION: (_ob, c) => [
+  LIMIT_LOCATION: (_ob, c, bone) => [
     ...(['x', 'y', 'z'] as const).map((a) => checkValue(c, `use_min_${a}`, `min_${a}`, `Minimum ${a.toUpperCase()}`, { unit: 'distance' })),
     ...(['x', 'y', 'z'] as const).map((a) => checkValue(c, `use_max_${a}`, `max_${a}`, `Maximum ${a.toUpperCase()}`, { unit: 'distance' })),
+    affect(c, bone),
   ],
-  LIMIT_ROTATION: (_ob, c) => [
+  LIMIT_ROTATION: (_ob, c, bone) => [
     ...(['x', 'y', 'z'] as const).flatMap((a) => [
       bool(c, `use_limit_${a}`, `Limit ${a.toUpperCase()}`),
       c[`use_limit_${a}`] ? [num(c, `min_${a}`, 'Min', { unit: 'angle' }), num(c, `max_${a}`, 'Max', { unit: 'angle' })] : null,
     ]),
     enumProp(c, 'euler_order', 'Order', EULER_ORDERS),
     bool(c, 'use_legacy_behavior', 'Legacy Behavior'),
+    affect(c, bone),
   ],
-  LIMIT_SCALE: (_ob, c) => [
+  LIMIT_SCALE: (_ob, c, bone) => [
     ...(['x', 'y', 'z'] as const).map((a) => checkValue(c, `use_min_${a}`, `min_${a}`, `Minimum ${a.toUpperCase()}`)),
     ...(['x', 'y', 'z'] as const).map((a) => checkValue(c, `use_max_${a}`, `max_${a}`, `Maximum ${a.toUpperCase()}`)),
+    affect(c, bone),
   ],
   MAINTAIN_VOLUME: (_ob, c) => [
     enumProp(c, 'mode', 'Mode', [
@@ -614,6 +618,12 @@ const drawers: Record<string, (ob: ObjectData, c: C, bone?: string) => Child> = 
     ];
   },
 };
+
+/** "Affect Transform" (object owners only: interactive transforms are limited too). */
+function affect(c: C, bone?: string): Child {
+  if (bone) return null;
+  return bool(c, 'use_transform_limit', 'Affect Transform', { tip: 'Moving, rotating or scaling the object is held within the limits as well' });
+}
 
 /** Volume variation rows shared by Stretch To and Spline IK. */
 function bulgeRows(c: C): Child {

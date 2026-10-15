@@ -388,6 +388,18 @@ export interface PoseBone {
   lock_ik_x?: boolean;
   lock_ik_y?: boolean;
   lock_ik_z?: boolean;
+  ik_stiffness_x?: number;
+  ik_stiffness_y?: number;
+  ik_stiffness_z?: number;
+  use_ik_limit_x?: boolean;
+  use_ik_limit_y?: boolean;
+  use_ik_limit_z?: boolean;
+  ik_min_x?: number;
+  ik_max_x?: number;
+  ik_min_y?: number;
+  ik_max_y?: number;
+  ik_min_z?: number;
+  ik_max_z?: number;
   select?: boolean;
 }
 

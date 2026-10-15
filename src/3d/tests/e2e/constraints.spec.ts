@@ -75,6 +75,19 @@ test('disable and keep transform, invalid constraints and the bone constraint me
   await page.evaluate(() => (window as any).app.run('object.constraint_add', { type: 'CLAMP_TO' }, { invoke: false }));
   await expect(page.locator('[data-con="Clamp To"].invalid')).toBeVisible();
 
+  // Affect Transform: moving the object stays inside the limits
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.activeObject.constraints = [];
+    a.run('object.constraint_add', { type: 'LIMIT_LOCATION' }, { invoke: false });
+    Object.assign(a.activeObject.constraints[0], { use_max_x: true, max_x: 1, use_transform_limit: true });
+    a.activeObject.location = [0, 0, 0];
+    a.changed('doc');
+  });
+  await expect(page.locator('[data-con="Limit Location"]').getByText('Affect Transform')).toBeVisible();
+  await page.evaluate(() => (window as any).app.run('transform.translate', { value: [5, 0, 0] }, { invoke: false }));
+  expect(((await get(page, 'app.activeObject.location')) as number[])[0]).toBeCloseTo(1, 4);
+
   // pose bones offer the IK solvers in the Tracking group
   await page.evaluate(() => {
     const a = (window as any).app;
@@ -90,5 +103,8 @@ test('disable and keep transform, invalid constraints and the bone constraint me
   await item(page, 'Inverse Kinematics').first().click();
   await expect(page.locator('[data-con="Inverse Kinematics"]')).toBeVisible();
   await expect(page.locator('[data-con="Inverse Kinematics"] .sr-label', { hasText: 'Chain Length' })).toBeVisible();
+  // the Bone tab has the bone's IK settings
+  await openTab(page, 'BONE');
+  await expect(page.locator('[data-panel="bone-ik"]')).toBeVisible();
   await expectNoErrors(errors);
 });

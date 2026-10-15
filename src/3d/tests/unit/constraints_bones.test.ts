@@ -177,6 +177,29 @@ describe('bone constraints and spaces', () => {
     expect(near(new Vector3().setFromMatrixPosition(g.get(ob.id)!.pose!.bones.get('B2')!.pose).toArray(), [0, 0, 1])).toBe(true);
   });
 
+  it('IK honours bone locks and rotation limits', () => {
+    const doc = emptyDocument();
+    const { ob } = armature(doc, [bone('B1', [0, 0, 0], [0, 0, 1]), bone('B2', [0, 0, 1], [0, 0, 2], 'B1', true)]);
+    const t = empty(doc, 'T', [1, 1, 1]);
+    const c = newConstraint('IK', 'ik');
+    Object.assign(c, { target: t.id, chain_count: 2 });
+    ob.pose!.B2.constraints.push(c);
+    // the root may only turn around its local X axis
+    Object.assign(ob.pose!.B1, { lock_ik_y: true, lock_ik_z: true });
+    // the second bone bends at most 0.3 rad around X
+    Object.assign(ob.pose!.B2, { use_ik_limit_x: true, ik_min_x: -0.3, ik_max_x: 0.3, lock_ik_y: true, lock_ik_z: true });
+    const g = new Depsgraph(doc);
+    g.evaluate(doc);
+    const bones = g.get(ob.id)!.pose!.bones;
+    // B1 stays in its YZ plane (no turning around Y or Z)
+    const b1x = new Vector3(1, 0, 0).transformDirection(bones.get('B1')!.pose);
+    expect(b1x.x).toBeGreaterThan(0.999);
+    // B2 relative to B1 bends no more than the limit
+    const rel = bones.get('B1')!.pose.clone().invert().multiply(bones.get('B2')!.pose);
+    const y = new Vector3(0, 1, 0).transformDirection(rel);
+    expect(Math.acos(Math.min(1, y.y))).toBeLessThan(0.31);
+  });
+
   it('Spline IK fits a chain along a curve', () => {
     const doc = emptyDocument();
     const { ob } = armature(doc, [bone('B1', [0, 0, 0], [0, 0, 1]), bone('B2', [0, 0, 1], [0, 0, 2], 'B1', true), bone('B3', [0, 0, 2], [0, 0, 3], 'B2', true)]);

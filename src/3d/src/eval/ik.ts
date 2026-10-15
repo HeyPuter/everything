@@ -1,7 +1,7 @@
 // Inverse kinematics for pose bones: cyclic coordinate descent over all IK chains of an armature
 // at once (chains sharing bones compromise by their weights), with pole targets, rotation targets,
 // stretching and per-bone IK locks.
-import { Matrix4, Quaternion, Vector3 } from 'three';
+import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import type { ArmatureData, Constraint, ObjectData } from '../data/types';
 import type { BoneEval } from './armature';
 
@@ -60,12 +60,14 @@ export function ikChainBones(bones: Map<string, BoneEval>, owner: string, chainC
   return out;
 }
 
-/** Rotate a bone around its head (world rotation `q` in armature space), honouring IK axis locks. */
+/** Rotate a bone around its head (rotation `q` in armature space), honouring the bone's IK locks,
+ *  stiffness and rotation limits. */
 function rotateBone(bones: Map<string, BoneEval>, ob: ObjectData, name: string, q: Quaternion) {
   const b = bones.get(name)!;
   const pb = ob.pose?.[name];
-  if (pb && (pb.lock_ik_x || pb.lock_ik_y || pb.lock_ik_z)) {
-    // express the rotation in the bone's own axes and drop the locked components
+  const stiff = pb ? [pb.lock_ik_x ? 1 : (pb.ik_stiffness_x ?? 0), pb.lock_ik_y ? 1 : (pb.ik_stiffness_y ?? 0), pb.lock_ik_z ? 1 : (pb.ik_stiffness_z ?? 0)] : [0, 0, 0];
+  if (stiff.some((x) => x > 0)) {
+    // express the rotation in the bone's own axes and damp (or drop) the stiff components
     const bq = new Quaternion();
     b.pose.decompose(new Vector3(), bq, new Vector3());
     const local = bq.clone().invert().multiply(q).multiply(bq);
@@ -73,18 +75,44 @@ function rotateBone(bones: Map<string, BoneEval>, ob: ObjectData, name: string, 
     const ang = 2 * Math.acos(Math.min(1, local.w));
     const s = Math.sqrt(Math.max(0, 1 - local.w * local.w));
     if (s < 1e-9) return;
-    const axis = new Vector3(local.x / s, local.y / s, local.z / s);
-    if (pb.lock_ik_x) axis.x = 0;
-    if (pb.lock_ik_y) axis.y = 0;
-    if (pb.lock_ik_z) axis.z = 0;
-    const len = axis.length();
-    if (len < 1e-6) return;
-    const proj = new Quaternion().setFromAxisAngle(axis.divideScalar(len), ang * len);
-    q = bq.clone().multiply(proj).multiply(bq.clone().invert());
+    const v = new Vector3(local.x / s, local.y / s, local.z / s).multiplyScalar(ang);
+    v.set(v.x * (1 - Math.min(1, stiff[0])), v.y * (1 - Math.min(1, stiff[1])), v.z * (1 - Math.min(1, stiff[2])));
+    const len = v.length();
+    if (len < 1e-9) return;
+    const damped = new Quaternion().setFromAxisAngle(v.divideScalar(len), len);
+    q = bq.clone().multiply(damped).multiply(bq.clone().invert());
   }
+  turnAroundHead(bones, name, q);
+  if (pb && (pb.use_ik_limit_x || pb.use_ik_limit_y || pb.use_ik_limit_z)) limitRotation(bones, pb, name);
+}
+
+function turnAroundHead(bones: Map<string, BoneEval>, name: string, q: Quaternion) {
+  const b = bones.get(name)!;
   const o = head(b);
   const m = new Matrix4().makeTranslation(o.x, o.y, o.z).multiply(new Matrix4().makeRotationFromQuaternion(q)).multiply(new Matrix4().makeTranslation(-o.x, -o.y, -o.z)).multiply(b.pose);
   applyBonePose(bones, name, m);
+}
+
+/** Keep the bone's rotation relative to its rest orientation (under its parent) within the IK limits. */
+function limitRotation(bones: Map<string, BoneEval>, pb: NonNullable<ObjectData['pose']>[string], name: string) {
+  const b = bones.get(name)!;
+  const parent = b.parent ? bones.get(b.parent) : undefined;
+  const rot = (m: Matrix4) => {
+    const r = new Quaternion();
+    m.decompose(new Vector3(), r, new Vector3());
+    return r;
+  };
+  const base = parent ? rot(parent.pose).multiply(rot(parent.restInv.clone().multiply(b.rest))) : rot(b.rest);
+  const cur = rot(b.pose);
+  const local = base.clone().invert().multiply(cur);
+  const e = new Euler().setFromQuaternion(local, 'ZYX');
+  const lim = (v: number, on: boolean | undefined, lo = 0, hi = 0) => (on ? Math.max(Math.min(lo, hi), Math.min(Math.max(lo, hi), v)) : v);
+  const nx = lim(e.x, pb.use_ik_limit_x, pb.ik_min_x, pb.ik_max_x),
+    ny = lim(e.y, pb.use_ik_limit_y, pb.ik_min_y, pb.ik_max_y),
+    nz = lim(e.z, pb.use_ik_limit_z, pb.ik_min_z, pb.ik_max_z);
+  if (nx === e.x && ny === e.y && nz === e.z) return;
+  const want = base.clone().multiply(new Quaternion().setFromEuler(new Euler(nx, ny, nz, 'ZYX')));
+  turnAroundHead(bones, name, want.multiply(cur.invert()));
 }
 
 /** Weighted average of rotations (sign-aligned quaternion sum). */
