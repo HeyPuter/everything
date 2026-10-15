@@ -380,7 +380,9 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
     const sp = new Float32Array(9);
     const cand: number[] = [];
     const projected: Float32Array[] = [];
+    const allowedF = s.paintFaces;
     for (let t = 0; t < ntri; t++) {
+      if (allowedF && !allowedF[s.triFace[t]]) continue;
       let ok = true;
       for (let k = 0; k < 3; k++) {
         const vi = s.tris[t * 3 + k] * 3;
@@ -559,6 +561,7 @@ function fillAll(s: MeshSession, me: MeshData, st: TexStroke, color: number[], m
     out = [0, 0, 0, 1];
   const ntri = s.tris.length / 3;
   for (let t = 0; t < ntri; t++)
+    if (!s.paintFaces || s.paintFaces[s.triFace[t]])
     rasterTri(st, me, s, t, (ti, x, y) => {
       const p = ti * 4;
       for (let c = 0; c < 4; c++) dst[c] = orig[p + c] / 255;

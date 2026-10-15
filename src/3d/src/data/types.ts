@@ -122,6 +122,10 @@ export interface MeshData {
   face_sets_color_seed?: number;
   /** Per-face hidden flag used by Sculpt Mode visibility tools. */
   hide_poly?: Uint8Array;
+  /** Paint modes: only paint the faces selected in the face selection mask. */
+  use_paint_mask?: boolean;
+  /** Paint modes: only paint the vertices selected in the vertex selection mask. */
+  use_paint_mask_vertex?: boolean;
   /** edges that do not belong to any face (vertex index pairs) */
   loose_edges?: Uint32Array;
   /** UV editor selection, one flag per face corner */

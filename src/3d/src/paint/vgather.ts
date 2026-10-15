@@ -137,12 +137,16 @@ export function gatherPaint(s: MeshSession, v: View3D, o: GatherOptions, scratch
       }
     }
   }
-  const n = list.length;
-  for (let k = 0; k < n; k++) {
+  const allowed = s.paintVerts;
+  let n = 0;
+  for (let k = 0; k < list.length; k++) {
     const vi = list[k];
-    s.gv[k] = vi;
-    s.gf[k] = best[vi];
+    const f = best[vi];
     best[vi] = 0;
+    if (allowed && !allowed[vi]) continue;
+    s.gv[n] = vi;
+    s.gf[n] = f;
+    n++;
   }
   return n;
 }

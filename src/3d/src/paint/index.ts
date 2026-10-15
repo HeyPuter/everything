@@ -16,5 +16,6 @@ import './wpaint';
 import './tpaint';
 import './armweights';
 import './ui';
+import './selmask';
 import './sculptmenus';
 export {};

@@ -400,3 +400,65 @@ export function faceSetBoundaryVerts(me: MeshData): Uint8Array {
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// paint mode selection masking (vertex / weight / texture paint)
+
+export interface PaintFilter {
+  /** faces that may be painted (null: all) */
+  faces: Uint8Array | null;
+  /** vertices that may be painted (null: all) */
+  verts: Uint8Array | null;
+  /** faces hidden in the paint modes (null: none) */
+  hidden: Uint8Array | null;
+}
+
+const pfCache = new WeakMap<Uint32Array, { key: unknown[]; f: PaintFilter }>();
+
+/** Which faces / vertices the paint brushes may touch, from hiding and the selection masks. */
+export function paintFilter(me: MeshData): PaintFilter {
+  const nv = me.positions.length / 3,
+    nf = faceCount(me);
+  const hv = me.hide_vert && me.hide_vert.length === nv && me.hide_vert.some((x) => x) ? me.hide_vert : null;
+  const sel = me.select_vert && me.select_vert.length === nv ? me.select_vert : null;
+  const faceMask = !!me.use_paint_mask,
+    vertMask = !!me.use_paint_mask_vertex && !faceMask;
+  const key = [hv, sel, faceMask, vertMask, me.offsets];
+  const c = pfCache.get(me.indices);
+  if (c && c.key.every((k, i) => k === key[i])) return c.f;
+  let hidden: Uint8Array | null = null;
+  if (hv) {
+    hidden = new Uint8Array(nf);
+    for (let f = 0; f < nf; f++)
+      for (let k = me.offsets[f]; k < me.offsets[f + 1]; k++)
+        if (hv[me.indices[k]]) {
+          hidden[f] = 1;
+          break;
+        }
+  }
+  let faces: Uint8Array | null = null,
+    verts: Uint8Array | null = null;
+  if (hidden || faceMask) {
+    faces = new Uint8Array(nf);
+    for (let f = 0; f < nf; f++) {
+      if (hidden?.[f]) continue;
+      let ok = 1;
+      if (faceMask)
+        for (let k = me.offsets[f]; k < me.offsets[f + 1]; k++)
+          if (!sel?.[me.indices[k]]) {
+            ok = 0;
+            break;
+          }
+      faces[f] = ok;
+    }
+    verts = new Uint8Array(nv);
+    for (let f = 0; f < nf; f++) if (faces[f]) for (let k = me.offsets[f]; k < me.offsets[f + 1]; k++) verts[me.indices[k]] = 1;
+  }
+  if (vertMask) {
+    if (!verts) verts = new Uint8Array(nv).fill(1);
+    for (let v = 0; v < nv; v++) if (!sel?.[v]) verts[v] = 0;
+  }
+  const f: PaintFilter = { faces, verts, hidden };
+  pfCache.set(me.indices, { key, f });
+  return f;
+}

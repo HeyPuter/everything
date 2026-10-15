@@ -196,3 +196,29 @@ describe('trim geometry helpers', async () => {
     expect(faces).toHaveLength(4);
   });
 });
+
+describe('paint selection masks', async () => {
+  const { paintFilter } = await import('../../src/paint/fsdata');
+  it('limits painting to selected faces / vertices and skips hidden ones', () => {
+    const me = mesh(grid(2, 1, 2)); // 2 faces, 6 vertices
+    expect(paintFilter(me).verts).toBeNull();
+    me.select_vert = new Uint8Array(6);
+    for (let c = me.offsets[0]; c < me.offsets[1]; c++) me.select_vert[me.indices[c]] = 1;
+    me.use_paint_mask = true;
+    const f = paintFilter(me);
+    expect(Array.from(f.faces!)).toEqual([1, 0]);
+    expect(f.verts!.reduce((s, x) => s + x, 0)).toBe(4);
+    me.use_paint_mask = false;
+    me.use_paint_mask_vertex = true;
+    me.select_vert = new Uint8Array([1, 0, 0, 0, 0, 0]);
+    expect(paintFilter(me).verts!.reduce((s, x) => s + x, 0)).toBe(1);
+    me.use_paint_mask_vertex = false;
+    me.hide_vert = new Uint8Array(6);
+    const f0 = Array.from(me.indices.subarray(me.offsets[0], me.offsets[1]));
+    const only1 = Array.from(me.indices.subarray(me.offsets[1], me.offsets[2])).find((v) => !f0.includes(v))!;
+    me.hide_vert[only1] = 1;
+    const h = paintFilter(me);
+    expect(Array.from(h.hidden!)).toEqual([0, 1]);
+    expect(Array.from(h.faces!)).toEqual([1, 0]);
+  });
+});

@@ -158,3 +158,38 @@ test('box trim tool cuts through the mesh', async ({ page }) => {
   expect(after.nf).not.toBe(nf0);
   await expectNoErrors(errors);
 });
+
+test('vertex paint face selection masking limits the brush', async ({ page }) => {
+  const errors = await openApp(page);
+  await setup(page, 'VERTEX_PAINT', 'mesh.primitive_grid_add', { x_subdivisions: 10, y_subdivisions: 10, size: 6 });
+  const c = await viewportCenter(page);
+  await page.mouse.move(c.x, c.y);
+  await page.keyboard.press('1');
+  await expect(page.locator('.select-modes .hdr-toggle.on')).toHaveCount(1);
+  await page.keyboard.press('Alt+a');
+  await page.evaluate(() => (window as unknown as W).app.run('paint.brush_select', { brush: 'builtin.select' }));
+  await page.mouse.click(c.x, c.y);
+  // Select menu exists while masking
+  await openHeaderMenu(page, 'Select');
+  await expect(page.locator('.menu .menu-item', { hasText: 'Select Linked' }).first()).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => {
+    const a = (window as unknown as W).app;
+    a.run('paint.brush_select', { brush: 'brush_vertpaint' });
+    a.doc.scene.tool_settings.unified_paint.color = [1, 0, 0];
+  });
+  await page.mouse.move(c.x - 200, c.y);
+  await page.mouse.down();
+  await page.mouse.move(c.x + 200, c.y, { steps: 20 });
+  await page.mouse.up();
+  const red = await page.evaluate(() => {
+    const a = (window as unknown as W).app;
+    const me = a.doc.meshes[a.activeObject.data];
+    const col = me.color_attributes[me.active_color_index].data as Float32Array;
+    let n = 0;
+    for (let i = 0; i < col.length; i += 4) if (col[i + 1] < 0.9) n++;
+    return n;
+  });
+  expect(red).toBe(4);
+  await expectNoErrors(errors);
+});

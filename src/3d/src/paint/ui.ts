@@ -14,6 +14,7 @@ import { modeMenus } from '../editors/view3d/modemenus';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { activeBrush, brushById, BRUSH_LISTS, brushInfo, isBrushMode, type BrushMode, type PaintBrush } from './brushes';
 import { startGesture } from './gesture';
+import { faceMaskOn, isSelectTool, PAINT_SELECT_TOOLS, vertMaskOn } from './selmask';
 import { cursorState, updateCursor } from './cursor';
 import { sculptStroke } from './sculpt';
 import { gestureToolPointer, gestureTools, registerToolSettings, sculptToolHooks, sculptToolSlots } from './sculpttools';
@@ -62,6 +63,8 @@ for (const mode of Object.keys(BRUSH_LISTS) as BrushMode[]) {
       out.push(null, ...sculptToolSlots((op) => operators.has(op)));
       registerToolSettings(toolSettingsRenderers);
     }
+    // selection masking: select tools in front of the brushes
+    if (mode !== 'SCULPT' && (faceMaskOn() || vertMaskOn())) out.unshift({ ...PAINT_SELECT_TOOLS[1], alternates: PAINT_SELECT_TOOLS }, null);
     return out;
   };
   for (const b of BRUSH_LISTS[mode]) if (b) toolSettingsRenderers[b.id] = () => toolHeaderSettings(mode);
@@ -572,6 +575,7 @@ const sc = (km: string, op: string, props?: Record<string, unknown>) => {
 };
 
 modeMenus.VERTEX_PAINT = {
+  ...modeMenus.VERTEX_PAINT,
   header: () => [
     [
       'Paint',
@@ -597,6 +601,7 @@ modeMenus.VERTEX_PAINT = {
 };
 
 modeMenus.WEIGHT_PAINT = {
+  ...modeMenus.WEIGHT_PAINT,
   header: () => [
     [
       'Weights',
@@ -622,6 +627,7 @@ modeMenus.WEIGHT_PAINT = {
 };
 
 modeMenus.TEXTURE_PAINT = {
+  ...modeMenus.TEXTURE_PAINT,
   header: () => [
     [
       'Paint',
@@ -898,6 +904,11 @@ editModeHooks.pointer.push((v, e) => {
   const ob = app.activeObject;
   if (!ob || ob.type !== 'MESH') return false;
   const tool = activeTools[mode];
+  if (mode !== 'SCULPT' && isSelectTool(tool)) {
+    // select tools pick faces / vertices while a selection mask is on (handled by the viewport)
+    if (faceMaskOn() || vertMaskOn()) return false;
+    setActiveTool(BRUSH_LISTS[mode].find((b) => !!b)!.id);
+  }
   if (mode === 'SCULPT' && tool?.startsWith('builtin.') && !gestureTools[tool]) sculptToolSlots((op) => operators.has(op));
   if (mode === 'SCULPT' && gestureTools[tool]) return gestureToolPointer(v, e, tool);
   if (mode === 'SCULPT' && sculptToolHooks.pointer.some((f) => f(v, e, tool))) return true;

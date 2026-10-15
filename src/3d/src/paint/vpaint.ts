@@ -10,6 +10,7 @@ import { blendColor, type BlendMode } from './math';
 import { activeMeshData, beginGeometryStroke, meshSession, reevaluate, type MeshSession } from './session';
 import { runStroke } from './stroke';
 import { gatherPaint, NORMAL_ANGLE, smearSource } from './vgather';
+import { paintFilter } from './fsdata';
 
 /** Make sure the mesh has an active color attribute (point domain 'Color', white). */
 export function ensureColorAttribute(me: MeshData): ColorAttribute {
@@ -218,13 +219,17 @@ function vpaintPoll() {
   return app.doc.mode === 'VERTEX_PAINT' && !!activeMeshData();
 }
 
-function editColors(fn: (me: MeshData, cols: Float32Array, a: ColorAttribute) => void) {
+export function editColors(fn: (me: MeshData, cols: Float32Array, a: ColorAttribute) => void) {
   const { me } = activeMeshData()!;
   const a = ensureColorAttribute(me);
   cow(a, 'data');
   const nv = me.positions.length / 3;
   const cols = vertexColors(me, a);
+  const allowed = paintFilter(me).verts;
+  const before = allowed ? cols.slice() : null;
   fn(me, cols, a);
+  // selection masks / hidden vertices keep their colors
+  if (allowed && before) for (let v = 0; v < nv; v++) if (!allowed[v]) for (let k = 0; k < 4; k++) cols[v * 4 + k] = before[v * 4 + k];
   if (a.domain === 'POINT') a.data.set(cols.subarray(0, nv * 4));
   else for (let c = 0; c < me.indices.length; c++) a.data.set(cols.subarray(me.indices[c] * 4, me.indices[c] * 4 + 4), c * 4);
 }

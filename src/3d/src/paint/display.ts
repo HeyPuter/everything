@@ -8,7 +8,7 @@ import type { SyncedObject } from '../render/scene';
 import { imageTexture } from '../render/images';
 import { isBrushMode } from './brushes';
 import type { MeshSession } from './session';
-import { faceSetColor, faceSetsOf, activeHiddenFaces } from './fsdata';
+import { faceSetColor, faceSetsOf, activeHiddenFaces, paintFilter } from './fsdata';
 import { meshGeometry } from '../render/geometry';
 
 const vert = /* glsl */ `
@@ -287,12 +287,12 @@ drawHooks.materials.push((so: SyncedObject, mode, view, mats) => {
   const ob = so.ev.ob;
   const active = ob.id === app.activeObject?.id && ob.type === 'MESH';
   mesh.frustumCulled = !(active && docMode === 'SCULPT');
-  if (mesh.geometry.userData.hideOrigIndex && !(active && docMode === 'SCULPT')) restoreIndex(mesh.geometry);
+  if (mesh.geometry.userData.hideOrigIndex && !(active && isBrushMode(docMode))) restoreIndex(mesh.geometry);
   if (!active || !isBrushMode(docMode) || mode === 'WIREFRAME') return;
   const me = ob.data ? app.doc.meshes[ob.data] : undefined;
   if (!me) return;
   const g = mesh.geometry;
-  applyHiddenFaces(g, me, so, docMode === 'SCULPT');
+  applyHiddenFaces(g, me, so, docMode === 'SCULPT' ? activeHiddenFaces(me) : paintFilter(me).hidden);
   const pos = g.getAttribute('position');
   const direct = !!pos && pos.count === me.indices.length && so.ev.mesh?.indices === me.indices;
   const sh = view.shading;
@@ -432,8 +432,7 @@ function restoreIndex(g: BufferGeometry) {
   u.hideSrc = undefined;
 }
 
-function applyHiddenFaces(g: BufferGeometry, me: MeshData, so: SyncedObject, sculpt: boolean) {
-  const hide = sculpt ? activeHiddenFaces(me) : null;
+function applyHiddenFaces(g: BufferGeometry, me: MeshData, so: SyncedObject, hide: Uint8Array | null) {
   const ev = so.ev.mesh;
   const usable = !!hide && !!ev && ev.indices === me.indices && ev.offsets === me.offsets;
   if (!usable) {

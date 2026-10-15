@@ -9,7 +9,7 @@ import { triangulatePoly, vertexFaces, vertexNeighbors } from '../mesh/mesh';
 import { renderContext } from '../render/context';
 import { shareGeometry } from '../render/geometry';
 import type { View3D } from '../editors/view3d/view3d';
-import { activeHiddenFaces, hiddenVerts } from './fsdata';
+import { activeHiddenFaces, hiddenVerts, paintFilter } from './fsdata';
 
 export interface Hit {
   /** hit point in object space */
@@ -68,6 +68,9 @@ export class MeshSession {
   /** Sculpt Mode hidden faces / vertices (null when everything is visible) */
   hiddenF: Uint8Array | null = null;
   hiddenV: Uint8Array | null = null;
+  /** paint modes: faces / vertices the brushes may touch (selection masks, hidden geometry) */
+  paintFaces: Uint8Array | null = null;
+  paintVerts: Uint8Array | null = null;
 
   constructor(ob: ObjectData, me: MeshData) {
     this.obId = ob.id;
@@ -455,6 +458,10 @@ export function meshSession(): MeshSession | null {
   const sculpt = app.doc.mode === 'SCULPT';
   current.hiddenF = sculpt ? activeHiddenFaces(me) : null;
   current.hiddenV = current.hiddenF ? hiddenVerts(me) : null;
+  const pm = app.doc.mode === 'VERTEX_PAINT' || app.doc.mode === 'WEIGHT_PAINT' || app.doc.mode === 'TEXTURE_PAINT';
+  const pf = pm ? paintFilter(me) : null;
+  current.paintFaces = pf?.faces ?? null;
+  current.paintVerts = pf?.verts ?? null;
   return current;
 }
 

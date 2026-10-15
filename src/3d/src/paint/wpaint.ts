@@ -9,6 +9,7 @@ import { activeBrush } from './brushes';
 import { blendWeight, normalizeAllWeights, normalizeVertexWeights, type BlendMode } from './math';
 import { activeMeshData, beginGeometryStroke, meshSession, reevaluate, type MeshSession } from './session';
 import { runStroke } from './stroke';
+import { paintFilter } from './fsdata';
 import { gatherPaint, NORMAL_ANGLE, smearSource } from './vgather';
 import { invalidatePaintAttributes, writeCornerValues } from './display';
 import { barycentric } from './vpaint';
@@ -217,11 +218,13 @@ registerOperators([
       const wt = app.doc.scene.tool_settings.unified_paint.weight;
       editGroups((ob, me, gi) => {
         if (me.vertex_groups[gi].lock_weight) return;
-        me.weights[gi].fill(wt);
+        const allowed = paintFilter(me).verts;
+        const w = me.weights[gi];
+        for (let v = 0; v < w.length; v++) if (!allowed || allowed[v]) w[v] = wt;
         if (app.doc.scene.tool_settings.use_auto_normalize) {
           const groups = deformGroups(ob, me);
           const locked = me.vertex_groups.map((g) => !!g.lock_weight);
-          for (let v = 0; v < me.weights[gi].length; v++) normalizeVertexWeights(me.weights, groups, v, gi, locked);
+          for (let v = 0; v < me.weights[gi].length; v++) if (!allowed || allowed[v]) normalizeVertexWeights(me.weights, groups, v, gi, locked);
         }
       });
     },
