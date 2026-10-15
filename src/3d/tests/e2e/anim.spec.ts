@@ -343,3 +343,31 @@ test('keying sets: add a property from its decorator menu, then insert keys with
   expect(curves).toEqual(['location[2]']);
   await expectNoErrors(errors);
 });
+
+test('property menu: copy/paste driver, view curve in the Graph Editor; select keys by type', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { keyProperty } = await import('/src/anim/keyframes.ts');
+    keyProperty(app.doc, app.activeObject, 'location', 2, 1);
+    app.run('anim.driver_button_add', { object: app.activeObject.id, data_path: 'scale', index: 0 }, { invoke: false });
+    app.run('anim.copy_driver_button', { object: app.activeObject.id, data_path: 'scale', index: 0 }, { invoke: false });
+    app.run('anim.paste_driver_button', { object: app.activeObject.id, data_path: 'scale', index: 1 }, { invoke: false });
+    app.changed('doc');
+  });
+  expect(await page.evaluate(() => (window as any).app.activeObject.animation_data.drivers.map((d: { array_index: number }) => d.array_index))).toEqual([0, 1]); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const deco = page.locator('.split-row', { hasText: 'Z' }).locator('.decorator').first();
+  await deco.click({ button: 'right' });
+  await page.locator('.menu-item', { hasText: 'View in Graph Editor' }).click();
+  await expect(page.locator('.area[data-editor="GRAPH"]')).toHaveCount(1);
+  // the Dope Sheet's Select ▸ Select By Type
+  await page.evaluate(async () => {
+    const { shell } = await import('/src/ui/shell.ts');
+    shell.screen.areas.find((a: { type: string }) => a.type === 'GRAPH').setType('DOPESHEET');
+  });
+  await page.locator('.area[data-editor="DOPESHEET"] .hdr-menu', { hasText: 'Select' }).click();
+  await page.locator('.menu-item', { hasText: 'Select By Type' }).hover();
+  await expect(page.locator('.menu-item', { hasText: 'Breakdown' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expectNoErrors(errors);
+});

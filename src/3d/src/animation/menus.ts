@@ -216,6 +216,7 @@ export function selectMenu(p: Prefix): MenuItem[] {
     { separator: true },
     { label: 'Before Current Frame', op: `${p}.select_leftright`, props: { mode: 'LEFT' }, shortcut: '[' },
     { label: 'After Current Frame', op: `${p}.select_leftright`, props: { mode: 'RIGHT' }, shortcut: ']' },
+    ...(!graph ? [{ separator: true }, { label: 'Select By Type', submenu: () => KEY_TYPES.map(([v, l]) => ({ label: l, op: 'action.select_by_type', props: { type: v } })) }] : []),
     ...(graph
       ? [
           { separator: true },

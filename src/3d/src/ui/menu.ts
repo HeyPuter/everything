@@ -123,8 +123,8 @@ function renderMenu(m: OpenMenu) {
           renderMenu(m);
         },
         onpointerup: (e: PointerEvent) => {
-          // the release of the right-press that opened a context menu does not pick an item
-          if (e.button === 2 && performance.now() - openedAt.time < 350 && Math.hypot(e.clientX - openedAt.x, e.clientY - openedAt.y) < 6) return;
+          // releasing the press that opened the menu (without dragging) does not pick an item
+          if (pressStart.time <= openedAt.time && Math.hypot(e.clientX - pressStart.x, e.clientY - pressStart.y) < 6) return;
           if (e.button === 0 || e.button === 2) activate(m, item, e);
         },
       },
@@ -159,14 +159,16 @@ function openSubmenu(m: OpenMenu, item: MenuItem) {
   m.child = sub;
 }
 
-/** When/where the last menu opened (see the right-release check on items). */
-const openedAt = { time: 0, x: 0, y: 0 };
+/** When the last top-level menu opened, and where/when the last press started (see item pointerup). */
+const openedAt = { time: 0 };
+const pressStart = { time: -1, x: 0, y: 0 };
 if (typeof addEventListener === 'function')
   addEventListener(
     'pointerdown',
     (e) => {
-      openedAt.x = e.clientX;
-      openedAt.y = e.clientY;
+      pressStart.time = performance.now();
+      pressStart.x = e.clientX;
+      pressStart.y = e.clientY;
     },
     true,
   );

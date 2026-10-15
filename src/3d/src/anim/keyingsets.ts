@@ -196,6 +196,9 @@ const ops: Operator[] = [
 
 registerOperators(ops);
 
+/** Extra entries for the property animation menu (drivers, Graph Editor…), added by other modules. */
+export const propertyAnimExtraItems: ((ob: ObjectData, path: string, index: number) => MenuItem[])[] = [];
+
 /** Animation menu for a property (keyframe decorator right-click). */
 export function propertyAnimMenu(ob: ObjectData, path: string, index: number): MenuItem[] {
   const st = keyState(app.doc, ob, path, index);
@@ -216,6 +219,7 @@ export function propertyAnimMenu(ob: ObjectData, path: string, index: number): M
     { label: 'Remove from Keying Set', op: 'anim.keyingset_button_remove', props: { ...t, all: true } },
     { separator: true },
     st === 'driven' ? { label: 'Delete Drivers', op: 'anim.driver_button_remove', props: t } : { label: 'Add Driver', op: 'anim.driver_button_add', props: t },
+    ...propertyAnimExtraItems.flatMap((f) => f(ob, path, index)),
     { separator: true },
     {
       label: 'Copy Data Path',

@@ -223,6 +223,10 @@ export class DriversEditor extends AnimEditor {
       { label: 'Add Driver to Active Object…', op: 'anim.driver_button_add' },
       { label: 'Delete Channels', op: 'anim.channels_delete', shortcut: 'X' },
       { separator: true },
+      { label: 'Copy Driver Variables', op: 'graph.driver_variables_copy' },
+      { label: 'Paste Driver Variables', op: 'graph.driver_variables_paste' },
+      { label: 'Delete Invalid Drivers', op: 'graph.driver_delete_invalid' },
+      { separator: true },
       {
         label: 'Expand Channels',
         op: 'anim.channels_expand',
