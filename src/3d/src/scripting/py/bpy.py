@@ -236,6 +236,11 @@ class _Collection(_Struct):
         return _wrap(_call(_br.getitem, self._js, _tojs(key)))
 
     def __setitem__(self, key, value):
+        if isinstance(key, slice):
+            if key.step not in (None, 1):
+                raise ValueError("slice assignment with a step is not supported")
+            _call(_br.call, self._js, "set_slice", _tojs([key.start, key.stop, list(value)]), js.Object.new())
+            return
         _call(_br.setitem, self._js, _tojs(key), _tojs(value))
 
     def __contains__(self, key):
@@ -261,14 +266,19 @@ class _Collection(_Struct):
         r = _call(_br.call, self._js, "find", _tojs([key, *args]), _kwargs(kw))
         return r if not isinstance(r, (int, float)) else int(r)
 
-    def foreach_get(self, attr, seq):
-        vals = list(_call(_br.call, self._js, "foreach_get", _tojs([attr]), js.Object.new()))
+    def foreach_get(self, attr, seq=None):
+        # arrays such as Image.pixels take only the buffer
+        args = [] if seq is None else [attr]
+        if seq is None:
+            seq = attr
+        vals = list(_call(_br.call, self._js, "foreach_get", _tojs(args), js.Object.new()))
         for i, v in enumerate(vals):
             if i < len(seq):
                 seq[i] = v
 
-    def foreach_set(self, attr, seq):
-        _call(_br.call, self._js, "foreach_set", _tojs([attr, list(seq)]), js.Object.new())
+    def foreach_set(self, attr, seq=None):
+        args = [list(attr)] if seq is None else [attr, list(seq)]
+        _call(_br.call, self._js, "foreach_set", _tojs(args), js.Object.new())
 
 
 class _Array(_Collection):

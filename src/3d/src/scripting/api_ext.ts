@@ -5,3 +5,4 @@ import './api_data';
 import './handlers';
 import './api_context';
 import './api_shapes';
+import './api_image';
