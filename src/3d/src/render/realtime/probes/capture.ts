@@ -412,6 +412,10 @@ export function beginProbes(renderer: WebGLRenderer, scene: Scene, camera: Camer
     let best: (typeof sphereList)[number] | null = null,
       bw = 0.5;
     for (const s of sphereList) {
+      // objects much larger than the probe's region (floors, walls) keep the world's reflections
+      const scale = new Vector3().setFromMatrixScale(s.e.world);
+      const reach = s.e.probe.influence_distance * Math.max(scale.x, scale.y, scale.z);
+      if (sphereTmp.radius > 2 * reach) continue;
       const w = sphereInfluence(s.e.probe, s.inv, sphereTmp.center);
       if (w > bw) {
         bw = w;
