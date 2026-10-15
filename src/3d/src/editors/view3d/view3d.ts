@@ -619,6 +619,12 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     }
     const p = this.local(e);
     const emulate3 = prefs.emulate_3_button_mouse && e.altKey && e.button === 0;
+    if (e.button === 3) {
+      // the "back" mouse button frames the selection
+      e.preventDefault();
+      app.run('view3d.view_selected');
+      return;
+    }
     if (e.button === 1 && e.altKey && !emulate3) {
       // Alt+MMB: click centers the view on the surface, drag snaps to the axis view in that direction
       e.preventDefault();

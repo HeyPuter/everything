@@ -27,6 +27,12 @@ function redraw(v: View3D) {
   app.changed('view');
 }
 
+/** All viewports of the Quad View group of `v` (or just `v`). */
+function quadViews(v: View3D): View3D[] {
+  if (!v.quad) return [v];
+  return v.area.screen.areas.map((a) => a.editor as unknown as View3D).filter((e) => e instanceof View3D && e.quad?.group === v.quad!.group);
+}
+
 function selectionBox(): Box3 {
   for (const hk of frameHooks) {
     const b = hk();
@@ -40,7 +46,10 @@ registerOperators([
     idname: 'view3d.view_all',
     label: 'Frame All',
     description: 'View all objects in scene',
-    props: [{ id: 'center', label: 'Center', type: 'bool', default: false }],
+    props: [
+      { id: 'center', label: 'Center', type: 'bool', default: false },
+      { id: 'use_all_regions', label: 'All Regions', type: 'bool', default: false },
+    ],
     poll: v3d,
     exec: (ctx, p) => {
       const v = activeView3D()!;
@@ -48,8 +57,10 @@ registerOperators([
       const ids = [...app.graph.objects.values()].filter((e) => e.visible).map((e) => e.id);
       const box = worldBounds(ids);
       if (box.isEmpty()) box.set(new Vector3(-1, -1, -1), new Vector3(1, 1, 1));
-      v.frameBox(box);
-      redraw(v);
+      for (const view of p.use_all_regions ? quadViews(v) : [v]) {
+        view.frameBox(box);
+        redraw(view);
+      }
     },
     undo: false,
   },
@@ -57,13 +68,16 @@ registerOperators([
     idname: 'view3d.view_selected',
     label: 'Frame Selected',
     description: 'Move the view to the selection center',
+    props: [{ id: 'use_all_regions', label: 'All Regions', type: 'bool', default: false }],
     poll: v3d,
-    exec: () => {
+    exec: (_ctx, p) => {
       const v = activeView3D()!;
       const box = selectionBox();
       if (box.isEmpty()) return 'CANCELLED';
-      v.frameBox(box);
-      redraw(v);
+      for (const view of p.use_all_regions ? quadViews(v) : [v]) {
+        view.frameBox(box);
+        redraw(view);
+      }
     },
     undo: false,
   },
