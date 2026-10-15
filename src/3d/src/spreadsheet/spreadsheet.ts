@@ -834,6 +834,31 @@ export class SpreadsheetEditor implements Editor {
     this.refresh();
   }
 
+  /** Arrow keys move the selected cell (Shift extends the block), Home/End jump to the ends. */
+  onKey(e: KeyboardEvent): boolean {
+    if (e.ctrlKey || e.metaKey || e.altKey || !this.rows.length) return false;
+    const moves: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1], PageUp: [-20, 0], PageDown: [20, 0] };
+    const s = this.sel;
+    const lastR = this.rows.length - 1,
+      lastC = Math.max(0, this.cols.length - 1);
+    let to: { r: number; c: number } | null = null;
+    if (e.key in moves && s) {
+      const [dr, dc] = moves[e.key];
+      to = { r: Math.max(0, Math.min(lastR, s.r1 + dr)), c: s.c0 < 0 ? s.c1 : Math.max(0, Math.min(lastC, s.c1 + dc)) };
+    } else if (e.key === 'Home' && s) to = { r: 0, c: s.c1 };
+    else if (e.key === 'End' && s) to = { r: lastR, c: s.c1 };
+    if (!to || !s) return false;
+    const rows = s.c0 < 0;
+    this.sel = e.shiftKey ? { ...s, r1: to.r, c1: rows ? s.c1 : to.c } : rows ? { r0: to.r, r1: to.r, c0: -1, c1: lastC } : { r0: to.r, r1: to.r, c0: to.c, c1: to.c };
+    // keep the moving end in view
+    const top = to.r * ROW_H,
+      H = this.body.clientHeight;
+    if (top < this.body.scrollTop) this.body.scrollTop = top;
+    else if (top + ROW_H > this.body.scrollTop + H) this.body.scrollTop = top + ROW_H - H;
+    this.refresh();
+    return true;
+  }
+
   /** Selected block as columns + rows (whole table when nothing is selected). */
   selection(): { cols: Column[]; rows: Int32Array; whole: boolean } {
     const s = this.sel;

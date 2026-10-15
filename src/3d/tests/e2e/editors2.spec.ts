@@ -220,6 +220,10 @@ test('Spreadsheet: data set region, sorting, columns, filters and copying cells'
   await page.mouse.move(c1.x + 10, c1.y + 8, { steps: 3 });
   await page.mouse.up();
   await expect(ss.locator('.ss-footer')).toContainText('Selected: 2 × 2');
+  // Shift + arrow keys extend the block
+  await page.keyboard.press('Shift+ArrowDown');
+  await expect(ss.locator('.ss-footer')).toContainText('Selected: 3 × 2');
+  await page.keyboard.press('Shift+ArrowUp');
   await page.keyboard.press('Control+c');
   const copied: string = await page.evaluate(async () => {
     const { shell } = await import('/src/ui/shell.ts');
