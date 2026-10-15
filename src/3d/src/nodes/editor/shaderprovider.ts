@@ -22,7 +22,7 @@ type Ed = { shaderType: 'OBJECT' | 'WORLD' };
 function slotOwner(o: ObjectData): { materials: (string | null)[] } | null {
   const doc = app.doc;
   if (!o.data) return null;
-  return doc.meshes[o.data] ?? doc.curves[o.data] ?? doc.metaballs?.[o.data] ?? null;
+  return doc.meshes[o.data] ?? doc.curves[o.data] ?? doc.metaballs?.[o.data] ?? doc.hair_curves?.[o.data] ?? null;
 }
 
 const DATA_ICON: Record<string, string> = {
@@ -65,7 +65,7 @@ registerNodeEditorProvider({
     }
     const ma = activeMaterial(ob);
     if (!ma) return null;
-    const data = ob.data ? (doc.meshes[ob.data] ?? doc.curves[ob.data] ?? doc.metaballs?.[ob.data]) : undefined;
+    const data = ob.data ? (doc.meshes[ob.data] ?? doc.curves[ob.data] ?? doc.metaballs?.[ob.data] ?? doc.hair_curves?.[ob.data]) : undefined;
     return {
       tree: ma.tree,
       key: `ma:${ma.id}`,

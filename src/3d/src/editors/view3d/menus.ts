@@ -238,6 +238,9 @@ function curveAddMenu(): MenuItem[] {
     { label: 'NURBS Curve', icon: 'curve_data', op: 'curve.primitive_nurbs_curve_add' },
     { label: 'NURBS Circle', icon: 'circle', op: 'curve.primitive_nurbs_circle_add' },
     { label: 'Path', icon: 'curve_data', op: 'curve.primitive_nurbs_path_add' },
+    { separator: true },
+    { label: 'Empty Hair', icon: 'outliner_ob_curves', op: 'object.curves_empty_hair_add' },
+    { label: 'Fur', icon: 'outliner_ob_curves', op: 'object.quick_fur' },
   ];
 }
 

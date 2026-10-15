@@ -31,6 +31,9 @@ src/
   compositor/ Compositor nodes (GPU), Compositor editor, render post-processing
   animation/  Dope Sheet, Graph Editor, Drivers, NLA editors and their operators
   paint/      Sculpt, Vertex/Weight/Texture Paint, voxel remesh, automatic weights
+  hair/       Curves (hair) objects: data (doc.hair_curves), strand display / render tubes, Edit Mode,
+              Sculpt Curves brushes (brushmath.ts is pure), conversions, Deform Curves on Surface;
+              particle/: Particle Edit mode for hair particle systems (edited keys on the system)
   constraints/ Object/Bone Constraints tabs (constraint panels), constraint.* operators, Bone tab IK panel
   physics/    Rigid bodies (Rapier, lazy-loaded) and their joints, cloth, soft body, particles (boids,
               fluid, keyed, hair dynamics), fields, smoke and liquid domains, dynamic paint

@@ -24,7 +24,8 @@ export type ObjectType =
   | 'POINTCLOUD'
   | 'GREASEPENCIL'
   | 'SPEAKER'
-  | 'META';
+  | 'META'
+  | 'CURVES';
 
 export type RotationMode = 'XYZ' | 'XZY' | 'YXZ' | 'YZX' | 'ZXY' | 'ZYX' | 'QUATERNION' | 'AXIS_ANGLE';
 
@@ -39,7 +40,9 @@ export type Mode =
   | 'PAINT_GREASE_PENCIL'
   | 'SCULPT_GREASE_PENCIL'
   | 'VERTEX_GREASE_PENCIL'
-  | 'WEIGHT_GREASE_PENCIL';
+  | 'WEIGHT_GREASE_PENCIL'
+  | 'SCULPT_CURVES'
+  | 'PARTICLE_EDIT';
 
 export type SelectMode = 'VERT' | 'EDGE' | 'FACE';
 
@@ -1289,6 +1292,8 @@ export interface DocumentData {
   packed_files?: Record<ID, import('../geonodes/curves/importers').PackedFile>;
   /** Metaball data-blocks (src/metaball); absent in older files */
   metaballs?: Record<ID, import('../metaball/types').MetaballData>;
+  /** Hair curves data-blocks (src/hair); absent in older files */
+  hair_curves?: Record<ID, import('../hair/types').HairCurvesData>;
   /** Mode of the active object */
   mode: Mode;
   /** Ordering of object ids for stable iteration */
