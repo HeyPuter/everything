@@ -4,7 +4,7 @@ import { app, onAppReady, operators, registerOperators, type OpContext, type Ope
 import { addKeys } from '../app/keymap';
 import { registerIcons } from '../ui/icons';
 import { registerWorkspaceTemplate, A, H, V, dock } from '../ui/screen';
-import { openMenu } from '../ui/menu';
+import { openMenu, openPie } from '../ui/menu';
 import './ops';
 import './poselib';
 import './browser';
@@ -42,6 +42,27 @@ const inAssets: Record<string, Handler> = {
   'file.sidebar_toggle': { exec: (ctx) => void browserOf(ctx)!.toggleSidebar() },
   'file.execute': { poll: (ctx) => !!browserOf(ctx)!.activeAsset(), exec: () => void app.run('asset.activate') },
   'file.rename': { poll: (ctx) => !!browserOf(ctx)!.activeAsset(), exec: (ctx) => void browserOf(ctx)!.startRename() },
+  'file.view_pie': {
+    exec: (ctx) => {
+      const b = browserOf(ctx) as unknown as { view: string; setView(v: string): void };
+      openPie(
+        'View',
+        [
+          { label: 'List', icon: 'listview', active: b.view === 'LIST_VERTICAL', action: () => b.setView('LIST_VERTICAL') },
+          { label: 'Thumbnails', icon: 'imgdisplay', active: b.view === 'THUMBNAIL', action: () => b.setView('THUMBNAIL') },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+        ],
+        app.pointer.x,
+        app.pointer.y,
+        'Backquote',
+      );
+    },
+  },
   'file.context_menu': {
     exec: (ctx) => {
       const b = browserOf(ctx) as unknown as { contextMenu(): import('../ui/menu').MenuItem[] };
