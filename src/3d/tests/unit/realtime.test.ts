@@ -243,3 +243,19 @@ describe('shader AOVs', async () => {
     expect(aovPassName('x')).toBe('AOV:x');
   });
 });
+
+describe('world volume', async () => {
+  const { worldVolume, fogTransmittance, envAverage } = await import('../../src/render/realtime/worldvolume');
+  const { newWorld } = await import('../../src/data/defaults');
+  it('reads a constant volume shader from the world output', () => {
+    const w = newWorld();
+    expect(worldVolume(w)).toBeNull();
+    const out = w.tree.nodes.find((n) => n.type === 'ShaderNodeOutputWorld')!;
+    w.tree.nodes.push({ id: 'v', type: 'ShaderNodeVolumeAbsorption', name: 'A', location: [0, 0], inputs: { Density: 0.3 }, props: {} } as never);
+    w.tree.links.push({ id: 'l', from_node: 'v', from_socket: 'Volume', to_node: out.id, to_socket: 'Volume' } as never);
+    expect(worldVolume(w)).toEqual({ albedo: [0, 0, 0], density: 0.3 });
+    expect(fogTransmittance(0.5, 2)).toBeCloseTo(Math.exp(-1));
+    const flat = new Float32Array(8 * 4 * 4).fill(2);
+    expect(envAverage(flat, 8, 4)[1]).toBeCloseTo(2);
+  });
+});

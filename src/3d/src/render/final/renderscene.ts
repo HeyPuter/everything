@@ -13,6 +13,7 @@ import {
   PointLight,
   DirectionalLight,
   Color,
+  FogExp2,
   PCFShadowMap,
   type Material,
   type Light,
@@ -36,6 +37,20 @@ import { jitteredLightMatrix, lightShadowMapSize } from '../realtime/shadows';
 import { castsShadow, transparentShadowMaterials } from '../realtime/materialfx';
 import { worldSunOptions } from '../realtime/settings';
 import { splitWorldSun } from '../realtime/worldsun';
+import { worldVolume, fogTransmittance, envAverage } from '../realtime/worldvolume';
+import { fxUniforms } from '../realtime/fxshader';
+
+const envAverages = new Map<string, [number, number, number]>();
+function envAverageCached(env: { key: string; texture: { image: unknown } }): [number, number, number] {
+  let a = envAverages.get(env.key);
+  if (!a) {
+    const img = env.texture.image as { data?: Float32Array; width: number; height: number };
+    a = img.data instanceof Float32Array ? envAverage(img.data, img.width, img.height) : [0, 0, 0];
+    if (envAverages.size > 8) envAverages.clear();
+    envAverages.set(env.key, a);
+  }
+  return a;
+}
 
 /** Entry id of the sun light extracted from the world. */
 const WORLD_SUN = '__world_sun__';
@@ -510,6 +525,41 @@ export class RenderScene {
     if (k !== 1) {
       s.environmentIntensity *= k;
       this.envKey += `*${k}`;
+    }
+    this.syncWorldVolume(doc, o, env);
+  }
+
+  /** Realtime: the world's Volume shader as fog lit by the world and sun lamps. */
+  private syncWorldVolume(doc: DocumentData, o: BuildOptions, env: ReturnType<typeof worldEnvironment>) {
+    const s = this.scene;
+    const world = doc.scene.world ? doc.worlds[doc.scene.world] : null;
+    const vol = this.mode === 'raster' && o.useSceneWorld !== false ? worldVolume(world) : null;
+    if (!vol || vol.density <= 0) {
+      s.fog = null;
+      return;
+    }
+    // light scattered towards the camera: the world's average radiance plus sun lamps
+    const amb = env ? envAverageCached(env) : [0, 0, 0];
+    const light = [amb[0], amb[1], amb[2]];
+    for (const e of this.entries.values())
+      if (e.light instanceof DirectionalLight && e.data) {
+        const E = e.light.intensity * (e.data.volume_factor ?? 1) / (4 * Math.PI);
+        light[0] += e.light.color.r * E;
+        light[1] += e.light.color.g * E;
+        light[2] += e.light.color.b * E;
+      }
+    const color = new Color(vol.albedo[0] * light[0], vol.albedo[1] * light[1], vol.albedo[2] * light[2]);
+    if (s.fog instanceof FogExp2) {
+      s.fog.color.copy(color);
+      s.fog.density = vol.density;
+    } else s.fog = new FogExp2(color, vol.density);
+    const r = doc.scene.render;
+    const custom = !!r.use_volume_custom_range;
+    fxUniforms.ndFogRange.value.set(custom ? Math.max(0, r.volumetric_start ?? 0.1) : 0, custom ? Math.max(0, r.volumetric_end ?? 100) : 1e9, 0, 0);
+    // a flat background sees the medium over its whole depth
+    if (s.background instanceof Color) {
+      const T = custom ? fogTransmittance(vol.density, (r.volumetric_end ?? 100) - (r.volumetric_start ?? 0.1)) : 0;
+      s.background = s.background.clone().lerp(color, 1 - T);
     }
   }
 

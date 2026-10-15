@@ -152,6 +152,15 @@ export function volumesPanel(r: RenderSettings): Child {
     'Volumes',
     () => [
       num(r, 'volumetric_samples', 'Steps', { int: true, min: 1, max: 256, tip: 'Samples taken through volumes such as smoke: more is smoother and slower' }),
+      sub(
+        'rs-vol-range',
+        'Custom Range',
+        () => [
+          num(r, 'volumetric_start', 'Start', { unit: 'distance', min: 0.000001, tip: 'Distance from the camera where the world volume starts' }),
+          num(r, 'volumetric_end', 'End', { unit: 'distance', min: 0.000001, tip: 'Distance from the camera where the world volume ends' }),
+        ],
+        { closed: true, header: headerToggle(r, 'use_volume_custom_range', 'Custom Range') },
+      ),
     ],
     { closed: true },
   );

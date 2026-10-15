@@ -298,3 +298,22 @@ test('shader AOVs render into their own passes and Render Layers outputs', async
   expect(res.outs).toEqual(expect.arrayContaining(['Image', 'AO', 'AOV:mask', 'AOV:other']));
   await expectNoErrors(errors);
 });
+
+test('a world volume fogs the realtime render, limited by the custom range', async ({ page }) => {
+  const errors = await openApp(page);
+  await mirrorFloor(page, 0.5, 0);
+  const clear = await renderPixels(page);
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const w = a.doc.worlds[a.doc.scene.world];
+    const out = w.tree.nodes.find((n: any) => n.type === 'ShaderNodeOutputWorld');
+    w.tree.nodes.push({ id: 'vs1', type: 'ShaderNodeVolumeScatter', name: 'Volume Scatter', location: [-200, 0], inputs: { Color: [0.8, 0.8, 0.8, 1], Density: 0.1 }, props: {} });
+    w.tree.links.push({ id: 'lk-vs', from_node: 'vs1', from_socket: 'Volume', to_node: out.id, to_socket: 'Volume' });
+    a.changed('doc');
+  });
+  const foggy = await renderPixels(page);
+  expect(difference(clear, foggy)).toBeGreaterThan(0.005);
+  const near = await renderPixels(page, { use_volume_custom_range: true, volumetric_start: 0.1, volumetric_end: 2 });
+  expect(difference(foggy, near)).toBeGreaterThan(0.005);
+  await expectNoErrors(errors);
+});

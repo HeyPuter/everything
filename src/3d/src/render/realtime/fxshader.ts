@@ -45,6 +45,8 @@ export const fxUniforms = {
   // irradiance volumes: min (xyz) + intensity, max (xyz) + replaces-world flag
   ndVolMin: new Uniform([new Vector4(), new Vector4(), new Vector4(), new Vector4()]),
   ndVolMax: new Uniform([new Vector4(), new Vector4(), new Vector4(), new Vector4()]),
+  /** world volume: view distances where the medium starts and ends */
+  ndFogRange: new Uniform(new Vector4(0, 1e9, 0, 0)),
 };
 
 /** Volume Scatter factors per light type (same packing as the influence factors). */
@@ -70,6 +72,7 @@ uniform mat4 ndPlLocal;
 uniform mat4 ndPlTexMat;
 uniform vec4 ndPlN;
 uniform vec4 ndVolMin[ 4 ];
+uniform vec4 ndFogRange;
 uniform vec4 ndVolMax[ 4 ];
 #if NUM_POINT_LIGHTS > 0
 uniform vec2 ndLiPoint[ NUM_POINT_LIGHTS ];
@@ -347,6 +350,19 @@ if ( diffuseColor.a < fract( getAlphaHashThreshold( vPosition ) + ndFx.y ) ) dis
 #endif
 `;
 
+/** World volume: Beer–Lambert transmittance over the view distance inside the volume range. */
+export const FOG_FRAGMENT = /* glsl */ `
+#ifdef USE_FOG
+#ifdef FOG_EXP2
+float ndFogD = clamp( vFogDepth - ndFogRange.x, 0.0, max( ndFogRange.y - ndFogRange.x, 0.0 ) );
+float fogFactor = 1.0 - exp( - fogDensity * ndFogD );
+#else
+float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
+#endif
+gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor * gl_FragColor.a, fogFactor );
+#endif
+`;
+
 const lightsBegin = patchLightsBegin(ShaderChunk.lights_fragment_begin);
 /** Transmission functions with the refraction lookup routed through `ndRefractSample`. */
 export function patchTransmissionPars(src: string): string {
@@ -364,7 +380,8 @@ export function patchFx(shader: WebGLProgramParametersWithUniforms) {
     .replace('#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>\n${PARS}`)
     .replace('#include <lights_fragment_begin>', lightsBegin)
     .replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>\n${FX_MAPS}`)
-    .replace('#include <alphahash_fragment>', ALPHA_HASH_TEMPORAL);
+    .replace('#include <alphahash_fragment>', ALPHA_HASH_TEMPORAL)
+    .replace('#include <fog_fragment>', FOG_FRAGMENT);
   // the refraction lookup is defined after the transmission functions it may fall back to
   if (f.includes('#include <transmission_pars_fragment>')) f = f.replace('#include <transmission_pars_fragment>', transmissionPars);
   shader.fragmentShader = f;
