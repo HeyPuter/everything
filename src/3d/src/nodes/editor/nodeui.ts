@@ -360,6 +360,8 @@ export interface NodeRenderState {
   preview?: string;
   /** tooltip of the node title (a group's description) */
   titleTip?: string;
+  /** messages from the last evaluation, shown as an icon on the header */
+  warnings?: string[];
 }
 
 const COLLAPSE_TIP = 'Collapse (H)';
@@ -569,6 +571,7 @@ export function renderNode(l: NodeLayout, tree: NodeTreeData, st: NodeRenderStat
       ),
       h('span', { class: 'nd-title', 'data-tip': st.titleTip ? `${title}\n${st.titleTip}` : null }, title),
       def?.dynamicSockets && n.props.node_tree !== undefined ? h('span', { class: 'nd-group-icon', 'data-tip': 'Node group (Tab to edit)' }, icon('node_tree')) : null,
+      st.warnings?.length ? h('span', { class: 'nd-warn-icon', 'data-tip': st.warnings.join('\n') }, icon('error')) : null,
     ),
     st.preview !== undefined ? h('div', { class: 'nd-preview' }, st.preview ? h('img', { src: st.preview, alt: '', draggable: 'false' }) : null) : null,
     n.hide

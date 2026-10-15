@@ -120,3 +120,27 @@ test('a group menu input feeding a Menu Switch is a dropdown in the modifier pan
   expect(await verts()).toBe(10);
   await expectNoErrors(errors);
 });
+
+test('nodes show the messages they reported on their header', async ({ page }) => {
+  const { errors } = await geometryEditor(page);
+  const id = await page.evaluate(async () => {
+    const { addNode, connect, ctxOf } = await import('/src/nodes/tree.ts');
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const tree = a.hoverArea.editor.tree();
+    const ctx = ctxOf(a.doc, tree);
+    const go = tree.nodes.find((n: { type: string }) => n.type === 'NodeGroupOutput');
+    const gi = tree.nodes.find((n: { type: string }) => n.type === 'NodeGroupInput');
+    const w = addNode(tree, 'GeometryNodeWarning', [0, -300]);
+    w.inputs.Message = 'Check the input';
+    const sw = addNode(tree, 'GeometryNodeSwitch', [200, -300], { input_type: 'GEOMETRY' });
+    connect(ctx, w.id, 'Show', sw.id, 'Switch');
+    connect(ctx, gi.id, tree.interface.find((i: { in_out: string }) => i.in_out === 'INPUT').identifier, sw.id, 'True');
+    tree.links = tree.links.filter((l: { to_node: string }) => l.to_node !== go.id);
+    connect(ctx, sw.id, 'Output', go.id, tree.interface.find((i: { in_out: string }) => i.in_out === 'OUTPUT').identifier);
+    a.changed('doc');
+    return w.id;
+  });
+  await page.waitForTimeout(400);
+  await expect(page.locator(`[data-node="${id}"] .nd-warn-icon`)).toHaveAttribute('data-tip', 'Check the input');
+  await expectNoErrors(errors);
+});

@@ -15,7 +15,7 @@ import type { SocketDef, SocketType } from '../../nodes/types';
 import type { Val } from '../exec';
 
 const FIELDABLE = new Set(['FLOAT', 'INT', 'BOOLEAN', 'VECTOR', 'RGBA', 'ROTATION', 'MATRIX']);
-const SWITCH_TYPES = ['FLOAT', 'INT', 'BOOLEAN', 'VECTOR', 'RGBA', 'ROTATION', 'MATRIX', 'STRING', 'MENU', 'OBJECT', 'IMAGE', 'GEOMETRY', 'COLLECTION', 'MATERIAL'];
+const SWITCH_TYPES = ['FLOAT', 'INT', 'BOOLEAN', 'VECTOR', 'RGBA', 'ROTATION', 'MATRIX', 'STRING', 'OBJECT', 'IMAGE', 'GEOMETRY', 'COLLECTION', 'MATERIAL'];
 
 /** Socket of a switch item of type `t`. */
 function itemSocketOf(id: string, t: SocketType, name: string, field: boolean): SocketDef {

@@ -626,6 +626,7 @@ export class NodeEditor implements Editor {
               highlightSockets: this.highlightSockets(),
               dimSocket: dim,
               titleTip: groupName !== undefined && gid ? app.doc.node_groups[gid]?.tree.description : undefined,
+              warnings: this.provider.nodeWarnings?.(this, n),
               preview: ma && n.show_preview && !n.hide && canPreview(n, app.doc, tree) ? (nodePreview(app.doc, ma, n, pkey) ?? '') : undefined,
               rerouteLabel: l.kind === 'REROUTE' ? n.label || (this.showOverlays && this.overlays.rerouteLabels ? rerouteSource(tree, n, this.layouts) : undefined) : undefined,
             },
@@ -1869,8 +1870,7 @@ export class NodeEditor implements Editor {
     const s = this.hitSocket(clientX, clientY, !d.isOutput);
     const own = new Set(d.ends.map((x) => x.node));
     const ok = (t: SocketPos & { node: string }) =>
-      !own.has(t.node) &&
-      d.ends.every((end) => t.socket.type === 'CUSTOM' || end.type === 'CUSTOM' || (d.isOutput ? canConvert(end.type, t.socket.type) : canConvert(t.socket.type, end.type)));
+      !own.has(t.node) && d.ends.every((end) => t.socket.type === 'CUSTOM' || end.type === 'CUSTOM' || (d.isOutput ? canConvert(end.type, t.socket.type) : canConvert(t.socket.type, end.type)));
     if (s && ok(s)) return s;
     const n = this.hitNode(clientX, clientY, false);
     if (!n || own.has(n.id)) return null;
@@ -1959,14 +1959,7 @@ export class NodeEditor implements Editor {
    * Interactive transform of nodes: move (G / drag), rotate (R) or scale (S) around the
    * selection centre. Moving a single unlinked node over a link inserts it there.
    */
-  startGrab(
-    ids: string[],
-    mode: 'key' | 'tweak',
-    label = 'Move',
-    ev?: PointerEvent,
-    from?: { x: number; y: number },
-    opts: { kind?: 'MOVE' | 'ROTATE' | 'SCALE'; onCancel?: () => void } = {},
-  ) {
+  startGrab(ids: string[], mode: 'key' | 'tweak', label = 'Move', ev?: PointerEvent, from?: { x: number; y: number }, opts: { kind?: 'MOVE' | 'ROTATE' | 'SCALE'; onCancel?: () => void } = {}) {
     const tree = this.tree();
     if (!tree || !ids.length) return;
     const kind = opts.kind ?? 'MOVE';
@@ -2102,7 +2095,8 @@ export class NodeEditor implements Editor {
           }
         }
       },
-      header: () => `${info}   ${kind === 'MOVE' ? 'Move' : kind === 'ROTATE' ? 'Rotate' : 'Scale'} nodes: LMB/Enter confirm, RMB/Esc cancel, Ctrl ${self.snap ? 'free' : 'snap'}${kind === 'MOVE' ? ', X/Y axis' : ''}`,
+      header: () =>
+        `${info}   ${kind === 'MOVE' ? 'Move' : kind === 'ROTATE' ? 'Rotate' : 'Scale'} nodes: LMB/Enter confirm, RMB/Esc cancel, Ctrl ${self.snap ? 'free' : 'snap'}${kind === 'MOVE' ? ', X/Y axis' : ''}`,
     });
   }
 

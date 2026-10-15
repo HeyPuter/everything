@@ -15,7 +15,7 @@ import { addNode, connect, ctxOf, nodeById, uniqueGroupName } from '../nodes/tre
 import type { ModifierBase, NodeData, NodeGroupData, NodeTreeData, ObjectData, SocketValue } from '../data/types';
 import { VIEWER, isActiveViewer } from './nodes/output';
 import { captureItems, ITEM_SOCKET, captureIn, captureOut, type CaptureItem } from './nodes/geometry';
-import { viewerState } from './results';
+import { gnResults, viewerState } from './results';
 import { setModifierNameHook } from './modifier';
 import { interfaceSocketType } from '../nodes/registry';
 import { enumMenu, textField, button } from '../ui/widgets';
@@ -161,6 +161,14 @@ registerNodeEditorProvider({
   },
   emptyMessage: () => '',
   menuPoll: (idname) => !!getNodeType(idname)?.treeTypes.includes('GEOMETRY'),
+  // messages from the last evaluation of the active object's modifier (nested groups by node path)
+  nodeWarnings: (e, node) => {
+    const ed = e as GeometryNodeEditor;
+    const { ob, mod } = editorGroup(ed);
+    const r = ob && mod ? gnResults.get(ob.id) : undefined;
+    if (!r || r.modifierId !== mod!.id) return undefined;
+    return r.warnings.get([ob!.id, mod!.id, ...ed.path.map((p) => p.node), node.id].join('/'));
+  },
   // Ctrl Shift click / node.link_viewer: link the node to the viewer
   linkViewer: (ed, node, socket) => linkToViewer(ed as NodeEditor, node, socket),
   headerRight: (e) => {
