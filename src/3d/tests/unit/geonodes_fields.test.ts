@@ -350,3 +350,29 @@ describe('data-block inputs', () => {
     expect(te.nodeOutputs(mat).Material).toBe('m1');
   });
 });
+
+describe('primitive edge order', () => {
+  const cases = JSON.parse(readFileSync(join(__dirname, '../fixtures/geonodes_edges/primitive_edges.json'), 'utf8')) as {
+    name: string;
+    type: string;
+    inputs: Record<string, never>;
+    props: Record<string, never>;
+    edges: number[][];
+  }[];
+  for (const c of cases)
+    it(c.name, () => {
+      const m = runSpec({ nodes: { g: { type: c.type, inputs: c.inputs, props: c.props } }, geometry: ['g', 'Mesh'] }).geometry.mesh!;
+      const t = m.topology();
+      expect(Array.from({ length: t.edgeCount }, (_, e) => [t.edges[e * 2], t.edges[e * 2 + 1]])).toEqual(c.edges);
+    });
+  it('an edge order made for other faces is ignored', () => {
+    const m = runSpec({ nodes: { g: { type: 'GeometryNodeMeshGrid', inputs: { 'Vertices X': 3, 'Vertices Y': 3 } as never } }, geometry: ['g', 'Mesh'] }).geometry.mesh!;
+    const copy = m.copy();
+    copy.corners = Uint32Array.from(m.corners).reverse();
+    const t = copy.topology();
+    expect(t.edgeCount).toBe(12);
+    // closing edge of the first face first
+    const f0 = Array.from(copy.corners.subarray(copy.faceOffsets[0], copy.faceOffsets[1]));
+    expect([t.edges[0], t.edges[1]]).toEqual([Math.min(f0[3], f0[0]), Math.max(f0[3], f0[0])]);
+  });
+});
