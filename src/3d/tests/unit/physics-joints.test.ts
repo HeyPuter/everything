@@ -125,3 +125,17 @@ describe('rigid body constraint types', () => {
     expect(pos(at(g, doc, bob, 60)).z).toBe(zs[2]);
   });
 });
+
+describe('rigid body world collections', () => {
+  it('only rigid bodies in the world collection are simulated', () => {
+    const doc = scene();
+    const a = box(doc, 'In', 0.5, [0, 0, 5], 'ACTIVE');
+    const b = box(doc, 'Out', 0.5, [3, 0, 5], 'ACTIVE');
+    const coll = { id: 'rbw', name: 'RigidBodyWorld', objects: [a.id], children: [], hide_viewport: false, hide_render: false, hide_select: false, instance_offset: [0, 0, 0] };
+    doc.collections[coll.id] = coll as never;
+    doc.scene.rigidbody_world!.collection = coll.id;
+    const g = new Depsgraph(doc);
+    expect(pos(at(g, doc, a, 20)).z).toBeLessThan(4.5);
+    expect(pos(at(g, doc, b, 20)).z).toBeCloseTo(5, 5);
+  });
+});

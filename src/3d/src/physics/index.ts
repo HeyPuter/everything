@@ -68,3 +68,4 @@ import './fieldadd';
 import './dynpaint';
 import './dpops';
 import './quickliquid';
+import './ui-rbworld';

@@ -11,6 +11,10 @@ export interface PointCacheSettings {
 
 export interface RigidBodyWorldX extends RigidBodyWorld {
   is_baked?: boolean;
+  /** collection of the constraint objects that take part (all when unset) */
+  constraints?: string | null;
+  effector_weights_all?: number;
+  effector_weights_types?: Record<string, number>;
   /** effector weight for gravity (effector_weights.gravity) */
   effector_weights_gravity?: number;
 }

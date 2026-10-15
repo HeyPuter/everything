@@ -54,20 +54,38 @@ interface RBCache extends FrameCache<Float32Array, Live> {
   order?: string[];
 }
 
+/** Objects in a collection (and its children). */
+function inCollection(doc: DocumentData, cid: string | null | undefined): Set<string> | null {
+  const c = cid ? doc.collections[cid] : undefined;
+  if (!c) return null;
+  const out = new Set<string>();
+  const visit = (id: string, depth: number) => {
+    const cc = doc.collections[id];
+    if (!cc || depth > 32) return;
+    for (const o of cc.objects) out.add(o);
+    for (const ch of cc.children) visit(ch, depth + 1);
+  };
+  visit(c.id, 0);
+  return out;
+}
+
 export function rigidBodyObjects(doc: DocumentData): ObjectData[] {
   const out: ObjectData[] = [];
+  // the world's collection limits which rigid bodies take part (all of them without one)
+  const only = inCollection(doc, doc.scene.rigidbody_world?.collection);
   for (const id of doc.object_order) {
     const ob = doc.objects[id];
-    if (ob?.rigid_body && ob.type === 'MESH' && ob.data && doc.meshes[ob.data]) out.push(ob);
+    if (ob?.rigid_body && ob.type === 'MESH' && ob.data && doc.meshes[ob.data] && (!only || only.has(ob.id))) out.push(ob);
   }
   return out;
 }
 
 export function constraintObjects(doc: DocumentData): ObjectPhysics[] {
   const out: ObjectPhysics[] = [];
+  const only = inCollection(doc, (doc.scene.rigidbody_world as RigidBodyWorldX | null)?.constraints);
   for (const id of doc.object_order) {
     const ob = doc.objects[id] as ObjectPhysics | undefined;
-    if (ob?.rigid_body_constraint?.enabled) out.push(ob);
+    if (ob?.rigid_body_constraint?.enabled && (!only || only.has(ob.id))) out.push(ob);
   }
   return out;
 }
