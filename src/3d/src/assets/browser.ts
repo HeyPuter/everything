@@ -100,7 +100,7 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
   library = LOCAL;
   catalogPath: string | null = null;
   importMethod: ImportSetting = 'FOLLOW_PREFS';
-  instanceCollections = true;
+  instanceCollections = false;
   view: View = 'THUMBNAIL';
   size = 'SMALL';
   filter = '';
