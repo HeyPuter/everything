@@ -120,7 +120,7 @@ test('Render menu: View Animation and Lock Interface; Output and View Layer pane
   expect(await page.evaluate(() => (window as any).app.doc.scene.render.use_lock_interface)).toBe(true);
   const props = page.locator('.properties').first();
   await props.locator('.rail-tab[data-tab="OUTPUT"]').click();
-  for (const t of ['Format', 'Frame Range', 'Output', 'Metadata']) await expect(props.locator('.panel-header .ph-title', { hasText: new RegExp(`^${t}$`) }).first()).toBeVisible();
+  for (const t of ['Format', 'Frame Range', 'Output', 'Metadata', 'Post Processing']) await expect(props.locator('.panel-header .ph-title', { hasText: new RegExp(`^${t}$`) }).first()).toBeVisible();
   await props.locator('.rail-tab[data-tab="VIEW_LAYER"]').click();
   await expect(props.getByText('Use for Rendering')).toBeVisible();
   await expect(props.getByText('Object Index')).toBeVisible();

@@ -30,7 +30,8 @@ src/
   animation/  Dope Sheet, Graph Editor, Drivers, NLA editors and their operators
   paint/      Sculpt, Vertex/Weight/Texture Paint, voxel remesh, automatic weights
   physics/    Rigid bodies (Rapier, lazy-loaded), cloth, soft body, particles, fields, smoke
-  render/final/ Path tracer, raster engine, F12/animation render, Image Editor, color management
+  render/final/ Path tracer, raster engine, F12/animation render, Image Editor, color management;
+              props/ holds the Render, Output, View Layer and camera-data properties panels
   sequencer/  Video Sequencer (strips, effects, preview, audio)
   tracking/   Movie Clip Editor, 2D tracking, stabilization, Follow Track constraint
   greasepencil/ Grease Pencil objects, Draw/Edit/Sculpt modes, 2D Animation workspace
