@@ -5,7 +5,7 @@ import { enumMenu, numberField, colorSwatch, linearToSrgb } from '../../ui/widge
 import { openMenu, setWidgetDragging } from '../../ui/menu';
 import type { NodeData } from '../../data/types';
 import { getNodeType } from '../registry';
-import { readRamp, writeRamp, bakeRamp, evalRamp, readCurve, writeCurve, evalCurve, CURVE_NAMES, CURVE_RANGE, defaultCurves, type CurveKind, type CurvePoint } from '../curves';
+import { readRamp, writeRamp, bakeRamp, evalRamp, readCurve, writeCurve, evalCurve, evalPeriodicCurve, CURVE_NAMES, CURVE_RANGE, defaultCurves, type CurveKind, type CurvePoint } from '../curves';
 import type { NodeDrawContext } from '../types';
 
 const css = (c: number[]) =>
@@ -299,6 +299,8 @@ export function drawRamp(ctx: NodeDrawContext): Child {
 const CURVE_SIZE = 150;
 
 function curveKind(n: NodeData): CurveKind {
+  const k = n.props.curve_kind as CurveKind | undefined;
+  if (k && k in CURVE_NAMES) return k;
   return n.type === 'ShaderNodeRGBCurve' ? 'RGB' : n.type === 'ShaderNodeVectorCurve' ? 'VECTOR' : 'FLOAT';
 }
 
@@ -327,13 +329,16 @@ export function drawCurves(ctx: NodeDrawContext): Child {
     y: '#60c060',
     z: '#5080e0',
     v: '#e6e6e6',
+    h: '#e6e6e6',
+    s: '#e6e6e6',
   };
+  const periodic = kind === 'HUE';
   const curvePath = (i: number) => {
     const p = readCurve(n.props, i);
     let d = '';
     for (let k = 0; k <= 64; k++) {
       const x = x0 + ((x1 - x0) * k) / 64;
-      d += `${k ? 'L' : 'M'}${sx(x).toFixed(1)},${sy(evalCurve(p, x, extend)).toFixed(1)}`;
+      d += `${k ? 'L' : 'M'}${sx(x).toFixed(1)},${sy(periodic ? evalPeriodicCurve(p, x) : evalCurve(p, x, extend)).toFixed(1)}`;
     }
     return d;
   };
@@ -453,24 +458,30 @@ export function drawCurves(ctx: NodeDrawContext): Child {
             e.preventDefault();
             openMenu(
               [
-                {
-                  label: 'Extend Horizontal',
-                  active: extend === 'HORIZONTAL',
-                  action: () => ((n.props.curve_extend = 'HORIZONTAL'), commit('Curve Extend')),
-                },
-                {
-                  label: 'Extend Extrapolated',
-                  active: extend === 'EXTRAPOLATED',
-                  action: () => ((n.props.curve_extend = 'EXTRAPOLATED'), commit('Curve Extend')),
-                },
-                { separator: true },
+                ...(periodic
+                  ? []
+                  : [
+                      {
+                        label: 'Extend Horizontal',
+                        active: extend === 'HORIZONTAL',
+                        action: () => ((n.props.curve_extend = 'HORIZONTAL'), commit('Curve Extend')),
+                      },
+                      {
+                        label: 'Extend Extrapolated',
+                        active: extend === 'EXTRAPOLATED',
+                        action: () => ((n.props.curve_extend = 'EXTRAPOLATED'), commit('Curve Extend')),
+                      },
+                      { separator: true },
+                    ]),
                 {
                   label: 'Reset Curve',
                   action: () => {
-                    writeCurve(n.props, active, [
-                      { x: x0, y: y0, handle: 0 },
-                      { x: x1, y: y1, handle: 0 },
-                    ]);
+                    if (periodic) n.props[`curve_${active}`] = [...(defaultCurves('HUE').curve_0 as number[])];
+                    else
+                      writeCurve(n.props, active, [
+                        { x: x0, y: y0, handle: 0 },
+                        { x: x1, y: y1, handle: 0 },
+                      ]);
                     n.props.curve_point = -1;
                     commit('Reset Curve');
                   },
@@ -492,6 +503,19 @@ export function drawCurves(ctx: NodeDrawContext): Child {
         onpointerdown: down,
       },
       h('rect', { x: 0, y: 0, width: W, height: H, class: 'nd-curve-bg' }),
+      // hue curves: the hue circle along the bottom edge
+      periodic ? h('rect', { x: 0, y: H - 6, width: W, height: 6, fill: 'url(#nd-hue-grad)' }) : null,
+      periodic
+        ? h(
+            'defs',
+            null,
+            h(
+              'linearGradient',
+              { id: 'nd-hue-grad', x1: '0', x2: '1', y1: '0', y2: '0' },
+              ['#ff0000', '#ffff00', '#00ff00', '#00ffff', '#0000ff', '#ff00ff', '#ff0000'].map((c, i) => h('stop', { key: `s${i}`, offset: `${(i / 6) * 100}%`, 'stop-color': c })),
+            ),
+          )
+        : null,
       grid,
       names.map((nm, i) =>
         i === active
@@ -584,7 +608,7 @@ export function drawCurves(ctx: NodeDrawContext): Child {
 
 export const RAMP_HEIGHT = 112;
 export function curveHeight(n: NodeData) {
-  return 24 + CURVE_SIZE + 6 + 24 + (n.type === 'ShaderNodeRGBCurve' ? 24 : 0) + 6;
+  return 24 + CURVE_SIZE + 6 + 24 + (curveKind(n) === 'RGB' ? 24 : 0) + 6;
 }
 
 // attach to node types

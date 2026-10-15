@@ -771,6 +771,19 @@ const SHARED = [
   'ShaderNodeVectorMath',
   'ShaderNodeVectorCurve',
   'ShaderNodeVectorRotate',
+  'ShaderNodeRadialTiling',
+  'ShaderNodeTexBrick',
+  'ShaderNodeTexChecker',
+  'ShaderNodeTexGabor',
+  'ShaderNodeTexGradient',
+  'ShaderNodeTexMagic',
+  'ShaderNodeTexNoise',
+  'ShaderNodeTexVoronoi',
+  'ShaderNodeTexWave',
+  'ShaderNodeTexWhiteNoise',
+  'FunctionNodeInputBool',
+  'FunctionNodeInputInt',
+  'FunctionNodeInputVector',
 ];
 
 /** Add the compositor tree type to node types defined elsewhere (idempotent, re-run after late registrations). */
@@ -808,24 +821,31 @@ export const COMPOSITOR_MENU: MenuCategory[] = [
     items: [
       {
         label: 'Constant',
-        items: [e('CompositorNodeRGB'), e('ShaderNodeValue')],
+        items: [e('FunctionNodeInputBool'), e('CompositorNodeRGB'), e('FunctionNodeInputInt'), e('CompositorNodeNormal'), e('ShaderNodeValue'), e('FunctionNodeInputVector')],
       },
+      'SEPARATOR',
+      e('CompositorNodeBlankImage'),
+      e('CompositorNodeBokehImage'),
+      e('NodeGroupInput', 'Group Input'),
+      e('CompositorNodeImage'),
+      e('CompositorNodeImageInfo'),
+      e('CompositorNodeImageCoordinates'),
+      e('CompositorNodeMovieClip'),
+      e('CompositorNodeStringToImage'),
+      'SEPARATOR',
       {
         label: 'Scene',
         items: [e('CompositorNodeRLayers'), e('CompositorNodeSceneTime'), e('CompositorNodeTime')],
       },
-      'SEPARATOR',
-      e('CompositorNodeBokehImage'),
-      e('CompositorNodeImage'),
     ],
   },
   {
     label: 'Output',
-    items: [e('NodeGroupOutput', 'Group Output'), e('CompositorNodeViewer')],
+    items: [e('CompositorNodeOutputFile'), e('NodeGroupOutput', 'Group Output'), e('CompositorNodeViewer')],
   },
-  'SEPARATOR' as never,
   {
     label: 'Color',
+    separatorBefore: true,
     items: [
       {
         label: 'Adjust',
@@ -835,14 +855,11 @@ export const COMPOSITOR_MENU: MenuCategory[] = [
           e('CompositorNodeColorCorrection'),
           e('CompositorNodeExposure'),
           e('ShaderNodeGamma'),
+          e('CompositorNodeHueCorrect'),
           e('CompositorNodeHueSat'),
           e('CompositorNodeCurveRGB'),
           e('CompositorNodeTonemap'),
         ],
-      },
-      {
-        label: 'Mix',
-        items: [e('ShaderNodeMix', 'Mix Color', { data_type: 'RGBA' })],
       },
       'SEPARATOR',
       e('CompositorNodePremulKey'),
@@ -853,9 +870,12 @@ export const COMPOSITOR_MENU: MenuCategory[] = [
       e('CompositorNodeSeparateColor'),
       'SEPARATOR',
       e('CompositorNodeZcombine'),
+      e('ShaderNodeMix', 'Mix Color', { data_type: 'RGBA' }),
       'SEPARATOR',
       e('ShaderNodeBlackbody'),
       e('ShaderNodeValToRGB'),
+      e('CompositorNodeConvertColorSpace'),
+      e('CompositorNodeConvertToDisplay'),
       'SEPARATOR',
       e('CompositorNodeInvert'),
       e('CompositorNodeRGBToBW'),
@@ -870,14 +890,17 @@ export const COMPOSITOR_MENU: MenuCategory[] = [
     items: [
       {
         label: 'Blur',
-        items: [e('CompositorNodeBilateralblur'), e('CompositorNodeBlur'), e('CompositorNodeBokehBlur'), e('CompositorNodeDefocus'), e('CompositorNodeDBlur')],
+        items: [e('CompositorNodeBilateralblur'), e('CompositorNodeBlur'), e('CompositorNodeBokehBlur'), e('CompositorNodeDefocus'), e('CompositorNodeDBlur'), e('CompositorNodeVecBlur')],
       },
       'SEPARATOR',
       e('CompositorNodeAntiAliasing'),
+      e('CompositorNodeConvolve'),
       e('CompositorNodeDenoise'),
       e('CompositorNodeDespeckle'),
       'SEPARATOR',
       e('CompositorNodeDilateErode'),
+      e('CompositorNodeMaskToSDF'),
+      e('CompositorNodeInpaint'),
       'SEPARATOR',
       e('CompositorNodeFilter'),
       e('CompositorNodeGlare'),
@@ -885,6 +908,7 @@ export const COMPOSITOR_MENU: MenuCategory[] = [
   },
   {
     label: 'Keying',
+    separatorBefore: true,
     items: [
       e('CompositorNodeChannelMatte'),
       e('CompositorNodeChromaMatte'),
@@ -892,12 +916,43 @@ export const COMPOSITOR_MENU: MenuCategory[] = [
       e('CompositorNodeColorSpill'),
       e('CompositorNodeDiffMatte'),
       e('CompositorNodeDistanceMatte'),
+      e('CompositorNodeKeying'),
+      e('CompositorNodeKeyingScreen'),
       e('CompositorNodeLumaMatte'),
     ],
   },
   {
     label: 'Mask',
-    items: [e('CompositorNodeBoxMask'), e('CompositorNodeEllipseMask')],
+    items: [
+      e('CompositorNodeCryptomatteV2'),
+      e('CompositorNodeCryptomatte'),
+      'SEPARATOR',
+      e('CompositorNodeBoxMask'),
+      e('CompositorNodeEllipseMask'),
+      'SEPARATOR',
+      e('CompositorNodeDoubleEdgeMask'),
+      e('CompositorNodeIDMask'),
+    ],
+  },
+  {
+    label: 'Tracking',
+    separatorBefore: true,
+    items: [e('CompositorNodeStabilize'), e('CompositorNodeTrackPos')],
+  },
+  {
+    label: 'Texture',
+    separatorBefore: true,
+    items: [
+      e('ShaderNodeTexBrick'),
+      e('ShaderNodeTexChecker'),
+      e('ShaderNodeTexGabor'),
+      e('ShaderNodeTexGradient'),
+      e('ShaderNodeTexMagic'),
+      e('ShaderNodeTexNoise'),
+      e('ShaderNodeTexVoronoi'),
+      e('ShaderNodeTexWave'),
+      e('ShaderNodeTexWhiteNoise'),
+    ],
   },
   {
     label: 'Transform',
@@ -915,6 +970,7 @@ export const COMPOSITOR_MENU: MenuCategory[] = [
       e('CompositorNodeMapUV'),
       'SEPARATOR',
       e('CompositorNodeLensdist'),
+      e('CompositorNodeMovieDistortion'),
     ],
   },
   {
@@ -932,6 +988,7 @@ export const COMPOSITOR_MENU: MenuCategory[] = [
           e('ShaderNodeMix', 'Mix Vector', { data_type: 'VECTOR' }),
           e('ShaderNodeSeparateXYZ'),
           'SEPARATOR',
+          e('ShaderNodeRadialTiling'),
           e('ShaderNodeVectorCurve'),
           e('ShaderNodeVectorMath'),
           e('ShaderNodeVectorRotate'),
@@ -943,13 +1000,23 @@ export const COMPOSITOR_MENU: MenuCategory[] = [
       'SEPARATOR',
       e('CompositorNodeSplit'),
       e('GeometryNodeSwitch'),
+      e('CompositorNodeSwitchView', 'Switch Stereo View'),
       'SEPARATOR',
       e('CompositorNodeRelativeToPixel'),
     ],
   },
 ];
 
-registerNodeMenu(
-  ['COMPOSITOR'],
-  COMPOSITOR_MENU.filter((c) => (c as unknown) !== 'SEPARATOR'),
-);
+/** Add-menu poll: entries whose node type exists and runs in the compositor. */
+export function compositorEntryPoll(idname: string): boolean {
+  const d = getNodeType(idname);
+  if (!d || !d.treeTypes.includes('COMPOSITOR')) return false;
+  return !compositorEntryCheck || compositorEntryCheck(idname);
+}
+let compositorEntryCheck: ((idname: string) => boolean) | null = null;
+/** Set by the evaluator module: whether a node type has an implementation. */
+export function setCompositorEntryCheck(f: (idname: string) => boolean) {
+  compositorEntryCheck = f;
+}
+
+registerNodeMenu(['COMPOSITOR'], COMPOSITOR_MENU);
