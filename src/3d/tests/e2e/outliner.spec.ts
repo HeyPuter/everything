@@ -265,6 +265,15 @@ test('buttons: keyframes, reset, copy/paste, data path and the button menu', asy
   await field(page, '.location.2').hover();
   await page.keyboard.press('ControlOrMeta+Alt+v');
   await expect.poll(() => loc(page)).toEqual([1.5, 2.5, 3.5]);
+  // Minus negates the hovered number, Enter starts typing in it
+  await field(page, '.location.0').hover();
+  await page.keyboard.press('Minus');
+  await expect.poll(() => loc(page)).toEqual([-1.5, 2.5, 3.5]);
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.properties input.num-field.editing')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.properties input.num-field.editing')).toHaveCount(0);
+  await field(page, '.location.2').hover();
   // Ctrl+Shift+Alt+C copies the full data path
   await page.keyboard.press('ControlOrMeta+Shift+Alt+c');
   expect(await page.evaluate(() => (window as unknown as Win).app.reports.at(-1).message)).toBe('Copied: bpy.data.objects["Cube"].location[2]');
@@ -272,7 +281,7 @@ test('buttons: keyframes, reset, copy/paste, data path and the button menu', asy
   await field(page, '.location.2').click({ button: 'right' });
   await expect(page.locator('.menu-item', { hasText: 'Insert Single Keyframe' })).toBeVisible();
   await page.locator('.menu-item', { hasText: 'Reset Single to Default Value' }).click();
-  expect(await loc(page)).toEqual([1.5, 2.5, 0]);
+  expect(await loc(page)).toEqual([-1.5, 2.5, 0]);
   await expectNoErrors(errors);
 });
 

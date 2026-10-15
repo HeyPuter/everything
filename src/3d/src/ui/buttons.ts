@@ -642,6 +642,25 @@ function removeDriver(b: PropBinding, all: boolean) {
   if (p) app.run('anim.driver_button_remove', p, { invoke: false });
 }
 
+/** Enter over a button: start typing in a number field, toggle a checkbox, open a menu. */
+function activateHovered() {
+  const el = document.elementFromPoint(app.pointer.x, app.pointer.y)?.closest('[data-id]') as HTMLElement | null;
+  if (!el || !targetButton()) return;
+  const r = el.getBoundingClientRect();
+  const init = { bubbles: true, cancelable: true, button: 0, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, pointerId: 1, isPrimary: true };
+  el.dispatchEvent(new PointerEvent('pointerdown', init));
+  if (el.classList.contains('num-field')) dispatchEvent(new PointerEvent('pointerup', init));
+}
+
+/** Minus over a number button flips its sign. */
+function negateHovered() {
+  const b = targetButton();
+  const v = b ? bindingValue(b) : undefined;
+  if (!b || typeof v !== 'number' || (b.kind !== 'number' && b.kind !== 'vector')) return;
+  write(b, -v, false);
+  changed(b, 'Negate Value');
+}
+
 function copyValue(whole: boolean) {
   const b = targetButton();
   if (b) copyButtonValue(b, whole);
@@ -672,6 +691,10 @@ addKeys('User Interface', [
   { key: 'C', ctrl: true, alt: true, action: () => copyValue(true) },
   { key: 'V', ctrl: true, alt: true, action: () => pasteValue(true) },
   { key: 'RET', alt: true, op: 'ui.copy_to_selected_button', props: { all: true } },
+  { key: 'RET', action: () => activateHovered() },
+  { key: 'NUMPAD_ENTER', action: () => activateHovered() },
+  { key: 'MINUS', action: () => negateHovered() },
+  { key: 'NUMPAD_MINUS', action: () => negateHovered() },
 ]);
 
 function matches(k: KeyItem, name: string, e: KeyboardEvent) {
