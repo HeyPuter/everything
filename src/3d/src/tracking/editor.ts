@@ -27,6 +27,7 @@ import { stabilizationMatrix, autoscaleFactor, type Affine2 } from './stabilize'
 import { drawToolbar, drawSidebar, drawPatternPreviews } from './panels';
 import { drawGraph, drawDopesheet, graphPointer, dopesheetPointer, frameGraphAll, frameDopesheetAll } from './graphs';
 import { jobState } from './jobs';
+import { lastOpPanel } from '../ui/redo';
 import { drawMask, drawMaskMatte, drawSelectShape, maskPointerDown, hostMask, type MaskHost } from '../mask/clipmask';
 import { clipLasso } from './graphops';
 import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskToolbar, maskSidebar } from '../mask/maskui';
@@ -1103,6 +1104,12 @@ export class ClipEditor implements Editor {
     const mask = this.view === 'CLIP' && this.mode === 'MASK';
     if (this.view === 'CLIP' && this.showToolbar) children.push(mask ? maskToolbar(this) : drawToolbar(this));
     if (this.view === 'CLIP' && this.showSidebar) children.push(mask ? h('div', { key: 'sidebar', class: 'clip-sidebar' }, h('div', { class: 'sb-body' }, maskSidebar(this)), h('div', { class: 'sb-tabs' }, h('button', { class: 'sb-tab on' }, 'Mask'))) : drawSidebar(this));
+    // Adjust Last Operation for clip and mask operators (beside the toolbar)
+    const last = app.lastOp;
+    if (this.view === 'CLIP' && last && (last.idname.startsWith('clip.') || last.idname.startsWith('mask.'))) {
+      const panel = lastOpPanel(this);
+      if (panel) children.push(h('div', { key: 'redo', class: 'clip-redo', style: { left: `${this.showToolbar ? 236 : 6}px` } }, panel));
+    }
     patch(this.ui, children);
     drawPatternPreviews(this);
   }
