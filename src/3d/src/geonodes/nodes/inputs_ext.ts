@@ -1,12 +1,11 @@
 // Further input nodes: data-block constants (Object, Collection, Material, Image), instance
-// attributes (rotation, scale, transform, reference, bounds), curve attributes (handles, tilt,
-// resolution, tangent), Material Selection, Named Layer Selection, and the Set ID / Set
-// Instance Transform writers.
+// attributes (rotation, scale, transform, reference, bounds), Curve Handle Positions, Material
+// Selection, and the Set ID / Set Instance Transform writers.
 import './fdata';
 import { gn, prop } from './defs';
 import { Field, InputField, allocField, evalFull, matrixToEuler, type Evaluated, type FieldContext } from '../field';
 import { adaptDomain, geometryBounds, readAttribute, type Component, type InstancesComponent } from '../geometry';
-import { curveTangentField, idField, positionField } from '../inputs';
+import { idField, positionField } from '../inputs';
 import { evalOn, pointDomainOf } from './common';
 import type { FieldType } from '../types';
 
@@ -166,25 +165,6 @@ gn('GeometryNodeSetID', 'geometry', {
 // ---------------------------------------------------------------------------
 // Curves
 
-const curveAttr = (type: FieldType, name: string, domain: 'POINT' | 'CURVE', fallback: (ctx: FieldContext) => Evaluated) =>
-  new InputField(type, `curve_attr:${name}`, (ctx) => {
-    const c = ctx.comp;
-    if (c.kind !== 'CURVES') return zeros(type);
-    const a = c.attrs.get(name);
-    if (!a || a.domain !== domain) return fallback(ctx);
-    return full(ctx.domain === domain ? a.data : adaptDomain(c, a.data, a.type, domain, ctx.domain));
-  });
-
-gn('GeometryNodeInputCurveTilt', 'input', {
-  exec: () => ({ Tilt: curveAttr('FLOAT', 'tilt', 'POINT', () => zeros('FLOAT')) }),
-});
-
-gn('GeometryNodeInputSplineResolution', 'input', {
-  exec: () => ({ Resolution: curveAttr('INT', 'resolution', 'CURVE', () => zeros('INT')) }),
-});
-
-gn('GeometryNodeInputTangent', 'input', { exec: () => ({ Tangent: curveTangentField() }) });
-
 gn('GeometryNodeInputCurveHandlePositions', 'input', {
   exec: (ctx) => {
     const relative = ctx.field('Relative', 'BOOLEAN');
@@ -208,7 +188,7 @@ gn('GeometryNodeInputCurveHandlePositions', 'input', {
 });
 
 // ---------------------------------------------------------------------------
-// Material / layer selection
+// Material selection
 
 gn('GeometryNodeMaterialSelection', 'input', {
   exec: (ctx) => {
@@ -230,9 +210,4 @@ gn('GeometryNodeMaterialSelection', 'input', {
       }),
     };
   },
-});
-
-gn('GeometryNodeInputNamedLayerSelection', 'input', {
-  // geometry here has no layers, so nothing is selected
-  exec: () => ({ Selection: new InputField('BOOLEAN', 'named_layer_selection', () => zeros('BOOLEAN')) }),
 });

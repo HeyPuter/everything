@@ -67,17 +67,7 @@ gn(
 );
 
 // ---------------------------------------------------------------------------
-// Join / match / replace / reverse / slice / case / trim / find / length
-
-const join = gn('GeometryNodeStringJoin', 'converter', {
-  exec: (ctx) => ({
-    String: ctx
-      .values('Strings')
-      .map((v) => (typeof v === 'string' ? v : ''))
-      .join(ctx.string('Delimiter')),
-  }),
-});
-join.inputs.find((x) => x.identifier === 'Strings')!.multiInput = true;
+// Match / replace / reverse / slice / case / trim / find / length
 
 const MATCH_OPS: [string, string][] = [
   ['Starts With', 'Starts With'],
@@ -257,4 +247,3 @@ gn(
 gn('FunctionNodeInputSpecialCharacters', 'input', {
   exec: () => ({ 'Line Break': '\n', Tab: '\t' }),
 });
-
