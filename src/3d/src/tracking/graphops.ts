@@ -6,6 +6,8 @@ import { currentClipEditor, type ClipEditor } from './editor';
 import { graphSelection, graphKnots, knotKey, frameGraphAll, frameDopesheetAll } from './graphs';
 import { enabledMarkerAt, markerAt, type MovieClipData } from './types';
 import { pointInPolygon } from '../sequencer/selection';
+import { openPie } from '../ui/menu';
+import { isShortTrack, dropShortSegments, maxAcceleration } from './cleanup';
 
 const editorIn = (view: string) => () => {
   const ed = currentClipEditor();
@@ -373,3 +375,120 @@ keymaps['Clip Graph Editor'] = [
   ...(keymaps['Clip Graph Editor'] ?? []),
 ];
 keymaps['Clip Dopesheet Editor'] = [{ key: 'HOME', op: 'clip.dopesheet_view_all' }, ...(keymaps['Clip Dopesheet Editor'] ?? [])];
+
+// ---------------------------------------------------------------------------
+// clean-up, pies and display toggles
+
+const hasClip = () => !!currentClipEditor()?.clip;
+
+registerOperators([
+  {
+    idname: 'clip.clean_tracks',
+    label: 'Clean Tracks',
+    description: 'Select, delete or trim tracks whose tracked runs are shorter than a number of frames',
+    props: [
+      { id: 'frames', label: 'Tracked Frames', type: 'int', default: 0, min: 0 },
+      {
+        id: 'action',
+        label: 'Type',
+        type: 'enum',
+        default: 'SELECT',
+        items: [
+          ['SELECT', 'Select'],
+          ['DELETE_TRACK', 'Delete Track'],
+          ['DELETE_SEGMENTS', 'Delete Segments'],
+        ],
+      },
+    ],
+    poll: hasClip,
+    exec: (_c, p) => {
+      const c = currentClipEditor()!.clip!;
+      const frames = p.frames as number;
+      const bad = c.tracking.tracks.filter((t) => !t.lock && isShortTrack(t, frames));
+      if (p.action === 'SELECT') for (const t of c.tracking.tracks) t.select = bad.includes(t);
+      else if (p.action === 'DELETE_TRACK') c.tracking.tracks = c.tracking.tracks.filter((t) => !bad.includes(t));
+      else {
+        for (const t of c.tracking.tracks) if (!t.lock) dropShortSegments(t, frames);
+        c.tracking.tracks = c.tracking.tracks.filter((t) => t.markers.length > 0);
+      }
+      if (!c.tracking.tracks.some((t) => t.name === c.tracking.active_track)) c.tracking.active_track = null;
+      app.report('INFO', `${bad.length} track${bad.length === 1 ? '' : 's'} shorter than ${frames} frames`);
+    },
+  },
+  {
+    idname: 'clip.filter_tracks',
+    label: 'Filter Tracks',
+    description: 'Select tracks whose motion has sudden spikes (likely tracking errors)',
+    props: [{ id: 'track_threshold', label: 'Track Threshold', type: 'float', default: 5, min: 0, precision: 2 }],
+    poll: hasClip,
+    exec: (_c, p) => {
+      const c = currentClipEditor()!.clip!;
+      let n = 0;
+      for (const t of c.tracking.tracks) {
+        t.select = !t.hide && maxAcceleration(t, c.size) > (p.track_threshold as number);
+        if (t.select) n++;
+      }
+      app.report('INFO', `${n} track${n === 1 ? '' : 's'} with motion spikes selected`);
+    },
+  },
+]);
+
+/** E: tracking pie. */
+function trackingPie() {
+  openPie(
+    'Tracking',
+    [
+      { label: 'Track Backwards', op: 'clip.track_markers', props: { backwards: true, sequence: true } },
+      { label: 'Track Forwards', op: 'clip.track_markers', props: { backwards: false, sequence: true } },
+      { label: 'Disable Markers', op: 'clip.disable_markers', props: { action: 'TOGGLE' } },
+      { label: 'Detect Features', op: 'clip.detect_features' },
+      { label: 'Clear Path Up To', op: 'clip.clear_track_path', props: { action: 'UPTO', clear_active: false } },
+      { label: 'Clear Path Remaining', op: 'clip.clear_track_path', props: { action: 'REMAINED', clear_active: false } },
+      { label: 'Refine Backwards', op: 'clip.refine_markers', props: { backwards: true } },
+      { label: 'Refine Forwards', op: 'clip.refine_markers', props: { backwards: false } },
+    ],
+    app.pointer.x,
+    app.pointer.y,
+    'KeyE',
+  );
+}
+
+/** `: view pie of the clip view. */
+function viewPie() {
+  const ed = currentClipEditor();
+  openPie(
+    'View',
+    [
+      { label: 'Frame All', op: 'clip.view_all' },
+      { label: 'Frame Selected', op: 'clip.view_selected' },
+      { label: 'Zoom 1:1', op: 'clip.view_zoom_ratio', props: { ratio: 1 } },
+      { label: 'Frame All Fit', op: 'clip.view_all', props: { fit_view: true } },
+      null,
+      { label: 'Lock to Selection', active: !!ed?.lockSelection, op: 'clip.lock_selection_toggle' },
+      null,
+      null,
+    ],
+    app.pointer.x,
+    app.pointer.y,
+    'Backquote',
+  );
+}
+
+/** Toggle a display option of the hovered clip editor. */
+function toggleOverlay(key: 'show_disabled' | 'show_marker_search' | 'use_mute_footage') {
+  const ed = currentClipEditor();
+  if (!ed) return;
+  ed.overlays[key] = !ed.overlays[key];
+  ed.draw();
+  app.changed('ui');
+}
+
+addKeys('Clip', [
+  { key: 'E', when: inClip, action: trackingPie },
+  { key: 'ACCENT_GRAVE', when: inClip, action: viewPie },
+]);
+addKeys('Clip Editor', [
+  { key: 'D', alt: true, action: () => toggleOverlay('show_disabled') },
+  { key: 'S', alt: true, action: () => toggleOverlay('show_marker_search') },
+  { key: 'H', ctrl: true, action: () => toggleOverlay('use_mute_footage') },
+]);

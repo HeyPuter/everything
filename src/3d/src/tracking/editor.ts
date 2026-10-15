@@ -1287,6 +1287,7 @@ function trackMenu(): MenuItem[] {
       submenu: () => [opItem('Before', 'clip.clear_track_path', { action: 'UPTO', clear_active: false }), opItem('After', 'clip.clear_track_path', { action: 'REMAINED', clear_active: false }), opItem('Track Path', 'clip.clear_track_path', { action: 'ALL', clear_active: false })],
     },
     { label: 'Refine', submenu: () => [opItem('Backwards', 'clip.refine_markers', { backwards: true }), opItem('Forwards', 'clip.refine_markers', { backwards: false })] },
+    { label: 'Clean Up', submenu: () => [opItem('Clean Tracks', 'clip.clean_tracks'), opItem('Filter Tracks', 'clip.filter_tracks')] },
     { separator: true },
     opItem('Add Marker', 'clip.add_marker_at_click'),
     opItem('Detect Features', 'clip.detect_features'),

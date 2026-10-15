@@ -98,3 +98,20 @@ test('clip: graph view selects knots, deletes them (Shift X) and disables them (
   expect((await tracks(page))[0].n).toBe(9);
   await expectNoErrors(errors);
 });
+
+test('clip: tracking pie (E), clean tracks and display toggles', async ({ page }) => {
+  const errors = await trackingWorkspace(page);
+  const el = page.locator('.clip-root').nth(1);
+  const box = (await el.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.press('e');
+  await expect(page.locator('.pie-item', { hasText: 'Detect Features' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Alt+s');
+  expect(await page.evaluate(() => (window as any).app.hoverArea.editor.overlays.show_marker_search)).toBe(true);
+  await page.evaluate(() => (window as any).app.run('clip.clean_tracks', { frames: 20, action: 'SELECT' }));
+  expect((await tracks(page)).every((t: any) => t.select)).toBe(true);
+  await page.evaluate(() => (window as any).app.run('clip.clean_tracks', { frames: 5, action: 'DELETE_TRACK' }));
+  expect((await tracks(page)).length).toBe(2);
+  await expectNoErrors(errors);
+});
