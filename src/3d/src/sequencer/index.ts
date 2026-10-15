@@ -8,6 +8,7 @@ import './stripops';
 import './retimeops';
 import './textedit';
 import './previewops';
+import './subtitleio';
 import './keymap';
 import './output';
 import { app, onAppReady } from '../app/app';

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as S from '../../src/sequencer/strips';
 import { addFade, clearFade, keyValue, valueAt, crossfadeSounds } from '../../src/sequencer/fades';
-import { subtitlesSrt, srtTime } from '../../src/sequencer/subtitles';
+import { subtitlesSrt, srtTime, parseSubtitles, parseTime } from '../../src/sequencer/subtitles';
 import { changeEffectType, effectTypesFor, swapData } from '../../src/sequencer/stripdata';
 import type { Strip } from '../../src/sequencer/types';
 
@@ -93,6 +93,29 @@ describe('subtitles', () => {
     const m = add(e, 'TEXT', 1, 100, 10, 'muted');
     m.mute = true;
     expect(subtitlesSrt(e.strips, 24, 1)).toBe('1\n00:00:00,000 --> 00:00:01,000\nFirst\nline two\n\n2\n00:00:02,000 --> 00:00:03,000\nSecond\n');
+  });
+});
+
+describe('subtitle files', () => {
+  it('reads SubRip and WebVTT cues', () => {
+    expect(parseTime('01:02:03,500')).toBeCloseTo(3723.5);
+    expect(parseTime('00:05.25')).toBeCloseTo(5.25);
+    expect(parseTime('nope')).toBeNaN();
+    const srt = '1\r\n00:00:01,000 --> 00:00:02,500\r\nHello <i>there</i>\r\nsecond line\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\nBye\r\n';
+    expect(parseSubtitles(srt)).toEqual([
+      { start: 1, end: 2.5, text: 'Hello there\nsecond line' },
+      { start: 3, end: 4, text: 'Bye' },
+    ]);
+    const vtt = 'WEBVTT\n\n00:01.000 --> 00:02.000 align:center\nOne\n';
+    expect(parseSubtitles(vtt)).toEqual([{ start: 1, end: 2, text: 'One' }]);
+  });
+
+  it('round-trips through text strips', () => {
+    const e = ed();
+    const a = add(e, 'TEXT', 1, 25, 24, 'a');
+    a.text = 'Line';
+    const cues = parseSubtitles(subtitlesSrt(e.strips, 24, 1));
+    expect(cues).toEqual([{ start: 1, end: 2, text: 'Line' }]);
   });
 });
 

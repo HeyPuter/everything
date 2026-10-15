@@ -538,3 +538,18 @@ test('sequencer: with "Snap to Strips" the playhead snaps to strip edges while s
   expect(await page.evaluate(() => (window as any).app.doc.scene.frame_current)).toBe(41);
   await expectNoErrors(errors);
 });
+
+test('sequencer: File ▸ Import ▸ Subtitles adds text strips', async ({ page }) => {
+  const { errors } = await videoWorkspace(page);
+  const n = await page.evaluate(async () => {
+    const { formats } = await import('/src/io/files.ts' as any);
+    const f = formats.find((x: any) => x.id === 'subtitles');
+    await f.import(new File(['1\n00:00:01,000 --> 00:00:02,000\nHello\n\n2\n00:00:03,000 --> 00:00:05,000\nWorld\n'], 'subs.srt'));
+    return (window as any).app.doc.scene.sequence_editor.strips.filter((s: any) => s.type === 'TEXT' && s.name.startsWith('Subtitle')).map((s: any) => [s.text, s.frame_start, s.frame_duration]);
+  });
+  expect(n).toEqual([
+    ['Hello', 25, 24],
+    ['World', 73, 48],
+  ]);
+  await expectNoErrors(errors);
+});
