@@ -3,19 +3,28 @@
 import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
+import { openMenu } from '../../ui/menu';
+import { colorSpecials } from './colorpresets';
 import { panel, textField, checkbox, colorSwatch, enumMenu, numberField, button } from '../../ui/widgets';
 import { splitRow } from '../../ui/props';
 import type { NodeTreeData } from '../../data/types';
 import { getNodeType, nodeSockets, interfaceSocketType, SOCKET_IDNAME, SOCKET_COLORS } from '../registry';
-import { nodeById, addInterfaceSocket } from '../tree';
+import { nodeById, addInterfaceSocket, uniqueGroupName } from '../tree';
+import { addInterfacePanel, interfaceEntries, moveInterfaceEntry, removeInterfacePanel, setSocketPanel } from '../iface';
 import { propWidget, socketValueWidget, nodeChanged } from './nodeui';
 import { visibleProps } from './layout';
 import type { NodeTypeDef } from '../types';
+import { toolTab, type NodeTool, type SelectMode } from './toolbar';
 
 interface Ed {
   sidebarTab: string;
   path: { group: string; node: string }[];
   tree(): NodeTreeData | null;
+  tool: NodeTool;
+  selectMode: SelectMode;
+  circleRadius: number;
+  currentGroupId(): string | undefined;
+  provider: { viewPanels?(ed: unknown): Child; optionsPanels?(ed: unknown): Child };
 }
 
 const changed = (label: string) => nodeChanged(label, true);
@@ -37,13 +46,40 @@ const SOCKET_TYPE_ITEMS: [string, string][] = [
   ['MATRIX', 'Matrix'],
 ];
 
-let activeItem = 0;
+let activeKey = '';
+
+/** Header colors a group's nodes can take (node categories). */
+const COLOR_TAGS: [string, string][] = [
+  ['NONE', 'None'],
+  ['attribute', 'Attribute'],
+  ['color', 'Color'],
+  ['converter', 'Converter'],
+  ['distort', 'Distort'],
+  ['filter', 'Filter'],
+  ['geometry', 'Geometry'],
+  ['input', 'Input'],
+  ['output', 'Output'],
+  ['script', 'Script'],
+  ['shader', 'Shader'],
+  ['texture', 'Texture'],
+  ['vector', 'Vector'],
+];
 
 export function drawSidebar(ed: Ed): Child {
   const tree = ed.tree();
-  const tabs = ['Node', 'Options', ...(ed.path.length || tree?.interface ? ['Group'] : [])];
+  const tabs = ['Node', 'Tool', ...(ed.provider.viewPanels ? ['View'] : []), ...(ed.provider.optionsPanels ? ['Options'] : []), ...(ed.path.length || tree?.interface ? ['Group'] : [])];
   if (!tabs.includes(ed.sidebarTab)) ed.sidebarTab = 'Node';
-  const body = !tree ? h('div', { class: 'prop-note' }, 'No node tree') : ed.sidebarTab === 'Group' ? groupTab(tree) : ed.sidebarTab === 'Options' ? optionsTab(tree) : nodeTab(tree);
+  const body = !tree
+    ? h('div', { class: 'prop-note' }, 'No node tree')
+    : ed.sidebarTab === 'Group'
+      ? [groupProps(ed), groupTab(tree)]
+      : ed.sidebarTab === 'Options'
+        ? (ed.provider.optionsPanels?.(ed) ?? null)
+        : ed.sidebarTab === 'Tool'
+          ? toolTab(ed)
+          : ed.sidebarTab === 'View'
+            ? (ed.provider.viewPanels?.(ed) ?? null)
+            : nodeTab(tree);
   return [
     h('div', { class: 'nd-side-body props-scroll' }, body),
     h(
@@ -90,6 +126,14 @@ function nodeTab(tree: NodeTreeData): Child {
         'Label',
         textField(`nd-label-${n.id}`, n.label ?? '', (v) => ((n.label = v), changed('Node Label'))),
       ),
+      getNodeType(n.type)?.layout
+        ? null
+        : h(
+            'div',
+            { class: 'nd-side-row nd-side-toggles' },
+            checkbox(`nd-showopt-${n.id}`, 'Show Options', !n.hide_options, (v) => ((n.hide_options = !v), changed('Toggle Node Options'))),
+            n.type === 'NodeGroupInput' || n.type === 'NodeGroupOutput' ? null : checkbox(`nd-mute-${n.id}`, 'Mute', !!n.mute, (v) => ((n.mute = v), changed('Toggle Node Mute'))),
+          ),
     ]),
     panel(
       'nd-side-color',
@@ -102,6 +146,15 @@ function nodeTab(tree: NodeTreeData): Child {
             (n.color as number[] | null) ?? [0.608, 0.608, 0.608],
             (c, final) => ((n.color = [c[0], c[1], c[2]]), (n.use_custom_color = true), nodeChanged('Node Color', final)),
             { alpha: false },
+          ),
+          h(
+            'button',
+            {
+              class: 'btn nd-color-specials',
+              'data-tip': 'Copy the color to the selected nodes, or use and manage color presets',
+              onclick: (e: MouseEvent) => openMenu(colorSpecials(n), e.currentTarget as HTMLElement),
+            },
+            icon('down_arrow_hlt'),
           ),
         ),
       ],
@@ -183,29 +236,87 @@ function optionsBody(tree: NodeTreeData, id: string): Child {
   return rows;
 }
 
-function optionsTab(tree: NodeTreeData): Child {
-  const n = activeNode(tree);
-  if (!n) return h('div', { class: 'prop-note' }, 'No active node');
-  return panel('nd-side-options', 'Properties', () => optionsBody(tree, n.id));
+
+/** Group panel: name, description and the default width of the group's nodes. */
+function groupProps(ed: Ed): Child {
+  const gid = ed.currentGroupId();
+  const g = gid ? app.doc.node_groups[gid] : undefined;
+  if (!g) return null;
+  return panel('nd-side-group', 'Group', () => [
+    splitRow(
+      'Name',
+      textField(`nd-g-name-${g.id}`, g.name, (v) => {
+        const name = v.trim();
+        if (!name || name === g.name) return;
+        g.name = uniqueGroupName(app.doc, name);
+        changed('Rename Node Group');
+      }),
+    ),
+    splitRow(
+      'Description',
+      textField(`nd-g-desc-${g.id}`, g.tree.description ?? '', (v) => ((g.tree.description = v || undefined), changed('Group Description')), { placeholder: 'Shown as the tooltip in Add menus' }),
+    ),
+    splitRow(
+      'Color Tag',
+      enumMenu(
+        `nd-g-tag-${g.id}`,
+        COLOR_TAGS.map(([value, label]) => ({ value, label })),
+        g.tree.color_tag ?? 'NONE',
+        (v) => ((g.tree.color_tag = v === 'NONE' ? undefined : v), changed('Group Color Tag')),
+      ),
+    ),
+    splitRow(
+      'Node Width',
+      numberField({
+        id: `nd-g-width-${g.id}`,
+        value: g.tree.default_group_node_width ?? 140,
+        int: true,
+        min: 40,
+        max: 700,
+        set: (v, f) => ((g.tree.default_group_node_width = v), nodeChanged('Default Group Node Width', f)),
+      }),
+      h(
+        'button',
+        {
+          class: 'btn nd-color-specials',
+          disabled: !ed.path.length,
+          'data-tip': 'Set Default Group Node Width\nUse the width of the group node being edited',
+          onclick: () => app.run('node.default_group_width_set'),
+        },
+        icon('node_tree'),
+      ),
+    ),
+  ]);
 }
 
 function groupTab(tree: NodeTreeData): Child {
   const items = tree.interface ?? [];
-  activeItem = Math.max(0, Math.min(activeItem, items.length - 1));
-  const it = items[activeItem];
-  const move = (d: number) => {
-    const j = activeItem + d;
-    if (!it || j < 0 || j >= items.length) return;
-    [items[activeItem], items[j]] = [items[j], items[activeItem]];
-    activeItem = j;
-    changed('Move Interface Item');
+  const entries = interfaceEntries(tree);
+  const ids = entries.map((e) => (e.kind === 'socket' ? e.item.identifier : e.panel.identifier));
+  if (!ids.includes(activeKey)) activeKey = ids[0] ?? '';
+  const it = items.find((x) => x.identifier === activeKey);
+  const activePanel = (tree.interface_panels ?? []).find((p) => p.identifier === activeKey);
+  // new inputs go into the selected panel (or the panel of the selected socket)
+  const targetPanel = activePanel?.identifier ?? (it?.in_out === 'INPUT' ? it.panel : undefined);
+  const move = (d: -1 | 1) => {
+    if (moveInterfaceEntry(tree, activeKey, d)) changed('Move Interface Item');
   };
   const add = (inOut: 'INPUT' | 'OUTPUT') => {
-    addInterfaceSocket(tree, inOut, inOut === 'INPUT' ? 'Input' : 'Output', tree.type === 'GEOMETRY' ? 'GEOMETRY' : 'FLOAT', tree.type === 'GEOMETRY' ? undefined : 0);
-    activeItem = (tree.interface?.length ?? 1) - 1;
+    const item = addInterfaceSocket(tree, inOut, inOut === 'INPUT' ? 'Input' : 'Output', tree.type === 'GEOMETRY' ? 'GEOMETRY' : 'FLOAT', tree.type === 'GEOMETRY' ? undefined : 0);
+    if (inOut === 'INPUT' && targetPanel) item.panel = targetPanel;
+    activeKey = item.identifier;
     changed('Add Interface Socket');
   };
+  const addPanel = () => {
+    activeKey = addInterfacePanel(tree).identifier;
+    changed('Add Interface Panel');
+  };
   const remove = () => {
+    if (activePanel) {
+      removeInterfacePanel(tree, activePanel.identifier);
+      changed('Remove Interface Panel');
+      return;
+    }
     if (!it) return;
     tree.interface = items.filter((x) => x !== it);
     tree.links = tree.links.filter(
@@ -217,7 +328,23 @@ function groupTab(tree: NodeTreeData): Child {
     );
     changed('Remove Interface Socket');
   };
+  const duplicate = () => {
+    if (!it) return;
+    const copy = addInterfaceSocket(tree, it.in_out, it.name, interfaceSocketType(it.socket_type).type, it.default_value);
+    copy.socket_type = it.socket_type;
+    if (it.min_value !== undefined) copy.min_value = it.min_value;
+    if (it.max_value !== undefined) copy.max_value = it.max_value;
+    if (it.hide_value) copy.hide_value = true;
+    if (it.panel) copy.panel = it.panel;
+    // keep the copy right after the original
+    const list = tree.interface!;
+    list.splice(list.indexOf(copy), 1);
+    list.splice(list.indexOf(it) + 1, 0, copy);
+    activeKey = copy.identifier;
+    changed('Duplicate Interface Item');
+  };
   const t = it ? interfaceSocketType(it.socket_type) : null;
+  const panelItems = [{ value: '', label: 'None' }, ...(tree.interface_panels ?? []).map((p) => ({ value: p.identifier, label: p.name }))];
   return panel('nd-side-iface', 'Group Sockets', () => [
     h(
       'div',
@@ -225,50 +352,84 @@ function groupTab(tree: NodeTreeData): Child {
       h(
         'div',
         { class: 'nd-iface-list' },
-        items.map((x, i) =>
-          h(
+        entries.map((e) => {
+          const id = e.kind === 'socket' ? e.item.identifier : e.panel.identifier;
+          return h(
             'div',
             {
-              key: x.identifier,
-              class: { 'nd-iface-item': true, on: i === activeItem },
-              onclick: () => ((activeItem = i), app.changed('ui')),
+              key: id,
+              class: { 'nd-iface-item': true, on: id === activeKey, panel: e.kind === 'panel', nested: e.depth > 0 },
+              onclick: () => ((activeKey = id), app.changed('ui')),
             },
-            h('span', {
-              class: 'nd-iface-dot',
-              style: {
-                background: SOCKET_COLORS[interfaceSocketType(x.socket_type).type],
-              },
-            }),
-            h('span', { class: 'nd-iface-dir' }, x.in_out === 'INPUT' ? '→' : '←'),
-            x.name,
-          ),
-        ),
-        items.length ? null : h('div', { class: 'prop-note' }, 'No sockets'),
+            e.kind === 'panel'
+              ? [icon('disclosure_tri_down'), h('span', null, e.panel.name)]
+              : [
+                  h('span', {
+                    class: 'nd-iface-dot',
+                    style: { background: SOCKET_COLORS[interfaceSocketType(e.item.socket_type).type] },
+                  }),
+                  h('span', { class: 'nd-iface-dir' }, e.item.in_out === 'INPUT' ? '→' : '←'),
+                  e.item.name,
+                ],
+          );
+        }),
+        entries.length ? null : h('div', { class: 'prop-note' }, 'No sockets'),
       ),
       h(
         'div',
         { class: 'nd-iface-btns' },
-        button('nd-if-addin', h('span', null, icon('add'), 'In'), () => add('INPUT'), { tip: 'Add Input Socket' }),
+        button('nd-if-addin', h('span', null, icon('add'), 'In'), () => add('INPUT'), { tip: targetPanel ? 'Add Input Socket to the panel' : 'Add Input Socket' }),
         button('nd-if-addout', h('span', null, icon('add'), 'Out'), () => add('OUTPUT'), { tip: 'Add Output Socket' }),
+        button('nd-if-addpanel', h('span', null, icon('add'), 'Panel'), addPanel, { tip: 'Add Panel\nA collapsible section of the group node’s inputs' }),
         button('nd-if-rem', icon('remove'), remove, {
-          tip: 'Remove Socket',
+          tip: activePanel ? 'Remove Panel (its sockets stay)' : 'Remove Socket',
+          disabled: !it && !activePanel,
+        }),
+        button('nd-if-dup', icon('duplicate'), duplicate, {
+          tip: 'Duplicate Socket',
           disabled: !it,
         }),
         button('nd-if-up', icon('triangle_up'), () => move(-1), {
           tip: 'Move Up',
-          disabled: !it,
+          disabled: !it && !activePanel,
         }),
         button('nd-if-down', icon('triangle_down'), () => move(1), {
           tip: 'Move Down',
-          disabled: !it,
+          disabled: !it && !activePanel,
         }),
       ),
     ),
+    activePanel
+      ? [
+          splitRow(
+            'Name',
+            textField(`nd-ifp-name-${activePanel.identifier}`, activePanel.name, (v) => ((activePanel.name = v || activePanel.name), changed('Rename Panel'))),
+          ),
+          h(
+            'div',
+            { class: 'nd-side-row' },
+            checkbox(`nd-ifp-closed-${activePanel.identifier}`, 'Closed by Default', !!activePanel.default_closed, (v) => ((activePanel.default_closed = v || undefined), changed('Panel Default Closed'))),
+          ),
+        ]
+      : null,
+    it && it.in_out === 'INPUT' && tree.interface_panels?.length
+      ? splitRow(
+          'Panel',
+          enumMenu(`nd-if-panel-${it.identifier}`, panelItems, it.panel ?? '', (v) => {
+            setSocketPanel(tree, it.identifier, v || undefined);
+            changed('Socket Panel');
+          }),
+        )
+      : null,
     it && t
       ? [
           splitRow(
             'Name',
             textField(`nd-if-name-${it.identifier}`, it.name, (v) => ((it.name = v || it.name), changed('Rename Socket'))),
+          ),
+          splitRow(
+            'Description',
+            textField(`nd-if-desc-${it.identifier}`, it.description ?? '', (v) => ((it.description = v || undefined), changed('Socket Description')), { placeholder: 'Tooltip of the socket' }),
           ),
           splitRow(
             'Type',
@@ -279,6 +440,13 @@ function groupTab(tree: NodeTreeData): Child {
               (v) => ((it.socket_type = SOCKET_IDNAME[v] ?? 'NodeSocketFloat'), (it.default_value = undefined), changed('Socket Type')),
             ),
           ),
+          it.in_out === 'INPUT' && ['FLOAT', 'INT', 'BOOLEAN', 'VECTOR', 'RGBA', 'STRING', 'ROTATION', 'MENU'].includes(t.type)
+            ? h(
+                'div',
+                { class: 'nd-side-row' },
+                checkbox(`nd-if-hidev-${it.identifier}`, 'Hide Value', !!it.hide_value, (v) => ((it.hide_value = v || undefined), changed('Hide Socket Value'))),
+              )
+            : null,
           t.type === 'FLOAT' || t.type === 'INT'
             ? [
                 splitRow(

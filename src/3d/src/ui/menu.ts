@@ -48,6 +48,8 @@ interface OpenMenu {
   openX?: number;
   openY?: number;
   openPresses?: number;
+  /** typing a character hands it to this (e.g. to start a search) instead of jumping to an item */
+  onType?: (ch: string) => void;
 }
 
 const stack: OpenMenu[] = [];
@@ -200,7 +202,7 @@ function createMenu(items: MenuItem[], x: number, y: number, parent?: OpenMenu, 
 }
 
 /** Open a popup menu at a screen position (or below an element). */
-export function openMenu(items: MenuItem[], at: { x: number; y: number } | HTMLElement, opts: { title?: string; under?: boolean } = {}) {
+export function openMenu(items: MenuItem[], at: { x: number; y: number } | HTMLElement, opts: { title?: string; under?: boolean; onType?: (ch: string) => void } = {}) {
   closeMenus();
   let x: number, y: number;
   if (at instanceof HTMLElement) {
@@ -215,6 +217,7 @@ export function openMenu(items: MenuItem[], at: { x: number; y: number } | HTMLE
   }
   const withTitle = opts.title ? [{ heading: opts.title }, ...items] : items;
   const m = createMenu(withTitle, x, y, undefined, opts.title);
+  if (opts.onType) m.onType = opts.onType;
   // context menus open with the pointer over the first actionable item
   if (!(at instanceof HTMLElement) && !opts.under) {
     const firstIdx = withTitle.findIndex((i) => !i.heading && !i.separator);
@@ -433,7 +436,7 @@ export interface SearchEntry {
   disabled?: boolean;
 }
 
-export function openSearch(entries: () => SearchEntry[], x = innerWidth / 2 - 200, y = 120, placeholder = 'Search…') {
+export function openSearch(entries: () => SearchEntry[], x = innerWidth / 2 - 200, y = 120, placeholder = 'Search…', initial = '') {
   closeMenus();
   const el = document.createElement('div');
   el.className = 'menu search-popup';
@@ -441,7 +444,7 @@ export function openSearch(entries: () => SearchEntry[], x = innerWidth / 2 - 20
   stack.push({ el, items: [], index: 0 });
   el.style.left = `${Math.max(4, Math.min(innerWidth - 420, x))}px`;
   el.style.top = `${Math.max(4, y)}px`;
-  let query = '',
+  let query = initial,
     hl = 0;
   const all = entries();
   const results = () => {
@@ -497,7 +500,9 @@ export function openSearch(entries: () => SearchEntry[], x = innerWidth / 2 - 20
     draw();
   };
   draw();
-  (el.querySelector('input') as HTMLInputElement)?.focus();
+  const input = el.querySelector('input') as HTMLInputElement | null;
+  input?.focus();
+  if (input && initial) input.setSelectionRange(initial.length, initial.length);
 }
 
 // ---------------------------------------------------------------------------
@@ -584,6 +589,14 @@ export function menuKey(e: KeyboardEvent): boolean {
   }
   if (e.key === 'Enter' && m.index >= 0) {
     activate(m, m.items[m.index]);
+    return true;
+  }
+  let root = m;
+  while (root.parent) root = root.parent;
+  if (root.onType && e.key.length === 1 && e.key !== ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const fn = root.onType;
+    closeMenus();
+    fn(e.key);
     return true;
   }
   // underline-style accelerators: first letter of label

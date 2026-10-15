@@ -340,6 +340,10 @@ export interface NodeData {
   open_panels?: string[];
   /** Hide the node's property buttons (show_options off) */
   hide_options?: boolean;
+  /** number key (1-9) that views this node in the node editor */
+  viewer_shortcut?: number;
+  /** show a rendered preview of the node's output above it (shader nodes) */
+  show_preview?: boolean;
 }
 
 export interface LinkData {
@@ -356,9 +360,17 @@ export interface NodeTreeData {
   nodes: NodeData[];
   links: LinkData[];
   /** For node groups: interface sockets */
-  interface?: { in_out: 'INPUT' | 'OUTPUT'; name: string; socket_type: string; default_value?: SocketValue; min_value?: number; max_value?: number; identifier: string }[];
+  interface?: { in_out: 'INPUT' | 'OUTPUT'; name: string; socket_type: string; default_value?: SocketValue; min_value?: number; max_value?: number; identifier: string; hide_value?: boolean; /** identifier of the interface panel holding this input */ panel?: string; /** tooltip of the socket */ description?: string }[];
+  /** node groups: collapsible panels that organize the group node's inputs */
+  interface_panels?: { identifier: string; name: string; default_closed?: boolean }[];
   active_node?: ID | null;
   view?: { x: number; y: number; zoom: number };
+  /** node groups: description shown as a tooltip */
+  description?: string;
+  /** node groups: width of newly added group nodes */
+  default_group_node_width?: number;
+  /** node groups: header color of the group's nodes, by node category ('input', 'shader', …) */
+  color_tag?: string;
 }
 
 export interface NodeGroupData {

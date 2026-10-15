@@ -8,7 +8,8 @@ import { app, registerOperators, type OpContext } from '../app/app';
 import { addKeys } from '../app/keymap';
 import { registerEditor, type Area } from '../ui/screen';
 import { openMenu, type MenuItem } from '../ui/menu';
-import { enumMenu } from '../ui/widgets';
+import { enumMenu, panel, numberField, button, checkbox } from '../ui/widgets';
+import { splitRow } from '../ui/props';
 import { NodeEditor } from '../nodes/editor/editor';
 import { registerNodeEditorProvider } from '../nodes/editor/context';
 import { viewMenu, selectMenu, nodeMenuItems } from '../nodes/editor/menus';
@@ -130,14 +131,11 @@ export class CompositorEditor extends NodeEditor {
           e.preventDefault();
           e.stopImmediatePropagation();
           this.moveBackdrop(e.clientX, e.clientY, true);
-        } else if (e.button === 0 && e.shiftKey && (e.ctrlKey || e.metaKey)) {
-          // Ctrl Shift click: link the node's output to the viewer (cycles through outputs)
-          const el = (e.target as HTMLElement).closest('[data-node]') as HTMLElement | null;
-          if (el?.dataset.node) {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            app.run('node.link_viewer', { node: el.dataset.node });
-          }
+        } else if (e.button === 0 && e.altKey && !e.shiftKey && !(e.ctrlKey || e.metaKey) && this.backdrop && compositorState.viewer && !this.hitNode(e.clientX, e.clientY) && !app.modal) {
+          // Alt click on the backdrop: read the viewer's pixel values while the button is held
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          this.sampleBackdrop(e);
         }
       },
       { capture: true },
@@ -187,6 +185,47 @@ export class CompositorEditor extends NodeEditor {
       },
       header: () => 'Move backdrop: LMB/Enter confirm, RMB/Esc cancel',
     });
+  }
+
+  /** Viewer pixel under a screen point: [x, y, r, g, b, a] (straight alpha), or null outside the image. */
+  backdropPixel(clientX: number, clientY: number): number[] | null {
+    const v = compositorState.viewer;
+    if (!v) return null;
+    const r = this.el.getBoundingClientRect();
+    const W = this.el.clientWidth,
+      H = this.el.clientHeight;
+    const x0 = W / 2 - (v.width * this.backdropZoom) / 2 + this.backdropX,
+      y0 = H / 2 - (v.height * this.backdropZoom) / 2 + this.backdropY;
+    const px = Math.floor((clientX - r.left - x0) / this.backdropZoom),
+      py = Math.floor((clientY - r.top - y0) / this.backdropZoom);
+    if (px < 0 || py < 0 || px >= v.width || py >= v.height) return null;
+    const i = (py * v.width + px) * 4;
+    const a = v.data[i + 3];
+    const un = (c: number) => (a > 0 ? c / a : c);
+    // reported bottom-up like image coordinates
+    return [px, v.height - 1 - py, un(v.data[i]), un(v.data[i + 1]), un(v.data[i + 2]), a];
+  }
+
+  private sampleBackdrop(e: PointerEvent) {
+    const tip = document.createElement('div');
+    tip.className = 'cmp-sample';
+    this.el.append(tip);
+    const show = (x: number, y: number) => {
+      const p = this.backdropPixel(x, y);
+      const r = this.el.getBoundingClientRect();
+      tip.style.left = `${x - r.left + 14}px`;
+      tip.style.top = `${y - r.top + 14}px`;
+      tip.textContent = p ? `X ${p[0]}  Y ${p[1]}   R ${p[2].toFixed(3)}  G ${p[3].toFixed(3)}  B ${p[4].toFixed(3)}  A ${p[5].toFixed(3)}` : 'Outside the image';
+    };
+    show(e.clientX, e.clientY);
+    const mv = (ev: PointerEvent) => show(ev.clientX, ev.clientY);
+    const up = () => {
+      removeEventListener('pointermove', mv);
+      removeEventListener('pointerup', up);
+      tip.remove();
+    };
+    addEventListener('pointermove', mv);
+    addEventListener('pointerup', up);
   }
 
   zoomBackdrop(f: number) {
@@ -252,8 +291,8 @@ export class CompositorEditor extends NodeEditor {
       { class: 'hdr-row nd-header' },
       menu('View', () => this.compositorViewMenu()),
       menu('Select', () => selectMenu()),
-      menu('Add', () => this.addMenuItems()),
-      menu('Node', () => nodeMenuItems()),
+      this.addMenuButton(),
+      menu('Node', () => nodeMenuItems(this)),
       h('div', { class: 'hdr-spacer' }),
       h(
         'div',
@@ -333,21 +372,14 @@ export class CompositorEditor extends NodeEditor {
           disabled: !group || !this.backdrop,
         },
       ),
-      h(
-        'button',
-        {
-          class: { 'hdr-toggle': true, on: this.showSidebar },
-          'data-tip': 'Sidebar (N)',
-          onclick: () => this.toggleSidebar(),
-        },
-        icon('menu'),
-      ),
+      this.headerToggles(),
     );
   }
 
   private compositorViewMenu(): MenuItem[] {
     const items = viewMenu(this);
-    const at = items.findIndex((i) => i.label === 'Frame Selected');
+    // after Frame All, before the Area submenu
+    const at = items.findIndex((i) => i.label === 'Area');
     const bd: MenuItem[] = [
       {
         label: 'Backdrop Move',
@@ -368,7 +400,7 @@ export class CompositorEditor extends NodeEditor {
       },
       {
         label: 'Fit Backdrop to Available Space',
-        shortcut: 'Home',
+        shortcut: 'Alt Home',
         op: 'node.backimage_fit',
       },
       { separator: true },
@@ -406,6 +438,7 @@ registerNodeEditorProvider({
     return {
       tree: g.tree,
       key: `cmp:${g.id}`,
+      groupId: g.id,
       crumbs: [
         ['scene_data', app.doc.scene.name],
         ['node_tree', g.name],
@@ -413,6 +446,72 @@ registerNodeEditorProvider({
     };
   },
   emptyMessage: () => 'Click New to create a compositing node group',
+  viewPanels: (ed) => {
+    const e = ed as CompositorEditor;
+    const redraw = () => {
+      e.drawBack();
+      app.changed('ui');
+    };
+    return panel(
+      'cmp-side-backdrop',
+      'Backdrop',
+      () => [
+        splitRow(
+          'Channels',
+          enumMenu(
+            'cmp-side-channels',
+            CHANNELS,
+            e.backdropChannels,
+            (v) => ((e.backdropChannels = v as BackdropChannels), redraw()),
+            { disabled: !e.backdrop },
+          ),
+        ),
+        splitRow(
+          'Zoom',
+          numberField({ id: 'cmp-side-zoom', value: e.backdropZoom, min: 0.01, max: 100, set: (v) => ((e.backdropZoom = v), redraw()), disabled: !e.backdrop }),
+        ),
+        splitRow(
+          'Offset X',
+          numberField({ id: 'cmp-side-ox', value: e.backdropX, unit: 'pixel', set: (v) => ((e.backdropX = v), redraw()), disabled: !e.backdrop }),
+        ),
+        splitRow(
+          'Y',
+          numberField({ id: 'cmp-side-oy', value: -e.backdropY, unit: 'pixel', set: (v) => ((e.backdropY = -v), redraw()), disabled: !e.backdrop }),
+        ),
+        h(
+          'div',
+          { class: 'nd-side-row cmp-side-btns' },
+          button('cmp-side-move', 'Move', () => app.run('node.backimage_move'), { disabled: !e.backdrop, tip: 'Move the backdrop with the mouse (Alt middle mouse)' }),
+          button('cmp-side-fit', 'Fit', () => app.run('node.backimage_fit'), { disabled: !e.backdrop || !compositorState.viewer, tip: 'Fit the backdrop to the editor (Alt Home)' }),
+        ),
+      ],
+      {
+        header: h(
+          'span',
+          { class: 'nd-side-check' },
+          checkbox('cmp-side-show', '', e.backdrop, (v) => ((e.backdrop = v), redraw())),
+        ),
+      },
+    );
+  },
+  // Ctrl Shift click / node.link_viewer: link the node's output to the viewer (cycles through outputs)
+  linkViewer: (ed, n, socket) => {
+    const tree = (ed as CompositorEditor).tree();
+    if (!tree || n.type === 'CompositorNodeViewer' || n.type === 'NodeGroupOutput' || n.type === 'NodeFrame') return false;
+    const sctx = ctxOf(app.doc, tree);
+    const outs = nodeSockets(n, sctx).outputs.filter((s) => s.type !== 'CUSTOM');
+    if (!outs.length) return false;
+    let viewer = tree.nodes.find((x) => x.type === 'CompositorNodeViewer' && x.id === tree.active_node) ?? tree.nodes.find((x) => x.type === 'CompositorNodeViewer');
+    if (!viewer) viewer = addNode(tree, 'CompositorNodeViewer', [n.location[0] + (n.width ?? 140) + 80, n.location[1]]);
+    const cur = tree.links.find((l) => l.to_node === viewer!.id && l.from_node === n.id);
+    const picked = outs.findIndex((s) => s.identifier === socket);
+    const i = picked >= 0 ? picked : cur ? (outs.findIndex((s) => s.identifier === cur.from_socket) + 1) % outs.length : 0;
+    connect(sctx, n.id, outs[i].identifier, viewer.id, 'Image');
+    for (const x of tree.nodes) x.select = x.id === n.id;
+    tree.active_node = viewer.id;
+    app.changed('doc');
+    return true;
+  },
   drawBackdrop: (ed, g, W, H) => {
     const e = ed as CompositorEditor;
     if (!(e instanceof CompositorEditor) || !e.backdrop) return;
@@ -457,30 +556,6 @@ registerOperators([
       newCompositingGroup(ctx.doc);
       const ed = compositorEditor(ctx);
       if (ed) ed.path = [];
-      app.changed('doc');
-    },
-  },
-  {
-    idname: 'node.link_viewer',
-    label: 'Link to Viewer Node',
-    description: 'Link the active (or given) node to a Viewer node, cycling through its outputs',
-    props: [{ id: 'node', type: 'string', default: '', hidden: true }],
-    poll: (ctx) => !!compositorEditor(ctx)?.tree(),
-    exec: (ctx, p) => {
-      const ed = compositorEditor(ctx)!;
-      const tree = ed.tree()!;
-      const n = tree.nodes.find((x) => x.id === (String(p.node || '') || tree.active_node));
-      if (!n || n.type === 'CompositorNodeViewer' || n.type === 'NodeGroupOutput' || n.type === 'NodeFrame') return 'CANCELLED';
-      const sctx = ctxOf(ctx.doc, tree);
-      const outs = nodeSockets(n, sctx).outputs.filter((s) => s.type !== 'CUSTOM');
-      if (!outs.length) return 'CANCELLED';
-      let viewer = tree.nodes.find((x) => x.type === 'CompositorNodeViewer' && x.id === tree.active_node) ?? tree.nodes.find((x) => x.type === 'CompositorNodeViewer');
-      if (!viewer) viewer = addNode(tree, 'CompositorNodeViewer', [n.location[0] + (n.width ?? 140) + 80, n.location[1]]);
-      const cur = tree.links.find((l) => l.to_node === viewer!.id && l.from_node === n.id);
-      const i = cur ? (outs.findIndex((s) => s.identifier === cur.from_socket) + 1) % outs.length : 0;
-      connect(sctx, n.id, outs[i].identifier, viewer.id, 'Image');
-      for (const x of tree.nodes) x.select = x.id === n.id;
-      tree.active_node = viewer.id;
       app.changed('doc');
     },
   },

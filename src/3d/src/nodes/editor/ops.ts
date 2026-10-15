@@ -1,11 +1,12 @@
 // node.* operators and the Node Editor keymap.
 import { registerOperators, app, type OpContext, type Operator } from '../../app/app';
 import { addKeys } from '../../app/keymap';
-import { openMenu, openSearch, promptText } from '../../ui/menu';
+import { openMenu, openPie, openSearch, promptText } from '../../ui/menu';
+import { contextMenuItems, selectGroupedItems, separateItems } from './menus';
 import type { LinkData, NodeData, NodeTreeData } from '../../data/types';
 import { uid } from '../../data/defaults';
 import { NodeEditor } from './editor';
-import { ctxOf, dissolveNodes, duplicateNodes, internalLinks, joinInFrame, makeGroup, makeLinks, removeNodes, toggleHiddenSockets, ungroup, uniqueNodeName, nodeById } from '../tree';
+import { ctxOf, dissolveNodes, groupContains, internalLinks, joinInFrame, makeGroup, removeNodes, toggleHiddenSockets, ungroup, uniqueNodeName, nodeById } from '../tree';
 import { getNodeType, nodeLabel } from '../registry';
 
 export function nodeEditorOf(ctx: OpContext): NodeEditor | null {
@@ -30,6 +31,16 @@ let clipboard: {
   links: LinkData[];
 } | null = null;
 
+function copyToClipboard(tree: NodeTreeData): number {
+  const ids = new Set(selected(tree).map((n) => n.id));
+  clipboard = {
+    type: tree.type,
+    nodes: structuredClone(selected(tree)),
+    links: structuredClone(tree.links.filter((l) => ids.has(l.from_node) && ids.has(l.to_node))),
+  };
+  return ids.size;
+}
+
 function linked(tree: NodeTreeData, start: Set<string>, upstream: boolean) {
   const out = new Set<string>();
   for (const l of tree.links) {
@@ -48,7 +59,8 @@ const ops: Operator[] = [
     invoke: (ctx) => {
       const ed = nodeEditorOf(ctx)!;
       const at = { x: app.pointer.x, y: app.pointer.y };
-      openMenu(ed.addMenuItems(at), at, { title: 'Add' });
+      // typing in the Add menu searches all nodes
+      openMenu(ed.addMenuItems(at), at, { title: 'Add', onType: (ch) => ed.addSearch(at, ch) });
       return 'CANCELLED';
     },
   },
@@ -117,10 +129,24 @@ const ops: Operator[] = [
   {
     idname: 'node.select_box',
     label: 'Box Select',
+    description: 'Select nodes inside a rectangle dragged with the mouse',
     undo: false,
+    props: [
+      {
+        id: 'mode',
+        type: 'enum',
+        default: 'ADD',
+        items: [
+          ['SET', 'Set'],
+          ['ADD', 'Extend'],
+          ['SUB', 'Subtract'],
+        ],
+        hidden: true,
+      },
+    ],
     poll: hasTree,
-    invoke: (ctx) => {
-      nodeEditorOf(ctx)!.startBoxSelect();
+    invoke: (ctx, p) => {
+      nodeEditorOf(ctx)!.startBoxSelect(p.mode === 'SET' || p.mode === 'SUB' ? p.mode : undefined);
       app.report('INFO', 'Box Select: drag to select (Shift to deselect)');
       return 'CANCELLED';
     },
@@ -188,29 +214,6 @@ const ops: Operator[] = [
         selected(tree).map((n) => n.id),
         'key',
         'Move',
-      );
-      return 'RUNNING_MODAL';
-    },
-  },
-  {
-    idname: 'node.duplicate_move',
-    label: 'Duplicate',
-    description: 'Duplicate selected nodes and move them',
-    poll: hasSelection,
-    invoke: (ctx) => {
-      const { ed, tree } = treeOf(ctx)!;
-      const ids = new Set(selected(tree).map((n) => n.id));
-      const map = duplicateNodes(tree, ids);
-      for (const n of tree.nodes) n.select = false;
-      for (const c of map.values()) c.select = true;
-      const act = tree.active_node ? map.get(tree.active_node) : undefined;
-      tree.active_node = act?.id ?? [...map.values()][0]?.id ?? null;
-      app.changed('doc');
-      ed.render();
-      ed.startGrab(
-        [...map.values()].map((n) => n.id),
-        'key',
-        'Duplicate',
       );
       return 'RUNNING_MODAL';
     },
@@ -314,23 +317,6 @@ const ops: Operator[] = [
     },
   },
   {
-    idname: 'node.link_make',
-    label: 'Make Links',
-    description: 'Make a link between selected output and input sockets',
-    poll: hasSelection,
-    exec: (ctx) => {
-      const { tree } = treeOf(ctx)!;
-      const n = makeLinks(
-        ctxOf(app.doc, tree),
-        selected(tree).map((x) => x.id),
-      );
-      if (!n) {
-        app.report('WARNING', 'Could not make links between the selected nodes');
-        return 'CANCELLED';
-      }
-    },
-  },
-  {
     idname: 'node.join',
     label: 'Join Nodes in Frame',
     description: 'Attach selected nodes to a new common frame',
@@ -345,16 +331,6 @@ const ops: Operator[] = [
       for (const n of tree.nodes) n.select = false;
       f.select = true;
       tree.active_node = f.id;
-    },
-  },
-  {
-    idname: 'node.parent_clear',
-    label: 'Remove from Frame',
-    description: 'Detach selected nodes from parents',
-    poll: hasSelection,
-    exec: (ctx) => {
-      const { tree } = treeOf(ctx)!;
-      for (const n of selected(tree)) n.parent = null;
     },
   },
   {
@@ -431,6 +407,40 @@ const ops: Operator[] = [
     exec: (ctx, p) => nodeEditorOf(ctx)!.zoomBy(Number(p.factor) || 1.25),
   },
   {
+    idname: 'node.zoom_border',
+    label: 'Zoom to Border',
+    description: 'Zoom in on the region of a dragged rectangle',
+    undo: false,
+    poll: hasTree,
+    invoke: (ctx) => {
+      nodeEditorOf(ctx)!.startZoomBorder();
+      return 'CANCELLED';
+    },
+  },
+  {
+    idname: 'node.toggle_overlays',
+    label: 'Show Overlays',
+    description: 'Toggle wire colors, reroute labels and the context path',
+    undo: false,
+    poll: (ctx) => !!nodeEditorOf(ctx),
+    exec: (ctx) => nodeEditorOf(ctx)!.toggleOverlays(),
+  },
+  {
+    idname: 'node.toggle_snap',
+    label: 'Snap',
+    description: 'Toggle snapping nodes to the grid while moving and resizing them',
+    undo: false,
+    poll: (ctx) => !!nodeEditorOf(ctx),
+    exec: (ctx) => nodeEditorOf(ctx)!.toggleSnap(),
+  },
+  {
+    idname: 'node.toggle_toolbar',
+    label: 'Toolbar',
+    undo: false,
+    poll: (ctx) => !!nodeEditorOf(ctx),
+    exec: (ctx) => nodeEditorOf(ctx)!.toggleToolbar(),
+  },
+  {
     idname: 'node.toggle_sidebar',
     label: 'Sidebar',
     undo: false,
@@ -444,14 +454,19 @@ const ops: Operator[] = [
     undo: false,
     poll: hasSelection,
     exec: (ctx) => {
+      const n = copyToClipboard(treeOf(ctx)!.tree);
+      app.report('INFO', `Copied ${n} node${n === 1 ? '' : 's'}`);
+    },
+  },
+  {
+    idname: 'node.delete_copy_reconnect',
+    label: 'Cut',
+    description: 'Copy the selected nodes to the clipboard, then delete them and reconnect their neighbours',
+    poll: hasSelection,
+    exec: (ctx) => {
       const { tree } = treeOf(ctx)!;
-      const ids = new Set(selected(tree).map((n) => n.id));
-      clipboard = {
-        type: tree.type,
-        nodes: structuredClone(selected(tree)),
-        links: structuredClone(tree.links.filter((l) => ids.has(l.from_node) && ids.has(l.to_node))),
-      };
-      app.report('INFO', `Copied ${ids.size} node${ids.size === 1 ? '' : 's'}`);
+      copyToClipboard(tree);
+      dissolveNodes(ctxOf(app.doc, tree), new Set(selected(tree).map((n) => n.id)));
     },
   },
   {
@@ -467,12 +482,23 @@ const ops: Operator[] = [
         app.report('ERROR', 'Clipboard nodes belong to a different kind of node tree');
         return 'CANCELLED';
       }
+      // group input / output nodes only make sense inside node groups
+      const cur = ed.currentGroupId();
+      // a group cannot be pasted into itself (directly or nested)
+      const recursive = (n: NodeData) => {
+        const ref = n.props.node_tree as string | undefined;
+        const g = ref ? app.doc.node_groups[ref] : undefined;
+        return !!cur && !!g && (g.id === cur || groupContains(app.doc, g, cur));
+      };
+      const nodes = cb.nodes.filter((n) => (cur || (n.type !== 'NodeGroupInput' && n.type !== 'NodeGroupOutput')) && !recursive(n));
+      if (nodes.length < cb.nodes.length) app.report('WARNING', 'Some nodes cannot be pasted here (group inputs / outputs outside groups, or a group into itself)');
+      if (!nodes.length) return 'CANCELLED';
       const [px, py] = ed.toNode(app.pointer.x, app.pointer.y);
-      const cx = cb.nodes.reduce((s, n) => s + n.location[0], 0) / cb.nodes.length,
-        cy = cb.nodes.reduce((s, n) => s + n.location[1], 0) / cb.nodes.length;
+      const cx = nodes.reduce((s, n) => s + n.location[0], 0) / nodes.length,
+        cy = nodes.reduce((s, n) => s + n.location[1], 0) / nodes.length;
       const map = new Map<string, string>();
       for (const n of tree.nodes) n.select = false;
-      for (const src of cb.nodes) {
+      for (const src of nodes) {
         const n = structuredClone(src);
         n.id = uid('node');
         n.name = uniqueNodeName(tree, src.name);
@@ -482,7 +508,7 @@ const ops: Operator[] = [
         tree.nodes.push(n);
       }
       for (const n of tree.nodes) if (n.select && n.parent) n.parent = map.get(n.parent) ?? null;
-      for (const l of cb.links)
+      for (const l of cb.links.filter((x) => map.has(x.from_node) && map.has(x.to_node)))
         tree.links.push({
           ...l,
           id: uid('link'),
@@ -513,40 +539,105 @@ const ops: Operator[] = [
 
 registerOperators(ops);
 
+let lastA = 0;
+/** Second A press within a short time (checked on every A press). */
+function doubleTapA() {
+  const now = performance.now();
+  const dbl = now - lastA < 300;
+  lastA = dbl ? 0 : now;
+  return dbl;
+}
+
+/** The node editor under the pointer (for menu keys). */
+function hoverEditor(): NodeEditor | null {
+  const ed = (app.hoverArea ?? app.activeArea)?.editor;
+  return ed instanceof NodeEditor ? ed : null;
+}
+const inTree = () => !!hoverEditor()?.tree();
+
 addKeys('Node Editor', [
   { key: 'A', shift: true, op: 'node.add_menu' },
-  { key: 'A', op: 'node.select_all', props: { action: 'SELECT' } },
+  {
+    key: 'S',
+    shift: true,
+    when: () => inTree() && !!hoverEditor()?.selectedIds().length,
+    action: () => {
+      const ed = hoverEditor()!;
+      openMenu(ed.swapMenuItems(), { x: app.pointer.x, y: app.pointer.y }, { title: 'Swap', onType: (ch) => ed.swapSearch(ch) });
+    },
+  },
   { key: 'A', alt: true, op: 'node.select_all', props: { action: 'DESELECT' } },
+  // pressing A twice quickly deselects everything
+  { key: 'A', op: 'node.select_all', props: { action: 'DESELECT' }, when: doubleTapA },
+  { key: 'A', op: 'node.select_all', props: { action: 'SELECT' } },
   { key: 'I', ctrl: true, op: 'node.select_all', props: { action: 'INVERT' } },
   { key: 'B', op: 'node.select_box' },
+  { key: 'C', op: 'node.select_circle' },
   { key: 'L', op: 'node.select_linked_from' },
   { key: 'L', shift: true, op: 'node.select_linked_to' },
+  { key: 'G', shift: true, menu: () => selectGroupedItems(), menuTitle: 'Select Grouped', when: () => !!hoverEditor()?.tree()?.active_node },
+  { key: 'G', shift: true, ctrl: true, menu: () => selectGroupedItems(true), menuTitle: 'Select Grouped', when: () => !!hoverEditor()?.tree()?.active_node },
+  { key: 'RIGHT_BRACKET', shift: true, op: 'node.select_same_type_step', props: { prev: false } },
+  { key: 'LEFT_BRACKET', shift: true, op: 'node.select_same_type_step', props: { prev: true } },
   { key: 'F', ctrl: true, op: 'node.find_node' },
   { key: 'G', op: 'node.translate_attach' },
+  { key: 'R', op: 'node.rotate' },
+  { key: 'S', op: 'node.scale' },
   { key: 'D', shift: true, op: 'node.duplicate_move' },
+  { key: 'D', alt: true, op: 'node.duplicate_move_linked' },
+  { key: 'D', shift: true, ctrl: true, op: 'node.duplicate_move_keep_inputs' },
   { key: 'X', op: 'node.delete' },
   { key: 'DEL', op: 'node.delete' },
   { key: 'X', ctrl: true, op: 'node.delete_reconnect' },
   { key: 'DEL', ctrl: true, op: 'node.delete_reconnect' },
-  { key: 'D', alt: true, op: 'node.links_detach' },
+  { key: 'J', op: 'node.link_make', props: { replace: false } },
+  { key: 'J', shift: true, op: 'node.link_make', props: { replace: true } },
+  { key: 'F', op: 'node.join_named' },
+  { key: 'J', ctrl: true, op: 'node.join_nodes' },
+  { key: 'P', ctrl: true, op: 'node.parent_set' },
+  { key: 'P', alt: true, op: 'node.detach' },
   { key: 'H', op: 'node.hide_toggle' },
   { key: 'H', ctrl: true, op: 'node.hide_socket_toggle' },
+  { key: 'H', shift: true, op: 'node.preview_toggle' },
   { key: 'M', op: 'node.mute_toggle' },
-  { key: 'F', op: 'node.link_make' },
-  { key: 'J', ctrl: true, op: 'node.join' },
-  { key: 'P', alt: true, op: 'node.parent_clear' },
   { key: 'G', ctrl: true, op: 'node.group_make' },
   { key: 'G', ctrl: true, alt: true, op: 'node.group_ungroup' },
-  { key: 'TAB', op: 'node.group_edit' },
-  { key: 'TAB', ctrl: true, op: 'node.tree_path_parent' },
+  { key: 'P', menu: () => separateItems(), menuTitle: 'Separate', when: () => !!hoverEditor()?.path.length && !!hoverEditor()?.selectedIds().length },
+  { key: 'TAB', op: 'node.group_edit', props: { exit: false } },
+  { key: 'TAB', ctrl: true, op: 'node.group_edit', props: { exit: true } },
+  { key: 'TAB', shift: true, op: 'node.toggle_snap' },
+  { key: 'Z', shift: true, alt: true, op: 'node.toggle_overlays' },
   { key: 'HOME', op: 'node.view_all' },
   { key: 'NUMPAD_PERIOD', op: 'node.view_selected' },
   { key: 'NUMPAD_PLUS', op: 'node.zoom', props: { factor: 1.25 } },
   { key: 'NUMPAD_MINUS', op: 'node.zoom', props: { factor: 0.8 } },
   { key: 'EQUAL', ctrl: true, op: 'node.zoom', props: { factor: 1.25 } },
   { key: 'MINUS', ctrl: true, op: 'node.zoom', props: { factor: 0.8 } },
-  { key: 'N', op: 'node.toggle_sidebar' },
+  { key: 'B', shift: true, op: 'node.zoom_border' },
+  {
+    key: 'ACCENT_GRAVE',
+    when: () => !!hoverEditor(),
+    action: () => openPie('View', [{ label: 'Frame All', op: 'node.view_all' }, { label: 'Frame Selected', op: 'node.view_selected' }, null, null, null, null, null, null], app.pointer.x, app.pointer.y, 'ACCENT_GRAVE'),
+  },
+  {
+    key: 'W',
+    when: () => inTree(),
+    action: () => {
+      const ed = hoverEditor()!;
+      const any = !!ed.selectedIds().length;
+      openMenu(contextMenuItems(ed, any), { x: app.pointer.x, y: app.pointer.y }, { title: any ? 'Node' : 'Node Editor' });
+    },
+  },
   { key: 'C', ctrl: true, op: 'node.clipboard_copy' },
   { key: 'V', ctrl: true, op: 'node.clipboard_paste' },
   { key: 'F2', op: 'node.rename' },
+  ...(['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE'] as const).flatMap((key, i) => [
+    { key, op: 'node.viewer_shortcut_get', props: { viewer_index: i + 1 } },
+    { key, ctrl: true, op: 'node.viewer_shortcut_set', props: { viewer_index: i + 1 } },
+  ]),
+]);
+
+addKeys('Node Generic', [
+  { key: 'T', op: 'node.toggle_toolbar' },
+  { key: 'N', op: 'node.toggle_sidebar' },
 ]);

@@ -1,164 +1,190 @@
 // Header and context menus of the node editor (entries refer to node.* operators).
 import type { MenuItem } from '../../ui/menu';
+import { shortcutLabel } from '../../app/keymap';
 
 interface EdLike {
   showSidebar: boolean;
+  showToolbar: boolean;
   path: unknown[];
+  area: { areaMenu(): MenuItem[] };
+  provider: { linkViewer?: unknown };
+  providerId: string;
   addMenuItems(at?: { x: number; y: number }): MenuItem[];
+  swapMenuItems(): MenuItem[];
 }
+
+export const GROUPED_TYPES: ['TYPE' | 'COLOR' | 'PREFIX' | 'SUFFIX', string][] = [
+  ['TYPE', 'Type'],
+  ['COLOR', 'Color'],
+  ['PREFIX', 'Prefix'],
+  ['SUFFIX', 'Suffix'],
+];
+
+/** Shortcut text of an operator from the keymaps. */
+const sc = (op: string, props?: Record<string, unknown>) => shortcutLabel(op, props) || undefined;
+const opItem = (label: string, op: string, props?: Record<string, unknown>): MenuItem => ({ label, op, props, shortcut: sc(op, props) });
 
 export function viewMenu(ed: EdLike): MenuItem[] {
   return [
     {
+      label: 'Toolbar',
+      checked: ed.showToolbar,
+      shortcut: sc('node.toggle_toolbar'),
+      op: 'node.toggle_toolbar',
+    },
+    {
       label: 'Sidebar',
       checked: ed.showSidebar,
-      shortcut: 'N',
+      shortcut: sc('node.toggle_sidebar'),
       op: 'node.toggle_sidebar',
     },
     { separator: true },
-    {
-      label: 'Zoom In',
-      shortcut: 'Numpad +',
-      op: 'node.zoom',
-      props: { factor: 1.25 },
-    },
-    {
-      label: 'Zoom Out',
-      shortcut: 'Numpad -',
-      op: 'node.zoom',
-      props: { factor: 0.8 },
-    },
+    opItem('Zoom In', 'node.zoom', { factor: 1.25 }),
+    opItem('Zoom Out', 'node.zoom', { factor: 0.8 }),
     { separator: true },
-    { label: 'Frame Selected', shortcut: 'Numpad .', op: 'node.view_selected' },
-    { label: 'Frame All', shortcut: 'Home', op: 'node.view_all' },
+    opItem('Frame Selected', 'node.view_selected'),
+    opItem('Frame All', 'node.view_all'),
     { separator: true },
-    {
-      label: 'Parent Node Tree',
-      shortcut: 'Ctrl Tab',
-      op: 'node.tree_path_parent',
-    },
+    { label: 'Area', submenu: () => ed.area.areaMenu() },
   ];
+}
+
+export function selectGroupedItems(extend = false): MenuItem[] {
+  return GROUPED_TYPES.map(([type, label]) => ({ label, op: 'node.select_grouped', props: { type, extend } }));
 }
 
 export function selectMenu(): MenuItem[] {
   return [
+    opItem('All', 'node.select_all', { action: 'SELECT' }),
+    opItem('None', 'node.select_all', { action: 'DESELECT' }),
+    opItem('Invert', 'node.select_all', { action: 'INVERT' }),
+    { separator: true },
+    opItem('Box Select', 'node.select_box'),
+    opItem('Circle Select', 'node.select_circle'),
     {
-      label: 'All',
-      shortcut: 'A',
-      op: 'node.select_all',
-      props: { action: 'SELECT' },
-    },
-    {
-      label: 'None',
-      shortcut: 'Alt A',
-      op: 'node.select_all',
-      props: { action: 'DESELECT' },
-    },
-    {
-      label: 'Invert',
-      shortcut: 'Ctrl I',
-      op: 'node.select_all',
-      props: { action: 'INVERT' },
-    },
-    { separator: true },
-    { label: 'Box Select', shortcut: 'B', op: 'node.select_box' },
-    { separator: true },
-    { label: 'Linked From', shortcut: 'L', op: 'node.select_linked_from' },
-    { label: 'Linked To', shortcut: 'Shift L', op: 'node.select_linked_to' },
-    { separator: true },
-    { label: 'Find Node...', shortcut: 'Ctrl F', op: 'node.find_node' },
-  ];
-}
-
-export function nodeMenuItems(): MenuItem[] {
-  return [
-    { label: 'Move', shortcut: 'G', op: 'node.translate_attach' },
-    { separator: true },
-    { label: 'Copy', shortcut: 'Ctrl C', op: 'node.clipboard_copy' },
-    { label: 'Paste', shortcut: 'Ctrl V', op: 'node.clipboard_paste' },
-    { label: 'Duplicate', shortcut: 'Shift D', op: 'node.duplicate_move' },
-    { separator: true },
-    { label: 'Delete', shortcut: 'X', op: 'node.delete' },
-    {
-      label: 'Delete with Reconnect',
-      shortcut: 'Ctrl X',
-      op: 'node.delete_reconnect',
-    },
-    { separator: true },
-    { label: 'Join in New Frame', shortcut: 'Ctrl J', op: 'node.join' },
-    { label: 'Remove from Frame', shortcut: 'Alt P', op: 'node.parent_clear' },
-    { separator: true },
-    { label: 'Make Group', shortcut: 'Ctrl G', op: 'node.group_make' },
-    { label: 'Ungroup', shortcut: 'Ctrl Alt G', op: 'node.group_ungroup' },
-    { label: 'Edit Group', shortcut: 'Tab', op: 'node.group_edit' },
-    { separator: true },
-    {
-      label: 'Links',
+      label: 'Lasso Select',
       submenu: () => [
-        { label: 'Make Links', shortcut: 'F', op: 'node.link_make' },
-        { label: 'Detach Links', shortcut: 'Alt D', op: 'node.links_detach' },
+        { label: 'Set', op: 'node.select_lasso', props: { mode: 'SET' } },
+        { label: 'Extend', op: 'node.select_lasso', props: { mode: 'ADD' } },
+        { label: 'Subtract', op: 'node.select_lasso', props: { mode: 'SUB' } },
       ],
     },
     { separator: true },
-    { label: 'Toggle Node Mute', shortcut: 'M', op: 'node.mute_toggle' },
-    { label: 'Collapse', shortcut: 'H', op: 'node.hide_toggle' },
-    {
-      label: 'Toggle Hidden Node Sockets',
-      shortcut: 'Ctrl H',
-      op: 'node.hide_socket_toggle',
-    },
-    { label: 'Toggle Node Options', op: 'node.options_toggle' },
+    opItem('Linked From', 'node.select_linked_from'),
+    opItem('Linked To', 'node.select_linked_to'),
     { separator: true },
-    { label: 'Rename...', shortcut: 'F2', op: 'node.rename' },
+    { label: 'Select Grouped', submenu: () => selectGroupedItems() },
+    opItem('Activate Same Type Previous', 'node.select_same_type_step', { prev: true }),
+    opItem('Activate Same Type Next', 'node.select_same_type_step', { prev: false }),
+    { separator: true },
+    opItem('Find Node...', 'node.find_node'),
   ];
 }
 
-export function contextMenuItems(ed: EdLike, onNode: boolean): MenuItem[] {
-  if (!onNode)
-    return [
-      { label: 'Add', submenu: () => ed.addMenuItems() },
-      { label: 'Paste', shortcut: 'Ctrl V', op: 'node.clipboard_paste' },
-      { separator: true },
-      { label: 'Frame All', shortcut: 'Home', op: 'node.view_all' },
-      ed.path.length
-        ? {
-            label: 'Exit Group',
-            shortcut: 'Tab',
-            op: 'node.group_edit',
-            props: { exit: true },
-          }
-        : {
-            label: 'Select All',
-            shortcut: 'A',
-            op: 'node.select_all',
-            props: { action: 'SELECT' },
-          },
-    ];
+export function showHideMenu(ed?: EdLike): MenuItem[] {
   return [
-    { label: 'Duplicate', shortcut: 'Shift D', op: 'node.duplicate_move' },
-    { label: 'Copy', shortcut: 'Ctrl C', op: 'node.clipboard_copy' },
-    { label: 'Delete', shortcut: 'X', op: 'node.delete' },
-    {
-      label: 'Delete with Reconnect',
-      shortcut: 'Ctrl X',
-      op: 'node.delete_reconnect',
-    },
+    opItem('Mute', 'node.mute_toggle'),
+    opItem('Node Options', 'node.options_toggle'),
+    ...(ed?.providerId === 'SHADER' ? [opItem('Node Preview', 'node.preview_toggle')] : []),
     { separator: true },
-    { label: 'Join in New Frame', shortcut: 'Ctrl J', op: 'node.join' },
-    { label: 'Remove from Frame', shortcut: 'Alt P', op: 'node.parent_clear' },
+    opItem('Unconnected Sockets', 'node.hide_socket_toggle'),
+    opItem('Collapse', 'node.hide_toggle'),
+    opItem('Collapse and Hide Unused Sockets', 'node.collapse_hide_unused_toggle'),
+  ];
+}
+
+export function nodeMenuItems(ed: EdLike): MenuItem[] {
+  return [
+    opItem('Move', 'node.translate_attach'),
+    opItem('Rotate', 'node.rotate'),
+    opItem('Scale', 'node.scale'),
     { separator: true },
-    { label: 'Make Group', shortcut: 'Ctrl G', op: 'node.group_make' },
-    { label: 'Ungroup', shortcut: 'Ctrl Alt G', op: 'node.group_ungroup' },
-    { label: 'Edit Group', shortcut: 'Tab', op: 'node.group_edit' },
+    opItem('Cut', 'node.delete_copy_reconnect'),
+    opItem('Copy', 'node.clipboard_copy'),
+    opItem('Paste', 'node.clipboard_paste'),
+    opItem('Duplicate', 'node.duplicate_move'),
+    opItem('Duplicate Linked', 'node.duplicate_move_linked'),
     { separator: true },
-    {
-      label: 'Toggle Hidden Node Sockets',
-      shortcut: 'Ctrl H',
-      op: 'node.hide_socket_toggle',
-    },
-    { label: 'Toggle Node Mute', shortcut: 'M', op: 'node.mute_toggle' },
-    { label: 'Collapse', shortcut: 'H', op: 'node.hide_toggle' },
+    opItem('Delete', 'node.delete'),
+    opItem('Delete with Reconnect', 'node.delete_reconnect'),
     { separator: true },
-    { label: 'Rename...', shortcut: 'F2', op: 'node.rename' },
+    opItem('Join in New Frame', 'node.join'),
+    opItem('Remove from Frame', 'node.detach'),
+    opItem('Join Group Inputs', 'node.join_nodes'),
+    opItem('Join in Named Frame', 'node.join_named'),
+    { separator: true },
+    opItem('Rename...', 'node.rename'),
+    { separator: true },
+    opItem('Make Links', 'node.link_make', { replace: false }),
+    opItem('Make and Replace Links', 'node.link_make', { replace: true }),
+    opItem('Cut Links', 'node.links_cut'),
+    opItem('Detach Links', 'node.links_detach'),
+    opItem('Mute Links', 'node.links_mute'),
+    { separator: true },
+    opItem('Make Group', 'node.group_make'),
+    opItem('Insert Into Group', 'node.group_insert'),
+    opItem('Edit Group', 'node.group_edit', { exit: false }),
+    opItem('Ungroup', 'node.group_ungroup'),
+    ...(ed.path.length ? [{ label: 'Separate', submenu: () => separateItems() }] : []),
+    { separator: true },
+    { label: 'Swap', submenu: () => ed.swapMenuItems() },
+    { label: 'Show/Hide', submenu: () => showHideMenu(ed) },
+  ];
+}
+
+export function separateItems(): MenuItem[] {
+  return [
+    { label: 'Copy', op: 'node.group_separate', props: { type: 'COPY' } },
+    { label: 'Move', op: 'node.group_separate', props: { type: 'MOVE' } },
+  ];
+}
+
+function contextSelectMenu(): MenuItem[] {
+  return [
+    { label: 'Select Grouped...', submenu: () => selectGroupedItems() },
+    { separator: true },
+    opItem('Linked From', 'node.select_linked_from'),
+    opItem('Linked To', 'node.select_linked_to'),
+    { separator: true },
+    opItem('Activate Same Type Previous', 'node.select_same_type_step', { prev: true }),
+    opItem('Activate Same Type Next', 'node.select_same_type_step', { prev: false }),
+  ];
+}
+
+/** Right-click / W menu: node commands when nodes are selected, tree commands otherwise. */
+export function contextMenuItems(ed: EdLike, anySelected: boolean): MenuItem[] {
+  if (!anySelected) {
+    const items: MenuItem[] = [
+      { label: 'Add', submenu: () => ed.addMenuItems() },
+      opItem('Paste', 'node.clipboard_paste'),
+      { separator: true },
+      opItem('Find...', 'node.find_node'),
+      { separator: true },
+      opItem('Cut Links', 'node.links_cut'),
+      opItem('Mute Links', 'node.links_mute'),
+    ];
+    if (ed.path.length) items.push({ separator: true }, opItem('Exit Group', 'node.group_edit', { exit: true }));
+    return items;
+  }
+  return [
+    ...(ed.provider.linkViewer ? [opItem('Link to Viewer', 'node.link_viewer'), { separator: true }] : []),
+    opItem('Cut', 'node.delete_copy_reconnect'),
+    opItem('Copy', 'node.clipboard_copy'),
+    opItem('Paste', 'node.clipboard_paste'),
+    opItem('Duplicate', 'node.duplicate_move'),
+    { separator: true },
+    opItem('Delete', 'node.delete'),
+    opItem('Dissolve', 'node.delete_reconnect'),
+    { separator: true },
+    opItem('Make Group', 'node.group_make'),
+    opItem('Insert Into Group', 'node.group_insert'),
+    { separator: true },
+    opItem('Join in New Frame', 'node.join'),
+    opItem('Remove from Frame', 'node.detach'),
+    { separator: true },
+    opItem('Rename...', 'node.rename'),
+    { separator: true },
+    { label: 'Select', submenu: () => contextSelectMenu() },
+    { label: 'Show/Hide', submenu: () => showHideMenu(ed) },
   ];
 }

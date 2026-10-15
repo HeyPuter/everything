@@ -2,7 +2,7 @@
 // geometry node group, compositor) and draws the tree-specific part of the header; group
 // editing (Tab) is handled generically by the editor through a path of group ids.
 import type { Child } from '../../ui/h';
-import type { NodeTreeData } from '../../data/types';
+import type { NodeData, NodeTreeData } from '../../data/types';
 import type { TreeType } from '../types';
 import type { EditorTypeId } from '../../ui/screen';
 
@@ -12,6 +12,8 @@ export interface TreeRoot {
   key: string;
   /** breadcrumb items: [icon, name] */
   crumbs: [string, string][];
+  /** the root tree is this node group (it must not be added into itself) */
+  groupId?: string;
 }
 
 export interface NodeEditorProvider {
@@ -31,6 +33,12 @@ export interface NodeEditorProvider {
   menuPoll?(idname: string, ed: { shaderType: 'OBJECT' | 'WORLD' }): boolean;
   /** draw behind the links and nodes, over the grid (e.g. the compositor backdrop) */
   drawBackdrop?(ed: unknown, g: CanvasRenderingContext2D, width: number, height: number): void;
+  /** link a node (or one of its outputs) to the tree's viewer (Ctrl Shift click); without this, trees connect to the output */
+  linkViewer?(ed: unknown, node: NodeData, socket?: string): boolean;
+  /** panels of the sidebar's View tab (the tab is shown only when this exists) */
+  viewPanels?(ed: unknown): Child;
+  /** panels of the sidebar's Options tab, e.g. material settings (shown only when this exists) */
+  optionsPanels?(ed: unknown): Child;
 }
 
 export const providers = new Map<string, NodeEditorProvider>();

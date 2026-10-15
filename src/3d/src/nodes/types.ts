@@ -67,6 +67,8 @@ export interface SocketDef {
   items?: string[];
   /** VECTOR sockets: number of components shown (default 3) */
   dimensions?: number;
+  /** tooltip text (group interface sockets) */
+  description?: string;
 }
 
 export type NodePropType =
@@ -161,7 +163,7 @@ export interface NodeTypeDef {
   /** dynamic node label shown in the header (e.g. the Math operation) */
   dynamicLabel?: (node: NodeData) => string;
   /** fully dynamic sockets (group nodes, group input/output) */
-  dynamicSockets?: (node: NodeData, ctx: SocketContext) => { inputs: SocketDef[]; outputs: SocketDef[] };
+  dynamicSockets?: (node: NodeData, ctx: SocketContext) => { inputs: SocketDef[]; outputs: SocketDef[]; panels?: NodePanelDef[] };
   /** initialize props of a newly created node */
   init?: (node: NodeData) => void;
   /** custom body UI (color ramps, curves, image selector) drawn after props */
