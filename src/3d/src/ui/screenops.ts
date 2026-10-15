@@ -11,6 +11,13 @@ function areaOf(ctx: OpContext): Area | null {
   return a && 'screen' in a ? a : null;
 }
 
+/** Sidebar (UI) and toolbar (TOOLS) toggles of the editors. */
+const REGION_OPS: Record<string, Partial<Record<'UI' | 'TOOLS', string>>> = {
+  VIEW_3D: { UI: 'view3d.toggle_sidebar', TOOLS: 'view3d.toggle_toolbar' },
+  TEXT: { UI: 'text.toggle_sidebar' },
+  FILE_BROWSER: { TOOLS: 'file.sidebar_toggle' },
+};
+
 const SIDES: [Side, string][] = [
   ['LEFT', 'Left'],
   ['RIGHT', 'Right'],
@@ -95,13 +102,18 @@ registerOperators([
     label: 'Toggle Region',
     description: 'Show or hide a region of the area (header or tool settings)',
     undo: false,
-    props: [{ id: 'region_type', label: 'Region', type: 'enum', default: 'HEADER', items: [['HEADER', 'Header'], ['TOOL_HEADER', 'Tool Settings']] }],
+    props: [{ id: 'region_type', label: 'Region', type: 'enum', default: 'HEADER', items: [['HEADER', 'Header'], ['TOOL_HEADER', 'Tool Settings'], ['UI', 'Sidebar'], ['TOOLS', 'Toolbar']] }],
     poll: (ctx) => !!areaOf(ctx),
     exec: (ctx, p) => {
       const a = areaOf(ctx)!;
       if (p.region_type === 'TOOL_HEADER') {
         if (!a.editor.toolHeader) return 'CANCELLED';
         a.toggleToolHeader();
+      } else if (p.region_type === 'UI' || p.region_type === 'TOOLS') {
+        // editors toggle their side regions with their own operators
+        const op = REGION_OPS[a.type]?.[p.region_type];
+        if (!op || !app.poll(op, a)) return 'CANCELLED';
+        app.run(op, {}, { area: a });
       } else a.setHeaderVisible(!a.showHeader);
     },
   },
