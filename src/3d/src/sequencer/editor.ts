@@ -2032,6 +2032,15 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     }
     if (e.button === 2) {
       e.preventDefault();
+      if (e.shiftKey) {
+        // Shift right click places the 2D cursor
+        const [fx, fy] = this.preview.toFrame(e.clientX, e.clientY);
+        setCursorPoint(fx, fy);
+        app.pushUndo('Set 2D Cursor');
+        app.changed('ui');
+        this.preview.draw();
+        return;
+      }
       openMenu(stripMenu(true), { x: e.clientX, y: e.clientY });
       return;
     }
