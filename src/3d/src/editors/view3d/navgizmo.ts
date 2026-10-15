@@ -25,6 +25,8 @@ export function navGizmo(v: View3D): Child {
   }).sort((a, b) => a.z - b.z);
   const startDrag = (e: PointerEvent) => {
     e.preventDefault();
+    // Quad View's fixed views cannot be turned
+    if (v.lockRotation) return;
     const target = (e.target as Element).closest('[data-axis]') as Element | null;
     const axis = target ? Number(target.getAttribute('data-axis')) : -1;
     let moved = false;

@@ -58,9 +58,22 @@ function toolKind(): 'move' | 'rotate' | 'scale' | 'transform' | null {
   return null;
 }
 
+/** Which transform handles a viewport shows: the active tool's (Active Tools) plus the Object Gizmos options. */
+function gizmoParts(v: View3D) {
+  const t = v.showToolGizmo ? toolKind() : null;
+  const og = v.objectGizmos;
+  return {
+    move: t === 'move' || t === 'transform' || og.translate,
+    rotate: t === 'rotate' || t === 'transform' || og.rotate,
+    scale: t === 'scale' || t === 'transform' || og.scale,
+  };
+}
+
 export function transformGizmo(v: View3D): VNode | null {
-  const kind = toolKind();
-  if (!kind || app.modal) return null;
+  const show = gizmoParts(v);
+  const count = +show.move + +show.rotate + +show.scale;
+  if (!count || app.modal) return null;
+  const kind = count > 1 ? 'transform' : show.move ? 'move' : show.rotate ? 'rotate' : 'scale';
   const f = gizmoFrame(v);
   if (!f) return null;
   const parts: VNode[] = [];
@@ -69,7 +82,7 @@ export function transformGizmo(v: View3D): VNode | null {
     return v.project(f.pivot.clone().addScaledVector(dir, f.size * k));
   };
   const { x, y } = f.screen;
-  if (kind === 'move' || kind === 'transform') {
+  if (show.move) {
     for (let i = 0; i < 3; i++) {
       const e = axisEnd(i, kind === 'transform' ? 1.15 : 1);
       const dx = e.x - x,
@@ -91,7 +104,7 @@ export function transformGizmo(v: View3D): VNode | null {
     }
     parts.push(h('circle', { cx: x, cy: y, r: 10, fill: 'transparent', stroke: '#fff', 'stroke-width': 1.4, 'data-gizmo': 'view', class: 'gz' }));
   }
-  if (kind === 'scale' || kind === 'transform') {
+  if (show.scale) {
     for (let i = 0; i < 3; i++) {
       const e = axisEnd(i, kind === 'transform' ? 0.7 : 1);
       const dx = e.x - x,
@@ -105,7 +118,7 @@ export function transformGizmo(v: View3D): VNode | null {
     }
     if (kind === 'scale') parts.push(h('circle', { cx: x, cy: y, r: 30, fill: 'none', stroke: '#fff', 'stroke-width': 1.2, 'data-gizmo': 'scale:all', class: 'gz', opacity: 0.8 }));
   }
-  if (kind === 'rotate' || kind === 'transform') {
+  if (show.rotate) {
     // rotation rings: project circles around each axis
     for (let i = 0; i < 3; i++) {
       const pts: string[] = [];

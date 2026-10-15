@@ -23,6 +23,7 @@ import { editModeHooks, viewportExtensions } from './hooks';
 import { circlePaint, lassoDrag, modeFromEvent } from './selectshapes';
 import { applyMatrixToObject } from '../../eval/transform';
 import { altMiddle, snapViewToAxis } from './navextra';
+import { placeCursor, cursorToolSettings } from '../../ops/view3d';
 
 export class View3D implements Editor, ViewportRenderer, DrawView {
   el: HTMLElement;
@@ -59,6 +60,10 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   showToolbar = true;
   showSidebar = false;
   showGizmos = true;
+  /** gizmo of the active transform tool (Active Tools) */
+  showToolGizmo = true;
+  /** transform handles shown whatever tool is active (Object Gizmos) */
+  objectGizmos = { translate: false, rotate: false, scale: false };
   showNavGizmo = true;
   sidebarTab = 'Item';
   overlapHeader = true;
@@ -93,7 +98,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     this.infoEl = document.createElement('div');
     this.infoEl.className = 'v3d-info';
     this.el.append(this.regionEl, this.svg, this.infoEl, this.ui, this.boxEl);
-    const st = (state ?? {}) as { shading?: string | Partial<Shading>; matcap?: boolean; camera?: boolean; camZoom?: number; camOffset?: { x: number; y: number }; nav?: ReturnType<NavCamera['serialize']>; overlay?: Partial<Overlay>; toolbar?: boolean; sidebar?: boolean; clip?: number[][]; lockObject?: string; lockCursor?: boolean; lockRotation?: boolean; quad?: View3D['quad'] };
+    const st = (state ?? {}) as { shading?: string | Partial<Shading>; matcap?: boolean; camera?: boolean; camZoom?: number; camOffset?: { x: number; y: number }; nav?: ReturnType<NavCamera['serialize']>; overlay?: Partial<Overlay>; toolbar?: boolean; sidebar?: boolean; clip?: number[][]; lockObject?: string; lockCursor?: boolean; lockRotation?: boolean; quad?: View3D['quad']; toolGizmo?: boolean; objectGizmos?: View3D['objectGizmos'] };
     if (typeof st.shading === 'string') this.shading.type = st.shading as Shading['type'];
     else if (st.shading) Object.assign(this.shading, st.shading);
     if (st.matcap) this.shading.light = 'MATCAP';
@@ -109,6 +114,8 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     if (st.lockCursor) this.lockCursor = true;
     if (st.lockRotation) this.lockRotation = true;
     if (st.quad) this.quad = { ...st.quad };
+    if (st.toolGizmo === false) this.showToolGizmo = false;
+    if (st.objectGizmos) Object.assign(this.objectGizmos, st.objectGizmos);
     this.nav.lens = prefs.view_lens;
     this.nav.autoPersp = prefs.use_auto_perspective;
     this.bindInput();
@@ -302,7 +309,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   }
 
   serialize() {
-    return { nav: this.nav.serialize(), shading: { ...this.shading }, overlay: { ...this.overlay }, camera: this.cameraView, camZoom: this.camZoom, camOffset: { ...this.camOffset }, toolbar: this.showToolbar, sidebar: this.showSidebar, clip: this.clipPlanes ?? undefined, lockObject: this.lockObject ?? undefined, lockCursor: this.lockCursor || undefined, lockRotation: this.lockRotation || undefined, quad: this.quad ?? undefined };
+    return { nav: this.nav.serialize(), shading: { ...this.shading }, overlay: { ...this.overlay }, camera: this.cameraView, camZoom: this.camZoom, camOffset: { ...this.camOffset }, toolbar: this.showToolbar, sidebar: this.showSidebar, toolGizmo: this.showToolGizmo ? undefined : false, objectGizmos: Object.values(this.objectGizmos).some(Boolean) ? { ...this.objectGizmos } : undefined, clip: this.clipPlanes ?? undefined, lockObject: this.lockObject ?? undefined, lockCursor: this.lockCursor || undefined, lockRotation: this.lockRotation || undefined, quad: this.quad ?? undefined };
   }
 
   dispose() {
@@ -633,7 +640,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       e.preventDefault();
       if (e.shiftKey) {
         // place the 3D cursor
-        app.run('view3d.cursor3d', {}, { event: { x: e.clientX, y: e.clientY } });
+        app.run('view3d.cursor3d', { ...cursorToolSettings }, { event: { x: e.clientX, y: e.clientY } });
         return;
       }
       for (const hk of editModeHooks.context) if (hk(this, e)) return;
@@ -647,7 +654,19 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     for (const hk of editModeHooks.pointer) if (hk(this, e)) return;
     const tool = activeTools[app.doc.mode] ?? 'builtin.select_box';
     if (tool === 'builtin.cursor') {
-      app.run('view3d.cursor3d', {}, { event: { x: e.clientX, y: e.clientY } });
+      // click places the cursor, dragging moves it along the surfaces under the mouse
+      placeCursor(this, p.x, p.y);
+      const mv = (ev: PointerEvent) => {
+        const q = this.local(ev);
+        placeCursor(this, q.x, q.y);
+      };
+      const upFn = () => {
+        removeEventListener('pointermove', mv);
+        removeEventListener('pointerup', upFn);
+        app.pushUndo('Set 3D Cursor');
+      };
+      addEventListener('pointermove', mv);
+      addEventListener('pointerup', upFn);
       return;
     }
     if (tool === 'builtin.select_circle') {

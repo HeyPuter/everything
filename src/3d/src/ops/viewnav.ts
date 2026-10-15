@@ -6,6 +6,8 @@ import { keymaps } from '../app/keymap';
 import { renderContext } from '../render/context';
 import './viewregions';
 import { raycastScene } from '../editors/view3d/navextra';
+import { openPopover } from '../ui/menu';
+import { snappingPopover } from '../editors/view3d/header';
 
 const v3d = () => !!activeView3D();
 
@@ -530,4 +532,5 @@ function startFlight(kind: 'WALK' | 'FLY') {
   { key: 'B', alt: true, op: 'view3d.clip_border' },
   { key: 'B', ctrl: true, op: 'view3d.render_border', when: () => !!activeView3D()?.cameraView && app.doc.mode !== 'EDIT' },
   { key: 'B', ctrl: true, alt: true, op: 'view3d.clear_render_border' },
+  { key: 'TAB', shift: true, ctrl: true, action: () => openPopover({ x: app.pointer.x - 120, y: app.pointer.y - 20 }, snappingPopover, { width: 240 }) },
 );

@@ -1,5 +1,6 @@
 // 3D View operators (navigation, framing, cursor, snapping, local view, copy/paste).
-import { Box3, Vector3, Matrix4, Quaternion, Euler } from 'three';
+import { Box3, Vector3, Matrix3, Matrix4, Quaternion, Euler } from 'three';
+import { orientationBasis } from './orientations';
 import { app, registerOperators } from '../app/app';
 import { activeView3D, worldBounds, View3D } from '../editors/view3d/view3d';
 import { applyMatrixToObject, toMatrix4 } from '../eval/transform';
@@ -441,17 +442,15 @@ registerOperators([
     idname: 'view3d.cursor3d',
     label: 'Set 3D Cursor',
     description: 'Set the location of the 3D cursor (on surfaces under the mouse, or on the view plane)',
+    props: [
+      { id: 'use_depth', label: 'Surface Project', type: 'bool', default: true },
+      { id: 'orientation', label: 'Orientation', type: 'enum', default: 'VIEW', items: [['NONE', 'None'], ['VIEW', 'View'], ['TRANSFORM', 'Transform'], ['GEOMETRY', 'Geometry']] },
+    ],
     poll: v3d,
-    invoke: (ctx) => {
+    invoke: (ctx, p) => {
       const v = activeView3D()!;
       const r = v.el.getBoundingClientRect();
-      const x = (ctx.event?.x ?? app.pointer.x) - r.left,
-        y = (ctx.event?.y ?? app.pointer.y) - r.top;
-      const cur = new Vector3(...ctx.doc.scene.cursor.location);
-      // surface project via the ID buffer + mesh raycast
-      const hit = surfaceHit(v, x, y);
-      const p = hit ?? v.unproject(x, y, cur);
-      ctx.doc.scene.cursor.location = [p.x, p.y, p.z];
+      placeCursor(v, (ctx.event?.x ?? app.pointer.x) - r.left, (ctx.event?.y ?? app.pointer.y) - r.top, p as CursorOptions);
       return 'FINISHED';
     },
   },
@@ -667,6 +666,93 @@ export function surfaceHit(v: View3D, x: number, y: number): Vector3 | null {
   }
   if (best === Infinity) return null;
   return o.addScaledVector(d, best).applyMatrix4(ev.world);
+}
+
+export interface CursorOptions {
+  use_depth?: boolean;
+  orientation?: 'NONE' | 'VIEW' | 'TRANSFORM' | 'GEOMETRY';
+}
+
+/** Cursor tool settings (also used by Shift+right click). */
+export const cursorToolSettings: Required<CursorOptions> = { use_depth: true, orientation: 'VIEW' };
+
+/** Place the 3D cursor under a viewport pixel: on the surface (optionally) and oriented as asked. */
+export function placeCursor(v: View3D, x: number, y: number, o: CursorOptions = cursorToolSettings) {
+  const cursor = app.doc.scene.cursor;
+  const cur = new Vector3(...cursor.location);
+  const hit = o.use_depth !== false ? surfaceHitWithNormal(v, x, y) : null;
+  const p = hit?.point ?? v.unproject(x, y, cur);
+  cursor.location = [p.x, p.y, p.z];
+  let q: Quaternion | null = null;
+  if (o.orientation === 'VIEW') q = v.camera.quaternion.clone();
+  else if (o.orientation === 'TRANSFORM') {
+    const b = orientationBasis();
+    q = new Quaternion().setFromRotationMatrix(new Matrix4().setFromMatrix3(b));
+  } else if (o.orientation === 'GEOMETRY' && hit) {
+    // Z along the surface normal, X kept as level as possible
+    const z = hit.normal.clone().normalize();
+    const x0 = Math.abs(z.z) < 0.99 ? new Vector3(0, 0, 1).cross(z).normalize() : new Vector3(1, 0, 0);
+    const y0 = new Vector3().crossVectors(z, x0);
+    q = new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(x0, y0, z));
+  }
+  if (q) {
+    const e = new Euler().setFromQuaternion(q, 'ZYX');
+    cursor.rotation_euler = [e.x, e.y, e.z];
+  }
+  app.changed('doc');
+}
+
+/** Like surfaceHit, also returning the world-space normal of the face that was hit. */
+export function surfaceHitWithNormal(v: View3D, x: number, y: number): { point: Vector3; normal: Vector3 } | null {
+  const hit = v.pick(x, y, 1);
+  const ev = hit ? app.graph.get(hit.id) : undefined;
+  if (!ev?.mesh) return null;
+  const { origin, dir } = v.ray(x, y);
+  const inv = ev.world.clone().invert();
+  const o = origin.clone().applyMatrix4(inv),
+    d = dir.clone().transformDirection(inv);
+  const P = ev.mesh.positions;
+  const m = ev.mesh;
+  let best = Infinity;
+  const n = new Vector3();
+  const a = new Vector3(),
+    b = new Vector3(),
+    c = new Vector3(),
+    e1 = new Vector3(),
+    e2 = new Vector3(),
+    pv = new Vector3(),
+    tv = new Vector3(),
+    qv = new Vector3();
+  for (let f = 0; f < m.offsets.length - 1; f++) {
+    const s = m.offsets[f],
+      en = m.offsets[f + 1];
+    for (let k = s + 1; k < en - 1; k++) {
+      a.fromArray(P, m.indices[s] * 3);
+      b.fromArray(P, m.indices[k] * 3);
+      c.fromArray(P, m.indices[k + 1] * 3);
+      e1.subVectors(b, a);
+      e2.subVectors(c, a);
+      pv.crossVectors(d, e2);
+      const det = e1.dot(pv);
+      if (Math.abs(det) < 1e-12) continue;
+      const id = 1 / det;
+      tv.subVectors(o, a);
+      const u = tv.dot(pv) * id;
+      if (u < 0 || u > 1) continue;
+      qv.crossVectors(tv, e1);
+      const vv = d.dot(qv) * id;
+      if (vv < 0 || u + vv > 1) continue;
+      const t = e2.dot(qv) * id;
+      if (t > 1e-6 && t < best) {
+        best = t;
+        n.crossVectors(e1, e2);
+      }
+    }
+  }
+  if (best === Infinity) return null;
+  const normalWorld = n.applyMatrix3(new Matrix3().getNormalMatrix(ev.world)).normalize();
+  if (normalWorld.dot(dir) > 0) normalWorld.negate();
+  return { point: o.addScaledVector(d, best).applyMatrix4(ev.world), normal: normalWorld };
 }
 
 export { Euler, Box3 };

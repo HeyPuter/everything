@@ -251,6 +251,30 @@ registerOperators([
     undo: false,
   },
   {
+    idname: 'view3d.transform_gizmo_set',
+    label: 'Transform Gizmo Set',
+    description: 'Show the move, rotate or scale handles on the selection whatever tool is active',
+    props: [
+      { id: 'type', label: 'Type', type: 'enum', default: 'TRANSLATE', items: [['TRANSLATE', 'Move'], ['ROTATE', 'Rotate'], ['SCALE', 'Scale']] },
+      { id: 'extend', label: 'Extend', type: 'bool', default: false },
+    ],
+    poll: v3d,
+    exec: (_ctx, p) => {
+      const v = activeView3D()!;
+      const og = v.objectGizmos;
+      const key = ({ TRANSLATE: 'translate', ROTATE: 'rotate', SCALE: 'scale' } as const)[p.type as 'TRANSLATE'] ?? 'translate';
+      const only = og[key] && Object.entries(og).every(([k, on]) => k === key || !on);
+      if (p.extend) og[key] = !og[key];
+      else {
+        og.translate = og.rotate = og.scale = false;
+        og[key] = !only;
+      }
+      v.showGizmos = true;
+      redraw(v);
+    },
+    undo: false,
+  },
+  {
     idname: 'view3d.navigate',
     label: 'View Navigation (Walk/Fly)',
     description: 'Walk or fly through the scene, as chosen in the preferences',

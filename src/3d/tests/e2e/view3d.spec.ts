@@ -211,3 +211,39 @@ test('quad view toggles fixed views around the user view', async ({ page }) => {
   await expect(page.locator('.v3d-info-line', { hasText: 'User Perspective' })).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('cursor tool drag, object gizmos, protractor', async ({ page }) => {
+  const errors = await openApp(page);
+  const c = await hoverViewport(page);
+  // Cursor tool: dragging moves the cursor across the surface
+  await page.click('[data-tool="builtin.cursor"]');
+  await page.mouse.move(c.x - 200, c.y + 100);
+  await page.mouse.down();
+  await page.mouse.move(c.x, c.y, { steps: 4 });
+  await page.mouse.up();
+  const cur = await get<number[]>(page, 'app.doc.scene.cursor.location');
+  expect(Math.max(...cur.map(Math.abs))).toBeLessThan(1.01); // on the cube's surface
+  // Object gizmos show move handles with the select tool active
+  await page.click('[data-tool="builtin.select_box"]');
+  expect(await page.locator('[data-gizmo^="move:"]').count()).toBe(0);
+  await run(page, 'view3d.transform_gizmo_set', { type: 'TRANSLATE' }, { invoke: false });
+  await expect(page.locator('[data-gizmo^="move:"]').first()).toBeAttached();
+  await run(page, 'view3d.transform_gizmo_set', { type: 'TRANSLATE' }, { invoke: false });
+  expect(await page.locator('[data-gizmo^="move:"]').count()).toBe(0);
+  // Measure: drag a ruler, then drag its midpoint to measure an angle
+  await page.click('[data-tool="builtin.measure"]');
+  const p0 = { x: c.x - 300, y: c.y + 250 },
+    p1 = { x: c.x - 100, y: c.y + 250 };
+  await page.mouse.move(p0.x, p0.y);
+  await page.mouse.down();
+  await page.mouse.move(p1.x, p1.y, { steps: 4 });
+  await page.mouse.up();
+  await page.mouse.move((p0.x + p1.x) / 2, p0.y);
+  await page.mouse.down();
+  await page.mouse.move((p0.x + p1.x) / 2, p0.y - 80, { steps: 4 });
+  await page.mouse.up();
+  expect(await get(page, 'app.doc.scene.rulers.length')).toBe(1);
+  expect(await get(page, '!!app.doc.scene.rulers[0].c')).toBe(true);
+  await expect(page.locator('.protractor text')).toContainText('°');
+  await expectNoErrors(errors);
+});

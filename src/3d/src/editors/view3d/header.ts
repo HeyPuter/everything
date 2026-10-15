@@ -161,23 +161,7 @@ export function viewHeader(v: View3D): Child {
       'div',
       { class: 'hdr-group' },
       iconToggle('snap', ts.use_snap ? 'snap_on' : 'snap_off', ts.use_snap, 'Snap (Shift Tab)\nSnap during transform', () => setTool('use_snap', !ts.use_snap)),
-      iconDrop('snapel', snapEl[2], 'Snapping', (el) =>
-        openPopover(el, () =>
-          h(
-            'div',
-            { class: 'pop-panel' },
-            h('div', { class: 'pop-title' }, 'Snap Target for Individual Elements'),
-            h('div', { class: 'pop-list' }, SNAP_ELEMENTS.map(([id, label, ic]) => h('button', { key: id, class: { 'pop-item': true, on: ts.snap_elements.includes(id) }, onclick: (e: MouseEvent) => {
-              if (e.shiftKey) ts.snap_elements = ts.snap_elements.includes(id) ? ts.snap_elements.filter((x) => x !== id) : [...ts.snap_elements, id];
-              else ts.snap_elements = [id];
-              app.pushUndo('Snap Element');
-              app.changed('ui');
-            } }, icon(ic), label))),
-            h('div', { class: 'pop-title' }, 'Snap With'),
-            enumRow('snap-target', [['CLOSEST', 'Closest'], ['CENTER', 'Center'], ['MEDIAN', 'Median'], ['ACTIVE', 'Active']].map(([value, label]) => ({ value, label })), ts.snap_target, (x) => setTool('snap_target', x)),
-          ),
-        { width: 230 }),
-      ),
+      iconDrop('snapel', snapEl[2], 'Snapping', (el) => openPopover(el, snappingPopover, { width: 240 })),
     ),
     h(
       'div',
@@ -242,6 +226,11 @@ export function viewHeader(v: View3D): Child {
             { class: 'pop-panel' },
             h('div', { class: 'pop-title' }, 'Viewport Gizmos'),
             checkbox('nav-g', 'Navigate', v.showNavGizmo, (x) => ((v.showNavGizmo = x), v.drawUI())),
+            checkbox('tool-g', 'Active Tools', v.showToolGizmo, (x) => ((v.showToolGizmo = x), v.drawSvg(), app.changed('ui'))),
+            h('div', { class: 'pop-title' }, 'Object Gizmos'),
+            checkbox('obg-move', 'Move', v.objectGizmos.translate, (x) => ((v.objectGizmos.translate = x), v.drawSvg(), app.changed('ui'))),
+            checkbox('obg-rot', 'Rotate', v.objectGizmos.rotate, (x) => ((v.objectGizmos.rotate = x), v.drawSvg(), app.changed('ui'))),
+            checkbox('obg-scale', 'Scale', v.objectGizmos.scale, (x) => ((v.objectGizmos.scale = x), v.drawSvg(), app.changed('ui'))),
           ),
         ),
       'hidden-icon'),
@@ -292,6 +281,48 @@ function orientationMenu(): MenuItem[] {
     { label: 'Create Orientation', icon: 'add', op: 'transform.create_orientation', props: { use: true } },
     { label: 'Delete Orientation', icon: 'remove', op: 'transform.delete_orientation' },
   ];
+}
+
+type SnapExtras = { use_snap_grid_absolute?: boolean; snap_angle_increment_3d?: number; snap_angle_increment_3d_precision?: number };
+
+/** Snapping popover (header snap dropdown, Shift Ctrl Tab). */
+export function snappingPopover(): Child {
+  const ts = app.doc.scene.tool_settings;
+  const tx = ts as typeof ts & SnapExtras;
+  const deg = Math.PI / 180;
+  return h(
+    'div',
+    { class: 'pop-panel' },
+    h('div', { class: 'pop-title' }, 'Snap Target for Individual Elements'),
+    h(
+      'div',
+      { class: 'pop-list' },
+      SNAP_ELEMENTS.map(([id, label, ic]) =>
+        h(
+          'button',
+          {
+            key: id,
+            class: { 'pop-item': true, on: ts.snap_elements.includes(id) },
+            'data-tip': 'Shift-click to combine several element types',
+            onclick: (e: MouseEvent) => {
+              if (e.shiftKey) ts.snap_elements = ts.snap_elements.includes(id) ? ts.snap_elements.filter((x) => x !== id) : [...ts.snap_elements, id];
+              else ts.snap_elements = [id];
+              app.pushUndo('Snap Element');
+              app.changed('ui');
+            },
+          },
+          icon(ic),
+          label,
+        ),
+      ),
+    ),
+    ts.snap_elements.includes('INCREMENT') ? checkbox('snap-abs', 'Absolute Grid Snap', !!tx.use_snap_grid_absolute, (x) => setTool('use_snap_grid_absolute', x)) : null,
+    h('div', { class: 'pop-title' }, 'Snap With'),
+    enumRow('snap-target', [['CLOSEST', 'Closest'], ['CENTER', 'Center'], ['MEDIAN', 'Median'], ['ACTIVE', 'Active']].map(([value, label]) => ({ value, label })), ts.snap_target, (x) => setTool('snap_target', x)),
+    h('div', { class: 'pop-title' }, 'Rotation Increment'),
+    numberField({ id: 'snap-rot', label: 'Angle', value: tx.snap_angle_increment_3d ?? 5 * deg, min: 0.01 * deg, max: Math.PI, unit: 'angle', set: (x) => setTool('snap_angle_increment_3d', x) }),
+    numberField({ id: 'snap-rotp', label: 'Precision', value: tx.snap_angle_increment_3d_precision ?? 1 * deg, min: 0.01 * deg, max: Math.PI, unit: 'angle', set: (x) => setTool('snap_angle_increment_3d_precision', x) }),
+  );
 }
 
 function setTool(key: string, value: unknown) {

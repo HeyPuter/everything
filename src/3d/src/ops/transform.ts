@@ -844,6 +844,12 @@ export function startTransform(
             const lp = src.clone().add(delta).applyMatrix3(inv);
             lp.set(Math.round(lp.x / inc) * inc, Math.round(lp.y / inc) * inc, Math.round(lp.z / inc) * inc);
             delta = keepFree(lp.applyMatrix3(basis).sub(src));
+          } else if (els.includes('INCREMENT') && (ts as { use_snap_grid_absolute?: boolean }).use_snap_grid_absolute) {
+            // absolute increment: land the snap source on the grid
+            const src = snapSource(null);
+            const lp = src.clone().add(delta).applyMatrix3(inv);
+            lp.set(Math.round(lp.x / inc) * inc, Math.round(lp.y / inc) * inc, Math.round(lp.z / inc) * inc);
+            delta = keepFree(lp.applyMatrix3(basis).sub(src));
           } else if (els.includes('INCREMENT')) {
             const lv = delta.clone().applyMatrix3(inv);
             lv.set(Math.round(lv.x / inc) * inc, Math.round(lv.y / inc) * inc, Math.round(lv.z / inc) * inc);
@@ -869,7 +875,7 @@ export function startTransform(
         // screen rotation direction vs axis direction relative to the viewer
         if (basisAxis(st.basis, st.orientAxis).dot(viewDir()) > 0) angle = -angle;
         if (snapOn()) {
-          const step = (precise ? 1 : 5) * deg;
+          const step = rotationStep(precise);
           angle = Math.round(angle / step) * step;
         }
       }
@@ -882,7 +888,7 @@ export function startTransform(
       let ax = (dy * Math.PI) / 360,
         ay = (dx * Math.PI) / 360;
       if (snapOn()) {
-        const step = (precise ? 1 : 5) * deg;
+        const step = rotationStep(precise);
         ax = Math.round(ax / step) * step;
         ay = Math.round(ay / step) * step;
       }
@@ -1217,6 +1223,12 @@ export function startTransform(
   app.startModal(handler);
   compute();
   return true;
+}
+
+/** Rotation snapping step (radians) from the snapping settings. */
+function rotationStep(precise: boolean) {
+  const ts = app.doc.scene.tool_settings as { snap_angle_increment_3d?: number; snap_angle_increment_3d_precision?: number };
+  return precise ? ts.snap_angle_increment_3d_precision ?? Math.PI / 180 : ts.snap_angle_increment_3d ?? (5 * Math.PI) / 180;
 }
 
 function cleanupOverlay() {
