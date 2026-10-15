@@ -260,3 +260,37 @@ describe('Mix node rotation mode', () => {
     expect(ids('SHADER')).not.toContain('ROTATION');
   });
 });
+
+describe('menus in nested groups', () => {
+  it('a group node shows the menu items of the switch inside, and its value picks the branch', () => {
+    const { doc, g, tree } = group();
+    const gi = addNode(tree, 'NodeGroupInput', [0, 0]);
+    const out = addNode(tree, 'NodeGroupOutput', [400, 0]);
+    const ms = addNode(tree, 'GeometryNodeMenuSwitch', [200, 0], {
+      enum_items: JSON.stringify([
+        { id: 0, name: 'Cube' },
+        { id: 1, name: 'Line' },
+      ]),
+    } as Record<string, never>);
+    const ctx = ctxOf(doc, tree);
+    connect(ctx, gi.id, 'Socket_0', ms.id, 'Menu');
+    connect(ctx, addNode(tree, 'GeometryNodeMeshCube', [0, 0]).id, 'Mesh', ms.id, 'Item_0');
+    connect(ctx, addNode(tree, 'GeometryNodeMeshLine', [0, 0]).id, 'Mesh', ms.id, 'Item_1');
+    connect(ctx, ms.id, 'Output', out.id, 'Socket_1');
+    // outer tree using the group as a node
+    const outerTree: NodeTreeData = { type: 'GEOMETRY', nodes: [], links: [], interface: [{ in_out: 'OUTPUT', name: 'Geometry', socket_type: 'NodeSocketGeometry', identifier: 'Socket_0' }] };
+    const outer: NodeGroupData = { id: uid('ng'), name: 'Outer', tree: outerTree, is_modifier: true };
+    doc.node_groups[outer.id] = outer;
+    const gn = addNode(outerTree, 'GeometryNodeGroup', [0, 0], { node_tree: g.id } as Record<string, never>);
+    const oo = addNode(outerTree, 'NodeGroupOutput', [300, 0]);
+    connect(ctxOf(doc, outerTree), gn.id, 'Socket_1', oo.id, 'Socket_0');
+    const menu = getNodeType('GeometryNodeGroup')!.dynamicSockets!(gn, ctxOf(doc, outerTree)).inputs.find((s) => s.identifier === 'Socket_0')!;
+    expect(menu.items).toEqual(['Cube', 'Line']);
+    const run = () =>
+      evaluateGroup(outer, { id: 'md', name: 'GN', type: 'NODES', node_group: outer.id } as unknown as ModifierBase, testEnv(doc), GeometrySet.empty(), 'in', `menu2/${uid('k')}`, false).geometry.mesh!
+        .vertCount;
+    expect(run()).toBe(8);
+    gn.inputs.Socket_0 = 'Line';
+    expect(run()).toBe(10);
+  });
+});

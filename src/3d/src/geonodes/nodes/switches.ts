@@ -245,4 +245,22 @@ gn(
   { propPatch: { warning_type: { noLabel: true } } },
 );
 
-void getNodeType;
+// group nodes: menu inputs list the items of the menus they feed inside the group
+{
+  const grp = getNodeType('GeometryNodeGroup');
+  const prev = grp?.dynamicSockets;
+  if (grp && prev)
+    grp.dynamicSockets = (node, ctx) => {
+      const r = prev(node, ctx);
+      const g = typeof node.props.node_tree === 'string' ? ctx.doc.node_groups[node.props.node_tree] : undefined;
+      if (!g || !r.inputs.some((s) => s.type === 'MENU')) return r;
+      return {
+        ...r,
+        inputs: r.inputs.map((s) => {
+          if (s.type !== 'MENU' || s.items?.length) return s;
+          const items = groupInputMenuItems(ctx.doc, g.tree, s.identifier);
+          return items.length ? { ...s, items, default: typeof s.default === 'string' && items.includes(s.default) ? s.default : items[0] } : s;
+        }),
+      };
+    };
+}
