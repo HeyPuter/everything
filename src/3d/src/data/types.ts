@@ -195,6 +195,9 @@ export interface CurveData {
   id: ID;
   name: string;
   dimensions: '2D' | '3D';
+  /** Path animation: frames for one run along the path, and the current position in frames (animatable). */
+  path_duration?: number;
+  eval_time?: number;
   splines: Spline[];
   resolution_u: number;
   bevel_depth: number;
@@ -405,6 +408,18 @@ export interface PoseBone {
   lock_ik_x?: boolean;
   lock_ik_y?: boolean;
   lock_ik_z?: boolean;
+  ik_stiffness_x?: number;
+  ik_stiffness_y?: number;
+  ik_stiffness_z?: number;
+  use_ik_limit_x?: boolean;
+  use_ik_limit_y?: boolean;
+  use_ik_limit_z?: boolean;
+  ik_min_x?: number;
+  ik_max_x?: number;
+  ik_min_y?: number;
+  ik_max_y?: number;
+  ik_min_z?: number;
+  ik_max_z?: number;
   select?: boolean;
 }
 
@@ -745,8 +760,8 @@ export interface Constraint {
   show_expanded: boolean;
   target?: ID | null;
   subtarget?: string;
-  owner_space?: 'WORLD' | 'LOCAL' | 'POSE' | 'LOCAL_WITH_PARENT' | 'CUSTOM';
-  target_space?: 'WORLD' | 'LOCAL' | 'POSE' | 'LOCAL_WITH_PARENT' | 'CUSTOM';
+  owner_space?: 'WORLD' | 'LOCAL' | 'POSE' | 'LOCAL_WITH_PARENT' | 'CUSTOM' | 'LOCAL_OWNER_ORIENT';
+  target_space?: 'WORLD' | 'LOCAL' | 'POSE' | 'LOCAL_WITH_PARENT' | 'CUSTOM' | 'LOCAL_OWNER_ORIENT';
   [key: string]: unknown;
 }
 
@@ -806,7 +821,7 @@ export interface ParticleSystem {
 }
 
 export interface ForceField {
-  type: 'NONE' | 'FORCE' | 'WIND' | 'VORTEX' | 'TURBULENCE' | 'DRAG';
+  type: 'NONE' | 'FORCE' | 'WIND' | 'VORTEX' | 'TURBULENCE' | 'DRAG' | 'MAGNET' | 'HARMONIC' | 'LENNARDJ' | 'GUIDE';
   strength: number;
   flow: number;
   noise?: number;

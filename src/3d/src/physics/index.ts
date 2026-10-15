@@ -12,6 +12,7 @@ import './ops';
 import './ui-physics';
 import './ui-particles';
 import './draw';
+import './timelinecache';
 
 /** Interactive evaluations simulate at most this long, then continue on the next tick. */
 const BUDGET_MS = 120;
@@ -63,3 +64,9 @@ queueMicrotask(() => {
   if (app?.doc.scene.rigidbody_world) void loadRapier();
 });
 rapierReady.add(() => app?.changed('frame'));
+import './fieldadd';
+import './dynpaint';
+import './dpops';
+import './quickliquid';
+import './ui-rbworld';
+import './quickexplode';

@@ -3,23 +3,25 @@
 import type { DocumentData, ObjectData } from '../data/types';
 import type { Matrix4 } from 'three';
 import { meshSignature, baseEvalMesh } from '../eval/depsgraph';
-import { motionKey, worldAt, type SimContext } from './common';
+import { collectionMembers, motionKey, worldAt, type SimContext } from './common';
 import type { CollisionSettingsX } from './types';
 import { triangulatePoly } from '../mesh/mesh';
 
-export function colliderObjects(doc: DocumentData, exclude?: string): ObjectData[] {
+export function colliderObjects(doc: DocumentData, exclude?: string, collection?: string | null): ObjectData[] {
   const out: ObjectData[] = [];
+  // a collision collection limits the colliders to its objects
+  const only = collectionMembers(doc, collection);
   for (const id of doc.object_order) {
     const ob = doc.objects[id];
-    if (!ob || ob.id === exclude || !ob.collision?.use || ob.hide_viewport) continue;
+    if (!ob || ob.id === exclude || !ob.collision?.use || ob.hide_viewport || (only && !only.has(ob.id))) continue;
     if (ob.type !== 'MESH' && ob.type !== 'CURVE' && ob.type !== 'FONT') continue;
     out.push(ob);
   }
   return out;
 }
 
-export function collidersKey(doc: DocumentData, refFrame: number, exclude?: string): string {
-  return colliderObjects(doc, exclude)
+export function collidersKey(doc: DocumentData, refFrame: number, exclude?: string, collection?: string | null): string {
+  return colliderObjects(doc, exclude, collection)
     .map((ob) => {
       const me = ob.type === 'MESH' && ob.data ? doc.meshes[ob.data] : null;
       return `${ob.id}:${JSON.stringify(ob.collision)}:${me ? meshSignature(me) : ''}:${JSON.stringify(ob.modifiers)}:${motionKey(doc, ob, refFrame)}`;
@@ -374,9 +376,9 @@ function transformed(local: Float32Array, m: Matrix4): Float32Array {
 const triCache = new WeakMap<Uint32Array, Uint32Array>();
 
 /** Build collider meshes for the step from frame-1 to frame. */
-export function buildColliders(ctx: SimContext, frame: number, exclude: string | undefined, margin: number): ColliderMesh[] {
+export function buildColliders(ctx: SimContext, frame: number, exclude: string | undefined, margin: number, collection?: string | null): ColliderMesh[] {
   const out: ColliderMesh[] = [];
-  for (const ob of colliderObjects(ctx.doc, exclude)) {
+  for (const ob of colliderObjects(ctx.doc, exclude, collection)) {
     const ev = ctx.graph?.get(ob.id);
     let mesh = ev?.mesh;
     if (!mesh) {

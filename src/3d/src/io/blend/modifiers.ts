@@ -7,6 +7,7 @@ import { boneOnlyConstraints, constraintTypes, newConstraint } from '../../eval/
 import type { BStruct } from './reader';
 import type { Ctx } from './context';
 import { importGeometryNodes } from './geonodes';
+import { convertAction } from './anim';
 
 type P = Record<string, unknown>;
 const bit = (v: number, b: number) => (v & b) !== 0;
@@ -269,9 +270,11 @@ export function convertModifiers(ob: BStruct, ctx: Ctx, o: (s: BStruct | null) =
 // ---------------------------------------------------------------------------
 // Constraints
 
-const SPACE: Constraint['owner_space'][] = ['WORLD', 'LOCAL', 'POSE', 'LOCAL_WITH_PARENT', 'LOCAL', 'CUSTOM'];
+const SPACE: Constraint['owner_space'][] = ['WORLD', 'LOCAL', 'POSE', 'LOCAL_WITH_PARENT', 'LOCAL_OWNER_ORIENT', 'CUSTOM'];
 const TRACK = ['TRACK_X', 'TRACK_Y', 'TRACK_Z', 'TRACK_NEGATIVE_X', 'TRACK_NEGATIVE_Y', 'TRACK_NEGATIVE_Z'];
 const UP = ['UP_X', 'UP_Y', 'UP_Z'];
+const EULER = ['AUTO', 'XYZ', 'XZY', 'YXZ', 'YZX', 'ZXY', 'ZYX'];
+const actionCaches = new WeakMap<Ctx, Map<string, string>>();
 
 type ConMap = (d: BStruct, ctx: Ctx, o: (s: BStruct | null) => string | null) => { type: string; p: P } | null;
 const xyz = (f: number, b: [number, number, number], prefix: string, suffix = ''): P => ({ [`${prefix}x${suffix}`]: bit(f, b[0]), [`${prefix}y${suffix}`]: bit(f, b[1]), [`${prefix}z${suffix}`]: bit(f, b[2]) });
@@ -289,21 +292,37 @@ const CONS: Record<string, ConMap> = {
     const f = d.num('flag');
     return { type: 'COPY_SCALE', p: { ...xyz(f, [1, 2, 4], 'use_'), use_offset: bit(f, 8), use_add: !bit(f, 16), use_make_uniform: bit(f, 32), power: d.num('power') } };
   },
-  bTransLikeConstraint: (d) => ({ type: 'COPY_TRANSFORMS', p: { mix_mode: pick(['REPLACE', 'BEFORE_FULL', 'AFTER_FULL', 'BEFORE', 'AFTER', 'BEFORE_SPLIT', 'AFTER_SPLIT'], d.num('mix_mode'), 'REPLACE') } }),
+  bTransLikeConstraint: (d) => ({ type: 'COPY_TRANSFORMS', p: { mix_mode: pick(['REPLACE', 'BEFORE_FULL', 'AFTER_FULL', 'BEFORE', 'AFTER', 'BEFORE_SPLIT', 'AFTER_SPLIT'], d.num('mix_mode'), 'REPLACE'), remove_target_shear: bit(d.num('flag'), 1) } }),
   bLocLimitConstraint: (d) => limits(d, 'LIMIT_LOCATION'),
   bSizeLimitConstraint: (d) => limits(d, 'LIMIT_SCALE'),
   bRotLimitConstraint: (d) => {
     const f = d.num('flag');
-    return { type: 'LIMIT_ROTATION', p: { use_limit_x: bit(f, 1), use_limit_y: bit(f, 2), use_limit_z: bit(f, 4), use_legacy_behavior: bit(f, 8), min_x: d.num('xmin'), max_x: d.num('xmax'), min_y: d.num('ymin'), max_y: d.num('ymax'), min_z: d.num('zmin'), max_z: d.num('zmax') } };
+    return { type: 'LIMIT_ROTATION', p: { use_limit_x: bit(f, 1), use_limit_y: bit(f, 2), use_limit_z: bit(f, 4), use_legacy_behavior: bit(f, 8), min_x: d.num('xmin'), max_x: d.num('xmax'), min_y: d.num('ymin'), max_y: d.num('ymax'), min_z: d.num('zmin'), max_z: d.num('zmax'), euler_order: pick(EULER, d.num('euler_order'), 'AUTO'), use_transform_limit: bit(d.num('flag2'), 2) } };
   },
-  bDistLimitConstraint: (d) => ({ type: 'LIMIT_DISTANCE', p: { distance: d.num('dist'), limit_mode: pick(['LIMITDIST_INSIDE', 'LIMITDIST_OUTSIDE', 'LIMITDIST_ONSURFACE'], d.num('mode'), 'LIMITDIST_INSIDE') } }),
+  bDistLimitConstraint: (d) => ({ type: 'LIMIT_DISTANCE', p: { distance: d.num('dist'), limit_mode: pick(['LIMITDIST_INSIDE', 'LIMITDIST_OUTSIDE', 'LIMITDIST_ONSURFACE'], d.num('mode'), 'LIMITDIST_INSIDE'), use_transform_limit: bit(d.num('flag'), 2) } }),
   bTrackToConstraint: (d) => ({ type: 'TRACK_TO', p: { track_axis: pick(TRACK, d.num('reserved1'), 'TRACK_Y'), up_axis: pick(UP, d.num('reserved2'), 'UP_Z'), use_target_z: bit(d.num('flags'), 1) } }),
   bDampTrackConstraint: (d) => ({ type: 'DAMPED_TRACK', p: { track_axis: pick(TRACK, d.num('trackflag'), 'TRACK_Y') } }),
   bLockTrackConstraint: (d) => ({ type: 'LOCKED_TRACK', p: { track_axis: pick(TRACK, d.num('trackflag'), 'TRACK_Y'), lock_axis: pick(['LOCK_X', 'LOCK_Y', 'LOCK_Z'], d.num('lockflag'), 'LOCK_Z') } }),
-  bStretchToConstraint: (d) => ({ type: 'STRETCH_TO', p: { rest_length: d.num('orglength'), bulge: d.num('bulge'), volume: pick(['VOLUME_XZX', 'VOLUME_X', 'VOLUME_Z', 'NO_VOLUME'], d.num('volmode'), 'VOLUME_XZX') } }),
+  bStretchToConstraint: (d) => {
+    const f = d.num('flag');
+    return {
+      type: 'STRETCH_TO',
+      p: {
+        rest_length: d.num('orglength'),
+        bulge: d.num('bulge'),
+        volume: pick(['VOLUME_XZX', 'VOLUME_X', 'VOLUME_Z', 'NO_VOLUME'], d.num('volmode'), 'VOLUME_XZX'),
+        keep_axis: pick(['PLANE_X', 'SWING_Y', 'PLANE_Z'], d.num('plane'), 'SWING_Y'),
+        use_bulge_min: bit(f, 1),
+        use_bulge_max: bit(f, 2),
+        bulge_min: d.num('bulge_min', 1),
+        bulge_max: d.num('bulge_max', 1),
+        bulge_smooth: d.num('bulge_smooth'),
+      },
+    };
+  },
   bChildOfConstraint: (d) => {
     const f = d.num('flag');
-    return { type: 'CHILD_OF', p: { inverse_matrix: d.nums('invmat', 16), ...xyz(f, [1, 2, 4], 'use_location_'), ...xyz(f, [8, 16, 32], 'use_rotation_'), ...xyz(f, [64, 128, 256], 'use_scale_') } };
+    return { type: 'CHILD_OF', p: { inverse_matrix: d.nums('invmat', 16), set_inverse_pending: bit(f, 512), ...xyz(f, [1, 2, 4], 'use_location_'), ...xyz(f, [8, 16, 32], 'use_rotation_'), ...xyz(f, [64, 128, 256], 'use_scale_') } };
   },
   bFollowPathConstraint: (d) => {
     const ff = d.num('followflag');
@@ -313,13 +332,133 @@ const CONS: Record<string, ConMap> = {
     if (cu?.type === 'Curve' && cu.num('pathlen') > 0) p.path_duration = cu.num('pathlen');
     return { type: 'FOLLOW_PATH', p };
   },
-  bMinMaxConstraint: (d) => ({ type: 'FLOOR', p: { floor_location: pick(['FLOOR_X', 'FLOOR_Y', 'FLOOR_Z', 'FLOOR_NEGATIVE_X', 'FLOOR_NEGATIVE_Y', 'FLOOR_NEGATIVE_Z'], d.num('minmaxflag'), 'FLOOR_Z'), offset: d.num('offset'), use_rotation: bit(d.num('flag'), 1) } }),
-  bShrinkwrapConstraint: (d) => ({ type: 'SHRINKWRAP', p: { distance: d.num('dist'), shrinkwrap_type: pick(['NEAREST_SURFACE', 'PROJECT', 'NEAREST_VERTEX', 'TARGET_PROJECT'], d.num('shrinkType'), 'NEAREST_SURFACE') } }),
-  bPivotConstraint: (d) => ({ type: 'PIVOT', p: { offset: d.nums('offset', 3) } }),
-  bSameVolumeConstraint: (d) => ({ type: 'MAINTAIN_VOLUME', p: { free_axis: pick(['SAMEVOL_X', 'SAMEVOL_Y', 'SAMEVOL_Z'], d.num('free_axis'), 'SAMEVOL_Y'), volume: d.num('volume') } }),
+  bMinMaxConstraint: (d) => ({ type: 'FLOOR', p: { floor_location: pick(['FLOOR_X', 'FLOOR_Y', 'FLOOR_Z', 'FLOOR_NEGATIVE_X', 'FLOOR_NEGATIVE_Y', 'FLOOR_NEGATIVE_Z'], d.num('minmaxflag'), 'FLOOR_Z'), offset: d.num('offset'), use_rotation: bit(d.num('flag'), 4) } }),
+  bShrinkwrapConstraint: (d, _c, o) => {
+    const f = d.num('flag');
+    return {
+      type: 'SHRINKWRAP',
+      p: {
+        target: o(d.ref('target')),
+        distance: d.num('dist'),
+        shrinkwrap_type: pick(['NEAREST_SURFACE', 'PROJECT', 'NEAREST_VERTEX', 'TARGET_PROJECT'], d.num('shrinkType'), 'NEAREST_SURFACE'),
+        wrap_mode: pick(['ON_SURFACE', 'INSIDE', 'OUTSIDE', 'OUTSIDE_SURFACE', 'ABOVE_SURFACE'], d.num('shrinkMode'), 'ON_SURFACE'),
+        project_axis: pick(['POS_X', 'POS_Y', 'POS_Z', 'NEG_X', 'NEG_Y', 'NEG_Z'], d.num('projAxis'), 'POS_Z'),
+        project_axis_space: d.num('projAxisSpace') === 0 ? 'WORLD' : 'LOCAL',
+        project_limit: d.num('projLimit'),
+        use_project_opposite: bit(f, 1),
+        use_invert_cull: bit(f, 2),
+        use_track_normal: bit(f, 4),
+        cull_face: bit(f, 8) ? 'FRONT' : bit(f, 16) ? 'BACK' : 'OFF',
+        track_axis: pick(TRACK, d.num('trackAxis'), 'TRACK_X'),
+      },
+    };
+  },
+  bPivotConstraint: (d) => ({ type: 'PIVOT', p: { offset: d.nums('offset', 3), rotation_range: d.num('rotAxis') < 0 ? 'ALWAYS_ACTIVE' : pick(['NX', 'NY', 'NZ', 'X', 'Y', 'Z'], d.num('rotAxis'), 'NX'), use_relative_location: !bit(d.num('flag'), 1) } }),
+  bSameVolumeConstraint: (d) => ({ type: 'MAINTAIN_VOLUME', p: { free_axis: pick(['SAMEVOL_X', 'SAMEVOL_Y', 'SAMEVOL_Z'], d.num('free_axis'), 'SAMEVOL_Y'), volume: d.num('volume'), mode: pick(['STRICT', 'UNIFORM', 'SINGLE_AXIS'], d.num('mode'), 'STRICT') } }),
+  bClampToConstraint: (d) => ({ type: 'CLAMP_TO', p: { main_axis: pick(['CLAMPTO_AUTO', 'CLAMPTO_X', 'CLAMPTO_Y', 'CLAMPTO_Z'], d.num('flag'), 'CLAMPTO_AUTO'), use_cyclic: bit(d.num('flag2'), 1) } }),
+  bActionConstraint: (d, ctx) => {
+    const t = d.num('type');
+    const channel = t >= 20 ? `LOCATION_${'XYZ'[t - 20] ?? 'X'}` : t >= 10 ? `SCALE_${'XYZ'[t - 10] ?? 'X'}` : `ROTATION_${'XYZ'[t] ?? 'X'}`;
+    const act = d.ref('act');
+    let cache = actionCaches.get(ctx);
+    if (!cache) actionCaches.set(ctx, (cache = new Map()));
+    return {
+      type: 'ACTION',
+      p: {
+        transform_channel: channel,
+        mix_mode: pick(['AFTER_FULL', 'AFTER', 'BEFORE', 'BEFORE_FULL', 'AFTER_SPLIT', 'BEFORE_SPLIT', 'REPLACE'], d.num('mix_mode'), 'AFTER'),
+        frame_start: d.num('start'),
+        frame_end: d.num('end'),
+        min: d.num('min'),
+        max: d.num('max'),
+        eval_time: d.num('eval_time'),
+        use_bone_object_action: bit(d.num('flag'), 1),
+        use_eval_time: bit(d.num('flag'), 2),
+        action: act ? convertAction(act, d.num('action_slot_handle'), ctx, '', cache) : null,
+      },
+    };
+  },
+  bArmatureConstraint: (d, _c, o) => {
+    const f = d.num('flag');
+    return {
+      type: 'ARMATURE',
+      p: {
+        use_deform_preserve_volume: bit(f, 1),
+        use_bone_envelopes: bit(f, 2),
+        use_current_location: bit(f, 4),
+        targets: d.list('targets').map((t) => ({ target: o(t.ref('tar')), subtarget: t.str('subtarget'), weight: t.num('weight') })),
+      },
+    };
+  },
+  bSplineIKConstraint: (d) => {
+    const f = d.num('flag');
+    return {
+      type: 'SPLINE_IK',
+      p: {
+        chain_count: d.num('chainlen') || 1,
+        use_chain_offset: bit(f, 2),
+        use_even_divisions: bit(f, 8),
+        use_curve_radius: !bit(f, 16),
+        use_bulge_min: bit(f, 32),
+        use_bulge_max: bit(f, 64),
+        use_original_scale: bit(f, 128),
+        xz_scale_mode: pick(['NONE', 'BONE_ORIGINAL', 'INVERSE_PRESERVE', 'VOLUME_PRESERVE'], d.num('xzScaleMode'), 'NONE'),
+        y_scale_mode: pick(['NONE', 'FIT_CURVE', 'BONE_ORIGINAL'], d.num('yScaleMode'), 'FIT_CURVE'),
+        bulge: d.num('bulge', 1),
+        bulge_min: d.num('bulge_min', 1),
+        bulge_max: d.num('bulge_max', 1),
+        bulge_smooth: d.num('bulge_smooth'),
+      },
+    };
+  },
+  bGeometryAttributeConstraint: (d, _c, o) => {
+    const f = d.num('flags');
+    return {
+      type: 'GEOMETRY_ATTRIBUTE',
+      p: {
+        target: o(d.ref('target')),
+        attribute_name: d.cstr('attribute_name') || 'position',
+        sample_index: d.num('sample_index'),
+        apply_target_transform: !!d.num('apply_target_transform'),
+        mix_mode: pick(['REPLACE', 'BEFORE_SPLIT', 'AFTER_SPLIT', 'BEFORE_FULL', 'AFTER_FULL'], d.num('mix_mode'), 'REPLACE'),
+        domain: pick(['POINT', 'EDGE', 'FACE', 'FACE_CORNER', 'CURVE', 'INSTANCE'], d.num('domain'), 'POINT'),
+        data_type: pick(['VECTOR', 'QUATERNION', 'FLOAT4X4'], d.num('data_type'), 'VECTOR'),
+        mix_loc: bit(f, 2),
+        mix_rot: bit(f, 4),
+        mix_scl: bit(f, 8),
+      },
+    };
+  },
+  bTransformConstraint: (d) => {
+    const MAP = ['LOCATION', 'ROTATION', 'SCALE'];
+    const map = d.nums('map', 3);
+    const p: P = {
+      map_from: pick(MAP, d.num('from'), 'LOCATION'),
+      map_to: pick(MAP, d.num('to'), 'LOCATION'),
+      map_to_x_from: pick(['X', 'Y', 'Z'], map[0] ?? 0, 'X'),
+      map_to_y_from: pick(['X', 'Y', 'Z'], map[1] ?? 1, 'Y'),
+      map_to_z_from: pick(['X', 'Y', 'Z'], map[2] ?? 2, 'Z'),
+      use_motion_extrapolate: !!d.num('expo'),
+      from_rotation_mode: pick([...EULER, 'QUATERNION', 'SWING_TWIST_X', 'SWING_TWIST_Y', 'SWING_TWIST_Z'], d.num('from_rotation_mode'), 'AUTO'),
+      to_euler_order: pick(EULER, d.num('to_euler_order'), 'AUTO'),
+      mix_mode: pick(['ADD', 'REPLACE'], d.num('mix_mode_loc'), 'ADD'),
+      mix_mode_rot: pick(['ADD', 'REPLACE', 'BEFORE', 'AFTER'], d.num('mix_mode_rot'), 'ADD'),
+      mix_mode_scale: pick(['REPLACE', 'MULTIPLY'], d.num('mix_mode_scale'), 'REPLACE'),
+    };
+    for (const [field, suffix] of [
+      ['', ''],
+      ['_rot', '_rot'],
+      ['_scale', '_scale'],
+    ])
+      for (const kind of ['from_min', 'from_max', 'to_min', 'to_max']) {
+        const v = d.nums(kind + field, 3);
+        ['x', 'y', 'z'].forEach((a, i) => (p[`${kind}_${a}${suffix}`] = v[i] ?? (field === '_scale' ? 1 : 0)));
+      }
+    return { type: 'TRANSFORM', p };
+  },
   bKinematicConstraint: (d, _c, o) => {
     const f = d.num('flag');
-    return { type: 'IK', p: { chain_count: d.num('rootbone'), iterations: d.num('iterations'), pole_target: o(d.ref('poletar')), pole_subtarget: d.str('polesubtarget'), pole_angle: d.num('poleangle'), use_tail: bit(f, 1), use_rotation: bit(f, 2), use_stretch: bit(f, 16), weight: d.num('weight'), orient_weight: d.num('orientweight') } };
+    return { type: 'IK', p: { chain_count: d.num('rootbone'), iterations: d.num('iterations'), pole_target: o(d.ref('poletar')), pole_subtarget: d.str('polesubtarget'), pole_angle: d.num('poleangle'), use_tail: bit(f, 1), use_rotation: bit(f, 2), use_stretch: bit(f, 16), use_location: bit(f, 32), weight: d.num('weight'), orient_weight: d.num('orientweight') } };
   },
 };
 
@@ -355,7 +494,7 @@ export function convertConstraints(list: BStruct[], ctx: Ctx, o: (s: BStruct | n
     con.owner_space = SPACE[c.num('ownspace')] ?? 'WORLD';
     con.target_space = SPACE[c.num('tarspace')] ?? 'WORLD';
     con.show_expanded = bit(c.num('ui_expand_flag'), 1);
-    if (d.has('tar')) {
+    if (d.has('tar') && r.p.target === undefined) {
       const t = d.ref('tar');
       con.target = o(t);
       if (t && !con.target) ctx.warn.add('Constraint targets outside the imported scene cleared', `${owner}: ${name}`);

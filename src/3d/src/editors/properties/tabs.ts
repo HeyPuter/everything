@@ -28,6 +28,8 @@ const ob = () => app.activeObject;
 export const objectExtraPanels: ((o: ObjectData) => Child)[] = [];
 /** Keying Sets panel of the Scene tab (drawn by the animation module). */
 export const sceneKeyingPanel: { draw: (() => Child) | null } = { draw: null };
+/** Rigid Body World panel of the Scene tab (provided by the physics module). */
+export const sceneRigidBodyPanel: { draw: (() => Child) | null } = { draw: null };
 const changed = (label: string) => {
   app.pushUndo(label);
   app.changed('doc');
@@ -82,7 +84,7 @@ registerTab({
         enumProp(s.unit_settings, 'length_unit', 'Length', [['ADAPTIVE', 'Adaptive'], ['KILOMETERS', 'Kilometers'], ['METERS', 'Meters'], ['CENTIMETERS', 'Centimeters'], ['MILLIMETERS', 'Millimeters'], ['MICROMETERS', 'Micrometers']]),
       ]),
       panel('sc-gravity', 'Gravity', () => [vecProp(s, 'gravity', 'Gravity', { unit: 'none' })], { header: checkbox('sc-grav-on', '', s.use_gravity, (v) => ((s.use_gravity = v), changed('Gravity'))) }),
-      panel('sc-rb', 'Rigid Body World', () =>
+      sceneRigidBodyPanel.draw ? sceneRigidBodyPanel.draw() : panel('sc-rb', 'Rigid Body World', () =>
         s.rigidbody_world
           ? [
               num(s.rigidbody_world, 'time_scale', 'Speed', { min: 0, max: 100 }),

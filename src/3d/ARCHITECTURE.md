@@ -31,7 +31,9 @@ src/
   compositor/ Compositor nodes (GPU), Compositor editor, render post-processing
   animation/  Dope Sheet, Graph Editor, Drivers, NLA editors and their operators
   paint/      Sculpt, Vertex/Weight/Texture Paint, voxel remesh, automatic weights
-  physics/    Rigid bodies (Rapier, lazy-loaded), cloth, soft body, particles, fields, smoke
+  constraints/ Object/Bone Constraints tabs (constraint panels), constraint.* operators, Bone tab IK panel
+  physics/    Rigid bodies (Rapier, lazy-loaded) and their joints, cloth, soft body, particles (boids,
+              fluid, keyed, hair dynamics), fields, smoke and liquid domains, dynamic paint
   render/final/ Path tracer, raster engine, F12/animation render, Image Editor, color management;
               props/ holds the Render, Output, View Layer and camera-data properties panels
   sequencer/  Video Sequencer (strips, effects, preview, audio)
@@ -121,6 +123,13 @@ SPREADSHEET, PREFERENCES`. An editor id with no registration falls back to the 3
 `registerTab({ id, label, icon, group, poll, draw: (p) => Child })` from
 `editors/properties/properties.ts`. Modifier panels get type-specific fields from
 `modifierFields[type]` and extra UI via `modifierExtraUI[type]` (`editors/properties/stack.ts`).
+
+### Constraints (`eval/constraints*.ts`, `eval/constraint_solve.ts`)
+`constraintTypes[type] = { apply(ownerMatrix, c, ctx), spaces, usesTarget, boneOnly, deps, isValid }`.
+The solver converts the owner (and `ctx.target`) into the constraint's owner/target space, applies the
+type and blends by influence; object stacks run in `evaluateTransform`, pose bone stacks (including the
+IK and Spline IK solvers, `eval/ik.ts`, `eval/splineik.ts`) in `evaluatePose`. Panels: `constraints/ui.ts`
+(`constraintExtraUI[type]` adds UI for types registered elsewhere).
 
 ### Evaluation (`eval/depsgraph.ts`)
 `app.graph.get(id)` → `EvalObject { world: Matrix4, mesh?: EvalMesh, pose?, visible, geomVersion }`.
