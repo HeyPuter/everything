@@ -351,7 +351,7 @@ const LIGHT: ThemePreset = {
   label: 'Light',
   values: {
     text: '#1f2328', text_dim: '#5f6670', text_hi: '#000000', accent: '#2f6fd6', accent_hi: '#4a84e0', text_on_accent: '#ffffff',
-    button: '#d6d9de', button_hover: '#c9cdd3', button_outline: '#b3b8bf', field: '#ffffff', number: '#d6d9de', number_hover: '#cbd0d6', toggle: '#d6d9de', tab: '#dfe2e6', tab_on: '#ffffff',
+    button: '#cbd0d6', button_hover: '#bec4cc', button_outline: '#a9afb7', field: '#ffffff', number: '#cfd3d9', number_hover: '#c3c8cf', toggle: '#c3c8cf', tab: '#dfe2e6', tab_on: '#ffffff',
     menu: '#f7f8fa', menu_back: '#e6e8eb', menu_item_hl: '#2f6fd6', panel: '#e2e5e9', panel_sub: '#0000000d', panel_outline: '#0000001a', hover: '#000000', radius: '4',
     keyed: '#c2a400', animated: '#3e9a3a', driven: '#8a35c9', error: '#d64545', warning: '#d49b1f', info: '#4a7fd1',
     border: '#b9bec5', topbar: '#dfe2e6', header: '#e9ebee', region: '#eef0f2', x: '#e02f4d', y: '#4f9a00', z: '#1f6fe0',
