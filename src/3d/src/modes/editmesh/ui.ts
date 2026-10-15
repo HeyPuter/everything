@@ -594,6 +594,7 @@ addKeys('Mesh', [
   { key: 'L', shift: true, op: 'mesh.select_linked_pick', props: { deselect: true }, when: m },
   { key: 'G', shift: true, menu: similarMenu, menuTitle: 'Select Similar', when: m },
   { key: 'M', shift: true, ctrl: true, op: 'mesh.select_mirror', when: m },
+  { key: 'M', ctrl: true, menu: mirrorMenu, menuTitle: 'Mirror', when: m },
   { key: 'H', op: 'mesh.hide', when: m },
   { key: 'H', shift: true, op: 'mesh.hide', props: { unselected: true }, when: m },
   { key: 'H', alt: true, op: 'mesh.reveal', when: m },
