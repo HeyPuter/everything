@@ -27,7 +27,8 @@ export type StripType =
   | 'GLOW'
   | 'GAUSSIAN_BLUR'
   | 'MULTICAM'
-  | 'MASK';
+  | 'MASK'
+  | 'MOVIECLIP';
 
 export type BlendType =
   | 'REPLACE'
@@ -238,6 +239,9 @@ export interface Strip {
   speed_frame_number?: number;
   speed_length?: number;
   blend_effect?: BlendType;
+  /** MOVIECLIP: the movie clip shown and whether its 2D stabilization applies */
+  clip?: string | null;
+  stabilize2d?: boolean;
   /** MASK: the mask data-block shown */
   mask?: string | null;
   /** MULTICAM: channel shown by the selector */

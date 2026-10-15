@@ -66,6 +66,7 @@ export const STRIP_LABELS: Record<StripType, string> = {
   GAUSSIAN_BLUR: 'Gaussian Blur',
   MULTICAM: 'Multicam Selector',
   MASK: 'Mask',
+  MOVIECLIP: 'Clip',
 };
 
 export const BLEND_ITEMS: [BlendType, string][] = [

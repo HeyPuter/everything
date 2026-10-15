@@ -149,6 +149,44 @@ const ops: Operator[] = [
     },
   },
   {
+    idname: 'sequencer.movieclip_strip_add',
+    label: 'Add Clip Strip',
+    description: 'Add a strip showing a movie clip of the clip editor (optionally stabilized)',
+    props: [
+      { id: 'clip', label: 'Clip', type: 'string', default: '' },
+      { id: 'frame_start', label: 'Start Frame', type: 'int', default: 0 },
+      { id: 'channel', label: 'Channel', type: 'int', default: 1, min: 1, max: 128 },
+    ],
+    poll: () => Object.keys(app.doc.movieclips ?? {}).length > 0,
+    invoke: (c, p) => {
+      const ed = hoverSeq();
+      const channel = ed && ed.hover === 'timeline' ? Math.max(1, Math.floor(ed.pointerChannel(app.pointer.y))) : 1;
+      return app.run('sequencer.movieclip_strip_add', { ...p, frame_start: c.doc.scene.frame_current, channel }, { invoke: false });
+    },
+    exec: (_c, p) => {
+      const clip = app.doc.movieclips?.[p.clip as string] ?? Object.values(app.doc.movieclips ?? {})[0];
+      if (!clip) return 'CANCELLED';
+      const r = addEffect('MOVIECLIP', p.frame_start as number, p.channel as number, Math.max(1, clip.frame_duration || 1));
+      if (typeof r === 'string') {
+        app.report('ERROR', r);
+        return 'CANCELLED';
+      }
+      r.clip = clip.id;
+      r.stabilize2d = !!clip.tracking.stabilization.use_2d_stabilization;
+      if (clip.size[0]) {
+        r.orig_width = clip.size[0];
+        r.orig_height = clip.size[1];
+        const res = app.doc.scene.render;
+        const [sx, sy] = fitScale(clip.size[0], clip.size[1], res.resolution_x, res.resolution_y);
+        r.transform.scale_x = sx;
+        r.transform.scale_y = sy;
+      }
+      r.name = S.uniqueName(seqEditor(), clip.name, new Set(S.allStrips(seqEditor().strips).filter((x) => x !== r).map((x) => x.name)));
+      seqEditor().active_strip = r.name;
+      afterEdit();
+    },
+  },
+  {
     idname: 'sequencer.mask_strip_add',
     label: 'Add Mask Strip',
     description: 'Add a strip showing a mask',

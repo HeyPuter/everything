@@ -21,6 +21,14 @@ export function addMenu(): MenuItem[] {
   return [
     { label: 'Scene', icon: 'scene_data', submenu: camOptions },
     {
+      label: 'Clip',
+      icon: 'clip_editor',
+      submenu: () => {
+        const clips = Object.values(app.doc.movieclips ?? {});
+        return clips.length ? clips.map((c) => ({ label: c.name, icon: 'clip_editor', op: 'sequencer.movieclip_strip_add', props: { clip: c.id } })) : [{ label: 'No movie clips (open one in the clip editor)', disabled: true }];
+      },
+    },
+    {
       label: 'Mask',
       icon: 'mod_mask',
       submenu: () => {

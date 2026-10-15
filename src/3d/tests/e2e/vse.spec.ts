@@ -429,3 +429,38 @@ test('sequencer: Curves strip modifier brightens through its curve', async ({ pa
   expect(v).toBeGreaterThan(0.85);
   await expectNoErrors(errors);
 });
+
+test('sequencer: Add ▸ Clip shows a movie clip of the clip editor', async ({ page }) => {
+  const { errors, tl } = await videoWorkspace(page);
+  await page.evaluate(async () => {
+    const { openClipFiles } = await import('/src/tracking/ops.ts' as any);
+    const files: File[] = [];
+    for (let i = 0; i < 3; i++) {
+      const c = document.createElement('canvas');
+      c.width = 64;
+      c.height = 36;
+      const g = c.getContext('2d')!;
+      g.fillStyle = '#20c040';
+      g.fillRect(0, 0, 64, 36);
+      const blob: Blob = await new Promise((r) => c.toBlob((b) => r(b!), 'image/png'));
+      files.push(new File([blob], `f${i}.png`, { type: 'image/png' }));
+    }
+    await openClipFiles(files, null);
+    const app = (window as any).app;
+    for (const s of app.doc.scene.sequence_editor.strips) s.mute = true;
+    app.changed('doc');
+  });
+  await tl.hover();
+  await page.keyboard.press('Shift+a');
+  await menuItem(page, 'Clip').hover();
+  await page.locator('.popup-layer .menu-item', { hasText: 'f0.png' }).last().click();
+  const strip = await page.evaluate(() => (window as any).app.doc.scene.sequence_editor.strips.find((s: any) => s.type === 'MOVIECLIP'));
+  expect(strip.frame_duration).toBe(3);
+  await page.evaluate((f) => (window as any).app.setFrame(f), strip.frame_start);
+  await page.waitForTimeout(800);
+  const pv = (await page.locator('.seq-pv').first().boundingBox())!;
+  await page.mouse.move(pv.x + pv.width / 2, pv.y + pv.height / 2);
+  const rgba = await page.evaluate(([x, y]) => (window as any).app.hoverArea.editor.preview.sample(x, y)?.rgba, [pv.x + pv.width / 2, pv.y + pv.height / 2 + 20] as const);
+  expect(rgba[1]).toBeGreaterThan(rgba[0] + 0.3);
+  await expectNoErrors(errors);
+});

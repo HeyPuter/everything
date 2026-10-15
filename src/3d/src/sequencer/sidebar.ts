@@ -274,6 +274,20 @@ function sourcePanel(s: Strip): Child {
   }
   if (s.orig_width) rows.push(splitRow('Resolution', h('span', { class: 'seq-src' }, `${s.orig_width} × ${s.orig_height}`)));
   if (s.type === 'MOVIE') rows.push(splitRow('FPS', h('span', { class: 'seq-src' }, s.fps ? `${+s.fps.toFixed(3)}` : '—')));
+  if (s.type === 'MOVIECLIP') {
+    const clips = Object.values(app.doc.movieclips ?? {});
+    rows.push(
+      splitRow(
+        'Clip',
+        enumMenu(`seq-clip-${oid(s)}`, [{ value: '', label: '—' }, ...clips.map((c) => ({ value: c.id, label: c.name, icon: 'clip_editor' }))], s.clip ?? '', (v) => {
+          s.clip = v || null;
+          app.pushUndo('Change Clip');
+          app.changed('doc');
+        }),
+      ),
+      splitRow('', checkbox(`seq-stab-${oid(s)}`, 'Use 2D Stabilization', !!s.stabilize2d, (v) => ((s.stabilize2d = v), app.pushUndo('Use 2D Stabilization'), app.changed('doc')))),
+    );
+  }
   if (s.type === 'MASK') {
     const masks = Object.values(app.doc.masks ?? {});
     rows.push(

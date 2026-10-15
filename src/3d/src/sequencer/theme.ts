@@ -37,6 +37,7 @@ export const TYPE_COLORS: Record<string, string> = {
   text: rgb(0.624, 0.573, 0.435),
   adjustment: '#645f7f',
   mask: rgb(0.5, 0.25, 0.25),
+  clip: rgb(0.392, 0.373, 0.565),
 };
 
 /** Strip colour tags (theme.strip_color). */
@@ -72,6 +73,8 @@ export function typeColor(t: StripType): string {
       return TYPE_COLORS.adjustment;
     case 'MASK':
       return TYPE_COLORS.mask;
+    case 'MOVIECLIP':
+      return TYPE_COLORS.clip;
     case 'CROSS':
     case 'GAMMA_CROSS':
     case 'WIPE':
@@ -107,6 +110,8 @@ export function stripIcon(t: StripType): string {
       return 'seq_meta';
     case 'MASK':
       return 'mod_mask';
+    case 'MOVIECLIP':
+      return 'clip_editor';
     case 'CROSS':
     case 'GAMMA_CROSS':
     case 'WIPE':

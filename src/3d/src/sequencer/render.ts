@@ -10,6 +10,9 @@ import { animatedStrip } from './stripanim';
 import { bakeCurveTable, nodeCurves } from '../compositor/color/curvemap';
 import { rasterizeMask } from '../mask/raster';
 import { parentResolver } from '../mask/parent';
+import { clipSource } from '../tracking/source';
+import { clipFrameToSourceIndex } from '../tracking/types';
+import { stabilizationMatrix } from '../tracking/stabilize';
 import { app } from '../app/app';
 import { hasRetiming, speedAt } from './retime';
 import { drawTextStrip } from './text';
@@ -43,6 +46,13 @@ export function compositor(): Compositor {
 
 let textCanvas: HTMLCanvasElement | null = null;
 let maskCanvas: HTMLCanvasElement | null = null;
+
+/** 3×3 column-major product a·b. */
+function mul3(a: number[], b: number[]): number[] {
+  const r = new Array(9).fill(0);
+  for (let c = 0; c < 3; c++) for (let rI = 0; rI < 3; rI++) for (let k = 0; k < 3; k++) r[c * 3 + rI] += a[k * 3 + rI] * b[c * 3 + k];
+  return r;
+}
 
 export class SequencerRender {
   constructor(
@@ -238,6 +248,36 @@ export class SequencerRender {
       case 'META': {
         const t = await this.renderList(s.strips ?? [], s.channels, frame);
         return this.finish(s, c.asSource(t, o.W, o.H), true, t);
+      }
+      case 'MOVIECLIP': {
+        const clip = s.clip ? app.doc.movieclips?.[s.clip] : undefined;
+        if (!clip) return null;
+        const srcP = clipSource(clip);
+        if (!srcP) return null;
+        const fs = await srcP;
+        this.check();
+        const clipFrame = contentFrame(s, frame) + 1;
+        const idx = clipFrameToSourceIndex(clip, clipFrame);
+        if (idx < 0) return null;
+        const bmp = await fs.get(idx);
+        this.check();
+        if (!bmp) return null;
+        const [w, h] = clip.size[0] ? clip.size : [bmp.width, bmp.height];
+        const src = c.upload(bmp, w, h);
+        let out: Target;
+        if (s.stabilize2d && clip.tracking.stabilization.use_2d_stabilization) {
+          // stabilize in the clip's pixel space, then place like any image
+          const T = stabilizationMatrix(clip, clipFrame);
+          const M = placementMatrix(o.W, o.H, w, h, s.transform, o.k);
+          const S3 = [T[0], T[1], 0, T[2], T[3], 0, T[4], T[5], 1];
+          const MS = mul3(M, S3);
+          out = c.acquire();
+          const cr = s.crop;
+          c.place(out, src, MS as typeof M, [cr.min_x, cr.min_y, w - cr.max_x, h - cr.max_y], s.use_flip_x, s.use_flip_y, false);
+          out = this.finish({ ...s, transform: { ...s.transform, offset_x: 0, offset_y: 0, scale_x: 1, scale_y: 1, rotation: 0 }, crop: { min_x: 0, max_x: 0, min_y: 0, max_y: 0 }, use_flip_x: false, use_flip_y: false }, c.asSource(out, o.W, o.H), true, out);
+        } else out = this.finish(s, src);
+        c.dropSource(src);
+        return out;
       }
       case 'MASK': {
         const m = s.mask ? app.doc.masks?.[s.mask] : undefined;
