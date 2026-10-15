@@ -222,6 +222,10 @@ export class ImageEditor implements Editor, View2D {
     return canvas;
   }
 
+  scopeKey() {
+    return this.sourceKey();
+  }
+
   /** Canvas with the pixels as displayed (for scopes). */
   displayCanvas(): HTMLCanvasElement | null {
     return this.source();
@@ -749,6 +753,24 @@ export class ImageEditor implements Editor, View2D {
       const row = (k: string, v: string) => splitRow(k, h('span', { class: 'ie-value' }, v));
       body.push(
         panel('ie-render', 'Image', () => [row('Source', this.sourceLabel() ?? 'Render Result'), row('Resolution', `${r.width} × ${r.height}`), row('Passes', this.passes().join(', '))]),
+        ...(this.imageId === RENDER_RESULT
+          ? [
+              panel('ie-slots', 'Render Slots', () => [
+                h(
+                  'div',
+                  { class: 'ie-slot-list' },
+                  Array.from({ length: RENDER_SLOTS }, (_, i) =>
+                    h(
+                      'button',
+                      { key: i, class: { 'ie-slot': true, on: renderResult.slot === i, empty: !renderResult.hasRender(i) }, onclick: () => (renderResult.setSlot(i), app.changed('ui')) },
+                      `Slot ${i + 1}`,
+                    ),
+                  ),
+                ),
+                h('div', { class: 'btn-col' }, button('ie-slot-clear', 'Clear Slot', () => app.run('image.clear_render_slot', {}, { area: this.host.area ?? null }))),
+              ]),
+            ]
+          : []),
         panel('ie-meta', 'Metadata', () => [row('Frame', String(i.frame)), row('Render Time', formatTime(i.time)), row('Engine', i.engine), i.samples ? row('Samples', `${i.samples}${i.maxSamples ? ' / ' + i.maxSamples : ''}`) : null, row('Camera', i.camera || '—'), row('Scene', i.scene)]),
       );
     } else if (img) {

@@ -7,6 +7,12 @@ const css = /* css */ `
 .ie-ui > .redo-panel { pointer-events: auto; bottom: 30px; }
 .scope-box { display: flex; flex-direction: column; gap: 4px; }
 .scope-svg { display: block; height: 110px; border-radius: 3px; }
+.scope-img { display: block; width: 100%; image-rendering: auto; border-radius: 3px; background: #1d1d1d; }
+.ie-slot-list { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; margin-bottom: 4px; }
+.ie-slot { height: 20px; border-radius: 3px; background: #3a3a3a; color: #ddd; font-size: 11px; }
+.ie-slot.empty { color: #888; }
+.ie-slot.on { background: var(--accent); color: #fff; }
+.scope-round { width: 160px; margin: 0 auto; border-radius: 50%; }
 .ie-meta { position: absolute; top: 0; left: 0; right: 0; padding: 3px 8px; background: rgba(24, 24, 24, 0.6); color: #e6e6e6; font-family: var(--mono); font-size: 11px; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ie-sample { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 3px 8px; background: rgba(24, 24, 24, 0.88); color: #e6e6e6; font-family: var(--mono); font-size: 11px; }
 .ie-sample .ie-cm { color: #9fb7da; }
