@@ -157,6 +157,7 @@ registerPrefSection({
       panel('pf-ed-new', 'New Objects', () => [
         pEnum('object_align', 'Align', [E('WORLD', 'World', 'New objects line up with the world axes'), E('VIEW', 'View', 'New objects face the view'), E('CURSOR', '3D Cursor', 'New objects take the rotation of the 3D cursor')]),
         pBool('use_enter_edit_mode', 'Enter Edit Mode', 'Switch to Edit Mode after adding an object that has one'),
+        pEnum('material_link', 'Link Materials To', [E('OBDATA', 'Object Data', 'New material slots belong to the mesh / curve and are shared by its users'), E('OBJECT', 'Object', 'New material slots belong to the object')]),
       ], { sub: true }),
       panel('pf-ed-dup', 'Copy on Duplicate', () => [
         note('Duplicate (Shift D) copies these data-blocks; the others stay shared with the original.'),

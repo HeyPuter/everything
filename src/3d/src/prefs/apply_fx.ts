@@ -2,7 +2,8 @@
 // defaults, keyframe defaults, audio, file handling) and extends the add-object operators
 // with the "New Objects" preferences.
 import { Color, SRGBColorSpace } from 'three';
-import { app, onAppReady, operators, type PropDef } from '../app/app';
+import { app, onAppReady, operators, type PropDef, type Operator } from '../app/app';
+import type { ObjectData } from '../data/types';
 import { prefs } from '../app/prefs';
 import { widgetSettings } from '../ui/widgets';
 import { keyframeDefaults } from '../anim/fcurve';
@@ -24,6 +25,12 @@ import { shell } from '../ui/shell';
 import { onPrefsApply } from './store';
 
 const srgb = (c: Color, v: number[]) => c.setRGB(v[0], v[1], v[2], SRGBColorSpace);
+
+/** Replace an operator's exec, keeping the previous one to delegate to. */
+function wrapExec(id: string, make: (prev: NonNullable<Operator['exec']>) => NonNullable<Operator['exec']>) {
+  const op = operators.get(id);
+  if (op?.exec) op.exec = make(op.exec);
+}
 
 const lastPushed = new Map<string, string>();
 /** Run `fn` when a preference value differs from the one pushed last time. */
@@ -118,6 +125,40 @@ onAppReady(() => {
     };
   }
   syncAddDefaults();
+
+  // Link Materials To: new slots (and the first material of an object) link to the object
+  const slotData = (ob: { data: string | null }) => {
+    const d = app.doc;
+    return ob.data ? ((d.meshes[ob.data] ?? d.curves[ob.data] ?? d.metaballs?.[ob.data]) as { materials: (string | null)[] } | undefined) : undefined;
+  };
+  const linkSlot = (ob: ObjectData, i: number) => {
+    const n = slotData(ob)?.materials.length ?? 0;
+    ob.material_slots_link = Array.from({ length: n }, (_, j) => ob.material_slots_link?.[j] ?? 'DATA');
+    ob.object_materials = Array.from({ length: n }, (_, j) => ob.object_materials?.[j] ?? null);
+    ob.material_slots_link[i] = 'OBJECT';
+  };
+  wrapExec('object.material_slot_add', (prev) => (ctx, p) => {
+    const r = prev(ctx, p);
+    const ob = app.activeObject;
+    if (ob && prefs.material_link === 'OBJECT' && (r === undefined || r === 'FINISHED')) linkSlot(ob, ob.active_material_index);
+    return r;
+  });
+  wrapExec('material.new', (prev) => (ctx, p) => {
+    const ob = app.activeObject;
+    const owner = ob ? slotData(ob) : undefined;
+    const hadSlots = owner?.materials.length ?? 0;
+    const before = owner ? [...owner.materials] : [];
+    const r = prev(ctx, p);
+    if (!ob || !owner || !(r === undefined || r === 'FINISHED')) return r;
+    const i = ob.active_material_index;
+    if (!hadSlots && prefs.material_link === 'OBJECT') linkSlot(ob, i);
+    if (ob.material_slots_link?.[i] === 'OBJECT') {
+      // the new material belongs to the object's own slot; the data keeps what it had
+      ob.object_materials![i] = owner.materials[i];
+      owner.materials[i] = before[i] ?? null;
+    }
+    return r;
+  });
 
   // Save Prompt: the browser asks before leaving with changes made since the last save or open
   let savedRevision = app.revision;

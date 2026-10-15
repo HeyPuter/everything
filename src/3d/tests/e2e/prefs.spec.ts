@@ -248,6 +248,18 @@ test('editing and animation preferences change what operators do', async ({ page
   });
   expect(anim).toEqual({ interp: 'LINEAR', frame: 0 });
 
+  // materials linked to the object
+  await setPref(page, 'material_link', 'OBJECT');
+  const mat = await page.evaluate(() => {
+    const a = (window as unknown as { app: { run(id: string, p?: object): string; activeObject: any; doc: any } }).app;
+    a.run('object.material_slot_add');
+    a.run('material.new');
+    const ob = a.activeObject;
+    const i = ob.active_material_index;
+    return { link: ob.material_slots_link[i], own: !!ob.object_materials[i], data: a.doc.meshes[ob.data].materials[i] };
+  });
+  expect(mat).toEqual({ link: 'OBJECT', own: true, data: null });
+
   // weight paint gradient
   await setPref(page, 'use_weight_color_range', true);
   const wc = await page.evaluate(async () => (await import('/src/paint/math.ts')).weightColor(1));

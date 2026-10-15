@@ -118,6 +118,8 @@ export interface Preferences {
 
   // --- Editing
   object_align: 'WORLD' | 'VIEW' | 'CURSOR';
+  /** new material slots link to the object data (shared) or to the object */
+  material_link: 'OBDATA' | 'OBJECT';
   use_enter_edit_mode: boolean;
   duplicate: Record<string, boolean>;
   annotation_color: [number, number, number];
@@ -266,6 +268,7 @@ export const defaultPreferences = (): Preferences => ({
   select_mouse: 'LEFT',
 
   object_align: 'WORLD',
+  material_link: 'OBDATA',
   use_enter_edit_mode: false,
   duplicate: { MESH: true, CURVE: true, FONT: true, LATTICE: true, META: true, ARMATURE: true, CAMERA: true, LIGHT: true, SPEAKER: true, GREASEPENCIL: true, POINTCLOUD: true, MATERIAL: false, ACTION: true },
   annotation_color: [0.12, 0.65, 0.95],
