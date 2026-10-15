@@ -109,11 +109,25 @@ function applyExpand(st: ExpandState, p: Record<string, unknown>) {
   const opts = { invert: !!p.invert, gradient: !!p.use_falloff_gradient, loops: p.loop_count as number };
   const thr = p.threshold as number;
   const hid = s.hiddenV;
+  // snapping: whole face sets join as soon as one of their vertices is reached
+  let snapIn: Uint8Array | null = null;
+  const fsets = faceSetsOf(me);
+  if (p.use_snap && fsets) {
+    const ids = new Set<number>();
+    for (let f = 0; f < s.nf; f++)
+      for (let c = s.offsets[f]; c < s.offsets[f + 1]; c++)
+        if (expandInside(field[s.indices[c]], thr, opts)) {
+          ids.add(fsets[f]);
+          break;
+        }
+    snapIn = new Uint8Array(s.nv);
+    for (let f = 0; f < s.nf; f++) if (ids.has(fsets[f])) for (let c = s.offsets[f]; c < s.offsets[f + 1]; c++) snapIn[s.indices[c]] = 1;
+  }
   if (p.target === 'MASK') {
     const mask = me.sculpt_mask!;
     for (let v = 0; v < s.nv; v++) {
       if (hid?.[v]) continue;
-      const val = expandValue(field[v], thr, opts);
+      const val = snapIn ? snapIn[v] : expandValue(field[v], thr, opts);
       const o = st.origMask ? st.origMask[v] : 0;
       mask[v] = p.use_mask_preserve ? Math.max(o, val) : val;
     }
@@ -127,7 +141,7 @@ function applyExpand(st: ExpandState, p: Record<string, unknown>) {
       if (hf?.[f]) continue;
       let all = true;
       for (let c = s.offsets[f]; c < s.offsets[f + 1]; c++)
-        if (!expandInside(field[s.indices[c]], thr, opts)) {
+        if (snapIn ? !snapIn[s.indices[c]] : !expandInside(field[s.indices[c]], thr, opts)) {
           all = false;
           break;
         }
@@ -173,12 +187,24 @@ function startExpand(ctx: OpContext, p: Record<string, unknown>): 'RUNNING_MODAL
     return !!st;
   };
   begin((ctx.event?.x ?? app.pointer.x) - r.left, (ctx.event?.y ?? app.pointer.y) - r.top);
+  let moving = false;
   const update = (e?: PointerEvent) => {
     if (e) {
       const q = v.local(e);
       if (!st) {
         begin(q.x, q.y);
         app.changed('ui');
+        return;
+      }
+      if (moving) {
+        // move the origin, keeping the distance
+        const u = vertexUnder(s, v, q.x, q.y);
+        if (u) {
+          p.origin = u.vert;
+          st = { ...st, field: expandField(s, me, p.falloff_type as ExpandFalloff, u.vert, p.active_face_set as number) };
+          applyExpand(st, p);
+          app.changed('ui');
+        }
         return;
       }
       const u = vertexUnder(s, v, q.x, q.y);
@@ -198,8 +224,18 @@ function startExpand(ctx: OpContext, p: Record<string, unknown>): 'RUNNING_MODAL
     onPointerMove: (e) => update(e),
     onPointerDown: (e) => (e.button === 2 ? 'CANCELLED' : e.button === 0 ? (st ? 'FINISHED' : 'CANCELLED') : undefined),
     onKey: (e) => {
-      if (e.type !== 'keydown') return true;
       const k = e.key.toLowerCase();
+      // hold Space to move the origin, hold Ctrl to snap to whole face sets
+      if (k === ' ' || e.code === 'Space') {
+        moving = e.type === 'keydown';
+        return true;
+      }
+      if (k === 'control' || k === 'meta') {
+        p.use_snap = e.type === 'keydown';
+        update();
+        return true;
+      }
+      if (e.type !== 'keydown') return true;
       if (k === 'escape') return 'CANCELLED';
       if (k === 'enter') return st ? 'FINISHED' : 'CANCELLED';
       if (k === 'f') p.invert = !p.invert;
@@ -223,7 +259,7 @@ function startExpand(ctx: OpContext, p: Record<string, unknown>): 'RUNNING_MODAL
       renderContext?.engine.requestDraw();
     },
     header: () =>
-      `Expand ${p.target === 'MASK' ? 'Mask' : 'Face Set'} (${FALLOFFS.find((f) => f[0] === p.falloff_type)?.[1]}): move to grow, click to apply · F invert${p.invert ? ' ✓' : ''} · E preserve${p.use_mask_preserve ? ' ✓' : ''} · G gradient${p.use_falloff_gradient ? ' ✓' : ''} · Q/W loops ${p.loop_count} · 1-4 falloff`,
+      `Expand ${p.target === 'MASK' ? 'Mask' : 'Face Set'} (${FALLOFFS.find((f) => f[0] === p.falloff_type)?.[1]}): move to grow, click to apply · F invert${p.invert ? ' ✓' : ''} · E preserve${p.use_mask_preserve ? ' ✓' : ''} · G gradient${p.use_falloff_gradient ? ' ✓' : ''} · Q/W loops ${p.loop_count} · 1-4 falloff · Space move · Ctrl snap`,
     redoOp: { idname: 'sculpt.expand', props: p },
   });
   void cow;
@@ -256,6 +292,7 @@ registerOperators([
       { id: 'origin', label: 'Origin', type: 'int', default: -1, hidden: true },
       { id: 'active_face_set', label: 'Active Face Set', type: 'int', default: 1, hidden: true },
       { id: 'use_auto_mask', label: 'Auto Create', type: 'bool', default: false, hidden: true },
+      { id: 'use_snap', label: 'Snap to Face Sets', type: 'bool', default: false },
     ],
     poll: sculptPoll,
     invoke: (ctx, p) => startExpand(ctx, p),
