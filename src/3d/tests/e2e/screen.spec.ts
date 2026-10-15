@@ -452,3 +452,21 @@ test('Ctrl Alt Q toggles the quad view', async ({ page }) => {
   expect(await areaCount(page)).toBe(n0);
   await expectNoErrors(errors);
 });
+
+test('Quick Favorites: add from a menu item, open with Q', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => localStorage.removeItem('p3d.quickfavorites.v1'));
+  await page.locator('.tb-menu', { hasText: 'Edit' }).dispatchEvent('pointerdown');
+  const item = page.locator('.menu .menu-item', { hasText: 'Menu Search' });
+  await item.click({ button: 'right' });
+  await page.locator('.menu .menu-item', { hasText: 'Add to Quick Favorites' }).click();
+  await expect(page.locator('.menu')).toHaveCount(0);
+  const v = await areaBox(page, 'VIEW_3D');
+  await page.mouse.move(v.x + 300, v.y + 300);
+  await page.keyboard.press('q');
+  await expect(page.locator('.menu .menu-item', { hasText: 'Menu Search' })).toBeVisible();
+  await page.locator('.menu .menu-item', { hasText: 'Menu Search' }).click();
+  await expect(page.locator('.search-popup')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expectNoErrors(errors);
+});

@@ -128,7 +128,14 @@ function renderMenu(m: OpenMenu) {
           const p = openPress;
           openPress = null;
           if (p && performance.now() - p.t < 500 && Math.hypot(e.clientX - p.x, e.clientY - p.y) < 5) return;
-          if (e.button === 0 || e.button === 2) activate(m, item, e);
+          // right button: only the release of the press that opened the menu picks; other
+          // right clicks open the item's own menu
+          if (e.button === 0 || (e.button === 2 && p)) activate(m, item, e);
+        },
+        oncontextmenu: (e: MouseEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!disabled && !item.submenu) openItemContext(m, item, e.clientX, e.clientY);
         },
       },
       h('span', { class: 'mi-icon' }, item.checked !== undefined ? icon(item.checked ? 'checkbox_hlt' : 'checkbox_dehlt') : item.active ? icon('dot') : item.icon ? icon(item.icon) : null),
@@ -138,6 +145,19 @@ function renderMenu(m: OpenMenu) {
     );
   });
   patch(m.el, vnodes);
+}
+
+function openItemContext(m: OpenMenu, item: MenuItem, x: number, y: number) {
+  const items = itemContextHooks.flatMap((f) => {
+    try {
+      return f(item);
+    } catch {
+      return [];
+    }
+  });
+  if (!items.length) return;
+  closeChild(m);
+  m.child = createMenu(items, x + 2, y - 4, m);
 }
 
 function closeChild(m: OpenMenu) {
@@ -181,6 +201,9 @@ function createMenu(items: MenuItem[], x: number, y: number, parent?: OpenMenu, 
   el.style.top = `${Math.max(4, top)}px`;
   return m;
 }
+
+/** Builders of the right-click menu of a menu item (e.g. Add to Quick Favorites). */
+export const itemContextHooks: ((item: MenuItem) => MenuItem[])[] = [];
 
 let capturing: MenuItem[][] | null = null;
 /** Where and when the last context menu was opened at the pointer. */
