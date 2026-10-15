@@ -12,6 +12,7 @@ import { C, drawKey, shapeFor } from './theme';
 import { aggregate } from './aggregate';
 import { setKeySelected, selectAll, selectColumns, keyBounds } from './keyedit';
 import { startKeyTransform, type KeyTransformHost, type KeyTransformMode } from './transformkeys';
+import { proportionalOf, proportionalHeader } from './proportional';
 import { playbackFooter } from './footer';
 import { lassoGesture } from './selecttools';
 import { actionSelector } from './actionui';
@@ -149,6 +150,7 @@ export class DopeSheet extends AnimEditor {
         'Snap\nSnap keyframes to whole frames while transforming (Ctrl toggles)',
         () => ((this.autoSnap = !this.autoSnap), app.changed('ui')),
       ),
+      proportionalHeader('use_proportional_action'),
     );
   }
 
@@ -332,6 +334,7 @@ export class DopeSheet extends AnimEditor {
       screen: (x) => this.toClient(this.view.fx(x), RULER_H),
       autoSnap: this.autoSnap,
       handlesVisible: () => true,
+      proportional: proportionalOf('use_proportional_action'),
     };
   }
 

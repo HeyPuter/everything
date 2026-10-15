@@ -848,6 +848,9 @@ export interface ToolSettings {
   use_keyframe_insert_auto: boolean;
   /** markers can't be selected, moved or deleted */
   lock_markers?: boolean;
+  /** proportional editing of keys in the Dope Sheet / Graph Editor */
+  use_proportional_action?: boolean;
+  use_proportional_fcurve?: boolean;
   keyframe_type: Keyframe['type'];
   use_uv_select_sync: boolean;
   uv_select_mode: 'VERTEX' | 'EDGE' | 'FACE' | 'ISLAND';

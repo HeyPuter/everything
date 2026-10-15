@@ -371,3 +371,24 @@ test('property menu: copy/paste driver, view curve in the Graph Editor; select k
   await page.keyboard.press('Escape');
   await expectNoErrors(errors);
 });
+
+test('proportional editing of keys: O toggles, G moves neighbours partly', async ({ page }) => {
+  const errors = await openApp(page);
+  const box = await setup(page, 'DOPESHEET', [0, 0, 0, 0, 0], [2]);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.press('O');
+  expect(await page.evaluate(() => (window as any).app.doc.scene.tool_settings.use_proportional_action)).toBe(true); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.evaluate(() => ((window as any).app.doc.scene.tool_settings.proportional_size = 8)); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.keyboard.press('G');
+  await page.keyboard.type('4');
+  await page.keyboard.press('Enter');
+  const frames = await page.evaluate(() => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    return app.doc.actions[app.activeObject.animation_data.action].fcurves[0].keyframe_points.map((k: { co: number[] }) => Math.round(k.co[0] * 100) / 100);
+  });
+  expect(frames[2]).toBe(15);
+  expect(frames[1]).toBeGreaterThan(6);
+  expect(frames[1]).toBeLessThan(10);
+  expect(frames[0]).toBe(1);
+  await expectNoErrors(errors);
+});

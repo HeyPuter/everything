@@ -558,3 +558,26 @@ describe('samples', () => {
     expect(fc.sampled_points).toBeUndefined();
   });
 });
+
+describe('proportional key editing', () => {
+  it('moves nearby unselected keys with a falloff', () => {
+    const fc = curve([0, 0, 0, 0, 0], [0, 10, 20, 30, 40]);
+    select(fc, [2]);
+    const host: KeyTransformHost = {
+      transformCurves: () => refs(fc),
+      graph: false,
+      ppf: () => 10,
+      ppv: () => 1,
+      toDisp: (_f, v) => v,
+      fromDisp: (_f, d) => d,
+      screen: (x) => ({ x: x * 10, y: 0 }),
+      autoSnap: false,
+      handlesVisible: () => true,
+      proportional: { size: 15, falloff: 'LINEAR' },
+    };
+    transformKeys(host, { mode: 'TIME_TRANSLATE', value: [3, 0], constraint: 'NONE' });
+    const f = fc.keyframe_points.map((k) => +k.co[0].toFixed(3));
+    // selected key moves fully, neighbours 10 frames away move by (1 - 10/15) and far keys stay
+    expect(f).toEqual([0, 11, 23, 31, 40]);
+  });
+});

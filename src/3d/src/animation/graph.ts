@@ -14,6 +14,7 @@ import { evaluateFCurve } from '../anim/fcurve';
 import { lassoGesture } from './selecttools';
 import { setKeySelected, selectAll, selectColumns, keyBounds, isAnySelected } from './keyedit';
 import { startKeyTransform, type KeyTransformHost, type KeyTransformMode } from './transformkeys';
+import { proportionalOf, proportionalHeader } from './proportional';
 import { viewMenuCommon, selectMenu, channelMenu, keyMenu } from './menus';
 import { drawFCurveSidebar, drawModifiersSidebar } from './graphsidebar';
 import { numberField, checkbox, button } from '../ui/widgets';
@@ -209,6 +210,7 @@ export class GraphEditor extends AnimEditor {
         'Snap\nSnap keyframes to whole frames while transforming (Ctrl toggles)',
         () => ((this.autoSnap = !this.autoSnap), app.changed('ui')),
       ),
+      proportionalHeader('use_proportional_fcurve'),
     );
   }
 
@@ -596,6 +598,7 @@ export class GraphEditor extends AnimEditor {
       handlesVisible: (k) => this.handlesShown(k),
       pivot: this.pivot,
       cursorValue: this.cursorValue,
+      proportional: proportionalOf('use_proportional_fcurve'),
     };
   }
 

@@ -29,6 +29,8 @@ export interface KeyTransformHost {
   handlesVisible(k: Keyframe): boolean;
   pivot?: 'BOUNDING_BOX_CENTER' | 'CURSOR' | 'INDIVIDUAL_ORIGINS';
   cursorValue?: number;
+  /** proportional editing: unselected keys within the radius (frames) follow with a falloff */
+  proportional?: { size: number; falloff: string };
 }
 
 interface Snap {
@@ -43,6 +45,10 @@ interface Snap {
   c: boolean;
   l: boolean;
   r: boolean;
+  /** proportional weight (1 for selected keys) */
+  w: number;
+  /** distance (frames) to the nearest selected key, for proportional editing */
+  dist: number;
 }
 
 export interface TransformValues {
@@ -57,6 +63,8 @@ export interface TransformValues {
 function collect(host: KeyTransformHost, mode: KeyTransformMode, side?: 'LEFT' | 'RIGHT'): Snap[] {
   const out: Snap[] = [];
   const cfra = app.doc.scene.frame_current;
+  const prop = host.proportional && mode !== 'TIME_EXTEND' && mode !== 'TIME_SLIDE' ? host.proportional : null;
+  const others: { k: Keyframe; fc: FCurve }[] = [];
   for (const { fc } of editable(host.transformCurves())) {
     for (const k of fc.keyframe_points) {
       let c = !!k.select_control_point;
@@ -67,22 +75,58 @@ function collect(host: KeyTransformHost, mode: KeyTransformMode, side?: 'LEFT' |
         const onSide = side === 'LEFT' ? k.co[0] <= cfra : k.co[0] >= cfra;
         if (!onSide) c = l = r = false;
       }
-      if (!c && !l && !r) continue;
-      out.push({
-        k,
-        fc,
-        co: [...k.co],
-        hl: [...k.handle_left],
-        hr: [...k.handle_right],
-        hlt: k.handle_left_type,
-        hrt: k.handle_right_type,
-        c,
-        l,
-        r,
-      });
+      if (!c && !l && !r) {
+        if (prop) others.push({ k, fc });
+        continue;
+      }
+      out.push(snapOf(k, fc, c, l, r, 1, 0));
     }
   }
+  if (prop && out.length) {
+    // proportional: distance to the nearest selected key (frames; in the Graph Editor the value
+    // axis is scaled to frames through the view's aspect)
+    const aspect = host.graph ? host.ppv() / Math.max(1e-6, host.ppf()) : 0;
+    const sel = out.filter((o) => o.c).map((o) => [o.co[0], host.toDisp(o.fc, o.co[1])] as const);
+    for (const { k, fc } of others) {
+      const y = host.toDisp(fc, k.co[1]);
+      let d = Infinity;
+      for (const [sx, sy] of sel) d = Math.min(d, Math.hypot(k.co[0] - sx, (y - sy) * aspect));
+      out.push(snapOf(k, fc, true, true, true, 0, d));
+    }
+    weighProportional(out, prop);
+  }
   return out;
+}
+
+function snapOf(k: Keyframe, fc: FCurve, c: boolean, l: boolean, r: boolean, w: number, dist: number): Snap {
+  return { k, fc, co: [...k.co], hl: [...k.handle_left], hr: [...k.handle_right], hlt: k.handle_left_type, hrt: k.handle_right_type, c, l, r, w, dist };
+}
+
+/** Falloff weight for a normalised distance (0 at the selection, 1 at the radius). */
+export function propFalloff(type: string, t: number): number {
+  const x = Math.max(0, Math.min(1, 1 - t));
+  switch (type) {
+    case 'SPHERE':
+      return Math.sqrt(1 - (1 - x) * (1 - x));
+    case 'ROOT':
+      return Math.sqrt(x);
+    case 'INVERSE_SQUARE':
+      return x * (2 - x);
+    case 'SHARP':
+      return x * x;
+    case 'LINEAR':
+      return x;
+    case 'CONSTANT':
+      return x > 0 ? 1 : 0;
+    case 'RANDOM':
+      return x * (0.5 + 0.5 * Math.random());
+    default:
+      return x * x * (3 - 2 * x);
+  }
+}
+
+function weighProportional(snaps: Snap[], prop: { size: number; falloff: string }) {
+  for (const s of snaps) if (s.dist > 0 || s.w < 1) s.w = s.dist < prop.size ? propFalloff(prop.falloff, s.dist / Math.max(1e-6, prop.size)) : 0;
 }
 
 function restore(s: Snap) {
@@ -102,6 +146,7 @@ function pivotOf(host: KeyTransformHost, snaps: Snap[], mode: KeyTransformMode):
     y0 = Infinity,
     y1 = -Infinity;
   for (const s of snaps) {
+    if (s.w < 1) continue;
     const pts: [number, number][] = [];
     if (s.c) pts.push(s.co);
     else {
@@ -124,7 +169,7 @@ function slideRange(snaps: Snap[]): [number, number] {
   let a = Infinity,
     b = -Infinity;
   for (const s of snaps)
-    if (s.c) {
+    if (s.c && s.w >= 1) {
       a = Math.min(a, s.co[0]);
       b = Math.max(b, s.co[0]);
     }
@@ -220,6 +265,13 @@ function apply(host: KeyTransformHost, snaps: Snap[], t: TransformValues, pivot:
         if (s.k.handle_left_type === 'AUTO' || s.k.handle_left_type === 'AUTO_CLAMPED') s.k.handle_left_type = 'ALIGNED';
         if (s.k.handle_left_type === 'ALIGNED' && s.k.handle_right_type === 'ALIGNED' && !s.l) alignHandle(s.k, 'left');
       }
+    }
+    if (s.w < 1) {
+      // proportional: partial move towards the mapped position
+      const mix = (a: [number, number], b: [number, number]): [number, number] => [a[0] + (b[0] - a[0]) * s.w, a[1] + (b[1] - a[1]) * s.w];
+      s.k.co = mix(s.co, s.k.co as [number, number]);
+      s.k.handle_left = mix(s.hl, s.k.handle_left as [number, number]);
+      s.k.handle_right = mix(s.hr, s.k.handle_right as [number, number]);
     }
     // keep handles on their side of the key
     if (s.k.handle_left[0] > s.k.co[0]) s.k.handle_left[0] = s.k.co[0];
@@ -365,12 +417,19 @@ export function startKeyTransform(
     opts.onUpdate?.();
   };
 
+  const resizeProportional = (k: number) => {
+    const prop = host.proportional!;
+    prop.size = Math.max(0.1, Math.min(10000, prop.size * k));
+    app.doc.scene.tool_settings.proportional_size = prop.size;
+    weighProportional(snaps, prop);
+    compute();
+  };
   const fmt = (v: number, d = 3) => (Math.abs(v) < 1e-9 ? '0' : v.toFixed(d));
   const handler: ModalHandler = {
     label: MODE_LABEL[mode],
     cursor: mode === 'TIME_TRANSLATE' || mode === 'TIME_EXTEND' ? 'ew-resize' : 'move',
     header: () => {
-      const n = numeric ? ` [${numeric}|]` : '';
+      const n = (numeric ? ` [${numeric}|]` : '') + (host.proportional ? `  Proportional size: ${host.proportional.size.toFixed(2)}` : '');
       const c = constraint !== 'NONE' ? ` along ${constraint}` : '';
       switch (mode) {
         case 'TIME_TRANSLATE':
@@ -424,9 +483,17 @@ export function startKeyTransform(
       if (opts.releaseConfirm && e.button === 0) return 'FINISHED';
       return undefined;
     },
+    onWheel(e: WheelEvent) {
+      if (!host.proportional) return;
+      resizeProportional(e.deltaY > 0 ? 1 / 1.1 : 1.1);
+    },
     onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') return 'CANCELLED';
       if (e.key === 'Enter' || e.key === ' ') return 'FINISHED';
+      if (host.proportional && e.type === 'keydown' && (e.key === 'PageUp' || e.key === 'PageDown')) {
+        resizeProportional(e.key === 'PageUp' ? 1.1 : 1 / 1.1);
+        return true;
+      }
       if (e.key === 'Control' || e.key === 'Meta') {
         snapToggle = e.type === 'keydown';
         compute();
