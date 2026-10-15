@@ -178,3 +178,24 @@ test('mask: point transforms can be adjusted afterwards', async ({ page }) => {
   expect(after[1] - before[1]).toBeCloseTo(0.05, 6);
   await expectNoErrors(errors);
 });
+
+test('mask: Shift right click places the 2D cursor; new shapes and the cursor pivot use it', async ({ page }) => {
+  const { errors } = await maskingWorkspace(page);
+  await page.keyboard.press('Alt+n');
+  await page.keyboard.press('Home');
+  const p = await at(page, 0.25, 0.75);
+  await page.mouse.move(p.x, p.y);
+  await page.keyboard.down('Shift');
+  await page.mouse.down({ button: 'right' });
+  await page.mouse.up({ button: 'right' });
+  await page.keyboard.up('Shift');
+  const cur = await page.evaluate(() => (window as any).app.hoverArea.editor.cursor);
+  expect(cur[0]).toBeCloseTo(0.25, 2);
+  expect(cur[1]).toBeCloseTo(0.75, 2);
+  await page.locator('.clip-header .hdr-menu', { hasText: /^Add$/ }).dispatchEvent('pointerdown');
+  await page.locator('.popup-layer .menu-item', { hasText: 'Square' }).click();
+  const pts = (await mask(page)).layers[0].splines[0].points.map((q: any) => q.co);
+  const cx = pts.reduce((a: number, q: number[]) => a + q[0], 0) / 4;
+  expect(cx).toBeCloseTo(0.25, 2);
+  await expectNoErrors(errors);
+});

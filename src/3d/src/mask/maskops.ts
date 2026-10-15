@@ -1,6 +1,7 @@
 // Mask operators (clip editor in mask mode) and the Mask Editing keymap.
 import { app, registerOperators, onAppReady, type Operator, type ModalHandler } from '../app/app';
 import { addKeys } from '../app/keymap';
+import { openPie } from '../ui/menu';
 import { uid } from '../data/defaults';
 import type { MaskData, MaskHandleType, MaskLayer, MaskPoint, MaskSpline } from './types';
 import { maskTable, newMask, newLayer, activeLayer } from './types';
@@ -14,8 +15,9 @@ import { pointInPolygon } from '../sequencer/selection';
 type V = [number, number];
 
 /** The hovered clip editor when it edits a mask. */
-export function maskEditor(): (MaskHost & { mode: string; view: string; area: { drawHeader(): void } }) | null {
-  const ed = currentClipEditor() as unknown as (MaskHost & { mode: string; view: string; area: { drawHeader(): void } }) | null;
+type MaskEditorLike = MaskHost & { mode: string; view: string; area: { drawHeader(): void }; cursor: [number, number]; pivot: 'MEDIAN_POINT' | 'BOUNDING_BOX_CENTER' | 'CURSOR' };
+export function maskEditor(): MaskEditorLike | null {
+  const ed = currentClipEditor() as unknown as MaskEditorLike | null;
   return ed && ed.mode === 'MASK' && ed.view === 'CLIP' ? ed : null;
 }
 const editing = () => !!maskEditor() && !!hostMask(maskEditor()!);
@@ -412,6 +414,7 @@ const ops: Operator[] = [
       { id: 'location', label: 'Location', type: 'vec2', default: [0.5, 0.5], precision: 3 },
     ],
     poll: () => editing() && !!activeLayer(curMask()),
+    invoke: (_c, p) => app.run('mask.primitive_circle_add', { ...p, location: [...maskEditor()!.cursor] }, { invoke: false }),
     exec: (_c, p) => addPrimitive((x, y, r, a) => circleSpline(x, y, r, a), p),
   },
   {
@@ -423,6 +426,7 @@ const ops: Operator[] = [
       { id: 'location', label: 'Location', type: 'vec2', default: [0.5, 0.5], precision: 3 },
     ],
     poll: () => editing() && !!activeLayer(curMask()),
+    invoke: (_c, p) => app.run('mask.primitive_square_add', { ...p, location: [...maskEditor()!.cursor] }, { invoke: false }),
     exec: (_c, p) => addPrimitive((x, y, r, a) => squareSpline(x, y, r, a), p),
   },
   // ------------------------------------------------------------------ parenting
@@ -528,7 +532,8 @@ const ops: Operator[] = [
       const v = (p.value as number[]) ?? [0, 0, 0];
       const mode = p.mode as Mode;
       const value = mode === 'RESIZE' ? [v[0] || 1, v[1] || v[0] || 1] : mode === 'FEATHER' ? [v[0] || 1] : mode === 'ROTATE' ? [v[0]] : [v[0], v[1]];
-      transformPoints(snapPoints(pts), mode, value, aspectOf(ed));
+      const snaps = snapPoints(pts);
+      transformPoints(snaps, mode, value, aspectOf(ed), pivotOf(ed, snaps));
       done(ed);
     },
   },
@@ -675,6 +680,19 @@ function startCircle(mode: 'SET' | 'ADD' | 'SUB') {
 
 type Mode = 'TRANSLATE' | 'ROTATE' | 'RESIZE' | 'FEATHER';
 
+const medianOf = (orig: PointSnap[]): V => [orig.reduce((a, o) => a + o.co[0], 0) / orig.length, orig.reduce((a, o) => a + o.co[1], 0) / orig.length];
+
+/** Pivot of point rotation / scaling from the editor's setting. */
+function pivotOf(ed: MaskEditorLike, orig: PointSnap[]): V {
+  if (ed.pivot === 'CURSOR') return [...ed.cursor];
+  if (ed.pivot === 'BOUNDING_BOX_CENTER') {
+    const xs = orig.map((o) => o.co[0]),
+      ys = orig.map((o) => o.co[1]);
+    return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+  }
+  return medianOf(orig);
+}
+
 interface PointSnap {
   p: MaskPoint;
   co: V;
@@ -689,9 +707,8 @@ const snapPoints = (pts: MaskPoint[]): PointSnap[] => pts.map((p) => ({ p, co: [
  * Transform snapshots of points around their median (aspect-correct): TRANSLATE value = [dx, dy]
  * (frame units), ROTATE value[0] = radians, RESIZE value = [sx, sy], FEATHER value[0] = factor.
  */
-export function transformPoints(orig: PointSnap[], mode: Mode, value: number[], aspect: number) {
-  const cx = orig.reduce((a, o) => a + o.co[0], 0) / orig.length,
-    cy = orig.reduce((a, o) => a + o.co[1], 0) / orig.length;
+export function transformPoints(orig: PointSnap[], mode: Mode, value: number[], aspect: number, pivot?: V) {
+  const [cx, cy] = pivot ?? medianOf(orig);
   const tf = (v: V, f: (x: number, y: number) => V): V => {
     const [x, y] = f((v[0] - cx) * aspect, v[1] - cy);
     return [cx + x / aspect, cy + y];
@@ -737,8 +754,7 @@ export function startTransform(mode: Mode): boolean {
   if (!pts.length) return false;
   const aspect = aspectOf(ed);
   const orig = snapPoints(pts);
-  const cx = orig.reduce((a, o) => a + o.co[0], 0) / orig.length,
-    cy = orig.reduce((a, o) => a + o.co[1], 0) / orig.length;
+  const [cx, cy] = pivotOf(ed, orig);
   const sp0 = ed.local({ clientX: app.pointer.x, clientY: app.pointer.y });
   const start = s2m(ed, sp0.x, sp0.y);
   const st = { text: '', axis: null as 'X' | 'Y' | null, value: [0, 0] as number[] };
@@ -760,7 +776,7 @@ export function startTransform(mode: Mode): boolean {
       v = mode === 'FEATHER' ? [k] : [st.axis === 'Y' ? 1 : k, st.axis === 'X' ? 1 : k];
     }
     st.value = v;
-    transformPoints(orig, mode, v, aspect);
+    transformPoints(orig, mode, v, aspect, [cx, cy]);
     updateHandles(m, aspect);
     app.changed('doc');
     ed.draw();
@@ -878,3 +894,12 @@ onAppReady((a) =>
 );
 
 export type { MaskPoint };
+
+/** Period: pivot point pie of the mask editor. */
+export function maskPivotPie() {
+  const ed = maskEditor();
+  if (!ed) return;
+  const item = (v: MaskEditorLike['pivot'], label: string, icon: string) => ({ label, icon, active: ed.pivot === v, action: () => ((ed.pivot = v), app.changed('ui')) });
+  openPie('Pivot Point', [item('BOUNDING_BOX_CENTER', 'Bounding Box Center', 'pivot_boundbox'), item('CURSOR', '2D Cursor', 'pivot_cursor'), item('MEDIAN_POINT', 'Median Point', 'pivot_median'), null, null, null, null, null], app.pointer.x, app.pointer.y, 'Period');
+}
+addKeys('Mask Editing', [{ key: 'PERIOD', action: maskPivotPie }]);

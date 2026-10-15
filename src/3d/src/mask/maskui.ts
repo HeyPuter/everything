@@ -9,6 +9,7 @@ import { num, bool, enumProp, splitRow } from '../ui/props';
 import type { MaskLayer } from './types';
 import { maskTable, activeLayer } from './types';
 import { hostMask, selectedPoints } from './clipmask';
+import { maskEditor } from './maskops';
 
 interface Host {
   maskId: string | null;
@@ -79,6 +80,20 @@ export function maskMenu(): MenuItem[] {
         { label: 'Scale', op: 'mask.transform', props: { mode: 'RESIZE' }, shortcut: 'S' },
         { label: 'Scale Feather', op: 'mask.transform', props: { mode: 'FEATHER' }, shortcut: 'Alt S' },
       ],
+    },
+    {
+      label: 'Pivot Point',
+      submenu: () => {
+        const ed = maskEditor();
+        return (
+          [
+            ['BOUNDING_BOX_CENTER', 'Bounding Box Center', 'pivot_boundbox'],
+            ['CURSOR', '2D Cursor', 'pivot_cursor'],
+            ['MEDIAN_POINT', 'Median Point', 'pivot_median'],
+          ] as const
+        ).map(([v, label, icon]) => ({ label, icon, active: ed?.pivot === v, action: () => ed && ((ed.pivot = v), app.changed('ui')) }));
+      },
+      shortcut: '.',
     },
     {
       label: 'Animation',

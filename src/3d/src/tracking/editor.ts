@@ -101,6 +101,11 @@ export class ClipEditor implements Editor {
   mode: 'TRACKING' | 'MASK' = 'TRACKING';
   /** mask edited in mask mode */
   maskId: string | null = null;
+  /** 2D cursor (frame space 0..1, y up): new mask shapes and the cursor pivot use it */
+  cursor: [number, number] = [0.5, 0.5];
+  private cursorPlaced = false;
+  /** pivot of mask point rotation / scaling */
+  pivot: 'MEDIAN_POINT' | 'BOUNDING_BOX_CENTER' | 'CURSOR' = 'MEDIAN_POINT';
   /** circle / lasso / box outline while selecting mask points */
   shapeOverlay: MaskHost['shapeOverlay'] = null;
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
@@ -139,6 +144,9 @@ export class ClipEditor implements Editor {
     if (st.lock) this.lockSelection = st.lock;
     if (st.mode === 'MASK') this.mode = 'MASK';
     if (st.mask !== undefined) this.maskId = st.mask;
+    const ext = state as { cursor?: [number, number]; pivot?: 'MEDIAN_POINT' } | undefined;
+    if (ext?.cursor) this.cursor = ext.cursor;
+    if (ext?.pivot) this.pivot = ext.pivot;
     if (!this.clipId) this.clipId = app.doc.scene.active_clip ?? Object.keys(clipTable(app.doc))[0] ?? null;
     this.bind();
     this.ro = new ResizeObserver(() => this.draw());
@@ -394,6 +402,7 @@ export class ClipEditor implements Editor {
     if (this.mode === 'MASK') {
       drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE');
       drawMask(this, ctx, this.overlays.show_mask_spline !== false);
+      this.drawCursor(ctx);
     } else {
       this.drawMarkers(ctx, T);
       drawSelectShape(ctx, this.shapeOverlay);
@@ -420,6 +429,36 @@ export class ClipEditor implements Editor {
     ctx.shadowBlur = 0;
   }
 
+  /** The 2D cursor (Shift right click places it). */
+  private drawCursor(ctx: CanvasRenderingContext2D) {
+    const [W, H] = this.frameSize();
+    const [x, y] = this.toScreen(this.cursor[0] * W, (1 - this.cursor[1]) * H);
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(x, y, 8, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineDashOffset = 3;
+    ctx.strokeStyle = '#e04040';
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    ctx.beginPath();
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]) {
+      ctx.moveTo(x + dx * 11, y + dy * 11);
+      ctx.lineTo(x + dx * 16, y + dy * 16);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
   /** Mask mode without footage: an empty frame of the render size with the mask. */
   private drawMaskFrame(ctx: CanvasRenderingContext2D, w: number, hh: number) {
     if (!this.fitted) this.frameAll();
@@ -432,6 +471,7 @@ export class ClipEditor implements Editor {
     ctx.strokeRect(a[0] + 0.5, a[1] + 0.5, b[0] - a[0], b[1] - a[1]);
     drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE');
     drawMask(this, ctx, this.overlays.show_mask_spline !== false);
+    this.drawCursor(ctx);
     ctx.font = '11px var(--mono, monospace)';
     ctx.fillStyle = '#9a9a9a';
     ctx.textAlign = 'left';
@@ -686,6 +726,11 @@ export class ClipEditor implements Editor {
       e.preventDefault();
       // Ctrl+click is "add marker" (macOS reports it as a context click too)
       if (e.ctrlKey && e.button === 0) return;
+      // Shift right click placed the 2D cursor (on press)
+      if (this.cursorPlaced) {
+        this.cursorPlaced = false;
+        return;
+      }
       if (this.view === 'CLIP') openMenu(contextMenu(), { x: e.clientX, y: e.clientY }, { title: 'Context Menu' });
     });
   }
@@ -739,6 +784,16 @@ export class ClipEditor implements Editor {
       };
       el.addEventListener('pointermove', move);
       el.addEventListener('pointerup', up);
+      return;
+    }
+    if (e.button === 2 && e.shiftKey && this.view === 'CLIP') {
+      // Shift right click places the 2D cursor
+      const [W, H] = this.frameSize();
+      const [ix, iy] = this.toImage(start.x, start.y);
+      this.cursor = [ix / W, 1 - iy / H];
+      this.cursorPlaced = true;
+      this.draw();
+      app.changed('ui');
       return;
     }
     if (e.button !== 0) return;
@@ -1162,7 +1217,7 @@ export class ClipEditor implements Editor {
   }
 
   serialize() {
-    return { clip: this.clipId, view: this.view, zoom: this.zoom, off: [this.offX, this.offY], toolbar: this.showToolbar, sidebar: this.showSidebar, sidebarTab: this.sidebarTab, overlays: this.overlays, lock: this.lockSelection, mode: this.mode, mask: this.maskId };
+    return { clip: this.clipId, view: this.view, zoom: this.zoom, off: [this.offX, this.offY], toolbar: this.showToolbar, sidebar: this.showSidebar, sidebarTab: this.sidebarTab, overlays: this.overlays, lock: this.lockSelection, mode: this.mode, mask: this.maskId, cursor: this.cursor, pivot: this.pivot };
   }
 
   dispose() {
