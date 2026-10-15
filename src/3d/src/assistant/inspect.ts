@@ -315,7 +315,7 @@ export class Inspector {
   }
 }
 
-const tableOf = (type: string) => ({ MESH: 'meshes', CURVE: 'curves', SURFACE: 'curves', FONT: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices', GREASEPENCIL: 'grease_pencils', EMPTY: 'images' })[type] ?? 'meshes';
+const tableOf = (type: string) => ({ MESH: 'meshes', CURVE: 'curves', SURFACE: 'curves', FONT: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices', GREASEPENCIL: 'grease_pencils', META: 'metaballs', EMPTY: 'images' })[type] ?? 'meshes';
 
 function value(v: unknown, d: DocumentData): string {
   if (typeof v === 'number') return n(v);

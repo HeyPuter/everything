@@ -27,7 +27,7 @@ import { placeCursor, cursorToolSettings } from '../../ops/view3d';
 
 export class View3D implements Editor, ViewportRenderer, DrawView {
   el: HTMLElement;
-  keymaps = ['3D View', 'Object Mode', 'Mesh', 'Armature', 'Pose', 'Sculpt', 'Vertex Paint', 'Weight Paint', 'Image Paint', 'Frames', 'Object Non-modal', 'Window', 'Screen'];
+  keymaps = ['3D View', 'Object Mode', 'Mesh', 'Curve', 'Armature', 'Font', 'Lattice', 'Metaball', 'Pose', 'Sculpt', 'Vertex Paint', 'Weight Paint', 'Image Paint', 'Frames', 'Object Non-modal', 'Window', 'Screen'];
   nav = new NavCamera();
   shading: Shading = defaultShading();
   overlay: Overlay = defaultOverlay();

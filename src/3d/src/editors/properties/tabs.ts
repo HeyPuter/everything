@@ -635,13 +635,7 @@ function curveData(o: ObjectData, cu: CurveData): Child {
   return [
     dataBlockSelector('cu', 'curve_data', Object.values(app.doc.curves), cu.id, (id) => id && ((o.data = id), changed('Assign Curve')), () => {}, { noUnlink: true }),
     isText
-      ? panel('cu-text', 'Text', () => [
-          splitRow('Body', h('textarea', { class: 'text-body', value: cu.body ?? '', onchange: (e: Event) => ((cu.body = (e.target as HTMLTextAreaElement).value), changed('Edit Text')), onkeydown: (e: KeyboardEvent) => e.stopPropagation() })),
-          num(cu as never, 'size' as never, 'Size', { unit: 'distance', min: 0.0001 }),
-          enumProp(cu as never, 'align_x' as never, 'Alignment Horizontal', [['LEFT', 'Left'], ['CENTER', 'Center'], ['RIGHT', 'Right'], ['JUSTIFY', 'Justify']]),
-          num(cu as never, 'space_character' as never, 'Character Spacing', { min: 0, max: 10 }),
-          num(cu as never, 'space_line' as never, 'Line Spacing', { min: 0, max: 10 }),
-        ])
+      ? fontDataPanels.map((f) => f(o, cu))
       : panel('cu-shape', 'Shape', () => [enumRow('cu-dims', [{ value: '2D', label: '2D' }, { value: '3D', label: '3D' }], cu.dimensions, (v) => ((cu.dimensions = v as '2D'), changed('Dimensions'))), num(cu, 'resolution_u', 'Resolution Preview U', { int: true, min: 1, max: 1024 }), cu.dimensions === '2D' ? enumProp(cu, 'fill_mode', 'Fill Mode', [['NONE', 'None'], ['BACK', 'Back'], ['FRONT', 'Front'], ['BOTH', 'Both']]) : null]),
     panel('cu-geometry', 'Geometry', () => [
       num(cu, 'offset', 'Offset', { min: -10, max: 10 }),
@@ -650,12 +644,26 @@ function curveData(o: ObjectData, cu: CurveData): Child {
       num(cu, 'bevel_depth', 'Depth', { unit: 'distance', min: 0 }),
       num(cu, 'bevel_resolution', 'Resolution', { int: true, min: 0, max: 32 }),
       bool(cu, 'use_fill_caps', 'Fill Caps'),
+      ...curveGeometryRows.map((f) => f(o, cu)),
     ]),
+    ...curveDataPanels.map((f) => f(o, cu)),
   ];
 }
 
 /** Object Data tab contents for object types defined by feature modules (e.g. speakers). */
 export const dataTabDrawers: Record<string, (o: ObjectData) => Child> = {};
+
+/** Extra panels at the end of the curve / text Object Data tab (e.g. Active Spline). */
+export const curveDataPanels: ((ob: ObjectData, cu: CurveData) => Child)[] = [];
+
+/** Extra rows at the end of the curve Geometry panel (bevel / taper objects). */
+export const curveGeometryRows: ((ob: ObjectData, cu: CurveData) => Child)[] = [];
+
+/** Panels of the text (FONT) Object Data tab, before Geometry. */
+export const fontDataPanels: ((ob: ObjectData, cu: CurveData) => Child)[] = [];
+
+/** Extra panels of the armature Object Data tab, after Skeleton (e.g. Bone Collections). */
+export const armatureDataPanels: ((ob: ObjectData, arm: import('../../data/types').ArmatureData) => Child)[] = [];
 
 registerTab({
   id: 'DATA',
@@ -680,6 +688,7 @@ registerTab({
       return [
         dataBlockSelector('ar', 'armature_data', Object.values(doc.armatures), arm.id, (id) => id && ((o.data = id), changed('Assign Armature')), () => {}, { noUnlink: true }),
         panel('ar-skeleton', 'Skeleton', () => [enumRow('ar-pose', [{ value: 'POSE', label: 'Pose Position' }, { value: 'REST', label: 'Rest Position' }], arm.pose_position, (v) => ((arm.pose_position = v as 'POSE'), changed('Pose Position')))]),
+        ...armatureDataPanels.map((f) => f(o, arm)),
         panel('ar-display', 'Viewport Display', () => [enumProp(arm, 'display_type', 'Display As', [['OCTAHEDRAL', 'Octahedral'], ['STICK', 'Stick'], ['BBONE', 'B-Bone'], ['ENVELOPE', 'Envelope'], ['WIRE', 'Wire']]), bool(arm, 'show_names', 'Names'), bool(arm, 'show_axes', 'Axes'), bool(arm as never, 'show_in_front' as never, 'In Front')]),
         panel('ar-bones', 'Bones', () => arm.bones.map((b) => h('div', { key: b.name, class: { 'chip-row': true, on: arm.active_bone === b.name }, onclick: () => ((arm.active_bone = b.name), app.changed('doc')) }, icon('bone_data'), b.name))),
       ];
@@ -705,7 +714,7 @@ export function activeMaterial(o: ObjectData | null): MaterialData | null {
 function slotOwner(o: ObjectData): { materials: (string | null)[] } | null {
   const doc = app.doc;
   if (!o.data) return null;
-  return (doc.meshes[o.data] ?? doc.curves[o.data]) ?? null;
+  return (doc.meshes[o.data] ?? doc.curves[o.data] ?? doc.metaballs?.[o.data]) ?? null;
 }
 
 registerTab({

@@ -164,7 +164,7 @@ export class Shell {
     if (switchMode && ws.mode !== undefined) {
       const ob = app.activeObject;
       const target = ws.mode;
-      const valid = ob && (target === 'OBJECT' || (ob.type === 'MESH' && target !== 'PAINT_GREASE_PENCIL') || (target === 'PAINT_GREASE_PENCIL' && ob.type === 'GREASEPENCIL') || (target === 'EDIT' && ['CURVE', 'FONT', 'ARMATURE', 'LATTICE'].includes(ob.type)) || (target === 'POSE' && ob.type === 'ARMATURE'));
+      const valid = ob && (target === 'OBJECT' || (ob.type === 'MESH' && target !== 'PAINT_GREASE_PENCIL') || (target === 'PAINT_GREASE_PENCIL' && ob.type === 'GREASEPENCIL') || (target === 'EDIT' && ['CURVE', 'FONT', 'ARMATURE', 'LATTICE', 'META'].includes(ob.type)) || (target === 'POSE' && ob.type === 'ARMATURE'));
       if (valid && app.doc.mode !== target && setMode(app.doc, target)) app.changed('mode');
     } else if (switchMode && !ws.mode && app.doc.mode !== 'OBJECT') {
       if (setMode(app.doc, 'OBJECT')) app.changed('mode');

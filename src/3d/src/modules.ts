@@ -9,6 +9,7 @@ import './physics/index';
 import './scripting/index';
 import './modes/index';
 import './greasepencil/index';
+import './metaball/index';
 import './compositor/index';
 import './geonodes/index';
 import './spreadsheet/index';

@@ -357,6 +357,7 @@ export function selectByTypeMenu(): MenuItem[] {
   return [
     ['MESH', 'Mesh', 'outliner_ob_mesh'],
     ['CURVE', 'Curve', 'outliner_ob_curve'],
+    ['META', 'Metaball', 'outliner_ob_meta'],
     ['FONT', 'Text', 'outliner_ob_font'],
     ['ARMATURE', 'Armature', 'outliner_ob_armature'],
     ['LATTICE', 'Lattice', 'outliner_ob_lattice'],

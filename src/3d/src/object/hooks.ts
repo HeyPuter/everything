@@ -182,48 +182,6 @@ registerOperators([
   },
 ]);
 
-registerOperators([
-  {
-    idname: 'object.vertex_parent_set',
-    label: 'Make Vertex Parent',
-    description: 'Parent the other selected objects to the selected vertex (or triangle of three vertices)',
-    poll: (ctx) => editMesh(ctx) && app.selectedObjects().some((o) => o !== app.activeObject),
-    exec: () => {
-      const { ob, me } = editTarget()!;
-      const idx = selectedIndices(me);
-      if (idx.length !== 1 && idx.length !== 3) {
-        app.report('ERROR', 'Select either 1 or 3 vertices to parent to');
-        return 'CANCELLED';
-      }
-      const world = worldOf(ob.id);
-      const local = vertexParentMatrix(me.positions, idx);
-      if (!local) return 'CANCELLED';
-      const pm = world.clone().multiply(local);
-      let n = 0;
-      for (const child of app.selectedObjects()) {
-        if (child === ob) continue;
-        // no loops: the edited object must not descend from the child
-        let q: string | null = ob.id,
-          loop = false;
-        while (q) {
-          if (q === child.id) loop = true;
-          q = app.doc.objects[q]?.parent ?? null;
-        }
-        if (loop) continue;
-        const w = worldOf(child.id);
-        child.parent = ob.id;
-        child.parent_type = idx.length === 3 ? 'VERTEX_3' : 'VERTEX';
-        child.parent_vertices = idx.length === 3 ? [idx[0], idx[1], idx[2]] : [idx[0], 0, 0];
-        child.parent_bone = '';
-        // keep the child where it is
-        child.matrix_parent_inverse = pm.clone().invert().multiply(w).multiply(localMatrix(child).invert()).toArray();
-        n++;
-      }
-      if (!n) return 'CANCELLED';
-    },
-  },
-]);
-
 /** Pick one hook of the active object, then run `op` on it. */
 function perHook(label: string, op: string): MenuItem {
   return {

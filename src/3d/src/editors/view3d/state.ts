@@ -61,6 +61,10 @@ export interface Overlay {
   show_extra_edge_length: boolean;
   show_extra_face_area: boolean;
   show_extra_indices: boolean;
+  /** curve edit mode: which Bézier handles are drawn */
+  display_handle?: 'ALL' | 'SELECTED' | 'NONE';
+  /** curve edit mode: normals (tilt) along the curve */
+  show_curve_normals?: boolean;
   // sculpt / paint
   sculpt_mode_mask_opacity: number;
   show_paint_wire: boolean;

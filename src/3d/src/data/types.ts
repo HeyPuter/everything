@@ -23,7 +23,8 @@ export type ObjectType =
   | 'LATTICE'
   | 'POINTCLOUD'
   | 'GREASEPENCIL'
-  | 'SPEAKER';
+  | 'SPEAKER'
+  | 'META';
 
 export type RotationMode = 'XYZ' | 'XZY' | 'YXZ' | 'YZX' | 'ZXY' | 'ZYX' | 'QUATERNION' | 'AXIS_ANGLE';
 
@@ -150,6 +151,8 @@ export interface BezierPoint {
   select_control_point?: boolean;
   select_left_handle?: boolean;
   select_right_handle?: boolean;
+  /** hidden in Edit Mode (not drawn, not selectable) */
+  hide?: boolean;
 }
 
 export interface SplinePoint {
@@ -157,6 +160,7 @@ export interface SplinePoint {
   radius: number;
   tilt: number;
   select?: boolean;
+  hide?: boolean;
 }
 
 export interface Spline {
@@ -182,19 +186,67 @@ export interface CurveData {
   extrude: number;
   offset: number;
   fill_mode: 'FULL' | 'BACK' | 'FRONT' | 'HALF' | 'NONE' | 'BOTH';
+  /** ROUND: tube of bevel_depth; OBJECT: cross-section from bevel_object */
+  bevel_mode?: 'ROUND' | 'OBJECT';
   bevel_object?: ID | null;
+  /** curve object whose height along its X extent scales the radius */
   taper_object?: ID | null;
   use_fill_caps: boolean;
   materials: (ID | null)[];
   // Text (FONT objects share curve data)
   body?: string;
   size?: number;
-  align_x?: 'LEFT' | 'CENTER' | 'RIGHT' | 'JUSTIFY';
-  align_y?: 'TOP' | 'CENTER' | 'BOTTOM';
+  align_x?: 'LEFT' | 'CENTER' | 'RIGHT' | 'JUSTIFY' | 'FLUSH';
+  align_y?: 'TOP_BASELINE' | 'TOP' | 'CENTER' | 'BOTTOM' | 'BOTTOM_BASELINE';
   space_line?: number;
   space_character?: number;
+  space_word?: number;
   font_family?: string;
   users?: number;
+  /** per-character styles, parallel to `body` (UTF-16 code units) */
+  body_format?: CharFormat[];
+  underline_position?: number;
+  underline_height?: number;
+  small_caps_scale?: number;
+  shear?: number;
+  offset_x?: number;
+  offset_y?: number;
+  /** text frames; a box with width 0 does not wrap */
+  text_boxes?: TextBox[];
+  overflow?: 'NONE' | 'SCALE' | 'TRUNCATE';
+  /** custom font data-blocks per style (null / missing: built-in font) */
+  font?: ID | null;
+  font_bold?: ID | null;
+  font_italic?: ID | null;
+  font_bold_italic?: ID | null;
+  /** text: curve object the text is bent along */
+  follow_curve?: ID | null;
+}
+
+/** A loaded font file (TrueType / OpenType / WOFF), packed into the document. */
+export interface VectorFontData {
+  id: ID;
+  name: string;
+  filepath: string;
+  bytes: Uint8Array | null;
+  users?: number;
+}
+
+export interface CharFormat {
+  use_bold?: boolean;
+  use_italic?: boolean;
+  use_underline?: boolean;
+  use_small_caps?: boolean;
+  kerning?: number;
+  /** material slot of the character */
+  material_index?: number;
+}
+
+export interface TextBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -271,6 +323,20 @@ export interface Bone {
   select_head?: boolean;
   select_tail?: boolean;
   layer_collections?: string[];
+  /** names of the bone collections this bone is assigned to */
+  collections?: string[];
+  /** draw as wireframe only */
+  show_wire?: boolean;
+  /** B-Bone display size (default: a tenth of the bone length) */
+  bbone_x?: number;
+  bbone_z?: number;
+}
+
+/** Named group of bones (visibility, selection, organisation). */
+export interface BoneCollection {
+  name: string;
+  is_visible: boolean;
+  is_solo?: boolean;
 }
 
 export interface ArmatureData {
@@ -284,6 +350,10 @@ export interface ArmatureData {
   show_in_front?: boolean;
   active_bone?: string | null;
   users?: number;
+  collections?: BoneCollection[];
+  active_collection_index?: number;
+  /** Edit Mode X-Axis Mirror: joints of `.L`/`.R` counterparts move together */
+  use_mirror_x?: boolean;
 }
 
 export interface PoseBone {
@@ -703,9 +773,9 @@ export interface ObjectData {
   data: ID | null;
   parent: ID | null;
   parent_type: 'OBJECT' | 'BONE' | 'VERTEX' | 'VERTEX_3';
-  /** vertex indices of a VERTEX (first) / VERTEX_3 (all three) parent */
-  parent_vertices?: [number, number, number];
   parent_bone: string;
+  /** VERTEX / VERTEX_3 parenting: element indices of the parent (vertices, curve points, lattice points) */
+  parent_vertices?: number[];
   /** inverse of the parent's world matrix at parenting time */
   matrix_parent_inverse: Mat4;
   location: Vec3;
@@ -990,8 +1060,12 @@ export interface DocumentData {
   particles: Record<ID, ParticleSettings>;
   texts: Record<ID, TextData>;
   brushes: Record<ID, BrushData>;
+  /** Font data-blocks used by text objects; absent in older files */
+  fonts?: Record<ID, VectorFontData>;
   /** Grease Pencil data-blocks (src/greasepencil); absent in older files */
   grease_pencils?: Record<ID, import('../greasepencil/types').GreasePencilData>;
+  /** Metaball data-blocks (src/metaball); absent in older files */
+  metaballs?: Record<ID, import('../metaball/types').MetaballData>;
   /** Mode of the active object */
   mode: Mode;
   /** Ordering of object ids for stable iteration */

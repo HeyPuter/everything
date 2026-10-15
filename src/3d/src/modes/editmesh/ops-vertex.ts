@@ -1,7 +1,7 @@
 // Vertex tools: Laplacian smoothing, blend from / propagate to shape keys, snap to symmetry,
 // sort elements, randomize.
 import { Vector3 } from 'three';
-import { app, registerOperators, type PropDef } from '../../app/app';
+import { app, registerOperators, registerOperator, operators, onAppReady, type PropDef } from '../../app/app';
 import { activeView3D } from '../../editors/view3d/view3d';
 import { MeshEdit, edgeKey } from './meshedit';
 import { withEdit, worldMatrix, editMeshObjects as editMeshObjectsList } from './context';
@@ -366,19 +366,6 @@ registerOperators([
       });
     },
   },
-  {
-    idname: 'transform.vertex_random',
-    label: 'Randomize',
-    description: 'Move the selected vertices by random amounts',
-    props: [
-      { id: 'offset', label: 'Amount', type: 'float', default: 0.1, min: -10000, max: 10000, softMin: -10, softMax: 10, subtype: 'distance' },
-      { id: 'uniform', label: 'Uniform', type: 'float', default: 0, min: 0, max: 1, subtype: 'factor' },
-      { id: 'normal', label: 'Normal', type: 'float', default: 0, min: 0, max: 1, subtype: 'factor' },
-      { id: 'seed', label: 'Random Seed', type: 'int', default: 0, min: 0, max: 10000 },
-    ],
-    poll: editPoll,
-    exec: (_ctx, p) => void withEdit((m) => randomizeVerts(m, p.offset as number, p.uniform as number, p.normal as number, p.seed as number)),
-  },
 ]);
 
 // ---------------------------------------------------------------------------
@@ -419,3 +406,23 @@ registerOperators([
     },
   },
 ]);
+
+// Randomize in mesh Edit Mode; other modes keep the general transform operator
+const meshRandomize = (p: Record<string, unknown>) => void withEdit((m) => randomizeVerts(m, p.offset as number, p.uniform as number, p.normal as number, p.seed as number));
+onAppReady(() => {
+  const base = operators.get('transform.vertex_random');
+  registerOperator({
+    idname: 'transform.vertex_random',
+    label: 'Randomize',
+    description: 'Move the selected vertices by random amounts',
+    props: [
+      { id: 'offset', label: 'Amount', type: 'float', default: 0.1, min: -10000, max: 10000, softMin: -10, softMax: 10, subtype: 'distance' },
+      { id: 'uniform', label: 'Uniform', type: 'float', default: 0, min: 0, max: 1, subtype: 'factor' },
+      { id: 'normal', label: 'Normal', type: 'float', default: 0, min: 0, max: 1, subtype: 'factor' },
+      { id: 'seed', label: 'Random Seed', type: 'int', default: 0, min: 0, max: 10000 },
+    ],
+    poll: (ctx) => editPoll(ctx) || !!base?.poll?.(ctx),
+    invoke: base?.invoke ? (ctx, p) => (editPoll(ctx) ? meshRandomize(p) : base.invoke!(ctx, p)) : undefined,
+    exec: (ctx, p) => (editPoll(ctx) ? meshRandomize(p) : base?.exec?.(ctx, p)),
+  });
+});

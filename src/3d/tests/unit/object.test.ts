@@ -9,6 +9,7 @@ import type { MeshData, ObjectData } from '../../src/data/types';
 import { addObjectToScene } from '../../src/ops/object';
 import '../../src/ops/data';
 import '../../src/object/index';
+import '../../src/modes/vertexparent';
 import * as prim from '../../src/mesh/primitives';
 import { edgeChains, flipSideName, levelWeights, mirrorShapeKey, mirrorVertexGroups, mirrorVertexMap, mixShapeKeys, quantizeWeights, sortedGroupOrder, surfaceCenter, uniqueIn, volumeCenter } from '../../src/object/core';
 import { PointGrid } from '../../src/object/nearest';

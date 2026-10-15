@@ -142,6 +142,7 @@ export const OB_ICON: Record<string, string> = {
   POINTCLOUD: 'outliner_ob_pointcloud',
   GREASEPENCIL: 'outliner_ob_greasepencil',
   SPEAKER: 'outliner_ob_speaker',
+  META: 'outliner_ob_meta',
 };
 export const DATA_ICON: Record<string, string> = {
   MESH: 'mesh_data',
@@ -152,6 +153,7 @@ export const DATA_ICON: Record<string, string> = {
   ARMATURE: 'armature_data',
   LATTICE: 'outliner_ob_lattice',
   GREASEPENCIL: 'outliner_data_greasepencil',
+  META: 'outliner_ob_meta',
 };
 export const DATA_TABLE: Record<string, keyof DocumentData> = {
   MESH: 'meshes',
@@ -162,6 +164,7 @@ export const DATA_TABLE: Record<string, keyof DocumentData> = {
   ARMATURE: 'armatures',
   LATTICE: 'lattices',
   GREASEPENCIL: 'grease_pencils',
+  META: 'metaballs',
 };
 
 /** Data-block types listed in the Data Blocks / Unused Data display modes. */
@@ -178,6 +181,7 @@ export const ID_GROUPS: [label: string, table: keyof DocumentData, icon: string]
   ['Lights', 'lights', 'light_data'],
   ['Materials', 'materials', 'material'],
   ['Meshes', 'meshes', 'mesh_data'],
+  ['Metaballs', 'metaballs', 'outliner_ob_meta'],
   ['Node Groups', 'node_groups', 'node_tree'],
   ['Objects', 'objects', 'object'],
   ['Particle Settings', 'particles', 'particles'],
