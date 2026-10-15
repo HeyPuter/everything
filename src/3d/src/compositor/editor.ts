@@ -130,14 +130,6 @@ export class CompositorEditor extends NodeEditor {
           e.preventDefault();
           e.stopImmediatePropagation();
           this.moveBackdrop(e.clientX, e.clientY, true);
-        } else if (e.button === 0 && e.shiftKey && (e.ctrlKey || e.metaKey)) {
-          // Ctrl Shift click: link the node's output to the viewer (cycles through outputs)
-          const el = (e.target as HTMLElement).closest('[data-node]') as HTMLElement | null;
-          if (el?.dataset.node) {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            app.run('node.link_viewer', { node: el.dataset.node });
-          }
         }
       },
       { capture: true },
@@ -253,7 +245,7 @@ export class CompositorEditor extends NodeEditor {
       menu('View', () => this.compositorViewMenu()),
       menu('Select', () => selectMenu()),
       menu('Add', () => this.addMenuItems()),
-      menu('Node', () => nodeMenuItems()),
+      menu('Node', () => nodeMenuItems(this)),
       h('div', { class: 'hdr-spacer' }),
       h(
         'div',
@@ -406,6 +398,7 @@ registerNodeEditorProvider({
     return {
       tree: g.tree,
       key: `cmp:${g.id}`,
+      groupId: g.id,
       crumbs: [
         ['scene_data', app.doc.scene.name],
         ['node_tree', g.name],
@@ -413,6 +406,23 @@ registerNodeEditorProvider({
     };
   },
   emptyMessage: () => 'Click New to create a compositing node group',
+  // Ctrl Shift click / node.link_viewer: link the node's output to the viewer (cycles through outputs)
+  linkViewer: (ed, n) => {
+    const tree = (ed as CompositorEditor).tree();
+    if (!tree || n.type === 'CompositorNodeViewer' || n.type === 'NodeGroupOutput' || n.type === 'NodeFrame') return false;
+    const sctx = ctxOf(app.doc, tree);
+    const outs = nodeSockets(n, sctx).outputs.filter((s) => s.type !== 'CUSTOM');
+    if (!outs.length) return false;
+    let viewer = tree.nodes.find((x) => x.type === 'CompositorNodeViewer' && x.id === tree.active_node) ?? tree.nodes.find((x) => x.type === 'CompositorNodeViewer');
+    if (!viewer) viewer = addNode(tree, 'CompositorNodeViewer', [n.location[0] + (n.width ?? 140) + 80, n.location[1]]);
+    const cur = tree.links.find((l) => l.to_node === viewer!.id && l.from_node === n.id);
+    const i = cur ? (outs.findIndex((s) => s.identifier === cur.from_socket) + 1) % outs.length : 0;
+    connect(sctx, n.id, outs[i].identifier, viewer.id, 'Image');
+    for (const x of tree.nodes) x.select = x.id === n.id;
+    tree.active_node = viewer.id;
+    app.changed('doc');
+    return true;
+  },
   drawBackdrop: (ed, g, W, H) => {
     const e = ed as CompositorEditor;
     if (!(e instanceof CompositorEditor) || !e.backdrop) return;
@@ -457,30 +467,6 @@ registerOperators([
       newCompositingGroup(ctx.doc);
       const ed = compositorEditor(ctx);
       if (ed) ed.path = [];
-      app.changed('doc');
-    },
-  },
-  {
-    idname: 'node.link_viewer',
-    label: 'Link to Viewer Node',
-    description: 'Link the active (or given) node to a Viewer node, cycling through its outputs',
-    props: [{ id: 'node', type: 'string', default: '', hidden: true }],
-    poll: (ctx) => !!compositorEditor(ctx)?.tree(),
-    exec: (ctx, p) => {
-      const ed = compositorEditor(ctx)!;
-      const tree = ed.tree()!;
-      const n = tree.nodes.find((x) => x.id === (String(p.node || '') || tree.active_node));
-      if (!n || n.type === 'CompositorNodeViewer' || n.type === 'NodeGroupOutput' || n.type === 'NodeFrame') return 'CANCELLED';
-      const sctx = ctxOf(ctx.doc, tree);
-      const outs = nodeSockets(n, sctx).outputs.filter((s) => s.type !== 'CUSTOM');
-      if (!outs.length) return 'CANCELLED';
-      let viewer = tree.nodes.find((x) => x.type === 'CompositorNodeViewer' && x.id === tree.active_node) ?? tree.nodes.find((x) => x.type === 'CompositorNodeViewer');
-      if (!viewer) viewer = addNode(tree, 'CompositorNodeViewer', [n.location[0] + (n.width ?? 140) + 80, n.location[1]]);
-      const cur = tree.links.find((l) => l.to_node === viewer!.id && l.from_node === n.id);
-      const i = cur ? (outs.findIndex((s) => s.identifier === cur.from_socket) + 1) % outs.length : 0;
-      connect(sctx, n.id, outs[i].identifier, viewer.id, 'Image');
-      for (const x of tree.nodes) x.select = x.id === n.id;
-      tree.active_node = viewer.id;
       app.changed('doc');
     },
   },

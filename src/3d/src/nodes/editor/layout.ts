@@ -382,6 +382,37 @@ export function curveCrossesPolyline(c: number[], line: [number, number][], step
   return false;
 }
 
+/** First point where a polyline crosses a link curve, or null. */
+export function curvePolylineHit(c: number[], line: [number, number][], steps = 24): [number, number] | null {
+  let prev = bezierPoint(c, 0);
+  for (let i = 1; i <= steps; i++) {
+    const p = bezierPoint(c, i / steps);
+    for (let j = 1; j < line.length; j++) {
+      const a = line[j - 1],
+        b = line[j];
+      if (!segmentsIntersect(prev, p, a, b)) continue;
+      // intersection of the two segments
+      const d = (prev[0] - p[0]) * (a[1] - b[1]) - (prev[1] - p[1]) * (a[0] - b[0]);
+      if (Math.abs(d) < 1e-9) return [(prev[0] + p[0]) / 2, (prev[1] + p[1]) / 2];
+      const t = ((prev[0] - a[0]) * (a[1] - b[1]) - (prev[1] - a[1]) * (a[0] - b[0])) / d;
+      return [prev[0] + t * (p[0] - prev[0]), prev[1] + t * (p[1] - prev[1])];
+    }
+    prev = p;
+  }
+  return null;
+}
+
+/** Whether a point is inside a polygon (even-odd rule). */
+export function pointInPolygon(x: number, y: number, poly: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i],
+      [xj, yj] = poly[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
 /** Squared distance from a point to a link curve (approximate). */
 export function distToCurve(c: number[], px: number, py: number, steps = 24): number {
   let best = Infinity;

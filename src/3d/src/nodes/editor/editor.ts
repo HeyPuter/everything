@@ -7,9 +7,10 @@ import { app, type ChangeKind } from '../../app/app';
 import type { Area, Editor } from '../../ui/screen';
 import { openMenu, openSearch, type MenuItem, type SearchEntry } from '../../ui/menu';
 import type { NodeData, NodeTreeData } from '../../data/types';
-import { getNodeType, nodeSockets, nodeMenu, canConvert, SOCKET_COLORS, nodeLabel } from '../registry';
+import { getNodeType, nodeSockets, nodeMenu, canConvert, SOCKET_COLORS, nodeLabel, propValue } from '../registry';
 import { connect, ctxOf, linkStatus, nodeById, insertOnLink, removeLinks, makeNode, internalLinks, frameChildren, compatibleGroups } from '../tree';
-import { layoutTree, linkCurve, sockKey, distToCurve, curveCrossesPolyline, type NodeLayout, type SocketPos, HEADER } from './layout';
+import { layoutTree, linkCurve, sockKey, distToCurve, curvePolylineHit, pointInPolygon, type NodeLayout, type SocketPos, HEADER } from './layout';
+import { addReroutes, detachLinks, insertOffset, isFrame, isGroupNode, toggleLinkMute } from '../treeops';
 import { renderNode } from './nodeui';
 import { providers, type NodeEditorProvider, type TreeRoot } from './context';
 import type { MenuCategory, MenuEntry, SocketType, TreeType } from '../types';
@@ -26,21 +27,38 @@ export interface View {
 const MIN_ZOOM = 0.08,
   MAX_ZOOM = 4;
 
-interface LinkDrag {
-  /** fixed end */
+/** One fixed end of a dragged link. */
+interface DragEnd {
   node: string;
   socket: string;
-  isOutput: boolean;
   type: SocketType;
   x: number;
   y: number;
+}
+
+interface LinkDrag {
+  /** the fixed ends are outputs (the free end looks for an input) */
+  isOutput: boolean;
+  ends: DragEnd[];
   /** pointer (node space) */
   px: number;
   py: number;
-  /** link removed when picking it up from an input */
+  /** links were picked up from sockets (dropping on nothing removes them) */
   detached?: boolean;
+  /** input socket a link was picked up from (Alt swaps a displaced link back there) */
+  origin?: { node: string; socket: string };
+  /** Alt held: swap instead of displacing an existing link */
+  swap?: boolean;
   target?: SocketPos & { node: string };
 }
+
+/** Line gestures drawn with the right mouse button. */
+export type GestureMode = 'CUT' | 'MUTE' | 'REROUTE';
+const GESTURE_COLOR: Record<GestureMode, string> = {
+  CUT: 'rgba(255,90,90,0.9)',
+  MUTE: 'rgba(120,170,255,0.95)',
+  REROUTE: 'rgba(140,230,140,0.95)',
+};
 
 export class NodeEditor implements Editor {
   el: HTMLElement;
@@ -67,6 +85,10 @@ export class NodeEditor implements Editor {
     mode: 'SET' | 'ADD' | 'SUB';
   } | null = null;
   private knife: [number, number][] | null = null;
+  private lasso: [number, number][] | null = null;
+  private circle: { x: number; y: number; r: number } | null = null;
+  private circleRadius = 40;
+  private gesture: GestureMode = 'CUT';
   insertTarget: string | null = null;
   private lastKey = '';
   private resizeObs: ResizeObserver;
@@ -107,7 +129,10 @@ export class NodeEditor implements Editor {
       passive: false,
     });
     this.el.addEventListener('contextmenu', (e) => e.preventDefault());
-    this.el.addEventListener('dblclick', (e) => e.preventDefault());
+    this.el.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      this.onDouble(e);
+    });
     this.resizeObs = new ResizeObserver(() => this.render());
     this.resizeObs.observe(this.el);
   }
@@ -138,6 +163,11 @@ export class NodeEditor implements Editor {
     }
     if (valid.length !== this.path.length) this.path = valid;
     return t;
+  }
+
+  /** Id of the node group being edited (an opened group, or a root tree that is a group). */
+  currentGroupId(): string | undefined {
+    return this.path.length ? this.path[this.path.length - 1].group : this.root()?.groupId;
   }
 
   treeType(): TreeType {
@@ -196,7 +226,7 @@ export class NodeEditor implements Editor {
       menu('View', () => viewMenu(this)),
       menu('Select', () => selectMenu()),
       menu('Add', () => this.addMenuItems()),
-      menu('Node', () => nodeMenuItems()),
+      menu('Node', () => nodeMenuItems(this)),
       h('div', { class: 'hdr-spacer' }),
       p.headerRight?.(this) ?? null,
       h('div', { class: 'hdr-spacer' }),
@@ -221,9 +251,20 @@ export class NodeEditor implements Editor {
   // Add menu
 
   addMenuItems(at?: { x: number; y: number }): MenuItem[] {
+    const items = this.nodeTypeItems((idname, settings) => this.addNodeInteractive(idname, settings, at), false);
+    return [{ label: 'Search...', icon: 'search', action: () => this.addSearch(at) }, { separator: true }, ...items];
+  }
+
+  /** Swap menu (Shift S): the Add menu's categories, replacing the selected nodes. */
+  swapMenuItems(): MenuItem[] {
+    return this.nodeTypeItems((idname, settings) => app.run('node.swap_node', { type: idname, settings: JSON.stringify(settings) }, { area: this.area }), true);
+  }
+
+  /** Node type categories, Group and Layout submenus; `pick` receives the chosen type. */
+  private nodeTypeItems(pick: (idname: string, settings: Record<string, unknown>) => void, swap: boolean): MenuItem[] {
     const add = (e: MenuEntry): MenuItem => ({
       label: e.label ?? getNodeType(e.idname)?.label ?? e.idname,
-      action: () => this.addNodeInteractive(e.idname, e.settings ?? {}, at),
+      action: () => pick(e.idname, e.settings ?? {}),
     });
     const poll = (e: MenuEntry) => !this.provider.menuPoll || this.provider.menuPoll(e.idname, this);
     const conv = (c: MenuCategory): MenuItem[] => {
@@ -241,14 +282,13 @@ export class NodeEditor implements Editor {
       while (out.length && out[out.length - 1].separator) out.pop();
       return out;
     };
-    const cats = nodeMenu(this.treeType());
-    const items: MenuItem[] = [{ label: 'Search...', icon: 'search', action: () => this.addSearch(at) }, { separator: true }];
-    for (const c of cats) {
+    const items: MenuItem[] = [];
+    for (const c of nodeMenu(this.treeType())) {
       const sub = conv(c);
       if (sub.length) items.push({ label: c.label, submenu: () => sub });
     }
     items.push({ separator: true });
-    items.push({ label: 'Group', submenu: () => this.groupMenu(at) });
+    items.push({ label: 'Group', submenu: () => this.groupMenu(pick, swap) });
     items.push({
       label: 'Layout',
       submenu: () => [add({ idname: 'NodeFrame' }), add({ idname: 'NodeReroute' })],
@@ -256,29 +296,25 @@ export class NodeEditor implements Editor {
     return items;
   }
 
-  private groupMenu(at?: { x: number; y: number }): MenuItem[] {
+  private groupMenu(pick: (idname: string, settings: Record<string, unknown>) => void, swap: boolean): MenuItem[] {
     const tree = this.tree();
     if (!tree) return [];
     const idname = groupNodeType(this.treeType());
-    const current = this.path.length ? this.path[this.path.length - 1].group : undefined;
-    const groups = compatibleGroupsFor(this.treeType(), current);
+    const groups = compatibleGroupsFor(this.treeType(), this.currentGroupId());
     const items: MenuItem[] = [];
-    if (this.path.length) {
-      items.push({
-        label: 'Group Input',
-        action: () => this.addNodeInteractive('NodeGroupInput', {}, at),
-      });
-      items.push({
-        label: 'Group Output',
-        action: () => this.addNodeInteractive('NodeGroupOutput', {}, at),
-      });
-      if (groups.length) items.push({ separator: true });
+    if (!swap) items.push({ label: 'New Group', op: 'node.add_empty_group' });
+    if (this.path.length && !swap) {
+      items.push({ separator: true });
+      items.push({ label: 'Group Input', action: () => pick('NodeGroupInput', {}) });
+      items.push({ label: 'Group Output', action: () => pick('NodeGroupOutput', {}) });
     }
+    if (groups.length && items.length) items.push({ separator: true });
     for (const g of groups)
       items.push({
         label: g.name,
         icon: 'node_tree',
-        action: () => this.addNodeInteractive(idname, { node_tree: g.id }, at),
+        description: g.tree.description || undefined,
+        action: () => pick(idname, { node_tree: g.id }),
       });
     if (!items.length)
       items.push({
@@ -316,7 +352,7 @@ export class NodeEditor implements Editor {
       }
     };
     for (const c of nodeMenu(this.treeType())) walk(c, c.label);
-    for (const g of compatibleGroupsFor(this.treeType(), this.path[this.path.length - 1]?.group))
+    for (const g of compatibleGroupsFor(this.treeType(), this.currentGroupId()))
       out.push({
         label: g.name,
         path: 'Group',
@@ -356,12 +392,25 @@ export class NodeEditor implements Editor {
     n.location = [nx - w, -ny + HEADER / 2];
     for (const o of tree.nodes) o.select = false;
     n.select = true;
+    const prevActive = tree.active_node ?? null;
+    const prevSel = tree.nodes.filter((o) => o.select).map((o) => o.id);
     tree.nodes.push(n);
     tree.active_node = n.id;
-    app.pushUndo(`Add ${getNodeType(n.type)?.label ?? idname}`);
+    // the group's preferred node width
+    const gid = n.props.node_tree as string | undefined;
+    const gw = gid && isGroupNode(n) ? app.doc.node_groups[gid]?.tree.default_group_node_width : undefined;
+    if (gw) n.width = gw;
     app.changed('doc');
     this.render();
-    this.startGrab([n.id], 'key', 'Move', undefined, p);
+    // the new node follows the pointer; cancelling removes it again
+    this.startGrab([n.id], 'key', `Add ${getNodeType(n.type)?.label ?? idname}`, undefined, p, {
+      onCancel: () => {
+        tree.nodes = tree.nodes.filter((o) => o !== n);
+        tree.links = tree.links.filter((l) => l.from_node !== n.id && l.to_node !== n.id);
+        tree.active_node = prevActive;
+        for (const o of tree.nodes) o.select = prevSel.includes(o.id);
+      },
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -550,11 +599,13 @@ export class NodeEditor implements Editor {
     }
     if (this.linkDrag) {
       const d = this.linkDrag;
-      const [fx, fy] = this.toScreen(d.x, d.y);
       const t = d.target;
       const [px, py] = t ? this.toScreen(t.x, t.y) : this.toScreen(d.px, d.py);
-      const c = d.isOutput ? linkCurve(fx, fy, px, py) : linkCurve(px, py, fx, fy);
-      this.strokeLink(g, c, SOCKET_COLORS[d.type] ?? '#ccc', Math.max(1.5, Math.min(3, 2 * v.zoom)), true, false);
+      for (const end of d.ends) {
+        const [fx, fy] = this.toScreen(end.x, end.y);
+        const c = d.isOutput ? linkCurve(fx, fy, px, py) : linkCurve(px, py, fx, fy);
+        this.strokeLink(g, c, SOCKET_COLORS[end.type] ?? '#ccc', Math.max(1.5, Math.min(3, 2 * v.zoom)), true, false);
+      }
     }
     if (this.box) {
       const b = this.box;
@@ -568,8 +619,29 @@ export class NodeEditor implements Editor {
       g.strokeRect(x + 0.5, y + 0.5, Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
       g.setLineDash([]);
     }
+    if (this.lasso && this.lasso.length > 1) {
+      g.fillStyle = 'rgba(255,255,255,0.04)';
+      g.strokeStyle = 'rgba(255,255,255,0.7)';
+      g.setLineDash([4, 3]);
+      g.lineWidth = 1;
+      g.beginPath();
+      this.lasso.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+      g.closePath();
+      g.fill();
+      g.stroke();
+      g.setLineDash([]);
+    }
+    if (this.circle) {
+      g.strokeStyle = 'rgba(255,255,255,0.8)';
+      g.lineWidth = 1;
+      g.setLineDash([4, 3]);
+      g.beginPath();
+      g.arc(this.circle.x, this.circle.y, this.circle.r, 0, Math.PI * 2);
+      g.stroke();
+      g.setLineDash([]);
+    }
     if (this.knife && this.knife.length > 1) {
-      g.strokeStyle = 'rgba(255,90,90,0.9)';
+      g.strokeStyle = GESTURE_COLOR[this.gesture];
       g.setLineDash([5, 4]);
       g.lineWidth = 1.5;
       g.beginPath();
@@ -639,6 +711,22 @@ export class NodeEditor implements Editor {
       y: H / 2 - ((b[1] + b[3]) / 2) * zoom,
     };
     this.animateTo(target, smooth);
+  }
+
+  /** Pan so a node is in view (keeps the zoom). */
+  centerOn(n: NodeData, smooth = true) {
+    const tree = this.tree();
+    if (!tree) return;
+    if (!this.layouts.has(n.id)) this.layouts = layoutTree(app.doc, tree);
+    const l = this.layouts.get(n.id);
+    if (!l) return;
+    const v = this.view();
+    const W = this.el.clientWidth - (this.showSidebar ? this.sideEl.offsetWidth : 0),
+      H = this.el.clientHeight;
+    const [ax, ay] = this.toScreen(l.x, l.y),
+      [bx, by] = this.toScreen(l.x + l.w, l.y + l.h);
+    if (ax >= 0 && ay >= 0 && bx <= W && by <= H) return;
+    this.animateTo({ zoom: v.zoom, x: W / 2 - (l.x + l.w / 2) * v.zoom, y: H / 2 - (l.y + l.h / 2) * v.zoom }, smooth);
   }
 
   private animating = 0;
@@ -804,11 +892,27 @@ export class NodeEditor implements Editor {
     const tree = this.tree();
     if (e.button === 1 || (e.button === 0 && e.altKey && !tree)) return this.panDrag(e);
     if (!tree) return;
+    const ctrl = e.ctrlKey || e.metaKey;
     if (e.button === 2) {
-      if (e.ctrlKey) return this.knifeDrag(e);
+      if (ctrl && e.altKey) return this.gestureDrag(e, 'MUTE');
+      if (ctrl) return this.gestureDrag(e, 'CUT');
+      if (e.shiftKey) return this.gestureDrag(e, 'REROUTE', true);
       return this.contextClick(e);
     }
     if (e.button !== 0) return;
+    // Ctrl Alt drag: lasso select (Shift subtracts)
+    if (ctrl && e.altKey) return this.lassoDrag(e, tree, e.shiftKey ? 'SUB' : 'ADD');
+    // Ctrl Shift click: view the node; Shift Alt click: connect it to the tree's output
+    if (e.shiftKey && (ctrl || e.altKey)) {
+      const n = this.hitNode(e.clientX, e.clientY, false);
+      if (n && !isFrame(n)) {
+        e.preventDefault();
+        this.selectOnly(tree, n);
+        app.changed('ui');
+        app.run(ctrl ? 'node.link_viewer' : 'node.connect_to_output', { node: n.id }, { area: this.area });
+        return;
+      }
+    }
     // widgets inside nodes: activate the node, let the widget handle the event
     const widget = target.closest('.num-field, .enum-menu, .color-swatch, .checkbox, input, .text-field, button, .nd-panel, .nd-collapse, .enum-row, .nd-image-sel, .nd-ramp, .nd-curve');
     const nodeEl = target.closest('[data-node]') as HTMLElement | null;
@@ -823,16 +927,28 @@ export class NodeEditor implements Editor {
       return;
     }
     const sock = this.hitSocket(e.clientX, e.clientY);
-    if (sock && !(sock.collapsed && nodeById(tree, sock.node)?.hide && !e.ctrlKey)) return this.linkDragStart(e, tree, sock);
+    if (sock && !(sock.collapsed && nodeById(tree, sock.node)?.hide && !ctrl)) return this.linkDragStart(e, tree, sock);
     const n = this.hitNode(e.clientX, e.clientY);
     if (n) {
-      // node resize: drag near the right edge
-      const l = this.layouts.get(n.id)!;
-      const [x] = this.toNode(e.clientX, e.clientY);
-      if (l.kind === 'NODE' && !n.hide && Math.abs(x - (l.x + l.w)) * this.view().zoom < 5) return this.resizeDrag(e, n);
-      return this.nodePress(e, tree, n);
+      const edges = this.resizeEdges(n, e.clientX, e.clientY);
+      if (edges) return this.resizeDrag(e, n, edges);
+      return this.nodePress(e, tree, n, e.altKey);
     }
-    this.boxDrag(e, tree, e.shiftKey ? 'ADD' : e.ctrlKey ? 'SUB' : 'SET');
+    this.boxDrag(e, tree, e.shiftKey ? 'ADD' : ctrl ? 'SUB' : 'SET');
+  }
+
+  /** Double click: enter the group node under the pointer, or leave the group on empty space. */
+  private onDouble(e: MouseEvent) {
+    if (app.modal) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('.nd-sidebar, .num-field, .enum-menu, .color-swatch, .checkbox, input, .text-field, button, .nd-panel, .nd-collapse, .enum-row, .nd-image-sel, .nd-ramp, .nd-curve')) return;
+    const tree = this.tree();
+    if (!tree) return;
+    const n = this.hitNode(e.clientX, e.clientY, false);
+    if (n && isGroupNode(n) && n.props.node_tree) {
+      this.selectOnly(tree, n);
+      app.run('node.group_edit', { exit: false }, { area: this.area });
+    } else if (!n && this.path.length) app.run('node.group_edit', { exit: true }, { area: this.area });
   }
 
   private track(e: PointerEvent, move: (ev: PointerEvent, dist: number) => void, up: (ev: PointerEvent, moved: boolean) => void) {
@@ -845,12 +961,59 @@ export class NodeEditor implements Editor {
       move(ev, d);
     };
     const u = (ev: PointerEvent) => {
+      if (ev.button !== e.button) return;
       removeEventListener('pointermove', mv);
       removeEventListener('pointerup', u);
       up(ev, moved);
     };
     addEventListener('pointermove', mv);
     addEventListener('pointerup', u);
+  }
+
+  /**
+   * Scroll the view while a drag holds the pointer near the editor edges. Panning starts only
+   * once the pointer has been well inside the editor, so drags that begin near an edge don't jump.
+   */
+  edgePanner(onPan: () => void) {
+    const M = 30,
+      SPEED = 16;
+    let raf = 0,
+      x = 0,
+      y = 0,
+      armed = false;
+    const bounds = () => {
+      const r = this.el.getBoundingClientRect();
+      const side = this.showSidebar ? this.sideEl.offsetWidth : 0;
+      return { left: r.left, top: r.top, right: r.right - side, bottom: r.bottom };
+    };
+    const push = (d: number) => (d < M ? ((M - Math.max(0, d)) / M) * SPEED : 0);
+    const step = () => {
+      raf = 0;
+      if (!armed) return;
+      const b = bounds();
+      const dx = push(x - b.left) - push(b.right - x),
+        dy = push(y - b.top) - push(b.bottom - y);
+      if (!dx && !dy) return;
+      const v = this.view();
+      v.x += dx;
+      v.y += dy;
+      this.applyView();
+      onPan();
+      raf = requestAnimationFrame(step);
+    };
+    return {
+      update: (cx: number, cy: number) => {
+        x = cx;
+        y = cy;
+        const b = bounds();
+        if (!armed && cx > b.left + M && cx < b.right - M && cy > b.top + M && cy < b.bottom - M) armed = true;
+        if (!raf) raf = requestAnimationFrame(step);
+      },
+      stop: () => {
+        cancelAnimationFrame(raf);
+        raf = 0;
+      },
+    };
   }
 
   private panDrag(e: PointerEvent) {
@@ -879,7 +1042,8 @@ export class NodeEditor implements Editor {
     );
   }
 
-  private nodePress(e: PointerEvent, tree: NodeTreeData, n: NodeData) {
+  /** Press on a node: select it; dragging moves the selection (Alt: detach its links first). */
+  private nodePress(e: PointerEvent, tree: NodeTreeData, n: NodeData, detach = false) {
     e.preventDefault();
     const wasSelected = !!n.select;
     if (e.shiftKey) {
@@ -899,7 +1063,16 @@ export class NodeEditor implements Editor {
             n.select = true;
             tree.active_node = n.id;
           }
-          this.startGrab(this.selectedIds(), 'tweak', 'Move', ev);
+          if (detach) {
+            const before = structuredClone(tree.links);
+            detachLinks(ctxOf(app.doc, tree), new Set(this.selectedIds()));
+            this.render();
+            this.startGrab(this.selectedIds(), 'tweak', 'Detach', ev, undefined, {
+              onCancel: () => {
+                tree.links = before;
+              },
+            });
+          } else this.startGrab(this.selectedIds(), 'tweak', 'Move', ev);
         }
       },
       (_ev, moved) => {
@@ -911,17 +1084,54 @@ export class NodeEditor implements Editor {
     );
   }
 
-  private resizeDrag(e: PointerEvent, n: NodeData) {
+  /** Which edges of a node are under the pointer for resizing (nodes: left/right; fixed frames: all). */
+  private resizeEdges(n: NodeData, clientX: number, clientY: number): { l: boolean; r: boolean; t: boolean; b: boolean } | null {
+    const l = this.layouts.get(n.id);
+    if (!l || n.hide || l.kind === 'REROUTE') return null;
+    const [x, y] = this.toNode(clientX, clientY);
+    const tol = 5 / this.view().zoom;
+    if (l.kind === 'FRAME') {
+      const fixed = propValue(n, 'shrink') === false || !frameChildren(this.tree()!, n.id).length;
+      if (!fixed) return null;
+      const e = { l: Math.abs(x - l.x) < tol, r: Math.abs(x - (l.x + l.w)) < tol, t: Math.abs(y - l.y) < tol, b: Math.abs(y - (l.y + l.h)) < tol };
+      return e.l || e.r || e.t || e.b ? e : null;
+    }
+    const r = Math.abs(x - (l.x + l.w)) < tol,
+      left = Math.abs(x - l.x) < tol;
+    return r || left ? { l: left && !r, r, t: false, b: false } : null;
+  }
+
+  private resizeDrag(e: PointerEvent, n: NodeData, edges: { l: boolean; r: boolean; t: boolean; b: boolean }) {
     e.preventDefault();
-    const w0 = this.layouts.get(n.id)!.w;
-    const [x0] = this.toNode(e.clientX, e.clientY);
+    const lay = this.layouts.get(n.id)!;
+    const w0 = lay.w,
+      h0 = lay.h,
+      loc0 = [...n.location] as [number, number];
+    const [x0, y0] = this.toNode(e.clientX, e.clientY);
     const def = getNodeType(n.type);
+    const frame = lay.kind === 'FRAME';
+    const minW = frame ? 40 : (def?.minWidth ?? 80),
+      maxW = frame ? 1e5 : (def?.maxWidth ?? 700);
+    const snap = (v: number, on: boolean) => (on ? Math.round(v / 10) * 10 : v);
     this.el.classList.add('resizing');
     this.track(
       e,
       (ev) => {
-        const [x] = this.toNode(ev.clientX, ev.clientY);
-        n.width = Math.round(Math.max(def?.minWidth ?? 80, Math.min(def?.maxWidth ?? 700, w0 + x - x0)));
+        const [x, y] = this.toNode(ev.clientX, ev.clientY);
+        const on = ev.ctrlKey || ev.metaKey;
+        if (edges.r) n.width = Math.round(Math.max(minW, Math.min(maxW, snap(w0 + x - x0, on))));
+        if (edges.l) {
+          const w = Math.round(Math.max(minW, Math.min(maxW, snap(w0 - (x - x0), on))));
+          n.width = w;
+          n.location = [loc0[0] + w0 - w, n.location[1]];
+        }
+        if (frame && edges.b) n.props.height = Math.round(Math.max(40, snap(h0 + y - y0, on)));
+        if (frame && edges.t) {
+          const hh = Math.round(Math.max(40, snap(h0 - (y - y0), on)));
+          n.props.height = hh;
+          n.location = [n.location[0], loc0[1] - (h0 - hh)];
+        }
+        if (frame && propValue(n, 'shrink') !== false) n.props.shrink = false;
         this.render();
       },
       (_ev, moved) => {
@@ -956,7 +1166,6 @@ export class NodeEditor implements Editor {
           this.box = null;
           if (mode === 'SET') {
             this.selectOnly(tree, null);
-            tree.active_node = tree.active_node ?? null;
             app.changed('ui');
           }
           this.drawOver();
@@ -992,16 +1201,16 @@ export class NodeEditor implements Editor {
     }
   }
 
-  /** Box select started from the keyboard (B): drag with LMB. */
-  startBoxSelect() {
+  /** Run `start` on the next left-button press in the editor (tools started from menus or keys). */
+  private waitForPress(cls: string, start: (e: PointerEvent, tree: NodeTreeData) => void) {
     const tree = this.tree();
     if (!tree) return;
-    this.el.classList.add('box-pending');
+    this.el.classList.add(cls);
     const once = (e: PointerEvent) => {
-      this.el.classList.remove('box-pending');
+      this.el.classList.remove(cls);
       if (e.button !== 0 || !this.el.contains(e.target as Node)) return;
       e.stopPropagation();
-      this.boxDrag(e, tree, e.shiftKey ? 'SUB' : 'ADD');
+      start(e, tree);
     };
     this.el.addEventListener('pointerdown', once, {
       once: true,
@@ -1009,9 +1218,138 @@ export class NodeEditor implements Editor {
     });
   }
 
-  private knifeDrag(e: PointerEvent) {
+  /** Box select started from the keyboard (B): drag with LMB. */
+  startBoxSelect(mode?: 'SET' | 'ADD' | 'SUB') {
+    this.waitForPress('box-pending', (e, tree) => this.boxDrag(e, tree, mode ?? (e.shiftKey ? 'SUB' : 'ADD')));
+  }
+
+  /** Lasso select started from a menu: drag with LMB. */
+  startLasso(mode: 'SET' | 'ADD' | 'SUB') {
+    this.waitForPress('box-pending', (e, tree) => this.lassoDrag(e, tree, mode));
+  }
+
+  /** Link gestures started from a menu or operator: drag with LMB. */
+  startGesture(mode: GestureMode) {
+    this.waitForPress('box-pending', (e) => this.gestureDrag(e, mode));
+  }
+
+  private lassoDrag(e: PointerEvent, tree: NodeTreeData, mode: 'SET' | 'ADD' | 'SUB') {
     e.preventDefault();
     const r = this.el.getBoundingClientRect();
+    this.lasso = [[e.clientX - r.left, e.clientY - r.top]];
+    this.track(
+      e,
+      (ev) => {
+        const p: [number, number] = [ev.clientX - r.left, ev.clientY - r.top];
+        const q = this.lasso![this.lasso!.length - 1];
+        if (Math.hypot(p[0] - q[0], p[1] - q[1]) > 3) this.lasso!.push(p);
+        this.drawOver();
+      },
+      (_ev, moved) => {
+        const pts = this.lasso ?? [];
+        this.lasso = null;
+        if (moved && pts.length > 2) {
+          this.applyLasso(tree, pts, mode);
+          app.changed('ui');
+        } else {
+          // a click selects the node under the pointer
+          const n = this.hitNode(e.clientX, e.clientY);
+          if (n) this.selectOnly(tree, n);
+          app.changed('ui');
+        }
+        this.drawOver();
+      },
+    );
+  }
+
+  /** Select nodes whose centre lies in a lasso (screen-local points); frames need all corners inside. */
+  applyLasso(tree: NodeTreeData, pts: [number, number][], mode: 'SET' | 'ADD' | 'SUB') {
+    if (mode === 'SET') for (const n of tree.nodes) n.select = false;
+    for (const n of tree.nodes) {
+      const l = this.layouts.get(n.id);
+      if (!l) continue;
+      const corners: [number, number][] =
+        l.kind === 'FRAME'
+          ? [
+              [l.x, l.y],
+              [l.x + l.w, l.y],
+              [l.x, l.y + l.h],
+              [l.x + l.w, l.y + l.h],
+            ]
+          : [[l.x + l.w / 2, l.y + Math.min(l.h, HEADER) / 2]];
+      if (corners.every(([x, y]) => pointInPolygon(...this.toScreen(x, y), pts))) n.select = mode !== 'SUB';
+    }
+  }
+
+  /** Circle select (C): paint with LMB (Shift / MMB deselects), wheel resizes, RMB / Esc / Enter ends. */
+  startCircleSelect(mode: 'SET' | 'ADD' | 'SUB' = 'ADD') {
+    const tree = this.tree();
+    if (!tree) return;
+    const r = this.el.getBoundingClientRect();
+    const circle = { x: app.pointer.x - r.left, y: app.pointer.y - r.top, r: this.circleRadius };
+    this.circle = circle;
+    this.drawOver();
+    let paint: 'ADD' | 'SUB' | null = null;
+    if (mode === 'SET') for (const n of tree.nodes) n.select = false;
+    const apply = () => {
+      if (!paint) return;
+      for (const n of tree.nodes) {
+        const l = this.layouts.get(n.id);
+        if (!l) continue;
+        const [ax, ay] = this.toScreen(l.x, l.y),
+          [bx, by] = this.toScreen(l.x + l.w, l.y + l.h);
+        const cx = Math.max(ax, Math.min(bx, circle.x)),
+          cy = Math.max(ay, Math.min(by, circle.y));
+        const hit = l.kind === 'FRAME' ? circle.x >= ax && circle.x <= bx && circle.y >= ay && circle.y <= ay + 24 * this.view().zoom : Math.hypot(cx - circle.x, cy - circle.y) <= circle.r;
+        if (hit) n.select = paint === 'ADD';
+      }
+      app.changed('ui');
+    };
+    const self = this;
+    const end = () => {
+      self.circle = null;
+      self.drawOver();
+    };
+    app.startModal({
+      label: 'Circle Select',
+      cursor: 'crosshair',
+      onPointerMove(e) {
+        circle.x = e.clientX - r.left;
+        circle.y = e.clientY - r.top;
+        apply();
+        self.drawOver();
+      },
+      onPointerDown(e) {
+        if (e.button === 2) return 'FINISHED';
+        paint = e.button === 1 || e.shiftKey || e.ctrlKey || mode === 'SUB' ? 'SUB' : 'ADD';
+        apply();
+      },
+      onPointerUp() {
+        paint = null;
+      },
+      onWheel(e) {
+        circle.r = Math.max(5, Math.min(400, circle.r * (e.deltaY > 0 ? 1 / 1.1 : 1.1)));
+        self.circleRadius = circle.r;
+        self.drawOver();
+      },
+      onKey(e) {
+        if (e.type !== 'keydown') return;
+        if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') return 'FINISHED';
+        if (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd') circle.r = Math.min(400, circle.r * 1.1);
+        else if (e.key === '-' || e.code === 'NumpadSubtract') circle.r = Math.max(5, circle.r / 1.1);
+        self.circleRadius = circle.r;
+        self.drawOver();
+      },
+      cancel: end,
+      finish: end,
+      header: () => 'Circle select: LMB select, Shift / MMB deselect, wheel resize, RMB / Esc confirm',
+    });
+  }
+
+  private gestureDrag(e: PointerEvent, mode: GestureMode, clickOpensMenu = false) {
+    e.preventDefault();
+    const r = this.el.getBoundingClientRect();
+    this.gesture = mode;
     this.knife = [[e.clientX - r.left, e.clientY - r.top]];
     this.track(
       e,
@@ -1019,46 +1357,73 @@ export class NodeEditor implements Editor {
         this.knife!.push([ev.clientX - r.left, ev.clientY - r.top]);
         this.drawOver();
       },
-      () => {
+      (ev, moved) => {
         const line = this.knife ?? [];
         this.knife = null;
-        const tree = this.tree();
-        if (tree && line.length > 1) {
-          const cut = new Set<string>();
-          for (const l of tree.links) {
-            const a = this.layouts.get(l.from_node)?.sockets.get(sockKey(true, l.from_socket));
-            const b = this.layouts.get(l.to_node)?.sockets.get(sockKey(false, l.to_socket));
-            if (!a || !b) continue;
-            const [x1, y1] = this.toScreen(a.x, a.y),
-              [x2, y2] = this.toScreen(b.x, b.y);
-            if (curveCrossesPolyline(linkCurve(x1, y1, x2, y2), line)) cut.add(l.id);
-          }
-          if (cut.size) {
-            removeLinks(tree, cut);
-            app.pushUndo('Cut Links');
-            app.changed('doc');
-          }
-        }
         this.drawOver();
+        if (!moved) {
+          if (clickOpensMenu) this.openContextMenu(ev);
+          return;
+        }
+        if (line.length > 1) this.applyGesture(mode, line);
       },
     );
   }
 
+  /** Apply a cut / mute / reroute gesture along a screen-local polyline. */
+  applyGesture(mode: GestureMode, line: [number, number][]) {
+    const tree = this.tree();
+    if (!tree) return 0;
+    const hits: { link: string; x: number; y: number }[] = [];
+    for (const l of tree.links) {
+      const a = this.layouts.get(l.from_node)?.sockets.get(sockKey(true, l.from_socket));
+      const b = this.layouts.get(l.to_node)?.sockets.get(sockKey(false, l.to_socket));
+      if (!a || !b) continue;
+      const [x1, y1] = this.toScreen(a.x, a.y),
+        [x2, y2] = this.toScreen(b.x, b.y);
+      const p = curvePolylineHit(linkCurve(x1, y1, x2, y2), line);
+      if (!p) continue;
+      const v = this.view();
+      hits.push({ link: l.id, x: (p[0] - v.x) / v.zoom, y: -(p[1] - v.y) / v.zoom });
+    }
+    if (!hits.length) return 0;
+    const ids = new Set(hits.map((h) => h.link));
+    if (mode === 'CUT') {
+      removeLinks(tree, ids);
+      app.pushUndo('Cut Links');
+    } else if (mode === 'MUTE') {
+      toggleLinkMute(tree, ids);
+      app.pushUndo('Mute Links');
+    } else {
+      // reroutes are placed by their centre; nodes are positioned by their top-left corner
+      const made = addReroutes(tree, hits);
+      for (const n of tree.nodes) n.select = made.includes(n);
+      app.pushUndo('Add Reroute');
+    }
+    app.changed('doc');
+    return hits.length;
+  }
+
   private contextClick(e: PointerEvent) {
-    const tree = this.tree()!;
     this.track(
       e,
       () => {},
       (ev, moved) => {
-        if (moved) return;
-        const n = this.hitNode(ev.clientX, ev.clientY);
-        if (n && !n.select) {
-          this.selectOnly(tree, n);
-          app.changed('ui');
-        }
-        openMenu(contextMenuItems(this, !!n), { x: ev.clientX, y: ev.clientY }, { title: n ? 'Node' : 'Node Editor' });
+        if (!moved) this.openContextMenu(ev);
       },
     );
+  }
+
+  private openContextMenu(ev: PointerEvent) {
+    const tree = this.tree();
+    if (!tree) return;
+    const n = this.hitNode(ev.clientX, ev.clientY);
+    if (n && !n.select) {
+      this.selectOnly(tree, n);
+      app.changed('ui');
+    }
+    const anySelected = tree.nodes.some((x) => x.select);
+    openMenu(contextMenuItems(this, anySelected), { x: ev.clientX, y: ev.clientY }, { title: anySelected ? 'Node' : 'Node Editor' });
   }
 
   // -------------------------------------------------------------------------
@@ -1068,72 +1433,67 @@ export class NodeEditor implements Editor {
     e.preventDefault();
     e.stopPropagation();
     const [px, py] = this.toNode(e.clientX, e.clientY);
+    const endOf = (node: string, socket: string, isOutput: boolean): DragEnd => {
+      const p = this.layouts.get(node)?.sockets.get(sockKey(isOutput, socket));
+      return { node, socket, type: p?.socket.type ?? 'FLOAT', x: p?.x ?? px, y: p?.y ?? py };
+    };
     let drag: LinkDrag;
+    const id = sock.socket.identifier;
     if (!sock.isOutput) {
-      const existing = tree.links.filter((l) => l.to_node === sock.node && l.to_socket === sock.socket.identifier);
+      const existing = tree.links.filter((l) => l.to_node === sock.node && l.to_socket === id);
       if (existing.length) {
         // pick up the link from the input
         const l = existing[existing.length - 1];
-        const from = this.layouts.get(l.from_node)?.sockets.get(sockKey(true, l.from_socket));
         removeLinks(tree, new Set([l.id]));
         this.render();
-        drag = {
-          node: l.from_node,
-          socket: l.from_socket,
-          isOutput: true,
-          type: from?.socket.type ?? 'FLOAT',
-          x: from?.x ?? px,
-          y: from?.y ?? py,
-          px,
-          py,
-          detached: true,
-        };
-      } else
-        drag = {
-          node: sock.node,
-          socket: sock.socket.identifier,
-          isOutput: false,
-          type: sock.socket.type,
-          x: sock.x,
-          y: sock.y,
-          px,
-          py,
-        };
-    } else
-      drag = {
-        node: sock.node,
-        socket: sock.socket.identifier,
-        isOutput: true,
-        type: sock.socket.type,
-        x: sock.x,
-        y: sock.y,
-        px,
-        py,
-      };
+        drag = { isOutput: true, ends: [endOf(l.from_node, l.from_socket, true)], px, py, detached: true, origin: { node: sock.node, socket: id } };
+      } else drag = { isOutput: false, ends: [endOf(sock.node, id, false)], px, py };
+    } else {
+      const existing = tree.links.filter((l) => l.from_node === sock.node && l.from_socket === id);
+      if (e.ctrlKey && existing.length) {
+        // Ctrl: pick up every link leaving the output, to plug them into another output
+        removeLinks(tree, new Set(existing.map((l) => l.id)));
+        this.render();
+        drag = { isOutput: false, ends: existing.map((l) => endOf(l.to_node, l.to_socket, false)), px, py, detached: true };
+      } else drag = { isOutput: true, ends: [endOf(sock.node, id, true)], px, py };
+    }
     this.linkDrag = drag;
     this.drawOver();
+    let last = { x: e.clientX, y: e.clientY };
+    const update = () => {
+      const [x, y] = this.toNode(last.x, last.y);
+      drag.px = x;
+      drag.py = y;
+      drag.target = this.dropTarget(last.x, last.y, drag) ?? undefined;
+      this.drawOver();
+    };
+    const pan = this.edgePanner(update);
     this.track(
       e,
       (ev) => {
-        const [x, y] = this.toNode(ev.clientX, ev.clientY);
-        drag.px = x;
-        drag.py = y;
-        drag.target = this.dropTarget(ev.clientX, ev.clientY, drag) ?? undefined;
-        this.drawOver();
+        last = { x: ev.clientX, y: ev.clientY };
+        drag.swap = ev.altKey;
+        pan.update(ev.clientX, ev.clientY);
+        update();
       },
       (ev, moved) => {
+        pan.stop();
         this.linkDrag = null;
+        drag.swap = ev.altKey;
         const t = drag.target;
         if (t) {
-          const ctx = ctxOf(app.doc, tree);
-          const ok = drag.isOutput ? connect(ctx, drag.node, drag.socket, t.node, t.socket.identifier) : connect(ctx, t.node, t.socket.identifier, drag.node, drag.socket);
-          if (!ok) app.report('WARNING', 'Cannot link these sockets');
-          app.pushUndo('Link');
-          app.changed('doc');
+          if (this.dropLink(tree, drag, t)) {
+            app.pushUndo('Link');
+            app.changed('doc');
+          } else {
+            app.report('WARNING', 'Cannot link these sockets');
+            if (drag.detached) app.pushUndo('Remove Link');
+            app.changed('doc');
+          }
         } else if (drag.detached) {
           app.pushUndo('Remove Link');
           app.changed('doc');
-        } else if (moved) {
+        } else if (moved && drag.ends.length === 1) {
           this.render();
           this.linkDragSearch(drag, ev.clientX, ev.clientY);
         } else this.render();
@@ -1141,20 +1501,55 @@ export class NodeEditor implements Editor {
     );
   }
 
+  /** Connect a dragged link to its drop target; an input that was in use passes its link on. */
+  private dropLink(tree: NodeTreeData, d: LinkDrag, t: SocketPos & { node: string }): boolean {
+    const ctx = ctxOf(app.doc, tree);
+    if (!d.isOutput) {
+      let ok = false;
+      for (const end of d.ends) ok = !!connect(ctx, t.node, t.socket.identifier, end.node, end.socket) || ok;
+      return ok;
+    }
+    const end = d.ends[0];
+    const tid = t.socket.identifier;
+    const displaced = t.socket.multiInput ? undefined : tree.links.find((l) => l.to_node === t.node && l.to_socket === tid && !(l.from_node === end.node && l.from_socket === end.socket));
+    const link = connect(ctx, end.node, end.socket, t.node, tid);
+    if (!link) return false;
+    if (!displaced) return true;
+    const back = d.origin;
+    if (d.swap && back && !(back.node === t.node && back.socket === tid)) {
+      // Alt: the link that was there moves to where the dragged link came from
+      connect(ctx, displaced.from_node, displaced.from_socket, back.node, back.socket);
+      return true;
+    }
+    if (d.swap) return true;
+    // the displaced link moves on to the next free input of the same type, if there is one
+    const node = nodeById(tree, t.node);
+    if (!node) return true;
+    const ins = nodeSockets(node, ctx).inputs;
+    const i = ins.findIndex((s) => s.identifier === tid);
+    const order = [...ins.slice(i + 1), ...ins.slice(0, Math.max(0, i))];
+    const free = order.find((s) => s.type === t.socket.type && !tree.links.some((l) => l.to_node === t.node && l.to_socket === s.identifier));
+    if (free) connect(ctx, displaced.from_node, displaced.from_socket, t.node, free.identifier);
+    return true;
+  }
+
   /** Socket under the pointer (or the best socket of the node under it) for a dragged link. */
   private dropTarget(clientX: number, clientY: number, d: LinkDrag): (SocketPos & { node: string }) | null {
     const s = this.hitSocket(clientX, clientY, !d.isOutput);
+    const own = new Set(d.ends.map((x) => x.node));
     const ok = (t: SocketPos & { node: string }) =>
-      t.node !== d.node && (t.socket.type === 'CUSTOM' || d.type === 'CUSTOM' || (d.isOutput ? canConvert(d.type, t.socket.type) : canConvert(t.socket.type, d.type)));
+      !own.has(t.node) &&
+      d.ends.every((end) => t.socket.type === 'CUSTOM' || end.type === 'CUSTOM' || (d.isOutput ? canConvert(end.type, t.socket.type) : canConvert(t.socket.type, end.type)));
     if (s && ok(s)) return s;
     const n = this.hitNode(clientX, clientY, false);
-    if (!n || n.id === d.node) return null;
+    if (!n || own.has(n.id)) return null;
+    const type = d.ends[0].type;
     const l = this.layouts.get(n.id);
     if (!l) return null;
     const cands = [...l.sockets.values()].filter((p) => p.isOutput !== d.isOutput && !p.collapsed).map((p) => ({ ...p, node: n.id }));
     const tree = this.tree()!;
     const free = cands.filter((p) => p.isOutput || !tree.links.some((x) => x.to_node === n.id && x.to_socket === p.socket.identifier));
-    return free.find((p) => p.socket.type === d.type && ok(p)) ?? free.find(ok) ?? cands.find((p) => p.socket.type === d.type && ok(p)) ?? null;
+    return free.find((p) => p.socket.type === type && ok(p)) ?? free.find(ok) ?? cands.find((p) => p.socket.type === type && ok(p)) ?? null;
   }
 
   /** Dropping a new link on empty space: search for a node to connect (link drag search). */
@@ -1186,9 +1581,10 @@ export class NodeEditor implements Editor {
               tree,
             });
             const list = d.isOutput ? inputs : outputs;
+            const type = d.ends[0].type;
             for (const s of list) {
               if (s.type === 'CUSTOM') continue;
-              if (!(d.isOutput ? canConvert(d.type, s.type) : canConvert(s.type, d.type))) continue;
+              if (!(d.isOutput ? canConvert(type, s.type) : canConvert(s.type, type))) continue;
               out.push({
                 label: `${vlabel} ▸ ${s.label}`,
                 run: () => this.addConnected(it.idname, settings, s.identifier, d, clientX, clientY),
@@ -1218,8 +1614,9 @@ export class NodeEditor implements Editor {
     n.select = true;
     tree.active_node = n.id;
     const ctx = ctxOf(app.doc, tree);
-    if (d.isOutput) connect(ctx, d.node, d.socket, n.id, socket);
-    else connect(ctx, n.id, socket, d.node, d.socket);
+    const end = d.ends[0];
+    if (d.isOutput) connect(ctx, end.node, end.socket, n.id, socket);
+    else connect(ctx, n.id, socket, end.node, end.socket);
     app.pushUndo(`Add ${getNodeType(n.type)?.label ?? idname}`);
     app.changed('doc');
   }
@@ -1227,48 +1624,97 @@ export class NodeEditor implements Editor {
   // -------------------------------------------------------------------------
   // grab (G / tweak)
 
-  startGrab(ids: string[], mode: 'key' | 'tweak', label = 'Move', ev?: PointerEvent, from?: { x: number; y: number }) {
+  /**
+   * Interactive transform of nodes: move (G / drag), rotate (R) or scale (S) around the
+   * selection centre. Moving a single unlinked node over a link inserts it there.
+   */
+  startGrab(
+    ids: string[],
+    mode: 'key' | 'tweak',
+    label = 'Move',
+    ev?: PointerEvent,
+    from?: { x: number; y: number },
+    opts: { kind?: 'MOVE' | 'ROTATE' | 'SCALE'; onCancel?: () => void } = {},
+  ) {
     const tree = this.tree();
     if (!tree || !ids.length) return;
+    const kind = opts.kind ?? 'MOVE';
     // moving a frame moves its children
     const all = new Set(ids);
     const addChildren = (fid: string) => {
       for (const c of frameChildren(tree, fid)) if (!all.has(c.id)) (all.add(c.id), addChildren(c.id));
     };
-    for (const id of ids) if (getNodeType(nodeById(tree, id)?.type ?? '')?.layout === 'FRAME') addChildren(id);
-    // children of moved frames move with them; avoid moving a child twice
+    for (const id of ids) if (isFrame(nodeById(tree, id))) addChildren(id);
     const nodes = tree.nodes.filter((n) => all.has(n.id));
     const orig = new Map(nodes.map((n) => [n.id, [...n.location] as [number, number]]));
+    // rotate / scale act on node centres (node space, y down); frames that fit their children follow them
+    const sizes = new Map(nodes.map((n) => [n.id, this.layouts.get(n.id)]));
+    const pivotNodes = nodes.filter((n) => !(isFrame(n) && frameChildren(tree, n.id).length && propValue(n, 'shrink') !== false));
+    const centre = (n: NodeData): [number, number] => {
+      const l = sizes.get(n.id);
+      const o = orig.get(n.id)!;
+      return [o[0] + (l?.w ?? 0) / 2, -o[1] + (l && l.kind !== 'REROUTE' ? l.h / 2 : 0)];
+    };
+    const pc = pivotNodes.map(centre);
+    const pivot: [number, number] = pc.length ? [pc.reduce((s, p) => s + p[0], 0) / pc.length, pc.reduce((s, p) => s + p[1], 0) / pc.length] : [0, 0];
     const p0 = ev ? [ev.clientX, ev.clientY] : from ? [from.x, from.y] : [app.pointer.x, app.pointer.y];
     const [sx, sy] = this.toNode(p0[0], p0[1]);
-    const single = nodes.length === 1 && nodes[0].type !== 'NodeFrame' && !tree.links.some((l) => l.from_node === nodes[0].id || l.to_node === nodes[0].id) ? nodes[0] : null;
+    const single = kind === 'MOVE' && nodes.length === 1 && !isFrame(nodes[0]) && !tree.links.some((l) => l.from_node === nodes[0].id || l.to_node === nodes[0].id) ? nodes[0] : null;
     let lastClient = p0;
+    let snapOn = false;
+    let info = '';
     const apply = (clientX: number, clientY: number, snap: boolean) => {
       lastClient = [clientX, clientY];
+      snapOn = snap;
       const [x, y] = this.toNode(clientX, clientY);
-      let dx = x - sx,
-        dy = y - sy;
-      if (snap) {
-        dx = Math.round(dx / 20) * 20;
-        dy = Math.round(dy / 20) * 20;
-      }
-      for (const n of nodes) {
-        const o = orig.get(n.id)!;
-        n.location = [o[0] + dx, o[1] - dy];
+      if (kind === 'MOVE') {
+        let dx = x - sx,
+          dy = y - sy;
+        if (snap) {
+          dx = Math.round(dx / 20) * 20;
+          dy = Math.round(dy / 20) * 20;
+        }
+        for (const n of nodes) {
+          const o = orig.get(n.id)!;
+          n.location = [o[0] + dx, o[1] - dy];
+        }
+        info = `D: ${Math.round(dx)}  ${Math.round(-dy)}`;
+      } else {
+        let a = 0,
+          f = 1;
+        if (kind === 'ROTATE') {
+          a = Math.atan2(y - pivot[1], x - pivot[0]) - Math.atan2(sy - pivot[1], sx - pivot[0]);
+          if (snap) a = (Math.round((a * 180) / Math.PI / 5) * 5 * Math.PI) / 180;
+          info = `Rot: ${Math.round((-a * 180) / Math.PI)}°`;
+        } else {
+          const d0 = Math.hypot(sx - pivot[0], sy - pivot[1]) || 1;
+          f = Math.hypot(x - pivot[0], y - pivot[1]) / d0;
+          if (snap) f = Math.round(f * 10) / 10;
+          info = `Scale: ${f.toFixed(3)}`;
+        }
+        const c = Math.cos(a),
+          s = Math.sin(a);
+        for (const n of nodes) {
+          const [cx, cy] = centre(n);
+          const rx = cx - pivot[0],
+            ry = cy - pivot[1];
+          const nx = pivot[0] + (rx * c - ry * s) * f,
+            ny = pivot[1] + (rx * s + ry * c) * f;
+          const o = orig.get(n.id)!;
+          n.location = [o[0] + nx - cx, o[1] - (ny - cy)];
+        }
       }
       this.insertTarget = single ? this.linkAt(clientX, clientY, 12) : null;
-      if (this.insertTarget && single) {
-        const l = tree.links.find((x) => x.id === this.insertTarget);
-        if (l && (l.from_node === single.id || l.to_node === single.id)) this.insertTarget = null;
-      }
       this.refreshPositions();
     };
+    const pan = this.edgePanner(() => apply(lastClient[0], lastClient[1], snapOn));
     const self = this;
     app.startModal({
       label,
-      cursor: 'move',
+      cursor: kind === 'MOVE' ? 'move' : 'crosshair',
       onPointerMove(e) {
-        apply(e.clientX, e.clientY, e.ctrlKey);
+        if (kind === 'MOVE') pan.update(e.clientX, e.clientY);
+        apply(e.clientX, e.clientY, e.ctrlKey || e.metaKey);
       },
       onPointerDown(e) {
         if (e.button === 0) return 'FINISHED';
@@ -1278,32 +1724,42 @@ export class NodeEditor implements Editor {
         if (mode === 'tweak' && e.button === 0) return 'FINISHED';
       },
       onKey(e) {
+        if (e.key === 'Control' || e.key === 'Meta') {
+          apply(lastClient[0], lastClient[1], e.type === 'keydown');
+          return;
+        }
         if (e.type !== 'keydown') return;
         if (e.key === 'Escape') return 'CANCELLED';
         if (e.key === 'Enter' || e.key === ' ') return 'FINISHED';
-        if (e.key === 'Control') apply(lastClient[0], lastClient[1], true);
       },
       cancel() {
+        pan.stop();
         for (const n of nodes) n.location = orig.get(n.id)!;
         self.insertTarget = null;
+        opts.onCancel?.();
         self.render();
       },
       finish() {
-        if (self.insertTarget && single) insertOnLink(ctxOf(app.doc, tree), single.id, self.insertTarget);
+        pan.stop();
+        if (self.insertTarget && single) {
+          const ctx = ctxOf(app.doc, tree);
+          if (insertOnLink(ctx, single.id, self.insertTarget)) insertOffset(tree, single, (n) => self.layouts.get(n.id)?.w ?? n.width ?? 140);
+        }
         self.insertTarget = null;
+        if (kind !== 'MOVE') return;
         // dropping nodes on a frame attaches them
         for (const n of nodes) {
-          if (n.parent || n.type === 'NodeFrame') continue;
+          if (n.parent || isFrame(n)) continue;
           const l = self.layouts.get(n.id);
           if (!l) continue;
           for (const f of tree.nodes) {
-            if (f.type !== 'NodeFrame' || all.has(f.id)) continue;
+            if (!isFrame(f) || all.has(f.id)) continue;
             const fl = self.layouts.get(f.id);
             if (fl && l.x >= fl.x && l.y >= fl.y && l.x + l.w <= fl.x + fl.w && l.y + l.h <= fl.y + fl.h) n.parent = f.id;
           }
         }
       },
-      header: () => 'Move nodes: LMB/Enter confirm, RMB/Esc cancel, Ctrl snap',
+      header: () => `${info}   ${kind === 'MOVE' ? 'Move' : kind === 'ROTATE' ? 'Rotate' : 'Scale'} nodes: LMB/Enter confirm, RMB/Esc cancel, Ctrl snap`,
     });
   }
 

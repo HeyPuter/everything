@@ -336,6 +336,8 @@ export interface NodeData {
   open_panels?: string[];
   /** Hide the node's property buttons (show_options off) */
   hide_options?: boolean;
+  /** number key (1-9) that views this node in the node editor */
+  viewer_shortcut?: number;
 }
 
 export interface LinkData {
@@ -355,6 +357,10 @@ export interface NodeTreeData {
   interface?: { in_out: 'INPUT' | 'OUTPUT'; name: string; socket_type: string; default_value?: SocketValue; min_value?: number; max_value?: number; identifier: string }[];
   active_node?: ID | null;
   view?: { x: number; y: number; zoom: number };
+  /** node groups: description shown as a tooltip */
+  description?: string;
+  /** node groups: width of newly added group nodes */
+  default_group_node_width?: number;
 }
 
 export interface NodeGroupData {

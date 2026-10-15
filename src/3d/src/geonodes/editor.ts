@@ -90,19 +90,6 @@ export class GeometryNodeEditor extends NodeEditor {
     super(area, state, 'GEOMETRY');
     const st = (state ?? {}) as { pinned?: string | null };
     if (st.pinned) this.pinned = st.pinned;
-    // Ctrl Shift click: link the clicked node to the viewer
-    this.el.addEventListener(
-      'pointerdown',
-      (e) => {
-        if (e.button !== 0 || !e.shiftKey || !(e.ctrlKey || e.metaKey) || app.modal) return;
-        const n = this.hitNode(e.clientX, e.clientY, false);
-        if (!n) return;
-        e.preventDefault();
-        e.stopPropagation();
-        linkToViewer(this, n);
-      },
-      true,
-    );
   }
   serialize() {
     return { ...super.serialize(), pinned: this.pinned };
@@ -170,10 +157,12 @@ registerNodeEditorProvider({
             ['node_tree', group.name],
           ]
         : [['node_tree', group.name]];
-    return { tree: group.tree, key: `ng:${group.id}`, crumbs };
+    return { tree: group.tree, key: `ng:${group.id}`, crumbs, groupId: group.id };
   },
   emptyMessage: () => '',
   menuPoll: (idname) => !!getNodeType(idname)?.treeTypes.includes('GEOMETRY'),
+  // Ctrl Shift click / node.link_viewer: link the node to the viewer
+  linkViewer: (ed, node) => linkToViewer(ed as NodeEditor, node),
   headerRight: (e) => {
     const ed = e as GeometryNodeEditor;
     const doc = app.doc;
@@ -299,17 +288,17 @@ function geometrySourceFor(tree: NodeTreeData, start: NodeData): { node: string;
   return null;
 }
 
-export function linkToViewer(ed: NodeEditor, node: NodeData) {
+export function linkToViewer(ed: NodeEditor, node: NodeData): boolean {
   const tree = ed.tree();
-  if (!tree) return;
+  if (!tree) return false;
   const ctx = ctxOf(app.doc, tree);
   if (node.type === VIEWER) {
     activateViewer(tree, isActiveViewer(node) ? null : node);
-    changed('Toggle Viewer');
-    return;
+    app.changed('doc');
+    return true;
   }
   const outs = nodeSockets(node, ctx).outputs.filter((s) => s.type !== 'CUSTOM' && (s.type === 'GEOMETRY' || VIEW_DATA_TYPE[s.type]));
-  if (!outs.length) return;
+  if (!outs.length) return false;
   let viewer = tree.nodes.find((n) => n.type === VIEWER);
   if (!viewer) {
     viewer = addNode(tree, VIEWER, [node.location[0] + (node.width ?? 140) + 80, node.location[1]]);
@@ -330,7 +319,8 @@ export function linkToViewer(ed: NodeEditor, node: NodeData) {
     }
   }
   activateViewer(tree, viewer);
-  changed('Link to Viewer');
+  app.changed('doc');
+  return true;
 }
 
 // viewer node body: activation toggle
@@ -508,19 +498,6 @@ registerOperators([
       const g = newNodeGroup(uniqueGroupName(doc, 'Geometry Nodes'));
       doc.node_groups[g.id] = g;
       m.node_group = g.id;
-    },
-  },
-  {
-    idname: 'node.link_viewer',
-    label: 'Link to Viewer Node',
-    description: 'Link the active node to a viewer node',
-    poll: (ctx) => ctx.area?.editor instanceof GeometryNodeEditor && !!(ctx.area.editor as GeometryNodeEditor).tree()?.active_node,
-    exec: (ctx) => {
-      const ed = ctx.area!.editor as GeometryNodeEditor;
-      const tree = ed.tree()!;
-      const n = nodeById(tree, tree.active_node!);
-      if (!n) return 'CANCELLED';
-      linkToViewer(ed, n);
     },
   },
   {

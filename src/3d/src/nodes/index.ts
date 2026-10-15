@@ -6,6 +6,7 @@ import './shader/material';
 import './shader/world';
 import './editor/nodes.css';
 import './editor/ops';
+import './editor/commands';
 import './editor/rampui';
 import './editor/shaderprovider';
 import './properties';
