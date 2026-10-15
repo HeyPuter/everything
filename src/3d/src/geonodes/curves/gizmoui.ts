@@ -5,7 +5,7 @@ import { h, type VNode } from '../../ui/h';
 import { app } from '../../app/app';
 import { editModeHooks } from '../../editors/view3d/hooks';
 import type { View3D } from '../../editors/view3d/view3d';
-import type { ModifierBase, NodeTreeData } from '../../data/types';
+import type { ModifierBase, NodeData, NodeTreeData } from '../../data/types';
 import { gizmoStates, matrixTargets, valueTargets, type GizmoState, type MatrixTarget, type ValueTarget } from './gizmos';
 
 const COLORS: Record<string, string> = { PRIMARY: '#f5a623', SECONDARY: '#5ac8fa', X: '#ff3352', Y: '#8bdc00', Z: '#2890ff' };
@@ -185,21 +185,48 @@ function rotationAbout(axis: Vector3, angle: number, pivot: Vector3): Matrix4 {
     .multiply(new Matrix4().makeTranslation(-pivot.x, -pivot.y, -pivot.z));
 }
 
+/** Live document data of a gizmo: its tree, modifier and node looked up by id at the time of use. */
+function liveTarget(key: string) {
+  const [objectId, modifierId, nodeId] = key.split('/');
+  const ob = app.doc.objects[objectId];
+  const mod = ob?.modifiers.find((m) => m.id === modifierId);
+  const gid = (mod as { node_group?: string | null } | undefined)?.node_group;
+  const tree = gid ? app.doc.node_groups[gid]?.tree : undefined;
+  const node = tree?.nodes.find((n) => n.id === nodeId);
+  return mod && tree && node ? { mod, tree, node } : null;
+}
+
 editModeHooks.pointer.push((v: View3D, e: PointerEvent) => {
-  const el = (e.target as Element | null)?.closest?.('[data-gngizmo]');
-  if (!el) return false;
-  const [key, part] = el.getAttribute('data-gngizmo')!.split('|');
-  const g = liveGizmos().find((x) => keyOf(x) === key);
-  const node = g?.tree.nodes.find((n) => n.id === g.state.nodeId);
-  if (!g || !node) return false;
+  if (!(e.target as Element | null)?.closest?.('[data-gngizmo]')) return false;
+  // every handle under the pointer, topmost first: overlapping gizmos without anything to edit
+  // let the click through to the next one
+  const hits = typeof document.elementsFromPoint === 'function' ? document.elementsFromPoint(e.clientX, e.clientY) : [e.target as Element];
+  const ids: string[] = [];
+  for (const h0 of hits) {
+    const id = h0.closest?.('[data-gngizmo]')?.getAttribute('data-gngizmo');
+    if (id && !ids.includes(id)) ids.push(id);
+  }
+  const live = liveGizmos();
+  let picked: { g: Live; part: string; node: NodeData; values: ValueTarget[]; mats: MatrixTarget[] } | null = null;
+  for (const id of ids) {
+    const [key, part] = id.split('|');
+    const g = live.find((x) => keyOf(x) === key);
+    const t = liveTarget(key);
+    if (!g || !t) continue;
+    const values = g.state.kind === 'TRANSFORM' ? [] : valueTargets(app.doc, t.tree, t.mod, t.node);
+    const mats = g.state.kind === 'TRANSFORM' ? matrixTargets(t.tree, t.mod, t.node) : [];
+    if (values.length || mats.length) {
+      picked = { g, part, node: t.node, values, mats };
+      break;
+    }
+  }
   e.preventDefault();
   e.stopPropagation();
-  const values: ValueTarget[] = g.state.kind === 'TRANSFORM' ? [] : valueTargets(app.doc, g.tree, g.mod, node);
-  const mats: MatrixTarget[] = g.state.kind === 'TRANSFORM' ? matrixTargets(g.tree, g.mod, node) : [];
-  if (!values.length && !mats.length) {
+  if (!picked) {
     app.report('INFO', 'Link a Value node or a modifier input into the gizmo to edit it');
     return true;
   }
+  const { g, part, values, mats } = picked;
   const startVals = values.map((t) => t.get());
   const startMats = mats.map((t) => t.get());
   const s0 = v.local(e);
