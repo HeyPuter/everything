@@ -289,13 +289,7 @@ export let latestCryptoManifest: ExtraPassResult['manifest'] = {};
 /** Whether any of these passes is enabled. */
 export function wantsIdPasses(doc: DocumentData): boolean {
   const r = doc.scene.render;
-  return !!(
-    r.use_pass_vector ||
-    r.use_pass_cryptomatte_object ||
-    r.use_pass_cryptomatte_material ||
-    r.use_pass_cryptomatte_asset ||
-    r.aovs?.length
-  );
+  return !!(r.use_pass_vector || r.use_pass_cryptomatte_object || r.use_pass_cryptomatte_material || r.use_pass_cryptomatte_asset || r.aovs?.length);
 }
 
 /** Render the enabled ID and motion passes of the scene (top-down rows like the other passes). */
