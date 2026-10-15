@@ -787,3 +787,18 @@ describe('flip quad tessellation', () => {
     expect(MeshEdit.from(me).faces[0].flip).toBe(true);
   });
 });
+
+describe('face strength', () => {
+  it('is stored per face and survives edits that keep the faces', () => {
+    const me = newMeshData('C', prim.cube(2));
+    const m = MeshEdit.from(me);
+    m.faces[2].strength = 2;
+    m.write(me);
+    expect(Array.from(me.face_strength!)).toEqual([1, 1, 2, 1, 1, 1]);
+    const back = MeshEdit.from(me);
+    selectAll(back);
+    moveSelected(back, new Vector3(1, 0, 0));
+    back.write(me);
+    expect(me.face_strength![2]).toBe(2);
+  });
+});

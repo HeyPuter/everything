@@ -258,7 +258,14 @@ export function normalsMenu(): MenuItem[] {
     { label: 'Paste Vector', op: 'mesh.normals_tools', props: { mode: 'PASTE' } },
     { label: 'Smooth Vectors', op: 'mesh.smooth_normals' },
     { label: 'Reset Vectors', op: 'mesh.normals_tools', props: { mode: 'RESET' } },
+    { separator: true },
+    { label: 'Select by Face Strength', submenu: () => strengthItems(false) },
+    { label: 'Set Face Strength', submenu: () => strengthItems(true) },
   ];
+}
+
+function strengthItems(set: boolean): MenuItem[] {
+  return (['WEAK', 'MEDIUM', 'STRONG'] as const).map((k) => ({ label: k[0] + k.slice(1).toLowerCase(), op: 'mesh.mod_weighted_strength', props: { set, face_strength: k } }));
 }
 
 function shadingMenu(): MenuItem[] {

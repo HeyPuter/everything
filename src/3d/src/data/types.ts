@@ -93,6 +93,8 @@ export interface MeshData {
   custom_normals?: Float32Array;
   /** per face: split this quad along the other diagonal than the automatic choice */
   quad_flip?: Uint8Array;
+  /** per face strength for the Weighted Normal modifier's face influence: 0 weak, 1 medium, 2 strong */
+  face_strength?: Uint8Array;
   /** per-face smooth shading flag */
   smooth?: Uint8Array;
   /** per-face material slot index */

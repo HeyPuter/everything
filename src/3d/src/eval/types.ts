@@ -13,6 +13,8 @@ export interface EvalMesh {
   custom_normals?: Float32Array;
   /** per face: quads split along the other diagonal */
   quad_flip?: Uint8Array;
+  /** per face strength (0 weak, 1 medium, 2 strong) */
+  face_strength?: Uint8Array;
   smooth?: Uint8Array;
   material_index?: Uint16Array;
   seams?: Uint32Array;

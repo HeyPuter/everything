@@ -8,6 +8,7 @@ import { withEdit, worldMatrix, selectMode, editMeshObjects } from './context';
 import { editPoll } from './ops-basic';
 import { V } from './geom';
 import { startValueModal } from './modal';
+import { selectFaces as selectFaceSet } from './selset';
 
 /** Make sure every face carries custom normals (filled with the automatic ones). */
 export function ensureCustomNormals(m: MeshEdit) {
@@ -316,6 +317,28 @@ registerOperators([
       return startValueModal({ label: 'Rotate Normals', idname: 'transform.rotate_normal', prop: 'value', initial: 0, perPixel: Math.PI / 360, name: 'Angle', unit: ' rad', apply: (m, a, i) => rotateNormals(m, axes[i] ?? new Vector3(0, 0, 1), a) }, ctx.event);
     },
     exec: (_ctx, p) => (withEdit((m, ob) => rotateNormals(m, viewAxisLocal(ob), p.value as number)) ? 'FINISHED' : 'CANCELLED'),
+  },
+  {
+    idname: 'mesh.mod_weighted_strength',
+    label: 'Face Normals Strength',
+    description: 'Set or select by the face strength used by the Weighted Normal modifier',
+    props: [
+      { id: 'set', label: 'Set Value', type: 'bool', default: false },
+      { id: 'face_strength', label: 'Face Strength', type: 'enum', default: 'MEDIUM', items: [['WEAK', 'Weak'], ['MEDIUM', 'Medium'], ['STRONG', 'Strong']] },
+    ],
+    poll: editPoll,
+    exec: (_ctx, p) => {
+      const value = ['WEAK', 'MEDIUM', 'STRONG'].indexOf(p.face_strength as string);
+      if (p.set) return withEdit((m) => (m.selectedFaces().forEach((fi) => (m.faces[fi].strength = value)), m.selectedFaces().length > 0)) ? 'FINISHED' : 'CANCELLED';
+      // select the faces with that strength
+      for (const { me } of editMeshObjects()) {
+        const faces = new Set<number>();
+        const n = me.offsets.length - 1;
+        for (let f = 0; f < n; f++) if ((me.face_strength?.[f] ?? 1) === value) faces.add(f);
+        selectFaceSet(me, faces);
+      }
+      app.changed('select');
+    },
   },
   {
     idname: 'mesh.customdata_custom_splitnormals_clear',

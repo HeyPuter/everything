@@ -614,7 +614,13 @@ function weightedNormalMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
     if (!cs.length) continue;
     // fan grouping (only when keeping sharp edges)
     const groups: number[][] = keepSharp && sharpSet.size ? fanGroups(m, v, cs, cornerFace, sharpSet) : [cs];
-    for (const g of groups) {
+    for (const gAll of groups) {
+      // face influence: only the strongest faces around the vertex count
+      let g = gAll;
+      if (bool(mod, 'use_face_influence') && m.face_strength) {
+        const top = Math.max(...gAll.map((c) => m.face_strength![cornerFace[c]] ?? 1));
+        g = gAll.filter((c) => (m.face_strength![cornerFace[c]] ?? 1) === top);
+      }
       const vals = g.map((c) => value(cornerFace[c], c));
       const max = Math.max(...vals) || 1;
       const n = new Vector3();
@@ -625,7 +631,7 @@ function weightedNormalMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
         n.addScaledVector(fn[cornerFace[c]], vals[i] * Math.pow(exponent, -tier * 10));
       });
       n.normalize();
-      for (const c of g) out.set([n.x, n.y, n.z], c * 3);
+      for (const c of gAll) out.set([n.x, n.y, n.z], c * 3);
     }
   }
   return { ...m, smooth: new Uint8Array(nf).fill(1), custom_normals: out } as EvalMesh;
@@ -733,6 +739,7 @@ modifierFields.WEIGHTED_NORMAL = [
   ['weight', 'Weight', 'int', { min: 1, max: 100 }],
   ['thresh', 'Threshold', 'num'],
   ['keep_sharp', 'Keep Sharp', 'bool'],
+  ['use_face_influence', 'Face Influence', 'bool'],
 ];
 
 void Mesh;
