@@ -108,7 +108,7 @@ function updateLut(t: DataTexture, data: Float32Array, nearest: boolean) {
   return true;
 }
 
-function initialValue(doc: DocumentData, u: UniformSpec, luts: DataTexture[]): unknown {
+export function initialValue(doc: DocumentData, u: UniformSpec, luts: DataTexture[]): unknown {
   const v = u.value;
   if (typeof v === 'number') return v;
   if (Array.isArray(v)) return v.length === 3 ? new Vector3(v[0], v[1], v[2]) : new Vector4(v[0], v[1], v[2], v[3] ?? 1);

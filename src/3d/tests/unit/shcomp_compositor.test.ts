@@ -157,3 +157,29 @@ describe('Track Position', () => {
     expect(trackPosition(clip, 'missing', 'Absolute', 1, 0)).toEqual({ x: 0, y: 0, speed: [0, 0, 0, 0] });
   });
 });
+
+describe('cryptomatte', () => {
+  it('hashes names to the IDs other cryptomatte readers expect', async () => {
+    const { cryptoId, cryptoHex, murmur3 } = await import('../../src/render/final/extrapasses');
+    // values read back from cryptomatte passes rendered elsewhere for the default scene
+    expect(cryptoId('Cube')).toBe(Math.fround(-2.8078405282815945e-14));
+    expect(cryptoHex('Cube')).toBe('a8fce865');
+    expect(cryptoId('Material')).toBe(Math.fround(0.00014031161845196038));
+    expect(cryptoHex('Material')).toBe('3913209d');
+    expect(murmur3('')).toBe(0);
+    expect(Number.isFinite(cryptoId('ünïcödé name'))).toBe(true);
+  });
+  it('ranks IDs by coverage and sums the coverage of picked names', async () => {
+    const { rankCoverage } = await import('../../src/render/final/extrapasses');
+    const { cryptoMatte, matteNames } = await import('../../src/compositor/ops/crypto');
+    // one pixel, four samples: id 5 three times, id 7 once
+    const s = (id: number) => new Float32Array([id, 0, 0, 1]);
+    const layers = rankCoverage([s(5), s(7), s(5), s(5)], 0, 1, 4);
+    expect(layers.length).toBe(2);
+    expect(Array.from(layers[0])).toEqual([5, 0.75, 7, 0.25]);
+    expect(cryptoMatte([Array.from(layers[0]), Array.from(layers[1])], [7])).toBe(0.25);
+    expect(cryptoMatte([Array.from(layers[0])], [5, 7])).toBe(1);
+    expect(matteNames('Cube, "Sphere, big", Plane')).toEqual(['Cube', 'Sphere, big', 'Plane']);
+    expect(matteNames('')).toEqual([]);
+  });
+});

@@ -159,6 +159,10 @@ registerTab({
 // ---------------------------------------------------------------------------
 // View layer
 
+/** Extra rows of View Layer ▸ Passes and extra View Layer panels (registered by feature modules). */
+export const viewLayerPassItems: (() => Child)[] = [];
+export const viewLayerPanels: (() => Child)[] = [];
+
 registerTab({
   id: 'VIEW_LAYER',
   label: 'View Layer',
@@ -174,7 +178,9 @@ registerTab({
         bool(r, 'use_pass_z', 'Z'),
         bool(r, 'use_pass_mist', 'Mist'),
         bool(r, 'use_pass_normal', 'Normal'),
+        ...viewLayerPassItems.map((f) => f()),
       ]),
+      ...viewLayerPanels.map((f) => f()),
     ];
   },
 });

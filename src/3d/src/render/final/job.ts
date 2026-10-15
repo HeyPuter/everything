@@ -21,6 +21,7 @@ import { showRenderView } from './renderwindow';
 import { shell } from '../../ui/shell';
 import type { ViewSettings } from './colormanage';
 import { passesFromGuide } from './passes';
+import { renderExtraPasses, wantsExtraPasses } from './extrapasses';
 
 type Source = { kind: 'final' } | { kind: 'viewport'; view: View3D };
 
@@ -397,6 +398,8 @@ async function renderFrame(src: Source, W: number, H: number, onPartial: (buf: F
         }
       }
     }
+    // object/material indexes, cryptomatte and shader AOVs
+    if (wantsExtraPasses(doc)) Object.assign(passes, (await renderExtraPasses({ renderer, scene: guideScene.scene, camera, W, H, doc, yieldFrame: nextFrame })).passes);
     guideScene.dispose();
     if (!(engine === 'WORKBENCH' && r.film_transparent) && !r.film_transparent) for (let i = 3; i < combined.length; i += 4) combined[i] = 1;
     return { combined, passes, samples, maxSamples, view };

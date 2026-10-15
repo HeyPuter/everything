@@ -842,7 +842,7 @@ const OBJECT_ONLY = new Set([
 ]);
 const WORLD_ONLY = new Set(['ShaderNodeOutputWorld', 'ShaderNodeBackground']);
 /** Output nodes whose feature is not available yet are left out of the menu. */
-export const hiddenShaderEntries = new Set<string>(['ShaderNodeOutputAOV', 'ShaderNodeOutputLight']);
+export const hiddenShaderEntries = new Set<string>(['ShaderNodeOutputLight']);
 export function shaderEntryPoll(idname: string, shaderType: 'OBJECT' | 'WORLD') {
   if (hiddenShaderEntries.has(idname)) return false;
   if (!getNodeType(idname)) return false;

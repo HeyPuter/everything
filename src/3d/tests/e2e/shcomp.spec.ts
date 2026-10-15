@@ -310,3 +310,78 @@ test('movie clip nodes show footage frames, stabilize and undistort them', async
   expect(Math.abs(res.undCentre[0] - res.frame[3][0])).toBeLessThan(0.02);
   await expectNoErrors(errors);
 });
+
+test('index, cryptomatte and AOV passes feed Render Layers, Cryptomatte and ID Mask', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = await openApp(page);
+  const res = await page.evaluate(async () => {
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const doc = a.doc;
+    const r = doc.scene.render;
+    r.resolution_x = 96;
+    r.resolution_y = 54;
+    r.resolution_percentage = 100;
+    r.engine = 'RASTER';
+    r.raster_samples = 1;
+    r.use_pass_object_index = true;
+    r.use_pass_cryptomatte_object = true;
+    r.aovs = [{ name: 'Mask', type: 'VALUE' }];
+    const cube = Object.values(doc.objects).find((o: any) => o.name === 'Cube') as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    cube.pass_index = 3;
+    const { activeMaterial } = await import('/src/editors/properties/tabs.ts');
+    const { addNode, connect, ctxOf } = await import('/src/nodes/tree.ts');
+    const aov = addNode(activeMaterial(cube).tree, 'ShaderNodeOutputAOV', [0, 0]);
+    aov.props.aov_name = 'Mask';
+    aov.inputs.Value = 0.25;
+    // compositing: Render Layers → Cryptomatte (Cube) / ID Mask (3) / AOV
+    const { compositingGroup, newCompositingGroup } = await import('/src/compositor/data.ts');
+    const g = compositingGroup(doc) ?? newCompositingGroup(doc);
+    const tree = g.tree;
+    tree.nodes = tree.nodes.filter((n: { type: string }) => n.type === 'NodeGroupOutput');
+    tree.links = [];
+    const rl = addNode(tree, 'CompositorNodeRLayers', [0, 0]);
+    const cm = addNode(tree, 'CompositorNodeCryptomatteV2', [200, 0]);
+    cm.props.matte_id = 'Cube';
+    const idm = addNode(tree, 'CompositorNodeIDMask', [200, 0]);
+    idm.inputs.Index = 3;
+    const ctx = ctxOf(doc, tree);
+    connect(ctx, rl.id, 'Image', cm.id, 'Image');
+    connect(ctx, rl.id, 'IndexOB', idm.id, 'ID value');
+    const { startRender, renderJob } = await import('/src/render/final/job.ts');
+    const { renderResult } = await import('/src/render/final/result.ts');
+    const { runCompositor } = await import('/src/compositor/run.ts');
+    const extra = await import('/src/render/final/extrapasses.ts');
+    a.changed('doc');
+    await startRender({ animation: false, viewport: null });
+    for (let i = 0; i < 300 && renderJob(); i++) await new Promise((res) => setTimeout(res, 100));
+    const result = renderResult.get()!;
+    const P = result.viewLayer ?? result.passes;
+    const layers = { width: result.width, height: result.height, version: `${Math.random()}`, passes: P };
+    const W = result.width,
+      H = result.height;
+    const sample = (out: string, node: { id: string }) => {
+      tree.links = tree.links.filter((l: { to_node: string }) => l.to_node !== tree.nodes[0].id);
+      connect(ctx, node.id, out, tree.nodes[0].id, 'Socket_1');
+      const o = runCompositor(doc, { layers, composite: true, viewer: false });
+      const d = o.composite!.data;
+      const c = ((H >> 1) * W + (W >> 1)) * 4;
+      return { centre: d[c], corner: d[0], errors: [...o.errors.values()] };
+    };
+    return {
+      passes: Object.keys(P),
+      manifest: Object.keys(extra.latestCryptoManifest.CryptoObject ?? {}),
+      crypto: sample('Matte', cm),
+      id: sample('Alpha', idm),
+      aov: sample('AOV Mask', rl),
+    };
+  });
+  expect(res.passes).toEqual(expect.arrayContaining(['IndexOB', 'CryptoObject00', 'AOV Mask']));
+  expect(res.manifest).toContain('Cube');
+  for (const k of ['crypto', 'id'] as const) {
+    expect(res[k].errors, k).toEqual([]);
+    expect(res[k].centre, k).toBeCloseTo(1, 3);
+    expect(res[k].corner, k).toBe(0);
+  }
+  expect(res.aov.centre).toBeCloseTo(0.25, 3);
+  await expectNoErrors(errors);
+});

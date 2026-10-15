@@ -296,7 +296,25 @@ function availability(d: NodeTypeDef, rules: Record<string, (n: NodeData) => boo
     if (s.identifier === 'Depth') return !!r.use_pass_z;
     if (s.identifier === 'Normal') return !!r.use_pass_normal;
     if (s.identifier === 'Mist') return !!r.use_pass_mist;
+    if (s.identifier === 'IndexOB') return !!r.use_pass_object_index;
+    if (s.identifier === 'IndexMA') return !!r.use_pass_material_index;
     return true;
+  };
+  d.outputs.push({ name: 'IndexOB', identifier: 'IndexOB', type: 'FLOAT' }, { name: 'IndexMA', identifier: 'IndexMA', type: 'FLOAT' });
+  // shader AOVs and cryptomatte layers follow the View Layer settings
+  d.dynamicSockets = (n, ctx) => {
+    const r = ctx.doc.scene.render;
+    const outputs = [...d.outputs];
+    for (const a of r.aovs ?? []) if (a.name) outputs.push({ name: a.name, identifier: `AOV ${a.name}`, type: a.type === 'VALUE' ? 'FLOAT' : 'RGBA' });
+    const depth = Math.max(2, Math.min(16, Math.round(r.pass_cryptomatte_depth ?? 6)));
+    for (const [layer, on] of [
+      ['CryptoObject', r.use_pass_cryptomatte_object],
+      ['CryptoMaterial', r.use_pass_cryptomatte_material],
+      ['CryptoAsset', r.use_pass_cryptomatte_asset],
+    ] as const)
+      if (on) for (let i = 0; i < Math.ceil(depth / 2); i++) outputs.push({ name: `${layer}${String(i).padStart(2, '0')}`, identifier: `${layer}${String(i).padStart(2, '0')}`, type: 'RGBA' });
+    void n;
+    return { inputs: d.inputs, outputs };
   };
 }
 {
