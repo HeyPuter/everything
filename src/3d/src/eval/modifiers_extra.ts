@@ -14,6 +14,7 @@ import { bevelEdges } from '../modes/editmesh/bevel';
 import { bevelMeshVertices } from './mods/vbevel';
 import { voxelRemesh } from '../paint/remesh';
 import { unsubdivide } from './mods/multires';
+import { currentCornerNormals } from './mods/normals';
 
 const num = (m: ModifierBase, k: string, d = 0) => (typeof m[k] === 'number' ? (m[k] as number) : d);
 const bool = (m: ModifierBase, k: string, d = false) => (typeof m[k] === 'boolean' ? (m[k] as boolean) : d);
@@ -763,6 +764,14 @@ function weightedNormalMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
       for (const c of gAll) out.set([n.x, n.y, n.z], c * 3);
     }
   }
+  // a vertex group limits the effect: other vertices keep their current normals
+  const gi = m.vertex_groups?.findIndex((g) => g.name === str(mod, 'vertex_group')) ?? -1;
+  const gw = gi >= 0 ? m.weights?.[gi] : undefined;
+  if (gw) {
+    const inv = bool(mod, 'invert_vertex_group');
+    const orig = currentCornerNormals(m);
+    for (let c = 0; c < m.indices.length; c++) if ((gw[m.indices[c]] > 0) === inv) out.set(orig.subarray(c * 3, c * 3 + 3), c * 3);
+  }
   return { ...m, smooth: new Uint8Array(nf).fill(1), custom_normals: out } as EvalMesh;
 }
 
@@ -835,7 +844,7 @@ registerModifier({
   label: 'Weighted Normal',
   category: 'NORMALS',
   icon: 'mod_normaledit',
-  defaults: base({ mode: 'FACE_AREA', weight: 50, thresh: 0.01, keep_sharp: false }),
+  defaults: base({ mode: 'FACE_AREA', weight: 50, thresh: 0.01, keep_sharp: false, use_face_influence: false, vertex_group: '', invert_vertex_group: false }),
   apply: weightedNormalMod,
 });
 
@@ -865,6 +874,7 @@ modifierFields.WEIGHTED_NORMAL = [
   ['thresh', 'Threshold', 'num'],
   ['keep_sharp', 'Keep Sharp', 'bool'],
   ['use_face_influence', 'Face Influence', 'bool'],
+  ['vertex_group', 'Vertex Group', 'vgroup'],
 ];
 
 void Mesh;
