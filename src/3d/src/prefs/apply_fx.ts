@@ -25,6 +25,15 @@ import { onPrefsApply } from './store';
 
 const srgb = (c: Color, v: number[]) => c.setRGB(v[0], v[1], v[2], SRGBColorSpace);
 
+const lastPushed = new Map<string, string>();
+/** Run `fn` when a preference value differs from the one pushed last time. */
+function once(key: string, value: unknown, fn: () => void) {
+  const v = JSON.stringify(value);
+  if (lastPushed.get(key) === v) return;
+  lastPushed.set(key, v);
+  fn();
+}
+
 onPrefsApply((p) => {
   widgetSettings.factorPercentage = p.factor_display_type === 'PERCENTAGE';
   widgetSettings.colorPicker = p.color_picker_type;
@@ -44,11 +53,12 @@ onPrefsApply((p) => {
   }
   renderViewSettings.mode = p.render_display_type;
 
-  annotateSettings.color = [...p.annotation_color] as [number, number, number];
+  // defaults that tools can also change for the session: only pushed when the preference changes
+  once('annotation_color', p.annotation_color, () => (annotateSettings.color = [...p.annotation_color] as [number, number, number]));
   annotateSettings.eraserRadius = Math.max(1, p.annotation_eraser_radius);
   gpDrawSettings.minDistance = Math.max(0.1, p.gpencil_min_distance);
   textEditorSettings.autoClose = p.use_text_edit_auto_close;
-  textEditorSettings.useSpaces = p.use_tabs_as_spaces;
+  once('use_tabs_as_spaces', p.use_tabs_as_spaces, () => (textEditorSettings.useSpaces = p.use_tabs_as_spaces));
   consoleSettings.scrollback = Math.max(32, p.scrollback);
   nodeEditorSettings.insertOffset = p.node_use_insert_offset;
   nodeEditorSettings.insertMargin = Math.max(0, p.node_margin);
