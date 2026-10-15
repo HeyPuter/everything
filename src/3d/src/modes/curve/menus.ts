@@ -4,6 +4,7 @@ import { modeMenus } from '../../editors/view3d/modemenus';
 import { addKeys } from '../../app/keymap';
 import type { MenuItem } from '../../ui/menu';
 import { inCurveEdit } from './curve';
+import { hookMenu } from './hooks';
 import { transformSubmenu, mirrorSubmenu, snapSubmenu, showHideSubmenu } from '../common-menus';
 
 const SPLINE_TYPES: [string, string][] = [['POLY', 'Poly'], ['BEZIER', 'Bézier'], ['NURBS', 'NURBS']];
@@ -117,6 +118,8 @@ function controlPointsMenu(): MenuItem[] {
     { label: 'Smooth Curve Tilt', op: 'curve.smooth_tilt' },
     { label: 'Smooth Curve Radius', op: 'curve.smooth_radius' },
     { label: 'Smooth Curve Weight', op: 'curve.smooth_weight' },
+    { separator: true },
+    { label: 'Hooks', submenu: hookMenu, shortcut: 'Ctrl H' },
   ];
 }
 

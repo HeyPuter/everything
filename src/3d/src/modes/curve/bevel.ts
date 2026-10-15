@@ -12,6 +12,7 @@ import { Vector3 } from 'three';
 import type { Depsgraph } from '../../eval/depsgraph';
 import { textToCurves } from '../../eval/text';
 import { pathBender } from './curveops';
+import { hookedSplines } from './hooks';
 export { pathBender };
 
 /** First spline of a curve object, sampled (object space). */
@@ -93,7 +94,9 @@ for (const type of ['CURVE', 'FONT'] as const)
     },
     build: (doc, ob, graph) => {
       const cu = doc.curves[ob.data!];
-      return curveToMesh(cu, type === 'FONT', shapeFor(doc, ob, cu, graph, type === 'FONT').opts);
+      const opts = shapeFor(doc, ob, cu, graph, type === 'FONT').opts;
+      if (type === 'CURVE') opts.splines ??= hookedSplines(ob, cu, graph) ?? undefined;
+      return curveToMesh(cu, type === 'FONT', opts);
     },
   };
 

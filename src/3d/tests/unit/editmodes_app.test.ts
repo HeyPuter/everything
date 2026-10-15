@@ -288,3 +288,29 @@ describe('material slots in curve Edit Mode', () => {
     expect(cu.splines[0].bezier_points.some((b) => b.select_control_point)).toBe(false);
   });
 });
+
+import { hookedSplines } from '../../src/modes/curve/hooks';
+
+describe('curve hooks', () => {
+  it('hooked control points follow the hook object', () => {
+    app.run('object.select_all', { action: 'DESELECT' });
+    app.run('curve.primitive_bezier_curve_add');
+    const ob = app.activeObject!;
+    const cu = app.doc.curves[ob.data!];
+    app.run('object.mode_set', { mode: 'EDIT' });
+    app.run('curve.select_all', { action: 'DESELECT' });
+    const b = cu.splines[0].bezier_points[1];
+    b.select_control_point = b.select_left_handle = b.select_right_handle = true;
+    app.graph.evaluate(app.doc);
+    expect(app.run('object.hook_add_newob')).toBe('FINISHED');
+    expect(ob.modifiers.map((m) => m.type)).toEqual(['HOOK']);
+    expect(ob.modifiers[0].vertex_indices).toEqual([3, 4, 5]);
+    app.run('object.mode_set', { mode: 'OBJECT' });
+    const empty = app.doc.objects[ob.modifiers[0].object as string];
+    empty.location = [empty.location[0], empty.location[1], empty.location[2] + 2];
+    app.graph.evaluate(app.doc);
+    const sp = hookedSplines(ob, cu, app.graph)!;
+    expect(sp[0].bezier_points[1].co[2]).toBeCloseTo(b.co[2] + 2, 5);
+    expect(sp[0].bezier_points[0].co[2]).toBeCloseTo(cu.splines[0].bezier_points[0].co[2], 5);
+  });
+});

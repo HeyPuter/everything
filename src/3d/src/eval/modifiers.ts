@@ -1045,6 +1045,8 @@ function latticeMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalM
 }
 
 function hookMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
+  // curve hooks move control points before tessellation (src/modes/curve/hooks.ts)
+  if (ctx.ob.type === 'CURVE') return m;
   const target = typeof mod.object === 'string' ? ctx.graph.get(mod.object) : undefined;
   if (!target) return m;
   const own = ctx.graph.get(ctx.ob.id)!.world;
