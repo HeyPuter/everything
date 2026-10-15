@@ -13,9 +13,17 @@ import { newGrid, stepGas, type GasGrid, type GasParams } from './smoke-solver';
 import { physicsDoc } from './state';
 import { fps } from './meshsim';
 import { defaultPointCache, type PointCacheSettings } from './types';
+import { evaluateLiquid, fluidShared, liquidMesh } from './liquid';
 
 export interface FluidDomainSettings {
-  domain_type: 'GAS';
+  domain_type: 'GAS' | 'LIQUID';
+  /** liquid: FLIP/PIC blend, particles per cell axis and their jitter, surface meshing */
+  flip_ratio?: number;
+  particle_number?: number;
+  particle_randomness?: number;
+  use_mesh?: boolean;
+  mesh_particle_radius?: number;
+  mesh_scale?: number;
   resolution_max: number;
   time_scale: number;
   alpha: number;
@@ -37,7 +45,7 @@ export interface FluidDomainSettings {
 }
 
 export interface FluidFlowSettings {
-  flow_type: 'SMOKE' | 'BOTH' | 'FIRE';
+  flow_type: 'SMOKE' | 'BOTH' | 'FIRE' | 'LIQUID';
   flow_behavior: 'INFLOW' | 'GEOMETRY' | 'OUTFLOW';
   use_flow: boolean;
   smoke_color: [number, number, number];
@@ -67,6 +75,12 @@ export interface FluidModifier extends ModifierBase {
 export function defaultDomainSettings(): FluidDomainSettings {
   return {
     domain_type: 'GAS',
+    flip_ratio: 0.97,
+    particle_number: 2,
+    particle_randomness: 0.1,
+    use_mesh: true,
+    mesh_particle_radius: 2,
+    mesh_scale: 2,
     resolution_max: 32,
     time_scale: 1,
     alpha: 1,
@@ -406,7 +420,7 @@ function stepDomain(ctx: SimContext, ob: ObjectData, m: FluidModifier, L: FluidL
   }
   // emitters (voxelized once per frame)
   const emit = flows
-    .filter((fl) => fl.m.flow_settings?.use_flow !== false)
+    .filter((fl) => fl.m.flow_settings?.use_flow !== false && fl.m.flow_settings?.flow_type !== 'LIQUID')
     .map((fl) => {
       const fs = { ...defaultFlowSettings(), ...fl.m.flow_settings };
       if (fs.flow_behavior === 'GEOMETRY' && k - 1 !== m.point_cache.frame_start) return null;
@@ -530,6 +544,11 @@ function fluidApply(mesh: EvalMesh, mod: ModifierBase, ctx: ModifierContext): Ev
     if (!ctx.render) smokeDraw.delete(key);
     return mesh;
   }
+  if (m.domain_settings?.domain_type === 'LIQUID') {
+    if (!ctx.render) smokeDraw.delete(key);
+    const lr = evaluateLiquid(ctx.ob, m, mesh, ctx);
+    return lr ? liquidMesh(lr, { ...defaultDomainSettings(), ...m.domain_settings }) : mesh;
+  }
   const r = evaluateDomain(ctx.ob, m, mesh, ctx);
   if (!ctx.render) {
     if (r)
@@ -582,3 +601,13 @@ registerModifier({
   },
   apply: fluidApply,
 });
+
+fluidShared.fns = {
+  participants,
+  voxelize,
+  gridFrame,
+  domainHash,
+  cacheKey: fluidCacheKey,
+  domainDefaults: defaultDomainSettings,
+  flowDefaults: defaultFlowSettings,
+};

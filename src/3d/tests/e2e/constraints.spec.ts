@@ -167,3 +167,16 @@ test('physics tab: dynamic paint canvas and brush, rigid body constraint limits,
   await expect(page.locator('[data-panel="ph-field"] .sr-label', { hasText: 'Rest Length' })).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('quick liquid makes a liquid domain whose surface falls', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.locator('.hdr-menu', { hasText: /^Object$/ }).first().dispatchEvent('pointerdown');
+  await item(page, 'Quick Effects').first().hover();
+  await item(page, 'Quick Liquid').first().click();
+  expect(await get(page, `[app.activeObject.name, app.activeObject.modifiers[0].domain_settings.domain_type]`)).toEqual(['Liquid Domain', 'LIQUID']);
+  await openTab(page, 'PHYSICS');
+  await expect(page.locator('[data-panel="ph-fl-liquid"]')).toBeVisible();
+  await page.evaluate(() => (window as any).app.setFrame(12));
+  await expect.poll(() => get(page, `app.graph.get(app.activeObject.id).mesh.offsets.length`), { timeout: 15000 }).toBeGreaterThan(10);
+  await expectNoErrors(errors);
+});

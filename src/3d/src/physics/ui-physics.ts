@@ -303,7 +303,15 @@ function fluidPanels(ob: ObjectPhysics, m: FluidModifier): Child[] {
     out.push(
       panel('ph-fl-settings', 'Settings', () => [
         d ? note('Domain is baked: delete the bake to change settings') : null,
-        splitRow('Domain Type', h('span', { class: 'prop-note' }, 'Gas (smoke & fire)')),
+        enumProp(s, 'domain_type', 'Domain Type', [['GAS', 'Gas'], ['LIQUID', 'Liquid']], {
+          disabled: d,
+          onChange: () => {
+            // liquid stays inside the domain (closed borders) and shows its surface instead of a wire box
+            const liquid = s.domain_type === 'LIQUID';
+            for (const k of ['front', 'back', 'right', 'left', 'top', 'bottom'] as const) (s as unknown as Record<string, boolean>)[`use_collision_border_${k}`] = liquid;
+            ob.display_type = liquid ? 'TEXTURED' : 'WIRE';
+          },
+        }),
         num(s, 'resolution_max', 'Resolution Divisions', { int: true, min: 8, max: 128, disabled: d }),
         num(s, 'time_scale', 'Time Scale', { min: 0.01, max: 10, disabled: d }),
         panel('ph-fl-border', 'Border Collisions', () => [
@@ -314,37 +322,48 @@ function fluidPanels(ob: ObjectPhysics, m: FluidModifier): Child[] {
           bool(s, 'use_collision_border_top', 'Top', { disabled: d }),
           bool(s, 'use_collision_border_bottom', 'Bottom', { disabled: d }),
         ], { sub: true, closed: true }),
-        panel('ph-fl-gas', 'Gas', () => [
+        s.domain_type === 'LIQUID'
+          ? panel('ph-fl-liquid', 'Liquid', () => [
+              num(s, 'flip_ratio', 'FLIP Ratio', { min: 0, max: 1, slider: true, disabled: d, tip: '1 keeps the motion lively (FLIP), 0 smooths it (PIC)' }),
+              num(s, 'particle_number', 'Particles per Cell', { int: true, min: 1, max: 4, disabled: d, tip: 'Particles along each axis of an emitting cell' }),
+              num(s, 'particle_randomness', 'Randomness', { min: 0, max: 1, slider: true, disabled: d }),
+              panel('ph-fl-mesh', 'Mesh', () => [
+                num(s, 'mesh_scale', 'Upres Factor', { int: true, min: 1, max: 4, disabled: !s.use_mesh }),
+                num(s, 'mesh_particle_radius', 'Particle Radius', { min: 0.5, max: 4, disabled: !s.use_mesh, tip: 'Radius of every particle in cells when building the surface' }),
+              ], { sub: true, header: headerCheck(`fl-mesh-${m.id}`, s as never, 'use_mesh', 'Mesh') }),
+            ], { sub: true })
+          : null,
+        s.domain_type === 'LIQUID' ? null : panel('ph-fl-gas', 'Gas', () => [
           num(s, 'alpha', 'Buoyancy Density', { min: -5, max: 5, disabled: d }),
           num(s, 'beta', 'Heat', { min: -5, max: 5, disabled: d }),
           num(s, 'vorticity', 'Vorticity', { min: 0, max: 4, disabled: d }),
         ], { sub: true }),
       ]),
-      panel('ph-fl-dissolve', 'Dissolve', () => [num(s, 'dissolve_speed', 'Time', { int: true, min: 1, max: 10000, disabled: d || !s.use_dissolve_smoke })], { header: headerCheck(`fl-dis-${m.id}`, s as never, 'use_dissolve_smoke', 'Dissolve', d), closed: true }),
-      panel('ph-fl-fire', 'Fire', () => [
+      s.domain_type === 'LIQUID' ? null : panel('ph-fl-dissolve', 'Dissolve', () => [num(s, 'dissolve_speed', 'Time', { int: true, min: 1, max: 10000, disabled: d || !s.use_dissolve_smoke })], { header: headerCheck(`fl-dis-${m.id}`, s as never, 'use_dissolve_smoke', 'Dissolve', d), closed: true }),
+      s.domain_type === 'LIQUID' ? null : panel('ph-fl-fire', 'Fire', () => [
         num(s, 'burning_rate', 'Reaction Speed', { min: 0.01, max: 4, disabled: d }),
         num(s, 'flame_smoke', 'Flame Smoke', { min: 0, max: 8, disabled: d }),
         num(s, 'flame_vorticity', 'Vorticity', { min: 0, max: 2, disabled: d }),
         num(s, 'flame_max_temp', 'Temperature Maximum', { min: 1, max: 10, disabled: d }),
       ], { closed: true }),
-      panel('ph-fl-display', 'Viewport Display', () => [num(s, 'display_thickness', 'Thickness', { min: 0.001, max: 1000, softMax: 5 })], { closed: true }),
+      s.domain_type === 'LIQUID' ? null : panel('ph-fl-display', 'Viewport Display', () => [num(s, 'display_thickness', 'Thickness', { min: 0.001, max: 1000, softMax: 5 })], { closed: true }),
       cachePanel('ph-fl-cache', fluidCacheKey(ob, m), pc),
     );
   } else if (m.fluid_type === 'FLOW') {
     const s = fillDefaults(m.flow_settings, defaultFlowSettings());
     out.push(
       panel('ph-fl-flow', 'Settings', () => [
-        enumProp(s, 'flow_type', 'Flow Type', [['SMOKE', 'Smoke'], ['BOTH', 'Fire + Smoke'], ['FIRE', 'Fire']]),
+        enumProp(s, 'flow_type', 'Flow Type', [['SMOKE', 'Smoke'], ['BOTH', 'Fire + Smoke'], ['FIRE', 'Fire'], ['LIQUID', 'Liquid']]),
         enumProp(s, 'flow_behavior', 'Flow Behavior', [['INFLOW', 'Inflow'], ['GEOMETRY', 'Geometry'], ['OUTFLOW', 'Outflow']]),
         bool(s, 'use_flow', 'Use Flow'),
-        s.flow_type !== 'FIRE' ? colorProp(s, 'smoke_color', 'Smoke Color') : null,
-        s.flow_type !== 'SMOKE' ? num(s, 'fuel_amount', 'Fuel', { min: 0, max: 10 }) : null,
-        num(s, 'temperature', 'Temperature Difference', { min: -10, max: 10 }),
-        s.flow_type !== 'FIRE' ? num(s, 'density', 'Density', { min: 0, max: 10 }) : null,
+        s.flow_type !== 'FIRE' && s.flow_type !== 'LIQUID' ? colorProp(s, 'smoke_color', 'Smoke Color') : null,
+        s.flow_type !== 'SMOKE' && s.flow_type !== 'LIQUID' ? num(s, 'fuel_amount', 'Fuel', { min: 0, max: 10 }) : null,
+        s.flow_type !== 'LIQUID' ? num(s, 'temperature', 'Temperature Difference', { min: -10, max: 10 }) : null,
+        s.flow_type !== 'FIRE' && s.flow_type !== 'LIQUID' ? num(s, 'density', 'Density', { min: 0, max: 10 }) : null,
       ]),
       panel('ph-fl-source', 'Flow Source', () => [
         num(s, 'surface_distance', 'Surface Emission', { min: 0, max: 10, tip: 'Emission distance from the mesh surface (in grid cells)' }),
-        num(s, 'volume_density', 'Volume Emission', { min: 0, max: 1, slider: true }),
+        s.flow_type !== 'LIQUID' ? num(s, 'volume_density', 'Volume Emission', { min: 0, max: 1, slider: true }) : null,
       ]),
       panel('ph-fl-vel', 'Initial Velocity', () => [
         num(s, 'velocity_factor', 'Source', { min: -2, max: 2, disabled: !s.use_initial_velocity, tip: 'Multiplier of the flow object velocity' }),

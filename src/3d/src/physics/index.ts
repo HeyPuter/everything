@@ -67,3 +67,4 @@ rapierReady.add(() => app?.changed('frame'));
 import './fieldadd';
 import './dynpaint';
 import './dpops';
+import './quickliquid';
