@@ -70,6 +70,12 @@ test('status bar: mouse hints, statistics and its right-click menu', async ({ pa
   const errors = await openApp(page);
   const bar = page.locator('.statusbar');
   await expect(bar.locator('.sb-mouse [data-icon="mouse_lmb"]')).toHaveCount(1);
+  // the hints follow the editor under the pointer
+  const ol = await page.locator('.area[data-editor="OUTLINER"]').first().boundingBox();
+  await page.mouse.move(ol!.x + ol!.width / 2, ol!.y + ol!.height - 10);
+  await expect(bar.locator('.sb-hints')).toContainText('Pan View');
+  await hoverViewport(page);
+  await expect(bar.locator('.sb-hints')).toContainText('Rotate View');
   await expect(bar.locator('.sb-stats')).toContainText('Collection | Cube | Verts:8 | Faces:6 | Tris:12 | Objects:1/3');
   await bar.locator('.sb-right').click({ button: 'right' });
   await page.locator('.menu-item', { hasText: 'Scene Duration' }).click();

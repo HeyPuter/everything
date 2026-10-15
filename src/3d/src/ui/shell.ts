@@ -53,6 +53,13 @@ export class Shell {
     this.status.className = 'statusbar';
     root.append(this.top, main, this.status);
     this.screen = new Screen(main);
+    // the mouse hints follow the editor under the pointer
+    let lastHover: unknown = null;
+    main.addEventListener('pointerover', () => {
+      if (app.hoverArea === lastHover) return;
+      lastHover = app.hoverArea;
+      this.drawStatus();
+    });
     this.el.classList.toggle('no-statusbar', !this.showStatusbar);
     this.setWorkspace('Layout', false);
     projectUiState.save = () => ({
@@ -284,7 +291,7 @@ export class Shell {
   drawStatus() {
     const m = app.modal;
     const doc = app.doc;
-    const hints: [string, string][] = m?.status?.() ?? [
+    const hints: [string, string][] = m?.status?.() ?? editorHints(app.hoverArea?.type) ?? [
       ['LMB', modeHint()],
       ['MMB', 'Rotate View'],
       ['RMB', doc.mode === 'OBJECT' ? 'Object' : 'Context Menu'],
@@ -355,6 +362,38 @@ function statusMenu(sh: Shell): MenuItem[] {
     ...(hasMemory ? [{ label: 'System Memory', checked: prefs.show_statusbar_memory, action: toggle('show_statusbar_memory') }] : []),
     { label: 'App Version', checked: prefs.show_statusbar_version, action: toggle('show_statusbar_version') },
   ];
+}
+
+/** Mouse hints of editors other than the 3D view (undefined: the 3D view's hints). */
+function editorHints(type: string | undefined): [string, string][] | undefined {
+  const pan: [string, string] = ['MMB', 'Pan View'];
+  switch (type) {
+    case undefined:
+    case 'VIEW_3D':
+      return undefined;
+    case 'SHADER':
+    case 'GEOMETRY':
+    case 'COMPOSITOR':
+    case 'DOPESHEET':
+    case 'TIMELINE':
+    case 'GRAPH':
+    case 'DRIVERS':
+    case 'NLA':
+    case 'SEQUENCE_EDITOR':
+    case 'CLIP_EDITOR':
+    case 'IMAGE_EDITOR':
+    case 'UV':
+      return [['LMB', 'Select'], pan, ['RMB', 'Context Menu']];
+    case 'OUTLINER':
+    case 'FILE_BROWSER':
+    case 'SPREADSHEET':
+      return [['LMB', 'Select'], pan, ['RMB', 'Context Menu']];
+    case 'TEXT':
+    case 'CONSOLE':
+      return [['LMB', 'Set Cursor'], pan, ['RMB', 'Context Menu']];
+    default:
+      return [pan, ['RMB', 'Context Menu']];
+  }
 }
 
 function modeHint() {
