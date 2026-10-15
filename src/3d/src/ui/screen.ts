@@ -271,6 +271,7 @@ export class Area implements AreaLike {
       { separator: true },
       { label: 'Swap Areas…', op: 'screen.area_swap', disabled: !multi, action: run('screen.area_swap') },
       { label: 'Join Areas…', op: 'screen.area_join', disabled: !multi, action: run('screen.area_join') },
+      ...(MAIN_WINDOW_ONLY.has(this.type) ? [] : [{ separator: true }, { label: 'Duplicate Area into New Window', op: 'screen.area_dupli', action: run('screen.area_dupli') } as MenuItem]),
       { separator: true },
       { label: 'Close Area', op: 'screen.area_close', disabled: !multi, action: run('screen.area_close') },
     ];
@@ -308,7 +309,7 @@ export class Area implements AreaLike {
         'data-tip': `Editor Type\nCurrent editor type for this area`,
         onpointerdown: (e: PointerEvent) => {
           e.preventDefault();
-          openMenu(editorTypeMenu((id) => this.setType(id), this.type), e.currentTarget as HTMLElement);
+          openMenu(editorTypeMenu((id) => this.setType(id), this.type, this.screen.floating), e.currentTarget as HTMLElement);
         },
       },
       icon(t?.icon ?? 'view3d'),
@@ -345,9 +346,12 @@ export class Area implements AreaLike {
   }
 }
 
-function editorTypeMenu(set: (id: EditorTypeId) => void, current: EditorTypeId): MenuItem[] {
+/** Editors that draw into the main window's shared 3D canvas cannot live in area windows. */
+export const MAIN_WINDOW_ONLY = new Set<EditorTypeId>(['VIEW_3D']);
+
+function editorTypeMenu(set: (id: EditorTypeId) => void, current: EditorTypeId, floating = false): MenuItem[] {
   const groups: Record<string, EditorType[]> = {};
-  for (const t of editorTypes.values()) if (t.available !== false) (groups[t.group] ??= []).push(t);
+  for (const t of editorTypes.values()) if (t.available !== false && !(floating && MAIN_WINDOW_ONLY.has(t.id))) (groups[t.group] ??= []).push(t);
   const out: MenuItem[] = [];
   for (const g of ['General', 'Animation', 'Scripting', 'Data']) {
     if (!groups[g]) continue;
@@ -362,7 +366,7 @@ let areaCounter = 0;
 export const newAreaId = () => `area${++areaCounter}_${Math.random().toString(36).slice(2, 6)}`;
 
 /** A copy of an area's state for a new area (same editor and view settings). */
-function cloneAreaState(a: Area): AreaState {
+export function cloneAreaState(a: Area): AreaState {
   let state: unknown;
   try {
     state = structuredClone(a.editor.serialize?.());
@@ -383,6 +387,10 @@ export class Screen {
   fullscreen = false;
   /** Width the docked assistant takes from the screen; layouts are fitted to it as they load. */
   dock = 0;
+  /** a screen inside an area window (no 3D views: they draw into the main window's canvas) */
+  floating = false;
+  /** set by the area window module: duplicate an area into a floating window at a point */
+  static duplicateHook: ((a: Area, at: { x: number; y: number }) => void) | null = null;
   private dividers: HTMLElement[] = [];
   private exitEl: HTMLElement;
   constructor(container: HTMLElement) {
@@ -877,13 +885,19 @@ export class Screen {
     let dir: 'h' | 'v' = 'h';
     this.gesture({
       releaseConfirms: true,
-      hint: 'Drag into the area to split it, into a neighbour to join, hold Ctrl to swap',
+      hint: 'Drag into the area to split it, into a neighbour to join, hold Ctrl to swap, Shift for a new window',
       move: (e, o) => {
         const dx = e.clientX - sx,
           dy = e.clientY - sy;
         o.line.style.display = o.box.style.display = 'none';
         if (!mode && Math.hypot(dx, dy) < 6) return null;
         const over = this.areaAt(e.clientX, e.clientY);
+        if (e.shiftKey && Screen.duplicateHook && !MAIN_WINDOW_ONLY.has(a.type)) {
+          // Shift: tear the area off into a window
+          mode = 'split';
+          o.label.textContent = 'Release to show the area in a new window';
+          return () => Screen.duplicateHook?.(a, { x: e.clientX, y: e.clientY });
+        }
         if (!over) return null;
         if (e.ctrlKey || e.metaKey) {
           mode = 'swap';

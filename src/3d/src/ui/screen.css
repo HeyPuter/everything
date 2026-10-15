@@ -151,3 +151,26 @@ body.screen-gesture-active * {
 .shell.no-statusbar > .statusbar {
   display: none;
 }
+
+/* area windows (floating) */
+.area-window {
+  resize: both;
+  overflow: hidden;
+  min-width: 260px;
+  min-height: 160px;
+  max-width: 98vw;
+  max-height: 94vh;
+}
+.area-window .dialog-body {
+  padding: 0;
+  position: relative;
+  overflow: hidden;
+}
+.aw-body,
+.aw-host {
+  position: absolute;
+  inset: 0;
+}
+.aw-host .screen {
+  inset: 0;
+}

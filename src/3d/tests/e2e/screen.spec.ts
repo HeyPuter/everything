@@ -577,3 +577,25 @@ test('unsaved work is kept as an auto save before New File', async ({ page }) =>
   await expect.poll(() => get(page, 'app.activeObject.name')).toBe('Precious');
   await expectNoErrors(errors);
 });
+
+test('Duplicate Area into New Window shows a working editor in a floating window', async ({ page }) => {
+  const errors = await openApp(page);
+  const ol = await areaBox(page, 'OUTLINER');
+  await page.mouse.move(ol.x + 100, ol.y + 60);
+  await page.evaluate(() => { const a = (window as any).app; a.run('screen.area_dupli', {}, { area: a.hoverArea }); });
+  const win = page.locator('.area-window');
+  await expect(win).toBeVisible();
+  await expect(win.locator('.area[data-editor="OUTLINER"]')).toBeVisible();
+  await expect(win.locator('.outliner').getByText('Cube').first()).toBeVisible();
+  // it follows document changes
+  await page.evaluate(() => { const a = (window as any).app; a.activeObject.name = 'Renamed'; a.changed('doc'); });
+  await expect(win.locator('.outliner').getByText('Renamed').first()).toBeVisible();
+  // the editor type menu offers no 3D view inside a window
+  await win.locator('.editor-type').dispatchEvent('pointerdown');
+  await expect(page.locator('.menu .menu-item', { hasText: 'Text Editor' })).toBeVisible();
+  await expect(page.locator('.menu .menu-item', { hasText: '3D Viewport' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await win.locator('.dlg-close').click();
+  await expect(win).toHaveCount(0);
+  await expectNoErrors(errors);
+});

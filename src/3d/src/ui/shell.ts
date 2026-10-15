@@ -14,6 +14,7 @@ import { setMode } from '../ops/object';
 import { assistantOpen } from '../assistant';
 import './screenops';
 import './favorites';
+import './areawindow';
 import { APP_VERSION } from '../scripting/wmops';
 
 const STATUSBAR_KEY = 'p3d.ui.statusbar';
