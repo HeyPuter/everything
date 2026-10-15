@@ -518,3 +518,37 @@ modifierExtraUI.DECIMATE = (ob, m) => {
     h('div', { class: 'mod-note' }, `Face Count: ${faces}`),
   ];
 };
+
+// ---------------------------------------------------------------------------
+// Remesh
+
+modifierFields.REMESH = [];
+modifierExtraUI.REMESH = (_ob, m) => {
+  const r = m as Rec;
+  const mode = String(r.mode ?? 'VOXEL');
+  return [
+    splitRow(
+      'Mode',
+      enumRow(
+        `${m.id}.mode`,
+        [
+          { value: 'BLOCKS', label: 'Blocks' },
+          { value: 'SMOOTH', label: 'Smooth' },
+          { value: 'SHARP', label: 'Sharp' },
+          { value: 'VOXEL', label: 'Voxel' },
+        ],
+        mode,
+        (v) => ((r.mode = v), touch('Change Remesh Mode')),
+      ),
+    ),
+    mode === 'VOXEL'
+      ? num(r, 'voxel_size', 'Voxel Size', { unit: 'distance', min: 0.0001 })
+      : [
+          num(r, 'octree_depth', 'Octree Depth', { int: true, min: 1, max: 9 }),
+          num(r, 'scale', 'Scale', { min: 0, max: 0.99 }),
+          bool(r, 'use_remove_disconnected', 'Remove Disconnected'),
+          r.use_remove_disconnected ? num(r, 'threshold', 'Threshold', { min: 0, max: 1, slider: true }) : null,
+        ],
+    bool(r, 'use_smooth_shade', 'Smooth Shading'),
+  ];
+};

@@ -15,6 +15,7 @@ import { bevelMeshVertices } from './mods/vbevel';
 import { voxelRemesh } from '../paint/remesh';
 import { unsubdivide } from './mods/multires';
 import { currentCornerNormals } from './mods/normals';
+import { gridRemesh } from './mods/remesh';
 
 const num = (m: ModifierBase, k: string, d = 0) => (typeof m[k] === 'number' ? (m[k] as number) : d);
 const bool = (m: ModifierBase, k: string, d = false) => (typeof m[k] === 'boolean' ? (m[k] as boolean) : d);
@@ -668,6 +669,16 @@ function quadsFromTriangles(m: EvalMesh): EvalMesh {
 // Remesh (voxel)
 
 function remeshMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
+  const mode = str(mod, 'mode', 'VOXEL');
+  if (mode === 'BLOCKS' || mode === 'SMOOTH' || mode === 'SHARP')
+    return gridRemesh(m, {
+      mode,
+      depth: num(mod, 'octree_depth', 4),
+      scale: num(mod, 'scale', 0.9),
+      removeDisconnected: bool(mod, 'use_remove_disconnected', true),
+      threshold: num(mod, 'threshold', 1),
+      smooth: bool(mod, 'use_smooth_shade'),
+    });
   const voxel = Math.max(1e-4, num(mod, 'voxel_size', 0.1));
   const tri: number[] = [];
   const tmp: number[] = [];
@@ -836,7 +847,7 @@ registerModifier({
   label: 'Remesh',
   category: 'GENERATE',
   icon: 'mod_remesh',
-  defaults: base({ mode: 'VOXEL', voxel_size: 0.1, use_smooth_shade: false }),
+  defaults: base({ mode: 'VOXEL', voxel_size: 0.1, octree_depth: 4, scale: 0.9, use_remove_disconnected: true, threshold: 1, use_smooth_shade: false }),
   apply: remeshMod,
 });
 registerModifier({
@@ -863,11 +874,7 @@ modifierFields.BOOLEAN = [
   ['object', 'Object', 'object'],
 ];
 modifierFields.DECIMATE = [];
-modifierFields.REMESH = [
-  ['mode', 'Mode', 'enum', [['VOXEL', 'Voxel']]],
-  ['voxel_size', 'Voxel Size', 'dist'],
-  ['use_smooth_shade', 'Smooth Shading', 'bool'],
-];
+modifierFields.REMESH = [];
 modifierFields.WEIGHTED_NORMAL = [
   ['mode', 'Weighting Mode', 'enum', [['FACE_AREA', 'Face Area'], ['CORNER_ANGLE', 'Corner Angle'], ['FACE_AREA_WITH_ANGLE', 'Face Area and Angle']]],
   ['weight', 'Weight', 'int', { min: 1, max: 100 }],

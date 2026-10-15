@@ -114,3 +114,20 @@ describe('Decimate options', () => {
     expect(quads.offsets.length).toBeLessThan(tri.offsets.length);
   });
 });
+
+describe('Remesh grid modes', () => {
+  it('builds blocks from the inside cells and snaps smooth/sharp results to the surface', () => {
+    // a 2-unit cube at depth 4, scale 0.9: 15 cells across → 6·15² faces (as expected)
+    const blocks = run('REMESH', cube(), { mode: 'BLOCKS' });
+    expect(counts(blocks)).toEqual([1352, 1350]);
+    let hi = 0;
+    for (let i = 0; i < blocks.positions.length; i += 3) hi = Math.max(hi, blocks.positions[i]);
+    expect(hi).toBeCloseTo(1.0417, 3);
+    expect(counts(run('REMESH', cube(), { mode: 'BLOCKS', octree_depth: 2 }))).toEqual([56, 54]);
+    const sharp = run('REMESH', cube(), { mode: 'SHARP' });
+    expect(counts(sharp)).toEqual([1352, 1350]);
+    let m = 0;
+    for (let i = 0; i < sharp.positions.length; i++) m = Math.max(m, Math.abs(sharp.positions[i]));
+    expect(m).toBeCloseTo(1, 4);
+  });
+});
