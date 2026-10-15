@@ -605,11 +605,21 @@ test('Duplicate Area into New Window shows a working editor in a floating window
   // it follows document changes
   await page.evaluate(() => { const a = (window as any).app; a.activeObject.name = 'Renamed'; a.changed('doc'); });
   await expect(win.locator('.outliner').getByText('Renamed').first()).toBeVisible();
-  // the editor type menu offers no 3D view inside a window
+  // switch the window to a 3D view: its pixels are copied into the window
   await win.locator('.editor-type').dispatchEvent('pointerdown');
-  await expect(page.locator('.menu .menu-item', { hasText: 'Text Editor' })).toBeVisible();
-  await expect(page.locator('.menu .menu-item', { hasText: '3D Viewport' })).toHaveCount(0);
-  await page.keyboard.press('Escape');
+  await page.locator('.menu .menu-item', { hasText: '3D Viewport' }).click();
+  await expect(win.locator('.area[data-editor="VIEW_3D"] canvas.aw-mirror')).toHaveCount(1);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const c = document.querySelector('.area-window canvas.aw-mirror') as HTMLCanvasElement;
+        const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+        let lit = 0;
+        for (let i = 0; i < d.length; i += 4 * 97) if (d[i] + d[i + 1] + d[i + 2] > 60) lit++;
+        return lit;
+      }),
+    )
+    .toBeGreaterThan(10);
   await win.locator('.dlg-close').click();
   await expect(win).toHaveCount(0);
   // File > Clean Up > Manage Unused Data opens an Outliner window listing unused data

@@ -1,10 +1,13 @@
 // Area windows: an editor duplicated into a floating window over the main screen
 // (Duplicate Area into New Window, Shift-drag from an area corner). They hold a screen
 // of their own, so they can be split and their editor type changed like any area.
+// 3D views in a window draw into the shared canvas like all 3D views; their pixels are
+// copied into a canvas inside the window after each redraw so the window stays on top.
 import { h } from './h';
 import { app, registerOperators, type OpContext } from '../app/app';
 import { openDialog, closeDialog } from '../scripting/dialog';
 import { Screen, cloneAreaState, editorTypes, newAreaId, MAIN_WINDOW_ONLY, type Area, type AreaState } from './screen';
+import { renderContext } from '../render/context';
 
 let counter = 0;
 export const areaWindows = new Map<string, Screen>();
@@ -36,6 +39,7 @@ export function openAreaWindow(st: AreaState, opts: { width: number; height: num
     },
   });
   sc.load({ area: st });
+  hookEngine();
   unsub = app.subscribe((kinds) => sc.update(kinds));
   areaWindows.set(id, sc);
   const box = dlg.el.querySelector<HTMLElement>('.dialog');
@@ -90,3 +94,74 @@ registerOperators([
     },
   },
 ]);
+
+// ---------------------------------------------------------------------------
+// 3D views inside area windows
+
+const mirrors = new WeakMap<Area, HTMLCanvasElement>();
+const lastRects = new WeakMap<Area, string>();
+
+function windowViews(): Area[] {
+  const out: Area[] = [];
+  for (const sc of areaWindows.values()) for (const a of sc.areas) if (a.type === 'VIEW_3D' && a.el.style.display !== 'none') out.push(a);
+  return out;
+}
+
+/** Before drawing: window 3D views draw after the main ones, and moved windows redraw. */
+function beforeFrame() {
+  const engine = renderContext?.engine;
+  const views = windowViews();
+  if (!engine || !views.length) return;
+  const eds = new Set(views.map((a) => a.editor as unknown));
+  const list = [...engine.viewports];
+  const firstWin = list.findIndex((v) => eds.has(v));
+  if (firstWin >= 0 && list.slice(firstWin).some((v) => !eds.has(v)))
+    for (const v of list) if (eds.has(v)) (engine.viewports.delete(v), engine.viewports.add(v));
+  for (const a of views) {
+    const r = a.editor.el.getBoundingClientRect();
+    const key = `${r.left},${r.top},${r.width},${r.height}`;
+    if (lastRects.get(a) !== key) {
+      lastRects.set(a, key);
+      engine.requestDraw();
+    }
+  }
+}
+
+/** After drawing: copy each window 3D view's pixels into its window. */
+function afterDraw() {
+  const engine = renderContext?.engine;
+  if (!engine) return;
+  const base = engine.canvas.getBoundingClientRect();
+  const dpr = engine.dpr;
+  for (const a of windowViews()) {
+    let c = mirrors.get(a);
+    if (!c) {
+      c = document.createElement('canvas');
+      c.className = 'aw-mirror';
+      mirrors.set(a, c);
+    }
+    if (c.parentElement !== a.mainEl) a.mainEl.prepend(c);
+    const r = a.editor.el.getBoundingClientRect();
+    const w = Math.max(1, Math.round(r.width * dpr)),
+      h = Math.max(1, Math.round(r.height * dpr));
+    if (c.width !== w || c.height !== h) ((c.width = w), (c.height = h));
+    c.style.width = `${r.width}px`;
+    c.style.height = `${r.height}px`;
+    const ctx = c.getContext('2d');
+    if (!ctx) continue;
+    try {
+      ctx.drawImage(engine.canvas, (r.left - base.left) * dpr, (r.top - base.top) * dpr, w, h, 0, 0, w, h);
+    } catch {
+      // the canvas is not ready yet
+    }
+  }
+}
+
+let hooked = false;
+function hookEngine() {
+  const engine = renderContext?.engine;
+  if (hooked || !engine) return;
+  hooked = true;
+  engine.frameCallbacks.add(beforeFrame);
+  engine.afterDraw.add(afterDraw);
+}

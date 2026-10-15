@@ -171,3 +171,9 @@ body.screen-gesture-active * {
 .aw-host .screen {
   inset: 0;
 }
+.aw-mirror {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}

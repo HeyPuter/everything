@@ -378,8 +378,8 @@ export class Area implements AreaLike {
   }
 }
 
-/** Editors that draw into the main window's shared 3D canvas cannot live in area windows. */
-export const MAIN_WINDOW_ONLY = new Set<EditorTypeId>(['VIEW_3D']);
+/** Editors that cannot live in area windows (none at the moment; kept for editors with special needs). */
+export const MAIN_WINDOW_ONLY = new Set<EditorTypeId>();
 
 function editorTypeMenu(set: (id: EditorTypeId) => void, current: EditorTypeId, floating = false): MenuItem[] {
   const groups: Record<string, EditorType[]> = {};
