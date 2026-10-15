@@ -83,6 +83,8 @@ export class MeshEdit {
   /** Write back into the mesh data-block (replacing arrays). */
   write(me: MeshData) {
     const built = buildMesh(this.pos, this.faces.map((f) => ({ verts: f.verts, uvs: f.uvs, smooth: f.smooth, material: f.material, seams: f.seams, sharp: f.sharp, creases: f.creases })));
+    // corner layout unchanged: extra corner-domain color attributes can keep their data
+    const sameCorners = built.indices.length === me.indices.length && built.offsets.length === me.offsets.length && built.indices.every((v, i) => v === me.indices[i]);
     me.positions = built.positions;
     me.offsets = built.offsets;
     me.indices = built.indices;
@@ -98,9 +100,13 @@ export class MeshEdit {
     me.weights = this.weights.map((w) => Float32Array.from(w));
     me.shape_keys = me.shape_keys.map((k, i) => ({ ...k, data: Float32Array.from(this.keys[i] ?? this.pos) }));
     let pi = 0;
-    me.color_attributes = me.color_attributes.map((c) => {
+    const firstCorner = me.color_attributes.findIndex((c) => c.domain === 'CORNER');
+    me.color_attributes = me.color_attributes.map((c, ci) => {
       if (c.domain === 'POINT') return { ...c, data: Float32Array.from(this.pcolors[pi++] ?? []) };
+      // only the first corner attribute travels through edits; others survive when the corners are unchanged
+      if (ci !== firstCorner && sameCorners) return c;
       const data = new Float32Array(built.indices.length * 4).fill(1);
+      if (ci !== firstCorner) return { ...c, data };
       let k = 0;
       for (const f of this.faces) {
         for (let i = 0; i < f.verts.length; i++, k++) for (let j = 0; j < 4; j++) data[k * 4 + j] = f.colors?.[i * 4 + j] ?? 1;

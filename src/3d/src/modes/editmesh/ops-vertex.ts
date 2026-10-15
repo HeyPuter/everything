@@ -4,7 +4,8 @@ import { Vector3 } from 'three';
 import { app, registerOperators, type PropDef } from '../../app/app';
 import { activeView3D } from '../../editors/view3d/view3d';
 import { MeshEdit, edgeKey } from './meshedit';
-import { withEdit, worldMatrix } from './context';
+import { withEdit, worldMatrix, editMeshObjects as editMeshObjectsList } from './context';
+import { selectedFaceSet } from './selset';
 import { editPoll } from './ops-basic';
 import { V, vertexNormals } from './geom';
 import { startValueModal } from './modal';
@@ -383,5 +384,44 @@ registerOperators([
         ctx.event,
       ),
     exec: (_ctx, p) => void withEdit((m) => randomizeVerts(m, p.offset as number, p.uniform as number, p.normal as number, p.seed as number)),
+  },
+]);
+
+// ---------------------------------------------------------------------------
+// set attribute (active color attribute) on the selection
+
+registerOperators([
+  {
+    idname: 'mesh.attribute_set',
+    label: 'Set Attribute',
+    description: 'Set the active color attribute on the selected elements',
+    props: [{ id: 'value_color', label: 'Value', type: 'color', default: [1, 1, 1, 1] }],
+    poll: (ctx) => {
+      if (!editPoll(ctx)) return false;
+      const me = app.activeObject?.data ? app.doc.meshes[app.activeObject.data] : undefined;
+      return !!me?.color_attributes[me.active_color_index];
+    },
+    exec: (_ctx, p) => {
+      const col = (p.value_color as number[]).slice(0, 4);
+      while (col.length < 4) col.push(1);
+      let any = false;
+      for (const { me } of editMeshObjectsList()) {
+        const attr = me.color_attributes[me.active_color_index];
+        if (!attr || !me.select_vert) continue;
+        const data = new Float32Array(attr.data);
+        if (attr.domain === 'POINT') {
+          for (let v = 0; v < me.select_vert.length; v++) if (me.select_vert[v] && !me.hide_vert?.[v]) data.set(col, v * 4);
+        } else {
+          // corners of selected faces (or of selected vertices when no face is selected)
+          const faces = selectedFaceSet(me);
+          for (let f = 0; f < me.offsets.length - 1; f++)
+            for (let c = me.offsets[f]; c < me.offsets[f + 1]; c++) if (faces.size ? faces.has(f) : me.select_vert[me.indices[c]]) data.set(col, c * 4);
+        }
+        me.color_attributes = me.color_attributes.map((c) => (c === attr ? { ...c, data } : c));
+        any = true;
+      }
+      if (!any) return 'CANCELLED';
+      app.changed('doc', 'geometry');
+    },
   },
 ]);

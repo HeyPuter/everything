@@ -342,6 +342,7 @@ function meshMenu(): MenuItem[] {
     { label: 'Normals', submenu: normalsMenu, shortcut: 'Alt N' },
     { label: 'Shading', submenu: shadingMenu },
     { label: 'Weights', submenu: weightsMenu },
+    { label: 'Set Attribute', op: 'mesh.attribute_set' },
     { label: 'Sort Elements', submenu: sortMenu },
     { separator: true },
     { label: 'Show/Hide', submenu: showHideMenu },

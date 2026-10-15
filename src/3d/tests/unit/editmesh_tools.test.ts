@@ -676,3 +676,20 @@ describe('similar regions', () => {
     expect(out.length % 2).toBe(0);
   });
 });
+
+describe('color attributes through edits', () => {
+  it('keeps a second face-corner color attribute when the corners do not change', () => {
+    const me = newMeshData('C', prim.cube(2));
+    const n = me.indices.length;
+    me.color_attributes = [
+      { name: 'A', domain: 'CORNER', data: new Float32Array(n * 4).fill(0.5) },
+      { name: 'B', domain: 'CORNER', data: new Float32Array(n * 4).fill(0.25) },
+    ] as typeof me.color_attributes;
+    const m = MeshEdit.from(me);
+    selectAll(m);
+    moveSelected(m, new Vector3(0, 0, 1));
+    m.write(me);
+    expect(me.color_attributes[0].data[0]).toBeCloseTo(0.5);
+    expect(me.color_attributes[1].data[0]).toBeCloseTo(0.25);
+  });
+});
