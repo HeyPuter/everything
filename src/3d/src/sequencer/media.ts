@@ -277,7 +277,7 @@ let decodeCtx: OfflineAudioContext | null = null;
 export const MIX_RATE = 48000;
 
 /** Playback device settings (Preferences ▸ System ▸ Sound); applied when playback (re)starts. */
-export const audioSettings = { sampleRate: 48000, latency: 'interactive' as AudioContextLatencyCategory, channels: 2 };
+export const audioSettings = { sampleRate: 0, latency: 'interactive' as AudioContextLatencyCategory, channels: 2 };
 
 /** A live audio context matching the settings; `prev` is reused when it still matches, else closed. */
 export function playbackContext(prev: AudioContext | null): AudioContext {
@@ -290,7 +290,7 @@ export function playbackContext(prev: AudioContext | null): AudioContext {
   if (tagged && tagged.state !== 'closed') void tagged.close().catch(() => {});
   let c: AudioContext & { __key?: string };
   try {
-    c = new AudioContext({ latencyHint: audioSettings.latency, sampleRate: audioSettings.sampleRate });
+    c = new AudioContext(audioSettings.sampleRate > 0 ? { latencyHint: audioSettings.latency, sampleRate: audioSettings.sampleRate } : { latencyHint: audioSettings.latency });
   } catch {
     // the device may not support the rate: fall back to its own
     c = new AudioContext({ latencyHint: audioSettings.latency });

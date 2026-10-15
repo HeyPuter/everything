@@ -432,12 +432,13 @@
 }
 .as-send.stop {
   background: var(--w-regular);
+  color: var(--c-text);
 }
 .as-send .s {
-  stroke: var(--g-ff, #fff);
+  stroke: currentColor;
 }
 .as-send .f {
-  fill: var(--g-ff, #fff);
+  fill: currentColor;
 }
 .as-tray {
   list-style: none;

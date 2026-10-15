@@ -226,7 +226,7 @@ function startFlight(kind: 'WALK' | 'FLY') {
   const keys = new Set<string>();
   // base speed scales with the scene/view size
   // walking starts at the speed set in Preferences ▸ Navigation ▸ Walk
-  let speed = kind === 'WALK' ? Math.max(0.01, prefs.walk_speed) : 0;
+  let speed = kind === 'WALK' ? (prefs.walk_speed > 0 ? prefs.walk_speed : Math.max(0.5, nav.distance * 0.25)) : 0;
   const flyStep = Math.max(0.05, nav.distance * 0.02);
   const r = v.el.getBoundingClientRect();
   let mouse = { x: r.width / 2, y: r.height / 2 };
@@ -283,7 +283,7 @@ function startFlight(kind: 'WALK' | 'FLY') {
     const now = performance.now();
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
-    const mult = keys.has('SHIFT') ? (kind === 'WALK' ? Math.max(1, prefs.walk_speed_factor) : 0.2) : keys.has('ALT') ? 1 / Math.max(1, prefs.walk_speed_factor) : 1;
+    const mult = keys.has('SHIFT') ? (kind === 'WALK' ? Math.max(1, prefs.walk_speed_factor) : 0.2) : keys.has('ALT') ? 0.25 : 1;
     const eye = eyeOf();
     if (teleport) {
       const tt = Math.max(0, prefs.walk_teleport_time) * 1000;

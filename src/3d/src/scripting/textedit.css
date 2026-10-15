@@ -39,7 +39,7 @@
   padding: 5px 8px;
   border-radius: 5px;
   background: rgba(120, 30, 30, 0.92);
-  color: var(--t-ff, #fff);
+  color: #fff;
   font-size: 12px;
 }
 .te-conflict .grow {

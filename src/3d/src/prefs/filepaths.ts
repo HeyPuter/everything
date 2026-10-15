@@ -64,13 +64,16 @@ function storagePanel(redraw: () => void): Child {
 }
 
 let unsub: (() => void) | null = null;
+/** redraw of the editor that drew the section last */
+let lastRedraw: () => void = () => {};
 
 registerPrefSection({
   id: 'FILE_PATHS',
   label: 'File Paths',
   group: 3,
   draw: (c) => {
-    unsub ??= onSessionChange(() => void refresh(c.redraw)) as unknown as () => void;
+    lastRedraw = c.redraw;
+    unsub ??= onSessionChange(() => void refresh(() => lastRedraw())) as unknown as () => void;
     return [
       panel('pf-fp-data', 'Data', () => [pText('render_output_directory', 'Render Output', FACTORY_OUTPUT), note('Output path of the scene in new files (File ▸ New with factory settings). "//" is relative to the project.')]),
       panel('pf-fp-storage', 'Browser Storage', () => storagePanel(c.redraw)),

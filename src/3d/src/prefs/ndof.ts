@@ -15,16 +15,32 @@ export interface NdofDevice {
   kind: '3D Mouse' | 'Game Controller';
 }
 
+/** Connected gamepads (empty where the browser refuses access). */
+function pads(): Gamepad[] {
+  try {
+    return typeof navigator !== 'undefined' && navigator.getGamepads ? ([...navigator.getGamepads()].filter((g) => g && g.connected) as Gamepad[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** A 3D mouse is recognised by its name (other six-axis pads have resting trigger axes). */
+const isSixAxis = (g: Gamepad) => SIX_AXIS.test(g.id) && g.axes.length >= 6;
+const isController = (g: Gamepad) => !isSixAxis(g) && g.mapping === 'standard';
+
 /** Connected navigation devices. */
 export function ndofDevices(): NdofDevice[] {
-  const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? [...navigator.getGamepads()] : [];
   const out: NdofDevice[] = [];
-  for (const g of pads) {
-    if (!g || !g.connected) continue;
-    if (SIX_AXIS.test(g.id) || (g.axes.length >= 6 && g.mapping !== 'standard')) out.push({ id: g.id, kind: '3D Mouse' });
-    else if (g.mapping === 'standard') out.push({ id: g.id, kind: 'Game Controller' });
+  for (const g of pads()) {
+    if (isSixAxis(g)) out.push({ id: g.id, kind: '3D Mouse' });
+    else if (isController(g)) out.push({ id: g.id, kind: 'Game Controller' });
   }
   return out;
+}
+
+/** Devices that navigate with the current preferences. */
+function activeDevices() {
+  return pads().filter((g) => isSixAxis(g) || (prefs.ndof_use_game_controller && isController(g)));
 }
 
 const dead = (v: number) => {
@@ -40,12 +56,10 @@ export interface NdofMotion {
 }
 
 function readMotion(): NdofMotion | null {
-  const pads = navigator.getGamepads ? [...navigator.getGamepads()] : [];
   const m: NdofMotion = { t: [0, 0, 0], r: [0, 0, 0] };
   let any = false;
-  for (const g of pads) {
-    if (!g || !g.connected) continue;
-    if (SIX_AXIS.test(g.id) || (g.axes.length >= 6 && g.mapping !== 'standard')) {
+  for (const g of activeDevices()) {
+    if (isSixAxis(g)) {
       // device axes: x, y (towards the user), z (down), rx, ry, rz
       m.t[0] += dead(g.axes[0] ?? 0);
       m.t[1] += -dead(g.axes[2] ?? 0);
@@ -54,7 +68,7 @@ function readMotion(): NdofMotion | null {
       m.r[1] += -dead(g.axes[5] ?? 0);
       m.r[2] += dead(g.axes[4] ?? 0);
       any = true;
-    } else if (g.mapping === 'standard') {
+    } else {
       m.t[0] += dead(g.axes[0] ?? 0);
       m.t[1] += -dead(g.axes[1] ?? 0);
       m.r[1] += -dead(g.axes[2] ?? 0);
@@ -128,7 +142,7 @@ function tick(now: number) {
 
 /** Poll devices while any is connected. */
 export function startNdof() {
-  if (raf || !prefs.ndof_enabled || !ndofDevices().length) return;
+  if (raf || !prefs.ndof_enabled || !activeDevices().length) return;
   last = 0;
   raf = requestAnimationFrame(tick);
 }

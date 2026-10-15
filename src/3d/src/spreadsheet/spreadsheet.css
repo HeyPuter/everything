@@ -60,7 +60,7 @@
   font-variant-numeric: tabular-nums;
 }
 .ss-left-row.active .ss-left-count {
-  color: var(--t-ff, #fff);
+  color: var(--c-text-on-accent, #fff);
 }
 .ss-main {
   flex: 1;

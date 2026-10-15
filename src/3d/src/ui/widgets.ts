@@ -441,7 +441,7 @@ export function opButton(idname: string, label?: string, props: Record<string, u
       key: `op-${idname}-${label ?? ''}-${JSON.stringify(props)}`,
       class: `btn op ${opts.className ?? ''}`,
       disabled: !enabled,
-      'data-tip': menuSettings.pythonTips ? `${opts.tip || label || idname}\nPython: bpy.ops.${idname}()` : (opts.tip ?? ''),
+      'data-tip': menuSettings.pythonTips && opts.tip ? `${opts.tip}\nPython: bpy.ops.${idname}()` : (opts.tip ?? ''),
       onclick: (e: MouseEvent) => app.run(idname, props, { event: { x: e.clientX, y: e.clientY } }),
     },
     opts.icon ? icon(opts.icon) : null,

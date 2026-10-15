@@ -14,6 +14,7 @@ describe('preference value helpers', () => {
   it('formats dates in the chosen style', () => {
     const d = new Date(2026, 2, 7, 15, 4);
     prefs.date_format = 'BE_DASH';
+    prefs.time_format = 'H24';
     expect(formatDate(d)).toBe('2026-03-07 15:04');
     prefs.date_format = 'LE_DOT';
     prefs.time_format = 'H12';

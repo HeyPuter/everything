@@ -152,17 +152,20 @@ export function purgeOrphans(doc: DocumentData) {
 }
 
 /** Copy a material for a duplicate; returns the new id. */
-function copyMaterial(doc: DocumentData, id: string): string {
+function copyMaterial(doc: DocumentData, id: string, done: Map<string, string>): string {
+  const prev = done.get(id);
+  if (prev) return prev;
   const src = doc.materials[id];
   if (!src) return id;
   const m = cloneShared(src);
   m.id = uid('ma');
   m.name = uniqueName(doc, src.name, 'materials');
   doc.materials[m.id] = m;
+  done.set(id, m.id);
   return m.id;
 }
 
-function duplicateObject(doc: DocumentData, ob: ObjectData, linked: boolean): ObjectData {
+function duplicateObject(doc: DocumentData, ob: ObjectData, linked: boolean, mats = new Map<string, string>()): ObjectData {
   const copy = cloneShared(ob);
   copy.id = uid('ob');
   copy.name = uniqueName(doc, ob.name);
@@ -181,13 +184,13 @@ function duplicateObject(doc: DocumentData, ob: ObjectData, linked: boolean): Ob
         (doc[t] as Record<string, unknown>)[d.id] = d;
         copy.data = d.id;
         if (dup.MATERIAL) {
-          const mats = (d as unknown as { materials?: (string | null)[] }).materials;
-          if (Array.isArray(mats)) (d as unknown as { materials: (string | null)[] }).materials = mats.map((m) => (m ? copyMaterial(doc, m) : m));
+          const slots = (d as unknown as { materials?: (string | null)[] }).materials;
+          if (Array.isArray(slots)) (d as unknown as { materials: (string | null)[] }).materials = slots.map((m) => (m ? copyMaterial(doc, m, mats) : m));
         }
       }
     }
   }
-  if (!linked && dup.MATERIAL && copy.object_materials) copy.object_materials = copy.object_materials.map((m) => (m ? copyMaterial(doc, m) : m));
+  if (!linked && dup.MATERIAL && copy.object_materials) copy.object_materials = copy.object_materials.map((m) => (m ? copyMaterial(doc, m, mats) : m));
   if (copy.animation_data?.action && !linked && dup.ACTION !== false) {
     const act = doc.actions[copy.animation_data.action];
     if (act) {
@@ -210,8 +213,9 @@ export function duplicateSelected(doc: DocumentData, linked: boolean) {
   const sel = app.selectedObjects();
   if (!sel.length) return [];
   const map = new Map<string, string>();
+  const mats = new Map<string, string>();
   const copies = sel.map((ob) => {
-    const c = duplicateObject(doc, ob, linked);
+    const c = duplicateObject(doc, ob, linked, mats);
     map.set(ob.id, c.id);
     return c;
   });

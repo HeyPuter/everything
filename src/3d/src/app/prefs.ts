@@ -35,7 +35,7 @@ export interface Preferences {
   font_ui: string;
   font_ui_mono: string;
   date_format: 'DEFAULT' | 'LE_SLASH' | 'LE_DOT' | 'ME_SLASH' | 'BE_DASH';
-  time_format: 'H24' | 'H12';
+  time_format: 'DEFAULT' | 'H24' | 'H12';
   use_mouse_over_open: boolean;
   /** delays in ms */
   open_toplevel_delay: number;
@@ -101,6 +101,8 @@ export interface Preferences {
   pressure_threshold_max: number;
   pressure_softness: number;
   ndof_enabled: boolean;
+  /** standard game controllers navigate too (sticks and triggers) */
+  ndof_use_game_controller: boolean;
   ndof_translation_sensitivity: number;
   ndof_rotation_sensitivity: number;
   ndof_deadzone: number;
@@ -200,7 +202,7 @@ export const defaultPreferences = (): Preferences => ({
   font_ui: '',
   font_ui_mono: '',
   date_format: 'DEFAULT',
-  time_format: 'H24',
+  time_format: 'DEFAULT',
   use_mouse_over_open: false,
   open_toplevel_delay: 100,
   open_sublevel_delay: 0,
@@ -213,7 +215,7 @@ export const defaultPreferences = (): Preferences => ({
 
   show_object_info: true,
   show_view_name: true,
-  show_playback_fps: true,
+  show_playback_fps: false,
   gizmo_size: 75,
   gizmo_size_navigate_v3d: 80,
   mini_axis_type: 'GIZMO',
@@ -236,8 +238,8 @@ export const defaultPreferences = (): Preferences => ({
   navigation_mode: 'WALK',
   walk_mouse_speed: 1,
   walk_use_mouse_reverse: false,
-  walk_speed: 2.5,
-  walk_speed_factor: 5,
+  walk_speed: 0,
+  walk_speed_factor: 3,
   walk_teleport_time: 0.25,
   walk_use_gravity: false,
   walk_view_height: 1.6,
@@ -250,11 +252,12 @@ export const defaultPreferences = (): Preferences => ({
   touchpad_scroll_direction: 'TRADITIONAL',
   mouse_double_click_time: 350,
   drag_threshold_mouse: 4,
-  use_drag_immediately: true,
+  use_drag_immediately: false,
   use_mouse_continuous: false,
   pressure_threshold_max: 1,
   pressure_softness: 0,
   ndof_enabled: true,
+  ndof_use_game_controller: false,
   ndof_translation_sensitivity: 4,
   ndof_rotation_sensitivity: 4,
   ndof_deadzone: 0.1,
@@ -272,7 +275,7 @@ export const defaultPreferences = (): Preferences => ({
   object_align: 'WORLD',
   material_link: 'OBDATA',
   use_enter_edit_mode: false,
-  duplicate: { MESH: true, CURVE: true, FONT: true, LATTICE: true, META: true, ARMATURE: true, CAMERA: true, LIGHT: true, SPEAKER: true, GREASEPENCIL: true, POINTCLOUD: true, MATERIAL: false, ACTION: true },
+  duplicate: { MESH: true, CURVE: true, FONT: true, LATTICE: true, META: true, ARMATURE: true, CAMERA: true, LIGHT: true, SPEAKER: true, GREASEPENCIL: false, POINTCLOUD: true, MATERIAL: false, ACTION: true },
   annotation_color: [0.12, 0.65, 0.95],
   annotation_eraser_radius: 12,
   gpencil_min_distance: 1.5,
@@ -301,7 +304,7 @@ export const defaultPreferences = (): Preferences => ({
 
   undo_steps: 64,
   scrollback: 5000,
-  audio_sample_rate: 48000,
+  audio_sample_rate: 0,
   audio_channels: 2,
   audio_latency: 'interactive',
   use_online_access: true,
@@ -386,6 +389,7 @@ export function formatDate(t: number | Date, withTime = true): string {
   }
   if (!withTime) return date;
   const hh = d.getHours();
+  if (prefs.time_format === 'DEFAULT') return `${date} ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
   const time = prefs.time_format === 'H12' ? `${((hh + 11) % 12) + 1}:${p2(d.getMinutes())} ${hh < 12 ? 'AM' : 'PM'}` : `${p2(hh)}:${p2(d.getMinutes())}`;
   return `${date} ${time}`;
 }

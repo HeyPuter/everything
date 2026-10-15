@@ -2,7 +2,7 @@
 // Solid shading, MatCaps (sphere images looked up by the view-space normal) and HDRIs
 // (environments for Material Preview and the path tracer's studio lighting). Built-in
 // entries are generated in code; Preferences ▸ Lights adds the user's own.
-import { CanvasTexture, DataTexture, EquirectangularReflectionMapping, FloatType, LinearFilter, LinearSRGBColorSpace, RGBAFormat, SRGBColorSpace, Vector3, type Texture, type WebGLRenderer, PMREMGenerator } from 'three';
+import { CanvasTexture, DataTexture, EquirectangularReflectionMapping, FloatType, LinearFilter, LinearSRGBColorSpace, RGBAFormat, SRGBColorSpace, Vector3, type Texture, type WebGLRenderer, type WebGLRenderTarget, PMREMGenerator } from 'three';
 
 export type Vec3 = [number, number, number];
 
@@ -231,7 +231,10 @@ export function onLibraryChange(fn: () => void) {
   listeners.add(fn);
   return () => listeners.delete(fn);
 }
+/** Bumped on every library change (render caches include it in their keys). */
+export let libraryVersion = 0;
 export function libraryChanged() {
+  libraryVersion++;
   for (const fn of listeners) fn();
 }
 
@@ -389,7 +392,7 @@ export function applyStudioLighting(sh: { studio_light?: string; studio_matcap?:
 const W = 256,
   H = 128;
 const equirects = new Map<string, DataTexture>();
-const pmrems = new Map<string, Texture>();
+const pmrems = new Map<string, WebGLRenderTarget>();
 
 /** Three's equirect lookup direction for a texel, expressed in our Z-up world. */
 function texelDir(u: number, v: number): Vec3 {
@@ -449,14 +452,15 @@ export function hdriEquirect(id?: string): DataTexture | null {
 export function hdriEnvironment(renderer: WebGLRenderer, pmrem: PMREMGenerator | null, id?: string): Texture | null {
   const def = findHdri(id);
   if (def.kind === 'room') return null;
-  let t = pmrems.get(def.id);
-  if (t) return t;
+  const have = pmrems.get(def.id);
+  if (have) return have.texture;
   const eq = hdriEquirect(def.id);
   if (!eq) return null;
   const gen = pmrem ?? new PMREMGenerator(renderer);
-  t = gen.fromEquirectangular(eq).texture;
-  pmrems.set(def.id, t);
-  return t;
+  const rt = gen.fromEquirectangular(eq);
+  if (!pmrem) gen.dispose();
+  pmrems.set(def.id, rt);
+  return rt.texture;
 }
 
 export function dropHdriTextures(id: string) {

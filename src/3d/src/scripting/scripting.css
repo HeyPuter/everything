@@ -130,7 +130,7 @@ body.no-tooltips .tooltip {
   color: var(--t-d0, #d0d0d0);
 }
 .te-ln.err {
-  color: var(--t-ff, #fff);
+  color: #fff;
   background: #a03344;
 }
 .te-content {
@@ -604,7 +604,7 @@ body.no-tooltips .tooltip {
     display: none !important;
   }
   body.printing-kmref {
-    background: var(--g-ff, #fff) !important;
+    background: #fff !important;
     color: #000 !important;
     overflow: visible !important;
     height: auto !important;
@@ -616,7 +616,7 @@ body.no-tooltips .tooltip {
   }
   body.printing-kmref .dialog {
     box-shadow: none !important;
-    background: var(--g-ff, #fff) !important;
+    background: #fff !important;
     max-height: none !important;
     max-width: none !important;
     width: auto !important;
@@ -634,15 +634,15 @@ body.no-tooltips .tooltip {
   }
   body.printing-kmref .kmref-group h3 {
     color: #000;
-    border-color: var(--g-99, #999);
+    border-color: #999;
   }
   body.printing-kmref .kmref-label {
     color: #000;
   }
   body.printing-kmref .kmref-key kbd {
-    background: var(--g-ff, #fff);
+    background: #fff;
     color: #000;
-    border: 1px solid var(--g-88, #888);
+    border: 1px solid #888;
   }
 }
 

@@ -4,10 +4,12 @@ import { h, type Child } from '../../ui/h';
 import { app } from '../../app/app';
 import { enumMenu } from '../../ui/widgets';
 import { renderContext } from '../../render/context';
-import { library, findMatcap, findHdri, findStudio, matcapPreview, hdriPreview } from '../../render/studiolights';
+import { library, findMatcap, findHdri, findStudio, matcapPreview, hdriPreview, onLibraryChange } from '../../render/studiolights';
 import type { View3D } from './view3d';
 
 const previews = new Map<string, string>();
+// entries change (or user images finish loading): draw the previews again
+onLibraryChange(() => previews.clear());
 function cached(key: string, make: () => string) {
   let p = previews.get(key);
   if (!p) previews.set(key, (p = make()));

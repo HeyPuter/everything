@@ -157,6 +157,8 @@ type EditorKeys = { keymaps?: string[]; onKey?(e: KeyboardEvent): boolean };
 const modsOf = (e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean }) => (e.ctrlKey || e.metaKey ? 1 : 0) | (e.shiftKey ? 2 : 0) | (e.altKey ? 4 : 0);
 let lastPress: { name: string; mods: number; time: number } | null = null;
 let clickCandidate: { name: string; mods: number } | null = null;
+/** keys whose press reached the keymaps (only those can trigger Release items) */
+const freeKeys = new Set<string>();
 
 /** Run the first matching item of the hovered editor's keymaps for one key event value. */
 function dispatch(e: KeyboardEvent, name: string, area: typeof app.activeArea, editor: EditorKeys | undefined, value: KeyValue, pressMods?: number): boolean {
@@ -236,6 +238,7 @@ export function installKeyboard() {
         const dbl = !!lastPress && lastPress.name === name && lastPress.mods === mods && now - lastPress.time <= keyTiming.doubleClick;
         lastPress = dbl ? null : { name, mods, time: now };
         if (!MODIFIER_KEYS.includes(name)) clickCandidate = { name, mods };
+        freeKeys.add(name);
         if (dbl && dispatch(e, name, area, editor, 'DOUBLE_CLICK')) return;
       }
       if (dispatch(e, name, area, editor, 'PRESS')) return;
@@ -261,6 +264,7 @@ export function installKeyboard() {
       const click = clickCandidate;
       if (MODIFIER_KEYS.includes(name)) return;
       clickCandidate = null;
+      if (!freeKeys.delete(name)) return;
       if (click && click.name === name && dispatch(e, name, area, editor, 'CLICK', click.mods)) return;
       dispatch(e, name, area, editor, 'RELEASE');
     },

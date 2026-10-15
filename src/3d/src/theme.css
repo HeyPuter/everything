@@ -2152,11 +2152,11 @@ input.num-field.editing {
 }
 .anim-ch-row.k-summary {
   background: rgba(77, 39, 39, 0.9);
-  color: var(--t-e6, #e6e6e6);
+  color: #e6e6e6;
 }
 .anim-ch-row.k-object {
   background: rgba(25, 78, 128, 0.55);
-  color: var(--t-e6, #e6e6e6);
+  color: #e6e6e6;
 }
 .anim-ch-row.k-object.sel {
   color: #ffaf29;
@@ -2170,7 +2170,7 @@ input.num-field.editing {
 }
 .anim-ch-row.k-group.sel {
   background: rgba(33, 109, 91, 0.75);
-  color: var(--t-ff, #fff);
+  color: #fff;
 }
 .anim-ch-row.k-fcurve,
 .anim-ch-row.k-shapekey,
@@ -2181,11 +2181,11 @@ input.num-field.editing {
 .anim-ch-row.k-shapekey.sel,
 .anim-ch-row.k-driver.sel {
   background: #34402f;
-  color: var(--t-ff, #fff);
+  color: #fff;
 }
 .anim-ch-row.k-nla_action {
   background: rgba(153, 84, 19, 0.45);
-  color: var(--t-f0, #f0f0f0);
+  color: #f0f0f0;
 }
 .anim-ch-row.k-nla_track {
   background: var(--g-2c, #2c2c2c);

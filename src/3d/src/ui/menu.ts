@@ -56,6 +56,7 @@ export function anyPopupOpen() {
 }
 
 export function closeMenus() {
+  clearTimeout(submenuTimer);
   while (stack.length) {
     const m = stack.pop()!;
     clearRoot(m.el);
@@ -124,7 +125,7 @@ function renderMenu(m: OpenMenu) {
           m.index = i;
           clearTimeout(submenuTimer);
           if (item.submenu && !disabled) {
-            if (menuSettings.submenuDelay > 0 && !m.child) submenuTimer = window.setTimeout(() => m.index === i && openSubmenu(m, item), menuSettings.submenuDelay);
+            if (menuSettings.submenuDelay > 0 && !m.child) submenuTimer = window.setTimeout(() => stack.includes(m) && m.index === i && openSubmenu(m, item), menuSettings.submenuDelay);
             else openSubmenu(m, item);
           } else closeChild(m);
           renderMenu(m);

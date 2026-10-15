@@ -78,7 +78,7 @@ registerPrefSection({
     ]),
     panel('pf-lang', 'Language', () => [
       pEnum('date_format', 'Date Format', [E('DEFAULT', 'System Default'), E('BE_DASH', 'YYYY-MM-DD'), E('LE_SLASH', 'DD/MM/YYYY'), E('LE_DOT', 'DD.MM.YYYY'), E('ME_SLASH', 'MM/DD/YYYY')]),
-      pEnum('time_format', 'Time Format', [E('H24', '24-Hour'), E('H12', '12-Hour (AM/PM)')], { expand: true }),
+      pEnum('time_format', 'Time Format', [E('DEFAULT', 'System Default'), E('H24', '24-Hour'), E('H12', '12-Hour (AM/PM)')], { expand: true }),
       note(`Example: ${formatDate(Date.now())}. Used for recent files, auto saves and the File Browser.`),
     ], { closed: true }),
     panel('pf-text', 'Text Rendering', () => [
@@ -256,7 +256,8 @@ registerPrefSection({
       const devs = ndofDevices();
       return [
         h('div', { class: 'prefs-note' }, devs.length ? `Connected: ${devs.map((d) => `${d.kind} (${d.id})`).join(', ')}` : 'No 3D mouse or game controller detected. Connect one and move it to wake it up.'),
-        pBool('ndof_enabled', 'Use 3D Mouse / Controller', 'Navigate the 3D Viewport under the pointer with a 3D mouse or a game controller'),
+        pBool('ndof_enabled', 'Use 3D Mouse', 'Navigate the 3D Viewport under the pointer with a 3D mouse'),
+        pBool('ndof_use_game_controller', 'Use Game Controller', 'Game controllers navigate too: left stick pans, right stick orbits, triggers zoom', { disabled: !prefs.ndof_enabled }),
         pEnum('ndof_navigation_mode', 'Navigation', [E('OBJECT', 'Object', 'The scene turns as if held in the hand'), E('FLY', 'Fly', 'The viewer moves through the scene')], { expand: true }),
         pNum('ndof_translation_sensitivity', 'Pan Sensitivity', { min: 0.01, max: 40, precision: 2 }),
         pNum('ndof_rotation_sensitivity', 'Orbit Sensitivity', { min: 0.01, max: 40, precision: 2 }),
@@ -299,8 +300,8 @@ registerPrefSection({
         pBool('walk_use_mouse_reverse', 'Reverse Mouse', 'Moving the mouse up looks down'),
         pNum('walk_mouse_speed', 'Mouse Sensitivity', { min: 0.01, max: 10, precision: 2 }),
         pNum('walk_teleport_time', 'Teleport Duration', { min: 0, max: 10, precision: 2, unit: 'time' }),
-        pNum('walk_speed', 'Walk Speed', { min: 0.01, max: 100, precision: 2, tip: 'Meters per second' }),
-        pNum('walk_speed_factor', 'Speed Factor', { min: 1, max: 20, precision: 1, tip: 'Shift moves this many times faster, Alt this many times slower' }),
+        pNum('walk_speed', 'Walk Speed', { min: 0, max: 100, precision: 2, tip: 'Meters per second (0: scaled to the view)' }),
+        pNum('walk_speed_factor', 'Speed Factor', { min: 1, max: 20, precision: 1, tip: 'Shift walks this many times faster' }),
       ], { sub: true }),
       panel('pf-gravity', 'Gravity', () => [
         pBool('walk_use_gravity', 'Gravity', 'Walking starts with gravity on (Tab toggles it)'),
@@ -379,7 +380,7 @@ registerPrefSection({
       pNum('scrollback', 'Console Scrollback Lines', { min: 32, max: 100000, int: true, tip: 'Lines the Python Console keeps' }),
     ]),
     panel('pf-sound', 'Sound', () => [
-      pEnum('audio_sample_rate', 'Sample Rate', [E('44100', '44.1 kHz'), E('48000', '48 kHz'), E('96000', '96 kHz'), E('192000', '192 kHz')]),
+      pEnum('audio_sample_rate', 'Sample Rate', [E('0', 'Automatic', 'The output device’s own rate'), E('44100', '44.1 kHz'), E('48000', '48 kHz'), E('96000', '96 kHz'), E('192000', '192 kHz')]),
       pEnum('audio_channels', 'Channels', [E('1', 'Mono'), E('2', 'Stereo'), E('4', '4 Channels'), E('6', '5.1 Surround'), E('8', '7.1 Surround')]),
       pEnum('audio_latency', 'Buffer', [E('interactive', 'Low Latency', 'Smallest output buffer: sound follows the timeline closely'), E('balanced', 'Balanced'), E('playback', 'Smooth Playback', 'Largest buffer: fewest dropouts on slow devices')]),
       note('Sound settings apply the next time playback starts. Channels are limited by the output device.'),

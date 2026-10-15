@@ -32,7 +32,7 @@
   margin-top: 10px;
 }
 .prefs-nav-btn:hover {
-  background: var(--c-hover, rgba(255, 255, 255, 0.07));
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.07);
 }
 .prefs-nav-btn.on {
   background: var(--accent);
@@ -50,10 +50,10 @@
 }
 .prefs-menu-btn:hover,
 .prefs-menu-btn.menu-open {
-  background: var(--c-hover, rgba(255, 255, 255, 0.1));
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.1);
 }
 .prefs-unsaved {
-  color: var(--c-warning-text, #ffb54d);
+  color: var(--anim-keyed, #ffb54d);
 }
 .prefs-save {
   margin-bottom: 6px;
@@ -209,7 +209,7 @@
 }
 .km-row.modified .km-name::after {
   content: ' •';
-  color: var(--c-warning-text, #ffb54d);
+  color: var(--anim-keyed, #ffb54d);
 }
 .km-name {
   overflow: hidden;
@@ -296,7 +296,7 @@
 }
 .panel.km-modified > .panel-header .ph-title::after {
   content: ' •';
-  color: var(--c-warning-text, #ffb54d);
+  color: var(--anim-keyed, #ffb54d);
 }
 
 /* ------------------------------------------------------------------ interface effects */
@@ -358,7 +358,7 @@ body.reduce-motion *::after {
   padding: 2px 0 4px 24px;
 }
 .v3d-info-line.v3d-fps.slow {
-  color: var(--c-error-text, #ff6b6b);
+  color: var(--pc-error, #ff6b6b);
 }
 
 /* ------------------------------------------------------------------ studio lights / matcaps / HDRIs */
@@ -534,7 +534,7 @@ body.reduce-motion *::after {
   display: inline-flex;
   vertical-align: -3px;
   margin-right: 3px;
-  color: var(--c-warning-text, #ffb54d);
+  color: var(--anim-keyed, #ffb54d);
 }
 
 /* Preferences ▸ Interface ▸ Editors ▸ Areas */

@@ -24,7 +24,7 @@
 .splash-orbits span {
   position: absolute;
   border-radius: 50%;
-  border: 1px solid rgba(var(--hl-rgb, 255, 255, 255), 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.14);
 }
 .splash-orbits .o1 {
   width: 260px;
@@ -44,7 +44,7 @@
   height: 90px;
   right: 46px;
   top: 16px;
-  background: radial-gradient(circle at 35% 35%, rgba(var(--hl-rgb, 255, 255, 255), 0.35), rgba(var(--hl-rgb, 255, 255, 255), 0.04) 60%);
+  background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0.04) 60%);
 }
 .splash-brand {
   position: absolute;
@@ -53,7 +53,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  color: var(--t-ff, #fff);
+  color: #fff;
 }
 .splash-name {
   font-size: 26px;
