@@ -364,6 +364,7 @@ const ITEM_TYPE: Record<string, string> = {
   VECTOR: 'FLOAT_VECTOR',
   RGBA: 'FLOAT_COLOR',
   ROTATION: 'QUATERNION',
+  MATRIX: 'FLOAT4X4',
 };
 
 function addCaptureItem(node: NodeData, dataType: string, name: string): CaptureItem {
@@ -445,6 +446,7 @@ export function installItemResolver() {
               { value: 'FLOAT_VECTOR', label: 'Vector' },
               { value: 'FLOAT_COLOR', label: 'Color' },
               { value: 'QUATERNION', label: 'Rotation' },
+              { value: 'FLOAT4X4', label: 'Matrix' },
             ],
             it.data_type,
             (v) =>

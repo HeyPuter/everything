@@ -294,3 +294,35 @@ describe('menus in nested groups', () => {
     expect(run()).toBe(10);
   });
 });
+
+describe('matrix attributes', () => {
+  it('Capture Attribute and Store/Named Attribute keep 4×4 matrices', () => {
+    const r = runSpec({
+      nodes: {
+        g: { type: 'GeometryNodeMeshLine', inputs: { Count: 3 } },
+        idx: { type: 'GeometryNodeInputIndex' },
+        ct: { type: 'FunctionNodeCombineTransform' },
+        cap: { type: 'GeometryNodeCaptureAttribute', props: { capture_items: JSON.stringify([{ id: 0, name: 'M', data_type: 'FLOAT4X4' }]) } },
+        st: { type: 'GeometryNodeStoreNamedAttribute', props: { data_type: 'FLOAT4X4', domain: 'POINT' }, inputs: { Name: 'm' } },
+        rd: { type: 'GeometryNodeInputNamedAttribute', props: { data_type: 'FLOAT4X4' }, inputs: { Name: 'm' } },
+        sep: { type: 'FunctionNodeSeparateTransform' },
+      },
+      links: [
+        ['idx', 'Index', 'ct', 'Translation'],
+        ['g', 'Mesh', 'cap', 'Geometry'],
+        ['ct', 'Transform', 'cap', 'Value'],
+        ['cap', 'Geometry', 'st', 'Geometry'],
+        ['cap', 'Attribute', 'st', 'Value'],
+        ['rd', 'Attribute', 'sep', 'Transform'],
+      ],
+      geometry: ['st', 'Geometry'],
+      outputs: [['t', 'sep', 'Translation', 'FLOAT_VECTOR', 'POINT']],
+    });
+    expect(r.errors).toEqual([]);
+    expect(r.values.t).toEqual([
+      [0, 0, 0],
+      [1, 1, 1],
+      [2, 2, 2],
+    ]);
+  });
+});
