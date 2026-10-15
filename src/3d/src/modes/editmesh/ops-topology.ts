@@ -1042,85 +1042,6 @@ function startLoopCut() {
 }
 
 // ---------------------------------------------------------------------------
-// vertex slide (G G) / edge slide
-
-function startEdgeSlide() {
-  const v = activeView3D();
-  if (!v) return 'CANCELLED' as const;
-  // for each selected vertex pick the connected unselected edge closest to the mouse direction
-  const data = editMeshObjects().map(({ ob, me }) => {
-    const m = MeshEdit.from(me);
-    const nb = m.neighbors();
-    const world = app.graph.get(ob.id)?.world ?? new Matrix4();
-    const slides: { v: number; a: Vector3; b: Vector3; c: Vector3 }[] = [];
-    for (const i of m.selectedVerts()) {
-      const opts = nb[i].filter((w) => !m.sel[w]);
-      if (!opts.length) continue;
-      // two opposite directions (one per side), like an edge slide between neighbouring loops
-      slides.push({ v: i, a: V(m.p(i)), b: V(m.p(opts[0])), c: V(m.p(opts[opts.length > 1 ? 1 : 0])) });
-    }
-    return { me, world, base: new Float32Array(me.positions), slides };
-  });
-  if (!data.some((d) => d.slides.length)) return 'CANCELLED' as const;
-  const r = v.el.getBoundingClientRect();
-  const start = { x: app.pointer.x - r.left, y: app.pointer.y - r.top };
-  let factor = 0;
-  const apply = () => {
-    for (const d of data) {
-      const P = new Float32Array(d.base);
-      for (const s of d.slides) {
-        const target = factor >= 0 ? s.b : s.c;
-        const p = s.a.clone().lerp(target, Math.abs(factor));
-        P[s.v * 3] = p.x;
-        P[s.v * 3 + 1] = p.y;
-        P[s.v * 3 + 2] = p.z;
-      }
-      d.me.positions = P;
-    }
-    app.changed('geometry');
-  };
-  // screen direction of the first slide edge sets the sign
-  const s0 = data.find((d) => d.slides.length)!;
-  const A = v.project(s0.slides[0].a.clone().applyMatrix4(s0.world)),
-    B = v.project(s0.slides[0].b.clone().applyMatrix4(s0.world));
-  const dir = { x: B.x - A.x, y: B.y - A.y };
-  const len = Math.hypot(dir.x, dir.y) || 1;
-  let typed = '';
-  app.startModal({
-    label: 'Edge Slide',
-    header: () => `Edge Slide: ${typed ? typed + '|' : factor.toFixed(3)}`,
-    onPointerMove(e) {
-      if (typed) return;
-      const x = e.clientX - r.left - start.x,
-        y = e.clientY - r.top - start.y;
-      factor = Math.max(-1, Math.min(1, (x * dir.x + y * dir.y) / (len * len)));
-      apply();
-    },
-    onPointerDown(e) {
-      return e.button === 0 ? 'FINISHED' : 'CANCELLED';
-    },
-    onKey(e) {
-      if (e.type !== 'keydown') return true;
-      if (e.key === 'Escape') return 'CANCELLED';
-      if (e.key === 'Enter') return 'FINISHED';
-      // numeric factor in [-1, 1]
-      if (/^[0-9.]$/.test(e.key) || (e.key === '-' && !typed)) typed += e.key;
-      else if (e.key === 'Backspace') typed = typed.slice(0, -1);
-      else return true;
-      const n = parseFloat(typed);
-      factor = Number.isFinite(n) ? Math.max(-1, Math.min(1, n)) : 0;
-      apply();
-      return true;
-    },
-    cancel() {
-      for (const d of data) d.me.positions = d.base;
-      app.changed('geometry');
-    },
-  });
-  return 'RUNNING_MODAL' as const;
-}
-
-// ---------------------------------------------------------------------------
 // bevel (vertices: chamfer corners; edges: offset along adjacent faces)
 
 interface BevelState {
@@ -1417,18 +1338,6 @@ registerOperators([
       m.write(me);
       app.changed('geometry');
     },
-  },
-  {
-    idname: 'transform.edge_slide',
-    label: 'Edge Slide',
-    poll: editPoll,
-    invoke: () => startEdgeSlide(),
-  },
-  {
-    idname: 'transform.vert_slide',
-    label: 'Vertex Slide',
-    poll: editPoll,
-    invoke: () => startEdgeSlide(),
   },
   {
     idname: 'mesh.poke',

@@ -578,3 +578,25 @@ describe('bridge and triangulate options', () => {
     expect(diag(a)).not.toEqual(diag(b));
   });
 });
+
+import { edgeSlideTargets, applyEdgeSlide } from '../../src/modes/editmesh/slide';
+
+describe('edge slide', () => {
+  it('slides a loop consistently to one side', () => {
+    const m = cube();
+    selectAll(m);
+    subdivide(m, 1, 0);
+    // the middle horizontal loop
+    selectWhere(m, (p) => Math.abs(p[2]) < 1e-6);
+    const slides = edgeSlideTargets(m);
+    expect(slides.length).toBe(8);
+    const base = m.pos.slice();
+    applyEdgeSlide(m, base, slides, 0.5, false, false);
+    const zs = slides.map((s) => Math.round(m.p(s.v)[2] * 1e4) / 1e4);
+    // every vertex moved halfway to the same side
+    expect(new Set(zs).size).toBe(1);
+    expect(Math.abs(zs[0])).toBeCloseTo(0.5);
+    applyEdgeSlide(m, base, slides, -0.5, false, false);
+    expect(Math.round(m.p(slides[0].v)[2] * 1e4) / 1e4).toBeCloseTo(-zs[0]);
+  });
+});
