@@ -2,7 +2,7 @@
 :root {
   --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
-  --fs: 12px;
+  --fs: 11px;
   --row: 20px;
 
   --c-border: #161616; /* editor border */
@@ -28,7 +28,7 @@
   --w-num-hover: #5e5e5e;
   --w-menu: #282828;
   --w-menu-back: #181818;
-  --w-menu-item-hl: #4772b3;
+  --w-menu-item-hl: #3e3e3e;
   --w-tab: #1d1d1d;
   --w-tab-on: #303030;
   --w-tool: #282828;
@@ -170,7 +170,7 @@ textarea {
 
 .shell {
   display: grid;
-  grid-template-rows: 30px 1fr 24px;
+  grid-template-rows: 26px 1fr 22px;
   height: 100vh;
   width: 100vw;
 }
@@ -203,14 +203,14 @@ textarea {
 }
 .tb-logo {
   width: 28px;
-  height: 24px;
+  height: 22px;
   display: grid;
   place-items: center;
   border-radius: var(--radius);
 }
 .tb-menu {
-  height: 24px;
-  padding: 0 8px;
+  height: 22px;
+  padding: 0 7px;
   border-radius: var(--radius);
   color: #d9d9d9;
 }
@@ -238,8 +238,8 @@ textarea {
 }
 .ws-tab {
   flex: none;
-  height: 24px;
-  padding: 0 9px;
+  height: 22px;
+  padding: 0 8px;
   border-radius: var(--radius);
   color: #999;
   white-space: nowrap;
@@ -376,8 +376,39 @@ textarea {
   min-width: 0;
 }
 .area.overlap-header .area-header {
-  background: rgba(48, 48, 48, 0.85);
-  backdrop-filter: blur(1px);
+  background: rgba(48, 48, 48, 0.86);
+}
+/* Overlapping headers: the main region fills the whole area and the header rows float over it.
+   --ov-top / --ov-bottom tell overlays inside the main region how much room the headers take. */
+.area.overlap-header {
+  --ov-top: 52px;
+  --ov-bottom: 0px;
+}
+.area.overlap-header.no-toolheader {
+  --ov-top: 26px;
+}
+.area.overlap-header.header-bottom {
+  --ov-top: 0px;
+  --ov-bottom: 52px;
+}
+.area.overlap-header.header-bottom.no-toolheader {
+  --ov-bottom: 26px;
+}
+.area.overlap-header.no-header {
+  --ov-top: 0px;
+  --ov-bottom: 0px;
+}
+.area.overlap-header > .area-main {
+  position: absolute;
+  inset: 0;
+}
+.area.overlap-header > .area-toolheader {
+  background: transparent;
+  pointer-events: none;
+  height: 26px;
+}
+.area.overlap-header > .area-toolheader > * {
+  pointer-events: auto;
 }
 .area.header-bottom {
   flex-direction: column-reverse;
@@ -420,7 +451,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 1px;
-  height: 22px;
+  height: 20px;
   padding: 0 4px;
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.06);
@@ -445,7 +476,7 @@ textarea {
   min-width: 8px;
 }
 .hdr-menu {
-  height: 22px;
+  height: 20px;
   padding: 0 8px;
   border-radius: var(--radius);
   color: #ddd;
@@ -461,7 +492,7 @@ textarea {
 }
 .hdr-mode,
 .hdr-drop {
-  height: 22px;
+  height: 20px;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -489,7 +520,7 @@ textarea {
 }
 .hdr-toggle,
 .hdr-icondrop {
-  height: 22px;
+  height: 20px;
   min-width: 24px;
   display: grid;
   grid-auto-flow: column;
@@ -895,7 +926,7 @@ input.num-field.editing {
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 26px;
+  height: 24px;
   padding: 0 6px 0 4px;
   cursor: default;
 }
@@ -1030,11 +1061,11 @@ input.num-field.editing {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 22px;
-  padding: 0 10px 0 6px;
-  margin: 0 3px;
-  border-radius: 3px;
-  color: #ddd;
+  height: 20px;
+  padding: 0 8px 0 5px;
+  margin: 0 4px;
+  border-radius: 4px;
+  color: #d9d9d9;
   white-space: nowrap;
 }
 .menu-item.hl:not(.disabled) {
@@ -1056,21 +1087,48 @@ input.num-field.editing {
   color: #888;
 }
 .menu-item .mi-key {
-  color: #888;
+  color: #8c8c8c;
   margin-left: 24px;
-  font-size: 11px;
 }
 .menu-item.hl .mi-key {
-  color: #ddd;
+  color: #bdbdbd;
 }
 .menu-item .mi-arrow {
-  margin-right: -6px;
-  opacity: 0.7;
+  width: 8px;
+  margin-right: -4px;
+  display: flex;
+  justify-content: flex-end;
+}
+.menu-item .mi-arrow::after {
+  content: '';
+  border: 4px solid transparent;
+  border-right-width: 0;
+  border-left: 5px solid #b0b0b0;
+}
+.menu-item.disabled .mi-arrow::after {
+  border-left-color: #5a5a5a;
+}
+.menu-item .mi-key:empty + .mi-arrow {
+  margin-left: 12px;
+}
+.menu-title {
+  padding: 2px 10px 5px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid #2b2b2b;
+}
+.menu-item.menu-search {
+  background: #2a2a2a;
+  margin: 1px 5px 2px;
+  color: #bdbdbd;
+}
+.menu-item.menu-search.hl {
+  background: var(--w-menu-item-hl);
+  color: #fff;
 }
 .menu-sep {
   height: 1px;
   background: #2e2e2e;
-  margin: 4px 8px;
+  margin: 3px 8px;
 }
 .menu-heading {
   color: #999;
@@ -1319,7 +1377,7 @@ input.num-field.editing {
 }
 .v3d-info {
   position: absolute;
-  top: 34px;
+  top: calc(var(--ov-top, 0px) + 10px);
   left: 52px;
   color: #eee;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
@@ -1351,14 +1409,14 @@ input.num-field.editing {
 .v3d-toolbar {
   position: absolute;
   left: 6px;
-  top: 32px;
+  top: calc(var(--ov-top, 0px) + 8px);
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 3px;
   background: rgba(40, 40, 40, 0.92);
   border-radius: 6px;
-  max-height: calc(100% - 44px);
+  max-height: calc(100% - var(--ov-top, 0px) - var(--ov-bottom, 0px) - 16px);
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -1401,7 +1459,7 @@ input.num-field.editing {
 .nav-gizmo-wrap {
   position: absolute;
   right: 8px;
-  top: 34px;
+  top: calc(var(--ov-top, 0px) + 8px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1452,8 +1510,8 @@ input.num-field.editing {
 .v3d-sidebar {
   position: absolute;
   right: 0;
-  top: 28px;
-  bottom: 0;
+  top: var(--ov-top, 0px);
+  bottom: var(--ov-bottom, 0px);
   width: 270px;
   display: flex;
   background: rgba(48, 48, 48, 0.95);
@@ -1500,7 +1558,7 @@ input.num-field.editing {
 .redo-panel {
   position: absolute;
   left: 6px;
-  bottom: 8px;
+  bottom: calc(var(--ov-bottom, 0px) + 8px);
   background: rgba(48, 48, 48, 0.95);
   border-radius: 6px;
   min-width: 200px;
@@ -1540,6 +1598,60 @@ input.num-field.editing {
   align-items: center;
   gap: 8px;
   flex: 1;
+}
+/* Tool settings floating over the viewport: each group sits on its own translucent box. */
+.area.overlap-header > .area-toolheader {
+  padding: 0 4px;
+  gap: 4px;
+}
+.area.overlap-header > .area-toolheader > .hdr-spacer {
+  pointer-events: none;
+}
+.area.overlap-header > .area-toolheader > .tool-header {
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 24px;
+  padding: 0 4px;
+  gap: 6px;
+  border-radius: 6px;
+  background: rgba(40, 40, 40, 0.86);
+}
+.area.overlap-header > .area-toolheader > .tool-header:empty {
+  display: none;
+}
+.tool-header.th-right {
+  flex: none;
+}
+.th-right .hdr-drop {
+  margin-right: 0;
+}
+.th-right .hdr-group {
+  margin: 0;
+}
+/* tool options (Options popover and the sidebar's Tool tab) */
+.opt-head {
+  color: var(--c-text-dim);
+  margin: 4px 0 2px;
+}
+.opt-split {
+  display: grid;
+  grid-template-columns: 38% 1fr;
+  gap: 8px;
+  align-items: start;
+}
+.opt-label {
+  text-align: right;
+  color: #ccc;
+  line-height: var(--row);
+}
+.opt-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.opt-col.opt-row {
+  flex-direction: row;
+  gap: 10px;
 }
 .th-tool {
   display: flex;
@@ -1586,7 +1698,7 @@ input.num-field.editing {
 .ol-row {
   display: flex;
   align-items: center;
-  height: 22px;
+  height: 20px;
   padding-right: 4px;
   gap: 3px;
   color: #c3c3c3;
@@ -2533,4 +2645,12 @@ input.num-field.editing {
 .ws-add:hover {
   color: #ddd;
   background: rgba(255, 255, 255, 0.06);
+}
+.mesh-symmetry {
+  align-items: center;
+  background: var(--w-menu);
+}
+.mesh-symmetry > .ic {
+  margin: 0 3px 0 5px;
+  color: #ccc;
 }

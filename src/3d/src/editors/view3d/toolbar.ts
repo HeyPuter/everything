@@ -6,6 +6,7 @@ import { activeTools, uiState } from '../../app/prefs';
 import type { View3D } from './view3d';
 import { enumRow } from '../../ui/widgets';
 import { openMenu } from '../../ui/menu';
+import { toolHeaderRightHooks, optionsButton, hasToolOptions } from './tooloptions';
 
 export interface ToolDef {
   id: string;
@@ -186,6 +187,13 @@ export function toolHeader(v: View3D): Child {
   const settings = toolSettingsFor(cur);
   return h('div', { class: 'tool-header' }, t ? h('span', { class: 'th-tool' }, icon(t.icon), h('span', null, t.label)) : null, settings);
   void v;
+}
+
+/** The whole tool settings row of the 3D view: the active tool's settings, then mode toggles and the Options dropdown at the right. */
+export function toolHeaderRow(v: View3D): Child {
+  const right = toolHeaderRightHooks.map((f) => f()).filter((c) => c !== null && c !== undefined && c !== false);
+  const opts = hasToolOptions() ? optionsButton() : null;
+  return [toolHeader(v), h('div', { key: 'th-gap', class: 'hdr-spacer' }), right.length || opts ? h('div', { key: 'th-right', class: 'tool-header th-right' }, ...right, opts) : null];
 }
 
 export const toolSettingsRenderers: Record<string, () => Child> = {};

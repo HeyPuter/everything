@@ -19,6 +19,7 @@ import './screenops';
 import './favorites';
 import './areawindow';
 import './screenshot';
+import './menuicons';
 import { APP_VERSION } from '../scripting/wmops';
 
 const STATUSBAR_KEY = 'p3d.ui.statusbar';

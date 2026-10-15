@@ -27,7 +27,7 @@ export function availableModes() {
   return MODE_ITEMS.filter((m) => m.types.includes('*') || (ob && m.types.includes(ob.type)));
 }
 
-function menuButton(label: string, items: () => MenuItem[]) {
+function menuButton(label: string, items: () => MenuItem[], search = false) {
   return h(
     'button',
     {
@@ -35,11 +35,11 @@ function menuButton(label: string, items: () => MenuItem[]) {
       class: 'hdr-menu',
       onpointerdown: (e: PointerEvent) => {
         e.preventDefault();
-        openMenu(items(), e.currentTarget as HTMLElement);
+        openMenu(items(), e.currentTarget as HTMLElement, { search });
       },
       onpointerenter: (e: PointerEvent) => {
         // menu bar hover switching while a header menu is open
-        if (document.querySelector('.hdr-menu.menu-open') && !(e.currentTarget as HTMLElement).classList.contains('menu-open')) openMenu(items(), e.currentTarget as HTMLElement);
+        if (document.querySelector('.hdr-menu.menu-open') && !(e.currentTarget as HTMLElement).classList.contains('menu-open')) openMenu(items(), e.currentTarget as HTMLElement, { search });
       },
     },
     label,
@@ -123,9 +123,10 @@ export function viewHeader(v: View3D): Child {
       h('span', null, mode.label),
       icon('down_arrow_hlt', 'tiny'),
     ),
+    mm?.headerLead?.() ?? null,
     menuButton('View', viewMenu),
     !mm?.select || mm.select().length ? menuButton('Select', selectMenu) : null,
-    (doc.mode === 'OBJECT' || doc.mode === 'EDIT') && (!mm?.add || mm.add().length) ? menuButton('Add', mm?.add ?? addMenu) : null,
+    (doc.mode === 'OBJECT' || doc.mode === 'EDIT') && (!mm?.add || mm.add().length) ? menuButton('Add', mm?.add ?? addMenu, true) : null,
     doc.mode === 'OBJECT' ? menuButton('Object', objectMenu) : null,
     ...(mm?.header?.() ?? []).map(([label, fn]) => menuButton(label, fn)),
     mm?.headerExtra?.() ?? null,

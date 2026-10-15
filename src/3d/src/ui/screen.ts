@@ -361,6 +361,7 @@ export class Area implements AreaLike {
       this.toolHeaderEl.hidden = false;
       patch(this.toolHeaderEl, this.editor.toolHeader());
     } else this.toolHeaderEl.hidden = true;
+    this.el.classList.toggle('no-toolheader', this.toolHeaderEl.hidden);
   }
 
   serialize(): AreaState {

@@ -7,7 +7,9 @@ export interface ModeMenus {
   select?: () => MenuItem[];
   add?: () => MenuItem[];
   context?: () => MenuItem[];
-  /** extra header widgets after the menus (e.g. select mode buttons) */
+  /** header widgets right after the mode selector (e.g. select mode buttons) */
+  headerLead?: () => import('../../ui/h').Child;
+  /** extra header widgets after the menus */
   headerExtra?: () => import('../../ui/h').Child;
 }
 

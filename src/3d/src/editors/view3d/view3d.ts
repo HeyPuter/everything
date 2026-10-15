@@ -11,7 +11,7 @@ import { defaultOverlay, defaultShading, type Overlay, type Shading } from './st
 import { drawViewport, pickId, readIds, renderIdPass, type DrawView } from './draw';
 import { prefs, activeTools } from '../../app/prefs';
 import { viewHeader } from './header';
-import { toolbar, toolHeader } from './toolbar';
+import { toolbar, toolHeaderRow } from './toolbar';
 import { sidebar } from './sidebar';
 import { navGizmo } from './navgizmo';
 import { selectObjects, selectPick } from './select';
@@ -283,7 +283,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   }
 
   toolHeader(): Child {
-    return toolHeader(this);
+    return toolHeaderRow(this);
   }
 
   update(kinds: Set<ChangeKind>) {
