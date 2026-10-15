@@ -10,6 +10,7 @@ import { editMeshObjects, ensureSelection, selectMode, active, selectHistory, pu
 import { editPoll } from './ops-basic';
 import { V, faceEdgeKeys, vertexNormals, edgeChains } from './geom';
 import { edgeLoop, edgeRing } from './select';
+import { selectFaces as selectFaceSet } from './selset';
 
 type SelFn = (me: MeshData, m: MeshEdit, sel: Uint8Array) => void;
 
@@ -223,7 +224,104 @@ export function selectSimilar(m: MeshEdit, me: MeshData, sel: Uint8Array, type: 
 }
 
 export function similarMenu(): MenuItem[] {
-  return SIMILAR_ITEMS[selectMode()].map(([t, label]) => ({ label, op: 'mesh.select_similar', props: { type: t } }));
+  const items: MenuItem[] = SIMILAR_ITEMS[selectMode()].map(([t, label]) => ({ label, op: 'mesh.select_similar', props: { type: t } }));
+  if (selectMode() === 'FACE') items.push({ separator: true }, { label: 'Face Regions', op: 'mesh.select_similar_region' });
+  return items;
+}
+
+// ---------------------------------------------------------------------------
+// similar regions: other places with the same face topology as a selected region
+
+/** Try to map region faces onto the mesh starting from region face `r0` ↦ `m0` with corner offset. */
+function matchRegion(m: MeshEdit, region: number[], ef: Map<string, [number, number][]>, r0: number, m0: number, offset: number): number[] | null {
+  const inRegion = new Set(region);
+  const faceMap = new Map<number, [number, number]>([[r0, [m0, offset]]]); // region face → [mesh face, corner offset]
+  const vmap = new Map<number, number>();
+  const used = new Set<number>([m0]);
+  const queue = [r0];
+  const mapVert = (a: number, b: number) => {
+    const cur = vmap.get(a);
+    if (cur !== undefined) return cur === b;
+    vmap.set(a, b);
+    return true;
+  };
+  while (queue.length) {
+    const fr = queue.shift()!;
+    const [fm, off] = faceMap.get(fr)!;
+    const R = m.faces[fr],
+      M = m.faces[fm];
+    const n = R.verts.length;
+    if (M.verts.length !== n) return null;
+    for (let i = 0; i < n; i++) if (!mapVert(R.verts[i], M.verts[(i + off) % n])) return null;
+    for (let i = 0; i < n; i++) {
+      const a = R.verts[i],
+        b = R.verts[(i + 1) % n];
+      const gr = (ef.get(edgeKey(a, b)) ?? []).map(([g]) => g).find((g) => g !== fr && inRegion.has(g));
+      if (gr === undefined) continue;
+      const ma = M.verts[(i + off) % n],
+        mb = M.verts[(i + 1 + off) % n];
+      const gm = (ef.get(edgeKey(ma, mb)) ?? []).map(([g]) => g).find((g) => g !== fm);
+      if (gm === undefined) return null;
+      // corner of the shared edge in both neighbours fixes the neighbour's offset
+      const G = m.faces[gr],
+        GM = m.faces[gm];
+      if (G.verts.length !== GM.verts.length) return null;
+      const jr = G.verts.indexOf(b),
+        jm = GM.verts.indexOf(mb);
+      if (jr < 0 || jm < 0 || G.verts[(jr + 1) % G.verts.length] !== a || GM.verts[(jm + 1) % GM.verts.length] !== ma) return null;
+      const noff = (jm - jr + GM.verts.length) % GM.verts.length;
+      const prev = faceMap.get(gr);
+      if (prev) {
+        if (prev[0] !== gm || prev[1] !== noff) return null;
+        continue;
+      }
+      if (used.has(gm)) return null;
+      used.add(gm);
+      faceMap.set(gr, [gm, noff]);
+      queue.push(gr);
+    }
+  }
+  if (faceMap.size !== region.length) return null;
+  return [...faceMap.values()].map(([fm]) => fm);
+}
+
+export function similarRegions(m: MeshEdit): number[] {
+  const fsel = m.selectedFaces();
+  if (!fsel.length) return [];
+  const ef = m.edgeFaces();
+  const out = new Set<number>(fsel);
+  const regions: number[][] = [];
+  {
+    const set = new Set(fsel);
+    const seen = new Set<number>();
+    for (const s0 of fsel) {
+      if (seen.has(s0)) continue;
+      const comp: number[] = [];
+      const st = [s0];
+      seen.add(s0);
+      while (st.length) {
+        const f = st.pop()!;
+        comp.push(f);
+        for (const k of faceEdgeKeys(m.faces[f])) for (const [g] of ef.get(k) ?? []) if (set.has(g) && !seen.has(g)) (seen.add(g), st.push(g));
+      }
+      regions.push(comp);
+    }
+  }
+  for (const region of regions) {
+    const r0 = region[0];
+    const n = m.faces[r0].verts.length;
+    for (let fm = 0; fm < m.faces.length; fm++) {
+      if (m.faces[fm].verts.length !== n || out.has(fm)) continue;
+      for (let off = 0; off < n; off++) {
+        const hit = matchRegion(m, region, ef, r0, fm, off);
+        if (hit && !hit.some((f) => out.has(f) && !region.includes(f))) {
+          hit.forEach((f) => out.add(f));
+          break;
+        }
+      }
+    }
+  }
+  return [...out];
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +389,28 @@ const extendProp = { id: 'extend', label: 'Extend', type: 'bool' as const, defau
 const CMP: [string, string][] = [['EQUAL', 'Equal'], ['GREATER', 'Greater'], ['LESS', 'Less']];
 
 registerOperators([
+  {
+    idname: 'mesh.select_similar_region',
+    label: 'Select Similar Regions',
+    description: 'Select other face regions with the same topology as the selected ones',
+    poll: (ctx) => editPoll(ctx) && selectMode() === 'FACE',
+    exec: () => {
+      let any = false;
+      for (const { me } of editMeshObjects()) {
+        ensureSelection(me);
+        const m = MeshEdit.from(me);
+        const faces = similarRegions(m);
+        if (faces.length <= m.selectedFaces().length) continue;
+        selectFaceSet(me, new Set(faces));
+        any = true;
+      }
+      if (!any) {
+        app.report('WARNING', 'No matching face regions found');
+        return 'CANCELLED';
+      }
+      app.changed('select');
+    },
+  },
   {
     idname: 'mesh.select_interior_faces',
     label: 'Select Interior Faces',

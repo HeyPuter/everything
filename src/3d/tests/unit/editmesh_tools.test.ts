@@ -657,3 +657,22 @@ describe('spin', () => {
     expect(counts(d)).toEqual([20, 24, 9]);
   });
 });
+
+import { similarRegions } from '../../src/modes/editmesh/select-extra';
+
+describe('similar regions', () => {
+  it('finds the same face pattern elsewhere', () => {
+    // two separate cubes: selecting two adjacent faces of one finds every matching pair
+    const m = cube();
+    selectAll(m);
+    duplicateSelection(m);
+    moveSelected(m, new Vector3(5, 0, 0));
+    m.sel = m.sel.map(() => 0);
+    for (const f of m.faces) if (m.faceCenter(f)[0] < 3 && (m.faceCenter(f)[2] > 0.9 || m.faceCenter(f)[0] > 0.9)) for (const v of f.verts) m.sel[v] = 1;
+    const before = m.selectedFaces().length;
+    expect(before).toBe(2);
+    const out = similarRegions(m);
+    expect(out.length).toBeGreaterThan(2);
+    expect(out.length % 2).toBe(0);
+  });
+});
