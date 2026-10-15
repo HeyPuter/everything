@@ -121,7 +121,7 @@ export function positions(g: GeometrySet): number[][] {
   const p = (g.mesh ?? g.points ?? g.curves)?.positions;
   if (!p) return [];
   const out: number[][] = [];
-  for (let i = 0; i < p.length; i += 3) out.push([p[i], p[i + 1], p[i + 2]].map((x) => Math.round(x * 1e4) / 1e4));
+  for (let i = 0; i < p.length; i += 3) out.push([p[i], p[i + 1], p[i + 2]].map((x) => Math.round(x * 1e4) / 1e4 || 0));
   return out;
 }
 
