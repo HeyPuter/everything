@@ -770,3 +770,20 @@ describe('inset positions', () => {
     expect(counts(m)).toEqual([14, 24, 12]);
   });
 });
+
+import { meshGeometry } from '../../src/render/geometry';
+import { baseEvalMesh } from '../../src/eval/depsgraph';
+
+describe('flip quad tessellation', () => {
+  it('stores the flag and renders the other diagonal', () => {
+    const me = newMeshData('P', prim.plane());
+    const before = Array.from(meshGeometry(baseEvalMesh(me)).geometry.index!.array);
+    const m = MeshEdit.from(me);
+    m.faces[0].flip = true;
+    m.write(me);
+    expect(me.quad_flip?.[0]).toBe(1);
+    const after = Array.from(meshGeometry(baseEvalMesh(me)).geometry.index!.array);
+    expect(after).not.toEqual(before);
+    expect(MeshEdit.from(me).faces[0].flip).toBe(true);
+  });
+});

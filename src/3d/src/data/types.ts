@@ -91,6 +91,8 @@ export interface MeshData {
   creases?: Float32Array;
   /** custom split normals, xyz per face corner (overrides the computed shading normals) */
   custom_normals?: Float32Array;
+  /** per face: split this quad along the other diagonal than the automatic choice */
+  quad_flip?: Uint8Array;
   /** per-face smooth shading flag */
   smooth?: Uint8Array;
   /** per-face material slot index */

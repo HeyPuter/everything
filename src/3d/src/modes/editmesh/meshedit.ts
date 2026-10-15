@@ -22,6 +22,8 @@ export interface EFace {
   hidden?: boolean;
   /** Edge/Face select mode: all vertices are selected but the face itself is not */
   selX?: boolean;
+  /** quad split along the other diagonal */
+  flip?: boolean;
 }
 
 export class MeshEdit {
@@ -68,6 +70,7 @@ export class MeshEdit {
         creases: me.creases ? Array.from(me.creases.subarray(a, b)) : new Array(b - a).fill(0),
         colors: cornerColor >= 0 ? Array.from(me.color_attributes[cornerColor].data.subarray(a * 4, b * 4)) : undefined,
         cnormals: cn ? Array.from(cn.subarray(a * 3, b * 3)) : undefined,
+        flip: me.quad_flip?.[f] ? true : undefined,
       });
     }
     const loose = me.loose_edges;
@@ -115,6 +118,7 @@ export class MeshEdit {
     });
     me.loose_edges = this.looseEdges.length ? Uint32Array.from(this.looseEdges.flat()) : undefined;
     me.custom_normals = this.customNormals();
+    me.quad_flip = this.faces.some((f) => f.flip && f.verts.length === 4) ? Uint8Array.from(this.faces, (f) => (f.flip && f.verts.length === 4 ? 1 : 0)) : undefined;
     // keep the exact edge/face selection with the new selection array
     const sel = this.sel;
     const faces = new Set<number>();

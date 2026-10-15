@@ -922,6 +922,20 @@ registerOperators([
     },
   },
   {
+    idname: 'mesh.flip_quad_tessellation',
+    label: 'Flip Quad Tessellation',
+    description: 'Split the selected quads along their other diagonal when shading',
+    poll: editPoll,
+    exec: () =>
+      withEdit((m) => {
+        const quads = m.selectedFaces().filter((fi) => m.faces[fi].verts.length === 4);
+        for (const fi of quads) m.faces[fi].flip = !m.faces[fi].flip;
+        return quads.length > 0;
+      })
+        ? 'FINISHED'
+        : 'CANCELLED',
+  },
+  {
     idname: 'mesh.uvs_rotate',
     label: 'Rotate UVs',
     description: 'Rotate the UV corners of the selected faces',

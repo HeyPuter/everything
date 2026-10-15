@@ -44,7 +44,7 @@ function aid(a: object | undefined | null): number {
 }
 
 export function meshSignature(me: MeshData) {
-  return `${aid(me.positions)}:${aid(me.indices)}:${aid(me.loose_edges)}:${aid(me.offsets)}:${aid(me.uvs)}:${aid(me.smooth)}:${aid(me.material_index)}:${aid(me.seams)}:${aid(me.sharp)}:${aid(me.creases)}:${aid(me.custom_normals)}:${me.auto_smooth_angle ?? ''}:${me.weights.map(aid).join(',')}:${me.shape_keys
+  return `${aid(me.positions)}:${aid(me.indices)}:${aid(me.loose_edges)}:${aid(me.offsets)}:${aid(me.uvs)}:${aid(me.smooth)}:${aid(me.material_index)}:${aid(me.seams)}:${aid(me.sharp)}:${aid(me.creases)}:${aid(me.custom_normals)}:${aid(me.quad_flip)}:${me.auto_smooth_angle ?? ''}:${me.weights.map(aid).join(',')}:${me.shape_keys
     .map((k) => `${aid(k.data)}=${k.mute ? 'm' : k.value}`)
     .join(',')}:${me.color_attributes.map((c) => aid(c.data)).join(',')}:${me.active_color_index}`;
 }
@@ -92,6 +92,7 @@ export function baseEvalMesh(me: MeshData, editMode = false): EvalMesh {
     sharp: me.sharp,
     creases: me.creases,
     custom_normals: me.custom_normals && me.custom_normals.length === me.indices.length * 3 ? me.custom_normals : undefined,
+    quad_flip: me.quad_flip && me.quad_flip.length === me.offsets.length - 1 ? me.quad_flip : undefined,
     colors,
     weights: me.weights,
     vertex_groups: me.vertex_groups,

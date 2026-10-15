@@ -179,6 +179,8 @@ function faceDataMenu(): MenuItem[] {
     { separator: true },
     { label: 'Rotate UVs', op: 'mesh.uvs_rotate' },
     { label: 'Reverse UVs', op: 'mesh.uvs_reverse' },
+    { separator: true },
+    { label: 'Flip Quad Tessellation', op: 'mesh.flip_quad_tessellation' },
   ];
 }
 
