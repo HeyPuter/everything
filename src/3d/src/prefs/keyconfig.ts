@@ -1,7 +1,7 @@
 // The live key configuration: binds the keyconfig model to the dispatcher's keymaps,
 // persists it, migrates the older override format and offers import / export.
 import { keymaps, keymapHooks, type KeyItem } from '../app/keymap';
-import { KeyconfigState, emptyKeyconfig, normalizeKeyconfig, type KeyconfigData } from './keyconfig_core';
+import { KeyconfigState, emptyKeyconfig, normalizeKeyconfig, fieldsOf, diffFields, type KeyconfigData } from './keyconfig_core';
 import { KEY_PRESETS } from './keypresets';
 
 const STORAGE = 'p3d.keyconfig.v2';
@@ -76,7 +76,9 @@ function migrate(old: OldOverride[]): KeyconfigData {
     const k = list[o.index] && same(list[o.index]) ? list[o.index] : list.find(same);
     if (!k) continue;
     const id = keyconfig.idOf(k);
-    if (id) d.edits[id] = { key: o.key, ctrl: !!o.ctrl, shift: !!o.shift, alt: !!o.alt, ...(o.active === false ? { active: false } : {}) };
+    const base = fieldsOf(k);
+    const e = diffFields(base, { ...base, key: o.key, ctrl: !!o.ctrl, shift: !!o.shift, alt: !!o.alt, active: o.active !== false });
+    if (id && Object.keys(e).length) d.edits[id] = e;
   }
   return d;
 }
