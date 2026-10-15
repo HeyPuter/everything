@@ -235,11 +235,27 @@ export interface CameraData {
     focus_distance: number;
     aperture_fstop: number;
     aperture_blades: number;
+    /** rotation of the aperture polygon (radians) */
+    aperture_rotation?: number;
+    /** anamorphic distortion of the bokeh (1 = round) */
+    aperture_ratio?: number;
   };
   display_size: number;
   show_passepartout: boolean;
   passepartout_alpha: number;
   show_limits?: boolean;
+  /** camera view overlays (src/render/final/cameraoverlay.ts) */
+  show_name?: boolean;
+  show_safe_areas?: boolean;
+  show_safe_center?: boolean;
+  show_composition_thirds?: boolean;
+  show_composition_center?: boolean;
+  show_composition_center_diagonal?: boolean;
+  show_composition_golden?: boolean;
+  show_composition_golden_tria_a?: boolean;
+  show_composition_golden_tria_b?: boolean;
+  show_composition_harmony_tri_a?: boolean;
+  show_composition_harmony_tri_b?: boolean;
   users?: number;
 }
 
@@ -401,6 +417,7 @@ export interface WorldData {
   /** mist settings */
   mist_start?: number;
   mist_depth?: number;
+  mist_falloff?: 'QUADRATIC' | 'LINEAR' | 'INVERSE_QUADRATIC';
   users?: number;
 }
 
@@ -999,6 +1016,8 @@ export interface RigidBodyWorld {
 
 export interface SceneData {
   name: string;
+  /** camera view safe-area margins (fractions of the frame, x and y) */
+  safe_areas?: { title: [number, number]; action: [number, number]; title_center: [number, number]; action_center: [number, number] };
   frame_start: number;
   frame_end: number;
   frame_step: number;

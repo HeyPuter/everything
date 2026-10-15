@@ -123,3 +123,27 @@ test('Render menu: View Animation and Lock Interface; Output and View Layer pane
   await expect(props.getByText('Object Index')).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('Camera data: aperture shape, safe areas and composition guides drawn in camera view', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => {
+    const a = (window as any).app,
+      d = a.doc;
+    const cam = d.objects[d.scene.camera];
+    for (const o of Object.values(d.objects) as any[]) o.select = false;
+    cam.select = true;
+    d.scene.active_object = cam.id;
+    Object.assign(d.cameras[cam.data], { show_safe_areas: true, show_composition_thirds: true });
+    a.changed('doc', 'select');
+  });
+  const v = (await page.locator('.view3d').first().boundingBox())!;
+  await page.mouse.move(v.x + v.width / 2, v.y + v.height / 2);
+  await page.keyboard.press('Numpad0');
+  await expect(page.locator('.view3d .camera-guides').first()).toBeVisible();
+  // 2 safe-area rectangles + 4 third lines
+  expect(await page.locator('.view3d .camera-guides rect').count()).toBe(2);
+  const props = page.locator('.properties').first();
+  await props.locator('.rail-tab[data-tip="Data"]').click();
+  for (const t of ['Safe Areas', 'Depth of Field', 'Viewport Display']) await expect(props.locator('.panel-header .ph-title', { hasText: new RegExp(`^${t}$`) })).toBeVisible();
+  await expectNoErrors(errors);
+});

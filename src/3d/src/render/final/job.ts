@@ -450,7 +450,7 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
       const ortho = !!(camera as unknown as { isOrthographicCamera?: boolean }).isOrthographicCamera;
       Object.assign(
         passes,
-        passesFromGuide(g, W, H, (camera as PerspectiveCamera).projectionMatrixInverse.elements, ortho, { start: world?.mist_start ?? 5, depth: world?.mist_depth ?? 25 }, passesWanted),
+        passesFromGuide(g, W, H, (camera as PerspectiveCamera).projectionMatrixInverse.elements, ortho, { start: world?.mist_start ?? 5, depth: world?.mist_depth ?? 25, falloff: world?.mist_falloff }, passesWanted),
       );
       if (engine === 'WORKBENCH' && transparent) {
         for (let i = 0; i < W * H; i++) {

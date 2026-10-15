@@ -282,6 +282,7 @@ export function newWorld(name = 'World'): WorldData {
       links: [{ id: uid('link'), from_node: bg.id, from_socket: 'Background', to_node: out.id, to_socket: 'Surface' }],
     },
     mist_start: 5,
+    mist_falloff: 'QUADRATIC',
     mist_depth: 25,
   };
 }

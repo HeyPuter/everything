@@ -9,6 +9,7 @@ import './renderwindow';
 import './job';
 import './playback';
 import './imageregion';
+import './cameraoverlay';
 import './props/render';
 import './props/output';
 import './props/viewlayer';

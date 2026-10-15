@@ -12,6 +12,7 @@ import { cloneShared } from '../../data/cow';
 import { openMenu } from '../../ui/menu';
 import { materialSlots } from '../view3d/draw';
 import { uiList } from './uilist';
+import { cameraPanels } from '../../render/final/props/camera';
 
 const ob = () => app.activeObject;
 
@@ -148,7 +149,7 @@ registerTab({
             ]
           : h('div', { class: 'prop-note' }, 'The world node tree has no Background node. Edit it in the Shader Editor (World).'),
       ),
-      panel('wo-mist', 'Mist Pass', () => [num(w as never, 'mist_start' as never, 'Start', { unit: 'distance' }), num(w as never, 'mist_depth' as never, 'Depth', { unit: 'distance' })], { closed: true }),
+      panel('wo-mist', 'Mist Pass', () => [num(w as never, 'mist_start' as never, 'Start', { unit: 'distance' }), num(w as never, 'mist_depth' as never, 'Depth', { unit: 'distance' }), enumProp(w as never, 'mist_falloff' as never, 'Falloff', [['QUADRATIC', 'Quadratic'], ['LINEAR', 'Linear'], ['INVERSE_QUADRATIC', 'Inverse Quadratic']])], { closed: true }),
       panel('wo-display', 'Viewport Display', () => [colorProp(w, 'color', 'Color')], { closed: true }),
     ];
   },
@@ -444,30 +445,7 @@ function lightData(o: ObjectData, la: LightData): Child {
 
 function cameraData(o: ObjectData, ca: CameraData): Child {
   const doc = app.doc;
-  return [
-    dataBlockSelector('ca', 'camera_data', Object.values(doc.cameras), ca.id, (id) => id && ((o.data = id), changed('Assign Camera')), () => {}),
-    panel('ca-lens', 'Lens', () => [
-      enumProp(ca, 'type', 'Type', [['PERSP', 'Perspective'], ['ORTHO', 'Orthographic'], ['PANO', 'Panoramic']]),
-      ca.type === 'ORTHO'
-        ? num(ca, 'ortho_scale', 'Orthographic Scale', { min: 0.001, anim: { ob: o, path: 'data.ortho_scale' } })
-        : ca.lens_unit === 'FOV'
-          ? splitRow('Field of View', numberField({ id: 'ca-fov', value: 2 * Math.atan(ca.sensor_width / 2 / ca.lens), unit: 'angle', min: 0.0064, max: 3.0107, set: (v, f) => ((ca.lens = ca.sensor_width / 2 / Math.tan(v / 2)), app.changed('doc'), f && app.pushUndo('Field of View')) }))
-          : num(ca, 'lens', 'Focal Length', { min: 1, max: 5000, softMax: 500, precision: 1, anim: { ob: o, path: 'data.lens' } }),
-      enumProp(ca, 'lens_unit', 'Lens Unit', [['MILLIMETERS', 'Millimeters'], ['FOV', 'Field of View']]),
-      num(ca, 'shift_x', 'Shift X', { min: -10, max: 10, step: 0.01 }),
-      num(ca, 'shift_y', 'Y', { min: -10, max: 10, step: 0.01 }),
-      num(ca, 'clip_start', 'Clip Start', { unit: 'distance', min: 1e-6 }),
-      num(ca, 'clip_end', 'End', { unit: 'distance', min: 1e-6 }),
-    ]),
-    panel('ca-dof', 'Depth of Field', () => [
-      splitRow('Focus on Object', enumMenu('ca-focus', [{ value: '', label: '—' }, ...Object.values(doc.objects).map((x) => ({ value: x.id, label: x.name }))], ca.dof.focus_object ?? '', (v) => ((ca.dof.focus_object = v || null), changed('Focus Object')))),
-      num(ca.dof, 'focus_distance', 'Focus Distance', { unit: 'distance', min: 0, anim: { ob: o, path: 'data.dof.focus_distance' } }),
-      num(ca.dof, 'aperture_fstop', 'F-Stop', { min: 0.1, softMax: 128, precision: 1 }),
-      num(ca.dof, 'aperture_blades', 'Blades', { int: true, min: 0, max: 16 }),
-    ], { closed: true, header: checkbox('ca-dof-on', '', ca.dof.use_dof, (v) => ((ca.dof.use_dof = v), changed('Depth of Field'))) }),
-    panel('ca-sensor', 'Camera', () => [enumProp(ca, 'sensor_fit', 'Sensor Fit', [['AUTO', 'Auto'], ['HORIZONTAL', 'Horizontal'], ['VERTICAL', 'Vertical']]), num(ca, 'sensor_width', ca.sensor_fit === 'VERTICAL' ? 'Width' : 'Size', { unit: 'none', min: 1, max: 100 }), ca.sensor_fit !== 'AUTO' ? num(ca, 'sensor_height', 'Height', { min: 1, max: 100 }) : null], { closed: true }),
-    panel('ca-display', 'Viewport Display', () => [num(ca, 'display_size', 'Size', { unit: 'distance', min: 0.01, max: 1000 }), bool(ca, 'show_passepartout', 'Passepartout'), num(ca, 'passepartout_alpha', 'Opacity', { min: 0, max: 1, slider: true })], { closed: true }),
-  ];
+  return [dataBlockSelector('ca', 'camera_data', Object.values(doc.cameras), ca.id, (id) => id && ((o.data = id), changed('Assign Camera')), () => {}), cameraPanels(o, ca)];
 }
 
 function curveData(o: ObjectData, cu: CurveData): Child {

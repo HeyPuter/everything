@@ -61,6 +61,9 @@ export function renderCamera(app: App, w: number, h: number, cameraId = app.doc.
       p.focusDistance = dist;
       p.apertureBlades = ca.dof.aperture_blades >= 3 ? ca.dof.aperture_blades : 0;
       p.bokehSize = ca.lens / Math.max(0.1, ca.dof.aperture_fstop);
+      const d = ca.dof as typeof ca.dof & { aperture_rotation?: number; aperture_ratio?: number };
+      p.apertureRotation = d.aperture_rotation ?? 0;
+      p.anamorphicRatio = d.aperture_ratio ?? 1;
     } else p.fStop = Infinity;
     cam = p;
   }

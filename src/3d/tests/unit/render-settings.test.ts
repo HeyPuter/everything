@@ -251,3 +251,34 @@ describe('path tracer shader', () => {
     expect(src).not.toContain('tentFilter( ruv.x )');
   });
 });
+
+describe('camera guides and mist falloff', async () => {
+  const { insetRect, centerCut, compositionGuides } = await import('../../src/render/final/cameraoverlay');
+  const { mistFactor } = await import('../../src/render/final/units');
+  it('safe areas and the 4:3 center cut', () => {
+    expect(insetRect({ x: 0, y: 0, w: 200, h: 100 }, 0.1, 0.05)).toEqual({ x: 10, y: 2.5, w: 180, h: 95 });
+    expect(centerCut({ x: 0, y: 0, w: 160, h: 90 })).toEqual({ x: 20, y: 0, w: 120, h: 90 });
+  });
+  it('composition guides', () => {
+    const r = { x: 0, y: 0, w: 90, h: 30 };
+    expect(compositionGuides({ show_composition_thirds: true }, r)).toEqual([
+      [30, 0, 30, 30],
+      [0, 10, 90, 10],
+      [60, 0, 60, 30],
+      [0, 20, 90, 20],
+    ]);
+    // triangles: the lines from the corners meet the diagonal at right angles
+    const [diag, a] = compositionGuides({ show_composition_golden_tria_a: true }, r);
+    const d = [diag[2] - diag[0], diag[3] - diag[1]],
+      l = [a[2] - a[0], a[3] - a[1]];
+    expect(d[0] * l[0] + d[1] * l[1]).toBeCloseTo(0, 6);
+    const harmony = compositionGuides({ show_composition_harmony_tri_a: true }, r);
+    // harmonious lines run on to the frame edge
+    expect(harmony[1][3] === 30 || harmony[1][2] === 90).toBe(true);
+  });
+  it('mist falloff', () => {
+    expect(mistFactor(15, 5, 20)).toBeCloseTo(0.25, 6);
+    expect(mistFactor(15, 5, 20, 'LINEAR')).toBeCloseTo(0.5, 6);
+    expect(mistFactor(15, 5, 20, 'INVERSE_QUADRATIC')).toBeCloseTo(Math.SQRT1_2, 6);
+  });
+});

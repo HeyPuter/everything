@@ -232,6 +232,8 @@ export class ViewportRender {
     p.focusDistance = sc.focusDistance;
     p.fStop = sc.fStop;
     p.apertureBlades = sc.apertureBlades;
+    p.apertureRotation = sc.apertureRotation;
+    p.anamorphicRatio = sc.anamorphicRatio;
     p.updateMatrixWorld(true);
     return p;
   }

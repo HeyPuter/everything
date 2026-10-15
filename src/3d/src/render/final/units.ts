@@ -70,10 +70,10 @@ export function shutterOffset(i: number, n: number, shutter: number, position: '
 }
 
 /** Mist factor (0 near → 1 far) with the default quadratic falloff. */
-export function mistFactor(dist: number, start: number, depth: number): number {
+export function mistFactor(dist: number, start: number, depth: number, falloff: 'QUADRATIC' | 'LINEAR' | 'INVERSE_QUADRATIC' = 'QUADRATIC'): number {
   if (depth <= 0) return dist >= start ? 1 : 0;
   const x = Math.min(1, Math.max(0, (dist - start) / depth));
-  return x * x;
+  return falloff === 'LINEAR' ? x : falloff === 'INVERSE_QUADRATIC' ? Math.sqrt(x) : x * x;
 }
 
 /** Light-path settings → path tracer bounces. */
