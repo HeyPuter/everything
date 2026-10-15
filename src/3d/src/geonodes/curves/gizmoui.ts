@@ -72,7 +72,11 @@ function ringPath(v: View3D, center: Vector3, normal: Vector3, radius: number): 
   return pts.join('');
 }
 
-function arrow(v: View3D, from: Vector3, to: Vector3, color: string, style: string, gizmo: string): VNode[] {
+/** One draggable handle: a group (hover highlight) of a wide invisible grab stroke and the visible marks. */
+const handle = (gizmo: string, ...children: VNode[]) => h('g', { class: 'gz', 'data-gngizmo': gizmo }, children);
+const grab = (tag: 'line' | 'path', attrs: Record<string, unknown>, width = 12) => h(tag, { ...attrs, fill: 'none', stroke: 'transparent', 'stroke-width': width, class: 'gz-hit' });
+
+function arrow(v: View3D, from: Vector3, to: Vector3, color: string, style: string, gizmo: string): VNode {
   const a = v.project(from),
     b = v.project(to);
   const dx = b.x - a.x,
@@ -80,16 +84,14 @@ function arrow(v: View3D, from: Vector3, to: Vector3, color: string, style: stri
     l = Math.hypot(dx, dy) || 1;
   const ux = dx / l,
     uy = dy / l;
-  const common = { 'data-gngizmo': gizmo, class: 'gz' };
-  const parts: VNode[] = [
-    // wide transparent stroke: easier to grab than the visible line
-    h('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: 'transparent', 'stroke-width': 12, 'data-gngizmo': gizmo, class: 'gz gz-hit' }),
-    h('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: color, 'stroke-width': 2.2, ...common }),
-  ];
-  if (style === 'CROSS') parts.push(h('path', { d: `M${b.x - 6} ${b.y - 6}L${b.x + 6} ${b.y + 6}M${b.x - 6} ${b.y + 6}L${b.x + 6} ${b.y - 6}`, stroke: color, 'stroke-width': 2.2, ...common }));
-  else if (style === 'BOX') parts.push(h('rect', { x: b.x - 5, y: b.y - 5, width: 10, height: 10, fill: color, ...common }));
-  else parts.push(h('path', { d: `M${b.x + ux * 12} ${b.y + uy * 12}L${b.x - uy * 5} ${b.y + ux * 5}L${b.x + uy * 5} ${b.y - ux * 5}Z`, fill: color, ...common }));
-  return parts;
+  const line = { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+  const head =
+    style === 'CROSS'
+      ? h('path', { d: `M${b.x - 6} ${b.y - 6}L${b.x + 6} ${b.y + 6}M${b.x - 6} ${b.y + 6}L${b.x + 6} ${b.y - 6}`, stroke: color, 'stroke-width': 2.2 })
+      : style === 'BOX'
+        ? h('rect', { x: b.x - 5, y: b.y - 5, width: 10, height: 10, fill: color })
+        : h('path', { d: `M${b.x + ux * 12} ${b.y + uy * 12}L${b.x - uy * 5} ${b.y + ux * 5}L${b.x + uy * 5} ${b.y - ux * 5}Z`, fill: color });
+  return handle(gizmo, grab('line', line), h('line', { ...line, stroke: color, 'stroke-width': 2.2, 'stroke-linecap': 'round' }), head);
 }
 
 function dialRadius(v: View3D, g: Live) {
@@ -108,16 +110,13 @@ function drawGizmo(v: View3D, g: Live): VNode[] {
     const dir = new Vector3(...g.state.axis).applyMatrix3(g.basis);
     if (dir.lengthSq() < 1e-12) return [];
     dir.normalize();
-    return arrow(v, g.pos, g.pos.clone().addScaledVector(dir, size), col, g.state.drawStyle, `${key}|lin`);
+    return [arrow(v, g.pos, g.pos.clone().addScaledVector(dir, size), col, g.state.drawStyle, `${key}|lin`)];
   }
   if (g.state.kind === 'DIAL') {
     const up = new Vector3(...g.state.axis).applyMatrix3(g.basis);
     if (up.lengthSq() < 1e-12) return [];
     const d = ringPath(v, g.pos, up.normalize(), dialRadius(v, g));
-    return [
-      h('path', { d, fill: 'none', stroke: 'transparent', 'stroke-width': 12, 'data-gngizmo': `${key}|dial`, class: 'gz gz-hit' }),
-      h('path', { d, fill: 'none', stroke: col, 'stroke-width': 2.6, 'data-gngizmo': `${key}|dial`, class: 'gz' }),
-    ];
+    return [handle(`${key}|dial`, grab('path', { d }), h('path', { d, fill: 'none', stroke: col, 'stroke-width': 2.6 }))];
   }
   const parts: VNode[] = [];
   const axes = [0, 1, 2].map((i) => new Vector3().setFromMatrix3Column(g.basis, i).normalize());
@@ -125,16 +124,13 @@ function drawGizmo(v: View3D, g: Live): VNode[] {
   axes.forEach((ax, i) => {
     if (!u.rotate[i]) return;
     const d = ringPath(v, g.pos, ax, size * 0.9);
-    parts.push(
-      h('path', { d, fill: 'none', stroke: 'transparent', 'stroke-width': 10, 'data-gngizmo': `${key}|r:${i}`, class: 'gz gz-hit' }),
-      h('path', { d, fill: 'none', stroke: AXIS[i], 'stroke-width': 2, 'data-gngizmo': `${key}|r:${i}`, class: 'gz' }),
-    );
+    parts.push(handle(`${key}|r:${i}`, grab('path', { d }, 10), h('path', { d, fill: 'none', stroke: AXIS[i], 'stroke-width': 2 })));
   });
   axes.forEach((ax, i) => {
-    if (u.translate[i]) parts.push(...arrow(v, g.pos.clone().addScaledVector(ax, size * 0.2), g.pos.clone().addScaledVector(ax, size * 1.15), AXIS[i], 'ARROW', `${key}|t:${i}`));
+    if (u.translate[i]) parts.push(arrow(v, g.pos.clone().addScaledVector(ax, size * 0.2), g.pos.clone().addScaledVector(ax, size * 1.15), AXIS[i], 'ARROW', `${key}|t:${i}`));
     if (u.scale[i]) {
       const p = v.project(g.pos.clone().addScaledVector(ax, size * 0.6));
-      parts.push(h('rect', { x: p.x - 5, y: p.y - 5, width: 10, height: 10, fill: AXIS[i], 'data-gngizmo': `${key}|s:${i}`, class: 'gz' }));
+      parts.push(handle(`${key}|s:${i}`, h('rect', { x: p.x - 5, y: p.y - 5, width: 10, height: 10, fill: AXIS[i] })));
     }
   });
   return parts;

@@ -61,7 +61,7 @@ test('dragging a linear gizmo changes the linked value', async ({ page }) => {
      return v.id;`,
   );
   await page.waitForTimeout(300);
-  const handle = page.locator('.gz-hit[data-gngizmo$="|lin"]').first();
+  const handle = page.locator('[data-gngizmo$="|lin"] .gz-hit').first();
   const b = (await handle.boundingBox())!;
   await page.mouse.move(b.x + b.width / 2, b.y + b.height * 0.6);
   await page.mouse.down();
@@ -126,12 +126,12 @@ test('dial and transform gizmos draw handles and edit their values', async ({ pa
   );
   await page.waitForTimeout(300);
   // the transform gizmo draws three rings, three arrows and three boxes
-  expect(await page.locator('.gz:not(.gz-hit)[data-gngizmo*="|r:"]').count()).toBe(3);
-  expect(await page.locator('.gz:not(.gz-hit)[data-gngizmo*="|t:"]').count()).toBe(6);
+  expect(await page.locator('g.gz[data-gngizmo*="|r:"]').count()).toBe(3);
+  expect(await page.locator('g.gz[data-gngizmo*="|t:"]').count()).toBe(3);
   expect(await page.locator('[data-gngizmo*="|s:"]').count()).toBe(3);
   // points along the dial ring (screen space): drag a quarter turn along it
   const pts = await page.evaluate(() => {
-    const path = document.querySelector('.gz-hit[data-gngizmo$="|dial"]') as SVGPathElement;
+    const path = document.querySelector('[data-gngizmo$="|dial"] .gz-hit') as SVGPathElement;
     const m = path.getScreenCTM()!;
     const len = path.getTotalLength();
     return Array.from({ length: 9 }, (_, k) => {
