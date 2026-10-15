@@ -1,5 +1,6 @@
 // Curve Edit Mode: control point / handle selection and transforms, handle types, extrude,
 // add vertex, delete, subdivide, cyclic toggle, make segment, duplicate, separate, spline type.
+// More operators live in ops-more.ts, menus and keys in menus.ts, toolbar tools in tools.ts.
 import { Matrix3, Matrix4, Vector3, Box3, Euler } from 'three';
 import { app, registerOperators } from '../../app/app';
 import { editModeHooks } from '../../editors/view3d/hooks';
@@ -9,11 +10,11 @@ import type { BezierPoint, CurveData, HandleType, ObjectData, Spline, SplinePoin
 import { transformProviders, startTransform, type TElement } from '../../ops/transform';
 import { setGizmoCenterHook, gizmoCenterHook } from '../../editors/view3d/gizmo';
 import { frameHooks } from '../../ops/view3d';
-import { modeMenus } from '../../editors/view3d/modemenus';
-import { addKeys } from '../../app/keymap';
-import type { MenuItem } from '../../ui/menu';
 import { newCurve, newObject } from '../../data/defaults';
 import { uniqueName, curveEditHooks } from '../../ops/object';
+import { inSelectRegion } from '../../editors/view3d/selectshapes';
+import type { SelectRegion } from '../../editors/view3d/hooks';
+import * as K from './curveops';
 
 type Part = 'co' | 'hl' | 'hr';
 interface Item {
@@ -74,10 +75,11 @@ function allItems(cu: CurveData, withHandles = true): Item[] {
   cu.splines.forEach((sp, s) => {
     if (sp.type === 'BEZIER')
       sp.bezier_points.forEach((b, i) => {
+        if (b.hide) return;
         out.push({ s, i, part: 'co' });
         if (withHandles && handlesShown(b)) out.push({ s, i, part: 'hl' }, { s, i, part: 'hr' });
       });
-    else sp.points.forEach((_, i) => out.push({ s, i, part: 'co' }));
+    else sp.points.forEach((p, i) => !p.hide && out.push({ s, i, part: 'co' }));
   });
   return out;
 }
@@ -158,39 +160,79 @@ function pick(v: View3D, x: number, y: number): Item | null {
   return best;
 }
 
-let activeItem: Item | null = null;
+/** Active (last clicked) point, used by Checker Deselect, shortest path and the pen tool. */
+export const curveState: { active: Item | null } = { active: null };
+export const activePoint = (): K.PointRef | null => {
+  const a = curveState.active,
+    c = activeCurve();
+  if (!a || !c) return null;
+  const sp = c.cu.splines[a.s];
+  return sp && a.i < K.pointCount(sp) ? { s: a.s, i: a.i } : null;
+};
+export function setActivePoint(p: K.PointRef | null) {
+  curveState.active = p ? { ...p, part: 'co' } : null;
+}
+
+/** Point under the mouse (control points only), or null. */
+export function pickPoint(v: View3D, x: number, y: number, radius = 12): K.PointRef | null {
+  const a = activeCurve();
+  if (!a) return null;
+  const w = world(a.ob);
+  let best: K.PointRef | null = null,
+    bd = radius;
+  for (const it of allItems(a.cu, false)) {
+    const p = v.project(itemPos(a.cu, it).applyMatrix4(w));
+    const d = Math.hypot(p.x - x, p.y - y);
+    if (d < bd) {
+      bd = d;
+      best = { s: it.s, i: it.i };
+    }
+  }
+  return best;
+}
 
 editModeHooks.pick.push((v, x, y, o) => {
   if (!inCurveEdit()) return false;
   const { cu } = activeCurve()!;
   const hit = pick(v, x, y);
+  // Ctrl+click: select the shortest path from the active point along its spline
+  const ev = window.event as PointerEvent | undefined;
+  const act = activePoint();
+  if (ev?.ctrlKey && !ev.shiftKey && hit && act && act.s === hit.s && hit.part === 'co') {
+    K.selectPath(cu, act, hit);
+    curveState.active = hit;
+    app.pushUndo('Pick Shortest Path');
+    app.changed('select', 'doc');
+    return true;
+  }
   if (!o.extend) deselectAll(cu);
   if (hit) {
     const on = !(o.toggle && isSelected(cu, hit));
     setSelected(cu, hit, on);
-    activeItem = on ? hit : null;
-  } else activeItem = null;
+    curveState.active = on ? hit : null;
+  } else curveState.active = null;
   app.pushUndo('Select');
   app.changed('select', 'doc');
   return true;
 });
 
-editModeHooks.box.push((v, x0, y0, x1, y1, mode) => {
-  if (!inCurveEdit()) return false;
+function regionSelect(v: View3D, r: SelectRegion, mode: 'SET' | 'ADD' | 'SUB' | 'AND' | 'XOR', label: string) {
   const { ob, cu } = activeCurve()!;
   const w = world(ob);
-  const [lx, hx, ly, hy] = [Math.min(x0, x1), Math.max(x0, x1), Math.min(y0, y1), Math.max(y0, y1)];
   for (const it of allItems(cu, false)) {
     const p = v.project(itemPos(cu, it).applyMatrix4(w));
-    const hit = p.x >= lx && p.x <= hx && p.y >= ly && p.y <= hy;
+    const hit = p.z <= 1 && inSelectRegion(r, p.x, p.y);
     const cur = isSelected(cu, it);
     const next = mode === 'SET' ? hit : mode === 'ADD' ? cur || hit : mode === 'SUB' ? cur && !hit : mode === 'AND' ? cur && hit : cur !== hit;
     setSelected(cu, it, next);
   }
-  app.pushUndo('Box Select');
+  app.pushUndo(label);
   app.changed('select', 'doc');
   return true;
-});
+}
+
+editModeHooks.box.push((v, x0, y0, x1, y1, mode) => (inCurveEdit() ? regionSelect(v, { kind: 'box', x0, y0, x1, y1 }, mode, 'Box Select') : false));
+editModeHooks.region.push((v, r, mode) => (inCurveEdit() ? regionSelect(v, r, mode, r.kind === 'circle' ? 'Circle Select' : 'Lasso Select') : false));
 
 const HANDLE_COLORS: Record<HandleType, [string, string]> = {
   FREE: ['#000000', '#f0ff40'],
@@ -209,6 +251,7 @@ editModeHooks.svg.push((v) => {
   cu.splines.forEach((sp, s) => {
     if (sp.type === 'BEZIER') {
       sp.bezier_points.forEach((b, i) => {
+        if (b.hide) return;
         const c = P(b.co);
         if (handlesShown(b)) {
           for (const side of ['hl', 'hr'] as const) {
@@ -219,14 +262,18 @@ editModeHooks.svg.push((v) => {
             dots.push(h('circle', { cx: hp.x, cy: hp.y, r: 3, fill: sel ? '#ff8500' : '#000', stroke: HANDLE_COLORS[type][sel ? 1 : 0], 'stroke-width': 1 }));
           }
         }
-        const act = activeItem && activeItem.s === s && activeItem.i === i && activeItem.part === 'co';
+        const act = curveState.active && curveState.active.s === s && curveState.active.i === i && curveState.active.part === 'co';
         dots.push(h('circle', { cx: c.x, cy: c.y, r: 3.5, fill: b.select_control_point ? (act ? '#fff' : '#ff8500') : '#000', stroke: '#000', 'stroke-width': 0.8 }));
       });
     } else {
       const pts = sp.points.map((p) => P(p.co));
       for (let i = 0; i + 1 < pts.length; i++) lines.push(h('line', { x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y, stroke: '#90a0ff', 'stroke-width': 1, opacity: 0.7 }));
       if (sp.use_cyclic_u && pts.length > 2) lines.push(h('line', { x1: pts[pts.length - 1].x, y1: pts[pts.length - 1].y, x2: pts[0].x, y2: pts[0].y, stroke: '#90a0ff', 'stroke-width': 1, opacity: 0.7 }));
-      pts.forEach((p, i) => dots.push(h('circle', { cx: p.x, cy: p.y, r: 3.5, fill: sp.points[i].select ? '#ff8500' : '#000', stroke: '#000', 'stroke-width': 0.8 })));
+      pts.forEach((p, i) => {
+        if (sp.points[i].hide) return;
+        const act = curveState.active && curveState.active.s === s && curveState.active.i === i;
+        dots.push(h('circle', { cx: p.x, cy: p.y, r: 3.5, fill: sp.points[i].select ? (act ? '#fff' : '#ff8500') : '#000', stroke: '#000', 'stroke-width': 0.8 }));
+      });
     }
   });
   return h('g', { class: 'curve-edit' }, lines, dots);
@@ -346,26 +393,6 @@ function newBezierPoint(co: Vec3, type: HandleType = 'AUTO'): BezierPoint {
   return { co: [...co] as Vec3, handle_left: [...co] as Vec3, handle_right: [...co] as Vec3, handle_left_type: type, handle_right_type: type, radius: 1, tilt: 0 };
 }
 
-function bezierMid(a: BezierPoint, b: BezierPoint): { mid: BezierPoint; aR: Vec3; bL: Vec3 } {
-  // de Casteljau split at t = 0.5
-  const p0 = V3(a.co),
-    p1 = V3(a.handle_right),
-    p2 = V3(b.handle_left),
-    p3 = V3(b.co);
-  const q0 = p0.clone().lerp(p1, 0.5),
-    q1 = p1.clone().lerp(p2, 0.5),
-    q2 = p2.clone().lerp(p3, 0.5);
-  const r0 = q0.clone().lerp(q1, 0.5),
-    r1 = q1.clone().lerp(q2, 0.5);
-  const s = r0.clone().lerp(r1, 0.5);
-  const mid = newBezierPoint(s.toArray() as Vec3, a.handle_right_type === 'VECTOR' && b.handle_left_type === 'VECTOR' ? 'VECTOR' : 'ALIGNED');
-  mid.handle_left = r0.toArray() as Vec3;
-  mid.handle_right = r1.toArray() as Vec3;
-  mid.radius = (a.radius + b.radius) / 2;
-  mid.tilt = (a.tilt + b.tilt) / 2;
-  return { mid, aR: q0.toArray() as Vec3, bL: q2.toArray() as Vec3 };
-}
-
 function splinePointCount(sp: Spline) {
   return sp.type === 'BEZIER' ? sp.bezier_points.length : sp.points.length;
 }
@@ -384,10 +411,7 @@ registerOperators([
     props: [{ id: 'action', label: 'Action', type: 'enum', default: 'TOGGLE', items: [['TOGGLE', 'Toggle'], ['SELECT', 'Select'], ['DESELECT', 'Deselect'], ['INVERT', 'Invert']] }],
     poll,
     exec: (_ctx, p) => {
-      const { cu } = activeCurve()!;
-      let a = p.action as string;
-      if (a === 'TOGGLE') a = anySelected(cu) ? 'DESELECT' : 'SELECT';
-      for (const sp of cu.splines) for (let i = 0; i < splinePointCount(sp); i++) selectPointFull(sp, i, a === 'SELECT' ? true : a === 'DESELECT' ? false : !pointSelected(sp, i));
+      K.selectAll(activeCurve()!.cu, p.action as 'TOGGLE');
     },
     redo: false,
   },
@@ -397,17 +421,16 @@ registerOperators([
     description: 'Select all points of splines that have a selected point',
     poll,
     exec: () => {
-      for (const sp of activeCurve()!.cu.splines) {
-        const n = splinePointCount(sp);
-        if ([...Array(n).keys()].some((i) => pointSelected(sp, i))) for (let i = 0; i < n; i++) selectPointFull(sp, i);
-      }
+      K.selectLinked(activeCurve()!.cu);
     },
   },
   {
     idname: 'curve.extrude_move',
     label: 'Extrude Curve and Move',
+    description: 'Extrude the selected end points and move the new points',
+    props: [{ id: 'release_confirm', label: 'Confirm on Release', type: 'bool', default: false, hidden: true }],
     poll,
-    invoke: (ctx) => {
+    invoke: (ctx, p) => {
       const { cu } = activeCurve()!;
       let added = 0;
       for (const sp of cu.splines) {
@@ -448,7 +471,7 @@ registerOperators([
       }
       app.changed('doc', 'geometry');
       app.flush();
-      startTransform('TRANSLATION', { event: ctx.event, label: 'Extrude' });
+      startTransform('TRANSLATION', { event: ctx.event, label: 'Extrude', release_confirm: !!p.release_confirm });
       return 'RUNNING_MODAL';
     },
   },
@@ -514,46 +537,20 @@ registerOperators([
     poll,
     exec: (_ctx, p) => {
       const { cu } = activeCurve()!;
-      const out: Spline[] = [];
-      for (const sp of cu.splines) {
-        const n = splinePointCount(sp);
-        const sel = [...Array(n).keys()].map((i) => pointSelected(sp, i));
-        if (p.type === 'VERT') {
-          if (sp.type === 'BEZIER') sp.bezier_points = sp.bezier_points.filter((_, i) => !sel[i]);
-          else sp.points = sp.points.filter((_, i) => !sel[i]);
-          if (splinePointCount(sp)) {
-            if (splinePointCount(sp) < 3) sp.use_cyclic_u = false;
-            recalcHandles(sp);
-            out.push(sp);
-          }
-          continue;
-        }
-        // segments: cut every segment whose both ends are selected
-        const cut = (i: number) => sel[i] && sel[(i + 1) % n];
-        const segs = sp.use_cyclic_u ? n : n - 1;
-        if (![...Array(segs).keys()].some(cut)) {
+      if (p.type === 'SEGMENT') K.cutSelectedSegments(cu, false);
+      else {
+        const out: Spline[] = [];
+        for (const sp of cu.splines) {
+          if (sp.type === 'BEZIER') sp.bezier_points = sp.bezier_points.filter((b) => !b.select_control_point);
+          else sp.points = sp.points.filter((q) => !q.select);
+          if (!splinePointCount(sp)) continue;
+          if (splinePointCount(sp) < (sp.type === 'BEZIER' ? 2 : 3)) sp.use_cyclic_u = false;
           out.push(sp);
-          continue;
         }
-        const take = (from: number, count: number): Spline => {
-          const idx = Array.from({ length: count }, (_, k) => (from + k) % n);
-          return { ...structuredClone(sp), use_cyclic_u: false, bezier_points: sp.type === 'BEZIER' ? idx.map((i) => structuredClone(sp.bezier_points[i])) : [], points: sp.type === 'BEZIER' ? [] : idx.map((i) => structuredClone(sp.points[i])) };
-        };
-        const start = sp.use_cyclic_u ? [...Array(n).keys()].find(cut)! + 1 : 0;
-        let runStart = start,
-          len = 1;
-        for (let k = 0; k < (sp.use_cyclic_u ? n : n - 1); k++) {
-          const i = (start + k) % n;
-          if (cut(i)) {
-            if (len > 1) out.push(take(runStart, len));
-            runStart = (i + 1) % n;
-            len = 1;
-          } else len++;
-        }
-        if (len > 1) out.push(take(runStart, len));
+        cu.splines = out;
       }
-      cu.splines = out;
-      activeItem = null;
+      for (const sp of cu.splines) recalcHandles(sp);
+      curveState.active = null;
     },
   },
   {
@@ -618,39 +615,13 @@ registerOperators([
   {
     idname: 'curve.subdivide',
     label: 'Subdivide',
-    props: [{ id: 'number_cuts', label: 'Number of Cuts', type: 'int', default: 1, min: 1, max: 100 }],
+    description: 'Subdivide the segments between selected control points',
+    props: [{ id: 'number_cuts', label: 'Number of Cuts', type: 'int', default: 1, min: 1, max: 1000 }],
     poll,
     exec: (_ctx, p) => {
-      const cuts = p.number_cuts as number;
-      for (const sp of activeCurve()!.cu.splines) {
-        for (let c = 0; c < cuts; c++) {
-          const n = splinePointCount(sp);
-          const segs = sp.use_cyclic_u ? n : n - 1;
-          // walk backwards so indices stay valid while inserting
-          for (let i = segs - 1; i >= 0; i--) {
-            const j = (i + 1) % n;
-            if (!pointSelected(sp, i) || !pointSelected(sp, j)) continue;
-            // with several cuts, split the first part repeatedly so cuts are evenly spaced
-            if (sp.type === 'BEZIER') {
-              const a = sp.bezier_points[i],
-                b = sp.bezier_points[j];
-              const { mid, aR, bL } = bezierMid(a, b);
-              if (a.handle_right_type !== 'VECTOR') a.handle_right = aR;
-              if (b.handle_left_type !== 'VECTOR') b.handle_left = bL;
-              if (a.handle_right_type === 'AUTO') a.handle_right_type = 'ALIGNED';
-              if (b.handle_left_type === 'AUTO') b.handle_left_type = 'ALIGNED';
-              mid.select_control_point = mid.select_left_handle = mid.select_right_handle = true;
-              sp.bezier_points.splice(i + 1, 0, mid);
-            } else {
-              const a = sp.points[i],
-                b = sp.points[j];
-              sp.points.splice(i + 1, 0, { co: a.co.map((x, k) => (x + b.co[k]) / 2) as SplinePoint['co'], radius: (a.radius + b.radius) / 2, tilt: (a.tilt + b.tilt) / 2, select: true });
-            }
-          }
-          if (cuts > 1) break; // one pass per cut count keeps selection-based spacing simple
-        }
-        recalcHandles(sp);
-      }
+      const { cu } = activeCurve()!;
+      K.subdivide(cu, p.number_cuts as number);
+      for (const sp of cu.splines) recalcHandles(sp);
     },
   },
   {
@@ -703,25 +674,11 @@ registerOperators([
   {
     idname: 'curve.duplicate_move',
     label: 'Duplicate',
+    description: 'Duplicate the selected control points and move them',
     poll,
     invoke: (ctx) => {
       const { cu } = activeCurve()!;
-      const copies: Spline[] = [];
-      for (const sp of cu.splines) {
-        const n = splinePointCount(sp);
-        let run: number[] = [];
-        const flush = () => {
-          if (run.length) {
-            copies.push({ ...structuredClone(sp), use_cyclic_u: run.length === n && sp.use_cyclic_u, bezier_points: sp.type === 'BEZIER' ? run.map((i) => structuredClone(sp.bezier_points[i])) : [], points: sp.type === 'BEZIER' ? [] : run.map((i) => structuredClone(sp.points[i])) });
-            run = [];
-          }
-        };
-        for (let i = 0; i < n; i++) {
-          if (pointSelected(sp, i)) run.push(i);
-          else flush();
-        }
-        flush();
-      }
+      const copies = K.selectedRuns(cu);
       if (!copies.length) return 'CANCELLED';
       deselectAll(cu);
       for (const c of copies) for (let i = 0; i < splinePointCount(c); i++) selectPointFull(c, i);
@@ -735,26 +692,33 @@ registerOperators([
   {
     idname: 'curve.separate',
     label: 'Separate',
-    description: 'Separate the selected splines into a new object',
+    description: 'Separate the selected points into a new object',
     poll,
     exec: (ctx) => {
       const { ob, cu } = activeCurve()!;
-      const moving = cu.splines.filter((sp) => [...Array(splinePointCount(sp)).keys()].some((i) => pointSelected(sp, i)));
-      if (!moving.length || moving.length === cu.splines.length) return 'CANCELLED';
-      cu.splines = cu.splines.filter((sp) => !moving.includes(sp));
+      const moving = K.extractSelected(cu);
+      if (!moving.length) {
+        app.report('ERROR', 'Nothing selected to separate');
+        return 'CANCELLED';
+      }
+      for (const sp of cu.splines) recalcHandles(sp);
       const nc: CurveData = { ...structuredClone({ ...cu, splines: [] }), ...newCurve(uniqueName(ctx.doc, cu.name, 'curves')) };
-      Object.assign(nc, { dimensions: cu.dimensions, resolution_u: cu.resolution_u, bevel_depth: cu.bevel_depth, bevel_resolution: cu.bevel_resolution, extrude: cu.extrude, fill_mode: cu.fill_mode, materials: [...cu.materials] });
+      Object.assign(nc, { dimensions: cu.dimensions, resolution_u: cu.resolution_u, bevel_depth: cu.bevel_depth, bevel_resolution: cu.bevel_resolution, extrude: cu.extrude, offset: cu.offset, fill_mode: cu.fill_mode, use_fill_caps: cu.use_fill_caps, materials: [...cu.materials] });
+      for (const sp of moving) for (let i = 0; i < splinePointCount(sp); i++) selectPointFull(sp, i, false);
       nc.splines = moving;
       ctx.doc.curves[nc.id] = nc;
       const no = newObject(uniqueName(ctx.doc, ob.name), 'CURVE', nc.id);
       no.location = [...ob.location] as Vec3;
       no.rotation_euler = [...ob.rotation_euler] as Vec3;
+      no.rotation_quaternion = [...ob.rotation_quaternion] as typeof no.rotation_quaternion;
+      no.rotation_mode = ob.rotation_mode;
       no.scale = [...ob.scale] as Vec3;
       no.parent = ob.parent;
       no.matrix_parent_inverse = [...ob.matrix_parent_inverse];
       ctx.doc.objects[no.id] = no;
       ctx.doc.object_order.push(no.id);
       for (const c of Object.values(ctx.doc.collections)) if (c.objects.includes(ob.id)) c.objects.push(no.id);
+      curveState.active = null;
     },
   },
   {
@@ -806,83 +770,7 @@ export function addSplineToEditedCurve(sp: Spline, location: number[], rotation?
   return true;
 }
 
-// ---------------------------------------------------------------------------
-// menus & keys
-
-function curveMenu(): MenuItem[] {
-  return [
-    { label: 'Transform', submenu: () => [{ label: 'Move', op: 'transform.translate', shortcut: 'G' }, { label: 'Rotate', op: 'transform.rotate', shortcut: 'R' }, { label: 'Scale', op: 'transform.resize', shortcut: 'S' }] },
-    { separator: true },
-    { label: 'Duplicate', op: 'curve.duplicate_move', shortcut: 'Shift D' },
-    { label: 'Separate', op: 'curve.separate', shortcut: 'P' },
-    { separator: true },
-    { label: 'Extrude Curve and Move', op: 'curve.extrude_move', shortcut: 'E' },
-    { label: 'Make Segment', op: 'curve.make_segment', shortcut: 'F' },
-    { label: 'Subdivide', op: 'curve.subdivide' },
-    { label: 'Toggle Cyclic', op: 'curve.cyclic_toggle', shortcut: 'Alt C' },
-    { label: 'Switch Direction', op: 'curve.switch_direction' },
-    { separator: true },
-    { label: 'Set Spline Type', submenu: () => (['POLY', 'BEZIER', 'NURBS'] as const).map((t) => ({ label: t === 'BEZIER' ? 'Bézier' : t === 'POLY' ? 'Poly' : 'NURBS', op: 'curve.spline_type_set', props: { type: t } })) },
-    { label: 'Set Handle Type', submenu: handleMenu },
-    { separator: true },
-    { label: 'Delete', submenu: deleteMenu },
-  ];
-}
-
-function handleMenu(): MenuItem[] {
-  return [
-    { label: 'Automatic', op: 'curve.handle_type_set', props: { type: 'AUTOMATIC' } },
-    { label: 'Vector', op: 'curve.handle_type_set', props: { type: 'VECTOR' } },
-    { label: 'Aligned', op: 'curve.handle_type_set', props: { type: 'ALIGNED' } },
-    { label: 'Free', op: 'curve.handle_type_set', props: { type: 'FREE_ALIGN' } },
-    { separator: true },
-    { label: 'Toggle Free/Align', op: 'curve.handle_type_set', props: { type: 'TOGGLE_FREE_ALIGN' } },
-  ];
-}
-
-function deleteMenu(): MenuItem[] {
-  return [
-    { label: 'Vertices', op: 'curve.delete', props: { type: 'VERT' } },
-    { label: 'Segments', op: 'curve.delete', props: { type: 'SEGMENT' } },
-  ];
-}
-
-const prevEdit = modeMenus.EDIT;
-modeMenus.EDIT = {
-  ...prevEdit,
-  header: () => (inCurveEdit() ? [['Curve', curveMenu], ['Control Points', () => [{ label: 'Extrude Curve and Move', op: 'curve.extrude_move', shortcut: 'E' }, { separator: true }, { label: 'Set Handle Type', submenu: handleMenu }]], ['Segments', () => [{ label: 'Subdivide', op: 'curve.subdivide' }, { label: 'Switch Direction', op: 'curve.switch_direction' }]]] : prevEdit?.header?.() ?? []),
-  select: () => (inCurveEdit() ? [{ label: 'All', op: 'curve.select_all', props: { action: 'SELECT' }, shortcut: 'A' }, { label: 'None', op: 'curve.select_all', props: { action: 'DESELECT' }, shortcut: 'Alt A' }, { label: 'Invert', op: 'curve.select_all', props: { action: 'INVERT' }, shortcut: 'Ctrl I' }, { separator: true }, { label: 'Select Linked', op: 'curve.select_linked', shortcut: 'Ctrl L' }] : prevEdit?.select?.() ?? []),
-  add: () =>
-    inCurveEdit()
-      ? [
-          { label: 'Bézier', icon: 'curve_bezcurve', op: 'curve.primitive_bezier_curve_add' },
-          { label: 'Circle', icon: 'curve_bezcircle', op: 'curve.primitive_bezier_circle_add' },
-          { separator: true },
-          { label: 'Nurbs Curve', icon: 'curve_ncurve', op: 'curve.primitive_nurbs_curve_add' },
-          { label: 'Nurbs Circle', icon: 'curve_ncircle', op: 'curve.primitive_nurbs_circle_add' },
-          { label: 'Path', icon: 'curve_path', op: 'curve.primitive_nurbs_path_add' },
-        ]
-      : prevEdit?.add?.() ?? [],
-  context: () => (inCurveEdit() ? curveMenu() : prevEdit?.context?.() ?? []),
-  headerExtra: () => (inCurveEdit() ? null : prevEdit?.headerExtra?.() ?? null),
-};
-
-addKeys('Armature', [
-  { key: 'A', op: 'curve.select_all', props: { action: 'SELECT' }, when: inCurveEdit },
-  { key: 'A', alt: true, op: 'curve.select_all', props: { action: 'DESELECT' }, when: inCurveEdit },
-  { key: 'I', ctrl: true, op: 'curve.select_all', props: { action: 'INVERT' }, when: inCurveEdit },
-  { key: 'L', ctrl: true, op: 'curve.select_linked', when: inCurveEdit },
-  { key: 'E', op: 'curve.extrude_move', when: inCurveEdit },
-  { key: 'F', op: 'curve.make_segment', when: inCurveEdit },
-  { key: 'C', alt: true, op: 'curve.cyclic_toggle', when: inCurveEdit },
-  { key: 'D', shift: true, op: 'curve.duplicate_move', when: inCurveEdit },
-  { key: 'P', op: 'curve.separate', when: inCurveEdit },
-  { key: 'V', menu: handleMenu, menuTitle: 'Set Handle Type', when: inCurveEdit },
-  { key: 'X', menu: deleteMenu, menuTitle: 'Delete', when: inCurveEdit },
-  { key: 'DEL', menu: deleteMenu, menuTitle: 'Delete', when: inCurveEdit },
-]);
-
-// Ctrl + right click adds a control point (like the reference keymap)
+// Ctrl + right click adds a control point (extrude to cursor)
 editModeHooks.context.push((v, e) => {
   if (!inCurveEdit() || !e.ctrlKey) return false;
   app.run('curve.vertex_add', {}, { area: v.area as never, event: { x: e.clientX, y: e.clientY } });

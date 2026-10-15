@@ -137,6 +137,8 @@ export interface BezierPoint {
   select_control_point?: boolean;
   select_left_handle?: boolean;
   select_right_handle?: boolean;
+  /** hidden in Edit Mode (not drawn, not selectable) */
+  hide?: boolean;
 }
 
 export interface SplinePoint {
@@ -144,6 +146,7 @@ export interface SplinePoint {
   radius: number;
   tilt: number;
   select?: boolean;
+  hide?: boolean;
 }
 
 export interface Spline {

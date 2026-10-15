@@ -30,14 +30,14 @@ toolsByMode.EDIT_ARMATURE = [
 
 const ARMATURE_TOOLS = new Set(['builtin.roll', 'builtin.extrude', 'builtin.extrude_to_cursor']);
 
-// keep the active Edit Mode tool valid when switching between mesh and armature editing
+// keep the active Edit Mode tool valid when switching between object types (mesh, armature, curve …)
 const prevEnter = modeHandlers.EDIT?.enter;
 modeHandlers.EDIT = {
   ...modeHandlers.EDIT,
   enter(ob) {
     const ok = prevEnter ? prevEnter(ob) : true;
     if (ok) {
-      const ids = new Set((ob.type === 'ARMATURE' ? toolsByMode.EDIT_ARMATURE : toolsByMode.EDIT).filter(Boolean).map((t) => t!.id));
+      const ids = new Set((toolsByMode[`EDIT_${ob.type}`] ?? toolsByMode.EDIT).filter(Boolean).map((t) => t!.id));
       const cur = activeTools.EDIT;
       if (cur && !cur.startsWith('builtin.select') && !ids.has(cur)) activeTools.EDIT = 'builtin.select_box';
     }

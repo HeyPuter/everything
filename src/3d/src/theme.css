@@ -1171,6 +1171,7 @@ input.num-field.editing {
 .th-settings .num-field,
 .th-settings .text-field {
   width: 60px;
+  flex: none;
 }
 .th-settings .th-label {
   white-space: nowrap;

@@ -351,14 +351,18 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
     const lookingThrough = !!view.sceneCamera && ob.id === doc.scene.camera;
     const showWire =
       shown &&
-      !inEdit &&
+      // curves keep their wire while editing (the control points are an overlay on top)
+      (!inEdit || ob.type !== 'MESH') &&
       !!so.wire &&
       (sh.type === 'WIREFRAME' || ob.display_type === 'WIRE' || ob.display_type === 'BOUNDS' || ob.show_wire || ov.show_wireframes || (ob.type !== 'MESH' && !so.mesh?.geometry.index?.count));
     if (so.wire) {
       set(so.wire, showWire);
       const m = so.wire.material as LineBasicMaterial;
       const st = objectColorState(app, ob);
-      if (sh.type === 'WIREFRAME' || ob.display_type === 'WIRE' || ob.type !== 'MESH') {
+      if (inEdit) {
+        m.color.copy(theme.wire);
+        m.opacity = 1;
+      } else if (sh.type === 'WIREFRAME' || ob.display_type === 'WIRE' || ob.type !== 'MESH') {
         m.color.copy(st ? col : sh.type === 'WIREFRAME' ? new Color(0, 0, 0) : theme.wire);
         m.opacity = st ? 1 : sh.type === 'WIREFRAME' ? 0.85 : 1;
       } else {
