@@ -12,6 +12,13 @@ import { cloneShared } from '../../data/cow';
 import { openMenu } from '../../ui/menu';
 import { materialSlots } from '../view3d/draw';
 import { uiList } from './uilist';
+import { materialSpecials, shapeKeySpecials, vertexGroupSpecials } from '../../object/listmenus';
+import { propertiesCollection } from '../../object/relations';
+
+/** Small lock toggle used inside list rows. */
+function lockToggle(on: boolean, tip: string, toggle: () => void): Child {
+  return h('button', { class: { 'ul-lock': true, on }, 'data-tip': tip, onpointerdown: (e: PointerEvent) => e.stopPropagation(), onclick: (e: MouseEvent) => (e.stopPropagation(), toggle()) }, icon(on ? 'locked' : 'unlocked'));
+}
 
 const ob = () => app.activeObject;
 
@@ -316,13 +323,20 @@ registerTab({
   },
   draw: () => {
     const doc = app.doc;
-    const act = app.activeObject;
-    const c = (act && Object.values(doc.collections).find((x) => x.objects.includes(act.id) && x.id !== doc.scene.collection)) ?? Object.values(doc.collections).find((x) => x.id !== doc.scene.collection);
+    const c = propertiesCollection();
     if (!c) return h('div', { class: 'prop-note' }, 'No collection');
     return [
       h('div', { class: 'id-row' }, icon('collection'), textField('col-name', c.name, (v) => ((c.name = uniqueName(doc, v, 'collections')), changed('Rename Collection')))),
       panel('col-restrict', 'Restrictions', () => [boolHeading(c, 'hide_select', 'Selectable', '', {}), bool(c, 'hide_render', 'Disable in Renders'), bool(c, 'holdout' as never, 'Holdout'), bool(c, 'indirect_only' as never, 'Indirect Only')]),
-      panel('col-instancing', 'Instancing', () => [vecProp(c, 'instance_offset', 'Offset', { unit: 'distance' })], { closed: true }),
+      panel(
+        'col-instancing',
+        'Instancing',
+        () => [
+          vecProp(c, 'instance_offset', 'Offset', { unit: 'distance' }),
+          h('div', { class: 'btn-row btn-stack' }, opButton('object.instance_offset_from_cursor'), opButton('object.instance_offset_from_object'), opButton('object.instance_offset_to_cursor')),
+        ],
+        { closed: true },
+      ),
     ];
   },
 });
@@ -472,12 +486,15 @@ function meshData(o: ObjectData, me: MeshData): Child {
     panel('me-vgroups', 'Vertex Groups', () => [
       uiList(
         'vg',
-        me.vertex_groups.map((g) => ({ key: g.name, label: g.name, icon: 'group_vertex' })),
+        me.vertex_groups.map((g, i) => ({ key: g.name, label: g.name, icon: 'group_vertex', right: lockToggle(!!g.lock_weight, 'Lock weights', () => ((me.vertex_groups[i] = { ...g, lock_weight: !g.lock_weight }), changed('Lock Vertex Group'))) })),
         o.vertex_group_active_index ?? 0,
         (i) => ((o.vertex_group_active_index = i), app.changed('doc')),
         {
           add: () => app.run('object.vertex_group_add'),
           remove: () => app.run('object.vertex_group_remove'),
+          specials: vertexGroupSpecials,
+          up: me.vertex_groups.length > 1 ? () => app.run('object.vertex_group_move', { direction: 'UP' }) : undefined,
+          down: me.vertex_groups.length > 1 ? () => app.run('object.vertex_group_move', { direction: 'DOWN' }) : undefined,
           rename: (i, name) => {
             me.vertex_groups[i].name = name;
             changed('Rename Vertex Group');
@@ -492,12 +509,24 @@ function meshData(o: ObjectData, me: MeshData): Child {
     panel('me-shapekeys', 'Shape Keys', () => [
       uiList(
         'sk',
-        me.shape_keys.map((k, i) => ({ key: k.name, label: k.name, icon: 'shapekey_data', right: i > 0 ? numberField({ id: `sk.${me.id}.${i}`, value: k.value, min: k.slider_min, max: k.slider_max, slider: true, set: (v, f) => ((k.value = v), app.changed('doc'), f && app.pushUndo('Shape Key Value')) }) : null })),
+        me.shape_keys.map((k, i) => ({
+          key: k.name,
+          label: k.name,
+          icon: 'shapekey_data',
+          right: [
+            i > 0 ? numberField({ id: `sk.${me.id}.${i}`, value: k.value, min: k.slider_min, max: k.slider_max, slider: true, set: (v, f) => ((k.value = v), app.changed('doc'), f && app.pushUndo('Shape Key Value')) }) : null,
+            i > 0 ? checkbox(`sk-mute.${me.id}.${i}`, '', !k.mute, (v) => ((k.mute = !v), changed('Shape Key Mute'))) : null,
+            lockToggle(!!k.lock_shape, 'Lock shape against edits', () => ((me.shape_keys[i] = { ...k, lock_shape: !k.lock_shape }), changed('Lock Shape Key'))),
+          ],
+        })),
         me.active_shape_key_index,
         (i) => ((me.active_shape_key_index = i), app.changed('doc')),
         {
           add: () => app.run('object.shape_key_add', { from_mix: false }),
           remove: () => app.run('object.shape_key_remove'),
+          specials: shapeKeySpecials,
+          up: me.shape_keys.length > 2 ? () => app.run('object.shape_key_move', { type: 'UP' }) : undefined,
+          down: me.shape_keys.length > 2 ? () => app.run('object.shape_key_move', { type: 'DOWN' }) : undefined,
           rename: (i, name) => {
             me.shape_keys[i].name = name;
             changed('Rename Shape Key');
@@ -691,6 +720,9 @@ registerTab({
         {
           add: () => app.run('object.material_slot_add'),
           remove: () => app.run('object.material_slot_remove'),
+          specials: materialSpecials,
+          up: slots.length > 1 ? () => app.run('object.material_slot_move', { direction: 'UP' }) : undefined,
+          down: slots.length > 1 ? () => app.run('object.material_slot_move', { direction: 'DOWN' }) : undefined,
           extra: app.doc.mode === 'EDIT' ? h('div', { class: 'btn-row' }, opButton('object.material_slot_assign', 'Assign'), opButton('object.material_slot_select', 'Select'), opButton('object.material_slot_deselect', 'Deselect')) : null,
         },
       ),

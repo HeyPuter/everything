@@ -728,6 +728,9 @@ input.num-field.editing {
 .btn-row > * {
   flex: 1;
 }
+.btn-row.btn-stack {
+  flex-direction: column;
+}
 .icon-btn {
   width: 22px;
   height: 22px;
@@ -1854,6 +1857,38 @@ input.num-field.editing {
 .ul-right {
   width: 45%;
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.ul-right > :first-child:not(.ul-lock) {
+  flex: 1;
+  min-width: 0;
+}
+.ul-right:has(> .ul-lock:only-child) {
+  width: auto;
+}
+.ul-right:has(> :nth-child(3)) {
+  width: 62%;
+}
+.ul-lock {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.5;
+  cursor: pointer;
+}
+.ul-lock.on,
+.ul-lock:hover {
+  opacity: 1;
 }
 .ul-meta {
   color: #aaa;

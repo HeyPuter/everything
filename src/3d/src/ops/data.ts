@@ -5,6 +5,7 @@ import { uniqueName } from './object';
 import type { MeshData, ObjectData } from '../data/types';
 import { selectedVerts, isFaceSelected } from '../mesh/mesh';
 import { cow } from '../data/cow';
+import { mixShapeKeys, uniqueIn } from '../object/core';
 
 function activeMesh(): { ob: ObjectData; me: MeshData } | null {
   const ob = app.activeObject;
@@ -104,9 +105,20 @@ registerOperators([
   {
     idname: 'object.vertex_group_remove',
     label: 'Remove Vertex Group',
+    props: [
+      { id: 'all', label: 'All', type: 'bool', default: false },
+      { id: 'all_unlocked', label: 'All Unlocked', type: 'bool', default: false },
+    ],
     poll: () => (activeMesh()?.me.vertex_groups.length ?? 0) > 0,
-    exec: () => {
+    exec: (_ctx, p) => {
       const { ob, me } = activeMesh()!;
+      if (p.all || p.all_unlocked) {
+        const keep = me.vertex_groups.map((g) => !!p.all_unlocked && !p.all && !!g.lock_weight);
+        me.vertex_groups = me.vertex_groups.filter((_, i) => keep[i]);
+        me.weights = me.weights.filter((_, i) => keep[i]);
+        ob.vertex_group_active_index = 0;
+        return;
+      }
       const i = ob.vertex_group_active_index ?? 0;
       me.vertex_groups.splice(i, 1);
       me.weights.splice(i, 1);
@@ -129,13 +141,27 @@ registerOperators([
   {
     idname: 'object.vertex_group_remove_from',
     label: 'Remove from Vertex Group',
-    poll: () => app.doc.mode === 'EDIT' && (activeMesh()?.me.vertex_groups.length ?? 0) > 0,
-    exec: () => {
+    props: [
+      { id: 'use_all_groups', label: 'All Groups', type: 'bool', default: false },
+      { id: 'use_all_verts', label: 'All Vertices', type: 'bool', default: false },
+    ],
+    poll: () => (app.doc.mode === 'EDIT' || app.doc.mode === 'OBJECT') && (activeMesh()?.me.vertex_groups.length ?? 0) > 0,
+    exec: (_ctx, p) => {
       const { ob, me } = activeMesh()!;
-      const gi = ob.vertex_group_active_index ?? 0;
-      const w = new Float32Array(me.weights[gi]);
-      for (const v of selectedVerts(me)) w[v] = 0;
-      me.weights[gi] = w;
+      // outside Edit Mode there is no vertex selection: act on every vertex
+      const allVerts = !!p.use_all_verts || app.doc.mode !== 'EDIT';
+      const verts = allVerts ? null : selectedVerts(me);
+      const groups = p.use_all_groups ? me.weights.map((_, i) => i) : [ob.vertex_group_active_index ?? 0];
+      const ws = me.weights.slice();
+      for (const gi of groups) {
+        if (!ws[gi] || me.vertex_groups[gi].lock_weight) continue;
+        if (verts) {
+          const w = new Float32Array(ws[gi]);
+          for (const v of verts) w[v] = 0;
+          ws[gi] = w;
+        } else ws[gi] = new Float32Array(ws[gi].length);
+      }
+      me.weights = ws;
     },
   },
   {
@@ -169,15 +195,12 @@ registerOperators([
     poll: () => !!activeMesh(),
     exec: (_ctx, p) => {
       const { me } = activeMesh()!;
+      const names = me.shape_keys.map((k) => k.name);
       if (!me.shape_keys.length) {
         me.shape_keys.push({ name: 'Basis', data: new Float32Array(me.positions), value: 0, slider_min: 0, slider_max: 1, mute: false, relative_key: 'Basis' });
       } else {
-        let src = me.shape_keys[0].data;
-        if (p.from_mix) {
-          const ev = app.graph.get(app.activeObject!.id);
-          if (ev?.mesh && ev.mesh.positions.length === src.length) src = ev.mesh.positions;
-        }
-        me.shape_keys.push({ name: `Key ${me.shape_keys.length}`, data: new Float32Array(src), value: 0, slider_min: 0, slider_max: 1, mute: false, relative_key: 'Basis' });
+        const src = p.from_mix ? mixShapeKeys(me) : new Float32Array(me.shape_keys[0].data);
+        me.shape_keys.push({ name: uniqueIn(names, `Key ${me.shape_keys.length}`), data: src, value: 0, slider_min: 0, slider_max: 1, mute: false, relative_key: me.shape_keys[0].name });
       }
       me.active_shape_key_index = me.shape_keys.length - 1;
     },
@@ -185,14 +208,26 @@ registerOperators([
   {
     idname: 'object.shape_key_remove',
     label: 'Remove Shape Key',
+    props: [
+      { id: 'all', label: 'All', type: 'bool', default: false },
+      { id: 'apply_mix', label: 'Apply Mix', type: 'bool', default: false, showIf: (p) => !!p.all },
+    ],
     poll: () => (activeMesh()?.me.shape_keys.length ?? 0) > 0,
-    exec: () => {
+    exec: (_ctx, p) => {
       const { me } = activeMesh()!;
+      if (p.all) {
+        // keep the current look when applying, otherwise fall back to the basis shape
+        me.positions = p.apply_mix ? mixShapeKeys(me) : new Float32Array(me.shape_keys[0].data);
+        me.shape_keys = [];
+        me.active_shape_key_index = 0;
+        return;
+      }
       const i = me.active_shape_key_index;
       const removed = me.shape_keys.splice(i, 1)[0];
-      if (i === 0 && removed) {
-        // removing the basis keeps current positions; others become relative to new first key
-        if (me.shape_keys.length) me.shape_keys[0].relative_key = me.shape_keys[0].name;
+      if (removed) {
+        const first = me.shape_keys[0];
+        for (const k of me.shape_keys) if (k.relative_key === removed.name && first) k.relative_key = first.name;
+        if (i === 0 && first) me.positions = new Float32Array(first.data);
       }
       me.active_shape_key_index = Math.max(0, i - 1);
     },

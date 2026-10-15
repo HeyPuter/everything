@@ -58,7 +58,7 @@ export const modifierFields: Record<string, Field[]> = {
   CAST: [['cast_type', 'Shape', 'enum', [['SPHERE', 'Sphere'], ['CYLINDER', 'Cylinder'], ['CUBOID', 'Cuboid']]], ['use_x', 'X', 'bool'], ['use_y', 'Y', 'bool'], ['use_z', 'Z', 'bool'], ['factor', 'Factor', 'num'], ['radius', 'Radius', 'dist'], ['vertex_group', 'Vertex Group', 'vgroup']],
   CURVE: [['object', 'Curve Object', 'object', 'CURVE'], ['deform_axis', 'Deformation Axis', 'enum', [['POS_X', 'X'], ['POS_Y', 'Y'], ['POS_Z', 'Z'], ['NEG_X', '-X'], ['NEG_Y', '-Y'], ['NEG_Z', '-Z']]], ['vertex_group', 'Vertex Group', 'vgroup']],
   DISPLACE: [['direction', 'Direction', 'enum', [['X', 'X'], ['Y', 'Y'], ['Z', 'Z'], ['NORMAL', 'Normal']]], ['texture_coords', 'Coordinates', 'enum', [['LOCAL', 'Local'], ['GLOBAL', 'Global']]], ['strength', 'Strength', 'num'], ['mid_level', 'Midlevel', 'factor'], ['vertex_group', 'Vertex Group', 'vgroup']],
-  HOOK: [['object', 'Object', 'object'], ['strength', 'Strength', 'factor'], ['falloff_radius', 'Radius', 'dist'], ['vertex_group', 'Vertex Group', 'vgroup']],
+  HOOK: [['object', 'Object', 'object'], ['subtarget', 'Bone', 'bone'], ['strength', 'Strength', 'factor'], ['falloff_radius', 'Radius', 'dist'], ['vertex_group', 'Vertex Group', 'vgroup']],
   LAPLACIANSMOOTH: [['iterations', 'Repeat', 'int', { min: 0, max: 200 }], ['lambda_factor', 'Lambda Factor', 'num'], ['use_volume_preserve', 'Preserve Volume', 'bool'], ['vertex_group', 'Vertex Group', 'vgroup']],
   LATTICE: [['object', 'Object', 'object', 'LATTICE'], ['strength', 'Strength', 'factor'], ['vertex_group', 'Vertex Group', 'vgroup']],
   SHRINKWRAP: [['target', 'Target', 'object', 'MESH'], ['offset', 'Offset', 'dist'], ['vertex_group', 'Vertex Group', 'vgroup']],
@@ -116,7 +116,8 @@ function fieldWidget(ob: ObjectData, m: Record<string, unknown>, f: Field): Chil
       );
     }
     case 'bone': {
-      const target = m.target ? doc.objects[m.target as string] : undefined;
+      const tid = (m.target ?? m.object) as string | null | undefined;
+      const target = tid ? doc.objects[tid] : undefined;
       const arm = target?.type === 'ARMATURE' && target.data ? doc.armatures[target.data] : undefined;
       if (!arm) return null;
       return splitRow(label, enumMenu(`${m.id ?? ''}.${key}`, [{ value: '', label: '—' }, ...arm.bones.map((b) => ({ value: b.name, label: b.name, icon: 'bone_data' }))], String(m[key] ?? ''), (v) => ((m[key] = v), app.pushUndo('Set Bone'), app.changed('doc'))));
@@ -165,9 +166,17 @@ function modifierPanel(ob: ObjectData, m: ModifierBase, i: number): Child {
             e.stopPropagation();
             const items: MenuItem[] = [
               { label: 'Apply', shortcut: 'Ctrl A', op: 'object.modifier_apply', props: { modifier: m.id } },
+              ...(t?.deformOnly && ob.type === 'MESH'
+                ? [
+                    { label: 'Apply as Shape Key', op: 'object.modifier_apply_as_shapekey', props: { modifier: m.id, keep_modifier: false } },
+                    { label: 'Save as Shape Key', op: 'object.modifier_apply_as_shapekey', props: { modifier: m.id, keep_modifier: true } },
+                  ]
+                : []),
               { label: 'Duplicate', shortcut: 'Shift D', op: 'object.modifier_copy', props: { modifier: m.id } },
               { label: 'Copy to Selected', op: 'object.modifier_copy_to_selected', props: { modifier: m.id } },
               { separator: true },
+              { label: 'Move Up', op: 'object.modifier_move_up', props: { modifier: m.id }, disabled: i === 0 },
+              { label: 'Move Down', op: 'object.modifier_move_down', props: { modifier: m.id }, disabled: i === ob.modifiers.length - 1 },
               { label: 'Move to First', op: 'object.modifier_move_to_index', props: { modifier: m.id, index: 0 } },
               { label: 'Move to Last', op: 'object.modifier_move_to_index', props: { modifier: m.id, index: ob.modifiers.length - 1 } },
             ];
@@ -198,7 +207,7 @@ function modifierPanel(ob: ObjectData, m: ModifierBase, i: number): Child {
   );
 }
 
-function addModifierMenu(): MenuItem[] {
+export function addModifierMenu(): MenuItem[] {
   const cats: [string, string][] = [
     ['EDIT', 'Edit'],
     ['GENERATE', 'Generate'],

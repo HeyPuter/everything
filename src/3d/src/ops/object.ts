@@ -13,6 +13,7 @@ import { activeView3D } from '../editors/view3d/view3d';
 import { openMenu, promptText } from '../ui/menu';
 import { newConstraint } from '../eval/constraints';
 import { modeHandlers } from './modes';
+import { edgeChains, surfaceCenter, volumeCenter } from '../object/core';
 import { defaultPoseBone } from '../eval/armature';
 import { newModifier } from '../eval/modifiers';
 
@@ -33,7 +34,7 @@ export function setActiveCollection(id: string) {
   (uiState as unknown as { activeCollection?: string }).activeCollection = id;
 }
 
-function uniqueName(doc: DocumentData, base: string, kind: 'objects' | 'meshes' | 'materials' | 'collections' | 'curves' | 'lights' | 'cameras' | 'armatures' | 'actions' | 'images' | 'node_groups' | 'texts' = 'objects') {
+function uniqueName(doc: DocumentData, base: string, kind: 'objects' | 'meshes' | 'materials' | 'collections' | 'curves' | 'lights' | 'cameras' | 'armatures' | 'lattices' | 'actions' | 'images' | 'node_groups' | 'texts' = 'objects') {
   const names = new Set(Object.values(doc[kind] as Record<string, { name: string }>).map((o) => o.name));
   if (!names.has(base)) return base;
   const stem = base.replace(/\.\d{3}$/, '');
@@ -136,6 +137,8 @@ export function deleteObjects(doc: DocumentData, ids: Set<string>) {
   }
   purgeOrphans(doc);
 }
+
+export const DATA_TABLES: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices' };
 
 /** Remove data-blocks without users (meshes, materials stay if fake user). */
 export function purgeOrphans(doc: DocumentData) {
@@ -541,7 +544,7 @@ registerOperators([
   {
     idname: 'object.select_grouped',
     label: 'Select Grouped',
-    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'CHILDREN_RECURSIVE', items: [['CHILDREN_RECURSIVE', 'Children'], ['CHILDREN', 'Immediate Children'], ['PARENT', 'Parent'], ['SIBLINGS', 'Siblings'], ['TYPE', 'Type'], ['COLLECTION', 'Collection'], ['LIGHT_TYPE', 'Light Type']] }, { id: 'extend', label: 'Extend', type: 'bool', default: true }],
+    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'CHILDREN_RECURSIVE', items: [['CHILDREN_RECURSIVE', 'Children'], ['CHILDREN', 'Immediate Children'], ['PARENT', 'Parent'], ['SIBLINGS', 'Siblings'], ['TYPE', 'Type'], ['COLLECTION', 'Collection'], ['HOOK', 'Hook'], ['PASS', 'Pass'], ['COLOR', 'Color'], ['LIGHT_TYPE', 'Light Type']] }, { id: 'extend', label: 'Extend', type: 'bool', default: false }],
     poll: (ctx) => ctx.doc.mode === 'OBJECT' && !!app.activeObject,
     exec: (ctx, p) => {
       const act = app.activeObject!;
@@ -567,6 +570,12 @@ registerOperators([
             return o.type === act.type;
           case 'COLLECTION':
             return Object.values(doc.collections).some((c) => c.objects.includes(o.id) && c.objects.includes(act.id));
+          case 'HOOK':
+            return act.modifiers.some((m) => m.type === 'HOOK' && m.object === o.id);
+          case 'PASS':
+            return (o.pass_index ?? 0) === (act.pass_index ?? 0);
+          case 'COLOR':
+            return o.color.every((c, i) => Math.abs(c - act.color[i]) < 1e-4);
           case 'LIGHT_TYPE':
             return o.type === 'LIGHT' && act.type === 'LIGHT' && doc.lights[o.data!]?.type === doc.lights[act.data!]?.type;
         }
@@ -579,17 +588,48 @@ registerOperators([
   {
     idname: 'object.select_linked',
     label: 'Select Linked',
-    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'OBDATA', items: [['OBDATA', 'Object Data'], ['MATERIAL', 'Material']] }],
+    description: 'Select objects that share data with the active object',
+    props: [
+      {
+        id: 'type',
+        label: 'Type',
+        type: 'enum',
+        default: 'OBDATA',
+        items: [
+          ['OBDATA', 'Object Data'],
+          ['MATERIAL', 'Material'],
+          ['DUPGROUP', 'Instanced Collection'],
+          ['PARTICLE', 'Particle System'],
+        ],
+      },
+      { id: 'extend', label: 'Extend', type: 'bool', default: false },
+    ],
     poll: (ctx) => ctx.doc.mode === 'OBJECT' && !!app.activeObject,
     exec: (ctx, p) => {
       const act = app.activeObject!;
       const mats = (o: ObjectData) => (o.data ? ((ctx.doc.meshes[o.data] ?? ctx.doc.curves[o.data]) as { materials?: (string | null)[] } | undefined)?.materials ?? [] : []);
+      const parts = (o: ObjectData) => (o.particle_systems ?? []).map((ps) => ps.settings);
       const am = new Set(mats(act).filter(Boolean));
+      const ap = new Set(parts(act));
+      const match = (o: ObjectData) => {
+        switch (p.type) {
+          case 'OBDATA':
+            return !!o.data && o.data === act.data;
+          case 'MATERIAL':
+            return mats(o).some((m) => m && am.has(m));
+          case 'DUPGROUP':
+            return act.instance_type === 'COLLECTION' && !!act.instance_collection && o.instance_type === 'COLLECTION' && o.instance_collection === act.instance_collection;
+          case 'PARTICLE':
+            return parts(o).some((x) => ap.has(x));
+        }
+        return false;
+      };
       for (const o of Object.values(ctx.doc.objects)) {
         if (!app.isSelectable(o.id)) continue;
-        if (p.type === 'OBDATA' && o.data && o.data === act.data) o.select = true;
-        if (p.type === 'MATERIAL' && mats(o).some((m) => m && am.has(m))) o.select = true;
+        if (match(o)) o.select = true;
+        else if (!p.extend) o.select = false;
       }
+      act.select = true;
     },
   },
   {
@@ -754,17 +794,23 @@ registerOperators([
   {
     idname: 'object.location_clear',
     label: 'Clear Location',
+    props: [{ id: 'clear_delta', label: 'Clear Delta', type: 'bool', default: false }],
     poll: (ctx) => ctx.doc.mode === 'OBJECT' && app.selectedObjects().length > 0,
-    exec: () => {
-      for (const o of app.selectedObjects()) o.location = o.location.map((v, i) => (o.lock_location[i] ? v : 0)) as [number, number, number];
+    exec: (_ctx, p) => {
+      for (const o of app.selectedObjects()) {
+        o.location = o.location.map((v, i) => (o.lock_location[i] ? v : 0)) as [number, number, number];
+        if (p.clear_delta) o.delta_location = o.delta_location.map((v, i) => (o.lock_location[i] ? v : 0)) as [number, number, number];
+      }
     },
   },
   {
     idname: 'object.rotation_clear',
     label: 'Clear Rotation',
+    props: [{ id: 'clear_delta', label: 'Clear Delta', type: 'bool', default: false }],
     poll: (ctx) => ctx.doc.mode === 'OBJECT' && app.selectedObjects().length > 0,
-    exec: () => {
+    exec: (_ctx, p) => {
       for (const o of app.selectedObjects()) {
+        if (p.clear_delta) o.delta_rotation_euler = o.delta_rotation_euler.map((v, i) => (o.lock_rotation[i] ? v : 0)) as [number, number, number];
         o.rotation_euler = o.rotation_euler.map((v, i) => (o.lock_rotation[i] ? v : 0)) as [number, number, number];
         o.rotation_quaternion = [1, 0, 0, 0];
         o.rotation_axis_angle = [0, 0, 1, 0];
@@ -774,9 +820,13 @@ registerOperators([
   {
     idname: 'object.scale_clear',
     label: 'Clear Scale',
+    props: [{ id: 'clear_delta', label: 'Clear Delta', type: 'bool', default: false }],
     poll: (ctx) => ctx.doc.mode === 'OBJECT' && app.selectedObjects().length > 0,
-    exec: () => {
-      for (const o of app.selectedObjects()) o.scale = o.scale.map((v, i) => (o.lock_scale[i] ? v : 1)) as [number, number, number];
+    exec: (_ctx, p) => {
+      for (const o of app.selectedObjects()) {
+        o.scale = o.scale.map((v, i) => (o.lock_scale[i] ? v : 1)) as [number, number, number];
+        if (p.clear_delta) o.delta_scale = o.delta_scale.map((v, i) => (o.lock_scale[i] ? v : 1)) as [number, number, number];
+      }
     },
   },
   {
@@ -842,7 +892,7 @@ registerOperators([
   {
     idname: 'object.origin_set',
     label: 'Set Origin',
-    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'ORIGIN_GEOMETRY', items: [['GEOMETRY_ORIGIN', 'Geometry to Origin'], ['ORIGIN_GEOMETRY', 'Origin to Geometry'], ['ORIGIN_CURSOR', 'Origin to 3D Cursor'], ['ORIGIN_CENTER_OF_MASS', 'Origin to Center of Mass (Surface)']] }, { id: 'center', label: 'Center', type: 'enum', default: 'MEDIAN', items: [['MEDIAN', 'Median Center'], ['BOUNDS', 'Bounds Center']] }],
+    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'ORIGIN_GEOMETRY', items: [['GEOMETRY_ORIGIN', 'Geometry to Origin'], ['ORIGIN_GEOMETRY', 'Origin to Geometry'], ['ORIGIN_CURSOR', 'Origin to 3D Cursor'], ['ORIGIN_CENTER_OF_MASS', 'Origin to Center of Mass (Surface)'], ['ORIGIN_CENTER_OF_VOLUME', 'Origin to Center of Mass (Volume)']] }, { id: 'center', label: 'Center', type: 'enum', default: 'MEDIAN', items: [['MEDIAN', 'Median Center'], ['BOUNDS', 'Bounds Center']] }],
     poll: (ctx) => ctx.doc.mode === 'OBJECT' && app.selectedObjects().length > 0,
     exec: (ctx, p) => {
       const doc = ctx.doc;
@@ -853,7 +903,9 @@ registerOperators([
         let center = new Vector3();
         if (p.type === 'ORIGIN_CURSOR') center = new Vector3(...doc.scene.cursor.location).applyMatrix4(ev.world.clone().invert());
         else if (p.type === 'GEOMETRY_ORIGIN') center = new Vector3();
-        else if (p.center === 'BOUNDS' && p.type !== 'ORIGIN_CENTER_OF_MASS') {
+        else if ((p.type === 'ORIGIN_CENTER_OF_MASS' || p.type === 'ORIGIN_CENTER_OF_VOLUME') && me.offsets.length > 1) {
+          center.fromArray(p.type === 'ORIGIN_CENTER_OF_MASS' ? surfaceCenter(me) : volumeCenter(me));
+        } else if (p.center === 'BOUNDS') {
           const b = bounds(me.positions);
           center.set((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2);
         } else {
@@ -881,7 +933,24 @@ registerOperators([
   {
     idname: 'object.parent_set',
     label: 'Make Parent',
-    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'OBJECT', items: [['OBJECT', 'Object'], ['ARMATURE_AUTO', 'With Automatic Weights'], ['ARMATURE_NAME', 'With Empty Groups'], ['BONE', 'Bone']] }, { id: 'keep_transform', label: 'Keep Transform', type: 'bool', default: false }],
+    props: [
+      {
+        id: 'type',
+        label: 'Type',
+        type: 'enum',
+        default: 'OBJECT',
+        items: [
+          ['OBJECT', 'Object'],
+          ['ARMATURE', 'Armature Deform'],
+          ['ARMATURE_NAME', 'With Empty Groups'],
+          ['ARMATURE_AUTO', 'With Automatic Weights'],
+          ['BONE', 'Bone'],
+          ['CURVE', 'Curve Deform'],
+          ['LATTICE', 'Lattice Deform'],
+        ],
+      },
+      { id: 'keep_transform', label: 'Keep Transform', type: 'bool', default: false },
+    ],
     poll: (ctx) => ctx.doc.mode === 'OBJECT' && !!app.activeObject && app.selectedObjects().length > 1,
     exec: (ctx, p) => {
       const parent = app.activeObject!;
@@ -921,6 +990,16 @@ registerOperators([
           ob.matrix_parent_inverse = [...IDENTITY];
           applyMatrixToObject(ob, pw.clone().invert().multiply(w));
         } else ob.matrix_parent_inverse = fromMatrix4(pw.clone().invert().multiply(w).multiply(localMatrix(ob).invert()));
+        const deformer = (type: string) => {
+          if (ob.modifiers.some((m) => m.type === type && m.object === parent.id)) return;
+          const m = newModifier(type, uid('md'), ob.modifiers);
+          m.object = parent.id;
+          ob.modifiers.push(m);
+        };
+        const deformable = ob.type === 'MESH' || ob.type === 'CURVE' || ob.type === 'FONT';
+        if (p.type === 'LATTICE' && parent.type === 'LATTICE' && deformable) deformer('LATTICE');
+        if (p.type === 'CURVE' && parent.type === 'CURVE' && deformable) deformer('CURVE');
+        if (p.type === 'ARMATURE' && parent.type === 'ARMATURE' && ob.type === 'MESH') deformer('ARMATURE');
         if ((p.type === 'ARMATURE_AUTO' || p.type === 'ARMATURE_NAME') && parent.type === 'ARMATURE' && ob.type === 'MESH') {
           const auto = modeHandlers.WEIGHT_PAINT?.armatureWeights;
           if (auto) auto(ob, parent, p.type === 'ARMATURE_AUTO');
@@ -936,14 +1015,20 @@ registerOperators([
   {
     idname: 'object.parent_no_inverse_set',
     label: 'Make Parent without Inverse',
+    props: [{ id: 'keep_transform', label: 'Keep Transform', type: 'bool', default: false }],
     poll: (ctx) => ctx.doc.mode === 'OBJECT' && !!app.activeObject && app.selectedObjects().length > 1,
-    exec: () => {
+    exec: (_ctx, p) => {
       const parent = app.activeObject!;
+      const pw = app.graph.get(parent.id)!.world.clone();
       for (const ob of app.selectedObjects()) {
         if (ob.id === parent.id) continue;
+        const w = app.graph.get(ob.id)!.world.clone();
         ob.parent = parent.id;
+        ob.parent_type = 'OBJECT';
         ob.matrix_parent_inverse = [...IDENTITY];
-        ob.location = [0, 0, 0];
+        // keep the world transform by expressing it in the parent's space, else snap to the parent
+        if (p.keep_transform) applyMatrixToObject(ob, pw.clone().invert().multiply(w));
+        else ob.location = [0, 0, 0];
       }
     },
   },
@@ -1045,43 +1130,129 @@ registerOperators([
   {
     idname: 'object.make_single_user',
     label: 'Make Single User',
-    poll: (ctx) => ctx.doc.mode === 'OBJECT' && app.selectedObjects().length > 0,
-    exec: (ctx) => {
+    description: 'Give objects their own copies of shared data, materials or actions',
+    props: [
+      { id: 'type', label: 'Type', type: 'enum', default: 'SELECTED_OBJECTS', items: [['SELECTED_OBJECTS', 'Selected Objects'], ['ALL', 'All']] },
+      { id: 'obdata', label: 'Object Data', type: 'bool', default: true },
+      { id: 'material', label: 'Materials', type: 'bool', default: false },
+      { id: 'animation', label: 'Object Animation', type: 'bool', default: false },
+    ],
+    poll: (ctx) => ctx.doc.mode === 'OBJECT' && (app.selectedObjects().length > 0 || Object.keys(ctx.doc.objects).length > 0),
+    exec: (ctx, p) => {
       const doc = ctx.doc;
-      const counts = new Map<string, number>();
-      for (const o of Object.values(doc.objects)) if (o.data) counts.set(o.data, (counts.get(o.data) ?? 0) + 1);
-      for (const ob of app.selectedObjects()) {
-        if (!ob.data || (counts.get(ob.data) ?? 0) < 2) continue;
-        const tables: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices' };
-        const t = tables[ob.type];
-        const src = (doc[t] as Record<string, { id: string; name: string }>)[ob.data];
-        const d = cloneShared(src);
-        d.id = uid('da');
-        d.name = uniqueName(doc, src.name, t as 'meshes');
-        (doc[t] as Record<string, unknown>)[d.id] = d;
-        counts.set(ob.data, counts.get(ob.data)! - 1);
-        ob.data = d.id;
+      const obs = p.type === 'ALL' ? Object.values(doc.objects) : app.selectedObjects();
+      if (p.obdata) {
+        const counts = new Map<string, number>();
+        for (const o of Object.values(doc.objects)) if (o.data) counts.set(o.data, (counts.get(o.data) ?? 0) + 1);
+        for (const ob of obs) {
+          if (!ob.data || (counts.get(ob.data) ?? 0) < 2) continue;
+          const t = DATA_TABLES[ob.type];
+          const src = t && (doc[t] as Record<string, { id: string; name: string }>)[ob.data];
+          if (!src) continue;
+          const d = cloneShared(src);
+          d.id = uid('da');
+          d.name = uniqueName(doc, src.name, t as 'meshes');
+          (doc[t] as Record<string, unknown>)[d.id] = d;
+          counts.set(ob.data, counts.get(ob.data)! - 1);
+          ob.data = d.id;
+        }
+      }
+      if (p.material) {
+        // a material is shared when more than one slot anywhere points at it
+        const uses = new Map<string, number>();
+        for (const owner of [...Object.values(doc.meshes), ...Object.values(doc.curves)]) for (const m of owner.materials) if (m) uses.set(m, (uses.get(m) ?? 0) + 1);
+        const seen = new Set<object>();
+        for (const ob of obs) {
+          const owner = ob.data ? (doc.meshes[ob.data] ?? doc.curves[ob.data]) : undefined;
+          if (!owner || seen.has(owner)) continue;
+          seen.add(owner);
+          owner.materials = owner.materials.map((mid) => {
+            if (!mid || (uses.get(mid) ?? 0) < 2 || !doc.materials[mid]) return mid;
+            const src = doc.materials[mid];
+            const copy = cloneShared(src);
+            copy.id = uid('ma');
+            copy.name = uniqueName(doc, src.name, 'materials');
+            doc.materials[copy.id] = copy;
+            uses.set(mid, uses.get(mid)! - 1);
+            return copy.id;
+          });
+        }
+      }
+      if (p.animation) {
+        const uses = new Map<string, number>();
+        for (const o of Object.values(doc.objects)) if (o.animation_data?.action) uses.set(o.animation_data.action, (uses.get(o.animation_data.action) ?? 0) + 1);
+        for (const ob of obs) {
+          const aid = ob.animation_data?.action;
+          if (!aid || (uses.get(aid) ?? 0) < 2 || !doc.actions[aid]) continue;
+          const a = cloneShared(doc.actions[aid]);
+          a.id = uid('ac');
+          a.name = uniqueName(doc, doc.actions[aid].name, 'actions');
+          doc.actions[a.id] = a;
+          uses.set(aid, uses.get(aid)! - 1);
+          ob.animation_data!.action = a.id;
+        }
       }
     },
   },
   {
     idname: 'object.make_links_data',
     label: 'Link/Transfer Data',
-    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'OBDATA', items: [['OBDATA', 'Link Object Data'], ['MATERIAL', 'Link Materials'], ['MODIFIERS', 'Copy Modifiers']] }],
+    description: 'Share or copy data of the active object with the other selected objects',
+    props: [
+      {
+        id: 'type',
+        label: 'Type',
+        type: 'enum',
+        default: 'OBDATA',
+        items: [
+          ['OBDATA', 'Link Object Data'],
+          ['MATERIAL', 'Link Materials'],
+          ['ANIMATION', 'Link Animation Data'],
+          ['GROUPS', 'Link Collections'],
+          ['DUPLICOLLECTION', 'Link Instance Collection'],
+          ['FONTS', 'Link Fonts to Text'],
+          ['MODIFIERS', 'Copy Modifiers'],
+        ],
+      },
+    ],
     poll: (ctx) => ctx.doc.mode === 'OBJECT' && !!app.activeObject && app.selectedObjects().length > 1,
     exec: (ctx, p) => {
+      const doc = ctx.doc;
       const act = app.activeObject!;
+      const actCols = Object.values(doc.collections).filter((c) => c.objects.includes(act.id));
       for (const ob of app.selectedObjects()) {
         if (ob.id === act.id) continue;
-        if (p.type === 'OBDATA' && ob.type === act.type) ob.data = act.data;
-        if (p.type === 'MATERIAL' && ob.data && act.data) {
-          const src = ctx.doc.meshes[act.data] ?? ctx.doc.curves[act.data];
-          const dst = ctx.doc.meshes[ob.data] ?? ctx.doc.curves[ob.data];
-          if (src && dst) dst.materials = [...src.materials];
+        switch (p.type) {
+          case 'OBDATA':
+            if (ob.type === act.type) ob.data = act.data;
+            break;
+          case 'MATERIAL': {
+            const src = act.data ? (doc.meshes[act.data] ?? doc.curves[act.data]) : undefined;
+            const dst = ob.data ? (doc.meshes[ob.data] ?? doc.curves[ob.data]) : undefined;
+            if (src && dst && src !== dst) dst.materials = [...src.materials];
+            break;
+          }
+          case 'ANIMATION':
+            if (act.animation_data) {
+              ob.animation_data = { ...(ob.animation_data ?? { nla_tracks: [], drivers: [] }), action: act.animation_data.action } as ObjectData['animation_data'];
+            }
+            break;
+          case 'GROUPS':
+            for (const c of actCols) if (!c.objects.includes(ob.id)) c.objects.push(ob.id);
+            break;
+          case 'DUPLICOLLECTION':
+            ob.instance_type = act.instance_type;
+            ob.instance_collection = act.instance_collection;
+            break;
+          case 'FONTS':
+            if (ob.type === 'FONT' && act.type === 'FONT' && ob.data && act.data && doc.curves[ob.data] && doc.curves[act.data]) doc.curves[ob.data].font_family = doc.curves[act.data].font_family;
+            break;
+          case 'MODIFIERS':
+            ob.modifiers = act.modifiers.map((m) => ({ ...cloneShared(m), id: uid('md') }));
+            break;
         }
-        if (p.type === 'MODIFIERS') ob.modifiers = act.modifiers.map((m) => ({ ...cloneShared(m), id: uid('md') }));
       }
-      purgeOrphans(ctx.doc);
+      purgeOrphans(doc);
     },
   },
   {
@@ -1101,21 +1272,26 @@ registerOperators([
   {
     idname: 'object.transforms_to_deltas',
     label: 'Transforms to Deltas',
-    props: [{ id: 'mode', label: 'Mode', type: 'enum', default: 'ALL', items: [['ALL', 'All Transforms'], ['LOC', 'Location'], ['ROT', 'Rotation'], ['SCALE', 'Scale']] }],
+    description: 'Move transforms into the delta transforms, so animation can be layered on top',
+    props: [
+      { id: 'mode', label: 'Mode', type: 'enum', default: 'ALL', items: [['ALL', 'All Transforms'], ['LOC', 'Location'], ['ROT', 'Rotation'], ['SCALE', 'Scale']] },
+      { id: 'reset_values', label: 'Reset Values', type: 'bool', default: true },
+    ],
     poll: (ctx) => ctx.doc.mode === 'OBJECT' && app.selectedObjects().length > 0,
     exec: (_ctx, p) => {
+      const reset = p.reset_values !== false;
       for (const ob of app.selectedObjects()) {
         if (p.mode === 'ALL' || p.mode === 'LOC') {
           ob.delta_location = ob.delta_location.map((d, i) => d + ob.location[i]) as [number, number, number];
-          ob.location = [0, 0, 0];
+          if (reset) ob.location = [0, 0, 0];
         }
         if (p.mode === 'ALL' || p.mode === 'ROT') {
           ob.delta_rotation_euler = ob.delta_rotation_euler.map((d, i) => d + ob.rotation_euler[i]) as [number, number, number];
-          ob.rotation_euler = [0, 0, 0];
+          if (reset) ob.rotation_euler = [0, 0, 0];
         }
         if (p.mode === 'ALL' || p.mode === 'SCALE') {
           ob.delta_scale = ob.delta_scale.map((d, i) => d * ob.scale[i]) as [number, number, number];
-          ob.scale = [1, 1, 1];
+          if (reset) ob.scale = [1, 1, 1];
         }
       }
     },
@@ -1166,15 +1342,26 @@ registerOperators([
   {
     idname: 'transform.mirror',
     label: 'Mirror',
-    props: [{ id: 'axis', label: 'Axis', type: 'int', default: 0, min: 0, max: 2, hidden: true }],
+    props: [
+      { id: 'axis', label: 'Axis', type: 'int', default: 0, min: 0, max: 2, hidden: true },
+      { id: 'orient_type', label: 'Orientation', type: 'enum', default: 'GLOBAL', items: [['GLOBAL', 'Global'], ['LOCAL', 'Local']] },
+    ],
     poll: (ctx) => ctx.doc.mode === 'OBJECT' && app.selectedObjects().length > 0,
     exec: (_ctx, p) => {
       const c = centerOfSelection();
       const s = [1, 1, 1];
       s[p.axis as number] = -1;
-      const m = new Matrix4().makeTranslation(c.x, c.y, c.z).multiply(new Matrix4().makeScale(s[0], s[1], s[2])).multiply(new Matrix4().makeTranslation(-c.x, -c.y, -c.z));
+      const flip = new Matrix4().makeScale(s[0], s[1], s[2]);
+      const m = new Matrix4().makeTranslation(c.x, c.y, c.z).multiply(flip).multiply(new Matrix4().makeTranslation(-c.x, -c.y, -c.z));
       for (const ob of app.selectedObjects()) {
-        const w = m.clone().multiply(app.graph.get(ob.id)!.world);
+        const ow = app.graph.get(ob.id)!.world;
+        let w: Matrix4;
+        if (p.orient_type === 'LOCAL') {
+          // mirror around the selection center along each object's own axis
+          const rot = new Matrix4().extractRotation(ow);
+          const mm = new Matrix4().makeTranslation(c.x, c.y, c.z).multiply(rot).multiply(flip).multiply(rot.clone().transpose()).multiply(new Matrix4().makeTranslation(-c.x, -c.y, -c.z));
+          w = mm.multiply(ow);
+        } else w = m.clone().multiply(ow);
         const parentInv = ob.parent ? app.graph.get(ob.parent)!.world.clone().multiply(toMatrix4(ob.matrix_parent_inverse)).invert() : new Matrix4();
         applyMatrixToObject(ob, parentInv.multiply(w));
       }
@@ -1188,9 +1375,37 @@ registerOperators([
     poll: (ctx) => ctx.doc.mode === 'OBJECT' && app.selectedObjects().length > 0,
     exec: (ctx, p) => {
       const doc = ctx.doc;
-      if (p.target !== 'MESH') {
-        app.report('WARNING', 'Only conversion to mesh is supported');
-        return 'CANCELLED';
+      if (p.target === 'CURVE') {
+        let n = 0;
+        for (const ob of app.selectedObjects()) {
+          if (ob.type !== 'MESH') continue;
+          const m = app.graph.get(ob.id)?.mesh;
+          if (!m) continue;
+          const target = p.keep_original ? duplicateObject(doc, ob, true) : ob;
+          const cu = newCurve(uniqueName(doc, ob.name, 'curves'));
+          cu.splines = edgeChains(m.offsets, m.indices, m.positions.length / 3, m.looseEdges).map((ch) => ({
+            type: 'POLY',
+            bezier_points: [],
+            points: ch.verts.map((v) => ({ co: [m.positions[v * 3], m.positions[v * 3 + 1], m.positions[v * 3 + 2], 1], radius: 1, tilt: 0 })),
+            use_cyclic_u: ch.cyclic,
+            resolution_u: 12,
+            order_u: 4,
+            use_smooth: false,
+            material_index: 0,
+          }));
+          cu.materials = [...(ob.data ? doc.meshes[ob.data]?.materials ?? [] : [])];
+          doc.curves[cu.id] = cu;
+          target.type = 'CURVE';
+          target.data = cu.id;
+          target.modifiers = [];
+          n++;
+        }
+        purgeOrphans(doc);
+        if (!n) {
+          app.report('WARNING', 'Only mesh objects can be converted to curves');
+          return 'CANCELLED';
+        }
+        return;
       }
       for (const ob of app.selectedObjects()) {
         const ev = app.graph.get(ob.id);
@@ -1336,9 +1551,18 @@ registerOperators([
   {
     idname: 'object.track_clear',
     label: 'Clear Track',
+    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'CLEAR', items: [['CLEAR', 'Clear Track'], ['CLEAR_KEEP_TRANSFORM', 'Clear and Keep Transformation (Clear Track)']] }],
     poll: (ctx) => ctx.doc.mode === 'OBJECT' && app.selectedObjects().length > 0,
-    exec: () => {
-      for (const ob of app.selectedObjects()) ob.constraints = ob.constraints.filter((c) => !['TRACK_TO', 'DAMPED_TRACK', 'LOCKED_TRACK'].includes(c.type));
+    exec: (_ctx, p) => {
+      for (const ob of app.selectedObjects()) {
+        const w = app.graph.get(ob.id)?.world.clone();
+        const before = ob.constraints.length;
+        ob.constraints = ob.constraints.filter((c) => !['TRACK_TO', 'DAMPED_TRACK', 'LOCKED_TRACK'].includes(c.type));
+        if (p.type === 'CLEAR_KEEP_TRANSFORM' && w && ob.constraints.length !== before) {
+          const parentInv = ob.parent ? app.graph.get(ob.parent)!.world.clone().multiply(toMatrix4(ob.matrix_parent_inverse)).invert() : new Matrix4();
+          applyMatrixToObject(ob, parentInv.multiply(w));
+        }
+      }
     },
   },
   {

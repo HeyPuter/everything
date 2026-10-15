@@ -61,6 +61,8 @@ export interface ShapeKey {
   mute: boolean;
   relative_key: string; // name of the basis key
   vertex_group?: string;
+  /** protected from edits (Edit Mode shape editing, sculpting) */
+  lock_shape?: boolean;
 }
 
 export interface ColorAttribute {
