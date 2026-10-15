@@ -10,6 +10,7 @@ import { animSettings } from '../animation/view2d';
 import { textureSettings, applyTextureSettings } from '../render/images';
 import { renderViewSettings } from '../render/final/renderwindow';
 import { annotateSettings } from '../editors/view3d/tools3d';
+import { gpDrawSettings } from '../greasepencil/paint';
 import { textEditorSettings } from '../scripting/textedit';
 import { consoleSettings } from '../scripting/runner';
 import { nodeEditorSettings } from '../nodes/registry';
@@ -45,6 +46,7 @@ onPrefsApply((p) => {
 
   annotateSettings.color = [...p.annotation_color] as [number, number, number];
   annotateSettings.eraserRadius = Math.max(1, p.annotation_eraser_radius);
+  gpDrawSettings.minDistance = Math.max(0.1, p.gpencil_min_distance);
   textEditorSettings.autoClose = p.use_text_edit_auto_close;
   textEditorSettings.useSpaces = p.use_tabs_as_spaces;
   consoleSettings.scrollback = Math.max(32, p.scrollback);

@@ -19,6 +19,9 @@ import { smoothPoints } from './strokeops';
 import { fillRegion } from './fill';
 import type { GPBrush, GPLayer, GreasePencilData } from './types';
 
+/** Drawing options from Preferences ▸ Editing ▸ Grease Pencil: pixels between recorded points. */
+export const gpDrawSettings = { minDistance: 1.5 };
+
 export const inDrawMode = () => app.doc.mode === 'PAINT_GREASE_PENCIL' && !!gpOf(app.doc, app.activeObject);
 
 export function drawContext(): {
@@ -150,7 +153,7 @@ function startDraw(v: View3D, e: PointerEvent) {
     radiusPx: () => b.size / 2,
     dab: (d) => {
       const last = samples[samples.length - 1];
-      if (last && Math.hypot(d.x - last.x, d.y - last.y) < 1.5) return;
+      if (last && Math.hypot(d.x - last.x, d.y - last.y) < gpDrawSettings.minDistance) return;
       samples.push({ x: d.x, y: d.y, pressure: d.pressure });
     },
     update: () => setStrokePreview(c.ob.id, fromStrokes([build()]), c.layer),

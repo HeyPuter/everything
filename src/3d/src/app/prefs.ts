@@ -116,6 +116,8 @@ export interface Preferences {
   duplicate: Record<string, boolean>;
   annotation_color: [number, number, number];
   annotation_eraser_radius: number;
+  /** smallest pointer movement (px) that adds a point to a Grease Pencil stroke */
+  gpencil_min_distance: number;
   use_text_edit_auto_close: boolean;
   sculpt_paint_overlay_color: [number, number, number];
   /** weight paint shows weights with the colours below instead of the default heat map */
@@ -258,6 +260,7 @@ export const defaultPreferences = (): Preferences => ({
   duplicate: { MESH: true, CURVE: true, FONT: true, LATTICE: true, META: true, ARMATURE: true, CAMERA: true, LIGHT: true, SPEAKER: true, GREASEPENCIL: true, POINTCLOUD: true, MATERIAL: false, ACTION: true },
   annotation_color: [0.12, 0.65, 0.95],
   annotation_eraser_radius: 12,
+  gpencil_min_distance: 1.5,
   use_text_edit_auto_close: false,
   sculpt_paint_overlay_color: [0, 0, 0],
   use_weight_color_range: false,

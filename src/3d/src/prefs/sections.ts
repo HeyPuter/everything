@@ -146,6 +146,7 @@ registerPrefSection({
       ], { sub: true }),
     ]),
     panel('pf-ed-annot', 'Annotations', () => [pColor('annotation_color', 'Default Color'), pNum('annotation_eraser_radius', 'Eraser Radius', { min: 1, max: 200, int: true, unit: 'pixel', tip: 'Ctrl-drag with the Annotate tool erases strokes this close to the pointer' })]),
+    panel('pf-ed-gp', 'Grease Pencil', () => [pNum('gpencil_min_distance', 'Point Spacing', { min: 0.1, max: 50, precision: 1, unit: 'pixel', tip: 'Pointer movement needed before a drawn stroke records another point (larger: lighter, smoother strokes)' })]),
     panel('pf-ed-text', 'Text Editor', () => [pBool('use_text_edit_auto_close', 'Auto Close Character Pairs', 'Typing ( [ { or a quote adds the closing one; a selection gets wrapped')]),
     panel('pf-ed-nodes', 'Node Editor', () => [
       pBool('node_use_insert_offset', 'Auto-Offset', 'Push downstream nodes to the right when a node is dropped onto a link'),
