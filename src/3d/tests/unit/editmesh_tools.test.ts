@@ -435,3 +435,40 @@ describe('vertex tools', () => {
     expect(counts(e)).toEqual([5, 6, 2]);
   });
 });
+
+import { regionToLoop, loopToRegion, selectSimilar, vertexPath } from '../../src/modes/editmesh/select-extra';
+
+describe('selection tools', () => {
+  it('region to loop and back', () => {
+    const m = fromPrim(prim.grid(4, 4));
+    selectFaces(m, (c) => Math.abs(c[0]) < 0.4 && Math.abs(c[1]) < 0.4);
+    const loop = regionToLoop(m);
+    expect(loop.length).toBe(8);
+    m.sel = m.sel.map(() => 0);
+    for (const v of loop) m.sel[v] = 1;
+    const faces = loopToRegion(m, false);
+    expect(faces.length).toBe(4);
+  });
+
+  it('selects similar edges by length and faces by area', () => {
+    const m = cube();
+    selectAll(m);
+    subdivide(m, 1, 0);
+    selectEdges(m, (c) => c[2] > 0.9 && c[0] > 0.9 && c[1] > 0.4);
+    const sel = new Uint8Array(m.sel);
+    selectSimilar(m, null as never, sel, 'EDGE_LENGTH', 'EQUAL', 0);
+    expect(sel.reduce((a, b) => a + b, 0)).toBe(26);
+    const f = cube();
+    selectFaces(f, (c) => c[2] > 0.9);
+    const fs = new Uint8Array(f.sel);
+    selectSimilar(f, null as never, fs, 'FACE_NORMAL', 'EQUAL', 0);
+    expect(fs.reduce((a, b) => a + b, 0)).toBe(4);
+  });
+
+  it('finds the shortest vertex path', () => {
+    const m = fromPrim(prim.grid(4, 4));
+    const corner = (x: number, y: number) => Array.from({ length: m.vcount }, (_, i) => i).find((i) => Math.abs(m.p(i)[0] - x) < 1e-6 && Math.abs(m.p(i)[1] - y) < 1e-6)!;
+    const path = vertexPath(m, corner(-1, -1), corner(1, -1));
+    expect(path.length).toBe(5);
+  });
+});

@@ -2,11 +2,11 @@
 import { app, registerOperators, type OpContext } from '../../app/app';
 import { editModeHooks } from '../../editors/view3d/hooks';
 import type { View3D } from '../../editors/view3d/view3d';
-import { editMeshObjects, selectMode, active, inMeshEdit, ensureSelection } from './context';
+import { editMeshObjects, selectMode, active, inMeshEdit, ensureSelection, pushSelectHistory } from './context';
 import { pickContext, nearestVertex, nearestEdge, pickFace, vertsInRegion, facesInRegion, type Region } from './pick';
 import { MeshEdit, edgeKey } from './meshedit';
 import type { MeshData } from '../../data/types';
-import { edgeTopology, polyNormal } from '../../mesh/mesh';
+import { edgeTopology } from '../../mesh/mesh';
 
 const flushFaceMode = (me: MeshData, faces: number[], sel: Uint8Array, value: number) => {
   for (const f of faces) for (let c = me.offsets[f]; c < me.offsets[f + 1]; c++) sel[me.indices[c]] = value;
@@ -86,6 +86,7 @@ function pick(v: View3D, x: number, y: number, o: { extend?: boolean; toggle?: b
   active.kind = best.kind;
   active.index = best.kind === 'VERT' ? best.v! : best.kind === 'FACE' ? best.f! : -1;
   active.edge = best.e ?? [-1, -1];
+  if (!o.deselect) pushSelectHistory();
   commitSel('Select');
   return true;
 }
@@ -309,9 +310,23 @@ registerOperators([
       if (p.use_extend) {
         ts.mesh_select_mode[i] = !ts.mesh_select_mode[i];
         if (!ts.mesh_select_mode.some(Boolean)) ts.mesh_select_mode[i] = true;
-      } else ts.mesh_select_mode = [i === 0, i === 1, i === 2];
+      } else {
+        const prev = ts.mesh_select_mode.findIndex(Boolean);
+        // expand: going to a larger element type keeps everything the selection touched
+        if (p.use_expand && i > prev)
+          for (const { me } of editMeshObjects()) {
+            ensureSelection(me);
+            const m = MeshEdit.from(me);
+            const sel = new Uint8Array(me.select_vert!);
+            if (i === 1) for (const [a, b] of m.edges()) (me.select_vert![a] || me.select_vert![b]) && (sel[a] = sel[b] = 1);
+            else for (const f of m.faces) if (f.verts.some((v) => me.select_vert![v])) for (const v of f.verts) sel[v] = 1;
+            if (me.hide_vert) for (let k = 0; k < sel.length; k++) if (me.hide_vert[k]) sel[k] = 0;
+            me.select_vert = sel;
+          }
+        ts.mesh_select_mode = [i === 0, i === 1, i === 2];
+      }
       // switching to face mode keeps only fully selected faces (like the reference flush)
-      if (i === 2 && !p.use_extend)
+      if (i === 2 && !p.use_extend && !p.use_expand)
         for (const { me } of editMeshObjects()) {
           ensureSelection(me);
           const sel = new Uint8Array(me.positions.length / 3);
@@ -531,71 +546,6 @@ registerOperators([
           const ok = p.type === 'LESS' ? n < N : p.type === 'GREATER' ? n > N : p.type === 'NOTEQUAL' ? n !== N : n === N;
           if (ok) for (let c = me.offsets[f]; c < me.offsets[f + 1]; c++) sel[me.indices[c]] = 1;
         }
-        me.select_vert = sel;
-      });
-    },
-  },
-  {
-    idname: 'mesh.select_similar',
-    label: 'Select Similar',
-    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'NORMAL', items: [['NORMAL', 'Normal'], ['AREA', 'Area'], ['SIDES', 'Number of Sides'], ['MATERIAL', 'Material'], ['SMOOTH', 'Flat/Smooth'], ['COPLANAR', 'Coplanar']] }, { id: 'threshold', label: 'Threshold', type: 'float', default: 0, min: 0, max: 1, subtype: 'factor' }],
-    poll: editPoll,
-    exec: (_ctx, p) => {
-      eachMesh((me, m) => {
-        const sel = new Uint8Array(me.select_vert!);
-        const selFaces = m.selectedFaces();
-        if (!selFaces.length) return;
-        const thr = (p.threshold as number) + 1e-5;
-        const prop = (fi: number): number[] => {
-          const f = m.faces[fi];
-          switch (p.type) {
-            case 'NORMAL':
-            case 'COPLANAR': {
-              const n = m.faceNormal(f);
-              if (p.type === 'COPLANAR') {
-                const c = m.faceCenter(f);
-                return [...n, n[0] * c[0] + n[1] * c[1] + n[2] * c[2]];
-              }
-              return n;
-            }
-            case 'AREA': {
-              const n = polyNormal(m.pos, f.verts);
-              void n;
-              let area = 0;
-              const c = m.faceCenter(f);
-              for (let i = 0; i < f.verts.length; i++) {
-                const a = m.p(f.verts[i]),
-                  b = m.p(f.verts[(i + 1) % f.verts.length]);
-                const ux = a[0] - c[0],
-                  uy = a[1] - c[1],
-                  uz = a[2] - c[2],
-                  vx = b[0] - c[0],
-                  vy = b[1] - c[1],
-                  vz = b[2] - c[2];
-                area += Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
-              }
-              return [area];
-            }
-            case 'SIDES':
-              return [f.verts.length];
-            case 'MATERIAL':
-              return [f.material];
-            case 'SMOOTH':
-              return [f.smooth ? 1 : 0];
-          }
-          return [0];
-        };
-        const refs = selFaces.map(prop);
-        m.faces.forEach((f, fi) => {
-          const v = prop(fi);
-          const match = refs.some((r) => {
-            if (p.type === 'NORMAL') return r[0] * v[0] + r[1] * v[1] + r[2] * v[2] >= Math.cos(thr * Math.PI);
-            if (p.type === 'AREA') return Math.abs(r[0] - v[0]) <= thr * Math.max(r[0], 1e-9);
-            if (p.type === 'COPLANAR') return r[0] * v[0] + r[1] * v[1] + r[2] * v[2] >= Math.cos(thr * Math.PI) && Math.abs(r[3] - v[3]) < 1e-4 + thr;
-            return r[0] === v[0];
-          });
-          if (match) for (const vv of f.verts) sel[vv] = 1;
-        });
         me.select_vert = sel;
       });
     },
