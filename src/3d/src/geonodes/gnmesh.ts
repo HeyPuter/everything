@@ -3,6 +3,7 @@
 import './zones/core';
 import './nodes/meshedit';
 import './nodes/sample';
+import './nodes/instances2';
 import { placeMenus } from './gnmesh-menu';
 
 placeMenus();
