@@ -370,6 +370,7 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
       const opts = buildOptions(src, 'raster');
       rs.build(app, opts);
       guideScene = rs;
+      rs.jitterFinal = src.kind === 'final';
       rs.configureShadows(renderer, doc);
       maxSamples = Math.max(1, r.raster_samples);
       job!.maxSamples = maxSamples;
@@ -404,7 +405,8 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
           apertureJitter(camera, basePos, base, ax * dof.radius, ay * dof.radius, dof.focus);
           jitterProjection(camera, (camera as PerspectiveCamera).projectionMatrix.clone(), jx, jy, W, H);
         } else jitterProjection(camera, base, jx, jy, W, H);
-        const tex = raster.render(renderer, rs.scene, camera, W, H, fx);
+        rs.jitterShadows(doc, i);
+        const tex = raster.render(renderer, rs.scene, camera, W, H, { ...fx, sample: i });
         accum.add(renderer, tex);
         job!.sample = i + 1;
         if (performance.now() - last > 30) {
@@ -422,6 +424,7 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
         camera.updateMatrixWorld(true);
         jitterProjection(camera, base, 0, 0, W, H);
       }
+      rs.jitterShadows(doc, 0);
       samples = maxSamples;
       combined = readFloat(renderer, accum.target, W, H);
     } else {

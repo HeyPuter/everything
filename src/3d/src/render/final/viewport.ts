@@ -25,7 +25,7 @@ export function viewportPixelSize(size: string | undefined): number {
 
 const transparentBg = new Color(0.12, 0.12, 0.12);
 const quad = new FullScreenQuad(displayMaterial);
-const noFx = { gtao: false, gtaoDistance: 0, bloom: false, bloomThreshold: 1, bloomIntensity: 0, bloomRadius: 0, transparent: false };
+const noFx = { gtao: false, bloom: false, transparent: false };
 
 export class ViewportRender {
   private scene: RenderScene | null = null;
@@ -190,7 +190,8 @@ export class ViewportRender {
         jitterProjection(cam, (cam as PerspectiveCamera).projectionMatrix.clone(), jx, jy, W, H);
       } else jitterProjection(cam, base, jx, jy, W, H);
     }
-    const tex = this.raster.render(renderer, rs.scene, cam, W, H, fx);
+    rs.jitterShadows(app.doc, i);
+    const tex = this.raster.render(renderer, rs.scene, cam, W, H, { ...fx, sample: i });
     this.accum.add(renderer, tex);
     this.accumCount++;
     return this.accum.target.texture;

@@ -32,6 +32,8 @@ import { compileTree, DISPLACE_MARK, type CompiledTree, type UniformSpec } from 
 import { app } from '../../app/app';
 import { renderContext } from '../../render/context';
 import { hashName } from './util';
+import { patchFx } from '../../render/realtime/fxshader';
+import { applyRealtimeMaterial, realtimeMaterialKey } from '../../render/realtime/materialfx';
 
 interface Entry {
   key: string;
@@ -312,7 +314,9 @@ function build(doc: DocumentData, ma: MaterialData, ct: CompiledTree, key: strin
     shader.vertexShader = r.vertex;
     shader.fragmentShader = r.fragment;
     Object.assign(shader.uniforms, uniforms);
+    patchFx(shader);
   };
+  applyRealtimeMaterial(mat, ma);
   mat.customProgramCacheKey = () => `nd:${key}`;
   if (objectBlock) (mat as unknown as { uniformsGroups: UniformsGroup[] }).uniformsGroups = [objectGroup];
   if (objectBlock || barycentric) {
@@ -341,7 +345,7 @@ export function compileMaterial(doc: DocumentData, ma: MaterialData): Material {
   if (!hooked && renderContext) installShaderErrorHook(renderContext.engine.renderer);
   if (!ma.use_nodes) return principledFallback(doc, ma);
   const ct = compileTree(doc, ma.tree, 'MATERIAL');
-  const key = `${ct.key}|${ma.blend_method}|${ma.use_backface_culling ? 1 : 0}|${ma.show_transparent_back === false ? 0 : 1}`;
+  const key = `${ct.key}|${ma.blend_method}|${ma.use_backface_culling ? 1 : 0}|${ma.show_transparent_back === false ? 0 : 1}|${realtimeMaterialKey(ma)}`;
   compileMessages.set(ma.id, ct.errors);
   if (failedKeys.has(key)) return errorMaterial;
   const hit = cache.get(ma.id);

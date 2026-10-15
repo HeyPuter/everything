@@ -30,6 +30,9 @@ import { materialSlots } from '../../editors/view3d/draw';
 import { lightIntensity, areaLightSize } from './units';
 import { pathTracerMaterial } from './ptmaterial';
 import { worldEnvironment } from './environment';
+import { installLightInfluence } from '../realtime/lightinfluence';
+import { shadowSettings, lightShadowOptions, lightRange } from '../realtime/settings';
+import { jitteredLightMatrix, lightShadowMapSize } from '../realtime/shadows';
 
 export interface BuildOptions {
   mode: 'raster' | 'pathtrace';
@@ -54,6 +57,8 @@ interface Entry {
   light?: Light;
   lightType?: string;
   data?: LightData;
+  /** light matrix before shadow jitter */
+  base?: Matrix4;
 }
 
 /** Objects that take part in final renders (collection exclude / disable-in-renders flags). */
@@ -91,10 +96,12 @@ export class RenderScene {
   bounds = new Sphere(new Vector3(), 1);
   mode: BuildOptions['mode'];
   private lightScale = 1;
+  private lightThreshold = 0;
 
   constructor(mode: BuildOptions['mode']) {
     this.mode = mode;
     this.scene.matrixWorldAutoUpdate = false;
+    installLightInfluence(this.scene);
   }
 
   /** Bring the scene up to date with the app's evaluated depsgraph. */
@@ -102,6 +109,7 @@ export class RenderScene {
     const doc = app.doc;
     this.mode = o.mode;
     this.lightScale = Math.max(0, o.lightScale ?? 1);
+    this.lightThreshold = o.mode === 'raster' ? shadowSettings(doc.scene.render).threshold : 0;
     const renderable = o.final ? renderVisibleObjects(doc) : null;
     const seen = new Set<string>();
     let structure = false,
@@ -148,6 +156,7 @@ export class RenderScene {
     this.fitSunShadows(doc);
     this.syncEnvironment(doc, o);
     for (const hk of renderSceneHooks) hk(this, app, o);
+    for (const e of this.entries.values()) if (e.light) (e.base ??= new Matrix4()).copy(e.light.matrix);
     this.scene.updateMatrixWorld(true);
     if (structure) this.structureVersion++;
     if (lights) this.lightsVersion++;
@@ -271,8 +280,10 @@ export class RenderScene {
     if (!L.color.equals(color) || L.intensity !== intensity) changed = true;
     L.color.copy(color);
     L.intensity = intensity;
-    // realtime: Custom Distance fades the light out at the cutoff distance
-    const cutoff = this.mode === 'raster' && la.use_custom_distance ? Math.max(0, la.cutoff_distance ?? 40) : 0;
+    L.userData.influence = [la.diffuse_factor ?? 1, la.specular_factor ?? 1];
+    // realtime: Custom Distance fades the light out at the cutoff distance; otherwise the light
+    // reaches as far as it is brighter than the render's light threshold
+    const cutoff = this.mode !== 'raster' ? 0 : la.use_custom_distance ? Math.max(0, la.cutoff_distance ?? 40) : la.type === 'SUN' || la.type === 'AREA' ? 0 : lightRange(intensity, this.lightThreshold);
     if ((L as PointLight).distance !== undefined && (L as PointLight).distance !== cutoff && L.type !== 'DirectionalLight') changed = true;
     if (L instanceof PointLight) {
       L.distance = cutoff;
@@ -309,9 +320,10 @@ export class RenderScene {
     return changed;
   }
 
-  /** Configure shadow map resolutions from the render settings. */
+  /** Configure shadow maps (resolution, filtering) from the render and light settings. */
   configureShadows(renderer: WebGLRenderer, doc: DocumentData) {
     const r = doc.scene.render;
+    const ss = shadowSettings(r);
     const cube = Number(r.shadow_cube_size) || 512;
     const cascade = Number(r.shadow_cascade_size) || 1024;
     // percentage-closer filtering; the kernel radius follows the light size for soft shadows
@@ -323,19 +335,67 @@ export class RenderScene {
         if (m) (Array.isArray(m) ? m : [m]).forEach((x) => (x.needsUpdate = true));
       });
     }
-    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.enabled = ss.enabled;
+    const b = this.bounds;
     for (const e of this.entries.values()) {
       const L = e.light as PointLight | undefined;
       if (!L?.shadow) continue;
       const la = e.data;
-      L.shadow.radius = !r.use_soft_shadows || !la ? 1 : L instanceof DirectionalLight ? 1 + la.angle * 250 : 1 + la.shadow_soft_size * 20;
-      const size = L instanceof DirectionalLight ? cascade * 2 : cube * 2;
+      const opts = la ? lightShadowOptions(la) : null;
+      const sun = L instanceof DirectionalLight;
+      const spot = L instanceof PhysicalSpotLight;
+      const soft = !r.use_soft_shadows || !la ? 1 : sun ? 1 + la.angle * 250 : 1 + la.shadow_soft_size * 20;
+      // jittered lights get their softness from the moving light: keep only the overblur
+      const jitter = !!opts?.jitter && (this.jitterFinal || ss.jitterViewport);
+      const radius = jitter ? 1 + (soft - 1) * (opts!.overblur / 100) : soft;
+      L.shadow.radius = Math.max(0.5, radius * (opts?.filter ?? 1));
+      tmpV.setFromMatrixPosition(e.base ?? L.matrix);
+      const dist = Math.max(0.1, tmpV.distanceTo(b.center));
+      const half = spot ? Math.tan(Math.min(Math.PI / 2 - 1e-3, (la?.spot_size ?? 1) / 2)) : 1;
+      const size = lightShadowMapSize({
+        kind: sun ? 'sun' : spot ? 'spot' : 'point',
+        coverage: sun ? 2 * b.radius : 2 * (dist + b.radius) * half,
+        unitCoverage: sun ? 2 * b.radius : 2 * half,
+        limit: opts?.limit ?? 0,
+        absolute: !!opts?.absolute,
+        budget: sun ? cascade : cube,
+        scale: ss.scale,
+      });
       if (L.shadow.mapSize.x !== size) {
         L.shadow.mapSize.set(size, size);
         L.shadow.map?.dispose();
         L.shadow.map = null;
       }
     }
+  }
+
+  /** Final renders always jitter soft shadows of lights with Jitter on; the viewport only on request. */
+  jitterFinal = false;
+
+  /**
+   * Move jittering lights for accumulation sample `i` (call before each sample). Sample 0 and
+   * lights without jitter keep their position.
+   */
+  jitterShadows(doc: DocumentData, i: number) {
+    const viewportJitter = shadowSettings(doc.scene.render).jitterViewport;
+    let moved = false;
+    for (const e of this.entries.values()) {
+      const L = e.light;
+      if (!L || !e.base || !e.data || (L as PointLight).shadow === undefined) continue;
+      const la = e.data;
+      const on = !!la.use_shadow_jitter && la.use_shadow && (this.jitterFinal || viewportJitter) && i > 0;
+      if (!on) {
+        if (!L.matrix.equals(e.base)) {
+          L.matrix.copy(e.base);
+          moved = true;
+        }
+        continue;
+      }
+      const kind = L instanceof DirectionalLight ? 'sun' : L instanceof PhysicalSpotLight ? 'spot' : 'point';
+      jitteredLightMatrix(e.base, kind, Math.max(0, la.shadow_soft_size), la.angle, i, this.bounds.center, L.matrix);
+      moved = true;
+    }
+    if (moved) this.scene.updateMatrixWorld(true);
   }
 
   /** Sun shadow cameras cover the scene bounds. */

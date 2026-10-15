@@ -1,4 +1,5 @@
 // Properties tabs: scene, world, collection, object, data, material.
+import { lightInfluencePanel, lightShadowPanel, lightDistancePanel, ensureLightDefaults } from '../../render/realtime/lightprops';
 import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
@@ -467,9 +468,6 @@ function lightData(o: ObjectData, la: LightData): Child {
       h('div', { class: 'enum-tabs' }, enumRow('la-type', [['POINT', 'Point', 'light_point'], ['SUN', 'Sun', 'light_sun'], ['SPOT', 'Spot', 'light_spot'], ['AREA', 'Area', 'light_area']].map(([v, l, i]) => ({ value: v, label: l, icon: i })), la.type, (v) => ((la.type = v as LightData['type']), la.type === 'SUN' && la.energy > 100 && (la.energy = 1), changed('Light Type')))),
       colorProp(la, 'color', 'Color', { anim: anim('color') }),
       la.type === 'SUN' ? num(la, 'energy', 'Strength', { min: 0, softMax: 10, anim: anim('energy') }) : num(la, 'energy', 'Power', { unit: 'power', min: 0, softMax: 10000, anim: anim('energy') }),
-      num(la, 'diffuse_factor', 'Diffuse', { min: 0, max: 1, slider: true }),
-      num(la, 'specular_factor', 'Specular', { min: 0, max: 1, slider: true }),
-      num(la, 'volume_factor', 'Volume', { min: 0, max: 1, slider: true }),
       la.type === 'SUN' ? num(la, 'angle', 'Angle', { unit: 'angle', min: 0, max: Math.PI }) : la.type !== 'AREA' ? num(la, 'shadow_soft_size', 'Radius', { unit: 'distance', min: 0 }) : null,
       la.type === 'AREA'
         ? [
@@ -478,10 +476,9 @@ function lightData(o: ObjectData, la: LightData): Child {
             la.shape === 'RECTANGLE' || la.shape === 'ELLIPSE' ? num(la, 'size_y', 'Y', { unit: 'distance', min: 0 }) : null,
           ]
         : null,
+      la.type === 'SPOT' ? panel('la-spot', 'Beam Shape', () => [num(la, 'spot_size', 'Spot Size', { unit: 'angle', min: (1 * Math.PI) / 180, max: Math.PI }), num(la, 'spot_blend', 'Blend', { min: 0, max: 1, slider: true }), bool(la, 'show_cone', 'Show Cone')], { sub: true }) : null,
+      (ensureLightDefaults(la), [lightInfluencePanel(o, la), lightShadowPanel(la), lightDistancePanel(la)]),
     ]),
-    la.type === 'SPOT' ? panel('la-spot', 'Beam Shape', () => [num(la, 'spot_size', 'Spot Size', { unit: 'angle', min: (1 * Math.PI) / 180, max: Math.PI }), num(la, 'spot_blend', 'Blend', { min: 0, max: 1, slider: true }), bool(la, 'show_cone', 'Show Cone')]) : null,
-    panel('la-shadow', 'Shadow', () => [num(la as never, 'shadow_buffer_bias' as never, 'Bias', { min: 0 })], { header: checkbox('la-shadow-on', '', la.use_shadow, (v) => ((la.use_shadow = v), changed('Light Shadow'))) }),
-    panel('la-cutoff', 'Custom Distance', () => [num(la as never, 'cutoff_distance' as never, 'Distance', { unit: 'distance', min: 0 })], { closed: true, header: checkbox('la-cut-on', '', !!la.use_custom_distance, (v) => ((la.use_custom_distance = v), changed('Custom Distance'))) }),
   ];
 }
 

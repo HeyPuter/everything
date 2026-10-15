@@ -34,6 +34,7 @@ import type { DocumentData, ObjectData } from '../data/types';
 import { meshGeometry, wireGeometry, pointGeometry } from './geometry';
 import { imageTexture } from './images';
 import { cameraWire, cameraTriangle, lightWire, emptyWire, geom, boneOctahedron, latticeWire, groundLine } from './helpers';
+import { installLightInfluence } from './realtime/lightinfluence';
 
 export interface SyncedObject {
   id: string;
@@ -71,6 +72,7 @@ export class SceneSync {
 
   constructor(private app: App) {
     this.scene.matrixWorldAutoUpdate = false;
+    installLightInfluence(this.scene);
   }
 
   objectIndex(id: string) {
@@ -360,6 +362,7 @@ export class SceneSync {
     }
     const L = so.light;
     L.color = new Color(la.color[0], la.color[1], la.color[2]);
+    L.userData.influence = [la.diffuse_factor ?? 1, la.specular_factor ?? 1];
     // radiometric watts → three.js photometric-style units (see docs/rendering.md)
     if (L instanceof PointLight) {
       L.intensity = la.energy / (4 * Math.PI);

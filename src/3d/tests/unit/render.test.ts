@@ -8,7 +8,7 @@ import { passesFromGuide } from '../../src/render/final/passes';
 import { depthRange, passToRGBA8, samplePixel, toBW, type RenderResult } from '../../src/render/final/result';
 import { ATROUS_TAPS, denoiseSchedule } from '../../src/render/final/denoise';
 import { frustumHalfExtents } from '../../src/render/final/camera';
-import { bloomParams } from '../../src/render/final/raster';
+import { bloomLevels, bloomHighlight } from '../../src/render/realtime/bloom';
 
 const std: ViewSettings = { view_transform: 'STANDARD', exposure: 0, gamma: 1 };
 
@@ -170,8 +170,11 @@ describe('render units', () => {
     expect(bounceSettings({ max_bounces: 2, diffuse_bounces: 4, glossy_bounces: 6, transmission_bounces: 1 })).toEqual({ bounces: 2, transmissive: 1 });
   });
   it('maps bloom settings', () => {
-    expect(bloomParams(0.05, 6.5)).toEqual({ strength: 0.6000000000000001, radius: 0.65 });
-    expect(bloomParams(0, 50).radius).toBe(1);
+    // the same level count and soft knee as the compositor's Glare node
+    expect(bloomLevels(0.5, 960, 540)).toBe(5);
+    expect(bloomLevels(0, 960, 540)).toBe(1);
+    expect(bloomHighlight([0.5, 0.5, 0.5], 1, 0.1)).toEqual([0, 0, 0]);
+    expect(bloomHighlight([3, 3, 3], 1, 0.1)[0]).toBeCloseTo(2);
   });
   it('fits the camera sensor to the larger dimension', () => {
     const ca = { sensor_fit: 'AUTO' as const, sensor_width: 36, sensor_height: 24, lens: 50 };
