@@ -22,6 +22,14 @@ test('header context menu: collapse menus, hide and restore the header', async (
   await page.locator('.menu .menu-item', { hasText: 'View' }).first().hover();
   await expect(page.locator('.menu .menu-item', { hasText: 'Sidebar' }).first()).toBeVisible();
   await page.keyboard.press('Escape');
+  // popover buttons (the timeline's Playback) stay visible when menus collapse
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.hoverArea.screen.areas.find((x: any) => x.type === 'TIMELINE').setMenusShown(false);
+  });
+  const tl = page.locator('.area[data-editor="TIMELINE"] .area-header');
+  await expect(tl.locator('.hdr-menu', { hasText: 'View' })).toBeHidden();
+  await expect(tl.locator('.hdr-menu', { hasText: 'Playback' })).toBeVisible();
   // hide the header, then bring it back with the reveal tab
   await page.mouse.click(v.x + 300, v.y + 12, { button: 'right' });
   await page.locator('.menu .menu-item', { hasText: 'Show Header' }).click();

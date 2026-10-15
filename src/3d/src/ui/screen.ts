@@ -295,9 +295,27 @@ export class Area implements AreaLike {
     return !!this.headerEl.querySelector('.hdr-menu') || !this.showMenus;
   }
 
+  /** Whether a header button opens a menu (popover buttons such as Playback do not), cached per element. */
+  private isMenuButton(b: HTMLElement) {
+    let v = menuButtons.get(b);
+    if (v === undefined) {
+      v = captureMenu(b).length > 0;
+      menuButtons.set(b, v);
+    }
+    return v;
+  }
+
   /** Menus of the header (for the collapsed menu button and menu search). */
   headerMenus(): { label: string; items: () => MenuItem[] }[] {
-    return [...this.headerEl.querySelectorAll<HTMLElement>('.hdr-menu')].map((b) => ({ label: b.textContent?.trim() ?? '', items: () => captureMenu(b) }));
+    return [...this.headerEl.querySelectorAll<HTMLElement>('.hdr-menu')].filter((b) => this.isMenuButton(b)).map((b) => ({ label: b.textContent?.trim() ?? '', items: () => captureMenu(b) }));
+  }
+
+  /** Hide the header's menu buttons while the menus are collapsed (popover buttons stay). */
+  private applyMenuCollapse() {
+    for (const b of this.headerEl.querySelectorAll<HTMLElement>('.hdr-menu')) {
+      const hide = !this.showMenus && this.isMenuButton(b);
+      if (hide !== (b.style.display === 'none')) b.style.display = hide ? 'none' : '';
+    }
   }
 
   drawHeader() {
@@ -333,6 +351,7 @@ export class Area implements AreaLike {
           icon('collapsemenu'),
         );
     patch(this.headerEl, [typeButton, collapsed, this.editor.header()]);
+    if (!this.showMenus || this.headerEl.querySelector('.hdr-menu[style*="none"]')) this.applyMenuCollapse();
     if (this.editor.toolHeader && this.editor.showToolHeader !== false) {
       this.toolHeaderEl.hidden = false;
       patch(this.toolHeaderEl, this.editor.toolHeader());
@@ -931,6 +950,8 @@ export function snapRatio(r: number) {
   for (const m of marks) if (Math.abs(m - r) < d) ((d = Math.abs(m - r)), (best = m));
   return best;
 }
+
+const menuButtons = new WeakMap<HTMLElement, boolean>();
 
 /** Items of a header menu button, collected without opening it. */
 function captureMenu(btn: HTMLElement): MenuItem[] {

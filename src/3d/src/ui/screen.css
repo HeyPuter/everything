@@ -30,9 +30,6 @@
   bottom: 3px;
   border-radius: 6px 6px 0 0;
 }
-.area.menus-collapsed > .area-header .hdr-menu {
-  display: none;
-}
 
 /* corner action zones */
 .area-corner {

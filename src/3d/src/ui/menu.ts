@@ -409,6 +409,8 @@ function renderPie(title: string) {
 // Popovers (panels that float under a button)
 
 export function openPopover(anchor: HTMLElement | { x: number; y: number }, render: () => Child, opts: { width?: number; className?: string } = {}) {
+  // collecting menu items (captureMenuItems) never opens popovers
+  if (capturing) return { el: document.createElement('div'), redraw: () => {} };
   closeMenus();
   const el = document.createElement('div');
   el.className = `popover ${opts.className ?? ''}`;
