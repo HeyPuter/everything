@@ -164,3 +164,19 @@ test('convert text to a curve', async ({ page }) => {
   expect(await get(page, `app.doc.curves[app.activeObject.data].splines.length > 0`)).toBe(true);
   await expectNoErrors(errors);
 });
+
+test('modifier panel shortcuts act on the hovered modifier', async ({ page }) => {
+  const errors = await openApp(page);
+  await run(page, 'object.modifier_add', { type: 'SUBSURF' });
+  await page.locator('.rail-tab[data-tip="Modifiers"]').first().click();
+  const panel = page.locator('.panel.modifier').first();
+  await expect(panel).toBeVisible();
+  const box = (await panel.locator('.mod-header').boundingBox())!;
+  await page.mouse.move(box.x + box.width - 60, box.y + box.height / 2);
+  await page.keyboard.press('Shift+d');
+  expect(await get(page, `app.activeObject.modifiers.length`)).toBe(2);
+  await page.mouse.move(box.x + box.width - 60, box.y + box.height / 2);
+  await page.keyboard.press('x');
+  expect(await get(page, `app.activeObject.modifiers.length`)).toBe(1);
+  await expectNoErrors(errors);
+});

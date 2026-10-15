@@ -138,12 +138,17 @@ function modifierPanel(ob: ObjectData, m: ModifierBase, i: number): Child {
     h('button', { class: { 'mod-toggle': true, on: !!m[k] }, 'data-tip': tip, onclick: (e: MouseEvent) => (e.stopPropagation(), (m[k] = !m[k]), app.pushUndo(tip), app.changed('doc')) }, icon(ic));
   return h(
     'section',
-    { key: m.id, class: { panel: true, modifier: true, open, disabled: !m.show_viewport } },
+    { key: m.id, class: { panel: true, modifier: true, open, disabled: !m.show_viewport, active: !!m.is_active }, 'data-mod': m.id },
     h(
       'header',
       {
         class: 'panel-header mod-header',
         onpointerdown: (e: PointerEvent) => {
+          // clicking a modifier makes it the active one (no undo step, like selection)
+          if (!m.is_active) {
+            for (const x of ob.modifiers) x.is_active = x === m;
+            app.changed('ui', 'doc');
+          }
           if ((e.target as HTMLElement).closest('button, input, label')) return;
           setPanelOpen(id, !open);
           m.show_expanded = !open;

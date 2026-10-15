@@ -1783,6 +1783,9 @@ input.num-field.editing {
   justify-content: flex-start;
   background: var(--w-menu);
 }
+.panel.modifier.active {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+}
 .panel.modifier .mod-header {
   gap: 3px;
 }

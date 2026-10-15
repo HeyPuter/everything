@@ -24,3 +24,24 @@ addKeys('Mesh', [
   { key: 'G', ctrl: true, menu: vertexGroupsMenu, menuTitle: 'Vertex Groups', when: editMesh },
   { key: 'P', ctrl: true, op: 'object.vertex_parent_set', when: editMesh },
 ]);
+
+/** The modifier panel under the mouse in a Properties editor, if any. */
+function hoveredModifier(): string | null {
+  const el = document.elementFromPoint(app.pointer.x, app.pointer.y) as HTMLElement | null;
+  if (!el || el.closest('input, textarea')) return null;
+  return el.closest<HTMLElement>('[data-mod]')?.dataset.mod ?? null;
+}
+
+const modKey = (key: string, op: string, mods: { shift?: boolean; ctrl?: boolean } = {}) => ({
+  key,
+  ...mods,
+  action: () => {
+    const id = hoveredModifier();
+    if (id) app.run(op, { modifier: id });
+  },
+  when: () => !!hoveredModifier(),
+});
+
+addKeys('Property Editor', [modKey('X', 'object.modifier_remove'), modKey('DEL', 'object.modifier_remove'), modKey('D', 'object.modifier_copy', { shift: true }), modKey('A', 'object.modifier_apply', { ctrl: true })]);
+
+addKeys('Mesh', [{ key: 'G', ctrl: true, alt: true, op: 'object.vertex_group_remove_from', when: editMesh }]);
