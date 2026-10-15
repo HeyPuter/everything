@@ -6,4 +6,5 @@ import './fn_string';
 import './fields';
 import './attributes';
 import './switches';
+import './topology';
 export {};
