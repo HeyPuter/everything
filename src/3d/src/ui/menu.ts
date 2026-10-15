@@ -623,7 +623,9 @@ export function openSearch(entries: () => SearchEntry[], x = innerWidth / 2 - 20
     return all
       .map((e) => {
         const text = `${e.path ?? ''} ${e.label}`.toLowerCase();
-        if (!words.every((w) => text.includes(w))) return null;
+        // a word may also span the spaces of a name ("icosph" finds "Ico Sphere")
+        const flat = text.replace(/\s+/g, '');
+        if (!words.every((w) => text.includes(w) || flat.includes(w))) return null;
         // unavailable entries sort last so Enter runs the best available match
         const score = (e.disabled ? 2 : 0) + (e.label.toLowerCase().startsWith(words[0]) ? 0 : 1) + text.length / 1000;
         return { e, score };
