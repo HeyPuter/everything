@@ -86,3 +86,18 @@ test('operators from scripts: transforms with values and macro parts', async ({ 
   ]);
   await expectNoErrors(errors);
 });
+
+test('a script menu opens with wm.call_menu and runs its operator', async ({ page }) => {
+  const errors = await openApp(page);
+  await scriptingWorkspace(page);
+  await consoleLine(page, "class Quick extends bpy.types.Menu { static bl_idname = 'VIEW3D_MT_quick'; static bl_label = 'Quick'; draw() { this.layout.operator('mesh.primitive_cube_add', {text: 'Small Cube'}).size = 0.25 } }");
+  await consoleLine(page, 'bpy.utils.register_class(Quick)');
+  await consoleLine(page, "bpy.ops.wm.call_menu({name: 'VIEW3D_MT_quick'})");
+  const item = page.locator('.menu .menu-item', { hasText: 'Small Cube' });
+  await expect(item).toBeVisible();
+  const before = (await get(page, 'Object.keys(app.doc.objects).length')) as number;
+  await item.click();
+  await page.waitForTimeout(150);
+  expect(await get(page, 'Object.keys(app.doc.objects).length')).toBe(before + 1);
+  await expectNoErrors(errors);
+});

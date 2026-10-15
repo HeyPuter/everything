@@ -336,3 +336,21 @@ describe('sequencer retiming and connections', () => {
     ).toBe('3 51\n2 225\nTint Shot\n0');
   });
 });
+
+describe('script menus', () => {
+  it('a registered menu draws operators, labels and submenus', async () => {
+    const { menuItems } = await import('../../src/scripting/menus');
+    run(`
+      class Tools extends bpy.types.Menu {
+        static bl_idname = 'VIEW3D_MT_my_tools'; static bl_label = 'My Tools';
+        draw(context) { const l = this.layout; l.label('Add'); l.operator('mesh.primitive_cube_add', {text: 'Box'}).size = 0.5; l.separator(); l.menu('VIEW3D_MT_my_more'); }
+      }
+      class More extends bpy.types.Menu { static bl_idname = 'VIEW3D_MT_my_more'; static bl_label = 'More'; draw() { this.layout.operator('object.shade_smooth'); } }
+      bpy.utils.register_class(Tools); bpy.utils.register_class(More);
+    `);
+    const items = menuItems('VIEW3D_MT_my_tools');
+    expect(items.map((i) => i.heading ?? i.label ?? (i.separator ? '—' : '?'))).toEqual(['Add', 'Box', '—', 'More']);
+    expect(items[1]).toMatchObject({ op: 'mesh.primitive_cube_add', props: { size: 0.5 } });
+    expect(items[3].submenu!().map((i) => i.op)).toEqual(['object.shade_smooth']);
+  });
+});

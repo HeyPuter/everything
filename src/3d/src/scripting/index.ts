@@ -53,7 +53,8 @@
 //       deform, shape, float/int/string), bmesh.ops (create_*, extrude, transforms, delete,
 //       merge, subdivide, triangulate, inset, bevel, bridge, spin, mirror, dissolve, …),
 //       bmesh.utils / bmesh.geometry subsets, bmesh.types for isinstance()
-//   Not supported: modal operators, menus, data-block PointerProperty, file-system access (only
+//   bpy.types.Menu (menus.ts): wm.call_menu(name=…), layout.menu(…), submenus
+//   Not supported: modal operators, data-block PointerProperty, file-system access (only
 //       files the app offers), several scenes or view layers.
 import './scripting.css';
 import './icons';

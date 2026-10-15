@@ -776,6 +776,31 @@ def _register_panel(cls):
     _registered[cls] = ("panel", idname, proxies)
 
 
+def _register_menu(cls):
+    idname = getattr(cls, "bl_idname", "") or cls.__name__
+
+    def _draw(layout):
+        inst = cls.__new__(cls)
+        object.__setattr__(inst, "layout", _Struct(layout))
+        cls.draw(inst, context)
+
+    def _poll():
+        try:
+            return bool(cls.poll(context))
+        except Exception:
+            return False
+
+    proxies = [create_proxy(_draw)]
+    spec = _tojs({"idname": idname, "label": getattr(cls, "bl_label", "") or cls.__name__, "language": "python"})
+    js.Reflect.set(spec, "draw", proxies[0])
+    if hasattr(cls, "poll"):
+        p = create_proxy(_poll)
+        proxies.append(p)
+        js.Reflect.set(spec, "poll", p)
+    _call(_br.register_menu, spec)
+    _registered[cls] = ("menu", idname, proxies)
+
+
 def _release(entry):
     for p in entry[2]:
         try:
@@ -806,7 +831,9 @@ class _Utils:
             _call(_br.declare_group, cls.__name__, _tojs(props))
             _registered[cls] = ("group", cls.__name__, [])
         elif issubclass(cls, Menu):
-            raise TypeError("register_class(...): Menu subclasses are not supported by this application")
+            if not hasattr(cls, "draw"):
+                raise TypeError("register_class(...): menu '%s' needs a draw() method" % cls.__name__)
+            _register_menu(cls)
         else:
             raise TypeError("register_class(...): expected a subclass of bpy.types.Operator or bpy.types.Panel")
 
@@ -819,6 +846,8 @@ class _Utils:
             _br.unregister_operator(entry[1])
         elif entry[0] == "panel":
             _br.unregister_panel(entry[1])
+        elif entry[0] == "menu":
+            _br.unregister_menu(entry[1])
         _release(entry)
 
     @staticmethod

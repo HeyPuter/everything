@@ -9,6 +9,7 @@ import { VecBase, Matrix, mathutils } from './mathutils';
 import { registerScriptOperator, unregisterScriptOperator, registerScriptPanel, unregisterScriptPanel, UILayout, type ScriptProp } from './registry';
 import { output, inScript, type RunResult } from './runner';
 import { pyTimers, setPythonHandlerDispatch } from './handlers';
+import { registerScriptMenu, unregisterScriptMenu } from './menus';
 import { declareGroup, declareTypeProp, markGroup, removeTypeProp, type TypeProp } from './typeprops';
 import mathutilsPy from './py/mathutils.py?raw';
 import bpyPy from './py/bpy.py?raw';
@@ -287,6 +288,12 @@ export const bridge = {
     });
   },
   unregister_panel: (id: string) => unregisterScriptPanel(id),
+  register_menu(spec: Record<string, unknown>) {
+    const draw = spec.draw as PyProxyFn;
+    const poll = spec.poll as PyProxyFn | undefined;
+    registerScriptMenu({ idname: String(spec.idname), label: String(spec.label ?? ''), draw: (layout) => void pyCall(() => draw(layout)), poll: poll ? () => !!pyCall(() => poll()) : undefined, language: 'python' });
+  },
+  unregister_menu: (id: string) => unregisterScriptMenu(id),
   report(type: string, msg: string) {
     app.report(type === 'ERROR' || type === 'WARNING' ? type : 'INFO', msg);
   },

@@ -195,4 +195,21 @@ describe('Python scripts', () => {
     `),
     ).toBe('0.5 9 1 1.25 2\nFalse');
   });
+
+  py('menus from Python', async () => {
+    runPy(`
+      import bpy
+
+      class MyMenu(bpy.types.Menu):
+          bl_idname = "OBJECT_MT_py_menu"
+          bl_label = "Py Menu"
+
+          def draw(self, context):
+              self.layout.operator("object.shade_flat", text="Flat")
+
+      bpy.utils.register_class(MyMenu)
+    `);
+    const { menuItems } = await import('../../src/scripting/menus');
+    expect(menuItems('OBJECT_MT_py_menu')).toMatchObject([{ label: 'Flat', op: 'object.shade_flat' }]);
+  });
 });
