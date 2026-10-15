@@ -404,3 +404,33 @@ test('NDOF: device motion orbits, pans and zooms the hovered view following the 
   expect(Math.sign(z1 - z0)).toBe(-Math.sign(z2 - z1));
   await expectNoErrors(errors);
 });
+
+test('keymap event values: double click, click and release run through the real key handling', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const { keyconfig, keyconfigChanged } = await import('/src/prefs/keyconfig.ts');
+    keyconfig.addItem('Window', { key: 'J', op: 'screen.userpref_show', value: 'DOUBLE_CLICK' });
+    keyconfig.addItem('Window', { key: 'U', op: 'screen.userpref_show', value: 'CLICK' });
+    keyconfigChanged();
+  });
+  await hoverViewport(page);
+  const win = page.locator('.prefs-window');
+  await page.keyboard.press('j');
+  await page.waitForTimeout(450);
+  await page.keyboard.press('j');
+  await expect(win).toHaveCount(0);
+  await page.keyboard.press('j');
+  await page.keyboard.press('j');
+  await expect(win).toHaveCount(1);
+  await closePrefs(page);
+  await hoverViewport(page);
+  // holding another key in between cancels the click
+  await page.keyboard.down('u');
+  await page.keyboard.press('Shift');
+  await page.keyboard.up('u');
+  await expect(win).toHaveCount(0);
+  await page.keyboard.down('u');
+  await page.keyboard.up('u');
+  await expect(win).toHaveCount(1);
+  await expectNoErrors(errors);
+});
