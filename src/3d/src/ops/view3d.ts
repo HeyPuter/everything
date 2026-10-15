@@ -13,6 +13,8 @@ import { uniqueName, activeCollection } from './object';
 import type { ObjectData } from '../data/types';
 
 const v3d = () => !!activeView3D();
+/** the view may be turned (not one of Quad View's fixed views) */
+const v3dTurnable = () => !!activeView3D() && !activeView3D()!.lockRotation;
 
 /** Optional hook used by edit modes to frame the current component selection. */
 export const frameHooks: (() => Box3 | null)[] = [];
@@ -68,7 +70,7 @@ registerOperators([
     idname: 'view3d.view_axis',
     label: 'View Axis',
     props: [{ id: 'type', label: 'View', type: 'enum', default: 'FRONT', items: [['LEFT', 'Left'], ['RIGHT', 'Right'], ['BOTTOM', 'Bottom'], ['TOP', 'Top'], ['FRONT', 'Front'], ['BACK', 'Back']] }, { id: 'align_active', label: 'Align Active', type: 'bool', default: false }, { id: 'relative', label: 'Relative', type: 'bool', default: false }],
-    poll: v3d,
+    poll: v3dTurnable,
     exec: (_ctx, p) => {
       const v = activeView3D()!;
       v.leaveCamera();
@@ -103,7 +105,7 @@ registerOperators([
     idname: 'view3d.view_orbit',
     label: 'View Orbit',
     props: [{ id: 'type', label: 'Orbit', type: 'enum', default: 'ORBITLEFT', items: [['ORBITLEFT', 'Orbit Left'], ['ORBITRIGHT', 'Orbit Right'], ['ORBITUP', 'Orbit Up'], ['ORBITDOWN', 'Orbit Down'], ['ORBITOPPOSITE', 'Orbit Opposite']] }, { id: 'angle', label: 'Roll', type: 'float', default: (15 * Math.PI) / 180, subtype: 'angle' }],
-    poll: v3d,
+    poll: v3dTurnable,
     exec: (_ctx, p) => {
       const v = activeView3D()!;
       v.leaveCamera();
@@ -124,7 +126,7 @@ registerOperators([
     idname: 'view3d.view_roll',
     label: 'View Roll',
     props: [{ id: 'angle', label: 'Roll', type: 'float', default: (15 * Math.PI) / 180, subtype: 'angle' }],
-    poll: v3d,
+    poll: v3dTurnable,
     exec: (_ctx, p) => {
       const v = activeView3D()!;
       v.nav.roll(p.angle as number);

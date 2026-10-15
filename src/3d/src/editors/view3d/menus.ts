@@ -3,6 +3,7 @@ import type { MenuItem } from '../../ui/menu';
 import { app } from '../../app/app';
 import { modeMenus } from './modemenus';
 import { objectTransformMenu } from './transformui';
+import './quadview';
 
 export function viewMenu(): MenuItem[] {
   return [
@@ -35,7 +36,9 @@ export function viewMenu(): MenuItem[] {
 
 function areaMenu(): MenuItem[] {
   const area = app.hoverArea ?? app.activeArea;
-  return area ? (area as unknown as { areaMenu(): MenuItem[] }).areaMenu() : [];
+  if (!area) return [];
+  const items = (area as unknown as { areaMenu(): MenuItem[] }).areaMenu();
+  return [...items, { separator: true }, { label: 'Toggle Quad View', op: 'screen.region_quadview', shortcut: 'Ctrl Alt Q' }];
 }
 
 function localViewMenu(): MenuItem[] {

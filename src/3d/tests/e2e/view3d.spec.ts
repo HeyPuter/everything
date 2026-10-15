@@ -191,3 +191,23 @@ test('walk and fly navigation', async ({ page }) => {
   expect(e2.map((x) => +x.toFixed(4))).toEqual(e1.map((x) => +x.toFixed(4)));
   await expectNoErrors(errors);
 });
+
+test('quad view toggles fixed views around the user view', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  const views = () => page.locator('.view3d').count();
+  const before = await views();
+  await page.keyboard.press('Control+Alt+Q');
+  expect(await views()).toBe(before + 3);
+  await expect(page.locator('.v3d-info-line', { hasText: 'Top Orthographic' })).toBeVisible();
+  await expect(page.locator('.v3d-info-line', { hasText: 'Right Orthographic' })).toBeVisible();
+  // the fixed views cannot be turned
+  const top = page.locator('.view3d').first();
+  const box = (await top.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  expect(await run(page, 'view3d.view_orbit', { type: 'ORBITLEFT' })).toBe('CANCELLED');
+  await page.keyboard.press('Control+Alt+Q');
+  expect(await views()).toBe(before);
+  await expect(page.locator('.v3d-info-line', { hasText: 'User Perspective' })).toBeVisible();
+  await expectNoErrors(errors);
+});

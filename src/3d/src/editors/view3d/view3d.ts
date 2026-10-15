@@ -41,6 +41,10 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   lockCursor = false;
   /** Clipping Region planes (world space [nx, ny, nz, constant], inward normals) */
   clipPlanes: number[][] | null = null;
+  /** the view direction cannot be changed (the fixed views of Quad View) */
+  lockRotation = false;
+  /** Quad View group this viewport belongs to, and its place in it */
+  quad: { group: string; role: 'USER' | 'TOP' | 'FRONT' | 'RIGHT' } | null = null;
   camOffset = { x: 0, y: 0 };
   localView: Set<string> | null = null;
   hiddenTypes = new Set<string>();
@@ -89,7 +93,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     this.infoEl = document.createElement('div');
     this.infoEl.className = 'v3d-info';
     this.el.append(this.regionEl, this.svg, this.infoEl, this.ui, this.boxEl);
-    const st = (state ?? {}) as { shading?: string | Partial<Shading>; matcap?: boolean; camera?: boolean; camZoom?: number; camOffset?: { x: number; y: number }; nav?: ReturnType<NavCamera['serialize']>; overlay?: Partial<Overlay>; toolbar?: boolean; sidebar?: boolean; clip?: number[][]; lockObject?: string; lockCursor?: boolean };
+    const st = (state ?? {}) as { shading?: string | Partial<Shading>; matcap?: boolean; camera?: boolean; camZoom?: number; camOffset?: { x: number; y: number }; nav?: ReturnType<NavCamera['serialize']>; overlay?: Partial<Overlay>; toolbar?: boolean; sidebar?: boolean; clip?: number[][]; lockObject?: string; lockCursor?: boolean; lockRotation?: boolean; quad?: View3D['quad'] };
     if (typeof st.shading === 'string') this.shading.type = st.shading as Shading['type'];
     else if (st.shading) Object.assign(this.shading, st.shading);
     if (st.matcap) this.shading.light = 'MATCAP';
@@ -103,6 +107,8 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     if (Array.isArray(st.clip) && st.clip.length) this.clipPlanes = st.clip;
     if (st.lockObject) this.lockObject = st.lockObject;
     if (st.lockCursor) this.lockCursor = true;
+    if (st.lockRotation) this.lockRotation = true;
+    if (st.quad) this.quad = { ...st.quad };
     this.nav.lens = prefs.view_lens;
     this.nav.autoPersp = prefs.use_auto_perspective;
     this.bindInput();
@@ -296,7 +302,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   }
 
   serialize() {
-    return { nav: this.nav.serialize(), shading: { ...this.shading }, overlay: { ...this.overlay }, camera: this.cameraView, camZoom: this.camZoom, camOffset: { ...this.camOffset }, toolbar: this.showToolbar, sidebar: this.showSidebar, clip: this.clipPlanes ?? undefined, lockObject: this.lockObject ?? undefined, lockCursor: this.lockCursor || undefined };
+    return { nav: this.nav.serialize(), shading: { ...this.shading }, overlay: { ...this.overlay }, camera: this.cameraView, camZoom: this.camZoom, camOffset: { ...this.camOffset }, toolbar: this.showToolbar, sidebar: this.showSidebar, clip: this.clipPlanes ?? undefined, lockObject: this.lockObject ?? undefined, lockCursor: this.lockCursor || undefined, lockRotation: this.lockRotation || undefined, quad: this.quad ?? undefined };
   }
 
   dispose() {
@@ -502,6 +508,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     } else if (isTrackpad && prefs.trackpad_orbit) {
       if (e.shiftKey) this.nav.pan(-e.deltaX, -e.deltaY);
       else if (e.altKey) this.zoomBy(Math.exp(e.deltaY * 0.005), p);
+      else if (this.lockRotation) this.nav.pan(-e.deltaX, -e.deltaY);
       else this.nav.orbit(e.deltaX * 0.005, e.deltaY * 0.005);
     } else {
       const dir = (e.deltaY > 0 ? 1 : -1) * (prefs.invert_zoom_wheel ? -1 : 1);
@@ -726,7 +733,8 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       const dx = ev.clientX - last.x,
         dy = ev.clientY - last.y;
       last = { x: ev.clientX, y: ev.clientY };
-      if (kind === 'orbit' && !ev.shiftKey && !ev.ctrlKey) {
+      if (kind === 'orbit' && !ev.shiftKey && !ev.ctrlKey && this.lockRotation) this.nav.pan(dx, dy);
+      else if (kind === 'orbit' && !ev.shiftKey && !ev.ctrlKey) {
         const s = 0.0075;
         if (freeRot) this.nav.rot.copy(freeRot);
         if (around) this.nav.orbitAround(around, dx * s, dy * s);
