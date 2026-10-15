@@ -8,7 +8,8 @@ import { app, registerOperators, type OpContext } from '../app/app';
 import { addKeys } from '../app/keymap';
 import { registerEditor, type Area } from '../ui/screen';
 import { openMenu, type MenuItem } from '../ui/menu';
-import { enumMenu } from '../ui/widgets';
+import { enumMenu, panel, numberField, button, checkbox } from '../ui/widgets';
+import { splitRow } from '../ui/props';
 import { NodeEditor } from '../nodes/editor/editor';
 import { registerNodeEditorProvider } from '../nodes/editor/context';
 import { viewMenu, selectMenu, nodeMenuItems } from '../nodes/editor/menus';
@@ -325,21 +326,14 @@ export class CompositorEditor extends NodeEditor {
           disabled: !group || !this.backdrop,
         },
       ),
-      h(
-        'button',
-        {
-          class: { 'hdr-toggle': true, on: this.showSidebar },
-          'data-tip': 'Sidebar (N)',
-          onclick: () => this.toggleSidebar(),
-        },
-        icon('menu'),
-      ),
+      this.headerToggles(),
     );
   }
 
   private compositorViewMenu(): MenuItem[] {
     const items = viewMenu(this);
-    const at = items.findIndex((i) => i.label === 'Frame Selected');
+    // after Frame All, before the Area submenu
+    const at = items.findIndex((i) => i.label === 'Area');
     const bd: MenuItem[] = [
       {
         label: 'Backdrop Move',
@@ -360,7 +354,7 @@ export class CompositorEditor extends NodeEditor {
       },
       {
         label: 'Fit Backdrop to Available Space',
-        shortcut: 'Home',
+        shortcut: 'Alt Home',
         op: 'node.backimage_fit',
       },
       { separator: true },
@@ -406,6 +400,54 @@ registerNodeEditorProvider({
     };
   },
   emptyMessage: () => 'Click New to create a compositing node group',
+  viewPanels: (ed) => {
+    const e = ed as CompositorEditor;
+    const redraw = () => {
+      e.drawBack();
+      app.changed('ui');
+    };
+    return panel(
+      'cmp-side-backdrop',
+      'Backdrop',
+      () => [
+        splitRow(
+          'Channels',
+          enumMenu(
+            'cmp-side-channels',
+            CHANNELS,
+            e.backdropChannels,
+            (v) => ((e.backdropChannels = v as BackdropChannels), redraw()),
+            { disabled: !e.backdrop },
+          ),
+        ),
+        splitRow(
+          'Zoom',
+          numberField({ id: 'cmp-side-zoom', value: e.backdropZoom, min: 0.01, max: 100, set: (v) => ((e.backdropZoom = v), redraw()), disabled: !e.backdrop }),
+        ),
+        splitRow(
+          'Offset X',
+          numberField({ id: 'cmp-side-ox', value: e.backdropX, unit: 'pixel', set: (v) => ((e.backdropX = v), redraw()), disabled: !e.backdrop }),
+        ),
+        splitRow(
+          'Y',
+          numberField({ id: 'cmp-side-oy', value: -e.backdropY, unit: 'pixel', set: (v) => ((e.backdropY = -v), redraw()), disabled: !e.backdrop }),
+        ),
+        h(
+          'div',
+          { class: 'nd-side-row cmp-side-btns' },
+          button('cmp-side-move', 'Move', () => app.run('node.backimage_move'), { disabled: !e.backdrop, tip: 'Move the backdrop with the mouse (Alt middle mouse)' }),
+          button('cmp-side-fit', 'Fit', () => app.run('node.backimage_fit'), { disabled: !e.backdrop || !compositorState.viewer, tip: 'Fit the backdrop to the editor (Alt Home)' }),
+        ),
+      ],
+      {
+        header: h(
+          'span',
+          { class: 'nd-side-check' },
+          checkbox('cmp-side-show', '', e.backdrop, (v) => ((e.backdrop = v), redraw())),
+        ),
+      },
+    );
+  },
   // Ctrl Shift click / node.link_viewer: link the node's output to the viewer (cycles through outputs)
   linkViewer: (ed, n) => {
     const tree = (ed as CompositorEditor).tree();

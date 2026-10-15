@@ -406,6 +406,21 @@ const ops: Operator[] = [
     exec: (ctx, p) => nodeEditorOf(ctx)!.zoomBy(Number(p.factor) || 1.25),
   },
   {
+    idname: 'node.toggle_snap',
+    label: 'Snap',
+    description: 'Toggle snapping nodes to the grid while moving and resizing them',
+    undo: false,
+    poll: (ctx) => !!nodeEditorOf(ctx),
+    exec: (ctx) => nodeEditorOf(ctx)!.toggleSnap(),
+  },
+  {
+    idname: 'node.toggle_toolbar',
+    label: 'Toolbar',
+    undo: false,
+    poll: (ctx) => !!nodeEditorOf(ctx),
+    exec: (ctx) => nodeEditorOf(ctx)!.toggleToolbar(),
+  },
+  {
     idname: 'node.toggle_sidebar',
     label: 'Sidebar',
     undo: false,
@@ -539,6 +554,7 @@ addKeys('Node Editor', [
   { key: 'P', menu: () => separateItems(), menuTitle: 'Separate', when: () => !!hoverEditor()?.path.length && !!hoverEditor()?.selectedIds().length },
   { key: 'TAB', op: 'node.group_edit', props: { exit: false } },
   { key: 'TAB', ctrl: true, op: 'node.group_edit', props: { exit: true } },
+  { key: 'TAB', shift: true, op: 'node.toggle_snap' },
   { key: 'HOME', op: 'node.view_all' },
   { key: 'NUMPAD_PERIOD', op: 'node.view_selected' },
   { key: 'NUMPAD_PLUS', op: 'node.zoom', props: { factor: 1.25 } },
@@ -568,4 +584,7 @@ addKeys('Node Editor', [
   ]),
 ]);
 
-addKeys('Node Generic', [{ key: 'N', op: 'node.toggle_sidebar' }]);
+addKeys('Node Generic', [
+  { key: 'T', op: 'node.toggle_toolbar' },
+  { key: 'N', op: 'node.toggle_sidebar' },
+]);

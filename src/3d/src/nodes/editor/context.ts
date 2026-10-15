@@ -35,6 +35,8 @@ export interface NodeEditorProvider {
   drawBackdrop?(ed: unknown, g: CanvasRenderingContext2D, width: number, height: number): void;
   /** link a node to the tree's viewer (Ctrl Shift click); trees without viewers connect to the output instead */
   linkViewer?(ed: unknown, node: NodeData): boolean;
+  /** panels of the sidebar's View tab (the tab is shown only when this exists) */
+  viewPanels?(ed: unknown): Child;
 }
 
 export const providers = new Map<string, NodeEditorProvider>();

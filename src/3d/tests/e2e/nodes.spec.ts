@@ -267,3 +267,44 @@ test('viewer linking in the geometry and compositor editors', async ({ page }) =
   expect(await withTree(page, `(ed, t) => t.links.some((l) => l.from_node === "${blur}" && t.nodes.find((n) => n.id === l.to_node).type === "CompositorNodeViewer")`)).toBe(true);
   await expectNoErrors(errors);
 });
+
+test('toolbar tools, snapping and sidebar tabs', async ({ page }) => {
+  const { errors, box } = await nodeEditor(page);
+  const [bsdf, out] = await withTree<string[]>(page, '(ed, t) => [t.nodes.find((n) => n.type === "ShaderNodeBsdfPrincipled").id, t.nodes.find((n) => n.type === "ShaderNodeOutputMaterial").id]');
+  // the Links Cut tool cuts with a plain left drag
+  await page.locator('.nd-toolbar .tb-tool').nth(4).click();
+  const a = (await nodeHeader(page, bsdf)).box,
+    o = (await nodeHeader(page, out)).box;
+  const x = (a.x + a.width + o.x) / 2;
+  await drag(page, 'left', [
+    { x, y: Math.min(a.y, o.y) - 20 },
+    { x, y: Math.max(a.y + 80, o.y + 120) },
+  ]);
+  expect(await withTree(page, '(ed, t) => t.links.length')).toBe(0);
+  // back to Select Box; T hides the toolbar
+  await page.locator('.nd-toolbar .tb-tool').nth(1).click();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.press('t');
+  await expect(page.locator('.nd-toolbar').first()).toBeHidden();
+  // Shift Tab turns snapping on: nodes move in whole grid steps
+  await page.keyboard.press('Shift+Tab');
+  const loc0 = await withTree<number[]>(page, `(ed, t) => [...t.nodes.find((n) => n.id === "${out}").location]`);
+  const h = await nodeHeader(page, out);
+  await drag(page, 'left', [
+    { x: h.x, y: h.y },
+    { x: h.x + 37, y: h.y + 23 },
+  ]);
+  const loc = await withTree<number[]>(page, `(ed, t) => t.nodes.find((n) => n.id === "${out}").location`);
+  const d = [loc[0] - loc0[0], loc[1] - loc0[1]];
+  expect(d.some((v) => v !== 0)).toBe(true);
+  expect(d.map((v) => Math.abs(v) % 20)).toEqual([0, 0]);
+  // sidebar: Tool tab shows the active tool, Node tab toggles mute
+  await page.keyboard.press('n');
+  await page.locator('.nd-side-tab', { hasText: 'Tool' }).click();
+  await expect(page.locator('.nd-tool-name')).toContainText('Select Box');
+  await page.locator('.nd-side-tab', { hasText: 'Node' }).click();
+  await withTree(page, `(ed, t) => { for (const n of t.nodes) n.select = n.id === "${bsdf}"; t.active_node = "${bsdf}"; app.changed("ui"); }`);
+  await page.locator('.nd-side-toggles .checkbox', { hasText: 'Mute' }).click();
+  expect(await withTree(page, `(ed, t) => !!t.nodes.find((n) => n.id === "${bsdf}").mute`)).toBe(true);
+  await expectNoErrors(errors);
+});

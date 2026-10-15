@@ -166,6 +166,7 @@ export function interfaceSockets(tree: NodeTreeData | undefined, inOut: 'INPUT' 
       if (i.default_value !== undefined) s.default = i.default_value;
       if (i.min_value !== undefined) s.min = i.min_value;
       if (i.max_value !== undefined) s.max = i.max_value;
+      if (i.hide_value) s.hide_value = true;
       return s;
     });
 }

@@ -15,6 +15,7 @@ import { renderNode } from './nodeui';
 import { providers, type NodeEditorProvider, type TreeRoot } from './context';
 import type { MenuCategory, MenuEntry, SocketType, TreeType } from '../types';
 import { drawSidebar } from './sidebar';
+import { drawToolbar, NODE_TOOLS, type NodeTool, type SelectMode } from './toolbar';
 import { groupIdnameFor } from '../common';
 import { viewMenu, selectMenu, nodeMenuItems, contextMenuItems } from './menus';
 
@@ -69,11 +70,18 @@ export class NodeEditor implements Editor {
   views = new Map<string, View>();
   showSidebar = false;
   sidebarTab = 'Node';
+  showToolbar = true;
+  /** snap nodes to the grid while moving / resizing (Ctrl inverts) */
+  snap = false;
+  /** active toolbar tool and its selection mode */
+  tool: NodeTool = 'SELECT_BOX';
+  selectMode: SelectMode = 'SET';
   layouts = new Map<string, NodeLayout>();
   private back: HTMLCanvasElement;
   private over: HTMLCanvasElement;
   private world: HTMLDivElement;
   private sideEl: HTMLDivElement;
+  private toolbarEl: HTMLDivElement;
   private crumbsEl: HTMLDivElement;
   private emptyEl: HTMLDivElement;
   private linkDrag: LinkDrag | null = null;
@@ -87,7 +95,7 @@ export class NodeEditor implements Editor {
   private knife: [number, number][] | null = null;
   private lasso: [number, number][] | null = null;
   private circle: { x: number; y: number; r: number } | null = null;
-  private circleRadius = 40;
+  circleRadius = 40;
   private gesture: GestureMode = 'CUT';
   insertTarget: string | null = null;
   private lastKey = '';
@@ -103,9 +111,17 @@ export class NodeEditor implements Editor {
       sidebar?: boolean;
       views?: [string, View][];
       path?: { group: string; node: string }[];
+      toolbar?: boolean;
+      snap?: boolean;
+      tool?: NodeTool;
+      selectMode?: SelectMode;
     };
     if (st.shaderType) this.shaderType = st.shaderType;
     if (st.sidebar) this.showSidebar = true;
+    if (st.toolbar === false) this.showToolbar = false;
+    if (st.snap) this.snap = true;
+    if (st.tool && NODE_TOOLS.some((t) => t.id === st.tool)) this.tool = st.tool;
+    if (st.selectMode) this.selectMode = st.selectMode;
     if (st.views) this.views = new Map(st.views);
     if (Array.isArray(st.path)) this.path = st.path;
     this.el = document.createElement('div');
@@ -123,7 +139,9 @@ export class NodeEditor implements Editor {
     this.emptyEl.className = 'nd-empty';
     this.sideEl = document.createElement('div');
     this.sideEl.className = 'nd-sidebar';
-    this.el.append(this.back, this.world, this.over, this.crumbsEl, this.emptyEl, this.sideEl);
+    this.toolbarEl = document.createElement('div');
+    this.toolbarEl.className = 'nd-toolbar';
+    this.el.append(this.back, this.world, this.over, this.crumbsEl, this.emptyEl, this.toolbarEl, this.sideEl);
     this.el.addEventListener('pointerdown', (e) => this.onDown(e));
     this.el.addEventListener('wheel', (e) => this.onWheel(e), {
       passive: false,
@@ -230,16 +248,44 @@ export class NodeEditor implements Editor {
       h('div', { class: 'hdr-spacer' }),
       p.headerRight?.(this) ?? null,
       h('div', { class: 'hdr-spacer' }),
+      this.headerToggles(),
+    );
+  }
+
+  /** Snap and sidebar toggles at the right end of the header. */
+  headerToggles(): Child {
+    return [
       h(
         'button',
         {
+          key: 'snap',
+          class: { 'hdr-toggle': true, on: this.snap },
+          'data-tip': 'Snap (Shift Tab)\nSnap nodes to the grid while moving and resizing them (Ctrl inverts)',
+          onclick: () => this.toggleSnap(),
+        },
+        icon(this.snap ? 'snap_on' : 'snap_off'),
+      ),
+      h(
+        'button',
+        {
+          key: 'sidebar',
           class: { 'hdr-toggle': true, on: this.showSidebar },
           'data-tip': 'Sidebar (N)',
           onclick: () => this.toggleSidebar(),
         },
         icon('menu'),
       ),
-    );
+    ];
+  }
+
+  toggleSnap() {
+    this.snap = !this.snap;
+    app.changed('ui');
+  }
+
+  toggleToolbar() {
+    this.showToolbar = !this.showToolbar;
+    app.changed('ui');
   }
 
   toggleSidebar() {
@@ -487,6 +533,9 @@ export class NodeEditor implements Editor {
     } else patch(this.world, []);
     this.sideEl.hidden = !this.showSidebar;
     if (this.showSidebar) patch(this.sideEl, drawSidebar(this));
+    this.toolbarEl.hidden = !this.showToolbar || !tree;
+    if (!this.toolbarEl.hidden) patch(this.toolbarEl, drawToolbar(this));
+    this.el.dataset.tool = this.tool;
     this.drawBack(W, H);
     this.drawOver(W, H);
   }
@@ -887,7 +936,7 @@ export class NodeEditor implements Editor {
   private onDown(e: PointerEvent) {
     if (app.modal) return;
     const target = e.target as HTMLElement;
-    if (target.closest('.nd-sidebar')) return;
+    if (target.closest('.nd-sidebar, .nd-toolbar')) return;
     this.el.focus({ preventScroll: true });
     const tree = this.tree();
     if (e.button === 1 || (e.button === 0 && e.altKey && !tree)) return this.panDrag(e);
@@ -928,13 +977,21 @@ export class NodeEditor implements Editor {
     }
     const sock = this.hitSocket(e.clientX, e.clientY);
     if (sock && !(sock.collapsed && nodeById(tree, sock.node)?.hide && !ctrl)) return this.linkDragStart(e, tree, sock);
+    // link gesture tools draw from anywhere
+    if (this.tool === 'LINKS_CUT') return this.gestureDrag(e, 'CUT');
+    if (this.tool === 'LINKS_MUTE') return this.gestureDrag(e, 'MUTE');
+    if (this.tool === 'ADD_REROUTE') return this.gestureDrag(e, 'REROUTE');
     const n = this.hitNode(e.clientX, e.clientY);
     if (n) {
       const edges = this.resizeEdges(n, e.clientX, e.clientY);
       if (edges) return this.resizeDrag(e, n, edges);
       return this.nodePress(e, tree, n, e.altKey);
     }
-    this.boxDrag(e, tree, e.shiftKey ? 'ADD' : ctrl ? 'SUB' : 'SET');
+    const mode: SelectMode = e.shiftKey ? 'ADD' : ctrl ? 'SUB' : this.selectMode;
+    if (this.tool === 'SELECT_LASSO') return this.lassoDrag(e, tree, mode);
+    if (this.tool === 'SELECT_CIRCLE') return this.circleDrag(e, tree, mode);
+    if (this.tool === 'TWEAK') return this.boxDrag(e, tree, mode, false);
+    this.boxDrag(e, tree, mode);
   }
 
   /** Double click: enter the group node under the pointer, or leave the group on empty space. */
@@ -1118,7 +1175,7 @@ export class NodeEditor implements Editor {
       e,
       (ev) => {
         const [x, y] = this.toNode(ev.clientX, ev.clientY);
-        const on = ev.ctrlKey || ev.metaKey;
+        const on = this.snap !== (ev.ctrlKey || ev.metaKey);
         if (edges.r) n.width = Math.round(Math.max(minW, Math.min(maxW, snap(w0 + x - x0, on))));
         if (edges.l) {
           const w = Math.round(Math.max(minW, Math.min(maxW, snap(w0 - (x - x0), on))));
@@ -1144,7 +1201,7 @@ export class NodeEditor implements Editor {
     );
   }
 
-  private boxDrag(e: PointerEvent, tree: NodeTreeData, mode: 'SET' | 'ADD' | 'SUB') {
+  private boxDrag(e: PointerEvent, tree: NodeTreeData, mode: 'SET' | 'ADD' | 'SUB', box = true) {
     e.preventDefault();
     const r = this.el.getBoundingClientRect();
     const x0 = e.clientX - r.left,
@@ -1152,6 +1209,7 @@ export class NodeEditor implements Editor {
     this.track(
       e,
       (ev) => {
+        if (!box) return;
         this.box = {
           x0,
           y0,
@@ -1292,18 +1350,7 @@ export class NodeEditor implements Editor {
     let paint: 'ADD' | 'SUB' | null = null;
     if (mode === 'SET') for (const n of tree.nodes) n.select = false;
     const apply = () => {
-      if (!paint) return;
-      for (const n of tree.nodes) {
-        const l = this.layouts.get(n.id);
-        if (!l) continue;
-        const [ax, ay] = this.toScreen(l.x, l.y),
-          [bx, by] = this.toScreen(l.x + l.w, l.y + l.h);
-        const cx = Math.max(ax, Math.min(bx, circle.x)),
-          cy = Math.max(ay, Math.min(by, circle.y));
-        const hit = l.kind === 'FRAME' ? circle.x >= ax && circle.x <= bx && circle.y >= ay && circle.y <= ay + 24 * this.view().zoom : Math.hypot(cx - circle.x, cy - circle.y) <= circle.r;
-        if (hit) n.select = paint === 'ADD';
-      }
-      app.changed('ui');
+      if (paint) this.paintCircle(tree, circle, paint);
     };
     const self = this;
     const end = () => {
@@ -1344,6 +1391,44 @@ export class NodeEditor implements Editor {
       finish: end,
       header: () => 'Circle select: LMB select, Shift / MMB deselect, wheel resize, RMB / Esc confirm',
     });
+  }
+
+  /** Circle tool: paint the selection while the button is held. */
+  private circleDrag(e: PointerEvent, tree: NodeTreeData, mode: SelectMode) {
+    e.preventDefault();
+    const r = this.el.getBoundingClientRect();
+    const circle = { x: e.clientX - r.left, y: e.clientY - r.top, r: this.circleRadius };
+    this.circle = circle;
+    if (mode === 'SET') for (const n of tree.nodes) n.select = false;
+    this.paintCircle(tree, circle, mode === 'SUB' ? 'SUB' : 'ADD');
+    this.track(
+      e,
+      (ev) => {
+        circle.x = ev.clientX - r.left;
+        circle.y = ev.clientY - r.top;
+        this.paintCircle(tree, circle, mode === 'SUB' ? 'SUB' : 'ADD');
+      },
+      () => {
+        this.circle = null;
+        this.drawOver();
+      },
+    );
+  }
+
+  private paintCircle(tree: NodeTreeData, circle: { x: number; y: number; r: number }, paint: 'ADD' | 'SUB') {
+    for (const n of tree.nodes) {
+      const l = this.layouts.get(n.id);
+      if (!l) continue;
+      const [ax, ay] = this.toScreen(l.x, l.y),
+        [bx, by] = this.toScreen(l.x + l.w, l.y + l.h);
+      const cx = Math.max(ax, Math.min(bx, circle.x)),
+        cy = Math.max(ay, Math.min(by, circle.y));
+      // frames are picked by their label strip
+      const hit = l.kind === 'FRAME' ? circle.x >= ax && circle.x <= bx && circle.y >= ay && circle.y <= ay + 24 * this.view().zoom : Math.hypot(cx - circle.x, cy - circle.y) <= circle.r;
+      if (hit) n.select = paint === 'ADD';
+    }
+    app.changed('ui');
+    this.drawOver();
   }
 
   private gestureDrag(e: PointerEvent, mode: GestureMode, clickOpensMenu = false) {
@@ -1714,7 +1799,7 @@ export class NodeEditor implements Editor {
       cursor: kind === 'MOVE' ? 'move' : 'crosshair',
       onPointerMove(e) {
         if (kind === 'MOVE') pan.update(e.clientX, e.clientY);
-        apply(e.clientX, e.clientY, e.ctrlKey || e.metaKey);
+        apply(e.clientX, e.clientY, self.snap !== (e.ctrlKey || e.metaKey));
       },
       onPointerDown(e) {
         if (e.button === 0) return 'FINISHED';
@@ -1725,7 +1810,7 @@ export class NodeEditor implements Editor {
       },
       onKey(e) {
         if (e.key === 'Control' || e.key === 'Meta') {
-          apply(lastClient[0], lastClient[1], e.type === 'keydown');
+          apply(lastClient[0], lastClient[1], self.snap !== (e.type === 'keydown'));
           return;
         }
         if (e.type !== 'keydown') return;
@@ -1759,7 +1844,7 @@ export class NodeEditor implements Editor {
           }
         }
       },
-      header: () => `${info}   ${kind === 'MOVE' ? 'Move' : kind === 'ROTATE' ? 'Rotate' : 'Scale'} nodes: LMB/Enter confirm, RMB/Esc cancel, Ctrl snap`,
+      header: () => `${info}   ${kind === 'MOVE' ? 'Move' : kind === 'ROTATE' ? 'Rotate' : 'Scale'} nodes: LMB/Enter confirm, RMB/Esc cancel, Ctrl ${self.snap ? 'free' : 'snap'}`,
     });
   }
 
@@ -1774,6 +1859,10 @@ export class NodeEditor implements Editor {
     return {
       shaderType: this.shaderType,
       sidebar: this.showSidebar,
+      toolbar: this.showToolbar,
+      snap: this.snap,
+      tool: this.tool,
+      selectMode: this.selectMode,
       views: [...this.views.entries()].slice(-32),
       path: this.path,
     };

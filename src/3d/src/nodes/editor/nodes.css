@@ -412,6 +412,41 @@
 }
 
 /* sidebar */
+.nd-toolbar {
+  position: absolute;
+  z-index: 3;
+  left: 6px;
+  top: 34px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(40, 40, 40, 0.92);
+  border-radius: 6px;
+  max-height: calc(100% - 44px);
+  overflow-y: auto;
+}
+.nd-toolbar[hidden] {
+  display: none;
+}
+.nd-toolbar .tb-sep {
+  height: 1px;
+  margin: 2px 4px;
+  background: #4a4a4a;
+}
+.nd-editor[data-tool='SELECT_LASSO'],
+.nd-editor[data-tool='SELECT_CIRCLE'],
+.nd-editor[data-tool='LINKS_CUT'],
+.nd-editor[data-tool='LINKS_MUTE'],
+.nd-editor[data-tool='ADD_REROUTE'] {
+  cursor: crosshair;
+}
+.nd-tool-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 6px;
+}
 .nd-sidebar {
   position: absolute;
   top: 0;
@@ -716,4 +751,18 @@
 .nd-curve-levels .color-swatch {
   flex: 1;
   height: 18px;
+}
+
+.nd-side-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 40%;
+}
+.nd-color-specials {
+  flex: none;
+  width: 22px;
+  padding: 0;
+  display: grid;
+  place-items: center;
 }

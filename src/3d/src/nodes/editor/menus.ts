@@ -4,6 +4,7 @@ import { shortcutLabel } from '../../app/keymap';
 
 interface EdLike {
   showSidebar: boolean;
+  showToolbar: boolean;
   path: unknown[];
   area: { areaMenu(): MenuItem[] };
   provider: { linkViewer?: unknown };
@@ -24,6 +25,12 @@ const opItem = (label: string, op: string, props?: Record<string, unknown>): Men
 
 export function viewMenu(ed: EdLike): MenuItem[] {
   return [
+    {
+      label: 'Toolbar',
+      checked: ed.showToolbar,
+      shortcut: sc('node.toggle_toolbar'),
+      op: 'node.toggle_toolbar',
+    },
     {
       label: 'Sidebar',
       checked: ed.showSidebar,
