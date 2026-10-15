@@ -439,7 +439,7 @@ const drawers: Record<string, (ob: ObjectData, c: C, bone?: string) => Child> = 
         ts.map((t, i) =>
           h(
             'div',
-            { key: i, class: 'con-arm-target', style: { borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '2px' } },
+            { key: i, class: 'con-arm-target', style: { borderBottom: '1px solid rgba(255, 255, 255,0.06)', paddingBottom: '2px' } },
             objectProp(t as unknown as Record<string, unknown>, 'target', 'Armature', { filter: (o) => o.type === 'ARMATURE', undo: 'Set Target' }),
             boneItems(t.target) ? splitRow('Bone', enumMenu(`${c.id}.t${i}.bone`, boneItems(t.target)!, t.subtarget ?? '', (v) => ((t.subtarget = v), commit('Set Bone')))) : null,
             splitRow(
@@ -686,7 +686,7 @@ function constraintPanel(ob: ObjectData, list: Constraint[], c: Constraint, bone
       'header',
       {
         class: 'panel-header mod-header',
-        style: valid ? {} : { background: 'rgba(153, 22, 22, 0.55)' },
+        style: valid ? {} : { background: 'rgba(148, 30, 24, 0.55)' },
         'data-tip': valid ? '' : 'This constraint is missing a valid target or has conflicting settings',
         onpointerdown: (e: PointerEvent) => {
           if ((e.target as HTMLElement).closest('button, input, label, .ph-grip')) return;

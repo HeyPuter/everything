@@ -4,11 +4,11 @@ import { Mesh, PlaneGeometry, ShaderMaterial, Color, DoubleSide, Vector3, SRGBCo
 export function createGrid() {
   const mat = new ShaderMaterial({
     uniforms: {
-      uColor: { value: new Color(0.329, 0.329, 0.329) },
+      uColor: { value: new Color(0.321, 0.325, 0.331) },
       // theme axis colors (sRGB) at the viewport's axis intensity; the shader works in linear space
-      uAxisX: { value: new Color().setRGB(0.85, 0.17, 0.274, SRGBColorSpace) },
-      uAxisY: { value: new Color().setRGB(0.463, 0.734, 0.0, SRGBColorSpace) },
-      uAxisZ: { value: new Color().setRGB(0.133, 0.48, 0.85, SRGBColorSpace) },
+      uAxisX: { value: new Color().setRGB(0.84, 0.181, 0.249, SRGBColorSpace) },
+      uAxisY: { value: new Color().setRGB(0.437, 0.744, 0.011, SRGBColorSpace) },
+      uAxisZ: { value: new Color().setRGB(0.173, 0.47, 0.858, SRGBColorSpace) },
       uScale: { value: 1.0 },
       uFade: { value: 60.0 },
       uPlane: { value: 0 }, // 0 xy, 1 xz, 2 yz

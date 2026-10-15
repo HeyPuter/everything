@@ -196,9 +196,9 @@ editModeHooks.svg.push((v) => {
   return h(
     'g',
     { key: 'sculpt-pivot', 'pointer-events': 'none' },
-    h('circle', { cx: q.x, cy: q.y, r: 6, fill: 'none', stroke: '#000', 'stroke-width': 3, opacity: 0.6 }),
-    h('circle', { cx: q.x, cy: q.y, r: 6, fill: 'none', stroke: '#fff', 'stroke-width': 1.5 }),
-    h('path', { d: `M${q.x - 10} ${q.y}h6M${q.x + 4} ${q.y}h6M${q.x} ${q.y - 10}v6M${q.x} ${q.y + 4}v6`, stroke: '#fff', 'stroke-width': 1.2 }),
+    h('circle', { cx: q.x, cy: q.y, r: 6, fill: 'none', stroke: '#000000', 'stroke-width': 3, opacity: 0.6 }),
+    h('circle', { cx: q.x, cy: q.y, r: 6, fill: 'none', stroke: '#ffffff', 'stroke-width': 1.5 }),
+    h('path', { d: `M${q.x - 10} ${q.y}h6M${q.x + 4} ${q.y}h6M${q.x} ${q.y - 10}v6M${q.x} ${q.y + 4}v6`, stroke: '#ffffff', 'stroke-width': 1.2 }),
   ) as VNode;
 });
 

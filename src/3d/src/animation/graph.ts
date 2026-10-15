@@ -394,7 +394,7 @@ export class GraphEditor extends AnimEditor {
     g.textAlign = 'left';
     for (let val = Math.floor(vBot / step) * step; val <= vTop + step; val += step) {
       const y = Math.round(this.py(val)) + 0.5;
-      g.strokeStyle = Math.abs(val) < step / 2 ? 'rgba(0,0,0,0.45)' : C.grid;
+      g.strokeStyle = Math.abs(val) < step / 2 ? 'rgba(0, 0, 0,0.45)' : C.grid;
       g.beginPath();
       g.moveTo(0, y);
       g.lineTo(W, y);
@@ -521,7 +521,7 @@ export class GraphEditor extends AnimEditor {
           g.stroke();
           g.beginPath();
           g.arc(hx, hy, 3, 0, Math.PI * 2);
-          g.fillStyle = hs ? C.vertexSelect : '#1a1a1a';
+          g.fillStyle = hs ? C.vertexSelect : '#161719';
           g.fill();
           g.strokeStyle = hs ? C.vertexSelect : HANDLE_COLORS[ht][0];
           g.stroke();
@@ -532,7 +532,7 @@ export class GraphEditor extends AnimEditor {
       g.arc(x, y, 3.5, 0, Math.PI * 2);
       g.fillStyle = kf === activeKey ? C.vertexActive : sel ? C.vertexSelect : C.vertex;
       g.fill();
-      g.strokeStyle = sel ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.75)';
+      g.strokeStyle = sel ? 'rgba(0, 0, 0,0.6)' : 'rgba(255, 255, 255,0.75)';
       g.lineWidth = 1;
       g.stroke();
     }

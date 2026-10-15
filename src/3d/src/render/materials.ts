@@ -177,8 +177,8 @@ export const outlineMaterial = new ShaderMaterial({
     tId: { value: null },
     tSel: { value: null },
     uSize: { value: new Vector3(1, 1, 1) },
-    uSelColor: { value: new Color(0.929, 0.341, 0.0) },
-    uActColor: { value: new Color(1.0, 0.627, 0.157) },
+    uSelColor: { value: new Color(0.884, 0.376, 0.013) },
+    uActColor: { value: new Color(0.987, 0.645, 0.115) },
     uWidth: { value: 1.0 },
   },
   vertexShader: /* glsl */ `
@@ -234,14 +234,14 @@ export const outlineMaterial = new ShaderMaterial({
 
 export const lineMaterials = {
   wire: new LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.6 }),
-  wireSel: new LineBasicMaterial({ color: 0xed5700 }),
-  wireAct: new LineBasicMaterial({ color: 0xffa028 }),
+  wireSel: new LineBasicMaterial({ color: 0xe16003 }),
+  wireAct: new LineBasicMaterial({ color: 0xfca41d }),
 };
 
 export const helperColors = {
   wire: new Color(0, 0, 0),
-  selected: new Color(0.929, 0.341, 0.0),
-  active: new Color(1.0, 0.627, 0.157),
+  selected: new Color(0.884, 0.376, 0.013),
+  active: new Color(0.987, 0.645, 0.115),
   light: new Color(0, 0, 0),
 };
 

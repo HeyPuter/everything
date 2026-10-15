@@ -29,11 +29,11 @@ editModeHooks.svg.push((v) => {
     return h(
       'g',
       { key: i },
-      h('path', { d: line.map((p, k) => `${k ? 'L' : 'M'}${p.screen.x.toFixed(1)} ${p.screen.y.toFixed(1)}`).join(''), fill: 'none', stroke: '#00ff7f', 'stroke-width': 1.6 }),
-      pts.map((p, k) => h('circle', { key: k, cx: p.screen.x, cy: p.screen.y, r: 3.5, fill: '#00ff7f' })),
+      h('path', { d: line.map((p, k) => `${k ? 'L' : 'M'}${p.screen.x.toFixed(1)} ${p.screen.y.toFixed(1)}`).join(''), fill: 'none', stroke: '#18fb95', 'stroke-width': 1.6 }),
+      pts.map((p, k) => h('circle', { key: k, cx: p.screen.x, cy: p.screen.y, r: 3.5, fill: '#18fb95' })),
     );
   });
-  if (state.cursor) parts.push(h('circle', { cx: state.cursor.screen.x, cy: state.cursor.screen.y, r: 4, fill: 'none', stroke: '#fff', 'stroke-width': 1.5 }));
+  if (state.cursor) parts.push(h('circle', { cx: state.cursor.screen.x, cy: state.cursor.screen.y, r: 4, fill: 'none', stroke: '#ffffff', 'stroke-width': 1.5 }));
   return h('g', { class: 'knife' }, parts);
 });
 

@@ -399,7 +399,7 @@ editModeHooks.svg.push((v) => {
     d += `M${preview.x - half} ${preview.y - half + i * c}h${n * c}`;
     d += `M${preview.x - half + i * c} ${preview.y - half}l${-Math.min(i, n) * c} ${Math.min(i, n) * c}`;
   }
-  return h('g', { key: 'detail-grid', 'pointer-events': 'none' }, h('path', { d, stroke: '#000', 'stroke-width': 2, opacity: 0.35, fill: 'none' }), h('path', { d, stroke: '#fff', 'stroke-width': 1, opacity: 0.8, fill: 'none' })) as VNode;
+  return h('g', { key: 'detail-grid', 'pointer-events': 'none' }, h('path', { d, stroke: '#000000', 'stroke-width': 2, opacity: 0.35, fill: 'none' }), h('path', { d, stroke: '#ffffff', 'stroke-width': 1, opacity: 0.8, fill: 'none' })) as VNode;
 });
 
 registerOperators([

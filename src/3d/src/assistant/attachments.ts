@@ -66,7 +66,7 @@ async function drawn(canvas: HTMLCanvasElement, img: CanvasImageSource, w: numbe
   const g = canvas.getContext('2d');
   if (!g) return null;
   g.imageSmoothingQuality = 'high';
-  if (type === 'image/jpeg') { g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); }
+  if (type === 'image/jpeg') { g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h); }
   g.drawImage(img, 0, 0, w, h);
   return toBlob(canvas, type, quality);
 }

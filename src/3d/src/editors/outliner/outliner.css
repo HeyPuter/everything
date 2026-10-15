@@ -23,17 +23,17 @@
   opacity: 0.7;
 }
 .ol-row.match {
-  background: rgba(73, 160, 92, 0.22);
+  background: rgba(74, 158, 97, 0.22);
 }
 .ol-row.match.selected {
   background: var(--c-ol-selected);
 }
 .ol-row.match .ol-name {
-  color: #b9f0c0;
+  color: #c2f1cb;
 }
 .ol-row.drop-into {
   box-shadow: 0 0 0 1px var(--accent) inset;
-  background: rgba(80, 140, 255, 0.12);
+  background: rgba(90, 138, 252, 0.12);
 }
 .ol-row.drop-before {
   box-shadow: 0 2px 0 -0px var(--accent) inset;
@@ -45,12 +45,12 @@
   position: absolute;
   z-index: 5;
   pointer-events: none;
-  background: rgb(from var(--g-14, #141414) r g b / 0.92);
-  border: 1px solid var(--g-44, #444);
+  background: rgb(from var(--g-14, #101113) r g b / 0.92);
+  border: 1px solid var(--g-44, #424244);
   border-radius: 4px;
   padding: 2px 6px;
   font-size: 11px;
-  color: var(--t-dd, #ddd);
+  color: var(--t-dd, #dedfe1);
   white-space: nowrap;
 }
 .ol-box {
@@ -67,7 +67,7 @@
 }
 .ol-chip-n {
   font-size: 10px;
-  color: var(--t-aa, #aaa);
+  color: var(--t-aa, #aaabad);
   margin-right: 2px;
 }
 .ol-toggle-space {
@@ -79,7 +79,7 @@
   flex: none;
 }
 .ol-row.dim .ol-toggle:not(.off) {
-  color: var(--t-99, #999);
+  color: var(--t-99, #999a9b);
 }
 .ol-mode {
   width: 20px;
@@ -88,14 +88,14 @@
   display: grid;
   place-items: center;
   border-radius: 3px;
-  color: var(--t-88, #888);
+  color: var(--t-88, #87888a);
   margin-left: 2px;
 }
 button.ol-mode:hover {
   background: rgba(var(--hl-rgb, 255, 255, 255), 0.1);
 }
 .ol-mode.on {
-  color: var(--t-dd, #ddd);
+  color: var(--t-dd, #dedfe1);
 }
 .ol-users {
   display: flex;
@@ -105,7 +105,7 @@ button.ol-mode:hover {
 .ol-user-count {
   min-width: 22px;
   text-align: right;
-  color: var(--t-aa, #aaa);
+  color: var(--t-aa, #aaabad);
   font-size: 11px;
   padding-right: 4px;
 }
@@ -126,28 +126,28 @@ button.ol-mode:hover {
 
 /* collection color tags */
 .ct-COLOR_01 .icon .c-co.s {
-  stroke: #e2584f;
+  stroke: #de5a49;
 }
 .ct-COLOR_02 .icon .c-co.s {
-  stroke: #ef9a3c;
+  stroke: #eb9e35;
 }
 .ct-COLOR_03 .icon .c-co.s {
-  stroke: #e5cf4a;
+  stroke: #e2d346;
 }
 .ct-COLOR_04 .icon .c-co.s {
-  stroke: #5fbd5a;
+  stroke: #61be61;
 }
 .ct-COLOR_05 .icon .c-co.s {
-  stroke: #4a8fe0;
+  stroke: #538ddf;
 }
 .ct-COLOR_06 .icon .c-co.s {
-  stroke: #a06ad8;
+  stroke: #a368d5;
 }
 .ct-COLOR_07 .icon .c-co.s {
-  stroke: #d76aa8;
+  stroke: #d56ba2;
 }
 .ct-COLOR_08 .icon .c-co.s {
-  stroke: #9b7a58;
+  stroke: #977a57;
 }
 
 /* filter popover */
@@ -159,7 +159,7 @@ button.ol-mode:hover {
 }
 .olf-head {
   font-size: 11px;
-  color: var(--t-99, #999);
+  color: var(--t-99, #999a9b);
   margin: 6px 0 2px;
 }
 .olf-head:first-child {
@@ -176,12 +176,12 @@ button.ol-mode:hover {
   display: grid;
   place-items: center;
   border-radius: 3px;
-  background: var(--w-field, #2b2b2b);
-  color: var(--t-88, #888);
+  background: var(--w-field, #28292a);
+  color: var(--t-88, #87888a);
 }
 .olf-col.on {
   background: var(--accent);
-  color: var(--c-text-on-accent, #fff);
+  color: var(--c-text-on-accent, #ffffff);
 }
 .olf-check {
   display: flex;
@@ -212,11 +212,11 @@ button.ol-mode:hover {
   width: 22px;
   height: 20px;
   border-radius: 3px;
-  background: var(--w-field, #2b2b2b);
+  background: var(--w-field, #28292a);
 }
 .olf-invert.on {
   background: var(--accent);
-  color: var(--c-text-on-accent, #fff);
+  color: var(--c-text-on-accent, #ffffff);
 }
 .olf-indent {
   padding-left: 18px;
@@ -233,7 +233,7 @@ button.ol-mode:hover {
   padding: 0 5px;
   border-radius: 7px;
   background: rgba(var(--hl-rgb, 255, 255, 255), 0.08);
-  color: var(--t-aa, #aaa);
+  color: var(--t-aa, #aaabad);
   font-size: 10px;
   line-height: 14px;
 }

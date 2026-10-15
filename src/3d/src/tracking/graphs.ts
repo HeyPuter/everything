@@ -5,13 +5,13 @@ import { frameStep, valueStep, formatValue } from '../animation/view2d';
 import { clipToSceneFrame, markerExact, trackSpan, type MovieClipData, type MovieTrackingTrack } from './types';
 import type { ClipEditor } from './editor';
 
-const BG = '#303030',
-  GRID = '#3a3a3a',
-  GRID_MAJOR = '#454545',
-  TEXT = '#9a9a9a',
-  CURFRAME = '#4772b3';
-const SPEED_X = '#e65a5a',
-  SPEED_Y = '#5fcf5f';
+const BG = '#2d2e30',
+  GRID = '#37383a',
+  GRID_MAJOR = '#434445',
+  TEXT = '#9a9b9c',
+  CURFRAME = '#4b70b5';
+const SPEED_X = '#e35c54',
+  SPEED_Y = '#67cf6c';
 
 function clipRange(c: MovieClipData): [number, number] {
   return [clipToSceneFrame(c, 1), clipToSceneFrame(c, Math.max(1, c.frame_duration))];
@@ -114,7 +114,7 @@ function drawCurrentFrame(ed: ClipEditor, ctx: CanvasRenderingContext2D, h: numb
   ctx.beginPath();
   ctx.roundRect(x - tw / 2, top - 18, tw, 16, 4);
   ctx.fill();
-  ctx.fillStyle = '#fff';
+  ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
   ctx.fillText(label, x, top - 6);
 }
@@ -123,7 +123,7 @@ function drawRangeShade(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: number
   const c = ed.clip;
   if (!c) return;
   const [a, b] = clipRange(c);
-  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fillStyle = 'rgba(0, 0, 0,0.18)';
   const xa = ed.v2.fx(a - 0.5),
     xb = ed.v2.fx(b + 0.5);
   if (xa > 0) ctx.fillRect(0, top, xa, h - top);
@@ -163,7 +163,7 @@ export function drawGraph(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: numb
   const v = ed.v2;
   ctx.fillStyle = BG;
   ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = '#2a2a2a';
+  ctx.fillStyle = '#272829';
   ctx.fillRect(0, 0, w, top);
   drawRangeShade(ed, ctx, w, h, top);
   // value grid
@@ -175,7 +175,7 @@ export function drawGraph(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: numb
   ctx.textAlign = 'left';
   for (let val = v0; v.vy(val) > 0; val += vs) {
     const y = Math.round(v.vy(val)) + 0.5;
-    ctx.strokeStyle = Math.abs(val) < vs / 2 ? '#505050' : GRID;
+    ctx.strokeStyle = Math.abs(val) < vs / 2 ? '#4e4f50' : GRID;
     ctx.beginPath();
     ctx.moveTo(0, y);
     ctx.lineTo(w, y);
@@ -237,7 +237,7 @@ export function drawGraph(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: numb
   if (ed.boxRect) {
     const b = ed.boxRect;
     ctx.setLineDash([4, 3]);
-    ctx.strokeStyle = '#fff';
+    ctx.strokeStyle = '#ffffff';
     ctx.strokeRect(Math.min(b.x0, b.x1) + 0.5, Math.min(b.y0, b.y1) + 0.5, Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
     ctx.setLineDash([]);
   }
@@ -378,7 +378,7 @@ export function drawDopesheet(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: 
   tracks.forEach((t, i) => {
     const y = HEAD_H + i * ROW_H - ed.dopesheetScroll;
     if (y + ROW_H < HEAD_H || y > h) return;
-    ctx.fillStyle = t.select ? '#3d4554' : i % 2 ? '#2d2d2d' : '#333333';
+    ctx.fillStyle = t.select ? '#3e4454' : i % 2 ? '#2a2b2d' : '#303133';
     ctx.fillRect(CHANNEL_W, y, w - CHANNEL_W, ROW_H);
   });
   ctx.translate(CHANNEL_W, 0);
@@ -393,7 +393,7 @@ export function drawDopesheet(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: 
       for (const [a, b] of segments(t)) {
         const xa = ed.v2.fx(clipToSceneFrame(c, a) - 0.5),
           xb = ed.v2.fx(clipToSceneFrame(c, b) + 0.5);
-        ctx.fillStyle = t.select ? '#c98a3a' : '#6e6e6e';
+        ctx.fillStyle = t.select ? '#c48e39' : '#6d6e6f';
         ctx.fillRect(xa, y + 5, Math.max(1, xb - xa), ROW_H - 10);
       }
       for (const m of t.markers) {
@@ -406,9 +406,9 @@ export function drawDopesheet(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: 
         ctx.lineTo(x, y + ROW_H / 2 + r);
         ctx.lineTo(x - r, y + ROW_H / 2);
         ctx.closePath();
-        ctx.fillStyle = t.select ? '#ffbe33' : '#e0e0e0';
+        ctx.fillStyle = t.select ? '#fcc327' : '#e1e2e4';
         ctx.fill();
-        ctx.strokeStyle = '#000';
+        ctx.strokeStyle = '#000000';
         ctx.stroke();
       }
     });
@@ -416,7 +416,7 @@ export function drawDopesheet(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: 
   // header (frame numbers) and current frame over the timeline area
   ctx.save();
   ctx.translate(CHANNEL_W, 0);
-  ctx.fillStyle = '#2a2a2a';
+  ctx.fillStyle = '#272829';
   ctx.fillRect(0, 0, w - CHANNEL_W, HEAD_H);
   drawTimeGrid(ed, ctx, w - CHANNEL_W, HEAD_H + 0, HEAD_H);
   ctx.restore();
@@ -428,7 +428,7 @@ export function drawDopesheet(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: 
   drawCurrentFrame(ed, ctx, h, HEAD_H);
   ctx.restore();
   // channel list
-  ctx.fillStyle = '#282828';
+  ctx.fillStyle = '#252627';
   ctx.fillRect(0, 0, CHANNEL_W, h);
   ctx.save();
   ctx.beginPath();
@@ -439,23 +439,23 @@ export function drawDopesheet(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: 
   tracks.forEach((t, i) => {
     const y = HEAD_H + i * ROW_H - ed.dopesheetScroll;
     if (y + ROW_H < HEAD_H || y > h) return;
-    ctx.fillStyle = t.select ? '#4a5568' : i % 2 ? '#2b2b2b' : '#303030';
+    ctx.fillStyle = t.select ? '#4b5468' : i % 2 ? '#28292a' : '#2d2e30';
     ctx.fillRect(0, y, CHANNEL_W, ROW_H - 1);
-    ctx.fillStyle = t.name === act ? '#ffffff' : t.select ? '#ffd24d' : '#c8c8c8';
+    ctx.fillStyle = t.name === act ? '#ffffff' : t.select ? '#fcd745' : '#c9cacb';
     ctx.fillText(t.name, 10, y + 14);
     const span = trackSpan(t);
     if (span) {
-      ctx.fillStyle = '#8a8a8a';
+      ctx.fillStyle = '#898a8c';
       ctx.textAlign = 'right';
       ctx.fillText(`${span[1] - span[0] + 1}`, CHANNEL_W - 8, y + 14);
       ctx.textAlign = 'left';
     }
   });
   ctx.restore();
-  ctx.fillStyle = '#9a9a9a';
+  ctx.fillStyle = '#9a9b9c';
   ctx.font = '11px var(--font, sans-serif)';
   ctx.fillText(c ? `${tracks.length} track${tracks.length === 1 ? '' : 's'}` : 'No movie clip', 10, 16);
-  ctx.strokeStyle = '#1d1d1d';
+  ctx.strokeStyle = '#1a1b1c';
   ctx.beginPath();
   ctx.moveTo(CHANNEL_W + 0.5, 0);
   ctx.lineTo(CHANNEL_W + 0.5, h);

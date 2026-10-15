@@ -8,14 +8,14 @@ import type { Row } from './tree';
 
 /** Collection color tags (also used by the outliner stylesheet). */
 export const COLOR_TAGS: [string, string][] = [
-  ['COLOR_01', '#e2584f'],
-  ['COLOR_02', '#ef9a3c'],
-  ['COLOR_03', '#e5cf4a'],
-  ['COLOR_04', '#5fbd5a'],
-  ['COLOR_05', '#4a8fe0'],
-  ['COLOR_06', '#a06ad8'],
-  ['COLOR_07', '#d76aa8'],
-  ['COLOR_08', '#9b7a58'],
+  ['COLOR_01', '#de5a49'],
+  ['COLOR_02', '#eb9e35'],
+  ['COLOR_03', '#e2d346'],
+  ['COLOR_04', '#61be61'],
+  ['COLOR_05', '#538ddf'],
+  ['COLOR_06', '#a368d5'],
+  ['COLOR_07', '#d56ba2'],
+  ['COLOR_08', '#977a57'],
 ];
 
 registerIcons(Object.fromEntries(COLOR_TAGS.map(([t, c]) => [`collection_${t.toLowerCase()}`, `<path stroke="${c}" d="M2 5h12v8H2zM4 3h8" fill="none" stroke-width="1.4"/>`])));

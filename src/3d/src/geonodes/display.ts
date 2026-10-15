@@ -17,7 +17,7 @@ import type { GnEvalMesh } from './convert';
 const sphereMaterial = () =>
   new ShaderMaterial({
     uniforms: {
-      uColor: { value: new Color(0.62, 0.62, 0.62) },
+      uColor: { value: new Color(0.619, 0.623, 0.629) },
       uHalfH: { value: 400 },
     },
     vertexShader: /* glsl */ `
@@ -114,7 +114,7 @@ function sync(localView: Set<string> | null) {
     }
     const ob = ev.ob;
     const active = app.doc.scene.active_object === id && ob.select;
-    const lineColor = active ? new Color(1, 0.627, 0.157) : ob.select ? new Color(0.929, 0.341, 0) : new Color(0, 0, 0);
+    const lineColor = active ? new Color(0.987, 0.645, 0.115) : ob.select ? new Color(0.884, 0.376, 0.013) : new Color(0, 0, 0);
     for (const o of e.objs) {
       o.visible = true;
       o.matrixWorld.copy(ev.world);

@@ -275,11 +275,11 @@ editModeHooks.svg.push((v) => {
   if (!grad.a || !grad.b || grad.view !== v) return null;
   const { a, b } = grad;
   const parts: VNode[] = [
-    h('path', { d: `M${a.x} ${a.y}L${b.x} ${b.y}`, stroke: '#000', 'stroke-width': 3, opacity: 0.5 }) as VNode,
-    h('path', { d: `M${a.x} ${a.y}L${b.x} ${b.y}`, stroke: '#fff', 'stroke-width': 1.5 }) as VNode,
-    h('circle', { cx: a.x, cy: a.y, r: 4, fill: '#fff' }) as VNode,
+    h('path', { d: `M${a.x} ${a.y}L${b.x} ${b.y}`, stroke: '#000000', 'stroke-width': 3, opacity: 0.5 }) as VNode,
+    h('path', { d: `M${a.x} ${a.y}L${b.x} ${b.y}`, stroke: '#ffffff', 'stroke-width': 1.5 }) as VNode,
+    h('circle', { cx: a.x, cy: a.y, r: 4, fill: '#ffffff' }) as VNode,
   ];
-  if (grad.radial) parts.push(h('circle', { cx: a.x, cy: a.y, r: Math.hypot(b.x - a.x, b.y - a.y), fill: 'none', stroke: '#fff', 'stroke-width': 1, 'stroke-dasharray': '4 3' }) as VNode);
+  if (grad.radial) parts.push(h('circle', { cx: a.x, cy: a.y, r: Math.hypot(b.x - a.x, b.y - a.y), fill: 'none', stroke: '#ffffff', 'stroke-width': 1, 'stroke-dasharray': '4 3' }) as VNode);
   return h('g', { key: 'wgrad' }, ...parts) as VNode;
 });
 

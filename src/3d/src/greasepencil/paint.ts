@@ -475,7 +475,7 @@ editModeHooks.svg.push((v) => {
   const tool = activeTools[mode] ?? '';
   const r = cursorRadius.fn(tool);
   if (r === null) return null;
-  const col = tool === 'builtin.brush.Erase' ? 'rgba(255,120,120,0.95)' : 'rgba(255,255,255,0.9)';
+  const col = tool === 'builtin.brush.Erase' ? 'rgba(253, 124, 117,0.95)' : 'rgba(255, 255, 255,0.9)';
   return h(
     'g',
     { key: 'gp-cursor', 'pointer-events': 'none' },
@@ -484,7 +484,7 @@ editModeHooks.svg.push((v) => {
       cy: cursor.y,
       r: Math.max(1, r),
       fill: 'none',
-      stroke: 'rgba(0,0,0,0.4)',
+      stroke: 'rgba(0, 0, 0,0.4)',
       'stroke-width': 3,
     }),
     h('circle', {
@@ -513,7 +513,7 @@ editModeHooks.svg.push((v) => {
   return h(
     'g',
     { key: 'gp-fill-ext', 'pointer-events': 'none' },
-    fillPreview.lines.map(([x0, y0, x1, y1], i) => h('line', { key: i, x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#00e5ff', 'stroke-width': 1.5, 'stroke-dasharray': b.fill_extend_mode === 'RADIUS' ? '3 2' : undefined })),
+    fillPreview.lines.map(([x0, y0, x1, y1], i) => h('line', { key: i, x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#04e9f5', 'stroke-width': 1.5, 'stroke-dasharray': b.fill_extend_mode === 'RADIUS' ? '3 2' : undefined })),
   );
 });
 
@@ -523,8 +523,8 @@ editModeHooks.svg.push((v) => {
   return h(
     'g',
     { key: 'gp-lazy', 'pointer-events': 'none' },
-    h('line', { x1: lazy.x, y1: lazy.y, x2: lazy.cx, y2: lazy.cy, stroke: 'rgba(255,255,255,0.8)', 'stroke-width': 1.2, 'stroke-dasharray': '4 3' }),
-    h('circle', { cx: lazy.x, cy: lazy.y, r: 2.5, fill: '#fff' }),
+    h('line', { x1: lazy.x, y1: lazy.y, x2: lazy.cx, y2: lazy.cy, stroke: 'rgba(255, 255, 255,0.8)', 'stroke-width': 1.2, 'stroke-dasharray': '4 3' }),
+    h('circle', { cx: lazy.x, cy: lazy.y, r: 2.5, fill: '#ffffff' }),
   );
 });
 

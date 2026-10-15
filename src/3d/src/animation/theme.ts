@@ -2,51 +2,51 @@
 import type { FCurve, Keyframe, KeyHandleType } from '../data/types';
 
 export const C = {
-  back: '#303030',
-  channelBack: '#232323',
-  grid: 'rgba(0,0,0,0.22)',
-  gridMinor: 'rgba(0,0,0,0.12)',
-  rulerBack: '#2b2b2b',
-  rulerText: '#a6a6a6',
-  outOfRange: 'rgba(0,0,0,0.20)',
-  previewRange: 'rgba(161,77,0,0.25)',
-  playhead: '#4772b3',
+  back: '#2d2e30',
+  channelBack: '#202122',
+  grid: 'rgba(0, 0, 0,0.22)',
+  gridMinor: 'rgba(0, 0, 0,0.12)',
+  rulerBack: '#28292a',
+  rulerText: '#a6a7a9',
+  outOfRange: 'rgba(0, 0, 0,0.20)',
+  previewRange: 'rgba(152, 82, 2,0.25)',
+  playhead: '#4b70b5',
   playheadText: '#ffffff',
-  marker: 'rgba(255,255,255,0.5)',
+  marker: 'rgba(255, 255, 255,0.5)',
   markerSelected: '#ffffff',
-  summary: 'rgba(77,39,39,0.70)',
-  objectRow: 'rgba(25,78,128,0.50)',
-  actionRow: 'rgba(15,44,77,0.50)',
-  groupRow: 'rgba(26,51,45,0.80)',
-  groupRowSel: 'rgba(33,109,91,0.65)',
-  channelRow: 'rgba(18,18,18,0.40)',
-  channelRowSel: 'rgba(96,192,64,0.16)',
-  longKey: 'rgba(255,255,255,0.12)',
-  longKeySelected: 'rgba(255,140,0,0.60)',
-  interpLinear: 'rgba(148,229,117,0.80)',
-  interpConstant: 'rgba(229,156,123,0.80)',
-  interpOther: 'rgba(93,186,190,0.70)',
+  summary: 'rgba(74, 40, 38,0.70)',
+  objectRow: 'rgba(28, 76, 132,0.50)',
+  actionRow: 'rgba(17, 43, 79,0.50)',
+  groupRow: 'rgba(26, 50, 46,0.80)',
+  groupRowSel: 'rgba(34, 108, 94,0.65)',
+  channelRow: 'rgba(14, 15, 17,0.40)',
+  channelRowSel: 'rgba(98, 193, 74,0.16)',
+  longKey: 'rgba(255, 255, 255,0.12)',
+  longKeySelected: 'rgba(245, 148, 4,0.60)',
+  interpLinear: 'rgba(154, 230, 132,0.80)',
+  interpConstant: 'rgba(227, 159, 121,0.80)',
+  interpOther: 'rgba(106, 185, 193,0.70)',
   // graph editor
   vertex: '#000000',
-  vertexSelect: '#ff8500',
+  vertexSelect: '#f58e04',
   vertexActive: '#ffffff',
-  cursorLine: 'rgba(71,114,179,0.9)',
+  cursorLine: 'rgba(75, 112, 181,0.9)',
   // nla
-  nlaActionLine: 'rgba(153,84,19,0.40)',
-  nlaActionLineUnset: 'rgba(77,59,23,0.30)',
-  nlaStrip: '#0d0d0d',
-  nlaStripSelected: '#ff8c00',
-  nlaTrack: 'rgba(48,48,48,1)',
-  nlaTrackSel: 'rgba(110,70,30,0.55)',
+  nlaActionLine: 'rgba(145, 87, 20,0.40)',
+  nlaActionLineUnset: 'rgba(74, 60, 23,0.30)',
+  nlaStrip: '#090a0c',
+  nlaStripSelected: '#f59404',
+  nlaTrack: 'rgba(45, 46, 48,1)',
+  nlaTrackSel: 'rgba(105, 71, 30,0.55)',
 };
 
 export const KEY_COLORS: Record<Keyframe['type'], [string, string]> = {
-  KEYFRAME: ['#bfbfbf', '#ffbe33'],
-  EXTREME: ['#e8b3cc', '#f28080'],
-  BREAKDOWN: ['#b3dbe8', '#54bfed'],
-  JITTER: ['#94e575', '#61c042'],
-  MOVING_HOLD: ['#808080', '#ffaf23'],
-  GENERATED: ['#585858', '#a28962'],
+  KEYFRAME: ['#c0c1c2', '#fcc327'],
+  EXTREME: ['#e8b6cb', '#f0847e'],
+  BREAKDOWN: ['#bcdcea', '#68beed'],
+  JITTER: ['#9ae684', '#63c14c'],
+  MOVING_HOLD: ['#7f8082', '#fbb416'],
+  GENERATED: ['#565759', '#9f895f'],
 };
 
 /** Relative size of each keyframe type (keyframe = 1). */
@@ -86,7 +86,7 @@ export function drawKey(g: CanvasRenderingContext2D, x: number, y: number, size:
   const s = (size * (KEY_SIZE[type] ?? 1)) / 2;
   g.globalAlpha = alpha;
   g.fillStyle = keyColor(type, selected);
-  g.strokeStyle = '#000';
+  g.strokeStyle = '#000000';
   g.lineWidth = 1;
   g.beginPath();
   switch (shape) {
@@ -120,7 +120,7 @@ export function drawKey(g: CanvasRenderingContext2D, x: number, y: number, size:
   g.fill();
   g.stroke();
   if (shape === 'CIRCLE_DOT') {
-    g.fillStyle = '#000';
+    g.fillStyle = '#000000';
     g.beginPath();
     g.arc(x, y, Math.max(1, s * 0.25), 0, Math.PI * 2);
     g.fill();
@@ -128,7 +128,7 @@ export function drawKey(g: CanvasRenderingContext2D, x: number, y: number, size:
   g.globalAlpha = 1;
 }
 
-const AXIS_RGB = ['#ff3352', '#8bdc00', '#2890ff'];
+const AXIS_RGB = ['#fc364b', '#84e003', '#398efc'];
 const XYZ_PATH = /(^|\.)(location|rotation_euler|scale|delta_location|delta_rotation_euler|delta_scale|rotation_quaternion|rotation_axis_angle)$/;
 
 function hsvCss(h: number, s: number, v: number) {
@@ -158,7 +158,7 @@ export function curveColor(fc: FCurve, i: number, n: number): string {
   const quat = /rotation_(quaternion|axis_angle)$/.test(fc.data_path);
   if ((mode === 'AUTO_RGB' || mode === 'AUTO_YRGB') && XYZ_PATH.test(fc.data_path)) {
     if (quat || mode === 'AUTO_YRGB') {
-      if (fc.array_index === 0) return '#e6d24d';
+      if (fc.array_index === 0) return '#e3d649';
       return AXIS_RGB[(fc.array_index - 1) % 3];
     }
     return AXIS_RGB[fc.array_index % 3];
@@ -168,9 +168,9 @@ export function curveColor(fc: FCurve, i: number, n: number): string {
 }
 
 export const HANDLE_COLORS: Record<KeyHandleType, [string, string]> = {
-  FREE: ['#745900', '#ffc300'],
-  AUTO: ['#740d00', '#ff1900'],
-  VECTOR: ['#232374', '#4444ff'],
-  ALIGNED: ['#157000', '#72ff57'],
-  AUTO_CLAMPED: ['#803060', '#f090a0'],
+  FREE: ['#6e5a02', '#f7ca04'],
+  AUTO: ['#701402', '#f92804'],
+  VECTOR: ['#27236f', '#4b42fc'],
+  ALIGNED: ['#116f02', '#7dfd6e'],
+  AUTO_CLAMPED: ['#7e315c', '#ef939e'],
 };

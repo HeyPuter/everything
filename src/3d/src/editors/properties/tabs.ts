@@ -654,7 +654,7 @@ export const worldSurfacePanel: { draw: ((w: WorldData) => Child) | null } = { d
 
 function materialPanels(ma: MaterialData): Child {
   return [
-    panel('ma-preview', 'Preview', () => h('div', { class: 'mat-preview', style: { background: `radial-gradient(circle at 35% 35%, #fff8 0, transparent 30%), radial-gradient(circle, ${swatchCss(ma)} 0 60%, transparent 61%)` } }), { closed: true }),
+    panel('ma-preview', 'Preview', () => h('div', { class: 'mat-preview', style: { background: `radial-gradient(circle at 35% 35%, #ffffff88 0, transparent 30%), radial-gradient(circle, ${swatchCss(ma)} 0 60%, transparent 61%)` } }), { closed: true }),
     panel('ma-surface', 'Surface', () => (materialSurfacePanel.draw ? materialSurfacePanel.draw(ma) : h('div', { class: 'prop-note' }, 'Edit the node tree in the Shader Editor.'))),
     (ensureMaterialDefaults(ma), materialSettingsPanel(ma)),
     panel('ma-display', 'Viewport Display', () => [colorProp(ma, 'diffuse_color', 'Color', { alpha: true }), num(ma, 'metallic', 'Metallic', { min: 0, max: 1, slider: true }), num(ma, 'roughness', 'Roughness', { min: 0, max: 1, slider: true })], { closed: true }),

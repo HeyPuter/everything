@@ -9,7 +9,7 @@
   align-items: center;
   gap: 2px;
   margin-right: 6px;
-  color: var(--error, #e05656);
+  color: var(--error, #dc5851);
   font-size: 11px;
 }
 .cmp-rl-body {
@@ -27,9 +27,9 @@
   gap: 4px;
   height: 21px;
   padding: 0 6px;
-  background: var(--w-menu, #282828);
+  background: var(--w-menu, #252627);
   border-radius: 3px;
-  color: var(--t-dd, #ddd);
+  color: var(--t-dd, #dedfe1);
   font-size: 11px;
 }
 .cmp-rl-row span {
@@ -44,10 +44,10 @@
   width: 22px;
   height: 19px;
   border-radius: 3px;
-  background: var(--g-54, #545454);
+  background: var(--g-54, #525354);
 }
 .cmp-rl-render:hover {
-  background: var(--g-66, #666);
+  background: var(--g-66, #646567);
 }
 
 .cmp-sample {
@@ -55,8 +55,8 @@
   z-index: 5;
   padding: 3px 7px;
   border-radius: 4px;
-  background: rgb(from var(--g-14, #141414) r g b / 0.92);
-  color: var(--t-e6, #e6e6e6);
+  background: rgb(from var(--g-14, #101113) r g b / 0.92);
+  color: var(--t-e6, #e8e9ea);
   font: 11px var(--mono, monospace);
   white-space: pre;
   pointer-events: none;

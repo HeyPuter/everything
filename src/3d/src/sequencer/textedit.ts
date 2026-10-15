@@ -149,7 +149,7 @@ export function drawTextEditOverlay(g: CanvasRenderingContext2D, toLocal: (x: nu
   const [a, b] = selRange();
   const xAt = (li: number, i: number) => L.lines[li].x + measureText(s, fs, L.lines[li].text.slice(0, Math.max(0, Math.min(i - L.lines[li].start, L.lines[li].text.length))));
   if (b > a) {
-    g.fillStyle = 'rgba(80,140,255,0.4)';
+    g.fillStyle = 'rgba(90, 138, 252,0.4)';
     L.lines.forEach((l, li) => {
       const end = l.start + l.text.length;
       const lo = Math.max(a, l.start),
@@ -163,7 +163,7 @@ export function drawTextEditOverlay(g: CanvasRenderingContext2D, toLocal: (x: nu
   // block outline and cursor
   g.save();
   g.setLineDash([3, 3]);
-  g.strokeStyle = 'rgba(255,255,255,0.5)';
+  g.strokeStyle = 'rgba(255, 255, 255,0.5)';
   path(
     [
       [L.left, L.bottom],

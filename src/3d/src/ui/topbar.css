@@ -16,9 +16,9 @@
   overflow: hidden;
   border-radius: 8px 8px 0 0;
   background:
-    radial-gradient(120% 140% at 85% 10%, #3a5f9f 0%, transparent 55%),
-    radial-gradient(90% 120% at 10% 100%, #8a4a1f 0%, transparent 60%),
-    linear-gradient(160deg, #1e2533, #141820);
+    radial-gradient(120% 140% at 85% 10%, #3d5da2 0%, transparent 55%),
+    radial-gradient(90% 120% at 10% 100%, #844d1f 0%, transparent 60%),
+    linear-gradient(160deg, #1f2433, #141820);
   cursor: pointer;
 }
 .splash-orbits span {
@@ -37,7 +37,7 @@
   height: 170px;
   right: 6px;
   top: -24px;
-  border-color: rgba(255, 190, 120, 0.22);
+  border-color: rgba(253, 194, 117, 0.22);
 }
 .splash-orbits .o3 {
   width: 90px;
@@ -53,7 +53,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  color: #fff;
+  color: #ffffff;
 }
 .splash-name {
   font-size: 26px;
@@ -98,7 +98,7 @@
 }
 .splash-item:hover {
   background: var(--w-menu-item-hl);
-  color: var(--c-text-on-accent, #fff);
+  color: var(--c-text-on-accent, #ffffff);
 }
 .splash-recent-name {
   flex: 1;
@@ -113,7 +113,7 @@
   white-space: nowrap;
 }
 .splash-item:hover .splash-recent-meta {
-  color: #dde;
+  color: #e1e0ef;
 }
 .splash-empty {
   padding: 6px 8px;
@@ -198,7 +198,7 @@
 }
 .append-type.on {
   background: var(--w-menu-item-hl);
-  color: var(--c-text-on-accent, #fff);
+  color: var(--c-text-on-accent, #ffffff);
 }
 .append-count {
   font-size: 11px;
@@ -228,7 +228,7 @@
   border-radius: 3px;
 }
 .append-item.on {
-  background: rgba(71, 114, 179, 0.35);
+  background: rgba(75, 112, 181, 0.35);
 }
 .append-sel,
 .append-foot {
@@ -246,11 +246,11 @@
 }
 .btn.primary {
   background: var(--accent);
-  color: var(--c-text-on-accent, #fff);
+  color: var(--c-text-on-accent, #ffffff);
 }
 .btn.primary:hover {
   background: var(--accent-hi);
-  color: var(--c-text-on-accent, #fff);
+  color: var(--c-text-on-accent, #ffffff);
 }
 .btn.primary:disabled {
   opacity: 0.5;

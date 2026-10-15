@@ -153,7 +153,7 @@ function eachLayer(fn: (layer: GPLayer, strokes: GPStroke[], world: Matrix4) => 
 // ---------------------------------------------------------------------------
 // lasso input
 
-const lassoState = { view: null as View3D | null, pts: [] as P2[], color: '#fff' };
+const lassoState = { view: null as View3D | null, pts: [] as P2[], color: '#ffffff' };
 
 function dragLasso(v: View3D, e: { clientX: number; clientY: number }, label: string, idname: string, color: string, done: (pts: P2[]) => boolean) {
   lassoState.view = v;
@@ -191,7 +191,7 @@ function dragLasso(v: View3D, e: { clientX: number; clientY: number }, label: st
 editModeHooks.svg.push((v) => {
   if (lassoState.view !== v || lassoState.pts.length < 2) return null;
   const d = lassoState.pts.map((p, i) => `${i ? 'L' : 'M'}${p.x},${p.y}`).join(' ') + ' Z';
-  return h('path', { key: 'gp-lasso', d, fill: 'rgba(255,255,255,0.06)', stroke: lassoState.color, 'stroke-width': 1.2, 'stroke-dasharray': '5 3', 'pointer-events': 'none' });
+  return h('path', { key: 'gp-lasso', d, fill: 'rgba(255, 255, 255,0.06)', stroke: lassoState.color, 'stroke-width': 1.2, 'stroke-dasharray': '5 3', 'pointer-events': 'none' });
 });
 
 const pollDraw = () => app.doc.mode === 'PAINT_GREASE_PENCIL' && !!drawContext() && !!activeView3D();
@@ -260,7 +260,7 @@ registerOperators([
     invoke: (ctx) => {
       const v = activeView3D()!;
       const ev = ctx.event ?? app.pointer;
-      dragLasso(v, { clientX: ev.x, clientY: ev.y }, 'Grease Pencil Trim', 'grease_pencil.stroke_trim', '#ff6b6b', (pts) => trimLasso(v, pts));
+      dragLasso(v, { clientX: ev.x, clientY: ev.y }, 'Grease Pencil Trim', 'grease_pencil.stroke_trim', '#fd6f68', (pts) => trimLasso(v, pts));
       return 'RUNNING_MODAL';
     },
     exec: (_c, p) => {
@@ -300,7 +300,7 @@ registerOperators([
     invoke: (ctx) => {
       const v = activeView3D()!;
       const ev = ctx.event ?? app.pointer;
-      dragLasso(v, { clientX: ev.x, clientY: ev.y }, 'Grease Pencil Erase Lasso', 'grease_pencil.erase_lasso', '#ff9c9c', (pts) => erasePointsIn(v, (x, y) => insidePolygon(x, y, pts)));
+      dragLasso(v, { clientX: ev.x, clientY: ev.y }, 'Grease Pencil Erase Lasso', 'grease_pencil.erase_lasso', '#fda09b', (pts) => erasePointsIn(v, (x, y) => insidePolygon(x, y, pts)));
       return 'RUNNING_MODAL';
     },
     exec: (_c, p) => {

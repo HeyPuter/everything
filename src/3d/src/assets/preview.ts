@@ -173,7 +173,7 @@ function boneGeometry(): BufferGeometry {
   return boneGeo;
 }
 function boneMaterial() {
-  return (boneMat ??= new MeshStandardMaterial({ color: 0xb8b8c8, roughness: 0.6, metalness: 0, flatShading: true, side: DoubleSide }));
+  return (boneMat ??= new MeshStandardMaterial({ color: 0xbabac9, roughness: 0.6, metalness: 0, flatShading: true, side: DoubleSide }));
 }
 
 function slots(doc: DocumentData, ob: ObjectData): (string | null)[] {
@@ -278,7 +278,7 @@ function worldPreview(doc: DocumentData, w: WorldData): string | undefined {
   const geo = new SphereGeometry(0.55, 48, 32);
   const chrome = new Mesh(geo, new MeshStandardMaterial({ color: 0xffffff, metalness: 1, roughness: 0.04 }));
   chrome.position.set(-0.6, 0, 0);
-  const matte = new Mesh(geo, new MeshStandardMaterial({ color: 0xcccccc, metalness: 0, roughness: 0.9 }));
+  const matte = new Mesh(geo, new MeshStandardMaterial({ color: 0xcdced0, metalness: 0, roughness: 0.9 }));
   matte.position.set(0.6, 0, 0);
   scene.add(chrome, matte);
   const cam = new PerspectiveCamera(40, 1, 0.1, 100);
@@ -298,9 +298,9 @@ function worldPreview(doc: DocumentData, w: WorldData): string | undefined {
 // 2D previews
 
 const TREE_COLORS: Record<string, [string, string]> = {
-  GEOMETRY: ['#1f6f63', '#5ad1b8'],
-  SHADER: ['#5b3a7a', '#c89bf0'],
-  COMPOSITOR: ['#7a5a1f', '#f0c35a'],
+  GEOMETRY: ['#206e66', '#63d1c0'],
+  SHADER: ['#5c3a76', '#cc9cef'],
+  COMPOSITOR: ['#755b1f', '#edc756'],
 };
 
 function nodeGroupPreview(g: NodeGroupData): string {
@@ -317,11 +317,11 @@ function nodeGroupPreview(g: NodeGroupData): string {
   const hdr = 34;
   const h = hdr + rows * rowH + 14;
   const top = (S - h) / 2;
-  x.fillStyle = 'rgba(0,0,0,.35)';
+  x.fillStyle = 'rgba(0, 0, 0,.35)';
   x.beginPath();
   x.roundRect(left + 4, top + 6, w, h, 12);
   x.fill();
-  x.fillStyle = '#3a3a3a';
+  x.fillStyle = '#37383a';
   x.beginPath();
   x.roundRect(left, top, w, h, 12);
   x.fill();
@@ -330,7 +330,7 @@ function nodeGroupPreview(g: NodeGroupData): string {
   x.roundRect(left, top, w, hdr, [12, 12, 0, 0]);
   x.fill();
   // the group's initials in the header
-  x.fillStyle = '#fff';
+  x.fillStyle = '#ffffff';
   x.font = `600 ${Math.round(hdr * 0.5)}px system-ui, sans-serif`;
   x.textBaseline = 'middle';
   const initials = g.name.split(/\s+/).map((s) => s[0]).join('').slice(0, 3).toUpperCase();
@@ -340,21 +340,21 @@ function nodeGroupPreview(g: NodeGroupData): string {
     x.beginPath();
     x.arc(sx, sy, 6, 0, Math.PI * 2);
     x.fill();
-    x.strokeStyle = '#111';
+    x.strokeStyle = '#0d0e10';
     x.lineWidth = 1.5;
     x.stroke();
   };
-  const sockColor = (t: string) => (/Geometry/.test(t) ? '#00d6a3' : /Color/.test(t) ? '#c7c729' : /Vector/.test(t) ? '#6363c7' : /Shader/.test(t) ? '#63c763' : /Int|Bool/.test(t) ? '#598c5c' : '#a1a1a1');
+  const sockColor = (t: string) => (/Geometry/.test(t) ? '#03d7af' : /Color/.test(t) ? '#c3cb2d' : /Vector/.test(t) ? '#6661c4' : /Shader/.test(t) ? '#6ac76e' : /Int|Bool/.test(t) ? '#598b5f' : '#a1a2a3');
   let y = top + hdr + rowH / 2 + 6;
   for (const o of outs) {
     sock(left + w, y, sockColor(o.socket_type));
-    x.fillStyle = '#ccc';
+    x.fillStyle = '#cdced0';
     x.fillRect(left + w * 0.45, y - 2, w * 0.4, 4);
     y += rowH;
   }
   for (const i of ins) {
     sock(left, y, sockColor(i.socket_type));
-    x.fillStyle = '#aaa';
+    x.fillStyle = '#aaabad';
     x.fillRect(left + 16, y - 2, w * 0.45, 4);
     y += rowH;
   }
@@ -367,7 +367,7 @@ function nodeGroupPreview(g: NodeGroupData): string {
 function actionPreview(a: ActionData): string {
   const [c, x] = canvas2d();
   const S = PREVIEW_SIZE;
-  x.fillStyle = '#2b2b2b';
+  x.fillStyle = '#28292a';
   x.beginPath();
   x.roundRect(8, 8, S - 16, S - 16, 14);
   x.fill();
@@ -381,7 +381,7 @@ function actionPreview(a: ActionData): string {
     f1 = Math.max(f1, a1);
   }
   if (f1 <= f0) f1 = f0 + 1;
-  const colors = ['#e8584f', '#7fd34e', '#4f8fe8', '#e8c34f', '#c35ae8', '#4fd8e8'];
+  const colors = ['#e45a49', '#82d45c', '#588de7', '#e5c74b', '#c756e5', '#47dce4'];
   const pad = 32;
   curves.slice(0, 12).forEach((f, i) => {
     const n = 64;
@@ -411,18 +411,18 @@ function brushPreview(b: BrushData): string {
   if (thumb) return thumb;
   const [c, x] = canvas2d();
   const S = PREVIEW_SIZE;
-  const col = b.color ? `rgb(${b.color.map((v) => Math.round(Math.pow(Math.max(0, Math.min(1, v)), 1 / 2.2) * 255)).join(',')})` : '#d8d8d8';
+  const col = b.color ? `rgb(${b.color.map((v) => Math.round(Math.pow(Math.max(0, Math.min(1, v)), 1 / 2.2) * 255)).join(',')})` : '#d9dadc';
   const g = x.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S * 0.42);
   const hard = Math.max(0, Math.min(0.95, b.hardness ?? 0.3));
   g.addColorStop(0, col);
   g.addColorStop(hard, col);
-  g.addColorStop(1, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(0, 0, 0,0)');
   x.fillStyle = g;
   x.beginPath();
   x.arc(S / 2, S / 2, S * 0.42, 0, Math.PI * 2);
   x.fill();
   // a stroke across the dab
-  x.strokeStyle = 'rgba(255,255,255,.55)';
+  x.strokeStyle = 'rgba(255, 255, 255,.55)';
   x.lineWidth = 6;
   x.lineCap = 'round';
   x.beginPath();

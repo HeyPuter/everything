@@ -13,13 +13,13 @@ export function drawShape(g: CanvasRenderingContext2D, shape: SelectShape | null
   else shape.pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
   if (shape.kind === 'lasso') {
     g.closePath();
-    g.fillStyle = 'rgba(255,255,255,0.05)';
+    g.fillStyle = 'rgba(255, 255, 255,0.05)';
     g.fill();
   }
-  g.strokeStyle = 'rgba(0,0,0,0.7)';
+  g.strokeStyle = 'rgba(0, 0, 0,0.7)';
   g.stroke();
   g.lineDashOffset = 3.5;
-  g.strokeStyle = 'rgba(255,255,255,0.85)';
+  g.strokeStyle = 'rgba(255, 255, 255,0.85)';
   g.stroke();
   g.restore();
 }

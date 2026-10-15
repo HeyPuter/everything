@@ -294,7 +294,7 @@ editModeHooks.svg.push((v) => {
     const rad = Math.hypot(e.x - c.x, e.y - c.y);
     if (rad < 1) continue;
     const sel = !!me.select_vert?.[i];
-    circles.push(h('circle', { key: `sk${i}`, cx: c.x, cy: c.y, r: rad, fill: 'none', stroke: sel ? '#ffa028' : '#c0c0c0', 'stroke-width': sel ? 1.4 : 1, 'stroke-dasharray': me.skin_vertices[i * SKIN_STRIDE + 2] ? '' : '4 3', opacity: 0.8 }) as VNode);
+    circles.push(h('circle', { key: `sk${i}`, cx: c.x, cy: c.y, r: rad, fill: 'none', stroke: sel ? '#fca41d' : '#c1c2c3', 'stroke-width': sel ? 1.4 : 1, 'stroke-dasharray': me.skin_vertices[i * SKIN_STRIDE + 2] ? '' : '4 3', opacity: 0.8 }) as VNode);
   }
   return h('g', { key: 'skin-radii', 'pointer-events': 'none' }, circles) as VNode;
 });

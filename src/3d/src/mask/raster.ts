@@ -34,7 +34,7 @@ function tracePath(g: Ctx, sp: MaskSpline, W: number, H: number) {
 function drawLayer(g: Ctx, layer: MaskLayer, W: number, H: number, feather: boolean) {
   g.globalCompositeOperation = 'source-over';
   g.globalAlpha = 1;
-  g.fillStyle = '#000';
+  g.fillStyle = '#000000';
   g.fillRect(0, 0, W, H);
   const closed = layer.splines.filter((s) => s.use_cyclic && s.use_fill && s.points.length >= 2);
   if (feather) {
@@ -52,7 +52,7 @@ function drawLayer(g: Ctx, layer: MaskLayer, W: number, H: number, feather: bool
         const ring = featherOutline(samples, aspect, f1 - 0.5 / FEATHER_STEPS);
         g.globalCompositeOperation = 'lighter';
         g.globalAlpha = step;
-        g.fillStyle = '#fff';
+        g.fillStyle = '#ffffff';
         g.beginPath();
         ring.forEach(([x, y], i) => (i ? g.lineTo(x * W, (1 - y) * H) : g.moveTo(x * W, (1 - y) * H)));
         g.closePath();
@@ -62,7 +62,7 @@ function drawLayer(g: Ctx, layer: MaskLayer, W: number, H: number, feather: bool
   }
   g.globalCompositeOperation = 'source-over';
   g.globalAlpha = 1;
-  g.fillStyle = '#fff';
+  g.fillStyle = '#ffffff';
   g.beginPath();
   for (const sp of closed) tracePath(g, sp, W, H);
   // overlapping splines of a layer cut holes
@@ -98,7 +98,7 @@ export function rasterizeMask(mask: MaskData, frame: number, W: number, H: numbe
   const g = out.getContext('2d') as Ctx;
   g.globalCompositeOperation = 'source-over';
   g.globalAlpha = 1;
-  g.fillStyle = '#000';
+  g.fillStyle = '#000000';
   g.fillRect(0, 0, W, H);
   if (!layerCanvas || layerCanvas.width !== W || layerCanvas.height !== H) layerCanvas = makeCanvas(W, H);
   const lg = layerCanvas.getContext('2d') as Ctx;
@@ -110,7 +110,7 @@ export function rasterizeMask(mask: MaskData, frame: number, W: number, H: numbe
       // acc × (1 − layer): multiply by the inverted layer
       lg.globalCompositeOperation = 'difference';
       lg.globalAlpha = 1;
-      lg.fillStyle = '#fff';
+      lg.fillStyle = '#ffffff';
       lg.fillRect(0, 0, W, H);
       // opacity fades the cut towards no change (white)
       if (layer.alpha < 1) {

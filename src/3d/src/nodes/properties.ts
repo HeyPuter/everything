@@ -125,7 +125,7 @@ function socketButton(tree: NodeTreeData, node: NodeData, s: ResolvedSocket, sha
     },
     h('span', {
       class: 'nd-props-dot',
-      style: { '--sc': SOCKET_COLORS[s.type] ?? '#888' },
+      style: { '--sc': SOCKET_COLORS[s.type] ?? '#87888a' },
     }),
   );
 }

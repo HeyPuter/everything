@@ -191,7 +191,7 @@ export function radialControl(kind: 'size' | 'strength', view: { el: HTMLElement
   // the pointer starts on the circle edge for the radius, at the strength's distance otherwise
   const center = kind === 'size' ? { x: start.x - before, y: start.y } : { x: start.x - before * 200, y: start.y };
   const ring = document.createElement('div');
-  Object.assign(ring.style, { position: 'absolute', border: '1.5px solid rgba(255,255,255,.85)', borderRadius: '50%', pointerEvents: 'none' });
+  Object.assign(ring.style, { position: 'absolute', border: '1.5px solid rgba(255, 255, 255,.85)', borderRadius: '50%', pointerEvents: 'none' });
   view.el.append(ring);
   const show = () => {
     const rad = kind === 'size' ? uvSculpt.size : uvSculpt.strength * 200;

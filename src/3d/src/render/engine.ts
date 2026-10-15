@@ -121,7 +121,7 @@ export class RenderEngine {
     const r = this.renderer;
     const base = this.canvas.getBoundingClientRect();
     r.setScissorTest(false);
-    r.setClearColor(0x161616, 1);
+    r.setClearColor(0x121315, 1);
     r.clear(true, true, true);
     for (const v of this.viewports) {
       if (!v.visible()) continue;

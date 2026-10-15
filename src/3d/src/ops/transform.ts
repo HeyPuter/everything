@@ -707,7 +707,7 @@ function stateFromProps(mode: TransformMode, p: Record<string, unknown>): TState
 /** Live state of the running modal transform, read by the viewport overlay. */
 const overlay: { pivot: Vector3 | null; axes: { dir: Vector3; color: string }[]; propRadius: number; mouse: { x: number; y: number } | null; helpFrom: Vector3 | null } = { pivot: null, axes: [], propRadius: 0, mouse: null, helpFrom: null };
 
-const AXIS_COLORS = ['#ff3352', '#8bdc00', '#2890ff'];
+const AXIS_COLORS = ['#fc364b', '#84e003', '#398efc'];
 
 /** Typed numeric input, one text field per component. */
 class NumInput {
@@ -1433,11 +1433,11 @@ editModeHooks.svg.push((v: View3D) => {
   }
   if (overlay.propRadius > 0) {
     const r = overlay.propRadius / Math.max(1e-9, v.nav.pixelSize(overlay.pivot));
-    parts.push(h('circle', { cx: p.x, cy: p.y, r, fill: 'none', stroke: '#fff', 'stroke-width': 1, 'stroke-dasharray': '4 3', opacity: 0.7 }));
+    parts.push(h('circle', { cx: p.x, cy: p.y, r, fill: 'none', stroke: '#ffffff', 'stroke-width': 1, 'stroke-dasharray': '4 3', opacity: 0.7 }));
   }
   if (overlay.helpFrom && overlay.mouse) {
     const f = v.project(overlay.helpFrom);
-    parts.push(h('line', { x1: f.x, y1: f.y, x2: overlay.mouse.x, y2: overlay.mouse.y, stroke: '#000', 'stroke-width': 1, 'stroke-dasharray': '4 4', opacity: 0.8 }));
+    parts.push(h('line', { x1: f.x, y1: f.y, x2: overlay.mouse.x, y2: overlay.mouse.y, stroke: '#000000', 'stroke-width': 1, 'stroke-dasharray': '4 4', opacity: 0.8 }));
   }
   return parts.length ? h('g', { class: 'transform-overlay' }, parts) : null;
 });

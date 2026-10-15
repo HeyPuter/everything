@@ -39,7 +39,7 @@ registerIcons({
   brush_paint_fill:
     '<path class="s" d="M3 7 7.5 2.5 12.5 7.5 8 12z" fill="none" stroke-width="1.3" stroke-linejoin="round"/><path class="f" d="M3.6 7.6h8.3L8 11.4z"/><path class="f" d="M13.2 9.5c.9 1.4 1.3 2.2 1.3 2.8a1.3 1.3 0 0 1-2.6 0c0-.6.4-1.4 1.3-2.8z"/>',
   brush_weight_draw:
-    '<defs><linearGradient id="wgrad" x1="0" x2="1"><stop offset="0" stop-color="#2a5bff"/><stop offset=".5" stop-color="#2fd34a"/><stop offset="1" stop-color="#ff3b2f"/></linearGradient></defs><path d="M2.5 13.5c0-2.2 1.2-3.4 2.9-3.4s2.3 1.1 2.3 2.2-1.2 2.4-3.6 2.4z" fill="url(#wgrad)"/><path class="f" d="M6.8 9.4 13 3.2l1.3 1.3-6.2 6.2z"/>',
+    '<defs><linearGradient id="wgrad" x1="0" x2="1"><stop offset="0" stop-color="#3559fc"/><stop offset=".5" stop-color="#3ed35e"/><stop offset="1" stop-color="#fc3e27"/></linearGradient></defs><path d="M2.5 13.5c0-2.2 1.2-3.4 2.9-3.4s2.3 1.1 2.3 2.2-1.2 2.4-3.6 2.4z" fill="url(#wgrad)"/><path class="f" d="M6.8 9.4 13 3.2l1.3 1.3-6.2 6.2z"/>',
   eyedropper: '<path class="f" d="M10.8 2.2a1.8 1.8 0 0 1 2.5 2.5l-1.6 1.6.7.7-1.1 1.1-.7-.7-5 5-2.3.6.6-2.3 5-5-.7-.7 1.1-1.1.7.7z"/>',
   mirror_sym: '<path class="s" d="M8 1.5v13" stroke-width="1" stroke-dasharray="1.6 1.2"/><path class="f" d="M6.5 4 2 8l4.5 4zM9.5 4 14 8l-4.5 4z" opacity=".85"/>',
 });
@@ -83,7 +83,7 @@ registerIcons({
   mask_by_color:
     '<circle class="s" cx="8" cy="8" r="5.5" fill="none" stroke-width="1.2"/><path class="f" d="M8 2.5A5.5 5.5 0 0 0 8 13.5z" opacity=".6"/><path class="f" d="M10.8 2.2a1.8 1.8 0 0 1 2.5 2.5l-1.6 1.6.7.7-1.1 1.1-.7-.7-3.6 3.6-1.6.4.4-1.6 3.6-3.6-.7-.7 1.1-1.1.7.7z"/>',
   weight_gradient:
-    '<defs><linearGradient id="wgrad2" x1="0" x2="1"><stop offset="0" stop-color="#2a5bff"/><stop offset=".5" stop-color="#2fd34a"/><stop offset="1" stop-color="#ff3b2f"/></linearGradient></defs><path d="M1.5 4.5h13v7h-13z" fill="url(#wgrad2)"/><path class="s" d="M1.5 4.5h13v7h-13z" fill="none" stroke-width="1"/>',
+    '<defs><linearGradient id="wgrad2" x1="0" x2="1"><stop offset="0" stop-color="#3559fc"/><stop offset=".5" stop-color="#3ed35e"/><stop offset="1" stop-color="#fc3e27"/></linearGradient></defs><path d="M1.5 4.5h13v7h-13z" fill="url(#wgrad2)"/><path class="s" d="M1.5 4.5h13v7h-13z" fill="none" stroke-width="1"/>',
   sample_group:
     '<path class="f" d="M10.8 2.2a1.8 1.8 0 0 1 2.5 2.5l-1.6 1.6.7.7-1.1 1.1-.7-.7-5 5-2.3.6.6-2.3 5-5-.7-.7 1.1-1.1.7.7z"/><path class="s" d="M1.5 1.5h4v4h-4z" fill="none" stroke-width="1"/>',
 });

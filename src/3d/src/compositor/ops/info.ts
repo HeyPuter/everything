@@ -194,7 +194,7 @@ function rasterText(text: string, size: number, wrapWidth: number | null): { w: 
   c.width = w;
   c.height = h;
   g.font = font;
-  g.fillStyle = '#fff';
+  g.fillStyle = '#ffffff';
   g.textBaseline = 'alphabetic';
   lines.forEach((l, i) => g.fillText(l, 0, ascent + i * lineHeight));
   const px = g.getImageData(0, 0, w, h).data;

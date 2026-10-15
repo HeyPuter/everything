@@ -76,12 +76,12 @@ function overlay(v: View3D) {
 
 function drawLasso(v: View3D, pts: { x: number; y: number }[] | null) {
   const el = overlay(v);
-  el.innerHTML = pts && pts.length > 1 ? `<polygon points="${pts.map((p) => `${p.x},${p.y}`).join(' ')}" fill="rgba(255,255,255,0.06)" stroke="#fff" stroke-width="1" stroke-dasharray="4 3"/>` : '';
+  el.innerHTML = pts && pts.length > 1 ? `<polygon points="${pts.map((p) => `${p.x},${p.y}`).join(' ')}" fill="rgba(255, 255, 255,0.06)" stroke="#ffffff" stroke-width="1" stroke-dasharray="4 3"/>` : '';
 }
 
 function drawCircle(v: View3D, c: { x: number; y: number } | null, r: number) {
   const el = overlay(v);
-  el.innerHTML = c ? `<circle cx="${c.x}" cy="${c.y}" r="${r}" fill="none" stroke="#fff" stroke-width="1" stroke-dasharray="4 3"/>` : '';
+  el.innerHTML = c ? `<circle cx="${c.x}" cy="${c.y}" r="${r}" fill="none" stroke="#ffffff" stroke-width="1" stroke-dasharray="4 3"/>` : '';
 }
 
 const local = (v: View3D, e: { clientX: number; clientY: number }) => {

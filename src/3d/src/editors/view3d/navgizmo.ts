@@ -8,12 +8,12 @@ import type { View3D } from './view3d';
 import type { ViewName } from '../../render/navcam';
 
 const AX = [
-  { v: new Vector3(1, 0, 0), label: 'X', color: '#ff3352', view: 'RIGHT' as ViewName },
-  { v: new Vector3(0, 1, 0), label: 'Y', color: '#8bdc00', view: 'BACK' as ViewName },
-  { v: new Vector3(0, 0, 1), label: 'Z', color: '#2890ff', view: 'TOP' as ViewName },
-  { v: new Vector3(-1, 0, 0), label: '', color: '#ff3352', view: 'LEFT' as ViewName },
-  { v: new Vector3(0, -1, 0), label: '', color: '#8bdc00', view: 'FRONT' as ViewName },
-  { v: new Vector3(0, 0, -1), label: '', color: '#2890ff', view: 'BOTTOM' as ViewName },
+  { v: new Vector3(1, 0, 0), label: 'X', color: '#fc364b', view: 'RIGHT' as ViewName },
+  { v: new Vector3(0, 1, 0), label: 'Y', color: '#84e003', view: 'BACK' as ViewName },
+  { v: new Vector3(0, 0, 1), label: 'Z', color: '#398efc', view: 'TOP' as ViewName },
+  { v: new Vector3(-1, 0, 0), label: '', color: '#fc364b', view: 'LEFT' as ViewName },
+  { v: new Vector3(0, -1, 0), label: '', color: '#84e003', view: 'FRONT' as ViewName },
+  { v: new Vector3(0, 0, -1), label: '', color: '#398efc', view: 'BOTTOM' as ViewName },
 ];
 
 export function navGizmo(v: View3D): Child {

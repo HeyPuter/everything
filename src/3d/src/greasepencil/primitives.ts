@@ -381,7 +381,7 @@ editModeHooks.svg.push((v) => {
   return h(
     'g',
     { key: 'gp-prim-handles', 'pointer-events': 'none' },
-    ...lines.map(([a, b], i) => h('line', { key: `l${i}`, x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: 'rgba(255,255,255,0.6)', 'stroke-width': 1, 'stroke-dasharray': '3 3' })),
+    ...lines.map(([a, b], i) => h('line', { key: `l${i}`, x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: 'rgba(255, 255, 255,0.6)', 'stroke-width': 1, 'stroke-dasharray': '3 3' })),
     ...p.cp.map((q, i) => {
       const isPoint = i % stride === 0 || p.type === 'BOX' || p.type === 'CIRCLE';
       return h('circle', {
@@ -389,8 +389,8 @@ editModeHooks.svg.push((v) => {
         cx: q.x,
         cy: q.y,
         r: hoverHandle === i ? 6 : 4.5,
-        fill: isPoint ? (hoverHandle === i ? '#ffb340' : '#ff8c00') : 'rgba(40,40,40,0.9)',
-        stroke: isPoint ? '#000' : '#ff8c00',
+        fill: isPoint ? (hoverHandle === i ? '#fcb737' : '#f59404') : 'rgba(37, 38, 39,0.9)',
+        stroke: isPoint ? '#000000' : '#f59404',
         'stroke-width': 1.5,
       });
     }),

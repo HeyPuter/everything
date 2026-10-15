@@ -4,7 +4,7 @@
 .nd-sock[data-sock='in:__item__'],
 .nd-sock[data-sock='out:__item__'] {
   background: transparent;
-  box-shadow: 0 0 0 1px rgb(from var(--g-c8, #c8c8c8) r g b / 0.6);
+  box-shadow: 0 0 0 1px rgb(from var(--g-c8, #c9cacb) r g b / 0.6);
 }
 
 .gn-id-rows {
@@ -31,7 +31,7 @@
 }
 .gn-viewer-body .btn.active {
   background: var(--accent);
-  color: var(--c-text-on-accent, #fff);
+  color: var(--c-text-on-accent, #ffffff);
 }
 
 .gn-items {
@@ -72,15 +72,15 @@
   border-radius: 3px;
   display: grid;
   place-items: center;
-  color: var(--t-99, #999);
+  color: var(--t-99, #999a9b);
   background: transparent;
 }
 .gn-attr-toggle:hover {
-  color: var(--t-ff, #fff);
+  color: var(--t-ff, #ffffff);
   background: var(--w-regular);
 }
 .gn-attr-toggle.on {
-  color: var(--c-text-on-accent, #fff);
+  color: var(--c-text-on-accent, #ffffff);
   background: var(--accent);
 }
 .gn-warnings {
@@ -90,12 +90,12 @@
   margin-bottom: 4px;
 }
 .gn-warnings .mod-error {
-  background: rgba(172, 135, 55, 0.25);
+  background: rgba(166, 136, 55, 0.25);
 }
 .gn-warnings .mod-error.gn-error {
-  background: rgba(170, 60, 60, 0.3);
+  background: rgba(163, 65, 60, 0.3);
 }
 .gn-warnings .mod-error.gn-info {
-  background: rgba(90, 110, 140, 0.25);
+  background: rgba(91, 109, 140, 0.25);
   color: inherit;
 }

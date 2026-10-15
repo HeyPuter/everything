@@ -1010,7 +1010,7 @@ editModeHooks.svg.push((v) => {
     const line = ring.map(([x, y]) => v.project(pts(x).lerp(pts(y), t)));
     segs.push(line.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(''));
   }
-  return h('g', { class: 'loopcut-preview' }, segs.map((d) => h('path', { d, fill: 'none', stroke: '#ffd34d', 'stroke-width': 2 })));
+  return h('g', { class: 'loopcut-preview' }, segs.map((d) => h('path', { d, fill: 'none', stroke: '#fcd845', 'stroke-width': 2 })));
 });
 
 function startLoopCut() {

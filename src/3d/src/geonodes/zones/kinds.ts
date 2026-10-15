@@ -47,7 +47,7 @@ export const ZONES: ZoneKind[] = [
         ],
       },
     ],
-    color: [120, 86, 150],
+    color: [121, 85, 146],
   },
   {
     id: 'SIMULATION',
@@ -65,7 +65,7 @@ export const ZONES: ZoneKind[] = [
         ],
       },
     ],
-    color: [150, 112, 64],
+    color: [145, 113, 64],
   },
   {
     id: 'FOREACH',
@@ -92,7 +92,7 @@ export const ZONES: ZoneKind[] = [
         extend: [{ node: 'output', socket: '__extend__generation' }],
       },
     ],
-    color: [64, 120, 140],
+    color: [67, 118, 142],
   },
 ];
 

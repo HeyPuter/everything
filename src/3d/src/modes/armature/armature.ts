@@ -182,14 +182,14 @@ editModeHooks.svg.push((v) => {
       const hs = v.project(hw),
         ts = v.project(tw);
       const active = a.arm.active_bone === b.name;
-      const col = (s?: boolean) => (s ? (active ? '#ffffff' : '#ff8500') : '#111');
+      const col = (s?: boolean) => (s ? (active ? '#ffffff' : '#f58e04') : '#0d0e10');
       return h(
         'g',
         { key: b.name },
-        b.select ? h('line', { x1: hs.x, y1: hs.y, x2: ts.x, y2: ts.y, stroke: active ? '#fff' : '#ff8500', 'stroke-width': 2.5, opacity: 0.8 }) : null,
-        h('circle', { cx: hs.x, cy: hs.y, r: 4.5, fill: col(b.select_head), stroke: '#000', 'stroke-width': 0.8 }),
-        h('circle', { cx: ts.x, cy: ts.y, r: 4.5, fill: col(b.select_tail), stroke: '#000', 'stroke-width': 0.8 }),
-        a.arm.show_names ? h('text', { x: (hs.x + ts.x) / 2 + 6, y: (hs.y + ts.y) / 2, fill: '#fff', 'font-size': 11 }, b.name) : null,
+        b.select ? h('line', { x1: hs.x, y1: hs.y, x2: ts.x, y2: ts.y, stroke: active ? '#ffffff' : '#f58e04', 'stroke-width': 2.5, opacity: 0.8 }) : null,
+        h('circle', { cx: hs.x, cy: hs.y, r: 4.5, fill: col(b.select_head), stroke: '#000000', 'stroke-width': 0.8 }),
+        h('circle', { cx: ts.x, cy: ts.y, r: 4.5, fill: col(b.select_tail), stroke: '#000000', 'stroke-width': 0.8 }),
+        a.arm.show_names ? h('text', { x: (hs.x + ts.x) / 2 + 6, y: (hs.y + ts.y) / 2, fill: '#ffffff', 'font-size': 11 }, b.name) : null,
       );
     });
   return h('g', { class: 'arm-edit' }, parts);

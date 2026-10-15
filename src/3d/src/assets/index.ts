@@ -25,7 +25,7 @@ registerIcons({
   asset_catalog_all: '<path class="s" d="M3.5 6h3.5l1.3 1.3H14V13H3.5z" fill="none" stroke-width="1.2" stroke-linejoin="round"/><path class="s" d="M1.8 10.5V3.5h3.5l1.3 1.3h5.6" fill="none" stroke-width="1.2" stroke-linejoin="round"/>',
   asset_catalog_none: '<path class="s" d="M2 4.2h4l1.5 1.5H14V13H2z" fill="none" stroke-width="1.2" stroke-dasharray="1.8 1.4"/>',
   asset_tag: '<path class="s" d="M2.5 2.5h5.2l6 6-5.2 5.2-6-6z" fill="none" stroke-width="1.3" stroke-linejoin="round"/><circle class="f" cx="5.4" cy="5.4" r="1.1"/>',
-  asset_mark: '<path class="f" d="M4 1.5h8v13l-4-3.2-4 3.2z"/><path d="M8 4.2l.9 1.9 2 .2-1.5 1.4.4 2L8 8.7l-1.8 1 .4-2L5.1 6.3l2-.2z" fill="#1d1d1d"/>',
+  asset_mark: '<path class="f" d="M4 1.5h8v13l-4-3.2-4 3.2z"/><path d="M8 4.2l.9 1.9 2 .2-1.5 1.4.4 2L8 8.7l-1.8 1 .4-2L5.1 6.3l2-.2z" fill="#1a1b1c"/>',
 });
 
 // ---------------------------------------------------------------------------

@@ -54,15 +54,15 @@ export interface ClipOverlays {
 
 export const COLORS = {
   outline: '#000000',
-  marker: '#808000',
+  marker: '#7a8102',
   active: '#ffffff',
-  selected: '#ffff00',
-  disabled: '#7f0000',
-  locked: '#7f7f7f',
-  pathBefore: '#ff0000',
-  pathAfter: '#0000ff',
-  pathKeyBefore: '#ffc4c4',
-  pathKeyAfter: '#c4c4ff',
+  selected: '#f0fb18',
+  disabled: '#7c0802',
+  locked: '#7e7f81',
+  pathBefore: '#fb1104',
+  pathAfter: '#1004fa',
+  pathKeyBefore: '#fec8c5',
+  pathKeyAfter: '#c9c6fe',
 };
 
 type Handle = { track: MovieTrackingTrack; kind: 'move' | 'corner' | 'search'; index: number };
@@ -381,7 +381,7 @@ export class ClipEditor implements Editor {
       py = this.toScreen(0, 1, T);
     ctx.save();
     ctx.setTransform(dpr * (px[0] - p0[0]), dpr * (px[1] - p0[1]), dpr * (py[0] - p0[0]), dpr * (py[1] - p0[1]), dpr * p0[0], dpr * p0[1]);
-    ctx.fillStyle = '#000';
+    ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, W, H);
     if (bmp && !this.overlays.use_mute_footage) {
       const filter = c.tracking.stabilization.filter_type;
@@ -393,7 +393,7 @@ export class ClipEditor implements Editor {
     if (inRange && src && !bmp) this.request(idx);
     if (inRange && src) this.prefetchAround(idx);
     // frame outline
-    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.strokeStyle = 'rgba(0, 0, 0,0.6)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     const fc = [this.toScreen(0, 0, T), this.toScreen(W, 0, T), this.toScreen(W, H, T), this.toScreen(0, H, T)];
@@ -411,7 +411,7 @@ export class ClipEditor implements Editor {
     if (this.boxRect) {
       const b = this.boxRect;
       ctx.setLineDash([4, 3]);
-      ctx.strokeStyle = '#fff';
+      ctx.strokeStyle = '#ffffff';
       ctx.strokeRect(Math.min(b.x0, b.x1) + 0.5, Math.min(b.y0, b.y1) + 0.5, Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
       ctx.setLineDash([]);
     }
@@ -419,8 +419,8 @@ export class ClipEditor implements Editor {
     // info text
     ctx.font = '11px var(--mono, monospace)';
     ctx.textAlign = 'left';
-    ctx.fillStyle = '#e6e6e6';
-    ctx.shadowColor = 'rgba(0,0,0,0.9)';
+    ctx.fillStyle = '#e8e9ea';
+    ctx.shadowColor = 'rgba(0, 0, 0,0.9)';
     ctx.shadowBlur = 2;
     const left = this.showToolbar ? 238 : 8;
     const info = `Frame: ${cf} / ${c.frame_duration}${src ? `  ${W}×${H}  ${src.fps} fps  [${src.kind === 'webcodecs' ? 'WebCodecs' : src.kind === 'video' ? 'Video element' : 'Image sequence'}]` : '  Loading…'}${!inRange ? '  (outside of the clip)' : ''}`;
@@ -437,15 +437,15 @@ export class ClipEditor implements Editor {
     ctx.save();
     ctx.lineWidth = 1.5;
     ctx.setLineDash([3, 3]);
-    ctx.strokeStyle = '#fff';
+    ctx.strokeStyle = '#ffffff';
     ctx.beginPath();
     ctx.arc(x, y, 8, 0, Math.PI * 2);
     ctx.stroke();
     ctx.lineDashOffset = 3;
-    ctx.strokeStyle = '#e04040';
+    ctx.strokeStyle = '#dc433b';
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    ctx.strokeStyle = 'rgba(0, 0, 0,0.8)';
     ctx.beginPath();
     for (const [dx, dy] of [
       [1, 0],
@@ -466,15 +466,15 @@ export class ClipEditor implements Editor {
     const [W, H] = this.frameSize();
     const a = this.toScreen(0, 0, null),
       b = this.toScreen(W, H, null);
-    ctx.fillStyle = '#1a1a1a';
+    ctx.fillStyle = '#161719';
     ctx.fillRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
-    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.strokeStyle = 'rgba(0, 0, 0,0.6)';
     ctx.strokeRect(a[0] + 0.5, a[1] + 0.5, b[0] - a[0], b[1] - a[1]);
     drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE');
     drawMask(this, ctx, this.overlays.show_mask_spline !== false);
     this.drawCursor(ctx);
     ctx.font = '11px var(--mono, monospace)';
-    ctx.fillStyle = '#9a9a9a';
+    ctx.fillStyle = '#9a9b9c';
     ctx.textAlign = 'left';
     ctx.fillText(`Mask frame ${W}×${H} (no footage)`, this.showToolbar ? 238 : 8, 16);
     void w;
@@ -516,10 +516,10 @@ export class ClipEditor implements Editor {
       x1 = w - (this.showSidebar ? 290 : 0);
     const y = hh - 8;
     const fx = (f: number) => x0 + ((f - 1) / n) * (x1 - x0);
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillStyle = 'rgba(0, 0, 0,0.4)';
     ctx.fillRect(x0, y, x1 - x0, 8);
     if (src) {
-      ctx.fillStyle = '#5a7fbf';
+      ctx.fillStyle = '#5e7dbf';
       for (const i of src.cached()) {
         const f = i + 1 - c.frame_offset;
         ctx.fillRect(fx(f), y + 4, Math.max(1, fx(f + 1) - fx(f)), 4);
@@ -528,11 +528,11 @@ export class ClipEditor implements Editor {
     const t = activeTrack(c);
     if (t) {
       for (const m of t.markers) {
-        ctx.fillStyle = m.mute ? '#7f0000' : m.is_keyed ? '#ffff00' : '#a0a020';
+        ctx.fillStyle = m.mute ? '#7c0802' : m.is_keyed ? '#f0fb18' : '#9ca223';
         ctx.fillRect(fx(m.frame), y, Math.max(1, fx(m.frame + 1) - fx(m.frame)), 4);
       }
     }
-    ctx.fillStyle = '#4772b3';
+    ctx.fillStyle = '#4b70b5';
     const cf = this.clipFrame;
     ctx.fillRect(fx(cf), y - 2, Math.max(2, fx(cf + 1) - fx(cf)), 10);
   }
@@ -584,7 +584,7 @@ export class ClipEditor implements Editor {
         ] as const) {
           if (list.length < 2) continue;
           ctx.lineWidth = 3;
-          ctx.strokeStyle = '#000';
+          ctx.strokeStyle = '#000000';
           ctx.beginPath();
           list.forEach((q, i) => (i ? ctx.lineTo(q.p[0], q.p[1]) : ctx.moveTo(q.p[0], q.p[1])));
           ctx.stroke();
@@ -647,9 +647,9 @@ export class ClipEditor implements Editor {
         ctx.textAlign = 'left';
         lines.forEach((l, i) => {
           ctx.lineWidth = 3;
-          ctx.strokeStyle = '#000';
+          ctx.strokeStyle = '#000000';
           ctx.strokeText(l, bx, by + i * 13);
-          ctx.fillStyle = col === COLORS.marker ? '#d0d000' : col;
+          ctx.fillStyle = col === COLORS.marker ? '#cad403' : col;
           ctx.fillText(l, bx, by + i * 13);
         });
       }

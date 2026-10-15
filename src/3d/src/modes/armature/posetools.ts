@@ -139,9 +139,9 @@ editModeHooks.svg.push((v) => {
   return h(
     'g',
     { class: 'pose-slider' },
-    h('rect', { x, y, width: w, height: 22, rx: 5, fill: 'rgba(30,30,30,0.9)' }),
-    h('rect', { x: x + 2, y: y + 2, width: Math.max(0, (w - 4) * t), height: 18, rx: 4, fill: 'rgba(80,130,220,0.55)' }),
-    h('text', { x: W / 2, y: y + 15, fill: '#e8e8e8', 'font-size': 12, 'text-anchor': 'middle' }, `${sliderReadout.label}: ${Math.round(sliderReadout.value * 100)}%${sliderReadout.extra}`),
+    h('rect', { x, y, width: w, height: 22, rx: 5, fill: 'rgba(27, 28, 29,0.9)' }),
+    h('rect', { x: x + 2, y: y + 2, width: Math.max(0, (w - 4) * t), height: 18, rx: 4, fill: 'rgba(87, 128, 219,0.55)' }),
+    h('text', { x: W / 2, y: y + 15, fill: '#eaebec', 'font-size': 12, 'text-anchor': 'middle' }, `${sliderReadout.label}: ${Math.round(sliderReadout.value * 100)}%${sliderReadout.extra}`),
   );
 });
 

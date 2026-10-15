@@ -110,6 +110,6 @@ onAppReady(() => {
     if (!ob) return [];
     return ob.modifiers
       .filter((m) => m.type === 'NODES')
-      .flatMap((m) => bakeTargets(app.doc, m).map((t) => ({ frames: targetFrames(ob, m, t), baked: isBaked(ob, m, t), color: t.kind === 'SIMULATION' ? '#d9a24a' : '#5aa9d6' })));
+      .flatMap((m) => bakeTargets(app.doc, m).map((t) => ({ frames: targetFrames(ob, m, t), baked: isBaked(ob, m, t), color: t.kind === 'SIMULATION' ? '#d5a646' : '#66a8d7' })));
   });
 });

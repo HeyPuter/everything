@@ -26,16 +26,16 @@ import { triangulatePoly, polyNormal } from '../../mesh/mesh';
 
 const C = {
   vert: new Color(0, 0, 0),
-  vertSel: new Color().setRGB(1.0, 0.478, 0.0).convertSRGBToLinear(),
+  vertSel: new Color().setRGB(0.96, 0.514, 0.015).convertSRGBToLinear(),
   edge: new Color(0, 0, 0),
-  edgeSel: new Color().setRGB(1.0, 0.6, 0.0).convertSRGBToLinear(),
-  edgeModeSel: new Color().setRGB(1.0, 0.847, 0.0).convertSRGBToLinear(),
-  seam: new Color().setRGB(0.859, 0.145, 0.071).convertSRGBToLinear(),
-  sharp: new Color().setRGB(0.0, 1.0, 1.0).convertSRGBToLinear(),
-  crease: new Color().setRGB(0.8, 0.0, 0.6).convertSRGBToLinear(),
-  faceSel: new Color().setRGB(1.0, 0.639, 0.0).convertSRGBToLinear(),
+  edgeSel: new Color().setRGB(0.961, 0.63, 0.015).convertSRGBToLinear(),
+  edgeModeSel: new Color().setRGB(0.971, 0.872, 0.015).convertSRGBToLinear(),
+  seam: new Color().setRGB(0.831, 0.189, 0.081).convertSRGBToLinear(),
+  sharp: new Color().setRGB(0.094, 0.942, 0.986).convertSRGBToLinear(),
+  crease: new Color().setRGB(0.8, 0.012, 0.564).convertSRGBToLinear(),
+  faceSel: new Color().setRGB(0.962, 0.668, 0.015).convertSRGBToLinear(),
   active: new Color(1, 1, 1),
-  normal: new Color().setRGB(0.133, 0.867, 0.867).convertSRGBToLinear(),
+  normal: new Color().setRGB(0.212, 0.835, 0.868).convertSRGBToLinear(),
 };
 /** Edit-mode colours (Preferences ▸ Themes writes them). */
 export const editMeshColors = C;

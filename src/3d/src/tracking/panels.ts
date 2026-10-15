@@ -414,7 +414,7 @@ export function drawPatternPreviews(ed: ClipEditor) {
   if (!cv) return;
   const ctx = cv.getContext('2d')!;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = '#1d1d1d';
+  ctx.fillStyle = '#1a1b1c';
   ctx.fillRect(0, 0, cv.width, cv.height);
   const c = ed.clip;
   const t = c && activeTrack(c);
@@ -443,7 +443,7 @@ export function drawPatternPreviews(ed: ClipEditor) {
   ctx.drawImage(bmp, 0, 0, c.size[0], c.size[1]);
   ctx.filter = 'none';
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.strokeStyle = m.mute ? '#ff4040' : '#ffff00';
+  ctx.strokeStyle = m.mute ? '#fc4239' : '#f0fb18';
   ctx.lineWidth = 1;
   ctx.beginPath();
   g.corners.forEach((p, i) => (i ? ctx.lineTo(p[0] * k + ox, p[1] * k + oy) : ctx.moveTo(p[0] * k + ox, p[1] * k + oy)));

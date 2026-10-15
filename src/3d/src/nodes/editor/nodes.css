@@ -3,11 +3,11 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
-  background: var(--nd-back, #1d1d1d);
+  background: var(--nd-back, #1a1b1c);
   outline: none;
-  --nd-body: #303030;
-  --nd-text: #e6e6e6;
-  --nd-sel: #ed5700;
+  --nd-body: #2d2e30;
+  --nd-text: #e8e9ea;
+  --nd-sel: #e16003;
   --nd-active: #ffffff;
   cursor: default;
 }
@@ -104,7 +104,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 11.5px;
-  color: var(--t-f2, #f2f2f2);
+  color: var(--t-f2, #f4f5f6);
 }
 .nd-group-icon svg {
   width: 12px;
@@ -113,7 +113,7 @@
 }
 .nd-warn-icon {
   display: flex;
-  color: #ffc46b;
+  color: #fdc867;
   cursor: help;
 }
 .nd-warn-icon svg {
@@ -121,10 +121,10 @@
   height: 12px;
 }
 .nd-warn-icon.error {
-  color: #ff8080;
+  color: #fd847d;
 }
 .nd-warn-icon.info {
-  color: #b8c6dc;
+  color: #bcc7dd;
 }
 .nd-rowwrap {
   position: absolute;
@@ -244,19 +244,19 @@
 }
 .nd-enum-row > button.on {
   background: var(--accent);
-  color: var(--c-text-on-accent, #fff);
+  color: var(--c-text-on-accent, #ffffff);
 }
 .nd-panel {
   gap: 4px;
   cursor: pointer;
-  color: var(--t-cf, #cfcfcf);
+  color: var(--t-cf, #d0d1d3);
 }
 .nd-panel svg {
   width: 10px;
   height: 10px;
 }
 .nd-panel:hover {
-  color: var(--t-ff, #fff);
+  color: var(--t-ff, #ffffff);
 }
 
 /* sockets */
@@ -291,7 +291,7 @@
 }
 .nd-sock.ext {
   background: transparent;
-  box-shadow: 0 0 0 1px rgb(from var(--g-c8, #c8c8c8) r g b / 0.6);
+  box-shadow: 0 0 0 1px rgb(from var(--g-c8, #c9cacb) r g b / 0.6);
 }
 .nd-reroute {
   position: absolute;
@@ -325,7 +325,7 @@
 /* frames */
 .nd-frame {
   position: absolute;
-  background: var(--frame, rgba(60, 60, 60, 0.45));
+  background: var(--frame, rgba(57, 58, 60, 0.45));
   border-radius: 6px;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
 }
@@ -400,8 +400,8 @@
   align-items: center;
   gap: 6px;
   pointer-events: none;
-  color: var(--t-dd, #ddd);
-  text-shadow: 0 1px 2px #000;
+  color: var(--t-dd, #dedfe1);
+  text-shadow: 0 1px 2px #000000;
   font-size: 12px;
 }
 .nd-crumb {
@@ -414,7 +414,7 @@
   cursor: pointer;
 }
 .nd-crumb.link:hover {
-  color: var(--t-ff, #fff);
+  color: var(--t-ff, #ffffff);
   text-decoration: underline;
 }
 .nd-crumb-sep svg {
@@ -430,7 +430,7 @@
   pointer-events: none;
 }
 .nd-empty-msg {
-  color: var(--t-88, #888);
+  color: var(--t-88, #87888a);
 }
 
 /* header */
@@ -496,8 +496,8 @@
   bottom: 0;
   width: 270px;
   display: flex;
-  background: rgb(from var(--g-30, #303030) r g b / 0.96);
-  border-left: 1px solid var(--g-16, #161616);
+  background: rgb(from var(--g-30, #2d2e30) r g b / 0.96);
+  border-left: 1px solid var(--g-16, #121315);
   z-index: 3;
 }
 .nd-sidebar[hidden] {
@@ -515,19 +515,19 @@
   flex-direction: column;
   gap: 2px;
   padding-top: 6px;
-  background: var(--g-28, #282828);
+  background: var(--g-28, #252627);
 }
 .nd-side-tab {
   writing-mode: vertical-rl;
   padding: 8px 0;
   font-size: 11px;
-  color: var(--t-aa, #aaa);
-  background: var(--g-2b, #2b2b2b);
+  color: var(--t-aa, #aaabad);
+  background: var(--g-2b, #28292a);
   border-radius: 0 4px 4px 0;
 }
 .nd-side-tab.on {
-  background: var(--g-3d, #3d3d3d);
-  color: var(--t-ff, #fff);
+  background: var(--g-3d, #3a3b3d);
+  color: var(--t-ff, #ffffff);
 }
 .nd-side-row {
   padding: 1px 10px;
@@ -538,7 +538,7 @@
 }
 .nd-side-sub {
   padding: 6px 10px 2px;
-  color: var(--t-aa, #aaa);
+  color: var(--t-aa, #aaabad);
 }
 .nd-side-check {
   display: inline-flex;
@@ -552,7 +552,7 @@
 .nd-iface-list {
   flex: 1;
   min-height: 80px;
-  background: var(--g-28, #282828);
+  background: var(--g-28, #252627);
   border-radius: 4px;
   padding: 2px;
 }
@@ -581,7 +581,7 @@
   border-radius: 50%;
 }
 .nd-iface-dir {
-  color: var(--t-99, #999);
+  color: var(--t-99, #999a9b);
 }
 .nd-iface-btns {
   display: flex;
@@ -636,7 +636,7 @@
   text-overflow: ellipsis;
 }
 .nd-props-linked:hover {
-  background: var(--g-3b, #3b3b3b);
+  background: var(--g-3b, #38393b);
 }
 .nd-props-sub {
   margin-left: 12px;
@@ -709,7 +709,7 @@
   border-radius: 3px;
 }
 .nd-ramp-checker {
-  background: repeating-conic-gradient(var(--g-33, #333) 0 25%, var(--g-66, #666) 0 50%) 0 0 / 8px 8px;
+  background: repeating-conic-gradient(var(--g-33, #303133) 0 25%, var(--g-66, #646567) 0 50%) 0 0 / 8px 8px;
 }
 .nd-ramp-grad {
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
@@ -719,7 +719,7 @@
   top: 0;
   bottom: -6px;
   width: 0;
-  border-left: 1px solid #000;
+  border-left: 1px solid #000000;
   pointer-events: none;
 }
 .nd-ramp-mark::after {
@@ -730,14 +730,14 @@
   width: 8px;
   height: 8px;
   background: var(--mc);
-  border: 1px solid #000;
+  border: 1px solid #000000;
   transform: rotate(45deg);
 }
 .nd-ramp-mark.on {
-  border-left-color: var(--g-ff, #fff);
+  border-left-color: var(--g-ff, #ffffff);
 }
 .nd-ramp-mark.on::after {
-  border-color: var(--g-ff, #fff);
+  border-color: var(--g-ff, #ffffff);
 }
 .nd-ramp-stop .num-field:first-child {
   flex: 0 0 52px;
@@ -759,7 +759,7 @@
 }
 .nd-curve-tabs > button.on {
   background: var(--accent);
-  color: var(--c-text-on-accent, #fff);
+  color: var(--c-text-on-accent, #ffffff);
 }
 .nd-curve-svg {
   width: 100%;
@@ -768,11 +768,11 @@
   border-radius: 3px;
 }
 .nd-curve-bg {
-  fill: var(--g-2a, #2a2a2a);
-  stroke: var(--g-11, #111);
+  fill: var(--g-2a, #272829);
+  stroke: var(--g-11, #0d0e10);
 }
 .nd-curve-grid {
-  stroke: var(--g-3a, #3a3a3a);
+  stroke: var(--g-3a, #37383a);
   stroke-width: 1;
 }
 .nd-curve-path {
@@ -783,19 +783,19 @@
   opacity: 0.35;
 }
 .nd-curve-pt {
-  fill: var(--g-11, #111);
-  stroke: var(--g-dd, #ddd);
+  fill: var(--g-11, #0d0e10);
+  stroke: var(--g-dd, #dedfe1);
   stroke-width: 1;
 }
 .nd-curve-pt.on {
-  fill: var(--g-ff, #fff);
+  fill: var(--g-ff, #ffffff);
 }
 .nd-curve-point .num-field {
   flex: 1;
   height: 18px;
 }
 .nd-curve-hint {
-  color: var(--t-88, #888);
+  color: var(--t-88, #87888a);
   font-size: 10.5px;
 }
 .nd-curve-levels .color-swatch {
@@ -825,7 +825,7 @@
   aspect-ratio: 1;
   margin-bottom: 4px;
   border-radius: 6px;
-  background: rgb(from var(--g-1e, #1e1e1e) r g b / 0.85);
+  background: rgb(from var(--g-1e, #1b1c1d) r g b / 0.85);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
   pointer-events: none;
   overflow: hidden;

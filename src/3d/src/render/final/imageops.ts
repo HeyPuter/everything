@@ -284,7 +284,7 @@ registerOperators([
       let start: { x: number; y: number } | null = null;
       const box = document.createElement('div');
       box.className = 'zoom-border-box';
-      Object.assign(box.style, { position: 'absolute', border: '1px dashed #fff', pointerEvents: 'none', display: 'none' });
+      Object.assign(box.style, { position: 'absolute', border: '1px dashed #ffffff', pointerEvents: 'none', display: 'none' });
       v.el.append(box);
       app.startModal({
         label: 'Zoom to Border',

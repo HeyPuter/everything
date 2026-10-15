@@ -403,5 +403,5 @@ export function trackColor(track: MovieTrackingTrack, selected = track.select): 
     const c = track.color.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255));
     return `rgb(${c[0]},${c[1]},${c[2]})`;
   }
-  return selected ? '#ffd24d' : '#000000';
+  return selected ? '#fcd745' : '#000000';
 }

@@ -55,10 +55,10 @@ export function vectorscope(px: Uint8ClampedArray, n = 256): Uint32Array {
 const FONT = '10px Inter, system-ui, sans-serif';
 
 function graticule(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, lines: number[]) {
-  g.strokeStyle = 'rgba(255,255,255,0.12)';
+  g.strokeStyle = 'rgba(255, 255, 255,0.12)';
   g.lineWidth = 1;
   g.font = FONT;
-  g.fillStyle = 'rgba(255,255,255,0.4)';
+  g.fillStyle = 'rgba(255, 255, 255,0.4)';
   for (const t of lines) {
     const yy = Math.round(y + h - t * h) + 0.5;
     g.beginPath();
@@ -72,13 +72,13 @@ function graticule(g: CanvasRenderingContext2D, x: number, y: number, w: number,
 /** Draw a scope of the pixels into the rectangle (canvas pixels). */
 export function drawScope(g: CanvasRenderingContext2D, mode: ScopeMode, px: Uint8ClampedArray, pw: number, ph: number, x: number, y: number, w: number, h: number) {
   g.save();
-  g.fillStyle = '#101010';
+  g.fillStyle = '#0c0d0f';
   g.fillRect(x, y, w, h);
   if (mode === 'HISTOGRAM') {
     const hist = histogram(px);
     const max = Math.max(1, ...hist.slice(0, 3).map((c) => Math.max(...c.subarray(1, 255))));
     g.globalCompositeOperation = 'lighter';
-    const cols = ['rgba(255,60,60,0.7)', 'rgba(60,255,60,0.7)', 'rgba(70,110,255,0.7)'];
+    const cols = ['rgba(252, 63, 53,0.7)', 'rgba(83, 252, 91,0.7)', 'rgba(79, 108, 252,0.7)'];
     for (let c = 0; c < 3; c++) {
       g.fillStyle = cols[c];
       g.beginPath();
@@ -134,7 +134,7 @@ export function drawScope(g: CanvasRenderingContext2D, mode: ScopeMode, px: Uint
     tmp.height = n;
     tmp.getContext('2d')!.putImageData(img, 0, 0);
     // graticule: circle and the primary / secondary colour targets
-    g.strokeStyle = 'rgba(255,255,255,0.18)';
+    g.strokeStyle = 'rgba(255, 255, 255,0.18)';
     g.beginPath();
     g.arc(ox + side / 2, oy + side / 2, side / 2, 0, Math.PI * 2);
     g.moveTo(ox, oy + side / 2);
@@ -157,7 +157,7 @@ export function drawScope(g: CanvasRenderingContext2D, mode: ScopeMode, px: Uint
         ty = oy + (0.5 - v) * side;
       g.strokeStyle = `rgb(${rgb.join(',')})`;
       g.strokeRect(tx - 4, ty - 4, 8, 8);
-      g.fillStyle = 'rgba(255,255,255,0.6)';
+      g.fillStyle = 'rgba(255, 255, 255,0.6)';
       g.fillText(label, tx + 6, ty + 3);
     }
   }

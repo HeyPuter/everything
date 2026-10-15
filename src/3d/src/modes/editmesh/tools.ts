@@ -183,7 +183,7 @@ let bisectLine: { v: View3D; a: { x: number; y: number }; b: { x: number; y: num
 editModeHooks.svg.push((v) => {
   if (!bisectLine || bisectLine.v !== v) return null;
   const { a, b } = bisectLine;
-  return h('g', { class: 'bisect-line' }, h('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: '#ffd34d', 'stroke-width': 1.6, 'stroke-dasharray': '6 4' }));
+  return h('g', { class: 'bisect-line' }, h('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: '#fcd845', 'stroke-width': 1.6, 'stroke-dasharray': '6 4' }));
 });
 
 /** Plane (world) through the screen line a→b, containing the view direction. */

@@ -228,7 +228,7 @@ async function exportStabilized(clip: MovieClipData) {
       const T = stabilizationMatrix(clip, f, z);
       // bottom-left space transform → canvas (top-left) transform
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.fillStyle = '#000';
+      ctx.fillStyle = '#000000';
       ctx.fillRect(0, 0, W, H);
       ctx.setTransform(T[0], -T[1], -T[2], T[3], T[4] + T[2] * H, H - T[5] - T[3] * H);
       const filter = clip.tracking.stabilization.filter_type;

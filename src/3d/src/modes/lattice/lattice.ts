@@ -289,7 +289,7 @@ editModeHooks.svg.push((v) => {
   for (let i = 0; i < sel.length; i++) {
     const p = v.project(pointWorld(a.lt, i, w));
     if (p.z > 1) continue;
-    dots.push(h('circle', { cx: p.x, cy: p.y, r: 3.5, fill: sel[i] ? '#ff8500' : '#000', stroke: sel[i] ? '#ffb15e' : '#666', 'stroke-width': 0.8 }));
+    dots.push(h('circle', { cx: p.x, cy: p.y, r: 3.5, fill: sel[i] ? '#f58e04' : '#000000', stroke: sel[i] ? '#fcb559' : '#646567', 'stroke-width': 0.8 }));
   }
   return h('g', { class: 'lattice-edit' }, dots);
 });

@@ -321,7 +321,7 @@ export class SceneSync {
       l.matrix.copy(m);
       l.userData.bone = name;
       l.userData.id = ev.id;
-      const f = new Mesh(tg, new MeshBasicMaterial({ color: 0x8c8c8c, transparent: true, opacity: arm.display_type === 'ENVELOPE' ? 0.35 : 0.85 }));
+      const f = new Mesh(tg, new MeshBasicMaterial({ color: 0x8b8c8e, transparent: true, opacity: arm.display_type === 'ENVELOPE' ? 0.35 : 0.85 }));
       f.matrixAutoUpdate = false;
       f.matrix.copy(m);
       f.userData.bone = name;

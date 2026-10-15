@@ -181,7 +181,7 @@ editModeHooks.svg.push((v) => {
   if (s.z > 1) return null;
   const shape =
     snapIndicator.kind === 'EDGE' || snapIndicator.kind === 'EDGE_MIDPOINT'
-      ? h('rect', { x: s.x - 5, y: s.y - 5, width: 10, height: 10, fill: 'none', stroke: '#fff', 'stroke-width': 1.5, transform: snapIndicator.kind === 'EDGE_MIDPOINT' ? `rotate(45 ${s.x} ${s.y})` : undefined })
-      : h('circle', { cx: s.x, cy: s.y, r: 6, fill: 'none', stroke: '#fff', 'stroke-width': 1.5 });
-  return h('g', { class: 'snap-indicator' }, shape, h('circle', { cx: s.x, cy: s.y, r: 1.5, fill: '#fff' }));
+      ? h('rect', { x: s.x - 5, y: s.y - 5, width: 10, height: 10, fill: 'none', stroke: '#ffffff', 'stroke-width': 1.5, transform: snapIndicator.kind === 'EDGE_MIDPOINT' ? `rotate(45 ${s.x} ${s.y})` : undefined })
+      : h('circle', { cx: s.x, cy: s.y, r: 6, fill: 'none', stroke: '#ffffff', 'stroke-width': 1.5 });
+  return h('g', { class: 'snap-indicator' }, shape, h('circle', { cx: s.x, cy: s.y, r: 1.5, fill: '#ffffff' }));
 });

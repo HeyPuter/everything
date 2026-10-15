@@ -89,7 +89,7 @@ editModeHooks.pointer.unshift((v, e) => {
 editModeHooks.svg.push((v) => {
   if (!stroke || stroke.view !== v || stroke.pts.length < 2) return null;
   const d = stroke.pts.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join('');
-  return h('path', { d, fill: 'none', stroke: '#ffb15e', 'stroke-width': 1.5, 'pointer-events': 'none' }) as VNode;
+  return h('path', { d, fill: 'none', stroke: '#fcb559', 'stroke-width': 1.5, 'pointer-events': 'none' }) as VNode;
 });
 
 registerOperators([

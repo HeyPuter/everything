@@ -391,7 +391,7 @@ for (const t of VERTEX_TOOLS)
         ? h(
             'button',
             { class: 'hdr-toggle', 'data-tip': 'Swap Colors (X)\nSwap the brush color with the secondary color', onclick: () => app.run('paint.brush_colors_flip') },
-            h('span', { style: { display: 'inline-block', width: '10px', height: '10px', border: '1px solid #000', background: `rgb(${(b.secondary_color ?? [1, 1, 1]).map((x) => Math.round(Math.pow(clamp(x), 1 / 2.2) * 255)).join(',')})` } }),
+            h('span', { style: { display: 'inline-block', width: '10px', height: '10px', border: '1px solid #000000', background: `rgb(${(b.secondary_color ?? [1, 1, 1]).map((x) => Math.round(Math.pow(clamp(x), 1 / 2.2) * 255)).join(',')})` } }),
           )
         : null,
       h('div', { style: { width: '120px', flex: 'none' } }, sizeField(b, `gpv-size-${t.id}`, 'Radius')),
