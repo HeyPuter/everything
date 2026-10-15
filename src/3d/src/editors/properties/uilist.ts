@@ -8,6 +8,8 @@ export interface ListItem {
   label: string;
   icon?: string;
   right?: Child;
+  /** width of the right-hand part: 'compact' (just icons) or 'wide' (several widgets) */
+  rightSize?: 'compact' | 'wide';
 }
 
 const renaming = new Map<string, number>();
@@ -71,7 +73,7 @@ export function uiList(
                   },
                 })
               : h('span', { class: 'ul-label' }, it.label),
-            it.right ? h('span', { class: 'ul-right' }, it.right) : null,
+            it.right ? h('span', { class: { 'ul-right': true, compact: it.rightSize === 'compact', wide: it.rightSize === 'wide' } }, it.right) : null,
           ),
         ),
       ),

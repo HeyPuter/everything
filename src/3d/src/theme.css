@@ -1869,10 +1869,10 @@ input.num-field.editing {
   flex: 1;
   min-width: 0;
 }
-.ul-right:has(> .ul-lock:only-child) {
+.ul-right.compact {
   width: auto;
 }
-.ul-right:has(> :nth-child(3)) {
+.ul-right.wide {
   width: 62%;
 }
 .col-box {

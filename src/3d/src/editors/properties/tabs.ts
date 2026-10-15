@@ -490,7 +490,7 @@ function meshData(o: ObjectData, me: MeshData): Child {
     panel('me-vgroups', 'Vertex Groups', () => [
       uiList(
         'vg',
-        me.vertex_groups.map((g, i) => ({ key: g.name, label: g.name, icon: 'group_vertex', right: lockToggle(!!g.lock_weight, 'Lock weights', () => ((me.vertex_groups[i] = { ...g, lock_weight: !g.lock_weight }), changed('Lock Vertex Group'))) })),
+        me.vertex_groups.map((g, i) => ({ key: g.name, label: g.name, icon: 'group_vertex', rightSize: 'compact' as const, right: lockToggle(!!g.lock_weight, 'Lock weights', () => ((me.vertex_groups[i] = { ...g, lock_weight: !g.lock_weight }), changed('Lock Vertex Group'))) })),
         o.vertex_group_active_index ?? 0,
         (i) => ((o.vertex_group_active_index = i), app.changed('doc')),
         {
@@ -517,6 +517,7 @@ function meshData(o: ObjectData, me: MeshData): Child {
           key: k.name,
           label: k.name,
           icon: 'shapekey_data',
+          rightSize: 'wide' as const,
           right: [
             i > 0 ? numberField({ id: `sk.${me.id}.${i}`, value: k.value, min: k.slider_min, max: k.slider_max, slider: true, set: (v, f) => ((k.value = v), app.changed('doc'), f && app.pushUndo('Shape Key Value')) }) : null,
             i > 0 ? checkbox(`sk-mute.${me.id}.${i}`, '', !k.mute, (v) => ((k.mute = !v), changed('Shape Key Mute'))) : null,

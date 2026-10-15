@@ -181,6 +181,8 @@ export function installKeyboard() {
             return;
           }
           if (!k.op) continue;
+          // a frame change may still be waiting for the next animation frame: evaluate it first
+          app.flushPending();
           if (!app.poll(k.op, area)) continue;
           e.preventDefault();
           app.run(k.op, k.props ?? {}, { area, event: { x: app.pointer.x, y: app.pointer.y } });

@@ -167,6 +167,11 @@ export class App {
   }
 
   /** Synchronously evaluate and notify (used by tests and modal operators). */
+  /** Apply scheduled changes right away (so a shortcut acts on the current frame's state). */
+  flushPending() {
+    if (this.pending.size) this.flush();
+  }
+
   flush() {
     this.scheduled = false;
     const kinds = new Set(this.pending);
