@@ -81,6 +81,8 @@ export function layerMenu(): MenuItem[] {
     { label: 'Add New Layer', op: 'grease_pencil.layer_add' },
     { label: 'Duplicate Layer', op: 'grease_pencil.layer_duplicate', props: { empty_keyframes: false } },
     { label: 'Duplicate Empty Keyframes', op: 'grease_pencil.layer_duplicate', props: { empty_keyframes: true } },
+    { label: 'Copy Layer to Selected', op: 'grease_pencil.layer_duplicate_object', props: { only_active: true } },
+    { label: 'Copy All Layers to Selected', op: 'grease_pencil.layer_duplicate_object', props: { only_active: false } },
     { separator: true },
     { label: 'Show All', op: 'grease_pencil.layer_reveal' },
     { label: 'Hide Others', op: 'grease_pencil.layer_hide', props: { unselected: true } },

@@ -12,7 +12,8 @@ import { toolSettingsRenderers, toolsByMode, type ToolDef } from '../editors/vie
 import { dragRegion } from '../ops/viewregions';
 import { uniqueName } from '../ops/object';
 import { h } from '../ui/h';
-import { gpOf, gpBrush, frameAt, toStrokes, fromStrokes, normalizeDrawing, newGPMaterial, type GPPoint, type GPStroke } from './data';
+import { gpOf, gpBrush, gpTS, frameAt, toStrokes, fromStrokes, normalizeDrawing, newGPMaterial, type GPPoint, type GPStroke } from './data';
+import { checkbox, enumMenu, numberField } from '../ui/widgets';
 import { drawContext, editableDrawing } from './paint';
 import { layerMatrix } from './render';
 import { filterPoints } from './strokeops';
@@ -375,13 +376,14 @@ editModeHooks.pointer.unshift((v, e) => {
       app.run('ui.eyedropper_grease_pencil_color', props, { event: ev });
       return true;
     }
-    if (tool === 'builtin.interpolate') return dragThen(v, e, () => app.run('grease_pencil.interpolate', { release_confirm: true, use_selection: false }, { event: ev }));
+    if (tool === 'builtin.interpolate') return dragThen(v, e, () => app.run('grease_pencil.interpolate', { ...interpolateSettings(), release_confirm: true, use_selection: false }, { event: ev }));
     return false;
   }
   if (mode === 'EDIT' && inGPEdit()) {
     const op = EDIT_TOOL_OPS[activeTools.EDIT ?? ''];
     if (!op) return false;
-    return dragThen(v, e, () => app.run(op[0], { ...op[1] }, { event: { x: e.clientX, y: e.clientY } }));
+    const extra = activeTools.EDIT === 'builtin.interpolate' ? interpolateSettings() : {};
+    return dragThen(v, e, () => app.run(op[0], { ...extra, ...op[1] }, { event: { x: e.clientX, y: e.clientY } }));
   }
   return false;
 });
@@ -434,7 +436,50 @@ toolsByMode.EDIT_GREASEPENCIL.push(...EDIT_TOOLS);
 const hint = (text: string) => () => h('span', { class: 'th-label' }, text);
 toolSettingsRenderers['builtin.trim'] = hint('Draw a lasso over the parts of strokes to remove; strokes are cut where they cross');
 toolSettingsRenderers['builtin.eyedropper'] = hint('Click: stroke material · Shift: fill material · Shift Ctrl: stroke & fill · Ctrl: brush color');
-toolSettingsRenderers['builtin.interpolate'] = hint('Drag to create an in-between breakdown on the current frame; release to confirm');
+toolSettingsRenderers['builtin.interpolate'] = () => {
+  const s = interpolateSettings();
+  const set = () => app.changed('ui');
+  return [
+    h(
+      'div',
+      { style: { width: '110px', flex: 'none' } },
+      enumMenu(
+        'gpi-layers',
+        [
+          { value: 'ACTIVE', label: 'Active Layer' },
+          { value: 'ALL', label: 'All Layers' },
+        ],
+        s.layers,
+        (x) => ((s.layers = x as 'ACTIVE' | 'ALL'), set()),
+        { tip: 'Layers to interpolate' },
+      ),
+    ),
+    checkbox('gpi-excl', 'Exclude Breakdowns', s.exclude_breakdowns, (x) => ((s.exclude_breakdowns = x), set()), { tip: 'Interpolate between keys only, skipping breakdowns' }),
+    h(
+      'div',
+      { style: { width: '100px', flex: 'none' } },
+      enumMenu(
+        'gpi-flip',
+        [
+          { value: 'AUTO', label: 'Automatic' },
+          { value: 'NONE', label: 'No Flip' },
+          { value: 'FLIP', label: 'Flip' },
+        ],
+        s.flip,
+        (x) => ((s.flip = x as 'AUTO'), set()),
+        { tip: 'Flip Mode\nHow the target strokes are paired by direction' },
+      ),
+    ),
+    h('div', { style: { width: '110px', flex: 'none' } }, numberField({ id: 'gpi-smooth', label: 'Smooth', value: s.smooth_factor, min: 0, max: 2, slider: true, set: (x) => ((s.smooth_factor = x), set()) })),
+    h('div', { style: { width: '90px', flex: 'none' } }, numberField({ id: 'gpi-steps', label: 'Steps', value: s.smooth_steps, min: 1, max: 3, int: true, set: (x) => ((s.smooth_steps = Math.round(x)), set()) })),
+  ];
+};
+
+/** Interpolate tool settings (also used by its drags). */
+export function interpolateSettings() {
+  const ts = gpTS(app.doc) as unknown as { gpencil_interpolate?: { layers: 'ACTIVE' | 'ALL'; exclude_breakdowns: boolean; flip: 'AUTO' | 'NONE' | 'FLIP'; smooth_factor: number; smooth_steps: number } };
+  return (ts.gpencil_interpolate ??= { layers: 'ACTIVE', exclude_breakdowns: false, flip: 'AUTO', smooth_factor: 0, smooth_steps: 1 });
+}
 for (const id of ['builtin.extrude', 'builtin.radius', 'builtin.bend', 'builtin.shear', 'builtin.to_sphere']) toolSettingsRenderers[id] ??= hint('Drag to apply to the selected points');
 
 const draw = () => app.doc.mode === 'PAINT_GREASE_PENCIL' && !!gpOf(app.doc, app.activeObject);

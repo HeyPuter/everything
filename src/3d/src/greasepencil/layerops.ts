@@ -6,7 +6,7 @@ import { frameHooks } from '../ops/view3d';
 import { worldBounds } from '../editors/view3d/view3d';
 import { layerMatrix, parentWorld } from './render';
 import type { ObjectData } from '../data/types';
-import { gpOf, frameAt, toStrokes, fromStrokes, setKeyframe, compactDrawings, normalizeDrawing } from './data';
+import { gpOf, frameAt, toStrokes, fromStrokes, setKeyframe, compactDrawings, normalizeDrawing, copyDrawing, uniqueLayerName } from './data';
 import { activeGP } from './ops';
 import { editTargets, inGPEdit } from './edit';
 import type { GPDrawing, GPKeyframeType, GPLayer, GreasePencilData } from './types';
@@ -337,6 +337,47 @@ registerOperators([
       if (j < 0 || j >= list.length) return 'CANCELLED';
       [list[i], list[j]] = [list[j], list[i]];
       layer.active_mask_index = j;
+    },
+  },
+]);
+
+registerOperators([
+  {
+    idname: 'grease_pencil.layer_duplicate_object',
+    label: 'Duplicate Layer to New Object',
+    description: 'Copy the active layer (or every layer) to the other selected grease pencil objects',
+    props: [
+      { id: 'only_active', label: 'Only Active', type: 'bool', default: true },
+      {
+        id: 'mode',
+        label: 'Mode',
+        type: 'enum',
+        default: 'ALL',
+        items: [
+          ['ALL', 'All Frames', 'Copy every keyframe'],
+          ['ACTIVE', 'Active Frame', 'Copy the keyframe shown on the current frame'],
+        ],
+      },
+    ],
+    poll: () => !!activeGP() && selectedGP().length > 1,
+    exec: (c, p) => {
+      const { ob, gp } = activeGP()!;
+      const layers = p.only_active ? [gp.layers[gp.active_layer_index]].filter(Boolean) : gp.layers;
+      const frame = c.doc.scene.frame_current;
+      let n = 0;
+      for (const { ob: o, gp: g } of selectedGP()) {
+        if (o === ob) continue;
+        for (const l of layers) {
+          const copy: GPLayer = { ...structuredClone({ ...l, frames: [] }), name: uniqueLayerName(g, l.name), frames: [] };
+          const frames = p.mode === 'ACTIVE' ? [frameAt(l, frame)].filter((f): f is NonNullable<typeof f> => !!f) : l.frames;
+          for (const f of frames) setKeyframe(g, copy, p.mode === 'ACTIVE' ? frame : f.frame_number, copyDrawing(gp.drawings[f.drawing]), f.keyframe_type);
+          g.layers.push(copy);
+          // materials the strokes use come along
+          for (const id of gp.materials) if (id && !g.materials.includes(id)) g.materials.push(id);
+          n++;
+        }
+      }
+      if (!n) return 'CANCELLED';
     },
   },
 ]);
