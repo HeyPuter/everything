@@ -1236,36 +1236,64 @@ function startBevelModal(p: Record<string, unknown>) {
 // ---------------------------------------------------------------------------
 // spin
 
-function spin(m: MeshEdit, steps: number, angle: number, center: Vector3, axis: Vector3, dupli = false) {
+export function spin(m: MeshEdit, steps: number, angle: number, center: Vector3, axis: Vector3, dupli = false, opts: { autoMerge?: boolean; flip?: boolean } = {}) {
   const fsel = m.selectedFaces();
-  const edges = fsel.length ? null : m.selectedEdges();
   const profileVerts = m.selectedVerts();
   if (!profileVerts.length) return false;
-  let prev = new Map(profileVerts.map((v) => [v, v]));
-  const profileEdges = edges ?? (() => {
-    // boundary edges of the selected face region
-    const count = new Map<string, number>();
-    for (const fi of fsel) {
-      const f = m.faces[fi];
-      for (let i = 0; i < f.verts.length; i++) {
-        const k = edgeKey(f.verts[i], f.verts[(i + 1) % f.verts.length]);
-        count.set(k, (count.get(k) ?? 0) + 1);
+  const selEdges = m.selectedEdges();
+  // edges that sweep into walls: region outline for faces, else the selected edges
+  const count = new Map<string, number>();
+  for (const fi of fsel) {
+    const f = m.faces[fi];
+    for (let i = 0; i < f.verts.length; i++) {
+      const k = edgeKey(f.verts[i], f.verts[(i + 1) % f.verts.length]);
+      count.set(k, (count.get(k) ?? 0) + 1);
+    }
+  }
+  const faceEdges = new Set(count.keys());
+  const profileEdges: [number, number][] = [...[...count.entries()].filter(([, c]) => c === 1).map(([k]) => k.split(':').map(Number) as [number, number]), ...selEdges.filter(([a, b]) => !faceEdges.has(edgeKey(a, b)))];
+  const full = Math.abs(Math.abs(angle) - Math.PI * 2) < 1e-4;
+  const merge = !dupli && full && !!opts.autoMerge;
+  const first = new Map(profileVerts.map((v) => [v, v]));
+  let prev = first;
+  const firstFace = m.faces.length;
+  for (let s = 1; s <= steps; s++) {
+    const last = s === steps;
+    let cur: Map<number, number>;
+    if (last && merge) cur = first;
+    else {
+      const q = new Quaternion().setFromAxisAngle(axis, (angle * s) / steps);
+      cur = new Map<number, number>();
+      for (const v of profileVerts) {
+        const p = V(m.p(v)).sub(center).applyQuaternion(q).add(center);
+        cur.set(v, m.addVert([p.x, p.y, p.z], [[v, 1]], last ? 1 : 0));
       }
     }
-    return [...count.entries()].filter(([, c]) => c === 1).map(([k]) => k.split(':').map(Number) as [number, number]);
-  })();
-  for (let s = 1; s <= steps; s++) {
-    const q = new Quaternion().setFromAxisAngle(axis, (angle * s) / steps);
-    const cur = new Map<number, number>();
-    for (const v of profileVerts) {
-      const p = V(m.p(v)).sub(center).applyQuaternion(q).add(center);
-      cur.set(v, m.addVert([p.x, p.y, p.z], [[v, 1]], s === steps ? 1 : 0));
-    }
-    if (!dupli) for (const [a, b] of profileEdges) m.faces.push(m.makeFace([prev.get(a)!, prev.get(b)!, cur.get(b)!, cur.get(a)!]));
+    if (dupli) {
+      // a rotated copy of the selection at every step
+      for (const fi of fsel) {
+        const f = m.faces[fi];
+        m.faces.push({ ...f, verts: f.verts.map((v) => cur.get(v)!), uvs: [...f.uvs], seams: [...f.seams], sharp: [...f.sharp], creases: [...f.creases], colors: f.colors ? [...f.colors] : undefined, cnormals: undefined });
+      }
+      for (const [a, b] of selEdges) if (!faceEdges.has(edgeKey(a, b))) m.looseEdges.push([cur.get(a)!, cur.get(b)!]);
+    } else for (const [a, b] of profileEdges) m.faces.push(m.makeFace([prev.get(a)!, prev.get(b)!, cur.get(b)!, cur.get(a)!], fsel.length ? m.faces[fsel[0]] : undefined));
     prev = cur;
   }
-  for (const v of profileVerts) m.sel[v] = 0;
+  if (!dupli && fsel.length && !merge) {
+    // end cap: the selected faces at the final position
+    for (const fi of fsel) {
+      const f = m.faces[fi];
+      m.faces.push({ ...f, verts: f.verts.map((v) => prev.get(v)!), uvs: [...f.uvs], seams: [...f.seams], sharp: [...f.sharp], creases: [...f.creases], colors: f.colors ? [...f.colors] : undefined, cnormals: undefined });
+    }
+  }
+  if (!dupli && fsel.length) {
+    // like an extrusion, the swept faces leave their start position
+    const rm = new Set(fsel);
+    m.faces = m.faces.filter((_, i) => !rm.has(i));
+  }
+  if (!merge) for (const v of profileVerts) m.sel[v] = 0;
   makeNormalsConsistentNew(m);
+  if (opts.flip) for (let i = firstFace - (!dupli ? fsel.length : 0); i < m.faces.length; i++) if (m.faces[i]) flipFace(m.faces[i]);
   return true;
 }
 
@@ -1280,10 +1308,22 @@ registerOperators([
       { id: 'depth', label: 'Depth', type: 'float', default: 0, subtype: 'distance' },
       { id: 'use_individual', label: 'Individual', type: 'bool', default: false },
       { id: 'use_outset', label: 'Outset', type: 'bool', default: false },
+      { id: 'use_select_inset', label: 'Select Outer', type: 'bool', default: false },
     ],
     poll: editPoll,
     invoke: (_ctx, p) => startInsetModal(!!p.use_individual, !!p.use_outset),
-    exec: (_ctx, p) => void withEdit((m) => insetFaces(m, p.thickness as number, p.depth as number, !!p.use_individual, !!p.use_outset)),
+    exec: (_ctx, p) =>
+      void withEdit((m) => {
+        const before = m.faces.length;
+        if (!insetFaces(m, p.thickness as number, p.depth as number, !!p.use_individual, !!p.use_outset)) return false;
+        if (p.use_select_inset) {
+          // select the new rim instead of the inner faces
+          const inner = new Set(m.selectedFaces());
+          m.sel = m.sel.map(() => 0);
+          for (let i = before; i < m.faces.length; i++) for (const v of m.faces[i].verts) m.sel[v] = 1;
+          for (const fi of inner) m.faces[fi].selX = true;
+        }
+      }),
   },
   {
     idname: 'mesh.edge_face_add',
@@ -1374,7 +1414,12 @@ registerOperators([
   {
     idname: 'mesh.poke',
     label: 'Poke Faces',
-    props: [{ id: 'offset', label: 'Poke Offset', type: 'float', default: 0, subtype: 'distance' }],
+    description: 'Split each selected face into a fan of triangles around a new centre vertex',
+    props: [
+      { id: 'offset', label: 'Poke Offset', type: 'float', default: 0, min: -1000, max: 1000, softMin: -1, softMax: 1, subtype: 'distance' },
+      { id: 'use_relative_offset', label: 'Offset Relative', type: 'bool', default: false },
+      { id: 'center_mode', label: 'Poke Center', type: 'enum', default: 'MEDIAN_WEIGHTED', items: [['MEDIAN_WEIGHTED', 'Weighted Median', 'Centre weighted by edge length'], ['MEDIAN', 'Median', 'Average of the corners'], ['BOUNDS', 'Bounds', 'Centre of the bounding box']] },
+    ],
     poll: editPoll,
     exec: (_ctx, p) =>
       void withEdit((m) => {
@@ -1382,12 +1427,42 @@ registerOperators([
         const out: EFace[] = [];
         m.faces.forEach((f, fi) => {
           if (!fsel.has(fi)) return out.push(f);
-          const c = V(m.faceCenter(f)).addScaledVector(V(m.faceNormal(f)), p.offset as number);
-          const cid = m.addVert([c.x, c.y, c.z], f.verts.map((v) => [v, 1 / f.verts.length] as [number, number]), 1);
-          const cu = [0, 1].map((k) => f.verts.reduce((acc, _, i) => acc + f.uvs[i * 2 + k], 0) / f.verts.length);
-          for (let i = 0; i < f.verts.length; i++) {
-            const j = (i + 1) % f.verts.length;
-            out.push(m.makeFace([f.verts[i], f.verts[j], cid], f, [f.uvs[i * 2], f.uvs[i * 2 + 1], f.uvs[j * 2], f.uvs[j * 2 + 1], ...cu]));
+          const pts = f.verts.map((v) => V(m.p(v)));
+          const n = pts.length;
+          let c = new Vector3();
+          if (p.center_mode === 'BOUNDS') {
+            const min = pts[0].clone(),
+              max = pts[0].clone();
+            for (const q of pts) {
+              min.min(q);
+              max.max(q);
+            }
+            c = min.add(max).multiplyScalar(0.5);
+          } else if (p.center_mode === 'MEDIAN') {
+            for (const q of pts) c.add(q);
+            c.multiplyScalar(1 / n);
+          } else {
+            // each corner weighted by the length of its two edges
+            let wsum = 0;
+            pts.forEach((q, i) => {
+              const w = q.distanceTo(pts[(i + 1) % n]) + q.distanceTo(pts[(i + n - 1) % n]);
+              c.addScaledVector(q, w);
+              wsum += w;
+            });
+            c.multiplyScalar(1 / (wsum || 1));
+          }
+          let off = p.offset as number;
+          if (p.use_relative_offset) off *= pts.reduce((s, q) => s + q.distanceTo(c), 0) / n;
+          c.addScaledVector(V(m.faceNormal(f)), off);
+          const cid = m.addVert([c.x, c.y, c.z], f.verts.map((v) => [v, 1 / n] as [number, number]), 1);
+          const cu = [0, 1].map((k) => f.verts.reduce((acc, _, i) => acc + f.uvs[i * 2 + k], 0) / n);
+          for (let i = 0; i < n; i++) {
+            const j = (i + 1) % n;
+            const t = m.makeFace([f.verts[i], f.verts[j], cid], f, [f.uvs[i * 2], f.uvs[i * 2 + 1], f.uvs[j * 2], f.uvs[j * 2 + 1], ...cu]);
+            t.seams[0] = f.seams[i];
+            t.sharp[0] = f.sharp[i];
+            t.creases[0] = f.creases[i];
+            out.push(t);
           }
         });
         m.faces = out;
@@ -1416,18 +1491,32 @@ registerOperators([
   {
     idname: 'mesh.spin',
     label: 'Spin',
-    props: [{ id: 'steps', label: 'Steps', type: 'int', default: 12, min: 1, max: 1000 }, { id: 'angle', label: 'Angle', type: 'float', default: Math.PI * 2, subtype: 'angle' }, { id: 'dupli', label: 'Use Duplicates', type: 'bool', default: false }, { id: 'center', label: 'Center', type: 'vec3', default: null, subtype: 'distance' }, { id: 'axis', label: 'Axis', type: 'vec3', default: [0, 0, 1] }],
+    description: 'Extrude the selection around the 3D cursor',
+    props: [
+      { id: 'steps', label: 'Steps', type: 'int', default: 12, min: 0, max: 1000000, softMax: 128 },
+      { id: 'dupli', label: 'Use Duplicates', type: 'bool', default: false },
+      { id: 'angle', label: 'Angle', type: 'float', default: Math.PI / 2, min: -Math.PI * 2, max: Math.PI * 2, subtype: 'angle' },
+      { id: 'use_auto_merge', label: 'Auto Merge', type: 'bool', default: true },
+      { id: 'use_normal_flip', label: 'Flip Normals', type: 'bool', default: false },
+      { id: 'center', label: 'Center', type: 'vec3', default: null, subtype: 'distance' },
+      { id: 'axis', label: 'Axis', type: 'vec3', default: null },
+    ],
     poll: editPoll,
     exec: (_ctx, p) => {
-      const ok = withEdit((m, ob) => {
-        const world = app.graph.get(ob.id)?.world ?? new Matrix4();
-        const inv = world.clone().invert();
-        const c = p.center ? V(p.center as number[]) : V(app.doc.scene.cursor.location);
-        if (!p.center) p.center = [c.x, c.y, c.z];
-        let axis = V(p.axis as number[]);
+      const c = p.center ? V(p.center as number[]) : V(app.doc.scene.cursor.location);
+      p.center = [c.x, c.y, c.z];
+      let axis = p.axis ? V(p.axis as number[]) : null;
+      if (!axis || axis.lengthSq() === 0) {
+        // the view axis (towards the viewer)
         const v = activeView3D();
-        if (v && (p.axis as number[]).every((x, i) => x === [0, 0, 1][i]) && v.nav.view !== 'USER') axis = new Vector3(0, 0, -1).applyQuaternion(v.camera.quaternion).negate();
-        return spin(m, p.steps as number, p.angle as number, c.applyMatrix4(inv), axis.transformDirection(inv), !!p.dupli);
+        axis = v ? new Vector3(0, 0, 1).applyQuaternion(v.camera.quaternion) : new Vector3(0, 0, 1);
+        p.axis = [axis.x, axis.y, axis.z];
+      }
+      const ax = axis;
+      if ((p.steps as number) < 1) return 'CANCELLED';
+      const ok = withEdit((m, ob) => {
+        const inv = (app.graph.get(ob.id)?.world ?? new Matrix4()).clone().invert();
+        return spin(m, p.steps as number, p.angle as number, c.clone().applyMatrix4(inv), ax.clone().transformDirection(inv).normalize(), !!p.dupli, { autoMerge: !!p.use_auto_merge, flip: !!p.use_normal_flip });
       });
       if (!ok) return 'CANCELLED';
     },

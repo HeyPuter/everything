@@ -579,12 +579,23 @@ registerOperators([
   {
     idname: 'mesh.delete_loose',
     label: 'Delete Loose',
-    props: [{ id: 'use_verts', label: 'Vertices', type: 'bool', default: true }, { id: 'use_edges', label: 'Edges', type: 'bool', default: true }],
+    description: 'Delete selected vertices, edges and faces that are not connected to anything else',
+    props: [
+      { id: 'use_verts', label: 'Vertices', type: 'bool', default: true },
+      { id: 'use_edges', label: 'Edges', type: 'bool', default: true },
+      { id: 'use_faces', label: 'Faces', type: 'bool', default: false },
+    ],
     poll: editPoll,
     exec: (_ctx, p) => {
       let removed = 0;
       withEdit((m) => {
         const before = m.vcount;
+        if (p.use_faces) {
+          // faces that share no edge with another face
+          const ef = m.edgeFaces();
+          const fsel = new Set(m.selectedFaces());
+          m.faces = m.faces.filter((f, i) => !fsel.has(i) || f.verts.some((v, k) => (ef.get(edgeKey(v, f.verts[(k + 1) % f.verts.length]))?.length ?? 0) > 1));
+        }
         if (p.use_edges) m.looseEdges = m.looseEdges.filter(([a, b]) => !(m.sel[a] && m.sel[b]));
         if (p.use_verts) {
           const used = new Uint8Array(m.vcount);
@@ -683,16 +694,26 @@ registerOperators([
   {
     idname: 'mesh.duplicate_move',
     label: 'Duplicate',
-    description: 'Duplicate mesh and move',
+    description: 'Duplicate the selection and move the copy',
+    props: [{ id: 'value', label: 'Move', type: 'vec3', default: [0, 0, 0], subtype: 'distance' }],
     poll: editPoll,
     invoke: (ctx) => {
-      if (!withEdit((m) => duplicateSelection(m))) return 'CANCELLED';
-      app.pushUndo('Duplicate');
+      if (!withEdit((m) => (m.selectedVerts().length ? void duplicateSelection(m) : false))) return 'CANCELLED';
       app.flush();
-      startTransform('TRANSLATION', { event: ctx.event });
+      if (!startTransform('TRANSLATION', { event: ctx.event, label: 'Duplicate', redo: (v) => ({ idname: 'mesh.duplicate_move', props: { value: v } }) })) return 'FINISHED';
       return 'RUNNING_MODAL';
     },
-    exec: () => void withEdit((m) => duplicateSelection(m)),
+    exec: (_ctx, p) =>
+      withEdit((m, ob) => {
+        if (!m.selectedVerts().length) return false;
+        duplicateSelection(m);
+        const d = new Vector3(...((p.value as number[]) ?? [0, 0, 0]));
+        const inv = (app.graph.get(ob.id)?.world ?? new Matrix4()).clone().invert().setPosition(0, 0, 0);
+        d.applyMatrix4(inv);
+        for (const v of m.selectedVerts()) m.setP(v, [m.pos[v * 3] + d.x, m.pos[v * 3 + 1] + d.y, m.pos[v * 3 + 2] + d.z]);
+      })
+        ? 'FINISHED'
+        : 'CANCELLED',
   },
   {
     idname: 'mesh.flip_normals',

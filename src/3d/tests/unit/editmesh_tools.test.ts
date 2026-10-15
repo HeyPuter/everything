@@ -628,3 +628,32 @@ describe('exact edge / face selection', () => {
     expect(m.faces.every((x) => x.verts.length === 4)).toBe(true);
   });
 });
+
+import { spin } from '../../src/modes/editmesh/ops-topology';
+
+describe('spin', () => {
+  const edgeOnly = () => {
+    const m = fromPrim(prim.plane());
+    m.looseEdges = m.edges();
+    m.faces = [];
+    selectWhere(m, (p) => p[0] > 0.9);
+    return m;
+  };
+  it('merges a full turn and sweeps faces like an extrusion', () => {
+    const a = edgeOnly();
+    spin(a, 4, Math.PI * 2, new Vector3(), new Vector3(0, 0, 1), false, { autoMerge: true });
+    expect([a.vcount, a.faces.length]).toEqual([10, 4]);
+    const b = edgeOnly();
+    spin(b, 4, Math.PI / 2, new Vector3(), new Vector3(0, 0, 1), false, { autoMerge: true });
+    expect([b.vcount, b.faces.length]).toEqual([12, 4]);
+    const c = cube();
+    selectFaces(c, (x) => x[0] > 0.9);
+    spin(c, 3, Math.PI / 2, new Vector3(0, 0, -3), new Vector3(0, 1, 0));
+    expect(counts(c)).toEqual([20, 36, 18]);
+    expect(manifold(c)).toBe(true);
+    const d = cube();
+    selectFaces(d, (x) => x[0] > 0.9);
+    spin(d, 3, Math.PI / 2, new Vector3(0, 0, -3), new Vector3(0, 1, 0), true);
+    expect(counts(d)).toEqual([20, 24, 9]);
+  });
+});
