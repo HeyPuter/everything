@@ -368,7 +368,8 @@ export function blurValues(
       for (let k = 0; k < comps; k++) {
         let s = 0;
         for (let j = a; j < b; j++) s += cur[nb.items[j] * comps + k];
-        const v = (cur[i * comps + k] + w * s) / denom;
+        // no total weight: the type's default value (opaque black for colors)
+        const v = denom <= 0 ? (comps === 4 && k === 3 ? 1 : 0) : (cur[i * comps + k] + w * s) / denom;
         next[i * comps + k] = isInt ? Math.round(v) : Math.fround(v);
       }
     }
