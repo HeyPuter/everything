@@ -798,6 +798,26 @@ registerOperators([
     },
   },
   {
+    idname: 'brush.asset_activate',
+    label: 'Activate Brush Asset',
+    description: 'Make a brush asset the active brush of its paint mode (the brush is added to the file first)',
+    props: importProps,
+    poll: (ctx) => ['SCULPT', 'VERTEX_PAINT', 'WEIGHT_PAINT', 'TEXTURE_PAINT'].includes(ctx.doc.mode),
+    exec: (ctx, p) => {
+      const r = parseAssetRef(String(p.asset));
+      const src = r ? libraryDoc(r.library) : null;
+      const b0 = r && src ? src.brushes[r.id] : undefined;
+      if (!b0) return 'CANCELLED';
+      if (b0.mode !== ctx.doc.mode) {
+        app.report('WARNING', `"${b0.name}" is a ${b0.mode.toLowerCase().replace('_', ' ')} brush`);
+        return 'CANCELLED';
+      }
+      const res = useAsset(ctx.doc, String(p.asset), p.import_method);
+      if (!res) return 'CANCELLED';
+      app.run('paint.brush_select', { brush: res.id });
+    },
+  },
+  {
     idname: 'asset.activate',
     label: 'Use Asset',
     description: 'Use the active asset: add objects and collections at the 3D cursor, put materials on the selected objects, set worlds, apply poses and actions, add node groups to the active object',
@@ -834,16 +854,7 @@ export function activateAsset(b: AssetBrowserLike, library: string, table: Asset
       return;
     }
     case 'brushes':
-      app.report('INFO', 'Brush assets are added to the file; pick them in the brush selector of a paint mode');
-      return void useBrush(ref, b.importMethod);
-  }
-}
-
-function useBrush(ref: string, method: unknown) {
-  const res = useAsset(app.doc, ref, method);
-  if (res) {
-    app.pushUndo('Use Brush Asset');
-    app.changed('doc');
+      return run('brush.asset_activate');
   }
 }
 

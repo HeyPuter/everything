@@ -122,8 +122,11 @@ function plan(p: DragPayload, x: number, y: number, internal?: InternalTarget): 
         const pose = act && isPoseAction(act) && ob.type === 'ARMATURE';
         return { hint: pose ? `Apply pose “${name}” to ${ob.name}` : `Animate ${ob.name} with “${name}”`, ok: true, run: () => void app.run('anim.action_asset_assign', { ...base, asset: p.refs[0], object: ob.id }, { invoke: false, area }) };
       }
-      default:
-        return { hint: `${ASSET_TYPE_INFO[first.table].plural} cannot be dropped here`, ok: false };
+      case 'brushes': {
+        const b = libraryDoc(first.library)?.brushes[first.id];
+        if (!b || b.mode !== app.doc.mode) return { hint: `Switch to ${(b?.mode ?? 'a paint mode').toLowerCase().replace('_', ' ')} to use “${name}”`, ok: false };
+        return { hint: `Use the brush “${name}”`, ok: true, run: () => void app.run('brush.asset_activate', { ...base, asset: p.refs[0] }, { invoke: false, area }) };
+      }
     }
   }
   if (NODE_EDITORS.has(area.type)) {

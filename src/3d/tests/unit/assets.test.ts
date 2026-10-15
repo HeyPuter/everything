@@ -325,4 +325,17 @@ describe('asset operators', () => {
     m.asset_clear();
     expect(m.asset_data).toBeNull();
   });
+
+  it('activates brush assets in their paint mode', async () => {
+    await import('../../src/paint/index');
+    const { activeTools } = await import('../../src/app/prefs');
+    const brush = Object.values(app.doc.brushes).find((b) => b.mode === 'SCULPT')!;
+    app.run('asset.mark', { targets: encodeTarget('brushes', brush.id) }, { area: null });
+    const ref = `LOCAL|brushes:${brush.id}`;
+    expect(app.run('brush.asset_activate', { asset: ref }, { invoke: false, area: null })).toBe('CANCELLED');
+    app.run('object.mode_set', { mode: 'SCULPT' });
+    expect(app.doc.mode).toBe('SCULPT');
+    expect(app.run('brush.asset_activate', { asset: ref }, { invoke: false, area: null })).toBe('FINISHED');
+    expect(activeTools.SCULPT).toBe(brush.id);
+  });
 });

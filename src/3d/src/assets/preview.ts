@@ -37,6 +37,7 @@ import { viewportMaterial } from '../render/pbr';
 import { evaluateWorldForViewport } from '../render/world';
 import { evaluateFCurve, fcurveRange } from '../anim/fcurve';
 import { collectionObjects } from './importer';
+import { brushThumb } from '../paint/brushthumbs';
 import { blockOf, type AssetTable } from './types';
 
 export const PREVIEW_SIZE = 256;
@@ -405,6 +406,9 @@ function actionPreview(a: ActionData): string {
 }
 
 function brushPreview(b: BrushData): string {
+  // the brush's tool picture, as shown in the brush shelf
+  const thumb = brushThumb(b.sculpt_tool, b.mode, PREVIEW_SIZE);
+  if (thumb) return thumb;
   const [c, x] = canvas2d();
   const S = PREVIEW_SIZE;
   const col = b.color ? `rgb(${b.color.map((v) => Math.round(Math.pow(Math.max(0, Math.min(1, v)), 1 / 2.2) * 255)).join(',')})` : '#d8d8d8';
