@@ -183,3 +183,15 @@ describe('cryptomatte', () => {
     expect(matteNames('')).toEqual([]);
   });
 });
+
+describe('File Output', () => {
+  it('names files after the base name, input and frame', async () => {
+    const { outputFileName, fileSlots } = await import('../../src/compositor/ops/fileoutput');
+    expect(outputFileName('shot', 'Image', 1, 'PNG', true)).toBe('shot0001.png');
+    expect(outputFileName('shot', 'Alpha', 12, 'JPEG', false)).toBe('shot_Alpha0012.jpg');
+    expect(outputFileName('renders/', 'Image', 3, 'WEBP', false)).toBe('renders/Image0003.webp');
+    const n = { id: 'n', type: 'CompositorNodeOutputFile', name: 'File Output', location: [0, 0] as [number, number], inputs: {}, props: { file_slots: 'Image\nMatte' } };
+    expect(fileSlots(n)).toEqual(['Image', 'Matte']);
+    expect(fileSlots({ ...n, props: {} })).toEqual(['Image']);
+  });
+});

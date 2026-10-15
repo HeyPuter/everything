@@ -21,6 +21,7 @@ import './ops/distance';
 import './ops/keyingnode';
 import './ops/clip';
 import './ops/crypto';
+import './ops/fileoutput';
 import '../render/final/passesui';
 import './session';
 import './editor';

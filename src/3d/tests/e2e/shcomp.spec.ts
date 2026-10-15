@@ -385,3 +385,32 @@ test('index, cryptomatte and AOV passes feed Render Layers, Cryptomatte and ID M
   expect(res.aov.centre).toBeCloseTo(0.25, 3);
   await expectNoErrors(errors);
 });
+
+test('File Output saves its inputs when rendering', async ({ page }) => {
+  const errors = await openApp(page);
+  const download = page.waitForEvent('download', { timeout: 30_000 });
+  await page.evaluate(async () => {
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const doc = a.doc;
+    const r = doc.scene.render;
+    r.resolution_x = 64;
+    r.resolution_y = 36;
+    r.resolution_percentage = 100;
+    r.engine = 'RASTER';
+    r.raster_samples = 1;
+    const { addNode, connect, ctxOf } = await import('/src/nodes/tree.ts');
+    const { compositingGroup, newCompositingGroup } = await import('/src/compositor/data.ts');
+    const g = compositingGroup(doc) ?? newCompositingGroup(doc);
+    const tree = g.tree;
+    const rl = tree.nodes.find((n: { type: string }) => n.type === 'CompositorNodeRLayers');
+    const fo = addNode(tree, 'CompositorNodeOutputFile', [300, -200]);
+    fo.props.file_name = 'shot';
+    connect(ctxOf(doc, tree), rl.id, 'Image', fo.id, 'Image');
+    a.changed('doc');
+    const { startRender } = await import('/src/render/final/job.ts');
+    await startRender({ animation: false, viewport: null });
+  });
+  const d = await download;
+  expect(d.suggestedFilename()).toBe('shot0001.png');
+  await expectNoErrors(errors);
+});
