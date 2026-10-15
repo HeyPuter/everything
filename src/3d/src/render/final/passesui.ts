@@ -15,7 +15,7 @@ const changed = (label: string) => {
 
 viewLayerPassItems.push(() => {
   const r = app.doc.scene.render;
-  return [h('div', { class: 'sub-label' }, 'Indexes'), bool(r, 'use_pass_object_index', 'Object Index'), bool(r, 'use_pass_material_index', 'Material Index')];
+  return [bool(r, 'use_pass_vector', 'Vector'), h('div', { class: 'sub-label' }, 'Indexes'), bool(r, 'use_pass_object_index', 'Object Index'), bool(r, 'use_pass_material_index', 'Material Index')];
 });
 
 viewLayerPanels.push(() => {

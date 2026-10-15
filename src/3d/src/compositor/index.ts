@@ -22,6 +22,7 @@ import './ops/keyingnode';
 import './ops/clip';
 import './ops/crypto';
 import './ops/fileoutput';
+import './ops/vecblur';
 import '../render/final/passesui';
 import './session';
 import './editor';

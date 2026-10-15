@@ -297,10 +297,15 @@ function availability(d: NodeTypeDef, rules: Record<string, (n: NodeData) => boo
     if (s.identifier === 'Normal') return !!r.use_pass_normal;
     if (s.identifier === 'Mist') return !!r.use_pass_mist;
     if (s.identifier === 'IndexOB') return !!r.use_pass_object_index;
+    if (s.identifier === 'Vector') return !!r.use_pass_vector;
     if (s.identifier === 'IndexMA') return !!r.use_pass_material_index;
     return true;
   };
-  d.outputs.push({ name: 'IndexOB', identifier: 'IndexOB', type: 'FLOAT' }, { name: 'IndexMA', identifier: 'IndexMA', type: 'FLOAT' });
+  d.outputs.push(
+    { name: 'Vector', identifier: 'Vector', type: 'VECTOR', dimensions: 4 },
+    { name: 'IndexOB', identifier: 'IndexOB', type: 'FLOAT' },
+    { name: 'IndexMA', identifier: 'IndexMA', type: 'FLOAT' },
+  );
   // shader AOVs and cryptomatte layers follow the View Layer settings
   d.dynamicSockets = (n, ctx) => {
     const r = ctx.doc.scene.render;

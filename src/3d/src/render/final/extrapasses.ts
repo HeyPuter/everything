@@ -1,13 +1,28 @@
 // Render passes beyond the guide passes: object/material indexes, cryptomatte (object, material
 // and asset IDs with per-pixel coverage of the most covering IDs) and shader AOVs. Rendered with
 // override materials on the final render scene after the beauty pass.
-import { ShaderMaterial, Vector4, Matrix4, DoubleSide, type Mesh, type Camera, type Material, type PerspectiveCamera, type Scene, type WebGLRenderer, type WebGLRenderTarget } from 'three';
+import {
+  ShaderMaterial,
+  Vector4,
+  Vector3,
+  Quaternion,
+  Matrix4,
+  DoubleSide,
+  type Mesh,
+  type Camera,
+  type Material,
+  type PerspectiveCamera,
+  type Scene,
+  type WebGLRenderer,
+  type WebGLRenderTarget,
+} from 'three';
 import type { DocumentData, ObjectData } from '../../data/types';
 import { floatTarget, renderOverride } from './gbuffer';
 import { jitter } from './units';
 import { jitterProjection } from './camera';
 import { materialSlots } from '../../editors/view3d/draw';
 import { aovMaterial, disposeAovMaterial } from '../../nodes/shader/aov';
+import { app } from '../../app/app';
 
 export interface AovData {
   name: string;
@@ -24,6 +39,8 @@ declare module '../../data/types' {
     pass_cryptomatte_depth?: number;
     /** shader AOVs written by AOV Output nodes */
     aovs?: AovData[];
+    /** speed vectors: xy towards the previous frame, zw from the next frame (pixels) */
+    use_pass_vector?: boolean;
   }
 }
 
@@ -149,6 +166,70 @@ function readTopDown(renderer: WebGLRenderer, rt: WebGLRenderTarget, W: number, 
 }
 
 // ---------------------------------------------------------------------------
+// Speed vectors
+
+const VEL_VERTEX = /* glsl */ `
+#include <common>
+#include <batching_pars_vertex>
+uniform mat4 u_prevModel;
+uniform mat4 u_nextModel;
+uniform mat4 u_prevVP;
+uniform mat4 u_nextVP;
+varying vec4 vCur;
+varying vec4 vPrev;
+varying vec4 vNext;
+void main() {
+  #include <batching_vertex>
+  #include <begin_vertex>
+  vec4 lp = vec4(transformed, 1.0);
+  #ifdef USE_INSTANCING
+  lp = instanceMatrix * lp;
+  #endif
+  vCur = projectionMatrix * viewMatrix * modelMatrix * lp;
+  vPrev = u_prevVP * u_prevModel * lp;
+  vNext = u_nextVP * u_nextModel * lp;
+  gl_Position = vCur;
+}`;
+const VEL_FRAGMENT = /* glsl */ `
+uniform vec2 u_size;
+varying vec4 vCur;
+varying vec4 vPrev;
+varying vec4 vNext;
+vec2 px(vec4 c) { return (c.xy / c.w * 0.5 + 0.5) * u_size; }
+void main() {
+  vec2 cur = px(vCur);
+  gl_FragColor = vec4(px(vPrev) - cur, cur - px(vNext));
+}`;
+
+/** World matrices of every object and the camera's view-projection at another frame. */
+function motionAt(doc: DocumentData, frame: number, camera: Camera, cameraId: string | null) {
+  const s = doc.scene;
+  const f0 = s.frame_current,
+    sub0 = s.frame_subframe ?? 0;
+  s.frame_current = frame;
+  s.frame_subframe = 0;
+  app.evaluate();
+  const worlds = new Map<string, Matrix4>();
+  for (const id of Object.keys(doc.objects)) {
+    const ev = app.graph.get(id);
+    if (ev) worlds.set(id, ev.world.clone());
+  }
+  const camEv = cameraId ? app.graph.get(cameraId) : undefined;
+  const view = new Matrix4();
+  if (camEv) {
+    const pos = new Vector3(),
+      q = new Quaternion(),
+      sc = new Vector3();
+    camEv.world.decompose(pos, q, sc);
+    view.compose(pos, q, new Vector3(1, 1, 1)).invert();
+  } else view.copy((camera as PerspectiveCamera).matrixWorldInverse);
+  s.frame_current = f0;
+  s.frame_subframe = sub0;
+  app.evaluate();
+  return { worlds, vp: new Matrix4().multiplyMatrices((camera as PerspectiveCamera).projectionMatrix, view) };
+}
+
+// ---------------------------------------------------------------------------
 // Coverage accumulation (pure, unit tested)
 
 /**
@@ -209,7 +290,15 @@ export let latestCryptoManifest: ExtraPassResult['manifest'] = {};
 /** Whether any extra pass is enabled. */
 export function wantsExtraPasses(doc: DocumentData): boolean {
   const r = doc.scene.render;
-  return !!(r.use_pass_object_index || r.use_pass_material_index || r.use_pass_cryptomatte_object || r.use_pass_cryptomatte_material || r.use_pass_cryptomatte_asset || r.aovs?.length);
+  return !!(
+    r.use_pass_vector ||
+    r.use_pass_object_index ||
+    r.use_pass_material_index ||
+    r.use_pass_cryptomatte_object ||
+    r.use_pass_cryptomatte_material ||
+    r.use_pass_cryptomatte_asset ||
+    r.aovs?.length
+  );
 }
 
 /** Render the enabled extra passes of the scene (top-down rows like the other passes). */
@@ -278,6 +367,36 @@ export async function renderExtraPasses(o: {
         res.manifest[name] = names[name];
       }
       latestCryptoManifest = res.manifest;
+    }
+    // speed vectors from the object and camera motion to the neighbouring frames (rigid motion)
+    if (r.use_pass_vector) {
+      const f = doc.scene.frame_current;
+      const prev = motionAt(doc, f - 1, camera, doc.scene.camera ?? null),
+        next = motionAt(doc, f + 1, camera, doc.scene.camera ?? null);
+      const vel = new Map<string, ShaderMaterial>();
+      renderOverride(renderer, scene, camera, target, null, (m: Mesh) => {
+        const id = (m.userData.id as string | undefined) ?? '';
+        let mat = vel.get(id);
+        if (!mat) {
+          const cur = m.matrixWorld;
+          mat = new ShaderMaterial({
+            vertexShader: VEL_VERTEX,
+            fragmentShader: VEL_FRAGMENT,
+            side: DoubleSide,
+            uniforms: {
+              u_prevModel: { value: prev.worlds.get(id) ?? cur.clone() },
+              u_nextModel: { value: next.worlds.get(id) ?? cur.clone() },
+              u_prevVP: { value: prev.vp },
+              u_nextVP: { value: next.vp },
+              u_size: { value: [W, H] },
+            },
+          });
+          vel.set(id, mat);
+        }
+        return Array.isArray(m.material) ? m.material.map(() => mat!) : mat;
+      });
+      res.passes.Vector = readTopDown(renderer, target, W, H);
+      for (const m of vel.values()) m.dispose();
     }
     // shader AOVs
     for (const aov of r.aovs ?? []) {

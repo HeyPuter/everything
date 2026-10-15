@@ -414,3 +414,69 @@ test('File Output saves its inputs when rendering', async ({ page }) => {
   expect(d.suggestedFilename()).toBe('shot0001.png');
   await expectNoErrors(errors);
 });
+
+test('the vector pass follows moving objects and drives Vector Blur', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = await openApp(page);
+  const res = await page.evaluate(async () => {
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const doc = a.doc;
+    const r = doc.scene.render;
+    r.resolution_x = 96;
+    r.resolution_y = 54;
+    r.resolution_percentage = 100;
+    r.engine = 'RASTER';
+    r.raster_samples = 1;
+    r.use_pass_vector = true;
+    const cube = Object.values(doc.objects).find((o: any) => o.name === 'Cube') as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { insertKeyframesForObjects } = await import('/src/anim/keyframes.ts');
+    for (const [f, x] of [
+      [1, -1],
+      [2, 0],
+      [3, 1],
+    ]) {
+      doc.scene.frame_current = f;
+      cube.location = [x, 0, 0];
+      insertKeyframesForObjects([cube], 'Location');
+    }
+    doc.scene.frame_current = 2;
+    a.changed('frame');
+    a.flush?.();
+    const { startRender, renderJob } = await import('/src/render/final/job.ts');
+    const { renderResult } = await import('/src/render/final/result.ts');
+    await startRender({ animation: false, viewport: null });
+    for (let i = 0; i < 300 && renderJob(); i++) await new Promise((res) => setTimeout(res, 100));
+    const result = renderResult.get()!;
+    const P = result.viewLayer ?? result.passes;
+    const W = result.width,
+      H = result.height;
+    const c = ((H >> 1) * W + (W >> 1)) * 4;
+    const v = Array.from(P.Vector!.subarray(c, c + 4));
+    // compositing: Vector Blur of the render with the speed pass
+    const { addNode, connect, ctxOf } = await import('/src/nodes/tree.ts');
+    const { compositingGroup, newCompositingGroup } = await import('/src/compositor/data.ts');
+    const { runCompositor } = await import('/src/compositor/run.ts');
+    const g = compositingGroup(doc) ?? newCompositingGroup(doc);
+    const tree = g.tree;
+    tree.nodes = tree.nodes.filter((n: { type: string }) => n.type === 'NodeGroupOutput');
+    tree.links = [];
+    const ctx = ctxOf(doc, tree);
+    const rl = addNode(tree, 'CompositorNodeRLayers', [0, 0]);
+    const vb = addNode(tree, 'CompositorNodeVecBlur', [200, 0]);
+    connect(ctx, rl.id, 'Image', vb.id, 'Image');
+    connect(ctx, rl.id, 'Vector', vb.id, 'Speed');
+    connect(ctx, vb.id, 'Image', tree.nodes[0].id, 'Socket_1');
+    const layers = { width: W, height: H, version: 'vb', passes: P };
+    const out = runCompositor(doc, { layers, composite: true, viewer: false });
+    let diff = 0;
+    for (let i = 0; i < W * H * 4; i++) diff = Math.max(diff, Math.abs(out.composite!.data[i] - P.Combined![i]));
+    return { v, diff, errors: [...out.errors.values()] };
+  });
+  // the cube moves along +X (to the right on screen in the default camera view): towards the
+  // previous frame the displacement points left, and the vectors to both frames agree
+  expect(res.v[0]).toBeLessThan(-1);
+  expect(Math.sign(res.v[2])).toBe(Math.sign(res.v[0]));
+  expect(res.errors).toEqual([]);
+  expect(res.diff).toBeGreaterThan(0.05);
+  await expectNoErrors(errors);
+});

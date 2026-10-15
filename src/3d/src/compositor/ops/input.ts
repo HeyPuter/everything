@@ -74,7 +74,7 @@ registerExec('CompositorNodeRLayers', (x) => {
   for (const s of x.outputSockets()) {
     if (x.outs.has(s.identifier) || !(s.identifier in L.passes)) continue;
     const t = passTexture(x, s.identifier);
-    if (t) x.outs.set(s.identifier, Result.image(s.type === 'RGBA' ? 'RGBA' : 'FLOAT', t, d));
+    if (t) x.outs.set(s.identifier, Result.image(s.type === 'RGBA' ? 'RGBA' : s.type === 'VECTOR' ? 'VECTOR' : 'FLOAT', t, d));
   }
 });
 
