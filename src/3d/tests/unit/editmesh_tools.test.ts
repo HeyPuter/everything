@@ -693,3 +693,34 @@ describe('color attributes through edits', () => {
     expect(me.color_attributes[1].data[0]).toBeCloseTo(0.25);
   });
 });
+
+import { bevelEdges, bevelVertices } from '../../src/modes/editmesh/bevel';
+
+describe('bevel with segments', () => {
+  it('rounds cube corners with a patch per corner', () => {
+    const two = cube();
+    selectAll(two);
+    bevelEdges(two, 0.2, 2);
+    expect(counts(two)).toEqual([56, 108, 54]);
+    expect(manifold(two)).toBe(true);
+    const three = cube();
+    selectAll(three);
+    bevelEdges(three, 0.2, 3);
+    expect(counts(three)).toEqual([96, 192, 98]);
+    expect(manifold(three)).toBe(true);
+  });
+  it('keeps the end faces closed when one edge gets several segments', () => {
+    const m = cube();
+    selectWhere(m, (p) => p[2] > 0.9 && p[0] > 0.9);
+    bevelEdges(m, 0.2, 3);
+    expect(counts(m)).toEqual([14, 21, 9]);
+    expect(manifold(m)).toBe(true);
+  });
+  it('rounds a vertex', () => {
+    const m = cube();
+    selectWhere(m, (p) => p.every((x) => x > 0.9));
+    bevelVertices(m, 0.3, 2);
+    expect(counts(m)).toEqual([14, 21, 9]);
+    expect(manifold(m)).toBe(true);
+  });
+});

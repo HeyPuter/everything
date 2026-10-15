@@ -25,12 +25,63 @@ function orientAway(m: MeshEdit, f: EFace, from: number) {
   if (n.dot(V(m.p(from)).sub(cen)) < 0) flipFace(f);
 }
 
+/**
+ * Rounded corner where three beveled edges meet: quads around a centre vertex (2 segments), a ring
+ * of quads around a centre triangle (3 segments), or a triangle fan for more segments.
+ */
+function cornerPatch(m: MeshEdit, v: number, ringIn: number[], corners: Set<number>, rows: number[][], segs: number): EFace[] {
+  // start the ring at a face corner
+  const k0 = ringIn.findIndex((x) => corners.has(x));
+  const ring = [...ringIn.slice(k0), ...ringIn.slice(0, k0)];
+  const P = (i: number) => V(m.p(i));
+  const cen = ring.reduce((a, i) => a.add(P(i)), new Vector3()).multiplyScalar(1 / ring.length);
+  // how far the profile bulges towards the old vertex (from the middle of the first row)
+  const row = rows[0];
+  const chordMid = P(row[0]).lerp(P(row[row.length - 1]), 0.5);
+  const mid = P(row[Math.floor(row.length / 2)]);
+  const toV = P(v).sub(chordMid);
+  const bulge = toV.lengthSq() > 1e-20 ? Math.max(0, Math.min(1, mid.clone().sub(chordMid).dot(toV) / toV.lengthSq())) : 0;
+  const inner = (p: Vector3) => p.clone().lerp(P(v), bulge * 0.5);
+  const out: EFace[] = [];
+  const face = (vs: number[]) => {
+    const f = m.makeFace(vs, m.faces[0]);
+    orientAway(m, f, v);
+    out.push(f);
+  };
+  const n = ring.length;
+  const at = (i: number) => ring[((i % n) + n) % n];
+  if (segs === 2) {
+    const c = inner(cen);
+    const ci = m.addVert([c.x, c.y, c.z], [[v, 1]], 1);
+    for (let i = 0; i < 3; i++) face([at(2 * i), at(2 * i + 1), ci, at(2 * i - 1)]);
+    return out;
+  }
+  if (segs === 3) {
+    // one inner vertex per corner, a third of the way to the centre
+    const p = [0, 1, 2].map((i) => {
+      const q = inner(P(at(3 * i)).lerp(cen, 2 / 3));
+      return m.addVert([q.x, q.y, q.z], [[v, 1]], 1);
+    });
+    for (let i = 0; i < 3; i++) {
+      face([at(3 * i), at(3 * i + 1), p[i], at(3 * i - 1)]);
+      face([at(3 * i + 1), at(3 * i + 2), p[(i + 1) % 3], p[i]]);
+    }
+    face([p[0], p[1], p[2]]);
+    return out;
+  }
+  const c = inner(cen);
+  const ci = m.addVert([c.x, c.y, c.z], [[v, 1]], 1);
+  for (let i = 0; i < n; i++) face([at(i), at(i + 1), ci]);
+  return out;
+}
+
 /** Chamfer selected vertices: each is replaced by a polygon through points on its edges. */
-export function bevelVertices(m: MeshEdit, offset: number): boolean {
+export function bevelVertices(m: MeshEdit, offset: number, segments = 1, profile = 0.5): boolean {
   const verts = m.selectedVerts();
   if (!verts.length || offset <= 0) return false;
   const vf = m.vertexFaces();
   const nb = m.neighbors();
+  const segs = Math.max(1, Math.round(segments));
   for (const v of verts) {
     const cut = new Map<number, number>();
     for (const w of nb[v]) {
@@ -39,6 +90,7 @@ export function bevelVertices(m: MeshEdit, offset: number): boolean {
       const p = V(m.p(v)).lerp(V(m.p(w)), t);
       cut.set(w, m.addVert([p.x, p.y, p.z], [[v, 1 - t], [w, t]], 1));
     }
+    const rows: number[][] = [];
     for (const fi of vf[v]) {
       const f = m.faces[fi];
       const n = f.verts.length,
@@ -46,16 +98,37 @@ export function bevelVertices(m: MeshEdit, offset: number): boolean {
       if (i < 0) continue;
       const prev = f.verts[(i - 1 + n) % n],
         next = f.verts[(i + 1) % n];
+      // the cut across this face's corner: straight, or curved with intermediate points
+      const a = cut.get(prev)!,
+        b = cut.get(next)!;
+      const row = [a];
+      if (segs > 1) {
+        const pa = V(m.p(a)),
+          pb = V(m.p(b));
+        const ctrl = pa.clone().lerp(pb, 0.5).lerp(V(m.p(v)), Math.min(1, profile * 2));
+        for (let k = 1; k < segs; k++) {
+          const t = k / segs;
+          const q = pa.clone().multiplyScalar((1 - t) * (1 - t)).add(ctrl.clone().multiplyScalar(2 * (1 - t) * t)).add(pb.clone().multiplyScalar(t * t));
+          row.push(m.addVert([q.x, q.y, q.z], [[v, 1]], 1));
+        }
+      }
+      row.push(b);
+      rows.push(row);
       const uv = [f.uvs[i * 2], f.uvs[i * 2 + 1]];
-      f.verts.splice(i, 1, cut.get(prev)!, cut.get(next)!);
-      f.uvs.splice(i * 2, 2, ...uv, ...uv);
-      f.seams.splice(i, 1, 0, f.seams[i]);
-      f.sharp.splice(i, 1, 0, f.sharp[i]);
-      f.creases.splice(i, 1, 0, f.creases[i]);
-      if (f.colors) f.colors.splice(i * 4, 4, ...f.colors.slice(i * 4, i * 4 + 4), ...f.colors.slice(i * 4, i * 4 + 4));
+      const k = row.length;
+      f.verts.splice(i, 1, ...row);
+      f.uvs.splice(i * 2, 2, ...row.flatMap(() => uv));
+      f.seams.splice(i, 1, ...new Array(k - 1).fill(0), f.seams[i]);
+      f.sharp.splice(i, 1, ...new Array(k - 1).fill(0), f.sharp[i]);
+      f.creases.splice(i, 1, ...new Array(k - 1).fill(0), f.creases[i]);
+      if (f.colors) f.colors.splice(i * 4, 4, ...row.flatMap(() => f.colors!.slice(i * 4, i * 4 + 4)));
     }
-    const ring = orderAround(m, v, [...cut.values()]);
-    if (ring.length >= 3) {
+    const ids = new Set<number>(cut.values());
+    for (const r of rows) r.forEach((x) => ids.add(x));
+    const ring = orderAround(m, v, [...ids]);
+    const corners = new Set(cut.values());
+    if (segs >= 2 && corners.size === 3 && ring.length === 3 * segs && rows.length === 3) m.faces.push(...cornerPatch(m, v, ring, corners, rows, segs));
+    else if (ring.length >= 3) {
       const cap = m.makeFace(ring, vf[v].length ? m.faces[vf[v][0]] : undefined);
       orientAway(m, cap, v);
       m.faces.push(cap);
@@ -206,6 +279,11 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
           c2 = g2 !== undefined ? corner.get(`${g2}:${v}`) : undefined;
         rep = [c1, c2].filter((x): x is number => x !== undefined);
         if (rep.length === 2 && rep[0] === rep[1]) rep = [rep[0]];
+        else if (rep.length === 2) {
+          // the bevel profile between the two corners runs through this face's corner too
+          const row = (junction.get(v) ?? []).find((r) => (r[0] === rep[0] && r[r.length - 1] === rep[1]) || (r[0] === rep[1] && r[r.length - 1] === rep[0]));
+          if (row) rep = row[0] === rep[0] ? [...row] : [...row].reverse();
+        }
         if (!rep.length) rep = [v];
       } else rep = [v];
       for (const r of rep) {
@@ -234,10 +312,20 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
       if (c !== undefined) ids.add(c);
     });
     for (const rows of junction.get(v) ?? []) rows.forEach((r) => ids.add(r));
-    if (ids.size >= 3 && (junction.get(v)?.length ?? 0) >= 2) {
-      const cap = m.makeFace(orderAround(m, v, [...ids]), m.faces[0]);
-      orientAway(m, cap, v);
-      added.push(cap);
+    const rows = junction.get(v) ?? [];
+    if (ids.size >= 3 && rows.length >= 2) {
+      const ring = orderAround(m, v, [...ids]);
+      const corners = new Set<number>();
+      faces0.forEach((verts, fi) => {
+        const c = verts.includes(v) ? corner.get(`${fi}:${v}`) : undefined;
+        if (c !== undefined) corners.add(c);
+      });
+      if (segs >= 2 && rows.length === 3 && ring.length === 3 * segs && corners.size === 3) added.push(...cornerPatch(m, v, ring, corners, rows, segs));
+      else {
+        const cap = m.makeFace(ring, m.faces[0]);
+        orientAway(m, cap, v);
+        added.push(cap);
+      }
     }
   }
   m.faces.push(...added);

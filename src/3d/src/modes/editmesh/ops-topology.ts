@@ -1088,7 +1088,7 @@ interface BevelState {
 
 function applyBevel(m: MeshEdit, st: BevelState) {
   if (st.offset <= 0) return false;
-  return st.affect === 'VERTICES' ? bevelVertices(m, st.clamp ? Math.min(st.offset, bevelClampLimit(m) * 2) : st.offset) : bevelEdges(m, st.offset, st.segments, st.profile, { clamp: st.clamp, markSeam: st.seam, markSharp: st.sharp });
+  return st.affect === 'VERTICES' ? bevelVertices(m, st.clamp ? Math.min(st.offset, bevelClampLimit(m) * 2) : st.offset, st.segments, st.profile) : bevelEdges(m, st.offset, st.segments, st.profile, { clamp: st.clamp, markSeam: st.seam, markSharp: st.sharp });
 }
 
 /**
@@ -1475,7 +1475,7 @@ registerOperators([
     props: [
       { id: 'offset', label: 'Width', type: 'float', default: 0, min: 0, subtype: 'distance' },
       { id: 'segments', label: 'Segments', type: 'int', default: 1, min: 1, max: 1000 },
-      { id: 'profile', label: 'Shape', type: 'float', default: 0.5, min: 0, max: 1, subtype: 'factor', showIf: (p) => p.affect !== 'VERTICES' },
+      { id: 'profile', label: 'Shape', type: 'float', default: 0.5, min: 0, max: 1, subtype: 'factor' },
       { id: 'affect', label: 'Affect', type: 'enum', default: 'EDGES', items: [['VERTICES', 'Vertices'], ['EDGES', 'Edges']] },
       { id: 'clamp_overlap', label: 'Clamp Overlap', type: 'bool', default: false },
       { id: 'mark_seam', label: 'Mark Seams', type: 'bool', default: false, showIf: (p) => p.affect !== 'VERTICES' },
