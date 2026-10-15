@@ -71,7 +71,7 @@ let quad: { scene: Scene; camera: OrthographicCamera; mesh: Mesh } | null = null
 function lut(data: Float32Array, width: number, nearest: boolean) {
   const half = new Uint16Array(data.length);
   for (let i = 0; i < data.length; i++) half[i] = DataUtils.toHalfFloat(data[i]);
-  const t = new DataTexture(half, width, 1, RGBAFormat, HalfFloatType);
+  const t = new DataTexture(half, width, Math.max(1, Math.floor(data.length / 4 / width)), RGBAFormat, HalfFloatType);
   t.magFilter = t.minFilter = nearest ? NearestFilter : LinearFilter;
   t.wrapS = t.wrapT = ClampToEdgeWrapping;
   t.needsUpdate = true;

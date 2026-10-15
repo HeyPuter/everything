@@ -4,6 +4,8 @@ import type { SequenceEditor, Strip, SeqChannel } from './types';
 import { finalStart, finalEnd } from './strips';
 import { loadSound, MIX_RATE, playbackContext } from './media';
 import { soundSegment, panGains } from './wav';
+import { keysOf, keyValue } from './fades';
+import { hasRetiming, retimedPieces } from './retime';
 
 interface Voice {
   s: Strip;
@@ -26,18 +28,46 @@ export function soundVoices(ed: SequenceEditor): Voice[] {
   return out;
 }
 
-function schedule(ctx: BaseAudioContext, dest: AudioNode, buf: AudioBuffer, v: Voice, fps: number, from: number, t0: number, to = Infinity): AudioBufferSourceNode | null {
-  const seg = soundSegment(v.s, fps, Math.max(from, v.from), Math.min(to, v.to));
-  if (!seg) return null;
-  const delay = seg.delay + (Math.max(from, v.from) - from) / fps;
-  if (seg.offset >= buf.duration) return null;
-  const src = ctx.createBufferSource();
-  src.buffer = buf;
+function schedule(ctx: BaseAudioContext, dest: AudioNode, buf: AudioBuffer, v: Voice, fps: number, from: number, t0: number, to = Infinity): AudioBufferSourceNode[] {
+  const lo = Math.max(from, v.from),
+    hi = Math.min(to, v.to);
+  // constant-rate pieces: one for plain strips, one per speed segment for retimed strips
+  const pieces: { delay: number; offset: number; duration: number; rate: number }[] = [];
+  if (hasRetiming(v.s)) {
+    for (const p of retimedPieces(v.s, lo, hi)) {
+      if (p.rate < 0.01) continue; // frozen: silence
+      pieces.push({ delay: (p.start - from) / fps, offset: (v.s.animation_offset_start + p.content) / fps + (v.s.sound_offset ?? 0), duration: ((p.end - p.start) * p.rate) / fps, rate: p.rate });
+    }
+  } else {
+    const seg = soundSegment(v.s, fps, lo, hi);
+    if (seg) pieces.push({ delay: seg.delay + (lo - from) / fps, offset: seg.offset, duration: seg.duration, rate: 1 });
+  }
+  const live = pieces.filter((p) => p.offset < buf.duration);
+  if (!live.length) return [];
   const gain = ctx.createGain();
   gain.gain.value = Math.max(0, v.s.volume ?? 1);
-  let node: AudioNode = src;
-  node.connect(gain);
-  node = gain;
+  const keys = keysOf(v.s, 'volume');
+  if (keys) {
+    // fade keys: ramp the gain between them on the audio clock (frame f plays at t0 + (f - from) / fps)
+    const at = (f: number) => t0 + (f - from) / fps;
+    gain.gain.setValueAtTime(Math.max(0, keyValue(keys, from)), t0);
+    for (const [f, val] of keys) if (f > from) gain.gain.linearRampToValueAtTime(Math.max(0, val), at(f));
+  }
+  let node: AudioNode = gain;
+  // equalizer modifiers: biquad filters after the gain
+  for (const m of v.s.modifiers ?? []) {
+    if (m.mute || m.type !== 'SOUND_EQUALIZER') continue;
+    for (const b of m.bands ?? []) {
+      if (!b.gain) continue;
+      const f = ctx.createBiquadFilter();
+      f.type = b.type === 'LOWSHELF' ? 'lowshelf' : b.type === 'HIGHSHELF' ? 'highshelf' : 'peaking';
+      f.frequency.value = Math.max(20, Math.min(20000, b.frequency));
+      f.gain.value = b.gain;
+      f.Q.value = Math.max(0.01, b.q);
+      node.connect(f);
+      node = f;
+    }
+  }
   const pan = v.s.pan ?? 0;
   if (pan) {
     // explicit linear pan (matches panGains used in tests)
@@ -49,10 +79,10 @@ function schedule(ctx: BaseAudioContext, dest: AudioNode, buf: AudioBuffer, v: V
     gl.gain.value = l;
     gr.gain.value = r;
     if (buf.numberOfChannels === 1) {
-      gain.connect(gl);
-      gain.connect(gr);
+      node.connect(gl);
+      node.connect(gr);
     } else {
-      gain.connect(split);
+      node.connect(split);
       split.connect(gl, 0);
       split.connect(gr, 1);
     }
@@ -61,8 +91,14 @@ function schedule(ctx: BaseAudioContext, dest: AudioNode, buf: AudioBuffer, v: V
     node = merge;
   }
   node.connect(dest);
-  src.start(t0 + delay, seg.offset, Math.min(seg.duration, buf.duration - seg.offset));
-  return src;
+  return live.map((p) => {
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = p.rate;
+    src.connect(gain);
+    src.start(t0 + p.delay, p.offset, Math.min(p.duration, buf.duration - p.offset));
+    return src;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -114,10 +150,41 @@ async function startAt(frame: number) {
   for (let i = 0; i < list.length; i++) {
     const b = bufs[i];
     if (!b) continue;
-    const n = schedule(ctx, master, b, list[i], fps, from, startTime);
-    if (n) voices.push(n);
+    voices.push(...schedule(ctx, master, b, list[i], fps, from, startTime));
   }
   active = true;
+}
+
+let scrubVoices: AudioBufferSourceNode[] = [];
+let scrubFrame = NaN;
+
+/** Audio scrubbing: a frame's worth of sound (a little more) when the frame changes while stopped. */
+export async function scrubAudio(frame: number) {
+  if (frame === scrubFrame) return;
+  scrubFrame = frame;
+  const ed = app.doc.scene.sequence_editor;
+  if (!ed?.use_audio_scrub || app.playing) return;
+  const list = soundVoices(ed);
+  if (!list.length) return;
+  ctx ??= new AudioContext({ latencyHint: 'interactive' });
+  if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+  master ??= ctx.createGain();
+  master.connect(ctx.destination);
+  for (const v of scrubVoices)
+    try {
+      v.stop();
+    } catch {
+      /* ended */
+    }
+  scrubVoices = [];
+  const fps = app.doc.scene.render.fps / (app.doc.scene.render.fps_base || 1);
+  const bufs = await Promise.all(list.map((v) => loadSound(v.s.media!.bytes)));
+  if (frame !== scrubFrame || app.playing) return;
+  const t0 = ctx.currentTime + 0.01;
+  for (let i = 0; i < list.length; i++) {
+    const b = bufs[i];
+    if (b) scrubVoices.push(...schedule(ctx, master, b, list[i], fps, frame, t0, frame + Math.max(1, Math.round(fps / 10))));
+  }
 }
 
 /** Keep audio in step with timeline playback (called on every app update). */

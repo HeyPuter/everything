@@ -371,7 +371,10 @@ const TYPE_NAMES: Record<string, string> = {
 
 /** Socket tooltip: name, type, the value of an unlinked input, and the socket's description. */
 function socketTip(node: NodeData, s: ResolvedSocket, isOutput: boolean, linked: boolean): string {
-  if (s.type === 'CUSTOM') return s.identifier === '__extend__' ? 'New Socket\nLink here to add a socket to the group interface' : '';
+  if (s.type === 'CUSTOM') {
+    if (!s.identifier.startsWith('__extend__')) return '';
+    return node.type === 'NodeGroupInput' || node.type === 'NodeGroupOutput' ? 'New Socket\nLink here to add a socket to the group interface' : 'New Item\nLink here to add an item of the linked socket\u2019s type';
+  }
   const lines = [s.label || s.name, `${TYPE_NAMES[s.type] ?? s.type} ${isOutput ? 'output' : 'input'}${linked ? ' (linked)' : ''}`];
   if (!isOutput && !linked && !s.hide_value) {
     const v = inputValue(node, s);

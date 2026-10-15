@@ -2,7 +2,7 @@
 :root {
   --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
-  --fs: 12px;
+  --fs: 11px;
   --row: 20px;
 
   --c-border: #161616; /* editor border */
@@ -28,7 +28,7 @@
   --w-num-hover: #5e5e5e;
   --w-menu: #282828;
   --w-menu-back: #181818;
-  --w-menu-item-hl: #4772b3;
+  --w-menu-item-hl: #3e3e3e;
   --w-tab: #1d1d1d;
   --w-tab-on: #303030;
   --w-tool: #282828;
@@ -170,7 +170,7 @@ textarea {
 
 .shell {
   display: grid;
-  grid-template-rows: 30px 1fr 24px;
+  grid-template-rows: 26px 1fr 22px;
   height: 100vh;
   width: 100vw;
 }
@@ -203,14 +203,14 @@ textarea {
 }
 .tb-logo {
   width: 28px;
-  height: 24px;
+  height: 22px;
   display: grid;
   place-items: center;
   border-radius: var(--radius);
 }
 .tb-menu {
-  height: 24px;
-  padding: 0 8px;
+  height: 22px;
+  padding: 0 7px;
   border-radius: var(--radius);
   color: var(--t-d9, #d9d9d9);
 }
@@ -223,7 +223,9 @@ textarea {
 .ws-tabs {
   display: flex;
   gap: 2px;
-  margin-left: 12px;
+  margin-left: 6px;
+  padding-left: 7px;
+  border-left: 1px solid var(--g-33, #333);
   margin-right: 12px;
   min-width: 0;
   flex: 0 1 auto;
@@ -238,15 +240,18 @@ textarea {
 }
 .ws-tab {
   flex: none;
-  height: 24px;
-  padding: 0 9px;
+  height: 22px;
+  padding: 0 8px;
   border-radius: var(--radius);
   color: var(--t-99, #999);
   white-space: nowrap;
 }
 .ws-tab:hover {
   color: var(--t-dd, #ddd);
-  background: rgba(var(--hl-rgb, 255, 255, 255), 0.06);
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.08);
+}
+.ws-tab:not(.on) {
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.025);
 }
 .ws-tab.on {
   background: var(--w-tab-on);
@@ -338,7 +343,20 @@ textarea {
 }
 .sb-right {
   display: flex;
-  gap: 12px;
+  align-items: center;
+  gap: 6px;
+  align-self: stretch;
+}
+.sb-sep {
+  width: 1px;
+  height: 11px;
+  background: var(--g-4a, #4a4a4a);
+}
+.sb-mouse {
+  display: inline-flex;
+  margin-right: 3px;
+  color: var(--t-c8, #c8c8c8);
+  vertical-align: middle;
 }
 
 /* ------------------------------------------------------------------ areas */
@@ -363,6 +381,12 @@ textarea {
 .area[data-editor='COMPOSITOR'] {
   background: var(--c-node-bg);
 }
+/* node editors: the header blends into the canvas */
+.area[data-editor='SHADER'] > .area-header,
+.area[data-editor='GEOMETRY'] > .area-header,
+.area[data-editor='COMPOSITOR'] > .area-header {
+  background: var(--c-node-bg);
+}
 .area-header {
   height: 26px;
   flex: none;
@@ -376,8 +400,39 @@ textarea {
   min-width: 0;
 }
 .area.overlap-header .area-header {
-  background: rgb(from var(--g-30, #303030) r g b / 0.85);
-  backdrop-filter: blur(1px);
+  background: rgb(from var(--g-30, #303030) r g b / 0.86);
+}
+/* Overlapping headers: the main region fills the whole area and the header rows float over it.
+   --ov-top / --ov-bottom tell overlays inside the main region how much room the headers take. */
+.area.overlap-header {
+  --ov-top: 52px;
+  --ov-bottom: 0px;
+}
+.area.overlap-header.no-toolheader {
+  --ov-top: 26px;
+}
+.area.overlap-header.header-bottom {
+  --ov-top: 0px;
+  --ov-bottom: 52px;
+}
+.area.overlap-header.header-bottom.no-toolheader {
+  --ov-bottom: 26px;
+}
+.area.overlap-header.no-header {
+  --ov-top: 0px;
+  --ov-bottom: 0px;
+}
+.area.overlap-header > .area-main {
+  position: absolute;
+  inset: 0;
+}
+.area.overlap-header > .area-toolheader {
+  background: transparent;
+  pointer-events: none;
+  height: 26px;
+}
+.area.overlap-header > .area-toolheader > * {
+  pointer-events: auto;
 }
 .area.header-bottom {
   flex-direction: column-reverse;
@@ -420,7 +475,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 1px;
-  height: 22px;
+  height: 20px;
   padding: 0 4px;
   border-radius: var(--radius);
   background: rgba(var(--hl-rgb, 255, 255, 255), 0.06);
@@ -445,7 +500,7 @@ textarea {
   min-width: 8px;
 }
 .hdr-menu {
-  height: 22px;
+  height: 20px;
   padding: 0 8px;
   border-radius: var(--radius);
   color: var(--t-dd, #ddd);
@@ -461,7 +516,7 @@ textarea {
 }
 .hdr-mode,
 .hdr-drop {
-  height: 22px;
+  height: 20px;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -489,7 +544,7 @@ textarea {
 }
 .hdr-toggle,
 .hdr-icondrop {
-  height: 22px;
+  height: 20px;
   min-width: 24px;
   display: grid;
   grid-auto-flow: column;
@@ -610,6 +665,23 @@ textarea {
 .num-field.anim-driven {
   background: #9000cc;
 }
+.num-field.anim-changed {
+  background: #c26b1c;
+  color: #111;
+}
+.num-field.anim-keyed:hover,
+.num-field.anim-animated:hover,
+.num-field.anim-driven:hover,
+.num-field.anim-changed:hover {
+  filter: brightness(1.12);
+}
+/* sliders keep their state colour; the filled part is a lighter shade of it */
+.num-field.slider.anim-keyed .num-fill,
+.num-field.slider.anim-animated .num-fill,
+.num-field.slider.anim-driven .num-fill,
+.num-field.slider.anim-changed .num-fill {
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.22);
+}
 .num-field.disabled {
   opacity: 0.45;
   pointer-events: none;
@@ -690,11 +762,21 @@ input.num-field.editing {
 .checkbox.disabled {
   opacity: 0.45;
 }
+/* labels of options that are off read a little quieter than those that are on */
+.checkbox:not(.on) {
+  color: var(--t-b4, #b4b4b4);
+}
+.checkbox:not(.on):hover {
+  color: var(--c-text);
+}
 .checkbox.anim-keyed .cb-box {
   background: var(--anim-keyed);
 }
 .checkbox.anim-animated .cb-box {
   background: var(--anim-animated);
+}
+.checkbox.anim-driven .cb-box {
+  background: var(--anim-driven);
 }
 
 .btn,
@@ -853,13 +935,19 @@ input.num-field.editing {
 .color-swatch.anim-keyed {
   outline: 2px solid var(--anim-keyed);
 }
+.color-swatch.anim-animated {
+  outline: 2px solid var(--anim-animated);
+}
+.color-swatch.anim-driven {
+  outline: 2px solid var(--anim-driven);
+}
 
 .decorator {
   width: 18px;
   height: var(--row);
   display: grid;
   place-items: center;
-  color: var(--t-88, #888);
+  color: var(--t-b4, #b4b4b4);
   flex: none;
 }
 .decorator:hover {
@@ -874,7 +962,7 @@ input.num-field.editing {
   height: var(--row);
   display: grid;
   place-items: center;
-  color: var(--t-88, #888);
+  color: var(--t-a8, #a8a8a8);
   flex: none;
 }
 .lock-btn.on {
@@ -894,17 +982,48 @@ input.num-field.editing {
   margin: 4px 0;
   background: var(--c-panel-sub);
 }
+/* sub-panels span the whole width of their panel as a darker band (not an inset box) */
+.panel-body > .panel.sub {
+  margin: 2px -10px;
+  border-radius: 0;
+  box-shadow: none;
+  background: rgba(0, 0, 0, 0.1);
+}
+.panel-body > .panel.sub > .panel-header {
+  padding-left: 12px;
+}
+.panel-body > .panel.sub > .panel-body {
+  padding: 2px 10px 6px;
+}
+.popover .panel-body > .panel.sub {
+  margin: 1px 0;
+  background: transparent;
+}
+.popover .panel-body > .panel.sub > .panel-header {
+  padding-left: 0;
+}
+.popover .panel-body > .panel.sub > .panel-body {
+  padding: 2px 0 6px;
+}
+/* a closed sub-panel is just its header row */
+.panel.sub:not(.open) {
+  background: transparent;
+  box-shadow: none;
+}
+.panel.sub > .panel-header {
+  height: 22px;
+}
 .panel-header {
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 26px;
+  height: 24px;
   padding: 0 6px 0 4px;
   cursor: default;
 }
 .panel-header .ph-title {
   flex: 1;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--t-e6, #e6e6e6);
   white-space: nowrap;
   overflow: hidden;
@@ -913,10 +1032,19 @@ input.num-field.editing {
 .panel-header .ph-arrow {
   opacity: 0.85;
 }
+/* drag handle: a small field of dots (the glyph inside is hidden) */
 .panel-header .ph-grip {
-  color: var(--t-66, #666);
-  font-size: 11px;
+  width: 14px;
+  height: 8px;
+  flex: none;
+  font-size: 0;
+  color: transparent;
   cursor: grab;
+  background: radial-gradient(circle, var(--g-6a, #6a6a6a) 0.8px, transparent 1.1px) 0 0 / 3.5px 4px;
+  opacity: 0.9;
+}
+.panel-header:hover .ph-grip {
+  background-image: radial-gradient(circle, var(--g-8a, #8a8a8a) 0.8px, transparent 1.1px);
 }
 .panel-body {
   padding: 2px 10px 8px;
@@ -937,7 +1065,7 @@ input.num-field.editing {
 }
 .split-row .sr-label {
   text-align: right;
-  color: var(--t-cc, #ccc);
+  color: var(--t-d4, #d4d4d4);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -966,10 +1094,12 @@ input.num-field.editing {
 .vec-prop {
   display: flex;
   flex-direction: column;
-  margin: 3px 0;
+  margin: 2px 0;
 }
-.vec-prop .split-row {
-  margin-bottom: 1px;
+/* the fields of a vector form one joined column with thin dividers */
+.vec-prop .vec-mid .num-field,
+.vec-prop .vec-last .num-field {
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.28) inset;
 }
 .vec-prop .vec-mid .num-field {
   border-radius: 0;
@@ -1033,11 +1163,11 @@ input.num-field.editing {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 22px;
-  padding: 0 10px 0 6px;
-  margin: 0 3px;
-  border-radius: 3px;
-  color: var(--t-dd, #ddd);
+  height: 20px;
+  padding: 0 8px 0 5px;
+  margin: 0 4px;
+  border-radius: 4px;
+  color: var(--t-d9, #d9d9d9);
   white-space: nowrap;
 }
 .menu-item.hl:not(.disabled) {
@@ -1059,21 +1189,63 @@ input.num-field.editing {
   color: var(--t-88, #888);
 }
 .menu-item .mi-key {
-  color: var(--t-88, #888);
+  color: var(--t-8c, #8c8c8c);
   margin-left: 24px;
-  font-size: 11px;
 }
 .menu-item.hl .mi-key {
-  color: var(--t-dd, #ddd);
+  color: var(--t-bd, #bdbdbd);
 }
 .menu-item .mi-arrow {
-  margin-right: -6px;
-  opacity: 0.7;
+  width: 8px;
+  margin-right: -4px;
+  display: flex;
+  justify-content: flex-end;
+}
+.menu-item .mi-arrow::after {
+  content: '';
+  border: 4px solid transparent;
+  border-right-width: 0;
+  border-left: 5px solid var(--g-b0, #b0b0b0);
+}
+.menu-item.disabled .mi-arrow::after {
+  border-left-color: var(--g-5a, #5a5a5a);
+}
+.menu-item .mi-key:empty + .mi-arrow {
+  margin-left: 12px;
+}
+/* menus laid out in columns (e.g. the editor type menu) */
+.menu.menu-cols {
+  max-width: none;
+  column-gap: 0;
+  column-rule: 1px solid var(--g-26, #262626);
+}
+.menu.menu-cols > * {
+  break-inside: avoid;
+}
+.menu.menu-cols > .col-break {
+  break-before: column;
+}
+.menu-item.current:not(.hl) {
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.07);
+}
+.menu-title {
+  padding: 2px 10px 5px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid var(--g-2b, #2b2b2b);
+}
+.menu-item.menu-search {
+  background: var(--g-2a, #2a2a2a);
+  margin: 1px 5px 2px;
+  color: var(--t-bd, #bdbdbd);
+}
+.menu-item.menu-search.hl {
+  background: var(--w-menu-item-hl);
+  color: var(--c-text-on-accent, #fff);
 }
 .menu-sep {
   height: 1px;
   background: var(--g-2e, #2e2e2e);
-  margin: 4px 8px;
+  margin: 3px 8px;
 }
 .menu-heading {
   color: var(--t-99, #999);
@@ -1125,9 +1297,24 @@ input.num-field.editing {
   min-width: 200px;
 }
 .pop-title {
-  color: var(--t-dd, #ddd);
-  font-weight: 500;
+  color: var(--t-a6, #a6a6a6);
   padding: 2px 0 4px;
+}
+/* sub-panels inside popovers are plain collapsible sections */
+.popover .panel.sub {
+  background: transparent;
+  box-shadow: none;
+  margin: 1px 0;
+}
+.popover .panel.sub > .panel-header {
+  padding-left: 0;
+}
+.popover .panel.sub > .panel-header .ph-title {
+  color: var(--t-c4, #c4c4c4);
+  font-weight: 400;
+}
+.popover .panel.sub .panel-body {
+  padding: 2px 0 6px;
 }
 .pop-sub {
   color: var(--t-99, #999);
@@ -1235,52 +1422,54 @@ input.num-field.editing {
 }
 .pie-ring {
   position: absolute;
-  left: -16px;
-  top: -16px;
-  width: 32px;
-  height: 32px;
+  left: -19px;
+  top: -19px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
-  border: 6px solid rgb(from var(--g-14, #141414) r g b / 0.9);
-  box-shadow: 0 0 0 1px var(--g-44, #444);
+  border: 7px solid rgb(from var(--g-16, #161616) r g b / 0.92);
+  box-shadow: 0 0 0 1px rgba(var(--hl-rgb, 255, 255, 255), 0.08), 0 0 0 1px rgba(var(--hl-rgb, 255, 255, 255), 0.08) inset;
 }
+/* the highlighted direction: an arc of the ring */
 .pie-dir {
   position: absolute;
-  left: 0;
-  top: -3px;
-  width: 16px;
-  height: 6px;
-  transform-origin: 0 3px;
-}
-.pie-dir::after {
-  content: '';
-  position: absolute;
-  left: 9px;
-  width: 8px;
-  height: 6px;
-  background: var(--accent);
-  border-radius: 3px;
-  color: var(--c-text-on-accent, #fff);
+  left: -19px;
+  top: -19px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 7px solid transparent;
+  border-top-color: var(--accent);
 }
 .pie-title {
   position: fixed;
-  transform: translateX(-50%);
-  background: var(--g-18, #181818);
-  padding: 3px 10px;
-  border-radius: 4px;
-  color: var(--t-dd, #ddd);
+  transform: translate(-50%, -100%);
+  color: var(--t-a6, #a6a6a6);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
 }
 .pie-item {
   position: fixed;
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 24px;
-  padding: 0 10px;
-  background: var(--g-28, #282828);
-  border-radius: 12px;
+  height: 28px;
+  min-width: 96px;
+  padding: 0 8px;
+  background: var(--g-1f, #1f1f1f);
+  border: 1px solid var(--g-2c, #2c2c2c);
+  border-radius: 5px;
+  color: var(--t-d9, #d9d9d9);
   white-space: nowrap;
   transform: translateY(-50%);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.pie-item .pie-label {
+  flex: 1;
+}
+.pie-item .pie-num {
+  color: var(--t-7c, #7c7c7c);
+  margin-left: 8px;
 }
 .pie-item.center {
   transform: translate(-50%, -50%);
@@ -1289,11 +1478,24 @@ input.num-field.editing {
   transform: translate(-100%, -50%);
 }
 .pie-item.hl {
-  background: var(--accent);
+  background: var(--w-menu-item-hl);
+  border-color: var(--g-4a, #4a4a4a);
   color: var(--c-text-on-accent, #fff);
 }
+.pie-item.hl .pie-num {
+  color: var(--t-bd, #bdbdbd);
+}
 .pie-item.active {
-  box-shadow: 0 0 0 1px var(--g-88, #888) inset;
+  background: var(--accent);
+  border-color: var(--accent-hi);
+  color: var(--c-text-on-accent, #fff);
+}
+.pie-item.active .pie-num {
+  color: #d8e2f2;
+}
+.pie-item.active.hl {
+  background: var(--accent-hi);
+  color: var(--c-text-on-accent, #fff);
 }
 
 /* ------------------------------------------------------------------ 3d view */
@@ -1324,7 +1526,7 @@ input.num-field.editing {
 }
 .v3d-info {
   position: absolute;
-  top: 34px;
+  top: calc(var(--ov-top, 0px) + 10px);
   left: 52px;
   color: var(--t-ee, #eee);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
@@ -1356,33 +1558,46 @@ input.num-field.editing {
 .v3d-toolbar {
   position: absolute;
   left: 6px;
-  top: 32px;
+  top: calc(var(--ov-top, 0px) + 8px);
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 3px;
-  background: rgb(from var(--g-28, #282828) r g b / 0.92);
-  border-radius: 6px;
-  max-height: calc(100% - 44px);
+  max-height: calc(100% - var(--ov-top, 0px) - var(--ov-bottom, 0px) - 16px);
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-width: none;
 }
+/* tools come in boxed groups: tools of a group are joined, groups are spaced apart */
 .tb-tool {
-  width: 32px;
-  height: 32px;
+  width: 38px;
+  height: 34px;
+  flex: none;
   display: grid;
   place-items: center;
-  border-radius: 4px;
   color: var(--t-dd, #ddd);
   position: relative;
+  background: rgb(from var(--g-28, #282828) r g b / 0.92);
+  border-radius: 0;
+}
+.tb-tool + .tb-tool {
+  box-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
+}
+.v3d-toolbar > .tb-tool:first-child,
+.tb-sep + .tb-tool {
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+}
+.tb-tool:has(+ .tb-sep),
+.v3d-toolbar > .tb-tool:last-child {
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
 }
 .tb-tool .ic,
 .tb-tool svg {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
 }
 .tb-tool:hover {
-  background: var(--g-3a, #3a3a3a);
+  background: rgb(from var(--g-40, #404040) r g b / 0.95);
 }
 .tb-tool.on {
   background: var(--accent);
@@ -1398,15 +1613,32 @@ input.num-field.editing {
   border-bottom-color: var(--g-bb, #bbb);
 }
 .tb-sep {
-  height: 1px;
-  margin: 3px 4px;
-  background: var(--g-3c, #3c3c3c);
+  height: 5px;
   flex: none;
+}
+.seq-toolbar .tb-tool {
+  width: 32px;
+  height: 32px;
+  background: none;
+  box-shadow: none;
+  border-radius: 4px;
+}
+.seq-toolbar .tb-tool:hover {
+  background: var(--g-3a, #3a3a3a);
+}
+.seq-toolbar .tb-tool.on {
+  background: var(--accent);
+  color: var(--c-text-on-accent, #fff);
+}
+.seq-toolbar .tb-tool .ic,
+.seq-toolbar .tb-tool svg {
+  width: 20px;
+  height: 20px;
 }
 .nav-gizmo-wrap {
   position: absolute;
   right: 8px;
-  top: 34px;
+  top: calc(var(--ov-top, 0px) + 8px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1457,12 +1689,15 @@ input.num-field.editing {
 .v3d-sidebar {
   position: absolute;
   right: 0;
-  top: 28px;
-  bottom: 0;
+  top: var(--ov-top, 0px);
+  bottom: var(--ov-bottom, 0px);
   width: 270px;
   display: flex;
-  background: rgb(from var(--g-30, #303030) r g b / 0.95);
-  border-left: 1px solid var(--g-22, #222);
+  /* the panels float over the viewport; only the tab strip has a background */
+  background: transparent;
+}
+.v3d-sidebar .sb-body > .panel {
+  box-shadow: 0 0 0 1px var(--c-panel-outline) inset, 0 1px 4px rgba(0, 0, 0, 0.25);
 }
 .sb-body {
   flex: 1;
@@ -1479,11 +1714,16 @@ input.num-field.editing {
 .sb-tab {
   writing-mode: vertical-rl;
   padding: 10px 4px;
-  border-radius: 3px;
-  color: var(--t-99, #999);
+  border-radius: 4px;
+  color: var(--t-a6, #a6a6a6);
+  background: var(--g-28, #282828);
+}
+.sb-tab:hover {
+  color: var(--t-dd, #ddd);
+  background: var(--g-33, #333);
 }
 .sb-tab.on {
-  background: var(--g-30, #303030);
+  background: var(--g-3d, #3d3d3d);
   color: var(--t-ff, #fff);
 }
 .sb-label {
@@ -1505,7 +1745,7 @@ input.num-field.editing {
 .redo-panel {
   position: absolute;
   left: 6px;
-  bottom: 8px;
+  bottom: calc(var(--ov-bottom, 0px) + 8px);
   background: rgb(from var(--g-30, #303030) r g b / 0.95);
   border-radius: 6px;
   min-width: 200px;
@@ -1545,6 +1785,63 @@ input.num-field.editing {
   align-items: center;
   gap: 8px;
   flex: 1;
+}
+/* Tool settings floating over the viewport: each group sits on its own translucent box. */
+.area.overlap-header > .area-toolheader {
+  padding: 0 4px;
+  gap: 4px;
+}
+.area.overlap-header > .area-toolheader > .hdr-spacer {
+  pointer-events: none;
+}
+.area.overlap-header > .area-toolheader > .tool-header,
+.area.overlap-header > .area-toolheader > .th-right {
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 24px;
+  padding: 0 4px;
+  gap: 6px;
+  border-radius: 6px;
+  background: rgb(from var(--g-28, #282828) r g b / 0.86);
+}
+.area.overlap-header > .area-toolheader > .tool-header:empty {
+  display: none;
+}
+.th-right {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+.th-right .hdr-drop {
+  margin-right: 0;
+}
+.th-right .hdr-group {
+  margin: 0;
+}
+/* tool options (Options popover and the sidebar's Tool tab) */
+.opt-head {
+  color: var(--c-text-dim);
+  margin: 4px 0 2px;
+}
+.opt-split {
+  display: grid;
+  grid-template-columns: 38% 1fr;
+  gap: 8px;
+  align-items: start;
+}
+.opt-label {
+  text-align: right;
+  color: var(--t-cc, #ccc);
+  line-height: var(--row);
+}
+.opt-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.opt-col.opt-row {
+  flex-direction: row;
+  gap: 10px;
 }
 .th-tool {
   display: flex;
@@ -1591,7 +1888,7 @@ input.num-field.editing {
 .ol-row {
   display: flex;
   align-items: center;
-  height: 22px;
+  height: 20px;
   padding-right: 4px;
   gap: 3px;
   color: var(--t-c3, #c3c3c3);
@@ -1629,6 +1926,10 @@ input.num-field.editing {
 .ol-indent {
   width: calc(var(--depth) * 18px + 4px);
   flex: none;
+  align-self: stretch;
+  /* hierarchy lines under each open parent (none for the top level) */
+  padding-left: 18px;
+  background: repeating-linear-gradient(90deg, transparent 0 11.5px, rgba(var(--hl-rgb, 255, 255, 255), 0.1) 11.5px 12.5px, transparent 12.5px 18px) content-box;
 }
 .ol-arrow,
 .ol-arrow-space {
@@ -1690,31 +1991,43 @@ input.num-field.editing {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
   padding: 4px 0;
   background: var(--g-1d, #1d1d1d);
   overflow-y: auto;
+  scrollbar-width: none;
 }
+/* tabs come in boxes per group, like the 3D view toolbar */
 .rail-tab {
-  width: 26px;
+  width: 28px;
   height: 26px;
+  flex: none;
   display: grid;
   place-items: center;
-  border-radius: 4px;
+  border-radius: 0;
   color: var(--t-cc, #ccc);
+  background: var(--g-28, #282828);
+}
+.prop-rail > .rail-tab:first-child,
+.rail-sep + .rail-tab {
+  border-top-left-radius: 5px;
+  border-top-right-radius: 5px;
+}
+.rail-tab:has(+ .rail-sep),
+.prop-rail > .rail-tab:last-child {
+  border-bottom-left-radius: 5px;
+  border-bottom-right-radius: 5px;
 }
 .rail-tab:hover {
-  background: var(--g-2c, #2c2c2c);
+  background: var(--g-33, #333);
 }
 .rail-tab.on {
-  background: var(--g-4b, #4b4b4b);
+  background: var(--g-47, #474747);
   color: var(--t-ff, #fff);
+  border-radius: 5px;
 }
 .rail-sep {
-  width: 18px;
-  height: 1px;
-  background: var(--g-33, #333);
-  margin: 3px 0;
+  height: 6px;
+  flex: none;
 }
 .prop-main {
   flex: 1;
@@ -2012,15 +2325,41 @@ input.num-field.editing {
   inset: 0;
 }
 .tl-frame {
-  width: 70px;
+  width: 72px;
+  margin-right: 6px;
 }
 .tl-range {
   display: flex;
-  gap: 2px;
+  gap: 1px;
   width: 200px;
 }
 .tl-range .num-field {
   flex: 1;
+  border-radius: 0;
+}
+.tl-range > :first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+.tl-range > :last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.tl-range .tl-preview {
+  flex: none;
+  min-width: 24px;
+  height: var(--row);
+}
+.anim-footer-row > .hdr-group {
+  margin: 0 3px;
+}
+/* header popover buttons (e.g. Playback) look like dropdowns */
+.hdr-menu.hdr-pop {
+  background: var(--w-menu);
+  border: 1px solid var(--w-outline);
+  padding: 0 6px 0 8px;
+}
+.hdr-menu.hdr-pop:hover,
+.hdr-menu.hdr-pop.menu-open {
+  background: var(--g-3a, #3a3a3a);
 }
 .hdr-group.play .hdr-toggle {
   min-width: 26px;
@@ -2037,7 +2376,8 @@ input.num-field.editing {
   z-index: 900;
 }
 .dialog {
-  background: var(--g-30, #303030);
+  background: var(--g-26, #262626);
+  border: 1px solid var(--g-33, #333);
   border-radius: 8px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
   min-width: 360px;
@@ -2051,9 +2391,10 @@ input.num-field.editing {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 30px;
+  height: 28px;
   padding: 0 10px;
-  background: var(--g-24, #242424);
+  background: var(--g-1d, #1d1d1d);
+  color: var(--t-c8, #c8c8c8);
 }
 .dialog-title .grow {
   flex: 1;
@@ -2542,4 +2883,23 @@ input.num-field.editing {
 .ws-add:hover {
   color: var(--t-dd, #ddd);
   background: rgba(var(--hl-rgb, 255, 255, 255), 0.06);
+}
+.mesh-symmetry {
+  align-items: center;
+  background: var(--w-menu);
+}
+.mesh-symmetry > .ic {
+  margin: 0 3px 0 5px;
+  color: var(--t-cc, #ccc);
+}
+.ov-axes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ov-axes-label {
+  color: var(--t-b4, #b4b4b4);
+}
+.ov-axes .enum-row > button {
+  min-width: 24px;
 }

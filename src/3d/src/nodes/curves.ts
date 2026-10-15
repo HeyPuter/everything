@@ -200,14 +200,15 @@ export interface CurvePoint {
   handle: number;
 }
 
-export type CurveKind = 'RGB' | 'VECTOR' | 'FLOAT';
+export type CurveKind = 'RGB' | 'VECTOR' | 'FLOAT' | 'HUE';
 
 export const CURVE_NAMES: Record<CurveKind, string[]> = {
   RGB: ['c', 'r', 'g', 'b'],
   VECTOR: ['x', 'y', 'z'],
   FLOAT: ['v'],
+  HUE: ['h', 's', 'v'],
 };
-export const CURVE_RANGE: Record<CurveKind, [number, number, number, number]> = { RGB: [0, 0, 1, 1], VECTOR: [-1, -1, 1, 1], FLOAT: [0, 0, 1, 1] };
+export const CURVE_RANGE: Record<CurveKind, [number, number, number, number]> = { RGB: [0, 0, 1, 1], VECTOR: [-1, -1, 1, 1], FLOAT: [0, 0, 1, 1], HUE: [0, 0, 1, 1] };
 
 export function defaultCurves(kind: CurveKind): Record<string, SocketValue> {
   const out: Record<string, SocketValue> = {
@@ -216,7 +217,10 @@ export function defaultCurves(kind: CurveKind): Record<string, SocketValue> {
     curve_active: 0,
   };
   const [x0, y0, x1, y1] = CURVE_RANGE[kind];
-  CURVE_NAMES[kind].forEach((n, i) => (out[`curve_${i}`] = [x0, y0, 0, x1, y1, 0]));
+  // hue curves: flat at 0.5 (no change), eight points around the hue circle
+  const flatHue: number[] = [];
+  for (let i = 0; i < 8; i++) flatHue.push(i / 8, 0.5, 0);
+  CURVE_NAMES[kind].forEach((n, i) => (out[`curve_${i}`] = kind === 'HUE' ? [...flatHue] : [x0, y0, 0, x1, y1, 0]));
   void CURVE_NAMES[kind];
   if (kind === 'RGB') {
     out.black_level = [0, 0, 0];
@@ -267,6 +271,13 @@ function slopes(p: CurvePoint[]): number[] {
     m[n - 1] = (3 * sec(n - 2) - m[n - 2]) / 2;
   }
   return m;
+}
+
+/** Curve evaluated periodically over [0, 1) (hue curves: the last point continues into the first). */
+export function evalPeriodicCurve(pts: CurvePoint[], x: number): number {
+  if (!pts.length) return 0.5;
+  const ext = [...pts.map((p) => ({ ...p, x: p.x - 1 })), ...pts, ...pts.map((p) => ({ ...p, x: p.x + 1 }))];
+  return evalCurve(ext, x, 'HORIZONTAL');
 }
 
 /** Evaluate a curve at x (points sorted by x). */

@@ -4,7 +4,7 @@ import type { DataType, FieldType } from './types';
 import { fieldTypeOfData, fieldComps, dataComps } from './types';
 import { adaptDomain, readAttribute, type Component } from './geometry';
 import { cornerNormals, edgeAngles, faceAreas, faceNormals, smoothFlags, vertexNormals } from './meshutil';
-import { curveLengths, curveNormals, curveTangents } from './curveutil';
+import { controlLengths, controlNormals, controlTangents } from './curves/curvedata';
 
 const full = (data: Float32Array | Int32Array | Uint8Array): Evaluated => ({
   data,
@@ -101,7 +101,7 @@ export function normalOn(c: Component, domain: FieldContext['domain'], size: num
     }
   }
   if (c.kind === 'CURVES') {
-    const n = curveNormals(c);
+    const n = controlNormals(c);
     if (domain === 'POINT') return full(n);
     return full(adaptDomain(c, n, 'FLOAT_VECTOR', 'POINT', domain) as Float32Array);
   }
@@ -155,14 +155,14 @@ export const splineParameterField = (which: 'Factor' | 'Length' | 'Index') =>
     if (ctx.domain === 'CURVE') {
       const out = which === 'Index' ? new Int32Array(ctx.size) : new Float32Array(ctx.size);
       if (which === 'Length') {
-        const L = curveLengths(c).total;
+        const L = controlLengths(c).total;
         let acc = 0;
         for (let k = 0; k < c.curveCount; k++) {
           out[k] = acc;
           acc += L[k];
         }
       } else if (which === 'Factor') {
-        const L = curveLengths(c).total;
+        const L = controlLengths(c).total;
         let total = 0;
         for (const l of L) total += l;
         let acc = 0;
@@ -173,7 +173,7 @@ export const splineParameterField = (which: 'Factor' | 'Length' | 'Index') =>
       } else for (let k = 0; k < c.curveCount; k++) out[k] = k;
       return full(out);
     }
-    const { segment, total } = curveLengths(c);
+    const { segment, total } = controlLengths(c);
     const out = which === 'Index' ? new Int32Array(c.pointCount) : new Float32Array(c.pointCount);
     for (let k = 0; k < c.curveCount; k++)
       for (let i = c.curveOffsets[k]; i < c.curveOffsets[k + 1]; i++) {
@@ -187,7 +187,7 @@ export const splineParameterField = (which: 'Factor' | 'Length' | 'Index') =>
 export const curveTangentField = () =>
   new InputField('VECTOR', 'curve_tangent', (ctx) => {
     if (ctx.comp.kind !== 'CURVES') return zeros('VECTOR', ctx);
-    const t = curveTangents(ctx.comp);
+    const t = controlTangents(ctx.comp);
     return full(ctx.domain === 'POINT' ? t : (adaptDomain(ctx.comp, t, 'FLOAT_VECTOR', 'POINT', ctx.domain) as Float32Array));
   });
 

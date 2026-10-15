@@ -1,9 +1,13 @@
 // Properties ▸ View Layer: whether the layer renders, its passes and what it includes.
-import { h } from '../../../ui/h';
+import { h, type Child } from '../../../ui/h';
 import { registerTab } from '../../../editors/properties/properties';
 import { panel } from '../../../ui/widgets';
 import { bool } from '../../../ui/props';
 import { renderSettings, sub } from './common';
+
+/** Extra rows of Passes ▸ Data and extra View Layer panels (registered by feature modules). */
+export const viewLayerDataItems: (() => Child)[] = [];
+export const viewLayerPanels: (() => Child)[] = [];
 
 registerTab({
   id: 'VIEW_LAYER',
@@ -23,6 +27,7 @@ registerTab({
           bool(r, 'use_pass_normal', 'Normal', { tip: 'World-space surface normals' }),
           bool(r, 'use_pass_position', 'Position', { tip: 'World-space surface positions' }),
           bool(r, 'use_pass_uv', 'UV', { tip: 'Texture coordinates of the active UV map' }),
+          ...viewLayerDataItems.map((f) => f()),
           h('div', { class: 'sub-label' }, 'Indexes'),
           bool(r, 'use_pass_object_index', 'Object Index', { tip: 'Pass Index of objects (Object ▸ Relations)' }),
           bool(r, 'use_pass_material_index', 'Material Index', { tip: 'Pass Index of materials (Material ▸ Settings)' }),
@@ -32,6 +37,7 @@ registerTab({
           bool(r, 'use_pass_emit', 'Emission', { tip: 'Light emitted by surfaces' }),
         ]),
       ]),
+      ...viewLayerPanels.map((f) => f()),
       panel(
         'vl-filter',
         'Filter',

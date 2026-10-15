@@ -45,7 +45,8 @@ export const CMP_LIB: GlslLib = {
 const PIXEL_CONTEXT: ShadingContext = Object.fromEntries(Object.keys(MATERIAL_CONTEXT).map((k) => [k, 'vec3(0.0)'])) as unknown as ShadingContext;
 Object.assign(PIXEL_CONTEXT, {
   uv: 'vec3(cmpUV, 0.0)',
-  orco: 'vec3(cmpUV, 0.0)',
+  // procedural textures: centred coordinates with the larger image side spanning -1..1
+  orco: 'vec3(cmpUniform, 0.0)',
   win: 'vec3(cmpUV, 0.0)',
   col: 'vec4(0.0)',
   back: '0.0',
@@ -170,6 +171,7 @@ export function runPixelNode(x: NodeCtx, gen: NodeGenerator, opts: { domain?: Do
       part.map((_, i) => `layout(location = ${i}) out vec4 o${i};`).join('\n'),
       'void main() {',
       `  vec2 cmpUV = gl_FragCoord.xy / vec2(${size.w}.0, ${size.h}.0);`,
+      `  vec2 cmpUniform = (gl_FragCoord.xy - vec2(${size.w}.0, ${size.h}.0) * 0.5) / (${Math.max(size.w, size.h)}.0 * 0.5);`,
       `  ${body}`,
       ...part.map((o, i) => `  o${i} = ${pack(o.expr, toG(o.type), dataTypeOf(sockOf(o.id)!.type))};`),
       '}',

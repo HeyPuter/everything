@@ -199,7 +199,7 @@ test('interface preferences: factor display, header position, status bar, naviga
   await expect(page.locator('.v3d-info-line', { hasText: 'Cube' }).first()).toBeVisible();
 
   await setPref(page, 'show_statusbar_scene_duration', true);
-  await expect(page.locator('.sb-duration')).toContainText('Frames 250');
+  await expect(page.locator('.sb-duration')).toContainText('/250');
 
   // menus open when the pointer rests on the menu bar
   await setPref(page, 'use_mouse_over_open', true);

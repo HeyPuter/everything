@@ -7,5 +7,7 @@ import './nodes/point';
 import './nodes/utilities';
 import './nodes/output';
 import './menu';
+import './curves';
 import './modifier';
+import './gnmesh';
 export {};

@@ -1,5 +1,6 @@
 // Styles for the Video Sequencer editor (injected once).
 const css = /* css */ `
+.seq-sb-note { color: var(--text-dim, #999); font-size: 11px; padding: 2px 4px 4px; line-height: 1.35; }
 .seq-ed { position: absolute; inset: 0; display: flex; flex-direction: column; background: #1c1c1c; }
 .seq-body { flex: 1; display: flex; min-height: 0; }
 .seq-left { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -27,6 +28,8 @@ const css = /* css */ `
 .seq-ch-tg .ic svg { width: 14px; height: 14px; }
 .seq-main { position: relative; flex: 1; min-width: 0; overflow: hidden; touch-action: none; }
 .seq-main canvas { position: absolute; left: 0; top: 0; }
+.seq-redo { position: absolute; left: 0; bottom: 0; z-index: 3; }
+.seq-redo .redo-panel { bottom: 6px; }
 .seq-sb { position: relative; flex: none; width: 300px; display: flex; background: #303030; border-left: 1px solid #161616; }
 .seq-sb[hidden] { display: none; }
 .seq-sb .sb-body { overflow-y: auto; }
@@ -40,6 +43,7 @@ const css = /* css */ `
 .seq-mod-add { padding: 4px 8px 8px; }
 .seq-mod-add .seq-add-mod { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 22px; }
 .seq-mod-panel .ph-title { display: none; }
+.seq-mod-panel.active { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35); }
 .seq-mod-panel .panel-header { gap: 4px; }
 .seq-mod-hd { display: inline-flex; align-items: center; gap: 3px; flex: 1; min-width: 0; }
 .seq-mod-hd .text-field { flex: 1; min-width: 40px; }

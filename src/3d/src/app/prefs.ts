@@ -181,7 +181,7 @@ export const DUPLICATE_TYPES = ['MESH', 'CURVE', 'FONT', 'LATTICE', 'META', 'ARM
 export const defaultPreferences = (): Preferences => ({
   theme: 'DARK',
   resolution_scale: 1,
-  font_size: 12,
+  font_size: 11,
   show_tooltips: true,
   show_tooltips_python: true,
   show_developer_ui: false,
@@ -208,7 +208,7 @@ export const defaultPreferences = (): Preferences => ({
   open_sublevel_delay: 0,
   pie_animation_timeout: 0,
   pie_tap_timeout: 250,
-  pie_menu_radius: 110,
+  pie_menu_radius: 104,
   pie_menu_threshold: 20,
   pie_menu_confirm: 0,
   use_reduce_motion: false,

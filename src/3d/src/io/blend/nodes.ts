@@ -5,12 +5,20 @@ import { uid } from '../../data/defaults';
 import type { BStruct } from './reader';
 import type { Ctx } from './context';
 import { NODE_PROP_RULES } from './nodeprops.gen';
+import { GEO_NODE_PROP_RULES } from './nodeprops_geo.gen';
+import { newZonePending, readZoneNode, finishZones } from './zones';
 
 const NODE_HIDDEN = 8;
 const NODE_DO_OUTPUT = 64;
 const NODE_MUTED = 512;
 
 function readField(node: BStruct, path: string): number | null {
+  if (path.startsWith('socket.')) {
+    // value of a menu socket
+    const sock = node.list('inputs', 1000).find((s) => s.str('identifier') === path.slice(7));
+    const dv = sock?.ref('default_value');
+    return dv && dv.has('value') ? dv.num('value') : null;
+  }
   if (path.startsWith('storage.')) {
     let s: BStruct | null = node.ref('storage');
     const parts = path.slice(8).split('.');
@@ -103,6 +111,7 @@ export function convertNodeTree(nt: BStruct, type: NodeTreeData['type'], ctx: Ct
   const byOffset = new Map<number, NodeData>();
   const parents: [NodeData, BStruct][] = [];
   const unknownStorage: string[] = [];
+  const zones = newZonePending();
   for (const n of nt.list('nodes', 100_000)) {
     const idname = n.str('idname');
     const flag = n.num('flag');
@@ -132,7 +141,7 @@ export function convertNodeTree(nt: BStruct, type: NodeTreeData['type'], ctx: Ct
         if (v !== undefined) node.props[`outputs.${s.str('identifier')}`] = v;
       }
     }
-    const rules = NODE_PROP_RULES[idname];
+    const rules = NODE_PROP_RULES[idname] ?? GEO_NODE_PROP_RULES[idname];
     if (rules) {
       for (const [prop, r] of Object.entries(rules)) {
         const raw = readField(n, r.f);
@@ -155,11 +164,12 @@ export function convertNodeTree(nt: BStruct, type: NodeTreeData['type'], ctx: Ct
     } else if (idname === 'ShaderNodeGroup' || idname === 'GeometryNodeGroup') {
       node.props.node_tree = id ? convertGroup(id, type, ctx, groupStack) : null;
     }
+    readZoneNode(n, node, zones);
     if (storage) {
       // string settings stored by name (attribute / UV map / color layer names)
       if (idname === 'ShaderNodeAttribute' && storage.has('name')) node.props.attribute_name = storage.str('name');
       for (const k of ['uv_map', 'layer_name']) if (storage.has(k)) node.props[k] = storage.str(k);
-    } else if (!rules && n.ptr('storage') !== 0) unknownStorage.push(idname);
+    } else if (!rules && n.ptr('storage') !== 0 && !idname.match(/^GeometryNode(Repeat|Simulation|ForeachGeometryElement)(Input|Output)$|^GeometryNode(Bake|CaptureAttribute)$/)) unknownStorage.push(idname);
     tree.nodes.push(node);
     byOffset.set(n.offset, node);
     const parent = n.ref('parent');
@@ -181,12 +191,18 @@ export function convertNodeTree(nt: BStruct, type: NodeTreeData['type'], ctx: Ct
     if (l.num('flag') & 16) link.is_muted = true;
     tree.links.push(link);
   }
+  finishZones(tree, zones);
   if (unknownStorage.length) ctx.warn.add('Node settings not read', [...new Set(unknownStorage)].join(', '));
   return tree;
 }
 
 function socketTypeFromIdname(idname: string) {
   return idname || 'NodeSocketFloat';
+}
+
+/** A node group used outside node trees (geometry nodes modifiers); returns its id. */
+export function convertGroupTree(gt: BStruct, type: NodeTreeData['type'], ctx: Ctx): string | null {
+  return convertGroup(gt, type, ctx, new Set());
 }
 
 /** Node groups become NodeGroupData; returns its id. */

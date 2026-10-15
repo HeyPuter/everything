@@ -4,10 +4,12 @@ import { preEvaluateHooks, type Depsgraph } from '../eval/depsgraph';
 import type { EvalMesh, ModifierContext } from '../eval/types';
 import type { DocumentData, ModifierBase, NodeGroupData, NodeTreeData, ObjectData, SocketValue } from '../data/types';
 import { interfaceSocketType, findSocket, allSockets } from '../nodes/registry';
-import { geoExecs, type EvalEnv, type Val } from './exec';
+import { alwaysEvaluated, geoExecs, type EvalEnv, type Val } from './exec';
 import { TreeEval, pruneCache, hash, coerce, FIELD_TYPES, type NodeCache, type EvalLog } from './evaluator';
 import { GeometrySet, identity, adaptDomain, dataComps, type Component } from './geometry';
 import { evalMeshToGeometry, geometryToEvalMesh, curveDataToCurves, materialSlots } from './convert';
+import { curveObjectModifierInput } from './curves/curvedata';
+import { greasePencilGeometry } from './curves/gpdata';
 import { attributeField } from './inputs';
 import { Field, ConstField } from './field';
 import { storeOn } from './nodes/geometry';
@@ -125,7 +127,10 @@ function makeEnv(doc: DocumentData, ob: ObjectData, graph: Depsgraph, frame: num
         const r = gnResults.get(id);
         if (r && ev.mesh && r.evalMesh === ev.mesh) g = r.geometry;
         else if (cu && !cu.bevel_depth && !cu.extrude && !(o.modifiers ?? []).length) g = new GeometrySet(undefined, undefined, curveDataToCurves(cu));
-        else if (ev.mesh) g = evalMeshToGeometry(ev.mesh, o.type === 'MESH' && o.data ? doc.meshes[o.data] : null);
+        else if (o.type === 'GREASEPENCIL') {
+          g = new GeometrySet();
+          g.greasePencil = greasePencilGeometry(doc, o, frame) ?? undefined;
+        } else if (ev.mesh) g = evalMeshToGeometry(ev.mesh, o.type === 'MESH' && o.data ? doc.meshes[o.data] : null);
         else g = GeometrySet.empty();
         if (g.mesh && o.type === 'MESH' && o.data && !g.mesh.materials.length) {
           const mm = g.mesh.copy();
@@ -198,6 +203,7 @@ export function evaluateGroup(group: NodeGroupData, m: ModifierBase, env: EvalEn
     log,
   );
   const outputs = root.groupOutputs();
+  for (const n of tree.nodes) if (alwaysEvaluated.has(n.type) && !n.mute) root.nodeOutputs(n);
   const outItems = (tree.interface ?? []).filter((i) => i.in_out === 'OUTPUT');
   const geoItem = outItems.find((i) => interfaceSocketType(i.socket_type).type === 'GEOMETRY');
   let geometry = geoItem && outputs[geoItem.identifier] instanceof GeometrySet ? (outputs[geoItem.identifier] as GeometrySet) : GeometrySet.empty();
@@ -304,7 +310,8 @@ registerModifier({
     const t0 = performance.now();
     const graph = ctx.graph ?? currentGraph;
     const env = makeEnv(ctx.doc, ctx.ob, graph, ctx.frame, ctx.render);
-    const input = evalMeshToGeometry(mesh, ctx.source);
+    const cin = curveObjectModifierInput(ctx.doc, ctx.ob, m.id, ctx.render);
+    const input = cin ? new GeometrySet(undefined, undefined, cin) : evalMeshToGeometry(mesh, ctx.source);
     const withViewer = !ctx.render && viewerActiveFor(ctx.doc, ctx.ob, m);
     const r = evaluateGroup(group, m, env, input, meshSig(mesh), `${ctx.ob.id}/${m.id}`, withViewer);
     const shown = r.viewer ? viewerColors(r.viewer) : r.geometry;

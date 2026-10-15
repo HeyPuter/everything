@@ -203,6 +203,10 @@ function modifierPanel(ob: ObjectData, m: ModifierBase, i: number): Child {
   );
 }
 
+const MESH_LIKE = ['MESH', 'CURVE', 'FONT', 'LATTICE'];
+/** Whether a modifier type can be added to an object type. */
+export const modifierAllowed = (type: string, obType: string | undefined) => !!obType && (modifierTypes[type]?.objectTypes ?? MESH_LIKE).includes(obType);
+
 export function addModifierMenu(): MenuItem[] {
   const cats: [string, string][] = [
     ['EDIT', 'Edit'],
@@ -210,10 +214,14 @@ export function addModifierMenu(): MenuItem[] {
     ['DEFORM', 'Deform'],
     ['NORMALS', 'Normals'],
     ['PHYSICS', 'Physics'],
+    ['COLOR', 'Color'],
   ];
+  const obType = app.activeObject?.type;
   return cats
     .map(([c, label]) => {
-      const list = Object.values(modifierTypes).filter((t) => t.category === c).sort((a, b) => a.label.localeCompare(b.label));
+      const list = Object.values(modifierTypes)
+        .filter((t) => t.category === c && modifierAllowed(t.type, obType))
+        .sort((a, b) => a.label.localeCompare(b.label));
       if (!list.length) return null;
       return { label, submenu: () => list.map((t) => ({ label: t.label, icon: t.icon, op: 'object.modifier_add', props: { type: t.type } })) } as MenuItem;
     })
@@ -227,7 +235,7 @@ registerTab({
   group: 3,
   poll: () => {
     const o = app.activeObject;
-    return !!o && (o.type === 'MESH' || o.type === 'CURVE' || o.type === 'FONT' || o.type === 'LATTICE');
+    return !!o && (o.type === 'MESH' || o.type === 'CURVE' || o.type === 'FONT' || o.type === 'LATTICE' || o.type === 'GREASEPENCIL');
   },
   draw: () => {
     const o = app.activeObject!;
@@ -259,10 +267,10 @@ registerOperators([
     idname: 'object.modifier_add',
     label: 'Add Modifier',
     props: [{ id: 'type', label: 'Type', type: 'string', default: 'SUBSURF' }],
-    poll: () => !!app.activeObject && ['MESH', 'CURVE', 'FONT', 'LATTICE'].includes(app.activeObject.type),
+    poll: () => !!app.activeObject && ['MESH', 'CURVE', 'FONT', 'LATTICE', 'GREASEPENCIL'].includes(app.activeObject.type),
     exec: (_ctx, p) => {
       const ob = app.activeObject!;
-      if (!modifierTypes[p.type as string]) return 'CANCELLED';
+      if (!modifierTypes[p.type as string] || !modifierAllowed(p.type as string, ob.type)) return 'CANCELLED';
       ob.modifiers.push(newModifier(p.type as string, uid('md'), ob.modifiers));
     },
   },

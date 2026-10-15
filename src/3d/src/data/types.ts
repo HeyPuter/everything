@@ -37,7 +37,9 @@ export type Mode =
   | 'TEXTURE_PAINT'
   | 'POSE'
   | 'PAINT_GREASE_PENCIL'
-  | 'SCULPT_GREASE_PENCIL';
+  | 'SCULPT_GREASE_PENCIL'
+  | 'VERTEX_GREASE_PENCIL'
+  | 'WEIGHT_GREASE_PENCIL';
 
 export type SelectMode = 'VERT' | 'EDGE' | 'FACE';
 
@@ -878,6 +880,8 @@ export interface ObjectData {
   use_instance_faces_scale?: boolean;
   instance_faces_scale?: number;
   modifiers: ModifierBase[];
+  /** visual effects of grease pencil objects (Properties ▸ Visual Effects) */
+  shader_effects?: import('../greasepencil/types').ShaderFx[];
   constraints: Constraint[];
   animation_data: AnimData | null;
   pose: Record<string, PoseBone> | null;
@@ -1264,6 +1268,8 @@ export interface DocumentData {
   fonts?: Record<ID, VectorFontData>;
   /** Grease Pencil data-blocks (src/greasepencil); absent in older files */
   grease_pencils?: Record<ID, import('../greasepencil/types').GreasePencilData>;
+  /** Files stored in the project for geometry import nodes; absent in older files */
+  packed_files?: Record<ID, import('../geonodes/curves/importers').PackedFile>;
   /** Metaball data-blocks (src/metaball); absent in older files */
   metaballs?: Record<ID, import('../metaball/types').MetaballData>;
   /** Mode of the active object */

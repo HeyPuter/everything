@@ -24,6 +24,58 @@ export function floodFill(boundary: Uint8Array, W: number, H: number, x: number,
   return out;
 }
 
+/** Pixels reachable from the image border without crossing `wall`. */
+export function borderFlood(wall: Uint8Array, W: number, H: number): Uint8Array {
+  const out = new Uint8Array(W * H);
+  const stack = new Int32Array(W * H);
+  let sp = 0;
+  const push = (i: number) => {
+    if (!out[i] && !wall[i]) {
+      out[i] = 1;
+      stack[sp++] = i;
+    }
+  };
+  for (let x = 0; x < W; x++) push(x), push((H - 1) * W + x);
+  for (let y = 0; y < H; y++) push(y * W), push(y * W + W - 1);
+  while (sp) {
+    const i = stack[--sp];
+    const px = i % W;
+    if (px > 0) push(i - 1);
+    if (px < W - 1) push(i + 1);
+    if (i >= W) push(i - W);
+    if (i < W * (H - 1)) push(i + W);
+  }
+  return out;
+}
+
+/**
+ * Inverted fill: clicked inside a closed area → the closed areas inside it (its holes); clicked
+ * outside every shape → all closed areas. Null when there is nothing to fill.
+ */
+export function invertedRegion(boundary: Uint8Array, W: number, H: number, x: number, y: number): Uint8Array | null {
+  if (x < 0 || y < 0 || x >= W || y >= H || boundary[y * W + x]) return null;
+  const region = floodFill(boundary, W, H, x, y);
+  const out = new Uint8Array(W * H);
+  let any = false;
+  if (region) {
+    // everything the clicked area surrounds, minus the lines themselves
+    const outside = borderFlood(region, W, H);
+    for (let i = 0; i < W * H; i++)
+      if (!region[i] && !outside[i] && !boundary[i]) {
+        out[i] = 1;
+        any = true;
+      }
+  } else {
+    const outside = borderFlood(boundary, W, H);
+    for (let i = 0; i < W * H; i++)
+      if (!boundary[i] && !outside[i]) {
+        out[i] = 1;
+        any = true;
+      }
+  }
+  return any ? out : null;
+}
+
 /** Grow a mask by `r` pixels (square neighbourhood). */
 export function dilate(mask: Uint8Array, W: number, H: number, r: number): Uint8Array {
   let cur = mask;

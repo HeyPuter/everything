@@ -59,8 +59,10 @@ export interface ModifierContext {
 export interface ModifierType {
   type: string;
   label: string;
-  category: 'EDIT' | 'GENERATE' | 'DEFORM' | 'NORMALS' | 'PHYSICS';
+  category: 'EDIT' | 'GENERATE' | 'DEFORM' | 'NORMALS' | 'PHYSICS' | 'COLOR';
   icon: string;
+  /** object types the modifier can be added to (default: meshes, curves, text, lattices) */
+  objectTypes?: string[];
   defaults: () => Record<string, unknown>;
   /** Object ids this modifier depends on (targets) */
   deps?: (m: ModifierBase) => (string | null | undefined)[];

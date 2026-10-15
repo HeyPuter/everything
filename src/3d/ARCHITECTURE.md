@@ -25,6 +25,8 @@ src/
   modes/      Edit modes: editmesh/ (mesh), armature/ (edit + pose), curve/, lattice/, text/
   nodes/      Node registry, shader nodes + GLSL compiler, generic node editor (editor/)
   geonodes/   Geometry Nodes nodes, field evaluator, NODES modifier, Geometry Node Editor
+              curves/: spline types (Bézier/NURBS/Catmull-Rom attributes + evaluation), curve, text,
+              import, Grease Pencil and gizmo nodes; placed in the Add menu with `place()` (curves/menu.ts)
   spreadsheet/ Spreadsheet editor
   compositor/ Compositor nodes (GPU), Compositor editor, render post-processing
   animation/  Dope Sheet, Graph Editor, Drivers, NLA editors and their operators
@@ -34,6 +36,8 @@ src/
               props/ holds the Render, Output, View Layer and camera-data properties panels
   sequencer/  Video Sequencer (strips, effects, preview, audio)
   tracking/   Movie Clip Editor, 2D tracking, stabilization, Follow Track constraint
+  mask/       Mask data-blocks (bezier splines with feather, shape keys, track parenting),
+              rasterization, the clip editor's mask mode, compositor Mask node
   greasepencil/ Grease Pencil objects, Draw/Edit/Sculpt modes, 2D Animation workspace
   scripting/  bpy-style API (JavaScript + Pyodide Python), Text Editor, Console, Info
   prefs/      Preferences editor: sections, keymap editor + key configurations, themes, studio
@@ -171,6 +175,11 @@ adds entries to File ▸ Import/Export. Native format: `io/native.ts`.
 - `editors/view3d/draw.ts` `drawHooks`, `render/scene.ts` `sceneSyncHooks`
 - `render/final` `renderPostHooks` (compositor), sequencer frame hooks in `job.ts`
 - `app/keymap.ts` `keyInputHooks` (raw text input, e.g. Text Edit Mode)
+- Geometry nodes: `geonodes/nodes/gndef.ts` `geoNode(spec, exec)` defines a node inline; `geonodes/menuplace.ts`
+  places Add-menu entries by the menu's item order. Zones (`geonodes/zones/`) keep their items as JSON on the
+  output node (`repeat_items`, `state_items`, …; inputs find them through `props.paired_output`); a zone output
+  runs its body through `ZoneEval` (`ExecContext.evaluator` is the running evaluator). `NodeTypeDef.onAdd` adds
+  companion nodes when a node is added interactively.
 - `nodes/editor/context.ts` `registerNodeEditorProvider` (Shader, Geometry, Compositor editors; optional
   `linkViewer` for Ctrl Shift click, `viewPanels` / `optionsPanels` for the sidebar's View / Options tabs).
   Tree commands behind the node editor's menus are pure functions in `nodes/treeops.ts` and `nodes/iface.ts`.

@@ -16,6 +16,48 @@ export interface StrokeStyle {
   mode: 'LINE' | 'DOTS' | 'BOX';
   /** squares: follow the stroke path, the object X axis, or stay screen aligned */
   alignment?: 'PATH' | 'OBJECT' | 'FIXED';
+  /** gradient fill toward a secondary color */
+  gradient?: { type: 'LINEAR' | 'RADIAL'; mix: RGBA; factor: number; flip: boolean; offset: [number, number]; angle: number; scale: [number, number] };
+  /** holdout: the stroke / fill cuts the object's image instead of drawing */
+  holdoutStroke?: boolean;
+  holdoutFill?: boolean;
+}
+
+/** Gradient coordinates of fill points: the fill's plane, normalized to its bounds, then moved / turned / scaled. */
+export function gradientUV(P: ArrayLike<number>, loops: number[][], g: NonNullable<StrokeStyle['gradient']>): Map<number, [number, number]> {
+  const n = [0, 0, 0];
+  for (const l of loops) newell(P, l, n);
+  const len = Math.hypot(n[0], n[1], n[2]) || 1;
+  const N = [n[0] / len, n[1] / len, n[2] / len];
+  // an axis not parallel to the normal gives the plane's u direction
+  const ref = Math.abs(N[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+  const u = [N[1] * ref[2] - N[2] * ref[1], N[2] * ref[0] - N[0] * ref[2], N[0] * ref[1] - N[1] * ref[0]];
+  const ul = Math.hypot(u[0], u[1], u[2]) || 1;
+  const U = [u[0] / ul, u[1] / ul, u[2] / ul];
+  const V = [N[1] * U[2] - N[2] * U[1], N[2] * U[0] - N[0] * U[2], N[0] * U[1] - N[1] * U[0]];
+  const pts = new Map<number, [number, number]>();
+  let x0 = Infinity,
+    y0 = Infinity,
+    x1 = -Infinity,
+    y1 = -Infinity;
+  for (const l of loops)
+    for (const i of l) {
+      const x = P[i * 3] * U[0] + P[i * 3 + 1] * U[1] + P[i * 3 + 2] * U[2];
+      const y = P[i * 3] * V[0] + P[i * 3 + 1] * V[1] + P[i * 3 + 2] * V[2];
+      pts.set(i, [x, y]);
+      [x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)];
+    }
+  const w = x1 - x0 || 1,
+    h = y1 - y0 || 1;
+  const c = Math.cos(-g.angle),
+    s = Math.sin(-g.angle);
+  for (const [i, [x, y]] of pts) {
+    let a = (x - x0) / w - 0.5 - g.offset[0],
+      b = (y - y0) / h - 0.5 - g.offset[1];
+    [a, b] = [(a * c - b * s) / (g.scale[0] || 1), (a * s + b * c) / (g.scale[1] || 1)];
+    pts.set(i, [a + 0.5, b + 0.5]);
+  }
+  return pts;
 }
 
 /** Primitive kinds stored in aInfo.x */
@@ -99,7 +141,8 @@ export function fillColorOf(d: GPDrawing, s: number, base: RGBA): RGBA {
  * Draw orders start at `orderStart` (each fill and each stroke line takes one order value so later
  * strokes draw over earlier ones while overlaps inside one stroke never blend twice).
  */
-export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[], orderStart = 0, radiusOffset = 0): StrokeBuffers {
+/** `holdout`: only the holdout strokes / fills (true) or everything else (false). */
+export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[], orderStart = 0, radiusOffset = 0, holdout = false): StrokeBuffers {
   const nPts = d.position.length / 3;
   const nStrokes = d.offsets.length - 1;
   const est = nPts * 4 + 64;
@@ -181,7 +224,7 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
     const n = b - a;
     if (n <= 0) continue;
     // fill
-    if (st.fill) {
+    if (st.fill && !!st.holdoutFill === holdout) {
       const gid = d.fill_id[s];
       const members = gid ? groups.get(gid)! : [s];
       if (members[0] === s) {
@@ -193,17 +236,27 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
         const tris = triangulateLoops(P, loops);
         if (tris.length) {
           const fc = fillColorOf(d, s, st.fillColor);
-          if (fc[3] > 0) {
+          const g = st.gradient;
+          const uv = g ? gradientUV(P, loops, g) : null;
+          let ca2 = fc as number[],
+            cb2 = fc as number[];
+          if (g) {
+            const mix = [g.mix[0], g.mix[1], g.mix[2], g.mix[3] * d.fill_opacity[s]];
+            [ca2, cb2] = g.flip ? [mix, fc] : [fc, mix];
+          }
+          if (fc[3] > 0 || (g && g.mix[3] > 0)) {
             if (strokeOrder[s] < 0) strokeOrder[s] = order;
             for (const i of tris) {
               p0.push3(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
               p1.push3(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
               rad.push2(0, 0);
-              c0.push4(fc[0], fc[1], fc[2], fc[3]);
-              c1.push4(fc[0], fc[1], fc[2], fc[3]);
+              c0.push4(ca2[0], ca2[1], ca2[2], ca2[3]);
+              c1.push4(cb2[0], cb2[1], cb2[2], cb2[3]);
               corner.push2(0, 0);
               info.push4(KIND_FILL, order, 0, s);
-              nb0.push4(0, 0, 0, 0);
+              const t = uv?.get(i) ?? [0, 0];
+              // fills keep their gradient coordinates and kind (1 linear, 2 radial) in the first neighbour slot
+              nb0.push4(t[0], t[1], g ? (g.type === 'RADIAL' ? 2 : 1) : 0, g ? g.factor : 0);
               nb1.push4(0, 0, 0, 0);
               pushIndex(nv++);
             }
@@ -212,7 +265,7 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
         }
       }
     }
-    if (!st.stroke) continue;
+    if (!st.stroke || !!st.holdoutStroke !== holdout) continue;
     if (strokeOrder[s] < 0) strokeOrder[s] = order;
     if (st.mode !== 'LINE') {
       const kind = st.mode === 'DOTS' ? KIND_DOT : KIND_SQUARE;

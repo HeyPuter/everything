@@ -198,6 +198,11 @@ function evaluateSamples(sp: [number, number][], frame: number): number {
 /** Whether a curve has anything to evaluate (keys or baked samples). */
 export const hasCurveData = (fc: FCurve) => fc.keyframe_points.length > 0 || !!fc.sampled_points?.length;
 
+/** Eased factor for `t` in [0, 1]: an easing type (SINE … ELASTIC, LINEAR passes through) and mode. */
+export function easeFactor(type: string, easing: string, t: number, o: { back?: number; amplitude?: number; period?: number } = {}): number {
+  return ease({ interpolation: type, easing, ...o } as unknown as Keyframe, t);
+}
+
 function evaluateRaw(fc: FCurve, frame: number): number {
   const k = fc.keyframe_points;
   const n = k.length;

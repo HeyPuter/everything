@@ -117,7 +117,7 @@ describe('geometry node registry', () => {
     expect(getNodeType('GeometryNodeDistributePointsOnFaces')!.width).toBe(180);
     expect(getNodeType('ShaderNodeMath')!.treeTypes).toContain('GEOMETRY');
     const labels = nodeMenu('GEOMETRY').map((c) => c.label);
-    for (const l of ['Attribute', 'Input', 'Output', 'Geometry', 'Curve', 'Instances', 'Mesh', 'Mesh Primitives', 'Point', 'Utilities', 'Vector']) expect(labels).toContain(l);
+    for (const l of ['Attribute', 'Input', 'Output', 'Geometry', 'Curve', 'Instances', 'Mesh', 'Point', 'Simulation', 'Utilities', 'Vector']) expect(labels).toContain(l);
   });
 });
 

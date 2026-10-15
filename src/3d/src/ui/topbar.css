@@ -12,7 +12,7 @@
 }
 .splash-hero {
   position: relative;
-  height: 150px;
+  height: 190px;
   overflow: hidden;
   border-radius: 8px 8px 0 0;
   background:
@@ -61,13 +61,13 @@
   letter-spacing: 0.5px;
 }
 .splash-ver {
-  font-size: 12px;
+  font-size: var(--fs);
   opacity: 0.75;
 }
 .splash-cols {
   display: flex;
-  gap: 18px;
-  padding: 14px 18px 6px;
+  gap: 14px;
+  padding: 12px 14px 4px;
 }
 .splash-col {
   flex: 1;
@@ -79,11 +79,8 @@
   flex: 1.5;
 }
 .splash-head {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
   color: var(--c-text-dim);
-  margin: 0 0 6px 6px;
+  margin: 0 0 4px 8px;
 }
 .splash-gap {
   height: 10px;
@@ -92,7 +89,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 26px;
+  height: 22px;
   padding: 0 8px;
   border-radius: 4px;
   text-align: left;
@@ -121,7 +118,7 @@
 .splash-empty {
   padding: 6px 8px;
   color: var(--c-text-dim);
-  font-size: 12px;
+  font-size: var(--fs);
 }
 .splash-foot {
   display: flex;
@@ -138,7 +135,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  accent-color: var(--accent);
+  font-size: var(--fs);
   color: var(--c-text-dim);
 }
 .autosave-list {

@@ -1,12 +1,24 @@
 // Sequencer keymaps (default left-click-select layout).
 import { addKeys } from '../app/keymap';
-import { addMenu, selectMenu } from './menus';
+import { addMenu, selectMenu, changeMenu, retimingMenu, contextMenu, stripMenu } from './menus';
+import { hoverSeq, hasEditor } from './context';
+import { toggleFrameOverlay, setOverlayReference } from './sidebar';
+import { keyingMenu } from './stripops';
+import { pivotPie, mirrorItems, viewPie } from './previewops';
 
 addKeys('Sequencer', [
   { key: 'A', op: 'sequencer.select_all', props: { action: 'SELECT' } },
   { key: 'A', alt: true, op: 'sequencer.select_all', props: { action: 'DESELECT' } },
   { key: 'I', ctrl: true, op: 'sequencer.select_all', props: { action: 'INVERT' } },
   { key: 'B', op: 'sequencer.select_box' },
+  { key: 'B', ctrl: true, op: 'sequencer.select_box', props: { include_handles: true } },
+  { key: 'C', op: 'sequencer.select_circle' },
+  { key: 'NUMPAD_PLUS', ctrl: true, op: 'sequencer.select_more' },
+  { key: 'NUMPAD_MINUS', ctrl: true, op: 'sequencer.select_less' },
+  { key: 'L', op: 'sequencer.select_linked_pick' },
+  { key: 'L', shift: true, op: 'sequencer.select_linked_pick', props: { extend: true } },
+  { key: 'L', ctrl: true, op: 'sequencer.select_linked' },
+  { key: 'C', ctrl: true, alt: true, op: 'sequencer.connect', props: { toggle: true } },
   { key: 'LEFT_BRACKET', op: 'sequencer.select_side_of_frame', props: { side: 'LEFT' } },
   { key: 'RIGHT_BRACKET', op: 'sequencer.select_side_of_frame', props: { side: 'RIGHT' } },
   { key: 'G', shift: true, menu: () => selectMenu().find((m) => m.label === 'Select Grouped')!.submenu!(), menuTitle: 'Select Grouped' },
@@ -19,19 +31,29 @@ addKeys('Sequencer', [
   { key: 'H', ctrl: true, op: 'sequencer.lock' },
   { key: 'H', ctrl: true, alt: true, op: 'sequencer.unlock' },
   { key: 'R', op: 'sequencer.reassign_inputs' },
+  { key: 'R', alt: true, op: 'sequencer.reload' },
+  { key: 'R', shift: true, alt: true, op: 'sequencer.reload', props: { adjust_length: true } },
+  { key: 'C', shift: true, menu: changeMenu, menuTitle: 'Change' },
+  ...['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE', 'ZERO'].map((key, i) => ({ key, op: 'sequencer.split_multicam', props: { camera: i + 1 } })),
   { key: 'S', alt: true, op: 'sequencer.swap_inputs' },
   { key: 'O', alt: true, op: 'sequencer.offset_clear' },
   { key: 'D', shift: true, op: 'sequencer.duplicate_move' },
+  { key: 'X', op: 'sequencer.retiming_key_delete' },
+  { key: 'DEL', op: 'sequencer.retiming_key_delete' },
   { key: 'X', op: 'sequencer.delete' },
   { key: 'DEL', op: 'sequencer.delete' },
   { key: 'C', ctrl: true, op: 'sequencer.copy' },
   { key: 'V', ctrl: true, op: 'sequencer.paste' },
   { key: 'V', ctrl: true, shift: true, op: 'sequencer.paste', props: { keep_offset: true } },
   { key: 'Y', op: 'sequencer.images_separate' },
+  { key: 'I', menu: retimingMenu, menuTitle: 'Retiming' },
+  { key: 'R', op: 'sequencer.retiming_segment_speed_set' },
+  { key: 'R', ctrl: true, op: 'sequencer.retiming_show' },
   { key: 'TAB', op: 'sequencer.meta_toggle' },
   { key: 'G', ctrl: true, op: 'sequencer.meta_make' },
   { key: 'G', ctrl: true, alt: true, op: 'sequencer.meta_separate' },
   { key: 'HOME', op: 'sequencer.view_all' },
+  { key: 'ACCENT_GRAVE', action: () => viewPie(false) },
   { key: 'NUMPAD_PERIOD', op: 'sequencer.view_selected' },
   { key: 'NUMPAD_0', op: 'sequencer.view_frame' },
   { key: 'PAGE_UP', op: 'sequencer.strip_jump', props: { next: false, center: false } },
@@ -49,17 +71,29 @@ addKeys('Sequencer', [
   { key: 'E', op: 'transform.transform', props: { mode: 'TIME_EXTEND' } },
   { key: 'S', op: 'sequencer.slip' },
   { key: 'M', op: 'screen.marker_add' },
+  { key: 'W', menu: contextMenu, menuTitle: 'Sequencer' },
+  { key: 'O', when: hasEditor, action: setOverlayReference },
   { key: 'P', ctrl: true, alt: true, op: 'sequencer.set_range_to_strips', props: { preview: true } },
 ]);
 
 addKeys('SequencerPreview', [
+  { key: 'TAB', op: 'sequencer.text_edit_mode_toggle' },
+  { key: 'D', shift: true, op: 'sequencer.preview_duplicate_move' },
+  { key: 'W', menu: () => stripMenu(true), menuTitle: 'Sequencer Preview' },
   { key: 'A', op: 'sequencer.select_all', props: { action: 'SELECT' } },
   { key: 'A', alt: true, op: 'sequencer.select_all', props: { action: 'DESELECT' } },
   { key: 'I', ctrl: true, op: 'sequencer.select_all', props: { action: 'INVERT' } },
   { key: 'B', op: 'sequencer.select_box' },
+  { key: 'C', op: 'sequencer.select_circle' },
   { key: 'G', op: 'sequencer.strip_transform', props: { mode: 'TRANSLATE' } },
   { key: 'R', op: 'sequencer.strip_transform', props: { mode: 'ROTATE' } },
   { key: 'S', op: 'sequencer.strip_transform', props: { mode: 'RESIZE' } },
+  { key: 'I', op: 'sequencer.keyframe_insert' },
+  { key: 'K', menu: keyingMenu, menuTitle: 'Insert Keyframe with Keying Set' },
+  { key: 'I', alt: true, op: 'sequencer.keyframe_delete' },
+  { key: 'PERIOD', action: pivotPie },
+  { key: 'PERIOD', ctrl: true, op: 'sequencer.strip_transform', props: { mode: 'ORIGIN' } },
+  { key: 'M', ctrl: true, menu: mirrorItems, menuTitle: 'Mirror' },
   { key: 'G', alt: true, op: 'sequencer.strip_transform_clear', props: { property: 'POSITION' } },
   { key: 'R', alt: true, op: 'sequencer.strip_transform_clear', props: { property: 'ROTATION' } },
   { key: 'S', alt: true, op: 'sequencer.strip_transform_clear', props: { property: 'SCALE' } },
@@ -70,6 +104,8 @@ addKeys('SequencerPreview', [
   { key: 'H', op: 'sequencer.mute', props: { unselected: false } },
   { key: 'H', alt: true, op: 'sequencer.unmute', props: { unselected: false } },
   { key: 'HOME', op: 'sequencer.view_all_preview' },
+  { key: 'ACCENT_GRAVE', action: () => viewPie(true) },
+  { key: 'NUMPAD_PERIOD', op: 'sequencer.view_selected' },
   { key: 'NUMPAD_1', op: 'sequencer.view_zoom_ratio', props: { ratio: 1 } },
   { key: 'NUMPAD_2', op: 'sequencer.view_zoom_ratio', props: { ratio: 0.5 } },
   { key: 'NUMPAD_4', op: 'sequencer.view_zoom_ratio', props: { ratio: 0.25 } },
@@ -80,4 +116,8 @@ addKeys('SequencerPreview', [
 ]);
 
 addKeys('Sequencer Channels', [{ key: 'HOME', op: 'sequencer.view_all' }]);
-addKeys('SequencerCommon', []);
+addKeys('SequencerCommon', [
+  { key: 'O', shift: true, when: hasEditor, action: toggleFrameOverlay },
+  { key: 'E', ctrl: true, op: 'sequencer.refresh_all' },
+  { key: 'Z', shift: true, alt: true, action: () => (hoverSeq() as unknown as { toggleOverlays?: () => void } | null)?.toggleOverlays?.() },
+]);

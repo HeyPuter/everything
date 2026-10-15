@@ -12,7 +12,7 @@ import { drawViewport, pickId, readIds, renderIdPass, type DrawView } from './dr
 import { prefs, activeTools } from '../../app/prefs';
 import { playbackFpsLabel } from '../../app/fps';
 import { viewHeader } from './header';
-import { toolbar, toolHeader } from './toolbar';
+import { toolbar, toolHeaderRow } from './toolbar';
 import { sidebar } from './sidebar';
 import { navGizmo } from './navgizmo';
 import { selectObjects, selectPick } from './select';
@@ -284,7 +284,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   }
 
   toolHeader(): Child {
-    return toolHeader(this);
+    return toolHeaderRow(this);
   }
 
   update(kinds: Set<ChangeKind>) {
@@ -901,8 +901,8 @@ function editStats(me: { positions: ArrayLike<number>; offsets: ArrayLike<number
   return out;
 }
 
-/** Statistics overlay rows for the current mode: [label, value]. */
-function statsLines(): [string, string][] {
+/** Statistics overlay rows for the current mode: [label, value] (also shown in the status bar). */
+export function statsLines(): [string, string][] {
   const doc = app.doc;
   const fmt = (n: number) => n.toLocaleString();
   const mode = doc.mode;

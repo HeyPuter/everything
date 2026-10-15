@@ -509,7 +509,7 @@ for (const mode of PAINT_MODES) {
   modeMenus[mode] = {
     ...prev,
     select: paintSelectMenu,
-    headerExtra: maskToggles,
+    headerLead: maskToggles,
   };
 }
 

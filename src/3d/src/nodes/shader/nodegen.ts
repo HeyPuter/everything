@@ -2,6 +2,8 @@
 import { registerGenerator, fmt, type NodeGen } from './codegen';
 import { readRamp, bakeRamp, bakeCurves, type CurveKind } from '../curves';
 import { MATH_SINGLE } from './defs';
+// generators of the nodes added later
+import './extra';
 
 const enumIndex = (items: string[], v: unknown) => Math.max(0, items.indexOf(String(v)));
 const num = (v: unknown, d = 0) => (typeof v === 'number' ? v : typeof v === 'boolean' ? (v ? 1 : 0) : d);

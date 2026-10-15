@@ -190,6 +190,7 @@ function animationMenu(): MenuItem[] {
     { label: 'Change Keying Set…', op: 'anim.keying_set_active_set', shortcut: 'Shift K' },
     { separator: true },
     { label: 'Bake Action…', op: 'nla.bake' },
+    { label: 'Bake Object Transform to Grease Pencil…', op: 'grease_pencil.bake_grease_pencil_animation' },
   ];
 }
 
@@ -224,6 +225,9 @@ export function convertMenu(): MenuItem[] {
     { label: 'Mesh', icon: 'outliner_ob_mesh', op: 'object.convert', props: { target: 'MESH' } },
     { label: 'Curve', icon: 'outliner_ob_curve', op: 'object.convert', props: { target: 'CURVE' }, disabled: !app.selectedObjects().some((o) => o.type === 'MESH' || o.type === 'FONT') },
     { label: 'Point Cloud', icon: 'outliner_ob_pointcloud', op: 'object.convert', props: { target: 'POINTCLOUD' }, disabled: !app.selectedObjects().some((o) => o.type === 'MESH' || o.type === 'CURVE' || o.type === 'FONT') },
+    { label: 'Grease Pencil', icon: 'outliner_ob_greasepencil', op: 'object.convert', props: { target: 'GREASEPENCIL' } },
+    { separator: true },
+    { label: 'Trace Image to Grease Pencil', op: 'grease_pencil.trace_image' },
   ];
 }
 
@@ -266,8 +270,8 @@ export function objectMenu(): MenuItem[] {
     { separator: true },
     { label: 'Relations', submenu: relationsMenu },
     { label: 'Parent', submenu: parentMenu },
-    { label: 'Modifiers', submenu: modifiersMenu },
-    { label: 'Constraint', submenu: constraintsMenu },
+    { label: 'Modifiers', icon: 'modifier', submenu: modifiersMenu },
+    { label: 'Constraints', icon: 'constraint', submenu: constraintsMenu },
     { label: 'Track', submenu: trackMenu },
     { label: 'Link/Transfer Data', submenu: linkDataMenu, shortcut: 'Ctrl L' },
     { separator: true },
@@ -303,7 +307,7 @@ export function objectModeContextMenu(): MenuItem[] {
     { label: 'Copy Objects', op: 'view3d.copybuffer', shortcut: 'Ctrl C' },
     { label: 'Paste Objects', op: 'view3d.pastebuffer', shortcut: 'Ctrl V' },
     { separator: true },
-    { label: 'Duplicate Objects', op: 'object.duplicate_move', shortcut: 'Shift D' },
+    { label: 'Duplicate Objects', icon: 'duplicate', op: 'object.duplicate_move', shortcut: 'Shift D' },
     { label: 'Duplicate Linked', op: 'object.duplicate_move_linked', shortcut: 'Alt D' },
     { separator: true },
     { label: 'Rename Active Object…', op: 'object.rename', shortcut: 'F2' },

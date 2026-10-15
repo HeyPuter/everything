@@ -14,6 +14,8 @@ export interface GPPoint {
   /** RGBA, alpha = mix factor */
   vertex_color: [number, number, number, number];
   select?: boolean;
+  /** vertex group weights by group name */
+  weights?: Record<string, number>;
 }
 
 export interface GPStroke {
@@ -81,22 +83,36 @@ export function normalizeDrawing(d: GPDrawing): GPDrawing {
   if (!d.fill_color || d.fill_color.length !== c * 4) d.fill_color = new Float32Array(c * 4);
   if (!d.fill_opacity || d.fill_opacity.length !== c) d.fill_opacity = new Float32Array(c).fill(1);
   if (!d.fill_id || d.fill_id.length !== c) d.fill_id = new Int32Array(c);
+  if (d.weights)
+    for (const [k, w] of Object.entries(d.weights))
+      if (!w || w.length !== n) {
+        const nw = new Float32Array(n);
+        if (w) nw.set(w.subarray(0, Math.min(n, w.length)));
+        d.weights[k] = nw;
+      }
   return d;
 }
 
 export function toStrokes(d: GPDrawing): GPStroke[] {
   const out: GPStroke[] = [];
   const sel = d.select;
+  const groups = d.weights ? Object.entries(d.weights) : [];
   for (let s = 0; s < strokeCount(d); s++) {
     const pts: GPPoint[] = [];
-    for (let i = d.offsets[s]; i < d.offsets[s + 1]; i++)
-      pts.push({
+    for (let i = d.offsets[s]; i < d.offsets[s + 1]; i++) {
+      const p: GPPoint = {
         co: [d.position[i * 3], d.position[i * 3 + 1], d.position[i * 3 + 2]],
         radius: d.radius[i],
         opacity: d.opacity[i],
         vertex_color: [d.vertex_color[i * 4], d.vertex_color[i * 4 + 1], d.vertex_color[i * 4 + 2], d.vertex_color[i * 4 + 3]],
         select: !!sel?.[i],
-      });
+      };
+      if (groups.length) {
+        p.weights = {};
+        for (const [k, w] of groups) if (w[i]) p.weights[k] = w[i];
+      }
+      pts.push(p);
+    }
     out.push({
       points: pts,
       cyclic: !!d.cyclic[s],
@@ -130,10 +146,18 @@ export function fromStrokes(strokes: GPStroke[]): GPDrawing {
     fill_opacity: new Float32Array(c),
     fill_id: new Int32Array(c),
   };
+  // vertex group weights: one array per group used by any point
+  const names = new Set<string>();
+  for (const s of list) for (const p of s.points) if (p.weights) for (const k of Object.keys(p.weights)) names.add(k);
+  if (names.size) {
+    d.weights = {};
+    for (const k of names) d.weights[k] = new Float32Array(n);
+  }
   let i = 0;
   list.forEach((s, k) => {
     d.offsets[k] = i;
     for (const p of s.points) {
+      if (p.weights && d.weights) for (const [g, w] of Object.entries(p.weights)) d.weights[g][i] = w;
       d.position.set(p.co, i * 3);
       d.radius[i] = p.radius;
       d.opacity[i] = p.opacity;
@@ -155,7 +179,11 @@ export function fromStrokes(strokes: GPStroke[]): GPDrawing {
 
 export function copyDrawing(d: GPDrawing): GPDrawing {
   const out = {} as GPDrawing;
-  for (const k of Object.keys(d) as (keyof GPDrawing)[]) (out as unknown as Record<string, unknown>)[k] = (d[k] as { slice(): unknown } | undefined)?.slice();
+  for (const k of Object.keys(d) as (keyof GPDrawing)[]) {
+    if (k === 'weights') continue;
+    (out as unknown as Record<string, unknown>)[k] = (d[k] as { slice(): unknown } | undefined)?.slice();
+  }
+  if (d.weights) out.weights = Object.fromEntries(Object.entries(d.weights).map(([k, w]) => [k, w.slice()]));
   return normalizeDrawing(out);
 }
 
@@ -313,7 +341,14 @@ export const DEFAULT_BRUSHES: Record<string, GPBrush> = {
     strength: 1,
     use_pressure_size: false,
     use_pressure_strength: false,
-    subdivision: 12,
+    subdivision: 62,
+  },
+  'builtin.curve': {
+    size: 25,
+    strength: 1,
+    use_pressure_size: false,
+    use_pressure_strength: false,
+    subdivision: 62,
   },
   'builtin.box': {
     size: 25,
@@ -327,7 +362,7 @@ export const DEFAULT_BRUSHES: Record<string, GPBrush> = {
     strength: 1,
     use_pressure_size: false,
     use_pressure_strength: false,
-    subdivision: 32,
+    subdivision: 94,
   },
   'builtin.brush.Smooth': {
     size: 50,
@@ -374,6 +409,12 @@ export const DEFAULT_BRUSHES: Record<string, GPBrush> = {
     use_pressure_size: false,
     use_pressure_strength: true,
     direction: 'ADD',
+  },
+  'builtin.brush.Clone': {
+    size: 50,
+    strength: 1,
+    use_pressure_size: false,
+    use_pressure_strength: false,
   },
   'builtin.brush.Randomize': {
     size: 50,

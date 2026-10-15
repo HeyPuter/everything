@@ -6,6 +6,7 @@ import { modifierTypes, newModifier } from '../../eval/modifiers';
 import { boneOnlyConstraints, constraintTypes, newConstraint } from '../../eval/constraints';
 import type { BStruct } from './reader';
 import type { Ctx } from './context';
+import { importGeometryNodes } from './geonodes';
 
 type P = Record<string, unknown>;
 const bit = (v: number, b: number) => (v & b) !== 0;
@@ -219,7 +220,9 @@ const MODS: Record<string, ModMap> = {
       if (first) angle = idpNumber(first, ctx);
       return { type: 'SMOOTH_BY_ANGLE', p: angle !== null && Number.isFinite(angle) ? { angle } : {} };
     }
-    ctx.warn.add('Geometry Nodes modifiers not supported (skipped)', `${d.sub('modifier')!.str('name')}${name ? ` (${name})` : ''}`);
+    const gn = modifierTypes.NODES ? importGeometryNodes(d, ctx) : null;
+    if (gn) return { type: 'NODES', p: { node_group: gn.node_group, ...gn.inputs } };
+    if (!modifierTypes.NODES) ctx.warn.add('Geometry Nodes modifiers not supported (skipped)', `${d.sub('modifier')!.str('name')}${name ? ` (${name})` : ''}`);
     return null;
   },
 };
