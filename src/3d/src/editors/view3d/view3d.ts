@@ -317,7 +317,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     const kf = ob?.animation_data?.action ? doc.actions[ob.animation_data.action]?.fcurves.some((f) => f.keyframe_points.some((k) => Math.abs(k.co[0] - doc.scene.frame_current) < 0.5)) : false;
     const stats = this.overlay.show_stats ? statsLines() : [];
     patch(this.infoEl, this.overlay.show_overlays && this.overlay.show_text
-      ? [h('div', { class: 'v3d-info-line' }, lines[0]), h('div', { class: { 'v3d-info-line': true, keyed: !!kf } }, lines[1]), ...stats.map((s) => h('div', { class: 'v3d-info-line stat' }, s)), app.modal?.header ? null : null]
+      ? [h('div', { class: 'v3d-info-line' }, lines[0]), h('div', { class: { 'v3d-info-line': true, keyed: !!kf } }, lines[1]), stats.length ? h('div', { class: 'v3d-stats' }, stats.flatMap(([k, v]) => [h('span', { class: 'v3d-stat-k' }, k), h('span', { class: 'v3d-stat-v' }, v)])) : null, app.modal?.header ? null : null]
       : []);
     this.infoEl.style.left = this.showToolbar ? '52px' : '10px';
   }
@@ -831,11 +831,107 @@ export function selectionCenter(): Vector3 | null {
   return c.multiplyScalar(1 / sel.length);
 }
 
-function statsLines(): string[] {
+/** Unique edge count of a polygon mesh, cached per index array (arrays are replaced, never mutated, after edits). */
+const edgeCountCache = new WeakMap<object, number>();
+function edgeCount(offsets: ArrayLike<number>, indices: ArrayLike<number> & object): number {
+  const hit = edgeCountCache.get(indices);
+  if (hit !== undefined) return hit;
+  const seen = new Set<number>();
+  const n = offsets.length - 1;
+  for (let f = 0; f < n; f++) {
+    const a0 = offsets[f],
+      a1 = offsets[f + 1];
+    for (let c = a0; c < a1; c++) {
+      const u = indices[c],
+        v = indices[c + 1 < a1 ? c + 1 : a0];
+      seen.add(u < v ? u * 0x200000 + v : v * 0x200000 + u);
+    }
+  }
+  edgeCountCache.set(indices, seen.size);
+  return seen.size;
+}
+
+/** Edit Mode counts of one mesh (vertices, selected, edges, selected, faces, selected, triangles), cached until its arrays change. */
+const editStatsCache = new WeakMap<object, { refs: unknown[]; out: number[] }>();
+function editStats(me: { positions: ArrayLike<number>; offsets: ArrayLike<number>; indices: ArrayLike<number>; select_vert?: Uint8Array }): number[] {
+  const refs = [me.positions, me.offsets, me.indices, me.select_vert];
+  const hit = editStatsCache.get(me);
+  if (hit && hit.refs.every((r, i) => r === refs[i])) return hit.out;
+  const sel = me.select_vert;
+  const nf = me.offsets.length - 1;
+  let vs = 0,
+    e = 0,
+    es = 0,
+    fs = 0,
+    tris = 0;
+  if (sel) for (let i = 0; i < sel.length; i++) if (sel[i]) vs++;
+  const seen = new Set<number>();
+  for (let fi = 0; fi < nf; fi++) {
+    const a0 = me.offsets[fi],
+      a1 = me.offsets[fi + 1];
+    tris += a1 - a0 - 2;
+    let all = !!sel;
+    for (let c = a0; c < a1; c++) {
+      const a = me.indices[c],
+        b = me.indices[c + 1 < a1 ? c + 1 : a0];
+      if (sel && !sel[a]) all = false;
+      const k = a < b ? a * 0x200000 + b : b * 0x200000 + a;
+      if (!seen.has(k)) {
+        seen.add(k);
+        e++;
+        if (sel && sel[a] && sel[b]) es++;
+      }
+    }
+    if (all) fs++;
+  }
+  const out = [me.positions.length / 3, vs, e, es, nf, fs, tris];
+  editStatsCache.set(me, { refs, out });
+  return out;
+}
+
+/** Statistics overlay rows for the current mode: [label, value]. */
+function statsLines(): [string, string][] {
   const doc = app.doc;
+  const fmt = (n: number) => n.toLocaleString();
+  const mode = doc.mode;
+  const active = app.activeObject;
+  // sculpt and paint modes describe the active mesh only
+  if (mode === 'SCULPT' || mode === 'VERTEX_PAINT' || mode === 'WEIGHT_PAINT' || mode === 'TEXTURE_PAINT') {
+    const me = active ? app.graph.get(active.id)?.mesh : undefined;
+    return me ? [['Vertices', fmt(me.positions.length / 3)], ['Faces', fmt(me.offsets.length - 1)]] : [];
+  }
+  if (mode === 'EDIT' && active?.type === 'MESH') {
+    let v = 0,
+      vs = 0,
+      e = 0,
+      es = 0,
+      f = 0,
+      fs = 0,
+      tris = 0;
+    for (const ob of app.selectedObjects().filter((o) => o.type === 'MESH' && o.data)) {
+      const me = doc.meshes[ob.data!];
+      if (!me) continue;
+      const st = editStats(me);
+      v += st[0];
+      vs += st[1];
+      e += st[2];
+      es += st[3];
+      f += st[4];
+      fs += st[5];
+      tris += st[6];
+    }
+    return [
+      ['Objects', `${app.selectedObjects().length} / ${[...app.graph.objects.values()].filter((x) => x.visible).length}`],
+      ['Vertices', `${fmt(vs)} / ${fmt(v)}`],
+      ['Edges', `${fmt(es)} / ${fmt(e)}`],
+      ['Faces', `${fmt(fs)} / ${fmt(f)}`],
+      ['Triangles', fmt(tris)],
+    ];
+  }
   let objects = 0,
     sel = 0,
     verts = 0,
+    edges = 0,
     faces = 0,
     tris = 0;
   for (const ev of app.graph.objects.values()) {
@@ -845,12 +941,17 @@ function statsLines(): string[] {
     if (ev.mesh) {
       verts += ev.mesh.positions.length / 3;
       faces += ev.mesh.offsets.length - 1;
+      edges += edgeCount(ev.mesh.offsets, ev.mesh.indices as ArrayLike<number> & object);
       for (let f = 0; f < ev.mesh.offsets.length - 1; f++) tris += ev.mesh.offsets[f + 1] - ev.mesh.offsets[f] - 2;
     }
   }
-  void doc;
-  const fmt = (n: number) => n.toLocaleString();
-  return [`Objects   ${sel} / ${objects}`, `Vertices  ${fmt(verts)}`, `Faces     ${fmt(faces)}`, `Triangles ${fmt(tris)}`];
+  return [
+    ['Objects', `${sel} / ${objects}`],
+    ['Vertices', fmt(verts)],
+    ['Edges', fmt(edges)],
+    ['Faces', fmt(faces)],
+    ['Triangles', fmt(tris)],
+  ];
 }
 
 export function activeView3D(): View3D | null {
