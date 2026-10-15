@@ -1,5 +1,7 @@
 // Properties ▸ Output: image format, frame range, output files and metadata.
 import { h, type Child } from '../../../ui/h';
+import { icon } from '../../../ui/icons';
+import { openMenu } from '../../../ui/menu';
 import { app } from '../../../app/app';
 import { registerTab } from '../../../editors/properties/properties';
 import { panel, enumMenu, numberField, textField, checkbox } from '../../../ui/widgets';
@@ -10,10 +12,51 @@ import { FPS_PRESETS, fpsPreset, fpsFromPreset } from '../units';
 
 let customFps = false;
 
+/** Common output formats: [label, x, y, pixel aspect x, y, fps]. */
+export const FORMAT_PRESETS: [string, number, number, number, number, number][] = [
+  ['HDTV 1080p', 1920, 1080, 1, 1, 24],
+  ['HDTV 720p', 1280, 720, 1, 1, 24],
+  ['4K UHDTV', 3840, 2160, 1, 1, 24],
+  ['4K DCI', 4096, 2160, 1, 1, 24],
+  ['2K DCI', 2048, 1080, 1, 1, 24],
+  ['TV NTSC 4:3', 720, 486, 10, 11, 29.97],
+  ['TV PAL 4:3', 720, 576, 12, 11, 25],
+  ['Square 1080', 1080, 1080, 1, 1, 30],
+  ['Portrait 1080 × 1920', 1080, 1920, 1, 1, 30],
+  ['Portrait 1080 × 1350', 1080, 1350, 1, 1, 30],
+];
+
+function presetsButton(r: RenderSettings): Child {
+  return h(
+    'button',
+    {
+      class: 'hdr-toggle out-presets',
+      'data-tip': 'Format Presets',
+      onpointerdown: (e: PointerEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openMenu(
+          FORMAT_PRESETS.map(([label, x, y, ax, ay, fps]) => ({
+            label,
+            action: () => {
+              Object.assign(r, { resolution_x: x, resolution_y: y, resolution_percentage: 100, pixel_aspect_x: ax, pixel_aspect_y: ay }, fpsFromPreset(fps));
+              customFps = false;
+              changed('Format Preset');
+            },
+          })),
+          e.currentTarget as HTMLElement,
+          { title: 'Format Presets' },
+        );
+      },
+    },
+    icon('collapsemenu'),
+  );
+}
+
 function formatPanel(r: RenderSettings): Child {
   const preset = fpsPreset(r);
   const showCustom = customFps || preset === 'custom';
-  return panel('out-format', 'Format', () => [
+  return panel('out-format', h('span', { class: 'out-format-title' }, 'Format', presetsButton(r)), () => [
     splitRow('Resolution X', numberField({ id: 'res-x', value: r.resolution_x, int: true, min: 4, max: 65536, unit: 'pixel', set: (v, f) => ((r.resolution_x = v), app.changed('doc'), f && app.pushUndo('Resolution')) })),
     splitRow('Y', numberField({ id: 'res-y', value: r.resolution_y, int: true, min: 4, max: 65536, unit: 'pixel', set: (v, f) => ((r.resolution_y = v), app.changed('doc'), f && app.pushUndo('Resolution')) })),
     num(r, 'resolution_percentage', '%', { unit: 'percentage', int: true, min: 1, max: 1000, softMax: 100, slider: true }),

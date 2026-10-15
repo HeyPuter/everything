@@ -46,6 +46,8 @@ const css = /* css */ `
 .split-row.rs-engine .sr-value { flex: 1 0 max-content; }
 .split-row.rs-engine .enum-menu { min-width: max-content; }
 .out-stamp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; padding: 2px 0 4px 8%; }
+.out-format-title { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.out-format-title .out-presets { width: 22px; height: 20px; }
 /* colour management curve */
 .cm-curve { display: flex; flex-direction: column; gap: 4px; padding: 2px 4px; }
 .cm-curve-svg { width: 100%; max-width: 220px; aspect-ratio: 1; align-self: center; touch-action: none; cursor: crosshair; }
