@@ -176,7 +176,19 @@ function nodesPanel(ob: ObjectData, m: ModifierBase): Child {
           warnings.slice(0, 8).map((w, i) => h('div', { key: String(i), class: 'mod-error' }, icon('error'), w)),
         )
       : null,
-    inputs.filter((i) => i !== firstGeo && interfaceSocketType(i.socket_type).type !== 'GEOMETRY').map((it) => h('div', { key: it.identifier, class: 'gn-input' }, inputRow(ob, m, it))),
+    ...(() => {
+      // inputs outside interface panels, then one collapsible section per panel
+      const shown = inputs.filter((i) => i !== firstGeo && interfaceSocketType(i.socket_type).type !== 'GEOMETRY');
+      const panels = g?.tree.interface_panels ?? [];
+      const row = (it: (typeof shown)[number]) => h('div', { key: it.identifier, class: 'gn-input' }, inputRow(ob, m, it));
+      return [
+        shown.filter((i) => !i.panel || !panels.some((p) => p.identifier === i.panel)).map(row),
+        panels.map((p) => {
+          const members = shown.filter((i) => i.panel === p.identifier);
+          return members.length ? panel(`gnmod-${m.id}-p-${p.identifier}`, p.name, () => members.map(row), { sub: true, closed: !!p.default_closed }) : null;
+        }),
+      ];
+    })(),
     outputs.length
       ? panel(
           `gnmod-${m.id}-outattrs`,
