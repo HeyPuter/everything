@@ -727,8 +727,8 @@ export interface Constraint {
   show_expanded: boolean;
   target?: ID | null;
   subtarget?: string;
-  owner_space?: 'WORLD' | 'LOCAL' | 'POSE' | 'LOCAL_WITH_PARENT' | 'CUSTOM';
-  target_space?: 'WORLD' | 'LOCAL' | 'POSE' | 'LOCAL_WITH_PARENT' | 'CUSTOM';
+  owner_space?: 'WORLD' | 'LOCAL' | 'POSE' | 'LOCAL_WITH_PARENT' | 'CUSTOM' | 'LOCAL_OWNER_ORIENT';
+  target_space?: 'WORLD' | 'LOCAL' | 'POSE' | 'LOCAL_WITH_PARENT' | 'CUSTOM' | 'LOCAL_OWNER_ORIENT';
   [key: string]: unknown;
 }
 

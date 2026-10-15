@@ -912,6 +912,12 @@ export const CONSTRAINT_ORDER = [
   'SHRINKWRAP',
 ];
 
+/** Whether a constraint type has a `target` object setting. */
+export function constraintHasTarget(type: string): boolean {
+  const t = constraintTypes[type];
+  return !!t && (!!t.usesTarget || ['CLAMP_TO', 'FOLLOW_PATH', 'SHRINKWRAP', 'SPLINE_IK', 'GEOMETRY_ATTRIBUTE', 'IK', 'FOLLOW_TRACK'].includes(type));
+}
+
 /** Constraint types available for an owner (bone-only types need a pose bone), in menu order. */
 export function availableConstraintTypes(bone: boolean): ConstraintType[] {
   const rank = (t: string) => {

@@ -14,7 +14,7 @@ import { defaultPoseBone, evaluatePose, sortedBones, boneRotation } from '../../
 import { rotationQuaternion, setRotationFromQuaternion, poseBoneMatrix } from '../../eval/transform';
 import { modeMenus } from '../../editors/view3d/modemenus';
 import { editModeHooks } from '../../editors/view3d/hooks';
-import { constraintTypes, boneOnlyConstraints, newConstraint } from '../../eval/constraints';
+import { availableConstraintTypes, constraintHasTarget, newConstraint } from '../../eval/constraints';
 import { uid } from '../../data/defaults';
 import { activeView3D } from '../../editors/view3d/view3d';
 import { activeArmature, renameBone, ensurePose, pickBone } from './armature';
@@ -971,7 +971,7 @@ const keyingSetOp: Operator = {
 // ---------------------------------------------------------------------------
 // Bone constraints
 
-const CONSTRAINT_ITEMS = (): [string, string][] => [...Object.values(constraintTypes).map((t) => [t.type, t.label] as [string, string]), ...Object.entries(boneOnlyConstraints)];
+const CONSTRAINT_ITEMS = (): [string, string][] => availableConstraintTypes(true).map((t) => [t.type, t.label] as [string, string]);
 
 const constraintOps: Operator[] = [
   {
@@ -992,10 +992,14 @@ const constraintOps: Operator[] = [
       const { ob, arm, pose } = armPose();
       const act = arm.active_bone ? pose[arm.active_bone] : undefined;
       if (!act) return 'CANCELLED';
-      const c = newConstraint(p.type as string, uid('cn'));
+      const c = newConstraint(p.type as string, uid('cn'), act.constraints);
       const other = selectedBones().find((n) => n !== arm.active_bone);
       const otherOb = app.selectedObjects().find((o) => o.id !== ob.id);
-      if (other) {
+      if (c.type === 'ARMATURE') {
+        if (other) c.targets = [{ target: ob.id, subtarget: other, weight: 1 }];
+      } else if (!constraintHasTarget(c.type)) {
+        // no target setting
+      } else if (other) {
         c.target = ob.id;
         c.subtarget = other;
       } else if (otherOb) c.target = otherOb.id;

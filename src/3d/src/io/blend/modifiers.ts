@@ -266,7 +266,7 @@ export function convertModifiers(ob: BStruct, ctx: Ctx, o: (s: BStruct | null) =
 // ---------------------------------------------------------------------------
 // Constraints
 
-const SPACE: Constraint['owner_space'][] = ['WORLD', 'LOCAL', 'POSE', 'LOCAL_WITH_PARENT', 'LOCAL', 'CUSTOM'];
+const SPACE: Constraint['owner_space'][] = ['WORLD', 'LOCAL', 'POSE', 'LOCAL_WITH_PARENT', 'LOCAL_OWNER_ORIENT', 'CUSTOM'];
 const TRACK = ['TRACK_X', 'TRACK_Y', 'TRACK_Z', 'TRACK_NEGATIVE_X', 'TRACK_NEGATIVE_Y', 'TRACK_NEGATIVE_Z'];
 const UP = ['UP_X', 'UP_Y', 'UP_Z'];
 
@@ -300,7 +300,7 @@ const CONS: Record<string, ConMap> = {
   bStretchToConstraint: (d) => ({ type: 'STRETCH_TO', p: { rest_length: d.num('orglength'), bulge: d.num('bulge'), volume: pick(['VOLUME_XZX', 'VOLUME_X', 'VOLUME_Z', 'NO_VOLUME'], d.num('volmode'), 'VOLUME_XZX') } }),
   bChildOfConstraint: (d) => {
     const f = d.num('flag');
-    return { type: 'CHILD_OF', p: { inverse_matrix: d.nums('invmat', 16), ...xyz(f, [1, 2, 4], 'use_location_'), ...xyz(f, [8, 16, 32], 'use_rotation_'), ...xyz(f, [64, 128, 256], 'use_scale_') } };
+    return { type: 'CHILD_OF', p: { inverse_matrix: d.nums('invmat', 16), set_inverse_pending: bit(f, 512), ...xyz(f, [1, 2, 4], 'use_location_'), ...xyz(f, [8, 16, 32], 'use_rotation_'), ...xyz(f, [64, 128, 256], 'use_scale_') } };
   },
   bFollowPathConstraint: (d) => {
     const ff = d.num('followflag');
