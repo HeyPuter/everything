@@ -4,6 +4,7 @@
 // operators (P, Alt+P, Ctrl+Home/End, Frame Scene Range).
 import { app, registerOperators, type OpContext, type Operator } from '../app/app';
 import { addKeys } from '../app/keymap';
+import type { MenuItem } from '../ui/menu';
 import type { ActionData, FCurve, NlaTrack, ObjectData } from '../data/types';
 import { AnimEditor, overChannels, overMain, hoverEditor } from './animeditor';
 import { channelState, setChannelSelected, type Channel, type CurveRef } from './channels';
@@ -416,4 +417,46 @@ addKeys('Animation', [
   { key: 'T', ctrl: true, op: 'anim.show_seconds_toggle' },
   { key: 'HOME', ctrl: true, op: 'anim.start_frame_set' },
   { key: 'END', ctrl: true, op: 'anim.end_frame_set' },
+]);
+
+// ---------------------------------------------------------------------------
+// View menu (`), snap toggle (Shift+Tab), pivot menu (.), NLA track keys over channels
+
+const viewPie = (p: string) => (): MenuItem[] => [
+  { label: 'Frame All', op: `${p}.view_all`, shortcut: 'Home' },
+  { label: 'Frame Selected', op: `${p}.view_selected`, shortcut: 'Numpad .' },
+  { label: 'Go to Current Frame', op: `${p}.view_frame`, shortcut: 'Numpad 0' },
+  { label: 'Frame Scene Range', op: 'anim.scene_range_frame' },
+];
+
+const toggleSnap = () => {
+  const ed = hoverEditor();
+  if (!ed) return;
+  ed.autoSnap = !ed.autoSnap;
+  app.changed('ui');
+};
+
+addKeys('Dopesheet', [
+  { key: 'ACCENT_GRAVE', menu: viewPie('action'), menuTitle: 'View' },
+  { key: 'TAB', shift: true, action: toggleSnap },
+]);
+addKeys('Graph Editor', [
+  { key: 'ACCENT_GRAVE', menu: viewPie('graph'), menuTitle: 'View' },
+  { key: 'TAB', shift: true, action: toggleSnap },
+  {
+    key: 'PERIOD',
+    menu: () => {
+      const ed = hoverEditor() as unknown as { pivot: string } | null;
+      return [
+        ['BOUNDING_BOX_CENTER', 'Bounding Box Center'],
+        ['CURSOR', '2D Cursor'],
+      ].map(([v, l]) => ({ label: l, active: ed?.pivot === v, action: () => ed && ((ed.pivot = v), app.changed('ui')) }));
+    },
+    menuTitle: 'Pivot Point',
+  },
+]);
+addKeys('NLA Editor', [{ key: 'ACCENT_GRAVE', menu: viewPie('nla'), menuTitle: 'View' }]);
+addKeys('Animation Channels', [
+  { key: 'A', shift: true, op: 'nla.tracks_add', props: { above_selected: false }, when: () => overChannels() && hoverEditor()?.space() === 'NLA' },
+  { key: 'A', shift: true, ctrl: true, op: 'nla.tracks_add', props: { above_selected: true }, when: () => overChannels() && hoverEditor()?.space() === 'NLA' },
 ]);
