@@ -178,6 +178,12 @@ interface Clip {
 }
 let clipboard: Clip[] = [];
 
+/** Copied strokes in world space (for the Clone brush). */
+export function clipboardWorldStrokes(): GPStroke[] {
+  const v = new Vector3();
+  return clipboard.flatMap((c) => c.strokes.map((s) => ({ ...s, points: s.points.map((p) => ({ ...p, co: v.set(...p.co).applyMatrix4(c.world).toArray() as GPPoint['co'] })) })));
+}
+
 export function hasClipboard() {
   return clipboard.length > 0;
 }

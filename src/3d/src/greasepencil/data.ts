@@ -410,6 +410,12 @@ export const DEFAULT_BRUSHES: Record<string, GPBrush> = {
     use_pressure_strength: true,
     direction: 'ADD',
   },
+  'builtin.brush.Clone': {
+    size: 50,
+    strength: 1,
+    use_pressure_size: false,
+    use_pressure_strength: false,
+  },
   'builtin.brush.Randomize': {
     size: 50,
     strength: 0.5,

@@ -135,6 +135,21 @@ export interface GPToolSettings {
   use_gpencil_draw_additive: boolean;
   use_gpencil_draw_onback: boolean;
   use_grease_pencil_multi_frame_editing: boolean;
+  /** Sculpt / Vertex Paint: only affect selected points, strokes or segments */
+  use_gpencil_select_mask_point?: boolean;
+  use_gpencil_select_mask_stroke?: boolean;
+  use_gpencil_select_mask_segment?: boolean;
+  use_gpencil_vertex_select_mask_point?: boolean;
+  use_gpencil_vertex_select_mask_stroke?: boolean;
+  use_gpencil_vertex_select_mask_segment?: boolean;
+  /** Sculpt auto-masking */
+  use_automasking_stroke?: boolean;
+  use_automasking_layer_stroke?: boolean;
+  use_automasking_material_stroke?: boolean;
+  use_automasking_layer_active?: boolean;
+  use_automasking_material_active?: boolean;
+  /** Edit Mode: scaling also scales the thickness */
+  use_scale_thickness?: boolean;
   /** per tool brush settings, keyed by tool id */
   gpencil_brushes: Record<string, GPBrush>;
   /** active Draw brush preset id */

@@ -90,6 +90,12 @@ export const SCULPT_TOOLS: ToolDef[] = [
     icon: 'gp_sculpt_pinch',
     description: 'Pull points toward the brush center (Ctrl: invert)',
   },
+  {
+    id: 'builtin.brush.Clone',
+    label: 'Clone',
+    icon: 'gp_sculpt_clone',
+    description: 'Paste the copied strokes under the brush (drag to place them)',
+  },
 ];
 
 extraToolLists.PAINT_GREASE_PENCIL = () => DRAW_TOOLS;

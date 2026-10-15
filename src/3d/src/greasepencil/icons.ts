@@ -85,6 +85,10 @@ registerIcons({
     '<path class="s" d="M12.5 7.2A4.6 4.6 0 1 1 8 3.4" fill="none" stroke-width="1.4" stroke-linecap="round"/><path class="f" d="M8 1.4 10.6 3.4 8 5.4z"/><path class="s" d="M5.5 9.5c1-1.4 2-1.4 3 0s2 1.4 3 0" fill="none" stroke-width="1"/>',
   gp_sculpt_pinch:
     '<path class="s" d="M1.5 8h4M14.5 8h-4" stroke-width="1.3" stroke-linecap="round"/><path class="f" d="M6 8 4 6.5v3zM10 8l2 1.5v-3z"/><path class="s" d="M3 3.5c2 1.5 8 1.5 10 0M3 12.5c2-1.5 8-1.5 10 0" fill="none" stroke-width="1" opacity=".6"/>',
+  gp_sculpt_clone:
+    '<path class="s" d="M1.5 9.5c2-3 4-3 5.5-.5" fill="none" stroke-width="1.3" stroke-linecap="round" opacity=".55"/><path class="s" d="M7.5 6.5c2-3 4.5-3 7-.5" fill="none" stroke-width="1.6" stroke-linecap="round"/><path class="s" d="M6 12.5h5M8.5 10v5" stroke-width="1.2" stroke-linecap="round"/>',
+  gp_automask:
+    '<circle class="s" cx="8" cy="8" r="5.6" fill="none" stroke-width="1.1" stroke-dasharray="2 1.5"/><path class="s" d="M3.5 10c2-3 4.5-4 9-3" fill="none" stroke-width="1.8" stroke-linecap="round"/>',
   gp_sculpt_randomize: '<path class="s" d="M1.5 10 3.5 6 5.5 11 7.5 4.5 9.5 10.5 11.5 5.5 14.5 9" fill="none" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/>',
   onionskin_on:
     '<circle class="s" cx="5.5" cy="8" r="3.6" fill="none" stroke-width="1" opacity=".45"/><circle class="s" cx="10.5" cy="8" r="3.6" fill="none" stroke-width="1" opacity=".45"/><circle class="f" cx="8" cy="8" r="3.6"/>',

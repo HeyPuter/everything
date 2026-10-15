@@ -13,7 +13,7 @@ import { runStroke } from '../paint/stroke';
 import { h } from '../ui/h';
 import { colorSwatch, enumMenu, numberField } from '../ui/widgets';
 import type { MenuItem } from '../ui/menu';
-import { gpOf, gpBrush, frameAt, normalizeDrawing } from './data';
+import { gpOf, gpBrush, gpTS, frameAt, normalizeDrawing } from './data';
 import { editableDrawing } from './paint';
 import { layerMatrix } from './render';
 import { brushFalloff } from './sculpt';
@@ -79,6 +79,18 @@ function startVertexPaint(v: View3D, e: PointerEvent) {
   };
   const mode = b.vertex_mode ?? 'BOTH';
   const col = b.color ?? [1, 1, 1];
+  // selection masks: only the selected points / strokes
+  const ts = gpTS(app.doc);
+  const mPoint = !!ts.use_gpencil_vertex_select_mask_point,
+    mStroke = !!(ts.use_gpencil_vertex_select_mask_stroke || ts.use_gpencil_vertex_select_mask_segment);
+  const masked = (d: GPDrawing, i: number) => {
+    if (!mPoint && !mStroke) return false;
+    if (mPoint) return !d.select?.[i];
+    let s = 0;
+    while (s + 1 < d.offsets.length - 1 && d.offsets[s + 1] <= i) s++;
+    for (let k = d.offsets[s]; k < d.offsets[s + 1]; k++) if (d.select?.[k]) return false;
+    return true;
+  };
   runStroke(v, e, {
     spacing: () => 15,
     radiusPx: () => R,
@@ -91,6 +103,7 @@ function startVertexPaint(v: View3D, e: PointerEvent) {
         const n = src.position.length / 3;
         const hits: { i: number; f: number; sx: number; sy: number }[] = [];
         for (let i = 0; i < n; i++) {
+          if (masked(src, i)) continue;
           p.set(src.position[i * 3], src.position[i * 3 + 1], src.position[i * 3 + 2]).applyMatrix4(t.world);
           const s = v.project(p);
           const f = brushFalloff(Math.hypot(s.x - dab.x, s.y - dab.y) / R);

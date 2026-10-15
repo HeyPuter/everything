@@ -7,7 +7,9 @@ import { editModeHooks } from '../editors/view3d/hooks';
 import type { View3D } from '../editors/view3d/view3d';
 import { runStroke } from '../paint/stroke';
 import { drawContext, editableDrawing } from './paint';
-import { gpBrush, frameAt } from './data';
+import { gpBrush, gpTS, frameAt, toStrokes, fromStrokes, normalizeDrawing } from './data';
+import { Placement } from './placement';
+import { clipboardWorldStrokes } from './editops';
 import { layerMatrix } from './render';
 import type { GPDrawing, GPLayer } from './types';
 
@@ -68,8 +70,7 @@ export function startSculpt(v: View3D, e: PointerEvent, toolOverride?: string) {
     }
     return c.gp.drawings[t.idx];
   };
-  const pointLocked = (d: GPDrawing, i: number) => {
-    if (!locked.size) return false;
+  const strokeOf = (d: GPDrawing, i: number) => {
     let lo = 0,
       hi = d.offsets.length - 2;
     while (lo < hi) {
@@ -77,7 +78,54 @@ export function startSculpt(v: View3D, e: PointerEvent, toolOverride?: string) {
       if (d.offsets[mid] <= i) lo = mid;
       else hi = mid - 1;
     }
-    return locked.has(d.material_index[lo]);
+    return lo;
+  };
+  // selection masks (Sculpt Mode only) and auto-masking, decided at the start of the stroke
+  const ts = gpTS(app.doc);
+  const sculptMode = app.doc.mode === 'SCULPT_GREASE_PENCIL' && !toolOverride;
+  const maskPoint = sculptMode && !!ts.use_gpencil_select_mask_point;
+  const maskStroke = sculptMode && !!(ts.use_gpencil_select_mask_stroke || ts.use_gpencil_select_mask_segment);
+  const auto = sculptMode
+    ? { stroke: !!ts.use_automasking_stroke, layer: !!ts.use_automasking_layer_stroke, material: !!ts.use_automasking_material_stroke, activeLayer: !!ts.use_automasking_layer_active, activeMaterial: !!ts.use_automasking_material_active }
+    : null;
+  const startHits = { strokes: new Map<Target, Set<number>>(), layers: new Set<GPLayer>(), materials: new Set<number>() };
+  if (auto && (auto.stroke || auto.layer || auto.material)) {
+    const p0 = v.local(e);
+    for (const t of targets) {
+      const d = c.gp.drawings[frameAt(t.layer, frame)!.drawing];
+      for (let i = 0; i < d.position.length / 3; i++) {
+        p.set(d.position[i * 3], d.position[i * 3 + 1], d.position[i * 3 + 2]).applyMatrix4(t.world);
+        const sp = v.project(p);
+        if (Math.hypot(sp.x - p0.x, sp.y - p0.y) > R) continue;
+        const s = strokeOf(d, i);
+        (startHits.strokes.get(t) ?? startHits.strokes.set(t, new Set()).get(t)!).add(s);
+        startHits.layers.add(t.layer);
+        startHits.materials.add(d.material_index[s]);
+      }
+    }
+  }
+  const selectedStrokes = new Map<Target, Set<number>>();
+  if (maskStroke)
+    for (const t of targets) {
+      const d = c.gp.drawings[frameAt(t.layer, frame)!.drawing];
+      const set = new Set<number>();
+      d.select?.forEach((x, i) => x && set.add(strokeOf(d, i)));
+      selectedStrokes.set(t, set);
+    }
+  let curTarget: Target | null = null;
+  const pointLocked = (d: GPDrawing, i: number) => {
+    const s = strokeOf(d, i);
+    if (locked.size && locked.has(d.material_index[s])) return true;
+    if (maskPoint && !d.select?.[i]) return true;
+    if (maskStroke && !(curTarget && selectedStrokes.get(curTarget)?.has(s))) return true;
+    if (auto) {
+      if (auto.activeLayer && curTarget?.layer !== c.layer) return true;
+      if (auto.activeMaterial && d.material_index[s] !== c.ob.active_material_index) return true;
+      if (auto.stroke && !(curTarget && startHits.strokes.get(curTarget)?.has(s))) return true;
+      if (auto.layer && !(curTarget && startHits.layers.has(curTarget.layer))) return true;
+      if (auto.material && !startHits.materials.has(d.material_index[s])) return true;
+    }
+    return false;
   };
   const screenOf = (t: Target, d: GPDrawing, i: number) => {
     p.set(d.position[i * 3], d.position[i * 3 + 1], d.position[i * 3 + 2]).applyMatrix4(t.world);
@@ -94,6 +142,7 @@ export function startSculpt(v: View3D, e: PointerEvent, toolOverride?: string) {
 
   if (tool === 'builtin.brush.Grab')
     for (const t of targets) {
+      curTarget = t;
       const d = drawingOf(t);
       const list: { i: number; w: number }[] = [];
       for (let i = 0; i < d.position.length / 3; i++) {
@@ -124,6 +173,7 @@ export function startSculpt(v: View3D, e: PointerEvent, toolOverride?: string) {
         return;
       }
       for (const t of targets) {
+        curTarget = t;
         const src = drawingOf(t);
         const n = src.position.length / 3;
         const hits: { i: number; f: number; sx: number; sy: number }[] = [];
@@ -207,8 +257,54 @@ export function startSculpt(v: View3D, e: PointerEvent, toolOverride?: string) {
   });
 }
 
+/** Clone brush: the copied strokes are pasted under the brush and follow it until release. */
+function startClone(v: View3D, e: PointerEvent) {
+  const c = drawContext();
+  if (!c?.layer || c.layer.lock) return;
+  const src = clipboardWorldStrokes();
+  if (!src.length) {
+    app.report('WARNING', 'Copy some strokes in Edit Mode first (Ctrl C)');
+    return;
+  }
+  const frame = app.doc.scene.frame_current;
+  const pl = new Placement(v, c.ob, c.gp, c.layer);
+  const center = new Vector3();
+  let n = 0;
+  for (const s of src)
+    for (const p of s.points) {
+      center.add(new Vector3(...p.co));
+      n++;
+    }
+  center.multiplyScalar(1 / Math.max(1, n));
+  const p0 = v.local(e);
+  const at = pl.project(p0.x, p0.y) ?? center.clone();
+  const idx = editableDrawing(c.gp, c.layer, frame, false);
+  const before = toStrokes(normalizeDrawing(c.gp.drawings[idx]));
+  const inv = pl.inv;
+  const place = (offset: Vector3) => {
+    const w = new Vector3();
+    const pasted = src.map((s) => ({ ...s, points: s.points.map((p) => ({ ...p, select: false, co: w.set(...p.co).add(offset).applyMatrix4(inv).toArray() as [number, number, number] })) }));
+    c.gp.drawings[idx] = fromStrokes([...before, ...pasted]);
+    app.changed('doc');
+  };
+  let offset = at.clone().sub(center);
+  place(offset);
+  const start = { x: p0.x, y: p0.y, at: at.clone() };
+  runStroke(v, e, {
+    spacing: () => 0,
+    radiusPx: () => gpBrush(app.doc, 'builtin.brush.Clone').size / 2,
+    dab: (d) => {
+      const target = v.unproject(d.x, d.y, start.at);
+      offset = target.sub(center);
+    },
+    update: () => place(offset),
+    end: () => app.pushUndo('Grease Pencil Clone'),
+  });
+}
+
 editModeHooks.pointer.unshift((v, e) => {
   if (!inSculpt() || e.button !== 0) return false;
-  startSculpt(v, e);
+  if ((activeTools[app.doc.mode] ?? '') === 'builtin.brush.Clone' && !e.shiftKey) startClone(v, e);
+  else startSculpt(v, e);
   return true;
 });
