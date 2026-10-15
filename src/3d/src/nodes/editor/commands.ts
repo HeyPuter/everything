@@ -68,6 +68,10 @@ function duplicateAndMove(ctx: OpContext, keepInputs: boolean, label: string) {
     [...map.values()].filter((n) => !n.parent || !map.has(n.parent)).map((n) => n.id),
     'key',
     label,
+    undefined,
+    undefined,
+    // cancelling the move keeps the copies in place (as its own undo step)
+    { onCancel: () => app.pushUndo(label) },
   );
   return 'RUNNING_MODAL' as const;
 }
@@ -296,7 +300,7 @@ const ops: Operator[] = [
       tree.nodes.push(makeNode(tree, 'NodeGroupInput', [-200, 0]), makeNode(tree, 'NodeGroupOutput', [200, 0]));
       const g = { id: uid('ng'), name: uniqueGroupName(app.doc, 'NodeGroup'), tree };
       app.doc.node_groups[g.id] = g;
-      ed.addNodeInteractive(groupIdnameFor(ed.treeType()), { node_tree: g.id });
+      ed.addNodeInteractive(groupIdnameFor(ed.treeType()), { node_tree: g.id }, undefined, () => delete app.doc.node_groups[g.id]);
       return 'RUNNING_MODAL';
     },
   },

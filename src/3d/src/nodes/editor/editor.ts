@@ -490,7 +490,7 @@ export class NodeEditor implements Editor {
   }
 
   /** Add a node under the pointer and start moving it (like the reference Add menu). */
-  addNodeInteractive(idname: string, settings: Record<string, unknown>, at?: { x: number; y: number }) {
+  addNodeInteractive(idname: string, settings: Record<string, unknown>, at?: { x: number; y: number }, onCancel?: () => void) {
     const tree = this.tree();
     if (!tree) {
       app.report('WARNING', 'No node tree to add to');
@@ -522,6 +522,7 @@ export class NodeEditor implements Editor {
         tree.links = tree.links.filter((l) => l.from_node !== n.id && l.to_node !== n.id);
         tree.active_node = prevActive;
         for (const o of tree.nodes) o.select = prevSel.includes(o.id);
+        onCancel?.();
       },
     });
   }
