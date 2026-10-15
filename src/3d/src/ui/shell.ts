@@ -15,6 +15,7 @@ import { assistantOpen } from '../assistant';
 import './screenops';
 import './favorites';
 import './areawindow';
+import './screenshot';
 import { APP_VERSION } from '../scripting/wmops';
 
 const STATUSBAR_KEY = 'p3d.ui.statusbar';
@@ -373,24 +374,6 @@ registerOperators([
       const i = shell.workspaces.findIndex((w) => w.name === shell.active);
       const n = shell.workspaces.length;
       shell.setWorkspace(shell.workspaces[(i + (p.direction === 'NEXT' ? 1 : n - 1)) % n].name);
-    },
-  },
-  {
-    idname: 'screen.screenshot',
-    label: 'Save Screenshot',
-    undo: false,
-    exec: () => {
-      import('../render/context').then(({ renderContext }) => {
-        if (!renderContext) return;
-        renderContext.engine.drawAll();
-        renderContext.engine.canvas.toBlob((b) => {
-          if (!b) return;
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(b);
-          a.download = 'screenshot.png';
-          a.click();
-        });
-      });
     },
   },
 ]);

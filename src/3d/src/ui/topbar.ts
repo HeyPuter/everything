@@ -155,6 +155,7 @@ export function windowMenu(sh: Shell): MenuItem[] {
     { label: 'AI Assistant', icon: 'assistant', checked: assistantOpen(), op: 'wm.assistant_toggle' },
     { separator: true },
     { label: 'Save Screenshot', op: 'screen.screenshot' },
+    { label: 'Save Screenshot (Editor)', op: 'screen.screenshot_area' },
   ];
 }
 

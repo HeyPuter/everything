@@ -657,3 +657,22 @@ test('Text Editor: clicking and dragging line numbers selects lines', async ({ p
   expect(await sel()).toEqual([3, 13]);
   await expectNoErrors(errors);
 });
+
+test('Save Screenshot (Editor) saves the 3D view under the pointer', async ({ page }) => {
+  const errors = await openApp(page);
+  const v = await areaBox(page, 'VIEW_3D');
+  await page.mouse.move(v.x + 300, v.y + 300);
+  const dl = page.waitForEvent('download');
+  await page.evaluate(() => { const a = (window as any).app; a.run('screen.screenshot_area', {}, { area: a.hoverArea }); });
+  const d = await dl;
+  expect(d.suggestedFilename()).toBe('screenshot_3d_view.png');
+  const { readFileSync } = await import('node:fs');
+  const png = readFileSync((await d.path())!);
+  // PNG width / height match the 3D view (device pixels)
+  const w = png.readUInt32BE(16), h = png.readUInt32BE(20);
+  const box = (await page.locator('.area[data-editor="VIEW_3D"] .view3d').boundingBox())!;
+  const dpr = await page.evaluate(() => Math.min(2, devicePixelRatio));
+  expect(Math.abs(w - box.width * dpr)).toBeLessThan(2);
+  expect(Math.abs(h - box.height * dpr)).toBeLessThan(2);
+  await expectNoErrors(errors);
+});
