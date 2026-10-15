@@ -10,6 +10,7 @@ import { Field, InputField, allocField, evalFull, matrixToEuler, type Evaluated,
 import { adaptDomain, geometryBounds, readAttribute, type Component, type InstancesComponent } from '../geometry';
 import { idField, positionField } from '../inputs';
 import { evalOn, pointDomainOf } from './common';
+import { curveTypes, CT } from '../curves/curvedata';
 import type { FieldType } from '../types';
 
 const zeros = (type: FieldType): Evaluated => ({ data: allocField(type, 1), single: true });
@@ -177,9 +178,18 @@ gn('GeometryNodeInputCurveHandlePositions', 'input', {
         protected compute(c: FieldContext): Evaluated {
           if (c.comp.kind !== 'CURVES') return zeros('VECTOR');
           const P = evalFull(pos, c);
-          const a = readAttribute(c.comp, name, c.domain);
-          // curves without stored handles (poly curves) report zero handle positions
-          const h = a ? a.data : new Float32Array(c.size * 3);
+          const comp = c.comp;
+          const a = readAttribute(comp, name, 'POINT');
+          // handles exist on Bézier curves only; other curves report zero handle positions
+          const hp = new Float32Array(comp.pointCount * 3);
+          if (a) {
+            const types = curveTypes(comp);
+            for (let k = 0; k < comp.curveCount; k++) {
+              if (!types || types[k] !== CT.BEZIER) continue;
+              for (let i = comp.curveOffsets[k]; i < comp.curveOffsets[k + 1]; i++) for (let q = 0; q < 3; q++) hp[i * 3 + q] = a.data[i * 3 + q];
+            }
+          }
+          const h = c.domain === 'POINT' ? hp : (adaptDomain(comp, hp, 'FLOAT_VECTOR', 'POINT', c.domain) as Float32Array);
           const rel = evalFull(relative, c);
           const out = new Float32Array(c.size * 3);
           for (let i = 0; i < c.size; i++) for (let k = 0; k < 3; k++) out[i * 3 + k] = h[i * 3 + k] - (rel[i] ? P[i * 3 + k] : 0);
