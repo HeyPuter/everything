@@ -453,7 +453,7 @@ export const H = (ratio: number, a: LayoutNode, b: LayoutNode): LayoutNode => ({
 export const V = (ratio: number, a: LayoutNode, b: LayoutNode): LayoutNode => ({ split: 'v', ratio, a, b });
 
 /** Right-hand dock: outliner above properties (default proportions). */
-export const dock = () => V(0.18, A('OUTLINER'), A('PROPERTIES'));
+export const dock = (tab?: string) => V(0.18, A('OUTLINER'), A('PROPERTIES', tab ? { tab } : undefined));
 
 /**
  * Workspace templates offered by the "+" button next to the workspace tabs (grouped in the
@@ -466,18 +466,20 @@ export function registerWorkspaceTemplate(category: string, create: () => Worksp
 }
 
 export function defaultWorkspaces(): Workspace[] {
+  // each workspace opens the Properties editor on the tab its task needs most
+  const sculptView = { shading: 'SOLID', matcap: true, nav: { distance: 7 }, overlay: { show_floor: false, show_axis_x: false, show_axis_y: false, show_stats: true } };
   return [
     { name: 'Layout', layout: H(0.822, V(0.925, A('VIEW_3D'), A('TIMELINE')), dock()) },
-    { name: 'Modeling', layout: H(0.822, A('VIEW_3D'), dock()), mode: 'EDIT' },
-    { name: 'Sculpting', layout: H(0.822, A('VIEW_3D', { shading: 'SOLID', matcap: true }), dock()), mode: 'SCULPT' },
-    { name: 'UV Editing', layout: H(0.822, H(0.5, A('UV'), A('VIEW_3D')), dock()), mode: 'EDIT' },
-    { name: 'Texture Paint', layout: H(0.822, H(0.5, A('IMAGE_EDITOR'), A('VIEW_3D', { shading: 'MATERIAL' })), dock()), mode: 'TEXTURE_PAINT' },
-    { name: 'Shading', layout: H(0.822, H(0.16, V(0.5, A('FILE_BROWSER'), A('IMAGE_EDITOR')), V(0.5, A('VIEW_3D', { shading: 'MATERIAL' }), A('SHADER'))), dock()) },
+    { name: 'Modeling', layout: H(0.822, A('VIEW_3D'), dock('MODIFIER')), mode: 'EDIT' },
+    { name: 'Sculpting', layout: H(0.822, A('VIEW_3D', sculptView), dock('TOOL')), mode: 'SCULPT' },
+    { name: 'UV Editing', layout: H(0.822, H(0.5, A('UV'), A('VIEW_3D')), dock('DATA')), mode: 'EDIT' },
+    { name: 'Texture Paint', layout: H(0.822, H(0.5, A('IMAGE_EDITOR'), A('VIEW_3D', { shading: 'MATERIAL' })), dock('TOOL')), mode: 'TEXTURE_PAINT' },
+    { name: 'Shading', layout: H(0.822, H(0.16, V(0.5, A('FILE_BROWSER'), A('IMAGE_EDITOR')), V(0.5, A('VIEW_3D', { shading: 'MATERIAL' }), A('SHADER'))), dock('WORLD')) },
     { name: 'Animation', layout: H(0.822, V(0.58, H(0.35, A('VIEW_3D', { camera: true }), A('VIEW_3D')), A('DOPESHEET')), V(0.18, A('OUTLINER'), A('PROPERTIES'))) },
-    { name: 'Rendering', layout: H(0.822, V(0.925, A('IMAGE_EDITOR', { render: true }), A('TIMELINE')), A('PROPERTIES')) },
-    { name: 'Compositing', layout: H(0.822, V(0.92, V(0.48, A('IMAGE_EDITOR', { render: true }), A('COMPOSITOR')), A('TIMELINE')), A('PROPERTIES')) },
-    { name: 'Geometry Nodes', layout: H(0.822, V(0.92, V(0.48, H(0.42, A('SPREADSHEET'), A('VIEW_3D')), A('GEOMETRY')), A('TIMELINE')), dock()) },
-    { name: 'Scripting', layout: H(0.822, H(0.36, V(0.38, A('VIEW_3D'), V(0.7, A('CONSOLE'), A('INFO'))), A('TEXT')), V(0.18, A('OUTLINER'), A('PROPERTIES'))) },
+    { name: 'Rendering', layout: H(0.822, V(0.925, A('IMAGE_EDITOR', { render: true }), A('TIMELINE')), A('PROPERTIES', { tab: 'RENDER' })) },
+    { name: 'Compositing', layout: H(0.822, V(0.92, V(0.48, A('IMAGE_EDITOR', { render: true }), A('COMPOSITOR')), A('TIMELINE')), A('PROPERTIES', { tab: 'OUTPUT' })) },
+    { name: 'Geometry Nodes', layout: H(0.822, V(0.92, V(0.48, H(0.42, A('SPREADSHEET'), A('VIEW_3D')), A('GEOMETRY')), A('TIMELINE')), dock('MODIFIER')) },
+    { name: 'Scripting', layout: H(0.822, H(0.36, V(0.38, A('VIEW_3D'), V(0.7, A('CONSOLE'), A('INFO'))), A('TEXT')), V(0.18, A('OUTLINER'), V(0.3, A('OUTLINER', { displayMode: 'BLENDER_FILE' }), A('PROPERTIES', { tab: 'RENDER' })))) },
   ];
 }
 

@@ -23,7 +23,7 @@ import type {
   LatticeData,
   BrushData,
 } from './types';
-import { cube } from '../mesh/primitives';
+import { startupCube } from '../mesh/primitives';
 
 let counter = 0;
 export function uid(prefix = 'id'): ID {
@@ -566,8 +566,9 @@ export function startupDocument(): DocumentData {
 
   const mat = newMaterial('Material');
   doc.materials[mat.id] = mat;
-  const me = newMeshData('Cube', cube(2));
+  const me = newMeshData('Cube', startupCube());
   me.materials = [mat.id];
+  me.select_vert = new Uint8Array(8).fill(1);
   doc.meshes[me.id] = me;
   const cubeOb = newObject('Cube', 'MESH', me.id);
   cubeOb.select = true;

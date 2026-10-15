@@ -21,6 +21,16 @@ export function registerTab(t: PropertiesTab) {
   propertiesTabs.push(t);
 }
 
+/** Display order of the rail: tool, scene-level tabs, then object-level tabs in data-flow order. */
+const TAB_ORDER = ['TOOL', 'RENDER', 'OUTPUT', 'VIEW_LAYER', 'SCENE', 'WORLD', 'COLLECTION', 'OBJECT', 'MODIFIER', 'SHADERFX', 'PARTICLES', 'PHYSICS', 'CONSTRAINT', 'DATA', 'BONE', 'BONE_CONSTRAINT', 'MATERIAL', 'TEXTURE', 'STRIP', 'STRIP_MODIFIER'];
+function orderedTabs(tabs: PropertiesTab[]) {
+  const rank = (t: PropertiesTab, i: number) => {
+    const r = TAB_ORDER.indexOf(t.id);
+    return r >= 0 ? r : TAB_ORDER.length + i;
+  };
+  return tabs.map((t, i) => [t, rank(t, i)] as const).sort((a, b) => a[1] - b[1]).map(([t]) => t);
+}
+
 export class Properties implements Editor {
   el: HTMLElement;
   keymaps = ['Property Editor', 'Window', 'Screen'];
@@ -59,8 +69,10 @@ export class Properties implements Editor {
       this.tab = requested;
       delete (window as unknown as { __propertiesTab?: string }).__propertiesTab;
     }
-    const tabs = propertiesTabs.filter((t) => t.poll());
-    if (!tabs.some((t) => t.id === this.tab)) this.tab = tabs.find((t) => t.id === 'OBJECT')?.id ?? tabs[0]?.id ?? '';
+    const tabs = orderedTabs(propertiesTabs.filter((t) => t.poll()));
+    // the chosen tab is remembered while it is unavailable (e.g. Modifiers with a light selected)
+    // and comes back once the context allows it again
+    const shown = tabs.some((t) => t.id === this.tab) ? this.tab : (tabs.find((t) => t.id === 'OBJECT')?.id ?? tabs[0]?.id ?? '');
     let lastGroup = -1;
     patch(
       this.rail,
@@ -69,17 +81,17 @@ export class Properties implements Editor {
         lastGroup = t.group ?? lastGroup;
         return [
           sep ? h('div', { key: `sep-${t.id}`, class: 'rail-sep' }) : null,
-          h('button', { key: t.id, class: { 'rail-tab': true, on: t.id === this.tab }, 'data-tip': t.label, onclick: () => ((this.tab = t.id), this.update()) }, icon(t.icon)),
+          h('button', { key: t.id, class: { 'rail-tab': true, on: t.id === shown }, 'data-tip': t.label, onclick: () => ((this.tab = t.id), this.update()) }, icon(t.icon)),
         ];
       }),
     );
-    const tab = tabs.find((t) => t.id === this.tab);
+    const tab = tabs.find((t) => t.id === shown);
     const ob = app.activeObject;
     patch(this.crumbs, [
-      ['RENDER', 'OUTPUT', 'VIEW_LAYER', 'SCENE', 'WORLD', 'COLLECTION', 'TOOL'].includes(this.tab)
-        ? h('span', { class: 'crumb' }, icon(this.tab === 'WORLD' ? 'world' : 'scene_data'), this.tab === 'WORLD' ? `Scene  ›  ${app.doc.scene.world ? app.doc.worlds[app.doc.scene.world]?.name : ''}` : app.doc.scene.name)
+      ['RENDER', 'OUTPUT', 'VIEW_LAYER', 'SCENE', 'WORLD', 'COLLECTION', 'TOOL'].includes(shown)
+        ? h('span', { class: 'crumb' }, icon(shown === 'WORLD' ? 'world' : 'scene_data'), shown === 'WORLD' ? `Scene  ›  ${app.doc.scene.world ? app.doc.worlds[app.doc.scene.world]?.name : ''}` : app.doc.scene.name)
         : ob
-          ? h('span', { class: 'crumb' }, icon('object'), ob.name, this.tab === 'DATA' && ob.data ? h('span', { class: 'crumb-sub' }, ' › ', (app.doc.meshes[ob.data] ?? app.doc.curves[ob.data] ?? app.doc.lights[ob.data] ?? app.doc.cameras[ob.data] ?? app.doc.armatures[ob.data])?.name ?? '') : null)
+          ? h('span', { class: 'crumb' }, icon('object'), ob.name, shown === 'DATA' && ob.data ? h('span', { class: 'crumb-sub' }, ' › ', (app.doc.meshes[ob.data] ?? app.doc.curves[ob.data] ?? app.doc.lights[ob.data] ?? app.doc.cameras[ob.data] ?? app.doc.armatures[ob.data])?.name ?? '') : null)
           : null,
     ]);
     const content = tab ? tab.draw(this) : h('div', { class: 'prop-empty' }, 'No context');

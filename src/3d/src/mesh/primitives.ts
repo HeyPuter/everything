@@ -32,6 +32,28 @@ export function cube(size = 2): PrimitiveArrays {
   return buildMesh(p, faces.map((f) => orientOutward(p, f)));
 }
 
+/**
+ * The cube of the startup scene. Its element order (vertex 0 at +X+Y+Z, faces starting with +Z)
+ * and its cross-shaped UV layout are stable so scripts that address elements by index keep
+ * working; Add ▸ Cube uses `cube()`, whose order follows the other grid-based primitives.
+ */
+export function startupCube(): PrimitiveArrays {
+  const p = [1, 1, 1, 1, 1, -1, 1, -1, 1, 1, -1, -1, -1, 1, 1, -1, 1, -1, -1, -1, 1, -1, -1, -1];
+  const uv = [0.625, 0.5, 0.875, 0.5, 0.875, 0.75, 0.625, 0.75, 0.375, 0.75, 0.625, 0.75, 0.625, 1, 0.375, 1, 0.375, 0, 0.625, 0, 0.625, 0.25, 0.375, 0.25, 0.125, 0.5, 0.375, 0.5, 0.375, 0.75, 0.125, 0.75, 0.375, 0.5, 0.625, 0.5, 0.625, 0.75, 0.375, 0.75, 0.375, 0.25, 0.625, 0.25, 0.625, 0.5, 0.375, 0.5];
+  const verts = [
+    [0, 4, 6, 2],
+    [3, 2, 6, 7],
+    [7, 6, 4, 5],
+    [5, 1, 3, 7],
+    [1, 0, 2, 3],
+    [5, 4, 0, 1],
+  ];
+  return buildMesh(
+    p,
+    verts.map((v, i) => ({ verts: v, uvs: uv.slice(i * 8, i * 8 + 8) })),
+  );
+}
+
 function orientOutward(p: number[], f: PolyFace): PolyFace {
   // centroid direction test (valid for convex primitives centered at the origin)
   let cx = 0,
