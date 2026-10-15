@@ -4,7 +4,7 @@ import type { CurveData, DocumentData, MeshData, ObjectData } from '../data/type
 import { sampleSpline } from '../eval/curve';
 import { CurvesComponent, GeometrySet, MeshComponent, PointsComponent, mulMat, isIdentity, type AttrMap, type InstancesComponent } from './geometry';
 import { edgeAttrToCorners, faceNormals, smoothFlags } from './meshutil';
-import { evaluatedCurves } from './curves/curvedata';
+import { curveObjectToCurves, evaluatedCurves } from './curves/curvedata';
 
 export interface GnEvalMesh extends EvalMesh {
   /** materials of the generated geometry by material index (when set by nodes) */
@@ -115,8 +115,13 @@ export function curvesFromPolylines(list: { points: Float32Array; cyclic: boolea
   return new CurvesComponent(pos, offs, cyc);
 }
 
-/** Poly curves sampled from a curve data-block (object space). */
+/** Curves of a curve data-block (object space) with their spline types and handles. */
 export function curveDataToCurves(cu: CurveData): CurvesComponent {
+  return curveObjectToCurves(cu);
+}
+
+/** Poly curves sampled from a curve data-block (object space). */
+export function sampledCurveData(cu: CurveData): CurvesComponent {
   const sampled = cu.splines.map((s) => sampleSpline(s, cu.resolution_u));
   let total = 0;
   for (const s of sampled) total += s.points.length;

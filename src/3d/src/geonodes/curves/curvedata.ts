@@ -10,6 +10,7 @@
 // A component without `curve_type` holds poly curves only. `evaluateCurves` turns any component
 // into poly curves made of the evaluated points (what is drawn, swept and sampled).
 import { CurvesComponent, interpArray, type AttrMap, type Interp } from '../geometry';
+import type { CurveData } from '../../data/types';
 import { dataComps, type AttrArray, type DataType } from '../types';
 import { curveTangents, curveNormals, curveLengths, endTangentOverrides } from '../curveutil';
 
@@ -772,4 +773,84 @@ export function controlLengths(c: CurvesComponent): {
     }
   }
   return { segment, total };
+}
+
+// ---------------------------------------------------------------------------
+// Curve objects
+
+const HANDLE_IDS: Record<string, number> = { FREE: HT.FREE, AUTO: HT.AUTO, VECTOR: HT.VECTOR, ALIGNED: HT.ALIGN };
+
+/** Curves of a curve data-block with their spline types, handles and NURBS settings (object space). */
+export function curveObjectToCurves(cu: CurveData): CurvesComponent {
+  const n = cu.splines.length;
+  let total = 0;
+  for (const s of cu.splines) total += s.type === 'BEZIER' ? s.bezier_points.length : s.points.length;
+  const pos = new Float32Array(total * 3),
+    radius = new Float32Array(total),
+    tilt = new Float32Array(total),
+    weight = new Float32Array(total).fill(1);
+  const left = new Float32Array(total * 3),
+    right = new Float32Array(total * 3);
+  const tl = new Int32Array(total),
+    tr = new Int32Array(total);
+  const offs = new Uint32Array(n + 1),
+    cyc = new Uint8Array(n),
+    types = new Int32Array(n),
+    res = new Int32Array(n),
+    order = new Int32Array(n),
+    knots = new Int32Array(n),
+    mat = new Int32Array(n);
+  let o = 0;
+  cu.splines.forEach((s, k) => {
+    offs[k] = o;
+    cyc[k] = s.use_cyclic_u ? 1 : 0;
+    res[k] = Math.max(1, s.resolution_u || cu.resolution_u || DEFAULT_RESOLUTION);
+    mat[k] = s.material_index ?? 0;
+    if (s.type === 'BEZIER') {
+      types[k] = CT.BEZIER;
+      s.bezier_points.forEach((b, i) => {
+        pos.set(b.co, (o + i) * 3);
+        left.set(b.handle_left, (o + i) * 3);
+        right.set(b.handle_right, (o + i) * 3);
+        tl[o + i] = HANDLE_IDS[b.handle_left_type] ?? HT.FREE;
+        tr[o + i] = HANDLE_IDS[b.handle_right_type] ?? HT.FREE;
+        radius[o + i] = b.radius ?? 1;
+        tilt[o + i] = b.tilt ?? 0;
+      });
+      o += s.bezier_points.length;
+    } else {
+      types[k] = s.type === 'NURBS' ? CT.NURBS : CT.POLY;
+      order[k] = s.order_u || DEFAULT_ORDER;
+      knots[k] = s.use_endpoint_u ? KNOTS.ENDPOINT : KNOTS.NORMAL;
+      s.points.forEach((p, i) => {
+        pos.set([p.co[0], p.co[1], p.co[2]], (o + i) * 3);
+        left.set([p.co[0], p.co[1], p.co[2]], (o + i) * 3);
+        right.set([p.co[0], p.co[1], p.co[2]], (o + i) * 3);
+        weight[o + i] = p.co[3] ?? 1;
+        radius[o + i] = p.radius ?? 1;
+        tilt[o + i] = p.tilt ?? 0;
+      });
+      o += s.points.length;
+    }
+  });
+  offs[n] = o;
+  const attrs: AttrMap = new Map();
+  setPointAttr(attrs, 'radius', 'FLOAT', radius);
+  if (tilt.some((x) => x)) setPointAttr(attrs, 'tilt', 'FLOAT', tilt);
+  if (mat.some((x) => x)) setCurveAttr(attrs, 'material_index', 'INT', mat);
+  const c = new CurvesComponent(pos, offs, cyc, attrs, [...cu.materials]);
+  if (types.some((t) => t !== CT.POLY)) setCurveAttr(attrs, 'curve_type', 'INT8', types);
+  if (types.some((t) => t !== CT.POLY)) setCurveAttr(attrs, 'resolution', 'INT', res);
+  if (types.some((t) => t === CT.BEZIER)) writeHandles(c, { left, right, tl, tr });
+  if (types.some((t) => t === CT.NURBS)) {
+    setCurveAttr(
+      attrs,
+      'nurbs_order',
+      'INT8',
+      order.map((x) => x || DEFAULT_ORDER),
+    );
+    setCurveAttr(attrs, 'knots_mode', 'INT8', knots);
+    setPointAttr(attrs, 'nurbs_weight', 'FLOAT', weight);
+  }
+  return c;
 }
