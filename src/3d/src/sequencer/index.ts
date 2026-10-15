@@ -19,6 +19,7 @@ import { syncPlayback } from './audio';
 import { activeStrip, hasEditor } from './context';
 import { allStrips } from './strips';
 import { applyKeys } from './stripanim';
+import { onFontLoaded } from './text';
 
 const SEQ: EditorTypeId = 'SEQUENCE_EDITOR';
 
@@ -36,6 +37,9 @@ registerTab({ id: 'STRIP_MODIFIER', label: 'Strip Modifiers', icon: 'modifier', 
 
 // sound strips follow timeline playback (the app instance exists once the entry module has run)
 onAppReady((a) => a.subscribe(() => syncPlayback()));
+
+// text strips re-render once an embedded font has loaded
+onFontLoaded(() => app.changed('doc'));
 
 // keyframed strip properties take their animated values when the frame changes
 let keyedFrame = NaN;

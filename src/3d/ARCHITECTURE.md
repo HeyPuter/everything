@@ -30,6 +30,8 @@ src/
   render/final/ Path tracer, raster engine, F12/animation render, Image Editor, color management
   sequencer/  Video Sequencer (strips, effects, preview, audio)
   tracking/   Movie Clip Editor, 2D tracking, stabilization, Follow Track constraint
+  mask/       Mask data-blocks (bezier splines with feather, shape keys, track parenting),
+              rasterization, the clip editor's mask mode, compositor Mask node
   greasepencil/ Grease Pencil objects, Draw/Edit/Sculpt modes, 2D Animation workspace
   scripting/  bpy-style API (JavaScript + Pyodide Python), Text Editor, Console, Info, Preferences
   assistant/  AI assistant sidebar (Puter AI): agent loop, scene snapshot, tools over the scripting API

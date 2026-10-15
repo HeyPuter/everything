@@ -27,8 +27,36 @@ function css(c: number[] | undefined, fallback: string) {
   return `rgba(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)},${a})`;
 }
 
+// Embedded font files are registered with the document's font set under generated family names.
+const families = new WeakMap<Uint8Array, string>();
+let familyCount = 0;
+const fontListeners = new Set<() => void>();
+
+/** Called when an embedded font finishes loading (previews re-render). */
+export function onFontLoaded(fn: () => void) {
+  fontListeners.add(fn);
+}
+
+function familyOf(file: { bytes: Uint8Array; filepath: string }): string | null {
+  const known = families.get(file.bytes);
+  if (known) return known;
+  if (typeof FontFace === 'undefined' || typeof document === 'undefined') return null;
+  const name = `seqfont${++familyCount}`;
+  families.set(file.bytes, name);
+  const face = new FontFace(name, file.bytes as Uint8Array<ArrayBuffer>);
+  face.load().then(
+    (f) => {
+      document.fonts.add(f);
+      for (const fn of fontListeners) fn();
+    },
+    () => console.warn('sequencer: cannot read font', file.filepath),
+  );
+  return name;
+}
+
 export function fontFor(s: Strip, px: number) {
-  return `${s.use_italic ? 'italic ' : ''}${s.use_bold ? 600 : 400} ${px}px Inter, system-ui, sans-serif`;
+  const fam = s.font_file ? familyOf(s.font_file) : null;
+  return `${s.use_italic ? 'italic ' : ''}${s.use_bold ? 600 : 400} ${px}px ${fam ? `"${fam}", ` : ''}Inter, system-ui, sans-serif`;
 }
 
 /** A wrapped line: displayed text and the index of its first character in the source text. */

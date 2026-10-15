@@ -386,3 +386,23 @@ test('sequencer: keyframes on strips (I in the preview) animate the image betwee
   expect(await page.evaluate(() => (window as any).app.doc.scene.sequence_editor.strips.find((x: any) => x.name === 'Text').keys['transform.offset_x'].length)).toBe(1);
   await expectNoErrors(errors);
 });
+
+test('sequencer: a text strip can use an embedded font file', async ({ page }) => {
+  const { errors } = await videoWorkspace(page);
+  const loaded = await page.evaluate(async () => {
+    const res = await fetch('/node_modules/@fontsource/inter/files/inter-latin-700-normal.woff');
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const app = (window as any).app;
+    const s = app.doc.scene.sequence_editor.strips.find((x: any) => x.name === 'Text');
+    s.font_file = { filepath: 'heavy.woff', mime: 'font/woff', bytes };
+    app.changed('doc');
+    const { fontFor } = await import('/src/sequencer/text.ts' as any);
+    const css = fontFor(s, 40);
+    await document.fonts.ready;
+    await new Promise((r) => setTimeout(r, 300));
+    return { css, ok: [...document.fonts].some((f: any) => f.family.includes('seqfont') && f.status === 'loaded') };
+  });
+  expect(loaded.css).toMatch(/seqfont\d+/);
+  expect(loaded.ok).toBe(true);
+  await expectNoErrors(errors);
+});

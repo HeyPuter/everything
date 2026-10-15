@@ -11,6 +11,7 @@ import { activeStrip, afterEdit, seqEditor, seqList, toolSettings, hasEditor, sc
 import { stripIcon } from './theme';
 import { restartPlayback } from './audio';
 import { movieCacheStats } from './media';
+import { pickFiles, fileBytes } from './add';
 
 const edited: PropOpts = { onChange: () => (afterEdit(), restartPlayback()) };
 
@@ -169,10 +170,29 @@ function effectPanel(s: Strip): Child {
   return panel('seq-effect', t === 'TEXT' ? 'Effect Strip' : 'Effect Strip', () => rows);
 }
 
+function pickFont(s: Strip) {
+  void pickFiles('.ttf,.otf,.woff,.woff2,font/*', false).then(async (files) => {
+    if (!files.length) return;
+    s.font_file = await fileBytes(files[0]);
+    app.pushUndo('Load Font');
+    app.changed('doc');
+  });
+}
+
 function textStylePanels(s: Strip): Child {
   if (s.type !== 'TEXT') return null;
   return [
     panel('seq-text-style', 'Style', () => [
+      splitRow(
+        'Font',
+        h(
+          'div',
+          { class: 'row-aligned' },
+          h('span', { class: 'seq-src' }, s.font_file ? s.font_file.filepath : 'Default (sans-serif)'),
+          button(`seq-font-${oid(s)}`, icon('file_folder'), () => pickFont(s), { tip: 'Load Font\nUse a font file (TTF, OTF, WOFF) for this text' }),
+          s.font_file ? button(`seq-font-x-${oid(s)}`, icon('x'), () => ((s.font_file = null), app.pushUndo('Default Font'), app.changed('doc')), { tip: 'Use the default font' }) : null,
+        ),
+      ),
       num(s, 'font_size', 'Size', { min: 0, softMax: 2000, precision: 1 }),
       splitRow('', h('div', { class: 'row-aligned' }, checkbox(`seq-bold-${oid(s)}`, 'Bold', !!s.use_bold, (v) => ((s.use_bold = v), app.pushUndo('Bold'), app.changed('doc'))), checkbox(`seq-italic-${oid(s)}`, 'Italic', !!s.use_italic, (v) => ((s.use_italic = v), app.pushUndo('Italic'), app.changed('doc'))))),
       color(s as never, 'color', 'Color', true),

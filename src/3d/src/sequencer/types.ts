@@ -194,6 +194,8 @@ export interface Strip {
   // color / text
   color?: number[];
   text?: string;
+  /** TEXT: a font file embedded in the document (the bundled sans-serif when unset) */
+  font_file?: MediaFile | null;
   font_size?: number;
   use_bold?: boolean;
   use_italic?: boolean;
