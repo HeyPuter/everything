@@ -37,6 +37,8 @@ export interface LiquidParams {
   open: [boolean, boolean, boolean, boolean, boolean, boolean];
   /** extra acceleration per cell (force fields), grid units */
   accel?: Float32Array | null;
+  /** kinematic viscosity in cells² per second (0: none) */
+  viscosity?: number;
 }
 
 export function newLiquidGrid(nx: number, ny: number, nz: number, capacity = 1024): LiquidGrid {
@@ -298,6 +300,7 @@ export function stepLiquid(g: LiquidGrid, P: LiquidParams) {
     g.v[o] += (P.gravity[1] + (A ? A[o * 3 + 1] : 0)) * P.dt;
     g.w[o] += (P.gravity[2] + (A ? A[o * 3 + 2] : 0)) * P.dt;
   }
+  if (P.viscosity && P.viscosity > 0) diffuse(g, P.viscosity * P.dt);
   enforceBoundaries(g, P);
   project(g, P);
   enforceBoundaries(g, P);
@@ -392,5 +395,39 @@ function extrapolate(g: LiquidGrid) {
           }
         }
     for (const q of add) known[q] = 1;
+  }
+}
+
+/** Viscous diffusion of the liquid's velocity (explicit, in stable sub-steps). */
+function diffuse(g: LiquidGrid, amount: number) {
+  const { nx, ny, nz, liquid, solid } = g;
+  const steps = Math.min(64, Math.max(1, Math.ceil(amount * 6)));
+  const a = amount / steps;
+  const sy = nx,
+    sz = nx * ny;
+  for (const f of [g.u, g.v, g.w]) {
+    for (let s = 0; s < steps; s++) {
+      const src = f.slice();
+      let o = 0;
+      for (let k = 0; k < nz; k++)
+        for (let j = 0; j < ny; j++)
+          for (let i = 0; i < nx; i++, o++) {
+            if (!liquid[o] || solid[o]) continue;
+            let sum = 0,
+              c = 0;
+            const take = (ok: boolean, q: number) => {
+              if (!ok || solid[q] || !liquid[q]) return;
+              sum += src[q];
+              c++;
+            };
+            take(i > 0, o - 1);
+            take(i < nx - 1, o + 1);
+            take(j > 0, o - sy);
+            take(j < ny - 1, o + sy);
+            take(k > 0, o - sz);
+            take(k < nz - 1, o + sz);
+            if (c) f[o] = src[o] + a * (sum - c * src[o]);
+          }
+    }
   }
 }

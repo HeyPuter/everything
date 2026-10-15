@@ -145,6 +145,11 @@ function stepDomain(ctx: SimContext, ob: ObjectData, m: FluidModifier, L: Liquid
     pressureIterations: 80,
     open: [!s.use_collision_border_left, !s.use_collision_border_right, !s.use_collision_border_front, !s.use_collision_border_back, !s.use_collision_border_bottom, !s.use_collision_border_top],
   };
+  if (s.use_diffusion) {
+    // m²/s → cells²/s
+    const cpm = Math.cbrt(Math.abs(L.G.toGrid.determinant()));
+    P.viscosity = (s.viscosity_base ?? 1) * Math.pow(10, -(s.viscosity_exponent ?? 6)) * cpm * cpm;
+  }
   P.accel = F.fieldAccelerations(ctx, L.G, k, s.effector_weights_all ?? 1, s.effector_weights_types ?? null);
   for (let st = 0; st < sub; st++) stepLiquid(g, P);
 }

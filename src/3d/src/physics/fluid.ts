@@ -25,6 +25,10 @@ export interface FluidDomainSettings {
   use_mesh?: boolean;
   mesh_particle_radius?: number;
   mesh_scale?: number;
+  /** liquid viscosity = base × 10^-exponent (m²/s) */
+  use_diffusion?: boolean;
+  viscosity_base?: number;
+  viscosity_exponent?: number;
   resolution_max: number;
   time_scale: number;
   alpha: number;
@@ -86,6 +90,9 @@ export function defaultDomainSettings(): FluidDomainSettings {
     use_mesh: true,
     mesh_particle_radius: 2,
     mesh_scale: 2,
+    use_diffusion: false,
+    viscosity_base: 1,
+    viscosity_exponent: 6,
     resolution_max: 32,
     time_scale: 1,
     alpha: 1,

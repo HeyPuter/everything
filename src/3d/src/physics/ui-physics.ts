@@ -340,6 +340,10 @@ function fluidPanels(ob: ObjectPhysics, m: FluidModifier): Child[] {
               num(s, 'flip_ratio', 'FLIP Ratio', { min: 0, max: 1, slider: true, disabled: d, tip: '1 keeps the motion lively (FLIP), 0 smooths it (PIC)' }),
               num(s, 'particle_number', 'Particles per Cell', { int: true, min: 1, max: 4, disabled: d, tip: 'Particles along each axis of an emitting cell' }),
               num(s, 'particle_randomness', 'Randomness', { min: 0, max: 1, slider: true, disabled: d }),
+              panel('ph-fl-diff', 'Diffusion', () => [
+                num(s, 'viscosity_base', 'Base', { min: 0, max: 10, disabled: d || !s.use_diffusion, tip: 'Viscosity = base × 10^-exponent (m²/s)' }),
+                num(s, 'viscosity_exponent', 'Exponent', { int: true, min: 0, max: 10, disabled: d || !s.use_diffusion }),
+              ], { sub: true, closed: true, header: headerCheck(`fl-diff-${m.id}`, s as never, 'use_diffusion', 'Diffusion', d) }),
               panel('ph-fl-mesh', 'Mesh', () => [
                 num(s, 'mesh_scale', 'Upres Factor', { int: true, min: 1, max: 4, disabled: !s.use_mesh }),
                 num(s, 'mesh_particle_radius', 'Particle Radius', { min: 0.5, max: 4, disabled: !s.use_mesh, tip: 'Radius of every particle in cells when building the surface' }),

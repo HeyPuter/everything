@@ -112,3 +112,23 @@ describe('fields in fluid domains', () => {
     expect(sideways(true)).toBeGreaterThan(sideways(false) + 0.5);
   });
 });
+
+describe('liquid viscosity', () => {
+  it('a viscous liquid moves more calmly than water', () => {
+    const motion = (viscous: boolean) => {
+      const { doc, domain, dm } = scene();
+      if (viscous) Object.assign(dm.domain_settings, { use_diffusion: true, viscosity_base: 5, viscosity_exponent: 1 });
+      const g = new Depsgraph(doc);
+      doc.scene.frame_current = 40;
+      g.evaluate(doc);
+      const c = getCache<{ particles: Float32Array }, unknown>(fluidCacheKey(domain, dm));
+      // particle displacement between two late frames (after the splash)
+      const a = c.frames.get(39)!.particles,
+        b = c.frames.get(40)!.particles;
+      let d = 0;
+      for (let i = 0; i < Math.min(a.length, b.length); i += 3) d += Math.hypot(b[i] - a[i], b[i + 1] - a[i + 1], b[i + 2] - a[i + 2]);
+      return d / (a.length / 3);
+    };
+    expect(motion(true)).toBeLessThan(motion(false));
+  });
+});
