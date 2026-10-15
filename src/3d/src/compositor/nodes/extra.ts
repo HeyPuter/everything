@@ -213,6 +213,7 @@ registerNodeAlias('CompositorNodeGamma', 'ShaderNodeGamma');
 {
   const d = cdef('CompositorNodeOutputFile', 'output', { description: 'Save images, one file per input, when rendering' });
   d.props = [
+    { id: 'directory', name: 'Directory', type: 'STRING', d: '', inNode: false },
     { id: 'file_name', name: 'File Name', type: 'STRING', d: 'render', inNode: true },
     {
       id: 'file_format',
@@ -222,10 +223,10 @@ registerNodeAlias('CompositorNodeGamma', 'ShaderNodeGamma');
         ['PNG', 'PNG'],
         ['JPEG', 'JPEG'],
         ['WEBP', 'WebP'],
-        ['OPEN_EXR', 'OpenEXR'],
       ],
       d: 'PNG',
     },
+    { id: 'save_as_render', name: 'Save as Render', type: 'BOOLEAN', d: true, inNode: false },
   ];
 }
 

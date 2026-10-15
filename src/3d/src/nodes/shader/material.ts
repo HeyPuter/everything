@@ -450,6 +450,8 @@ setMaterialKeyExtra((doc, ma) => {
       }
       const img = n.props.image as string | undefined;
       if (img && seen.size && doc.images[img]) k += `|i:${img}:${doc.images[img].revision ?? 0}`;
+      // Scene Time: the frame is a value of the tree
+      if ((n as { type?: string }).type === 'GeometryNodeInputSceneTime') k += `|f:${doc.scene.frame_current}:${doc.scene.frame_subframe ?? 0}`;
     }
   };
   visit(ma.tree.nodes);

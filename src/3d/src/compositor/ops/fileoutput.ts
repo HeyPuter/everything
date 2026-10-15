@@ -151,9 +151,17 @@ async function saveFrame(r: RenderResult) {
   const encoded: { name: string; bytes: Uint8Array }[] = [];
   for (const f of files) {
     const fmt = (String(f.node.props.file_format ?? 'PNG') as FileFormat) in EXT ? (String(f.node.props.file_format ?? 'PNG') as FileFormat) : 'PNG';
-    const px = toDisplayRGBA8(f.data, f.w, f.h, view, { keepAlpha: true });
+    // "Save as Render" applies the scene's view transform; otherwise values are written as they are
+    const asRender = f.node.props.save_as_render !== false;
+    const px = toDisplayRGBA8(f.data, f.w, f.h, asRender ? view : { view_transform: 'RAW', exposure: 0, gamma: 1 }, { keepAlpha: true });
     const single = fileSlots(f.node).length === 1;
-    encoded.push({ name: outputFileName(String(f.node.props.file_name ?? 'render'), f.slot, r.info.frame, fmt, single), bytes: await encodeRGBA8(px, f.w, f.h, fmt, { alpha: fmt !== 'JPEG' }) });
+    const dir = String(f.node.props.directory ?? '')
+      .replace(/^\/+|\/+$/g, '')
+      .replace(/^\/\//, '');
+    encoded.push({
+      name: (dir ? `${dir}/` : '') + outputFileName(String(f.node.props.file_name ?? 'render'), f.slot, r.info.frame, fmt, single),
+      bytes: await encodeRGBA8(px, f.w, f.h, fmt, { alpha: fmt !== 'JPEG' }),
+    });
   }
   const job = renderJob();
   const animation = !!job && job.frameCount > 1;

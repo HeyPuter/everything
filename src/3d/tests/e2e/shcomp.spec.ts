@@ -78,8 +78,29 @@ test('new shader nodes compile to valid GLSL', async ({ page }) => {
     'FunctionNodeInputBool',
     'FunctionNodeInputInt',
     'FunctionNodeInputVector',
+    'GeometryNodeInputSceneTime',
   ]);
   for (const [type, errs] of Object.entries(res)) expect(errs, type).toEqual([]);
+  // Scene Time is offered in the Input menu and follows the frame
+  const st = await page.evaluate(async () => {
+    const { SHADER_MENU } = await import('/src/nodes/shader/defs.ts');
+    const input = SHADER_MENU.find((c: { label: string }) => c.label === 'Input')!;
+    const ids = input.items.filter((i: unknown) => typeof i !== 'string' && 'idname' in (i as object)).map((i: unknown) => (i as { idname: string }).idname);
+    const { compileTree } = await import('/src/nodes/shader/codegen.ts');
+    const { addNode, connect, ctxOf, activeOutput } = await import('/src/nodes/tree.ts');
+    const { newMaterial } = await import('/src/data/defaults.ts');
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const ma = newMaterial('ST');
+    const n = addNode(ma.tree, 'GeometryNodeInputSceneTime', [0, 0]);
+    const em = addNode(ma.tree, 'ShaderNodeEmission', [0, 0]);
+    connect(ctxOf(a.doc, ma.tree), n.id, 'Frame', em.id, 'Strength');
+    connect(ctxOf(a.doc, ma.tree), em.id, 'Emission', activeOutput(ma.tree, 'ShaderNodeOutputMaterial')!.id, 'Surface');
+    a.doc.scene.frame_current = 17;
+    const ct = compileTree(a.doc, ma.tree, 'MATERIAL');
+    return { ids, values: ct.uniforms.map((u: { value: unknown }) => u.value) };
+  });
+  expect(st.ids.indexOf('GeometryNodeInputSceneTime')).toBe(st.ids.indexOf('ShaderNodeTangent') - 1);
+  expect(st.values).toContain(17);
   await expectNoErrors(errors);
 });
 
