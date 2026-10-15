@@ -224,7 +224,7 @@ test('dyntopo refines the mesh under the brush', async ({ page }) => {
   const errors = await openApp(page);
   await setup(page, 'SCULPT', 'mesh.primitive_uv_sphere_add', { segments: 32, ring_count: 16, radius: 4 });
   const c = await viewportCenter(page);
-  await page.locator('.tool-header button[data-tip^="Dyntopo"]').click();
+  await page.locator('.tool-header button.hdr-toggle[data-tip^="Dyntopo"]').click();
   const nf0 = await page.evaluate(() => {
     const a = (window as unknown as W).app;
     a.doc.scene.tool_settings.sculpt.detail_size = 4;
@@ -237,5 +237,36 @@ test('dyntopo refines the mesh under the brush', async ({ page }) => {
   await page.mouse.up();
   const m = await meshInfo(page);
   expect(m.nf).toBeGreaterThan(nf0 * 2);
+  await expectNoErrors(errors);
+});
+
+test('brush shelf, Properties tool tab and tool header popovers', async ({ page }) => {
+  const errors = await openApp(page);
+  await setup(page);
+  // shelf thumbnails pick brushes
+  await page.locator('.ps-tile[data-brush="brush_clay_strips"]').click();
+  await expect(page.locator('.tool-header')).toContainText('Clay Strips');
+  await page.locator('.ps-tab', { hasText: 'Transform' }).click();
+  await expect(page.locator('.paint-shelf .ps-tile')).toHaveCount(5);
+  await page.locator('.ps-search').fill('snake');
+  await page.locator('.ps-tab', { hasText: 'All' }).click();
+  await expect(page.locator('.paint-shelf .ps-tile')).toHaveCount(1);
+  // View ▸ Asset Shelf hides it
+  await page.evaluate(() => (window as unknown as W).app.run('view3d.toggle_asset_shelf'));
+  await expect(page.locator('.paint-shelf')).toHaveCount(0);
+  // Properties ▸ Tool shows the brush panels
+  await page.locator('.prop-rail [data-tip^="Tool"]').first().click();
+  await expect(page.locator('.properties .panel-header', { hasText: 'Brush Settings' })).toBeVisible();
+  await expect(page.locator('.properties .panel-header', { hasText: 'Dyntopo' })).toBeVisible();
+  // tool header popover
+  await page.locator('.tool-header .th-pop', { hasText: 'Falloff' }).dispatchEvent('pointerdown');
+  await expect(page.locator('.popover .pop-title', { hasText: 'Falloff' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  // Space: brush picker at the pointer
+  const c = await viewportCenter(page);
+  await page.mouse.move(c.x, c.y - 100);
+  await page.keyboard.press('Space');
+  await page.locator('.popover .ps-tile[data-brush="brush_smooth"]').click();
+  await expect(page.locator('.tool-header')).toContainText('Smooth');
   await expectNoErrors(errors);
 });

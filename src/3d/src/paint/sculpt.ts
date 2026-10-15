@@ -12,6 +12,7 @@ import { beginGeometryStroke, meshSession, reevaluate, type Hit, type MeshSessio
 import { runStroke, type Dab } from './stroke';
 import { hasMask, invalidatePaintAttributes, maskChanged, writeCornerValues } from './display';
 import { normalFactor, strokeAutomask } from './automask';
+import { brushRadiusPx } from './vgather';
 
 type Sign = [number, number, number];
 
@@ -439,13 +440,13 @@ function dab(st: StrokeState, d: Dab, tool: string) {
     }
     st.lastHit = null;
   }
-  const radiusPx = d.radiusPx ?? b.radius;
+  const sizeFactor = d.sizeFactor ?? 1;
 
   if (ANCHORED.has(tool)) {
     if (d.first) {
       const hit = s.raycast(v, d.x, d.y);
       if (!hit) return;
-      st.radiusLocal = s.pixelsToLocal(v, hit.world, b.radius);
+      st.radiusLocal = s.pixelsToLocal(v, hit.world, brushRadiusPx(b, s, v, hit.world));
       const viewDir = s.localRay(v, d.x, d.y).direction;
       const passes: AnchorPass[] = [];
       for (const sg of st.passes) {
@@ -524,7 +525,7 @@ function dab(st: StrokeState, d: Dab, tool: string) {
     if (d.first) {
       const hit = s.raycast(v, d.x, d.y);
       if (!hit) return;
-      st.radiusLocal = s.pixelsToLocal(v, hit.world, b.radius);
+      st.radiusLocal = s.pixelsToLocal(v, hit.world, brushRadiusPx(b, s, v, hit.world));
       st.snake = {
         anchorWorld: hit.world.clone(),
         anchorLocal: hit.point.clone(),
@@ -556,7 +557,7 @@ function dab(st: StrokeState, d: Dab, tool: string) {
   } else {
     const hit: Hit | null = s.raycast(v, d.x, d.y);
     if (!hit) return;
-    const R = s.pixelsToLocal(v, hit.world, radiusPx);
+    const R = d.radiusPx !== undefined ? s.pixelsToLocal(v, hit.world, d.radiusPx) : s.pixelsToLocal(v, hit.world, brushRadiusPx(b, s, v, hit.world) * sizeFactor);
     st.radiusLocal = R;
     const viewDir = s.localRay(v, d.x, d.y).direction;
     const strokeDir = st.lastHit ? hit.point.clone().sub(st.lastHit) : null;
@@ -643,6 +644,21 @@ export function surfaceDab(st: StrokeState, tool: string, point: Vector3, normal
     }
     factors(st, n, realTool === 'SMOOTH' ? Math.min(1, strength) : strength);
     applyTool(st, realTool, n, c, sg, area, R, strokeDir);
+    const grav = (app as typeof app | undefined)?.doc?.scene.tool_settings.sculpt.gravity ?? 0;
+    if (grav > 0 && realTool !== 'SMOOTH') {
+      // gravity: world down in object space, scaled like the draw brush
+      const down = worldToLocalDir(s, new Vector3(0, 0, -1)).normalize();
+      const k = R * 0.1 * grav;
+      const P = s.positions;
+      for (let i = 0; i < n; i++) {
+        const v = s.gv[i] * 3,
+          f = s.gf[i] * k;
+        P[v] += down.x * f;
+        P[v + 1] += down.y * f;
+        P[v + 2] += down.z * f;
+        touch(st, s.gv[i]);
+      }
+    }
     const auto = b.auto_smooth_factor ?? 0;
     if (auto > 0 && realTool !== 'SMOOTH') {
       factors(st, n, auto);
@@ -759,7 +775,7 @@ export function sculptStroke(v: View3D, e: PointerEvent, override?: PaintBrush |
       }
       if (st.dyn) dyntopoHooks.step?.(st, false);
       if (st.s.direct) st.s.flush();
-      else {
+      else if (!app.doc.scene.tool_settings.sculpt.use_sculpt_delay_updates) {
         const now = performance.now();
         if (now - st.lastEval > 30) {
           st.lastEval = now;

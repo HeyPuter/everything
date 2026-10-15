@@ -96,3 +96,7 @@ registerIcons({
 registerIcons({
   dyntopo: '<path class="s" d="M2 13 8 2.5 14 13zM5 7.75h6M8 13 5 7.75M8 13l3-5.25M3.5 10.4h3M9.5 10.4h3" fill="none" stroke-width="1.1" stroke-linejoin="round"/>',
 });
+
+registerIcons({
+  pressure: '<path class="f" d="M11.6 1.6a1.6 1.6 0 0 1 2.3 2.3L7.4 10.4 5 11l.6-2.4z"/><path class="s" d="M2 14c1.5-1 2.2-1 3 0s1.6 1 3 0" fill="none" stroke-width="1.2" stroke-linecap="round"/>',
+});

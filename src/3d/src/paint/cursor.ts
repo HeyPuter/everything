@@ -7,6 +7,7 @@ import { editModeHooks } from '../editors/view3d/hooks';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { activeBrush, isBrushMode } from './brushes';
 import { meshSession } from './session';
+import { brushRadiusPx } from './vgather';
 import { cursorState } from './cursorstate';
 import { sculptHooks } from './sculpt';
 
@@ -21,17 +22,19 @@ export function updateCursor(v: View3D, x: number, y: number) {
   cursorState.hit = null;
   const mode = app.doc.mode;
   const b = activeBrush();
-  if (mode === 'SCULPT') {
+  cursorState.radiusPx = b?.radius ?? 0;
+  if (mode === 'SCULPT' || (b && b.use_locked_size === 'SCENE')) {
     const s = meshSession();
     const hit = s?.raycast(v, x, y);
-    if (s && hit) {
+    if (s && hit && mode === 'SCULPT') {
       cursorState.lastFace = hit.face;
       cursorState.lastFaceMesh = s.meshId;
     }
-    if (s && hit && b) {
+    if (s && b) cursorState.radiusPx = hit ? brushRadiusPx(b, s, v, hit.world) : b.use_locked_size === 'SCENE' ? cursorState.radiusPx : b.radius;
+    if (s && hit && b && mode === 'SCULPT') {
       const w = s.world();
       const nWorld = hit.normal.clone().transformDirection(w);
-      const r = s.pixelsToLocal(v, hit.world, b.radius) * s.scale();
+      const r = s.pixelsToLocal(v, hit.world, cursorState.radiusPx) * s.scale();
       cursorState.hit = { point: hit.world, normal: nWorld, radius: r };
     }
   }
@@ -110,11 +113,12 @@ function cursorSvg(v: View3D): VNode | null {
   }
   if (!isBrushMode(app.doc.mode) || !cursorState.inside || cursorState.view !== v || app.modal) return null;
   const b = activeBrush();
-  if (!b) return null;
+  if (!b || b.show_cursor === false) return null;
   const x = cursorState.x,
     y = cursorState.y;
   const sub = b.direction === 'SUBTRACT';
-  const tint = app.doc.mode === 'SCULPT' ? (sub ? 'rgba(110,140,255,0.9)' : 'rgba(255,120,120,0.9)') : 'rgba(255,255,255,0.9)';
+  const css = (c: number[]) => `rgba(${c.map((k) => Math.round(k * 255)).join(',')},0.9)`;
+  const tint = app.doc.mode === 'SCULPT' ? css(sub ? b.cursor_color_subtract ?? [0.43, 0.55, 1] : b.cursor_color_add ?? [1, 0.47, 0.47]) : 'rgba(255,255,255,0.9)';
   const hit = cursorState.hit;
   if (hit && app.doc.mode === 'SCULPT') {
     const d = ringPath(v, hit.point, hit.normal, hit.radius);
@@ -144,7 +148,7 @@ function cursorSvg(v: View3D): VNode | null {
       h('circle', { cx: x, cy: y, r: 1.5, fill: '#fff' }),
     );
   }
-  const r = b.radius;
+  const r = cursorState.radiusPx || b.radius;
   return h(
     'g',
     { key: 'paint-cursor', class: 'paint-cursor', 'pointer-events': 'none' },
@@ -189,15 +193,21 @@ function radialGet(data: 'size' | 'strength' | 'weight'): number {
   const b = activeBrush();
   if (data === 'weight') return app.doc.scene.tool_settings.unified_paint.weight;
   if (!b) return 0;
-  return data === 'size' ? b.radius : b.strength;
+  if (data === 'size') return b.use_locked_size === 'SCENE' && cursorState.radiusPx ? cursorState.radiusPx : b.radius;
+  return b.strength;
 }
 
 function radialSet(data: 'size' | 'strength' | 'weight', value: number) {
   const b = activeBrush();
   if (data === 'weight') app.doc.scene.tool_settings.unified_paint.weight = value;
   else if (b) {
-    if (data === 'size') b.radius = value;
-    else b.strength = value;
+    if (data === 'size') {
+      // scene-locked sizes scale their world radius by the same ratio
+      if (b.use_locked_size === 'SCENE' && cursorState.radiusPx) {
+        b.unprojected_radius = (b.unprojected_radius ?? 0.1) * (value / cursorState.radiusPx);
+        cursorState.radiusPx = value;
+      } else b.radius = value;
+    } else b.strength = value;
   }
 }
 
@@ -279,6 +289,12 @@ registerOperators([
     exec: (_ctx, p) => {
       const b = activeBrush()!;
       const s = p.scalar as number;
+      if (b.use_locked_size === 'SCENE') {
+        b.unprojected_radius = Math.max(1e-5, (b.unprojected_radius ?? 0.1) * s);
+        const v = activeView3D();
+        if (v) updateCursor(v, cursorState.x, cursorState.y);
+        return;
+      }
       let r = b.radius * s;
       // always change by at least one pixel
       if (Math.round(r) === Math.round(b.radius)) r = b.radius + (s > 1 ? 1 : -1);

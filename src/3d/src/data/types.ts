@@ -877,6 +877,10 @@ export interface SculptSettings {
   detail_type_method?: 'RELATIVE' | 'CONSTANT' | 'BRUSH' | 'MANUAL';
   detail_refine_method?: 'SUBDIVIDE' | 'COLLAPSE' | 'SUBDIVIDE_COLLAPSE';
   detail_percent?: number;
+  /** pull the surface down (world -Z) with every dab */
+  gravity?: number;
+  /** meshes with modifiers update their shading only after a stroke */
+  use_sculpt_delay_updates?: boolean;
   constant_detail_resolution?: number;
   use_frontface?: boolean;
   falloff: 'SMOOTH' | 'SPHERE' | 'ROOT' | 'SHARP' | 'LINEAR' | 'CONSTANT';

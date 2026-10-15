@@ -1,11 +1,12 @@
 // Sculpt / paint mode UI: toolbar tools, tool header settings, sidebar Tool tab panels, header
 // menus, keymaps and the viewport input hooks (strokes, cursor, context menu).
-import { app, registerOperators } from '../app/app';
+import { app, onAppReady, registerOperators } from '../app/app';
+import { propertiesTabs } from '../editors/properties/properties';
 import { activeTools } from '../app/prefs';
 import { addKeys, keyName, keymaps, keyLabel, type KeyItem } from '../app/keymap';
 import { h, type Child, type VNode } from '../ui/h';
 import { icon } from '../ui/icons';
-import { checkbox, colorSwatch, enumMenu, numberField, panel, button, opButton, row } from '../ui/widgets';
+import { checkbox, colorSwatch, enumMenu, enumRow, numberField, panel, button, opButton, row } from '../ui/widgets';
 import { openMenu, openPie, openPopover, type MenuItem } from '../ui/menu';
 import { editModeHooks, viewportExtensions } from '../editors/view3d/hooks';
 import { extraToolLists, toolSettingsRenderers, setActiveTool, type ToolDef } from '../editors/view3d/toolbar';
@@ -16,6 +17,7 @@ import { activeBrush, brushById, BRUSH_LISTS, brushInfo, isBrushMode, type Brush
 import { startGesture } from './gesture';
 import { startGradient } from './paintops';
 import { faceSetStroke } from './facesetbrush';
+import { openBrushPicker } from './assetshelf';
 import { automaskButton, automaskSettings, dyntopoSettings } from './sculptmenus';
 import { faceMaskOn, isSelectTool, PAINT_SELECT_TOOLS, vertMaskOn } from './selmask';
 import { cursorState, updateCursor } from './cursor';
@@ -26,9 +28,12 @@ import { vertexPaintStroke, sampleVertexColor } from './vpaint';
 import { weightPaintStroke, sampleWeight, ensureActiveGroup } from './wpaint';
 import { texturePaintStroke, sampleImageColor, paintImage, meshHasUVs } from './tpaint';
 import { strokeActive } from './stroke';
-import { activeMeshData } from './session';
+import { activeMeshData, meshSession } from './session';
 import { invalidatePaintAttributes } from './display';
-import { falloff as falloffFn } from './math';
+import { falloff as falloffFn, linearToSrgb, srgbToLinear } from './math';
+import { hsvToRgb, rgbToHsv } from './paintmath';
+import { brushThumb } from './brushthumbs';
+import { Vector3 } from 'three';
 
 // ---------------------------------------------------------------------------
 // toolbar
@@ -281,24 +286,58 @@ const SYM_DIRS: [string, string][] = [
 ];
 const symState = { direction: 'NEGATIVE_X' };
 
+/** Tool header button opening a popover with the given rows. */
+function popButton(key: string, label: string, title: string, rows: () => Child, width = 260): VNode {
+  return h(
+    'button',
+    {
+      key,
+      class: 'th-pop',
+      'data-tip': title,
+      onpointerdown: (e: PointerEvent) => {
+        e.preventDefault();
+        openPopover(e.currentTarget as HTMLElement, () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, title), rows()), { width });
+      },
+    },
+    h('span', null, label),
+    icon('down_arrow_hlt', 'tiny'),
+  );
+}
+
 function toolHeaderSettings(mode: BrushMode): Child {
   const b = activeBrush(mode);
   if (!b) return null;
   const parts: Child[] = [];
-  if (mode === 'VERTEX_PAINT' || mode === 'TEXTURE_PAINT') {
-    if (b.sculpt_tool === 'DRAW' || b.sculpt_tool === 'TEXDRAW' || b.sculpt_tool === 'FILL') {
-      parts.push(colorFields('th-col'));
-      parts.push(field(110, blendMenu(b, 'th-blend', mode === 'TEXTURE_PAINT' ? TEX_BLENDS : BLENDS)));
-    }
+  // brush picker (thumbnail grid)
+  parts.push(
+    h(
+      'button',
+      {
+        key: 'th-brush',
+        class: 'th-pop th-brush',
+        'data-tip': 'Brush (Space)',
+        onpointerdown: (e: PointerEvent) => {
+          e.preventDefault();
+          openBrushPicker(e.currentTarget as HTMLElement);
+        },
+      },
+      h('img', { src: brushThumb(b.sculpt_tool, mode, 36), width: 18, height: 18, alt: '' }),
+      icon('down_arrow_hlt', 'tiny'),
+    ),
+  );
+  if ((mode === 'VERTEX_PAINT' || mode === 'TEXTURE_PAINT') && (b.sculpt_tool === 'DRAW' || b.sculpt_tool === 'TEXDRAW' || b.sculpt_tool === 'FILL')) {
+    parts.push(colorFields('th-col'));
+    parts.push(field(110, blendMenu(b, 'th-blend', mode === 'TEXTURE_PAINT' ? TEX_BLENDS : BLENDS)));
   }
-  if (mode === 'WEIGHT_PAINT') {
-    if (b.sculpt_tool === 'DRAW') parts.push(field(140, weightField('th-w')));
-  }
-  if (!(mode === 'TEXTURE_PAINT' && b.sculpt_tool === 'FILL')) parts.push(field(140, radiusField(b, 'th-r')));
-  parts.push(field(140, strengthField(b, 'th-s')));
+  if (mode === 'WEIGHT_PAINT' && b.sculpt_tool === 'DRAW') parts.push(field(140, weightField('th-w')));
+  if (!(mode === 'TEXTURE_PAINT' && b.sculpt_tool === 'FILL')) parts.push(field(150, sizeField(b, 'th-r')));
+  parts.push(field(150, strengthRow(b, 'th-s')));
   if (mode === 'WEIGHT_PAINT' && b.sculpt_tool === 'DRAW') parts.push(field(100, blendMenu(b, 'th-wblend', BLENDS)));
   if (mode === 'SCULPT') parts.push(directionToggle(b));
-  parts.push(field(100, falloffMenu(b, 'th-falloff')));
+  parts.push(popButton('th-p-brush', 'Brush', 'Brush Settings', () => [...mainRows(b, mode, 'thp'), ...advancedRows(b, mode, 'thp')]));
+  parts.push(popButton('th-p-stroke', 'Stroke', 'Stroke', () => strokeRows(b, mode, 'thp')));
+  parts.push(popButton('th-p-falloff', 'Falloff', 'Falloff', () => falloffRows(b, mode, 'thp')));
+  parts.push(popButton('th-p-cursor', 'Cursor', 'Cursor', () => cursorRows(b, mode, 'thp')));
   parts.push(h('div', { style: { flex: '1' } }));
   if (mode === 'WEIGHT_PAINT')
     parts.push(
@@ -306,6 +345,7 @@ function toolHeaderSettings(mode: BrushMode): Child {
         tip: 'Keep the sum of deform weights at 1 while painting',
       }),
     );
+  parts.push(symmetryToggles('th'));
   if (mode === 'SCULPT') {
     const ts = app.doc.scene.tool_settings.sculpt;
     parts.push(
@@ -324,9 +364,10 @@ function toolHeaderSettings(mode: BrushMode): Child {
         icon('dyntopo'),
       ),
     );
+    parts.push(popButton('th-p-remesh', 'Remesh', 'Remesh', () => remeshRows()));
     parts.push(automaskButton());
+    parts.push(popButton('th-p-options', 'Options', 'Options', () => [...sculptOptionRows(), h('div', { class: 'pop-sub' }, 'Auto-Masking'), ...automaskSettings('thp-am')]));
   }
-  parts.push(symmetryToggles('th'));
   return parts;
 }
 
@@ -362,187 +403,249 @@ function falloffPreview(b: PaintBrush): VNode {
   );
 }
 
+// ---------------------------------------------------------------------------
+// brush settings content (shared by the sidebar / Properties panels and the tool header popovers)
+
+function pressureToggle(b: PaintBrush, key: 'use_pressure_size' | 'use_pressure_strength', id: string) {
+  const on = key === 'use_pressure_strength' ? b.use_pressure_strength !== false : !!b.use_pressure_size;
+  return h(
+    'button',
+    {
+      key: id,
+      class: { 'hdr-toggle': true, 'pressure-toggle': true, on },
+      'data-tip': key === 'use_pressure_size' ? 'Use pen pressure for the radius' : 'Use pen pressure for the strength',
+      onclick: () => ((b[key] = !on), changed()),
+    },
+    icon('pressure'),
+  );
+}
+
+/** Radius field (pixels, or scene units when the size is locked to the scene) with the pressure toggle. */
+function sizeField(b: PaintBrush, id: string) {
+  const scene = b.use_locked_size === 'SCENE';
+  return h(
+    'div',
+    { key: id, class: 'paint-pressure-row' },
+    scene
+      ? numberField({ id, label: 'Radius', value: b.unprojected_radius ?? 0.1, min: 0.0001, max: 100, unit: 'distance', precision: 3, tip: 'Radius of the brush in scene units (F)', set: (x) => ((b.unprojected_radius = x), changed()) })
+      : radiusField(b, id),
+    pressureToggle(b, 'use_pressure_size', `${id}-p`),
+  );
+}
+function strengthRow(b: PaintBrush, id: string) {
+  return h('div', { key: id, class: 'paint-pressure-row' }, strengthField(b, id), pressureToggle(b, 'use_pressure_strength', `${id}-p`));
+}
+
+/** Switch the radius between screen pixels and scene units, keeping the current size on screen. */
+function setSizeUnit(b: PaintBrush, unit: 'VIEW' | 'SCENE') {
+  if ((b.use_locked_size ?? 'VIEW') === unit) return;
+  const v = activeView3D();
+  const s = meshSession();
+  if (v && s) {
+    const at = cursorState.hit?.point ?? new Vector3().setFromMatrixPosition(s.world());
+    const perPx = s.pixelsToLocal(v, at, 1) * s.scale();
+    if (unit === 'SCENE') b.unprojected_radius = Math.max(1e-4, b.radius * perPx);
+    else b.radius = Math.max(1, Math.min(2000, Math.round((b.unprojected_radius ?? 0.1) / perPx)));
+  }
+  b.use_locked_size = unit;
+  changed();
+}
+
+function mainRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
+  const rows: Child[] = [];
+  if ((mode === 'VERTEX_PAINT' || mode === 'TEXTURE_PAINT') && (b.sculpt_tool === 'DRAW' || b.sculpt_tool === 'TEXDRAW' || b.sculpt_tool === 'FILL')) rows.push(row('Blend', blendMenu(b, `${p}-blend`, mode === 'TEXTURE_PAINT' ? TEX_BLENDS : BLENDS)));
+  if (mode === 'WEIGHT_PAINT') {
+    rows.push(weightField(`${p}-w`));
+    if (b.sculpt_tool === 'DRAW') rows.push(row('Blend', blendMenu(b, `${p}-wblend`, BLENDS)));
+  }
+  if (!(mode === 'TEXTURE_PAINT' && b.sculpt_tool === 'FILL')) {
+    rows.push(sizeField(b, `${p}-r`));
+    rows.push(
+      row(
+        'Size Unit',
+        enumRow(
+          `${p}-unit`,
+          [
+            { value: 'VIEW', label: 'View', description: 'Radius in screen pixels' },
+            { value: 'SCENE', label: 'Scene', description: 'Radius in scene units' },
+          ],
+          b.use_locked_size ?? 'VIEW',
+          (x) => setSizeUnit(b, x as 'VIEW'),
+        ),
+      ),
+    );
+  }
+  rows.push(strengthRow(b, `${p}-s`));
+  if (mode === 'SCULPT') {
+    const dt = directionToggle(b);
+    if (dt) rows.push(row('Direction', dt));
+    if (b.sculpt_tool === 'MASK')
+      rows.push(
+        row(
+          'Mask Tool',
+          enumMenu(
+            `${p}-masktool`,
+            [
+              { value: 'DRAW', label: 'Draw' },
+              { value: 'SMOOTH', label: 'Smooth' },
+            ],
+            b.mask_tool ?? 'DRAW',
+            (x) => ((b.mask_tool = x as 'DRAW'), changed()),
+          ),
+        ),
+      );
+  }
+  return rows;
+}
+
+function advancedRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
+  const rows: Child[] = [];
+  if (mode === 'SCULPT') {
+    rows.push(numberField({ id: `${p}-nr`, label: 'Normal Radius', value: b.normal_radius_factor ?? 0.5, min: 0, max: 2, slider: true, tip: 'Ratio between the brush radius and the radius used to sample the area normal', set: (x) => ((b.normal_radius_factor = x), changed()) }));
+    rows.push(numberField({ id: `${p}-hard`, label: 'Hardness', value: b.hardness ?? 0, min: 0, max: 1, slider: true, tip: 'How close the brush falloff starts from the edge', set: (x) => ((b.hardness = x), changed()) }));
+    if (b.sculpt_tool !== 'SMOOTH' && b.sculpt_tool !== 'MASK')
+      rows.push(numberField({ id: `${p}-as`, label: 'Auto-Smooth', value: b.auto_smooth_factor ?? 0, min: 0, max: 1, slider: true, tip: 'Smooth the surface after each dab', set: (x) => ((b.auto_smooth_factor = x), changed()) }));
+    if (PLANE_TOOLS.has(b.sculpt_tool))
+      rows.push(numberField({ id: `${p}-po`, label: 'Plane Offset', value: b.plane_offset ?? 0, min: -2, max: 2, softMin: -0.5, softMax: 0.5, slider: true, tip: 'Offset of the brush plane from the surface', set: (x) => ((b.plane_offset = x), changed()) }));
+    if (b.sculpt_tool === 'CREASE') rows.push(numberField({ id: `${p}-pinch`, label: 'Pinch', value: b.crease_pinch_factor ?? 0.5, min: 0, max: 1, slider: true, set: (x) => ((b.crease_pinch_factor = x), changed()) }));
+  } else rows.push(numberField({ id: `${p}-hard`, label: 'Hardness', value: b.hardness ?? 0, min: 0, max: 1, slider: true, tip: 'How close the brush falloff starts from the edge', set: (x) => ((b.hardness = x), changed()) }));
+  rows.push(checkbox(`${p}-ff`, 'Front Faces Only', !!b.use_frontface, (x) => ((b.use_frontface = x), changed()), { tip: 'Brush only affects vertices facing the viewer' }));
+  if (mode === 'TEXTURE_PAINT') {
+    rows.push(checkbox(`${p}-occ`, 'Occlude', b.use_occlude !== false, (x) => ((b.use_occlude = x), changed()), { tip: 'Only paint onto the faces directly under the brush' }));
+    rows.push(checkbox(`${p}-bfc`, 'Backface Culling', b.use_backface_culling !== false, (x) => ((b.use_backface_culling = x), changed()), { tip: 'Ignore faces pointing away from the view' }));
+  }
+  if (mode !== 'SCULPT') rows.push(checkbox(`${p}-acc`, 'Accumulate', !!b.use_accumulate, (x) => ((b.use_accumulate = x), changed()), { tip: 'Keep adding within a stroke instead of limiting it to the brush strength' }));
+  return rows;
+}
+
+function strokeRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
+  const m = b.stroke_method ?? 'SPACE';
+  return [
+    row('Stroke Method', enumMenu(`${p}-sm`, strokeMethods(mode).map(([value, label]) => ({ value, label })), m, (x) => ((b.stroke_method = x as PaintBrush['stroke_method']), changed()), { tip: 'How dabs are placed along the stroke (Alt E)' })),
+    m === 'SPACE' || m === 'LINE' || m === 'AIRBRUSH'
+      ? numberField({ id: `${p}-sp`, label: 'Spacing', value: b.spacing ?? 10, min: 1, max: 1000, int: true, unit: 'percentage', tip: 'Spacing between dabs as a percentage of the brush radius', set: (x) => ((b.spacing = Math.round(x)), changed()) })
+      : null,
+    m === 'AIRBRUSH' ? numberField({ id: `${p}-rate`, label: 'Rate', value: b.rate ?? 0.1, min: 0.0001, max: 10, precision: 3, unit: 'time', tip: 'Interval between airbrush dabs (seconds)', set: (x) => ((b.rate = x), changed()) }) : null,
+    m !== 'LINE' && m !== 'ANCHORED' ? checkbox(`${p}-stab`, 'Stabilize Stroke', !!b.use_smooth_stroke, (x) => ((b.use_smooth_stroke = x), changed()), { tip: 'Let the brush trail behind the pointer for smoother lines (Shift S)' }) : null,
+    b.use_smooth_stroke && m !== 'LINE' && m !== 'ANCHORED'
+      ? [
+          numberField({ id: `${p}-stab-r`, label: 'Radius', value: b.smooth_stroke_radius ?? 75, min: 10, max: 200, int: true, unit: 'pixel', tip: 'Distance the brush trails behind the pointer', set: (x) => ((b.smooth_stroke_radius = Math.round(x)), changed()) }),
+          numberField({ id: `${p}-stab-f`, label: 'Factor', value: b.smooth_stroke_factor ?? 0.9, min: 0.5, max: 0.99, slider: true, tip: 'How smoothly the brush follows', set: (x) => ((b.smooth_stroke_factor = x), changed()) }),
+        ]
+      : null,
+  ];
+}
+
+function falloffRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
+  return [
+    row('Preset', falloffMenu(b, `${p}-fo`)),
+    falloffPreview(b),
+    mode !== 'TEXTURE_PAINT'
+      ? row(
+          'Shape',
+          enumMenu(
+            `${p}-fshape`,
+            [
+              { value: 'SPHERE', label: 'Sphere' },
+              { value: 'PROJECTED', label: 'Projected' },
+            ],
+            b.falloff_shape ?? 'SPHERE',
+            (x) => ((b.falloff_shape = x as 'SPHERE'), changed()),
+            { tip: 'Sphere: 3D distance. Projected: screen-space circle' },
+          ),
+        )
+      : null,
+  ];
+}
+
+function cursorRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
+  return [
+    checkbox(`${p}-cur`, 'Show Cursor', b.show_cursor !== false, (x) => ((b.show_cursor = x), changed()), { tip: 'Draw the brush outline under the pointer' }),
+    mode === 'SCULPT' && b.show_cursor !== false
+      ? [
+          row('Add Color', colorSwatch(`${p}-cadd`, b.cursor_color_add ?? [1, 0.47, 0.47], (c) => ((b.cursor_color_add = [c[0], c[1], c[2]]), changed()), { linear: false })),
+          DIRECTIONAL.has(b.sculpt_tool) ? row('Subtract Color', colorSwatch(`${p}-csub`, b.cursor_color_subtract ?? [0.43, 0.55, 1], (c) => ((b.cursor_color_subtract = [c[0], c[1], c[2]]), changed()), { linear: false })) : null,
+        ]
+      : null,
+  ];
+}
+
+function remeshRows(): Child[] {
+  const am = activeMeshData();
+  if (!am) return [];
+  return [
+    h(
+      'div',
+      { class: 'row-split' },
+      numberField({
+        id: 'pt-voxel',
+        label: 'Voxel Size',
+        value: am.me.remesh_voxel_size ?? 0.1,
+        min: 0.0001,
+        max: 10,
+        unit: 'distance',
+        precision: 4,
+        tip: 'Size of the voxel used for volume evaluation (smaller = more detail) (R)',
+        set: (x, final) => ((am.me.remesh_voxel_size = x), app.changed('ui'), final && app.pushUndo('Voxel Size')),
+      }),
+      button('pt-voxel-sample', icon('eyedropper'), () => app.run('sculpt.sample_detail_size', { mode: 'VOXEL' }), { tip: 'Sample the voxel size from the mesh under the cursor' }),
+    ),
+    opButton('object.voxel_remesh', 'Voxel Remesh'),
+  ];
+}
+
+function sculptOptionRows(): Child[] {
+  const ts = app.doc.scene.tool_settings.sculpt;
+  return [
+    numberField({ id: 'pt-grav', label: 'Gravity', value: ts.gravity ?? 0, min: 0, max: 1, slider: true, tip: 'Pull the surface downward (world -Z) with every dab', set: (x) => ((ts.gravity = x), changed()) }),
+    checkbox('pt-delay', 'Delay Viewport Updates', !!ts.use_sculpt_delay_updates, (x) => ((ts.use_sculpt_delay_updates = x), changed()), { tip: 'Refresh shading only after the stroke on meshes with modifiers' }),
+  ];
+}
+
+function brushTile(b: PaintBrush, mode: BrushMode): Child {
+  const info = brushInfo(b.id);
+  return h(
+    'div',
+    { class: 'paint-brush-tile' },
+    h('img', { src: brushThumb(b.sculpt_tool, mode, 192), width: 96, height: 96, alt: '', draggable: false }),
+    h(
+      'div',
+      { class: 'pbt-side' },
+      h('div', { class: 'pbt-name' }, info?.name ?? b.name),
+      enumMenu(
+        'pt-brush',
+        BRUSH_LISTS[mode].filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ value: x.id, label: x.name, icon: x.icon })),
+        b.id,
+        (id) => (setActiveTool(id), changed()),
+        { tip: 'Active brush (Space: brush shelf)' },
+      ),
+      info ? h('div', { class: 'pbt-desc' }, info.description) : null,
+    ),
+  );
+}
+
 function brushPanels(mode: BrushMode): Child[] {
   const b = activeBrush(mode);
   const ts = app.doc.scene.tool_settings;
   const out: Child[] = [];
   const tool = activeTools[mode];
-  out.push(
-    panel(`pt-brushes-${mode}`, 'Brushes', () => [
-      enumMenu(
-        'pt-brush',
-        BRUSH_LISTS[mode].filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ value: x.id, label: x.name, icon: x.icon })),
-        b?.id ?? '',
-        (id) => (setActiveTool(id), changed()),
-        { tip: 'Active brush' },
-      ),
-    ]),
-  );
-  if (gestureTools[tool] || tool?.startsWith('builtin.') || !b) {
-    if (tool === 'builtin.sample_weight') out.push(panel('pt-sw', 'Sample Weight', () => [weightField('pt-sw-w')]));
-  } else {
+  const isBrush = !!b && !gestureTools[tool] && !tool?.startsWith('builtin.');
+  if (isBrush) {
+    out.push(panel(`pt-brushes-${mode}`, 'Brush', () => brushTile(b, mode)));
     out.push(
-      panel(`pt-brush-${mode}`, 'Brush Settings', () => {
-        const rows: Child[] = [];
-        if (mode === 'VERTEX_PAINT' || mode === 'TEXTURE_PAINT') {
-          if (b.sculpt_tool === 'DRAW' || b.sculpt_tool === 'TEXDRAW' || b.sculpt_tool === 'FILL') {
-            rows.push(row('Color', colorFields('pt-col')));
-            rows.push(row('Blend', blendMenu(b, 'pt-blend', mode === 'TEXTURE_PAINT' ? TEX_BLENDS : BLENDS)));
-          }
-        }
-        if (mode === 'WEIGHT_PAINT') {
-          rows.push(weightField('pt-w'));
-          if (b.sculpt_tool === 'DRAW') rows.push(row('Blend', blendMenu(b, 'pt-wblend', BLENDS)));
-        }
-        rows.push(radiusField(b, 'pt-r'), strengthField(b, 'pt-s'));
-        if (mode === 'SCULPT') {
-          const dt = directionToggle(b);
-          if (dt) rows.push(row('Direction', dt));
-          if (b.sculpt_tool === 'MASK')
-            rows.push(
-              row(
-                'Mask Tool',
-                enumMenu(
-                  'pt-masktool',
-                  [
-                    { value: 'DRAW', label: 'Draw' },
-                    { value: 'SMOOTH', label: 'Smooth' },
-                  ],
-                  b.mask_tool ?? 'DRAW',
-                  (x) => ((b.mask_tool = x as 'DRAW'), changed()),
-                ),
-              ),
-            );
-          rows.push(
-            numberField({
-              id: 'pt-nr',
-              label: 'Normal Radius',
-              value: b.normal_radius_factor ?? 0.5,
-              min: 0,
-              max: 2,
-              slider: true,
-              tip: 'Ratio between the brush radius and the radius used to sample the area normal',
-              set: (x) => ((b.normal_radius_factor = x), changed()),
-            }),
-          );
-          rows.push(
-            numberField({
-              id: 'pt-hard',
-              label: 'Hardness',
-              value: b.hardness ?? 0,
-              min: 0,
-              max: 1,
-              slider: true,
-              tip: 'How close the brush falloff starts from the edge',
-              set: (x) => ((b.hardness = x), changed()),
-            }),
-          );
-          if (b.sculpt_tool !== 'SMOOTH' && b.sculpt_tool !== 'MASK')
-            rows.push(
-              numberField({
-                id: 'pt-as',
-                label: 'Auto-Smooth',
-                value: b.auto_smooth_factor ?? 0,
-                min: 0,
-                max: 1,
-                slider: true,
-                tip: 'Smooth the surface after each dab',
-                set: (x) => ((b.auto_smooth_factor = x), changed()),
-              }),
-            );
-          if (PLANE_TOOLS.has(b.sculpt_tool))
-            rows.push(
-              numberField({
-                id: 'pt-po',
-                label: 'Plane Offset',
-                value: b.plane_offset ?? 0,
-                min: -2,
-                max: 2,
-                softMin: -0.5,
-                softMax: 0.5,
-                slider: true,
-                tip: 'Offset of the brush plane from the surface',
-                set: (x) => ((b.plane_offset = x), changed()),
-              }),
-            );
-          if (b.sculpt_tool === 'CREASE')
-            rows.push(
-              numberField({
-                id: 'pt-pinch',
-                label: 'Pinch',
-                value: b.crease_pinch_factor ?? 0.5,
-                min: 0,
-                max: 1,
-                slider: true,
-                set: (x) => ((b.crease_pinch_factor = x), changed()),
-              }),
-            );
-        }
-        rows.push(checkbox('pt-ff', 'Front Faces Only', !!b.use_frontface, (x) => ((b.use_frontface = x), changed()), { tip: 'Brush only affects vertices facing the viewer' }));
-        if (mode === 'TEXTURE_PAINT') {
-          rows.push(checkbox('pt-occ', 'Occlude', b.use_occlude !== false, (x) => ((b.use_occlude = x), changed()), { tip: 'Only paint onto the faces directly under the brush' }));
-          rows.push(checkbox('pt-bfc', 'Backface Culling', b.use_backface_culling !== false, (x) => ((b.use_backface_culling = x), changed()), { tip: 'Ignore faces pointing away from the view' }));
-        }
-        return rows;
-      }),
-    );
-    out.push(
-      panel(`pt-stroke-${mode}`, 'Stroke', () => [
-        row('Stroke Method', enumMenu('pt-sm', strokeMethods(mode).map(([value, label]) => ({ value, label })), b.stroke_method ?? 'SPACE', (x) => ((b.stroke_method = x as PaintBrush['stroke_method']), changed()), { tip: 'How dabs are placed along the stroke (Alt E)' })),
-        (b.stroke_method ?? 'SPACE') === 'SPACE' || b.stroke_method === 'LINE' || b.stroke_method === 'AIRBRUSH'
-          ? numberField({
-              id: 'pt-sp',
-              label: 'Spacing',
-              value: b.spacing ?? 10,
-              min: 1,
-              max: 1000,
-              int: true,
-              unit: 'percentage',
-              tip: 'Spacing between dabs as a percentage of the brush radius',
-              set: (x) => ((b.spacing = Math.round(x)), changed()),
-            })
-          : null,
-        b.stroke_method === 'AIRBRUSH'
-          ? numberField({ id: 'pt-rate', label: 'Rate', value: b.rate ?? 0.1, min: 0.0001, max: 10, precision: 3, unit: 'time', tip: 'Interval between airbrush dabs (seconds)', set: (x) => ((b.rate = x), changed()) })
-          : null,
-        b.stroke_method !== 'LINE' && b.stroke_method !== 'ANCHORED'
-          ? checkbox('pt-stab', 'Stabilize Stroke', !!b.use_smooth_stroke, (x) => ((b.use_smooth_stroke = x), changed()), { tip: 'Let the brush trail behind the pointer for smoother lines (Shift S)' })
-          : null,
-        b.use_smooth_stroke && b.stroke_method !== 'LINE' && b.stroke_method !== 'ANCHORED'
-          ? [
-              numberField({ id: 'pt-stab-r', label: 'Radius', value: b.smooth_stroke_radius ?? 75, min: 10, max: 200, int: true, unit: 'pixel', tip: 'Distance the brush trails behind the pointer', set: (x) => ((b.smooth_stroke_radius = Math.round(x)), changed()) }),
-              numberField({ id: 'pt-stab-f', label: 'Factor', value: b.smooth_stroke_factor ?? 0.9, min: 0.5, max: 0.99, slider: true, tip: 'How smoothly the brush follows', set: (x) => ((b.smooth_stroke_factor = x), changed()) }),
-            ]
-          : null,
-        mode !== 'SCULPT'
-          ? checkbox('pt-acc', 'Accumulate', !!b.use_accumulate, (x) => ((b.use_accumulate = x), changed()), {
-              tip: 'Keep adding within a stroke instead of limiting it to the brush strength',
-            })
-          : null,
+      panel(`pt-brush-${mode}`, 'Brush Settings', () => [
+        ...mainRows(b, mode, 'pt'),
+        panel(`pt-adv-${mode}`, 'Advanced', () => advancedRows(b, mode, 'pt'), { sub: true, closed: true }),
+        panel(`pt-stroke-${mode}`, 'Stroke', () => strokeRows(b, mode, 'pt'), { sub: true, closed: true }),
+        panel(`pt-falloff-${mode}`, 'Falloff', () => falloffRows(b, mode, 'pt'), { sub: true, closed: true }),
+        panel(`pt-cursor-${mode}`, 'Cursor', () => cursorRows(b, mode, 'pt'), { sub: true, closed: true }),
       ]),
     );
-    out.push(
-      panel(`pt-falloff-${mode}`, 'Falloff', () => [
-        row('Preset', falloffMenu(b, 'pt-fo')),
-        falloffPreview(b),
-        mode !== 'TEXTURE_PAINT'
-          ? row(
-              'Shape',
-              enumMenu(
-                'pt-fshape',
-                [
-                  { value: 'SPHERE', label: 'Sphere' },
-                  { value: 'PROJECTED', label: 'Projected' },
-                ],
-                b.falloff_shape ?? 'SPHERE',
-                (x) => ((b.falloff_shape = x as 'SPHERE'), changed()),
-                { tip: 'Sphere: 3D distance. Projected: screen-space circle' },
-              ),
-            )
-          : null,
-      ]),
-    );
-  }
+    if ((mode === 'VERTEX_PAINT' || mode === 'TEXTURE_PAINT') && (b.sculpt_tool === 'DRAW' || b.sculpt_tool === 'TEXDRAW' || b.sculpt_tool === 'FILL')) {
+      out.push(panel(`pt-color-${mode}`, 'Color Picker', () => colorPicker('pt-cp')));
+      out.push(panel(`pt-palette-${mode}`, 'Color Palette', () => paletteRows('pt-pal'), { closed: true }));
+    }
+  } else if (tool === 'builtin.sample_weight') out.push(panel('pt-sw', 'Sample Weight', () => [weightField('pt-sw-w')]));
   if (mode === 'WEIGHT_PAINT') {
     const am = activeMeshData();
     out.push(
@@ -553,11 +656,7 @@ function brushPanels(mode: BrushMode): Child[] {
               'Group',
               enumMenu(
                 'pt-vg',
-                am.me.vertex_groups.map((g, i) => ({
-                  value: String(i),
-                  label: g.name,
-                  icon: 'group_vertex',
-                })),
+                am.me.vertex_groups.map((g, i) => ({ value: String(i), label: g.name, icon: 'group_vertex' })),
                 String(am.ob.vertex_group_active_index ?? 0),
                 (x) => ((am.ob.vertex_group_active_index = Number(x)), invalidatePaintAttributes(), app.changed('doc')),
                 { tip: 'Active vertex group' },
@@ -583,11 +682,7 @@ function brushPanels(mode: BrushMode): Child[] {
         panel('pt-vp-attr', 'Color Attribute', () => [
           enumMenu(
             'pt-ca',
-            am.me.color_attributes.map((c, i) => ({
-              value: String(i),
-              label: `${c.name} (${c.domain === 'POINT' ? 'Vertex' : 'Face Corner'})`,
-              icon: 'group_vcol',
-            })),
+            am.me.color_attributes.map((c, i) => ({ value: String(i), label: `${c.name} (${c.domain === 'POINT' ? 'Vertex' : 'Face Corner'})`, icon: 'group_vcol' })),
             String(am.me.active_color_index),
             (x) => ((am.me.active_color_index = Number(x)), app.pushUndo('Active Color Attribute'), app.changed('doc')),
           ),
@@ -606,32 +701,9 @@ function brushPanels(mode: BrushMode): Child[] {
     );
   }
   if (mode === 'SCULPT') {
-    const am = activeMeshData();
-    if (am)
-      out.push(
-        panel('pt-remesh', 'Remesh', () => [
-          h(
-            'div',
-            { class: 'row-split' },
-            numberField({
-              id: 'pt-voxel',
-              label: 'Voxel Size',
-              value: am.me.remesh_voxel_size ?? 0.1,
-              min: 0.0001,
-              max: 10,
-              unit: 'distance',
-              precision: 4,
-              tip: 'Size of the voxel used for volume evaluation (smaller = more detail) (R)',
-              set: (x, final) => ((am.me.remesh_voxel_size = x), app.changed('ui'), final && app.pushUndo('Voxel Size')),
-            }),
-            button('pt-voxel-sample', icon('eyedropper'), () => app.run('sculpt.sample_detail_size', { mode: 'VOXEL' }), { tip: 'Sample the voxel size from the mesh under the cursor' }),
-          ),
-          opButton('object.voxel_remesh', 'Voxel Remesh'),
-        ]),
-      );
+    out.push(panel('pt-dyntopo', 'Dyntopo', () => dyntopoSettings('pt-dt')));
+    if (activeMeshData()) out.push(panel('pt-remesh', 'Remesh', () => remeshRows()));
   }
-  if (mode === 'SCULPT') out.push(panel('pt-dyntopo', 'Dyntopo', () => dyntopoSettings('pt-dt')));
-  if (mode === 'SCULPT') out.push(panel('pt-automask', 'Auto-Masking', () => automaskSettings('pt-am')));
   out.push(
     panel(`pt-sym-${mode}`, 'Symmetry', () => [
       row('Mirror', symmetryToggles('pt')),
@@ -643,8 +715,162 @@ function brushPanels(mode: BrushMode): Child[] {
         : null,
     ]),
   );
+  if (mode === 'SCULPT') {
+    out.push(panel('pt-sculpt-opts', 'Options', () => sculptOptionRows(), { closed: true }));
+    out.push(panel('pt-automask', 'Auto-Masking', () => automaskSettings('pt-am'), { closed: true }));
+  }
+  out.push(panel(`pt-workspace-${mode}`, 'Workspace', () => [h('div', { class: 'sb-label' }, `Mode: ${mode[0] + mode.slice(1).toLowerCase().replace('_', ' ')}`)], { closed: true }));
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// color picker (inline wheel) and palette
+
+const pickerState = { hsv: null as null | [number, number, number], key: '' };
+
+function colorPicker(p: string): Child {
+  const up = app.doc.scene.tool_settings.unified_paint;
+  const disp = up.color.map((x) => linearToSrgb(x)) as [number, number, number];
+  const key = up.color.join(',');
+  // keep the hue while the value is 0 (black loses it otherwise)
+  if (!pickerState.hsv || pickerState.key !== key) {
+    const [hh, s, v] = rgbToHsv(disp[0], disp[1], disp[2]);
+    pickerState.hsv = [pickerState.hsv && s === 0 ? pickerState.hsv[0] : hh, s, v];
+    pickerState.key = key;
+  }
+  const [hh, s, v] = pickerState.hsv;
+  const set = (nh: number, ns: number, nv: number) => {
+    pickerState.hsv = [nh, ns, nv];
+    const rgb = hsvToRgb(nh, ns, nv).map((x) => srgbToLinear(x)) as [number, number, number];
+    up.color = rgb;
+    pickerState.key = rgb.join(',');
+    changed();
+  };
+  const SIZE = 150;
+  const drawWheel = (c: HTMLCanvasElement) => {
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    const r = SIZE / 2;
+    const img = ctx.createImageData(SIZE, SIZE);
+    for (let y = 0; y < SIZE; y++)
+      for (let x = 0; x < SIZE; x++) {
+        const dx = x - r,
+          dy = y - r;
+        const d = Math.hypot(dx, dy) / r;
+        const i = (y * SIZE + x) * 4;
+        if (d > 1) continue;
+        const [cr, cg, cb] = hsvToRgb((Math.atan2(-dy, dx) / (Math.PI * 2) + 1) % 1, d, v);
+        img.data[i] = cr * 255;
+        img.data[i + 1] = cg * 255;
+        img.data[i + 2] = cb * 255;
+        img.data[i + 3] = Math.min(1, (1 - d) * r) * 255;
+      }
+    ctx.putImageData(img, 0, 0);
+  };
+  const drag = (e: PointerEvent, fn: (ev: PointerEvent, el: HTMLElement) => void) => {
+    const el = e.currentTarget as HTMLElement;
+    fn(e, el);
+    const mv = (ev: PointerEvent) => fn(ev, el);
+    const up2 = () => {
+      removeEventListener('pointermove', mv);
+      removeEventListener('pointerup', up2);
+      app.pushUndo('Brush Color');
+    };
+    addEventListener('pointermove', mv);
+    addEventListener('pointerup', up2);
+  };
+  const ang = hh * Math.PI * 2;
+  return h(
+    'div',
+    { class: 'paint-color-picker' },
+    h(
+      'div',
+      { class: 'pcp-top' },
+      h(
+        'div',
+        { class: 'pcp-wheel', style: { width: `${SIZE}px`, height: `${SIZE}px` } },
+        h('canvas', {
+          key: `wheel-${v.toFixed(3)}`,
+          width: SIZE,
+          height: SIZE,
+          ref: drawWheel,
+          onpointerdown: (e: PointerEvent) =>
+            drag(e, (ev, el) => {
+              const r = el.getBoundingClientRect();
+              const dx = ev.clientX - r.left - r.width / 2,
+                dy = ev.clientY - r.top - r.height / 2;
+              set((Math.atan2(-dy, dx) / (Math.PI * 2) + 1) % 1, Math.min(1, Math.hypot(dx, dy) / (r.width / 2)), v);
+            }),
+        }),
+        h('div', { class: 'pcp-cursor', style: { left: `${SIZE / 2 + Math.cos(ang) * s * (SIZE / 2)}px`, top: `${SIZE / 2 - Math.sin(ang) * s * (SIZE / 2)}px` } }),
+      ),
+      h(
+        'div',
+        {
+          class: 'pcp-value',
+          style: { height: `${SIZE}px`, background: `linear-gradient(to top, #000, rgb(${hsvToRgb(hh, s, 1).map((x) => Math.round(x * 255)).join(',')}))` },
+          'data-tip': 'Value',
+          onpointerdown: (e: PointerEvent) =>
+            drag(e, (ev, el) => {
+              const r = el.getBoundingClientRect();
+              set(hh, s, Math.max(0, Math.min(1, 1 - (ev.clientY - r.top) / r.height)));
+            }),
+        },
+        h('div', { class: 'pcp-vcursor', style: { top: `${(1 - v) * 100}%` } }),
+      ),
+    ),
+    row('Color', colorFields(`${p}-sw`)),
+  );
+}
+
+function paletteRows(p: string): Child {
+  const up = app.doc.scene.tool_settings.unified_paint as typeof app.doc.scene.tool_settings.unified_paint & { palette?: [number, number, number][] };
+  const pal = up.palette ?? [];
+  const same = (a: number[], b: number[]) => a.every((x, i) => Math.abs(x - b[i]) < 1e-4);
+  return h(
+    'div',
+    { class: 'paint-palette' },
+    pal.map((c, i) =>
+      h('button', {
+        key: `${p}-${i}`,
+        class: { 'pp-swatch': true, on: same(c, up.color) },
+        style: { background: `rgb(${c.map((x) => Math.round(linearToSrgb(x) * 255)).join(',')})` },
+        'data-tip': 'Click: use this color · Ctrl+click: remove it',
+        onclick: (e: MouseEvent) => {
+          if (e.ctrlKey || e.metaKey) up.palette = pal.filter((_, j) => j !== i);
+          else up.color = [c[0], c[1], c[2]];
+          app.pushUndo('Palette');
+          changed();
+        },
+      }),
+    ),
+    h(
+      'button',
+      {
+        key: `${p}-add`,
+        class: 'pp-add',
+        'data-tip': 'Add the brush color to the palette',
+        onclick: () => {
+          if (!pal.some((c) => same(c, up.color))) up.palette = [...pal, [up.color[0], up.color[1], up.color[2]]];
+          app.pushUndo('Palette');
+          changed();
+        },
+      },
+      icon('add'),
+    ),
+  );
+}
+
+// Properties editor ▸ Tool tab: the same brush panels in the paint modes
+onAppReady(() => {
+  const tab = propertiesTabs.find((t) => t.id === 'TOOL');
+  if (!tab) return;
+  const orig = tab.draw;
+  tab.draw = (p) => {
+    const mode = app.doc.mode;
+    return isBrushMode(mode) ? brushPanels(mode) : orig(p);
+  };
+});
 
 const toolTab = sidebarTabs.find((t) => t.id === 'Tool');
 if (toolTab) {
@@ -652,7 +878,7 @@ if (toolTab) {
   toolTab.draw = (v: View3D) => {
     const mode = app.doc.mode;
     if (!isBrushMode(mode)) return orig(v);
-    return [...brushPanels(mode), panel('sb-workspace', 'Workspace', () => [h('div', { class: 'sb-label' }, `Mode: ${mode[0] + mode.slice(1).toLowerCase().replace('_', ' ')}`)])];
+    return brushPanels(mode);
   };
 }
 

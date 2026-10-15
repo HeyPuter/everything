@@ -23,4 +23,5 @@ import './simpleuv';
 import './ui';
 import './selmask';
 import './sculptmenus';
+import './assetshelf';
 export {};

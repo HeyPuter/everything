@@ -36,3 +36,9 @@ export const viewportExtensions: ((v: View3D) => (() => void) | void)[] = [];
 
 /** Extra sections of the Viewport Overlays popover (e.g. per-mode display options). */
 export const overlayPopoverSections: ((v: View3D) => Child)[] = [];
+
+/** Extra UI children of each 3D viewport (e.g. the brush asset shelf of the paint modes). */
+export const viewportUIHooks: ((v: View3D) => Child)[] = [];
+
+/** Extra View menu entries (inserted after Tool Settings). */
+export const viewMenuExtras: (() => import('../../ui/menu').MenuItem[])[] = [];

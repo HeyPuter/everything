@@ -11,6 +11,7 @@ import { encodeImage, imageCanvas, imageTexture, touchImage } from '../render/im
 import { activeBrush, type PaintBrush } from './brushes';
 import { blendColor, falloff, linearToSrgb, srgbToLinear, symmetryPasses, type BlendMode } from './math';
 import { activeMeshData, meshSession, type MeshSession } from './session';
+import { brushRadiusPx } from './vgather';
 import { runStroke } from './stroke';
 import { paintDisplay } from './display';
 import { materialSlots } from '../editors/view3d/draw';
@@ -237,6 +238,7 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
         color,
         mode,
         uvDelta: delta,
+        radius: brushRadiusPx(b, s, v, hit.world) * (d.sizeFactor ?? 1),
       });
       lastUV = uv;
     },
@@ -300,6 +302,8 @@ interface DabOpts {
   color: number[];
   mode: BlendMode;
   uvDelta: [number, number] | null;
+  /** brush radius in pixels for this dab */
+  radius: number;
 }
 
 const BLEED = 2; // texels painted beyond triangle edges to hide UV seams
@@ -362,7 +366,7 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
   const M0 = screenMatrix(s, v);
   const Wv = v.width,
     Hv = v.height;
-  const r = b.radius;
+  const r = o.radius;
   const P = s.positions;
   const sym = app.doc.scene.tool_settings.sculpt;
   const tmp = [0, 0, 0];

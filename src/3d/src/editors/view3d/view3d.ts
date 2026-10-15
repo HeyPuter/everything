@@ -19,7 +19,7 @@ import { transformGizmo, gizmoPointerDown } from './gizmo';
 import { openMenu } from '../../ui/menu';
 import { objectContextMenu } from './menus';
 import { lastOpPanel } from '../../ui/redo';
-import { editModeHooks, viewportExtensions } from './hooks';
+import { editModeHooks, viewportExtensions, viewportUIHooks } from './hooks';
 import { circlePaint, lassoDrag, modeFromEvent } from './selectshapes';
 import { applyMatrixToObject } from '../../eval/transform';
 
@@ -260,6 +260,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       this.showSidebar ? sidebar(this) : null,
       this.showNavGizmo ? navGizmo(this) : null,
       lastOpPanel(this),
+      ...viewportUIHooks.map((f) => f(this)),
     ]);
     this.drawInfo();
   }

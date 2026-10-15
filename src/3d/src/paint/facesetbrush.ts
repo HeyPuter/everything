@@ -6,6 +6,7 @@ import type { View3D } from '../editors/view3d/view3d';
 import type { PaintBrush } from './brushes';
 import { meshSession, activeMeshData } from './session';
 import { runStroke } from './stroke';
+import { brushRadiusPx } from './vgather';
 import { faceCount, faceSetColor, faceSetsOf, maxFaceSet } from './fsdata';
 import { faceSetsChanged, invalidatePaintAttributes } from './display';
 
@@ -30,7 +31,7 @@ export function faceSetStroke(v: View3D, e: PointerEvent, b: PaintBrush): boolea
   const dab = (x: number, y: number) => {
     const hit = s.raycast(v, x, y);
     if (!hit) return;
-    const R = s.pixelsToLocal(v, hit.world, b.radius);
+    const R = s.pixelsToLocal(v, hit.world, brushRadiusPx(b, s, v, hit.world));
     const c = hit.point;
     // vertices in range → their faces → faces whose center is in range
     const verts: number[] = [];

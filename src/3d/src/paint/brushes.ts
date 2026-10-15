@@ -27,6 +27,16 @@ export interface PaintBrush extends BrushData {
   smooth_stroke_factor?: number;
   /** airbrush interval (seconds) */
   rate?: number;
+  /** pen pressure scales the radius / the strength */
+  use_pressure_size?: boolean;
+  use_pressure_strength?: boolean;
+  /** radius in screen pixels (VIEW) or in scene units (SCENE, `unprojected_radius`) */
+  use_locked_size?: 'VIEW' | 'SCENE';
+  unprojected_radius?: number;
+  /** brush cursor display */
+  show_cursor?: boolean;
+  cursor_color_add?: [number, number, number];
+  cursor_color_subtract?: [number, number, number];
   falloff: Falloff & BrushData['falloff'];
 }
 

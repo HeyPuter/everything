@@ -17,6 +17,8 @@ export interface Dab {
   first: boolean;
   /** brush radius in pixels for this dab (anchored strokes), else the brush radius */
   radiusPx?: number;
+  /** pen pressure factor for the radius (size pressure) */
+  sizeFactor?: number;
   /** undo the previous dabs of the stroke before this one (anchored / drag dot strokes) */
   restore?: boolean;
 }
@@ -30,6 +32,8 @@ export interface StrokeSettings {
   smooth_stroke_factor?: number;
   /** airbrush interval in seconds */
   rate?: number;
+  use_pressure_size?: boolean;
+  use_pressure_strength?: boolean;
 }
 
 export interface StrokeHandler {
@@ -80,8 +84,13 @@ export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
   let method: StrokeMethod = st.stroke_method ?? 'SPACE';
   if ((method === 'ANCHORED' || method === 'DRAG_DOT') && !handler.canRestore) method = 'SPACE';
   const p0 = v.local(e);
-  const pressure = (ev: PointerEvent) => (ev.pointerType === 'pen' && ev.pressure > 0 ? ev.pressure : 1);
+  const rawPressure = (ev: PointerEvent) => (ev.pointerType === 'pen' && ev.pressure > 0 ? ev.pressure : 1);
+  // pressure drives the strength (unless turned off); size pressure scales the dab radius
+  const pressure = (ev: PointerEvent) => (st.use_pressure_strength === false ? 1 : rawPressure(ev));
   let lastPressure = pressure(e);
+  let lastRaw = rawPressure(e);
+  const sizeP = !!st.use_pressure_size;
+  const dabSize = () => (sizeP ? Math.max(0.05, lastRaw) : undefined);
   // stabilized brush position
   const pos = { x: p0.x, y: p0.y };
   const smooth = !!st.use_smooth_stroke && method !== 'LINE' && method !== 'ANCHORED';
@@ -108,7 +117,7 @@ export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
     lineState.anchorR = method === 'ANCHORED' ? 1 : 0;
   }
   if (method !== 'LINE' && method !== 'ANCHORED') {
-    handler.dab({ x: p0.x, y: p0.y, pressure: lastPressure, first: true });
+    handler.dab({ x: p0.x, y: p0.y, pressure: lastPressure, first: true, sizeFactor: dabSize() });
     firstDone = true;
     handler.update?.();
   }
@@ -120,14 +129,14 @@ export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
   if (method === 'AIRBRUSH') {
     const ms = Math.max(5, (st.rate ?? 0.1) * 1000);
     airTimer = window.setInterval(() => {
-      handler.dab({ x: last.x, y: last.y, pressure: lastPressure, first: false });
+      handler.dab({ x: last.x, y: last.y, pressure: lastPressure, first: false, sizeFactor: dabSize() });
       handler.update?.();
     }, ms);
   }
   const spaced = (q: { x: number; y: number }, pr: number) => {
     const spacing = handler.spacing();
     if (spacing <= 0 || method === 'DOTS') {
-      if (q.x !== last.x || q.y !== last.y) handler.dab({ x: q.x, y: q.y, pressure: pr, first: false });
+      if (q.x !== last.x || q.y !== last.y) handler.dab({ x: q.x, y: q.y, pressure: pr, first: false, sizeFactor: dabSize() });
       last = q;
       return;
     }
@@ -139,7 +148,7 @@ export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
     const n = Math.min(200, Math.floor(len / step));
     for (let i = 1; i <= n; i++) {
       const t = (i * step) / len;
-      handler.dab({ x: last.x + dx * t, y: last.y + dy * t, pressure: pr, first: false });
+      handler.dab({ x: last.x + dx * t, y: last.y + dy * t, pressure: pr, first: false, sizeFactor: dabSize() });
     }
     const t = (n * step) / len;
     last = { x: last.x + dx * t, y: last.y + dy * t };
@@ -152,6 +161,7 @@ export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
     for (const ev of evs) {
       const q = v.local(ev);
       lastPressure = pressure(ev);
+      lastRaw = rawPressure(ev);
       if (method === 'LINE') {
         lineState.b = q;
         continue;
@@ -172,7 +182,7 @@ export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
     if (method === 'ANCHORED' && lineState.b) {
       handler.dab({ x: p0.x, y: p0.y, pressure: lastPressure, first: !firstDone, radiusPx: lineState.anchorR, restore: firstDone });
       firstDone = true;
-    } else if (method === 'DRAG_DOT') handler.dab({ x: last.x, y: last.y, pressure: lastPressure, first: false, restore: true });
+    } else if (method === 'DRAG_DOT') handler.dab({ x: last.x, y: last.y, pressure: lastPressure, first: false, restore: true, sizeFactor: dabSize() });
     if (method === 'LINE') v.drawSvg();
     handler.update?.();
     if (method === 'ANCHORED') v.drawSvg();

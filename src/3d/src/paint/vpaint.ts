@@ -101,6 +101,7 @@ export function vertexPaintStroke(v: View3D, e: PointerEvent): boolean {
           hit,
           strength: 1,
           normalAngle: NORMAL_ANGLE,
+          sizeFactor: d.sizeFactor,
         },
         scratch,
       );
