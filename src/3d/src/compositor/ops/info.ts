@@ -115,6 +115,11 @@ registerExec('CompositorNodeSequencerStripInfo', (x) => {
 // constants shared with Geometry Nodes
 registerExec('FunctionNodeInputBool', (x) => x.out('Boolean', Result.single('BOOLEAN', !!x.prop('boolean'))));
 registerExec('FunctionNodeInputInt', (x) => x.out('Integer', Result.single('INT', Math.round(Number(x.prop('integer') ?? 0)))));
+registerExec('FunctionNodeInputString', (x) => x.out('String', Result.single('STRING', String(x.prop('string') ?? ''))));
+registerExec('FunctionNodeInputRotation', (x) => {
+  const v = (x.prop('rotation_euler') as number[] | null) ?? [0, 0, 0];
+  x.out('Rotation', Result.single('VECTOR', [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0]));
+});
 registerExec('FunctionNodeInputVector', (x) => {
   const v = (x.prop('vector') as number[] | null) ?? [0, 0, 0];
   x.out('Vector', Result.single('VECTOR', [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0]));

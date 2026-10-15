@@ -528,3 +528,50 @@ test('lights can use a node tree edited in the Shader Editor', async ({ page }) 
   expect(tint).toEqual({ use: true, tint: [1, 0, 0] });
   await expectNoErrors(errors);
 });
+
+test('Add menus list the new shader and compositor nodes in their categories', async ({ page }) => {
+  const errors = await openApp(page);
+  const labels = async () => (await page.locator('.menu').last().locator('.menu-item').allTextContents()).map((t) => t.trim());
+  const open = async (workspace: string, path: string[]) => {
+    await page.locator('.ws-tab', { hasText: workspace }).first().click();
+    await page.waitForTimeout(400);
+    const box = (await page.locator('.nd-editor').first().boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.keyboard.press('Shift+A');
+    for (const p of path) {
+      await page
+        .locator('.menu')
+        .last()
+        .locator('.menu-item', { hasText: new RegExp(`^${p}`) })
+        .first()
+        .hover();
+      await page.waitForTimeout(150);
+    }
+    const out = await labels();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    return out;
+  };
+  const shader = await open('Shading', ['Shader']);
+  for (const l of ['Hair BSDF', 'Principled Hair BSDF', 'Ray Portal BSDF', 'Volume Coefficients'])
+    expect(
+      shader.some((t) => t.startsWith(l)),
+      l,
+    ).toBe(true);
+  expect(shader.some((t) => t.startsWith('Background'))).toBe(false);
+  const output = await open('Shading', ['Output']);
+  expect(output.map((t) => t.replace(/\s+/g, ' '))).toEqual(expect.arrayContaining(['AOV Output', 'Light Output', 'Material Output']));
+  await page.evaluate(async () => {
+    const { compositingGroup, newCompositingGroup } = await import('/src/compositor/data.ts');
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (!compositingGroup(a.doc)) newCompositingGroup(a.doc);
+    a.changed('doc');
+  });
+  const keying = await open('Compositing', ['Keying']);
+  expect(keying.some((t) => t.startsWith('Keying Screen'))).toBe(true);
+  const tracking = await open('Compositing', ['Tracking']);
+  expect(tracking.map((t) => t.trim())).toEqual(['Stabilize 2D', 'Track Position']);
+  const adjust = await open('Compositing', ['Color', 'Adjust']);
+  expect(adjust.indexOf('Hue Correct')).toBe(adjust.indexOf('Gamma') + 1);
+  await expectNoErrors(errors);
+});

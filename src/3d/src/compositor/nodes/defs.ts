@@ -807,6 +807,8 @@ const SHARED = [
   'FunctionNodeInputBool',
   'FunctionNodeInputInt',
   'FunctionNodeInputVector',
+  'FunctionNodeInputRotation',
+  'FunctionNodeInputString',
 ];
 
 /** Add the compositor tree type to node types defined elsewhere (idempotent, re-run after late registrations). */
@@ -844,7 +846,16 @@ export const COMPOSITOR_MENU: MenuCategory[] = [
     items: [
       {
         label: 'Constant',
-        items: [e('FunctionNodeInputBool'), e('CompositorNodeRGB'), e('FunctionNodeInputInt'), e('CompositorNodeNormal'), e('ShaderNodeValue'), e('FunctionNodeInputVector')],
+        items: [
+          e('FunctionNodeInputBool'),
+          e('CompositorNodeRGB'),
+          e('FunctionNodeInputInt'),
+          e('CompositorNodeNormal'),
+          e('FunctionNodeInputRotation'),
+          e('FunctionNodeInputString'),
+          e('ShaderNodeValue'),
+          e('FunctionNodeInputVector'),
+        ],
       },
       'SEPARATOR',
       e('CompositorNodeBlankImage'),

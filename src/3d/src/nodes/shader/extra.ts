@@ -172,6 +172,7 @@ registerGenerator('ShaderNodeTexIES', (g) => {
   g.lib('nd_ies');
   const grid = iesGrid(data);
   const t = g.uniform('sampler2D', { kind: 'lut', data: grid.data, width: grid.width });
-  const v = g.inOr('Vector', 'vec3', g.ctx.N);
+  // default: the incoming direction in object space (transformed like a normal)
+  const v = g.inOr('Vector', 'vec3', g.target === 'MATERIAL' ? `normalize(transpose(mat3(modelMatrix)) * ${g.ctx.I})` : g.ctx.I);
   g.out('Fac', 'float', `nd_ies(${t}, ${v}) * ${g.in('Strength', 'float')}`);
 });
