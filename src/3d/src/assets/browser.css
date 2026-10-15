@@ -463,3 +463,29 @@ body.ab-dragging * {
   background: var(--accent, #4772b3);
   color: #fff;
 }
+/* Capture Screenshot Preview */
+.ab-capture {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  cursor: crosshair;
+  background: rgba(0, 0, 0, 0.12);
+}
+.ab-capture-box {
+  position: fixed;
+  display: none;
+  border: 1px dashed #fff;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
+}
+.ab-capture-hint {
+  position: fixed;
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: rgba(20, 20, 20, 0.9);
+  color: #eee;
+  font-size: 12px;
+  pointer-events: none;
+}

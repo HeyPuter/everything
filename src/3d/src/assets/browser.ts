@@ -974,6 +974,7 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
                         { label: 'Render Active Object', op: 'ed.lib_id_generate_preview_from_object' },
                         { separator: true },
                         { label: 'Remove Preview', icon: 'x', op: 'ed.lib_id_remove_preview' },
+                        { label: 'Capture Screenshot Preview', op: 'asset.screenshot_preview' },
                       ],
                       ev.currentTarget as HTMLElement,
                     );

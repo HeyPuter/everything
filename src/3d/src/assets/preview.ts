@@ -421,6 +421,17 @@ function childrenOf(doc: DocumentData, id: ID, depth = 0): ID[] {
   return [...kids, ...kids.flatMap((k) => childrenOf(doc, k, depth + 1))];
 }
 
+/** Fit an image into a square preview. */
+export function previewFromCanvas(src: CanvasImageSource & { width: number; height: number }): string {
+  const [c, x] = canvas2d();
+  const S = PREVIEW_SIZE;
+  const k = Math.min(S / src.width, S / src.height);
+  const w = src.width * k,
+    h = src.height * k;
+  x.drawImage(src, (S - w) / 2, (S - h) / 2, w, h);
+  return encode(c);
+}
+
 /** Scale an image file to a square preview (Load Custom Preview). */
 export async function previewFromFile(file: Blob): Promise<string> {
   const bmp = await createImageBitmap(file);

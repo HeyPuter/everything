@@ -13,7 +13,8 @@ import { currentOutliner } from '../editors/outliner/current';
 import { openMenu, promptText, type MenuItem } from '../ui/menu';
 import { download, pickFile } from '../io/native';
 import { openFile, fileEvents } from '../io/files';
-import { renderPreview, previewFromFile } from './preview';
+import { renderPreview, previewFromFile, previewFromCanvas } from './preview';
+import { renderContext } from '../render/context';
 import { catalogById, deleteCatalog, newCatalog, renameCatalog, moveCatalog } from './catalogs';
 import {
   LOCAL,
@@ -292,6 +293,28 @@ registerOperators([
           app.report('ERROR', `Cannot read "${f.name}" as an image`);
         }
       })();
+    },
+  },
+  {
+    idname: 'asset.screenshot_preview',
+    label: 'Capture Screenshot Preview',
+    description: 'Drag a square over a 3D view (or node editor) to use that part of the screen as the asset’s preview',
+    props: [assetProp, { id: 'force_square', label: 'Force Square', type: 'bool', default: true }],
+    undo: false,
+    poll: (ctx) => !!editableAsset(ctx) && !!renderContext,
+    exec: (ctx, p) => {
+      const e = editableAsset(ctx, p);
+      if (!e) return 'CANCELLED';
+      const ref = `${e.library}|${e.table}:${e.id}`;
+      captureRegion(!!p.force_square, (canvas) => {
+        const cur = editableAsset(ctx, { asset: ref });
+        if (!cur) return;
+        cur.meta.preview = previewFromCanvas(canvas);
+        cur.meta.preview_custom = true;
+        if (cur.library === LOCAL) app.pushUndo('Capture Screenshot Preview');
+        edited(cur.library);
+        app.changed('doc');
+      });
     },
   },
   {
@@ -927,4 +950,64 @@ function bundleExec(ctx: OpContext, p: Record<string, unknown>) {
   const ts = p.targets ? decodeTargets(String(p.targets)) : assetsOf(ctx.doc).map(({ table, block }) => ({ table, id: block.id }));
   void copyToLibrary(lib, ts).then(done);
   return 'FINISHED' as const;
+}
+
+/** Let the user drag a rectangle over the screen; the shared 3D canvas under it is passed on. */
+function captureRegion(square: boolean, done: (c: HTMLCanvasElement) => void) {
+  const engine = renderContext?.engine;
+  if (!engine) return;
+  const layer = document.createElement('div');
+  layer.className = 'ab-capture';
+  const box = document.createElement('div');
+  box.className = 'ab-capture-box';
+  const hint = document.createElement('div');
+  hint.className = 'ab-capture-hint';
+  hint.textContent = 'Drag over a 3D view to capture the preview · Esc cancels';
+  layer.append(box, hint);
+  document.body.append(layer);
+  let start: { x: number; y: number } | null = null;
+  const rect = (e: PointerEvent) => {
+    let w = e.clientX - start!.x,
+      h = e.clientY - start!.y;
+    if (square) {
+      const s = Math.max(Math.abs(w), Math.abs(h));
+      w = Math.sign(w || 1) * s;
+      h = Math.sign(h || 1) * s;
+    }
+    return { x: Math.min(start!.x, start!.x + w), y: Math.min(start!.y, start!.y + h), w: Math.abs(w), h: Math.abs(h) };
+  };
+  const close = () => {
+    layer.remove();
+    removeEventListener('keydown', key, true);
+  };
+  const key = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+  };
+  layer.addEventListener('pointerdown', (e) => {
+    start = { x: e.clientX, y: e.clientY };
+    layer.setPointerCapture(e.pointerId);
+  });
+  layer.addEventListener('pointermove', (e) => {
+    if (!start) return;
+    const r = rect(e);
+    Object.assign(box.style, { display: 'block', left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
+  });
+  layer.addEventListener('pointerup', (e) => {
+    if (!start) return;
+    const r = rect(e);
+    close();
+    if (r.w < 4 || r.h < 4) return;
+    engine.drawAll();
+    const base = engine.canvas.getBoundingClientRect();
+    const dpr = engine.dpr;
+    const out = document.createElement('canvas');
+    out.width = Math.max(1, Math.round(r.w * dpr));
+    out.height = Math.max(1, Math.round(r.h * dpr));
+    out.getContext('2d')!.drawImage(engine.canvas, (r.x - base.left) * dpr, (r.y - base.top) * dpr, out.width, out.height, 0, 0, out.width, out.height);
+    done(out);
+  });
+  addEventListener('keydown', key, true);
 }
