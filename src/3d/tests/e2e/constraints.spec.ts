@@ -180,3 +180,40 @@ test('quick liquid makes a liquid domain whose surface falls', async ({ page }) 
   await expect.poll(() => get(page, `app.graph.get(app.activeObject.id).mesh.offsets.length`), { timeout: 15000 }).toBeGreaterThan(10);
   await expectNoErrors(errors);
 });
+
+test('bone constraints apply into the pose and copy to selected bones', async ({ page }) => {
+  const errors = await openApp(page);
+  const r = await page.evaluate(() => {
+    const a = (window as any).app;
+    a.run('object.armature_add', {}, { invoke: false });
+    a.flush();
+    a.run('object.mode_set', { mode: 'EDIT' });
+    a.run('armature.extrude_move', { TRANSFORM_OT_translate: { value: [0, 0, 1] } }, { invoke: false });
+    a.run('object.mode_set', { mode: 'POSE' });
+    const ob = a.activeObject;
+    const arm = a.doc.armatures[ob.data];
+    const names = arm.bones.map((b: any) => b.name);
+    // a Limit Rotation pinning X to 0.5 rad on the first bone
+    a.run('object.mode_set', { mode: 'POSE' });
+    arm.active_bone = names[0];
+    a.run('pose.constraint_add', { type: 'LIMIT_ROTATION' }, { invoke: false });
+    const c = ob.pose[names[0]].constraints[0];
+    Object.assign(c, { use_limit_x: true, min_x: 0.5, max_x: 0.5, owner_space: 'LOCAL' });
+    a.flush();
+    const r1 = a.run('constraint.apply', { constraint: c.name, owner: 'BONE' }, { invoke: false });
+    const pb = ob.pose[names[0]];
+    const q = pb.rotation_quaternion;
+    // copy to the other selected bones
+    a.run('pose.constraint_add', { type: 'COPY_SCALE' }, { invoke: false });
+    for (const n of names) ob.pose[n].select = true;
+    const c2 = ob.pose[names[0]].constraints[0];
+    const r2 = a.run('constraint.copy_to_selected', { constraint: c2.name, owner: 'BONE' }, { invoke: false });
+    return { names: names.length, r1, r2, q, left: ob.pose[names[0]].constraints.map((x: any) => x.type), other: names.length > 1 ? ob.pose[names[1]].constraints.map((x: any) => x.type) : [] };
+  });
+  expect(r.r1).toBe('FINISHED');
+  // a 0.5 rad rotation around X became part of the pose
+  expect(Math.abs(r.q[1])).toBeGreaterThan(0.2);
+  expect(r.left).toEqual(['COPY_SCALE']);
+  if (r.names > 1) expect(r.other).toEqual(['COPY_SCALE']);
+  await expectNoErrors(errors);
+});
