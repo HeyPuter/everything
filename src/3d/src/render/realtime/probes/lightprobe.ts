@@ -3,7 +3,7 @@
 // (`ob.lightprobe`); this file adds the object type: Add menu operator, viewport helper and the
 // Object Data properties. Capturing and baking are in capture.ts / bake.ts.
 import { BufferGeometry, Float32BufferAttribute, LineBasicMaterial, LineSegments } from 'three';
-import { app, registerOperators, type OpContext } from '../../../app/app';
+import { registerOperators, type OpContext } from '../../../app/app';
 import { newObject } from '../../../data/defaults';
 import type { ObjectData } from '../../../data/types';
 import type { LightProbeSettings } from '../types';
@@ -181,14 +181,3 @@ sceneSyncHooks.push((_doc, ev, so) => {
   so.helper.matrixAutoUpdate = false;
   so.root.add(so.helper);
 });
-
-/** Light probes of the scene with their world matrices (visible in renders). */
-export function sceneProbes(visible: (id: string) => boolean) {
-  const out: { ob: ObjectData; probe: LightProbeSettings; world: import('three').Matrix4 }[] = [];
-  for (const ev of app.graph.objects.values()) {
-    const p = probeOf(ev.ob);
-    if (!p || !visible(ev.id)) continue;
-    out.push({ ob: ev.ob, probe: p, world: ev.world });
-  }
-  return out;
-}

@@ -65,8 +65,9 @@ const grids = new Map<string, GridCache>();
 
 /** Settings that require a new capture when they change. */
 export function captureKey(e: Pick<ProbeEntry, 'probe' | 'world'>, resolution: number): string {
-  const { show_influence: _a, show_clip: _b, show_parallax: _c, show_data: _d, data_display_size: _e, baked, ...rest } = e.probe;
-  void _a, _b, _c, _d, _e;
+  const rest: Record<string, unknown> = { ...e.probe };
+  for (const k of ['show_influence', 'show_clip', 'show_parallax', 'show_data', 'data_display_size', 'baked']) delete rest[k];
+  const baked = e.probe.baked;
   return `${resolution}|${baked?.time ?? 0}|${e.world.elements.map((v) => v.toFixed(5)).join(',')}|${JSON.stringify(rest)}`;
 }
 
