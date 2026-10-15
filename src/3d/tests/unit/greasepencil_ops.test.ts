@@ -586,3 +586,21 @@ describe('conversion', () => {
     expect(app.activeObject!.type).toBe('MESH');
   });
 });
+
+import { inkMask, traceInk } from '../../src/greasepencil/trace';
+
+describe('trace image', () => {
+  it('outlines dark pixels', () => {
+    const W = 8,
+      H = 8;
+    const px = new Uint8Array(W * H * 4).fill(255);
+    for (let y = 2; y < 6; y++) for (let x = 2; x < 6; x++) px.set([0, 0, 0, 255], (y * W + x) * 4);
+    const m = inkMask(px, W, H, 0.5);
+    expect(m.reduce((a, b) => a + b, 0)).toBe(16);
+    const loops = traceInk(m, W, H);
+    expect(loops.length).toBe(1);
+    const xs = loops[0].map((p) => p[0]);
+    expect(Math.min(...xs)).toBeGreaterThan(0.15);
+    expect(Math.max(...xs)).toBeLessThan(0.85);
+  });
+});

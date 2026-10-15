@@ -317,6 +317,7 @@ export function objectMenu(): MenuItem[] {
       { label: 'Clear Keyframes…', op: 'anim.keyframe_clear_v3d', shortcut: 'Shift Alt I' },
       { separator: true },
       { label: 'Bake Action…', op: 'nla.bake' },
+      { label: 'Bake Object Transform to Grease Pencil…', op: 'grease_pencil.bake_grease_pencil_animation' },
     ] },
     { separator: true },
     { label: 'Shade Smooth', op: 'object.shade_smooth' },
@@ -336,6 +337,7 @@ export function objectMenu(): MenuItem[] {
       { label: 'Grease Pencil', op: 'object.convert', props: { target: 'GREASEPENCIL' } },
       { separator: true },
       { label: 'Image Empty to Mesh Plane', op: 'image.convert_to_mesh_plane' },
+      { label: 'Trace Image to Grease Pencil', op: 'grease_pencil.trace_image' },
     ] },
     { separator: true },
     { label: 'Show/Hide', submenu: () => [

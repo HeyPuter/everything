@@ -26,6 +26,7 @@ import './drawtools';
 import './modifiers';
 import './modifierui';
 import './convert';
+import './trace';
 import './effects';
 import './vertexpaint';
 import './weightpaint';
