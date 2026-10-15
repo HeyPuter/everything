@@ -7,3 +7,6 @@ import './graph';
 import './nla';
 import './driverseditor';
 import './keyops';
+import './selecttools';
+import './graphtools';
+import './channelops';

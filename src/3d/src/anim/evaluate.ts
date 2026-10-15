@@ -1,5 +1,5 @@
 // Applies actions, NLA strips and drivers to the document for a frame.
-import type { ActionData, AnimData, DocumentData, ObjectData, NlaStrip, NlaTrack } from '../data/types';
+import type { ActionData, AnimData, DocumentData, ObjectData, NlaStrip, NlaTrack, TimelineMarker } from '../data/types';
 import { evaluateFCurve } from './fcurve';
 import { getValue, setValue } from '../data/rna';
 import { evaluateDriver } from './drivers';
@@ -106,7 +106,7 @@ export function applyAnimData(doc: DocumentData, ob: ObjectData, ad: AnimData, f
     if (action) blendAction(doc, ob, acc, action, frame, ad.action_blend_type ?? 'REPLACE', ad.action_influence ?? 1);
   }
   for (const e of acc.values()) {
-    // Like the reference application, a manual edit of an animated property stays until the
+    // A manual edit of an animated property stays until the
     // frame changes or the animation itself changes (it is not overwritten on every update).
     const k = `${ob.id}|${e.path}|${e.index}`;
     const last = lastWritten.get(k);
@@ -127,7 +127,20 @@ export function applyAnimData(doc: DocumentData, ob: ObjectData, ad: AnimData, f
   }
 }
 
+/** Camera bound to the last marker at or before `frame` (markers with cameras switch the scene camera). */
+export function cameraForFrame(list: TimelineMarker[], frame: number): string | null {
+  let best: TimelineMarker | null = null;
+  for (const m of list) if (m.camera && m.frame <= frame && (!best || m.frame >= best.frame)) best = m;
+  if (best) return best.camera!;
+  // before the first bound marker the earliest bound camera is used
+  let first: TimelineMarker | null = null;
+  for (const m of list) if (m.camera && (!first || m.frame < first.frame)) first = m;
+  return first?.camera ?? null;
+}
+
 export function applyAnimation(doc: DocumentData, frame: number) {
+  const cam = cameraForFrame(doc.scene.timeline_markers, frame);
+  if (cam && doc.objects[cam]) doc.scene.camera = cam;
   for (const id of doc.object_order) {
     const ob = doc.objects[id];
     if (ob?.animation_data) applyAnimData(doc, ob, ob.animation_data, frame);

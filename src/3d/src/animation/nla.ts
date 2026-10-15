@@ -47,7 +47,7 @@ const EXTRAP_ITEMS = [
 ];
 
 export class NlaEditor extends AnimEditor {
-  keymaps = ['Animation Channels', 'NLA Editor', 'Animation'];
+  keymaps = ['Markers', 'Animation Channels', 'NLA Editor', 'Animation'];
   rowH = 24;
   activeStrip: NlaStrip | null = null;
 

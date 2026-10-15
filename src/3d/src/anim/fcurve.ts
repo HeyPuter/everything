@@ -82,7 +82,7 @@ export function sortKeyframes(fc: FCurve) {
 
 // Solve cubic bezier x(t) = frame for t in [0,1]
 function bezierT(x0: number, x1: number, x2: number, x3: number, x: number) {
-  // Correct handles so the curve is monotonic in x (as the reference app does)
+  // Correct handles so the curve is monotonic in x
   const len = x3 - x0;
   if (len <= 0) return 0;
   let h1 = x1 - x0,
@@ -323,7 +323,7 @@ export function insertKeyframe(fc: FCurve, frame: number, value: number, opts: P
     return existing;
   }
   const prev = [...fc.keyframe_points].reverse().find((k) => k.co[0] < frame);
-  // newly inserted keys are selected (as in the reference editors)
+  // newly inserted keys are selected
   const k = { ...newKeyframe(frame, value, prev?.interpolation ?? 'BEZIER'), select_control_point: true, select_left_handle: true, select_right_handle: true, ...opts };
   fc.keyframe_points.push(k);
   sortKeyframes(fc);

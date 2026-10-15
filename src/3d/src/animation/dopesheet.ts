@@ -5,14 +5,15 @@ import { app } from '../app/app';
 import { registerEditor, type Area } from '../ui/screen';
 import { openMenu, type MenuItem } from '../ui/menu';
 import { numberField } from '../ui/widgets';
-import type { ShapeKey } from '../data/types';
-import { AnimEditor, RULER_H, menuButton, hdrToggle, markerMenu } from './animeditor';
+import type { Keyframe, ShapeKey } from '../data/types';
+import { AnimEditor, RULER_H, menuButton, hdrToggle, markerMenu, type Selectable } from './animeditor';
 import type { Channel, SpaceKind } from './channels';
 import { C, drawKey, shapeFor } from './theme';
 import { aggregate } from './aggregate';
 import { setKeySelected, selectAll, selectColumns, keyBounds } from './keyedit';
 import { startKeyTransform, type KeyTransformHost, type KeyTransformMode } from './transformkeys';
 import { playbackFooter } from './footer';
+import { lassoGesture } from './selecttools';
 import { actionSelector } from './actionui';
 import { viewMenuCommon, selectMenu, channelMenu, keyMenu } from './menus';
 
@@ -48,7 +49,7 @@ const MODES: {
 export const DOPESHEET_MODES = MODES as { value: string; label: string; icon: string; description: string }[];
 
 export class DopeSheet extends AnimEditor {
-  keymaps = ['Animation Channels', 'Dopesheet', 'Animation'];
+  keymaps = ['Markers', 'Animation Channels', 'Dopesheet', 'Animation'];
   prefix = 'action' as const;
   mode: DopeSheetMode = 'DOPESHEET';
   showHandlesInterp = true;
@@ -386,6 +387,20 @@ export class DopeSheet extends AnimEditor {
     );
   }
 
+  protected onCanvasDown(e: PointerEvent) {
+    // Ctrl+right-drag: lasso select (Shift subtracts)
+    if (e.button === 2 && (e.ctrlKey || e.metaKey) && this.regionAt(e) === 'main' && !app.modal) {
+      e.preventDefault();
+      this.clickOrDrag(
+        e,
+        () => {},
+        (start) => lassoGesture(this, start, e.shiftKey ? 'SUB' : 'ADD', true, 'action'),
+      );
+      return;
+    }
+    super.onCanvasDown(e);
+  }
+
   private selectKeyChannel(ch: Channel) {
     if (ch.kind !== 'FCURVE' && ch.kind !== 'SHAPEKEY') return;
     this.deselectChannels();
@@ -404,6 +419,33 @@ export class DopeSheet extends AnimEditor {
     }
     app.pushUndo('Box Select');
     app.changed('doc');
+  }
+
+  selectables(): Selectable[] {
+    const out: Selectable[] = [];
+    const rows = this.list.rows;
+    for (let i = 0; i < rows.length; i++) {
+      const y = this.rowTop(i) + this.rowH / 2;
+      const ch = rows[i];
+      const byFrame = new Map<number, { k: Keyframe[] }>();
+      for (const r of ch.curves) {
+        if (r.fc.lock) continue;
+        for (const k of r.fc.keyframe_points) {
+          const f = Math.round(k.co[0] * 1000) / 1000;
+          let e = byFrame.get(f);
+          if (!e) byFrame.set(f, (e = { k: [] }));
+          e.k.push(k);
+        }
+      }
+      for (const [f, e] of byFrame)
+        out.push({
+          x: this.view.fx(f),
+          y,
+          selected: e.k.every((k) => k.select_control_point),
+          set: (v) => e.k.forEach((k) => setKeySelected(k, v)),
+        });
+    }
+    return out;
   }
 
   viewAll() {

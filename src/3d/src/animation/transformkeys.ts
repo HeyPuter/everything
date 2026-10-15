@@ -119,6 +119,18 @@ function pivotOf(host: KeyTransformHost, snaps: Snap[], mode: KeyTransformMode):
   return x0 === Infinity ? { x: cfra, d: 0 } : { x: (x0 + x1) / 2, d: (y0 + y1) / 2 };
 }
 
+/** Frame range of the keys taking part in a transform (from their original positions). */
+function slideRange(snaps: Snap[]): [number, number] {
+  let a = Infinity,
+    b = -Infinity;
+  for (const s of snaps)
+    if (s.c) {
+      a = Math.min(a, s.co[0]);
+      b = Math.max(b, s.co[0]);
+    }
+  return a === Infinity ? [0, 0] : [a, b];
+}
+
 /** Apply transform values to the snapshot (from the initial state). */
 function apply(host: KeyTransformHost, snaps: Snap[], t: TransformValues, pivot: { x: number; d: number }, snapFrames: boolean) {
   const ppf = host.ppf(),
@@ -135,9 +147,15 @@ function apply(host: KeyTransformHost, snaps: Snap[], t: TransformValues, pivot:
       switch (t.mode) {
         case 'TIME_TRANSLATE':
         case 'TIME_EXTEND':
-        case 'TIME_SLIDE':
           x += t.value[0];
           break;
+        case 'TIME_SLIDE': {
+          // inner keys slide towards one end of the selected range; the outer keys stay
+          const [a, b] = slideRange(snaps);
+          const f = Math.max(-1, Math.min(1, t.value[0]));
+          if (x > a + 1e-6 && x < b - 1e-6) x = f >= 0 ? x + (b - x) * f : x + (x - a) * f;
+          break;
+        }
         case 'TIME_SCALE':
           x = pivot.x + (x - pivot.x) * t.value[0];
           break;
@@ -164,7 +182,7 @@ function apply(host: KeyTransformHost, snaps: Snap[], t: TransformValues, pivot:
     };
     if (s.c) {
       const nco = map(s.co);
-      if (snapFrames && t.mode === 'TIME_SCALE') nco[0] = Math.round(nco[0]);
+      if (snapFrames && (t.mode === 'TIME_SCALE' || t.mode === 'TIME_SLIDE')) nco[0] = Math.round(nco[0]);
       if (t.mode === 'ROTATION' || t.mode === 'RESIZE') {
         // handles follow the full mapping (they rotate/scale with the key)
         const nl = map(s.hl),
@@ -293,9 +311,14 @@ export function startKeyTransform(
     const num = evalNumeric();
     let value: [number, number];
     switch (mode) {
-      case 'TIME_TRANSLATE':
-      case 'TIME_EXTEND':
       case 'TIME_SLIDE': {
+        const [a, b] = slideRange(snaps);
+        const span = Math.max(1e-6, b - a);
+        value = [Math.max(-1, Math.min(1, num !== null ? num / 100 : (mouse.x - start.x) / ppf / span)), 0];
+        break;
+      }
+      case 'TIME_TRANSLATE':
+      case 'TIME_EXTEND': {
         let dx = num ?? (mouse.x - start.x) / ppf;
         if (snapOn && num === null) dx = Math.round(dx);
         value = [dx, 0];
@@ -352,8 +375,9 @@ export function startKeyTransform(
       switch (mode) {
         case 'TIME_TRANSLATE':
         case 'TIME_EXTEND':
-        case 'TIME_SLIDE':
           return `Delta: ${fmt(current.value[0], 2)}${n}`;
+        case 'TIME_SLIDE':
+          return `Time Slide: ${Math.round(current.value[0] * 100)}%${n}`;
         case 'TIME_SCALE':
           return `Scale: ${fmt(current.value[0])}${n}`;
         case 'TRANSLATION':

@@ -12,9 +12,18 @@ import { View2D, frameStep } from './view2d';
 import { C } from './theme';
 import { buildChannels, channelSelected, setChannelSelected, channelCurves, isExpanded, setExpanded, channelState, type Channel, type ChannelList, type SpaceKind, type CurveRef } from './channels';
 import { setKeySelected } from './keyedit';
+import { markerMenu, markerAt, markersLocked } from './markers';
 
 export const RULER_H = 22;
 export const MARKER_H = 22;
+
+/** A selectable point in the main region (canvas-local px) for box/circle/lasso selection. */
+export interface Selectable {
+  x: number;
+  y: number;
+  selected: boolean;
+  set(v: boolean): void;
+}
 
 export type Region = 'channels' | 'main' | 'ruler' | 'markers' | 'sidebar' | 'footer';
 
@@ -74,9 +83,21 @@ export abstract class AnimEditor implements Editor {
   autoSnap = true;
   showMarkers = true;
   hover: Region | null = null;
-  list: ChannelList = { rows: [], curves: [] };
+  private _list: ChannelList = { rows: [], curves: [] };
+  private listDoc: unknown = null;
+  /** Channel list; rebuilt lazily when the document was swapped (undo, Adjust Last Operation). */
+  get list(): ChannelList {
+    if (this.listDoc !== app.doc) this.rebuild();
+    return this._list;
+  }
+  set list(v: ChannelList) {
+    this._list = v;
+    this.listDoc = app.doc;
+  }
   rowH = 18;
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  /** transient overlays drawn over the main region (circle/lasso select, slider tools) */
+  overlay: { circle?: { x: number; y: number; r: number }; lasso?: { x: number; y: number }[]; slider?: { label: string; text: string; t: number | null; t0?: number } } | null = null;
   protected canvas: HTMLCanvasElement;
   protected bodyEl: HTMLElement;
   protected chEl: HTMLElement;
@@ -113,7 +134,13 @@ export abstract class AnimEditor implements Editor {
     this.canvas.addEventListener('wheel', (e) => this.onWheel(e), {
       passive: false,
     });
-    this.canvas.addEventListener('dblclick', (e) => this.onCanvasDblClick(e));
+    this.canvas.addEventListener('dblclick', (e) => {
+      if (this.regionAt(e) === 'markers') {
+        if (app.doc.scene.timeline_markers.some((m) => m.select)) app.run('marker.rename', {}, { area: this.area });
+        return;
+      }
+      this.onCanvasDblClick(e);
+    });
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     this.mainEl.addEventListener('pointermove', (e) => (this.hover = this.regionAt(e)));
     this.chEl.addEventListener('pointermove', () => (this.hover = 'channels'));
@@ -129,10 +156,29 @@ export abstract class AnimEditor implements Editor {
     );
     this.chRowsEl.addEventListener('pointerdown', (e) => {
       if (e.target === this.chRowsEl || (e.target as HTMLElement).classList.contains('anim-ch-inner')) {
-        if (e.button === 0 && !e.shiftKey) {
-          this.deselectChannels();
-          app.pushUndo('Deselect Channels');
-          app.changed('doc');
+        if (e.button === 0 && !app.modal) {
+          const x0 = e.clientX,
+            y0 = e.clientY;
+          const move = (ev: PointerEvent) => {
+            if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 4) return;
+            cleanup();
+            this.channelBoxGesture(e, (a, b, up) =>
+              app.run('anim.channels_select_box', { ymin: a, ymax: b, extend: e.shiftKey || up.shiftKey, deselect: e.ctrlKey || e.metaKey }, { area: this.area, invoke: false }),
+            );
+          };
+          const up = () => {
+            cleanup();
+            if (e.shiftKey) return;
+            this.deselectChannels();
+            app.pushUndo('Deselect Channels');
+            app.changed('doc');
+          };
+          const cleanup = () => {
+            removeEventListener('pointermove', move);
+            removeEventListener('pointerup', up);
+          };
+          addEventListener('pointermove', move);
+          addEventListener('pointerup', up);
         }
       }
       if (e.button === 1) this.dragScroll(e);
@@ -193,6 +239,10 @@ export abstract class AnimEditor implements Editor {
     return [];
   }
   protected onCanvasDblClick(_e: MouseEvent) {}
+  /** selectable points for shaped (box/circle/lasso) selection */
+  selectables(_includeHandles = true): Selectable[] {
+    return [];
+  }
   /** whether vertical pan scrolls channel rows (true) or pans the value axis */
   protected rowScroll = true;
   /** wheel zoom over the main region */
@@ -352,6 +402,52 @@ export abstract class AnimEditor implements Editor {
     for (const ch of this.list.rows) if (ch.kind === 'NLA_TRACK' && ch.track) ch.track.select = false;
   }
 
+  /** Channel row under a client y coordinate. */
+  channelAtClient(clientY: number): Channel | null {
+    const r = this.chRowsEl.getBoundingClientRect();
+    const i = Math.floor((clientY - r.top + this.scrollY) / this.rowH);
+    return this.list.rows[i] ?? null;
+  }
+
+  /** Channel rows overlapping a client y range. */
+  channelRowsBetween(y0: number, y1: number): Channel[] {
+    const r = this.chRowsEl.getBoundingClientRect();
+    const a = Math.floor((Math.min(y0, y1) - r.top + this.scrollY) / this.rowH),
+      b = Math.floor((Math.max(y0, y1) - r.top + this.scrollY) / this.rowH);
+    return this.list.rows.slice(Math.max(0, a), Math.max(0, b + 1));
+  }
+
+  focusSearch() {
+    const inp = this.chTopEl.querySelector('input');
+    if (inp) {
+      inp.focus();
+      inp.select();
+    }
+  }
+
+  /** Vertical drag over the channel list; `done` gets the client y range. */
+  channelBoxGesture(e: { clientX: number; clientY: number }, done: (y0: number, y1: number, ev: PointerEvent) => void) {
+    const y0 = e.clientY;
+    const box = div('anim-ch-box');
+    const r = this.chEl.getBoundingClientRect();
+    box.style.cssText = `position:absolute;left:0;right:0;top:${y0 - r.top}px;height:0;border:1px dashed rgba(255,255,255,0.8);background:rgba(255,255,255,0.06);pointer-events:none;z-index:3`;
+    this.chEl.append(box);
+    const move = (ev: PointerEvent) => {
+      const a = Math.min(y0, ev.clientY),
+        b = Math.max(y0, ev.clientY);
+      box.style.top = `${a - r.top}px`;
+      box.style.height = `${b - a}px`;
+    };
+    const up = (ev: PointerEvent) => {
+      removeEventListener('pointermove', move);
+      removeEventListener('pointerup', up);
+      box.remove();
+      done(Math.min(y0, ev.clientY), Math.max(y0, ev.clientY), ev);
+    };
+    addEventListener('pointermove', move);
+    addEventListener('pointerup', up);
+  }
+
   /** Click on a channel name: select it (Shift toggles). */
   clickChannel(ch: Channel, extend: boolean) {
     if (ch.kind === 'SUMMARY') {
@@ -437,8 +533,20 @@ export abstract class AnimEditor implements Editor {
     app.changed('doc');
   }
 
+  private lastClicked: string | null = null;
+
+  /** Whether a channel can be renamed in place. */
+  canRename(ch: Channel) {
+    return ['OBJECT', 'ACTION', 'NLA_ACTION', 'GROUP', 'NLA_TRACK', 'SHAPEKEY'].includes(ch.kind) && (ch.kind !== 'ACTION' && ch.kind !== 'NLA_ACTION' ? true : !!ch.action);
+  }
+
   protected channelDown(e: PointerEvent, ch: Channel) {
     if ((e.target as HTMLElement).closest('.anim-tg, .num-field, input, .anim-exp')) return;
+    if (e.button === 1 && e.altKey) {
+      e.preventDefault();
+      app.run('anim.channel_view_pick', {}, { area: this.area, event: { x: e.clientX, y: e.clientY } });
+      return;
+    }
     if (e.button === 2) {
       e.preventDefault();
       if (!channelSelected(ch)) {
@@ -450,12 +558,34 @@ export abstract class AnimEditor implements Editor {
       return;
     }
     if (e.button !== 0) return;
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
+    if (e.shiftKey && !(e.ctrlKey || e.metaKey) && this.lastClicked) {
+      // Shift: select the range from the last clicked channel
+      const rows = this.list.rows;
+      const a = rows.findIndex((r) => r.key === this.lastClicked),
+        b = rows.indexOf(ch);
+      if (a >= 0 && b >= 0) {
+        for (let i = Math.min(a, b); i <= Math.max(a, b); i++) if (!['SUMMARY', 'ACTION', 'DRIVERS', 'NLA_ACTION'].includes(rows[i].kind)) setChannelSelected(rows[i], true);
+        app.pushUndo('Select Channels');
+        app.changed('doc');
+        return;
+      }
+    }
+    // Ctrl (or Shift without an anchor) toggles the channel in the selection
+    this.clickChannel(ch, e.shiftKey || e.ctrlKey || e.metaKey);
+    this.lastClicked = ch.key;
+    app.pushUndo('Click Channel');
+    app.changed('doc');
+  }
+
+  /** Double-click: rename channels that have a name, otherwise select the channel's keys. */
+  protected channelDblClick(e: MouseEvent, ch: Channel) {
+    if ((e.target as HTMLElement).closest('.anim-tg, .num-field, input, .anim-exp')) return;
+    if (this.canRename(ch) && !e.shiftKey) {
       this.renameChannel(ch);
       return;
     }
-    this.clickChannel(ch, e.shiftKey);
-    app.pushUndo('Click Channel');
+    this.selectChannelKeys(ch, e.shiftKey);
+    app.pushUndo('Select Channel Keyframes');
     app.changed('doc');
   }
 
@@ -500,13 +630,7 @@ export abstract class AnimEditor implements Editor {
                 paddingLeft: `${4 + ch.depth * 14}px`,
               },
               onpointerdown: (e: PointerEvent) => this.channelDown(e, ch),
-              ondblclick: (e: MouseEvent) => {
-                if ((e.target as HTMLElement).closest('.anim-tg, .num-field, input, .anim-exp')) return;
-                if (e.ctrlKey || e.metaKey) return;
-                this.selectChannelKeys(ch, e.shiftKey);
-                app.pushUndo('Select Channel Keyframes');
-                app.changed('doc');
-              },
+              ondblclick: (e: MouseEvent) => this.channelDblClick(e, ch),
             },
             ch.expandable
               ? h(
@@ -650,6 +774,58 @@ export abstract class AnimEditor implements Editor {
       g.strokeRect(Math.min(b.x0, b.x1) + 0.5, Math.min(b.y0, b.y1) + 0.5, Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
       g.setLineDash([]);
     }
+    if (this.overlay) this.drawOverlay(g, W);
+  }
+
+  protected drawOverlay(g: CanvasRenderingContext2D, W: number) {
+    const o = this.overlay!;
+    g.save();
+    if (o.circle) {
+      g.strokeStyle = 'rgba(255,255,255,0.85)';
+      g.setLineDash([4, 3]);
+      g.beginPath();
+      g.arc(o.circle.x, o.circle.y, o.circle.r, 0, Math.PI * 2);
+      g.stroke();
+    }
+    if (o.lasso && o.lasso.length > 1) {
+      g.strokeStyle = 'rgba(255,255,255,0.85)';
+      g.fillStyle = 'rgba(255,255,255,0.06)';
+      g.setLineDash([4, 3]);
+      g.beginPath();
+      o.lasso.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
+      g.closePath();
+      g.fill();
+      g.stroke();
+    }
+    g.setLineDash([]);
+    if (o.slider) {
+      // slider readout centred at the top of the content region
+      const w = Math.min(320, W - 20),
+        x = (W - w) / 2,
+        y = RULER_H + 8,
+        hh = 22;
+      g.fillStyle = 'rgba(30,30,30,0.9)';
+      roundRect(g, x, y, w, hh, 5);
+      g.fill();
+      if (o.slider.t !== null) {
+        const t = Math.max(0, Math.min(1, o.slider.t)),
+          t0 = o.slider.t0 ?? 0;
+        g.fillStyle = 'rgba(80,130,220,0.55)';
+        const a = Math.min(t, t0),
+          b = Math.max(t, t0);
+        roundRect(g, x + 2 + (w - 4) * a, y + 2, Math.max(0, (w - 4) * (b - a)), hh - 4, 3);
+        g.fill();
+        g.fillStyle = 'rgba(255,255,255,0.35)';
+        g.fillRect(Math.round(x + w / 2) + 0.5, y + 3, 1, hh - 6);
+      }
+      g.fillStyle = '#e8e8e8';
+      g.font = '12px Inter, system-ui, sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(`${o.slider.label}: ${o.slider.text}`, W / 2, y + hh / 2 + 1);
+      g.textBaseline = 'alphabetic';
+    }
+    g.restore();
   }
 
   protected drawRanges(g: CanvasRenderingContext2D, W: number, H: number) {
@@ -809,30 +985,37 @@ export abstract class AnimEditor implements Editor {
   }
 
   protected markerDown(e: PointerEvent, x: number) {
-    const markers = app.doc.scene.timeline_markers;
-    let best: (typeof markers)[number] | null = null,
-      bd = 7;
-    for (const m of markers) {
-      const d = Math.abs(this.view.fx(m.frame) - x);
-      if (d < bd) {
-        bd = d;
-        best = m;
-      }
-    }
+    if (markersLocked()) return;
+    const list = app.doc.scene.timeline_markers;
+    const best = markerAt(this.view.xf(x), this.view.ppf);
     if (!best) {
-      if (!e.shiftKey) markers.forEach((m) => (m.select = false));
-      app.pushUndo('Select Markers');
-      app.changed('ui');
-      this.draw();
+      // empty marker row: click deselects, drag box-selects markers
+      this.clickOrDrag(
+        e,
+        () => {
+          if (e.shiftKey) return;
+          list.forEach((m) => (m.select = false));
+          app.pushUndo('Select Markers');
+          app.changed('ui');
+          this.draw();
+        },
+        (start) =>
+          this.boxGesture(start, (r, mode) => app.run('marker.select_box', { mode, xmin: this.view.xf(r.x0), xmax: this.view.xf(r.x1) }, { area: this.area, invoke: false })),
+      );
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) {
+      // Ctrl+click: select and make the marker's camera active
+      app.run('marker.select', { frame: best.frame, extend: e.shiftKey, camera: true }, { area: this.area, invoke: false });
       return;
     }
     if (e.shiftKey) best.select = !best.select;
     else if (!best.select) {
-      markers.forEach((m) => (m.select = false));
+      list.forEach((m) => (m.select = false));
       best.select = true;
     }
     this.draw();
-    const sel = markers.filter((m) => m.select);
+    const sel = list.filter((m) => m.select);
     const orig = sel.map((m) => m.frame);
     const x0 = e.clientX;
     let moved = false;
@@ -847,6 +1030,9 @@ export abstract class AnimEditor implements Editor {
     const up = () => {
       removeEventListener('pointermove', move);
       removeEventListener('pointerup', up);
+      if (!moved && !e.shiftKey) {
+        list.forEach((m) => (m.select = m === best));
+      }
       app.pushUndo(moved ? 'Move Markers' : 'Select Marker');
       app.changed('doc');
     };
@@ -913,7 +1099,10 @@ export abstract class AnimEditor implements Editor {
 
   protected onWheel(e: WheelEvent) {
     e.preventDefault();
-    if (app.modal) return;
+    if (app.modal) {
+      app.modal.onWheel?.(e);
+      return;
+    }
     const { x, y } = this.local(e);
     const dx = e.deltaX,
       dy = e.deltaY;
@@ -1028,24 +1217,4 @@ export function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: 
   g.closePath();
 }
 
-export function markerMenu(): MenuItem[] {
-  return [
-    { label: 'Add Marker', op: 'screen.marker_add', shortcut: 'M' },
-    { label: 'Duplicate Marker', op: 'marker.duplicate' },
-    { label: 'Delete Marker', op: 'screen.marker_delete' },
-    { separator: true },
-    { label: 'Rename Marker', op: 'marker.rename', shortcut: 'F2' },
-    { label: 'Move Marker', op: 'marker.move' },
-    { separator: true },
-    {
-      label: 'Jump to Next Marker',
-      op: 'screen.marker_jump',
-      props: { next: true },
-    },
-    {
-      label: 'Jump to Previous Marker',
-      op: 'screen.marker_jump',
-      props: { next: false },
-    },
-  ];
-}
+export { markerMenu };

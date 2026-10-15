@@ -6,6 +6,7 @@ import { registerEditor, type Area, type Editor } from '../ui/screen';
 import { numberField, enumMenu } from '../ui/widgets';
 import { openMenu, openPopover } from '../ui/menu';
 import { keyframeFrames } from '../anim/keyframes';
+import { markerMenu } from '../animation/markers';
 
 export class FrameView {
   /** frames visible: start & pixels per frame */
@@ -24,7 +25,7 @@ export class FrameView {
   }
   /** label step in frames adapting to zoom */
   step() {
-    // steps follow the frame rate (divisors, then multiples of fps) like the reference timeline
+    // steps follow the frame rate (divisors, then multiples of fps)
     const target = 50 / this.ppf;
     const fps = Math.max(1, Math.round(app.doc.scene.render.fps));
     const steps = [1, 2];
@@ -53,7 +54,7 @@ export class Timeline implements Editor {
     this.canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     this.canvas.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      openMenu([{ label: 'Add Marker', op: 'screen.marker_add', shortcut: 'M' }, { label: 'Delete Markers', op: 'screen.marker_delete' }, { separator: true }, { label: 'Insert Keyframe', op: 'anim.keyframe_insert' }], { x: e.clientX, y: e.clientY });
+      openMenu([{ label: 'Add Marker', op: 'marker.add', shortcut: 'M' }, { label: 'Delete Markers', op: 'marker.delete' }, { separator: true }, { label: 'Insert Keyframe', op: 'anim.keyframe_insert' }], { x: e.clientX, y: e.clientY });
     });
     new ResizeObserver(() => this.draw()).observe(this.el);
   }
@@ -66,7 +67,7 @@ export class Timeline implements Editor {
       'div',
       { class: 'hdr-row' },
       h('button', { class: 'hdr-menu', onpointerdown: (e: PointerEvent) => (e.preventDefault(), openMenu([{ label: 'Frame All', action: () => ((this.fitted = false), this.draw()) }, { label: 'Go to Current Frame', action: () => this.center() }, { separator: true }, { label: 'Only Show Selected', checked: this.onlySelected, action: () => ((this.onlySelected = !this.onlySelected), this.draw()) }], e.currentTarget as HTMLElement)) }, 'View'),
-      h('button', { class: 'hdr-menu', onpointerdown: (e: PointerEvent) => (e.preventDefault(), openMenu([{ label: 'Add Marker', op: 'screen.marker_add' }, { label: 'Delete Marker', op: 'screen.marker_delete' }], e.currentTarget as HTMLElement)) }, 'Marker'),
+      h('button', { class: 'hdr-menu', onpointerdown: (e: PointerEvent) => (e.preventDefault(), openMenu(markerMenu(), e.currentTarget as HTMLElement)) }, 'Marker'),
       h(
         'button',
         {
@@ -290,7 +291,7 @@ export class Timeline implements Editor {
       return true;
     }
     if (e.code === 'KeyM' && !e.ctrlKey) {
-      app.run('screen.marker_add');
+      app.run('marker.add');
       return true;
     }
     return false;
