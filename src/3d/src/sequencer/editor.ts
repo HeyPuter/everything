@@ -2140,10 +2140,20 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     const up = () => {
       cleanup();
       if (dragging) return;
-      if (!hit) {
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (ctrl) {
+        // Ctrl click: the strip whose image centre is nearest
+        const near = this.preview.stripNearestCenter(x0, y0);
+        if (near) selectStrip(near, { extend: e.shiftKey });
+      } else if (!hit) {
         if (!e.shiftKey) selectStrip(null, {});
       } else if (e.shiftKey && wasSelected) selectStrip(hit, { toggle: true });
-      else if (!e.shiftKey) selectStrip(hit, {});
+      else if (!e.shiftKey) {
+        // clicking the active strip again cycles to the one below it
+        const under = this.preview.stripsAt(x0, y0);
+        const pick = wasSelected && activeStrip() === hit && under.length > 1 ? under[(under.indexOf(hit) + 1) % under.length] : hit;
+        selectStrip(pick, {});
+      }
       app.pushUndo('Select');
       app.changed('select');
     };

@@ -451,6 +451,30 @@ export class PreviewRegion {
     g.restore();
   }
 
+  /** Visible strips whose image contains the client point, topmost first. */
+  stripsAt(clientX: number, clientY: number): Strip[] {
+    const [W, H] = this.res();
+    const [fx, fy] = this.toFrame(clientX, clientY);
+    return previewStrips(app.doc.scene.frame_current).filter((s) => pointInPoly(fx, fy, stripImageCorners(s, W, H)));
+  }
+
+  /** Visible strip whose image centre is nearest to the client point. */
+  stripNearestCenter(clientX: number, clientY: number): Strip | null {
+    const [W, H] = this.res();
+    const [fx, fy] = this.toFrame(clientX, clientY);
+    let best: Strip | null = null,
+      bd = Infinity;
+    for (const s of previewStrips(app.doc.scene.frame_current)) {
+      const c = stripImageCorners(s, W, H);
+      const d = Math.hypot(c.reduce((a, p) => a + p[0], 0) / 4 - fx, c.reduce((a, p) => a + p[1], 0) / 4 - fy);
+      if (d < bd) {
+        bd = d;
+        best = s;
+      }
+    }
+    return best;
+  }
+
   /** Topmost visible strip whose image contains the client point. */
   stripAt(clientX: number, clientY: number) {
     const [W, H] = this.res();

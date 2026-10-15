@@ -492,3 +492,18 @@ test('sequencer: Equalizer modifier on a sound strip filters the mix', async ({ 
   expect(rms.after).toBeLessThan(rms.before * 0.3);
   await expectNoErrors(errors);
 });
+
+test('sequencer: clicking the active strip in the preview again cycles to the strip below', async ({ page }) => {
+  const { errors } = await videoWorkspace(page);
+  const pv = (await page.locator('.seq-pv').first().boundingBox())!;
+  const cx = pv.x + pv.width / 2,
+    cy = pv.y + pv.height / 2;
+  const active = () => page.evaluate(() => (window as any).app.doc.scene.sequence_editor.active_strip);
+  await page.mouse.click(cx, cy);
+  expect(await active()).toBe('Text');
+  await page.mouse.click(cx, cy);
+  expect(await active()).toBe('Color');
+  await page.mouse.click(cx, cy);
+  expect(await active()).toBe('Text');
+  await expectNoErrors(errors);
+});
