@@ -16,6 +16,7 @@ import { inSelectRegion } from '../../editors/view3d/selectshapes';
 import type { SelectRegion } from '../../editors/view3d/hooks';
 import * as K from './curveops';
 import { sampleSpline, frames } from '../../eval/curve';
+import { activeElementHooks } from '../editxform';
 import { proportionalWeights } from '../proportional';
 
 type Part = 'co' | 'hl' | 'hr';
@@ -182,6 +183,13 @@ export const activePoint = (): K.PointRef | null => {
 export function setActivePoint(p: K.PointRef | null) {
   curveState.active = p ? { ...p, part: 'co' } : null;
 }
+
+activeElementHooks.push(() => {
+  const a = inCurveEdit() ? activeCurve() : null;
+  const p = activePoint();
+  if (!a || !p) return null;
+  return K.pointCo(a.cu.splines[p.s], p.i).applyMatrix4(world(a.ob));
+});
 
 /** Point under the mouse (control points only), or null. */
 export function pickPoint(v: View3D, x: number, y: number, radius = 12): K.PointRef | null {

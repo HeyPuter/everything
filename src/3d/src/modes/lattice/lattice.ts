@@ -16,6 +16,7 @@ import type { SelectRegion } from '../../editors/view3d/hooks';
 import { transformSubmenu, mirrorSubmenu, snapSubmenu } from '../common-menus';
 import * as L from './latticeops';
 import { proportionalWeights } from '../proportional';
+import { activeElementHooks } from '../editxform';
 
 type LatticeSel = LatticeData & { select?: Uint8Array };
 
@@ -26,6 +27,14 @@ function activeLattice(): { ob: ObjectData; lt: LatticeSel } | null {
   return lt ? { ob, lt } : null;
 }
 const inLatticeEdit = () => app.doc.mode === 'EDIT' && !!activeLattice();
+
+/** Last clicked point (session state), the active element for Selection to Active. */
+let activePoint = -1;
+activeElementHooks.push(() => {
+  const a = inLatticeEdit() ? activeLattice() : null;
+  if (!a || activePoint < 0 || activePoint * 3 >= a.lt.points.length || !a.lt.select?.[activePoint]) return null;
+  return pointWorld(a.lt, activePoint, world(a.ob));
+});
 
 /** Selection flags; `write` gives a fresh copy (arrays are shared with undo snapshots). */
 function ensureSel(lt: LatticeSel, write = false) {
@@ -246,6 +255,7 @@ editModeHooks.pick.push((v, x, y, o) => {
   }
   if (!o.extend) sel.fill(0);
   if (best >= 0) sel[best] = o.toggle && sel[best] ? 0 : 1;
+  activePoint = best >= 0 && sel[best] ? best : -1;
   app.pushUndo('Select');
   app.changed('select', 'doc');
   return true;

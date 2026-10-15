@@ -40,17 +40,27 @@ export function transformSelection(fn: (e: TElement, center: Vector3) => Matrix4
 
 const hasSelection = () => genericEditMode() && !!collect()?.elements.length;
 
+/** Active element position (world) of the current edit mode, for Selection to Active. */
+export const activeElementHooks: (() => Vector3 | null)[] = [];
+const activeElement = () => {
+  for (const f of activeElementHooks) {
+    const p = f();
+    if (p) return p;
+  }
+  return null;
+};
+
 function pivot(ctx: OpContext, center: Vector3) {
   return ctx.doc.scene.tool_settings.transform_pivot_point === 'CURSOR' ? new Vector3(...ctx.doc.scene.cursor.location) : center;
 }
 
-function wrap(idname: string, exec: (ctx: OpContext, p: Record<string, unknown>) => OpResult) {
+function wrap(idname: string, exec: (ctx: OpContext, p: Record<string, unknown>) => OpResult, extraPoll: () => boolean = () => true) {
   const prev = operators.get(idname);
   if (!prev) return;
   const prevPoll = (ctx: OpContext) => !prev.poll || prev.poll(ctx);
   registerOperator({
     ...prev,
-    poll: (ctx) => (genericEditMode() ? hasSelection() : prevPoll(ctx)),
+    poll: (ctx) => (genericEditMode() ? hasSelection() && extraPoll() : prevPoll(ctx)),
     exec: (ctx, p) => (genericEditMode() ? exec(ctx, p) : prev.exec ? prev.exec(ctx, p) : 'CANCELLED'),
     invoke: prev.invoke ? (ctx, p) => (genericEditMode() ? exec(ctx, p) : prev.invoke!(ctx, p)) : undefined,
   });
@@ -74,6 +84,12 @@ onAppReady(() => {
     });
     return ok ? 'FINISHED' : 'CANCELLED';
   });
+  wrap('view3d.snap_selected_to_active', () => {
+    const target = activeElement();
+    if (!target) return 'CANCELLED';
+    const ok = transformSelection((e) => new Matrix4().makeTranslation(target.x - e.center.x, target.y - e.center.y, target.z - e.center.z));
+    return ok ? 'FINISHED' : 'CANCELLED';
+  }, () => !!activeElement());
   wrap('view3d.snap_selected_to_grid', () => {
     const ok = transformSelection((e) => new Matrix4().makeTranslation(Math.round(e.center.x) - e.center.x, Math.round(e.center.y) - e.center.y, Math.round(e.center.z) - e.center.z));
     return ok ? 'FINISHED' : 'CANCELLED';

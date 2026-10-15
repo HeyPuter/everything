@@ -2,6 +2,7 @@
 // G/R/S transforms (scale changes the radius, or the stiffness after clicking the inner ring),
 // header menus, context menu, keymap and toolbar.
 import { transformSubmenu, mirrorSubmenu, snapSubmenu } from '../modes/common-menus';
+import { activeElementHooks } from '../modes/editxform';
 import { Box3, Matrix3, Matrix4, Quaternion, Vector3 } from 'three';
 import { app } from '../app/app';
 import { activeTools } from '../app/prefs';
@@ -371,3 +372,10 @@ addKeys('Metaball', [
 ]);
 
 export type { MetaElement };
+
+activeElementHooks.push(() => {
+  if (!inMetaEdit()) return null;
+  const { ob, mb } = activeMetaball()!;
+  const e = mb.elements[mb.active_element ?? -1];
+  return e && !e.hide ? V3(e.co).applyMatrix4(world(ob)) : null;
+});

@@ -4,6 +4,7 @@
 import { Matrix4, Vector3 } from 'three';
 import { app, registerOperators, onAppReady, operators, registerOperator, type OpContext } from '../../app/app';
 import { promptText } from '../../ui/menu';
+import { activeElementHooks } from '../editxform';
 import { activeView3D, type View3D } from '../../editors/view3d/view3d';
 import { startTransform } from '../../ops/transform';
 import { newArmature, newObject } from '../../data/defaults';
@@ -526,4 +527,11 @@ onAppReady(() => {
       }
     },
   });
+});
+
+activeElementHooks.push(() => {
+  if (!inArmEdit()) return null;
+  const { ob, arm: a } = activeArmature()!;
+  const b = a.bones.find((x) => x.name === a.active_bone && visible(x));
+  return b ? new Vector3(...b.head).applyMatrix4(world(ob)) : null;
 });
