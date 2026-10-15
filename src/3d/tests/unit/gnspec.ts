@@ -7,9 +7,11 @@ import { emptyDocument, uid } from '../../src/data/defaults';
 import type { DocumentData, ModifierBase, NodeData, NodeGroupData, NodeTreeData, SocketValue } from '../../src/data/types';
 import { addNode, connect, ctxOf } from '../../src/nodes/tree';
 import { evaluateGroup } from '../../src/geonodes/modifier';
+import { TreeEval } from '../../src/geonodes/evaluator';
 import { GeometrySet, identity } from '../../src/geonodes/geometry';
 import type { EvalEnv } from '../../src/geonodes/exec';
 import { dataComps } from '../../src/geonodes/types';
+import { getNodeType } from '../../src/nodes/registry';
 
 export interface GnSpec {
   nodes: Record<string, { type: string; props?: Record<string, SocketValue>; inputs?: Record<string, SocketValue> }>;
@@ -21,7 +23,7 @@ export interface GnSpec {
 }
 
 export interface GnSpecResult {
-  values: Record<string, (number | boolean | number[])[]>;
+  values: Record<string, (number | boolean | number[] | string)[]>;
   errors: string[];
   warnings: string[];
   geometry: GeometrySet;
@@ -60,8 +62,17 @@ export function runSpec(spec: GnSpec, opts: { doc?: DocumentData; env?: Partial<
   const N: Record<string, NodeData> = { in: addNode(tree, 'NodeGroupInput', [-400, 0]) };
   const errors: string[] = [];
   for (const [name, d] of Object.entries(spec.nodes)) {
-    const n = addNode(tree, d.type, [0, 0], (d.props ?? {}) as Record<string, never>);
-    Object.assign(n.inputs, d.inputs ?? {});
+    const props: Record<string, SocketValue> = { ...(d.props ?? {}) };
+    // item lists given as [type, name] pairs
+    const fi = props.format_items as unknown;
+    if (Array.isArray(fi)) props.format_items = JSON.stringify(fi.map(([type, name]: [string, string], id: number) => ({ id, name, type })));
+    const n = addNode(tree, d.type, [0, 0], props as Record<string, never>);
+    // menu sockets that the node shows as properties
+    const def = getNodeType(d.type);
+    for (const [k, v] of Object.entries(d.inputs ?? {})) {
+      if (def?.props.some((p) => p.id === k)) n.props[k] = v;
+      else n.inputs[k] = v;
+    }
     N[name] = n;
   }
   const sctx = ctxOf(doc, tree);
@@ -70,7 +81,12 @@ export function runSpec(spec: GnSpec, opts: { doc?: DocumentData; env?: Partial<
   };
   for (const [a, as, b, bs] of spec.links ?? []) lk(N[a], as === 'Geometry' && a === 'in' ? 'Socket_0' : as, N[b], bs);
   let geo: [NodeData, string] = spec.geometry ? [N[spec.geometry[0]], spec.geometry[1]] : [N.in, 'Socket_0'];
+  const strings: [string, string, string][] = [];
   for (const [label, node, s, dt, dom] of spec.outputs ?? []) {
+    if (dt === 'STRING') {
+      strings.push([label, node, s]);
+      continue;
+    }
     const st = addNode(tree, 'GeometryNodeStoreNamedAttribute', [0, 0], { data_type: dt, domain: dom } as Record<string, never>);
     st.inputs.Name = label;
     lk(geo[0], geo[1], st, 'Geometry');
@@ -92,6 +108,18 @@ export function runSpec(spec: GnSpec, opts: { doc?: DocumentData; env?: Partial<
       break;
     }
   }
+  if (strings.length) {
+    const te = new TreeEval(
+      testEnv(doc, opts.env),
+      tree,
+      'strings',
+      () => undefined,
+      () => '',
+      new Map(),
+      { warnings: new Map(), executed: 0, generation: 1 },
+    );
+    for (const [label, node, s] of strings) values[label] = [String(te.nodeOutputs(N[node])[s] ?? '')];
+  }
   return { values, errors, warnings: [...r.log.warnings.values()].flat(), geometry: r.geometry };
 }
 
@@ -100,6 +128,7 @@ export function firstMismatch(expected: unknown[], actual: unknown[], eps = 1e-4
   const close = (a: unknown, b: unknown): boolean => {
     if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((x, i) => close(x, b[i]));
     if (typeof a === 'boolean' || typeof b === 'boolean') return !!a === !!b;
+    if (typeof a === 'string' || typeof b === 'string') return a === b;
     const x = Number(a),
       y = Number(b);
     return Math.abs(x - y) <= eps * Math.max(1, Math.abs(x), Math.abs(y));
