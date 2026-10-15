@@ -2,6 +2,8 @@
 import { app, registerOperators, type OpContext } from '../app/app';
 import type { DocumentData, ObjectData } from '../data/types';
 import { openMenu } from '../ui/menu';
+import { setActiveTool } from '../editors/view3d/toolbar';
+import { activeView3D } from '../editors/view3d/view3d';
 
 const objectMode = (ctx: OpContext) => ctx.doc.mode === 'OBJECT';
 
@@ -51,6 +53,16 @@ function selectCollection(ctx: OpContext, p: Record<string, unknown>) {
 }
 
 registerOperators([
+  {
+    idname: 'view3d.select_lasso_tool',
+    label: 'Lasso Select',
+    description: 'Switch to the lasso selection tool',
+    poll: () => !!activeView3D(),
+    exec: () => {
+      setActiveTool('builtin.select_lasso');
+    },
+    undo: false,
+  },
   {
     idname: 'object.select_more',
     label: 'Select More',

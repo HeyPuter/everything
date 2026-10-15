@@ -104,6 +104,7 @@ export function selectMenu(): MenuItem[] {
     { separator: true },
     { label: 'Box Select', op: 'view3d.select_box_tool', shortcut: 'B' },
     { label: 'Circle Select', op: 'view3d.select_circle_tool', shortcut: 'C' },
+    { label: 'Lasso Select', op: 'view3d.select_lasso_tool' },
     { separator: true },
     { label: 'Select Active Camera', op: 'object.select_camera' },
     { label: 'Select Mirror', op: 'object.select_mirror', shortcut: 'Shift Ctrl M' },

@@ -685,3 +685,27 @@ describe('vertex weights and global transform', () => {
     expect(near(w, Array.from(src), 1e-4)).toBe(true);
   });
 });
+
+describe('make instance face', () => {
+  it('turns objects sharing a mesh into faces instancing one copy', async () => {
+    const { objectDuplis } = await import('../../src/object/instancing');
+    const a = cube();
+    a.location = [1, 0, 0];
+    a.scale = [0.5, 0.5, 0.5];
+    const b = addCube('B');
+    b.data = a.data;
+    b.location = [4, 0, 0];
+    b.rotation_euler = [0, 0, 0.5];
+    b.scale = [0.5, 0.5, 0.5];
+    select(a, b);
+    run('object.make_dupli_face');
+    const inst = app.activeObject!;
+    expect(inst.instance_type).toBe('FACES');
+    expect(meshOf(inst).offsets.length - 1).toBe(2);
+    app.graph.evaluate(app.doc, false);
+    const d = objectDuplis(app.doc, app.graph, inst);
+    expect(d.length).toBe(2);
+    const worlds = [a, b].map((o) => Array.from(app.graph.get(o.id)!.world.elements));
+    for (const x of d) expect(worlds.some((w) => near(x.matrix.elements, w, 1e-3))).toBe(true);
+  });
+});

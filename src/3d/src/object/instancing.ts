@@ -13,7 +13,9 @@ import { materialSlots } from '../editors/view3d/draw';
 import { app, registerOperators } from '../app/app';
 import { IDENTITY } from '../data/defaults';
 import { applyMatrixToObject } from '../eval/transform';
-import { activeCollection, duplicateObject } from '../ops/object';
+import { activeCollection, addObjectToScene, duplicateObject, uniqueName } from '../ops/object';
+import { newMeshData, newObject } from '../data/defaults';
+import { buildMesh } from '../mesh/mesh';
 
 export interface Dupli {
   /** object being repeated */
@@ -23,6 +25,8 @@ export interface Dupli {
 }
 
 const MAX_DEPTH = 8;
+/** edge length of the quads written by Make Instance Face (scaled back up by the instancer) */
+const FACE_SIZE = 0.01;
 
 /** Objects of a collection and its child collections. */
 export function collectionObjectIds(doc: DocumentData, cid: string, out = new Set<string>(), seen = new Set<string>()): Set<string> {
@@ -285,6 +289,75 @@ renderSceneHooks.push((rs, a, o) => {
   for (const m of st.meshes) rs.scene.add(m);
   rs.structureVersion++;
 });
+
+// ---------------------------------------------------------------------------
+// make instance face
+
+registerOperators([
+  {
+    idname: 'object.make_dupli_face',
+    label: 'Make Instance Face',
+    description: 'Represent the selected objects that share data as faces of a new mesh instancing one copy',
+    poll: (ctx) => ctx.doc.mode === 'OBJECT' && app.selectedObjects().some((o) => o.type === 'MESH'),
+    exec: (ctx) => {
+      const doc = ctx.doc;
+      const groups = new Map<string, ObjectData[]>();
+      for (const o of app.selectedObjects()) {
+        if (o.type !== 'MESH' || !o.data) continue;
+        const list = groups.get(o.data);
+        if (list) list.push(o);
+        else groups.set(o.data, [o]);
+      }
+      let last: ObjectData | null = null;
+      for (const obs of groups.values()) {
+        // one small quad per object, carrying its location, rotation and size
+        const positions: number[] = [];
+        const polys: { verts: number[] }[] = [];
+        const corner = [
+          [-1, -1],
+          [1, -1],
+          [1, 1],
+          [-1, 1],
+        ];
+        for (const o of obs) {
+          const w = app.graph.get(o.id)!.world;
+          const pos = new Vector3(),
+            q = new Quaternion(),
+            sc = new Vector3();
+          w.decompose(pos, q, sc);
+          const base = positions.length / 3;
+          for (const [cx, cy] of corner) {
+            const v = new Vector3(cx * sc.x * FACE_SIZE * 0.5, cy * sc.y * FACE_SIZE * 0.5, 0).applyQuaternion(q).add(pos);
+            positions.push(v.x, v.y, v.z);
+          }
+          polys.push({ verts: [base, base + 1, base + 2, base + 3] });
+        }
+        const src = obs[0];
+        const me = newMeshData(uniqueName(doc, `${src.name}_dupli`, 'meshes'), buildMesh(positions, polys));
+        doc.meshes[me.id] = me;
+        const inst = newObject(`${src.name}_dupli`, 'MESH', me.id);
+        addObjectToScene(doc, inst, { location: [0, 0, 0], rotation: [0, 0, 0] });
+        inst.instance_type = 'FACES';
+        inst.use_instance_faces_scale = true;
+        inst.instance_faces_scale = 1 / FACE_SIZE;
+        // the prototype: a linked copy at the instancer's origin
+        const proto = duplicateObject(doc, src, true);
+        proto.location = [0, 0, 0];
+        proto.rotation_euler = [0, 0, 0];
+        proto.rotation_quaternion = [1, 0, 0, 0];
+        proto.scale = [1, 1, 1];
+        proto.parent = inst.id;
+        proto.parent_type = 'OBJECT';
+        proto.matrix_parent_inverse = [...IDENTITY];
+        proto.select = false;
+        last = inst;
+      }
+      if (!last) return 'CANCELLED';
+      for (const o of Object.values(doc.objects)) o.select = o === last;
+      doc.scene.active_object = last.id;
+    },
+  },
+]);
 
 // ---------------------------------------------------------------------------
 // make instances real

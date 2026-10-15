@@ -108,7 +108,7 @@ function singleUserMenu(): MenuItem[] {
 }
 
 function relationsMenu(): MenuItem[] {
-  return [{ label: 'Make Single User', submenu: singleUserMenu }];
+  return [{ label: 'Make Instance Face', op: 'object.make_dupli_face' }, { separator: true }, { label: 'Make Single User', submenu: singleUserMenu }];
 }
 
 /** Parent types that make sense for the active (parent) object. */
