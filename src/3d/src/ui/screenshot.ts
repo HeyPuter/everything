@@ -1,5 +1,5 @@
-// Screenshots: the whole window (through the browser's tab capture, after the user agrees) or
-// one 3D view (cropped from the shared canvas).
+// Screenshots: the whole window or one editor (through the browser's tab capture, after the user
+// agrees); 3D views are cropped straight from the shared canvas.
 import { app, registerOperators, type OpContext } from '../app/app';
 import { renderContext } from '../render/context';
 import type { Area } from './screen';
@@ -80,14 +80,28 @@ registerOperators([
   {
     idname: 'screen.screenshot_area',
     label: 'Save Screenshot (Editor)',
-    description: 'Save an image of the 3D view under the pointer',
+    description: 'Save an image of the editor under the pointer (other editors than the 3D view need the tab sharing permission)',
     undo: false,
-    poll: (ctx) => areaOf(ctx)?.type === 'VIEW_3D',
+    poll: (ctx) => !!areaOf(ctx),
     exec: (ctx) => {
       const a = areaOf(ctx)!;
-      const c = cropCanvas(a.editor.el.getBoundingClientRect());
-      if (!c) return 'CANCELLED';
-      saveCanvas(c, 'screenshot_3d_view.png');
+      if (a.type === 'VIEW_3D') {
+        const c = cropCanvas(a.editor.el.getBoundingClientRect());
+        if (!c) return 'CANCELLED';
+        return void saveCanvas(c, 'screenshot_3d_view.png');
+      }
+      const r = a.el.getBoundingClientRect();
+      const name = `screenshot_${a.type.toLowerCase()}.png`;
+      void captureTab().then((full) => {
+        if (!full) return app.report('WARNING', 'Window capture was not allowed');
+        const sx = full.width / innerWidth,
+          sy = full.height / innerHeight;
+        const out = document.createElement('canvas');
+        out.width = Math.round(r.width * sx);
+        out.height = Math.round(r.height * sy);
+        out.getContext('2d')!.drawImage(full, r.left * sx, r.top * sy, out.width, out.height, 0, 0, out.width, out.height);
+        saveCanvas(out, name);
+      });
     },
   },
 ]);
