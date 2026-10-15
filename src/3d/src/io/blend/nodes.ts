@@ -169,7 +169,7 @@ export function convertNodeTree(nt: BStruct, type: NodeTreeData['type'], ctx: Ct
       // string settings stored by name (attribute / UV map / color layer names)
       if (idname === 'ShaderNodeAttribute' && storage.has('name')) node.props.attribute_name = storage.str('name');
       for (const k of ['uv_map', 'layer_name']) if (storage.has(k)) node.props[k] = storage.str(k);
-    } else if (!rules && n.ptr('storage') !== 0 && !idname.match(/^GeometryNode(Repeat|Simulation|ForeachGeometryElement)(Input|Output)$|^GeometryNodeBake$/)) unknownStorage.push(idname);
+    } else if (!rules && n.ptr('storage') !== 0 && !idname.match(/^GeometryNode(Repeat|Simulation|ForeachGeometryElement)(Input|Output)$|^GeometryNode(Bake|CaptureAttribute)$/)) unknownStorage.push(idname);
     tree.nodes.push(node);
     byOffset.set(n.offset, node);
     const parent = n.ref('parent');

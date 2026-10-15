@@ -68,5 +68,9 @@ describe('geometry node settings from .blend files', () => {
     expect(nodeOf('GeometryNodeMergeByDistance').props.Mode).toBe('Connected');
     expect(nodeOf('GeometryNodeMeshBoolean').props).toMatchObject({ operation: 'UNION', solver: 'EXACT' });
     expect(nodeOf('GeometryNodeMeshLine').props.mode).toBe('END_POINTS');
+    expect(JSON.parse(String(nodeOf('GeometryNodeCaptureAttribute').props.capture_items))).toEqual([
+      { id: 0, name: 'Height', data_type: 'FLOAT' },
+      { id: 1, name: 'Dir', data_type: 'FLOAT_VECTOR' },
+    ]);
   });
 });

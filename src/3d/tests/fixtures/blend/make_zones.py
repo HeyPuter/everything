@@ -70,6 +70,9 @@ boo.operation = 'UNION'
 boo.solver = 'EXACT'
 line = ng.nodes.new('GeometryNodeMeshLine')
 line.mode = 'END_POINTS'
+cap = ng.nodes.new('GeometryNodeCaptureAttribute')
+cap.capture_items.new('FLOAT', 'Height')
+cap.capture_items.new('VECTOR', 'Dir')
 
 mod = ob.modifiers.new('GN', 'NODES')
 mod.node_group = ng

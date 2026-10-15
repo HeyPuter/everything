@@ -48,9 +48,22 @@ function itemsFrom(n: BStruct, prefix: string) {
   return out;
 }
 
-/** Read zone data of one file node into the converted node. */
+const CAPTURE_TYPE: Record<string, string> = { FLOAT: 'FLOAT', INT: 'INT', BOOLEAN: 'BOOLEAN', VECTOR: 'FLOAT_VECTOR', RGBA: 'FLOAT_COLOR', ROTATION: 'QUATERNION' };
+
+/** Read zone data (and Capture Attribute items) of one file node into the converted node. */
 export function readZoneNode(n: BStruct, node: NodeData, pending: ZonePending) {
   if (n.has('identifier')) pending.byIdentifier.set(n.num('identifier'), node);
+  if (node.type === 'GeometryNodeCaptureAttribute') {
+    const items: { id: number; name: string; data_type: string }[] = [];
+    for (const s of n.list('inputs', 1000)) {
+      const m = /^Value(?:_(\d+))?$/.exec(s.str('identifier'));
+      if (!m) continue;
+      const t = CAPTURE_TYPE[interfaceSocketType(s.str('idname')).type];
+      if (t) items.push({ id: m[1] ? Number(m[1]) : 0, name: s.str('name'), data_type: t });
+    }
+    if (items.length) node.props.capture_items = JSON.stringify(items);
+    return;
+  }
   const z = OUTPUTS[node.type];
   if (z) {
     let next = 0;
