@@ -1,8 +1,12 @@
 // Screen layout: a binary split tree of areas, each hosting an editor.
 import { h, patch, type Child } from './h';
+import './screen.css';
 import { icon } from './icons';
-import { openMenu, type MenuItem } from './menu';
+import { openMenu, captureMenuItems, type MenuItem } from './menu';
 import { app, type ChangeKind, type AreaLike } from '../app/app';
+import { GAP, areaRects, leaves, splitLayout, swapLayout, joinLayout, neighbourOn, removeFromLayout, type Side } from './layout';
+
+export { areaRects, type Side };
 
 export type EditorTypeId =
   | 'VIEW_3D'
@@ -69,6 +73,8 @@ export interface AreaState {
   id: string;
   type: EditorTypeId;
   state?: unknown;
+  /** header region settings (absent: editor defaults) */
+  ui?: AreaUi;
 }
 
 export type LayoutNode = { split: 'h' | 'v'; ratio: number; a: LayoutNode; b: LayoutNode } | { area: AreaState };
@@ -98,6 +104,15 @@ export function fitLayoutWidth(n: LayoutNode, oldW: number, newW: number, gap = 
   else fitLayoutWidth(n.b, bOld, grown, gap);
 }
 
+/** Per-area region settings (header visibility, header side, collapsed menus). */
+export interface AreaUi {
+  header?: boolean;
+  flip?: boolean;
+  menus?: boolean;
+}
+
+const CORNERS = ['tl', 'tr', 'bl', 'br'] as const;
+
 export class Area implements AreaLike {
   id: string;
   type: EditorTypeId;
@@ -107,12 +122,24 @@ export class Area implements AreaLike {
   mainEl: HTMLElement;
   editor: Editor;
   rect = { x: 0, y: 0, w: 0, h: 0 };
+  /** header region shown */
+  showHeader = true;
+  /** header drawn at the bottom; undefined follows the editor's default */
+  flipHeader?: boolean;
+  /** header menus shown expanded (false: collapsed into one menu button) */
+  showMenus = true;
+  private revealEl: HTMLElement;
   constructor(
     public screen: Screen,
     st: AreaState,
   ) {
     this.id = st.id;
     this.type = st.type;
+    if (st.ui) {
+      this.showHeader = st.ui.header !== false;
+      this.flipHeader = st.ui.flip;
+      this.showMenus = st.ui.menus !== false;
+    }
     this.el = document.createElement('div');
     this.el.className = 'area';
     this.el.dataset.area = st.id;
@@ -122,15 +149,38 @@ export class Area implements AreaLike {
     this.toolHeaderEl.className = 'area-toolheader';
     this.mainEl = document.createElement('div');
     this.mainEl.className = 'area-main';
-    this.el.append(this.headerEl, this.toolHeaderEl, this.mainEl);
+    this.revealEl = document.createElement('button');
+    this.revealEl.className = 'area-header-reveal';
+    this.revealEl.dataset.tip = 'Show Header\nBring back the hidden header of this area';
+    this.revealEl.setAttribute('aria-label', 'Show Header');
+    this.revealEl.addEventListener('click', () => this.setHeaderVisible(true));
+    this.el.append(this.headerEl, this.toolHeaderEl, this.mainEl, this.revealEl);
+    // corner action zones: drag inwards to split, into a neighbour to join, Ctrl-drag to swap
+    for (const c of CORNERS) {
+      const z = document.createElement('div');
+      z.className = `area-corner ${c}`;
+      z.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        this.screen.cornerGesture(this, e);
+      });
+      this.el.append(z);
+    }
     this.el.addEventListener('pointerenter', () => (app.hoverArea = this));
     this.el.addEventListener('pointerdown', () => {
       app.activeArea = this;
       app.hoverArea = this;
     }, true);
     this.headerEl.addEventListener('contextmenu', (e) => {
+      if ((e.target as HTMLElement).closest('input, textarea')) return;
       e.preventDefault();
-      openMenu(this.areaMenu(), { x: e.clientX, y: e.clientY });
+      openMenu(this.headerMenu(), { x: e.clientX, y: e.clientY });
+    });
+    this.toolHeaderEl.addEventListener('contextmenu', (e) => {
+      if ((e.target as HTMLElement).closest('input, textarea')) return;
+      e.preventDefault();
+      openMenu(this.headerMenu(), { x: e.clientX, y: e.clientY });
     });
     this.editor = this.makeEditor(st.state);
   }
@@ -142,8 +192,49 @@ export class Area implements AreaLike {
     this.mainEl.append(ed.el);
     this.el.dataset.editor = this.type;
     this.el.classList.toggle('overlap-header', !!ed.overlapHeader);
-    this.el.classList.toggle('header-bottom', !!ed.headerBottom);
+    this.editor = ed;
+    this.applyUi();
     return ed;
+  }
+
+  /** Header at the bottom of the area (flipped, or the editor's default). */
+  get headerAtBottom() {
+    return this.flipHeader ?? !!this.editor?.headerBottom;
+  }
+
+  applyUi() {
+    this.el.classList.toggle('no-header', !this.showHeader);
+    this.el.classList.toggle('header-bottom', this.headerAtBottom);
+    this.el.classList.toggle('menus-collapsed', !this.showMenus);
+    patch(this.revealEl, icon(this.headerAtBottom ? 'triangle_up' : 'triangle_down', 'tiny'));
+  }
+
+  private regionsChanged() {
+    this.applyUi();
+    this.drawHeader();
+    this.editor.resize?.();
+    app.changed('ui', 'view');
+  }
+
+  setHeaderVisible(v: boolean) {
+    this.showHeader = v;
+    this.regionsChanged();
+  }
+
+  flipHeaderSide() {
+    this.flipHeader = !this.headerAtBottom;
+    this.regionsChanged();
+  }
+
+  setMenusShown(v: boolean) {
+    this.showMenus = v;
+    this.regionsChanged();
+  }
+
+  toggleToolHeader() {
+    if (!this.editor.toolHeader) return;
+    this.editor.showToolHeader = this.editor.showToolHeader === false;
+    this.regionsChanged();
   }
 
   setType(type: EditorTypeId) {
@@ -156,27 +247,45 @@ export class Area implements AreaLike {
     this.editor.resize?.();
   }
 
+  /** View ▸ Area menu: split, maximize, fullscreen, close. */
   areaMenu(): MenuItem[] {
+    const sc = this.screen;
+    const max = sc.maximized === this;
     return [
-      { label: 'Vertical Split', action: () => this.screen.split(this, 'h') },
-      { label: 'Horizontal Split', action: () => this.screen.split(this, 'v') },
+      { label: 'Horizontal Split', action: () => sc.interactiveSplit(this, 'v') },
+      { label: 'Vertical Split', action: () => sc.interactiveSplit(this, 'h') },
       { separator: true },
-      { label: this.screen.maximized === this ? 'Back to Previous' : 'Maximize Area', shortcut: 'Ctrl Space', action: () => this.screen.toggleMaximize(this) },
-      { label: 'Toggle Fullscreen Area', shortcut: 'Ctrl Alt Space', action: () => this.screen.toggleMaximize(this, true) },
+      { label: max && !sc.fullscreen ? 'Back to Previous' : 'Toggle Maximize Area', shortcut: 'Ctrl Space', disabled: sc.fullscreen, action: () => sc.toggleMaximize(this) },
+      { label: max && sc.fullscreen ? 'Back to Previous' : 'Toggle Fullscreen Area', shortcut: 'Ctrl Alt Space', disabled: max && !sc.fullscreen, action: () => sc.toggleMaximize(this, true) },
       { separator: true },
-      { label: 'Swap Areas', disabled: !this.screen.siblingOf(this), action: () => this.screen.swap(this) },
-      {
-        label: 'Join Areas',
-        description: 'Join this area with its neighbour (the neighbour is removed)',
-        disabled: !this.screen.siblingOf(this),
-        action: () => {
-          const sib = this.screen.siblingOf(this);
-          const other = sib && this.screen.areas.find((x) => x.id === sib.id);
-          if (other) this.screen.close(other);
-        },
-      },
-      { label: 'Close Area', disabled: this.screen.areas.length <= 1, action: () => this.screen.close(this) },
+      { label: 'Swap Areas…', disabled: sc.areas.length <= 1 || !!sc.maximized, action: () => sc.interactivePick(this, 'swap') },
+      { label: 'Join Areas…', disabled: sc.areas.length <= 1 || !!sc.maximized, action: () => sc.interactivePick(this, 'join') },
+      { separator: true },
+      { label: 'Close Area', disabled: sc.areas.length <= 1 || !!sc.maximized, action: () => sc.close(this) },
     ];
+  }
+
+  /** Right-click menu of the header region. */
+  headerMenu(): MenuItem[] {
+    const items: MenuItem[] = [{ label: 'Show Header', checked: this.showHeader, action: () => this.setHeaderVisible(!this.showHeader) }];
+    if (this.editor.toolHeader) items.push({ label: 'Show Tool Settings', checked: this.editor.showToolHeader !== false, action: () => this.toggleToolHeader() });
+    items.push(
+      { label: 'Show Menus', checked: this.showMenus, disabled: !this.hasMenus(), action: () => this.setMenusShown(!this.showMenus) },
+      { separator: true },
+      { label: this.headerAtBottom ? 'Flip to Top' : 'Flip to Bottom', action: () => this.flipHeaderSide() },
+      { separator: true },
+      ...this.areaMenu(),
+    );
+    return items;
+  }
+
+  private hasMenus() {
+    return !!this.headerEl.querySelector('.hdr-menu') || !this.showMenus;
+  }
+
+  /** Menus of the header (for the collapsed menu button and menu search). */
+  headerMenus(): { label: string; items: () => MenuItem[] }[] {
+    return [...this.headerEl.querySelectorAll<HTMLElement>('.hdr-menu')].map((b) => ({ label: b.textContent?.trim() ?? '', items: () => captureMenu(b) }));
   }
 
   drawHeader() {
@@ -194,7 +303,24 @@ export class Area implements AreaLike {
       icon(t?.icon ?? 'view3d'),
       icon('down_arrow_hlt', 'tiny'),
     );
-    patch(this.headerEl, [typeButton, this.editor.header()]);
+    const collapsed = this.showMenus
+      ? null
+      : h(
+          'button',
+          {
+            key: 'collapsed-menus',
+            class: 'hdr-icon hdr-collapsed-menus',
+            'data-tip': 'Menus\nThe header menus of this area (Show Menus in the header context menu expands them)',
+            'aria-label': 'Menus',
+            onpointerdown: (e: PointerEvent) => {
+              e.preventDefault();
+              const menus = this.headerMenus();
+              openMenu(menus.length ? menus.map((m) => ({ label: m.label, submenu: m.items })) : [{ label: 'No menus', disabled: true }], e.currentTarget as HTMLElement);
+            },
+          },
+          icon('collapsemenu'),
+        );
+    patch(this.headerEl, [typeButton, collapsed, this.editor.header()]);
     if (this.editor.toolHeader && this.editor.showToolHeader !== false) {
       this.toolHeaderEl.hidden = false;
       patch(this.toolHeaderEl, this.editor.toolHeader());
@@ -202,7 +328,9 @@ export class Area implements AreaLike {
   }
 
   serialize(): AreaState {
-    return { id: this.id, type: this.type, state: this.editor.serialize?.() };
+    const st: AreaState = { id: this.id, type: this.type, state: this.editor.serialize?.() };
+    if (!this.showHeader || this.flipHeader !== undefined || !this.showMenus) st.ui = { header: this.showHeader, flip: this.flipHeader, menus: this.showMenus };
+    return st;
   }
 }
 
@@ -222,19 +350,40 @@ function editorTypeMenu(set: (id: EditorTypeId) => void, current: EditorTypeId):
 let areaCounter = 0;
 export const newAreaId = () => `area${++areaCounter}_${Math.random().toString(36).slice(2, 6)}`;
 
+/** A copy of an area's state for a new area (same editor and view settings). */
+function cloneAreaState(a: Area): AreaState {
+  let state: unknown;
+  try {
+    state = structuredClone(a.editor.serialize?.());
+  } catch {
+    state = undefined;
+  }
+  return { id: newAreaId(), type: a.type, state };
+}
+
+type Gesture = 'split' | 'join' | 'swap';
+
 export class Screen {
   el: HTMLElement;
   areas: Area[] = [];
   layout!: LayoutNode;
   maximized: Area | null = null;
+  /** the maximized area also hides its header and side regions */
+  fullscreen = false;
   /** Width the docked assistant takes from the screen; layouts are fitted to it as they load. */
   dock = 0;
-  private saved: LayoutNode | null = null;
   private dividers: HTMLElement[] = [];
+  private exitEl: HTMLElement;
   constructor(container: HTMLElement) {
     this.el = document.createElement('div');
     this.el.className = 'screen';
     container.append(this.el);
+    this.exitEl = document.createElement('button');
+    this.exitEl.className = 'screen-fs-exit';
+    this.exitEl.dataset.tip = 'Back to Previous\nLeave the fullscreen area (Ctrl Alt Space)';
+    this.exitEl.setAttribute('aria-label', 'Back to Previous');
+    patch(this.exitEl, icon('fullscreen_exit'));
+    this.exitEl.addEventListener('click', () => this.maximized && this.toggleMaximize(this.maximized));
     new ResizeObserver(() => this.relayout()).observe(this.el);
   }
 
@@ -245,23 +394,16 @@ export class Screen {
     }
     this.areas = [];
     this.maximized = null;
-    this.saved = null;
+    this.fullscreen = false;
+    this.el.classList.remove('fullscreen');
     // A layout made for another dock width (or none) gives or takes the difference from its main editors.
     const madeFor = (layout as { dock?: number }).dock ?? 0;
     if (madeFor !== this.dock) fitLayoutWidth(layout, this.el.clientWidth + this.dock - madeFor, this.el.clientWidth);
     this.layout = layout;
-    this.walk(layout, (st) => this.areas.push(new Area(this, st)));
+    for (const st of leaves(layout)) this.areas.push(new Area(this, st));
     for (const a of this.areas) this.el.append(a.el);
     this.relayout();
     for (const a of this.areas) a.drawHeader();
-  }
-
-  private walk(n: LayoutNode, fn: (a: AreaState) => void) {
-    if ('area' in n) fn(n.area);
-    else {
-      this.walk(n.a, fn);
-      this.walk(n.b, fn);
-    }
   }
 
   serialize(): LayoutNode {
@@ -273,7 +415,7 @@ export class Screen {
       }
       return { split: n.split, ratio: n.ratio, a: ser(n.a), b: ser(n.b) };
     };
-    const out = ser(this.saved ?? this.layout);
+    const out = ser(this.layout);
     if (this.dock) (out as { dock?: number }).dock = this.dock;
     return out;
   }
@@ -281,9 +423,14 @@ export class Screen {
   /** The docked assistant now takes `dock` pixels; the screen went from `oldW` to its current width. */
   setDock(dock: number, oldW: number) {
     const newW = this.el.clientWidth;
-    for (const n of [this.layout, this.saved]) if (n) fitLayoutWidth(n, oldW, newW);
+    if (this.layout) fitLayoutWidth(this.layout, oldW, newW);
     this.dock = dock;
     this.relayout();
+  }
+
+  /** Screen size used for layout computations. */
+  get size() {
+    return { w: this.el.clientWidth, h: this.el.clientHeight };
   }
 
   relayout() {
@@ -292,7 +439,6 @@ export class Screen {
       H = this.el.clientHeight;
     this.dividers.forEach((d) => d.remove());
     this.dividers = [];
-    const GAP = 2;
     const place = (n: LayoutNode, x: number, y: number, w: number, hgt: number) => {
       if ('area' in n) {
         const a = this.areas.find((ar) => ar.id === n.area.id);
@@ -314,8 +460,13 @@ export class Screen {
       }
     };
     const root = this.maximized ? { area: { id: this.maximized.id, type: this.maximized.type } } : this.layout;
-    for (const a of this.areas) a.el.style.display = this.maximized && a !== this.maximized ? 'none' : '';
+    for (const a of this.areas) {
+      a.el.style.display = this.maximized && a !== this.maximized ? 'none' : '';
+      a.el.classList.toggle('fullscreen-area', this.fullscreen && a === this.maximized);
+    }
     place(root, 0, 0, W, H);
+    if (this.fullscreen && this.maximized) this.el.append(this.exitEl);
+    else this.exitEl.remove();
     for (const a of this.areas) a.editor.resize?.();
   }
 
@@ -324,11 +475,17 @@ export class Screen {
     d.className = `divider ${dir}`;
     Object.assign(d.style, { left: `${x - (dir === 'h' ? 2 : 0)}px`, top: `${y - (dir === 'v' ? 2 : 0)}px`, width: `${dir === 'h' ? w + 4 : w}px`, height: `${dir === 'v' ? hgt + 4 : hgt}px` });
     d.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
       e.preventDefault();
       d.setPointerCapture(e.pointerId);
       const move = (ev: PointerEvent) => {
         const pos = dir === 'h' ? ev.clientX - this.el.getBoundingClientRect().left : ev.clientY - this.el.getBoundingClientRect().top;
-        n.ratio = Math.max(0.03, Math.min(0.97, (pos - start) / size));
+        let r = (pos - start) / Math.max(1, size - GAP);
+        // Ctrl snaps to common proportions
+        if (ev.ctrlKey || ev.metaKey) r = snapRatio(r);
+        // keep a header's height (or a narrow column) on both sides
+        const minFrac = Math.min(0.45, 26 / Math.max(1, size - GAP));
+        n.ratio = Math.max(minFrac, Math.min(1 - minFrac, r));
         this.relayout();
       };
       const up = () => {
@@ -342,77 +499,143 @@ export class Screen {
       n.ratio = 0.5;
       this.relayout();
     });
+    d.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      openMenu(this.areaOptions(dir, e.clientX, e.clientY), { x: e.clientX, y: e.clientY }, { title: 'Area Options' });
+    });
     this.el.append(d);
     this.dividers.push(d);
   }
 
-  private findParent(id: string, n: LayoutNode = this.layout, parent: Extract<LayoutNode, { split: string }> | null = null): { node: LayoutNode; parent: Extract<LayoutNode, { split: string }> | null } | null {
-    if ('area' in n) return n.area.id === id ? { node: n, parent } : null;
-    return this.findParent(id, n.a, n) ?? this.findParent(id, n.b, n);
+  /** Area Options (right-click on an edge between areas): split, join towards a side, swap. */
+  areaOptions(dir: 'h' | 'v', x: number, y: number): MenuItem[] {
+    const before = dir === 'h' ? this.areaAt(x - 4, y) : this.areaAt(x, y - 4);
+    const after = dir === 'h' ? this.areaAt(x + 4, y) : this.areaAt(x, y + 4);
+    const target = this.areaAt(x, y) ?? before ?? after;
+    const items: MenuItem[] = [
+      { label: 'Vertical Split', disabled: !target, action: () => target && this.interactiveSplit(target, 'h') },
+      { label: 'Horizontal Split', disabled: !target, action: () => target && this.interactiveSplit(target, 'v') },
+      { separator: true },
+    ];
+    if (before && after) {
+      const [lb, la] = dir === 'h' ? ['Join Left', 'Join Right'] : ['Join Up', 'Join Down'];
+      items.push(
+        { label: lb, description: `The ${dir === 'h' ? 'right' : 'lower'} area grows over the ${dir === 'h' ? 'left' : 'upper'} one`, disabled: !this.canJoin(after, before), action: () => this.join(after, before) },
+        { label: la, description: `The ${dir === 'h' ? 'left' : 'upper'} area grows over the ${dir === 'h' ? 'right' : 'lower'} one`, disabled: !this.canJoin(before, after), action: () => this.join(before, after) },
+        { separator: true },
+        { label: 'Swap Areas', action: () => this.swapAreas(before, after) },
+      );
+    }
+    return items;
   }
 
   siblingOf(a: Area) {
-    const f = this.findParent(a.id);
-    if (!f?.parent) return null;
-    const other = f.parent.a === f.node ? f.parent.b : f.parent.a;
-    return 'area' in other ? other.area : null;
+    const find = (n: LayoutNode): AreaState | null => {
+      if ('area' in n) return null;
+      if ('area' in n.a && n.a.area.id === a.id) return 'area' in n.b ? n.b.area : null;
+      if ('area' in n.b && n.b.area.id === a.id) return 'area' in n.a ? n.a.area : null;
+      return find(n.a) ?? find(n.b);
+    };
+    return this.layout ? find(this.layout) : null;
   }
 
-  split(a: Area, dir: 'h' | 'v') {
+  private exitMaximized() {
     if (this.maximized) this.toggleMaximize(this.maximized);
-    const f = this.findParent(a.id);
-    if (!f) return;
-    const st: AreaState = { id: newAreaId(), type: a.type };
-    const nn: LayoutNode = { split: dir, ratio: 0.5, a: { area: a.serialize() }, b: { area: st } };
-    if (!f.parent) this.layout = nn;
-    else if (f.parent.a === f.node) f.parent.a = nn;
-    else f.parent.b = nn;
+  }
+
+  /** Split area `a`: 'h' puts the halves side by side, 'v' stacks them. Returns the new area. */
+  split(a: Area, dir: 'h' | 'v', ratio = 0.5): Area | null {
+    this.exitMaximized();
+    if (!this.areas.includes(a)) return null;
+    const st = cloneAreaState(a);
+    this.layout = splitLayout(this.layout, a.id, dir, ratio, st);
     const area = new Area(this, st);
     this.areas.push(area);
     this.el.append(area.el);
     this.relayout();
     area.drawHeader();
     area.editor.update(new Set(['doc', 'ui']));
+    app.changed('ui', 'view');
+    return area;
+  }
+
+  canJoin(keep: Area, remove: Area) {
+    const { w, h } = this.size;
+    return !this.maximized && !!joinLayout(this.layout, keep.id, remove.id, w, h);
+  }
+
+  /** `keep` grows over its neighbour `remove` (they must share a whole edge). */
+  join(keep: Area, remove: Area): boolean {
+    this.exitMaximized();
+    const { w, h } = this.size;
+    const next = joinLayout(this.layout, keep.id, remove.id, w, h);
+    if (!next) {
+      app.report('WARNING', 'Only areas that share a whole edge can be joined');
+      return false;
+    }
+    // keep the serialized state of the remaining areas in the new tree
+    this.layout = next;
+    this.disposeArea(remove);
+    this.relayout();
+    app.changed('ui', 'view');
+    return true;
+  }
+
+  /** Exchange the places (and sizes) of two areas. */
+  swapAreas(a: Area, b: Area) {
+    if (a === b) return;
+    this.exitMaximized();
+    this.layout = swapLayout(this.layout, a.id, b.id);
+    this.relayout();
+    for (const x of [a, b]) x.drawHeader();
+    app.changed('ui', 'view');
+  }
+
+  /** Neighbour sharing the whole `side` edge of area `a`. */
+  neighbour(a: Area, side: Side): Area | null {
+    const { w, h } = this.size;
+    const id = neighbourOn(this.layout, a.id, side, w, h);
+    return id ? (this.areas.find((x) => x.id === id) ?? null) : null;
   }
 
   close(a: Area) {
-    const f = this.findParent(a.id);
-    if (!f?.parent || this.areas.length <= 1) return;
-    const other = f.parent.a === f.node ? f.parent.b : f.parent.a;
-    const gp = this.findParentOfSplit(f.parent);
-    if (!gp) this.layout = other;
-    else if (gp.a === f.parent) gp.a = other;
-    else gp.b = other;
+    if (this.areas.length <= 1) return;
+    this.exitMaximized();
+    const next = removeFromLayout(this.layout, a.id);
+    if (!next) return;
+    this.layout = next;
+    this.disposeArea(a);
+    this.relayout();
+    app.changed('ui', 'view');
+  }
+
+  private disposeArea(a: Area) {
     a.editor.dispose();
     a.el.remove();
     this.areas = this.areas.filter((x) => x !== a);
-    this.relayout();
+    if (app.hoverArea === a) app.hoverArea = null;
+    if (app.activeArea === a) app.activeArea = this.areas[0] ?? null;
   }
 
-  private findParentOfSplit(target: LayoutNode, n: LayoutNode = this.layout): Extract<LayoutNode, { split: string }> | null {
-    if ('area' in n) return null;
-    if (n.a === target || n.b === target) return n;
-    return this.findParentOfSplit(target, n.a) ?? this.findParentOfSplit(target, n.b);
-  }
-
+  /** @deprecated use swapAreas; swaps area `a` with its sibling subtree */
   swap(a: Area) {
-    const f = this.findParent(a.id);
-    if (!f?.parent) return;
-    const p = f.parent;
-    [p.a, p.b] = [p.b, p.a];
-    this.relayout();
+    const sib = this.siblingOf(a);
+    const other = sib && this.areas.find((x) => x.id === sib.id);
+    if (other) this.swapAreas(a, other);
   }
 
   toggleMaximize(a: Area, fullscreen = false) {
     if (this.maximized) {
       this.maximized = null;
-      this.el.classList.remove('fullscreen');
+      this.fullscreen = false;
     } else {
       this.maximized = a;
-      this.el.classList.toggle('fullscreen', fullscreen);
+      this.fullscreen = fullscreen;
     }
+    this.el.classList.toggle('fullscreen', this.fullscreen);
     this.relayout();
     a.drawHeader();
+    app.changed('ui', 'view');
   }
 
   update(kinds: Set<ChangeKind>) {
@@ -437,6 +660,200 @@ export class Screen {
   findArea(type: EditorTypeId) {
     return this.areas.find((a) => a.type === type);
   }
+
+  // -------------------------------------------------------------------------------------------
+  // interactive area editing (split line following the pointer, join / swap target picking)
+
+  private overlay(): { el: HTMLElement; line: HTMLElement; box: HTMLElement; label: HTMLElement; dispose: () => void } {
+    const el = document.createElement('div');
+    el.className = 'screen-gesture';
+    const line = document.createElement('div');
+    line.className = 'sg-line';
+    const box = document.createElement('div');
+    box.className = 'sg-box';
+    const label = document.createElement('div');
+    label.className = 'sg-label';
+    el.append(line, box, label);
+    document.body.append(el);
+    return { el, line, box, label, dispose: () => el.remove() };
+  }
+
+  private clientRect(a: Area) {
+    const r = this.el.getBoundingClientRect();
+    return { x: r.left + a.rect.x, y: r.top + a.rect.y, w: a.rect.w, h: a.rect.h };
+  }
+
+  /**
+   * Run a pointer gesture over the screen. `move` draws the preview and returns the action to run
+   * on click/release (null: nothing to do). Esc or right click cancels.
+   */
+  private gesture(opts: { releaseConfirms: boolean; move: (e: PointerEvent, o: ReturnType<Screen['overlay']>) => (() => void) | null; hint: string }) {
+    const o = this.overlay();
+    let action: (() => void) | null = null;
+    let last: PointerEvent | null = null;
+    const update = (e: PointerEvent) => {
+      last = e;
+      action = opts.move(e, o);
+    };
+    const end = (run: boolean) => {
+      removeEventListener('pointermove', onMove, true);
+      removeEventListener('pointerdown', onDown, true);
+      removeEventListener('pointerup', onUp, true);
+      removeEventListener('keydown', onKey, true);
+      removeEventListener('keyup', onKeyUp, true);
+      o.dispose();
+      document.body.classList.remove('screen-gesture-active');
+      if (run && action) action();
+    };
+    const onMove = (e: PointerEvent) => {
+      e.stopPropagation();
+      update(e);
+    };
+    const onDown = (e: PointerEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.button === 2) end(false);
+      else if (!opts.releaseConfirms && e.button === 0) {
+        update(e);
+        end(true);
+      }
+    };
+    const onUp = (e: PointerEvent) => {
+      e.stopPropagation();
+      if (opts.releaseConfirms && e.button === 0) {
+        update(e);
+        end(true);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === 'Escape') end(false);
+      else if (e.key === 'Enter') end(true);
+      else if (last) update(new PointerEvent('pointermove', { clientX: last.clientX, clientY: last.clientY, ctrlKey: e.ctrlKey || e.key === 'Control', metaKey: e.metaKey, shiftKey: e.shiftKey }));
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (last) update(new PointerEvent('pointermove', { clientX: last.clientX, clientY: last.clientY, ctrlKey: e.ctrlKey && e.key !== 'Control', metaKey: e.metaKey && e.key !== 'Meta', shiftKey: e.shiftKey }));
+    };
+    addEventListener('pointermove', onMove, true);
+    addEventListener('pointerdown', onDown, true);
+    addEventListener('pointerup', onUp, true);
+    addEventListener('keydown', onKey, true);
+    addEventListener('keyup', onKeyUp, true);
+    document.body.classList.add('screen-gesture-active');
+    o.label.textContent = opts.hint;
+    update(new PointerEvent('pointermove', { clientX: app.pointer.x, clientY: app.pointer.y }));
+  }
+
+  private drawSplit(o: ReturnType<Screen['overlay']>, a: Area, dir: 'h' | 'v', x: number, y: number): number {
+    const r = this.clientRect(a);
+    const ratio = Math.max(0.05, Math.min(0.95, dir === 'h' ? (x - r.x) / r.w : (y - r.y) / r.h));
+    o.box.style.display = 'none';
+    Object.assign(o.line.style, dir === 'h' ? { display: '', left: `${r.x + r.w * ratio - 1}px`, top: `${r.y}px`, width: '2px', height: `${r.h}px` } : { display: '', left: `${r.x}px`, top: `${r.y + r.h * ratio - 1}px`, width: `${r.w}px`, height: '2px' });
+    return ratio;
+  }
+
+  private drawTarget(o: ReturnType<Screen['overlay']>, a: Area, kind: 'join' | 'swap' | 'none') {
+    const r = this.clientRect(a);
+    o.line.style.display = 'none';
+    Object.assign(o.box.style, { display: '', left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
+    o.box.className = `sg-box ${kind}`;
+  }
+
+  /** Split with a line that follows the pointer over any area; click to place it. */
+  interactiveSplit(_from: Area, dir: 'h' | 'v') {
+    this.exitMaximized();
+    this.gesture({
+      releaseConfirms: false,
+      hint: `${dir === 'h' ? 'Vertical' : 'Horizontal'} Split: click to place the edge, Esc to cancel`,
+      move: (e, o) => {
+        const a = this.areaAt(e.clientX, e.clientY);
+        if (!a) {
+          o.line.style.display = 'none';
+          return null;
+        }
+        const ratio = this.drawSplit(o, a, dir, e.clientX, e.clientY);
+        return () => this.split(a, dir, ratio);
+      },
+    });
+  }
+
+  /** Pick a second area with the pointer to swap with or to join into `a`. */
+  interactivePick(a: Area, kind: 'swap' | 'join') {
+    this.exitMaximized();
+    this.gesture({
+      releaseConfirms: false,
+      hint: kind === 'swap' ? 'Swap Areas: click the area to swap with, Esc to cancel' : 'Join Areas: click a neighbouring area to remove it, Esc to cancel',
+      move: (e, o) => {
+        const b = this.areaAt(e.clientX, e.clientY);
+        if (!b || b === a) {
+          o.box.style.display = 'none';
+          return null;
+        }
+        if (kind === 'swap') {
+          this.drawTarget(o, b, 'swap');
+          return () => this.swapAreas(a, b);
+        }
+        const ok = this.canJoin(a, b);
+        this.drawTarget(o, b, ok ? 'join' : 'none');
+        return ok ? () => this.join(a, b) : null;
+      },
+    });
+  }
+
+  /** Drag from an area corner: inwards splits, into a neighbour joins (it is removed), Ctrl swaps. */
+  cornerGesture(a: Area, down: PointerEvent) {
+    if (this.maximized) return;
+    const sx = down.clientX,
+      sy = down.clientY;
+    let mode: Gesture | null = null;
+    let dir: 'h' | 'v' = 'h';
+    this.gesture({
+      releaseConfirms: true,
+      hint: 'Drag into the area to split it, into a neighbour to join, hold Ctrl to swap',
+      move: (e, o) => {
+        const dx = e.clientX - sx,
+          dy = e.clientY - sy;
+        o.line.style.display = o.box.style.display = 'none';
+        if (!mode && Math.hypot(dx, dy) < 6) return null;
+        const over = this.areaAt(e.clientX, e.clientY);
+        if (!over) return null;
+        if (e.ctrlKey || e.metaKey) {
+          mode = 'swap';
+          if (over === a) return null;
+          this.drawTarget(o, over, 'swap');
+          return () => this.swapAreas(a, over);
+        }
+        if (over === a) {
+          // the split direction is fixed by the first clear drag direction
+          if (mode !== 'split') {
+            mode = 'split';
+            dir = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v';
+          }
+          const ratio = this.drawSplit(o, a, dir, e.clientX, e.clientY);
+          return () => this.split(a, dir, ratio);
+        }
+        mode = 'join';
+        const ok = this.canJoin(a, over);
+        this.drawTarget(o, over, ok ? 'join' : 'none');
+        return ok ? () => this.join(a, over) : null;
+      },
+    });
+  }
+}
+
+/** Ctrl-drag of an edge snaps to these proportions. */
+export function snapRatio(r: number) {
+  const marks = [1 / 4, 1 / 3, 1 / 2, 2 / 3, 3 / 4];
+  let best = r;
+  let d = 0.04;
+  for (const m of marks) if (Math.abs(m - r) < d) ((d = Math.abs(m - r)), (best = m));
+  return best;
+}
+
+/** Items of a header menu button, collected without opening it. */
+function captureMenu(btn: HTMLElement): MenuItem[] {
+  return captureMenuItems(() => btn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 })));
 }
 
 // ---------------------------------------------------------------------------

@@ -9,6 +9,16 @@ import { importMenu, exportMenu, projectUiState } from '../io/files';
 import { textField } from './widgets';
 import { setMode } from '../ops/object';
 import { assistantOpen } from '../assistant';
+import './screenops';
+
+const STATUSBAR_KEY = 'p3d.ui.statusbar';
+function loadStatusbarShown() {
+  try {
+    return localStorage.getItem(STATUSBAR_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
 
 export class Shell {
   el: HTMLElement;
@@ -31,6 +41,7 @@ export class Shell {
     this.status.className = 'statusbar';
     root.append(this.top, main, this.status);
     this.screen = new Screen(main);
+    this.el.classList.toggle('no-statusbar', !this.showStatusbar);
     this.setWorkspace('Layout', false);
     projectUiState.save = () => ({
       workspace: this.active,
@@ -101,12 +112,37 @@ export class Shell {
     this.drawTop();
   }
 
-  moveWorkspace(name: string, dir: -1 | 1) {
+  /** Move a workspace tab to the front or the back of the tab list. */
+  moveWorkspace(name: string, to: 'FRONT' | 'BACK') {
     const i = this.workspaces.findIndex((w) => w.name === name);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= this.workspaces.length) return;
-    [this.workspaces[i], this.workspaces[j]] = [this.workspaces[j], this.workspaces[i]];
+    if (i < 0) return;
+    const [ws] = this.workspaces.splice(i, 1);
+    if (to === 'FRONT') this.workspaces.unshift(ws);
+    else this.workspaces.push(ws);
     this.drawTop();
+  }
+
+  /** Delete every workspace except `name`. */
+  deleteOtherWorkspaces(name: string) {
+    const keep = this.workspaces.find((w) => w.name === name);
+    if (!keep) return;
+    for (const w of this.workspaces) if (w !== keep) this.layouts.delete(w.name);
+    this.workspaces = [keep];
+    if (this.active !== name) {
+      this.active = '';
+      this.setWorkspace(name);
+    } else this.drawTop();
+  }
+
+  showStatusbar = loadStatusbarShown();
+  setStatusbarShown(v: boolean) {
+    this.showStatusbar = v;
+    this.el.classList.toggle('no-statusbar', !v);
+    try {
+      localStorage.setItem(STATUSBAR_KEY, v ? '1' : '0');
+    } catch {
+      // storage unavailable
+    }
   }
 
   setWorkspace(name: string, switchMode = true) {
@@ -182,17 +218,7 @@ export class Shell {
               onclick: () => this.setWorkspace(w.name),
               oncontextmenu: (e: MouseEvent) => {
                 e.preventDefault();
-                openMenu(
-                  [
-                    { label: 'Duplicate', action: () => this.duplicateWorkspace(w.name) },
-                    { label: 'Delete', disabled: this.workspaces.length <= 1, action: () => this.deleteWorkspace(w.name) },
-                    { label: 'Rename…', action: () => promptText('Rename Workspace', w.name, (n) => n && this.renameWorkspace(w.name, n)) },
-                    { separator: true },
-                    { label: 'Reorder to Front', action: () => this.moveWorkspace(w.name, -1) },
-                    { label: 'Reorder to Back', action: () => this.moveWorkspace(w.name, 1) },
-                  ],
-                  { x: e.clientX, y: e.clientY },
-                );
+                openMenu(workspaceMenu(this, w.name), { x: e.clientX, y: e.clientY });
               },
               ondblclick: () => promptText('Rename Workspace', w.name, (n) => n && this.renameWorkspace(w.name, n)),
             },
@@ -367,10 +393,48 @@ function helpMenu(): MenuItem[] {
   ];
 }
 
+/** Right-click menu of a workspace tab. */
+function workspaceMenu(sh: Shell, name: string): MenuItem[] {
+  const p = { name };
+  return [
+    { label: 'Duplicate', op: 'workspace.duplicate', props: p },
+    { label: 'Delete', op: 'workspace.delete', props: p },
+    { label: 'Rename…', action: () => promptText('Rename Workspace', name, (n) => n && sh.renameWorkspace(name, n)) },
+    { separator: true },
+    { label: 'Reorder to Front', op: 'workspace.reorder_to_front', props: p },
+    { label: 'Reorder to Back', op: 'workspace.reorder_to_back', props: p },
+    { separator: true },
+    { label: 'Previous Workspace', shortcut: 'Ctrl Page Up', op: 'screen.workspace_cycle', props: { direction: 'PREV' } },
+    { label: 'Next Workspace', shortcut: 'Ctrl Page Down', op: 'screen.workspace_cycle', props: { direction: 'NEXT' } },
+    { separator: true },
+    { label: 'Delete All Others', op: 'workspace.delete_all_others', props: p },
+  ];
+}
+
 export let shell: Shell;
 export function setShell(s: Shell) {
   shell = s;
 }
+
+/** Workspace named by an operator's `name` property (empty: the active one). */
+const wsName = (p: Record<string, unknown>) => String(p.name || shell?.active || '');
+const wsProp = { id: 'name', label: 'Workspace', type: 'string' as const, default: '', hidden: true };
+
+registerOperators([
+  { idname: 'workspace.duplicate', label: 'Duplicate Workspace', description: 'Add a copy of the workspace with the same layout', undo: false, props: [wsProp], poll: () => !!shell, exec: (_c, p) => shell.duplicateWorkspace(wsName(p)) },
+  { idname: 'workspace.delete', label: 'Delete Workspace', description: 'Remove the workspace tab', undo: false, props: [wsProp], poll: () => !!shell && shell.workspaces.length > 1, exec: (_c, p) => shell.deleteWorkspace(wsName(p)) },
+  { idname: 'workspace.reorder_to_front', label: 'Reorder Workspace to Front', description: 'Move the workspace tab to the start of the list', undo: false, props: [wsProp], poll: () => !!shell, exec: (_c, p) => shell.moveWorkspace(wsName(p), 'FRONT') },
+  { idname: 'workspace.reorder_to_back', label: 'Reorder Workspace to Back', description: 'Move the workspace tab to the end of the list', undo: false, props: [wsProp], poll: () => !!shell, exec: (_c, p) => shell.moveWorkspace(wsName(p), 'BACK') },
+  { idname: 'workspace.delete_all_others', label: 'Delete All Other Workspaces', description: 'Remove every workspace tab except this one', undo: false, props: [wsProp], poll: () => !!shell && shell.workspaces.length > 1, exec: (_c, p) => shell.deleteOtherWorkspaces(wsName(p)) },
+  {
+    idname: 'screen.toggle_statusbar',
+    label: 'Show Status Bar',
+    description: 'Show or hide the status bar at the bottom of the window',
+    undo: false,
+    poll: () => !!shell,
+    exec: () => shell.setStatusbarShown(!shell.showStatusbar),
+  },
+]);
 
 registerOperators([
   {

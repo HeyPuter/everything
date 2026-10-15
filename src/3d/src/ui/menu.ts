@@ -123,6 +123,11 @@ function renderMenu(m: OpenMenu) {
           renderMenu(m);
         },
         onpointerup: (e: PointerEvent) => {
+          // the release of the click that opened a context menu does not pick an item
+          // (press, drag onto an item and release still does)
+          const p = openPress;
+          openPress = null;
+          if (p && performance.now() - p.t < 500 && Math.hypot(e.clientX - p.x, e.clientY - p.y) < 5) return;
           if (e.button === 0 || e.button === 2) activate(m, item, e);
         },
       },
@@ -177,8 +182,33 @@ function createMenu(items: MenuItem[], x: number, y: number, parent?: OpenMenu, 
   return m;
 }
 
+let capturing: MenuItem[][] | null = null;
+/** Where and when the last context menu was opened at the pointer. */
+let openPress: { t: number; x: number; y: number } | null = null;
+
+/**
+ * Run `open` (code that would open a menu, e.g. a header button's pointer handler) and return the
+ * menu's items instead of showing it. Used for collapsed header menus and menu search.
+ */
+export function captureMenuItems(open: () => void): MenuItem[] {
+  const prev = capturing;
+  capturing = [];
+  try {
+    open();
+    return capturing[0] ?? [];
+  } catch {
+    return [];
+  } finally {
+    capturing = prev;
+  }
+}
+
 /** Open a popup menu at a screen position (or below an element). */
 export function openMenu(items: MenuItem[], at: { x: number; y: number } | HTMLElement, opts: { title?: string; under?: boolean } = {}) {
+  if (capturing) {
+    capturing.push(items);
+    return null;
+  }
   closeMenus();
   let x: number, y: number;
   if (at instanceof HTMLElement) {
@@ -193,6 +223,7 @@ export function openMenu(items: MenuItem[], at: { x: number; y: number } | HTMLE
   }
   const withTitle = opts.title ? [{ heading: opts.title }, ...items] : items;
   const m = createMenu(withTitle, x, y, undefined, opts.title);
+  openPress = at instanceof HTMLElement ? null : { t: performance.now(), x: at.x, y: at.y };
   // context menus open with the pointer over the first actionable item, like the reference app
   if (!(at instanceof HTMLElement) && !opts.under) {
     const firstIdx = withTitle.findIndex((i) => !i.heading && !i.separator);
