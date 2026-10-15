@@ -408,14 +408,14 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
         const active = pose && arm?.active_bone === bname;
         if (c.userData.boneFill) {
           const mm = (c as Mesh).material as MeshBasicMaterial;
-          mm.color.set(pose ? (active ? 0xbffbfe : selected ? 0x6bc7fd : 0x7b8999) : 0x8b8c8e);
+          mm.color.set(pose ? (active ? 0xa2f9fe : selected ? 0x44ccfc : 0x7b8999) : 0x8b8c8e);
           mm.opacity = sh.type === 'WIREFRAME' ? 0 : 0.85;
           mm.depthTest = !arm?.show_in_front;
         } else {
           const lm = (c as LineSegments).material as LineBasicMaterial;
           const eSel = armEdit && !!bone?.select,
             eAct = armEdit && arm?.active_bone === bname;
-          lm.color.copy(pose ? (active ? new Color(1, 1, 1) : selected ? new Color(0.418, 0.782, 0.991) : new Color(0, 0, 0)) : armEdit ? (eSel ? (eAct ? new Color(0.992, 0.818, 0.493) : new Color(0.96, 0.554, 0.015)) : new Color(0, 0, 0)) : col);
+          lm.color.copy(pose ? (active ? new Color(1, 1, 1) : selected ? new Color(0.268, 0.798, 0.989) : new Color(0, 0, 0)) : armEdit ? (eSel ? (eAct ? new Color(0.992, 0.818, 0.493) : new Color(0.96, 0.554, 0.015)) : new Color(0, 0, 0)) : col);
           lm.depthTest = !arm?.show_in_front;
         }
       }

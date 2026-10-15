@@ -241,7 +241,7 @@ export const THEME_GROUPS: ThemeGroup[] = [
       css('sy_reserved', 'Reserved', '--sy-reserved', '#bc783b'),
       css('sy_comment', 'Comment', '--sy-comment', '#929395'),
       css('sy_string', 'String', '--sy-string', '#e4d973'),
-      css('sy_numbers', 'Numbers', '--sy-numbers', '#6bd8e9'),
+      css('sy_numbers', 'Numbers', '--sy-numbers', '#3fdde2'),
     ],
   },
   {

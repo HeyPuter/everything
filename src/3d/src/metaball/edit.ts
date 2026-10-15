@@ -151,7 +151,7 @@ editModeHooks.svg.push((v) => {
     const e = mb.elements[g.index];
     const active = mb.active_element === g.index && e.select;
     const radCol = e.select ? (active ? '#ffffff' : '#f58e04') : '#d9dadc';
-    const stiffCol = e.select ? (active ? '#e5fedc' : '#93e16c') : '#579949';
+    const stiffCol = e.select ? (active ? '#e6fed9' : '#93e16c') : '#579949';
     const dash = e.use_negative ? '5 3' : undefined;
     parts.push(
       h(

@@ -8,7 +8,7 @@ import type { View3D } from '../../editors/view3d/view3d';
 import type { ModifierBase, NodeData, NodeTreeData } from '../../data/types';
 import { gizmoStates, matrixTargets, valueTargets, type GizmoState, type MatrixTarget, type ValueTarget } from './gizmos';
 
-const COLORS: Record<string, string> = { PRIMARY: '#f1aa19', SECONDARY: '#71c7f9', X: '#fc364b', Y: '#84e003', Z: '#398efc' };
+const COLORS: Record<string, string> = { PRIMARY: '#f1aa19', SECONDARY: '#51cbf7', X: '#fc364b', Y: '#84e003', Z: '#398efc' };
 const AXIS = ['#fc364b', '#84e003', '#398efc'];
 const GIZMO_TYPES = new Set(['GeometryNodeGizmoLinear', 'GeometryNodeGizmoDial', 'GeometryNodeGizmoTransform']);
 

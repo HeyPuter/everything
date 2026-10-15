@@ -171,6 +171,6 @@ export const HANDLE_COLORS: Record<KeyHandleType, [string, string]> = {
   FREE: ['#6e5a02', '#f7ca04'],
   AUTO: ['#701402', '#f92804'],
   VECTOR: ['#27236f', '#4b42fc'],
-  ALIGNED: ['#116f02', '#92fd84'],
+  ALIGNED: ['#116f02', '#7dfd6e'],
   AUTO_CLAMPED: ['#7e315c', '#ef939e'],
 };

@@ -56,7 +56,7 @@ export const COLORS = {
   outline: '#000000',
   marker: '#7a8102',
   active: '#ffffff',
-  selected: '#fcfecf',
+  selected: '#f0fb18',
   disabled: '#7c0802',
   locked: '#7e7f81',
   pathBefore: '#fb1104',
@@ -528,7 +528,7 @@ export class ClipEditor implements Editor {
     const t = activeTrack(c);
     if (t) {
       for (const m of t.markers) {
-        ctx.fillStyle = m.mute ? '#7c0802' : m.is_keyed ? '#fcfecf' : '#9ca223';
+        ctx.fillStyle = m.mute ? '#7c0802' : m.is_keyed ? '#f0fb18' : '#9ca223';
         ctx.fillRect(fx(m.frame), y, Math.max(1, fx(m.frame + 1) - fx(m.frame)), 4);
       }
     }

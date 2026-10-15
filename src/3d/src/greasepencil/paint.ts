@@ -513,7 +513,7 @@ editModeHooks.svg.push((v) => {
   return h(
     'g',
     { key: 'gp-fill-ext', 'pointer-events': 'none' },
-    fillPreview.lines.map(([x0, y0, x1, y1], i) => h('line', { key: i, x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#5ce4fd', 'stroke-width': 1.5, 'stroke-dasharray': b.fill_extend_mode === 'RADIUS' ? '3 2' : undefined })),
+    fillPreview.lines.map(([x0, y0, x1, y1], i) => h('line', { key: i, x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#04e9f5', 'stroke-width': 1.5, 'stroke-dasharray': b.fill_extend_mode === 'RADIUS' ? '3 2' : undefined })),
   );
 });
 

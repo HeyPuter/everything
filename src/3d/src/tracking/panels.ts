@@ -443,7 +443,7 @@ export function drawPatternPreviews(ed: ClipEditor) {
   ctx.drawImage(bmp, 0, 0, c.size[0], c.size[1]);
   ctx.filter = 'none';
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.strokeStyle = m.mute ? '#fc4239' : '#fcfecf';
+  ctx.strokeStyle = m.mute ? '#fc4239' : '#f0fb18';
   ctx.lineWidth = 1;
   ctx.beginPath();
   g.corners.forEach((p, i) => (i ? ctx.lineTo(p[0] * k + ox, p[1] * k + oy) : ctx.moveTo(p[0] * k + ox, p[1] * k + oy)));

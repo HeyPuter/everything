@@ -78,7 +78,7 @@ export function drawScope(g: CanvasRenderingContext2D, mode: ScopeMode, px: Uint
     const hist = histogram(px);
     const max = Math.max(1, ...hist.slice(0, 3).map((c) => Math.max(...c.subarray(1, 255))));
     g.globalCompositeOperation = 'lighter';
-    const cols = ['rgba(252, 63, 53,0.7)', 'rgba(112, 253, 119,0.7)', 'rgba(79, 108, 252,0.7)'];
+    const cols = ['rgba(252, 63, 53,0.7)', 'rgba(83, 252, 91,0.7)', 'rgba(79, 108, 252,0.7)'];
     for (let c = 0; c < 3; c++) {
       g.fillStyle = cols[c];
       g.beginPath();

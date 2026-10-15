@@ -254,8 +254,8 @@ editModeHooks.box.push((v, x0, y0, x1, y1, mode) => (inCurveEdit() ? regionSelec
 editModeHooks.region.push((v, r, mode) => (inCurveEdit() ? regionSelect(v, r, mode, r.kind === 'circle' ? 'Circle Select' : 'Lasso Select') : false));
 
 const HANDLE_COLORS: Record<HandleType, [string, string]> = {
-  FREE: ['#000000', '#f5feb8'],
-  AUTO: ['#899102', '#f5feb8'],
+  FREE: ['#000000', '#e7fc57'],
+  AUTO: ['#899102', '#e7fc57'],
   VECTOR: ['#3d8f32', '#3cc233'],
   ALIGNED: ['#7e315c', '#ef939e'],
 };

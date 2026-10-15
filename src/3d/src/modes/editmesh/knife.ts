@@ -29,8 +29,8 @@ editModeHooks.svg.push((v) => {
     return h(
       'g',
       { key: i },
-      h('path', { d: line.map((p, k) => `${k ? 'L' : 'M'}${p.screen.x.toFixed(1)} ${p.screen.y.toFixed(1)}`).join(''), fill: 'none', stroke: '#58fcb2', 'stroke-width': 1.6 }),
-      pts.map((p, k) => h('circle', { key: k, cx: p.screen.x, cy: p.screen.y, r: 3.5, fill: '#58fcb2' })),
+      h('path', { d: line.map((p, k) => `${k ? 'L' : 'M'}${p.screen.x.toFixed(1)} ${p.screen.y.toFixed(1)}`).join(''), fill: 'none', stroke: '#18fb95', 'stroke-width': 1.6 }),
+      pts.map((p, k) => h('circle', { key: k, cx: p.screen.x, cy: p.screen.y, r: 3.5, fill: '#18fb95' })),
     );
   });
   if (state.cursor) parts.push(h('circle', { cx: state.cursor.screen.x, cy: state.cursor.screen.y, r: 4, fill: 'none', stroke: '#ffffff', 'stroke-width': 1.5 }));

@@ -31,11 +31,11 @@ const C = {
   edgeSel: new Color().setRGB(0.961, 0.63, 0.015).convertSRGBToLinear(),
   edgeModeSel: new Color().setRGB(0.971, 0.872, 0.015).convertSRGBToLinear(),
   seam: new Color().setRGB(0.831, 0.189, 0.081).convertSRGBToLinear(),
-  sharp: new Color().setRGB(0.598, 0.974, 0.994).convertSRGBToLinear(),
+  sharp: new Color().setRGB(0.094, 0.942, 0.986).convertSRGBToLinear(),
   crease: new Color().setRGB(0.8, 0.012, 0.564).convertSRGBToLinear(),
   faceSel: new Color().setRGB(0.962, 0.668, 0.015).convertSRGBToLinear(),
   active: new Color(1, 1, 1),
-  normal: new Color().setRGB(0.342, 0.862, 0.889).convertSRGBToLinear(),
+  normal: new Color().setRGB(0.212, 0.835, 0.868).convertSRGBToLinear(),
 };
 /** Edit-mode colours (Preferences ▸ Themes writes them). */
 export const editMeshColors = C;
