@@ -347,8 +347,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
             { className: 'seq-overlap', tip: 'Overlap Mode\nHow to resolve overlap after transformation' },
           )
         : null,
-      tl
-        ? h(
+      h(
             'div',
             { class: 'hdr-group', key: 'snap' },
             h('button', { class: { 'hdr-toggle': true, on: snap }, 'data-tip': 'Snap\nSnap strips during transform (Shift Tab)', onclick: () => ((app.doc.scene.tool_settings.use_snap_sequencer = !snap), app.changed('ui')) }, icon(snap ? 'snap_on' : 'snap_off')),
@@ -364,8 +363,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
               },
               icon('down_arrow_hlt', 'tiny'),
             ),
-          )
-        : null,
+          ),
       this.hasPreview()
         ? h(
             'button',
@@ -406,10 +404,21 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     const ts = toolSettings();
     const t = (key: 'snap_to_current_frame' | 'snap_to_markers' | 'snap_ignore_muted' | 'snap_ignore_sound', label: string) =>
       checkbox(`seq-snap-${key}`, label, ts[key], (v) => ((ts[key] = v), app.pushUndo('Snapping'), app.changed('ui')));
+    const pt = (key: 'snap_to_borders' | 'snap_to_center' | 'snap_to_strips_preview', label: string) =>
+      checkbox(`seq-snap-${key}`, label, ts[key] !== false, (v) => ((ts[key] = v), app.pushUndo('Snapping'), app.changed('ui')));
     return h(
       'div',
       { class: 'pop-panel' },
-      h('div', { class: 'pop-title' }, 'Snapping'),
+      this.hasPreview() ? [h('div', { class: 'pop-title' }, 'Preview Snapping'), pt('snap_to_borders', 'Borders'), pt('snap_to_center', 'Center'), pt('snap_to_strips_preview', 'Other Strips')] : null,
+      this.hasTimeline() ? this.timelineSnap(t, ts) : null,
+    );
+  }
+
+  private timelineSnap(t: (key: 'snap_to_current_frame' | 'snap_to_markers' | 'snap_ignore_muted' | 'snap_ignore_sound', label: string) => Child, ts: ReturnType<typeof toolSettings>): Child {
+    return h(
+      'div',
+      null,
+      h('div', { class: 'pop-title' }, 'Sequencer Snapping'),
       h('div', { class: 'pop-label' }, 'Snap to'),
       t('snap_to_current_frame', 'Current Frame'),
       t('snap_to_markers', 'Markers'),

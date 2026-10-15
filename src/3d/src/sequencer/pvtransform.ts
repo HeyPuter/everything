@@ -161,9 +161,8 @@ export function startPreviewTransform(ed: SeqEditorLike, mode: PreviewMode, cx: 
   const P = pivotOf(snaps, pivot);
   const [fx0, fy0] = ed.previewToFrame(cx, cy);
   const st = { text: '', value: [0, 0] as number[], axis: null as 'X' | 'Y' | null, snapping: false };
-  const others = previewStrips(app.doc.scene.frame_current)
-    .filter((s) => !s.select)
-    .map(bounds);
+  const ts = toolSettings();
+  const others = ts.snap_to_strips_preview === false ? [] : previewStrips(app.doc.scene.frame_current).filter((s) => !s.select).map(bounds);
   const box: [number, number, number, number] = [Math.min(...snaps.map((s) => s.box[0])), Math.min(...snaps.map((s) => s.box[1])), Math.max(...snaps.map((s) => s.box[2])), Math.max(...snaps.map((s) => s.box[3]))];
   const snapOn = () => (app.doc.scene.tool_settings.use_snap_sequencer ?? true) !== st.snapping;
   let last = { x: cx, y: cy, shift: false };
@@ -186,7 +185,7 @@ export function startPreviewTransform(ed: SeqEditorLike, mode: PreviewMode, cx: 
       if (st.axis === 'Y') v[0] = 0;
       if (num === null && snapOn()) {
         const moved: [number, number, number, number] = [box[0] + v[0], box[1] + v[1], box[2] + v[0], box[3] + v[1]];
-        const [dx, dy] = snapDelta(moved, others, W, H, 10 / Math.max(1e-6, ed.previewScale()));
+        const [dx, dy] = snapDelta(moved, others, W, H, 10 / Math.max(1e-6, ed.previewScale()), { borders: ts.snap_to_borders !== false, center: ts.snap_to_center !== false });
         if (st.axis !== 'Y') v[0] += dx;
         if (st.axis !== 'X') v[1] += dy;
       }

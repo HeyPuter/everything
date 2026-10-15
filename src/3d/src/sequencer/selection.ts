@@ -159,9 +159,11 @@ export function rectLasso(r: { x0: number; y0: number; x1: number; y1: number },
 }
 
 /** Snap offset (px) moving the selection's bounds onto frame borders / centre or other strips. */
-export function snapDelta(box: [number, number, number, number], others: [number, number, number, number][], W: number, H: number, threshold: number): [number, number] {
-  const tx = [0, W / 2, W],
-    ty = [0, H / 2, H];
+export function snapDelta(box: [number, number, number, number], others: [number, number, number, number][], W: number, H: number, threshold: number, opts: { borders?: boolean; center?: boolean } = {}): [number, number] {
+  const tx: number[] = [],
+    ty: number[] = [];
+  if (opts.borders !== false) tx.push(0, W), ty.push(0, H);
+  if (opts.center !== false) tx.push(W / 2), ty.push(H / 2);
   for (const b of others) {
     tx.push(b[0], (b[0] + b[2]) / 2, b[2]);
     ty.push(b[1], (b[1] + b[3]) / 2, b[3]);

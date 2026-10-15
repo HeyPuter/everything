@@ -293,6 +293,10 @@ export interface SequencerToolSettings {
   snap_ignore_muted: boolean;
   snap_ignore_sound: boolean;
   snap_distance: number;
+  /** preview snapping targets */
+  snap_to_borders?: boolean;
+  snap_to_center?: boolean;
+  snap_to_strips_preview?: boolean;
   /** preview transforms pivot around this */
   pivot_point?: 'MEDIAN_POINT' | 'BOUNDING_BOX_CENTER' | 'CURSOR' | 'INDIVIDUAL_ORIGINS';
   /** 2D cursor of the preview, output pixels from the frame centre */
