@@ -3,4 +3,5 @@ import './zones.css';
 import './editor';
 import './bakeops';
 import './panels';
+import './zoneops';
 export {};

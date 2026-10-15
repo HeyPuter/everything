@@ -106,10 +106,13 @@ export function connect(ctx: SocketContext, fromNode: string, fromSocket: string
     to = nodeById(tree, toNode);
   if (!from || !to) return null;
   if (dependsOn(tree, toNode, fromNode)) return null;
-  // extend sockets on group input / output
-  if (fromSocket === EXTEND_SOCKET || toSocket === EXTEND_SOCKET) {
-    if (fromSocket === EXTEND_SOCKET && toSocket === EXTEND_SOCKET) return null;
-    if (fromSocket === EXTEND_SOCKET) {
+  // extend sockets on group input / output (other nodes' extend sockets are handled by their owners)
+  const groupIO = (n: NodeData) => n.type === 'NodeGroupInput' || n.type === 'NodeGroupOutput';
+  const fromExt = fromSocket === EXTEND_SOCKET && groupIO(from),
+    toExt = toSocket === EXTEND_SOCKET && groupIO(to);
+  if (fromExt || toExt) {
+    if (fromExt && toExt) return null;
+    if (fromExt) {
       const target = findSocket(to, toSocket, false, ctx);
       if (!target) return null;
       fromSocket = addInterfaceSocket(tree, 'INPUT', target.name || 'Value', target.type === 'CUSTOM' ? 'FLOAT' : target.type, socketDefaultFor(to, target)).identifier;

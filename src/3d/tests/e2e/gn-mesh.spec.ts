@@ -92,3 +92,67 @@ test('simulation zone: frames step, the modifier panel bakes and deletes the bak
   await expect(page.locator('.gn-bake-status').first()).not.toContainText('Baked');
   await expectNoErrors(errors);
 });
+
+test('zone items: links to the extend socket become items; the sidebar list adds and removes them', async ({ page }) => {
+  const { errors, box } = await geometryEditor(page);
+  const ids = await page.evaluate(async () => {
+    const { addNode, connect, ctxOf } = await import('/src/nodes/tree.ts');
+    const { getNodeType } = await import('/src/nodes/registry.ts');
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const tree = a.hoverArea.editor.tree();
+    const i = addNode(tree, 'GeometryNodeRepeatInput', [-200, 200]);
+    const o = getNodeType('GeometryNodeRepeatInput').onAdd(tree, i)[0];
+    const v = addNode(tree, 'ShaderNodeValue', [-450, 100]);
+    connect(ctxOf(a.doc, tree), v.id, 'Value', i.id, '__extend__');
+    for (const n of tree.nodes) n.select = false;
+    o.select = true;
+    tree.active_node = o.id;
+    a.changed('doc');
+    return { i: i.id, o: o.id, v: v.id };
+  });
+  await page.waitForTimeout(100);
+  const items = () => withTree<string[]>(page, `(ed, t) => JSON.parse(t.nodes.find((n) => n.id === '${ids.o}').props.repeat_items).map((x) => x.name + ':' + x.socket_type)`);
+  expect(await items()).toEqual(['Geometry:GEOMETRY', 'Value:FLOAT']);
+  expect(await withTree(page, `(ed, t) => t.links.some((l) => l.from_node === '${ids.v}' && l.to_node === '${ids.i}' && l.to_socket.startsWith('Item_'))`)).toBe(true);
+  // sidebar ▸ Node tab: the item list of the zone
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.press('n');
+  await page.locator('.nd-side-tab', { hasText: 'Node' }).first().click();
+  const list = page.locator('.gn-zone-items').first();
+  await expect(list).toContainText('Repeat Items');
+  await list.locator('button[data-tip="Add"]').click();
+  expect(await items()).toEqual(['Geometry:GEOMETRY', 'Value:FLOAT', 'Float:FLOAT']);
+  await list.locator('button[data-tip="Remove"]').click();
+  expect(await items()).toEqual(['Geometry:GEOMETRY', 'Value:FLOAT']);
+  // the item operators work on the active zone node too
+  await page.evaluate(() => (window as unknown as { app: { run(id: string, p: object): void } }).app.run('node.repeat_zone_item_add', { socket_type: 'VECTOR' }));
+  expect(await items()).toEqual(['Geometry:GEOMETRY', 'Value:FLOAT', 'Vector:VECTOR']);
+  await expectNoErrors(errors);
+});
+
+test('mesh operation, sampling and instance nodes are in the Add menu', async ({ page }) => {
+  const { errors } = await geometryEditor(page);
+  const open = async (...path: string[]) => {
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Shift+A');
+    for (const p of path) await menuItem(page, p).hover();
+  };
+  await open('Mesh', 'Operations');
+  for (const l of ['Dual Mesh', 'Edge Paths to Curves', 'Mesh Bevel', 'Mesh Boolean', 'Scale Elements', 'Split Edges']) await expect(menuItem(page, l)).toBeVisible();
+  await open('Mesh', 'UV');
+  for (const l of ['Pack UV Islands', 'UV Unwrap']) await expect(menuItem(page, l)).toBeVisible();
+  await open('Geometry', 'Sample');
+  for (const l of ['Geometry Proximity', 'Index of Nearest', 'Raycast', 'Sample Nearest']) await expect(menuItem(page, l)).toBeVisible();
+  await open('Geometry', 'Operations');
+  for (const l of ['Bake', 'Duplicate Elements', 'Merge Points', 'Sort Elements', 'Split to Instances']) await expect(menuItem(page, l)).toBeVisible();
+  await open('Simulation');
+  await page
+    .locator('.menu')
+    .last()
+    .locator('.menu-item', { hasText: /^Simulation$/ })
+    .click();
+  await page.mouse.move(420, 610, { steps: 3 });
+  await page.mouse.click(420, 610);
+  expect(await withTree(page, `(ed, t) => t.nodes.filter((n) => n.type.startsWith('GeometryNodeSimulation')).length`)).toBe(2);
+  await expectNoErrors(errors);
+});
