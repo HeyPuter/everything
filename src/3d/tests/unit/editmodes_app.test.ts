@@ -246,3 +246,24 @@ describe('B-Bone size', () => {
     expect(b.bbone_z).toBeCloseTo(0.2, 6);
   });
 });
+
+describe('recalculate roll', () => {
+  it('aims the bone Z axis at a global axis and keeps it with the active bone', () => {
+    app.run('object.select_all', { action: 'DESELECT' });
+    app.run('object.armature_add');
+    app.run('object.mode_set', { mode: 'EDIT' });
+    const arm = app.doc.armatures[app.activeObject!.data!];
+    app.run('armature.select_all', { action: 'SELECT' });
+    for (const [type, want] of [
+      ['GLOBAL_POS_X', [1, 0, 0]],
+      ['GLOBAL_NEG_Y', [0, -1, 0]],
+    ] as const) {
+      app.run('armature.calculate_roll', { type });
+      const z = new V3(0, 0, 1).transformDirection(boneRestMatrix(arm.bones[0]));
+      expect(z.distanceTo(new V3(...want))).toBeLessThan(1e-5);
+    }
+    app.run('armature.calculate_roll', { type: 'GLOBAL_POS_X', axis_flip: true });
+    const z = new V3(0, 0, 1).transformDirection(boneRestMatrix(arm.bones[0]));
+    expect(z.distanceTo(new V3(-1, 0, 0))).toBeLessThan(1e-5);
+  });
+});

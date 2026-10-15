@@ -2,7 +2,7 @@
 import { Matrix4, Quaternion, Vector3, Matrix3 } from 'three';
 import { app, registerOperators, type OpContext } from '../../app/app';
 import { editModeHooks } from '../../editors/view3d/hooks';
-import type { View3D } from '../../editors/view3d/view3d';
+import { activeView3D, type View3D } from '../../editors/view3d/view3d';
 import { h } from '../../ui/h';
 import type { ArmatureData, Bone, ObjectData, PoseBone } from '../../data/types';
 import { transformProviders, startTransform, type TElement } from '../../ops/transform';
@@ -386,6 +386,23 @@ frameHooks.unshift(() => {
 // ---------------------------------------------------------------------------
 // operators
 
+/** Recalculate Roll directions. */
+export const ROLL_TYPES: [string, string][] = [
+  ['POS_X', 'Local +X Tangent'],
+  ['POS_Z', 'Local +Z Tangent'],
+  ['GLOBAL_POS_X', 'Global +X Axis'],
+  ['GLOBAL_POS_Y', 'Global +Y Axis'],
+  ['GLOBAL_POS_Z', 'Global +Z Axis'],
+  ['NEG_X', 'Local -X Tangent'],
+  ['NEG_Z', 'Local -Z Tangent'],
+  ['GLOBAL_NEG_X', 'Global -X Axis'],
+  ['GLOBAL_NEG_Y', 'Global -Y Axis'],
+  ['GLOBAL_NEG_Z', 'Global -Z Axis'],
+  ['ACTIVE', 'Active Bone'],
+  ['VIEW', 'View Axis'],
+  ['CURSOR', 'Cursor'],
+];
+
 const armEditPoll = (ctx: OpContext) => ctx.doc.mode === 'EDIT' && !!activeArmature();
 const posePoll = (ctx: OpContext) => ctx.doc.mode === 'POSE' && !!activeArmature();
 
@@ -610,25 +627,60 @@ registerOperators([
   {
     idname: 'armature.calculate_roll',
     label: 'Recalculate Roll',
-    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'POS_X', items: [['POS_X', 'Local +X Tangent'], ['GLOBAL_POS_Z', 'Global +Z Axis'], ['CURSOR', 'Cursor']] }],
+    description: 'Point the roll axis of the selected bones in a chosen direction',
+    props: [
+      { id: 'type', label: 'Type', type: 'enum', default: 'POS_X', items: ROLL_TYPES },
+      { id: 'axis_flip', label: 'Flip Axis', type: 'bool', default: false },
+      { id: 'axis_only', label: 'Shortest Rotation', type: 'bool', default: false },
+    ],
     poll: armEditPoll,
     exec: (ctx, p) => {
       const { ob, arm } = activeArmature()!;
+      const inv = world(ob).clone().invert();
+      const type = p.type as string;
+      const byName = new Map(arm.bones.map((b) => [b.name, b]));
+      const act = arm.bones.find((b) => b.name === arm.active_bone);
+      const actZ = act ? new Vector3(0, 0, 1).transformDirection(boneRestMatrix(act)) : null;
+      const view = activeView3D();
+      const viewDir = view ? new Vector3(0, 0, -1).applyQuaternion(view.camera.quaternion).transformDirection(inv).negate() : new Vector3(0, -1, 0);
       for (const b of arm.bones) {
-        if (!b.select) continue;
+        if (!b.select || !boneVisible(arm, b)) continue;
         const y = V(b.tail).sub(V(b.head)).normalize();
-        let target = new Vector3(0, 0, 1);
-        if (p.type === 'CURSOR') target = V(ctx.doc.scene.cursor.location).applyMatrix4(world(ob).clone().invert()).sub(V(b.head));
-        // choose roll so the bone's Z axis points towards the target (projected)
+        // which local axis is aimed (X types aim the X axis, everything else the Z axis)
+        const aimX = type === 'POS_X' || type === 'NEG_X';
+        let target: Vector3 | null = null;
+        if (type.startsWith('GLOBAL_')) {
+          const ax = type.endsWith('X') ? new Vector3(1, 0, 0) : type.endsWith('Y') ? new Vector3(0, 1, 0) : new Vector3(0, 0, 1);
+          if (type.includes('NEG')) ax.negate();
+          target = ax.transformDirection(inv);
+        } else if (type === 'CURSOR') target = V(ctx.doc.scene.cursor.location).applyMatrix4(inv).sub(V(b.head));
+        else if (type === 'VIEW') target = viewDir.clone();
+        else if (type === 'ACTIVE') target = actZ?.clone() ?? null;
+        else {
+          // local tangents: the direction the chain bends in (towards the parent / child bone)
+          const par = b.parent ? byName.get(b.parent) : undefined;
+          const child = arm.bones.find((c) => c.parent === b.name && c.use_connect);
+          const other = par ? V(par.head).sub(V(par.tail)).normalize() : child ? V(child.tail).sub(V(child.head)).normalize() : null;
+          if (other) {
+            const t = other.clone().sub(y.clone().multiplyScalar(other.dot(y)));
+            if (t.lengthSq() > 1e-10) target = t;
+          }
+          target ??= new Vector3(0, 0, 1);
+          if (type.startsWith('NEG')) target.negate();
+        }
+        if (!target) continue;
+        if (p.axis_flip) target.negate();
+        const t = target.clone().sub(y.clone().multiplyScalar(target.dot(y)));
+        if (t.lengthSq() < 1e-12) continue;
+        t.normalize();
         b.roll = 0;
         const m0 = boneRestMatrix(b);
-        const z0 = new Vector3(0, 0, 1).transformDirection(m0);
-        const t = target.clone().sub(y.clone().multiplyScalar(target.dot(y))).normalize();
-        if (t.lengthSq() > 0) {
-          let ang = Math.acos(Math.max(-1, Math.min(1, z0.dot(t))));
-          if (z0.clone().cross(t).dot(y) < 0) ang = -ang;
-          b.roll = ang;
-        }
+        const axis0 = new Vector3(aimX ? 1 : 0, 0, aimX ? 0 : 1).transformDirection(m0);
+        let ang = Math.acos(Math.max(-1, Math.min(1, axis0.dot(t))));
+        if (axis0.clone().cross(t).dot(y) < 0) ang = -ang;
+        // shortest rotation: the axis may point either way
+        if (p.axis_only && Math.abs(ang) > Math.PI / 2) ang -= Math.sign(ang) * Math.PI;
+        b.roll = ang;
       }
     },
   },

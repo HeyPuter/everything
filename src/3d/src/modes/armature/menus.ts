@@ -6,18 +6,13 @@ import { app } from '../../app/app';
 import { modeMenus } from '../../editors/view3d/modemenus';
 import { addKeys } from '../../app/keymap';
 import type { MenuItem } from '../../ui/menu';
-import { activeArmature } from './armature';
+import { activeArmature, ROLL_TYPES } from './armature';
 import { boneOptionsMenu } from './editops';
 import { collectionMenuItems } from './collections';
 import { transformSubmenu, mirrorSubmenu, snapSubmenu, showHideSubmenu } from '../common-menus';
 
 const inArmEdit = () => app.doc.mode === 'EDIT' && !!activeArmature();
 
-const ROLL_TYPES: [string, string][] = [
-  ['POS_X', 'Local +X Tangent'],
-  ['GLOBAL_POS_Z', 'Global +Z Axis'],
-  ['CURSOR', 'Cursor'],
-];
 
 function rollMenu(): MenuItem[] {
   return [
