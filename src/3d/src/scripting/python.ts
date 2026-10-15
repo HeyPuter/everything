@@ -210,6 +210,11 @@ export const bridge = {
   list(o: Iterable<unknown>) {
     return [...o].map(out);
   },
+  /** Items with their wrap kinds in one call (iteration over big collections). */
+  listkinds(o: Iterable<unknown>) {
+    const items = [...o].map(out);
+    return [items, items.map((x) => (x === null || x === undefined || typeof x !== 'object' ? '' : bridge.wrapkind(x)))];
+  },
   same(a: unknown, b: unknown) {
     if (a === b) return true;
     if (isIdWrapper(a) && isIdWrapper(b)) return a.__id === b.__id;

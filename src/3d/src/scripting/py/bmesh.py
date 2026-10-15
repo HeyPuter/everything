@@ -87,7 +87,7 @@ class _DeformVert(bpy._Struct):
 _PYCLASS = {"seq": _ElemSeq, "deform": _DeformVert}
 
 
-def _wrap(v):
+def _wrap(v, kind=None):
     if isinstance(v, JsProxy):
         try:
             tag = getattr(v, "_bmpy")
@@ -97,7 +97,7 @@ def _wrap(v):
             cls = _PYCLASS.get(str(tag))
             if cls is not None:
                 return cls(v)
-    return _orig_wrap(v)
+    return _orig_wrap(v, kind)
 
 
 bpy._wrap = _wrap

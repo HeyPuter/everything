@@ -95,12 +95,13 @@ def _is_null(v):
     return v is None or type(v).__name__ in ("JsNull", "JsUndefined")
 
 
-def _wrap(v):
+def _wrap(v, kind=None):
     if _is_null(v):
         return None
     if not isinstance(v, JsProxy):
         return v
-    kind = _br.wrapkind(v)
+    if not kind:
+        kind = _br.wrapkind(v)
     if kind.startswith("b:"):
         _, k, n = kind.split(":")
         return _BOUND[k](v, int(n))
@@ -232,7 +233,9 @@ class _Collection(_Struct):
         return int(_call(_br.len, self._js))
 
     def __iter__(self):
-        return iter([_wrap(x) for x in _call(_br.list, self._js)])
+        r = _call(_br.listkinds, self._js)
+        items, kinds = r[0], r[1].to_py()
+        return iter([_wrap(x, k) for x, k in zip(items, kinds)])
 
     def __getitem__(self, key):
         if isinstance(key, slice):
