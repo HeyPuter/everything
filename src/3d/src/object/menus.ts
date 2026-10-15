@@ -291,6 +291,8 @@ export function objectMenu(): MenuItem[] {
     { label: 'Animation', submenu: animationMenu },
     { label: 'Rigid Body', submenu: rigidBodyMenu },
     { separator: true },
+    { label: 'Quick Effects', submenu: () => [{ label: 'Quick Fur', op: 'object.quick_fur' }, { label: 'Quick Smoke', op: 'object.quick_smoke' }] },
+    { separator: true },
     { label: 'Convert', submenu: convertMenu },
     { separator: true },
     { label: 'Show/Hide', submenu: showHideMenu },

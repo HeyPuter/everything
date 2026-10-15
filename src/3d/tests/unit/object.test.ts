@@ -827,3 +827,30 @@ describe('speakers', () => {
     expect(sp.speaker!.sound).not.toBeNull();
   });
 });
+
+describe('quick effects', () => {
+  it('sets up a smoke domain around the emitters', async () => {
+    await import('../../src/physics/index');
+    const ob = cube();
+    ob.location = [1, 2, 0.5];
+    select(ob);
+    run('object.quick_smoke');
+    const dom = app.activeObject!;
+    expect(dom.name).toBe('Smoke Domain');
+    expect(dom.location.map((v) => +v.toFixed(3))).toEqual([1, 2, 1.5]);
+    expect(dom.scale.map((v) => +v.toFixed(3))).toEqual([2, 2, 3]);
+    expect((dom.modifiers[0] as Record<string, unknown>).fluid_type).toBe('DOMAIN');
+    expect((ob.modifiers[0] as Record<string, unknown>).fluid_type).toBe('FLOW');
+  });
+
+  it('grows fur as a hair particle system', async () => {
+    await import('../../src/physics/index');
+    const ob = cube();
+    select(ob);
+    run('object.quick_fur', { density: 'LOW', length: 0.3 });
+    expect(ob.particle_systems.length).toBe(1);
+    const s = app.doc.particles[ob.particle_systems[0].settings] as unknown as { type: string; count: number; hair_length: number };
+    expect([s.type, s.count, s.hair_length]).toEqual(['HAIR', 1000, 0.3]);
+    expect(ob.modifiers.some((m) => m.type === 'PARTICLE_SYSTEM')).toBe(true);
+  });
+});

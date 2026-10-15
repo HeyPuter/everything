@@ -12,4 +12,5 @@ import './vweights';
 import './rigidmass';
 import './collections';
 import './speaker';
+import './quickfx';
 import './keys';
