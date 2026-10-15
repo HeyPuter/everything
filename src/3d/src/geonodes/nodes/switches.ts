@@ -61,7 +61,7 @@ function choiceField(t: FieldType, selector: Field, options: Field[], pick: (sel
 // ---------------------------------------------------------------------------
 // Index Switch
 
-const indexItems = (n: NodeData) =>
+export const indexItems = (n: NodeData) =>
   readItems(n, 'index_switch_items', [
     { id: 0, name: '0' },
     { id: 1, name: '1' },
