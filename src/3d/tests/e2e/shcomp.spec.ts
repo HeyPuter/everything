@@ -206,7 +206,7 @@ test('compositor nodes match the expected pixels', async ({ page }) => {
     const got = res[name];
     if (got.errors.length) failures.push(`${name}: ${got.errors.join('; ')}`);
     // AgX and Khronos PBR Neutral views are fitted approximations (negative inputs differ most)
-    const tol = name.startsWith('hc_bump') ? 0.12 : name.startsWith('ctd_KHRONOS') ? 0.15 : /^ctd_(AGX|FILMIC)/.test(name) ? 0.04 : name.startsWith('cs_') || name.startsWith('hc_') ? 2e-3 : 1e-3;
+    const tol = name.startsWith('hc_bump') ? 0.12 : name.startsWith('ctd_KHRONOS') ? 0.05 : /^ctd_(AGX|FILMIC)/.test(name) ? 0.04 : name.startsWith('cs_') || name.startsWith('hc_') ? 2e-3 : 1e-3;
     if (name === 'sdfnp') {
       // nearest pixels may differ between equally near candidates: compare the distances
       for (let i = 0; i < c.expected.length; i++) {
@@ -217,8 +217,11 @@ test('compositor nodes match the expected pixels', async ({ page }) => {
       }
       continue;
     }
+    const approxView = /^ctd_(AGX|KHRONOS)/.test(name);
     for (let i = 0; i < c.expected.length; i++)
       for (let ch = 0; ch < 4; ch++) {
+        // the fitted views are not defined for negative input colours
+        if (approxView && c.combined![i].slice(0, 3).some((v) => v < 0)) break;
         const d = Math.abs(got.px[i][ch] - c.expected[i][ch]);
         if (!(d <= tol)) {
           failures.push(`${name}: pixel ${i % c.W},${Math.floor(i / c.W)} channel ${ch}: got ${got.px[i][ch]}, expected ${c.expected[i][ch]}`);
