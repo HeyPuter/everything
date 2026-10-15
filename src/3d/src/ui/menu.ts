@@ -44,9 +44,31 @@ interface OpenMenu {
   parent?: OpenMenu;
   child?: OpenMenu;
   owner?: HTMLElement;
+  /** pointer position and press count when the menu opened (a release without a drag doesn't activate) */
+  openX?: number;
+  openY?: number;
+  openPresses?: number;
 }
 
 const stack: OpenMenu[] = [];
+let pointerX = 0,
+  pointerY = 0,
+  presses = 0;
+addEventListener('pointermove', (e) => ((pointerX = e.clientX), (pointerY = e.clientY)), { capture: true, passive: true });
+addEventListener('pointerdown', (e) => ((pointerX = e.clientX), (pointerY = e.clientY), presses++), { capture: true, passive: true });
+
+/**
+ * Releasing the button that opened a menu (e.g. a right-click) picks an item only after the
+ * pointer was dragged onto it; releasing in place leaves the menu open.
+ */
+function isOpeningRelease(m: OpenMenu, e: PointerEvent) {
+  const root = rootOf(m);
+  if (root.openPresses === undefined || presses !== root.openPresses) return false;
+  return Math.hypot(e.clientX - (root.openX ?? 0), e.clientY - (root.openY ?? 0)) < 6;
+}
+function rootOf(m: OpenMenu): OpenMenu {
+  return m.parent ? rootOf(m.parent) : m;
+}
 let closeCallbacks: (() => void)[] = [];
 
 export function anyPopupOpen() {
@@ -123,7 +145,7 @@ function renderMenu(m: OpenMenu) {
           renderMenu(m);
         },
         onpointerup: (e: PointerEvent) => {
-          if (e.button === 0 || e.button === 2) activate(m, item, e);
+          if ((e.button === 0 || e.button === 2) && !isOpeningRelease(m, e)) activate(m, item, e);
         },
       },
       h('span', { class: 'mi-icon' }, item.checked !== undefined ? icon(item.checked ? 'checkbox_hlt' : 'checkbox_dehlt') : item.active ? icon('dot') : item.icon ? icon(item.icon) : null),
@@ -162,7 +184,7 @@ function createMenu(items: MenuItem[], x: number, y: number, parent?: OpenMenu, 
   el.className = 'menu';
   el.setAttribute('role', 'menu');
   ensureLayer().append(el);
-  const m: OpenMenu = { el, items, index: -1, parent };
+  const m: OpenMenu = { el, items, index: -1, parent, openX: pointerX, openY: pointerY, openPresses: presses };
   if (title) el.dataset.title = title;
   renderMenu(m);
   stack.push(m);
