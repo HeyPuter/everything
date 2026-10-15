@@ -275,7 +275,7 @@ export class Shell {
     }
     patch(this.status, [
       h('div', { class: 'sb-hints' }, m?.header ? h('span', { class: 'sb-modal' }, m.header()) : null, hints.map(([k, l]) => h('span', { class: 'sb-hint', key: k + l }, h('kbd', null, k), l))),
-      h('div', { class: 'sb-center' }, showReport ? h('span', { class: `sb-report ${last.type.toLowerCase()}` }, icon(last.type === 'ERROR' ? 'error' : 'info_small'), last.message) : null),
+      h('div', { class: 'sb-center' }, statusWidgets.map((w) => w()), showReport ? h('span', { class: `sb-report ${last.type.toLowerCase()}` }, icon(last.type === 'ERROR' ? 'error' : 'info_small'), last.message) : null),
       h('div', { class: 'sb-right' }, this.fileStatus ? h('span', { class: 'sb-file' }, this.fileStatus) : null, h('span', { class: 'sb-stats' }, stats), h('span', { class: 'sb-version' }, 'v1.0')),
     ]);
   }
@@ -295,6 +295,9 @@ function appMenu(): MenuItem[] {
     { label: 'Install Application…', disabled: true },
   ];
 }
+
+/** Extra status bar content (e.g. the progress of a running render job), drawn before reports. */
+export const statusWidgets: (() => Child)[] = [];
 
 /** File ▸ New entries (application templates, e.g. 2D Animation); modules append to it. */
 export const fileNewTemplates: { label: string; icon?: string; template: string }[] = [{ label: 'General', icon: 'file_blank', template: '' }];
@@ -342,6 +345,9 @@ function renderMenu(): MenuItem[] {
     { label: 'Render Audio…', op: 'sound.mixdown' },
     { separator: true },
     { label: 'View Render', shortcut: 'F11', op: 'render.view_show' },
+    { label: 'View Animation', shortcut: 'Ctrl F11', op: 'render.play_rendered_anim' },
+    { separator: true },
+    { label: 'Lock Interface', checked: !!app.doc.scene.render.use_lock_interface, action: () => ((app.doc.scene.render.use_lock_interface = !app.doc.scene.render.use_lock_interface), app.pushUndo('Lock Interface'), app.changed('doc')) },
   ];
 }
 

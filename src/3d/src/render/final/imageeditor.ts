@@ -10,7 +10,11 @@ import { splitRow } from '../../ui/props';
 import { imageCanvas, imageTexture, touchImage, generatedPixels } from '../images';
 import { lastImage } from '../../ops/data';
 import type { ImageData as Img } from '../../data/types';
-import { renderResult, passToRGBA8, samplePixel, encodeRGBA8, canvasBytes, download, toBW, EXT, virtualImages, onVirtualImageChange, RENDER_SLOTS, type PassName, type ChannelMode, type FileFormat, type RenderResult } from './result';
+import { renderResult, passToRGBA8, samplePixel, encodeRGBA8, canvasBytes, download, toBW, EXT, virtualImages, onVirtualImageChange, RENDER_SLOTS, PASS_ORDER, PASS_LABELS, type PassName, type ChannelMode, type FileFormat, type RenderResult } from './result';
+import { renderSize } from './units';
+import { LOOKS } from './colormanage';
+import { pngWithText } from './stamp';
+import { num } from '../../ui/props';
 import { modifiedImages, type View2D } from './imageops';
 import { scopesPanel } from './scopes';
 import { lastOpPanel } from '../../ui/redo';
@@ -59,8 +63,7 @@ function resultLayer(r: RenderResult | null, layer: ResultLayer): RenderResult |
 
 function sceneView(r: RenderResult | null): ViewSettings {
   if (r?.view) return r.view;
-  const s = app.doc.scene.render;
-  return { view_transform: s.view_transform, exposure: s.exposure, gamma: s.gamma };
+  return app.doc.scene.render;
 }
 
 export class ImageEditor implements Editor, View2D {
@@ -76,6 +79,8 @@ export class ImageEditor implements Editor, View2D {
   fitted = false;
   showSidebar = false;
   sidebarTab = 'Image';
+  /** show the render info line over the image */
+  showMetadata = true;
   /** View or Paint; unset follows the object mode (Paint while in Texture Paint mode) */
   uiMode: 'VIEW' | 'PAINT' | null = null;
   showToolbar = true;
@@ -187,14 +192,14 @@ export class ImageEditor implements Editor, View2D {
   private passes(): PassName[] {
     const r = this.result;
     if (!r) return [];
-    return (['Combined', 'Depth', 'Normal', 'Mist'] as PassName[]).filter((p) => r.passes[p]);
+    return PASS_ORDER.filter((p) => r.passes[p]);
   }
 
   private sourceKey(): string {
     const r = this.result;
     if (r) {
       const v = sceneView(r);
-      return `R${this.imageId}|${this.imageId === RENDER_RESULT ? renderResult.slot : ''}|${r.version}|${this.layer}|${this.pass}|${this.channel}|${v.view_transform}|${v.exposure}|${v.gamma}|${r.width}x${r.height}`;
+      return `R${this.imageId}|${this.imageId === RENDER_RESULT ? renderResult.slot : ''}|${r.version}|${this.layer}|${this.pass}|${this.channel}|${v.view_transform}|${v.exposure}|${v.gamma}|${v.look}|${v.use_white_balance ? `${v.white_balance_temperature},${v.white_balance_tint}` : ''}|${r.width}x${r.height}|${r.overlay ? 'S' : ''}`;
     }
     const img = this.image;
     if (!img) return '';
@@ -249,7 +254,7 @@ export class ImageEditor implements Editor, View2D {
     return this.source();
   }
 
-  private imageSize(): [number, number] | null {
+  imageSize(): [number, number] | null {
     const r = this.result;
     if (r) return [r.width, r.height];
     const img = this.image;
@@ -353,6 +358,7 @@ export class ImageEditor implements Editor, View2D {
     this.lastKey = this.sourceKey();
     const src = this.source();
     const size = this.imageSize();
+    if (!src && this.imageId === RENDER_RESULT) return this.drawEmptyResult(ctx, w, hh);
     if (!src || !size) return;
     if (!this.fitted) {
       this.fitted = true;
@@ -404,15 +410,49 @@ export class ImageEditor implements Editor, View2D {
     }
   }
 
+  /** Empty Render Result: a transparent frame with the output's aspect ratio and a hint. */
+  private drawEmptyResult(ctx: CanvasRenderingContext2D, w: number, hh: number) {
+    const [W, H] = renderSize(app.doc.scene.render);
+    const k = Math.min((w * 0.62) / W, (hh * 0.62) / H);
+    const dw = Math.max(8, Math.round(W * k)),
+      dh = Math.max(8, Math.round(H * k));
+    const x = Math.round((w - dw) / 2),
+      y = Math.round((hh - dh) / 2);
+    ctx.fillStyle = emptyChecker(ctx);
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillRect(0, 0, dw, dh);
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x - 0.5, y - 0.5, dw + 1, dh + 1);
+    const font = getComputedStyle(this.el).fontFamily || 'system-ui, sans-serif';
+    const lines: [string, string, number][] = [
+      ['Render Result', '#d8d8d8', 15],
+      [`Press F12 to render the scene camera · ${W} × ${H} px`, '#9a9a9a', 12],
+    ];
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const cy = y + dh / 2;
+    lines.forEach(([text, color, size], i) => {
+      ctx.font = `${i === 0 ? 600 : 400} ${size}px ${font}`;
+      ctx.fillStyle = color;
+      ctx.fillText(text, x + dw / 2, cy + (i === 0 ? -11 : 11), Math.max(40, dw - 16));
+    });
+  }
+
   drawUI() {
     const r = this.result;
     const info: Child[] = [];
-    if (r) {
+    if (r && !this.showMetadata) {
+      // info line hidden (View ▸ Show Metadata)
+    } else if (r) {
       const i = r.info;
       const text = i.status ?? [`Frame:${i.frame}`, `Time:${formatTime(i.time)}`, i.engine, i.samples && i.maxSamples && i.maxSamples > 1 ? `Samples:${i.samples}` : '', i.camera ? `Camera:${i.camera}` : ''].filter(Boolean).join(' | ');
       info.push(h('div', { class: 'ie-meta', key: 'meta' }, text));
-    } else if (this.imageId === RENDER_RESULT) info.push(h('div', { class: 'ie-meta', key: 'meta' }, 'Render Result is empty: press F12 to render'));
-    else if (this.imageId && virtualImages.has(this.imageId)) info.push(h('div', { class: 'ie-meta', key: 'meta' }, `${virtualImages.get(this.imageId)!.label} is empty`));
+    } else if (this.imageId === RENDER_RESULT) {
+      // the empty result draws its own hint
+    } else if (this.imageId && virtualImages.has(this.imageId)) info.push(h('div', { class: 'ie-meta', key: 'meta' }, `${virtualImages.get(this.imageId)!.label} is empty`));
     const paint = this.paintMode();
     patch(this.ui, [
       ...info,
@@ -476,7 +516,7 @@ export class ImageEditor implements Editor, View2D {
         },
         label,
       );
-    const passItems = this.passes().map((p) => ({ value: p, label: p }));
+    const passItems = this.passes().map((p) => ({ value: p, label: PASS_LABELS[p] }));
     return h(
       'div',
       { class: 'hdr-row ie-header' },
@@ -695,7 +735,8 @@ export class ImageEditor implements Editor, View2D {
       const alpha = colorMode === 'RGBA' && format !== 'JPEG';
       let px = passToRGBA8(r, this.pass, this.channel === 'Z' ? 'Z' : this.channel === 'ALPHA' ? 'ALPHA' : 'COLOR_ALPHA', sceneView(r), { keepAlpha: alpha && r.filmTransparent, dither: app.doc.scene.render.dither_intensity });
       if (colorMode === 'BW') px = toBW(px);
-      return encodeRGBA8(px, r.width, r.height, format, { alpha, quality });
+      const bytes = await encodeRGBA8(px, r.width, r.height, format, { alpha, quality });
+      return format === 'PNG' && r.metadata?.length && this.pass === 'Combined' ? pngWithText(bytes, r.metadata.map((f) => [f.key, f.value])) : bytes;
     }
     const img = this.image;
     if (!img) return null;
@@ -800,10 +841,9 @@ export class ImageEditor implements Editor, View2D {
     const r = this.result;
     const body: Child[] = [];
     if (r) {
-      const i = r.info;
       const row = (k: string, v: string) => splitRow(k, h('span', { class: 'ie-value' }, v));
       body.push(
-        panel('ie-render', 'Image', () => [row('Source', this.sourceLabel() ?? 'Render Result'), row('Resolution', `${r.width} × ${r.height}`), row('Passes', this.passes().join(', '))]),
+        panel('ie-render', 'Image', () => [row('Source', this.sourceLabel() ?? 'Render Result'), row('Resolution', `${r.width} × ${r.height}`), row('Passes', this.passes().map((p) => PASS_LABELS[p]).join(', '))]),
         ...(this.imageId === RENDER_RESULT
           ? [
               panel('ie-slots', 'Render Slots', () => [
@@ -822,7 +862,6 @@ export class ImageEditor implements Editor, View2D {
               ]),
             ]
           : []),
-        panel('ie-meta', 'Metadata', () => [row('Frame', String(i.frame)), row('Render Time', formatTime(i.time)), row('Engine', i.engine), i.samples ? row('Samples', `${i.samples}${i.maxSamples ? ' / ' + i.maxSamples : ''}`) : null, row('Camera', i.camera || '—'), row('Scene', i.scene)]),
       );
     } else if (img) {
       const set = (label: string) => {
@@ -873,18 +912,78 @@ export class ImageEditor implements Editor, View2D {
           : null,
       );
     } else body.push(h('div', { class: 'sb-empty' }, 'No image'));
-    const tabs = ['Image', 'Scopes'];
+    const tabs = r ? ['Image', 'View', 'Scopes', 'Metadata'] : ['Image', 'View', 'Scopes'];
     const tab = tabs.includes(this.sidebarTab) ? this.sidebarTab : 'Image';
     return h(
       'div',
       { key: 'sidebar', class: 'v3d-sidebar ie-sidebar' },
-      h('div', { class: 'sb-body' }, tab === 'Scopes' ? scopesPanel(this) : body),
+      h('div', { class: 'sb-body' }, tab === 'Scopes' ? scopesPanel(this) : tab === 'View' ? this.viewTab() : tab === 'Metadata' && r ? this.metadataTab(r) : body),
       h(
         'div',
         { class: 'sb-tabs' },
         tabs.map((t) => h('button', { key: t, class: { 'sb-tab': true, on: t === tab }, onclick: () => ((this.sidebarTab = t), this.drawUI()) }, t)),
       ),
     );
+  }
+
+  /** Sidebar ▸ View: display options (and the scene's colour management for render results). */
+  private viewTab(): Child {
+    const r = this.result;
+    const cm = app.doc.scene.render;
+    const looks = LOOKS[cm.view_transform] ? Object.keys(LOOKS[cm.view_transform]) : [];
+    const redraw = () => ((this.cache = null), this.draw(), this.drawUI(), this.host.redrawHeader());
+    return [
+      panel('ie-view-display', 'Display', () => [
+        splitRow('Zoom', numberField({ id: 'ie-zoom', value: this.zoom * 100, unit: 'percentage', min: 100 / 64, max: 25600, set: (v) => this.setRatio(v / 100) })),
+        splitRow('Channels', enumMenu('ie-view-channels', CHANNELS.filter((c) => c.value !== 'Z' || !!r?.passes.Depth), this.channel, (v) => ((this.channel = v as ChannelMode), redraw()))),
+        r ? splitRow('', checkbox('ie-show-meta', 'Show Metadata', this.showMetadata, (v) => ((this.showMetadata = v), this.drawUI()), { tip: 'Show the render information over the image' })) : null,
+        h('div', { class: 'btn-col' }, button('ie-frame-all', 'Frame All', () => this.frameAll(false)), button('ie-frame-fit', 'Frame All Fit', () => this.frameAll(true))),
+      ]),
+      r && !r.view
+        ? panel('ie-view-cm', 'Color Management', () => [
+            splitRow(
+              'View Transform',
+              enumMenu('ie-cm-view', [['STANDARD', 'Standard'], ['KHRONOS_PBR_NEUTRAL', 'Khronos PBR Neutral'], ['AGX', 'AgX'], ['FILMIC', 'Filmic'], ['RAW', 'Raw']].map(([value, label]) => ({ value, label })), cm.view_transform, (v) => {
+                cm.view_transform = v as typeof cm.view_transform;
+                if (cm.look !== 'None' && !LOOKS[cm.view_transform]?.[cm.look]) cm.look = 'None';
+                app.pushUndo('View Transform');
+                app.changed('doc');
+              }),
+            ),
+            splitRow(
+              'Look',
+              enumMenu('ie-cm-look', [{ value: 'None', label: 'None' }, ...looks.map((l) => ({ value: l, label: l.replace(/^AgX - /, '') }))], looks.includes(cm.look) ? cm.look : 'None', (v) => {
+                cm.look = v;
+                app.pushUndo('Look');
+                app.changed('doc');
+              }, { disabled: !looks.length }),
+            ),
+            num(cm, 'exposure', 'Exposure', { min: -32, max: 32, softMin: -10, softMax: 10 }),
+            num(cm, 'gamma', 'Gamma', { min: 0, max: 5 }),
+          ])
+        : null,
+    ];
+  }
+
+  /** Sidebar ▸ Metadata of a render result (as stored in saved files). */
+  private metadataTab(r: RenderResult): Child {
+    const i = r.info;
+    const row = (k: string, v: string) => splitRow(k, h('span', { class: 'ie-value', title: v }, v));
+    const fields = r.metadata ?? [];
+    return [
+      panel('ie-meta-render', 'Render', () => [
+        row('Frame', String(i.frame)),
+        row('Render Time', formatTime(i.time)),
+        row('Engine', i.engine),
+        i.samples ? row('Samples', `${i.samples}${i.maxSamples ? ' / ' + i.maxSamples : ''}`) : null,
+        row('Camera', i.camera || '—'),
+        row('Scene', i.scene),
+        row('Resolution', `${r.width} × ${r.height}`),
+      ]),
+      panel('ie-meta-fields', 'Metadata', () =>
+        fields.length ? fields.map((f) => h('div', { key: f.key }, row(f.label, f.value))) : h('div', { class: 'prop-note' }, 'Enable fields in Output ▸ Metadata; they are stored in saved PNG files.'),
+      ),
+    ];
   }
 
   // ---------------------------------------------------------------------
@@ -1137,6 +1236,21 @@ export function newImageDialog(anchor: HTMLElement | undefined, done: (id: strin
 }
 
 let checkerPattern: CanvasPattern | null = null;
+let emptyPattern: CanvasPattern | null = null;
+function emptyChecker(ctx: CanvasRenderingContext2D): CanvasPattern | string {
+  if (emptyPattern) return emptyPattern;
+  const c = document.createElement('canvas');
+  c.width = c.height = 32;
+  const x = c.getContext('2d')!;
+  x.fillStyle = '#2b2b2b';
+  x.fillRect(0, 0, 32, 32);
+  x.fillStyle = '#333333';
+  x.fillRect(0, 0, 16, 16);
+  x.fillRect(16, 16, 16, 16);
+  emptyPattern = ctx.createPattern(c, 'repeat');
+  return emptyPattern ?? '#2e2e2e';
+}
+
 function checker(ctx: CanvasRenderingContext2D): CanvasPattern | string {
   if (checkerPattern) return checkerPattern;
   const c = document.createElement('canvas');

@@ -3,6 +3,7 @@
 // Typed arrays inside the document are stored as {"$buf": index, "$type": "Float32Array"} and
 // their bytes are appended to the binary section (8-byte aligned).
 import type { DocumentData } from '../data/types';
+import { defaultRender } from '../data/defaults';
 
 const MAGIC = 0x00443350; // 'P3D\0' little endian
 export const FORMAT_VERSION = 1;
@@ -112,6 +113,8 @@ export function migrate(doc: DocumentData): DocumentData {
   doc.node_groups ??= {};
   doc.lattices ??= {};
   doc.object_order ??= Object.keys(doc.objects);
+  // render settings added later get their defaults
+  if (doc.scene?.render) for (const [k, v] of Object.entries(defaultRender())) (doc.scene.render as unknown as Record<string, unknown>)[k] ??= v;
   for (const ob of Object.values(doc.objects)) {
     ob.particle_systems ??= [];
     ob.custom ??= {};

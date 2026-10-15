@@ -476,7 +476,7 @@ export function defaultWorkspaces(): Workspace[] {
     { name: 'Texture Paint', layout: H(0.822, H(0.5, A('IMAGE_EDITOR'), A('VIEW_3D', { shading: 'MATERIAL' })), dock('TOOL')), mode: 'TEXTURE_PAINT' },
     { name: 'Shading', layout: H(0.822, H(0.16, V(0.5, A('FILE_BROWSER'), A('IMAGE_EDITOR')), V(0.5, A('VIEW_3D', { shading: 'MATERIAL' }), A('SHADER'))), dock('WORLD')) },
     { name: 'Animation', layout: H(0.822, V(0.58, H(0.35, A('VIEW_3D', { camera: true }), A('VIEW_3D')), A('DOPESHEET')), V(0.18, A('OUTLINER'), A('PROPERTIES'))) },
-    { name: 'Rendering', layout: H(0.822, V(0.925, A('IMAGE_EDITOR', { render: true }), A('TIMELINE')), A('PROPERTIES', { tab: 'RENDER' })) },
+    { name: 'Rendering', layout: H(0.822, V(0.925, A('IMAGE_EDITOR', { render: true, sidebar: true }), A('TIMELINE')), A('PROPERTIES', { tab: 'RENDER' })) },
     { name: 'Compositing', layout: H(0.822, V(0.92, V(0.48, A('IMAGE_EDITOR', { render: true }), A('COMPOSITOR')), A('TIMELINE')), A('PROPERTIES', { tab: 'OUTPUT' })) },
     { name: 'Geometry Nodes', layout: H(0.822, V(0.92, V(0.48, H(0.42, A('SPREADSHEET'), A('VIEW_3D')), A('GEOMETRY')), A('TIMELINE')), dock('MODIFIER')) },
     { name: 'Scripting', layout: H(0.822, H(0.36, V(0.38, A('VIEW_3D'), V(0.7, A('CONSOLE'), A('INFO'))), A('TEXT')), V(0.18, A('OUTLINER'), V(0.3, A('OUTLINER', { displayMode: 'BLENDER_FILE' }), A('PROPERTIES', { tab: 'RENDER' })))) },

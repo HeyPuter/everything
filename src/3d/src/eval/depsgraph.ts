@@ -10,6 +10,7 @@ import { constraintTypes } from './constraints';
 import { evaluatePose, type PoseResult } from './armature';
 import { curveToMesh } from './curve';
 import { applyAnimation } from '../anim/evaluate';
+import { simplifySignature, stretchedFrame } from './simplify';
 
 /** Called at the start of every evaluation, after animation (e.g. physics caches stepping to the frame). */
 export const preEvaluateHooks: ((graph: Depsgraph, doc: DocumentData) => void)[] = [];
@@ -130,7 +131,7 @@ export class Depsgraph {
   /** Evaluate the whole scene for the document's current frame. */
   evaluate(doc: DocumentData = this.doc, animate = true) {
     this.doc = doc;
-    this.frame = doc.scene.frame_current + (doc.scene.frame_subframe ?? 0);
+    this.frame = stretchedFrame(doc, doc.scene.frame_current + (doc.scene.frame_subframe ?? 0));
     if (animate) applyAnimation(doc, this.frame);
     for (const hook of preEvaluateHooks) hook(this, doc);
     const order = this.sortObjects(doc);
@@ -233,7 +234,7 @@ export class Depsgraph {
       if (cu) s += JSON.stringify(cu);
     }
     if (ob.modifiers.length) {
-      s += '|' + JSON.stringify(ob.modifiers);
+      s += simplifySignature(doc, this.render) + '|' + JSON.stringify(ob.modifiers);
       for (const m of ob.modifiers) {
         const t = modifierTypes[m.type];
         if (!t) continue;

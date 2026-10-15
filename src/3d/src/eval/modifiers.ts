@@ -6,6 +6,7 @@ import { MeshBuilder, appendMesh, weightsOf, groupWeights, vertexNormals } from 
 import { edgeTopology, polyNormal, triangulatePoly, vertexFaces } from '../mesh/mesh';
 import { skinPositions } from './armature';
 import { proceduralTexture } from './textures';
+import { simplifySubdivision } from './simplify';
 
 const num = (m: ModifierBase, k: string, d = 0) => (typeof m[k] === 'number' ? (m[k] as number) : d);
 const bool = (m: ModifierBase, k: string, d = false) => (typeof m[k] === 'boolean' ? (m[k] as boolean) : d);
@@ -1230,7 +1231,7 @@ export const modifierTypes: Record<string, ModifierType> = {
     icon: 'mod_subsurf',
     defaults: base({ subdivision_type: 'CATMULL_CLARK', levels: 1, render_levels: 2, quality: 3, use_creases: true, use_limit_surface: true, uv_smooth: 'PRESERVE_BOUNDARIES', boundary_smooth: 'ALL' }),
     supportsEditMode: true,
-    apply: (m, mod, ctx) => catmullClark(m, Math.min(6, Math.round(ctx.render ? num(mod, 'render_levels', 2) : num(mod, 'levels', 1))), str(mod, 'subdivision_type') === 'SIMPLE', bool(mod, 'use_creases', true)),
+    apply: (m, mod, ctx) => catmullClark(m, Math.min(6, simplifySubdivision(ctx.doc, ctx.render), Math.round(ctx.render ? num(mod, 'render_levels', 2) : num(mod, 'levels', 1))), str(mod, 'subdivision_type') === 'SIMPLE', bool(mod, 'use_creases', true)),
   },
   TRIANGULATE: { type: 'TRIANGULATE', label: 'Triangulate', category: 'GENERATE', icon: 'mod_triangulate', defaults: base({ quad_method: 'BEAUTY', ngon_method: 'BEAUTY', min_vertices: 4 }), apply: triangulateMeshMod },
   WELD: { type: 'WELD', label: 'Weld', category: 'GENERATE', icon: 'automerge_off', defaults: base({ merge_threshold: 0.001, mode: 'ALL' }), apply: (m, mod) => weld(m, num(mod, 'merge_threshold', 0.001), str(mod, 'mode') === 'CONNECTED') },

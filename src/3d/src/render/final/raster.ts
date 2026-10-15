@@ -1,13 +1,13 @@
 // Realtime (raster) renderer: HDR scene pass with MSAA, ground-truth ambient occlusion and bloom,
 // producing a scene-linear premultiplied buffer that is colour-managed for display afterwards.
-import { Color, ShaderMaterial, NoBlending, Vector2, MeshBasicMaterial, type Camera, type Scene, type Texture, type WebGLRenderer, type WebGLRenderTarget } from 'three';
+import { Color, ShaderMaterial, NoBlending, Vector2, Vector3, Vector4, MeshBasicMaterial, type Camera, type Scene, type Texture, type WebGLRenderer, type WebGLRenderTarget } from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import type { RenderSettings } from '../../data/types';
 import { floatTarget, Blit } from './gbuffer';
-import { displayGLSL, VIEW_INDEX, type ViewTransform } from './colormanage';
+import { displayGLSL, VIEW_INDEX, lookParams, viewWhiteBalance, type ViewSettings } from './colormanage';
 
 export interface RasterEffects {
   gtao: boolean;
@@ -132,24 +132,31 @@ export const displayMaterial = new ShaderMaterial({
     uInvGamma: { value: 1 },
     uBg: { value: new Color() },
     uComposite: { value: 1 },
+    uWb: { value: new Vector3(1, 1, 1) },
+    uLook: { value: new Vector4(1, 0, 1, 1) },
   },
   vertexShader: /* glsl */ `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
   fragmentShader: /* glsl */ `
-    uniform sampler2D tMap; uniform int uView; uniform float uExposure; uniform float uInvGamma; uniform vec3 uBg; uniform float uComposite;
+    uniform sampler2D tMap; uniform int uView; uniform float uExposure; uniform float uInvGamma; uniform vec3 uBg; uniform float uComposite; uniform vec3 uWb; uniform vec4 uLook;
     varying vec2 vUv;
     ${displayGLSL}
     void main() {
       vec4 p = texture2D(tMap, vUv);
       if (uComposite > 0.5) { p.rgb += uBg * (1.0 - clamp(p.a, 0.0, 1.0)); p.a = 1.0; }
-      gl_FragColor = cmDisplay(p, uView, uExposure, uInvGamma);
+      gl_FragColor = cmDisplayX(p, uView, uExposure, uInvGamma, uWb, uLook);
     }`,
 });
 
-export function setDisplay(view: ViewTransform, exposure: number, gamma: number, bg: Color | null) {
+/** Display settings of the Rendered viewport: the scene's view settings with an exposure offset. */
+export function setDisplay(s: ViewSettings, exposureOffset: number, bg: Color | null) {
   const u = displayMaterial.uniforms;
-  u.uView.value = VIEW_INDEX[view] ?? 1;
-  u.uExposure.value = Math.pow(2, exposure);
-  u.uInvGamma.value = gamma > 0 ? 1 / gamma : 1;
+  u.uView.value = VIEW_INDEX[s.view_transform] ?? 1;
+  u.uExposure.value = Math.pow(2, s.exposure + exposureOffset);
+  u.uInvGamma.value = s.gamma > 0 ? 1 / s.gamma : 1;
+  const wb = viewWhiteBalance(s) ?? [1, 1, 1];
+  (u.uWb.value as Vector3).set(wb[0], wb[1], wb[2]);
+  const look = lookParams(s.view_transform, s.look) ?? [1, 0, 1, 1];
+  (u.uLook.value as Vector4).set(look[0], look[1], look[2], look[3]);
   u.uComposite.value = bg ? 1 : 0;
   if (bg) u.uBg.value.copy(bg);
 }

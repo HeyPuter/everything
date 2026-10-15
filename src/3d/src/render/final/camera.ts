@@ -114,3 +114,136 @@ export function jitterProjection(cam: Camera, base: Matrix4, jx: number, jy: num
   }
   (cam as PerspectiveCamera).projectionMatrixInverse.copy(pm).invert();
 }
+
+// ---------------------------------------------------------------------------
+// depth of field by camera jitter (realtime engine) and render regions
+
+/** Aperture radius in meters for a focal length (mm) and f-stop. */
+export function apertureRadius(lensMm: number, fstop: number): number {
+  return lensMm / 1000 / (2 * Math.max(0.01, fstop));
+}
+
+/**
+ * Point on the aperture for two uniform numbers: a disk (blades < 3) or a regular polygon with
+ * `blades` corners, rotated by `rotation` and stretched by `ratio` (anamorphic bokeh).
+ * Returns coordinates within the unit aperture.
+ */
+export function apertureSample(u1: number, u2: number, blades: number, rotation = 0, ratio = 1): [number, number] {
+  let x: number, y: number;
+  if (blades >= 3) {
+    // pick a triangle (centre, corner k, corner k+1) and sample it uniformly
+    const n = Math.floor(blades);
+    const t = u1 * n;
+    const k = Math.min(n - 1, Math.floor(t));
+    const v = t - k;
+    const a0 = (2 * Math.PI * k) / n,
+      a1 = (2 * Math.PI * (k + 1)) / n;
+    const s = Math.sqrt(v);
+    // barycentric (1 - s, s(1 - u2), s u2)
+    const bx = s * (1 - u2),
+      by = s * u2;
+    x = bx * Math.cos(a0) + by * Math.cos(a1);
+    y = bx * Math.sin(a0) + by * Math.sin(a1);
+  } else {
+    const r = Math.sqrt(u1),
+      a = 2 * Math.PI * u2;
+    x = r * Math.cos(a);
+    y = r * Math.sin(a);
+  }
+  if (rotation) {
+    const c = Math.cos(rotation),
+      s = Math.sin(rotation);
+    [x, y] = [x * c - y * s, x * s + y * c];
+  }
+  if (ratio && ratio !== 1) {
+    if (ratio > 1) x /= ratio;
+    else y *= ratio;
+  }
+  return [x, y];
+}
+
+export interface DofParams {
+  /** aperture radius (m) */
+  radius: number;
+  focus: number;
+  blades: number;
+  rotation: number;
+  ratio: number;
+}
+
+/** Depth-of-field parameters of the scene camera, or null when it has none. */
+export function cameraDof(app: App, cameraId = app.doc.scene.camera): DofParams | null {
+  const doc = app.doc;
+  const ev = cameraId ? app.graph.get(cameraId) : undefined;
+  const ca = ev?.ob.type === 'CAMERA' && ev.ob.data ? doc.cameras[ev.ob.data] : undefined;
+  if (!ev || !ca || ca.type !== 'PERSP' || !ca.dof.use_dof) return null;
+  let dist = ca.dof.focus_distance;
+  const fo = ca.dof.focus_object ? app.graph.get(ca.dof.focus_object) : undefined;
+  if (fo) {
+    const cp = new Vector3().setFromMatrixPosition(ev.world);
+    const fwd = new Vector3(0, 0, -1).transformDirection(ev.world);
+    dist = Math.max(1e-3, new Vector3().setFromMatrixPosition(fo.world).sub(cp).dot(fwd));
+  }
+  const dof = ca.dof as typeof ca.dof & { aperture_rotation?: number; aperture_ratio?: number };
+  return { radius: apertureRadius(ca.lens, ca.dof.aperture_fstop), focus: Math.max(1e-3, dist), blades: ca.dof.aperture_blades, rotation: dof.aperture_rotation ?? 0, ratio: dof.aperture_ratio ?? 1 };
+}
+
+/**
+ * Move a perspective camera across its aperture by (ox, oy) meters (camera space) and shear its
+ * projection so the focus plane stays fixed: averaging many such views gives depth of field.
+ * `basePos` / `baseProj` are the unjittered position and projection.
+ */
+export function apertureJitter(cam: Camera, basePos: Vector3, baseProj: Matrix4, ox: number, oy: number, focus: number) {
+  const p = cam as PerspectiveCamera;
+  const right = new Vector3(1, 0, 0).applyQuaternion(cam.quaternion);
+  const up = new Vector3(0, 1, 0).applyQuaternion(cam.quaternion);
+  cam.position.copy(basePos).addScaledVector(right, ox).addScaledVector(up, oy);
+  cam.updateMatrixWorld(true);
+  const e = p.projectionMatrix.copy(baseProj).elements;
+  e[8] -= (e[0] * ox) / focus;
+  e[9] -= (e[5] * oy) / focus;
+  p.projectionMatrixInverse.copy(p.projectionMatrix).invert();
+}
+
+export interface PixelRect {
+  /** left column and top row (top-down) */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+type Border = { use_border?: boolean; border_min_x?: number; border_min_y?: number; border_max_x?: number; border_max_y?: number };
+
+/** Pixel rectangle of the render region in a W×H image, or null when the whole frame renders. */
+export function regionRect(r: Border, W: number, H: number): PixelRect | null {
+  if (!r.use_border) return null;
+  const cl = (v: number | undefined, d: number) => Math.min(1, Math.max(0, v ?? d));
+  const x0 = Math.floor(cl(r.border_min_x, 0) * W),
+    x1 = Math.ceil(cl(r.border_max_x, 1) * W);
+  // the region is measured bottom-up
+  const top = Math.floor((1 - cl(r.border_max_y, 1)) * H),
+    bottom = Math.ceil((1 - cl(r.border_min_y, 0)) * H);
+  const w = x1 - x0,
+    h = bottom - top;
+  if (w <= 0 || h <= 0) return null;
+  if (w === W && h === H) return null;
+  return { x: x0, y: top, w, h };
+}
+
+/** Restrict a camera's projection (in place) to a pixel rectangle of a W×H frame. */
+export function cropProjection(cam: Camera, rect: PixelRect, W: number, H: number) {
+  const p = cam as PerspectiveCamera;
+  // NDC bounds of the rectangle (y up)
+  const nx0 = (2 * rect.x) / W - 1,
+    nx1 = (2 * (rect.x + rect.w)) / W - 1;
+  const ny1 = 1 - (2 * rect.y) / H,
+    ny0 = 1 - (2 * (rect.y + rect.h)) / H;
+  const sx = 2 / (nx1 - nx0),
+    sy = 2 / (ny1 - ny0);
+  const tx = -(nx1 + nx0) / (nx1 - nx0),
+    ty = -(ny1 + ny0) / (ny1 - ny0);
+  const m = new Matrix4().set(sx, 0, 0, tx, 0, sy, 0, ty, 0, 0, 1, 0, 0, 0, 0, 1);
+  p.projectionMatrix.premultiply(m);
+  p.projectionMatrixInverse.copy(p.projectionMatrix).invert();
+}

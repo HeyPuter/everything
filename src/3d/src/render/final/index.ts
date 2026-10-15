@@ -7,6 +7,11 @@ import './viewport';
 import './imageeditor';
 import './renderwindow';
 import './job';
+import './playback';
+import './imageregion';
+import './props/render';
+import './props/output';
+import './props/viewlayer';
 
 export { renderResult } from './result';
 export { startRender, cancelRender, renderJob } from './job';
