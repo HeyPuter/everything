@@ -14,7 +14,7 @@ import { connect, ctxOf, linkStatus, nodeById, insertOnLink, removeLinks, makeNo
 import { layoutTree, linkCurve, sockKey, distToCurve, curvePolylineHit, pointInPolygon, type NodeLayout, type SocketPos, HEADER } from './layout';
 import { addReroutes, detachLinks, insertOffset, isFrame, isGroupNode, toggleLinkMute } from '../treeops';
 import { renderNode } from './nodeui';
-import { providers, type NodeEditorProvider, type TreeRoot } from './context';
+import { providers, addMenuExtras, type NodeEditorProvider, type TreeRoot } from './context';
 import type { MenuCategory, MenuEntry, SocketType, TreeType } from '../types';
 import { drawSidebar } from './sidebar';
 import { drawToolbar, NODE_TOOLS, type NodeTool, type SelectMode } from './toolbar';
@@ -368,7 +368,8 @@ export class NodeEditor implements Editor {
 
   addMenuItems(at?: { x: number; y: number }): MenuItem[] {
     const items = this.nodeTypeItems((idname, settings) => this.addNodeInteractive(idname, settings, at), false);
-    return [{ label: 'Search...', icon: 'search', action: () => this.addSearch(at) }, { separator: true }, ...items];
+    const extra = addMenuExtras.flatMap((x) => x.items(this, at));
+    return [{ label: 'Search...', icon: 'search', action: () => this.addSearch(at) }, { separator: true }, ...items, ...(extra.length ? [{ separator: true }, ...extra] : [])];
   }
 
   /** Swap menu (Shift S): the Add menu's categories, replacing the selected nodes. */
@@ -489,7 +490,7 @@ export class NodeEditor implements Editor {
   }
 
   addSearch(at?: { x: number; y: number }, initial = '') {
-    openSearch(() => this.addSearchEntries(at), app.pointer.x - 150, app.pointer.y - 20, 'Search nodes…', initial);
+    openSearch(() => [...this.addSearchEntries(at), ...addMenuExtras.flatMap((x) => x.search(this, at))], app.pointer.x - 150, app.pointer.y - 20, 'Search nodes…', initial);
   }
 
   /** Search for the node type to swap the selected nodes to. */

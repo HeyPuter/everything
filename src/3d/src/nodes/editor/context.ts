@@ -45,3 +45,9 @@ export const providers = new Map<string, NodeEditorProvider>();
 export function registerNodeEditorProvider(p: NodeEditorProvider) {
   providers.set(p.id, p);
 }
+
+/** Extra Add-menu entries (e.g. node group assets by catalog) and their search entries. */
+export const addMenuExtras: {
+  items: (ed: unknown, at?: { x: number; y: number }) => import('../../ui/menu').MenuItem[];
+  search: (ed: unknown, at?: { x: number; y: number }) => import('../../ui/menu').SearchEntry[];
+}[] = [];
