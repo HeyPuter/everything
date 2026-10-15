@@ -378,20 +378,6 @@ registerOperators([
       }),
   },
   {
-    idname: 'uv.pack_islands',
-    label: 'Pack Islands',
-    props: [{ id: 'margin', label: 'Margin', type: 'float', default: 0.001, min: 0, max: 1, subtype: 'factor' }],
-    poll: editPoll,
-    exec: (_ctx, p) => {
-      if (!withEdit((m) => {
-        const faces = targetFaces(m);
-        if (!faces.length) return false;
-        packIslands(m, uvIslands(m, faces), Math.max(0.001, p.margin as number));
-      }))
-        return 'CANCELLED';
-    },
-  },
-  {
     idname: 'uv.follow_active_quads',
     label: 'Follow Active Quads',
     description: 'Unfold quad strips along the selected faces into a rectangular grid',
@@ -507,45 +493,6 @@ registerOperators([
   },
 ]);
 
-function uvIslands(m: MeshEdit, faces: number[]): number[][] {
-  // islands connected through shared vertices with matching UVs
-  const fs = new Set(faces);
-  const ef = m.edgeFaces();
-  const seen = new Set<number>();
-  const out: number[][] = [];
-  const uvOf = (f: EFace, v: number) => {
-    const i = f.verts.indexOf(v);
-    return [f.uvs[i * 2], f.uvs[i * 2 + 1]];
-  };
-  for (const s of faces) {
-    if (seen.has(s)) continue;
-    const isl: number[] = [];
-    const st = [s];
-    seen.add(s);
-    while (st.length) {
-      const fi = st.pop()!;
-      isl.push(fi);
-      const f = m.faces[fi];
-      for (let i = 0; i < f.verts.length; i++) {
-        const a = f.verts[i],
-          b = f.verts[(i + 1) % f.verts.length];
-        for (const [g] of ef.get(edgeKey(a, b)) ?? []) {
-          if (seen.has(g) || !fs.has(g)) continue;
-          const G = m.faces[g];
-          const ua = uvOf(f, a),
-            ub = uvOf(f, b),
-            ga = uvOf(G, a),
-            gb = uvOf(G, b);
-          if (Math.hypot(ua[0] - ga[0], ua[1] - ga[1]) > 1e-5 || Math.hypot(ub[0] - gb[0], ub[1] - gb[1]) > 1e-5) continue;
-          seen.add(g);
-          st.push(g);
-        }
-      }
-    }
-    out.push(isl);
-  }
-  return out;
-}
 
 function followQuads(m: MeshEdit, faces: number[]) {
   // BFS over quads assigning grid coordinates; edge lengths averaged per strip

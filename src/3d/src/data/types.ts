@@ -118,6 +118,10 @@ export interface MeshData {
   loose_edges?: Uint32Array;
   /** UV editor selection, one flag per face corner */
   uv_select?: Uint8Array;
+  /** UV pins (kept in place by unwrapping and UV tools), one flag per face corner */
+  uv_pin?: Uint8Array;
+  /** faces hidden in the UV editor (without sync selection), one flag per face */
+  uv_hide?: Uint8Array;
   users?: number;
 }
 
@@ -841,6 +845,8 @@ export interface ToolSettings {
   keyframe_type: Keyframe['type'];
   use_uv_select_sync: boolean;
   uv_select_mode: 'VERTEX' | 'EDGE' | 'FACE' | 'ISLAND';
+  /** which UVs are selected together with a picked UV (default SHARED_LOCATION) */
+  uv_sticky_select_mode?: 'SHARED_LOCATION' | 'DISABLED' | 'SHARED_VERTEX';
   // sculpt / paint
   sculpt: SculptSettings;
   unified_paint: { size: number; strength: number; color: Color; secondary_color: Color; weight: number };

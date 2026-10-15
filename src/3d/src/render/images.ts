@@ -145,3 +145,24 @@ export function pruneImages(doc: DocumentData) {
       cache.delete(id);
     }
 }
+
+/** Whether the image's canvas holds its current pixels (decoding finished). */
+export function imageReady(img: Img): boolean {
+  const e = cache.get(img.id);
+  return !!e && e.key === keyOf(img) && e.ready;
+}
+
+/** Install already-known pixels for an image (after an edit) so it shows without re-decoding. */
+export function primeImage(img: Img, pixels: globalThis.ImageData) {
+  const e = entry(img);
+  const canvas = e.canvas;
+  if (canvas.width !== pixels.width || canvas.height !== pixels.height) {
+    canvas.width = pixels.width;
+    canvas.height = pixels.height;
+  }
+  canvas.getContext('2d', { willReadFrequently: true })!.putImageData(pixels, 0, 0);
+  // the decode started by entry() must not overwrite these pixels
+  const fresh: Entry = { key: keyOf(img), tex: e.tex, canvas, ready: true };
+  cache.set(img.id, fresh);
+  e.tex.needsUpdate = true;
+}

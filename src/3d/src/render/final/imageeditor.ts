@@ -10,7 +10,9 @@ import { splitRow } from '../../ui/props';
 import { imageCanvas, imageTexture, touchImage, generatedPixels } from '../images';
 import { lastImage } from '../../ops/data';
 import type { ImageData as Img } from '../../data/types';
-import { renderResult, passToRGBA8, samplePixel, encodeRGBA8, canvasBytes, download, toBW, EXT, virtualImages, onVirtualImageChange, type PassName, type ChannelMode, type FileFormat, type RenderResult } from './result';
+import { renderResult, passToRGBA8, samplePixel, encodeRGBA8, canvasBytes, download, toBW, EXT, virtualImages, onVirtualImageChange, RENDER_SLOTS, type PassName, type ChannelMode, type FileFormat, type RenderResult } from './result';
+import { modifiedImages, type View2D } from './imageops';
+import { scopesPanel } from './scopes';
 import { formatTime } from './units';
 import type { ViewSettings } from './colormanage';
 
@@ -55,9 +57,9 @@ function sceneView(r: RenderResult | null): ViewSettings {
   return { view_transform: s.view_transform, exposure: s.exposure, gamma: s.gamma };
 }
 
-export class ImageEditor implements Editor {
+export class ImageEditor implements Editor, View2D {
   el: HTMLElement;
-  keymaps = ['Image', 'Frames', 'Window', 'Screen'];
+  keymaps = ['Image Generic', 'Image', 'Frames', 'Window', 'Screen'];
   imageId: string | null = null;
   pass: PassName = 'Combined';
   channel: ChannelMode = 'COLOR_ALPHA';
@@ -67,6 +69,7 @@ export class ImageEditor implements Editor {
   offY = 0;
   fitted = false;
   showSidebar = false;
+  sidebarTab = 'Image';
   private canvas: HTMLCanvasElement;
   private ui: HTMLElement;
   private cache: { key: string; canvas: HTMLCanvasElement } | null = null;
@@ -172,7 +175,7 @@ export class ImageEditor implements Editor {
     const r = this.result;
     if (r) {
       const v = sceneView(r);
-      return `R${this.imageId}|${r.version}|${this.layer}|${this.pass}|${this.channel}|${v.view_transform}|${v.exposure}|${v.gamma}|${r.width}x${r.height}`;
+      return `R${this.imageId}|${this.imageId === RENDER_RESULT ? renderResult.slot : ''}|${r.version}|${this.layer}|${this.pass}|${this.channel}|${v.view_transform}|${v.exposure}|${v.gamma}|${r.width}x${r.height}`;
     }
     const img = this.image;
     if (!img) return '';
@@ -218,6 +221,11 @@ export class ImageEditor implements Editor {
     return canvas;
   }
 
+  /** Canvas with the pixels as displayed (for scopes). */
+  displayCanvas(): HTMLCanvasElement | null {
+    return this.source();
+  }
+
   private imageSize(): [number, number] | null {
     const r = this.result;
     if (r) return [r.width, r.height];
@@ -241,15 +249,45 @@ export class ImageEditor implements Editor {
     return [(sx - w / 2) / this.zoom + s[0] / 2 - this.offX, (sy - hh / 2) / this.zoom + s[1] / 2 - this.offY];
   }
 
-  frameAll() {
+  /** Show the whole image: at a power-of-two zoom, or (fit) filling the view. */
+  frameAll(fit = false) {
     const s = this.imageSize();
     if (!s) return;
     const { w, h: hh } = this.viewSize();
     const z = Math.min((w - 20) / s[0], (hh - 20) / s[1]);
-    this.zoom = Math.max(1 / 64, Math.min(64, z));
+    this.zoom = Math.max(1 / 64, Math.min(64, fit ? z : Math.pow(2, Math.floor(Math.log2(z)))));
     this.offX = this.offY = 0;
     this.fitted = true;
     this.draw();
+  }
+
+  /** Zoom so the screen rectangle (editor pixels) fills the view. */
+  zoomToRect(x0: number, y0: number, x1: number, y1: number) {
+    const [ax, ay] = this.toImage(x0, y0),
+      [bx, by] = this.toImage(x1, y1);
+    const s = this.imageSize() ?? [1, 1];
+    const { w, h: hh } = this.viewSize();
+    this.zoom = Math.max(1 / 64, Math.min(256, Math.min(w / Math.max(1e-3, bx - ax), hh / Math.max(1e-3, by - ay))));
+    this.offX = s[0] / 2 - (ax + bx) / 2;
+    this.offY = s[1] / 2 - (ay + by) / 2;
+    this.fitted = true;
+    this.draw();
+  }
+
+  shownImage() {
+    return this.image;
+  }
+  showImage(id: string | null) {
+    this.setImage(id);
+  }
+  showsRender() {
+    return this.imageId === RENDER_RESULT;
+  }
+  newImage() {
+    this.newDialog();
+  }
+  openImage() {
+    this.open();
   }
 
   /** Zoom keeping the image point under (sx, sy) fixed. */
@@ -446,6 +484,15 @@ export class ImageEditor implements Editor {
             { tip: 'Render layer to display' },
           )
         : null,
+      isRender
+        ? enumMenu(
+            'ie-slot',
+            Array.from({ length: RENDER_SLOTS }, (_, i) => ({ value: String(i), label: `Slot ${i + 1}${renderResult.hasRender(i) ? '' : ' (empty)'}` })),
+            String(renderResult.slot),
+            (v) => (renderResult.setSlot(Number(v)), app.changed('ui')),
+            { tip: 'Render Slot\nRenders go into the shown slot; keep earlier renders in other slots to compare them (J / Alt J, 1–8)' },
+          )
+        : null,
       r && passItems.length > 1 ? enumMenu('ie-pass', passItems, this.pass, (v) => ((this.pass = v as PassName), this.cache = null, this.draw(), this.drawUI(), this.host.redrawHeader()), { tip: 'Render pass to display' }) : null,
       h('div', { class: 'hdr-spacer' }),
       enumMenu(
@@ -467,11 +514,20 @@ export class ImageEditor implements Editor {
     const items: MenuItem[] = [
       { label: 'Sidebar', checked: this.showSidebar, shortcut: 'N', action: () => this.toggleSidebar() },
       { separator: true },
-      { label: 'Zoom In', shortcut: 'Numpad +', action: () => this.zoomAt(1.25) },
-      { label: 'Zoom Out', shortcut: 'Numpad -', action: () => this.zoomAt(0.8) },
-      { label: 'Fractional Zoom', submenu: () => RATIOS.map(([l, z]) => ({ label: `Zoom ${l}`, shortcut: z === 1 ? 'Numpad 1' : z < 1 ? `Numpad ${Math.round(1 / z)}` : `Ctrl Numpad ${z}`, action: () => this.setRatio(z) })) },
-      { label: 'Frame All', shortcut: 'Home', action: () => this.frameAll() },
+      { label: 'Zoom In', op: 'image.view_zoom_in', shortcut: 'Numpad +' },
+      { label: 'Zoom Out', op: 'image.view_zoom_out', shortcut: 'Numpad -' },
+      { label: 'Fractional Zoom', submenu: () => RATIOS.map(([l, z]) => ({ label: `Zoom ${l}`, op: 'image.view_zoom_ratio', props: { ratio: z }, shortcut: z === 1 ? 'Numpad 1' : z < 1 ? `Numpad ${Math.round(1 / z)}` : `Ctrl Numpad ${z}` })) },
+      { label: 'Zoom Region…', op: 'image.view_zoom_border', shortcut: 'Shift B' },
+      { separator: true },
+      { label: 'Frame All', op: 'image.view_all', props: { fit_view: false }, shortcut: 'Home' },
+      { label: 'Frame All Fit', op: 'image.view_all', props: { fit_view: true }, shortcut: 'Shift Home' },
     ];
+    if (this.imageId === RENDER_RESULT)
+      items.push(
+        { separator: true },
+        { label: 'Cycle Render Slot', op: 'image.cycle_render_slot', shortcut: 'J' },
+        { label: 'Cycle Render Slot (Reverse)', op: 'image.cycle_render_slot', props: { reverse: true }, shortcut: 'Alt J' },
+      );
     if (this.host.area) {
       const area = this.host.area;
       items.push({ separator: true }, { label: 'Area', submenu: () => area.areaMenu() });
@@ -485,10 +541,48 @@ export class ImageEditor implements Editor {
     return [
       { label: 'New', icon: 'add', shortcut: 'Alt N', action: () => this.newDialog() },
       { label: 'Open…', icon: 'file_folder', shortcut: 'Alt O', action: () => this.open() },
-      { label: 'Reload', shortcut: 'Alt R', disabled: !img, action: () => this.reload() },
+      ...(img
+        ? [
+            { label: 'Replace…', op: 'image.replace' },
+            { label: 'Reload', shortcut: 'Alt R', action: () => this.reload() },
+          ]
+        : []),
       { separator: true },
       { label: 'Save', shortcut: 'Alt S', disabled: !hasPixels, action: () => this.save() },
       { label: 'Save As…', shortcut: 'Shift Alt S', disabled: !hasPixels, action: () => this.saveAsDialog() },
+      { label: 'Save a Copy…', disabled: !hasPixels, action: () => this.saveAsDialog() },
+      { label: 'Save All Images', op: 'image.save_all_modified' },
+      ...(img
+        ? [
+            { separator: true },
+            {
+              label: 'Invert',
+              submenu: () => [
+                { label: 'Invert Image Colors', op: 'image.invert', props: { invert_r: true, invert_g: true, invert_b: true } },
+                { separator: true },
+                { label: 'Invert Red Channel', op: 'image.invert', props: { invert_r: true } },
+                { label: 'Invert Green Channel', op: 'image.invert', props: { invert_g: true } },
+                { label: 'Invert Blue Channel', op: 'image.invert', props: { invert_b: true } },
+                { label: 'Invert Alpha Channel', op: 'image.invert', props: { invert_a: true } },
+              ],
+            },
+            { label: 'Resize', op: 'image.resize' },
+            {
+              label: 'Transform',
+              submenu: () => [
+                { label: 'Flip Horizontally', op: 'image.flip', props: { use_flip_x: true } },
+                { label: 'Flip Vertically', op: 'image.flip', props: { use_flip_y: true } },
+                { separator: true },
+                { label: 'Rotate 90° Clockwise', op: 'image.rotate_orthogonal', props: { degrees: '90' } },
+                { label: 'Rotate 90° Counter-Clockwise', op: 'image.rotate_orthogonal', props: { degrees: '270' } },
+                { label: 'Rotate 180°', op: 'image.rotate_orthogonal', props: { degrees: '180' } },
+              ],
+            },
+            { separator: true },
+            { label: 'Copy', op: 'image.clipboard_copy' },
+          ]
+        : [{ separator: true }]),
+      { label: 'Paste', op: 'image.clipboard_paste' },
     ];
   }
 
@@ -510,60 +604,10 @@ export class ImageEditor implements Editor {
   // image operations
 
   newDialog(anchor?: HTMLElement) {
-    const p = { name: 'Untitled', width: 1024, height: 1024, color: [0, 0, 0, 1] as number[], generated_type: 'BLANK', alpha: true };
-    const at = anchor ?? { x: app.pointer.x, y: app.pointer.y };
-    const pop = openPopover(
-      at,
-      () =>
-        h(
-          'div',
-          { class: 'pop-panel ie-dialog' },
-          h('div', { class: 'pop-title' }, 'New Image'),
-          splitRow('Name', textField('ie-new-name', p.name, (v) => (p.name = v || 'Untitled'), { live: true })),
-          splitRow('Width', numberField({ id: 'ie-new-w', value: p.width, int: true, min: 1, max: 16384, unit: 'pixel', set: (v) => ((p.width = v), pop.redraw()) })),
-          splitRow('Height', numberField({ id: 'ie-new-h', value: p.height, int: true, min: 1, max: 16384, unit: 'pixel', set: (v) => ((p.height = v), pop.redraw()) })),
-          // dialogs use inline controls: dropdown menus/pickers would close this popover
-          splitRow(
-            'Color',
-            h('input', {
-              type: 'color',
-              class: 'ie-color',
-              value: '#' + colorHex(p.color).toLowerCase(),
-              oninput: (e: Event) => {
-                const hex = (e.target as HTMLInputElement).value;
-                p.color = [1, 3, 5].map((i) => srgbToLinear(parseInt(hex.slice(i, i + 2), 16) / 255)).concat(p.color[3] ?? 1);
-              },
-            }),
-          ),
-          splitRow('Alpha', numberField({ id: 'ie-new-ca', value: p.color[3] ?? 1, min: 0, max: 1, slider: true, unit: 'factor', disabled: !p.alpha, set: (v) => ((p.color[3] = v), pop.redraw()) })),
-          splitRow('', checkbox('ie-new-a', 'Alpha', p.alpha, (v) => ((p.alpha = v), pop.redraw()))),
-          splitRow(
-            'Generated Type',
-            enumRow(
-              'ie-new-t',
-              [
-                { value: 'BLANK', label: 'Blank' },
-                { value: 'UV_GRID', label: 'UV Grid' },
-                { value: 'COLOR_GRID', label: 'Color Grid' },
-              ],
-              p.generated_type,
-              (v) => ((p.generated_type = v), pop.redraw()),
-            ),
-          ),
-          h(
-            'div',
-            { class: 'ie-dialog-buttons' },
-            button('ie-new-ok', 'OK', () => {
-              const color = [...p.color.slice(0, 3), p.alpha ? (p.color[3] ?? 1) : 1];
-              app.run('image.new', { name: p.name, width: p.width, height: p.height, color, generated_type: p.generated_type }, { invoke: false });
-              if (lastImage) this.setImage(lastImage);
-              this.seenLastImage = lastImage;
-              pop.el.remove();
-            }),
-          ),
-        ),
-      { width: 260 },
-    );
+    newImageDialog(anchor, (id) => {
+      this.setImage(id);
+      this.seenLastImage = id;
+    });
   }
 
   open() {
@@ -629,6 +673,7 @@ export class ImageEditor implements Editor {
       const bytes = await this.encode(format, colorMode, quality);
       if (!bytes) return;
       download(bytes, name, `image/${EXT[format] === 'jpg' ? 'jpeg' : EXT[format]}`);
+      if (this.image) modifiedImages.delete(this.image.id);
       app.report('INFO', `Saved "${name}"`);
     } catch (e) {
       app.report('ERROR', `Could not save the image: ${e instanceof Error ? e.message : String(e)}`);
@@ -754,7 +799,18 @@ export class ImageEditor implements Editor {
           : null,
       );
     } else body.push(h('div', { class: 'sb-empty' }, 'No image'));
-    return h('div', { key: 'sidebar', class: 'v3d-sidebar ie-sidebar' }, h('div', { class: 'sb-body' }, body), h('div', { class: 'sb-tabs' }, h('button', { class: 'sb-tab on' }, 'Image')));
+    const tabs = ['Image', 'Scopes'];
+    const tab = tabs.includes(this.sidebarTab) ? this.sidebarTab : 'Image';
+    return h(
+      'div',
+      { key: 'sidebar', class: 'v3d-sidebar ie-sidebar' },
+      h('div', { class: 'sb-body' }, tab === 'Scopes' ? scopesPanel(this) : body),
+      h(
+        'div',
+        { class: 'sb-tabs' },
+        tabs.map((t) => h('button', { key: t, class: { 'sb-tab': true, on: t === tab }, onclick: () => ((this.sidebarTab = t), this.drawUI()) }, t)),
+      ),
+    );
   }
 
   // ---------------------------------------------------------------------
@@ -835,25 +891,8 @@ export class ImageEditor implements Editor {
   onKey(e: KeyboardEvent): boolean {
     if (e.type !== 'keydown') return false;
     const ctrl = e.ctrlKey || e.metaKey;
-    const code = e.code;
-    if (code === 'Home') return this.frameAll(), true;
-    if (code === 'NumpadAdd' || (e.key === '=' && !ctrl) || (e.key === '+' && !ctrl)) return this.zoomAt(1.25), true;
-    if (code === 'NumpadSubtract' || (e.key === '-' && !ctrl)) return this.zoomAt(0.8), true;
-    const m = /^Numpad([1248])$/.exec(code);
-    if (m) {
-      const n = Number(m[1]);
-      this.setRatio(ctrl ? n : 1 / n);
-      return true;
-    }
-    if (e.key.toLowerCase() === 'n' && !ctrl && !e.altKey && !e.shiftKey) return this.toggleSidebar(), true;
-    if (e.altKey && !ctrl) {
-      const k = e.code;
-      if (k === 'KeyS' && e.shiftKey) return this.saveAsDialog(), true;
-      if (k === 'KeyS') return void this.save(), true;
-      if (k === 'KeyR') return this.reload(), true;
-      if (k === 'KeyN') return this.newDialog(), true;
-      if (k === 'KeyO') return this.open(), true;
-    }
+    if (e.code === 'KeyN' && !ctrl && !e.altKey && !e.shiftKey) return this.toggleSidebar(), true;
+
     if (e.key === 'Escape' && this.host.close && !app.modal) return this.host.close(), true;
     return false;
   }
@@ -888,6 +927,63 @@ export class ImageEditor implements Editor {
     this.unsubVirtual();
     clearInterval(this.timer);
   }
+}
+
+/** The New Image popup; `done` receives the new image id. */
+export function newImageDialog(anchor: HTMLElement | undefined, done: (id: string) => void) {
+  const p = { name: 'Untitled', width: 1024, height: 1024, color: [0, 0, 0, 1] as number[], generated_type: 'BLANK', alpha: true };
+  const at = anchor ?? { x: app.pointer.x, y: app.pointer.y };
+  const pop = openPopover(
+    at,
+    () =>
+      h(
+        'div',
+        { class: 'pop-panel ie-dialog' },
+        h('div', { class: 'pop-title' }, 'New Image'),
+        splitRow('Name', textField('ie-new-name', p.name, (v) => (p.name = v || 'Untitled'), { live: true })),
+        splitRow('Width', numberField({ id: 'ie-new-w', value: p.width, int: true, min: 1, max: 16384, unit: 'pixel', set: (v) => ((p.width = v), pop.redraw()) })),
+        splitRow('Height', numberField({ id: 'ie-new-h', value: p.height, int: true, min: 1, max: 16384, unit: 'pixel', set: (v) => ((p.height = v), pop.redraw()) })),
+        // dialogs use inline controls: dropdown menus/pickers would close this popover
+        splitRow(
+          'Color',
+          h('input', {
+            type: 'color',
+            class: 'ie-color',
+            value: '#' + colorHex(p.color).toLowerCase(),
+            oninput: (e: Event) => {
+              const hex = (e.target as HTMLInputElement).value;
+              p.color = [1, 3, 5].map((i) => srgbToLinear(parseInt(hex.slice(i, i + 2), 16) / 255)).concat(p.color[3] ?? 1);
+            },
+          }),
+        ),
+        splitRow('Alpha', numberField({ id: 'ie-new-ca', value: p.color[3] ?? 1, min: 0, max: 1, slider: true, unit: 'factor', disabled: !p.alpha, set: (v) => ((p.color[3] = v), pop.redraw()) })),
+        splitRow('', checkbox('ie-new-a', 'Alpha', p.alpha, (v) => ((p.alpha = v), pop.redraw()))),
+        splitRow(
+          'Generated Type',
+          enumRow(
+            'ie-new-t',
+            [
+              { value: 'BLANK', label: 'Blank' },
+              { value: 'UV_GRID', label: 'UV Grid' },
+              { value: 'COLOR_GRID', label: 'Color Grid' },
+            ],
+            p.generated_type,
+            (v) => ((p.generated_type = v), pop.redraw()),
+          ),
+        ),
+        h(
+          'div',
+          { class: 'ie-dialog-buttons' },
+          button('ie-new-ok', 'OK', () => {
+            const color = [...p.color.slice(0, 3), p.alpha ? (p.color[3] ?? 1) : 1];
+            app.run('image.new', { name: p.name, width: p.width, height: p.height, color, generated_type: p.generated_type }, { invoke: false });
+            if (lastImage) done(lastImage);
+            pop.el.remove();
+          }),
+        ),
+      ),
+    { width: 260 },
+  );
 }
 
 let checkerPattern: CanvasPattern | null = null;
