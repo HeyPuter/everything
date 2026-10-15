@@ -113,13 +113,23 @@ gn('FunctionNodeSliceString', 'converter', {
   exec: (ctx) => ({ String: sliceString(ctx.string('String'), ctx.int('Position'), ctx.int('Length')) }),
 });
 
+/** Upper or lower case per character (characters whose case changes length stay as they are). */
+export function setCase(s: string, upper: boolean): string {
+  let out = '';
+  for (const ch of s) {
+    const c = upper ? ch.toUpperCase() : ch.toLowerCase();
+    out += Array.from(c).length === 1 ? c : ch;
+  }
+  return out;
+}
+
 gn(
   'FunctionNodeSetStringCase',
   'converter',
   {
     exec: (ctx) => {
       const s = ctx.string('String');
-      return { String: sprop(ctx.node, 'Case') === 'Lowercase' ? s.toLowerCase() : s.toUpperCase() };
+      return { String: setCase(s, sprop(ctx.node, 'Case') !== 'Lowercase') };
     },
   },
   {
@@ -142,6 +152,8 @@ export function trimString(s: string, chars: string, whitespace: boolean, start:
     b = c.length;
   if (start) while (a < b && set.has(c[a])) a++;
   if (end) while (b > a && set.has(c[b - 1])) b--;
+  // a string made only of trimmed characters is left as it is
+  if (a === b && c.length) return s;
   return c.slice(a, b).join('');
 }
 

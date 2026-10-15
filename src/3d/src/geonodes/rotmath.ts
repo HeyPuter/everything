@@ -123,11 +123,11 @@ export function axisAngleToQuat(axis: Vec3, angle: number): Quat {
   return [Math.cos(angle / 2), axis[0] * s, axis[1] * s, axis[2] * s];
 }
 
-/** Axis and angle (0…2π) of a quaternion; the identity gives the Z axis. */
+/** Axis and angle (0…2π) of a quaternion; the identity gives the Y axis. */
 export function quatToAxisAngle(qq: Quat): { axis: Vec3; angle: number } {
   const q = quatNormalize(qq);
   const s = Math.hypot(q[1], q[2], q[3]);
-  if (s < 1e-7) return { axis: [0, 0, 1], angle: 0 };
+  if (s < 1e-7) return { axis: [0, 1, 0], angle: 0 };
   const angle = 2 * Math.atan2(s, q[0]);
   return { axis: [q[1] / s, q[2] / s, q[3] / s], angle };
 }

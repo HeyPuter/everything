@@ -373,7 +373,11 @@ export function intToString(v: number, base: number, padding: number): string {
 export function parseFloatPrefix(s: string): { value: number; length: number } {
   const m = /^-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/.exec(s) ?? /^-?(?:inf(?:inity)?|nan)/i.exec(s);
   if (!m) return { value: 0, length: 0 };
-  return { value: Math.fround(Number(m[0].replace(/^(-?)inf(inity)?$/i, '$1Infinity').replace(/^-?nan$/i, 'NaN'))), length: m[0].length };
+  const d = Number(m[0].replace(/^(-?)inf(inity)?$/i, '$1Infinity').replace(/^-?nan$/i, 'NaN'));
+  const v = Math.fround(d);
+  // numbers outside the single-precision range are not read
+  if ((Number.isFinite(d) && !Number.isFinite(v)) || (d !== 0 && v === 0)) return { value: 0, length: 0 };
+  return { value: v, length: m[0].length };
 }
 
 /** Parse an integer in a base (2…36) at the start of the text: optional minus and digits. */
