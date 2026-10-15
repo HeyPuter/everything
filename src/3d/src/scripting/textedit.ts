@@ -362,6 +362,18 @@ export class TextEditor implements Editor {
       },
       { separator: true },
       { label: 'Run Script', icon: 'play', shortcut: 'Alt P', op: 'text.run_script', disabled: !t },
+      {
+        label: 'Register',
+        checked: !!t?.use_module,
+        disabled: !t,
+        description: 'Run this script when the project is opened (Preferences ▸ Save & Load ▸ Auto Run Scripts)',
+        action: () => {
+          if (!t) return;
+          t.use_module = !t.use_module;
+          app.pushUndo('Register Text');
+          app.changed('ui');
+        },
+      },
       { separator: true },
       { label: 'Unlink', icon: 'x', op: 'text.unlink', disabled: !t },
     ];

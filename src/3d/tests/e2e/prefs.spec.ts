@@ -497,3 +497,21 @@ test('network: with online access off, Python does not download', async ({ page 
   expect(msg).toContain('online access is turned off');
   expect(errors.filter((e) => !e.includes('online access'))).toEqual([]);
 });
+
+test('auto run: registered texts run when a project opens only if allowed', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const a = (window as unknown as { app: { doc: any } }).app;
+    const { newText } = await import('/src/data/defaults.ts');
+    const t = newText('setup.js', 'C.scene.frame_start = 42;', 'javascript');
+    t.use_module = true;
+    a.doc.texts[t.id] = t;
+  });
+  const run = () => page.evaluate(async () => (await import('/src/prefs/autorun.ts')).runRegisteredTexts());
+  expect(await run()).toBe(0);
+  expect(await page.evaluate(() => (window as unknown as { app: { doc: any } }).app.doc.scene.frame_start)).toBe(1);
+  await setPref(page, 'use_scripts_auto_execute', true);
+  expect(await run()).toBe(1);
+  expect(await page.evaluate(() => (window as unknown as { app: { doc: any } }).app.doc.scene.frame_start)).toBe(42);
+  await expectNoErrors(errors);
+});

@@ -24,6 +24,7 @@ import './ndof';
 import './filepaths';
 import './fonts';
 import './miniaxes';
+import './autorun';
 import './ops';
 import { startKeyconfig } from './keyconfig';
 import { applyPreferences } from './store';
