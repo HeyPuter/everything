@@ -759,7 +759,7 @@ registerOperators([
     idname: 'anim.action_asset_assign',
     label: 'Assign Action Asset',
     description: 'Apply a pose asset to the selected bones, or make an action asset the animation of the selected objects',
-    props: [...importProps, { id: 'object', label: 'Object', type: 'string', default: '', hidden: true }],
+    props: [...importProps, { id: 'object', label: 'Object', type: 'string', default: '', hidden: true }, { id: 'blend_factor', label: 'Blend Factor', type: 'float', default: 1, min: 0, max: 1, subtype: 'factor' }],
     exec: (ctx, p) => {
       const doc = ctx.doc;
       const r = parseAssetRef(String(p.asset));
@@ -769,7 +769,7 @@ registerOperators([
       const target = p.object ? doc.objects[String(p.object)] : app.activeObject;
       if (isPoseAction(act0) && target?.type === 'ARMATURE') {
         // poses apply directly; the action is not copied into the file
-        return applyPoseAsset(doc, target, act0, 1) ? 'FINISHED' : 'CANCELLED';
+        return applyPoseAsset(doc, target, act0, (p.blend_factor as number) ?? 1) ? 'FINISHED' : 'CANCELLED';
       }
       const obs = p.object ? [target].filter(Boolean) as ObjectData[] : app.selectedObjects();
       if (!obs.length) {

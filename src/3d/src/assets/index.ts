@@ -9,6 +9,7 @@ import './ops';
 import './poselib';
 import './browser';
 import './menus';
+import './poseui';
 import { browserOf } from './state';
 import { idAssetHooks } from '../scripting/api';
 import { markAsset, clearAsset } from './ops';

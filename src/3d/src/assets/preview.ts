@@ -22,6 +22,9 @@ import {
   WebGLRenderTarget,
   Euler,
   Quaternion,
+  BufferGeometry,
+  DoubleSide,
+  Float32BufferAttribute,
   type Material,
   type Texture,
 } from 'three';
@@ -143,6 +146,35 @@ function staticWorld(doc: DocumentData, ob: ObjectData, depth = 0): Matrix4 {
   return staticWorld(doc, parent, depth + 1).multiply(new Matrix4().fromArray(ob.matrix_parent_inverse)).multiply(m);
 }
 
+let boneGeo: BufferGeometry | null = null;
+let boneMat: MeshStandardMaterial | null = null;
+/** A bone along +Y of unit length (an octahedron widest at a tenth of its length). */
+function boneGeometry(): BufferGeometry {
+  if (boneGeo) return boneGeo;
+  const w = 0.1;
+  const head = [0, 0, 0],
+    tail = [0, 1, 0],
+    ring = [
+      [w, w, 0],
+      [0, w, w],
+      [-w, w, 0],
+      [0, w, -w],
+    ];
+  const pos: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    const a = ring[i],
+      b = ring[(i + 1) % 4];
+    pos.push(...head, ...b, ...a, ...tail, ...a, ...b);
+  }
+  boneGeo = new BufferGeometry();
+  boneGeo.setAttribute('position', new Float32BufferAttribute(pos, 3));
+  boneGeo.computeVertexNormals();
+  return boneGeo;
+}
+function boneMaterial() {
+  return (boneMat ??= new MeshStandardMaterial({ color: 0xb8b8c8, roughness: 0.6, metalness: 0, flatShading: true, side: DoubleSide }));
+}
+
 function slots(doc: DocumentData, ob: ObjectData): (string | null)[] {
   const data = ob.data ? ((doc.meshes[ob.data] ?? doc.curves?.[ob.data]) as { materials?: (string | null)[] } | undefined) : undefined;
   const base = data?.materials ?? [];
@@ -172,8 +204,20 @@ function objectsPreview(doc: DocumentData, ids: ID[], offset?: Matrix4): string 
       mesh = ob.type === 'MESH' && ob.data ? (doc.meshes[ob.data] as unknown as EvalMesh) : undefined;
       world = staticWorld(doc, ob);
     }
-    if (!mesh || !mesh.indices?.length) continue;
     if (offset) world.premultiply(offset);
+    if (live && ob.type === 'ARMATURE') {
+      // bones as solid octahedra in the evaluated pose
+      const pose = app.graph.get(id)?.pose;
+      for (const b of pose?.bones.values() ?? []) {
+        const m = new Mesh(boneGeometry(), boneMaterial());
+        m.matrixAutoUpdate = false;
+        m.matrix.copy(world).multiply(b.pose).multiply(new Matrix4().makeScale(b.length, b.length, b.length));
+        scene.add(m);
+        box.union(new Box3().setFromBufferAttribute(m.geometry.getAttribute('position') as never).applyMatrix4(m.matrix));
+        any = true;
+      }
+    }
+    if (!mesh || !mesh.indices?.length) continue;
     const info = meshGeometry(mesh);
     const groups = info.geometry.groups;
     const count = Math.max(1, ...groups.map((g) => (g.materialIndex ?? 0) + 1));

@@ -9,6 +9,7 @@ import { promptText } from '../ui/menu';
 import { renderPreview } from './preview';
 import { ensureCatalogPath } from './catalogs';
 import { newMetaData } from './types';
+import { findAsset, libraryDoc } from './library';
 
 const BONE_PATH = /^pose\.bones\["((?:[^"\\]|\\.)*)"\]\.(location|rotation_quaternion|rotation_euler|rotation_axis_angle|scale)$/;
 
@@ -85,6 +86,13 @@ export function poseToAction(ob: ObjectData, name: string): ActionData | null {
   return act;
 }
 
+/** A pose action from an asset reference ("library|actions:id"); plain action ids of the file work too. */
+export function poseAsset(ref: string): ActionData | null {
+  const e = findAsset(ref);
+  if (e?.table === 'actions') return (libraryDoc(e.library)?.actions[e.id] as ActionData | undefined) ?? null;
+  return app.doc.actions[ref] ?? null;
+}
+
 const inPose = () => app.doc.mode === 'POSE' && app.activeObject?.type === 'ARMATURE' && !!app.activeObject.pose;
 
 registerOperators([
@@ -107,17 +115,41 @@ registerOperators([
   {
     idname: 'poselib.apply_pose_asset',
     label: 'Apply Pose Asset',
-    description: 'Set the selected bones (or all bones of the pose) to a pose asset of the current file',
+    description: 'Set the selected bones (or all bones of the pose) to a pose asset; a blend factor below 1 moves part of the way',
     props: [
-      { id: 'action', label: 'Pose', type: 'string', default: '', hidden: true },
+      { id: 'asset', label: 'Pose', type: 'string', default: '', hidden: true },
       { id: 'blend_factor', label: 'Blend Factor', type: 'float', default: 1, min: 0, max: 1, subtype: 'factor' },
     ],
     poll: inPose,
     exec: (ctx, p) => {
-      const act = ctx.doc.actions[String(p.action)];
+      const act = poseAsset(String(p.asset));
       const ob = app.activeObject;
       if (!act || !ob) return 'CANCELLED';
       return applyPoseAsset(ctx.doc, ob, act, p.blend_factor as number) ? 'FINISHED' : 'CANCELLED';
+    },
+  },
+  {
+    idname: 'poselib.pose_asset_select_bones',
+    label: 'Select Bones',
+    description: 'Select (or deselect) the bones a pose asset has channels for',
+    props: [
+      { id: 'asset', label: 'Pose', type: 'string', default: '', hidden: true },
+      { id: 'select', label: 'Select', type: 'bool', default: true },
+    ],
+    poll: inPose,
+    exec: (ctx, p) => {
+      const act = poseAsset(String(p.asset));
+      const ob = app.activeObject;
+      if (!act || !ob?.pose) return 'CANCELLED';
+      let n = 0;
+      for (const name of poseBones(act)) {
+        const pb = ob.pose[name];
+        if (!pb) continue;
+        pb.select = !!p.select;
+        n++;
+      }
+      if (!n) return 'CANCELLED';
+      void ctx;
     },
   },
 ]);
