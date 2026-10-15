@@ -194,6 +194,7 @@ export function viewHeader(v: View3D): Child {
               ['CURVE', 'Curve', 'outliner_ob_curve'],
               ['META', 'Metaball', 'outliner_ob_meta'],
               ['FONT', 'Text', 'outliner_ob_font'],
+              ['CURVES', 'Curves', 'outliner_ob_curves'],
               ['ARMATURE', 'Armature', 'outliner_ob_armature'],
               ['LATTICE', 'Lattice', 'outliner_ob_lattice'],
               ['EMPTY', 'Empty', 'outliner_ob_empty'],

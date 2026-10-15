@@ -32,6 +32,9 @@ src/
   animation/  Dope Sheet, Graph Editor, Drivers, NLA editors and their operators
   paint/      Sculpt, Vertex/Weight/Texture Paint, voxel remesh, automatic weights
   physics/    Rigid bodies (Rapier, lazy-loaded), cloth, soft body, particles, fields, smoke
+  hair/       Curves (hair) objects: data (doc.hair_curves), strand display / render tubes, Edit Mode,
+              Sculpt Curves brushes (brushmath.ts is pure), conversions, Deform Curves on Surface;
+              particle/: Particle Edit mode for hair particle systems (edited keys on the system)
   render/final/ Path tracer, raster engine, F12/animation render, Image Editor, color management;
               props/ holds the Render, Output, View Layer and camera-data properties panels
   sequencer/  Video Sequencer (strips, effects, preview, audio)

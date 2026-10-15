@@ -479,7 +479,7 @@ registerOperators([
   {
     idname: 'object.select_by_type',
     label: 'Select All by Type',
-    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'MESH', items: [['MESH', 'Mesh'], ['CURVE', 'Curve'], ['META', 'Metaball'], ['FONT', 'Text'], ['ARMATURE', 'Armature'], ['LATTICE', 'Lattice'], ['EMPTY', 'Empty'], ['CAMERA', 'Camera'], ['LIGHT', 'Light']] }, { id: 'extend', label: 'Extend', type: 'bool', default: false }],
+    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'MESH', items: [['MESH', 'Mesh'], ['CURVE', 'Curve'], ['META', 'Metaball'], ['FONT', 'Text'], ['CURVES', 'Curves'], ['ARMATURE', 'Armature'], ['LATTICE', 'Lattice'], ['EMPTY', 'Empty'], ['CAMERA', 'Camera'], ['LIGHT', 'Light']] }, { id: 'extend', label: 'Extend', type: 'bool', default: false }],
     poll: (ctx) => ctx.doc.mode === 'OBJECT',
     exec: (ctx, p) => {
       for (const o of Object.values(ctx.doc.objects)) {
