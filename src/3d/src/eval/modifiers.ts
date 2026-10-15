@@ -7,6 +7,7 @@ import { edgeTopology, polyNormal, triangulatePoly, vertexFaces } from '../mesh/
 import { skinPositions } from './armature';
 import { proceduralTexture } from './textures';
 import { evalCurve } from '../nodes/curves';
+import { SurfaceQuery, PointQuery } from './mods/spatial';
 
 const num = (m: ModifierBase, k: string, d = 0) => (typeof m[k] === 'number' ? (m[k] as number) : d);
 const bool = (m: ModifierBase, k: string, d = false) => (typeof m[k] === 'boolean' ? (m[k] as boolean) : d);
@@ -1612,44 +1613,106 @@ function shrinkwrapMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): Ev
   const target = typeof mod.target === 'string' ? ctx.graph.get(mod.target) : undefined;
   if (!target?.mesh) return m;
   const own = ctx.graph.get(ctx.ob.id)!.world;
-  const toT = target.world.clone().invert().multiply(own),
-    back = toT.clone().invert();
-  const TP = target.mesh.positions;
+  // work in the modified object's space: target geometry brought over once
+  const toLocal = own.clone().invert().multiply(target.world);
+  const query = new SurfaceQuery(target.mesh, toLocal);
+  if (query.empty) return m;
+  const method = str(mod, 'wrap_method', 'NEAREST_SURFACEPOINT');
+  const mode = str(mod, 'wrap_mode', 'ON_SURFACE');
   const offset = num(mod, 'offset', 0);
-  // nearest point on triangles (brute force with a coarse spatial hash)
-  const tri: number[] = [];
-  for (let f = 0; f < target.mesh.offsets.length - 1; f++) {
-    const s = target.mesh.offsets[f],
-      e = target.mesh.offsets[f + 1];
-    for (let c = s + 1; c < e - 1; c++) tri.push(target.mesh.indices[s], target.mesh.indices[c], target.mesh.indices[c + 1]);
-  }
-  const a = new Vector3(),
+  const points = method === 'NEAREST_VERTEX' ? new PointQuery(query.positions) : null;
+  const tn = new Vector3(),
+    a = new Vector3(),
     b = new Vector3(),
-    c = new Vector3(),
-    best = new Vector3(),
-    tmp = new Vector3();
+    c = new Vector3();
+  const triNormal = (tri: [number, number, number]) => {
+    a.fromArray(query.positions, tri[0] * 3);
+    b.fromArray(query.positions, tri[1] * 3);
+    c.fromArray(query.positions, tri[2] * 3);
+    return tn.subVectors(b, a).cross(c.sub(a)).normalize();
+  };
+  // smooth normals of the target (for "above surface")
+  const smoothN = mode === 'ABOVE_SURFACE' ? vertexNormals({ ...target.mesh, positions: query.positions }) : null;
+  /** Place p relative to a surface hit according to the snap mode (smooth normal `sn` when known). */
+  const snap = (p: Vector3, hit: Vector3, n: Vector3 | null, sn?: Vector3) => {
+    const away = p.clone().sub(hit);
+    const outside = n ? away.dot(n) >= 0 : true;
+    // the line back to the original point, turned to face out of the surface
+    const out = away.lengthSq() > 1e-18 ? away.clone().normalize() : n?.clone() ?? new Vector3();
+    if (n && out.dot(n) < 0) out.negate();
+    switch (mode) {
+      case 'INSIDE':
+        if (n && !outside && away.length() >= offset) return;
+        p.copy(hit).addScaledVector(out, -offset);
+        return;
+      case 'OUTSIDE':
+        if (n && outside && away.length() >= offset) return;
+        p.copy(hit).addScaledVector(out, offset);
+        return;
+      case 'OUTSIDE_SURFACE':
+        p.copy(hit).addScaledVector(out, offset);
+        return;
+      case 'ABOVE_SURFACE':
+        p.copy(hit).addScaledVector(sn ?? n ?? out, offset);
+        return;
+    }
+    // on surface: keep the offset along the line back to the original point
+    p.copy(hit);
+    if (offset) {
+      if (away.lengthSq() > 1e-18) p.addScaledVector(away.normalize(), offset);
+      else if (n) p.addScaledVector(n, offset);
+    }
+  };
+  if (method === 'PROJECT') {
+    const axes = [bool(mod, 'use_project_x'), bool(mod, 'use_project_y'), bool(mod, 'use_project_z')];
+    const useAxes = axes.some(Boolean);
+    const axis = new Vector3(axes[0] ? 1 : 0, axes[1] ? 1 : 0, axes[2] ? 1 : 0).normalize();
+    const vn = useAxes ? null : vertexNormals(m);
+    const pos = bool(mod, 'use_positive_direction', true),
+      neg = bool(mod, 'use_negative_direction');
+    const limit = num(mod, 'project_limit', 0) || Infinity;
+    const cull = str(mod, 'cull_face', 'OFF');
+    const invCull = bool(mod, 'use_invert_cull');
+    const accept = (hit: { tri: [number, number, number] } | null, dir: Vector3) => {
+      if (!hit) return false;
+      if (cull === 'OFF') return true;
+      const front = triNormal(hit.tri).dot(dir) < 0;
+      const culled = cull === 'FRONT' ? front : !front;
+      return invCull ? culled : !culled;
+    };
+    return deform(m, mod, (p, i) => {
+      const d = vn ? new Vector3(vn[i * 3], vn[i * 3 + 1], vn[i * 3 + 2]) : axis.clone();
+      if (d.lengthSq() < 1e-12) return;
+      let best: ReturnType<SurfaceQuery['raycast']> = null;
+      if (pos) {
+        const h = query.raycast(p, d, limit, true);
+        if (accept(h, d)) best = h;
+      }
+      if (neg) {
+        const nd = d.clone().negate();
+        const h = query.raycast(p, nd, limit, true);
+        if (accept(h, nd) && (!best || h!.distance < best.distance)) best = h;
+      }
+      if (!best) return;
+      snap(p, best.point, triNormal(best.tri).clone());
+    });
+  }
   return deform(m, mod, (p) => {
-    p.applyMatrix4(toT);
-    let bd = Infinity;
-    for (let i = 0; i < tri.length; i += 3) {
-      a.fromArray(TP, tri[i] * 3);
-      b.fromArray(TP, tri[i + 1] * 3);
-      c.fromArray(TP, tri[i + 2] * 3);
-      closestPointOnTriangle(p, a, b, c, tmp);
-      const d = tmp.distanceToSquared(p);
-      if (d < bd) {
-        bd = d;
-        best.copy(tmp);
-      }
+    if (points) {
+      const r = points.nearest(p);
+      if (!r) return;
+      snap(p, new Vector3().fromArray(query.positions, r.index * 3), null);
+      return;
     }
-    if (bd < Infinity) {
-      if (offset) {
-        const dir = p.clone().sub(best);
-        if (dir.lengthSq() > 0) best.addScaledVector(dir.normalize(), offset);
-      }
-      p.copy(best);
+    const h = query.nearest(p);
+    if (!h) return;
+    let sn: Vector3 | undefined;
+    if (smoothN) {
+      sn = new Vector3();
+      for (let k = 0; k < 3; k++) sn.addScaledVector(new Vector3().fromArray(smoothN, h.tri[k] * 3), h.bary[k]);
+      sn.normalize();
     }
-    p.applyMatrix4(back);
+    snap(p, h.point, triNormal(h.tri).clone(), sn);
   });
 }
 
@@ -1789,7 +1852,16 @@ export const modifierTypes: Record<string, ModifierType> = {
   HOOK: { type: 'HOOK', label: 'Hook', category: 'DEFORM', icon: 'hook', deformOnly: true, defaults: base({ object: null, strength: 1, falloff_type: 'SMOOTH', falloff_radius: 0, use_falloff_uniform: false, center: [0, 0, 0], vertex_indices: [], matrix_inverse: new Matrix4().toArray(), vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: hookMod },
   LAPLACIANSMOOTH: { type: 'LAPLACIANSMOOTH', label: 'Smooth Laplacian', category: 'DEFORM', icon: 'mod_smooth', deformOnly: true, defaults: base({ iterations: 1, lambda_factor: 0.01, lambda_border: 0.01, use_volume_preserve: true, use_normalized: true, use_x: true, use_y: true, use_z: true, vertex_group: '', invert_vertex_group: false }), apply: laplacianSmooth },
   LATTICE: { type: 'LATTICE', label: 'Lattice', category: 'DEFORM', icon: 'mod_lattice', deformOnly: true, defaults: base({ object: null, strength: 1, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: latticeMod },
-  SHRINKWRAP: { type: 'SHRINKWRAP', label: 'Shrinkwrap', category: 'DEFORM', icon: 'mod_shrinkwrap', deformOnly: true, defaults: base({ target: null, wrap_method: 'NEAREST_SURFACEPOINT', offset: 0, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.target as string], apply: shrinkwrapMod },
+  SHRINKWRAP: {
+    type: 'SHRINKWRAP',
+    label: 'Shrinkwrap',
+    category: 'DEFORM',
+    icon: 'mod_shrinkwrap',
+    deformOnly: true,
+    defaults: base({ target: null, wrap_method: 'NEAREST_SURFACEPOINT', wrap_mode: 'ON_SURFACE', offset: 0, project_limit: 0, use_project_x: false, use_project_y: false, use_project_z: false, use_negative_direction: false, use_positive_direction: true, cull_face: 'OFF', use_invert_cull: false, vertex_group: '', invert_vertex_group: false }),
+    deps: (m) => [m.target as string],
+    apply: shrinkwrapMod,
+  },
   SIMPLE_DEFORM: { type: 'SIMPLE_DEFORM', label: 'Simple Deform', category: 'DEFORM', icon: 'mod_simpledeform', deformOnly: true, defaults: base({ deform_method: 'TWIST', angle: (45 * Math.PI) / 180, factor: 0.785398, deform_axis: 'Z', origin: null, limits: [0, 1], lock_x: false, lock_y: false, lock_z: false, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.origin as string], apply: simpleDeform },
   SMOOTH: { type: 'SMOOTH', label: 'Smooth', category: 'DEFORM', icon: 'mod_smooth', deformOnly: true, defaults: base({ factor: 0.5, iterations: 1, use_x: true, use_y: true, use_z: true, vertex_group: '' }), apply: smoothMesh },
   WARP: { type: 'WARP', label: 'Warp', category: 'DEFORM', icon: 'mod_warp', deformOnly: true, defaults: base({ object_from: null, bone_from: '', object_to: null, bone_to: '', strength: 1, falloff_type: 'SMOOTH', falloff_radius: 1, use_volume_preserve: false, texture: null, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object_from as string, m.object_to as string], apply: warpMod },

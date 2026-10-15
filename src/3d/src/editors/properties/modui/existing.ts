@@ -432,3 +432,50 @@ modifierExtraUI.WARP = (ob, m) => {
     sub(m, 'texture', 'Texture', () => textureRows(m, 'texture')),
   ];
 };
+
+// ---------------------------------------------------------------------------
+// Shrinkwrap
+
+modifierFields.SHRINKWRAP = [];
+modifierExtraUI.SHRINKWRAP = (ob, m) => {
+  const r = m as Rec;
+  const method = String(r.wrap_method ?? 'NEAREST_SURFACEPOINT');
+  return [
+    enumProp(r, 'wrap_method', 'Wrap Method', [
+      ['NEAREST_SURFACEPOINT', 'Nearest Surface Point'],
+      ['PROJECT', 'Project'],
+      ['NEAREST_VERTEX', 'Nearest Vertex'],
+      ['TARGET_PROJECT', 'Target Normal Project'],
+    ]),
+    method !== 'NEAREST_VERTEX'
+      ? enumProp(r, 'wrap_mode', 'Snap Mode', [
+          ['ON_SURFACE', 'On Surface'],
+          ['INSIDE', 'Inside'],
+          ['OUTSIDE', 'Outside'],
+          ['OUTSIDE_SURFACE', 'Outside Surface'],
+          ['ABOVE_SURFACE', 'Above Surface'],
+        ])
+      : null,
+    objRow(r, 'target', 'Target', (o) => o.type === 'MESH' && o.id !== ob.id),
+    num(r, 'offset', 'Offset', { unit: 'distance', anim: { ob, path: `modifiers["${m.name}"].offset` } }),
+    method === 'PROJECT'
+      ? [
+          num(r, 'project_limit', 'Limit', { unit: 'distance', min: 0 }),
+          boolToggles(m, 'Axis', [
+            ['use_project_x', 'X'],
+            ['use_project_y', 'Y'],
+            ['use_project_z', 'Z'],
+          ]),
+          bool(r, 'use_negative_direction', 'Negative'),
+          bool(r, 'use_positive_direction', 'Positive'),
+          enumProp(r, 'cull_face', 'Cull Faces', [
+            ['OFF', 'Off'],
+            ['FRONT', 'Front'],
+            ['BACK', 'Back'],
+          ]),
+          r.cull_face !== 'OFF' ? bool(r, 'use_invert_cull', 'Invert Cull') : null,
+        ]
+      : null,
+    vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
+  ];
+};
