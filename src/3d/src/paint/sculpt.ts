@@ -8,7 +8,7 @@ import type { MeshData } from '../data/types';
 import type { View3D } from '../editors/view3d/view3d';
 import { activeBrush, brushById, type PaintBrush } from './brushes';
 import { falloff, laplacianSmooth, mirror, symmetryPasses } from './math';
-import { beginGeometryStroke, meshSession, reevaluate, type Hit, type MeshSession } from './session';
+import { beginGeometryStroke, meshSession, reevaluate, revertToUndoState, type Hit, type MeshSession } from './session';
 import { runStroke, type Dab } from './stroke';
 import { hasMask, invalidatePaintAttributes, maskChanged, writeCornerValues } from './display';
 import { normalFactor, strokeAutomask } from './automask';
@@ -942,6 +942,10 @@ export function sculptStroke(v: View3D, e: PointerEvent, override?: PaintBrush |
     settings: () => b0,
     canRestore: !maskBrush && !ANCHORED.has(tool) && tool !== 'SNAKE_HOOK',
     dab: (d) => dab(st, d, tool),
+    cancel: () => {
+      stroke = null;
+      revertToUndoState();
+    },
     update: () => {
       if (st.maskBrush) {
         maskChanged(st.mask!);

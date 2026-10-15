@@ -6,6 +6,7 @@ import { editModeHooks } from '../editors/view3d/hooks';
 import type { View3D } from '../editors/view3d/view3d';
 import { renderContext } from '../render/context';
 import { cursorState } from './cursorstate';
+import { revertToUndoState } from './session';
 
 export type StrokeMethod = 'SPACE' | 'DOTS' | 'AIRBRUSH' | 'LINE' | 'ANCHORED' | 'DRAG_DOT';
 
@@ -46,6 +47,8 @@ export interface StrokeHandler {
   end(): void;
   /** stroke method and stabilizer of the brush */
   settings?(): StrokeSettings;
+  /** Esc during the stroke (default: back to the last undo state) */
+  cancel?(): void;
   /** the handler supports `restore` dabs (anchored and drag dot strokes) */
   canRestore?: boolean;
 }
@@ -196,10 +199,30 @@ export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
     else pending.push(ev);
     if (!raf) raf = requestAnimationFrame(process);
   };
+  const key = (ev: KeyboardEvent) => {
+    if (ev.key !== 'Escape') return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    // cancel: drop everything this stroke did
+    removeEventListener('pointermove', move, true);
+    removeEventListener('pointerup', up, true);
+    removeEventListener('pointercancel', up, true);
+    removeEventListener('keydown', key, true);
+    if (raf) cancelAnimationFrame(raf);
+    if (airTimer) clearInterval(airTimer);
+    lineState.a = lineState.b = null;
+    lineState.anchorR = 0;
+    active = null;
+    if (handler.cancel) handler.cancel();
+    else revertToUndoState();
+    renderContext?.engine.requestDraw();
+    v.drawSvg();
+  };
   const up = () => {
     removeEventListener('pointermove', move, true);
     removeEventListener('pointerup', up, true);
     removeEventListener('pointercancel', up, true);
+    removeEventListener('keydown', key, true);
     if (raf) cancelAnimationFrame(raf);
     if (airTimer) clearInterval(airTimer);
     process();
@@ -221,4 +244,5 @@ export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
   addEventListener('pointermove', move, true);
   addEventListener('pointerup', up, true);
   addEventListener('pointercancel', up, true);
+  addEventListener('keydown', key, true);
 }

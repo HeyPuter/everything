@@ -243,6 +243,12 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
       lastUV = uv;
     },
     update: () => flushCanvas(st),
+    cancel: () => {
+      // put the original pixels back
+      st.work.data.set(st.orig);
+      st.dirty = [0, 0, st.W - 1, st.H - 1];
+      flushCanvas(st);
+    },
     end: () => {
       flushCanvas(st);
       void commitImage(st.img, 'Texture Paint');

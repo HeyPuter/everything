@@ -499,6 +499,18 @@ export function beginGeometryStroke(s: MeshSession, me: MeshData, mutate: () => 
   renderContext?.ensureSynced();
 }
 
+/** Throw away an unfinished stroke: back to the last undo state (Esc while painting). */
+export function revertToUndoState() {
+  const cur = app.undo.current();
+  const ob = app.activeObject;
+  if (!cur) return;
+  app.setDocument(cur, false);
+  dropSession();
+  if (ob) app.graph.invalidate(ob.id);
+  renderContext?.forceSync();
+  app.changed('doc', 'geometry');
+}
+
 /** Re-evaluate the object through its modifier stack (non-direct sessions), throttled by the caller. */
 export function reevaluate(s: MeshSession) {
   app.graph.invalidate(s.obId);
