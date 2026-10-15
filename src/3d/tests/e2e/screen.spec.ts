@@ -376,3 +376,60 @@ test('Console menus and operators; Info box select, replay and context menu', as
   await page.locator('.menu .menu-item', { hasText: 'Delete' }).click();
   await expectNoErrors(errors);
 });
+
+test('File Browser: browser storage, new folder, rename, keyboard selection, delete, bookmarks', async ({ page }) => {
+  const errors = await openApp(page);
+  // a clean browser-storage folder with two files
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    for await (const [name] of (root as any).entries()) await root.removeEntry(name, { recursive: true });
+    for (const n of ['one.txt', 'two.py']) {
+      const w = await (await root.getFileHandle(n, { create: true })).createWritable();
+      await w.write(`# ${n}\n`);
+      await w.close();
+    }
+  });
+  // make the 3D view a File Browser and open Browser Storage
+  const v = await areaBox(page, 'VIEW_3D');
+  await page.mouse.move(v.x + 300, v.y + 300);
+  await page.evaluate(() => (window as any).app.hoverArea.setType('FILE_BROWSER'));
+  const fb = page.locator('.area[data-editor="FILE_BROWSER"]');
+  await fb.locator('.fb-side-item', { hasText: 'Browser Storage' }).click();
+  await expect(fb.locator('.fb-item')).toHaveCount(2);
+  const run = (op: string, props: Record<string, unknown> = {}) => page.evaluate(([o, p]) => { const a = (window as any).app; return a.run(o, p, { area: a.hoverArea }); }, [op, props] as const);
+  await page.mouse.move(v.x + 300, v.y + 300);
+  // new folder (I), renamed
+  await page.keyboard.press('i');
+  await expect(fb.locator('.fb-item', { hasText: 'New Folder' })).toBeVisible();
+  await run('file.rename', { new_name: 'assets' });
+  await expect(fb.locator('.fb-item', { hasText: 'assets' })).toBeVisible();
+  await expect(fb.locator('.fb-item.on')).toHaveText(/assets/);
+  // keyboard: folders sort first; walk right to the first file, extend to the second
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect(fb.locator('.fb-item.on')).toHaveCount(2);
+  await page.keyboard.press('Alt+a');
+  await expect(fb.locator('.fb-item.on')).toHaveCount(0);
+  await page.keyboard.press('a');
+  await expect(fb.locator('.fb-item.on')).toHaveCount(3);
+  // list view shows sizes; sorting by size puts the larger file first
+  await run('file.select_all', { action: 'DESELECT' });
+  await page.evaluate(() => { const fbEd = (window as any).app.hoverArea.editor; fbEd.setView('LIST_VERTICAL'); });
+  await expect(fb.locator('.fb-items.list .fb-size').nth(1)).toHaveText(/B$/);
+  // Enter on a text file opens it as a text data-block
+  await fb.locator('.fb-item', { hasText: 'two.py' }).click();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => get(page, 'Object.values(app.doc.texts).map(t => t.name).join(",")')).toContain('two.py');
+  // delete the folder
+  await fb.locator('.fb-item', { hasText: 'assets' }).click();
+  await run('file.delete', { confirm: false });
+  await expect(fb.locator('.fb-item')).toHaveCount(2);
+  // bookmark the folder
+  await page.keyboard.press('Control+b');
+  await expect(fb.locator('.fb-side-item', { hasText: 'Browser Storage' })).toHaveCount(2);
+  // right-click menu
+  await fb.locator('.fb-item', { hasText: 'one.txt' }).click({ button: 'right' });
+  await expect(page.locator('.menu .menu-item', { hasText: 'Rename' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expectNoErrors(errors);
+});

@@ -55,6 +55,10 @@ const get = <T>(store: string, key: string) => idb<T>(store, 'readonly', (s) => 
 const put = (store: string, key: string, value: unknown) => idb(store, 'readwrite', (s) => void s.put(value, key)).catch(() => undefined);
 const del = (store: string, key: string) => idb(store, 'readwrite', (s) => void s.delete(key)).catch(() => undefined);
 
+/** Small persistent key/value store for UI state (bookmarks, recent folders). */
+export const kvGet = <T>(key: string) => get<T>(KV, `ui:${key}`);
+export const kvSet = (key: string, value: unknown) => put(KV, `ui:${key}`, value);
+
 // ---------------------------------------------------------------------------
 // recent files
 
