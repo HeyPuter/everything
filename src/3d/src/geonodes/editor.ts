@@ -162,7 +162,7 @@ registerNodeEditorProvider({
   emptyMessage: () => '',
   menuPoll: (idname) => !!getNodeType(idname)?.treeTypes.includes('GEOMETRY'),
   // Ctrl Shift click / node.link_viewer: link the node to the viewer
-  linkViewer: (ed, node) => linkToViewer(ed as NodeEditor, node),
+  linkViewer: (ed, node, socket) => linkToViewer(ed as NodeEditor, node, socket),
   headerRight: (e) => {
     const ed = e as GeometryNodeEditor;
     const doc = app.doc;
@@ -288,7 +288,7 @@ function geometrySourceFor(tree: NodeTreeData, start: NodeData): { node: string;
   return null;
 }
 
-export function linkToViewer(ed: NodeEditor, node: NodeData): boolean {
+export function linkToViewer(ed: NodeEditor, node: NodeData, socket?: string): boolean {
   const tree = ed.tree();
   if (!tree) return false;
   const ctx = ctxOf(app.doc, tree);
@@ -303,10 +303,10 @@ export function linkToViewer(ed: NodeEditor, node: NodeData): boolean {
   if (!viewer) {
     viewer = addNode(tree, VIEWER, [node.location[0] + (node.width ?? 140) + 80, node.location[1]]);
   }
-  // cycle through the node's outputs on repeated clicks
+  // a clicked socket is viewed directly; otherwise cycle through the node's outputs on repeated clicks
   const cur = tree.links.find((l) => l.from_node === node.id && l.to_node === viewer!.id);
   const i = cur ? outs.findIndex((s) => s.identifier === cur.from_socket) : -1;
-  const sock = outs[(i + 1) % outs.length];
+  const sock = outs.find((s) => s.identifier === socket) ?? outs[(i + 1) % outs.length];
   if (sock.type === 'GEOMETRY') {
     tree.links = tree.links.filter((l) => !(l.to_node === viewer!.id && l.to_socket === 'Value'));
     connect(ctx, node.id, sock.identifier, viewer.id, 'Geometry');

@@ -495,7 +495,7 @@ registerNodeEditorProvider({
     );
   },
   // Ctrl Shift click / node.link_viewer: link the node's output to the viewer (cycles through outputs)
-  linkViewer: (ed, n) => {
+  linkViewer: (ed, n, socket) => {
     const tree = (ed as CompositorEditor).tree();
     if (!tree || n.type === 'CompositorNodeViewer' || n.type === 'NodeGroupOutput' || n.type === 'NodeFrame') return false;
     const sctx = ctxOf(app.doc, tree);
@@ -504,7 +504,8 @@ registerNodeEditorProvider({
     let viewer = tree.nodes.find((x) => x.type === 'CompositorNodeViewer' && x.id === tree.active_node) ?? tree.nodes.find((x) => x.type === 'CompositorNodeViewer');
     if (!viewer) viewer = addNode(tree, 'CompositorNodeViewer', [n.location[0] + (n.width ?? 140) + 80, n.location[1]]);
     const cur = tree.links.find((l) => l.to_node === viewer!.id && l.from_node === n.id);
-    const i = cur ? (outs.findIndex((s) => s.identifier === cur.from_socket) + 1) % outs.length : 0;
+    const picked = outs.findIndex((s) => s.identifier === socket);
+    const i = picked >= 0 ? picked : cur ? (outs.findIndex((s) => s.identifier === cur.from_socket) + 1) % outs.length : 0;
     connect(sctx, n.id, outs[i].identifier, viewer.id, 'Image');
     for (const x of tree.nodes) x.select = x.id === n.id;
     tree.active_node = viewer.id;

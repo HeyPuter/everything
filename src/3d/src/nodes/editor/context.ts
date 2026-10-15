@@ -33,8 +33,8 @@ export interface NodeEditorProvider {
   menuPoll?(idname: string, ed: { shaderType: 'OBJECT' | 'WORLD' }): boolean;
   /** draw behind the links and nodes, over the grid (e.g. the compositor backdrop) */
   drawBackdrop?(ed: unknown, g: CanvasRenderingContext2D, width: number, height: number): void;
-  /** link a node to the tree's viewer (Ctrl Shift click); trees without viewers connect to the output instead */
-  linkViewer?(ed: unknown, node: NodeData): boolean;
+  /** link a node (or one of its outputs) to the tree's viewer (Ctrl Shift click); without this, trees connect to the output */
+  linkViewer?(ed: unknown, node: NodeData, socket?: string): boolean;
   /** panels of the sidebar's View tab (the tab is shown only when this exists) */
   viewPanels?(ed: unknown): Child;
   /** panels of the sidebar's Options tab, e.g. material settings (shown only when this exists) */

@@ -479,11 +479,13 @@ export function detachLinks(ctx: SocketContext, ids: Set<string>) {
  * Connect a node to the tree's output (Material / World Output, or the Group Output in groups,
  * geometry and compositing trees). Repeating cycles through the node's outputs.
  */
-export function connectToOutput(ctx: SocketContext, node: NodeData, target: 'MATERIAL' | 'WORLD' | 'GROUP'): LinkData | null {
+export function connectToOutput(ctx: SocketContext, node: NodeData, target: 'MATERIAL' | 'WORLD' | 'GROUP', socket?: string): LinkData | null {
   const { tree } = ctx;
   const outType = target === 'MATERIAL' ? 'ShaderNodeOutputMaterial' : target === 'WORLD' ? 'ShaderNodeOutputWorld' : 'NodeGroupOutput';
   if (node.type === outType || isFrame(node)) return null;
-  const outs = nodeSockets(node, ctx).outputs.filter((s) => s.type !== 'CUSTOM');
+  const all = nodeSockets(node, ctx).outputs.filter((s) => s.type !== 'CUSTOM');
+  // a clicked output socket is used as is; otherwise repeated calls cycle through the outputs
+  const outs = socket ? all.filter((s) => s.identifier === socket) : all;
   if (!outs.length) return null;
   let out = target === 'GROUP' ? activeOutputOf(tree, outType) : activeOutput(tree, outType);
   if (!out) {

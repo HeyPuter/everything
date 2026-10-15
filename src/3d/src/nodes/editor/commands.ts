@@ -446,26 +446,33 @@ const ops: Operator[] = [
     idname: 'node.link_viewer',
     label: 'Link to Viewer Node',
     description: 'Show the node’s result: link it to a viewer, cycling through its outputs (Ctrl Shift click)',
-    props: [{ id: 'node', type: 'string', default: '', hidden: true }],
+    props: [
+      { id: 'node', type: 'string', default: '', hidden: true },
+      { id: 'socket', type: 'string', default: '', hidden: true },
+    ],
     poll: hasTree,
     exec: (ctx, p) => {
       const { ed, tree } = treeOf(ctx)!;
       const n = nodeById(tree, String(p.node || '') || tree.active_node || '');
       if (!n) return 'CANCELLED';
-      if (ed.provider.linkViewer) return ed.provider.linkViewer(ed, n) ? 'FINISHED' : 'CANCELLED';
-      return connectOutput(ed, tree, n) ? 'FINISHED' : 'CANCELLED';
+      const socket = String(p.socket || '') || undefined;
+      if (ed.provider.linkViewer) return ed.provider.linkViewer(ed, n, socket) ? 'FINISHED' : 'CANCELLED';
+      return connectOutput(ed, tree, n, socket) ? 'FINISHED' : 'CANCELLED';
     },
   },
   {
     idname: 'node.connect_to_output',
     label: 'Connect to Output',
     description: 'Connect the node to the tree’s output, cycling through its outputs (Shift Alt click)',
-    props: [{ id: 'node', type: 'string', default: '', hidden: true }],
+    props: [
+      { id: 'node', type: 'string', default: '', hidden: true },
+      { id: 'socket', type: 'string', default: '', hidden: true },
+    ],
     poll: hasActive,
     exec: (ctx, p) => {
       const { ed, tree } = treeOf(ctx)!;
       const n = nodeById(tree, String(p.node || '') || tree.active_node || '');
-      if (!n || !connectOutput(ed, tree, n)) return 'CANCELLED';
+      if (!n || !connectOutput(ed, tree, n, String(p.socket || '') || undefined)) return 'CANCELLED';
     },
   },
   {
@@ -537,10 +544,10 @@ const ops: Operator[] = [
 ];
 
 /** Connect a node to the output of the edited tree (material, world or group output). */
-function connectOutput(ed: NodeEditor, tree: NodeTreeData, n: NodeData): boolean {
+function connectOutput(ed: NodeEditor, tree: NodeTreeData, n: NodeData, socket?: string): boolean {
   const t = ed.treeType();
   const target = ed.path.length || t === 'GEOMETRY' || t === 'COMPOSITOR' ? 'GROUP' : t === 'WORLD' ? 'WORLD' : 'MATERIAL';
-  const link = connectToOutput(ctxOf(app.doc, tree), n, target);
+  const link = connectToOutput(ctxOf(app.doc, tree), n, target, socket);
   if (!link) {
     app.report('WARNING', 'Nothing to connect to the output');
     return false;

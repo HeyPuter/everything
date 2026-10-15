@@ -174,6 +174,9 @@ describe('links', () => {
     connectToOutput(ctx, tex, 'MATERIAL');
     expect(t.links).toHaveLength(1);
     expect(t.links[0].from_socket).not.toBe(first);
+    // a given output socket is used directly
+    connectToOutput(ctx, tex, 'MATERIAL', 'Color');
+    expect(t.links.map((l) => l.from_socket)).toEqual(['Color']);
   });
 });
 

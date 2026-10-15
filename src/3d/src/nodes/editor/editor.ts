@@ -1075,12 +1075,14 @@ export class NodeEditor implements Editor {
     if (ctrl && e.altKey) return this.lassoDrag(e, tree, e.shiftKey ? 'SUB' : 'ADD');
     // Ctrl Shift click: view the node; Shift Alt click: connect it to the tree's output
     if (e.shiftKey && (ctrl || e.altKey)) {
-      const n = this.hitNode(e.clientX, e.clientY, false);
+      const sock = this.hitSocket(e.clientX, e.clientY, true);
+      const n = sock ? nodeById(tree, sock.node) : this.hitNode(e.clientX, e.clientY, false);
       if (n && !isFrame(n)) {
         e.preventDefault();
         this.selectOnly(tree, n);
         app.changed('ui');
-        app.run(ctrl ? 'node.link_viewer' : 'node.connect_to_output', { node: n.id }, { area: this.area });
+        // clicking an output socket views that output
+        app.run(ctrl ? 'node.link_viewer' : 'node.connect_to_output', { node: n.id, socket: sock?.socket.identifier ?? '' }, { area: this.area });
         return;
       }
     }
