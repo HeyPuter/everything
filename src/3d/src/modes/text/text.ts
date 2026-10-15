@@ -16,6 +16,7 @@ import { pickFile } from '../../io/native';
 import { promptText, type MenuItem } from '../../ui/menu';
 import type { View3D } from '../../editors/view3d/view3d';
 import * as T from './textops';
+import { textBender } from '../curve/bevel';
 
 export function activeText(): { ob: ObjectData; cu: CurveData } | null {
   const ob = app.activeObject;
@@ -605,11 +606,13 @@ export function indexAt(v: View3D, x: number, y: number): number {
   if (!t) return 0;
   const w = app.graph.get(t.ob.id)?.world ?? new Matrix4();
   const l = lay(t.cu);
+  const bend = textBender(app.doc, app.graph, t.ob, t.cu);
   let best = 0,
     bd = Infinity;
   l.carets.forEach((c, i) => {
     // compare against the caret's vertical middle
-    const p = v.project(new Vector3(c[0], c[1] + l.size * 0.3, 0).applyMatrix4(w));
+    const q = bend ? bend(c[0], c[1] + l.size * 0.3, 0) : [c[0], c[1] + l.size * 0.3, 0];
+    const p = v.project(new Vector3(q[0], q[1], q[2]).applyMatrix4(w));
     const d = Math.hypot((p.x - x) * 1, (p.y - y) * 2.5);
     if (d < bd) {
       bd = d;
@@ -654,7 +657,11 @@ editModeHooks.svg.push((v) => {
   const l = lay(cu);
   const c = caret(cu);
   const at = (i: number) => l.carets[Math.min(i, l.carets.length - 1)] ?? [0, 0];
-  const P = (x: number, y: number) => v.project(new Vector3(x, y, 0).applyMatrix4(w));
+  const bend = textBender(app.doc, app.graph, ob, cu);
+  const P = (x: number, y: number) => {
+    const q = bend ? bend(x, y, 0) : [x, y, 0];
+    return v.project(new Vector3(q[0], q[1], q[2]).applyMatrix4(w));
+  };
   const parts = [];
   const sel = selection(cu);
   if (sel) {

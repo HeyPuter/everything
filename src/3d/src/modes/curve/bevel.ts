@@ -25,6 +25,17 @@ function sampledSource(doc: DocumentData, id: string | null | undefined, self: O
   return { cu, sp, sampled: sampleSpline(sp, cu.resolution_u) };
 }
 
+/** The path bend of a text object following a curve (text space), or null. */
+export function textBender(doc: DocumentData, graph: Depsgraph, ob: ObjectData, cu: CurveData): ((x: number, y: number, z: number) => Vec3) | null {
+  if (!cu.follow_curve) return null;
+  const f = sampledSource(doc, cu.follow_curve, ob);
+  const pw = graph.get(cu.follow_curve)?.world,
+    tw = graph.get(ob.id)?.world;
+  if (!f || !pw || !tw) return null;
+  const m = tw.clone().invert().multiply(pw);
+  return pathBender(f.sampled.points.map((p) => new Vector3(p[0], p[1], p[2]).applyMatrix4(m)));
+}
+
 function bendSplines(splines: Spline[], bend: (x: number, y: number, z: number) => Vec3): Spline[] {
   const tr = (c: Vec3) => bend(c[0], c[1], c[2]);
   return splines.map((sp) => ({ ...sp, bezier_points: sp.bezier_points.map((b) => ({ ...b, co: tr(b.co), handle_left: tr(b.handle_left), handle_right: tr(b.handle_right) })) }));
