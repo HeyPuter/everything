@@ -10,3 +10,4 @@ import './bind';
 import './skin';
 import './multires';
 import './ocean';
+import './particles';

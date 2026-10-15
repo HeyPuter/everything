@@ -222,3 +222,16 @@ export function numField(m: ModifierBase, key: string, opts: { unit?: 'distance'
   const r = m as Rec;
   return numberField({ id: `${m.id}.${key}`, value: Number(r[key] ?? 0), unit: opts.unit, min: opts.min, max: opts.max, int: opts.int, disabled: opts.disabled, label: opts.label, set: (v, final) => ((r[key] = v), touch(`Change ${key}`, final)) });
 }
+
+/** Row of toggle buttons, each bound to its own boolean property. */
+export function boolToggles(m: ModifierBase, label: string, items: [string, string][]): Child {
+  const r = m as Rec;
+  return splitRow(
+    label,
+    h(
+      'div',
+      { class: 'mod-flags' },
+      items.map(([k, l]) => h('button', { key: k, class: { tbtn: true, on: r[k] !== false && !!r[k] }, onclick: () => ((r[k] = !r[k]), touch(`Change ${l}`)) }, l)),
+    ),
+  );
+}
