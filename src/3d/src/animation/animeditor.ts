@@ -82,6 +82,8 @@ export abstract class AnimEditor implements Editor {
   sidebarTab = '';
   autoSnap = true;
   showMarkers = true;
+  /** ruler labels in seconds+frames instead of frames */
+  showSeconds = false;
   hover: Region | null = null;
   private _list: ChannelList = { rows: [], curves: [] };
   private listDoc: unknown = null;
@@ -263,6 +265,7 @@ export abstract class AnimEditor implements Editor {
       sidebarTab: this.sidebarTab,
       autoSnap: this.autoSnap,
       showMarkers: this.showMarkers,
+      showSeconds: this.showSeconds,
       view: {
         x0: this.view.x0,
         ppf: this.view.ppf,
@@ -285,6 +288,7 @@ export abstract class AnimEditor implements Editor {
     if (typeof s.sidebarTab === 'string') this.sidebarTab = s.sidebarTab;
     if (typeof s.autoSnap === 'boolean') this.autoSnap = s.autoSnap;
     if (typeof s.showMarkers === 'boolean') this.showMarkers = s.showMarkers;
+    if (typeof s.showSeconds === 'boolean') this.showSeconds = s.showSeconds;
     if (typeof s.scrollY === 'number') this.scrollY = s.scrollY;
     const v = s.view as Record<string, number> | undefined;
     if (v && typeof v.x0 === 'number') {
@@ -886,13 +890,14 @@ export abstract class AnimEditor implements Editor {
     g.fillStyle = C.rulerText;
     // playhead box (labels under it are skipped)
     const px = Math.round(v.fx(s.frame_current));
-    const label = String(s.frame_current);
+    const fmt = (f: number) => (this.showSeconds ? formatSeconds(f, s.render.fps / (s.render.fps_base || 1)) : String(f));
+    const label = fmt(s.frame_current);
     const tw = Math.max(24, g.measureText(label).width + 12);
     for (let f = first; v.fx(f) < W + 30; f += step) {
       const x = Math.round(v.fx(f));
-      const lw = g.measureText(String(f)).width;
+      const lw = g.measureText(fmt(f)).width;
       if (Math.abs(x - px) < tw / 2 + lw / 2 + 2) continue;
-      g.fillText(String(f), x, RULER_H / 2 + 1);
+      g.fillText(fmt(f), x, RULER_H / 2 + 1);
     }
     g.fillStyle = C.playhead;
     roundRect(g, px - tw / 2, 2, tw, RULER_H - 4, 4);
@@ -1228,6 +1233,15 @@ export abstract class AnimEditor implements Editor {
     this.view.fitX(a, b, 40);
     this.draw();
   }
+}
+
+/** Frame as seconds+frames (e.g. 1+12 at 24 fps). */
+export function formatSeconds(frame: number, fps: number) {
+  const f = Math.round(frame);
+  const r = Math.max(1, Math.round(fps));
+  const sec = Math.trunc(f / r),
+    rest = Math.abs(f - sec * r);
+  return `${f < 0 && sec === 0 ? '-' : ''}${sec}+${rest}`;
 }
 
 function div(cls: string) {

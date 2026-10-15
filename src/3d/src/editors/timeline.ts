@@ -36,6 +36,7 @@ export class Timeline extends DopeSheet {
       { label: 'Show Markers', checked: this.showMarkers, action: () => ((this.showMarkers = !this.showMarkers), this.refresh()) },
       { label: 'Only Show Selected', checked: this.onlySelected, action: () => ((this.onlySelected = !this.onlySelected), this.refresh(), app.changed('ui')) },
       { label: 'Show Hidden', checked: this.showHidden, action: () => ((this.showHidden = !this.showHidden), this.refresh(), app.changed('ui')) },
+      { label: 'Show Seconds', checked: this.showSeconds, op: 'anim.show_seconds_toggle', shortcut: 'Ctrl T' },
       { separator: true },
       { label: 'Frame All', op: 'action.view_all', shortcut: 'Home' },
       { label: 'Frame Scene Range', op: 'anim.scene_range_frame' },

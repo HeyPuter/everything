@@ -104,6 +104,7 @@ export class NlaEditor extends AnimEditor {
         },
         { separator: true },
         { label: 'Box Select', op: 'nla.select_box', shortcut: 'B' },
+        { label: 'Box Select (Axis Range)', op: 'nla.select_box', props: { axis_range: true }, shortcut: 'Alt B' },
         { separator: true },
         {
           label: 'Before Current Frame',
@@ -247,6 +248,7 @@ export class NlaEditor extends AnimEditor {
         checked: this.showMarkers,
         action: () => ((this.showMarkers = !this.showMarkers), this.refresh()),
       },
+      { label: 'Show Seconds', checked: this.showSeconds, op: 'anim.show_seconds_toggle', shortcut: 'Ctrl T' },
       { separator: true },
       {
         label: 'Frame Selected',
@@ -1030,15 +1032,16 @@ registerOperators([
     idname: 'nla.select_box',
     label: 'Box Select',
     description: 'Use box selection to grab NLA-Strips',
+    props: [{ id: 'axis_range', label: 'Axis Range', type: 'bool', default: false }],
     poll,
     undo: false,
-    invoke: (ctx) => {
+    invoke: (ctx, p) => {
       const ed = nlaEd(ctx)!;
       app.startModal({
         label: 'Box Select',
         cursor: 'crosshair',
         onPointerDown: (e) => {
-          if (e.button === 0) ed.boxGesture(e, (r, mode) => ed.boxSelect(r, mode === 'SET' ? 'ADD' : 'SUB'));
+          if (e.button === 0) ed.boxGesture(e, (r, mode) => ed.boxSelect(p.axis_range ? { ...r, y0: RULER_H, y1: 1e6 } : r, mode === 'SET' ? 'ADD' : 'SUB'));
           return 'CANCELLED';
         },
         onKey: (e) => (e.key === 'Escape' ? 'CANCELLED' : true),
@@ -1390,6 +1393,7 @@ addKeys('NLA Editor', [
     when: overMain,
   },
   { key: 'B', op: 'nla.select_box', when: overMain },
+  { key: 'B', alt: true, op: 'nla.select_box', props: { axis_range: true }, when: overMain },
   { key: 'LEFT_BRACKET', op: 'nla.select_leftright', props: { mode: 'LEFT' } },
   {
     key: 'RIGHT_BRACKET',

@@ -312,6 +312,20 @@ const ops: Operator[] = [
     },
   },
   {
+    idname: 'anim.show_seconds_toggle',
+    label: 'Show Seconds',
+    description: 'Show timing in seconds (seconds+frames) instead of frames',
+    undo: false,
+    internal: true,
+    poll: pollEd,
+    exec: (ctx) => {
+      const ed = animEd(ctx)!;
+      ed.showSeconds = !ed.showSeconds;
+      ed.draw();
+      app.changed('ui');
+    },
+  },
+  {
     idname: 'anim.scene_range_frame',
     label: 'Frame Scene/Preview Range',
     description: 'Fit the view to the scene frame range (or the preview range when it is active)',
@@ -356,6 +370,7 @@ addKeys('Animation Channels', [
 
 addKeys('Animation', [
   { key: 'P', op: 'anim.previewrange_set', when: overMain },
+  { key: 'T', ctrl: true, op: 'anim.show_seconds_toggle' },
   { key: 'HOME', ctrl: true, op: 'anim.start_frame_set' },
   { key: 'END', ctrl: true, op: 'anim.end_frame_set' },
 ]);

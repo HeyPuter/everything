@@ -13,6 +13,8 @@ import { getValue, setValue } from '../../data/rna';
 import { defaultPoseBone, evaluatePose, sortedBones, boneRotation } from '../../eval/armature';
 import { rotationQuaternion, setRotationFromQuaternion, poseBoneMatrix } from '../../eval/transform';
 import { modeMenus } from '../../editors/view3d/modemenus';
+import { constraintTypes, boneOnlyConstraints, newConstraint } from '../../eval/constraints';
+import { uid } from '../../data/defaults';
 import { activeView3D } from '../../editors/view3d/view3d';
 import { activeArmature, renameBone, ensurePose, pickBone } from './armature';
 import { armatureDataPanels } from '../../editors/properties/tabs';
@@ -942,7 +944,55 @@ const keyingSetOp: Operator = {
   },
 };
 
-registerOperators([...slideOps, propagateOp, ...selectionSetOps, ...nameOps, ...selectOps, ...transformOps, optionOp, keyingSetOp]);
+// ---------------------------------------------------------------------------
+// Bone constraints
+
+const CONSTRAINT_ITEMS = (): [string, string][] => [...Object.values(constraintTypes).map((t) => [t.type, t.label] as [string, string]), ...Object.entries(boneOnlyConstraints)];
+
+const constraintOps: Operator[] = [
+  {
+    idname: 'pose.constraint_add_with_targets',
+    label: 'Add Constraint (with Targets)',
+    description: 'Add a constraint to the active bone, targeting the other selected bone (or selected object)',
+    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'COPY_LOCATION', items: CONSTRAINT_ITEMS() }],
+    poll: () => inPose() && !!activeArmature()!.arm.active_bone,
+    invoke: () => {
+      openMenu(
+        CONSTRAINT_ITEMS().map(([v, l]) => ({ label: l, op: 'pose.constraint_add_with_targets', props: { type: v } })),
+        { x: app.pointer.x, y: app.pointer.y },
+        { title: 'Add Constraint (with Targets)' },
+      );
+      return 'CANCELLED';
+    },
+    exec: (_ctx, p) => {
+      const { ob, arm, pose } = armPose();
+      const act = arm.active_bone ? pose[arm.active_bone] : undefined;
+      if (!act) return 'CANCELLED';
+      const c = newConstraint(p.type as string, uid('cn'));
+      const other = selectedBones().find((n) => n !== arm.active_bone);
+      const otherOb = app.selectedObjects().find((o) => o.id !== ob.id);
+      if (other) {
+        c.target = ob.id;
+        c.subtarget = other;
+      } else if (otherOb) c.target = otherOb.id;
+      act.constraints.push(c);
+    },
+  },
+  {
+    idname: 'pose.constraints_copy',
+    label: 'Copy Constraints to Selected Bones',
+    description: 'Copy the active bone’s constraints to the other selected bones',
+    poll: () => inPose() && !!activeArmature()!.arm.active_bone && selectedBones().length > 1,
+    exec: () => {
+      const { arm, pose } = armPose();
+      const src = pose[arm.active_bone!];
+      if (!src?.constraints.length) return 'CANCELLED';
+      for (const n of selectedBones()) if (n !== arm.active_bone) pose[n].constraints.push(...src.constraints.map((c) => ({ ...structuredClone(c), id: uid('cn') })));
+    },
+  },
+];
+
+registerOperators([...constraintOps, ...slideOps, propagateOp, ...selectionSetOps, ...nameOps, ...selectOps, ...transformOps, optionOp, keyingSetOp]);
 
 // ---------------------------------------------------------------------------
 // Menus
@@ -1050,7 +1100,14 @@ export function poseMenu(): MenuItem[] {
         { label: 'Clear IK', op: 'pose.ik_clear', shortcut: 'Ctrl Alt I' },
       ],
     },
-    { label: 'Constraints', submenu: () => [{ label: 'Clear Pose Constraints', op: 'pose.constraints_clear', shortcut: 'Ctrl Alt C' }] },
+    {
+      label: 'Constraints',
+      submenu: () => [
+        { label: 'Add (with Targets)…', op: 'pose.constraint_add_with_targets', shortcut: 'Shift Ctrl C' },
+        { label: 'Copy Constraints to Selected Bones', op: 'pose.constraints_copy' },
+        { label: 'Clear Pose Constraints', op: 'pose.constraints_clear', shortcut: 'Ctrl Alt C' },
+      ],
+    },
     { separator: true },
     { label: 'Names', submenu: namesMenu },
     { label: 'Flip Quaternions', op: 'pose.quaternions_flip', shortcut: 'Alt F' },
@@ -1164,6 +1221,7 @@ const groupedMenu = (): MenuItem[] => poseSelectMenu().find((i) => i.label === '
 
 addKeys('Pose', [
   { key: 'E', ctrl: true, op: 'pose.push', when: inPose },
+  { key: 'C', shift: true, ctrl: true, op: 'pose.constraint_add_with_targets', when: inPose },
   { key: 'E', alt: true, op: 'pose.relax', when: inPose },
   { key: 'E', shift: true, op: 'pose.breakdown', when: inPose },
   { key: 'E', shift: true, alt: true, op: 'pose.blend_to_neighbor', when: inPose },

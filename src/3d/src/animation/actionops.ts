@@ -189,6 +189,24 @@ registerOperators([
     },
   },
   {
+    idname: 'action.stash_and_create',
+    label: 'Stash Action',
+    description: 'Stash the action in the NLA stack and start a new, empty action',
+    poll: () => !!activeOb()?.animation_data?.action,
+    exec: (ctx) => {
+      const ob = activeOb()!;
+      if (!stashAction(ctx.doc, ob)) return 'CANCELLED';
+      const act = newAction(
+        uniqueName(
+          'Action',
+          Object.values(ctx.doc.actions).map((a) => a.name),
+        ),
+      );
+      ctx.doc.actions[act.id] = act;
+      ensureAnimData(ob).action = act.id;
+    },
+  },
+  {
     idname: 'action.stash',
     label: 'Stash Action',
     description: 'Store this action in the NLA stack as a non-contributing strip for later use',

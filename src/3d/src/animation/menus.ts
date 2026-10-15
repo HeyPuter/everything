@@ -237,6 +237,7 @@ export function previewRangeMenu(setSelected: string): MenuItem[] {
 
 export function viewMenuCommon(p: Prefix, ed: AnimEditor): MenuItem[] {
   return [
+    { label: 'Show Seconds', checked: ed.showSeconds, op: 'anim.show_seconds_toggle', shortcut: 'Ctrl T' },
     { separator: true },
     { label: 'Frame Selected', op: `${p}.view_selected`, shortcut: 'Numpad .' },
     { label: 'Frame All', op: `${p}.view_all`, shortcut: 'Home' },

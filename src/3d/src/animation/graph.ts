@@ -618,6 +618,16 @@ export class GraphEditor extends AnimEditor {
   protected mainDown(e: PointerEvent, x: number, y: number) {
     const curves = this.visibleCurves();
     const hit = this.pick(x, y);
+    const curveHit = e.altKey && (e.ctrlKey || e.metaKey) ? (hit?.r ?? this.pickCurve(x, y)) : null;
+    if (curveHit) {
+      // Ctrl+Alt: every key of the curve
+      if (!e.shiftKey) selectAll(curves, 'DESELECT');
+      curveHit.fc.keyframe_points.forEach((k) => setKeySelected(k, true));
+      this.setActive(curveHit);
+      app.pushUndo('Select Curve Keys');
+      app.changed('doc');
+      return;
+    }
     if (e.altKey && hit) {
       selectColumns(curves, [hit.k.co[0]], e.shiftKey);
       app.pushUndo('Select Column');

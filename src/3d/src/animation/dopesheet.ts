@@ -112,6 +112,16 @@ export class DopeSheet extends AnimEditor {
       menuButton('Marker', markerMenu),
       menuButton('Channel', () => channelMenu('action')),
       menuButton('Key', () => keyMenu('action')),
+      this.mode === 'ACTION'
+        ? menuButton('Action', () => [
+            { label: 'New Action', op: 'action.new' },
+            { label: 'Unlink Action', op: 'action.unlink' },
+            { separator: true },
+            { label: 'Push Down Action', op: 'action.push_down' },
+            { label: 'Stash Action', op: 'action.stash' },
+            { label: 'Stash and Create New', op: 'action.stash_and_create' },
+          ])
+        : null,
       this.mode === 'ACTION' && ob ? actionSelector(ob) : null,
       h('div', { class: 'hdr-spacer' }),
       this.mode === 'DOPESHEET'
@@ -337,6 +347,14 @@ export class DopeSheet extends AnimEditor {
   protected mainDown(e: PointerEvent, x: number, y: number) {
     const hit = this.keyAt(x, y);
     const curves = this.list.curves;
+    if (e.altKey && (e.ctrlKey || e.metaKey) && hit) {
+      // Ctrl+Alt: every key of the channel
+      if (!e.shiftKey) selectAll(curves, 'DESELECT');
+      for (const r of hit.ch.curves) r.fc.keyframe_points.forEach((k) => setKeySelected(k, true));
+      app.pushUndo('Select Channel Keys');
+      app.changed('doc');
+      return;
+    }
     if (e.altKey && hit) {
       selectColumns(curves, [hit.frame], e.shiftKey);
       app.pushUndo('Select Column');
