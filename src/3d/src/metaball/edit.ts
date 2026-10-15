@@ -357,6 +357,7 @@ addKeys('Metaball', [
   { key: 'A', op: 'mball.select_all', props: { action: 'SELECT' }, when: inMetaEdit },
   { key: 'A', alt: true, op: 'mball.select_all', props: { action: 'DESELECT' }, when: inMetaEdit },
   { key: 'I', ctrl: true, op: 'mball.select_all', props: { action: 'INVERT' }, when: inMetaEdit },
+  { key: 'A', shift: true, menu: addElementMenu, menuTitle: 'Add', when: inMetaEdit },
   { key: 'G', shift: true, menu: similarMenu, menuTitle: 'Select Similar', when: inMetaEdit },
   { key: 'X', op: 'mball.delete_metaelems', when: inMetaEdit },
   { key: 'DEL', op: 'mball.delete_metaelems', when: inMetaEdit },
