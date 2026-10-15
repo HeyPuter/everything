@@ -583,6 +583,8 @@ modeMenus.SCULPT_GREASE_PENCIL = {
 // ---------------------------------------------------------------------------
 // sidebar Tool tab
 
+const GP_BRUSH_MODES: string[] = ['PAINT_GREASE_PENCIL', 'SCULPT_GREASE_PENCIL', 'VERTEX_GREASE_PENCIL', 'WEIGHT_GREASE_PENCIL'];
+
 const num = (b: GPBrush, key: keyof GPBrush, id: string, label: string, o: { min: number; max: number; int?: boolean; slider?: boolean; tip?: string; unit?: string; def: number }) =>
   row(
     '',
@@ -650,7 +652,7 @@ export function gpToolPanels(): Child {
   const tool = activeTools[mode] ?? '';
   const b = gpBrush(app.doc, tool);
   const ts = gpTS(app.doc);
-  const list = (mode === 'PAINT_GREASE_PENCIL' ? DRAW_TOOLS : SCULPT_TOOLS).filter((t): t is ToolDef => !!t);
+  const list = (extraToolLists[mode]?.() ?? []).filter((t): t is ToolDef => !!t);
   const brushLike = tool.startsWith('builtin.brush.') || ['builtin.line', 'builtin.polyline', 'builtin.arc', 'builtin.curve', 'builtin.box', 'builtin.circle'].includes(tool);
   return [
     panel('gp-sb-tool', 'Active Tool', () => [
@@ -709,12 +711,12 @@ export function gpToolPanels(): Child {
 const toolTab = sidebarTabs.find((t) => t.id === 'Tool');
 if (toolTab) {
   const orig = toolTab.draw;
-  toolTab.draw = (v: View3D) => (app.doc.mode === 'PAINT_GREASE_PENCIL' || app.doc.mode === 'SCULPT_GREASE_PENCIL' ? gpToolPanels() : orig(v));
+  toolTab.draw = (v: View3D) => (GP_BRUSH_MODES.includes(app.doc.mode) ? gpToolPanels() : orig(v));
 }
 const propsToolTab = propertiesTabs.find((t) => t.id === 'TOOL');
 if (propsToolTab) {
   const orig = propsToolTab.draw;
-  propsToolTab.draw = (p) => (app.doc.mode === 'PAINT_GREASE_PENCIL' || app.doc.mode === 'SCULPT_GREASE_PENCIL' ? gpToolPanels() : orig(p));
+  propsToolTab.draw = (p) => (GP_BRUSH_MODES.includes(app.doc.mode) ? gpToolPanels() : orig(p));
 }
 
 // ---------------------------------------------------------------------------
@@ -747,7 +749,7 @@ registerOperators([
         ],
       },
     ],
-    poll: () => app.doc.mode === 'PAINT_GREASE_PENCIL' || app.doc.mode === 'SCULPT_GREASE_PENCIL',
+    poll: () => ['PAINT_GREASE_PENCIL', 'SCULPT_GREASE_PENCIL', 'VERTEX_GREASE_PENCIL', 'WEIGHT_GREASE_PENCIL'].includes(app.doc.mode),
     undo: false,
     invoke: (ctx, p) => {
       const v = activeView3D();

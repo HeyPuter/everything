@@ -500,6 +500,9 @@ interface Entry {
   alpha: number;
 }
 
+/** Replace a drawing for display (e.g. weight colors in Weight Paint); null keeps it. */
+export const drawingDisplayHooks: ((ob: ObjectData, gp: GreasePencilData, d: GPDrawing) => GPDrawing | null)[] = [];
+
 /** Everything drawn for a GP object at the current frame (onion skins first, then layers bottom→top). */
 export function objectEntries(doc: DocumentData, gp: GreasePencilData, frame: number, onion: boolean, ob?: ObjectData, render = false): Entry[] {
   const entries: Entry[] = [];
@@ -545,6 +548,7 @@ export function objectEntries(doc: DocumentData, gp: GreasePencilData, frame: nu
       d = evaluateDrawing(d, { doc, ob, gp, layer, layerIndex: li, frame: shownFrame, keyFrame: fr!.frame_number, nextKeyFrame: layer.frames[k + 1]?.frame_number ?? null, prevStrokeCount: prev ? prev.offsets.length - 1 : 0, world: obWorld.clone().multiply(layerMatrix(layer)) }, mods);
       if (d.offsets.length < 2) return;
     }
+    if (ob) for (const hk of drawingDisplayHooks) d = hk(ob, gp, d) ?? d;
     const c = cachedGeometry(d, styles, layer.radius_offset);
     entries.push({
       masks: layer.use_masks ? maskGeometry(gp, layer, frame, styles) : undefined,

@@ -26,6 +26,8 @@ import './drawtools';
 import './modifiers';
 import './modifierui';
 import './effects';
+import './vertexpaint';
+import './weightpaint';
 import { addMenuHooks } from '../editors/view3d/menus';
 
 addMenuHooks.push(() => [

@@ -436,7 +436,7 @@ editModeHooks.pointer.unshift((v, e) => {
 });
 
 editModeHooks.hover.push((v, e) => {
-  if (!inDrawMode() && app.doc.mode !== 'SCULPT_GREASE_PENCIL') return;
+  if (!inDrawMode() && app.doc.mode !== 'SCULPT_GREASE_PENCIL' && app.doc.mode !== 'VERTEX_GREASE_PENCIL' && app.doc.mode !== 'WEIGHT_GREASE_PENCIL') return;
   const p = v.local(e);
   cursor.x = p.x;
   cursor.y = p.y;
@@ -456,7 +456,7 @@ export const cursorRadius: { fn: (tool: string) => number | null } = {
 
 editModeHooks.svg.push((v) => {
   const mode = app.doc.mode;
-  if ((mode !== 'PAINT_GREASE_PENCIL' && mode !== 'SCULPT_GREASE_PENCIL') || !cursor.inside || cursor.view !== v || app.modal) return null;
+  if ((mode !== 'PAINT_GREASE_PENCIL' && mode !== 'SCULPT_GREASE_PENCIL' && mode !== 'VERTEX_GREASE_PENCIL' && mode !== 'WEIGHT_GREASE_PENCIL') || !cursor.inside || cursor.view !== v || app.modal) return null;
   const tool = activeTools[mode] ?? '';
   const r = cursorRadius.fn(tool);
   if (r === null) return null;

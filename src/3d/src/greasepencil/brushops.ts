@@ -52,7 +52,8 @@ onAppReady(() => {
 
   extend('paint.brush_colors_flip', {
     exec: () => {
-      const b = gpBrush(app.doc, activeTools[app.doc.mode] === 'builtin.brush.Tint' ? 'builtin.brush.Tint' : 'builtin.brush.Draw');
+      const tool = activeTools[app.doc.mode] ?? '';
+      const b = gpBrush(app.doc, tool === 'builtin.brush.Tint' || app.doc.mode === 'VERTEX_GREASE_PENCIL' ? tool : 'builtin.brush.Draw');
       const c = b.color ?? [0.5, 0.5, 0.5];
       b.color = b.secondary_color ?? [1, 1, 1];
       b.secondary_color = c;
@@ -68,7 +69,7 @@ onAppReady(() => {
       const col = screenColor(v, (ctx.event?.x ?? app.pointer.x) - r.left, (ctx.event?.y ?? app.pointer.y) - r.top);
       if (!col) return 'CANCELLED';
       const tool = activeTools[app.doc.mode];
-      const b = gpBrush(app.doc, tool === 'builtin.brush.Tint' || tool === 'builtin.brush.Fill' ? tool : 'builtin.brush.Draw');
+      const b = gpBrush(app.doc, tool === 'builtin.brush.Tint' || tool === 'builtin.brush.Fill' || app.doc.mode === 'VERTEX_GREASE_PENCIL' ? tool : 'builtin.brush.Draw');
       b.color = col;
       // a sampled color only shows when the brush paints with its own color
       if (b.color_mode !== undefined) b.color_mode = 'VERTEXCOLOR';

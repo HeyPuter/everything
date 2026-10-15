@@ -33,6 +33,8 @@ export interface GPDrawing {
   fill_opacity: Float32Array;
   /** strokes sharing a non-zero fill id are filled together (even-odd: inner curves are holes) */
   fill_id: Int32Array;
+  /** per point weights of the vertex groups, by group name */
+  weights?: Record<string, Float32Array>;
 }
 
 export interface GPFrame {
@@ -101,6 +103,9 @@ export interface GreasePencilData {
   use_onion_fade: boolean;
   use_onion_loop: boolean;
   users?: number;
+  /** vertex groups (weights live on the drawings, by name) */
+  vertex_groups?: { name: string; lock_weight?: boolean }[];
+  active_vertex_group_index?: number;
 }
 
 export interface MaterialGPencilStyle {

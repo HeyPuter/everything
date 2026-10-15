@@ -263,3 +263,37 @@ test('dope sheet (grease pencil): scale, mirror, copy / paste, select before cur
   expect(await keys()).toEqual([-7, 1, 9, 20, 28]);
   await expectNoErrors(errors);
 });
+
+test('vertex paint and weight paint modes', async ({ page }) => {
+  const errors = await openApp(page);
+  await strokeObject(page, 'OBJECT');
+  await run(page, 'view3d.view_axis', { type: 'FRONT' });
+  const c = await hoverViewport(page);
+  await page.evaluate(() => (window as any).app.run('view3d.view_selected')); // eslint-disable-line @typescript-eslint/no-explicit-any
+  // the mode menu offers the grease pencil modes
+  await page.locator('.hdr-mode').first().dispatchEvent('pointerdown');
+  for (const m of ['Edit Mode', 'Sculpt Mode', 'Draw Mode', 'Weight Paint', 'Vertex Paint']) await expect(page.locator('.menu .menu-item', { hasText: m }).first()).toBeVisible();
+  await page.locator('.menu .menu-item', { hasText: 'Vertex Paint' }).first().click();
+  expect(await get(page, 'app.doc.mode')).toBe('VERTEX_GREASE_PENCIL');
+  const painted = () => get(page, `(() => { const g = ${gp}; const d = g.drawings[g.layers[1].frames[0].drawing]; return Array.from(d.vertex_color).filter((x, i) => i % 4 === 3 && x > 0).length; })()`);
+  expect(await painted()).toBe(0);
+  await page.mouse.move(c.x - 250, c.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(c.x + 50, c.y - 20, { steps: 15 });
+  await page.mouse.up();
+  expect(await painted()).toBeGreaterThan(0);
+  // Paint ▸ Reset Color Attribute
+  await page.locator('.hdr-menu', { hasText: /^Paint$/ }).first().dispatchEvent('pointerdown');
+  await page.locator('.menu .menu-item', { hasText: 'Reset Color Attribute' }).click();
+  expect(await painted()).toBe(0);
+  // Weight Paint: painting creates a group and weights
+  await run(page, 'object.mode_set', { mode: 'WEIGHT_GREASE_PENCIL' });
+  await hoverViewport(page);
+  await page.mouse.move(c.x - 250, c.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(c.x + 50, c.y - 20, { steps: 15 });
+  await page.mouse.up();
+  expect(await get(page, `${gp}.vertex_groups.map((g) => g.name)`)).toEqual(['Group']);
+  expect(await get(page, `(() => { const g = ${gp}; const w = g.drawings[g.layers[1].frames[0].drawing].weights.Group; return Array.from(w).filter((x) => x > 0).length; })()`)).toBeGreaterThan(0);
+  await expectNoErrors(errors);
+});

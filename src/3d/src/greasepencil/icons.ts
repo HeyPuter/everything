@@ -59,6 +59,16 @@ registerIcons({
   fx_shadow: '<rect class="f" x="5" y="5" width="9" height="9" rx="1" opacity=".35"/><rect class="s" x="2" y="2" width="9" height="9" rx="1" fill="none" stroke-width="1.3"/>',
   fx_swirl: '<path class="s" d="M8 8.2c.8-.2 1-1.2.3-1.7-1-.7-2.6.2-2.6 1.6 0 2 2.4 2.9 4 2-0 0 2.4-1.2 2-4C11.3 3.4 8.4 2 6 2.7 3 3.6 1.6 7 2.6 10" fill="none" stroke-width="1.3" stroke-linecap="round"/>',
   fx_wave: '<path class="s" d="M1.5 5c1.6-2 3.2-2 4.4 0s2.8 2 4.2 0 2.8-2 4.4 0M1.5 11c1.6-2 3.2-2 4.4 0s2.8 2 4.2 0 2.8-2 4.4 0" fill="none" stroke-width="1.3" stroke-linecap="round"/>',
+  gp_vertex_draw:
+    '<path class="f" d="M9.6 2.2 13.8 6.4 7.4 12.8 3.2 8.6z" opacity=".9"/><path class="f" d="M2.6 9.2 6.8 13.4 2 14z"/><circle class="s" cx="12.5" cy="12.5" r="1.8" fill="none" stroke-width="1.1"/>',
+  gp_weight_draw:
+    '<path class="f" d="M9.6 2.2 13.8 6.4 7.4 12.8 3.2 8.6z" opacity=".9"/><path class="f" d="M2.6 9.2 6.8 13.4 2 14z"/><path class="s" d="M11 11.5h3.5M12.75 9.75v3.5" stroke-width="1.2" stroke-linecap="round"/>',
+  gp_vertex_blur:
+    '<circle class="f" cx="5.5" cy="8" r="3.8" opacity=".35"/><circle class="f" cx="10.5" cy="8" r="3.8" opacity=".35"/><circle class="f" cx="8" cy="8" r="2" opacity=".8"/>',
+  gp_vertex_average: '<rect class="f" x="1.5" y="5" width="4" height="6" rx=".6" opacity=".35"/><rect class="f" x="10.5" y="5" width="4" height="6" rx=".6" opacity=".95"/><rect class="f" x="6" y="5" width="4" height="6" rx=".6" opacity=".65"/>',
+  gp_vertex_smear: '<path class="f" d="M2 10.5c2-3 4.5-4 7-3.6 2 .3 3.5 1.4 5 .6-1 2.4-3.4 3.8-6 3.8-2.4 0-4-.6-6-.8z" opacity=".8"/><path class="s" d="M3 5.5h5M5 3.5h6" stroke-width="1.1" stroke-linecap="round" opacity=".6"/>',
+  gp_vertex_replace:
+    '<rect class="s" x="2" y="2" width="7" height="7" rx="1" fill="none" stroke-width="1.1"/><rect class="f" x="7" y="7" width="7" height="7" rx="1"/><path class="s" d="M10.5 3.2a2.6 2.6 0 0 1 2.4 2.4M12.9 5.6l-1.2-.6M12.9 5.6l.6-1.2" fill="none" stroke-width="1" stroke-linecap="round"/>',
   gp_box: '<rect class="s" x="2.5" y="3.5" width="11" height="9" rx=".6" fill="none" stroke-width="1.5"/>',
   gp_circle: '<circle class="s" cx="8" cy="8" r="5.6" fill="none" stroke-width="1.5"/>',
   gp_sculpt_smooth:

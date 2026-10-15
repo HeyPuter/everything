@@ -133,8 +133,9 @@ export function sculptMenu(): MenuItem[] {
 const mode = () => app.doc.mode;
 const isGPOb = () => !!gpNow();
 /** Draw, Sculpt or Edit Mode of a grease pencil object */
-export const anyGPMode = () => isGPOb() && (mode() === 'PAINT_GREASE_PENCIL' || mode() === 'SCULPT_GREASE_PENCIL' || mode() === 'EDIT');
+export const anyGPMode = () => isGPOb() && (mode() === 'PAINT_GREASE_PENCIL' || mode() === 'SCULPT_GREASE_PENCIL' || mode() === 'EDIT' || mode() === 'VERTEX_GREASE_PENCIL' || mode() === 'WEIGHT_GREASE_PENCIL');
 const drawOrSculpt = () => isGPOb() && (mode() === 'PAINT_GREASE_PENCIL' || mode() === 'SCULPT_GREASE_PENCIL');
+const brushModes = () => drawOrSculpt() || (isGPOb() && (mode() === 'VERTEX_GREASE_PENCIL' || mode() === 'WEIGHT_GREASE_PENCIL'));
 const draw = () => isGPOb() && mode() === 'PAINT_GREASE_PENCIL';
 const editGP = () => isGPOb() && mode() === 'EDIT';
 
@@ -157,8 +158,8 @@ addKeys('Grease Pencil', [
   { key: 'E', ctrl: true, op: 'grease_pencil.interpolate', props: { use_selection: true }, when: editGP },
   { key: 'E', shift: true, ctrl: true, op: 'grease_pencil.interpolate_sequence', props: { use_selection: true }, when: editGP },
   // brushes
-  { key: 'LEFT_BRACKET', op: 'brush.scale_size', props: { scalar: 0.9 }, when: drawOrSculpt },
-  { key: 'RIGHT_BRACKET', op: 'brush.scale_size', props: { scalar: 1 / 0.9 }, when: drawOrSculpt },
+  { key: 'LEFT_BRACKET', op: 'brush.scale_size', props: { scalar: 0.9 }, when: brushModes },
+  { key: 'RIGHT_BRACKET', op: 'brush.scale_size', props: { scalar: 1 / 0.9 }, when: brushModes },
   { key: 'X', op: 'paint.brush_colors_flip', when: draw },
   { key: 'X', shift: true, op: 'paint.sample_color', when: draw },
 ]);

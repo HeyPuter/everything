@@ -45,7 +45,16 @@ function mid(a: GPPoint, b: GPPoint, t: number): GPPoint {
     opacity: l(a.opacity, b.opacity),
     vertex_color: [l(a.vertex_color[0], b.vertex_color[0]), l(a.vertex_color[1], b.vertex_color[1]), l(a.vertex_color[2], b.vertex_color[2]), l(a.vertex_color[3], b.vertex_color[3])],
     select: a.select && b.select,
+    ...blendWeights(a, b, t),
   };
+}
+
+/** Vertex group weights between two points (none when neither has any). */
+export function blendWeights(a: GPPoint, b: GPPoint, t: number): { weights?: Record<string, number> } {
+  if (!a.weights && !b.weights) return {};
+  const out: Record<string, number> = {};
+  for (const k of new Set([...Object.keys(a.weights ?? {}), ...Object.keys(b.weights ?? {})])) out[k] = (a.weights?.[k] ?? 0) + ((b.weights?.[k] ?? 0) - (a.weights?.[k] ?? 0)) * t;
+  return { weights: out };
 }
 
 /** Insert `cuts` points in each segment (only between selected points when `onlySelected`). */
@@ -162,6 +171,7 @@ export function lerpPoint(a: GPPoint, b: GPPoint, t: number): GPPoint {
     opacity: lerp(a.opacity, b.opacity, t),
     vertex_color: [lerp(a.vertex_color[0], b.vertex_color[0], t), lerp(a.vertex_color[1], b.vertex_color[1], t), lerp(a.vertex_color[2], b.vertex_color[2], t), lerp(a.vertex_color[3], b.vertex_color[3], t)],
     select: !!a.select,
+    ...blendWeights(a, b, t),
   };
 }
 

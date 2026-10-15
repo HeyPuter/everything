@@ -11,6 +11,7 @@ import { gpOf, gpTS } from './data';
 import { inGPEdit } from './edit';
 import { activeLayerMenu, animationMenu, showHideMenu, cleanupMenu } from './menus';
 import { placementControls } from './ui';
+import { vertexGroupMenu } from './weightpaint';
 
 const gpNow = () => gpOf(app.doc, app.activeObject);
 
@@ -212,6 +213,8 @@ function pointMenu(): MenuItem[] {
     { label: 'Extrude', op: 'grease_pencil.extrude_move', shortcut: 'E' },
     { separator: true },
     { label: 'Smooth', op: 'grease_pencil.stroke_smooth' },
+    { separator: true },
+    { label: 'Vertex Groups', submenu: vertexGroupMenu, shortcut: 'Ctrl G' },
   ];
 }
 

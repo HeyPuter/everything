@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { App, setApp, app } from '../../src/app/app';
 import { startupDocument } from '../../src/data/defaults';
+import '../../src/ops/data';
 import '../../src/greasepencil/index';
 import { fromStrokes, toStrokes, newStroke, newPoint, newLayer, newGreasePencil, setKeyframe, emptyDrawing, gpOf, type GPPoint } from '../../src/greasepencil/data';
 import { resamplePoints, interpolateStroke, interpolateDrawing, interpolateSequence, interpolateAt, shouldFlip } from '../../src/greasepencil/interpolate';
@@ -395,5 +396,74 @@ describe('layer masks', () => {
     expect(l().mask_layers![0].name).toBe('Above');
     expect(app.run('grease_pencil.layer_mask_remove', {}, { invoke: false })).toBe('FINISHED');
     expect(l().mask_layers!.length).toBe(1);
+  });
+});
+
+import { armatureWeights } from '../../src/greasepencil/weightpaint';
+
+describe('vertex groups, weight and vertex paint', () => {
+  beforeEach(() => {
+    setApp(new App(startupDocument()));
+    app.run('object.select_all', { action: 'SELECT' });
+    app.run('object.delete');
+  });
+
+  it('weights survive stroke round trips and edits', () => {
+    const s = line([0, 1, 2]);
+    s.points[1].weights = { Arm: 0.5 };
+    const d = fromStrokes([s]);
+    expect([...d.weights!.Arm]).toEqual([0, 0.5, 0]);
+    const back = toStrokes(d);
+    expect(back[0].points[1].weights).toEqual({ Arm: 0.5 });
+    expect(back[0].points[0].weights).toEqual({});
+  });
+
+  it('vertex groups: add, assign in Edit Mode, normalize, remove', () => {
+    app.run('object.grease_pencil_add', { type: 'STROKE' });
+    const ob = app.activeObject!;
+    expect(app.run('object.vertex_group_add', {}, { invoke: false })).toBe('FINISHED');
+    const gp = () => gpOf(app.doc, ob)!;
+    expect(gp().vertex_groups!.map((g) => g.name)).toEqual(['Group']);
+    app.run('object.mode_set', { mode: 'EDIT' });
+    app.run('grease_pencil.select_all', { action: 'SELECT' });
+    (app.doc.scene.tool_settings as { vertex_group_weight?: number }).vertex_group_weight = 0.4;
+    expect(app.run('object.vertex_group_assign', {}, { invoke: false })).toBe('FINISHED');
+    const w = () => gp().drawings[gp().layers[1].frames[0].drawing].weights!.Group;
+    expect(w()[0]).toBeCloseTo(0.4);
+    app.run('object.mode_set', { mode: 'WEIGHT_GREASE_PENCIL' });
+    expect(app.doc.mode).toBe('WEIGHT_GREASE_PENCIL');
+    expect(app.run('grease_pencil.vertex_group_normalize', {}, { invoke: false })).toBe('FINISHED');
+    expect(w()[0]).toBeCloseTo(1);
+    expect(app.run('grease_pencil.weight_invert', {}, { invoke: false })).toBe('FINISHED');
+    expect(w()[0]).toBeCloseTo(0);
+    expect(app.run('object.vertex_group_remove', {}, { invoke: false })).toBe('FINISHED');
+    expect(gp().vertex_groups!.length).toBe(0);
+  });
+
+  it('vertex paint color operators', () => {
+    app.run('object.grease_pencil_add', { type: 'STROKE' });
+    app.run('object.mode_set', { mode: 'VERTEX_GREASE_PENCIL' });
+    expect(app.doc.mode).toBe('VERTEX_GREASE_PENCIL');
+    const gp = () => gpOf(app.doc, app.activeObject)!;
+    const vc = () => gp().drawings[gp().layers[1].frames[0].drawing].vertex_color;
+    expect(app.run('grease_pencil.vertex_color_set', { mode: 'STROKE', factor: 1 }, { invoke: false })).toBe('FINISHED');
+    expect(vc()[3]).toBeCloseTo(1);
+    expect(app.run('grease_pencil.vertex_color_invert', { mode: 'STROKE' }, { invoke: false })).toBe('FINISHED');
+    expect(app.run('grease_pencil.stroke_reset_vertex_color', { mode: 'BOTH' }, { invoke: false })).toBe('FINISHED');
+    expect([...vc().slice(0, 4)]).toEqual([0, 0, 0, 0]);
+  });
+
+  it('automatic weights from an armature', () => {
+    app.run('object.armature_add', { location: [0, 0, 0] }, { invoke: false });
+    const arm = app.activeObject!;
+    app.run('object.grease_pencil_add', { type: 'STROKE', location: [0, 0, 0] });
+    const ob = app.activeObject!;
+    app.flush();
+    armatureWeights(ob, arm, true);
+    const gp = gpOf(app.doc, ob)!;
+    const bone = app.doc.armatures[arm.data!].bones[0].name;
+    expect(gp.vertex_groups!.map((g) => g.name)).toContain(bone);
+    const w = gp.drawings[gp.layers[1].frames[0].drawing].weights![bone];
+    expect(w.every((x) => Math.abs(x - 1) < 1e-6)).toBe(true);
   });
 });

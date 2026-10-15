@@ -178,6 +178,11 @@ const UI: Record<string, (ob: ObjectData, m: M) => Child> = {
     influence(ob, m),
   ],
   GREASE_PENCIL_SUBDIV: (ob, m) => [enumProp(m, 'subdivision_type', 'Type', E(['CATMULL_CLARK', 'Catmull-Clark'], ['SIMPLE', 'Simple'])), num(m, 'level', 'Subdivisions', { int: true, min: 0, max: 5 }), influence(ob, m)],
+  GREASE_PENCIL_ARMATURE: (ob, m) => [
+    objectProp(m, 'object', 'Object', { filter: otherObject(ob, 'ARMATURE') }),
+    bool(m, 'use_deform_preserve_volume', 'Preserve Volume'),
+    h('div', { class: 'sub-label' }, 'Bones move the points of the vertex groups named after them'),
+  ],
   GREASE_PENCIL_LATTICE: (ob, m) => [objectProp(m, 'object', 'Object', { filter: otherObject(ob, 'LATTICE') }), num(m, 'strength', 'Strength', { min: 0, max: 1, slider: true }), influence(ob, m)],
   GREASE_PENCIL_NOISE: (ob, m) => [
     num(m, 'factor', 'Position', { min: 0, max: 100 }),

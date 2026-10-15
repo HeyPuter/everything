@@ -3,7 +3,7 @@
 import { app } from '../app/app';
 import { h, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
-import { panel, enumRow, enumMenu, checkbox } from '../ui/widgets';
+import { panel, enumRow, enumMenu, checkbox, opButton } from '../ui/widgets';
 import { openMenu } from '../ui/menu';
 import { layerMenu } from './menus';
 import { renameLayer, setLayerParent } from './layerops';
@@ -248,6 +248,50 @@ function relationsPanel(gp: GreasePencilData, act: GPLayer): Child {
   void gp;
 }
 
+function vertexGroupsPanel(o: ObjectData, gp: GreasePencilData): Child {
+  const groups = gp.vertex_groups ?? [];
+  const doc = app.doc;
+  return panel(
+    'gp-vgroups',
+    'Vertex Groups',
+    () => [
+      uiList(
+        'gp-vg',
+        groups.map((g, i) => ({
+          key: `${i}${g.name}`,
+          label: g.name,
+          icon: 'group_vertex',
+          right: toggle(`vgl${i}`, !!g.lock_weight, 'locked', 'unlocked', 'Lock Weights\nKeep these weights when normalizing', () => ((g.lock_weight = !g.lock_weight), changed('Lock Weights'))),
+        })),
+        Math.min(groups.length - 1, o.vertex_group_active_index ?? 0),
+        (i) => ((o.vertex_group_active_index = i), app.changed('doc')),
+        {
+          add: () => app.run('object.vertex_group_add'),
+          remove: () => app.run('object.vertex_group_remove'),
+          rename: (i, name) => {
+            const g = groups[i];
+            if (!name || groups.some((x) => x !== g && x.name === name)) return;
+            // the weights are stored by name on every drawing
+            for (let k = 0; k < gp.drawings.length; k++) {
+              const d = gp.drawings[k];
+              if (!d.weights?.[g.name]) continue;
+              const { [g.name]: w, ...rest } = d.weights;
+              gp.drawings[k] = { ...d, weights: { ...rest, [name]: w } };
+            }
+            g.name = name;
+            changed('Rename Vertex Group');
+          },
+        },
+      ),
+      app.doc.mode === 'EDIT' && groups.length
+        ? h('div', { class: 'btn-row' }, opButton('object.vertex_group_assign', 'Assign'), opButton('object.vertex_group_remove_from', 'Remove'), opButton('object.vertex_group_select', 'Select'), opButton('object.vertex_group_deselect', 'Deselect'))
+        : null,
+      app.doc.mode === 'EDIT' ? num(doc.scene.tool_settings as never, 'vertex_group_weight' as never, 'Weight', { min: 0, max: 1, slider: true }) : null,
+    ],
+    { closed: !groups.length },
+  );
+}
+
 function onionPanel(gp: GreasePencilData): Child {
   return panel(
     'gp-onion',
@@ -316,6 +360,7 @@ function gpDataTab(o: ObjectData, gp: GreasePencilData): Child {
       },
     ),
     layersPanel(gp),
+    vertexGroupsPanel(o, gp),
     onionPanel(gp),
     panel(
       'gp-settings',
