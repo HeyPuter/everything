@@ -122,6 +122,14 @@ registerOperators([
     exec: (ctx) => areaOf(ctx)!.flipHeaderSide(),
   },
   {
+    idname: 'screen.region_quadview',
+    label: 'Toggle Quad View',
+    description: 'Split the 3D view into top, front, right and perspective views, or back into one',
+    undo: false,
+    poll: (ctx) => areaOf(ctx)?.type === 'VIEW_3D',
+    exec: (ctx) => (areaOf(ctx)!.screen.toggleQuad(areaOf(ctx)!) ? 'FINISHED' : 'CANCELLED'),
+  },
+  {
     idname: 'screen.back_to_previous',
     label: 'Back to Previous',
     description: 'Return from a maximized or fullscreen area to the full layout',
@@ -178,6 +186,8 @@ function renameActiveItem(ctx: OpContext): 'CANCELLED' {
   app.report('INFO', 'Nothing active to rename');
   return 'CANCELLED';
 }
+
+addKeys('Screen', [{ key: 'Q', ctrl: true, alt: true, op: 'screen.region_quadview' }]);
 
 addKeys('Window', [
   { key: 'F2', op: 'wm.call_panel', props: { name: 'TOPBAR_PT_name' } },
