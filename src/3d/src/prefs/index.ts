@@ -12,6 +12,7 @@ import './apply_fx';
 import './sections';
 import './theme_ui';
 import './lights_ui';
+import './addons';
 import './ops';
 import { startKeyconfig } from './keyconfig';
 import { applyPreferences } from './store';

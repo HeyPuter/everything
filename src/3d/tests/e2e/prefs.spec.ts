@@ -329,3 +329,29 @@ test('lights: studio lights drive solid shading, matcaps and HDRIs install and p
   expect(after).toEqual({ studio: true, l2: false });
   await expectNoErrors(errors);
 });
+
+test('add-ons: install the example, run its operator, disable, persist across reloads, remove', async ({ page }) => {
+  const errors = await openApp(page);
+  await openPrefs(page, 'ADDONS');
+  await page.locator('.prefs-main .btn', { hasText: 'Install Example' }).click();
+  await expect(page.locator('.ad-item', { hasText: 'Scatter Cubes' })).toBeVisible();
+  const hasOp = () => page.evaluate(async () => (await import('/src/app/app.ts')).operators.has('object.example_scatter_cubes'));
+  await expect.poll(hasOp).toBe(true);
+  const before = await page.evaluate(() => Object.keys((window as unknown as { app: { doc: { objects: object } } }).app.doc.objects).length);
+  await page.evaluate(() => (window as unknown as { app: { run(id: string, p: object): string } }).app.run('object.example_scatter_cubes', { count: 2 }));
+  const after = await page.evaluate(() => Object.keys((window as unknown as { app: { doc: { objects: object } } }).app.doc.objects).length);
+  expect(after - before).toBe(4);
+
+  // disable from the list
+  await page.locator('.ad-item', { hasText: 'Scatter Cubes' }).locator('.checkbox').dispatchEvent('pointerdown', { button: 0 });
+  await expect.poll(hasOp).toBe(false);
+  await page.locator('.ad-item', { hasText: 'Scatter Cubes' }).locator('.checkbox').dispatchEvent('pointerdown', { button: 0 });
+  await expect.poll(hasOp).toBe(true);
+
+  await page.reload();
+  await page.waitForFunction(() => !!(window as unknown as { app?: unknown }).app);
+  await expect.poll(hasOp).toBe(true);
+  await page.evaluate(() => (window as unknown as { app: { run(id: string, p: object): string } }).app.run('preferences.addon_remove', { module: 'scatter_cubes' }));
+  await expect.poll(hasOp).toBe(false);
+  await expectNoErrors(errors);
+});

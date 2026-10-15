@@ -487,3 +487,46 @@ body.reduce-motion *::after {
   flex: 1;
   min-width: 0;
 }
+
+/* ------------------------------------------------------------------ add-ons */
+
+.ad-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 760px;
+}
+.ad-item {
+  border-radius: var(--radius);
+  background: var(--c-panel-sub);
+}
+.ad-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: calc(var(--row) + 4px);
+  padding: 0 6px;
+}
+.ad-row .checkbox .cb-label:empty {
+  display: none;
+}
+.ad-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ad-lang {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--w-regular);
+  color: var(--c-text-dim);
+}
+.ad-err {
+  color: var(--pc-error, #ff6b6b);
+}
+.ad-details {
+  padding: 4px 8px 8px 34px;
+}
