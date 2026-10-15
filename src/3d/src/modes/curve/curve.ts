@@ -15,6 +15,7 @@ import { uniqueName, curveEditHooks } from '../../ops/object';
 import { inSelectRegion } from '../../editors/view3d/selectshapes';
 import type { SelectRegion } from '../../editors/view3d/hooks';
 import * as K from './curveops';
+import { proportionalWeights } from '../proportional';
 
 type Part = 'co' | 'hl' | 'hr';
 interface Item {
@@ -299,7 +300,7 @@ function selectedTransformItems(cu: CurveData): Item[] {
 }
 
 transformProviders.push({
-  collect() {
+  collect({ proportional, connected }) {
     if (!inCurveEdit()) return null;
     const { ob, cu } = activeCurve()!;
     const items = selectedTransformItems(cu);
@@ -307,45 +308,80 @@ transformProviders.push({
     const w = world(ob),
       inv = w.clone().invert();
     const before = structuredClone(cu.splines);
+    const basis = new Matrix3().setFromMatrix4(w);
+    const local = (a: ArrayLike<number>, m: Matrix4) => V3(a).applyMatrix4(w).applyMatrix4(m).applyMatrix4(inv).toArray() as Vec3;
+    /** move a whole control point (with its handles) */
+    const movePoint = (s: number, i: number, m: Matrix4) => {
+      const sp = cu.splines[s];
+      if (sp.type !== 'BEZIER') {
+        const q = local(before[s].points[i].co, m);
+        sp.points[i].co = [q[0], q[1], q[2], sp.points[i].co[3]];
+        return;
+      }
+      const b = sp.bezier_points[i],
+        b0 = before[s].bezier_points[i];
+      b.co = local(b0.co, m);
+      b.handle_left = local(b0.handle_left, m);
+      b.handle_right = local(b0.handle_right, m);
+    };
+    const restore = () => {
+      cu.splines = structuredClone(before);
+    };
     const els: TElement[] = items.map((it) => {
       const sp = cu.splines[it.s];
       const p0 = itemPos(cu, it).applyMatrix4(w);
       const b0 = sp.type === 'BEZIER' ? structuredClone(before[it.s].bezier_points[it.i]) : null;
       return {
         center: p0,
-        basis: new Matrix3().setFromMatrix4(w),
+        basis,
         weight: 1,
         apply(m: Matrix4) {
-          const local = (a: ArrayLike<number>) => V3(a).applyMatrix4(w).applyMatrix4(m).applyMatrix4(inv).toArray() as Vec3;
-          if (sp.type !== 'BEZIER') {
-            const q = local(before[it.s].points[it.i].co);
-            const pt = sp.points[it.i];
-            pt.co = [q[0], q[1], q[2], pt.co[3]];
+          if (sp.type !== 'BEZIER' || it.part === 'co') {
+            movePoint(it.s, it.i, m);
             return;
           }
           const b = sp.bezier_points[it.i];
-          if (it.part === 'co') {
-            b.co = local(b0!.co);
-            b.handle_left = local(b0!.handle_left);
-            b.handle_right = local(b0!.handle_right);
-          } else {
-            const key = partKey(it.part) as 'handle_left' | 'handle_right';
-            b[key] = local(b0![key]);
-            // moving an automatic/vector handle makes it editable (aligned / free)
-            const tk = it.part === 'hl' ? 'handle_left_type' : 'handle_right_type';
-            const other = it.part === 'hl' ? 'handle_right_type' : 'handle_left_type';
-            if (b0![tk] === 'AUTO') {
-              b[tk] = 'ALIGNED';
-              if (b0![other] === 'AUTO') b[other] = 'ALIGNED';
-            } else if (b0![tk] === 'VECTOR') b[tk] = 'FREE';
-            alignOpposite(b, it.part);
-          }
+          const key = partKey(it.part) as 'handle_left' | 'handle_right';
+          b[key] = local(b0![key], m);
+          // moving an automatic/vector handle makes it editable (aligned / free)
+          const tk = it.part === 'hl' ? 'handle_left_type' : 'handle_right_type';
+          const other = it.part === 'hl' ? 'handle_right_type' : 'handle_left_type';
+          if (b0![tk] === 'AUTO') {
+            b[tk] = 'ALIGNED';
+            if (b0![other] === 'AUTO') b[other] = 'ALIGNED';
+          } else if (b0![tk] === 'VECTOR') b[tk] = 'FREE';
+          alignOpposite(b, it.part);
         },
-        restore() {
-          cu.splines = structuredClone(before);
-        },
+        restore,
       } as TElement;
     });
+    if (proportional) {
+      // unselected control points follow with a falloff (along the spline when Connected)
+      const refs: { s: number; i: number }[] = [];
+      const pts: Vector3[] = [];
+      const sel: boolean[] = [];
+      const start: number[] = [];
+      cu.splines.forEach((sp, s) => {
+        start.push(refs.length);
+        for (let i = 0; i < K.pointCount(sp); i++) {
+          if (K.isHidden(sp, i)) continue;
+          refs.push({ s, i });
+          pts.push(K.pointCo(sp, i).applyMatrix4(w));
+          sel.push(K.anyPartSelected(sp, i));
+        }
+      });
+      const index = new Map(refs.map((r, k) => [`${r.s}:${r.i}`, k]));
+      const neighbours = (k: number) => {
+        const r = refs[k];
+        const sp = cu.splines[r.s];
+        return ([-1, 1] as const).map((d) => K.neighbour(sp, r.i, d)).filter((j) => j >= 0).map((j) => index.get(`${r.s}:${j}`)).filter((x): x is number => x !== undefined);
+      };
+      const { weight, dist } = proportionalWeights(pts, sel, connected, neighbours);
+      refs.forEach((r, k) => {
+        if (sel[k] || !weight[k]) return;
+        els.push({ center: pts[k], basis, weight: weight[k], distance: dist[k], apply: (m: Matrix4) => movePoint(r.s, r.i, m), restore } as TElement);
+      });
+    }
     return {
       elements: els,
       label: 'Curve',

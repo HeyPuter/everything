@@ -419,3 +419,34 @@ test('metaball family members can be clicked on their rings in Object Mode', asy
   expect(await get(page, 'app.activeObject.select')).toBe(true);
   await expectNoErrors(errors);
 });
+
+test('proportional editing in curve Edit Mode', async ({ page }) => {
+  const errors = await openApp(page);
+  await fresh(page, 'curve.primitive_bezier_circle_add');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('a');
+  await run(page, 'curve.subdivide');
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.run('curve.select_all', { action: 'DESELECT' });
+    const b = a.doc.curves[a.activeObject.data].splines[0].bezier_points[0];
+    b.select_control_point = b.select_left_handle = b.select_right_handle = true;
+    const ts = a.doc.scene.tool_settings;
+    ts.use_proportional_edit = true;
+    ts.proportional_size = 1;
+    ts.proportional_edit_falloff = 'LINEAR';
+    a.changed('doc');
+  });
+  const xs = () => get(page, `${CU}.splines[0].bezier_points.map(b => +b.co[2].toFixed(3))`);
+  await page.keyboard.press('g');
+  await page.keyboard.type('z1');
+  await page.keyboard.press('Enter');
+  const z = (await xs()) as number[];
+  expect(z[0]).toBe(1);
+  // neighbours at ~0.77 distance move partially, the opposite side stays
+  expect(z[1]).toBeGreaterThan(0);
+  expect(z[1]).toBeLessThan(1);
+  expect(z[4]).toBe(0);
+  await page.evaluate(() => ((window as any).app.doc.scene.tool_settings.use_proportional_edit = false));
+  await expectNoErrors(errors);
+});

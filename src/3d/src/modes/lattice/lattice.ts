@@ -15,6 +15,7 @@ import { inSelectRegion } from '../../editors/view3d/selectshapes';
 import type { SelectRegion } from '../../editors/view3d/hooks';
 import { transformSubmenu, mirrorSubmenu, snapSubmenu } from '../common-menus';
 import * as L from './latticeops';
+import { proportionalWeights } from '../proportional';
 
 type LatticeSel = LatticeData & { select?: Uint8Array };
 
@@ -26,9 +27,11 @@ function activeLattice(): { ob: ObjectData; lt: LatticeSel } | null {
 }
 const inLatticeEdit = () => app.doc.mode === 'EDIT' && !!activeLattice();
 
-function ensureSel(lt: LatticeSel) {
+/** Selection flags; `write` gives a fresh copy (arrays are shared with undo snapshots). */
+function ensureSel(lt: LatticeSel, write = false) {
   const n = lt.points.length / 3;
   if (!lt.select || lt.select.length !== n) lt.select = new Uint8Array(n);
+  else if (write) lt.select = lt.select.slice();
   return lt.select;
 }
 
@@ -114,7 +117,7 @@ registerOperators([
     props: [{ id: 'action', label: 'Action', type: 'enum', default: 'TOGGLE', items: [['TOGGLE', 'Toggle'], ['SELECT', 'Select'], ['DESELECT', 'Deselect'], ['INVERT', 'Invert']] }],
     poll: inLatticeEdit,
     exec: (_ctx, p) => {
-      const sel = ensureSel(activeLattice()!.lt);
+      const sel = ensureSel(activeLattice()!.lt, true);
       let a = p.action as string;
       if (a === 'TOGGLE') a = sel.some((x) => x) ? 'DESELECT' : 'SELECT';
       for (let i = 0; i < sel.length; i++) sel[i] = a === 'SELECT' ? 1 : a === 'DESELECT' ? 0 : sel[i] ^ 1;
@@ -132,7 +135,7 @@ registerOperators([
     poll: inLatticeEdit,
     exec: (_ctx, p) => {
       const { lt } = activeLattice()!;
-      L.selectMirror(lt, ensureSel(lt), p.axis === 'X' ? 0 : p.axis === 'Y' ? 1 : 2, !!p.extend);
+      L.selectMirror(lt, ensureSel(lt, true), p.axis === 'X' ? 0 : p.axis === 'Y' ? 1 : 2, !!p.extend);
     },
   },
   {
@@ -147,7 +150,7 @@ registerOperators([
     poll: inLatticeEdit,
     exec: (_ctx, p) => {
       const { lt } = activeLattice()!;
-      L.selectRandom(ensureSel(lt), p.ratio as number, p.seed as number, p.action === 'SELECT');
+      L.selectRandom(ensureSel(lt, true), p.ratio as number, p.seed as number, p.action === 'SELECT');
     },
   },
   {
@@ -178,6 +181,7 @@ registerOperators([
     exec: () => {
       const { lt } = activeLattice()!;
       const { points_u: U, points_v: V, points_w: W } = lt;
+      lt.points = new Float32Array(lt.points);
       for (let k = 0; k < W; k++)
         for (let j = 0; j < V; j++)
           for (let i = 0; i < U; i++) {
@@ -199,6 +203,7 @@ registerOperators([
       const { points_u: U, points_v: V, points_w: W } = lt;
       const ax = p.axis === 'U' ? 0 : p.axis === 'V' ? 1 : 2;
       const src = lt.points.slice();
+      lt.points = new Float32Array(src.length);
       for (let k = 0; k < W; k++)
         for (let j = 0; j < V; j++)
           for (let i = 0; i < U; i++) {
@@ -227,7 +232,7 @@ function guessPrevResolution(lt: LatticeData, n: number, U: number, V: number, W
 editModeHooks.pick.push((v, x, y, o) => {
   const a = inLatticeEdit() ? activeLattice() : null;
   if (!a) return false;
-  const sel = ensureSel(a.lt);
+  const sel = ensureSel(a.lt, true);
   const w = world(a.ob);
   let best = -1,
     bd = 12;
@@ -249,7 +254,7 @@ editModeHooks.pick.push((v, x, y, o) => {
 function regionSelect(v: import('../../editors/view3d/view3d').View3D, r: SelectRegion, mode: 'SET' | 'ADD' | 'SUB' | 'AND' | 'XOR', label: string) {
   const a = inLatticeEdit() ? activeLattice() : null;
   if (!a) return false;
-  const sel = ensureSel(a.lt);
+  const sel = ensureSel(a.lt, true);
   const w = world(a.ob);
   for (let i = 0; i < sel.length; i++) {
     const p = v.project(pointWorld(a.lt, i, w));
@@ -290,22 +295,49 @@ function selectedPoints() {
 }
 
 transformProviders.push({
-  collect() {
+  collect({ proportional, connected }) {
     const a = inLatticeEdit() ? activeLattice() : null;
     if (!a) return null;
     const sel = ensureSel(a.lt);
+    if (!sel.some((x) => x)) return null;
     const w = world(a.ob),
       inv = w.clone().invert();
+    // typed arrays are shared with undo snapshots: edit a fresh copy
+    a.lt.points = new Float32Array(a.lt.points);
     const before = a.lt.points.slice();
     const lt = a.lt;
+    const n = sel.length;
+    const pts = Array.from({ length: n }, (_, i) => pointWorld(lt, i, w));
+    let weight: Float32Array = new Float32Array(n).map((_, i) => (sel[i] ? 1 : 0));
+    let dist: Float32Array = new Float32Array(n);
+    if (proportional) {
+      const U = lt.points_u,
+        V = lt.points_v,
+        W = lt.points_w;
+      const neighbours = (p: number) => {
+        const i = p % U,
+          j = Math.floor(p / U) % V,
+          k = Math.floor(p / (U * V));
+        const out: number[] = [];
+        if (i > 0) out.push(p - 1);
+        if (i < U - 1) out.push(p + 1);
+        if (j > 0) out.push(p - U);
+        if (j < V - 1) out.push(p + U);
+        if (k > 0) out.push(p - U * V);
+        if (k < W - 1) out.push(p + U * V);
+        return out;
+      };
+      ({ weight, dist } = proportionalWeights(pts, [...sel].map(Boolean), connected, neighbours));
+    }
     const els: TElement[] = [];
-    for (let i = 0; i < sel.length; i++) {
-      if (!sel[i]) continue;
-      const p0 = pointWorld(lt, i, w);
+    for (let i = 0; i < n; i++) {
+      if (!weight[i]) continue;
+      const p0 = pts[i];
       els.push({
         center: p0,
         basis: new Matrix3().setFromMatrix4(w),
-        weight: 1,
+        weight: weight[i],
+        distance: dist[i],
         apply(m: Matrix4) {
           const p = p0.clone().applyMatrix4(m).applyMatrix4(inv);
           lt.points[i * 3] = p.x;
