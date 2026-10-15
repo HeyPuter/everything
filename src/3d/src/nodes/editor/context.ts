@@ -37,6 +37,8 @@ export interface NodeEditorProvider {
   linkViewer?(ed: unknown, node: NodeData): boolean;
   /** panels of the sidebar's View tab (the tab is shown only when this exists) */
   viewPanels?(ed: unknown): Child;
+  /** panels of the sidebar's Options tab, e.g. material settings (shown only when this exists) */
+  optionsPanels?(ed: unknown): Child;
 }
 
 export const providers = new Map<string, NodeEditorProvider>();

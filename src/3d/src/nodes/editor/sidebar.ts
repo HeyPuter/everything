@@ -24,7 +24,7 @@ interface Ed {
   selectMode: SelectMode;
   circleRadius: number;
   currentGroupId(): string | undefined;
-  provider: { viewPanels?(ed: unknown): Child };
+  provider: { viewPanels?(ed: unknown): Child; optionsPanels?(ed: unknown): Child };
 }
 
 const changed = (label: string) => nodeChanged(label, true);
@@ -67,14 +67,14 @@ const COLOR_TAGS: [string, string][] = [
 
 export function drawSidebar(ed: Ed): Child {
   const tree = ed.tree();
-  const tabs = ['Node', 'Tool', ...(ed.provider.viewPanels ? ['View'] : []), 'Options', ...(ed.path.length || tree?.interface ? ['Group'] : [])];
+  const tabs = ['Node', 'Tool', ...(ed.provider.viewPanels ? ['View'] : []), ...(ed.provider.optionsPanels ? ['Options'] : []), ...(ed.path.length || tree?.interface ? ['Group'] : [])];
   if (!tabs.includes(ed.sidebarTab)) ed.sidebarTab = 'Node';
   const body = !tree
     ? h('div', { class: 'prop-note' }, 'No node tree')
     : ed.sidebarTab === 'Group'
       ? [groupProps(ed), groupTab(tree)]
       : ed.sidebarTab === 'Options'
-        ? optionsTab(tree)
+        ? (ed.provider.optionsPanels?.(ed) ?? null)
         : ed.sidebarTab === 'Tool'
           ? toolTab(ed)
           : ed.sidebarTab === 'View'
@@ -236,11 +236,6 @@ function optionsBody(tree: NodeTreeData, id: string): Child {
   return rows;
 }
 
-function optionsTab(tree: NodeTreeData): Child {
-  const n = activeNode(tree);
-  if (!n) return h('div', { class: 'prop-note' }, 'No active node');
-  return panel('nd-side-options', 'Properties', () => optionsBody(tree, n.id));
-}
 
 /** Group panel: name, description and the default width of the group's nodes. */
 function groupProps(ed: Ed): Child {

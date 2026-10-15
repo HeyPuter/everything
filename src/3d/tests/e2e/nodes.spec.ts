@@ -318,6 +318,10 @@ test('toolbar tools, snapping and sidebar tabs', async ({ page }) => {
   await withTree(page, `(ed, t) => { for (const n of t.nodes) n.select = n.id === "${bsdf}"; t.active_node = "${bsdf}"; app.changed("ui"); }`);
   await page.locator('.nd-side-toggles .checkbox', { hasText: 'Mute' }).click();
   expect(await withTree(page, `(ed, t) => !!t.nodes.find((n) => n.id === "${bsdf}").mute`)).toBe(true);
+  // Options: the material's settings
+  await page.locator('.nd-side-tab', { hasText: 'Options' }).click();
+  await page.locator('.nd-sidebar .checkbox', { hasText: 'Backface Culling' }).click();
+  expect(await page.evaluate('(() => { const a = window.app; return a.doc.materials[a.doc.meshes[a.activeObject.data].materials[0]].use_backface_culling; })()')).toBe(true);
   await expectNoErrors(errors);
 });
 
