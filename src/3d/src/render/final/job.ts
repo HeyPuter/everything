@@ -660,7 +660,7 @@ export async function startRender(o: RenderOptions): Promise<boolean> {
   try {
     if (o.animation) {
       animationRecorder.begin(fps, W, H);
-      if (format === 'WEBM') video = (seqHook?.createVideoWriter ? await seqHook.createVideoWriter(W, H, fps, frames) : null) ?? (await createVideoWriter(W, H, fps));
+      if (format === 'WEBM') video = (seqHook?.createVideoWriter ? await seqHook.createVideoWriter(W, H, fps, frames) : null) ?? (await createVideoWriter(W, H, fps, r.quality ?? 90));
       else zip = new ZipWriter();
     }
     for (let k = 0; k < frames.length; k++) {

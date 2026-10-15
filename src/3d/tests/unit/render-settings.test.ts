@@ -297,3 +297,11 @@ describe('display curve', async () => {
     expect(lookupCurve(t, 1)).toBeCloseTo(1, 5);
   });
 });
+
+describe('video quality', async () => {
+  const { videoBitrate } = await import('../../src/render/final/webm');
+  it('scales the bitrate with quality', () => {
+    expect(videoBitrate(1920, 1080, 24, 90)).toBeCloseTo(1920 * 1080 * 24 * 0.12, -3);
+    expect(videoBitrate(1920, 1080, 24, 60)).toBeLessThan(videoBitrate(1920, 1080, 24, 90) / 3);
+  });
+});

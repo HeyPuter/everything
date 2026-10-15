@@ -271,8 +271,11 @@ export class RenderScene {
     if (!L.color.equals(color) || L.intensity !== intensity) changed = true;
     L.color.copy(color);
     L.intensity = intensity;
+    // realtime: Custom Distance fades the light out at the cutoff distance
+    const cutoff = this.mode === 'raster' && la.use_custom_distance ? Math.max(0, la.cutoff_distance ?? 40) : 0;
+    if ((L as PointLight).distance !== undefined && (L as PointLight).distance !== cutoff && L.type !== 'DirectionalLight') changed = true;
     if (L instanceof PointLight) {
-      L.distance = 0;
+      L.distance = cutoff;
       L.decay = 2;
     } else if (L instanceof PhysicalSpotLight) {
       const angle = Math.min(Math.PI / 2 - 1e-3, la.spot_size / 2);
@@ -281,7 +284,7 @@ export class RenderScene {
       L.angle = angle;
       L.penumbra = Math.min(1, Math.max(0, la.spot_blend));
       L.decay = 2;
-      L.distance = 0;
+      L.distance = cutoff;
       L.radius = radius;
     } else if (L instanceof ShapedAreaLight) {
       const [w, h] = areaLightSize(la);

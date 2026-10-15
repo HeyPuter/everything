@@ -71,7 +71,7 @@ function outputPanel(r: RenderSettings): Child {
     bool(r, 'use_file_extension', 'File Extensions', { tip: 'Add the file format extension to rendered file names' }),
     enumProp(r, 'file_format', 'File Format', [['PNG', 'PNG'], ['JPEG', 'JPEG'], ['WEBP', 'WebP'], ['WEBM', 'WebM Video']]),
     enumProp(r, 'color_mode', 'Color', colors),
-    fmt === 'JPEG' || fmt === 'WEBP' ? num(r, 'quality', 'Quality', { int: true, unit: 'percentage', min: 0, max: 100, slider: true, tip: 'Compression quality of lossy formats' }) : null,
+    fmt !== 'PNG' ? num(r, 'quality', 'Quality', { int: true, unit: 'percentage', min: 0, max: 100, slider: true, tip: fmt === 'WEBM' ? 'Video quality (bitrate)' : 'Compression quality of lossy formats' }) : null,
     fmt === 'PNG' ? h('div', { class: 'prop-note' }, 'Animations are saved as a ZIP of numbered PNG files; the metadata below is stored in each file.') : fmt === 'WEBM' ? h('div', { class: 'prop-note' }, 'Animations are saved as a WebM video.') : null,
   ]);
 }
