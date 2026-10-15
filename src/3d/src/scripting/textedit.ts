@@ -1589,32 +1589,17 @@ registerOperators([
     idname: 'text.to_3d_object',
     label: 'Text to 3D Object',
     description: 'Create a text object from the active text, or one per line',
-    props: [{ id: 'split_lines', label: 'Split Lines', type: 'bool', default: false }],
-    poll: (ctx) => !!withText(ctx) && ctx.doc.mode === 'OBJECT',
-    exec: (ctx, p) => {
-      const t = withText(ctx)!.text!;
-      const lines = p.split_lines ? t.body.split('\n') : [t.body];
-      const cursor = ctx.doc.scene.cursor.location;
-      for (const ob of Object.values(ctx.doc.objects)) ob.select = false;
-      let made = 0;
-      lines.forEach((line, i) => {
-        if (p.split_lines && !line.trim()) return;
-        const cu = newCurve(uniqueDataName(ctx.doc, t.name.replace(/\.[a-z0-9]+$/i, ''), 'curves'));
-        cu.dimensions = '2D';
-        cu.body = line;
-        cu.size = 1;
-        cu.fill_mode = 'BOTH';
-        cu.align_x = 'LEFT';
-        cu.align_y = 'TOP_BASELINE' as never;
-        cu.space_line = 1;
-        cu.space_character = 1;
-        ctx.doc.curves[cu.id] = cu;
-        const ob = newObject(cu.name, 'FONT', cu.id);
-        addObjectToScene(ctx.doc, ob, { location: [cursor[0], cursor[1] - i * 1.2, cursor[2]] });
-        made++;
-      });
-      if (!made) return 'CANCELLED';
+    props: [
+      { id: 'split_lines', label: 'Split Lines', type: 'bool', default: false },
+      { id: 'text', label: 'Text', type: 'string', default: '', hidden: true },
+    ],
+    poll: (ctx) => ctx.doc.mode === 'OBJECT' && (!!withText(ctx) || Object.keys(ctx.doc.texts).length > 0),
+    invoke: (ctx, p) => {
+      // remember the text so Adjust Last Operation can run again from any editor
+      p.text = withText(ctx)?.textId ?? p.text;
+      return textTo3D(ctx, p);
     },
+    exec: (ctx, p) => textTo3D(ctx, p),
   },
   {
     idname: 'wm.context_cycle_int',
@@ -1663,6 +1648,34 @@ addKeys('Text', [
   { key: 'DOWN_ARROW', shift: true, ctrl: true, op: 'text.move_lines', props: { direction: 'DOWN' } },
   { key: 'T', ctrl: true, op: 'text.toggle_sidebar' },
 ]);
+
+/** Text to 3D Object: one text object, or one per non-empty line, at the 3D cursor. */
+function textTo3D(ctx: OpContext, p: Record<string, unknown>): 'FINISHED' | 'CANCELLED' {
+  const t = ctx.doc.texts[String(p.text)] ?? withText(ctx)?.text;
+  if (!t) return 'CANCELLED';
+  const lines = p.split_lines ? t.body.split('\n') : [t.body];
+  const cursor = ctx.doc.scene.cursor.location;
+  for (const ob of Object.values(ctx.doc.objects)) ob.select = false;
+  let made = 0;
+  lines.forEach((line, i) => {
+    if (p.split_lines && !line.trim()) return;
+    const cu = newCurve(uniqueDataName(ctx.doc, t.name.replace(/\.[a-z0-9]+$/i, ''), 'curves'));
+    cu.dimensions = '2D';
+    cu.body = line;
+    cu.size = 1;
+    cu.fill_mode = 'BOTH';
+    cu.align_x = 'LEFT';
+    cu.align_y = 'TOP_BASELINE' as never;
+    cu.space_line = 1;
+    cu.space_character = 1;
+    ctx.doc.curves[cu.id] = cu;
+    const ob = newObject(cu.name, 'FONT', cu.id);
+    addObjectToScene(ctx.doc, ob, { location: [cursor[0], cursor[1] - i * 1.2, cursor[2]] });
+    made++;
+  });
+  if (!made) return 'CANCELLED';
+  return 'FINISHED';
+}
 
 async function saveText(ed: TextEditor, saveAs: boolean) {
   const t = ed.text;
