@@ -149,6 +149,11 @@ adds entries to File ▸ Import/Export. Native format: `io/native.ts`.
 - `render/final` `renderPostHooks` (compositor), sequencer frame hooks in `job.ts`
 - `app/keymap.ts` `keyInputHooks` (raw text input, e.g. Text Edit Mode)
 - `nodes/editor/context.ts` `registerNodeEditorProvider` (Shader, Geometry, Compositor editors)
+- `ui/props.ts` `propertyAnimMenuHook` (right-click menu of keyframe decorators), `anim/keyingsets.ts`
+  `propertyAnimExtraItems`; `editors/properties/tabs.ts` `sceneKeyingPanel`, `armatureDataPanels`
+- Animation editors (`animation/animeditor.ts`): `selectables()` feeds box/circle/lasso selection,
+  `overlay` draws transient circle/lasso/slider readouts, `snapTo()`/`snapHeader()` snapping options;
+  key-shaping logic lives in `animation/fcurvetools.ts` (pure) and its operators in `graphtools.ts`
 
 ### Registration
 Feature modules are imported for side effects from `src/modules.ts` (`registerModules()`).
