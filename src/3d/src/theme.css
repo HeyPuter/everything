@@ -653,6 +653,23 @@ textarea {
 .num-field.anim-driven {
   background: #9000cc;
 }
+.num-field.anim-changed {
+  background: #c26b1c;
+  color: #111;
+}
+.num-field.anim-keyed:hover,
+.num-field.anim-animated:hover,
+.num-field.anim-driven:hover,
+.num-field.anim-changed:hover {
+  filter: brightness(1.12);
+}
+/* sliders keep their state colour; the filled part is a lighter shade of it */
+.num-field.slider.anim-keyed .num-fill,
+.num-field.slider.anim-animated .num-fill,
+.num-field.slider.anim-driven .num-fill,
+.num-field.slider.anim-changed .num-fill {
+  background: rgba(255, 255, 255, 0.22);
+}
 .num-field.disabled {
   opacity: 0.45;
   pointer-events: none;
@@ -743,6 +760,9 @@ input.num-field.editing {
 }
 .checkbox.anim-animated .cb-box {
   background: var(--anim-animated);
+}
+.checkbox.anim-driven .cb-box {
+  background: var(--anim-driven);
 }
 
 .btn,
@@ -900,6 +920,12 @@ input.num-field.editing {
 }
 .color-swatch.anim-keyed {
   outline: 2px solid var(--anim-keyed);
+}
+.color-swatch.anim-animated {
+  outline: 2px solid var(--anim-animated);
+}
+.color-swatch.anim-driven {
+  outline: 2px solid var(--anim-driven);
 }
 
 .decorator {
@@ -1705,7 +1731,8 @@ input.num-field.editing {
 .area.overlap-header > .area-toolheader > .hdr-spacer {
   pointer-events: none;
 }
-.area.overlap-header > .area-toolheader > .tool-header {
+.area.overlap-header > .area-toolheader > .tool-header,
+.area.overlap-header > .area-toolheader > .th-right {
   flex: 0 1 auto;
   min-width: 0;
   height: 24px;
@@ -1717,7 +1744,9 @@ input.num-field.editing {
 .area.overlap-header > .area-toolheader > .tool-header:empty {
   display: none;
 }
-.tool-header.th-right {
+.th-right {
+  display: flex;
+  align-items: center;
   flex: none;
 }
 .th-right .hdr-drop {
@@ -2281,7 +2310,8 @@ input.num-field.editing {
   z-index: 900;
 }
 .dialog {
-  background: #303030;
+  background: #262626;
+  border: 1px solid #333;
   border-radius: 8px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
   min-width: 360px;
@@ -2295,9 +2325,10 @@ input.num-field.editing {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 30px;
+  height: 28px;
   padding: 0 10px;
-  background: #242424;
+  background: #1d1d1d;
+  color: #c8c8c8;
 }
 .dialog-title .grow {
   flex: 1;

@@ -193,7 +193,7 @@ export function toolHeader(v: View3D): Child {
 export function toolHeaderRow(v: View3D): Child {
   const right = toolHeaderRightHooks.map((f) => f()).filter((c) => c !== null && c !== undefined && c !== false);
   const opts = hasToolOptions() ? optionsButton() : null;
-  return [toolHeader(v), h('div', { key: 'th-gap', class: 'hdr-spacer' }), right.length || opts ? h('div', { key: 'th-right', class: 'tool-header th-right' }, ...right, opts) : null];
+  return [toolHeader(v), h('div', { key: 'th-gap', class: 'hdr-spacer' }), right.length || opts ? h('div', { key: 'th-right', class: 'th-right' }, ...right, opts) : null];
 }
 
 export const toolSettingsRenderers: Record<string, () => Child> = {};

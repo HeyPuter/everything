@@ -738,6 +738,11 @@ function hideTip() {
 
 export function menuKey(e: KeyboardEvent): boolean {
   if (pie) return true;
+  // Escape also dismisses a popover (unless a text field inside it is being edited)
+  if (!stack.length && e.key === 'Escape' && document.querySelector('.popup-layer > .popover') && !(document.activeElement as HTMLElement | null)?.closest?.('.popover input, .popover textarea')) {
+    closeMenus();
+    return true;
+  }
   if (!stack.length) return false;
   const m = stack[stack.length - 1];
   // text popups (search, rename prompt) handle their own keys; swallowing them here would block typing
