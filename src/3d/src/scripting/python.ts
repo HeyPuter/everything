@@ -118,6 +118,9 @@ function applyKw(fn: { __params?: string[]; name?: string }, args: unknown[], kw
   return a;
 }
 
+/** Returned by bridge.attr for methods (a string Python compares cheaply). */
+const METHOD = '\u0000method';
+
 export const bridge = {
   kind(v: unknown): string {
     if (v === null || v === undefined) return 'none';
@@ -132,6 +135,11 @@ export const bridge = {
     return 'struct';
   },
   bound: (v: VecBase) => !!(v as unknown as { __bound?: boolean }).__bound,
+  /** kind() in one call for live vectors: 'b:<kind>:<size>' (bound vectors keep their size). */
+  wrapkind(v: unknown): string {
+    if (v instanceof VecBase && (v as unknown as { __bound?: boolean }).__bound) return `b:${v.__kind}:${v.size}`;
+    return bridge.kind(v);
+  },
   components: (v: VecBase) => v.toArray(),
   order: (v: { order?: string }) => v.order ?? 'XYZ',
   vlen: (v: VecBase) => v.size,
@@ -142,6 +150,11 @@ export const bridge = {
   attrkind(o: object, name: string): 'method' | 'value' {
     if (!hasAttr(o, name)) throw pyError('AttributeError', `'${typeName(o)}' object has no attribute '${name}'`);
     return descriptorKind(o, name);
+  },
+  /** One call for attribute access: the value, or METHOD when it is a method to call. */
+  attr(o: Record<string, unknown>, name: string) {
+    if (!hasAttr(o, name)) throw pyError('AttributeError', `'${typeName(o)}' object has no attribute '${name}'`);
+    return descriptorKind(o, name) === 'method' ? METHOD : out(o[name]);
   },
   getattr(o: Record<string, unknown>, name: string) {
     if (!hasAttr(o, name)) throw pyError('AttributeError', `'${typeName(o)}' object has no attribute '${name}'`);

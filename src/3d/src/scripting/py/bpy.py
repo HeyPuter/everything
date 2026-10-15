@@ -100,10 +100,11 @@ def _wrap(v):
         return None
     if not isinstance(v, JsProxy):
         return v
-    kind = _br.kind(v)
+    kind = _br.wrapkind(v)
+    if kind.startswith("b:"):
+        _, k, n = kind.split(":")
+        return _BOUND[k](v, int(n))
     if kind in ("vector", "euler", "color", "quaternion"):
-        if _br.bound(v):
-            return _BOUND[kind](v)
         vals = list(_br.components(v).to_py())
         if kind == "euler":
             return mathutils.Euler(vals, _br.order(v))
@@ -123,6 +124,9 @@ def _wrap(v):
     if kind == "opmodule":
         return _OpsModule(_br.getattr(v, "__module"))
     return _Struct(v)
+
+
+_METHOD = "\x00method"
 
 
 class _Function:
@@ -162,10 +166,10 @@ class _Struct:
     def __getattr__(self, name):
         if name.startswith("__") and name.endswith("__"):
             raise AttributeError(name)
-        kind = _call(_br.attrkind, self._js, name)
-        if kind == "method":
+        v = _call(_br.attr, self._js, name)
+        if v == _METHOD:
             return _Method(self._js, name)
-        return _wrap(_call(_br.getattr, self._js, name))
+        return _wrap(v)
 
     def __setattr__(self, name, value):
         _call(_br.setattr, self._js, name, _tojs(value))
@@ -292,7 +296,7 @@ class _BoundMixin:
     __slots__ = ()
 
     def _len(self):
-        return int(_br.vlen(self._js))
+        return self._n
 
     def _getc(self, i):
         return float(_br.vget(self._js, i))
@@ -302,40 +306,44 @@ class _BoundMixin:
 
 
 class _BoundVector(_BoundMixin, mathutils.Vector):
-    __slots__ = ("_js",)
+    __slots__ = ("_js", "_n")
 
-    def __init__(self, jsobj):
+    def __init__(self, jsobj, n=None):
         object.__setattr__(self, "_js", jsobj)
+        object.__setattr__(self, "_n", int(_br.vlen(jsobj)) if n is None else n)
 
     def copy(self):
         return mathutils.Vector(self._list())
 
 
 class _BoundColor(_BoundMixin, mathutils.Color):
-    __slots__ = ("_js",)
+    __slots__ = ("_js", "_n")
 
-    def __init__(self, jsobj):
+    def __init__(self, jsobj, n=None):
         object.__setattr__(self, "_js", jsobj)
+        object.__setattr__(self, "_n", int(_br.vlen(jsobj)) if n is None else n)
 
     def copy(self):
         return mathutils.Color(self._list())
 
 
 class _BoundQuaternion(_BoundMixin, mathutils.Quaternion):
-    __slots__ = ("_js",)
+    __slots__ = ("_js", "_n")
 
-    def __init__(self, jsobj):
+    def __init__(self, jsobj, n=None):
         object.__setattr__(self, "_js", jsobj)
+        object.__setattr__(self, "_n", int(_br.vlen(jsobj)) if n is None else n)
 
     def copy(self):
         return mathutils.Quaternion(self._list())
 
 
 class _BoundEuler(_BoundMixin, mathutils.Euler):
-    __slots__ = ("_js",)
+    __slots__ = ("_js", "_n")
 
-    def __init__(self, jsobj):
+    def __init__(self, jsobj, n=None):
         object.__setattr__(self, "_js", jsobj)
+        object.__setattr__(self, "_n", int(_br.vlen(jsobj)) if n is None else n)
         object.__setattr__(self, "_order", str(_br.order(jsobj)))
 
     def copy(self):
