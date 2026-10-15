@@ -21,13 +21,125 @@ function objectSpaceOf(ctx: ModifierContext, id: unknown): Matrix4 | null {
 // ---------------------------------------------------------------------------
 // Catmull–Clark subdivision
 
-export function catmullClark(m: EvalMesh, levels: number, simple = false, useCreases = true): EvalMesh {
+/** How mesh (or UV) boundaries behave while subdividing. */
+export type BoundaryMode = 'SMOOTH' | 'CORNERS' | 'LINEAR';
+
+export interface SubdivOptions {
+  /** boundary smoothing: smooth everything, keep corners (vertices with two edges) or keep boundaries linear */
+  boundary?: BoundaryMode;
+  /** move the final vertices onto the limit surface */
+  limit?: boolean;
+  /** UV smoothing (NONE keeps UVs linear) */
+  uvSmooth?: string;
+}
+
+export function catmullClark(m: EvalMesh, levels: number, simple = false, useCreases = true, opts: SubdivOptions = {}): EvalMesh {
   let mesh = m;
-  for (let l = 0; l < levels; l++) mesh = subdivideOnce(mesh, simple, useCreases);
+  const boundary = opts.boundary ?? 'SMOOTH';
+  const uvMode = !simple && opts.uvSmooth && opts.uvSmooth !== 'NONE' ? opts.uvSmooth : null;
+  let uvMesh = uvMode && levels > 0 ? uvTopology(m) : null;
+  const uvBoundary: BoundaryMode = uvMode === 'SMOOTH_ALL' ? 'SMOOTH' : uvMode === 'PRESERVE_BOUNDARIES' ? 'LINEAR' : 'CORNERS';
+  for (let l = 0; l < levels; l++) {
+    mesh = subdivideOnce(mesh, simple, useCreases, boundary);
+    if (uvMesh) uvMesh = subdivideOnce(uvMesh, false, false, uvBoundary);
+  }
+  if (levels > 0 && !simple && opts.limit) mesh = { ...mesh, positions: limitPositions(mesh, boundary, useCreases) };
+  if (uvMesh) {
+    const P = opts.limit ? limitPositions(uvMesh, uvBoundary, false) : uvMesh.positions;
+    const uvs = new Float32Array(mesh.indices.length * 2);
+    for (let c = 0; c < uvMesh.indices.length; c++) {
+      uvs[c * 2] = P[uvMesh.indices[c] * 3];
+      uvs[c * 2 + 1] = P[uvMesh.indices[c] * 3 + 1];
+    }
+    mesh = { ...mesh, uvs };
+  }
   return mesh;
 }
 
-function subdivideOnce(m: EvalMesh, simple: boolean, useCreases: boolean): EvalMesh {
+/** The UV layout as a mesh: one vertex per distinct (vertex, uv) pair, same faces and corners. */
+function uvTopology(m: EvalMesh): EvalMesh {
+  const ids = new Map<string, number>();
+  const pos: number[] = [];
+  const indices = new Uint32Array(m.indices.length);
+  for (let c = 0; c < m.indices.length; c++) {
+    const u = m.uvs[c * 2] ?? 0,
+      v = m.uvs[c * 2 + 1] ?? 0;
+    const key = `${m.indices[c]}:${Math.round(u * 1e6)}:${Math.round(v * 1e6)}`;
+    let id = ids.get(key);
+    if (id === undefined) {
+      id = pos.length / 3;
+      pos.push(u, v, 0);
+      ids.set(key, id);
+    }
+    indices[c] = id;
+  }
+  return { positions: new Float32Array(pos), offsets: m.offsets, indices, uvs: new Float32Array(m.indices.length * 2), normals: new Float32Array(0) };
+}
+
+/**
+ * Positions on the Catmull–Clark limit surface of an all-quad mesh: interior vertices use the
+ * valence-weighted average of edge and diagonal neighbours, boundary (and fully creased) vertices
+ * the 1-4-1 rule along their boundary, and corners stay put.
+ */
+export function limitPositions(m: EvalMesh, boundary: BoundaryMode, useCreases = true): Float32Array {
+  const P = m.positions,
+    nv = P.length / 3;
+  const et = edgeTopology(m);
+  const out = new Float32Array(P);
+  const sharpEdge = new Uint8Array(et.count);
+  for (let e = 0; e < et.count; e++) if (et.faceOffsets[e + 1] - et.faceOffsets[e] !== 2) sharpEdge[e] = 1;
+  if (useCreases && m.creases) for (let c = 0; c < m.indices.length; c++) if (m.creases[c] >= 1) sharpEdge[et.cornerEdge[c]] = 1;
+  const valence = new Uint32Array(nv),
+    sharpN: number[][] = Array.from({ length: nv }, () => []);
+  const eSum = new Float64Array(nv * 3);
+  for (let e = 0; e < et.count; e++) {
+    const a = et.verts[e * 2],
+      b = et.verts[e * 2 + 1];
+    valence[a]++;
+    valence[b]++;
+    for (let k = 0; k < 3; k++) {
+      eSum[a * 3 + k] += P[b * 3 + k];
+      eSum[b * 3 + k] += P[a * 3 + k];
+    }
+    if (sharpEdge[e]) {
+      sharpN[a].push(b);
+      sharpN[b].push(a);
+    }
+  }
+  // diagonal (opposite) corners of each vertex's quads
+  const fSum = new Float64Array(nv * 3),
+    fCount = new Uint32Array(nv),
+    allQuads = new Uint8Array(nv).fill(1);
+  for (let f = 0; f < m.offsets.length - 1; f++) {
+    const s = m.offsets[f],
+      e = m.offsets[f + 1];
+    for (let c = s; c < e; c++) {
+      const v = m.indices[c];
+      if (e - s !== 4) {
+        allQuads[v] = 0;
+        continue;
+      }
+      const o = m.indices[s + ((c - s + 2) % 4)];
+      for (let k = 0; k < 3; k++) fSum[v * 3 + k] += P[o * 3 + k];
+      fCount[v]++;
+    }
+  }
+  for (let v = 0; v < nv; v++) {
+    const sn = sharpN[v];
+    if (sn.length === 0) {
+      const n = valence[v];
+      if (!n || !allQuads[v] || fCount[v] !== n) continue;
+      for (let k = 0; k < 3; k++) out[v * 3 + k] = (n * n * P[v * 3 + k] + 4 * eSum[v * 3 + k] + fSum[v * 3 + k]) / (n * (n + 5));
+    } else if (sn.length === 2) {
+      // a boundary (or creased) curve through the vertex; boundary corners may stay fixed
+      if (boundary === 'LINEAR' || (boundary === 'CORNERS' && valence[v] === 2)) continue;
+      for (let k = 0; k < 3; k++) out[v * 3 + k] = (P[sn[0] * 3 + k] + 4 * P[v * 3 + k] + P[sn[1] * 3 + k]) / 6;
+    }
+  }
+  return out;
+}
+
+function subdivideOnce(m: EvalMesh, simple: boolean, useCreases: boolean, boundary: BoundaryMode = 'SMOOTH'): EvalMesh {
   const P = m.positions,
     nv = P.length / 3,
     nf = m.offsets.length - 1;
@@ -101,7 +213,8 @@ function subdivideOnce(m: EvalMesh, simple: boolean, useCreases: boolean): EvalM
       continue;
     }
     if (bcount[v] >= 2) {
-      if (bcount[v] === 2) for (let k = 0; k < 3; k++) vp[v * 3 + k] = (Bsum[v * 3 + k] + 6 * P[v * 3 + k]) / 8;
+      const keep = bcount[v] !== 2 || boundary === 'LINEAR' || (boundary === 'CORNERS' && n === 2);
+      if (!keep) for (let k = 0; k < 3; k++) vp[v * 3 + k] = (Bsum[v * 3 + k] + 6 * P[v * 3 + k]) / 8;
       else for (let k = 0; k < 3; k++) vp[v * 3 + k] = P[v * 3 + k];
       continue;
     }
@@ -1274,7 +1387,12 @@ export const modifierTypes: Record<string, ModifierType> = {
     icon: 'mod_subsurf',
     defaults: base({ subdivision_type: 'CATMULL_CLARK', levels: 1, render_levels: 2, quality: 3, use_creases: true, use_limit_surface: true, uv_smooth: 'PRESERVE_BOUNDARIES', boundary_smooth: 'ALL' }),
     supportsEditMode: true,
-    apply: (m, mod, ctx) => catmullClark(m, Math.min(6, Math.round(ctx.render ? num(mod, 'render_levels', 2) : num(mod, 'levels', 1))), str(mod, 'subdivision_type') === 'SIMPLE', bool(mod, 'use_creases', true)),
+    apply: (m, mod, ctx) =>
+      catmullClark(m, Math.min(6, Math.round(ctx.render ? num(mod, 'render_levels', 2) : num(mod, 'levels', 1))), str(mod, 'subdivision_type') === 'SIMPLE', bool(mod, 'use_creases', true), {
+        boundary: str(mod, 'boundary_smooth', 'ALL') === 'PRESERVE_CORNERS' ? 'CORNERS' : 'SMOOTH',
+        limit: bool(mod, 'use_limit_surface', true),
+        uvSmooth: str(mod, 'uv_smooth', 'PRESERVE_BOUNDARIES'),
+      }),
   },
   TRIANGULATE: { type: 'TRIANGULATE', label: 'Triangulate', category: 'GENERATE', icon: 'mod_triangulate', defaults: base({ quad_method: 'BEAUTY', ngon_method: 'BEAUTY', min_vertices: 4 }), apply: triangulateMeshMod },
   WELD: { type: 'WELD', label: 'Weld', category: 'GENERATE', icon: 'automerge_off', defaults: base({ merge_threshold: 0.001, mode: 'ALL' }), apply: (m, mod) => weld(m, num(mod, 'merge_threshold', 0.001), str(mod, 'mode') === 'CONNECTED') },

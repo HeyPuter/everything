@@ -3,7 +3,8 @@
 // MIT-licensed three-bvh-csg library; Decimate and Weighted Normal are implemented here.
 import { BufferGeometry, Float32BufferAttribute, Matrix4, Mesh, MeshBasicMaterial, Vector3 } from 'three';
 import { Brush, Evaluator, ADDITION, SUBTRACTION, INTERSECTION } from 'three-bvh-csg';
-import type { MeshData, ModifierBase } from '../data/types';
+import type { DocumentData, MeshData, ModifierBase } from '../data/types';
+import { physicsDoc } from '../physics/state';
 import type { EvalMesh, ModifierContext } from './types';
 import { registerModifier } from './modifiers';
 import { modifierFields } from '../editors/properties/stack';
@@ -225,6 +226,22 @@ const csg = new Evaluator();
 csg.attributes = ['position', 'uv', 'normal'];
 csg.useGroups = true;
 
+/** Objects of a collection and its child collections. */
+export function collectionObjects(doc: DocumentData | null, id: unknown): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const walk = (cid: string) => {
+    if (seen.has(cid)) return;
+    seen.add(cid);
+    const c = doc?.collections[cid];
+    if (!c) return;
+    out.push(...c.objects);
+    c.children.forEach(walk);
+  };
+  if (typeof id === 'string') walk(id);
+  return out;
+}
+
 function booleanMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
   const op = str(mod, 'operation', 'DIFFERENCE');
   const operands: { mesh: EvalMesh; matrix: Matrix4 }[] = [];
@@ -237,8 +254,7 @@ function booleanMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalM
     if (ev?.mesh && ev.mesh.offsets.length > 1) operands.push({ mesh: ev.mesh, matrix: ownInv.clone().multiply(ev.world) });
   };
   if (str(mod, 'operand_type', 'OBJECT') === 'COLLECTION') {
-    const col = mod.collection ? ctx.doc.collections[mod.collection as string] : undefined;
-    for (const id of col?.objects ?? []) add(id);
+    for (const id of collectionObjects(ctx.doc, mod.collection)) add(id);
   } else if (typeof mod.object === 'string') add(mod.object);
   if (!operands.length || m.offsets.length < 2) return m;
   const kind = op === 'UNION' ? ADDITION : op === 'INTERSECT' ? INTERSECTION : SUBTRACTION;
@@ -732,7 +748,7 @@ registerModifier({
   category: 'GENERATE',
   icon: 'mod_boolean',
   defaults: base({ operation: 'DIFFERENCE', operand_type: 'OBJECT', object: null, collection: null, solver: 'EXACT' }),
-  deps: (m) => [m.object as string],
+  deps: (m) => (m.operand_type === 'COLLECTION' ? collectionObjects(physicsDoc(), m.collection) : [m.object as string]),
   apply: booleanMod,
 });
 registerModifier({

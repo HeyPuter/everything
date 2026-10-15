@@ -1,7 +1,8 @@
 // Fuller panels for long-standing modifiers (sub-panels and options that were missing).
 import { h } from '../../../ui/h';
 import { num, bool, enumProp, vecProp, splitRow } from '../../../ui/props';
-import { enumRow } from '../../../ui/widgets';
+import { enumRow, enumMenu } from '../../../ui/widgets';
+import { app } from '../../../app/app';
 import { modifierFields, modifierExtraUI } from '../stack';
 import { sub, headerCheck, objRow, vgroupRow, touch } from './kit';
 
@@ -76,6 +77,90 @@ modifierExtraUI.BEVEL = (ob, m) => {
       bool(r, 'mark_seam', 'Seam', { disabled: r.affect === 'VERTICES' }),
       bool(r, 'mark_sharp', 'Sharp', { disabled: r.affect === 'VERTICES' }),
       num(r, 'material', 'Material Index', { int: true, min: -1 }),
+    ]),
+  ];
+};
+
+// ---------------------------------------------------------------------------
+// Boolean
+
+modifierFields.BOOLEAN = [];
+modifierExtraUI.BOOLEAN = (ob, m) => {
+  const r = m as Rec;
+  const cols = Object.values(app.doc.collections)
+    .filter((c) => c.id !== app.doc.scene.collection)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return [
+    splitRow(
+      'Operation',
+      enumRow(
+        `${m.id}.operation`,
+        [
+          { value: 'INTERSECT', label: 'Intersect' },
+          { value: 'UNION', label: 'Union' },
+          { value: 'DIFFERENCE', label: 'Difference' },
+        ],
+        String(r.operation ?? 'DIFFERENCE'),
+        (v) => ((r.operation = v), touch('Change Operation')),
+      ),
+    ),
+    enumProp(r, 'operand_type', 'Operand Type', [
+      ['OBJECT', 'Object'],
+      ['COLLECTION', 'Collection'],
+    ]),
+    r.operand_type === 'COLLECTION'
+      ? splitRow('Collection', enumMenu(`${m.id}.collection`, [{ value: '', label: '—' }, ...cols.map((c) => ({ value: c.id, label: c.name, icon: 'collection' }))], String(r.collection ?? ''), (v) => ((r.collection = v || null), touch('Set Collection'))))
+      : objRow(r, 'object', 'Object', (o) => o.id !== ob.id && o.type === 'MESH'),
+  ];
+};
+
+// ---------------------------------------------------------------------------
+// Subdivision Surface
+
+modifierFields.SUBSURF = [];
+modifierExtraUI.SUBSURF = (_ob, m) => {
+  const r = m as Rec;
+  const simple = r.subdivision_type === 'SIMPLE';
+  return [
+    splitRow(
+      'Type',
+      enumRow(
+        `${m.id}.subdivision_type`,
+        [
+          { value: 'CATMULL_CLARK', label: 'Catmull-Clark' },
+          { value: 'SIMPLE', label: 'Simple' },
+        ],
+        String(r.subdivision_type ?? 'CATMULL_CLARK'),
+        (v) => ((r.subdivision_type = v), touch('Change Subdivision Type')),
+      ),
+    ),
+    num(r, 'levels', 'Levels Viewport', { int: true, min: 0, max: 6 }),
+    num(r, 'render_levels', 'Render', { int: true, min: 0, max: 6 }),
+    sub(m, 'advanced', 'Advanced', () => [
+      bool(r, 'use_limit_surface', 'Use Limit Surface', { disabled: simple }),
+      enumProp(
+        r,
+        'uv_smooth',
+        'UV Smooth',
+        [
+          ['NONE', 'None'],
+          ['PRESERVE_CORNERS', 'Keep Corners'],
+          ['PRESERVE_BOUNDARIES', 'Keep Boundaries'],
+          ['SMOOTH_ALL', 'All'],
+        ],
+        { disabled: simple },
+      ),
+      enumProp(
+        r,
+        'boundary_smooth',
+        'Boundary Smooth',
+        [
+          ['PRESERVE_CORNERS', 'Keep Corners'],
+          ['ALL', 'All'],
+        ],
+        { disabled: simple },
+      ),
+      bool(r, 'use_creases', 'Use Creases', { disabled: simple }),
     ]),
   ];
 };
