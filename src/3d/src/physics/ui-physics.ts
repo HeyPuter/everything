@@ -11,6 +11,8 @@ import type { ModifierBase, ObjectData } from '../data/types';
 import { insertTabAfter, changed, note, subHeading, vgroupRow, objectRow, cachePanel, fieldWeightsPanel } from './ui-common';
 import { meshSimKey } from './meshsim';
 import { RB_CACHE, rapierLoaded } from './rigidbody';
+import { RBC_TYPES } from './rbjoints';
+import { rbcTypePanels } from './ui-rbc';
 import {
   defaultClothCollision,
   defaultClothSettings,
@@ -358,13 +360,14 @@ function rbConstraintPanels(ob: ObjectPhysics): Child[] {
   return [
     panel('ph-rbc', 'Rigid Body Constraint', () => [
       !app.doc.scene.rigidbody_world ? note('No rigid body world: add one in Scene properties', 'error') : null,
-      enumProp(c, 'type', 'Type', [['FIXED', 'Fixed'], ['POINT', 'Point'], ['HINGE', 'Hinge'], ['SLIDER', 'Slider']]),
-      c.type === 'HINGE' || c.type === 'SLIDER' ? note(`The ${c.type === 'HINGE' ? 'hinge' : 'slider'} axis is this object's local Z axis`) : null,
+      enumProp(c, 'type', 'Type', RBC_TYPES),
+      c.type === 'HINGE' ? note("The hinge turns around this object's local Z axis") : c.type === 'SLIDER' || c.type === 'PISTON' || c.type === 'MOTOR' ? note("The axis is this object's local X axis") : null,
       panel('ph-rbc-settings', 'Settings', () => [bool(c, 'enabled', 'Enabled'), bool(c, 'disable_collisions', 'Disable Collisions')], { sub: true }),
       panel('ph-rbc-objects', 'Objects', () => [
         objectRow(`rbc1-${ob.id}`, c as never, 'object1', 'First', (o) => !!o.rigid_body),
         objectRow(`rbc2-${ob.id}`, c as never, 'object2', 'Second', (o) => !!o.rigid_body),
       ], { sub: true }),
+      rbcTypePanels(c, ob.id),
     ]),
   ];
 }

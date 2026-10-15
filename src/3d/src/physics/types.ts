@@ -20,11 +20,21 @@ export interface RigidBodyX extends RigidBodyData {
 }
 
 export interface RigidBodyConstraintData {
-  type: 'FIXED' | 'POINT' | 'HINGE' | 'SLIDER';
+  type: 'FIXED' | 'POINT' | 'HINGE' | 'SLIDER' | 'PISTON' | 'GENERIC' | 'GENERIC_SPRING' | 'MOTOR';
   enabled: boolean;
   disable_collisions: boolean;
   object1: ID | null;
   object2: ID | null;
+  /** limits (use_limit_lin_x, limit_lin_x_lower/upper, use_limit_ang_z, …), springs
+   *  (use_spring_x, spring_stiffness_x, spring_damping_ang_y, …) and motor settings */
+  use_motor_lin?: boolean;
+  use_motor_ang?: boolean;
+  motor_lin_target_velocity?: number;
+  motor_ang_target_velocity?: number;
+  motor_lin_max_impulse?: number;
+  motor_ang_max_impulse?: number;
+  spring_type?: 'SPRING1' | 'SPRING2';
+  [key: string]: unknown;
 }
 
 export interface ForceFieldX extends ForceField {

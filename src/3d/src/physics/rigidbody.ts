@@ -12,6 +12,7 @@ import { collectEffectors, effectorForce, fieldsKey } from './fields';
 import { triangulate } from './colliders';
 import type { ObjectPhysics, RigidBodyConstraintData, RigidBodyWorldX, RigidBodyX } from './types';
 import { fps } from './meshsim';
+import { createJoint } from './rbjoints';
 
 type Rapier = typeof RAPIERNS;
 let RAPIER: Rapier | null = null;
@@ -192,23 +193,7 @@ function buildWorld(R: Rapier, doc: DocumentData): Live {
       b2 = c.object2 ? byId.get(c.object2) : undefined;
     if (!b1 || !b2 || b1 === b2) continue;
     const cm = decompose(objectWorldAt(doc, ob, w.frame_start));
-    const local = (b: Body) => {
-      const t = b.body.translation(),
-        r = b.body.rotation();
-      const qi = new Quaternion(r.x, r.y, r.z, r.w).invert();
-      const a = cm.p.clone().sub(new Vector3(t.x, t.y, t.z)).applyQuaternion(qi);
-      const frame = qi.clone().multiply(cm.q);
-      const axis = new Vector3(0, 0, 1).applyQuaternion(frame);
-      return { a: { x: a.x, y: a.y, z: a.z }, frame: { x: frame.x, y: frame.y, z: frame.z, w: frame.w }, axis: { x: axis.x, y: axis.y, z: axis.z } };
-    };
-    const l1 = local(b1),
-      l2 = local(b2);
-    let jd: RAPIERNS.JointData;
-    if (c.type === 'FIXED') jd = R.JointData.fixed(l1.a, l1.frame, l2.a, l2.frame);
-    else if (c.type === 'POINT') jd = R.JointData.spherical(l1.a, l2.a);
-    else if (c.type === 'HINGE') jd = R.JointData.revoluteWithAxes(l1.a, l2.a, l1.axis, l2.axis);
-    else jd = R.JointData.prismatic(l1.a, l2.a, l1.axis);
-    const joint = world.createImpulseJoint(jd, b1.body, b2.body, true);
+    const joint = createJoint(R, world, c, b1, b2, cm.p, cm.q, world.timestep);
     joint.setContactsEnabled(!c.disable_collisions);
   }
   return { world, bodies };

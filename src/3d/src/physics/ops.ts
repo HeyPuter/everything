@@ -12,6 +12,7 @@ import { insertKeyframe } from '../anim/fcurve';
 import { freeCache, objectWorldAt, startBudget } from './common';
 import { freeRigidBodyLive, loadRapier, rapierLoaded, rigidBodyMatrix, simulateRigidBodies, RB_CACHE } from './rigidbody';
 import { meshSimKey } from './meshsim';
+import { RBC_TYPES, rbcDefaults } from './rbjoints';
 import { particleCacheKey, systemOf } from './particles';
 import { fluidCacheKey } from './fluid';
 import { physicsState } from './runtime';
@@ -172,7 +173,7 @@ function addConstraintObject(doc: DocumentData, a: ObjectData, b: ObjectData, ty
   e.empty_display_size = 0.5;
   e.name = uniqueName(doc, 'Constraint');
   e.location = loc;
-  e.rigid_body_constraint = { type, enabled: true, disable_collisions: true, object1: a.id, object2: b.id };
+  e.rigid_body_constraint = { ...rbcDefaults(), type, enabled: true, disable_collisions: true, object1: a.id, object2: b.id };
   doc.objects[e.id] = e;
   doc.object_order.push(e.id);
   doc.collections[doc.scene.collection].objects.push(e.id);
@@ -188,12 +189,7 @@ const SHAPES: [string, string][] = [
   ['CONVEX_HULL', 'Convex Hull'],
   ['MESH', 'Mesh'],
 ];
-const CON_TYPES: [string, string][] = [
-  ['FIXED', 'Fixed'],
-  ['POINT', 'Point'],
-  ['HINGE', 'Hinge'],
-  ['SLIDER', 'Slider'],
-];
+const CON_TYPES = RBC_TYPES;
 
 function particleOwnerModifier(ob: ObjectData, ps: ParticleSystemX): ModifierBase | undefined {
   return ob.modifiers.find((m) => m.type === 'PARTICLE_SYSTEM' && m.particle_system === (ps as { id?: string }).id);
@@ -315,7 +311,7 @@ registerOperators([
     poll: () => !!active() && !(active() as ObjectPhysics).rigid_body_constraint,
     exec: (ctx, p) => {
       ensureWorld(ctx.doc);
-      (active() as ObjectPhysics).rigid_body_constraint = { type: p.type as RigidBodyConstraintData['type'], enabled: true, disable_collisions: true, object1: null, object2: null };
+      (active() as ObjectPhysics).rigid_body_constraint = { ...rbcDefaults(), type: p.type as RigidBodyConstraintData['type'], enabled: true, disable_collisions: true, object1: null, object2: null };
     },
   },
   {
