@@ -151,7 +151,7 @@ export function uvSphereMesh(segments: number, rings: number, radius: number, uv
   for (let k = 1; k < rings - 1; k++)
     for (let j = 0; j < segments; j++) b.face([ring(k, j), ring(k + 1, j), ring(k + 1, j + 1), ring(k, j + 1)], [U(j), V(k), U(j), V(k + 1), U(j + 1), V(k + 1), U(j + 1), V(k)]);
   for (let j = 0; j < segments; j++) b.face([bottom, ring(rings - 1, j + 1), ring(rings - 1, j)], [(j + 0.5) / segments, 0, U(j + 1), V(rings - 1), U(j), V(rings - 1)]);
-  return b.build({ uvName });
+  return b.build({ uvName, flat: true });
 }
 
 const ICO_V = [

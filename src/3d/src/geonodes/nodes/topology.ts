@@ -5,7 +5,7 @@ import { gn } from './defs';
 import { Field, allocField, evalFull, makeContext, type Evaluated, type FieldContext } from '../field';
 import { adaptDomain, readAttribute, type MeshComponent, type MeshTopology } from '../geometry';
 import { indexField, positionField } from '../inputs';
-import { faceNormals } from '../meshutil';
+import { cornerNormals, faceNormals, smoothFlags } from '../meshutil';
 import type { Domain, FieldType } from '../types';
 
 const zeros = (type: FieldType): Evaluated => ({ data: allocField(type, 1), single: true });
@@ -450,3 +450,114 @@ gn('GeometryNodeInputShortestEdgePaths', 'input', {
 });
 
 void positionField;
+
+// ---------------------------------------------------------------------------
+// UV Tangent
+
+/**
+ * Tangents along +U of a UV map per face corner: each corner gathers the UV-gradient direction
+ * of the triangles around it (weighted by the corner angle), smooth corners sharing a vertex and
+ * UV coordinate are averaged, and the result is made perpendicular to the corner normal. The
+ * fast variant ignores flat shading (all faces count as smooth) and skips the projection.
+ */
+export function uvTangents(m: MeshComponent, uv: ArrayLike<number>, uvStride: number, fast = false): Float32Array {
+  const P = m.positions;
+  const nc = m.cornerCount;
+  const acc = new Float64Array(nc * 3);
+  const smooth = smoothFlags(m);
+  // the fast variant treats every face as smooth and skips the normal projection
+  const N = fast ? null : cornerNormals(m);
+  const sub = (a: number, b: number) => [P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2]];
+  for (let f = 0; f < m.faceCount; f++) {
+    const s = m.faceOffsets[f],
+      e = m.faceOffsets[f + 1];
+    for (let k = s + 1; k + 1 < e; k++) {
+      const tri = [s, k, k + 1];
+      const [c0, c1, c2] = tri;
+      const v0 = m.corners[c0],
+        v1 = m.corners[c1],
+        v2 = m.corners[c2];
+      const e1 = sub(v1, v0),
+        e2 = sub(v2, v0);
+      const du1 = uv[c1 * uvStride] - uv[c0 * uvStride],
+        dv1 = uv[c1 * uvStride + 1] - uv[c0 * uvStride + 1],
+        du2 = uv[c2 * uvStride] - uv[c0 * uvStride],
+        dv2 = uv[c2 * uvStride + 1] - uv[c0 * uvStride + 1];
+      const det = du1 * dv2 - du2 * dv1;
+      const sign = det < 0 ? -1 : 1;
+      const t = [(e1[0] * dv2 - e2[0] * dv1) * sign, (e1[1] * dv2 - e2[1] * dv1) * sign, (e1[2] * dv2 - e2[2] * dv1) * sign];
+      const tl = Math.hypot(t[0], t[1], t[2]);
+      if (!tl || !det) continue;
+      for (let j = 0; j < 3; j++) {
+        const c = tri[j],
+          a = m.corners[tri[(j + 1) % 3]],
+          b = m.corners[tri[(j + 2) % 3]],
+          v = m.corners[c];
+        const x = sub(a, v),
+          y = sub(b, v);
+        const ang = Math.acos(Math.max(-1, Math.min(1, (x[0] * y[0] + x[1] * y[1] + x[2] * y[2]) / (Math.hypot(...x) * Math.hypot(...y) || 1))));
+        for (let q = 0; q < 3; q++) acc[c * 3 + q] += (t[q] / tl) * ang;
+      }
+    }
+  }
+  // smooth corners of a vertex with the same UV share one tangent
+  const t = m.topology();
+  const out = new Float32Array(nc * 3);
+  const sum = new Float64Array(nc * 3);
+  sum.set(acc);
+  for (let v = 0; v < m.vertCount; v++) {
+    const cs: number[] = [];
+    for (let k = t.vertFaceOffsets[v]; k < t.vertFaceOffsets[v + 1]; k++) if (fast || smooth[t.vertFaces[k]]) cs.push(t.vertCorners[k]);
+    for (let i = 0; i < cs.length; i++)
+      for (let j = 0; j < cs.length; j++) {
+        if (i === j) continue;
+        const a = cs[i],
+          b = cs[j];
+        if (uv[a * uvStride] !== uv[b * uvStride] || uv[a * uvStride + 1] !== uv[b * uvStride + 1]) continue;
+        for (let q = 0; q < 3; q++) sum[a * 3 + q] += acc[b * 3 + q];
+      }
+  }
+  for (let c = 0; c < nc; c++) {
+    let x = sum[c * 3],
+      y = sum[c * 3 + 1],
+      z = sum[c * 3 + 2];
+    if (N) {
+      const d = x * N[c * 3] + y * N[c * 3 + 1] + z * N[c * 3 + 2];
+      x -= N[c * 3] * d;
+      y -= N[c * 3 + 1] * d;
+      z -= N[c * 3 + 2] * d;
+    }
+    const l = Math.hypot(x, y, z) || 1;
+    out[c * 3] = x / l;
+    out[c * 3 + 1] = y / l;
+    out[c * 3 + 2] = z / l;
+  }
+  return out;
+}
+
+gn(
+  'GeometryNodeUVTangent',
+  'input',
+  {
+    exec: (ctx) => {
+      const uvField = ctx.field('UV', 'VECTOR');
+      const fast = ctx.node.props.Method === 'Fast';
+      const cache = new WeakMap<MeshComponent, Float32Array>();
+      return {
+        Tangent: new MeshField('VECTOR', (m, c) => {
+          let r = cache.get(m);
+          if (!r) cache.set(m, (r = uvTangents(m, evalOnMesh(m, 'CORNER', uvField), 3, fast)));
+          return onDomain(m, c, r, 'FLOAT_VECTOR', 'CORNER');
+        }),
+      };
+    },
+  },
+  {
+    menus: {
+      Method: [
+        ['Exact', 'Exact'],
+        ['Fast', 'Fast'],
+      ],
+    },
+  },
+);
