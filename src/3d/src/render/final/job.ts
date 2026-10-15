@@ -294,31 +294,61 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
       }
       job!.phase = 'Path Tracing';
       const traceStart = performance.now();
+      // motion blur: the shutter interval is split into time slices, each traced with its share
+      // of the samples and averaged
+      const motion = r.use_motion_blur && src.kind === 'final' && r.motion_blur_shutter > 0;
+      const slices = motion ? Math.max(2, Math.min(32, Math.round(Math.sqrt(maxSamples) * 1.5))) : 1;
+      const frame = doc.scene.frame_current + (doc.scene.frame_subframe ?? 0);
+      const opts = buildOptions(src, 'pathtrace');
+      if (motion) accum.reset(W, H);
+      let done = 0;
       let batch = 1;
       let lastPreview = performance.now();
       let previewCost = 100;
       let last = performance.now();
-      while (core.samples < maxSamples) {
-        check();
-        for (let i = 0; i < batch && core.samples < maxSamples; i++) core.sample();
-        job!.sample = core.samples;
-        const now = performance.now();
-        if (timeLimit > 0 && (now - traceStart) / 1000 >= timeLimit && core.samples > 0) break;
-        if (now - lastPreview > Math.max(700, previewCost * 6)) {
-          onPartial(scale(readFloat(renderer, core.renderTarget, W, H)), core.samples);
-          lastPreview = performance.now();
-          previewCost = lastPreview - now;
+      let timeUp = false;
+      for (let sl = 0; sl < slices && !timeUp; sl++) {
+        const target = Math.max(1, Math.round((maxSamples * (sl + 1)) / slices) - Math.round((maxSamples * sl) / slices));
+        if (motion) {
+          evaluateAt(frame + shutterOffset(sl, slices, r.motion_blur_shutter, r.motion_blur_position ?? 'CENTER'));
+          rs.build(app, opts);
+          camera = cameraFor(src, FW, FH, region) ?? camera;
+          core.sync(rs, camera, Math.random());
+          core.reset();
         }
-        progress();
-        await nextFrame();
-        const dt = performance.now() - last;
-        last = performance.now();
-        if (dt < 34) batch = Math.min(64, batch + 1);
-        else if (dt > 70 && batch > 1) batch--;
+        while (core.samples < target) {
+          check();
+          for (let i = 0; i < batch && core.samples < target; i++) core.sample();
+          job!.sample = done + core.samples;
+          const now = performance.now();
+          if (timeLimit > 0 && (now - traceStart) / 1000 >= timeLimit * ((sl + 1) / slices) && core.samples > 0) {
+            timeUp = sl === slices - 1 || (now - traceStart) / 1000 >= timeLimit;
+            break;
+          }
+          if (now - lastPreview > Math.max(700, previewCost * 6)) {
+            onPartial(scale(readFloat(renderer, core.renderTarget, W, H)), done + core.samples);
+            lastPreview = performance.now();
+            previewCost = lastPreview - now;
+          }
+          progress();
+          await nextFrame();
+          const dt = performance.now() - last;
+          last = performance.now();
+          if (dt < 34) batch = Math.min(64, batch + 1);
+          else if (dt > 70 && batch > 1) batch--;
+        }
+        done += core.samples;
+        if (motion) accum.add(renderer, core.texture);
       }
-      samples = core.samples;
+      if (motion) {
+        evaluateAt(frame);
+        rs.build(app, opts);
+        camera = cameraFor(src, FW, FH, region) ?? camera;
+      }
+      samples = done;
       if (timeLimit > 0 && samples < maxSamples) maxSamples = samples;
-      let resultRT: WebGLRenderTarget = core.renderTarget;
+      const source = motion ? accum.target : core.renderTarget;
+      let resultRT: WebGLRenderTarget = source;
       const denoise = src.kind === 'final' ? r.use_denoising : r.preview_denoising !== false;
       if (denoise) {
         job!.phase = 'Denoising';
@@ -329,7 +359,7 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
         renderer.shadowMap.enabled = false;
         renderOverride(renderer, rs.scene, camera, guide, normalDepthMaterial);
         renderAlbedo(renderer, rs.scene, camera, albedo);
-        denoiser.run(renderer, core.texture, guide.texture, albedo.texture, W, H, samples);
+        denoiser.run(renderer, source.texture, guide.texture, albedo.texture, W, H, samples);
         resultRT = denoiser.out!;
         guide.dispose();
         albedo.dispose();

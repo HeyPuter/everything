@@ -182,6 +182,7 @@ function pathTracePanels(r: RenderSettings): Child {
       { closed: true },
     ),
     simplifyPanel(r),
+    motionBlurPanel(r),
     panel(
       'rs-film',
       'Film',
