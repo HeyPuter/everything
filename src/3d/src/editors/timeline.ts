@@ -13,6 +13,10 @@ import { playbackFooter } from '../animation/footer';
 import { aggregate } from '../animation/aggregate';
 import { drawKey } from '../animation/theme';
 
+/** Extra drawing in the timeline's content area (e.g. physics cache bars) and its View menu entries. */
+export const timelineOverlays: ((g: CanvasRenderingContext2D, tl: Timeline, W: number) => void)[] = [];
+export const timelineViewMenuHooks: ((tl: Timeline) => MenuItem[])[] = [];
+
 export class Timeline extends DopeSheet {
   /** keys shown only for selected channels' objects (the summary of selected objects) */
   constructor(area: Area, state?: unknown) {
@@ -41,6 +45,7 @@ export class Timeline extends DopeSheet {
       { label: 'Only Show Selected', checked: this.onlySelected, action: () => ((this.onlySelected = !this.onlySelected), this.refresh(), app.changed('ui')) },
       { label: 'Show Hidden', checked: this.showHidden, action: () => ((this.showHidden = !this.showHidden), this.refresh(), app.changed('ui')) },
       { label: 'Show Seconds', checked: this.showSeconds, op: 'anim.show_seconds_toggle', shortcut: 'Ctrl T' },
+      ...timelineViewMenuHooks.flatMap((f) => f(this)),
       { separator: true },
       { label: 'Frame All', op: 'action.view_all', shortcut: 'Home' },
       { label: 'Frame Scene Range', op: 'anim.scene_range_frame' },
@@ -72,6 +77,7 @@ export class Timeline extends DopeSheet {
   }
 
   protected drawContent(g: CanvasRenderingContext2D, W: number) {
+    for (const o of timelineOverlays) o(g, this, W);
     const ch = this.list.rows[0];
     if (!ch?.curves.length) return;
     const agg = aggregate(ch.curves.map((r) => r.fc));

@@ -9,7 +9,7 @@ import { newModifier } from '../eval/modifiers';
 import { applyMatrixToObject, toMatrix4 } from '../eval/transform';
 import { ensureAction, ensureFCurve, rotationPath } from '../anim/keyframes';
 import { insertKeyframe } from '../anim/fcurve';
-import { freeCache, objectWorldAt, startBudget } from './common';
+import { caches, freeCache, objectWorldAt, startBudget } from './common';
 import { freeRigidBodyLive, loadRapier, rapierLoaded, rigidBodyMatrix, simulateRigidBodies, RB_CACHE } from './rigidbody';
 import { meshSimKey } from './meshsim';
 import { RBC_TYPES, rbcDefaults } from './rbjoints';
@@ -94,6 +94,28 @@ function bakeCaches(doc: DocumentData, owners: CacheOwner[]): number {
   return end - start + 1;
 }
 
+/** Simulate the given caches from their start up to a frame without baking them ("calculate to frame"). */
+function calculateCaches(doc: DocumentData, owners: CacheOwner[], toFrame: number): number {
+  if (!owners.length) return 0;
+  const start = Math.min(...owners.map((o) => o.pc.frame_start));
+  const end = Math.min(toFrame, Math.max(...owners.map((o) => o.pc.frame_end)));
+  const cur = doc.scene.frame_current,
+    sub = doc.scene.frame_subframe;
+  try {
+    startBudget(Infinity);
+    for (let f = start; f <= end; f++) {
+      doc.scene.frame_current = f;
+      doc.scene.frame_subframe = 0;
+      app.graph.evaluate(doc);
+    }
+  } finally {
+    doc.scene.frame_current = cur;
+    doc.scene.frame_subframe = sub;
+  }
+  app.graph.evaluate(doc);
+  return Math.max(0, end - start + 1);
+}
+
 function freeOwner(o: CacheOwner) {
   o.pc.is_baked = false;
   freeCache(o.key);
@@ -106,13 +128,13 @@ function ownerByKey(doc: DocumentData, key: string) {
 
 const needsRapier = (owners: CacheOwner[]) => owners.some((o) => o.key === RB_CACHE) && !rapierLoaded();
 
-function withRapier(owners: CacheOwner[], run: () => void): 'FINISHED' | 'CANCELLED' {
+function withRapier(owners: CacheOwner[], run: () => void, bake = true): 'FINISHED' | 'CANCELLED' {
   if (!needsRapier(owners)) {
     run();
     return 'FINISHED';
   }
   app.report('INFO', 'Loading physics engine…');
-  void loadRapier().then(() => app.run('ptcache.bake_all', { only: owners.map((o) => o.key).join(',') }));
+  void loadRapier().then(() => app.run('ptcache.bake_all', { only: owners.map((o) => o.key).join(','), bake }));
   return 'CANCELLED';
 }
 
@@ -463,18 +485,46 @@ registerOperators([
   {
     idname: 'ptcache.bake',
     label: 'Bake Physics',
-    description: 'Bake the simulation of this cache for its whole frame range',
-    props: [{ id: 'cache', label: 'Cache', type: 'string', default: '', hidden: true }],
+    description: 'Bake the simulation of this cache for its whole frame range (or only calculate it up to the current frame)',
+    props: [
+      { id: 'cache', label: 'Cache', type: 'string', default: '', hidden: true },
+      { id: 'bake', label: 'Bake', type: 'bool', default: true, hidden: true },
+    ],
     redo: false,
     poll: (ctx) => cacheOwners(ctx.doc).length > 0,
     exec: (ctx, p) => {
       const o = ownerByKey(ctx.doc, p.cache as string);
       if (!o) return 'CANCELLED';
+      if (p.bake === false) {
+        if (o.pc.is_baked) return 'CANCELLED';
+        return withRapier([o], () => {
+          const n = calculateCaches(ctx.doc, [o], ctx.doc.scene.frame_current);
+          app.report('INFO', `Calculated ${o.label} for ${n} frames`);
+        }, false);
+      }
       return withRapier([o], () => {
         const t = performance.now();
         const n = bakeCaches(ctx.doc, [o]);
         app.report('INFO', `Baked ${o.label}: ${n} frames in ${((performance.now() - t) / 1000).toFixed(2)} s`);
       });
+    },
+  },
+  {
+    idname: 'ptcache.bake_from_cache',
+    label: 'Current Cache to Bake',
+    description: 'Keep the frames simulated so far as the bake of this cache',
+    props: [{ id: 'cache', label: 'Cache', type: 'string', default: '', hidden: true }],
+    redo: false,
+    poll: (ctx) => cacheOwners(ctx.doc).some((o) => !o.pc.is_baked),
+    exec: (ctx, p) => {
+      const o = ownerByKey(ctx.doc, p.cache as string);
+      if (!o || o.pc.is_baked) return 'CANCELLED';
+      const c = caches.get(o.key);
+      if (!c?.frames.size) {
+        app.report('WARNING', 'Nothing is cached yet: play the animation or calculate to a frame first');
+        return 'CANCELLED';
+      }
+      o.pc.is_baked = true;
     },
   },
   {
@@ -493,13 +543,23 @@ registerOperators([
   {
     idname: 'ptcache.bake_all',
     label: 'Bake All Dynamics',
-    description: 'Bake all physics simulations in the scene',
-    props: [{ id: 'only', label: 'Only', type: 'string', default: '', hidden: true }],
+    description: 'Bake all physics simulations in the scene (or only update them up to the current frame)',
+    props: [
+      { id: 'only', label: 'Only', type: 'string', default: '', hidden: true },
+      { id: 'bake', label: 'Bake', type: 'bool', default: true, hidden: true },
+    ],
     redo: false,
     poll: (ctx) => cacheOwners(ctx.doc).length > 0,
     exec: (ctx, p) => {
       const only = String(p.only || '');
       const owners = cacheOwners(ctx.doc).filter((o) => !only || only.split(',').includes(o.key));
+      if (p.bake === false) {
+        const todo = owners.filter((o) => !o.pc.is_baked);
+        return withRapier(todo, () => {
+          const n = calculateCaches(ctx.doc, todo, ctx.doc.scene.frame_current);
+          app.report('INFO', `Updated ${todo.length} simulation${todo.length === 1 ? '' : 's'} to frame ${ctx.doc.scene.frame_current} (${n} frames)`);
+        }, false);
+      }
       return withRapier(owners, () => {
         const t = performance.now();
         const n = bakeCaches(ctx.doc, owners);

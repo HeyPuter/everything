@@ -90,7 +90,16 @@ export function cachePanel(id: string, key: string, pc: { frame_start: number; f
           pc.is_baked ? opButton('ptcache.free_bake', 'Delete Bake', { cache: key }) : opButton('ptcache.bake', 'Bake', { cache: key }),
           pc.is_baked ? null : opButton('ptcache.free', 'Free Cache', { cache: key }, { tip: 'Free this cache so it is recomputed' }),
         ),
+        pc.is_baked
+          ? null
+          : h(
+              'div',
+              { class: 'row-aligned' },
+              opButton('ptcache.bake', 'Calculate to Frame', { cache: key, bake: false }, { tip: 'Simulate up to the current frame without baking' }),
+              opButton('ptcache.bake_from_cache', 'Current Cache to Bake', { cache: key }),
+            ),
         h('div', { class: 'row-aligned' }, opButton('ptcache.bake_all', 'Bake All Dynamics'), opButton('ptcache.free_bake_all', 'Delete All Bakes')),
+        h('div', { class: 'row-aligned' }, opButton('ptcache.bake_all', 'Update All to Frame', { bake: false }, { tip: 'Simulate every cache up to the current frame without baking' })),
       ];
     },
     { closed: opts.closed },
