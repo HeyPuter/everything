@@ -3,6 +3,7 @@
 import { app } from '../app/app';
 import { scriptState, Struct, PropCollection, BoundArray } from './rna';
 import { bpy, bpy_extras } from './api';
+import './api_ext';
 import { mathutils, VecBase, Matrix } from './mathutils';
 import { scriptModules } from './jsmodules';
 

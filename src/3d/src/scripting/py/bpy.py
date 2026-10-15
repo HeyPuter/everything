@@ -257,8 +257,9 @@ class _Collection(_Struct):
     def items(self):
         return list(zip(self.keys(), self.values()))
 
-    def find(self, key):
-        return int(_call(_br.call, self._js, "find", _tojs([key]), js.Object.new()))
+    def find(self, key, *args, **kw):
+        r = _call(_br.call, self._js, "find", _tojs([key, *args]), _kwargs(kw))
+        return r if not isinstance(r, (int, float)) else int(r)
 
     def foreach_get(self, attr, seq):
         vals = list(_call(_br.call, self._js, "foreach_get", _tojs([attr]), js.Object.new()))
@@ -619,6 +620,23 @@ class _Context(_Struct):
     def window_manager(self):
         return _WindowManager()
 
+    def temp_override(self, **kw):
+        """``with bpy.context.temp_override(active_object=ob, selected_objects=[ob]):``"""
+        return _TempOverride(self, kw)
+
+
+class _TempOverride:
+    def __init__(self, ctx, kw):
+        self._ctx, self._kw = ctx, kw
+
+    def __enter__(self):
+        _call(_br.call, self._ctx._js, "temp_override_begin", _tojs([self._kw]), js.Object.new())
+        return self._ctx
+
+    def __exit__(self, *exc):
+        _call(_br.call, self._ctx._js, "temp_override_end", js.Array.new(), js.Object.new())
+        return False
+
 
 def _make_instance(cls, values):
     inst = cls.__new__(cls)
@@ -790,7 +808,147 @@ utils = _Utils()
 
 data = _wrap(_br.root("data"))
 context = _Context(_br.root("context"))
-app = _wrap(_br.root("app"))
+
+
+# ---------------------------------------------------------------------------
+# bpy.app.handlers / bpy.app.timers (Python functions stay on the Python side)
+
+_HANDLER_NAMES = (
+    "frame_change_pre", "frame_change_post", "depsgraph_update_pre", "depsgraph_update_post",
+    "load_pre", "load_post", "load_factory_startup_post", "save_pre", "save_post",
+    "render_init", "render_pre", "render_post", "render_write", "render_complete", "render_cancel",
+    "undo_pre", "undo_post", "redo_pre", "redo_post", "animation_playback_pre", "animation_playback_post",
+)
+
+
+def _arg_count(fn):
+    """How many positional arguments a handler takes (2 when it takes *args)."""
+    import inspect
+
+    try:
+        params = inspect.signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return 2
+    n = 0
+    for p in params:
+        if p.kind == p.VAR_POSITIONAL:
+            return 2
+        if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD) and p.default is p.empty:
+            n += 1
+    return n
+
+
+class _Handlers:
+    """Lists of functions called on events; ``persistent`` keeps one across file loads."""
+
+    def __init__(self):
+        for n in _HANDLER_NAMES:
+            setattr(self, n, [])
+
+    @staticmethod
+    def persistent(fn):
+        fn._bpy_persistent = True
+        return fn
+
+    def __repr__(self):
+        return "<bpy.app.handlers>"
+
+
+handlers = _Handlers()
+
+
+def _handler_count(name):
+    return len(getattr(handlers, name, ()))
+
+
+def _handler_dispatch(name, arg=None):
+    if name == "__clear_nonpersistent__":
+        for n in _HANDLER_NAMES:
+            lst = getattr(handlers, n)
+            lst[:] = [f for f in lst if getattr(f, "_bpy_persistent", False)]
+        return 0
+    lst = list(getattr(handlers, name, ()))
+    if not lst:
+        return 0
+    first = context.scene if _is_null(arg) else arg
+    depsgraph = None
+    for fn in lst:
+        try:
+            n = _arg_count(fn)
+            if n >= 2:
+                if depsgraph is None:
+                    depsgraph = context.evaluated_depsgraph_get()
+                fn(first, depsgraph)
+            elif n == 1:
+                fn(first)
+            else:
+                fn()
+        except Exception:
+            import traceback
+
+            sys.stderr.write("Error in %s handler %s:\n" % (name, getattr(fn, "__name__", "?")))
+            traceback.print_exc()
+    return len(lst)
+
+
+_handler_proxies = (create_proxy(_handler_dispatch), create_proxy(_handler_count))
+_br.set_handlers(*_handler_proxies)
+
+
+class _Timers:
+    """Functions run after a delay, then again after the number of seconds they return (None stops)."""
+
+    def __init__(self):
+        self._ids = {}
+
+    def register(self, function, first_interval=0, persistent=False):
+        if self.is_registered(function):
+            raise ValueError("bpy.app.timers.register(): function is already registered")
+
+        def tick():
+            try:
+                r = function()
+            except Exception:
+                import traceback
+
+                traceback.print_exc()
+                r = None
+            if r is None:
+                self._ids.pop(function, None)
+                return -1
+            return float(r)
+
+        self._ids[function] = _br.timer_add(create_proxy(tick), float(first_interval), bool(persistent))
+
+    def unregister(self, function):
+        i = self._ids.pop(function, None)
+        if i is None:
+            raise ValueError("Error: function is not registered as a timer")
+        _br.timer_remove(i)
+
+    def is_registered(self, function):
+        i = self._ids.get(function)
+        return i is not None and bool(_br.timer_active(i))
+
+    def __repr__(self):
+        return "<bpy.app.timers>"
+
+
+timers = _Timers()
+
+
+class _App(_Struct):
+    __slots__ = ()
+    handlers = handlers
+    timers = timers
+
+    @property
+    def driver_namespace(self):
+        return _driver_namespace
+
+
+_driver_namespace = {}
+app = _App(_br.root("app"))
 
 
 class _Path:
@@ -818,3 +976,8 @@ class _Path:
 
 
 path = _Path()
+
+
+# `from bpy.types import Operator`, `from bpy.props import FloatProperty`, `from bpy.app.handlers import persistent`
+for _name, _mod in (("types", types), ("props", props), ("utils", utils), ("ops", ops), ("path", path), ("app", app), ("app.handlers", handlers), ("app.timers", timers)):
+    sys.modules["bpy." + _name] = _mod

@@ -8,6 +8,7 @@ import { operators } from '../app/app';
 import { VecBase, Matrix } from './mathutils';
 import { registerScriptOperator, unregisterScriptOperator, registerScriptPanel, unregisterScriptPanel, UILayout, type ScriptProp } from './registry';
 import { output, inScript, type RunResult } from './runner';
+import { pyTimers, setPythonHandlerDispatch } from './handlers';
 import mathutilsPy from './py/mathutils.py?raw';
 import bpyPy from './py/bpy.py?raw';
 import runtimePy from './py/p3d_runtime.py?raw';
@@ -273,6 +274,12 @@ export const bridge = {
   /** A registered script module (bmesh, …) by name. */
   module: (name: string) => scriptModules[name] ?? null,
   new_layout: () => new UILayout(),
+  /** bpy.app.handlers: Python registers one dispatcher (event, argument) and a counter of its handlers. */
+  set_handlers: (dispatch: PyProxyFn | null, count: PyProxyFn | null) => setPythonHandlerDispatch(dispatch as never, count as never),
+  /** bpy.app.timers: the Python side passes a function returning the next delay, or -1 to stop. */
+  timer_add: (fn: PyProxyFn, first: number, persistent: boolean) => pyTimers.add(fn as never, Number(first), !!persistent),
+  timer_remove: (id: number) => pyTimers.remove(id),
+  timer_active: (id: number) => pyTimers.active(id),
 };
 
 /** Call into Python, turning a Python traceback into a concise JavaScript error. */

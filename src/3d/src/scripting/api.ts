@@ -27,6 +27,7 @@ import { Matrix, Vector, mathutils } from './mathutils';
 import { allSockets, getNodeType, nodeSockets, nodeTypes, socketDefault } from '../nodes/registry';
 import { ctxOf, makeNode } from '../nodes/tree';
 import type { SocketDef } from '../nodes/types';
+import { meshOf, MeshVertices, MeshEdges, MeshPolygons, MeshLoops, MeshLoopTriangles, MeshAttributes, MeshVertexColors, commitPending, dropPending, setCustomNormals, normalList, edgeInfo } from './api_mesh';
 import {
   Struct,
   PropCollection,
@@ -46,6 +47,8 @@ import {
   scriptState,
   same,
   ID_TABLES,
+  structHooks,
+  mixin,
   type Raw,
 } from './rna';
 
@@ -64,8 +67,9 @@ export function uniqueName(table: Record<string, { name: string }>, base: string
   }
 }
 
-const DATA_TABLE: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', SURFACE: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices', META: 'metaballs' };
-const TABLE_OBTYPE: Record<string, ObjectData['type']> = { meshes: 'MESH', curves: 'CURVE', lights: 'LIGHT', cameras: 'CAMERA', armatures: 'ARMATURE', lattices: 'LATTICE', metaballs: 'META' };
+/** Object type → table of its data (extended by api_*.ts for grease pencil and speakers). */
+export const DATA_TABLE: Record<string, string> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', SURFACE: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices', META: 'metaballs', GREASEPENCIL: 'grease_pencils' };
+export const TABLE_OBTYPE: Record<string, ObjectData['type']> = { meshes: 'MESH', curves: 'CURVE', lights: 'LIGHT', cameras: 'CAMERA', armatures: 'ARMATURE', lattices: 'LATTICE', metaballs: 'META', grease_pencils: 'GREASEPENCIL' };
 const TYPE_NAME = Object.fromEntries(ID_TABLES) as Record<string, string>;
 
 /** Active collection (same rules as the outliner/add operators). */
@@ -79,7 +83,7 @@ export function activeCollectionId(d: DocumentData = doc()): ID {
 }
 
 /** Objects linked anywhere in the scene's collection tree. */
-function sceneObjectIds(d: DocumentData = doc()): ID[] {
+export function sceneObjectIds(d: DocumentData = doc()): ID[] {
   const out = new Set<ID>();
   const walk = (cid: ID, seen: Set<ID>) => {
     const c = d.collections[cid];
@@ -208,11 +212,31 @@ export class IDStruct extends Struct {
 }
 
 const idCache = new Map<string, unknown>();
+
+/**
+ * Members added to the wrapper class of a table by feature files (applied when the first
+ * wrapper is made, so a class registered later by another module gets them too; members the
+ * class defines itself win).
+ */
+export const ID_MIXINS: Record<string, { prototype: object }[]> = {};
+const mixedIn = new WeakSet<object>();
+function idClass(table: string): new (table: string, id: string) => IDStruct {
+  let C = ID_CLASSES[table];
+  const extra = ID_MIXINS[table];
+  if (!extra?.length) return C ?? IDStruct;
+  if (!C) C = ID_CLASSES[table] = class extends IDStruct {};
+  if (!mixedIn.has(C)) {
+    mixedIn.add(C);
+    for (const m of extra) mixin(C, m);
+  }
+  return C;
+}
+
 export function wrapId(table: string, id: string): unknown {
   const key = `${table}:${id}`;
   let w = idCache.get(key);
   if (!w) {
-    const C = ID_CLASSES[table] ?? IDStruct;
+    const C = idClass(table);
     w = proxify(new C(table, id));
     idCache.set(key, w);
   }
@@ -223,7 +247,7 @@ idFactory.wrap = wrapId;
 // ---------------------------------------------------------------------------
 // Object
 
-class ObjectStruct extends IDStruct {
+export class ObjectStruct extends IDStruct {
   private get ob() {
     return this.__raw as unknown as ObjectData;
   }
@@ -439,18 +463,18 @@ kwMethod(ObjectStruct.prototype, 'select_set', ['state', 'view_layer']);
 kwMethod(ObjectStruct.prototype, 'hide_set', ['state', 'view_layer']);
 kwMethod(ObjectStruct.prototype, 'shape_key_add', ['name', 'from_mix']);
 
-function asMatrix(m: unknown): Matrix {
+export function asMatrix(m: unknown): Matrix {
   if (m instanceof Matrix) return m;
   if (Array.isArray(m)) return new Matrix(m as number[][]);
   throw pyError('TypeError', 'expected a 4x4 Matrix');
 }
 
-function dataRecord(ob: ObjectData): Raw | null {
+export function dataRecord(ob: ObjectData): Raw | null {
   const t = DATA_TABLE[ob.type];
   return t && ob.data ? (tableOf(app.doc, t as string)[ob.data] ?? null) : null;
 }
 
-function materialSlots(ob: ObjectData): (ID | null)[] {
+export function materialSlots(ob: ObjectData): (ID | null)[] {
   const d = dataRecord(ob) as { materials?: (ID | null)[] } | null;
   const base = d?.materials ?? [];
   return base.map((id, i) => (ob.material_slots_link?.[i] === 'OBJECT' ? ob.object_materials?.[i] ?? null : id));
@@ -476,7 +500,9 @@ class ModifierCollection extends PropCollection<unknown> {
     const ob = this.ob();
     const t = String(type ?? '').toUpperCase();
     if (!modifierTypes[t]) throw pyError('TypeError', `ObjectModifiers.new(): enum "${type}" not found in (${Object.keys(modifierTypes).map((k) => `'${k}'`).join(', ')})`);
-    if (ob.type !== 'MESH' && ob.type !== 'CURVE' && ob.type !== 'FONT' && ob.type !== 'LATTICE') throw pyError('RuntimeError', `Error: Object '${ob.name}' does not support modifiers`);
+    const gp = t.startsWith('GREASE_PENCIL_');
+    if (ob.type === 'GREASEPENCIL' ? !gp : gp || (ob.type !== 'MESH' && ob.type !== 'CURVE' && ob.type !== 'FONT' && ob.type !== 'LATTICE' && ob.type !== 'POINTCLOUD'))
+      throw pyError('RuntimeError', `Error: Object '${ob.name}' does not support ${gp ? 'grease pencil ' : ob.type === 'GREASEPENCIL' ? 'mesh ' : ''}modifiers${ob.type === 'GREASEPENCIL' ? ' (use the GREASE_PENCIL_* types)' : ''}`);
     const m = newModifier(t, uid('md'), ob.modifiers);
     if (name) m.name = uniqueName(Object.fromEntries(ob.modifiers.map((x) => [x.id, x])), String(name));
     ob.modifiers.push(m);
@@ -508,7 +534,7 @@ class ModifierCollection extends PropCollection<unknown> {
 }
 kwMethod(ModifierCollection.prototype, 'new', ['name', 'type']);
 
-function modifierWrapper(obId: string, mid: string) {
+export function modifierWrapper(obId: string, mid: string) {
   const s = new Struct('Modifier', () => app.doc.objects[obId]?.modifiers.find((m) => m.id === mid) as Raw | undefined, '');
   Object.defineProperty(s, '__mid', { value: mid });
   Object.defineProperty(s, '__path', { get: () => `bpy.data.objects[${JSON.stringify(app.doc.objects[obId]?.name)}].modifiers[${JSON.stringify(app.doc.objects[obId]?.modifiers.find((m) => m.id === mid)?.name)}]` });
@@ -555,7 +581,7 @@ class ConstraintCollection extends PropCollection<unknown> {
 }
 kwMethod(ConstraintCollection.prototype, 'new', ['type']);
 
-function constraintWrapper(obId: string, cid: string) {
+export function constraintWrapper(obId: string, cid: string) {
   const s = new Struct('Constraint', () => app.doc.objects[obId]?.constraints.find((c) => c.id === cid) as Raw | undefined, '');
   Object.defineProperty(s, '__cid', { value: cid });
   Object.defineProperty(s, '__path', { get: () => `bpy.data.objects[${JSON.stringify(app.doc.objects[obId]?.name)}].constraints[${JSON.stringify(app.doc.objects[obId]?.constraints.find((c) => c.id === cid)?.name)}]` });
@@ -623,7 +649,7 @@ kwMethod(VertexGroupCollection.prototype, 'new', ['name']);
 // ---------------------------------------------------------------------------
 // Mesh
 
-class MeshStruct extends IDStruct {
+export class MeshStruct extends IDStruct {
   get me() {
     return this.__raw as unknown as MeshData;
   }
@@ -644,6 +670,89 @@ class MeshStruct extends IDStruct {
   }
   get uv_layers() {
     return new MeshUVLayers(this.__id);
+  }
+  get attributes() {
+    return new MeshAttributes(this.__id);
+  }
+  get color_attributes() {
+    return new MeshAttributes(this.__id, true);
+  }
+  get vertex_colors() {
+    return new MeshVertexColors(this.__id);
+  }
+  get loop_triangles() {
+    return new MeshLoopTriangles(this.__id);
+  }
+  calc_loop_triangles() {
+    /* loop triangles are computed on access */
+  }
+  get corner_normals() {
+    return normalList(this.__id, 'corner', `${this.__path}.corner_normals`);
+  }
+  get vertex_normals() {
+    return normalList(this.__id, 'vertex', `${this.__path}.vertex_normals`);
+  }
+  get polygon_normals() {
+    return normalList(this.__id, 'polygon', `${this.__path}.polygon_normals`);
+  }
+  get has_custom_normals() {
+    return !!this.me.custom_normals;
+  }
+  /** One normal per loop; zero vectors keep the computed normal; an empty list clears them. */
+  normals_split_custom_set(normals: unknown) {
+    setCustomNormals(this.__id, normals, false);
+  }
+  /** One normal per vertex, applied to all of its loops. */
+  normals_split_custom_set_from_vertices(normals: unknown) {
+    setCustomNormals(this.__id, normals, true);
+  }
+  calc_normals_split() {
+    /* split normals are always available through loops[i].normal / corner_normals */
+  }
+  free_normals_split() {
+    /* nothing to free */
+  }
+  calc_normals() {
+    /* normals are computed on access */
+  }
+  /** Marks edges sharp where the faces meet at more than `angle` (radians); shades the mesh smooth. */
+  set_sharp_from_angle(angle = Math.PI / 6) {
+    const me = this.me;
+    const info = edgeInfo(me);
+    const nc = me.indices.length;
+    const sharp = new Uint32Array(nc);
+    const fn: number[][] = [];
+    for (let f = 0; f < me.offsets.length - 1; f++) fn.push(polyNormal(me.positions, faceVerts(me, f)));
+    const cornerFace = new Uint32Array(nc);
+    for (let f = 0; f < me.offsets.length - 1; f++) for (let c = me.offsets[f]; c < me.offsets[f + 1]; c++) cornerFace[c] = f;
+    for (let e = 0; e < info.faceEdges; e++) {
+      const cs = info.edgeCorners.subarray(info.edgeCornerOffsets[e], info.edgeCornerOffsets[e + 1]);
+      let isSharp = cs.length !== 2;
+      if (!isSharp) {
+        const a = fn[cornerFace[cs[0]]],
+          b = fn[cornerFace[cs[1]]];
+        isSharp = Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))) > Number(angle) + 1e-6;
+      }
+      if (isSharp) for (const c of cs) sharp[c] = 1;
+    }
+    me.sharp = sharp;
+    me.smooth = new Uint8Array(me.offsets.length - 1).fill(1);
+    touched('geometry');
+  }
+  get is_editmode() {
+    return app.doc.mode === 'EDIT' && app.editObjects().some((o) => o.data === this.__id);
+  }
+  get total_vert_sel() {
+    return this.me.select_vert?.reduce((n, x) => n + (x ? 1 : 0), 0) ?? 0;
+  }
+  get total_face_sel() {
+    return (this.polygons.list() as { select: boolean }[]).filter((p) => p.select).length;
+  }
+  get total_edge_sel() {
+    return (this.edges.list() as { select: boolean }[]).filter((p) => p.select).length;
+  }
+  count_selected_items() {
+    return [this.total_vert_sel, this.total_edge_sel, this.total_face_sel];
   }
   get materials() {
     return new IDMaterials(() => this.me as unknown as { materials: (ID | null)[] }, `${this.__path}.materials`);
@@ -679,18 +788,53 @@ class MeshStruct extends IDStruct {
     me.weights = me.vertex_groups.map(() => new Float32Array(vs.length));
     me.shape_keys = [];
     me.color_attributes = [];
-    if (es.length && !polys.length) app.report('WARNING', `from_pydata(): ${es.length} loose edge(s) ignored — meshes in this application store faces only`);
+    for (const k of ['custom_normals', 'quad_flip', 'face_strength', 'hide_poly', 'sculpt_face_set', 'sculpt_mask', 'loose_edges', 'uv_select', 'uv_pin', 'uv_hide'] as const) delete (me as unknown as Raw)[k];
+    // edges that no face uses are kept as loose edges
+    const faceEdge = new Set<string>();
+    for (const f of polys) for (let k = 0; k < f.verts.length; k++) {
+      const a = f.verts[k],
+        b = f.verts[(k + 1) % f.verts.length];
+      faceEdge.add(a < b ? `${a}:${b}` : `${b}:${a}`);
+    }
+    const loose: number[] = [];
+    es.forEach((e, ei) => {
+      const [a, b] = Array.from(e, Number);
+      if (!(a >= 0 && a < vs.length && b >= 0 && b < vs.length)) throw pyError('IndexError', `from_pydata(): edge ${ei} references a vertex out of range`);
+      const k = a < b ? `${a}:${b}` : `${b}:${a}`;
+      if (a !== b && !faceEdge.has(k)) {
+        faceEdge.add(k);
+        loose.push(a, b);
+      }
+    });
+    if (loose.length) me.loose_edges = new Uint32Array(loose);
+    dropPending(this.__id);
     touched('geometry');
   }
+  /** Builds what vertices/edges/loops/polygons.add() and foreach_set staged, and refreshes the mesh. */
   update(calc_edges = false, calc_edges_loose = false) {
     void calc_edges;
     void calc_edges_loose;
-    touched('geometry');
+    if (!commitPending(this.__id)) touched('geometry');
   }
+  /** Removes faces with out-of-range or repeated vertices; True when something was fixed. */
   validate(verbose = false, clean_customdata = true) {
-    void verbose;
     void clean_customdata;
-    return false;
+    commitPending(this.__id);
+    const me = this.me;
+    const nv = me.positions.length / 3;
+    const bad: number[] = [];
+    for (let f = 0; f < me.offsets.length - 1; f++) {
+      const vs = faceVerts(me, f);
+      if (vs.length < 3 || vs.some((v) => v >= nv) || new Set(vs).size !== vs.length) bad.push(f);
+    }
+    if (!bad.length) return false;
+    const drop = new Set(bad);
+    const polys = [];
+    for (let f = 0; f < me.offsets.length - 1; f++) if (!drop.has(f)) polys.push({ verts: faceVerts(me, f), smooth: !!me.smooth?.[f], material: me.material_index?.[f] ?? 0 });
+    Object.assign(me, buildMesh(me.positions, polys));
+    if (verbose) output_warn(`validate(): removed ${bad.length} invalid face(s)`);
+    touched('geometry');
+    return true;
   }
   clear_geometry() {
     Object.assign(this.me, emptyMeshArrays());
@@ -718,258 +862,14 @@ class MeshStruct extends IDStruct {
     touched('geometry');
   }
 }
-const MESH_HIDDEN = new Set(['id', 'positions', 'offsets', 'indices', 'uvs', 'normals', 'seams', 'sharp', 'creases', 'smooth', 'material_index', 'select_vert', 'hide_vert', 'weights', 'users', 'materials', 'shape_keys']);
+const MESH_HIDDEN = new Set(['id', 'positions', 'offsets', 'indices', 'uvs', 'normals', 'seams', 'sharp', 'creases', 'smooth', 'material_index', 'select_vert', 'hide_vert', 'weights', 'users', 'materials', 'shape_keys', 'custom_normals', 'quad_flip', 'face_strength', 'sculpt_mask', 'sculpt_face_set', 'hide_poly', 'loose_edges', 'uv_select', 'uv_pin', 'uv_hide', 'color_attributes']);
 kwMethod(MeshStruct.prototype, 'from_pydata', ['vertices', 'edges', 'faces', 'shade_flat']);
 kwMethod(MeshStruct.prototype, 'update', ['calc_edges', 'calc_edges_loose']);
-
-const meshOf = (id: string) => {
-  const me = tableOf(app.doc, 'meshes')[id] as unknown as MeshData | undefined;
-  if (!me) throw pyError('ReferenceError', 'Mesh has been removed');
-  return me;
-};
-
-class MeshVertices extends PropCollection<unknown> {
-  constructor(readonly meId: string) {
-    super(`bpy.data.meshes[${JSON.stringify(tableOf(app.doc, 'meshes')[meId]?.name)}].vertices`);
-  }
-  override get length() {
-    return meshOf(this.meId).positions.length / 3;
-  }
-  list() {
-    return Array.from({ length: this.length }, (_, i) => this.vertex(i));
-  }
-  nameOf() {
-    return '';
-  }
-  override getItem(key: number | string) {
-    if (typeof key !== 'number') throw pyError('TypeError', 'bpy_prop_collection: index must be an int');
-    const n = this.length;
-    const i = key < 0 ? key + n : key;
-    if (i < 0 || i >= n) throw pyError('IndexError', `bpy_prop_collection[index]: index ${key} out of range, size ${n}`);
-    return this.vertex(i);
-  }
-  private vertex(i: number) {
-    const id = this.meId;
-    return {
-      __kind: 'struct',
-      __type: 'MeshVertex',
-      index: i,
-      get co() {
-        return boundVector('VECTOR', () => meshOf(id).positions.subarray(i * 3, i * 3 + 3), (k, x) => {
-          cow(meshOf(id), 'positions')[i * 3 + k] = x;
-          touched('geometry');
-        });
-      },
-      set co(v: unknown) {
-        const a = toPlain(v) as number[];
-        const p = cow(meshOf(id), 'positions');
-        p[i * 3] = a[0];
-        p[i * 3 + 1] = a[1];
-        p[i * 3 + 2] = a[2];
-        touched('geometry');
-      },
-      get select() {
-        return !!meshOf(id).select_vert?.[i];
-      },
-      set select(v: boolean) {
-        const me = meshOf(id);
-        if (!me.select_vert) me.select_vert = new Uint8Array(me.positions.length / 3);
-        cow(me, 'select_vert')![i] = v ? 1 : 0;
-        touched('select');
-      },
-      get hide() {
-        return !!meshOf(id).hide_vert?.[i];
-      },
-      get normal() {
-        ensureEvaluated();
-        const me = meshOf(id);
-        const n = [0, 0, 0];
-        for (let f = 0; f < me.offsets.length - 1; f++) {
-          const vs = faceVerts(me, f);
-          if (!vs.includes(i)) continue;
-          const fn = polyNormal(me.positions, vs);
-          n[0] += fn[0];
-          n[1] += fn[1];
-          n[2] += fn[2];
-        }
-        return new Vector(n).normalized();
-      },
-      toString: () => `<bpy_struct, MeshVertex at ${this.__path}[${i}]>`,
-    };
-  }
-  /** Append `count` vertices at the origin (faces must be rebuilt with from_pydata). */
-  add(count: number) {
-    const me = meshOf(this.meId);
-    const p = new Float32Array(me.positions.length + count * 3);
-    p.set(me.positions);
-    me.positions = p;
-    touched('geometry');
-  }
-  foreach_get(attr: string, seq?: unknown) {
-    if (attr !== 'co') throw pyError('TypeError', `foreach_get: unsupported attribute "${attr}" (supported: co)`);
-    const out = Array.from(meshOf(this.meId).positions);
-    if (Array.isArray(seq)) for (let i = 0; i < out.length && i < seq.length; i++) seq[i] = out[i];
-    return out;
-  }
-  foreach_set(attr: string, seq: unknown) {
-    if (attr !== 'co') throw pyError('TypeError', `foreach_set: unsupported attribute "${attr}" (supported: co)`);
-    const a = toPlain(seq) as number[];
-    const me = meshOf(this.meId);
-    if (a.length !== me.positions.length) throw pyError('ValueError', `foreach_set: expected ${me.positions.length} values, got ${a.length}`);
-    me.positions = Float32Array.from(a);
-    touched('geometry');
-  }
-}
-
-class MeshEdges extends PropCollection<unknown> {
-  constructor(readonly meId: string) {
-    super(`bpy.data.meshes[${JSON.stringify(tableOf(app.doc, 'meshes')[meId]?.name)}].edges`);
-  }
-  list() {
-    const me = meshOf(this.meId);
-    const topo = edgeTopology(me);
-    return Array.from({ length: topo.count }, (_, i) => ({ __kind: 'struct', __type: 'MeshEdge', index: i, vertices: [topo.verts[i * 2], topo.verts[i * 2 + 1]], key: [topo.verts[i * 2], topo.verts[i * 2 + 1]] }));
-  }
-  nameOf() {
-    return '';
-  }
-}
-
-class MeshPolygons extends PropCollection<unknown> {
-  constructor(readonly meId: string) {
-    super(`bpy.data.meshes[${JSON.stringify(tableOf(app.doc, 'meshes')[meId]?.name)}].polygons`);
-  }
-  override get length() {
-    return meshOf(this.meId).offsets.length - 1;
-  }
-  list() {
-    return Array.from({ length: this.length }, (_, i) => this.poly(i));
-  }
-  nameOf() {
-    return '';
-  }
-  override getItem(key: number | string) {
-    if (typeof key !== 'number') throw pyError('TypeError', 'bpy_prop_collection: index must be an int');
-    const n = this.length;
-    const i = key < 0 ? key + n : key;
-    if (i < 0 || i >= n) throw pyError('IndexError', `bpy_prop_collection[index]: index ${key} out of range, size ${n}`);
-    return this.poly(i);
-  }
-  private poly(f: number) {
-    const id = this.meId;
-    return {
-      __kind: 'struct',
-      __type: 'MeshPolygon',
-      index: f,
-      get vertices() {
-        return faceVerts(meshOf(id), f);
-      },
-      get loop_start() {
-        return meshOf(id).offsets[f];
-      },
-      get loop_total() {
-        const me = meshOf(id);
-        return me.offsets[f + 1] - me.offsets[f];
-      },
-      get loop_indices() {
-        const me = meshOf(id);
-        return Array.from({ length: me.offsets[f + 1] - me.offsets[f] }, (_, k) => me.offsets[f] + k);
-      },
-      get normal() {
-        const me = meshOf(id);
-        return new Vector(polyNormal(me.positions, faceVerts(me, f)));
-      },
-      get center() {
-        return new Vector(faceCenter(meshOf(id), f));
-      },
-      get area() {
-        const me = meshOf(id);
-        const vs = faceVerts(me, f);
-        const P = me.positions;
-        let ax = 0,
-          ay = 0,
-          az = 0;
-        for (let k = 1; k + 1 < vs.length; k++) {
-          const a = vs[0] * 3,
-            b = vs[k] * 3,
-            c = vs[k + 1] * 3;
-          const ux = P[b] - P[a],
-            uy = P[b + 1] - P[a + 1],
-            uz = P[b + 2] - P[a + 2];
-          const vx = P[c] - P[a],
-            vy = P[c + 1] - P[a + 1],
-            vz = P[c + 2] - P[a + 2];
-          ax += uy * vz - uz * vy;
-          ay += uz * vx - ux * vz;
-          az += ux * vy - uy * vx;
-        }
-        return Math.hypot(ax, ay, az) / 2;
-      },
-      get use_smooth() {
-        return !!meshOf(id).smooth?.[f];
-      },
-      set use_smooth(v: boolean) {
-        const me = meshOf(id);
-        if (!me.smooth) me.smooth = new Uint8Array(me.offsets.length - 1);
-        cow(me, 'smooth')![f] = v ? 1 : 0;
-        touched('geometry');
-      },
-      get material_index() {
-        return meshOf(id).material_index?.[f] ?? 0;
-      },
-      set material_index(v: number) {
-        const me = meshOf(id);
-        if (!me.material_index) me.material_index = new Uint16Array(me.offsets.length - 1);
-        cow(me, 'material_index')![f] = Math.max(0, Math.round(v));
-        touched('geometry');
-      },
-      get select() {
-        const me = meshOf(id);
-        return faceVerts(me, f).every((v) => me.select_vert?.[v]);
-      },
-    };
-  }
-  foreach_set(attr: string, seq: unknown) {
-    const a = toPlain(seq) as number[];
-    const me = meshOf(this.meId);
-    const n = me.offsets.length - 1;
-    if (a.length !== n) throw pyError('ValueError', `foreach_set: expected ${n} values, got ${a.length}`);
-    if (attr === 'use_smooth') me.smooth = Uint8Array.from(a, (x) => (x ? 1 : 0));
-    else if (attr === 'material_index') me.material_index = Uint16Array.from(a);
-    else throw pyError('TypeError', `foreach_set: unsupported attribute "${attr}" (supported: use_smooth, material_index)`);
-    touched('geometry');
-  }
-}
-
-class MeshLoops extends PropCollection<unknown> {
-  constructor(readonly meId: string) {
-    super(`bpy.data.meshes[${JSON.stringify(tableOf(app.doc, 'meshes')[meId]?.name)}].loops`);
-  }
-  override get length() {
-    return meshOf(this.meId).indices.length;
-  }
-  list() {
-    const me = meshOf(this.meId);
-    return Array.from(me.indices, (v, i) => ({ __kind: 'struct', __type: 'MeshLoop', index: i, vertex_index: v }));
-  }
-  nameOf() {
-    return '';
-  }
-  override getItem(key: number | string) {
-    if (typeof key !== 'number') throw pyError('TypeError', 'bpy_prop_collection: index must be an int');
-    const me = meshOf(this.meId);
-    const n = me.indices.length;
-    const i = key < 0 ? key + n : key;
-    if (i < 0 || i >= n) throw pyError('IndexError', `bpy_prop_collection[index]: index ${key} out of range, size ${n}`);
-    return { __kind: 'struct', __type: 'MeshLoop', index: i, vertex_index: me.indices[i] };
-  }
-  foreach_get(attr: string, seq?: unknown) {
-    if (attr !== 'vertex_index') throw pyError('TypeError', `foreach_get: unsupported attribute "${attr}" (supported: vertex_index)`);
-    const out = Array.from(meshOf(this.meId).indices);
-    if (Array.isArray(seq)) for (let i = 0; i < out.length && i < seq.length; i++) seq[i] = out[i];
-    return out;
-  }
-}
+kwMethod(MeshStruct.prototype, 'validate', ['verbose', 'clean_customdata']);
+kwMethod(MeshStruct.prototype, 'set_sharp_from_angle', ['angle']);
+kwMethod(MeshStruct.prototype, 'normals_split_custom_set', ['normals']);
+kwMethod(MeshStruct.prototype, 'normals_split_custom_set_from_vertices', ['normals']);
+const output_warn = (msg: string) => app.report('WARNING', msg);
 
 const hasUVs = (me: MeshData) => me.indices.length > 0 && me.uvs.length === me.indices.length * 2;
 
@@ -1600,6 +1500,20 @@ class SocketsCollection extends PropCollection<unknown> {
         else n.inputs[id] = p as never;
         touched();
       },
+      /** Keys the input's value (on an object using the material as its active material). */
+      keyframe_insert(data_path = 'default_value', index = -1, frame: unknown = null) {
+        if (data_path !== 'default_value') throw pyError('TypeError', `bpy_struct.keyframe_insert() property "${data_path}" not found`);
+        const n = self.node();
+        if (self.output) throw pyError('TypeError', 'output sockets have no value to animate');
+        if (n.inputs[id] === undefined) n.inputs[id] = toPlain(fallback()) as never;
+        return structHooks.keyframe!(n.inputs as object, id, Number(index ?? -1), frame);
+      },
+      driver_add(path = 'default_value', index = -1) {
+        void path;
+        const n = self.node();
+        if (n.inputs[id] === undefined) n.inputs[id] = toPlain(fallback()) as never;
+        return structHooks.driver!(n.inputs as object, id, Number(index ?? -1));
+      },
       toString: () => `<bpy_struct, NodeSocket("${name}")>`,
     };
   }
@@ -1871,7 +1785,7 @@ class CollectionChildren extends PropCollection<unknown> {
   }
 }
 
-class ActionStruct extends IDStruct {
+export class ActionStruct extends IDStruct {
   get fcurves() {
     const id = this.__id;
     const getAct = () => tableOf(app.doc, 'actions')[id] as unknown as import('../data/types').ActionData | undefined;
@@ -2107,6 +2021,7 @@ class IDCollection extends PropCollection<unknown> {
           if (data.__table === 'curves' && (tableOf(app.doc, 'curves')[did] as { body?: string })?.body !== undefined) type = 'FONT';
         }
         const ob = newObject(name || 'Object', type, did);
+        OBJECT_DATA_HOOKS[type]?.(ob, did);
         const w = this.add(ob);
         app.doc.object_order.push(ob.id);
         return w;
@@ -2156,8 +2071,14 @@ class IDCollection extends PropCollection<unknown> {
       case 'metaballs':
         app.doc.metaballs ??= {};
         return this.add(newMetaball(name || 'Mball'));
-      default:
+      default: {
+        const make = NEW_DATA[this.table];
+        if (make) {
+          const rec = make(name, rest);
+          return 'id' in rec ? this.add(rec as { id: string; name: string }) : rec.wrapper;
+        }
         throw pyError('RuntimeError', `bpy.data.${this.table}.new() is not supported`);
+      }
     }
   }
   remove(item: unknown, do_unlink = true) {
@@ -2198,8 +2119,17 @@ kwMethod(IDCollection.prototype, 'new', ['name', 'object_data']);
 kwMethod(IDCollection.prototype, 'remove', ['object', 'do_unlink']);
 kwMethod(IDCollection.prototype, 'load', ['filepath', 'check_existing']);
 
+/**
+ * Makers for data-blocks of other tables (api_*.ts): a record to add to the table, or
+ * `{ wrapper }` when the maker stored it itself.
+ */
+/** Object types whose data lives on the object itself (speakers): moves `data` there when made. */
+export const OBJECT_DATA_HOOKS: Record<string, (ob: ObjectData, dataId: string | null) => void> = {};
+
+export const NEW_DATA: Record<string, (name: string, rest: unknown[]) => { id: string; name: string } | { wrapper: unknown }> = {};
+
 // specialised `new` keyword names per collection
-const NEW_PARAMS: Record<string, string[]> = {
+export const NEW_PARAMS: Record<string, string[]> = {
   objects: ['name', 'object_data'],
   lights: ['name', 'type'],
   images: ['name', 'width', 'height', 'alpha'],
@@ -2207,7 +2137,7 @@ const NEW_PARAMS: Record<string, string[]> = {
   curves: ['name', 'type'],
 };
 
-function idCollection(table: string) {
+export function idCollection(table: string) {
   const c = new IDCollection(table);
   const params = NEW_PARAMS[table];
   if (params) {
@@ -2229,7 +2159,7 @@ function wrapKw(fn: (...a: unknown[]) => unknown, params: string[]) {
 // ---------------------------------------------------------------------------
 // Scene / view layer / context
 
-class SceneStruct extends Struct {
+export class SceneStruct extends Struct {
   readonly __kind: string = 'id';
   readonly __table = 'scenes';
   readonly __id = 'scene';
@@ -2326,7 +2256,7 @@ class ViewLayerObjects extends SceneObjects {
   }
 }
 
-const viewLayer = {
+export const viewLayer: Record<string, unknown> = {
   __kind: 'struct',
   __type: 'ViewLayer',
   name: 'ViewLayer',
@@ -2355,6 +2285,7 @@ function contextMode() {
 }
 
 export class Context {
+  [key: string]: unknown;
   readonly __kind = 'struct';
   readonly __type = 'Context';
   get scene() {
@@ -2458,6 +2389,12 @@ export const bpyData: Record<string, unknown> & { scenes: ScenesCollection } = {
   toString: () => '<bpy_struct, BlendData>',
 };
 for (const n of DATA_NAMES) bpyData[n] = idCollection(n);
+
+/** Adds `bpy.data.<table>` (after its `NEW_DATA` / `NEW_PARAMS` entries are set). */
+export function addDataCollection(table: string, typeName?: string) {
+  if (typeName && !TYPE_NAME[table]) TYPE_NAME[table] = typeName;
+  bpyData[table] = idCollection(table);
+}
 kwMethod(bpyData, 'orphans_purge', ['do_local_ids', 'do_linked_ids', 'do_recursive']);
 
 // ---------------------------------------------------------------------------
