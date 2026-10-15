@@ -251,8 +251,9 @@ describe('deform curves on surface', () => {
     const s = Surface.of(rest);
     const uv = s.closest(new Vector3(0.5, 0.5, 0))!.uv!;
     const P = pts([0.5, 0.5, 0], [0.5, 0.5, 1]);
-    // identity deformation leaves the curve alone
-    expect(r3(deformOnSurface(P, [0, 2], uv, rest, rest.positions)!)).toEqual(r3(P));
+    // an undeformed surface leaves the curve alone
+    expect(deformOnSurface(P, [0, 2], uv, rest, rest.positions)).toBeNull();
+    expect(r3(deformOnSurface(P, [0, 2], uv, rest, rest.positions.slice())!)).toEqual(r3(P));
     // surface rotated 90° about X and lifted by 3
     const m = new Matrix4().makeRotationX(Math.PI / 2).setPosition(0, 0, 3);
     const def = Float32Array.from(rest.positions);
@@ -290,5 +291,21 @@ describe('particle shape cut', () => {
     expect(r.cut).toBe(1);
     expect(r.ed.co[8]).toBeCloseTo(1, 3);
     expect(r.ed.co[17]).toBe(2);
+  });
+});
+
+describe('hair in project files', () => {
+  it('saves and loads curves data and edited hair keys', async () => {
+    const { encodeDocument, decodeDocument } = await import('../../src/io/native');
+    const { hc } = emptyHair();
+    setCurves(hc, [{ points: pts([0, 0, 1], [0, 0, 2]), radius: 0.02, uv: [0.25, 0.5] }]);
+    const c = cube();
+    (c.particle_systems as ParticleSystemX[]).push({ name: 'H', settings: '', seed: 0, edited_hair: { key_offsets: Uint32Array.from([0, 2]), co: pts([0, 0, 1], [0, 0, 2]), weight: Float32Array.from([1, 1]), select: new Uint8Array(2), hide: new Uint8Array(1) } });
+    const { doc } = decodeDocument(encodeDocument(app.doc));
+    const back = doc.hair_curves![hc.id];
+    expect(Array.from(back.positions)).toEqual([0, 0, 1, 0, 0, 2]);
+    expect(back.attributes.find((a) => a.name === 'radius')!.data).toBeInstanceOf(Float32Array);
+    const ed = (doc.objects[c.id].particle_systems[0] as ParticleSystemX).edited_hair!;
+    expect(Array.from(ed.key_offsets)).toEqual([0, 2]);
   });
 });

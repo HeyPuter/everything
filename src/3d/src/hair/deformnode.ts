@@ -30,6 +30,8 @@ function frame(P: ArrayLike<number>, a: number, b: number, c: number, bary: [num
  * nothing could be attached).
  */
 export function deformOnSurface(positions: Float32Array, offsets: ArrayLike<number>, uvs: ArrayLike<number>, restMesh: EvalMesh, deformed: ArrayLike<number>): Float32Array | null {
+  // an undeformed surface (same vertex array) leaves the curves where they are
+  if (deformed === restMesh.positions) return null;
   const s = Surface.of(restMesh);
   if (!s.hasUV || deformed.length !== restMesh.positions.length) return null;
   const out = positions.slice();
