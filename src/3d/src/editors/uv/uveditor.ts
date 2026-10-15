@@ -131,6 +131,9 @@ export class UVEditor implements Editor, UVView, View2D {
   sidebarTab = 'Image';
   showStretch = false;
   stretchType: 'AREA' | 'ANGLE' = 'AREA';
+  /** overlay opacity of the UV edges, and whether faces get a fill */
+  uvOpacity = 1;
+  showFaces = true;
   /** a running drag drawn as an overlay (box / lasso from tools) */
   private drag: { kind: 'BOX' | 'LASSO'; pts: { x: number; y: number }[] } | null = null;
   private hover: { x: number; y: number } | null = null;
@@ -150,7 +153,7 @@ export class UVEditor implements Editor, UVView, View2D {
     this.ui = document.createElement('div');
     this.ui.className = 'v3d-ui uv-ui';
     this.el.append(this.canvas, this.ui);
-    const st = (state ?? {}) as Partial<{ zoom: number; pan: { x: number; y: number }; image: string | null; pivot: UVPivot; tool: UVTool; toolbar: boolean; sidebar: boolean; tab: string; stretch: boolean; stretchType: string; mode: string }>;
+    const st = (state ?? {}) as Partial<{ zoom: number; pan: { x: number; y: number }; image: string | null; pivot: UVPivot; tool: UVTool; toolbar: boolean; sidebar: boolean; tab: string; stretch: boolean; stretchType: string; opacity: number; faces: boolean; mode: string }>;
     if (st.zoom) this.zoom = st.zoom;
     if (st.pan) this.pan = { ...st.pan };
     if (st.image !== undefined) this.imageId = st.image;
@@ -161,6 +164,8 @@ export class UVEditor implements Editor, UVView, View2D {
     if (st.tab) this.sidebarTab = st.tab;
     if (st.stretch) this.showStretch = st.stretch;
     if (st.stretchType === 'ANGLE') this.stretchType = 'ANGLE';
+    if (typeof st.opacity === 'number') this.uvOpacity = st.opacity;
+    if (st.faces === false) this.showFaces = false;
     this.canvas.addEventListener('pointerdown', (e) => this.onDown(e));
     this.canvas.addEventListener('pointermove', (e) => {
       this.hover = this.local(e);
@@ -687,6 +692,8 @@ export class UVEditor implements Editor, UVView, View2D {
         splitRow('Y', numberField({ id: 'uv-cy', value: uvCursor.v, precision: 4, step: 0.01, set: (v) => ((uvCursor.v = v), this.draw()) })),
       ]),
       panel('uv-display', 'Display', () => [
+        splitRow('', checkbox('uv-faces', 'Display Faces', this.showFaces, (v) => ((this.showFaces = v), this.draw(), this.drawUI()))),
+        splitRow('UV Opacity', numberField({ id: 'uv-opacity', value: this.uvOpacity, min: 0, max: 1, slider: true, unit: 'factor', set: (v) => ((this.uvOpacity = v), this.draw()) })),
         splitRow('', checkbox('uv-stretch', 'Display Stretch', this.showStretch, (v) => ((this.showStretch = v), this.draw(), this.drawUI()))),
         this.showStretch
           ? splitRow(
@@ -787,6 +794,7 @@ export class UVEditor implements Editor, UVView, View2D {
           g.fillStyle = `hsla(${240 * (1 - v)}, 85%, 50%, 0.55)`;
           g.fill();
         }
+        if (!this.showFaces) continue;
         if (all) {
           g.fillStyle = 'rgba(255,133,0,0.22)';
           g.fill();
@@ -816,9 +824,11 @@ export class UVEditor implements Editor, UVView, View2D {
         g.stroke();
       };
       g.lineJoin = 'round';
+      g.globalAlpha = this.uvOpacity;
       pass('plain');
       pass('seam');
       pass('sel');
+      g.globalAlpha = 1;
       // vertices
       if (mode === 'VERTEX' || mode === 'EDGE') {
         const sz = mode === 'VERTEX' ? 4 : 0;
@@ -1120,7 +1130,7 @@ export class UVEditor implements Editor, UVView, View2D {
   }
 
   serialize() {
-    return { zoom: this.zoom, pan: this.pan, image: this.imageId, pivot: this.pivot, tool: this.tool, toolbar: this.showToolbar, sidebar: this.showSidebar, tab: this.sidebarTab, stretch: this.showStretch, stretchType: this.stretchType };
+    return { zoom: this.zoom, pan: this.pan, image: this.imageId, pivot: this.pivot, tool: this.tool, toolbar: this.showToolbar, sidebar: this.showSidebar, tab: this.sidebarTab, stretch: this.showStretch, stretchType: this.stretchType, opacity: this.uvOpacity, faces: this.showFaces };
   }
 
   resize() {

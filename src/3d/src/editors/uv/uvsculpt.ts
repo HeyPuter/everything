@@ -182,3 +182,51 @@ registerOperators([
   brushOp('RELAX', 'sculpt.uv_sculpt_relax', 'Relax UVs', 'Smooth out UVs under the brush'),
   brushOp('PINCH', 'sculpt.uv_sculpt_pinch', 'Pinch UVs', 'Pull UVs under the brush toward its center'),
 ]);
+
+/** F / Shift F: drag to set the brush radius or strength (click or Enter to confirm). */
+export function radialControl(kind: 'size' | 'strength', view: { el: HTMLElement; draw(): void }) {
+  const start = { ...app.pointer };
+  const before = uvSculpt[kind];
+  const r = view.el.getBoundingClientRect();
+  // the pointer starts on the circle edge for the radius, at the strength's distance otherwise
+  const center = kind === 'size' ? { x: start.x - before, y: start.y } : { x: start.x - before * 200, y: start.y };
+  const ring = document.createElement('div');
+  Object.assign(ring.style, { position: 'absolute', border: '1.5px solid rgba(255,255,255,.85)', borderRadius: '50%', pointerEvents: 'none' });
+  view.el.append(ring);
+  const show = () => {
+    const rad = kind === 'size' ? uvSculpt.size : uvSculpt.strength * 200;
+    Object.assign(ring.style, { left: `${center.x - r.left - rad}px`, top: `${center.y - r.top - rad}px`, width: `${rad * 2}px`, height: `${rad * 2}px` });
+  };
+  show();
+  let keep = false;
+  app.startModal({
+    label: kind === 'size' ? 'Brush Radius' : 'Brush Strength',
+    header: () => (kind === 'size' ? `Radius: ${Math.round(uvSculpt.size)} px` : `Strength: ${uvSculpt.strength.toFixed(3)}`),
+    onPointerMove(e) {
+      const d = Math.hypot(e.clientX - center.x, e.clientY - center.y);
+      if (kind === 'size') uvSculpt.size = Math.max(1, Math.min(500, Math.round(d)));
+      else uvSculpt.strength = Math.max(0, Math.min(1, d / 200));
+      show();
+      app.changed('ui');
+    },
+    // brush settings are not part of the document: end without an undo step either way
+    onPointerDown(e) {
+      keep = e.button === 0;
+      return 'CANCELLED';
+    },
+    onKey(e) {
+      if (e.type !== 'keydown') return true;
+      if (e.key === 'Escape') return 'CANCELLED';
+      if (e.key === 'Enter') {
+        keep = true;
+        return 'CANCELLED';
+      }
+      return true;
+    },
+    cancel() {
+      if (!keep) uvSculpt[kind] = before;
+      ring.remove();
+      app.changed('ui');
+    },
+  });
+}

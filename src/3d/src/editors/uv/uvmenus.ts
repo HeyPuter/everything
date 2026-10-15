@@ -4,6 +4,7 @@ import { addKeys } from '../../app/keymap';
 import { openMenu, openPie, type MenuItem, type PieItem } from '../../ui/menu';
 import { activeUVEditor, uvSelectMode, uvEditPoll } from './uvcontext';
 import { operatorDialog } from './dialog';
+import { radialControl } from './uvsculpt';
 
 const ts = () => app.doc.scene.tool_settings;
 
@@ -303,6 +304,7 @@ function toggleSetting(key: 'use_proportional_edit' | 'use_uv_select_sync' | 'us
 }
 
 const inUV = () => !!activeUVEditor();
+const sculptTool = () => ['grab', 'relax', 'pinch'].includes((activeUVEditor() as unknown as { tool?: string })?.tool ?? '');
 const editing = () => inUV() && uvEditPoll();
 
 addKeys('UV Editor', [
@@ -360,6 +362,8 @@ addKeys('UV Editor', [
   { key: 'M', ctrl: true, menu: () => mirrorMenu().slice(2), menuTitle: 'Mirror', when: editing },
   { key: 'S', shift: true, ctrl: true, alt: true, op: 'uv.shear', when: editing },
   { key: 'PERIOD', action: pivotPie, when: inUV },
+  { key: 'F', action: () => radialControl('size', activeUVEditor()!), when: () => editing() && sculptTool() },
+  { key: 'F', shift: true, action: () => radialControl('strength', activeUVEditor()!), when: () => editing() && sculptTool() },
   { key: 'TAB', shift: true, action: () => toggleSetting('use_snap_uv', 'Snap'), when: editing },
   { key: 'TAB', shift: true, ctrl: true, menu: snapElementMenu, menuTitle: 'Snap To', when: editing },
   { key: 'TAB', op: 'object.mode_set', props: { mode: 'EDIT', toggle: true }, when: inUV },

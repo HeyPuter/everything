@@ -1,6 +1,6 @@
 // UV mapping operators for Edit Mode, plus hook / connect / bisect tools.
 import { Matrix4, Vector3 } from 'three';
-import { app, registerOperators } from '../../app/app';
+import { app, registerOperators, type PropDef } from '../../app/app';
 import { MeshEdit, edgeKey, type EFace } from './meshedit';
 import { withEdit, editMeshObjects } from './context';
 import { editPoll } from './ops-basic';
@@ -224,6 +224,53 @@ function cylinderProject(m: MeshEdit, faces: number[], sphere: boolean) {
   }
 }
 
+/** Optional bounds fitting after a projection: stretch to fill 0–1, then clamp to it. */
+function fitBounds(m: MeshEdit, faces: number[], scale: boolean, clip: boolean) {
+  if (scale) {
+    let a = Infinity,
+      b = Infinity,
+      c = -Infinity,
+      d = -Infinity;
+    for (const fi of faces) {
+      const f = m.faces[fi];
+      for (let i = 0; i < f.verts.length; i++) {
+        a = Math.min(a, f.uvs[i * 2]);
+        c = Math.max(c, f.uvs[i * 2]);
+        b = Math.min(b, f.uvs[i * 2 + 1]);
+        d = Math.max(d, f.uvs[i * 2 + 1]);
+      }
+    }
+    for (const fi of faces) {
+      const f = m.faces[fi];
+      for (let i = 0; i < f.verts.length; i++) {
+        f.uvs[i * 2] = (f.uvs[i * 2] - a) / (c - a || 1);
+        f.uvs[i * 2 + 1] = (f.uvs[i * 2 + 1] - b) / (d - b || 1);
+      }
+    }
+  }
+  if (clip)
+    for (const fi of faces) {
+      const f = m.faces[fi];
+      for (let i = 0; i < f.uvs.length; i++) f.uvs[i] = Math.max(0, Math.min(1, f.uvs[i]));
+    }
+}
+
+const boundsProps: PropDef[] = [
+  { id: 'clip_to_bounds', label: 'Clip to Bounds', type: 'bool', default: false },
+  { id: 'scale_to_bounds', label: 'Scale to Bounds', type: 'bool', default: false },
+];
+
+function project(fn: (m: MeshEdit, faces: number[]) => void, p: Record<string, unknown>) {
+  return withEdit((m) => {
+    const faces = targetFaces(m);
+    if (!faces.length) return false;
+    fn(m, faces);
+    fitBounds(m, faces, !!p.scale_to_bounds, !!p.clip_to_bounds);
+  })
+    ? 'FINISHED'
+    : 'CANCELLED';
+}
+
 function targetFaces(m: MeshEdit): number[] {
   const s = m.selectedFaces();
   return s.length ? s : [];
@@ -307,21 +354,23 @@ registerOperators([
   {
     idname: 'uv.cube_project',
     label: 'Cube Projection',
-    props: [{ id: 'cube_size', label: 'Cube Size', type: 'float', default: 2, min: 0, subtype: 'distance' }],
+    props: [{ id: 'cube_size', label: 'Cube Size', type: 'float', default: 2, min: 0, subtype: 'distance' }, ...boundsProps],
     poll: editPoll,
-    exec: (_ctx, p) => void withEdit((m) => (targetFaces(m).length ? boxProject(m, targetFaces(m), p.cube_size as number) : false)),
+    exec: (_ctx, p) => project((m, faces) => boxProject(m, faces, p.cube_size as number), p),
   },
   {
     idname: 'uv.cylinder_project',
     label: 'Cylinder Projection',
+    props: boundsProps,
     poll: editPoll,
-    exec: () => void withEdit((m) => (targetFaces(m).length ? cylinderProject(m, targetFaces(m), false) : false)),
+    exec: (_ctx, p) => project((m, faces) => cylinderProject(m, faces, false), p),
   },
   {
     idname: 'uv.sphere_project',
     label: 'Sphere Projection',
+    props: boundsProps,
     poll: editPoll,
-    exec: () => void withEdit((m) => (targetFaces(m).length ? cylinderProject(m, targetFaces(m), true) : false)),
+    exec: (_ctx, p) => project((m, faces) => cylinderProject(m, faces, true), p),
   },
   {
     idname: 'uv.project_from_view',
