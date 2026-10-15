@@ -66,6 +66,9 @@ export function slideTargets(): { targets: Strip[]; handleMode: boolean } {
 export function slideBy(df: number, dc: number): boolean {
   const { targets, handleMode } = slideTargets();
   if (!targets.length) return false;
+  const pairs: [Strip, Strip][] = [];
+  if (handleMode)
+    for (const a of targets) if (a.select_right_handle) for (const b of targets) if (b !== a && b.channel === a.channel && b.select_left_handle && finalEnd(a) === finalStart(b)) pairs.push([a, b]);
   for (const s of targets) {
     if (handleMode) {
       if (s.select_left_handle) setLeftHandle(s, finalStart(s) + df);
@@ -74,6 +77,11 @@ export function slideBy(df: number, dc: number): boolean {
       translateStrip(s, df);
       s.channel = Math.max(1, Math.min(MAX_CHANNELS, s.channel + dc));
     }
+  }
+  for (const [a, b] of pairs) {
+    if (finalEnd(a) === finalStart(b)) continue;
+    if (df > 0) setLeftHandle(b, finalEnd(a));
+    else setRightHandle(a, finalStart(b));
   }
   afterEdit();
   if (!handleMode) resolveOverlap(seqList(), targets, toolSettings().overlap_mode);
