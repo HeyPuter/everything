@@ -89,6 +89,8 @@ export interface MeshData {
   sharp?: Uint32Array;
   /** per-corner edge crease weight (0..1) for subdivision */
   creases?: Float32Array;
+  /** custom split normals, xyz per face corner (overrides the computed shading normals) */
+  custom_normals?: Float32Array;
   /** per-face smooth shading flag */
   smooth?: Uint8Array;
   /** per-face material slot index */

@@ -334,6 +334,8 @@ export function flipFace(f: EFace) {
   f.verts = order.map((i) => f.verts[i]);
   f.uvs = order.flatMap((i) => [f.uvs[i * 2], f.uvs[i * 2 + 1]]);
   if (f.colors) f.colors = order.flatMap((i) => f.colors!.slice(i * 4, i * 4 + 4));
+  // custom normals follow their corners and turn around with the face
+  if (f.cnormals) f.cnormals = order.length * 3 === f.cnormals.length ? order.flatMap((i) => f.cnormals!.slice(i * 3, i * 3 + 3).map((x) => -x)) : undefined;
 }
 
 function setEdgeFlag(m: MeshEdit, key: 'seams' | 'sharp' | 'creases', value: number) {
@@ -697,8 +699,16 @@ registerOperators([
     idname: 'mesh.flip_normals',
     label: 'Flip',
     description: 'Flip the direction of selected faces’ normals',
+    props: [{ id: 'only_clnors', label: 'Custom Normals Only', type: 'bool', default: false }],
     poll: editPoll,
-    exec: () => void withEdit((m) => m.selectedFaces().forEach((fi) => flipFace(m.faces[fi]))),
+    exec: (_ctx, p) =>
+      void withEdit((m) =>
+        m.selectedFaces().forEach((fi) => {
+          const f = m.faces[fi];
+          if (!p.only_clnors) flipFace(f);
+          else if (f.cnormals) f.cnormals = f.cnormals.map((x) => -x);
+        }),
+      ),
   },
   {
     idname: 'mesh.normals_make_consistent',

@@ -472,3 +472,45 @@ describe('selection tools', () => {
     expect(path.length).toBe(5);
   });
 });
+
+import { setNormalsFromFaces, pointNormals, mergeNormals, averageNormals, smoothNormals, normalsTools, ensureCustomNormals } from '../../src/modes/editmesh/normals';
+
+describe('custom normals', () => {
+  const corner = (m: MeshEdit, fi: number, c: number) => m.faces[fi].cnormals!.slice(c * 3, c * 3 + 3);
+
+  it('round-trips through mesh data and survives topology edits', () => {
+    const me = newMeshData('Cube', prim.cube(2));
+    const m = MeshEdit.from(me);
+    selectAll(m);
+    mergeNormals(m, false);
+    m.write(me);
+    expect(me.custom_normals?.length).toBe(me.indices.length * 3);
+    const back = MeshEdit.from(me);
+    // merged: every corner at a vertex shares the diagonal direction
+    const n = corner(back, 0, 0);
+    expect(Math.abs(n[0])).toBeCloseTo(1 / Math.sqrt(3), 4);
+    // a topology change keeps the array the right size
+    selectFaces(back, (c) => c[2] > 0.9);
+    extrudeRegion(back);
+    back.write(me);
+    expect(me.custom_normals?.length).toBe(me.indices.length * 3);
+  });
+
+  it('splits, points, averages, smooths and resets', () => {
+    const m = cube();
+    selectAll(m);
+    mergeNormals(m, true);
+    // split: corners carry their face normal
+    const f0 = m.faceNormal(m.faces[0]);
+    expect(corner(m, 0, 0).map((x) => Math.round(x * 1e4) / 1e4)).toEqual(f0.map((x) => Math.round(x * 1e4) / 1e4));
+    pointNormals(m, new Vector3(0, 0, 10), {});
+    for (const f of m.faces) for (let c = 0; c < 4; c++) expect(f.cnormals![c * 3 + 2]).toBeGreaterThan(0.8);
+    averageNormals(m, 'FACE_AREA', 50, 0.01);
+    smoothNormals(m, 0.5);
+    setNormalsFromFaces(m, false);
+    normalsTools(m, 'RESET', false, -1);
+    const auto = m.customNormalsAuto();
+    expect(Array.from(m.customNormals()!)).toEqual(Array.from(auto));
+    ensureCustomNormals(m);
+  });
+});

@@ -234,6 +234,25 @@ export function normalsMenu(): MenuItem[] {
     { label: 'Flip', op: 'mesh.flip_normals' },
     { label: 'Recalculate Outside', op: 'mesh.normals_make_consistent', props: { inside: false }, shortcut: 'Shift N' },
     { label: 'Recalculate Inside', op: 'mesh.normals_make_consistent', props: { inside: true }, shortcut: 'Shift Ctrl N' },
+    { separator: true },
+    { label: 'Set from Faces', op: 'mesh.set_normals_from_faces' },
+    { label: 'Rotate…', op: 'transform.rotate_normal' },
+    { label: 'Point to Target…', op: 'mesh.point_normals', shortcut: 'Alt L' },
+    { label: 'Merge', op: 'mesh.merge_normals' },
+    { label: 'Split', op: 'mesh.split_normals' },
+    {
+      label: 'Average',
+      submenu: () => [
+        { label: 'Custom Normal', op: 'mesh.average_normals', props: { average_type: 'CUSTOM_NORMAL' } },
+        { label: 'Face Area', op: 'mesh.average_normals', props: { average_type: 'FACE_AREA' } },
+        { label: 'Corner Angle', op: 'mesh.average_normals', props: { average_type: 'CORNER_ANGLE' } },
+      ],
+    },
+    { separator: true },
+    { label: 'Copy Vector', op: 'mesh.normals_tools', props: { mode: 'COPY' } },
+    { label: 'Paste Vector', op: 'mesh.normals_tools', props: { mode: 'PASTE' } },
+    { label: 'Smooth Vectors', op: 'mesh.smooth_normals' },
+    { label: 'Reset Vectors', op: 'mesh.normals_tools', props: { mode: 'RESET' } },
   ];
 }
 
@@ -570,6 +589,7 @@ addKeys('Mesh', [
   { key: 'N', shift: true, op: 'mesh.normals_make_consistent', props: { inside: false }, when: m },
   { key: 'N', shift: true, ctrl: true, op: 'mesh.normals_make_consistent', props: { inside: true }, when: m },
   { key: 'N', alt: true, menu: normalsMenu, menuTitle: 'Normals', when: m },
+  { key: 'L', alt: true, op: 'mesh.point_normals', when: m },
   { key: 'V', ctrl: true, menu: vertexMenu, menuTitle: 'Vertex', when: m },
   { key: 'E', ctrl: true, menu: edgeMenu, menuTitle: 'Edge', when: m },
   { key: 'F', ctrl: true, menu: faceMenu, menuTitle: 'Face', when: m },

@@ -16,6 +16,7 @@ import './editmesh/ops-vertex';
 import './editmesh/select-extra';
 import './editmesh/mirror';
 import './editmesh/tools';
+import './editmesh/normals';
 import './armature/armature';
 import './armature/boneprops';
 import './armature/tools';

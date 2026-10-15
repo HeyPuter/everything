@@ -52,7 +52,8 @@ function slice(f: EFace, from: number, to: number) {
     seams: number[] = [],
     sharp: number[] = [],
     creases: number[] = [],
-    colors: number[] = [];
+    colors: number[] = [],
+    cn: number[] = [];
   for (let k = from; ; k = (k + 1) % n) {
     verts.push(f.verts[k]);
     uvs.push(f.uvs[k * 2], f.uvs[k * 2 + 1]);
@@ -62,9 +63,10 @@ function slice(f: EFace, from: number, to: number) {
     sharp.push(last ? 0 : f.sharp[k]);
     creases.push(last ? 0 : f.creases[k]);
     if (f.colors) colors.push(...f.colors.slice(k * 4, k * 4 + 4));
+    if (f.cnormals) cn.push(...f.cnormals.slice(k * 3, k * 3 + 3));
     if (last) break;
   }
-  return { ...f, verts, uvs, seams, sharp, creases, colors: f.colors ? colors : undefined };
+  return { ...f, verts, uvs, seams, sharp, creases, colors: f.colors ? colors : undefined, cnormals: f.cnormals ? cn : undefined };
 }
 
 /** Split face `fi` by connecting its corners `i` and `j` (not adjacent). Returns the index of the new face. */
@@ -85,6 +87,7 @@ export function removeCorner(f: EFace, i: number) {
   f.sharp.splice(i, 1);
   f.creases.splice(i, 1);
   if (f.colors) f.colors.splice(i * 4, 4);
+  if (f.cnormals) f.cnormals.splice(i * 3, 3);
 }
 
 /** Insert a vertex into every face edge (a,b) at parameter t from a. */
@@ -106,6 +109,11 @@ export function insertVertexOnEdge(m: MeshEdit, a: number, b: number, v: number,
       if (f.colors) {
         const c = [0, 1, 2, 3].map((k) => f.colors![i * 4 + k] + (f.colors![j * 4 + k] - f.colors![i * 4 + k]) * tt);
         f.colors.splice((i + 1) * 4, 0, ...c);
+      }
+      if (f.cnormals) {
+        const c = [0, 1, 2].map((k) => f.cnormals![i * 3 + k] + (f.cnormals![j * 3 + k] - f.cnormals![i * 3 + k]) * tt);
+        const l = Math.hypot(c[0], c[1], c[2]) || 1;
+        f.cnormals.splice((i + 1) * 3, 0, c[0] / l, c[1] / l, c[2] / l);
       }
       break;
     }
@@ -193,7 +201,8 @@ export function dissolveEdgeSet(m: MeshEdit, keys: Iterable<string>): number {
       continue;
     }
     const tmpl = m.faces[fs[0]];
-    const nf: EFace = { ...tmpl, verts: [], uvs: [], seams: [], sharp: [], creases: [], colors: tmpl.colors ? [] : undefined };
+    const withN = fs.every((fi) => m.faces[fi].cnormals?.length === m.faces[fi].verts.length * 3);
+    const nf: EFace = { ...tmpl, verts: [], uvs: [], seams: [], sharp: [], creases: [], colors: tmpl.colors ? [] : undefined, cnormals: withN ? [] : undefined };
     for (const [fi, c] of loop) {
       const f = m.faces[fi];
       nf.verts.push(f.verts[c]);
@@ -202,6 +211,7 @@ export function dissolveEdgeSet(m: MeshEdit, keys: Iterable<string>): number {
       nf.sharp.push(f.sharp[c]);
       nf.creases.push(f.creases[c]);
       if (nf.colors) nf.colors.push(...(f.colors?.slice(c * 4, c * 4 + 4) ?? [1, 1, 1, 1]));
+      if (nf.cnormals) nf.cnormals.push(...f.cnormals!.slice(c * 3, c * 3 + 3));
     }
     for (const fi of fs) removed.add(fi);
     added.push(nf);
@@ -364,6 +374,7 @@ export function subFace(m: MeshEdit, f: EFace, corners: number[]): EFace {
     }
   });
   if (f.colors) nf.colors = corners.flatMap((i) => f.colors!.slice(i * 4, i * 4 + 4));
+  if (f.cnormals) nf.cnormals = corners.flatMap((i) => f.cnormals!.slice(i * 3, i * 3 + 3));
   return nf;
 }
 
