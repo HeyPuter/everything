@@ -181,7 +181,9 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
   }
 
   update(kinds: Set<ChangeKind>) {
-    if (kinds.has('doc') || kinds.has('ui') || this.lastRevision !== libraryRevision) this.draw();
+    // edits of the open file only change what is shown when the file's own assets are listed
+    const fileShown = this.library === LOCAL || this.library === ALL;
+    if ((kinds.has('doc') && fileShown) || kinds.has('ui') || this.lastRevision !== libraryRevision) this.draw();
   }
 
   // ---------------------------------------------------------------------
