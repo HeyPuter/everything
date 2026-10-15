@@ -22,4 +22,8 @@ registerIcons({
   pasteflipdown: '<rect class="s" x="3" y="3.5" width="10" height="10.5" rx="1" fill="none" stroke-width="1.3"/><rect class="f" x="5.5" y="1.5" width="5" height="3.2" rx=".7"/><path class="s" d="M8 7v5" stroke-width="1" opacity=".6"/><path class="f" d="M7 8v3L4.8 9.5zM9 8v3l2.2-1.5z"/>',
   // force field slowing things down: shrinking speed lines into a dot
   force_drag: '<path class="c-mo s" d="M2 5h7M2 8h5M2 11h3" stroke-width="1.3"/><circle class="c-mo s" cx="11.5" cy="8" r="2.3" fill="none" stroke-width="1.3"/>',
+  // mouse with the left, middle or right button filled (status bar hints)
+  mouse_lmb: '<path class="f" d="M7.5 2.1A3.8 3.8 0 0 0 4 6v1.6h3.5z"/><rect class="s" x="4" y="2" width="8" height="12" rx="4" fill="none" stroke-width="1.1"/><path class="s" d="M4 7.6h8M8 2v5.6" stroke-width="1"/>',
+  mouse_mmb: '<rect class="s" x="4" y="2" width="8" height="12" rx="4" fill="none" stroke-width="1.1"/><path class="s" d="M4 7.6h8" stroke-width="1"/><rect class="f" x="7" y="3.4" width="2" height="3.4" rx="1"/>',
+  mouse_rmb: '<path class="f" d="M8.5 2.1A3.8 3.8 0 0 1 12 6v1.6H8.5z"/><rect class="s" x="4" y="2" width="8" height="12" rx="4" fill="none" stroke-width="1.1"/><path class="s" d="M4 7.6h8M8 2v5.6" stroke-width="1"/>',
 });

@@ -889,8 +889,8 @@ function editStats(me: { positions: ArrayLike<number>; offsets: ArrayLike<number
   return out;
 }
 
-/** Statistics overlay rows for the current mode: [label, value]. */
-function statsLines(): [string, string][] {
+/** Statistics overlay rows for the current mode: [label, value] (also shown in the status bar). */
+export function statsLines(): [string, string][] {
   const doc = app.doc;
   const fmt = (n: number) => n.toLocaleString();
   const mode = doc.mode;

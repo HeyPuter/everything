@@ -24,7 +24,7 @@ export class Timeline extends DopeSheet {
   }
 
   header(): Child {
-    return h('div', { class: 'hdr-row' }, menuButton('View', () => this.viewMenu()), menuButton('Marker', markerMenu), playbackFooter());
+    return h('div', { class: 'hdr-row' }, menuButton('View', () => this.viewMenu()), menuButton('Marker', markerMenu), playbackFooter(this.snapHeader()));
   }
 
   protected footer(): Child | null {

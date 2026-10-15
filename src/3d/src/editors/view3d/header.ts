@@ -346,32 +346,35 @@ function overlayPopover(v: View3D): Child {
     app.changed('ui');
   };
   const editing = app.doc.mode === 'EDIT';
+  const axisBtn = (k: 'show_axis_x' | 'show_axis_y' | 'show_axis_z', l: string) => h('button', { key: k, class: { on: !!o[k] }, 'data-tip': `Show the ${l} axis line`, onclick: () => set(k)(!o[k]) }, l);
   return h(
     'div',
     { class: 'pop-panel' },
     h('div', { class: 'pop-title' }, 'Viewport Overlays'),
-    h('div', { class: 'pop-sub' }, 'Guides'),
-    h('div', { class: 'pop-grid' }, checkbox('o-grid', 'Grid', o.show_floor, set('show_floor')), checkbox('o-x', 'X', o.show_axis_x, set('show_axis_x')), checkbox('o-y', 'Y', o.show_axis_y, set('show_axis_y')), checkbox('o-z', 'Z', o.show_axis_z, set('show_axis_z'))),
-    numberField({ id: 'o-gscale', label: 'Scale', value: o.grid_scale, min: 0.001, max: 1000, set: (x) => set('grid_scale')(x) }),
-    h('div', { class: 'pop-grid' }, checkbox('o-text', 'Text Info', o.show_text, set('show_text')), checkbox('o-stats', 'Statistics', o.show_stats, set('show_stats')), checkbox('o-cursor', '3D Cursor', o.show_cursor, set('show_cursor')), checkbox('o-ann', 'Annotations', o.show_annotation, set('show_annotation'))),
-    h('div', { class: 'pop-sub' }, 'Objects'),
-    h('div', { class: 'pop-grid' }, checkbox('o-extras', 'Extras', o.show_extras, set('show_extras')), checkbox('o-rel', 'Relationship Lines', o.show_relationship_lines, set('show_relationship_lines')), checkbox('o-outline', 'Outline Selected', o.show_outline_selected, set('show_outline_selected')), checkbox('o-bones', 'Bones', o.show_bones, set('show_bones')), checkbox('o-orig', 'Origins', o.show_object_origins, set('show_object_origins')), checkbox('o-origall', 'Origins (All)', o.show_object_origins_all, set('show_object_origins_all')), checkbox('o-mpaths', 'Motion Paths', o.show_motion_paths !== false, set('show_motion_paths'))),
-    h('div', { class: 'pop-sub' }, 'Geometry'),
-    h('div', { class: 'pop-grid' }, checkbox('o-wire', 'Wireframe', o.show_wireframes, set('show_wireframes')), checkbox('o-faceor', 'Face Orientation', o.show_face_orientation, set('show_face_orientation'))),
-    numberField({ id: 'o-wireop', label: 'Opacity', value: o.wireframe_opacity, min: 0, max: 1, slider: true, set: (x) => set('wireframe_opacity')(x) }),
+    panel('ov-guides', 'Guides', () => [
+      h('div', { class: 'pop-grid ov-guides' }, checkbox('o-grid', 'Grid', o.show_floor, set('show_floor')), h('div', { class: 'ov-axes' }, h('span', { class: 'ov-axes-label' }, 'Axes'), h('div', { class: 'enum-row' }, axisBtn('show_axis_x', 'X'), axisBtn('show_axis_y', 'Y'), axisBtn('show_axis_z', 'Z')))),
+      numberField({ id: 'o-gscale', label: 'Scale', value: o.grid_scale, min: 0.001, max: 1000, set: (x) => set('grid_scale')(x) }),
+      h('div', { class: 'pop-grid' }, checkbox('o-cursor', '3D Cursor', o.show_cursor, set('show_cursor')), checkbox('o-ann', 'Annotations', o.show_annotation, set('show_annotation'))),
+    ], { sub: true }),
+    panel('ov-text', 'Text', () => [h('div', { class: 'pop-grid' }, checkbox('o-text', 'General Info', o.show_text, set('show_text')), checkbox('o-stats', 'Statistics', o.show_stats, set('show_stats')))], { sub: true }),
+    panel('ov-objects', 'Objects', () => [
+      h('div', { class: 'pop-grid' }, checkbox('o-extras', 'Extras', o.show_extras, set('show_extras')), checkbox('o-bones', 'Bones', o.show_bones, set('show_bones')), checkbox('o-rel', 'Relationship Lines', o.show_relationship_lines, set('show_relationship_lines')), checkbox('o-mpaths', 'Motion Paths', o.show_motion_paths !== false, set('show_motion_paths')), checkbox('o-outline', 'Outline Selected', o.show_outline_selected, set('show_outline_selected')), checkbox('o-orig', 'Origins', o.show_object_origins, set('show_object_origins')), h('span'), checkbox('o-origall', 'Origins (All)', o.show_object_origins_all, set('show_object_origins_all'))),
+    ], { sub: true }),
+    panel('ov-geometry', 'Geometry', () => [
+      h('div', { class: 'row-split' }, checkbox('o-wire', '', o.show_wireframes, set('show_wireframes'), { tip: 'Wireframe\nShow the wireframe of every object' }), numberField({ id: 'o-wireop', label: 'Wireframe Opacity', value: o.wireframe_opacity, min: 0, max: 1, slider: true, set: (x) => set('wireframe_opacity')(x) })),
+      checkbox('o-faceor', 'Face Orientation', o.show_face_orientation, set('show_face_orientation')),
+    ], { sub: true }),
     editing && app.activeObject?.type === 'CURVE'
-      ? [
-          h('div', { class: 'pop-sub' }, 'Curve Edit Mode'),
+      ? panel('ov-curve-edit', 'Curve Edit Mode', () => [
           h('div', { class: 'pop-line' }, h('span', null, 'Handles'), enumMenu('o-handles', [{ value: 'ALL', label: 'All' }, { value: 'SELECTED', label: 'Selected' }, { value: 'NONE', label: 'None' }], o.display_handle ?? 'SELECTED', set('display_handle'))),
           checkbox('o-cnorm', 'Normals', o.show_curve_normals !== false, set('show_curve_normals')),
           numberField({ id: 'o-cnlen', label: 'Normal Size', value: o.normals_length, min: 0.0001, max: 100, set: (x) => set('normals_length')(x) }),
-        ]
+        ], { sub: true })
       : editing && app.activeObject?.type === 'MESH'
-      ? [
-          h('div', { class: 'pop-sub' }, 'Mesh Edit Mode'),
+      ? panel('ov-mesh-edit', 'Mesh Edit Mode', () => [
           h('div', { class: 'pop-grid' }, checkbox('o-seam', 'Seams', o.show_edge_seams, set('show_edge_seams')), checkbox('o-sharp', 'Sharp', o.show_edge_sharp, set('show_edge_sharp')), checkbox('o-crease', 'Crease', o.show_edge_crease, set('show_edge_crease')), checkbox('o-fcen', 'Center', o.show_face_center, set('show_face_center')), checkbox('o-fnorm', 'Face Normals', o.show_face_normals, set('show_face_normals')), checkbox('o-vnorm', 'Vertex Normals', o.show_vertex_normals, set('show_vertex_normals')), checkbox('o-len', 'Edge Length', o.show_extra_edge_length, set('show_extra_edge_length')), checkbox('o-idx', 'Indices', o.show_extra_indices, set('show_extra_indices'))),
           numberField({ id: 'o-nlen', label: 'Normal Size', value: o.normals_length, min: 0.0001, max: 100, set: (x) => set('normals_length')(x) }),
-        ]
+        ], { sub: true })
       : null,
     overlayPopoverSections.map((f) => f(v)),
   );
@@ -402,6 +405,7 @@ function shadingPopover(v: View3D): Child {
   return h(
     'div',
     { class: 'pop-panel' },
+    h('div', { class: 'pop-title' }, 'Viewport Shading'),
     panel('sh-light', 'Lighting', () => [enumRow('s-light', items([['STUDIO', 'Studio'], ['MATCAP', 'MatCap'], ['FLAT', 'Flat']]), s.light, set('light'))], { sub: true }),
     panel('sh-color', 'Color', () => [
       h('div', { class: 'enum-grid' }, enumRow('s-color', items([['MATERIAL', 'Material'], ['OBJECT', 'Object'], ['VERTEX', 'Attribute'], ['SINGLE', 'Single'], ['RANDOM', 'Random'], ['TEXTURE', 'Texture']]), s.color_type, set('color_type'))),

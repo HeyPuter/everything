@@ -338,7 +338,20 @@ textarea {
 }
 .sb-right {
   display: flex;
-  gap: 12px;
+  align-items: center;
+  gap: 6px;
+  align-self: stretch;
+}
+.sb-sep {
+  width: 1px;
+  height: 11px;
+  background: #4a4a4a;
+}
+.sb-mouse {
+  display: inline-flex;
+  margin-right: 3px;
+  color: #c8c8c8;
+  vertical-align: middle;
 }
 
 /* ------------------------------------------------------------------ areas */
@@ -718,6 +731,13 @@ input.num-field.editing {
 .checkbox.disabled {
   opacity: 0.45;
 }
+/* labels of options that are off read a little quieter than those that are on */
+.checkbox:not(.on) {
+  color: #b4b4b4;
+}
+.checkbox:not(.on):hover {
+  color: var(--c-text);
+}
 .checkbox.anim-keyed .cb-box {
   background: var(--anim-keyed);
 }
@@ -887,7 +907,7 @@ input.num-field.editing {
   height: var(--row);
   display: grid;
   place-items: center;
-  color: #888;
+  color: #b4b4b4;
   flex: none;
 }
 .decorator:hover {
@@ -902,7 +922,7 @@ input.num-field.editing {
   height: var(--row);
   display: grid;
   place-items: center;
-  color: #888;
+  color: #a8a8a8;
   flex: none;
 }
 .lock-btn.on {
@@ -921,6 +941,14 @@ input.num-field.editing {
 .panel.sub {
   margin: 4px 0;
   background: var(--c-panel-sub);
+}
+/* a closed sub-panel is just its header row */
+.panel.sub:not(.open) {
+  background: transparent;
+  box-shadow: none;
+}
+.panel.sub > .panel-header {
+  height: 22px;
 }
 .panel-header {
   display: flex;
@@ -941,10 +969,19 @@ input.num-field.editing {
 .panel-header .ph-arrow {
   opacity: 0.85;
 }
+/* drag handle: a small field of dots (the glyph inside is hidden) */
 .panel-header .ph-grip {
-  color: #666;
-  font-size: 11px;
+  width: 14px;
+  height: 8px;
+  flex: none;
+  font-size: 0;
+  color: transparent;
   cursor: grab;
+  background: radial-gradient(circle, #6a6a6a 0.8px, transparent 1.1px) 0 0 / 3.5px 4px;
+  opacity: 0.9;
+}
+.panel-header:hover .ph-grip {
+  background-image: radial-gradient(circle, #8a8a8a 0.8px, transparent 1.1px);
 }
 .panel-body {
   padding: 2px 10px 8px;
@@ -965,7 +1002,7 @@ input.num-field.editing {
 }
 .split-row .sr-label {
   text-align: right;
-  color: #ccc;
+  color: #d4d4d4;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -994,10 +1031,12 @@ input.num-field.editing {
 .vec-prop {
   display: flex;
   flex-direction: column;
-  margin: 3px 0;
+  margin: 2px 0;
 }
-.vec-prop .split-row {
-  margin-bottom: 1px;
+/* the fields of a vector form one joined column with thin dividers */
+.vec-prop .vec-mid .num-field,
+.vec-prop .vec-last .num-field {
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.28) inset;
 }
 .vec-prop .vec-mid .num-field {
   border-radius: 0;
@@ -1180,9 +1219,24 @@ input.num-field.editing {
   min-width: 200px;
 }
 .pop-title {
-  color: #ddd;
-  font-weight: 500;
+  color: #a6a6a6;
   padding: 2px 0 4px;
+}
+/* sub-panels inside popovers are plain collapsible sections */
+.popover .panel.sub {
+  background: transparent;
+  box-shadow: none;
+  margin: 1px 0;
+}
+.popover .panel.sub > .panel-header {
+  padding-left: 0;
+}
+.popover .panel.sub > .panel-header .ph-title {
+  color: #c4c4c4;
+  font-weight: 400;
+}
+.popover .panel.sub .panel-body {
+  padding: 2px 0 6px;
 }
 .pop-sub {
   color: #999;
@@ -1412,30 +1466,43 @@ input.num-field.editing {
   top: calc(var(--ov-top, 0px) + 8px);
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 3px;
-  background: rgba(40, 40, 40, 0.92);
-  border-radius: 6px;
   max-height: calc(100% - var(--ov-top, 0px) - var(--ov-bottom, 0px) - 16px);
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-width: none;
 }
+/* tools come in boxed groups: tools of a group are joined, groups are spaced apart */
 .tb-tool {
-  width: 32px;
-  height: 32px;
+  width: 38px;
+  height: 34px;
+  flex: none;
   display: grid;
   place-items: center;
-  border-radius: 4px;
   color: #ddd;
   position: relative;
+  background: rgba(40, 40, 40, 0.92);
+  border-radius: 0;
+}
+.tb-tool + .tb-tool {
+  box-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
+}
+.v3d-toolbar > .tb-tool:first-child,
+.tb-sep + .tb-tool {
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+}
+.tb-tool:has(+ .tb-sep),
+.v3d-toolbar > .tb-tool:last-child {
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
 }
 .tb-tool .ic,
 .tb-tool svg {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
 }
 .tb-tool:hover {
-  background: #3a3a3a;
+  background: rgba(64, 64, 64, 0.95);
 }
 .tb-tool.on {
   background: var(--accent);
@@ -1451,10 +1518,26 @@ input.num-field.editing {
   border-bottom-color: #bbb;
 }
 .tb-sep {
-  height: 1px;
-  margin: 3px 4px;
-  background: #3c3c3c;
+  height: 5px;
   flex: none;
+}
+.seq-toolbar .tb-tool {
+  width: 32px;
+  height: 32px;
+  background: none;
+  box-shadow: none;
+  border-radius: 4px;
+}
+.seq-toolbar .tb-tool:hover {
+  background: #3a3a3a;
+}
+.seq-toolbar .tb-tool.on {
+  background: var(--accent);
+}
+.seq-toolbar .tb-tool .ic,
+.seq-toolbar .tb-tool svg {
+  width: 20px;
+  height: 20px;
 }
 .nav-gizmo-wrap {
   position: absolute;
@@ -1736,6 +1819,10 @@ input.num-field.editing {
 .ol-indent {
   width: calc(var(--depth) * 18px + 4px);
   flex: none;
+  align-self: stretch;
+  /* hierarchy lines under each open parent (none for the top level) */
+  padding-left: 18px;
+  background: repeating-linear-gradient(90deg, transparent 0 11.5px, rgba(255, 255, 255, 0.1) 11.5px 12.5px, transparent 12.5px 18px) content-box;
 }
 .ol-arrow,
 .ol-arrow-space {
@@ -1797,31 +1884,43 @@ input.num-field.editing {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
   padding: 4px 0;
   background: #1d1d1d;
   overflow-y: auto;
+  scrollbar-width: none;
 }
+/* tabs come in boxes per group, like the 3D view toolbar */
 .rail-tab {
-  width: 26px;
+  width: 28px;
   height: 26px;
+  flex: none;
   display: grid;
   place-items: center;
-  border-radius: 4px;
+  border-radius: 0;
   color: #ccc;
+  background: #282828;
+}
+.prop-rail > .rail-tab:first-child,
+.rail-sep + .rail-tab {
+  border-top-left-radius: 5px;
+  border-top-right-radius: 5px;
+}
+.rail-tab:has(+ .rail-sep),
+.prop-rail > .rail-tab:last-child {
+  border-bottom-left-radius: 5px;
+  border-bottom-right-radius: 5px;
 }
 .rail-tab:hover {
-  background: #2c2c2c;
+  background: #333;
 }
 .rail-tab.on {
-  background: #4b4b4b;
+  background: #474747;
   color: #fff;
+  border-radius: 5px;
 }
 .rail-sep {
-  width: 18px;
-  height: 1px;
-  background: #333;
-  margin: 3px 0;
+  height: 6px;
+  flex: none;
 }
 .prop-main {
   flex: 1;
@@ -2116,15 +2215,41 @@ input.num-field.editing {
   inset: 0;
 }
 .tl-frame {
-  width: 70px;
+  width: 72px;
+  margin-right: 6px;
 }
 .tl-range {
   display: flex;
-  gap: 2px;
+  gap: 1px;
   width: 200px;
 }
 .tl-range .num-field {
   flex: 1;
+  border-radius: 0;
+}
+.tl-range > :first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+.tl-range > :last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.tl-range .tl-preview {
+  flex: none;
+  min-width: 24px;
+  height: var(--row);
+}
+.anim-footer-row > .hdr-group {
+  margin: 0 3px;
+}
+/* header popover buttons (e.g. Playback) look like dropdowns */
+.hdr-menu.hdr-pop {
+  background: var(--w-menu);
+  border: 1px solid var(--w-outline);
+  padding: 0 6px 0 8px;
+}
+.hdr-menu.hdr-pop:hover,
+.hdr-menu.hdr-pop.menu-open {
+  background: #3a3a3a;
 }
 .hdr-group.play .hdr-toggle {
   min-width: 26px;
@@ -2653,4 +2778,15 @@ input.num-field.editing {
 .mesh-symmetry > .ic {
   margin: 0 3px 0 5px;
   color: #ccc;
+}
+.ov-axes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ov-axes-label {
+  color: #b4b4b4;
+}
+.ov-axes .enum-row > button {
+  min-width: 24px;
 }

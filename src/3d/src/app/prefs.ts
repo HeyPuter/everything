@@ -20,6 +20,9 @@ export interface Preferences {
   view_lens: number;
   autosave_interval: number;
   show_statusbar_stats: boolean;
+  show_statusbar_scene_duration: boolean;
+  show_statusbar_memory: boolean;
+  show_statusbar_version: boolean;
   show_tooltips_python: boolean;
   gizmo_size: number;
   font_size: number;
@@ -45,9 +48,12 @@ export const defaultPreferences = (): Preferences => ({
   view_lens: 50,
   autosave_interval: 2,
   show_statusbar_stats: true,
+  show_statusbar_scene_duration: false,
+  show_statusbar_memory: false,
+  show_statusbar_version: true,
   show_tooltips_python: false,
   gizmo_size: 75,
-  font_size: 12,
+  font_size: 11,
 });
 
 function load(): Preferences {
