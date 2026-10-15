@@ -239,6 +239,7 @@ export function previewRangeMenu(setSelected: string): MenuItem[] {
 export function viewMenuCommon(p: Prefix, ed: AnimEditor): MenuItem[] {
   return [
     { label: 'Show Seconds', checked: ed.showSeconds, op: 'anim.show_seconds_toggle', shortcut: 'Ctrl T' },
+    { label: 'Only Show Errors', checked: ed.onlyErrors, action: () => ((ed.onlyErrors = !ed.onlyErrors), ed.refresh()) },
     {
       label: 'Show Sliders',
       checked: ed.showSliders,

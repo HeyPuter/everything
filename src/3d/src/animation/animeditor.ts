@@ -12,7 +12,7 @@ import { keyProperty } from '../anim/keyframes';
 import type { ObjectData } from '../data/types';
 import { View2D, frameStep } from './view2d';
 import { C } from './theme';
-import { buildChannels, channelSelected, setChannelSelected, channelCurves, isExpanded, setExpanded, channelState, type Channel, type ChannelList, type SpaceKind, type CurveRef } from './channels';
+import { buildChannels, channelSelected, type ChannelFilter, setChannelSelected, channelCurves, isExpanded, setExpanded, channelState, type Channel, type ChannelList, type SpaceKind, type CurveRef } from './channels';
 import { setKeySelected } from './keyedit';
 import { markerMenu, markerAt, markersLocked } from './markers';
 import { playbackOptions } from './footer';
@@ -336,11 +336,16 @@ export abstract class AnimEditor implements Editor {
     }
   }
 
-  get filter() {
+  /** list only channels whose property can't be found */
+  onlyErrors = false;
+
+  get filter(): ChannelFilter {
     return {
       onlySelected: this.onlySelected,
       showHidden: this.showHidden,
       search: this.search,
+      onlyErrors: this.onlyErrors,
+      curveError: (ob, fc) => fc.data_path !== '' && getValue(app.doc, ob, fc.data_path, fc.array_index) === undefined,
       isVisible: (ob: ObjectData) => app.isVisible(ob.id),
       activeObject: app.activeObject,
     };
@@ -715,6 +720,7 @@ export abstract class AnimEditor implements Editor {
                 [`k-${ch.kind.toLowerCase()}`]: true,
                 sel,
                 muted: ch.kind === 'FCURVE' && !!ch.fc?.mute,
+                err: !!ch.error,
               },
               style: {
                 top: `${i * this.rowH}px`,

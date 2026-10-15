@@ -28,6 +28,8 @@ export interface Channel {
   driverIndex?: number;
   track?: NlaTrack;
   trackIndex?: number;
+  /** the channel's property can't be found */
+  error?: boolean;
   /** F-Curves summarized by this row (keys drawn/edited through it) */
   curves: CurveRef[];
   expandable: boolean;
@@ -41,6 +43,8 @@ export interface ChannelFilter {
   onlyErrors?: boolean;
   isVisible: (ob: ObjectData) => boolean;
   activeObject: ObjectData | null;
+  /** F-Curves whose property can't be found ("Only Show Errors", error highlight) */
+  curveError?: (ob: ObjectData, fc: FCurve) => boolean;
   /** driver error lookup (Drivers editor "Only Show Errors") */
   driverError?: (ob: ObjectData, d: Driver) => string | null;
 }
@@ -96,6 +100,7 @@ export function activeAction(doc: DocumentData, ob: ObjectData | null | undefine
 const boneOf = (path: string) => /^pose\.bones\["([^"]+)"\]/.exec(path)?.[1];
 
 function curveVisibleForFilter(doc: DocumentData, ob: ObjectData, fc: FCurve, f: ChannelFilter) {
+  if (f.onlyErrors && f.curveError && !f.curveError(ob, fc)) return false;
   if (f.onlySelected && doc.mode === 'POSE' && ob.pose) {
     const bone = boneOf(fc.data_path);
     if (bone && ob.pose[bone] && !ob.pose[bone].select) return false;
@@ -145,14 +150,15 @@ function actionRows(
       expandable: true,
       expanded: exp,
     });
-    if (exp) for (const r of inGroup) rows.push(curveRow(r, depth + 1));
+    if (exp) for (const r of inGroup) rows.push(curveRow(r, depth + 1, f));
   }
-  for (const r of refs) if (!r.fc.group) rows.push(curveRow(r, depth));
+  for (const r of refs) if (!r.fc.group) rows.push(curveRow(r, depth, f));
   return refs;
 }
 
-function curveRow(r: CurveRef, depth: number): Channel {
+function curveRow(r: CurveRef, depth: number, f?: ChannelFilter): Channel {
   return {
+    error: f?.curveError?.(r.ob, r.fc) ?? false,
     key: curveKey(r.ob, r.action, r.fc),
     kind: 'FCURVE',
     depth,

@@ -631,3 +631,28 @@ describe('key snapping targets', () => {
     expect(fc.keyframe_points.map((k) => k.co[0])).toEqual([10, 30]);
   });
 });
+
+import { buildChannels, channelState } from '../../src/animation/channels';
+import { getValue } from '../../src/data/rna';
+import { ensureAction } from '../../src/anim/keyframes';
+
+describe('channel errors', () => {
+  it('flags and filters F-Curves whose property is missing', () => {
+    const act = ensureAction(doc, cube);
+    act.fcurves = [curve([0, 1], [1, 2], 'location', 0), curve([0, 1], [1, 2], 'pose.bones["Nope"].location', 0)];
+    act.fcurves.forEach((f) => (f.group = undefined));
+    const filter = {
+      onlySelected: false,
+      showHidden: true,
+      search: '',
+      isVisible: () => true,
+      activeObject: cube,
+      curveError: (ob: typeof cube, fc: (typeof act.fcurves)[number]) => getValue(doc, ob, fc.data_path, fc.array_index) === undefined,
+    };
+    channelState.expanded.set(`act:${cube.id}:${act.id}`, true);
+    const rows = buildChannels(doc, 'GRAPH', filter).rows.filter((r) => r.kind === 'FCURVE');
+    expect(rows.map((r) => r.error)).toEqual([false, true]);
+    const only = buildChannels(doc, 'GRAPH', { ...filter, onlyErrors: true }).curves;
+    expect(only.map((r) => r.fc.data_path)).toEqual(['pose.bones["Nope"].location']);
+  });
+});

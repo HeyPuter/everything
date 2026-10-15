@@ -2102,6 +2102,10 @@ input.num-field.editing {
 .anim-ch-row.muted .anim-ch-name {
   opacity: 0.55;
 }
+.anim-ch-row.err .anim-ch-name {
+  color: #ff6b6b;
+  text-decoration: underline wavy rgba(255, 90, 90, 0.7);
+}
 .anim-ch-row .ic svg {
   width: 14px;
   height: 14px;
