@@ -645,3 +645,68 @@ describe('Sample Sound Frequencies', () => {
     expect(amp(two, { Low: 2900, High: 3100, 'All Channels': false, Channel: 0 }, { 'FFT Size': '2048', 'Window Function': 'Hamming' })).toBeCloseTo(0.27812, 2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Add menu
+
+describe('Add menu placement', () => {
+  type Cat = { label: string; items: (Cat | { idname: string; label?: string } | 'SEPARATOR')[] };
+  const sub = (cats: Cat['items'], path: string[]): Cat => {
+    let cur: Cat = { label: '', items: cats };
+    for (const p of path) cur = cur.items.find((i): i is Cat => i !== 'SEPARATOR' && 'items' in i && i.label === p)!;
+    return cur;
+  };
+  const labels = (c: Cat) => c.items.filter((i) => i !== 'SEPARATOR').map((i) => ('items' in i ? i.label : (i.label ?? getNodeType(i.idname)!.label)));
+  const menu = () => nodeMenu('GEOMETRY') as unknown as Cat['items'];
+  it('orders the curve submenus like the full layout', () => {
+    const curve = sub(menu(), ['Curve']);
+    expect(labels(curve).slice(0, 6)).toEqual(['Read', 'Sample', 'Write', 'Operations', 'Primitives', 'Topology']);
+    const read = labels(sub(menu(), ['Curve', 'Read']));
+    expect(read.filter((l) => l !== 'Curve Handle Positions')).toEqual([
+      'Curve Length',
+      'Curve Tangent',
+      'Curve Tilt',
+      'Endpoint Selection',
+      'Handle Type Selection',
+      'Is Spline Cyclic',
+      'Spline Length',
+      'Spline Parameter',
+      'Spline Resolution',
+    ]);
+    expect(labels(sub(menu(), ['Curve', 'Write']))).toEqual([
+      'Set Curve Normal',
+      'Set Curve Radius',
+      'Set Curve Tilt',
+      'Set Handle Positions',
+      'Set Handle Type',
+      'Set NURBS Order',
+      'Set NURBS Weight',
+      'Set Spline Cyclic',
+      'Set Spline Resolution',
+      'Set Spline Type',
+    ]);
+    expect(labels(sub(menu(), ['Curve', 'Operations']))).toEqual([
+      'Curve to Mesh',
+      'Curve to Points',
+      'Fill Curve',
+      'Fillet Curve',
+      'Interpolate Curves',
+      'Resample Curve',
+      'Reverse Curve',
+      'Subdivide Curve',
+      'Trim Curve',
+    ]);
+    expect(labels(sub(menu(), ['Curve', 'Topology']))).toEqual(['Curve of Point', 'Offset Point in Curve', 'Points of Curve']);
+    expect(labels(sub(menu(), ['Curve', 'Sample']))).toEqual(['Sample Curve']);
+  });
+  it('adds input, text, sound and point entries', () => {
+    expect(labels(sub(menu(), ['Input', 'Gizmo']))).toEqual(['Dial Gizmo', 'Linear Gizmo', 'Transform Gizmo']);
+    expect(labels(sub(menu(), ['Input', 'Import']))).toEqual(['CSV (.csv)', 'Wavefront (.obj)', 'Stanford PLY (.ply)', 'STL (.stl)', 'Text (.txt)']);
+    expect(labels(sub(menu(), ['Utilities', 'Text']))).toEqual(expect.arrayContaining(['Join Strings', 'String to Curves']));
+    expect(labels(sub(menu(), ['Utilities', 'Sound']))).toEqual(['Sample Sound Frequencies']);
+    expect(labels(sub(menu(), ['Point']))).toContain('Points to Curves');
+    const input = labels(sub(menu(), ['Input']));
+    expect(input.indexOf('Gizmo')).toBeLessThan(input.indexOf('Import'));
+    expect(input.indexOf('Constant')).toBeLessThan(input.indexOf('Gizmo'));
+  });
+});
