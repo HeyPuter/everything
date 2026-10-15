@@ -10,7 +10,7 @@ import { renderContext } from '../render/context';
 import { renderPostHooks } from '../render/final/result';
 import type { RenderSettings } from '../data/types';
 import { prefs } from '../app/prefs';
-import { h, type VNode } from '../ui/h';
+import { h } from '../ui/h';
 import { surfaceHit } from './view3d';
 import { selectObjects } from '../editors/view3d/select';
 
@@ -325,4 +325,3 @@ registerOperators([
   },
 ]);
 
-export type { VNode };

@@ -572,7 +572,7 @@ function execTransform(mode: TransformMode, p: Record<string, unknown>): 'FINISH
   try {
     const s = openSession(mode);
     if (!s) return 'CANCELLED';
-    const st = stateFromProps(mode, p, s);
+    const st = stateFromProps(mode, p);
     applyState(s, st);
     s.data.finish();
     return 'FINISHED';
@@ -623,7 +623,7 @@ function axisIndex(v: unknown, fallback: number) {
   return i >= 0 ? i : fallback;
 }
 
-function stateFromProps(mode: TransformMode, p: Record<string, unknown>, s: Session): TState {
+function stateFromProps(mode: TransformMode, p: Record<string, unknown>): TState {
   let cons = p.constraint_axis as boolean[] | undefined;
   // older scripts mirror with a single axis index
   if (mode === 'MIRROR' && !cons?.some(Boolean) && typeof p.axis === 'number') cons = [0, 1, 2].map((i) => i === p.axis);
@@ -679,7 +679,6 @@ function stateFromProps(mode: TransformMode, p: Record<string, unknown>, s: Sess
     default:
       st.value = [num(p.value)];
   }
-  void s;
   return st;
 }
 
