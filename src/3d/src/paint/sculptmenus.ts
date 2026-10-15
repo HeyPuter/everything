@@ -40,7 +40,7 @@ export function clean(items: Item[]): MenuItem[] {
 const filter = (label: string, type: string) => op(label, 'sculpt.mesh_filter', { type });
 
 function transformMenu(): MenuItem[] {
-  return clean([op('Move', 'sculpt.transform', { mode: 'TRANSLATE' }), op('Rotate', 'sculpt.transform', { mode: 'ROTATE' }), op('Scale', 'sculpt.transform', { mode: 'SCALE' }), sep, filter('To Sphere', 'SPHERE')]);
+  return clean([op('Move', 'transform.translate'), op('Rotate', 'transform.rotate'), op('Scale', 'transform.resize'), sep, filter('To Sphere', 'SPHERE')]);
 }
 
 function showHideMenu(): MenuItem[] {

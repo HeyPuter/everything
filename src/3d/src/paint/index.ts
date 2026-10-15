@@ -10,6 +10,7 @@ import './meshfilter';
 import './expand';
 import './maskops';
 import './trim';
+import './sculpttransform';
 import './vpaint';
 import './wpaint';
 import './tpaint';
