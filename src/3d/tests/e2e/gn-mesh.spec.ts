@@ -156,3 +156,42 @@ test('mesh operation, sampling and instance nodes are in the Add menu', async ({
   expect(await withTree(page, `(ed, t) => t.nodes.filter((n) => n.type.startsWith('GeometryNodeSimulation')).length`)).toBe(2);
   await expectNoErrors(errors);
 });
+
+test('duplicating a zone pairs the copies with each other', async ({ page }) => {
+  const { errors } = await geometryEditor(page);
+  await page.evaluate(async () => {
+    const { addNode, connect, ctxOf } = await import('/src/nodes/tree.ts');
+    const { getNodeType } = await import('/src/nodes/registry.ts');
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const tree = a.hoverArea.editor.tree();
+    for (const n of tree.nodes) n.select = false;
+    const i = addNode(tree, 'GeometryNodeRepeatInput', [-200, 300]);
+    const o = getNodeType('GeometryNodeRepeatInput').onAdd(tree, i)[0];
+    tree.links = tree.links.filter((l: { from_node: string }) => l.from_node !== i.id);
+    const sp = addNode(tree, 'GeometryNodeSetPosition', [0, 300]);
+    connect(ctxOf(a.doc, tree), i.id, 'Item_0', sp.id, 'Geometry');
+    connect(ctxOf(a.doc, tree), sp.id, 'Geometry', o.id, 'Item_0');
+    i.select = o.select = sp.select = true;
+    a.changed('doc');
+  });
+  await page.keyboard.press('Shift+D');
+  await page.mouse.move(700, 700, { steps: 4 });
+  await page.mouse.click(700, 700);
+  await page.waitForTimeout(100);
+  const pairs = await withTree<string[][]>(
+    page,
+    `(ed, t) => t.nodes.filter((n) => n.type === 'GeometryNodeRepeatInput').map((i) => [i.id, i.props.paired_output, t.links.some((l) => l.from_node === i.id) ? 'linked' : ''])`,
+  );
+  expect(pairs.length).toBe(2);
+  expect(new Set(pairs.map((p) => p[1])).size).toBe(2);
+  // each input reaches its own output through its copy of the body
+  const ok = await withTree<boolean>(
+    page,
+    `(ed, t) => t.nodes.filter((n) => n.type === 'GeometryNodeRepeatInput').every((i) => {
+      const body = t.links.filter((l) => l.from_node === i.id).map((l) => l.to_node);
+      return body.some((b) => t.links.some((l) => l.from_node === b && l.to_node === i.props.paired_output));
+    })`,
+  );
+  expect(ok).toBe(true);
+  await expectNoErrors(errors);
+});

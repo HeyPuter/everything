@@ -17,6 +17,8 @@ import { ITEM_TYPES, FIELD_ITEM_TYPES, EXTEND, pairedOutput, readItems, uniqueIt
 import { accepts, addItem, removeItem } from './itemops';
 import { ZONES, BAKE, zoneOfType, type ItemList, type ZoneKind } from './kinds';
 import { zoneDrawMembers } from './eval';
+import { simCaches } from './simulation';
+import { bakes } from './bake';
 
 // ---------------------------------------------------------------------------
 // Item editing (shared by the sidebar and link resolution)
@@ -141,12 +143,21 @@ function geometryTrees(): NodeTreeData[] {
     .filter((t) => t.type === 'GEOMETRY');
 }
 
+/** Drop simulation caches and bakes of objects or modifiers that no longer exist. */
+function pruneZoneCaches() {
+  if (!simCaches.size && !bakes.size) return;
+  const alive = (o: string, m: string) => !!app.doc.objects[o]?.modifiers.some((x) => x.id === m);
+  for (const [k, c] of simCaches) if (!alive(c.objectId, c.modifierId)) simCaches.delete(k);
+  for (const [k, b] of bakes) if (!alive(b.objectId, b.modifierId)) bakes.delete(k);
+}
+
 let installed = false;
 export function installZoneResolver() {
   if (installed || !app) return;
   installed = true;
   app.subscribe((kinds) => {
     if (!kinds.has('doc')) return;
+    pruneZoneCaches();
     let any = false;
     for (const t of geometryTrees()) {
       if (!t.nodes.some((n) => zoneOfType(n.type) || n.type === BAKE)) continue;
