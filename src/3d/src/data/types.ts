@@ -22,7 +22,8 @@ export type ObjectType =
   | 'ARMATURE'
   | 'LATTICE'
   | 'POINTCLOUD'
-  | 'GREASEPENCIL';
+  | 'GREASEPENCIL'
+  | 'SPEAKER';
 
 export type RotationMode = 'XYZ' | 'XZY' | 'YXZ' | 'YZX' | 'ZXY' | 'ZYX' | 'QUATERNION' | 'AXIS_ANGLE';
 
@@ -741,6 +742,8 @@ export interface ObjectData {
   vertex_group_active_index?: number;
   /** show only the active shape key, at full strength */
   show_only_shape_key?: boolean;
+  /** sound settings of a SPEAKER object */
+  speaker?: import('../object/speaker').SpeakerSettings;
   pass_index?: number;
   is_shadow_catcher?: boolean;
   is_holdout?: boolean;

@@ -649,6 +649,9 @@ function curveData(o: ObjectData, cu: CurveData): Child {
   ];
 }
 
+/** Object Data tab contents for object types defined by feature modules (e.g. speakers). */
+export const dataTabDrawers: Record<string, (o: ObjectData) => Child> = {};
+
 registerTab({
   id: 'DATA',
   label: 'Data',
@@ -661,6 +664,8 @@ registerTab({
   draw: () => {
     const o = ob()!;
     const doc = app.doc;
+    const extra = dataTabDrawers[o.type];
+    if (extra) return extra(o);
     if (o.type === 'MESH' && o.data) return meshData(o, doc.meshes[o.data]);
     if (o.type === 'LIGHT' && o.data) return lightData(o, doc.lights[o.data]);
     if (o.type === 'CAMERA' && o.data) return cameraData(o, doc.cameras[o.data]);

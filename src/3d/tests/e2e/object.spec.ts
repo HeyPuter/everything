@@ -183,3 +183,41 @@ test('modifier panel shortcuts act on the hovered modifier', async ({ page }) =>
   await page.keyboard.press('Escape');
   await expectNoErrors(errors);
 });
+
+test('speaker: add, give it a sound, it plays during playback', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  await page.keyboard.press('Shift+a');
+  await item(page, 'Speaker').first().click();
+  expect(await get(page, `app.activeObject.type`)).toBe('SPEAKER');
+  // a short generated tone as the sound
+  await page.evaluate(() => {
+    const rate = 8000,
+      n = rate;
+    const buf = new ArrayBuffer(44 + n * 2);
+    const v = new DataView(buf);
+    const str = (o: number, s: string) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+    str(0, 'RIFF');
+    v.setUint32(4, 36 + n * 2, true);
+    str(8, 'WAVEfmt ');
+    v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true);
+    v.setUint16(22, 1, true);
+    v.setUint32(24, rate, true);
+    v.setUint32(28, rate * 2, true);
+    v.setUint16(32, 2, true);
+    v.setUint16(34, 16, true);
+    str(36, 'data');
+    v.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.sin(i / 4) * 8000, true);
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.activeObject.speaker.sound = { filepath: 'tone.wav', mime: 'audio/wav', bytes: new Uint8Array(buf) };
+    a.changed('doc');
+  });
+  await page.locator('.rail-tab[data-tip="Data"]').first().click();
+  await expect(page.locator('.panel', { hasText: 'Sound' }).first()).toContainText('tone.wav');
+  await run(page, 'screen.animation_play');
+  await page.waitForFunction(async () => (await import('/src/object/speaker.ts')).speakerVoiceCount() > 0, null, { timeout: 5000 });
+  await run(page, 'screen.animation_play');
+  await expectNoErrors(errors);
+});

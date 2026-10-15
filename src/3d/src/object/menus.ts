@@ -375,5 +375,6 @@ export function selectByTypeMenu(): MenuItem[] {
     ['EMPTY', 'Empty', 'outliner_ob_empty'],
     ['CAMERA', 'Camera', 'outliner_ob_camera'],
     ['LIGHT', 'Light', 'outliner_ob_light'],
+    ['SPEAKER', 'Speaker', 'outliner_ob_speaker'],
   ].map(([t, l, i]) => ({ label: l, icon: i, op: 'object.select_by_type', props: { type: t } }));
 }

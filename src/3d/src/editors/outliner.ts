@@ -23,6 +23,7 @@ const OB_ICON: Record<string, string> = {
   LATTICE: 'outliner_ob_lattice',
   POINTCLOUD: 'outliner_ob_pointcloud',
   GREASEPENCIL: 'outliner_ob_greasepencil',
+  SPEAKER: 'outliner_ob_speaker',
 };
 const DATA_ICON: Record<string, string> = { MESH: 'mesh_data', CURVE: 'curve_data', FONT: 'curve_data', LIGHT: 'light_data', CAMERA: 'camera_data', ARMATURE: 'armature_data', LATTICE: 'outliner_ob_lattice', GREASEPENCIL: 'outliner_data_greasepencil' };
 

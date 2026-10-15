@@ -808,3 +808,22 @@ describe('set origin', () => {
     expect(near(app.graph.get(kid.id)!.world.elements, kidWorld, 1e-4)).toBe(true);
   });
 });
+
+describe('speakers', () => {
+  it('adds a speaker object with sound settings that survive duplication', () => {
+    run('object.speaker_add', { location: [1, 2, 3] });
+    const sp = app.activeObject!;
+    expect(sp.type).toBe('SPEAKER');
+    expect(sp.speaker!.volume).toBe(1);
+    expect(sp.location).toEqual([1, 2, 3]);
+    sp.speaker!.sound = { filepath: 'a.wav', mime: 'audio/wav', bytes: new Uint8Array([1, 2, 3]) };
+    select(sp);
+    run('object.duplicate_move');
+    const copy = app.activeObject!;
+    expect(copy).not.toBe(sp);
+    expect(copy.speaker!.sound!.filepath).toBe('a.wav');
+    run('sound.unlink');
+    expect(copy.speaker!.sound).toBeNull();
+    expect(sp.speaker!.sound).not.toBeNull();
+  });
+});

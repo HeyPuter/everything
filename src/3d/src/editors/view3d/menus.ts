@@ -156,6 +156,8 @@ export function addMenu(): MenuItem[] {
     { separator: true },
     { label: 'Camera', icon: 'outliner_ob_camera', op: 'object.camera_add' },
     { separator: true },
+    { label: 'Speaker', icon: 'outliner_ob_speaker', op: 'object.speaker_add' },
+    { separator: true },
     { label: 'Force Field', icon: 'force_force', submenu: () =>
       [
         ['FORCE', 'Force'],

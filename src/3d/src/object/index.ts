@@ -11,4 +11,5 @@ import './instancing';
 import './vweights';
 import './rigidmass';
 import './collections';
+import './speaker';
 import './keys';
