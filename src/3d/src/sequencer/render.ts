@@ -6,6 +6,7 @@ import { Compositor, placementMatrix, isPixelExact, type Source, type Target } f
 import { renderStack, contentFrame, effectFac, effectInputs, findStrip, speedInputFrame, TRANSITIONS, activeAt, allStrips } from './strips';
 import { getMovie, loadImage } from './media';
 import { valueAt } from './fades';
+import { animatedStrip } from './stripanim';
 import { rasterizeMask } from '../mask/raster';
 import { parentResolver } from '../mask/parent';
 import { app } from '../app/app';
@@ -161,7 +162,9 @@ export class SequencerRender {
     return t;
   }
 
-  private async renderStripInner(s: Strip, frame: number): Promise<Target | null> {
+  private async renderStripInner(strip: Strip, frame: number): Promise<Target | null> {
+    // keyframed properties at this frame
+    const s = animatedStrip(strip, frame);
     const c = this.comp;
     const o = this.o;
     switch (s.type) {

@@ -4,7 +4,7 @@ import type { MenuItem } from '../ui/menu';
 import { markerMenu } from '../animation/animeditor';
 import { activeStrip, selectedStrips, hasEditor, seqEditor, type SeqEditorLike } from './context';
 import { inputCount, STRIP_LABELS } from './strips';
-import { COLOR_TAGS, effectTypesFor } from './stripops';
+import { COLOR_TAGS, effectTypesFor, keyingMenu } from './stripops';
 import { mirrorItems, pivotItems } from './previewops';
 import { stripIcon } from './theme';
 
@@ -313,9 +313,12 @@ export function stripMenu(preview = false): MenuItem[] {
   if (preview) {
     items.push(
       { separator: true },
+      { label: 'Duplicate', op: 'sequencer.preview_duplicate_move', shortcut: 'Shift D' },
       { label: 'Copy', op: 'sequencer.copy', shortcut: 'Ctrl C' },
       { label: 'Paste', op: 'sequencer.paste', shortcut: 'Ctrl V' },
       { label: 'Delete', op: 'sequencer.delete', shortcut: 'X' },
+      { separator: true },
+      animationItem(),
       { separator: true },
       ...(act?.type === 'TEXT'
         ? [
@@ -391,6 +394,7 @@ export function stripMenu(preview = false): MenuItem[] {
     { separator: true },
     { label: 'Set Color Tag', submenu: colorTagMenu },
     { separator: true },
+    animationItem(),
     lockMuteItem(),
     { separator: true },
     { label: 'Connect', icon: 'linked', op: 'sequencer.connect', props: { toggle: false } },
@@ -414,6 +418,19 @@ function modifierAddItems(): MenuItem[] {
     { label: 'Color Balance', op: 'sequencer.strip_modifier_add', props: { type: 'COLOR_BALANCE' } },
     { label: 'White Balance', op: 'sequencer.strip_modifier_add', props: { type: 'WHITE_BALANCE' } },
   ];
+}
+
+function animationItem(): MenuItem {
+  return {
+    label: 'Animation',
+    submenu: () => [
+      { label: 'Insert Keyframe', op: 'sequencer.keyframe_insert' },
+      { label: 'Insert Keyframe with Keying Set', submenu: keyingMenu },
+      { separator: true },
+      { label: 'Delete Keyframes', op: 'sequencer.keyframe_delete' },
+      { label: 'Clear Keyframes', op: 'sequencer.keyframe_clear' },
+    ],
+  };
 }
 
 function lockMuteItem(): MenuItem {

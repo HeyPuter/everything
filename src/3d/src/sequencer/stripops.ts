@@ -13,6 +13,7 @@ import { effectTypesFor, changeEffectType, swapData } from './stripdata';
 export { effectTypesFor };
 import { addFade, clearFade, crossfadeSounds, type FadeType } from './fades';
 import { boxBlade } from './blade';
+import { insertKeys, deleteKeysAt, clearKeys, keyingPaths, type KeyingSet } from './stripanim';
 import { withConnected } from './connect';
 
 const anySelected = () => hasEditor() && seqList().some((s) => s.select);
@@ -86,7 +87,67 @@ function multicamAt(frame: number): Strip | null {
   return list.find((s) => s.select) ?? list.find((s) => s === activeStrip()) ?? list[0] ?? null;
 }
 
+const KEYING: [string, string][] = [
+  ['AUTO', 'Transform / Volume'],
+  ['LOCATION', 'Location'],
+  ['ROTATION', 'Rotation'],
+  ['SCALE', 'Scale'],
+  ['TRANSFORM', 'Location, Rotation & Scale'],
+  ['OPACITY', 'Opacity'],
+  ['VOLUME', 'Volume'],
+  ['ALL', 'All'],
+];
+
+export function keyingMenu(): import('../ui/menu').MenuItem[] {
+  return KEYING.filter(([v]) => v !== 'AUTO').map(([type, label]) => ({ label, op: 'sequencer.keyframe_insert', props: { type } }));
+}
+
 const ops: Operator[] = [
+  {
+    idname: 'sequencer.keyframe_insert',
+    label: 'Insert Keyframe',
+    description: 'Key the position, rotation, scale (or volume of sound strips) of the selected strips at the current frame',
+    props: [{ id: 'type', label: 'Keying Set', type: 'enum', default: 'AUTO', items: KEYING }],
+    poll: anySelected,
+    exec: (c, p) => {
+      const f = c.doc.scene.frame_current;
+      let n = 0;
+      for (const s of selectedStrips()) {
+        if (isLocked(s)) continue;
+        const set = p.type === 'AUTO' ? (s.type === 'SOUND' ? 'VOLUME' : 'TRANSFORM') : (p.type as KeyingSet);
+        n += insertKeys(s, keyingPaths(s, set), f);
+      }
+      if (!n) {
+        app.report('WARNING', 'Nothing to key on the selected strips');
+        return 'CANCELLED';
+      }
+      restartPlayback();
+    },
+  },
+  {
+    idname: 'sequencer.keyframe_delete',
+    label: 'Delete Keyframes',
+    description: 'Delete the keyframes of the selected strips at the current frame',
+    poll: () => anySelected() && selectedStrips().some((s) => !!s.keys),
+    exec: (c) => {
+      let n = 0;
+      for (const s of selectedStrips()) n += deleteKeysAt(s, c.doc.scene.frame_current);
+      if (!n) return 'CANCELLED';
+      restartPlayback();
+    },
+  },
+  {
+    idname: 'sequencer.keyframe_clear',
+    label: 'Clear Keyframes',
+    description: 'Remove all keyframes (and fades) of the selected strips',
+    poll: () => anySelected() && selectedStrips().some((s) => !!s.keys),
+    exec: () => {
+      let any = false;
+      for (const s of selectedStrips()) if (clearKeys(s)) any = true;
+      if (!any) return 'CANCELLED';
+      restartPlayback();
+    },
+  },
   {
     idname: 'sequencer.mask_strip_add',
     label: 'Add Mask Strip',
@@ -185,7 +246,7 @@ const ops: Operator[] = [
     idname: 'sequencer.fades_clear',
     label: 'Clear Fades',
     description: 'Remove fade animation from the selected strips',
-    poll: () => anySelected() && selectedStrips().some((s) => !!s.keys),
+    poll: () => anySelected() && selectedStrips().some((s) => !!s.keys?.blend_alpha || !!s.keys?.volume),
     exec: () => {
       let n = 0;
       for (const s of selectedStrips()) if (clearFade(s)) n++;

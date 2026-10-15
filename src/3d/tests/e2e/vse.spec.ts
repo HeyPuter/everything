@@ -354,3 +354,35 @@ test('sequencer: Move Origin (Ctrl .) moves the pivot without moving the image',
   expect(Math.abs(after.o[0] - before.o[0]) + Math.abs(after.o[1] - before.o[1])).toBeGreaterThan(0.01);
   await expectNoErrors(errors);
 });
+
+test('sequencer: keyframes on strips (I in the preview) animate the image between frames', async ({ page }) => {
+  const { errors } = await videoWorkspace(page);
+  const pv = (await page.locator('.seq-pv').first().boundingBox())!;
+  const cx = pv.x + pv.width / 2,
+    cy = pv.y + pv.height / 2;
+  await page.mouse.click(cx, cy);
+  await page.keyboard.press('i');
+  await page.evaluate(() => {
+    const app = (window as any).app;
+    app.setFrame(21);
+    app.flush();
+    app.doc.scene.sequence_editor.strips.find((x: any) => x.name === 'Text').transform.offset_x = 200;
+  });
+  await page.mouse.move(cx, cy);
+  await page.keyboard.press('i');
+  const ox = (f: number) =>
+    page.evaluate((f) => {
+      const app = (window as any).app;
+      app.setFrame(f);
+      app.flush();
+      return app.doc.scene.sequence_editor.strips.find((x: any) => x.name === 'Text').transform.offset_x;
+    }, f);
+  expect(await ox(11)).toBeCloseTo(100, 3);
+  expect(await ox(1)).toBeCloseTo(0, 3);
+  // Alt I removes the key at the frame
+  await page.evaluate(() => ((window as any).app.setFrame(21), (window as any).app.flush()));
+  await page.mouse.move(cx, cy);
+  await page.keyboard.press('Alt+i');
+  expect(await page.evaluate(() => (window as any).app.doc.scene.sequence_editor.strips.find((x: any) => x.name === 'Text').keys['transform.offset_x'].length)).toBe(1);
+  await expectNoErrors(errors);
+});

@@ -7,6 +7,7 @@ import type { Strip, StripTransform } from './types';
 import { isLocked, toolSettings, type SeqEditorLike } from './context';
 import { stripImageCorners, previewStrips, stripPlacement } from './transform';
 import { snapDelta } from './selection';
+import { insertKeys, keyingPaths } from './stripanim';
 
 export type PreviewMode = 'TRANSLATE' | 'ROTATE' | 'RESIZE' | 'ORIGIN';
 export type Pivot = 'MEDIAN_POINT' | 'BOUNDING_BOX_CENTER' | 'CURSOR' | 'INDIVIDUAL_ORIGINS';
@@ -265,6 +266,8 @@ export function startPreviewTransform(ed: SeqEditorLike, mode: PreviewMode, cx: 
       app.changed('doc');
     },
     finish() {
+      // auto keying records the new transform at this frame
+      if (app.doc.scene.tool_settings.use_keyframe_insert_auto) for (const n of snaps) insertKeys(n.s, keyingPaths(n.s, mode === 'ORIGIN' ? 'LOCATION' : 'TRANSFORM'), app.doc.scene.frame_current);
       handler.redoOp = { idname: 'sequencer.strip_transform', props: { mode, value: mode === 'ROTATE' ? [st.value[0], 0, 0] : [st.value[0], st.value[1], 0] } };
     },
     redoOp: undefined as { idname: string; props: Record<string, unknown> } | undefined,

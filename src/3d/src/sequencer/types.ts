@@ -255,9 +255,12 @@ export interface Strip {
   /** speed changes (see retime.ts); with keys, frame_duration is the retimed timeline length */
   retiming_keys?: RetimingKey[];
   show_retiming_keys?: boolean;
-  /** animated opacity / volume (fades): [timeline frame, value] keys, linear */
-  keys?: Partial<Record<'blend_alpha' | 'volume', [number, number][]>>;
+  /** animated properties (fades, keyframes): [timeline frame, value] keys per property, linear */
+  keys?: Partial<Record<StripKeyPath, [number, number][]>>;
 }
+
+/** Strip properties that can be animated with keyframes. */
+export type StripKeyPath = 'blend_alpha' | 'volume' | 'transform.offset_x' | 'transform.offset_y' | 'transform.scale_x' | 'transform.scale_y' | 'transform.rotation';
 
 export interface SeqChannel {
   name: string;

@@ -3,6 +3,7 @@ import { addKeys } from '../app/keymap';
 import { addMenu, selectMenu, changeMenu, retimingMenu, contextMenu, stripMenu } from './menus';
 import { hoverSeq, hasEditor } from './context';
 import { toggleFrameOverlay, setOverlayReference } from './sidebar';
+import { keyingMenu } from './stripops';
 import { pivotPie, mirrorItems, viewPie } from './previewops';
 
 addKeys('Sequencer', [
@@ -87,6 +88,9 @@ addKeys('SequencerPreview', [
   { key: 'G', op: 'sequencer.strip_transform', props: { mode: 'TRANSLATE' } },
   { key: 'R', op: 'sequencer.strip_transform', props: { mode: 'ROTATE' } },
   { key: 'S', op: 'sequencer.strip_transform', props: { mode: 'RESIZE' } },
+  { key: 'I', op: 'sequencer.keyframe_insert' },
+  { key: 'K', menu: keyingMenu, menuTitle: 'Insert Keyframe with Keying Set' },
+  { key: 'I', alt: true, op: 'sequencer.keyframe_delete' },
   { key: 'PERIOD', action: pivotPie },
   { key: 'PERIOD', ctrl: true, op: 'sequencer.strip_transform', props: { mode: 'ORIGIN' } },
   { key: 'M', ctrl: true, menu: mirrorItems, menuTitle: 'Mirror' },

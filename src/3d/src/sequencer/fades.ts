@@ -1,6 +1,6 @@
 // Animated strip opacity / volume ("fades"). Keys are [timeline frame, value] pairs, sorted by
 // frame, interpolated linearly and held constant outside their range. Pure functions (unit tested).
-import type { Strip } from './types';
+import type { Strip, StripKeyPath } from './types';
 import { finalStart, finalEnd, inputCount } from './strips';
 
 export type FadeProp = 'blend_alpha' | 'volume';
@@ -11,7 +11,7 @@ export function fadeProp(s: Strip): FadeProp {
   return s.type === 'SOUND' ? 'volume' : 'blend_alpha';
 }
 
-export function keysOf(s: Strip, prop: FadeProp): [number, number][] | undefined {
+export function keysOf(s: Strip, prop: StripKeyPath): [number, number][] | undefined {
   const k = s.keys?.[prop];
   return k && k.length ? k : undefined;
 }
@@ -80,8 +80,10 @@ export function addFade(s: Strip, type: FadeType, duration: number, current: num
 
 /** Remove fade animation (opacity and volume keys) from a strip. */
 export function clearFade(s: Strip): boolean {
-  if (!s.keys) return false;
-  delete s.keys;
+  if (!s.keys?.blend_alpha && !s.keys?.volume) return false;
+  delete s.keys.blend_alpha;
+  delete s.keys.volume;
+  if (!Object.keys(s.keys).length) delete s.keys;
   return true;
 }
 

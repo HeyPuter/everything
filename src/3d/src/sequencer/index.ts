@@ -17,6 +17,8 @@ import { SequencerEditor } from './editor';
 import { stripTab, modifiersTab } from './sidebar';
 import { syncPlayback } from './audio';
 import { activeStrip, hasEditor } from './context';
+import { allStrips } from './strips';
+import { applyKeys } from './stripanim';
 
 const SEQ: EditorTypeId = 'SEQUENCE_EDITOR';
 
@@ -34,5 +36,18 @@ registerTab({ id: 'STRIP_MODIFIER', label: 'Strip Modifiers', icon: 'modifier', 
 
 // sound strips follow timeline playback (the app instance exists once the entry module has run)
 onAppReady((a) => a.subscribe(() => syncPlayback()));
+
+// keyframed strip properties take their animated values when the frame changes
+let keyedFrame = NaN;
+onAppReady((a) =>
+  a.subscribe((kinds) => {
+    const ed = a.doc.scene.sequence_editor;
+    if (!ed || (!kinds.has('frame') && kinds.size)) return;
+    const f = a.doc.scene.frame_current;
+    if (f === keyedFrame && !kinds.has('frame')) return;
+    keyedFrame = f;
+    for (const s of allStrips(ed.strips)) if (s.keys) applyKeys(s, f);
+  }),
+);
 
 export { SequencerEditor };

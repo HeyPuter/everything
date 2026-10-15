@@ -30,6 +30,7 @@ import { lastOpPanel } from '../ui/redo';
 import { boxHit, rectCircle, rectLasso, sameTime } from './selection';
 import { connectedOf, isConnected } from './connect';
 import { keysOf, keyValue, fadeProp } from './fades';
+import { keyFrames, KEY_PATHS } from './stripanim';
 import { editedText, endTextEdit, startTextEdit, hitsText, indexAt, textEdit } from './textedit';
 
 export const RULER_H = 22;
@@ -957,6 +958,25 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     }
     this.drawFadeCurve(g, s, x0, y0, w, hgt);
     if (s.show_retiming_keys && retimable(s)) this.drawRetiming(g, s, x0, y0 + titleH, w, hgt - titleH);
+    // keyframes of animated properties (fades show as a curve)
+    if (s.keys) {
+      const frames = keyFrames(s, KEY_PATHS.filter((p) => p !== 'blend_alpha' && p !== 'volume'));
+      const ky = y0 + titleH + 6;
+      for (const f of frames) {
+        const kx = this.fx(f);
+        if (kx < x0 - 4 || kx > x0 + w + 4) continue;
+        g.beginPath();
+        g.moveTo(kx, ky - 4);
+        g.lineTo(kx + 4, ky);
+        g.lineTo(kx, ky + 4);
+        g.lineTo(kx - 4, ky);
+        g.closePath();
+        g.fillStyle = '#f0c040';
+        g.fill();
+        g.strokeStyle = 'rgba(0,0,0,0.7)';
+        g.stroke();
+      }
+    }
     // handles: shown for the hovered strip and for selected handles
     const hw = this.handleWidth(r);
     if (!S.inputCount(s.type)) {

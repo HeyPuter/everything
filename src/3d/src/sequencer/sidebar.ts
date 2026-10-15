@@ -209,8 +209,12 @@ function transformPanels(s: Strip): Child {
   if (!isVisual(s)) return null;
   const t = s.transform,
     c = s.crop;
+  const animated = (['transform.offset_x', 'transform.offset_y', 'transform.rotation', 'transform.scale_x', 'transform.scale_y'] as const).filter((p) => s.keys?.[p]?.length);
   return [
     panel('seq-transform', 'Transform', () => [
+      animated.length
+        ? splitRow('Animated', h('div', { class: 'row-aligned' }, h('span', { class: 'seq-src' }, [...new Set(animated.map((p) => (p.includes('offset') ? 'Position' : p.includes('scale') ? 'Scale' : 'Rotation')))].join(', ')), opButton('sequencer.keyframe_clear', 'Clear')))
+        : null,
       num(t, 'offset_x', 'Position X', { unit: 'pixel', precision: 0 }),
       num(t, 'offset_y', 'Y', { unit: 'pixel', precision: 0 }),
       num(t, 'scale_x', 'Scale X', { precision: 3 }),
