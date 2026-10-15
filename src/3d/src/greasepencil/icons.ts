@@ -89,6 +89,8 @@ registerIcons({
     '<path class="s" d="M1.5 9.5c2-3 4-3 5.5-.5" fill="none" stroke-width="1.3" stroke-linecap="round" opacity=".55"/><path class="s" d="M7.5 6.5c2-3 4.5-3 7-.5" fill="none" stroke-width="1.6" stroke-linecap="round"/><path class="s" d="M6 12.5h5M8.5 10v5" stroke-width="1.2" stroke-linecap="round"/>',
   gp_automask:
     '<circle class="s" cx="8" cy="8" r="5.6" fill="none" stroke-width="1.1" stroke-dasharray="2 1.5"/><path class="s" d="M3.5 10c2-3 4.5-4 9-3" fill="none" stroke-width="1.8" stroke-linecap="round"/>',
+  gp_guides:
+    '<circle class="s" cx="8" cy="8" r="5.8" fill="none" stroke-width="1" stroke-dasharray="1.5 1.3" opacity=".7"/><path class="s" d="M8 1v14M1 8h14" stroke-width="1" stroke-dasharray="1.5 1.3" opacity=".7"/><path class="s" d="M3 12.5C5.5 9 8 7.2 13 5.2" fill="none" stroke-width="1.6" stroke-linecap="round"/>',
   gp_sculpt_randomize: '<path class="s" d="M1.5 10 3.5 6 5.5 11 7.5 4.5 9.5 10.5 11.5 5.5 14.5 9" fill="none" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/>',
   onionskin_on:
     '<circle class="s" cx="5.5" cy="8" r="3.6" fill="none" stroke-width="1" opacity=".45"/><circle class="s" cx="10.5" cy="8" r="3.6" fill="none" stroke-width="1" opacity=".45"/><circle class="f" cx="8" cy="8" r="3.6"/>',

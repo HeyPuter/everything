@@ -518,3 +518,28 @@ describe('material styles', () => {
     expect(hold.info[3]).toBe(1);
   });
 });
+
+import { guideConstraint, type GuideSettings } from '../../src/greasepencil/guides';
+
+describe('drawing guides', () => {
+  const g = (o: Partial<GuideSettings>): GuideSettings => ({ use_guide: true, type: 'PARALLEL', use_snapping: false, angle: 0, angle_snap: Math.PI / 12, spacing: 20, reference_point: 'CURSOR', location: [0, 0, 0], reference_object: null, ...o });
+  it('parallel lines keep the start height; radial lines go through the center', () => {
+    const f = guideConstraint(g({}), { x: 10, y: 50 }, { x: 0, y: 0 })!;
+    expect(f({ x: 80, y: 77 })).toEqual({ x: 80, y: 50 });
+    const r = guideConstraint(g({ type: 'RADIAL' }), { x: 10, y: 10 }, { x: 0, y: 0 })!;
+    const q = r({ x: 30, y: 0 });
+    expect(q.x).toBeCloseTo(q.y);
+  });
+  it('circles keep the start radius; grid lines follow the first movement', () => {
+    const c = guideConstraint(g({ type: 'CIRCULAR' }), { x: 30, y: 40 }, { x: 0, y: 0 })!;
+    const q = c({ x: 100, y: 0 });
+    expect(Math.hypot(q.x, q.y)).toBeCloseTo(50);
+    expect(guideConstraint(g({ type: 'GRID' }), { x: 0, y: 0 }, { x: 0, y: 0 })).toBeNull();
+    const vert = guideConstraint(g({ type: 'GRID' }), { x: 5, y: 5 }, { x: 0, y: 0 }, { x: 1, y: 9 })!;
+    expect(vert({ x: 40, y: 60 }).x).toBeCloseTo(5);
+  });
+  it('snapping moves parallel lines onto the spacing', () => {
+    const f = guideConstraint(g({ use_snapping: true, spacing: 20 }), { x: 0, y: 47 }, { x: 0, y: 0 })!;
+    expect(f({ x: 10, y: 47 }).y).toBeCloseTo(40);
+  });
+});

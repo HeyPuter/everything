@@ -15,6 +15,7 @@ import { editModeHooks, viewportExtensions } from '../editors/view3d/hooks';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { gpTS, gpBrush, gpOf, DRAW_PRESETS, slotStyle } from './data';
 import { drawMenu, sculptMenu } from './menus';
+import { guideButton } from './guides';
 import { cursorRadius } from './paint';
 import type { GPBrush, GPToolSettings } from './types';
 
@@ -572,6 +573,7 @@ export function placementControls(): Child {
       enumMenu('gp-plane', PLANES, ts.gpencil_lock_axis, (x) => ((ts.gpencil_lock_axis = x as typeof ts.gpencil_lock_axis), refresh()), { tip: 'Drawing Plane' }),
     ),
     layerDropdown(),
+    app.doc.mode === 'PAINT_GREASE_PENCIL' ? guideButton() : null,
     app.doc.mode === 'PAINT_GREASE_PENCIL'
       ? h(
           'button',

@@ -18,6 +18,7 @@ import { setStrokePreview, layerMatrix } from './render';
 import { smoothPoints, simplifyPoints, subdivideStroke } from './strokeops';
 import { stabilize, trimEnds, noise, type Sample } from './drawproc';
 import { startSculpt } from './sculpt';
+import { guideSettings, guideCenter, guideConstraint } from './guides';
 import { fillRegion, extensionPreview } from './fill';
 import type { GPBrush, GPLayer, GreasePencilData } from './types';
 
@@ -188,6 +189,10 @@ function startDraw(v: View3D, e: PointerEvent) {
   const stab = !!b.use_smooth_stroke;
   const p0 = v.local(e);
   Object.assign(lazy, { on: stab, x: p0.x, y: p0.y, cx: p0.x, cy: p0.y, view: v });
+  // drawing guides: lines / circles decided at the start (Grid / Iso by the first movement)
+  const guide = guideSettings();
+  const center = guide.use_guide ? guideCenter(v, guide) : null;
+  let constrain = center && guide.type !== 'GRID' && guide.type !== 'ISO' ? guideConstraint(guide, p0, center) : null;
   runStroke(v, e, {
     spacing: () => 0,
     radiusPx: () => b.size / 2,
@@ -197,6 +202,11 @@ function startDraw(v: View3D, e: PointerEvent) {
         q = stabilize({ x: lazy.x, y: lazy.y }, q, b.smooth_stroke_radius ?? 75, b.smooth_stroke_factor ?? 0.9);
         Object.assign(lazy, { x: q.x, y: q.y, cx: d.x, cy: d.y });
       }
+      if (center && !constrain && Math.hypot(q.x - p0.x, q.y - p0.y) > 6) {
+        constrain = guideConstraint(guide, p0, center, { x: q.x - p0.x, y: q.y - p0.y });
+        if (constrain) for (const sm of samples) Object.assign(sm, constrain(sm));
+      }
+      if (constrain) q = constrain(q);
       const last = samples[samples.length - 1];
       if (last && Math.hypot(q.x - last.x, q.y - last.y) < 1.5) return;
       samples.push({ x: q.x, y: q.y, pressure: d.pressure });
