@@ -800,7 +800,7 @@ export interface ParticleSystem {
 }
 
 export interface ForceField {
-  type: 'NONE' | 'FORCE' | 'WIND' | 'VORTEX' | 'TURBULENCE' | 'DRAG';
+  type: 'NONE' | 'FORCE' | 'WIND' | 'VORTEX' | 'TURBULENCE' | 'DRAG' | 'MAGNET' | 'HARMONIC' | 'LENNARDJ' | 'GUIDE';
   strength: number;
   flow: number;
   noise?: number;

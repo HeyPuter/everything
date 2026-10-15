@@ -64,3 +64,4 @@ queueMicrotask(() => {
   if (app?.doc.scene.rigidbody_world) void loadRapier();
 });
 rapierReady.add(() => app?.changed('frame'));
+import './fieldadd';

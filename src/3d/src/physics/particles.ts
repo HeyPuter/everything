@@ -9,6 +9,7 @@ import type { Depsgraph } from '../eval/depsgraph';
 import { meshSignature } from '../eval/depsgraph';
 import { registerModifier } from '../eval/modifiers';
 import { arrayChecksum, frameOf, getCache, motionKey, outOfTime, rand01, strHash, worldAt, type FrameCache, type SimContext } from './common';
+import { applyGuides, guidesOf, newGuideState, type GuideState } from './guides';
 import { collectEffectors, effectorForce, fieldsKey, valueNoise } from './fields';
 import { buildColliders, collidersKey, segmentHit, newHit } from './colliders';
 import { MeshSampler, newSample, type Sample } from './sampling';
@@ -112,6 +113,7 @@ interface PLive {
   samples: Sample[];
   sampler: MeshSampler;
   step: number;
+  guides: GuideState;
 }
 
 export interface EmitterResult {
@@ -135,7 +137,7 @@ function initLive(s: ParticleSettingsX, seed: number, mesh: EvalMesh): PLive {
     if (!sampler.sample(s.emit_from, seed, i, sm)) sm.px = sm.py = sm.pz = 0;
     samples.push(sm);
   }
-  return { pos: new Float32Array(n * 3), vel: new Float32Array(n * 3), state: new Uint8Array(n), birth, life, samples, sampler, step: 0 };
+  return { pos: new Float32Array(n * 3), vel: new Float32Array(n * 3), state: new Uint8Array(n), birth, life, samples, sampler, step: 0, guides: newGuideState() };
 }
 
 const _v = new Vector3(),
@@ -285,6 +287,11 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
       L.vel[j + 1] = vy;
       L.vel[j + 2] = vz;
     }
+  }
+  // curve guides lead particles along their curves
+  if (s.physics_type !== 'NO') {
+    const guides = guidesOf(ctx.doc, effs);
+    if (guides.length) applyGuides(guides, L.guides, L.pos, L.vel, L.state, L.birth, L.life, k, k - 1, (1 / fpsv) * timeScale);
   }
 }
 

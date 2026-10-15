@@ -38,6 +38,19 @@ export interface RigidBodyConstraintData {
 }
 
 export interface ForceFieldX extends ForceField {
+  /** where distances are measured from */
+  shape?: 'POINT' | 'LINE' | 'PLANE' | 'SURFACE' | 'POINTS';
+  /** vortex: pull towards the axis */
+  inflow?: number;
+  /** harmonic: spring rest length and damping */
+  rest_length?: number;
+  harmonic_damping?: number;
+  /** curve guide settings */
+  guide_minimum?: number;
+  guide_free?: number;
+  use_guide_path_add?: boolean;
+  use_guide_path_weight?: boolean;
+  guide_clump_amount?: number;
   falloff_power?: number;
   use_min_distance?: boolean;
   distance_min?: number;
@@ -193,6 +206,19 @@ export function defaultCollision(): CollisionSettingsX {
   };
 }
 
+/** Force field types offered in menus (value, label, icon). */
+export const FIELD_TYPES: [ForceFieldX['type'], string, string][] = [
+  ['GUIDE', 'Curve Guide', 'force_curve'],
+  ['DRAG', 'Drag', 'force_drag'],
+  ['FORCE', 'Force', 'force_force'],
+  ['HARMONIC', 'Harmonic', 'force_harmonic'],
+  ['LENNARDJ', 'Lennard-Jones', 'force_lennardjones'],
+  ['MAGNET', 'Magnetic', 'force_magnetic'],
+  ['TURBULENCE', 'Turbulence', 'force_turbulence'],
+  ['VORTEX', 'Vortex', 'force_vortex'],
+  ['WIND', 'Wind', 'force_wind'],
+];
+
 export function defaultField(type: ForceFieldX['type']): ForceFieldX {
   return {
     type,
@@ -207,6 +233,14 @@ export function defaultField(type: ForceFieldX['type']): ForceFieldX {
     distance_max: 0,
     use_min_distance: false,
     distance_min: 0,
+    shape: type === 'WIND' ? 'PLANE' : 'POINT',
+    inflow: 0,
+    rest_length: 0,
+    harmonic_damping: 1,
+    guide_minimum: 0,
+    guide_free: 0.1,
+    use_guide_path_add: false,
+    guide_clump_amount: 0,
   };
 }
 

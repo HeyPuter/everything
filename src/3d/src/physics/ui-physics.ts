@@ -19,6 +19,7 @@ import {
   defaultCollision,
   defaultField,
   defaultSoftBodySettings,
+  FIELD_TYPES,
   type ClothModifier,
   type CollisionSettingsX,
   type ForceFieldX,
@@ -76,28 +77,47 @@ function enableGrid(ob: ObjectPhysics): Child {
 // ---------------------------------------------------------------------------
 // Force field
 
-const FIELD_TYPES: [string, string][] = [
-  ['FORCE', 'Force'],
-  ['WIND', 'Wind'],
-  ['VORTEX', 'Vortex'],
-  ['TURBULENCE', 'Turbulence'],
-  ['DRAG', 'Drag'],
+const SHAPES_ALL: [string, string][] = [
+  ['POINT', 'Point'],
+  ['LINE', 'Line'],
+  ['PLANE', 'Plane'],
+  ['SURFACE', 'Surface'],
+  ['POINTS', 'Every Point'],
 ];
 
 function fieldPanels(ob: ObjectPhysics): Child[] {
   const f = fillDefaults(ob.field as ForceFieldX, defaultField(ob.field!.type));
+  const t = f.type;
+  // surface shapes need mesh geometry on the field object
+  const shapes = ob.type === 'MESH' ? SHAPES_ALL : SHAPES_ALL.slice(0, 3);
+  const noiseSeed = [num(f, 'noise', 'Noise Amount', { min: 0, max: 10 }), num(f, 'seed', 'Seed', { int: true, min: 1, max: 128 })];
+  let settings: Child[];
+  if (t === 'DRAG') settings = [num(f, 'strength', 'Linear', { min: 0, max: 1000, softMax: 2 }), num(f, 'flow', 'Quadratic', { min: 0, max: 1000, softMax: 2 })];
+  else if (t === 'GUIDE')
+    settings = [
+      num(f, 'strength', 'Influence', { min: 0, max: 1, slider: true }),
+      num(f, 'guide_free', 'Free', { min: 0, max: 0.99, slider: true, tip: 'Last part of the particle lifetime in which particles move freely' }),
+      num(f, 'guide_minimum', 'Minimum Distance', { min: 0, max: 1000, unit: 'distance', tip: 'Particles further than this from the curve start are guided less (see Falloff Power)' }),
+      num(f, 'guide_clump_amount', 'Clump', { min: -1, max: 1, slider: true }),
+      bool(f, 'use_guide_path_add', 'Additive'),
+    ];
+  else if (t === 'HARMONIC') settings = [num(f, 'strength', 'Strength', { min: -1000, max: 1000, softMin: -10, softMax: 10 }), num(f, 'harmonic_damping', 'Damping', { min: 0, max: 10 }), num(f, 'rest_length', 'Rest Length', { min: 0, max: 1000, unit: 'distance' }), ...noiseSeed];
+  else if (t === 'LENNARDJ') settings = [num(f, 'strength', 'Strength', { min: -1000, max: 1000, softMin: -10, softMax: 10 }), num(f, 'size', 'Size', { min: 0.001, max: 1000, softMax: 10, unit: 'distance' }), ...noiseSeed];
+  else if (t === 'TURBULENCE') settings = [num(f, 'strength', 'Strength', { min: -1000, max: 1000, softMin: -10, softMax: 10 }), num(f, 'size', 'Size', { min: 0, max: 1000, softMax: 10, unit: 'distance' }), num(f, 'seed', 'Seed', { int: true, min: 1, max: 128 })];
+  else
+    settings = [
+      num(f, 'strength', 'Strength', { min: -1000, max: 1000, softMin: -10, softMax: 10 }),
+      t === 'VORTEX' ? num(f, 'inflow', 'Inflow', { min: -10, max: 10 }) : null,
+      t !== 'MAGNET' ? num(f, 'flow', 'Flow', { min: 0, max: 10 }) : null,
+      ...noiseSeed,
+    ];
   return [
     panel('ph-field', 'Force Fields', () => [
-      enumProp(f, 'type', 'Type', FIELD_TYPES),
+      enumProp(f, 'type', 'Type', FIELD_TYPES.map(([v, l]) => [v, l] as [string, string])),
+      t !== 'GUIDE' && t !== 'WIND' ? enumProp(f, 'shape', 'Shape', shapes) : null,
+      t === 'GUIDE' && ob.type !== 'CURVE' ? note('Curve guides follow the object\'s curve: use a curve object', 'error') : null,
       subHeading('Settings'),
-      f.type === 'DRAG'
-        ? [num(f, 'strength', 'Linear', { min: 0, max: 1000, softMax: 2 }), num(f, 'flow', 'Quadratic', { min: 0, max: 1000, softMax: 2 })]
-        : [
-            num(f, 'strength', 'Strength', { min: -1000, max: 1000, softMin: -10, softMax: 10 }),
-            f.type === 'TURBULENCE' ? num(f, 'size', 'Size', { min: 0, max: 1000, softMax: 10, unit: 'distance' }) : num(f, 'flow', 'Flow', { min: 0, max: 10 }),
-            f.type !== 'TURBULENCE' ? num(f, 'noise', 'Noise Amount', { min: 0, max: 10 }) : null,
-            num(f, 'seed', 'Seed', { int: true, min: 1, max: 128 }),
-          ],
+      settings,
     ]),
     panel('ph-field-falloff', 'Falloff', () => [
       enumProp(f, 'falloff_type', 'Shape', [['SPHERE', 'Sphere'], ['TUBE', 'Tube'], ['CONE', 'Cone']]),
