@@ -38,6 +38,9 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   camZoom = 1;
   /** object whose origin the view follows (View Lock to Active) */
   lockObject: string | null = null;
+  /** Local Camera: this viewport looks through its own camera instead of the scene camera */
+  useLocalCamera = false;
+  localCamera: string | null = null;
   /** the view follows the 3D cursor (Lock to 3D Cursor) */
   lockCursor = false;
   /** Clipping Region planes (world space [nx, ny, nz, constant], inward normals) */
@@ -100,7 +103,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     this.infoEl = document.createElement('div');
     this.infoEl.className = 'v3d-info';
     this.el.append(this.regionEl, this.svg, this.infoEl, this.ui, this.boxEl);
-    const st = (state ?? {}) as { shading?: string | Partial<Shading>; matcap?: boolean; camera?: boolean; camZoom?: number; camOffset?: { x: number; y: number }; nav?: ReturnType<NavCamera['serialize']>; overlay?: Partial<Overlay>; toolbar?: boolean; sidebar?: boolean; clip?: number[][]; lockObject?: string; lockCursor?: boolean; lockRotation?: boolean; quad?: View3D['quad']; quadSync?: boolean; toolGizmo?: boolean; objectGizmos?: View3D['objectGizmos'] };
+    const st = (state ?? {}) as { shading?: string | Partial<Shading>; matcap?: boolean; camera?: boolean; camZoom?: number; camOffset?: { x: number; y: number }; nav?: ReturnType<NavCamera['serialize']>; overlay?: Partial<Overlay>; toolbar?: boolean; sidebar?: boolean; clip?: number[][]; lockObject?: string; lockCursor?: boolean; localCamera?: string; lockRotation?: boolean; quad?: View3D['quad']; quadSync?: boolean; toolGizmo?: boolean; objectGizmos?: View3D['objectGizmos'] };
     if (typeof st.shading === 'string') this.shading.type = st.shading as Shading['type'];
     else if (st.shading) Object.assign(this.shading, st.shading);
     if (st.matcap) this.shading.light = 'MATCAP';
@@ -114,6 +117,10 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     if (Array.isArray(st.clip) && st.clip.length) this.clipPlanes = st.clip;
     if (st.lockObject) this.lockObject = st.lockObject;
     if (st.lockCursor) this.lockCursor = true;
+    if (st.localCamera) {
+      this.useLocalCamera = true;
+      this.localCamera = st.localCamera;
+    }
     if (st.lockRotation) this.lockRotation = true;
     if (st.quad) this.quad = { ...st.quad };
     if (st.quadSync) this.quadSync = true;
@@ -169,7 +176,8 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       this.sceneCamera = null;
       return;
     }
-    const camOb = app.doc.scene.camera ? app.graph.get(app.doc.scene.camera) : undefined;
+    const camId = this.activeCameraId();
+    const camOb = camId ? app.graph.get(camId) : undefined;
     const ca = camOb?.ob.data ? app.doc.cameras[camOb.ob.data] : undefined;
     if (!camOb || !ca) {
       this.sceneCamera = null;
@@ -257,6 +265,12 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     return { x: cx - fw / 2, y: cy - fh / 2, w: fw, h: fh };
   }
 
+  /** Camera this viewport looks through: its local camera when enabled, else the scene camera. */
+  activeCameraId(): string | null {
+    if (this.useLocalCamera && this.localCamera && app.doc.objects[this.localCamera]?.type === 'CAMERA') return this.localCamera;
+    return app.doc.scene.camera;
+  }
+
   get camera(): Camera {
     return this.sceneCamera ?? this.nav.camera;
   }
@@ -312,7 +326,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   }
 
   serialize() {
-    return { nav: this.nav.serialize(), shading: { ...this.shading }, overlay: { ...this.overlay }, camera: this.cameraView, camZoom: this.camZoom, camOffset: { ...this.camOffset }, toolbar: this.showToolbar, sidebar: this.showSidebar, toolGizmo: this.showToolGizmo ? undefined : false, objectGizmos: Object.values(this.objectGizmos).some(Boolean) ? { ...this.objectGizmos } : undefined, clip: this.clipPlanes ?? undefined, lockObject: this.lockObject ?? undefined, lockCursor: this.lockCursor || undefined, lockRotation: this.lockRotation || undefined, quad: this.quad ?? undefined, quadSync: this.quadSync || undefined };
+    return { nav: this.nav.serialize(), shading: { ...this.shading }, overlay: { ...this.overlay }, camera: this.cameraView, camZoom: this.camZoom, camOffset: { ...this.camOffset }, toolbar: this.showToolbar, sidebar: this.showSidebar, toolGizmo: this.showToolGizmo ? undefined : false, objectGizmos: Object.values(this.objectGizmos).some(Boolean) ? { ...this.objectGizmos } : undefined, clip: this.clipPlanes ?? undefined, lockObject: this.lockObject ?? undefined, lockCursor: this.lockCursor || undefined, localCamera: this.useLocalCamera && this.localCamera ? this.localCamera : undefined, lockRotation: this.lockRotation || undefined, quad: this.quad ?? undefined, quadSync: this.quadSync || undefined };
   }
 
   dispose() {
@@ -328,7 +342,8 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     const parts: Child[] = [];
     const frame = this.cameraFrame();
     if (frame && this.cameraView) {
-      const ca = app.doc.scene.camera ? app.doc.cameras[app.doc.objects[app.doc.scene.camera]?.data ?? ''] : undefined;
+      const camId = this.activeCameraId();
+      const ca = camId ? app.doc.cameras[app.doc.objects[camId]?.data ?? ''] : undefined;
       const alpha = ca?.show_passepartout ? ca.passepartout_alpha : 0;
       const W = this.width,
         H = this.height;
@@ -429,7 +444,8 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   leaveCamera() {
     if (this.cameraView) {
       // keep the current camera framing as the starting user view
-      const camOb = app.doc.scene.camera ? app.graph.get(app.doc.scene.camera) : undefined;
+      const camId = this.activeCameraId();
+    const camOb = camId ? app.graph.get(camId) : undefined;
       if (camOb) this.nav.alignToMatrix(camOb.world);
       this.cameraView = false;
       this.sceneCamera = null;
@@ -562,7 +578,8 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     if (!this.cameraView) return;
     if (!this.lockCameraToView) this.leaveCamera();
     else {
-      const camOb = app.doc.scene.camera ? app.graph.get(app.doc.scene.camera) : undefined;
+      const camId = this.activeCameraId();
+    const camOb = camId ? app.graph.get(camId) : undefined;
       if (camOb) {
         const dist = this.nav.distance;
         this.nav.alignToMatrix(camOb.world);
@@ -593,7 +610,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
 
   /** Lock Camera to View: write navigation back to the scene camera. */
   applyViewToCamera() {
-    const camId = app.doc.scene.camera;
+    const camId = this.activeCameraId();
     const ob = camId ? app.doc.objects[camId] : undefined;
     if (!ob) return;
     this.nav.update();

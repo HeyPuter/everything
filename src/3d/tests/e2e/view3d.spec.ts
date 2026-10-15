@@ -413,3 +413,25 @@ test('a move can align objects to a surface normal', async ({ page }) => {
   expect(await get<number>(page, 'app.activeObject.location[2]')).toBeCloseTo(1, 5);
   await expectNoErrors(errors);
 });
+
+test('a viewport can look through its own local camera', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  await run(page, 'object.camera_add', { location: [0, -20, 3] });
+  const camId = await get<string>(page, 'app.activeObject.id');
+  const sceneCam = await get<string>(page, 'app.doc.scene.camera');
+  expect(camId).not.toBe(sceneCam);
+  await page.keyboard.press('n');
+  await page.click('.sb-tab:has-text("View")');
+  await page.locator('.v3d-sidebar .checkbox', { hasText: 'Local Camera' }).click();
+  await page.evaluate(async (id) => {
+    const { activeView3D } = await import('/src/editors/view3d/view3d.ts');
+    activeView3D()!.localCamera = id;
+  }, camId);
+  await page.keyboard.press('Numpad0');
+  await page.waitForTimeout(100);
+  const pos = (await view(page, 'v.sceneCamera.position.toArray()')) as number[];
+  expect(pos[1]).toBeCloseTo(-20, 3);
+  expect(await get(page, 'app.doc.scene.camera')).toBe(sceneCam);
+  await expectNoErrors(errors);
+});

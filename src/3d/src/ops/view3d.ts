@@ -189,7 +189,7 @@ registerOperators([
     poll: v3d,
     exec: (ctx) => {
       const v = activeView3D()!;
-      if (!ctx.doc.scene.camera) {
+      if (!v.activeCameraId()) {
         // like the reference: use the first camera object if none is active
         const cam = Object.values(ctx.doc.objects).find((o) => o.type === 'CAMERA');
         if (!cam) {
@@ -219,10 +219,10 @@ registerOperators([
     idname: 'view3d.camera_to_view',
     label: 'Align Camera to View',
     description: 'Set camera view to active view',
-    poll: (ctx) => v3d() && !!ctx.doc.scene.camera,
+    poll: () => v3d() && !!activeView3D()!.activeCameraId(),
     exec: (ctx) => {
       const v = activeView3D()!;
-      const cam = ctx.doc.objects[ctx.doc.scene.camera!];
+      const cam = ctx.doc.objects[v.activeCameraId()!];
       v.nav.update();
       const world = new Matrix4().compose(v.nav.eye, v.nav.rot, new Vector3(1, 1, 1));
       const parentInv = cam.parent ? app.graph.get(cam.parent)!.world.clone().multiply(toMatrix4(cam.matrix_parent_inverse)).invert() : new Matrix4();
@@ -234,9 +234,9 @@ registerOperators([
   {
     idname: 'view3d.camera_to_view_selected',
     label: 'Camera Fit Frame to Selected',
-    poll: (ctx) => v3d() && !!ctx.doc.scene.camera && app.selectedObjects().length > 0,
+    poll: () => v3d() && !!activeView3D()!.activeCameraId() && app.selectedObjects().length > 0,
     exec: (ctx) => {
-      const cam = ctx.doc.objects[ctx.doc.scene.camera!];
+      const cam = ctx.doc.objects[activeView3D()!.activeCameraId()!];
       const ca = ctx.doc.cameras[cam.data!];
       const box = worldBounds(app.selectedObjects().filter((o) => o.id !== cam.id).map((o) => o.id));
       if (box.isEmpty()) return 'CANCELLED';

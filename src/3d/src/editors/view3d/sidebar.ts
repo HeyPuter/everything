@@ -178,6 +178,21 @@ sidebarTabs.push(
             numberField({ id: 'v-cs', label: 'Start', value: v.nav.clipStart, min: 1e-6, unit: 'distance', set: (x) => ((v.nav.clipStart = x), app.changed('ui')) }),
             numberField({ id: 'v-ce', label: 'End', value: v.nav.clipEnd, min: 1e-3, unit: 'distance', set: (x) => ((v.nav.clipEnd = x), app.changed('ui')) }),
           ),
+          checkbox('v-localcam', 'Local Camera', v.useLocalCamera, (x) => {
+            v.useLocalCamera = x;
+            if (x && !v.localCamera) v.localCamera = app.doc.scene.camera;
+            v.updateSceneCamera();
+            v.afterNav();
+            app.changed('ui');
+          }),
+          v.useLocalCamera
+            ? enumMenu('v-localcam-ob', Object.values(app.doc.objects).filter((o) => o.type === 'CAMERA').map((o) => ({ value: o.id, label: o.name, icon: 'outliner_ob_camera' })), v.localCamera ?? '', (id) => {
+                v.localCamera = id;
+                v.updateSceneCamera();
+                v.afterNav();
+                app.changed('ui');
+              })
+            : null,
           v.cameraView ? checkbox('v-region', 'Render Region', !!(app.doc.scene.render as { use_border?: boolean }).use_border, (x) => ((app.doc.scene.render as { use_border?: boolean }).use_border = x, app.pushUndo('Render Region'), app.changed('doc', 'ui'))) : null,
           v.clipPlanes ? h('div', { class: 'sb-row-btn' }, opButton('view3d.clip_border', 'Clear Clipping Region')) : null,
         ]),

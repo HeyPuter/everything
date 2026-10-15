@@ -205,7 +205,7 @@ function dollyStep(delta: number) {
 function startFlight(kind: 'WALK' | 'FLY') {
   const v = activeView3D()!;
   const nav = v.nav;
-  const camId = v.cameraView ? app.doc.scene.camera : null;
+  const camId = v.cameraView ? v.activeCameraId() : null;
   const camOb = camId ? app.doc.objects[camId] : null;
   const camBefore = camOb ? { location: [...camOb.location], rotation_euler: [...camOb.rotation_euler], rotation_quaternion: [...camOb.rotation_quaternion], rotation_axis_angle: [...camOb.rotation_axis_angle] } : null;
   const lockBefore = v.lockCameraToView;

@@ -348,7 +348,7 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
     const col = helperColor(app, ob, theme.wire);
     const inEdit = editing && app.graph.editObjects.has(ob.id);
     // the camera being looked through is not drawn (only its frame, as the passepartout)
-    const lookingThrough = !!view.sceneCamera && ob.id === doc.scene.camera;
+    const lookingThrough = !!view.sceneCamera && ob.id === ((view as { activeCameraId?: () => string | null }).activeCameraId?.() ?? doc.scene.camera);
     const showWire =
       shown &&
       !inEdit &&
