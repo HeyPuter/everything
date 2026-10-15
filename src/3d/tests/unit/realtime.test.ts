@@ -259,3 +259,32 @@ describe('world volume', async () => {
     expect(envAverage(flat, 8, 4)[1]).toBeCloseTo(2);
   });
 });
+
+describe('render settings defaults', async () => {
+  const { ensureRealtimeDefaults } = await import('../../src/render/realtime/props');
+  const { captureKey } = await import('../../src/render/realtime/probes/capture');
+  const { defaultLightProbe } = await import('../../src/render/realtime/probes/lightprobe');
+  const { Matrix4 } = await import('three');
+  it('older Ambient Occlusion documents become probe-only raytracing with Fast GI occlusion', () => {
+    const r = render({ use_gtao: true, gtao_distance: 0.4 });
+    ensureRealtimeDefaults(r);
+    expect(r.use_ssr).toBe(true);
+    expect(r.ray_tracing_method).toBe('PROBE');
+    expect(r.use_fast_gi).toBe(true);
+    expect(r.fast_gi_method).toBe('AMBIENT_OCCLUSION_ONLY');
+    expect(r.fast_gi_distance).toBe(0.4);
+    expect(r.use_gtao).toBe(false);
+    const fresh = render();
+    ensureRealtimeDefaults(fresh);
+    expect(fresh.use_ssr).toBe(false);
+    expect(fresh.clamp_surface_indirect).toBe(10);
+  });
+  it('display toggles do not invalidate a probe capture, moving the probe does', () => {
+    const p = defaultLightProbe('SPHERE');
+    const w = new Matrix4();
+    const k = captureKey({ probe: p, world: w }, 512);
+    expect(captureKey({ probe: { ...p, show_clip: true }, world: w }, 512)).toBe(k);
+    expect(captureKey({ probe: p, world: new Matrix4().makeTranslation(1, 0, 0) }, 512)).not.toBe(k);
+    expect(captureKey({ probe: { ...p, clip_end: 5 }, world: w }, 512)).not.toBe(k);
+  });
+});
