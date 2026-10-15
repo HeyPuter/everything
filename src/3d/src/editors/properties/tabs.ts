@@ -17,6 +17,8 @@ const ob = () => app.activeObject;
 
 /** Extra Object-tab panels contributed by other modules (shown after Instancing, e.g. Motion Paths). */
 export const objectExtraPanels: ((o: ObjectData) => Child)[] = [];
+/** Extra panels in the Armature data tab (e.g. Selection Sets). */
+export const armatureDataPanels: ((o: ObjectData) => Child)[] = [];
 const changed = (label: string) => {
   app.pushUndo(label);
   app.changed('doc');
@@ -639,6 +641,7 @@ registerTab({
         panel('ar-skeleton', 'Skeleton', () => [enumRow('ar-pose', [{ value: 'POSE', label: 'Pose Position' }, { value: 'REST', label: 'Rest Position' }], arm.pose_position, (v) => ((arm.pose_position = v as 'POSE'), changed('Pose Position')))]),
         panel('ar-display', 'Viewport Display', () => [enumProp(arm, 'display_type', 'Display As', [['OCTAHEDRAL', 'Octahedral'], ['STICK', 'Stick'], ['BBONE', 'B-Bone'], ['ENVELOPE', 'Envelope'], ['WIRE', 'Wire']]), bool(arm, 'show_names', 'Names'), bool(arm, 'show_axes', 'Axes'), bool(arm as never, 'show_in_front' as never, 'In Front')]),
         panel('ar-bones', 'Bones', () => arm.bones.map((b) => h('div', { key: b.name, class: { 'chip-row': true, on: arm.active_bone === b.name }, onclick: () => ((arm.active_bone = b.name), app.changed('doc')) }, icon('bone_data'), b.name))),
+        ...armatureDataPanels.map((f) => f(o)),
       ];
     }
     if (o.type === 'LATTICE' && o.data) {

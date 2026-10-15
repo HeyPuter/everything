@@ -171,3 +171,62 @@ test('channels: reorder, editability toggle and preview range', async ({ page })
   expect(await page.evaluate(() => (window as any).app.doc.scene.use_preview_range)).toBe(false); // eslint-disable-line @typescript-eslint/no-explicit-any
   await expectNoErrors(errors);
 });
+
+test('pose mode: in-between slider, propagate, names and selection sets', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { keyProperty } = await import('/src/anim/keyframes.ts');
+    app.run('object.armature_add', {}, { invoke: false });
+    const ob = app.activeObject;
+    const arm = app.doc.armatures[ob.data];
+    arm.bones.push({ ...structuredClone(arm.bones[0]), name: 'Arm.L', parent: arm.bones[0].name, head: [0.5, 0, 1], tail: [1, 0, 1] });
+    arm.bones.push({ ...structuredClone(arm.bones[0]), name: 'Arm.R', parent: arm.bones[0].name, head: [-0.5, 0, 1], tail: [-1, 0, 1] });
+    app.run('object.posemode_toggle', {}, { invoke: false });
+    const pose = app.activeObject.pose;
+    for (const n of Object.keys(pose)) pose[n].select = n === 'Arm.L';
+    arm.active_bone = 'Arm.L';
+    pose['Arm.L'].location = [0, 0, 0];
+    keyProperty(app.doc, ob, 'pose.bones["Arm.L"].location', -1, 1);
+    pose['Arm.L'].location = [2, 0, 4];
+    keyProperty(app.doc, ob, 'pose.bones["Arm.L"].location', -1, 21);
+    app.setFrame(11);
+    app.flush();
+    pose['Arm.L'].location = [5, 0, 0];
+    app.pushUndo('setup');
+    app.changed('doc');
+  });
+  const vp = (await page.locator('.view3d').first().boundingBox())!;
+  await page.mouse.move(vp.x + vp.width / 2, vp.y + vp.height / 2);
+  await page.keyboard.press('Shift+E');
+  expect(await page.evaluate(() => (window as any).app.modal?.label)).toBe('Pose Breakdowner'); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.keyboard.press('Enter');
+  // breakdown at 50% between (0,0,0) and (2,0,4)
+  expect(await page.evaluate(() => (window as any).app.activeObject.pose['Arm.L'].location)).toEqual([1, 0, 2]); // eslint-disable-line @typescript-eslint/no-explicit-any
+  // propagate to the next key
+  await page.keyboard.press('Alt+P');
+  await page.locator('.menu-item', { hasText: 'To Next Keyframe' }).click();
+  const k21 = await page.evaluate(() => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const fc = app.doc.actions[app.activeObject.animation_data.action].fcurves.find((f: { data_path: string; array_index: number }) => f.data_path.endsWith('.location') && f.array_index === 2);
+    return fc.keyframe_points[1].co[1];
+  });
+  expect(k21).toBeCloseTo(2, 5);
+  // select mirror, flip names, selection set
+  await page.keyboard.press('Shift+Control+M');
+  expect(await page.evaluate(() => (window as any).app.activeObject.pose['Arm.R'].select)).toBe(true); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.locator('.hdr-menu', { hasText: 'Pose' }).click();
+  await page.locator('.menu-item', { hasText: 'Selection Sets' }).hover();
+  await page.locator('.menu-item', { hasText: 'Create and Add Selected' }).click();
+  expect(await page.evaluate(() => (window as any).app.activeObject.selection_sets[0].bones)).toEqual(['Arm.R']); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.keyboard.press('A');
+  await page.locator('.hdr-menu', { hasText: 'Pose' }).click();
+  await page.locator('.menu-item', { hasText: 'Names' }).hover();
+  await page.locator('.menu-item', { hasText: 'Flip Names' }).click();
+  const names = await page.evaluate(() => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    return app.doc.armatures[app.activeObject.data].bones.map((b: { name: string }) => b.name);
+  });
+  expect(names).toEqual(['Bone', 'Arm.R', 'Arm.L']);
+  await expectNoErrors(errors);
+});

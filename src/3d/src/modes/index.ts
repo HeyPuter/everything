@@ -11,6 +11,7 @@ import './editmesh/rip';
 import './armature/armature';
 import './armature/boneprops';
 import './armature/tools';
+import './armature/posetools';
 import './lattice/lattice';
 import './curve/curve';
 import './text/text';

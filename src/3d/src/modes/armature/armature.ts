@@ -53,7 +53,7 @@ function bonePoints(ob: ObjectData, b: Bone, posed: boolean): [Vector3, Vector3]
 // ---------------------------------------------------------------------------
 // picking & selection
 
-function pickBone(v: View3D, x: number, y: number, posed: boolean): { bone: Bone; part: 'HEAD' | 'TAIL' | 'BODY'; d: number } | null {
+export function pickBone(v: View3D, x: number, y: number, posed: boolean): { bone: Bone; part: 'HEAD' | 'TAIL' | 'BODY'; d: number } | null {
   const a = activeArmature();
   if (!a) return null;
   let best: { bone: Bone; part: 'HEAD' | 'TAIL' | 'BODY'; d: number } | null = null;

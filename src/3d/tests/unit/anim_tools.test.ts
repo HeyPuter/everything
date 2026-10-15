@@ -365,3 +365,68 @@ describe('time slide', () => {
     expect(fc.keyframe_points.map((k) => k.co[0])).toEqual([0, 25, 30, 35, 40]);
   });
 });
+
+import { flipSideName, autosideName, slideValue, propagateCurve } from '../../src/modes/armature/posemath';
+
+describe('pose tools', () => {
+  it('flips side names in the common conventions', () => {
+    const cases: [string, string][] = [
+      ['Hand.L', 'Hand.R'],
+      ['hand_l', 'hand_r'],
+      ['L_Hand', 'R_Hand'],
+      ['l.hand', 'r.hand'],
+      ['HandLeft', 'HandRight'],
+      ['Left Hand', 'Right Hand'],
+      ['left_hand', 'right_hand'],
+      ['Hand.R.001', 'Hand.L.001'],
+      ['HandRIGHT', 'HandLEFT'],
+      ['Hand-L', 'Hand-R'],
+      ['Hand L', 'Hand R'],
+      ['Bone', 'Bone'],
+      ['Lhand', 'Lhand'],
+      ['R.Hand', 'L.Hand'],
+    ];
+    for (const [a, b] of cases) expect(flipSideName(a)).toBe(b);
+    expect(flipSideName('Hand.L.003', true)).toBe('Hand.R');
+  });
+
+  it('names bones by axis', () => {
+    expect(autosideName('Arm', 1, 'XAXIS')).toBe('Arm.L');
+    expect(autosideName('Arm.001', -1, 'XAXIS')).toBe('Arm.001.R');
+    expect(autosideName('Spine', 0, 'XAXIS')).toBe('Spine');
+    expect(autosideName('Leg', 1, 'YAXIS')).toBe('Leg.Bk');
+    expect(autosideName('Foot', -1, 'YAXIS')).toBe('Foot.Fr');
+    expect(autosideName('Arm.L', 1, 'ZAXIS')).toBe('Arm.Top');
+    expect(autosideName('Tail', -1, 'ZAXIS')).toBe('Tail.Bot');
+  });
+
+  it('computes in-between values', () => {
+    // prev 0, next 4, current frame halfway (breakdown 2), current value 5
+    expect(slideValue('PUSH', 5, 0, 4, 0.5, 0.5, 0)).toBe(6.5);
+    expect(slideValue('RELAX', 5, 0, 4, 0.5, 0.5, 0)).toBe(3.5);
+    expect(slideValue('BREAKDOWN', 5, 0, 4, 0.5, 0.25, 0)).toBe(1);
+    expect(slideValue('BLEND_TO_NEIGHBOR', 5, 0, 4, 0.5, 0.25, 0)).toBe(2.5);
+    expect(slideValue('BLEND_TO_NEIGHBOR', 5, 0, 4, 0.5, 0.75, 0)).toBe(4.5);
+    expect(slideValue('BLEND_TO_NEIGHBOR', 5, 0, 4, 0.5, 0.5, 0)).toBe(5);
+    expect(slideValue('BLEND_WITH_REST', 5, 0, 4, 0.5, 0.5, 1)).toBe(3);
+  });
+
+  it('propagates a value to later keys', () => {
+    const mk = () => curve([1, 2, 3, 4], [1, 10, 20, 30]);
+    const a = mk();
+    expect(propagateCurve(a, 9, 5, 'NEXT_KEY', 0, [])).toBe(1);
+    expect(values(a)).toEqual([1, 9, 3, 4]);
+    const b = mk();
+    propagateCurve(b, 9, 5, 'LAST_KEY', 0, []);
+    expect(values(b)).toEqual([1, 2, 3, 9]);
+    const c = mk();
+    propagateCurve(c, 9, 5, 'BEFORE_FRAME', 25, []);
+    expect(values(c)).toEqual([1, 9, 9, 4]);
+    const d = mk();
+    propagateCurve(d, 9, 5, 'BEFORE_END', 0, []);
+    expect(values(d)).toEqual([1, 9, 9, 9]);
+    const e = mk();
+    propagateCurve(e, 9, 5, 'SELECTED_MARKERS', 0, [20]);
+    expect(values(e)).toEqual([1, 2, 9, 4]);
+  });
+});
