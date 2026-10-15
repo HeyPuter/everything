@@ -389,6 +389,11 @@ export function hasVisibleFaceSets(me: MeshData): boolean {
   return r;
 }
 
+/** Call after editing a face set array in place. */
+export function faceSetsChanged(fs: Int32Array) {
+  fsAny.delete(fs);
+}
+
 function faceSetAttr(g: BufferGeometry, me: MeshData) {
   const fs = faceSetsOf(me)!;
   const nc = me.indices.length;
@@ -401,7 +406,7 @@ function faceSetAttr(g: BufferGeometry, me: MeshData) {
   const seed = me.face_sets_color_seed ?? 0,
     def = me.face_sets_color_default ?? 1;
   const key = `${seed}:${def}`;
-  if (g.userData.fsetSrc === fs && g.userData.fsetKey === key && g.userData.fsetIdx === me.indices) return;
+  if (g.userData.fsetSrc === fs && g.userData.fsetKey === key && g.userData.fsetIdx === me.indices && g.userData.fsetVer === attrVersion) return;
   const arr = a.array as Float32Array;
   const colors = new Map<number, [number, number, number]>();
   for (let f = 0; f < fs.length; f++) {
@@ -414,6 +419,7 @@ function faceSetAttr(g: BufferGeometry, me: MeshData) {
   }
   a.needsUpdate = true;
   g.userData.fsetSrc = fs;
+  g.userData.fsetVer = attrVersion;
   g.userData.fsetKey = key;
   g.userData.fsetIdx = me.indices;
 }

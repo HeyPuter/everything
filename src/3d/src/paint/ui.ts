@@ -15,6 +15,7 @@ import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { activeBrush, brushById, BRUSH_LISTS, brushInfo, isBrushMode, type BrushMode, type PaintBrush } from './brushes';
 import { startGesture } from './gesture';
 import { startGradient } from './paintops';
+import { faceSetStroke } from './facesetbrush';
 import { automaskButton, automaskSettings } from './sculptmenus';
 import { faceMaskOn, isSelectTool, PAINT_SELECT_TOOLS, vertMaskOn } from './selmask';
 import { cursorState, updateCursor } from './cursor';
@@ -1006,7 +1007,8 @@ editModeHooks.pointer.push((v, e) => {
       return true;
     }
   }
-  if (mode === 'SCULPT') sculptStroke(v, e);
+  if (mode === 'SCULPT' && activeBrush('SCULPT')?.sculpt_tool === 'DRAW_FACE_SETS') faceSetStroke(v, e, activeBrush('SCULPT')!);
+  else if (mode === 'SCULPT') sculptStroke(v, e);
   else if (mode === 'VERTEX_PAINT') vertexPaintStroke(v, e);
   else if (mode === 'WEIGHT_PAINT') {
     const am = activeMeshData();
