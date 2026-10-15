@@ -20,6 +20,12 @@ registerIcons({
     '<path class="s" d="M2 13 5.5 4.5 10 11 14 3" fill="none" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/><circle class="f" cx="5.5" cy="4.5" r="1.3"/><circle class="f" cx="10" cy="11" r="1.3"/>',
   gp_arc:
     '<path class="s" d="M2.5 13.5C2.5 7 7 2.5 13.5 2.5" fill="none" stroke-width="1.6" stroke-linecap="round"/><circle class="f" cx="2.5" cy="13.5" r="1.4"/><circle class="f" cx="13.5" cy="2.5" r="1.4"/>',
+  gp_curve:
+    '<path class="s" d="M2.5 13.2C4 6.5 12 9.5 13.5 2.8" fill="none" stroke-width="1.6" stroke-linecap="round"/><path class="s" d="M2.5 13.2 6.2 6.2" stroke-width=".9" stroke-dasharray="1.4 1.1" opacity=".75"/><circle class="s" cx="6.2" cy="6.2" r="1.2" fill="none" stroke-width="1"/><circle class="f" cx="2.5" cy="13.2" r="1.4"/><circle class="f" cx="13.5" cy="2.8" r="1.4"/>',
+  gp_trim:
+    '<path class="s" d="M1.5 11c1.6-1.6 3-2.2 4.2-2.2M10.3 8.8c1.3 0 2.7.6 4.2 2.2" fill="none" stroke-width="1.6" stroke-linecap="round"/><path class="s" d="M5.7 8.8h4.6" stroke-width="1.2" stroke-dasharray="1.3 1.2" opacity=".6"/><path class="s" d="M8 2.2c3 0 4.3 1.6 4.3 3.4S10.6 13 8 13 3.7 7.4 3.7 5.6 5 2.2 8 2.2z" fill="none" stroke-width="1" stroke-dasharray="2 1.4"/>',
+  gp_interpolate:
+    '<path class="s" d="M2 13.5C2.8 8 3.8 5 6.5 2.5" fill="none" stroke-width="1.6" stroke-linecap="round"/><path class="s" d="M6 13.5C6.9 9 8.2 6.5 10.5 4.5" fill="none" stroke-width="1.3" stroke-linecap="round" opacity=".45"/><path class="s" d="M10 13.5c1-3.6 2.4-5.6 4.5-7" fill="none" stroke-width="1.6" stroke-linecap="round"/>',
   gp_box: '<rect class="s" x="2.5" y="3.5" width="11" height="9" rx=".6" fill="none" stroke-width="1.5"/>',
   gp_circle: '<circle class="s" cx="8" cy="8" r="5.6" fill="none" stroke-width="1.5"/>',
   gp_sculpt_smooth:

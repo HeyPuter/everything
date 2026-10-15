@@ -313,7 +313,14 @@ export const DEFAULT_BRUSHES: Record<string, GPBrush> = {
     strength: 1,
     use_pressure_size: false,
     use_pressure_strength: false,
-    subdivision: 12,
+    subdivision: 62,
+  },
+  'builtin.curve': {
+    size: 25,
+    strength: 1,
+    use_pressure_size: false,
+    use_pressure_strength: false,
+    subdivision: 62,
   },
   'builtin.box': {
     size: 25,
@@ -327,7 +334,7 @@ export const DEFAULT_BRUSHES: Record<string, GPBrush> = {
     strength: 1,
     use_pressure_size: false,
     use_pressure_strength: false,
-    subdivision: 32,
+    subdivision: 94,
   },
   'builtin.brush.Smooth': {
     size: 50,

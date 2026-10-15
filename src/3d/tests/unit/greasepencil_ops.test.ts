@@ -224,3 +224,72 @@ describe('operators', () => {
     expect(Object.keys(app.doc.objects).length).toBe(2);
   });
 });
+
+import { stabilize, trimEnds } from '../../src/greasepencil/drawproc';
+import { primitivePoints, segmentControls } from '../../src/greasepencil/primitives';
+import { trimStrokes, insidePolygon } from '../../src/greasepencil/drawtools';
+
+describe('draw input processing', () => {
+  it('stabilizer trails the pointer by its radius', () => {
+    expect(stabilize({ x: 0, y: 0 }, { x: 5, y: 0 }, 10, 0.5)).toEqual({ x: 0, y: 0 });
+    const p = stabilize({ x: 0, y: 0 }, { x: 30, y: 0 }, 10, 0);
+    expect(p.x).toBeCloseTo(20);
+  });
+
+  it('trims the overshooting ends of a self-crossing stroke', () => {
+    // a loop: starts left of the crossing and ends past it
+    const s = [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+      [5, 10],
+      [5, -5],
+    ].map(([x, y]) => ({ x, y, pressure: 1 }));
+    const t = trimEnds(s);
+    expect(t[0]).toMatchObject({ x: 5, y: 0 });
+    expect(t[t.length - 1]).toMatchObject({ x: 5, y: 0 });
+  });
+});
+
+describe('primitives', () => {
+  it('builds lines, boxes and curves from control points', () => {
+    expect(primitivePoints('LINE', [{ x: 0, y: 0 }, { x: 10, y: 0 }], 1).map((p) => p.x)).toEqual([0, 5, 10]);
+    expect(primitivePoints('LINE', [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], 0).length).toBe(3);
+    expect(primitivePoints('BOX', [{ x: 0, y: 0 }, { x: 10, y: 10 }], 0).length).toBe(4);
+    const cp = [{ x: 0, y: 0 }, ...segmentControls('CURVE', { x: 0, y: 0 }, { x: 9, y: 0 })];
+    const pts = primitivePoints('CURVE', cp, 8);
+    expect(pts.length).toBe(9);
+    expect(pts[4].x).toBeCloseTo(4.5);
+    // arc: a quarter of an ellipse through the corner side
+    const arc = primitivePoints('ARC', [{ x: 0, y: 0 }, ...segmentControls('ARC', { x: 0, y: 0 }, { x: 10, y: 10 })], 8);
+    expect(arc[4].x).toBeGreaterThan(5);
+    expect(arc[4].y).toBeLessThan(5);
+  });
+});
+
+describe('trim', () => {
+  it('removes the lassoed piece of a stroke up to its crossings', () => {
+    const a = newStroke([newPoint([0, 0, 0]), newPoint([10, 0, 0])]);
+    const b = newStroke([newPoint([5, 0, -5]), newPoint([5, 0, 5])]);
+    const scr = [
+      [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+      ],
+      [
+        { x: 5, y: -5 },
+        { x: 5, y: 5 },
+      ],
+    ];
+    const lasso = [
+      { x: -1, y: -1 },
+      { x: 3, y: -1 },
+      { x: 3, y: 1 },
+      { x: -1, y: 1 },
+    ];
+    expect(insidePolygon(0, 0, lasso)).toBe(true);
+    const out = trimStrokes([a, b], scr, lasso)!;
+    expect(out.length).toBe(2);
+    expect(out[0].points.map((p) => p.co[0])).toEqual([5, 10]);
+  });
+});

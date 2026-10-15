@@ -123,9 +123,22 @@ export interface GPBrush {
   strength: number;
   use_pressure_size: boolean;
   use_pressure_strength: boolean;
-  /** Draw: post smoothing factor and steps */
+  /** Draw: post-processing (smoothing factor and steps, subdivisions, simplify, trim) */
+  use_settings_postprocess?: boolean;
   pen_smooth_factor?: number;
   pen_smooth_steps?: number;
+  pen_subdivision_steps?: number;
+  simplify_factor?: number;
+  use_trim?: boolean;
+  /** Draw: stabilizer (lazy mouse) */
+  use_smooth_stroke?: boolean;
+  smooth_stroke_radius?: number;
+  smooth_stroke_factor?: number;
+  /** Draw: per point randomness */
+  use_settings_random?: boolean;
+  random_pressure?: number;
+  random_strength?: number;
+  pen_jitter?: number;
   /** Draw: color mode */
   color_mode?: 'MATERIAL' | 'VERTEXCOLOR';
   color?: Color;

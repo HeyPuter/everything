@@ -30,10 +30,10 @@ export function brushFalloff(d: number): number {
 let seed = 1;
 const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
 
-function startSculpt(v: View3D, e: PointerEvent) {
+export function startSculpt(v: View3D, e: PointerEvent, toolOverride?: string) {
   const c = drawContext();
   if (!c) return;
-  const tool = activeTools[app.doc.mode] ?? 'builtin.brush.Smooth';
+  const tool = toolOverride ?? (e.shiftKey ? 'builtin.brush.Smooth' : (activeTools[app.doc.mode] ?? 'builtin.brush.Smooth'));
   const b = gpBrush(app.doc, tool);
   const R = b.size / 2;
   const frame = app.doc.scene.frame_current;

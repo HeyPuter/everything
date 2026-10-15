@@ -19,6 +19,8 @@ import './layerops';
 import './brushops';
 import './editops';
 import './editmenus';
+import './primitives';
+import './drawtools';
 import { addMenuHooks } from '../editors/view3d/menus';
 
 addMenuHooks.push(() => [

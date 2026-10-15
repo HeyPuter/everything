@@ -22,61 +22,23 @@ import type { GPBrush, GPToolSettings } from './types';
 // toolbars
 
 export const DRAW_TOOLS: (ToolDef | null)[] = [
-  {
-    id: 'builtin.brush.Draw',
-    label: 'Draw',
-    icon: 'gp_draw',
-    description: 'Draw free-hand strokes (Ctrl: erase)',
-  },
-  {
-    id: 'builtin.brush.Erase',
-    label: 'Erase',
-    icon: 'gp_erase',
-    description: 'Erase points or whole strokes',
-  },
-  {
-    id: 'builtin.brush.Fill',
-    label: 'Fill',
-    icon: 'gp_fill',
-    description: 'Fill a closed area with the active material',
-  },
-  {
-    id: 'builtin.brush.Tint',
-    label: 'Tint',
-    icon: 'gp_tint',
-    description: 'Tint the color of strokes and fills',
-  },
+  { id: 'builtin.brush.Draw', label: 'Draw', icon: 'gp_draw', description: 'Draw free-hand strokes (Ctrl: erase, Shift: smooth)' },
+  { id: 'builtin.brush.Fill', label: 'Fill', icon: 'gp_fill', description: 'Fill a closed area with the active material' },
+  { id: 'builtin.brush.Erase', label: 'Erase', icon: 'gp_erase', description: 'Erase points or whole strokes' },
+  { id: 'builtin.brush.Tint', label: 'Tint', icon: 'gp_tint', description: 'Tint the color of strokes and fills' },
   null,
-  {
-    id: 'builtin.line',
-    label: 'Line',
-    icon: 'gp_line',
-    description: 'Create a line stroke',
-  },
-  {
-    id: 'builtin.polyline',
-    label: 'Polyline',
-    icon: 'gp_polyline',
-    description: 'Create a stroke of straight segments',
-  },
-  {
-    id: 'builtin.arc',
-    label: 'Arc',
-    icon: 'gp_arc',
-    description: 'Create an arc stroke',
-  },
-  {
-    id: 'builtin.box',
-    label: 'Box',
-    icon: 'gp_box',
-    description: 'Create a rectangle stroke',
-  },
-  {
-    id: 'builtin.circle',
-    label: 'Circle',
-    icon: 'gp_circle',
-    description: 'Create a circle stroke',
-  },
+  { id: 'builtin.trim', label: 'Trim', icon: 'gp_trim', description: 'Cut away the parts of strokes inside a lasso, up to where they cross other strokes' },
+  null,
+  { id: 'builtin.eyedropper', label: 'Eyedropper', icon: 'eyedropper', description: 'Sample a color from the viewport into a material or the brush' },
+  null,
+  { id: 'builtin.line', label: 'Line', icon: 'gp_line', description: 'Create a line stroke' },
+  { id: 'builtin.polyline', label: 'Polyline', icon: 'gp_polyline', description: 'Create a stroke of straight segments' },
+  { id: 'builtin.arc', label: 'Arc', icon: 'gp_arc', description: 'Create an arc stroke' },
+  { id: 'builtin.curve', label: 'Curve', icon: 'gp_curve', description: 'Create a curved stroke with editable handles' },
+  { id: 'builtin.box', label: 'Box', icon: 'gp_box', description: 'Create a rectangle stroke' },
+  { id: 'builtin.circle', label: 'Circle', icon: 'gp_circle', description: 'Create a circle stroke' },
+  null,
+  { id: 'builtin.interpolate', label: 'Interpolate', icon: 'gp_interpolate', description: 'Drag to create an in-between breakdown from the keys around the current frame' },
 ];
 
 export const SCULPT_TOOLS: ToolDef[] = [
@@ -393,7 +355,7 @@ toolSettingsRenderers['builtin.brush.Fill'] = () => {
     field(110, sizeField(b, 'gp-fill-size', 'Line')),
   ];
 };
-for (const t of ['builtin.line', 'builtin.polyline', 'builtin.arc', 'builtin.box', 'builtin.circle'])
+for (const t of ['builtin.line', 'builtin.polyline', 'builtin.arc', 'builtin.curve', 'builtin.box', 'builtin.circle'])
   toolSettingsRenderers[t] = () => {
     const b = gpBrush(app.doc, t);
     return [
@@ -621,6 +583,67 @@ modeMenus.SCULPT_GREASE_PENCIL = {
 // ---------------------------------------------------------------------------
 // sidebar Tool tab
 
+const num = (b: GPBrush, key: keyof GPBrush, id: string, label: string, o: { min: number; max: number; int?: boolean; slider?: boolean; tip?: string; unit?: string; def: number }) =>
+  row(
+    '',
+    numberField({
+      id,
+      label,
+      value: (b[key] as number | undefined) ?? o.def,
+      min: o.min,
+      max: o.max,
+      int: o.int,
+      slider: o.slider,
+      precision: o.int ? 0 : 3,
+      tip: o.tip,
+      set: (x) => (((b as unknown as Record<string, number>)[key] = o.int ? Math.round(x) : x), refresh()),
+    }),
+  );
+
+const headerCheck = (id: string, on: boolean, set: (v: boolean) => void, tip: string) => checkbox(id, '', on, set, { tip });
+
+/** Draw brush ▸ Stroke: stabilizer, post-processing and randomness. */
+function drawStrokePanels(b: GPBrush): Child {
+  return panel(
+    'gp-sb-stroke',
+    'Stroke',
+    () => [
+      panel(
+        'gp-sb-stab',
+        'Stabilize Stroke',
+        () => [
+          num(b, 'smooth_stroke_radius', 'gp-sb-stab-r', 'Radius', { min: 10, max: 200, int: true, def: 75, tip: 'How far the drawing point trails the pointer (pixels)' }),
+          num(b, 'smooth_stroke_factor', 'gp-sb-stab-f', 'Factor', { min: 0.5, max: 0.99, slider: true, def: 0.9, tip: 'How slowly the drawing point follows the pointer' }),
+        ],
+        { sub: true, closed: true, header: headerCheck('gp-sb-stab-on', !!b.use_smooth_stroke, (x) => ((b.use_smooth_stroke = x), refresh()), 'Stabilize the stroke with a lagging drawing point') },
+      ),
+      panel(
+        'gp-sb-post',
+        'Post-Processing',
+        () => [
+          num(b, 'pen_smooth_factor', 'gp-sb-smooth', 'Smooth', { min: 0, max: 2, slider: true, def: 0, tip: 'Amount of smoothing applied after finishing the stroke' }),
+          num(b, 'pen_smooth_steps', 'gp-sb-steps', 'Iterations', { min: 0, max: 100, int: true, def: 1, tip: 'Number of smoothing passes' }),
+          num(b, 'pen_subdivision_steps', 'gp-sb-subd', 'Subdivisions', { min: 0, max: 3, int: true, def: 0, tip: 'Times each segment is split in two after drawing' }),
+          num(b, 'simplify_factor', 'gp-sb-simp', 'Simplify', { min: 0, max: 1, slider: true, def: 0, tip: 'Remove points that hardly change the shape' }),
+          checkbox('gp-sb-trim', 'Trim Stroke Ends', !!b.use_trim, (x) => ((b.use_trim = x), refresh()), { tip: 'Cut the loose ends that overshoot where the stroke crosses itself' }),
+        ],
+        { sub: true, closed: true, header: headerCheck('gp-sb-post-on', b.use_settings_postprocess !== false, (x) => ((b.use_settings_postprocess = x), refresh()), 'Process the stroke after drawing') },
+      ),
+      panel(
+        'gp-sb-rand',
+        'Randomize',
+        () => [
+          num(b, 'random_pressure', 'gp-sb-rr', 'Radius', { min: 0, max: 1, slider: true, def: 0, tip: 'Random variation of the point radius' }),
+          num(b, 'random_strength', 'gp-sb-rs', 'Strength', { min: 0, max: 1, slider: true, def: 0, tip: 'Random variation of the point opacity' }),
+          num(b, 'pen_jitter', 'gp-sb-rj', 'Jitter', { min: 0, max: 1, slider: true, def: 0, tip: 'Random offset of the points across the stroke' }),
+        ],
+        { sub: true, closed: true, header: headerCheck('gp-sb-rand-on', !!b.use_settings_random, (x) => ((b.use_settings_random = x), refresh()), 'Add randomness to the stroke') },
+      ),
+    ],
+    { sub: true, closed: true },
+  );
+}
+
 /** Brush / placement panels for the active Draw or Sculpt tool (viewport sidebar and Properties ▸ Tool). */
 export function gpToolPanels(): Child {
   const mode = app.doc.mode;
@@ -628,6 +651,7 @@ export function gpToolPanels(): Child {
   const b = gpBrush(app.doc, tool);
   const ts = gpTS(app.doc);
   const list = (mode === 'PAINT_GREASE_PENCIL' ? DRAW_TOOLS : SCULPT_TOOLS).filter((t): t is ToolDef => !!t);
+  const brushLike = tool.startsWith('builtin.brush.') || ['builtin.line', 'builtin.polyline', 'builtin.arc', 'builtin.curve', 'builtin.box', 'builtin.circle'].includes(tool);
   return [
     panel('gp-sb-tool', 'Active Tool', () => [
       enumMenu(
@@ -637,42 +661,12 @@ export function gpToolPanels(): Child {
         (id) => setActiveTool(id),
       ),
     ]),
-    panel('gp-sb-brush', 'Brush Settings', () => [
+    !brushLike ? null : panel('gp-sb-brush', 'Brush Settings', () => [
       row('', sizeField(b, 'gp-sb-size')),
       row('', strengthField(b, 'gp-sb-str')),
       checkbox('gp-sb-ps', 'Use Pressure for Size', !!b.use_pressure_size, (x) => ((b.use_pressure_size = x), refresh())),
       checkbox('gp-sb-pst', 'Use Pressure for Strength', !!b.use_pressure_strength, (x) => ((b.use_pressure_strength = x), refresh())),
-      tool === 'builtin.brush.Draw'
-        ? [
-            row(
-              '',
-              numberField({
-                id: 'gp-sb-smooth',
-                label: 'Smooth',
-                value: b.pen_smooth_factor ?? 0,
-                min: 0,
-                max: 2,
-                slider: true,
-                precision: 3,
-                tip: 'Amount of smoothing applied after finishing the stroke',
-                set: (x) => ((b.pen_smooth_factor = x), refresh()),
-              }),
-            ),
-            row(
-              '',
-              numberField({
-                id: 'gp-sb-steps',
-                label: 'Iterations',
-                value: b.pen_smooth_steps ?? 1,
-                min: 0,
-                max: 100,
-                int: true,
-                tip: 'Number of smoothing iterations after finishing the stroke',
-                set: (x) => ((b.pen_smooth_steps = Math.round(x)), refresh()),
-              }),
-            ),
-          ]
-        : null,
+      tool === 'builtin.brush.Draw' ? drawStrokePanels(b) : null,
       tool === 'builtin.brush.Erase'
         ? row(
             'Mode',

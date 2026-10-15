@@ -126,3 +126,66 @@ test('edit mode: menus and shortcuts', async ({ page }) => {
   expect(await get(page, 'Object.keys(app.doc.objects).length')).toBe(2);
   await expectNoErrors(errors);
 });
+
+test('draw mode tools: curve primitive with handles, trim, box erase, eyedropper', async ({ page }) => {
+  const errors = await openApp(page);
+  await run(page, 'object.select_all', { action: 'SELECT' });
+  await run(page, 'object.delete');
+  await run(page, 'object.grease_pencil_add', { type: 'EMPTY' });
+  await run(page, 'object.mode_set', { mode: 'PAINT_GREASE_PENCIL' });
+  await run(page, 'view3d.view_axis', { type: 'FRONT' });
+  const c = await hoverViewport(page);
+  const tool = (id: string) => page.locator(`.v3d-toolbar [data-tool="${id}"]`).dispatchEvent('pointerdown');
+  // Curve: drag out, move a handle, confirm with Enter
+  await tool('builtin.curve');
+  await page.mouse.move(c.x - 150, c.y + 50);
+  await page.mouse.down();
+  await page.mouse.move(c.x + 150, c.y - 50, { steps: 6 });
+  await page.mouse.up();
+  expect(await get(page, 'app.modal?.label')).toBe('Grease Pencil Curve Shape');
+  await page.mouse.move(c.x - 50, c.y + 16.7);
+  await page.mouse.down();
+  await page.mouse.move(c.x - 100, c.y - 150, { steps: 4 });
+  await page.mouse.up();
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('Enter');
+  expect(await strokeCount(page)).toBe(1);
+  // the handle bent the stroke upwards: its highest point is well above both ends
+  const zs = (await get(page, `Array.from(${gp}.drawings[0].position).filter((_, i) => i % 3 === 2)`)) as number[];
+  expect(Math.max(...zs)).toBeGreaterThan(Math.max(zs[0], zs[zs.length - 1]) + 0.1);
+  expect(zs.length).toBe(64); // 63 subdivisions + 1
+  // Line across it, then Trim the part of the line left of the crossing
+  await tool('builtin.line');
+  await page.mouse.move(c.x, c.y - 200);
+  await page.mouse.down();
+  await page.mouse.move(c.x, c.y + 200, { steps: 6 });
+  await page.mouse.up();
+  await page.keyboard.press('Enter');
+  expect(await strokeCount(page)).toBe(2);
+  await tool('builtin.trim');
+  await page.mouse.move(c.x - 170, c.y + 120);
+  await page.mouse.down();
+  for (const [dx, dy] of [[-80, 120], [-80, -60], [-170, -60]]) await page.mouse.move(c.x + dx, c.y + dy, { steps: 3 });
+  await page.mouse.up();
+  // the curve lost its left part; the line is untouched
+  expect(await strokeCount(page)).toBe(2);
+  const zs2 = (await get(page, `Array.from(${gp}.drawings[0].position).filter((_, i) => i % 3 === 0)`)) as number[];
+  expect(zs2.length).toBeLessThan(64 + 7);
+  // Box erase (B) everything
+  await hoverViewport(page);
+  await page.keyboard.press('b');
+  await page.mouse.move(c.x - 300, c.y - 250);
+  await page.mouse.down();
+  await page.mouse.move(c.x + 300, c.y + 250, { steps: 4 });
+  await page.mouse.up();
+  expect(await strokeCount(page)).toBe(0);
+  // Eyedropper: Shift click samples a fill material from the (grey) background
+  await tool('builtin.eyedropper');
+  const mats0 = (await get(page, `${gp}.materials.length`)) as number;
+  await page.keyboard.down('Shift');
+  await page.mouse.click(c.x + 200, c.y + 150);
+  await page.keyboard.up('Shift');
+  expect(await get(page, `${gp}.materials.length`)).toBe(mats0 + 1);
+  expect(await get(page, `app.doc.materials[${gp}.materials[app.activeObject.active_material_index]].grease_pencil.show_fill`)).toBe(true);
+  await expectNoErrors(errors);
+});
