@@ -71,7 +71,7 @@ export function fileMenu(): MenuItem[] {
     { label: 'Export', icon: 'export', submenu: exportMenu },
     { separator: true },
     { label: 'External Data', submenu: externalDataMenu },
-    { label: 'Clean Up', submenu: () => [{ label: 'Purge Unused Data…', op: 'outliner.orphans_purge' }] },
+    { label: 'Clean Up', submenu: () => [{ label: 'Purge Unused Data…', op: 'outliner.orphans_purge' }, { label: 'Manage Unused Data…', op: 'outliner.orphans_manage' }] },
     { separator: true },
     {
       label: 'Defaults',

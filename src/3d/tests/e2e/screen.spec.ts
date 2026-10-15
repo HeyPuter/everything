@@ -597,5 +597,16 @@ test('Duplicate Area into New Window shows a working editor in a floating window
   await page.keyboard.press('Escape');
   await win.locator('.dlg-close').click();
   await expect(win).toHaveCount(0);
+  // File > Clean Up > Manage Unused Data opens an Outliner window listing unused data
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const m = structuredClone(Object.values(a.doc.materials)[0] as any);
+    m.id = 'ma_unused';
+    m.name = 'Leftover';
+    a.doc.materials.ma_unused = m;
+    a.run('outliner.orphans_manage');
+  });
+  await expect(win.locator('.outliner').getByText('Leftover')).toBeVisible();
+  await expect(win.locator('.outliner').getByText('Cube')).toHaveCount(0);
   await expectNoErrors(errors);
 });
