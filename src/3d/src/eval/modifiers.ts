@@ -305,7 +305,7 @@ function subdivideOnce(m: EvalMesh, simple: boolean, useCreases: boolean, bounda
 // ---------------------------------------------------------------------------
 // Mirror (with optional bisect and merge)
 
-function bisect(m: EvalMesh, axis: number, keepPositive: boolean, origin: number): EvalMesh {
+function bisect(m: EvalMesh, axis: number, keepPositive: boolean, origin: number, threshold = 1e-6): EvalMesh {
   const P = m.positions,
     nf = m.offsets.length - 1;
   const b = new MeshBuilder(m.weights?.length ?? 0, !!m.colors);
@@ -331,7 +331,7 @@ function bisect(m: EvalMesh, axis: number, keepPositive: boolean, origin: number
     }
     return id;
   };
-  const eps = 1e-6;
+  const eps = Math.max(1e-7, threshold);
   for (let f = 0; f < nf; f++) {
     const s = m.offsets[f],
       e = m.offsets[f + 1],
@@ -394,7 +394,7 @@ function mirrorMesh(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalM
     const toMirror = mirrorOb ? mirrorOb.clone().invert() : null;
     let local = mesh;
     if (toMirror) local = transformMesh(mesh, toMirror);
-    if (bisectAxes[axis]) local = bisect(local, axis, !flipAxes[axis], 0);
+    if (bisectAxes[axis]) local = bisect(local, axis, !flipAxes[axis], 0, num(mod, 'bisect_threshold', 0.001));
     const P = local.positions,
       nv = P.length / 3;
     const b = new MeshBuilder(local.weights?.length ?? 0, !!local.colors);
@@ -416,11 +416,15 @@ function mirrorMesh(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalM
     }
     appendMesh(b, local, ident);
     const mirrored = { ...local, uvs: local.uvs };
-    if (bool(mod, 'use_mirror_u') || bool(mod, 'use_mirror_v')) {
+    const ou = num(mod, 'offset_u'),
+      ov = num(mod, 'offset_v');
+    if (bool(mod, 'use_mirror_u') || bool(mod, 'use_mirror_v') || ou || ov) {
       const uv = local.uvs.slice();
       for (let i = 0; i < uv.length; i += 2) {
         if (bool(mod, 'use_mirror_u')) uv[i] = 1 - uv[i] + num(mod, 'mirror_offset_u');
         if (bool(mod, 'use_mirror_v')) uv[i + 1] = 1 - uv[i + 1] + num(mod, 'mirror_offset_v');
+        uv[i] += ou;
+        uv[i + 1] += ov;
       }
       mirrored.uvs = uv;
     }
@@ -1970,7 +1974,7 @@ export const modifierTypes: Record<string, ModifierType> = {
     label: 'Array',
     category: 'GENERATE',
     icon: 'mod_array',
-    defaults: base({ count: 2, fit_type: 'FIXED_COUNT', fit_length: 4, curve: null, start_cap: null, end_cap: null, use_merge_vertices_cap: false, use_relative_offset: true, relative_offset_displace: [1, 0, 0], use_constant_offset: false, constant_offset_displace: [0.1, 0, 0], use_object_offset: false, offset_object: null, use_merge_vertices: false, merge_threshold: 0.01, offset_u: 0, offset_v: 0 }),
+    defaults: base({ count: 2, fit_type: 'FIXED_COUNT', fit_length: 0, curve: null, start_cap: null, end_cap: null, use_merge_vertices_cap: false, use_relative_offset: true, relative_offset_displace: [1, 0, 0], use_constant_offset: false, constant_offset_displace: [1, 0, 0], use_object_offset: false, offset_object: null, use_merge_vertices: false, merge_threshold: 0.01, offset_u: 0, offset_v: 0 }),
     deps: (m) => [m.offset_object as string, m.start_cap as string, m.end_cap as string, m.curve as string],
     apply: arrayMesh,
   },
@@ -1986,7 +1990,7 @@ export const modifierTypes: Record<string, ModifierType> = {
     label: 'Mirror',
     category: 'GENERATE',
     icon: 'mod_mirror',
-    defaults: base({ use_axis: [true, false, false], use_bisect_axis: [false, false, false], use_bisect_flip_axis: [false, false, false], mirror_object: null, use_clip: false, use_mirror_merge: true, merge_threshold: 0.001, use_mirror_u: false, use_mirror_v: false, mirror_offset_u: 0, mirror_offset_v: 0, use_mirror_vertex_groups: true }),
+    defaults: base({ use_axis: [true, false, false], use_bisect_axis: [false, false, false], use_bisect_flip_axis: [false, false, false], mirror_object: null, use_clip: false, use_mirror_merge: true, merge_threshold: 0.001, use_mirror_u: false, use_mirror_v: false, mirror_offset_u: 0, mirror_offset_v: 0, offset_u: 0, offset_v: 0, bisect_threshold: 0.001, use_mirror_vertex_groups: true }),
     deps: (m) => [m.mirror_object as string],
     supportsEditMode: true,
     apply: mirrorMesh,
