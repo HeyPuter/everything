@@ -186,7 +186,8 @@ function convertedItems(from: NodeData, fromKind: string, toKind: string): Recor
 function swapZone(tree: NodeTreeData, kind: (typeof ZONES)[number]): boolean {
   const sctx = ctxOf(app.doc, tree);
   const sel = tree.nodes.filter((n) => n.select && getNodeType(n.type)?.layout !== 'FRAME');
-  const zin = sel.find((n) => ZONES.some((z) => z.input === n.type));
+  const selOut = sel.find((n) => ZONES.some((z) => z.output === n.type));
+  const zin = sel.find((n) => ZONES.some((z) => z.input === n.type)) ?? (selOut ? tree.nodes.find((n) => n.props.paired_output === selOut.id) : undefined);
   if (zin) {
     const from = zoneOfType(zin.type)!;
     const oldOut = pairedOutput(tree, zin);
