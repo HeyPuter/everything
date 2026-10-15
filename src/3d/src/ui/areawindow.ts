@@ -6,14 +6,18 @@
 import { h } from './h';
 import { app, registerOperators, type OpContext } from '../app/app';
 import { openDialog, closeDialog } from '../scripting/dialog';
-import { Screen, cloneAreaState, editorTypes, newAreaId, MAIN_WINDOW_ONLY, type Area, type AreaState } from './screen';
+import { Screen, cloneAreaState, editorTypes, newAreaId, MAIN_WINDOW_ONLY, type Area, type AreaState, type LayoutNode } from './screen';
+import { leaves } from './layout';
+import { shell } from './shell';
 import { renderContext } from '../render/context';
 
 let counter = 0;
 export const areaWindows = new Map<string, Screen>();
 
-/** Open a floating window holding one area with state `st`; returns the window and its screen. */
-export function openAreaWindow(st: AreaState, opts: { width: number; height: number; x: number; y: number }): { id: string; screen: Screen } {
+/** Open a floating window holding one area with state `st` (or a whole layout); returns the window and its screen. */
+export function openAreaWindow(st: AreaState | LayoutNode, opts: { width: number; height: number; x: number; y: number; title?: string }): { id: string; screen: Screen } {
+  const layout: LayoutNode = 'id' in st ? { area: st } : st;
+  const first = leaves(layout)[0];
   const id = `area-window-${++counter}`;
   const host = document.createElement('div');
   host.className = 'aw-host';
@@ -24,7 +28,7 @@ export function openAreaWindow(st: AreaState, opts: { width: number; height: num
   let unsub: (() => void) | null = null;
   const dlg = openDialog({
     id,
-    title: editorTypes.get(st.type)?.label ?? 'Window',
+    title: opts.title ?? editorTypes.get(first?.type)?.label ?? 'Window',
     floating: true,
     hostsEditors: true,
     width: w,
@@ -38,7 +42,7 @@ export function openAreaWindow(st: AreaState, opts: { width: number; height: num
       if (app.hoverArea && sc.areas.includes(app.hoverArea as Area)) app.hoverArea = null;
     },
   });
-  sc.load({ area: st });
+  sc.load(layout);
   hookEngine();
   unsub = app.subscribe((kinds) => sc.update(kinds));
   areaWindows.set(id, sc);
@@ -77,6 +81,21 @@ registerOperators([
     undo: false,
     poll: (ctx) => !!areaOf(ctx) && !MAIN_WINDOW_ONLY.has(areaOf(ctx)!.type),
     exec: (ctx) => (duplicateIntoWindow(areaOf(ctx)!) ? 'FINISHED' : 'CANCELLED'),
+  },
+  {
+    idname: 'wm.window_new',
+    label: 'New Window',
+    description: 'Open a window with a copy of the current workspace layout',
+    undo: false,
+    poll: () => !!shell,
+    exec: () => {
+      const layout = structuredClone(shell.screen.serialize()) as LayoutNode & { dock?: number };
+      delete layout.dock;
+      for (const st of leaves(layout)) st.id = newAreaId();
+      const w = Math.round(innerWidth * 0.7),
+        hh = Math.round(innerHeight * 0.7);
+      openAreaWindow(layout, { width: w, height: hh, x: (innerWidth - w) / 2, y: 60, title: shell.active });
+    },
   },
   {
     idname: 'outliner.orphans_manage',

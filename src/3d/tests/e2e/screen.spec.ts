@@ -633,6 +633,11 @@ test('Duplicate Area into New Window shows a working editor in a floating window
   });
   await expect(win.locator('.outliner').getByText('Leftover')).toBeVisible();
   await expect(win.locator('.outliner').getByText('Cube')).toHaveCount(0);
+  await win.locator('.dlg-close').click();
+  // Window > New Window copies the whole workspace layout
+  const n = await areaCount(page);
+  await page.evaluate(() => (window as any).app.run('wm.window_new'));
+  await expect(win.locator('.area')).toHaveCount(n);
   await expectNoErrors(errors);
 });
 

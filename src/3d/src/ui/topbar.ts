@@ -142,6 +142,8 @@ export function renderMenu(): MenuItem[] {
 
 export function windowMenu(sh: Shell): MenuItem[] {
   return [
+    { label: 'New Window', op: 'wm.window_new' },
+    { separator: true },
     { label: 'Toggle Window Fullscreen', icon: 'fullscreen_enter', op: 'wm.window_fullscreen_toggle' },
     { separator: true },
     { label: 'Next Workspace', shortcut: 'Ctrl Page Down', op: 'screen.workspace_cycle', props: { direction: 'NEXT' } },
