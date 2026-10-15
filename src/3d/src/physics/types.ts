@@ -212,6 +212,14 @@ export interface ParticleSettingsX extends ParticleSettings {
   child_size_random?: number;
   /** share of the particles shown in the viewport (%) */
   display_percentage?: number;
+  /** velocity along the surface, and its direction around the normal (-1..1 × 180°) */
+  tangent_factor?: number;
+  tangent_phase?: number;
+  /** collisions: particle radius keeps it off surfaces; particles die on hitting a surface */
+  use_size_deflect?: boolean;
+  use_die_on_collision?: boolean;
+  /** render the emitter mesh as well */
+  use_render_emitter?: boolean;
   object_factor?: number;
   display_method?: 'RENDER' | 'DOT' | 'NONE';
   display_size?: number;
@@ -486,6 +494,11 @@ export function defaultParticleSettings(id: string, name: string): ParticleSetti
     use_collision: true,
     users: 1,
     display_percentage: 100,
+    tangent_factor: 0,
+    tangent_phase: 0,
+    use_size_deflect: false,
+    use_die_on_collision: false,
+    use_render_emitter: true,
     child_nbr: 10,
     child_size: 1,
     child_size_random: 0,

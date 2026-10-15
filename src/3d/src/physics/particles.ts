@@ -75,6 +75,10 @@ const SIM_KEYS: (keyof ParticleSettingsX)[] = [
   'keyed_targets',
   'keyed_loops',
   'effector_weights_types',
+  'tangent_factor',
+  'tangent_phase',
+  'use_size_deflect',
+  'use_die_on_collision',
 ];
 
 /** Weights of one of the particle system's vertex groups (inverted when asked), or null. */
@@ -114,6 +118,8 @@ function simHash(doc: DocumentData, ob: ObjectData, m: ModifierBase, psys: Parti
     motionKey(doc, ob, pc.frame_start),
     s.use_collision ? collidersKey(doc, pc.frame_start, ob.id) : '',
     fieldsKey(doc, pc.frame_start),
+    // the size only matters to the motion with size deflection
+    s.use_size_deflect ? JSON.stringify([s.particle_size, s.size_random]) : '',
   ];
   // keyed targets and boid rule objects take part in the motion
   if (s.physics_type === 'KEYED')
@@ -217,6 +223,14 @@ function spawn(L: PLive, s: ParticleSettingsX, seed: number, i: number, A: Matri
   if (s.physics_type === 'NO') return;
   // initial velocity: normal + object aligned + random + emitter motion
   _n.set(sm.nx, sm.ny, sm.nz).transformDirection(M).multiplyScalar(s.normal_factor);
+  if (s.tangent_factor) {
+    // along the surface: perpendicular to the normal, turned around it by the phase
+    const nrm = new Vector3(sm.nx, sm.ny, sm.nz).transformDirection(M);
+    const ref = Math.abs(nrm.z) < 0.9 ? new Vector3(0, 0, 1) : new Vector3(1, 0, 0);
+    const tan = new Vector3().crossVectors(nrm, ref).normalize();
+    tan.applyAxisAngle(nrm, (s.tangent_phase ?? 0) * Math.PI);
+    _n.addScaledVector(tan, s.tangent_factor);
+  }
   _a.set(s.object_align_factor[0], s.object_align_factor[1], s.object_align_factor[2]).transformDirection(M).multiplyScalar(Math.hypot(...s.object_align_factor));
   _n.add(_a);
   if (s.factor_random) _n.add(_a.set(rand01(seed, i, 30) * 2 - 1, rand01(seed, i, 31) * 2 - 1, rand01(seed, i, 32) * 2 - 1).multiplyScalar(s.factor_random));
@@ -335,10 +349,12 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
         nz = pz + vz * h;
       // collisions: bounce off the first surface crossed during the step
       for (let bounce = 0; bounce < 2 && cols.length; bounce++) {
-        if (!segmentHit(cols, L.pos[j], L.pos[j + 1], L.pos[j + 2], nx, ny, nz, hit)) break;
+        // size deflection: the particle's radius keeps it off the surface
+        const radius = s.use_size_deflect ? s.particle_size * (1 - s.size_random * rand01(seed, i, 2)) * (L.sizeMul ? L.sizeMul[i] : 1) : 0;
+        if (!segmentHit(cols, L.pos[j], L.pos[j + 1], L.pos[j + 2], nx, ny, nz, hit, radius)) break;
         const cs = hit.collider!.settings as CollisionSettingsX;
         if ((cs.permeability ?? 0) > 0 && rand01(seed, i, L.step, 50) < (cs.permeability ?? 0)) break;
-        if (cs.use_particle_kill) {
+        if (cs.use_particle_kill || s.use_die_on_collision) {
           L.state[i] = 2;
           break;
         }
@@ -782,8 +798,10 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
     if (draw) particleDraw.set(key, draw);
     else particleDraw.delete(key);
   }
-  if (!instances.length) return mesh;
-  return { ...mesh, instances: [...(mesh.instances ?? []), ...instances] };
+  // the emitter itself can be left out of renders
+  const out = ctx.render && s.use_render_emitter === false ? { ...mesh, offsets: new Uint32Array([0]), indices: new Uint32Array(0), uvs: new Float32Array(0), normals: new Float32Array(0), positions: new Float32Array(0), looseEdges: undefined } : mesh;
+  if (!instances.length) return out;
+  return { ...out, instances: [...(mesh.instances ?? []), ...instances] };
 }
 
 registerModifier({

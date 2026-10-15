@@ -52,6 +52,8 @@ function emitterPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettin
     ]),
     panel('pa-vel', 'Velocity', () => [
       num(s, 'normal_factor', 'Normal', { min: -1000, max: 1000, softMin: -10, softMax: 10, disabled: d }),
+      num(s, 'tangent_factor', 'Tangent', { min: -1000, max: 1000, softMin: -10, softMax: 10, disabled: d }),
+      num(s, 'tangent_phase', 'Tangent Phase', { min: -1, max: 1, slider: true, disabled: d }),
       vecProp(s, 'object_align_factor', 'Object Aligned', { disabled: d, softMin: -10, softMax: 10 }),
       num(s, 'object_factor', 'Object Velocity', { min: -200, max: 200, softMin: -1, softMax: 1, disabled: d }),
       num(s, 'factor_random', 'Randomize', { min: 0, max: 200, softMax: 10, disabled: d }),
@@ -73,6 +75,9 @@ function emitterPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettin
             subHeading('Integration'),
             num(s, 'timestep_substeps', 'Substeps', { int: true, min: 1, max: 20, disabled: d }),
             bool(s, 'use_collision', 'Collide with Collision Objects', { disabled: d }),
+            subHeading('Deflection'),
+            bool(s, 'use_size_deflect', 'Size Deflect', { disabled: d || s.use_collision === false }),
+            bool(s, 'use_die_on_collision', 'Die on Hit', { disabled: d || s.use_collision === false }),
           ]
         : null,
     ]),
@@ -121,6 +126,7 @@ function renderPanel(ob: ObjectPhysics, s: ParticleSettingsX): Child {
         ], { sub: true })
       : null,
     !hair ? bool(s, 'use_dead', 'Show Dead') : null,
+    bool(s, 'use_render_emitter', 'Show Emitter', { tip: 'Render the emitter object itself (it always shows in the viewport)' }),
     s.render_type === 'OBJECT'
       ? panel('pa-render-obj', 'Object', () => [
           objectRow(`pa-inst-${s.id}`, s as never, 'instance_object', 'Instance Object', (o) => o.id !== ob.id && (o.type === 'MESH' || o.type === 'CURVE' || o.type === 'FONT')),

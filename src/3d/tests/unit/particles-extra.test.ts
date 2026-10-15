@@ -197,3 +197,28 @@ describe('emitter children', () => {
       }
   });
 });
+
+describe('emission and deflection options', () => {
+  it('tangent velocity moves particles along the surface; die on hit removes them at colliders', () => {
+    caches.clear();
+    const doc = emptyDocument();
+    doc.scene.use_gravity = false;
+    const ob = addMesh(doc, 'Emitter', plane(0.2));
+    const { m } = emitter(doc, ob, { physics_type: 'NEWTON', count: 20, normal_factor: 0, tangent_factor: 2 });
+    const g = new Depsgraph(doc);
+    at(g, doc, 24);
+    for (const p of framePos(ob, m, 24)) {
+      expect(Math.abs(p.z)).toBeLessThan(1e-3);
+      expect(Math.hypot(p.x, p.y)).toBeGreaterThan(0.5);
+    }
+    caches.clear();
+    const doc2 = emptyDocument();
+    const floor = addMesh(doc2, 'Floor', plane(10), [0, 0, -1]);
+    floor.collision = { use: true, thickness_outer: 0.02, cloth_friction: 5, damping: 0.1, use_culling: false } as never;
+    const ob2 = addMesh(doc2, 'Source', plane(0.2), [0, 0, 0]);
+    const { m: m2 } = emitter(doc2, ob2, { physics_type: 'NEWTON', count: 20, use_die_on_collision: true });
+    const g2 = new Depsgraph(doc2);
+    at(g2, doc2, 40);
+    expect(framePos(ob2, m2, 40).length).toBe(0);
+  });
+});
