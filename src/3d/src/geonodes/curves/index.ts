@@ -8,4 +8,5 @@ import './text';
 import './importers';
 import './gizmos';
 import './interpolate';
+import './sound';
 export {};

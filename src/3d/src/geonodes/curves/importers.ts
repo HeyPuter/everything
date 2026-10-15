@@ -207,12 +207,12 @@ const fileSig = (node: NodeData, env: { doc: DocumentData }) => {
 };
 
 /** File row in the node body: pick a packed file or open one from disk. */
-function fileBody(extensions: string[], accept: string) {
+export function fileBody(extensions: string[], accept: string, socket = 'Path') {
   return (ctx: NodeDrawContext): Child => {
     const { node, tree } = ctx;
-    const linked = tree.links.some((l) => l.to_node === node.id && l.to_socket === 'Path');
+    const linked = tree.links.some((l) => l.to_node === node.id && l.to_socket === socket);
     const files = Object.values(app.doc.packed_files ?? {}).filter((f) => extensions.some((e) => f.name.toLowerCase().endsWith(e)));
-    const cur = typeof node.inputs.Path === 'string' ? node.inputs.Path : '';
+    const cur = typeof node.inputs[socket] === 'string' ? (node.inputs[socket] as string) : '';
     const open = () => {
       const input = document.createElement('input');
       input.type = 'file';
@@ -222,7 +222,7 @@ function fileBody(extensions: string[], accept: string) {
         if (!file) return;
         const bytes = new Uint8Array(await file.arrayBuffer());
         packFile(app.doc, file.name, bytes);
-        node.inputs.Path = file.name;
+        node.inputs[socket] = file.name;
         ctx.changed('Open File', true);
       };
       input.click();
@@ -240,7 +240,7 @@ function fileBody(extensions: string[], accept: string) {
             e.preventDefault();
             openMenu(
               files.length
-                ? files.map((f) => ({ label: f.name, icon: 'file_blank', active: f.name === cur, action: () => ((node.inputs.Path = f.name), ctx.changed('Choose File', true)) }))
+                ? files.map((f) => ({ label: f.name, icon: 'file_blank', active: f.name === cur, action: () => ((node.inputs[socket] = f.name), ctx.changed('Choose File', true)) }))
                 : [{ label: 'No stored files', disabled: true }],
               e.currentTarget as HTMLElement,
             );
@@ -249,7 +249,7 @@ function fileBody(extensions: string[], accept: string) {
         icon('file_blank'),
         icon('down_arrow_hlt', 'tiny'),
       ),
-      h('span', { class: 'nd-ids-name', title: cur }, linked ? 'Path is linked' : cur || 'No file'),
+      h('span', { class: 'nd-ids-name', title: cur }, linked ? `${socket} is linked` : cur || 'No file'),
       h('button', { class: 'nd-ids-open', 'data-tip': 'Open a file from disk and store it in the project', disabled: linked, onclick: open }, icon('file_folder')),
     );
   };

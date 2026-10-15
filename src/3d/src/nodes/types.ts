@@ -23,6 +23,7 @@ export type SocketType =
   | 'MATERIAL'
   | 'TEXTURE'
   | 'FONT'
+  | 'SOUND'
   | 'CLOSURE'
   | 'BUNDLE'
   | 'CUSTOM';

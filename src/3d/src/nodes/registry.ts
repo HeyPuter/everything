@@ -305,6 +305,7 @@ export const SOCKET_COLORS: Record<SocketType, string> = {
   MATERIAL: '#eb7582',
   TEXTURE: '#9e4fa3',
   FONT: '#e7ae6b',
+  SOUND: '#c4b1e0',
   CLOSURE: '#fcb36b',
   BUNDLE: '#4a8899',
   CUSTOM: '#808080',

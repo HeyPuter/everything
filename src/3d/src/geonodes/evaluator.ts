@@ -73,6 +73,7 @@ export function coerce(v: SocketValue | undefined, type: SocketType): Val {
     case 'MATERIAL':
     case 'IMAGE':
     case 'FONT':
+    case 'SOUND':
       return typeof v === 'string' && v ? v : null;
     default:
       return v ?? null;

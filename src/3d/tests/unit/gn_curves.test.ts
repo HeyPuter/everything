@@ -606,3 +606,42 @@ describe('gizmo nodes', () => {
     expect((mod as unknown as Record<string, number>).Socket_1).toBe(7);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Sound
+
+import { encodeWav } from '../../src/sequencer/wav';
+
+describe('Sample Sound Frequencies', () => {
+  const sine = (freqs: number[], amp: number, scale = [1]) => {
+    const rate = 48000;
+    const chans = scale.map((s) => {
+      const d = new Float32Array(rate);
+      for (let i = 0; i < rate; i++) for (const f of freqs) d[i] += amp * s * Math.sin((2 * Math.PI * f * i) / rate);
+      return d;
+    });
+    return encodeWav(chans, rate, 'S16');
+  };
+  const amp = (file: Uint8Array, inputs: Record<string, SocketValue>, props: Record<string, SocketValue> = {}) => {
+    const t = setup();
+    packFile(t.doc, 'a.wav', file);
+    const s = node(t, 'GeometryNodeSampleSoundFrequencies', { Sound: 'a.wav', Time: 0.5, ...inputs }, props);
+    const ml = node(t, 'GeometryNodeMeshLine', { Count: 1 });
+    const sp = node(t, 'GeometryNodeSetPosition');
+    link(t, ml, 'Mesh', sp, 'Geometry');
+    link(t, s, 'Amplitude', sp, 'Offset');
+    return run(t, sp).mesh!.positions[0];
+  };
+  it('measures the amplitude of a frequency band', () => {
+    const one = sine([1000], 0.5);
+    // recorded values (tolerance: windowing details)
+    expect(amp(one, { Low: 900, High: 1100 })).toBeCloseTo(0.52635, 2);
+    expect(amp(one, { Low: 0, High: 10000 })).toBeCloseTo(0.52734, 2);
+    expect(amp(one, { Low: 2000, High: 3000 })).toBeLessThan(1e-3);
+    expect(amp(one, { Low: 900, High: 1100 }, { 'FFT Size': '1024', 'Window Function': 'Rectangular' })).toBeCloseTo(0.4032, 1);
+    const two = sine([440, 3000], 0.3, [1, 0.5]);
+    expect(amp(two, { Low: 400, High: 500 })).toBeCloseTo(0.23652, 2);
+    expect(amp(two, { Low: 400, High: 500, 'All Channels': false, Channel: 1 })).toBeCloseTo(0.15767, 2);
+    expect(amp(two, { Low: 2900, High: 3100, 'All Channels': false, Channel: 0 }, { 'FFT Size': '2048', 'Window Function': 'Hamming' })).toBeCloseTo(0.27812, 2);
+  });
+});
