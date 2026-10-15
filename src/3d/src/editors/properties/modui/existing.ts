@@ -4,7 +4,8 @@ import { num, bool, enumProp, vecProp, splitRow } from '../../../ui/props';
 import { enumRow, enumMenu } from '../../../ui/widgets';
 import { app } from '../../../app/app';
 import { modifierFields, modifierExtraUI } from '../stack';
-import { sub, headerCheck, objRow, vgroupRow, touch, textureRows } from './kit';
+import { sub, headerCheck, objRow, vgroupRow, touch, textureRows, boolToggles } from './kit';
+import type { ModifierBase } from '../../../data/types';
 
 type Rec = Record<string, unknown>;
 
@@ -301,5 +302,94 @@ modifierExtraUI.SIMPLE_DEFORM = (ob, m) => {
       !angled ? lockable.map((a) => bool(r, `lock_${a.toLowerCase()}`, a)) : null,
       vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
     ]),
+  ];
+};
+
+// ---------------------------------------------------------------------------
+// Cast, Smooth, Smooth Laplacian, Wave
+
+const axisChecks = (m: ModifierBase, keys: [string, string][]) => boolToggles(m, 'Axis', keys);
+
+modifierFields.CAST = [];
+modifierExtraUI.CAST = (ob, m) => {
+  const r = m as Rec;
+  return [
+    enumProp(r, 'cast_type', 'Shape', [
+      ['SPHERE', 'Sphere'],
+      ['CYLINDER', 'Cylinder'],
+      ['CUBOID', 'Cuboid'],
+    ]),
+    axisChecks(m, [
+      ['use_x', 'X'],
+      ['use_y', 'Y'],
+      ['use_z', 'Z'],
+    ]),
+    num(r, 'factor', 'Factor', { softMin: -10, softMax: 10 }),
+    num(r, 'radius', 'Radius', { unit: 'distance', min: 0 }),
+    !r.use_radius_as_size ? num(r, 'size', 'Size', { min: 0 }) : null,
+    bool(r, 'use_radius_as_size', 'Size from Radius'),
+    vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
+    objRow(r, 'object', 'Control Object', (o) => o.id !== ob.id),
+  ];
+};
+
+modifierFields.SMOOTH = [];
+modifierExtraUI.SMOOTH = (ob, m) => {
+  const r = m as Rec;
+  return [
+    axisChecks(m, [
+      ['use_x', 'X'],
+      ['use_y', 'Y'],
+      ['use_z', 'Z'],
+    ]),
+    num(r, 'factor', 'Factor', { softMin: -10, softMax: 10 }),
+    num(r, 'iterations', 'Repeat', { int: true, min: 0, max: 32767, softMax: 30 }),
+    vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
+  ];
+};
+
+modifierFields.LAPLACIANSMOOTH = [];
+modifierExtraUI.LAPLACIANSMOOTH = (ob, m) => {
+  const r = m as Rec;
+  return [
+    num(r, 'iterations', 'Repeat', { int: true, min: 0, max: 32767, softMax: 200 }),
+    axisChecks(m, [
+      ['use_x', 'X'],
+      ['use_y', 'Y'],
+      ['use_z', 'Z'],
+    ]),
+    num(r, 'lambda_factor', 'Lambda Factor', { softMin: -1000, softMax: 1000, precision: 3 }),
+    num(r, 'lambda_border', 'Lambda Border', { softMin: -1000, softMax: 1000, precision: 3 }),
+    bool(r, 'use_volume_preserve', 'Preserve Volume'),
+    bool(r, 'use_normalized', 'Normalized'),
+    vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
+  ];
+};
+
+modifierFields.WAVE = [];
+modifierExtraUI.WAVE = (ob, m) => {
+  const r = m as Rec;
+  const a = (k: string) => ({ ob, path: `modifiers["${m.name}"].${k}` });
+  return [
+    boolToggles(m, 'Motion', [
+      ['use_x', 'X'],
+      ['use_y', 'Y'],
+    ]),
+    bool(r, 'use_cyclic', 'Cyclic'),
+    bool(r, 'use_normal', 'Along Normals'),
+    r.use_normal
+      ? boolToggles(m, 'Normals', [
+          ['use_normal_x', 'X'],
+          ['use_normal_y', 'Y'],
+          ['use_normal_z', 'Z'],
+        ])
+      : null,
+    num(r, 'falloff_radius', 'Falloff', { unit: 'distance', min: 0 }),
+    num(r, 'height', 'Height', { unit: 'distance', anim: a('height') }),
+    num(r, 'width', 'Width', { unit: 'distance', min: 0, anim: a('width') }),
+    num(r, 'narrowness', 'Narrowness', { min: 0, anim: a('narrowness') }),
+    vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
+    sub(m, 'start', 'Start Position', () => [objRow(r, 'start_position_object', 'Object', (o) => o.id !== ob.id), !r.start_position_object ? [num(r, 'start_position_x', 'Start Position X', { unit: 'distance' }), num(r, 'start_position_y', 'Y', { unit: 'distance' })] : null]),
+    sub(m, 'time', 'Time', () => [num(r, 'time_offset', 'Offset', { anim: a('time_offset') }), num(r, 'lifetime', 'Life', { min: 0 }), num(r, 'damping_time', 'Damping', { min: 0 }), num(r, 'speed', 'Speed', { softMin: -1, softMax: 1, anim: a('speed') })]),
   ];
 };

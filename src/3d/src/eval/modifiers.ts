@@ -1069,6 +1069,7 @@ function smoothMesh(m: EvalMesh, mod: ModifierBase): EvalMesh {
   let P = m.positions;
   const nv = P.length / 3;
   const w = groupWeights(m, str(mod, 'vertex_group'));
+  const inv = bool(mod, 'invert_vertex_group');
   for (let it = 0; it < iters; it++) {
     const sum = new Float64Array(nv * 3),
       cnt = new Uint32Array(nv);
@@ -1085,7 +1086,8 @@ function smoothMesh(m: EvalMesh, mod: ModifierBase): EvalMesh {
     const out = new Float32Array(P);
     for (let v = 0; v < nv; v++) {
       if (!cnt[v]) continue;
-      const f = factor * (w ? w[v] : 1);
+      // towards the average of the edge midpoints (half way to the neighbours' average)
+      const f = factor * 0.5 * (w ? (inv ? 1 - w[v] : w[v]) : 1);
       for (let k = 0; k < 3; k++) if (axes[k]) out[v * 3 + k] = P[v * 3 + k] + (sum[v * 3 + k] / cnt[v] - P[v * 3 + k]) * f;
     }
     P = out;
@@ -1093,53 +1095,184 @@ function smoothMesh(m: EvalMesh, mod: ModifierBase): EvalMesh {
   return { ...m, positions: P };
 }
 
-function laplacianSmooth(m: EvalMesh, mod: ModifierBase): EvalMesh {
-  // volume-preserving variant: smooth then restore average displacement magnitude
-  const smoothed = smoothMesh(m, { ...mod, factor: num(mod, 'lambda_factor', 0.5), iterations: num(mod, 'iterations', 1) });
-  if (!bool(mod, 'use_volume_preserve', true)) return smoothed;
-  const P = m.positions,
-    S = smoothed.positions;
-  const center = [0, 0, 0];
-  for (let i = 0; i < P.length; i++) center[i % 3] += P[i] / (P.length / 3);
-  const sc = [0, 0, 0];
-  for (let i = 0; i < S.length; i++) sc[i % 3] += S[i] / (S.length / 3);
-  let r0 = 0,
-    r1 = 0;
-  for (let i = 0; i < P.length; i += 3) {
-    r0 += Math.hypot(P[i] - center[0], P[i + 1] - center[1], P[i + 2] - center[2]);
-    r1 += Math.hypot(S[i] - sc[0], S[i + 1] - sc[1], S[i + 2] - sc[2]);
+/** Cotangent weights of every edge (summed over the triangles of the faces around it). */
+function cotangentWeights(m: EvalMesh, P: ArrayLike<number>): Map<number, number>[] {
+  const nv = P.length / 3;
+  const W: Map<number, number>[] = Array.from({ length: nv }, () => new Map());
+  const add = (a: number, b: number, w: number) => {
+    W[a].set(b, (W[a].get(b) ?? 0) + w);
+    W[b].set(a, (W[b].get(a) ?? 0) + w);
+  };
+  const tmp: number[] = [];
+  for (let f = 0; f < m.offsets.length - 1; f++) {
+    const verts = m.indices.subarray(m.offsets[f], m.offsets[f + 1]);
+    tmp.length = 0;
+    triangulatePoly(P, verts, tmp, 0);
+    const tris = tmp.length / 3;
+    for (let t = 0; t < tmp.length; t += 3) {
+      const tri = [verts[tmp[t]], verts[tmp[t + 1]], verts[tmp[t + 2]]];
+      for (let k = 0; k < 3; k++) {
+        const i = tri[k],
+          j = tri[(k + 1) % 3],
+          o = tri[(k + 2) % 3];
+        const ux = P[i * 3] - P[o * 3],
+          uy = P[i * 3 + 1] - P[o * 3 + 1],
+          uz = P[i * 3 + 2] - P[o * 3 + 2];
+        const vx = P[j * 3] - P[o * 3],
+          vy = P[j * 3 + 1] - P[o * 3 + 1],
+          vz = P[j * 3 + 2] - P[o * 3 + 2];
+        const cx = uy * vz - uz * vy,
+          cy = uz * vx - ux * vz,
+          cz = ux * vy - uy * vx;
+        const cot = (ux * vx + uy * vy + uz * vz) / Math.max(1e-12, Math.hypot(cx, cy, cz));
+        add(i, j, cot / Math.max(1, tris - 1));
+      }
+    }
   }
-  const k = r1 > 0 ? r0 / r1 : 1;
-  const out = new Float32Array(S.length);
-  for (let i = 0; i < S.length; i++) out[i] = sc[i % 3] + (S[i] - sc[i % 3]) * k + (center[i % 3] - sc[i % 3]);
-  return { ...m, positions: out };
+  return W;
 }
 
-function cast(m: EvalMesh, mod: ModifierBase): EvalMesh {
+function signedVolume(m: EvalMesh, P: ArrayLike<number>): number {
+  let v = 0;
+  for (let f = 0; f < m.offsets.length - 1; f++) {
+    const s = m.offsets[f],
+      e = m.offsets[f + 1];
+    const a = m.indices[s] * 3;
+    for (let c = s + 1; c < e - 1; c++) {
+      const b = m.indices[c] * 3,
+        d = m.indices[c + 1] * 3;
+      v += (P[a] * (P[b + 1] * P[d + 2] - P[b + 2] * P[d + 1]) - P[a + 1] * (P[b] * P[d + 2] - P[b + 2] * P[d]) + P[a + 2] * (P[b] * P[d + 1] - P[b + 1] * P[d])) / 6;
+    }
+  }
+  return v;
+}
+
+/**
+ * Laplacian smoothing: each repeat solves (I + λL) x' = x implicitly with cotangent weights
+ * (normalized per vertex, or raw), border vertices using their own λ; optionally restoring the
+ * volume afterwards.
+ */
+function laplacianSmooth(m: EvalMesh, mod: ModifierBase): EvalMesh {
+  const iters = Math.max(0, Math.round(num(mod, 'iterations', 1)));
+  if (!iters || m.offsets.length < 2) return m;
+  const lam = num(mod, 'lambda_factor', 0.01),
+    lamB = num(mod, 'lambda_border', 0.01);
+  const axes = [bool(mod, 'use_x', true), bool(mod, 'use_y', true), bool(mod, 'use_z', true)];
+  const normalized = bool(mod, 'use_normalized', true);
+  const nv = m.positions.length / 3;
+  const et = edgeTopology(m);
+  const border = new Uint8Array(nv);
+  for (let e = 0; e < et.count; e++) if (et.faceOffsets[e + 1] - et.faceOffsets[e] < 2) border[et.verts[e * 2]] = border[et.verts[e * 2 + 1]] = 1;
+  const gw = groupWeights(m, str(mod, 'vertex_group'));
+  const inv = bool(mod, 'invert_vertex_group');
+  const vol0 = signedVolume(m, m.positions);
+  let x = Float64Array.from(m.positions);
+  for (let it = 0; it < iters; it++) {
+    const W = cotangentWeights(m, x);
+    // vertex areas (a third of the adjacent triangles) scale raw weights when not normalizing
+    const area = new Float64Array(nv);
+    if (!normalized) {
+      const tmp: number[] = [];
+      for (let f = 0; f < m.offsets.length - 1; f++) {
+        const vs = m.indices.subarray(m.offsets[f], m.offsets[f + 1]);
+        tmp.length = 0;
+        triangulatePoly(x, vs, tmp, 0);
+        for (let t = 0; t < tmp.length; t += 3) {
+          const a = vs[tmp[t]] * 3,
+            b = vs[tmp[t + 1]] * 3,
+            c = vs[tmp[t + 2]] * 3;
+          const ux = x[b] - x[a], uy = x[b + 1] - x[a + 1], uz = x[b + 2] - x[a + 2];
+          const vx = x[c] - x[a], vy = x[c + 1] - x[a + 1], vz = x[c + 2] - x[a + 2];
+          const ar = Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
+          area[a / 3] += ar / 3;
+          area[b / 3] += ar / 3;
+          area[c / 3] += ar / 3;
+        }
+      }
+    }
+    const rhs = Float64Array.from(x);
+    const y = Float64Array.from(x);
+    const lamOf = new Float64Array(nv);
+    const sums = new Float64Array(nv);
+    for (let v = 0; v < nv; v++) {
+      let l = border[v] ? lamB : lam;
+      if (gw) l *= inv ? 1 - gw[v] : gw[v];
+      lamOf[v] = l;
+      let s = 0;
+      for (const w of W[v].values()) s += w;
+      sums[v] = s;
+    }
+    // Gauss–Seidel sweeps of (1 + λΣw) y_i - λ Σ w_ij y_j = x_i
+    for (let sweep = 0; sweep < 200; sweep++) {
+      let change = 0;
+      for (let v = 0; v < nv; v++) {
+        const l = lamOf[v];
+        if (!l || !sums[v]) continue;
+        // raw weights are divided by (a multiple of) the vertex area so the step stays scale independent
+        const norm = normalized ? 1 / sums[v] : 1 / Math.max(1e-9, 8 * area[v]);
+        for (let k = 0; k < 3; k++) {
+          if (!axes[k]) continue;
+          let acc = 0;
+          for (const [j, w] of W[v]) acc += w * norm * y[j * 3 + k];
+          const nvx = (rhs[v * 3 + k] + l * acc) / (1 + l * sums[v] * norm);
+          change = Math.max(change, Math.abs(nvx - y[v * 3 + k]));
+          y[v * 3 + k] = nvx;
+        }
+      }
+      if (change < 1e-9) break;
+    }
+    x = y;
+  }
+  if (bool(mod, 'use_volume_preserve', true)) {
+    const vol1 = signedVolume(m, x);
+    if (Math.abs(vol1) > 1e-12 && Math.abs(vol0) > 1e-12 && Math.sign(vol0) === Math.sign(vol1)) {
+      const c = [0, 0, 0];
+      for (let i = 0; i < x.length; i++) c[i % 3] += x[i] / nv;
+      const k = Math.cbrt(vol0 / vol1);
+      for (let i = 0; i < x.length; i++) x[i] = c[i % 3] + (x[i] - c[i % 3]) * k;
+    }
+  }
+  return { ...m, positions: Float32Array.from(x) };
+}
+
+function cast(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
   const f = num(mod, 'factor', 0.5),
     type = str(mod, 'cast_type', 'SPHERE');
   const use = [bool(mod, 'use_x', true), bool(mod, 'use_y', true), bool(mod, 'use_z', true)];
-  const P = m.positions;
-  let r = num(mod, 'radius', 0);
-  if (!r) {
+  const radius = num(mod, 'radius', 0);
+  // an object (e.g. an empty) can be the center and orientation of the effect
+  const space = mod.object ? objectSpaceOf(ctx, mod.object) : null;
+  const toS = space ? space.clone().invert() : null;
+  const P0 = m.positions;
+  const P = toS ? transformMesh(m, toS).positions : P0;
+  const nv = P.length / 3;
+  let size = bool(mod, 'use_radius_as_size', true) ? radius : num(mod, 'size', 0);
+  // without a size: the average distance from the center (per axis extents for cuboids)
+  const ext = [0, 0, 0];
+  if (!size) {
     let sum = 0;
-    for (let i = 0; i < P.length; i += 3) sum += type === 'CYLINDER' ? Math.hypot(P[i], P[i + 1]) : Math.hypot(P[i], P[i + 1], P[i + 2]);
-    r = sum / (P.length / 3 || 1);
-  }
-  return deform(m, mod, (p) => {
+    for (let i = 0; i < P.length; i += 3) {
+      sum += Math.hypot(P[i], P[i + 1], P[i + 2]);
+      for (let k = 0; k < 3; k++) ext[k] = Math.max(ext[k], Math.abs(P[i + k]));
+    }
+    size = sum / (nv || 1);
+  } else ext.fill(size);
+  const out = deform({ ...m, positions: P }, mod, (p) => {
+    if (radius > 0 && p.length() > radius) return;
     let target: Vector3;
-    if (type === 'SPHERE') target = p.clone().normalize().multiplyScalar(r);
+    if (type === 'SPHERE') target = p.clone().normalize().multiplyScalar(size);
     else if (type === 'CYLINDER') {
       const l = Math.hypot(p.x, p.y) || 1;
-      target = new Vector3((p.x / l) * r, (p.y / l) * r, p.z);
+      target = new Vector3((p.x / l) * size, (p.y / l) * size, p.z);
     } else {
-      const s = r / Math.max(Math.abs(p.x), Math.abs(p.y), Math.abs(p.z), 1e-9);
+      const s = 1 / Math.max(ext[0] ? Math.abs(p.x) / ext[0] : 0, ext[1] ? Math.abs(p.y) / ext[1] : 0, ext[2] ? Math.abs(p.z) / ext[2] : 0, 1e-9);
       target = p.clone().multiplyScalar(s);
     }
     if (use[0]) p.x += (target.x - p.x) * f;
     if (use[1]) p.y += (target.y - p.y) * f;
     if (use[2]) p.z += (target.z - p.z) * f;
   });
+  return space ? { ...out, positions: transformMesh(out, space).positions } : out;
 }
 
 function simpleDeform(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
@@ -1212,23 +1345,58 @@ function simpleDeform(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): Eva
 
 function wave(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
   const height = num(mod, 'height', 0.5),
-    width = num(mod, 'width', 1.5),
+    width = Math.max(1e-6, num(mod, 'width', 1.5)),
     speed = num(mod, 'speed', 0.25),
     narrow = num(mod, 'narrowness', 1.5);
-  const start = num(mod, 'time_offset', 0);
+  const offset = num(mod, 'time_offset', 0);
   const useX = bool(mod, 'use_x', true),
     useY = bool(mod, 'use_y', true);
-  const t = (ctx.frame - start) * speed;
+  const cyclic = bool(mod, 'use_cyclic', true);
+  const falloff = num(mod, 'falloff_radius', 0);
+  // the wave front travels outwards from the start position at `speed` units per frame
+  const t = (ctx.frame - offset) * speed;
+  // lifetime: after it, the wave fades out over the damping time
+  let life = 1;
+  const lifetime = num(mod, 'lifetime', 0);
+  if (lifetime > 0) {
+    const age = ctx.frame - offset;
+    if (age > lifetime) life = Math.max(0, 1 - (age - lifetime) / Math.max(1e-6, num(mod, 'damping_time', 10)));
+  }
+  let sx = num(mod, 'start_position_x', 0),
+    sy = num(mod, 'start_position_y', 0);
+  if (mod.start_position_object) {
+    const om = objectSpaceOf(ctx, mod.start_position_object);
+    if (om) {
+      const o = new Vector3().setFromMatrixPosition(om);
+      sx = o.x;
+      sy = o.y;
+    }
+  }
+  const minfac = 1 / Math.exp(width * narrow * width * narrow);
   const vn = bool(mod, 'use_normal') ? vertexNormals(m) : null;
+  const nAxes = [bool(mod, 'use_normal_x', true), bool(mod, 'use_normal_y', true), bool(mod, 'use_normal_z', true)];
   return deform(m, mod, (p, i) => {
-    let d = 0;
-    if (useX && useY) d = Math.hypot(p.x, p.y);
-    else if (useX) d = Math.abs(p.x);
-    else if (useY) d = Math.abs(p.y);
-    const x = (d - t) / width;
-    const amp = height * Math.exp(-narrow * x * x) * Math.cos(x * Math.PI * 2);
-    if (vn) p.addScaledVector(new Vector3(vn[i * 3], vn[i * 3 + 1], vn[i * 3 + 2]), amp);
-    else p.z += amp;
+    const dx = p.x - sx,
+      dy = p.y - sy;
+    // radial from the start point, or a straight front along one axis
+    const dist = useX && useY ? Math.hypot(dx, dy) : useX ? dx : useY ? dy : 0;
+    let fall = 1;
+    if (falloff > 0) {
+      fall = 1 - Math.abs(dist) / falloff;
+      if (fall <= 0) return;
+    }
+    let x = dist - t;
+    if (x >= width) return; // the front has not arrived yet
+    // behind the front: repeating waves when cyclic
+    if (cyclic && x <= -width) x = (((x + width) % (2 * width)) + 2 * width) % (2 * width) - width;
+    if (x <= -width) return;
+    const a = x * narrow;
+    const amp = height * (1 / Math.exp(a * a) - minfac) * life * fall;
+    if (vn) {
+      if (nAxes[0]) p.x += vn[i * 3] * amp;
+      if (nAxes[1]) p.y += vn[i * 3 + 1] * amp;
+      if (nAxes[2]) p.z += vn[i * 3 + 2] * amp;
+    } else p.z += amp;
   });
 }
 
@@ -1546,7 +1714,7 @@ export const modifierTypes: Record<string, ModifierType> = {
   WIREFRAME: { type: 'WIREFRAME', label: 'Wireframe', category: 'GENERATE', icon: 'mod_wireframe', defaults: base({ thickness: 0.02, offset: 0, use_replace: true, use_boundary: false, use_even_offset: true, material_offset: 0, vertex_group: '', invert_vertex_group: false, thickness_vertex_group: 0 }), apply: wireframe },
   // Deform
   ARMATURE: { type: 'ARMATURE', label: 'Armature', category: 'DEFORM', icon: 'mod_armature', deformOnly: true, defaults: base({ object: null, use_vertex_groups: true, use_bone_envelopes: false, use_deform_preserve_volume: false }), deps: (m) => [m.object as string], apply: armatureMod },
-  CAST: { type: 'CAST', label: 'Cast', category: 'DEFORM', icon: 'mod_cast', deformOnly: true, defaults: base({ cast_type: 'SPHERE', factor: 0.5, radius: 0, use_x: true, use_y: true, use_z: true, vertex_group: '' }), apply: cast },
+  CAST: { type: 'CAST', label: 'Cast', category: 'DEFORM', icon: 'mod_cast', deformOnly: true, defaults: base({ cast_type: 'SPHERE', factor: 0.5, radius: 0, size: 0, use_radius_as_size: true, object: null, use_x: true, use_y: true, use_z: true, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: cast },
   CURVE: { type: 'CURVE', label: 'Curve', category: 'DEFORM', icon: 'mod_curve', deformOnly: true, defaults: base({ object: null, deform_axis: 'POS_X', vertex_group: '' }), deps: (m) => [m.object as string], apply: curveMod },
   DISPLACE: {
     type: 'DISPLACE',
@@ -1559,13 +1727,23 @@ export const modifierTypes: Record<string, ModifierType> = {
     apply: displace,
   },
   HOOK: { type: 'HOOK', label: 'Hook', category: 'DEFORM', icon: 'hook', deformOnly: true, defaults: base({ object: null, strength: 1, falloff_radius: 0, center: [0, 0, 0], vertex_indices: [], matrix_inverse: new Matrix4().toArray(), vertex_group: '' }), deps: (m) => [m.object as string], apply: hookMod },
-  LAPLACIANSMOOTH: { type: 'LAPLACIANSMOOTH', label: 'Smooth Laplacian', category: 'DEFORM', icon: 'mod_smooth', deformOnly: true, defaults: base({ iterations: 1, lambda_factor: 0.5, use_volume_preserve: true, vertex_group: '' }), apply: laplacianSmooth },
+  LAPLACIANSMOOTH: { type: 'LAPLACIANSMOOTH', label: 'Smooth Laplacian', category: 'DEFORM', icon: 'mod_smooth', deformOnly: true, defaults: base({ iterations: 1, lambda_factor: 0.01, lambda_border: 0.01, use_volume_preserve: true, use_normalized: true, use_x: true, use_y: true, use_z: true, vertex_group: '', invert_vertex_group: false }), apply: laplacianSmooth },
   LATTICE: { type: 'LATTICE', label: 'Lattice', category: 'DEFORM', icon: 'mod_lattice', deformOnly: true, defaults: base({ object: null, strength: 1, vertex_group: '' }), deps: (m) => [m.object as string], apply: latticeMod },
   SHRINKWRAP: { type: 'SHRINKWRAP', label: 'Shrinkwrap', category: 'DEFORM', icon: 'mod_shrinkwrap', deformOnly: true, defaults: base({ target: null, wrap_method: 'NEAREST_SURFACEPOINT', offset: 0, vertex_group: '' }), deps: (m) => [m.target as string], apply: shrinkwrapMod },
   SIMPLE_DEFORM: { type: 'SIMPLE_DEFORM', label: 'Simple Deform', category: 'DEFORM', icon: 'mod_simpledeform', deformOnly: true, defaults: base({ deform_method: 'TWIST', angle: (45 * Math.PI) / 180, factor: 0.785398, deform_axis: 'Z', origin: null, limits: [0, 1], lock_x: false, lock_y: false, lock_z: false, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.origin as string], apply: simpleDeform },
   SMOOTH: { type: 'SMOOTH', label: 'Smooth', category: 'DEFORM', icon: 'mod_smooth', deformOnly: true, defaults: base({ factor: 0.5, iterations: 1, use_x: true, use_y: true, use_z: true, vertex_group: '' }), apply: smoothMesh },
   WARP: { type: 'WARP', label: 'Warp', category: 'DEFORM', icon: 'mod_warp', deformOnly: true, defaults: base({ object_from: null, object_to: null, strength: 1, falloff_radius: 1, vertex_group: '' }), deps: (m) => [m.object_from as string, m.object_to as string], apply: warpMod },
-  WAVE: { type: 'WAVE', label: 'Wave', category: 'DEFORM', icon: 'mod_wave', deformOnly: true, defaults: base({ use_x: true, use_y: true, use_normal: false, time_offset: 0, height: 0.5, width: 1.5, narrowness: 1.5, speed: 0.25, vertex_group: '' }), timeDependent: () => true, apply: wave },
+  WAVE: {
+    type: 'WAVE',
+    label: 'Wave',
+    category: 'DEFORM',
+    icon: 'mod_wave',
+    deformOnly: true,
+    defaults: base({ use_x: true, use_y: true, use_cyclic: true, use_normal: false, use_normal_x: true, use_normal_y: true, use_normal_z: true, falloff_radius: 0, height: 0.5, width: 1.5, narrowness: 1.5, start_position_x: 0, start_position_y: 0, start_position_object: null, time_offset: 0, lifetime: 0, damping_time: 10, speed: 0.25, vertex_group: '', invert_vertex_group: false }),
+    deps: (m) => [m.start_position_object as string],
+    timeDependent: () => true,
+    apply: wave,
+  },
   // Normals
   SMOOTH_BY_ANGLE: {
     type: 'SMOOTH_BY_ANGLE',
