@@ -19,6 +19,7 @@ import { frameHooks } from '../../ops/view3d';
 import { Box3 } from 'three';
 import { modeHandlers } from '../../ops/modes';
 import { insertKeyframesForObjects } from '../../anim/keyframes';
+import { flipSideName } from './posemath';
 
 const V = (a: number[]) => new Vector3(a[0], a[1], a[2]);
 
@@ -706,15 +707,18 @@ registerOperators([
   {
     idname: 'pose.paste',
     label: 'Paste Pose',
-    props: [{ id: 'flipped', label: 'Flipped on X-Axis', type: 'bool', default: false }],
+    props: [
+      { id: 'flipped', label: 'Flipped on X-Axis', type: 'bool', default: false },
+      { id: 'selected_mask', label: 'On Selected Only', type: 'bool', default: false },
+    ],
     poll: (ctx) => posePoll(ctx) && !!poseClipboard,
     exec: (_ctx, p) => {
       const { ob } = activeArmature()!;
-      const swap = (n: string) => n.replace(/([._-])([LlRr])$/, (_, s, c) => s + ({ L: 'R', R: 'L', l: 'r', r: 'l' } as Record<string, string>)[c]);
+      const swap = (n: string) => flipSideName(n);
       for (const [n, src] of Object.entries(poseClipboard!)) {
         const target = p.flipped ? swap(n) : n;
         const pb = ob.pose?.[target];
-        if (!pb) continue;
+        if (!pb || (p.selected_mask && !pb.select)) continue;
         pb.location = [...src.location] as [number, number, number];
         pb.scale = [...src.scale] as [number, number, number];
         pb.rotation_euler = [...src.rotation_euler] as [number, number, number];
