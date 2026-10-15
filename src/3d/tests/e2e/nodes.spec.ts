@@ -393,3 +393,31 @@ test('breadcrumbs lead back out of nested groups', async ({ page }) => {
   expect(await withTree(page, '(ed) => ed.path.length')).toBe(0);
   await expectNoErrors(errors);
 });
+
+test('G with X constrains the move; R rotates node positions', async ({ page }) => {
+  const { errors, box } = await nodeEditor(page);
+  const out = await withTree<string>(page, '(ed, t) => { const o = t.nodes.find((n) => n.type === "ShaderNodeOutputMaterial"); for (const n of t.nodes) n.select = n === o; t.active_node = o.id; app.changed("ui"); return o.id; }');
+  const loc = () => withTree<number[]>(page, `(ed, t) => [...t.nodes.find((n) => n.id === "${out}").location]`);
+  const before = await loc();
+  const c = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await page.mouse.move(c.x, c.y);
+  await page.keyboard.press('g');
+  await page.mouse.move(c.x + 60, c.y + 40, { steps: 4 });
+  await page.keyboard.press('x');
+  await page.mouse.move(c.x + 70, c.y + 45, { steps: 2 });
+  await page.mouse.click(c.x + 70, c.y + 45);
+  const after = await loc();
+  expect(after[0]).toBeGreaterThan(before[0]);
+  expect(after[1]).toBeCloseTo(before[1], 5);
+  // R with two nodes: positions turn around their centre, Esc restores them
+  await withTree(page, '(ed, t) => { for (const n of t.nodes) n.select = true; app.changed("ui"); }');
+  const all = () => withTree<number[][]>(page, '(ed, t) => t.nodes.map((n) => [...n.location])');
+  const start = await all();
+  await page.mouse.move(c.x + 100, c.y);
+  await page.keyboard.press('r');
+  await page.mouse.move(c.x, c.y + 100, { steps: 4 });
+  expect(await all()).not.toEqual(start);
+  await page.keyboard.press('Escape');
+  expect(await all()).toEqual(start);
+  await expectNoErrors(errors);
+});

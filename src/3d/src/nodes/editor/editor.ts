@@ -98,6 +98,8 @@ export class NodeEditor implements Editor {
   private knife: [number, number][] | null = null;
   private lasso: [number, number][] | null = null;
   private circle: { x: number; y: number; r: number } | null = null;
+  /** axis constraint guide while moving nodes (node space point the line passes through) */
+  private axisGuide: { axis: 'X' | 'Y'; x: number; y: number } | null = null;
   circleRadius = 40;
   private gesture: GestureMode = 'CUT';
   insertTarget: string | null = null;
@@ -764,6 +766,20 @@ export class NodeEditor implements Editor {
       g.fillRect(x, y, Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
       g.strokeRect(x + 0.5, y + 0.5, Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
       g.setLineDash([]);
+    }
+    if (this.axisGuide) {
+      const [gx, gy] = this.toScreen(this.axisGuide.x, this.axisGuide.y);
+      g.strokeStyle = this.axisGuide.axis === 'X' ? 'rgba(255,80,80,0.8)' : 'rgba(120,220,90,0.8)';
+      g.lineWidth = 1;
+      g.beginPath();
+      if (this.axisGuide.axis === 'X') {
+        g.moveTo(0, gy);
+        g.lineTo(W, gy);
+      } else {
+        g.moveTo(gx, 0);
+        g.lineTo(gx, H);
+      }
+      g.stroke();
     }
     if (this.lasso && this.lasso.length > 1) {
       g.fillStyle = 'rgba(255,255,255,0.04)';
@@ -1923,6 +1939,8 @@ export class NodeEditor implements Editor {
     let lastClient = p0;
     let snapOn = false;
     let info = '';
+    /** X / Y keys constrain a move to one axis */
+    let axis: 'X' | 'Y' | null = null;
     const apply = (clientX: number, clientY: number, snap: boolean) => {
       lastClient = [clientX, clientY];
       snapOn = snap;
@@ -1934,11 +1952,13 @@ export class NodeEditor implements Editor {
           dx = Math.round(dx / 20) * 20;
           dy = Math.round(dy / 20) * 20;
         }
+        if (axis === 'X') dy = 0;
+        else if (axis === 'Y') dx = 0;
         for (const n of nodes) {
           const o = orig.get(n.id)!;
           n.location = [o[0] + dx, o[1] - dy];
         }
-        info = `D: ${Math.round(dx)}  ${Math.round(-dy)}`;
+        info = `D: ${Math.round(dx)}  ${Math.round(-dy)}${axis ? ` along ${axis}` : ''}`;
       } else {
         let a = 0,
           f = 1;
@@ -1991,9 +2011,16 @@ export class NodeEditor implements Editor {
         if (e.type !== 'keydown') return;
         if (e.key === 'Escape') return 'CANCELLED';
         if (e.key === 'Enter' || e.key === ' ') return 'FINISHED';
+        if (kind === 'MOVE' && (e.code === 'KeyX' || e.code === 'KeyY')) {
+          const a = e.code === 'KeyX' ? 'X' : 'Y';
+          axis = axis === a ? null : a;
+          self.axisGuide = axis ? { axis, x: sx, y: sy } : null;
+          apply(lastClient[0], lastClient[1], snapOn);
+        }
       },
       cancel() {
         pan.stop();
+        self.axisGuide = null;
         for (const n of nodes) n.location = orig.get(n.id)!;
         self.insertTarget = null;
         opts.onCancel?.();
@@ -2001,6 +2028,7 @@ export class NodeEditor implements Editor {
       },
       finish() {
         pan.stop();
+        self.axisGuide = null;
         if (self.insertTarget && single) {
           const ctx = ctxOf(app.doc, tree);
           if (insertOnLink(ctx, single.id, self.insertTarget)) insertOffset(tree, single, (n) => self.layouts.get(n.id)?.w ?? n.width ?? 140);
@@ -2019,7 +2047,7 @@ export class NodeEditor implements Editor {
           }
         }
       },
-      header: () => `${info}   ${kind === 'MOVE' ? 'Move' : kind === 'ROTATE' ? 'Rotate' : 'Scale'} nodes: LMB/Enter confirm, RMB/Esc cancel, Ctrl ${self.snap ? 'free' : 'snap'}`,
+      header: () => `${info}   ${kind === 'MOVE' ? 'Move' : kind === 'ROTATE' ? 'Rotate' : 'Scale'} nodes: LMB/Enter confirm, RMB/Esc cancel, Ctrl ${self.snap ? 'free' : 'snap'}${kind === 'MOVE' ? ', X/Y axis' : ''}`,
     });
   }
 
