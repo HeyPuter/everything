@@ -2,7 +2,8 @@
 import { h } from '../../ui/h';
 import { app } from '../../app/app';
 import { propertiesTabs, type PropertiesTab } from '../../editors/properties/properties';
-import { panel, textField } from '../../ui/widgets';
+import { panel, textField, checkbox } from '../../ui/widgets';
+import { assignBone, unassignBone } from './armkernels';
 import { num, bool, enumProp, vecProp } from '../../ui/props';
 import { activeArmature, renameBone } from './armature';
 
@@ -65,13 +66,26 @@ const tab: PropertiesTab = {
         bone.parent ? bool(bone, 'use_connect', 'Connected') : null,
         bool(bone, 'use_inherit_rotation', 'Inherit Rotation'),
         enumProp(bone, 'inherit_scale', 'Inherit Scale', [['FULL', 'Full'], ['NONE', 'None']]),
+        arm.collections?.length
+          ? [
+              h('div', { class: 'sub-label' }, 'Bone Collections'),
+              ...arm.collections.map((c) =>
+                checkbox(`bone-coll.${c.name}`, c.name, !!bone.collections?.includes(c.name), (on) => {
+                  if (on) assignBone(bone, c.name);
+                  else unassignBone(bone, c.name);
+                  app.pushUndo(on ? 'Assign to Bone Collection' : 'Remove from Bone Collection');
+                  app.changed('doc');
+                }),
+              ),
+            ]
+          : null,
       ]),
       panel('bone-deform', 'Deform', () => [bool(bone, 'use_deform', 'Deform'), num(bone, 'envelope_distance', 'Envelope Distance', { unit: 'distance', min: 0 }), num(bone, 'head_radius', 'Radius Head', { unit: 'distance', min: 0 }), num(bone, 'tail_radius', 'Tail', { unit: 'distance', min: 0 })], { closed: true }),
-      panel('bone-display', 'Viewport Display', () => [bool(bone, 'hide', 'Hide')], { closed: true }),
+      panel('bone-display', 'Viewport Display', () => [bool(bone, 'hide', 'Hide'), bool(bone as never, 'show_wire' as never, 'Display as Wireframe')], { closed: true }),
     ];
   },
 };
 
-// Blender order: … Object Data, Bone, Bone Constraints, Material …
+// Tab order: … Object Data, Bone, Bone Constraints, Material …
 const at = propertiesTabs.findIndex((t) => t.id === 'DATA');
 propertiesTabs.splice(at >= 0 ? at + 1 : propertiesTabs.length, 0, tab);

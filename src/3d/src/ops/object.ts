@@ -372,7 +372,8 @@ registerOperators([
     exec: (ctx, p) => {
       const arm = newArmature(uniqueName(ctx.doc, 'Armature', 'armatures'));
       const r = p.radius as number;
-      arm.bones.push({ name: 'Bone', parent: null, head: [0, 0, 0], tail: [0, 0, r], roll: 0, use_connect: false, use_deform: true, use_inherit_rotation: true, inherit_scale: 'FULL', envelope_distance: 0.25, head_radius: 0.1, tail_radius: 0.05, bbone_segments: 1 });
+      arm.bones.push({ name: 'Bone', parent: null, head: [0, 0, 0], tail: [0, 0, r], roll: 0, use_connect: false, use_deform: true, use_inherit_rotation: true, inherit_scale: 'FULL', envelope_distance: 0.25, head_radius: 0.1, tail_radius: 0.05, bbone_segments: 1, collections: ['Bones'] });
+      arm.collections = [{ name: 'Bones', is_visible: true }];
       arm.active_bone = 'Bone';
       ctx.doc.armatures[arm.id] = arm;
       const ob = newObject('Armature', 'ARMATURE', arm.id);

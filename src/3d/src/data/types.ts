@@ -262,6 +262,17 @@ export interface Bone {
   select_head?: boolean;
   select_tail?: boolean;
   layer_collections?: string[];
+  /** names of the bone collections this bone is assigned to */
+  collections?: string[];
+  /** draw as wireframe only */
+  show_wire?: boolean;
+}
+
+/** Named group of bones (visibility, selection, organisation). */
+export interface BoneCollection {
+  name: string;
+  is_visible: boolean;
+  is_solo?: boolean;
 }
 
 export interface ArmatureData {
@@ -275,6 +286,10 @@ export interface ArmatureData {
   show_in_front?: boolean;
   active_bone?: string | null;
   users?: number;
+  collections?: BoneCollection[];
+  active_collection_index?: number;
+  /** Edit Mode X-Axis Mirror: joints of `.L`/`.R` counterparts move together */
+  use_mirror_x?: boolean;
 }
 
 export interface PoseBone {

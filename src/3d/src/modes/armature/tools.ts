@@ -2,7 +2,6 @@
 import { Matrix4, Vector3 } from 'three';
 import { app, registerOperators } from '../../app/app';
 import { activeTools } from '../../app/prefs';
-import { addKeys } from '../../app/keymap';
 import { toolsByMode, COMMON_TOOLS } from '../../editors/view3d/toolbar';
 import { editModeHooks } from '../../editors/view3d/hooks';
 import { activeView3D } from '../../editors/view3d/view3d';
@@ -14,6 +13,7 @@ import type { Bone } from '../../data/types';
 registerIcons({
   bone_roll: '<path class="f" d="M4 2 7 4 12 11l-1 1-7-5-2-3z" opacity=".55"/><path class="s" d="M13.5 4.5a6 6 0 0 0-6-3" fill="none" stroke-width="1.4"/><path class="f" d="M14.5 1.5v4h-4z"/>',
   bone_extrude: '<path class="f" d="M2 14 4 12l4 1-1-4 2-2-4-1z" opacity=".55"/><path class="f" d="M9 7l3-3-1-2h4v4l-2-1-3 3z"/>',
+  bone_envelope: '<ellipse class="s" cx="8" cy="8" rx="6.5" ry="4" fill="none" stroke-width="1.1" stroke-dasharray="2 1.3" transform="rotate(-35 8 8)"/><path class="f" d="M4.5 11.5 6 10l5-5 .8.8-5 5L5.3 12.3z"/>',
   bone_extrude_cursor: '<path class="f" d="M2 14 4 12l4 1-1-4 2-2-4-1z" opacity=".55"/><circle class="s" cx="12" cy="4" r="2.6" fill="none" stroke-width="1.2" stroke-dasharray="1.6 1.4"/><path class="s" d="M8 8l2.2-2.2" stroke-width="1.3"/>',
 });
 
@@ -23,12 +23,13 @@ toolsByMode.EDIT_ARMATURE = [
   ...COMMON_TOOLS,
   null,
   { id: 'builtin.roll', label: 'Roll', icon: 'bone_roll', shortcut: 'Ctrl R', description: 'Roll selected bones by dragging' },
+  { id: 'builtin.bone_envelope', label: 'Bone Envelope', icon: 'bone_envelope', shortcut: 'Alt S', description: 'Drag to scale the envelope distance of the selected bones' },
   null,
   { id: 'builtin.extrude', label: 'Extrude', icon: 'bone_extrude', shortcut: 'E', description: 'Extrude bones from the selected joints' },
   { id: 'builtin.extrude_to_cursor', label: 'Extrude to Cursor', icon: 'bone_extrude_cursor', description: 'Extrude a bone from the active joint to the clicked location' },
 ];
 
-const ARMATURE_TOOLS = new Set(['builtin.roll', 'builtin.extrude', 'builtin.extrude_to_cursor']);
+const ARMATURE_TOOLS = new Set(['builtin.roll', 'builtin.bone_envelope', 'builtin.extrude', 'builtin.extrude_to_cursor']);
 
 // keep the active Edit Mode tool valid when switching between object types (mesh, armature, curve …)
 const prevEnter = modeHandlers.EDIT?.enter;
@@ -139,7 +140,6 @@ registerOperators([
   },
 ]);
 
-addKeys('Armature', [{ key: 'R', ctrl: true, op: 'armature.roll_modal', when: inArmEdit }]);
 
 editModeHooks.pointer.push((v, e) => {
   if (!inArmEdit()) return false;
@@ -153,11 +153,13 @@ editModeHooks.pointer.push((v, e) => {
   // click selects, drag runs the tool
   const sx = e.clientX,
     sy = e.clientY;
-  const op = tool === 'builtin.roll' ? 'armature.roll_modal' : 'armature.extrude_move';
   const move = (ev: PointerEvent) => {
     if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 5) return;
     cleanup();
-    app.run(op, {}, { event: { x: ev.clientX, y: ev.clientY } });
+    const at = { event: { x: sx, y: sy } };
+    if (tool === 'builtin.roll') app.run('transform.transform', { mode: 'BONE_ROLL', release_confirm: true }, at);
+    else if (tool === 'builtin.bone_envelope') app.run('transform.transform', { mode: 'BONE_ENVELOPE_DIST', release_confirm: true }, at);
+    else app.run('armature.extrude_move', {}, { event: { x: ev.clientX, y: ev.clientY } });
   };
   const up = () => {
     cleanup();

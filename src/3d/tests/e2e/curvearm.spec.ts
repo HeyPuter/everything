@@ -119,3 +119,137 @@ test('curve edit mode: toolbar draw and pen tools', async ({ page }) => {
   expect(await get(page, `${CU}.splines[2].bezier_points[1].handle_right_type`)).toBe('ALIGNED');
   await expectNoErrors(errors);
 });
+
+const AR = 'app.doc.armatures[app.activeObject.data]';
+
+test('armature edit mode: fill, split, dissolve, names, collections, mirror', async ({ page }) => {
+  const errors = await openApp(page);
+  await fresh(page, 'object.armature_add');
+  expect(await get(page, `${AR}.collections.map(c => c.name)`)).toEqual(['Bones']);
+  await page.keyboard.press('Tab');
+  const items = await headerMenu(page, 'Armature');
+  for (const l of ['Bone Roll', 'Fill Between Joints', 'Split', 'Separate Bones', 'Names', 'Bone Settings', 'Bone Collections', 'Show/Hide', 'Delete']) expect(items).toContain(l);
+  const sel = await headerMenu(page, 'Select');
+  for (const l of ['Mirror', 'More', 'Less', 'Select Linked', 'Select Similar', 'Extend Parent']) expect(sel).toContain(l);
+  // extrude twice up Z, then dissolve the middle bone into the chain
+  await page.keyboard.press('Alt+a');
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.doc.armatures[a.activeObject.data].bones[0].select_tail = true;
+    a.changed('doc');
+  });
+  await page.keyboard.press('e');
+  await page.keyboard.type('z1');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('e');
+  await page.keyboard.type('z1');
+  await page.keyboard.press('Enter');
+  const names = () => get(page, `${AR}.bones.map(b => b.name)`);
+  expect(await names()).toEqual(['Bone', 'Bone.001', 'Bone.002']);
+  // extruded bones inherit the collection
+  expect(await get(page, `${AR}.bones.every(b => b.collections.includes('Bones'))`)).toBe(true);
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const arm = a.doc.armatures[a.activeObject.data];
+    for (const b of arm.bones) b.select = b.select_head = b.select_tail = b.name === 'Bone.001';
+    a.changed('doc');
+  });
+  await page.keyboard.press('Control+x');
+  expect(await names()).toEqual(['Bone', 'Bone.001']);
+  expect(await get(page, `${AR}.bones[1].tail.map(v => +v.toFixed(3))`)).toEqual([0, 0, 3]);
+  // Y splits the selected bone off its parent
+  await page.keyboard.press('y');
+  expect(await get(page, `${AR}.bones[1].parent`)).toBe(null);
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(50);
+  expect(await get(page, `${AR}.bones[1].parent`)).toBe('Bone');
+  // move the second bone to +X and auto-name, then symmetrize and select mirror
+  await page.keyboard.press('g');
+  await page.keyboard.type('x1');
+  await page.keyboard.press('Enter');
+  await run(page, 'armature.autoside_names', { type: 'XAXIS' });
+  expect(await names()).toEqual(['Bone', 'Bone.L']);
+  await run(page, 'armature.symmetrize');
+  expect(await names()).toEqual(['Bone', 'Bone.L', 'Bone.R']);
+  // the mirrored bone hangs off the same (centre) parent and mirrors the tail
+  expect(await get(page, `${AR}.bones[2].parent`)).toBe('Bone');
+  expect(await get(page, `${AR}.bones[2].tail.map(v => +v.toFixed(3))`)).toEqual([-1, 0, 3]);
+  await page.keyboard.press('Control+Shift+m');
+  expect(await get(page, `${AR}.bones.filter(b => b.select).map(b => b.name)`)).toEqual(['Bone.R']);
+  // flip names swaps the pair
+  await page.keyboard.press('a');
+  await run(page, 'armature.flip_names');
+  expect(await names()).toEqual(['Bone', 'Bone.R', 'Bone.L']);
+  // bone collections: new collection via Shift M "move", hide it, bones disappear from picking
+  await page.keyboard.press('Alt+a');
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const b = a.doc.armatures[a.activeObject.data].bones[1];
+    b.select = b.select_head = b.select_tail = true;
+    a.changed('doc');
+  });
+  await page.evaluate(() => (window as any).app.run('armature.move_to_collection', { collection_index: -1, new_collection_name: 'Arms' }, { invoke: false }));
+  expect(await get(page, `${AR}.collections.map(c => c.name)`)).toContain('Arms');
+  expect(await get(page, `${AR}.bones[1].collections`)).toEqual(['Arms']);
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.doc.armatures[a.activeObject.data].collections.find((c: any) => c.name === 'Arms').is_visible = false;
+    a.changed('doc');
+  });
+  await page.keyboard.press('Alt+a');
+  await page.keyboard.press('a');
+  expect(await get(page, `${AR}.bones.filter(b => b.select).map(b => b.name)`)).toEqual(['Bone', 'Bone.L']);
+  // X-Axis Mirror: moving a .L tail moves the .R tail mirrored
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const arm = a.doc.armatures[a.activeObject.data];
+    arm.collections.forEach((c: any) => (c.is_visible = true));
+    arm.use_mirror_x = true;
+    for (const b of arm.bones) b.select = b.select_head = b.select_tail = false;
+    arm.bones.find((b: any) => b.name === 'Bone.L').select_tail = true;
+    a.changed('doc');
+  });
+  await page.keyboard.press('g');
+  await page.keyboard.type('x0.5');
+  await page.keyboard.press('Enter');
+  const tl = (await get(page, `${AR}.bones.find(b => b.name === 'Bone.L').tail.map(v => +v.toFixed(3))`)) as number[];
+  const tr = (await get(page, `${AR}.bones.find(b => b.name === 'Bone.R').tail.map(v => +v.toFixed(3))`)) as number[];
+  expect(tr).toEqual([-tl[0], tl[1], tl[2]]);
+  await expectNoErrors(errors);
+});
+
+test('armature edit mode: fill and separate via keys, metaball mirror', async ({ page }) => {
+  const errors = await openApp(page);
+  await fresh(page, 'object.armature_add');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Alt+a');
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.doc.armatures[a.activeObject.data].bones[0].select_tail = true;
+    a.changed('doc');
+  });
+  // one joint: fill to the 3D cursor (at the origin; the armature sits at the cursor too)
+  await page.evaluate(() => ((window as any).app.doc.scene.cursor.location = [1, 0, 0]));
+  await page.keyboard.press('f');
+  expect(await get(page, `${AR}.bones.length`)).toBe(2);
+  expect(await get(page, `${AR}.bones[1].tail.map(v => +v.toFixed(3))`)).toEqual([1, 0, 0]);
+  await page.keyboard.press('p');
+  expect(await get(page, `Object.values(app.doc.objects).filter(o => o.type === 'ARMATURE').length`)).toBe(2);
+  expect(await get(page, `${AR}.bones.length`)).toBe(1);
+  await page.keyboard.press('Tab');
+  // metaball edit mode mirror via the generic edit transform
+  await fresh(page, 'object.metaball_add', { type: 'BALL', location: [1, 0, 0] });
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('a');
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.doc.metaballs[a.activeObject.data].elements[0].co = [0.5, 0, 0];
+    // mirror around the 3D cursor, placed at the object origin
+    a.doc.scene.cursor.location = [1, 0, 0];
+    a.doc.scene.tool_settings.transform_pivot_point = 'CURSOR';
+    a.changed('doc');
+  });
+  await run(page, 'transform.mirror', { axis: 0 });
+  expect(await get(page, `app.doc.metaballs[app.activeObject.data].elements[0].co.map(v => +v.toFixed(3))`)).toEqual([-0.5, 0, 0]);
+  await expectNoErrors(errors);
+});

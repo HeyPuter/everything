@@ -59,7 +59,7 @@ function setSelected(cu: CurveData, it: Item, on: boolean) {
   }
   const b = sp.bezier_points[it.i];
   if (it.part === 'co') {
-    // selecting a control point selects its handles too (as in the reference application)
+    // selecting a control point selects its handles too
     b.select_control_point = b.select_left_handle = b.select_right_handle = on;
   } else if (it.part === 'hl') b.select_left_handle = on;
   else b.select_right_handle = on;

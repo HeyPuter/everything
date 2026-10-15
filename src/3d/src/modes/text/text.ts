@@ -17,7 +17,7 @@ function activeText(): { ob: ObjectData; cu: CurveData } | null {
 }
 const inTextEdit = () => app.doc.mode === 'EDIT' && !!activeText();
 
-/** caret index per text datablock (session state, like the reference application's edit cursor) */
+/** caret index per text datablock (session state) */
 const carets = new Map<string, number>();
 let selAnchor: number | null = null;
 

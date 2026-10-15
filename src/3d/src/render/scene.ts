@@ -1,4 +1,5 @@
 // Synchronises the evaluated depsgraph into a three.js scene graph.
+import { boneVisible } from '../modes/armature/armkernels';
 import {
   Scene,
   Group,
@@ -169,7 +170,10 @@ export class SceneSync {
     else if (ob.type === 'LIGHT' && ob.data) key = 'L' + JSON.stringify(doc.lights[ob.data]);
     else if (ob.type === 'EMPTY') key = `E${ob.empty_display_type}${ob.empty_display_size}` + (ob.empty_display_type === 'IMAGE' ? imageEmptyKey(doc, ob) : '');
     else if (ob.type === 'LATTICE' && ob.data) key = 'T' + doc.lattices[ob.data]?.points.join(',');
-    else if (ob.type === 'ARMATURE' && ob.data) key = 'A' + (ev.pose?.signature ?? '') + doc.armatures[ob.data]?.display_type + doc.armatures[ob.data]?.bones.length + (doc.armatures[ob.data]?.bones.filter((b) => b.hide).length ?? 0);
+    else if (ob.type === 'ARMATURE' && ob.data) {
+      const arm = doc.armatures[ob.data];
+      key = 'A' + (ev.pose?.signature ?? '') + arm?.display_type + arm?.bones.length + (arm?.bones.map((b) => (boneVisible(arm, b) ? 1 : 0) + (b.show_wire ? 2 : 0)).join('') ?? '');
+    }
     if (key !== so.helperKey) {
       so.helperKey = key;
       if (so.helper) {
@@ -301,9 +305,10 @@ export class SceneSync {
       f.userData.bone = name;
       f.userData.id = ev.id;
       f.userData.boneFill = true;
-      if (bone?.hide) {
+      if (bone && !boneVisible(arm, bone)) {
         l.visible = f.visible = false;
       }
+      if (bone?.show_wire) f.visible = false;
       g.add(f, l);
     }
     so.bones = g;

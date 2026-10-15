@@ -1,6 +1,7 @@
 // Metaball Edit Mode: element rings overlay, picking / box / circle / lasso selection,
 // G/R/S transforms (scale changes the radius, or the stiffness after clicking the inner ring),
 // header menus, context menu, keymap and toolbar.
+import { transformSubmenu, mirrorSubmenu, snapSubmenu } from '../modes/common-menus';
 import { Box3, Matrix3, Matrix4, Quaternion, Vector3 } from 'three';
 import { app } from '../app/app';
 import { activeTools } from '../app/prefs';
@@ -288,12 +289,6 @@ if (editItem && !editItem.types.includes('META')) editItem.types.push('META');
 // ---------------------------------------------------------------------------
 // menus & keys
 
-const transformMenu = (): MenuItem[] => [
-  { label: 'Move', op: 'transform.translate', shortcut: 'G' },
-  { label: 'Rotate', op: 'transform.rotate', shortcut: 'R' },
-  { label: 'Scale', op: 'transform.resize', shortcut: 'S' },
-];
-
 const showHideMenu = (): MenuItem[] => [
   { label: 'Reveal Hidden', op: 'mball.reveal_metaelems', shortcut: 'Alt H' },
   { label: 'Hide Selected', op: 'mball.hide_metaelems', props: { unselected: false }, shortcut: 'H' },
@@ -310,7 +305,9 @@ const similarMenu = (): MenuItem[] =>
 
 function metaballMenu(): MenuItem[] {
   return [
-    { label: 'Transform', submenu: transformMenu },
+    transformSubmenu(),
+    mirrorSubmenu(),
+    snapSubmenu(),
     { separator: true },
     { label: 'Delete', op: 'mball.delete_metaelems', shortcut: 'X' },
     { label: 'Duplicate Metaball Elements', op: 'mball.duplicate_move', shortcut: 'Shift D' },
@@ -325,6 +322,9 @@ function selectMenu(): MenuItem[] {
     { label: 'None', op: 'mball.select_all', props: { action: 'DESELECT' }, shortcut: 'Alt A' },
     { label: 'Invert', op: 'mball.select_all', props: { action: 'INVERT' }, shortcut: 'Ctrl I' },
     { separator: true },
+    { label: 'Box Select', op: 'view3d.select_box_tool', shortcut: 'B' },
+    { label: 'Circle Select', op: 'view3d.select_circle_tool', shortcut: 'C' },
+    { separator: true },
     { label: 'Select Random', op: 'mball.select_random_metaelems' },
     { separator: true },
     { label: 'Select Similar', submenu: similarMenu, shortcut: 'Shift G' },
@@ -338,6 +338,9 @@ function addElementMenu(): MenuItem[] {
 function contextMenu(): MenuItem[] {
   return [
     { label: 'Duplicate Metaball Elements', op: 'mball.duplicate_move', shortcut: 'Shift D' },
+    { separator: true },
+    mirrorSubmenu(),
+    snapSubmenu(),
     { separator: true },
     { label: 'Delete Metaball Elements', op: 'mball.delete_metaelems', shortcut: 'X' },
   ];
