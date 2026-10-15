@@ -8,4 +8,5 @@ import './hooks';
 import './select';
 import './relations';
 import './instancing';
+import './vweights';
 import './keys';

@@ -14,6 +14,7 @@ import { openMenu, promptText } from '../ui/menu';
 import { newConstraint } from '../eval/constraints';
 import { modeHandlers } from './modes';
 import { edgeChains, surfaceCenter, volumeCenter } from '../object/core';
+import { startInteractiveMirror } from '../object/mirror';
 import { defaultPoseBone } from '../eval/armature';
 import { newModifier } from '../eval/modifiers';
 
@@ -270,6 +271,27 @@ function transformMeshData(me: MeshData, m: Matrix4) {
       return { ...f, verts: order.map((i) => f.verts[i]), uvs: f.uvs ? order.flatMap((i) => [f.uvs![i * 2], f.uvs![i * 2 + 1]]) : undefined };
     });
     Object.assign(me, buildMesh(me.positions, polys));
+  }
+}
+
+/** Mirror the selected objects around the selection center along a global or local axis. */
+export function mirrorSelected(axis: number, orient: string) {
+  const c = centerOfSelection();
+  const s = [1, 1, 1];
+  s[axis] = -1;
+  const flip = new Matrix4().makeScale(s[0], s[1], s[2]);
+  const m = new Matrix4().makeTranslation(c.x, c.y, c.z).multiply(flip).multiply(new Matrix4().makeTranslation(-c.x, -c.y, -c.z));
+  for (const ob of app.selectedObjects()) {
+    const ow = app.graph.get(ob.id)!.world;
+    let w: Matrix4;
+    if (orient === 'LOCAL') {
+      // mirror around the selection center along each object's own axis
+      const rot = new Matrix4().extractRotation(ow);
+      const mm = new Matrix4().makeTranslation(c.x, c.y, c.z).multiply(rot).multiply(flip).multiply(rot.clone().transpose()).multiply(new Matrix4().makeTranslation(-c.x, -c.y, -c.z));
+      w = mm.multiply(ow);
+    } else w = m.clone().multiply(ow);
+    const parentInv = ob.parent ? app.graph.get(ob.parent)!.world.clone().multiply(toMatrix4(ob.matrix_parent_inverse)).invert() : new Matrix4();
+    applyMatrixToObject(ob, parentInv.multiply(w));
   }
 }
 
@@ -1345,27 +1367,14 @@ registerOperators([
     props: [
       { id: 'axis', label: 'Axis', type: 'int', default: 0, min: 0, max: 2, hidden: true },
       { id: 'orient_type', label: 'Orientation', type: 'enum', default: 'GLOBAL', items: [['GLOBAL', 'Global'], ['LOCAL', 'Local']] },
+      { id: 'interactive', label: 'Interactive', type: 'bool', default: false, hidden: true },
     ],
     poll: (ctx) => ctx.doc.mode === 'OBJECT' && app.selectedObjects().length > 0,
-    exec: (_ctx, p) => {
-      const c = centerOfSelection();
-      const s = [1, 1, 1];
-      s[p.axis as number] = -1;
-      const flip = new Matrix4().makeScale(s[0], s[1], s[2]);
-      const m = new Matrix4().makeTranslation(c.x, c.y, c.z).multiply(flip).multiply(new Matrix4().makeTranslation(-c.x, -c.y, -c.z));
-      for (const ob of app.selectedObjects()) {
-        const ow = app.graph.get(ob.id)!.world;
-        let w: Matrix4;
-        if (p.orient_type === 'LOCAL') {
-          // mirror around the selection center along each object's own axis
-          const rot = new Matrix4().extractRotation(ow);
-          const mm = new Matrix4().makeTranslation(c.x, c.y, c.z).multiply(rot).multiply(flip).multiply(rot.clone().transpose()).multiply(new Matrix4().makeTranslation(-c.x, -c.y, -c.z));
-          w = mm.multiply(ow);
-        } else w = m.clone().multiply(ow);
-        const parentInv = ob.parent ? app.graph.get(ob.parent)!.world.clone().multiply(toMatrix4(ob.matrix_parent_inverse)).invert() : new Matrix4();
-        applyMatrixToObject(ob, parentInv.multiply(w));
-      }
+    invoke: (_ctx, p) => {
+      if (!p.interactive) return mirrorSelected(p.axis as number, p.orient_type as string);
+      return startInteractiveMirror(mirrorSelected);
     },
+    exec: (_ctx, p) => mirrorSelected(p.axis as number, p.orient_type as string),
   },
   {
     idname: 'object.convert',

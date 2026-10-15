@@ -31,7 +31,7 @@ export function originMenu(): MenuItem[] {
 
 export function mirrorMenu(): MenuItem[] {
   const axis = (orient: 'GLOBAL' | 'LOCAL') => ['X', 'Y', 'Z'].map((a, i) => ({ label: `${a} ${orient === 'GLOBAL' ? 'Global' : 'Local'}`, op: 'transform.mirror', props: { axis: i, orient_type: orient } }));
-  return [...axis('GLOBAL'), { separator: true }, ...axis('LOCAL')];
+  return [{ label: 'Interactive Mirror', op: 'transform.mirror', props: { interactive: true }, shortcut: 'Ctrl M' }, { separator: true }, ...axis('GLOBAL'), { separator: true }, ...axis('LOCAL')];
 }
 
 function clearMenu(): MenuItem[] {

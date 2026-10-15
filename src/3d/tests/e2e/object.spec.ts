@@ -109,3 +109,45 @@ test('add menu collection instance draws the collection', async ({ page }) => {
   expect(count).toBe(1);
   await expectNoErrors(errors);
 });
+
+test('interactive mirror and the vertex weights panel', async ({ page }) => {
+  const errors = await openApp(page);
+  await run(page, 'transform.translate', { value: [2, 0, 0] });
+  await page.evaluate(() => ((window as any).app.activeObject.location = [2, 0, 0])); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await run(page, 'object.empty_add', { location: [4, 0, 0] });
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    for (const o of Object.values(a.doc.objects) as any[]) o.select = o.name === 'Cube' || o.name === 'Empty'; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.changed('doc', 'select');
+  });
+  await hoverViewport(page);
+  await page.keyboard.press('Control+m');
+  await page.keyboard.press('x');
+  await page.keyboard.press('Enter');
+  // mirrored around the selection centre (x = 3)
+  expect(await get(page, `app.doc.objects[Object.keys(app.doc.objects).find((k) => app.doc.objects[k].name === 'Cube')].location[0].toFixed(3)`)).toBe('4.000');
+  expect(await get(page, `app.doc.objects[Object.keys(app.doc.objects).find((k) => app.doc.objects[k].name === 'Empty')].location[0].toFixed(3)`)).toBe('2.000');
+  await page.keyboard.press('Control+z');
+
+  // vertex weights panel in Edit Mode
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.run('object.select_all', { action: 'DESELECT' });
+    const cube = Object.values(a.doc.objects).find((o: any) => o.name === 'Cube') as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    cube.select = true;
+    a.doc.scene.active_object = cube.id;
+    a.run('object.vertex_group_add', {}, { invoke: false });
+    const me = a.doc.meshes[cube.data];
+    me.weights[0] = new Float32Array(8).fill(0.5);
+    a.run('object.mode_set', { mode: 'EDIT' }, { invoke: false });
+    me.select_vert = Uint8Array.from([1, 1, 0, 0, 0, 0, 0, 0]);
+    a.changed('doc', 'select');
+  });
+  await hoverViewport(page);
+  await page.keyboard.press('n');
+  await page.locator('.sb-tab', { hasText: 'Item' }).first().click();
+  await expect(page.locator('.vw-row')).toHaveCount(1);
+  await page.locator('.vw-row [data-tip="Delete weight"]').click();
+  expect(await get(page, `app.doc.meshes[app.activeObject.data].weights[0][0]`)).toBe(0);
+  await expectNoErrors(errors);
+});

@@ -1872,6 +1872,32 @@ input.num-field.editing {
 .ul-right:has(> :nth-child(3)) {
   width: 62%;
 }
+.vw-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 2px 0;
+}
+.vw-row .vw-name {
+  flex: 0 0 38%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  background: none;
+  border: 0;
+  color: inherit;
+  padding: 0 4px;
+  cursor: pointer;
+}
+.vw-row.on .vw-name {
+  color: var(--accent-text, #fff);
+  font-weight: 600;
+}
+.vw-row .num-field {
+  flex: 1;
+  min-width: 0;
+}
 .ul-lock {
   flex: none;
   width: 18px;

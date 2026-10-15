@@ -645,3 +645,43 @@ describe('vertex parent', () => {
     expect(run('object.vertex_parent_set')).toBe('CANCELLED');
   });
 });
+
+describe('vertex weights and global transform', () => {
+  it('copies, pastes, normalizes and deletes weights of the reference vertex', () => {
+    const ob = cube();
+    select(ob);
+    run('object.vertex_group_add');
+    run('object.vertex_group_add');
+    const me = meshOf(ob);
+    me.weights[0] = Float32Array.from([0.6, 0, 0, 0, 0, 0, 0, 0]);
+    me.weights[1] = Float32Array.from([0.2, 0, 0, 0, 0, 0, 0, 0]);
+    run('object.mode_set', { mode: 'EDIT' });
+    me.select_vert = Uint8Array.from([1, 1, 1, 0, 0, 0, 0, 0]);
+    run('object.vertex_weight_paste', { weight_group: 0 });
+    expect(Array.from(me.weights[0].slice(0, 3)).map((v) => +v.toFixed(2))).toEqual([0.6, 0.6, 0.6]);
+    run('object.vertex_weight_copy');
+    expect(+me.weights[1][2].toFixed(2)).toBe(0.2);
+    run('object.vertex_weight_normalize_active_vertex');
+    expect(me.weights[0][0] + me.weights[1][0]).toBeCloseTo(1);
+    run('object.vertex_weight_delete', { weight_group: 1 });
+    expect(me.weights[1][0]).toBe(0);
+    run('object.mode_set', { mode: 'OBJECT' });
+  });
+
+  it('copies and pastes world transforms', () => {
+    const ob = cube();
+    ob.location = [1, 2, 3];
+    ob.rotation_euler = [0, 0, 1];
+    select(ob);
+    run('object.copy_global_transform');
+    const e = addEmpty('Target');
+    const parent = addEmpty('Parent');
+    parent.location = [5, 0, 0];
+    e.parent = parent.id;
+    select(e);
+    run('object.paste_transform');
+    const w = app.graph.get(e.id)!.world.elements;
+    const src = app.graph.get(ob.id)!.world.elements;
+    expect(near(w, Array.from(src), 1e-4)).toBe(true);
+  });
+});
