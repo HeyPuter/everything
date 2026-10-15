@@ -205,6 +205,7 @@ geoNode(
         return FIELD_ITEM_TYPES.has(it.socket_type) ? (v instanceof Field ? v : new ConstField(t, (v ?? 0) as number)) : null;
       });
       const body = zoneBody(ctx.tree, inp.id, node.id);
+      const wantElement = ev.isUsed(inp.id, 'Element');
       const genGeos: GeometrySet[][] = gen.map(() => []);
       const mainNames = main.map((it) => ctx.anon(mainId(it)));
       const genNames = gen.map((it) => ctx.anon(genId(it)));
@@ -219,7 +220,7 @@ geoNode(
         for (let i = 0; i < n; i++) {
           if (sel && !sel[i]) continue;
           const ins: Record<string, Val> = { Index: i };
-          if (domain !== 'CORNER') ins.Element = elementGeometry(c, domain, i);
+          if (domain !== 'CORNER' && wantElement) ins.Element = elementGeometry(c, domain, i);
           inputs.forEach((it, k) => {
             const arr = vals[k];
             ins[inId(it)] = arr ? (readScalar({ data: arr }, fieldTypeOfEnum(it.socket_type) as FieldType, i) as Val) : inputOf(ev, inp, inId(it));
