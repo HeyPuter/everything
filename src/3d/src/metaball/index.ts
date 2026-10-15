@@ -7,4 +7,5 @@ import './ops';
 import './edit';
 import './properties';
 import './scripting';
+import './objectmode';
 export {};

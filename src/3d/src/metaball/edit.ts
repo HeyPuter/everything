@@ -41,7 +41,7 @@ interface Ring {
 }
 
 /** Screen-space rings of the visible elements. */
-function rings(v: View3D, ob: ObjectData, mb: MetaballData): Ring[] {
+export function rings(v: View3D, ob: ObjectData, mb: MetaballData): Ring[] {
   const w = world(ob);
   const scale = new Vector3().setFromMatrixScale(w);
   const objScale = (Math.abs(scale.x) + Math.abs(scale.y) + Math.abs(scale.z)) / 3 || 1;

@@ -395,3 +395,27 @@ test('text object: open a custom font file from the Font panel', async ({ page }
   expect(await get(page, 'app.graph.get(app.activeObject.id).mesh.positions.length')).not.toBe(before);
   await expectNoErrors(errors);
 });
+
+test('metaball family members can be clicked on their rings in Object Mode', async ({ page }) => {
+  const errors = await openApp(page);
+  await fresh(page, 'object.metaball_add', { type: 'BALL', location: [0, 0, 0] });
+  await run(page, 'object.select_all', { action: 'DESELECT' });
+  await run(page, 'object.metaball_add', { type: 'BALL', location: [0, 0, 3] });
+  expect(await get(page, 'app.activeObject.name')).toBe('Mball.001');
+  await run(page, 'object.select_all', { action: 'DESELECT' });
+  await page.waitForTimeout(100);
+  // click on the top of the second ball's ring
+  const p = await page.evaluate(async () => {
+    const { rings } = await import('/src/metaball/edit.ts');
+    const a = (window as any).app;
+    const v = (a.hoverArea ?? a.activeArea).editor;
+    const ob = Object.values(a.doc.objects).find((o: any) => o.name === 'Mball.001') as any;
+    const g = rings(v, ob, a.doc.metaballs[ob.data])[0];
+    const r = v.el.getBoundingClientRect();
+    return { x: r.left + g.cx, y: r.top + g.cy - g.r };
+  });
+  await page.mouse.click(p.x, p.y);
+  expect(await get(page, 'app.activeObject.name')).toBe('Mball.001');
+  expect(await get(page, 'app.activeObject.select')).toBe(true);
+  await expectNoErrors(errors);
+});
