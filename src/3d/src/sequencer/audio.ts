@@ -54,6 +54,20 @@ function schedule(ctx: BaseAudioContext, dest: AudioNode, buf: AudioBuffer, v: V
     for (const [f, val] of keys) if (f > from) gain.gain.linearRampToValueAtTime(Math.max(0, val), at(f));
   }
   let node: AudioNode = gain;
+  // equalizer modifiers: biquad filters after the gain
+  for (const m of v.s.modifiers ?? []) {
+    if (m.mute || m.type !== 'SOUND_EQUALIZER') continue;
+    for (const b of m.bands ?? []) {
+      if (!b.gain) continue;
+      const f = ctx.createBiquadFilter();
+      f.type = b.type === 'LOWSHELF' ? 'lowshelf' : b.type === 'HIGHSHELF' ? 'highshelf' : 'peaking';
+      f.frequency.value = Math.max(20, Math.min(20000, b.frequency));
+      f.gain.value = b.gain;
+      f.Q.value = Math.max(0.01, b.q);
+      node.connect(f);
+      node = f;
+    }
+  }
   const pan = v.s.pan ?? 0;
   if (pan) {
     // explicit linear pan (matches panGains used in tests)
@@ -65,10 +79,10 @@ function schedule(ctx: BaseAudioContext, dest: AudioNode, buf: AudioBuffer, v: V
     gl.gain.value = l;
     gr.gain.value = r;
     if (buf.numberOfChannels === 1) {
-      gain.connect(gl);
-      gain.connect(gr);
+      node.connect(gl);
+      node.connect(gr);
     } else {
-      gain.connect(split);
+      node.connect(split);
       split.connect(gl, 0);
       split.connect(gr, 1);
     }

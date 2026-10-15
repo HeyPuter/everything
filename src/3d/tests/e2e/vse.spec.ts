@@ -464,3 +464,31 @@ test('sequencer: Add ▸ Clip shows a movie clip of the clip editor', async ({ p
   expect(rgba[1]).toBeGreaterThan(rgba[0] + 0.3);
   await expectNoErrors(errors);
 });
+
+test('sequencer: Equalizer modifier on a sound strip filters the mix', async ({ page }) => {
+  const { errors } = await videoWorkspace(page);
+  await addTone(page);
+  const rms = await page.evaluate(async () => {
+    const app = (window as any).app;
+    const ed = app.doc.scene.sequence_editor;
+    const { mixdown } = await import('/src/sequencer/audio.ts' as any);
+    const s = ed.strips.find((x: any) => x.type === 'SOUND');
+    for (const x of ed.strips) x.select = x === s;
+    ed.active_strip = s.name;
+    const level = async () => {
+      const buf = await mixdown(ed, 24, 1, 49);
+      const d = buf.getChannelData(0);
+      let acc = 0;
+      for (let i = 4800; i < d.length; i++) acc += d[i] * d[i];
+      return Math.sqrt(acc / (d.length - 4800));
+    };
+    const before = await level();
+    app.run('sequencer.strip_modifier_add', { type: 'SOUND_EQUALIZER' });
+    Object.assign(s.modifiers[0].bands[1], { frequency: 382, gain: -30, q: 2 });
+    const after = await level();
+    return { before, after, type: s.modifiers[0].type };
+  });
+  expect(rms.type).toBe('SOUND_EQUALIZER');
+  expect(rms.after).toBeLessThan(rms.before * 0.3);
+  await expectNoErrors(errors);
+});

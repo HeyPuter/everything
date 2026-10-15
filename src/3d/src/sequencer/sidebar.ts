@@ -447,6 +447,27 @@ function modifierPanel(s: Strip, m: StripModifier, i: number): Child {
   return panel(`seq-mod-${i}-${m.type}`, '', () => {
     if (m.type === 'BRIGHT_CONTRAST') return [num(m, 'bright', 'Brightness', { precision: 3 }), num(m, 'contrast', 'Contrast', { min: -100, max: 100, precision: 3 }), maskRows(s, m)];
     if (m.type === 'WHITE_BALANCE') return [color(m as never, 'white_value', 'White Value'), maskRows(s, m)];
+    if (m.type === 'SOUND_EQUALIZER') {
+      const bands = (m.bands ??= []);
+      const ed: PropOpts = { onChange: () => restartPlayback() };
+      return bands.map((b, i) =>
+        panel(
+          `seq-eq-${oid(m)}-${i}`,
+          b.type === 'LOWSHELF' ? 'Low Shelf' : b.type === 'HIGHSHELF' ? 'High Shelf' : `Band ${i}`,
+          () => [
+            enumProp(b as never, 'type', 'Type', [
+              ['LOWSHELF', 'Low Shelf'],
+              ['PEAKING', 'Peak'],
+              ['HIGHSHELF', 'High Shelf'],
+            ]),
+            num(b, 'frequency', 'Frequency', { min: 20, max: 20000, precision: 0, ...ed }),
+            num(b, 'gain', 'Gain (dB)', { min: -36, max: 36, precision: 1, ...ed }),
+            b.type === 'PEAKING' ? num(b, 'q', 'Q', { min: 0.1, max: 30, precision: 2, ...ed }) : null,
+          ],
+          { sub: true },
+        ),
+      );
+    }
     if (m.type === 'CURVES') {
       m.curve_mapping ??= {};
       // the curve widget of the RGB Curves node, drawing into the modifier's mapping
@@ -474,7 +495,7 @@ function modifierPanel(s: Strip, m: StripModifier, i: number): Child {
 export function modifiersTab(): Child {
   const s = hasEditor() ? activeStrip() : null;
   if (!s) return h('div', { class: 'sb-empty' }, 'No active strip');
-  if (s.type === 'SOUND') return h('div', { class: 'sb-empty' }, 'Sound strips have no image modifiers');
+  const sound = s.type === 'SOUND';
   return [
     stripHeader(s),
     h(
@@ -488,7 +509,9 @@ export function modifiersTab(): Child {
           onpointerdown: (e: PointerEvent) => {
             e.preventDefault();
             openMenu(
-              [
+              sound
+                ? [{ label: 'Equalizer', icon: 'file_sound', op: 'sequencer.strip_modifier_add', props: { type: 'SOUND_EQUALIZER' } }]
+                : [
                 { label: 'Color Balance', icon: 'seq_color', op: 'sequencer.strip_modifier_add', props: { type: 'COLOR_BALANCE' } },
                 { label: 'Brightness/Contrast', icon: 'seq_adjustment', op: 'sequencer.strip_modifier_add', props: { type: 'BRIGHT_CONTRAST' } },
                 { label: 'White Balance', icon: 'seq_color', op: 'sequencer.strip_modifier_add', props: { type: 'WHITE_BALANCE' } },

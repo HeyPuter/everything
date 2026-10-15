@@ -845,11 +845,16 @@ const ops: Operator[] = [
     idname: 'sequencer.strip_modifier_add',
     label: 'Add Strip Modifier',
     description: 'Add a modifier to the strip',
-    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'COLOR_BALANCE', items: [['COLOR_BALANCE', 'Color Balance'], ['BRIGHT_CONTRAST', 'Brightness/Contrast'], ['WHITE_BALANCE', 'White Balance'], ['CURVES', 'Curves']] }],
-    poll: () => !!activeStrip() && activeStrip()!.type !== 'SOUND',
+    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'COLOR_BALANCE', items: [['COLOR_BALANCE', 'Color Balance'], ['BRIGHT_CONTRAST', 'Brightness/Contrast'], ['WHITE_BALANCE', 'White Balance'], ['CURVES', 'Curves'], ['SOUND_EQUALIZER', 'Equalizer']] }],
+    poll: () => !!activeStrip(),
     exec: (_c, p) => {
       const s = activeStrip()!;
-      const base = p.type === 'COLOR_BALANCE' ? 'Color Balance' : p.type === 'WHITE_BALANCE' ? 'White Balance' : p.type === 'CURVES' ? 'Curves' : 'Brightness/Contrast';
+      // sound strips take sound modifiers, the others image modifiers
+      if ((s.type === 'SOUND') !== (p.type === 'SOUND_EQUALIZER')) {
+        app.report('ERROR', s.type === 'SOUND' ? 'Sound strips only take sound modifiers' : 'Sound modifiers only work on sound strips');
+        return 'CANCELLED';
+      }
+      const base = p.type === 'COLOR_BALANCE' ? 'Color Balance' : p.type === 'WHITE_BALANCE' ? 'White Balance' : p.type === 'CURVES' ? 'Curves' : p.type === 'SOUND_EQUALIZER' ? 'Equalizer' : 'Brightness/Contrast';
       let name = base;
       for (let i = 1; s.modifiers.some((m) => m.name === name); i++) name = `${base}.${String(i).padStart(3, '0')}`;
       s.modifiers.push(S.newModifier(p.type as ModifierType, name));

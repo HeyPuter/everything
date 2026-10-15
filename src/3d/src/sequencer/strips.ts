@@ -253,6 +253,18 @@ export function newColorBalance(): ColorBalanceData {
 export function newModifier(type: ModifierType, name: string): StripModifier {
   if (type === 'COLOR_BALANCE') return { name, type, mute: false, show_expanded: true, color_balance: newColorBalance(), color_multiply: 1 };
   if (type === 'WHITE_BALANCE') return { name, type, mute: false, show_expanded: true, white_value: [1, 1, 1] };
+  if (type === 'SOUND_EQUALIZER')
+    return {
+      name,
+      type,
+      mute: false,
+      show_expanded: true,
+      bands: [
+        { type: 'LOWSHELF', frequency: 120, gain: 0, q: 0.7 },
+        { type: 'PEAKING', frequency: 1000, gain: 0, q: 1 },
+        { type: 'HIGHSHELF', frequency: 8000, gain: 0, q: 0.7 },
+      ],
+    };
   if (type === 'CURVES') return { name, type, mute: false, show_expanded: true, curve_mapping: defaultCurves('RGB') };
   return { name, type, mute: false, show_expanded: true, bright: 0, contrast: 0 };
 }

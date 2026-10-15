@@ -87,7 +87,16 @@ export interface StripCrop {
   max_y: number;
 }
 
-export type ModifierType = 'COLOR_BALANCE' | 'BRIGHT_CONTRAST' | 'WHITE_BALANCE' | 'CURVES';
+export type ModifierType = 'COLOR_BALANCE' | 'BRIGHT_CONTRAST' | 'WHITE_BALANCE' | 'CURVES' | 'SOUND_EQUALIZER';
+
+/** One band of the sound equalizer. */
+export interface EqBand {
+  type: 'LOWSHELF' | 'PEAKING' | 'HIGHSHELF';
+  frequency: number;
+  /** dB */
+  gain: number;
+  q: number;
+}
 
 export interface ColorBalanceData {
   correction_method: 'LIFT_GAMMA_GAIN' | 'OFFSET_POWER_SLOPE';
@@ -118,6 +127,8 @@ export interface StripModifier {
   contrast?: number;
   /** WHITE_BALANCE: this colour becomes white */
   white_value?: number[];
+  /** SOUND_EQUALIZER: filter bands (sound strips) */
+  bands?: EqBand[];
   /** CURVES: curve mapping (combined, red, green, blue) stored like the RGB Curves node's props */
   curve_mapping?: Record<string, import('../data/types').SocketValue>;
   /** limit the modifier to a mask: another strip's image or a mask data-block */

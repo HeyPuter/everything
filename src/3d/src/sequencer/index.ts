@@ -33,7 +33,7 @@ registerWorkspaceTemplate('Video Editing', () => ({
 
 // Properties editor: Strip and Strip Modifiers tabs while a strip is active
 registerTab({ id: 'STRIP', label: 'Strip', icon: 'sequence', group: 9, poll: () => hasEditor() && !!activeStrip(), draw: () => stripTab() });
-registerTab({ id: 'STRIP_MODIFIER', label: 'Strip Modifiers', icon: 'modifier', group: 9, poll: () => hasEditor() && !!activeStrip() && activeStrip()!.type !== 'SOUND', draw: () => modifiersTab() });
+registerTab({ id: 'STRIP_MODIFIER', label: 'Strip Modifiers', icon: 'modifier', group: 9, poll: () => hasEditor() && !!activeStrip(), draw: () => modifiersTab() });
 
 // sound strips follow timeline playback (the app instance exists once the entry module has run)
 onAppReady((a) => a.subscribe(() => syncPlayback()));
