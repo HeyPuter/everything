@@ -123,16 +123,7 @@ function targetRows(ob: ObjectData, c: C, bone: string | undefined, o: { headTai
   const rows: Child[] = [objectProp(c, key, o.label ?? 'Target', { filter, undo: `Set ${o.label ?? 'Target'}` })];
   if (bones) {
     rows.push(splitRow('Bone', enumMenu(`${c.id}.${sub}`, bones, String(c[sub] ?? ''), (v) => ((c[sub] = v), commit('Set Bone')))));
-    if (o.headTail && c[sub])
-      rows.push(
-        splitRow(
-          'Head/Tail',
-          withSide(
-            numberField({ id: `${c.id}.head_tail`, value: (c.head_tail as number) ?? 0, min: 0, max: 1, slider: true, set: (v, final) => ((c.head_tail = v), app.changed('doc'), final && app.pushUndo('Change Head/Tail')) }),
-            h('button', { class: { tbtn: true, on: !!c.use_bbone_shape }, 'data-tip': 'Follow the B-Bone shape (shown for B-Bones)', onclick: () => ((c.use_bbone_shape = !c.use_bbone_shape), commit('Change B-Bone Shape')) }, 'B-Bone'),
-          ),
-        ),
-      );
+    if (o.headTail && c[sub]) rows.push(num(c, 'head_tail', 'Head/Tail', { min: 0, max: 1, slider: true }));
   }
   return rows;
 }
