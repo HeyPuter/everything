@@ -4,6 +4,7 @@ import type { CurveData, DocumentData, MeshData, ObjectData } from '../data/type
 import { sampleSpline } from '../eval/curve';
 import { CurvesComponent, GeometrySet, MeshComponent, PointsComponent, mulMat, isIdentity, type AttrMap, type InstancesComponent } from './geometry';
 import { edgeAttrToCorners, faceNormals, smoothFlags } from './meshutil';
+import { evaluatedCurves } from './curves/curvedata';
 
 export interface GnEvalMesh extends EvalMesh {
   /** materials of the generated geometry by material index (when set by nodes) */
@@ -276,7 +277,7 @@ export function geometryToEvalMesh(g: GeometrySet, opts: OutputOptions = {}): Gn
       pointRadius: r ? (r.data as Float32Array) : undefined,
     };
   } else if (g.curves) {
-    const c = g.curves;
+    const c = evaluatedCurves(g.curves);
     const curves: { points: Float32Array; cyclic: boolean }[] = [];
     for (let k = 0; k < c.curveCount; k++)
       curves.push({

@@ -16,6 +16,7 @@ import {
   type InstanceReference,
 } from '../geometry';
 import type { AttrArray, DataType, Domain } from '../types';
+import { missingCurveAttr, transformCurveAttrs } from '../curves/curvedata';
 
 const TYPE_RANK: Record<DataType, number> = {
   BOOLEAN: 0,
@@ -76,6 +77,8 @@ function joinAttrs(comps: Component[], sizes: (c: Component, d: Domain) => numbe
         let d = a.domain === domain ? a.data : adaptDomain(c, a.data, a.type, a.domain, domain);
         d = convertData(d, a.type, type, n);
         data.set(d.subarray(0, n * comp), o * comp);
+      } else if (c.kind === 'CURVES' && missingCurveAttr(c, name, data, o, n)) {
+        // built-in curve attributes get their defaults (spline type, resolution, handles)
       } else if (type === 'FLOAT_COLOR') for (let i = 0; i < n; i++) data[(o + i) * 4 + 3] = 1;
       o += n;
     });
@@ -289,6 +292,7 @@ export function transformComponent(c: Component, m: ArrayLike<number>): Componen
   }
   const out = c.copy();
   out.positions = transformPositions(m, c.positions);
+  if (out.kind === 'CURVES') transformCurveAttrs(out, m);
   return out;
 }
 
