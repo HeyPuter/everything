@@ -616,6 +616,7 @@ export class NodeEditor implements Editor {
               groupName: n.label ? undefined : groupName,
               highlightSockets: this.highlightSockets(),
               dimSocket: dim,
+              titleTip: groupName !== undefined && gid ? app.doc.node_groups[gid]?.tree.description : undefined,
               preview: ma && n.show_preview && !n.hide && canPreview(n, app.doc, tree) ? (nodePreview(app.doc, ma, n, pkey) ?? '') : undefined,
               rerouteLabel: l.kind === 'REROUTE' ? n.label || (this.showOverlays && this.overlays.rerouteLabels ? rerouteSource(tree, n, this.layouts) : undefined) : undefined,
             },
@@ -1465,6 +1466,39 @@ export class NodeEditor implements Editor {
   /** Box select started from the keyboard (B): drag with LMB. */
   startBoxSelect(mode?: 'SET' | 'ADD' | 'SUB') {
     this.waitForPress('box-pending', (e, tree) => this.boxDrag(e, tree, mode ?? (e.shiftKey ? 'SUB' : 'ADD')));
+  }
+
+  /** Zoom to a dragged rectangle (Shift B). */
+  startZoomBorder() {
+    this.waitForPress('box-pending', (e) => {
+      e.preventDefault();
+      const r = this.el.getBoundingClientRect();
+      const x0 = e.clientX - r.left,
+        y0 = e.clientY - r.top;
+      this.track(
+        e,
+        (ev) => {
+          this.box = { x0, y0, x1: ev.clientX - r.left, y1: ev.clientY - r.top, mode: 'SET' };
+          this.drawOver();
+        },
+        (_ev, moved) => {
+          const b = this.box;
+          this.box = null;
+          this.drawOver();
+          if (!moved || !b) return;
+          const [ax, ay] = this.toNode(Math.min(b.x0, b.x1) + r.left, Math.min(b.y0, b.y1) + r.top);
+          const [bx, by] = this.toNode(Math.max(b.x0, b.x1) + r.left, Math.max(b.y0, b.y1) + r.top);
+          const W = this.el.clientWidth,
+            H = this.el.clientHeight;
+          const zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(W / Math.max(1, bx - ax), H / Math.max(1, by - ay))));
+          this.animateTo({ zoom, x: W / 2 - ((ax + bx) / 2) * zoom, y: H / 2 - ((ay + by) / 2) * zoom });
+        },
+        () => {
+          this.box = null;
+          this.drawOver();
+        },
+      );
+    });
   }
 
   /** Lasso select started from a menu: drag with LMB. */

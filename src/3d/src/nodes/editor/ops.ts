@@ -407,6 +407,17 @@ const ops: Operator[] = [
     exec: (ctx, p) => nodeEditorOf(ctx)!.zoomBy(Number(p.factor) || 1.25),
   },
   {
+    idname: 'node.zoom_border',
+    label: 'Zoom to Border',
+    description: 'Zoom in on the region of a dragged rectangle',
+    undo: false,
+    poll: hasTree,
+    invoke: (ctx) => {
+      nodeEditorOf(ctx)!.startZoomBorder();
+      return 'CANCELLED';
+    },
+  },
+  {
     idname: 'node.toggle_overlays',
     label: 'Show Overlays',
     description: 'Toggle wire colors, reroute labels and the context path',
@@ -591,6 +602,7 @@ addKeys('Node Editor', [
   { key: 'NUMPAD_MINUS', op: 'node.zoom', props: { factor: 0.8 } },
   { key: 'EQUAL', ctrl: true, op: 'node.zoom', props: { factor: 1.25 } },
   { key: 'MINUS', ctrl: true, op: 'node.zoom', props: { factor: 0.8 } },
+  { key: 'B', shift: true, op: 'node.zoom_border' },
   {
     key: 'ACCENT_GRAVE',
     when: () => !!hoverEditor(),

@@ -335,6 +335,8 @@ export interface NodeRenderState {
   dimSocket?: (p: SocketPos, nodeId: string) => boolean;
   /** preview image above the node ('' while it renders) */
   preview?: string;
+  /** tooltip of the node title (a group's description) */
+  titleTip?: string;
 }
 
 const COLLAPSE_TIP = 'Collapse (H)';
@@ -537,7 +539,7 @@ export function renderNode(l: NodeLayout, tree: NodeTreeData, st: NodeRenderStat
         },
         icon(n.hide ? 'right_arrow' : 'down_arrow_hlt'),
       ),
-      h('span', { class: 'nd-title' }, title),
+      h('span', { class: 'nd-title', 'data-tip': st.titleTip ? `${title}\n${st.titleTip}` : null }, title),
       def?.dynamicSockets && n.props.node_tree !== undefined ? h('span', { class: 'nd-group-icon', 'data-tip': 'Node group (Tab to edit)' }, icon('node_tree')) : null,
     ),
     st.preview !== undefined ? h('div', { class: 'nd-preview' }, st.preview ? h('img', { src: st.preview, alt: '', draggable: 'false' }) : null) : null,

@@ -442,3 +442,16 @@ test('socket tooltips show type and value', async ({ page }) => {
   await expect(page.locator('.tooltip')).toContainText('Float input', { timeout: 3000 });
   await expectNoErrors(errors);
 });
+
+test('Shift B zooms to a dragged region', async ({ page }) => {
+  const { errors, box } = await nodeEditor(page);
+  const z0 = await withTree<number>(page, '(ed) => ed.view().zoom');
+  await page.keyboard.press('Shift+B');
+  await drag(page, 'left', [
+    { x: box.x + box.width / 2 - 40, y: box.y + box.height / 2 - 30 },
+    { x: box.x + box.width / 2 + 40, y: box.y + box.height / 2 + 30 },
+  ]);
+  await page.waitForTimeout(300);
+  expect(await withTree<number>(page, '(ed) => ed.view().zoom')).toBeGreaterThan(z0 * 2);
+  await expectNoErrors(errors);
+});
