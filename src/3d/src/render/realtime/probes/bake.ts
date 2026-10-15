@@ -13,7 +13,7 @@ import { icon } from '../../../ui/icons';
 import { headerToggle, sub } from '../../final/props/common';
 import type { LightProbeSettings } from '../types';
 import { probeOf, PROBE_TYPES, defaultLightProbe } from './lightprobe';
-import { bakeVolume, captureKey, captureSphere, freeProbeCache, hasProbeCache, setProbeCache, type ProbeEntry } from './capture';
+import { bakeVolume, captureKey, captureSphere, freeProbeCache, hasProbeCache, pruneProbeCaches, setProbeCache, type ProbeEntry } from './capture';
 
 /** Objects a probe does not see (its Visibility collection, or everything else when inverted). */
 export function probeHiddenObjects(doc: DocumentData, p: LightProbeSettings): Set<string> {
@@ -45,6 +45,8 @@ renderSceneHooks.push((rs, a, o) => {
     }
   }
   rs.scene.userData.probes = entries;
+  // GPU data of deleted probes is released
+  pruneProbeCaches(new Set(Object.keys(a.doc.objects)));
   // grids of probes that left the scene (or lost their bake) are detached
   const keep = new Set(entries.filter((e) => e.probe.type === 'VOLUME' && e.probe.baked).map((e) => e.id));
   for (const c of [...rs.scene.children]) if ((c as { isLightProbeGrid?: boolean }).isLightProbeGrid && !keep.has(c.userData.probeId as string)) rs.scene.remove(c);
