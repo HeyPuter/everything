@@ -558,3 +558,51 @@ describe('import nodes', () => {
     expect([...res.log.warnings.values()].flat().join()).toContain('File not found');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Gizmo nodes
+
+import { gizmoStates, valueTargets } from '../../src/geonodes/curves/gizmos';
+
+describe('gizmo nodes', () => {
+  it('record their handles when the modifier evaluates, even when unconnected', () => {
+    const t = setup();
+    const g = node(t, 'GeometryNodeGizmoLinear', { Position: [1, 2, 3], Direction: [0, 1, 0] }, { color_id: 'X', draw_style: 'BOX' });
+    link(t, node(t, 'GeometryNodeMeshCube'), 'Mesh', t.out, 'Geometry');
+    const m = { id: 'md', name: 'GN', type: 'NODES', node_group: t.group.id } as unknown as ModifierBase;
+    const e = { ...env(t.doc), ob: { id: 'ob1' } as never };
+    evaluateGroup(t.group, m, e, GeometrySet.empty(), 'in', 'ob1/md', false);
+    const st = gizmoStates.get(`ob1/md/${g.id}`)!;
+    expect(st.kind).toBe('LINEAR');
+    expect(st.position).toEqual([1, 2, 3]);
+    expect(st.axis).toEqual([0, 1, 0]);
+    expect([st.color, st.drawStyle]).toEqual(['X', 'BOX']);
+  });
+  it('find the values a drag edits through math nodes and modifier inputs', () => {
+    const t = setup();
+    const val = node(t, 'ShaderNodeValue', {}, { 'outputs.Value': 0.5 });
+    const mul = node(t, 'ShaderNodeMath', { Value_001: 2 }, { operation: 'MULTIPLY' });
+    const sub = node(t, 'ShaderNodeMath', { Value: 10 }, { operation: 'SUBTRACT' });
+    const dial = node(t, 'GeometryNodeGizmoDial');
+    link(t, val, 'Value', mul, 'Value');
+    link(t, mul, 'Value', sub, 'Value_001');
+    link(t, sub, 'Value', dial, 'Value');
+    const targets = valueTargets(t.doc, t.tree, null, dial);
+    expect(targets.length).toBe(1);
+    // gizmo value = 10 − 2·x: one unit of gizmo change is −0.5 of x
+    expect(targets[0].factor).toBeCloseTo(-0.5);
+    targets[0].set(targets[0].get() + targets[0].factor * 3);
+    expect(val.props['outputs.Value']).toBeCloseTo(-1);
+    // a modifier input linked through the group input node
+    t.tree.interface!.push({ in_out: 'INPUT', name: 'Height', socket_type: 'NodeSocketFloat', identifier: 'Socket_1', default_value: 1 });
+    const gi = addNode(t.tree, 'NodeGroupInput', [0, 0]);
+    const lin = node(t, 'GeometryNodeGizmoLinear');
+    link(t, gi, 'Socket_1', lin, 'Value');
+    link(t, val, 'Value', lin, 'Value');
+    const mod = { id: 'md', type: 'NODES', Socket_1: 4 } as unknown as ModifierBase;
+    const tg = valueTargets(t.doc, t.tree, mod, lin);
+    expect(tg.map((x) => x.get())).toEqual([4, -1]);
+    tg[0].set(7);
+    expect((mod as unknown as Record<string, number>).Socket_1).toBe(7);
+  });
+});

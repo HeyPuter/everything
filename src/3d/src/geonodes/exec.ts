@@ -73,6 +73,9 @@ export interface GeoNodeExec {
 
 export const geoExecs: Record<string, GeoNodeExec> = {};
 
+/** Node types evaluated in a modifier's tree even when nothing uses their outputs (gizmos). */
+export const alwaysEvaluated = new Set<string>();
+
 export function registerExec(idname: string, e: GeoNodeExec) {
   geoExecs[idname] = e;
 }

@@ -4,7 +4,7 @@ import { preEvaluateHooks, type Depsgraph } from '../eval/depsgraph';
 import type { EvalMesh, ModifierContext } from '../eval/types';
 import type { DocumentData, ModifierBase, NodeGroupData, NodeTreeData, ObjectData, SocketValue } from '../data/types';
 import { interfaceSocketType, findSocket, allSockets } from '../nodes/registry';
-import { geoExecs, type EvalEnv, type Val } from './exec';
+import { alwaysEvaluated, geoExecs, type EvalEnv, type Val } from './exec';
 import { TreeEval, pruneCache, hash, coerce, FIELD_TYPES, type NodeCache, type EvalLog } from './evaluator';
 import { GeometrySet, identity, adaptDomain, dataComps, type Component } from './geometry';
 import { evalMeshToGeometry, geometryToEvalMesh, curveDataToCurves, materialSlots } from './convert';
@@ -198,6 +198,7 @@ export function evaluateGroup(group: NodeGroupData, m: ModifierBase, env: EvalEn
     log,
   );
   const outputs = root.groupOutputs();
+  for (const n of tree.nodes) if (alwaysEvaluated.has(n.type) && !n.mute) root.nodeOutputs(n);
   const outItems = (tree.interface ?? []).filter((i) => i.in_out === 'OUTPUT');
   const geoItem = outItems.find((i) => interfaceSocketType(i.socket_type).type === 'GEOMETRY');
   let geometry = geoItem && outputs[geoItem.identifier] instanceof GeometrySet ? (outputs[geoItem.identifier] as GeometrySet) : GeometrySet.empty();

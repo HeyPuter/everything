@@ -6,4 +6,5 @@ import './read';
 import './ops';
 import './text';
 import './importers';
+import './gizmos';
 export {};
