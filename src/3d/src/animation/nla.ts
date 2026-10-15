@@ -322,6 +322,7 @@ export class NlaEditor extends AnimEditor {
     }
     if (ch.kind === 'NLA_ACTION' && ch.ob) {
       const ob = ch.ob;
+      if (ob.animation_data?.tweak) return null;
       return ch.action
         ? h(
             'button',

@@ -8,7 +8,7 @@ import type { FCurve, FModifier } from '../data/types';
 import { insertKeyframe, evaluateFCurve } from '../anim/fcurve';
 import { AnimEditor, overMain } from './animeditor';
 import type { CurveRef } from './channels';
-import { cloneKey, finalizeCurve, isKeySelected, setKeySelected } from './keyedit';
+import { cloneKey, duplicateSelected, finalizeCurve, isKeySelected, setKeySelected } from './keyedit';
 import * as T from './fcurvetools';
 import { GraphEditor, MOD_TYPES, curveId } from './graph';
 import { blendMenu, smoothMenu, type Prefix } from './menus';
@@ -688,7 +688,17 @@ const viewOps: Operator[] = [
   },
 ];
 
-registerOperators([...blendOps, timeOffsetOp, ...toolOps, ...cursorOps, ...modifierOps, ...viewOps]);
+const duplicateOps: Operator[] = (['action', 'graph'] as const).map((pre) => ({
+  idname: `${pre}.duplicate`,
+  label: 'Duplicate Keyframes',
+  description: 'Make a copy of the selected keyframes in place',
+  poll: (ctx) => pollKeys(ctx) && keyEd(ctx)!.prefix === pre,
+  exec: (ctx) => {
+    if (!duplicateSelected(curvesOf(ctx))) return 'CANCELLED';
+  },
+}));
+
+registerOperators([...blendOps, timeOffsetOp, ...toolOps, ...cursorOps, ...modifierOps, ...viewOps, ...duplicateOps]);
 
 addKeys('Graph Editor', [
   { key: 'D', alt: true, menu: blendMenu, menuTitle: 'Blend' },

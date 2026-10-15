@@ -195,6 +195,49 @@ const ops: Operator[] = [
     },
   },
   {
+    idname: 'anim.channels_click',
+    label: 'Mouse Click on Channels',
+    description: 'Select the channel under the mouse (Ctrl toggles, Shift extends to a range)',
+    props: [
+      { id: 'extend', label: 'Extend', type: 'bool', default: false },
+      { id: 'extend_range', label: 'Extend Range', type: 'bool', default: false },
+    ],
+    poll: pollEd,
+    exec: (ctx, p) => {
+      const ed = animEd(ctx)!;
+      const ch = ed.channelAtClient(ctx.event?.y ?? app.pointer.y);
+      if (!ch) return 'CANCELLED';
+      ed.clickChannel(ch, !!p.extend || !!p.extend_range);
+    },
+  },
+  {
+    idname: 'anim.channels_rename',
+    label: 'Rename Channel',
+    description: 'Rename the channel under the mouse',
+    undo: false,
+    poll: pollEd,
+    invoke: (ctx) => {
+      const ed = animEd(ctx)!;
+      const ch = ed.channelAtClient(ctx.event?.y ?? app.pointer.y);
+      if (!ch || !ed.canRename(ch)) return 'CANCELLED';
+      ed.renameChannel(ch);
+      return 'CANCELLED';
+    },
+  },
+  {
+    idname: 'anim.channel_select_keys',
+    label: 'Select Channel Keyframes',
+    description: 'Select all keyframes of the channel under the mouse',
+    props: [{ id: 'extend', label: 'Extend', type: 'bool', default: false }],
+    poll: pollEd,
+    exec: (ctx, p) => {
+      const ed = animEd(ctx)!;
+      const ch = ed.channelAtClient(ctx.event?.y ?? app.pointer.y);
+      if (!ch?.curves.length) return 'CANCELLED';
+      ed.selectChannelKeys(ch, !!p.extend);
+    },
+  },
+  {
     idname: 'anim.channels_select_filter',
     label: 'Filter Channels',
     description: 'Type in the channel search field to filter the list',

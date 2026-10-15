@@ -183,7 +183,7 @@ registerOperators([
     idname: 'action.push_down',
     label: 'Push Down Action',
     description: 'Push action down onto the top of the NLA stack as a new strip',
-    poll: () => !!activeOb()?.animation_data?.action,
+    poll: () => !!activeOb()?.animation_data?.action && !activeOb()?.animation_data?.tweak,
     exec: (ctx) => {
       if (!pushDown(ctx.doc, activeOb()!)) return 'CANCELLED';
     },
@@ -192,7 +192,7 @@ registerOperators([
     idname: 'action.stash_and_create',
     label: 'Stash Action',
     description: 'Stash the action in the NLA stack and start a new, empty action',
-    poll: () => !!activeOb()?.animation_data?.action,
+    poll: () => !!activeOb()?.animation_data?.action && !activeOb()?.animation_data?.tweak,
     exec: (ctx) => {
       const ob = activeOb()!;
       if (!stashAction(ctx.doc, ob)) return 'CANCELLED';
@@ -210,7 +210,7 @@ registerOperators([
     idname: 'action.stash',
     label: 'Stash Action',
     description: 'Store this action in the NLA stack as a non-contributing strip for later use',
-    poll: () => !!activeOb()?.animation_data?.action,
+    poll: () => !!activeOb()?.animation_data?.action && !activeOb()?.animation_data?.tweak,
     exec: (ctx) => {
       if (!stashAction(ctx.doc, activeOb()!)) return 'CANCELLED';
     },
