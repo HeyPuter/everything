@@ -34,7 +34,7 @@ export function inputCount(t: StripType) {
 }
 /** Strips whose content does not change over time (length can be changed freely). */
 export function isStill(s: Strip) {
-  return s.type === 'COLOR' || s.type === 'TEXT' || s.type === 'ADJUSTMENT' || s.type === 'MULTICAM' || (s.type === 'IMAGE' && (s.elements?.length ?? 0) <= 1);
+  return s.type === 'COLOR' || s.type === 'TEXT' || s.type === 'ADJUSTMENT' || s.type === 'MULTICAM' || s.type === 'MASK' || (s.type === 'IMAGE' && (s.elements?.length ?? 0) <= 1);
 }
 /** Strips that produce pixels (everything but sound). */
 export function isVisual(s: Strip) {
@@ -64,6 +64,7 @@ export const STRIP_LABELS: Record<StripType, string> = {
   GLOW: 'Glow',
   GAUSSIAN_BLUR: 'Gaussian Blur',
   MULTICAM: 'Multicam Selector',
+  MASK: 'Mask',
 };
 
 export const BLEND_ITEMS: [BlendType, string][] = [

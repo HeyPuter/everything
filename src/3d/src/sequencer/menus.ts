@@ -20,6 +20,14 @@ export function addMenu(): MenuItem[] {
   const fx = (type: string, label: string): MenuItem => ({ label, op: 'sequencer.effect_strip_add', props: { type }, icon: inputCount(type as 'ADD') ? stripIcon(type as 'ADD') : undefined });
   return [
     { label: 'Scene', icon: 'scene_data', submenu: camOptions },
+    {
+      label: 'Mask',
+      icon: 'mod_mask',
+      submenu: () => {
+        const masks = Object.values(app.doc.masks ?? {});
+        return masks.length ? masks.map((m) => ({ label: m.name, icon: 'mod_mask', op: 'sequencer.mask_strip_add', props: { mask: m.id } })) : [{ label: 'No masks (create one in the clip editor’s mask mode)', disabled: true }];
+      },
+    },
     { label: 'Movie', icon: 'file_movie', op: 'sequencer.movie_strip_add' },
     { label: 'Sound', icon: 'file_sound', op: 'sequencer.sound_strip_add' },
     { label: 'Image/Sequence', icon: 'file_image', op: 'sequencer.image_strip_add' },

@@ -6,6 +6,8 @@ import { Compositor, placementMatrix, isPixelExact, type Source, type Target } f
 import { renderStack, contentFrame, effectFac, effectInputs, findStrip, speedInputFrame, TRANSITIONS, activeAt, allStrips } from './strips';
 import { getMovie, loadImage } from './media';
 import { valueAt } from './fades';
+import { rasterizeMask } from '../mask/raster';
+import { app } from '../app/app';
 import { hasRetiming, speedAt } from './retime';
 import { drawTextStrip } from './text';
 import type { RGBA8Image } from './scene';
@@ -37,6 +39,7 @@ export function compositor(): Compositor {
 }
 
 let textCanvas: HTMLCanvasElement | null = null;
+let maskCanvas: HTMLCanvasElement | null = null;
 
 export class SequencerRender {
   constructor(
@@ -180,6 +183,18 @@ export class SequencerRender {
       case 'META': {
         const t = await this.renderList(s.strips ?? [], s.channels, frame);
         return this.finish(s, c.asSource(t, o.W, o.H), true, t);
+      }
+      case 'MASK': {
+        const m = s.mask ? app.doc.masks?.[s.mask] : undefined;
+        if (!m) return null;
+        // the mask's own animation runs from the strip start
+        const mf = m.frame_start + Math.floor(frame - s.frame_start);
+        maskCanvas ??= document.createElement('canvas');
+        rasterizeMask(m, mf, this.Wk, this.Hk, true, maskCanvas);
+        const src = c.upload(maskCanvas, o.W, o.H);
+        const out = this.finish(s, src);
+        c.dropSource(src);
+        return out;
       }
       case 'MULTICAM': {
         // shows the strip of the source channel (below the selector) at this frame

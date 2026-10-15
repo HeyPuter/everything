@@ -6,7 +6,7 @@ import * as S from './strips';
 import { seqList, selectedStrips, activeStrip, hasEditor, afterEdit, sceneFps, isLocked, hoverSeq, seqEditor } from './context';
 import { restartPlayback } from './audio';
 import { clearMovieCaches, getMovie, loadImage, loadSound, mimeFor } from './media';
-import { pickFiles, ACCEPT, fileBytes, fitScale } from './add';
+import { pickFiles, ACCEPT, fileBytes, fitScale, addEffect } from './add';
 import { download } from '../io/native';
 import { subtitlesSrt } from './subtitles';
 import { effectTypesFor, changeEffectType, swapData } from './stripdata';
@@ -87,6 +87,36 @@ function multicamAt(frame: number): Strip | null {
 }
 
 const ops: Operator[] = [
+  {
+    idname: 'sequencer.mask_strip_add',
+    label: 'Add Mask Strip',
+    description: 'Add a strip showing a mask',
+    props: [
+      { id: 'mask', label: 'Mask', type: 'string', default: '' },
+      { id: 'frame_start', label: 'Start Frame', type: 'int', default: 0 },
+      { id: 'channel', label: 'Channel', type: 'int', default: 1, min: 1, max: 128 },
+    ],
+    poll: () => Object.keys(app.doc.masks ?? {}).length > 0,
+    invoke: (c, p) => {
+      const ed = hoverSeq();
+      const channel = ed && ed.hover === 'timeline' ? Math.max(1, Math.floor(ed.pointerChannel(app.pointer.y))) : 1;
+      return app.run('sequencer.mask_strip_add', { ...p, frame_start: c.doc.scene.frame_current, channel }, { invoke: false });
+    },
+    exec: (_c, p) => {
+      const m = app.doc.masks?.[p.mask as string] ?? Object.values(app.doc.masks ?? {})[0];
+      if (!m) return 'CANCELLED';
+      const len = Math.max(1, m.frame_end - m.frame_start + 1);
+      const r = addEffect('MASK', p.frame_start as number, p.channel as number, len);
+      if (typeof r === 'string') {
+        app.report('ERROR', r);
+        return 'CANCELLED';
+      }
+      r.mask = m.id;
+      r.name = S.uniqueName(seqEditor(), m.name, new Set(S.allStrips(seqEditor().strips).filter((x) => x !== r).map((x) => x.name)));
+      seqEditor().active_strip = r.name;
+      afterEdit();
+    },
+  },
   {
     idname: 'sequencer.box_blade',
     label: 'Box Blade',

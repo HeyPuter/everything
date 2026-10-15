@@ -26,7 +26,8 @@ export type StripType =
   | 'SPEED'
   | 'GLOW'
   | 'GAUSSIAN_BLUR'
-  | 'MULTICAM';
+  | 'MULTICAM'
+  | 'MASK';
 
 export type BlendType =
   | 'REPLACE'
@@ -229,6 +230,8 @@ export interface Strip {
   speed_frame_number?: number;
   speed_length?: number;
   blend_effect?: BlendType;
+  /** MASK: the mask data-block shown */
+  mask?: string | null;
   /** MULTICAM: channel shown by the selector */
   multicam_source?: number;
   factor?: number;

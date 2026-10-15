@@ -247,6 +247,19 @@ function sourcePanel(s: Strip): Child {
   }
   if (s.orig_width) rows.push(splitRow('Resolution', h('span', { class: 'seq-src' }, `${s.orig_width} × ${s.orig_height}`)));
   if (s.type === 'MOVIE') rows.push(splitRow('FPS', h('span', { class: 'seq-src' }, s.fps ? `${+s.fps.toFixed(3)}` : '—')));
+  if (s.type === 'MASK') {
+    const masks = Object.values(app.doc.masks ?? {});
+    rows.push(
+      splitRow(
+        'Mask',
+        enumMenu(`seq-mask-${oid(s)}`, [{ value: '', label: '—' }, ...masks.map((m) => ({ value: m.id, label: m.name, icon: 'mod_mask' }))], s.mask ?? '', (v) => {
+          s.mask = v || null;
+          app.pushUndo('Change Mask');
+          app.changed('doc');
+        }),
+      ),
+    );
+  }
   if (s.type === 'SCENE') {
     const doc = app.doc;
     const cams = doc.object_order.map((id) => doc.objects[id]).filter((o) => o?.type === 'CAMERA');
