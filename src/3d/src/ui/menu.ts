@@ -94,6 +94,8 @@ Object.assign(opIcons, {
   'view3d.pastebuffer': 'pastedown',
   'wm.recover_last_session': 'recover_last',
   'render.render': (p: Record<string, unknown>) => (p.animation ? 'render_animation' : 'render'),
+  'render.opengl': (p: Record<string, unknown>) => (p.animation ? 'render_animation' : 'render'),
+  'render.opengl_animation': 'render_animation',
   'font.text_copy': 'copydown',
   'font.text_paste': 'pastedown',
   'text.copy': 'copydown',
@@ -726,6 +728,15 @@ function showTip(t: HTMLElement) {
   ensureLayer().append(tipEl);
   const r = t.getBoundingClientRect(),
     tr = tipEl.getBoundingClientRect();
+  // menu entries get their tooltip beside the menu so it doesn't cover the next entries
+  const menuEl = t.closest('.menu') as HTMLElement | null;
+  if (menuEl) {
+    const mr = menuEl.getBoundingClientRect();
+    const right = mr.right + 4 + tr.width <= innerWidth - 4;
+    tipEl.style.left = `${right ? mr.right + 4 : Math.max(4, mr.left - tr.width - 4)}px`;
+    tipEl.style.top = `${Math.max(4, Math.min(innerHeight - tr.height - 4, r.top))}px`;
+    return;
+  }
   tipEl.style.left = `${Math.max(4, Math.min(innerWidth - tr.width - 4, r.left))}px`;
   tipEl.style.top = `${r.bottom + tr.height + 8 > innerHeight ? r.top - tr.height - 6 : r.bottom + 6}px`;
 }

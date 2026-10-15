@@ -223,7 +223,9 @@ textarea {
 .ws-tabs {
   display: flex;
   gap: 2px;
-  margin-left: 12px;
+  margin-left: 6px;
+  padding-left: 7px;
+  border-left: 1px solid #333;
   margin-right: 12px;
   min-width: 0;
   flex: 0 1 auto;
@@ -246,7 +248,10 @@ textarea {
 }
 .ws-tab:hover {
   color: #ddd;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.08);
+}
+.ws-tab:not(.on) {
+  background: rgba(255, 255, 255, 0.025);
 }
 .ws-tab.on {
   background: var(--w-tab-on);
@@ -374,6 +379,12 @@ textarea {
 .area[data-editor='SHADER'],
 .area[data-editor='GEOMETRY'],
 .area[data-editor='COMPOSITOR'] {
+  background: var(--c-node-bg);
+}
+/* node editors: the header blends into the canvas */
+.area[data-editor='SHADER'] > .area-header,
+.area[data-editor='GEOMETRY'] > .area-header,
+.area[data-editor='COMPOSITOR'] > .area-header {
   background: var(--c-node-bg);
 }
 .area-header {

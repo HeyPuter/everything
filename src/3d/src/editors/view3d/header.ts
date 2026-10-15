@@ -78,8 +78,8 @@ function iconDrop(id: string, iconName: string, tip: string, onDown: (el: HTMLEl
         onDown(e.currentTarget as HTMLElement);
       },
     },
-    icon(iconName),
-    icon('down_arrow_hlt', 'tiny'),
+    // a dropdown-only button (next to a toggle) shows just its arrow
+    iconName === 'down_arrow_hlt' ? icon('down_arrow_hlt', 'tiny') : [icon(iconName), icon('down_arrow_hlt', 'tiny')],
   );
 }
 
