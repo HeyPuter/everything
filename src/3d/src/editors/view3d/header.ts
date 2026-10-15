@@ -147,7 +147,12 @@ export function viewHeader(v: View3D): Child {
     ),
     iconDrop('pivot', pivot[2], 'Transform Pivot Point', (el) =>
       openMenu(
-        PIVOTS.map(([id, label, ic]) => ({ label, icon: ic, active: ts.transform_pivot_point === id, action: () => setTool('transform_pivot_point', id) })),
+        [
+          ...PIVOTS.map(([id, label, ic]) => ({ label, icon: ic, active: ts.transform_pivot_point === id, action: () => setTool('transform_pivot_point', id) })),
+          ...(doc.mode === 'OBJECT'
+            ? [{ separator: true } as MenuItem, { label: 'Only Locations', checked: !!(ts as { use_transform_pivot_point_align?: boolean }).use_transform_pivot_point_align, action: () => setTool('use_transform_pivot_point_align', !(ts as { use_transform_pivot_point_align?: boolean }).use_transform_pivot_point_align) }]
+            : []),
+        ],
         el,
         { title: 'Pivot Point' },
       ),

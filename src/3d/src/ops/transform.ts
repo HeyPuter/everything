@@ -96,7 +96,12 @@ function objectElement(ob: ObjectData, ids: Set<string>, weight: number, distanc
     weight,
     distance,
     apply(m: Matrix4) {
-      const target = m.clone().multiply(w0);
+      let target = m.clone().multiply(w0);
+      // Affect Only Locations: rotating / scaling around the pivot moves the object without turning or resizing it
+      if ((ts as { use_transform_pivot_point_align?: boolean }).use_transform_pivot_point_align) {
+        const tp = new Vector3().setFromMatrixPosition(target);
+        target = new Matrix4().compose(tp, q, s);
+      }
       const unconstrained = constraintFix.clone().multiply(target);
       const local = parentInv.clone().multiply(unconstrained);
       Object.assign(ob, cloneBefore(before));

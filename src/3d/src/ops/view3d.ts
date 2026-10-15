@@ -346,11 +346,11 @@ registerOperators([
       const s = v.shading.type;
       openPie('Shading', [
         { label: 'Wireframe', icon: 'shading_wire', active: s === 'WIREFRAME', op: 'view3d.toggle_shading', props: { type: 'WIREFRAME' } },
-        { label: 'Rendered', icon: 'shading_rendered', active: s === 'RENDERED', op: 'view3d.toggle_shading', props: { type: 'RENDERED' } },
         { label: 'Solid', icon: 'shading_solid', active: s === 'SOLID', op: 'view3d.toggle_shading', props: { type: 'SOLID' } },
         { label: 'Material Preview', icon: 'shading_texture', active: s === 'MATERIAL', op: 'view3d.toggle_shading', props: { type: 'MATERIAL' } },
-        null,
-        { label: 'Toggle X-Ray', icon: 'xray', op: 'view3d.toggle_xray' },
+        { label: 'Rendered', icon: 'shading_rendered', active: s === 'RENDERED', op: 'view3d.toggle_shading', props: { type: 'RENDERED' } },
+        { label: 'Toggle X-Ray', icon: 'xray', active: v.shading.type === 'WIREFRAME' ? v.shading.show_xray_wireframe : v.shading.show_xray, op: 'view3d.toggle_xray' },
+        { label: 'Overlays', icon: 'overlay', active: v.overlay.show_overlays, op: 'view3d.toggle_overlays' },
         null,
         null,
       ], app.pointer.x, app.pointer.y, 'KeyZ');
@@ -369,10 +369,10 @@ registerOperators([
         { label: 'Right', op: 'view3d.view_axis', props: { type: 'RIGHT' } },
         { label: 'Bottom', op: 'view3d.view_axis', props: { type: 'BOTTOM' } },
         { label: 'Top', op: 'view3d.view_axis', props: { type: 'TOP' } },
-        { label: 'View Selected', icon: 'view_zoom', op: 'view3d.view_selected' },
-        { label: 'Camera', icon: 'view_camera', op: 'view3d.view_camera' },
         { label: 'Front', op: 'view3d.view_axis', props: { type: 'FRONT' } },
         { label: 'Back', op: 'view3d.view_axis', props: { type: 'BACK' } },
+        { label: 'View Camera', icon: 'view_camera', op: 'view3d.view_camera' },
+        { label: 'View Selected', icon: 'view_zoom', op: 'view3d.view_selected' },
       ], app.pointer.x, app.pointer.y, 'Backquote');
       return 'CANCELLED';
     },
@@ -390,13 +390,24 @@ registerOperators([
         app.pushUndo('Pivot Point');
         app.changed('ui');
       };
+      const onlyLoc = !!(ts as { use_transform_pivot_point_align?: boolean }).use_transform_pivot_point_align;
       openPie('Pivot Point', [
         { label: 'Bounding Box Center', icon: 'pivot_boundbox', active: ts.transform_pivot_point === 'BOUNDING_BOX_CENTER', action: set('BOUNDING_BOX_CENTER') },
+        { label: '3D Cursor', icon: 'pivot_cursor', active: ts.transform_pivot_point === 'CURSOR', action: set('CURSOR') },
         { label: 'Individual Origins', icon: 'pivot_individual', active: ts.transform_pivot_point === 'INDIVIDUAL_ORIGINS', action: set('INDIVIDUAL_ORIGINS') },
         { label: 'Median Point', icon: 'pivot_median', active: ts.transform_pivot_point === 'MEDIAN_POINT', action: set('MEDIAN_POINT') },
-        { label: '3D Cursor', icon: 'pivot_cursor', active: ts.transform_pivot_point === 'CURSOR', action: set('CURSOR') },
         { label: 'Active Element', icon: 'pivot_active', active: ts.transform_pivot_point === 'ACTIVE_ELEMENT', action: set('ACTIVE_ELEMENT') },
-        null,
+        ctx.doc.mode === 'OBJECT'
+          ? {
+              label: 'Only Locations',
+              active: onlyLoc,
+              action: () => {
+                (ts as { use_transform_pivot_point_align?: boolean }).use_transform_pivot_point_align = !onlyLoc;
+                app.pushUndo('Only Locations');
+                app.changed('ui');
+              },
+            }
+          : null,
         null,
         null,
       ], app.pointer.x, app.pointer.y, 'Period');
@@ -411,13 +422,13 @@ registerOperators([
     poll: v3d,
     invoke: () => {
       openPie('Snap', [
-        { label: 'Cursor to World Origin', op: 'view3d.snap_cursor_to_center' },
-        { label: 'Selection to Cursor', op: 'view3d.snap_selected_to_cursor' },
         { label: 'Cursor to Grid', op: 'view3d.snap_cursor_to_grid' },
         { label: 'Selection to Grid', op: 'view3d.snap_selected_to_grid' },
         { label: 'Cursor to Selected', op: 'view3d.snap_cursor_to_selected' },
-        { label: 'Selection to Active', op: 'view3d.snap_selected_to_active' },
+        { label: 'Selection to Cursor', op: 'view3d.snap_selected_to_cursor', props: { use_offset: false } },
         { label: 'Selection to Cursor (Keep Offset)', op: 'view3d.snap_selected_to_cursor', props: { use_offset: true } },
+        { label: 'Selection to Active', op: 'view3d.snap_selected_to_active' },
+        { label: 'Cursor to World Origin', op: 'view3d.snap_cursor_to_center' },
         { label: 'Cursor to Active', op: 'view3d.snap_cursor_to_active' },
       ], app.pointer.x, app.pointer.y, 'KeyS');
       return 'CANCELLED';
