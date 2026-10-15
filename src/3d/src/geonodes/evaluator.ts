@@ -107,8 +107,8 @@ export class TreeEval {
     public env: EvalEnv,
     public tree: NodeTreeData,
     public path: string,
-    private groupInput: (id: string) => Val,
-    private groupInputSig: (id: string) => string,
+    readonly groupInput: (id: string) => Val,
+    readonly groupInputSig: (id: string) => string,
     public cache: NodeCache,
     public log: EvalLog,
     public depth = 0,
@@ -334,6 +334,7 @@ export class TreeEval {
     };
     const ctx: ExecContext = {
       node,
+      evaluator: self,
       tree: self.tree,
       env: self.env,
       path,

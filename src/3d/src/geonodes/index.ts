@@ -6,6 +6,7 @@ import './geonodes.css';
 import './editor';
 import './panel';
 import './display';
+import './gnmesh-ui';
 import { installItemResolver } from './editor';
 import { app, onAppReady } from '../app/app';
 import { pruneModifierCaches } from './modifier';
