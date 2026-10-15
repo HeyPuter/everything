@@ -235,6 +235,12 @@ test('editing and animation preferences change what operators do', async ({ page
     return { interp: act.fcurves[0].keyframe_points[0].interpolation, frame: a.doc.scene.frame_current };
   });
   expect(anim).toEqual({ interp: 'LINEAR', frame: 0 });
+
+  // weight paint gradient
+  await setPref(page, 'use_weight_color_range', true);
+  const wc = await page.evaluate(async () => (await import('/src/paint/math.ts')).weightColor(1));
+  const want = await page.evaluate(async () => (await import('/src/app/prefs.ts')).prefs.weight_color_range[4]);
+  wc.forEach((c, i) => expect(c).toBeCloseTo(want[i], 5));
   await expectNoErrors(errors);
 });
 

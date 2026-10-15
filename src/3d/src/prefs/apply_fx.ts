@@ -14,6 +14,7 @@ import { textEditorSettings } from '../scripting/textedit';
 import { consoleSettings } from '../scripting/runner';
 import { nodeEditorSettings } from '../nodes/registry';
 import { paintDisplaySettings } from '../paint/display';
+import { weightRamp, DEFAULT_WEIGHT_RAMP } from '../paint/math';
 import { audioSettings } from '../sequencer/media';
 import { recentSettings } from '../io/recentlist';
 import { fileEvents } from '../io/files';
@@ -50,6 +51,11 @@ onPrefsApply((p) => {
   nodeEditorSettings.insertOffset = p.node_use_insert_offset;
   nodeEditorSettings.insertMargin = Math.max(0, p.node_margin);
   srgb(paintDisplaySettings.maskColor, p.sculpt_paint_overlay_color);
+  const ramp = p.use_weight_color_range && p.weight_color_range?.length === 5 ? p.weight_color_range : DEFAULT_WEIGHT_RAMP;
+  ramp.forEach((c, i) => {
+    weightRamp[i] = [c[0], c[1], c[2]];
+    paintDisplaySettings.weightRamp[i].set(c[0], c[1], c[2]);
+  });
 
   audioSettings.sampleRate = p.audio_sample_rate;
   audioSettings.latency = p.audio_latency;

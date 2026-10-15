@@ -1,6 +1,6 @@
 // Viewport display for sculpt/paint modes: mask overlay, weight heat map, vertex colors and the
 // paint texture on the active object, driven by per-corner attributes on the synced geometry.
-import { BufferAttribute, Color, DoubleSide, FrontSide, ShaderMaterial, type BufferGeometry, type Material, type Texture } from 'three';
+import { BufferAttribute, Color, Vector3, DoubleSide, FrontSide, ShaderMaterial, type BufferGeometry, type Material, type Texture } from 'three';
 import { STUDIO_GLSL, studioUniforms } from '../render/studiolights';
 import { app } from '../app/app';
 import type { MeshData } from '../data/types';
@@ -64,7 +64,7 @@ const vert = /* glsl */ `
 `;
 
 /** Overlay colours shared by all sculpt / paint display materials (Preferences ▸ Editing). */
-export const paintDisplaySettings = { maskColor: new Color(0, 0, 0) };
+export const paintDisplaySettings = { maskColor: new Color(0, 0, 0), weightRamp: [new Vector3(0, 0, 1), new Vector3(0, 1, 1), new Vector3(0, 1, 0), new Vector3(1, 1, 0), new Vector3(1, 0, 0)] };
 
 const frag = /* glsl */ `
   uniform vec3 uColor;
@@ -84,12 +84,13 @@ const frag = /* glsl */ `
   varying float vMask;
   varying float vWeight;
   varying vec2 vUv;
+  uniform vec3 uWeightRamp[5];
   vec3 heat(float w) {
     w = clamp(w, 0.0, 1.0);
-    if (w < 0.25) return mix(vec3(0.0, 0.0, 1.0), vec3(0.0, 1.0, 1.0), w / 0.25);
-    if (w < 0.5) return mix(vec3(0.0, 1.0, 1.0), vec3(0.0, 1.0, 0.0), (w - 0.25) / 0.25);
-    if (w < 0.75) return mix(vec3(0.0, 1.0, 0.0), vec3(1.0, 1.0, 0.0), (w - 0.5) / 0.25);
-    return mix(vec3(1.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), (w - 0.75) / 0.25);
+    if (w < 0.25) return mix(uWeightRamp[0], uWeightRamp[1], w / 0.25);
+    if (w < 0.5) return mix(uWeightRamp[1], uWeightRamp[2], (w - 0.25) / 0.25);
+    if (w < 0.75) return mix(uWeightRamp[2], uWeightRamp[3], (w - 0.5) / 0.25);
+    return mix(uWeightRamp[3], uWeightRamp[4], (w - 0.75) / 0.25);
   }
   void main() {
     vec3 n = normalize(vNormal);
@@ -178,6 +179,7 @@ export function paintMaterial(o: PaintMatOpts): ShaderMaterial {
         },
         uMaskOpacity: { value: 0.75 },
         uMaskColor: { value: paintDisplaySettings.maskColor },
+        uWeightRamp: { value: paintDisplaySettings.weightRamp },
         ...studioUniforms,
         uWeightOpacity: { value: 1 },
         uFsetOpacity: { value: 1 },

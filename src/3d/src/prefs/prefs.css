@@ -547,3 +547,10 @@ body.no-edge-resize .divider {
 body.no-region-toggles .area-header-reveal {
   display: none !important;
 }
+.prefs-ramp {
+  height: 12px;
+  max-width: 600px;
+  margin: 4px 0 6px;
+  border-radius: 3px;
+  border: 1px solid var(--c-panel-outline);
+}

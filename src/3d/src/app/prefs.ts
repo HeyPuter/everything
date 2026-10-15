@@ -118,6 +118,10 @@ export interface Preferences {
   annotation_eraser_radius: number;
   use_text_edit_auto_close: boolean;
   sculpt_paint_overlay_color: [number, number, number];
+  /** weight paint shows weights with the colours below instead of the default heat map */
+  use_weight_color_range: boolean;
+  /** colours at weights 0, .25, .5, .75 and 1 */
+  weight_color_range: [number, number, number][];
   node_use_insert_offset: boolean;
   node_margin: number;
 
@@ -256,6 +260,14 @@ export const defaultPreferences = (): Preferences => ({
   annotation_eraser_radius: 12,
   use_text_edit_auto_close: false,
   sculpt_paint_overlay_color: [0, 0, 0],
+  use_weight_color_range: false,
+  weight_color_range: [
+    [0.05, 0.05, 0.2],
+    [0.2, 0.3, 0.75],
+    [0.85, 0.85, 0.85],
+    [0.95, 0.6, 0.2],
+    [0.8, 0.1, 0.1],
+  ],
   node_use_insert_offset: true,
   node_margin: 40,
 

@@ -151,16 +151,20 @@ export function normalizeAllWeights(weights: Float32Array[], groups: number[], v
   normalizeVertexWeights(weights, groups, v, -1, locked);
 }
 
-/** Weight → heat map color (blue 0, cyan .25, green .5, yellow .75, red 1). */
+/** Colours of the weight heat map at 0, .25, .5, .75 and 1 (Preferences ▸ Editing can replace them). */
+export const DEFAULT_WEIGHT_RAMP: [number, number, number][] = [
+  [0, 0, 1],
+  [0, 1, 1],
+  [0, 1, 0],
+  [1, 1, 0],
+  [1, 0, 0],
+];
+export const weightRamp: [number, number, number][] = DEFAULT_WEIGHT_RAMP.map((c) => [...c] as [number, number, number]);
+
+/** Weight → heat map color (default: blue 0, cyan .25, green .5, yellow .75, red 1). */
 export function weightColor(w: number, out: number[] = [0, 0, 0]): number[] {
   w = clamp01(w);
-  const stops = [
-    [0, 0, 0, 1],
-    [0.25, 0, 1, 1],
-    [0.5, 0, 1, 0],
-    [0.75, 1, 1, 0],
-    [1, 1, 0, 0],
-  ];
+  const stops = weightRamp.map((c, i) => [i / 4, c[0], c[1], c[2]]);
   for (let i = 0; i < stops.length - 1; i++) {
     const a = stops[i],
       b = stops[i + 1];
@@ -172,8 +176,10 @@ export function weightColor(w: number, out: number[] = [0, 0, 0]): number[] {
       return out;
     }
   }
-  out[0] = 1;
-  out[1] = out[2] = 0;
+  const last = weightRamp[weightRamp.length - 1];
+  out[0] = last[0];
+  out[1] = last[1];
+  out[2] = last[2];
   return out;
 }
 

@@ -3,7 +3,8 @@
 // own modules.
 import { h, type Child } from '../ui/h';
 import { app } from '../app/app';
-import { panel, checkbox } from '../ui/widgets';
+import { panel, checkbox, colorSwatch } from '../ui/widgets';
+import { splitRow } from '../ui/props';
 import { prefs, formatDate } from '../app/prefs';
 import { renderContext } from '../render/context';
 import { python, PYODIDE_INDEX_URL, PYODIDE_VERSION } from '../scripting/python';
@@ -150,6 +151,29 @@ registerPrefSection({
       pBool('node_use_insert_offset', 'Auto-Offset', 'Push downstream nodes to the right when a node is dropped onto a link'),
       pNum('node_margin', 'Auto-Offset Margin', { min: 0, max: 255, int: true, unit: 'pixel', disabled: !prefs.node_use_insert_offset }),
     ]),
+    panel('pf-ed-weight', 'Weight Paint', () => {
+      const ramp = prefs.weight_color_range;
+      const css = (c: number[]) => `rgb(${c.map((x) => Math.round(Math.max(0, Math.min(1, x)) * 255)).join(',')})`;
+      return [
+        pBool('use_weight_color_range', 'Custom Gradient', 'Show vertex weights with the colours below instead of the default heat map'),
+        prefs.use_weight_color_range
+          ? [
+              h('div', { class: 'prefs-ramp', style: { background: `linear-gradient(to right, ${ramp.map(css).join(', ')})` } }),
+              ramp.map((c, i) =>
+                splitRow(
+                  `Weight ${['0', '0.25', '0.5', '0.75', '1'][i]}`,
+                  colorSwatch(`pf-wr-${i}`, c, (v, f) => {
+                    if (!f) return;
+                    const next = ramp.map((x) => [...x] as [number, number, number]);
+                    next[i] = [v[0], v[1], v[2]];
+                    setPref('weight_color_range', next);
+                  }, { linear: false }),
+                ),
+              ),
+            ]
+          : null,
+      ];
+    }),
     panel('pf-ed-misc', 'Miscellaneous', () => [pColor('sculpt_paint_overlay_color', 'Sculpt Mask Color')]),
   ],
 });
