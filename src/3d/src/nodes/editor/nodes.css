@@ -393,6 +393,14 @@
   align-items: center;
   gap: 4px;
 }
+.nd-crumb.link {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.nd-crumb.link:hover {
+  color: #fff;
+  text-decoration: underline;
+}
 .nd-crumb-sep svg {
   width: 9px;
   height: 9px;

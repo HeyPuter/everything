@@ -264,6 +264,8 @@ const ops: Operator[] = [
           ['COPY', 'Copy'],
           ['MOVE', 'Move'],
         ],
+        // the editor leaves the group afterwards, so this cannot be adjusted after the fact
+        hidden: true,
       },
     ],
     poll: (ctx) => {

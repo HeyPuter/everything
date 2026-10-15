@@ -373,3 +373,19 @@ test('typing in the Add menu searches nodes', async ({ page }) => {
   expect(await withTree(page, '(ed, t) => t.nodes.some((n) => n.type === "ShaderNodeInvert")')).toBe(true);
   await expectNoErrors(errors);
 });
+
+test('breadcrumbs lead back out of nested groups', async ({ page }) => {
+  const { errors } = await nodeEditor(page);
+  const [m] = await addNodes(page, [['ShaderNodeMath', -600, 200]]);
+  await withTree(page, `(ed, t) => { for (const n of t.nodes) n.select = n.id === "${m}"; t.active_node = "${m}"; app.changed("ui"); }`);
+  await page.keyboard.press('Control+G');
+  await page.keyboard.press('Tab');
+  // group the math node again inside the group, and enter that one too
+  await withTree(page, '(ed, t) => { for (const n of t.nodes) n.select = n.type === "ShaderNodeMath"; t.active_node = t.nodes.find((n) => n.type === "ShaderNodeMath").id; app.changed("ui"); }');
+  await page.keyboard.press('Control+G');
+  await page.keyboard.press('Tab');
+  expect(await withTree(page, '(ed) => ed.path.length')).toBe(2);
+  await page.locator('.nd-crumb.link', { hasText: 'Material' }).click();
+  expect(await withTree(page, '(ed) => ed.path.length')).toBe(0);
+  await expectNoErrors(errors);
+});

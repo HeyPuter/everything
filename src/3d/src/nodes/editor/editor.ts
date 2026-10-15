@@ -540,9 +540,29 @@ export class NodeEditor implements Editor {
     const crumbs: Child[] = [];
     if (r) {
       const items = [...r.crumbs, ...this.path.map((p) => ['node_tree', app.doc.node_groups[p.group]?.name ?? '?'] as [string, string])];
+      const rootN = r.crumbs.length;
       items.forEach(([ic, name], i) => {
         if (i) crumbs.push(h('span', { class: 'nd-crumb-sep' }, icon('right_arrow')));
-        crumbs.push(h('span', { class: 'nd-crumb' }, icon(ic), name));
+        // the root tree and every opened group except the current one lead back up
+        const depth = Math.max(0, i - rootN + 1);
+        const up = i >= rootN - 1 && depth < this.path.length;
+        crumbs.push(
+          h(
+            'span',
+            {
+              class: { 'nd-crumb': true, link: up },
+              'data-tip': up ? 'Go back to this node tree' : '',
+              onclick: up
+                ? () => {
+                    this.path = this.path.slice(0, depth);
+                    app.changed('ui');
+                  }
+                : undefined,
+            },
+            icon(ic),
+            name,
+          ),
+        );
       });
     }
     patch(this.crumbsEl, crumbs);
@@ -1013,7 +1033,7 @@ export class NodeEditor implements Editor {
   private onDown(e: PointerEvent) {
     if (app.modal) return;
     const target = e.target as HTMLElement;
-    if (target.closest('.nd-sidebar, .nd-toolbar')) return;
+    if (target.closest('.nd-sidebar, .nd-toolbar, .nd-crumb.link')) return;
     this.el.focus({ preventScroll: true });
     const tree = this.tree();
     if (e.button === 1 || (e.button === 0 && e.altKey && !tree)) return this.panDrag(e);
