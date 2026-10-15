@@ -7,7 +7,7 @@ import { meshSignature } from '../eval/depsgraph';
 import { arrayChecksum, frameOf, getCache, motionKey, outOfTime, strHash, worldAt, type FrameCache, type SimContext } from './common';
 import { collectEffectors, fieldsKey, fieldObjects } from './fields';
 import { buildColliders, collidersKey, colliderObjects } from './colliders';
-import { buildTopology, initState, stepFrame, type PBDParams, type PBDState, type Topology } from './pbd';
+import { buildTopology, initState, stepFrame, KIND_STRUCT, KIND_SHEAR, type PBDParams, type PBDState, type Topology } from './pbd';
 import type { PointCacheSettings } from './types';
 
 export interface MeshSimSetup {
@@ -18,6 +18,17 @@ export interface MeshSimSetup {
   bend: boolean;
   /** collisions with collider objects enabled */
   collide: boolean;
+  /** loose edges pull their vertices together */
+  sewing?: boolean;
+  internal?: { maxLength: number; maxDiversion: number; normalCheck: boolean } | null;
+  /** vertex group driven stiffness (and shrinking), interpolated from the base to the max value */
+  weights?: {
+    base: [number, number, number, number];
+    structural?: { w: ArrayLike<number>; tensionMax: number; compressionMax: number };
+    shear?: { w: ArrayLike<number>; max: number };
+    bending?: { w: ArrayLike<number>; max: number };
+    shrink?: { w: ArrayLike<number>; min: number; max: number };
+  } | null;
 }
 
 interface Live {
@@ -109,10 +120,11 @@ export function runMeshSim(kind: string, mesh: EvalMesh, m: ModifierBase, ctx: M
       const w0 = transform(local, worldAt(sctx, ob, pc.frame_start));
       cache.frames.clear();
       cache.frames.set(pc.frame_start, w0);
-      cache.live = { state: initState(w0), topo: buildTopology(local, mesh.offsets, mesh.indices, { shear: st.shear, bend: st.bend }) };
+      cache.live = { state: initState(w0), topo: buildTopology(local, mesh.offsets, mesh.indices, { shear: st.shear, bend: st.bend, sewing: st.sewing ? mesh.looseEdges : null, internal: st.internal }) };
       cache.last = pc.frame_start;
     }
     const live = cache.live;
+    if (st.weights) applyPropertyWeights(st, live.topo);
     const restShape = st.useRestShape ? local : undefined;
     while (cache.last < ft) {
       if (cache.last > pc.frame_start && outOfTime()) break;
@@ -133,6 +145,41 @@ export function runMeshSim(kind: string, mesh: EvalMesh, m: ModifierBase, ctx: M
   const ev = (ctx.graph as Depsgraph).get(ob.id);
   const inv = (ev ? ev.world.clone() : new Matrix4()).invert();
   return { ...mesh, positions: transform(out, inv) };
+}
+
+/** Per-constraint stiffness and rest scale from vertex group weights (average of both ends). */
+function applyPropertyWeights(st: MeshSimSetup, topo: Topology) {
+  const W = st.weights!;
+  const n = topo.a.length;
+  const comp = (k: number) => (k > 0 ? 1 / (k * 1000) : 1e6);
+  const stretch = new Float32Array(n),
+    compress = new Float32Array(n);
+  const P = st.params;
+  for (let c = 0; c < n; c++) {
+    const i = topo.a[c],
+      j = topo.b[c];
+    const kind = topo.kind[c];
+    const avg = (w: ArrayLike<number>) => ((w[i] ?? 0) + (w[j] ?? 0)) / 2;
+    if (kind === KIND_STRUCT) {
+      const w = W.structural ? avg(W.structural.w) : 0;
+      stretch[c] = W.structural ? comp(W.base[0] + (W.structural.tensionMax - W.base[0]) * w) : P.compliance[0];
+      compress[c] = W.structural ? comp(W.base[1] + (W.structural.compressionMax - W.base[1]) * w) : P.compliance[1];
+    } else if (kind === KIND_SHEAR) {
+      stretch[c] = compress[c] = W.shear ? comp(W.base[2] + (W.shear.max - W.base[2]) * avg(W.shear.w)) : P.compliance[2];
+    } else {
+      stretch[c] = compress[c] = W.bending ? comp(W.base[3] + (W.bending.max - W.base[3]) * avg(W.bending.w)) : P.compliance[3];
+    }
+  }
+  P.stretchCompliance = stretch;
+  P.compressCompliance = compress;
+  if (W.shrink) {
+    const rs = new Float32Array(n);
+    for (let c = 0; c < n; c++) {
+      const w = ((W.shrink.w[topo.a[c]] ?? 0) + (W.shrink.w[topo.b[c]] ?? 0)) / 2;
+      rs[c] = 1 - Math.min(0.99, Math.max(-1, W.shrink.min + (W.shrink.max - W.shrink.min) * w));
+    }
+    P.restScales = rs;
+  }
 }
 
 /** Signature for the depsgraph's mesh cache: changes whenever the cached output would. */

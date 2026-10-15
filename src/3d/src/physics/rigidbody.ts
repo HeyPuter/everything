@@ -236,7 +236,7 @@ function stepWorld(doc: DocumentData, live: Live, frame: number, graph: Depsgrap
       const p = b.body.translation(),
         v = b.body.linvel();
       f[0] = f[1] = f[2] = 0;
-      effectorForce(effs, p.x, p.y, p.z, v.x, v.y, v.z, frame - 1 + t, f);
+      effectorForce(effs, p.x, p.y, p.z, v.x, v.y, v.z, frame - 1 + t, f, 1, null, (w as { effector_weights_types?: Record<string, number> }).effector_weights_types ?? null);
       b.body.resetForces(false);
       if (f[0] || f[1] || f[2]) b.body.addForce({ x: f[0], y: f[1], z: f[2] }, true);
     }

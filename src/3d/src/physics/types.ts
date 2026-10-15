@@ -84,6 +84,36 @@ export interface ClothSettings {
   shrink_min: number;
   effector_weights_gravity: number;
   effector_weights_all: number;
+  /** per field type effector weights */
+  effector_weights_types?: Record<string, number>;
+  // shape
+  shrink_max?: number;
+  vertex_group_shrink?: string;
+  use_sewing_springs?: boolean;
+  sewing_force_max?: number;
+  // pressure
+  use_pressure?: boolean;
+  uniform_pressure_force?: number;
+  use_pressure_volume?: boolean;
+  target_volume?: number;
+  pressure_factor?: number;
+  fluid_density?: number;
+  vertex_group_pressure?: string;
+  // internal springs
+  use_internal_springs?: boolean;
+  internal_spring_max_length?: number;
+  internal_spring_max_diversion?: number;
+  internal_spring_normal_check?: boolean;
+  internal_tension_stiffness?: number;
+  internal_compression_stiffness?: number;
+  // property weights
+  vertex_group_structural_stiffness?: string;
+  tension_stiffness_max?: number;
+  compression_stiffness_max?: number;
+  vertex_group_shear_stiffness?: string;
+  shear_stiffness_max?: number;
+  vertex_group_bending?: string;
+  bending_stiffness_max?: number;
 }
 
 export interface ClothCollisionSettings {
@@ -263,6 +293,31 @@ export function defaultClothSettings(): ClothSettings {
     shrink_min: 0,
     effector_weights_gravity: 1,
     effector_weights_all: 1,
+    effector_weights_types: {},
+    shrink_max: 0,
+    vertex_group_shrink: '',
+    use_sewing_springs: false,
+    sewing_force_max: 0,
+    use_pressure: false,
+    uniform_pressure_force: 0,
+    use_pressure_volume: false,
+    target_volume: 0,
+    pressure_factor: 1,
+    fluid_density: 0,
+    vertex_group_pressure: '',
+    use_internal_springs: false,
+    internal_spring_max_length: 0,
+    internal_spring_max_diversion: Math.PI / 4,
+    internal_spring_normal_check: false,
+    internal_tension_stiffness: 15,
+    internal_compression_stiffness: 15,
+    vertex_group_structural_stiffness: '',
+    tension_stiffness_max: 15,
+    compression_stiffness_max: 15,
+    vertex_group_shear_stiffness: '',
+    shear_stiffness_max: 5,
+    vertex_group_bending: '',
+    bending_stiffness_max: 0.5,
   };
 }
 

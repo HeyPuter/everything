@@ -219,7 +219,7 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
         vy = L.vel[j + 1],
         vz = L.vel[j + 2];
       f[0] = f[1] = f[2] = 0;
-      if (effs.length) effectorForce(effs, px, py, pz, vx, vy, vz, t1, f, s.effector_weights_all ?? 1);
+      if (effs.length) effectorForce(effs, px, py, pz, vx, vy, vz, t1, f, s.effector_weights_all ?? 1, null, (s as { effector_weights_types?: Record<string, number> }).effector_weights_types ?? null);
       let ax = g[0] + f[0] * invMass,
         ay = g[1] + f[1] * invMass,
         az = g[2] + f[2] * invMass;

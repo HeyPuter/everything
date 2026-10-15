@@ -191,12 +191,16 @@ export function effectorForce(
   vz: number,
   time: number,
   out: Float64Array | number[],
-  weight = 1,
+  weight0 = 1,
   normal?: [number, number, number] | null,
+  typeWeights?: Record<string, number> | null,
 ) {
-  if (!effs.length || weight === 0) return;
+  if (!effs.length || weight0 === 0) return;
   for (const e of effs) {
     const f = e.field;
+    // per field type weights (Field Weights panels)
+    const weight = typeWeights ? weight0 * (typeWeights[f.type] ?? 1) : weight0;
+    if (weight === 0) continue;
     const S = f.strength * weight;
     const n = shapeOrigins(e, x, y, z, origins);
     for (let o = 0; o < n; o++) {

@@ -7,7 +7,11 @@ import { effectorForce, type Effector } from './fields';
 
 export const KIND_STRUCT = 0,
   KIND_SHEAR = 1,
-  KIND_BEND = 2;
+  KIND_BEND = 2,
+  /** springs through the inside of a closed mesh */
+  KIND_INTERNAL = 3,
+  /** sewing springs (loose edges pulling their ends together) */
+  KIND_SEW = 4;
 
 export interface Topology {
   /** constraint endpoints */
@@ -22,7 +26,12 @@ export interface Topology {
 }
 
 /** Build structural (edges), shear (face diagonals) and bending (vertices two edges apart) constraints. */
-export function buildTopology(positions: ArrayLike<number>, offsets: ArrayLike<number>, indices: ArrayLike<number>, opts: { shear: boolean; bend: boolean }): Topology {
+export function buildTopology(
+  positions: ArrayLike<number>,
+  offsets: ArrayLike<number>,
+  indices: ArrayLike<number>,
+  opts: { shear: boolean; bend: boolean; sewing?: ArrayLike<number> | null; internal?: { maxLength: number; maxDiversion: number; normalCheck: boolean } | null },
+): Topology {
   const nv = positions.length / 3;
   const nf = offsets.length - 1;
   const key = (i: number, j: number) => (i < j ? i * nv + j : j * nv + i);
@@ -72,20 +81,197 @@ export function buildTopology(positions: ArrayLike<number>, offsets: ArrayLike<n
           edges.set(k, [v, m, KIND_BEND]);
         }
   }
-  const n = edges.size;
+  // sewing: loose edges become springs pulling their two vertices together
+  const sew: [number, number][] = [];
+  if (opts.sewing)
+    for (let k = 0; k + 1 < opts.sewing.length; k += 2) {
+      const i = opts.sewing[k],
+        j = opts.sewing[k + 1];
+      if (i !== j && !edges.has(key(i, j))) sew.push([i, j]);
+    }
+  const internal = opts.internal ? internalSprings(positions, tris, nbr, opts.internal) : [];
+  const n = edges.size + sew.length + internal.length;
   const a = new Uint32Array(n),
     b = new Uint32Array(n),
     kind = new Uint8Array(n),
     rest = new Float32Array(n);
   let i = 0;
+  const dist = (p: number, q: number) => Math.hypot(positions[p * 3] - positions[q * 3], positions[p * 3 + 1] - positions[q * 3 + 1], positions[p * 3 + 2] - positions[q * 3 + 2]);
   for (const [p, q, k] of edges.values()) {
     a[i] = p;
     b[i] = q;
     kind[i] = k;
-    rest[i] = Math.hypot(positions[p * 3] - positions[q * 3], positions[p * 3 + 1] - positions[q * 3 + 1], positions[p * 3 + 2] - positions[q * 3 + 2]);
+    rest[i] = dist(p, q);
+    i++;
+  }
+  for (const [p, q] of sew) {
+    a[i] = p;
+    b[i] = q;
+    kind[i] = KIND_SEW;
+    rest[i] = 0;
+    i++;
+  }
+  for (const [p, q] of internal) {
+    a[i] = p;
+    b[i] = q;
+    kind[i] = KIND_INTERNAL;
+    rest[i] = dist(p, q);
     i++;
   }
   return { a, b, kind, rest, tris: new Uint32Array(tris), nverts: nv };
+}
+
+/** Internal springs: each vertex is connected through the inside of the mesh to the nearest vertex of the
+ *  face hit by a ray along its inverted normal. */
+function internalSprings(positions: ArrayLike<number>, tris: number[], nbr: Set<number>[], o: { maxLength: number; maxDiversion: number; normalCheck: boolean }): [number, number][] {
+  const nv = positions.length / 3;
+  const P = (i: number, c: number) => positions[i * 3 + c];
+  // area-weighted vertex normals
+  const N = new Float64Array(nv * 3);
+  const fn = (t: number) => {
+    const i = tris[t],
+      j = tris[t + 1],
+      k = tris[t + 2];
+    const e1 = [P(j, 0) - P(i, 0), P(j, 1) - P(i, 1), P(j, 2) - P(i, 2)],
+      e2 = [P(k, 0) - P(i, 0), P(k, 1) - P(i, 1), P(k, 2) - P(i, 2)];
+    return [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+  };
+  for (let t = 0; t < tris.length; t += 3) {
+    const n = fn(t);
+    for (const v of [tris[t], tris[t + 1], tris[t + 2]]) for (let c = 0; c < 3; c++) N[v * 3 + c] += n[c];
+  }
+  for (let v = 0; v < nv; v++) {
+    const l = Math.hypot(N[v * 3], N[v * 3 + 1], N[v * 3 + 2]) || 1;
+    for (let c = 0; c < 3; c++) N[v * 3 + c] /= l;
+  }
+  const out: [number, number][] = [];
+  const seen = new Set<number>();
+  const maxLen = o.maxLength > 0 ? o.maxLength : Infinity;
+  const cosDiv = Math.cos(Math.max(0, Math.min(Math.PI / 2, o.maxDiversion)));
+  // uniform grid of triangles so each ray only tests the triangles along its path
+  let mnx = Infinity,
+    mny = Infinity,
+    mnz = Infinity,
+    mxx = -Infinity,
+    mxy = -Infinity,
+    mxz = -Infinity;
+  for (let v = 0; v < nv; v++) {
+    mnx = Math.min(mnx, P(v, 0));
+    mny = Math.min(mny, P(v, 1));
+    mnz = Math.min(mnz, P(v, 2));
+    mxx = Math.max(mxx, P(v, 0));
+    mxy = Math.max(mxy, P(v, 1));
+    mxz = Math.max(mxz, P(v, 2));
+  }
+  const diag = Math.hypot(mxx - mnx, mxy - mny, mxz - mnz) || 1;
+  const res = Math.max(1, Math.min(32, Math.round(Math.cbrt(tris.length / 3 / 4))));
+  const cs = diag / res + 1e-9;
+  const cellKey = (x: number, y: number, z: number) => `${Math.floor((x - mnx) / cs)},${Math.floor((y - mny) / cs)},${Math.floor((z - mnz) / cs)}`;
+  const grid = new Map<string, number[]>();
+  for (let t = 0; t < tris.length; t += 3) {
+    let ax = Infinity,
+      ay = Infinity,
+      az = Infinity,
+      bx = -Infinity,
+      by = -Infinity,
+      bz = -Infinity;
+    for (const c of [tris[t], tris[t + 1], tris[t + 2]]) {
+      ax = Math.min(ax, P(c, 0));
+      ay = Math.min(ay, P(c, 1));
+      az = Math.min(az, P(c, 2));
+      bx = Math.max(bx, P(c, 0));
+      by = Math.max(by, P(c, 1));
+      bz = Math.max(bz, P(c, 2));
+    }
+    for (let x = Math.floor((ax - mnx) / cs); x <= Math.floor((bx - mnx) / cs); x++)
+      for (let y = Math.floor((ay - mny) / cs); y <= Math.floor((by - mny) / cs); y++)
+        for (let z = Math.floor((az - mnz) / cs); z <= Math.floor((bz - mnz) / cs); z++) {
+          const k = `${x},${y},${z}`;
+          let l = grid.get(k);
+          if (!l) grid.set(k, (l = []));
+          l.push(t);
+        }
+  }
+  const tested = new Set<number>();
+  for (let v = 0; v < nv; v++) {
+    const ox = P(v, 0),
+      oy = P(v, 1),
+      oz = P(v, 2);
+    const dx = -N[v * 3],
+      dy = -N[v * 3 + 1],
+      dz = -N[v * 3 + 2];
+    let best = Infinity,
+      bestT = -1;
+    tested.clear();
+    const reach = Math.min(maxLen, diag);
+    for (let step = 0; step <= reach + cs; step += cs * 0.5) {
+      if (step > best) break;
+      const l = grid.get(cellKey(ox + dx * step, oy + dy * step, oz + dz * step));
+      if (!l) continue;
+      for (const t of l) {
+        if (tested.has(t)) continue;
+        tested.add(t);
+        const i = tris[t],
+          j = tris[t + 1],
+          k = tris[t + 2];
+        if (i === v || j === v || k === v) continue;
+        const e1x = P(j, 0) - P(i, 0),
+          e1y = P(j, 1) - P(i, 1),
+          e1z = P(j, 2) - P(i, 2);
+        const e2x = P(k, 0) - P(i, 0),
+          e2y = P(k, 1) - P(i, 1),
+          e2z = P(k, 2) - P(i, 2);
+        const hx = dy * e2z - dz * e2y,
+          hy = dz * e2x - dx * e2z,
+          hz = dx * e2y - dy * e2x;
+        const det = e1x * hx + e1y * hy + e1z * hz;
+        if (Math.abs(det) < 1e-12) continue;
+        const f = 1 / det;
+        const sx = ox - P(i, 0),
+          sy = oy - P(i, 1),
+          sz = oz - P(i, 2);
+        const u = f * (sx * hx + sy * hy + sz * hz);
+        if (u < 0 || u > 1) continue;
+        const qx = sy * e1z - sz * e1y,
+          qy = sz * e1x - sx * e1z,
+          qz = sx * e1y - sy * e1x;
+        const w = f * (dx * qx + dy * qy + dz * qz);
+        if (w < 0 || u + w > 1) continue;
+        const d = f * (e2x * qx + e2y * qy + e2z * qz);
+        if (d > 1e-6 && d < best) {
+          best = d;
+          bestT = t;
+        }
+      }
+    }
+    if (bestT < 0 || best > maxLen) continue;
+    // the nearest corner of the hit face
+    const hx = ox + dx * best,
+      hy = oy + dy * best,
+      hz = oz + dz * best;
+    let target = -1,
+      td = Infinity;
+    for (const c of [tris[bestT], tris[bestT + 1], tris[bestT + 2]]) {
+      const d = Math.hypot(P(c, 0) - hx, P(c, 1) - hy, P(c, 2) - hz);
+      if (d < td) {
+        td = d;
+        target = c;
+      }
+    }
+    if (target < 0 || nbr[v].has(target)) continue;
+    // keep springs that run close to the ray direction (and between facing normals when asked)
+    const sx = P(target, 0) - ox,
+      sy = P(target, 1) - oy,
+      sz = P(target, 2) - oz;
+    const sl = Math.hypot(sx, sy, sz) || 1;
+    if ((sx * dx + sy * dy + sz * dz) / sl < cosDiv) continue;
+    if (o.normalCheck && N[target * 3] * N[v * 3] + N[target * 3 + 1] * N[v * 3 + 1] + N[target * 3 + 2] * N[v * 3 + 2] > -0.3) continue;
+    const k = v < target ? v * nv + target : target * nv + v;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push([v, target]);
+  }
+  return out;
 }
 
 export interface PBDState {
@@ -120,6 +306,19 @@ export interface PBDParams {
   self: { distance: number; friction: number } | null;
   /** rest-length scale (shrinking) */
   restScale: number;
+  /** per-constraint compliance overrides when stretched / compressed (property weights) */
+  stretchCompliance?: Float32Array | null;
+  compressCompliance?: Float32Array | null;
+  /** per-constraint rest-length scale (shrink group) */
+  restScales?: Float32Array | null;
+  /** internal spring compliance when stretched / compressed */
+  internalCompliance?: [number, number];
+  /** sewing spring compliance */
+  sewCompliance?: number;
+  /** pressure inside a closed mesh */
+  pressure?: { uniform: number; factor: number; targetVolume: number; density: number; weights: Float32Array | null } | null;
+  /** effector weight per field type */
+  fieldTypeWeights?: Record<string, number> | null;
 }
 
 export function initState(world: Float32Array): PBDState {
@@ -259,7 +458,10 @@ export function stepFrame(
     restCz /= n;
   }
   const q = [0, 0, 0, 1];
+  const pressureF = P.pressure ? new Float64Array(x.length) : null;
+  const restVolume = P.pressure ? Math.abs(meshVolume(targets0, topo.tris)) : 0;
   for (let s = 0; s < P.substeps; s++) {
+    if (pressureF && P.pressure) pressureForces(x, topo.tris, P.pressure, restVolume, P.gravity, pressureF);
     const t1 = (s + 1) / P.substeps;
     // targets at the end of this substep
     const tgt = (i: number, c: number) => targets0[i * 3 + c] + (targets1[i * 3 + c] - targets0[i * 3 + c]) * t1;
@@ -280,7 +482,12 @@ export function stepFrame(
           nrm[1] = normals[k + 1];
           nrm[2] = normals[k + 2];
         }
-        effectorForce(effectors, x[k], x[k + 1], x[k + 2], v[k], v[k + 1], v[k + 2], time + s / P.substeps, f, P.fieldWeight, useNormals ? nrm : null);
+        effectorForce(effectors, x[k], x[k + 1], x[k + 2], v[k], v[k + 1], v[k + 2], time + s / P.substeps, f, P.fieldWeight, useNormals ? nrm : null, P.fieldTypeWeights);
+      }
+      if (pressureF) {
+        f[0] += pressureF[k];
+        f[1] += pressureF[k + 1];
+        f[2] += pressureF[k + 2];
       }
       const drag = Math.max(0, 1 - P.airDamping * h);
       v[k] = (v[k] + h * (P.gravity[0] + f[0] * baseW)) * drag;
@@ -311,9 +518,14 @@ export function stepFrame(
           dz = p[ia + 2] - p[ja + 2];
         const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (len < 1e-12) continue;
-        const C = len - R[c] * P.restScale;
+        const C = len - R[c] * (P.restScales ? P.restScales[c] : P.restScale);
         const kind = K[c];
-        const comp = kind === KIND_STRUCT ? (C > 0 ? P.compliance[0] : P.compliance[1]) : kind === KIND_SHEAR ? P.compliance[2] : P.compliance[3];
+        let comp: number;
+        if (kind === KIND_INTERNAL) comp = C > 0 ? (P.internalCompliance?.[0] ?? 1e6) : (P.internalCompliance?.[1] ?? 1e6);
+        else if (kind === KIND_SEW) comp = P.sewCompliance ?? 1e-4;
+        else if (C > 0 && P.stretchCompliance) comp = P.stretchCompliance[c];
+        else if (C <= 0 && P.compressCompliance) comp = P.compressCompliance[c];
+        else comp = kind === KIND_STRUCT ? (C > 0 ? P.compliance[0] : P.compliance[1]) : kind === KIND_SHEAR ? P.compliance[2] : P.compliance[3];
         const at = comp / h2;
         const dl = (-C - at * lambda[c]) / (ws + at);
         lambda[c] += dl;
@@ -493,7 +705,7 @@ export function stepFrame(
       const len = Math.hypot(dx, dy, dz);
       if (len < 1e-12) continue;
       const kind = K[c];
-      const damp = kind === KIND_STRUCT ? (len > topo.rest[c] ? P.damping[0] : P.damping[1]) : kind === KIND_SHEAR ? P.damping[2] : P.damping[3];
+      const damp = kind === KIND_STRUCT || kind === KIND_INTERNAL ? (len > topo.rest[c] ? P.damping[0] : P.damping[1]) : kind === KIND_SHEAR ? P.damping[2] : kind === KIND_SEW ? 0 : P.damping[3];
       if (damp <= 0) continue;
       const nx = dx / len,
         ny = dy / len,
@@ -577,5 +789,65 @@ function selfCollide(p: Float64Array, x: Float64Array, w: Float64Array, dist: nu
             }
           }
         }
+  }
+}
+
+/** Signed volume of a closed triangle mesh. */
+export function meshVolume(x: ArrayLike<number>, tris: Uint32Array): number {
+  let v = 0;
+  for (let t = 0; t < tris.length; t += 3) {
+    const i = tris[t] * 3,
+      j = tris[t + 1] * 3,
+      k = tris[t + 2] * 3;
+    v += x[i] * (x[j + 1] * x[k + 2] - x[j + 2] * x[k + 1]) - x[i + 1] * (x[j] * x[k + 2] - x[j + 2] * x[k]) + x[i + 2] * (x[j] * x[k + 1] - x[j + 1] * x[k]);
+  }
+  return v / 6;
+}
+
+const PRESSURE_SCALE = 100;
+
+/** Outward pressure forces per vertex (area weighted), from a uniform pressure, a volume-preserving
+ *  term and the weight of a fluid filling the mesh. */
+function pressureForces(x: Float64Array, tris: Uint32Array, pr: NonNullable<PBDParams['pressure']>, restVolume: number, gravity: [number, number, number], out: Float64Array) {
+  out.fill(0);
+  const vol = meshVolume(x, tris);
+  const sign = vol < 0 ? -1 : 1;
+  const V = Math.abs(vol);
+  const target = pr.targetVolume > 0 ? pr.targetVolume : restVolume;
+  // pressure settings are in the same units as the cloth stiffness (×1000 internally)
+  let P = pr.uniform * PRESSURE_SCALE;
+  if (pr.factor && V > 1e-9 && target > 0) P += pr.factor * PRESSURE_SCALE * (target / V - 1);
+  const g = Math.hypot(gravity[0], gravity[1], gravity[2]);
+  const gx = g > 0 ? gravity[0] / g : 0,
+    gy = g > 0 ? gravity[1] / g : 0,
+    gz = g > 0 ? gravity[2] / g : -1;
+  // the fluid surface is at the highest point against gravity
+  let top = Infinity;
+  if (pr.density) for (let i = 0; i < x.length; i += 3) top = Math.min(top, x[i] * gx + x[i + 1] * gy + x[i + 2] * gz);
+  for (let t = 0; t < tris.length; t += 3) {
+    const i = tris[t] * 3,
+      j = tris[t + 1] * 3,
+      k = tris[t + 2] * 3;
+    const e1x = x[j] - x[i],
+      e1y = x[j + 1] - x[i + 1],
+      e1z = x[j + 2] - x[i + 2];
+    const e2x = x[k] - x[i],
+      e2y = x[k + 1] - x[i + 1],
+      e2z = x[k + 2] - x[i + 2];
+    // normal with length = 2 × area, oriented outwards
+    const nx = (e1y * e2z - e1z * e2y) * sign,
+      ny = (e1z * e2x - e1x * e2z) * sign,
+      nz = (e1x * e2y - e1y * e2x) * sign;
+    let p = P;
+    if (pr.density) {
+      const depth = ((x[i] + x[j] + x[k]) * gx + (x[i + 1] + x[j + 1] + x[k + 1]) * gy + (x[i + 2] + x[j + 2] + x[k + 2]) * gz) / 3 - top;
+      p += pr.density * PRESSURE_SCALE * 0.01 * g * Math.max(0, depth);
+    }
+    for (const v of [i, j, k]) {
+      const wv = pr.weights ? pr.weights[v / 3] : 1;
+      out[v] += (nx * p * wv) / 6;
+      out[v + 1] += (ny * p * wv) / 6;
+      out[v + 2] += (nz * p * wv) / 6;
+    }
   }
 }
