@@ -233,4 +233,6 @@ export interface MenuCategory {
   items: (MenuEntry | MenuCategory | 'SEPARATOR')[];
   /** only shown for these trees (e.g. object vs world shader) */
   poll?: (ctx: { treeType: TreeType; shaderType?: 'OBJECT' | 'WORLD' }) => boolean;
+  /** top-level categories: draw a separator above this one in the Add menu */
+  separatorBefore?: boolean;
 }

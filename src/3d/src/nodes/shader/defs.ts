@@ -5,6 +5,8 @@ import { defineFromRaw, registerNodeAlias, registerNodeMenu, propValue, getNodeT
 import type { MenuCategory, NodeClass, NodeTypeDef, SocketDef, TreeType } from '../types';
 import { SHADER_NODE_DATA } from './data.gen';
 import { defaultRamp, defaultCurves } from '../curves';
+// node types of later additions referenced by the Add menu below
+import './extradefs';
 
 const SH: TreeType[] = ['SHADER', 'WORLD'];
 const p = (n: NodeData, id: string) => propValue(n, id) as string;
@@ -669,30 +671,39 @@ export const SHADER_MENU: MenuCategory[] = [
   {
     label: 'Input',
     items: [
-      { label: 'Constant', items: [e('ShaderNodeRGB'), e('ShaderNodeValue')] },
+      {
+        label: 'Constant',
+        // Boolean, Integer and Vector join once the shared constant nodes are available (constants.ts)
+        items: [e('ShaderNodeRGB'), e('ShaderNodeValue')],
+      },
       'SEPARATOR',
       e('ShaderNodeAmbientOcclusion'),
       e('ShaderNodeAttribute'),
       e('ShaderNodeBevel'),
       e('ShaderNodeCameraData'),
       e('ShaderNodeVertexColor'),
+      e('ShaderNodeHairInfo'),
       e('ShaderNodeFresnel'),
       e('ShaderNodeNewGeometry'),
       e('ShaderNodeLayerWeight'),
       e('ShaderNodeLightPath'),
       e('ShaderNodeObjectInfo'),
+      e('ShaderNodeParticleInfo'),
+      e('ShaderNodePointInfo'),
       e('ShaderNodeTangent'),
       e('ShaderNodeTexCoord'),
       e('ShaderNodeUVMap'),
+      e('ShaderNodeVolumeInfo'),
       e('ShaderNodeWireframe'),
     ],
   },
   {
     label: 'Output',
-    items: [e('ShaderNodeOutputMaterial'), e('ShaderNodeOutputWorld')],
+    items: [e('ShaderNodeOutputAOV'), e('ShaderNodeOutputLight'), e('ShaderNodeOutputMaterial'), e('ShaderNodeOutputWorld')],
   },
   {
     label: 'Shader',
+    separatorBefore: true,
     items: [
       e('ShaderNodeAddShader'),
       e('ShaderNodeMixShader'),
@@ -702,9 +713,12 @@ export const SHADER_MENU: MenuCategory[] = [
       e('ShaderNodeEmission'),
       e('ShaderNodeBsdfGlass'),
       e('ShaderNodeBsdfAnisotropic'),
+      e('ShaderNodeBsdfHair'),
       e('ShaderNodeHoldout'),
       e('ShaderNodeBsdfMetallic'),
       e('ShaderNodeBsdfPrincipled'),
+      e('ShaderNodeBsdfHairPrincipled'),
+      e('ShaderNodeBsdfRayPortal'),
       e('ShaderNodeBsdfRefraction'),
       e('ShaderNodeBsdfSheen'),
       e('ShaderNodeEeveeSpecular'),
@@ -716,6 +730,7 @@ export const SHADER_MENU: MenuCategory[] = [
       e('ShaderNodeVolumePrincipled'),
       e('ShaderNodeVolumeAbsorption'),
       e('ShaderNodeVolumeScatter'),
+      e('ShaderNodeVolumeCoefficients'),
     ],
   },
   {
@@ -724,6 +739,7 @@ export const SHADER_MENU: MenuCategory[] = [
   },
   {
     label: 'Color',
+    separatorBefore: true,
     items: [
       e('ShaderNodeBlackbody'),
       e('ShaderNodeBrightContrast'),
@@ -751,6 +767,7 @@ export const SHADER_MENU: MenuCategory[] = [
       e('ShaderNodeTexEnvironment'),
       e('ShaderNodeTexGabor'),
       e('ShaderNodeTexGradient'),
+      e('ShaderNodeTexIES'),
       e('ShaderNodeTexImage'),
       e('ShaderNodeTexMagic'),
       e('ShaderNodeTexNoise'),
@@ -777,6 +794,7 @@ export const SHADER_MENU: MenuCategory[] = [
           'SEPARATOR',
           e('ShaderNodeMapping'),
           e('ShaderNodeNormal'),
+          e('ShaderNodeRadialTiling'),
           e('ShaderNodeVectorCurve'),
           e('ShaderNodeVectorMath'),
           e('ShaderNodeVectorRotate'),
@@ -787,21 +805,47 @@ export const SHADER_MENU: MenuCategory[] = [
   },
 ];
 
-// per-entry polls for object vs world trees
+// per-entry polls for object vs world trees: world trees offer only nodes that make sense for
+// the background (no surface BSDFs or mesh attributes)
 const OBJECT_ONLY = new Set([
   'ShaderNodeAmbientOcclusion',
   'ShaderNodeBevel',
   'ShaderNodeVertexColor',
+  'ShaderNodeHairInfo',
   'ShaderNodeFresnel',
   'ShaderNodeLayerWeight',
   'ShaderNodeObjectInfo',
+  'ShaderNodeParticleInfo',
+  'ShaderNodePointInfo',
   'ShaderNodeUVMap',
+  'ShaderNodeVolumeInfo',
   'ShaderNodeWireframe',
   'ShaderNodeOutputMaterial',
+  'ShaderNodeOutputLight',
   'ShaderNodeShaderToRGB',
+  'ShaderNodeBsdfDiffuse',
+  'ShaderNodeBsdfGlass',
+  'ShaderNodeBsdfAnisotropic',
+  'ShaderNodeBsdfHair',
+  'ShaderNodeHoldout',
+  'ShaderNodeBsdfMetallic',
+  'ShaderNodeBsdfPrincipled',
+  'ShaderNodeBsdfHairPrincipled',
+  'ShaderNodeBsdfRayPortal',
+  'ShaderNodeBsdfRefraction',
+  'ShaderNodeBsdfSheen',
+  'ShaderNodeEeveeSpecular',
+  'ShaderNodeSubsurfaceScattering',
+  'ShaderNodeBsdfToon',
+  'ShaderNodeBsdfTranslucent',
+  'ShaderNodeBsdfTransparent',
 ]);
-const WORLD_ONLY = new Set(['ShaderNodeOutputWorld']);
+const WORLD_ONLY = new Set(['ShaderNodeOutputWorld', 'ShaderNodeBackground']);
+/** Output nodes whose feature is not available yet are left out of the menu. */
+export const hiddenShaderEntries = new Set<string>(['ShaderNodeOutputAOV', 'ShaderNodeOutputLight']);
 export function shaderEntryPoll(idname: string, shaderType: 'OBJECT' | 'WORLD') {
+  if (hiddenShaderEntries.has(idname)) return false;
+  if (!getNodeType(idname)) return false;
   if (OBJECT_ONLY.has(idname)) return objectOnly({ shaderType });
   if (WORLD_ONLY.has(idname)) return worldOnly({ shaderType });
   return true;
