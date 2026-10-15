@@ -9,7 +9,8 @@ import { openMenu, openPopover, promptText, type MenuItem } from '../ui/menu';
 import type { DocumentData, ObjectData } from '../data/types';
 import { uniqueName, setActiveCollection, activeCollection } from '../ops/object';
 import { applyMatrixToObject, fromMatrix4 } from '../eval/transform';
-import { Matrix4 } from 'three';
+import { Matrix4, Vector3 } from 'three';
+import { surfaceHit } from '../ops/view3d';
 import { textField } from '../ui/widgets';
 import {
   buildRows,
@@ -624,6 +625,7 @@ export class Outliner implements Editor {
               ondragstart: (e: DragEvent) => this.onDragStart(e, r),
               ondragend: () => {
                 this.drag = null;
+                viewportDrag = null;
                 this.setHint(null);
               },
               ondblclick: (e: MouseEvent) => {
@@ -1076,6 +1078,7 @@ export class Outliner implements Editor {
     else if (r.id) this.drag = { kind: 'material', id: r.id };
     e.dataTransfer?.setData('text/plain', r.label);
     if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove';
+    viewportDrag = this.drag;
   }
 
   private dropAction(r: Row, zone: DropZone, ctrl: boolean, shift: boolean): string | null {
@@ -1404,6 +1407,47 @@ export class Outliner implements Editor {
     setCurrentOutliner(null, false, this);
   }
 }
+
+// ---------------------------------------------------------------------------
+// dropping outliner items into the 3D viewport: collections become instances, materials go
+// onto the object under the pointer
+
+let viewportDrag: DragInfo | null = null;
+
+function viewportAt(e: DragEvent): { el: HTMLElement; pick(x: number, y: number, r?: number): { id: string } | null; unproject(x: number, y: number, d: Vector3): Vector3 } | null {
+  const target = e.target as HTMLElement | null;
+  if (!target?.closest?.('.view3d')) return null;
+  const area = app.hoverArea as { type?: string; editor?: unknown } | null;
+  if (area?.type !== 'VIEW_3D') return null;
+  return area.editor as never;
+}
+
+addEventListener('dragover', (e) => {
+  const d = viewportDrag;
+  if (!d || (d.kind !== 'collection' && d.kind !== 'material') || !viewportAt(e)) return;
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+});
+
+addEventListener('drop', (e) => {
+  const d = viewportDrag;
+  const v = d ? viewportAt(e) : null;
+  if (!d || !v) return;
+  e.preventDefault();
+  viewportDrag = null;
+  const r = v.el.getBoundingClientRect();
+  const x = e.clientX - r.left,
+    y = e.clientY - r.top;
+  if (d.kind === 'collection') {
+    if (app.doc.mode !== 'OBJECT') return;
+    const p = surfaceHit(v as never, x, y) ?? v.unproject(x, y, new Vector3(...app.doc.scene.cursor.location));
+    app.run('object.collection_instance_add', { collection: d.id, location: [p.x, p.y, p.z] }, { invoke: false });
+  } else if (d.kind === 'material') {
+    const hit = v.pick(x, y, 4);
+    if (hit) app.run('outliner.material_drop', { object: hit.id, material: d.id }, { invoke: false });
+    else app.report('WARNING', 'Drop the material on an object');
+  }
+});
 
 registerEditor({
   id: 'OUTLINER',

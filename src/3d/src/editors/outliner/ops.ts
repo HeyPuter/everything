@@ -729,9 +729,14 @@ registerOperators([
       const d = tableOf(doc, DATA_TABLE[ob.type])?.[ob.data] as unknown as { materials?: (string | null)[] } | undefined;
       if (!d) return 'CANCELLED';
       d.materials ??= [];
-      // append a new slot like dropping a material in the viewport would
-      d.materials.push(mat.id);
-      ob.active_material_index = d.materials.length - 1;
+      // the dropped material replaces the active slot's material (a slot is added when there is none)
+      if (!d.materials.length) d.materials.push(mat.id);
+      else {
+        const i = Math.max(0, Math.min(d.materials.length - 1, ob.active_material_index));
+        if (ob.material_slots_link?.[i] === 'OBJECT' && ob.object_materials) ob.object_materials[i] = mat.id;
+        else d.materials[i] = mat.id;
+        ob.active_material_index = i;
+      }
     },
   },
   {

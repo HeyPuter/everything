@@ -147,6 +147,15 @@ test('outliner: drag and drop, restriction columns, filter and search', async ({
     }),
   );
   await expect(row(page, 'Collection.001')).toHaveCount(1);
+  // dropping a collection into the 3D viewport adds an instance of it
+  await row(page, 'Collection.001').locator('.ol-item').dragTo(page.locator('.view3d').first());
+  expect(
+    await page.evaluate(() => {
+      const a = (window as unknown as Win).app;
+      const c = Object.values(a.doc.collections as Record<string, any>).find((x) => x.name === 'Collection.001');
+      return Object.values(a.doc.objects as Record<string, any>).filter((o) => o.instance_collection === c.id).length;
+    }),
+  ).toBe(1);
   // drop an object onto another collection moves it there
   await row(page, 'Light').locator('.ol-item').dragTo(row(page, 'Collection.001').locator('.ol-name'));
   const where = await page.evaluate(() => {
