@@ -28,6 +28,8 @@ const css = /* css */ `
 .seq-ch-tg .ic svg { width: 14px; height: 14px; }
 .seq-main { position: relative; flex: 1; min-width: 0; overflow: hidden; touch-action: none; }
 .seq-main canvas { position: absolute; left: 0; top: 0; }
+.seq-redo { position: absolute; left: 0; bottom: 0; z-index: 3; }
+.seq-redo .redo-panel { bottom: 6px; }
 .seq-sb { position: relative; flex: none; width: 300px; display: flex; background: #303030; border-left: 1px solid #161616; }
 .seq-sb[hidden] { display: none; }
 .seq-sb .sb-body { overflow-y: auto; }

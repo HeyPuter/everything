@@ -1,6 +1,6 @@
 // Interactive strip transforms: Sequence Slide (G / drag), handle trims, Time Extend (E),
 // Slip (S) and preview image transforms (G/R/S in the preview).
-import { app } from '../app/app';
+import { app, type ModalHandler } from '../app/app';
 import type { Strip } from './types';
 import { finalStart, finalEnd, setLeftHandle, setRightHandle, translateStrip, slip, inputCount, effectInputs, snapTargets, snapOffset, resolveOverlap, overlapsAny, isStill, activeAt, allStrips } from './strips';
 import { seqList, isLocked, toolSettings, afterEdit, hoverSeq, type SeqEditorLike, seqEditor } from './context';
@@ -44,25 +44,82 @@ export interface SlideOptions {
   /** only these strips' handles (handle drag) */
   handleStrip?: Strip;
   handleSide?: 'LEFT' | 'RIGHT';
+  /** operator that repeats the result for Adjust Last Operation (default: transform.seq_slide) */
+  redoOp?: string;
+}
+
+/** What a slide moves: selected handles (trim), or the selected strips plus their effects' inputs. */
+export function slideTargets(): { targets: Strip[]; handleMode: boolean } {
+  const list = seqList();
+  const all = allStrips(seqEditor().strips);
+  const sel = list.filter((s) => s.select && !isLocked(s));
+  const handleMode = sel.some((s) => s.select_left_handle || s.select_right_handle);
+  const targets = handleMode ? sel.filter((s) => (s.select_left_handle || s.select_right_handle) && !inputCount(s.type)) : sel;
+  if (!handleMode) {
+    // effects carry their inputs along
+    for (const s of [...targets]) for (const i of effectInputs(all, s)) if (!targets.includes(i) && list.includes(i) && !isLocked(i)) targets.push(i);
+  }
+  return { targets, handleMode };
+}
+
+/** Slide the selection by frames / channels without interaction (operator exec, redo). */
+export function slideBy(df: number, dc: number): boolean {
+  const { targets, handleMode } = slideTargets();
+  if (!targets.length) return false;
+  for (const s of targets) {
+    if (handleMode) {
+      if (s.select_left_handle) setLeftHandle(s, finalStart(s) + df);
+      else if (s.select_right_handle) setRightHandle(s, finalEnd(s) + df);
+    } else {
+      translateStrip(s, df);
+      s.channel = Math.max(1, Math.min(MAX_CHANNELS, s.channel + dc));
+    }
+  }
+  afterEdit();
+  if (!handleMode) resolveOverlap(seqList(), targets, toolSettings().overlap_mode);
+  afterEdit();
+  restartPlayback();
+  return true;
+}
+
+/** Slip the selected strips' content by `df` frames (operator exec, redo). */
+export function slipBy(df: number): boolean {
+  const targets = seqList().filter((s) => s.select && !isLocked(s) && !isStill(s) && !inputCount(s.type));
+  if (!targets.length) return false;
+  for (const s of targets) slip(s, df);
+  afterEdit();
+  restartPlayback();
+  return true;
+}
+
+/** Time Extend by `df` frames on one side of `frame` (operator exec, redo). */
+export function extendBy(df: number, frame: number, sideRight: boolean): boolean {
+  const list = seqList();
+  const targets = list.filter((s) => s.select && !isLocked(s) && !inputCount(s.type) && (sideRight ? finalEnd(s) > frame : finalStart(s) < frame));
+  if (!targets.length) return false;
+  for (const s of targets) {
+    const a = finalStart(s),
+      b = finalEnd(s);
+    if (sideRight) {
+      if (a >= frame) translateStrip(s, df);
+      else setRightHandle(s, b + df);
+    } else if (b <= frame) translateStrip(s, df);
+    else setLeftHandle(s, a + df);
+  }
+  resolveOverlap(list, targets, toolSettings().overlap_mode);
+  afterEdit();
+  restartPlayback();
+  return true;
 }
 
 /** Sequence Slide / handle trim modal. Returns false if nothing can be transformed. */
 export function startSlide(ed: SeqEditorLike, x0: number, y0: number, opts: SlideOptions = {}): boolean {
   const list = seqList();
-  const all = allStrips(seqEditor().strips);
   const ts = toolSettings();
   let handleMode = !!opts.handleStrip;
   let targets: Strip[];
   if (opts.handleStrip) targets = isLocked(opts.handleStrip) ? [] : [opts.handleStrip];
-  else {
-    const sel = list.filter((s) => s.select && !isLocked(s));
-    handleMode = sel.some((s) => s.select_left_handle || s.select_right_handle);
-    targets = handleMode ? sel.filter((s) => (s.select_left_handle || s.select_right_handle) && !inputCount(s.type)) : sel;
-    if (!handleMode) {
-      // effects carry their inputs along
-      for (const s of [...targets]) for (const i of effectInputs(all, s)) if (!targets.includes(i) && list.includes(i) && !isLocked(i)) targets.push(i);
-    }
-  }
+  else ({ targets, handleMode } = slideTargets());
   if (!targets.length) return false;
   const orig = new Map(targets.map((s) => [s, snap(s)]));
   const others = new Set(list.filter((s) => !targets.includes(s)));
@@ -107,7 +164,7 @@ export function startSlide(ed: SeqEditorLike, x0: number, y0: number, opts: Slid
     app.changed('doc');
   };
 
-  app.startModal({
+  const handler: ModalHandler = {
     label: opts.label ?? (handleMode ? 'Trim Strips' : 'Move Strips'),
     cursor: handleMode ? 'ew-resize' : 'move',
     header: () => (handleMode ? `Sequence Slide: ${st.text ? st.text + '|' : st.df}` : `Sequence Slide: ${st.text ? st.text + '|' : st.df} (${st.df}, ${st.dc})`),
@@ -145,8 +202,10 @@ export function startSlide(ed: SeqEditorLike, x0: number, y0: number, opts: Slid
       if (!handleMode) resolveOverlap(list, targets, ts.overlap_mode);
       afterEdit();
       restartPlayback();
+      handler.redoOp = { idname: opts.redoOp ?? 'transform.seq_slide', props: { value: [st.df, st.dc] } };
     },
-  });
+  };
+  app.startModal(handler);
   // drag (click-drag) transforms finish on release
   const dragRelease = pointerIsDown;
   apply();
@@ -187,7 +246,7 @@ export function startExtend(ed: SeqEditorLike, x0: number): boolean {
     afterEdit();
     app.changed('doc');
   };
-  app.startModal({
+  const handler: ModalHandler = {
     label: 'Time Extend',
     cursor: 'ew-resize',
     header: () => `Time Extend: ${st.text ? st.text + '|' : st.df}`,
@@ -211,8 +270,10 @@ export function startExtend(ed: SeqEditorLike, x0: number): boolean {
       resolveOverlap(list, targets, toolSettings().overlap_mode);
       afterEdit();
       restartPlayback();
+      handler.redoOp = { idname: 'transform.transform', props: { mode: 'TIME_EXTEND', value: [st.df, 0, 0], frame: cur, side: sideRight ? 'RIGHT' : 'LEFT' } };
     },
-  });
+  };
+  app.startModal(handler);
   return true;
 }
 
@@ -232,7 +293,7 @@ export function startSlip(ed: SeqEditorLike, x0: number, only?: Strip): boolean 
     afterEdit();
     app.changed('doc');
   };
-  app.startModal({
+  const handler: ModalHandler = {
     label: 'Slip Strips',
     cursor: 'ew-resize',
     header: () => `Slip Offset: ${st.text ? st.text + '|' : st.df}`,
@@ -255,8 +316,10 @@ export function startSlip(ed: SeqEditorLike, x0: number, only?: Strip): boolean 
     },
     finish() {
       restartPlayback();
+      handler.redoOp = { idname: 'sequencer.slip', props: { offset: st.df } };
     },
-  });
+  };
+  app.startModal(handler);
   const dragRelease = pointerIsDown;
   return true;
 }
@@ -355,97 +418,6 @@ export function pointInPoly(x: number, y: number, poly: [number, number][]) {
     if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi || 1e-9) + xi) inside = !inside;
   }
   return inside;
-}
-
-export type PreviewMode = 'TRANSLATE' | 'ROTATE' | 'RESIZE';
-
-/** Move / rotate / scale the selected strips' images in the preview. */
-export function startPreviewTransform(ed: SeqEditorLike, mode: PreviewMode, cx: number, cy: number, drag = false): boolean {
-  const frame = app.doc.scene.frame_current;
-  const r = app.doc.scene.render;
-  const W = r.resolution_x,
-    H = r.resolution_y;
-  const targets = previewStrips(frame).filter((s) => s.select && !isLocked(s));
-  if (!targets.length) return false;
-  const orig = new Map(targets.map((s) => [s, { ...s.transform, origin: [...s.transform.origin] as [number, number] }]));
-  // pivot: median of image centres
-  let px = 0,
-    py = 0;
-  for (const s of targets) {
-    const c = stripImageCorners(s, W, H);
-    px += c.reduce((a, p) => a + p[0], 0) / 4;
-    py += c.reduce((a, p) => a + p[1], 0) / 4;
-  }
-  px /= targets.length;
-  py /= targets.length;
-  const [fx0, fy0] = ed.previewToFrame(cx, cy);
-  const st = { text: '', value: '' };
-  let last = { x: cx, y: cy };
-  const apply = () => {
-    const [fx, fy] = ed.previewToFrame(last.x, last.y);
-    const num = st.text && st.text !== '-' ? Number(st.text) : null;
-    for (const [s, o] of orig) {
-      Object.assign(s.transform, o, { origin: [...o.origin] });
-      if (mode === 'TRANSLATE') {
-        const dx = num ?? Math.round(fx - fx0),
-          dy = num !== null ? 0 : Math.round(fy - fy0);
-        s.transform.offset_x = o.offset_x + dx;
-        s.transform.offset_y = o.offset_y + dy;
-        st.value = `${dx} px, ${dy} px`;
-      } else if (mode === 'ROTATE') {
-        const a0 = Math.atan2(fy0 - py, fx0 - px),
-          a1 = Math.atan2(fy - py, fx - px);
-        const d = num !== null ? (num * Math.PI) / 180 : a1 - a0;
-        s.transform.rotation = o.rotation + d;
-        // rotate the image centre around the pivot
-        const c = stripImageCorners({ ...s, transform: o } as Strip, W, H);
-        const ccx = c.reduce((a, p) => a + p[0], 0) / 4,
-          ccy = c.reduce((a, p) => a + p[1], 0) / 4;
-        const rx = ccx - px,
-          ry = ccy - py;
-        const nx = px + rx * Math.cos(d) - ry * Math.sin(d),
-          ny = py + rx * Math.sin(d) + ry * Math.cos(d);
-        s.transform.offset_x = o.offset_x + (nx - ccx);
-        s.transform.offset_y = o.offset_y + (ny - ccy);
-        st.value = `${((d * 180) / Math.PI).toFixed(1)}°`;
-      } else {
-        const d0 = Math.hypot(fx0 - px, fy0 - py) || 1;
-        const k = num ?? Math.hypot(fx - px, fy - py) / d0;
-        s.transform.scale_x = o.scale_x * k;
-        s.transform.scale_y = o.scale_y * k;
-        const c = stripImageCorners({ ...s, transform: o } as Strip, W, H);
-        const ccx = c.reduce((a, p) => a + p[0], 0) / 4,
-          ccy = c.reduce((a, p) => a + p[1], 0) / 4;
-        s.transform.offset_x = o.offset_x + (px + (ccx - px) * k - ccx);
-        s.transform.offset_y = o.offset_y + (py + (ccy - py) * k - ccy);
-        st.value = `${k.toFixed(3)}`;
-      }
-    }
-    app.changed('doc');
-  };
-  app.startModal({
-    label: mode === 'TRANSLATE' ? 'Move' : mode === 'ROTATE' ? 'Rotate' : 'Resize',
-    cursor: mode === 'TRANSLATE' ? 'move' : 'crosshair',
-    header: () => `${mode === 'TRANSLATE' ? 'Move' : mode === 'ROTATE' ? 'Rotate' : 'Scale'}: ${st.text ? st.text + '|' : st.value}`,
-    onPointerMove(e) {
-      last = { x: e.clientX, y: e.clientY };
-      apply();
-    },
-    onPointerDown: (e) => (e.button === 0 ? 'FINISHED' : e.button === 2 ? 'CANCELLED' : undefined),
-    onPointerUp: (e) => (e.button === 0 && drag ? 'FINISHED' : undefined),
-    onKey(e) {
-      if (e.key === 'Escape') return 'CANCELLED';
-      if (e.key === 'Enter') return 'FINISHED';
-      if (numericKeys(st, e)) apply();
-      return true;
-    },
-    cancel() {
-      for (const [s, o] of orig) Object.assign(s.transform, o);
-      app.changed('doc');
-    },
-  });
-  apply();
-  return true;
 }
 
 export { hoverSeq };

@@ -1,6 +1,7 @@
 // Sequencer keymaps (default left-click-select layout).
 import { addKeys } from '../app/keymap';
 import { addMenu, selectMenu, changeMenu, retimingMenu } from './menus';
+import { pivotPie, mirrorItems } from './previewops';
 
 addKeys('Sequencer', [
   { key: 'A', op: 'sequencer.select_all', props: { action: 'SELECT' } },
@@ -79,6 +80,8 @@ addKeys('SequencerPreview', [
   { key: 'G', op: 'sequencer.strip_transform', props: { mode: 'TRANSLATE' } },
   { key: 'R', op: 'sequencer.strip_transform', props: { mode: 'ROTATE' } },
   { key: 'S', op: 'sequencer.strip_transform', props: { mode: 'RESIZE' } },
+  { key: 'PERIOD', action: pivotPie },
+  { key: 'M', ctrl: true, menu: mirrorItems, menuTitle: 'Mirror' },
   { key: 'G', alt: true, op: 'sequencer.strip_transform_clear', props: { property: 'POSITION' } },
   { key: 'R', alt: true, op: 'sequencer.strip_transform_clear', props: { property: 'ROTATION' } },
   { key: 'S', alt: true, op: 'sequencer.strip_transform_clear', props: { property: 'SCALE' } },

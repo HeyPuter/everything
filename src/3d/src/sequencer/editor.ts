@@ -15,7 +15,9 @@ import * as S from './strips';
 import { seqEditor, seqList, seqChannels, hasEditor, activeStrip, toolSettings, sceneFps, type SeqEditorLike, type SeqRegion, type ViewType } from './context';
 import { T, stripColor, cssColor, typeColor } from './theme';
 import { selectStrip, deselectAll, renameChannel } from './ops';
-import { startSlide, startSlip, startPreviewTransform, startRetimingKeyMove } from './transform';
+import { startSlide, startSlip, startRetimingKeyMove } from './transform';
+import { startPreviewTransform, setCursorPoint, pivotPoint } from './pvtransform';
+import { pivotItems, PIVOT_ICONS } from './previewops';
 import { retimable, segmentSpeed, mapContent } from './retime';
 import { addMenu, viewMenu, selectMenu, stripMenu, imageMenu, contextMenu, markerMenu } from './menus';
 import { stripTab, modifiersTab, cacheTab } from './sidebar';
@@ -24,6 +26,7 @@ import { soundNow, soundPeaks, PEAKS_PER_SECOND, movieThumb, imageNow } from './
 import { addFiles } from './add';
 import { restartPlayback } from './audio';
 import { drawShape, type SelectShape } from './shapes';
+import { lastOpPanel } from '../ui/redo';
 import { boxHit, rectCircle, rectLasso, sameTime } from './selection';
 import { connectedOf, isConnected } from './connect';
 import { keysOf, keyValue, fadeProp } from './fades';
@@ -34,7 +37,7 @@ export const MARKER_H = 22;
 const FONT = '11px Inter, system-ui, sans-serif';
 
 type Tool = 'select_box' | 'select_circle' | 'select_lasso' | 'blade' | 'slip';
-type PreviewTool = 'select' | 'select_circle' | 'select_lasso' | 'move' | 'rotate' | 'scale';
+type PreviewTool = 'select' | 'select_circle' | 'select_lasso' | 'cursor' | 'move' | 'rotate' | 'scale';
 
 /** Variants of the select tool slot (box / circle / lasso). */
 const SELECT_VARIANTS = [
@@ -107,6 +110,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   private chEl: HTMLElement;
   private mainEl: HTMLElement;
   private canvas: HTMLCanvasElement;
+  /** Adjust Last Operation panel (bottom left of the timeline) */
+  private redoEl: HTMLElement;
   private sbEl: HTMLElement;
   private footerEl: HTMLElement;
   preview: PreviewRegion;
@@ -128,7 +133,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     this.chEl = div('seq-ch');
     this.mainEl = div('seq-main');
     this.canvas = document.createElement('canvas');
-    this.mainEl.append(this.canvas);
+    this.redoEl = div('seq-redo');
+    this.mainEl.append(this.canvas, this.redoEl);
     this.tlWrap.append(this.toolbarEl, this.chEl, this.mainEl);
     this.leftEl.append(this.pvWrap, this.grip, this.tlWrap);
     this.sbEl = div('seq-sb anim-sb');
@@ -174,7 +180,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     for (const k of ['showSidebar', 'showToolbar', 'showSeconds', 'showMarkers', 'showWaveforms', 'showThumbnails', 'showOverlays', 'fitted'] as const) if (typeof s[k] === 'boolean') (this as Record<string, unknown>)[k] = s[k];
     if (typeof s.sidebarTab === 'string') this.sidebarTab = s.sidebarTab;
     if (['blade', 'slip', 'select_box', 'select_circle', 'select_lasso'].includes(s.tool as string)) this.tool = s.tool as Tool;
-    if (['select', 'select_circle', 'select_lasso', 'move', 'rotate', 'scale'].includes(s.pvTool as string)) this.pvTool = s.pvTool as PreviewTool;
+    if (['select', 'select_circle', 'select_lasso', 'cursor', 'move', 'rotate', 'scale'].includes(s.pvTool as string)) this.pvTool = s.pvTool as PreviewTool;
     if (typeof s.previewSize === 'string') this.preview.size = s.previewSize as PreviewSize;
   }
 
@@ -260,7 +266,12 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     this.drawChannels();
     this.redraw();
     this.drawSidebar();
-    if (this.hasTimeline()) patch(this.footerEl, playbackFooter());
+    if (this.hasTimeline()) {
+      patch(this.footerEl, playbackFooter());
+      const last = app.lastOp;
+      const ours = !!last && (last.idname.startsWith('sequencer.') || last.idname === 'transform.seq_slide' || (last.idname === 'transform.transform' && last.props.mode === 'TIME_EXTEND'));
+      patch(this.redoEl, ours ? lastOpPanel(this) : null);
+    }
   }
 
   redraw() {
@@ -342,6 +353,22 @@ export class SequencerEditor implements Editor, SeqEditorLike {
               },
               icon('down_arrow_hlt', 'tiny'),
             ),
+          )
+        : null,
+      this.hasPreview()
+        ? h(
+            'button',
+            {
+              key: 'pivot',
+              class: 'hdr-icondrop seq-pivot',
+              'data-tip': 'Pivot Point\nCenter of rotation and scaling in the preview (.)',
+              onpointerdown: (e: PointerEvent) => {
+                e.preventDefault();
+                openMenu(pivotItems(), e.currentTarget as HTMLElement);
+              },
+            },
+            icon(PIVOT_ICONS[pivotPoint()]),
+            icon('down_arrow_hlt', 'tiny'),
           )
         : null,
       h(
@@ -443,6 +470,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     ]);
     patch(this.pvToolbar, [
       selectSlot('pselect', this.pvTool, (v) => (this.pvTool = previewTool(v))),
+      tb('pcursor', 'cursor', this.pvTool === 'cursor', 'Cursor\nPlace the 2D cursor (pivot for transforms); drag to move it', () => (this.pvTool = 'cursor')),
       h('div', { key: 'sep', class: 'tb-sep' }),
       tb('pmove', 'transform_move', this.pvTool === 'move', 'Move\nMove the selected strips’ images', () => (this.pvTool = 'move')),
       tb('prot', 'transform_rotate', this.pvTool === 'rotate', 'Rotate\nRotate the selected strips’ images', () => (this.pvTool = 'rotate')),
@@ -1884,6 +1912,23 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     const hit = this.preview.stripAt(e.clientX, e.clientY);
     const x0 = e.clientX,
       y0 = e.clientY;
+    if (this.pvTool === 'cursor') {
+      const place = (ev: { clientX: number; clientY: number }) => {
+        const [fx, fy] = this.preview.toFrame(ev.clientX, ev.clientY);
+        setCursorPoint(fx, fy);
+        this.preview.draw();
+      };
+      place(e);
+      const up = () => {
+        removeEventListener('pointermove', place);
+        removeEventListener('pointerup', up);
+        app.pushUndo('Set 2D Cursor');
+        app.changed('ui');
+      };
+      addEventListener('pointermove', place);
+      addEventListener('pointerup', up);
+      return;
+    }
     const pmode = e.shiftKey ? 'ADD' : e.ctrlKey || e.metaKey ? 'SUB' : 'SET';
     if (this.pvTool === 'select_circle') return this.startCircle(pmode, e);
     if (this.pvTool === 'select_lasso') {

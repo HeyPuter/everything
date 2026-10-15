@@ -157,3 +157,25 @@ export function rectLasso(r: { x0: number; y0: number; x1: number; y1: number },
   if (pts.some(([x, y]) => pointInPolygon(x, y, poly))) return true;
   return poly.some(([x, y]) => x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1);
 }
+
+/** Snap offset (px) moving the selection's bounds onto frame borders / centre or other strips. */
+export function snapDelta(box: [number, number, number, number], others: [number, number, number, number][], W: number, H: number, threshold: number): [number, number] {
+  const tx = [0, W / 2, W],
+    ty = [0, H / 2, H];
+  for (const b of others) {
+    tx.push(b[0], (b[0] + b[2]) / 2, b[2]);
+    ty.push(b[1], (b[1] + b[3]) / 2, b[3]);
+  }
+  const best = (edges: number[], targets: number[]) => {
+    let d = 0,
+      bd = threshold;
+    for (const e of edges)
+      for (const t of targets)
+        if (Math.abs(t - e) < bd) {
+          bd = Math.abs(t - e);
+          d = t - e;
+        }
+    return d;
+  };
+  return [best([box[0], (box[0] + box[2]) / 2, box[2]], tx), best([box[1], (box[1] + box[3]) / 2, box[3]], ty)];
+}

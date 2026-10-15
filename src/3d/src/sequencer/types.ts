@@ -278,6 +278,10 @@ export interface SequencerToolSettings {
   snap_ignore_muted: boolean;
   snap_ignore_sound: boolean;
   snap_distance: number;
+  /** preview transforms pivot around this */
+  pivot_point?: 'MEDIAN_POINT' | 'BOUNDING_BOX_CENTER' | 'CURSOR' | 'INDIVIDUAL_ORIGINS';
+  /** 2D cursor of the preview, output pixels from the frame centre */
+  cursor_location?: [number, number];
 }
 
 declare module '../data/types' {

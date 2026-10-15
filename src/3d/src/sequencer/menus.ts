@@ -5,6 +5,7 @@ import { markerMenu } from '../animation/animeditor';
 import { activeStrip, selectedStrips, hasEditor, seqEditor, type SeqEditorLike } from './context';
 import { inputCount, STRIP_LABELS } from './strips';
 import { COLOR_TAGS, effectTypesFor } from './stripops';
+import { mirrorItems, pivotItems } from './previewops';
 import { stripIcon } from './theme';
 
 const camOptions = (): MenuItem[] => {
@@ -393,6 +394,17 @@ function lockMuteItem(): MenuItem {
 
 export function imageMenu(): MenuItem[] {
   return [
+    {
+      label: 'Transform',
+      submenu: () => [
+        { label: 'Move', op: 'sequencer.strip_transform', props: { mode: 'TRANSLATE' }, shortcut: 'G' },
+        { label: 'Rotate', op: 'sequencer.strip_transform', props: { mode: 'ROTATE' }, shortcut: 'R' },
+        { label: 'Scale', op: 'sequencer.strip_transform', props: { mode: 'RESIZE' }, shortcut: 'S' },
+      ],
+    },
+    { label: 'Mirror', submenu: mirrorItems },
+    { label: 'Pivot Point', submenu: pivotItems },
+    { separator: true },
     {
       label: 'Clear',
       submenu: () => [

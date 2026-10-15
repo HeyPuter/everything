@@ -50,3 +50,17 @@ describe('text cursor', () => {
     expect(deleteAt('abc', 0, 0, false)).toEqual({ text: 'abc', cursor: 0 });
   });
 });
+
+import { snapDelta } from '../../src/sequencer/selection';
+
+describe('preview snapping', () => {
+  it('snaps the moved bounds to frame borders, centre and other strips', () => {
+    // a 100 px box whose left edge is 4 px right of the frame's left border
+    expect(snapDelta([4, 300, 104, 400], [], 1920, 1080, 10)).toEqual([-4, 0]);
+    // centre within reach of the frame centre on y
+    expect(snapDelta([500, 487, 600, 587], [], 1920, 1080, 10)).toEqual([0, 3]);
+    // another strip's right edge
+    expect(snapDelta([1205, 0, 1305, 50], [[1000, 600, 1200, 700]], 1920, 1080, 10)).toEqual([-5, 0]);
+    expect(snapDelta([700, 300, 800, 400], [], 1920, 1080, 10)).toEqual([0, 0]);
+  });
+});

@@ -230,3 +230,61 @@ test('sequencer: text strips are edited in place in the preview', async ({ page 
   expect(await text()).not.toBe('Title');
   await expectNoErrors(errors);
 });
+
+test('sequencer: timeline moves can be adjusted afterwards (redo panel)', async ({ page }) => {
+  const { errors, tl } = await videoWorkspace(page);
+  const p = await stripPoint(page, 'Color.002');
+  await page.mouse.click(p.x, p.y);
+  await page.keyboard.press('g');
+  await page.mouse.move(p.x + 60, p.y, { steps: 3 });
+  await page.mouse.down();
+  await page.mouse.up();
+  expect(await page.evaluate(() => (window as any).app.lastOp?.idname)).toBe('transform.seq_slide');
+  await expect(tl.locator('.redo-panel')).toBeVisible();
+  await page.evaluate(() => (window as any).app.redoLast({ value: [7, 1] }));
+  const s = await page.evaluate(() => (window as any).app.doc.scene.sequence_editor.strips.find((x: any) => x.name === 'Color.002'));
+  expect([s.frame_start, s.channel]).toEqual([107, 2]);
+  await expectNoErrors(errors);
+});
+
+test('sequencer: preview transforms with axis constraint, pivot, mirror and the 2D cursor', async ({ page }) => {
+  const { errors } = await videoWorkspace(page);
+  const pv = (await page.locator('.seq-pv').first().boundingBox())!;
+  const cx = pv.x + pv.width / 2,
+    cy = pv.y + pv.height / 2;
+  const tr = () => page.evaluate(() => (window as any).app.doc.scene.sequence_editor.strips.find((x: any) => x.name === 'Text').transform);
+  // select the text in the preview and move it along X only
+  await page.mouse.click(cx, cy);
+  await page.keyboard.press('g');
+  await page.keyboard.press('x');
+  await page.mouse.move(cx + 50, cy + 40, { steps: 4 });
+  await page.mouse.down();
+  await page.mouse.up();
+  let t = await tr();
+  expect(t.offset_x).toBeGreaterThan(50);
+  expect(t.offset_y).toBe(0);
+  await page.evaluate(() => (window as any).app.redoLast({ value: [100, 20, 0] }));
+  t = await tr();
+  expect([t.offset_x, t.offset_y]).toEqual([100, 20]);
+  // 2D cursor tool, pivot pie on the cursor, then rotate by a typed value around it
+  await page.locator('.seq-pv-toolbar [data-tip^="Cursor"]').first().click();
+  await page.mouse.click(pv.x + 20, pv.y + pv.height - 20);
+  const cur = await page.evaluate(() => (window as any).app.doc.scene.tool_settings.sequencer_tool_settings.cursor_location);
+  expect(cur[0]).toBeLessThan(-800);
+  await page.mouse.move(cx, cy);
+  await page.keyboard.press('Period');
+  await page.locator('.pie-item', { hasText: '2D Cursor' }).click();
+  expect(await page.evaluate(() => (window as any).app.doc.scene.tool_settings.sequencer_tool_settings.pivot_point)).toBe('CURSOR');
+  await page.keyboard.press('r');
+  await page.keyboard.type('90');
+  await page.keyboard.press('Enter');
+  t = await tr();
+  expect(t.rotation).toBeCloseTo(Math.PI / 2, 4);
+  // around the cursor (far bottom-left) the image centre moves a long way
+  expect(Math.abs(t.offset_x - 100) + Math.abs(t.offset_y - 20)).toBeGreaterThan(500);
+  // mirror on X flips the image
+  await page.keyboard.press('Control+m');
+  await menuItem(page, 'X Axis').click();
+  expect(await page.evaluate(() => (window as any).app.doc.scene.sequence_editor.strips.find((x: any) => x.name === 'Text').use_flip_x)).toBe(true);
+  await expectNoErrors(errors);
+});

@@ -9,6 +9,7 @@ import { stripImageCorners, previewStrips, pointInPoly } from './transform';
 import { activeStrip, hasEditor } from './context';
 import type { Strip } from './types';
 import { editedText, drawTextEditOverlay } from './textedit';
+import { cursorPoint } from './pvtransform';
 import { T } from './theme';
 
 export type PreviewSize = 'AUTO' | 'SCENE' | 'PROXY_75' | 'PROXY_50' | 'PROXY_25';
@@ -248,6 +249,7 @@ export class PreviewRegion {
     const act = activeStrip();
     const editing = editedText();
     if (editing) drawTextEditOverlay(g, (x, y) => this.toLocal(x, y));
+    this.drawCursor(g);
     for (const s of previewStrips(app.doc.scene.frame_current)) {
       if (!s.select || s === editing) continue;
       const pts = stripImageCorners(s, W, H).map(([x, y]) => this.toLocal(x, y));
@@ -258,6 +260,30 @@ export class PreviewRegion {
       g.closePath();
       g.stroke();
     }
+  }
+
+  /** The 2D cursor: a ring with tick marks. */
+  private drawCursor(g: CanvasRenderingContext2D) {
+    const [x, y] = this.toLocal(...cursorPoint());
+    g.save();
+    g.lineWidth = 1.5;
+    g.setLineDash([3, 3]);
+    g.strokeStyle = '#ffffff';
+    g.beginPath();
+    g.arc(x, y, 8, 0, Math.PI * 2);
+    g.stroke();
+    g.lineDashOffset = 3;
+    g.strokeStyle = '#e04040';
+    g.stroke();
+    g.setLineDash([]);
+    g.strokeStyle = 'rgba(0,0,0,0.8)';
+    g.beginPath();
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      g.moveTo(x + dx * 11, y + dy * 11);
+      g.lineTo(x + dx * 16, y + dy * 16);
+    }
+    g.stroke();
+    g.restore();
   }
 
   /** Topmost visible strip whose image contains the client point. */

@@ -3,7 +3,8 @@ import { app, registerOperators, operators, type Operator } from '../app/app';
 import type { Strip, StripType, ModifierType } from './types';
 import * as S from './strips';
 import { seqEditor, seqList, seqChannels, selectedStrips, activeStrip, setActive, isLocked, toolSettings, afterEdit, hoverSeq, hasEditor, overPreview } from './context';
-import { startSlide, startExtend, startSlip, startPreviewTransform, previewStrips, type PreviewMode } from './transform';
+import { startSlide, startExtend, startSlip, previewStrips, slideBy, slipBy, extendBy } from './transform';
+import { startPreviewTransform, transformPreview, type PreviewMode } from './pvtransform';
 import { addEffect, addScene, addMovie, addSound, addImages, pickFiles, ACCEPT, DEFAULT_LENGTH, fitScale } from './add';
 import { restartPlayback } from './audio';
 import { promptText } from '../ui/menu';
@@ -306,6 +307,7 @@ const ops: Operator[] = [
       afterEdit();
       if (!ed || !startSlide(ed, app.pointer.x, app.pointer.y, {
         label: 'Duplicate Strips',
+        redoOp: 'sequencer.duplicate_move',
         onCancel: () => {
           // cancelling the move keeps the copies in place, resolving overlap
           S.resolveOverlap(list, copies, toolSettings().overlap_mode);
@@ -319,10 +321,13 @@ const ops: Operator[] = [
       }
       return 'RUNNING_MODAL';
     },
-    exec: () => {
+    props: [{ id: 'value', label: 'Offset', type: 'vec2', default: [0, 0], precision: 0 }],
+    exec: (_c, p) => {
       const list = seqList();
       const copies = duplicate(list, list.filter((s) => s.select));
-      S.resolveOverlap(list, copies, toolSettings().overlap_mode);
+      const v = (p.value as number[]) ?? [0, 0];
+      if (v[0] || v[1]) slideBy(Math.round(v[0]), Math.round(v[1]));
+      else S.resolveOverlap(list, copies, toolSettings().overlap_mode);
       done();
     },
   },
@@ -685,26 +690,41 @@ const ops: Operator[] = [
     idname: 'transform.seq_slide',
     label: 'Sequence Slide',
     description: 'Slide a sequence strip in time',
+    props: [{ id: 'value', label: 'Offset', type: 'vec2', default: [0, 0], precision: 0 }],
     poll: () => anySelected() && !!hoverSeq() && !overPreview(),
     invoke: () => {
       const ed = hoverSeq()!;
       return startSlide(ed, app.pointer.x, app.pointer.y) ? 'RUNNING_MODAL' : 'CANCELLED';
+    },
+    exec: (_c, p) => {
+      const v = p.value as number[];
+      return slideBy(Math.round(v[0] ?? 0), Math.round(v[1] ?? 0)) ? 'FINISHED' : 'CANCELLED';
     },
   },
   {
     idname: 'sequencer.slip',
     label: 'Slip Strips',
     description: 'Slip the contents of selected strips',
+    props: [{ id: 'offset', label: 'Offset', type: 'int', default: 0 }],
     poll: () => anySelected() && !!hoverSeq() && !overPreview(),
     invoke: () => (startSlip(hoverSeq()!, app.pointer.x) ? 'RUNNING_MODAL' : 'CANCELLED'),
+    exec: (_c, p) => (slipBy(p.offset as number) ? 'FINISHED' : 'CANCELLED'),
   },
   {
     idname: 'sequencer.strip_transform',
     label: 'Transform Strip Image',
     description: 'Move, rotate or scale the selected strips in the preview',
-    props: [{ id: 'mode', label: 'Mode', type: 'enum', default: 'TRANSLATE', items: [['TRANSLATE', 'Move'], ['ROTATE', 'Rotate'], ['RESIZE', 'Scale']] }],
+    props: [
+      { id: 'mode', label: 'Mode', type: 'enum', default: 'TRANSLATE', items: [['TRANSLATE', 'Move'], ['ROTATE', 'Rotate'], ['RESIZE', 'Scale']], hidden: true },
+      { id: 'value', label: 'Value', type: 'vec3', default: [0, 0, 0] },
+    ],
     poll: () => anySelected() && overPreview(),
     invoke: (_c, p) => (startPreviewTransform(hoverSeq()!, p.mode as PreviewMode, app.pointer.x, app.pointer.y) ? 'RUNNING_MODAL' : 'CANCELLED'),
+    exec: (_c, p) => {
+      const v = (p.value as number[]) ?? [0, 0, 0];
+      const value = p.mode === 'RESIZE' ? [v[0] || 1, v[1] || 1] : p.mode === 'ROTATE' ? [v[0]] : [v[0], v[1]];
+      return transformPreview(p.mode as PreviewMode, value) ? 'FINISHED' : 'CANCELLED';
+    },
   },
   {
     idname: 'sequencer.strip_transform_clear',
@@ -860,9 +880,16 @@ if (!operators.has('transform.transform'))
     idname: 'transform.transform',
     label: 'Transform',
     description: 'Transform selected strips (Time Extend)',
-    props: [{ id: 'mode', label: 'Mode', type: 'enum', default: 'TIME_EXTEND', items: [['TIME_EXTEND', 'Time Extend']] }],
+    props: [
+      { id: 'mode', label: 'Mode', type: 'enum', default: 'TIME_EXTEND', items: [['TIME_EXTEND', 'Time Extend']] },
+      { id: 'value', label: 'Values', type: 'vec3', default: [0, 0, 0] },
+    ],
     poll: () => anySelected() && !!hoverSeq() && !overPreview(),
     invoke: () => (startExtend(hoverSeq()!, app.pointer.x) ? 'RUNNING_MODAL' : 'CANCELLED'),
+    exec: (c, p) => {
+      const frame = typeof p.frame === 'number' ? p.frame : c.doc.scene.frame_current;
+      return extendBy(Math.round((p.value as number[])[0] ?? 0), frame, p.side !== 'LEFT') ? 'FINISHED' : 'CANCELLED';
+    },
   });
 
 registerOperators(ops);
