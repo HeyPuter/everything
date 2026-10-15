@@ -5,6 +5,7 @@ import { app, registerOperators, type OpContext, type PropDef } from '../../app/
 import { UVTopo, selReader, type UVLayer } from './uvcore';
 import { islandCorners } from './uvalgo';
 import { uvLayers, uvEditPoll, ctxUVEditor, uvCursor, uvChanged, type UVView } from './uvcontext';
+import { liveUnwrap } from './unwrapextra';
 
 export type UVPivot = 'BOUNDING_BOX_CENTER' | 'CURSOR' | 'INDIVIDUAL_ORIGINS' | 'MEDIAN_POINT';
 type Kind = 'TRANSLATE' | 'ROTATE' | 'RESIZE' | 'SHEAR';
@@ -198,6 +199,8 @@ export function applyParts(parts: Part[], p: TransformParams) {
       uvs[k * 2 + 1] = v;
     }
     part.layer.me.uvs = uvs;
+    // live unwrap: islands follow their moved pins
+    if (app.doc.scene.tool_settings.use_live_unwrap && !part.layer.sync && part.moving.some((c) => part.layer.me.uv_pin?.[c])) liveUnwrap(part.layer.me, part.layer.faces);
   }
   uvChanged();
 }

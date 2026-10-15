@@ -845,6 +845,8 @@ export interface ToolSettings {
   keyframe_type: Keyframe['type'];
   use_uv_select_sync: boolean;
   uv_select_mode: 'VERTEX' | 'EDGE' | 'FACE' | 'ISLAND';
+  /** re-unwrap islands while their pinned UVs are moved */
+  use_live_unwrap?: boolean;
   /** snapping while transforming UVs, and what to snap to */
   use_snap_uv?: boolean;
   snap_uv_element?: 'INCREMENT' | 'VERTEX';

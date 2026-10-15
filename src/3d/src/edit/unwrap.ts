@@ -69,7 +69,7 @@ function charts(t: Topology, ids: number[]) {
 
 // Least-squares conformal mapping: two fixed boundary vertices remove similarity
 // freedom; a preconditioned conjugate-gradient solve keeps storage linear in mesh size.
-export function unwrapUV(t: Topology, selection: number[], padding: number): Topology {
+export function unwrapUV(t: Topology, selection: number[], padding: number, pins?: Map<number, [number, number]>): Topology {
   const ids = selectedFaces(t, selection),
     uvs = t.uvs.slice();
   const islands: number[][] = [];
@@ -113,6 +113,16 @@ export function unwrapUV(t: Topology, selection: number[], padding: number): Top
     if (visited.size !== adjacency.size)
       throw new Error('Add seams to connect the chart boundaries.');
     const points = roots.map((c) => position(t, t.indices[c]));
+    // user pins (two or more distinct places) are kept exactly and the chart is not repacked
+    const pinned = new Map<number, [number, number]>();
+    if (pins)
+      for (const c of chart.corners) {
+        const pin = pins.get(c);
+        if (pin) pinned.set(cornerNode.get(c)!, pin);
+      }
+    let pinSpan = 0;
+    for (const a of pinned.values()) for (const b of pinned.values()) pinSpan = Math.max(pinSpan, Math.hypot(a[0] - b[0], a[1] - b[1]));
+    const usePins = pinned.size >= 2 && pinSpan > 1e-9;
     const pinA = boundary[0][0];
     let pinB = pinA,
       distance = 0;
@@ -124,12 +134,19 @@ export function unwrapUV(t: Topology, selection: number[], padding: number): Top
       }
     }
     if (distance < 1e-10) throw new Error('Cannot unwrap a chart with zero extent.');
-    const fixed = new Map([
-      [pinA * 2, 0],
-      [pinA * 2 + 1, 0],
-      [pinB * 2, distance],
-      [pinB * 2 + 1, 0],
-    ]);
+    const fixed = new Map<number, number>();
+    if (usePins) {
+      for (const [node, [u, v]] of pinned) {
+        fixed.set(node * 2, u);
+        fixed.set(node * 2 + 1, v);
+      }
+      distance = pinSpan;
+    } else {
+      fixed.set(pinA * 2, 0);
+      fixed.set(pinA * 2 + 1, 0);
+      fixed.set(pinB * 2, distance);
+      fixed.set(pinB * 2 + 1, 0);
+    }
     const free = new Int32Array(n * 2).fill(-1);
     let size = 0;
     for (let i = 0; i < free.length; i++) if (!fixed.has(i)) free[i] = size++;
@@ -229,11 +246,9 @@ export function unwrapUV(t: Topology, selection: number[], padding: number): Top
           (coordinates[c * 2 + 1] - coordinates[a * 2 + 1]) -
         (coordinates[b * 2 + 1] - coordinates[a * 2 + 1]) *
           (coordinates[c * 2] - coordinates[a * 2]);
-      if (
-        !Number.isFinite(area) ||
-        Math.abs(area) < distance * distance * 1e-12 ||
-        (sign && Math.sign(area) !== sign)
-      )
+      if (!Number.isFinite(area)) throw new Error('Unwrap folded or collapsed a face. Add more seams and retry.');
+      // pins may legitimately force folds; only free solves are checked
+      if (!usePins && (Math.abs(area) < distance * distance * 1e-12 || (sign && Math.sign(area) !== sign)))
         throw new Error('Unwrap folded or collapsed a face. Add more seams and retry.');
       sign = Math.sign(area);
     }
@@ -242,9 +257,9 @@ export function unwrapUV(t: Topology, selection: number[], padding: number): Top
       uvs[c * 2] = coordinates[i * 2];
       uvs[c * 2 + 1] = coordinates[i * 2 + 1];
     });
-    islands.push(chart.corners);
+    if (!usePins) islands.push(chart.corners);
   }
-  return packCharts({ ...t, uvs }, islands, padding);
+  return islands.length ? packCharts({ ...t, uvs }, islands, padding) : { ...t, uvs };
 }
 
 export function packUV(t: Topology, selection: number[], padding: number): Topology {

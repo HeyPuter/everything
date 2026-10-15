@@ -109,6 +109,8 @@ export function uvMenu(): MenuItem[] {
     { separator: true },
     { label: 'Unwrap', submenu: unwrapMenu },
     { separator: true },
+    { label: 'Live Unwrap', checked: !!ts().use_live_unwrap, description: 'Re-unwrap islands while their pinned UVs are moved', action: () => toggleSetting('use_live_unwrap', 'Live Unwrap') },
+    { separator: true },
     { label: 'Pin', op: 'uv.pin', props: { clear: false }, shortcut: 'P' },
     { label: 'Unpin', op: 'uv.pin', props: { clear: true }, shortcut: 'Alt P' },
     { label: 'Merge', submenu: mergeMenu },
@@ -296,7 +298,7 @@ function snapElementMenu(): MenuItem[] {
   ];
 }
 
-function toggleSetting(key: 'use_proportional_edit' | 'use_uv_select_sync' | 'use_snap_uv', label: string) {
+function toggleSetting(key: 'use_proportional_edit' | 'use_uv_select_sync' | 'use_snap_uv' | 'use_live_unwrap', label: string) {
   const t = ts();
   t[key] = !t[key];
   app.pushUndo(label);

@@ -299,7 +299,10 @@ registerOperators([
         const t = buildMesh(m.pos, m.faces.map((f) => ({ verts: f.verts, uvs: f.uvs, seams: f.seams }))) as unknown as Topology;
         if (!t.seams) (t as { seams?: Uint32Array }).seams = new Uint32Array(t.indices.length);
         try {
-          const res = unwrapUV(t, faces, Math.max(0.001, p.margin as number));
+          const pinFlags = me.uv_pin && me.uv_pin.length === t.indices.length ? me.uv_pin : null;
+          const pins = new Map<number, [number, number]>();
+          if (pinFlags) for (let c = 0; c < pinFlags.length; c++) if (pinFlags[c]) pins.set(c, [me.uvs[c * 2], me.uvs[c * 2 + 1]]);
+          const res = unwrapUV(t, faces, Math.max(0.001, p.margin as number), pins);
           let c = 0;
           m.faces.forEach((f) => {
             for (let i = 0; i < f.verts.length; i++, c++) {
@@ -312,7 +315,6 @@ registerOperators([
           // fallback: split closed shells by angle and project charts
           smartProject(m, faces, (66 * Math.PI) / 180, Math.max(0.001, p.margin as number));
         }
-        void me;
       });
       if (!ok) {
         app.report('WARNING', 'Select faces to unwrap');
