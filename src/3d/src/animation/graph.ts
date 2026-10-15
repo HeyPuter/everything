@@ -203,13 +203,7 @@ export class GraphEditor extends AnimEditor {
         icon(this.pivot === 'CURSOR' ? 'pivot_cursor' : 'pivot_boundbox'),
         icon('down_arrow_hlt', 'tiny'),
       ),
-      hdrToggle(
-        'snap',
-        this.autoSnap ? 'snap_on' : 'snap_off',
-        this.autoSnap,
-        'Snap\nSnap keyframes to whole frames while transforming (Ctrl toggles)',
-        () => ((this.autoSnap = !this.autoSnap), app.changed('ui')),
-      ),
+      this.snapHeader('keyframes'),
       proportionalHeader('use_proportional_fcurve'),
     );
   }
@@ -595,6 +589,7 @@ export class GraphEditor extends AnimEditor {
       fromDisp: (fc, d) => this.fromDisp(fc, d),
       screen: (x, d) => this.toClient(this.px(x), this.py(d)),
       autoSnap: this.autoSnap,
+      snapTo: this.snapTo(),
       handlesVisible: (k) => this.handlesShown(k),
       pivot: this.pivot,
       cursorValue: this.cursorValue,

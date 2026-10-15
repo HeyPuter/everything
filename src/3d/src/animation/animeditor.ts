@@ -88,6 +88,9 @@ export abstract class AnimEditor implements Editor {
   showSeconds = false;
   /** value sliders next to F-Curve channels */
   showSliders = false;
+  /** what transforms snap to, and whether keys snap to it (absolute) or move by whole steps */
+  snapMode: 'FRAME' | 'SECOND' | 'MARKER' = 'FRAME';
+  snapAbsolute = false;
   hover: Region | null = null;
   private _list: ChannelList = { rows: [], curves: [] };
   private listDoc: unknown = null;
@@ -296,6 +299,8 @@ export abstract class AnimEditor implements Editor {
       showMarkers: this.showMarkers,
       showSeconds: this.showSeconds,
       showSliders: this.showSliders,
+      snapMode: this.snapMode,
+      snapAbsolute: this.snapAbsolute,
       view: {
         x0: this.view.x0,
         ppf: this.view.ppf,
@@ -320,6 +325,8 @@ export abstract class AnimEditor implements Editor {
     if (typeof s.showMarkers === 'boolean') this.showMarkers = s.showMarkers;
     if (typeof s.showSeconds === 'boolean') this.showSeconds = s.showSeconds;
     if (typeof s.showSliders === 'boolean') this.showSliders = s.showSliders;
+    if (s.snapMode === 'FRAME' || s.snapMode === 'SECOND' || s.snapMode === 'MARKER') this.snapMode = s.snapMode;
+    if (typeof s.snapAbsolute === 'boolean') this.snapAbsolute = s.snapAbsolute;
     if (typeof s.scrollY === 'number') this.scrollY = s.scrollY;
     const v = s.view as Record<string, number> | undefined;
     if (v && typeof v.x0 === 'number') {
@@ -437,6 +444,48 @@ export abstract class AnimEditor implements Editor {
     channelState.selectedDrivers.clear();
     channelState.selectedShapeKeys.clear();
     for (const ch of this.list.rows) if (ch.kind === 'NLA_TRACK' && ch.track) ch.track.select = false;
+  }
+
+  /** Snap settings for transforms. */
+  snapTo() {
+    const sc = app.doc.scene;
+    return { mode: this.snapMode, absolute: this.snapAbsolute, fps: sc.render.fps / (sc.render.fps_base || 1), markers: sc.timeline_markers.map((m) => m.frame) };
+  }
+
+  /** Header snapping toggle with its options popover. */
+  snapHeader(what = 'keyframes'): Child {
+    const modes: [AnimEditor['snapMode'], string][] = [
+      ['FRAME', 'Frame'],
+      ['SECOND', 'Second'],
+      ['MARKER', 'Nearest Marker'],
+    ];
+    return h(
+      'div',
+      { key: 'snap', class: 'hdr-group' },
+      hdrToggle('snap-on', this.autoSnap ? 'snap_on' : 'snap_off', this.autoSnap, `Snap\nSnap ${what} while transforming (Ctrl toggles)`, () => ((this.autoSnap = !this.autoSnap), app.changed('ui'))),
+      h(
+        'button',
+        {
+          key: 'snap-opts',
+          class: 'hdr-toggle',
+          'data-tip': 'Snapping\nWhat transforms snap to',
+          onpointerdown: (e: PointerEvent) => {
+            e.preventDefault();
+            openMenu(
+              [
+                { heading: 'Snap To' },
+                ...modes.map(([v, l]) => ({ label: l, active: this.snapMode === v, action: () => ((this.snapMode = v), app.changed('ui')) })),
+                { separator: true },
+                { label: 'Absolute Time Snap', checked: this.snapAbsolute, action: () => ((this.snapAbsolute = !this.snapAbsolute), app.changed('ui')) },
+              ],
+              e.currentTarget as HTMLElement,
+              { title: 'Snapping' },
+            );
+          },
+        },
+        icon('down_arrow_hlt', 'tiny'),
+      ),
+    );
   }
 
   /** Channel row under a client y coordinate. */

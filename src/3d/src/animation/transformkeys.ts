@@ -25,6 +25,8 @@ export interface KeyTransformHost {
   /** screen position (client px) of a frame/display value */
   screen(x: number, d: number): { x: number; y: number };
   autoSnap: boolean;
+  /** what snapping snaps to (whole frames by default); absolute snaps the keys, not the offset */
+  snapTo?: { mode: 'FRAME' | 'SECOND' | 'MARKER'; absolute: boolean; fps: number; markers: number[] };
   /** handles are only editable when displayed */
   handlesVisible(k: Keyframe): boolean;
   pivot?: 'BOUNDING_BOX_CENTER' | 'CURSOR' | 'INDIVIDUAL_ORIGINS';
@@ -164,6 +166,22 @@ function pivotOf(host: KeyTransformHost, snaps: Snap[], mode: KeyTransformMode):
   return x0 === Infinity ? { x: cfra, d: 0 } : { x: (x0 + x1) / 2, d: (y0 + y1) / 2 };
 }
 
+/** Snap a frame (absolute) to the chosen target. */
+export function snapFrameTo(f: number, snap: NonNullable<KeyTransformHost['snapTo']> | undefined): number {
+  if (!snap || snap.mode === 'FRAME') return Math.round(f);
+  if (snap.mode === 'SECOND') return Math.round(f / snap.fps) * snap.fps;
+  if (!snap.markers.length) return Math.round(f);
+  return snap.markers.reduce((a, b) => (Math.abs(b - f) < Math.abs(a - f) ? b : a));
+}
+
+/** Snap a time offset: by whole frames or seconds (markers and absolute snapping work per key). */
+function snapDelta(dx: number, snap: KeyTransformHost['snapTo']): number {
+  if (snap?.mode === 'SECOND' && !snap.absolute) return Math.round(dx / snap.fps) * snap.fps;
+  return Math.round(dx);
+}
+
+const perKeySnap = (snap: KeyTransformHost['snapTo']) => !!snap && (snap.absolute || snap.mode === 'MARKER');
+
 /** Frame range of the keys taking part in a transform (from their original positions). */
 function slideRange(snaps: Snap[]): [number, number] {
   let a = Infinity,
@@ -227,7 +245,7 @@ function apply(host: KeyTransformHost, snaps: Snap[], t: TransformValues, pivot:
     };
     if (s.c) {
       const nco = map(s.co);
-      if (snapFrames && (t.mode === 'TIME_SCALE' || t.mode === 'TIME_SLIDE')) nco[0] = Math.round(nco[0]);
+      if (snapFrames && (t.mode === 'TIME_SCALE' || t.mode === 'TIME_SLIDE' || ((t.mode === 'TIME_TRANSLATE' || t.mode === 'TIME_EXTEND' || t.mode === 'TRANSLATION') && perKeySnap(host.snapTo)))) nco[0] = snapFrameTo(nco[0], host.snapTo);
       if (t.mode === 'ROTATION' || t.mode === 'RESIZE') {
         // handles follow the full mapping (they rotate/scale with the key)
         const nl = map(s.hl),
@@ -372,7 +390,7 @@ export function startKeyTransform(
       case 'TIME_TRANSLATE':
       case 'TIME_EXTEND': {
         let dx = num ?? (mouse.x - start.x) / ppf;
-        if (snapOn && num === null) dx = Math.round(dx);
+        if (snapOn && num === null && !perKeySnap(host.snapTo)) dx = snapDelta(dx, host.snapTo);
         value = [dx, 0];
         break;
       }
@@ -385,7 +403,7 @@ export function startKeyTransform(
             dx = num;
             if (constraint === 'NONE') dy = 0;
           }
-        } else if (snapOn) dx = Math.round(dx);
+        } else if (snapOn && !perKeySnap(host.snapTo)) dx = snapDelta(dx, host.snapTo);
         value = [dx, dy];
         break;
       }

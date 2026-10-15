@@ -143,13 +143,7 @@ export class DopeSheet extends AnimEditor {
             () => ((this.showHidden = !this.showHidden), this.refresh(), app.changed('ui')),
           )
         : null,
-      hdrToggle(
-        'snap',
-        this.autoSnap ? 'snap_on' : 'snap_off',
-        this.autoSnap,
-        'Snap\nSnap keyframes to whole frames while transforming (Ctrl toggles)',
-        () => ((this.autoSnap = !this.autoSnap), app.changed('ui')),
-      ),
+      this.snapHeader('keyframes'),
       proportionalHeader('use_proportional_action'),
     );
   }
@@ -333,6 +327,7 @@ export class DopeSheet extends AnimEditor {
       fromDisp: (_fc, d) => d,
       screen: (x) => this.toClient(this.view.fx(x), RULER_H),
       autoSnap: this.autoSnap,
+      snapTo: this.snapTo(),
       handlesVisible: () => true,
       proportional: proportionalOf('use_proportional_action'),
     };

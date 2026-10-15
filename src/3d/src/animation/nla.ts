@@ -14,6 +14,7 @@ import { C, drawKey } from './theme';
 import { aggregate } from './aggregate';
 import { pushDown, makeStrip, newTrack, stripFits, sortStrips, actionRange, ensureAnimData } from './actionops';
 import { browseActions } from './actionui';
+import { snapFrameTo } from './transformkeys';
 import { moveChannelsMenu, previewRangeMenu } from './menus';
 
 export interface StripRef {
@@ -151,13 +152,7 @@ export class NlaEditor extends AnimEditor {
         'Show Hidden\nInclude channels from objects/bone that are not visible',
         () => ((this.showHidden = !this.showHidden), this.refresh(), app.changed('ui')),
       ),
-      hdrToggle(
-        'snap',
-        this.autoSnap ? 'snap_on' : 'snap_off',
-        this.autoSnap,
-        'Snap\nSnap strips to whole frames while transforming (Ctrl toggles)',
-        () => ((this.autoSnap = !this.autoSnap), app.changed('ui')),
-      ),
+      this.snapHeader('strips'),
     );
   }
 
@@ -611,11 +606,15 @@ export class NlaEditor extends AnimEditor {
       const num = numeric && numeric !== '-' ? Number(numeric) : NaN;
       if (mode === 'TRANSLATION') {
         let d = Number.isFinite(num) ? num : (mx - start.x) / this.view.ppf;
-        if (snap && !Number.isFinite(num)) d = Math.round(d);
+        const st = this.snapTo();
+        const perStrip = snap && !Number.isFinite(num) && (st.absolute || st.mode === 'MARKER');
+        if (snap && !Number.isFinite(num) && !perStrip) d = st.mode === 'SECOND' ? Math.round(d / st.fps) * st.fps : Math.round(d);
         value = d;
         for (const o of orig) {
-          o.s.frame_start = o.a + d;
-          o.s.frame_end = o.b + d;
+          // absolute snapping moves each strip's start onto the snap target
+          const dd = perStrip ? snapFrameTo(o.a + d, st) - o.a : d;
+          o.s.frame_start = o.a + dd;
+          o.s.frame_end = o.b + dd;
         }
       } else {
         const d0 = start.x - pivotX;

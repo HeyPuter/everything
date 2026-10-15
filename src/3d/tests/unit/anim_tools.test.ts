@@ -604,3 +604,30 @@ describe('sound to samples', () => {
     expect(hp[5]).toBeLessThan(0.1);
   });
 });
+
+import { snapFrameTo } from '../../src/animation/transformkeys';
+
+describe('key snapping targets', () => {
+  it('snaps to frames, seconds or markers, by step or absolutely', () => {
+    const m = { mode: 'MARKER' as const, absolute: false, fps: 24, markers: [10, 30] };
+    expect(snapFrameTo(13.4, undefined)).toBe(13);
+    expect(snapFrameTo(37, { ...m, mode: 'SECOND' })).toBe(48);
+    expect(snapFrameTo(22, m)).toBe(30);
+    const fc = curve([0, 0], [3, 12]);
+    select(fc, [0, 1]);
+    const host: KeyTransformHost = {
+      transformCurves: () => refs(fc),
+      graph: false,
+      ppf: () => 10,
+      ppv: () => 1,
+      toDisp: (_f, v) => v,
+      fromDisp: (_f, d) => d,
+      screen: (x) => ({ x: x * 10, y: 0 }),
+      autoSnap: true,
+      snapTo: m,
+    } as KeyTransformHost;
+    transformKeys(host, { mode: 'TIME_TRANSLATE', value: [12, 0], constraint: 'NONE' });
+    // each key lands on its nearest marker (15 → 10, 24 → 30)
+    expect(fc.keyframe_points.map((k) => k.co[0])).toEqual([10, 30]);
+  });
+});
