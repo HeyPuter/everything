@@ -302,3 +302,17 @@ describe('overscan', async () => {
     expect(p.x).toBeCloseTo(1 / 1.5);
   });
 });
+
+describe('world probe resolution', async () => {
+  const { downsampleEquirect } = await import('../../src/render/realtime/worldsun');
+  it('box-downsamples keeping the average', () => {
+    const W = 8,
+      H = 4;
+    const d = new Float32Array(W * H * 4);
+    for (let i = 0; i < W * H; i++) d.set([i % 2, 1, 2, 1], i * 4);
+    const r = downsampleEquirect(d, W, H, 2);
+    expect([r.width, r.height]).toEqual([4, 2]);
+    expect(r.data[0]).toBeCloseTo(0.5);
+    expect(r.data[2]).toBeCloseTo(2);
+  });
+});

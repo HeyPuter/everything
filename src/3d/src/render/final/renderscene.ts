@@ -35,7 +35,7 @@ import { installLightInfluence } from '../realtime/lightinfluence';
 import { shadowSettings, lightShadowOptions, lightRange, worldSunOptions } from '../realtime/settings';
 import { jitteredLightMatrix, lightShadowMapSize } from '../realtime/shadows';
 import { castsShadow, transparentShadowMaterials } from '../realtime/materialfx';
-import { splitWorldSun } from '../realtime/worldsun';
+import { splitWorldSun, worldAtResolution } from '../realtime/worldsun';
 import { worldVolume, fogTransmittance, envAverage } from '../realtime/worldvolume';
 import { fxUniforms } from '../realtime/fxshader';
 
@@ -524,6 +524,15 @@ export class RenderScene {
     if (k !== 1) {
       s.environmentIntensity *= k;
       this.envKey += `*${k}`;
+    }
+    // World ▸ Settings ▸ Light Probe ▸ Resolution: detail of the world's lighting
+    const world = doc.scene.world ? doc.worlds[doc.scene.world] : null;
+    if (env && this.mode === 'raster' && s.environment === env.texture && world?.probe_resolution) {
+      const t = worldAtResolution(env, Number(world.probe_resolution));
+      if (t !== env.texture) {
+        s.environment = t;
+        this.envKey += `|res${world.probe_resolution}`;
+      }
     }
     this.syncWorldVolume(doc, o, env);
   }

@@ -3,7 +3,7 @@
 import { app, onAppReady } from '../../app/app';
 import { propertiesTabs } from '../../editors/properties/properties';
 import { panel } from '../../ui/widgets';
-import { num, bool } from '../../ui/props';
+import { num, bool, enumProp } from '../../ui/props';
 import type { Child } from '../../ui/h';
 import type { WorldData } from '../../data/types';
 import { headerToggle, sub } from '../final/props/common';
@@ -16,6 +16,7 @@ export function ensureWorldDefaults(w: WorldData) {
   w.sun_shadow_maximum_resolution ??= 0.001;
   w.use_sun_shadow_jitter ??= false;
   w.sun_shadow_jitter_overblur ??= 10;
+  w.probe_resolution ??= '1024';
 }
 
 export function worldSettingsPanel(w: WorldData): Child {
@@ -24,6 +25,9 @@ export function worldSettingsPanel(w: WorldData): Child {
     'wo-rt-settings',
     'Settings',
     () => [
+      sub('wo-rt-probe', 'Light Probe', () => [
+        enumProp(w, 'probe_resolution', 'Resolution', [['128', '128 px'], ['256', '256 px'], ['512', '512 px'], ['1024', '1024 px'], ['2048', '2048 px']], { tip: 'Detail of the world’s lighting and reflections: lower is blurrier' }),
+      ]),
       sub('wo-rt-sun', 'Sun', () => [
         num(w, 'sun_threshold', 'Threshold', { min: 0, softMax: 100, tip: 'World light brighter than this becomes a sun light with shadows (0 turns it off)' }),
         num(w, 'sun_angle', 'Angle', { unit: 'angle', min: 0, max: Math.PI, tip: 'Angular diameter of the extracted sun: softens its shadows' }),

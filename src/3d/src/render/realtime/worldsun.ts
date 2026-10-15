@@ -81,3 +81,48 @@ export function splitWorldSun(env: { key: string; texture: DataTexture }, thresh
   cache.sun = { direction: s.direction, irradiance: s.irradiance, texture: tex };
   return cache.sun;
 }
+
+/** Box-downsample an equirect RGBA float map by an integer factor (pure). */
+export function downsampleEquirect(data: Float32Array, W: number, H: number, f: number): { data: Float32Array; width: number; height: number } {
+  const w = Math.max(1, Math.floor(W / f)),
+    h = Math.max(1, Math.floor(H / f));
+  const out = new Float32Array(w * h * 4);
+  for (let j = 0; j < h; j++)
+    for (let i = 0; i < w; i++) {
+      const o = (j * w + i) * 4;
+      for (let y = 0; y < f; y++)
+        for (let x = 0; x < f; x++) {
+          const k = ((j * f + y) * W + i * f + x) * 4;
+          out[o] += data[k];
+          out[o + 1] += data[k + 1];
+          out[o + 2] += data[k + 2];
+        }
+      out[o] /= f * f;
+      out[o + 1] /= f * f;
+      out[o + 2] /= f * f;
+      out[o + 3] = 1;
+    }
+  return { data: out, width: w, height: h };
+}
+
+const resCache = { key: '', tex: null as DataTexture | null };
+
+/** World lighting at World ▸ Settings ▸ Light Probe ▸ Resolution (cubemap face size). */
+export function worldAtResolution(env: { key: string; texture: DataTexture }, resolution: number): DataTexture {
+  const img = env.texture.image as { data: Float32Array; width: number; height: number };
+  const f = Math.floor(img.width / Math.max(16, resolution * 4));
+  if (f < 2 || !(img.data instanceof Float32Array)) return env.texture;
+  const key = `${env.key}|${f}|${env.texture.uuid}`;
+  if (resCache.key === key && resCache.tex) return resCache.tex;
+  resCache.tex?.dispose();
+  const d = downsampleEquirect(img.data, img.width, img.height, f);
+  const tex = new DataTexture(d.data, d.width, d.height, RGBAFormat, FloatType);
+  tex.colorSpace = LinearSRGBColorSpace;
+  tex.mapping = EquirectangularReflectionMapping;
+  tex.minFilter = tex.magFilter = LinearFilter;
+  tex.generateMipmaps = false;
+  tex.needsUpdate = true;
+  resCache.key = key;
+  resCache.tex = tex;
+  return tex;
+}
