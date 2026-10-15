@@ -563,3 +563,26 @@ body.no-region-toggles .area-header-reveal {
   flex: 1;
   min-width: 0;
 }
+
+/* search over all sections */
+.prefs-search {
+  margin-bottom: 8px;
+  flex: none;
+}
+.prefs-search-title {
+  color: var(--c-text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 10px 2px 4px;
+}
+.prefs-main.searching .search-hl .sr-label,
+.prefs-main.searching .search-hl .cb-label {
+  color: var(--c-text-hi);
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-underline-offset: 3px;
+}
+.prefs-nav-btn.search-miss {
+  opacity: 0.45;
+}

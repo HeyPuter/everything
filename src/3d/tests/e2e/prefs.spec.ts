@@ -447,3 +447,20 @@ test('text rendering: a font file becomes the interface font and stays after a r
   await expect.poll(() => page.evaluate(() => [...document.fonts].some((f) => f.family.includes('(file)') && f.status === 'loaded'))).toBe(true);
   await expectNoErrors(errors);
 });
+
+test('search finds preferences across sections', async ({ page }) => {
+  const errors = await openApp(page);
+  await openPrefs(page, 'INTERFACE');
+  await page.locator('.prefs-search input').fill('smooth view');
+  await expect(page.locator('.prefs-search-sec[data-sec="NAVIGATION"]')).toBeVisible();
+  await expect(page.locator('.prefs-search-sec[data-sec="NAVIGATION"] .split-row.search-hl')).toHaveCount(1);
+  await expect(page.locator('.prefs-search-sec[data-sec="INTERFACE"]')).toBeHidden();
+  await expect(page.locator('.prefs-nav-btn[data-section="INTERFACE"]')).toHaveClass(/search-miss/);
+  // changing a found preference works from the results
+  await page.locator('.prefs-search input').fill('splash');
+  await page.locator('[data-id="pf-show_splash"]').dispatchEvent('pointerdown', { button: 0 });
+  expect(await page.evaluate(async () => (await import('/src/app/prefs.ts')).prefs.show_splash)).toBe(false);
+  await page.locator('.prefs-search input').press('Escape');
+  await expect(page.locator('.prefs-main.searching')).toHaveCount(0);
+  await expectNoErrors(errors);
+});
