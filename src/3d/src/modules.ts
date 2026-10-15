@@ -10,9 +10,10 @@ import './scripting/index';
 import './modes/index';
 import './greasepencil/index';
 import './metaball/index';
-import './hair/index';
 import './compositor/index';
 import './geonodes/index';
+// after geometry nodes: hair reuses curve nodes and adds to their Add menu
+import './hair/index';
 import './spreadsheet/index';
 import './tracking/index';
 import './sequencer/index';
