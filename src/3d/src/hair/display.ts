@@ -169,7 +169,7 @@ sceneSyncHooks.push((doc, ev, so) => {
     lines.userData.id = ev.id;
     const editLines = new LineSegments(new BufferGeometry(), new ShaderMaterial({ vertexColors: true, vertexShader: EDIT_VS, fragmentShader: EDIT_FS, depthTest: true }));
     editLines.matrixAutoUpdate = false;
-    const editPoints = new Points(new BufferGeometry(), new ShaderMaterial({ vertexColors: true, vertexShader: POINT_VS, fragmentShader: POINT_FS, uniforms: { uSize: { value: 5 } } }));
+    const editPoints = new Points(new BufferGeometry(), new ShaderMaterial({ vertexColors: true, vertexShader: POINT_VS, fragmentShader: POINT_FS, uniforms: { uSize: { value: 4 * (globalThis.devicePixelRatio || 1) } } }));
     editPoints.matrixAutoUpdate = false;
     entries.set(ev.id, (e = { lines, mesh: null, editLines, editPoints, editKey: '', so }));
   }
@@ -199,9 +199,9 @@ varying vec3 vColor;
 void main() { vec2 d = gl_PointCoord - 0.5; if (dot(d, d) > 0.25) discard; gl_FragColor = vec4(vColor, 1.0); }`;
 
 const SEL = new Color(1, 0.52, 0).convertSRGBToLinear(),
-  UNSEL = new Color(0, 0, 0),
   WIRE_SEL = new Color(1, 0.62, 0.2).convertSRGBToLinear(),
-  WIRE = new Color(0.12, 0.12, 0.12);
+  WIRE = new Color(0.12, 0.12, 0.12),
+  UNSEL_POINT = new Color(0.05, 0.05, 0.05);
 
 /** Whether the object is being edited in Curves Edit Mode. */
 const inCurvesEdit = (ob: ObjectData) => app.doc.mode === 'EDIT' && app.activeObject?.id === ob.id;
@@ -219,15 +219,15 @@ function syncEditOverlay(doc: DocumentData, ob: ObjectData, e: Entry) {
   const np = hc.positions.length / 3;
   const o = hc.curve_offsets;
   const point = pointSelectionSpread(hc);
-  // control polygon coloured by selection
+  // the selected part of the control polygon is highlighted
   const idx: number[] = [];
-  for (let c = 0; c + 1 < o.length; c++) for (let i = o[c]; i + 1 < o[c + 1]; i++) idx.push(i, i + 1);
+  for (let c = 0; c + 1 < o.length; c++) for (let i = o[c]; i + 1 < o[c + 1]; i++) if (point[i] > 0.5 && point[i + 1] > 0.5) idx.push(i, i + 1);
   const lc = new Float32Array(np * 3),
     pc = new Float32Array(np * 3);
   for (let i = 0; i < np; i++) {
     const on = point[i] > 0.5;
     const lcol = on ? WIRE_SEL : WIRE,
-      pcol = on ? SEL : UNSEL;
+      pcol = on ? SEL : UNSEL_POINT;
     lc.set([lcol.r, lcol.g, lcol.b], i * 3);
     pc.set([pcol.r, pcol.g, pcol.b], i * 3);
   }
@@ -331,3 +331,6 @@ export function strandCenter(ob: ObjectData): Vector3 | null {
 }
 
 void renderContext;
+
+// the object being edited or sculpted shows no selection outline around its strands
+drawHooks.skipOutline.push((ob) => ob.type === 'CURVES' && app.doc.mode !== 'OBJECT' && app.activeObject?.id === ob.id);

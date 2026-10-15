@@ -24,8 +24,8 @@ registerIcons({
   hair_cut: '<circle class="s" cx="4" cy="11.5" r="2" fill="none" stroke-width="1.3"/><circle class="s" cx="12" cy="11.5" r="2" fill="none" stroke-width="1.3"/><path class="s" d="M5.3 10 11 2M10.7 10 5 2" stroke-width="1.3" stroke-linecap="round"/>',
   hair_weight: '<path class="s" d="M4 14c0-4 1-7 0-11M9 14c0-4 1-7 0-11" fill="none" stroke-width="1.4" stroke-linecap="round"/><circle class="f" cx="13" cy="5" r="2"/><circle class="f" cx="13" cy="11" r="1.2" opacity=".6"/>',
   // selection domains / particle select modes
-  curve_points: '<path class="s" d="M3 14c1-5 3-8 10-11" fill="none" stroke-width="1.1" opacity=".6"/><circle class="f" cx="3.3" cy="13" r="1.6"/><circle class="f" cx="6.3" cy="7.4" r="1.6"/><circle class="f" cx="12.6" cy="3.3" r="1.6"/>',
-  curve_curves: '<path class="s" d="M3 14c1-5 3-8 10-11M2 9c3-2 6-4 7-7" fill="none" stroke-width="1.6" stroke-linecap="round"/>',
+  curve_points: '<path class="s" d="M2.5 13.5C5 12 4 6 8 4.5s5-1 6-2.5" fill="none" stroke-width="1" opacity=".55"/><circle class="f" cx="2.8" cy="13.2" r="1.7"/><circle class="f" cx="6.2" cy="7.6" r="1.7"/><circle class="f" cx="13.3" cy="2.6" r="1.7"/>',
+  curve_curves: '<path class="s" d="M2 13.5C5 12 4 6 8 4.5s5-1 6-2.5M2 9.5C4 8.5 4 4 7 3" fill="none" stroke-width="1.7" stroke-linecap="round"/><path class="s" d="M6 14c3-1 3-5 6-6.5" fill="none" stroke-width="1.7" stroke-linecap="round"/>',
   pe_path: '<path class="s" d="M4 14c0-4 2-7 0-11M11 14c0-4-2-7 0-11" fill="none" stroke-width="1.6" stroke-linecap="round"/>',
   pe_point: '<path class="s" d="M5 14c0-4 2-7 0-11" fill="none" stroke-width="1" opacity=".6"/><circle class="f" cx="5" cy="13" r="1.5"/><circle class="f" cx="6" cy="8" r="1.5"/><circle class="f" cx="5" cy="3" r="1.5"/><path class="s" d="M11 14c0-4 2-7 0-11" fill="none" stroke-width="1" opacity=".6"/><circle class="f" cx="11" cy="13" r="1.5"/><circle class="f" cx="12" cy="8" r="1.5"/><circle class="f" cx="11" cy="3" r="1.5"/>',
   pe_tip: '<path class="s" d="M5 14c0-4 2-7 0-11M11 14c0-4 2-7 0-11" fill="none" stroke-width="1" opacity=".6"/><circle class="f" cx="5" cy="3" r="1.9"/><circle class="f" cx="11" cy="3" r="1.9"/>',

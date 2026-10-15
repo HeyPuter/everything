@@ -142,10 +142,12 @@ export function modePie() {
   const dirs = ['OBJECT', 'EDIT', 'SCULPT', 'POSE', 'VERTEX_PAINT', 'WEIGHT_PAINT', 'TEXTURE_PAINT'];
   const items = dirs.map((d) => {
     // grease pencil objects show their own Sculpt / Draw modes in the Sculpt / Texture Paint slots
-    const alt: Record<string, string> = { SCULPT: 'SCULPT_GREASE_PENCIL', TEXTURE_PAINT: 'PAINT_GREASE_PENCIL' };
-    const m = modes.find((x) => x.mode === d) ?? modes.find((x) => x.mode === alt[d]);
+    const alt: Record<string, string[]> = { SCULPT: ['SCULPT_GREASE_PENCIL', 'SCULPT_CURVES'], TEXTURE_PAINT: ['PAINT_GREASE_PENCIL'] };
+    const m = modes.find((x) => x.mode === d) ?? modes.find((x) => alt[d]?.includes(x.mode));
     return m ? { label: m.label, icon: m.icon, active: app.doc.mode === m.mode, op: 'object.mode_set', props: { mode: m.mode } } : null;
   });
+  const pe = modes.find((x) => x.mode === 'PARTICLE_EDIT');
+  const particle = pe ? { label: pe.label, icon: pe.icon, active: app.doc.mode === pe.mode, op: 'object.mode_set', props: { mode: pe.mode } } : null;
   // W E S N NW NE SW SE
-  openPie('Mode', [items[0], items[1], items[4], items[2], items[3], items[5], items[6], null], app.pointer.x, app.pointer.y, 'Tab');
+  openPie('Mode', [items[0], items[1], items[4], items[2], items[3], items[5], items[6], particle], app.pointer.x, app.pointer.y, 'Tab');
 }

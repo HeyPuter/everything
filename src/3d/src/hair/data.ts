@@ -155,7 +155,7 @@ export function setCurves(hc: HairCurvesData, list: CurveInput[]) {
 }
 
 /** Append curves. Existing attributes get default values on the new elements. */
-export function appendCurves(hc: HairCurvesData, list: CurveInput[], selected = false): void {
+export function appendCurves(hc: HairCurvesData, list: CurveInput[], selected = true): void {
   if (!list.length) return;
   const n0 = pointCount(hc),
     c0 = curveCount(hc);
@@ -217,8 +217,11 @@ function grown(a: HairAttribute, n: number): AttrArray {
   const comps = dataComps(a.data_type);
   const out = allocData(a.data_type, n);
   (out as Float32Array).set(a.data.subarray(0, Math.min(a.data.length, n * comps)) as Float32Array);
-  // new curves of a non-poly type keep the type of the data's first curve
-  if ((a.name === 'resolution' || a.name === 'curve_type') && a.data.length) out.fill(a.data[0], a.data.length);
+  // new curves are poly curves (the built-in defaults of the type settings)
+  if (a.name === 'curve_type') out.fill(1, a.data.length);
+  if (a.name === 'resolution') out.fill(12, a.data.length);
+  if (a.name === 'nurbs_order') out.fill(4, a.data.length);
+  if (a.name === 'nurbs_weight') out.fill(1, a.data.length);
   return out;
 }
 

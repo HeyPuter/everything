@@ -351,48 +351,100 @@ export interface HairResult {
 
 const hairCache = new Map<string, { hash: string; result: HairResult }>();
 
+/** Strand points resampled to `n` points (smooth through the keys). */
+export function resampleKeys(co: ArrayLike<number>, a: number, b: number, n: number, out: Float32Array, o: number) {
+  const k = b - a;
+  if (k <= 0) return;
+  if (k === 1) {
+    for (let i = 0; i < n; i++) for (let j = 0; j < 3; j++) out[(o + i) * 3 + j] = co[a * 3 + j];
+    return;
+  }
+  // cumulative lengths along the keys, then Catmull-Rom between the keys
+  const cum = new Float64Array(k);
+  for (let i = 1; i < k; i++) cum[i] = cum[i - 1] + Math.hypot(co[(a + i) * 3] - co[(a + i - 1) * 3], co[(a + i) * 3 + 1] - co[(a + i - 1) * 3 + 1], co[(a + i) * 3 + 2] - co[(a + i - 1) * 3 + 2]);
+  const total = cum[k - 1];
+  let seg = 1;
+  const P = (i: number, j: number) => co[(a + Math.max(0, Math.min(k - 1, i))) * 3 + j];
+  for (let s = 0; s < n; s++) {
+    const t = n > 1 ? (s / (n - 1)) * total : 0;
+    while (seg < k - 1 && cum[seg] < t) seg++;
+    const l = cum[seg] - cum[seg - 1];
+    const f = l > 0 ? Math.min(1, Math.max(0, (t - cum[seg - 1]) / l)) : 0;
+    const f2 = f * f,
+      f3 = f2 * f;
+    for (let j = 0; j < 3; j++) {
+      const p0 = P(seg - 2, j),
+        p1 = P(seg - 1, j),
+        p2 = P(seg, j),
+        p3 = P(seg + 1, j);
+      out[(o + s) * 3 + j] = 0.5 * (2 * p1 + (-p0 + p2) * f + (2 * p0 - 5 * p1 + 4 * p2 - p3) * f2 + (-p0 + 3 * p1 - 3 * p2 + p3) * f3);
+    }
+  }
+}
+
 export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSystemX, s: ParticleSettingsX, mesh: EvalMesh, childFactor = 1): HairResult {
   const key = particleCacheKey(ob, m);
+  const ed = psys.edited_hair ?? null;
   const hash = strHash(
-    [JSON.stringify([s.count, s.emit_from, s.normal_factor, s.object_align_factor, s.factor_random, s.hair_length, s.hair_step, s.child_type, s.rendered_child_count, s.child_radius, s.clump_factor, s.roughness_1, s.seed, childFactor]), psys.seed, mesh.positions.length, arrayChecksum(mesh.positions), arrayChecksum(mesh.indices)].join('#'),
+    [
+      JSON.stringify([s.count, s.emit_from, s.normal_factor, s.object_align_factor, s.factor_random, s.hair_length, s.hair_step, s.child_type, s.rendered_child_count, s.child_radius, s.clump_factor, s.roughness_1, s.seed, childFactor]),
+      psys.seed,
+      ed ? `E${ed.key_offsets.length}:${arrayChecksum(ed.co)}:${arrayChecksum(ed.hide)}` : `${mesh.positions.length}:${arrayChecksum(mesh.positions)}:${arrayChecksum(mesh.indices)}`,
+    ].join('#'),
   );
   const hit0 = hairCache.get(key);
   if (hit0 && hit0.hash === hash) return hit0.result;
   const seed = hashSeed(psys.seed, s.seed ?? 0);
-  const n = Math.max(0, Math.floor(s.count));
   const seg = Math.max(1, Math.round(s.hair_step ?? 5));
+  const per = seg + 1;
   const children = s.child_type === 'SIMPLE' ? Math.max(0, Math.round((s.rendered_child_count ?? 0) * childFactor)) : 0;
-  const total = n * (1 + children);
-  const pts = new Float32Array(total * (seg + 1) * 3);
-  const sampler = new MeshSampler(mesh);
-  const sm = newSample();
-  const dir = new Vector3(),
+  // parents: generated straight strands, or the edited keys
+  const parentPts: number[] = [];
+  let parents = 0;
+  const tmp = new Float32Array(per * 3);
+  if (ed) {
+    const nk = ed.key_offsets.length - 1;
+    for (let i = 0; i < nk; i++) {
+      if (ed.hide[i]) continue;
+      resampleKeys(ed.co, ed.key_offsets[i], ed.key_offsets[i + 1], per, tmp, 0);
+      for (let k = 0; k < tmp.length; k++) parentPts.push(tmp[k]);
+      parents++;
+    }
+  } else {
+    const n = Math.max(0, Math.floor(s.count));
+    const sampler = new MeshSampler(mesh);
+    const sm = newSample();
+    const dir = new Vector3();
+    for (let i = 0; i < n; i++) {
+      if (!sampler.sample(s.emit_from, seed, i, sm)) continue;
+      dir.set(sm.nx, sm.ny, sm.nz).multiplyScalar(s.normal_factor);
+      dir.add(new Vector3(...s.object_align_factor));
+      if (s.factor_random) dir.add(new Vector3(rand01(seed, i, 30) * 2 - 1, rand01(seed, i, 31) * 2 - 1, rand01(seed, i, 32) * 2 - 1).multiplyScalar(s.factor_random));
+      if (dir.lengthSq() < 1e-12) dir.set(sm.nx, sm.ny, sm.nz);
+      dir.normalize();
+      for (let k = 0; k <= seg; k++) {
+        const t = (k / seg) * s.hair_length;
+        parentPts.push(sm.px + dir.x * t, sm.py + dir.y * t, sm.pz + dir.z * t);
+      }
+      parents++;
+    }
+  }
+  const total = parents * (1 + children);
+  const pts = new Float32Array(total * per * 3);
+  pts.set(parentPts);
+  let w = parentPts.length;
+  const d = new Vector3(),
     tan = new Vector3(),
     bit = new Vector3(),
     up = new Vector3();
-  let w = 0;
-  const parentDirs: Vector3[] = [];
-  const parentRoots: Vector3[] = [];
-  for (let i = 0; i < n; i++) {
-    if (!sampler.sample(s.emit_from, seed, i, sm)) continue;
-    dir.set(sm.nx, sm.ny, sm.nz).multiplyScalar(s.normal_factor);
-    dir.add(new Vector3(...s.object_align_factor));
-    if (s.factor_random) dir.add(new Vector3(rand01(seed, i, 30) * 2 - 1, rand01(seed, i, 31) * 2 - 1, rand01(seed, i, 32) * 2 - 1).multiplyScalar(s.factor_random));
-    if (dir.lengthSq() < 1e-12) dir.set(sm.nx, sm.ny, sm.nz);
-    dir.normalize();
-    parentDirs.push(dir.clone());
-    parentRoots.push(new Vector3(sm.px, sm.py, sm.pz));
-    for (let k = 0; k <= seg; k++) {
-      const t = (k / seg) * s.hair_length;
-      pts[w++] = sm.px + dir.x * t;
-      pts[w++] = sm.py + dir.y * t;
-      pts[w++] = sm.pz + dir.z * t;
-    }
-  }
-  const parents = parentRoots.length;
   for (let i = 0; i < parents && children; i++) {
-    const d = parentDirs[i],
-      root = parentRoots[i];
+    const b = i * per * 3;
+    d.set(pts[b + 3] - pts[b], pts[b + 4] - pts[b + 1], pts[b + 5] - pts[b + 2]);
+    if (d.lengthSq() < 1e-16) d.set(0, 0, 1);
+    d.normalize();
+    // strand length (children grow as long as their parent)
+    let len = 0;
+    for (let k = 1; k <= seg; k++) len += Math.hypot(pts[b + k * 3] - pts[b + k * 3 - 3], pts[b + k * 3 + 1] - pts[b + k * 3 - 2], pts[b + k * 3 + 2] - pts[b + k * 3 - 1]);
     up.set(Math.abs(d.z) < 0.9 ? 0 : 1, 0, Math.abs(d.z) < 0.9 ? 1 : 0);
     tan.crossVectors(d, up).normalize();
     bit.crossVectors(d, tan).normalize();
@@ -403,13 +455,12 @@ export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSyst
       const oy = tan.y * Math.cos(ang) * rad + bit.y * Math.sin(ang) * rad;
       const oz = tan.z * Math.cos(ang) * rad + bit.z * Math.sin(ang) * rad;
       for (let k = 0; k <= seg; k++) {
-        const u = k / seg,
-          t = u * s.hair_length;
+        const u = k / seg;
         const clump = 1 - (s.clump_factor ?? 0) * u;
-        let x = root.x + d.x * t + ox * clump,
-          y = root.y + d.y * t + oy * clump,
-          z = root.z + d.z * t + oz * clump;
-        const r = (s.roughness_1 ?? 0) * u * s.hair_length;
+        let x = pts[b + k * 3] + ox * clump,
+          y = pts[b + k * 3 + 1] + oy * clump,
+          z = pts[b + k * 3 + 2] + oz * clump;
+        const r = (s.roughness_1 ?? 0) * u * len;
         if (r) {
           x += valueNoise(x * 4, y * 4, z * 4, seed + c, 0) * r;
           y += valueNoise(x * 4, y * 4, z * 4, seed + c, 1) * r;
@@ -421,9 +472,14 @@ export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSyst
       }
     }
   }
-  const result: HairResult = { points: w === pts.length ? pts : pts.slice(0, w), segments: seg, strands: w / 3 / (seg + 1), parents };
+  const result: HairResult = { points: w === pts.length ? pts : pts.slice(0, w), segments: seg, strands: w / 3 / per, parents };
   hairCache.set(key, { hash, result });
   return result;
+}
+
+/** Signature-friendly JSON of a particle system (typed arrays of edited hair by checksum). */
+export function psysKey(ps: ParticleSystemX): string {
+  return JSON.stringify(ps, (_k, v) => (ArrayBuffer.isView(v) ? `#${(v as Float32Array).length}:${arrayChecksum(v as Float32Array)}` : v));
 }
 
 // ---------------------------------------------------------------------------
@@ -568,7 +624,7 @@ registerModifier({
     const ps = systemOf(c.ob, m);
     const s = ps ? c.doc.particles[ps.settings] : undefined;
     if (!ps || !s) return 'none';
-    const base = `${JSON.stringify(s)}:${JSON.stringify(ps)}:${c.doc.materials ? JSON.stringify(materialColor(c.doc, c.ob, (s as ParticleSettingsX).material_slot ?? 1)) : ''}`;
+    const base = `${JSON.stringify(s)}:${psysKey(ps)}:${c.doc.materials ? JSON.stringify(materialColor(c.doc, c.ob, (s as ParticleSettingsX).material_slot ?? 1)) : ''}`;
     if (s.type === 'HAIR') return strHash(base);
     const cache = getCache<PFrame, PLive>(particleCacheKey(c.ob, m));
     const pc = ps.point_cache ?? defaultPointCache();

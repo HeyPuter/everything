@@ -7,6 +7,13 @@ import './eval';
 import './display';
 import './render';
 import './add';
+import './modes';
+import './edit';
+import './edittransform';
+import './editmenus';
+import './sculptui';
+import './convert';
+import './properties';
 
 OB_ICON.CURVES = 'outliner_ob_curves';
 DATA_ICON.CURVES = 'curves_data';

@@ -223,7 +223,8 @@ function rigidBodyMenu(): MenuItem[] {
 export function convertMenu(): MenuItem[] {
   return [
     { label: 'Mesh', icon: 'outliner_ob_mesh', op: 'object.convert', props: { target: 'MESH' } },
-    { label: 'Curve', icon: 'outliner_ob_curve', op: 'object.convert', props: { target: 'CURVE' }, disabled: !app.selectedObjects().some((o) => o.type === 'MESH' || o.type === 'FONT') },
+    { label: 'Curve', icon: 'outliner_ob_curve', op: 'object.convert', props: { target: 'CURVE' }, disabled: !app.selectedObjects().some((o) => o.type === 'MESH' || o.type === 'FONT' || o.type === 'CURVES') },
+    { label: 'Curves', icon: 'outliner_ob_curves', op: 'object.convert', props: { target: 'CURVES' }, disabled: !app.selectedObjects().some((o) => o.type === 'CURVE') },
     { label: 'Point Cloud', icon: 'outliner_ob_pointcloud', op: 'object.convert', props: { target: 'POINTCLOUD' }, disabled: !app.selectedObjects().some((o) => o.type === 'MESH' || o.type === 'CURVE' || o.type === 'FONT') },
     { label: 'Grease Pencil', icon: 'outliner_ob_greasepencil', op: 'object.convert', props: { target: 'GREASEPENCIL' } },
     { separator: true },
