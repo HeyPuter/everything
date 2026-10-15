@@ -9,4 +9,5 @@ import './select';
 import './relations';
 import './instancing';
 import './vweights';
+import './rigidmass';
 import './keys';

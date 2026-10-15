@@ -223,6 +223,7 @@ function rigidBodyMenu(): MenuItem[] {
     { label: 'Remove', op: 'rigidbody.objects_remove' },
     { separator: true },
     { label: 'Change Shape', submenu: () => shapes.map(([v, l]) => ({ label: l, op: 'rigidbody.shape_change', props: { type: v } })), disabled: !app.poll('rigidbody.shape_change') },
+    { label: 'Calculate Mass', op: 'rigidbody.mass_calculate' },
     { label: 'Copy from Active', op: 'rigidbody.object_settings_copy' },
     { label: 'Apply Transformation', op: 'object.visual_transform_apply' },
     { label: 'Bake to Keyframes', op: 'rigidbody.bake_to_keyframes' },

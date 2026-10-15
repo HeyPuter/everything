@@ -709,3 +709,20 @@ describe('make instance face', () => {
     for (const x of d) expect(worlds.some((w) => near(x.matrix.elements, w, 1e-3))).toBe(true);
   });
 });
+
+describe('rigid body mass', () => {
+  it('computes mass from the collision shape volume', async () => {
+    const { shapeVolume } = await import('../../src/object/rigidmass');
+    const { Vector3 } = await import('three');
+    const ob = cube();
+    app.graph.evaluate(app.doc, false);
+    const m = app.graph.get(ob.id)!.mesh!;
+    expect(shapeVolume('BOX', m, new Vector3(1, 1, 1))).toBeCloseTo(8);
+    expect(shapeVolume('MESH', m, new Vector3(2, 1, 1))).toBeCloseTo(16);
+    expect(shapeVolume('SPHERE', m, new Vector3(1, 1, 1))).toBeCloseTo((4 / 3) * Math.PI);
+    ob.rigid_body = { type: 'ACTIVE', enabled: true, kinematic: false, mass: 1, friction: 0.5, restitution: 0, collision_shape: 'CONVEX_HULL', collision_margin: 0.04, linear_damping: 0.04, angular_damping: 0.1 };
+    select(ob);
+    run('rigidbody.mass_calculate', { material: 'WATER' });
+    expect(ob.rigid_body.mass).toBeCloseTo(8000);
+  });
+});
