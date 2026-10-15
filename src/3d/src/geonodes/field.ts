@@ -145,7 +145,17 @@ export const constOf = (f: Field): Scalar | undefined => (f instanceof ConstFiel
 export function convertField(f: Field, to: FieldType): Field {
   const from = f.type;
   if (from === to) return f;
-  if ((from === 'VECTOR' && to === 'ROTATION') || (from === 'ROTATION' && to === 'VECTOR')) return fnField(to, [f], (ins, out, n) => out.set(ins[0].data.subarray(0, n * 3)));
+  if (from === 'VECTOR' && to === 'ROTATION') return fnField(to, [f], (ins, out, n) => out.set(ins[0].data.subarray(0, n * 3)));
+  // a rotation read as a vector gives its canonical Euler angles
+  if (from === 'ROTATION' && to === 'VECTOR')
+    return fnField(to, [f], (ins, out, n) => {
+      const d = ins[0].data,
+        m = new Float64Array(16);
+      for (let i = 0; i < n; i++) {
+        eulerToMatrix(d[i * 3], d[i * 3 + 1], d[i * 3 + 2], m, 0);
+        matrixToEuler(m, 0, out, i * 3);
+      }
+    });
   if (from === 'MATRIX' || to === 'MATRIX') return convertMatrixField(f, to);
   return fnField(to, [f], (ins, out, n) => {
     const a = ins[0],

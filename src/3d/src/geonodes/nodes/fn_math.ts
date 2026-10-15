@@ -234,9 +234,8 @@ gn(
                     }
                   : (a) => {
                       const m = a as number[];
-                      let h = 0;
-                      for (let c = 0; c < 4; c++) h = jhash2(h, jhash4(bitsOf(m[c * 4]), bitsOf(m[c * 4 + 1]), bitsOf(m[c * 4 + 2]), bitsOf(m[c * 4 + 3])));
-                      return h;
+                      const col = (c: number) => jhash4(bitsOf(m[c * 4]), bitsOf(m[c * 4 + 1]), bitsOf(m[c * 4 + 2]), bitsOf(m[c * 4 + 3]));
+                      return jhash4(col(0), col(1), col(2), col(3));
                     };
       return { Hash: lift('INT', [v, seed], ([a, s]) => jhash2(word(a), (s as number) >>> 0) | 0) };
     },

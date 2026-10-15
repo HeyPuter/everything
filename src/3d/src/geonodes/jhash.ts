@@ -60,9 +60,9 @@ export function bitsOf(x: number): number {
   return u32[0];
 }
 
-/** Hash of a string's UTF-8 bytes (32-bit multiplicative). */
+/** Hash of a string's UTF-8 bytes (multiply by 37 and add each byte). */
 export function stringHash(s: string): number {
-  let h = 5381;
-  for (const b of new TextEncoder().encode(s)) h = (Math.imul(h, 33) + b) >>> 0;
+  let h = 0;
+  for (const b of new TextEncoder().encode(s)) h = (Math.imul(h, 37) + b) >>> 0;
   return h;
 }
