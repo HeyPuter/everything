@@ -4,9 +4,10 @@ import { icon } from '../ui/icons';
 import { app } from '../app/app';
 import { registerEditor, type Area } from '../ui/screen';
 import { openMenu, type MenuItem } from '../ui/menu';
-import { numberField } from '../ui/widgets';
-import type { Keyframe, ShapeKey } from '../data/types';
-import { AnimEditor, RULER_H, menuButton, hdrToggle, markerMenu, type Selectable } from './animeditor';
+import { numberField, textField, checkbox } from '../ui/widgets';
+import { actionRange } from './actionops';
+import type { ActionData, Keyframe, ShapeKey } from '../data/types';
+import { AnimEditor, RULER_H, menuButton, hdrToggle, markerMenu, type Selectable, type SidebarTab } from './animeditor';
 import type { Channel, SpaceKind } from './channels';
 import { C, drawKey, shapeFor } from './theme';
 import { aggregate } from './aggregate';
@@ -148,8 +149,16 @@ export class DopeSheet extends AnimEditor {
     );
   }
 
+  protected sidebarTabs(): SidebarTab[] {
+    const ob = app.activeObject;
+    const act = ob?.animation_data?.action ? app.doc.actions[ob.animation_data.action] : undefined;
+    return act ? [{ id: 'action', label: 'Action', draw: () => actionPanel(act) }] : [];
+  }
+
   viewMenu(): MenuItem[] {
     return [
+      { label: 'Sidebar', checked: this.showSidebar, shortcut: 'N', action: () => this.toggleSidebar() },
+      { separator: true },
       {
         label: 'Show Handles and Interpolation',
         checked: this.showHandlesInterp,
@@ -484,6 +493,28 @@ export class DopeSheet extends AnimEditor {
       this.refresh();
     }
   }
+}
+
+/** Sidebar panel for the active action: name, fake user and manual frame range. */
+function actionPanel(act: ActionData): Child {
+  const row = (label: string, c: Child) => h('div', { class: 'split-row' }, h('div', { class: 'sr-label' }, label), h('div', { class: 'sr-value' }, c), h('span'));
+  const commit = (label: string, final = true) => (app.changed('doc'), final && app.pushUndo(label));
+  const manual = !!act.frame_range;
+  const [a, b] = actionRange(act);
+  return h(
+    'div',
+    { class: 'anim-sb-panel' },
+    h('div', { class: 'anim-sb-title' }, 'Action'),
+    row('Name', textField('ds-act-name', act.name, (v) => v && ((act.name = v), commit('Rename Action')))),
+    h('div', { class: 'split-row check' }, h('div', { class: 'sr-label' }), h('div', { class: 'sr-value' }, checkbox('ds-act-fake', 'Fake User', !!act.use_fake_user, (v) => ((act.use_fake_user = v), commit('Fake User')))), h('span')),
+    h('div', { class: 'split-row check' }, h('div', { class: 'sr-label' }), h('div', { class: 'sr-value' }, checkbox('ds-act-range', 'Manual Frame Range', manual, (v) => ((act.frame_range = v ? [a, b] : undefined), commit('Manual Frame Range')))), h('span')),
+    manual
+      ? [
+          row('Start', numberField({ id: 'ds-act-fs', value: act.frame_range![0], precision: 2, set: (v, f) => ((act.frame_range = [v, Math.max(v + 1, act.frame_range![1])]), commit('Action Frame Range', f)) })),
+          row('End', numberField({ id: 'ds-act-fe', value: act.frame_range![1], precision: 2, set: (v, f) => ((act.frame_range = [Math.min(act.frame_range![0], v - 1), v]), commit('Action Frame Range', f)) })),
+        ]
+      : null,
+  );
 }
 
 function rowColor(ch: Channel) {

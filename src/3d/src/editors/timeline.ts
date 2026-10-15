@@ -31,6 +31,10 @@ export class Timeline extends DopeSheet {
     return null;
   }
 
+  protected sidebarTabs() {
+    return [];
+  }
+
   viewMenu(): MenuItem[] {
     return [
       { label: 'Show Markers', checked: this.showMarkers, action: () => ((this.showMarkers = !this.showMarkers), this.refresh()) },

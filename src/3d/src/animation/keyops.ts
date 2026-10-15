@@ -1201,6 +1201,7 @@ function keyEditorKeys(p: Prefix, name: string) {
         menu: () => keyTypeMenu('action'),
         menuTitle: 'Set Keyframe Type',
       },
+      { key: 'N', op: 'anim.region_ui_toggle' },
     );
   } else {
     items.push(
