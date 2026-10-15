@@ -105,7 +105,21 @@ for (const t of TOOLS) toolSettingsRenderers[t.id] = () => h('span', { class: 't
 // ---------------------------------------------------------------------------
 // shortcuts
 
+/** Curve ▸ Transform extras (shape tools and the control point radius). */
+export function curveTransformExtras(): MenuItem[] {
+  return [
+    { separator: true },
+    { label: 'To Sphere', op: 'transform.tosphere' },
+    ...editTransformExtras(),
+    { label: 'Push/Pull', op: 'transform.push_pull' },
+    { separator: true },
+    { label: 'Radius', op: 'transform.transform', props: { mode: 'CURVE_SHRINKFATTEN' }, shortcut: 'Alt S' },
+  ];
+}
+
 addKeys('Mesh', [
+  { key: 'T', ctrl: true, op: 'transform.tilt', when: isCurveEdit },
+  { key: 'S', alt: true, op: 'transform.transform', props: { mode: 'CURVE_SHRINKFATTEN' }, when: isCurveEdit },
   { key: 'W', shift: true, op: 'transform.bend', when: () => isMeshEdit() || isCurveEdit() },
   { key: 'S', shift: true, ctrl: true, alt: true, op: 'transform.shear', when: () => isMeshEdit() || isCurveEdit() },
 ]);

@@ -313,3 +313,23 @@ test('local axis constraint moves each object along its own axis', async ({ page
   expect(locs[1]).toEqual([0, 2, 0]);
   await expectNoErrors(errors);
 });
+
+test('curve tilt and radius transforms', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  await run(page, 'curve.primitive_bezier_curve_add');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('a');
+  await page.keyboard.press('Control+T');
+  await page.keyboard.type('30');
+  await page.keyboard.press('Enter');
+  const tilts = await get<number[]>(page, 'app.doc.curves[app.activeObject.data].splines[0].bezier_points.map(b => b.tilt)');
+  for (const t of tilts) expect(t).toBeCloseTo(Math.PI / 6, 5);
+  expect(await get(page, 'app.lastOp.idname')).toBe('transform.tilt');
+  await page.keyboard.press('Alt+S');
+  await page.keyboard.type('2');
+  await page.keyboard.press('Enter');
+  const radii = await get<number[]>(page, 'app.doc.curves[app.activeObject.data].splines[0].bezier_points.map(b => b.radius)');
+  for (const r of radii) expect(r).toBeCloseTo(2, 5);
+  await expectNoErrors(errors);
+});

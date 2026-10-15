@@ -19,7 +19,10 @@ import { currentOrientation, orientationBasis, orientationLabel } from './orient
 import { BUILTIN_ORIENTATIONS } from './orientation_list';
 import { around, basisAxis, bendMatrix, evalNumeric, falloffWeight, randomOffset, seededRandom, shearMatrix, toSpherePoint, warpPoint, type BendFrame } from './transform_math';
 
-export type TransformMode = 'TRANSLATION' | 'ROTATION' | 'RESIZE' | 'TRACKBALL' | 'SHRINKFATTEN' | 'TOSPHERE' | 'SHEAR' | 'PUSHPULL' | 'EDGESLIDE' | 'BEND' | 'WARP';
+export type TransformMode = 'TRANSLATION' | 'ROTATION' | 'RESIZE' | 'TRACKBALL' | 'SHRINKFATTEN' | 'TOSPHERE' | 'SHEAR' | 'PUSHPULL' | 'EDGESLIDE' | 'BEND' | 'WARP' | 'TILT' | 'CURVE_SHRINKFATTEN';
+
+/** Modes that change a per-element value (curve tilt / radius) instead of positions. */
+const VALUE_MODES = new Set<TransformMode>(['TILT', 'CURVE_SHRINKFATTEN']);
 
 /** An item being transformed. All math happens in world space. */
 export interface TElement {
@@ -40,7 +43,7 @@ export interface TElement {
 
 export interface TProvider {
   /** collect elements for the current mode; return null if not applicable */
-  collect(opts: { proportional: boolean; connected: boolean; individual: boolean }): { elements: TElement[]; active?: Vector3; label: string; finish(): void; cancel(): void; onUpdate?(): void } | null;
+  collect(opts: { proportional: boolean; connected: boolean; individual: boolean; mode?: TransformMode }): { elements: TElement[]; active?: Vector3; label: string; finish(): void; cancel(): void; onUpdate?(): void } | null;
 }
 
 export const transformProviders: TProvider[] = [];
@@ -292,13 +295,15 @@ function proportionalEnabled() {
   return app.doc.mode === 'OBJECT' ? ts.use_proportional_edit_objects : ts.use_proportional_edit;
 }
 
-function collect(): Collected | null {
+function collect(mode?: TransformMode): Collected | null {
   // world matrices come from the evaluated scene: make sure earlier edits are evaluated
   if (app.hasPending) app.flush();
   const ts = app.doc.scene.tool_settings;
   const proportional = proportionalEnabled();
+  // value modes (tilt, radius) have their own element type
+  if (mode && VALUE_MODES.has(mode)) return valueProvider.collect({ proportional, connected: false, individual: false, mode });
   for (let i = transformProviders.length - 1; i >= 0; i--) {
-    const d = transformProviders[i].collect({ proportional, connected: ts.use_proportional_connected, individual: ts.transform_pivot_point === 'INDIVIDUAL_ORIGINS' });
+    const d = transformProviders[i].collect({ proportional, connected: ts.use_proportional_connected, individual: ts.transform_pivot_point === 'INDIVIDUAL_ORIGINS', mode });
     if (d && d.elements.length) return d;
   }
   return null;
@@ -325,7 +330,7 @@ function computePivot(d: Collected): Vector3 {
 }
 
 function openSession(mode: TransformMode): Session | null {
-  const d = collect();
+  const d = collect(mode);
   if (!d) return null;
   const pivot = computePivot(d);
   const sel = d.elements.filter((e) => e.weight >= 1);
@@ -402,6 +407,9 @@ function elementMatrix(s: Session, st: TState, e: TElement): Matrix4 {
     }
     case 'SHRINKFATTEN':
       return T((e.normal ?? new Vector3()).clone().multiplyScalar((st.value[0] ?? 0) * w));
+    case 'TILT':
+    case 'CURVE_SHRINKFATTEN':
+      return new Matrix4();
     case 'WARP': {
       const c = st.center ?? s.pivot;
       const wp = st.warp ?? { min: -1, max: 1, offset: 0 };
@@ -480,6 +488,8 @@ const MODE_OP: Partial<Record<TransformMode, string>> = {
   PUSHPULL: 'transform.push_pull',
   BEND: 'transform.bend',
   WARP: 'transform.vertex_warp',
+  TILT: 'transform.tilt',
+  CURVE_SHRINKFATTEN: 'transform.transform',
 };
 
 function proportionalProps() {
@@ -511,6 +521,8 @@ export function stateToOperator(st: TState): { idname: string; props: Record<str
       return { idname, props: { value: v[0], radius: v[1] ?? 1, center_override: st.center?.toArray().map(round) ?? [0, 0, 0], bend_dir: st.bend?.dir.toArray().map(round) ?? [1, 0, 0], bend_length: st.bend?.length ?? 1, orient_matrix: orient.orient_matrix, ...proportionalProps() } };
     case 'WARP':
       return { idname, props: { warp_angle: v[0], offset_angle: st.warp?.offset ?? 0, min: round(st.warp?.min ?? -1), max: round(st.warp?.max ?? 1), center: st.center?.toArray().map(round) ?? [0, 0, 0], viewmat: orient.orient_matrix } };
+    case 'CURVE_SHRINKFATTEN':
+      return { idname, props: { mode: 'CURVE_SHRINKFATTEN', value: [v[0], 0, 0], orient_type: 'GLOBAL' } };
     default:
       return { idname, props: { value: v[0], ...proportionalProps() } };
   }
@@ -603,6 +615,9 @@ function stateFromProps(mode: TransformMode, p: Record<string, unknown>, s: Sess
       st.warp = { min: num(p.min, -1), max: num(p.max, 1), offset: num(p.offset_angle) };
       break;
     }
+    case 'CURVE_SHRINKFATTEN':
+      st.value = [num(p.value, 1)];
+      break;
     default:
       st.value = [num(p.value)];
   }
@@ -771,7 +786,7 @@ export function startTransform(
   resetMouseRefs();
   const warpExt = warpExtents(s, cursor, viewBasis());
 
-  const numKind = (): 'distance' | 'angle' | 'none' => (curMode === 'TRANSLATION' || curMode === 'PUSHPULL' || curMode === 'SHRINKFATTEN' ? 'distance' : curMode === 'ROTATION' || curMode === 'TRACKBALL' || curMode === 'SHEAR' || curMode === 'BEND' || curMode === 'WARP' ? 'angle' : 'none');
+  const numKind = (): 'distance' | 'angle' | 'none' => (curMode === 'TRANSLATION' || curMode === 'PUSHPULL' || curMode === 'SHRINKFATTEN' ? 'distance' : curMode === 'ROTATION' || curMode === 'TRACKBALL' || curMode === 'SHEAR' || curMode === 'BEND' || curMode === 'WARP' || curMode === 'TILT' ? 'angle' : 'none');
   const numFields = () => (curMode === 'TRANSLATION' || curMode === 'RESIZE' ? (constraint ? constraint.axes.filter(Boolean).length : 3) : curMode === 'TRACKBALL' || curMode === 'BEND' ? 2 : 1);
 
   const compute = () => {
@@ -941,6 +956,19 @@ export function startTransform(
       if (snapOn()) angle = Math.round(angle / (5 * deg)) * 5 * deg;
       st.value = [vals ? (typed(0) ?? 0) * deg : angle];
       overlay.helpFrom = cursor;
+    } else if (curMode === 'TILT') {
+      // the tilt follows the mouse turning around the selection center
+      let angle = -rotTotal;
+      if (snapOn()) angle = Math.round(angle / rotationStep(precise)) * rotationStep(precise);
+      st.value = [vals ? (typed(0) ?? 0) * deg : angle];
+      overlay.helpFrom = s!.pivot;
+    } else if (curMode === 'CURVE_SHRINKFATTEN') {
+      const d0 = Math.hypot(startMouse.x - ps.x, startMouse.y - ps.y),
+        d1 = Math.hypot(mouse.x - ps.x, mouse.y - ps.y);
+      let f = d0 > 1 ? d1 / d0 : 1;
+      if (snapOn()) f = Math.round(f / (precise ? 0.01 : 0.1)) * (precise ? 0.01 : 0.1);
+      st.value = [vals ? typed(0) ?? 1 : Math.max(0, f)];
+      overlay.helpFrom = s!.pivot;
     } else if (curMode === 'TOSPHERE') {
       let f = Math.max(0, Math.min(1, dx / 200));
       if (snapOn()) f = Math.round(f * 10) / 10;
@@ -1039,7 +1067,7 @@ export function startTransform(
     compute();
   };
 
-  const modeLabel = () => ({ TRANSLATION: 'Move', ROTATION: 'Rotate', RESIZE: 'Resize', TRACKBALL: 'Trackball', SHRINKFATTEN: 'Shrink/Fatten', TOSPHERE: 'To Sphere', SHEAR: 'Shear', PUSHPULL: 'Push/Pull', EDGESLIDE: 'Edge Slide', BEND: 'Bend', WARP: 'Warp' })[curMode];
+  const modeLabel = () => ({ TRANSLATION: 'Move', ROTATION: 'Rotate', RESIZE: 'Resize', TRACKBALL: 'Trackball', SHRINKFATTEN: 'Shrink/Fatten', TOSPHERE: 'To Sphere', SHEAR: 'Shear', PUSHPULL: 'Push/Pull', EDGESLIDE: 'Edge Slide', BEND: 'Bend', WARP: 'Warp', TILT: 'Tilt', CURVE_SHRINKFATTEN: 'Radius' })[curMode];
 
   const fmt = (x: number) => (Math.abs(x) < 1e-6 ? '0' : x.toFixed(4).replace(/\.?0+$/, ''));
   const fmtDeg = (x: number) => `${fmt((x * 180) / Math.PI)}°`;
@@ -1063,6 +1091,8 @@ export function startTransform(
     else if (curMode === 'BEND') body = `Bend Angle: ${fmtDeg(v0[0] ?? 0)}  Radius: ${fmt(v0[1] ?? 1)}`;
     else if (curMode === 'WARP') body = `Warp: ${fmtDeg(v0[0] ?? 0)}`;
     else if (curMode === 'TOSPHERE') body = `To Sphere: ${fmt(v0[0] ?? 0)}`;
+    else if (curMode === 'TILT') body = `Tilt: ${fmtDeg(v0[0] ?? 0)}`;
+    else if (curMode === 'CURVE_SHRINKFATTEN') body = `Shrink/Fatten: ${fmt(v0[0] ?? 1)}`;
     else body = `${modeLabel()}: ${fmt(v0[0] ?? 0)} m`;
     return `${body}${cname}${numTxt}${snapOn() ? '  (Snap)' : ''}${prop}`;
   };
@@ -1184,7 +1214,7 @@ export function startTransform(
         setTimeout(() => app.run('transform.edge_slide'), 0);
         return 'CANCELLED';
       }
-      if ((code === 'KeyG' || code === 'KeyR' || code === 'KeyS') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if ((code === 'KeyG' || code === 'KeyR' || code === 'KeyS') && !e.ctrlKey && !e.metaKey && !e.altKey && !VALUE_MODES.has(curMode)) {
         switchMode(code === 'KeyG' ? 'TRANSLATION' : code === 'KeyR' ? (curMode === 'ROTATION' ? 'TRACKBALL' : 'ROTATION') : 'RESIZE');
         return true;
       }
@@ -1353,6 +1383,50 @@ registerOperators([
   },
 ]);
 
+registerOperators([
+  transformOp('transform.tilt', 'Tilt', 'TILT', 'Tilt the selected curve control points', [{ id: 'value', label: 'Angle', type: 'float', default: 0, subtype: 'angle' }, ...PROPORTIONAL_PROPS], () => !!activeView3D() && curveEditData() !== null),
+]);
+
+function curveEditData() {
+  const ob = app.activeObject;
+  if (app.doc.mode !== 'EDIT' || ob?.type !== 'CURVE' || !ob.data) return null;
+  const cu = app.doc.curves[ob.data];
+  return cu ? { ob, cu } : null;
+}
+
+// Curve tilt and radius: each selected control point keeps its own starting value
+const valueProvider: TProvider = {
+  collect({ mode }) {
+    if (!mode || !VALUE_MODES.has(mode)) return null;
+    const c = curveEditData();
+    if (!c) return null;
+    const world = app.graph.get(c.ob.id)?.world ?? new Matrix4();
+    const elements: TElement[] = [];
+    for (const sp of c.cu.splines) {
+      const pts = sp.type === 'BEZIER' ? sp.bezier_points.filter((b) => b.select_control_point) : sp.points.filter((p) => p.select);
+      for (const p of pts) {
+        const t0 = p.tilt,
+          r0 = p.radius;
+        elements.push({
+          center: new Vector3(p.co[0], p.co[1], p.co[2]).applyMatrix4(world),
+          basis: new Matrix3(),
+          weight: 1,
+          apply(_m, ctx) {
+            if (ctx.mode === 'TILT') p.tilt = t0 + (ctx.value[0] ?? 0);
+            else if (ctx.mode === 'CURVE_SHRINKFATTEN') p.radius = Math.max(0, r0 * (ctx.value[0] ?? 1));
+          },
+          restore() {
+            p.tilt = t0;
+            p.radius = r0;
+          },
+        });
+      }
+    }
+    if (!elements.length) return null;
+    return { elements, label: 'Curve Points', finish() {}, cancel() {}, onUpdate: () => app.changed('doc', 'geometry') };
+  },
+};
+
 // The generic transform operator (mode chosen by property). Other editors may already provide
 // modes of their own (e.g. Time Extend in the sequencer); those keep working through it.
 const GENERIC_MODES: [string, TransformMode][] = [
@@ -1365,6 +1439,8 @@ const GENERIC_MODES: [string, TransformMode][] = [
   ['BEND', 'BEND'],
   ['SHRINKFATTEN', 'SHRINKFATTEN'],
   ['PUSHPULL', 'PUSHPULL'],
+  ['TILT', 'TILT'],
+  ['CURVE_SHRINKFATTEN', 'CURVE_SHRINKFATTEN'],
 ];
 onAppReady(() => {
   const prev = operators.get('transform.transform');
