@@ -153,6 +153,11 @@ adds entries to File ▸ Import/Export. Native format: `io/native.ts`.
 - `editors/view3d/draw.ts` `drawHooks`, `render/scene.ts` `sceneSyncHooks`
 - `render/final` `renderPostHooks` (compositor), sequencer frame hooks in `job.ts`
 - `app/keymap.ts` `keyInputHooks` (raw text input, e.g. Text Edit Mode)
+- Geometry nodes: `geonodes/nodes/gndef.ts` `geoNode(spec, exec)` defines a node inline; `geonodes/menuplace.ts`
+  places Add-menu entries by the menu's item order. Zones (`geonodes/zones/`) keep their items as JSON on the
+  output node (`repeat_items`, `state_items`, …; inputs find them through `props.paired_output`); a zone output
+  runs its body through `ZoneEval` (`ExecContext.evaluator` is the running evaluator). `NodeTypeDef.onAdd` adds
+  companion nodes when a node is added interactively.
 - `nodes/editor/context.ts` `registerNodeEditorProvider` (Shader, Geometry, Compositor editors; optional
   `linkViewer` for Ctrl Shift click, `viewPanels` / `optionsPanels` for the sidebar's View / Options tabs).
   Tree commands behind the node editor's menus are pure functions in `nodes/treeops.ts` and `nodes/iface.ts`.
