@@ -14,6 +14,8 @@ import './editmesh/ops-faces';
 import './editmesh/ops-edges';
 import './editmesh/ops-vertex';
 import './editmesh/select-extra';
+import './editmesh/mirror';
+import './editmesh/tools';
 import './armature/armature';
 import './armature/boneprops';
 import './armature/tools';

@@ -70,7 +70,30 @@ export function bevelVertices(m: MeshEdit, offset: number): boolean {
  * Edge bevel: faces adjacent to beveled edges are pulled back by `offset`, a strip of
  * `segments` rows (profile-curved) replaces each edge, and vertex junctions are closed.
  */
-export function bevelEdges(m: MeshEdit, offset: number, segments: number, profile = 0.5): boolean {
+export interface BevelOptions {
+  /** mark the bevel's outer edges as seams / sharp */
+  markSeam?: boolean;
+  markSharp?: boolean;
+  /** limit the width so neighbouring bevels don't overlap */
+  clamp?: boolean;
+}
+
+/** Largest width that keeps the corners of neighbouring bevels from crossing. */
+export function bevelClampLimit(m: MeshEdit): number {
+  const sel = new Set(m.selectedEdges().map(([a, b]) => edgeKey(a, b)));
+  const verts = new Set<number>();
+  for (const k of sel) k.split(':').forEach((x) => verts.add(Number(x)));
+  let limit = Infinity;
+  for (const [a, b] of m.edges()) {
+    if (sel.has(edgeKey(a, b)) || (!verts.has(a) && !verts.has(b))) continue;
+    const len = V(m.p(a)).distanceTo(V(m.p(b)));
+    limit = Math.min(limit, verts.has(a) && verts.has(b) ? len / 2 : len);
+  }
+  return limit;
+}
+
+export function bevelEdges(m: MeshEdit, offset: number, segments: number, profile = 0.5, opts: BevelOptions = {}): boolean {
+  if (opts.clamp) offset = Math.min(offset, bevelClampLimit(m));
   const sel = new Set(m.selectedEdges().map(([a, b]) => edgeKey(a, b)));
   if (!sel.size || offset <= 0) return false;
   const ef = m.edgeFaces();
@@ -143,7 +166,16 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
     if (a1 === undefined || b1 === undefined || a2 === undefined || b2 === undefined) continue;
     const ra = rowVerts(a1, a2, a),
       rb = rowVerts(b1, b2, b);
-    for (let s = 0; s < segs; s++) added.push(m.makeFace([rb[s], ra[s], ra[s + 1], rb[s + 1]], A));
+    for (let s = 0; s < segs; s++) {
+      const strip = m.makeFace([rb[s], ra[s], ra[s + 1], rb[s + 1]], A);
+      // the strip's outer edges border the original faces
+      for (const [flag, on] of [['seams', opts.markSeam], ['sharp', opts.markSharp]] as const)
+        if (on) {
+          if (s === 0) strip[flag][0] = 1;
+          if (s === segs - 1) strip[flag][2] = 1;
+        }
+      added.push(strip);
+    }
     (junction.get(a) ?? junction.set(a, []).get(a)!).push(ra);
     (junction.get(b) ?? junction.set(b, []).get(b)!).push(rb);
   }

@@ -4,11 +4,10 @@ import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
 import { addKeys } from '../../app/keymap';
 import { modeMenus } from '../../editors/view3d/modemenus';
-import { editModeHooks } from '../../editors/view3d/hooks';
-import { activeTools } from '../../app/prefs';
 import type { MenuItem } from '../../ui/menu';
 import { meshAddMenu, snapMenu } from '../../editors/view3d/menus';
 import { selectMode, inMeshEdit } from './context';
+import { similarMenu } from './select-extra';
 
 const isMeshEdit = () => inMeshEdit();
 
@@ -24,7 +23,10 @@ export function deleteMenu(): MenuItem[] {
     { label: 'Dissolve Edges', op: 'mesh.dissolve_edges' },
     { label: 'Dissolve Faces', op: 'mesh.dissolve_faces' },
     { separator: true },
-    { label: 'Delete Loose', op: 'mesh.delete_loose' },
+    { label: 'Limited Dissolve', op: 'mesh.dissolve_limited' },
+    { separator: true },
+    { label: 'Collapse Edges & Faces', op: 'mesh.edge_collapse' },
+    { label: 'Edge Loops', op: 'mesh.delete_edgeloop' },
   ];
 }
 
@@ -40,31 +42,99 @@ export function mergeMenu(): MenuItem[] {
   ];
 }
 
-export function vertexMenu(): MenuItem[] {
+export function splitMenu(): MenuItem[] {
   return [
-    { label: 'Extrude Vertices', op: 'mesh.extrude_vertices_move' },
-    { label: 'Bevel Vertices', op: 'mesh.bevel', props: { affect: 'VERTICES' }, shortcut: 'Shift Ctrl B' },
+    { label: 'Selection', op: 'mesh.split', shortcut: 'Y' },
     { separator: true },
-    { label: 'New Edge/Face from Vertices', op: 'mesh.edge_face_add', shortcut: 'F' },
-    { label: 'Connect Vertex Path', op: 'mesh.vert_connect_path', shortcut: 'J' },
-    { separator: true },
-    { label: 'Slide Vertices', op: 'transform.vert_slide', shortcut: 'Shift V' },
-    { label: 'Smooth Vertices', op: 'mesh.vertices_smooth' },
-    { separator: true },
-    { label: 'Merge Vertices', submenu: mergeMenu },
-    { label: 'Split', op: 'mesh.split', shortcut: 'Y' },
-    { label: 'Rip Vertices', op: 'mesh.rip_move', shortcut: 'V' },
-    { label: 'Separate', submenu: separateMenu, shortcut: 'P' },
-    { separator: true },
-    { label: 'Add Hook to New Object', op: 'object.hook_add_newob' },
+    { label: 'Faces by Edges', op: 'mesh.edge_split', props: { type: 'EDGE' } },
+    { label: 'Faces & Edges by Vertices', op: 'mesh.edge_split', props: { type: 'VERT' } },
   ];
 }
 
-function separateMenu(): MenuItem[] {
+export function separateMenu(): MenuItem[] {
   return [
     { label: 'Selection', op: 'mesh.separate', props: { type: 'SELECTED' } },
     { label: 'By Material', op: 'mesh.separate', props: { type: 'MATERIAL' } },
     { label: 'By Loose Parts', op: 'mesh.separate', props: { type: 'LOOSE' } },
+  ];
+}
+
+/** Extrude menu: the entries depend on the select mode. */
+export function extrudeMenu(): MenuItem[] {
+  const [v, e] = app.doc.scene.tool_settings.mesh_select_mode;
+  return [
+    { label: 'Extrude Faces', op: 'view3d.edit_mesh_extrude_move_normal', shortcut: 'E' },
+    { label: 'Extrude Faces Along Normals', op: 'view3d.edit_mesh_extrude_move_shrink_fatten' },
+    { label: 'Extrude Individual Faces', op: 'mesh.extrude_faces_move' },
+    { label: 'Extrude Manifold', op: 'mesh.extrude_manifold' },
+    ...(v || e ? [{ label: 'Extrude Edges', op: 'mesh.extrude_edges_move' }] : []),
+    ...(v ? [{ label: 'Extrude Vertices', op: 'mesh.extrude_vertices_move' }] : []),
+    { separator: true },
+    { label: 'Extrude Repeat', op: 'mesh.extrude_repeat' },
+    { label: 'Spin', op: 'mesh.spin', shortcut: 'Alt R' },
+  ];
+}
+
+function mirrorMenu(): MenuItem[] {
+  return [
+    ...['X', 'Y', 'Z'].map((a, i) => ({ label: `${a} Global`, op: 'transform.mirror', props: { axis: i, orient_type: 'GLOBAL' } })),
+    { separator: true },
+    ...['X', 'Y', 'Z'].map((a, i) => ({ label: `${a} Local`, op: 'transform.mirror', props: { axis: i, orient_type: 'LOCAL' } })),
+  ];
+}
+
+function hooksMenu(): MenuItem[] {
+  return [{ label: 'Hook to New Object', op: 'object.hook_add_newob' }];
+}
+
+function vertexGroupMenu(): MenuItem[] {
+  return [
+    { label: 'Assign to New Group', action: () => app.run('object.vertex_group_add') === 'FINISHED' && app.run('object.vertex_group_assign') },
+    { separator: true },
+    { label: 'Assign to Active Group', op: 'object.vertex_group_assign' },
+    { label: 'Remove from Active Group', op: 'object.vertex_group_remove_from', shortcut: 'Ctrl Alt G' },
+    { separator: true },
+    { label: 'Select Active Group', op: 'object.vertex_group_select' },
+    { label: 'Deselect Active Group', op: 'object.vertex_group_deselect' },
+  ];
+}
+
+function weightsMenu(): MenuItem[] {
+  return [
+    { label: 'Normalize All', op: 'object.vertex_group_normalize_all' },
+    { label: 'Normalize', op: 'object.vertex_group_normalize' },
+    { separator: true },
+    { label: 'Invert', op: 'object.vertex_group_invert' },
+    { label: 'Clean', op: 'object.vertex_group_clean' },
+    { separator: true },
+    { label: 'Smooth', op: 'object.vertex_group_smooth' },
+    { label: 'Limit Total', op: 'object.vertex_group_limit_total' },
+  ];
+}
+
+export function vertexMenu(): MenuItem[] {
+  return [
+    { label: 'Extrude Vertices', op: 'mesh.extrude_vertices_move' },
+    { label: 'Extrude to Cursor or Add', op: 'mesh.dupli_extrude_cursor', shortcut: 'Ctrl Click' },
+    { label: 'Bevel Vertices', op: 'mesh.bevel', props: { affect: 'VERTICES' }, shortcut: 'Shift Ctrl B' },
+    { separator: true },
+    { label: 'New Edge/Face from Vertices', op: 'mesh.edge_face_add', shortcut: 'F' },
+    { label: 'Connect Vertex Path', op: 'mesh.vert_connect_path', shortcut: 'J' },
+    { label: 'Connect Vertex Pairs', op: 'mesh.vert_connect' },
+    { separator: true },
+    { label: 'Rip Vertices', op: 'mesh.rip_move', shortcut: 'V' },
+    { label: 'Rip Vertices and Fill', op: 'mesh.rip_move', props: { use_fill: true }, shortcut: 'Alt V' },
+    { label: 'Rip Vertices and Extend', op: 'mesh.rip_edge_move', shortcut: 'Alt D' },
+    { separator: true },
+    { label: 'Slide Vertices', op: 'transform.vert_slide', shortcut: 'Shift V' },
+    { label: 'Smooth Vertices', op: 'mesh.vertices_smooth' },
+    { label: 'Smooth Laplacian', op: 'mesh.vertices_smooth_laplacian' },
+    { separator: true },
+    { label: 'Blend from Shape', op: 'mesh.blend_from_shape' },
+    { label: 'Propagate to Shapes', op: 'mesh.shape_propagate_to_all' },
+    { separator: true },
+    { label: 'Vertex Groups', submenu: vertexGroupMenu, shortcut: 'Ctrl G' },
+    { label: 'Hooks', submenu: hooksMenu, shortcut: 'Ctrl H' },
   ];
 }
 
@@ -73,14 +143,18 @@ export function edgeMenu(): MenuItem[] {
     { label: 'Extrude Edges', op: 'mesh.extrude_edges_move' },
     { label: 'Bevel Edges', op: 'mesh.bevel', props: { affect: 'EDGES' }, shortcut: 'Ctrl B' },
     { label: 'Bridge Edge Loops', op: 'mesh.bridge_edge_loops' },
+    { label: 'Screw', op: 'mesh.screw' },
     { separator: true },
     { label: 'Subdivide', op: 'mesh.subdivide' },
-    { label: 'Loop Cut and Slide', op: 'mesh.loopcut_slide', shortcut: 'Ctrl R' },
+    { label: 'Subdivide Edge-Ring', op: 'mesh.subdivide_edgering' },
+    { label: 'Un-Subdivide', op: 'mesh.unsubdivide' },
     { separator: true },
     { label: 'Rotate Edge CW', op: 'mesh.edge_rotate', props: { use_ccw: false } },
     { label: 'Rotate Edge CCW', op: 'mesh.edge_rotate', props: { use_ccw: true } },
     { separator: true },
     { label: 'Edge Slide', op: 'transform.edge_slide' },
+    { label: 'Offset Edge Slide', op: 'mesh.offset_edge_loops_slide', shortcut: 'Shift Ctrl R' },
+    { label: 'Loop Cut and Slide', op: 'mesh.loopcut_slide', shortcut: 'Ctrl R' },
     { separator: true },
     { label: 'Edge Crease', op: 'transform.edge_crease', shortcut: 'Shift E' },
     { separator: true },
@@ -89,24 +163,48 @@ export function edgeMenu(): MenuItem[] {
     { separator: true },
     { label: 'Mark Sharp', op: 'mesh.mark_sharp', props: { clear: false } },
     { label: 'Clear Sharp', op: 'mesh.mark_sharp', props: { clear: true } },
+    { separator: true },
+    { label: 'Mark Sharp from Vertices', op: 'mesh.mark_sharp', props: { use_verts: true } },
+    { label: 'Set Sharpness by Angle', op: 'mesh.set_sharpness_by_angle' },
+  ];
+}
+
+function faceDataMenu(): MenuItem[] {
+  return [
+    { label: 'Rotate Colors', op: 'mesh.colors_rotate' },
+    { label: 'Reverse Colors', op: 'mesh.colors_reverse' },
+    { separator: true },
+    { label: 'Rotate UVs', op: 'mesh.uvs_rotate' },
+    { label: 'Reverse UVs', op: 'mesh.uvs_reverse' },
   ];
 }
 
 export function faceMenu(): MenuItem[] {
   return [
-    { label: 'Extrude Faces', op: 'mesh.extrude_region_move', shortcut: 'E' },
+    { label: 'Extrude Faces', op: 'view3d.edit_mesh_extrude_move_normal', shortcut: 'E' },
+    { label: 'Extrude Faces Along Normals', op: 'view3d.edit_mesh_extrude_move_shrink_fatten' },
     { label: 'Extrude Individual Faces', op: 'mesh.extrude_faces_move' },
     { separator: true },
     { label: 'Inset Faces', op: 'mesh.inset', shortcut: 'I' },
     { label: 'Poke Faces', op: 'mesh.poke' },
-    { separator: true },
     { label: 'Triangulate Faces', op: 'mesh.quads_convert_to_tris', shortcut: 'Ctrl T' },
     { label: 'Tris to Quads', op: 'mesh.tris_convert_to_quads', shortcut: 'Alt J' },
+    { label: 'Solidify Faces', op: 'mesh.solidify' },
+    { label: 'Wireframe', op: 'mesh.wireframe' },
     { separator: true },
     { label: 'Fill', op: 'mesh.fill', shortcut: 'Alt F' },
+    { label: 'Grid Fill', op: 'mesh.fill_grid' },
+    { label: 'Beautify Faces', op: 'mesh.beautify_fill' },
+    { separator: true },
+    { label: 'Intersect (Knife)', op: 'mesh.intersect' },
+    { label: 'Intersect (Boolean)', op: 'mesh.intersect_boolean' },
+    { separator: true },
+    { label: 'Weld Edges into Faces', op: 'mesh.face_split_by_edges' },
     { separator: true },
     { label: 'Shade Smooth', op: 'mesh.faces_shade_smooth' },
     { label: 'Shade Flat', op: 'mesh.faces_shade_flat' },
+    { separator: true },
+    { label: 'Face Data', submenu: faceDataMenu },
   ];
 }
 
@@ -131,55 +229,104 @@ export function uvMenu(): MenuItem[] {
   ];
 }
 
-function normalsMenu(): MenuItem[] {
+export function normalsMenu(): MenuItem[] {
   return [
     { label: 'Flip', op: 'mesh.flip_normals' },
     { label: 'Recalculate Outside', op: 'mesh.normals_make_consistent', props: { inside: false }, shortcut: 'Shift N' },
-    { label: 'Recalculate Inside', op: 'mesh.normals_make_consistent', props: { inside: true } },
+    { label: 'Recalculate Inside', op: 'mesh.normals_make_consistent', props: { inside: true }, shortcut: 'Shift Ctrl N' },
+  ];
+}
+
+function shadingMenu(): MenuItem[] {
+  return [
+    { label: 'Smooth Faces', op: 'mesh.faces_shade_smooth' },
+    { label: 'Flat Faces', op: 'mesh.faces_shade_flat' },
+    { separator: true },
+    { label: 'Smooth Edges', op: 'mesh.mark_sharp', props: { clear: true } },
+    { label: 'Sharp Edges', op: 'mesh.mark_sharp', props: { clear: false } },
+    { separator: true },
+    { label: 'Smooth Vertices', op: 'mesh.mark_sharp', props: { clear: true, use_verts: true } },
+    { label: 'Sharp Vertices', op: 'mesh.mark_sharp', props: { clear: false, use_verts: true } },
+  ];
+}
+
+function cleanUpMenu(): MenuItem[] {
+  return [
+    { label: 'Delete Loose', op: 'mesh.delete_loose' },
+    { separator: true },
+    { label: 'Decimate Geometry', op: 'mesh.decimate' },
+    { label: 'Degenerate Dissolve', op: 'mesh.dissolve_degenerate' },
+    { label: 'Limited Dissolve', op: 'mesh.dissolve_limited' },
+    { label: 'Make Planar Faces', op: 'mesh.face_make_planar' },
+    { separator: true },
+    { label: 'Split Non-Planar Faces', op: 'mesh.vert_connect_nonplanar' },
+    { label: 'Split Concave Faces', op: 'mesh.vert_connect_concave' },
+    { label: 'Merge by Distance', op: 'mesh.remove_doubles' },
+    { label: 'Fill Holes', op: 'mesh.fill_holes' },
+  ];
+}
+
+function sortMenu(): MenuItem[] {
+  return [
+    ['VIEW_ZAXIS', 'View Z Axis'],
+    ['VIEW_XAXIS', 'View X Axis'],
+    ['CURSOR_DISTANCE', 'Cursor Distance'],
+    ['MATERIAL', 'Material'],
+    ['SELECTED', 'Selected'],
+    ['RANDOMIZE', 'Randomize'],
+    ['REVERSE', 'Reverse'],
+  ].map(([type, label]) => ({ label, op: 'mesh.sort_elements', props: { type, elements: type === 'MATERIAL' ? 'FACE' : 'VERT' } }));
+}
+
+function showHideMenu(): MenuItem[] {
+  return [
+    { label: 'Reveal Hidden', op: 'mesh.reveal', shortcut: 'Alt H' },
+    { label: 'Hide Selected', op: 'mesh.hide', shortcut: 'H' },
+    { label: 'Hide Unselected', op: 'mesh.hide', props: { unselected: true }, shortcut: 'Shift H' },
   ];
 }
 
 function meshMenu(): MenuItem[] {
   return [
-    { label: 'Transform', submenu: () => [
-      { label: 'Move', op: 'transform.translate', shortcut: 'G' },
-      { label: 'Rotate', op: 'transform.rotate', shortcut: 'R' },
-      { label: 'Scale', op: 'transform.resize', shortcut: 'S' },
-      { separator: true },
-      { label: 'To Sphere', op: 'transform.tosphere', shortcut: 'Shift Alt S' },
-      { label: 'Shrink/Fatten', op: 'transform.shrink_fatten', shortcut: 'Alt S' },
-      { label: 'Push/Pull', op: 'transform.push_pull' },
-    ] },
-    { label: 'Mirror', submenu: () => [{ label: 'Symmetrize', op: 'mesh.symmetrize' }] },
+    {
+      label: 'Transform',
+      submenu: () => [
+        { label: 'Move', op: 'transform.translate', shortcut: 'G' },
+        { label: 'Rotate', op: 'transform.rotate', shortcut: 'R' },
+        { label: 'Scale', op: 'transform.resize', shortcut: 'S' },
+        { separator: true },
+        { label: 'To Sphere', op: 'transform.tosphere', shortcut: 'Shift Alt S' },
+        { label: 'Push/Pull', op: 'transform.push_pull' },
+        { label: 'Randomize', op: 'transform.vertex_random' },
+        { separator: true },
+        { label: 'Shrink/Fatten', op: 'transform.shrink_fatten', shortcut: 'Alt S' },
+      ],
+    },
+    { label: 'Mirror', submenu: mirrorMenu },
     { label: 'Snap', submenu: snapMenu },
     { separator: true },
     { label: 'Duplicate', op: 'mesh.duplicate_move', shortcut: 'Shift D' },
-    { label: 'Extrude', submenu: () => [
-      { label: 'Extrude Faces', op: 'mesh.extrude_region_move' },
-      { label: 'Extrude Individual Faces', op: 'mesh.extrude_faces_move' },
-      { label: 'Extrude Edges', op: 'mesh.extrude_edges_move' },
-      { label: 'Extrude Vertices', op: 'mesh.extrude_vertices_move' },
-      { label: 'Spin', op: 'mesh.spin' },
-    ] },
+    { label: 'Extrude', submenu: extrudeMenu, shortcut: 'Alt E' },
     { separator: true },
     { label: 'Merge', submenu: mergeMenu, shortcut: 'M' },
-    { label: 'Split', op: 'mesh.split', shortcut: 'Y' },
-    { label: 'Rip Vertices', op: 'mesh.rip_move', shortcut: 'V' },
+    { label: 'Split', submenu: splitMenu, shortcut: 'Alt M' },
     { label: 'Separate', submenu: separateMenu, shortcut: 'P' },
     { separator: true },
     { label: 'Bisect', op: 'mesh.bisect' },
+    { label: 'Knife Project', op: 'mesh.knife_project' },
+    { label: 'Knife Topology Tool', op: 'mesh.knife_tool', shortcut: 'K' },
+    { label: 'Convex Hull', op: 'mesh.convex_hull' },
+    { separator: true },
+    { label: 'Symmetrize', op: 'mesh.symmetrize' },
+    { label: 'Snap to Symmetry', op: 'mesh.symmetry_snap' },
     { separator: true },
     { label: 'Normals', submenu: normalsMenu, shortcut: 'Alt N' },
-    { label: 'Shading', submenu: () => [{ label: 'Smooth Faces', op: 'mesh.faces_shade_smooth' }, { label: 'Flat Faces', op: 'mesh.faces_shade_flat' }] },
-    { label: 'Show/Hide', submenu: () => [
-      { label: 'Reveal Hidden', op: 'mesh.reveal', shortcut: 'Alt H' },
-      { label: 'Hide Selected', op: 'mesh.hide', shortcut: 'H' },
-      { label: 'Hide Unselected', op: 'mesh.hide', props: { unselected: true }, shortcut: 'Shift H' },
-    ] },
-    { label: 'Clean Up', submenu: () => [
-      { label: 'Delete Loose', op: 'mesh.delete_loose' },
-      { label: 'Merge by Distance', op: 'mesh.remove_doubles' },
-    ] },
+    { label: 'Shading', submenu: shadingMenu },
+    { label: 'Weights', submenu: weightsMenu },
+    { label: 'Sort Elements', submenu: sortMenu },
+    { separator: true },
+    { label: 'Show/Hide', submenu: showHideMenu },
+    { label: 'Clean Up', submenu: cleanUpMenu },
     { separator: true },
     { label: 'Delete', submenu: deleteMenu, shortcut: 'X' },
   ];
@@ -194,22 +341,56 @@ function selectMenuEdit(): MenuItem[] {
     { label: 'Box Select', op: 'view3d.select_box_tool', shortcut: 'B' },
     { label: 'Circle Select', op: 'view3d.select_circle_tool', shortcut: 'C' },
     { separator: true },
+    { label: 'Select Mirror', op: 'mesh.select_mirror', shortcut: 'Shift Ctrl M' },
     { label: 'Select Random', op: 'mesh.select_random' },
     { label: 'Checker Deselect', op: 'mesh.select_nth' },
     { separator: true },
-    { label: 'Select More/Less', submenu: () => [{ label: 'More', op: 'mesh.select_more', shortcut: 'Ctrl Numpad +' }, { label: 'Less', op: 'mesh.select_less', shortcut: 'Ctrl Numpad -' }] },
+    {
+      label: 'Select More/Less',
+      submenu: () => [
+        { label: 'More', op: 'mesh.select_more', shortcut: 'Ctrl Numpad +' },
+        { label: 'Less', op: 'mesh.select_less', shortcut: 'Ctrl Numpad -' },
+        { separator: true },
+        { label: 'Next Active', op: 'mesh.select_next_item', shortcut: 'Shift Ctrl Numpad +' },
+        { label: 'Previous Active', op: 'mesh.select_prev_item', shortcut: 'Shift Ctrl Numpad -' },
+      ],
+    },
     { separator: true },
-    { label: 'Select All by Trait', submenu: () => [
-      { label: 'Non Manifold', op: 'mesh.select_non_manifold' },
-      { label: 'Loose Geometry', op: 'mesh.select_loose' },
-      { label: 'Faces by Sides', op: 'mesh.select_face_by_sides' },
-    ] },
-    { label: 'Select Similar', submenu: () => (['NORMAL', 'AREA', 'SIDES', 'MATERIAL', 'SMOOTH', 'COPLANAR'] as const).map((t) => ({ label: { NORMAL: 'Normal', AREA: 'Area', SIDES: 'Polygon Sides', MATERIAL: 'Material', SMOOTH: 'Flat/Smooth', COPLANAR: 'Coplanar' }[t], op: 'mesh.select_similar', props: { type: t } })), shortcut: 'Shift G' },
+    { label: 'Select Similar', submenu: similarMenu, shortcut: 'Shift G' },
+    {
+      label: 'Select All by Trait',
+      submenu: () => [
+        { label: 'Non Manifold', op: 'mesh.select_non_manifold' },
+        { label: 'Loose Geometry', op: 'mesh.select_loose' },
+        { label: 'Interior Faces', op: 'mesh.select_interior_faces' },
+        { label: 'Faces by Sides', op: 'mesh.select_face_by_sides' },
+        { label: 'Poles by Count', op: 'mesh.select_by_pole_count' },
+        { separator: true },
+        { label: 'Ungrouped Vertices', op: 'mesh.select_ungrouped' },
+      ],
+    },
+    {
+      label: 'Select Linked',
+      submenu: () => [
+        { label: 'Linked', op: 'mesh.select_linked', shortcut: 'Ctrl L' },
+        { label: 'Shortest Path', op: 'mesh.shortest_path_select' },
+        { label: 'Linked Flat Faces', op: 'mesh.faces_select_linked_flat' },
+      ],
+    },
+    {
+      label: 'Select Loops',
+      submenu: () => [
+        { label: 'Edge Loops', op: 'mesh.select_edge_loop_multi' },
+        { label: 'Edge Rings', op: 'mesh.select_edge_ring_multi' },
+        { label: 'Boundary Loops', op: 'mesh.select_boundary_loop_multi' },
+        { separator: true },
+        { label: 'Loop Inner-Region', op: 'mesh.loop_to_region' },
+        { label: 'Boundary of Selected', op: 'mesh.region_to_loop' },
+      ],
+    },
     { separator: true },
-    { label: 'Select Loops', submenu: () => [{ label: 'Edge Loops', op: 'mesh.loop_multi_select', props: { ring: false } }, { label: 'Edge Rings', op: 'mesh.loop_multi_select', props: { ring: true } }] },
-    { separator: true },
-    { label: 'Select Linked', submenu: () => [{ label: 'Linked', op: 'mesh.select_linked', shortcut: 'Ctrl L' }] },
-    { label: 'Select Mirror', op: 'mesh.select_mirror', shortcut: 'Shift Ctrl M' },
+    { label: 'Sharp Edges', op: 'mesh.edges_select_sharp' },
+    { label: 'Side of Active', op: 'mesh.select_axis' },
   ];
 }
 
@@ -219,66 +400,85 @@ function addMenuEdit(): MenuItem[] {
 
 function contextMenu(): MenuItem[] {
   const m = selectMode();
+  const tail = (what: string, dissolve: string, type: string): MenuItem[] => [
+    { separator: true },
+    { label: 'Split', op: 'mesh.split', shortcut: 'Y' },
+    { label: 'Separate', submenu: separateMenu, shortcut: 'P' },
+    { label: `Dissolve ${what}`, op: dissolve },
+    { label: `Delete ${what}`, op: 'mesh.delete', props: { type } },
+  ];
   if (m === 'VERT')
     return [
-      { heading: 'Vertex Context Menu' },
+      { heading: 'Vertex' },
       { label: 'Subdivide', op: 'mesh.subdivide' },
+      { separator: true },
       { label: 'Extrude Vertices', op: 'mesh.extrude_vertices_move' },
-      { label: 'Bevel Vertices', op: 'mesh.bevel', props: { affect: 'VERTICES' } },
+      { label: 'Bevel Vertices', op: 'mesh.bevel', props: { affect: 'VERTICES' }, shortcut: 'Shift Ctrl B' },
       { separator: true },
-      { label: 'New Edge/Face from Vertices', op: 'mesh.edge_face_add' },
+      { label: 'New Edge/Face from Vertices', op: 'mesh.edge_face_add', shortcut: 'F' },
+      { label: 'Connect Vertex Path', op: 'mesh.vert_connect_path', shortcut: 'J' },
       { separator: true },
+      { label: 'Push/Pull', op: 'transform.push_pull' },
+      { label: 'Shrink/Fatten', op: 'transform.shrink_fatten', shortcut: 'Alt S' },
+      { label: 'Slide Vertices', op: 'transform.vert_slide', shortcut: 'Shift V' },
+      { label: 'Randomize Vertices', op: 'transform.vertex_random' },
       { label: 'Smooth Vertices', op: 'mesh.vertices_smooth' },
-      { label: 'Mirror', op: 'mesh.symmetrize' },
+      { label: 'Smooth Laplacian', op: 'mesh.vertices_smooth_laplacian' },
       { separator: true },
-      { label: 'Merge Vertices', submenu: mergeMenu },
-      { label: 'Split', op: 'mesh.split' },
-      { label: 'Separate', submenu: separateMenu },
+      { label: 'Mirror Vertices', submenu: mirrorMenu },
+      { label: 'Snap Vertices', submenu: snapMenu },
       { separator: true },
-      { label: 'Dissolve Vertices', op: 'mesh.dissolve_verts' },
-      { label: 'Delete Vertices', op: 'mesh.delete', props: { type: 'VERT' } },
+      { label: 'Merge Vertices', submenu: mergeMenu, shortcut: 'M' },
+      ...tail('Vertices', 'mesh.dissolve_verts', 'VERT'),
     ];
   if (m === 'EDGE')
     return [
-      { heading: 'Edge Context Menu' },
+      { heading: 'Edge' },
       { label: 'Subdivide', op: 'mesh.subdivide' },
+      { label: 'Subdivide Edge-Ring', op: 'mesh.subdivide_edgering' },
+      { label: 'Un-Subdivide', op: 'mesh.unsubdivide' },
+      { separator: true },
+      { label: 'Rotate Edge CW', op: 'mesh.edge_rotate', props: { use_ccw: false } },
+      { label: 'Rotate Edge CCW', op: 'mesh.edge_rotate', props: { use_ccw: true } },
+      { separator: true },
       { label: 'Extrude Edges', op: 'mesh.extrude_edges_move' },
-      { label: 'Bevel Edges', op: 'mesh.bevel', props: { affect: 'EDGES' } },
+      { label: 'Bevel Edges', op: 'mesh.bevel', props: { affect: 'EDGES' }, shortcut: 'Ctrl B' },
       { label: 'Bridge Edge Loops', op: 'mesh.bridge_edge_loops' },
       { separator: true },
-      { label: 'New Face from Edges', op: 'mesh.edge_face_add' },
+      { label: 'New Face from Edges', op: 'mesh.edge_face_add', shortcut: 'F' },
       { separator: true },
-      { label: 'Loop Cut and Slide', op: 'mesh.loopcut_slide' },
+      { label: 'Loop Cut and Slide', op: 'mesh.loopcut_slide', shortcut: 'Ctrl R' },
       { label: 'Edge Slide', op: 'transform.edge_slide' },
+      { label: 'Offset Edge Slide', op: 'mesh.offset_edge_loops_slide', shortcut: 'Shift Ctrl R' },
+      { separator: true },
+      { label: 'Edge Crease', op: 'transform.edge_crease', shortcut: 'Shift E' },
       { separator: true },
       { label: 'Mark Seam', op: 'mesh.mark_seam', props: { clear: false } },
       { label: 'Clear Seam', op: 'mesh.mark_seam', props: { clear: true } },
+      { separator: true },
       { label: 'Mark Sharp', op: 'mesh.mark_sharp', props: { clear: false } },
       { label: 'Clear Sharp', op: 'mesh.mark_sharp', props: { clear: true } },
-      { separator: true },
-      { label: 'Dissolve Edges', op: 'mesh.dissolve_edges' },
-      { label: 'Delete Edges', op: 'mesh.delete', props: { type: 'EDGE' } },
+      ...tail('Edges', 'mesh.dissolve_edges', 'EDGE'),
     ];
   return [
-    { heading: 'Face Context Menu' },
+    { heading: 'Face' },
     { label: 'Subdivide', op: 'mesh.subdivide' },
     { separator: true },
-    { label: 'Extrude Faces', op: 'mesh.extrude_region_move' },
+    { label: 'Extrude Faces', op: 'view3d.edit_mesh_extrude_move_normal', shortcut: 'E' },
+    { label: 'Extrude Faces Along Normals', op: 'view3d.edit_mesh_extrude_move_shrink_fatten' },
     { label: 'Extrude Individual Faces', op: 'mesh.extrude_faces_move' },
     { separator: true },
-    { label: 'Inset Faces', op: 'mesh.inset' },
+    { label: 'Inset Faces', op: 'mesh.inset', shortcut: 'I' },
     { label: 'Poke Faces', op: 'mesh.poke' },
     { separator: true },
-    { label: 'Triangulate Faces', op: 'mesh.quads_convert_to_tris' },
-    { label: 'Tris to Quads', op: 'mesh.tris_convert_to_quads' },
+    { label: 'Triangulate Faces', op: 'mesh.quads_convert_to_tris', shortcut: 'Ctrl T' },
+    { label: 'Tris to Quads', op: 'mesh.tris_convert_to_quads', shortcut: 'Alt J' },
     { separator: true },
     { label: 'Shade Smooth', op: 'mesh.faces_shade_smooth' },
     { label: 'Shade Flat', op: 'mesh.faces_shade_flat' },
     { separator: true },
     { label: 'UV Unwrap Faces', submenu: uvMenu },
-    { separator: true },
-    { label: 'Dissolve Faces', op: 'mesh.dissolve_faces' },
-    { label: 'Delete Faces', op: 'mesh.delete', props: { type: 'FACE' } },
+    ...tail('Faces', 'mesh.dissolve_faces', 'FACE'),
   ];
 }
 
@@ -327,15 +527,23 @@ addKeys('Mesh', [
   { key: 'ONE', shift: true, op: 'mesh.select_mode', props: { type: 'VERT', use_extend: true }, when: m },
   { key: 'TWO', shift: true, op: 'mesh.select_mode', props: { type: 'EDGE', use_extend: true }, when: m },
   { key: 'THREE', shift: true, op: 'mesh.select_mode', props: { type: 'FACE', use_extend: true }, when: m },
+  { key: 'ONE', ctrl: true, op: 'mesh.select_mode', props: { type: 'VERT', use_expand: true }, when: m },
+  { key: 'TWO', ctrl: true, op: 'mesh.select_mode', props: { type: 'EDGE', use_expand: true }, when: m },
+  { key: 'THREE', ctrl: true, op: 'mesh.select_mode', props: { type: 'FACE', use_expand: true }, when: m },
+  { key: 'ONE', shift: true, ctrl: true, op: 'mesh.select_mode', props: { type: 'VERT', use_extend: true, use_expand: true }, when: m },
+  { key: 'TWO', shift: true, ctrl: true, op: 'mesh.select_mode', props: { type: 'EDGE', use_extend: true, use_expand: true }, when: m },
+  { key: 'THREE', shift: true, ctrl: true, op: 'mesh.select_mode', props: { type: 'FACE', use_extend: true, use_expand: true }, when: m },
   { key: 'A', op: 'mesh.select_all', props: { action: 'SELECT' }, when: m },
   { key: 'A', alt: true, op: 'mesh.select_all', props: { action: 'DESELECT' }, when: m },
   { key: 'I', ctrl: true, op: 'mesh.select_all', props: { action: 'INVERT' }, when: m },
   { key: 'NUMPAD_PLUS', ctrl: true, op: 'mesh.select_more', when: m },
   { key: 'NUMPAD_MINUS', ctrl: true, op: 'mesh.select_less', when: m },
+  { key: 'NUMPAD_PLUS', shift: true, ctrl: true, op: 'mesh.select_next_item', when: m },
+  { key: 'NUMPAD_MINUS', shift: true, ctrl: true, op: 'mesh.select_prev_item', when: m },
   { key: 'L', ctrl: true, op: 'mesh.select_linked', when: m },
   { key: 'L', op: 'mesh.select_linked_pick', when: m },
   { key: 'L', shift: true, op: 'mesh.select_linked_pick', props: { deselect: true }, when: m },
-  { key: 'G', shift: true, menu: () => (['NORMAL', 'AREA', 'SIDES', 'MATERIAL', 'SMOOTH', 'COPLANAR'] as const).map((t) => ({ label: { NORMAL: 'Normal', AREA: 'Area', SIDES: 'Polygon Sides', MATERIAL: 'Material', SMOOTH: 'Flat/Smooth', COPLANAR: 'Coplanar' }[t], op: 'mesh.select_similar', props: { type: t } })), menuTitle: 'Select Similar', when: m },
+  { key: 'G', shift: true, menu: similarMenu, menuTitle: 'Select Similar', when: m },
   { key: 'M', shift: true, ctrl: true, op: 'mesh.select_mirror', when: m },
   { key: 'H', op: 'mesh.hide', when: m },
   { key: 'H', shift: true, op: 'mesh.hide', props: { unselected: true }, when: m },
@@ -343,25 +551,34 @@ addKeys('Mesh', [
   { key: 'X', menu: deleteMenu, menuTitle: 'Delete', when: m },
   { key: 'DEL', menu: deleteMenu, menuTitle: 'Delete', when: m },
   { key: 'X', ctrl: true, op: 'mesh.dissolve_mode', when: m },
-  { key: 'E', op: 'mesh.extrude_region_move', when: m },
-  { key: 'E', alt: true, menu: () => [{ label: 'Extrude Faces', op: 'mesh.extrude_region_move' }, { label: 'Extrude Individual Faces', op: 'mesh.extrude_faces_move' }, { label: 'Extrude Edges', op: 'mesh.extrude_edges_move' }, { label: 'Extrude Vertices', op: 'mesh.extrude_vertices_move' }], menuTitle: 'Extrude', when: m },
+  { key: 'DEL', ctrl: true, op: 'mesh.dissolve_mode', when: m },
+  { key: 'E', op: 'view3d.edit_mesh_extrude_move_normal', when: m },
+  { key: 'E', alt: true, menu: extrudeMenu, menuTitle: 'Extrude', when: m },
   { key: 'I', op: 'mesh.inset', when: m },
   { key: 'B', ctrl: true, op: 'mesh.bevel', props: { affect: 'EDGES' }, when: m },
   { key: 'B', ctrl: true, shift: true, op: 'mesh.bevel', props: { affect: 'VERTICES' }, when: m },
   { key: 'R', ctrl: true, op: 'mesh.loopcut_slide', when: m },
+  { key: 'R', ctrl: true, shift: true, op: 'mesh.offset_edge_loops_slide', when: m },
   { key: 'F', op: 'mesh.edge_face_add', when: m },
   { key: 'F', alt: true, op: 'mesh.fill', when: m },
   { key: 'M', menu: mergeMenu, menuTitle: 'Merge', when: m },
+  { key: 'M', alt: true, menu: splitMenu, menuTitle: 'Split', when: m },
   { key: 'Y', op: 'mesh.split', when: m },
   { key: 'P', menu: separateMenu, menuTitle: 'Separate', when: m },
+  { key: 'J', op: 'mesh.vert_connect_path', when: m },
   { key: 'D', shift: true, op: 'mesh.duplicate_move', when: m },
-  { key: 'N', shift: true, op: 'mesh.normals_make_consistent', when: m },
+  { key: 'N', shift: true, op: 'mesh.normals_make_consistent', props: { inside: false }, when: m },
+  { key: 'N', shift: true, ctrl: true, op: 'mesh.normals_make_consistent', props: { inside: true }, when: m },
   { key: 'N', alt: true, menu: normalsMenu, menuTitle: 'Normals', when: m },
   { key: 'V', ctrl: true, menu: vertexMenu, menuTitle: 'Vertex', when: m },
   { key: 'E', ctrl: true, menu: edgeMenu, menuTitle: 'Edge', when: m },
   { key: 'F', ctrl: true, menu: faceMenu, menuTitle: 'Face', when: m },
+  { key: 'G', ctrl: true, menu: vertexGroupMenu, menuTitle: 'Vertex Groups', when: m },
+  { key: 'G', ctrl: true, alt: true, op: 'object.vertex_group_remove_from', when: m },
+  { key: 'H', ctrl: true, menu: hooksMenu, menuTitle: 'Hooks', when: m },
   { key: 'U', menu: uvMenu, menuTitle: 'UV', when: m },
   { key: 'T', ctrl: true, op: 'mesh.quads_convert_to_tris', when: m },
+  { key: 'T', shift: true, ctrl: true, op: 'mesh.quads_convert_to_tris', when: m },
   { key: 'J', alt: true, op: 'mesh.tris_convert_to_quads', when: m },
   { key: 'S', alt: true, op: 'transform.shrink_fatten', when: m },
   { key: 'S', alt: true, shift: true, op: 'transform.tosphere', when: m },
@@ -370,45 +587,3 @@ addKeys('Mesh', [
   { key: 'R', alt: true, op: 'mesh.spin', when: m },
   { key: 'A', shift: true, menu: meshAddMenu, menuTitle: 'Add', when: m },
 ]);
-
-// Tool behaviour: LMB drag with modelling tools runs the tool
-editModeHooks.pointer.push((v, e) => {
-  if (!isMeshEdit()) return false;
-  const tool = activeTools.EDIT;
-  const map: Record<string, string> = {
-    'builtin.extrude_region': 'mesh.extrude_region_move',
-    'builtin.inset_faces': 'mesh.inset',
-    'builtin.bevel': 'mesh.bevel',
-    'builtin.loop_cut': 'mesh.loopcut_slide',
-    'builtin.spin': 'mesh.spin',
-    'builtin.smooth': 'mesh.vertices_smooth',
-    'builtin.edge_slide': 'transform.edge_slide',
-    'builtin.shrink_fatten': 'transform.shrink_fatten',
-  };
-  const op = map[tool];
-  if (!op) return false;
-  if (tool === 'builtin.loop_cut') {
-    app.run(op, {}, { event: { x: e.clientX, y: e.clientY } });
-    return true;
-  }
-  // click without drag selects; drag runs the tool
-  const sx = e.clientX,
-    sy = e.clientY;
-  const move = (ev: PointerEvent) => {
-    if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 5) return;
-    cleanup();
-    app.run(op, {}, { event: { x: ev.clientX, y: ev.clientY } });
-  };
-  const up = () => {
-    cleanup();
-    const r = v.el.getBoundingClientRect();
-    for (const hk of editModeHooks.pick) if (hk(v, sx - r.left, sy - r.top, { extend: e.shiftKey, toggle: e.shiftKey, deselectAll: !e.shiftKey })) break;
-  };
-  const cleanup = () => {
-    removeEventListener('pointermove', move);
-    removeEventListener('pointerup', up);
-  };
-  addEventListener('pointermove', move);
-  addEventListener('pointerup', up);
-  return true;
-});

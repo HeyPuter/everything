@@ -12,6 +12,7 @@ import { editPoll } from './ops-basic';
 import { addKeys } from '../../app/keymap';
 import type { ObjectData, MeshData } from '../../data/types';
 import { activeTools } from '../../app/prefs';
+import { toolProps } from './tools';
 
 interface KPoint {
   world: Vector3;
@@ -349,7 +350,7 @@ addKeys('Mesh', [
 // Toolbar tool: LMB in the viewport starts the knife with the clicked point
 editModeHooks.pointer.unshift((v, e) => {
   if (app.doc.mode !== 'EDIT' || activeTools.EDIT !== 'builtin.knife') return false;
-  if (app.run('mesh.knife_tool') !== 'RUNNING_MODAL' || !state) return false;
+  if (app.run('mesh.knife_tool', { ...toolProps['builtin.knife'] }) !== 'RUNNING_MODAL' || !state) return false;
   const r = v.el.getBoundingClientRect();
   const k = snap(v, e.clientX - r.left, e.clientY - r.top);
   if (k) state.points.push(k);

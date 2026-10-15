@@ -342,6 +342,23 @@ function setEdgeFlag(m: MeshEdit, key: 'seams' | 'sharp' | 'creases', value: num
     for (let i = 0; i < f.verts.length; i++) if (sel.has(edgeKey(f.verts[i], f.verts[(i + 1) % f.verts.length]))) f[key][i] = value;
 }
 
+/** Move selected vertices towards the average of their neighbours. */
+export function smoothVertices(m: MeshEdit, factor: number, repeat: number, axes: boolean[] = [true, true, true]) {
+  const nb = m.neighbors();
+  for (let it = 0; it < repeat; it++) {
+    const next = m.pos.slice();
+    for (let v = 0; v < m.vcount; v++) {
+      if (!m.sel[v] || m.hide[v] || !nb[v].length) continue;
+      const c = [0, 0, 0];
+      for (const w of nb[v]) for (let k = 0; k < 3; k++) c[k] += m.pos[w * 3 + k] / nb[v].length;
+      for (let k = 0; k < 3; k++) if (axes[k]) next[v * 3 + k] = m.pos[v * 3 + k] + (c[k] - m.pos[v * 3 + k]) * factor;
+    }
+    m.pos = next;
+  }
+  if (m.keys.length) m.keys[0] = m.pos.slice();
+  return m.selectedVerts().length > 0;
+}
+
 // ---------------------------------------------------------------------------
 // duplicate / split / separate
 
@@ -752,21 +769,7 @@ registerOperators([
     label: 'Smooth Vertices',
     props: [{ id: 'factor', label: 'Smoothing', type: 'float', default: 0.5, min: -10, max: 10, subtype: 'factor' }, { id: 'repeat', label: 'Repeat', type: 'int', default: 1, min: 1, max: 1000 }, { id: 'xaxis', label: 'X', type: 'bool', default: true }, { id: 'yaxis', label: 'Y', type: 'bool', default: true }, { id: 'zaxis', label: 'Z', type: 'bool', default: true }],
     poll: editPoll,
-    exec: (_ctx, p) =>
-      void withEdit((m) => {
-        const nb = m.neighbors();
-        const ax = [p.xaxis, p.yaxis, p.zaxis];
-        for (let it = 0; it < (p.repeat as number); it++) {
-          const next = m.pos.slice();
-          for (let v = 0; v < m.vcount; v++) {
-            if (!m.sel[v] || !nb[v].length) continue;
-            const c = [0, 0, 0];
-            for (const w of nb[v]) for (let k = 0; k < 3; k++) c[k] += m.pos[w * 3 + k] / nb[v].length;
-            for (let k = 0; k < 3; k++) if (ax[k]) next[v * 3 + k] = m.pos[v * 3 + k] + (c[k] - m.pos[v * 3 + k]) * (p.factor as number);
-          }
-          m.pos = next;
-        }
-      }),
+    exec: (_ctx, p) => void withEdit((m) => smoothVertices(m, p.factor as number, p.repeat as number, [!!p.xaxis, !!p.yaxis, !!p.zaxis])),
   },
   {
     idname: 'mesh.symmetrize',

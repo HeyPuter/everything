@@ -5,7 +5,7 @@ import { MeshEdit, edgeKey, type EFace } from './meshedit';
 import { withEdit, editMeshObjects, selectMode, active } from './context';
 import { startTransform } from '../../ops/transform';
 import { editPoll, flipFace, makeNormalsConsistent } from './ops-basic';
-import { bevelVertices, bevelEdges } from './bevel';
+import { bevelVertices, bevelEdges, bevelClampLimit } from './bevel';
 import { edgeRing } from './select';
 import { activeView3D, type View3D } from '../../editors/view3d/view3d';
 import { pickContext, nearestEdge } from './pick';
@@ -255,7 +255,7 @@ export function insetFaces(m: MeshEdit, thickness: number, depth: number, indivi
   return true;
 }
 
-function startInsetModal(individual: boolean) {
+function startInsetModal(individual: boolean, outsetInit = false) {
   const v = activeView3D();
   if (!v) return 'CANCELLED' as const;
   // snapshot meshes to recompute from on every mouse move
@@ -279,7 +279,7 @@ function startInsetModal(individual: boolean) {
   let thickness = 0,
     depth = 0,
     depthMode = false,
-    outset = false,
+    outset = outsetInit,
     ind = individual;
   let numeric = '';
   const apply = () => {
@@ -942,12 +942,41 @@ function startEdgeSlide() {
 // ---------------------------------------------------------------------------
 // bevel (vertices: chamfer corners; edges: offset along adjacent faces)
 
-function startBevelModal(vertexOnly: boolean) {
+interface BevelState {
+  offset: number;
+  segments: number;
+  profile: number;
+  affect: 'VERTICES' | 'EDGES';
+  clamp: boolean;
+  seam: boolean;
+  sharp: boolean;
+}
+
+function applyBevel(m: MeshEdit, st: BevelState) {
+  if (st.offset <= 0) return false;
+  return st.affect === 'VERTICES' ? bevelVertices(m, st.clamp ? Math.min(st.offset, bevelClampLimit(m) * 2) : st.offset) : bevelEdges(m, st.offset, st.segments, st.profile, { clamp: st.clamp, markSeam: st.seam, markSharp: st.sharp });
+}
+
+/**
+ * Interactive bevel: mouse distance sets the width (A), profile (P) or segments (S); wheel and
+ * numpad +/- change segments; V switches vertices/edges; C clamps overlap; U/K mark seams/sharp.
+ */
+function startBevelModal(p: Record<string, unknown>) {
   const v = activeView3D();
   if (!v) return 'CANCELLED' as const;
+  const st: BevelState = {
+    offset: 0,
+    segments: Math.max(1, (p.segments as number) ?? 1),
+    profile: (p.profile as number) ?? 0.5,
+    affect: p.affect === 'VERTICES' ? 'VERTICES' : 'EDGES',
+    clamp: !!p.clamp_overlap,
+    seam: !!p.mark_seam,
+    sharp: !!p.mark_sharp,
+  };
   const snaps = editMeshObjects().map(({ me }) => ({ me, m: MeshEdit.from(me) }));
-  if (!snaps.some((s) => (vertexOnly ? s.m.selectedVerts().length : s.m.selectedEdges().length))) {
-    app.report('WARNING', vertexOnly ? 'Select vertices to bevel' : 'Select edges to bevel');
+  const hasSel = () => snaps.some((s) => (st.affect === 'VERTICES' ? s.m.selectedVerts().length : s.m.selectedEdges().length));
+  if (!hasSel()) {
+    app.report('WARNING', st.affect === 'VERTICES' ? 'Select vertices to bevel' : 'Select edges to bevel');
     return 'CANCELLED' as const;
   }
   const r = v.el.getBoundingClientRect();
@@ -955,8 +984,8 @@ function startBevelModal(vertexOnly: boolean) {
   let cnt = 0;
   for (const { ob, me } of editMeshObjects()) {
     const w = app.graph.get(ob.id)?.world ?? new Matrix4();
-    me.select_vert?.forEach((s, i) => {
-      if (s) {
+    me.select_vert?.forEach((sv, i) => {
+      if (sv) {
         center.add(new Vector3(me.positions[i * 3], me.positions[i * 3 + 1], me.positions[i * 3 + 2]).applyMatrix4(w));
         cnt++;
       }
@@ -966,42 +995,63 @@ function startBevelModal(vertexOnly: boolean) {
   const cs = v.project(center);
   const d0 = Math.max(10, Math.hypot(app.pointer.x - r.left - cs.x, app.pointer.y - r.top - cs.y));
   const px = v.nav.pixelSize(center);
-  let offset = 0,
-    segments = 1;
-  // numeric input: digits type the width; S switches to typing the segment count
+  let mode: 'OFFSET' | 'PROFILE' | 'SEGMENTS' = 'OFFSET';
   let typed = '';
-  let typingSegments = false;
-  const applyTyped = () => {
-    const v = parseFloat(typed);
-    if (!Number.isFinite(v)) return;
-    if (typingSegments) segments = Math.max(1, Math.min(1000, Math.round(v)));
-    else offset = Math.max(0, v);
-  };
+  let lastDist = d0;
+  let precise = false;
+  let snapOn = false;
   const apply = () => {
-    for (const s of snaps) {
-      const c = cloneEdit(s.m);
-      if (offset > 0) {
-        if (vertexOnly) bevelVertices(c, offset);
-        else bevelEdges(c, offset, segments);
-      }
-      c.write(s.me);
+    for (const sn of snaps) {
+      const c = sn.m.clone();
+      applyBevel(c, st);
+      c.write(sn.me);
     }
     app.changed('geometry');
   };
+  const applyTyped = () => {
+    const x = parseFloat(typed);
+    if (!Number.isFinite(x)) return;
+    if (mode === 'SEGMENTS') st.segments = Math.max(1, Math.min(1000, Math.round(x)));
+    else if (mode === 'PROFILE') st.profile = Math.max(0, Math.min(1, x));
+    else st.offset = Math.max(0, x);
+  };
+  const fromMouse = (dist: number) => {
+    if (mode === 'OFFSET') {
+      let o = Math.max(0, (dist - d0) * px);
+      if (snapOn) o = Math.round(o * 10) / 10;
+      st.offset = precise ? st.offset + (dist - lastDist) * px * 0.1 : o;
+      st.offset = Math.max(0, st.offset);
+    } else if (mode === 'PROFILE') st.profile = Math.max(0, Math.min(1, st.profile + ((dist - lastDist) / 200) * (precise ? 0.1 : 1)));
+    else st.segments = Math.max(1, Math.min(100, st.segments + Math.round((dist - lastDist) / 25)));
+    if (mode !== 'SEGMENTS' || Math.abs(dist - lastDist) >= 25) lastDist = dist;
+  };
+  const on = (b: boolean) => (b ? 'On' : 'Off');
+  const val = (m: typeof mode, text: string) => (mode === m && typed ? `${typed}|` : text);
   app.startModal({
-    label: vertexOnly ? 'Bevel Vertices' : 'Bevel',
-    header: () => `Width: ${!typingSegments && typed ? typed + '|' : offset.toFixed(4) + ' m'}   Segments: ${typingSegments && typed ? typed + '|' : segments}   (wheel or S: segments)`,
-    status: () => [['LMB', 'Confirm'], ['RMB', 'Cancel'], ['Wheel', 'Segments']],
+    label: st.affect === 'VERTICES' ? 'Bevel Vertices' : 'Bevel',
+    header: () =>
+      `Bevel ${st.affect === 'VERTICES' ? 'Vertices' : 'Edges'} — ${mode === 'OFFSET' ? '[Width]' : 'Width'}: ${val('OFFSET', st.offset.toFixed(4) + ' m')}  ${mode === 'SEGMENTS' ? '[Segments]' : 'Segments'}: ${val('SEGMENTS', String(st.segments))}  ${mode === 'PROFILE' ? '[Shape]' : 'Shape'}: ${val('PROFILE', st.profile.toFixed(3))}  Clamp: ${on(st.clamp)}  Seams: ${on(st.seam)}  Sharp: ${on(st.sharp)}`,
+    status: () => [
+      ['LMB', 'Confirm'],
+      ['RMB', 'Cancel'],
+      ['A', 'Width'],
+      ['S', 'Segments'],
+      ['P', 'Shape'],
+      ['Wheel', 'Segments ±'],
+      ['V', 'Vertices/Edges'],
+      ['C', 'Clamp Overlap'],
+      ['U', 'Mark Seams'],
+      ['K', 'Mark Sharp'],
+    ],
     onPointerMove(e) {
       if (typed) return;
-      // moving the mouse away from the selection widens the bevel (starts at zero)
-      offset = Math.max(0, (Math.hypot(e.clientX - r.left - cs.x, e.clientY - r.top - cs.y) - d0) * px);
-      if (e.ctrlKey) offset = Math.round(offset * 10) / 10;
-      if (e.shiftKey) offset = Math.round(offset * 100) / 100;
+      precise = e.shiftKey;
+      snapOn = e.ctrlKey;
+      fromMouse(Math.hypot(e.clientX - r.left - cs.x, e.clientY - r.top - cs.y));
       apply();
     },
     onWheel(e) {
-      segments = Math.max(1, Math.min(32, segments + (e.deltaY < 0 ? 1 : -1)));
+      st.segments = Math.max(1, Math.min(1000, st.segments + (e.deltaY < 0 ? 1 : -1)));
       apply();
     },
     onPointerDown(e) {
@@ -1009,26 +1059,41 @@ function startBevelModal(vertexOnly: boolean) {
     },
     onKey(e) {
       if (e.type !== 'keydown') return true;
+      const k = e.key.toLowerCase();
       if (e.key === 'Escape') return 'CANCELLED';
       if (e.key === 'Enter') return 'FINISHED';
-      if (e.key === 's' || e.key === 'S') {
-        typingSegments = !typingSegments;
+      const setMode = (m: typeof mode) => {
+        mode = m;
         typed = '';
-        return true;
-      }
-      if (/^[0-9.]$/.test(e.key) || (e.key === '-' && !typed)) typed += e.key;
-      else if (e.key === 'Backspace') typed = typed.slice(0, -1);
-      else return true;
-      applyTyped();
+      };
+      if (k === 'a') setMode('OFFSET');
+      else if (k === 's') setMode('SEGMENTS');
+      else if (k === 'p') setMode('PROFILE');
+      else if (k === 'v') {
+        st.affect = st.affect === 'VERTICES' ? 'EDGES' : 'VERTICES';
+        if (!hasSel()) st.affect = st.affect === 'VERTICES' ? 'EDGES' : 'VERTICES';
+      } else if (k === 'c') st.clamp = !st.clamp;
+      else if (k === 'u') st.seam = !st.seam;
+      else if (k === 'k') st.sharp = !st.sharp;
+      else if (e.key === '+' || (e.code === 'NumpadAdd' && !typed)) st.segments = Math.min(1000, st.segments + 1);
+      else if ((e.key === '-' && typed === '' && mode === 'SEGMENTS') || e.code === 'NumpadSubtract') st.segments = Math.max(1, st.segments - 1);
+      else if (/^[0-9.]$/.test(e.key) || (e.key === '-' && !typed)) {
+        typed += e.key;
+        applyTyped();
+      } else if (e.key === 'Backspace') {
+        typed = typed.slice(0, -1);
+        applyTyped();
+      } else return true;
       apply();
       return true;
     },
     cancel() {
-      for (const s of snaps) s.m.write(s.me);
+      for (const sn of snaps) sn.m.write(sn.me);
       app.changed('geometry');
     },
     finish() {
-      this.redoOp = { idname: 'mesh.bevel', props: { offset, segments, affect: vertexOnly ? 'VERTICES' : 'EDGES' } };
+      this.label = st.affect === 'VERTICES' ? 'Bevel Vertices' : 'Bevel';
+      this.redoOp = { idname: 'mesh.bevel', props: { offset: st.offset, segments: st.segments, profile: st.profile, affect: st.affect, clamp_overlap: st.clamp, mark_seam: st.seam, mark_sharp: st.sharp } };
     },
   });
   return 'RUNNING_MODAL' as const;
@@ -1083,7 +1148,7 @@ registerOperators([
       { id: 'use_outset', label: 'Outset', type: 'bool', default: false },
     ],
     poll: editPoll,
-    invoke: (_ctx, p) => startInsetModal(!!p.use_individual),
+    invoke: (_ctx, p) => startInsetModal(!!p.use_individual, !!p.use_outset),
     exec: (_ctx, p) => void withEdit((m) => insetFaces(m, p.thickness as number, p.depth as number, !!p.use_individual, !!p.use_outset)),
   },
   {
@@ -1190,17 +1255,21 @@ registerOperators([
   {
     idname: 'mesh.bevel',
     label: 'Bevel',
+    description: 'Cut off the selected edges or vertices at an angle',
     props: [
       { id: 'offset', label: 'Width', type: 'float', default: 0, min: 0, subtype: 'distance' },
       { id: 'segments', label: 'Segments', type: 'int', default: 1, min: 1, max: 1000 },
+      { id: 'profile', label: 'Shape', type: 'float', default: 0.5, min: 0, max: 1, subtype: 'factor', showIf: (p) => p.affect !== 'VERTICES' },
       { id: 'affect', label: 'Affect', type: 'enum', default: 'EDGES', items: [['VERTICES', 'Vertices'], ['EDGES', 'Edges']] },
-      { id: 'profile', label: 'Shape', type: 'float', default: 0.5, min: 0, max: 1, subtype: 'factor' },
+      { id: 'clamp_overlap', label: 'Clamp Overlap', type: 'bool', default: false },
+      { id: 'mark_seam', label: 'Mark Seams', type: 'bool', default: false, showIf: (p) => p.affect !== 'VERTICES' },
+      { id: 'mark_sharp', label: 'Mark Sharp', type: 'bool', default: false, showIf: (p) => p.affect !== 'VERTICES' },
     ],
     poll: editPoll,
-    invoke: (_ctx, p) => startBevelModal(p.affect === 'VERTICES'),
+    invoke: (_ctx, p) => startBevelModal(p),
     exec: (_ctx, p) => {
-      const ok = withEdit((m) => (p.affect === 'VERTICES' ? bevelVertices(m, p.offset as number) : bevelEdges(m, p.offset as number, p.segments as number, p.profile as number)));
-      if (!ok) return 'CANCELLED';
+      const st: BevelState = { offset: p.offset as number, segments: p.segments as number, profile: p.profile as number, affect: p.affect === 'VERTICES' ? 'VERTICES' : 'EDGES', clamp: !!p.clamp_overlap, seam: !!p.mark_seam, sharp: !!p.mark_sharp };
+      if (!withEdit((m) => applyBevel(m, st))) return 'CANCELLED';
     },
   },
   {
