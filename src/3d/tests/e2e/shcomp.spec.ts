@@ -197,7 +197,7 @@ test('compositor nodes match the expected pixels', async ({ page }) => {
   const { readFileSync } = await import('node:fs');
   const all = JSON.parse(readFileSync('tests/fixtures/shcomp/compositor-expected.json', 'utf8')).cases as Record<string, CmpCase>;
   // color spaces outside the supported set and the (smoothed) inpaint fill are checked elsewhere
-  const skip = /AgX|Filmic|Khronos|PQ|^inp|^hc_hramp|^key_feather/;
+  const skip = /AgX|Filmic|Khronos|PQ|^hc_hramp|^key_feather/;
   const cases = Object.fromEntries(Object.entries(all).filter(([k]) => !skip.test(k)));
   const errors = await openApp(page);
   const res = await compose(page, cases);
@@ -207,6 +207,14 @@ test('compositor nodes match the expected pixels', async ({ page }) => {
     if (got.errors.length) failures.push(`${name}: ${got.errors.join('; ')}`);
     // AgX and Khronos PBR Neutral views are fitted approximations (negative inputs differ most)
     const tol = name.startsWith('hc_bump') ? 0.12 : name.startsWith('ctd_KHRONOS') ? 0.05 : /^ctd_(AGX|FILMIC)/.test(name) ? 0.04 : name.startsWith('cs_') || name.startsWith('hc_') ? 2e-3 : 1e-3;
+    if (name.startsWith('inp')) {
+      // the fill is smoothed with a different kernel: compare on average
+      let sum = 0;
+      for (let i = 0; i < c.expected.length; i++) for (let ch = 0; ch < 4; ch++) sum += Math.abs(got.px[i][ch] - c.expected[i][ch]);
+      const mean = sum / (c.expected.length * 4);
+      if (mean > 0.005) failures.push(`${name}: mean difference ${mean}`);
+      continue;
+    }
     if (name === 'sdfnp') {
       // nearest pixels may differ between equally near candidates: compare the distances
       for (let i = 0; i < c.expected.length; i++) {
