@@ -81,7 +81,7 @@ export const activeTools: Record<string, string> = {
 
 export const uiState = {
   /** transform orientation */
-  orientation: 'GLOBAL' as 'GLOBAL' | 'LOCAL' | 'NORMAL' | 'GIMBAL' | 'VIEW' | 'CURSOR' | 'PARENT',
+  orientation: 'GLOBAL' as 'GLOBAL' | 'LOCAL' | 'NORMAL' | 'GIMBAL' | 'VIEW' | 'CURSOR' | 'PARENT' | (string & {}),
   /** last used add-menu primitive */
   workspace: 'Layout',
   /** select box mode: SET / ADD / SUB / XOR / AND */

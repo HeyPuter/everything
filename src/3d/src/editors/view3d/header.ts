@@ -3,8 +3,8 @@ import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { openMenu, openPopover, type MenuItem } from '../../ui/menu';
 import { app } from '../../app/app';
-import { uiState } from '../../app/prefs';
-import type { View3D } from './view3d';
+import { currentOrientation, customOrientations, setOrientation, BUILTIN_ORIENTATIONS } from '../../ops/orientations';
+import { activeView3D, type View3D } from './view3d';
 import { viewMenu, selectMenu, addMenu, objectMenu } from './menus';
 import { modeMenus } from './modemenus';
 import { checkbox, numberField, enumRow, colorSwatch, panel } from '../../ui/widgets';
@@ -45,15 +45,7 @@ function menuButton(label: string, items: () => MenuItem[]) {
   );
 }
 
-const ORIENTATIONS = [
-  ['GLOBAL', 'Global', 'orientation_global'],
-  ['LOCAL', 'Local', 'orientation_local'],
-  ['NORMAL', 'Normal', 'orientation_normal'],
-  ['GIMBAL', 'Gimbal', 'orientation_gimbal'],
-  ['VIEW', 'View', 'orientation_view'],
-  ['CURSOR', 'Cursor', 'orientation_cursor'],
-  ['PARENT', 'Parent', 'orientation_local'],
-] as const;
+const ORIENTATIONS = BUILTIN_ORIENTATIONS;
 
 const PIVOTS = [
   ['BOUNDING_BOX_CENTER', 'Bounding Box Center', 'pivot_boundbox'],
@@ -95,11 +87,14 @@ function iconToggle(id: string, iconName: string, on: boolean, tip: string, onCl
 }
 
 export function viewHeader(v: View3D): Child {
+  // while a modal operation runs in this viewport its header shows the operation's values
+  if (app.modal?.header && activeView3D() === v) return h('div', { class: 'hdr-row hdr-modal' }, h('span', { class: 'hdr-modal-text', style: 'padding: 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis' }, app.modal.header()));
   const doc = app.doc;
   const ts = doc.scene.tool_settings;
   const mode = MODE_ITEMS.find((m) => m.mode === doc.mode) ?? MODE_ITEMS[0];
   const mm = modeMenus[doc.mode];
-  const orient = ORIENTATIONS.find((o) => o[0] === uiState.orientation) ?? ORIENTATIONS[0];
+  const curOrient = currentOrientation();
+  const orient: readonly [string, string, string] = ORIENTATIONS.find((o) => o[0] === curOrient) ?? [curOrient, curOrient, 'orientation_local'];
   const pivot = PIVOTS.find((p) => p[0] === ts.transform_pivot_point) ?? PIVOTS[3];
   const snapEl = SNAP_ELEMENTS.find((s) => s[0] === ts.snap_elements[0]) ?? SNAP_ELEMENTS[0];
   const propOn = doc.mode === 'OBJECT' ? ts.use_proportional_edit_objects : ts.use_proportional_edit;
@@ -143,11 +138,7 @@ export function viewHeader(v: View3D): Child {
         'data-tip': 'Transform Orientation',
         onpointerdown: (e: PointerEvent) => {
           e.preventDefault();
-          openMenu(
-            ORIENTATIONS.map(([id, label, ic]) => ({ label, icon: ic, active: uiState.orientation === id, action: () => ((uiState.orientation = id), app.changed('ui')) })),
-            e.currentTarget as HTMLElement,
-            { title: 'Transform Orientation' },
-          );
+          openMenu(orientationMenu(), e.currentTarget as HTMLElement, { title: 'Transform Orientations' });
         },
       },
       icon(orient[2]),
@@ -283,6 +274,19 @@ export function viewHeader(v: View3D): Child {
       iconDrop('sh-pop', 'down_arrow_hlt', 'Shading', (el) => openPopover(el, () => shadingPopover(v), { width: 280 }), 'hidden-icon'),
     ),
   );
+}
+
+/** Transform orientation dropdown: built-in and custom orientations, create / delete. */
+function orientationMenu(): MenuItem[] {
+  const cur = currentOrientation();
+  const custom = customOrientations();
+  return [
+    ...ORIENTATIONS.map(([id, label, ic]) => ({ label, icon: ic, active: cur === id, action: () => setOrientation(id) })),
+    ...(custom.length ? [{ separator: true } as MenuItem, ...custom.map((c) => ({ label: c.name, icon: 'orientation_local', active: cur === c.name, action: () => setOrientation(c.name) }))] : []),
+    { separator: true },
+    { label: 'Create Orientation', icon: 'add', op: 'transform.create_orientation', props: { use: true } },
+    { label: 'Delete Orientation', icon: 'remove', op: 'transform.delete_orientation' },
+  ];
 }
 
 function setTool(key: string, value: unknown) {

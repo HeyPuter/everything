@@ -2,6 +2,7 @@
 import type { MenuItem } from '../../ui/menu';
 import { app } from '../../app/app';
 import { modeMenus } from './modemenus';
+import { objectTransformMenu } from './transformui';
 
 export function viewMenu(): MenuItem[] {
   return [
@@ -215,15 +216,7 @@ function curveAddMenu(): MenuItem[] {
 
 export function objectMenu(): MenuItem[] {
   return [
-    { label: 'Transform', submenu: () => [
-      { label: 'Move', op: 'transform.translate', shortcut: 'G' },
-      { label: 'Rotate', op: 'transform.rotate', shortcut: 'R' },
-      { label: 'Scale', op: 'transform.resize', shortcut: 'S' },
-      { separator: true },
-      { label: 'Push/Pull', op: 'transform.push_pull' },
-      { label: 'Randomize Transform', op: 'object.randomize_transform' },
-      { label: 'Align Objects', op: 'object.align' },
-    ] },
+    { label: 'Transform', submenu: objectTransformMenu },
     { label: 'Set Origin', submenu: () => [
       { label: 'Geometry to Origin', op: 'object.origin_set', props: { type: 'GEOMETRY_ORIGIN' } },
       { label: 'Origin to Geometry', op: 'object.origin_set', props: { type: 'ORIGIN_GEOMETRY' } },

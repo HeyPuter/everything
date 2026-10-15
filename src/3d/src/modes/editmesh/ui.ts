@@ -8,6 +8,7 @@ import { editModeHooks } from '../../editors/view3d/hooks';
 import { activeTools } from '../../app/prefs';
 import type { MenuItem } from '../../ui/menu';
 import { meshAddMenu, snapMenu } from '../../editors/view3d/menus';
+import { editTransformExtras } from '../../editors/view3d/transformui';
 import { selectMode, inMeshEdit } from './context';
 
 const isMeshEdit = () => inMeshEdit();
@@ -149,6 +150,7 @@ function meshMenu(): MenuItem[] {
       { label: 'To Sphere', op: 'transform.tosphere', shortcut: 'Shift Alt S' },
       { label: 'Shrink/Fatten', op: 'transform.shrink_fatten', shortcut: 'Alt S' },
       { label: 'Push/Pull', op: 'transform.push_pull' },
+      ...editTransformExtras(),
     ] },
     { label: 'Mirror', submenu: () => [{ label: 'Symmetrize', op: 'mesh.symmetrize' }] },
     { label: 'Snap', submenu: snapMenu },
