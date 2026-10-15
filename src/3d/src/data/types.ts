@@ -469,6 +469,14 @@ export interface Keyframe {
 export interface FModifier {
   type: 'NOISE' | 'CYCLES' | 'GENERATOR' | 'LIMITS' | 'STEPPED' | 'FNGENERATOR' | 'ENVELOPE';
   mute?: boolean;
+  /** influence and restricted frame range (with blend in/out) */
+  use_influence?: boolean;
+  influence?: number;
+  use_restricted_range?: boolean;
+  frame_start?: number;
+  frame_end?: number;
+  blend_in?: number;
+  blend_out?: number;
   // noise
   scale?: number;
   strength?: number;

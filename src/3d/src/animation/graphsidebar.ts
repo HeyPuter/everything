@@ -324,10 +324,41 @@ function modifierPanel(fc: FCurve, m: FModifier, i: number): Child {
       icon('x'),
     ),
   );
-  return panel(
-    `gm-${i}-${m.type}`,
-    modLabel(m.type),
-    () => {
+  const common = (): Child => [
+    m.type === 'GENERATOR' ? row('', checkbox(`gm-${i}-gadd`, 'Additive', !!m.use_additive, (v) => ((m.use_additive = v), set('Change Generator')))) : null,
+    row(
+      '',
+      checkbox(`gm-${i}-rr`, 'Restrict Frame Range', !!m.use_restricted_range, (v) => {
+        m.use_restricted_range = v;
+        if (v && m.frame_start === undefined) {
+          m.frame_start = app.doc.scene.frame_start;
+          m.frame_end = app.doc.scene.frame_end;
+        }
+        set('Restrict Frame Range');
+      }),
+    ),
+    m.use_restricted_range
+      ? [
+          row('Start', numberField({ id: `gm-${i}-rs`, value: m.frame_start ?? 0, step: 1, set: (v, f) => ((m.frame_start = v), set('Change Frame Range', f)) })),
+          row('End', numberField({ id: `gm-${i}-re`, value: m.frame_end ?? 0, step: 1, set: (v, f) => ((m.frame_end = v), set('Change Frame Range', f)) })),
+          row('Blend In', numberField({ id: `gm-${i}-bi`, value: m.blend_in ?? 0, min: 0, step: 1, set: (v, f) => ((m.blend_in = v), set('Change Frame Range', f)) })),
+          row('Out', numberField({ id: `gm-${i}-bo`, value: m.blend_out ?? 0, min: 0, step: 1, set: (v, f) => ((m.blend_out = v), set('Change Frame Range', f)) })),
+        ]
+      : null,
+    row(
+      'Influence',
+      h(
+        'div',
+        { class: 'anim-sb-inline' },
+        checkbox(`gm-${i}-ui`, '', !!m.use_influence, (v) => ((m.use_influence = v), (m.influence ??= 1), set('Toggle Influence'))),
+        numberField({ id: `gm-${i}-inf`, value: m.influence ?? 1, min: 0, max: 1, slider: true, disabled: !m.use_influence, set: (v, f) => ((m.influence = v), set('Change Influence', f)) }),
+      ),
+    ),
+  ];
+  return panel(`gm-${i}-${m.type}`, modLabel(m.type), () => [typeBody(), common()], { header: hdr, className: m.mute ? 'anim-mod muted' : 'anim-mod' });
+
+  function typeBody(): Child {
+    {
       switch (m.type) {
         case 'GENERATOR': {
           const co = m.coefficients ?? [0, 1];
@@ -545,7 +576,6 @@ function modifierPanel(fc: FCurve, m: FModifier, i: number): Child {
           ];
       }
       return null;
-    },
-    { header: hdr, className: m.mute ? 'anim-mod muted' : 'anim-mod' },
-  );
+    }
+  }
 }

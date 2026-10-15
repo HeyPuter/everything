@@ -679,3 +679,19 @@ describe('F-Modifiers: built-in function and envelope', () => {
     expect([0, 5, 10].map((f) => +evaluateFCurve(fc, f).toFixed(4))).toEqual([-4, 7, 18]);
   });
 });
+
+describe('F-Modifier influence and frame range', () => {
+  it('blends a modifier by influence and restricts it to a frame range', () => {
+    const fc = curve([0, 0], [0, 100]);
+    fc.modifiers.push({ type: 'GENERATOR', coefficients: [10, 0], use_influence: true, influence: 0.5 });
+    expect(evaluateFCurve(fc, 50)).toBeCloseTo(5, 6);
+    fc.modifiers[0] = { type: 'GENERATOR', coefficients: [10, 0], use_restricted_range: true, frame_start: 20, frame_end: 40, blend_in: 10, blend_out: 0 };
+    expect(evaluateFCurve(fc, 10)).toBe(0);
+    expect(evaluateFCurve(fc, 25)).toBeCloseTo(5, 6);
+    expect(evaluateFCurve(fc, 35)).toBeCloseTo(10, 6);
+    expect(evaluateFCurve(fc, 45)).toBe(0);
+    fc.modifiers[0] = { type: 'GENERATOR', coefficients: [10, 0], use_additive: true };
+    fc.keyframe_points.forEach((k) => T.setKeyValue(k, 1));
+    expect(evaluateFCurve(fc, 50)).toBeCloseTo(11, 6);
+  });
+});

@@ -240,38 +240,57 @@ function evaluateRaw(fc: FCurve, frame: number): number {
   }
 }
 
+/** How strongly a modifier applies at a frame (influence and restricted frame range with blending). */
+export function modifierWeight(m: FModifier, frame: number): number {
+  let w = m.use_influence ? Math.max(0, Math.min(1, m.influence ?? 1)) : 1;
+  if (m.use_restricted_range) {
+    const a = m.frame_start ?? 0,
+      b = m.frame_end ?? 0;
+    if (frame < a || frame > b) return 0;
+    const bi = m.blend_in ?? 0,
+      bo = m.blend_out ?? 0;
+    if (bi > 0 && frame < a + bi) w *= (frame - a) / bi;
+    if (bo > 0 && frame > b - bo) w *= (b - frame) / bo;
+  }
+  return w;
+}
+
 export function evaluateFCurve(fc: FCurve, frame: number): number {
   let f = frame;
   // time-domain modifiers
   for (const m of fc.modifiers) {
     if (m.mute) continue;
-    if (m.type === 'CYCLES') f = cycleFrame(fc, m, f);
-    if (m.type === 'STEPPED') {
+    let g = f;
+    if (m.type === 'CYCLES') g = cycleFrame(fc, m, f);
+    else if (m.type === 'STEPPED') {
       const step = m.frame_step || 2,
         off = m.frame_offset || 0;
-      f = Math.floor((f - off) / step) * step + off;
-    }
+      g = Math.floor((f - off) / step) * step + off;
+    } else continue;
+    const w = modifierWeight(m, frame);
+    f = w >= 1 ? g : f + (g - f) * w;
   }
   let v = evaluateRaw(fc, f);
   if (fc.modifiers.length) {
     for (const m of fc.modifiers) {
       if (m.mute) continue;
-      if (m.type === 'CYCLES' && (m.mode_before === 'REPEAT_OFFSET' || m.mode_after === 'REPEAT_OFFSET')) v += cycleOffset(fc, m, frame);
-      if (m.type === 'NOISE') v += noise1((frame - (m.offset ?? 0)) / (m.scale || 1) + (m.phase ?? 1) * 7.31, m.depth ?? 0) * (m.strength ?? 1);
-      if (m.type === 'GENERATOR' && m.coefficients) {
+      let nv = v;
+      if (m.type === 'CYCLES' && (m.mode_before === 'REPEAT_OFFSET' || m.mode_after === 'REPEAT_OFFSET')) nv = v + cycleOffset(fc, m, frame);
+      else if (m.type === 'NOISE') nv = v + noise1((frame - (m.offset ?? 0)) / (m.scale || 1) + (m.phase ?? 1) * 7.31, m.depth ?? 0) * (m.strength ?? 1);
+      else if (m.type === 'GENERATOR' && m.coefficients) {
         let p = 0;
         m.coefficients.forEach((c, i) => (p += c * Math.pow(frame, i)));
-        v = p;
-      }
-      if (m.type === 'FNGENERATOR') {
+        nv = m.use_additive ? v + p : p;
+      } else if (m.type === 'FNGENERATOR') {
         const g = (m.amplitude ?? 1) * builtinFunction(m.function_type ?? 'SIN', (m.phase_multiplier ?? 1) * frame + (m.phase_offset ?? 0)) + (m.value_offset ?? 0);
-        v = m.use_additive ? v + g : g;
-      }
-      if (m.type === 'ENVELOPE') v = envelopeValue(m, frame, v);
-      if (m.type === 'LIMITS') {
-        if (m.use_min_y) v = Math.max(m.min_y ?? 0, v);
-        if (m.use_max_y) v = Math.min(m.max_y ?? 0, v);
-      }
+        nv = m.use_additive ? v + g : g;
+      } else if (m.type === 'ENVELOPE') nv = envelopeValue(m, frame, v);
+      else if (m.type === 'LIMITS') {
+        if (m.use_min_y) nv = Math.max(m.min_y ?? 0, nv);
+        if (m.use_max_y) nv = Math.min(m.max_y ?? 0, nv);
+      } else continue;
+      const w = modifierWeight(m, frame);
+      v = w >= 1 ? nv : v + (nv - v) * w;
     }
   }
   return v;
