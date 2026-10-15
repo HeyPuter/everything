@@ -354,7 +354,7 @@ interface DabOpts {
 export const cloneSource = { uv: null as [number, number] | null, world: null as Vector3 | null };
 
 /** Texels painted beyond triangle edges to hide UV seams (Options ▸ Bleed). */
-export const imagePaintOptions = { seam_bleed: 2, dither: 0 };
+export const imagePaintOptions = { seam_bleed: 2 };
 
 /** Rasterize triangle `t` in texel space, calling fn(texelIndex, x, y, b0, b1, b2) per texel. */
 function rasterTri(st: TexStroke, me: MeshData, s: MeshSession, t: number, fn: (i: number, x: number, y: number, b0: number, b1: number, b2: number) => void) {
