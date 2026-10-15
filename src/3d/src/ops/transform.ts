@@ -277,6 +277,8 @@ export interface TState {
   bend?: { dir: Vector3; length: number };
   /** warp extents along the view's right axis */
   warp?: { min: number; max: number; offset: number };
+  /** Align Rotation to Target: turn moved elements so their Z axis follows this surface normal */
+  alignNormal?: Vector3;
 }
 
 interface Session {
@@ -370,7 +372,14 @@ function elementMatrix(s: Session, st: TState, e: TElement): Matrix4 {
   switch (st.mode) {
     case 'TRANSLATION': {
       const v = maskedValue(st);
-      return T(new Vector3(v[0], v[1], v[2]).applyMatrix3(B).multiplyScalar(w));
+      const move = T(new Vector3(v[0], v[1], v[2]).applyMatrix3(B).multiplyScalar(w));
+      if (st.alignNormal && w >= 1) {
+        // rotate around the element's own center so its Z axis points along the target normal
+        const z = basisAxis(e.basis, 2);
+        const q = new Quaternion().setFromUnitVectors(z, st.alignNormal.clone().normalize());
+        return move.multiply(around(e.center, new Matrix4().makeRotationFromQuaternion(q)));
+      }
+      return move;
     }
     case 'ROTATION':
       return around(center, new Matrix4().makeRotationAxis(basisAxis(B, st.orientAxis), (st.value[0] ?? 0) * w));
@@ -508,7 +517,7 @@ export function stateToOperator(st: TState): { idname: string; props: Record<str
   const v = st.value.map(round);
   switch (st.mode) {
     case 'TRANSLATION':
-      return { idname, props: { value: maskedValue({ ...st, value: v }), ...orient, ...cons, ...proportionalProps() } };
+      return { idname, props: { value: maskedValue({ ...st, value: v }), ...orient, ...cons, ...proportionalProps(), ...(st.alignNormal ? { snap_align: true, snap_normal: st.alignNormal.toArray().map(round) } : {}) } };
     case 'RESIZE':
       return { idname, props: { value: maskedValue({ ...st, value: v }), ...orient, ...cons, ...proportionalProps() } };
     case 'ROTATION':
@@ -615,6 +624,8 @@ function stateFromProps(mode: TransformMode, p: Record<string, unknown>, s: Sess
     case 'TRANSLATION': {
       const v = (p.value as number[]) ?? [0, 0, 0];
       st.value = [num(v[0]), num(v[1]), num(v[2])];
+      const n = p.snap_normal as number[] | undefined;
+      if (p.snap_align && n && n.length === 3) st.alignNormal = new Vector3().fromArray(n);
       break;
     }
     case 'RESIZE': {
@@ -890,6 +901,7 @@ export function startTransform(
             delta = keepFree(target.point.clone().sub(snapSource(target.point)));
             snapIndicator.point = target.point;
             snapIndicator.kind = target.kind;
+            if (target.normal && (ts as { use_snap_align_rotation?: boolean }).use_snap_align_rotation) st.alignNormal = target.normal.clone();
           } else if (els.includes('GRID')) {
             // absolute grid snapping of the source point
             const src = snapSource(null);
@@ -1405,7 +1417,14 @@ function transformOp(idname: string, label: string, mode: TransformMode, descrip
 }
 
 registerOperators([
-  transformOp('transform.translate', 'Move', 'TRANSLATION', 'Move selected items', [{ id: 'value', label: 'Move', type: 'vec3', default: [0, 0, 0], subtype: 'distance' }, ...ORIENT_PROPS, CONSTRAINT_PROP, ...PROPORTIONAL_PROPS]),
+  transformOp('transform.translate', 'Move', 'TRANSLATION', 'Move selected items', [
+    { id: 'value', label: 'Move', type: 'vec3', default: [0, 0, 0], subtype: 'distance' },
+    ...ORIENT_PROPS,
+    CONSTRAINT_PROP,
+    ...PROPORTIONAL_PROPS,
+    { id: 'snap_align', label: 'Align with Point Normal', type: 'bool', default: false, hidden: true },
+    { id: 'snap_normal', label: 'Normal', type: 'vec3', default: [0, 0, 0], hidden: true },
+  ]),
   transformOp('transform.rotate', 'Rotate', 'ROTATION', 'Rotate selected items', [{ id: 'value', label: 'Angle', type: 'float', default: 0, subtype: 'angle' }, { id: 'orient_axis', label: 'Axis', type: 'enum', default: 'Z', items: AXIS_ITEMS }, ...ORIENT_PROPS, CONSTRAINT_PROP, ...PROPORTIONAL_PROPS]),
   transformOp('transform.resize', 'Resize', 'RESIZE', 'Scale (resize) selected items', [{ id: 'value', label: 'Scale', type: 'vec3', default: [1, 1, 1] }, ...ORIENT_PROPS, CONSTRAINT_PROP, ...PROPORTIONAL_PROPS]),
   transformOp('transform.trackball', 'Trackball', 'TRACKBALL', 'Rotate selected items freely, like a trackball', [{ id: 'value', label: 'Angle', type: 'vec2', default: [0, 0], subtype: 'angle' }, { id: 'orient_matrix', label: 'Matrix', type: 'vec3', default: [], hidden: true }, ...PROPORTIONAL_PROPS]),

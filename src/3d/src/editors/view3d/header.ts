@@ -320,6 +320,7 @@ export function snappingPopover(): Child {
       ),
     ),
     ts.snap_elements.includes('INCREMENT') ? checkbox('snap-abs', 'Absolute Grid Snap', !!tx.use_snap_grid_absolute, (x) => setTool('use_snap_grid_absolute', x)) : null,
+    ts.snap_elements.includes('FACE') ? checkbox('snap-align', 'Align Rotation to Target', !!ts.use_snap_align_rotation, (x) => setTool('use_snap_align_rotation', x)) : null,
     h('div', { class: 'pop-title' }, 'Snap With'),
     enumRow('snap-target', [['CLOSEST', 'Closest'], ['CENTER', 'Center'], ['MEDIAN', 'Median'], ['ACTIVE', 'Active']].map(([value, label]) => ({ value, label })), ts.snap_target, (x) => setTool('snap_target', x)),
     h('div', { class: 'pop-title' }, 'Rotation Increment'),

@@ -398,3 +398,18 @@ test('snap menu works on edit-mode selections', async ({ page }) => {
   for (const v of all) expect(Math.abs(v - Math.round(v))).toBeLessThan(1e-5);
   await expectNoErrors(errors);
 });
+
+test('a move can align objects to a surface normal', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  await run(page, 'transform.translate', { value: [0, 0, 1], snap_align: true, snap_normal: [1, 0, 0] }, { invoke: false });
+  const zAxis = await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.flush();
+    const e = a.graph.get(a.activeObject.id).world.elements;
+    return [e[8], e[9], e[10]];
+  });
+  expect(zAxis[0]).toBeCloseTo(1, 5);
+  expect(await get<number>(page, 'app.activeObject.location[2]')).toBeCloseTo(1, 5);
+  await expectNoErrors(errors);
+});
