@@ -144,7 +144,7 @@ export function addMenu(): MenuItem[] {
         ['SPHERE', 'Sphere'],
         ['CONE', 'Cone'],
       ].map(([t, l]) => ({ label: l, icon: 'outliner_ob_empty', op: 'object.empty_add', props: { type: t } })) },
-    { label: 'Image', icon: 'image', submenu: () => [{ label: 'Reference', op: 'object.empty_image_add', props: { background: false } }, { label: 'Background', op: 'object.empty_image_add', props: { background: true } }, { label: 'Mesh Plane', op: 'image.import_as_mesh_planes' }] },
+    { label: 'Image', icon: 'image', submenu: () => [{ label: 'Reference', op: 'object.empty_image_add', props: { background: false } }, { label: 'Background', op: 'object.empty_image_add', props: { background: true } }, { label: 'Mesh Plane', op: 'image.import_as_mesh_planes' }, { label: 'Empty Image', op: 'object.empty_add', props: { type: 'IMAGE' } }] },
     { separator: true },
     { label: 'Light', icon: 'outliner_ob_light', submenu: () =>
       [

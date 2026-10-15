@@ -437,7 +437,7 @@ export function customProps(custom: Record<string, unknown>): Child {
 // ---------------------------------------------------------------------------
 // Data-block selector (browse / name / new / unlink)
 
-export function dataBlockSelector<T extends { id: string; name: string; use_fake_user?: boolean }>(id: string, iconName: string, items: T[], current: string | null, set: (id: string | null) => void, create: () => void, opts: { duplicate?: () => void; users?: number } = {}): Child {
+export function dataBlockSelector<T extends { id: string; name: string; use_fake_user?: boolean }>(id: string, iconName: string, items: T[], current: string | null, set: (id: string | null) => void, create: () => void, opts: { duplicate?: () => void; users?: number; noUnlink?: boolean } = {}): Child {
   const cur = items.find((i) => i.id === current);
   return h(
     'div',
@@ -461,7 +461,7 @@ export function dataBlockSelector<T extends { id: string; name: string; use_fake
           opts.users && opts.users > 1 ? h('button', { class: 'ids-users', 'data-tip': 'Display number of users of this data (click to make a single-user copy)', onclick: () => opts.duplicate?.() }, String(opts.users)) : null,
           h('button', { class: { 'ids-btn': true, on: !!cur.use_fake_user }, 'data-tip': 'Fake User\nSave this data-block even if it has no users', onclick: () => ((cur.use_fake_user = !cur.use_fake_user), changed('Fake User')) }, icon(cur.use_fake_user ? 'fake_user_on' : 'fake_user_off')),
           opts.duplicate ? h('button', { class: 'ids-btn', 'data-tip': 'New (duplicate)', onclick: () => opts.duplicate!() }, icon('duplicate')) : null,
-          h('button', { class: 'ids-btn', 'data-tip': 'Unlink Data-Block', onclick: () => set(null) }, icon('x')),
+          opts.noUnlink ? null : h('button', { class: 'ids-btn', 'data-tip': 'Unlink Data-Block', onclick: () => set(null) }, icon('x')),
         ]
       : h('button', { class: 'btn ids-new', onclick: create }, icon('add'), 'New'),
   );
@@ -475,6 +475,7 @@ function meshData(o: ObjectData, me: MeshData): Child {
   const users = Object.values(doc.objects).filter((x) => x.data === me.id).length;
   return [
     dataBlockSelector('me', 'mesh_data', Object.values(doc.meshes), me.id, (id) => id && ((o.data = id), changed('Assign Mesh')), () => {}, {
+      noUnlink: true,
       users,
       duplicate: () => {
         const d = cloneShared(me);
@@ -572,7 +573,7 @@ function meshData(o: ObjectData, me: MeshData): Child {
 function lightData(o: ObjectData, la: LightData): Child {
   const anim = (path: string) => ({ ob: o, path: `data.${path}` });
   return [
-    dataBlockSelector('la', 'light_data', Object.values(app.doc.lights), la.id, (id) => id && ((o.data = id), changed('Assign Light')), () => {}),
+    dataBlockSelector('la', 'light_data', Object.values(app.doc.lights), la.id, (id) => id && ((o.data = id), changed('Assign Light')), () => {}, { noUnlink: true }),
     panel('la-light', 'Light', () => [
       h('div', { class: 'enum-tabs' }, enumRow('la-type', [['POINT', 'Point', 'light_point'], ['SUN', 'Sun', 'light_sun'], ['SPOT', 'Spot', 'light_spot'], ['AREA', 'Area', 'light_area']].map(([v, l, i]) => ({ value: v, label: l, icon: i })), la.type, (v) => ((la.type = v as LightData['type']), la.type === 'SUN' && la.energy > 100 && (la.energy = 1), changed('Light Type')))),
       colorProp(la, 'color', 'Color', { anim: anim('color') }),
@@ -598,7 +599,7 @@ function lightData(o: ObjectData, la: LightData): Child {
 function cameraData(o: ObjectData, ca: CameraData): Child {
   const doc = app.doc;
   return [
-    dataBlockSelector('ca', 'camera_data', Object.values(doc.cameras), ca.id, (id) => id && ((o.data = id), changed('Assign Camera')), () => {}),
+    dataBlockSelector('ca', 'camera_data', Object.values(doc.cameras), ca.id, (id) => id && ((o.data = id), changed('Assign Camera')), () => {}, { noUnlink: true }),
     panel('ca-lens', 'Lens', () => [
       enumProp(ca, 'type', 'Type', [['PERSP', 'Perspective'], ['ORTHO', 'Orthographic'], ['PANO', 'Panoramic']]),
       ca.type === 'ORTHO'
@@ -626,7 +627,7 @@ function cameraData(o: ObjectData, ca: CameraData): Child {
 function curveData(o: ObjectData, cu: CurveData): Child {
   const isText = o.type === 'FONT';
   return [
-    dataBlockSelector('cu', 'curve_data', Object.values(app.doc.curves), cu.id, (id) => id && ((o.data = id), changed('Assign Curve')), () => {}),
+    dataBlockSelector('cu', 'curve_data', Object.values(app.doc.curves), cu.id, (id) => id && ((o.data = id), changed('Assign Curve')), () => {}, { noUnlink: true }),
     isText
       ? panel('cu-text', 'Text', () => [
           splitRow('Body', h('textarea', { class: 'text-body', value: cu.body ?? '', onchange: (e: Event) => ((cu.body = (e.target as HTMLTextAreaElement).value), changed('Edit Text')), onkeydown: (e: KeyboardEvent) => e.stopPropagation() })),
@@ -666,7 +667,7 @@ registerTab({
     if (o.type === 'ARMATURE' && o.data) {
       const arm = doc.armatures[o.data];
       return [
-        dataBlockSelector('ar', 'armature_data', Object.values(doc.armatures), arm.id, (id) => id && ((o.data = id), changed('Assign Armature')), () => {}),
+        dataBlockSelector('ar', 'armature_data', Object.values(doc.armatures), arm.id, (id) => id && ((o.data = id), changed('Assign Armature')), () => {}, { noUnlink: true }),
         panel('ar-skeleton', 'Skeleton', () => [enumRow('ar-pose', [{ value: 'POSE', label: 'Pose Position' }, { value: 'REST', label: 'Rest Position' }], arm.pose_position, (v) => ((arm.pose_position = v as 'POSE'), changed('Pose Position')))]),
         panel('ar-display', 'Viewport Display', () => [enumProp(arm, 'display_type', 'Display As', [['OCTAHEDRAL', 'Octahedral'], ['STICK', 'Stick'], ['BBONE', 'B-Bone'], ['ENVELOPE', 'Envelope'], ['WIRE', 'Wire']]), bool(arm, 'show_names', 'Names'), bool(arm, 'show_axes', 'Axes'), bool(arm as never, 'show_in_front' as never, 'In Front')]),
         panel('ar-bones', 'Bones', () => arm.bones.map((b) => h('div', { key: b.name, class: { 'chip-row': true, on: arm.active_bone === b.name }, onclick: () => ((arm.active_bone = b.name), app.changed('doc')) }, icon('bone_data'), b.name))),

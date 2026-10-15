@@ -338,12 +338,14 @@ registerOperators([
   {
     idname: 'object.empty_add',
     label: 'Add Empty',
-    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'PLAIN_AXES', items: [['PLAIN_AXES', 'Plain Axes'], ['ARROWS', 'Arrows'], ['SINGLE_ARROW', 'Single Arrow'], ['CIRCLE', 'Circle'], ['CUBE', 'Cube'], ['SPHERE', 'Sphere'], ['CONE', 'Cone']] }, { id: 'radius', label: 'Radius', type: 'float', default: 1, min: 0, subtype: 'distance' }, ...transformProps],
+    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'PLAIN_AXES', items: [['PLAIN_AXES', 'Plain Axes'], ['ARROWS', 'Arrows'], ['SINGLE_ARROW', 'Single Arrow'], ['CIRCLE', 'Circle'], ['CUBE', 'Cube'], ['SPHERE', 'Sphere'], ['CONE', 'Cone'], ['IMAGE', 'Image']] }, { id: 'radius', label: 'Radius', type: 'float', default: 1, min: 0, subtype: 'distance' }, ...transformProps],
     poll: (ctx) => ctx.doc.mode === 'OBJECT',
     exec: (ctx, p) => {
       const ob = newObject('Empty', 'EMPTY', null);
       ob.empty_display_type = p.type as ObjectData['empty_display_type'];
       ob.empty_display_size = p.radius as number;
+      // an image empty starts without an image (chosen in its Object Data properties), centred on its origin
+      if (p.type === 'IMAGE') ob.empty_image_offset = [-0.5, -0.5];
       if (p.location === null) p.location = [...ctx.doc.scene.cursor.location];
       if (p.rotation === null) delete p.rotation;
       addObjectToScene(ctx.doc, ob, p);
