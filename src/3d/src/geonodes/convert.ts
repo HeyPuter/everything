@@ -2,8 +2,10 @@
 import type { EvalMesh, GeometryInstance } from '../eval/types';
 import type { CurveData, DocumentData, MeshData, ObjectData } from '../data/types';
 import { sampleSpline } from '../eval/curve';
-import { CurvesComponent, GeometrySet, MeshComponent, PointsComponent, mulMat, isIdentity, type AttrMap, type InstancesComponent } from './geometry';
-import { edgeAttrToCorners, faceNormals, smoothFlags } from './meshutil';
+import { CurvesComponent, GeometrySet, MeshComponent, PointsComponent, mulMat, isIdentity, adaptDomain, type AttrMap, type InstancesComponent } from './geometry';
+import { cornerNormals, edgeAttrToCorners, faceNormals, smoothFlags } from './meshutil';
+import { curveObjectToCurves, evaluatedCurves } from './curves/curvedata';
+import { curvesWithGreasePencil } from './curves/gpdata';
 
 export interface GnEvalMesh extends EvalMesh {
   /** materials of the generated geometry by material index (when set by nodes) */
@@ -55,6 +57,7 @@ export function evalMeshToGeometry(m: EvalMesh, source?: MeshData | null): Geome
     attrs.set(name, { domain: 'EDGE', type, data });
   };
   edgeFlag(m.sharp, 'sharp_edge', 'BOOLEAN');
+  if (m.custom_normals && m.custom_normals.length === nc * 3) attrs.set('custom_normal', { domain: 'CORNER', type: 'FLOAT_VECTOR', data: m.custom_normals });
   edgeFlag(m.creases, 'crease_edge', 'FLOAT');
   edgeFlag(m.seams, '.uv_seam', 'BOOLEAN');
   if (m.vertex_groups && m.weights)
@@ -114,8 +117,13 @@ export function curvesFromPolylines(list: { points: Float32Array; cyclic: boolea
   return new CurvesComponent(pos, offs, cyc);
 }
 
-/** Poly curves sampled from a curve data-block (object space). */
+/** Curves of a curve data-block (object space) with their spline types and handles. */
 export function curveDataToCurves(cu: CurveData): CurvesComponent {
+  return curveObjectToCurves(cu);
+}
+
+/** Poly curves sampled from a curve data-block (object space). */
+export function sampledCurveData(cu: CurveData): CurvesComponent {
   const sampled = cu.splines.map((s) => sampleSpline(s, cu.resolution_u));
   let total = 0;
   for (const s of sampled) total += s.points.length;
@@ -231,6 +239,28 @@ export function meshToEvalMesh(m: MeshComponent, opts: OutputOptions = {}): GnEv
     looseEdges: m.looseEdges.length ? m.looseEdges : undefined,
   };
   if (gnMaterials) out.gnMaterials = gnMaterials;
+  const cn = m.attrs.get('custom_normal');
+  if (cn && cn.type === 'FLOAT_VECTOR') out.custom_normals = customNormals(m, cn);
+  return out;
+}
+
+/** Per-corner unit custom normals from a custom_normal attribute (zero vectors use the shading normal). */
+function customNormals(m: MeshComponent, a: { domain: string; data: ArrayLike<number> }): Float32Array {
+  const data = a.domain === 'CORNER' ? a.data : adaptDomain(m, a.data as Float32Array, 'FLOAT_VECTOR', a.domain as 'POINT' | 'FACE' | 'EDGE', 'CORNER');
+  const nc = m.cornerCount;
+  const out = new Float32Array(nc * 3);
+  let fallback: Float32Array | null = null;
+  for (let c = 0; c < nc; c++) {
+    const x = data[c * 3],
+      y = data[c * 3 + 1],
+      z = data[c * 3 + 2];
+    const l = Math.hypot(x, y, z);
+    if (l > 1e-12) out.set([x / l, y / l, z / l], c * 3);
+    else {
+      fallback ??= cornerNormals(m);
+      out.set(fallback.subarray(c * 3, c * 3 + 3), c * 3);
+    }
+  }
   return out;
 }
 
@@ -275,8 +305,8 @@ export function geometryToEvalMesh(g: GeometrySet, opts: OutputOptions = {}): Gn
       normals: new Float32Array(0),
       pointRadius: r ? (r.data as Float32Array) : undefined,
     };
-  } else if (g.curves) {
-    const c = g.curves;
+  } else if (g.curves || g.greasePencil) {
+    const c = evaluatedCurves(curvesWithGreasePencil(g) ?? new CurvesComponent(new Float32Array(0), new Uint32Array([0]), new Uint8Array(0)));
     const curves: { points: Float32Array; cyclic: boolean }[] = [];
     for (let k = 0; k < c.curveCount; k++)
       curves.push({

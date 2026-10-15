@@ -26,7 +26,9 @@ DOPESHEET_MODES.push({
 });
 
 interface GPRow {
-  kind: 'SUMMARY' | 'OBJECT' | 'LAYER';
+  kind: 'SUMMARY' | 'OBJECT' | 'LAYER' | 'GROUP';
+  /** layer group name (GROUP rows) */
+  group?: string;
   ob?: ObjectData;
   gp?: GreasePencilData;
   layer?: GPLayer;
@@ -59,12 +61,13 @@ export function gpObjects(onlySelected: boolean, showHidden: boolean): { ob: Obj
 
 function rowFrames(r: GPRow, all: { ob: ObjectData; gp: GreasePencilData }[]): GPFrame[] {
   if (r.kind === 'LAYER') return r.layer!.frames;
+  if (r.kind === 'GROUP') return r.gp!.layers.filter((l) => l.parent_group === r.group).flatMap((l) => l.frames);
   if (r.kind === 'OBJECT') return r.gp!.layers.flatMap((l) => l.frames);
   return all.flatMap((x) => x.gp.layers.flatMap((l) => l.frames));
 }
 
 const isGPEditor = (ed: unknown): ed is GPDopeSheet => ed instanceof GPDopeSheet && ed.gpMode();
-const hoverGP = (ctx?: OpContext): GPDopeSheet | null => {
+export const hoverGP = (ctx?: OpContext): GPDopeSheet | null => {
   const ed = (ctx?.area ?? app.hoverArea ?? app.activeArea)?.editor;
   return isGPEditor(ed) ? ed : null;
 };
@@ -111,12 +114,19 @@ export class GPDopeSheet extends DopeSheet {
     const q = this.search.toLowerCase();
     for (const { ob, gp } of objs) {
       rows.push(mk(`gpo:${ob.id}`, 'OBJECT', ob.name, 0, { kind: 'OBJECT', ob, gp }, 'outliner_ob_greasepencil'));
+      const shownGroups = new Set<string>();
       for (let li = gp.layers.length - 1; li >= 0; li--) {
         const layer = gp.layers[li];
+        const g = layer.parent_group;
+        if (g && !shownGroups.has(g)) {
+          shownGroups.add(g);
+          rows.push(mk(`gpg:${ob.id}:${g}`, 'GROUP', g, 1, { kind: 'GROUP', ob, gp, group: g }, 'file_folder'));
+        }
+        if (g && (gp.layer_groups ?? []).find((x) => x.name === g)?.expanded === false) continue;
         if (q && !layer.name.toLowerCase().includes(q)) continue;
         const key = `gpl:${ob.id}:${li}`;
         if (li === gp.active_layer_index) channelState.selectedGroups.add(key);
-        rows.push(mk(key, 'GROUP', layer.name, 1, { kind: 'LAYER', ob, gp, layer, layerIndex: li }, 'outliner_data_gp_layer'));
+        rows.push(mk(key, 'GROUP', layer.name, g ? 2 : 1, { kind: 'LAYER', ob, gp, layer, layerIndex: li }, 'outliner_data_gp_layer'));
       }
     }
     this.list = { rows, curves: [] };
@@ -280,8 +290,14 @@ export class GPDopeSheet extends DopeSheet {
       if (y > H || y + rh < RULER_H) continue;
       const ch = rows[i];
       const r = ch.gpRow;
-      g.fillStyle = r.kind === 'SUMMARY' ? C.summary : r.kind === 'OBJECT' ? C.objectRow : channelState.selectedGroups.has(ch.key) ? C.channelRowSel : C.channelRow;
+      g.fillStyle = r.kind === 'SUMMARY' ? C.summary : r.kind === 'OBJECT' || r.kind === 'GROUP' ? C.objectRow : channelState.selectedGroups.has(ch.key) ? C.channelRowSel : C.channelRow;
       g.fillRect(0, y, W, rh - 1);
+      const cc = r.kind === 'LAYER' ? r.layer!.channel_color : undefined;
+      if (cc) {
+        // custom channel color: a tinted row
+        g.fillStyle = `rgba(${cc.map((x) => Math.round(Math.pow(Math.max(0, Math.min(1, x)), 1 / 2.2) * 255)).join(',')},0.28)`;
+        g.fillRect(0, y, W, rh - 1);
+      }
       const yc = Math.round(y + rh / 2) + 0.5;
       const byFrame = new Map<number, { sel: boolean; type: GPKeyframeType }>();
       for (const f of rowFrames(r, all)) {
@@ -418,7 +434,7 @@ export class GPDopeSheet extends DopeSheet {
 // ---------------------------------------------------------------------------
 // moving keyframes (drag / G)
 
-function layersOf(ed: GPDopeSheet) {
+export function layersOf(ed: GPDopeSheet) {
   return ed.frameSets().flatMap((x) => x.gp.layers.map((l) => ({ gp: x.gp, layer: l })));
 }
 
@@ -570,76 +586,71 @@ registerOperators([
   },
 ]);
 
-function gpSelectMenu(): MenuItem[] {
+export function gpSelectMenu(): MenuItem[] {
   return [
-    {
-      label: 'All',
-      op: 'grease_pencil.frames_select_all',
-      props: { action: 'SELECT' },
-      shortcut: 'A',
-    },
-    {
-      label: 'None',
-      op: 'grease_pencil.frames_select_all',
-      props: { action: 'DESELECT' },
-      shortcut: 'Alt A',
-    },
-    {
-      label: 'Invert',
-      op: 'grease_pencil.frames_select_all',
-      props: { action: 'INVERT' },
-      shortcut: 'Ctrl I',
-    },
+    { label: 'All', op: 'grease_pencil.frames_select_all', props: { action: 'SELECT' }, shortcut: 'A' },
+    { label: 'None', op: 'grease_pencil.frames_select_all', props: { action: 'DESELECT' }, shortcut: 'Alt A' },
+    { label: 'Invert', op: 'grease_pencil.frames_select_all', props: { action: 'INVERT' }, shortcut: 'Ctrl I' },
     { separator: true },
-    {
-      label: 'Columns on Current Frame',
-      op: 'grease_pencil.frames_select_column',
-      shortcut: 'Ctrl K',
-    },
+    { label: 'Box Select', op: 'action.select_box', shortcut: 'B' },
+    { separator: true },
+    { label: 'Columns on Selected Keys', op: 'grease_pencil.frames_select_column_keys', shortcut: 'K' },
+    { label: 'Column on Current Frame', op: 'grease_pencil.frames_select_column', shortcut: 'Ctrl K' },
+    { separator: true },
+    { label: 'Before Current Frame', op: 'grease_pencil.frames_select_leftright', props: { mode: 'LEFT' }, shortcut: '[' },
+    { label: 'After Current Frame', op: 'grease_pencil.frames_select_leftright', props: { mode: 'RIGHT' }, shortcut: ']' },
+    { separator: true },
+    { label: 'More', op: 'grease_pencil.frames_select_more', shortcut: 'Ctrl Numpad +' },
+    { label: 'Less', op: 'grease_pencil.frames_select_less', shortcut: 'Ctrl Numpad -' },
+    { label: 'Select Linked', op: 'grease_pencil.frames_select_linked', shortcut: 'L' },
   ];
 }
 
-function gpKeyMenu(): MenuItem[] {
+export function gpKeyMenu(): MenuItem[] {
   return [
-    { label: 'Move', op: 'grease_pencil.frames_move', shortcut: 'G' },
     {
-      label: 'Duplicate',
-      op: 'grease_pencil.frames_duplicate_move',
-      shortcut: 'Shift D',
+      label: 'Transform',
+      submenu: () => [
+        { label: 'Move', op: 'grease_pencil.frames_move', shortcut: 'G' },
+        { label: 'Extend', op: 'grease_pencil.frames_extend', shortcut: 'E' },
+        { label: 'Scale', op: 'grease_pencil.frames_scale', shortcut: 'S' },
+      ],
     },
     {
-      label: 'Delete Keyframes',
-      op: 'grease_pencil.frames_delete',
-      shortcut: 'X',
+      label: 'Snap',
+      shortcut: 'Shift S',
+      submenu: () => [
+        { label: 'Selection to Current Frame', op: 'grease_pencil.frames_snap', props: { type: 'CFRA' } },
+        { label: 'Selection to Nearest Marker', op: 'grease_pencil.frames_snap', props: { type: 'NEAREST_MARKER' } },
+      ],
     },
+    {
+      label: 'Mirror',
+      shortcut: 'Ctrl M',
+      submenu: () => [
+        { label: 'By Times Over Current Frame', op: 'grease_pencil.frames_mirror', props: { type: 'CFRA' } },
+        { label: 'By Times Over First Selected Marker', op: 'grease_pencil.frames_mirror', props: { type: 'MARKER' } },
+      ],
+    },
+    { separator: true },
+    { label: 'Insert Blank Keyframe (Active Layer)', op: 'grease_pencil.insert_blank_frame', props: { all_layers: false }, shortcut: 'I' },
+    { label: 'Insert Blank Keyframe (All Layers)', op: 'grease_pencil.insert_blank_frame', props: { all_layers: true } },
+    { label: 'Jump to Keyframes', op: 'grease_pencil.frames_jump', shortcut: 'Ctrl G' },
+    { separator: true },
+    { label: 'Copy', op: 'grease_pencil.frames_copy', shortcut: 'Ctrl C' },
+    { label: 'Paste', op: 'grease_pencil.frames_paste', shortcut: 'Ctrl V' },
+    { label: 'Duplicate', op: 'grease_pencil.frames_duplicate_move', shortcut: 'Shift D' },
+    { label: 'Delete Keyframes', op: 'grease_pencil.frames_delete', shortcut: 'X' },
     { separator: true },
     {
       label: 'Keyframe Type',
-      submenu: () =>
-        KEY_TYPES.map(([t, l]) => ({
-          label: l,
-          op: 'grease_pencil.frames_keyframe_type',
-          props: { type: t },
-        })),
+      submenu: () => KEY_TYPES.map(([t, l]) => ({ label: l, op: 'grease_pencil.frames_keyframe_type', props: { type: t } })),
       shortcut: 'R',
     },
     { separator: true },
-    {
-      label: 'Insert Blank Keyframe (Active Layer)',
-      op: 'grease_pencil.insert_blank_frame',
-      props: { all_layers: false },
-      shortcut: 'I',
-    },
-    {
-      label: 'Insert Blank Keyframe (All Layers)',
-      op: 'grease_pencil.insert_blank_frame',
-      props: { all_layers: true },
-    },
-    {
-      label: 'Duplicate Active Keyframe (Active Layer)',
-      op: 'grease_pencil.frame_duplicate',
-      props: { all: false },
-    },
+    { label: 'Interpolate Sequence', op: 'grease_pencil.interpolate_sequence' },
+    { label: 'Delete Breakdown Frames', op: 'grease_pencil.delete_breakdown' },
+    { label: 'Delete Duplicate Frames', op: 'grease_pencil.frame_clean_duplicate', props: { selected: true } },
   ];
 }
 

@@ -8,12 +8,20 @@ import { renderContext } from '../context';
 import { viewportExtensions } from '../../editors/view3d/hooks';
 import type { View3D } from '../../editors/view3d/view3d';
 import { RenderScene, type BuildOptions } from './renderscene';
-import { RasterRenderer, effectsFrom, displayMaterial, setDisplay, depthOnlyMaterial } from './raster';
+import { RasterRenderer, Accumulator, effectsFrom, displayMaterial, setDisplay, depthOnlyMaterial } from './raster';
 import { PathTracerCore } from './pathtracer';
 import { Denoiser } from './denoise';
 import { floatTarget, normalDepthMaterial, renderOverride, renderAlbedo } from './gbuffer';
 import { studioEquirect } from './environment';
-import { renderCamera } from './camera';
+import { renderCamera, cameraDof, apertureSample, apertureJitter, jitterProjection } from './camera';
+import { filterTable, sampleFilter } from './filter';
+import { halton } from './units';
+
+/** Rendered viewport resolution divisor (Performance ▸ Viewport ▸ Pixel Size). */
+export function viewportPixelSize(size: string | undefined): number {
+  const n = Number(size);
+  return n > 0 ? n : 1;
+}
 
 const transparentBg = new Color(0.12, 0.12, 0.12);
 const quad = new FullScreenQuad(displayMaterial);
@@ -24,6 +32,11 @@ export class ViewportRender {
   private builtKey = '';
   private buildCount = 0;
   private raster = new RasterRenderer(4);
+  private accum = new Accumulator();
+  private accumKey = '';
+  private accumCount = 0;
+  private filterKey = '';
+  private table = filterTable('BLACKMAN_HARRIS', 1.5);
   private core: PathTracerCore | null = null;
   private denoiser: Denoiser | null = null;
   private guide: WebGLRenderTarget | null = null;
@@ -43,9 +56,16 @@ export class ViewportRender {
     return Math.max(1, app.doc.scene.render.preview_samples || 1);
   }
 
+  private rasterSamples() {
+    return Math.max(1, Math.round(app.doc.scene.render.preview_raster_samples ?? 16));
+  }
+
   /** Whether the viewport needs further frames (progressive refinement / shader compilation). */
   animating(): boolean {
-    if (this.v.shading.type !== 'RENDERED' || app.doc.scene.render.engine !== 'PATHTRACE' || !this.core) return this.v.shading.type === 'RENDERED' && app.doc.scene.render.engine === 'PATHTRACE';
+    if (this.v.shading.type !== 'RENDERED') return false;
+    const engine = app.doc.scene.render.engine;
+    if (engine === 'RASTER') return !!this.accumKey && this.accumCount < this.rasterSamples();
+    if (engine !== 'PATHTRACE' || !this.core) return engine === 'PATHTRACE';
     return this.core.isCompiling || this.core.samples < this.maxSamples() || (this.wantDenoise() && this.denoisedSamples !== this.core.samples);
   }
 
@@ -76,8 +96,9 @@ export class ViewportRender {
       useSceneWorld: sh.use_scene_world_render,
       studio: sh.use_scene_world_render ? null : mode === 'pathtrace' ? { texture: studioEquirect(), intensity: sh.studiolight_intensity } : { texture: ctx.studio(), intensity: sh.studiolight_intensity },
       filmTransparent: r.film_transparent,
+      ...(mode === 'raster' ? { lightScale: r.direct_light_intensity ?? 1, envScale: r.indirect_light_intensity ?? 1 } : {}),
     };
-    const key = `${app.revision}|${mode}|${opts.useSceneLights}|${opts.useSceneWorld}|${sh.studiolight_intensity}|${r.film_transparent}|${this.v.localView ? [...this.v.localView].join(',') : ''}`;
+    const key = `${app.revision}|${mode}|${opts.useSceneLights}|${opts.useSceneWorld}|${sh.studiolight_intensity}|${r.film_transparent}|${opts.lightScale}|${opts.envScale}|${this.v.localView ? [...this.v.localView].join(',') : ''}`;
     if (!this.scene || this.scene.mode !== mode) {
       this.scene?.dispose();
       this.scene = new RenderScene(mode);
@@ -90,19 +111,23 @@ export class ViewportRender {
     }
     const rs = this.scene;
     const bg = r.film_transparent ? transparentBg : null;
-    setDisplay(r.view_transform, r.exposure, r.gamma, bg ?? new Color(0, 0, 0));
-    const dpr = ctx.engine.dpr;
+    const filmExposure = mode === 'pathtrace' ? Math.log2(Math.max(1e-6, r.film_exposure ?? 1)) : 0;
+    setDisplay(r, filmExposure, bg ?? new Color(0, 0, 0));
+    const pixel = viewportPixelSize(r.preview_pixel_size);
+    const dpr = r.preview_pixel_size && r.preview_pixel_size !== 'AUTO' ? 1 / pixel : ctx.engine.dpr;
     if (mode === 'raster') {
       rs.configureShadows(renderer, doc);
-      const tex = this.raster.render(renderer, rs.scene, camera, Math.round(w * dpr), Math.round(h * dpr), effectsFrom(r));
-      this.blit(tex);
-      this.setInfo('');
+      const W = Math.max(1, Math.round(w * dpr)),
+        H = Math.max(1, Math.round(h * dpr));
+      this.blit(this.rasterSample(camera, W, H));
+      const max = this.rasterSamples();
+      this.setInfo(max > 1 && this.accumCount < max ? `Sample ${this.accumCount}/${max}` : '');
     } else {
       const cam = this.cameraWithDof(camera);
       const core = (this.core ??= new PathTracerCore(renderer));
       core.applySettings(r);
-      const W = Math.max(1, Math.round(w)),
-        H = Math.max(1, Math.round(h));
+      const W = Math.max(1, Math.round(w / pixel)),
+        H = Math.max(1, Math.round(h / pixel));
       core.setSize(W, H);
       core.sync(rs, cam, this.buildCount);
       const max = this.maxSamples();
@@ -124,6 +149,51 @@ export class ViewportRender {
     }
     this.writeDepth(camera);
     return true;
+  }
+
+  /**
+   * Realtime viewport: while the view and the scene stay unchanged, jittered samples (pixel
+   * filter, and depth of field when looking through the camera) are averaged progressively.
+   */
+  private rasterSample(camera: Camera, W: number, H: number) {
+    const renderer = renderContext!.engine.renderer;
+    const r = app.doc.scene.render;
+    const rs = this.scene!;
+    const fx = effectsFrom(r);
+    const fkey = `${r.filter_size ?? 1.5}`;
+    if (fkey !== this.filterKey) {
+      this.filterKey = fkey;
+      this.table = filterTable('BLACKMAN_HARRIS', r.filter_size ?? 1.5);
+    }
+    camera.updateMatrixWorld();
+    const proj = (camera as PerspectiveCamera).projectionMatrix;
+    const dof = this.v.cameraView && camera === this.v.sceneCamera && r.use_bokeh_jittered !== false ? cameraDof(app) : null;
+    const key = `${this.builtKey}|${W}x${H}|${camera.matrixWorld.elements.join(',')}|${proj.elements.join(',')}|${JSON.stringify(fx)}|${fkey}|${dof ? JSON.stringify(dof) : ''}|${r.shadow_cube_size}|${r.use_soft_shadows}`;
+    const max = this.rasterSamples();
+    if (key !== this.accumKey) {
+      this.accumKey = key;
+      this.accumCount = 0;
+      this.accum.reset(W, H);
+    }
+    if (this.accumCount >= max) return this.accum.target.texture;
+    const i = this.accumCount;
+    let cam = camera;
+    if (i > 0) {
+      cam = camera.clone();
+      (cam as PerspectiveCamera).projectionMatrix.copy(proj);
+      const base = proj.clone();
+      const jx = sampleFilter(this.table, halton(i + 1, 2)),
+        jy = sampleFilter(this.table, halton(i + 1, 3));
+      if (dof) {
+        const [ax, ay] = apertureSample(halton(i + 1, 5), halton(i + 1, 7), dof.blades, dof.rotation, dof.ratio);
+        apertureJitter(cam, camera.position.clone(), base, ax * dof.radius, ay * dof.radius, dof.focus);
+        jitterProjection(cam, (cam as PerspectiveCamera).projectionMatrix.clone(), jx, jy, W, H);
+      } else jitterProjection(cam, base, jx, jy, W, H);
+    }
+    const tex = this.raster.render(renderer, rs.scene, cam, W, H, fx);
+    this.accum.add(renderer, tex);
+    this.accumCount++;
+    return this.accum.target.texture;
   }
 
   private denoise(cam: Camera, W: number, H: number, n: number) {
@@ -162,6 +232,8 @@ export class ViewportRender {
     p.focusDistance = sc.focusDistance;
     p.fStop = sc.fStop;
     p.apertureBlades = sc.apertureBlades;
+    p.apertureRotation = sc.apertureRotation;
+    p.anamorphicRatio = sc.anamorphicRatio;
     p.updateMatrixWorld(true);
     return p;
   }
@@ -221,6 +293,7 @@ export class ViewportRender {
   dispose() {
     this.scene?.dispose();
     this.raster.dispose();
+    this.accum.dispose();
     this.core?.dispose();
     this.denoiser?.dispose();
     this.guide?.dispose();

@@ -8,6 +8,7 @@ import { curveLengths } from '../curveutil';
 import { attributeField } from '../inputs';
 import { ConstField } from '../field';
 import { realizeInstances } from '../ops/join';
+import { evaluatedCurves, evaluatedWithPointValues } from '../curves/curvedata';
 
 const curveGeo = (c: CurvesComponent) => new GeometrySet(undefined, undefined, c);
 
@@ -123,10 +124,11 @@ gn('GeometryNodeCurveSpiral', 'geometry', {
 gn('GeometryNodeCurveToMesh', 'geometry', {
   exec: (ctx) => {
     const g = realizeInstances(ctx.geometry('Curve'));
-    const c = g.curves;
-    if (!c) return { Mesh: GeometrySet.empty() };
-    const profile = realizeInstances(ctx.geometry('Profile Curve')).curves;
-    const scale = evalOn(c, 'POINT', undefined, [ctx.field('Scale', 'FLOAT')]).values[0] as Float32Array;
+    if (!g.curves) return { Mesh: GeometrySet.empty() };
+    const sc = evalOn(g.curves, 'POINT', undefined, [ctx.field('Scale', 'FLOAT')]).values[0] as Float32Array;
+    const { curves: c, values: scale } = evaluatedWithPointValues(g.curves, sc);
+    const pc = realizeInstances(ctx.geometry('Profile Curve')).curves;
+    const profile = pc ? evaluatedCurves(pc) : undefined;
     return {
       Mesh: new GeometrySet(curveToMesh(c, profile, scale, ctx.bool('Fill Caps'))),
     };
@@ -139,10 +141,10 @@ gn(
   {
     exec: (ctx) => {
       const g = ctx.geometry('Curve');
-      const c = g.curves;
-      if (!c) return { Curve: g };
+      if (!g.curves) return { Curve: g };
       const mode = String(prop(ctx.node, 'Mode')) as 'Count' | 'Length' | 'Evaluated';
-      const r = evalOn(c, 'CURVE', ctx.field('Selection', 'BOOLEAN'), [ctx.field('Count', 'INT'), ctx.field('Length', 'FLOAT')]);
+      const r = evalOn(g.curves, 'CURVE', ctx.field('Selection', 'BOOLEAN'), [ctx.field('Count', 'INT'), ctx.field('Length', 'FLOAT')]);
+      const c = evaluatedCurves(g.curves);
       return {
         Curve: g.with(resampleCurves(c, mode, r.values[0] as Int32Array, r.values[1] as Float32Array, r.sel, !!prop(ctx.node, 'keep_last_segment'))),
       };
@@ -176,7 +178,7 @@ gn(
       const g = realizeInstances(ctx.geometry('Curve'));
       if (!g.curves) return { Mesh: GeometrySet.empty() };
       return {
-        Mesh: new GeometrySet(fillCurves(g.curves, prop(ctx.node, 'Mode') === 'N-gons')),
+        Mesh: new GeometrySet(fillCurves(evaluatedCurves(g.curves), prop(ctx.node, 'Mode') === 'N-gons')),
       };
     },
   },
@@ -197,7 +199,7 @@ gn(
   {
     exec: (ctx) => {
       const g = realizeInstances(ctx.geometry('Curve'));
-      const c = g.curves;
+      const c = g.curves ? evaluatedCurves(g.curves) : undefined;
       const none = {
         Points: GeometrySet.empty(),
         Tangent: new ConstField('VECTOR', [0, 0, 0]),
@@ -245,7 +247,7 @@ gn('GeometryNodeCurveLength', 'geometry', {
     const c = realizeInstances(ctx.geometry('Curve')).curves;
     if (!c) return { Length: 0 };
     let total = 0;
-    for (const l of curveLengths(c).total) total += l;
+    for (const l of curveLengths(evaluatedCurves(c)).total) total += l;
     return { Length: total };
   },
 });

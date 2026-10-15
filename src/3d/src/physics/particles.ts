@@ -15,6 +15,7 @@ import { MeshSampler, newSample, type Sample } from './sampling';
 import { physicsDoc } from './state';
 import { fps, gravityOf, simDeps } from './meshsim';
 import { defaultParticleSettings, defaultPointCache, type CollisionSettingsX, type ParticleSettingsX, type ParticleSystemX } from './types';
+import { simplifyChildParticles } from '../eval/simplify';
 
 export interface ParticleDraw {
   objectId: string;
@@ -350,17 +351,17 @@ export interface HairResult {
 
 const hairCache = new Map<string, { hash: string; result: HairResult }>();
 
-export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSystemX, s: ParticleSettingsX, mesh: EvalMesh): HairResult {
+export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSystemX, s: ParticleSettingsX, mesh: EvalMesh, childFactor = 1): HairResult {
   const key = particleCacheKey(ob, m);
   const hash = strHash(
-    [JSON.stringify([s.count, s.emit_from, s.normal_factor, s.object_align_factor, s.factor_random, s.hair_length, s.hair_step, s.child_type, s.rendered_child_count, s.child_radius, s.clump_factor, s.roughness_1, s.seed]), psys.seed, mesh.positions.length, arrayChecksum(mesh.positions), arrayChecksum(mesh.indices)].join('#'),
+    [JSON.stringify([s.count, s.emit_from, s.normal_factor, s.object_align_factor, s.factor_random, s.hair_length, s.hair_step, s.child_type, s.rendered_child_count, s.child_radius, s.clump_factor, s.roughness_1, s.seed, childFactor]), psys.seed, mesh.positions.length, arrayChecksum(mesh.positions), arrayChecksum(mesh.indices)].join('#'),
   );
   const hit0 = hairCache.get(key);
   if (hit0 && hit0.hash === hash) return hit0.result;
   const seed = hashSeed(psys.seed, s.seed ?? 0);
   const n = Math.max(0, Math.floor(s.count));
   const seg = Math.max(1, Math.round(s.hair_step ?? 5));
-  const children = s.child_type === 'SIMPLE' ? Math.max(0, Math.round(s.rendered_child_count ?? 0)) : 0;
+  const children = s.child_type === 'SIMPLE' ? Math.max(0, Math.round((s.rendered_child_count ?? 0) * childFactor)) : 0;
   const total = n * (1 + children);
   const pts = new Float32Array(total * (seg + 1) * 3);
   const sampler = new MeshSampler(mesh);
@@ -462,7 +463,7 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
   const instances: GeometryInstance[] = [];
   let draw: ParticleDraw | null = null;
   if (s.type === 'HAIR') {
-    const hair = evaluateHair(ob, m, psys, s, mesh);
+    const hair = evaluateHair(ob, m, psys, s, mesh, simplifyChildParticles(doc, ctx.render));
     const per = hair.segments + 1;
     if (show !== 'NONE' && (s.render_type === 'PATH' || show === 'DOT' || !wantInstances)) {
       const lines = new Float32Array(hair.strands * hair.segments * 6);

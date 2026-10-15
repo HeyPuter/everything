@@ -4,6 +4,8 @@ const css = /* css */ `
 .clip-canvas { position: absolute; left: 0; top: 0; touch-action: none; }
 .clip-ui { position: absolute; inset: 0; pointer-events: none; }
 .clip-ui > * { pointer-events: auto; }
+.clip-redo { position: absolute; bottom: 0; }
+.clip-redo .redo-panel { left: 0; bottom: 8px; }
 .clip-toolbar, .clip-sidebar { position: absolute; top: 0; bottom: 0; display: flex; background: rgba(48, 48, 48, 0.96); }
 .clip-toolbar { left: 0; width: 230px; border-right: 1px solid #222; }
 .clip-sidebar { right: 0; width: 290px; border-left: 1px solid #222; }

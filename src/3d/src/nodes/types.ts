@@ -22,6 +22,8 @@ export type SocketType =
   | 'IMAGE'
   | 'MATERIAL'
   | 'TEXTURE'
+  | 'FONT'
+  | 'SOUND'
   | 'CLOSURE'
   | 'BUNDLE'
   | 'CUSTOM';
@@ -166,6 +168,8 @@ export interface NodeTypeDef {
   dynamicSockets?: (node: NodeData, ctx: SocketContext) => { inputs: SocketDef[]; outputs: SocketDef[]; panels?: NodePanelDef[] };
   /** initialize props of a newly created node */
   init?: (node: NodeData) => void;
+  /** after the node is added interactively: add companion nodes (zone outputs) and return them */
+  onAdd?: (tree: NodeTreeData, node: NodeData) => NodeData[];
   /** custom body UI (color ramps, curves, image selector) drawn after props */
   drawBody?: (ctx: NodeDrawContext) => Child;
   /** extra height for custom body UI in node units */

@@ -26,6 +26,7 @@ import { scriptFile, scriptFileNames } from './files';
 import { Matrix, Vector, mathutils } from './mathutils';
 import { allSockets, getNodeType, nodeSockets, nodeTypes, socketDefault } from '../nodes/registry';
 import { ctxOf, makeNode } from '../nodes/tree';
+import { zoneItemsFor, pairWithOutput } from '../geonodes/zones/script';
 import type { SocketDef } from '../nodes/types';
 import {
   Struct,
@@ -1351,6 +1352,32 @@ class NodeStruct extends Struct {
   }
   private hasImage() {
     return 'image' in this.node.props || !!getNodeType(this.node.type)?.props.some((p) => p.id === 'image' && p.type === 'IMAGE');
+  }
+  // zone and bake items (output nodes of zones, Bake nodes) and zone pairing
+  get repeat_items() {
+    return zoneItemsFor(this.getTree, this.__nid, 'repeat_items', `${this.__path}.repeat_items`);
+  }
+  get state_items() {
+    return zoneItemsFor(this.getTree, this.__nid, 'state_items', `${this.__path}.state_items`);
+  }
+  get input_items() {
+    return zoneItemsFor(this.getTree, this.__nid, 'input_items', `${this.__path}.input_items`);
+  }
+  get main_items() {
+    return zoneItemsFor(this.getTree, this.__nid, 'main_items', `${this.__path}.main_items`);
+  }
+  get generation_items() {
+    return zoneItemsFor(this.getTree, this.__nid, 'generation_items', `${this.__path}.generation_items`);
+  }
+  get bake_items() {
+    return zoneItemsFor(this.getTree, this.__nid, 'bake_items', `${this.__path}.bake_items`);
+  }
+  get paired_output(): unknown {
+    const id = this.node.props.paired_output;
+    return typeof id === 'string' && this.getTree()?.nodes.some((n) => n.id === id) ? nodeWrapper(this.getTree, id, this.__path.replace(/\[[^\]]*\]$/, '')) : undefined;
+  }
+  pair_with_output(output: unknown) {
+    return pairWithOutput(this.getTree, this.__nid, output);
   }
 }
 const NODE_HIDDEN = new Set(['id', 'type', 'inputs', 'props', 'parent']);

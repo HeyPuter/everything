@@ -9,7 +9,7 @@ import { getNodeType } from '../../nodes/registry';
 import { nodeChanged } from '../../nodes/editor/nodeui';
 import { registerExec, type NodeCtx } from '../eval/evaluator';
 import { Result, IDENTITY, type Domain, type Xform } from '../eval/result';
-import { cryptoId, latestCryptoManifest, type CryptoLayer } from '../../render/final/extrapasses';
+import { cryptoId, latestCryptoManifest, type CryptoLayer } from '../../render/final/idpasses';
 import type { Texture } from '../gpu/gpu';
 
 const MAX_IDS = 32;

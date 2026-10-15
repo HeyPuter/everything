@@ -3,8 +3,12 @@
 import { app } from '../app/app';
 import { h, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
-import { panel, enumRow } from '../ui/widgets';
-import { num, bool, enumProp, colorProp, vecProp } from '../ui/props';
+import { panel, enumRow, enumMenu, checkbox, opButton } from '../ui/widgets';
+import { openMenu } from '../ui/menu';
+import { layerMenu } from './menus';
+import { renameLayer, setLayerParent } from './layerops';
+import { groupsOf, members, groupMenu, TAG_COLORS } from './layergroups';
+import { num, bool, enumProp, colorProp, vecProp, splitRow } from '../ui/props';
 import { propertiesTabs } from '../editors/properties/properties';
 import { uiList } from '../editors/properties/uilist';
 import { dataBlockSelector } from '../editors/properties/tabs';
@@ -48,13 +52,45 @@ const BLEND_ITEMS: [string, string][] = [
 ];
 
 function layersPanel(gp: GreasePencilData): Child {
-  // displayed top → bottom (the last layer draws on top)
-  const order = gp.layers.map((_, i) => gp.layers.length - 1 - i);
-  const items = order.map((li) => {
+  // displayed top → bottom (the last layer draws on top); groups show above their layers
+  const rows: ({ kind: 'layer'; li: number } | { kind: 'group'; name: string })[] = [];
+  const seen = new Set<string>();
+  const groups = groupsOf(gp);
+  for (let li = gp.layers.length - 1; li >= 0; li--) {
+    const g = gp.layers[li].parent_group;
+    if (g && !seen.has(g)) {
+      seen.add(g);
+      rows.push({ kind: 'group', name: g });
+    }
+    if (g && groups.find((x) => x.name === g)?.expanded === false) continue;
+    rows.push({ kind: 'layer', li });
+  }
+  const order = rows.map((r) => (r.kind === 'layer' ? r.li : -1));
+  const items = rows.map((r, ri) => {
+    if (r.kind === 'group') {
+      const grp = groups.find((x) => x.name === r.name)!;
+      const mem = members(gp, r.name);
+      const hidden = mem.every((l) => l.hide),
+        locked = mem.every((l) => l.lock);
+      return {
+        key: `g${r.name}`,
+        label: r.name,
+        icon: 'file_folder',
+        right: h(
+          'span',
+          { style: { display: 'flex', gap: '1px', alignItems: 'center' } },
+          grp.color_tag ? h('span', { style: { width: '8px', height: '8px', borderRadius: '50%', background: TAG_COLORS[grp.color_tag], marginRight: '3px' } }) : null,
+          toggle(`gx${ri}`, grp.expanded !== false, 'disclosure_tri_down', 'disclosure_tri_right', 'Expand\nShow the layers of the group', () => ((grp.expanded = grp.expanded === false), app.changed('ui'))),
+          toggle(`gh${ri}`, !hidden, 'hide_off', 'hide_on', 'Hide\nShow or hide all layers of the group', () => (mem.forEach((l) => (l.hide = !hidden)), changed('Hide Group'))),
+          toggle(`gl${ri}`, locked, 'locked', 'unlocked', 'Locked\nLock or unlock all layers of the group', () => (mem.forEach((l) => (l.lock = !locked)), changed('Lock Group'))),
+        ),
+      };
+    }
+    const li = r.li;
     const l = gp.layers[li];
     return {
       key: `l${li}${l.name}`,
-      label: l.name,
+      label: `${l.parent_group ? '\u2003' : ''}${l.name}`,
       icon: 'outliner_data_gp_layer',
       right: h(
         'span',
@@ -72,6 +108,14 @@ function layersPanel(gp: GreasePencilData): Child {
       ),
     };
   });
+  /** a group row activates its topmost layer */
+  const rowLayer = (i: number) => {
+    const r = rows[i];
+    if (!r) return -1;
+    if (r.kind === 'layer') return r.li;
+    const mem = members(gp, r.name);
+    return gp.layers.indexOf(mem[mem.length - 1]);
+  };
   const act = gp.layers[gp.active_layer_index];
   return panel('gp-layers', 'Layers', () => [
     act
@@ -90,18 +134,60 @@ function layersPanel(gp: GreasePencilData): Child {
           num(act, 'opacity', 'Opacity', { min: 0, max: 1, slider: true }),
         )
       : null,
-    uiList('gp-layer-list', items, order.indexOf(gp.active_layer_index), (i) => app.run('grease_pencil.layer_active', { layer: order[i] }), {
+    uiList('gp-layer-list', items, order.indexOf(gp.active_layer_index), (i) => app.run('grease_pencil.layer_active', { layer: rowLayer(i) }), {
       add: () => app.run('grease_pencil.layer_add', {}, { invoke: false }),
       remove: () => app.run('grease_pencil.layer_remove'),
       up: () => app.run('grease_pencil.layer_move', { direction: 'UP' }),
       down: () => app.run('grease_pencil.layer_move', { direction: 'DOWN' }),
       rename: (i, name) => {
-        const l = gp.layers[order[i]];
-        if (name && !gp.layers.some((x) => x !== l && x.name === name)) l.name = name;
+        const r = rows[i];
+        name = name.trim();
+        if (!r || !name) return;
+        if (r.kind === 'group') {
+          if (groups.some((g) => g.name === name)) return;
+          for (const l of members(gp, r.name)) l.parent_group = name;
+          groups.find((g) => g.name === r.name)!.name = name;
+          changed('Rename Layer Group');
+          return;
+        }
+        const l = gp.layers[r.li];
+        if (!gp.layers.some((x) => x !== l && x.name === name)) renameLayer(gp, l, name);
         changed('Rename Layer');
       },
       rows: 4,
     }),
+    h(
+      'div',
+      { class: 'gp-layer-specials' },
+      h(
+        'button',
+        {
+          class: 'btn',
+          'data-tip': 'Layer specials',
+          onpointerdown: (e: PointerEvent) => {
+            e.preventDefault();
+            openMenu(layerMenu(), e.currentTarget as HTMLElement);
+          },
+        },
+        'Layer',
+        icon('down_arrow_hlt', 'tiny'),
+      ),
+      h(
+        'button',
+        {
+          class: 'btn',
+          'data-tip': 'Layer groups',
+          onpointerdown: (e: PointerEvent) => {
+            e.preventDefault();
+            openMenu(groupMenu(), e.currentTarget as HTMLElement);
+          },
+        },
+        icon('file_folder'),
+        'Group',
+        icon('down_arrow_hlt', 'tiny'),
+      ),
+    ),
+    act ? masksPanel(gp, act) : null,
     act
       ? panel(
           'gp-layer-transform',
@@ -126,7 +212,149 @@ function layersPanel(gp: GreasePencilData): Child {
           { sub: true, closed: true },
         )
       : null,
+    act ? relationsPanel(gp, act) : null,
+    act
+      ? panel('gp-layer-display', 'Display', () => [channelColor(act)], { sub: true, closed: true })
+      : null,
   ]);
+}
+
+function channelColor(l: GPLayer): Child {
+  const on = !!l.channel_color;
+  return [
+    checkbox('gp-l-chcol', 'Custom Channel Color', on, (x) => ((l.channel_color = x ? [0.2, 0.6, 0.85] : undefined), changed('Channel Color'))),
+    on ? colorProp(l as { channel_color: [number, number, number] }, 'channel_color', 'Channel Color') : null,
+  ];
+}
+
+function masksPanel(gp: GreasePencilData, act: GPLayer): Child {
+  const masks = act.mask_layers ?? [];
+  const ai = Math.min(masks.length - 1, Math.max(0, act.active_mask_index ?? 0));
+  const others = gp.layers.filter((l) => l !== act && !masks.some((m) => m.name === l.name));
+  return panel(
+    'gp-layer-masks',
+    'Masks',
+    () => [
+      uiList(
+        'gp-mask-list',
+        masks.map((m, i) => ({
+          key: `m${i}${m.name}`,
+          label: m.name,
+          icon: 'outliner_data_gp_layer',
+          right: h(
+            'span',
+            { style: { display: 'flex', gap: '1px' } },
+            toggle(`mi${i}`, m.invert, 'gp_invert', 'gp_invert', 'Invert\nShow the layer outside this mask instead', () => ((m.invert = !m.invert), changed('Invert Mask'))),
+            toggle(`mh${i}`, !m.hide, 'hide_off', 'hide_on', 'Use Mask\nTurn this mask on or off', () => ((m.hide = !m.hide), changed('Toggle Mask'))),
+          ),
+        })),
+        ai,
+        (i) => ((act.active_mask_index = i), app.changed('ui')),
+        {
+          add: () => {
+            const btn = document.activeElement as HTMLElement | null;
+            openMenu(
+              others.length
+                ? others.map((l) => ({ label: l.name, icon: 'outliner_data_gp_layer', op: 'grease_pencil.layer_mask_add', props: { name: l.name } }))
+                : [{ label: 'No other layers', disabled: true }],
+              btn && btn.closest('.uilist') ? btn : { x: app.pointer.x, y: app.pointer.y },
+            );
+          },
+          remove: () => app.run('grease_pencil.layer_mask_remove'),
+          up: () => app.run('grease_pencil.layer_mask_reorder', { direction: 'UP' }),
+          down: () => app.run('grease_pencil.layer_mask_reorder', { direction: 'DOWN' }),
+          rows: 3,
+        },
+      ),
+    ],
+    {
+      sub: true,
+      closed: !act.use_masks,
+      header: checkbox('gp-masks-on', '', !!act.use_masks, (v) => ((act.use_masks = v), changed('Use Masks')), { tip: 'Use Masks\nThe layer only shows inside the strokes of its mask layers' }),
+    },
+  );
+}
+
+function relationsPanel(gp: GreasePencilData, act: GPLayer): Child {
+  const ob = app.activeObject!;
+  const target = act.parent ? app.doc.objects[act.parent] : null;
+  const arm = target?.type === 'ARMATURE' && target.data ? app.doc.armatures[target.data] : null;
+  return panel(
+    'gp-layer-relations',
+    'Relations',
+    () => [
+      splitRow(
+        'Parent',
+        enumMenu(
+          'gp-l-parent',
+          [{ value: '', label: '—' }, ...Object.values(app.doc.objects).filter((o) => o.id !== ob.id).map((o) => ({ value: o.id, label: o.name, icon: 'object_data' }))],
+          act.parent ?? '',
+          (v) => (setLayerParent(ob, act, v || null), changed('Layer Parent')),
+        ),
+      ),
+      arm
+        ? [
+            enumProp(act as { parent_type: string }, 'parent_type', 'Parent Type', [
+              ['OBJECT', 'Object'],
+              ['BONE', 'Bone'],
+            ], { onChange: () => setLayerParent(ob, act, act.parent ?? null, act.parent_type, act.parent_bone) }),
+            act.parent_type === 'BONE'
+              ? splitRow(
+                  'Bone',
+                  enumMenu('gp-l-bone', [{ value: '', label: '—' }, ...arm.bones.map((b) => ({ value: b.name, label: b.name, icon: 'bone_data' }))], act.parent_bone ?? '', (v) => (setLayerParent(ob, act, act.parent ?? null, 'BONE', v), changed('Parent Bone'))),
+                )
+              : null,
+          ]
+        : null,
+      num(act as { pass_index: number }, 'pass_index', 'Pass Index', { int: true, min: 0, max: 255 }),
+    ],
+    { sub: true, closed: true },
+  );
+  void gp;
+}
+
+function vertexGroupsPanel(o: ObjectData, gp: GreasePencilData): Child {
+  const groups = gp.vertex_groups ?? [];
+  const doc = app.doc;
+  return panel(
+    'gp-vgroups',
+    'Vertex Groups',
+    () => [
+      uiList(
+        'gp-vg',
+        groups.map((g, i) => ({
+          key: `${i}${g.name}`,
+          label: g.name,
+          icon: 'group_vertex',
+          right: toggle(`vgl${i}`, !!g.lock_weight, 'locked', 'unlocked', 'Lock Weights\nKeep these weights when normalizing', () => ((g.lock_weight = !g.lock_weight), changed('Lock Weights'))),
+        })),
+        Math.min(groups.length - 1, o.vertex_group_active_index ?? 0),
+        (i) => ((o.vertex_group_active_index = i), app.changed('doc')),
+        {
+          add: () => app.run('object.vertex_group_add'),
+          remove: () => app.run('object.vertex_group_remove'),
+          rename: (i, name) => {
+            const g = groups[i];
+            if (!name || groups.some((x) => x !== g && x.name === name)) return;
+            // the weights are stored by name on every drawing
+            for (let k = 0; k < gp.drawings.length; k++) {
+              const d = gp.drawings[k];
+              if (!d.weights?.[g.name]) continue;
+              const { [g.name]: w, ...rest } = d.weights;
+              gp.drawings[k] = { ...d, weights: { ...rest, [name]: w } };
+            }
+            g.name = name;
+            changed('Rename Vertex Group');
+          },
+        },
+      ),
+      app.doc.mode === 'EDIT' && groups.length
+        ? h('div', { class: 'btn-row' }, opButton('object.vertex_group_assign', 'Assign'), opButton('object.vertex_group_remove_from', 'Remove'), opButton('object.vertex_group_select', 'Select'), opButton('object.vertex_group_deselect', 'Deselect'))
+        : null,
+      app.doc.mode === 'EDIT' ? num(doc.scene.tool_settings as never, 'vertex_group_weight' as never, 'Weight', { min: 0, max: 1, slider: true }) : null,
+    ],
+    { closed: !groups.length },
+  );
 }
 
 function onionPanel(gp: GreasePencilData): Child {
@@ -197,6 +425,7 @@ function gpDataTab(o: ObjectData, gp: GreasePencilData): Child {
       },
     ),
     layersPanel(gp),
+    vertexGroupsPanel(o, gp),
     onionPanel(gp),
     panel(
       'gp-settings',
@@ -233,6 +462,22 @@ if (dataTab) {
 
 // ---------------------------------------------------------------------------
 // Material
+
+function gradientFields(st: MaterialGPencilStyle): Child {
+  st.mix_color ??= [1, 1, 1, 1];
+  st.mix_factor ??= 0.5;
+  st.texture_offset ??= [0, 0];
+  st.texture_angle ??= 0;
+  st.texture_scale ??= [1, 1];
+  return [
+    colorProp(st as { mix_color: number[] }, 'mix_color', 'Secondary Color', { alpha: true }),
+    num(st as { mix_factor: number }, 'mix_factor', 'Blend', { min: 0, max: 1, slider: true }),
+    bool(st as { flip: boolean }, 'flip', 'Flip Colors'),
+    vecProp(st as { texture_offset: number[] }, 'texture_offset', 'Location', { names: ['X', 'Y'] }),
+    num(st as { texture_angle: number }, 'texture_angle', 'Rotation', { unit: 'angle' }),
+    vecProp(st as { texture_scale: number[] }, 'texture_scale', 'Scale', { names: ['X', 'Y'] }),
+  ];
+}
 
 function surfacePanel(st: MaterialGPencilStyle): Child {
   const css = (c: number[]) =>
@@ -305,8 +550,8 @@ function surfacePanel(st: MaterialGPencilStyle): Child {
             ['DOTS', 'Dots'],
             ['BOX', 'Squares'],
           ]),
-          enumProp(st, 'stroke_style', 'Style', [['SOLID', 'Solid']]),
           colorProp(st, 'color', 'Base Color', { alpha: true }),
+          bool(st, 'use_stroke_holdout', 'Holdout'),
           st.mode !== 'LINE'
             ? enumProp(st, 'alignment_mode', 'Alignment', [
                 ['PATH', 'Path'],
@@ -329,11 +574,25 @@ function surfacePanel(st: MaterialGPencilStyle): Child {
           }),
           'Fill',
         ),
-        () => [enumProp(st, 'fill_style', 'Style', [['SOLID', 'Solid']]), colorProp(st, 'fill_color', 'Base Color', { alpha: true })],
+        () => [
+          enumProp(st, 'fill_style', 'Style', [
+            ['SOLID', 'Solid'],
+            ['GRADIENT', 'Gradient'],
+          ]),
+          st.fill_style === 'GRADIENT'
+            ? enumProp(st as { gradient_type: string }, 'gradient_type', 'Gradient Type', [
+                ['LINEAR', 'Linear'],
+                ['RADIAL', 'Radial'],
+              ])
+            : null,
+          colorProp(st, 'fill_color', 'Base Color', { alpha: true }),
+          st.fill_style === 'GRADIENT' ? gradientFields(st) : null,
+          bool(st, 'use_fill_holdout', 'Holdout'),
+        ],
         { sub: true },
       ),
     ]),
-    panel('gpm-settings', 'Settings', () => [bool(st, 'ghost', 'Show in Ghosts')], { closed: true }),
+    panel('gpm-settings', 'Settings', () => [num(st, 'pass_index', 'Pass Index', { int: true, min: 0, max: 255 }), bool(st, 'ghost', 'Show in Ghosts')], { closed: true }),
   ];
 }
 

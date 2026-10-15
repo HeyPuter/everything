@@ -160,7 +160,7 @@ describe('Track Position', () => {
 
 describe('cryptomatte', () => {
   it('hashes names to the IDs other cryptomatte readers expect', async () => {
-    const { cryptoId, cryptoHex, murmur3 } = await import('../../src/render/final/extrapasses');
+    const { cryptoId, cryptoHex, murmur3 } = await import('../../src/render/final/idpasses');
     // values read back from cryptomatte passes rendered elsewhere for the default scene
     expect(cryptoId('Cube')).toBe(Math.fround(-2.8078405282815945e-14));
     expect(cryptoHex('Cube')).toBe('a8fce865');
@@ -170,7 +170,7 @@ describe('cryptomatte', () => {
     expect(Number.isFinite(cryptoId('ünïcödé name'))).toBe(true);
   });
   it('ranks IDs by coverage and sums the coverage of picked names', async () => {
-    const { rankCoverage } = await import('../../src/render/final/extrapasses');
+    const { rankCoverage } = await import('../../src/render/final/idpasses');
     const { cryptoMatte, matteNames } = await import('../../src/compositor/ops/crypto');
     // one pixel, four samples: id 5 three times, id 7 once
     const s = (id: number) => new Float32Array([id, 0, 0, 1]);

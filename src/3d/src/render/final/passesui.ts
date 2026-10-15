@@ -1,22 +1,19 @@
-// View Layer tab: index passes, Cryptomatte and Shader AOV panels (passes rendered by
-// extrapasses.ts and read by the compositor's Render Layers and Cryptomatte nodes).
+// View Layer tab: Vector pass, Cryptomatte and Shader AOV panels (passes rendered by
+// idpasses.ts and read by the compositor's Render Layers and Cryptomatte nodes).
 import { h } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
 import { panel, button, textField, enumMenu } from '../../ui/widgets';
 import { bool, num } from '../../ui/props';
-import { viewLayerPassItems, viewLayerPanels } from '../../editors/properties/tabs';
-import type { AovData } from './extrapasses';
+import { viewLayerDataItems, viewLayerPanels } from './props/viewlayer';
+import type { AovData } from './idpasses';
 
 const changed = (label: string) => {
   app.pushUndo(label);
   app.changed('doc');
 };
 
-viewLayerPassItems.push(() => {
-  const r = app.doc.scene.render;
-  return [bool(r, 'use_pass_vector', 'Vector'), h('div', { class: 'sub-label' }, 'Indexes'), bool(r, 'use_pass_object_index', 'Object Index'), bool(r, 'use_pass_material_index', 'Material Index')];
-});
+viewLayerDataItems.push(() => bool(app.doc.scene.render, 'use_pass_vector', 'Vector', { tip: 'Screen-space motion towards the previous and from the next frame' }));
 
 viewLayerPanels.push(() => {
   const r = app.doc.scene.render;

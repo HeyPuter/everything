@@ -383,7 +383,7 @@ test('index, cryptomatte and AOV passes feed Render Layers, Cryptomatte and ID M
     const { startRender, renderJob } = await import('/src/render/final/job.ts');
     const { renderResult } = await import('/src/render/final/result.ts');
     const { runCompositor } = await import('/src/compositor/run.ts');
-    const extra = await import('/src/render/final/extrapasses.ts');
+    const extra = await import('/src/render/final/idpasses.ts');
     a.changed('doc');
     await startRender({ animation: false, viewport: null });
     for (let i = 0; i < 300 && renderJob(); i++) await new Promise((res) => setTimeout(res, 100));

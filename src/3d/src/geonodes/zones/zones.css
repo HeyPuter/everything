@@ -1,0 +1,12 @@
+.gn-bake-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 2px 0 6px;
+}
+.gn-bake-status {
+  opacity: 0.7;
+}
+.gn-zone-items {
+  margin-bottom: 6px;
+}

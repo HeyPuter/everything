@@ -10,6 +10,7 @@ import type { ObjectData } from '../../data/types';
 import { keyState, keyProperty } from '../../anim/keyframes';
 import { renderContext } from '../../render/context';
 import { toolHeader } from './toolbar';
+import { toolOptions } from './tooloptions';
 import { bindProp } from '../../ui/binding';
 
 export const sidebarTabs: { id: string; label: string; draw: (v: View3D) => Child; poll?: () => boolean }[] = [];
@@ -156,19 +157,7 @@ sidebarTabs.push(
       const ts = app.doc.scene.tool_settings;
       return [
         panel('sb-active-tool', 'Active Tool', () => h('div', { class: 'sb-active-tool' }, toolHeader(v))),
-        panel('sb-options', 'Options', () => [
-          h('div', { class: 'sb-label' }, 'Transform'),
-          checkbox('affect-origins', 'Affect Only Origins', !!ts.use_transform_data_origin, (x) => ((ts.use_transform_data_origin = x), app.changed('ui'))),
-          checkbox('affect-locations', 'Affect Only Locations', !!(ts as { use_transform_pivot_point_align?: boolean }).use_transform_pivot_point_align, (x) => (((ts as { use_transform_pivot_point_align?: boolean }).use_transform_pivot_point_align = x), app.changed('ui'))),
-          checkbox('affect-parents', 'Affect Only Parents', !!ts.use_transform_skip_children, (x) => ((ts.use_transform_skip_children = x), app.changed('ui'))),
-          app.doc.mode === 'EDIT'
-            ? [
-                h('div', { class: 'sb-label' }, 'Mesh Options'),
-                checkbox('automerge', 'Auto Merge Vertices', ts.use_mesh_automerge, (x) => ((ts.use_mesh_automerge = x), app.pushUndo('Auto Merge'), app.changed('ui'))),
-                row('Mirror', checkbox('mx', 'X', !!ts.use_mesh_mirror_x, (x) => ((ts.use_mesh_mirror_x = x), app.changed('ui'))), checkbox('my', 'Y', !!ts.use_mesh_mirror_y, (x) => ((ts.use_mesh_mirror_y = x), app.changed('ui'))), checkbox('mz', 'Z', !!ts.use_mesh_mirror_z, (x) => ((ts.use_mesh_mirror_z = x), app.changed('ui')))),
-              ]
-            : null,
-        ]),
+        panel('sb-options', 'Options', () => toolOptions('sb')),
         panel('sb-workspace', 'Workspace', () => [h('div', { class: 'sb-label' }, `Mode: ${app.doc.mode[0] + app.doc.mode.slice(1).toLowerCase().replace('_', ' ')}`)]),
       ];
     },

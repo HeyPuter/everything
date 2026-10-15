@@ -608,7 +608,7 @@ export function drawCurves(ctx: NodeDrawContext): Child {
 
 export const RAMP_HEIGHT = 112;
 export function curveHeight(n: NodeData) {
-  return 24 + CURVE_SIZE + 6 + 24 + (curveKind(n) === 'RGB' ? 24 : 0) + 6;
+  return 24 + CURVE_SIZE + 6 + 24 + (curveKind(n) === 'RGB' || curveKind(n) === 'HUE' ? 24 : 0) + 6;
 }
 
 // attach to node types

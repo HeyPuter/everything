@@ -299,10 +299,18 @@ function availability(d: NodeTypeDef, rules: Record<string, (n: NodeData) => boo
     if (s.identifier === 'IndexOB') return !!r.use_pass_object_index;
     if (s.identifier === 'Vector') return !!r.use_pass_vector;
     if (s.identifier === 'IndexMA') return !!r.use_pass_material_index;
+    if (s.identifier === 'Position') return !!r.use_pass_position;
+    if (s.identifier === 'UV') return !!r.use_pass_uv;
+    if (s.identifier === 'DiffCol') return !!r.use_pass_diffuse_color;
+    if (s.identifier === 'Emit') return !!r.use_pass_emit;
     return true;
   };
   d.outputs.push(
+    { name: 'Position', identifier: 'Position', type: 'VECTOR' },
     { name: 'Vector', identifier: 'Vector', type: 'VECTOR', dimensions: 4 },
+    { name: 'UV', identifier: 'UV', type: 'VECTOR' },
+    { name: 'DiffCol', identifier: 'DiffCol', type: 'RGBA' },
+    { name: 'Emit', identifier: 'Emit', type: 'RGBA' },
     { name: 'IndexOB', identifier: 'IndexOB', type: 'FLOAT' },
     { name: 'IndexMA', identifier: 'IndexMA', type: 'FLOAT' },
   );

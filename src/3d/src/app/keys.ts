@@ -115,7 +115,7 @@ addKeys('Object Mode', [
   { key: 'D', alt: true, op: 'object.duplicate_move_linked', when: objectMode },
   { key: 'X', op: 'object.delete', when: objectMode },
   { key: 'DEL', op: 'object.delete', props: { confirm: false }, when: objectMode },
-  { key: 'A', shift: true, menu: addMenu, menuTitle: 'Add', when: objectMode },
+  { key: 'A', shift: true, menu: addMenu, menuTitle: 'Add', menuSearch: true, when: objectMode },
   { key: 'H', op: 'object.hide_view_set', when: objectMode },
   { key: 'H', shift: true, op: 'object.hide_view_set', props: { unselected: true }, when: objectMode },
   { key: 'H', alt: true, op: 'object.hide_view_clear', when: objectMode },

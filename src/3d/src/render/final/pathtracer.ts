@@ -5,6 +5,7 @@ import { WebGLPathTracer } from 'three-gpu-pathtracer';
 import type { RenderScene } from './renderscene';
 import type { RenderSettings } from '../../data/types';
 import { bounceSettings } from './units';
+import { filterGLSL, filterTable, type PixelFilter } from './filter';
 
 interface Inner {
   _pathTracer: {
@@ -17,8 +18,57 @@ interface Inner {
     tiles: { set(x: number, y: number): void };
     target: { texture: Texture };
     isCompiling: boolean;
-    material: { backgroundAlpha: number; filterGlossyFactor: number };
+    material: PtMaterial;
   };
+}
+
+interface PtMaterial {
+  backgroundAlpha: number;
+  filterGlossyFactor: number;
+  fragmentShader: string;
+  uniforms: Record<string, { value: unknown }>;
+  needsUpdate: boolean;
+}
+
+/**
+ * Extend the path tracing shader with our film and light path settings: a pixel filter
+ * (camera rays are jittered by an importance-sampled filter table instead of a fixed tent)
+ * and clamping of direct / indirect sample contributions. Returns false when the shader
+ * did not have the expected structure (the stock behaviour is kept then).
+ */
+export function patchPathTracingShader(src: string): string | null {
+  const jitter = /vec2 jitteredUv = vUv \+ vec2\( tentFilter\( ruv\.x \) \* ssd\.x, tentFilter\( ruv\.y \) \* ssd\.y \);/;
+  const mainAt = src.indexOf('void main()');
+  if (!jitter.test(src) || mainAt < 0) return null;
+  let out = src.replace(jitter, 'vec2 jitteredUv = vUv + vec2( ptFilterSample( ruv.x ) * ssd.x, ptFilterSample( ruv.y ) * ssd.y );');
+  const helpers = `
+    ${filterGLSL('ptFilter')}
+    uniform float ptClampDirect;
+    uniform float ptClampIndirect;
+    vec3 ptClamp( vec3 c, bool direct ) {
+      float lim = direct ? ptClampDirect : ptClampIndirect;
+      if ( lim <= 0.0 ) return c;
+      float m = max( c.r, max( c.g, c.b ) );
+      return m > lim ? c * ( lim / m ) : c;
+    }
+  `;
+  // helpers go before the first function that samples the camera (the jitter lives there)
+  const camAt = out.indexOf('vec3 ndcToRayOrigin');
+  if (camAt < 0) return null;
+  out = out.slice(0, camAt) + helpers + out.slice(camAt);
+  // clamp every radiance contribution in main(): next-event estimation at the first hit and
+  // light seen directly or after one bounce count as direct light, the rest as indirect
+  const m2 = out.indexOf('void main()');
+  const head = out.slice(0, m2);
+  let body = out.slice(m2);
+  let count = 0;
+  body = body.replace(/gl_FragColor\.rgb \+=([^;]+);/g, (_all, expr: string) => {
+    count++;
+    const direct = expr.includes('directLightContribution') ? 'state.depth <= 1u' : 'state.depth <= 2u';
+    return `gl_FragColor.rgb += ptClamp( ${expr.trim()}, ${direct} );`;
+  });
+  if (!count) return null;
+  return head + body;
 }
 
 export class PathTracerCore {
@@ -44,7 +94,20 @@ export class PathTracerCore {
     this.pt.filterGlossyFactor = 0.25;
     this.inner = (this.pt as unknown as Inner)._pathTracer;
     this.inner.tiles.set(1, 1);
+    const mat = this.inner.material;
+    const patched = patchPathTracingShader(mat.fragmentShader);
+    if (patched) {
+      mat.uniforms.ptFilter = { value: filterTable('BLACKMAN_HARRIS', 1.5) };
+      mat.uniforms.ptClampDirect = { value: 0 };
+      mat.uniforms.ptClampIndirect = { value: 0 };
+      mat.fragmentShader = patched;
+      mat.needsUpdate = true;
+      this.patched = true;
+    }
   }
+
+  private patched = false;
+  private filterKey = '';
 
   get samples() {
     return Math.floor(this.inner.samples);
@@ -69,11 +132,36 @@ export class PathTracerCore {
 
   applySettings(r: RenderSettings) {
     const b = bounceSettings(r);
+    let reset = false;
     if (this.pt.bounces !== b.bounces || this.pt.transmissiveBounces !== b.transmissive) {
       this.pt.bounces = b.bounces;
       this.pt.transmissiveBounces = b.transmissive;
-      this.reset();
+      reset = true;
     }
+    const glossy = Math.max(0, r.blur_glossy ?? 1) / 4;
+    if (this.pt.filterGlossyFactor !== glossy) {
+      this.pt.filterGlossyFactor = glossy;
+      reset = true;
+    }
+    if (this.patched) {
+      const u = this.inner.material.uniforms;
+      const type: PixelFilter = r.pixel_filter_type ?? 'BLACKMAN_HARRIS';
+      const width = r.filter_width ?? 1.5;
+      const key = `${type}|${width}`;
+      if (key !== this.filterKey) {
+        this.filterKey = key;
+        u.ptFilter.value = filterTable(type, width);
+        reset = true;
+      }
+      const cd = Math.max(0, r.sample_clamp_direct ?? 0),
+        ci = Math.max(0, r.sample_clamp_indirect ?? 0);
+      if (u.ptClampDirect.value !== cd || u.ptClampIndirect.value !== ci) {
+        u.ptClampDirect.value = cd;
+        u.ptClampIndirect.value = ci;
+        reset = true;
+      }
+    }
+    if (reset) this.reset();
   }
 
   /**

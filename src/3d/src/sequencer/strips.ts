@@ -3,6 +3,8 @@
 import type { SceneData } from '../data/types';
 import type { BlendType, ColorBalanceData, ModifierType, SeqChannel, SequenceEditor, SequencerToolSettings, Strip, StripModifier, StripType } from './types';
 import { MAX_CHANNELS } from './types';
+import { hasRetiming, contentLength, mapContent } from './retime';
+import { defaultCurves } from '../nodes/curves';
 
 // ---------------------------------------------------------------------------
 // classification
@@ -33,7 +35,7 @@ export function inputCount(t: StripType) {
 }
 /** Strips whose content does not change over time (length can be changed freely). */
 export function isStill(s: Strip) {
-  return s.type === 'COLOR' || s.type === 'TEXT' || s.type === 'ADJUSTMENT' || (s.type === 'IMAGE' && (s.elements?.length ?? 0) <= 1);
+  return s.type === 'COLOR' || s.type === 'TEXT' || s.type === 'ADJUSTMENT' || s.type === 'MULTICAM' || s.type === 'MASK' || (s.type === 'IMAGE' && (s.elements?.length ?? 0) <= 1);
 }
 /** Strips that produce pixels (everything but sound). */
 export function isVisual(s: Strip) {
@@ -62,6 +64,9 @@ export const STRIP_LABELS: Record<StripType, string> = {
   SPEED: 'Speed',
   GLOW: 'Glow',
   GAUSSIAN_BLUR: 'Gaussian Blur',
+  MULTICAM: 'Multicam Selector',
+  MASK: 'Mask',
+  MOVIECLIP: 'Clip',
 };
 
 export const BLEND_ITEMS: [BlendType, string][] = [
@@ -219,6 +224,10 @@ export function newStrip(type: StripType, name: string, channel: number, frame_s
     case 'META':
       s.strips = [];
       break;
+    case 'MULTICAM':
+      s.multicam_source = 1;
+      s.blend_type = 'REPLACE';
+      break;
   }
   return s;
 }
@@ -243,6 +252,20 @@ export function newColorBalance(): ColorBalanceData {
 
 export function newModifier(type: ModifierType, name: string): StripModifier {
   if (type === 'COLOR_BALANCE') return { name, type, mute: false, show_expanded: true, color_balance: newColorBalance(), color_multiply: 1 };
+  if (type === 'WHITE_BALANCE') return { name, type, mute: false, show_expanded: true, white_value: [1, 1, 1] };
+  if (type === 'SOUND_EQUALIZER')
+    return {
+      name,
+      type,
+      mute: false,
+      show_expanded: true,
+      bands: [
+        { type: 'LOWSHELF', frequency: 120, gain: 0, q: 0.7 },
+        { type: 'PEAKING', frequency: 1000, gain: 0, q: 1 },
+        { type: 'HIGHSHELF', frequency: 8000, gain: 0, q: 0.7 },
+      ],
+    };
+  if (type === 'CURVES') return { name, type, mute: false, show_expanded: true, curve_mapping: defaultCurves('RGB') };
   return { name, type, mute: false, show_expanded: true, bright: 0, contrast: 0 };
 }
 
@@ -310,6 +333,14 @@ export function contentFrame(s: Strip, frame: number): number {
   let local = Math.floor(frame - s.frame_start);
   const n = Math.max(1, s.frame_duration);
   local = Math.max(0, Math.min(n - 1, local));
+  if (hasRetiming(s)) {
+    // speed changes: the timeline position maps to a content frame through the retiming keys
+    if (s.strobe > 1) local = Math.floor(local / s.strobe) * Math.floor(s.strobe);
+    const len = Math.max(1, Math.round(contentLength(s)));
+    let c = Math.max(0, Math.min(len - 1, Math.floor(mapContent(s, local) + 1e-6)));
+    if (s.use_reverse_frames) c = len - 1 - c;
+    return c + s.animation_offset_start;
+  }
   if (s.use_reverse_frames) local = n - 1 - local;
   if (s.strobe > 1) local = Math.floor(local / s.strobe) * Math.floor(s.strobe);
   return local + s.animation_offset_start;
@@ -349,6 +380,8 @@ export function speedInputFrame(sp: Strip, input: Strip, frame: number): number 
 /** Move a strip in time (meta children follow). */
 export function translateStrip(s: Strip, df: number) {
   s.frame_start += df;
+  // fade keys travel with the strip
+  if (s.keys && df) for (const k of Object.values(s.keys)) for (const p of k ?? []) p[0] += df;
   if (s.strips) for (const c of s.strips) translateStrip(c, df);
 }
 
@@ -621,7 +654,8 @@ export function splitStrips(ed: { strips: Strip[] }, list: Strip[], targets: Str
     const name = uniqueName(ed, s.name, taken);
     taken.add(name);
     const r = cloneStrip(s, name);
-    if (type === 'HARD' && !isStill(s)) {
+    // retimed content keeps its full range on both sides (handles), like a soft split
+    if (type === 'HARD' && !isStill(s) && !hasRetiming(s)) {
       const leftLen = frame - s.frame_start;
       // left: content ends at the cut
       s.animation_offset_end += s.frame_duration - leftLen;
@@ -662,6 +696,13 @@ export function splitStrips(ed: { strips: Strip[] }, list: Strip[], targets: Str
     renamed.set(s.name, name);
     out.push(r);
   }
+  // right halves stay connected to the right halves of their partners
+  for (const r of out)
+    if (r.connections) {
+      const next = r.connections.map((n) => renamed.get(n)).filter((n): n is string => !!n);
+      if (next.length) r.connections = next;
+      else delete r.connections;
+    }
   // effects depending on split strips
   for (const e of list) {
     if (!inputCount(e.type) || out.includes(e)) continue;

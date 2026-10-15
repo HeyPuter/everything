@@ -27,6 +27,11 @@ import { stabilizationMatrix, autoscaleFactor, type Affine2 } from './stabilize'
 import { drawToolbar, drawSidebar, drawPatternPreviews } from './panels';
 import { drawGraph, drawDopesheet, graphPointer, dopesheetPointer, frameGraphAll, frameDopesheetAll } from './graphs';
 import { jobState } from './jobs';
+import { lastOpPanel } from '../ui/redo';
+import { drawMask, drawMaskMatte, drawSelectShape, maskPointerDown, hostMask, type MaskHost } from '../mask/clipmask';
+import { clipLasso } from './graphops';
+import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskToolbar, maskSidebar } from '../mask/maskui';
+import { maskTable } from '../mask/types';
 
 export type ClipView = 'CLIP' | 'GRAPH' | 'DOPESHEET';
 
@@ -41,6 +46,9 @@ export interface ClipOverlays {
   show_stable: boolean;
   use_mute_footage: boolean;
   show_cache: boolean;
+  /** mask mode: draw splines, and show the mask as a matte over (or instead of) the footage */
+  show_mask_spline?: boolean;
+  mask_overlay_mode?: 'NONE' | 'COMBINED' | 'ALPHACHANNEL';
 }
 
 export const COLORS = {
@@ -89,6 +97,17 @@ export class ClipEditor implements Editor {
   dopesheetInvert = false;
   dopesheetScroll = 0;
   boxPending = false;
+  /** Tracking (markers) or Mask (editing masks over the footage) */
+  mode: 'TRACKING' | 'MASK' = 'TRACKING';
+  /** mask edited in mask mode */
+  maskId: string | null = null;
+  /** 2D cursor (frame space 0..1, y up): new mask shapes and the cursor pivot use it */
+  cursor: [number, number] = [0.5, 0.5];
+  private cursorPlaced = false;
+  /** pivot of mask point rotation / scaling */
+  pivot: 'MEDIAN_POINT' | 'BOUNDING_BOX_CENTER' | 'CURSOR' = 'MEDIAN_POINT';
+  /** circle / lasso / box outline while selecting mask points */
+  shapeOverlay: MaskHost['shapeOverlay'] = null;
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
   canvas: HTMLCanvasElement;
   ui: HTMLElement;
@@ -108,7 +127,7 @@ export class ClipEditor implements Editor {
     this.ui = document.createElement('div');
     this.ui.className = 'clip-ui';
     this.el.append(this.canvas, this.ui);
-    const st = (state ?? {}) as Partial<{ clip: string | null; view: ClipView; zoom: number; off: [number, number]; toolbar: boolean; sidebar: boolean; sidebarTab: string; overlays: Partial<ClipOverlays>; lock: boolean }>;
+    const st = (state ?? {}) as Partial<{ clip: string | null; view: ClipView; zoom: number; off: [number, number]; toolbar: boolean; sidebar: boolean; sidebarTab: string; overlays: Partial<ClipOverlays>; lock: boolean; mode: 'TRACKING' | 'MASK'; mask: string | null }>;
     if (st.view) this.view = st.view;
     if (st.clip !== undefined) this.clipId = st.clip;
     if (st.zoom) {
@@ -123,6 +142,11 @@ export class ClipEditor implements Editor {
     if (st.sidebarTab) this.sidebarTab = st.sidebarTab;
     if (st.overlays) Object.assign(this.overlays, st.overlays);
     if (st.lock) this.lockSelection = st.lock;
+    if (st.mode === 'MASK') this.mode = 'MASK';
+    if (st.mask !== undefined) this.maskId = st.mask;
+    const ext = state as { cursor?: [number, number]; pivot?: 'MEDIAN_POINT' } | undefined;
+    if (ext?.cursor) this.cursor = ext.cursor;
+    if (ext?.pivot) this.pivot = ext.pivot;
     if (!this.clipId) this.clipId = app.doc.scene.active_clip ?? Object.keys(clipTable(app.doc))[0] ?? null;
     this.bind();
     this.ro = new ResizeObserver(() => this.draw());
@@ -131,6 +155,7 @@ export class ClipEditor implements Editor {
   }
 
   get keymaps() {
+    if (this.view === 'CLIP' && this.mode === 'MASK') return ['Mask Editing', 'Clip Mask View', 'Clip'];
     return this.view === 'GRAPH' ? ['Clip Graph Editor', 'Clip'] : this.view === 'DOPESHEET' ? ['Clip Dopesheet Editor', 'Clip'] : ['Clip Editor', 'Clip'];
   }
 
@@ -165,6 +190,14 @@ export class ClipEditor implements Editor {
   // ---------------------------------------------------------------------------
   // view transforms (footage pixels: origin top-left, y down)
 
+  /** Size of the shown frame: the clip's, or the render size when editing a mask without footage. */
+  frameSize(): [number, number] {
+    const c = this.clip;
+    if (c?.size[0]) return [c.size[0], c.size[1]];
+    const r = app.doc.scene.render;
+    return [Math.max(1, r.resolution_x), Math.max(1, r.resolution_y)];
+  }
+
   viewSize() {
     return { w: Math.max(1, this.el.clientWidth), h: Math.max(1, this.el.clientHeight) };
   }
@@ -184,9 +217,7 @@ export class ClipEditor implements Editor {
 
   /** footage pixel → screen (editor-local CSS px) */
   toScreen(x: number, y: number, T: Affine2 | null = this.stab()): [number, number] {
-    const c = this.clip;
-    const W = c?.size[0] ?? 1,
-      H = c?.size[1] ?? 1;
+    const [W, H] = this.frameSize();
     if (T) {
       const by = H - y;
       const nx = T[0] * x + T[2] * by + T[4],
@@ -199,9 +230,7 @@ export class ClipEditor implements Editor {
   }
 
   toImage(sx: number, sy: number, T: Affine2 | null = this.stab()): [number, number] {
-    const c = this.clip;
-    const W = c?.size[0] ?? 1,
-      H = c?.size[1] ?? 1;
+    const [W, H] = this.frameSize();
     const { w, h: hh } = this.viewSize();
     let x = (sx - w / 2) / this.zoom + W / 2 - this.offX,
       y = (sy - hh / 2) / this.zoom + H / 2 - this.offY;
@@ -236,10 +265,11 @@ export class ClipEditor implements Editor {
 
   frameAll(fit = false) {
     const c = this.clip;
-    if (!c || !c.size[0]) return;
+    if ((!c || !c.size[0]) && this.mode !== 'MASK') return;
+    const [FW, FH] = this.frameSize();
     const { w, h: hh } = this.viewSize();
     const availW = w - (this.showToolbar ? 230 : 0) - (this.showSidebar ? 290 : 0) - 20;
-    const z = Math.min(Math.max(40, availW) / c.size[0], (hh - 40) / c.size[1]);
+    const z = Math.min(Math.max(40, availW) / FW, (hh - 40) / FH);
     // "Frame All" uses the largest power-of-two zoom that fits; "Fit" fills the region
     this.zoom = fit ? z : Math.max(1 / 64, Math.min(64, Math.pow(2, Math.floor(Math.log2(z)))));
     this.offX = ((this.showSidebar ? 290 : 0) - (this.showToolbar ? 230 : 0)) / 2 / this.zoom;
@@ -321,6 +351,7 @@ export class ClipEditor implements Editor {
     ctx.fillStyle = '#303030';
     ctx.fillRect(0, 0, w, hh);
     const c = this.clip;
+    if (!c && this.mode === 'MASK') return this.drawMaskFrame(ctx, w, hh);
     if (!c) {
       ctx.fillStyle = '#8a8a8a';
       ctx.font = '12px var(--font, sans-serif)';
@@ -368,7 +399,14 @@ export class ClipEditor implements Editor {
     fc.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
     ctx.closePath();
     ctx.stroke();
-    this.drawMarkers(ctx, T);
+    if (this.mode === 'MASK') {
+      drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE');
+      drawMask(this, ctx, this.overlays.show_mask_spline !== false);
+      this.drawCursor(ctx);
+    } else {
+      this.drawMarkers(ctx, T);
+      drawSelectShape(ctx, this.shapeOverlay);
+    }
     if (this.boxRect) {
       const b = this.boxRect;
       ctx.setLineDash([4, 3]);
@@ -389,6 +427,57 @@ export class ClipEditor implements Editor {
     const job = jobState.get();
     if (job) ctx.fillText(`${job.label}… ${Math.round(job.progress * 100)}%  (Esc to stop)`, left, 32);
     ctx.shadowBlur = 0;
+  }
+
+  /** The 2D cursor (Shift right click places it). */
+  private drawCursor(ctx: CanvasRenderingContext2D) {
+    const [W, H] = this.frameSize();
+    const [x, y] = this.toScreen(this.cursor[0] * W, (1 - this.cursor[1]) * H);
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(x, y, 8, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineDashOffset = 3;
+    ctx.strokeStyle = '#e04040';
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    ctx.beginPath();
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]) {
+      ctx.moveTo(x + dx * 11, y + dy * 11);
+      ctx.lineTo(x + dx * 16, y + dy * 16);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** Mask mode without footage: an empty frame of the render size with the mask. */
+  private drawMaskFrame(ctx: CanvasRenderingContext2D, w: number, hh: number) {
+    if (!this.fitted) this.frameAll();
+    const [W, H] = this.frameSize();
+    const a = this.toScreen(0, 0, null),
+      b = this.toScreen(W, H, null);
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.strokeRect(a[0] + 0.5, a[1] + 0.5, b[0] - a[0], b[1] - a[1]);
+    drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE');
+    drawMask(this, ctx, this.overlays.show_mask_spline !== false);
+    this.drawCursor(ctx);
+    ctx.font = '11px var(--mono, monospace)';
+    ctx.fillStyle = '#9a9a9a';
+    ctx.textAlign = 'left';
+    ctx.fillText(`Mask frame ${W}×${H} (no footage)`, this.showToolbar ? 238 : 8, 16);
+    void w;
+    void hh;
   }
 
   private retryLater() {
@@ -637,6 +726,11 @@ export class ClipEditor implements Editor {
       e.preventDefault();
       // Ctrl+click is "add marker" (macOS reports it as a context click too)
       if (e.ctrlKey && e.button === 0) return;
+      // Shift right click placed the 2D cursor (on press)
+      if (this.cursorPlaced) {
+        this.cursorPlaced = false;
+        return;
+      }
       if (this.view === 'CLIP') openMenu(contextMenu(), { x: e.clientX, y: e.clientY }, { title: 'Context Menu' });
     });
   }
@@ -692,13 +786,30 @@ export class ClipEditor implements Editor {
       el.addEventListener('pointerup', up);
       return;
     }
+    if (e.button === 2 && e.shiftKey && this.view === 'CLIP') {
+      // Shift right click places the 2D cursor
+      const [W, H] = this.frameSize();
+      const [ix, iy] = this.toImage(start.x, start.y);
+      this.cursor = [ix / W, 1 - iy / H];
+      this.cursorPlaced = true;
+      this.draw();
+      app.changed('ui');
+      return;
+    }
     if (e.button !== 0) return;
+    if (this.view === 'CLIP' && this.mode === 'MASK') {
+      e.preventDefault();
+      if (!hostMask(this)) return;
+      maskPointerDown(this, e);
+      return;
+    }
     if (this.view === 'GRAPH') return graphPointer(this, e, start);
     if (this.view === 'DOPESHEET') return dopesheetPointer(this, e, start);
     const c = this.clip;
     if (!c || jobState.get()) return;
     e.preventDefault();
     if (this.boxPending) return this.boxSelect(e, start, true);
+    if ((e.ctrlKey || e.metaKey) && e.altKey) return clipLasso(this, e, e.shiftKey ? 'SUB' : 'ADD');
     if (e.ctrlKey || e.metaKey) {
       // add marker and slide it
       const [ix, iy] = this.toImage(start.x, start.y);
@@ -936,10 +1047,24 @@ export class ClipEditor implements Editor {
         (v) => this.setView(v as ClipView),
         { iconOnly: true, tip: 'View\nType of the clip editor view', title: 'View' },
       ),
+      this.view === 'CLIP'
+        ? enumMenu(
+            'clip-mode',
+            [
+              { value: 'TRACKING', label: 'Tracking', icon: 'anim_data', description: 'Show tracking and solving tools' },
+              { value: 'MASK', label: 'Mask', icon: 'mod_mask', description: 'Show mask editing tools' },
+            ],
+            this.mode,
+            (v) => this.setMode(v as 'TRACKING'),
+            { tip: 'Mode\nEditing context being displayed (Tab)' },
+          )
+        : null,
       menu('View', () => viewMenu(this)),
-      this.view !== 'DOPESHEET' ? menu('Select', () => selectMenu()) : null,
-      this.view === 'CLIP' ? [menu('Clip', () => clipMenu()), menu('Track', () => trackMenu()), menu('Reconstruction', () => reconstructionMenu())] : null,
+      this.view === 'CLIP' && this.mode === 'MASK'
+        ? [menu('Select', () => maskSelectMenu()), menu('Add', () => maskAddMenu()), menu('Mask', () => maskMenu())]
+        : [this.view === 'GRAPH' ? menu('Select', () => graphSelectMenu()) : this.view !== 'DOPESHEET' ? menu('Select', () => selectMenu()) : null, this.view === 'CLIP' ? [menu('Clip', () => clipMenu()), menu('Track', () => trackMenu()), menu('Reconstruction', () => reconstructionMenu())] : null],
       h('div', { class: 'hdr-spacer' }),
+      this.view === 'CLIP' && this.mode === 'MASK' ? maskBrowse(this) : null,
       h(
         'div',
         { class: 'clip-browse' },
@@ -1006,6 +1131,18 @@ export class ClipEditor implements Editor {
     );
   }
 
+  setMode(m: 'TRACKING' | 'MASK') {
+    if (m === this.mode) return;
+    this.mode = m;
+    // a mask to edit: the only one, or a new one is offered in the header
+    if (m === 'MASK' && !hostMask(this)) {
+      const ids = Object.keys(maskTable(app.doc));
+      if (ids.length) this.maskId = ids[0];
+    }
+    this.redrawAll();
+    app.changed('ui');
+  }
+
   setView(v: ClipView) {
     if (v === this.view) return;
     this.view = v;
@@ -1019,8 +1156,15 @@ export class ClipEditor implements Editor {
   drawUI() {
     if (!this.el.isConnected) return;
     const children: Child[] = [];
-    if (this.view === 'CLIP' && this.showToolbar) children.push(drawToolbar(this));
-    if (this.view === 'CLIP' && this.showSidebar) children.push(drawSidebar(this));
+    const mask = this.view === 'CLIP' && this.mode === 'MASK';
+    if (this.view === 'CLIP' && this.showToolbar) children.push(mask ? maskToolbar(this) : drawToolbar(this));
+    if (this.view === 'CLIP' && this.showSidebar) children.push(mask ? h('div', { key: 'sidebar', class: 'clip-sidebar' }, h('div', { class: 'sb-body' }, maskSidebar(this)), h('div', { class: 'sb-tabs' }, h('button', { class: 'sb-tab on' }, 'Mask'))) : drawSidebar(this));
+    // Adjust Last Operation for clip and mask operators (beside the toolbar)
+    const last = app.lastOp;
+    if (this.view === 'CLIP' && last && (last.idname.startsWith('clip.') || last.idname.startsWith('mask.'))) {
+      const panel = lastOpPanel(this);
+      if (panel) children.push(h('div', { key: 'redo', class: 'clip-redo', style: { left: `${this.showToolbar ? 236 : 6}px` } }, panel));
+    }
     patch(this.ui, children);
     drawPatternPreviews(this);
   }
@@ -1073,7 +1217,7 @@ export class ClipEditor implements Editor {
   }
 
   serialize() {
-    return { clip: this.clipId, view: this.view, zoom: this.zoom, off: [this.offX, this.offY], toolbar: this.showToolbar, sidebar: this.showSidebar, sidebarTab: this.sidebarTab, overlays: this.overlays, lock: this.lockSelection };
+    return { clip: this.clipId, view: this.view, zoom: this.zoom, off: [this.offX, this.offY], toolbar: this.showToolbar, sidebar: this.showSidebar, sidebarTab: this.sidebarTab, overlays: this.overlays, lock: this.lockSelection, mode: this.mode, mask: this.maskId, cursor: this.cursor, pivot: this.pivot };
   }
 
   dispose() {
@@ -1133,6 +1277,18 @@ function selectMenu(): MenuItem[] {
     opItem('Inverse', 'clip.select_all', { action: 'INVERT' }),
     { separator: true },
     opItem('Box Select', 'clip.select_box'),
+    opItem('Circle Select', 'clip.select_circle'),
+    {
+      label: 'Lasso Select',
+      submenu: () =>
+        (
+          [
+            ['SET', 'Set'],
+            ['ADD', 'Extend'],
+            ['SUB', 'Subtract'],
+          ] as const
+        ).map(([mode, l]) => opItem(l, 'clip.select_lasso', { mode })),
+    },
     { separator: true },
     {
       label: 'Select Grouped',
@@ -1152,6 +1308,20 @@ function selectMenu(): MenuItem[] {
     { separator: true },
     opItem('Stabilization Tracks', 'clip.stabilize_2d_select'),
     opItem('Stabilization Rotation Tracks', 'clip.stabilize_2d_rotation_select'),
+  ];
+}
+
+function graphSelectMenu(): MenuItem[] {
+  return [
+    opItem('All', 'clip.graph_select_all_markers', { action: 'SELECT' }),
+    opItem('None', 'clip.graph_select_all_markers', { action: 'DESELECT' }),
+    opItem('Invert', 'clip.graph_select_all_markers', { action: 'INVERT' }),
+    { separator: true },
+    opItem('Box Select', 'clip.graph_select_box'),
+    { separator: true },
+    opItem('Delete Knots', 'clip.graph_delete_knot'),
+    opItem('Delete Curve', 'clip.graph_delete_curve'),
+    opItem('Toggle Disabled Knots', 'clip.graph_disable_markers', { action: 'TOGGLE' }),
   ];
 }
 
@@ -1185,6 +1355,7 @@ function trackMenu(): MenuItem[] {
       submenu: () => [opItem('Before', 'clip.clear_track_path', { action: 'UPTO', clear_active: false }), opItem('After', 'clip.clear_track_path', { action: 'REMAINED', clear_active: false }), opItem('Track Path', 'clip.clear_track_path', { action: 'ALL', clear_active: false })],
     },
     { label: 'Refine', submenu: () => [opItem('Backwards', 'clip.refine_markers', { backwards: true }), opItem('Forwards', 'clip.refine_markers', { backwards: false })] },
+    { label: 'Clean Up', submenu: () => [opItem('Clean Tracks', 'clip.clean_tracks'), opItem('Filter Tracks', 'clip.filter_tracks')] },
     { separator: true },
     opItem('Add Marker', 'clip.add_marker_at_click'),
     opItem('Detect Features', 'clip.detect_features'),
@@ -1249,6 +1420,20 @@ function overlayMenu(ed: ClipEditor): MenuItem[] {
       ed.drawUI();
     },
   });
+  const maskModes: [NonNullable<ClipOverlays['mask_overlay_mode']>, string][] = [
+    ['NONE', 'None'],
+    ['COMBINED', 'Combined (darken outside)'],
+    ['ALPHACHANNEL', 'Alpha Channel (matte only)'],
+  ];
+  if (ed.mode === 'MASK')
+    return [
+      { heading: 'Mask Display' },
+      { label: 'Spline', checked: ov.show_mask_spline !== false, keepOpen: true, action: () => ((ov.show_mask_spline = ov.show_mask_spline === false), ed.draw()) },
+      { label: 'Overlay', submenu: () => maskModes.map(([v, l]) => ({ label: l, active: (ov.mask_overlay_mode ?? 'NONE') === v, action: () => ((ov.mask_overlay_mode = v), ed.draw()) })) },
+      { separator: true },
+      { heading: 'Clip Display' },
+      tog('Mute', 'use_mute_footage', 'Ctrl H'),
+    ];
   return [
     { heading: 'Marker Display' },
     tog('Pattern', 'show_marker_pattern'),
