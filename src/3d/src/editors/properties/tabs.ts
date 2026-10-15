@@ -564,6 +564,11 @@ function meshData(o: ObjectData, me: MeshData): Child {
         { add: () => app.run('geometry.color_attribute_add'), remove: () => app.run('geometry.color_attribute_remove') },
       ),
     ]),
+    panel('me-remesh', 'Remesh', () => [
+      splitRow('Voxel Size', numberField({ id: `me-voxel-${me.id}`, value: me.remesh_voxel_size ?? 0.1, min: 0.0001, max: 10, unit: 'distance', precision: 4, set: (x, final) => ((me.remesh_voxel_size = x), app.changed('ui'), final && app.pushUndo('Voxel Size')) })),
+      h('div', { class: 'btn-row' }, opButton('object.voxel_remesh', 'Voxel Remesh')),
+    ], { closed: true }),
+    panel('me-geodata', 'Geometry Data', () => [h('div', { class: 'btn-row' }, opButton('mesh.customdata_mask_clear', 'Clear Sculpt Mask Data'))], { closed: true }),
     panel('me-normals', 'Normals', () => [
       splitRow('Auto Smooth', checkbox('me-autosmooth', '', me.auto_smooth_angle !== undefined, (v) => ((me.auto_smooth_angle = v ? (30 * Math.PI) / 180 : undefined), changed('Auto Smooth')))),
       me.auto_smooth_angle !== undefined ? num(me as never, 'auto_smooth_angle' as never, 'Angle', { unit: 'angle', min: 0, max: Math.PI }) : null,

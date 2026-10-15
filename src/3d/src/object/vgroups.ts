@@ -257,3 +257,15 @@ registerOperators([
     },
   },
 ]);
+
+registerOperators([
+  {
+    idname: 'mesh.customdata_mask_clear',
+    label: 'Clear Sculpt Mask Data',
+    description: 'Remove the sculpt mask stored in the mesh',
+    poll: () => !!activeMesh()?.me.sculpt_mask,
+    exec: () => {
+      activeMesh()!.me.sculpt_mask = undefined;
+    },
+  },
+]);

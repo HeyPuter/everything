@@ -937,3 +937,13 @@ describe('shade smooth by angle', () => {
     expect(Array.from(me.sharp!).every((x) => x === 0)).toBe(true);
   });
 });
+
+describe('geometry data', () => {
+  it('clears the sculpt mask', () => {
+    const ob = cube();
+    select(ob);
+    meshOf(ob).sculpt_mask = new Float32Array(8).fill(1);
+    run('mesh.customdata_mask_clear');
+    expect(meshOf(ob).sculpt_mask).toBeUndefined();
+  });
+});
