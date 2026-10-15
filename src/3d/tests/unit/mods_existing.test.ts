@@ -67,3 +67,39 @@ describe('Solidify options', () => {
     expect(clamped.positions[4 * 3 + 2]).toBeCloseTo(-1, 5);
   });
 });
+
+describe('Weld, Mask and Triangulate options', () => {
+  it('collapses only short edges in connected mode and respects a vertex group', () => {
+    const g = newMeshData('g', prim.grid(2, 1, 2)) as unknown as EvalMesh;
+    // squeeze the middle column so its edges to the left column are short
+    const P = Float32Array.from(g.positions);
+    for (let i = 0; i < P.length; i += 3) if (Math.abs(P[i]) < 1e-6) P[i] = -0.995;
+    const m = { ...g, positions: P };
+    expect(run('WELD', m, { merge_threshold: 0.01, mode: 'CONNECTED' }).positions.length / 3).toBe(4);
+    const grouped = { ...m, vertex_groups: [{ name: 'G' }], weights: [Float32Array.from({ length: 6 }, (_, v) => (v === 0 ? 1 : 0))] };
+    expect(run('WELD', grouped, { merge_threshold: 0.01, vertex_group: 'G' }).positions.length / 3).toBe(6);
+  });
+
+  it('masks by the selected bones of an armature', () => {
+    const m = cube();
+    m.vertex_groups = [{ name: 'A' }, { name: 'B' }];
+    m.weights = [Float32Array.from({ length: 8 }, (_, v) => (m.positions[v * 3 + 2] > 0 ? 1 : 0)), Float32Array.from({ length: 8 }, (_, v) => (m.positions[v * 3 + 2] > 0 ? 0 : 1))];
+    const doc = { objects: { arm: { id: 'arm', type: 'ARMATURE', data: 'ad' } }, armatures: { ad: { bones: [{ name: 'A', select: true }, { name: 'B', select: false }] } } };
+    const t = modifierTypes.MASK;
+    const out = t.apply(m, { ...t.defaults(), mode: 'ARMATURE', armature: 'arm' } as never, { doc } as unknown as ModifierContext);
+    expect(out.positions.length / 3).toBe(4);
+    expect(out.offsets.length - 1).toBe(1);
+  });
+
+  it('splits quads along the chosen diagonal', () => {
+    const q = newMeshData('q', prim.plane(2)) as unknown as EvalMesh;
+    const P = Float32Array.from(q.positions);
+    P[0] = -3; // vertex 0 pulled out: the 1-3 diagonal is now the short one
+    const m = { ...q, positions: P };
+    const diag = (o: EvalMesh) => (Array.from(o.indices.subarray(0, 3)).includes(2) && Array.from(o.indices.subarray(0, 3)).includes(0) ? '02' : '13');
+    expect(diag(run('TRIANGULATE', m, {}))).toBe('13');
+    expect(diag(run('TRIANGULATE', m, { quad_method: 'LONGEST_DIAGONAL' }))).toBe('02');
+    expect(diag(run('TRIANGULATE', m, { quad_method: 'FIXED' }))).toBe('02');
+    expect(diag(run('TRIANGULATE', m, { quad_method: 'FIXED_ALTERNATE' }))).toBe('13');
+  });
+});

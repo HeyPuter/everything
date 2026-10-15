@@ -34,7 +34,7 @@ export const modifierFields: Record<string, Field[]> = {
   ],
   BUILD: [['frame_start', 'Start', 'num'], ['frame_duration', 'Length', 'num'], ['use_reverse', 'Reversed', 'bool'], ['use_random_order', 'Randomize', 'bool'], ['seed', 'Seed', 'int']],
   EDGE_SPLIT: [['use_edge_angle', 'Edge Angle', 'bool'], ['split_angle', 'Angle', 'angle'], ['use_edge_sharp', 'Sharp Edges', 'bool']],
-  MASK: [['vertex_group', 'Vertex Group', 'vgroup'], ['invert_vertex_group', 'Invert', 'bool'], ['threshold', 'Threshold', 'factor']],
+  MASK: [['mode', 'Mode', 'enum', [['VERTEX_GROUP', 'Vertex Group'], ['ARMATURE', 'Armature']]], ['armature', 'Armature', 'object', 'ARMATURE'], ['vertex_group', 'Vertex Group', 'vgroup'], ['threshold', 'Threshold', 'factor']],
   MIRROR: [
     ['use_axis', 'Axis', 'axes'],
     ['use_bisect_axis', 'Bisect', 'axes'],
@@ -52,7 +52,7 @@ export const modifierFields: Record<string, Field[]> = {
   SOLIDIFY: [['thickness', 'Thickness', 'dist'], ['offset', 'Offset', 'num', { min: -1, max: 1, slider: true }], ['use_even_offset', 'Even Thickness', 'bool'], ['use_rim', 'Fill Rim', 'bool'], ['use_rim_only', 'Only Rim', 'bool'], ['vertex_group', 'Vertex Group', 'vgroup'], ['material_offset', 'Material Offset', 'int'], ['material_offset_rim', 'Rim', 'int']],
   SUBSURF: [['subdivision_type', 'Type', 'enum', [['CATMULL_CLARK', 'Catmull-Clark'], ['SIMPLE', 'Simple']]], ['levels', 'Levels Viewport', 'int', { min: 0, max: 6 }], ['render_levels', 'Render', 'int', { min: 0, max: 6 }], ['use_creases', 'Use Creases', 'bool']],
   TRIANGULATE: [['quad_method', 'Quad Method', 'enum', [['BEAUTY', 'Beauty'], ['FIXED', 'Fixed'], ['FIXED_ALTERNATE', 'Fixed Alternate'], ['SHORTEST_DIAGONAL', 'Shortest Diagonal'], ['LONGEST_DIAGONAL', 'Longest Diagonal']]], ['ngon_method', 'N-gon Method', 'enum', [['BEAUTY', 'Beauty'], ['CLIP', 'Clip']]], ['min_vertices', 'Minimum Vertices', 'int', { min: 4, max: 1000 }]],
-  WELD: [['mode', 'Mode', 'enum', [['ALL', 'All'], ['CONNECTED', 'Connected']]], ['merge_threshold', 'Distance', 'dist']],
+  WELD: [['mode', 'Mode', 'enum', [['ALL', 'All'], ['CONNECTED', 'Connected']]], ['merge_threshold', 'Distance', 'dist'], ['loose_edges', 'Only Loose Edges', 'bool'], ['vertex_group', 'Vertex Group', 'vgroup']],
   WIREFRAME: [['thickness', 'Thickness', 'dist']],
   ARMATURE: [['object', 'Object', 'object', 'ARMATURE'], ['use_deform_preserve_volume', 'Preserve Volume', 'bool'], ['use_vertex_groups', 'Vertex Groups', 'bool'], ['use_bone_envelopes', 'Bone Envelopes', 'bool']],
   CAST: [['cast_type', 'Shape', 'enum', [['SPHERE', 'Sphere'], ['CYLINDER', 'Cylinder'], ['CUBOID', 'Cuboid']]], ['use_x', 'X', 'bool'], ['use_y', 'Y', 'bool'], ['use_z', 'Z', 'bool'], ['factor', 'Factor', 'num'], ['radius', 'Radius', 'dist'], ['vertex_group', 'Vertex Group', 'vgroup']],

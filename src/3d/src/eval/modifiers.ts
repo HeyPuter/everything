@@ -558,6 +558,64 @@ export function weld(m: EvalMesh, threshold: number, onlyLoose = false, canMerge
 
 // ---------------------------------------------------------------------------
 
+/** Weld: merge all close vertices, or only the ends of short edges ("connected"). */
+function weldMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
+  const thr = num(mod, 'merge_threshold', 0.001);
+  const gw = groupWeights(m, str(mod, 'vertex_group'));
+  const inv = bool(mod, 'invert_vertex_group');
+  const allowed = gw ? (v: number) => (gw[v] > 0) !== inv : () => true;
+  if (str(mod, 'mode', 'ALL') !== 'CONNECTED') return weld(m, thr, false, gw ? (u, v) => allowed(u) && allowed(v) : undefined);
+  // connected: collapse edges shorter than the distance (only loose edges on request)
+  const P = m.positions,
+    nv = P.length / 3;
+  const parent = Int32Array.from({ length: nv }, (_, i) => i);
+  const find = (x: number): number => {
+    while (parent[x] !== x) x = parent[x] = parent[parent[x]];
+    return x;
+  };
+  const tryEdge = (a: number, b: number) => {
+    if (!allowed(a) || !allowed(b)) return;
+    if ((P[a * 3] - P[b * 3]) ** 2 + (P[a * 3 + 1] - P[b * 3 + 1]) ** 2 + (P[a * 3 + 2] - P[b * 3 + 2]) ** 2 > thr * thr) return;
+    const ra = find(a),
+      rb = find(b);
+    if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb);
+  };
+  if (!bool(mod, 'loose_edges')) {
+    const et = edgeTopology(m);
+    for (let e = 0; e < et.count; e++) tryEdge(et.verts[e * 2], et.verts[e * 2 + 1]);
+  }
+  if (m.looseEdges) for (let i = 0; i + 1 < m.looseEdges.length; i += 2) tryEdge(m.looseEdges[i], m.looseEdges[i + 1]);
+  let changed = false;
+  for (let v = 0; v < nv; v++) if (find(v) !== v) changed = true;
+  if (!changed) return m;
+  const b = new MeshBuilder(m.weights?.length ?? 0, !!m.colors);
+  const remap = new Int32Array(nv).fill(-1);
+  for (let v = 0; v < nv; v++) if (find(v) === v) remap[v] = b.addVert(P[v * 3], P[v * 3 + 1], P[v * 3 + 2], m.origIndex?.[v] ?? v, weightsOf(m, v));
+  for (let v = 0; v < nv; v++) remap[v] = remap[find(v)];
+  for (let f = 0; f < m.offsets.length - 1; f++) {
+    const verts: number[] = [],
+      uvs: number[] = [];
+    for (let c = m.offsets[f]; c < m.offsets[f + 1]; c++) {
+      const v = remap[m.indices[c]];
+      if (verts.includes(v)) continue;
+      verts.push(v);
+      uvs.push(m.uvs[c * 2], m.uvs[c * 2 + 1]);
+    }
+    if (verts.length >= 3) b.addFace(verts, uvs, m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0);
+  }
+  const out = b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle, instances: m.instances });
+  if (m.looseEdges) {
+    const le: number[] = [];
+    for (let i = 0; i + 1 < m.looseEdges.length; i += 2) {
+      const a = remap[m.looseEdges[i]],
+        c = remap[m.looseEdges[i + 1]];
+      if (a !== c) le.push(a, c);
+    }
+    if (le.length) out.looseEdges = Uint32Array.from(le);
+  }
+  return out;
+}
+
 function arrayMesh(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
   let count = Math.max(1, Math.round(num(mod, 'count', 2)));
   const rel = (mod.relative_offset_displace as number[]) ?? [1, 0, 0];
@@ -761,8 +819,32 @@ function solidify(m: EvalMesh, mod: ModifierBase): EvalMesh {
   return b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle });
 }
 
+/** Split a quad into two triangles (local corner indices) by the chosen rule. */
+function quadSplit(P: ArrayLike<number>, q: ArrayLike<number>, method: string, face: number, out: number[]) {
+  const d = (a: number, b: number) => Math.hypot(P[q[a] * 3] - P[q[b] * 3], P[q[a] * 3 + 1] - P[q[b] * 3 + 1], P[q[a] * 3 + 2] - P[q[b] * 3 + 2]);
+  let use02 = true;
+  if (method === 'SHORTEST_DIAGONAL') use02 = d(0, 2) <= d(1, 3);
+  else if (method === 'LONGEST_DIAGONAL') use02 = d(0, 2) > d(1, 3);
+  else if (method === 'FIXED_ALTERNATE') use02 = false;
+  else if (method === 'BEAUTY') {
+    // the split whose triangles are closest to equilateral (largest smallest angle)
+    const minAngle = (a: number, b: number, c: number) => {
+      const ab = d(a, b),
+        bc = d(b, c),
+        ca = d(c, a);
+      const ang = (x: number, y: number, z: number) => Math.acos(Math.max(-1, Math.min(1, (x * x + y * y - z * z) / Math.max(1e-12, 2 * x * y))));
+      return Math.min(ang(ab, ca, bc), ang(ab, bc, ca), ang(bc, ca, ab));
+    };
+    use02 = Math.min(minAngle(0, 1, 2), minAngle(0, 2, 3)) >= Math.min(minAngle(0, 1, 3), minAngle(1, 2, 3));
+  }
+  void face;
+  if (use02) out.push(0, 1, 2, 0, 2, 3);
+  else out.push(0, 1, 3, 1, 2, 3);
+}
+
 function triangulateMeshMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
   const minVerts = Math.max(4, Math.round(num(mod, 'min_vertices', 4)));
+  const quadMethod = str(mod, 'quad_method', 'SHORTEST_DIAGONAL');
   const b = new MeshBuilder(m.weights?.length ?? 0, !!m.colors);
   const P = m.positions;
   for (let v = 0; v < P.length / 3; v++) b.addVert(P[v * 3], P[v * 3 + 1], P[v * 3 + 2], m.origIndex?.[v] ?? v, weightsOf(m, v));
@@ -775,7 +857,8 @@ function triangulateMeshMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
       continue;
     }
     tmp.length = 0;
-    triangulatePoly(P, m.indices.subarray(s, e), tmp, 0);
+    if (e - s === 4) quadSplit(P, m.indices.subarray(s, e), quadMethod, f, tmp);
+    else triangulatePoly(P, m.indices.subarray(s, e), tmp, 0);
     for (let i = 0; i < tmp.length; i += 3) {
       const cs = [s + tmp[i], s + tmp[i + 1], s + tmp[i + 2]];
       b.addFace(cs.map((c) => m.indices[c]), cs.flatMap((c) => [m.uvs[c * 2], m.uvs[c * 2 + 1]]), m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0);
@@ -830,12 +913,22 @@ function screw(m: EvalMesh, mod: ModifierBase): EvalMesh {
   return out;
 }
 
-function maskMesh(m: EvalMesh, mod: ModifierBase): EvalMesh {
-  const w = groupWeights(m, str(mod, 'vertex_group'));
+function maskMesh(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
+  let w = groupWeights(m, str(mod, 'vertex_group'));
+  if (str(mod, 'mode', 'VERTEX_GROUP') === 'ARMATURE') {
+    // keep the vertices of the groups named after the armature's selected bones
+    const arm = typeof mod.armature === 'string' ? ctx.doc.objects[mod.armature] : undefined;
+    const ad = arm?.type === 'ARMATURE' && arm.data ? ctx.doc.armatures[arm.data] : undefined;
+    if (!ad || !m.weights || !m.vertex_groups) return m;
+    const names = new Set(ad.bones.filter((b) => b.select).map((b) => b.name));
+    const groups = m.vertex_groups.map((g, i) => (names.has(g.name) ? m.weights![i] : null)).filter(Boolean) as Float32Array[];
+    w = new Float32Array(m.positions.length / 3);
+    for (const g of groups) for (let v = 0; v < w.length; v++) w[v] = Math.max(w[v], g[v]);
+  }
   if (!w) return m;
   const thr = num(mod, 'threshold', 0),
     invert = bool(mod, 'invert_vertex_group');
-  const keep = (v: number) => (w[v] > thr) !== invert;
+  const keep = (v: number) => (w![v] > thr) !== invert;
   const b = new MeshBuilder(m.weights?.length ?? 0, !!m.colors);
   const P = m.positions,
     map = new Int32Array(P.length / 3).fill(-1);
@@ -1798,7 +1891,11 @@ export const modifierTypes: Record<string, ModifierType> = {
   },
   BUILD: { type: 'BUILD', label: 'Build', category: 'GENERATE', icon: 'mod_build', defaults: base({ frame_start: 1, frame_duration: 100, use_random_order: false, seed: 0, use_reverse: false }), timeDependent: () => true, apply: build },
   EDGE_SPLIT: { type: 'EDGE_SPLIT', label: 'Edge Split', category: 'GENERATE', icon: 'mod_edgesplit', defaults: base({ use_edge_angle: true, split_angle: (30 * Math.PI) / 180, use_edge_sharp: true }), apply: edgeSplit },
-  MASK: { type: 'MASK', label: 'Mask', category: 'GENERATE', icon: 'mod_mask', defaults: base({ mode: 'VERTEX_GROUP', vertex_group: '', invert_vertex_group: false, threshold: 0 }), apply: maskMesh },
+  MASK: { type: 'MASK', label: 'Mask', category: 'GENERATE', icon: 'mod_mask', defaults: base({ mode: 'VERTEX_GROUP', armature: null, vertex_group: '', invert_vertex_group: false, threshold: 0 }), deps: (m) => [m.armature as string], signature: (m, c) => {
+    const arm = typeof m.armature === 'string' ? c.doc.objects[m.armature] : undefined;
+    const ad = arm?.data ? c.doc.armatures[arm.data] : undefined;
+    return m.mode === 'ARMATURE' && ad ? ad.bones.filter((b) => b.select).map((b) => b.name).join(',') : '';
+  }, apply: maskMesh },
   MIRROR: {
     type: 'MIRROR',
     label: 'Mirror',
@@ -1832,8 +1929,8 @@ export const modifierTypes: Record<string, ModifierType> = {
         uvSmooth: str(mod, 'uv_smooth', 'PRESERVE_BOUNDARIES'),
       }),
   },
-  TRIANGULATE: { type: 'TRIANGULATE', label: 'Triangulate', category: 'GENERATE', icon: 'mod_triangulate', defaults: base({ quad_method: 'BEAUTY', ngon_method: 'BEAUTY', min_vertices: 4 }), apply: triangulateMeshMod },
-  WELD: { type: 'WELD', label: 'Weld', category: 'GENERATE', icon: 'automerge_off', defaults: base({ merge_threshold: 0.001, mode: 'ALL' }), apply: (m, mod) => weld(m, num(mod, 'merge_threshold', 0.001), str(mod, 'mode') === 'CONNECTED') },
+  TRIANGULATE: { type: 'TRIANGULATE', label: 'Triangulate', category: 'GENERATE', icon: 'mod_triangulate', defaults: base({ quad_method: 'SHORTEST_DIAGONAL', ngon_method: 'BEAUTY', min_vertices: 4 }), apply: triangulateMeshMod },
+  WELD: { type: 'WELD', label: 'Weld', category: 'GENERATE', icon: 'automerge_off', defaults: base({ merge_threshold: 0.001, mode: 'ALL', loose_edges: false, vertex_group: '', invert_vertex_group: false }), apply: weldMod },
   WIREFRAME: { type: 'WIREFRAME', label: 'Wireframe', category: 'GENERATE', icon: 'mod_wireframe', defaults: base({ thickness: 0.02, offset: 0, use_replace: true, use_boundary: false, use_even_offset: true, material_offset: 0, vertex_group: '', invert_vertex_group: false, thickness_vertex_group: 0 }), apply: wireframe },
   // Deform
   ARMATURE: { type: 'ARMATURE', label: 'Armature', category: 'DEFORM', icon: 'mod_armature', deformOnly: true, defaults: base({ object: null, use_vertex_groups: true, use_bone_envelopes: false, use_deform_preserve_volume: false }), deps: (m) => [m.object as string], apply: armatureMod },
