@@ -1,7 +1,7 @@
 // Mesh and curve primitives with a fixed element order (vertex/face numbering), so
 // index-based node setups behave predictably.
 import { CurvesComponent, MeshComponent, type AttrMap } from '../geometry';
-import { withEdgeOrder, gridEdgeOrder, ringEdgeOrder, faceUseEdgeOrder } from './edgeorder';
+import { withEdgeOrder, gridEdgeOrder, ringEdgeOrder } from './edgeorder';
 
 /** Collects faces and builds a mesh component (UVs per corner as an optional attribute). */
 export class MeshBuild {
@@ -199,28 +199,57 @@ export function icoSphereMesh(radius: number, subdivisions: number, uvName: stri
     return [p[0] / l, p[1] / l, p[2] / l];
   });
   let faces = ICO_F.map((f) => [...f]);
-  for (let s = 1; s < Math.min(10, Math.max(1, subdivisions)); s++) {
-    const mid = new Map<string, number>();
-    const m = (a: number, b: number) => {
-      const k = a < b ? `${a}_${b}` : `${b}_${a}`;
-      let i = mid.get(k);
-      if (i === undefined) {
-        const p = [(pos[a][0] + pos[b][0]) / 2, (pos[a][1] + pos[b][1]) / 2, (pos[a][2] + pos[b][2]) / 2];
-        const l = Math.hypot(p[0], p[1], p[2]) || 1;
-        i = pos.length;
-        pos.push([p[0] / l, p[1] / l, p[2] / l]);
-        mid.set(k, i);
+  // edges of the base shape in order of first use by faces (direction kept)
+  let edges: number[] = [];
+  {
+    const seen = new Set<number>();
+    for (const f of faces)
+      for (let k = 0; k < 3; k++) {
+        const a = f[(k + 2) % 3],
+          b = f[k];
+        const key = Math.min(a, b) * 64 + Math.max(a, b);
+        if (!seen.has(key)) {
+          seen.add(key);
+          edges.push(a, b);
+        }
       }
-      return i;
-    };
+  }
+  // each level puts a vertex on every edge (in edge order), keeps the corner triangle at each
+  // face's first vertex in face order, then the other three triangles in reverse face order
+  for (let s = 1; s < Math.min(10, Math.max(1, subdivisions)); s++) {
+    const nv = pos.length;
+    const mid = new Map<number, number>();
+    const key = (a: number, b: number) => Math.min(a, b) * 1048576 + Math.max(a, b);
+    for (let e = 0; e < edges.length / 2; e++) {
+      const a = edges[e * 2],
+        b = edges[e * 2 + 1];
+      const p = [(pos[a][0] + pos[b][0]) / 2, (pos[a][1] + pos[b][1]) / 2, (pos[a][2] + pos[b][2]) / 2];
+      const l = Math.hypot(p[0], p[1], p[2]) || 1;
+      pos.push([p[0] / l, p[1] / l, p[2] / l]);
+      mid.set(key(a, b), nv + e);
+    }
+    const m = (a: number, b: number) => mid.get(key(a, b))!;
     const next: number[][] = [];
-    for (const [a, b, c] of faces) {
+    const nextEdges: number[] = [];
+    for (const [a, b, c] of faces) next.push([a, m(a, b), m(c, a)]);
+    for (let f = faces.length - 1; f >= 0; f--) {
+      const [a, b, c] = faces[f];
       const ab = m(a, b),
         bc = m(b, c),
         ca = m(c, a);
-      next.push([a, ab, ca], [ab, b, bc], [ca, bc, c], [ab, bc, ca]);
+      next.push([ca, bc, c], [ca, ab, bc], [ab, b, bc]);
+    }
+    for (let e = 0; e < edges.length / 2; e++) nextEdges.push(nv + e, edges[e * 2 + 1]);
+    for (let e = 0; e < edges.length / 2; e++) nextEdges.push(edges[e * 2], nv + e);
+    for (let f = faces.length - 1; f >= 0; f--) {
+      const [a, b, c] = faces[f];
+      const ab = m(a, b),
+        bc = m(b, c),
+        ca = m(c, a);
+      nextEdges.push(ca, bc, ca, ab, bc, ab);
     }
     faces = next;
+    edges = nextEdges;
   }
   const b = new MeshBuild();
   for (const p of pos) b.vert(p[0] * radius, p[1] * radius, p[2] * radius);
@@ -232,8 +261,7 @@ export function icoSphereMesh(radius: number, subdivisions: number, uvName: stri
     if (Math.max(...us) - Math.min(...us) > 0.5) for (let k = 0; k < 3; k++) if (uv[k * 2] < 0.5) uv[k * 2] += 1;
     b.face(f, uv);
   }
-  const m = b.build({ uvName, flat: true });
-  return subdivisions <= 1 ? withEdgeOrder(m, faceUseEdgeOrder(m)) : m;
+  return withEdgeOrder(b.build({ uvName, flat: true }), edges);
 }
 
 export type FillType = 'NONE' | 'NGON' | 'TRIANGLE_FAN';
