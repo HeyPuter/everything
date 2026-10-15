@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { setup, node, link, run, counts, positions, attr, type T } from './gnmesh-harness';
 import type { NodeData } from '../../src/data/types';
-import type { GeometrySet } from '../../src/geonodes/geometry';
+import { GeometrySet } from '../../src/geonodes/geometry';
 
 const polys = (g: GeometrySet) => {
   const m = g.mesh!;
@@ -422,5 +422,56 @@ describe('face groups', () => {
     const pairs: string[] = [];
     for (let k = 0; k < topo.edgeCount; k++) if (b[k]) pairs.push(`${topo.edges[k * 2]},${topo.edges[k * 2 + 1]}`);
     expect(pairs.sort()).toEqual(['6,7', '7,10', '7,8']);
+  });
+});
+
+describe('edge paths', () => {
+  function paths(add: number) {
+    const t = setup();
+    const g = grid(t);
+    const i = node(t, 'GeometryNodeInputIndex');
+    const nx = node(t, 'ShaderNodeMath', { Value_001: add }, { operation: 'ADD' });
+    const m3 = node(t, 'ShaderNodeMath', { Value_001: 3 }, { operation: 'FLOORED_MODULO' });
+    const st = node(t, 'FunctionNodeCompare', { B: 0 }, { data_type: 'FLOAT', operation: 'EQUAL' });
+    link(t, i, 'Index', nx, 'Value');
+    link(t, i, 'Index', m3, 'Value');
+    link(t, m3, 'Value', st, 'A');
+    const ep = node(t, 'GeometryNodeEdgePathsToCurves');
+    link(t, g, 'Mesh', ep, 'Mesh');
+    link(t, st, 'Result', ep, 'Start Vertices');
+    link(t, nx, 'Value', ep, 'Next Vertex Index');
+    const es = node(t, 'GeometryNodeEdgePathsToSelection');
+    link(t, st, 'Result', es, 'Start Vertices');
+    link(t, nx, 'Value', es, 'Next Vertex Index');
+    const s2 = store(t, [g, 'Mesh'], [es, 'Selection'], 'sel', 'EDGE', 'BOOLEAN');
+    const j = node(t, 'GeometryNodeJoinGeometry');
+    link(t, s2, 'Geometry', j, 'Geometry');
+    link(t, ep, 'Curves', j, 'Geometry');
+    const r = run(t, j, 'Geometry').geometry;
+    const m = r.mesh!;
+    const topo = m.topology();
+    const sel = attr(r, 'sel', 'EDGE', 'BOOLEAN');
+    const pairs: string[] = [];
+    for (let k = 0; k < topo.edgeCount; k++) if (sel[k]) pairs.push(`${topo.edges[k * 2]},${topo.edges[k * 2 + 1]}`);
+    const c = r.curves;
+    const sizes = c ? Array.from({ length: c.curveCount }, (_, k) => c.curveOffsets[k + 1] - c.curveOffsets[k]) : [];
+    return { pairs: pairs.sort(), sizes, curvePos: c ? positions(new GeometrySet(undefined, undefined, c)) : [] };
+  }
+  it('paths across rows; selection only where edges exist', () => {
+    const r = paths(1);
+    expect(r.pairs).toEqual(['0,1', '1,2', '3,4', '4,5', '6,7', '7,8']);
+    expect(r.sizes).toEqual([9, 6, 3]);
+  });
+  it('diagonal steps make curves but select no edges', () => {
+    const r = paths(4);
+    expect(r.pairs).toEqual([]);
+    expect(r.sizes).toEqual([3, 2]);
+    expect(r.curvePos).toEqual([
+      [-0.5, -0.5, 0],
+      [0, 0, 0],
+      [0.5, 0.5, 0],
+      [0, -0.5, 0],
+      [0.5, 0, 0],
+    ]);
   });
 });
