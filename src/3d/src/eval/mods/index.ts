@@ -5,3 +5,4 @@ import './normals';
 import './transfer';
 import './smooth';
 import './bind';
+import './skin';

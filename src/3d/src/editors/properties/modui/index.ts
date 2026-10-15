@@ -7,3 +7,4 @@ import './uv';
 import './normals';
 import './transfer';
 import './bind';
+import './skin';
