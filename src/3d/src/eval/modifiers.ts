@@ -1144,59 +1144,70 @@ function cast(m: EvalMesh, mod: ModifierBase): EvalMesh {
 
 function simpleDeform(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
   const method = str(mod, 'deform_method', 'TWIST'),
-    angle = num(mod, 'angle', (45 * Math.PI) / 180),
-    factor = num(mod, 'factor', 0.785398);
+    amount = method === 'TWIST' || method === 'BEND' ? num(mod, 'angle', (45 * Math.PI) / 180) : num(mod, 'factor', 0.785398);
   const axis = ['X', 'Y', 'Z'].indexOf(str(mod, 'deform_axis', 'Z'));
   const limits = (mod.limits as number[]) ?? [0, 1];
   const origin = mod.origin ? objectSpaceOf(ctx, mod.origin) : null;
+  const toO = origin ? origin.clone().invert() : null;
+  // the coordinate that drives the effect: the deform axis, or for bending the axis the mesh bends along
+  const drive = method === 'BEND' ? (axis === 2 ? 0 : 2) : axis;
   const P = m.positions;
   let lo = Infinity,
     hi = -Infinity;
-  for (let i = axis; i < P.length; i += 3) {
-    lo = Math.min(lo, P[i]);
-    hi = Math.max(hi, P[i]);
+  const q = new Vector3();
+  for (let i = 0; i < P.length; i += 3) {
+    q.set(P[i], P[i + 1], P[i + 2]);
+    if (toO) q.applyMatrix4(toO);
+    const c = q.getComponent(drive);
+    lo = Math.min(lo, c);
+    hi = Math.max(hi, c);
   }
-  const lmin = lo + (hi - lo) * limits[0],
-    lmax = lo + (hi - lo) * limits[1];
-  const toO = origin ? origin.clone().invert() : null;
-  const out = deform(m, mod, (p) => {
+  const lmin = lo + (hi - lo) * Math.min(limits[0], limits[1]),
+    lmax = lo + (hi - lo) * Math.max(limits[0], limits[1]);
+  const f = amount / Math.max(1e-6, lmax - lmin);
+  // the two other axes: twist rotates them, taper/stretch scale them, bend uses (bend, offset)
+  const b = (axis + 1) % 3,
+    d = (axis + 2) % 3;
+  // locked axes keep their coordinate while tapering or stretching
+  const scalable = method === 'TAPER' || method === 'STRETCH';
+  const lockB = scalable && bool(mod, `lock_${'xyz'[b]}`),
+    lockD = scalable && bool(mod, `lock_${'xyz'[d]}`);
+  const offAxis = axis === 1 ? 0 : 1; // bend offset axis
+  return deform(m, mod, (p) => {
     if (toO) p.applyMatrix4(toO);
     const c = [p.x, p.y, p.z];
-    const a = axis,
-      b = (axis + 1) % 3,
-      d = (axis + 2) % 3;
-    const h = Math.max(lmin, Math.min(lmax, c[a]));
+    const h = Math.max(lmin, Math.min(lmax, c[drive]));
     if (method === 'TWIST') {
-      const th = (angle * h) / (hi - lo || 1);
+      const th = f * h;
       const x = c[b] * Math.cos(th) - c[d] * Math.sin(th),
         y = c[b] * Math.sin(th) + c[d] * Math.cos(th);
       c[b] = x;
       c[d] = y;
     } else if (method === 'BEND') {
-      // bend around axis `a`: points along b-axis bend in b/d plane
-      const th = (angle * c[b]) / (hi - lo || 1);
-      if (Math.abs(angle) > 1e-6) {
-        const R = (hi - lo || 1) / angle;
-        const x = Math.sin(th) * (R - c[d]),
-          y = R - Math.cos(th) * (R - c[d]);
-        c[b] = x;
-        c[d] = y;
+      if (Math.abs(f) > 1e-9) {
+        const R = 1 / f;
+        const th = h * f;
+        const w = c[offAxis];
+        // past the limits the mesh continues straight along the tangent
+        const extra = c[drive] - h;
+        const u = Math.sin(th) * (R - w) + Math.cos(th) * extra,
+          v = R - Math.cos(th) * (R - w) + Math.sin(th) * extra;
+        c[drive] = u;
+        c[offAxis] = v;
       }
     } else if (method === 'TAPER') {
-      const s = 1 + h * factor;
-      c[b] *= s;
-      c[d] *= s;
+      const k = 1 + h * f;
+      if (!lockB) c[b] *= k;
+      if (!lockD) c[d] *= k;
     } else if (method === 'STRETCH') {
-      const s = 1 + factor;
-      c[a] = c[a] * s;
-      const sv = 1 / Math.sqrt(Math.max(1e-6, s));
-      c[b] *= sv;
-      c[d] *= sv;
+      const k = h * h * f - f + 1;
+      c[axis] = c[axis] * (1 + f);
+      if (!lockB) c[b] *= k;
+      if (!lockD) c[d] *= k;
     }
     p.set(c[0], c[1], c[2]);
     if (origin) p.applyMatrix4(origin);
   });
-  return out;
 }
 
 function wave(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
@@ -1551,7 +1562,7 @@ export const modifierTypes: Record<string, ModifierType> = {
   LAPLACIANSMOOTH: { type: 'LAPLACIANSMOOTH', label: 'Smooth Laplacian', category: 'DEFORM', icon: 'mod_smooth', deformOnly: true, defaults: base({ iterations: 1, lambda_factor: 0.5, use_volume_preserve: true, vertex_group: '' }), apply: laplacianSmooth },
   LATTICE: { type: 'LATTICE', label: 'Lattice', category: 'DEFORM', icon: 'mod_lattice', deformOnly: true, defaults: base({ object: null, strength: 1, vertex_group: '' }), deps: (m) => [m.object as string], apply: latticeMod },
   SHRINKWRAP: { type: 'SHRINKWRAP', label: 'Shrinkwrap', category: 'DEFORM', icon: 'mod_shrinkwrap', deformOnly: true, defaults: base({ target: null, wrap_method: 'NEAREST_SURFACEPOINT', offset: 0, vertex_group: '' }), deps: (m) => [m.target as string], apply: shrinkwrapMod },
-  SIMPLE_DEFORM: { type: 'SIMPLE_DEFORM', label: 'Simple Deform', category: 'DEFORM', icon: 'mod_simpledeform', deformOnly: true, defaults: base({ deform_method: 'TWIST', angle: (45 * Math.PI) / 180, factor: 0.785398, deform_axis: 'Z', origin: null, limits: [0, 1], vertex_group: '' }), deps: (m) => [m.origin as string], apply: simpleDeform },
+  SIMPLE_DEFORM: { type: 'SIMPLE_DEFORM', label: 'Simple Deform', category: 'DEFORM', icon: 'mod_simpledeform', deformOnly: true, defaults: base({ deform_method: 'TWIST', angle: (45 * Math.PI) / 180, factor: 0.785398, deform_axis: 'Z', origin: null, limits: [0, 1], lock_x: false, lock_y: false, lock_z: false, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.origin as string], apply: simpleDeform },
   SMOOTH: { type: 'SMOOTH', label: 'Smooth', category: 'DEFORM', icon: 'mod_smooth', deformOnly: true, defaults: base({ factor: 0.5, iterations: 1, use_x: true, use_y: true, use_z: true, vertex_group: '' }), apply: smoothMesh },
   WARP: { type: 'WARP', label: 'Warp', category: 'DEFORM', icon: 'mod_warp', deformOnly: true, defaults: base({ object_from: null, object_to: null, strength: 1, falloff_radius: 1, vertex_group: '' }), deps: (m) => [m.object_from as string, m.object_to as string], apply: warpMod },
   WAVE: { type: 'WAVE', label: 'Wave', category: 'DEFORM', icon: 'mod_wave', deformOnly: true, defaults: base({ use_x: true, use_y: true, use_normal: false, time_offset: 0, height: 0.5, width: 1.5, narrowness: 1.5, speed: 0.25, vertex_group: '' }), timeDependent: () => true, apply: wave },

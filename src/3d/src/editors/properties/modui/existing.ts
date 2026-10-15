@@ -257,3 +257,49 @@ modifierExtraUI.WIREFRAME = (ob, m) => {
     num(r, 'material_offset', 'Material Offset', { int: true }),
   ];
 };
+
+// ---------------------------------------------------------------------------
+// Simple Deform
+
+modifierFields.SIMPLE_DEFORM = [];
+modifierExtraUI.SIMPLE_DEFORM = (ob, m) => {
+  const r = m as Rec;
+  const method = String(r.deform_method ?? 'TWIST');
+  const angled = method === 'TWIST' || method === 'BEND';
+  const axis = String(r.deform_axis ?? 'Z');
+  // the two axes a taper or stretch scales
+  const lockable = ['X', 'Y', 'Z'].filter((a) => a !== axis);
+  return [
+    splitRow(
+      'Method',
+      enumRow(
+        `${m.id}.deform_method`,
+        [
+          { value: 'TWIST', label: 'Twist' },
+          { value: 'BEND', label: 'Bend' },
+          { value: 'TAPER', label: 'Taper' },
+          { value: 'STRETCH', label: 'Stretch' },
+        ],
+        method,
+        (v) => ((r.deform_method = v), touch('Change Method')),
+      ),
+    ),
+    angled ? num(r, 'angle', 'Angle', { unit: 'angle', anim: { ob, path: `modifiers["${m.name}"].angle` } }) : num(r, 'factor', 'Factor', { softMin: -10, softMax: 10, anim: { ob, path: `modifiers["${m.name}"].factor` } }),
+    objRow(r, 'origin', 'Origin', (o) => o.id !== ob.id),
+    splitRow(
+      'Axis',
+      enumRow(
+        `${m.id}.deform_axis`,
+        ['X', 'Y', 'Z'].map((a) => ({ value: a, label: a })),
+        axis,
+        (v) => ((r.deform_axis = v), touch('Change Axis')),
+      ),
+    ),
+    sub(m, 'restrictions', 'Restrictions', () => [
+      vecProp(r, 'limits', 'Limits', { names: ['Min', 'Max'], min: 0, max: 1 }),
+      !angled ? h('div', { class: 'sub-label' }, 'Lock') : null,
+      !angled ? lockable.map((a) => bool(r, `lock_${a.toLowerCase()}`, a)) : null,
+      vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
+    ]),
+  ];
+};
