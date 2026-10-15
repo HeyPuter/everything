@@ -16,6 +16,9 @@ export const UV_DEFAULT = 'UVMap';
 
 const inputCache = new WeakMap<EvalMesh, GeometrySet>();
 
+/** Register the geometry an evaluated mesh stands for (e.g. hair curves with all their attributes). */
+export const primeGeometry = (m: EvalMesh, g: GeometrySet) => void inputCache.set(m, g);
+
 /** Geometry set of an evaluated mesh (attributes: UV map, sharp_face, material_index, edges flags, vertex groups, colors). */
 export function evalMeshToGeometry(m: EvalMesh, source?: MeshData | null): GeometrySet {
   const hit = inputCache.get(m);
@@ -318,7 +321,7 @@ export { isIdentity };
 
 /** Material slots of an object (object-linked slots override data slots). */
 export function materialSlots(doc: DocumentData, ob: ObjectData): (string | null)[] {
-  const data = ob.data ? ((doc.meshes[ob.data] ?? doc.curves[ob.data] ?? doc.metaballs?.[ob.data]) as { materials?: (string | null)[] } | undefined) : undefined;
+  const data = ob.data ? ((doc.meshes[ob.data] ?? doc.curves[ob.data] ?? doc.metaballs?.[ob.data] ?? doc.hair_curves?.[ob.data]) as { materials?: (string | null)[] } | undefined) : undefined;
   const base = data?.materials ?? [];
   if (!ob.object_materials) return [...base];
   return base.map((m, i) => (ob.material_slots_link?.[i] === 'OBJECT' ? (ob.object_materials![i] ?? null) : m));

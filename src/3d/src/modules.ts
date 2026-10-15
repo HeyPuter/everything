@@ -10,6 +10,7 @@ import './scripting/index';
 import './modes/index';
 import './greasepencil/index';
 import './metaball/index';
+import './hair/index';
 import './compositor/index';
 import './geonodes/index';
 import './spreadsheet/index';

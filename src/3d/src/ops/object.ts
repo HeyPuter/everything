@@ -142,13 +142,13 @@ export function deleteObjects(doc: DocumentData, ids: Set<string>) {
   purgeOrphans(doc);
 }
 
-export const DATA_TABLES: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices', META: 'metaballs' };
+export const DATA_TABLES: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices', META: 'metaballs', CURVES: 'hair_curves' };
 
 /** Remove data-blocks without users (meshes, materials stay if fake user). */
 export function purgeOrphans(doc: DocumentData) {
   const used = new Set<string>();
   for (const ob of Object.values(doc.objects)) if (ob.data) used.add(ob.data);
-  for (const t of ['meshes', 'curves', 'lights', 'cameras', 'armatures', 'lattices', 'metaballs'] as const) for (const id of Object.keys(doc[t] ?? {})) if (!used.has(id)) delete (doc[t] as Record<string, unknown>)[id];
+  for (const t of ['meshes', 'curves', 'lights', 'cameras', 'armatures', 'lattices', 'metaballs', 'hair_curves'] as const) for (const id of Object.keys(doc[t] ?? {})) if (!used.has(id)) delete (doc[t] as Record<string, unknown>)[id];
 }
 
 function duplicateObject(doc: DocumentData, ob: ObjectData, linked: boolean): ObjectData {
@@ -157,7 +157,7 @@ function duplicateObject(doc: DocumentData, ob: ObjectData, linked: boolean): Ob
   copy.name = uniqueName(doc, ob.name);
   copy.animation_data = ob.animation_data ? cloneShared(ob.animation_data) : null;
   if (!linked && ob.data) {
-    const tables: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices', META: 'metaballs' };
+    const tables: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices', META: 'metaballs', CURVES: 'hair_curves' };
     const t = tables[ob.type];
     if (t) {
       const src = (doc[t] as Record<string, { id: string; name: string }>)[ob.data];
