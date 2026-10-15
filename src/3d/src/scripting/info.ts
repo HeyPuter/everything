@@ -121,7 +121,7 @@ export class InfoEditor implements Editor {
               ev.stopPropagation();
               if (this.boxPending) return this.startBox(ev, false);
               this.click(e, ev);
-              this.startBox(ev, false, true);
+              this.startBox(ev, false);
             },
           },
           h('span', { class: 'info-ic' }, icon(ICON[e.type] ?? 'info_small')),
@@ -154,9 +154,9 @@ export class InfoEditor implements Editor {
 
   /**
    * Drag a box over rows to select them (Shift adds, Ctrl removes). `clearOnClick`: a click
-   * without dragging deselects everything; `afterClick`: the press already picked a row.
+   * without dragging deselects everything.
    */
-  startBox(down: PointerEvent, clearOnClick: boolean, afterClick = false) {
+  startBox(down: PointerEvent, clearOnClick: boolean) {
     const pending = this.boxPending;
     this.boxPending = false;
     const sx = down.clientX,
@@ -196,7 +196,6 @@ export class InfoEditor implements Editor {
       });
       this.draw();
     };
-    void afterClick;
     addEventListener('pointermove', move, true);
     addEventListener('pointerup', up, true);
   }
