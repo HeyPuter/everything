@@ -129,6 +129,18 @@ function plan(p: DragPayload, x: number, y: number, internal?: InternalTarget): 
       }
     }
   }
+  if (area.type === 'PROPERTIES' && first.table === 'materials') {
+    // onto a material slot of the active object (or its active slot)
+    const ob = app.activeObject;
+    if (!ob) return { hint: 'No active object for the material', ok: false };
+    const row = el?.closest<HTMLElement>('.uilist[data-list="mat-slots"] .ul-row');
+    const slot = row ? Number(row.dataset.index) : -1;
+    return {
+      hint: slot >= 0 ? `Put “${name}” in slot ${slot + 1} of ${ob.name}` : `Assign “${name}” to ${ob.name}`,
+      ok: true,
+      run: () => void app.run('object.drop_named_material', { ...base, asset: p.refs[0], object: ob.id, slot }, { invoke: false, area }),
+    };
+  }
   if (NODE_EDITORS.has(area.type)) {
     const ed = nodeEditorOf({ area });
     if (first.table !== 'node_groups' || !ed?.tree()) return { hint: first.table === 'node_groups' ? 'No node tree to add to' : `${ASSET_TYPE_INFO[first.table].plural} cannot be dropped here`, ok: false };

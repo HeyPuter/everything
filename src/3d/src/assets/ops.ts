@@ -695,11 +695,12 @@ registerOperators([
     idname: 'object.drop_named_material',
     label: 'Drop Named Material on Object',
     description: 'Put a material asset into the active material slot of an object',
-    props: [...importProps, { id: 'object', label: 'Object', type: 'string', default: '', hidden: true }],
+    props: [...importProps, { id: 'object', label: 'Object', type: 'string', default: '', hidden: true }, { id: 'slot', label: 'Slot', type: 'int', default: -1, hidden: true }],
     poll: (ctx) => ctx.doc.mode === 'OBJECT' || ctx.doc.mode === 'EDIT',
     exec: (ctx, p) => {
       const doc = ctx.doc;
       const obs = p.object ? [doc.objects[String(p.object)]].filter(Boolean) : app.selectedObjects();
+      if ((p.slot as number) >= 0 && obs[0]) obs[0].active_material_index = p.slot as number;
       if (!obs.length) {
         app.report('WARNING', 'No object to put the material on');
         return 'CANCELLED';
