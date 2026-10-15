@@ -1913,35 +1913,45 @@ function curveMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMes
   const t = typeof mod.object === 'string' ? ctx.graph.get(mod.object) : undefined;
   const cu = t?.ob.data ? ctx.doc.curves[t.ob.data] : undefined;
   if (!t || !cu?.splines.length) return m;
-  // sample the first spline into an arc-length table in mesh space
-  // (imported lazily to avoid a circular dependency)
+  // the first spline as an arc-length table; vertices are deformed in the curve's space
   const own = ctx.graph.get(ctx.ob.id)!.world;
   const toMesh = own.clone().invert().multiply(t.world);
-  const pts = curvePolyline(cu).map((p) => new Vector3(...p).applyMatrix4(toMesh));
+  const toCurve = toMesh.clone().invert();
+  const pts = curvePolyline(cu).map((p) => new Vector3(...p));
   if (pts.length < 2) return m;
+  const n = pts.length;
   const lens = [0];
-  for (let i = 1; i < pts.length; i++) lens.push(lens[i - 1] + pts[i].distanceTo(pts[i - 1]));
-  const total = lens[lens.length - 1] || 1;
+  for (let i = 1; i < n; i++) lens.push(lens[i - 1] + pts[i].distanceTo(pts[i - 1]));
+  const total = lens[n - 1] || 1;
+  // tangent at each point: the average of the neighbouring segment directions
+  const seg = (i: number) => pts[i + 1].clone().sub(pts[i]).normalize();
+  const tans = pts.map((_, i) => (i === 0 ? seg(0) : i === n - 1 ? seg(n - 2) : seg(i - 1).add(seg(i)).normalize()));
   const axis = ['POS_X', 'POS_Y', 'POS_Z', 'NEG_X', 'NEG_Y', 'NEG_Z'].indexOf(str(mod, 'deform_axis', 'POS_X'));
   const ai = axis % 3,
-    sign = axis >= 3 ? -1 : 1;
+    neg = axis >= 3;
+  const zUp = new Vector3(0, 0, 1),
+    xUp = new Vector3(1, 0, 0);
   return deform(m, mod, (p) => {
+    p.applyMatrix4(toCurve);
     const c = [p.x, p.y, p.z];
-    const s = c[ai] * sign;
+    const s = neg ? -c[ai] : c[ai];
     const d = Math.max(0, Math.min(total, s));
     let i = 1;
-    while (i < lens.length - 1 && lens[i] < d) i++;
+    while (i < n - 1 && lens[i] < d) i++;
     const k = (d - lens[i - 1]) / (lens[i] - lens[i - 1] || 1);
     const pos = pts[i - 1].clone().lerp(pts[i], k);
-    const tan = pts[i].clone().sub(pts[i - 1]).normalize();
-    const up = Math.abs(tan.z) < 0.99 ? new Vector3(0, 0, 1) : new Vector3(1, 0, 0);
+    // turn the tangent smoothly from one point's to the next
+    const q = new Quaternion().setFromUnitVectors(tans[i - 1], tans[i]);
+    const tan = tans[i - 1].clone().applyQuaternion(new Quaternion().slerp(q, k)).normalize();
+    const up = Math.abs(tan.z) < 0.99 ? zUp : xUp;
     const side = new Vector3().crossVectors(up, tan).normalize();
     const nup = new Vector3().crossVectors(tan, side);
-    const o1 = c[(ai + 1) % 3],
-      o2 = c[(ai + 2) % 3];
-    const extra = s - d; // beyond the end: continue straight
-    pos.addScaledVector(tan, extra).addScaledVector(side, ai === 0 ? -o1 : o1).addScaledVector(nup, o2);
-    p.copy(pos);
+    // the other two coordinates become offsets across the curve (mirrored for negative axes)
+    const o1 = neg ? -c[(ai + 2) % 3] : c[(ai + 1) % 3],
+      o2 = neg ? -c[(ai + 1) % 3] : c[(ai + 2) % 3];
+    const extra = s - d; // beyond either end: continue straight
+    pos.addScaledVector(tan, extra).addScaledVector(side, o1).addScaledVector(nup, o2);
+    p.copy(pos).applyMatrix4(toMesh);
   });
 }
 
