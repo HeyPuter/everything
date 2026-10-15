@@ -18,6 +18,10 @@ import { snapToSurface, curvesToParticles } from '../../src/hair/convert';
 import { surfaceOf } from '../../src/hair/common';
 import type { ParticleSystemX } from '../../src/physics/types';
 import { growByDistance } from '../../src/hair/sculptui';
+import { deformOnSurface } from '../../src/hair/deformnode';
+import { Surface } from '../../src/hair/surface';
+import { Matrix4, Vector3 } from 'three';
+const r3 = (a: ArrayLike<number>) => Array.from(a, (x) => Math.round(x * 1000) / 1000);
 
 beforeEach(() => setApp(new App(startupDocument())));
 
@@ -235,5 +239,26 @@ describe('particle edit mode', () => {
     expect(ps.edited_hair!.key_offsets.length - 1).toBe(20);
     expect(run('particle.delete', { type: 'PARTICLE' })).toBe('FINISHED');
     expect(ps.edited_hair!.key_offsets.length - 1).toBe(0);
+  });
+});
+
+
+describe('deform curves on surface', () => {
+  it('carries curves along with their moved and rotated surface', () => {
+    const p2 = prim.plane(2);
+    const rest = { positions: p2.positions, offsets: p2.offsets, indices: p2.indices, uvs: p2.uvs, normals: new Float32Array(0) };
+    // curve standing on the plane at UV of point (0.5, 0.5)
+    const s = Surface.of(rest);
+    const uv = s.closest(new Vector3(0.5, 0.5, 0))!.uv!;
+    const P = pts([0.5, 0.5, 0], [0.5, 0.5, 1]);
+    // identity deformation leaves the curve alone
+    expect(r3(deformOnSurface(P, [0, 2], uv, rest, rest.positions)!)).toEqual(r3(P));
+    // surface rotated 90° about X and lifted by 3
+    const m = new Matrix4().makeRotationX(Math.PI / 2).setPosition(0, 0, 3);
+    const def = Float32Array.from(rest.positions);
+    const v = new Vector3();
+    for (let i = 0; i < def.length; i += 3) v.fromArray(def, i).applyMatrix4(m).toArray(def, i);
+    const out = deformOnSurface(P, [0, 2], uv, rest, def)!;
+    expect(r3(out)).toEqual(r3([...new Vector3(0.5, 0.5, 0).applyMatrix4(m).toArray(), ...new Vector3(0.5, 0.5, 1).applyMatrix4(m).toArray()]));
   });
 });

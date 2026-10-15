@@ -369,3 +369,4 @@ describe('particle edit keys', () => {
     expect(r3(out)).toEqual([0, 0, 0, 0, 0, 0.5, 0, 0, 1, 0, 0, 1.5, 0, 0, 2]);
   });
 });
+

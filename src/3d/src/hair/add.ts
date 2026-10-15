@@ -7,6 +7,30 @@ import type { DocumentData, ObjectData } from '../data/types';
 import { newHairCurves, uniqueHairName, appendCurves } from './data';
 import { Surface } from './surface';
 import { growStrands } from './generate';
+import { newNodeGroup, uid } from '../data/defaults';
+import { newModifier } from '../eval/modifiers';
+import { addNode } from '../nodes/tree';
+
+/** A "Surface Deform" geometry nodes modifier: the curves follow their deformed surface. */
+export function addSurfaceDeform(doc: DocumentData, ob: ObjectData) {
+  let ng = Object.values(doc.node_groups).find((g) => g.name === 'Surface Deform' && g.tree.nodes.some((n) => n.type === 'GeometryNodeDeformCurvesOnSurface'));
+  if (!ng) {
+    ng = newNodeGroup('Surface Deform');
+    const t = ng.tree;
+    const gi = t.nodes.find((n) => n.type === 'NodeGroupInput')!,
+      go = t.nodes.find((n) => n.type === 'NodeGroupOutput')!;
+    const d = addNode(t, 'GeometryNodeDeformCurvesOnSurface', [0, 0]);
+    t.links = [
+      { id: uid('link'), from_node: gi.id, from_socket: 'Geometry', to_node: d.id, to_socket: 'Curves' },
+      { id: uid('link'), from_node: d.id, from_socket: 'Curves', to_node: go.id, to_socket: 'Geometry' },
+    ];
+    doc.node_groups[ng.id] = ng;
+  }
+  const m = newModifier('NODES', uid('md'), ob.modifiers);
+  m.name = 'Surface Deform';
+  m.node_group = ng.id;
+  ob.modifiers = [...ob.modifiers, m];
+}
 import type { HairCurvesData } from './types';
 
 /** Name of the UV map used for attaching to a mesh surface. */
@@ -29,6 +53,7 @@ export function addHairObject(doc: DocumentData, name: string, surface: ObjectDa
     ob.parent = surface.id;
     ob.parent_type = 'OBJECT';
     ob.matrix_parent_inverse = [...IDENTITY];
+    addSurfaceDeform(doc, ob);
   } else {
     const p = { ...props };
     if (p.location === null || p.location === undefined) p.location = [...doc.scene.cursor.location];

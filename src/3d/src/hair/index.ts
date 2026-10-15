@@ -14,6 +14,7 @@ import './editmenus';
 import './sculptui';
 import './convert';
 import './properties';
+import './deformnode';
 import './particle/mode';
 import './particle/ui';
 
