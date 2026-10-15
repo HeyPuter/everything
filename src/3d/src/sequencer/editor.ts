@@ -20,8 +20,8 @@ import { startPreviewTransform, setCursorPoint, pivotPoint } from './pvtransform
 import { pivotItems, PIVOT_ICONS } from './previewops';
 import { retimable, segmentSpeed, mapContent } from './retime';
 import { addMenu, viewMenu, selectMenu, stripMenu, imageMenu, contextMenu, markerMenu } from './menus';
-import { stripTab, modifiersTab, cacheTab } from './sidebar';
-import { PreviewRegion, type PreviewSize } from './preview';
+import { stripTab, modifiersTab, cacheTab, viewTab } from './sidebar';
+import { PreviewRegion, overlayRefFrame, type PreviewSize } from './preview';
 import { soundNow, soundPeaks, PEAKS_PER_SECOND, movieThumb, imageNow } from './media';
 import { addFiles } from './add';
 import { restartPlayback } from './audio';
@@ -572,6 +572,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     const tabs = [
       { id: 'strip', label: 'Strip', draw: stripTab },
       { id: 'modifiers', label: 'Modifiers', draw: modifiersTab },
+      { id: 'view', label: 'View', draw: () => (hasEditor() ? viewTab({ safeAreas: this.preview.opts.safeAreas, setSafeAreas: (v) => ((this.preview.opts.safeAreas = v), this.preview.draw(), this.drawSidebar()) }) : h('div', { class: 'sb-empty' }, 'No sequence editor')) },
       { id: 'cache', label: 'Proxy & Cache', draw: () => cacheTab({ previewSize: this.preview.size, renderMs: this.preview.renderMs, scale: this.preview.scale }) },
     ];
     const tab = tabs.find((t) => t.id === this.sidebarTab) ?? tabs[0];
@@ -786,6 +787,19 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     }
     g.restore();
     this.drawMarkers(g, W, H);
+    // frame overlay reference
+    const ref = hasEditor() ? overlayRefFrame(seqEditor(), sc.frame_current) : null;
+    if (ref !== null) {
+      const rx = Math.round(this.fx(ref)) + 0.5;
+      g.save();
+      g.setLineDash([4, 4]);
+      g.strokeStyle = 'rgba(255,255,255,0.6)';
+      g.beginPath();
+      g.moveTo(rx, RULER_H);
+      g.lineTo(rx, H);
+      g.stroke();
+      g.restore();
+    }
     // playhead
     const px = Math.round(this.fx(sc.frame_current)) + 0.5;
     g.strokeStyle = T.playhead;

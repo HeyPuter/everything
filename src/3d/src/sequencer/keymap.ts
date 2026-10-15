@@ -1,7 +1,8 @@
 // Sequencer keymaps (default left-click-select layout).
 import { addKeys } from '../app/keymap';
 import { addMenu, selectMenu, changeMenu, retimingMenu, contextMenu, stripMenu } from './menus';
-import { hoverSeq } from './context';
+import { hoverSeq, hasEditor } from './context';
+import { toggleFrameOverlay, setOverlayReference } from './sidebar';
 import { pivotPie, mirrorItems, viewPie } from './previewops';
 
 addKeys('Sequencer', [
@@ -70,6 +71,7 @@ addKeys('Sequencer', [
   { key: 'S', op: 'sequencer.slip' },
   { key: 'M', op: 'screen.marker_add' },
   { key: 'W', menu: contextMenu, menuTitle: 'Sequencer' },
+  { key: 'O', when: hasEditor, action: setOverlayReference },
   { key: 'P', ctrl: true, alt: true, op: 'sequencer.set_range_to_strips', props: { preview: true } },
 ]);
 
@@ -110,6 +112,7 @@ addKeys('SequencerPreview', [
 
 addKeys('Sequencer Channels', [{ key: 'HOME', op: 'sequencer.view_all' }]);
 addKeys('SequencerCommon', [
+  { key: 'O', shift: true, when: hasEditor, action: toggleFrameOverlay },
   { key: 'E', ctrl: true, op: 'sequencer.refresh_all' },
   { key: 'Z', shift: true, alt: true, action: () => (hoverSeq() as unknown as { toggleOverlays?: () => void } | null)?.toggleOverlays?.() },
 ]);

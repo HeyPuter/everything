@@ -12,6 +12,12 @@ import { editedText, drawTextEditOverlay } from './textedit';
 import { cursorPoint } from './pvtransform';
 import { T } from './theme';
 
+/** The frame-overlay reference frame (null when the overlay is off). */
+export function overlayRefFrame(ed: { show_overlay_frame?: boolean; overlay_frame?: number; use_overlay_frame_lock?: boolean; overlay_frame_type?: string }, current: number): number | null {
+  if (!ed.show_overlay_frame || ed.overlay_frame_type === 'CURRENT') return null;
+  return ed.use_overlay_frame_lock ? (ed.overlay_frame ?? 0) : current + (ed.overlay_frame ?? 0);
+}
+
 export type PreviewSize = 'AUTO' | 'SCENE' | 'PROXY_75' | 'PROXY_50' | 'PROXY_25';
 
 export class PreviewRegion {
@@ -19,6 +25,9 @@ export class PreviewRegion {
   canvas: HTMLCanvasElement;
   /** last composited frame */
   private frame: HTMLCanvasElement;
+  /** frame overlay: the reference frame */
+  private refFrame: HTMLCanvasElement = document.createElement('canvas');
+  private hasRef = false;
   private hasFrame = false;
   zoom = 1;
   panX = 0;
@@ -227,6 +236,23 @@ export class PreviewRegion {
       g.clearRect(0, 0, f.width, f.height);
       g.drawImage(comp.canvas, 0, 0);
       this.hasFrame = true;
+      // frame overlay: render the reference frame too
+      const rf = overlayRefFrame(ed, frame);
+      this.hasRef = false;
+      if (rf !== null && !app.playing) {
+        const t2 = await sr.render(ed, rf);
+        comp.present(t2);
+        comp.release(t2);
+        const r = this.refFrame;
+        if (r.width !== comp.canvas.width || r.height !== comp.canvas.height) {
+          r.width = comp.canvas.width;
+          r.height = comp.canvas.height;
+        }
+        const rg = r.getContext('2d')!;
+        rg.clearRect(0, 0, r.width, r.height);
+        rg.drawImage(comp.canvas, 0, 0);
+        this.hasRef = true;
+      }
     });
   }
 
@@ -254,7 +280,22 @@ export class PreviewRegion {
     if (this.hasFrame) {
       g.imageSmoothingEnabled = L.s < 2;
       g.imageSmoothingQuality = 'high';
-      g.drawImage(this.frame, L.left, L.top, fw, fh);
+      const ed = app.doc.scene.sequence_editor;
+      const type = ed?.overlay_frame_type ?? 'RECTANGLE';
+      const ref = this.hasRef && ed?.show_overlay_frame ? this.refFrame : null;
+      g.drawImage(ref && type === 'REFERENCE' ? ref : this.frame, L.left, L.top, fw, fh);
+      if (ref && type === 'RECTANGLE') {
+        // the reference frame inside the overlay rectangle
+        const [x0, y0, x1, y1] = ed!.overlay_frame_rect ?? [0.25, 0.25, 0.75, 0.75];
+        const sx = ref.width,
+          sy = ref.height;
+        g.drawImage(ref, x0 * sx, (1 - y1) * sy, (x1 - x0) * sx, (y1 - y0) * sy, L.left + x0 * fw, L.top + (1 - y1) * fh, (x1 - x0) * fw, (y1 - y0) * fh);
+        g.save();
+        g.setLineDash([5, 4]);
+        g.strokeStyle = 'rgba(255,255,255,0.8)';
+        g.strokeRect(L.left + x0 * fw + 0.5, L.top + (1 - y1) * fh + 0.5, (x1 - x0) * fw, (y1 - y0) * fh);
+        g.restore();
+      }
     }
     // frame border
     g.strokeStyle = 'rgba(255,255,255,0.12)';

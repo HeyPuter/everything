@@ -267,8 +267,14 @@ export interface SequenceEditor {
   active_strip: string | null;
   /** names of the meta strips being edited, outermost first */
   meta_stack: string[];
+  /** frame overlay: reference frame offset from the current frame (or the frame itself when locked) */
   overlay_frame?: number;
   show_overlay_frame?: boolean;
+  use_overlay_frame_lock?: boolean;
+  /** how the reference frame shows: inside a rectangle over the current one, alone, or not */
+  overlay_frame_type?: 'RECTANGLE' | 'REFERENCE' | 'CURRENT';
+  /** the rectangle, as shares of the frame: [x0, y0, x1, y1] (y up) */
+  overlay_frame_rect?: [number, number, number, number];
   proxy_storage?: 'PER_STRIP' | 'PROJECT';
   use_cache_raw?: boolean;
   use_cache_final?: boolean;

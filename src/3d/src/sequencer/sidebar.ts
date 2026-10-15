@@ -436,3 +436,67 @@ export function cacheTab(info: { previewSize: string; renderMs: number; scale: n
     ]),
   ];
 }
+
+// ---------------------------------------------------------------------------
+// view
+
+/** Frame overlay switch (Shift O) and "reference = current frame" (O). */
+export function toggleFrameOverlay() {
+  const ed = seqEditor();
+  ed.show_overlay_frame = !ed.show_overlay_frame;
+  app.pushUndo(ed.show_overlay_frame ? 'Show Frame Overlay' : 'Hide Frame Overlay');
+  app.changed('doc');
+}
+
+export function setOverlayReference() {
+  const ed = seqEditor();
+  ed.use_overlay_frame_lock = true;
+  ed.overlay_frame = app.doc.scene.frame_current;
+  ed.show_overlay_frame = true;
+  app.pushUndo('Set Overlay Reference');
+  app.changed('doc');
+}
+
+/** View tab: frame overlay, 2D cursor and preview overlays. */
+export function viewTab(opts: { safeAreas: boolean; setSafeAreas: (v: boolean) => void }): Child {
+  const ed = seqEditor();
+  const ts = toolSettings();
+  const cur = ts.cursor_location ?? [0, 0];
+  const lock = !!ed.use_overlay_frame_lock;
+  const changed = (label: string) => (app.pushUndo(label), app.changed('doc'));
+  return [
+    panel('seq-overlay-frame', 'Frame Overlay', () => [
+      checkbox('seq-ofr-show', 'Show (Shift O)', !!ed.show_overlay_frame, (v) => ((ed.show_overlay_frame = v), changed('Frame Overlay'))),
+      splitRow(
+        lock ? 'Frame' : 'Frame Offset',
+        numberField({ id: 'seq-ofr-frame', value: ed.overlay_frame ?? 0, int: true, set: (v, f) => ((ed.overlay_frame = Math.round(v)), app.changed('doc'), f && app.pushUndo('Overlay Frame')) }),
+      ),
+      checkbox('seq-ofr-lock', 'Lock to Frame', lock, (v) => {
+        // switching keeps the same reference frame
+        const f = app.doc.scene.frame_current;
+        ed.overlay_frame = v ? f + (ed.overlay_frame ?? 0) : (ed.overlay_frame ?? f) - f;
+        ed.use_overlay_frame_lock = v;
+        changed('Overlay Lock');
+      }),
+      splitRow(
+        'Overlay Type',
+        enumMenu(
+          'seq-ofr-type',
+          [
+            { value: 'RECTANGLE', label: 'Rectangle', description: 'The reference frame shows inside a rectangle over the current one' },
+            { value: 'REFERENCE', label: 'Reference', description: 'Only the reference frame shows' },
+            { value: 'CURRENT', label: 'Current', description: 'Only the current frame shows' },
+          ],
+          ed.overlay_frame_type ?? 'RECTANGLE',
+          (v) => ((ed.overlay_frame_type = v as 'RECTANGLE'), changed('Overlay Type')),
+        ),
+      ),
+      splitRow('', button('seq-ofr-ref', 'Reference = Current Frame (O)', () => setOverlayReference())),
+    ]),
+    panel('seq-2dcursor', '2D Cursor', () => [
+      splitRow('Location X', numberField({ id: 'seq-cur-x', value: cur[0], unit: 'pixel', precision: 0, set: (v, f) => ((ts.cursor_location = [v, cur[1]]), app.changed('ui'), f && app.pushUndo('2D Cursor')) })),
+      splitRow('Y', numberField({ id: 'seq-cur-y', value: cur[1], unit: 'pixel', precision: 0, set: (v, f) => ((ts.cursor_location = [cur[0], v]), app.changed('ui'), f && app.pushUndo('2D Cursor')) })),
+    ]),
+    panel('seq-safe', 'Safe Areas', () => [checkbox('seq-safe-show', 'Show Safe Areas', opts.safeAreas, (v) => opts.setSafeAreas(v))]),
+  ];
+}

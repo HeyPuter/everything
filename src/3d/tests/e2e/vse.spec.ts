@@ -308,3 +308,20 @@ test('sequencer: blade tool splits on click and cuts out a box on drag', async (
   expect(ch1.length).toBe(5);
   await expectNoErrors(errors);
 });
+
+test('sequencer: frame overlay (O sets the reference, Shift O toggles) and the View sidebar tab', async ({ page }) => {
+  const { errors, tl } = await videoWorkspace(page);
+  await tl.hover();
+  await page.keyboard.press('o');
+  const ed = () => page.evaluate(() => {
+    const e = (window as any).app.doc.scene.sequence_editor;
+    return [e.show_overlay_frame, e.overlay_frame, e.use_overlay_frame_lock];
+  });
+  expect(await ed()).toEqual([true, 1, true]);
+  await page.keyboard.press('Shift+o');
+  expect((await ed())[0]).toBe(false);
+  await page.keyboard.press('n');
+  await page.locator('.seq-sb .sb-tab', { hasText: 'View' }).last().click();
+  await expect(page.locator('.seq-sb .panel', { hasText: 'Frame Overlay' }).last()).toBeVisible();
+  await expectNoErrors(errors);
+});
