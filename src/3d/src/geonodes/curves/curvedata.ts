@@ -133,7 +133,8 @@ export function recalcHandles(
   right: Float32Array,
   tl: Int32Array,
   tr: Int32Array,
-  alignPrefer?: 'LEFT' | 'RIGHT',
+  /** also re-align aligned handles opposite the other handle of their point */
+  align = true,
 ) {
   const nc = offsets.length - 1;
   for (let k = 0; k < nc; k++) {
@@ -149,7 +150,7 @@ export function recalcHandles(
       const hasPrev = i > s || (cyc && n > 1);
       const hasNext = i < e - 1 || (cyc && n > 1);
       if (tl[i] === HT.FREE && tr[i] === HT.FREE) continue;
-      if (tl[i] === HT.ALIGN && tr[i] === HT.ALIGN && !alignPrefer) continue;
+      if (tl[i] === HT.ALIGN && tr[i] === HT.ALIGN) continue;
       let prev: number[], next: number[];
       if (n === 1) {
         prev = next = p;
@@ -175,8 +176,9 @@ export function recalcHandles(
       }
       if (tl[i] === HT.VECTOR) for (let a = 0; a < 3; a++) left[i * 3 + a] = p[a] + (prev[a] - p[a]) / 3;
       if (tr[i] === HT.VECTOR) for (let a = 0; a < 3; a++) right[i * 3 + a] = p[a] + (next[a] - p[a]) / 3;
-      const alignL = tl[i] === HT.ALIGN && (tr[i] !== HT.ALIGN || alignPrefer === 'RIGHT');
-      const alignR = tr[i] === HT.ALIGN && !alignL && (tl[i] !== HT.ALIGN || alignPrefer === 'LEFT');
+      if (!align) continue;
+      const alignL = tl[i] === HT.ALIGN && tr[i] !== HT.ALIGN;
+      const alignR = tr[i] === HT.ALIGN && tl[i] !== HT.ALIGN;
       if (alignL) alignHandle(p, right, left, i);
       else if (alignR) alignHandle(p, left, right, i);
     }
@@ -375,7 +377,7 @@ function computeEvaluated(c0: CurvesComponent): EvaluatedCurves {
     for (let i = 0; i < np; i++) idx[i] = i;
     return { curves, controlIndex: idx, sameAsControl: true };
   }
-  const c = withDerivedHandles(c0);
+  const c = c0;
   const P = c.positions;
   const res = curveInts(c, 'resolution', DEFAULT_RESOLUTION);
   const orders = curveInts(c, 'nurbs_order', DEFAULT_ORDER);

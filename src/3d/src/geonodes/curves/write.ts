@@ -3,8 +3,7 @@
 import { h } from '../../ui/h';
 import { gn, prop } from './defs';
 import { evalOn } from '../nodes/common';
-import { CurvesComponent, gatherArray, type AttrMap, type Component } from '../geometry';
-import { dataComps } from '../types';
+import { CurvesComponent, type Component } from '../geometry';
 import type { NodeData, SocketValue } from '../../data/types';
 import type { NodeDrawContext } from '../../nodes/types';
 import type { ExecContext } from '../exec';
@@ -20,13 +19,13 @@ import {
   handleData,
   pointFloats,
   pointVectors,
-  pruneTypeAttrs,
   recalcHandles,
   setCurveAttr,
   setPointAttr,
   writeHandles,
 } from './curvedata';
 import { place } from './menu';
+import { assembleCurves, lerp3, P3, type OutCurve } from './assemble';
 
 // ---------------------------------------------------------------------------
 // Left/right flag property (stored as "LEFT,RIGHT")
@@ -122,84 +121,6 @@ gn(
 
 // ---------------------------------------------------------------------------
 // Set Spline Type
-
-interface OutCurve {
-  /** source point per new point */
-  src: number[];
-  pos: number[];
-  left?: number[];
-  right?: number[];
-  tl?: number[];
-  tr?: number[];
-  type: number;
-  knots?: number;
-  order?: number;
-}
-
-const P3 = (a: ArrayLike<number>, i: number) => [a[i * 3], a[i * 3 + 1], a[i * 3 + 2]];
-const lerp3 = (a: number[], b: number[], t: number) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-
-/** Build a new component from per-curve point lists (point attributes gathered by source point). */
-export function assembleCurves(c: CurvesComponent, outs: OutCurve[]): CurvesComponent {
-  const src: number[] = [],
-    pos: number[] = [],
-    offs: number[] = [0];
-  const oldL = pointVectors(c, 'handle_left', c.positions),
-    oldR = pointVectors(c, 'handle_right', c.positions);
-  const oldTL = c.attrs.get('handle_type_left')?.data,
-    oldTR = c.attrs.get('handle_type_right')?.data;
-  const L: number[] = [],
-    R: number[] = [],
-    TL: number[] = [],
-    TR: number[] = [];
-  outs.forEach((o) => {
-    o.src.forEach((s, i) => {
-      src.push(s);
-      pos.push(o.pos[i * 3], o.pos[i * 3 + 1], o.pos[i * 3 + 2]);
-      if (o.left && o.right) {
-        L.push(o.left[i * 3], o.left[i * 3 + 1], o.left[i * 3 + 2]);
-        R.push(o.right[i * 3], o.right[i * 3 + 1], o.right[i * 3 + 2]);
-      } else {
-        L.push(oldL[s * 3], oldL[s * 3 + 1], oldL[s * 3 + 2]);
-        R.push(oldR[s * 3], oldR[s * 3 + 1], oldR[s * 3 + 2]);
-      }
-      TL.push(o.tl ? o.tl[i] : oldTL ? oldTL[s] : HT.FREE);
-      TR.push(o.tr ? o.tr[i] : oldTR ? oldTR[s] : HT.FREE);
-    });
-    offs.push(src.length);
-  });
-  const attrs: AttrMap = new Map();
-  const skip = new Set(['handle_left', 'handle_right', 'handle_type_left', 'handle_type_right']);
-  for (const [name, a] of c.attrs) {
-    if (a.domain === 'CURVE') attrs.set(name, a);
-    else if (!skip.has(name))
-      attrs.set(name, {
-        ...a,
-        data: gatherArray(a.data, dataComps(a.type), src),
-      });
-  }
-  const types = Int32Array.from(outs, (o) => o.type);
-  setCurveAttr(attrs, 'curve_type', 'INT8', types);
-  if (types.some((t) => t === CT.BEZIER)) {
-    setPointAttr(attrs, 'handle_left', 'FLOAT_VECTOR', Float32Array.from(L));
-    setPointAttr(attrs, 'handle_right', 'FLOAT_VECTOR', Float32Array.from(R));
-    setPointAttr(attrs, 'handle_type_left', 'INT8', Int32Array.from(TL));
-    setPointAttr(attrs, 'handle_type_right', 'INT8', Int32Array.from(TR));
-  }
-  if (types.some((t) => t === CT.NURBS)) {
-    const knots = curveInts(c, 'knots_mode', KNOTS.NORMAL),
-      order = curveInts(c, 'nurbs_order', DEFAULT_ORDER);
-    outs.forEach((o, k) => {
-      if (o.knots !== undefined) knots[k] = o.knots;
-      if (o.order !== undefined) order[k] = o.order;
-    });
-    setCurveAttr(attrs, 'knots_mode', 'INT8', new Int32Array(knots));
-    setCurveAttr(attrs, 'nurbs_order', 'INT8', new Int32Array(order));
-  }
-  const out = new CurvesComponent(Float32Array.from(pos), Uint32Array.from(offs), new Uint8Array(c.cyclic), attrs, c.materials);
-  pruneTypeAttrs(out);
-  return out;
-}
 
 /** Catmull-Rom tangent handles (aligned) of the points of one curve. */
 function catmullHandles(P: Float32Array, s: number, e: number, cyc: boolean): { left: number[]; right: number[] } {
