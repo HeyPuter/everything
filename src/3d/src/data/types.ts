@@ -503,6 +503,8 @@ export interface FCurve {
   select?: boolean;
   color_mode?: 'AUTO_RAINBOW' | 'AUTO_RGB' | 'AUTO_YRGB' | 'CUSTOM';
   color?: Color;
+  /** baked samples (frame, value) used when the curve has no keyframes */
+  sampled_points?: [number, number][];
 }
 
 export interface ActionData {

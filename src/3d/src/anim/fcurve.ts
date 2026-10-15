@@ -168,10 +168,30 @@ function ease(k: Keyframe, t: number) {
   return t < 0.5 ? fn(t * 2, k) / 2 : 1 - fn((1 - t) * 2, k) / 2;
 }
 
+/** Linear lookup in baked samples (held at the ends). */
+function evaluateSamples(sp: [number, number][], frame: number): number {
+  if (frame <= sp[0][0]) return sp[0][1];
+  const last = sp[sp.length - 1];
+  if (frame >= last[0]) return last[1];
+  let lo = 0,
+    hi = sp.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (sp[mid][0] <= frame) lo = mid;
+    else hi = mid;
+  }
+  const [x0, y0] = sp[lo],
+    [x1, y1] = sp[hi];
+  return x1 > x0 ? y0 + ((y1 - y0) * (frame - x0)) / (x1 - x0) : y1;
+}
+
+/** Whether a curve has anything to evaluate (keys or baked samples). */
+export const hasCurveData = (fc: FCurve) => fc.keyframe_points.length > 0 || !!fc.sampled_points?.length;
+
 function evaluateRaw(fc: FCurve, frame: number): number {
   const k = fc.keyframe_points;
   const n = k.length;
-  if (!n) return 0;
+  if (!n) return fc.sampled_points?.length ? evaluateSamples(fc.sampled_points, frame) : 0;
   const first = k[0],
     last = k[n - 1];
   if (frame <= first.co[0]) {

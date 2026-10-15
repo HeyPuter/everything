@@ -546,3 +546,34 @@ export function selectKeyHandles(curves: CurveRef[], left: 'SELECT' | 'DESELECT'
     }
   return n;
 }
+
+// ---------------------------------------------------------------------------
+// Samples
+
+/** Replace a curve's keys with samples on every whole frame of the keyed range. */
+export function keysToSamples(fc: FCurve): boolean {
+  const k = fc.keyframe_points;
+  if (!k.length) return false;
+  const a = Math.floor(k[0].co[0]),
+    b = Math.ceil(k[k.length - 1].co[0]);
+  const copy: FCurve = { ...fc, keyframe_points: k.map(cloneKey), modifiers: [] };
+  const out: [number, number][] = [];
+  for (let f = a; f <= b; f++) out.push([f, evaluateFCurve(copy, f)]);
+  fc.sampled_points = out;
+  fc.keyframe_points = [];
+  return true;
+}
+
+/** Turn baked samples back into keyframes (one per sample). */
+export function samplesToKeys(fc: FCurve): boolean {
+  const sp = fc.sampled_points;
+  if (!sp?.length) return false;
+  fc.keyframe_points = [];
+  for (const [f, v] of sp) {
+    const key = insertKeyframe(fc, f, v);
+    setKeySelected(key, false);
+  }
+  delete fc.sampled_points;
+  finalizeCurve(fc, false);
+  return true;
+}

@@ -134,7 +134,7 @@ export function deleteKeyframesAt(objects: ObjectData[], frame: number) {
       fc.keyframe_points = fc.keyframe_points.filter((k) => Math.abs(k.co[0] - frame) > 0.5);
       n += before - fc.keyframe_points.length;
     }
-    act.fcurves = act.fcurves.filter((f) => f.keyframe_points.length);
+    act.fcurves = act.fcurves.filter((f) => f.keyframe_points.length || f.sampled_points?.length);
   }
   return n;
 }

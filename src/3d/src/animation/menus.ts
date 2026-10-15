@@ -303,7 +303,13 @@ export function channelMenu(p: Prefix): MenuItem[] {
     { label: 'Move Channels', submenu: moveChannelsMenu },
     { separator: true },
     { label: 'Bake Channels', op: 'anim.channels_bake' },
-    ...(graph ? [{ label: 'Discontinuity (Euler) Filter', op: 'graph.euler_filter' }] : []),
+    ...(graph
+      ? [
+          { label: 'Keys to Samples', op: 'graph.keys_to_samples', shortcut: 'Alt C' },
+          { label: 'Samples to Keys', op: 'graph.samples_to_keys' },
+          { label: 'Discontinuity (Euler) Filter', op: 'graph.euler_filter' },
+        ]
+      : []),
     { separator: true },
     { label: 'Frame Selected Channels', op: 'anim.channels_view_selected', shortcut: 'Numpad .' },
   ];

@@ -540,3 +540,21 @@ describe('keying sets', () => {
     expect(act.fcurves.map((f) => `${f.data_path}${f.array_index}`).sort()).toEqual(['location2', 'scale0', 'scale1', 'scale2']);
   });
 });
+
+describe('samples', () => {
+  it('bakes keys to samples and back, evaluating the same', () => {
+    const fc = curve([0, 4, 1], [1, 5, 9]);
+    const before = [1, 2.5, 5, 7, 9].map((f) => evaluateFCurve(fc, f));
+    expect(T.keysToSamples(fc)).toBe(true);
+    expect(fc.keyframe_points.length).toBe(0);
+    expect(fc.sampled_points!.length).toBe(9);
+    // integer frames match exactly, in-between frames interpolate linearly
+    expect(evaluateFCurve(fc, 5)).toBeCloseTo(before[2], 6);
+    expect(evaluateFCurve(fc, 7)).toBeCloseTo(before[3], 6);
+    expect(evaluateFCurve(fc, 0)).toBe(0);
+    expect(evaluateFCurve(fc, 20)).toBeCloseTo(1, 6);
+    expect(T.samplesToKeys(fc)).toBe(true);
+    expect(fc.keyframe_points.length).toBe(9);
+    expect(fc.sampled_points).toBeUndefined();
+  });
+});

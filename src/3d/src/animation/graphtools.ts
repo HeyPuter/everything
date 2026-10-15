@@ -688,6 +688,31 @@ const viewOps: Operator[] = [
   },
 ];
 
+const sampleOps: Operator[] = [
+  {
+    idname: 'graph.keys_to_samples',
+    label: 'Keys to Samples',
+    description: 'Bake the selected curves into samples on every frame (removing their keys)',
+    poll: (ctx) => !!graphEd(ctx)?.editCurves().some((r) => r.fc.select && r.fc.keyframe_points.length),
+    exec: (ctx) => {
+      let n = 0;
+      for (const r of graphEd(ctx)!.editCurves()) if (r.fc.select && T.keysToSamples(r.fc)) n++;
+      if (!n) return 'CANCELLED';
+    },
+  },
+  {
+    idname: 'graph.samples_to_keys',
+    label: 'Samples to Keys',
+    description: 'Turn the samples of the selected curves back into keyframes',
+    poll: (ctx) => !!graphEd(ctx)?.editCurves().some((r) => r.fc.select && r.fc.sampled_points?.length),
+    exec: (ctx) => {
+      let n = 0;
+      for (const r of graphEd(ctx)!.editCurves()) if (r.fc.select && T.samplesToKeys(r.fc)) n++;
+      if (!n) return 'CANCELLED';
+    },
+  },
+];
+
 const duplicateOps: Operator[] = (['action', 'graph'] as const).map((pre) => ({
   idname: `${pre}.duplicate`,
   label: 'Duplicate Keyframes',
@@ -698,13 +723,14 @@ const duplicateOps: Operator[] = (['action', 'graph'] as const).map((pre) => ({
   },
 }));
 
-registerOperators([...blendOps, timeOffsetOp, ...toolOps, ...cursorOps, ...modifierOps, ...viewOps, ...duplicateOps]);
+registerOperators([...blendOps, timeOffsetOp, ...toolOps, ...cursorOps, ...modifierOps, ...viewOps, ...duplicateOps, ...sampleOps]);
 
 addKeys('Graph Editor', [
   { key: 'D', alt: true, menu: blendMenu, menuTitle: 'Blend' },
   { key: 'S', alt: true, menu: smoothMenu, menuTitle: 'Smooth' },
   { key: 'O', alt: true, op: 'graph.smooth', when: overMain },
   { key: 'O', alt: true, shift: true, op: 'graph.bake_keys', when: overMain },
+  { key: 'C', alt: true, op: 'graph.keys_to_samples', when: overMain },
   { key: 'M', shift: true, ctrl: true, menu: () => MOD_TYPES.map(([v, l]) => ({ label: l, op: 'graph.fmodifier_add', props: { type: v, only_active: false } })), menuTitle: 'Add F-Curve Modifier' },
   { key: 'SLASH', op: 'graph.local_view' },
   { key: 'NUMPAD_SLASH', op: 'graph.local_view' },

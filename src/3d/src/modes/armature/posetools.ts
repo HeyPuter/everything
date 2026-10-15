@@ -807,7 +807,7 @@ const transformOps: Operator[] = [
       for (const n of names) {
         const old = pose[n];
         pose[n] = { ...defaultPoseBone(), rotation_mode: old.rotation_mode, constraints: old.constraints, select: old.select, custom_shape: old.custom_shape };
-        for (const fc of boneCurves(ob, n)) if (!fc.mute && fc.keyframe_points.length) setValue(ctx.doc, ob, fc.data_path, fc.array_index, evaluateFCurve(fc, frame));
+        for (const fc of boneCurves(ob, n)) if (!fc.mute && (fc.keyframe_points.length || fc.sampled_points?.length)) setValue(ctx.doc, ob, fc.data_path, fc.array_index, evaluateFCurve(fc, frame));
       }
     },
   },

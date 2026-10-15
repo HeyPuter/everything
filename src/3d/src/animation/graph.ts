@@ -448,7 +448,7 @@ export class GraphEditor extends AnimEditor {
 
   private drawCurve(g: CanvasRenderingContext2D, r: CurveRef, color: string, selected: boolean, W: number) {
     const fc = r.fc;
-    if (!fc.keyframe_points.length && !fc.modifiers.some((m) => m.type === 'GENERATOR')) return;
+    if (!fc.keyframe_points.length && !fc.sampled_points?.length && !fc.modifiers.some((m) => m.type === 'GENERATOR')) return;
     g.strokeStyle = color;
     g.globalAlpha = selected ? 1 : 0.5;
     g.lineWidth = selected ? 1.6 : 1.2;
@@ -573,7 +573,7 @@ export class GraphEditor extends AnimEditor {
     let best: CurveRef | null = null,
       bd = 6;
     for (const r of this.editCurves()) {
-      if (!r.fc.keyframe_points.length) continue;
+      if (!r.fc.keyframe_points.length && !r.fc.sampled_points?.length) continue;
       const d = Math.abs(this.py(this.toDisp(r.fc, evaluateFCurve(r.fc, f))) - y);
       if (d < bd) {
         bd = d;

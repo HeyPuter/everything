@@ -1,6 +1,6 @@
 // Applies actions, NLA strips and drivers to the document for a frame.
 import type { ActionData, AnimData, DocumentData, ObjectData, NlaStrip, NlaTrack, TimelineMarker } from '../data/types';
-import { evaluateFCurve } from './fcurve';
+import { evaluateFCurve, hasCurveData } from './fcurve';
 import { getValue, setValue } from '../data/rna';
 import { evaluateDriver } from './drivers';
 
@@ -62,7 +62,7 @@ type Values = Map<string, { path: string; index: number; value: number }>;
 /** Raw channel values of an action at a frame. */
 function actionValues(action: ActionData, frame: number, out: Values = new Map()): Values {
   for (const fc of action.fcurves) {
-    if (fc.mute || !fc.keyframe_points.length) continue;
+    if (fc.mute || !hasCurveData(fc)) continue;
     out.set(`${fc.data_path}|${fc.array_index}`, { path: fc.data_path, index: fc.array_index, value: evaluateFCurve(fc, frame) });
   }
   return out;
