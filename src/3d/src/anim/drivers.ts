@@ -119,13 +119,14 @@ function propertyValue(doc: DocumentData, v: DriverVariable, ctx: DriverContext)
     if (t.use_fallback_value) return t.fallback_value ?? 0;
     return undefined;
   };
-  if (!t.data_path) {
+  const noPath = () => {
     const fb = fallback();
     if (fb !== undefined) return fb;
     throw new DriverError('Invalid target channel: no path');
-  }
+  };
   let raw: unknown;
   if (v.type === 'CONTEXT_PROP') {
+    if (!t.data_path) return noPath();
     const root = t.context_property === 'ACTIVE_VIEW_LAYER' ? viewLayerRoot(ctx) : doc.scene;
     raw = readPath(root, t.data_path);
   } else {
@@ -135,6 +136,7 @@ function propertyValue(doc: DocumentData, v: DriverVariable, ctx: DriverContext)
       if (fb !== undefined) return fb;
       throw new DriverError(t.id ? 'Invalid target: data-block not found' : 'Invalid target: no data-block chosen');
     }
+    if (!t.data_path) return noPath();
     if ((t.id_type ?? 'OBJECT') === 'OBJECT') {
       try {
         raw = getValue(doc, block as unknown as ObjectData, t.data_path);

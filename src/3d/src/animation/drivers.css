@@ -1,0 +1,93 @@
+/* Drivers editor sidebar and the Edit Driver popover */
+.drivers-ed .anim-sb {
+  width: 340px;
+}
+.drivers-ed .sb-body {
+  padding: 4px 8px 12px;
+}
+.drivers-ed .anim-drv-section {
+  margin-top: 6px;
+}
+.drv-idpick {
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+}
+.drv-idpick .drv-idtype {
+  flex: none;
+  width: 38px;
+  padding: 0 4px;
+}
+.drv-idpick .drv-id {
+  flex: 1;
+  min-width: 0;
+}
+.enum-menu.missing {
+  box-shadow: inset 0 0 0 1px rgba(220, 60, 60, 0.75);
+}
+.drv-vtype {
+  flex: none;
+  width: 42px;
+  padding: 0 4px;
+}
+.drv-vname-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+.drv-vname-wrap .text-field {
+  flex: 1;
+}
+.drv-vname-wrap.bad input {
+  color: #ff8a8a;
+}
+.drv-fallback {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.drv-fallback .num-field {
+  flex: 1;
+}
+.drv-gap {
+  height: 4px;
+}
+.drv-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  color: #bbb;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: var(--radius);
+}
+.drv-icon-btn {
+  flex: none !important;
+  width: 28px;
+  padding: 0;
+}
+.drv-vlabel {
+  font-family: var(--mono);
+  color: #9a9a9a;
+}
+.drv-expr input {
+  font-family: var(--mono);
+}
+.drv-popover {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px 8px;
+  max-height: 80vh;
+  overflow: auto;
+}
+.drv-pop-title {
+  color: #bbb;
+  font-weight: 500;
+  margin-top: 4px;
+}
+.drv-pop-sep {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 6px 0 4px;
+}

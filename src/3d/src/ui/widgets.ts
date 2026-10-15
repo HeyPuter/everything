@@ -196,6 +196,7 @@ function arrowStep(e: PointerEvent, o: NumberOpts, dir: number) {
 
 function commitText(o: NumberOpts, text: string) {
   editing.delete(o.id);
+  if (text.trim().startsWith('#') && buttonHooks.hashExpression(o.id, text.trim().slice(1).trim())) return void app.changed('ui');
   try {
     const v = parseNumber(text, o.unit === 'factor' ? 'none' : o.unit);
     if (Number.isFinite(v)) o.set(clamp(v, o), true);
