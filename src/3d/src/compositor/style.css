@@ -61,3 +61,25 @@
   white-space: pre;
   pointer-events: none;
 }
+
+/* node bodies: rows of small controls (File Output inputs, Cryptomatte buttons, Track Position) */
+.cmp-body-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cmp-body-row {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  min-width: 0;
+}
+.cmp-body-row > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.cmp-body-row .btn,
+.cmp-body-row button {
+  height: 20px;
+}

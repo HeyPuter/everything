@@ -358,7 +358,7 @@ for (const id of ['CompositorNodeMovieClip', 'CompositorNodeMovieDistortion', 'C
       const tracks = clip?.tracking.tracks ?? [];
       return h(
         'div',
-        { class: 'col' },
+        { class: 'cmp-body-col' },
         clipSelector(n),
         enumMenu(
           `${ctx.key}:track`,

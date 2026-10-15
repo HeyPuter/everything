@@ -153,10 +153,10 @@ function body(n: NodeData) {
   };
   return h(
     'div',
-    { class: 'col' },
+    { class: 'cmp-body-col' },
     h(
       'div',
-      { class: 'row' },
+      { class: 'cmp-body-row' },
       h('button', { class: 'btn', 'data-tip': 'Add\nAdd an object, material or asset to the matte', onpointerdown: (e: PointerEvent) => menu(e, true) }, icon('add'), 'Add'),
       h('button', { class: 'btn', 'data-tip': 'Remove\nRemove a name from the matte', onpointerdown: (e: PointerEvent) => menu(e, false) }, icon('remove'), 'Remove'),
     ),

@@ -39,7 +39,7 @@ export function outputFileName(base: string, slot: string, frame: number, format
       inputs: fileSlots(n).map((name): SocketDef => ({ name, identifier: name, type: 'RGBA', default: [0, 0, 0, 1] })),
       outputs: [],
     });
-    d.bodyHeight = (n) => 24 * (fileSlots(n).length + 1) + 4;
+    d.bodyHeight = (n) => 22 * (fileSlots(n).length + 1) + 8;
     d.drawBody = (ctx) => {
       const n = ctx.node;
       const slots = fileSlots(n);
@@ -49,11 +49,11 @@ export function outputFileName(base: string, slot: string, frame: number, format
       };
       return h(
         'div',
-        { class: 'col' },
+        { class: 'cmp-body-col' },
         slots.map((s, i) =>
           h(
             'div',
-            { class: 'row', key: `slot${i}` },
+            { class: 'cmp-body-row', key: `slot${i}` },
             textField(`${ctx.key}:slot${i}`, s, (v) => {
               const name = v.trim().replace(/\n/g, ' ');
               if (!name || (name !== s && slots.includes(name))) return;
