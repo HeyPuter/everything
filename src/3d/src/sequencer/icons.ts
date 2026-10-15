@@ -34,3 +34,10 @@ registerIcons(
 registerIcons({
   linked: '<path class="s" d="M7 9.5 9.5 7M6.3 7.2 4.6 8.9a2.3 2.3 0 0 0 3.3 3.3l1.7-1.7M9.7 8.8l1.7-1.7a2.3 2.3 0 0 0-3.3-3.3L6.4 5.5" fill="none" stroke-width="1.4" stroke-linecap="round"/>',
 });
+
+// preview display modes
+registerIcons({
+  seq_histogram: '<path class="f" d="M2 14V11l2-3 2 2 2-6 2 4 2-2 2 3v5z" opacity=".85"/><path class="s" d="M1.5 14.5h13" stroke-width="1"/>',
+  seq_luma_waveform: '<rect class="s" x="1.5" y="2.5" width="13" height="11" rx="1" fill="none" stroke-width="1"/><path class="s" d="M3 10c1-4 2 0 3-3s2 2 3-1 2 2 4 0" fill="none" stroke-width="1.3"/>',
+  seq_chroma_scope: '<circle class="s" cx="8" cy="8" r="6" fill="none" stroke-width="1.1"/><path class="s" d="M8 2v12M2 8h12" stroke-width=".7" opacity=".6"/><circle class="f" cx="10" cy="6" r="1.4"/><circle class="f" cx="6.5" cy="9.5" r="1"/>',
+});

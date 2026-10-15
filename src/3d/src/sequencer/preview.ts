@@ -10,6 +10,7 @@ import { activeStrip, hasEditor } from './context';
 import type { Strip } from './types';
 import { editedText, drawTextEditOverlay } from './textedit';
 import { cursorPoint } from './pvtransform';
+import { drawScope, type ScopeMode } from './scopes';
 import { T } from './theme';
 
 /** The frame-overlay reference frame (null when the overlay is off). */
@@ -42,6 +43,10 @@ export class PreviewRegion {
   private gen = 0;
   private disposed = false;
   showOverlays = true;
+  /** what the region shows: the image or a scope of it */
+  scopeMode: ScopeMode = 'IMAGE';
+  private scopePx: { px: Uint8ClampedArray; w: number; h: number; stamp: number } | null = null;
+  private frameStamp = 0;
   /** preview overlay options */
   opts = { safeAreas: false, cursor: true, outline: true };
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
@@ -236,6 +241,7 @@ export class PreviewRegion {
       g.clearRect(0, 0, f.width, f.height);
       g.drawImage(comp.canvas, 0, 0);
       this.hasFrame = true;
+      this.frameStamp++;
       // frame overlay: render the reference frame too
       const rf = overlayRefFrame(ed, frame);
       this.hasRef = false;
@@ -274,6 +280,11 @@ export class PreviewRegion {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.fillStyle = T.previewBack;
     g.fillRect(0, 0, w, h);
+    if (this.scopeMode !== 'IMAGE') {
+      const sp = this.scopePixels();
+      if (sp) drawScope(g, this.scopeMode, sp.px, sp.w, sp.h, 8, 8, w - 16, h - 16);
+      return;
+    }
     const L = this.layout();
     const fw = L.W * L.sx,
       fh = L.H * L.s;
@@ -313,6 +324,22 @@ export class PreviewRegion {
     }
     drawShape(g, this.shape);
     if (this.sampleInfo) this.drawSample(g, this.sampleInfo);
+  }
+
+  /** Downscaled pixels of the shown frame for scopes (recomputed when the frame changes). */
+  private scopePixels() {
+    if (!this.hasFrame) return null;
+    if (this.scopePx?.stamp === this.frameStamp) return this.scopePx;
+    const f = this.frame;
+    const w = Math.max(1, Math.min(320, f.width)),
+      h = Math.max(1, Math.round((w * f.height) / Math.max(1, f.width)));
+    const t = document.createElement('canvas');
+    t.width = w;
+    t.height = h;
+    const tg = t.getContext('2d', { willReadFrequently: true })!;
+    tg.drawImage(f, 0, 0, w, h);
+    this.scopePx = { px: tg.getImageData(0, 0, w, h).data, w, h, stamp: this.frameStamp };
+    return this.scopePx;
   }
 
   /** Colour of the shown frame under a client point (null outside the frame). */

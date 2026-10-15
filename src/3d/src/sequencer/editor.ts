@@ -26,6 +26,7 @@ import { soundNow, soundPeaks, PEAKS_PER_SECOND, movieThumb, imageNow } from './
 import { addFiles } from './add';
 import { restartPlayback } from './audio';
 import { drawShape, type SelectShape } from './shapes';
+import type { ScopeMode } from './scopes';
 import { lastOpPanel } from '../ui/redo';
 import { boxHit, rectCircle, rectLasso, sameTime } from './selection';
 import { connectedOf, isConnected } from './connect';
@@ -171,6 +172,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       splitRatio: this.splitRatio,
       previewSize: this.preview.size,
       previewOverlays: { ...this.preview.opts },
+      scopeMode: this.preview.scopeMode,
       fitted: this.fitted,
     };
   }
@@ -185,6 +187,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     if (['select', 'select_circle', 'select_lasso', 'cursor', 'sample', 'move', 'rotate', 'scale'].includes(s.pvTool as string)) this.pvTool = s.pvTool as PreviewTool;
     if (typeof s.previewSize === 'string') this.preview.size = s.previewSize as PreviewSize;
     if (s.previewOverlays && typeof s.previewOverlays === 'object') Object.assign(this.preview.opts, s.previewOverlays);
+    if (['IMAGE', 'HISTOGRAM', 'WAVEFORM', 'VECTOR_SCOPE'].includes(s.scopeMode as string)) this.preview.scopeMode = s.scopeMode as ScopeMode;
     this.preview.showOverlays = this.showOverlays;
   }
 
@@ -365,6 +368,20 @@ export class SequencerEditor implements Editor, SeqEditorLike {
               icon('down_arrow_hlt', 'tiny'),
             ),
           ),
+      this.hasPreview()
+        ? enumMenu(
+            'seq-scope',
+            [
+              { value: 'IMAGE', label: 'Image Preview', icon: 'image', description: 'Show the image' },
+              { value: 'HISTOGRAM', label: 'Histogram', icon: 'seq_histogram', description: 'Show the distribution of red, green and blue values' },
+              { value: 'WAVEFORM', label: 'Luma Waveform', icon: 'seq_luma_waveform', description: 'Show the brightness of each image column' },
+              { value: 'VECTOR_SCOPE', label: 'Chroma Vectorscope', icon: 'seq_chroma_scope', description: 'Show the hue and saturation of the pixels' },
+            ],
+            this.preview.scopeMode,
+            (v) => ((this.preview.scopeMode = v as ScopeMode), this.preview.draw(), app.changed('ui')),
+            { iconOnly: true, tip: 'Display Mode\nShow the image or a scope of it' },
+          )
+        : null,
       this.hasPreview()
         ? h(
             'button',
