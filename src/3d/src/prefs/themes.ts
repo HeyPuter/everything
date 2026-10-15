@@ -10,6 +10,7 @@ import { viewportTheme, gridMaterial } from '../editors/view3d/draw';
 import { editMeshColors } from '../modes/editmesh/overlay';
 import { NODE_CLASS_COLORS, NODE_EDITOR_COLORS } from '../nodes/registry';
 import { parseHex, toHex, cssColor, lerp, ramp, SURFACE_REFS, TEXT_REFS } from './theme_core';
+import { setCanvasGreys } from '../ui/canvastheme';
 
 export { parseHex, toHex };
 
@@ -304,6 +305,15 @@ export function applyThemeValues(v: ThemeValues) {
   // keep it last so it wins over style sheets loaded later
   document.head.append(styleEl);
   styleEl.textContent = themeCss(v);
+  // canvas editors use the same grey ramps
+  const get = (id: string) => v[id] ?? BY_ID.get(id)!.def;
+  const sg = new Map<number, string>(),
+    tg = new Map<number, string>();
+  for (let l = 0x08; l <= 0xff; l++) {
+    sg.set(l, ramp(l, SURFACE_REFS, get));
+    if (l >= 0x60) tg.set(l, ramp(l, TEXT_REFS, get));
+  }
+  setCanvasGreys(sg, tg);
   for (const it of ALL_ITEMS) if (it.set) it.set(v[it.id] ?? it.def);
   document.documentElement.dataset.theme = luminance(v.region ?? '#303030') < 0.4 ? 'dark' : 'light';
   // (themes also apply before the app exists, so the first frame already has the colours)
