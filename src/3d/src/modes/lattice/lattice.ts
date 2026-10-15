@@ -1,4 +1,5 @@
-// Lattice Edit Mode: point selection and transforms, resolution changes, Make Regular, Flip.
+// Lattice Edit Mode: point selection (mirror, random, more / less, circle / lasso) and transforms,
+// resolution changes, Make Regular, Flip.
 import { Matrix3, Matrix4, Vector3, Box3 } from 'three';
 import { app, registerOperators } from '../../app/app';
 import { editModeHooks } from '../../editors/view3d/hooks';
@@ -10,6 +11,10 @@ import { frameHooks } from '../../ops/view3d';
 import { modeMenus } from '../../editors/view3d/modemenus';
 import { addKeys } from '../../app/keymap';
 import type { MenuItem } from '../../ui/menu';
+import { inSelectRegion } from '../../editors/view3d/selectshapes';
+import type { SelectRegion } from '../../editors/view3d/hooks';
+import { transformSubmenu, mirrorSubmenu, snapSubmenu } from '../common-menus';
+import * as L from './latticeops';
 
 type LatticeSel = LatticeData & { select?: Uint8Array };
 
@@ -117,6 +122,55 @@ registerOperators([
     redo: false,
   },
   {
+    idname: 'lattice.select_mirror',
+    label: 'Select Mirror',
+    description: 'Select the points mirrored across the lattice grid',
+    props: [
+      { id: 'axis', label: 'Axis', type: 'enum', default: 'X', items: [['X', 'X'], ['Y', 'Y'], ['Z', 'Z']] },
+      { id: 'extend', label: 'Extend', type: 'bool', default: false },
+    ],
+    poll: inLatticeEdit,
+    exec: (_ctx, p) => {
+      const { lt } = activeLattice()!;
+      L.selectMirror(lt, ensureSel(lt), p.axis === 'X' ? 0 : p.axis === 'Y' ? 1 : 2, !!p.extend);
+    },
+  },
+  {
+    idname: 'lattice.select_random',
+    label: 'Select Random',
+    description: 'Randomly select or deselect lattice points',
+    props: [
+      { id: 'ratio', label: 'Ratio', type: 'float', default: 0.5, min: 0, max: 1, subtype: 'factor' },
+      { id: 'seed', label: 'Random Seed', type: 'int', default: 0, min: 0 },
+      { id: 'action', label: 'Action', type: 'enum', default: 'SELECT', items: [['SELECT', 'Select'], ['DESELECT', 'Deselect']] },
+    ],
+    poll: inLatticeEdit,
+    exec: (_ctx, p) => {
+      const { lt } = activeLattice()!;
+      L.selectRandom(ensureSel(lt), p.ratio as number, p.seed as number, p.action === 'SELECT');
+    },
+  },
+  {
+    idname: 'lattice.select_more',
+    label: 'Select More',
+    description: 'Grow the selection to neighbouring grid points',
+    poll: inLatticeEdit,
+    exec: () => {
+      const { lt } = activeLattice()!;
+      lt.select = L.grow(lt, ensureSel(lt), true);
+    },
+  },
+  {
+    idname: 'lattice.select_less',
+    label: 'Select Less',
+    description: 'Shrink the selection away from unselected grid points',
+    poll: inLatticeEdit,
+    exec: () => {
+      const { lt } = activeLattice()!;
+      lt.select = L.grow(lt, ensureSel(lt), false);
+    },
+  },
+  {
     idname: 'lattice.make_regular',
     label: 'Make Regular',
     description: 'Set UVW control points a uniform distance apart',
@@ -192,22 +246,24 @@ editModeHooks.pick.push((v, x, y, o) => {
   return true;
 });
 
-editModeHooks.box.push((v, x0, y0, x1, y1, mode) => {
+function regionSelect(v: import('../../editors/view3d/view3d').View3D, r: SelectRegion, mode: 'SET' | 'ADD' | 'SUB' | 'AND' | 'XOR', label: string) {
   const a = inLatticeEdit() ? activeLattice() : null;
   if (!a) return false;
   const sel = ensureSel(a.lt);
   const w = world(a.ob);
-  const [lx, hx, ly, hy] = [Math.min(x0, x1), Math.max(x0, x1), Math.min(y0, y1), Math.max(y0, y1)];
   for (let i = 0; i < sel.length; i++) {
     const p = v.project(pointWorld(a.lt, i, w));
-    const hit = p.x >= lx && p.x <= hx && p.y >= ly && p.y <= hy ? 1 : 0;
+    const hit = p.z <= 1 && inSelectRegion(r, p.x, p.y) ? 1 : 0;
     const cur = sel[i];
     sel[i] = mode === 'SET' ? hit : mode === 'ADD' ? cur | hit : mode === 'SUB' ? cur & (hit ^ 1) : mode === 'AND' ? cur & hit : cur ^ hit;
   }
-  app.pushUndo('Box Select');
+  app.pushUndo(label);
   app.changed('select', 'doc');
   return true;
-});
+}
+
+editModeHooks.box.push((v, x0, y0, x1, y1, mode) => regionSelect(v, { kind: 'box', x0, y0, x1, y1 }, mode, 'Box Select'));
+editModeHooks.region.push((v, r, mode) => regionSelect(v, r, mode, r.kind === 'circle' ? 'Circle Select' : 'Lasso Select'));
 
 editModeHooks.svg.push((v) => {
   const a = inLatticeEdit() ? activeLattice() : null;
@@ -287,12 +343,39 @@ frameHooks.unshift(() => {
 // ---------------------------------------------------------------------------
 // menus & keys
 
+function flipMenu(): MenuItem[] {
+  return (['U', 'V', 'W'] as const).map((a) => ({ label: `${a} (${{ U: 'X', V: 'Y', W: 'Z' }[a]}) Axis`, op: 'lattice.flip', props: { axis: a } }));
+}
+
 function latticeMenu(): MenuItem[] {
   return [
-    { label: 'Transform', submenu: () => [{ label: 'Move', op: 'transform.translate', shortcut: 'G' }, { label: 'Rotate', op: 'transform.rotate', shortcut: 'R' }, { label: 'Scale', op: 'transform.resize', shortcut: 'S' }] },
+    transformSubmenu(),
+    mirrorSubmenu(),
+    snapSubmenu(),
+    { label: 'Flip (Distortion)', submenu: flipMenu, shortcut: 'Alt F' },
     { separator: true },
     { label: 'Make Regular', op: 'lattice.make_regular' },
-    { label: 'Flip', submenu: () => (['U', 'V', 'W'] as const).map((a) => ({ label: `${a} (${{ U: 'X', V: 'Y', W: 'Z' }[a]}) Axis`, op: 'lattice.flip', props: { axis: a } })) },
+  ];
+}
+
+function latticeContextMenu(): MenuItem[] {
+  return [{ heading: 'Lattice' }, mirrorSubmenu(), { label: 'Flip', submenu: flipMenu }, snapSubmenu(), { separator: true }, { label: 'Make Regular', op: 'lattice.make_regular' }];
+}
+
+function latticeSelectMenu(): MenuItem[] {
+  return [
+    { label: 'All', op: 'lattice.select_all', props: { action: 'SELECT' }, shortcut: 'A' },
+    { label: 'None', op: 'lattice.select_all', props: { action: 'DESELECT' }, shortcut: 'Alt A' },
+    { label: 'Invert', op: 'lattice.select_all', props: { action: 'INVERT' }, shortcut: 'Ctrl I' },
+    { separator: true },
+    { label: 'Box Select', op: 'view3d.select_box_tool', shortcut: 'B' },
+    { label: 'Circle Select', op: 'view3d.select_circle_tool', shortcut: 'C' },
+    { separator: true },
+    { label: 'Select Mirror', op: 'lattice.select_mirror' },
+    { label: 'Select Random', op: 'lattice.select_random' },
+    { separator: true },
+    { label: 'More', op: 'lattice.select_more', shortcut: 'Ctrl Numpad +' },
+    { label: 'Less', op: 'lattice.select_less', shortcut: 'Ctrl Numpad -' },
   ];
 }
 
@@ -300,14 +383,17 @@ const prevEdit = modeMenus.EDIT;
 modeMenus.EDIT = {
   ...prevEdit,
   header: () => (inLatticeEdit() ? [['Lattice', latticeMenu]] : prevEdit?.header?.() ?? []),
-  select: () => (inLatticeEdit() ? [{ label: 'All', op: 'lattice.select_all', props: { action: 'SELECT' } }, { label: 'None', op: 'lattice.select_all', props: { action: 'DESELECT' } }, { label: 'Invert', op: 'lattice.select_all', props: { action: 'INVERT' } }] : prevEdit?.select?.() ?? []),
+  select: () => (inLatticeEdit() ? latticeSelectMenu() : prevEdit?.select?.() ?? []),
   add: () => (inLatticeEdit() ? [] : prevEdit?.add?.() ?? []),
-  context: () => (inLatticeEdit() ? latticeMenu() : prevEdit?.context?.() ?? []),
+  context: () => (inLatticeEdit() ? latticeContextMenu() : prevEdit?.context?.() ?? []),
   headerExtra: () => (inLatticeEdit() ? null : prevEdit?.headerExtra?.() ?? null),
 };
 
-addKeys('Armature', [
+addKeys('Lattice', [
   { key: 'A', op: 'lattice.select_all', props: { action: 'SELECT' }, when: inLatticeEdit },
   { key: 'A', alt: true, op: 'lattice.select_all', props: { action: 'DESELECT' }, when: inLatticeEdit },
   { key: 'I', ctrl: true, op: 'lattice.select_all', props: { action: 'INVERT' }, when: inLatticeEdit },
+  { key: 'NUMPAD_PLUS', ctrl: true, op: 'lattice.select_more', when: inLatticeEdit },
+  { key: 'NUMPAD_MINUS', ctrl: true, op: 'lattice.select_less', when: inLatticeEdit },
+  { key: 'F', alt: true, menu: flipMenu, menuTitle: 'Flip', when: inLatticeEdit },
 ]);

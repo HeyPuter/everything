@@ -308,3 +308,42 @@ test('text edit mode: word moves, styles, kerning, case, menus, text boxes', asy
   expect(ys).toBeLessThan(-1);
   await expectNoErrors(errors);
 });
+
+test('lattice edit mode: select more / mirror, menus, edit-mode mirror', async ({ page }) => {
+  const errors = await openApp(page);
+  await fresh(page, 'object.add', { type: 'LATTICE' });
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const lt = a.doc.lattices[a.activeObject.data];
+    lt.points_u = 3;
+    lt.points_v = 3;
+    lt.points_w = 1;
+    a.run('lattice.resize', {}, { invoke: false });
+  });
+  await page.keyboard.press('Tab');
+  const sel = () => get(page, `[...app.doc.lattices[app.activeObject.data].select].map((v, i) => v ? i : -1).filter(i => i >= 0)`);
+  await page.keyboard.press('Alt+a');
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.doc.lattices[a.activeObject.data].select[0] = 1;
+    a.changed('doc');
+  });
+  await page.keyboard.press('Control+NumpadAdd');
+  expect(await sel()).toEqual([0, 1, 3]);
+  await run(page, 'lattice.select_mirror', { axis: 'X' });
+  expect(await sel()).toEqual([1, 2, 5]);
+  const items = await headerMenu(page, 'Select');
+  for (const l of ['Select Mirror', 'Select Random', 'More', 'Less']) expect(items).toContain(l);
+  const lat = await headerMenu(page, 'Lattice');
+  for (const l of ['Transform', 'Mirror', 'Snap', 'Flip (Distortion)', 'Make Regular']) expect(lat).toContain(l);
+  // mirror the selected points across the 3D cursor X
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.doc.scene.cursor.location = [0, 0, 0];
+    a.doc.scene.tool_settings.transform_pivot_point = 'CURSOR';
+  });
+  const x0 = await get(page, `+app.doc.lattices[app.activeObject.data].points[2 * 3].toFixed(3)`);
+  await run(page, 'transform.mirror', { axis: 0 });
+  expect(await get(page, `+app.doc.lattices[app.activeObject.data].points[2 * 3].toFixed(3)`)).toBe(-(x0 as number));
+  await expectNoErrors(errors);
+});
