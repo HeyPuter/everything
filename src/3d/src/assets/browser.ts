@@ -475,6 +475,7 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
       { label: 'Open Library File', icon: 'file_3d', op: 'asset.open_containing_blend_file' },
       { separator: true },
       { label: 'Create Pose Asset…', op: 'poselib.create_pose_asset' },
+      { label: 'Save Brush as Asset…', op: 'brush.asset_save_as', props: { asset_library_reference: libraryInfo(this.library)?.kind === 'USER' ? this.library : LOCAL } },
     ];
   }
 

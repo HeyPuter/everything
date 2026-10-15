@@ -15,7 +15,9 @@ import { download, pickFile, decodeDocument } from '../io/native';
 import { openFile, fileEvents } from '../io/files';
 import { renderPreview, previewFromFile, previewFromCanvas } from './preview';
 import { renderContext } from '../render/context';
-import { catalogById, deleteCatalog, newCatalog, renameCatalog, moveCatalog } from './catalogs';
+import { catalogById, deleteCatalog, newCatalog, renameCatalog, moveCatalog, ensureCatalogPath } from './catalogs';
+import { activeBrush } from '../paint/brushes';
+import { cloneShared } from '../data/cow';
 import {
   LOCAL,
   libraryDoc,
@@ -44,7 +46,7 @@ import {
 } from './library';
 import { importAsset, duplicateObjectData, placeObjects, placeCollection, addCollectionInstance } from './importer';
 import { browserOf, type AssetBrowserLike } from './state';
-import { assetsOf, blockOf, decodeTargets, encodeTarget, isAssetTable, newMetaData, tableOf, type AssetMetaData, type AssetTable } from './types';
+import { assetsOf, blockOf, decodeTargets, encodeTarget, isAssetTable, newMetaData, tableOf, type AssetCatalog, type AssetMetaData, type AssetTable } from './types';
 import { applyPoseAsset, isPoseAction } from './poselib';
 
 // ---------------------------------------------------------------------------
@@ -819,6 +821,24 @@ registerOperators([
     },
   },
   {
+    idname: 'brush.asset_save_as',
+    label: 'Save as Brush Asset',
+    description: 'Store a copy of the active brush, with its settings, as a brush asset of the current file or of a user library',
+    props: [
+      { id: 'name', label: 'Name', type: 'string', default: '' },
+      { id: 'asset_library_reference', label: 'Library', type: 'string', default: 'LOCAL' },
+      { id: 'catalog_path', label: 'Catalog', type: 'string', default: '' },
+    ],
+    poll: (ctx) => !!activeBrush(ctx.doc.mode as never),
+    invoke: (ctx, p) => {
+      if (p.name) return saveBrushExec(ctx, p);
+      const b = activeBrush(ctx.doc.mode as never)!;
+      promptText('Save as Brush Asset', `${b.name} Copy`.replace(/^Paint /, ''), (n) => n && app.run('brush.asset_save_as', { ...p, name: n }, { invoke: false, area: ctx.area }));
+      return 'CANCELLED';
+    },
+    exec: (ctx, p) => saveBrushExec(ctx, p),
+  },
+  {
     idname: 'asset.activate',
     label: 'Use Asset',
     description: 'Use the active asset: add objects and collections at the 3D cursor, put materials on the selected objects, set worlds, apply poses and actions, add node groups to the active object',
@@ -1048,4 +1068,31 @@ function pickFiles(accept: string): Promise<File[]> {
     input.addEventListener('cancel', () => res([]));
     input.click();
   });
+}
+
+function saveBrushExec(ctx: OpContext, p: Record<string, unknown>) {
+  const src = activeBrush(ctx.doc.mode as never);
+  if (!src) return 'CANCELLED' as const;
+  const lib = String(p.asset_library_reference || LOCAL);
+  const b = cloneShared(src) as typeof src & { asset_data?: AssetMetaData };
+  b.id = uid('br');
+  const base = String(p.name || src.name).trim() || src.name;
+  const taken = new Set(Object.values(ctx.doc.brushes).map((x) => x.name));
+  b.name = base;
+  for (let i = 1; taken.has(b.name); i++) b.name = `${base}.${String(i).padStart(3, '0')}`;
+  b.asset_data = newMetaData();
+  const url = renderPreview({ brushes: { [b.id]: b } } as unknown as DocumentData, 'brushes', b.id);
+  if (url) b.asset_data.preview = url;
+  if (lib === LOCAL) {
+    if (p.catalog_path) b.asset_data.catalog_id = ensureCatalogPath((ctx.doc.asset_catalogs ??= []), String(p.catalog_path));
+    ctx.doc.brushes[b.id] = b;
+    app.report('INFO', `Saved the brush asset "${b.name}"`);
+    return 'FINISHED' as const;
+  }
+  if (libraryInfo(lib)?.kind !== 'USER') return 'CANCELLED' as const;
+  // straight into the user library: a scratch document holds the brush while it is copied
+  const tmp = { brushes: { [b.id]: b }, asset_catalogs: [] as AssetCatalog[], scene: { collection: '', world: null } } as unknown as DocumentData;
+  if (p.catalog_path) b.asset_data.catalog_id = ensureCatalogPath(tmp.asset_catalogs!, String(p.catalog_path));
+  void copyToLibrary(lib, [{ table: 'brushes', id: b.id }], tmp).then((n) => n && app.report('INFO', `Saved the brush asset "${b.name}" to "${libraryInfo(lib)?.name}"`));
+  return 'CANCELLED' as const;
 }

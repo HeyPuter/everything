@@ -348,5 +348,11 @@ describe('asset operators', () => {
     expect(app.doc.mode).toBe('SCULPT');
     expect(app.run('brush.asset_activate', { asset: ref }, { invoke: false, area: null })).toBe('FINISHED');
     expect(activeTools.SCULPT).toBe(brush.id);
+    // the active brush saved as a new asset
+    expect(app.run('brush.asset_save_as', { name: 'My Clay', catalog_path: 'Brushes/Mine' }, { invoke: false, area: null })).toBe('FINISHED');
+    const mine = named(app.doc.brushes, 'My Clay') as typeof brush & Meta;
+    expect(mine.asset_data).toBeTruthy();
+    expect(mine.sculpt_tool).toBe(brush.sculpt_tool);
+    expect(app.doc.asset_catalogs!.find((c) => c.id === mine.asset_data!.catalog_id)!.path).toBe('Brushes/Mine');
   });
 });
