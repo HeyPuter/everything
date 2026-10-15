@@ -4,7 +4,7 @@ import { h, type Child } from '../../../ui/h';
 import { icon, registerIcons } from '../../../ui/icons';
 import { app } from '../../../app/app';
 import { panel, enumMenu, button, checkbox, numberField } from '../../../ui/widgets';
-import { splitRow, num, enumProp } from '../../../ui/props';
+import { splitRow, num, enumProp, objectProp } from '../../../ui/props';
 import type { ModifierBase, NodeData, NodeTreeData, ObjectData } from '../../../data/types';
 import { drawCurves } from '../../../nodes/editor/rampui';
 import { defaultMapCurve } from '../../../eval/mods/common';
@@ -199,17 +199,17 @@ export function textureCoordRows(m: ModifierBase, mapKey: string, objectKey: str
   ];
 }
 
-/** Object picker (same look as other modifier object fields). */
+/** Object picker (same look and eyedropper support as other object fields). */
 export function objRow(m: Rec, key: string, label: string, filter?: (o: ObjectData) => boolean, onChange?: () => void): Child {
+  if (label) return objectProp(m, key, label, { filter, onChange, undo: `Set ${label}` });
   const cands = Object.values(app.doc.objects)
     .filter((o) => !filter || filter(o))
     .sort((a, b) => a.name.localeCompare(b.name));
-  const menu = enumMenu(`${(m as { id?: string }).id ?? ''}.${key}`, [{ value: '', label: '—' }, ...cands.map((c) => ({ value: c.id, label: c.name, icon: 'object' }))], String(m[key] ?? ''), (v) => {
+  return enumMenu(`${(m as { id?: string }).id ?? ''}.${key}`, [{ value: '', label: '—' }, ...cands.map((c) => ({ value: c.id, label: c.name, icon: 'object' }))], String(m[key] ?? ''), (v) => {
     m[key] = v || null;
     onChange?.();
-    touch(`Set ${label || 'Object'}`);
+    touch('Set Object');
   });
-  return label ? splitRow(label, menu) : menu;
 }
 
 /** Full-width operator button for bind-style actions. */
