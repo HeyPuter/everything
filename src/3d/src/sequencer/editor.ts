@@ -28,6 +28,7 @@ import { restartPlayback } from './audio';
 import { drawShape, type SelectShape } from './shapes';
 import type { ScopeMode } from './scopes';
 import { lastOpPanel } from '../ui/redo';
+import { formats } from '../io/files';
 import { readySource } from '../tracking/source';
 import { clipFrameToSourceIndex } from '../tracking/types';
 import { boxHit, rectCircle, rectLasso, sameTime, neighbor } from './selection';
@@ -1440,9 +1441,14 @@ export class SequencerEditor implements Editor, SeqEditorLike {
         }
       });
       target.addEventListener('drop', (e) => {
-        const files = e.dataTransfer?.files ? [...e.dataTransfer.files] : [];
-        if (!files.length) return;
+        const all = e.dataTransfer?.files ? [...e.dataTransfer.files] : [];
+        if (!all.length) return;
         e.preventDefault();
+        // subtitle files become text strips
+        const subs = all.filter((f) => /\.(srt|vtt)$/i.test(f.name));
+        for (const f of subs) void formats.find((x) => x.id === 'subtitles')?.import?.(f).catch((err: unknown) => app.report('ERROR', `Cannot import subtitles: ${err instanceof Error ? err.message : String(err)}`));
+        const files = all.filter((f) => !subs.includes(f));
+        if (!files.length) return;
         const overTimeline = target === this.mainEl;
         const frame = overTimeline ? Math.round(this.pointerFrame(e.clientX)) : app.doc.scene.frame_current;
         const channel = overTimeline ? Math.max(1, Math.floor(this.pointerChannel(e.clientY))) : 1;
