@@ -1,15 +1,17 @@
 // UV mapping operators for Edit Mode, plus hook / connect / bisect tools.
 import { Matrix4, Vector3 } from 'three';
-import { app, registerOperators } from '../../app/app';
+import { app, registerOperators, type PropDef } from '../../app/app';
 import { MeshEdit, edgeKey, type EFace } from './meshedit';
 import { withEdit, editMeshObjects } from './context';
 import { editPoll } from './ops-basic';
 import { unwrapUV } from '../../edit/unwrap';
 import type { Topology } from '../../edit/topology';
 import { buildMesh } from '../../mesh/mesh';
+import type { MeshData } from '../../data/types';
 import { activeView3D } from '../../editors/view3d/view3d';
 import { newObject, uid, IDENTITY } from '../../data/defaults';
 import { addObjectToScene } from '../../ops/object';
+import { afterUnwrap, repackFaces } from '../../editors/uv/unwrapextra';
 import { newModifier } from '../../eval/modifiers';
 
 const V = (a: number[]) => new Vector3(a[0], a[1], a[2]);
@@ -134,7 +136,7 @@ function planarProject(m: MeshEdit, faces: number[], normal: Vector3) {
   }
 }
 
-function smartProject(m: MeshEdit, faces: number[], angleLimit: number, margin: number) {
+function smartProject(m: MeshEdit, faces: number[], angleLimit: number, margin: number, pack = true) {
   // grow charts of faces whose normals stay within the angle limit of the chart's seed
   const ef = m.edgeFaces();
   const fs = new Set(faces);
@@ -168,7 +170,7 @@ function smartProject(m: MeshEdit, faces: number[], angleLimit: number, margin: 
     for (const fi of chart) n.add(normals.get(fi)!);
     planarProject(m, chart, n.lengthSq() ? n : new Vector3(0, 0, 1));
   }
-  packIslands(m, charts, margin);
+  if (pack) packIslands(m, charts, margin);
 }
 
 function boxProject(m: MeshEdit, faces: number[], size: number) {
@@ -222,6 +224,53 @@ function cylinderProject(m: MeshEdit, faces: number[], sphere: boolean) {
   }
 }
 
+/** Optional bounds fitting after a projection: stretch to fill 0–1, then clamp to it. */
+function fitBounds(m: MeshEdit, faces: number[], scale: boolean, clip: boolean) {
+  if (scale) {
+    let a = Infinity,
+      b = Infinity,
+      c = -Infinity,
+      d = -Infinity;
+    for (const fi of faces) {
+      const f = m.faces[fi];
+      for (let i = 0; i < f.verts.length; i++) {
+        a = Math.min(a, f.uvs[i * 2]);
+        c = Math.max(c, f.uvs[i * 2]);
+        b = Math.min(b, f.uvs[i * 2 + 1]);
+        d = Math.max(d, f.uvs[i * 2 + 1]);
+      }
+    }
+    for (const fi of faces) {
+      const f = m.faces[fi];
+      for (let i = 0; i < f.verts.length; i++) {
+        f.uvs[i * 2] = (f.uvs[i * 2] - a) / (c - a || 1);
+        f.uvs[i * 2 + 1] = (f.uvs[i * 2 + 1] - b) / (d - b || 1);
+      }
+    }
+  }
+  if (clip)
+    for (const fi of faces) {
+      const f = m.faces[fi];
+      for (let i = 0; i < f.uvs.length; i++) f.uvs[i] = Math.max(0, Math.min(1, f.uvs[i]));
+    }
+}
+
+const boundsProps: PropDef[] = [
+  { id: 'clip_to_bounds', label: 'Clip to Bounds', type: 'bool', default: false },
+  { id: 'scale_to_bounds', label: 'Scale to Bounds', type: 'bool', default: false },
+];
+
+function project(fn: (m: MeshEdit, faces: number[]) => void, p: Record<string, unknown>) {
+  return withEdit((m) => {
+    const faces = targetFaces(m);
+    if (!faces.length) return false;
+    fn(m, faces);
+    fitBounds(m, faces, !!p.scale_to_bounds, !!p.clip_to_bounds);
+  })
+    ? 'FINISHED'
+    : 'CANCELLED';
+}
+
 function targetFaces(m: MeshEdit): number[] {
   const s = m.selectedFaces();
   return s.length ? s : [];
@@ -232,18 +281,28 @@ registerOperators([
     idname: 'uv.unwrap',
     label: 'Unwrap',
     description: 'Unwrap the mesh of the object being edited, cutting along seams',
-    props: [{ id: 'method', label: 'Method', type: 'enum', default: 'CONFORMAL', items: [['ANGLE_BASED', 'Angle Based'], ['CONFORMAL', 'Conformal']] }, { id: 'margin', label: 'Margin', type: 'float', default: 0.001, min: 0, max: 1, subtype: 'factor' }],
+    props: [
+      { id: 'method', label: 'Method', type: 'enum', default: 'CONFORMAL', items: [['ANGLE_BASED', 'Angle Based'], ['CONFORMAL', 'Conformal'], ['MINIMUM_STRETCH', 'Minimum Stretch']] },
+      { id: 'iterations', label: 'Iterations', type: 'int', default: 10, min: 1, max: 1000, showIf: (p) => p.method === 'MINIMUM_STRETCH' },
+      { id: 'margin', label: 'Margin', type: 'float', default: 0.001, min: 0, max: 1, subtype: 'factor' },
+    ],
     poll: editPoll,
     exec: (_ctx, p) => {
       let failed = '';
+      // pinned UVs and the minimum-stretch relaxation are applied after the solve
+      const post: { me: MeshData; before: Float32Array; faces: number[] }[] = [];
       const ok = withEdit((m, _ob, me) => {
         const faces = targetFaces(m);
         if (!faces.length) return false;
+        post.push({ me, before: me.uvs, faces });
         // conformal solve per seam-delimited island; closed islands fall back to angle-based charts
         const t = buildMesh(m.pos, m.faces.map((f) => ({ verts: f.verts, uvs: f.uvs, seams: f.seams }))) as unknown as Topology;
         if (!t.seams) (t as { seams?: Uint32Array }).seams = new Uint32Array(t.indices.length);
         try {
-          const res = unwrapUV(t, faces, Math.max(0.001, p.margin as number));
+          const pinFlags = me.uv_pin && me.uv_pin.length === t.indices.length ? me.uv_pin : null;
+          const pins = new Map<number, [number, number]>();
+          if (pinFlags) for (let c = 0; c < pinFlags.length; c++) if (pinFlags[c]) pins.set(c, [me.uvs[c * 2], me.uvs[c * 2 + 1]]);
+          const res = unwrapUV(t, faces, Math.max(0.001, p.margin as number), pins);
           let c = 0;
           m.faces.forEach((f) => {
             for (let i = 0; i < f.verts.length; i++, c++) {
@@ -256,27 +315,34 @@ registerOperators([
           // fallback: split closed shells by angle and project charts
           smartProject(m, faces, (66 * Math.PI) / 180, Math.max(0.001, p.margin as number));
         }
-        void me;
       });
       if (!ok) {
         app.report('WARNING', 'Select faces to unwrap');
         return 'CANCELLED';
       }
+      for (const x of post) afterUnwrap(x.me, x.before, x.faces, p.method === 'MINIMUM_STRETCH' ? (p.iterations as number) : 0);
       if (failed) app.report('WARNING', `Unwrap: ${failed} Used angle-based charts instead; mark seams for better results.`);
     },
   },
   {
     idname: 'uv.smart_project',
     label: 'Smart UV Project',
-    props: [{ id: 'angle_limit', label: 'Angle Limit', type: 'float', default: (66 * Math.PI) / 180, min: 0, max: Math.PI / 2, subtype: 'angle' }, { id: 'island_margin', label: 'Island Margin', type: 'float', default: 0, min: 0, max: 1, subtype: 'factor' }],
+    props: [
+      { id: 'angle_limit', label: 'Angle Limit', type: 'float', default: (66 * Math.PI) / 180, min: 0, max: Math.PI / 2, subtype: 'angle' },
+      { id: 'rotate_method', label: 'Rotation Method', type: 'enum', default: 'AXIS_ALIGNED_Y', items: [['AXIS_ALIGNED', 'Axis-aligned'], ['AXIS_ALIGNED_X', 'Axis-aligned (Horizontal)'], ['AXIS_ALIGNED_Y', 'Axis-aligned (Vertical)']] },
+      { id: 'island_margin', label: 'Island Margin', type: 'float', default: 0, min: 0, max: 1, subtype: 'factor' },
+    ],
     poll: editPoll,
     exec: (_ctx, p) => {
-      if (!withEdit((m) => {
+      const post: { me: MeshData; faces: number[] }[] = [];
+      if (!withEdit((m, _ob, me) => {
         const faces = targetFaces(m);
         if (!faces.length) return false;
-        smartProject(m, faces, p.angle_limit as number, Math.max(0.002, p.island_margin as number));
+        smartProject(m, faces, p.angle_limit as number, 0, false);
+        post.push({ me, faces });
       }))
         return 'CANCELLED';
+      for (const x of post) repackFaces(x.me, x.faces, { margin: Math.max(0.002, p.island_margin as number), rotate: true, rotateMethod: p.rotate_method as 'AXIS_ALIGNED', scale: true });
     },
   },
   {
@@ -285,33 +351,37 @@ registerOperators([
     props: [{ id: 'PREF_MARGIN_DIV', label: 'Margin', type: 'float', default: 0.1, min: 0.001, max: 1 }],
     poll: editPoll,
     exec: (_ctx, p) => {
-      if (!withEdit((m) => {
+      const post: { me: MeshData; faces: number[] }[] = [];
+      if (!withEdit((m, _ob, me) => {
         const faces = targetFaces(m);
         if (!faces.length) return false;
         for (const fi of faces) planarProject(m, [fi], V(m.faceNormal(m.faces[fi])));
-        packIslands(m, faces.map((f) => [f]), (p.PREF_MARGIN_DIV as number) * 0.02);
+        post.push({ me, faces });
       }))
         return 'CANCELLED';
+      for (const x of post) repackFaces(x.me, x.faces, { margin: (p.PREF_MARGIN_DIV as number) * 0.02, rotate: true, rotateMethod: 'AXIS_ALIGNED', scale: true });
     },
   },
   {
     idname: 'uv.cube_project',
     label: 'Cube Projection',
-    props: [{ id: 'cube_size', label: 'Cube Size', type: 'float', default: 2, min: 0, subtype: 'distance' }],
+    props: [{ id: 'cube_size', label: 'Cube Size', type: 'float', default: 2, min: 0, subtype: 'distance' }, ...boundsProps],
     poll: editPoll,
-    exec: (_ctx, p) => void withEdit((m) => (targetFaces(m).length ? boxProject(m, targetFaces(m), p.cube_size as number) : false)),
+    exec: (_ctx, p) => project((m, faces) => boxProject(m, faces, p.cube_size as number), p),
   },
   {
     idname: 'uv.cylinder_project',
     label: 'Cylinder Projection',
+    props: boundsProps,
     poll: editPoll,
-    exec: () => void withEdit((m) => (targetFaces(m).length ? cylinderProject(m, targetFaces(m), false) : false)),
+    exec: (_ctx, p) => project((m, faces) => cylinderProject(m, faces, false), p),
   },
   {
     idname: 'uv.sphere_project',
     label: 'Sphere Projection',
+    props: boundsProps,
     poll: editPoll,
-    exec: () => void withEdit((m) => (targetFaces(m).length ? cylinderProject(m, targetFaces(m), true) : false)),
+    exec: (_ctx, p) => project((m, faces) => cylinderProject(m, faces, true), p),
   },
   {
     idname: 'uv.project_from_view',
@@ -376,20 +446,6 @@ registerOperators([
           });
         }
       }),
-  },
-  {
-    idname: 'uv.pack_islands',
-    label: 'Pack Islands',
-    props: [{ id: 'margin', label: 'Margin', type: 'float', default: 0.001, min: 0, max: 1, subtype: 'factor' }],
-    poll: editPoll,
-    exec: (_ctx, p) => {
-      if (!withEdit((m) => {
-        const faces = targetFaces(m);
-        if (!faces.length) return false;
-        packIslands(m, uvIslands(m, faces), Math.max(0.001, p.margin as number));
-      }))
-        return 'CANCELLED';
-    },
   },
   {
     idname: 'uv.follow_active_quads',
@@ -507,45 +563,6 @@ registerOperators([
   },
 ]);
 
-function uvIslands(m: MeshEdit, faces: number[]): number[][] {
-  // islands connected through shared vertices with matching UVs
-  const fs = new Set(faces);
-  const ef = m.edgeFaces();
-  const seen = new Set<number>();
-  const out: number[][] = [];
-  const uvOf = (f: EFace, v: number) => {
-    const i = f.verts.indexOf(v);
-    return [f.uvs[i * 2], f.uvs[i * 2 + 1]];
-  };
-  for (const s of faces) {
-    if (seen.has(s)) continue;
-    const isl: number[] = [];
-    const st = [s];
-    seen.add(s);
-    while (st.length) {
-      const fi = st.pop()!;
-      isl.push(fi);
-      const f = m.faces[fi];
-      for (let i = 0; i < f.verts.length; i++) {
-        const a = f.verts[i],
-          b = f.verts[(i + 1) % f.verts.length];
-        for (const [g] of ef.get(edgeKey(a, b)) ?? []) {
-          if (seen.has(g) || !fs.has(g)) continue;
-          const G = m.faces[g];
-          const ua = uvOf(f, a),
-            ub = uvOf(f, b),
-            ga = uvOf(G, a),
-            gb = uvOf(G, b);
-          if (Math.hypot(ua[0] - ga[0], ua[1] - ga[1]) > 1e-5 || Math.hypot(ub[0] - gb[0], ub[1] - gb[1]) > 1e-5) continue;
-          seen.add(g);
-          st.push(g);
-        }
-      }
-    }
-    out.push(isl);
-  }
-  return out;
-}
 
 function followQuads(m: MeshEdit, faces: number[]) {
   // BFS over quads assigning grid coordinates; edge lengths averaged per strip

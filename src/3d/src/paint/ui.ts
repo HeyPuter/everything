@@ -243,7 +243,7 @@ function symmetryToggles(prefix: string) {
 }
 const field = (w: number, c: Child) => h('div', { style: { width: `${w}px`, flex: 'none' } }, c);
 
-function toolHeaderSettings(mode: BrushMode): Child {
+export function toolHeaderSettings(mode: BrushMode): Child {
   const b = activeBrush(mode);
   if (!b) return null;
   const parts: Child[] = [];

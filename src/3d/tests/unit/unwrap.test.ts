@@ -240,3 +240,20 @@ it('rejects corrupted native seam flags', async () => {
   document.meshes[0].topology.seams = 'AgAAAA==';
   expect(() => parseDocument(JSON.stringify(document))).toThrow(/seam/);
 });
+
+it('keeps pinned UVs exactly where they are and leaves that chart unpacked', () => {
+  const t = folded();
+  // pin the two outer corners of the strip far apart
+  const outer = [0, t.offsets[1] + 1];
+  const pins = new Map<number, [number, number]>([
+    [outer[0], [0.1, 0.2]],
+    [outer[1], [0.9, 0.2]],
+  ]);
+  const r = unwrapUV(t, [0, 1], 0.01, pins);
+  for (const [c, [u, v]] of pins) {
+    expect(r.uvs[c * 2]).toBeCloseTo(u, 6);
+    expect(r.uvs[c * 2 + 1]).toBeCloseTo(v, 6);
+  }
+  // the rest of the strip follows conformally: every UV is finite
+  expect(Array.from(r.uvs).every(Number.isFinite)).toBe(true);
+});

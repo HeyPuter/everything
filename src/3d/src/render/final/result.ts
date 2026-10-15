@@ -54,19 +54,46 @@ export function touchVirtualImage(id: string) {
 
 export const PASS_CHANNELS: Record<PassName, number> = { Combined: 4, Depth: 1, Normal: 4, Mist: 1 };
 
-let current: RenderResult | null = null;
+/** Render slots: renders go into the active slot so earlier ones can be compared. */
+export const RENDER_SLOTS = 8;
+const slots: (RenderResult | null)[] = new Array(RENDER_SLOTS).fill(null);
+let activeSlot = 0;
 const listeners = new Set<(pixels: boolean) => void>();
 
 export const renderResult = {
   get(): RenderResult | null {
-    return current;
+    return slots[activeSlot];
   },
   set(r: RenderResult | null) {
-    current = r;
+    slots[activeSlot] = r;
+    this.touch();
+  },
+  /** Index of the slot that is shown and rendered into. */
+  get slot() {
+    return activeSlot;
+  },
+  setSlot(i: number) {
+    activeSlot = Math.max(0, Math.min(RENDER_SLOTS - 1, i));
+    this.touch();
+  },
+  hasRender(i: number) {
+    return !!slots[i];
+  },
+  /** Next (or previous) slot holding a render; the active slot when there is none. */
+  cycle(reverse = false) {
+    for (let k = 1; k <= RENDER_SLOTS; k++) {
+      const i = (activeSlot + (reverse ? -k : k) + RENDER_SLOTS * 2) % RENDER_SLOTS;
+      if (slots[i]) return i;
+    }
+    return activeSlot;
+  },
+  clearSlot() {
+    slots[activeSlot] = null;
     this.touch();
   },
   /** Pixels changed (bumps the version so displays re-convert). */
   touch() {
+    const current = slots[activeSlot];
     if (current) current.version++;
     for (const l of listeners) l(true);
   },
