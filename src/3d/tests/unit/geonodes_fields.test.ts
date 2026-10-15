@@ -38,7 +38,7 @@ import { formatString, shortestFloat } from '../../src/geonodes/strformat';
 import { testEnv } from './gnspec';
 import { getNodeType } from '../../src/nodes/registry';
 import { TreeEval } from '../../src/geonodes/evaluator';
-import type { ModifierBase, NodeGroupData, NodeTreeData } from '../../src/data/types';
+import type { ModifierBase, NodeGroupData, NodeTreeData, SocketValue } from '../../src/data/types';
 
 function group(): { doc: ReturnType<typeof emptyDocument>; g: NodeGroupData; tree: NodeTreeData } {
   const doc = emptyDocument();
@@ -394,5 +394,46 @@ describe('message severity', () => {
     const kinds = () => [...evaluateGroup(g, m, testEnv(doc), GeometrySet.empty(), 'in', 'severity', false).log.kinds!.values()];
     expect(kinds()).toEqual(['INFO']);
     expect(kinds()).toEqual(['INFO']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// every node of these families evaluates on a mesh, on curves and on empty geometry
+
+import { GN_FIELD_NODE_DATA } from '../../src/geonodes/data-fields.gen';
+import { allSockets } from '../../src/nodes/registry';
+
+describe('robustness', () => {
+  it('outputs evaluate on every domain without errors or non-finite numbers', () => {
+    const FIELD = new Set(['FLOAT', 'INT', 'BOOLEAN', 'VECTOR', 'RGBA', 'ROTATION', 'MATRIX']);
+    const DT: Record<string, string> = { FLOAT: 'FLOAT', INT: 'INT', BOOLEAN: 'BOOLEAN', VECTOR: 'FLOAT_VECTOR', RGBA: 'FLOAT_COLOR', ROTATION: 'QUATERNION', MATRIX: 'FLOAT4X4' };
+    const problems: string[] = [];
+    const sources: [string, Record<string, SocketValue>, string][] = [
+      ['GeometryNodeMeshGrid', {}, 'Mesh'],
+      ['GeometryNodeCurvePrimitiveCircle', {}, 'Curve'],
+      ['GeometryNodeMeshLine', { Count: 0 }, 'Mesh'],
+    ];
+    for (const type of Object.keys(GN_FIELD_NODE_DATA)) {
+      if (!getNodeType(type)?.treeTypes.includes('GEOMETRY')) continue;
+      const ctx = { doc: emptyDocument(), tree: { type: 'GEOMETRY' as const, nodes: [], links: [] } };
+      const probe = addNode(ctx.tree, type, [0, 0]);
+      const { inputs, outputs } = allSockets(probe, ctx);
+      const geoIn = inputs.find((s) => s.type === 'GEOMETRY');
+      const geoOut = outputs.find((s) => s.type === 'GEOMETRY');
+      for (const [src, srcInputs, srcOut] of sources) {
+        const outs: [string, string, string, string, string][] = [];
+        for (const s of outputs) if (FIELD.has(s.type)) for (const dom of ['POINT', 'EDGE', 'FACE', 'CORNER', 'CURVE']) outs.push([`${s.identifier}_${dom}`, 'n', s.identifier, DT[s.type], dom]);
+        const r = runSpec({
+          nodes: { g: { type: src, inputs: srcInputs }, n: { type } },
+          links: geoIn ? [['g', srcOut, 'n', geoIn.identifier]] : [],
+          geometry: geoIn && geoOut ? ['n', geoOut.identifier] : ['g', srcOut],
+          outputs: outs,
+        });
+        if (r.errors.length) problems.push(`${type} on ${src}: ${r.errors.join('; ')}`);
+        for (const [k, v] of Object.entries(r.values))
+          if (v.some((x) => (Array.isArray(x) ? x.some((y) => !Number.isFinite(y)) : typeof x === 'number' && !Number.isFinite(x)))) problems.push(`${type} on ${src}: non-finite ${k}`);
+      }
+    }
+    expect(problems).toEqual([]);
   });
 });
