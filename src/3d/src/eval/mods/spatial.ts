@@ -10,15 +10,17 @@ export interface SurfaceHit {
   distance: number;
   /** polygon index in the source mesh */
   face: number;
-  /** triangle vertex ids and barycentric weights of the hit point */
+  /** triangle vertex ids, face corners and barycentric weights of the hit point */
   tri: [number, number, number];
+  corners: [number, number, number];
   bary: [number, number, number];
 }
 
 /** Triangulation of an evaluated mesh: three vertex ids per triangle and the polygon of each. */
-export function triangles(m: EvalMesh): { tris: Uint32Array; triFace: Uint32Array } {
+export function triangles(m: EvalMesh): { tris: Uint32Array; triFace: Uint32Array; triCorners: Uint32Array } {
   const out: number[] = [],
-    faceOf: number[] = [];
+    faceOf: number[] = [],
+    corners: number[] = [];
   const tmp: number[] = [];
   for (let f = 0; f < m.offsets.length - 1; f++) {
     const s = m.offsets[f],
@@ -28,10 +30,11 @@ export function triangles(m: EvalMesh): { tris: Uint32Array; triFace: Uint32Arra
     triangulatePoly(m.positions, verts, tmp, 0);
     for (let i = 0; i < tmp.length; i += 3) {
       out.push(verts[tmp[i]], verts[tmp[i + 1]], verts[tmp[i + 2]]);
+      corners.push(s + tmp[i], s + tmp[i + 1], s + tmp[i + 2]);
       faceOf.push(f);
     }
   }
-  return { tris: Uint32Array.from(out), triFace: Uint32Array.from(faceOf) };
+  return { tris: Uint32Array.from(out), triFace: Uint32Array.from(faceOf), triCorners: Uint32Array.from(corners) };
 }
 
 /** Barycentric weights of p (assumed on/near the triangle plane) in triangle abc. */
@@ -69,6 +72,7 @@ export class SurfaceQuery {
   readonly positions: Float32Array;
   readonly tris: Uint32Array;
   readonly triFace: Uint32Array;
+  readonly triCorners: Uint32Array;
   private bvh: MeshBVH | null = null;
   private a = new Vector3();
   private b = new Vector3();
@@ -90,6 +94,7 @@ export class SurfaceQuery {
     const t = triangles(m);
     this.tris = t.tris;
     this.triFace = t.triFace;
+    this.triCorners = t.triCorners;
     if (this.tris.length) {
       const g = new BufferGeometry();
       g.setAttribute('position', new BufferAttribute(P, 3));
@@ -109,7 +114,8 @@ export class SurfaceQuery {
     this.a.fromArray(this.positions, ia * 3);
     this.b.fromArray(this.positions, ib * 3);
     this.c.fromArray(this.positions, ic * 3);
-    return { point: point.clone(), distance, face: this.triFace[t], tri: [ia, ib, ic], bary: barycentric(point, this.a, this.b, this.c) };
+    const C = this.triCorners;
+    return { point: point.clone(), distance, face: this.triFace[t], tri: [ia, ib, ic], corners: [C[t * 3], C[t * 3 + 1], C[t * 3 + 2]], bary: barycentric(point, this.a, this.b, this.c) };
   }
 
   nearest(p: Vector3, maxDistance = Infinity): SurfaceHit | null {

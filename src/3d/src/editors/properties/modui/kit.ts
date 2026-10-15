@@ -3,7 +3,7 @@
 import { h, type Child } from '../../../ui/h';
 import { icon, registerIcons } from '../../../ui/icons';
 import { app } from '../../../app/app';
-import { panel, enumMenu, button, checkbox } from '../../../ui/widgets';
+import { panel, enumMenu, button, checkbox, numberField } from '../../../ui/widgets';
 import { splitRow, num, enumProp } from '../../../ui/props';
 import type { ModifierBase, NodeData, NodeTreeData, ObjectData } from '../../../data/types';
 import { drawCurves } from '../../../nodes/editor/rampui';
@@ -105,7 +105,7 @@ export function flagToggles(m: Rec, key: string, label: string, items: [string, 
     label,
     h(
       'div',
-      { class: 'row-aligned' },
+      { class: 'mod-flags' },
       items.map(([v, l]) =>
         h(
           'button',
@@ -204,17 +204,21 @@ export function objRow(m: Rec, key: string, label: string, filter?: (o: ObjectDa
   const cands = Object.values(app.doc.objects)
     .filter((o) => !filter || filter(o))
     .sort((a, b) => a.name.localeCompare(b.name));
-  return splitRow(
-    label,
-    enumMenu(`${(m as { id?: string }).id ?? ''}.${key}`, [{ value: '', label: '—' }, ...cands.map((c) => ({ value: c.id, label: c.name, icon: 'object' }))], String(m[key] ?? ''), (v) => {
-      m[key] = v || null;
-      onChange?.();
-      touch(`Set ${label}`);
-    }),
-  );
+  const menu = enumMenu(`${(m as { id?: string }).id ?? ''}.${key}`, [{ value: '', label: '—' }, ...cands.map((c) => ({ value: c.id, label: c.name, icon: 'object' }))], String(m[key] ?? ''), (v) => {
+    m[key] = v || null;
+    onChange?.();
+    touch(`Set ${label || 'Object'}`);
+  });
+  return label ? splitRow(label, menu) : menu;
 }
 
 /** Full-width operator button for bind-style actions. */
 export function wideButton(id: string, label: string, onClick: () => void, opts: { disabled?: boolean; tip?: string } = {}): Child {
   return h('div', { class: 'btn-row mod-wide' }, button(id, label, onClick, { disabled: opts.disabled, tip: opts.tip }));
+}
+
+/** Bare number field bound to a modifier property (for use inside composite rows). */
+export function numField(m: ModifierBase, key: string, opts: { unit?: 'distance' | 'angle' | 'none'; min?: number; max?: number; int?: boolean; disabled?: boolean; label?: string } = {}): Child {
+  const r = m as Rec;
+  return numberField({ id: `${m.id}.${key}`, value: Number(r[key] ?? 0), unit: opts.unit, min: opts.min, max: opts.max, int: opts.int, disabled: opts.disabled, label: opts.label, set: (v, final) => ((r[key] = v), touch(`Change ${key}`, final)) });
 }

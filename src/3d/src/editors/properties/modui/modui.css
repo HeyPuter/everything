@@ -27,3 +27,12 @@
   padding: 2px 4px 4px;
   line-height: 1.35;
 }
+.mod-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.mod-flags > .tbtn {
+  flex: 1 1 auto;
+  white-space: nowrap;
+}

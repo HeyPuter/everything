@@ -2,3 +2,4 @@
 import './weights';
 import './uv';
 import './normals';
+import './transfer';
