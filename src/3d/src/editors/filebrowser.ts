@@ -307,6 +307,8 @@ export class FileBrowser implements Editor {
       { separator: true },
       { label: 'Sidebar', shortcut: 'T', checked: this.showSidebar, op: 'file.sidebar_toggle' },
       { separator: true },
+      { label: 'Browse Assets', icon: 'asset_browser', action: () => this.area.setType('ASSETS') },
+      { separator: true },
       { label: 'Area', submenu: () => this.area.areaMenu() },
     ];
   }

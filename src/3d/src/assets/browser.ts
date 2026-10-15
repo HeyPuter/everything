@@ -402,6 +402,8 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
       { label: 'Sidebar', shortcut: 'T', checked: this.showSidebar, op: 'file.sidebar_toggle' },
       { label: 'Asset Details', shortcut: 'N', checked: this.showDetails, op: 'asset.details_toggle' },
       { separator: true },
+      { label: 'Browse Files', icon: 'filebrowser', action: () => this.area.setType('FILE_BROWSER') },
+      { separator: true },
       { label: 'Area', submenu: () => this.area.areaMenu() },
     ];
   }
