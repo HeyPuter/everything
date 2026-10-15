@@ -30,6 +30,9 @@ const settings = {
   fontSize: 12,
   matchCase: false,
   wrapAround: true,
+  /** vertical guide at a column */
+  showMargin: false,
+  marginColumn: 80,
 };
 
 function langOf(t: TextData | null): Lang {
@@ -91,6 +94,7 @@ export class TextEditor implements Editor {
   private acIndex = 0;
   private acStart = -1;
   private conflictEl: HTMLElement;
+  private marginEl: HTMLElement;
   errorLine: number | null = null;
   private main: HTMLElement;
   private scroll: HTMLElement;
@@ -137,7 +141,8 @@ export class TextEditor implements Editor {
     this.ta.setAttribute('autocomplete', 'off');
     this.ta.setAttribute('wrap', 'off');
     this.ta.setAttribute('aria-label', 'Text editor');
-    this.content.append(this.curLine, this.pre, this.ta);
+    this.marginEl = div('te-margin');
+    this.content.append(this.curLine, this.marginEl, this.pre, this.ta);
     this.scroll.append(this.gutter, this.content);
     this.empty = div('te-empty');
     this.acEl = div('te-autocomplete');
@@ -579,6 +584,9 @@ export class TextEditor implements Editor {
       this.content.style.width = `max(100%, ${Math.ceil(longest * this.charWidth) + 40}px)`;
       this.ta.style.height = `${lines.length * lh + 8}px`;
     }
+    // column guide
+    this.marginEl.style.display = settings.showMargin ? '' : 'none';
+    this.marginEl.style.left = `${6 + settings.marginColumn * this.charWidth}px`;
     // gutter numbers (match wrapped line heights)
     if (this.showLineNumbers) {
       const rows = this.pre.children;
@@ -666,6 +674,8 @@ export class TextEditor implements Editor {
         panel('te-props', 'Properties', () => [
           h('div', { class: 'te-prop' }, numberField({ id: 'te-tabw', label: 'Tab Width', value: settings.tabWidth, int: true, min: 1, max: 8, set: (v) => ((settings.tabWidth = Math.round(v)), this.measure(), this.render()) })),
           h('div', { class: 'te-prop' }, numberField({ id: 'te-fs', label: 'Font Size', value: settings.fontSize, int: true, min: 8, max: 32, set: (v) => ((settings.fontSize = Math.round(v)), this.measure(), this.render()) })),
+          h('div', { class: 'te-prop' }, checkbox('te-margin', 'Margin', settings.showMargin, (v) => ((settings.showMargin = v), this.layout(), this.renderSidebar()))),
+          h('div', { class: 'te-prop' }, numberField({ id: 'te-margin-col', label: 'Margin Column', value: settings.marginColumn, int: true, min: 1, max: 1024, disabled: !settings.showMargin, set: (v) => ((settings.marginColumn = Math.round(v)), this.layout()) })),
           h('div', { class: 'te-sb-label' }, 'Indentation'),
           h(
             'div',
@@ -1114,7 +1124,7 @@ export class TextEditor implements Editor {
     const row = this.pre.children[line] as HTMLElement | undefined;
     const mainR = this.main.getBoundingClientRect();
     const contR = this.content.getBoundingClientRect();
-    const x = contR.left - mainR.left + 4 + col * this.charWidth;
+    const x = contR.left - mainR.left + 6 + col * this.charWidth;
     const y = (row ? row.offsetTop + row.offsetHeight : (line + 1) * this.lineHeight) + contR.top - mainR.top + 2;
     this.acEl.style.display = 'block';
     this.acEl.style.left = `${Math.max(0, Math.min(this.main.clientWidth - 220, x))}px`;
