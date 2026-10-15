@@ -198,6 +198,8 @@ export function installKeyboard() {
   addEventListener(
     'keydown',
     (e) => {
+      // a key handled elsewhere (modal, menus, text input, editors) never completes a click
+      if (!e.repeat) clickCandidate = null;
       // Modal operators capture everything
       if (app.modal) {
         const r = app.modal.onKey?.(e);
