@@ -176,6 +176,11 @@ export interface GPBrush {
   fill_layer_mode?: 'ACTIVE' | 'ABOVE' | 'BELOW' | 'ALL_ABOVE' | 'ALL_BELOW' | 'VISIBLE';
   dilate?: number;
   fill_direction?: 'NORMAL' | 'INVERT';
+  /** Fill gap closure: extension length (world units), mode, stop at strokes, show the lines */
+  fill_extend?: number;
+  fill_extend_mode?: 'EXTEND' | 'RADIUS';
+  use_collide_strokes?: boolean;
+  show_fill_extend?: boolean;
   /** Primitives: number of subdivisions per edge */
   subdivision?: number;
   /** Sculpt brushes: affect the stroke falloff */

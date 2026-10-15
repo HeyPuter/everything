@@ -340,7 +340,7 @@ toolSettingsRenderers['builtin.brush.Fill'] = () => {
       ),
     ),
     field(
-      110,
+      100,
       numberField({
         id: 'gp-fill-dilate',
         label: 'Dilate',
@@ -352,7 +352,54 @@ toolSettingsRenderers['builtin.brush.Fill'] = () => {
         set: (x) => ((b.dilate = Math.round(x)), refresh()),
       }),
     ),
-    field(110, sizeField(b, 'gp-fill-size', 'Line')),
+    field(100, sizeField(b, 'gp-fill-size', 'Line')),
+    field(
+      120,
+      numberField({
+        id: 'gp-fill-ext',
+        label: 'Gap Closure',
+        value: b.fill_extend ?? 0,
+        min: 0,
+        max: 10,
+        precision: 3,
+        unit: 'distance',
+        tip: 'Size of the gaps that are closed: stroke ends are extended (Page Up / Page Down)',
+        set: (x) => ((b.fill_extend = Math.max(0, x)), refresh()),
+      }),
+    ),
+    field(
+      84,
+      enumMenu(
+        'gp-fill-extmode',
+        [
+          { value: 'EXTEND', label: 'Extend', description: 'Continue the stroke ends in their direction' },
+          { value: 'RADIUS', label: 'Radius', description: 'Join stroke ends that are close to each other' },
+        ],
+        b.fill_extend_mode ?? 'EXTEND',
+        (v) => ((b.fill_extend_mode = v as GPBrush['fill_extend_mode']), refresh()),
+        { tip: 'Gap closure mode (S)' },
+      ),
+    ),
+    h(
+      'button',
+      {
+        key: 'gp-fill-collide',
+        class: { 'hdr-toggle': true, on: !!b.use_collide_strokes },
+        'data-tip': 'Stroke Collision (D)\nExtension lines stop at the strokes they reach',
+        onclick: () => ((b.use_collide_strokes = !b.use_collide_strokes), refresh()),
+      },
+      icon('gp_trim'),
+    ),
+    h(
+      'button',
+      {
+        key: 'gp-fill-show',
+        class: { 'hdr-toggle': true, on: b.show_fill_extend !== false },
+        'data-tip': 'Visual Aids\nShow the gap closure lines while hovering',
+        onclick: () => ((b.show_fill_extend = b.show_fill_extend === false), refresh()),
+      },
+      icon('hide_off'),
+    ),
   ];
 };
 for (const t of ['builtin.line', 'builtin.polyline', 'builtin.arc', 'builtin.curve', 'builtin.box', 'builtin.circle'])
@@ -845,7 +892,13 @@ editModeHooks.svg.push((v) => {
 
 const paintOrSculpt = () => app.doc.mode === 'PAINT_GREASE_PENCIL' || app.doc.mode === 'SCULPT_GREASE_PENCIL';
 
+const fillTool = () => app.doc.mode === 'PAINT_GREASE_PENCIL' && activeTools.PAINT_GREASE_PENCIL === 'builtin.brush.Fill';
+const fillBrush = () => gpBrush(app.doc, 'builtin.brush.Fill');
 addKeys('Grease Pencil', [
+  { key: 'S', when: fillTool, action: () => ((fillBrush().fill_extend_mode = fillBrush().fill_extend_mode === 'RADIUS' ? 'EXTEND' : 'RADIUS'), refresh()) },
+  { key: 'D', when: fillTool, action: () => ((fillBrush().use_collide_strokes = !fillBrush().use_collide_strokes), refresh()) },
+  { key: 'PAGE_UP', when: fillTool, action: () => ((fillBrush().fill_extend = Math.round(((fillBrush().fill_extend ?? 0) + 0.01) * 1000) / 1000), refresh()) },
+  { key: 'PAGE_DOWN', when: fillTool, action: () => ((fillBrush().fill_extend = Math.max(0, Math.round(((fillBrush().fill_extend ?? 0) - 0.01) * 1000) / 1000)), refresh()) },
   { key: 'F', op: 'grease_pencil.radial_control', props: { data: 'size' }, when: paintOrSculpt },
   { key: 'F', shift: true, op: 'grease_pencil.radial_control', props: { data: 'strength' }, when: paintOrSculpt },
 ]);

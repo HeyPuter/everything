@@ -467,3 +467,31 @@ describe('vertex groups, weight and vertex paint', () => {
     expect(w.every((x) => Math.abs(x - 1) < 1e-6)).toBe(true);
   });
 });
+
+import { extensionLines } from '../../src/greasepencil/fillgaps';
+
+describe('fill gap closure', () => {
+  const u = {
+    pts: [
+      [0, 0],
+      [0, 100],
+      [100, 100],
+      [100, 10],
+    ] as [number, number][],
+    cyclic: false,
+  };
+  it('extends open ends along their direction (stopping at strokes when colliding)', () => {
+    const lines = extensionLines([u], 'EXTEND', () => 30, false);
+    expect(lines.length).toBe(2);
+    expect(lines[0]).toEqual([0, 0, 0, -30]);
+    expect(lines[1]).toEqual([100, 10, 100, -20]);
+    const wall = { pts: [[-50, -5], [150, -5]] as [number, number][], cyclic: false };
+    const hit = extensionLines([u, wall], 'EXTEND', () => 30, true);
+    expect(hit[0][3]).toBeCloseTo(-5);
+  });
+  it('joins close ends in radius mode', () => {
+    const lines = extensionLines([u], 'RADIUS', () => 120, false);
+    expect(lines).toEqual([[0, 0, 100, 10]]);
+    expect(extensionLines([u], 'RADIUS', () => 50, false)).toEqual([]);
+  });
+});

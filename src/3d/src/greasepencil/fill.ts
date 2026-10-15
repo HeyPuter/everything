@@ -11,6 +11,7 @@ import { Placement } from './placement';
 import { layerMatrix } from './render';
 import type { GPBrush, GPLayer, GreasePencilData } from './types';
 import { floodFill, dilate, traceContours, simplifyLoop } from './fillmath';
+import { extensionLines, type ScreenStroke } from './fillgaps';
 
 export { floodFill, dilate, traceContours, simplifyLoop };
 
@@ -61,6 +62,8 @@ export function fillRegion(v: View3D, ob: ObjectData, gp: GreasePencilData, laye
   const pl = new Placement(v, ob, gp, layer);
   const wp = new Vector3();
   let any = false;
+  const screenStrokes: ScreenStroke[] = [];
+  const pxPerWorld: number[] = [];
   for (const l of fillLayers(gp, layer, b.fill_layer_mode)) {
     const fr = frameAt(l, frame);
     const d = fr ? gp.drawings[fr.drawing] : null;
@@ -79,6 +82,8 @@ export function fillRegion(v: View3D, ob: ObjectData, gp: GreasePencilData, laye
         const p = v.project(wp);
         scr.push([p.x * s, p.y * s, Math.max(0.6, d.radius[i] * scl * px * s)]);
       }
+      screenStrokes.push({ pts: scr.map((q) => [q[0], q[1]]), cyclic: !!d.cyclic[k] });
+      pxPerWorld.push(px * s);
       // segment by segment so the line width follows the point radius
       for (let i = 0; i < scr.length; i++) {
         const p = scr[i],
@@ -98,6 +103,15 @@ export function fillRegion(v: View3D, ob: ObjectData, gp: GreasePencilData, laye
     }
   }
   if (!any) return 'Unable to fill: there are no strokes to fill inside';
+  // gap closure: extension lines count as boundaries
+  const ext = (b.fill_extend ?? 0) > 0 ? extensionLines(screenStrokes, b.fill_extend_mode ?? 'EXTEND', () => (b.fill_extend ?? 0) * (pxPerWorld[0] ?? 1), !!b.use_collide_strokes) : [];
+  g.lineWidth = 1.6;
+  for (const [x0, y0, x1, y1] of ext) {
+    g.beginPath();
+    g.moveTo(x0, y0);
+    g.lineTo(x1, y1);
+    g.stroke();
+  }
   const img = g.getImageData(0, 0, W, H).data;
   const boundary = new Uint8Array(W * H);
   for (let i = 0; i < W * H; i++) boundary[i] = img[i * 4 + 3] > 40 ? 1 : 0;
@@ -130,4 +144,35 @@ export function fillRegion(v: View3D, ob: ObjectData, gp: GreasePencilData, laye
   // largest first (outer boundary)
   out.sort((p, q) => q.length - p.length);
   return out.length ? out : 'Unable to fill';
+}
+
+// ---------------------------------------------------------------------------
+// gap closure preview (while the Fill tool hovers the viewport)
+
+/** The extension lines a fill would use, in viewport pixels. */
+export function extensionPreview(v: View3D, ob: ObjectData, gp: GreasePencilData, layer: GPLayer, b: GPBrush): [number, number, number, number][] {
+  if (!(b.fill_extend && b.fill_extend > 0)) return [];
+  const frame = app.doc.scene.frame_current;
+  const obWorld = app.graph.get(ob.id)?.world;
+  const pl = new Placement(v, ob, gp, layer);
+  const wp = new Vector3();
+  const strokes: ScreenStroke[] = [];
+  let px = 1;
+  for (const l of fillLayers(gp, layer, b.fill_layer_mode)) {
+    const fr = frameAt(l, frame);
+    const d = fr ? gp.drawings[fr.drawing] : null;
+    if (!d) continue;
+    const m = obWorld ? obWorld.clone().multiply(layerMatrix(l)) : layerMatrix(l);
+    for (let k = 0; k + 1 < d.offsets.length; k++) {
+      const pts: [number, number][] = [];
+      for (let i = d.offsets[k]; i < d.offsets[k + 1]; i++) {
+        wp.set(d.position[i * 3], d.position[i * 3 + 1], d.position[i * 3 + 2]).applyMatrix4(m);
+        const p = v.project(wp);
+        pts.push([p.x, p.y]);
+        if (strokes.length === 0 && pts.length === 1) px = 1 / pl.pixelSize(wp);
+      }
+      strokes.push({ pts, cyclic: !!d.cyclic[k] });
+    }
+  }
+  return extensionLines(strokes, b.fill_extend_mode ?? 'EXTEND', () => (b.fill_extend ?? 0) * px, !!b.use_collide_strokes);
 }

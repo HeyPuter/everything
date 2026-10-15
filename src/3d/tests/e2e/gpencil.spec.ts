@@ -297,3 +297,48 @@ test('vertex paint and weight paint modes', async ({ page }) => {
   expect(await get(page, `(() => { const g = ${gp}; const w = g.drawings[g.layers[1].frames[0].drawing].weights.Group; return Array.from(w).filter((x) => x > 0).length; })()`)).toBeGreaterThan(0);
   await expectNoErrors(errors);
 });
+
+test('fill tool closes small gaps with extension lines', async ({ page }) => {
+  const errors = await openApp(page);
+  await run(page, 'object.select_all', { action: 'SELECT' });
+  await run(page, 'object.delete');
+  await run(page, 'object.grease_pencil_add', { type: 'EMPTY' });
+  await run(page, 'object.mode_set', { mode: 'PAINT_GREASE_PENCIL' });
+  await run(page, 'view3d.view_axis', { type: 'FRONT' });
+  await page.waitForTimeout(400); // the view turns smoothly
+  const c = await hoverViewport(page);
+  const r = c.box;
+  // a "U" whose top is open by 40 px
+  const cx = r.width / 2,
+    cy = r.height / 2;
+  const pts = [
+    [cx - 100, cy - 60],
+    [cx - 100, cy + 80],
+    [cx + 100, cy + 80],
+    [cx + 100, cy - 60],
+    [cx + 20, cy - 60],
+  ];
+  const left = [
+    [cx - 20, cy - 60],
+    [cx - 100, cy - 60],
+  ];
+  await page.evaluate(([a, b]) => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    app.run('grease_pencil.draw_points', { points: JSON.stringify(a.map(([x, y]: number[]) => [x, y, 1])) }, { invoke: false });
+    app.run('grease_pencil.draw_points', { points: JSON.stringify(b.map(([x, y]: number[]) => [x, y, 1])) }, { invoke: false });
+  }, [pts, left]);
+  expect(await strokeCount(page)).toBe(2);
+  const fill = () => page.evaluate(([x, y]) => (window as any).app.run('grease_pencil.fill', { x, y }, { invoke: false }), [cx, cy]); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await fill();
+  expect(await strokeCount(page)).toBe(2);
+  // close the 40 px gap
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const b = a.doc.scene.tool_settings.gpencil_brushes['builtin.brush.Fill'];
+    b.fill_extend = 3; // about 90 px at this zoom
+    b.fill_extend_mode = 'RADIUS';
+  });
+  await fill();
+  expect(await strokeCount(page)).toBe(3);
+  await expectNoErrors(errors);
+});

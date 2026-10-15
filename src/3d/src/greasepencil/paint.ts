@@ -18,7 +18,7 @@ import { setStrokePreview, layerMatrix } from './render';
 import { smoothPoints, simplifyPoints, subdivideStroke } from './strokeops';
 import { stabilize, trimEnds, noise, type Sample } from './drawproc';
 import { startSculpt } from './sculpt';
-import { fillRegion } from './fill';
+import { fillRegion, extensionPreview } from './fill';
 import type { GPBrush, GPLayer, GreasePencilData } from './types';
 
 /** Primitive tools → their operators (see primitives.ts). */
@@ -484,6 +484,23 @@ editModeHooks.svg.push((v) => {
 });
 
 addEventListener('pointerleave', () => (cursor.inside = false));
+
+// Fill tool: preview of the gap closure lines
+let fillPreview: { key: string; lines: [number, number, number, number][] } = { key: '', lines: [] };
+editModeHooks.svg.push((v) => {
+  if (!inDrawMode() || activeTools[app.doc.mode] !== 'builtin.brush.Fill' || !cursor.inside || cursor.view !== v || app.modal) return null;
+  const b = gpBrush(app.doc, 'builtin.brush.Fill');
+  if (!(b.fill_extend && b.fill_extend > 0) || b.show_fill_extend === false) return null;
+  const c = drawContext();
+  if (!c?.layer) return null;
+  const key = `${app.revision}|${v.camera.matrixWorld.elements.join(',')}|${b.fill_extend}|${b.fill_extend_mode}|${b.use_collide_strokes}|${v.width}x${v.height}`;
+  if (key !== fillPreview.key) fillPreview = { key, lines: extensionPreview(v, c.ob, c.gp, c.layer, b) };
+  return h(
+    'g',
+    { key: 'gp-fill-ext', 'pointer-events': 'none' },
+    fillPreview.lines.map(([x0, y0, x1, y1], i) => h('line', { key: i, x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#00e5ff', 'stroke-width': 1.5, 'stroke-dasharray': b.fill_extend_mode === 'RADIUS' ? '3 2' : undefined })),
+  );
+});
 
 // stabilizer: a lazy line from the drawing point to the pointer while drawing
 editModeHooks.svg.push((v) => {
