@@ -1323,7 +1323,7 @@ export function startTransform(
         switchMode(code === 'KeyG' ? 'TRANSLATION' : code === 'KeyR' ? (curMode === 'ROTATION' ? 'TRACKBALL' : 'ROTATION') : 'RESIZE');
         return true;
       }
-      if (/^[0-9.]$/.test(k) || k === '-' || k === '+' || k === '/' || k === '(' || k === ')' || k === '^') {
+      if (/^[0-9.]$/.test(k) || k === '-' || k === '+' || k === '*' || k === '/' || k === '(' || k === ')' || k === '^') {
         num.type(k === '^' ? '**' : k);
         compute();
         return true;
