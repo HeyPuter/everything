@@ -4,6 +4,8 @@ import type { CurveData, DocumentData, MeshData, ObjectData } from '../data/type
 import { sampleSpline } from '../eval/curve';
 import { CurvesComponent, GeometrySet, MeshComponent, PointsComponent, mulMat, isIdentity, type AttrMap, type InstancesComponent } from './geometry';
 import { edgeAttrToCorners, faceNormals, smoothFlags } from './meshutil';
+import { curveObjectToCurves, evaluatedCurves } from './curves/curvedata';
+import { curvesWithGreasePencil } from './curves/gpdata';
 
 export interface GnEvalMesh extends EvalMesh {
   /** materials of the generated geometry by material index (when set by nodes) */
@@ -114,8 +116,13 @@ export function curvesFromPolylines(list: { points: Float32Array; cyclic: boolea
   return new CurvesComponent(pos, offs, cyc);
 }
 
-/** Poly curves sampled from a curve data-block (object space). */
+/** Curves of a curve data-block (object space) with their spline types and handles. */
 export function curveDataToCurves(cu: CurveData): CurvesComponent {
+  return curveObjectToCurves(cu);
+}
+
+/** Poly curves sampled from a curve data-block (object space). */
+export function sampledCurveData(cu: CurveData): CurvesComponent {
   const sampled = cu.splines.map((s) => sampleSpline(s, cu.resolution_u));
   let total = 0;
   for (const s of sampled) total += s.points.length;
@@ -275,8 +282,8 @@ export function geometryToEvalMesh(g: GeometrySet, opts: OutputOptions = {}): Gn
       normals: new Float32Array(0),
       pointRadius: r ? (r.data as Float32Array) : undefined,
     };
-  } else if (g.curves) {
-    const c = g.curves;
+  } else if (g.curves || g.greasePencil) {
+    const c = evaluatedCurves(curvesWithGreasePencil(g) ?? new CurvesComponent(new Float32Array(0), new Uint32Array([0]), new Uint8Array(0)));
     const curves: { points: Float32Array; cyclic: boolean }[] = [];
     for (let k = 0; k < c.curveCount; k++)
       curves.push({

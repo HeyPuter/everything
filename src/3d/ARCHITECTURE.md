@@ -25,6 +25,8 @@ src/
   modes/      Edit modes: editmesh/ (mesh), armature/ (edit + pose), curve/, lattice/, text/
   nodes/      Node registry, shader nodes + GLSL compiler, generic node editor (editor/)
   geonodes/   Geometry Nodes nodes, field evaluator, NODES modifier, Geometry Node Editor
+              curves/: spline types (Bézier/NURBS/Catmull-Rom attributes + evaluation), curve, text,
+              import, Grease Pencil and gizmo nodes; placed in the Add menu with `place()` (curves/menu.ts)
   spreadsheet/ Spreadsheet editor
   compositor/ Compositor nodes (GPU), Compositor editor, render post-processing
   animation/  Dope Sheet, Graph Editor, Drivers, NLA editors and their operators

@@ -72,6 +72,8 @@ export function coerce(v: SocketValue | undefined, type: SocketType): Val {
     case 'COLLECTION':
     case 'MATERIAL':
     case 'IMAGE':
+    case 'FONT':
+    case 'SOUND':
       return typeof v === 'string' && v ? v : null;
     default:
       return v ?? null;
@@ -357,6 +359,10 @@ export class TreeEval {
         const s = sock(id);
         if (!s) return [];
         return self.inputValues(node, s).filter((g): g is GeometrySet => g instanceof GeometrySet);
+      },
+      values: (id) => {
+        const s = sock(id);
+        return s ? self.inputValues(node, s) : [];
       },
       field: (id, type) => {
         const s = sock(id);
