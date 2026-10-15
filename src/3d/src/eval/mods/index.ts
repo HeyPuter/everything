@@ -6,3 +6,4 @@ import './transfer';
 import './smooth';
 import './bind';
 import './skin';
+import './multires';
