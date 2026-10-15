@@ -25,5 +25,6 @@ import './transformmodes';
 import './editxform';
 import './sidebar-items';
 import './text/text';
+import './text/fontops';
 import './text/props';
 export {};

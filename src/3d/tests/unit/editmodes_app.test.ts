@@ -89,3 +89,26 @@ describe('curve edit operators in the app', () => {
     app.run('transform.tilt', { value: 0.5 }, { invoke: false });
   });
 });
+
+import { readFileSync } from 'node:fs';
+import { layoutText, parseFontBytes } from '../../src/io/fonts';
+
+describe('custom fonts', () => {
+  it('a packed font file is used for layout and survives save / load', () => {
+    app.run('object.text_add');
+    const ob = app.activeObject!;
+    const cu = app.doc.curves[ob.data!] as CurveData;
+    const raw = readFileSync('node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff');
+    const bytes = new Uint8Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength));
+    expect(parseFontBytes(bytes)).toBeTruthy();
+    expect(parseFontBytes(new Uint8Array([1, 2, 3]))).toBe(null);
+    app.doc.fonts = { vf1: { id: 'vf1', name: 'Mono', filepath: 'mono.woff', bytes } };
+    cu.font = 'vf1';
+    // built-in fonts are not loaded in tests: the custom font alone lays out the text
+    const l = layoutText(cu);
+    expect(l.splines.length).toBeGreaterThan(3);
+    const { doc } = decodeDocument(encodeDocument(app.doc));
+    expect(doc.fonts!.vf1.bytes!.length).toBe(bytes.length);
+    expect((doc.curves[ob.data!] as CurveData).font).toBe('vf1');
+  });
+});

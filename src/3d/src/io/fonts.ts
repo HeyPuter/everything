@@ -2,7 +2,7 @@
 // Inter font (SIL Open Font License, via @fontsource/inter) and converts glyph outlines into
 // Bézier splines that the curve evaluator fills and extrudes.
 import { parse, type Font, type Glyph } from 'opentype.js';
-import type { BezierPoint, CurveData, Spline, Vec3 } from '../data/types';
+import type { BezierPoint, CurveData, Spline, Vec3, VectorFontData } from '../data/types';
 import { setGlyphProvider } from '../eval/text';
 import { layoutTextWith, type FontStyle, type GlyphSource, type TextLayout } from './textlayout';
 import latinUrl from '@fontsource/inter/files/inter-latin-400-normal.woff?url';
@@ -135,9 +135,72 @@ const source: GlyphSource = {
 
 export type { TextLayout };
 
-/** Lay out a text body (see textlayout.ts) with the bundled fonts. */
+// ---------------------------------------------------------------------------
+// custom fonts (font data-blocks packed in the document)
+
+let fontTable: () => Record<string, VectorFontData> | undefined = () => undefined;
+/** Where font data-blocks live (set by the text module: the document's `fonts`). */
+export function setFontTable(fn: () => Record<string, VectorFontData> | undefined) {
+  fontTable = fn;
+}
+
+const parsed = new WeakMap<Uint8Array, Font | null>();
+
+/** Parse a font file; null when it cannot be read (unsupported format or damaged). */
+export function parseFontBytes(bytes: Uint8Array): Font | null {
+  if (parsed.has(bytes)) return parsed.get(bytes)!;
+  let f: Font | null = null;
+  try {
+    f = parse(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+    if (!f.glyphs?.length) f = null;
+  } catch {
+    f = null;
+  }
+  parsed.set(bytes, f);
+  return f;
+}
+
+function customFont(id: string | null | undefined): Font | null {
+  if (!id) return null;
+  const fd = fontTable()?.[id];
+  return fd?.bytes ? parseFontBytes(fd.bytes) : null;
+}
+
+/** Glyph source honouring a text object's custom fonts (falls back to the built-in faces). */
+function sourceFor(cu: CurveData): GlyphSource {
+  if (!cu.font && !cu.font_bold && !cu.font_italic && !cu.font_bold_italic) return source;
+  const slot: Record<FontStyle, Font | null> = { REGULAR: customFont(cu.font), BOLD: customFont(cu.font_bold), ITALIC: customFont(cu.font_italic), BOLD_ITALIC: customFont(cu.font_bold_italic) };
+  const regular = slot.REGULAR;
+  const pick = (ch: string, style: FontStyle): { font: Font; glyph: Glyph } | null => {
+    const f = slot[style] ?? regular;
+    if (f) {
+      const idx = f.charToGlyphIndex(ch);
+      if (idx > 0) return { font: f, glyph: f.glyphs.get(idx) };
+    }
+    // characters missing from the custom font come from the built-in one
+    return glyphFor(ch, regular && !slot[style] ? 'REGULAR' : style);
+  };
+  return {
+    advance(ch, style) {
+      const g = pick(ch, style);
+      return g ? (g.glyph.advanceWidth ?? 0) / g.font.unitsPerEm : 0;
+    },
+    outline(ch, style) {
+      const g = pick(ch, style);
+      return g ? glyphOutline(g.font, g.glyph) : null;
+    },
+    hasStyle(style) {
+      if (style === 'REGULAR' || slot[style]) return true;
+      // a custom regular face without a matching style face: synthesize italics, no fake bold
+      return regular ? false : source.hasStyle(style);
+    },
+  };
+}
+
+/** Lay out a text body (see textlayout.ts) with the bundled fonts (or the object's own fonts). */
 export function layoutText(cu: CurveData): TextLayout {
-  return layoutTextWith(cu, fonts.length ? source : null);
+  const src = sourceFor(cu);
+  return layoutTextWith(cu, fonts.length || src !== source ? src : null);
 }
 
 let loading: Promise<void> | null = null;

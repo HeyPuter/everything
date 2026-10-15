@@ -694,6 +694,7 @@ fontLoadListeners.push(() => {
 
 registerIcons({
   select_text: '<path class="s" d="M5.5 2.5h5M5.5 13.5h5M8 2.5v11" fill="none" stroke-width="1.3"/>',
+  font_data: '<path class="f" d="M2 13 6.2 2.5h1.6L12 13h-1.9l-1-2.7H4.9L3.9 13zm3.5-4.3h3L7 4.6z"/><path class="s" d="M12.5 8.5v5M10 13.5h5" stroke-width="1.1"/>',
 });
 
 toolsByMode.EDIT_FONT = [{ id: 'builtin.select_text', label: 'Select Text', icon: 'select_text', description: 'Click to place the cursor, drag to select, double-click selects a word' }, ...COMMON_TOOLS];

@@ -373,3 +373,25 @@ test('convert text and mesh objects to curves', async ({ page }) => {
   expect(await get(page, `Object.values(app.doc.objects).some(o => o.name === 'Cube' && o.type === 'MESH')`)).toBe(true);
   await expectNoErrors(errors);
 });
+
+test('text object: open a custom font file from the Font panel', async ({ page }) => {
+  const errors = await openApp(page);
+  await fresh(page, 'object.text_add');
+  await page.waitForFunction(() => {
+    const a = (window as any).app;
+    return (a.graph.get(a.activeObject.id)?.mesh?.positions.length ?? 0) > 0;
+  });
+  const before = await get(page, 'app.graph.get(app.activeObject.id).mesh.positions.length');
+  await page.locator('.rail-tab[data-tip="Data"]').first().click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.locator('.ids-btn[data-tip="Open a font file"]').first().click();
+  await (await chooser).setFiles('node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff');
+  await page.waitForFunction(() => {
+    const a = (window as any).app;
+    return !!a.doc.curves[a.activeObject.data].font;
+  });
+  await page.evaluate(() => (window as any).app.flush());
+  expect(await get(page, 'Object.values(app.doc.fonts).map(f => f.name)')).toEqual(['jetbrains-mono-latin-400-normal']);
+  expect(await get(page, 'app.graph.get(app.activeObject.id).mesh.positions.length')).not.toBe(before);
+  await expectNoErrors(errors);
+});

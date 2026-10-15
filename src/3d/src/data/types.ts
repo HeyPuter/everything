@@ -198,6 +198,20 @@ export interface CurveData {
   /** text frames; a box with width 0 does not wrap */
   text_boxes?: TextBox[];
   overflow?: 'NONE' | 'SCALE' | 'TRUNCATE';
+  /** custom font data-blocks per style (null / missing: built-in font) */
+  font?: ID | null;
+  font_bold?: ID | null;
+  font_italic?: ID | null;
+  font_bold_italic?: ID | null;
+}
+
+/** A loaded font file (TrueType / OpenType / WOFF), packed into the document. */
+export interface VectorFontData {
+  id: ID;
+  name: string;
+  filepath: string;
+  bytes: Uint8Array | null;
+  users?: number;
 }
 
 export interface CharFormat {
@@ -993,6 +1007,8 @@ export interface DocumentData {
   particles: Record<ID, ParticleSettings>;
   texts: Record<ID, TextData>;
   brushes: Record<ID, BrushData>;
+  /** Font data-blocks used by text objects; absent in older files */
+  fonts?: Record<ID, VectorFontData>;
   /** Grease Pencil data-blocks (src/greasepencil); absent in older files */
   grease_pencils?: Record<ID, import('../greasepencil/types').GreasePencilData>;
   /** Metaball data-blocks (src/metaball); absent in older files */

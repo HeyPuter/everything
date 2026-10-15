@@ -8,6 +8,48 @@ import { fontDataPanels } from '../../editors/properties/tabs';
 import type { CurveData } from '../../data/types';
 import { editFormat, textState } from './text';
 import { formats, styleKey, textBoxes } from './textops';
+import { FONT_SLOTS, slotKey } from './fontops';
+import { openMenu } from '../../ui/menu';
+import { icon } from '../../ui/icons';
+
+/** Font data-block row: browse loaded fonts, open a file, or unlink (built-in font). */
+function fontSlot(cu: CurveData, slot: string, label: string) {
+  const key = slotKey(slot);
+  const cur = cu[key] ? app.doc.fonts?.[cu[key] as string] : undefined;
+  const assign = (id: string | null) => {
+    cu[key] = id;
+    changed('Assign Font');
+  };
+  return splitRow(
+    label,
+    h(
+      'div',
+      { class: 'id-selector' },
+      h(
+        'button',
+        {
+          class: 'ids-browse',
+          'data-tip': 'Browse loaded fonts',
+          onpointerdown: (e: PointerEvent) => {
+            e.preventDefault();
+            openMenu(
+              [
+                { label: 'Built-in (Inter)', icon: 'font_data', active: !cur, action: () => assign(null) },
+                ...Object.values(app.doc.fonts ?? {}).map((f) => ({ label: f.name, icon: 'font_data', active: f.id === cur?.id, action: () => assign(f.id) })),
+              ],
+              e.currentTarget as HTMLElement,
+            );
+          },
+        },
+        icon('font_data'),
+        icon('down_arrow_hlt', 'tiny'),
+      ),
+      h('span', { class: 'ids-name', 'data-tip': cur?.filepath ?? 'The bundled Inter font' }, cur ? cur.name : 'Built-in'),
+      h('button', { class: 'ids-btn', 'data-tip': 'Open a font file', onclick: () => app.run('font.open', { slot }) }, icon('file_folder')),
+      cur ? h('button', { class: 'ids-btn', 'data-tip': 'Use the built-in font', onclick: () => app.run('font.unlink', { slot }) }, icon('x')) : null,
+    ),
+  );
+}
 
 function changed(label: string) {
   app.pushUndo(label);
@@ -59,6 +101,7 @@ fontDataPanels.push(
       ensureDefaults(cu);
       const editing = app.doc.mode === 'EDIT';
       return [
+        ...FONT_SLOTS.map(([slot, label]) => fontSlot(cu, slot, label)),
         editing
           ? splitRow(
               'Style',
