@@ -362,7 +362,7 @@ export const GEOMETRY_MENU_LAYOUT: MenuCategory[] = [
     cat('Matrix', [
       e('FunctionNodeCombineMatrix'),
       e('FunctionNodeCombineTransform'),
-      e('FunctionNodeMatrixDeterminant'),
+      e('FunctionNodeMatrixDeterminant', 'Determinant'),
       e('FunctionNodeInvertMatrix'),
       e('FunctionNodeMatrixMultiply'),
       e('FunctionNodeMatrixSVD'),
