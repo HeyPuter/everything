@@ -152,6 +152,8 @@ export interface Preferences {
   audio_sample_rate: number;
   audio_channels: number;
   audio_latency: 'interactive' | 'balanced' | 'playback';
+  /** features that need the network: the Python runtime download and the assistant */
+  use_online_access: boolean;
 
   // --- Save & Load
   autosave_interval: number;
@@ -302,6 +304,7 @@ export const defaultPreferences = (): Preferences => ({
   audio_sample_rate: 48000,
   audio_channels: 2,
   audio_latency: 'interactive',
+  use_online_access: true,
 
   autosave_interval: 2,
   use_auto_save_temporary_files: true,

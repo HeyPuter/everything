@@ -482,3 +482,18 @@ test('search finds preferences across sections', async ({ page }) => {
   await expect(page.locator('.prefs-main.searching')).toHaveCount(0);
   await expectNoErrors(errors);
 });
+
+test('network: with online access off, Python does not download', async ({ page }) => {
+  const errors = await openApp(page);
+  await setPref(page, 'use_online_access', false);
+  const msg = await page.evaluate(async () => {
+    try {
+      await (await import('/src/scripting/python.ts')).loadPython();
+      return 'loaded';
+    } catch (e) {
+      return (e as Error).message;
+    }
+  });
+  expect(msg).toContain('online access is turned off');
+  expect(errors.filter((e) => !e.includes('online access'))).toEqual([]);
+});

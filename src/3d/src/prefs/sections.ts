@@ -384,6 +384,7 @@ registerPrefSection({
       pEnum('audio_latency', 'Buffer', [E('interactive', 'Low Latency', 'Smallest output buffer: sound follows the timeline closely'), E('balanced', 'Balanced'), E('playback', 'Smooth Playback', 'Largest buffer: fewest dropouts on slow devices')]),
       note('Sound settings apply the next time playback starts. Channels are limited by the output device.'),
     ]),
+    panel('pf-network', 'Network', () => [pBool('use_online_access', 'Allow Online Access', 'Let features reach the internet: downloading the Python runtime (first use) and the AI assistant. Everything else works offline.')]),
     panel('pf-py', 'Python', () => pythonRows()),
     panel('pf-dev', 'Device', () => deviceRows(), { closed: true }),
   ],
