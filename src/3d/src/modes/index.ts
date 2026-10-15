@@ -11,6 +11,7 @@ import './editmesh/rip';
 import './editmesh/ops-extrude';
 import './editmesh/ops-cleanup';
 import './editmesh/ops-faces';
+import './editmesh/ops-edges';
 import './armature/armature';
 import './armature/boneprops';
 import './armature/tools';

@@ -314,3 +314,56 @@ describe('face tools', () => {
     expect(m.looseEdges.length).toBe(0);
   });
 });
+
+import { subdivideEdgeRing, offsetEdgeLoops, edgeSplit, connectVertexPairs, sharpnessByAngle } from '../../src/modes/editmesh/ops-edges';
+
+describe('edge tools', () => {
+  it('subdivides the ring between two loops', () => {
+    const m = fromPrim(prim.cylinder(16));
+    selectAll(m);
+    expect(subdivideEdgeRing(m, 2, 'LINEAR', 0)).toBe(true);
+    expect(counts(m)).toEqual([64, 112, 50]);
+    expect(manifold(m)).toBe(true);
+    expect(m.selectedVerts().length).toBe(32);
+  });
+
+  it('offsets edge loops on both sides', () => {
+    const m = cube();
+    selectEdges(m, (c) => c[2] > 0.9);
+    // the whole top loop: only the side faces get a new loop
+    expect(offsetEdgeLoops(m, 0.25)).toBe(true);
+    expect(counts(m)).toEqual([12, 20, 10]);
+    const one = cube();
+    selectEdges(one, (c) => c[2] > 0.9 && c[0] > 0.9);
+    offsetEdgeLoops(one, 0.25);
+    expect(counts(one)).toEqual([12, 18, 8]);
+    expect(manifold(one)).toBe(true);
+  });
+
+  it('splits edges and vertices', () => {
+    const m = cube();
+    selectEdges(m, (c) => c[2] > 0.9);
+    // keep only the loop (not the top face) for the split
+    expect(edgeSplit(m, 'EDGE')).toBe(true);
+    expect(counts(m)).toEqual([12, 16, 6]);
+    const v = cube();
+    selectEdges(v, (c) => c[2] > 0.9);
+    edgeSplit(v, 'VERT');
+    expect(v.vcount).toBe(16);
+  });
+
+  it('connects vertex pairs and sets sharpness by angle', () => {
+    const m = cube();
+    selectWhere(m, (p) => (p[0] > 0.9 && p[1] > 0.9 && p[2] > 0.9) || (p[0] > 0.9 && p[1] < -0.9 && p[2] < -0.9));
+    expect(connectVertexPairs(m)).toBe(1);
+    expect(counts(m)).toEqual([8, 13, 7]);
+    const s = cube();
+    selectAll(s);
+    subdivide(s, 1, 0);
+    selectAll(s);
+    sharpnessByAngle(s, Math.PI / 6, false);
+    const sharp = new Set<string>();
+    for (const f of s.faces) f.verts.forEach((v, i) => f.sharp[i] && sharp.add([v, f.verts[(i + 1) % f.verts.length]].sort().join()));
+    expect(sharp.size).toBe(24);
+  });
+});
