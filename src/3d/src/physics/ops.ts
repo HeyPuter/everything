@@ -13,6 +13,7 @@ import { caches, freeCache, objectWorldAt, startBudget } from './common';
 import { freeRigidBodyLive, loadRapier, rapierLoaded, rigidBodyMatrix, simulateRigidBodies, RB_CACHE } from './rigidbody';
 import { meshSimKey } from './meshsim';
 import { RBC_TYPES, rbcDefaults } from './rbjoints';
+import { dpCacheKey, type DynamicPaintModifier } from './dynpaint';
 import { particleCacheKey, systemOf } from './particles';
 import { fluidCacheKey } from './fluid';
 import { physicsState } from './runtime';
@@ -55,6 +56,8 @@ export function cacheOwners(doc: DocumentData): CacheOwner[] {
     for (const m of ob.modifiers) {
       if ((m.type === 'CLOTH' || m.type === 'SOFT_BODY') && m.point_cache) out.push({ key: meshSimKey(m.type, ob, m), label: `${ob.name} ▸ ${m.name}`, pc: m.point_cache as PointCacheSettings });
       if (m.type === 'FLUID' && m.fluid_type === 'DOMAIN' && m.point_cache) out.push({ key: fluidCacheKey(ob, m), label: `${ob.name} ▸ ${m.name}`, pc: m.point_cache as PointCacheSettings });
+      if (m.type === 'DYNAMIC_PAINT' && m.ui_type === 'CANVAS')
+        for (const sf of (m as DynamicPaintModifier).canvas_settings?.canvas_surfaces ?? []) if (sf.is_active) out.push({ key: dpCacheKey(ob, m, sf), label: `${ob.name} ▸ ${sf.name}`, pc: sf.point_cache });
       if (m.type === 'PARTICLE_SYSTEM') {
         const ps = systemOf(ob, m);
         const s = ps ? doc.particles[ps.settings] : undefined;

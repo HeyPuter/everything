@@ -13,6 +13,8 @@ import { meshSimKey } from './meshsim';
 import { RB_CACHE, rapierLoaded } from './rigidbody';
 import { RBC_TYPES } from './rbjoints';
 import { rbcTypePanels } from './ui-rbc';
+import { dynamicPaintPanels } from './ui-dynpaint';
+import { dpOf } from './dpops';
 import {
   defaultClothCollision,
   defaultClothSettings,
@@ -69,6 +71,8 @@ function enableGrid(ob: ObjectPhysics): Child {
     const fl = fluidOf(ob);
     btns.push(toggleButton('Fluid', 'mod_fluid', !!fl, () => app.run('object.modifier_add', { type: 'FLUID' }), () => app.run('object.modifier_remove', { modifier: fl!.id })));
     btns.push(toggleButton('Rigid Body', 'physics', !!ob.rigid_body, () => app.run('rigidbody.object_add', { type: 'ACTIVE' }), () => app.run('rigidbody.object_remove')));
+    const dp = dpOf(ob);
+    btns.push(toggleButton('Dynamic Paint', 'mod_dynamicpaint', !!dp, () => app.run('object.modifier_add', { type: 'DYNAMIC_PAINT' }), () => app.run('object.modifier_remove', { modifier: dp!.id })));
   }
   btns.push(toggleButton('Rigid Body Constraint', 'constraint', !!ob.rigid_body_constraint, () => app.run('rigidbody.constraint_add', { type: 'FIXED' }), () => app.run('rigidbody.constraint_remove')));
   return h('div', { class: 'phys-enable' }, h('div', { class: 'sub-label' }, 'Enable physics for:'), h('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '2px', padding: '2px 8px 8px' } }, btns));
@@ -411,6 +415,8 @@ insertTabAfter('CONSTRAINT', {
     if (fl) out.push(...fluidPanels(ob, fl));
     if (ob.rigid_body) out.push(...rigidBodyPanels(ob));
     if (ob.rigid_body_constraint) out.push(...rbConstraintPanels(ob));
+    const dp = isGeom(ob) ? dpOf(ob) : undefined;
+    if (dp) out.push(...dynamicPaintPanels(ob, dp));
     return out;
   },
 });
@@ -430,4 +436,5 @@ const gotoTab = (tab: string, text: string) => (_ob: ObjectData, _m: ModifierBas
 modifierExtraUI.CLOTH = gotoTab('PHYSICS', 'Settings are inside the Physics tab.');
 modifierExtraUI.SOFT_BODY = gotoTab('PHYSICS', 'Settings are inside the Physics tab.');
 modifierExtraUI.FLUID = gotoTab('PHYSICS', 'Settings are inside the Physics tab.');
+modifierExtraUI.DYNAMIC_PAINT = gotoTab('PHYSICS', 'Settings are inside the Physics tab.');
 modifierExtraUI.PARTICLE_SYSTEM = gotoTab('PARTICLES', 'Settings are inside the Particles tab.');

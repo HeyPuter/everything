@@ -120,3 +120,50 @@ test('disable and keep transform, invalid constraints and the bone constraint me
   await expect(page.locator('[data-panel="bone-ik"]')).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('physics tab: dynamic paint canvas and brush, rigid body constraint limits, field types, cache buttons', async ({ page }) => {
+  const errors = await openApp(page);
+  // the cube becomes a dynamic paint brush through the Physics tab
+  await openTab(page, 'PHYSICS');
+  await page.locator('.phys-toggle', { hasText: 'Dynamic Paint' }).click();
+  await page.locator('[data-panel="dp"] .enum-row button', { hasText: 'Brush' }).click();
+  await page.locator('[data-panel="dp"] button', { hasText: 'Add Brush' }).click();
+  await expect(page.locator('[data-panel="dp-brush-source"]')).toBeVisible();
+  // a plane canvas under it
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.run('mesh.primitive_grid_add', { x_subdivisions: 10, y_subdivisions: 10, size: 4, location: [0, 0, 0] }, { invoke: false });
+  });
+  await page.locator('.phys-toggle', { hasText: 'Dynamic Paint' }).click();
+  await page.locator('[data-panel="dp"] button', { hasText: 'Add Canvas' }).click();
+  await expect(page.locator('[data-panel="dp-surface"]')).toBeVisible();
+  await expect(page.locator('[data-panel="dp-cache"]')).toBeVisible();
+  // the canvas gets painted where the cube intersects it
+  await page.evaluate(() => (window as any).app.setFrame(3));
+  await expect
+    .poll(() => get(page, `(() => { const m = app.graph.get(app.activeObject.id).mesh; return m.colors ? Math.min(...Array.from(m.colors).filter((_, i) => i % 4 === 0)) : 1; })()`))
+    .toBeLessThan(0.5);
+  // Calculate to Frame keeps the cache unbaked
+  await page.locator('[data-panel="dp-cache"] button', { hasText: 'Calculate to Frame' }).click();
+  expect(await get(page, `app.activeObject.modifiers[0].canvas_settings.canvas_surfaces[0].point_cache.is_baked`)).toBe(false);
+  await page.locator('[data-panel="dp-cache"] button', { hasText: 'Current Cache to Bake' }).click();
+  expect(await get(page, `app.activeObject.modifiers[0].canvas_settings.canvas_surfaces[0].point_cache.is_baked`)).toBe(true);
+
+  // rigid body constraint types show their limits
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.run('object.empty_add', { location: [0, 0, 3] }, { invoke: false });
+    a.run('rigidbody.constraint_add', { type: 'GENERIC' }, { invoke: false });
+  });
+  await expect(page.locator('[data-panel^="ph-rbc-lim-"]')).toBeVisible();
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.activeObject.rigid_body_constraint.type = 'MOTOR';
+    a.changed('doc');
+  });
+  await expect(page.locator('[data-panel^="ph-rbc-mot-"]')).toBeVisible();
+  // the new field types are offered and get their settings
+  await page.evaluate(() => (window as any).app.run('object.effector_add', { type: 'HARMONIC' }, { invoke: false }));
+  await expect(page.locator('[data-panel="ph-field"] .sr-label', { hasText: 'Rest Length' })).toBeVisible();
+  await expectNoErrors(errors);
+});
