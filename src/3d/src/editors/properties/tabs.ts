@@ -1,4 +1,5 @@
 // Properties tabs: scene, world, collection, object, data, material.
+import { materialSettingsPanel, ensureMaterialDefaults } from '../../render/realtime/materialprops';
 import { lightInfluencePanel, lightShadowPanel, lightDistancePanel, ensureLightDefaults } from '../../render/realtime/lightprops';
 import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
@@ -643,13 +644,7 @@ function materialPanels(ma: MaterialData): Child {
   return [
     panel('ma-preview', 'Preview', () => h('div', { class: 'mat-preview', style: { background: `radial-gradient(circle at 35% 35%, #fff8 0, transparent 30%), radial-gradient(circle, ${swatchCss(ma)} 0 60%, transparent 61%)` } }), { closed: true }),
     panel('ma-surface', 'Surface', () => (materialSurfacePanel.draw ? materialSurfacePanel.draw(ma) : h('div', { class: 'prop-note' }, 'Edit the node tree in the Shader Editor.'))),
-    panel('ma-settings', 'Settings', () => [
-      bool(ma, 'use_backface_culling', 'Backface Culling'),
-      enumProp(ma, 'blend_method', 'Blend Mode', [['OPAQUE', 'Opaque'], ['CLIP', 'Alpha Clip'], ['HASHED', 'Alpha Hashed'], ['BLEND', 'Alpha Blend']]),
-      ma.blend_method === 'CLIP' ? num(ma, 'alpha_threshold', 'Clip Threshold', { min: 0, max: 1, slider: true }) : null,
-      enumProp(ma as never, 'shadow_method' as never, 'Shadow Mode', [['NONE', 'None'], ['OPAQUE', 'Opaque'], ['CLIP', 'Alpha Clip'], ['HASHED', 'Alpha Hashed']]),
-      num(ma as never, 'pass_index' as never, 'Pass Index', { int: true, min: 0 }),
-    ], { closed: true }),
+    (ensureMaterialDefaults(ma), materialSettingsPanel(ma)),
     panel('ma-display', 'Viewport Display', () => [colorProp(ma, 'diffuse_color', 'Color', { alpha: true }), num(ma, 'metallic', 'Metallic', { min: 0, max: 1, slider: true }), num(ma, 'roughness', 'Roughness', { min: 0, max: 1, slider: true })], { closed: true }),
   ];
 }

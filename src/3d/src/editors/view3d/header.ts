@@ -198,6 +198,7 @@ export function viewHeader(v: View3D): Child {
               ['LATTICE', 'Lattice', 'outliner_ob_lattice'],
               ['EMPTY', 'Empty', 'outliner_ob_empty'],
               ['LIGHT', 'Light', 'outliner_ob_light'],
+              ['LIGHT_PROBE', 'Light Probe', 'outliner_ob_lightprobe'],
               ['CAMERA', 'Camera', 'outliner_ob_camera'],
               ['SPEAKER', 'Speaker', 'outliner_ob_speaker'],
             ] as const

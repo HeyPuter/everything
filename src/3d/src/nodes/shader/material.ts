@@ -291,13 +291,13 @@ function build(doc: DocumentData, ma: MaterialData, ct: CompiledTree, key: strin
   mat.depthWrite = true;
   if (alphaUsed) {
     if (mode === 'CLIP') mat.alphaTest = Math.max(1e-4, ma.alpha_threshold);
-    else if (mode === 'HASHED') mat.alphaHash = true;
+    else if (mode === 'HASHED' || mode === 'OPAQUE') mat.alphaHash = true;
     else if (mode === 'BLEND') {
       mat.transparent = true;
       mat.depthWrite = ma.show_transparent_back === false;
     }
   }
-  const alphaMode = alphaUsed && mode !== 'OPAQUE' ? 'ALPHA' : 'OPAQUE';
+  const alphaMode = alphaUsed ? 'ALPHA' : 'OPAQUE';
   const objectGroup = makeObjectGroup();
   let objectBlock = false;
   let barycentric = false;

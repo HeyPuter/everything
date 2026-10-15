@@ -10,6 +10,7 @@ import { displayGLSL, VIEW_INDEX, lookParams, viewWhiteBalance, viewCurve, CURVE
 import { traceSettings, bloomOptions, type TraceSettings } from '../realtime/settings';
 import { TraceBuffer } from '../realtime/trace';
 import { BloomPass, type BloomSettings } from '../realtime/bloom';
+import { beginProbes } from '../realtime/probes/capture';
 
 export interface RasterEffects {
   /** screen effects allowed (tracing / horizon scan); false for quick previews */
@@ -21,6 +22,8 @@ export interface RasterEffects {
   bloomSettings?: BloomSettings;
   /** index of the accumulated sample (varies the tracing noise) */
   sample?: number;
+  /** sphere probe cubemap resolution */
+  probeResolution?: number;
 }
 
 export function effectsFrom(r: RenderSettings): RasterEffects {
@@ -30,6 +33,7 @@ export function effectsFrom(r: RenderSettings): RasterEffects {
     transparent: r.film_transparent,
     trace: traceSettings(r),
     bloomSettings: bloomOptions(r),
+    probeResolution: Number(r.gi_cubemap_resolution ?? 512) || 512,
   };
 }
 
@@ -86,13 +90,16 @@ export class RasterRenderer {
     const shadowAuto = renderer.shadowMap.autoUpdate;
     renderer.setScissorTest(false);
     renderer.toneMapping = 0; // NoToneMapping: keep scene-linear values
-    // screen tracing buffer (also renders this frame's shadow maps, reused by the main pass)
-    const traced = fx.gtao && !!fx.trace && this.trace.prepare(renderer, scene, camera, w, h, fx.trace, fx.sample ?? 0);
+    // light probes (captures, planar reflection, per-object environments), then the screen
+    // tracing buffer (which also renders this frame's shadow maps, reused by the main pass)
+    const restoreProbes = fx.gtao ? beginProbes(renderer, scene, camera, w, h, fx.probeResolution ?? 512) : null;
+    const traced = this.trace.prepare(renderer, scene, camera, w, h, fx.gtao && fx.trace ? fx.trace : null, fx.sample ?? 0);
     if (traced) renderer.shadowMap.autoUpdate = false;
     try {
       composer.render();
     } finally {
       if (traced) this.trace.disarm();
+      restoreProbes?.();
       renderer.shadowMap.autoUpdate = shadowAuto;
       renderer.toneMapping = tm;
       renderer.setRenderTarget(prev);

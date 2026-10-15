@@ -1,4 +1,5 @@
 // Shader Editor: edits the active object's active material, or the scene world.
+import { materialSettingsPanel, ensureMaterialDefaults } from '../../render/realtime/materialprops';
 import { h } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
@@ -78,16 +79,7 @@ registerNodeEditorProvider({
     const ma = app.activeObject ? activeMaterial(app.activeObject) : null;
     if (!ma) return h('div', { class: 'prop-note' }, 'No material');
     return [
-      panel('nd-ma-settings', 'Settings', () => [
-        bool(ma, 'use_backface_culling', 'Backface Culling'),
-        enumProp(ma, 'blend_method', 'Blend Mode', [
-          ['OPAQUE', 'Opaque'],
-          ['CLIP', 'Alpha Clip'],
-          ['HASHED', 'Alpha Hashed'],
-          ['BLEND', 'Alpha Blend'],
-        ]),
-        ma.blend_method === 'CLIP' ? num(ma, 'alpha_threshold', 'Clip Threshold', { min: 0, max: 1, slider: true }) : null,
-      ]),
+      (ensureMaterialDefaults(ma), materialSettingsPanel(ma, 'nd-ma')),
       panel('nd-ma-display', 'Viewport Display', () => [
         colorProp(ma, 'diffuse_color', 'Color', { alpha: true }),
         num(ma, 'metallic', 'Metallic', { min: 0, max: 1, slider: true }),

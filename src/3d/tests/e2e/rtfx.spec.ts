@@ -19,6 +19,8 @@ async function renderPixels(page: Page, settings: Record<string, unknown> = {}):
   await page.waitForFunction(async (imp) => !(await (0, eval)(imp)('/src/render/final/job.ts')).renderJob(), IMPORT);
   return page.evaluate(async (imp) => {
     const { renderResult } = await (0, eval)(imp)('/src/render/final/result.ts');
+    // the render window would cover the interface
+    (await (0, eval)(imp)('/src/render/final/renderwindow.ts')).closeRenderWindow();
     return Array.from(renderResult.get().passes.Combined as Float32Array);
   }, IMPORT);
 }
@@ -123,5 +125,72 @@ test('Render and Light tabs show the realtime panels', async ({ page }) => {
   await props.locator('.rail-tab[data-tab="DATA"]').click();
   for (const t of ['Influence', 'Shadow', 'Custom Distance']) await expect(props.locator('.panel.sub .ph-title', { hasText: t }).first()).toBeVisible();
   await expect(props.getByText('Glossy', { exact: true })).toBeVisible();
+  await expectNoErrors(errors);
+});
+
+test('light probes: Add menu, properties, bake and their effect on the render', async ({ page }) => {
+  const errors = await openApp(page);
+  await mirrorFloor(page, 0.05);
+  const before = await renderPixels(page);
+  // Add ▸ Light Probe ▸ Plane over the floor
+  const items = await page.evaluate(async (imp) => {
+    const { addMenu } = await (0, eval)(imp)('/src/editors/view3d/menus.ts');
+    const probe = addMenu().find((i: any) => i.label === 'Light Probe');
+    return probe.submenu().map((i: any) => i.label);
+  }, IMPORT);
+  expect(items).toEqual(['Sphere', 'Plane', 'Volume']);
+  await page.evaluate(() => (window as any).app.run('object.lightprobe_add', { type: 'PLANE', location: [0, 0, -1], radius: 10 }));
+  const planar = await renderPixels(page);
+  expect(difference(before, planar)).toBeGreaterThan(0.002);
+  // properties of the probe
+  const props = page.locator('.properties').first();
+  await props.locator('.rail-tab[data-tab="DATA"]').click();
+  for (const t of ['Probe', 'Capture', 'Viewport Display']) await expect(props.locator('.panel:not(.sub) > .panel-header .ph-title', { hasText: t }).first()).toBeVisible();
+  // a volume probe bakes from its properties
+  await page.evaluate(() => (window as any).app.run('object.lightprobe_add', { type: 'VOLUME', location: [0, 0, 0], radius: 3 }));
+  await props.getByRole('button', { name: /Bake Light Cache/ }).click();
+  expect(await page.evaluate(() => (window as any).app.reports.at(-1).message)).toBe('Baked 1 light probe');
+  expect(await page.evaluate(() => !!(window as any).app.activeObject.lightprobe.baked)).toBe(true);
+  await page.evaluate(() => (window as any).app.run('object.lightprobe_cache_free', { subset: 'ACTIVE' }));
+  expect(await page.evaluate(() => (window as any).app.activeObject.lightprobe.baked)).toBeNull();
+  await expectNoErrors(errors);
+});
+
+test('material settings: render method and shadow mode change the render', async ({ page }) => {
+  const errors = await openApp(page);
+  await mirrorFloor(page, 0.5, 0);
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const cube = Object.values(a.doc.objects).find((o: any) => o.name === 'Cube') as any;
+    const ma = a.doc.materials[a.doc.meshes[cube.data].materials[0]];
+    ma.tree.nodes.find((n: any) => n.type === 'ShaderNodeBsdfPrincipled').inputs.Alpha = 0.3;
+    a.changed('doc');
+  });
+  const setCube = (v: Record<string, unknown>) =>
+    page.evaluate((v) => {
+      const a = (window as any).app;
+      const cube = Object.values(a.doc.objects).find((o: any) => o.name === 'Cube') as any;
+      Object.assign(a.doc.materials[a.doc.meshes[cube.data].materials[0]], v);
+      a.changed('doc');
+    }, v);
+  const dithered = await renderPixels(page, { raster_samples: 4 });
+  await setCube({ blend_method: 'BLEND' });
+  const blended = await renderPixels(page, { raster_samples: 4 });
+  expect(difference(dithered, blended)).toBeGreaterThan(0.002);
+  await setCube({ shadow_method: 'NONE' });
+  const noShadow = await renderPixels(page, { raster_samples: 4 });
+  expect(difference(blended, noShadow)).toBeGreaterThan(0.002);
+  // the Settings panel offers the render method
+  const props = page.locator('.properties').first();
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const cube = Object.values(a.doc.objects).find((o: any) => o.name === 'Cube') as any;
+    a.doc.scene.active_object = cube.id;
+    a.changed('select');
+  });
+  await props.locator('.rail-tab[data-tab="MATERIAL"]').click();
+  await props.locator('[data-panel="ma-settings"] > .panel-header .ph-title').click();
+  await expect(props.getByText('Render Method')).toBeVisible();
+  await expect(props.getByText('Raytraced Transmission')).toBeVisible();
   await expectNoErrors(errors);
 });

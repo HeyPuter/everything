@@ -142,6 +142,7 @@ export const OB_ICON: Record<string, string> = {
   POINTCLOUD: 'outliner_ob_pointcloud',
   GREASEPENCIL: 'outliner_ob_greasepencil',
   SPEAKER: 'outliner_ob_speaker',
+  LIGHT_PROBE: 'outliner_ob_lightprobe',
   META: 'outliner_ob_meta',
 };
 export const DATA_ICON: Record<string, string> = {

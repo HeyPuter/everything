@@ -83,7 +83,10 @@ function principledBase(doc: DocumentData, ma: MaterialData): Material {
     m.ior = input(bsdf, 'IOR', 1.5) as number;
     const alpha = input(bsdf, 'Alpha', 1) as number;
     m.opacity = alpha;
-    m.transparent = alpha < 1 || ma.blend_method === 'BLEND';
+    // blended transparency sorts; clip cuts; otherwise transparency is dithered
+    m.transparent = ma.blend_method === 'BLEND';
+    m.alphaTest = ma.blend_method === 'CLIP' && alpha < 1 ? Math.max(1e-4, ma.alpha_threshold) : 0;
+    m.alphaHash = alpha < 1 && ma.blend_method !== 'BLEND' && ma.blend_method !== 'CLIP';
     m.transmission = input(bsdf, 'Transmission Weight', 0) as number;
     m.clearcoat = input(bsdf, 'Coat Weight', 0) as number;
     m.clearcoatRoughness = input(bsdf, 'Coat Roughness', 0.03) as number;

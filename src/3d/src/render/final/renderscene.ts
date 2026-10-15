@@ -33,6 +33,7 @@ import { worldEnvironment } from './environment';
 import { installLightInfluence } from '../realtime/lightinfluence';
 import { shadowSettings, lightShadowOptions, lightRange } from '../realtime/settings';
 import { jitteredLightMatrix, lightShadowMapSize } from '../realtime/shadows';
+import { castsShadow, transparentShadowMaterials } from '../realtime/materialfx';
 
 export interface BuildOptions {
   mode: 'raster' | 'pathtrace';
@@ -238,7 +239,12 @@ export class RenderScene {
         m.material = next.length === 1 ? next[0] : next;
         changed = true;
       }
-      m.castShadow = ob.visible_shadow !== false;
+      // Shadow Mode: None on every slot casts nothing; Transparent dithers the shadow by alpha
+      const slotMats = slots.map((id) => (id ? doc.materials[id] : undefined));
+      m.castShadow = ob.visible_shadow !== false && (!slotMats.length || slotMats.some(castsShadow));
+      const ts = this.mode === 'raster' && next.length === 1 ? transparentShadowMaterials(next[0], slotMats[0]) : undefined;
+      m.customDepthMaterial = ts?.depth;
+      m.customDistanceMaterial = ts?.distance;
       m.receiveShadow = true;
     });
     return changed;

@@ -1,4 +1,5 @@
 // 3D viewport menus (View, Select, Add, Object, context menus).
+import { lightProbeAddMenu } from '../../render/realtime/probes/lightprobe';
 import type { MenuItem } from '../../ui/menu';
 import { app } from '../../app/app';
 import { modeMenus } from './modemenus';
@@ -197,6 +198,7 @@ export function addMenu(): MenuItem[] {
         ['SPOT', 'Spot', 'light_spot'],
         ['AREA', 'Area', 'light_area'],
       ].map(([t, l, i]) => ({ label: l, icon: i, op: 'object.light_add', props: { type: t } })) },
+    { label: 'Light Probe', icon: 'outliner_ob_lightprobe', submenu: lightProbeAddMenu },
     { separator: true },
     { label: 'Camera', icon: 'outliner_ob_camera', op: 'object.camera_add' },
     { separator: true },

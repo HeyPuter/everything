@@ -333,6 +333,13 @@ iblIrradiance *= ndGridEnv;
 #endif
 `;
 
+/** Dithered transparency varies its pattern per accumulated sample so that samples average out. */
+export const ALPHA_HASH_TEMPORAL = /* glsl */ `
+#ifdef USE_ALPHAHASH
+if ( diffuseColor.a < fract( getAlphaHashThreshold( vPosition ) + ndFx.y ) ) discard;
+#endif
+`;
+
 const lightsBegin = patchLightsBegin(ShaderChunk.lights_fragment_begin);
 /** Transmission functions with the refraction lookup routed through `ndRefractSample`. */
 export function patchTransmissionPars(src: string): string {
@@ -349,7 +356,8 @@ export function patchFx(shader: WebGLProgramParametersWithUniforms) {
   f = f
     .replace('#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>\n${PARS}`)
     .replace('#include <lights_fragment_begin>', lightsBegin)
-    .replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>\n${FX_MAPS}`);
+    .replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>\n${FX_MAPS}`)
+    .replace('#include <alphahash_fragment>', ALPHA_HASH_TEMPORAL);
   // the refraction lookup is defined after the transmission functions it may fall back to
   if (f.includes('#include <transmission_pars_fragment>')) f = f.replace('#include <transmission_pars_fragment>', transmissionPars);
   shader.fragmentShader = f;

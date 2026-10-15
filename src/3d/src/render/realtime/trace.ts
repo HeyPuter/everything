@@ -74,11 +74,13 @@ export class TraceBuffer {
    * Render the tracing buffer for `camera` and arm the material effects for the next render.
    * Returns false when nothing is traced. Call `disarm()` after the main pass.
    */
-  prepare(renderer: WebGLRenderer, scene: Scene, camera: Camera, W: number, H: number, t: TraceSettings, sample: number): boolean {
-    const flags = traceFlags(t);
+  prepare(renderer: WebGLRenderer, scene: Scene, camera: Camera, W: number, H: number, t: TraceSettings | null, sample: number): boolean {
+    const flags = t ? traceFlags(t) : 0;
     const u = fxUniforms;
-    u.ndFx.value.set(0, 0, 0, 0);
-    if (!flags) return false;
+    // the per-sample random also rotates dithered transparency, traced or not
+    const rnd = (sample * 0.6180339887) % 1;
+    u.ndFx.value.set(0, rnd, 0, 0);
+    if (!flags || !t) return false;
     const [w, h] = traceSize(W, H, t.resolution);
     // view depth needs float precision when it can be filtered
     this.floatLinear = renderer.extensions.has('OES_texture_float_linear');
@@ -103,7 +105,7 @@ export class TraceBuffer {
     u.ndGi.value.set(t.giDistance, t.giThickness, t.giRays, t.giSteps);
     u.ndGi2.value.set(t.giBias, 0, 0, 0);
     const levels = Math.floor(Math.log2(Math.max(w, h)));
-    u.ndFx.value.set(flags, (sample * 0.6180339887) % 1, levels, t.spatial ? 1 : 0);
+    u.ndFx.value.set(flags, rnd, levels, t.spatial ? 1 : 0);
     return true;
   }
 

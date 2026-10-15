@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, it, expect } from 'vitest';
 import { ShaderChunk } from 'three';
 import { startupDocument } from '../../src/data/defaults';
@@ -105,5 +106,60 @@ describe('shader patches', () => {
     expect(out).not.toMatch(/getTransmissionSample\( refractionCoords/);
     expect(out.indexOf('vec4 ndRefractSample')).toBeLessThan(out.indexOf('vec4 getIBLVolumeRefraction('));
     expect(out.indexOf('vec4 ndRefractSample')).toBeGreaterThan(out.indexOf('vec4 getTransmissionSample('));
+  });
+});
+
+describe('shadows, materials and probes', async () => {
+  const { diskSample, lightShadowMapSize, jitteredLightMatrix } = await import('../../src/render/realtime/shadows');
+  const { renderMethod, blendForMethod, shadowMode } = await import('../../src/render/realtime/materialprops');
+  const { defaultLightProbe, probeHelperSegments } = await import('../../src/render/realtime/probes/lightprobe');
+  const { sphereInfluence, probePlane, volumeBox } = await import('../../src/render/realtime/probes/capture');
+  const { Matrix4, Vector3 } = await import('three');
+
+  it('jitter samples stay on the unit disk and move lights within their radius', () => {
+    for (let i = 0; i < 64; i++) expect(Math.hypot(...diskSample(i))).toBeLessThanOrEqual(1);
+    const base = new Matrix4().makeTranslation(0, 0, 5);
+    const m = jitteredLightMatrix(base, 'point', 0.5, 0, 3, new Vector3());
+    const p = new Vector3().setFromMatrixPosition(m);
+    expect(p.z).toBeCloseTo(5);
+    expect(Math.hypot(p.x, p.y)).toBeLessThanOrEqual(0.5 + 1e-9);
+  });
+
+  it('point lights keep smaller shadow faces than spots and suns', () => {
+    const q = { coverage: 10, unitCoverage: 2, limit: 0, absolute: false, budget: 2048, scale: 1 };
+    expect(lightShadowMapSize({ ...q, kind: 'point' })).toBe(1024);
+    expect(lightShadowMapSize({ ...q, kind: 'spot' })).toBe(2048);
+    expect(lightShadowMapSize({ ...q, kind: 'sun' })).toBe(4096);
+    // absolute limits use the size one unit from the light
+    expect(lightShadowMapSize({ ...q, kind: 'spot', limit: 0.01, absolute: true })).toBe(256);
+  });
+
+  it('render method and shadow mode map onto the blend / shadow settings', () => {
+    expect(renderMethod({ blend_method: 'OPAQUE' })).toBe('DITHERED');
+    expect(renderMethod({ blend_method: 'BLEND' })).toBe('BLENDED');
+    expect(blendForMethod({ blend_method: 'BLEND' }, 'DITHERED')).toBe('HASHED');
+    expect(blendForMethod({ blend_method: 'CLIP' }, 'DITHERED')).toBe('CLIP');
+    expect(blendForMethod({ blend_method: 'OPAQUE' }, 'BLENDED')).toBe('BLEND');
+    expect(shadowMode({ shadow_method: 'CLIP' })).toBe('TRANSPARENT');
+    expect(shadowMode({})).toBe('OPAQUE');
+  });
+
+  it('sphere probe influence fades over the falloff', () => {
+    const p = { ...defaultLightProbe('SPHERE'), influence_distance: 2, falloff: 0.5 };
+    const inv = new Matrix4();
+    expect(sphereInfluence(p, inv, new Vector3(0, 0, 0.5))).toBe(1);
+    expect(sphereInfluence(p, inv, new Vector3(1.5, 0, 0))).toBeCloseTo(0.5);
+    expect(sphereInfluence(p, inv, new Vector3(2.5, 0, 0))).toBe(0);
+    expect(sphereInfluence({ ...p, influence_type: 'BOX' }, inv, new Vector3(0.9, 0.9, 0.9))).toBe(1);
+  });
+
+  it('probe geometry: plane normal, volume box and helper lines', () => {
+    const world = new Matrix4().makeRotationX(Math.PI / 2).setPosition(0, 0, 2);
+    const { normal, origin } = probePlane(world);
+    expect(normal.y).toBeCloseTo(-1);
+    expect(origin.z).toBe(2);
+    const b = volumeBox(new Matrix4().makeScale(2, 3, 4));
+    expect(b.max.toArray()).toEqual([2, 3, 4]);
+    for (const t of ['SPHERE', 'PLANE', 'VOLUME'] as const) expect(probeHelperSegments(defaultLightProbe(t)).length % 6).toBe(0);
   });
 });
