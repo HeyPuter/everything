@@ -110,3 +110,33 @@ describe('expand fields', () => {
     expect(a[2]).toBeCloseTo(Math.PI);
   });
 });
+
+describe('mask helpers', async () => {
+  const { mixMask, boundaryLoops, cavityValues } = await import('../../src/paint/maskmath');
+  it('mixes mask values', () => {
+    expect(mixMask('MIX', 0.2, 0.8, 1)).toBeCloseTo(0.8);
+    expect(mixMask('MULTIPLY', 0.5, 0.5, 1)).toBeCloseTo(0.25);
+    expect(mixMask('ADD', 0.7, 0.7, 1)).toBe(1);
+    expect(mixMask('SUBTRACT', 0.2, 0.5, 1)).toBe(0);
+    expect(mixMask('MIX', 0.2, 0.8, 0.5)).toBeCloseTo(0.5);
+  });
+  it('finds the open boundary loop of a grid, oriented to close it', () => {
+    const loops = boundaryLoops([
+      { verts: [0, 1, 4, 3] },
+      { verts: [1, 2, 5, 4] },
+    ]);
+    expect(loops).toHaveLength(1);
+    expect(loops[0]).toHaveLength(6);
+  });
+  it('marks a dent as a cavity', () => {
+    const g = grid(4, 4, 2);
+    const P = g.positions.slice();
+    P[12 * 3 + 2] = -0.3;
+    const nb = vertexNeighbors(g);
+    const N = new Float32Array((P.length / 3) * 3);
+    for (let v = 0; v < P.length / 3; v++) N[v * 3 + 2] = 1;
+    const c = cavityValues(P, N, nb.offsets, nb.neighbors);
+    expect(c[12]).toBeGreaterThan(0);
+    expect(c[7]).toBeLessThan(0);
+  });
+});

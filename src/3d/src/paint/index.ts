@@ -8,6 +8,7 @@ import './facesetops';
 import './gestureops';
 import './meshfilter';
 import './expand';
+import './maskops';
 import './vpaint';
 import './wpaint';
 import './tpaint';

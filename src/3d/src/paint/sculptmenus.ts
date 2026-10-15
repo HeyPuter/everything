@@ -3,6 +3,11 @@ import { app, operators } from '../app/app';
 import { addKeys, keymaps, keyLabel, type KeyItem } from '../app/keymap';
 import { openPie, type MenuItem, type PieItem } from '../ui/menu';
 import { modeMenus } from '../editors/view3d/modemenus';
+import { toolSettingsRenderers } from '../editors/view3d/toolbar';
+import { h, type Child } from '../ui/h';
+import { checkbox, enumMenu, numberField } from '../ui/widgets';
+import { activeMeshData } from './session';
+import { faceSetEditTool, maskByColorTool, sculptToolHooks } from './sculpttools';
 
 const has = (op: string) => operators.has(op);
 
@@ -235,3 +240,50 @@ addKeys('Sculpt', [
   k('W', 'sculpt.face_set_edit', { mode: 'SHRINK' }, { ctrl: true, alt: true }),
   { key: 'W', alt: true, menu: faceSetsPie, menuTitle: 'Face Sets Edit', when: sculptMode },
 ]);
+
+// ---------------------------------------------------------------------------
+// click tools: Edit Face Set, Mask by Color
+
+export const faceSetEditSettings = { mode: 'GROW' };
+export const maskByColorSettings = { threshold: 0.35, contiguous: false, invert: false, preserve_previous_mask: false };
+
+sculptToolHooks.pointer.push((_v, e, tool) => {
+  const ev = { x: e.clientX, y: e.clientY };
+  if (tool === faceSetEditTool.id) {
+    app.run('sculpt.face_set_edit', { mode: e.ctrlKey || e.metaKey ? (faceSetEditSettings.mode === 'GROW' ? 'SHRINK' : 'GROW') : faceSetEditSettings.mode }, { event: ev });
+    return true;
+  }
+  if (tool === maskByColorTool.id) {
+    if (!activeMeshData()?.me.color_attributes.length) app.report('WARNING', 'Mask by Color needs a color attribute');
+    else app.run('sculpt.mask_by_color', { ...maskByColorSettings }, { event: ev });
+    return true;
+  }
+  return false;
+});
+
+const thBox = (w: number, c: Child) => h('div', { style: { width: `${w}px`, flex: 'none' } }, c);
+toolSettingsRenderers[faceSetEditTool.id] = () => [
+  thBox(
+    120,
+    enumMenu(
+      'th-fse-mode',
+      [
+        { value: 'GROW', label: 'Grow Face Set' },
+        { value: 'SHRINK', label: 'Shrink Face Set' },
+      ],
+      faceSetEditSettings.mode,
+      (x) => ((faceSetEditSettings.mode = x), app.changed('ui')),
+    ),
+  ),
+  h('span', { class: 'th-label' }, 'Click a face set · Ctrl: opposite'),
+];
+toolSettingsRenderers[maskByColorTool.id] = () => {
+  const st = maskByColorSettings;
+  const set = (k: keyof typeof st) => (x: unknown) => (((st as Record<string, unknown>)[k] = x), app.changed('ui'));
+  return [
+    checkbox('th-mbc-cont', 'Contiguous', st.contiguous, set('contiguous')),
+    checkbox('th-mbc-inv', 'Invert', st.invert, set('invert')),
+    checkbox('th-mbc-pres', 'Preserve Mask', st.preserve_previous_mask, set('preserve_previous_mask')),
+    thBox(140, numberField({ id: 'th-mbc-thr', label: 'Threshold', value: st.threshold, min: 0, max: 1, slider: true, set: set('threshold') })),
+  ];
+};

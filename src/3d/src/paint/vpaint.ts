@@ -27,7 +27,7 @@ export function ensureColorAttribute(me: MeshData): ColorAttribute {
 }
 
 /** Per-vertex RGBA view of a color attribute (corner domain is averaged per vertex). */
-function vertexColors(me: MeshData, a: ColorAttribute): Float32Array {
+export function vertexColors(me: MeshData, a: ColorAttribute): Float32Array {
   const nv = me.positions.length / 3;
   if (a.domain === 'POINT') return a.data;
   const out = new Float32Array(nv * 4),

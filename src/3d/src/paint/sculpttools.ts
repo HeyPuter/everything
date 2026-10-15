@@ -59,6 +59,7 @@ function slot(target: Target, shapes: GestureShape[], available: (t: Target, k: 
 export const lineProjectTool: ToolDef = { id: 'builtin.line_project', label: 'Line Project', icon: 'line_project', description: 'Flatten the mesh on one side of a line onto the line' };
 export const meshFilterTool: ToolDef = { id: 'builtin.mesh_filter', label: 'Mesh Filter', icon: 'mesh_filter', description: 'Deform the whole unmasked mesh: drag left or right to set the strength' };
 export const faceSetEditTool: ToolDef = { id: 'builtin.face_set_edit', label: 'Edit Face Set', icon: 'face_set_edit', description: 'Click on a face set to grow or shrink it' };
+export const maskByColorTool: ToolDef = { id: 'builtin.mask_by_color', label: 'Mask by Color', icon: 'mask_by_color', description: 'Click on the mesh to mask the vertices with a similar color' };
 
 /** Sculpt toolbar entries after the brushes. */
 export function sculptToolSlots(available: (op: string) => boolean): (ToolDef | null)[] {
@@ -72,6 +73,7 @@ export function sculptToolSlots(available: (op: string) => boolean): (ToolDef | 
   out.push(null);
   if (available('sculpt.mesh_filter')) out.push(meshFilterTool);
   if (available('sculpt.face_set_edit')) out.push(faceSetEditTool);
+  if (available('sculpt.mask_by_color')) out.push(maskByColorTool);
   return out.filter((t, i, a) => t || (i > 0 && a[i - 1]));
 }
 
