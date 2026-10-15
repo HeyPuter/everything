@@ -318,7 +318,7 @@ export const menuSettings = {
   /** delay before a submenu opens on hover */
   submenuDelay: 0,
   /** tooltips show operator calls and data paths for scripting */
-  pythonTips: false,
+  pythonTips: true,
 };
 
 let pie: { el: HTMLElement; items: (PieItem | null)[]; cx: number; cy: number; hl: number; opened: number; key?: string } | null = null;

@@ -159,7 +159,7 @@ export const defaultPreferences = (): Preferences => ({
   resolution_scale: 1,
   font_size: 12,
   show_tooltips: true,
-  show_tooltips_python: false,
+  show_tooltips_python: true,
   show_developer_ui: false,
   show_splash: true,
   show_navigate_ui: true,
