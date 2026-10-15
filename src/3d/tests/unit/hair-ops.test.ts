@@ -262,3 +262,16 @@ describe('deform curves on surface', () => {
     expect(r3(out)).toEqual(r3([...new Vector3(0.5, 0.5, 0).applyMatrix4(m).toArray(), ...new Vector3(0.5, 0.5, 1).applyMatrix4(m).toArray()]));
   });
 });
+
+describe('curves draw', () => {
+  it('adds a resampled curve from world points', () => {
+    select(cube());
+    run('object.curves_empty_hair_add');
+    run('object.mode_set', { mode: 'EDIT' });
+    const hc = hairOf(app.doc, app.activeObject)!;
+    expect(run('curves.draw', { points: JSON.stringify([0, 0, 1, 0, 0, 2, 1, 0, 2]), count: 5 })).toBe('FINISHED');
+    expect(curveCount(hc)).toBe(1);
+    expect(pointCount(hc)).toBe(5);
+    expect(r3(hc.positions.slice(12, 15))).toEqual([1, 0, 2]);
+  });
+});

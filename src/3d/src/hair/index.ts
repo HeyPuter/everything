@@ -11,6 +11,7 @@ import './modes';
 import './edit';
 import './edittransform';
 import './editmenus';
+import './drawtool';
 import './sculptui';
 import './convert';
 import './properties';

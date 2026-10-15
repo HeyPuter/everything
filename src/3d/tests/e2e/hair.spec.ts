@@ -103,3 +103,21 @@ test('particle edit: comb hair keys, tip select mode, context menu', async ({ pa
   await page.keyboard.press('Escape');
   await expectNoErrors(errors);
 });
+
+test('curves edit mode: the Draw tool adds a curve on the surface', async ({ page }) => {
+  const errors = await openApp(page);
+  const c = await hoverViewport(page);
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.run('object.curves_empty_hair_add');
+    a.run('object.mode_set', { mode: 'EDIT' });
+  });
+  await page.locator('.tb-tool[data-tool="builtin.draw_curves"]').click();
+  await stroke(page, c.x - 20, c.y + 10, c.x + 20, c.y + 20);
+  expect(await get<number>(page, `${hair}.curve_offsets.length - 1`)).toBe(1);
+  expect(await get<number>(page, `${hair}.positions.length / 3`)).toBe(8);
+  // the stroke over the cube lands on its surface (|largest coordinate| = 1)
+  const p = await get<number[]>(page, `Array.from(${hair}.positions.slice(0, 3))`);
+  expect(Math.max(...p.map(Math.abs))).toBeCloseTo(1, 2);
+  await expectNoErrors(errors);
+});
