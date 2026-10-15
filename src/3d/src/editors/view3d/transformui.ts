@@ -8,6 +8,7 @@ import type { MenuItem } from '../../ui/menu';
 import { h } from '../../ui/h';
 import { editModeHooks } from './hooks';
 import { toolsByMode, toolSettingsRenderers, type ToolDef } from './toolbar';
+import './itemmedian';
 
 registerIcons({
   tosphere: '<rect class="s" x="2.5" y="2.5" width="11" height="11" rx="1" fill="none" stroke-width="1" stroke-dasharray="2 1.5" opacity=".7"/><circle class="s" cx="8" cy="8" r="5" fill="none" stroke-width="1.5"/>',

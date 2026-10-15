@@ -333,3 +333,19 @@ test('curve tilt and radius transforms', async ({ page }) => {
   for (const r of radii) expect(r).toBeCloseTo(2, 5);
   await expectNoErrors(errors);
 });
+
+test('sidebar median of the edit selection can be typed', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('a');
+  await page.keyboard.press('n');
+  await page.click('.sb-tab:has-text("Item")');
+  await page.locator('.v3d-sidebar .num-field').first().click();
+  await page.keyboard.type('1');
+  await page.keyboard.press('Enter');
+  const xs = await get<number[]>(page, 'Array.from(app.doc.meshes[app.activeObject.data].positions).filter((_, i) => i % 3 === 0)');
+  expect(Math.min(...xs)).toBeCloseTo(0, 5);
+  expect(Math.max(...xs)).toBeCloseTo(2, 5);
+  await expectNoErrors(errors);
+});

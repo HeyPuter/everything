@@ -564,6 +564,11 @@ function execTransform(mode: TransformMode, p: Record<string, unknown>): 'FINISH
   }
 }
 
+/** Move the current selection (objects or components) by a world-space offset, without proportional editing. */
+export function moveSelection(delta: Vector3): boolean {
+  return execTransform('TRANSLATION', { value: [delta.x, delta.y, delta.z], orient_type: 'GLOBAL', constraint_axis: [false, false, false], use_proportional_edit: false }) === 'FINISHED';
+}
+
 function axisIndex(v: unknown, fallback: number) {
   const i = AXIS_NAMES.indexOf(String(v));
   return i >= 0 ? i : fallback;
