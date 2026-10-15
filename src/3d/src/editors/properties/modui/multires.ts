@@ -216,7 +216,9 @@ modifierExtraUI.MULTIRES = (_ob, m) => {
   const objectMode = app.doc.mode === 'OBJECT';
   return [
     num(r, 'levels', 'Level Viewport', { int: true, min: 0, max: total }),
+    num(r, 'sculpt_levels', 'Sculpt', { int: true, min: 0, max: total, disabled: !!r._sculpt_base }),
     num(r, 'render_levels', 'Render', { int: true, min: 0, max: total }),
+    bool(r, 'use_sculpt_base_mesh', 'Sculpt Base Mesh', { disabled: !!r._sculpt_base }),
     h('div', { class: 'mod-note' }, `Total levels: ${total}`),
     h(
       'div',

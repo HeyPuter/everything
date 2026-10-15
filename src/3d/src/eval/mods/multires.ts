@@ -98,6 +98,8 @@ export function multiresAtLevel(base: EvalMesh, mod: ModifierBase, level: number
 }
 
 function multiresMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
+  // while sculpting, the mesh itself already is the sculpt level
+  if (mod._sculpt_base) return m;
   const level = ctx.render ? num(mod, 'render_levels', 0) : ctx.editMode ? 0 : num(mod, 'levels', 0);
   return multiresAtLevel(m, mod, Math.round(level));
 }

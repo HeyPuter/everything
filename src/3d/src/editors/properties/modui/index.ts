@@ -14,3 +14,4 @@ import './particles';
 import './meshcache';
 import './collision';
 import './existing';
+import './multires_sculpt';

@@ -109,3 +109,27 @@ test('multires subdivides from the panel and skin creates an armature', async ({
   expect(await get(page, `app.activeObject.modifiers.map((m) => m.type)`)).toEqual(['ARMATURE', 'SKIN']);
   await expectNoErrors(errors);
 });
+
+test('sculpting a multires mesh edits its sculpt level', async ({ page }) => {
+  const errors = await openApp(page);
+  await run(page, 'object.modifier_add', { type: 'MULTIRES' });
+  const id = (await get(page, 'app.activeObject.modifiers[0].id')) as string;
+  await run(page, 'object.multires_subdivide', { modifier: id });
+  await run(page, 'object.multires_subdivide', { modifier: id });
+  await run(page, 'object.mode_set', { mode: 'SCULPT' });
+  expect(await get(page, `app.doc.mode`)).toBe('SCULPT');
+  expect(await get(page, `app.doc.meshes[app.activeObject.data].positions.length / 3`)).toBe(98);
+  // a stand-in for a brush stroke: lift every vertex of the sculpt level
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const me = a.doc.meshes[a.activeObject.data];
+    me.positions = Float32Array.from(me.positions, (x: number, i: number) => (i % 3 === 2 ? x + 0.5 : x));
+    a.changed('doc');
+  });
+  await run(page, 'object.mode_set', { mode: 'OBJECT' });
+  expect(await get(page, `app.doc.meshes[app.activeObject.data].positions.length / 3`)).toBe(8);
+  const zs = (await get(page, `Array.from(app.graph.get(app.activeObject.id).mesh.positions).filter((_, i) => i % 3 === 2)`)) as number[];
+  expect(Math.max(...zs)).toBeGreaterThan(1.3);
+  expect(Math.min(...zs)).toBeGreaterThan(-0.9);
+  await expectNoErrors(errors);
+});
