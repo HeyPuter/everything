@@ -339,6 +339,41 @@ export interface NodeRenderState {
 
 const COLLAPSE_TIP = 'Collapse (H)';
 
+const TYPE_NAMES: Record<string, string> = {
+  FLOAT: 'Float',
+  INT: 'Integer',
+  BOOLEAN: 'Boolean',
+  VECTOR: 'Vector',
+  RGBA: 'Color',
+  SHADER: 'Shader',
+  STRING: 'String',
+  ROTATION: 'Rotation',
+  MATRIX: 'Matrix',
+  MENU: 'Menu',
+  GEOMETRY: 'Geometry',
+  OBJECT: 'Object',
+  COLLECTION: 'Collection',
+  IMAGE: 'Image',
+  MATERIAL: 'Material',
+  TEXTURE: 'Texture',
+};
+
+/** Socket tooltip: name, type, the value of an unlinked input, and the socket's description. */
+function socketTip(node: NodeData, s: ResolvedSocket, isOutput: boolean, linked: boolean): string {
+  if (s.type === 'CUSTOM') return s.identifier === '__extend__' ? 'New Socket\nLink here to add a socket to the group interface' : '';
+  const lines = [s.label || s.name, `${TYPE_NAMES[s.type] ?? s.type} ${isOutput ? 'output' : 'input'}${linked ? ' (linked)' : ''}`];
+  if (!isOutput && !linked && !s.hide_value) {
+    const v = inputValue(node, s);
+    const f = (x: number) => (Number.isInteger(x) ? String(x) : x.toFixed(3));
+    if (typeof v === 'number') lines.push(`Value: ${f(v)}`);
+    else if (typeof v === 'boolean') lines.push(`Value: ${v ? 'True' : 'False'}`);
+    else if (Array.isArray(v)) lines.push(`Value: (${(v as number[]).map(f).join(', ')})`);
+    else if (typeof v === 'string' && v) lines.push(`Value: ${v}`);
+  }
+  if (s.description) lines.push(s.description);
+  return lines.join('\n');
+}
+
 export function nodeColor(n: NodeData): string {
   const def = getNodeType(n.type);
   // group nodes can take a category color from their group
@@ -454,6 +489,7 @@ export function renderNode(l: NodeLayout, tree: NodeTreeData, st: NodeRenderStat
           diamond: p.socket.shape === 'DIAMOND' || p.socket.shape === 'DIAMOND_DOT',
         },
         'data-sock': k,
+        'data-tip': socketTip(n, p.socket, p.isOutput, linked),
         style: {
           left: `${p.x - l.x}px`,
           top: `${p.y - l.y}px`,

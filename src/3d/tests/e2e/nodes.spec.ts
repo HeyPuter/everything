@@ -432,3 +432,13 @@ test('Shift H shows a rendered node preview above the node', async ({ page }) =>
   await expect(page.locator('.nd-preview')).toHaveCount(0);
   await expectNoErrors(errors);
 });
+
+test('socket tooltips show type and value', async ({ page }) => {
+  const { errors } = await nodeEditor(page);
+  const bsdf = await withTree<string>(page, '(ed, t) => t.nodes.find((n) => n.type === "ShaderNodeBsdfPrincipled").id');
+  const sock = page.locator(`[data-node="${bsdf}"] .nd-sock[data-sock="in:Roughness"]`);
+  await expect(sock).toHaveAttribute('data-tip', /Roughness\nFloat input\nValue: 0\.500/);
+  await sock.hover();
+  await expect(page.locator('.tooltip')).toContainText('Float input', { timeout: 3000 });
+  await expectNoErrors(errors);
+});

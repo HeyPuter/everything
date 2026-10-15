@@ -428,6 +428,10 @@ function groupTab(tree: NodeTreeData): Child {
             textField(`nd-if-name-${it.identifier}`, it.name, (v) => ((it.name = v || it.name), changed('Rename Socket'))),
           ),
           splitRow(
+            'Description',
+            textField(`nd-if-desc-${it.identifier}`, it.description ?? '', (v) => ((it.description = v || undefined), changed('Socket Description')), { placeholder: 'Tooltip of the socket' }),
+          ),
+          splitRow(
             'Type',
             enumMenu(
               `nd-if-type-${it.identifier}`,

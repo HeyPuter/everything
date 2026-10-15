@@ -67,6 +67,8 @@ export interface SocketDef {
   items?: string[];
   /** VECTOR sockets: number of components shown (default 3) */
   dimensions?: number;
+  /** tooltip text (group interface sockets) */
+  description?: string;
 }
 
 export type NodePropType =
