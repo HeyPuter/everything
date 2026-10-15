@@ -2,9 +2,7 @@
 // Index Switch (`index_switch_items.new()`) and Menu Switch (`enum_items.new("Name")`).
 import type { NodeData, NodeTreeData } from '../../data/types';
 import { PropCollection, kwMethod, pyError, touched } from '../../scripting/rna';
-import { writeItems, type NodeItem } from './items';
-import { formatItems } from './fn_string';
-import { indexItems, menuItems } from './switches';
+import { writeItems, formatItems, indexItems, menuItems, type NodeItem } from './itemdata';
 
 interface ListSpec {
   type: string;

@@ -6,7 +6,10 @@ import { enumMenu } from '../../ui/widgets';
 import { fnField, Field, constOf, type Evaluated } from '../field';
 import { fieldComps, type FieldType } from '../types';
 import { valueSocket } from './geometry';
-import { readItems, itemListUI, registerItemNode, itemSocket, type ItemListDef, type NodeItem } from './items';
+import { itemListUI, registerItemNode, itemSocket, type ItemListDef, type NodeItem } from './items';
+import { indexItems, menuItems } from './itemdata';
+
+export { indexItems, menuItems };
 import { allSockets, getNodeType } from '../../nodes/registry';
 import { ctxOf } from '../../nodes/tree';
 import { app } from '../../app/app';
@@ -61,11 +64,6 @@ function choiceField(t: FieldType, selector: Field, options: Field[], pick: (sel
 // ---------------------------------------------------------------------------
 // Index Switch
 
-export const indexItems = (n: NodeData) =>
-  readItems(n, 'index_switch_items', [
-    { id: 0, name: '0' },
-    { id: 1, name: '1' },
-  ]);
 const indexIn = (it: NodeItem) => `Item_${it.id}`;
 const INDEX_DEF: ItemListDef = { prop: 'index_switch_items', title: 'Items', inSocket: indexIn, named: false, defaultName: (items) => String(items.length), min: 1 };
 registerItemNode('GeometryNodeIndexSwitch', INDEX_DEF, indexItems);
@@ -121,11 +119,6 @@ gn(
 // ---------------------------------------------------------------------------
 // Menu Switch
 
-export const menuItems = (n: NodeData) =>
-  readItems(n, 'enum_items', [
-    { id: 0, name: 'A' },
-    { id: 1, name: 'B' },
-  ]);
 const menuIn = (it: NodeItem) => `Item_${it.id}`;
 const MENU_DEF: ItemListDef = {
   prop: 'enum_items',

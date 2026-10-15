@@ -10,15 +10,11 @@ import { ctxOf, nodeById } from '../../nodes/tree';
 import { uid } from '../../data/defaults';
 import type { NodeData } from '../../data/types';
 import type { NodeDrawContext, SocketDef } from '../../nodes/types';
+import { readItems, writeItems, type NodeItem } from './itemdata';
+
+export { readItems, writeItems, type NodeItem };
 
 export const ITEM_SOCKET = '__item__';
-
-export interface NodeItem {
-  id: number;
-  name: string;
-  /** socket type of the item (Format String) */
-  type?: string;
-}
 
 export interface ItemListDef {
   /** node property holding the JSON list */
@@ -37,21 +33,6 @@ export interface ItemListDef {
   named?: boolean;
   /** items cannot go below this count */
   min?: number;
-}
-
-export function readItems(n: NodeData, prop: string, fallback: NodeItem[] = []): NodeItem[] {
-  const raw = n.props[prop];
-  if (raw === undefined || raw === null) return fallback;
-  try {
-    const v = JSON.parse(String(raw));
-    return Array.isArray(v) ? v : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-export function writeItems(n: NodeData, prop: string, items: NodeItem[]) {
-  n.props[prop] = JSON.stringify(items);
 }
 
 export function addItem(n: NodeData, def: ItemListDef, current: NodeItem[], name?: string, type?: string): NodeItem {

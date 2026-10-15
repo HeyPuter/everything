@@ -3,7 +3,10 @@
 import './fdata';
 import { gn, sprop } from './defs';
 import { formatString, shortestFloat, toFixedExact, intToString, parseFloatPrefix, parseIntPrefix, type FormatValue } from '../strformat';
-import { readItems, itemListUI, registerItemNode, itemSocket, type ItemListDef, type NodeItem } from './items';
+import { itemListUI, registerItemNode, itemSocket, type ItemListDef, type NodeItem } from './items';
+import { formatItems } from './itemdata';
+
+export { formatItems };
 import type { SocketDef } from '../../nodes/types';
 import type { NodeData } from '../../data/types';
 
@@ -17,7 +20,6 @@ const FORMAT_TYPES: [string, string][] = [
   ['INT', 'Integer'],
   ['STRING', 'String'],
 ];
-export const formatItems = (n: NodeData) => readItems(n, 'format_items');
 const formatIn = (it: NodeItem) => `Item_${it.id}`;
 const FORMAT_DEF: ItemListDef = {
   prop: 'format_items',
