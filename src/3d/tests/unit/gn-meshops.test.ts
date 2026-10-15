@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// Mesh operation nodes (results recorded from the reference behaviour of these nodes).
+// Mesh operation nodes (expected results recorded for these nodes).
 import { describe, it, expect } from 'vitest';
 import { setup, node, link, run, counts, positions, attr, type T } from './gnmesh-harness';
 import type { NodeData } from '../../src/data/types';
@@ -27,7 +27,7 @@ function store(t: T, geo: [NodeData, string], value: [NodeData, string], name: s
   return st;
 }
 
-describe('primitive order matches the reference', () => {
+describe('primitive element order matches the expected order', () => {
   it('cube and grid vertex and face order', () => {
     const t = setup();
     const r = run(t, cube(t), 'Mesh');
@@ -96,7 +96,7 @@ describe('Dual Mesh', () => {
     d.inputs['Keep Boundaries'] = true;
     const r2 = run(t, d, 'Dual Mesh');
     expect(counts(r2.geometry)).toEqual([20, 28, 9]);
-    // the first four vertices are the face centres; the faces are those of the reference
+    // the first four vertices are the face centres; the faces are the expected ones
     expect(positions(r2.geometry).slice(0, 4)).toEqual([
       [-0.25, -0.25, 0],
       [-0.25, 0.25, 0],

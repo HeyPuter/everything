@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// Mesh Boolean: face, edge and vertex counts of the rebuilt polygons (recorded from the reference).
+// Mesh Boolean: face, edge and vertex counts of the rebuilt polygons (expected values).
 import { describe, it, expect } from 'vitest';
 import { setup, node, link, run, counts } from './gnmesh-harness';
 

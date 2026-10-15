@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// Sampling nodes (results recorded from the reference behaviour of these nodes).
+// Sampling nodes (expected results recorded for these nodes).
 import { describe, it, expect } from 'vitest';
 import { setup, node, link, run, attr, type T } from './gnmesh-harness';
 import type { NodeData } from '../../src/data/types';
