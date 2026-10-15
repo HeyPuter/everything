@@ -163,6 +163,21 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
       },
       true,
     );
+    // Ctrl+wheel steps through the display sizes
+    this.main.addEventListener(
+      'wheel',
+      (e) => {
+        if (!(e.ctrlKey || e.metaKey) || this.view !== 'THUMBNAIL') return;
+        e.preventDefault();
+        const i = DISPLAY_SIZES.findIndex(([k]) => k === this.size);
+        const j = Math.max(0, Math.min(DISPLAY_SIZES.length - 1, i + (e.deltaY < 0 ? 1 : -1)));
+        if (j !== i) {
+          this.size = DISPLAY_SIZES[j][0];
+          this.draw();
+        }
+      },
+      { passive: false },
+    );
     this.main.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       const it = (e.target as HTMLElement).closest<HTMLElement>('.ab-item');
