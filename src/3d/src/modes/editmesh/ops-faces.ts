@@ -371,6 +371,33 @@ export function triangulate(m: MeshEdit, faces: Set<number>, quadMethod: string,
 }
 
 // ---------------------------------------------------------------------------
+// fill: triangulate closed loops of selected edges
+
+export function fillLoops(m: MeshEdit, beauty: boolean): number {
+  // edges between two selected faces are interior, not outlines to fill
+  const fsel = new Set(m.selectedFaces());
+  const ef = m.edgeFaces();
+  const edges = m.selectedEdges().filter(([a, b]) => (ef.get(edgeKey(a, b)) ?? []).filter(([f]) => fsel.has(f)).length < 2 && (ef.get(edgeKey(a, b))?.length ?? 0) < 2);
+  let made = 0;
+  const newTris = new Set<number>();
+  for (const chain of edgeChains(edges)) {
+    if (!chain.closed || chain.verts.length < 3) continue;
+    const first = m.faces.length;
+    const poly = m.makeFace(chain.verts, m.faces[0]);
+    m.faces.push(poly);
+    orientNewFaces(m, first);
+    const f = m.faces.pop()!;
+    for (const t of triangulateCorners(m, f)) {
+      newTris.add(m.faces.length);
+      m.faces.push(subFace(m, f, t));
+    }
+    made++;
+  }
+  if (beauty && newTris.size) beautifyFill(m, Math.PI, newTris);
+  return made;
+}
+
+// ---------------------------------------------------------------------------
 // weld edges into faces
 
 /** Split faces along chains of loose edges that run between two of their vertices. */
@@ -810,6 +837,14 @@ registerOperators([
         return 'CANCELLED';
       }
     },
+  },
+  {
+    idname: 'mesh.fill',
+    label: 'Fill',
+    description: 'Fill closed loops of selected edges with triangles',
+    props: [{ id: 'use_beauty', label: 'Beauty', type: 'bool', default: true }],
+    poll: editPoll,
+    exec: (_ctx, p) => (withEdit((m) => fillLoops(m, !!p.use_beauty) > 0) ? 'FINISHED' : 'CANCELLED'),
   },
   {
     idname: 'mesh.quads_convert_to_tris',

@@ -724,3 +724,19 @@ describe('bevel with segments', () => {
     expect(manifold(m)).toBe(true);
   });
 });
+
+import { fillLoops } from '../../src/modes/editmesh/ops-faces';
+
+describe('fill', () => {
+  it('fills an open cylinder end with triangles only', () => {
+    const m = fromPrim(prim.cylinder(8));
+    selectFaces(m, (c) => c[2] > 0.9);
+    deleteGeometry(m, 'ONLY_FACE');
+    selectWhere(m, (p) => p[2] > 0.9);
+    expect(fillLoops(m, true)).toBe(1);
+    expect(counts(m)).toEqual([16, 29, 15]);
+    expect(manifold(m)).toBe(true);
+    // the side quads stay quads
+    expect(m.faces.filter((f) => f.verts.length === 4).length).toBe(8);
+  });
+});

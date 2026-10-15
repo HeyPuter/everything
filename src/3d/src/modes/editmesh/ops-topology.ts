@@ -1335,17 +1335,6 @@ registerOperators([
     },
   },
   {
-    idname: 'mesh.fill',
-    label: 'Fill',
-    description: 'Fill a selected edge loop with faces',
-    props: [{ id: 'use_beauty', label: 'Beauty', type: 'bool', default: true }],
-    poll: editPoll,
-    exec: () => {
-      if (!withEdit((m) => edgeFaceAdd(m))) return 'CANCELLED';
-      app.run('mesh.quads_convert_to_tris', {}, { invoke: false });
-    },
-  },
-  {
     idname: 'mesh.bridge_edge_loops',
     label: 'Bridge Edge Loops',
     description: 'Join two or more edge loops (or face outlines) with faces',
