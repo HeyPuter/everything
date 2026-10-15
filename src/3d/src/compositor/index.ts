@@ -6,6 +6,7 @@
 // - properties: Output ▸ Post Processing panel
 import { registerIcons } from '../ui/icons';
 import './nodes/defs';
+import './nodes/extra';
 import './ops/input';
 import './ops/color';
 import './ops/keying';
@@ -14,6 +15,15 @@ import './ops/mask';
 import './ops/filter';
 import './ops/glare';
 import './ops/utility';
+import './ops/info';
+import './ops/colorspace';
+import './ops/distance';
+import './ops/keyingnode';
+import './ops/clip';
+import './ops/crypto';
+import './ops/fileoutput';
+import './ops/vecblur';
+import '../render/final/passesui';
 import './session';
 import './editor';
 import './properties';

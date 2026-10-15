@@ -27,6 +27,7 @@ import { passesFromGuide } from './passes';
 import { stampFields, burnStampOverlay, pngWithText } from './stamp';
 import { animationRecorder } from './playback';
 import { extraPasses, wantsExtraPasses } from './extrapasses';
+import { renderIdPasses, wantsIdPasses } from './idpasses';
 
 type Source = { kind: 'final' } | { kind: 'viewport'; view: View3D };
 
@@ -493,6 +494,8 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
       }
     }
     if (src.kind === 'final' && wantsExtraPasses(r)) Object.assign(passes, extraPasses(renderer, guideScene, camera, W, H, r, doc));
+    // cryptomatte, shader AOVs and speed vectors
+    if (src.kind === 'final' && wantsIdPasses(doc)) Object.assign(passes, (await renderIdPasses({ renderer, scene: guideScene.scene, camera, W, H, doc, yieldFrame: nextFrame })).passes);
     guideScene.dispose();
     if (!transparent) for (let i = 3; i < combined.length; i += 4) combined[i] = 1;
     return { combined, passes, samples, maxSamples, view };

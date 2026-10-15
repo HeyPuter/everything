@@ -20,6 +20,12 @@ import { addNode, connect, ctxOf } from '../nodes/tree';
 import { nodeSockets } from '../nodes/registry';
 import { compositingGroup, compositorGroups, newCompositingGroup } from './data';
 import { compositorState, onCompositorUpdate, recomposite } from './session';
+import { compositorEntryPoll, setCompositorEntryCheck } from './nodes/defs';
+import { nodeExecs } from './eval/evaluator';
+
+// Add menu: only nodes the compositor can run (outputs and group sockets are handled by the evaluator)
+const NO_EXEC = new Set(['NodeGroupInput', 'NodeGroupOutput', 'CompositorNodeViewer', 'CompositorNodeOutputFile']);
+setCompositorEntryCheck((id) => !!nodeExecs[id] || NO_EXEC.has(id));
 
 export type BackdropChannels = 'COLOR_ALPHA' | 'COLOR' | 'ALPHA' | 'RED' | 'GREEN' | 'BLUE';
 
@@ -432,6 +438,7 @@ registerNodeEditorProvider({
   label: 'Compositor',
   icon: 'node_compositing',
   treeType: () => 'COMPOSITOR',
+  menuPoll: (idname) => compositorEntryPoll(idname),
   root: () => {
     const g = compositingGroup(app.doc);
     if (!g) return null;

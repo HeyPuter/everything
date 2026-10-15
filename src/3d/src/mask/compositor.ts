@@ -107,8 +107,10 @@ onAppReady((a) =>
   }),
 );
 
-// list the node under Add ▸ Mask next to the box and ellipse masks
+// list the node under Add ▸ Mask next to the box and ellipse masks (unless the menu lists it already)
 onAppReady(() => {
+  const listed = (items: MenuCategory['items']): boolean => items.some((i) => typeof i === 'object' && ('idname' in i ? i.idname === 'CompositorNodeMask' : listed(i.items)));
+  if (listed(nodeMenu('COMPOSITOR'))) return;
   const cat = nodeMenu('COMPOSITOR').find((c) => c.label === 'Mask') as MenuCategory | undefined;
-  if (cat && !cat.items.some((i) => typeof i === 'object' && 'idname' in i && i.idname === 'CompositorNodeMask')) cat.items.unshift({ idname: 'CompositorNodeMask' }, 'SEPARATOR');
+  if (cat) cat.items.unshift({ idname: 'CompositorNodeMask' }, 'SEPARATOR');
 });

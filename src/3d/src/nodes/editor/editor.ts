@@ -401,7 +401,9 @@ export class NodeEditor implements Editor {
     const items: MenuItem[] = [];
     for (const c of nodeMenu(this.treeType())) {
       const sub = conv(c);
-      if (sub.length) items.push({ label: c.label, submenu: () => sub });
+      if (!sub.length) continue;
+      if (c.separatorBefore && items.length && !items[items.length - 1].separator) items.push({ separator: true });
+      items.push({ label: c.label, submenu: () => sub });
     }
     items.push({ separator: true });
     items.push({ label: 'Group', submenu: () => this.groupMenu(pick, swap) });

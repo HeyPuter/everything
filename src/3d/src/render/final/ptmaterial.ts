@@ -33,7 +33,7 @@ export interface PbrHint {
   attenuationDistance?: number;
 }
 
-const cache = new WeakMap<Material, { version: number; out: MeshPhysicalMaterial }>();
+const cache = new WeakMap<Material, { version: number; hint: number; out: MeshPhysicalMaterial }>();
 
 const toColor = (c: [number, number, number] | Color | undefined, target: Color) => {
   if (!c) return;
@@ -49,11 +49,13 @@ function uniformValue(m: ShaderMaterial, names: string[]): unknown {
 /** Path-tracer material for a viewport material (cached per material version). */
 export function pathTracerMaterial(src: Material): MeshPhysicalMaterial {
   const hit = cache.get(src);
-  if (hit && hit.version === src.version) return hit.out;
+  // compiled node materials refresh their hint when only values change (no new program)
+  const hint = (src.userData?.pbrVersion as number | undefined) ?? 0;
+  if (hit && hit.version === src.version && hit.hint === hint) return hit.out;
   const out = hit?.out ?? new MeshPhysicalMaterial();
   convertInto(src, out);
   out.needsUpdate = true;
-  cache.set(src, { version: src.version, out });
+  cache.set(src, { version: src.version, hint, out });
   return out;
 }
 
