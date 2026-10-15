@@ -543,3 +543,14 @@ describe('drawing guides', () => {
     expect(f({ x: 10, y: 47 }).y).toBeCloseTo(40);
   });
 });
+
+describe('add grease pencil', () => {
+  it('adds a monkey with fill and line layers', () => {
+    setApp(new App(startupDocument()));
+    expect(app.run('object.grease_pencil_add', { type: 'MONKEY' }, { invoke: false })).toBe('FINISHED');
+    const gp = gpOf(app.doc, app.activeObject)!;
+    expect(gp.layers.map((l) => l.name)).toEqual(['Fills', 'Lines']);
+    expect(gp.materials.length).toBe(5);
+    expect(gp.drawings.every((d) => d.offsets.length > 5)).toBe(true);
+  });
+});

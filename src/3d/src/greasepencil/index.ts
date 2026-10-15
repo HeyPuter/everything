@@ -48,6 +48,12 @@ addMenuHooks.push(() => [
         op: 'object.grease_pencil_add',
         props: { type: 'STROKE' },
       },
+      {
+        label: 'Monkey',
+        icon: 'gp_monkey',
+        op: 'object.grease_pencil_add',
+        props: { type: 'MONKEY' },
+      },
     ],
   },
 ]);

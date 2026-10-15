@@ -97,11 +97,75 @@ export function sampleStrokes(): { lines: GPDrawing; fills: GPDrawing } {
   };
 }
 
-export function createGreasePencilObject(doc: DocumentData, type: 'EMPTY' | 'STROKE', props: Record<string, unknown>): ObjectData {
+/** An original cartoon monkey head on the front (X-Z) plane: fills on one layer, lines on another. */
+export function monkeyStrokes(): { lines: GPDrawing; fills: GPDrawing } {
+  const ellipse = (cx: number, cz: number, rx: number, rz: number, n = 48, r = 0.012, a0 = 0, a1 = Math.PI * 2) => {
+    const pts = [];
+    const closed = Math.abs(a1 - a0 - Math.PI * 2) < 1e-6;
+    const m = closed ? n : n + 1;
+    for (let i = 0; i < m; i++) {
+      const t = a0 + ((a1 - a0) * i) / n;
+      pts.push(newPoint([cx + rx * Math.cos(t), 0, cz + rz * Math.sin(t)], r, 1));
+    }
+    return pts;
+  };
+  // fills: ears (slot 2), head (slot 1), face mask (slot 3), eyes (slot 4)
+  const fills = [
+    newStroke(ellipse(-0.82, 0.12, 0.26, 0.24), { cyclic: true, material_index: 1 }),
+    newStroke(ellipse(0.82, 0.12, 0.26, 0.24), { cyclic: true, material_index: 1 }),
+    newStroke(ellipse(-0.82, 0.12, 0.15, 0.14), { cyclic: true, material_index: 2 }),
+    newStroke(ellipse(0.82, 0.12, 0.15, 0.14), { cyclic: true, material_index: 2 }),
+    newStroke(ellipse(0, 0.1, 0.72, 0.68, 64), { cyclic: true, material_index: 1 }),
+    // the face: two upper lobes and a muzzle, filled together
+    newStroke(ellipse(-0.24, 0.18, 0.27, 0.3), { cyclic: true, material_index: 2, fill_id: 1 }),
+    newStroke(ellipse(0.24, 0.18, 0.27, 0.3), { cyclic: true, material_index: 2, fill_id: 2 }),
+    newStroke(ellipse(0, -0.2, 0.46, 0.3), { cyclic: true, material_index: 2 }),
+    newStroke(ellipse(-0.22, 0.2, 0.09, 0.12), { cyclic: true, material_index: 3 }),
+    newStroke(ellipse(0.22, 0.2, 0.09, 0.12), { cyclic: true, material_index: 3 }),
+  ];
+  const lines = [
+    // outlines
+    newStroke(ellipse(0, 0.1, 0.72, 0.68, 64, 0.016), { cyclic: true }),
+    newStroke(ellipse(-0.82, 0.12, 0.26, 0.24, 40, 0.014, Math.PI * 0.32, Math.PI * 1.68)),
+    newStroke(ellipse(0.82, 0.12, 0.26, 0.24, 40, 0.014, -Math.PI * 0.68, Math.PI * 0.68)),
+    // pupils with a highlight
+    newStroke(ellipse(-0.2, 0.17, 0.035, 0.05, 16, 0.02), { cyclic: true }),
+    newStroke(ellipse(0.2, 0.17, 0.035, 0.05, 16, 0.02), { cyclic: true }),
+    newStroke([newPoint([-0.19, 0, 0.215], 0.012)], { material_index: 4 }),
+    newStroke([newPoint([0.21, 0, 0.215], 0.012)], { material_index: 4 }),
+    // nostrils and smile
+    newStroke(ellipse(-0.07, -0.08, 0.025, 0.02, 10, 0.012), { cyclic: true }),
+    newStroke(ellipse(0.07, -0.08, 0.025, 0.02, 10, 0.012), { cyclic: true }),
+    newStroke(ellipse(0, -0.12, 0.26, 0.2, 24, 0.012, Math.PI * 1.15, Math.PI * 1.85)),
+  ];
+  // tapered ends on the open lines
+  for (const st of lines)
+    if (!st.cyclic && st.points.length > 4)
+      st.points.forEach((p, i) => {
+        const t = i / (st.points.length - 1);
+        p.radius *= 0.35 + 0.65 * Math.sin(Math.PI * t);
+      });
+  return { lines: fromStrokes(lines), fills: fromStrokes(fills) };
+}
+
+export function createGreasePencilObject(doc: DocumentData, type: 'EMPTY' | 'STROKE' | 'MONKEY', props: Record<string, unknown>): ObjectData {
   const frame = doc.scene.frame_current;
-  const gp = newGreasePencil(uniqueName(doc, type === 'STROKE' ? 'Stroke' : 'GPencil', 'objects'));
+  const gp = newGreasePencil(uniqueName(doc, type === 'STROKE' ? 'Stroke' : type === 'MONKEY' ? 'Monkey' : 'GPencil', 'objects'));
   gpTable(doc)[gp.id] = gp;
-  if (type === 'STROKE') {
+  if (type === 'MONKEY') {
+    addMaterial(doc, gp, 'Black', { color: [0, 0, 0, 1], fill_color: [0, 0, 0, 1] });
+    addMaterial(doc, gp, 'Fur', { show_stroke: false, show_fill: true, color: [0.23, 0.11, 0.05, 1], fill_color: [0.23, 0.11, 0.05, 1] });
+    addMaterial(doc, gp, 'Face', { show_stroke: false, show_fill: true, color: [0.75, 0.5, 0.33, 1], fill_color: [0.75, 0.5, 0.33, 1] });
+    addMaterial(doc, gp, 'Eyes', { show_stroke: false, show_fill: true, color: [1, 1, 1, 1], fill_color: [1, 1, 1, 1] });
+    addMaterial(doc, gp, 'White', { color: [1, 1, 1, 1], fill_color: [1, 1, 1, 1] });
+    const { lines, fills } = monkeyStrokes();
+    const fillsL = newLayer('Fills');
+    const linesL = newLayer('Lines');
+    gp.layers.push(fillsL, linesL);
+    setKeyframe(gp, fillsL, frame, fills);
+    setKeyframe(gp, linesL, frame, lines);
+    gp.active_layer_index = 1;
+  } else if (type === 'STROKE') {
     addMaterial(doc, gp, 'Black', {
       color: [0, 0, 0, 1],
       fill_color: [0, 0, 0, 1],
@@ -194,15 +258,16 @@ registerOperators([
         type: 'enum',
         default: 'EMPTY',
         items: [
-          ['EMPTY', 'Blank'],
-          ['STROKE', 'Stroke'],
+          ['EMPTY', 'Blank', 'An empty grease pencil object'],
+          ['STROKE', 'Stroke', 'A grease pencil object with a sample stroke'],
+          ['MONKEY', 'Monkey', 'A grease pencil object with a drawn monkey head'],
         ],
       },
       ...transformProps,
     ],
     poll: (ctx) => ctx.doc.mode === 'OBJECT',
     exec: (ctx, p) => {
-      createGreasePencilObject(ctx.doc, p.type as 'EMPTY' | 'STROKE', p);
+      createGreasePencilObject(ctx.doc, p.type as 'EMPTY' | 'STROKE' | 'MONKEY', p);
     },
   },
   // ------------------------------------------------------------------ layers
