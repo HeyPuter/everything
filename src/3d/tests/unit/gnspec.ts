@@ -66,6 +66,12 @@ export function runSpec(spec: GnSpec, opts: { doc?: DocumentData; env?: Partial<
     // item lists given as [type, name] pairs
     const fi = props.format_items as unknown;
     if (Array.isArray(fi)) props.format_items = JSON.stringify(fi.map(([type, name]: [string, string], id: number) => ({ id, name, type })));
+    const its = props.items as unknown;
+    if (Array.isArray(its)) {
+      delete props.items;
+      const list = its.map((name: string, id: number) => ({ id, name: d.type === 'GeometryNodeIndexSwitch' ? String(id) : name }));
+      props[d.type === 'GeometryNodeIndexSwitch' ? 'index_switch_items' : 'enum_items'] = JSON.stringify(list);
+    }
     const n = addNode(tree, d.type, [0, 0], props as Record<string, never>);
     // menu sockets that the node shows as properties
     const def = getNodeType(d.type);

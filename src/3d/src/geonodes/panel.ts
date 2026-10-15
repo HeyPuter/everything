@@ -15,6 +15,7 @@ import { gnResults } from './results';
 import { syncModifierInputs, setActiveModifier } from './editor';
 import { FIELD_TYPES } from './evaluator';
 import { unitOf } from '../nodes/editor/nodeui';
+import { groupInputMenuItems } from './nodes/switches';
 
 const changed = (label: string) => {
   app.pushUndo(label);
@@ -104,6 +105,22 @@ function inputRow(ob: ObjectData, m: ModifierBase, it: NonNullable<NodeGroupData
           String(m[id] ?? ''),
           (v) => ((m[id] = v || null), changed(`Set ${label}`)),
           { title: label },
+        ),
+      );
+      break;
+    }
+    case 'MENU': {
+      const g = typeof m.node_group === 'string' ? app.doc.node_groups[m.node_group] : undefined;
+      const items = g ? groupInputMenuItems(app.doc, g.tree, id) : [];
+      const cur = typeof m[id] === 'string' && items.includes(m[id] as string) ? (m[id] as string) : String(it.default_value ?? items[0] ?? '');
+      w = splitRow(
+        label,
+        enumMenu(
+          `gnmod-${m.id}-${id}`,
+          items.map((v) => ({ value: v, label: v })),
+          cur,
+          (v) => ((m[id] = v), changed(`Set ${label}`)),
+          { title: label, disabled: !items.length },
         ),
       );
       break;

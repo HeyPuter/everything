@@ -5,4 +5,5 @@ import './fn_matrix';
 import './fn_string';
 import './fields';
 import './attributes';
+import './switches';
 export {};
