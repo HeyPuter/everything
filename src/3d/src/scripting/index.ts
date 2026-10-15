@@ -15,7 +15,8 @@
 //   Object: name, type, data, parent, location/rotation_euler/rotation_quaternion/scale (live vectors),
 //       any document field, matrix_world (get/set), matrix_basis, matrix_local, dimensions,
 //       modifiers.new(name, type)/remove/clear, constraints.new(type)/remove, vertex_groups.new,
-//       keyframe_insert/keyframe_delete(data_path, index, frame), select_get/set, hide_get/set,
+//       keyframe_insert/keyframe_delete(data_path, index, frame), driver_add/driver_remove(path, index),
+//       select_get/set, hide_get/set,
 //       visible_get, active_material, material_slots, children, users_collection, copy(), ob["prop"]
 //   Mesh: vertices[i].co/select/normal, edges, polygons (vertices, normal, center, area, use_smooth,
 //       material_index), loops, from_pydata(verts, edges, faces) (loose edges are not stored),

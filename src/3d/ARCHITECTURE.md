@@ -222,6 +222,11 @@ adds entries to File ▸ Import/Export. Native format: `io/native.ts`.
   `rowBadgeHooks` (`editors/outliner/menus.ts`), `idSelectorMenuHooks` (`ui/idmenu.ts`, data-block
   selectors), `addMenuExtras` (`nodes/editor/context.ts`, node Add menu and search),
   `shelfCategoryHooks` (`paint/assetshelf.ts`), `idAssetHooks` (`scripting/api.ts`, `ID.asset_mark()`)
+- Drivers: `anim/drivers.ts` evaluates variables and drivers (the depsgraph runs an object's drivers right
+  before its transform, after the objects they read); expressions compile in `anim/driverexpr.ts` (Python
+  subset, no globals). A driver's `fcurve` maps its value; the Drivers editor (`animation/driverseditor.ts`)
+  shows those curves through stand-in actions (`animation/drivercurves.ts`), settings UI in `driverpanel.ts`
+- Spreadsheet: `spreadsheet/data.ts` (sources, tables, columns), `filter.ts` (row filters, sorting, TSV; pure)
 - Animation editors (`animation/animeditor.ts`): `selectables()` feeds box/circle/lasso selection,
   `overlay` draws transient circle/lasso/slider readouts, `snapTo()`/`snapHeader()` snapping options;
   key-shaping logic lives in `animation/fcurvetools.ts` (pure) and its operators in `graphtools.ts`

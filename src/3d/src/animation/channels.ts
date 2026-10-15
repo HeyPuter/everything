@@ -3,6 +3,7 @@
 // drivers and NLA tracks. Pure document logic (no DOM) so it can be unit tested.
 import type { ActionData, DocumentData, Driver, FCurve, NlaTrack, ObjectData, ShapeKey } from '../data/types';
 import { channelLabel, dataBlock } from '../data/rna';
+import { driverAction } from './drivercurves';
 
 export type SpaceKind = 'DOPESHEET' | 'ACTION' | 'SHAPEKEY' | 'GRAPH' | 'DRIVERS' | 'NLA';
 export type ChannelKind = 'SUMMARY' | 'OBJECT' | 'ACTION' | 'GROUP' | 'FCURVE' | 'SHAPEKEY' | 'DRIVERS' | 'DRIVER' | 'NLA_ACTION' | 'NLA_TRACK';
@@ -252,6 +253,9 @@ export function buildChannels(doc: DocumentData, space: SpaceKind, f: ChannelFil
       if (!drivers.length) continue;
       const okey = `dob:${ob.id}`;
       const oexp = isExpanded(okey, 'OBJECT');
+      const action = driverAction(ob);
+      const refs = drivers.map(({ d }) => ({ ob, action, fc: d.fcurve! }));
+      curves.push(...refs);
       rows.push({
         key: okey,
         kind: 'OBJECT',
@@ -259,7 +263,7 @@ export function buildChannels(doc: DocumentData, space: SpaceKind, f: ChannelFil
         label: ob.name,
         icon: objectIcon(ob),
         ob,
-        curves: [],
+        curves: refs,
         expandable: true,
         expanded: oexp,
       });
@@ -273,24 +277,28 @@ export function buildChannels(doc: DocumentData, space: SpaceKind, f: ChannelFil
         label: 'Drivers',
         icon: 'graph',
         ob,
-        curves: [],
+        curves: refs,
         expandable: true,
         expanded: dexp,
       });
       if (!dexp) continue;
-      for (const { d, i } of drivers)
+      drivers.forEach(({ d, i }, n) =>
         rows.push({
           key: driverKey(ob, d),
           kind: 'DRIVER',
           depth: 2,
           label: channelLabel(d.data_path, d.array_index),
           ob,
+          action,
+          fc: d.fcurve,
           driver: d,
           driverIndex: i,
-          curves: [],
+          error: !!f.driverError?.(ob, d),
+          curves: [refs[n]],
           expandable: false,
           expanded: false,
-        });
+        }),
+      );
     }
     return { rows, curves };
   }
@@ -422,7 +430,7 @@ export function channelSelected(ch: Channel): boolean {
     case 'SHAPEKEY':
       return ch.fc ? !!ch.fc.select : channelState.selectedShapeKeys.has(ch.key);
     case 'DRIVER':
-      return channelState.selectedDrivers.has(ch.key);
+      return ch.fc ? !!ch.fc.select : channelState.selectedDrivers.has(ch.key);
     case 'NLA_TRACK':
       return !!ch.track?.select;
     default:
@@ -448,6 +456,7 @@ export function setChannelSelected(ch: Channel, value: boolean) {
       else channelState.selectedShapeKeys.delete(ch.key);
       break;
     case 'DRIVER':
+      if (ch.fc) ch.fc.select = value;
       if (value) channelState.selectedDrivers.add(ch.key);
       else channelState.selectedDrivers.delete(ch.key);
       break;
@@ -459,6 +468,6 @@ export function setChannelSelected(ch: Channel, value: boolean) {
 
 /** Curves affected by a channel-level setting toggle on this row. */
 export function channelCurves(ch: Channel): FCurve[] {
-  if (ch.kind === 'FCURVE' || ch.kind === 'SHAPEKEY') return ch.fc ? [ch.fc] : [];
+  if (ch.kind === 'FCURVE' || ch.kind === 'SHAPEKEY' || ch.kind === 'DRIVER') return ch.fc ? [ch.fc] : [];
   return ch.curves.map((r) => r.fc);
 }
