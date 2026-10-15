@@ -27,10 +27,13 @@ async function setup(page: Page, editor: 'GRAPH' | 'DOPESHEET' | 'NLA', vals = [
     [editor, vals, sel] as const,
   );
   await page.waitForTimeout(300);
-  const box = (await page.locator('.anim-main canvas').first().boundingBox())!;
+  const box = (await area(page, editor).locator('.anim-main canvas').boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   return box;
 }
+
+/** The area showing an editor type. */
+const area = (page: Page, type: string) => page.locator(`.area[data-editor="${type}"]`).first();
 
 const keyValues = (page: Page) =>
   page.evaluate(() => {
@@ -42,7 +45,7 @@ const keyValues = (page: Page) =>
 test('graph editor: blend slider from the Key menu, then adjust it from the redo panel', async ({ page }) => {
   const errors = await openApp(page);
   const box = await setup(page, 'GRAPH');
-  await page.locator('.hdr-menu', { hasText: 'Key' }).click();
+  await area(page, 'GRAPH').locator('.hdr-menu', { hasText: /^Key$/ }).click();
   await page.locator('.menu-item', { hasText: /^Blend/ }).first().hover();
   await page.locator('.menu-item', { hasText: 'Blend to Neighbor' }).click();
   await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2, { steps: 4 });
@@ -89,10 +92,10 @@ test('graph editor: circle select, select key handles and euler filter entries',
     return app.doc.actions[ob.animation_data.action].fcurves[0].keyframe_points.filter((k: { select_control_point: boolean }) => k.select_control_point).length;
   });
   expect(selected).toBeGreaterThan(0);
-  await page.locator('.hdr-menu', { hasText: 'Select' }).click();
+  await area(page, 'GRAPH').locator('.hdr-menu', { hasText: 'Select' }).click();
   await expect(page.locator('.menu-item', { hasText: 'Select Handles' })).toBeVisible();
   await page.keyboard.press('Escape');
-  await page.locator('.hdr-menu', { hasText: 'Channel' }).click();
+  await area(page, 'GRAPH').locator('.hdr-menu', { hasText: 'Channel' }).click();
   await expect(page.locator('.menu-item', { hasText: 'Discontinuity (Euler) Filter' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expectNoErrors(errors);
@@ -115,11 +118,11 @@ test('markers: add, select, rename, camera bind and delete', async ({ page }) =>
     [20, true],
   ]);
   // marker row: select all with A, delete with X
-  const box = (await page.locator('.anim-main canvas').first().boundingBox())!;
+  const box = (await area(page, 'DOPESHEET').locator('.anim-main canvas').boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height - 8);
   await page.keyboard.press('A');
   expect(await page.evaluate(() => (window as any).app.doc.scene.timeline_markers.every((m: { select: boolean }) => m.select))).toBe(true); // eslint-disable-line @typescript-eslint/no-explicit-any
-  await page.locator('.hdr-menu', { hasText: 'Marker' }).first().click();
+  await area(page, 'DOPESHEET').locator('.hdr-menu', { hasText: 'Marker' }).click();
   await expect(page.locator('.menu-item', { hasText: 'Bind Camera to Markers' })).toBeVisible();
   await page.locator('.menu-item', { hasText: 'Delete Marker' }).click();
   expect(await page.evaluate(() => (window as any).app.doc.scene.timeline_markers.length)).toBe(0); // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -139,7 +142,7 @@ test('channels: reorder, editability toggle and preview range', async ({ page })
     app.changed('doc');
   });
   await page.waitForTimeout(200);
-  const ch = (await page.locator('.anim-ch-rows').boundingBox())!;
+  const ch = (await area(page, 'GRAPH').locator('.anim-ch-rows').boundingBox())!;
   await page.mouse.move(ch.x + 40, ch.y + 10);
   await page.keyboard.press('Shift+PageUp');
   const order = await page.evaluate(() => {
@@ -155,7 +158,7 @@ test('channels: reorder, editability toggle and preview range', async ({ page })
     }),
   ).toBe(true);
   // P + drag sets the preview range
-  const box = (await page.locator('.anim-main canvas').first().boundingBox())!;
+  const box = (await area(page, 'GRAPH').locator('.anim-main canvas').boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.keyboard.press('P');
   await page.mouse.move(box.x + 100, box.y + 100);
@@ -215,12 +218,12 @@ test('pose mode: in-between slider, propagate, names and selection sets', async 
   // select mirror, flip names, selection set
   await page.keyboard.press('Shift+Control+M');
   expect(await page.evaluate(() => (window as any).app.activeObject.pose['Arm.R'].select)).toBe(true); // eslint-disable-line @typescript-eslint/no-explicit-any
-  await page.locator('.hdr-menu', { hasText: 'Pose' }).click();
+  await area(page, 'VIEW_3D').locator('.hdr-menu', { hasText: 'Pose' }).click();
   await page.locator('.menu-item', { hasText: 'Selection Sets' }).hover();
   await page.locator('.menu-item', { hasText: 'Create and Add Selected' }).click();
   expect(await page.evaluate(() => (window as any).app.activeObject.selection_sets[0].bones)).toEqual(['Arm.R']); // eslint-disable-line @typescript-eslint/no-explicit-any
   await page.keyboard.press('A');
-  await page.locator('.hdr-menu', { hasText: 'Pose' }).click();
+  await area(page, 'VIEW_3D').locator('.hdr-menu', { hasText: 'Pose' }).click();
   await page.locator('.menu-item', { hasText: 'Names' }).hover();
   await page.locator('.menu-item', { hasText: 'Flip Names' }).click();
   const names = await page.evaluate(() => {
@@ -248,7 +251,7 @@ test('NLA: tweak mode, meta strips, transitions and strip menu', async ({ page }
     app.changed('doc');
   });
   await page.waitForTimeout(200);
-  const box = (await page.locator('.anim-main canvas').first().boundingBox())!;
+  const box = (await area(page, 'NLA').locator('.anim-main canvas').boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.keyboard.press('Shift+T');
   const types = () =>
@@ -269,10 +272,10 @@ test('NLA: tweak mode, meta strips, transitions and strip menu', async ({ page }
   });
   await page.keyboard.press('Tab');
   expect(await page.evaluate(() => !!(window as any).app.activeObject.animation_data.tweak)).toBe(true); // eslint-disable-line @typescript-eslint/no-explicit-any
-  await expect(page.locator('.hdr-toggle', { hasText: 'Tweaking' })).toBeVisible();
+  await expect(area(page, 'NLA').locator('.hdr-toggle', { hasText: 'Tweaking' })).toBeVisible();
   await page.keyboard.press('Tab');
   expect(await page.evaluate(() => !!(window as any).app.activeObject.animation_data.tweak)).toBe(false); // eslint-disable-line @typescript-eslint/no-explicit-any
-  await page.locator('.hdr-menu', { hasText: 'Strip' }).click();
+  await area(page, 'NLA').locator('.hdr-menu', { hasText: 'Strip' }).click();
   for (const label of ['Make Meta', 'Linked Duplicate', 'Apply Scale', 'Make Single User', 'Start Tweaking Strip Actions (Full Stack)']) await expect(page.locator('.menu-item', { hasText: label }).first()).toBeVisible();
   await page.keyboard.press('Escape');
   await expectNoErrors(errors);
@@ -311,5 +314,32 @@ test('timeline: summary keys can be selected and moved, ruler scrubs, markers', 
   expect(frames).toEqual([6, 26, 46]);
   await page.keyboard.press('M');
   expect(await page.evaluate(() => (window as any).app.doc.scene.timeline_markers.length)).toBe(1); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await expectNoErrors(errors);
+});
+
+test('keying sets: add a property from its decorator menu, then insert keys with the set', async ({ page }) => {
+  const errors = await openApp(page);
+  // Object properties: right-click the Location Z decorator
+  const deco = page.locator('.split-row', { hasText: 'Z' }).locator('.decorator').first();
+  await deco.click({ button: 'right' });
+  await page.locator('.menu-item', { hasText: 'Add Single to Keying Set' }).click();
+  const ks = await page.evaluate(() => {
+    const s = (window as any).app.doc.scene; // eslint-disable-line @typescript-eslint/no-explicit-any
+    return [s.keying_set, s.keying_sets.map((k: { name: string; paths: { data_path: string; index: number }[] }) => [k.name, k.paths.map((p) => `${p.data_path}[${p.index}]`)])];
+  });
+  expect(ks).toEqual(['KS:Button Keying Set', [['Button Keying Set', ['location[2]']]]]);
+  // the Scene tab lists the set and its path
+  await page.locator('.rail-tab[data-tip="Scene"]').click();
+  await expect(page.locator('.uilist', { hasText: 'Button Keying Set' })).toBeVisible();
+  // I in the viewport inserts keys for the set's paths only
+  const vp = (await page.locator('.view3d').first().boundingBox())!;
+  await page.mouse.move(vp.x + vp.width / 2, vp.y + vp.height / 2);
+  await page.keyboard.press('I');
+  const curves = await page.evaluate(() => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const act = app.doc.actions[app.activeObject.animation_data.action];
+    return act.fcurves.map((f: { data_path: string; array_index: number }) => `${f.data_path}[${f.array_index}]`);
+  });
+  expect(curves).toEqual(['location[2]']);
   await expectNoErrors(errors);
 });

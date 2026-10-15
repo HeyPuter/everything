@@ -903,6 +903,20 @@ export interface RigidBodyWorld {
   frame_end: number;
 }
 
+export interface KeyingSetPath {
+  /** object the path belongs to */
+  id: ID | null;
+  data_path: string;
+  /** array element, or -1 for all elements */
+  index: number;
+}
+
+export interface KeyingSetData {
+  name: string;
+  paths: KeyingSetPath[];
+  active_path_index?: number;
+}
+
 export interface SceneData {
   name: string;
   frame_start: number;
@@ -933,7 +947,10 @@ export interface SceneData {
   /** active object id (view layer) */
   active_object: ID | null;
   custom: CustomProps;
-  keying_set?: 'LocRotScale' | 'Location' | 'Rotation' | 'Scale' | 'Available' | 'WholeCharacter';
+  /** active keying set: a built-in set or `KS:<name>` for one of `keying_sets` */
+  keying_set?: 'LocRotScale' | 'Location' | 'Rotation' | 'Scale' | 'Available' | 'WholeCharacter' | `KS:${string}`;
+  /** user keying sets (absolute property paths) */
+  keying_sets?: KeyingSetData[];
 }
 
 export interface DocumentData {

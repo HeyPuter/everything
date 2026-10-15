@@ -123,6 +123,8 @@ function renderMenu(m: OpenMenu) {
           renderMenu(m);
         },
         onpointerup: (e: PointerEvent) => {
+          // the release of the right-press that opened a context menu does not pick an item
+          if (e.button === 2 && performance.now() - openedAt.time < 350 && Math.hypot(e.clientX - openedAt.x, e.clientY - openedAt.y) < 6) return;
           if (e.button === 0 || e.button === 2) activate(m, item, e);
         },
       },
@@ -157,7 +159,20 @@ function openSubmenu(m: OpenMenu, item: MenuItem) {
   m.child = sub;
 }
 
+/** When/where the last menu opened (see the right-release check on items). */
+const openedAt = { time: 0, x: 0, y: 0 };
+if (typeof addEventListener === 'function')
+  addEventListener(
+    'pointerdown',
+    (e) => {
+      openedAt.x = e.clientX;
+      openedAt.y = e.clientY;
+    },
+    true,
+  );
+
 function createMenu(items: MenuItem[], x: number, y: number, parent?: OpenMenu, title?: string): OpenMenu {
+  if (!parent) openedAt.time = performance.now();
   const el = document.createElement('div');
   el.className = 'menu';
   el.setAttribute('role', 'menu');

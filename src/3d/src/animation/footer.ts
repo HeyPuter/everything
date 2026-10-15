@@ -6,15 +6,7 @@ import { app } from '../app/app';
 import { openPopover } from '../ui/menu';
 import { numberField, enumMenu } from '../ui/widgets';
 import type { Keyframe } from '../data/types';
-
-const KEYING_SETS: [string, string][] = [
-  ['LocRotScale', 'Location, Rotation & Scale'],
-  ['Location', 'Location'],
-  ['Rotation', 'Rotation'],
-  ['Scale', 'Scale'],
-  ['Available', 'Available'],
-  ['WholeCharacter', 'Whole Character'],
-];
+import { keyingSetItems } from '../anim/keyingsets';
 
 export const KEY_TYPES: [Keyframe['type'], string][] = [
   ['KEYFRAME', 'Keyframe'],
@@ -65,7 +57,7 @@ export function playbackFooter(): Child {
       h('div', { class: 'pop-label' }, 'Active Keying Set'),
       enumMenu(
         'anim-ks',
-        KEYING_SETS.map(([value, label]) => ({ value, label })),
+        keyingSetItems().map(([value, label]) => ({ value, label })),
         s.keying_set ?? 'LocRotScale',
         (v) => ((s.keying_set = v as 'Location'), app.pushUndo('Keying Set'), app.changed('ui')),
       ),

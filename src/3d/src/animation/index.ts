@@ -11,3 +11,4 @@ import './selecttools';
 import './graphtools';
 import './channelops';
 import './nlaops';
+import '../anim/keyingsets';

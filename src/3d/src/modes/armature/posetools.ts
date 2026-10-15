@@ -19,6 +19,7 @@ import { armatureDataPanels } from '../../editors/properties/tabs';
 import { uiList } from '../../editors/properties/uilist';
 import { panel, opButton } from '../../ui/widgets';
 import { h } from '../../ui/h';
+import { BUILTIN_KEYING_SETS, keyingSetItems } from '../../anim/keyingsets';
 import { flipSideName, autosideName, slideValue, poseRestValue, propagateCurve, type SlideMode, type PropagateMode } from './posemath';
 
 const inPose = () => app.doc.mode === 'POSE' && !!activeArmature();
@@ -922,24 +923,15 @@ const boneOptionsMenu = (mode: string) => (): MenuItem[] => BONE_OPTIONS.map(([k
 // ---------------------------------------------------------------------------
 // Keying set choice
 
-const KEYING_SETS: [string, string][] = [
-  ['Location', 'Location'],
-  ['Rotation', 'Rotation'],
-  ['Scale', 'Scale'],
-  ['LocRotScale', 'Location, Rotation & Scale'],
-  ['Available', 'Available'],
-  ['WholeCharacter', 'Whole Character'],
-];
-
 const keyingSetOp: Operator = {
   idname: 'anim.keying_set_active_set',
   label: 'Set Active Keying Set',
   description: 'Choose the keying set used when inserting keyframes',
-  props: [{ id: 'type', label: 'Keying Set', type: 'enum', default: 'LocRotScale', items: KEYING_SETS }],
+  props: [{ id: 'type', label: 'Keying Set', type: 'enum', default: 'LocRotScale', items: BUILTIN_KEYING_SETS }],
   invoke: () => {
     const cur = app.doc.scene.keying_set ?? 'LocRotScale';
     openMenu(
-      KEYING_SETS.map(([v, l]) => ({ label: l, active: v === cur, op: 'anim.keying_set_active_set', props: { type: v } })),
+      keyingSetItems().map(([v, l]) => ({ label: l, active: v === cur, op: 'anim.keying_set_active_set', props: { type: v } })),
       { x: app.pointer.x, y: app.pointer.y },
       { title: 'Active Keying Set' },
     );

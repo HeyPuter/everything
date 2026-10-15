@@ -213,7 +213,7 @@ registerOperators([
     undo: false,
     poll: () => app.selectedObjects().length > 0,
     invoke: () => {
-      const sets: [KeyingSet, string][] = [['Location', 'Location'], ['Rotation', 'Rotation'], ['Scale', 'Scale'], ['LocRot', 'Location & Rotation'], ['LocScale', 'Location & Scale'], ['LocRotScale', 'Location, Rotation & Scale'], ['RotScale', 'Rotation & Scale'], ['Available', 'Available'], ['WholeCharacter', 'Whole Character']];
+      const sets: [KeyingSet, string][] = [['Location', 'Location'], ['Rotation', 'Rotation'], ['Scale', 'Scale'], ['LocRot', 'Location & Rotation'], ['LocScale', 'Location & Scale'], ['LocRotScale', 'Location, Rotation & Scale'], ['RotScale', 'Rotation & Scale'], ['Available', 'Available'], ['WholeCharacter', 'Whole Character'], ...(app.doc.scene.keying_sets ?? []).map((k): [KeyingSet, string] => [`KS:${k.name}`, k.name])];
       openMenu(sets.map(([t, l]) => ({ label: l, op: 'anim.keyframe_insert_by_name', props: { type: t } })), { x: app.pointer.x, y: app.pointer.y }, { title: 'Insert Keyframe' });
       return 'CANCELLED';
     },

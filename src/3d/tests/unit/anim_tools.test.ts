@@ -520,3 +520,23 @@ describe('NLA editing', () => {
     expect(alignActionToStrip(doc, s)).toBe(false);
   });
 });
+
+import { insertUserKeyingSet } from '../../src/anim/keyframes';
+
+describe('keying sets', () => {
+  it('keys every path of a user keying set', () => {
+    doc.scene.keying_sets = [
+      {
+        name: 'KS',
+        paths: [
+          { id: cube.id, data_path: 'location', index: 2 },
+          { id: cube.id, data_path: 'scale', index: -1 },
+          { id: 'missing', data_path: 'location', index: -1 },
+        ],
+      },
+    ];
+    expect(insertUserKeyingSet(doc, 'KS')).toBe(2);
+    const act = doc.actions[cube.animation_data!.action!];
+    expect(act.fcurves.map((f) => `${f.data_path}${f.array_index}`).sort()).toEqual(['location2', 'scale0', 'scale1', 'scale2']);
+  });
+});

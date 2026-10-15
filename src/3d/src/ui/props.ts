@@ -43,15 +43,23 @@ function commit(label: string, final: boolean, o?: PropOpts) {
   if (final) app.pushUndo(o?.undo ?? label);
 }
 
+/** Right-click menu of an animatable property's decorator (set by the animation module). */
+export const propertyAnimMenuHook: { open: ((e: MouseEvent, ob: ObjectData, path: string, index: number) => void) | null } = { open: null };
+
 function deco(o?: PropOpts): Child {
   if (o?.noDecorator) return null;
   if (!o?.anim) return h('span', { class: 'decorator-space' });
   const st = keyState(app.doc, o.anim.ob, o.anim.path, o.anim.index ?? -1);
-  return decorator(st, () => {
-    keyProperty(app.doc, o.anim!.ob, o.anim!.path, o.anim!.index ?? -1);
-    app.pushUndo('Insert Keyframe');
-    app.changed('doc');
-  });
+  const a = o.anim;
+  return decorator(
+    st,
+    () => {
+      keyProperty(app.doc, a.ob, a.path, a.index ?? -1);
+      app.pushUndo('Insert Keyframe');
+      app.changed('doc');
+    },
+    propertyAnimMenuHook.open ? (e: MouseEvent) => propertyAnimMenuHook.open!(e, a.ob, a.path, a.index ?? -1) : undefined,
+  );
 }
 
 function animState(o?: PropOpts) {
@@ -211,11 +219,15 @@ export function vecProp<T extends object>(owner: T, key: keyof T & string, label
         i === 0 ? `${label} ${names[i]}` : names[i],
         lockBtn ? h('div', { class: 'field-with-lock' }, field, lockBtn) : field,
         o.anim
-          ? decorator(keyState(app.doc, o.anim.ob, o.anim.path, i), () => {
-              keyProperty(app.doc, o.anim!.ob, o.anim!.path, i);
-              app.pushUndo('Insert Keyframe');
-              app.changed('doc');
-            })
+          ? decorator(
+              keyState(app.doc, o.anim.ob, o.anim.path, i),
+              () => {
+                keyProperty(app.doc, o.anim!.ob, o.anim!.path, i);
+                app.pushUndo('Insert Keyframe');
+                app.changed('doc');
+              },
+              propertyAnimMenuHook.open ? (e: MouseEvent) => propertyAnimMenuHook.open!(e, o.anim!.ob, o.anim!.path, i) : undefined,
+            )
           : h('span', { class: 'decorator-space' }),
         i === 0 ? 'vec-first' : i === arr.length - 1 ? 'vec-last' : 'vec-mid',
       );
