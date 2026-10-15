@@ -56,6 +56,13 @@ function slot(target: Target, shapes: GestureShape[], available: (t: Target, k: 
   return { ...alts[0], alternates: alts.length > 1 ? alts : undefined };
 }
 
+const TRANSFORM_TOOLS: ToolDef[] = [
+  { id: 'builtin.move', label: 'Move', icon: 'transform_move', description: 'Move the unmasked part of the mesh with the gizmo' },
+  { id: 'builtin.rotate', label: 'Rotate', icon: 'transform_rotate', description: 'Rotate the unmasked part of the mesh around the pivot' },
+  { id: 'builtin.scale', label: 'Scale', icon: 'transform_scale', description: 'Scale the unmasked part of the mesh around the pivot' },
+  { id: 'builtin.transform', label: 'Transform', icon: 'transform', description: 'Move, rotate and scale with one gizmo' },
+];
+
 export const lineProjectTool: ToolDef = { id: 'builtin.line_project', label: 'Line Project', icon: 'line_project', description: 'Flatten the mesh on one side of a line onto the line' };
 export const meshFilterTool: ToolDef = { id: 'builtin.mesh_filter', label: 'Mesh Filter', icon: 'mesh_filter', description: 'Deform the whole unmasked mesh: drag left or right to set the strength' };
 export const faceSetEditTool: ToolDef = { id: 'builtin.face_set_edit', label: 'Edit Face Set', icon: 'face_set_edit', description: 'Click on a face set to grow or shrink it' };
@@ -76,6 +83,8 @@ export function sculptToolSlots(available: (op: string) => boolean): (ToolDef | 
   if (available('sculpt.color_filter')) out.push({ id: 'builtin.color_filter', label: 'Color Filter', icon: 'color_filter', description: 'Adjust the colors of the mesh: drag left / right to set the strength' });
   if (available('sculpt.face_set_edit')) out.push(faceSetEditTool);
   if (available('sculpt.mask_by_color')) out.push(maskByColorTool);
+  // transform tools act on the unmasked mesh around the sculpt pivot
+  out.push(null, ...TRANSFORM_TOOLS);
   return out.filter((t, i, a) => t || (i > 0 && a[i - 1]));
 }
 

@@ -1,12 +1,13 @@
 // Sculpt Mode transform: Move / Rotate / Scale the unmasked part of the mesh around the sculpt
 // pivot (set with Set Pivot), through the regular modal transform.
 import { Matrix3, Matrix4, Vector3 } from 'three';
-import { app, registerOperators } from '../app/app';
+import { app, onAppReady, registerOperators } from '../app/app';
 import { cow } from '../data/cow';
 import { h, type VNode } from '../ui/h';
 import { editModeHooks } from '../editors/view3d/hooks';
 import { activeView3D } from '../editors/view3d/view3d';
 import { transformProviders, type TElement } from '../ops/transform';
+import { gizmoCenterHook, setGizmoCenterHook } from '../editors/view3d/gizmo';
 import { activeMeshData, beginGeometryStroke, meshSession, reevaluate } from './session';
 import { finishDeform } from './gestureops';
 import { sculptPoll } from './facesetops';
@@ -199,4 +200,17 @@ editModeHooks.svg.push((v) => {
     h('circle', { cx: q.x, cy: q.y, r: 6, fill: 'none', stroke: '#fff', 'stroke-width': 1.5 }),
     h('path', { d: `M${q.x - 10} ${q.y}h6M${q.x + 4} ${q.y}h6M${q.x} ${q.y - 10}v6M${q.x} ${q.y + 4}v6`, stroke: '#fff', 'stroke-width': 1.2 }),
   ) as VNode;
+});
+
+// transform gizmo (Move / Rotate / Scale / Transform tools) sits on the sculpt pivot
+// (registered once all modules are loaded: other modes install their hooks at import time)
+onAppReady(() => {
+  const prevGizmoHook = gizmoCenterHook;
+  setGizmoCenterHook(() => {
+    if (app.doc.mode !== 'SCULPT') return prevGizmoHook?.() ?? null;
+    const ob = app.activeObject;
+    if (!ob || ob.type !== 'MESH') return null;
+    const w = app.graph.get(ob.id)?.world ?? new Matrix4();
+    return { center: sculptPivot(ob.id).applyMatrix4(w), basis: new Matrix3().setFromMatrix4(w) };
+  });
 });
