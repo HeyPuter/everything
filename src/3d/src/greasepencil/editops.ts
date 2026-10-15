@@ -11,9 +11,9 @@ import { gpOf, gpTable, newGreasePencil, newLayer, activeLayer, frameAt, setKeyf
 import { editTargets, inGPEdit, drawing, setDrawing, mapStrokes, anySel, strokeMode, type EditTarget } from './edit';
 import { editableDrawing } from './paint';
 import { layerMatrix } from './render';
-import { filterPoints, subdivideStroke, smoothPoints, simplifyPoints } from './strokeops';
-import { resamplePoints } from './interpolate';
-import { mergeByDistance } from './cleanup';
+import { filterPoints, subdivideStroke, smoothPoints, simplifyPoints, mergeByDistance, simplifyFixed, sampleByLength, outlinePoints } from './strokeops';
+
+export { simplifyFixed, sampleByLength, outlinePoints };
 import type { GPDrawing, GreasePencilData, GPLayer } from './types';
 import type { ObjectData } from '../data/types';
 
@@ -165,49 +165,6 @@ export function dissolveBetween(s: GPStroke): GPStroke {
   s.points.forEach((p, i) => p.select && (last = i));
   if (first < 0 || last - first < 2) return s;
   return { ...s, points: s.points.filter((_, i) => i <= first || i >= last) };
-}
-
-/** Points of the stroke outline (a closed loop around the stroke shape), in the stroke's space. */
-export function outlinePoints(s: GPStroke, normal: Vector3, offset: number, subdivisions: number): GPPoint[] {
-  const pts = s.points;
-  const n = pts.length;
-  if (!n) return [];
-  const P = pts.map((p) => new Vector3(...p.co));
-  const tangent = (i: number) => {
-    const a = P[Math.max(0, i - 1)],
-      b = P[Math.min(n - 1, i + 1)];
-    const t = b.clone().sub(a);
-    if (s.cyclic && n > 2) t.copy(P[(i + 1) % n].clone().sub(P[(i - 1 + n) % n]));
-    return t.lengthSq() > 1e-20 ? t.normalize() : new Vector3(1, 0, 0);
-  };
-  const side = (i: number) => {
-    const sd = new Vector3().crossVectors(normal, tangent(i));
-    return sd.lengthSq() > 1e-20 ? sd.normalize() : new Vector3(0, 0, 1);
-  };
-  const r = (i: number) => Math.max(1e-6, pts[i].radius + offset);
-  const mk = (v: Vector3, i: number): GPPoint => ({ ...clonePt(pts[i], false), co: [v.x, v.y, v.z] });
-  const left: GPPoint[] = [],
-    right: GPPoint[] = [];
-  for (let i = 0; i < n; i++) {
-    const sd = side(i).multiplyScalar(r(i));
-    left.push(mk(P[i].clone().add(sd), i));
-    right.push(mk(P[i].clone().sub(sd), i));
-  }
-  /** round cap around point i: from `sign`·side through the tangent direction to -`sign`·side */
-  const cap = (i: number, sign: number): GPPoint[] => {
-    const out: GPPoint[] = [];
-    const t = tangent(i).multiplyScalar(sign);
-    const sd = side(i).multiplyScalar(sign);
-    const m = subdivisions + 1;
-    for (let k = 1; k <= m; k++) {
-      const a = (Math.PI * k) / (m + 1);
-      out.push(mk(P[i].clone().addScaledVector(sd, Math.cos(a) * r(i)).addScaledVector(t, Math.sin(a) * r(i)), i));
-    }
-    return out;
-  };
-  // a closed stroke gives its outer loop here (the caller adds the inner one with the normal flipped)
-  if (s.cyclic) return left;
-  return [...left, ...cap(n - 1, 1), ...right.reverse(), ...cap(0, -1)];
 }
 
 // ---------------------------------------------------------------------------
@@ -1070,23 +1027,6 @@ valueProviders.push({
 
 // ---------------------------------------------------------------------------
 // Simplify modes and shape-keeping smooth
-
-/** Remove every other point `steps` times (stroke ends stay). */
-export function simplifyFixed(points: GPPoint[], steps: number): GPPoint[] {
-  let pts = points;
-  for (let k = 0; k < steps && pts.length > 2; k++) pts = pts.filter((_, i) => i % 2 === 0 || i === pts.length - 1);
-  return pts;
-}
-
-/** Points every `length` along the stroke (plus the last point of open strokes). */
-export function sampleByLength(points: GPPoint[], length: number, cyclic: boolean): GPPoint[] {
-  if (points.length < 2 || length <= 0) return points;
-  let total = 0;
-  const pts = cyclic ? [...points, points[0]] : points;
-  for (let i = 1; i < pts.length; i++) total += Math.hypot(...pts[i].co.map((x, k) => x - pts[i - 1].co[k]));
-  const n = Math.max(cyclic ? 3 : 2, Math.round(total / length) + (cyclic ? 0 : 1));
-  return resamplePoints(points, n, cyclic);
-}
 
 patchOp(
   'grease_pencil.stroke_simplify',

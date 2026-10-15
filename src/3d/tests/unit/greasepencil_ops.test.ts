@@ -293,3 +293,80 @@ describe('trim', () => {
     expect(out[0].points.map((p) => p.co[0])).toEqual([5, 10]);
   });
 });
+
+import { kernels, buildStrokes, changeLength, timeOffset, evaluateDrawing, activeModifiers } from '../../src/greasepencil/modifiers';
+import { Matrix4 } from 'three';
+
+describe('grease pencil modifiers', () => {
+  const ctx = () => {
+    const gp = newGreasePencil();
+    const layer = newLayer('L');
+    gp.layers.push(layer);
+    return { doc: app.doc, ob: app.activeObject!, gp, layer, layerIndex: 0, frame: 1, keyFrame: 1, nextKeyFrame: null, prevStrokeCount: 0, world: new Matrix4() };
+  };
+  beforeEach(() => {
+    setApp(new App(startupDocument()));
+  });
+
+  it('thickness, opacity and tint', () => {
+    const s = [line([0, 1])];
+    expect(kernels.GREASE_PENCIL_THICKNESS(s, { thickness_factor: 2 }, ctx())[0].points[0].radius).toBeCloseTo(0.02);
+    expect(kernels.GREASE_PENCIL_THICKNESS(s, { use_uniform_thickness: true, thickness: 0.5 }, ctx())[0].points[1].radius).toBeCloseTo(0.25);
+    expect(kernels.GREASE_PENCIL_OPACITY(s, { color_factor: 0.5 }, ctx())[0].points[0].opacity).toBeCloseTo(0.5);
+    const t = kernels.GREASE_PENCIL_TINT(s, { factor: 1, color: [1, 0, 0], color_mode: 'STROKE' }, ctx())[0].points[0].vertex_color;
+    expect(t).toEqual([1, 0, 0, 1]);
+  });
+
+  it('array, mirror and multiple strokes add copies', () => {
+    const s = [line([0, 1])];
+    const arr = kernels.GREASE_PENCIL_ARRAY(s, { count: 3, use_relative_offset: true, relative_offset: [1, 0, 0] }, ctx());
+    expect(arr.map((x) => x.points[0].co[0])).toEqual([0, 1, 2]);
+    const mir = kernels.GREASE_PENCIL_MIRROR([line([1, 2])], { use_axis_x: true }, ctx());
+    expect(mir.map((x) => x.points[1].co[0])).toEqual([2, -2]);
+    expect(kernels.GREASE_PENCIL_MULTIPLY(s, { duplicates: 2, distance: 0.1 }, ctx()).length).toBe(3);
+  });
+
+  it('dot dash splits strokes into dashes', () => {
+    const out = kernels.GREASE_PENCIL_DASH([line([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])], { segments: [{ dash: 2, gap: 1, radius: 1, opacity: 1, material_index: -1 }] }, ctx());
+    expect(out.map((s) => xs(s.points))).toEqual([[0, 1, 2], [3, 4, 5], [6, 7, 8], [9]]);
+  });
+
+  it('length grows and shrinks the ends', () => {
+    expect(changeLength(line([0, 1]).points, 0.5, 0).map((p) => p.co[0])).toEqual([-0.5, 0, 1]);
+    expect(changeLength(line([0, 1, 2]).points, -0.5, -0.5).map((p) => p.co[0])).toEqual([0.5, 1, 1.5]);
+  });
+
+  it('build reveals points over the frames after the key', () => {
+    const s = [line([0, 1, 2, 3]), line([0, 1, 2, 3])];
+    const at = (frame: number) => buildStrokes(s, { length: 10 }, { frame, keyFrame: 1, prevStrokeCount: 0 }).reduce((a, x) => a + x.points.length, 0);
+    expect(at(1)).toBe(0);
+    expect(at(6)).toBe(4);
+    expect(at(11)).toBe(8);
+    expect(buildStrokes(s, { length: 10, transition: 'SHRINK' }, { frame: 11, keyFrame: 1, prevStrokeCount: 0 }).length).toBe(0);
+  });
+
+  it('time offset modes', () => {
+    expect(timeOffset({ mode: 'NORMAL', offset: 2 }, 5, 1, 10)).toBe(7);
+    expect(timeOffset({ mode: 'NORMAL', offset: 2 }, 10, 1, 10)).toBe(2);
+    expect(timeOffset({ mode: 'FIX', offset: 4 }, 9, 1, 10)).toBe(4);
+    expect(timeOffset({ mode: 'REVERSE', offset: 0 }, 1, 1, 10)).toBe(10);
+    expect(timeOffset({ mode: 'PINGPONG', offset: 0 }, 12, 1, 10)).toBe(8);
+  });
+
+  it('evaluates the stack on a drawing (cached) for an object', () => {
+    app.run('object.grease_pencil_add', { type: 'STROKE' });
+    const ob = app.activeObject!;
+    expect(app.run('object.modifier_add', { type: 'GREASE_PENCIL_THICKNESS' }, { invoke: false })).toBe('FINISHED');
+    ob.modifiers[0].thickness_factor = 3;
+    const gp = gpOf(app.doc, ob)!;
+    const l = gp.layers[1];
+    const d = gp.drawings[l.frames[0].drawing];
+    const mods = activeModifiers(ob);
+    const ev = evaluateDrawing(d, { doc: app.doc, ob, gp, layer: l, layerIndex: 1, frame: 1, keyFrame: 1, nextKeyFrame: null, prevStrokeCount: 0, world: new Matrix4() }, mods);
+    expect(ev.radius[0]).toBeCloseTo(d.radius[0] * 3);
+    expect(evaluateDrawing(d, { doc: app.doc, ob, gp, layer: l, layerIndex: 1, frame: 1, keyFrame: 1, nextKeyFrame: null, prevStrokeCount: 0, world: new Matrix4() }, mods)).toBe(ev);
+    // grease pencil modifiers are not offered for meshes
+    app.run('mesh.primitive_cube_add', {}, { invoke: false });
+    expect(app.run('object.modifier_add', { type: 'GREASE_PENCIL_THICKNESS' }, { invoke: false })).toBe('CANCELLED');
+  });
+});

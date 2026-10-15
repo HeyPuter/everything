@@ -6,48 +6,15 @@ import { app, registerOperators, type OpContext, type PropDef } from '../app/app
 import { easeFactor } from '../anim/fcurve';
 import { activeView3D } from '../editors/view3d/view3d';
 import { gpOf, activeLayer, toStrokes, fromStrokes, setKeyframe, compactDrawings, normalizeDrawing, type GPPoint, type GPStroke } from './data';
-import { smoothPoints } from './strokeops';
+import { smoothPoints, lerpPoint, resamplePoints } from './strokeops';
 import type { GPDrawing, GPFrame, GPLayer, GreasePencilData } from './types';
 
 // ---------------------------------------------------------------------------
 // kernels (pure)
 
 const dist = (a: GPPoint, b: GPPoint) => Math.hypot(a.co[0] - b.co[0], a.co[1] - b.co[1], a.co[2] - b.co[2]);
-
 const lerp = (x: number, y: number, t: number) => x + (y - x) * t;
-
-export function lerpPoint(a: GPPoint, b: GPPoint, t: number): GPPoint {
-  return {
-    co: [lerp(a.co[0], b.co[0], t), lerp(a.co[1], b.co[1], t), lerp(a.co[2], b.co[2], t)],
-    radius: lerp(a.radius, b.radius, t),
-    opacity: lerp(a.opacity, b.opacity, t),
-    vertex_color: [lerp(a.vertex_color[0], b.vertex_color[0], t), lerp(a.vertex_color[1], b.vertex_color[1], t), lerp(a.vertex_color[2], b.vertex_color[2], t), lerp(a.vertex_color[3], b.vertex_color[3], t)],
-    select: !!a.select,
-  };
-}
-
-const clonePoint = (p: GPPoint): GPPoint => ({ ...p, co: [...p.co] as GPPoint['co'], vertex_color: [...p.vertex_color] as GPPoint['vertex_color'] });
-
-/** `n` points evenly spaced along the stroke (by length); cyclic strokes include the closing segment. */
-export function resamplePoints(points: GPPoint[], n: number, cyclic: boolean): GPPoint[] {
-  if (!points.length || n <= 0) return [];
-  if (points.length === 1 || n === 1) return Array.from({ length: n }, () => clonePoint(points[0]));
-  const pts = cyclic ? [...points, points[0]] : points;
-  const cum = [0];
-  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + dist(pts[i - 1], pts[i]));
-  const total = cum[cum.length - 1];
-  if (total <= 1e-12) return Array.from({ length: n }, (_, i) => clonePoint(points[Math.min(points.length - 1, Math.round((i / (n - 1)) * (points.length - 1)))]));
-  const out: GPPoint[] = [];
-  let seg = 0;
-  for (let i = 0; i < n; i++) {
-    const s = cyclic ? (total * i) / n : (total * i) / (n - 1);
-    while (seg < pts.length - 2 && cum[seg + 1] < s) seg++;
-    const len = cum[seg + 1] - cum[seg];
-    const t = len > 0 ? Math.min(1, Math.max(0, (s - cum[seg]) / len)) : 0;
-    out.push(lerpPoint(pts[seg], pts[seg + 1], t));
-  }
-  return out;
-}
+export { lerpPoint, resamplePoints };
 
 /** True when the second stroke runs the other way round (its ends are closer swapped). */
 export function shouldFlip(a: GPPoint[], b: GPPoint[]): boolean {

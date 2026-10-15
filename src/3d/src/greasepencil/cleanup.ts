@@ -7,6 +7,9 @@ import { renderContext } from '../render/context';
 import { gpOf, frameAt, toStrokes, fromStrokes, compactDrawings, normalizeDrawing, type GPPoint, type GPStroke } from './data';
 import { editTargets, inGPEdit, type EditTarget } from './edit';
 import { layerMatrix } from './render';
+import { mergeByDistance } from './strokeops';
+
+export { mergeByDistance };
 import type { GPDrawing, GPLayer } from './types';
 
 // ---------------------------------------------------------------------------
@@ -15,32 +18,6 @@ import type { GPDrawing, GPLayer } from './types';
 /** Strokes with at most `limit` points are removed (only strokes passing `consider`). */
 export function cleanLoose(strokes: GPStroke[], limit: number, consider: (s: GPStroke) => boolean = () => true): GPStroke[] {
   return strokes.filter((s) => !consider(s) || s.points.length > limit);
-}
-
-/** Consecutive points closer than `threshold` to the first of their run collapse to the run's average. */
-export function mergeByDistance(points: GPPoint[], threshold: number, consider: (p: GPPoint) => boolean = () => true): GPPoint[] {
-  const out: GPPoint[] = [];
-  let i = 0;
-  const d = (a: GPPoint, b: GPPoint) => Math.hypot(a.co[0] - b.co[0], a.co[1] - b.co[1], a.co[2] - b.co[2]);
-  while (i < points.length) {
-    const first = points[i];
-    let j = i + 1;
-    if (consider(first)) while (j < points.length && consider(points[j]) && d(first, points[j]) < threshold) j++;
-    if (j - i === 1) out.push(first);
-    else {
-      const run = points.slice(i, j);
-      const avg = (f: (p: GPPoint) => number) => run.reduce((a, p) => a + f(p), 0) / run.length;
-      out.push({
-        ...first,
-        co: [avg((p) => p.co[0]), avg((p) => p.co[1]), avg((p) => p.co[2])],
-        radius: avg((p) => p.radius),
-        opacity: avg((p) => p.opacity),
-        vertex_color: [0, 1, 2, 3].map((k) => avg((p) => p.vertex_color[k])) as GPPoint['vertex_color'],
-      });
-    }
-    i = j;
-  }
-  return out;
 }
 
 /** True when two drawings hold the same strokes. */

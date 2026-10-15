@@ -1,6 +1,7 @@
 // Grease Pencil: 2D drawing in 3D (layers, keyframes, strokes with fills), Draw / Edit / Sculpt
 // modes, onion skins, dope sheet mode, properties and the 2D Animation workspace.
 // Imported for registration side effects from src/modules.ts.
+import './greasepencil.css';
 import './icons';
 import './ops';
 import './modes';
@@ -21,6 +22,9 @@ import './editops';
 import './editmenus';
 import './primitives';
 import './drawtools';
+import './modifiers';
+import './modifierui';
+import './effects';
 import { addMenuHooks } from '../editors/view3d/menus';
 
 addMenuHooks.push(() => [

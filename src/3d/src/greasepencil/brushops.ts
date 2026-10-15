@@ -1,6 +1,6 @@
 // Generic brush operators extended to the Grease Pencil modes: [ / ] brush size, X swap brush
 // colors, Shift X sample the screen color, and the screen color sampler they share.
-import { app, operators, type OpContext, type Operator } from '../app/app';
+import { app, operators, onAppReady, type OpContext, type Operator } from '../app/app';
 import { activeTools } from '../app/prefs';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { renderContext } from '../render/context';
@@ -36,40 +36,43 @@ function extend(idname: string, o: { exec: NonNullable<Operator['exec']> }) {
   base.exec = (ctx, p) => (inGPPaint() ? o.exec(ctx, p) : baseExec?.(ctx, p));
 }
 
-extend('brush.scale_size', {
-  exec: (_c, p) => {
-    const b = gpBrush(app.doc, activeTools[app.doc.mode] ?? '');
-    const s = p.scalar as number;
-    let r = b.size * s;
-    if (Math.round(r) === Math.round(b.size)) r = b.size + (s > 1 ? 1 : -1);
-    b.size = Math.max(1, Math.min(2000, Math.round(r)));
-    app.changed('ui');
-    activeView3D()?.drawSvg();
-  },
-});
+// other modules register these operators: extend them once everything is loaded
+onAppReady(() => {
+  extend('brush.scale_size', {
+    exec: (_c, p) => {
+      const b = gpBrush(app.doc, activeTools[app.doc.mode] ?? '');
+      const s = p.scalar as number;
+      let r = b.size * s;
+      if (Math.round(r) === Math.round(b.size)) r = b.size + (s > 1 ? 1 : -1);
+      b.size = Math.max(1, Math.min(2000, Math.round(r)));
+      app.changed('ui');
+      activeView3D()?.drawSvg();
+    },
+  });
 
-extend('paint.brush_colors_flip', {
-  exec: () => {
-    const b = gpBrush(app.doc, activeTools[app.doc.mode] === 'builtin.brush.Tint' ? 'builtin.brush.Tint' : 'builtin.brush.Draw');
-    const c = b.color ?? [0.5, 0.5, 0.5];
-    b.color = b.secondary_color ?? [1, 1, 1];
-    b.secondary_color = c;
-    app.changed('ui');
-  },
-});
+  extend('paint.brush_colors_flip', {
+    exec: () => {
+      const b = gpBrush(app.doc, activeTools[app.doc.mode] === 'builtin.brush.Tint' ? 'builtin.brush.Tint' : 'builtin.brush.Draw');
+      const c = b.color ?? [0.5, 0.5, 0.5];
+      b.color = b.secondary_color ?? [1, 1, 1];
+      b.secondary_color = c;
+      app.changed('ui');
+    },
+  });
 
-extend('paint.sample_color', {
-  exec: (ctx) => {
-    const v = activeView3D();
-    if (!v) return 'CANCELLED';
-    const r = v.el.getBoundingClientRect();
-    const col = screenColor(v, (ctx.event?.x ?? app.pointer.x) - r.left, (ctx.event?.y ?? app.pointer.y) - r.top);
-    if (!col) return 'CANCELLED';
-    const tool = activeTools[app.doc.mode];
-    const b = gpBrush(app.doc, tool === 'builtin.brush.Tint' || tool === 'builtin.brush.Fill' ? tool : 'builtin.brush.Draw');
-    b.color = col;
-    // a sampled color only shows when the brush paints with its own color
-    if (b.color_mode !== undefined) b.color_mode = 'VERTEXCOLOR';
-    app.changed('ui');
-  },
+  extend('paint.sample_color', {
+    exec: (ctx) => {
+      const v = activeView3D();
+      if (!v) return 'CANCELLED';
+      const r = v.el.getBoundingClientRect();
+      const col = screenColor(v, (ctx.event?.x ?? app.pointer.x) - r.left, (ctx.event?.y ?? app.pointer.y) - r.top);
+      if (!col) return 'CANCELLED';
+      const tool = activeTools[app.doc.mode];
+      const b = gpBrush(app.doc, tool === 'builtin.brush.Tint' || tool === 'builtin.brush.Fill' ? tool : 'builtin.brush.Draw');
+      b.color = col;
+      // a sampled color only shows when the brush paints with its own color
+      if (b.color_mode !== undefined) b.color_mode = 'VERTEXCOLOR';
+      app.changed('ui');
+    },
+  });
 });

@@ -1,6 +1,10 @@
 // Layer operators beyond add / remove / move: isolate, merge modes, material isolation and
 // the material specials (lock unused / unselected, copy to selected objects, select by material).
+import { Box3, Vector3 } from 'three';
 import { app, registerOperators, operators } from '../app/app';
+import { frameHooks } from '../ops/view3d';
+import { worldBounds } from '../editors/view3d/view3d';
+import { layerMatrix } from './render';
 import type { ObjectData } from '../data/types';
 import { gpOf, frameAt, toStrokes, fromStrokes, setKeyframe, compactDrawings, normalizeDrawing } from './data';
 import { activeGP } from './ops';
@@ -207,3 +211,36 @@ export function selectedGP(): { ob: ObjectData; gp: GreasePencilData }[] {
     .map((ob) => ({ ob, gp: gpOf(app.doc, ob) }))
     .filter((x): x is { ob: ObjectData; gp: GreasePencilData } => !!x.gp);
 }
+
+// ---------------------------------------------------------------------------
+// framing: grease pencil objects are framed by their strokes (Frame Selected, Numpad .)
+
+/** World bounds of the strokes shown at the current frame. */
+export function gpWorldBounds(ob: ObjectData, out = new Box3()): Box3 {
+  const gp = gpOf(app.doc, ob);
+  const ev = app.graph.get(ob.id);
+  if (!gp || !ev) return out;
+  const v = new Vector3();
+  const frame = app.doc.scene.frame_current;
+  for (const l of gp.layers) {
+    if (l.hide) continue;
+    const fr = frameAt(l, frame);
+    const d = fr ? gp.drawings[fr.drawing] : null;
+    if (!d) continue;
+    const m = ev.world.clone().multiply(layerMatrix(l));
+    const P = d.position;
+    const step = Math.max(1, Math.floor(P.length / 3 / 20000));
+    for (let i = 0; i < P.length / 3; i += step) out.expandByPoint(v.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]).applyMatrix4(m));
+  }
+  return out;
+}
+
+frameHooks.push(() => {
+  const mode = app.doc.mode;
+  if (mode !== 'OBJECT' && mode !== 'PAINT_GREASE_PENCIL' && mode !== 'SCULPT_GREASE_PENCIL' && mode !== 'VERTEX_GREASE_PENCIL' && mode !== 'WEIGHT_GREASE_PENCIL') return null;
+  const sel = mode === 'OBJECT' ? app.selectedObjects() : [app.activeObject].filter((o): o is ObjectData => !!o);
+  if (!sel.some((o) => gpOf(app.doc, o))) return null;
+  const box = worldBounds(sel.filter((o) => !gpOf(app.doc, o)).map((o) => o.id));
+  for (const o of sel) if (gpOf(app.doc, o)) gpWorldBounds(o, box);
+  return box.isEmpty() ? null : box;
+});

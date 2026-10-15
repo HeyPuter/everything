@@ -37,9 +37,10 @@ import {
   Color,
   type Camera,
   type WebGLRenderer,
+  type Texture,
 } from 'three';
 import { app } from '../app/app';
-import type { DocumentData } from '../data/types';
+import type { DocumentData, ObjectData } from '../data/types';
 import type { EvalObject } from '../eval/depsgraph';
 import { sceneSyncHooks } from '../render/scene';
 import { drawHooks, type DrawView } from '../editors/view3d/draw';
@@ -48,6 +49,9 @@ import { renderSceneHooks, renderVisibleObjects } from '../render/final/rendersc
 import { buildStrokeBuffers, type StrokeBuffers, type StrokeStyle } from './geometry';
 import { gpOf, frameAt, onionFrames, onionAlpha, slotStyle } from './data';
 import type { GPDrawing, GPLayer, GreasePencilData } from './types';
+import { activeModifiers, layerFrame, evaluateDrawing } from './modifiers';
+import { applyEffects } from './effectsgl';
+import type { ShaderFx } from './types';
 
 // ---------------------------------------------------------------------------
 // shader
@@ -455,7 +459,7 @@ interface Entry {
 }
 
 /** Everything drawn for a GP object at the current frame (onion skins first, then layers bottom→top). */
-export function objectEntries(doc: DocumentData, gp: GreasePencilData, frame: number, onion: boolean): Entry[] {
+export function objectEntries(doc: DocumentData, gp: GreasePencilData, frame: number, onion: boolean, ob?: ObjectData, render = false): Entry[] {
   const entries: Entry[] = [];
   let order = 0;
   const styles = materialStyles(doc, gp);
@@ -485,11 +489,20 @@ export function objectEntries(doc: DocumentData, gp: GreasePencilData, frame: nu
       }
     });
   }
+  const mods = ob ? activeModifiers(ob, render) : [];
+  const obWorld = ob ? (app.graph.get(ob.id)?.world ?? new Matrix4()) : new Matrix4();
   gp.layers.forEach((layer, li) => {
     if (layer.hide) return;
-    const fr = frameAt(layer, frame);
-    const d = fr ? gp.drawings[fr.drawing] : undefined;
+    const shownFrame = ob && mods.length ? layerFrame(ob, { layer, layerIndex: li, doc, gp }, frame, mods) : frame;
+    const fr = frameAt(layer, shownFrame);
+    let d = fr ? gp.drawings[fr.drawing] : undefined;
     if (!d || d.offsets.length < 2) return;
+    if (ob && mods.length) {
+      const k = layer.frames.indexOf(fr!);
+      const prev = k > 0 ? gp.drawings[layer.frames[k - 1].drawing] : undefined;
+      d = evaluateDrawing(d, { doc, ob, gp, layer, layerIndex: li, frame: shownFrame, keyFrame: fr!.frame_number, nextKeyFrame: layer.frames[k + 1]?.frame_number ?? null, prevStrokeCount: prev ? prev.offsets.length - 1 : 0, world: obWorld.clone().multiply(layerMatrix(layer)) }, mods);
+      if (d.offsets.length < 2) return;
+    }
     const c = cachedGeometry(d, styles, layer.radius_offset);
     entries.push({
       geo: c.geo,
@@ -540,7 +553,7 @@ function syncObject(doc: DocumentData, ev: EvalObject) {
   s.mode3D = gp.stroke_depth_order === '3D';
   s.inFront = ev.ob.show_in_front;
   s.group.matrix.copy(ev.world);
-  const entries = objectEntries(doc, gp, doc.scene.frame_current, wantOnion(doc, ev.id));
+  const entries = objectEntries(doc, gp, doc.scene.frame_current, wantOnion(doc, ev.id), ev.ob);
   while (s.meshes.length < entries.length) {
     const m = newGPMesh(ev.id);
     s.meshes.push(m);
@@ -613,6 +626,11 @@ const compositeCam = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
 // applies the view transform once
 for (const m of [compositeMat]) m.toneMapped = true;
 
+/** Visual effects shown in the viewport for an object. */
+function viewportEffects(id: string): ShaderFx[] {
+  return (app.doc.objects[id]?.shader_effects ?? []).filter((f) => f.show_viewport);
+}
+
 function visibleObjects(view: DrawView): GPSynced[] {
   const sync = renderContext?.sync;
   const out: GPSynced[] = [];
@@ -660,7 +678,8 @@ function drawObjects(view: DrawView, camera: Camera) {
           m.visible = false;
           hidden.push(m);
         }
-    if (s.mode3D) {
+    const fx = viewportEffects(s.id);
+    if (s.mode3D && !fx.length) {
       // real depth, straight into the framebuffer
       r.render(s.scene, camera);
     } else {
@@ -676,7 +695,22 @@ function drawObjects(view: DrawView, camera: Camera) {
       r.clear(true, true, false);
       r.render(s.scene, camera);
       r.setRenderTarget(prevTarget);
-      compositeMat.uniforms.tColor.value = rt.texture;
+      let tex: Texture = rt.texture;
+      if (fx.length) {
+        tmpV.setFromMatrixPosition(s.group.matrixWorld).project(camera);
+        const origin = new Vector2((tmpV.x * 0.5 + 0.5) * W, (tmpV.y * 0.5 + 0.5) * H);
+        tex = applyEffects(r, rt.texture, W, H, fx, {
+          origin,
+          scale: 1,
+          objectOrigin: (id) => {
+            const ev = app.graph.get(id);
+            if (!ev) return null;
+            tmpV.setFromMatrixPosition(ev.world).project(camera);
+            return new Vector2((tmpV.x * 0.5 + 0.5) * W, (tmpV.y * 0.5 + 0.5) * H);
+          },
+        });
+      }
+      compositeMat.uniforms.tColor.value = tex;
       compositeMat.uniforms.uDepth.value = s.inFront ? 0 : Math.min(1, Math.max(0, depths.get(s)!));
       compositeMat.depthFunc = s.inFront ? AlwaysDepth : LessEqualDepth;
       r.render(compositeScene, compositeCam);
@@ -757,7 +791,7 @@ renderSceneHooks.push((rs, appRef, o) => {
       const visible = renderable ? renderable.has(ev.id) : ev.visible && !ev.ob.hide_render;
       if (!visible || (o.localView && !o.localView.has(ev.id))) continue;
       seen.add(ev.id);
-      const entries = objectEntries(doc, gp, doc.scene.frame_current, false);
+      const entries = objectEntries(doc, gp, doc.scene.frame_current, false, ev.ob, !!o.final);
       let list = byOb.get(ev.id);
       if (!list) byOb.set(ev.id, (list = []));
       while (list.length < entries.length) {

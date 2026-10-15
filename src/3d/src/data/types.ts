@@ -736,6 +736,8 @@ export interface ObjectData {
   instance_type: 'NONE' | 'COLLECTION' | 'VERTS' | 'FACES';
   instance_collection: ID | null;
   modifiers: ModifierBase[];
+  /** visual effects of grease pencil objects (Properties ▸ Visual Effects) */
+  shader_effects?: import('../greasepencil/types').ShaderFx[];
   constraints: Constraint[];
   animation_data: AnimData | null;
   pose: Record<string, PoseBone> | null;

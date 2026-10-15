@@ -189,3 +189,34 @@ test('draw mode tools: curve primitive with handles, trim, box erase, eyedropper
   expect(await get(page, `app.doc.materials[${gp}.materials[app.activeObject.active_material_index]].grease_pencil.show_fill`)).toBe(true);
   await expectNoErrors(errors);
 });
+
+test('modifiers and visual effects tabs', async ({ page }) => {
+  const errors = await openApp(page);
+  await strokeObject(page, 'OBJECT');
+  await page.locator('.rail-tab[data-tab="MODIFIER"]').first().click();
+  await page.locator('.add-mod').first().dispatchEvent('pointerdown');
+  // grease pencil modifiers only; mesh ones are not offered
+  for (const cat of ['Edit', 'Generate', 'Deform', 'Color']) await expect(page.locator('.menu .menu-item', { hasText: cat }).first()).toBeVisible();
+  await page.locator('.menu .menu-item', { hasText: 'Deform' }).first().hover();
+  await expect(page.locator('.menu .menu-item', { hasText: 'Bevel' })).toHaveCount(0);
+  await page.locator('.menu .menu-item', { hasText: 'Thickness' }).first().click();
+  expect(await get(page, 'app.activeObject.modifiers.map((m) => m.type)')).toEqual(['GREASE_PENCIL_THICKNESS']);
+  await expect(page.locator('.modifier .panel-body').first()).toContainText('Influence');
+  // Apply bakes it into the strokes
+  const r0 = (await get(page, `${gp}.drawings[0].radius[0]`)) as number;
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.activeObject.modifiers[0].thickness_factor = 2;
+    a.run('object.modifier_apply', { modifier: a.activeObject.modifiers[0].id });
+  });
+  expect(await get(page, `${gp}.drawings[0].radius[0]`)).toBeCloseTo(r0 * 2, 5);
+  expect(await get(page, 'app.activeObject.modifiers.length')).toBe(0);
+  // Visual Effects tab
+  await page.locator('.rail-tab[data-tab="SHADERFX"]').first().click();
+  await page.locator('.add-mod').first().dispatchEvent('pointerdown');
+  await page.locator('.menu .menu-item', { hasText: 'Glow' }).first().click();
+  expect(await get(page, 'app.activeObject.shader_effects.map((f) => f.type)')).toEqual(['FX_GLOW']);
+  await expect(page.locator('.modifier .panel-body').first()).toContainText('Glow Color');
+  await page.waitForTimeout(200);
+  await expectNoErrors(errors);
+});
