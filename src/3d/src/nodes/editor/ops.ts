@@ -576,6 +576,7 @@ addKeys('Node Editor', [
   { key: 'P', alt: true, op: 'node.detach' },
   { key: 'H', op: 'node.hide_toggle' },
   { key: 'H', ctrl: true, op: 'node.hide_socket_toggle' },
+  { key: 'H', shift: true, op: 'node.preview_toggle' },
   { key: 'M', op: 'node.mute_toggle' },
   { key: 'G', ctrl: true, op: 'node.group_make' },
   { key: 'G', ctrl: true, alt: true, op: 'node.group_ungroup' },

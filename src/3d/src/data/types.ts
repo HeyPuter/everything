@@ -338,6 +338,8 @@ export interface NodeData {
   hide_options?: boolean;
   /** number key (1-9) that views this node in the node editor */
   viewer_shortcut?: number;
+  /** show a rendered preview of the node's output above it (shader nodes) */
+  show_preview?: boolean;
 }
 
 export interface LinkData {

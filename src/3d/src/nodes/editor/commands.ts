@@ -6,6 +6,7 @@ import type { NodeData, NodeTreeData, SocketValue } from '../../data/types';
 import { uid } from '../../data/defaults';
 import { NodeEditor } from './editor';
 import { GROUPED_TYPES } from './menus';
+import { canPreview } from './preview';
 import { ctxOf, duplicateNodes, joinInFrame, makeLinks, makeNode, nodeById, uniqueGroupName } from '../tree';
 import { getNodeType } from '../registry';
 import { groupIdnameFor } from '../common';
@@ -324,6 +325,22 @@ const ops: Operator[] = [
         ctxOf(app.doc, tree),
         selected(tree).filter((n) => !getNodeType(n.type)?.layout),
       );
+    },
+  },
+  {
+    idname: 'node.preview_toggle',
+    label: 'Toggle Node Preview',
+    description: 'Show or hide a rendered preview of the selected nodes’ output above them',
+    poll: (ctx) => !!editorOf(ctx)?.previewMaterial() && hasSelection(ctx),
+    exec: (ctx) => {
+      const { tree } = treeOf(ctx)!;
+      const sel = selected(tree).filter((n) => canPreview(n, app.doc, tree));
+      if (!sel.length) return 'CANCELLED';
+      const show = !sel.every((n) => n.show_preview);
+      for (const n of sel) {
+        if (show) n.show_preview = true;
+        else delete n.show_preview;
+      }
     },
   },
   {

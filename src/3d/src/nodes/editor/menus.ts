@@ -8,6 +8,7 @@ interface EdLike {
   path: unknown[];
   area: { areaMenu(): MenuItem[] };
   provider: { linkViewer?: unknown };
+  providerId: string;
   addMenuItems(at?: { x: number; y: number }): MenuItem[];
   swapMenuItems(): MenuItem[];
 }
@@ -80,10 +81,11 @@ export function selectMenu(): MenuItem[] {
   ];
 }
 
-export function showHideMenu(): MenuItem[] {
+export function showHideMenu(ed?: EdLike): MenuItem[] {
   return [
     opItem('Mute', 'node.mute_toggle'),
     opItem('Node Options', 'node.options_toggle'),
+    ...(ed?.providerId === 'SHADER' ? [opItem('Node Preview', 'node.preview_toggle')] : []),
     { separator: true },
     opItem('Unconnected Sockets', 'node.hide_socket_toggle'),
     opItem('Collapse', 'node.hide_toggle'),
@@ -126,7 +128,7 @@ export function nodeMenuItems(ed: EdLike): MenuItem[] {
     ...(ed.path.length ? [{ label: 'Separate', submenu: () => separateItems() }] : []),
     { separator: true },
     { label: 'Swap', submenu: () => ed.swapMenuItems() },
-    { label: 'Show/Hide', submenu: () => showHideMenu() },
+    { label: 'Show/Hide', submenu: () => showHideMenu(ed) },
   ];
 }
 
@@ -183,6 +185,6 @@ export function contextMenuItems(ed: EdLike, anySelected: boolean): MenuItem[] {
     opItem('Rename...', 'node.rename'),
     { separator: true },
     { label: 'Select', submenu: () => contextSelectMenu() },
-    { label: 'Show/Hide', submenu: () => showHideMenu() },
+    { label: 'Show/Hide', submenu: () => showHideMenu(ed) },
   ];
 }

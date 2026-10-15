@@ -7,7 +7,8 @@ import { app, type ChangeKind } from '../../app/app';
 import type { Area, Editor } from '../../ui/screen';
 import { openMenu, openPopover, openSearch, type MenuItem, type SearchEntry } from '../../ui/menu';
 import { checkbox } from '../../ui/widgets';
-import type { NodeData, NodeTreeData } from '../../data/types';
+import type { MaterialData, NodeData, NodeTreeData } from '../../data/types';
+import { canPreview, nodePreview, onPreviewReady, previewTreeKey } from './preview';
 import { getNodeType, nodeSockets, nodeMenu, canConvert, SOCKET_COLORS, propValue } from '../registry';
 import { connect, ctxOf, linkStatus, nodeById, insertOnLink, removeLinks, makeNode, internalLinks, frameChildren, compatibleGroups } from '../tree';
 import { layoutTree, linkCurve, sockKey, distToCurve, curvePolylineHit, pointInPolygon, type NodeLayout, type SocketPos, HEADER } from './layout';
@@ -105,6 +106,7 @@ export class NodeEditor implements Editor {
   insertTarget: string | null = null;
   private lastKey = '';
   private resizeObs: ResizeObserver;
+  private unsubPreview: () => void;
 
   constructor(
     public area: Area,
@@ -163,6 +165,9 @@ export class NodeEditor implements Editor {
     });
     this.resizeObs = new ResizeObserver(() => this.render());
     this.resizeObs.observe(this.el);
+    this.unsubPreview = onPreviewReady(() => {
+      if (this.el.isConnected) this.render();
+    });
   }
 
   get provider(): NodeEditorProvider {
@@ -594,6 +599,8 @@ export class NodeEditor implements Editor {
         return (a.id === tree.active_node ? 1 : 0) - (b.id === tree.active_node ? 1 : 0);
       });
       const dim = this.socketDimmer();
+      const ma = tree.nodes.some((n) => n.show_preview) ? this.previewMaterial() : null;
+      const pkey = ma ? previewTreeKey(app.doc, ma) : '';
       for (const n of ordered) {
         const l = this.layouts.get(n.id);
         if (!l) continue;
@@ -608,6 +615,7 @@ export class NodeEditor implements Editor {
               groupName: n.label ? undefined : groupName,
               highlightSockets: this.highlightSockets(),
               dimSocket: dim,
+              preview: ma && n.show_preview && !n.hide && canPreview(n, app.doc, tree) ? (nodePreview(app.doc, ma, n, pkey) ?? '') : undefined,
               rerouteLabel: l.kind === 'REROUTE' ? n.label || (this.showOverlays && this.overlays.rerouteLabels ? rerouteSource(tree, n, this.layouts) : undefined) : undefined,
             },
             linkedOut.get(n.id) ?? new Set(),
@@ -844,7 +852,8 @@ export class NodeEditor implements Editor {
     for (const l of this.layouts.values()) {
       if (ids && !ids.has(l.node.id)) continue;
       x0 = Math.min(x0, l.x);
-      y0 = Math.min(y0, l.y);
+      // a preview sits above the node
+      y0 = Math.min(y0, l.node.show_preview && !l.node.hide ? l.y - l.w - 4 : l.y);
       x1 = Math.max(x1, l.x + l.w);
       y1 = Math.max(y1, l.y + l.h);
     }
@@ -2075,6 +2084,14 @@ export class NodeEditor implements Editor {
 
   dispose() {
     this.resizeObs.disconnect();
+    this.unsubPreview();
+  }
+
+  /** The material whose root tree is shown (node previews are rendered for it). */
+  previewMaterial(): MaterialData | null {
+    if (this.providerId !== 'SHADER' || this.shaderType !== 'OBJECT' || this.path.length) return null;
+    const key = this.root()?.key ?? '';
+    return key.startsWith('ma:') ? (app.doc.materials[key.slice(3)] ?? null) : null;
   }
 }
 

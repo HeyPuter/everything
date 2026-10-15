@@ -421,3 +421,14 @@ test('G with X constrains the move; R rotates node positions', async ({ page }) 
   expect(await all()).toEqual(start);
   await expectNoErrors(errors);
 });
+
+test('Shift H shows a rendered node preview above the node', async ({ page }) => {
+  const { errors } = await nodeEditor(page);
+  await withTree(page, '(ed, t) => { for (const n of t.nodes) n.select = n.type === "ShaderNodeBsdfPrincipled"; app.changed("ui"); }');
+  await page.keyboard.press('Shift+H');
+  expect(await withTree(page, '(ed, t) => t.nodes.find((n) => n.type === "ShaderNodeBsdfPrincipled").show_preview')).toBe(true);
+  await expect(page.locator('.nd-preview img').first()).toHaveAttribute('src', /^data:image\/png/, { timeout: 5000 });
+  await page.keyboard.press('Shift+H');
+  await expect(page.locator('.nd-preview')).toHaveCount(0);
+  await expectNoErrors(errors);
+});

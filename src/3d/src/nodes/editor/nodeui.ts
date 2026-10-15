@@ -333,6 +333,8 @@ export interface NodeRenderState {
   rerouteLabel?: string;
   /** while a link is dragged: sockets it cannot connect to are dimmed */
   dimSocket?: (p: SocketPos, nodeId: string) => boolean;
+  /** preview image above the node ('' while it renders) */
+  preview?: string;
 }
 
 const COLLAPSE_TIP = 'Collapse (H)';
@@ -502,6 +504,7 @@ export function renderNode(l: NodeLayout, tree: NodeTreeData, st: NodeRenderStat
       h('span', { class: 'nd-title' }, title),
       def?.dynamicSockets && n.props.node_tree !== undefined ? h('span', { class: 'nd-group-icon', 'data-tip': 'Node group (Tab to edit)' }, icon('node_tree')) : null,
     ),
+    st.preview !== undefined ? h('div', { class: 'nd-preview' }, st.preview ? h('img', { src: st.preview, alt: '', draggable: 'false' }) : null) : null,
     n.hide
       ? null
       : l.rows.map((r, i) =>
