@@ -84,6 +84,37 @@ function areaStretch(t: UVTopo): Map<number, number> {
   return out;
 }
 
+/** How much each face's UV angles differ from its 3D angles: 0 (none) … 1 (strong). */
+function angleStretch(t: UVTopo): Map<number, number> {
+  const me = t.me,
+    p = me.positions,
+    uv = me.uvs;
+  const out = new Map<number, number>();
+  const ang = (ax: number, ay: number, az: number, bx: number, by: number, bz: number) => {
+    const la = Math.hypot(ax, ay, az),
+      lb = Math.hypot(bx, by, bz);
+    if (la < 1e-12 || lb < 1e-12) return 0;
+    return Math.acos(Math.max(-1, Math.min(1, (ax * bx + ay * by + az * bz) / (la * lb))));
+  };
+  for (const f of t.faces) {
+    const s = me.offsets[f],
+      e = me.offsets[f + 1];
+    let sum = 0;
+    for (let c = s; c < e; c++) {
+      const a = c > s ? c - 1 : e - 1,
+        b = c + 1 < e ? c + 1 : s;
+      const vi = me.indices[c] * 3,
+        va = me.indices[a] * 3,
+        vb = me.indices[b] * 3;
+      const a3 = ang(p[va] - p[vi], p[va + 1] - p[vi + 1], p[va + 2] - p[vi + 2], p[vb] - p[vi], p[vb + 1] - p[vi + 1], p[vb + 2] - p[vi + 2]);
+      const a2 = ang(uv[a * 2] - uv[c * 2], uv[a * 2 + 1] - uv[c * 2 + 1], 0, uv[b * 2] - uv[c * 2], uv[b * 2 + 1] - uv[c * 2 + 1], 0);
+      sum += Math.abs(a3 - a2);
+    }
+    out.set(f, Math.min(1, (sum / (e - s)) / (Math.PI / 4)));
+  }
+  return out;
+}
+
 export class UVEditor implements Editor, UVView, View2D {
   el: HTMLElement;
   keymaps = ['UV Editor', 'Image Generic', 'Image', 'Window', 'Screen'];
@@ -98,6 +129,7 @@ export class UVEditor implements Editor, UVView, View2D {
   showSidebar = false;
   sidebarTab = 'Image';
   showStretch = false;
+  stretchType: 'AREA' | 'ANGLE' = 'AREA';
   /** a running drag drawn as an overlay (box / lasso from tools) */
   private drag: { kind: 'BOX' | 'LASSO'; pts: { x: number; y: number }[] } | null = null;
   private hover: { x: number; y: number } | null = null;
@@ -117,7 +149,7 @@ export class UVEditor implements Editor, UVView, View2D {
     this.ui = document.createElement('div');
     this.ui.className = 'v3d-ui uv-ui';
     this.el.append(this.canvas, this.ui);
-    const st = (state ?? {}) as Partial<{ zoom: number; pan: { x: number; y: number }; image: string | null; pivot: UVPivot; tool: UVTool; toolbar: boolean; sidebar: boolean; tab: string; stretch: boolean; mode: string }>;
+    const st = (state ?? {}) as Partial<{ zoom: number; pan: { x: number; y: number }; image: string | null; pivot: UVPivot; tool: UVTool; toolbar: boolean; sidebar: boolean; tab: string; stretch: boolean; stretchType: string; mode: string }>;
     if (st.zoom) this.zoom = st.zoom;
     if (st.pan) this.pan = { ...st.pan };
     if (st.image !== undefined) this.imageId = st.image;
@@ -127,6 +159,7 @@ export class UVEditor implements Editor, UVView, View2D {
     if (st.sidebar !== undefined) this.showSidebar = st.sidebar;
     if (st.tab) this.sidebarTab = st.tab;
     if (st.stretch) this.showStretch = st.stretch;
+    if (st.stretchType === 'ANGLE') this.stretchType = 'ANGLE';
     this.canvas.addEventListener('pointerdown', (e) => this.onDown(e));
     this.canvas.addEventListener('pointermove', (e) => {
       this.hover = this.local(e);
@@ -652,7 +685,23 @@ export class UVEditor implements Editor, UVView, View2D {
         splitRow('X', numberField({ id: 'uv-cx', value: uvCursor.u, precision: 4, step: 0.01, set: (v) => ((uvCursor.u = v), this.draw()) })),
         splitRow('Y', numberField({ id: 'uv-cy', value: uvCursor.v, precision: 4, step: 0.01, set: (v) => ((uvCursor.v = v), this.draw()) })),
       ]),
-      panel('uv-display', 'Display', () => [splitRow('', checkbox('uv-stretch', 'Display Stretch', this.showStretch, (v) => ((this.showStretch = v), this.draw(), this.drawUI())))]),
+      panel('uv-display', 'Display', () => [
+        splitRow('', checkbox('uv-stretch', 'Display Stretch', this.showStretch, (v) => ((this.showStretch = v), this.draw(), this.drawUI()))),
+        this.showStretch
+          ? splitRow(
+              'Type',
+              enumRow(
+                'uv-stretch-type',
+                [
+                  { value: 'ANGLE', label: 'Angle' },
+                  { value: 'AREA', label: 'Area' },
+                ],
+                this.stretchType,
+                (v) => ((this.stretchType = v as 'AREA'), this.draw(), this.drawUI()),
+              ),
+            )
+          : null,
+      ]),
     ];
   }
 
@@ -708,7 +757,7 @@ export class UVEditor implements Editor, UVView, View2D {
       g.fillText(app.doc.mode === 'EDIT' ? 'Select faces in the 3D Viewport to edit their UVs' : 'Enter Edit Mode on a mesh to edit its UVs', W / 2, 24);
     }
     const mode = uvSelectMode();
-    const stretch = this.showStretch ? layers.map((l) => areaStretch(new UVTopo(l))) : null;
+    const stretch = this.showStretch ? layers.map((l) => (this.stretchType === 'ANGLE' ? angleStretch(new UVTopo(l)) : areaStretch(new UVTopo(l)))) : null;
     layers.forEach((layer, li) => {
       const me = layer.me;
       const sel = selReader(layer);
@@ -1070,7 +1119,7 @@ export class UVEditor implements Editor, UVView, View2D {
   }
 
   serialize() {
-    return { zoom: this.zoom, pan: this.pan, image: this.imageId, pivot: this.pivot, tool: this.tool, toolbar: this.showToolbar, sidebar: this.showSidebar, tab: this.sidebarTab, stretch: this.showStretch };
+    return { zoom: this.zoom, pan: this.pan, image: this.imageId, pivot: this.pivot, tool: this.tool, toolbar: this.showToolbar, sidebar: this.showSidebar, tab: this.sidebarTab, stretch: this.showStretch, stretchType: this.stretchType };
   }
 
   resize() {

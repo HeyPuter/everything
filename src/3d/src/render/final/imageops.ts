@@ -4,6 +4,7 @@
 import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import { app, registerOperators, operators, type OpContext } from '../../app/app';
 import { addKeys } from '../../app/keymap';
+import { openPie, promptText } from '../../ui/menu';
 import type { ImageData as Img } from '../../data/types';
 import { imageCanvas, imageReady, primeImage, generatedPixels } from '../images';
 import { uid } from '../../data/defaults';
@@ -453,8 +454,7 @@ registerOperators([
       const ed = v as unknown as SavingEditor;
       if (ed.saveAsDialog) return void ed.saveAsDialog();
       const img = v.shownImage()!;
-      const name = prompt('File name', fileName(img));
-      if (name) void saveImage(img, name);
+      promptText('Save As Image', fileName(img), (name) => name && void saveImage(img, name));
     },
   },
   {
@@ -562,7 +562,29 @@ const overImageEditor = () => (app.hoverArea ?? app.activeArea)?.type === 'IMAGE
 
 const hovered = () => view2D({ area: app.hoverArea ?? app.activeArea });
 
+function viewPie() {
+  const v = hovered();
+  if (!v) return;
+  openPie(
+    'View',
+    [
+      { label: 'Frame All', op: 'image.view_all', props: { fit_view: false } },
+      { label: 'Frame All Fit', op: 'image.view_all', props: { fit_view: true } },
+      { label: 'Zoom 1:1', op: 'image.view_zoom_ratio', props: { ratio: 1 } },
+      { label: 'Frame Selected', op: 'image.view_selected' },
+      v.centerCursor ? { label: 'Center View to Cursor', op: 'image.view_center_cursor' } : null,
+      null,
+      null,
+      null,
+    ],
+    app.pointer.x,
+    app.pointer.y,
+    'ACCENT_GRAVE',
+  );
+}
+
 addKeys('Image Generic', [
+  { key: 'ACCENT_GRAVE', action: viewPie, when: overView },
   { key: 'N', alt: true, action: () => (hovered()?.newImage ? hovered()!.newImage!() : void app.run('image.new')), when: overView },
   { key: 'O', alt: true, action: () => (hovered()?.openImage ? hovered()!.openImage!() : void app.run('image.open')), when: overView },
   { key: 'R', alt: true, op: 'image.reload', when: overView },

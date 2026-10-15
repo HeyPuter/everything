@@ -226,3 +226,32 @@ test('UV editor: increment snapping moves in grid steps', async ({ page }) => {
   expect(Math.abs(d / step - Math.round(d / step))).toBeLessThan(1e-4);
   await expectNoErrors(errors);
 });
+
+test('Image editor: render slots cycle with J / Alt J and number keys', async ({ page }) => {
+  const errors = await openApp(page);
+  const v3 = (await page.locator('.view3d').first().boundingBox())!;
+  await page.mouse.move(v3.x + v3.width / 2, v3.y + v3.height / 2);
+  await page.evaluate(() => (window as any).app.hoverArea.setType('IMAGE_EDITOR')); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.mouse.move(v3.x + v3.width / 2 + 1, v3.y + v3.height / 2);
+  await page.evaluate(async () => {
+    const { renderResult } = await import('/src/render/final/result.ts');
+    const fake = () => ({ width: 2, height: 2, passes: { Combined: new Float32Array(16).fill(0.5) }, filmTransparent: false, info: { frame: 1, time: 0, engine: 'Test', camera: '', scene: 'Scene' }, version: 0, rendering: false });
+    renderResult.setSlot(0);
+    renderResult.set(fake());
+    renderResult.setSlot(2);
+    renderResult.set(fake());
+    renderResult.setSlot(0);
+    (window as any).app.hoverArea.editor.setImage('__render_result__'); // eslint-disable-line @typescript-eslint/no-explicit-any
+  });
+  const slot = () => page.evaluate(async () => (await import('/src/render/final/result.ts')).renderResult.slot);
+  await page.keyboard.press('j');
+  expect(await slot()).toBe(2);
+  await page.keyboard.press('j');
+  expect(await slot()).toBe(0);
+  await page.keyboard.press('Alt+j');
+  expect(await slot()).toBe(2);
+  await page.keyboard.press('2');
+  expect(await slot()).toBe(1);
+  await expect(page.locator('.ie-header .enum-menu', { hasText: 'Slot 2' })).toBeVisible();
+  await expectNoErrors(errors);
+});
