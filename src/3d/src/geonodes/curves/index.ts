@@ -7,4 +7,5 @@ import './ops';
 import './text';
 import './importers';
 import './gizmos';
+import './interpolate';
 export {};
