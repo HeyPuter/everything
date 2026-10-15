@@ -116,7 +116,18 @@ export interface MaterialGPencilStyle {
   fill_color: [number, number, number, number];
   mode: 'LINE' | 'DOTS' | 'BOX';
   stroke_style: 'SOLID';
-  fill_style: 'SOLID';
+  fill_style: 'SOLID' | 'GRADIENT';
+  /** gradient fills */
+  gradient_type?: 'LINEAR' | 'RADIAL';
+  mix_color?: [number, number, number, number];
+  mix_factor?: number;
+  flip?: boolean;
+  texture_offset?: [number, number];
+  texture_angle?: number;
+  texture_scale?: [number, number];
+  /** holdout: cut the strokes / fills below instead of drawing */
+  use_stroke_holdout?: boolean;
+  use_fill_holdout?: boolean;
   alignment_mode: 'PATH' | 'OBJECT' | 'FIXED';
   hide: boolean;
   lock: boolean;

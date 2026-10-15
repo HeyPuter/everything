@@ -23,6 +23,7 @@ import {
   CustomBlending,
   OneFactor,
   OneMinusSrcAlphaFactor,
+  ZeroFactor,
   DstColorFactor,
   AddEquation,
   ReverseSubtractEquation,
@@ -74,6 +75,7 @@ attribute vec4 aN1;
 uniform vec2 uViewport;
 uniform float uRadiusScale;
 varying vec2 vPix;
+varying vec2 vUV;
 flat varying vec2 vS0;
 flat varying vec2 vS1;
 flat varying vec2 vR;
@@ -103,7 +105,10 @@ void main() {
   vS1 = vec2(0.0);
   vR = vec2(0.0);
   vZ = vec2(0.5);
+  vUV = aN0.xy;
   if (kind == 0) {
+    // fills: gradient kind and factor
+    vN0 = vec3(0.0, aN0.z, aN0.w);
     gl_Position = c0;
     return;
   }
@@ -156,6 +161,7 @@ uniform float uOrderBase;
 uniform float uOrderEps;
 uniform vec4 uIdColor;
 varying vec2 vPix;
+varying vec2 vUV;
 flat varying vec2 vS0;
 flat varying vec2 vS1;
 flat varying vec2 vR;
@@ -180,6 +186,14 @@ void main() {
   float zReal = gl_FragCoord.z;
   if (kind == 0) {
     col = vC0;
+    if (vN0.y > 0.5) {
+      // gradient: linear along u, or radial from the center; the factor moves the midpoint
+      float g = vN0.y < 1.5 ? vUV.x : length(vUV - 0.5) * 2.0;
+      g = clamp(g, 0.0, 1.0);
+      float f = clamp(vN0.z, 0.01, 0.99);
+      g = g < f ? 0.5 * g / f : 0.5 + 0.5 * (g - f) / (1.0 - f);
+      col = mix(vC0, vC1, g);
+    }
   } else if (kind == 1) {
     vec2 ab = vS1 - vS0;
     float L2 = dot(ab, ab);
@@ -273,6 +287,13 @@ function makeMaterial(idPass: boolean): ShaderMaterial {
 }
 
 function setBlend(m: ShaderMaterial, mode: string) {
+  if (mode === 'HOLDOUT') {
+    // erase: destination × (1 − source alpha), color and alpha alike
+    m.blendEquation = m.blendEquationAlpha = AddEquation;
+    m.blendSrc = m.blendSrcAlpha = ZeroFactor;
+    m.blendDst = m.blendDstAlpha = OneMinusSrcAlphaFactor;
+    return;
+  }
   m.blendEquation = mode === 'SUBTRACT' ? ReverseSubtractEquation : AddEquation;
   m.blendEquationAlpha = AddEquation;
   m.blendSrc = mode === 'MULTIPLY' ? DstColorFactor : OneFactor;
@@ -326,14 +347,14 @@ export function geometryFromBuffers(b: StrokeBuffers): BufferGeometry {
 }
 
 function styleKey(styles: (StrokeStyle | null)[]) {
-  return styles.map((s) => (s ? `${+s.stroke}${+s.fill}${s.mode}${s.alignment ?? ''}${s.color.join(',')}|${s.fillColor.join(',')}` : '-')).join(';');
+  return styles.map((s) => (s ? `${+s.stroke}${+s.fill}${s.mode}${s.alignment ?? ''}${s.color.join(',')}|${s.fillColor.join(',')}|${s.gradient ? JSON.stringify(s.gradient) : ''}|${+!!s.holdoutStroke}${+!!s.holdoutFill}` : '-')).join(';');
 }
 
-function cachedGeometry(d: GPDrawing, styles: (StrokeStyle | null)[], radiusOffset: number): CachedGeo {
-  const key = `${drawingKey(d)}#${styleKey(styles)}#${radiusOffset}`;
+function cachedGeometry(d: GPDrawing, styles: (StrokeStyle | null)[], radiusOffset: number, holdout = false): CachedGeo {
+  const key = `${drawingKey(d)}#${styleKey(styles)}#${radiusOffset}#${+holdout}`;
   let c = geoCache.get(key);
   if (!c) {
-    const b = buildStrokeBuffers(d, styles, 0, radiusOffset);
+    const b = buildStrokeBuffers(d, styles, 0, radiusOffset, holdout);
     c = { geo: geometryFromBuffers(b), orders: b.orderEnd, used: syncTick };
     geoCache.set(key, c);
   }
@@ -366,6 +387,20 @@ export function materialStyles(doc: DocumentData, gp: GreasePencilData, ghost = 
       fillColor: [...st.fill_color],
       mode: st.mode,
       alignment: st.alignment_mode,
+      gradient:
+        st.fill_style === 'GRADIENT'
+          ? {
+              type: st.gradient_type ?? 'LINEAR',
+              mix: [...(st.mix_color ?? [1, 1, 1, 1])] as [number, number, number, number],
+              factor: st.mix_factor ?? 0.5,
+              flip: !!st.flip,
+              offset: [...(st.texture_offset ?? [0, 0])] as [number, number],
+              angle: st.texture_angle ?? 0,
+              scale: [...(st.texture_scale ?? [1, 1])] as [number, number],
+            }
+          : undefined,
+      holdoutStroke: !!st.use_stroke_holdout,
+      holdoutFill: !!st.use_fill_holdout,
     });
   }
   return out;
@@ -389,6 +424,8 @@ interface GPMesh extends Mesh {
     onion: boolean;
     layer: number;
     gpencil: true;
+    holdout?: boolean;
+    maskPass?: boolean;
     idMat?: ShaderMaterial;
     inFront?: boolean;
     mode3D?: boolean;
@@ -490,6 +527,8 @@ function newGPMesh(id: string): GPMesh {
 }
 
 interface Entry {
+  /** holdout strokes / fills of the layer: they erase what is under them */
+  holdout?: boolean;
   /** layer masks: geometry of the mask layers (inverted ones cut away) */
   masks?: { geo: BufferGeometry; layer: GPLayer; invert: boolean }[];
   geo: BufferGeometry;
@@ -551,8 +590,9 @@ export function objectEntries(doc: DocumentData, gp: GreasePencilData, frame: nu
     }
     if (ob) for (const hk of drawingDisplayHooks) d = hk(ob, gp, d) ?? d;
     const c = cachedGeometry(d, styles, layer.radius_offset);
+    const masks = layer.use_masks ? maskGeometry(gp, layer, frame, styles) : undefined;
     entries.push({
-      masks: layer.use_masks ? maskGeometry(gp, layer, frame, styles) : undefined,
+      masks,
       geo: c.geo,
       orderBase: order,
       layer,
@@ -561,6 +601,11 @@ export function objectEntries(doc: DocumentData, gp: GreasePencilData, frame: nu
       onionColor: [0, 0, 0, 0],
       alpha: 1,
     });
+    if (styles.some((st) => st?.holdoutStroke || st?.holdoutFill)) {
+      // drawn right after the layer with the same draw orders: strokes above a holdout stay
+      const hc = cachedGeometry(d, styles, layer.radius_offset, true);
+      entries.push({ holdout: true, masks, geo: hc.geo, orderBase: order, layer, layerIndex: li, onion: false, onionColor: [0, 0, 0, 0], alpha: 1 });
+    }
     order += c.orders;
   });
   return entries;
@@ -639,7 +684,9 @@ function applyEntry(m: GPMesh, e: Entry, ob: { show_in_front: boolean }, mode3D:
   u.uTint.value.set(e.layer.tint_color[0], e.layer.tint_color[1], e.layer.tint_color[2], e.layer.tint_factor);
   u.uOnion.value.set(...e.onionColor);
   u.uOrderBase.value = e.orderBase;
-  setBlend(m.material, e.onion ? 'REGULAR' : e.layer.blend_mode);
+  setBlend(m.material, e.onion ? 'REGULAR' : e.holdout ? 'HOLDOUT' : e.layer.blend_mode);
+  m.material.depthWrite = !e.holdout;
+  m.userData.holdout = !!e.holdout;
   m.userData.onion = e.onion;
   m.userData.layer = e.layerIndex;
   m.userData.inFront = ob.show_in_front;
@@ -688,7 +735,7 @@ function fillSynced(s: GPSynced, entries: Entry[], ob: ObjectData) {
   }
   const order = { n: 0 },
     used = { n: 0 };
-  s.masked = entries.some((e) => !!e.masks?.length);
+  s.masked = entries.some((e) => !!e.masks?.length || !!e.holdout);
   s.meshes.forEach((m, i) => {
     const e = entries[i];
     if (!e) {
@@ -871,7 +918,7 @@ function drawIds(view: DrawView, camera: Camera) {
     const base = s.inFront ? 0.02 : originDepth(s, camera);
     for (const m of s.meshes) {
       saved.push([m, m.visible, m.material]);
-      if (m.userData.onion) {
+      if (m.userData.onion || m.userData.holdout || m.userData.maskPass) {
         m.visible = false;
         continue;
       }
@@ -1000,7 +1047,7 @@ renderSceneHooks.push((rs, appRef, o) => {
       if (!visible || (o.localView && !o.localView.has(ev.id))) continue;
       updateLayerParents(gp, ev.world);
       const entries = objectEntries(doc, gp, doc.scene.frame_current, false, ev.ob, !!o.final);
-      if ((ev.ob.shader_effects ?? []).some((f) => f.show_render) || entries.some((e) => e.masks?.length)) {
+      if ((ev.ob.shader_effects ?? []).some((f) => f.show_render) || entries.some((e) => e.masks?.length || e.holdout)) {
         const f = finalImage(rs, ev.id, images);
         f.s.mode3D = gp.stroke_depth_order === '3D';
         f.s.inFront = ev.ob.show_in_front;

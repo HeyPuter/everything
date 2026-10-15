@@ -495,3 +495,26 @@ describe('fill gap closure', () => {
     expect(extensionLines([u], 'RADIUS', () => 50, false)).toEqual([]);
   });
 });
+
+import { buildStrokeBuffers, gradientUV, type StrokeStyle } from '../../src/greasepencil/geometry';
+
+describe('material styles', () => {
+  const sq = () => newStroke([newPoint([0, 0, 0]), newPoint([2, 0, 0]), newPoint([2, 0, 2]), newPoint([0, 0, 2])], { cyclic: true });
+  it('gradient coordinates span the fill bounds', () => {
+    const d = fromStrokes([sq()]);
+    const uv = gradientUV(d.position, [[0, 1, 2, 3]], { type: 'LINEAR', mix: [1, 1, 1, 1], factor: 0.5, flip: false, offset: [0, 0], angle: 0, scale: [1, 1] });
+    const us = [...uv.values()].map(([u, v]) => [+u.toFixed(3), +v.toFixed(3)]);
+    expect(us.every(([u, v]) => (u === 0 || u === 1) && (v === 0 || v === 1))).toBe(true);
+  });
+  it('holdout strokes are built separately', () => {
+    const d = fromStrokes([{ ...sq(), material_index: 0 }, { ...sq(), material_index: 1 }]);
+    const base: StrokeStyle = { stroke: true, fill: false, color: [0, 0, 0, 1], fillColor: [1, 1, 1, 1], mode: 'LINE' };
+    const styles = [base, { ...base, holdoutStroke: true }];
+    const normal = buildStrokeBuffers(d, styles);
+    const hold = buildStrokeBuffers(d, styles, 0, 0, true);
+    expect(normal.vertexCount).toBe(16);
+    expect(hold.vertexCount).toBe(16);
+    expect(normal.info[3]).toBe(0);
+    expect(hold.info[3]).toBe(1);
+  });
+});

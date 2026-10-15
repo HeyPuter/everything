@@ -398,6 +398,22 @@ if (dataTab) {
 // ---------------------------------------------------------------------------
 // Material
 
+function gradientFields(st: MaterialGPencilStyle): Child {
+  st.mix_color ??= [1, 1, 1, 1];
+  st.mix_factor ??= 0.5;
+  st.texture_offset ??= [0, 0];
+  st.texture_angle ??= 0;
+  st.texture_scale ??= [1, 1];
+  return [
+    colorProp(st as { mix_color: number[] }, 'mix_color', 'Secondary Color', { alpha: true }),
+    num(st as { mix_factor: number }, 'mix_factor', 'Blend', { min: 0, max: 1, slider: true }),
+    bool(st as { flip: boolean }, 'flip', 'Flip Colors'),
+    vecProp(st as { texture_offset: number[] }, 'texture_offset', 'Location', { names: ['X', 'Y'] }),
+    num(st as { texture_angle: number }, 'texture_angle', 'Rotation', { unit: 'angle' }),
+    vecProp(st as { texture_scale: number[] }, 'texture_scale', 'Scale', { names: ['X', 'Y'] }),
+  ];
+}
+
 function surfacePanel(st: MaterialGPencilStyle): Child {
   const css = (c: number[]) =>
     `rgb(${c
@@ -469,8 +485,8 @@ function surfacePanel(st: MaterialGPencilStyle): Child {
             ['DOTS', 'Dots'],
             ['BOX', 'Squares'],
           ]),
-          enumProp(st, 'stroke_style', 'Style', [['SOLID', 'Solid']]),
           colorProp(st, 'color', 'Base Color', { alpha: true }),
+          bool(st, 'use_stroke_holdout', 'Holdout'),
           st.mode !== 'LINE'
             ? enumProp(st, 'alignment_mode', 'Alignment', [
                 ['PATH', 'Path'],
@@ -493,11 +509,25 @@ function surfacePanel(st: MaterialGPencilStyle): Child {
           }),
           'Fill',
         ),
-        () => [enumProp(st, 'fill_style', 'Style', [['SOLID', 'Solid']]), colorProp(st, 'fill_color', 'Base Color', { alpha: true })],
+        () => [
+          enumProp(st, 'fill_style', 'Style', [
+            ['SOLID', 'Solid'],
+            ['GRADIENT', 'Gradient'],
+          ]),
+          st.fill_style === 'GRADIENT'
+            ? enumProp(st as { gradient_type: string }, 'gradient_type', 'Gradient Type', [
+                ['LINEAR', 'Linear'],
+                ['RADIAL', 'Radial'],
+              ])
+            : null,
+          colorProp(st, 'fill_color', 'Base Color', { alpha: true }),
+          st.fill_style === 'GRADIENT' ? gradientFields(st) : null,
+          bool(st, 'use_fill_holdout', 'Holdout'),
+        ],
         { sub: true },
       ),
     ]),
-    panel('gpm-settings', 'Settings', () => [bool(st, 'ghost', 'Show in Ghosts')], { closed: true }),
+    panel('gpm-settings', 'Settings', () => [num(st, 'pass_index', 'Pass Index', { int: true, min: 0, max: 255 }), bool(st, 'ghost', 'Show in Ghosts')], { closed: true }),
   ];
 }
 
