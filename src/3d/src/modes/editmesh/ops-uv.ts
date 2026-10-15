@@ -11,7 +11,7 @@ import type { MeshData } from '../../data/types';
 import { activeView3D } from '../../editors/view3d/view3d';
 import { newObject, uid, IDENTITY } from '../../data/defaults';
 import { addObjectToScene } from '../../ops/object';
-import { afterUnwrap } from '../../editors/uv/unwrapextra';
+import { afterUnwrap, repackFaces } from '../../editors/uv/unwrapextra';
 import { newModifier } from '../../eval/modifiers';
 
 const V = (a: number[]) => new Vector3(a[0], a[1], a[2]);
@@ -136,7 +136,7 @@ function planarProject(m: MeshEdit, faces: number[], normal: Vector3) {
   }
 }
 
-function smartProject(m: MeshEdit, faces: number[], angleLimit: number, margin: number) {
+function smartProject(m: MeshEdit, faces: number[], angleLimit: number, margin: number, pack = true) {
   // grow charts of faces whose normals stay within the angle limit of the chart's seed
   const ef = m.edgeFaces();
   const fs = new Set(faces);
@@ -170,7 +170,7 @@ function smartProject(m: MeshEdit, faces: number[], angleLimit: number, margin: 
     for (const fi of chart) n.add(normals.get(fi)!);
     planarProject(m, chart, n.lengthSq() ? n : new Vector3(0, 0, 1));
   }
-  packIslands(m, charts, margin);
+  if (pack) packIslands(m, charts, margin);
 }
 
 function boxProject(m: MeshEdit, faces: number[], size: number) {
@@ -325,15 +325,22 @@ registerOperators([
   {
     idname: 'uv.smart_project',
     label: 'Smart UV Project',
-    props: [{ id: 'angle_limit', label: 'Angle Limit', type: 'float', default: (66 * Math.PI) / 180, min: 0, max: Math.PI / 2, subtype: 'angle' }, { id: 'island_margin', label: 'Island Margin', type: 'float', default: 0, min: 0, max: 1, subtype: 'factor' }],
+    props: [
+      { id: 'angle_limit', label: 'Angle Limit', type: 'float', default: (66 * Math.PI) / 180, min: 0, max: Math.PI / 2, subtype: 'angle' },
+      { id: 'rotate_method', label: 'Rotation Method', type: 'enum', default: 'AXIS_ALIGNED_Y', items: [['AXIS_ALIGNED', 'Axis-aligned'], ['AXIS_ALIGNED_X', 'Axis-aligned (Horizontal)'], ['AXIS_ALIGNED_Y', 'Axis-aligned (Vertical)']] },
+      { id: 'island_margin', label: 'Island Margin', type: 'float', default: 0, min: 0, max: 1, subtype: 'factor' },
+    ],
     poll: editPoll,
     exec: (_ctx, p) => {
-      if (!withEdit((m) => {
+      const post: { me: MeshData; faces: number[] }[] = [];
+      if (!withEdit((m, _ob, me) => {
         const faces = targetFaces(m);
         if (!faces.length) return false;
-        smartProject(m, faces, p.angle_limit as number, Math.max(0.002, p.island_margin as number));
+        smartProject(m, faces, p.angle_limit as number, 0, false);
+        post.push({ me, faces });
       }))
         return 'CANCELLED';
+      for (const x of post) repackFaces(x.me, x.faces, { margin: Math.max(0.002, p.island_margin as number), rotate: true, rotateMethod: p.rotate_method as 'AXIS_ALIGNED', scale: true });
     },
   },
   {
@@ -342,13 +349,15 @@ registerOperators([
     props: [{ id: 'PREF_MARGIN_DIV', label: 'Margin', type: 'float', default: 0.1, min: 0.001, max: 1 }],
     poll: editPoll,
     exec: (_ctx, p) => {
-      if (!withEdit((m) => {
+      const post: { me: MeshData; faces: number[] }[] = [];
+      if (!withEdit((m, _ob, me) => {
         const faces = targetFaces(m);
         if (!faces.length) return false;
         for (const fi of faces) planarProject(m, [fi], V(m.faceNormal(m.faces[fi])));
-        packIslands(m, faces.map((f) => [f]), (p.PREF_MARGIN_DIV as number) * 0.02);
+        post.push({ me, faces });
       }))
         return 'CANCELLED';
+      for (const x of post) repackFaces(x.me, x.faces, { margin: (p.PREF_MARGIN_DIV as number) * 0.02, rotate: true, rotateMethod: 'AXIS_ALIGNED', scale: true });
     },
   },
   {

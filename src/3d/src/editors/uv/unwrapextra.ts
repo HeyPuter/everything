@@ -2,7 +2,7 @@
 // onto its pins) and the "Minimum Stretch" method (relaxing the fresh unwrap).
 import type { MeshData } from '../../data/types';
 import { UVTopo, isPinned } from './uvcore';
-import { islandCorners, minimizeStretch } from './uvalgo';
+import { islandCorners, minimizeStretch, packIslandsUV, type PackOptions } from './uvalgo';
 
 type V2 = [number, number];
 
@@ -78,4 +78,12 @@ export function afterUnwrap(me: MeshData, before: ArrayLike<number>, faces: numb
   }
   me.uvs = uvs;
   return true;
+}
+
+/** Pack the UV islands formed by `faces` into the 0–1 square (after a projection). */
+export function repackFaces(me: MeshData, faces: number[], o: PackOptions) {
+  const t = new UVTopo({ me, faces, sync: false });
+  const uvs = new Float32Array(me.uvs);
+  packIslandsUV(t, uvs, t.islandFaces(), o);
+  me.uvs = uvs;
 }

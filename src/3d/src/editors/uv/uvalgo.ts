@@ -646,15 +646,21 @@ export function packIslandsUV(t: UVTopo, uvs: Float32Array, islands: number[][],
     const area = boxes.reduce((s, b) => s + b.w * b.h, 0);
     const maxSide = Math.max(...boxes.map((b) => Math.max(b.w, b.h)));
     let hi = Math.min(1 / Math.sqrt(area), (1 - m) / maxSide),
-      lo = 0;
+      lo = hi;
     const fits = (s: number) => skyline(order.map((i) => ({ w: boxes[i].w * s, h: boxes[i].h * s })), m, []) <= 1 - m + 1e-9;
-    if (fits(hi)) lo = hi;
-    else
-      for (let it = 0; it < 30; it++) {
+    if (!fits(hi)) {
+      // step down until it fits, then refine between the last failing and the fitting scale
+      lo = hi * 0.9;
+      for (let it = 0; it < 60 && !fits(lo); it++) {
+        hi = lo;
+        lo *= 0.9;
+      }
+      for (let it = 0; it < 8; it++) {
         const mid = (lo + hi) / 2;
         if (fits(mid)) lo = mid;
         else hi = mid;
       }
+    }
     k = lo;
   }
   const sorted = order.map((i) => ({ w: boxes[i].w * k, h: boxes[i].h * k }));
