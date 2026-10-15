@@ -467,7 +467,7 @@ export interface Keyframe {
 }
 
 export interface FModifier {
-  type: 'NOISE' | 'CYCLES' | 'GENERATOR' | 'LIMITS' | 'STEPPED';
+  type: 'NOISE' | 'CYCLES' | 'GENERATOR' | 'LIMITS' | 'STEPPED' | 'FNGENERATOR' | 'ENVELOPE';
   mute?: boolean;
   // noise
   scale?: number;
@@ -488,6 +488,18 @@ export interface FModifier {
   use_max_y?: boolean;
   min_y?: number;
   max_y?: number;
+  // built-in function (FNGENERATOR)
+  function_type?: 'SIN' | 'COS' | 'TAN' | 'SQRT' | 'LN' | 'SINC';
+  amplitude?: number;
+  phase_multiplier?: number;
+  phase_offset?: number;
+  value_offset?: number;
+  use_additive?: boolean;
+  // envelope
+  reference_value?: number;
+  default_min?: number;
+  default_max?: number;
+  control_points?: { frame: number; min: number; max: number }[];
 }
 
 export interface FCurve {

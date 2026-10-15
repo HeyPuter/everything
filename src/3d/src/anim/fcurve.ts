@@ -263,6 +263,11 @@ export function evaluateFCurve(fc: FCurve, frame: number): number {
         m.coefficients.forEach((c, i) => (p += c * Math.pow(frame, i)));
         v = p;
       }
+      if (m.type === 'FNGENERATOR') {
+        const g = (m.amplitude ?? 1) * builtinFunction(m.function_type ?? 'SIN', (m.phase_multiplier ?? 1) * frame + (m.phase_offset ?? 0)) + (m.value_offset ?? 0);
+        v = m.use_additive ? v + g : g;
+      }
+      if (m.type === 'ENVELOPE') v = envelopeValue(m, frame, v);
       if (m.type === 'LIMITS') {
         if (m.use_min_y) v = Math.max(m.min_y ?? 0, v);
         if (m.use_max_y) v = Math.min(m.max_y ?? 0, v);
@@ -270,6 +275,44 @@ export function evaluateFCurve(fc: FCurve, frame: number): number {
     }
   }
   return v;
+}
+
+function builtinFunction(type: string, x: number) {
+  switch (type) {
+    case 'COS':
+      return Math.cos(x);
+    case 'TAN':
+      return Math.tan(x);
+    case 'SQRT':
+      return x >= 0 ? Math.sqrt(x) : 0;
+    case 'LN':
+      return x > 0 ? Math.log(x) : 0;
+    case 'SINC':
+      return Math.abs(x) < 1e-9 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x);
+    default:
+      return Math.sin(x);
+  }
+}
+
+/** Envelope: rescale the value from the default range into the range of the control points at this frame. */
+function envelopeValue(m: FModifier, frame: number, v: number) {
+  const pts = [...(m.control_points ?? [])].sort((a, b) => a.frame - b.frame);
+  if (!pts.length) return v;
+  let lo: number, hi: number;
+  if (frame <= pts[0].frame) [lo, hi] = [pts[0].min, pts[0].max];
+  else if (frame >= pts[pts.length - 1].frame) [lo, hi] = [pts[pts.length - 1].min, pts[pts.length - 1].max];
+  else {
+    const i = pts.findIndex((p) => p.frame > frame);
+    const a = pts[i - 1],
+      b = pts[i];
+    const t = (frame - a.frame) / (b.frame - a.frame || 1);
+    lo = a.min + (b.min - a.min) * t;
+    hi = a.max + (b.max - a.max) * t;
+  }
+  const dmin = m.default_min ?? -1,
+    dmax = m.default_max ?? 1;
+  const fac = dmax - dmin !== 0 ? (v - ((m.reference_value ?? 0) + dmin)) / (dmax - dmin) : 0;
+  return lo + fac * (hi - lo);
 }
 
 function cycleFrame(fc: FCurve, m: FModifier, f: number) {

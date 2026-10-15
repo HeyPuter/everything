@@ -656,3 +656,26 @@ describe('channel errors', () => {
     expect(only.map((r) => r.fc.data_path)).toEqual(['pose.bones["Nope"].location']);
   });
 });
+
+describe('F-Modifiers: built-in function and envelope', () => {
+  it('evaluates a built-in function, replacing or adding to the curve', () => {
+    const fc = curve([0, 0], [1, 100]);
+    fc.modifiers.push({ type: 'FNGENERATOR', function_type: 'SIN', amplitude: 2, phase_multiplier: 0.5, phase_offset: 1, value_offset: 3, use_additive: false });
+    expect([0, 1, 2, 5].map((f) => +evaluateFCurve(fc, f).toFixed(4))).toEqual([4.6829, 4.995, 4.8186, 2.2984]);
+    fc.modifiers[0] = { type: 'FNGENERATOR', function_type: 'SINC', amplitude: 1, phase_multiplier: 1, phase_offset: 0, value_offset: 0 };
+    expect([0, 1, 2].map((f) => +evaluateFCurve(fc, f).toFixed(4))).toEqual([1, 0, -0]);
+    fc.modifiers[0] = { type: 'FNGENERATOR', function_type: 'LN', amplitude: 1, phase_multiplier: 1, phase_offset: 0, value_offset: 0 };
+    expect(+evaluateFCurve(fc, 2).toFixed(4)).toBe(0.6931);
+    expect(evaluateFCurve(fc, -1)).toBe(0);
+  });
+
+  it('rescales values into the envelope', () => {
+    const fc: FCurve = { data_path: 'location', array_index: 0, keyframe_points: [], extrapolation: 'CONSTANT', modifiers: [] };
+    insertKeyframe(fc, 0, 0, { interpolation: 'LINEAR' });
+    insertKeyframe(fc, 10, 10, { interpolation: 'LINEAR' });
+    fc.modifiers.push({ type: 'ENVELOPE', reference_value: 0, default_min: -1, default_max: 1, control_points: [{ frame: 0, min: -2, max: 2 }, { frame: 10, min: 0, max: 4 }] });
+    expect([0, 5, 10, 15, -5].map((f) => +evaluateFCurve(fc, f).toFixed(4))).toEqual([0, 11, 22, 22, 0]);
+    fc.modifiers[0].reference_value = 2;
+    expect([0, 5, 10].map((f) => +evaluateFCurve(fc, f).toFixed(4))).toEqual([-4, 7, 18]);
+  });
+});

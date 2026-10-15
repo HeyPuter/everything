@@ -372,6 +372,8 @@ export function densityMenu(): MenuItem[] {
 
 export const FMODIFIER_TYPES: [string, string][] = [
   ['GENERATOR', 'Generator'],
+  ['FNGENERATOR', 'Built-In Function'],
+  ['ENVELOPE', 'Envelope'],
   ['CYCLES', 'Cycles'],
   ['NOISE', 'Noise'],
   ['LIMITS', 'Limits'],

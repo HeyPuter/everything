@@ -2234,6 +2234,16 @@ input.num-field.editing {
 .anim-sb-inline .num-field {
   flex: 1;
 }
+.anim-env-head {
+  display: flex;
+  align-items: center;
+  padding: 4px 6px 0;
+  color: #999;
+  font-size: 11px;
+}
+.anim-env-head span {
+  flex: 1;
+}
 .anim-mod-hdr {
   display: inline-flex;
   align-items: center;

@@ -890,6 +890,8 @@ function graphEd(ctx: OpContext): GraphEditor | null {
 
 const MOD_TYPES: [string, string][] = [
   ['GENERATOR', 'Generator'],
+  ['FNGENERATOR', 'Built-In Function'],
+  ['ENVELOPE', 'Envelope'],
   ['CYCLES', 'Cycles'],
   ['NOISE', 'Noise'],
   ['LIMITS', 'Limits'],
@@ -902,6 +904,10 @@ export function newModifier(type: string): FCurve['modifiers'][number] {
       return { type: 'GENERATOR', coefficients: [0, 1] };
     case 'CYCLES':
       return { type: 'CYCLES', mode_before: 'REPEAT', mode_after: 'REPEAT' };
+    case 'FNGENERATOR':
+      return { type: 'FNGENERATOR', function_type: 'SIN', amplitude: 1, phase_multiplier: 1, phase_offset: 0, value_offset: 0, use_additive: false };
+    case 'ENVELOPE':
+      return { type: 'ENVELOPE', reference_value: 0, default_min: -1, default_max: 1, control_points: [] };
     case 'NOISE':
       return {
         type: 'NOISE',
