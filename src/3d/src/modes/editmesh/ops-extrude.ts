@@ -197,7 +197,7 @@ registerOperators([
     description: 'Extrude the selection and move it, along the normal for faces',
     props: moveProps,
     poll: editPoll,
-    invoke: (ctx) => invokeExtrudeMove(ctx, 'view3d.edit_mesh_extrude_move_normal', 'Extrude Region and Move'),
+    invoke: (ctx, p) => invokeExtrudeMove(ctx, 'view3d.edit_mesh_extrude_move_normal', 'Extrude Region and Move', { dissolveOrtho: !!p.use_dissolve_ortho_edges }),
     exec: (_ctx, p) => execExtrudeMove(p),
   },
   {
@@ -206,7 +206,7 @@ registerOperators([
     description: 'Extrude whatever is selected (faces, edges or vertices) and move the result',
     props: moveProps,
     poll: editPoll,
-    invoke: (ctx) => invokeExtrudeMove(ctx, 'mesh.extrude_context_move', 'Extrude Region and Move'),
+    invoke: (ctx, p) => invokeExtrudeMove(ctx, 'mesh.extrude_context_move', 'Extrude Region and Move', { dissolveOrtho: !!p.use_dissolve_ortho_edges }),
     exec: (_ctx, p) => execExtrudeMove(p),
   },
   {
