@@ -327,8 +327,8 @@ function modifierPanel(fc: FCurve, m: FModifier, i: number): Child {
   const common = (): Child => [
     m.type === 'GENERATOR' ? row('', checkbox(`gm-${i}-gadd`, 'Additive', !!m.use_additive, (v) => ((m.use_additive = v), set('Change Generator')))) : null,
     row(
-      '',
-      checkbox(`gm-${i}-rr`, 'Restrict Frame Range', !!m.use_restricted_range, (v) => {
+      'Frame Range',
+      checkbox(`gm-${i}-rr`, 'Restrict', !!m.use_restricted_range, (v) => {
         m.use_restricted_range = v;
         if (v && m.frame_start === undefined) {
           m.frame_start = app.doc.scene.frame_start;
