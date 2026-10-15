@@ -209,7 +209,8 @@ gn('GeometryNodeMaterialSelection', 'input', {
     return {
       Selection: new InputField('BOOLEAN', `material_selection:${mat}`, (c) => {
         const comp = c.comp;
-        if (comp.kind === 'INSTANCES') return zeros('BOOLEAN');
+        // point clouds and instances have no material selection
+        if (comp.kind === 'INSTANCES' || comp.kind === 'POINTS') return zeros('BOOLEAN');
         const dom = comp.kind === 'MESH' ? 'FACE' : comp.kind === 'CURVES' ? 'CURVE' : 'POINT';
         const slots = comp.materials;
         const n = comp.domainSize(dom);
@@ -217,7 +218,8 @@ gn('GeometryNodeMaterialSelection', 'input', {
         const sel = new Uint8Array(n);
         for (let i = 0; i < n; i++) {
           const k = idx && idx.domain === dom ? idx.data[i] : 0;
-          sel[i] = (slots[k] ?? null) === mat && (slots.length > 0 || mat === null) ? 1 : 0;
+          // meshes without slots count as using no material; curves need a slot
+          sel[i] = (slots[k] ?? null) === mat && (slots.length > 0 || comp.kind === 'MESH') ? 1 : 0;
         }
         return full(dom === c.domain ? sel : adaptDomain(comp, sel, 'BOOLEAN', dom, c.domain));
       }),
