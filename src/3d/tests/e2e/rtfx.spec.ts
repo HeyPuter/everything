@@ -282,12 +282,12 @@ test('shader AOVs render into their own passes and Render Layers outputs', async
   const res = await page.evaluate(async (imp) => {
     const { renderResult } = await (0, eval)(imp)('/src/render/final/result.ts');
     const r = renderResult.get();
-    const mask = r.passes['AOV:mask'] as Float32Array;
-    const other = r.passes['AOV:other'] as Float32Array;
+    const mask = r.passes['AOV mask'] as Float32Array;
+    const other = r.passes['AOV other'] as Float32Array;
     let red = 0;
     for (let i = 0; i < mask.length; i += 4) if (mask[i] > 0.99 && mask[i + 1] < 0.01) red++;
     const { getNodeType } = await (0, eval)(imp)('/src/nodes/registry.ts');
-    const outs = getNodeType('CompositorNodeRLayers').dynamicSockets({}, {}).outputs.map((o: any) => o.identifier);
+    const outs = getNodeType('CompositorNodeRLayers').dynamicSockets({}, { doc: (window as any).app.doc }).outputs.map((o: any) => o.identifier);
     return { red, total: mask.length / 4, otherMax: Math.max(...other), outs };
   }, IMPORT);
   // the cube is red in the AOV, the background black
@@ -295,7 +295,7 @@ test('shader AOVs render into their own passes and Render Layers outputs', async
   expect(res.red).toBeLessThan(res.total * 0.9);
   // no AOV Output named "other": an empty pass
   expect(res.otherMax).toBe(0);
-  expect(res.outs).toEqual(expect.arrayContaining(['Image', 'AO', 'AOV:mask', 'AOV:other']));
+  expect(res.outs).toEqual(expect.arrayContaining(['Image', 'AO', 'AOV mask', 'AOV other']));
   await expectNoErrors(errors);
 });
 

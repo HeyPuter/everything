@@ -75,7 +75,7 @@ registerExec('CompositorNodeRLayers', (x) => {
   if (ao) x.outs.set('AO', Result.image('FLOAT', ao, d));
   // shader AOVs: colors (RGBA) or values
   for (const [name, buf] of Object.entries(L.passes))
-    if (name.startsWith('AOV:') && buf) {
+    if (name.startsWith('AOV ') && buf) {
       const t = passTexture(x, name as PassName);
       const color = buf.length >= L.width * L.height * 4;
       if (t) x.outs.set(name, Result.image(color ? 'RGBA' : 'FLOAT', t, d));

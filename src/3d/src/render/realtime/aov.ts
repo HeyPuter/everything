@@ -1,5 +1,5 @@
 // Shader AOVs: materials write extra values with an AOV Output node; the view layer lists the
-// AOVs to render (View Layer ▸ Shader AOV). Final renders produce one pass per AOV ("AOV:<name>"),
+// AOVs to render (View Layer ▸ Shader AOV). Final renders produce one pass per AOV ("AOV <name>"),
 // available as Render Layers outputs in the compositor.
 import { Color, DoubleSide, MeshBasicMaterial, type Camera, type Material, type Mesh, type WebGLRenderer } from 'three';
 import { defineFromRaw, getNodeType, registerNodeType } from '../../nodes/registry';
@@ -19,7 +19,7 @@ import { uiList } from '../../editors/properties/uilist';
 export type AovType = 'COLOR' | 'VALUE';
 
 /** Pass name of an AOV in render results. */
-export const aovPassName = (name: string) => `AOV:${name}`;
+export const aovPassName = (name: string) => `AOV ${name}`;
 
 // ---------------------------------------------------------------------------
 // AOV Output node (an output node: it does not take part in the material's shading)

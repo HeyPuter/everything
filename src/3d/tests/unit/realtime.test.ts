@@ -240,7 +240,7 @@ describe('shader AOVs', async () => {
   it('names stay unique', () => {
     expect(uniqueAovName([])).toBe('AOV');
     expect(uniqueAovName([{ name: 'AOV' }, { name: 'AOV.001' }])).toBe('AOV.002');
-    expect(aovPassName('x')).toBe('AOV:x');
+    expect(aovPassName('x')).toBe('AOV x');
   });
 });
 

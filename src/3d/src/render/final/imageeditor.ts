@@ -193,7 +193,7 @@ export class ImageEditor implements Editor, View2D {
   private passes(): PassName[] {
     const r = this.result;
     if (!r) return [];
-    return [...PASS_ORDER.filter((p) => r.passes[p]), ...(Object.keys(r.passes) as PassName[]).filter((p) => p.startsWith('AOV:'))];
+    return [...PASS_ORDER.filter((p) => r.passes[p]), ...(Object.keys(r.passes) as PassName[]).filter((p) => p.startsWith('AOV '))];
   }
 
   private sourceKey(): string {

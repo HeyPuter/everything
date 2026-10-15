@@ -550,10 +550,11 @@ test('Add menus list the new shader and compositor nodes in their categories', a
     const box = (await page.locator('.nd-editor').first().boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.keyboard.press('Shift+A');
-    for (const p of path) {
+    // hover each level in its own menu (the pointer may cross other submenus on the way)
+    for (const [depth, p] of path.entries()) {
       await page
         .locator('.menu')
-        .last()
+        .nth(depth)
         .locator('.menu-item', { hasText: new RegExp(`^${p}`) })
         .first()
         .hover();

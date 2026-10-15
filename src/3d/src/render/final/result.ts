@@ -2,8 +2,8 @@
 import { toDisplayRGBA8, displayPixel, type ViewSettings } from './colormanage';
 import { compositeOverlay, type StampField } from './stamp';
 
-/** Built-in passes plus shader AOVs (`AOV:<name>`, see render/realtime/aov.ts). */
-export type PassName = 'Combined' | 'Depth' | 'Normal' | 'Mist' | 'Position' | 'UV' | 'IndexOB' | 'IndexMA' | 'DiffCol' | 'Emit' | 'AO' | `AOV:${string}`;
+/** Built-in passes plus shader AOVs (`AOV <name>`, see render/realtime/aov.ts). */
+export type PassName = 'Combined' | 'Depth' | 'Normal' | 'Mist' | 'Position' | 'UV' | 'IndexOB' | 'IndexMA' | 'DiffCol' | 'Emit' | 'AO' | `AOV ${string}`;
 export type ChannelMode = 'COLOR_ALPHA' | 'COLOR' | 'ALPHA' | 'Z';
 
 export interface RenderInfo {
@@ -69,7 +69,7 @@ export function passChannels(name: PassName, buf?: Float32Array, pixels?: number
 
 /** Readable label of a pass. */
 export function passLabel(name: PassName): string {
-  return PASS_LABELS[name] ?? (name.startsWith('AOV:') ? name.slice(4) : name);
+  return PASS_LABELS[name] ?? (name.startsWith('AOV ') ? name.slice(4) : name);
 }
 
 /** Display order of passes (pass menus, Render Layers outputs). */
