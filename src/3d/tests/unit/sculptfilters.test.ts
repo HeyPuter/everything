@@ -140,3 +140,28 @@ describe('mask helpers', async () => {
     expect(c[7]).toBeLessThan(0);
   });
 });
+
+describe('paint color / weight helpers', async () => {
+  const { adjustColor, rgbToHsv, hsvToRgb, quantize, mirrorVertexMap } = await import('../../src/paint/paintmath');
+  it('adjusts levels, hsv and brightness/contrast', () => {
+    const c = new Float32Array([0.2, 0.4, 0.6, 0.5]);
+    adjustColor(c, { offset: 0.1, gain: 2 });
+    expect(Array.from(c).map((x) => +x.toFixed(3))).toEqual([0.6, 1, 1, 0.5]);
+    const d = new Float32Array([1, 0, 0, 1]);
+    adjustColor(d, { hue: 0.5 + 1 / 3 });
+    expect(Array.from(d).map((x) => +x.toFixed(3))).toEqual([0, 1, 0, 1]);
+    const e = new Float32Array([0.25, 0.5, 0.75, 1]);
+    adjustColor(e, { contrast: -1 });
+    expect(Array.from(e.subarray(0, 3)).map((x) => +x.toFixed(3))).toEqual([0.5, 0.5, 0.5]);
+    adjustColor(e, { brightness: 0.25 });
+    expect(e[0]).toBeCloseTo(0.75);
+    const [h, s, v] = rgbToHsv(0.2, 0.6, 0.4);
+    expect(hsvToRgb(h, s, v).map((x) => +x.toFixed(4))).toEqual([0.2, 0.6, 0.4]);
+  });
+  it('quantizes weights and finds mirrored vertices', () => {
+    expect(quantize(0.3, 2)).toBe(0.5);
+    expect(quantize(0.2, 2)).toBe(0);
+    const map = mirrorVertexMap([1, 2, 3, -1, 2, 3, 0, 1, 1, 5, 5, 5]);
+    expect(Array.from(map)).toEqual([1, 0, 2, -1]);
+  });
+});

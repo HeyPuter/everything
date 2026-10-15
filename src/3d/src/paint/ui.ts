@@ -14,6 +14,7 @@ import { modeMenus } from '../editors/view3d/modemenus';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { activeBrush, brushById, BRUSH_LISTS, brushInfo, isBrushMode, type BrushMode, type PaintBrush } from './brushes';
 import { startGesture } from './gesture';
+import { startGradient } from './paintops';
 import { faceMaskOn, isSelectTool, PAINT_SELECT_TOOLS, vertMaskOn } from './selmask';
 import { cursorState, updateCursor } from './cursor';
 import { sculptStroke } from './sculpt';
@@ -40,6 +41,20 @@ const EXTRA_TOOLS: Record<BrushMode, ToolDef[]> = {
       icon: 'eyedropper',
       shortcut: 'Shift X',
       description: 'Use the weight under the cursor as the brush weight',
+    },
+    {
+      id: 'builtin.sample_vertex_group',
+      label: 'Sample Vertex Group',
+      icon: 'sample_group',
+      shortcut: 'Shift Ctrl X',
+      description: 'Pick the active vertex group from the vertex under the cursor',
+    },
+    {
+      id: 'builtin.gradient',
+      label: 'Gradient',
+      icon: 'weight_gradient',
+      shortcut: 'Shift A',
+      description: 'Drag to fill the active group with a gradient',
     },
   ],
   TEXTURE_PAINT: [],
@@ -70,6 +85,17 @@ for (const mode of Object.keys(BRUSH_LISTS) as BrushMode[]) {
   for (const b of BRUSH_LISTS[mode]) if (b) toolSettingsRenderers[b.id] = () => toolHeaderSettings(mode);
 }
 toolSettingsRenderers['builtin.sample_weight'] = () => [h('span', { class: 'th-label' }, 'Click on the mesh to sample the weight'), weightField('th-sw')];
+toolSettingsRenderers['builtin.sample_vertex_group'] = () => h('span', { class: 'th-label' }, 'Click on the mesh to pick one of its vertex groups');
+const gradientTool = { type: 'LINEAR' };
+toolSettingsRenderers['builtin.gradient'] = () => {
+  const b = activeBrush('WEIGHT_PAINT');
+  return [
+    field(110, enumMenu('th-grad', [{ value: 'LINEAR', label: 'Linear' }, { value: 'RADIAL', label: 'Radial' }], gradientTool.type, (x) => ((gradientTool.type = x), changed()), { tip: 'Gradient type' })),
+    field(140, weightField('th-gw')),
+    b ? field(140, strengthField(b, 'th-gs')) : null,
+    h('span', { class: 'th-label' }, 'Drag from full weight to zero'),
+  ];
+};
 
 // ---------------------------------------------------------------------------
 // shared brush widgets
@@ -574,56 +600,73 @@ const sc = (km: string, op: string, props?: Record<string, unknown>) => {
   return k ? keyLabel(k) : undefined;
 };
 
+const vpMenu = (): MenuItem[] => [
+  { label: 'Smooth Vertex Colors', op: 'paint.vertex_color_smooth' },
+  { label: 'Dirty Vertex Colors', op: 'paint.vertex_color_dirt' },
+  { label: 'Vertex Color from Weight', op: 'paint.vertex_color_from_weight' },
+  { separator: true },
+  { label: 'Invert', op: 'paint.vertex_color_invert' },
+  { label: 'Levels', op: 'paint.vertex_color_levels' },
+  { label: 'Hue/Saturation/Value', op: 'paint.vertex_color_hsv' },
+  { label: 'Brightness/Contrast', op: 'paint.vertex_color_brightness_contrast' },
+  { separator: true },
+  { label: 'Set Color Attribute', op: 'paint.vertex_color_set', shortcut: 'Ctrl X' },
+  { label: 'Sample Color', op: 'paint.sample_color', shortcut: 'Shift X' },
+  { label: 'Swap Colors', op: 'paint.brush_colors_flip', shortcut: 'X' },
+];
+
 modeMenus.VERTEX_PAINT = {
   ...modeMenus.VERTEX_PAINT,
-  header: () => [
-    [
-      'Paint',
-      () => [
-        {
-          label: 'Set Color Attribute',
-          op: 'paint.vertex_color_set',
-          shortcut: 'Ctrl X',
-        },
-        { label: 'Smooth Vertex Colors', op: 'paint.vertex_color_smooth' },
-        { label: 'Dirty Vertex Colors', op: 'paint.vertex_color_dirt' },
-        { label: 'Invert Colors', op: 'paint.vertex_color_invert' },
-        { separator: true },
-        {
-          label: 'Sample Color',
-          op: 'paint.sample_color',
-          shortcut: 'Shift X',
-        },
-        { label: 'Swap Colors', op: 'paint.brush_colors_flip', shortcut: 'X' },
-      ],
-    ],
-  ],
+  header: () => [['Paint', vpMenu]],
+  context: vpMenu,
 };
+
+export const lockMenu = (): MenuItem[] => {
+  const l = (label: string, action: string, mask: string): MenuItem => ({ label, op: 'object.vertex_group_lock', props: { action, mask } });
+  return [
+    l('Lock All', 'LOCK', 'ALL'),
+    l('Lock Selected', 'LOCK', 'SELECTED'),
+    l('Lock Unselected', 'LOCK', 'UNSELECTED'),
+    l('Lock Only Selected', 'LOCK', 'INVERT_UNSELECTED'),
+    l('Lock Only Unselected', 'UNLOCK', 'INVERT_UNSELECTED'),
+    { separator: true },
+    l('Unlock All', 'UNLOCK', 'ALL'),
+    l('Unlock Selected', 'UNLOCK', 'SELECTED'),
+    l('Unlock Unselected', 'UNLOCK', 'UNSELECTED'),
+    { separator: true },
+    l('Invert Locks', 'INVERT', 'ALL'),
+  ];
+};
+
+const wpMenu = (): MenuItem[] => [
+  { label: 'Assign Automatic from Bones', op: 'paint.weight_from_bones', props: { type: 'AUTOMATIC' } },
+  { label: 'Assign from Bone Envelopes', op: 'paint.weight_from_bones', props: { type: 'ENVELOPES' } },
+  { separator: true },
+  { label: 'Normalize All', op: 'object.vertex_group_normalize_all' },
+  { label: 'Normalize', op: 'object.vertex_group_normalize' },
+  { separator: true },
+  { label: 'Mirror', op: 'object.vertex_group_mirror' },
+  { label: 'Invert', op: 'object.vertex_group_invert' },
+  { label: 'Clean', op: 'object.vertex_group_clean' },
+  { separator: true },
+  { label: 'Quantize', op: 'object.vertex_group_quantize' },
+  { label: 'Levels', op: 'object.vertex_group_levels' },
+  { label: 'Smooth', op: 'object.vertex_group_smooth' },
+  { label: 'Limit Total', op: 'object.vertex_group_limit_total' },
+  { separator: true },
+  { label: 'Set Weight', op: 'paint.weight_set', shortcut: 'Ctrl X' },
+  { label: 'Sample Weight', op: 'paint.weight_sample', shortcut: 'Shift X' },
+  { label: 'Sample Group', op: 'paint.weight_sample_group', shortcut: 'Shift Ctrl X' },
+  { separator: true },
+  { label: 'Gradient (Linear)', op: 'paint.weight_gradient', props: { type: 'LINEAR' }, shortcut: 'Shift A' },
+  { label: 'Gradient (Radial)', op: 'paint.weight_gradient', props: { type: 'RADIAL' }, shortcut: 'Shift Alt A' },
+  { separator: true },
+  { label: 'Locks', submenu: lockMenu },
+];
 
 modeMenus.WEIGHT_PAINT = {
   ...modeMenus.WEIGHT_PAINT,
-  header: () => [
-    [
-      'Weights',
-      () => [
-        { label: 'Assign Automatic from Bones', op: 'paint.weight_from_bones' },
-        { separator: true },
-        { label: 'Normalize All', op: 'object.vertex_group_normalize_all' },
-        { label: 'Normalize', op: 'object.vertex_group_normalize' },
-        { label: 'Invert', op: 'object.vertex_group_invert' },
-        { label: 'Clean', op: 'object.vertex_group_clean' },
-        { label: 'Smooth', op: 'object.vertex_group_smooth' },
-        { label: 'Limit Total', op: 'object.vertex_group_limit_total' },
-        { separator: true },
-        { label: 'Set Weight', op: 'paint.weight_set', shortcut: 'Ctrl X' },
-        {
-          label: 'Sample Weight',
-          op: 'paint.weight_sample',
-          shortcut: 'Shift X',
-        },
-      ],
-    ],
-  ],
+  header: () => [['Weights', wpMenu]],
 };
 
 modeMenus.TEXTURE_PAINT = {
@@ -788,6 +831,10 @@ addKeys('Vertex Paint', [
 ]);
 addKeys('Weight Paint', [
   ...common([
+    { key: 'X', shift: true, ctrl: true, op: 'paint.weight_sample_group' },
+    { key: 'A', shift: true, op: 'paint.weight_gradient', props: { type: 'LINEAR' } },
+    { key: 'A', shift: true, alt: true, op: 'paint.weight_gradient', props: { type: 'RADIAL' } },
+    { key: 'K', menu: () => lockPie(), menuTitle: 'Vertex Group Locks' },
     {
       key: 'F',
       ctrl: true,
@@ -916,6 +963,16 @@ editModeHooks.pointer.push((v, e) => {
     app.run('paint.weight_sample', {}, { event: { x: e.clientX, y: e.clientY } });
     return true;
   }
+  if (mode === 'WEIGHT_PAINT' && tool === 'builtin.sample_vertex_group') {
+    app.run('paint.weight_sample_group', {}, { event: { x: e.clientX, y: e.clientY } });
+    return true;
+  }
+  if (mode === 'WEIGHT_PAINT' && tool === 'builtin.gradient') {
+    const am = activeMeshData();
+    if (am && !am.me.vertex_groups.length) ensureActiveGroup(am.ob, am.me);
+    startGradient(v, { type: gradientTool.type }, e);
+    return true;
+  }
   if (mode === 'SCULPT' && e.shiftKey && (e.ctrlKey || e.metaKey) && operators.has('paint.mask_lasso_gesture')) {
     // Shift+Ctrl+drag: lasso mask (with Alt: unmask)
     return startGesture(v, { op: 'paint.mask_lasso_gesture', kind: 'LASSO', props: { value: e.altKey ? 0 : 1 }, label: 'Lasso Mask' }, e);
@@ -964,17 +1021,30 @@ editModeHooks.hover.push((v, e) => {
   updateCursor(v, p.x, p.y);
 });
 
+/** Brush settings popover (right-click / W). */
+function brushPopover(x: number, y: number) {
+  const mode = app.doc.mode as BrushMode;
+  openPopover({ x, y }, () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, brushInfo(activeBrush(mode)?.id ?? '')?.name ?? 'Brush'), toolHeaderSettingsColumn(mode)), { width: 240 });
+}
+
 editModeHooks.context.push((v, e) => {
   if (!isBrushMode(app.doc.mode)) return false;
-  const mode = app.doc.mode as BrushMode;
-  openPopover(
-    { x: e.clientX, y: e.clientY },
-    () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, brushInfo(activeBrush(mode)?.id ?? '')?.name ?? 'Brush'), toolHeaderSettingsColumn(mode)),
-    { width: 240 },
-  );
+  brushPopover(e.clientX, e.clientY);
   void v;
   return true;
 });
+
+for (const km of ['Sculpt', 'Vertex Paint', 'Weight Paint', 'Image Paint'])
+  addKeys(km, [
+    {
+      key: 'W',
+      menu: () => {
+        brushPopover(app.pointer.x, app.pointer.y);
+        return [];
+      },
+      when: () => isBrushMode(app.doc.mode),
+    },
+  ]);
 
 function toolHeaderSettingsColumn(mode: BrushMode): Child {
   const b = activeBrush(mode);
@@ -1003,3 +1073,15 @@ viewportExtensions.push((v) => {
     v.onKey = orig;
   };
 });
+
+function lockPie(): MenuItem[] {
+  const l = (label: string, action: string, mask: string) => ({ label, op: 'object.vertex_group_lock', props: { action, mask } });
+  openPie(
+    'Vertex Group Locks',
+    [l('Lock All', 'LOCK', 'ALL'), l('Unlock All', 'UNLOCK', 'ALL'), l('Unlock Selected', 'UNLOCK', 'SELECTED'), l('Lock Selected', 'LOCK', 'SELECTED'), l('Lock Unselected', 'LOCK', 'UNSELECTED'), l('Lock Only Selected', 'LOCK', 'INVERT_UNSELECTED'), l('Lock Only Unselected', 'UNLOCK', 'INVERT_UNSELECTED'), l('Invert Locks', 'INVERT', 'ALL')],
+    app.pointer.x,
+    app.pointer.y,
+    'K',
+  );
+  return [];
+}

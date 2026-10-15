@@ -193,3 +193,29 @@ test('vertex paint face selection masking limits the brush', async ({ page }) =>
   expect(red).toBe(4);
   await expectNoErrors(errors);
 });
+
+test('weight paint gradient, quantize and lock pie', async ({ page }) => {
+  const errors = await openApp(page);
+  await setup(page, 'WEIGHT_PAINT', 'mesh.primitive_grid_add', { x_subdivisions: 10, y_subdivisions: 10, size: 6 });
+  const c = await viewportCenter(page);
+  await page.mouse.move(c.x - 100, c.y);
+  await page.keyboard.press('Shift+a');
+  await page.mouse.down();
+  await page.mouse.move(c.x + 100, c.y, { steps: 5 });
+  await page.mouse.up();
+  const w = await page.evaluate(() => {
+    const a = (window as unknown as W).app;
+    a.run('object.vertex_group_quantize', { steps: 2 });
+    const me = a.doc.meshes[a.activeObject.data];
+    return [...new Set(Array.from(me.weights[0] as Float32Array).map((x) => +x.toFixed(2)))].sort();
+  });
+  expect(w).toEqual([0, 0.5, 1]);
+  await openHeaderMenu(page, 'Weights');
+  await expect(page.locator('.menu .menu-item', { hasText: 'Gradient (Radial)' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.mouse.move(c.x, c.y);
+  await page.keyboard.press('k');
+  await expect(page.locator('.pie')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expectNoErrors(errors);
+});

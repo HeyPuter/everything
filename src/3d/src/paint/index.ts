@@ -15,6 +15,7 @@ import './vpaint';
 import './wpaint';
 import './tpaint';
 import './armweights';
+import './paintops';
 import './ui';
 import './selmask';
 import './sculptmenus';
