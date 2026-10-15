@@ -10,6 +10,7 @@ import { modifierFields } from '../editors/properties/stack';
 import { buildMesh, edgeTopology, triangulatePoly, type PolyFace } from '../mesh/mesh';
 import { MeshEdit, edgeKey } from '../modes/editmesh/meshedit';
 import { bevelEdges } from '../modes/editmesh/bevel';
+import { bevelMeshVertices } from './mods/vbevel';
 import { voxelRemesh } from '../paint/remesh';
 
 const num = (m: ModifierBase, k: string, d = 0) => (typeof m[k] === 'number' ? (m[k] as number) : d);
@@ -45,14 +46,6 @@ function toMeshEdit(m: EvalMesh): MeshEdit {
   return MeshEdit.from(fake);
 }
 
-function fromMeshEdit(e: MeshEdit, src: EvalMesh): EvalMesh {
-  const built = buildMesh(
-    e.pos,
-    e.faces.map((f) => ({ verts: f.verts, uvs: f.uvs, smooth: f.smooth, material: f.material, seams: f.seams, sharp: f.sharp, creases: f.creases })),
-  );
-  return { ...built, weights: e.weights.length ? e.weights.map((w) => Float32Array.from(w)) : undefined, vertex_groups: src.vertex_groups, auto_smooth_angle: src.auto_smooth_angle } as EvalMesh;
-}
-
 function faceNormal(P: ArrayLike<number>, idx: ArrayLike<number>, s: number, e: number): Vector3 {
   const n = new Vector3();
   for (let c = s; c < e; c++) {
@@ -69,33 +62,90 @@ function faceNormal(P: ArrayLike<number>, idx: ArrayLike<number>, s: number, e: 
 // Bevel
 
 function bevelMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
-  const width = num(mod, 'width', 0.1);
+  const offsetType = str(mod, 'offset_type', 'OFFSET') as 'OFFSET' | 'WIDTH' | 'DEPTH' | 'PERCENT' | 'ABSOLUTE';
+  const width = offsetType === 'PERCENT' ? num(mod, 'width_pct', 0.1) : num(mod, 'width', 0.1);
   if (width <= 0) return m;
   const e = toMeshEdit(m);
   const limit = str(mod, 'limit_method', 'ANGLE');
   const angle = num(mod, 'angle_limit', (30 * Math.PI) / 180);
-  const ef = e.edgeFaces();
-  const chosen: [number, number][] = [];
-  for (const [a, b] of e.edges()) {
-    if (limit === 'ANGLE') {
-      const fs = ef.get(edgeKey(a, b)) ?? [];
-      if (fs.length !== 2) continue;
-      const n0 = new Vector3(...(e.faceNormal(e.faces[fs[0][0]]) as [number, number, number])),
-        n1 = new Vector3(...(e.faceNormal(e.faces[fs[1][0]]) as [number, number, number]));
-      if (n0.angleTo(n1) < angle) continue;
-    }
-    chosen.push([a, b]);
+  const segments = Math.max(1, Math.round(num(mod, 'segments', 1)));
+  const profile = num(mod, 'profile', 0.5);
+  // vertex group limit: only vertices with weight in the group (or outside it when inverted)
+  let inGroup: ((v: number) => boolean) | null = null;
+  if (limit === 'VGROUP') {
+    const gi = m.vertex_groups?.findIndex((g) => g.name === str(mod, 'vertex_group')) ?? -1;
+    const w = gi >= 0 ? m.weights?.[gi] : undefined;
+    const inv = bool(mod, 'invert_vertex_group');
+    inGroup = (v) => ((w?.[v] ?? 0) > 0) !== inv;
   }
-  if (!chosen.length) return m;
-  e.sel = e.sel.map(() => 0);
-  for (const [a, b] of chosen) e.sel[a] = e.sel[b] = 1;
-  const keys = new Set(chosen.map(([a, b]) => edgeKey(a, b)));
-  // restrict the bevel to exactly the chosen edges (not every edge between selected vertices)
-  e.selectedEdges = () => e.edges().filter(([a, b]) => keys.has(edgeKey(a, b)));
-  if (str(mod, 'affect', 'EDGES') === 'VERTICES') return m; // vertex bevel needs per-vertex offsets; edges only for now
-  bevelEdges(e, width, Math.max(1, Math.round(num(mod, 'segments', 1))), num(mod, 'profile', 0.5));
-  if (bool(mod, 'harden_normals')) for (const f of e.faces) f.smooth = true;
-  return fromMeshEdit(e, m);
+  const before = new Set(e.faces);
+  if (str(mod, 'affect', 'EDGES') === 'VERTICES') {
+    const off = offsetType === 'PERCENT' ? (width / 100) * averageEdgeLength(m) : width;
+    return bevelMeshVertices(m, (v) => !inGroup || inGroup(v), off, segments, profile, Math.round(num(mod, 'material', -1)));
+  } else {
+    const ef = e.edgeFaces();
+    const chosen: [number, number][] = [];
+    for (const [a, b] of e.edges()) {
+      if (limit === 'ANGLE') {
+        const fs = ef.get(edgeKey(a, b)) ?? [];
+        if (fs.length !== 2) continue;
+        const n0 = new Vector3(...(e.faceNormal(e.faces[fs[0][0]]) as [number, number, number])),
+          n1 = new Vector3(...(e.faceNormal(e.faces[fs[1][0]]) as [number, number, number]));
+        if (n0.angleTo(n1) < angle) continue;
+      } else if (inGroup && !(inGroup(a) && inGroup(b))) continue;
+      chosen.push([a, b]);
+    }
+    if (!chosen.length) return m;
+    e.sel = e.sel.map(() => 0);
+    for (const [a, b] of chosen) e.sel[a] = e.sel[b] = 1;
+    const keys = new Set(chosen.map(([a, b]) => edgeKey(a, b)));
+    // restrict the bevel to exactly the chosen edges (not every edge between selected vertices)
+    e.selectedEdges = () => e.edges().filter(([a, b]) => keys.has(edgeKey(a, b)));
+    const ok = bevelEdges(e, width, segments, profile, {
+      offsetType,
+      clamp: bool(mod, 'use_clamp_overlap', true),
+      markSeam: bool(mod, 'mark_seam'),
+      markSharp: bool(mod, 'mark_sharp'),
+      harden: bool(mod, 'harden_normals'),
+    });
+    if (!ok) return m;
+  }
+  const mat = Math.round(num(mod, 'material', -1));
+  if (mat >= 0) for (const f of e.faces) if (!before.has(f)) f.material = mat;
+  return fromMeshEditFull(e, m);
+}
+
+function averageEdgeLength(m: EvalMesh): number {
+  const et = edgeTopology(m);
+  let sum = 0;
+  for (let e = 0; e < et.count; e++) {
+    const a = et.verts[e * 2] * 3,
+      b = et.verts[e * 2 + 1] * 3;
+    sum += Math.hypot(m.positions[a] - m.positions[b], m.positions[a + 1] - m.positions[b + 1], m.positions[a + 2] - m.positions[b + 2]);
+  }
+  return et.count ? sum / et.count : 0;
+}
+
+/** Convert an edited mesh back, keeping custom normals and seams/sharp flags. */
+function fromMeshEditFull(e: MeshEdit, src: EvalMesh): EvalMesh {
+  const me = { positions: src.positions, offsets: src.offsets, indices: src.indices, uvs: src.uvs, weights: [], vertex_groups: [], shape_keys: [], color_attributes: [], active_color_index: 0 } as unknown as MeshData;
+  e.write(me);
+  return {
+    positions: me.positions,
+    offsets: me.offsets,
+    indices: me.indices,
+    uvs: me.uvs,
+    normals: me.normals,
+    smooth: me.smooth,
+    material_index: me.material_index,
+    seams: me.seams,
+    sharp: me.sharp,
+    creases: me.creases,
+    custom_normals: me.custom_normals,
+    weights: me.weights.length ? me.weights : undefined,
+    vertex_groups: src.vertex_groups,
+    auto_smooth_angle: src.auto_smooth_angle,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -673,7 +723,7 @@ registerModifier({
   label: 'Bevel',
   category: 'GENERATE',
   icon: 'mod_bevel',
-  defaults: base({ affect: 'EDGES', offset_type: 'OFFSET', width: 0.1, segments: 1, limit_method: 'ANGLE', angle_limit: (30 * Math.PI) / 180, profile: 0.5, harden_normals: false }),
+  defaults: base({ affect: 'EDGES', offset_type: 'OFFSET', width: 0.1, width_pct: 0.1, segments: 1, limit_method: 'ANGLE', angle_limit: (30 * Math.PI) / 180, vertex_group: '', invert_vertex_group: false, profile_type: 'SUPERELLIPSE', profile: 0.5, use_clamp_overlap: true, harden_normals: false, mark_seam: false, mark_sharp: false, material: -1 }),
   apply: bevelMod,
 });
 registerModifier({
