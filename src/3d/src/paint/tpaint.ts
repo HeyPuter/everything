@@ -353,7 +353,8 @@ interface DabOpts {
 /** Clone source picked with Ctrl+click (UV of the paint texture, plus the world point for the marker). */
 export const cloneSource = { uv: null as [number, number] | null, world: null as Vector3 | null };
 
-const BLEED = 2; // texels painted beyond triangle edges to hide UV seams
+/** Texels painted beyond triangle edges to hide UV seams (Options ▸ Bleed). */
+export const imagePaintOptions = { seam_bleed: 2, dither: 0 };
 
 /** Rasterize triangle `t` in texel space, calling fn(texelIndex, x, y, b0, b1, b2) per texel. */
 function rasterTri(st: TexStroke, me: MeshData, s: MeshSession, t: number, fn: (i: number, x: number, y: number, b0: number, b1: number, b2: number) => void) {
@@ -372,6 +373,7 @@ function rasterTri(st: TexStroke, me: MeshData, s: MeshSession, t: number, fn: (
     cy = (1 - U[c2 * 2 + 1]) * H;
   const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
   if (Math.abs(area) < 1e-12) return;
+  const BLEED = imagePaintOptions.seam_bleed;
   const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx) - BLEED)),
     maxX = Math.min(W - 1, Math.ceil(Math.max(ax, bx, cx) + BLEED)),
     minY = Math.max(0, Math.floor(Math.min(ay, by, cy) - BLEED)),

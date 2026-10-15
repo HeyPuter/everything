@@ -26,7 +26,7 @@ import { gestureToolPointer, gestureTools, registerToolSettings, sculptToolHooks
 import { operators } from '../app/app';
 import { vertexPaintStroke, sampleVertexColor } from './vpaint';
 import { weightPaintStroke, sampleWeight, ensureActiveGroup } from './wpaint';
-import { texturePaintStroke, sampleImageColor, paintImage, meshHasUVs, cloneSource } from './tpaint';
+import { texturePaintStroke, sampleImageColor, paintImage, meshHasUVs, cloneSource, imagePaintOptions } from './tpaint';
 import { strokeActive } from './stroke';
 import { activeMeshData, meshSession } from './session';
 import { invalidatePaintAttributes } from './display';
@@ -786,6 +786,12 @@ function brushPanels(mode: BrushMode): Child[] {
         ]),
       );
   }
+  if (mode === 'TEXTURE_PAINT')
+    out.push(
+      panel('pt-tp-opts', 'Options', () => [
+        numberField({ id: 'pt-bleed', label: 'Bleed', value: imagePaintOptions.seam_bleed, min: 0, max: 32, int: true, unit: 'pixel', tip: 'Paint this many pixels past the UV island borders to hide seams', set: (x) => ((imagePaintOptions.seam_bleed = Math.round(x)), changed()) }),
+      ], { closed: true }),
+    );
   if (mode === 'TEXTURE_PAINT') {
     const am = activeMeshData();
     const img = paintImage();
