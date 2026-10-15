@@ -55,7 +55,19 @@ function setMedian(axis: number, value: number, final: boolean) {
   if (final) app.pushUndo('Move Vertices');
 }
 
+const creaseCache = new WeakMap<object, { creases: unknown; indices: unknown; value: number | null }>();
+
+/** Mean crease of the selected edges (cached per selection / crease array, the sidebar redraws often). */
 function meanCrease(me: MeshData): number | null {
+  if (!me.select_vert) return null;
+  const hit = creaseCache.get(me.select_vert);
+  if (hit && hit.creases === me.creases && hit.indices === me.indices) return hit.value;
+  const value = computeMeanCrease(me);
+  creaseCache.set(me.select_vert, { creases: me.creases, indices: me.indices, value });
+  return value;
+}
+
+function computeMeanCrease(me: MeshData): number | null {
   const sel = selectedEdgeSet(me);
   if (!sel.size) return null;
   let sum = 0;
