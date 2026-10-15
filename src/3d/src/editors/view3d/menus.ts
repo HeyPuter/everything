@@ -5,12 +5,14 @@ import { modeMenus } from './modemenus';
 import { objectTransformMenu, mirrorMenu } from './transformui';
 import './quadview';
 import { objectModeContextMenu, selectByTypeMenu, selectGroupedMenu, selectLinkedMenu, selectMoreLessMenu } from '../../object/menus';
+import { viewMenuExtras } from './hooks';
 
 export function viewMenu(): MenuItem[] {
   return [
     { label: 'Toolbar', op: 'view3d.toggle_toolbar', shortcut: 'T' },
     { label: 'Sidebar', op: 'view3d.toggle_sidebar', shortcut: 'N' },
     { label: 'Tool Settings', op: 'view3d.toggle_tool_header' },
+    ...viewMenuExtras.flatMap((f) => f()),
     { label: 'Adjust Last Operation', op: 'screen.redo_last', shortcut: 'F9' },
     { separator: true },
     { label: 'Frame Selected', op: 'view3d.view_selected', shortcut: 'Numpad .' },

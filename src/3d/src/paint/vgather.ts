@@ -45,6 +45,20 @@ export interface GatherOptions {
   strength: number;
   /** cosine falloff of the normal against the view (paint modes); 0 disables */
   normalAngle?: number;
+  /** pen pressure factor for the radius */
+  sizeFactor?: number;
+  /** brush texture factor per vertex */
+  tex?: ((vi: number) => number) | null;
+}
+
+/**
+ * Brush radius in pixels at a world point: the pixel radius, or the scene-unit radius projected
+ * at that depth when the size is locked to the scene.
+ */
+export function brushRadiusPx(b: PaintBrush, s: MeshSession, v: View3D, world: Vector3 | null | undefined): number {
+  if (b.use_locked_size !== 'SCENE' || !world) return b.radius;
+  const perPx = s.pixelsToLocal(v, world, 1) * s.scale();
+  return Math.max(1, (b.unprojected_radius ?? 0.1) / Math.max(1e-9, perPx));
 }
 
 /**
@@ -72,7 +86,8 @@ export function gatherPaint(s: MeshSession, v: View3D, o: GatherOptions, scratch
   const ff = !!b.use_frontface;
   const P = s.positions;
   const hard = b.hardness ?? 0;
-  const R = b.falloff_shape === 'SPHERE' && o.hit ? s.pixelsToLocal(v, o.hit.world, b.radius) : 0;
+  const rpx = brushRadiusPx(b, s, v, o.hit?.world) * (o.sizeFactor ?? 1);
+  const R = b.falloff_shape === 'SPHERE' && o.hit ? s.pixelsToLocal(v, o.hit.world, rpx) : 0;
   if (b.falloff_shape === 'SPHERE' && !o.hit) return 0;
   // Symmetry passes work like a mirrored viewpoint: the mesh is mirrored (object space) and painted
   // from the same view, so mirrored strokes reach the far side of the object too.
@@ -119,7 +134,7 @@ export function gatherPaint(s: MeshSession, v: View3D, o: GatherOptions, scratch
     } else {
       scratch.proj = projectVertices(s, v, scratch.proj, sg);
       const proj = scratch.proj;
-      const r = b.radius,
+      const r = rpx,
         cx = o.x,
         cy = o.y;
       for (let vi = 0; vi < nv; vi++) {
@@ -137,12 +152,16 @@ export function gatherPaint(s: MeshSession, v: View3D, o: GatherOptions, scratch
       }
     }
   }
-  const n = list.length;
-  for (let k = 0; k < n; k++) {
+  const allowed = s.paintVerts;
+  let n = 0;
+  for (let k = 0; k < list.length; k++) {
     const vi = list[k];
-    s.gv[k] = vi;
-    s.gf[k] = best[vi];
+    const f = best[vi];
     best[vi] = 0;
+    if (allowed && !allowed[vi]) continue;
+    s.gv[n] = vi;
+    s.gf[n] = o.tex ? f * o.tex(vi) : f;
+    n++;
   }
   return n;
 }

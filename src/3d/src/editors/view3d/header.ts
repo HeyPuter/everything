@@ -7,6 +7,7 @@ import { currentOrientation, customOrientations, setOrientation, BUILTIN_ORIENTA
 import { activeView3D, type View3D } from './view3d';
 import { viewMenu, selectMenu, addMenu, objectMenu } from './menus';
 import { modeMenus } from './modemenus';
+import { overlayPopoverSections } from './hooks';
 import { checkbox, numberField, enumRow, colorSwatch, panel, enumMenu } from '../../ui/widgets';
 import type { Mode } from '../../data/types';
 import { renderContext } from '../../render/context';
@@ -371,6 +372,7 @@ function overlayPopover(v: View3D): Child {
           numberField({ id: 'o-nlen', label: 'Normal Size', value: o.normals_length, min: 0.0001, max: 100, set: (x) => set('normals_length')(x) }),
         ]
       : null,
+    overlayPopoverSections.map((f) => f(v)),
   );
 }
 

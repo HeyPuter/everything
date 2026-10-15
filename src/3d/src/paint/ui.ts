@@ -1,42 +1,47 @@
 // Sculpt / paint mode UI: toolbar tools, tool header settings, sidebar Tool tab panels, header
 // menus, keymaps and the viewport input hooks (strokes, cursor, context menu).
-import { app, registerOperators } from '../app/app';
+import { app, onAppReady, registerOperators } from '../app/app';
+import { propertiesTabs } from '../editors/properties/properties';
 import { activeTools } from '../app/prefs';
 import { addKeys, keyName, keymaps, keyLabel, type KeyItem } from '../app/keymap';
 import { h, type Child, type VNode } from '../ui/h';
 import { icon } from '../ui/icons';
-import { checkbox, colorSwatch, enumMenu, numberField, panel, button, opButton, row } from '../ui/widgets';
+import { checkbox, colorSwatch, enumMenu, enumRow, numberField, panel, button, opButton, row } from '../ui/widgets';
 import { openMenu, openPie, openPopover, type MenuItem } from '../ui/menu';
 import { editModeHooks, viewportExtensions } from '../editors/view3d/hooks';
 import { extraToolLists, toolSettingsRenderers, setActiveTool, type ToolDef } from '../editors/view3d/toolbar';
 import { sidebarTabs } from '../editors/view3d/sidebar';
 import { modeMenus } from '../editors/view3d/modemenus';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
-import { activeBrush, BRUSH_LISTS, brushInfo, isBrushMode, type BrushMode, type PaintBrush } from './brushes';
+import { activeBrush, brushById, BRUSH_LISTS, brushInfo, isBrushMode, type BrushMode, type PaintBrush } from './brushes';
+import { startGesture } from './gesture';
+import { startGradient } from './paintops';
+import { faceSetStroke } from './facesetbrush';
+import { openBrushPicker } from './assetshelf';
+import { automaskButton, automaskSettings, dyntopoSettings } from './sculptmenus';
+import { faceMaskOn, isSelectTool, PAINT_SELECT_TOOLS, vertMaskOn } from './selmask';
 import { cursorState, updateCursor } from './cursor';
 import { sculptStroke } from './sculpt';
-import { boxMaskDrag } from './sculptops';
+import { gestureToolPointer, gestureTools, registerToolSettings, sculptToolHooks, sculptToolSlots } from './sculpttools';
+import { operators } from '../app/app';
 import { vertexPaintStroke, sampleVertexColor } from './vpaint';
 import { weightPaintStroke, sampleWeight, ensureActiveGroup } from './wpaint';
-import { texturePaintStroke, sampleImageColor, paintImage, meshHasUVs } from './tpaint';
+import { texturePaintStroke, sampleImageColor, paintImage, meshHasUVs, cloneSource, imagePaintOptions } from './tpaint';
 import { strokeActive } from './stroke';
-import { activeMeshData } from './session';
+import { activeMeshData, meshSession } from './session';
 import { invalidatePaintAttributes } from './display';
-import { falloff as falloffFn } from './math';
+import { falloff as falloffFn, linearToSrgb, srgbToLinear } from './math';
+import { hsvToRgb, rgbToHsv } from './paintmath';
+import { brushThumb } from './brushthumbs';
+import { sampleTex, setImageCanvasSource, TEX_SOURCES, type BrushTexture } from './brushtex';
+import { imageCanvas } from '../render/images';
+import { Vector3 } from 'three';
 
 // ---------------------------------------------------------------------------
 // toolbar
 
 const EXTRA_TOOLS: Record<BrushMode, ToolDef[]> = {
-  SCULPT: [
-    {
-      id: 'builtin.box_mask',
-      label: 'Box Mask',
-      icon: 'box_mask',
-      shortcut: 'B',
-      description: 'Mask vertices inside a box (Ctrl: unmask)',
-    },
-  ],
+  SCULPT: [],
   VERTEX_PAINT: [],
   WEIGHT_PAINT: [
     {
@@ -45,6 +50,20 @@ const EXTRA_TOOLS: Record<BrushMode, ToolDef[]> = {
       icon: 'eyedropper',
       shortcut: 'Shift X',
       description: 'Use the weight under the cursor as the brush weight',
+    },
+    {
+      id: 'builtin.sample_vertex_group',
+      label: 'Sample Vertex Group',
+      icon: 'sample_group',
+      shortcut: 'Shift Ctrl X',
+      description: 'Pick the active vertex group from the vertex under the cursor',
+    },
+    {
+      id: 'builtin.gradient',
+      label: 'Gradient',
+      icon: 'weight_gradient',
+      shortcut: 'Shift A',
+      description: 'Drag to fill the active group with a gradient',
     },
   ],
   TEXTURE_PAINT: [],
@@ -64,18 +83,34 @@ for (const mode of Object.keys(BRUSH_LISTS) as BrushMode[]) {
         : null,
     );
     if (EXTRA_TOOLS[mode].length) out.push(null, ...EXTRA_TOOLS[mode]);
+    if (mode === 'SCULPT') {
+      out.push(null, ...sculptToolSlots((op) => operators.has(op)));
+      registerToolSettings(toolSettingsRenderers);
+    }
+    // selection masking: select tools in front of the brushes
+    if (mode !== 'SCULPT' && (faceMaskOn() || vertMaskOn())) out.unshift({ ...PAINT_SELECT_TOOLS[1], alternates: PAINT_SELECT_TOOLS }, null);
     return out;
   };
   for (const b of BRUSH_LISTS[mode]) if (b) toolSettingsRenderers[b.id] = () => toolHeaderSettings(mode);
 }
-toolSettingsRenderers['builtin.box_mask'] = () => h('span', { class: 'th-label' }, 'Drag to mask · Ctrl+drag to unmask');
 toolSettingsRenderers['builtin.sample_weight'] = () => [h('span', { class: 'th-label' }, 'Click on the mesh to sample the weight'), weightField('th-sw')];
+toolSettingsRenderers['builtin.sample_vertex_group'] = () => h('span', { class: 'th-label' }, 'Click on the mesh to pick one of its vertex groups');
+const gradientTool = { type: 'LINEAR' };
+toolSettingsRenderers['builtin.gradient'] = () => {
+  const b = activeBrush('WEIGHT_PAINT');
+  return [
+    field(110, enumMenu('th-grad', [{ value: 'LINEAR', label: 'Linear' }, { value: 'RADIAL', label: 'Radial' }], gradientTool.type, (x) => ((gradientTool.type = x), changed()), { tip: 'Gradient type' })),
+    field(140, weightField('th-gw')),
+    b ? field(140, strengthField(b, 'th-gs')) : null,
+    h('span', { class: 'th-label' }, 'Drag from full weight to zero'),
+  ];
+};
 
 // ---------------------------------------------------------------------------
 // shared brush widgets
 
-const DIRECTIONAL = new Set(['DRAW', 'DRAW_SHARP', 'CLAY', 'CLAY_STRIPS', 'LAYER', 'INFLATE', 'BLOB', 'CREASE', 'FLATTEN', 'FILL', 'SCRAPE', 'PINCH', 'MASK']);
-const PLANE_TOOLS = new Set(['CLAY', 'CLAY_STRIPS', 'FLATTEN', 'FILL', 'SCRAPE']);
+const DIRECTIONAL = new Set(['DRAW', 'DRAW_SHARP', 'CLAY', 'CLAY_STRIPS', 'CLAY_THUMB', 'LAYER', 'INFLATE', 'BLOB', 'CREASE', 'FLATTEN', 'FILL', 'SCRAPE', 'MULTIPLANE_SCRAPE', 'PINCH', 'MASK']);
+const PLANE_TOOLS = new Set(['CLAY', 'CLAY_STRIPS', 'CLAY_THUMB', 'FLATTEN', 'FILL', 'SCRAPE', 'MULTIPLANE_SCRAPE']);
 const FALLOFFS: [string, string][] = [
   ['SMOOTH', 'Smooth'],
   ['SPHERE', 'Sphere'],
@@ -243,24 +278,69 @@ function symmetryToggles(prefix: string) {
 }
 const field = (w: number, c: Child) => h('div', { style: { width: `${w}px`, flex: 'none' } }, c);
 
+const SYM_DIRS: [string, string][] = [
+  ['NEGATIVE_X', '-X to +X'],
+  ['POSITIVE_X', '+X to -X'],
+  ['NEGATIVE_Y', '-Y to +Y'],
+  ['POSITIVE_Y', '+Y to -Y'],
+  ['NEGATIVE_Z', '-Z to +Z'],
+  ['POSITIVE_Z', '+Z to -Z'],
+];
+const symState = { direction: 'NEGATIVE_X' };
+
+/** Tool header button opening a popover with the given rows. */
+function popButton(key: string, label: string, title: string, rows: () => Child, width = 260): VNode {
+  return h(
+    'button',
+    {
+      key,
+      class: 'th-pop',
+      'data-tip': title,
+      onpointerdown: (e: PointerEvent) => {
+        e.preventDefault();
+        openPopover(e.currentTarget as HTMLElement, () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, title), rows()), { width });
+      },
+    },
+    h('span', null, label),
+    icon('down_arrow_hlt', 'tiny'),
+  );
+}
+
 export function toolHeaderSettings(mode: BrushMode): Child {
   const b = activeBrush(mode);
   if (!b) return null;
   const parts: Child[] = [];
-  if (mode === 'VERTEX_PAINT' || mode === 'TEXTURE_PAINT') {
-    if (b.sculpt_tool === 'DRAW' || b.sculpt_tool === 'TEXDRAW' || b.sculpt_tool === 'FILL') {
-      parts.push(colorFields('th-col'));
-      parts.push(field(110, blendMenu(b, 'th-blend', mode === 'TEXTURE_PAINT' ? TEX_BLENDS : BLENDS)));
-    }
+  // brush picker (thumbnail grid)
+  parts.push(
+    h(
+      'button',
+      {
+        key: 'th-brush',
+        class: 'th-pop th-brush',
+        'data-tip': 'Brush (Space)',
+        onpointerdown: (e: PointerEvent) => {
+          e.preventDefault();
+          openBrushPicker(e.currentTarget as HTMLElement);
+        },
+      },
+      h('img', { src: brushThumb(b.sculpt_tool, mode, 36), width: 18, height: 18, alt: '' }),
+      icon('down_arrow_hlt', 'tiny'),
+    ),
+  );
+  if (paintsColor(mode, b)) {
+    parts.push(colorFields('th-col'));
+    parts.push(field(110, blendMenu(b, 'th-blend', mode === 'TEXTURE_PAINT' ? TEX_BLENDS : BLENDS)));
   }
-  if (mode === 'WEIGHT_PAINT') {
-    if (b.sculpt_tool === 'DRAW') parts.push(field(140, weightField('th-w')));
-  }
-  if (!(mode === 'TEXTURE_PAINT' && b.sculpt_tool === 'FILL')) parts.push(field(140, radiusField(b, 'th-r')));
-  parts.push(field(140, strengthField(b, 'th-s')));
+  if (mode === 'WEIGHT_PAINT' && b.sculpt_tool === 'DRAW') parts.push(field(140, weightField('th-w')));
+  if (!(mode === 'TEXTURE_PAINT' && b.sculpt_tool === 'FILL')) parts.push(field(150, sizeField(b, 'th-r')));
+  parts.push(field(150, strengthRow(b, 'th-s')));
   if (mode === 'WEIGHT_PAINT' && b.sculpt_tool === 'DRAW') parts.push(field(100, blendMenu(b, 'th-wblend', BLENDS)));
   if (mode === 'SCULPT') parts.push(directionToggle(b));
-  parts.push(field(100, falloffMenu(b, 'th-falloff')));
+  parts.push(popButton('th-p-brush', 'Brush', 'Brush Settings', () => [...mainRows(b, mode, 'thp'), ...advancedRows(b, mode, 'thp')]));
+  if (mode !== 'TEXTURE_PAINT') parts.push(popButton('th-p-tex', 'Texture', 'Texture', () => textureRows(b, 'thp')));
+  parts.push(popButton('th-p-stroke', 'Stroke', 'Stroke', () => strokeRows(b, mode, 'thp')));
+  parts.push(popButton('th-p-falloff', 'Falloff', 'Falloff', () => falloffRows(b, mode, 'thp')));
+  parts.push(popButton('th-p-cursor', 'Cursor', 'Cursor', () => cursorRows(b, mode, 'thp')));
   parts.push(h('div', { style: { flex: '1' } }));
   if (mode === 'WEIGHT_PAINT')
     parts.push(
@@ -269,6 +349,28 @@ export function toolHeaderSettings(mode: BrushMode): Child {
       }),
     );
   parts.push(symmetryToggles('th'));
+  if (mode === 'SCULPT') {
+    const ts = app.doc.scene.tool_settings.sculpt;
+    parts.push(
+      h(
+        'button',
+        {
+          key: 'th-dyntopo',
+          class: { 'hdr-toggle': true, on: !!ts.use_dyntopo },
+          'data-tip': 'Dyntopo\nAdd and remove triangles under the brush (click to toggle, right-click for settings)',
+          onclick: () => app.run('sculpt.dynamic_topology_toggle'),
+          oncontextmenu: (e: MouseEvent) => {
+            e.preventDefault();
+            openPopover(e.currentTarget as HTMLElement, () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, 'Dyntopo'), ...dyntopoSettings('pop-dt')), { width: 240 });
+          },
+        },
+        icon('dyntopo'),
+      ),
+    );
+    parts.push(popButton('th-p-remesh', 'Remesh', 'Remesh', () => remeshRows()));
+    parts.push(automaskButton());
+    parts.push(popButton('th-p-options', 'Options', 'Options', () => [...sculptOptionRows(), h('div', { class: 'pop-sub' }, 'Auto-Masking'), ...automaskSettings('thp-am')]));
+  }
   return parts;
 }
 
@@ -304,172 +406,343 @@ function falloffPreview(b: PaintBrush): VNode {
   );
 }
 
+// ---------------------------------------------------------------------------
+// brush settings content (shared by the sidebar / Properties panels and the tool header popovers)
+
+/** Brushes that paint with the brush color (color fields, blend, color picker). */
+function paintsColor(mode: BrushMode, b: PaintBrush) {
+  if (mode === 'SCULPT') return b.sculpt_tool === 'PAINT';
+  return (mode === 'VERTEX_PAINT' || mode === 'TEXTURE_PAINT') && (b.sculpt_tool === 'DRAW' || b.sculpt_tool === 'TEXDRAW' || b.sculpt_tool === 'FILL');
+}
+
+function pressureToggle(b: PaintBrush, key: 'use_pressure_size' | 'use_pressure_strength', id: string) {
+  const on = key === 'use_pressure_strength' ? b.use_pressure_strength !== false : !!b.use_pressure_size;
+  return h(
+    'button',
+    {
+      key: id,
+      class: { 'hdr-toggle': true, 'pressure-toggle': true, on },
+      'data-tip': key === 'use_pressure_size' ? 'Use pen pressure for the radius' : 'Use pen pressure for the strength',
+      onclick: () => ((b[key] = !on), changed()),
+    },
+    icon('pressure'),
+  );
+}
+
+/** Radius field (pixels, or scene units when the size is locked to the scene) with the pressure toggle. */
+function sizeField(b: PaintBrush, id: string) {
+  const scene = b.use_locked_size === 'SCENE';
+  return h(
+    'div',
+    { key: id, class: 'paint-pressure-row' },
+    scene
+      ? numberField({ id, label: 'Radius', value: b.unprojected_radius ?? 0.1, min: 0.0001, max: 100, unit: 'distance', precision: 3, tip: 'Radius of the brush in scene units (F)', set: (x) => ((b.unprojected_radius = x), changed()) })
+      : radiusField(b, id),
+    pressureToggle(b, 'use_pressure_size', `${id}-p`),
+  );
+}
+function strengthRow(b: PaintBrush, id: string) {
+  return h('div', { key: id, class: 'paint-pressure-row' }, strengthField(b, id), pressureToggle(b, 'use_pressure_strength', `${id}-p`));
+}
+
+/** Switch the radius between screen pixels and scene units, keeping the current size on screen. */
+function setSizeUnit(b: PaintBrush, unit: 'VIEW' | 'SCENE') {
+  if ((b.use_locked_size ?? 'VIEW') === unit) return;
+  const v = activeView3D();
+  const s = meshSession();
+  if (v && s) {
+    const at = cursorState.hit?.point ?? new Vector3().setFromMatrixPosition(s.world());
+    const perPx = s.pixelsToLocal(v, at, 1) * s.scale();
+    if (unit === 'SCENE') b.unprojected_radius = Math.max(1e-4, b.radius * perPx);
+    else b.radius = Math.max(1, Math.min(2000, Math.round((b.unprojected_radius ?? 0.1) / perPx)));
+  }
+  b.use_locked_size = unit;
+  changed();
+}
+
+function mainRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
+  const rows: Child[] = [];
+  if (paintsColor(mode, b)) rows.push(row('Blend', blendMenu(b, `${p}-blend`, mode === 'TEXTURE_PAINT' ? TEX_BLENDS : BLENDS)));
+  if (mode === 'WEIGHT_PAINT') {
+    rows.push(weightField(`${p}-w`));
+    if (b.sculpt_tool === 'DRAW') rows.push(row('Blend', blendMenu(b, `${p}-wblend`, BLENDS)));
+  }
+  if (!(mode === 'TEXTURE_PAINT' && b.sculpt_tool === 'FILL')) {
+    rows.push(sizeField(b, `${p}-r`));
+    rows.push(
+      row(
+        'Size Unit',
+        enumRow(
+          `${p}-unit`,
+          [
+            { value: 'VIEW', label: 'View', description: 'Radius in screen pixels' },
+            { value: 'SCENE', label: 'Scene', description: 'Radius in scene units' },
+          ],
+          b.use_locked_size ?? 'VIEW',
+          (x) => setSizeUnit(b, x as 'VIEW'),
+        ),
+      ),
+    );
+  }
+  rows.push(strengthRow(b, `${p}-s`));
+  if (mode === 'TEXTURE_PAINT' && b.sculpt_tool === 'CLONE') {
+    const imgs = Object.values(app.doc.images);
+    rows.push(
+      row(
+        'Clone from',
+        enumMenu(`${p}-clone`, [{ value: '', label: 'Same Image (Ctrl+click source)' }, ...imgs.map((im) => ({ value: im.id, label: im.name, icon: 'image' }))], b.clone_image ?? '', (x) => ((b.clone_image = x || null), changed()), { tip: 'Image the clone brush copies from' }),
+      ),
+    );
+  }
+  if (mode === 'SCULPT') {
+    const dt = directionToggle(b);
+    if (dt) rows.push(row('Direction', dt));
+    if (b.sculpt_tool === 'MASK')
+      rows.push(
+        row(
+          'Mask Tool',
+          enumMenu(
+            `${p}-masktool`,
+            [
+              { value: 'DRAW', label: 'Draw' },
+              { value: 'SMOOTH', label: 'Smooth' },
+            ],
+            b.mask_tool ?? 'DRAW',
+            (x) => ((b.mask_tool = x as 'DRAW'), changed()),
+          ),
+        ),
+      );
+  }
+  return rows;
+}
+
+function advancedRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
+  const rows: Child[] = [];
+  if (mode === 'SCULPT') {
+    rows.push(numberField({ id: `${p}-nr`, label: 'Normal Radius', value: b.normal_radius_factor ?? 0.5, min: 0, max: 2, slider: true, tip: 'Ratio between the brush radius and the radius used to sample the area normal', set: (x) => ((b.normal_radius_factor = x), changed()) }));
+    rows.push(numberField({ id: `${p}-hard`, label: 'Hardness', value: b.hardness ?? 0, min: 0, max: 1, slider: true, tip: 'How close the brush falloff starts from the edge', set: (x) => ((b.hardness = x), changed()) }));
+    if (b.sculpt_tool !== 'SMOOTH' && b.sculpt_tool !== 'MASK')
+      rows.push(numberField({ id: `${p}-as`, label: 'Auto-Smooth', value: b.auto_smooth_factor ?? 0, min: 0, max: 1, slider: true, tip: 'Smooth the surface after each dab', set: (x) => ((b.auto_smooth_factor = x), changed()) }));
+    if (PLANE_TOOLS.has(b.sculpt_tool))
+      rows.push(numberField({ id: `${p}-po`, label: 'Plane Offset', value: b.plane_offset ?? 0, min: -2, max: 2, softMin: -0.5, softMax: 0.5, slider: true, tip: 'Offset of the brush plane from the surface', set: (x) => ((b.plane_offset = x), changed()) }));
+    if (b.sculpt_tool === 'BOUNDARY')
+      rows.push(
+        row(
+          'Deformation',
+          enumMenu(
+            `${p}-bdef`,
+            [
+              { value: 'GRAB', label: 'Grab' },
+              { value: 'EXPAND', label: 'Expand' },
+              { value: 'INFLATE', label: 'Inflate' },
+            ],
+            b.boundary_deform_type ?? 'GRAB',
+            (x) => ((b.boundary_deform_type = x as 'GRAB'), changed()),
+          ),
+        ),
+      );
+    if (b.sculpt_tool === 'CREASE') rows.push(numberField({ id: `${p}-pinch`, label: 'Pinch', value: b.crease_pinch_factor ?? 0.5, min: 0, max: 1, slider: true, set: (x) => ((b.crease_pinch_factor = x), changed()) }));
+  } else rows.push(numberField({ id: `${p}-hard`, label: 'Hardness', value: b.hardness ?? 0, min: 0, max: 1, slider: true, tip: 'How close the brush falloff starts from the edge', set: (x) => ((b.hardness = x), changed()) }));
+  rows.push(checkbox(`${p}-ff`, 'Front Faces Only', !!b.use_frontface, (x) => ((b.use_frontface = x), changed()), { tip: 'Brush only affects vertices facing the viewer' }));
+  if (mode === 'TEXTURE_PAINT') {
+    rows.push(checkbox(`${p}-occ`, 'Occlude', b.use_occlude !== false, (x) => ((b.use_occlude = x), changed()), { tip: 'Only paint onto the faces directly under the brush' }));
+    rows.push(checkbox(`${p}-bfc`, 'Backface Culling', b.use_backface_culling !== false, (x) => ((b.use_backface_culling = x), changed()), { tip: 'Ignore faces pointing away from the view' }));
+  }
+  if (mode !== 'SCULPT') rows.push(checkbox(`${p}-acc`, 'Accumulate', !!b.use_accumulate, (x) => ((b.use_accumulate = x), changed()), { tip: 'Keep adding within a stroke instead of limiting it to the brush strength' }));
+  return rows;
+}
+
+function strokeRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
+  const m = b.stroke_method ?? 'SPACE';
+  return [
+    row('Stroke Method', enumMenu(`${p}-sm`, strokeMethods(mode).map(([value, label]) => ({ value, label })), m, (x) => ((b.stroke_method = x as PaintBrush['stroke_method']), changed()), { tip: 'How dabs are placed along the stroke (Alt E)' })),
+    m === 'SPACE' || m === 'LINE' || m === 'AIRBRUSH'
+      ? numberField({ id: `${p}-sp`, label: 'Spacing', value: b.spacing ?? 10, min: 1, max: 1000, int: true, unit: 'percentage', tip: 'Spacing between dabs as a percentage of the brush radius', set: (x) => ((b.spacing = Math.round(x)), changed()) })
+      : null,
+    m === 'AIRBRUSH' ? numberField({ id: `${p}-rate`, label: 'Rate', value: b.rate ?? 0.1, min: 0.0001, max: 10, precision: 3, unit: 'time', tip: 'Interval between airbrush dabs (seconds)', set: (x) => ((b.rate = x), changed()) }) : null,
+    m !== 'LINE' && m !== 'ANCHORED' ? checkbox(`${p}-stab`, 'Stabilize Stroke', !!b.use_smooth_stroke, (x) => ((b.use_smooth_stroke = x), changed()), { tip: 'Let the brush trail behind the pointer for smoother lines (Shift S)' }) : null,
+    b.use_smooth_stroke && m !== 'LINE' && m !== 'ANCHORED'
+      ? [
+          numberField({ id: `${p}-stab-r`, label: 'Radius', value: b.smooth_stroke_radius ?? 75, min: 10, max: 200, int: true, unit: 'pixel', tip: 'Distance the brush trails behind the pointer', set: (x) => ((b.smooth_stroke_radius = Math.round(x)), changed()) }),
+          numberField({ id: `${p}-stab-f`, label: 'Factor', value: b.smooth_stroke_factor ?? 0.9, min: 0.5, max: 0.99, slider: true, tip: 'How smoothly the brush follows', set: (x) => ((b.smooth_stroke_factor = x), changed()) }),
+        ]
+      : null,
+  ];
+}
+
+function falloffRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
+  return [
+    row('Preset', falloffMenu(b, `${p}-fo`)),
+    falloffPreview(b),
+    mode !== 'TEXTURE_PAINT'
+      ? row(
+          'Shape',
+          enumMenu(
+            `${p}-fshape`,
+            [
+              { value: 'SPHERE', label: 'Sphere' },
+              { value: 'PROJECTED', label: 'Projected' },
+            ],
+            b.falloff_shape ?? 'SPHERE',
+            (x) => ((b.falloff_shape = x as 'SPHERE'), changed()),
+            { tip: 'Sphere: 3D distance. Projected: screen-space circle' },
+          ),
+        )
+      : null,
+  ];
+}
+
+function textureRows(b: PaintBrush, p: string): Child[] {
+  const t: BrushTexture = b.texture_slot ?? { source: 'NONE', map_mode: 'VIEW_PLANE', angle: 0, scale: 1, strength: 1 };
+  const set = (patch: Partial<BrushTexture>) => {
+    b.texture_slot = { ...t, ...patch };
+    changed();
+  };
+  const images = Object.values(app.doc.images);
+  const rows: Child[] = [
+    row('Texture', enumMenu(`${p}-tsrc`, TEX_SOURCES.map(([value, label]) => ({ value, label })), t.source, (x) => set({ source: x as BrushTexture['source'] }), { tip: 'Pattern that modulates the brush strength' })),
+  ];
+  if (t.source === 'IMAGE')
+    rows.push(
+      images.length
+        ? row('Image', enumMenu(`${p}-timg`, images.map((im) => ({ value: im.id, label: im.name, icon: 'image' })), t.image ?? '', (x) => set({ image: x }), { tip: 'Image used as the brush texture (bright = strong)' }))
+        : h('div', { class: 'sb-label' }, 'No images in the file: open one in the Image Editor first'),
+    );
+  if (t.source === 'NONE') return rows;
+  rows.push(
+    h('canvas', {
+      key: `${p}-tprev-${t.source}-${t.image}-${t.angle}-${t.scale}`,
+      class: 'paint-tex-preview',
+      width: 96,
+      height: 96,
+      ref: (c: HTMLCanvasElement) => {
+        const ctx = c.getContext('2d');
+        if (!ctx) return;
+        const img = ctx.createImageData(96, 96);
+        const cos = Math.cos(-t.angle),
+          sin = Math.sin(-t.angle);
+        for (let y = 0; y < 96; y++)
+          for (let x = 0; x < 96; x++) {
+            const dx = (x / 48 - 1) / t.scale,
+              dy = (1 - y / 48) / t.scale;
+            const f = sampleTex(t, dx * cos - dy * sin, dx * sin + dy * cos);
+            const i = (y * 96 + x) * 4;
+            img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(f * 255);
+            img.data[i + 3] = 255;
+          }
+        ctx.putImageData(img, 0, 0);
+      },
+    }),
+    row(
+      'Mapping',
+      enumMenu(
+        `${p}-tmap`,
+        [
+          { value: 'VIEW_PLANE', label: 'View Plane' },
+          { value: 'TILED', label: 'Tiled' },
+          { value: 'RANDOM', label: 'Random' },
+        ],
+        t.map_mode,
+        (x) => set({ map_mode: x as BrushTexture['map_mode'] }),
+        { tip: 'View Plane: follows the brush · Tiled: fixed on the screen · Random: new rotation and offset per dab' },
+      ),
+    ),
+    numberField({ id: `${p}-tang`, label: 'Angle', value: t.angle, min: -Math.PI * 2, max: Math.PI * 2, unit: 'angle', set: (x) => set({ angle: x }) }),
+    numberField({ id: `${p}-tscale`, label: 'Size', value: t.scale, min: 0.01, max: 100, softMax: 4, set: (x) => set({ scale: x }) }),
+    numberField({ id: `${p}-tstr`, label: 'Influence', value: t.strength ?? 1, min: 0, max: 1, slider: true, tip: 'How much the texture modulates the strength', set: (x) => set({ strength: x }) }),
+  );
+  return rows;
+}
+
+function cursorRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
+  return [
+    checkbox(`${p}-cur`, 'Show Cursor', b.show_cursor !== false, (x) => ((b.show_cursor = x), changed()), { tip: 'Draw the brush outline under the pointer' }),
+    mode === 'SCULPT' && b.show_cursor !== false
+      ? [
+          row('Add Color', colorSwatch(`${p}-cadd`, b.cursor_color_add ?? [1, 0.47, 0.47], (c) => ((b.cursor_color_add = [c[0], c[1], c[2]]), changed()), { linear: false })),
+          DIRECTIONAL.has(b.sculpt_tool) ? row('Subtract Color', colorSwatch(`${p}-csub`, b.cursor_color_subtract ?? [0.43, 0.55, 1], (c) => ((b.cursor_color_subtract = [c[0], c[1], c[2]]), changed()), { linear: false })) : null,
+        ]
+      : null,
+  ];
+}
+
+function remeshRows(): Child[] {
+  const am = activeMeshData();
+  if (!am) return [];
+  return [
+    h(
+      'div',
+      { class: 'row-split' },
+      numberField({
+        id: 'pt-voxel',
+        label: 'Voxel Size',
+        value: am.me.remesh_voxel_size ?? 0.1,
+        min: 0.0001,
+        max: 10,
+        unit: 'distance',
+        precision: 4,
+        tip: 'Size of the voxel used for volume evaluation (smaller = more detail) (R)',
+        set: (x, final) => ((am.me.remesh_voxel_size = x), app.changed('ui'), final && app.pushUndo('Voxel Size')),
+      }),
+      button('pt-voxel-sample', icon('eyedropper'), () => app.run('sculpt.sample_detail_size', { mode: 'VOXEL' }), { tip: 'Sample the voxel size from the mesh under the cursor' }),
+    ),
+    opButton('object.voxel_remesh', 'Voxel Remesh'),
+  ];
+}
+
+function sculptOptionRows(): Child[] {
+  const ts = app.doc.scene.tool_settings.sculpt;
+  return [
+    numberField({ id: 'pt-grav', label: 'Gravity', value: ts.gravity ?? 0, min: 0, max: 1, slider: true, tip: 'Pull the surface downward (world -Z) with every dab', set: (x) => ((ts.gravity = x), changed()) }),
+    checkbox('pt-delay', 'Delay Viewport Updates', !!ts.use_sculpt_delay_updates, (x) => ((ts.use_sculpt_delay_updates = x), changed()), { tip: 'Refresh shading only after the stroke on meshes with modifiers' }),
+  ];
+}
+
+function brushTile(b: PaintBrush, mode: BrushMode): Child {
+  const info = brushInfo(b.id);
+  return h(
+    'div',
+    { class: 'paint-brush-tile' },
+    h('img', { src: brushThumb(b.sculpt_tool, mode, 192), width: 96, height: 96, alt: '', draggable: false }),
+    h(
+      'div',
+      { class: 'pbt-side' },
+      h('div', { class: 'pbt-name' }, info?.name ?? b.name),
+      enumMenu(
+        'pt-brush',
+        BRUSH_LISTS[mode].filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ value: x.id, label: x.name, icon: x.icon })),
+        b.id,
+        (id) => (setActiveTool(id), changed()),
+        { tip: 'Active brush (Space: brush shelf)' },
+      ),
+      info ? h('div', { class: 'pbt-desc' }, info.description) : null,
+    ),
+  );
+}
+
 function brushPanels(mode: BrushMode): Child[] {
   const b = activeBrush(mode);
   const ts = app.doc.scene.tool_settings;
   const out: Child[] = [];
   const tool = activeTools[mode];
-  out.push(
-    panel(`pt-brushes-${mode}`, 'Brushes', () => [
-      enumMenu(
-        'pt-brush',
-        BRUSH_LISTS[mode].filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ value: x.id, label: x.name, icon: x.icon })),
-        b?.id ?? '',
-        (id) => (setActiveTool(id), changed()),
-        { tip: 'Active brush' },
-      ),
-    ]),
-  );
-  if (tool === 'builtin.box_mask' || tool === 'builtin.sample_weight' || !b) {
-    if (tool === 'builtin.sample_weight') out.push(panel('pt-sw', 'Sample Weight', () => [weightField('pt-sw-w')]));
-  } else {
+  const isBrush = !!b && !gestureTools[tool] && !tool?.startsWith('builtin.');
+  if (isBrush) {
+    out.push(panel(`pt-brushes-${mode}`, 'Brush', () => brushTile(b, mode)));
     out.push(
-      panel(`pt-brush-${mode}`, 'Brush Settings', () => {
-        const rows: Child[] = [];
-        if (mode === 'VERTEX_PAINT' || mode === 'TEXTURE_PAINT') {
-          if (b.sculpt_tool === 'DRAW' || b.sculpt_tool === 'TEXDRAW' || b.sculpt_tool === 'FILL') {
-            rows.push(row('Color', colorFields('pt-col')));
-            rows.push(row('Blend', blendMenu(b, 'pt-blend', mode === 'TEXTURE_PAINT' ? TEX_BLENDS : BLENDS)));
-          }
-        }
-        if (mode === 'WEIGHT_PAINT') {
-          rows.push(weightField('pt-w'));
-          if (b.sculpt_tool === 'DRAW') rows.push(row('Blend', blendMenu(b, 'pt-wblend', BLENDS)));
-        }
-        rows.push(radiusField(b, 'pt-r'), strengthField(b, 'pt-s'));
-        if (mode === 'SCULPT') {
-          const dt = directionToggle(b);
-          if (dt) rows.push(row('Direction', dt));
-          if (b.sculpt_tool === 'MASK')
-            rows.push(
-              row(
-                'Mask Tool',
-                enumMenu(
-                  'pt-masktool',
-                  [
-                    { value: 'DRAW', label: 'Draw' },
-                    { value: 'SMOOTH', label: 'Smooth' },
-                  ],
-                  b.mask_tool ?? 'DRAW',
-                  (x) => ((b.mask_tool = x as 'DRAW'), changed()),
-                ),
-              ),
-            );
-          rows.push(
-            numberField({
-              id: 'pt-nr',
-              label: 'Normal Radius',
-              value: b.normal_radius_factor ?? 0.5,
-              min: 0,
-              max: 2,
-              slider: true,
-              tip: 'Ratio between the brush radius and the radius used to sample the area normal',
-              set: (x) => ((b.normal_radius_factor = x), changed()),
-            }),
-          );
-          rows.push(
-            numberField({
-              id: 'pt-hard',
-              label: 'Hardness',
-              value: b.hardness ?? 0,
-              min: 0,
-              max: 1,
-              slider: true,
-              tip: 'How close the brush falloff starts from the edge',
-              set: (x) => ((b.hardness = x), changed()),
-            }),
-          );
-          if (b.sculpt_tool !== 'SMOOTH' && b.sculpt_tool !== 'MASK')
-            rows.push(
-              numberField({
-                id: 'pt-as',
-                label: 'Auto-Smooth',
-                value: b.auto_smooth_factor ?? 0,
-                min: 0,
-                max: 1,
-                slider: true,
-                tip: 'Smooth the surface after each dab',
-                set: (x) => ((b.auto_smooth_factor = x), changed()),
-              }),
-            );
-          if (PLANE_TOOLS.has(b.sculpt_tool))
-            rows.push(
-              numberField({
-                id: 'pt-po',
-                label: 'Plane Offset',
-                value: b.plane_offset ?? 0,
-                min: -2,
-                max: 2,
-                softMin: -0.5,
-                softMax: 0.5,
-                slider: true,
-                tip: 'Offset of the brush plane from the surface',
-                set: (x) => ((b.plane_offset = x), changed()),
-              }),
-            );
-          if (b.sculpt_tool === 'CREASE')
-            rows.push(
-              numberField({
-                id: 'pt-pinch',
-                label: 'Pinch',
-                value: b.crease_pinch_factor ?? 0.5,
-                min: 0,
-                max: 1,
-                slider: true,
-                set: (x) => ((b.crease_pinch_factor = x), changed()),
-              }),
-            );
-        }
-        rows.push(checkbox('pt-ff', 'Front Faces Only', !!b.use_frontface, (x) => ((b.use_frontface = x), changed()), { tip: 'Brush only affects vertices facing the viewer' }));
-        if (mode === 'TEXTURE_PAINT') {
-          rows.push(checkbox('pt-occ', 'Occlude', b.use_occlude !== false, (x) => ((b.use_occlude = x), changed()), { tip: 'Only paint onto the faces directly under the brush' }));
-          rows.push(checkbox('pt-bfc', 'Backface Culling', b.use_backface_culling !== false, (x) => ((b.use_backface_culling = x), changed()), { tip: 'Ignore faces pointing away from the view' }));
-        }
-        return rows;
-      }),
-    );
-    out.push(
-      panel(`pt-stroke-${mode}`, 'Stroke', () => [
-        numberField({
-          id: 'pt-sp',
-          label: 'Spacing',
-          value: b.spacing ?? 10,
-          min: 1,
-          max: 1000,
-          int: true,
-          unit: 'percentage',
-          tip: 'Spacing between dabs as a percentage of the brush radius',
-          set: (x) => ((b.spacing = Math.round(x)), changed()),
-        }),
-        mode !== 'SCULPT'
-          ? checkbox('pt-acc', 'Accumulate', !!b.use_accumulate, (x) => ((b.use_accumulate = x), changed()), {
-              tip: 'Keep adding within a stroke instead of limiting it to the brush strength',
-            })
-          : null,
+      panel(`pt-brush-${mode}`, 'Brush Settings', () => [
+        ...mainRows(b, mode, 'pt'),
+        panel(`pt-adv-${mode}`, 'Advanced', () => advancedRows(b, mode, 'pt'), { sub: true, closed: true }),
+        panel(`pt-stroke-${mode}`, 'Stroke', () => strokeRows(b, mode, 'pt'), { sub: true, closed: true }),
+        mode !== 'TEXTURE_PAINT' ? panel(`pt-tex-${mode}`, 'Texture', () => textureRows(b, 'pt'), { sub: true, closed: true }) : null,
+        panel(`pt-falloff-${mode}`, 'Falloff', () => falloffRows(b, mode, 'pt'), { sub: true, closed: true }),
+        panel(`pt-cursor-${mode}`, 'Cursor', () => cursorRows(b, mode, 'pt'), { sub: true, closed: true }),
       ]),
     );
-    out.push(
-      panel(`pt-falloff-${mode}`, 'Falloff', () => [
-        row('Preset', falloffMenu(b, 'pt-fo')),
-        falloffPreview(b),
-        mode !== 'TEXTURE_PAINT'
-          ? row(
-              'Shape',
-              enumMenu(
-                'pt-fshape',
-                [
-                  { value: 'SPHERE', label: 'Sphere' },
-                  { value: 'PROJECTED', label: 'Projected' },
-                ],
-                b.falloff_shape ?? 'SPHERE',
-                (x) => ((b.falloff_shape = x as 'SPHERE'), changed()),
-                { tip: 'Sphere: 3D distance. Projected: screen-space circle' },
-              ),
-            )
-          : null,
-      ]),
-    );
-  }
+    if (paintsColor(mode, b)) {
+      out.push(panel(`pt-color-${mode}`, 'Color Picker', () => colorPicker('pt-cp')));
+      out.push(panel(`pt-palette-${mode}`, 'Color Palette', () => paletteRows('pt-pal'), { closed: true }));
+    }
+  } else if (tool === 'builtin.sample_weight') out.push(panel('pt-sw', 'Sample Weight', () => [weightField('pt-sw-w')]));
   if (mode === 'WEIGHT_PAINT') {
     const am = activeMeshData();
     out.push(
@@ -480,11 +753,7 @@ function brushPanels(mode: BrushMode): Child[] {
               'Group',
               enumMenu(
                 'pt-vg',
-                am.me.vertex_groups.map((g, i) => ({
-                  value: String(i),
-                  label: g.name,
-                  icon: 'group_vertex',
-                })),
+                am.me.vertex_groups.map((g, i) => ({ value: String(i), label: g.name, icon: 'group_vertex' })),
                 String(am.ob.vertex_group_active_index ?? 0),
                 (x) => ((am.ob.vertex_group_active_index = Number(x)), invalidatePaintAttributes(), app.changed('doc')),
                 { tip: 'Active vertex group' },
@@ -510,51 +779,201 @@ function brushPanels(mode: BrushMode): Child[] {
         panel('pt-vp-attr', 'Color Attribute', () => [
           enumMenu(
             'pt-ca',
-            am.me.color_attributes.map((c, i) => ({
-              value: String(i),
-              label: `${c.name} (${c.domain === 'POINT' ? 'Vertex' : 'Face Corner'})`,
-              icon: 'group_vcol',
-            })),
+            am.me.color_attributes.map((c, i) => ({ value: String(i), label: `${c.name} (${c.domain === 'POINT' ? 'Vertex' : 'Face Corner'})`, icon: 'group_vcol' })),
             String(am.me.active_color_index),
             (x) => ((am.me.active_color_index = Number(x)), app.pushUndo('Active Color Attribute'), app.changed('doc')),
           ),
         ]),
       );
   }
+  if (mode === 'TEXTURE_PAINT')
+    out.push(
+      panel('pt-tp-opts', 'Options', () => [
+        numberField({ id: 'pt-bleed', label: 'Bleed', value: imagePaintOptions.seam_bleed, min: 0, max: 32, int: true, unit: 'pixel', tip: 'Paint this many pixels past the UV island borders to hide seams', set: (x) => ((imagePaintOptions.seam_bleed = Math.round(x)), changed()) }),
+      ], { closed: true }),
+    );
   if (mode === 'TEXTURE_PAINT') {
     const am = activeMeshData();
     const img = paintImage();
     out.push(
       panel('pt-slots', 'Texture Slots', () => [
         img ? h('div', { class: 'sb-label' }, icon('texture'), ` ${img.name} (${img.width}×${img.height})`) : h('div', { class: 'sb-label' }, 'Missing texture'),
-        am && !meshHasUVs(am.me) ? h('div', { class: 'sb-label', style: { color: '#e66' } }, 'Missing UVs') : null,
+        am && !meshHasUVs(am.me) ? [h('div', { class: 'sb-label', style: { color: '#e66' } }, 'Missing UVs'), opButton('paint.add_simple_uvs', 'Add Simple UVs')] : null,
         opButton('paint.add_texture_paint_slot', 'New Base Color Texture', {}, { icon: 'add' }),
       ]),
     );
   }
   if (mode === 'SCULPT') {
-    const am = activeMeshData();
-    if (am)
-      out.push(
-        panel('pt-remesh', 'Remesh', () => [
-          numberField({
-            id: 'pt-voxel',
-            label: 'Voxel Size',
-            value: am.me.remesh_voxel_size ?? 0.1,
-            min: 0.0001,
-            max: 10,
-            unit: 'distance',
-            precision: 4,
-            tip: 'Size of the voxel used for volume evaluation (smaller = more detail)',
-            set: (x, final) => ((am.me.remesh_voxel_size = x), app.changed('ui'), final && app.pushUndo('Voxel Size')),
-          }),
-          opButton('object.voxel_remesh', 'Voxel Remesh'),
-        ]),
-      );
+    out.push(panel('pt-dyntopo', 'Dyntopo', () => dyntopoSettings('pt-dt')));
+    if (activeMeshData()) out.push(panel('pt-remesh', 'Remesh', () => remeshRows()));
   }
-  out.push(panel(`pt-sym-${mode}`, 'Symmetry', () => [row('Mirror', symmetryToggles('pt'))]));
+  out.push(
+    panel(`pt-sym-${mode}`, 'Symmetry', () => [
+      row('Mirror', symmetryToggles('pt')),
+      mode === 'SCULPT'
+        ? [
+            row('Direction', enumMenu('pt-symdir', SYM_DIRS.map(([value, label]) => ({ value, label })), symState.direction, (x) => ((symState.direction = x), changed()), { tip: 'Which half is copied over the other' })),
+            opButton('sculpt.symmetrize', 'Symmetrize', { direction: symState.direction }),
+          ]
+        : null,
+    ]),
+  );
+  if (mode === 'SCULPT') {
+    out.push(panel('pt-sculpt-opts', 'Options', () => sculptOptionRows(), { closed: true }));
+    out.push(panel('pt-automask', 'Auto-Masking', () => automaskSettings('pt-am'), { closed: true }));
+  }
+  out.push(panel(`pt-workspace-${mode}`, 'Workspace', () => [h('div', { class: 'sb-label' }, `Mode: ${mode[0] + mode.slice(1).toLowerCase().replace('_', ' ')}`)], { closed: true }));
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// color picker (inline wheel) and palette
+
+const pickerState = { hsv: null as null | [number, number, number], key: '' };
+
+function colorPicker(p: string): Child {
+  const up = app.doc.scene.tool_settings.unified_paint;
+  const disp = up.color.map((x) => linearToSrgb(x)) as [number, number, number];
+  const key = up.color.join(',');
+  // keep the hue while the value is 0 (black loses it otherwise)
+  if (!pickerState.hsv || pickerState.key !== key) {
+    const [hh, s, v] = rgbToHsv(disp[0], disp[1], disp[2]);
+    pickerState.hsv = [pickerState.hsv && s === 0 ? pickerState.hsv[0] : hh, s, v];
+    pickerState.key = key;
+  }
+  const [hh, s, v] = pickerState.hsv;
+  const set = (nh: number, ns: number, nv: number) => {
+    pickerState.hsv = [nh, ns, nv];
+    const rgb = hsvToRgb(nh, ns, nv).map((x) => srgbToLinear(x)) as [number, number, number];
+    up.color = rgb;
+    pickerState.key = rgb.join(',');
+    changed();
+  };
+  const SIZE = 150;
+  const drawWheel = (c: HTMLCanvasElement) => {
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    const r = SIZE / 2;
+    const img = ctx.createImageData(SIZE, SIZE);
+    for (let y = 0; y < SIZE; y++)
+      for (let x = 0; x < SIZE; x++) {
+        const dx = x - r,
+          dy = y - r;
+        const d = Math.hypot(dx, dy) / r;
+        const i = (y * SIZE + x) * 4;
+        if (d > 1) continue;
+        const [cr, cg, cb] = hsvToRgb((Math.atan2(-dy, dx) / (Math.PI * 2) + 1) % 1, d, v);
+        img.data[i] = cr * 255;
+        img.data[i + 1] = cg * 255;
+        img.data[i + 2] = cb * 255;
+        img.data[i + 3] = Math.min(1, (1 - d) * r) * 255;
+      }
+    ctx.putImageData(img, 0, 0);
+  };
+  const drag = (e: PointerEvent, fn: (ev: PointerEvent, el: HTMLElement) => void) => {
+    const el = e.currentTarget as HTMLElement;
+    fn(e, el);
+    const mv = (ev: PointerEvent) => fn(ev, el);
+    const up2 = () => {
+      removeEventListener('pointermove', mv);
+      removeEventListener('pointerup', up2);
+      app.pushUndo('Brush Color');
+    };
+    addEventListener('pointermove', mv);
+    addEventListener('pointerup', up2);
+  };
+  const ang = hh * Math.PI * 2;
+  return h(
+    'div',
+    { class: 'paint-color-picker' },
+    h(
+      'div',
+      { class: 'pcp-top' },
+      h(
+        'div',
+        { class: 'pcp-wheel', style: { width: `${SIZE}px`, height: `${SIZE}px` } },
+        h('canvas', {
+          key: `wheel-${v.toFixed(3)}`,
+          width: SIZE,
+          height: SIZE,
+          ref: drawWheel,
+          onpointerdown: (e: PointerEvent) =>
+            drag(e, (ev, el) => {
+              const r = el.getBoundingClientRect();
+              const dx = ev.clientX - r.left - r.width / 2,
+                dy = ev.clientY - r.top - r.height / 2;
+              set((Math.atan2(-dy, dx) / (Math.PI * 2) + 1) % 1, Math.min(1, Math.hypot(dx, dy) / (r.width / 2)), v);
+            }),
+        }),
+        h('div', { class: 'pcp-cursor', style: { left: `${SIZE / 2 + Math.cos(ang) * s * (SIZE / 2)}px`, top: `${SIZE / 2 - Math.sin(ang) * s * (SIZE / 2)}px` } }),
+      ),
+      h(
+        'div',
+        {
+          class: 'pcp-value',
+          style: { height: `${SIZE}px`, background: `linear-gradient(to top, #000, rgb(${hsvToRgb(hh, s, 1).map((x) => Math.round(x * 255)).join(',')}))` },
+          'data-tip': 'Value',
+          onpointerdown: (e: PointerEvent) =>
+            drag(e, (ev, el) => {
+              const r = el.getBoundingClientRect();
+              set(hh, s, Math.max(0, Math.min(1, 1 - (ev.clientY - r.top) / r.height)));
+            }),
+        },
+        h('div', { class: 'pcp-vcursor', style: { top: `${(1 - v) * 100}%` } }),
+      ),
+    ),
+    row('Color', colorFields(`${p}-sw`)),
+  );
+}
+
+function paletteRows(p: string): Child {
+  const up = app.doc.scene.tool_settings.unified_paint as typeof app.doc.scene.tool_settings.unified_paint & { palette?: [number, number, number][] };
+  const pal = up.palette ?? [];
+  const same = (a: number[], b: number[]) => a.every((x, i) => Math.abs(x - b[i]) < 1e-4);
+  return h(
+    'div',
+    { class: 'paint-palette' },
+    pal.map((c, i) =>
+      h('button', {
+        key: `${p}-${i}`,
+        class: { 'pp-swatch': true, on: same(c, up.color) },
+        style: { background: `rgb(${c.map((x) => Math.round(linearToSrgb(x) * 255)).join(',')})` },
+        'data-tip': 'Click: use this color · Ctrl+click: remove it',
+        onclick: (e: MouseEvent) => {
+          if (e.ctrlKey || e.metaKey) up.palette = pal.filter((_, j) => j !== i);
+          else up.color = [c[0], c[1], c[2]];
+          app.pushUndo('Palette');
+          changed();
+        },
+      }),
+    ),
+    h(
+      'button',
+      {
+        key: `${p}-add`,
+        class: 'pp-add',
+        'data-tip': 'Add the brush color to the palette',
+        onclick: () => {
+          if (!pal.some((c) => same(c, up.color))) up.palette = [...pal, [up.color[0], up.color[1], up.color[2]]];
+          app.pushUndo('Palette');
+          changed();
+        },
+      },
+      icon('add'),
+    ),
+  );
+}
+
+// Properties editor ▸ Tool tab: the same brush panels in the paint modes
+onAppReady(() => {
+  const tab = propertiesTabs.find((t) => t.id === 'TOOL');
+  if (!tab) return;
+  const orig = tab.draw;
+  tab.draw = (p) => {
+    const mode = app.doc.mode;
+    return isBrushMode(mode) ? brushPanels(mode) : orig(p);
+  };
+});
 
 const toolTab = sidebarTabs.find((t) => t.id === 'Tool');
 if (toolTab) {
@@ -562,7 +981,7 @@ if (toolTab) {
   toolTab.draw = (v: View3D) => {
     const mode = app.doc.mode;
     if (!isBrushMode(mode)) return orig(v);
-    return [...brushPanels(mode), panel('sb-workspace', 'Workspace', () => [h('div', { class: 'sb-label' }, `Mode: ${mode[0] + mode.slice(1).toLowerCase().replace('_', ' ')}`)])];
+    return brushPanels(mode);
   };
 }
 
@@ -574,166 +993,85 @@ const sc = (km: string, op: string, props?: Record<string, unknown>) => {
   return k ? keyLabel(k) : undefined;
 };
 
-modeMenus.SCULPT = {
-  header: () => [
-    [
-      'Sculpt',
-      () => [
-        {
-          label: 'Voxel Remesh',
-          op: 'object.voxel_remesh',
-          shortcut: sc('Sculpt', 'object.voxel_remesh'),
-        },
-        { label: 'Rebuild BVH', op: 'sculpt.optimize' },
-        { separator: true },
-        {
-          label: 'Brush Radius',
-          op: 'wm.radial_control',
-          props: { data: 'size' },
-          shortcut: 'F',
-        },
-        {
-          label: 'Brush Strength',
-          op: 'wm.radial_control',
-          props: { data: 'strength' },
-          shortcut: 'Shift F',
-        },
-      ],
-    ],
-    ['Mask', maskMenu],
-  ],
-};
-
-function maskMenu(): MenuItem[] {
-  return [
-    {
-      label: 'Invert Mask',
-      op: 'paint.mask_flood_fill',
-      props: { mode: 'INVERT' },
-      shortcut: 'Ctrl I',
-    },
-    {
-      label: 'Fill Mask',
-      op: 'paint.mask_flood_fill',
-      props: { mode: 'VALUE', value: 1 },
-    },
-    {
-      label: 'Clear Mask',
-      op: 'paint.mask_flood_fill',
-      props: { mode: 'VALUE', value: 0 },
-      shortcut: 'Alt M',
-    },
-    { separator: true },
-    { label: 'Box Mask', op: 'paint.mask_box_gesture', shortcut: 'B' },
-    { separator: true },
-    {
-      label: 'Smooth Mask',
-      op: 'sculpt.mask_filter',
-      props: { filter_type: 'SMOOTH' },
-    },
-    {
-      label: 'Sharpen Mask',
-      op: 'sculpt.mask_filter',
-      props: { filter_type: 'SHARPEN' },
-    },
-    {
-      label: 'Grow Mask',
-      op: 'sculpt.mask_filter',
-      props: { filter_type: 'GROW' },
-    },
-    {
-      label: 'Shrink Mask',
-      op: 'sculpt.mask_filter',
-      props: { filter_type: 'SHRINK' },
-    },
-    {
-      label: 'Increase Contrast',
-      op: 'sculpt.mask_filter',
-      props: { filter_type: 'CONTRAST_INCREASE' },
-    },
-    {
-      label: 'Decrease Contrast',
-      op: 'sculpt.mask_filter',
-      props: { filter_type: 'CONTRAST_DECREASE' },
-    },
-  ];
-}
+const vpMenu = (): MenuItem[] => [
+  { label: 'Smooth Vertex Colors', op: 'paint.vertex_color_smooth' },
+  { label: 'Dirty Vertex Colors', op: 'paint.vertex_color_dirt' },
+  { label: 'Vertex Color from Weight', op: 'paint.vertex_color_from_weight' },
+  { separator: true },
+  { label: 'Invert', op: 'paint.vertex_color_invert' },
+  { label: 'Levels', op: 'paint.vertex_color_levels' },
+  { label: 'Hue/Saturation/Value', op: 'paint.vertex_color_hsv' },
+  { label: 'Brightness/Contrast', op: 'paint.vertex_color_brightness_contrast' },
+  { separator: true },
+  { label: 'Set Color Attribute', op: 'paint.vertex_color_set', shortcut: 'Ctrl X' },
+  { label: 'Sample Color', op: 'paint.sample_color', shortcut: 'Shift X' },
+  { label: 'Swap Colors', op: 'paint.brush_colors_flip', shortcut: 'X' },
+];
 
 modeMenus.VERTEX_PAINT = {
-  header: () => [
-    [
-      'Paint',
-      () => [
-        {
-          label: 'Set Color Attribute',
-          op: 'paint.vertex_color_set',
-          shortcut: 'Ctrl X',
-        },
-        { label: 'Smooth Vertex Colors', op: 'paint.vertex_color_smooth' },
-        { label: 'Dirty Vertex Colors', op: 'paint.vertex_color_dirt' },
-        { label: 'Invert Colors', op: 'paint.vertex_color_invert' },
-        { separator: true },
-        {
-          label: 'Sample Color',
-          op: 'paint.sample_color',
-          shortcut: 'Shift X',
-        },
-        { label: 'Swap Colors', op: 'paint.brush_colors_flip', shortcut: 'X' },
-      ],
-    ],
-  ],
+  ...modeMenus.VERTEX_PAINT,
+  header: () => [['Paint', vpMenu]],
+  context: vpMenu,
 };
 
+export const lockMenu = (): MenuItem[] => {
+  const l = (label: string, action: string, mask: string): MenuItem => ({ label, op: 'object.vertex_group_lock', props: { action, mask } });
+  return [
+    l('Lock All', 'LOCK', 'ALL'),
+    l('Lock Selected', 'LOCK', 'SELECTED'),
+    l('Lock Unselected', 'LOCK', 'UNSELECTED'),
+    l('Lock Only Selected', 'LOCK', 'INVERT_UNSELECTED'),
+    l('Lock Only Unselected', 'UNLOCK', 'INVERT_UNSELECTED'),
+    { separator: true },
+    l('Unlock All', 'UNLOCK', 'ALL'),
+    l('Unlock Selected', 'UNLOCK', 'SELECTED'),
+    l('Unlock Unselected', 'UNLOCK', 'UNSELECTED'),
+    { separator: true },
+    l('Invert Locks', 'INVERT', 'ALL'),
+  ];
+};
+
+const wpMenu = (): MenuItem[] => [
+  { label: 'Assign Automatic from Bones', op: 'paint.weight_from_bones', props: { type: 'AUTOMATIC' } },
+  { label: 'Assign from Bone Envelopes', op: 'paint.weight_from_bones', props: { type: 'ENVELOPES' } },
+  { separator: true },
+  { label: 'Normalize All', op: 'object.vertex_group_normalize_all' },
+  { label: 'Normalize', op: 'object.vertex_group_normalize' },
+  { separator: true },
+  { label: 'Mirror', op: 'object.vertex_group_mirror' },
+  { label: 'Invert', op: 'object.vertex_group_invert' },
+  { label: 'Clean', op: 'object.vertex_group_clean' },
+  { separator: true },
+  { label: 'Quantize', op: 'object.vertex_group_quantize' },
+  { label: 'Levels', op: 'object.vertex_group_levels' },
+  { label: 'Smooth', op: 'object.vertex_group_smooth' },
+  { label: 'Transfer Weights', op: 'object.data_transfer', props: { use_reverse_transfer: true, data_type: 'VGROUP_WEIGHTS' } },
+  { label: 'Limit Total', op: 'object.vertex_group_limit_total' },
+  { separator: true },
+  { label: 'Set Weight', op: 'paint.weight_set', shortcut: 'Ctrl X' },
+  { label: 'Sample Weight', op: 'paint.weight_sample', shortcut: 'Shift X' },
+  { label: 'Sample Group', op: 'paint.weight_sample_group', shortcut: 'Shift Ctrl X' },
+  { separator: true },
+  { label: 'Gradient (Linear)', op: 'paint.weight_gradient', props: { type: 'LINEAR' }, shortcut: 'Shift A' },
+  { label: 'Gradient (Radial)', op: 'paint.weight_gradient', props: { type: 'RADIAL' }, shortcut: 'Shift Alt A' },
+  { separator: true },
+  { label: 'Locks', submenu: lockMenu },
+];
+
 modeMenus.WEIGHT_PAINT = {
-  header: () => [
-    [
-      'Weights',
-      () => [
-        { label: 'Assign Automatic from Bones', op: 'paint.weight_from_bones' },
-        { separator: true },
-        { label: 'Normalize All', op: 'object.vertex_group_normalize_all' },
-        { label: 'Normalize', op: 'object.vertex_group_normalize' },
-        { separator: true },
-        { label: 'Mirror', op: 'object.vertex_group_mirror' },
-        { label: 'Invert', op: 'object.vertex_group_invert' },
-        { label: 'Clean', op: 'object.vertex_group_clean' },
-        { separator: true },
-        { label: 'Quantize', op: 'object.vertex_group_quantize' },
-        { label: 'Levels', op: 'object.vertex_group_levels' },
-        { label: 'Smooth', op: 'object.vertex_group_smooth' },
-        { label: 'Transfer Weights', op: 'object.data_transfer', props: { use_reverse_transfer: true, data_type: 'VGROUP_WEIGHTS' } },
-        { label: 'Limit Total', op: 'object.vertex_group_limit_total' },
-        { separator: true },
-        { label: 'Set Weight', op: 'paint.weight_set', shortcut: 'Ctrl X' },
-        {
-          label: 'Sample Weight',
-          op: 'paint.weight_sample',
-          shortcut: 'Shift X',
-        },
-        { separator: true },
-        {
-          label: 'Locks',
-          submenu: () => [
-            { label: 'Lock All', op: 'object.vertex_group_lock', props: { action: 'LOCK', mask: 'ALL' } },
-            { label: 'Unlock All', op: 'object.vertex_group_lock', props: { action: 'UNLOCK', mask: 'ALL' } },
-            { label: 'Lock Active', op: 'object.vertex_group_lock', props: { action: 'LOCK', mask: 'SELECTED' } },
-            { label: 'Unlock Active', op: 'object.vertex_group_lock', props: { action: 'UNLOCK', mask: 'SELECTED' } },
-            { label: 'Lock Others', op: 'object.vertex_group_lock', props: { action: 'LOCK', mask: 'UNSELECTED' } },
-            { label: 'Unlock Others', op: 'object.vertex_group_lock', props: { action: 'UNLOCK', mask: 'UNSELECTED' } },
-            { label: 'Invert Locks', op: 'object.vertex_group_lock', props: { action: 'INVERT', mask: 'ALL' } },
-          ],
-        },
-      ],
-    ],
-  ],
+  ...modeMenus.WEIGHT_PAINT,
+  header: () => [['Weights', wpMenu]],
 };
 
 modeMenus.TEXTURE_PAINT = {
+  ...modeMenus.TEXTURE_PAINT,
   header: () => [
     [
       'Paint',
       () => [
         { label: 'Add Texture Paint Slot', op: 'paint.add_texture_paint_slot' },
+        { label: 'Add Simple UVs', op: 'paint.add_simple_uvs' },
+        { label: 'Project Image', op: 'paint.project_image' },
         { separator: true },
         {
           label: 'Sample Color',
@@ -787,7 +1125,7 @@ registerOperators([
     label: 'Swap Colors',
     description: 'Swap primary and secondary brush colors',
     undo: false,
-    poll: () => app.doc.mode === 'VERTEX_PAINT' || app.doc.mode === 'TEXTURE_PAINT',
+    poll: () => app.doc.mode === 'VERTEX_PAINT' || app.doc.mode === 'TEXTURE_PAINT' || app.doc.mode === 'SCULPT',
     exec: () => {
       const up = app.doc.scene.tool_settings.unified_paint;
       const c = up.color;
@@ -801,11 +1139,11 @@ registerOperators([
     label: 'Sample Color',
     description: 'Use the color under the cursor as the brush color',
     undo: false,
-    poll: () => (app.doc.mode === 'TEXTURE_PAINT' || app.doc.mode === 'VERTEX_PAINT') && !!activeView3D(),
+    poll: () => (app.doc.mode === 'TEXTURE_PAINT' || app.doc.mode === 'VERTEX_PAINT' || (app.doc.mode === 'SCULPT' && !!activeMeshData()?.me.color_attributes.length)) && !!activeView3D(),
     exec: (ctx) => {
       const v = activeView3D()!;
       const p = pointerIn(v, ctx.event);
-      const ok = app.doc.mode === 'VERTEX_PAINT' ? sampleVertexColor(v, p.x, p.y) : sampleImageColor(v, p.x, p.y);
+      const ok = app.doc.mode === 'TEXTURE_PAINT' ? sampleImageColor(v, p.x, p.y) : sampleVertexColor(v, p.x, p.y);
       if (!ok) return 'CANCELLED';
       changed();
     },
@@ -840,6 +1178,7 @@ const brushKey = (key: string, brush: string, mods: Partial<KeyItem> = {}): KeyI
 });
 const common = (extra: KeyItem[] = []): KeyItem[] => [
   { key: 'F', op: 'wm.radial_control', props: { data: 'size' } },
+  { key: 'F', ctrl: true, op: 'wm.radial_control', props: { data: 'angle' }, when: () => app.doc.mode !== 'WEIGHT_PAINT' },
   {
     key: 'F',
     shift: true,
@@ -853,6 +1192,9 @@ const common = (extra: KeyItem[] = []): KeyItem[] => [
 
 addKeys('Sculpt', [
   ...common([
+    { key: 'X', op: 'paint.brush_colors_flip' },
+    { key: 'X', shift: true, op: 'paint.sample_color' },
+    { key: 'X', ctrl: true, op: 'sculpt.color_filter', props: { type: 'FILL', strength: 1, use_immediate: true } },
     brushKey('V', 'brush_draw'),
     brushKey('S', 'brush_smooth'),
     brushKey('P', 'brush_pinch'),
@@ -882,6 +1224,7 @@ addKeys('Sculpt', [
 ]);
 addKeys('Vertex Paint', [
   ...common([
+    { key: 'X', shift: true, ctrl: true, op: 'paint.sample_color' },
     { key: 'X', op: 'paint.brush_colors_flip' },
     { key: 'X', shift: true, op: 'paint.sample_color' },
     { key: 'X', ctrl: true, op: 'paint.vertex_color_set' },
@@ -889,6 +1232,10 @@ addKeys('Vertex Paint', [
 ]);
 addKeys('Weight Paint', [
   ...common([
+    { key: 'X', shift: true, ctrl: true, op: 'paint.weight_sample_group' },
+    { key: 'A', shift: true, op: 'paint.weight_gradient', props: { type: 'LINEAR' } },
+    { key: 'A', shift: true, alt: true, op: 'paint.weight_gradient', props: { type: 'RADIAL' } },
+    { key: 'K', menu: () => lockPie(), menuTitle: 'Vertex Group Locks' },
     {
       key: 'F',
       ctrl: true,
@@ -901,6 +1248,7 @@ addKeys('Weight Paint', [
 ]);
 addKeys('Image Paint', [
   ...common([
+    { key: 'X', shift: true, ctrl: true, op: 'paint.sample_color' },
     { key: 'X', op: 'paint.brush_colors_flip' },
     { key: 'X', shift: true, op: 'paint.sample_color' },
   ]),
@@ -983,7 +1331,9 @@ function paintKey(v: View3D, e: KeyboardEvent): boolean {
     if (!matchKey(k, name, e)) continue;
     if (k.when && !k.when()) continue;
     if (k.menu) {
-      k.menu();
+      // pies open themselves and return no items; plain menus open at the pointer
+      const items = k.menu();
+      if (items.length) openMenu(items, { x: app.pointer.x, y: app.pointer.y }, { title: k.menuTitle });
       return true;
     }
     if (!k.op || !app.poll(k.op, v.area as never)) continue;
@@ -1005,12 +1355,51 @@ editModeHooks.pointer.push((v, e) => {
   const ob = app.activeObject;
   if (!ob || ob.type !== 'MESH') return false;
   const tool = activeTools[mode];
-  if (mode === 'SCULPT' && tool === 'builtin.box_mask') return boxMaskDrag(v, e);
+  if (mode !== 'SCULPT' && isSelectTool(tool)) {
+    // select tools pick faces / vertices while a selection mask is on (handled by the viewport)
+    if (faceMaskOn() || vertMaskOn()) return false;
+    setActiveTool(BRUSH_LISTS[mode].find((b) => !!b)!.id);
+  }
+  if (mode === 'SCULPT' && tool?.startsWith('builtin.') && !gestureTools[tool]) sculptToolSlots((op) => operators.has(op));
+  if (mode === 'SCULPT' && gestureTools[tool]) return gestureToolPointer(v, e, tool);
+  if (mode === 'SCULPT' && sculptToolHooks.pointer.some((f) => f(v, e, tool))) return true;
   if (mode === 'WEIGHT_PAINT' && tool === 'builtin.sample_weight') {
     app.run('paint.weight_sample', {}, { event: { x: e.clientX, y: e.clientY } });
     return true;
   }
-  if (mode === 'SCULPT') sculptStroke(v, e);
+  if (mode === 'WEIGHT_PAINT' && tool === 'builtin.sample_vertex_group') {
+    app.run('paint.weight_sample_group', {}, { event: { x: e.clientX, y: e.clientY } });
+    return true;
+  }
+  if (mode === 'WEIGHT_PAINT' && tool === 'builtin.gradient') {
+    const am = activeMeshData();
+    if (am && !am.me.vertex_groups.length) ensureActiveGroup(am.ob, am.me);
+    startGradient(v, { type: gradientTool.type }, e);
+    return true;
+  }
+  if (mode === 'SCULPT' && e.shiftKey && (e.ctrlKey || e.metaKey) && operators.has('paint.mask_lasso_gesture')) {
+    // Shift+Ctrl+drag: lasso mask (with Alt: unmask)
+    return startGesture(v, { op: 'paint.mask_lasso_gesture', kind: 'LASSO', props: { value: e.altKey ? 0 : 1 }, label: 'Lasso Mask' }, e);
+  }
+  if (mode === 'SCULPT' && e.altKey) {
+    // Alt: temporary Mask brush (keeps the current radius); Ctrl+Alt removes mask
+    const mb = brushById('brush_mask');
+    const cur = activeBrush('SCULPT');
+    if (mb) {
+      sculptStroke(v, e, { ...mb, radius: cur?.radius ?? mb.radius, mask_tool: 'DRAW' });
+      return true;
+    }
+  }
+  const sb = mode === 'SCULPT' ? activeBrush('SCULPT') : null;
+  if (sb && (sb.sculpt_tool === 'PAINT' || sb.sculpt_tool === 'SMEAR')) {
+    // painting in Sculpt Mode shows the color attribute in solid shading
+    if (v.shading.type === 'SOLID' && v.shading.color_type !== 'VERTEX') {
+      v.shading.color_type = 'VERTEX';
+      app.report('INFO', 'Viewport color set to Attribute to show the painted colors');
+    }
+    vertexPaintStroke(v, e, sb);
+  } else if (mode === 'SCULPT' && activeBrush('SCULPT')?.sculpt_tool === 'DRAW_FACE_SETS') faceSetStroke(v, e, activeBrush('SCULPT')!);
+  else if (mode === 'SCULPT') sculptStroke(v, e);
   else if (mode === 'VERTEX_PAINT') vertexPaintStroke(v, e);
   else if (mode === 'WEIGHT_PAINT') {
     const am = activeMeshData();
@@ -1021,6 +1410,20 @@ editModeHooks.pointer.push((v, e) => {
     weightPaintStroke(v, e);
   } else texturePaintStroke(v, e);
   return true;
+});
+
+// clone source marker
+editModeHooks.svg.push((v) => {
+  if (app.doc.mode !== 'TEXTURE_PAINT' || activeBrush('TEXTURE_PAINT')?.sculpt_tool !== 'CLONE' || !cloneSource.world) return null;
+  const q = v.project(cloneSource.world);
+  if (q.z < -1 || q.z > 1) return null;
+  return h(
+    'g',
+    { key: 'clone-src', 'pointer-events': 'none' },
+    h('circle', { cx: q.x, cy: q.y, r: 7, fill: 'none', stroke: '#000', 'stroke-width': 3, opacity: 0.5 }),
+    h('circle', { cx: q.x, cy: q.y, r: 7, fill: 'none', stroke: '#fff', 'stroke-width': 1.3 }),
+    h('path', { d: `M${q.x - 11} ${q.y}h22M${q.x} ${q.y - 11}v22`, stroke: '#fff', 'stroke-width': 1 }),
+  ) as VNode;
 });
 
 editModeHooks.hover.push((v, e) => {
@@ -1045,17 +1448,30 @@ editModeHooks.hover.push((v, e) => {
   updateCursor(v, p.x, p.y);
 });
 
+/** Brush settings popover (right-click / W). */
+function brushPopover(x: number, y: number) {
+  const mode = app.doc.mode as BrushMode;
+  openPopover({ x, y }, () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, brushInfo(activeBrush(mode)?.id ?? '')?.name ?? 'Brush'), toolHeaderSettingsColumn(mode)), { width: 240 });
+}
+
 editModeHooks.context.push((v, e) => {
   if (!isBrushMode(app.doc.mode)) return false;
-  const mode = app.doc.mode as BrushMode;
-  openPopover(
-    { x: e.clientX, y: e.clientY },
-    () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, brushInfo(activeBrush(mode)?.id ?? '')?.name ?? 'Brush'), toolHeaderSettingsColumn(mode)),
-    { width: 240 },
-  );
+  brushPopover(e.clientX, e.clientY);
   void v;
   return true;
 });
+
+for (const km of ['Sculpt', 'Vertex Paint', 'Weight Paint', 'Image Paint'])
+  addKeys(km, [
+    {
+      key: 'W',
+      menu: () => {
+        brushPopover(app.pointer.x, app.pointer.y);
+        return [];
+      },
+      when: () => isBrushMode(app.doc.mode),
+    },
+  ]);
 
 function toolHeaderSettingsColumn(mode: BrushMode): Child {
   const b = activeBrush(mode);
@@ -1084,3 +1500,71 @@ viewportExtensions.push((v) => {
     v.onKey = orig;
   };
 });
+
+function lockPie(): MenuItem[] {
+  const l = (label: string, action: string, mask: string) => ({ label, op: 'object.vertex_group_lock', props: { action, mask } });
+  openPie(
+    'Vertex Group Locks',
+    [l('Lock All', 'LOCK', 'ALL'), l('Unlock All', 'UNLOCK', 'ALL'), l('Unlock Selected', 'UNLOCK', 'SELECTED'), l('Lock Selected', 'LOCK', 'SELECTED'), l('Lock Unselected', 'LOCK', 'UNSELECTED'), l('Lock Only Selected', 'LOCK', 'INVERT_UNSELECTED'), l('Lock Only Unselected', 'UNLOCK', 'INVERT_UNSELECTED'), l('Invert Locks', 'INVERT', 'ALL')],
+    app.pointer.x,
+    app.pointer.y,
+    'K',
+  );
+  return [];
+}
+
+/** Stroke methods offered per mode (anchored / drag dot need a mode that can undo dabs). */
+export function strokeMethods(mode: BrushMode): [string, string][] {
+  const all: [string, string][] = [
+    ['DOTS', 'Dots'],
+    ['DRAG_DOT', 'Drag Dot'],
+    ['SPACE', 'Space'],
+    ['AIRBRUSH', 'Airbrush'],
+    ['ANCHORED', 'Anchored'],
+    ['LINE', 'Line'],
+  ];
+  return mode === 'SCULPT' ? all : all.filter(([m]) => m !== 'ANCHORED' && m !== 'DRAG_DOT');
+}
+
+registerOperators([
+  {
+    idname: 'paint.brush_stroke_method_set',
+    label: 'Set Stroke Method',
+    description: 'Choose how the dabs of the active brush are placed along the stroke',
+    props: [{ id: 'method', label: 'Stroke Method', type: 'enum', default: 'SPACE', items: [['DOTS', 'Dots'], ['DRAG_DOT', 'Drag Dot'], ['SPACE', 'Space'], ['AIRBRUSH', 'Airbrush'], ['ANCHORED', 'Anchored'], ['LINE', 'Line']] }],
+    undo: false,
+    poll: () => isBrushMode(app.doc.mode) && !!activeBrush(app.doc.mode as BrushMode),
+    exec: (_c, p) => {
+      const mode = app.doc.mode as BrushMode;
+      if (!strokeMethods(mode).some(([m]) => m === p.method)) return 'CANCELLED';
+      activeBrush(mode)!.stroke_method = p.method as PaintBrush['stroke_method'];
+      changed();
+    },
+  },
+  {
+    idname: 'paint.brush_smooth_stroke_toggle',
+    label: 'Toggle Stabilize Stroke',
+    description: 'Let the brush trail behind the pointer for smoother lines',
+    undo: false,
+    poll: () => isBrushMode(app.doc.mode) && !!activeBrush(app.doc.mode as BrushMode),
+    exec: () => {
+      const b = activeBrush(app.doc.mode as BrushMode)!;
+      b.use_smooth_stroke = !b.use_smooth_stroke;
+      app.report('INFO', `Stabilize Stroke ${b.use_smooth_stroke ? 'on' : 'off'}`);
+      changed();
+    },
+  },
+]);
+
+function strokeMethodMenu(): MenuItem[] {
+  const mode = app.doc.mode as BrushMode;
+  const cur = activeBrush(mode)?.stroke_method ?? 'SPACE';
+  return strokeMethods(mode).map(([m, label]) => ({ label, active: cur === m, op: 'paint.brush_stroke_method_set', props: { method: m } }));
+}
+for (const km of ['Sculpt', 'Vertex Paint', 'Weight Paint', 'Image Paint'])
+  addKeys(km, [
+    { key: 'E', alt: true, menu: strokeMethodMenu, menuTitle: 'Stroke Method', when: () => isBrushMode(app.doc.mode) },
+    { key: 'S', shift: true, op: 'paint.brush_smooth_stroke_toggle', when: () => isBrushMode(app.doc.mode) },
+  ]);
+
+setImageCanvasSource(imageCanvas);

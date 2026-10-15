@@ -124,6 +124,18 @@ export interface MeshData {
   remesh_voxel_size?: number;
   /** Sculpt mode mask, one value per vertex (0 = unmasked, 1 = fully masked). */
   sculpt_mask?: Float32Array;
+  /** Sculpt face sets, one id per face (ids start at 1). */
+  sculpt_face_set?: Int32Array;
+  /** Face set id drawn without a color (the "default" set). */
+  face_sets_color_default?: number;
+  /** Seed for the face set display colors. */
+  face_sets_color_seed?: number;
+  /** Per-face hidden flag used by Sculpt Mode visibility tools. */
+  hide_poly?: Uint8Array;
+  /** Paint modes: only paint the faces selected in the face selection mask. */
+  use_paint_mask?: boolean;
+  /** Paint modes: only paint the vertices selected in the vertex selection mask. */
+  use_paint_mask_vertex?: boolean;
   /** edges that do not belong to any face (vertex index pairs) */
   loose_edges?: Uint32Array;
   /** UV editor selection, one flag per face corner */
@@ -1007,7 +1019,16 @@ export interface SculptSettings {
   radius: number; // px
   strength: number;
   use_dyntopo?: boolean;
+  /** dynamic topology detail: pixels (relative), percent of the brush, or constant resolution */
   detail_size?: number;
+  detail_type_method?: 'RELATIVE' | 'CONSTANT' | 'BRUSH' | 'MANUAL';
+  detail_refine_method?: 'SUBDIVIDE' | 'COLLAPSE' | 'SUBDIVIDE_COLLAPSE';
+  detail_percent?: number;
+  /** pull the surface down (world -Z) with every dab */
+  gravity?: number;
+  /** meshes with modifiers update their shading only after a stroke */
+  use_sculpt_delay_updates?: boolean;
+  constant_detail_resolution?: number;
   use_frontface?: boolean;
   falloff: 'SMOOTH' | 'SPHERE' | 'ROOT' | 'SHARP' | 'LINEAR' | 'CONSTANT';
   autosmooth_factor: number;
@@ -1016,6 +1037,22 @@ export interface SculptSettings {
   normal_radius_factor?: number;
   use_space?: boolean;
   spacing?: number;
+  /** auto-masking: limit brushes by topology, face sets, boundaries, cavity or normals */
+  use_automasking_topology?: boolean;
+  use_automasking_face_sets?: boolean;
+  use_automasking_boundary_edges?: boolean;
+  use_automasking_boundary_face_sets?: boolean;
+  use_automasking_cavity?: boolean;
+  use_automasking_cavity_inverted?: boolean;
+  use_automasking_start_normal?: boolean;
+  use_automasking_view_normal?: boolean;
+  automasking_boundary_edges_propagation_steps?: number;
+  automasking_cavity_factor?: number;
+  automasking_cavity_blur_steps?: number;
+  automasking_start_normal_limit?: number;
+  automasking_start_normal_falloff?: number;
+  automasking_view_normal_limit?: number;
+  automasking_view_normal_falloff?: number;
 }
 
 export interface UnitSettings {

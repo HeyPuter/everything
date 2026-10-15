@@ -20,6 +20,29 @@ export interface PaintBrush extends BrushData {
   use_backface_culling?: boolean;
   /** sculpt mask brush: draw or smooth the mask */
   mask_tool?: 'DRAW' | 'SMOOTH';
+  /** how dabs are placed along the stroke */
+  stroke_method?: 'SPACE' | 'DOTS' | 'AIRBRUSH' | 'LINE' | 'ANCHORED' | 'DRAG_DOT';
+  use_smooth_stroke?: boolean;
+  smooth_stroke_radius?: number;
+  smooth_stroke_factor?: number;
+  /** airbrush interval (seconds) */
+  rate?: number;
+  /** pen pressure scales the radius / the strength */
+  use_pressure_size?: boolean;
+  use_pressure_strength?: boolean;
+  /** radius in screen pixels (VIEW) or in scene units (SCENE, `unprojected_radius`) */
+  use_locked_size?: 'VIEW' | 'SCENE';
+  unprojected_radius?: number;
+  /** texture paint clone brush: image to copy from (null: the painted image) */
+  clone_image?: string | null;
+  /** boundary brush deformation */
+  boundary_deform_type?: 'GRAB' | 'EXPAND' | 'INFLATE';
+  /** texture modulating the strength */
+  texture_slot?: import('./brushtex').BrushTexture;
+  /** brush cursor display */
+  show_cursor?: boolean;
+  cursor_color_add?: [number, number, number];
+  cursor_color_subtract?: [number, number, number];
   falloff: Falloff & BrushData['falloff'];
 }
 
@@ -43,6 +66,7 @@ export const BRUSH_LISTS: Record<BrushMode, (BrushInfo | null)[]> = {
     S('brush_draw_sharp', 'Draw Sharp', 'DRAW_SHARP', 'brush_sculpt_draw_sharp', 'Draws sharp creases using the original surface'),
     S('brush_clay', 'Clay', 'CLAY', 'brush_sculpt_clay', 'Builds up clay toward a plane above the surface'),
     S('brush_clay_strips', 'Clay Strips', 'CLAY_STRIPS', 'brush_sculpt_clay_strips', 'Clay with a square footprint aligned to the stroke', 'C'),
+    S('brush_clay_thumb', 'Clay Thumb', 'CLAY_THUMB', 'brush_sculpt_clay_thumb', 'Builds clay up like smearing it with a thumb along the stroke'),
     S('brush_layer', 'Layer', 'LAYER', 'brush_sculpt_layer', 'Raises a layer of constant height'),
     S('brush_inflate', 'Inflate/Deflate', 'INFLATE', 'brush_sculpt_inflate', 'Moves vertices along their own normals', 'I'),
     S('brush_blob', 'Blob', 'BLOB', 'brush_sculpt_blob', 'Pushes the surface outward into a rounded shape'),
@@ -52,15 +76,27 @@ export const BRUSH_LISTS: Record<BrushMode, (BrushInfo | null)[]> = {
     S('brush_flatten', 'Flatten/Contrast', 'FLATTEN', 'brush_sculpt_flatten', 'Flattens toward the area plane (Ctrl: contrast)'),
     S('brush_fill', 'Fill/Deepen', 'FILL', 'brush_sculpt_fill', 'Fills in cavities (Ctrl: deepen)'),
     S('brush_scrape', 'Scrape/Peaks', 'SCRAPE', 'brush_sculpt_scrape', 'Scrapes down peaks (Ctrl: peaks)', 'Shift T'),
+    S('brush_multiplane_scrape', 'Multiplane Scrape', 'MULTIPLANE_SCRAPE', 'brush_sculpt_multiplane', 'Scrapes with two angled planes to carve sharp ridges (Ctrl: valleys)'),
     S('brush_pinch', 'Pinch/Magnify', 'PINCH', 'brush_sculpt_pinch', 'Pulls vertices toward the brush center (Ctrl: magnify)', 'P'),
     null,
     S('brush_grab', 'Grab', 'GRAB', 'brush_sculpt_grab', 'Drags a group of vertices with the mouse', 'G'),
+    S('brush_elastic_deform', 'Elastic Deform', 'ELASTIC_DEFORM', 'brush_sculpt_elastic', 'Grabs with a soft falloff that keeps the volume of the surroundings'),
     S('brush_snake_hook', 'Snake Hook', 'SNAKE_HOOK', 'brush_sculpt_snake_hook', 'Pulls vertices along the stroke to make long extrusions', 'K'),
     S('brush_thumb', 'Thumb', 'THUMB', 'brush_sculpt_thumb', 'Grab along the surface plane'),
+    S('brush_pose', 'Pose', 'POSE', 'brush_sculpt_pose', 'Rotates the part under the brush around the joint at the edge of the brush'),
     S('brush_nudge', 'Nudge', 'NUDGE', 'brush_sculpt_nudge', 'Pushes vertices along the stroke direction'),
     S('brush_rotate', 'Rotate', 'ROTATE', 'brush_sculpt_rotate', 'Rotates vertices around the brush center'),
+    S('brush_boundary', 'Boundary', 'BOUNDARY', 'brush_sculpt_boundary', 'Deforms the open border of the mesh near the brush (grab, expand or inflate)'),
+    S('brush_cloth', 'Cloth', 'CLOTH', 'brush_sculpt_cloth', 'Drags the surface like cloth: the area around the brush follows and folds'),
+    S('brush_slide_relax', 'Slide Relax', 'SLIDE_RELAX', 'brush_sculpt_slide', 'Slides the topology along the stroke (Shift: relax it)'),
+    null,
+    S('brush_simplify', 'Simplify', 'SIMPLIFY', 'brush_sculpt_simplify', 'Collapses short edges under the brush (needs Dyntopo)'),
     null,
     S('brush_mask', 'Mask', 'MASK', 'brush_sculpt_mask', 'Paints a mask that protects vertices (Ctrl: erase)', 'M'),
+    S('brush_draw_face_sets', 'Draw Face Sets', 'DRAW_FACE_SETS', 'brush_sculpt_face_set', 'Paints a new face set (Ctrl: grows the face set under the stroke start)'),
+    null,
+    S('brush_sculpt_paint', 'Paint', 'PAINT', 'brush_paint_draw', 'Paints the color attribute of the mesh (Ctrl: secondary color, Shift: blur)'),
+    S('brush_sculpt_smear', 'Smear', 'SMEAR', 'brush_paint_smear', 'Smears the colors of the mesh along the stroke'),
   ],
   VERTEX_PAINT: [
     S('brush_vertpaint', 'Paint', 'DRAW', 'brush_paint_draw', 'Paints the active color attribute'),
@@ -79,6 +115,7 @@ export const BRUSH_LISTS: Record<BrushMode, (BrushInfo | null)[]> = {
     S('brush_tex_soften', 'Soften', 'SOFTEN', 'brush_paint_blur', 'Blurs the image under the brush'),
     S('brush_tex_smear', 'Smear', 'SMEAR', 'brush_paint_smear', 'Smears the image along the stroke'),
     S('brush_tex_fill', 'Fill', 'FILL', 'brush_paint_fill', 'Fills every face of the object with the color'),
+    S('brush_tex_clone', 'Clone', 'CLONE', 'brush_paint_clone', 'Copies the texture from a source point (Ctrl+click to set it) or from another image'),
   ],
 };
 
@@ -101,6 +138,17 @@ function base(id: string, name: string, tool: string, mode: BrushMode, extra: Pa
 /** Brushes created on demand when a document does not have them (older files / extra tools). */
 function extraBrushes(): PaintBrush[] {
   return [
+    base('brush_clay_thumb', 'Clay Thumb', 'CLAY_THUMB', 'SCULPT', { strength: 0.5 }),
+    base('brush_multiplane_scrape', 'Multiplane Scrape', 'MULTIPLANE_SCRAPE', 'SCULPT', { strength: 0.5 }),
+    base('brush_elastic_deform', 'Elastic Deform', 'ELASTIC_DEFORM', 'SCULPT', { strength: 0.5 }),
+    base('brush_pose', 'Pose', 'POSE', 'SCULPT', { strength: 1 }),
+    base('brush_slide_relax', 'Slide Relax', 'SLIDE_RELAX', 'SCULPT', { strength: 0.5 }),
+    base('brush_cloth', 'Cloth', 'CLOTH', 'SCULPT', { strength: 1, spacing: 5 }),
+    base('brush_boundary', 'Boundary', 'BOUNDARY', 'SCULPT', { strength: 1 }),
+    base('brush_simplify', 'Simplify', 'SIMPLIFY', 'SCULPT', { strength: 0.5 }),
+    base('brush_draw_face_sets', 'Draw Face Sets', 'DRAW_FACE_SETS', 'SCULPT', { strength: 1, falloff_shape: 'SPHERE' }),
+    base('brush_sculpt_paint', 'Paint', 'PAINT', 'SCULPT', { strength: 1, blend: 'MIX', falloff_shape: 'SPHERE' }),
+    base('brush_sculpt_smear', 'Smear', 'SMEAR', 'SCULPT', { strength: 1, blend: 'MIX', falloff_shape: 'SPHERE' }),
     base('brush_vert_blur', 'Blur', 'BLUR', 'VERTEX_PAINT', {
       strength: 1,
       blend: 'MIX',
@@ -136,6 +184,10 @@ function extraBrushes(): PaintBrush[] {
       blend: 'MIX',
     }),
     base('brush_tex_smear', 'Smear', 'SMEAR', 'TEXTURE_PAINT', {
+      strength: 1,
+      blend: 'MIX',
+    }),
+    base('brush_tex_clone', 'Clone', 'CLONE', 'TEXTURE_PAINT', {
       strength: 1,
       blend: 'MIX',
     }),

@@ -9,7 +9,9 @@ import { activeBrush } from './brushes';
 import { blendWeight, normalizeAllWeights, normalizeVertexWeights, type BlendMode } from './math';
 import { activeMeshData, beginGeometryStroke, meshSession, reevaluate, type MeshSession } from './session';
 import { runStroke } from './stroke';
-import { gatherPaint, NORMAL_ANGLE, smearSource } from './vgather';
+import { paintFilter } from './fsdata';
+import { brushRadiusPx, gatherPaint, NORMAL_ANGLE, smearSource } from './vgather';
+import { dabTexture } from './brushtex';
 import { invalidatePaintAttributes, writeCornerValues } from './display';
 import { barycentric } from './vpaint';
 import { armatureWeightsFor } from './armweights';
@@ -86,9 +88,11 @@ export function weightPaintStroke(v: View3D, e: PointerEvent): boolean {
   let lastHit: Vector3 | null = null;
   let lastEval = 0;
   const touched: number[] = [];
+  let dabCount = 0;
   runStroke(v, e, {
     spacing: () => Math.max(1, b.spacing || 10),
     radiusPx: () => b.radius,
+    settings: () => b,
     dab: (d) => {
       const hit = s.raycast(v, d.x, d.y);
       if (b.falloff_shape === 'SPHERE' && !hit) return;
@@ -103,6 +107,8 @@ export function weightPaintStroke(v: View3D, e: PointerEvent): boolean {
           hit,
           strength: 1,
           normalAngle: NORMAL_ANGLE,
+          sizeFactor: d.sizeFactor,
+          tex: dabTexture(b, s, v, d.x, d.y, brushRadiusPx(b, s, v, hit?.world) * (d.sizeFactor ?? 1), dabCount++),
         },
         scratch,
       );
@@ -217,11 +223,13 @@ registerOperators([
       const wt = app.doc.scene.tool_settings.unified_paint.weight;
       editGroups((ob, me, gi) => {
         if (me.vertex_groups[gi].lock_weight) return;
-        me.weights[gi].fill(wt);
+        const allowed = paintFilter(me).verts;
+        const w = me.weights[gi];
+        for (let v = 0; v < w.length; v++) if (!allowed || allowed[v]) w[v] = wt;
         if (app.doc.scene.tool_settings.use_auto_normalize) {
           const groups = deformGroups(ob, me);
           const locked = me.vertex_groups.map((g) => !!g.lock_weight);
-          for (let v = 0; v < me.weights[gi].length; v++) normalizeVertexWeights(me.weights, groups, v, gi, locked);
+          for (let v = 0; v < me.weights[gi].length; v++) if (!allowed || allowed[v]) normalizeVertexWeights(me.weights, groups, v, gi, locked);
         }
       });
     },

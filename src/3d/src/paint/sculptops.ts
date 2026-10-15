@@ -1,15 +1,11 @@
-// Sculpt Mode operators: mask fill/invert/filters, box mask (tool and B gesture), voxel remesh.
+// Sculpt Mode operators: mask fill/invert/filters, voxel remesh.
 import { Vector3 } from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import { BufferAttribute, BufferGeometry } from 'three';
 import { app, registerOperators } from '../app/app';
 import { cow, own } from '../data/cow';
 import type { MeshData } from '../data/types';
-import { h, type VNode } from '../ui/h';
-import { editModeHooks } from '../editors/view3d/hooks';
-import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { activeMeshData, dropSession, meshSession } from './session';
-import { projectVertices } from './vgather';
 import { invalidatePaintAttributes, maskChanged } from './display';
 import { voxelRemesh } from './remesh';
 
@@ -23,113 +19,6 @@ function editMask(fn: (mask: Float32Array, me: MeshData) => void) {
   fn(me.sculpt_mask, me);
   maskChanged(me.sculpt_mask);
   invalidatePaintAttributes();
-}
-
-// ---------------------------------------------------------------------------
-// box gesture (Box Mask tool and B)
-
-export const boxState = {
-  active: false,
-  view: null as View3D | null,
-  x0: 0,
-  y0: 0,
-  x1: 0,
-  y1: 0,
-  value: 1,
-};
-
-editModeHooks.svg.push((v) => {
-  if (!boxState.active || boxState.view !== v) return null;
-  const x = Math.min(boxState.x0, boxState.x1),
-    y = Math.min(boxState.y0, boxState.y1),
-    w = Math.abs(boxState.x1 - boxState.x0),
-    hh = Math.abs(boxState.y1 - boxState.y0);
-  return h(
-    'g',
-    { key: 'paint-box' },
-    h('rect', {
-      x,
-      y,
-      width: w,
-      height: hh,
-      fill: 'rgba(255,255,255,0.06)',
-      stroke: '#000',
-      'stroke-width': 1,
-    }),
-    h('rect', {
-      x,
-      y,
-      width: w,
-      height: hh,
-      fill: 'none',
-      stroke: '#fff',
-      'stroke-width': 1,
-      'stroke-dasharray': '4 3',
-    }),
-  ) as VNode;
-});
-
-/** Set the mask of every vertex projected inside the screen rectangle. */
-export function applyBoxMask(v: View3D, x0: number, y0: number, x1: number, y1: number, value: number) {
-  const s = meshSession();
-  if (!s) return;
-  const proj = projectVertices(s, v);
-  const ax = Math.min(x0, x1),
-    bx = Math.max(x0, x1),
-    ay = Math.min(y0, y1),
-    by = Math.max(y0, y1);
-  editMask((mask) => {
-    for (let i = 0; i < s.nv; i++) {
-      const x = proj[i * 3],
-        y = proj[i * 3 + 1],
-        z = proj[i * 3 + 2];
-      if (z < -1 || z > 1) continue;
-      if (x >= ax && x <= bx && y >= ay && y <= by) mask[i] = value;
-    }
-  });
-}
-
-/** Drag a box in the viewport (used by the Box Mask tool); applies on release. */
-export function boxMaskDrag(v: View3D, e: PointerEvent): boolean {
-  const p = v.local(e);
-  Object.assign(boxState, {
-    active: true,
-    view: v,
-    x0: p.x,
-    y0: p.y,
-    x1: p.x,
-    y1: p.y,
-    value: e.ctrlKey || e.metaKey ? 0 : 1,
-  });
-  const move = (ev: PointerEvent) => {
-    const q = v.local(ev);
-    boxState.x1 = q.x;
-    boxState.y1 = q.y;
-    v.drawSvg();
-  };
-  const up = () => {
-    removeEventListener('pointermove', move, true);
-    removeEventListener('pointerup', up, true);
-    boxState.active = false;
-    if (Math.abs(boxState.x1 - boxState.x0) > 2 && Math.abs(boxState.y1 - boxState.y0) > 2) {
-      app.run(
-        'paint.mask_box_gesture',
-        {
-          xmin: Math.min(boxState.x0, boxState.x1),
-          xmax: Math.max(boxState.x0, boxState.x1),
-          ymin: Math.min(boxState.y0, boxState.y1),
-          ymax: Math.max(boxState.y0, boxState.y1),
-          value: boxState.value,
-        },
-        { invoke: false },
-      );
-    }
-    v.drawSvg();
-  };
-  addEventListener('pointermove', move, true);
-  addEventListener('pointerup', up, true);
-  v.drawSvg();
-  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -359,77 +248,10 @@ registerOperators([
       }),
   },
   {
-    idname: 'paint.mask_box_gesture',
-    label: 'Mask Box Gesture',
-    description: 'Mask within a rectangle defined by the cursor',
-    props: [
-      { id: 'xmin', label: 'X Min', type: 'int', default: 0, hidden: true },
-      { id: 'xmax', label: 'X Max', type: 'int', default: 0, hidden: true },
-      { id: 'ymin', label: 'Y Min', type: 'int', default: 0, hidden: true },
-      { id: 'ymax', label: 'Y Max', type: 'int', default: 0, hidden: true },
-      {
-        id: 'value',
-        label: 'Value',
-        type: 'float',
-        default: 1,
-        min: 0,
-        max: 1,
-      },
-    ],
-    poll: () => sculptPoll() && !!activeView3D(),
-    invoke: (_ctx, p) => {
-      const v = activeView3D()!;
-      let dragging = false;
-      boxState.view = v;
-      app.startModal({
-        label: 'Mask Box Gesture',
-        onPointerDown: (e) => {
-          if (e.button !== 0) return 'CANCELLED';
-          const q = v.local(e);
-          Object.assign(boxState, {
-            active: true,
-            x0: q.x,
-            y0: q.y,
-            x1: q.x,
-            y1: q.y,
-            value: e.ctrlKey || e.metaKey ? 0 : (p.value as number),
-          });
-          dragging = true;
-          v.drawSvg();
-        },
-        onPointerMove: (e) => {
-          if (!dragging) return;
-          const q = v.local(e);
-          boxState.x1 = q.x;
-          boxState.y1 = q.y;
-          v.drawSvg();
-        },
-        onPointerUp: () => (dragging ? 'FINISHED' : undefined),
-        onKey: (e) => (e.type === 'keydown' && e.key === 'Escape' ? 'CANCELLED' : true),
-        cancel: () => {
-          boxState.active = false;
-          v.drawSvg();
-        },
-        finish: () => {
-          boxState.active = false;
-          applyBoxMask(v, boxState.x0, boxState.y0, boxState.x1, boxState.y1, boxState.value);
-          v.drawSvg();
-        },
-        header: () => 'Box Mask: drag to mask (Ctrl: unmask), Esc to cancel',
-      });
-      return 'RUNNING_MODAL';
-    },
-    exec: (_ctx, p) => {
-      const v = activeView3D();
-      if (!v) return 'CANCELLED';
-      applyBoxMask(v, p.xmin as number, p.ymin as number, p.xmax as number, p.ymax as number, p.value as number);
-    },
-  },
-  {
     idname: 'object.voxel_remesh',
     label: 'Voxel Remesh',
     description: 'Rebuild the mesh as an even quad grid from its volume (voxel size from the mesh settings)',
-    poll: () => !!activeMeshData() && (app.doc.mode === 'SCULPT' || app.doc.mode === 'OBJECT'),
+    poll: () => !!activeMeshData() && (app.doc.mode === 'OBJECT' || (app.doc.mode === 'SCULPT' && !app.doc.scene.tool_settings.sculpt.use_dyntopo)),
     exec: () => {
       const { me } = activeMeshData()!;
       const t0 = performance.now();
