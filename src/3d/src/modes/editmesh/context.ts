@@ -18,6 +18,18 @@ export function selectModes(): [boolean, boolean, boolean] {
 /** Active element for highlighting (white) — not part of the document. */
 export const active = { objectId: '' as string, kind: '' as '' | 'VERT' | 'EDGE' | 'FACE', index: -1, edge: [-1, -1] as [number, number] };
 
+/** Recently clicked elements (newest last), for Next/Previous Active and Shortest Path. */
+export const selectHistory: { objectId: string; kind: 'VERT' | 'EDGE' | 'FACE'; index: number; edge: [number, number] }[] = [];
+
+export function pushSelectHistory() {
+  if (!active.kind) return;
+  const last = selectHistory[selectHistory.length - 1];
+  const entry = { objectId: active.objectId, kind: active.kind, index: active.index, edge: [active.edge[0], active.edge[1]] as [number, number] };
+  if (last && last.objectId === entry.objectId && last.kind === entry.kind && last.index === entry.index && last.edge.join() === entry.edge.join()) return;
+  selectHistory.push(entry);
+  if (selectHistory.length > 32) selectHistory.shift();
+}
+
 export function editMeshObjects(): { ob: ObjectData; me: MeshData }[] {
   if (app.doc.mode !== 'EDIT') return [];
   return app

@@ -5,7 +5,7 @@ import { MeshEdit, edgeKey, type EFace } from './meshedit';
 import { withEdit, editMeshObjects, selectMode, active } from './context';
 import { startTransform } from '../../ops/transform';
 import { editPoll, flipFace, makeNormalsConsistent } from './ops-basic';
-import { bevelVertices, bevelEdges } from './bevel';
+import { bevelVertices, bevelEdges, bevelClampLimit } from './bevel';
 import { edgeRing } from './select';
 import { activeView3D, type View3D } from '../../editors/view3d/view3d';
 import { pickContext, nearestEdge } from './pick';
@@ -62,6 +62,14 @@ export function extrudeRegion(m: MeshEdit, individual = false): 'FACES' | 'EDGES
       }
       // duplicate region vertices
       for (const fi of group) for (const v of m.faces[fi].verts) if (!map.has(v)) map.set(v, m.addVert(m.p(v), [[v, 1]], 1));
+      // a closed region (no boundary) keeps its original faces, turned inside out, as an inner shell
+      if ([...count.values()].every((c) => c !== 1))
+        for (const fi of group) {
+          const f = m.faces[fi];
+          const copy = { ...f, verts: [...f.verts], uvs: [...f.uvs], seams: [...f.seams], sharp: [...f.sharp], creases: [...f.creases], colors: f.colors ? [...f.colors] : undefined };
+          flipFace(copy);
+          m.faces.push(copy);
+        }
       // side walls along boundary edges, oriented to match the region winding
       for (const fi of group) {
         const f = m.faces[fi];
@@ -163,82 +171,12 @@ registerOperators([
       translateSelection(V(p.value as number[]));
     },
   },
-  {
-    idname: 'mesh.extrude_faces_move',
-    label: 'Extrude Individual Faces and Move',
-    props: [{ id: 'value', label: 'Move', type: 'vec3', default: [0, 0, 0], subtype: 'distance' }],
-    poll: (ctx) => editPoll(ctx),
-    invoke: (ctx) => {
-      if (!withEdit((m) => extrudeRegion(m, true) !== null)) return 'CANCELLED';
-      app.flush();
-      startTransform('SHRINKFATTEN', { event: ctx.event, label: 'Extrude Individual Faces' });
-      return 'RUNNING_MODAL';
-    },
-    exec: () => void withEdit((m) => extrudeRegion(m, true) !== null),
-  },
-  {
-    idname: 'mesh.extrude_edges_move',
-    label: 'Extrude Edges and Move',
-    poll: editPoll,
-    invoke: (ctx) => {
-      if (
-        !withEdit((m) => {
-          const save = m.faces.slice();
-          void save;
-          // force edge extrusion even if faces are selected
-          const faces = m.faces;
-          m.faces = [];
-          const edges = m.selectedEdges();
-          m.faces = faces;
-          if (!edges.length) return false;
-          const tmpSel = m.sel.slice();
-          extrudeEdgesOnly(m, edges);
-          void tmpSel;
-        })
-      )
-        return 'CANCELLED';
-      app.flush();
-      startTransform('TRANSLATION', { event: ctx.event, label: 'Extrude Edges' });
-      return 'RUNNING_MODAL';
-    },
-  },
-  {
-    idname: 'mesh.extrude_vertices_move',
-    label: 'Extrude Vertices and Move',
-    poll: editPoll,
-    invoke: (ctx) => {
-      if (
-        !withEdit((m) => {
-          const verts = m.selectedVerts();
-          if (!verts.length) return false;
-          for (const v of verts) {
-            const nv = m.addVert(m.p(v), [[v, 1]], 1);
-            m.looseEdges.push([v, nv]);
-            m.sel[v] = 0;
-          }
-        })
-      )
-        return 'CANCELLED';
-      app.flush();
-      startTransform('TRANSLATION', { event: ctx.event, label: 'Extrude Vertices' });
-      return 'RUNNING_MODAL';
-    },
-  },
 ]);
-
-function extrudeEdgesOnly(m: MeshEdit, edges: [number, number][]) {
-  const map = new Map<number, number>();
-  for (const [a, b] of edges) {
-    for (const v of [a, b]) if (!map.has(v)) map.set(v, m.addVert(m.p(v), [[v, 1]], 1));
-    m.faces.push(m.makeFace([a, b, map.get(b)!, map.get(a)!], undefined, [0, 0, 1, 0, 1, 1, 0, 1]));
-  }
-  for (const v of map.keys()) m.sel[v] = 0;
-}
 
 // ---------------------------------------------------------------------------
 // inset
 
-export function insetFaces(m: MeshEdit, thickness: number, depth: number, individual: boolean, outset = false) {
+export function insetFaces(m: MeshEdit, thickness: number, depth: number, individual: boolean, outset = false, opts: { even?: boolean; relative?: boolean } = {}) {
   const fsel = m.selectedFaces();
   if (!fsel.length) return false;
   const groups = individual ? fsel.map((f) => [f]) : [fsel];
@@ -282,7 +220,20 @@ export function insetFaces(m: MeshEdit, thickness: number, depth: number, indivi
       // miter: scale so that the offset distance along each edge normal equals thickness
       const n = d.clone().normalize();
       const cosHalf = Math.max(0.2, d.length() / 2);
-      const len = inward.get(v)!.length() > 1.0001 ? t / cosHalf : t;
+      let len = inward.get(v)!.length() > 1.0001 && opts.even !== false ? t / cosHalf : t;
+      if (opts.relative) {
+        // scale by the average length of the region edges at this vertex
+        let sum = 0,
+          cnt = 0;
+        for (const fi of group) {
+          const f = m.faces[fi];
+          const i = f.verts.indexOf(v);
+          if (i < 0) continue;
+          sum += V(m.p(v)).distanceTo(V(m.p(f.verts[(i + 1) % f.verts.length]))) + V(m.p(v)).distanceTo(V(m.p(f.verts[(i + f.verts.length - 1) % f.verts.length])));
+          cnt += 2;
+        }
+        if (cnt) len *= sum / cnt;
+      }
       const vn = (vertNormal.get(v) ?? new Vector3(0, 0, 1)).normalize();
       const p = V(m.p(v)).addScaledVector(n, len).addScaledVector(vn, depth);
       map.set(v, m.addVert([p.x, p.y, p.z], [[v, 1]], 1));
@@ -317,7 +268,7 @@ export function insetFaces(m: MeshEdit, thickness: number, depth: number, indivi
   return true;
 }
 
-function startInsetModal(individual: boolean) {
+function startInsetModal(individual: boolean, outsetInit = false) {
   const v = activeView3D();
   if (!v) return 'CANCELLED' as const;
   // snapshot meshes to recompute from on every mouse move
@@ -341,7 +292,7 @@ function startInsetModal(individual: boolean) {
   let thickness = 0,
     depth = 0,
     depthMode = false,
-    outset = false,
+    outset = outsetInit,
     ind = individual;
   let numeric = '';
   const apply = () => {
@@ -502,9 +453,34 @@ function boundaryOfFaces(m: MeshEdit, faces: number[]): number[] {
   return [...out];
 }
 
-function bridgeLoops(m: MeshEdit, twist: number): boolean {
-  const edges = m.selectedEdges();
-  // split selected edges into connected loops
+export interface BridgeOptions {
+  twist?: number;
+  type?: 'SINGLE' | 'CLOSED' | 'PAIRS';
+  cuts?: number;
+  interpolation?: 'LINEAR' | 'PATH';
+  smoothness?: number;
+  merge?: boolean;
+  mergeFactor?: number;
+}
+
+/** Bridge selected edge loops (or the outlines of selected faces, which are removed) with quads. */
+export function bridgeLoops(m: MeshEdit, o: BridgeOptions = {}): boolean {
+  const fsel = m.selectedFaces();
+  let edges: [number, number][];
+  if (fsel.length) {
+    // bridge face regions: their outlines, with the faces removed
+    const count = new Map<string, number>();
+    for (const fi of fsel) {
+      const f = m.faces[fi];
+      for (let i = 0; i < f.verts.length; i++) {
+        const k = edgeKey(f.verts[i], f.verts[(i + 1) % f.verts.length]);
+        count.set(k, (count.get(k) ?? 0) + 1);
+      }
+    }
+    edges = [...count].filter(([, c]) => c === 1).map(([k]) => k.split(':').map(Number) as [number, number]);
+    const rm = new Set(fsel);
+    m.faces = m.faces.filter((_, i) => !rm.has(i));
+  } else edges = m.selectedEdges();
   const adj = new Map<number, number[]>();
   for (const [a, b] of edges) {
     (adj.get(a) ?? adj.set(a, []).get(a)!).push(b);
@@ -514,17 +490,17 @@ function bridgeLoops(m: MeshEdit, twist: number): boolean {
   const loops: { verts: number[]; closed: boolean }[] = [];
   for (const start of adj.keys()) {
     if (seen.has(start)) continue;
-    // find an end (valence 1) for open chains
     const comp: number[] = [];
     const st = [start];
     seen.add(start);
     while (st.length) {
       const u = st.pop()!;
       comp.push(u);
-      for (const w of adj.get(u)!) if (!seen.has(w)) {
-        seen.add(w);
-        st.push(w);
-      }
+      for (const w of adj.get(u)!)
+        if (!seen.has(w)) {
+          seen.add(w);
+          st.push(w);
+        }
     }
     const ends = comp.filter((v) => adj.get(v)!.length === 1);
     const first = ends[0] ?? comp[0];
@@ -539,13 +515,47 @@ function bridgeLoops(m: MeshEdit, twist: number): boolean {
     }
     loops.push({ verts: order, closed: !ends.length });
   }
-  if (loops.length !== 2 || loops[0].verts.length !== loops[1].verts.length) {
-    app.report('ERROR', 'Select two edge loops with the same number of vertices');
+  if (loops.length < 2 || loops.some((l) => l.verts.length !== loops[0].verts.length)) {
+    app.report('ERROR', 'Select two or more edge loops with the same number of vertices');
     return false;
   }
-  const [A, B] = loops;
+  // order the loops along the line through their centres
+  const centre = (l: { verts: number[] }) => l.verts.reduce((c, v) => c.add(V(m.p(v))), new Vector3()).multiplyScalar(1 / l.verts.length);
+  if (loops.length > 2) {
+    const cs = loops.map(centre);
+    const dir = cs[cs.length - 1].clone().sub(cs[0]);
+    let far = 0;
+    for (let i = 0; i < cs.length; i++) for (let j = 0; j < cs.length; j++) if (cs[i].distanceTo(cs[j]) > far) {
+      far = cs[i].distanceTo(cs[j]);
+      dir.copy(cs[j]).sub(cs[i]);
+    }
+    loops.sort((x, y) => centre(x).dot(dir) - centre(y).dot(dir));
+  }
+  const pairs: [number, number][] = [];
+  if (o.type === 'PAIRS') for (let i = 0; i + 1 < loops.length; i += 2) pairs.push([i, i + 1]);
+  else {
+    for (let i = 0; i + 1 < loops.length; i++) pairs.push([i, i + 1]);
+    if (o.type === 'CLOSED' && loops.length > 2) pairs.push([loops.length - 1, 0]);
+  }
+  const normals = (o.interpolation ?? 'PATH') === 'PATH' && (o.smoothness ?? 0) > 0 ? vertexNormalsOf(m) : null;
+  for (const [ia, ib] of pairs) bridgePair(m, loops[ia], loops[ib], o, normals);
+  makeNormalsConsistentNew(m);
+  return true;
+}
+
+function vertexNormalsOf(m: MeshEdit): Vector3[] {
+  const out = Array.from({ length: m.vcount }, () => new Vector3());
+  for (const f of m.faces) {
+    const n = V(m.faceNormal(f));
+    for (const v of f.verts) out[v].add(n);
+  }
+  for (const n of out) n.normalize();
+  return out;
+}
+
+function bridgePair(m: MeshEdit, A: { verts: number[]; closed: boolean }, B: { verts: number[]; closed: boolean }, o: BridgeOptions, normals: Vector3[] | null) {
   const n = A.verts.length;
-  // align: find rotation (closed loops) / direction minimizing total distance
+  // align: rotation (closed loops) and direction with the least total distance
   let best = { off: 0, rev: false, d: Infinity };
   for (const rev of [false, true]) {
     const bv = rev ? [...B.verts].reverse() : B.verts;
@@ -555,17 +565,56 @@ function bridgeLoops(m: MeshEdit, twist: number): boolean {
       if (d < best.d) best = { off, rev, d };
     }
   }
-  const bv = best.rev ? [...B.verts].reverse() : B.verts;
-  const segs = A.closed ? n : n - 1;
-  for (let i = 0; i < segs; i++) {
-    const a0 = A.verts[i],
-      a1 = A.verts[(i + 1) % n];
-    const b0 = bv[(i + best.off + twist + n) % n],
-      b1 = bv[(i + 1 + best.off + twist + n) % n];
-    m.faces.push(m.makeFace([a0, a1, b1, b0], m.faces[0], [i / segs, 0, (i + 1) / segs, 0, (i + 1) / segs, 1, i / segs, 1]));
+  const twist = o.twist ?? 0;
+  const bvRaw = best.rev ? [...B.verts].reverse() : B.verts;
+  const bv = A.verts.map((_, i) => bvRaw[(i + best.off + twist + n * 4) % n]);
+  if (o.merge) {
+    // merge the loops at a point between them
+    const t = o.mergeFactor ?? 0.5;
+    const map = Array.from({ length: m.vcount }, (_, i) => i);
+    for (let i = 0; i < n; i++) {
+      const p = V(m.p(A.verts[i])).lerp(V(m.p(bv[i])), t);
+      m.setP(A.verts[i], [p.x, p.y, p.z]);
+      map[bv[i]] = A.verts[i];
+    }
+    m.remap(map);
+    return;
   }
-  makeNormalsConsistentNew(m);
-  return true;
+  // rows of vertices from loop A to loop B (intermediate rows for the cuts)
+  const cuts = Math.max(0, o.cuts ?? 0);
+  const rows: number[][] = [A.verts];
+  for (let r = 1; r <= cuts; r++) {
+    const t = r / (cuts + 1);
+    rows.push(
+      A.verts.map((a, i) => {
+        const b = bv[i];
+        const pa = V(m.p(a)),
+          pb = V(m.p(b));
+        let p = pa.clone().lerp(pb, t);
+        if (normals) {
+          // bow the bridge outwards along the loops' surface direction
+          const d = pb.clone().sub(pa);
+          const ta = normals[a].clone().cross(d).cross(normals[a]).setLength(d.length() * (o.smoothness ?? 1));
+          const tb = normals[b].clone().cross(d).cross(normals[b]).setLength(d.length() * (o.smoothness ?? 1));
+          const h00 = 2 * t ** 3 - 3 * t ** 2 + 1,
+            h10 = t ** 3 - 2 * t ** 2 + t,
+            h01 = -2 * t ** 3 + 3 * t ** 2,
+            h11 = t ** 3 - t ** 2;
+          p = pa.clone().multiplyScalar(h00).addScaledVector(ta, h10).addScaledVector(pb, h01).addScaledVector(tb, h11);
+        }
+        return m.addVert([p.x, p.y, p.z], [[a, 1 - t], [b, t]], 1);
+      }),
+    );
+  }
+  rows.push(bv);
+  const segs = A.closed ? n : n - 1;
+  for (let r = 0; r < rows.length - 1; r++)
+    for (let i = 0; i < segs; i++) {
+      const j = (i + 1) % n;
+      const v0 = r / (rows.length - 1),
+        v1 = (r + 1) / (rows.length - 1);
+      m.faces.push(m.makeFace([rows[r][i], rows[r][j], rows[r + 1][j], rows[r + 1][i]], m.faces[0], [i / segs, v0, (i + 1) / segs, v0, (i + 1) / segs, v1, i / segs, v1]));
+    }
 }
 
 function makeNormalsConsistentNew(m: MeshEdit) {
@@ -578,7 +627,16 @@ function makeNormalsConsistentNew(m: MeshEdit) {
 // ---------------------------------------------------------------------------
 // subdivide
 
-function subdivide(m: MeshEdit, cuts: number, smoothness: number) {
+export interface SubdivideOptions {
+  /** how a quad with two adjacent cut edges is split */
+  quadcorner?: 'STRAIGHT_CUT' | 'INNERVERT' | 'FAN';
+  fractal?: number;
+  fractalAlongNormal?: number;
+  seed?: number;
+}
+
+export function subdivide(m: MeshEdit, cuts: number, smoothness: number, opts: SubdivideOptions = {}) {
+  const firstNew = m.vcount;
   const selEdges = new Set(m.selectedEdges().map(([a, b]) => edgeKey(a, b)));
   if (!selEdges.size) return false;
   // new vertices along each selected edge (ordered from min to max vertex index)
@@ -666,6 +724,83 @@ function subdivide(m: MeshEdit, cuts: number, smoothness: number) {
       out.push(m.makeFace([ab, bc, ca], f, [...uab, ...ubc, ...uca]));
       continue;
     }
+    // a quad with two adjacent cut edges (a corner)
+    const cutAt = f.verts.map((v, i) => selEdges.has(edgeKey(v, f.verts[(i + 1) % n])));
+    if (n === 4 && cutAt.filter(Boolean).length === 2 && cutAt[0] === cutAt[2]) {
+      // two opposite cut edges: a strip of quads across the face
+      const k = cutAt[0] ? 0 : 1;
+      const c = [k, k + 1, k + 2, (k + 3) % 4];
+      const [v0, v1, v2, v3] = c.map((i) => f.verts[i]);
+      const top = [v0, ...along(v0, v1), v1],
+        bottom = [v3, ...along(v3, v2), v2];
+      const N = cuts + 1;
+      const uvT = (j: number) => lerpUV(c[0], c[1], j / N),
+        uvB = (j: number) => lerpUV(c[3], c[2], j / N);
+      for (let j = 0; j < N; j++) {
+        const nf = m.makeFace([top[j], top[j + 1], bottom[j + 1], bottom[j]], f, [...uvT(j), ...uvT(j + 1), ...uvB(j + 1), ...uvB(j)]);
+        for (const [e, src] of [[0, c[0]], [2, c[2]]])
+          if (f.seams[src] || f.sharp[src] || f.creases[src]) {
+            nf.seams[e] = f.seams[src];
+            nf.sharp[e] = f.sharp[src];
+            nf.creases[e] = f.creases[src];
+          }
+        if (j === 0) {
+          nf.seams[3] = f.seams[c[3]];
+          nf.sharp[3] = f.sharp[c[3]];
+          nf.creases[3] = f.creases[c[3]];
+        }
+        if (j === N - 1) {
+          nf.seams[1] = f.seams[c[1]];
+          nf.sharp[1] = f.sharp[c[1]];
+          nf.creases[1] = f.creases[c[1]];
+        }
+        out.push(nf);
+      }
+      continue;
+    }
+    if (n === 4 && cutAt.filter(Boolean).length === 2) {
+      const k = [0, 1, 2, 3].find((i) => cutAt[(i + 3) % 4] && cutAt[i]);
+      if (k !== undefined) {
+        // corner c with cut edges c→a and b→c (b is the previous corner), o opposite
+        const ci = k,
+          ai = (k + 1) % 4,
+          oi = (k + 2) % 4,
+          bi = (k + 3) % 4;
+        const [c, a, o, b] = [f.verts[ci], f.verts[ai], f.verts[oi], f.verts[bi]];
+        const ca = along(c, a),
+          cb = along(c, b);
+        const uvCA = (t: number) => lerpUV(ci, ai, t),
+          uvCB = (t: number) => lerpUV(ci, bi, t);
+        const T = (j: number) => (j + 1) / (cuts + 1);
+        const mode = opts.quadcorner ?? 'STRAIGHT_CUT';
+        if (mode === 'FAN') {
+          // cut points connect to the opposite corner; the corner itself keeps a quad
+          const uvO = uvAt(oi);
+          out.push(m.makeFace([c, ca[0], o, cb[0]], f, [...uvAt(ci), ...uvCA(T(0)), ...uvO, ...uvCB(T(0))]));
+          const sideA = [...ca, a],
+            uvA = [...ca.map((_, j) => uvCA(T(j))), uvAt(ai)];
+          for (let j = 0; j < sideA.length - 1; j++) out.push(m.makeFace([sideA[j], sideA[j + 1], o], f, [...uvA[j], ...uvA[j + 1], ...uvO]));
+          const sideB = [...cb, b],
+            uvB = [...cb.map((_, j) => uvCB(T(j))), uvAt(bi)];
+          for (let j = 0; j < sideB.length - 1; j++) out.push(m.makeFace([sideB[j + 1], sideB[j], o], f, [...uvB[j + 1], ...uvB[j], ...uvO]));
+          continue;
+        }
+        if (mode === 'INNERVERT' && cuts === 1) {
+          const p = V(m.p(ca[0])).add(V(m.p(cb[0]))).add(V(m.p(o))).add(V(m.p(c))).multiplyScalar(0.25);
+          const iv = m.addVert([p.x, p.y, p.z], [[c, 0.25], [a, 0.25], [o, 0.25], [b, 0.25]], 1);
+          const uvI = [0, 1].map((q) => (uvAt(0)[q] + uvAt(1)[q] + uvAt(2)[q] + uvAt(3)[q]) / 4);
+          out.push(m.makeFace([c, ca[0], iv, cb[0]], f, [...uvAt(ci), ...uvCA(0.5), ...uvI, ...uvCB(0.5)]));
+          out.push(m.makeFace([ca[0], a, o, iv], f, [...uvCA(0.5), ...uvAt(ai), ...uvAt(oi), ...uvI]));
+          out.push(m.makeFace([iv, o, b, cb[0]], f, [...uvI, ...uvAt(oi), ...uvAt(bi), ...uvCB(0.5)]));
+          continue;
+        }
+        // straight cuts: the j-th point on one edge connects to the j-th point on the other
+        out.push(m.makeFace([c, ca[0], cb[0]], f, [...uvAt(ci), ...uvCA(T(0)), ...uvCB(T(0))]));
+        for (let j = 0; j < cuts - 1; j++) out.push(m.makeFace([ca[j], ca[j + 1], cb[j + 1], cb[j]], f, [...uvCA(T(j)), ...uvCA(T(j + 1)), ...uvCB(T(j + 1)), ...uvCB(T(j))]));
+        out.push(m.makeFace([ca[cuts - 1], a, o, b, cb[cuts - 1]], f, [...uvCA(T(cuts - 1)), ...uvAt(ai), ...uvAt(oi), ...uvAt(bi), ...uvCB(T(cuts - 1))]));
+        continue;
+      }
+    }
     // otherwise insert new vertices into split edges (n-gon)
     const verts: number[] = [],
       uvs: number[] = [];
@@ -684,6 +819,35 @@ function subdivide(m: MeshEdit, cuts: number, smoothness: number) {
     out.push(nf);
   }
   m.faces = out;
+  if (opts.fractal) {
+    // random displacement of the new vertices, scaled by the average selected edge length
+    let len = 0;
+    for (const k of selEdges) {
+      const [a, b] = k.split(':').map(Number);
+      len += V(m.p(a)).distanceTo(V(m.p(b)));
+    }
+    len /= selEdges.size;
+    let s = ((opts.seed ?? 0) * 2654435761 + 1) >>> 0 || 1;
+    const rnd = () => {
+      s ^= s << 13;
+      s ^= s >>> 17;
+      s ^= s << 5;
+      return ((s >>> 0) / 4294967296) * 2 - 1;
+    };
+    const normals = new Map<number, Vector3>();
+    for (const f of m.faces) {
+      const nrm = V(m.faceNormal(f));
+      for (const v of f.verts) if (v >= firstNew) (normals.get(v) ?? normals.set(v, new Vector3()).get(v)!).add(nrm);
+    }
+    const along = opts.fractalAlongNormal ?? 0;
+    for (let v = firstNew; v < m.vcount; v++) {
+      const d = new Vector3(rnd(), rnd(), rnd());
+      const nrm = (normals.get(v) ?? new Vector3()).normalize();
+      if (along) d.lerp(nrm.multiplyScalar(rnd()), along);
+      const p = V(m.p(v)).addScaledVector(d, (opts.fractal * len) / 10);
+      m.setP(v, [p.x, p.y, p.z]);
+    }
+  }
   return true;
 }
 
@@ -923,93 +1087,49 @@ function startLoopCut() {
 }
 
 // ---------------------------------------------------------------------------
-// vertex slide (G G) / edge slide
-
-function startEdgeSlide() {
-  const v = activeView3D();
-  if (!v) return 'CANCELLED' as const;
-  // for each selected vertex pick the connected unselected edge closest to the mouse direction
-  const data = editMeshObjects().map(({ ob, me }) => {
-    const m = MeshEdit.from(me);
-    const nb = m.neighbors();
-    const world = app.graph.get(ob.id)?.world ?? new Matrix4();
-    const slides: { v: number; a: Vector3; b: Vector3; c: Vector3 }[] = [];
-    for (const i of m.selectedVerts()) {
-      const opts = nb[i].filter((w) => !m.sel[w]);
-      if (!opts.length) continue;
-      // two opposite directions (one per side), like an edge slide between neighbouring loops
-      slides.push({ v: i, a: V(m.p(i)), b: V(m.p(opts[0])), c: V(m.p(opts[opts.length > 1 ? 1 : 0])) });
-    }
-    return { me, world, base: new Float32Array(me.positions), slides };
-  });
-  if (!data.some((d) => d.slides.length)) return 'CANCELLED' as const;
-  const r = v.el.getBoundingClientRect();
-  const start = { x: app.pointer.x - r.left, y: app.pointer.y - r.top };
-  let factor = 0;
-  const apply = () => {
-    for (const d of data) {
-      const P = new Float32Array(d.base);
-      for (const s of d.slides) {
-        const target = factor >= 0 ? s.b : s.c;
-        const p = s.a.clone().lerp(target, Math.abs(factor));
-        P[s.v * 3] = p.x;
-        P[s.v * 3 + 1] = p.y;
-        P[s.v * 3 + 2] = p.z;
-      }
-      d.me.positions = P;
-    }
-    app.changed('geometry');
-  };
-  // screen direction of the first slide edge sets the sign
-  const s0 = data.find((d) => d.slides.length)!;
-  const A = v.project(s0.slides[0].a.clone().applyMatrix4(s0.world)),
-    B = v.project(s0.slides[0].b.clone().applyMatrix4(s0.world));
-  const dir = { x: B.x - A.x, y: B.y - A.y };
-  const len = Math.hypot(dir.x, dir.y) || 1;
-  let typed = '';
-  app.startModal({
-    label: 'Edge Slide',
-    header: () => `Edge Slide: ${typed ? typed + '|' : factor.toFixed(3)}`,
-    onPointerMove(e) {
-      if (typed) return;
-      const x = e.clientX - r.left - start.x,
-        y = e.clientY - r.top - start.y;
-      factor = Math.max(-1, Math.min(1, (x * dir.x + y * dir.y) / (len * len)));
-      apply();
-    },
-    onPointerDown(e) {
-      return e.button === 0 ? 'FINISHED' : 'CANCELLED';
-    },
-    onKey(e) {
-      if (e.type !== 'keydown') return true;
-      if (e.key === 'Escape') return 'CANCELLED';
-      if (e.key === 'Enter') return 'FINISHED';
-      // numeric factor in [-1, 1]
-      if (/^[0-9.]$/.test(e.key) || (e.key === '-' && !typed)) typed += e.key;
-      else if (e.key === 'Backspace') typed = typed.slice(0, -1);
-      else return true;
-      const n = parseFloat(typed);
-      factor = Number.isFinite(n) ? Math.max(-1, Math.min(1, n)) : 0;
-      apply();
-      return true;
-    },
-    cancel() {
-      for (const d of data) d.me.positions = d.base;
-      app.changed('geometry');
-    },
-  });
-  return 'RUNNING_MODAL' as const;
-}
-
-// ---------------------------------------------------------------------------
 // bevel (vertices: chamfer corners; edges: offset along adjacent faces)
 
-function startBevelModal(vertexOnly: boolean) {
+interface BevelState {
+  offset: number;
+  segments: number;
+  profile: number;
+  affect: 'VERTICES' | 'EDGES';
+  clamp: boolean;
+  seam: boolean;
+  sharp: boolean;
+  offsetType: 'OFFSET' | 'WIDTH' | 'DEPTH' | 'PERCENT' | 'ABSOLUTE';
+  harden: boolean;
+}
+
+const OFFSET_TYPES: BevelState['offsetType'][] = ['OFFSET', 'WIDTH', 'DEPTH', 'PERCENT', 'ABSOLUTE'];
+
+function applyBevel(m: MeshEdit, st: BevelState) {
+  if (st.offset <= 0) return false;
+  return st.affect === 'VERTICES' ? bevelVertices(m, st.clamp ? Math.min(st.offset, bevelClampLimit(m) * 2) : st.offset, st.segments, st.profile) : bevelEdges(m, st.offset, st.segments, st.profile, { clamp: st.clamp, markSeam: st.seam, markSharp: st.sharp, offsetType: st.offsetType, harden: st.harden });
+}
+
+/**
+ * Interactive bevel: mouse distance sets the width (A), profile (P) or segments (S); wheel and
+ * numpad +/- change segments; V switches vertices/edges; C clamps overlap; U/K mark seams/sharp.
+ */
+function startBevelModal(p: Record<string, unknown>) {
   const v = activeView3D();
   if (!v) return 'CANCELLED' as const;
+  const st: BevelState = {
+    offset: 0,
+    segments: Math.max(1, (p.segments as number) ?? 1),
+    profile: (p.profile as number) ?? 0.5,
+    affect: p.affect === 'VERTICES' ? 'VERTICES' : 'EDGES',
+    clamp: !!p.clamp_overlap,
+    seam: !!p.mark_seam,
+    sharp: !!p.mark_sharp,
+    offsetType: OFFSET_TYPES.includes(p.offset_type as 'OFFSET') ? (p.offset_type as 'OFFSET') : 'OFFSET',
+    harden: !!p.harden_normals,
+  };
   const snaps = editMeshObjects().map(({ me }) => ({ me, m: MeshEdit.from(me) }));
-  if (!snaps.some((s) => (vertexOnly ? s.m.selectedVerts().length : s.m.selectedEdges().length))) {
-    app.report('WARNING', vertexOnly ? 'Select vertices to bevel' : 'Select edges to bevel');
+  const hasSel = () => snaps.some((s) => (st.affect === 'VERTICES' ? s.m.selectedVerts().length : s.m.selectedEdges().length));
+  if (!hasSel()) {
+    app.report('WARNING', st.affect === 'VERTICES' ? 'Select vertices to bevel' : 'Select edges to bevel');
     return 'CANCELLED' as const;
   }
   const r = v.el.getBoundingClientRect();
@@ -1017,8 +1137,8 @@ function startBevelModal(vertexOnly: boolean) {
   let cnt = 0;
   for (const { ob, me } of editMeshObjects()) {
     const w = app.graph.get(ob.id)?.world ?? new Matrix4();
-    me.select_vert?.forEach((s, i) => {
-      if (s) {
+    me.select_vert?.forEach((sv, i) => {
+      if (sv) {
         center.add(new Vector3(me.positions[i * 3], me.positions[i * 3 + 1], me.positions[i * 3 + 2]).applyMatrix4(w));
         cnt++;
       }
@@ -1028,42 +1148,65 @@ function startBevelModal(vertexOnly: boolean) {
   const cs = v.project(center);
   const d0 = Math.max(10, Math.hypot(app.pointer.x - r.left - cs.x, app.pointer.y - r.top - cs.y));
   const px = v.nav.pixelSize(center);
-  let offset = 0,
-    segments = 1;
-  // numeric input: digits type the width; S switches to typing the segment count
+  let mode: 'OFFSET' | 'PROFILE' | 'SEGMENTS' = 'OFFSET';
   let typed = '';
-  let typingSegments = false;
-  const applyTyped = () => {
-    const v = parseFloat(typed);
-    if (!Number.isFinite(v)) return;
-    if (typingSegments) segments = Math.max(1, Math.min(1000, Math.round(v)));
-    else offset = Math.max(0, v);
-  };
+  let lastDist = d0;
+  let precise = false;
+  let snapOn = false;
   const apply = () => {
-    for (const s of snaps) {
-      const c = cloneEdit(s.m);
-      if (offset > 0) {
-        if (vertexOnly) bevelVertices(c, offset);
-        else bevelEdges(c, offset, segments);
-      }
-      c.write(s.me);
+    for (const sn of snaps) {
+      const c = sn.m.clone();
+      applyBevel(c, st);
+      c.write(sn.me);
     }
     app.changed('geometry');
   };
+  const applyTyped = () => {
+    const x = parseFloat(typed);
+    if (!Number.isFinite(x)) return;
+    if (mode === 'SEGMENTS') st.segments = Math.max(1, Math.min(1000, Math.round(x)));
+    else if (mode === 'PROFILE') st.profile = Math.max(0, Math.min(1, x));
+    else st.offset = Math.max(0, x);
+  };
+  const fromMouse = (dist: number) => {
+    if (mode === 'OFFSET') {
+      let o = Math.max(0, (dist - d0) * px);
+      if (snapOn) o = Math.round(o * 10) / 10;
+      st.offset = precise ? st.offset + (dist - lastDist) * px * 0.1 : o;
+      st.offset = Math.max(0, st.offset);
+    } else if (mode === 'PROFILE') st.profile = Math.max(0, Math.min(1, st.profile + ((dist - lastDist) / 200) * (precise ? 0.1 : 1)));
+    else st.segments = Math.max(1, Math.min(100, st.segments + Math.round((dist - lastDist) / 25)));
+    if (mode !== 'SEGMENTS' || Math.abs(dist - lastDist) >= 25) lastDist = dist;
+  };
+  const on = (b: boolean) => (b ? 'On' : 'Off');
+  const val = (m: typeof mode, text: string) => (mode === m && typed ? `${typed}|` : text);
   app.startModal({
-    label: vertexOnly ? 'Bevel Vertices' : 'Bevel',
-    header: () => `Width: ${!typingSegments && typed ? typed + '|' : offset.toFixed(4) + ' m'}   Segments: ${typingSegments && typed ? typed + '|' : segments}   (wheel or S: segments)`,
-    status: () => [['LMB', 'Confirm'], ['RMB', 'Cancel'], ['Wheel', 'Segments']],
+    label: st.affect === 'VERTICES' ? 'Bevel Vertices' : 'Bevel',
+    header: () =>
+      `Bevel ${st.affect === 'VERTICES' ? 'Vertices' : 'Edges'} — ${mode === 'OFFSET' ? '[Width]' : 'Width'}: ${val('OFFSET', st.offset.toFixed(4) + ' m')}  ${mode === 'SEGMENTS' ? '[Segments]' : 'Segments'}: ${val('SEGMENTS', String(st.segments))}  ${mode === 'PROFILE' ? '[Shape]' : 'Shape'}: ${val('PROFILE', st.profile.toFixed(3))}  Width Type: ${st.offsetType[0] + st.offsetType.slice(1).toLowerCase()}  Clamp: ${on(st.clamp)}  Seams: ${on(st.seam)}  Sharp: ${on(st.sharp)}  Harden: ${on(st.harden)}`,
+    status: () => [
+      ['LMB', 'Confirm'],
+      ['RMB', 'Cancel'],
+      ['A', 'Width'],
+      ['S', 'Segments'],
+      ['P', 'Shape'],
+      ['Wheel', 'Segments ±'],
+      ['V', 'Vertices/Edges'],
+      ['C', 'Clamp Overlap'],
+      ['U', 'Mark Seams'],
+      ['K', 'Mark Sharp'],
+      ['M', 'Width Type'],
+      ['H', 'Harden Normals'],
+    ],
     onPointerMove(e) {
       if (typed) return;
-      // moving the mouse away from the selection widens the bevel (starts at zero)
-      offset = Math.max(0, (Math.hypot(e.clientX - r.left - cs.x, e.clientY - r.top - cs.y) - d0) * px);
-      if (e.ctrlKey) offset = Math.round(offset * 10) / 10;
-      if (e.shiftKey) offset = Math.round(offset * 100) / 100;
+      precise = e.shiftKey;
+      snapOn = e.ctrlKey;
+      fromMouse(Math.hypot(e.clientX - r.left - cs.x, e.clientY - r.top - cs.y));
       apply();
     },
     onWheel(e) {
-      segments = Math.max(1, Math.min(32, segments + (e.deltaY < 0 ? 1 : -1)));
+      st.segments = Math.max(1, Math.min(1000, st.segments + (e.deltaY < 0 ? 1 : -1)));
       apply();
     },
     onPointerDown(e) {
@@ -1071,26 +1214,43 @@ function startBevelModal(vertexOnly: boolean) {
     },
     onKey(e) {
       if (e.type !== 'keydown') return true;
+      const k = e.key.toLowerCase();
       if (e.key === 'Escape') return 'CANCELLED';
       if (e.key === 'Enter') return 'FINISHED';
-      if (e.key === 's' || e.key === 'S') {
-        typingSegments = !typingSegments;
+      const setMode = (m: typeof mode) => {
+        mode = m;
         typed = '';
-        return true;
-      }
-      if (/^[0-9.]$/.test(e.key) || (e.key === '-' && !typed)) typed += e.key;
-      else if (e.key === 'Backspace') typed = typed.slice(0, -1);
-      else return true;
-      applyTyped();
+      };
+      if (k === 'a') setMode('OFFSET');
+      else if (k === 's') setMode('SEGMENTS');
+      else if (k === 'p') setMode('PROFILE');
+      else if (k === 'v') {
+        st.affect = st.affect === 'VERTICES' ? 'EDGES' : 'VERTICES';
+        if (!hasSel()) st.affect = st.affect === 'VERTICES' ? 'EDGES' : 'VERTICES';
+      } else if (k === 'c') st.clamp = !st.clamp;
+      else if (k === 'u') st.seam = !st.seam;
+      else if (k === 'k') st.sharp = !st.sharp;
+      else if (k === 'h') st.harden = !st.harden;
+      else if (k === 'm') st.offsetType = OFFSET_TYPES[(OFFSET_TYPES.indexOf(st.offsetType) + 1) % OFFSET_TYPES.length];
+      else if (e.key === '+' || (e.code === 'NumpadAdd' && !typed)) st.segments = Math.min(1000, st.segments + 1);
+      else if ((e.key === '-' && typed === '' && mode === 'SEGMENTS') || e.code === 'NumpadSubtract') st.segments = Math.max(1, st.segments - 1);
+      else if (/^[0-9.]$/.test(e.key) || (e.key === '-' && !typed)) {
+        typed += e.key;
+        applyTyped();
+      } else if (e.key === 'Backspace') {
+        typed = typed.slice(0, -1);
+        applyTyped();
+      } else return true;
       apply();
       return true;
     },
     cancel() {
-      for (const s of snaps) s.m.write(s.me);
+      for (const sn of snaps) sn.m.write(sn.me);
       app.changed('geometry');
     },
     finish() {
-      this.redoOp = { idname: 'mesh.bevel', props: { offset, segments, affect: vertexOnly ? 'VERTICES' : 'EDGES' } };
+      this.label = st.affect === 'VERTICES' ? 'Bevel Vertices' : 'Bevel';
+      this.redoOp = { idname: 'mesh.bevel', props: { offset_type: st.offsetType, offset: st.offset, segments: st.segments, profile: st.profile, affect: st.affect, clamp_overlap: st.clamp, mark_seam: st.seam, mark_sharp: st.sharp, harden_normals: st.harden } };
     },
   });
   return 'RUNNING_MODAL' as const;
@@ -1099,36 +1259,64 @@ function startBevelModal(vertexOnly: boolean) {
 // ---------------------------------------------------------------------------
 // spin
 
-function spin(m: MeshEdit, steps: number, angle: number, center: Vector3, axis: Vector3, dupli = false) {
+export function spin(m: MeshEdit, steps: number, angle: number, center: Vector3, axis: Vector3, dupli = false, opts: { autoMerge?: boolean; flip?: boolean } = {}) {
   const fsel = m.selectedFaces();
-  const edges = fsel.length ? null : m.selectedEdges();
   const profileVerts = m.selectedVerts();
   if (!profileVerts.length) return false;
-  let prev = new Map(profileVerts.map((v) => [v, v]));
-  const profileEdges = edges ?? (() => {
-    // boundary edges of the selected face region
-    const count = new Map<string, number>();
-    for (const fi of fsel) {
-      const f = m.faces[fi];
-      for (let i = 0; i < f.verts.length; i++) {
-        const k = edgeKey(f.verts[i], f.verts[(i + 1) % f.verts.length]);
-        count.set(k, (count.get(k) ?? 0) + 1);
+  const selEdges = m.selectedEdges();
+  // edges that sweep into walls: region outline for faces, else the selected edges
+  const count = new Map<string, number>();
+  for (const fi of fsel) {
+    const f = m.faces[fi];
+    for (let i = 0; i < f.verts.length; i++) {
+      const k = edgeKey(f.verts[i], f.verts[(i + 1) % f.verts.length]);
+      count.set(k, (count.get(k) ?? 0) + 1);
+    }
+  }
+  const faceEdges = new Set(count.keys());
+  const profileEdges: [number, number][] = [...[...count.entries()].filter(([, c]) => c === 1).map(([k]) => k.split(':').map(Number) as [number, number]), ...selEdges.filter(([a, b]) => !faceEdges.has(edgeKey(a, b)))];
+  const full = Math.abs(Math.abs(angle) - Math.PI * 2) < 1e-4;
+  const merge = !dupli && full && !!opts.autoMerge;
+  const first = new Map(profileVerts.map((v) => [v, v]));
+  let prev = first;
+  const firstFace = m.faces.length;
+  for (let s = 1; s <= steps; s++) {
+    const last = s === steps;
+    let cur: Map<number, number>;
+    if (last && merge) cur = first;
+    else {
+      const q = new Quaternion().setFromAxisAngle(axis, (angle * s) / steps);
+      cur = new Map<number, number>();
+      for (const v of profileVerts) {
+        const p = V(m.p(v)).sub(center).applyQuaternion(q).add(center);
+        cur.set(v, m.addVert([p.x, p.y, p.z], [[v, 1]], last ? 1 : 0));
       }
     }
-    return [...count.entries()].filter(([, c]) => c === 1).map(([k]) => k.split(':').map(Number) as [number, number]);
-  })();
-  for (let s = 1; s <= steps; s++) {
-    const q = new Quaternion().setFromAxisAngle(axis, (angle * s) / steps);
-    const cur = new Map<number, number>();
-    for (const v of profileVerts) {
-      const p = V(m.p(v)).sub(center).applyQuaternion(q).add(center);
-      cur.set(v, m.addVert([p.x, p.y, p.z], [[v, 1]], s === steps ? 1 : 0));
-    }
-    if (!dupli) for (const [a, b] of profileEdges) m.faces.push(m.makeFace([prev.get(a)!, prev.get(b)!, cur.get(b)!, cur.get(a)!]));
+    if (dupli) {
+      // a rotated copy of the selection at every step
+      for (const fi of fsel) {
+        const f = m.faces[fi];
+        m.faces.push({ ...f, verts: f.verts.map((v) => cur.get(v)!), uvs: [...f.uvs], seams: [...f.seams], sharp: [...f.sharp], creases: [...f.creases], colors: f.colors ? [...f.colors] : undefined, cnormals: undefined });
+      }
+      for (const [a, b] of selEdges) if (!faceEdges.has(edgeKey(a, b))) m.looseEdges.push([cur.get(a)!, cur.get(b)!]);
+    } else for (const [a, b] of profileEdges) m.faces.push(m.makeFace([prev.get(a)!, prev.get(b)!, cur.get(b)!, cur.get(a)!], fsel.length ? m.faces[fsel[0]] : undefined));
     prev = cur;
   }
-  for (const v of profileVerts) m.sel[v] = 0;
+  if (!dupli && fsel.length && !merge) {
+    // end cap: the selected faces at the final position
+    for (const fi of fsel) {
+      const f = m.faces[fi];
+      m.faces.push({ ...f, verts: f.verts.map((v) => prev.get(v)!), uvs: [...f.uvs], seams: [...f.seams], sharp: [...f.sharp], creases: [...f.creases], colors: f.colors ? [...f.colors] : undefined, cnormals: undefined });
+    }
+  }
+  if (!dupli && fsel.length) {
+    // like an extrusion, the swept faces leave their start position
+    const rm = new Set(fsel);
+    m.faces = m.faces.filter((_, i) => !rm.has(i));
+  }
+  if (!merge) for (const v of profileVerts) m.sel[v] = 0;
   makeNormalsConsistentNew(m);
+  if (opts.flip) for (let i = firstFace - (!dupli ? fsel.length : 0); i < m.faces.length; i++) if (m.faces[i]) flipFace(m.faces[i]);
   return true;
 }
 
@@ -1143,10 +1331,24 @@ registerOperators([
       { id: 'depth', label: 'Depth', type: 'float', default: 0, subtype: 'distance' },
       { id: 'use_individual', label: 'Individual', type: 'bool', default: false },
       { id: 'use_outset', label: 'Outset', type: 'bool', default: false },
+      { id: 'use_select_inset', label: 'Select Outer', type: 'bool', default: false },
+      { id: 'use_even_offset', label: 'Offset Even', type: 'bool', default: true },
+      { id: 'use_relative_offset', label: 'Offset Relative', type: 'bool', default: false },
     ],
     poll: editPoll,
-    invoke: (_ctx, p) => startInsetModal(!!p.use_individual),
-    exec: (_ctx, p) => void withEdit((m) => insetFaces(m, p.thickness as number, p.depth as number, !!p.use_individual, !!p.use_outset)),
+    invoke: (_ctx, p) => startInsetModal(!!p.use_individual, !!p.use_outset),
+    exec: (_ctx, p) =>
+      void withEdit((m) => {
+        const before = m.faces.length;
+        if (!insetFaces(m, p.thickness as number, p.depth as number, !!p.use_individual, !!p.use_outset, { even: p.use_even_offset !== false, relative: !!p.use_relative_offset })) return false;
+        if (p.use_select_inset) {
+          // select the new rim instead of the inner faces
+          const inner = new Set(m.selectedFaces());
+          m.sel = m.sel.map(() => 0);
+          for (let i = before; i < m.faces.length; i++) for (const v of m.faces[i].verts) m.sel[v] = 1;
+          for (const fi of inner) m.faces[fi].selX = true;
+        }
+      }),
   },
   {
     idname: 'mesh.edge_face_add',
@@ -1158,32 +1360,40 @@ registerOperators([
     },
   },
   {
-    idname: 'mesh.fill',
-    label: 'Fill',
-    description: 'Fill a selected edge loop with faces',
-    props: [{ id: 'use_beauty', label: 'Beauty', type: 'bool', default: true }],
-    poll: editPoll,
-    exec: () => {
-      if (!withEdit((m) => edgeFaceAdd(m))) return 'CANCELLED';
-      app.run('mesh.quads_convert_to_tris', {}, { invoke: false });
-    },
-  },
-  {
     idname: 'mesh.bridge_edge_loops',
     label: 'Bridge Edge Loops',
-    props: [{ id: 'twist_offset', label: 'Twist', type: 'int', default: 0 }],
+    description: 'Join two or more edge loops (or face outlines) with faces',
+    props: [
+      { id: 'type', label: 'Connect Loops', type: 'enum', default: 'SINGLE', items: [['SINGLE', 'Open Loop'], ['CLOSED', 'Closed Loop'], ['PAIRS', 'Loop Pairs']] },
+      { id: 'use_merge', label: 'Merge', type: 'bool', default: false },
+      { id: 'merge_factor', label: 'Merge Factor', type: 'float', default: 0.5, min: 0, max: 1, subtype: 'factor', showIf: (p) => !!p.use_merge },
+      { id: 'twist_offset', label: 'Twist', type: 'int', default: 0, min: -1000, max: 1000 },
+      { id: 'number_cuts', label: 'Number of Cuts', type: 'int', default: 0, min: 0, max: 1000, showIf: (p) => !p.use_merge },
+      { id: 'interpolation', label: 'Interpolation', type: 'enum', default: 'PATH', items: [['LINEAR', 'Linear'], ['PATH', 'Blend Path']], showIf: (p) => !p.use_merge && (p.number_cuts as number) > 0 },
+      { id: 'smoothness', label: 'Smoothness', type: 'float', default: 1, min: 0, max: 1000, softMax: 2, showIf: (p) => !p.use_merge && (p.number_cuts as number) > 0 },
+    ],
     poll: editPoll,
     exec: (_ctx, p) => {
-      if (!withEdit((m) => bridgeLoops(m, p.twist_offset as number))) return 'CANCELLED';
+      const o: BridgeOptions = { type: p.type as 'SINGLE', merge: !!p.use_merge, mergeFactor: p.merge_factor as number, twist: p.twist_offset as number, cuts: p.number_cuts as number, interpolation: p.interpolation as 'PATH', smoothness: p.smoothness as number };
+      if (!withEdit((m) => bridgeLoops(m, o))) return 'CANCELLED';
     },
   },
   {
     idname: 'mesh.subdivide',
     label: 'Subdivide',
-    props: [{ id: 'number_cuts', label: 'Number of Cuts', type: 'int', default: 1, min: 1, max: 100 }, { id: 'smoothness', label: 'Smoothness', type: 'float', default: 0, min: 0, max: 1000, subtype: 'factor' }],
+    description: 'Split the selected edges and faces into smaller ones',
+    props: [
+      { id: 'number_cuts', label: 'Number of Cuts', type: 'int', default: 1, min: 1, max: 100 },
+      { id: 'smoothness', label: 'Smoothness', type: 'float', default: 0, min: 0, max: 1000, softMax: 1, subtype: 'factor' },
+      { id: 'quadcorner', label: 'Quad Corner Type', type: 'enum', default: 'STRAIGHT_CUT', items: [['INNERVERT', 'Inner Vert'], ['STRAIGHT_CUT', 'Straight Cut'], ['FAN', 'Fan']] },
+      { id: 'fractal', label: 'Fractal', type: 'float', default: 0, min: 0, max: 1e6, softMax: 1000 },
+      { id: 'fractal_along_normal', label: 'Along Normal', type: 'float', default: 0, min: 0, max: 1, subtype: 'factor' },
+      { id: 'seed', label: 'Random Seed', type: 'int', default: 0, min: 0 },
+    ],
     poll: editPoll,
     exec: (_ctx, p) => {
-      if (!withEdit((m) => subdivide(m, p.number_cuts as number, p.smoothness as number))) return 'CANCELLED';
+      const o: SubdivideOptions = { quadcorner: p.quadcorner as 'FAN', fractal: p.fractal as number, fractalAlongNormal: p.fractal_along_normal as number, seed: p.seed as number };
+      if (!withEdit((m) => subdivide(m, p.number_cuts as number, p.smoothness as number, o))) return 'CANCELLED';
     },
   },
   {
@@ -1216,21 +1426,14 @@ registerOperators([
     },
   },
   {
-    idname: 'transform.edge_slide',
-    label: 'Edge Slide',
-    poll: editPoll,
-    invoke: () => startEdgeSlide(),
-  },
-  {
-    idname: 'transform.vert_slide',
-    label: 'Vertex Slide',
-    poll: editPoll,
-    invoke: () => startEdgeSlide(),
-  },
-  {
     idname: 'mesh.poke',
     label: 'Poke Faces',
-    props: [{ id: 'offset', label: 'Poke Offset', type: 'float', default: 0, subtype: 'distance' }],
+    description: 'Split each selected face into a fan of triangles around a new centre vertex',
+    props: [
+      { id: 'offset', label: 'Poke Offset', type: 'float', default: 0, min: -1000, max: 1000, softMin: -1, softMax: 1, subtype: 'distance' },
+      { id: 'use_relative_offset', label: 'Offset Relative', type: 'bool', default: false },
+      { id: 'center_mode', label: 'Poke Center', type: 'enum', default: 'MEDIAN_WEIGHTED', items: [['MEDIAN_WEIGHTED', 'Weighted Median', 'Centre weighted by edge length'], ['MEDIAN', 'Median', 'Average of the corners'], ['BOUNDS', 'Bounds', 'Centre of the bounding box']] },
+    ],
     poll: editPoll,
     exec: (_ctx, p) =>
       void withEdit((m) => {
@@ -1238,12 +1441,42 @@ registerOperators([
         const out: EFace[] = [];
         m.faces.forEach((f, fi) => {
           if (!fsel.has(fi)) return out.push(f);
-          const c = V(m.faceCenter(f)).addScaledVector(V(m.faceNormal(f)), p.offset as number);
-          const cid = m.addVert([c.x, c.y, c.z], f.verts.map((v) => [v, 1 / f.verts.length] as [number, number]), 1);
-          const cu = [0, 1].map((k) => f.verts.reduce((acc, _, i) => acc + f.uvs[i * 2 + k], 0) / f.verts.length);
-          for (let i = 0; i < f.verts.length; i++) {
-            const j = (i + 1) % f.verts.length;
-            out.push(m.makeFace([f.verts[i], f.verts[j], cid], f, [f.uvs[i * 2], f.uvs[i * 2 + 1], f.uvs[j * 2], f.uvs[j * 2 + 1], ...cu]));
+          const pts = f.verts.map((v) => V(m.p(v)));
+          const n = pts.length;
+          let c = new Vector3();
+          if (p.center_mode === 'BOUNDS') {
+            const min = pts[0].clone(),
+              max = pts[0].clone();
+            for (const q of pts) {
+              min.min(q);
+              max.max(q);
+            }
+            c = min.add(max).multiplyScalar(0.5);
+          } else if (p.center_mode === 'MEDIAN') {
+            for (const q of pts) c.add(q);
+            c.multiplyScalar(1 / n);
+          } else {
+            // each corner weighted by the length of its two edges
+            let wsum = 0;
+            pts.forEach((q, i) => {
+              const w = q.distanceTo(pts[(i + 1) % n]) + q.distanceTo(pts[(i + n - 1) % n]);
+              c.addScaledVector(q, w);
+              wsum += w;
+            });
+            c.multiplyScalar(1 / (wsum || 1));
+          }
+          let off = p.offset as number;
+          if (p.use_relative_offset) off *= pts.reduce((s, q) => s + q.distanceTo(c), 0) / n;
+          c.addScaledVector(V(m.faceNormal(f)), off);
+          const cid = m.addVert([c.x, c.y, c.z], f.verts.map((v) => [v, 1 / n] as [number, number]), 1);
+          const cu = [0, 1].map((k) => f.verts.reduce((acc, _, i) => acc + f.uvs[i * 2 + k], 0) / n);
+          for (let i = 0; i < n; i++) {
+            const j = (i + 1) % n;
+            const t = m.makeFace([f.verts[i], f.verts[j], cid], f, [f.uvs[i * 2], f.uvs[i * 2 + 1], f.uvs[j * 2], f.uvs[j * 2 + 1], ...cu]);
+            t.seams[0] = f.seams[i];
+            t.sharp[0] = f.sharp[i];
+            t.creases[0] = f.creases[i];
+            out.push(t);
           }
         });
         m.faces = out;
@@ -1252,34 +1485,54 @@ registerOperators([
   {
     idname: 'mesh.bevel',
     label: 'Bevel',
+    description: 'Cut off the selected edges or vertices at an angle',
     props: [
+      { id: 'offset_type', label: 'Width Type', type: 'enum', default: 'OFFSET', items: [['OFFSET', 'Offset', 'Distance of the new edges from the old one'], ['WIDTH', 'Width', 'Width of the bevel face'], ['DEPTH', 'Depth', 'Distance from the old edge to the bevel face'], ['PERCENT', 'Percent', 'Percentage of the adjacent edge length'], ['ABSOLUTE', 'Absolute', 'Distance along the adjacent edges']] },
       { id: 'offset', label: 'Width', type: 'float', default: 0, min: 0, subtype: 'distance' },
       { id: 'segments', label: 'Segments', type: 'int', default: 1, min: 1, max: 1000 },
-      { id: 'affect', label: 'Affect', type: 'enum', default: 'EDGES', items: [['VERTICES', 'Vertices'], ['EDGES', 'Edges']] },
       { id: 'profile', label: 'Shape', type: 'float', default: 0.5, min: 0, max: 1, subtype: 'factor' },
+      { id: 'affect', label: 'Affect', type: 'enum', default: 'EDGES', items: [['VERTICES', 'Vertices'], ['EDGES', 'Edges']] },
+      { id: 'clamp_overlap', label: 'Clamp Overlap', type: 'bool', default: false },
+      { id: 'mark_seam', label: 'Mark Seams', type: 'bool', default: false, showIf: (p) => p.affect !== 'VERTICES' },
+      { id: 'mark_sharp', label: 'Mark Sharp', type: 'bool', default: false, showIf: (p) => p.affect !== 'VERTICES' },
+      { id: 'harden_normals', label: 'Harden Normals', type: 'bool', default: false, showIf: (p) => p.affect !== 'VERTICES' },
     ],
     poll: editPoll,
-    invoke: (_ctx, p) => startBevelModal(p.affect === 'VERTICES'),
+    invoke: (_ctx, p) => startBevelModal(p),
     exec: (_ctx, p) => {
-      const ok = withEdit((m) => (p.affect === 'VERTICES' ? bevelVertices(m, p.offset as number) : bevelEdges(m, p.offset as number, p.segments as number, p.profile as number)));
-      if (!ok) return 'CANCELLED';
+      const st: BevelState = { offset: p.offset as number, segments: p.segments as number, profile: p.profile as number, affect: p.affect === 'VERTICES' ? 'VERTICES' : 'EDGES', clamp: !!p.clamp_overlap, seam: !!p.mark_seam, sharp: !!p.mark_sharp, offsetType: OFFSET_TYPES.includes(p.offset_type as 'OFFSET') ? (p.offset_type as 'OFFSET') : 'OFFSET', harden: !!p.harden_normals };
+      if (!withEdit((m) => applyBevel(m, st))) return 'CANCELLED';
     },
   },
   {
     idname: 'mesh.spin',
     label: 'Spin',
-    props: [{ id: 'steps', label: 'Steps', type: 'int', default: 12, min: 1, max: 1000 }, { id: 'angle', label: 'Angle', type: 'float', default: Math.PI * 2, subtype: 'angle' }, { id: 'dupli', label: 'Use Duplicates', type: 'bool', default: false }, { id: 'center', label: 'Center', type: 'vec3', default: null, subtype: 'distance' }, { id: 'axis', label: 'Axis', type: 'vec3', default: [0, 0, 1] }],
+    description: 'Extrude the selection around the 3D cursor',
+    props: [
+      { id: 'steps', label: 'Steps', type: 'int', default: 12, min: 0, max: 1000000, softMax: 128 },
+      { id: 'dupli', label: 'Use Duplicates', type: 'bool', default: false },
+      { id: 'angle', label: 'Angle', type: 'float', default: Math.PI / 2, min: -Math.PI * 2, max: Math.PI * 2, subtype: 'angle' },
+      { id: 'use_auto_merge', label: 'Auto Merge', type: 'bool', default: true },
+      { id: 'use_normal_flip', label: 'Flip Normals', type: 'bool', default: false },
+      { id: 'center', label: 'Center', type: 'vec3', default: null, subtype: 'distance' },
+      { id: 'axis', label: 'Axis', type: 'vec3', default: null },
+    ],
     poll: editPoll,
     exec: (_ctx, p) => {
-      const ok = withEdit((m, ob) => {
-        const world = app.graph.get(ob.id)?.world ?? new Matrix4();
-        const inv = world.clone().invert();
-        const c = p.center ? V(p.center as number[]) : V(app.doc.scene.cursor.location);
-        if (!p.center) p.center = [c.x, c.y, c.z];
-        let axis = V(p.axis as number[]);
+      const c = p.center ? V(p.center as number[]) : V(app.doc.scene.cursor.location);
+      p.center = [c.x, c.y, c.z];
+      let axis = p.axis ? V(p.axis as number[]) : null;
+      if (!axis || axis.lengthSq() === 0) {
+        // the view axis (towards the viewer)
         const v = activeView3D();
-        if (v && (p.axis as number[]).every((x, i) => x === [0, 0, 1][i]) && v.nav.view !== 'USER') axis = new Vector3(0, 0, -1).applyQuaternion(v.camera.quaternion).negate();
-        return spin(m, p.steps as number, p.angle as number, c.applyMatrix4(inv), axis.transformDirection(inv), !!p.dupli);
+        axis = v ? new Vector3(0, 0, 1).applyQuaternion(v.camera.quaternion) : new Vector3(0, 0, 1);
+        p.axis = [axis.x, axis.y, axis.z];
+      }
+      const ax = axis;
+      if ((p.steps as number) < 1) return 'CANCELLED';
+      const ok = withEdit((m, ob) => {
+        const inv = (app.graph.get(ob.id)?.world ?? new Matrix4()).clone().invert();
+        return spin(m, p.steps as number, p.angle as number, c.clone().applyMatrix4(inv), ax.clone().transformDirection(inv).normalize(), !!p.dupli, { autoMerge: !!p.use_auto_merge, flip: !!p.use_normal_flip });
       });
       if (!ok) return 'CANCELLED';
     },

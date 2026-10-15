@@ -18,6 +18,7 @@ import {
 import { app } from '../../app/app';
 import { renderContext } from '../../render/context';
 import { editMeshObjects, selectMode, active } from './context';
+import { exclusionsOf } from './selset';
 import { viewportExtensions } from '../../editors/view3d/hooks';
 import type { View3D } from '../../editors/view3d/view3d';
 import type { MeshData } from '../../data/types';
@@ -93,6 +94,7 @@ function build(me: MeshData, xray: boolean, ov: { seams: boolean; sharp: boolean
   const sel = me.select_vert ?? new Uint8Array(nv);
   const hid = me.hide_vert;
   const mode = selectMode();
+  const ex = exclusionsOf(me);
   // faces (selected tint)
   const fpos: number[] = [],
     fcol: number[] = [];
@@ -113,6 +115,7 @@ function build(me: MeshData, xray: boolean, ov: { seams: boolean; sharp: boolean
       if (hid?.[v]) hidden = true;
     }
     if (hidden) continue;
+    if (ex?.faces.has(f)) all = false;
     const isActive = active.objectId === obId && active.kind === 'FACE' && active.index === f;
     const col = isActive ? [1, 1, 1, 0.25] : all ? [C.faceSel.r, C.faceSel.g, C.faceSel.b, mode === 'FACE' ? 0.28 : 0.22] : [1, 1, 1, xray ? 0.04 : 0.012];
     tmp.length = 0;
@@ -174,7 +177,7 @@ function build(me: MeshData, xray: boolean, ov: { seams: boolean; sharp: boolean
       seen.add(key);
       epos.push(P[a * 3], P[a * 3 + 1], P[a * 3 + 2], P[b * 3], P[b * 3 + 1], P[b * 3 + 2]);
       let ca: Color, cb: Color;
-      const both = sel[a] && sel[b];
+      const both = sel[a] && sel[b] && !ex?.edges.has(a < b ? `${a}:${b}` : `${b}:${a}`);
       const isActive = active.objectId === obId && active.kind === 'EDGE' && ((active.edge[0] === a && active.edge[1] === b) || (active.edge[0] === b && active.edge[1] === a));
       if (isActive) ca = cb = C.active;
       else if (mode === 'VERT') {

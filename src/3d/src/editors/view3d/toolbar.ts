@@ -84,41 +84,63 @@ function lastSelectTool() {
   return SELECT_TOOLS.find((t) => t.id === lastSel)!;
 }
 
+/** Last used tool of each tool group (other than select), shown in the group's toolbar slot. */
+const lastInGroup: Record<string, string> = {};
+
 export function setActiveTool(id: string) {
   activeTools[app.doc.mode] = id;
   if (SELECT_TOOLS.some((t) => t.id === id)) lastSel = id;
+  const t = toolsFor(app.doc.mode).find((x) => x?.id === id);
+  if (t?.group && t.group !== 'select') lastInGroup[t.group] = id;
   app.changed('ui');
+}
+
+/** Collapse grouped tools into one slot each (the active or last used member). */
+function groupSlots(tools: (ToolDef | null)[], cur: string): (ToolDef | null)[] {
+  const shown = new Set<string>();
+  return tools.filter((t) => {
+    if (!t || !t.group || t.group === 'select') return true;
+    if (shown.has(t.group)) return false;
+    const members = tools.filter((x) => x?.group === t.group) as ToolDef[];
+    const rep = members.find((x) => x.id === cur) ?? members.find((x) => x.id === lastInGroup[t.group!]) ?? members[0];
+    if (rep !== t) return false;
+    shown.add(t.group);
+    return true;
+  });
 }
 
 export function toolbar(v: View3D): Child {
   const mode = app.doc.mode;
   const cur = activeTools[mode];
-  const tools = toolsFor(mode);
+  const all = toolsFor(mode);
+  const tools = groupSlots(all, cur);
   return h(
     'div',
     { key: 'toolbar', class: 'v3d-toolbar' },
     tools.map((t, i) => {
       if (!t) return h('div', { key: `sep${i}`, class: 'tb-sep' });
       const isSelectSlot = t.group === 'select';
+      const members = t.group && !isSelectSlot ? (all.filter((x) => x?.group === t.group) as ToolDef[]) : [];
+      const alternates = isSelectSlot ? SELECT_TOOLS : members.length > 1 ? members : null;
       const active = t.id === cur;
       return h(
         'button',
         {
           key: t.id + i,
-          class: { 'tb-tool': true, on: active, 'has-alt': isSelectSlot },
+          class: { 'tb-tool': true, on: active, 'has-alt': !!alternates },
           'data-tool': t.id,
           'data-tip': `${t.label}${t.shortcut ? `\nShortcut: ${t.shortcut}` : ''}${t.description ? `\n${t.description}` : ''}`,
           onpointerdown: (e: PointerEvent) => {
             e.preventDefault();
-            if (isSelectSlot && (e.button === 2 || e.detail > 1)) {
-              openMenu(SELECT_TOOLS.map((s) => ({ label: s.label, icon: s.icon, active: s.id === cur, action: () => setActiveTool(s.id) })), e.currentTarget as HTMLElement);
+            if (alternates && (e.button === 2 || e.detail > 1)) {
+              openMenu(alternates.map((s) => ({ label: s.label, icon: s.icon, active: s.id === cur, action: () => setActiveTool(s.id) })), e.currentTarget as HTMLElement);
               return;
             }
             setActiveTool(t.id);
             // long press opens alternates
-            if (isSelectSlot) {
+            if (alternates) {
               const el = e.currentTarget as HTMLElement;
-              const timer = setTimeout(() => openMenu(SELECT_TOOLS.map((s) => ({ label: s.label, icon: s.icon, active: s.id === activeTools[mode], action: () => setActiveTool(s.id) })), el), 350);
+              const timer = setTimeout(() => openMenu(alternates.map((s) => ({ label: s.label, icon: s.icon, active: s.id === activeTools[mode], action: () => setActiveTool(s.id) })), el), 350);
               const up = () => {
                 clearTimeout(timer);
                 removeEventListener('pointerup', up);
