@@ -31,6 +31,7 @@ import {
   AlwaysDepth,
   WebGLRenderTarget,
   UnsignedByteType,
+  HalfFloatType,
   PlaneGeometry,
   OrthographicCamera,
   Scene,
@@ -675,9 +676,13 @@ function syncObject(doc: DocumentData, ev: EvalObject) {
   s.inFront = ev.ob.show_in_front;
   s.group.matrix.copy(ev.world);
   updateLayerParents(gp, ev.world);
-  const entries = objectEntries(doc, gp, doc.scene.frame_current, wantOnion(doc, ev.id), ev.ob);
+  fillSynced(s, objectEntries(doc, gp, doc.scene.frame_current, wantOnion(doc, ev.id), ev.ob), ev.ob);
+}
+
+/** Fill an object's private scene with meshes for its entries (and the mask stencil passes). */
+function fillSynced(s: GPSynced, entries: Entry[], ob: ObjectData) {
   while (s.meshes.length < entries.length) {
-    const m = newGPMesh(ev.id);
+    const m = newGPMesh(s.id);
     s.meshes.push(m);
     s.group.add(m);
   }
@@ -690,8 +695,8 @@ function syncObject(doc: DocumentData, ev: EvalObject) {
       m.visible = false;
       return;
     }
-    if (e.masks?.length) syncMasks(s!, e, order, used, s!.mode3D);
-    applyEntry(m, e, ev.ob, s!.mode3D);
+    if (e.masks?.length) syncMasks(s, e, order, used, s.mode3D);
+    applyEntry(m, e, ob, s.mode3D);
     m.renderOrder = order.n++;
   });
   for (let i = used.n; i < s.maskMeshes.length; i++) s.maskMeshes[i].visible = false;
@@ -714,7 +719,9 @@ sceneSyncHooks.push((doc, ev) => {
 // viewport passes
 
 let rt: WebGLRenderTarget | null = null;
-const compositeMat = new ShaderMaterial({
+/** Composites an object image (premultiplied) into the scene at a given depth. */
+function makeComposite(): ShaderMaterial {
+  return new ShaderMaterial({
   vertexShader: /* glsl */ `
     varying vec2 vUv;
     void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
@@ -743,6 +750,8 @@ const compositeMat = new ShaderMaterial({
   blendSrcAlpha: OneFactor,
   blendDstAlpha: OneMinusSrcAlphaFactor,
 });
+}
+const compositeMat = makeComposite();
 const compositeQuad = new Mesh(new PlaneGeometry(2, 2), compositeMat);
 compositeQuad.frustumCulled = false;
 const compositeScene = new Scene();
@@ -906,11 +915,82 @@ drawHooks.passes.push((pass, view, camera) => {
 
 const renderMeshes = new WeakMap<object, Map<string, GPMesh[]>>();
 
+// objects with visual effects or masked layers render through their own image (see finalImage)
+const finalImages = new WeakMap<object, Map<string, FinalImage>>();
+
+interface FinalImage {
+  s: GPSynced;
+  proxy: Mesh;
+  mat: ShaderMaterial;
+}
+
+let finalRT: WebGLRenderTarget | null = null;
+
+function finalImage(rs: { scene: Scene }, id: string, map: Map<string, FinalImage>): FinalImage {
+  let f = map.get(id);
+  if (f) return f;
+  const scene = new Scene();
+  scene.matrixWorldAutoUpdate = false;
+  const group = new Group();
+  group.matrixAutoUpdate = false;
+  scene.add(group);
+  const mat = makeComposite();
+  mat.toneMapped = true;
+  const proxy = new Mesh(new PlaneGeometry(2, 2), mat);
+  proxy.frustumCulled = false;
+  proxy.matrixAutoUpdate = false;
+  const s: GPSynced = { id, scene, group, meshes: [], maskMeshes: [], mode3D: false, inFront: false, masked: false };
+  f = { s, proxy, mat };
+  // the object's strokes are drawn into an image (stencil masks, effects) right before the quad shows it
+  proxy.onBeforeRender = (renderer: WebGLRenderer, _sc: Scene, camera: Camera) => {
+    const prev = renderer.getRenderTarget();
+    const size = prev ? new Vector2(prev.width, prev.height) : renderer.getDrawingBufferSize(new Vector2());
+    const W = Math.max(1, size.x),
+      H = Math.max(1, size.y);
+    if (!finalRT) finalRT = new WebGLRenderTarget(W, H, { samples: 4, depthBuffer: true, stencilBuffer: true, type: HalfFloatType });
+    if (finalRT.width !== W || finalRT.height !== H) finalRT.setSize(W, H);
+    const clear = renderer.getClearColor(new Color()),
+      alpha = renderer.getClearAlpha();
+    renderer.setRenderTarget(finalRT);
+    renderer.setClearColor(0x000000, 0);
+    renderer.clear(true, true, true);
+    renderer.render(s.scene, camera);
+    let tex: Texture = finalRT.texture;
+    const fx = (app.doc.objects[id]?.shader_effects ?? []).filter((x) => x.show_render);
+    tmpV.setFromMatrixPosition(s.group.matrixWorld).project(camera);
+    const depth = Math.min(1, Math.max(0, tmpV.z * 0.5 + 0.5));
+    if (fx.length) {
+      const origin = new Vector2((tmpV.x * 0.5 + 0.5) * W, (tmpV.y * 0.5 + 0.5) * H);
+      tex = applyEffects(renderer, finalRT.texture, W, H, fx, {
+        origin,
+        scale: 1,
+        objectOrigin: (oid) => {
+          const ev = app.graph.get(oid);
+          if (!ev) return null;
+          const q = new Vector3().setFromMatrixPosition(ev.world).project(camera);
+          return new Vector2((q.x * 0.5 + 0.5) * W, (q.y * 0.5 + 0.5) * H);
+        },
+      });
+    }
+    renderer.setRenderTarget(prev);
+    renderer.setClearColor(clear, alpha);
+    mat.uniforms.tColor.value = tex;
+    mat.uniforms.uDepth.value = s.inFront ? 0 : depth;
+    mat.depthFunc = s.inFront ? AlwaysDepth : LessEqualDepth;
+  };
+  map.set(id, f);
+  rs.scene.add(proxy);
+  return f;
+}
+
 renderSceneHooks.push((rs, appRef, o) => {
   let byOb = renderMeshes.get(rs);
   if (!byOb) renderMeshes.set(rs, (byOb = new Map()));
+  let images = finalImages.get(rs);
+  if (!images) finalImages.set(rs, (images = new Map()));
   const doc = appRef.doc;
   const seen = new Set<string>();
+  const seenImages = new Set<string>();
   if (o.mode === 'raster') {
     const renderable = o.final ? renderVisibleObjects(doc) : null;
     for (const ev of appRef.graph.objects.values()) {
@@ -918,8 +998,20 @@ renderSceneHooks.push((rs, appRef, o) => {
       if (!gp) continue;
       const visible = renderable ? renderable.has(ev.id) : ev.visible && !ev.ob.hide_render;
       if (!visible || (o.localView && !o.localView.has(ev.id))) continue;
-      seen.add(ev.id);
+      updateLayerParents(gp, ev.world);
       const entries = objectEntries(doc, gp, doc.scene.frame_current, false, ev.ob, !!o.final);
+      if ((ev.ob.shader_effects ?? []).some((f) => f.show_render) || entries.some((e) => e.masks?.length)) {
+        const f = finalImage(rs, ev.id, images);
+        f.s.mode3D = gp.stroke_depth_order === '3D';
+        f.s.inFront = ev.ob.show_in_front;
+        f.s.group.matrix.copy(ev.world);
+        fillSynced(f.s, entries, ev.ob);
+        f.proxy.renderOrder = 1000;
+        f.proxy.visible = true;
+        seenImages.add(ev.id);
+        continue;
+      }
+      seen.add(ev.id);
       let list = byOb.get(ev.id);
       if (!list) byOb.set(ev.id, (list = []));
       while (list.length < entries.length) {
@@ -944,6 +1036,11 @@ renderSceneHooks.push((rs, appRef, o) => {
     if (!seen.has(id)) {
       for (const m of list) rs.scene.remove(m);
       byOb.delete(id);
+    }
+  for (const [id, f] of images)
+    if (!seenImages.has(id)) {
+      rs.scene.remove(f.proxy);
+      images.delete(id);
     }
 });
 
