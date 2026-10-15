@@ -18,7 +18,7 @@ interface KPoint {
   screen: { x: number; y: number };
 }
 
-let state: { v: View3D; points: KPoint[]; cursor: KPoint | null; cuts: KPoint[][] } | null = null;
+let state: { v: View3D; points: KPoint[]; cursor: KPoint | null; cuts: KPoint[][]; cutThrough: boolean; onlySelected: boolean; midpoints: boolean; noSnap: boolean } | null = null;
 
 editModeHooks.svg.push((v) => {
   if (!state || state.v !== v) return null;
@@ -40,6 +40,15 @@ function snap(v: View3D, x: number, y: number): KPoint | null {
   for (const { ob, me } of editMeshObjects()) {
     const c = pickContext(v, ob, me);
     const world = c.world;
+    if (state?.noSnap) {
+      // Ctrl: no vertex/edge snapping, cut anywhere on the surface
+      const hit = raycastFace(c, x, y);
+      if (hit) {
+        const p = hit.point.clone().applyMatrix4(world);
+        return { world: p, screen: v.project(p) };
+      }
+      continue;
+    }
     const vt = nearestVertex(c, x, y, 10);
     if (vt) {
       const p = new Vector3(me.positions[vt.index * 3], me.positions[vt.index * 3 + 1], me.positions[vt.index * 3 + 2]).applyMatrix4(world);
@@ -53,7 +62,8 @@ function snap(v: View3D, x: number, y: number): KPoint | null {
         sb = v.project(b);
       const dx = sb.x - sa.x,
         dy = sb.y - sa.y;
-      const t = Math.max(0, Math.min(1, ((x - sa.x) * dx + (y - sa.y) * dy) / (dx * dx + dy * dy || 1)));
+      // Shift: snap to the edge midpoint
+      const t = state?.midpoints ? 0.5 : Math.max(0, Math.min(1, ((x - sa.x) * dx + (y - sa.y) * dy) / (dx * dx + dy * dy || 1)));
       const p = a.lerp(b, t);
       return { world: p, screen: v.project(p) };
     }
@@ -189,12 +199,16 @@ function confirm() {
   if (!state) return;
   const v = state.v;
   const cuts = [...state.cuts, state.points].filter((c) => c.length >= 2);
-  for (const { ob, me } of editMeshObjects()) cutObject(v, ob, me, cuts);
+  for (const { ob, me } of editMeshObjects()) cutObject(v, ob, me, cuts, { cutThrough: state.cutThrough, onlySelected: state.onlySelected });
   app.changed('geometry');
 }
 
-function cutObject(v: View3D, ob: ObjectData, me: MeshData, cuts: KPoint[][]) {
+export function cutObject(v: View3D, ob: ObjectData, me: MeshData, cuts: KPoint[][], o: { cutThrough?: boolean; onlySelected?: boolean } = {}) {
   const m = MeshEdit.from(me);
+  // only selected: faces whose original vertices were all selected (cut vertices are new)
+  const wasSel = m.sel.slice();
+  const nv0 = m.vcount;
+  const allowed = (fi: number) => !o.onlySelected || m.faces[fi].verts.every((x) => x >= nv0 || wasSel[x]);
   const world = app.graph.get(ob.id)?.world ?? new Matrix4();
   const inv = world.clone().invert();
   const before = m.faces.length;
@@ -215,8 +229,9 @@ function cutObject(v: View3D, ob: ObjectData, me: MeshData, cuts: KPoint[][]) {
         viewDir,
         inv,
         (p) => v.project(p.clone().applyMatrix4(world)),
-        (_f, pLocal) => {
-          if (c.xray) return true;
+        (fi, pLocal) => {
+          if (!allowed(fi)) return false;
+          if (c.xray || o.cutThrough) return true;
           const s = v.project(pLocal.clone().applyMatrix4(world));
           const hit = raycastFace(c, s.x, s.y);
           if (!hit) return false;
@@ -227,18 +242,19 @@ function cutObject(v: View3D, ob: ObjectData, me: MeshData, cuts: KPoint[][]) {
   if (m.faces.length !== before) m.write(me);
 }
 
-function start(): 'RUNNING_MODAL' | 'CANCELLED' {
+function start(opts: { occlude?: boolean; onlySelected?: boolean } = {}): 'RUNNING_MODAL' | 'CANCELLED' {
   const v = activeView3D();
   if (!v) return 'CANCELLED';
-  state = { v, points: [], cursor: null, cuts: [] };
+  state = { v, points: [], cursor: null, cuts: [], cutThrough: opts.occlude === false, onlySelected: !!opts.onlySelected, midpoints: false, noSnap: false };
+  const on = (b: boolean) => (b ? 'On' : 'Off');
   const local = (e: { clientX: number; clientY: number }) => {
     const r = v.el.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
   app.startModal({
     label: 'Knife',
-    header: () => 'Knife: LMB add cut point, RMB/E start new cut, Enter/Space confirm, Esc cancel',
-    status: () => [['LMB', 'Cut Point'], ['E', 'New Cut'], ['Enter', 'Confirm'], ['Esc', 'Cancel']],
+    header: () => `Knife: [C] Cut Through: ${on(!!state?.cutThrough)}   [Shift] Midpoint Snap: ${on(!!state?.midpoints)}   [Ctrl] Ignore Snap: ${on(!!state?.noSnap)}`,
+    status: () => [['LMB', 'Cut Point'], ['Double-click', 'Close Cut'], ['RMB', 'New Cut'], ['Ctrl Z', 'Undo Point'], ['C', 'Cut Through'], ['Enter', 'Confirm'], ['Esc', 'Cancel']],
     onPointerMove(e) {
       if (!state) return;
       const p = local(e);
@@ -256,17 +272,39 @@ function start(): 'RUNNING_MODAL' | 'CANCELLED' {
       if (e.button !== 0) return;
       const p = local(e);
       const k = snap(v, p.x, p.y);
+      if (e.detail >= 2) {
+        // double-click closes the current cut back to its first point
+        if (state.points.length >= 3) state.points.push(state.points[0]);
+        if (state.points.length >= 2) state.cuts.push(state.points);
+        state.points = [];
+        v.drawSvg();
+        return undefined;
+      }
       if (k) state.points.push(k);
       v.drawSvg();
-      if (e.detail >= 2) {
-        confirm();
-        return 'FINISHED';
-      }
       return undefined;
     },
     onKey(e) {
+      if (e.key === 'Shift' && state) {
+        state.midpoints = e.type === 'keydown';
+        return true;
+      }
+      if (e.key === 'Control' && state) {
+        state.noSnap = e.type === 'keydown';
+        return true;
+      }
       if (e.type !== 'keydown') return true;
       if (e.key === 'Escape') return 'CANCELLED';
+      if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey) && state) {
+        if (state.points.length) state.points.pop();
+        else if (state.cuts.length) state.points = state.cuts.pop()!;
+        v.drawSvg();
+        return true;
+      }
+      if ((e.key === 'c' || e.key === 'C' || e.key === 'v' || e.key === 'V') && state) {
+        state.cutThrough = !state.cutThrough;
+        return true;
+      }
       if (e.key === 'Enter' || e.key === ' ') {
         confirm();
         return 'FINISHED';
@@ -290,8 +328,23 @@ function start(): 'RUNNING_MODAL' | 'CANCELLED' {
   return 'RUNNING_MODAL';
 }
 
-registerOperators([{ idname: 'mesh.knife_tool', label: 'Knife Topology Tool', description: 'Cut new topology', poll: editPoll, invoke: () => start() }]);
-addKeys('Mesh', [{ key: 'K', op: 'mesh.knife_tool', when: () => app.doc.mode === 'EDIT' }]);
+registerOperators([
+  {
+    idname: 'mesh.knife_tool',
+    label: 'Knife Topology Tool',
+    description: 'Cut new topology',
+    props: [
+      { id: 'use_occlude_geometry', label: 'Occlude Geometry', type: 'bool', default: true },
+      { id: 'only_selected', label: 'Only Selected', type: 'bool', default: false },
+    ],
+    poll: editPoll,
+    invoke: (_ctx, p) => start({ occlude: p.use_occlude_geometry !== false, onlySelected: !!p.only_selected }),
+  },
+]);
+addKeys('Mesh', [
+  { key: 'K', op: 'mesh.knife_tool', props: { use_occlude_geometry: true, only_selected: false }, when: () => app.doc.mode === 'EDIT' && app.activeObject?.type === 'MESH' },
+  { key: 'K', shift: true, op: 'mesh.knife_tool', props: { use_occlude_geometry: false, only_selected: true }, when: () => app.doc.mode === 'EDIT' && app.activeObject?.type === 'MESH' },
+]);
 
 // Toolbar tool: LMB in the viewport starts the knife with the clicked point
 editModeHooks.pointer.unshift((v, e) => {
@@ -303,3 +356,83 @@ editModeHooks.pointer.unshift((v, e) => {
   v.drawSvg();
   return true;
 });
+
+// ---------------------------------------------------------------------------
+// knife project: cut along the outlines of the other selected objects, as seen from the view
+
+/** World-space outline segments of an object: open (boundary) and loose edges of its evaluated mesh. */
+function outlineSegments(obId: string): [Vector3, Vector3][] {
+  const ev = app.graph.get(obId);
+  const me = ev?.mesh;
+  if (!ev || !me) return [];
+  const out: [Vector3, Vector3][] = [];
+  const P = me.positions;
+  const pt = (i: number) => new Vector3(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]).applyMatrix4(ev.world);
+  const count = new Map<string, [number, number, number]>();
+  for (let f = 0; f < me.offsets.length - 1; f++)
+    for (let c = me.offsets[f]; c < me.offsets[f + 1]; c++) {
+      const a = me.indices[c],
+        b = me.indices[c + 1 < me.offsets[f + 1] ? c + 1 : me.offsets[f]];
+      const k = edgeKey(a, b);
+      const e = count.get(k);
+      if (e) e[2]++;
+      else count.set(k, [a, b, 1]);
+    }
+  for (const [a, b, n] of count.values()) if (n === 1) out.push([pt(a), pt(b)]);
+  const loose = me.looseEdges;
+  if (loose) for (let i = 0; i < loose.length; i += 2) out.push([pt(loose[i]), pt(loose[i + 1])]);
+  for (const c of me.curves ?? []) {
+    const n = c.points.length / 3;
+    const q = (i: number) => new Vector3(c.points[i * 3], c.points[i * 3 + 1], c.points[i * 3 + 2]).applyMatrix4(ev.world);
+    for (let i = 0; i < n - 1; i++) out.push([q(i), q(i + 1)]);
+    if (c.cyclic && n > 2) out.push([q(n - 1), q(0)]);
+  }
+  return out;
+}
+
+registerOperators([
+  {
+    idname: 'mesh.knife_project',
+    label: 'Knife Project',
+    description: 'Cut the mesh along the outlines of the other selected objects, projected from the view',
+    props: [{ id: 'cut_through', label: 'Cut Through', type: 'bool', default: false }],
+    poll: (ctx) => editPoll(ctx) && app.selectedObjects().some((o) => o.id !== app.activeObject?.id),
+    exec: (_ctx, p) => {
+      const v = activeView3D();
+      if (!v) return 'CANCELLED';
+      // the other selected objects cut the active one
+      const cutters = app.selectedObjects().filter((o) => o.id !== app.activeObject?.id);
+      const segs = cutters.flatMap((o) => outlineSegments(o.id));
+      if (!segs.length) {
+        app.report('ERROR', 'No other selected objects have wire or boundary edges to use for projection');
+        return 'CANCELLED';
+      }
+      const screenSegs = segs.map(([a, b]) => [v.project(a), v.project(b)] as const);
+      // anchor each outline point on the edited surface depth so the cut planes pass through it
+      const cuts: KPoint[][] = segs.map(([a, b]) => [
+        { world: a, screen: v.project(a) },
+        { world: b, screen: v.project(b) },
+      ]);
+      const toViewer = new Vector3(0, 0, 1).applyQuaternion(v.camera.quaternion);
+      for (const { ob, me } of editMeshObjects()) {
+        if (cutters.some((c) => c.id === ob.id)) continue;
+        cutObject(v, ob, me, cuts, { cutThrough: !!p.cut_through });
+        // select the faces inside the projected outline
+        const m = MeshEdit.from(me);
+        const world = app.graph.get(ob.id)?.world ?? new Matrix4();
+        m.sel = m.sel.map(() => 0);
+        m.faces.forEach((f) => {
+          const c = new Vector3(...m.faceCenter(f)).applyMatrix4(world);
+          if (!p.cut_through && new Vector3(...m.faceNormal(f)).transformDirection(world).dot(toViewer) <= 0) return;
+          const s = v.project(c);
+          let inside = false;
+          for (const [a, b] of screenSegs) if (a.y > s.y !== b.y > s.y && s.x < ((b.x - a.x) * (s.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+          if (inside) for (const x of f.verts) m.sel[x] = 1;
+        });
+        m.write(me);
+      }
+      app.doc.scene.tool_settings.mesh_select_mode = [false, false, true];
+      app.changed('geometry', 'select');
+    },
+  },
+]);
