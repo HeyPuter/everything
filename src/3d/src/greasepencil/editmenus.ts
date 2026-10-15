@@ -377,6 +377,18 @@ addKeys('Grease Pencil', [
   { key: 'W', shift: true, op: 'transform.bend', when: e },
   { key: 'S', alt: true, op: 'transform.transform', props: { mode: 'CURVE_SHRINKFATTEN' }, when: e },
   { key: 'F', shift: true, op: 'transform.transform', props: { mode: 'GPENCIL_OPACITY' }, when: e },
+  // proportional editing: connected (along the strokes)
+  {
+    key: 'O',
+    alt: true,
+    when: e,
+    action: () => {
+      const ts = app.doc.scene.tool_settings;
+      ts.use_proportional_connected = !ts.use_proportional_connected;
+      app.report('INFO', `Proportional Editing Connected: ${ts.use_proportional_connected ? 'on' : 'off'}`);
+      app.changed('ui');
+    },
+  },
   // select modes
   { key: 'ONE', op: 'grease_pencil.set_selection_mode', props: { mode: 'POINT' }, when: e },
   { key: 'TWO', op: 'grease_pencil.set_selection_mode', props: { mode: 'STROKE' }, when: e },

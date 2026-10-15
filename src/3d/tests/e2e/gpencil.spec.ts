@@ -342,3 +342,47 @@ test('fill tool closes small gaps with extension lines', async ({ page }) => {
   expect(await strokeCount(page)).toBe(3);
   await expectNoErrors(errors);
 });
+
+test('edit mode: proportional editing moves nearby points', async ({ page }) => {
+  const errors = await openApp(page);
+  await run(page, 'object.select_all', { action: 'SELECT' });
+  await run(page, 'object.delete');
+  await run(page, 'object.grease_pencil_add', { type: 'EMPTY' });
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const g = a.doc.grease_pencils[a.activeObject.data];
+    const d = g.drawings[g.layers[0].frames[0].drawing];
+    const xs = [0, 0.5, 1, 1.5, 3];
+    const n = xs.length;
+    g.drawings[g.layers[0].frames[0].drawing] = {
+      ...d,
+      position: new Float32Array(xs.flatMap((x) => [x, 0, 0])),
+      radius: new Float32Array(n).fill(0.02),
+      opacity: new Float32Array(n).fill(1),
+      vertex_color: new Float32Array(n * 4),
+      select: new Uint8Array([1, 0, 0, 0, 0]),
+      offsets: new Uint32Array([0, n]),
+      cyclic: new Uint8Array(1),
+      material_index: new Uint16Array(1),
+      start_cap: new Uint8Array(1),
+      end_cap: new Uint8Array(1),
+      fill_color: new Float32Array(4),
+      fill_opacity: new Float32Array([1]),
+      fill_id: new Int32Array(1),
+    };
+    const ts = a.doc.scene.tool_settings;
+    ts.proportional_size = 1;
+    ts.proportional_edit_falloff = 'LINEAR';
+    a.run('object.mode_set', { mode: 'EDIT' });
+  });
+  await hoverViewport(page);
+  await page.keyboard.press('o');
+  expect(await get(page, 'app.doc.scene.tool_settings.use_proportional_edit')).toBe(true);
+  await page.keyboard.press('g');
+  await page.keyboard.press('z');
+  await page.keyboard.type('1');
+  await page.keyboard.press('Enter');
+  const z = (await get(page, `Array.from(${gp}.drawings[0].position).filter((_, i) => i % 3 === 2).map((v) => Math.round(v * 100) / 100)`)) as number[];
+  expect(z).toEqual([1, 0.5, 0, 0, 0]);
+  await expectNoErrors(errors);
+});

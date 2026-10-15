@@ -5,6 +5,7 @@ import { Matrix3, Matrix4, Vector3, Box3, Scene, Points, PointsMaterial, BufferG
 import { app, registerOperators } from '../app/app';
 import { editModeHooks, viewportExtensions } from '../editors/view3d/hooks';
 import { transformProviders, type TElement } from '../ops/transform';
+import { falloffWeight, seededRandom } from '../ops/transform_math';
 import { setGizmoCenterHook, gizmoCenterHook } from '../editors/view3d/gizmo';
 import { frameHooks } from '../ops/view3d';
 import { renderContext } from '../render/context';
@@ -318,15 +319,17 @@ export function selectedWorld(): Vector3[] {
 }
 
 transformProviders.unshift({
-  collect() {
+  collect({ proportional, connected }) {
     if (!inGPEdit()) return null;
     const els: TElement[] = [];
+    // proportional editing: unselected points near the selection follow with a falloff
+    const pts = proportional ? proportionalWeights(connected) : null;
     const restores: (() => void)[] = [];
     const live: { t: EditTarget; d: GPDrawing }[] = [];
     const scaleThickness = (gpTS(app.doc) as unknown as { use_scale_thickness?: boolean }).use_scale_thickness !== false;
     for (const t of editTargets()) {
       const d0 = drawing(t);
-      if (!d0.select!.some((x) => x)) continue;
+      if (!d0.select!.some((x) => x) && !pts?.get(t.idx)?.some((x) => x > 0)) continue;
       const before = d0.position;
       const rBefore = d0.radius;
       const d = { ...d0, position: d0.position.slice(), radius: d0.radius.slice() };
@@ -335,14 +338,16 @@ transformProviders.unshift({
       restores.push(() => setDrawing(t, { ...d, position: before, radius: rBefore }));
       const inv = t.world.clone().invert();
       const basis = new Matrix3().setFromMatrix4(t.world);
+      const pw = pts?.get(t.idx);
       for (let i = 0; i < d.select!.length; i++) {
-        if (!d.select![i]) continue;
+        const w = d.select![i] ? 1 : (pw?.[i] ?? 0);
+        if (w <= 0) continue;
         const p0 = new Vector3(before[i * 3], before[i * 3 + 1], before[i * 3 + 2]).applyMatrix4(t.world);
         const q = new Vector3();
         els.push({
           center: p0,
           basis,
-          weight: 1,
+          weight: w,
           apply(m: Matrix4, c: { mode: string }) {
             q.copy(p0).applyMatrix4(m).applyMatrix4(inv);
             d.position[i * 3] = q.x;
@@ -377,6 +382,50 @@ transformProviders.unshift({
     };
   },
 });
+
+/** Falloff weights of unselected points for proportional editing (per edit target). */
+function proportionalWeights(connected: boolean): Map<number, Float32Array> {
+  const ts = app.doc.scene.tool_settings;
+  const radius = Math.max(1e-6, ts.proportional_size);
+  const rand = seededRandom(1);
+  const out = new Map<number, Float32Array>();
+  const targets = editTargets();
+  const world = (t: EditTarget, d: GPDrawing, i: number) => new Vector3(d.position[i * 3], d.position[i * 3 + 1], d.position[i * 3 + 2]).applyMatrix4(t.world);
+  const selected: Vector3[] = [];
+  if (!connected) for (const t of targets) {
+    const d = drawing(t);
+    for (let i = 0; i < d.select!.length; i++) if (d.select![i]) selected.push(world(t, d, i));
+  }
+  for (const t of targets) {
+    const d = drawing(t);
+    const n = d.select!.length;
+    const dist = new Float32Array(n).fill(Infinity);
+    if (connected) {
+      // along each stroke, from the nearest selected point
+      for (let s = 0; s + 1 < d.offsets.length; s++) {
+        const a = d.offsets[s],
+          b = d.offsets[s + 1];
+        for (const dir of [1, -1]) {
+          let acc = Infinity;
+          for (let k = dir > 0 ? a : b - 1; dir > 0 ? k < b : k >= a; k += dir) {
+            if (d.select![k]) acc = 0;
+            else if (acc < Infinity) acc += world(t, d, k).distanceTo(world(t, d, k - dir));
+            dist[k] = Math.min(dist[k], acc);
+          }
+        }
+      }
+    } else
+      for (let i = 0; i < n; i++) {
+        if (d.select![i]) continue;
+        const p = world(t, d, i);
+        for (const q of selected) dist[i] = Math.min(dist[i], p.distanceTo(q));
+      }
+    const w = new Float32Array(n);
+    for (let i = 0; i < n; i++) if (!d.select![i] && dist[i] < radius) w[i] = falloffWeight(ts.proportional_edit_falloff, dist[i] / radius, rand);
+    out.set(t.idx, w);
+  }
+  return out;
+}
 
 const prevGizmo = gizmoCenterHook;
 setGizmoCenterHook(() => {

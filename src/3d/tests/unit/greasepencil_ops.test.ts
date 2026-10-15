@@ -554,3 +554,4 @@ describe('add grease pencil', () => {
     expect(gp.drawings.every((d) => d.offsets.length > 5)).toBe(true);
   });
 });
+
