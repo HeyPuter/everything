@@ -555,10 +555,10 @@ addKeys('Image Paint', [...toggles(false), ...maskKeys.filter((k) => k.when === 
 
 const C = {
   edge: new Color(0, 0, 0),
-  edgeSel: new Color().setRGB(1.0, 0.6, 0.0).convertSRGBToLinear(),
-  face: new Color().setRGB(1.0, 0.64, 0.0).convertSRGBToLinear(),
+  edgeSel: new Color().setRGB(0.961, 0.63, 0.015).convertSRGBToLinear(),
+  face: new Color().setRGB(0.962, 0.669, 0.015).convertSRGBToLinear(),
   vert: new Color(0, 0, 0),
-  vertSel: new Color().setRGB(1.0, 0.478, 0.0).convertSRGBToLinear(),
+  vertSel: new Color().setRGB(0.96, 0.514, 0.015).convertSRGBToLinear(),
 };
 
 const pointMat = new ShaderMaterial({

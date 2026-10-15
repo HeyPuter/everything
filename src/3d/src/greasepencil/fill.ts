@@ -53,8 +53,8 @@ export function fillRegion(v: View3D, ob: ObjectData, gp: GreasePencilData, laye
   const g = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
   if (!g) return 'Fill is not available (no 2D canvas)';
   g.clearRect(0, 0, W, H);
-  g.strokeStyle = '#fff';
-  g.fillStyle = '#fff';
+  g.strokeStyle = '#ffffff';
+  g.fillStyle = '#ffffff';
   g.lineCap = 'round';
   g.lineJoin = 'round';
   const frame = app.doc.scene.frame_current;

@@ -411,7 +411,7 @@ export function nodeColor(n: NodeData): string {
   // group nodes can take a category color from their group
   const tag = def?.dynamicSockets && typeof n.props.node_tree === 'string' ? app.doc.node_groups[n.props.node_tree]?.tree.color_tag : undefined;
   if (tag && tag in NODE_CLASS_COLORS) return NODE_CLASS_COLORS[tag as keyof typeof NODE_CLASS_COLORS];
-  return NODE_CLASS_COLORS[def?.category ?? 'converter'] ?? '#3b3b3b';
+  return NODE_CLASS_COLORS[def?.category ?? 'converter'] ?? '#38393b';
 }
 
 function rowContent(node: NodeData, row: Row, key: string, tree: NodeTreeData): Child {
@@ -483,7 +483,7 @@ export function renderNode(l: NodeLayout, tree: NodeTreeData, st: NodeRenderStat
         style: {
           left: `${l.x}px`,
           top: `${l.y}px`,
-          '--sc': SOCKET_COLORS[s.socket.type] ?? '#888',
+          '--sc': SOCKET_COLORS[s.socket.type] ?? '#87888a',
         },
       },
       st.rerouteLabel ? h('span', { class: { 'nd-reroute-label': true, auto: !n.label } }, st.rerouteLabel) : null,
@@ -530,7 +530,7 @@ export function renderNode(l: NodeLayout, tree: NodeTreeData, st: NodeRenderStat
         style: {
           left: `${p.x - l.x}px`,
           top: `${p.y - l.y}px`,
-          '--sc': SOCKET_COLORS[p.socket.type] ?? '#888',
+          '--sc': SOCKET_COLORS[p.socket.type] ?? '#87888a',
         },
       }),
     );

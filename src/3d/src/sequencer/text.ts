@@ -149,7 +149,7 @@ export function drawTextStrip(g: CanvasRenderingContext2D | OffscreenCanvasRende
       x1 = L.right + m,
       y0 = L.bottom - m - pad,
       y1 = L.top + m + pad;
-    g.fillStyle = css(s.box_color, 'rgba(51,51,51,0.7)');
+    g.fillStyle = css(s.box_color, 'rgba(48, 49, 51,0.7)');
     const r = Math.max(0, Math.min(1, s.box_roundness ?? 0)) * Math.min(x1 - x0, y1 - y0) * 0.5;
     g.beginPath();
     if (r > 0 && 'roundRect' in g) (g as CanvasRenderingContext2D).roundRect(x0, Y(y1), x1 - x0, y1 - y0, r);
@@ -162,7 +162,7 @@ export function drawTextStrip(g: CanvasRenderingContext2D | OffscreenCanvasRende
     const dx = Math.cos(a) * d,
       dy = Math.sin(a) * d; // positive: down
     g.save();
-    g.fillStyle = css(s.shadow_color, 'rgba(0,0,0,0.7)');
+    g.fillStyle = css(s.shadow_color, 'rgba(0, 0, 0,0.7)');
     const blur = (s.shadow_blur ?? 0) * fs * 0.5;
     if (blur > 0) g.filter = `blur(${blur}px)`;
     for (const l of L.lines) g.fillText(l.text, l.x + dx, Y(l.baseline) + dy);
@@ -170,13 +170,13 @@ export function drawTextStrip(g: CanvasRenderingContext2D | OffscreenCanvasRende
   }
   if (s.use_outline) {
     g.save();
-    g.strokeStyle = css(s.outline_color, 'rgba(0,0,0,0.7)');
+    g.strokeStyle = css(s.outline_color, 'rgba(0, 0, 0,0.7)');
     g.lineJoin = 'round';
     g.lineWidth = Math.max(0.5, (s.outline_width ?? 0.05) * fs * 0.8);
     for (const l of L.lines) g.strokeText(l.text, l.x, Y(l.baseline));
     g.restore();
   }
-  g.fillStyle = css(s.color, '#fff');
+  g.fillStyle = css(s.color, '#ffffff');
   for (const l of L.lines) g.fillText(l.text, l.x, Y(l.baseline));
   g.restore();
   return L;

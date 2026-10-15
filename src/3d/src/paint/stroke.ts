@@ -67,11 +67,11 @@ editModeHooks.svg.push((v) => {
   if (lineState.view !== v || !lineState.a || !lineState.b) return null;
   const { a, b } = lineState;
   const parts: VNode[] = [];
-  if (lineState.anchorR > 0) parts.push(h('circle', { cx: a.x, cy: a.y, r: lineState.anchorR, fill: 'none', stroke: '#fff', 'stroke-width': 1, 'stroke-dasharray': '4 3' }) as VNode);
+  if (lineState.anchorR > 0) parts.push(h('circle', { cx: a.x, cy: a.y, r: lineState.anchorR, fill: 'none', stroke: '#ffffff', 'stroke-width': 1, 'stroke-dasharray': '4 3' }) as VNode);
   else
     parts.push(
-      h('path', { d: `M${a.x} ${a.y}L${b.x} ${b.y}`, stroke: '#000', 'stroke-width': 3, opacity: 0.4 }) as VNode,
-      h('path', { d: `M${a.x} ${a.y}L${b.x} ${b.y}`, stroke: '#fff', 'stroke-width': 1.2 }) as VNode,
+      h('path', { d: `M${a.x} ${a.y}L${b.x} ${b.y}`, stroke: '#000000', 'stroke-width': 3, opacity: 0.4 }) as VNode,
+      h('path', { d: `M${a.x} ${a.y}L${b.x} ${b.y}`, stroke: '#ffffff', 'stroke-width': 1.2 }) as VNode,
     );
   return h('g', { key: 'stroke-line' }, ...parts) as VNode;
 });

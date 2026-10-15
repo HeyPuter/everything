@@ -797,10 +797,10 @@ export class UVEditor implements Editor, UVView, View2D {
         }
         if (!this.showFaces) continue;
         if (all) {
-          g.fillStyle = 'rgba(255,133,0,0.22)';
+          g.fillStyle = 'rgba(245, 142, 4,0.22)';
           g.fill();
         } else if (!stretch) {
-          g.fillStyle = 'rgba(255,255,255,0.05)';
+          g.fillStyle = 'rgba(255, 255, 255,0.05)';
           g.fill();
         }
       }
@@ -820,7 +820,7 @@ export class UVEditor implements Editor, UVView, View2D {
             g.lineTo(px[k2 * 2], px[k2 * 2 + 1]);
           }
         }
-        g.strokeStyle = want === 'sel' ? '#ff8500' : want === 'seam' ? '#e0301e' : '#bdbdbd';
+        g.strokeStyle = want === 'sel' ? '#f58e04' : want === 'seam' ? '#d83a20' : '#bebfc0';
         g.lineWidth = want === 'plain' ? 1 : 1.6;
         g.stroke();
       };
@@ -837,7 +837,7 @@ export class UVEditor implements Editor, UVView, View2D {
           for (let k = me.offsets[f]; k < me.offsets[f + 1]; k++) {
             const pinned = isPinned(me, k);
             if (!sz && !pinned) continue;
-            g.fillStyle = pinned ? '#ff2020' : sel(k) ? '#ff8500' : '#111';
+            g.fillStyle = pinned ? '#fc261b' : sel(k) ? '#f58e04' : '#0d0e10';
             const q = pinned ? 6 : sz;
             g.fillRect(px[k * 2] - q / 2, px[k * 2 + 1] - q / 2, q, q);
           }
@@ -853,11 +853,11 @@ export class UVEditor implements Editor, UVView, View2D {
             v += px[k * 2 + 1] / (e - s);
             if (!sel(k)) all = false;
             if (isPinned(me, k)) {
-              g.fillStyle = '#ff2020';
+              g.fillStyle = '#fc261b';
               g.fillRect(px[k * 2] - 3, px[k * 2 + 1] - 3, 6, 6);
             }
           }
-          g.fillStyle = all ? '#ff8500' : '#111';
+          g.fillStyle = all ? '#f58e04' : '#0d0e10';
           g.fillRect(u - 2, v - 2, 4, 4);
         }
       }
@@ -877,7 +877,7 @@ export class UVEditor implements Editor, UVView, View2D {
   private drawGrid(g: CanvasRenderingContext2D, hasImage: boolean) {
     const n = Math.round(1 / this.gridStep());
     g.lineWidth = 1;
-    g.strokeStyle = hasImage ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.3)';
+    g.strokeStyle = hasImage ? 'rgba(0, 0, 0,0.25)' : 'rgba(0, 0, 0,0.3)';
     g.beginPath();
     for (let i = 0; i <= n; i++) {
       const a = this.toPx(i / n, 0),
@@ -892,7 +892,7 @@ export class UVEditor implements Editor, UVView, View2D {
     g.stroke();
     const t0 = this.toPx(0, 1),
       t1 = this.toPx(1, 0);
-    g.strokeStyle = 'rgba(255,255,255,0.3)';
+    g.strokeStyle = 'rgba(255, 255, 255,0.3)';
     g.strokeRect(t0.x, t0.y, t1.x - t0.x, t1.y - t0.y);
   }
 
@@ -901,12 +901,12 @@ export class UVEditor implements Editor, UVView, View2D {
     const cur = this.toPx(uvCursor.u, uvCursor.v);
     g.lineWidth = 1.5;
     for (let i = 0; i < 8; i++) {
-      g.strokeStyle = i % 2 ? '#fff' : '#e00';
+      g.strokeStyle = i % 2 ? '#ffffff' : '#ea0f04';
       g.beginPath();
       g.arc(cur.x, cur.y, 8, (i * Math.PI) / 4, ((i + 1) * Math.PI) / 4);
       g.stroke();
     }
-    g.strokeStyle = 'rgba(0,0,0,0.7)';
+    g.strokeStyle = 'rgba(0, 0, 0,0.7)';
     g.lineWidth = 1;
     g.beginPath();
     g.moveTo(cur.x - 12, cur.y);
@@ -921,7 +921,7 @@ export class UVEditor implements Editor, UVView, View2D {
     // box / lasso / circle selections
     const shape = shapeSelect.kind ? { kind: shapeSelect.kind, pts: shapeSelect.pts } : this.drag;
     g.setLineDash([4, 3]);
-    g.strokeStyle = '#fff';
+    g.strokeStyle = '#ffffff';
     g.lineWidth = 1;
     if (shape?.kind === 'BOX' && shape.pts.length === 2) {
       const [a, b] = shape.pts;
@@ -930,7 +930,7 @@ export class UVEditor implements Editor, UVView, View2D {
       g.beginPath();
       shape.pts.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
       g.closePath();
-      g.fillStyle = 'rgba(255,255,255,0.06)';
+      g.fillStyle = 'rgba(255, 255, 255,0.06)';
       g.fill();
       g.stroke();
     } else if (shape?.kind === 'CIRCLE' && shape.pts.length) {
@@ -941,7 +941,7 @@ export class UVEditor implements Editor, UVView, View2D {
     g.setLineDash([]);
     // sculpt / circle tool brush
     if (this.hover && (isSculpt(this.tool) || (this.tool === 'select_circle' && !shapeSelect.kind))) {
-      g.strokeStyle = 'rgba(255,255,255,0.8)';
+      g.strokeStyle = 'rgba(255, 255, 255,0.8)';
       g.beginPath();
       g.arc(this.hover.x, this.hover.y, isSculpt(this.tool) ? uvSculpt.size : shapeSelect.radius, 0, Math.PI * 2);
       g.stroke();

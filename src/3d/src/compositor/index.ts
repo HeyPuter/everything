@@ -30,9 +30,9 @@ import './properties';
 import './style.css';
 
 registerIcons({
-  color_red: '<rect x="3" y="3" width="10" height="10" rx="2" fill="#e05656"/>',
-  color_green: '<rect x="3" y="3" width="10" height="10" rx="2" fill="#5ec25e"/>',
-  color_blue: '<rect x="3" y="3" width="10" height="10" rx="2" fill="#5a86e6"/>',
+  color_red: '<rect x="3" y="3" width="10" height="10" rx="2" fill="#dc5851"/>',
+  color_green: '<rect x="3" y="3" width="10" height="10" rx="2" fill="#64c269"/>',
+  color_blue: '<rect x="3" y="3" width="10" height="10" rx="2" fill="#6184e5"/>',
 });
 
 export { runCompositor } from './run';

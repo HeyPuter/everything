@@ -63,14 +63,14 @@ const COLOR_TAGS: [string, string][] = [
 ];
 /** Display colors of the color tags (sRGB). */
 export const TAG_COLORS: Record<string, string> = {
-  COLOR1: '#e35d5d',
-  COLOR2: '#f0a03c',
-  COLOR3: '#e8d64c',
-  COLOR4: '#5cbf5c',
-  COLOR5: '#4f9be8',
-  COLOR6: '#9b6be0',
-  COLOR7: '#e06bb6',
-  COLOR8: '#8f7a5a',
+  COLOR1: '#e05e58',
+  COLOR2: '#eca435',
+  COLOR3: '#e5db48',
+  COLOR4: '#62bf67',
+  COLOR5: '#5c9ae7',
+  COLOR6: '#9e68dd',
+  COLOR7: '#de6caf',
+  COLOR8: '#8c7a59',
 };
 
 registerOperators([

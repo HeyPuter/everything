@@ -64,8 +64,8 @@ function cursorSvg(v: View3D): VNode | null {
     const parts: VNode[] = [];
     if (rc.data === 'angle') {
       parts.push(
-        h('circle', { cx: rc.cx, cy: rc.cy, r: RADIAL_FULL, fill: 'none', stroke: 'rgba(255,255,255,0.5)', 'stroke-width': 1 }),
-        h('path', { d: `M${rc.cx} ${rc.cy}L${rc.cx + Math.cos(rc.value) * RADIAL_FULL} ${rc.cy - Math.sin(rc.value) * RADIAL_FULL}`, stroke: '#fff', 'stroke-width': 1.5 }),
+        h('circle', { cx: rc.cx, cy: rc.cy, r: RADIAL_FULL, fill: 'none', stroke: 'rgba(255, 255, 255,0.5)', 'stroke-width': 1 }),
+        h('path', { d: `M${rc.cx} ${rc.cy}L${rc.cx + Math.cos(rc.value) * RADIAL_FULL} ${rc.cy - Math.sin(rc.value) * RADIAL_FULL}`, stroke: '#ffffff', 'stroke-width': 1.5 }),
       );
     } else if (rc.data === 'size') {
       parts.push(
@@ -73,8 +73,8 @@ function cursorSvg(v: View3D): VNode | null {
           cx: rc.cx,
           cy: rc.cy,
           r: Math.max(1, rc.value),
-          fill: 'rgba(255,255,255,0.08)',
-          stroke: '#fff',
+          fill: 'rgba(255, 255, 255,0.08)',
+          stroke: '#ffffff',
           'stroke-width': 1.5,
         }),
       );
@@ -85,7 +85,7 @@ function cursorSvg(v: View3D): VNode | null {
           cy: rc.cy,
           r: RADIAL_FULL,
           fill: 'none',
-          stroke: 'rgba(255,255,255,0.5)',
+          stroke: 'rgba(255, 255, 255,0.5)',
           'stroke-width': 1,
         }),
       );
@@ -94,8 +94,8 @@ function cursorSvg(v: View3D): VNode | null {
           cx: rc.cx,
           cy: rc.cy,
           r: Math.max(0.5, rc.value * RADIAL_FULL),
-          fill: 'rgba(255,255,255,0.18)',
-          stroke: '#fff',
+          fill: 'rgba(255, 255, 255,0.18)',
+          stroke: '#ffffff',
           'stroke-width': 1.5,
         }),
       );
@@ -108,9 +108,9 @@ function cursorSvg(v: View3D): VNode | null {
           x: rc.cx,
           y: rc.cy + 4,
           'text-anchor': 'middle',
-          fill: '#fff',
+          fill: '#ffffff',
           'font-size': 12,
-          style: 'paint-order:stroke;stroke:#000;stroke-width:3px',
+          style: 'paint-order:stroke;stroke:#000000;stroke-width:3px',
         },
         label,
       ),
@@ -124,7 +124,7 @@ function cursorSvg(v: View3D): VNode | null {
     y = cursorState.y;
   const sub = b.direction === 'SUBTRACT';
   const css = (c: number[]) => `rgba(${c.map((k) => Math.round(k * 255)).join(',')},0.9)`;
-  const tint = app.doc.mode === 'SCULPT' ? css(sub ? b.cursor_color_subtract ?? [0.43, 0.55, 1] : b.cursor_color_add ?? [1, 0.47, 0.47]) : 'rgba(255,255,255,0.9)';
+  const tint = app.doc.mode === 'SCULPT' ? css(sub ? b.cursor_color_subtract ?? [0.43, 0.55, 1] : b.cursor_color_add ?? [1, 0.47, 0.47]) : 'rgba(255, 255, 255,0.9)';
   const hit = cursorState.hit;
   if (hit && app.doc.mode === 'SCULPT') {
     const d = ringPath(v, hit.point, hit.normal, hit.radius);
@@ -135,13 +135,13 @@ function cursorSvg(v: View3D): VNode | null {
       h('path', {
         d,
         fill: 'none',
-        stroke: 'rgba(0,0,0,0.35)',
+        stroke: 'rgba(0, 0, 0,0.35)',
         'stroke-width': 3,
       }),
       h('path', {
         d,
         fill: 'none',
-        stroke: 'rgba(255,255,255,0.9)',
+        stroke: 'rgba(255, 255, 255,0.9)',
         'stroke-width': 1.3,
       }),
       h('path', {
@@ -151,7 +151,7 @@ function cursorSvg(v: View3D): VNode | null {
         'stroke-width': 1,
         opacity: 0.6,
       }),
-      h('circle', { cx: x, cy: y, r: 1.5, fill: '#fff' }),
+      h('circle', { cx: x, cy: y, r: 1.5, fill: '#ffffff' }),
     );
   }
   const r = cursorState.radiusPx || b.radius;
@@ -163,7 +163,7 @@ function cursorSvg(v: View3D): VNode | null {
       cy: y,
       r,
       fill: 'none',
-      stroke: 'rgba(0,0,0,0.35)',
+      stroke: 'rgba(0, 0, 0,0.35)',
       'stroke-width': 3,
     }),
     h('circle', {
@@ -171,7 +171,7 @@ function cursorSvg(v: View3D): VNode | null {
       cy: y,
       r,
       fill: 'none',
-      stroke: 'rgba(255,255,255,0.9)',
+      stroke: 'rgba(255, 255, 255,0.9)',
       'stroke-width': 1.3,
     }),
     app.doc.mode === 'SCULPT'

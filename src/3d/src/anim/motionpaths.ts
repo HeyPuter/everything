@@ -321,13 +321,13 @@ function drawPath(v: Parameters<(typeof editModeHooks.svg)[number]>[0], mp: Moti
   // path line: frames before the current frame are drawn darker than those after it
   for (let i = 0; i + 1 < pts.length; i++) {
     const after = pts[i].f >= cur;
-    parts.push(h('line', { x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y, stroke: after ? '#7fb3ff' : '#4b6aa0', 'stroke-width': 2 }));
+    parts.push(h('line', { x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y, stroke: after ? '#8ab3fd' : '#4e68a2', 'stroke-width': 2 }));
   }
   for (const p of pts) {
     const isKey = keys?.has(p.f);
     const isCur = p.f === cur;
-    parts.push(h('circle', { cx: p.x, cy: p.y, r: isCur ? 4 : isKey ? 3.5 : 1.8, fill: isCur ? '#ffffff' : isKey ? '#ffbe33' : '#000000' }));
-    if (st.show_frame_numbers) parts.push(h('text', { x: p.x + 5, y: p.y - 4, fill: '#ccc', 'font-size': 10 }, String(p.f)));
+    parts.push(h('circle', { cx: p.x, cy: p.y, r: isCur ? 4 : isKey ? 3.5 : 1.8, fill: isCur ? '#ffffff' : isKey ? '#fcc327' : '#000000' }));
+    if (st.show_frame_numbers) parts.push(h('text', { x: p.x + 5, y: p.y - 4, fill: '#cdced0', 'font-size': 10 }, String(p.f)));
   }
 }
 

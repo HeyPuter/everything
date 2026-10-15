@@ -321,16 +321,16 @@ export function drawCurves(ctx: NodeDrawContext): Child {
   const commit = (label: string, final = true) => ctx.changed(label, final);
   const key = `${ctx.key}:curve`;
   const colors: Record<string, string> = {
-    c: '#e6e6e6',
-    r: '#e05050',
-    g: '#60c060',
-    b: '#5080e0',
-    x: '#e05050',
-    y: '#60c060',
-    z: '#5080e0',
-    v: '#e6e6e6',
-    h: '#e6e6e6',
-    s: '#e6e6e6',
+    c: '#e8e9ea',
+    r: '#dc524b',
+    g: '#66c06a',
+    b: '#577edf',
+    x: '#dc524b',
+    y: '#66c06a',
+    z: '#577edf',
+    v: '#e8e9ea',
+    h: '#e8e9ea',
+    s: '#e8e9ea',
   };
   const periodic = kind === 'HUE';
   const curvePath = (i: number) => {

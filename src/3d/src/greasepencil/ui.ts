@@ -183,7 +183,7 @@ function materialSwatch(): Child {
       width: '14px',
       height: '14px',
       borderRadius: '3px',
-      border: '1px solid #000',
+      border: '1px solid #000000',
       background: `rgb(${c
         .slice(0, 3)
         .map((x) => Math.round(Math.pow(Math.max(0, Math.min(1, x)), 1 / 2.2) * 255))
@@ -888,8 +888,8 @@ editModeHooks.svg.push((v) => {
       cx: radial.cx,
       cy: radial.cy,
       r: Math.max(1, r),
-      fill: 'rgba(255,255,255,0.06)',
-      stroke: '#fff',
+      fill: 'rgba(255, 255, 255,0.06)',
+      stroke: '#ffffff',
       'stroke-width': 1.5,
     }),
     radial.data !== 'size'
@@ -897,8 +897,8 @@ editModeHooks.svg.push((v) => {
           cx: radial.cx,
           cy: radial.cy,
           r: Math.max(0.5, radial.value * FULL),
-          fill: 'rgba(255,255,255,0.18)',
-          stroke: '#fff',
+          fill: 'rgba(255, 255, 255,0.18)',
+          stroke: '#ffffff',
           'stroke-width': 1,
         })
       : null,
@@ -908,9 +908,9 @@ editModeHooks.svg.push((v) => {
         x: radial.cx,
         y: radial.cy + 4,
         'text-anchor': 'middle',
-        fill: '#fff',
+        fill: '#ffffff',
         'font-size': 12,
-        style: 'paint-order:stroke;stroke:#000;stroke-width:3px',
+        style: 'paint-order:stroke;stroke:#000000;stroke-width:3px',
       },
       radial.data === 'size' ? `${Math.round(radial.value)} px` : radial.value.toFixed(3),
     ),

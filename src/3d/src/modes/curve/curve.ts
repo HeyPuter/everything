@@ -254,10 +254,10 @@ editModeHooks.box.push((v, x0, y0, x1, y1, mode) => (inCurveEdit() ? regionSelec
 editModeHooks.region.push((v, r, mode) => (inCurveEdit() ? regionSelect(v, r, mode, r.kind === 'circle' ? 'Circle Select' : 'Lasso Select') : false));
 
 const HANDLE_COLORS: Record<HandleType, [string, string]> = {
-  FREE: ['#000000', '#f0ff40'],
-  AUTO: ['#909000', '#f0ff40'],
-  VECTOR: ['#409030', '#40c030'],
-  ALIGNED: ['#803060', '#f090a0'],
+  FREE: ['#000000', '#f5feb8'],
+  AUTO: ['#899102', '#f5feb8'],
+  VECTOR: ['#3d8f32', '#3cc233'],
+  ALIGNED: ['#7e315c', '#ef939e'],
 };
 
 editModeHooks.svg.push((v) => {
@@ -280,7 +280,7 @@ editModeHooks.svg.push((v) => {
         const n = V3(N[i]).multiplyScalar(Math.cos(t)).add(V3(B[i]).multiplyScalar(Math.sin(t))).multiplyScalar(len * smp.radius[i]);
         const a = P(p),
           b = P(V3(p).add(n).toArray());
-        lines.push(h('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: '#7fd0ff', 'stroke-width': 1, opacity: 0.8 }));
+        lines.push(h('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: '#90d0fd', 'stroke-width': 1, opacity: 0.8 }));
       });
     }
   }
@@ -295,20 +295,20 @@ editModeHooks.svg.push((v) => {
             const type = side === 'hl' ? b.handle_left_type : b.handle_right_type;
             const sel = side === 'hl' ? b.select_left_handle : b.select_right_handle;
             lines.push(h('line', { x1: c.x, y1: c.y, x2: hp.x, y2: hp.y, stroke: HANDLE_COLORS[type][sel ? 1 : 0], 'stroke-width': 1.5 }));
-            dots.push(h('circle', { cx: hp.x, cy: hp.y, r: 3, fill: sel ? '#ff8500' : '#000', stroke: HANDLE_COLORS[type][sel ? 1 : 0], 'stroke-width': 1 }));
+            dots.push(h('circle', { cx: hp.x, cy: hp.y, r: 3, fill: sel ? '#f58e04' : '#000000', stroke: HANDLE_COLORS[type][sel ? 1 : 0], 'stroke-width': 1 }));
           }
         }
         const act = curveState.active && curveState.active.s === s && curveState.active.i === i && curveState.active.part === 'co';
-        dots.push(h('circle', { cx: c.x, cy: c.y, r: 3.5, fill: b.select_control_point ? (act ? '#fff' : '#ff8500') : '#000', stroke: '#000', 'stroke-width': 0.8 }));
+        dots.push(h('circle', { cx: c.x, cy: c.y, r: 3.5, fill: b.select_control_point ? (act ? '#ffffff' : '#f58e04') : '#000000', stroke: '#000000', 'stroke-width': 0.8 }));
       });
     } else {
       const pts = sp.points.map((p) => P(p.co));
-      for (let i = 0; i + 1 < pts.length; i++) lines.push(h('line', { x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y, stroke: '#90a0ff', 'stroke-width': 1, opacity: 0.7 }));
-      if (sp.use_cyclic_u && pts.length > 2) lines.push(h('line', { x1: pts[pts.length - 1].x, y1: pts[pts.length - 1].y, x2: pts[0].x, y2: pts[0].y, stroke: '#90a0ff', 'stroke-width': 1, opacity: 0.7 }));
+      for (let i = 0; i + 1 < pts.length; i++) lines.push(h('line', { x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y, stroke: '#97a0fd', 'stroke-width': 1, opacity: 0.7 }));
+      if (sp.use_cyclic_u && pts.length > 2) lines.push(h('line', { x1: pts[pts.length - 1].x, y1: pts[pts.length - 1].y, x2: pts[0].x, y2: pts[0].y, stroke: '#97a0fd', 'stroke-width': 1, opacity: 0.7 }));
       pts.forEach((p, i) => {
         if (sp.points[i].hide) return;
         const act = curveState.active && curveState.active.s === s && curveState.active.i === i;
-        dots.push(h('circle', { cx: p.x, cy: p.y, r: 3.5, fill: sp.points[i].select ? (act ? '#fff' : '#ff8500') : '#000', stroke: '#000', 'stroke-width': 0.8 }));
+        dots.push(h('circle', { cx: p.x, cy: p.y, r: 3.5, fill: sp.points[i].select ? (act ? '#ffffff' : '#f58e04') : '#000000', stroke: '#000000', 'stroke-width': 0.8 }));
       });
     }
   });

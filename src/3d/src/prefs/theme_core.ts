@@ -30,6 +30,8 @@ export const SURFACE_REFS: [number, string][] = [
   [0x3d, 'panel'],
   [0x54, 'button'],
   [0x65, 'button_hover'],
+  // light greys of the style sheets are foreground (icon / text) shades
+  [0xe6, 'text'],
   [0xff, 'text_hi'],
 ];
 export const TEXT_REFS: [number, string][] = [

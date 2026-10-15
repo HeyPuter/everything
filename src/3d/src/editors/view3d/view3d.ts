@@ -353,10 +353,10 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       parts.push(
         h('path', {
           d: `M0 0H${W}V${H}H0Z M${frame.x} ${frame.y}V${frame.y + frame.h}H${frame.x + frame.w}V${frame.y}Z`,
-          fill: `rgba(0,0,0,${alpha})`,
+          fill: `rgba(0, 0, 0,${alpha})`,
           'fill-rule': 'evenodd',
         }),
-        h('rect', { x: frame.x, y: frame.y, width: frame.w, height: frame.h, fill: 'none', stroke: '#000', 'stroke-width': 1, 'stroke-dasharray': '0', opacity: 0.8 }),
+        h('rect', { x: frame.x, y: frame.y, width: frame.w, height: frame.h, fill: 'none', stroke: '#000000', 'stroke-width': 1, 'stroke-dasharray': '0', opacity: 0.8 }),
       );
     }
     if (ov.show_overlays && ov.show_cursor) {
@@ -367,9 +367,9 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
           h(
             'g',
             { class: 'cursor3d', transform: `translate(${p.x} ${p.y})` },
-            h('circle', { r: 10, fill: 'none', stroke: '#fff', 'stroke-width': 1.5, 'stroke-dasharray': '3.93 3.93' }),
-            h('circle', { r: 10, fill: 'none', stroke: '#d40000', 'stroke-width': 1.5, 'stroke-dasharray': '3.93 3.93', 'stroke-dashoffset': 3.93 }),
-            h('path', { d: 'M-18 0h6M12 0h6M0 -18v6M0 12v6', stroke: '#000', 'stroke-width': 1.5 }),
+            h('circle', { r: 10, fill: 'none', stroke: '#ffffff', 'stroke-width': 1.5, 'stroke-dasharray': '3.93 3.93' }),
+            h('circle', { r: 10, fill: 'none', stroke: '#d00d03', 'stroke-width': 1.5, 'stroke-dasharray': '3.93 3.93', 'stroke-dashoffset': 3.93 }),
+            h('path', { d: 'M-18 0h6M12 0h6M0 -18v6M0 12v6', stroke: '#000000', 'stroke-width': 1.5 }),
           ),
         );
     }

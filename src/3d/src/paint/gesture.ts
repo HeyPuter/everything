@@ -117,8 +117,8 @@ editModeHooks.svg.push((v) => {
   const g = draw.g;
   if (!g || draw.view !== v) return null;
   const outline = (d: string, fill: string) => [
-    h('path', { d, fill, stroke: '#000', 'stroke-width': 1 }),
-    h('path', { d, fill: 'none', stroke: '#fff', 'stroke-width': 1, 'stroke-dasharray': '4 3' }),
+    h('path', { d, fill, stroke: '#000000', 'stroke-width': 1 }),
+    h('path', { d, fill: 'none', stroke: '#ffffff', 'stroke-width': 1, 'stroke-dasharray': '4 3' }),
   ];
   let parts: VNode[] = [];
   if (g.kind === 'BOX') {
@@ -126,7 +126,7 @@ editModeHooks.svg.push((v) => {
       y = Math.min(g.y0, g.y1),
       w = Math.abs(g.x1 - g.x0),
       hh = Math.abs(g.y1 - g.y0);
-    parts = outline(`M${x} ${y}h${w}v${hh}h${-w}Z`, 'rgba(255,255,255,0.06)') as VNode[];
+    parts = outline(`M${x} ${y}h${w}v${hh}h${-w}Z`, 'rgba(255, 255, 255,0.06)') as VNode[];
   } else if (g.kind === 'LINE') {
     const dx = g.b.x - g.a.x,
       dy = g.b.y - g.a.y;
@@ -142,15 +142,15 @@ editModeHooks.svg.push((v) => {
       bx = g.b.x + (dx / len) * ext,
       by = g.b.y + (dy / len) * ext;
     parts = [
-      h('path', { d: `M${ax} ${ay}L${bx} ${by}L${bx + nx * far} ${by + ny * far}L${ax + nx * far} ${ay + ny * far}Z`, fill: 'rgba(255,255,255,0.07)', stroke: 'none' }) as VNode,
+      h('path', { d: `M${ax} ${ay}L${bx} ${by}L${bx + nx * far} ${by + ny * far}L${ax + nx * far} ${ay + ny * far}Z`, fill: 'rgba(255, 255, 255,0.07)', stroke: 'none' }) as VNode,
       ...(outline(`M${g.a.x} ${g.a.y}L${g.b.x} ${g.b.y}`, 'none') as VNode[]),
-      h('path', { d: `M${(g.a.x + g.b.x) / 2} ${(g.a.y + g.b.y) / 2}l${nx * 14} ${ny * 14}`, stroke: '#fff', 'stroke-width': 1.5 }) as VNode,
+      h('path', { d: `M${(g.a.x + g.b.x) / 2} ${(g.a.y + g.b.y) / 2}l${nx * 14} ${ny * 14}`, stroke: '#ffffff', 'stroke-width': 1.5 }) as VNode,
     ];
   } else {
     const pts = draw.hover && g.kind === 'POLYLINE' ? [...g.pts, draw.hover] : g.pts;
-    parts = outline(pathD(pts, g.kind === 'LASSO'), 'rgba(255,255,255,0.06)') as VNode[];
+    parts = outline(pathD(pts, g.kind === 'LASSO'), 'rgba(255, 255, 255,0.06)') as VNode[];
     if (g.kind === 'POLYLINE' && g.pts.length)
-      parts.push(h('circle', { cx: g.pts[0].x, cy: g.pts[0].y, r: 5, fill: 'none', stroke: '#fff', 'stroke-width': 1 }) as VNode);
+      parts.push(h('circle', { cx: g.pts[0].x, cy: g.pts[0].y, r: 5, fill: 'none', stroke: '#ffffff', 'stroke-width': 1 }) as VNode);
   }
   return h('g', { key: 'paint-gesture' }, ...parts) as VNode;
 });

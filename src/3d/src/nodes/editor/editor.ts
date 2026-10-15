@@ -58,9 +58,9 @@ interface LinkDrag {
 /** Line gestures drawn with the right mouse button. */
 export type GestureMode = 'CUT' | 'MUTE' | 'REROUTE';
 const GESTURE_COLOR: Record<GestureMode, string> = {
-  CUT: 'rgba(255,90,90,0.9)',
-  MUTE: 'rgba(120,170,255,0.95)',
-  REROUTE: 'rgba(140,230,140,0.95)',
+  CUT: 'rgba(252, 91, 83,0.9)',
+  MUTE: 'rgba(131, 170, 253,0.95)',
+  REROUTE: 'rgba(150, 231, 154,0.95)',
 };
 
 export class NodeEditor implements Editor {
@@ -716,9 +716,9 @@ export class NodeEditor implements Editor {
       if (!a || !b) continue;
       const st = linkStatus(ctx, l);
       const hl = sel.has(l.from_node) || sel.has(l.to_node);
-      let color = this.showOverlays && this.overlays.wireColors ? (SOCKET_COLORS[a.socket.type] ?? '#9a9a9a') : '#9a9a9a';
-      if (!st.valid) color = '#e33b3b';
-      else if (l.is_muted) color = '#c04040';
+      let color = this.showOverlays && this.overlays.wireColors ? (SOCKET_COLORS[a.socket.type] ?? '#9a9b9c') : '#9a9b9c';
+      if (!st.valid) color = '#df3e36';
+      else if (l.is_muted) color = '#b94640';
       const [x1, y1] = this.toScreen(a.x, a.y),
         [x2, y2] = this.toScreen(b.x, b.y);
       const c = linkCurve(x1, y1, x2, y2);
@@ -732,7 +732,7 @@ export class NodeEditor implements Editor {
     g.moveTo(c[0], c[1]);
     g.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]);
     g.setLineDash(dashed ? [6, 4] : []);
-    g.strokeStyle = 'rgba(0,0,0,0.55)';
+    g.strokeStyle = 'rgba(0, 0, 0,0.55)';
     g.lineWidth = lw + 2;
     g.stroke();
     g.strokeStyle = insert ? '#ffffff' : hl ? lighten(color, 0.45) : mute(color);
@@ -761,7 +761,7 @@ export class NodeEditor implements Editor {
           if (!a || !b || a.collapsed || b.collapsed) continue;
           const [x1, y1] = this.toScreen(a.x, a.y),
             [x2, y2] = this.toScreen(b.x, b.y);
-          g.strokeStyle = 'rgba(220,60,60,0.85)';
+          g.strokeStyle = 'rgba(216, 63, 55,0.85)';
           g.lineWidth = Math.max(1, 1.5 * v.zoom);
           g.beginPath();
           g.moveTo(x1, y1);
@@ -777,13 +777,13 @@ export class NodeEditor implements Editor {
       for (const end of d.ends) {
         const [fx, fy] = this.toScreen(end.x, end.y);
         const c = d.isOutput ? linkCurve(fx, fy, px, py) : linkCurve(px, py, fx, fy);
-        this.strokeLink(g, c, SOCKET_COLORS[end.type] ?? '#ccc', Math.max(1.5, Math.min(3, 2 * v.zoom)), true, false);
+        this.strokeLink(g, c, SOCKET_COLORS[end.type] ?? '#cdced0', Math.max(1.5, Math.min(3, 2 * v.zoom)), true, false);
       }
     }
     if (this.box) {
       const b = this.box;
-      g.fillStyle = 'rgba(255,255,255,0.04)';
-      g.strokeStyle = 'rgba(255,255,255,0.7)';
+      g.fillStyle = 'rgba(255, 255, 255,0.04)';
+      g.strokeStyle = 'rgba(255, 255, 255,0.7)';
       g.setLineDash([4, 3]);
       g.lineWidth = 1;
       const x = Math.min(b.x0, b.x1),
@@ -794,7 +794,7 @@ export class NodeEditor implements Editor {
     }
     if (this.axisGuide) {
       const [gx, gy] = this.toScreen(this.axisGuide.x, this.axisGuide.y);
-      g.strokeStyle = this.axisGuide.axis === 'X' ? 'rgba(255,80,80,0.8)' : 'rgba(120,220,90,0.8)';
+      g.strokeStyle = this.axisGuide.axis === 'X' ? 'rgba(252, 81, 72,0.8)' : 'rgba(126, 221, 105,0.8)';
       g.lineWidth = 1;
       g.beginPath();
       if (this.axisGuide.axis === 'X') {
@@ -807,8 +807,8 @@ export class NodeEditor implements Editor {
       g.stroke();
     }
     if (this.lasso && this.lasso.length > 1) {
-      g.fillStyle = 'rgba(255,255,255,0.04)';
-      g.strokeStyle = 'rgba(255,255,255,0.7)';
+      g.fillStyle = 'rgba(255, 255, 255,0.04)';
+      g.strokeStyle = 'rgba(255, 255, 255,0.7)';
       g.setLineDash([4, 3]);
       g.lineWidth = 1;
       g.beginPath();
@@ -819,7 +819,7 @@ export class NodeEditor implements Editor {
       g.setLineDash([]);
     }
     if (this.circle) {
-      g.strokeStyle = 'rgba(255,255,255,0.8)';
+      g.strokeStyle = 'rgba(255, 255, 255,0.8)';
       g.lineWidth = 1;
       g.setLineDash([4, 3]);
       g.beginPath();

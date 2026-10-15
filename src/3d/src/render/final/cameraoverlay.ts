@@ -88,14 +88,14 @@ editModeHooks.svg.push((v) => {
   const parts: VNode[] = [];
   const safe = app.doc.scene.safe_areas ?? DEFAULT_SAFE_AREAS;
   if (ca.show_safe_areas) {
-    parts.push(rectEl(insetRect(f, safe.action[0], safe.action[1]), 'rgba(255,255,255,0.55)'), rectEl(insetRect(f, safe.title[0], safe.title[1]), 'rgba(255,255,255,0.55)'));
+    parts.push(rectEl(insetRect(f, safe.action[0], safe.action[1]), 'rgba(255, 255, 255,0.55)'), rectEl(insetRect(f, safe.title[0], safe.title[1]), 'rgba(255, 255, 255,0.55)'));
     if (ca.show_safe_center) {
       const c = centerCut(f);
-      parts.push(rectEl(insetRect(c, safe.action_center[0], safe.action_center[1]), 'rgba(255,255,255,0.4)', '4 3'), rectEl(insetRect(c, safe.title_center[0], safe.title_center[1]), 'rgba(255,255,255,0.4)', '4 3'));
+      parts.push(rectEl(insetRect(c, safe.action_center[0], safe.action_center[1]), 'rgba(255, 255, 255,0.4)', '4 3'), rectEl(insetRect(c, safe.title_center[0], safe.title_center[1]), 'rgba(255, 255, 255,0.4)', '4 3'));
     }
   }
   const guides = compositionGuides(ca, f);
-  if (guides.length) parts.push(h('path', { d: guides.map((s) => `M${s[0]} ${s[1]}L${s[2]} ${s[3]}`).join(''), fill: 'none', stroke: 'rgba(255,255,255,0.5)', 'stroke-width': 1 }));
-  if (ca.show_name) parts.push(h('text', { x: f.x + 6, y: f.y - 6, fill: '#e6e6e6', 'font-size': 12, style: { 'paint-order': 'stroke', stroke: 'rgba(0,0,0,0.6)', 'stroke-width': 3 } }, ob.name));
+  if (guides.length) parts.push(h('path', { d: guides.map((s) => `M${s[0]} ${s[1]}L${s[2]} ${s[3]}`).join(''), fill: 'none', stroke: 'rgba(255, 255, 255,0.5)', 'stroke-width': 1 }));
+  if (ca.show_name) parts.push(h('text', { x: f.x + 6, y: f.y - 6, fill: '#e8e9ea', 'font-size': 12, style: { 'paint-order': 'stroke', stroke: 'rgba(0, 0, 0,0.6)', 'stroke-width': 3 } }, ob.name));
   return parts.length ? h('g', { class: 'camera-guides', 'pointer-events': 'none' }, ...parts) : null;
 });

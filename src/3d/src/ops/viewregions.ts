@@ -99,7 +99,7 @@ export function dragRegion(v: View3D, label: string, done: (x0: number, y0: numb
 editModeHooks.svg.push((v) => {
   if (region.view !== v || region.start || !region.mouse) return null;
   const { x, y } = region.mouse;
-  return h('g', { class: 'region-cross' }, h('line', { x1: 0, y1: y, x2: v.width, y2: y, stroke: '#fff', 'stroke-width': 1, 'stroke-dasharray': '3 3', opacity: 0.7 }), h('line', { x1: x, y1: 0, x2: x, y2: v.height, stroke: '#fff', 'stroke-width': 1, 'stroke-dasharray': '3 3', opacity: 0.7 }));
+  return h('g', { class: 'region-cross' }, h('line', { x1: 0, y1: y, x2: v.width, y2: y, stroke: '#ffffff', 'stroke-width': 1, 'stroke-dasharray': '3 3', opacity: 0.7 }), h('line', { x1: x, y1: 0, x2: x, y2: v.height, stroke: '#ffffff', 'stroke-width': 1, 'stroke-dasharray': '3 3', opacity: 0.7 }));
 });
 
 // ---------------------------------------------------------------------------
@@ -151,7 +151,7 @@ editModeHooks.svg.push((v) => {
     x1 = f.x + (r.border_max_x ?? 1) * f.w,
     y0 = f.y + (1 - (r.border_max_y ?? 1)) * f.h,
     y1 = f.y + (1 - (r.border_min_y ?? 0)) * f.h;
-  return h('rect', { class: 'render-region', x: x0, y: y0, width: x1 - x0, height: y1 - y0, fill: 'none', stroke: '#e0503c', 'stroke-width': 1.2, 'stroke-dasharray': '6 4' });
+  return h('rect', { class: 'render-region', x: x0, y: y0, width: x1 - x0, height: y1 - y0, fill: 'none', stroke: '#dc5236', 'stroke-width': 1.2, 'stroke-dasharray': '6 4' });
 });
 
 // Final renders render only the region's pixels (src/render/final/job.ts).

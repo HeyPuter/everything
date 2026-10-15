@@ -86,14 +86,14 @@ editModeHooks.svg.push((v) => {
     if (a.z > 1 || b.z > 1) return;
     const on = i === activeRuler;
     const label = (x: number, y: number, text: string) => [
-      h('rect', { x: x - text.length * 3.6 - 5, y: y - 18, width: text.length * 7.2 + 10, height: 16, rx: 3, fill: 'rgba(0,0,0,.6)' }),
-      h('text', { x, y: y - 6, fill: '#fff', 'font-size': 11, 'text-anchor': 'middle' }, text),
+      h('rect', { x: x - text.length * 3.6 - 5, y: y - 18, width: text.length * 7.2 + 10, height: 16, rx: 3, fill: 'rgba(0, 0, 0,.6)' }),
+      h('text', { x, y: y - 6, fill: '#ffffff', 'font-size': 11, 'text-anchor': 'middle' }, text),
     ];
     const seg = (p: { x: number; y: number }, q: { x: number; y: number }) => [
-      h('line', { x1: p.x, y1: p.y, x2: q.x, y2: q.y, stroke: '#000', 'stroke-width': 3, opacity: 0.6 }),
-      h('line', { x1: p.x, y1: p.y, x2: q.x, y2: q.y, stroke: on ? '#fff' : '#ddd', 'stroke-width': 1.2, 'stroke-dasharray': '6 3' }),
+      h('line', { x1: p.x, y1: p.y, x2: q.x, y2: q.y, stroke: '#000000', 'stroke-width': 3, opacity: 0.6 }),
+      h('line', { x1: p.x, y1: p.y, x2: q.x, y2: q.y, stroke: on ? '#ffffff' : '#dedfe1', 'stroke-width': 1.2, 'stroke-dasharray': '6 3' }),
     ];
-    const dot = (p: { x: number; y: number }) => h('circle', { cx: p.x, cy: p.y, r: 4, fill: on ? '#fff' : '#bbb', stroke: '#000' });
+    const dot = (p: { x: number; y: number }) => h('circle', { cx: p.x, cy: p.y, r: 4, fill: on ? '#ffffff' : '#bbbcbe', stroke: '#000000' });
     if (r.c) {
       // protractor: angle at the corner between the two arms
       const c = v.project(new Vector3(...r.c));
@@ -108,13 +108,13 @@ editModeHooks.svg.push((v) => {
       const R = 22;
       const arc = `M${c.x + Math.cos(a0) * R} ${c.y + Math.sin(a0) * R}A${R} ${R} 0 0 ${d > 0 ? 1 : 0} ${c.x + Math.cos(b0) * R} ${c.y + Math.sin(b0) * R}`;
       const mid = a0 + d / 2;
-      parts.push(h('g', { class: 'ruler protractor' }, ...seg(c, a), ...seg(c, b), h('path', { d: arc, fill: 'none', stroke: on ? '#fff' : '#ddd', 'stroke-width': 1.2 }), dot(a), dot(b), dot(c), ...label(c.x + Math.cos(mid) * (R + 22), c.y + Math.sin(mid) * (R + 22) + 6, `${((ang * 180) / Math.PI).toFixed(2)}°`)));
+      parts.push(h('g', { class: 'ruler protractor' }, ...seg(c, a), ...seg(c, b), h('path', { d: arc, fill: 'none', stroke: on ? '#ffffff' : '#dedfe1', 'stroke-width': 1.2 }), dot(a), dot(b), dot(c), ...label(c.x + Math.cos(mid) * (R + 22), c.y + Math.sin(mid) * (R + 22) + 6, `${((ang * 180) / Math.PI).toFixed(2)}°`)));
       return;
     }
     const len = new Vector3(...r.a).distanceTo(new Vector3(...r.b));
     const mx = (a.x + b.x) / 2,
       my = (a.y + b.y) / 2;
-    parts.push(h('g', { class: 'ruler' }, ...seg(a, b), dot(a), dot(b), h('circle', { cx: mx, cy: my, r: 3, fill: 'none', stroke: on ? '#fff' : '#bbb', 'stroke-width': 1 }), ...label(mx, my, formatNumber(len, 'distance'))));
+    parts.push(h('g', { class: 'ruler' }, ...seg(a, b), dot(a), dot(b), h('circle', { cx: mx, cy: my, r: 3, fill: 'none', stroke: on ? '#ffffff' : '#bbbcbe', 'stroke-width': 1 }), ...label(mx, my, formatNumber(len, 'distance'))));
   });
   if (preview) parts.push(preview);
   return parts.length ? h('g', { class: 'tools3d' }, parts) : null;
@@ -288,7 +288,7 @@ function addCubePointer(v: View3D, e: PointerEvent): boolean {
       [b.minX, b.maxY, b.z1],
     ].map((q) => v.project(new Vector3(q[0], q[1], q[2])));
     const E = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
-    preview = h('g', {}, E.map(([i, j]) => h('line', { x1: c[i].x, y1: c[i].y, x2: c[j].x, y2: c[j].y, stroke: '#fff', 'stroke-width': 1.2 })));
+    preview = h('g', {}, E.map(([i, j]) => h('line', { x1: c[i].x, y1: c[i].y, x2: c[j].x, y2: c[j].y, stroke: '#ffffff', 'stroke-width': 1.2 })));
     app.changed('ui');
   };
   const finish = () => {

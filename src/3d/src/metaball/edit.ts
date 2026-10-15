@@ -150,17 +150,17 @@ editModeHooks.svg.push((v) => {
   for (const g of rings(v, ob, mb)) {
     const e = mb.elements[g.index];
     const active = mb.active_element === g.index && e.select;
-    const radCol = e.select ? (active ? '#ffffff' : '#ff8500') : '#d8d8d8';
-    const stiffCol = e.select ? (active ? '#d6ffc4' : '#8ee05a') : '#5a9a48';
+    const radCol = e.select ? (active ? '#ffffff' : '#f58e04') : '#d9dadc';
+    const stiffCol = e.select ? (active ? '#e5fedc' : '#93e16c') : '#579949';
     const dash = e.use_negative ? '5 3' : undefined;
     parts.push(
       h(
         'g',
         { key: `mb${g.index}`, 'data-element': g.index },
-        h('circle', { cx: g.cx, cy: g.cy, r: g.r, fill: 'none', stroke: '#000', 'stroke-width': 3, opacity: 0.35 }),
+        h('circle', { cx: g.cx, cy: g.cy, r: g.r, fill: 'none', stroke: '#000000', 'stroke-width': 3, opacity: 0.35 }),
         h('circle', { cx: g.cx, cy: g.cy, r: g.r, fill: 'none', stroke: radCol, 'stroke-width': 1.5, 'stroke-dasharray': dash }),
         h('circle', { cx: g.cx, cy: g.cy, r: g.s, fill: 'none', stroke: stiffCol, 'stroke-width': 1.5, 'stroke-dasharray': dash }),
-        h('circle', { cx: g.cx, cy: g.cy, r: 2.5, fill: e.select ? radCol : '#111', stroke: '#000', 'stroke-width': 0.8 }),
+        h('circle', { cx: g.cx, cy: g.cy, r: 2.5, fill: e.select ? radCol : '#0d0e10', stroke: '#000000', 'stroke-width': 0.8 }),
       ),
     );
   }

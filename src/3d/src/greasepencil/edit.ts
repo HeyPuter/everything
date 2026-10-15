@@ -246,7 +246,7 @@ const linesGeo = new BufferGeometry();
 const lines = new LineSegments(
   linesGeo,
   new LineBasicMaterial({
-    color: 0xff8500,
+    color: 0xf58e04,
     depthTest: false,
     transparent: true,
     opacity: 0.8,
@@ -254,7 +254,7 @@ const lines = new LineSegments(
 );
 const dimGeo = new BufferGeometry();
 // edit lines of the unselected strokes
-const dimLines = new LineSegments(dimGeo, new LineBasicMaterial({ color: 0x9a9a9a, depthTest: false, transparent: true, opacity: 0.5 }));
+const dimLines = new LineSegments(dimGeo, new LineBasicMaterial({ color: 0x9a9b9c, depthTest: false, transparent: true, opacity: 0.5 }));
 pts.frustumCulled = lines.frustumCulled = dimLines.frustumCulled = false;
 pts.renderOrder = 2;
 ovScene.add(dimLines, lines, pts);

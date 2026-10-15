@@ -100,7 +100,7 @@ export function drawMask(ed: MaskHost, g: CanvasRenderingContext2D, splines = tr
       const line = samples.map((s) => m2s(ed, s.p));
       // fill preview of closed splines
       if (sp.use_cyclic && sp.use_fill && line.length > 2) {
-        g.fillStyle = 'rgba(255,255,255,0.08)';
+        g.fillStyle = 'rgba(255, 255, 255,0.08)';
         g.beginPath();
         line.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
         g.closePath();
@@ -109,7 +109,7 @@ export function drawMask(ed: MaskHost, g: CanvasRenderingContext2D, splines = tr
       // feather outline
       if (sp.use_cyclic && sp.points.some((p) => p.weight > 0)) {
         const f = featherOutline(samples, aspect).map((p) => m2s(ed, p));
-        g.strokeStyle = 'rgba(255,255,255,0.35)';
+        g.strokeStyle = 'rgba(255, 255, 255,0.35)';
         g.lineWidth = 1;
         g.beginPath();
         f.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
@@ -120,13 +120,13 @@ export function drawMask(ed: MaskHost, g: CanvasRenderingContext2D, splines = tr
       const selected = sp.points.some((p) => p.select);
       const active = isAct && layer.active_spline === si;
       g.lineWidth = active ? 2 : 1.5;
-      g.strokeStyle = '#000';
+      g.strokeStyle = '#000000';
       g.beginPath();
       line.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
       if (sp.use_cyclic) g.closePath();
       g.stroke();
       g.setLineDash([4, 4]);
-      g.strokeStyle = selected ? (active ? '#ffb05a' : '#ff8f0d') : '#d0d0d0';
+      g.strokeStyle = selected ? (active ? '#fcb454' : '#fa9404') : '#d1d2d4';
       g.stroke();
       g.setLineDash([]);
       if (layer.hide_select) continue;
@@ -139,25 +139,25 @@ export function drawMask(ed: MaskHost, g: CanvasRenderingContext2D, splines = tr
             [p.handle_right, p.select_right_handle],
           ] as const) {
             const hs = m2s(ed, h);
-            g.strokeStyle = 'rgba(0,0,0,0.8)';
+            g.strokeStyle = 'rgba(0, 0, 0,0.8)';
             g.lineWidth = 3;
             g.beginPath();
             g.moveTo(...c);
             g.lineTo(...hs);
             g.stroke();
-            g.strokeStyle = sel ? '#ffb05a' : '#e8e8e8';
+            g.strokeStyle = sel ? '#fcb454' : '#eaebec';
             g.lineWidth = 1;
             g.stroke();
             g.beginPath();
             g.arc(hs[0], hs[1], 3.5, 0, Math.PI * 2);
-            g.fillStyle = sel ? '#ffb05a' : '#e8e8e8';
+            g.fillStyle = sel ? '#fcb454' : '#eaebec';
             g.fill();
-            g.strokeStyle = '#000';
+            g.strokeStyle = '#000000';
             g.stroke();
           }
         }
-        g.fillStyle = p.select ? '#ff8f0d' : '#e8e8e8';
-        g.strokeStyle = '#000';
+        g.fillStyle = p.select ? '#fa9404' : '#eaebec';
+        g.strokeStyle = '#000000';
         g.lineWidth = 1;
         g.fillRect(c[0] - 3.5, c[1] - 3.5, 7, 7);
         g.strokeRect(c[0] - 3.5 + 0.5, c[1] - 3.5 + 0.5, 6, 6);
@@ -172,7 +172,7 @@ export function drawSelectShape(g: CanvasRenderingContext2D, sh: MaskHost['shape
   if (!sh) return;
   g.save();
   g.setLineDash([4, 3]);
-  g.strokeStyle = '#fff';
+  g.strokeStyle = '#ffffff';
   g.beginPath();
   if (sh.kind === 'circle') g.arc(sh.x, sh.y, sh.r, 0, Math.PI * 2);
   else sh.pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
@@ -203,7 +203,7 @@ export function drawMaskMatte(ed: MaskHost, g: CanvasRenderingContext2D, mode: '
       // inside stays white, outside becomes half grey: multiplied over the footage
       const x = c.getContext('2d')!;
       x.globalCompositeOperation = 'screen';
-      x.fillStyle = '#808080';
+      x.fillStyle = '#7f8082';
       x.fillRect(0, 0, sw, sh);
       x.globalCompositeOperation = 'source-over';
     }

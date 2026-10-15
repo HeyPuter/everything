@@ -5,7 +5,7 @@
 }
 .prop-body.searching .search-hl .sr-label,
 .prop-body.searching .checkbox.search-hl .cb-label {
-  color: #f0c060;
+  color: #edc45c;
 }
 .prop-body {
   position: relative;
@@ -19,7 +19,7 @@
   background: var(--accent);
   pointer-events: none;
   z-index: 3;
-  color: var(--c-text-on-accent, #fff);
+  color: var(--c-text-on-accent, #ffffff);
 }
 .panel.dragging {
   opacity: 0.55;
@@ -74,11 +74,11 @@ body.eyedropper-active * {
   display: grid;
   place-items: center;
   border-radius: 3px;
-  background: var(--w-field, #2b2b2b);
+  background: var(--w-field, #28292a);
 }
 .ul-fbtn.on {
   background: var(--accent);
-  color: var(--c-text-on-accent, #fff);
+  color: var(--c-text-on-accent, #ffffff);
 }
 
 /* header options popover */

@@ -499,7 +499,7 @@ function surfacePanel(st: MaterialGPencilStyle): Child {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              background: '#2a2a2a',
+              background: '#272829',
               borderRadius: '4px',
             },
           },

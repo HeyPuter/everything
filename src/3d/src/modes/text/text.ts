@@ -673,7 +673,7 @@ editModeHooks.svg.push((v) => {
         b = P(x1, y0 - l.size * 0.2),
         cc = P(x1, y0 + l.size * 0.8),
         d = P(x0, y0 + l.size * 0.8);
-      parts.push(h('polygon', { points: `${a.x},${a.y} ${b.x},${b.y} ${cc.x},${cc.y} ${d.x},${d.y}`, fill: 'rgba(80,140,255,.35)' }));
+      parts.push(h('polygon', { points: `${a.x},${a.y} ${b.x},${b.y} ${cc.x},${cc.y} ${d.x},${d.y}`, fill: 'rgba(90, 138, 252,.35)' }));
     }
   }
   const [x, y] = at(c);
@@ -685,7 +685,7 @@ editModeHooks.svg.push((v) => {
     if (!(b.width > 0)) continue;
     const hgt = b.height > 0 ? b.height : l.lineHeight;
     const q = [P(b.x, b.y + l.size), P(b.x + b.width, b.y + l.size), P(b.x + b.width, b.y + l.size - hgt), P(b.x, b.y + l.size - hgt)];
-    parts.push(h('polygon', { points: q.map((pt) => `${pt.x},${pt.y}`).join(' '), fill: 'none', stroke: '#9a9a9a', 'stroke-dasharray': '4 3', 'stroke-width': 1 }));
+    parts.push(h('polygon', { points: q.map((pt) => `${pt.x},${pt.y}`).join(' '), fill: 'none', stroke: '#9a9b9c', 'stroke-dasharray': '4 3', 'stroke-width': 1 }));
   }
   return h('g', { class: 'text-edit' }, parts);
 });

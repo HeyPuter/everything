@@ -163,7 +163,7 @@ function startDraw(ctx: OpContext): boolean {
     v.el.append(svg);
   }
   const drawPreview = () => {
-    if (svg) svg.innerHTML = `<polyline points="${screen.map((p) => `${p.x},${p.y}`).join(' ')}" fill="none" stroke="#e8e8e8" stroke-width="1.5" stroke-linejoin="round"/>`;
+    if (svg) svg.innerHTML = `<polyline points="${screen.map((p) => `${p.x},${p.y}`).join(' ')}" fill="none" stroke="#eaebec" stroke-width="1.5" stroke-linejoin="round"/>`;
   };
   const cleanup = () => svg?.remove();
   const e0 = ctx.event ?? app.pointer;

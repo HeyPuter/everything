@@ -303,20 +303,20 @@ export class PreviewRegion {
         g.drawImage(ref, x0 * sx, (1 - y1) * sy, (x1 - x0) * sx, (y1 - y0) * sy, L.left + x0 * fw, L.top + (1 - y1) * fh, (x1 - x0) * fw, (y1 - y0) * fh);
         g.save();
         g.setLineDash([5, 4]);
-        g.strokeStyle = 'rgba(255,255,255,0.8)';
+        g.strokeStyle = 'rgba(255, 255, 255,0.8)';
         g.strokeRect(L.left + x0 * fw + 0.5, L.top + (1 - y1) * fh + 0.5, (x1 - x0) * fw, (y1 - y0) * fh);
         g.restore();
       }
     }
     // frame border
-    g.strokeStyle = 'rgba(255,255,255,0.12)';
+    g.strokeStyle = 'rgba(255, 255, 255,0.12)';
     g.lineWidth = 1;
     g.strokeRect(Math.round(L.left) - 0.5, Math.round(L.top) - 0.5, Math.round(fw) + 1, Math.round(fh) + 1);
     if (this.showOverlays && hasEditor()) this.drawOverlays(g);
     if (this.boxRect) {
       const b = this.boxRect;
-      g.fillStyle = 'rgba(255,255,255,0.06)';
-      g.strokeStyle = 'rgba(255,255,255,0.8)';
+      g.fillStyle = 'rgba(255, 255, 255,0.06)';
+      g.strokeStyle = 'rgba(255, 255, 255,0.8)';
       g.setLineDash([4, 3]);
       g.fillRect(Math.min(b.x0, b.x1), Math.min(b.y0, b.y1), Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
       g.strokeRect(Math.min(b.x0, b.x1) + 0.5, Math.min(b.y0, b.y1) + 0.5, Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
@@ -364,11 +364,11 @@ export class PreviewRegion {
       h = lines.length * 15 + 10;
     const x = Math.min(this.el.clientWidth - w - 4, info.x + 14),
       y = Math.min(this.el.clientHeight - h - 4, info.y + 14);
-    g.fillStyle = 'rgba(30,30,30,0.92)';
+    g.fillStyle = 'rgba(27, 28, 29,0.92)';
     g.fillRect(x, y, w, h);
     g.fillStyle = `rgb(${Math.round(r * 255)},${Math.round(gg * 255)},${Math.round(b * 255)})`;
     g.fillRect(x + 6, y + 6, 22, h - 12);
-    g.fillStyle = '#e6e6e6';
+    g.fillStyle = '#e8e9ea';
     lines.forEach((l, i) => g.fillText(l, x + 34, y + 17 + i * 15));
     g.restore();
   }
@@ -396,7 +396,7 @@ export class PreviewRegion {
         g.arc(ox, oy, 3.5, 0, Math.PI * 2);
         g.fillStyle = T.active;
         g.fill();
-        g.strokeStyle = '#000';
+        g.strokeStyle = '#000000';
         g.lineWidth = 1;
         g.stroke();
       }
@@ -412,7 +412,7 @@ export class PreviewRegion {
       g.strokeRect(Math.min(x0, x1) + 0.5, Math.min(y0, y1) + 0.5, Math.abs(x1 - x0), Math.abs(y1 - y0));
     };
     g.save();
-    g.strokeStyle = 'rgba(255,255,255,0.35)';
+    g.strokeStyle = 'rgba(255, 255, 255,0.35)';
     g.setLineDash([5, 4]);
     rect(0.1, 0.05);
     rect(0.035, 0.035);
@@ -438,10 +438,10 @@ export class PreviewRegion {
     g.arc(x, y, 8, 0, Math.PI * 2);
     g.stroke();
     g.lineDashOffset = 3;
-    g.strokeStyle = '#e04040';
+    g.strokeStyle = '#dc433b';
     g.stroke();
     g.setLineDash([]);
-    g.strokeStyle = 'rgba(0,0,0,0.8)';
+    g.strokeStyle = 'rgba(0, 0, 0,0.8)';
     g.beginPath();
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       g.moveTo(x + dx * 11, y + dy * 11);

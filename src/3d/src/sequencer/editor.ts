@@ -828,7 +828,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       const rx = Math.round(this.fx(ref)) + 0.5;
       g.save();
       g.setLineDash([4, 4]);
-      g.strokeStyle = 'rgba(255,255,255,0.6)';
+      g.strokeStyle = 'rgba(255, 255, 255,0.6)';
       g.beginPath();
       g.moveTo(rx, RULER_H);
       g.lineTo(rx, H);
@@ -852,8 +852,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     g.globalAlpha = 1;
     if (this.boxRect) {
       const b = this.boxRect;
-      g.fillStyle = 'rgba(255,255,255,0.06)';
-      g.strokeStyle = 'rgba(255,255,255,0.8)';
+      g.fillStyle = 'rgba(255, 255, 255,0.06)';
+      g.strokeStyle = 'rgba(255, 255, 255,0.8)';
       g.setLineDash([4, 3]);
       g.fillRect(Math.min(b.x0, b.x1), Math.min(b.y0, b.y1), Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
       g.strokeRect(Math.min(b.x0, b.x1) + 0.5, Math.min(b.y0, b.y1) + 0.5, Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
@@ -861,7 +861,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     }
     drawShape(g, this.shape);
     if (!hasEditor() || !seqList().length) {
-      g.fillStyle = 'rgba(255,255,255,0.35)';
+      g.fillStyle = 'rgba(255, 255, 255,0.35)';
       g.font = FONT;
       g.textAlign = 'center';
       g.fillText('Add strips with Shift A, or drop movie, sound and image files here', W / 2, (RULER_H + cb) / 2);
@@ -900,7 +900,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     g.beginPath();
     roundRect(g, px - tw / 2, 2, tw, RULER_H - 4, 4);
     g.fill();
-    g.fillStyle = '#fff';
+    g.fillStyle = '#ffffff';
     g.fillText(label, px, RULER_H / 2 + 1);
     g.textBaseline = 'alphabetic';
     g.textAlign = 'left';
@@ -909,20 +909,20 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   private drawMarkers(g: CanvasRenderingContext2D, W: number, H: number) {
     if (!this.markersVisible()) return;
     const top = H - MARKER_H;
-    g.fillStyle = 'rgba(0,0,0,0.25)';
+    g.fillStyle = 'rgba(0, 0, 0,0.25)';
     g.fillRect(0, top, W, MARKER_H);
     g.font = FONT;
     for (const m of app.doc.scene.timeline_markers) {
       const x = Math.round(this.fx(m.frame)) + 0.5;
       if (x < -100 || x > W + 10) continue;
-      g.strokeStyle = m.select ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)';
+      g.strokeStyle = m.select ? 'rgba(255, 255, 255,0.55)' : 'rgba(0, 0, 0,0.45)';
       g.setLineDash([3, 3]);
       g.beginPath();
       g.moveTo(x, RULER_H);
       g.lineTo(x, top + 4);
       g.stroke();
       g.setLineDash([]);
-      g.fillStyle = m.select ? '#fff' : T.marker;
+      g.fillStyle = m.select ? '#ffffff' : T.marker;
       g.beginPath();
       g.moveTo(x, top + 15);
       g.lineTo(x - 5, top + 8);
@@ -931,7 +931,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       g.lineTo(x + 5, top + 8);
       g.closePath();
       g.fill();
-      g.fillStyle = m.select ? '#fff' : '#bbb';
+      g.fillStyle = m.select ? '#ffffff' : '#bbbcbe';
       g.fillText(m.name, x + 8, top + 14);
     }
   }
@@ -951,7 +951,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     if (muted) g.globalAlpha = 0.45;
     // offsets (hidden content) overlay
     if (this.showOffsets && !S.isStill(s) && !S.inputCount(s.type) && (s.frame_offset_start || s.frame_offset_end)) {
-      g.fillStyle = 'rgba(255,255,255,0.12)';
+      g.fillStyle = 'rgba(255, 255, 255,0.12)';
       const ca = this.fx(s.frame_start),
         cbx = this.fx(s.frame_start + s.frame_duration);
       g.fillRect(ca, y1 + 1, cbx - ca, 3);
@@ -971,7 +971,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     if (bh > 4) this.drawBody(g, s, x0, by0, w, bh, W);
     // locked hatching
     if (s.lock || seqChannels()[s.channel]?.lock) {
-      g.strokeStyle = 'rgba(0,0,0,0.3)';
+      g.strokeStyle = 'rgba(0, 0, 0,0.3)';
       g.lineWidth = 2;
       g.beginPath();
       for (let x = x0 - hgt; x < x1; x += 10) {
@@ -996,9 +996,9 @@ export class SequencerEditor implements Editor, SeqEditorLike {
         g.lineTo(kx, ky + 4);
         g.lineTo(kx - 4, ky);
         g.closePath();
-        g.fillStyle = '#f0c040';
+        g.fillStyle = '#ecc439';
         g.fill();
-        g.strokeStyle = 'rgba(0,0,0,0.7)';
+        g.strokeStyle = 'rgba(0, 0, 0,0.7)';
         g.stroke();
       }
     }
@@ -1007,11 +1007,11 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     if (!S.inputCount(s.type)) {
       const hovered = this.hoverStrip === s;
       if (s.select_left_handle || hovered) {
-        g.fillStyle = s.select_left_handle ? 'rgba(255,255,255,0.65)' : this.hoverHandle === 'LEFT' ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.22)';
+        g.fillStyle = s.select_left_handle ? 'rgba(255, 255, 255,0.65)' : this.hoverHandle === 'LEFT' ? 'rgba(255, 255, 255,0.35)' : 'rgba(0, 0, 0,0.22)';
         g.fillRect(x0, y0, hw, hgt);
       }
       if (s.select_right_handle || hovered) {
-        g.fillStyle = s.select_right_handle ? 'rgba(255,255,255,0.65)' : this.hoverHandle === 'RIGHT' ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.22)';
+        g.fillStyle = s.select_right_handle ? 'rgba(255, 255, 255,0.65)' : this.hoverHandle === 'RIGHT' ? 'rgba(255, 255, 255,0.35)' : 'rgba(0, 0, 0,0.22)';
         g.fillRect(x1 - hw, y0, hw, hgt);
       }
     }
@@ -1028,7 +1028,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     if (parts.length && w > 12) {
       g.font = FONT;
       g.textBaseline = 'middle';
-      g.fillStyle = 'rgba(0,0,0,0.6)';
+      g.fillStyle = 'rgba(0, 0, 0,0.6)';
       const tx = Math.max(x0, 0) + hw + 3 + (linked ? 13 : 0);
       const ty = y0 + titleH / 2 + 0.5;
       const text = parts.join(' | ');
@@ -1070,7 +1070,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       { frame: 0, content: 0 },
       { frame: s.frame_duration, content: s.frame_duration },
     ];
-    g.fillStyle = 'rgba(0,0,0,0.25)';
+    g.fillStyle = 'rgba(0, 0, 0,0.25)';
     g.fillRect(x0, y0 + h - 12, w, 12);
     g.font = '10px Inter, system-ui, sans-serif';
     g.textAlign = 'center';
@@ -1081,15 +1081,15 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       const sp = segmentSpeed(keys, i);
       const label = keys[i].transition ? 'Transition' : sp === 0 ? 'Freeze' : `${Math.round(sp * 1000) / 10}%`;
       if (keys[i].transition) {
-        g.fillStyle = 'rgba(255,255,255,0.12)';
+        g.fillStyle = 'rgba(255, 255, 255,0.12)';
         g.fillRect(a, y0, b - a, h);
       } else if (sp === 0) {
-        g.fillStyle = 'rgba(80,140,255,0.18)';
+        g.fillStyle = 'rgba(90, 138, 252,0.18)';
         g.fillRect(a, y0, b - a, h);
       }
       const mid = (Math.max(a, x0) + Math.min(b, x0 + w)) / 2;
       if (b - a > g.measureText(label).width + 8 && (keys.length > 2 || sp !== 1)) {
-        g.fillStyle = 'rgba(255,255,255,0.85)';
+        g.fillStyle = 'rgba(255, 255, 255,0.85)';
         g.fillText(label, mid, y0 + Math.min(h / 2, h - 18));
       }
     }
@@ -1104,9 +1104,9 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       g.lineTo(x, y + 5);
       g.lineTo(x - 5, y);
       g.closePath();
-      g.fillStyle = k.select ? '#ff8f0d' : '#e8e8e8';
+      g.fillStyle = k.select ? '#fa9404' : '#eaebec';
       g.fill();
-      g.strokeStyle = 'rgba(0,0,0,0.7)';
+      g.strokeStyle = 'rgba(0, 0, 0,0.7)';
       g.stroke();
     }
   }
@@ -1182,11 +1182,11 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     for (const [x, y] of pts) g.lineTo(x, y);
     g.lineTo(x0 + w, y0);
     g.closePath();
-    g.fillStyle = 'rgba(0,0,0,0.3)';
+    g.fillStyle = 'rgba(0, 0, 0,0.3)';
     g.fill();
     g.beginPath();
     pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
-    g.strokeStyle = 'rgba(255,255,255,0.75)';
+    g.strokeStyle = 'rgba(255, 255, 255,0.75)';
     g.lineWidth = 1.5;
     g.stroke();
     g.lineWidth = 1;
@@ -1203,7 +1203,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
         if (!this.showWaveforms || s.show_waveform === false || !s.media) return;
         const buf = soundNow(s.media.bytes, () => this.redraw());
         if (!buf) {
-          g.fillStyle = 'rgba(0,0,0,0.15)';
+          g.fillStyle = 'rgba(0, 0, 0,0.15)';
           g.fillRect(x0, y0, w, h);
           return;
         }
@@ -1239,7 +1239,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
         for (let i = bot.length - 1; i >= 0; i--) g.lineTo(Math.floor(xa) + i, bot[i]);
         g.closePath();
         g.fill();
-        g.fillStyle = 'rgba(0,0,0,0.2)';
+        g.fillStyle = 'rgba(0, 0, 0,0.2)';
         g.fillRect(x0, mid, w, 0.5);
         return;
       }
@@ -1297,8 +1297,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       case 'WIPE': {
         const all = S.allStrips(seqEditor().strips);
         const [a, b] = S.effectInputs(all, s);
-        const ca = a ? (a.type === 'COLOR' ? cssColor(a.color) : typeColor(a.type)) : '#333';
-        const cbc = b ? (b.type === 'COLOR' ? cssColor(b.color) : typeColor(b.type)) : '#333';
+        const ca = a ? (a.type === 'COLOR' ? cssColor(a.color) : typeColor(a.type)) : '#303133';
+        const cbc = b ? (b.type === 'COLOR' ? cssColor(b.color) : typeColor(b.type)) : '#303133';
         g.fillStyle = ca;
         g.beginPath();
         g.moveTo(x0, y0);
@@ -1336,7 +1336,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
         return;
     }
     // other effects: show their inputs' colour bands faintly
-    g.fillStyle = 'rgba(0,0,0,0.12)';
+    g.fillStyle = 'rgba(0, 0, 0,0.12)';
     g.fillRect(x0, y0, w, h);
   }
 
@@ -2254,7 +2254,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
 /** Small chain-link glyph marking connected strips (centred vertically on y). */
 function drawLink(g: CanvasRenderingContext2D, x: number, y: number) {
   g.save();
-  g.strokeStyle = 'rgba(255,255,255,0.9)';
+  g.strokeStyle = 'rgba(255, 255, 255,0.9)';
   g.lineWidth = 1.4;
   g.beginPath();
   roundRect(g, x, y - 2.5, 6, 5, 2.5);

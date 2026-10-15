@@ -274,8 +274,8 @@ function drawPreview(c: HTMLCanvasElement, s: StudioLightDef) {
     const d = norm(l.direction);
     g.beginPath();
     g.arc(((d[0] + 1) / 2) * S, ((1 - d[1]) / 2) * S, i === activeLight ? 5 : 3.5, 0, Math.PI * 2);
-    g.fillStyle = d[2] >= 0 ? '#ffd24a' : 'rgba(255,210,74,0.4)';
-    g.strokeStyle = '#000';
+    g.fillStyle = d[2] >= 0 ? '#fcd741' : 'rgba(252, 215, 65,0.4)';
+    g.strokeStyle = '#000000';
     g.fill();
     g.stroke();
   });

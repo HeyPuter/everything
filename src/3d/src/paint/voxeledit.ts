@@ -22,8 +22,8 @@ editModeHooks.svg.push((v) => {
   return h(
     'g',
     { key: 'voxel-grid', 'pointer-events': 'none' },
-    h('path', { d, stroke: '#000', 'stroke-width': 2, opacity: 0.35, fill: 'none' }),
-    h('path', { d, stroke: '#fff', 'stroke-width': 1, opacity: 0.8, fill: 'none' }),
+    h('path', { d, stroke: '#000000', 'stroke-width': 2, opacity: 0.35, fill: 'none' }),
+    h('path', { d, stroke: '#ffffff', 'stroke-width': 1, opacity: 0.8, fill: 'none' }),
   ) as VNode;
 });
 

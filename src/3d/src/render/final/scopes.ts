@@ -52,7 +52,7 @@ function sampleCanvas(src: HTMLCanvasElement): Uint8ClampedArray {
   return g.getImageData(0, 0, w, hh).data;
 }
 
-const COLORS = ['#e04040', '#40c040', '#4060e0', '#d0d0d0'];
+const COLORS = ['#dc433b', '#48c04e', '#475ede', '#d1d2d4'];
 
 function curve(values: number[], w: number, hh: number, color: string, fill: boolean, key: string): Child {
   const pts = values.map((v, i) => `${((i / (values.length - 1)) * w).toFixed(1)},${(hh - v * hh).toFixed(1)}`);
@@ -71,7 +71,7 @@ function histogramView(host: ScopesHost): Child {
   return h(
     'div',
     { class: 'scope-box' },
-    h('svg', { class: 'scope-svg', width: '100%', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', 'data-scope': 'histogram' }, h('rect', { x: 0, y: 0, width: W, height: H, fill: '#1d1d1d' }), ...which.map((i) => curve(cache!.bins[i], W, H, COLORS[i], true, `h${i}`))),
+    h('svg', { class: 'scope-svg', width: '100%', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', 'data-scope': 'histogram' }, h('rect', { x: 0, y: 0, width: W, height: H, fill: '#1a1b1c' }), ...which.map((i) => curve(cache!.bins[i], W, H, COLORS[i], true, `h${i}`))),
     enumRow(
       'scope-hist-mode',
       [
@@ -112,7 +112,7 @@ function lineView(host: ScopesHost): Child {
     const vals = lineValues(src, l);
     const W = 240,
       H = 90;
-    body.push(h('svg', { class: 'scope-svg', width: '100%', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', 'data-scope': 'line' }, h('rect', { x: 0, y: 0, width: W, height: H, fill: '#1d1d1d' }), ...[0, 1, 2, 3].map((i) => curve(vals[i], W, H, COLORS[i], false, `l${i}`))));
+    body.push(h('svg', { class: 'scope-svg', width: '100%', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', 'data-scope': 'line' }, h('rect', { x: 0, y: 0, width: W, height: H, fill: '#1a1b1c' }), ...[0, 1, 2, 3].map((i) => curve(vals[i], W, H, COLORS[i], false, `l${i}`))));
     body.push(splitRow('From', h('span', { class: 'ie-value' }, `${Math.round(l.x0)}, ${Math.round(l.y0)}`)), splitRow('To', h('span', { class: 'ie-value' }, `${Math.round(l.x1)}, ${Math.round(l.y1)}`)));
   } else body.push(h('div', { class: 'sb-empty' }, 'Drag a line over the image to sample it.'));
   body.push(h('div', { class: 'btn-col' }, button('scope-line', 'Sample Line', () => app.run('image.sample_line', {}, { area: host.host.area ?? null }))));
@@ -208,7 +208,7 @@ registerOperators([
       let start: [number, number] | null = null;
       const line = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       Object.assign(line.style, { position: 'absolute', inset: '0', pointerEvents: 'none', width: '100%', height: '100%' });
-      line.innerHTML = '<line stroke="#fff" stroke-dasharray="4 3" stroke-width="1"/>';
+      line.innerHTML = '<line stroke="#ffffff" stroke-dasharray="4 3" stroke-width="1"/>';
       host.el.append(line);
       const ln = line.firstElementChild as SVGLineElement;
       const finish = () => line.remove();

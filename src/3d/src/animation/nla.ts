@@ -405,7 +405,7 @@ export class NlaEditor extends AnimEditor {
         g.fillRect(0, y, W, rh - 1);
         if (ch.action) {
           const [a, b] = actionRange(ch.action);
-          g.fillStyle = 'rgba(255,255,255,0.06)';
+          g.fillStyle = 'rgba(255, 255, 255,0.06)';
           g.fillRect(v.fx(a), y + 2, v.fx(b) - v.fx(a), rh - 5);
           const agg = aggregate(ch.action.fcurves);
           for (const k of agg.keys) {
@@ -416,7 +416,7 @@ export class NlaEditor extends AnimEditor {
         }
       } else if (ch.kind === 'NLA_TRACK' && ch.track && ch.ob) {
         const t = ch.track;
-        g.fillStyle = t.select ? C.nlaTrackSel : 'rgba(0,0,0,0.12)';
+        g.fillStyle = t.select ? C.nlaTrackSel : 'rgba(0, 0, 0,0.12)';
         g.fillRect(0, y, W, rh - 1);
         const ad = ch.ob.animation_data!;
         const soloed = ad.nla_tracks.some((o) => o.is_solo) && !t.is_solo;
@@ -438,7 +438,7 @@ export class NlaEditor extends AnimEditor {
       hh = rh - 5;
     // extrapolation (hold) regions
     if (!s.mute && s.extrapolation !== 'NOTHING') {
-      g.fillStyle = s.select ? 'rgba(255,140,0,0.12)' : 'rgba(255,255,255,0.05)';
+      g.fillStyle = s.select ? 'rgba(245, 148, 4,0.12)' : 'rgba(255, 255, 255,0.05)';
       if (s.extrapolation === 'HOLD' && first) g.fillRect(0, top, Math.max(0, x0), hh);
       const endX = next ? v.fx(next.frame_start) : W;
       if (endX > x1) g.fillRect(x1, top, endX - x1, hh);
@@ -446,19 +446,19 @@ export class NlaEditor extends AnimEditor {
     if (x1 < 0 || x0 > W) return;
     g.globalAlpha = dim || s.mute ? 0.45 : 1;
     roundRect(g, x0, top, Math.max(2, x1 - x0), hh, 3);
-    const base = s.type === 'TRANSITION' ? ['#3c5a78', '#6fa0d8'] : s.type === 'META' ? ['#5a4470', '#a070d0'] : tweaked ? ['#3f7040', '#5fc060'] : ['#594a3a', C.nlaStripSelected];
+    const base = s.type === 'TRANSITION' ? ['#3e5979', '#77a0d8'] : s.type === 'META' ? ['#5a436d', '#a26ecd'] : tweaked ? ['#406f43', '#65c06a'] : ['#574a39', C.nlaStripSelected];
     g.fillStyle = s.select ? base[1] : base[0];
     g.fill();
     if (s.type === 'TRANSITION') {
       // a diagonal shows the blend from one strip to the next
-      g.strokeStyle = 'rgba(255,255,255,0.5)';
+      g.strokeStyle = 'rgba(255, 255, 255,0.5)';
       g.beginPath();
       g.moveTo(x0, top + hh);
       g.lineTo(x1, top);
       g.stroke();
     } else if (s.type === 'META' && s.strips) {
       // inner strip boundaries
-      g.strokeStyle = 'rgba(0,0,0,0.45)';
+      g.strokeStyle = 'rgba(0, 0, 0,0.45)';
       const k = (s.frame_end - s.frame_start) / Math.max(1e-6, s.action_frame_end - s.action_frame_start);
       for (const c of s.strips.slice(1)) {
         const x = Math.round(v.fx(s.frame_start + (c.frame_start - s.action_frame_start) * k)) + 0.5;
@@ -468,13 +468,13 @@ export class NlaEditor extends AnimEditor {
         g.stroke();
       }
     }
-    g.strokeStyle = s === this.activeStrip ? '#ffffff' : '#000';
+    g.strokeStyle = s === this.activeStrip ? '#ffffff' : '#000000';
     if (s.mute) g.setLineDash([4, 3]);
     g.lineWidth = 1;
     g.stroke();
     g.setLineDash([]);
     // blend in/out ramps
-    g.strokeStyle = s.select ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.55)';
+    g.strokeStyle = s.select ? 'rgba(0, 0, 0,0.6)' : 'rgba(255, 255, 255,0.55)';
     if (s.blend_in > 0) {
       g.beginPath();
       g.moveTo(x0, top + hh);
@@ -489,7 +489,7 @@ export class NlaEditor extends AnimEditor {
     }
     // repeat boundaries
     if (s.repeat > 1) {
-      g.strokeStyle = 'rgba(0,0,0,0.45)';
+      g.strokeStyle = 'rgba(0, 0, 0,0.45)';
       const per = stripLen(s) / s.repeat;
       for (let r = 1; r < s.repeat; r++) {
         const x = Math.round(v.fx(s.frame_start + per * r)) + 0.5;
@@ -504,7 +504,7 @@ export class NlaEditor extends AnimEditor {
     g.beginPath();
     g.rect(x0 + 2, top, Math.max(0, x1 - x0 - 4), hh);
     g.clip();
-    g.fillStyle = s.select ? '#ffffff' : '#e6e6e6';
+    g.fillStyle = s.select ? '#ffffff' : '#e8e9ea';
     g.textAlign = 'left';
     g.fillText(s.name, Math.max(x0, 0) + 5, top + hh / 2 + 1);
     g.restore();

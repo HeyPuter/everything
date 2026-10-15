@@ -12,12 +12,12 @@ type Kind = 'SOFTBODY' | 'PARTICLES' | 'CLOTH' | 'SMOKE' | 'DYNAMICPAINT' | 'RIG
 export const cacheDisplay: Record<'show' | Kind, boolean> = { show: true, SOFTBODY: true, PARTICLES: true, CLOTH: true, SMOKE: true, DYNAMICPAINT: true, RIGIDBODY: true };
 
 const COLORS: Record<Kind, string> = {
-  SOFTBODY: '#d8b04a',
-  PARTICLES: '#d85a5a',
-  CLOTH: '#5a8fd8',
-  SMOKE: '#a46ad8',
-  DYNAMICPAINT: '#e08a3c',
-  RIGIDBODY: '#62b85c',
+  SOFTBODY: '#d5b446',
+  PARTICLES: '#d45c55',
+  CLOTH: '#618dd7',
+  SMOKE: '#a767d5',
+  DYNAMICPAINT: '#dc8e37',
+  RIGIDBODY: '#64b962',
 };
 
 /** Simulation kind of a cache key (keys start with the modifier/system type). */

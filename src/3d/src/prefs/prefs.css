@@ -36,7 +36,7 @@
 }
 .prefs-nav-btn.on {
   background: var(--accent);
-  color: var(--c-text-on-accent, #fff);
+  color: var(--c-text-on-accent, #ffffff);
 }
 .prefs-menu-btn {
   display: flex;
@@ -53,7 +53,7 @@
   background: rgba(var(--hl-rgb, 255, 255, 255), 0.1);
 }
 .prefs-unsaved {
-  color: var(--anim-keyed, #ffb54d);
+  color: var(--anim-keyed, #fcb946);
 }
 .prefs-save {
   margin-bottom: 6px;
@@ -74,7 +74,7 @@
   max-width: 600px;
 }
 .prefs-note.err {
-  color: var(--pc-error, #ff6b6b);
+  color: var(--pc-error, #fd6f68);
   white-space: pre-wrap;
 }
 .prefs-subhead {
@@ -209,7 +209,7 @@
 }
 .km-row.modified .km-name::after {
   content: ' •';
-  color: var(--anim-keyed, #ffb54d);
+  color: var(--anim-keyed, #fcb946);
 }
 .km-name {
   overflow: hidden;
@@ -234,7 +234,7 @@
 }
 .km-key.capturing {
   background: var(--accent);
-  color: var(--c-text-on-accent, #fff);
+  color: var(--c-text-on-accent, #ffffff);
 }
 .km-reset:disabled {
   opacity: 0.3;
@@ -296,7 +296,7 @@
 }
 .panel.km-modified > .panel-header .ph-title::after {
   content: ' •';
-  color: var(--anim-keyed, #ffb54d);
+  color: var(--anim-keyed, #fcb946);
 }
 
 /* ------------------------------------------------------------------ interface effects */
@@ -358,7 +358,7 @@ body.reduce-motion *::after {
   padding: 2px 0 4px 24px;
 }
 .v3d-info-line.v3d-fps.slow {
-  color: var(--pc-error, #ff6b6b);
+  color: var(--pc-error, #fd6f68);
 }
 
 /* ------------------------------------------------------------------ studio lights / matcaps / HDRIs */
@@ -438,7 +438,7 @@ body.reduce-motion *::after {
 }
 .sl-item.on {
   background: var(--accent);
-  color: var(--c-text-on-accent, #fff);
+  color: var(--c-text-on-accent, #ffffff);
 }
 .sl-editor {
   display: flex;
@@ -477,7 +477,7 @@ body.reduce-motion *::after {
 }
 .sl-pick.on {
   background: var(--accent);
-  color: var(--c-text-on-accent, #fff);
+  color: var(--c-text-on-accent, #ffffff);
 }
 .sl-dir {
   display: flex;
@@ -525,7 +525,7 @@ body.reduce-motion *::after {
   color: var(--c-text-dim);
 }
 .ad-err {
-  color: var(--pc-error, #ff6b6b);
+  color: var(--pc-error, #fd6f68);
 }
 .ad-details {
   padding: 4px 8px 8px 34px;
@@ -534,7 +534,7 @@ body.reduce-motion *::after {
   display: inline-flex;
   vertical-align: -3px;
   margin-right: 3px;
-  color: var(--anim-keyed, #ffb54d);
+  color: var(--anim-keyed, #fcb946);
 }
 
 /* Preferences ▸ Interface ▸ Editors ▸ Areas */

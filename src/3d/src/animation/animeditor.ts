@@ -535,7 +535,7 @@ export abstract class AnimEditor implements Editor {
     const y0 = e.clientY;
     const box = div('anim-ch-box');
     const r = this.chEl.getBoundingClientRect();
-    box.style.cssText = `position:absolute;left:0;right:0;top:${y0 - r.top}px;height:0;border:1px dashed rgba(255,255,255,0.8);background:rgba(255,255,255,0.06);pointer-events:none;z-index:3`;
+    box.style.cssText = `position:absolute;left:0;right:0;top:${y0 - r.top}px;height:0;border:1px dashed rgba(255, 255, 255,0.8);background:rgba(255, 255, 255,0.06);pointer-events:none;z-index:3`;
     this.chEl.append(box);
     const move = (ev: PointerEvent) => {
       const a = Math.min(y0, ev.clientY),
@@ -873,8 +873,8 @@ export abstract class AnimEditor implements Editor {
     this.drawRuler(g, W);
     if (this.boxRect) {
       const b = this.boxRect;
-      g.fillStyle = 'rgba(255,255,255,0.06)';
-      g.strokeStyle = 'rgba(255,255,255,0.8)';
+      g.fillStyle = 'rgba(255, 255, 255,0.06)';
+      g.strokeStyle = 'rgba(255, 255, 255,0.8)';
       g.setLineDash([4, 3]);
       g.fillRect(Math.min(b.x0, b.x1), Math.min(b.y0, b.y1), Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
       g.strokeRect(Math.min(b.x0, b.x1) + 0.5, Math.min(b.y0, b.y1) + 0.5, Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
@@ -887,15 +887,15 @@ export abstract class AnimEditor implements Editor {
     const o = this.overlay!;
     g.save();
     if (o.circle) {
-      g.strokeStyle = 'rgba(255,255,255,0.85)';
+      g.strokeStyle = 'rgba(255, 255, 255,0.85)';
       g.setLineDash([4, 3]);
       g.beginPath();
       g.arc(o.circle.x, o.circle.y, o.circle.r, 0, Math.PI * 2);
       g.stroke();
     }
     if (o.lasso && o.lasso.length > 1) {
-      g.strokeStyle = 'rgba(255,255,255,0.85)';
-      g.fillStyle = 'rgba(255,255,255,0.06)';
+      g.strokeStyle = 'rgba(255, 255, 255,0.85)';
+      g.fillStyle = 'rgba(255, 255, 255,0.06)';
       g.setLineDash([4, 3]);
       g.beginPath();
       o.lasso.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
@@ -910,21 +910,21 @@ export abstract class AnimEditor implements Editor {
         x = (W - w) / 2,
         y = RULER_H + 8,
         hh = 22;
-      g.fillStyle = 'rgba(30,30,30,0.9)';
+      g.fillStyle = 'rgba(27, 28, 29,0.9)';
       roundRect(g, x, y, w, hh, 5);
       g.fill();
       if (o.slider.t !== null) {
         const t = Math.max(0, Math.min(1, o.slider.t)),
           t0 = o.slider.t0 ?? 0;
-        g.fillStyle = 'rgba(80,130,220,0.55)';
+        g.fillStyle = 'rgba(87, 128, 219,0.55)';
         const a = Math.min(t, t0),
           b = Math.max(t, t0);
         roundRect(g, x + 2 + (w - 4) * a, y + 2, Math.max(0, (w - 4) * (b - a)), hh - 4, 3);
         g.fill();
-        g.fillStyle = 'rgba(255,255,255,0.35)';
+        g.fillStyle = 'rgba(255, 255, 255,0.35)';
         g.fillRect(Math.round(x + w / 2) + 0.5, y + 3, 1, hh - 6);
       }
-      g.fillStyle = '#e8e8e8';
+      g.fillStyle = '#eaebec';
       g.font = '12px Inter, system-ui, sans-serif';
       g.textAlign = 'center';
       g.textBaseline = 'middle';
@@ -980,7 +980,7 @@ export abstract class AnimEditor implements Editor {
       s = app.doc.scene;
     g.fillStyle = C.rulerBack;
     g.fillRect(0, 0, W, RULER_H);
-    g.fillStyle = 'rgba(0,0,0,0.3)';
+    g.fillStyle = 'rgba(0, 0, 0,0.3)';
     g.fillRect(0, RULER_H - 1, W, 1);
     const step = frameStep(v.ppf, s.render.fps);
     const first = Math.floor(v.xf(0) / step) * step;
@@ -1022,14 +1022,14 @@ export abstract class AnimEditor implements Editor {
     if (!this.markersVisible()) return;
     if (this.compactMarkers) return this.drawCompactMarkers(g, W, H);
     const top = H - MARKER_H;
-    g.fillStyle = 'rgba(0,0,0,0.25)';
+    g.fillStyle = 'rgba(0, 0, 0,0.25)';
     g.fillRect(0, top, W, MARKER_H);
     g.font = '11px Inter, system-ui, sans-serif';
     g.textAlign = 'left';
     for (const m of this.markerList()) {
       const x = Math.round(this.view.fx(m.frame)) + 0.5;
       if (x < -100 || x > W + 10) continue;
-      g.strokeStyle = m.select ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)';
+      g.strokeStyle = m.select ? 'rgba(255, 255, 255,0.55)' : 'rgba(0, 0, 0,0.45)';
       g.setLineDash([3, 3]);
       g.beginPath();
       g.moveTo(x, RULER_H);
@@ -1045,7 +1045,7 @@ export abstract class AnimEditor implements Editor {
       g.lineTo(x + 5, top + 8);
       g.closePath();
       g.fill();
-      g.fillStyle = m.select ? '#fff' : '#bbb';
+      g.fillStyle = m.select ? '#ffffff' : '#bbbcbe';
       g.fillText(m.name, x + 8, top + 14);
     }
   }
@@ -1057,7 +1057,7 @@ export abstract class AnimEditor implements Editor {
     for (const m of this.markerList()) {
       const x = Math.round(this.view.fx(m.frame)) + 0.5;
       if (x < -100 || x > W + 10) continue;
-      g.strokeStyle = m.select ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)';
+      g.strokeStyle = m.select ? 'rgba(255, 255, 255,0.5)' : 'rgba(0, 0, 0,0.4)';
       g.setLineDash([3, 3]);
       g.beginPath();
       g.moveTo(x, RULER_H);
@@ -1071,7 +1071,7 @@ export abstract class AnimEditor implements Editor {
       g.lineTo(x + 4, H - 8);
       g.closePath();
       g.fill();
-      g.fillStyle = m.select ? '#fff' : '#bbb';
+      g.fillStyle = m.select ? '#ffffff' : '#bbbcbe';
       g.fillText(m.name, x + 6, H - 2);
     }
   }

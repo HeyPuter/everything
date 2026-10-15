@@ -389,7 +389,7 @@ export class ImageEditor implements Editor, View2D {
     if (this.paintMode() && this.hover && this.image) {
       const b = paintBrush();
       if (b) {
-        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.strokeStyle = 'rgba(255, 255, 255,0.85)';
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.arc(this.hover.x, this.hover.y, b.radius, 0, Math.PI * 2);
@@ -400,7 +400,7 @@ export class ImageEditor implements Editor, View2D {
     if (this.sample) {
       const sx = x + (Math.floor(this.sample.x) + 0.5) * this.zoom,
         sy = y + (Math.floor(this.sample.y) + 0.5) * this.zoom;
-      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+      ctx.strokeStyle = 'rgba(255, 255, 255,0.8)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(sx - 8, sy);
@@ -429,8 +429,8 @@ export class ImageEditor implements Editor, View2D {
     ctx.strokeRect(x - 0.5, y - 0.5, dw + 1, dh + 1);
     const font = getComputedStyle(this.el).fontFamily || 'system-ui, sans-serif';
     const lines: [string, string, number][] = [
-      ['Render Result', '#d8d8d8', 15],
-      [`Press F12 to render the scene camera · ${W} × ${H} px`, '#9a9a9a', 12],
+      ['Render Result', '#d9dadc', 15],
+      [`Press F12 to render the scene camera · ${W} × ${H} px`, '#9a9b9c', 12],
     ];
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -1031,7 +1031,7 @@ export class ImageEditor implements Editor, View2D {
     if (!me?.uvs?.length) return;
     const editSel = app.doc.mode === 'EDIT' ? me.select_vert : undefined;
     ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.strokeStyle = 'rgba(255, 255, 255,0.6)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let f = 0; f < me.offsets.length - 1; f++) {
@@ -1243,13 +1243,13 @@ function emptyChecker(ctx: CanvasRenderingContext2D): CanvasPattern | string {
   const c = document.createElement('canvas');
   c.width = c.height = 32;
   const x = c.getContext('2d')!;
-  x.fillStyle = '#2b2b2b';
+  x.fillStyle = '#28292a';
   x.fillRect(0, 0, 32, 32);
-  x.fillStyle = '#333333';
+  x.fillStyle = '#303133';
   x.fillRect(0, 0, 16, 16);
   x.fillRect(16, 16, 16, 16);
   emptyPattern = ctx.createPattern(c, 'repeat');
-  return emptyPattern ?? '#2e2e2e';
+  return emptyPattern ?? '#2b2c2e';
 }
 
 function checker(ctx: CanvasRenderingContext2D): CanvasPattern | string {
@@ -1257,13 +1257,13 @@ function checker(ctx: CanvasRenderingContext2D): CanvasPattern | string {
   const c = document.createElement('canvas');
   c.width = c.height = 16;
   const x = c.getContext('2d')!;
-  x.fillStyle = '#666666';
+  x.fillStyle = '#646567';
   x.fillRect(0, 0, 16, 16);
-  x.fillStyle = '#999999';
+  x.fillStyle = '#999a9b';
   x.fillRect(0, 0, 8, 8);
   x.fillRect(8, 8, 8, 8);
   checkerPattern = ctx.createPattern(c, 'repeat');
-  return checkerPattern ?? '#777';
+  return checkerPattern ?? '#767778';
 }
 
 registerEditor({

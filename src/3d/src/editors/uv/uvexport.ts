@@ -47,7 +47,7 @@ export function layoutSVG(faces: LayoutFace[], w: number, h: number, opacity: nu
     .map((f) => {
       const pts: string[] = [];
       for (let i = 0; i < f.uvs.length; i += 2) pts.push(`${(f.uvs[i] * w).toFixed(3)},${((1 - f.uvs[i + 1]) * h).toFixed(3)}`);
-      return `<polygon points="${pts.join(' ')}" fill="${hex(f.color)}" fill-opacity="${opacity}" stroke="#000" stroke-width="1" stroke-linejoin="round"/>`;
+      return `<polygon points="${pts.join(' ')}" fill="${hex(f.color)}" fill-opacity="${opacity}" stroke="#000000" stroke-width="1" stroke-linejoin="round"/>`;
     })
     .join('\n');
   return `<?xml version="1.0" standalone="no"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">\n<desc>UV layout</desc>\n${polys}\n</svg>\n`;
@@ -74,7 +74,7 @@ export function layoutCanvas(faces: LayoutFace[], w: number, h: number, opacity:
       g.fill();
       g.globalAlpha = 1;
     }
-    g.strokeStyle = '#000';
+    g.strokeStyle = '#000000';
     g.lineWidth = 1;
     g.stroke();
   }

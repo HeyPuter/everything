@@ -5,9 +5,9 @@ import { prefs } from '../app/prefs';
 import { editModeHooks } from '../editors/view3d/hooks';
 
 const AXES = [
-  { v: new Vector3(1, 0, 0), label: 'X', rgb: [255, 51, 82] },
-  { v: new Vector3(0, 1, 0), label: 'Y', rgb: [139, 220, 0] },
-  { v: new Vector3(0, 0, 1), label: 'Z', rgb: [40, 144, 255] },
+  { v: new Vector3(1, 0, 0), label: 'X', rgb: [252, 54, 75] },
+  { v: new Vector3(0, 1, 0), label: 'Y', rgb: [132, 224, 3] },
+  { v: new Vector3(0, 0, 1), label: 'Z', rgb: [57, 142, 252] },
 ];
 
 editModeHooks.svg.push((v) => {

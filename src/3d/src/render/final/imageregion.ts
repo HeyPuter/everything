@@ -28,7 +28,7 @@ registerOperators([
       const rect = ed.el.getBoundingClientRect();
       let start: { x: number; y: number } | null = null;
       const box = document.createElement('div');
-      Object.assign(box.style, { position: 'absolute', border: '1px dashed #e0503c', pointerEvents: 'none', display: 'none' });
+      Object.assign(box.style, { position: 'absolute', border: '1px dashed #dc5236', pointerEvents: 'none', display: 'none' });
       ed.el.append(box);
       app.startModal({
         label: 'Render Region',

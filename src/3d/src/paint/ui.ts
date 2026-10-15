@@ -395,13 +395,13 @@ function falloffPreview(b: PaintBrush): VNode {
         viewBox: `0 0 ${W} ${H}`,
         width: '100%',
         height: H,
-        style: { background: 'rgba(0,0,0,0.25)', borderRadius: '3px' },
+        style: { background: 'rgba(0, 0, 0,0.25)', borderRadius: '3px' },
       },
       h('path', {
         d: `${d}L${W} ${H}L0 ${H}Z`,
-        fill: 'rgba(255,255,255,0.12)',
+        fill: 'rgba(255, 255, 255,0.12)',
       }),
-      h('path', { d, fill: 'none', stroke: '#ddd', 'stroke-width': 1.5 }),
+      h('path', { d, fill: 'none', stroke: '#dedfe1', 'stroke-width': 1.5 }),
     ),
   );
 }
@@ -798,7 +798,7 @@ function brushPanels(mode: BrushMode): Child[] {
     out.push(
       panel('pt-slots', 'Texture Slots', () => [
         img ? h('div', { class: 'sb-label' }, icon('texture'), ` ${img.name} (${img.width}×${img.height})`) : h('div', { class: 'sb-label' }, 'Missing texture'),
-        am && !meshHasUVs(am.me) ? [h('div', { class: 'sb-label', style: { color: '#e66' } }, 'Missing UVs'), opButton('paint.add_simple_uvs', 'Add Simple UVs')] : null,
+        am && !meshHasUVs(am.me) ? [h('div', { class: 'sb-label', style: { color: '#eb6760' } }, 'Missing UVs'), opButton('paint.add_simple_uvs', 'Add Simple UVs')] : null,
         opButton('paint.add_texture_paint_slot', 'New Base Color Texture', {}, { icon: 'add' }),
       ]),
     );
@@ -911,7 +911,7 @@ function colorPicker(p: string): Child {
         'div',
         {
           class: 'pcp-value',
-          style: { height: `${SIZE}px`, background: `linear-gradient(to top, #000, rgb(${hsvToRgb(hh, s, 1).map((x) => Math.round(x * 255)).join(',')}))` },
+          style: { height: `${SIZE}px`, background: `linear-gradient(to top, #000000, rgb(${hsvToRgb(hh, s, 1).map((x) => Math.round(x * 255)).join(',')}))` },
           'data-tip': 'Value',
           onpointerdown: (e: PointerEvent) =>
             drag(e, (ev, el) => {
@@ -1421,9 +1421,9 @@ editModeHooks.svg.push((v) => {
   return h(
     'g',
     { key: 'clone-src', 'pointer-events': 'none' },
-    h('circle', { cx: q.x, cy: q.y, r: 7, fill: 'none', stroke: '#000', 'stroke-width': 3, opacity: 0.5 }),
-    h('circle', { cx: q.x, cy: q.y, r: 7, fill: 'none', stroke: '#fff', 'stroke-width': 1.3 }),
-    h('path', { d: `M${q.x - 11} ${q.y}h22M${q.x} ${q.y - 11}v22`, stroke: '#fff', 'stroke-width': 1 }),
+    h('circle', { cx: q.x, cy: q.y, r: 7, fill: 'none', stroke: '#000000', 'stroke-width': 3, opacity: 0.5 }),
+    h('circle', { cx: q.x, cy: q.y, r: 7, fill: 'none', stroke: '#ffffff', 'stroke-width': 1.3 }),
+    h('path', { d: `M${q.x - 11} ${q.y}h22M${q.x} ${q.y - 11}v22`, stroke: '#ffffff', 'stroke-width': 1 }),
   ) as VNode;
 });
 

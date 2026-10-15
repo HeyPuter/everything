@@ -121,7 +121,7 @@ const rootVar = (page: Page, name: string) => page.evaluate((n) => getComputedSt
 
 test('themes: presets restyle the interface and canvases, edits persist, export/import, factory reset', async ({ page }) => {
   const errors = await openApp(page);
-  expect(await rootVar(page, '--c-region')).toBe('#303030');
+  expect(await rootVar(page, '--c-region')).toBe('#2d2e30');
   await openPrefs(page, 'THEMES');
   await page.locator('.th-presets .enum-menu').dispatchEvent('pointerdown');
   await page.locator('.menu-item', { hasText: 'Light' }).click();
@@ -148,8 +148,8 @@ test('themes: presets restyle the interface and canvases, edits persist, export/
   expect(await rootVar(page, '--c-region')).toBe('#eef0f2');
 
   await page.evaluate(() => (window as unknown as { app: { run(id: string, p: object): void } }).app.run('wm.read_factory_userpref', { confirm: false }));
-  expect(await rootVar(page, '--c-region')).toBe('#303030');
-  expect(await rootVar(page, '--accent')).toBe('#4772b3');
+  expect(await rootVar(page, '--c-region')).toBe('#2d2e30');
+  expect(await rootVar(page, '--accent')).toBe('#4b70b5');
 
   const name = await page.evaluate(async (t) => (await import('/src/prefs/theme_ui.ts')).importThemeText(t, 'x'), text);
   expect(name).toBe('Mine');

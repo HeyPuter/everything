@@ -21,7 +21,7 @@ editModeHooks.svg.push((v) => {
   for (const ob of metaObjects(v)) {
     const mb = metaballOf(app.doc, ob);
     if (!mb) continue;
-    const col = ob.select ? (ob.id === active ? '#ffaa40' : '#f15800') : '#000000';
+    const col = ob.select ? (ob.id === active ? '#fcae38' : '#e56103') : '#000000';
     for (const g of rings(v, ob, mb)) parts.push(h('circle', { key: `${ob.id}.${g.index}`, cx: g.cx, cy: g.cy, r: g.r, fill: 'none', stroke: col, 'stroke-width': 1.2, opacity: ob.select ? 1 : 0.55 }));
   }
   return parts.length ? h('g', { class: 'mball-object' }, parts) : null;
