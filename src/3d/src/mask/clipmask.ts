@@ -318,6 +318,7 @@ export function maskPointerDown(ed: MaskHost, e: PointerEvent): boolean {
   if (!m || e.button !== 0) return false;
   const p = ed.local(e);
   const ctrl = e.ctrlKey || e.metaKey;
+  if (ctrl && e.altKey) return lassoSelect(ed, m, e, e.shiftKey ? 'SUB' : 'ADD');
   if (ctrl && e.shiftKey) return addFeather(ed, m, e);
   if (ctrl) return addVertex(ed, m, e);
   const hit = hitMask(ed, p.x, p.y);
@@ -511,6 +512,39 @@ function addFeather(ed: MaskHost, m: MaskData, e: PointerEvent): boolean {
   set(e);
   track(e, set, () => app.pushUndo('Add Feather'));
   return true;
+}
+
+/** Ctrl Alt drag: lasso selection of points. */
+function lassoSelect(ed: MaskHost, m: MaskData, e: PointerEvent, mode: 'ADD' | 'SUB'): boolean {
+  const p0 = ed.local(e);
+  const pts: V[] = [[p0.x, p0.y]];
+  track(
+    e,
+    (ev) => {
+      const q = ed.local(ev);
+      pts.push([q.x, q.y]);
+      ed.shapeOverlay = { kind: 'lasso', pts };
+      ed.draw();
+    },
+    (_ev, moved) => {
+      ed.shapeOverlay = null;
+      if (moved && pts.length > 2) selectWhere(ed, m, (x, y) => inPolygon(x, y, pts), mode);
+      refresh(ed);
+      ed.drawUI();
+      app.pushUndo('Lasso Select');
+    },
+  );
+  return true;
+}
+
+function inPolygon(x: number, y: number, poly: V[]) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i],
+      [xj, yj] = poly[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi || 1e-9) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 /** Click on empty space deselects; dragging draws a selection box. */

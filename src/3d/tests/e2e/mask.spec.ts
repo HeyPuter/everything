@@ -199,3 +199,34 @@ test('mask: Shift right click places the 2D cursor; new shapes and the cursor pi
   expect(cx).toBeCloseTo(0.25, 2);
   await expectNoErrors(errors);
 });
+
+test('mask: M moves the selected splines to a new layer; Ctrl Alt drag lassos points', async ({ page }) => {
+  const { errors } = await maskingWorkspace(page);
+  await page.keyboard.press('Alt+n');
+  await page.keyboard.press('t');
+  await page.keyboard.press('n');
+  await page.keyboard.press('Home');
+  await page.evaluate(() => (window as any).app.run('mask.primitive_square_add', { size: 0.2, location: [0.3, 0.5] }, { invoke: false }));
+  await page.keyboard.press('m');
+  await menuItemByText(page, 'New Layer').click();
+  const m = await mask(page);
+  expect(m.layers.map((l: any) => l.splines.length)).toEqual([0, 1]);
+  // lasso around the square selects its points
+  await page.keyboard.press('Alt+a');
+  const a = await at(page, 0.1, 0.3),
+    b = await at(page, 0.5, 0.3),
+    c = await at(page, 0.5, 0.7),
+    d = await at(page, 0.1, 0.7);
+  await page.mouse.move(a.x, a.y);
+  await page.keyboard.down('Control');
+  await page.keyboard.down('Alt');
+  await page.mouse.down();
+  for (const q of [b, c, d, a]) await page.mouse.move(q.x, q.y, { steps: 3 });
+  await page.mouse.up();
+  await page.keyboard.up('Alt');
+  await page.keyboard.up('Control');
+  expect((await mask(page)).layers[1].splines[0].points.every((p: any) => p.select)).toBe(true);
+  await expectNoErrors(errors);
+});
+
+const menuItemByText = (page: Page, label: string) => page.locator('.popup-layer .menu-item', { has: page.locator('.mi-label', { hasText: new RegExp(`^${label}$`) }) }).last();

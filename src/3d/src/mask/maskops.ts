@@ -429,6 +429,37 @@ const ops: Operator[] = [
     invoke: (_c, p) => app.run('mask.primitive_square_add', { ...p, location: [...maskEditor()!.cursor] }, { invoke: false }),
     exec: (_c, p) => addPrimitive((x, y, r, a) => squareSpline(x, y, r, a), p),
   },
+  {
+    idname: 'mask.move_to_layer',
+    label: 'Move to Layer',
+    description: 'Move the selected splines to another mask layer (or a new one)',
+    props: [{ id: 'layer', label: 'Layer', type: 'int', default: -1 }],
+    poll: anySel,
+    exec: (_c, p) => {
+      const m = curMask();
+      let target = p.layer as number;
+      if (target < 0 || target >= m.layers.length) {
+        const names = new Set(m.layers.map((l) => l.name));
+        let name = 'MaskLayer';
+        for (let i = 1; names.has(name); i++) name = `MaskLayer.${String(i).padStart(3, '0')}`;
+        m.layers.push(newLayer(name));
+        target = m.layers.length - 1;
+      }
+      const dest = m.layers[target];
+      let n = 0;
+      for (const { layer, spline } of selectedSplines(m)) {
+        if (layer === dest) continue;
+        layer.splines.splice(layer.splines.indexOf(spline), 1);
+        layer.shape_keys = [];
+        dest.splines.push(spline);
+        n++;
+      }
+      if (!n) return 'CANCELLED';
+      dest.shape_keys = [];
+      m.active_layer_index = target;
+      done();
+    },
+  },
   // ------------------------------------------------------------------ parenting
   {
     idname: 'mask.parent_set',
@@ -854,6 +885,14 @@ addKeys('Mask Editing', [
   { key: 'C', alt: true, op: 'mask.cyclic_toggle' },
   { key: 'N', shift: true, op: 'mask.normals_make_consistent' },
   { key: 'P', ctrl: true, op: 'mask.parent_set' },
+  {
+    key: 'M',
+    menuTitle: 'Move to Layer',
+    menu: () => {
+      const m = maskEditor() ? hostMask(maskEditor()!) : null;
+      return [...(m?.layers ?? []).map((l, i) => ({ label: l.name, op: 'mask.move_to_layer', props: { layer: i } })), { separator: true }, { label: 'New Layer', op: 'mask.move_to_layer', props: { layer: -1 } }];
+    },
+  },
   { key: 'P', alt: true, op: 'mask.parent_clear' },
   { key: 'I', op: 'mask.shape_key_insert' },
   { key: 'I', alt: true, op: 'mask.shape_key_clear' },

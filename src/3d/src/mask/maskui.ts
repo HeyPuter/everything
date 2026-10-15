@@ -69,6 +69,15 @@ export function maskMenu(): MenuItem[] {
     { label: 'Recalculate Handles', op: 'mask.normals_make_consistent', shortcut: 'Shift N' },
     { label: 'Set Handle Type', submenu: handleTypeItems, shortcut: 'V' },
     { separator: true },
+    {
+      label: 'Move to Layer',
+      shortcut: 'M',
+      submenu: () => {
+        const ed = maskEditor();
+        const m = ed ? hostMask(ed) : null;
+        return [...(m?.layers ?? []).map((l, i) => ({ label: l.name, op: 'mask.move_to_layer', props: { layer: i } })), { separator: true }, { label: 'New Layer', op: 'mask.move_to_layer', props: { layer: -1 } }];
+      },
+    },
     { label: 'Copy Splines', op: 'mask.copy_splines', shortcut: 'Ctrl C' },
     { label: 'Paste Splines', op: 'mask.paste_splines', shortcut: 'Ctrl V' },
     { separator: true },
