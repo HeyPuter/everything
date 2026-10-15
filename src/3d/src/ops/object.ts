@@ -1096,10 +1096,16 @@ registerOperators([
     idname: 'object.join',
     label: 'Join',
     description: 'Join selected objects into active object',
-    poll: (ctx) => ctx.doc.mode === 'OBJECT' && app.activeObject?.type === 'MESH' && app.selectedObjects().filter((o) => o.type === 'MESH').length > 1,
+    poll: (ctx) => {
+      if (ctx.doc.mode !== 'OBJECT') return false;
+      const act = app.activeObject;
+      if (act?.type !== 'MESH' && act?.type !== 'CURVE') return false;
+      return app.selectedObjects().filter((o) => o.type === act.type).length > 1;
+    },
     exec: (ctx) => {
       const doc = ctx.doc;
       const target = app.activeObject!;
+      if (target.type === 'CURVE') return joinCurves(doc, target);
       const tme = doc.meshes[target.data!];
       const inv = app.graph.get(target.id)!.world.clone().invert();
       const positions: number[] = Array.from(tme.positions);
@@ -1107,6 +1113,8 @@ registerOperators([
       const mats = [...tme.materials];
       const groups = tme.vertex_groups.map((g) => g.name);
       const weights: number[][] = tme.weights.map((w) => Array.from(w));
+      // shape keys of the active mesh continue over the joined vertices (matching names, else the rest shape)
+      const keys = tme.shape_keys.map((k) => ({ ...k, out: Array.from(k.data) }));
       const remove = new Set<string>();
       for (const ob of app.selectedObjects()) {
         if (ob.id === target.id || ob.type !== 'MESH') continue;
@@ -1114,9 +1122,19 @@ registerOperators([
         const m = inv.clone().multiply(app.graph.get(ob.id)!.world);
         const base = positions.length / 3;
         const v = new Vector3();
-        for (let i = 0; i < me.positions.length; i += 3) {
-          v.set(me.positions[i], me.positions[i + 1], me.positions[i + 2]).applyMatrix4(m);
-          positions.push(v.x, v.y, v.z);
+        const transformed = (src: ArrayLike<number>) => {
+          const out: number[] = [];
+          for (let i = 0; i < src.length; i += 3) {
+            v.set(src[i], src[i + 1], src[i + 2]).applyMatrix4(m);
+            out.push(v.x, v.y, v.z);
+          }
+          return out;
+        };
+        const own = transformed(me.positions);
+        positions.push(...own);
+        for (const k of keys) {
+          const match = me.shape_keys.find((x, i) => i > 0 && x.name === k.name);
+          k.out.push(...(match && match.data.length === me.positions.length ? transformed(match.data) : own));
         }
         const matMap = me.materials.map((mid) => {
           let i = mats.indexOf(mid);
@@ -1148,7 +1166,7 @@ registerOperators([
       tme.materials = mats;
       tme.vertex_groups = groups.map((name) => ({ name }));
       tme.weights = weights.map((w) => Float32Array.from(w));
-      tme.shape_keys = [];
+      tme.shape_keys = keys.length === 0 || keys[0].out.length !== tme.positions.length ? [] : keys.map(({ out, ...k }) => ({ ...k, data: Float32Array.from(out) }));
       tme.select_vert = undefined;
       deleteObjects(doc, remove);
       target.select = true;
@@ -1662,6 +1680,36 @@ function setShading(doc: DocumentData, smooth: boolean, _angle: number | undefin
     me.smooth = new Uint8Array(me.offsets.length - 1).fill(smooth ? 1 : 0);
     if (!smooth) ob.modifiers = ob.modifiers.filter((m) => m.type !== 'SMOOTH_BY_ANGLE');
   }
+}
+
+/** Join the selected curves into the active one (splines move into its space, materials merge). */
+function joinCurves(doc: DocumentData, target: ObjectData) {
+  const tcu = doc.curves[target.data!];
+  const inv = app.graph.get(target.id)!.world.clone().invert();
+  const mats = [...tcu.materials];
+  const splines = tcu.splines.map((sp) => cloneShared(sp));
+  const remove = new Set<string>();
+  for (const ob of app.selectedObjects()) {
+    if (ob.id === target.id || ob.type !== 'CURVE' || !ob.data || ob.data === target.data) continue;
+    const cu = doc.curves[ob.data];
+    const add = cu.splines.map((sp) => cloneShared(sp));
+    transformCurve(add, inv.clone().multiply(app.graph.get(ob.id)!.world));
+    const matMap = cu.materials.map((mid) => {
+      let i = mats.indexOf(mid);
+      if (i < 0) {
+        mats.push(mid);
+        i = mats.length - 1;
+      }
+      return i;
+    });
+    for (const sp of add) splines.push({ ...sp, material_index: matMap[sp.material_index ?? 0] ?? 0 });
+    remove.add(ob.id);
+  }
+  if (!remove.size) return 'CANCELLED' as const;
+  tcu.splines = splines;
+  tcu.materials = mats;
+  deleteObjects(doc, remove);
+  target.select = true;
 }
 
 function transformCurve(splines: Spline[], m: Matrix4) {

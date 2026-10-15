@@ -889,3 +889,38 @@ describe('aim at target', () => {
     expect(near(new Vector3(0, 0, -1).transformDirection(down).toArray(), [0, 0, -1], 1e-5)).toBe(true);
   });
 });
+
+describe('join', () => {
+  it('keeps shape keys of the active mesh across joined vertices', () => {
+    const ob = cube();
+    select(ob);
+    run('object.shape_key_add');
+    run('object.shape_key_add');
+    const me = meshOf(ob);
+    const d = new Float32Array(me.shape_keys[0].data);
+    d[2] += 1;
+    me.shape_keys[1] = { ...me.shape_keys[1], data: d };
+    const other = addCube('Other', [4, 0, 0]);
+    select(ob, other);
+    run('object.join');
+    expect(me.positions.length).toBe(48);
+    expect(me.shape_keys.length).toBe(2);
+    expect(me.shape_keys[1].data.length).toBe(48);
+    expect(me.shape_keys[1].data[2]).toBeCloseTo(me.positions[2] + 1);
+    // the joined vertices follow the rest shape in the key
+    expect(me.shape_keys[1].data[24 + 0]).toBeCloseTo(me.positions[24]);
+  });
+
+  it('joins curves', () => {
+    run('curve.primitive_bezier_curve_add', { location: [0, 0, 0] });
+    const a = app.activeObject!;
+    run('curve.primitive_bezier_curve_add', { location: [3, 0, 0] });
+    const b = app.activeObject!;
+    select(a, b);
+    run('object.join');
+    expect(app.doc.objects[b.id]).toBeUndefined();
+    const cu = app.doc.curves[a.data!];
+    expect(cu.splines.length).toBe(2);
+    expect(cu.splines[1].bezier_points[0].co[0]).toBeGreaterThan(1.5);
+  });
+});
