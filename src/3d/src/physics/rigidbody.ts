@@ -47,6 +47,19 @@ interface Body {
 interface Live {
   world: RAPIERNS.World;
   bodies: Body[];
+  /** contact filter for collision collections (null when every body uses the first one only) */
+  hooks: RAPIERNS.PhysicsHooks | null;
+  /** the engine only runs contact filters when stepping with an event queue */
+  events: RAPIERNS.EventQueue | null;
+}
+
+/** Bit mask of a rigid body's collision collections (first collection when unset). */
+export function collectionMask(rb: RigidBodyX): number {
+  const c = rb.collision_collections;
+  if (!c || !c.length) return 1;
+  let m = 0;
+  for (let i = 0; i < 20; i++) if (c[i]) m |= 1 << i;
+  return m;
 }
 
 /** Frame state: per body tx ty tz qx qy qz qw (order = cache.order). */
@@ -185,6 +198,7 @@ function buildWorld(R: Rapier, doc: DocumentData): Live {
   world.integrationParameters.numSolverIterations = Math.max(1, Math.round(w.solver_iterations));
   const bodies: Body[] = [];
   const byId = new Map<string, Body>();
+  const masks = new Map<number, number>();
   for (const ob of rigidBodyObjects(doc)) {
     const rb = ob.rigid_body as RigidBodyX;
     const { p, q, s } = decompose(objectWorldAt(doc, ob, w.frame_start));
@@ -193,13 +207,17 @@ function buildWorld(R: Rapier, doc: DocumentData): Live {
     const desc = dynamic ? R.RigidBodyDesc.dynamic() : kinematic ? R.RigidBodyDesc.kinematicPositionBased() : R.RigidBodyDesc.fixed();
     desc.setTranslation(p.x, p.y, p.z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
     desc.setLinearDamping(damping(rb.linear_damping)).setAngularDamping(damping(rb.angular_damping)).setCanSleep(!!rb.use_deactivation);
+    if (dynamic && rb.use_deactivation && rb.use_start_deactivated) desc.setSleeping(true);
     const body = world.createRigidBody(desc);
     const cd = shapeDesc(R, ob, rb, doc, new Vector3(s.x, s.y, s.z), dynamic);
     cd.setFriction(Math.max(0, rb.friction)).setRestitution(Math.max(0, rb.restitution));
     cd.setFrictionCombineRule(R.CoefficientCombineRule.Multiply).setRestitutionCombineRule(R.CoefficientCombineRule.Multiply);
     if (rb.use_margin) cd.setContactSkin(Math.max(0, rb.collision_margin));
     if (dynamic) cd.setMass(Math.max(1e-3, rb.mass));
-    world.createCollider(cd, body);
+    const mask = collectionMask(rb);
+    if (mask !== 1) cd.setActiveHooks(R.ActiveHooks.FILTER_CONTACT_PAIRS);
+    const collider = world.createCollider(cd, body);
+    masks.set(collider.handle, mask);
     const b: Body = { id: ob.id, body, dynamic, kinematic, scale: s.clone(), mass: rb.mass };
     bodies.push(b);
     byId.set(ob.id, b);
@@ -214,7 +232,14 @@ function buildWorld(R: Rapier, doc: DocumentData): Live {
     const joint = createJoint(R, world, c, b1, b2, cm.p, cm.q, world.timestep);
     joint.setContactsEnabled(!c.disable_collisions);
   }
-  return { world, bodies };
+  const filtered = [...masks.values()].some((m) => m !== 1);
+  const hooks: RAPIERNS.PhysicsHooks | null = filtered
+    ? {
+        filterContactPair: (c1, c2) => ((masks.get(c1) ?? 1) & (masks.get(c2) ?? 1) ? R.SolverFlags.COMPUTE_IMPULSE : null),
+        filterIntersectionPair: () => true,
+      }
+    : null;
+  return { world, bodies, hooks, events: hooks ? new R.EventQueue(false) : null };
 }
 
 function snapshot(live: Live): Float32Array {
@@ -258,7 +283,7 @@ function stepWorld(doc: DocumentData, live: Live, frame: number, graph: Depsgrap
       b.body.resetForces(false);
       if (f[0] || f[1] || f[2]) b.body.addForce({ x: f[0], y: f[1], z: f[2] }, true);
     }
-    live.world.step();
+    live.world.step(live.events ?? undefined, live.hooks ?? undefined);
   }
 }
 
@@ -273,6 +298,7 @@ export function rigidBodyCache(): RBCache {
 export function freeRigidBodyLive() {
   const c = rigidBodyCache();
   c.live?.world.free();
+  c.live?.events?.free();
   c.live = null;
 }
 

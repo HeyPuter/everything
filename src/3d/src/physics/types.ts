@@ -21,6 +21,10 @@ export interface RigidBodyWorldX extends RigidBodyWorld {
 
 export interface RigidBodyX extends RigidBodyData {
   use_margin?: boolean;
+  /** collision collections (20): bodies collide only when they share one */
+  collision_collections?: boolean[];
+  /** start the simulation asleep (needs deactivation) */
+  use_start_deactivated?: boolean;
 }
 
 export interface RigidBodyConstraintData {
@@ -201,6 +205,8 @@ export interface ParticleSettingsX extends ParticleSettings {
   angular_velocity_mode?: 'NONE' | 'VELOCITY' | 'HORIZONTAL' | 'VERTICAL' | 'GLOBAL_X' | 'GLOBAL_Y' | 'GLOBAL_Z' | 'RAND';
   /** emitter children (simple) */
   child_nbr?: number;
+  /** share of the particles shown in the viewport (%) */
+  display_percentage?: number;
   object_factor?: number;
   display_method?: 'RENDER' | 'DOT' | 'NONE';
   display_size?: number;
@@ -474,6 +480,19 @@ export function defaultParticleSettings(id: string, name: string): ParticleSetti
     timestep_substeps: 2,
     use_collision: true,
     users: 1,
+    display_percentage: 100,
+    rotation_mode: 'VEL',
+    rotation_factor_random: 0,
+    phase_factor: 0,
+    phase_factor_random: 0,
+    angular_velocity_mode: 'NONE',
+    line_length_tail: 0,
+    line_length_head: 0.1,
+    use_velocity_length: false,
+    keyed_loops: 1,
+    instance_collection: null,
+    use_whole_collection: false,
+    use_collection_pick_random: false,
   };
 }
 

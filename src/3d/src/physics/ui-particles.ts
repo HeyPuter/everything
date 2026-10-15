@@ -119,6 +119,7 @@ function renderPanel(ob: ObjectPhysics, s: ParticleSettingsX): Child {
 function displayPanel(s: ParticleSettingsX): Child {
   return panel('pa-display', 'Viewport Display', () => [
     enumProp(s, 'display_method', 'Display As', [['RENDER', 'Rendered'], ['DOT', 'Point'], ['NONE', 'None']]),
+    num(s, 'display_percentage', 'Amount', { int: true, min: 0, max: 100, slider: true, tip: 'Percentage of the particles shown in the viewport' }),
     s.display_method === 'DOT' && s.type !== 'HAIR' ? num(s, 'display_size', 'Size', { min: 0.001, max: 10, unit: 'distance' }) : null,
   ], { closed: true });
 }

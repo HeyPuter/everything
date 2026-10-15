@@ -427,6 +427,12 @@ function rigidBodyPanels(ob: ObjectPhysics): Child[] {
         subHeading('Sensitivity'),
         h('div', { class: 'split-row' }, h('div', { class: 'sr-label' }, 'Margin'), h('div', { class: 'sr-value row-aligned' }, headerCheck(`rb-margin-${ob.id}`, rb as never, 'use_margin', 'Collision Margin', d)), h('span', { class: 'decorator-space' })),
         rb.use_margin ? num(rb, 'collision_margin', 'Margin', { min: 0, max: 1, unit: 'distance', disabled: d }) : null,
+        panel('ph-rb-colls', 'Collections', () => {
+          const cc = (rb.collision_collections ??= Array.from({ length: 20 }, (_, i) => i === 0));
+          const btn = (i: number) =>
+            h('button', { key: i, class: { tbtn: true, on: !!cc[i] }, disabled: d, 'data-tip': `Collision collection ${i + 1}`, style: { minWidth: '0', padding: '0' }, onclick: () => ((cc[i] = !cc[i]), changed('Collision Collection')) }, String(i + 1));
+          return [0, 10].map((o) => h('div', { key: o, class: 'row-aligned', style: { padding: '1px 0' } }, Array.from({ length: 10 }, (_, k) => btn(o + k))));
+        }, { sub: true, closed: true }),
       ], { sub: true }),
       rb.type === 'ACTIVE'
         ? panel('ph-rb-dyn', 'Dynamics', () => [
@@ -434,6 +440,7 @@ function rigidBodyPanels(ob: ObjectPhysics): Child[] {
             num(rb, 'linear_damping', 'Translation', { min: 0, max: 1, slider: true, disabled: d }),
             num(rb, 'angular_damping', 'Rotation', { min: 0, max: 1, slider: true, disabled: d }),
             bool(rb, 'use_deactivation', 'Deactivation', { disabled: d, tip: 'Let resting bodies go to sleep' }),
+            bool(rb as never, 'use_start_deactivated', 'Start Deactivated', { disabled: d || !rb.use_deactivation, tip: 'Asleep until something touches it' }),
           ], { sub: true, closed: true })
         : null,
     ]),

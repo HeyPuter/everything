@@ -139,3 +139,20 @@ describe('rigid body world collections', () => {
     expect(pos(at(g, doc, b, 20)).z).toBeCloseTo(5, 5);
   });
 });
+
+describe('rigid body collision collections and deactivation', () => {
+  it('bodies only collide when they share a collision collection; sleepers wait', () => {
+    const doc = scene();
+    const ground = box(doc, 'Ground', 10, [0, 0, -5], 'PASSIVE');
+    const a = box(doc, 'A', 0.5, [-2, 0, 2], 'ACTIVE');
+    const b = box(doc, 'B', 0.5, [2, 0, 2], 'ACTIVE');
+    const c = box(doc, 'C', 0.5, [0, 3, 2], 'ACTIVE');
+    a.rigid_body = { ...a.rigid_body!, collision_collections: Array.from({ length: 20 }, (_, i) => i === 1) } as never;
+    c.rigid_body = { ...c.rigid_body!, use_deactivation: true, use_start_deactivated: true } as never;
+    void ground;
+    const g = new Depsgraph(doc);
+    expect(pos(at(g, doc, a, 60)).z).toBeLessThan(-1);
+    expect(pos(at(g, doc, b, 60)).z).toBeGreaterThan(0.1);
+    expect(pos(at(g, doc, c, 60)).z).toBeCloseTo(2, 3);
+  });
+});
