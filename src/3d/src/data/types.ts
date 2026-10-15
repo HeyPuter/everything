@@ -140,6 +140,8 @@ export interface MeshData {
   use_paint_mask_vertex?: boolean;
   /** edges that do not belong to any face (vertex index pairs) */
   loose_edges?: Uint32Array;
+  /** Skin modifier data, 4 per vertex: radius x, radius y, root flag, loose flag */
+  skin_vertices?: Float32Array;
   /** UV editor selection, one flag per face corner */
   uv_select?: Uint8Array;
   /** UV pins (kept in place by unwrapping and UV tools), one flag per face corner */

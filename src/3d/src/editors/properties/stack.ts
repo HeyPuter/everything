@@ -34,7 +34,7 @@ export const modifierFields: Record<string, Field[]> = {
   ],
   BUILD: [['frame_start', 'Start', 'num'], ['frame_duration', 'Length', 'num'], ['use_reverse', 'Reversed', 'bool'], ['use_random_order', 'Randomize', 'bool'], ['seed', 'Seed', 'int']],
   EDGE_SPLIT: [['use_edge_angle', 'Edge Angle', 'bool'], ['split_angle', 'Angle', 'angle'], ['use_edge_sharp', 'Sharp Edges', 'bool']],
-  MASK: [['vertex_group', 'Vertex Group', 'vgroup'], ['invert_vertex_group', 'Invert', 'bool'], ['threshold', 'Threshold', 'factor']],
+  MASK: [['mode', 'Mode', 'enum', [['VERTEX_GROUP', 'Vertex Group'], ['ARMATURE', 'Armature']]], ['armature', 'Armature', 'object', 'ARMATURE'], ['vertex_group', 'Vertex Group', 'vgroup'], ['threshold', 'Threshold', 'factor']],
   MIRROR: [
     ['use_axis', 'Axis', 'axes'],
     ['use_bisect_axis', 'Bisect', 'axes'],
@@ -43,22 +43,53 @@ export const modifierFields: Record<string, Field[]> = {
     ['use_clip', 'Clipping', 'bool'],
     ['use_mirror_merge', 'Merge', 'bool'],
     ['merge_threshold', 'Distance', 'dist'],
+    ['bisect_threshold', 'Bisect Distance', 'dist'],
     ['heading', 'Data', 'heading'],
-    ['use_mirror_vertex_groups', 'Vertex Groups', 'bool'],
     ['use_mirror_u', 'Mirror U', 'bool'],
+    ['mirror_offset_u', 'Flip U Offset', 'num', { min: -1, max: 1, slider: true }],
     ['use_mirror_v', 'Mirror V', 'bool'],
+    ['mirror_offset_v', 'Flip V Offset', 'num', { min: -1, max: 1, slider: true }],
+    ['offset_u', 'Offset U', 'num', { softMin: -1, softMax: 1, slider: true }],
+    ['offset_v', 'V', 'num', { softMin: -1, softMax: 1, slider: true }],
+    ['use_mirror_vertex_groups', 'Vertex Groups', 'bool'],
   ],
-  SCREW: [['angle', 'Angle', 'angle'], ['screw_offset', 'Screw', 'dist'], ['iterations', 'Iterations', 'int', { min: 1, max: 1000 }], ['axis', 'Axis', 'enum', E('X', 'Y', 'Z')], ['steps', 'Steps Viewport', 'int', { min: 2, max: 512 }], ['render_steps', 'Render', 'int', { min: 2, max: 512 }], ['use_merge_vertices', 'Merge', 'bool'], ['merge_threshold', 'Distance', 'dist'], ['use_smooth_shade', 'Smooth Shading', 'bool'], ['use_flip', 'Flip', 'bool']],
+  SCREW: [
+    ['angle', 'Angle', 'angle'],
+    ['screw_offset', 'Screw', 'dist'],
+    ['iterations', 'Iterations', 'int', { min: 1, max: 10000 }],
+    ['axis', 'Axis', 'enum', E('X', 'Y', 'Z')],
+    ['object', 'Axis Object', 'object'],
+    ['use_object_screw_offset', 'Object Screw', 'bool'],
+    ['steps', 'Steps Viewport', 'int', { min: 1, max: 10000 }],
+    ['render_steps', 'Render', 'int', { min: 1, max: 10000 }],
+    ['use_merge_vertices', 'Merge', 'bool'],
+    ['merge_threshold', 'Distance', 'dist'],
+    ['heading', 'Normals', 'heading'],
+    ['use_smooth_shade', 'Smooth Shading', 'bool'],
+    ['use_normal_flip', 'Flip', 'bool'],
+    ['heading', 'Texture Coordinates', 'heading'],
+    ['use_stretch_u', 'Stretch U', 'bool'],
+    ['use_stretch_v', 'Stretch V', 'bool'],
+  ],
   SOLIDIFY: [['thickness', 'Thickness', 'dist'], ['offset', 'Offset', 'num', { min: -1, max: 1, slider: true }], ['use_even_offset', 'Even Thickness', 'bool'], ['use_rim', 'Fill Rim', 'bool'], ['use_rim_only', 'Only Rim', 'bool'], ['vertex_group', 'Vertex Group', 'vgroup'], ['material_offset', 'Material Offset', 'int'], ['material_offset_rim', 'Rim', 'int']],
   SUBSURF: [['subdivision_type', 'Type', 'enum', [['CATMULL_CLARK', 'Catmull-Clark'], ['SIMPLE', 'Simple']]], ['levels', 'Levels Viewport', 'int', { min: 0, max: 6 }], ['render_levels', 'Render', 'int', { min: 0, max: 6 }], ['use_creases', 'Use Creases', 'bool']],
   TRIANGULATE: [['quad_method', 'Quad Method', 'enum', [['BEAUTY', 'Beauty'], ['FIXED', 'Fixed'], ['FIXED_ALTERNATE', 'Fixed Alternate'], ['SHORTEST_DIAGONAL', 'Shortest Diagonal'], ['LONGEST_DIAGONAL', 'Longest Diagonal']]], ['ngon_method', 'N-gon Method', 'enum', [['BEAUTY', 'Beauty'], ['CLIP', 'Clip']]], ['min_vertices', 'Minimum Vertices', 'int', { min: 4, max: 1000 }]],
-  WELD: [['mode', 'Mode', 'enum', [['ALL', 'All'], ['CONNECTED', 'Connected']]], ['merge_threshold', 'Distance', 'dist']],
+  WELD: [['mode', 'Mode', 'enum', [['ALL', 'All'], ['CONNECTED', 'Connected']]], ['merge_threshold', 'Distance', 'dist'], ['loose_edges', 'Only Loose Edges', 'bool'], ['vertex_group', 'Vertex Group', 'vgroup']],
   WIREFRAME: [['thickness', 'Thickness', 'dist']],
-  ARMATURE: [['object', 'Object', 'object', 'ARMATURE'], ['use_deform_preserve_volume', 'Preserve Volume', 'bool'], ['use_vertex_groups', 'Vertex Groups', 'bool'], ['use_bone_envelopes', 'Bone Envelopes', 'bool']],
+  ARMATURE: [['object', 'Object', 'object', 'ARMATURE'], ['vertex_group', 'Vertex Group', 'vgroup'], ['use_deform_preserve_volume', 'Preserve Volume', 'bool'], ['heading', 'Bind To', 'heading'], ['use_vertex_groups', 'Vertex Groups', 'bool'], ['use_bone_envelopes', 'Bone Envelopes', 'bool']],
   CAST: [['cast_type', 'Shape', 'enum', [['SPHERE', 'Sphere'], ['CYLINDER', 'Cylinder'], ['CUBOID', 'Cuboid']]], ['use_x', 'X', 'bool'], ['use_y', 'Y', 'bool'], ['use_z', 'Z', 'bool'], ['factor', 'Factor', 'num'], ['radius', 'Radius', 'dist'], ['vertex_group', 'Vertex Group', 'vgroup']],
   CURVE: [['object', 'Curve Object', 'object', 'CURVE'], ['deform_axis', 'Deformation Axis', 'enum', [['POS_X', 'X'], ['POS_Y', 'Y'], ['POS_Z', 'Z'], ['NEG_X', '-X'], ['NEG_Y', '-Y'], ['NEG_Z', '-Z']]], ['vertex_group', 'Vertex Group', 'vgroup']],
   DISPLACE: [['direction', 'Direction', 'enum', [['X', 'X'], ['Y', 'Y'], ['Z', 'Z'], ['NORMAL', 'Normal']]], ['texture_coords', 'Coordinates', 'enum', [['LOCAL', 'Local'], ['GLOBAL', 'Global']]], ['strength', 'Strength', 'num'], ['mid_level', 'Midlevel', 'factor'], ['vertex_group', 'Vertex Group', 'vgroup']],
-  HOOK: [['object', 'Object', 'object'], ['subtarget', 'Bone', 'bone'], ['strength', 'Strength', 'factor'], ['falloff_radius', 'Radius', 'dist'], ['vertex_group', 'Vertex Group', 'vgroup']],
+  HOOK: [
+    ['object', 'Object', 'object'],
+    ['subtarget', 'Bone', 'bone'],
+    ['strength', 'Strength', 'factor'],
+    ['vertex_group', 'Vertex Group', 'vgroup'],
+    ['heading', 'Falloff', 'heading'],
+    ['falloff_type', 'Type', 'enum', [['NONE', 'No Falloff'], ['CONSTANT', 'Constant'], ['LINEAR', 'Linear'], ['SHARP', 'Sharp'], ['INVERSE_SQUARE', 'Inverse Square'], ['SMOOTH', 'Smooth'], ['ROOT', 'Root'], ['SPHERE', 'Sphere']]],
+    ['falloff_radius', 'Radius', 'dist'],
+    ['use_falloff_uniform', 'Uniform Falloff', 'bool'],
+  ],
   LAPLACIANSMOOTH: [['iterations', 'Repeat', 'int', { min: 0, max: 200 }], ['lambda_factor', 'Lambda Factor', 'num'], ['use_volume_preserve', 'Preserve Volume', 'bool'], ['vertex_group', 'Vertex Group', 'vgroup']],
   LATTICE: [['object', 'Object', 'object', 'LATTICE'], ['strength', 'Strength', 'factor'], ['vertex_group', 'Vertex Group', 'vgroup']],
   SHRINKWRAP: [['target', 'Target', 'object', 'MESH'], ['offset', 'Offset', 'dist'], ['vertex_group', 'Vertex Group', 'vgroup']],
@@ -97,13 +128,24 @@ function fieldWidget(ob: ObjectData, m: Record<string, unknown>, f: Field): Chil
       return objectProp(m, key, label, { filter: (o) => o.id !== ob.id && (!extra || o.type === extra), undo: `Set ${label}` });
     case 'vgroup': {
       const me = ob.type === 'MESH' && ob.data ? doc.meshes[ob.data] : undefined;
+      const menu = enumMenu(`${m.id ?? ''}.${key}`, [{ value: '', label: '—' }, ...(me?.vertex_groups ?? []).map((g) => ({ value: g.name, label: g.name, icon: 'group_vertex' }))], String(m[key] ?? ''), (v) => {
+        m[key] = v;
+        app.pushUndo(`Set ${label}`);
+        app.changed('doc');
+      });
+      // modifiers with an invert option show its toggle next to the group
+      const invKey = key === 'vertex_group' ? 'invert_vertex_group' : '';
+      const type = modifierTypes[String(m.type ?? '')];
+      const hasInvert = !!invKey && (invKey in m || (type ? invKey in type.defaults() : false));
+      if (!hasInvert) return splitRow(label, menu);
       return splitRow(
         label,
-        enumMenu(`${m.id ?? ''}.${key}`, [{ value: '', label: '—' }, ...(me?.vertex_groups ?? []).map((g) => ({ value: g.name, label: g.name, icon: 'group_vertex' }))], String(m[key] ?? ''), (v) => {
-          m[key] = v;
-          app.pushUndo(`Set ${label}`);
-          app.changed('doc');
-        }),
+        h(
+          'div',
+          { class: 'row-aligned' },
+          menu,
+          h('button', { class: { tbtn: true, 'mod-inv': true, on: !!m[invKey] }, 'data-tip': 'Invert', onclick: () => ((m[invKey] = !m[invKey]), app.pushUndo('Invert Vertex Group'), app.changed('doc')) }, icon('arrow_leftright')),
+        ),
       );
     }
     case 'bone': {
