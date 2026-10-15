@@ -374,3 +374,27 @@ export function translateCurve(cu: CurveData, d: [number, number, number]) {
     points: s.points.map((p) => ({ ...p, co: [p.co[0] + d[0], p.co[1] + d[1], p.co[2] + d[2], p.co[3]] as [number, number, number, number] })),
   }));
 }
+
+// ---------------------------------------------------------------------------
+// sharp edges by angle
+
+/**
+ * Per-corner sharp flags marking edges whose faces meet at more than `angle` (radians).
+ * Boundary edges are left alone; `keep` keeps edges that are already sharp.
+ */
+export function sharpByAngle(me: MeshData, angle: number, keep: boolean, topo: { cornerEdge: Uint32Array; faceOffsets: Uint32Array; faces: Uint32Array; count: number }, faceNormals: Float32Array): Uint32Array {
+  const out = new Uint32Array(me.indices.length);
+  const cos = Math.cos(angle);
+  const sharpEdge = new Uint8Array(topo.count);
+  for (let e = 0; e < topo.count; e++) {
+    const a = topo.faceOffsets[e],
+      b = topo.faceOffsets[e + 1];
+    if (b - a !== 2) continue;
+    const f = topo.faces[a],
+      g = topo.faces[a + 1];
+    const d = faceNormals[f * 3] * faceNormals[g * 3] + faceNormals[f * 3 + 1] * faceNormals[g * 3 + 1] + faceNormals[f * 3 + 2] * faceNormals[g * 3 + 2];
+    if (d < cos - 1e-7) sharpEdge[e] = 1;
+  }
+  for (let c = 0; c < out.length; c++) out[c] = sharpEdge[topo.cornerEdge[c]] || (keep && me.sharp?.[c]) ? 1 : 0;
+  return out;
+}

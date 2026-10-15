@@ -924,3 +924,16 @@ describe('join', () => {
     expect(cu.splines[1].bezier_points[0].co[0]).toBeGreaterThan(1.5);
   });
 });
+
+describe('shade smooth by angle', () => {
+  it('marks the cube edges sharp at 30° but not at 100°', () => {
+    const ob = cube();
+    select(ob);
+    run('object.shade_smooth_by_angle', { angle: Math.PI / 6 });
+    const me = meshOf(ob);
+    expect(Array.from(me.sharp!).every((x) => x === 1)).toBe(true);
+    expect(Array.from(me.smooth!).every((x) => x === 1)).toBe(true);
+    run('object.shade_smooth_by_angle', { angle: (100 * Math.PI) / 180, keep_sharp_edges: false });
+    expect(Array.from(me.sharp!).every((x) => x === 0)).toBe(true);
+  });
+});

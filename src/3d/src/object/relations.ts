@@ -7,6 +7,8 @@ import type { CollectionData, DocumentData, MeshData, ObjectData } from '../data
 import { newModifier } from '../eval/modifiers';
 import { addObjectToScene, activeCollection, uniqueName } from '../ops/object';
 import { openMenu } from '../ui/menu';
+import { edgeTopology, faceNormals } from '../mesh/mesh';
+import { sharpByAngle } from './core';
 import { invalidatePaintAttributes } from '../paint/display';
 import { cornerDomain, edgeDomain, transferData, transferLayout, vertexDomain, type TransferType } from './transfer';
 
@@ -128,6 +130,26 @@ function descendants(doc: DocumentData, id: string): Set<string> {
 }
 
 registerOperators([
+  {
+    idname: 'object.shade_smooth_by_angle',
+    label: 'Shade Smooth by Angle',
+    description: 'Shade smooth and mark edges sharp where faces meet at more than the angle',
+    props: [
+      { id: 'angle', label: 'Angle', type: 'float', default: (30 * Math.PI) / 180, min: 0, max: Math.PI, subtype: 'angle' },
+      { id: 'keep_sharp_edges', label: 'Keep Sharp Edges', type: 'bool', default: true },
+    ],
+    poll: (ctx) => objectMode(ctx) && app.selectedObjects().some((o) => !!meshOf(o)),
+    exec: (_ctx, p) => {
+      for (const ob of app.selectedObjects()) {
+        const me = meshOf(ob);
+        if (!me) continue;
+        me.sharp = sharpByAngle(me, p.angle as number, !!p.keep_sharp_edges, edgeTopology(me), faceNormals(me));
+        me.smooth = new Uint8Array(me.offsets.length - 1).fill(1);
+        // the angle now lives in the mesh: drop a smooth-by-angle modifier doing the same
+        ob.modifiers = ob.modifiers.filter((m) => m.type !== 'SMOOTH_BY_ANGLE');
+      }
+    },
+  },
   {
     idname: 'object.data_transfer',
     label: 'Transfer Mesh Data',
