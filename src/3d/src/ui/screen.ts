@@ -361,6 +361,7 @@ export class Area implements AreaLike {
       this.toolHeaderEl.hidden = false;
       patch(this.toolHeaderEl, this.editor.toolHeader());
     } else this.toolHeaderEl.hidden = true;
+    this.el.classList.toggle('no-toolheader', this.toolHeaderEl.hidden);
   }
 
   serialize(): AreaState {
@@ -376,12 +377,15 @@ export const MAIN_WINDOW_ONLY = new Set<EditorTypeId>();
 function editorTypeMenu(set: (id: EditorTypeId) => void, current: EditorTypeId, floating = false): MenuItem[] {
   const groups: Record<string, EditorType[]> = {};
   for (const t of editorTypes.values()) if (t.available !== false && !(floating && MAIN_WINDOW_ONLY.has(t.id))) (groups[t.group] ??= []).push(t);
+  // the most used editors lead their column
+  const lead: EditorTypeId[] = ['VIEW_3D', 'IMAGE_EDITOR', 'UV', 'COMPOSITOR', 'GEOMETRY', 'SHADER', 'SEQUENCE_EDITOR', 'CLIP_EDITOR', 'DOPESHEET', 'TIMELINE', 'GRAPH', 'DRIVERS', 'NLA', 'TEXT', 'CONSOLE', 'INFO', 'OUTLINER', 'PROPERTIES', 'FILE_BROWSER', 'ASSETS', 'SPREADSHEET', 'PREFERENCES'] as EditorTypeId[];
+  const rank = (t: EditorType) => (lead.indexOf(t.id) < 0 ? lead.length : lead.indexOf(t.id));
   const out: MenuItem[] = [];
+  // one column per group, side by side
   for (const g of ['General', 'Animation', 'Scripting', 'Data']) {
     if (!groups[g]) continue;
-    if (out.length) out.push({ separator: true });
-    out.push({ heading: g });
-    for (const t of groups[g]) out.push({ label: t.label, icon: t.icon, active: t.id === current, action: () => set(t.id) });
+    out.push({ heading: g, columnBreak: out.length > 0 });
+    for (const t of [...groups[g]].sort((a, b) => rank(a) - rank(b))) out.push({ label: t.label, icon: t.icon, active: t.id === current, action: () => set(t.id) });
   }
   return out;
 }

@@ -15,6 +15,8 @@ export interface KeyItem {
   /** open a menu builder instead of an operator */
   menu?: () => MenuItem[];
   menuTitle?: string;
+  /** the popup menu gets a search row (typing searches its entries) */
+  menuSearch?: boolean;
   /** run a UI action (e.g. open a pie menu) instead of an operator */
   action?: () => void;
   /** only when this predicate holds */
@@ -177,7 +179,7 @@ export function installKeyboard() {
           }
           if (k.menu) {
             e.preventDefault();
-            openMenu(k.menu(), { x: app.pointer.x, y: app.pointer.y }, { title: k.menuTitle });
+            openMenu(k.menu(), { x: app.pointer.x, y: app.pointer.y }, { title: k.menuTitle, search: k.menuSearch });
             return;
           }
           if (!k.op) continue;

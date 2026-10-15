@@ -279,7 +279,7 @@ function splashBody(): Child {
 export function showSplash() {
   void listSnapshots().then((s) => {
     snapshotsCache = s;
-    openDialog({ id: 'splash', title: 'Welcome', width: 620, className: 'splash-dialog', body: splashBody });
+    openDialog({ id: 'splash', title: 'Welcome', width: 560, className: 'splash-dialog', body: splashBody });
   });
 }
 

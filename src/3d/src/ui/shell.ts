@@ -4,7 +4,7 @@ import { appIcon, icon } from './icons';
 import { openMenu, promptText, type MenuItem } from './menu';
 import { app, registerOperators } from '../app/app';
 import { Screen, defaultWorkspaces, workspaceTemplates, type Workspace, type LayoutNode } from './screen';
-import { uiState, prefs } from '../app/prefs';
+import { uiState, prefs, savePrefs } from '../app/prefs';
 import { projectUiState } from '../io/files';
 import { appMenu, fileMenu, editMenu, renderMenu, windowMenu, helpMenu, fileNewTemplates } from './topbar';
 
@@ -13,12 +13,14 @@ export { fileNewTemplates };
 /** Extra status bar content (e.g. the progress of a running render job), drawn before reports. */
 export const statusWidgets: (() => Child)[] = [];
 import { textField } from './widgets';
-import { setMode } from '../ops/object';
+import { setMode, activeCollection } from '../ops/object';
+import { statsLines } from '../editors/view3d/view3d';
 import { assistantOpen } from '../assistant';
 import './screenops';
 import './favorites';
 import './areawindow';
 import './screenshot';
+import './menuicons';
 import { APP_VERSION } from '../scripting/wmops';
 
 const STATUSBAR_KEY = 'p3d.ui.statusbar';
@@ -51,6 +53,13 @@ export class Shell {
     this.status.className = 'statusbar';
     root.append(this.top, main, this.status);
     this.screen = new Screen(main);
+    // the mouse hints follow the editor under the pointer
+    let lastHover: unknown = null;
+    main.addEventListener('pointerover', () => {
+      if (app.hoverArea === lastHover) return;
+      lastHover = app.hoverArea;
+      this.drawStatus();
+    });
     this.el.classList.toggle('no-statusbar', !this.showStatusbar);
     this.setWorkspace('Layout', false);
     projectUiState.save = () => ({
@@ -282,38 +291,108 @@ export class Shell {
   drawStatus() {
     const m = app.modal;
     const doc = app.doc;
-    const hints: [string, string][] = m?.status?.() ?? [
+    const hints: [string, string][] = m?.status?.() ?? editorHints(app.hoverArea?.type) ?? [
       ['LMB', modeHint()],
       ['MMB', 'Rotate View'],
       ['RMB', doc.mode === 'OBJECT' ? 'Object' : 'Context Menu'],
     ];
     const last = app.reports[app.reports.length - 1];
     const showReport = last && Date.now() - last.time < 6000;
-    let stats = '';
-    if (prefs.show_statusbar_stats) {
-      let verts = 0,
-        faces = 0,
-        tris = 0,
-        objs = 0,
-        sel = 0;
-      for (const ev of app.graph.objects.values()) {
-        if (!ev.visible) continue;
-        objs++;
-        if (ev.ob.select) sel++;
-        if (ev.mesh) {
-          verts += ev.mesh.positions.length / 3;
-          const nf = ev.mesh.offsets.length - 1;
-          faces += nf;
-          tris += ev.mesh.indices.length - 2 * nf;
-        }
-      }
-      stats = `${doc.scene.collection ? 'Scene Collection' : ''} | ${app.activeObject?.name ?? ''} | Verts ${verts.toLocaleString()} | Faces ${faces.toLocaleString()} | Tris ${tris.toLocaleString()} | Objects ${sel}/${objs}`;
-    }
+    const right: Child[] = [];
+    if (this.fileStatus) right.push(h('span', { key: 'file', class: 'sb-file' }, this.fileStatus));
+    if (prefs.show_statusbar_stats) right.push(h('span', { key: 'stats', class: 'sb-stats' }, statusStats()));
+    if (prefs.show_statusbar_scene_duration) right.push(h('span', { key: 'dur', class: 'sb-duration' }, sceneDuration()));
+    const mem = prefs.show_statusbar_memory ? memoryText() : '';
+    if (mem) right.push(h('span', { key: 'mem', class: 'sb-memory' }, mem));
+    if (prefs.show_statusbar_version) right.push(h('span', { key: 'ver', class: 'sb-version' }, APP_VERSION));
     patch(this.status, [
-      h('div', { class: 'sb-hints' }, m?.header ? h('span', { class: 'sb-modal' }, m.header()) : null, hints.map(([k, l]) => h('span', { class: 'sb-hint', key: k + l }, h('kbd', null, k), l))),
+      h('div', { class: 'sb-hints' }, m?.header ? h('span', { class: 'sb-modal' }, m.header()) : null, hints.map(([k, l]) => h('span', { class: 'sb-hint', key: k + l }, hintKey(k), l))),
       h('div', { class: 'sb-center' }, statusWidgets.map((w) => w()), showReport ? h('span', { class: `sb-report ${last.type.toLowerCase()}` }, icon(last.type === 'ERROR' ? 'error' : 'info_small'), last.message) : null),
-      h('div', { class: 'sb-right' }, this.fileStatus ? h('span', { class: 'sb-file' }, this.fileStatus) : null, h('span', { class: 'sb-stats' }, stats), h('span', { class: 'sb-version' }, `v${APP_VERSION}`)),
+      h('div', { class: 'sb-right', oncontextmenu: (e: MouseEvent) => (e.preventDefault(), openMenu(statusMenu(this), { x: e.clientX, y: e.clientY })) }, right.flatMap((c, i) => (i ? [h('span', { key: `sep${i}`, class: 'sb-sep' }), c] : [c]))),
     ]);
+  }
+}
+
+/** A mouse button hint shows a mouse icon; other keys show as key caps. */
+function hintKey(k: string): Child {
+  const mouse: Record<string, string> = { LMB: 'mouse_lmb', MMB: 'mouse_mmb', RMB: 'mouse_rmb' };
+  return mouse[k] ? h('span', { class: 'sb-mouse', 'aria-label': k }, icon(mouse[k])) : h('kbd', null, k);
+}
+
+/** Scene statistics for the status bar: active collection, active object, then the mode's counts. */
+function statusStats(): string {
+  const doc = app.doc;
+  const short: Record<string, string> = { Vertices: 'Verts', Triangles: 'Tris' };
+  const rows = statsLines();
+  const objects = rows.find(([k]) => k === 'Objects');
+  const counts = rows.filter(([k]) => k !== 'Objects' && (doc.mode === 'EDIT' || k !== 'Edges')).map(([k, v]) => `${short[k] ?? k}:${v.replace(/ \/ /g, '/')}`);
+  const coll = doc.collections[activeCollection(doc)];
+  const parts = [coll && coll.id !== doc.scene.collection ? coll.name : 'Scene Collection', app.activeObject?.name ?? '', ...counts, objects ? `Objects:${objects[1].replace(/ \/ /g, '/')}` : ''];
+  return parts.filter(Boolean).join(' | ');
+}
+
+/** Length of the scene's frame range as time, then the frame count. */
+function sceneDuration(): string {
+  const s = app.doc.scene;
+  const fps = s.render.fps / (s.render.fps_base || 1);
+  const frames = s.frame_end - s.frame_start + 1;
+  const secs = frames / fps;
+  const mm = Math.floor(secs / 60);
+  const ss = secs - mm * 60;
+  return `Duration: ${String(mm).padStart(2, '0')}:${ss.toFixed(2).padStart(5, '0')} (Frame ${s.frame_current}/${frames})`;
+}
+
+/** Script memory in use, where the browser reports it. */
+function memoryText(): string {
+  const m = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+  return m ? `Memory: ${(m.usedJSHeapSize / 1048576).toFixed(1)} MiB` : '';
+}
+
+/** Right-click menu of the status bar: what its right side shows. */
+function statusMenu(sh: Shell): MenuItem[] {
+  const toggle = (key: 'show_statusbar_stats' | 'show_statusbar_scene_duration' | 'show_statusbar_memory' | 'show_statusbar_version') => () => {
+    prefs[key] = !prefs[key];
+    savePrefs();
+    sh.drawStatus();
+  };
+  const hasMemory = !!(performance as Performance & { memory?: unknown }).memory;
+  return [
+    { label: 'Scene Statistics', checked: prefs.show_statusbar_stats, action: toggle('show_statusbar_stats') },
+    { label: 'Scene Duration', checked: prefs.show_statusbar_scene_duration, action: toggle('show_statusbar_scene_duration') },
+    ...(hasMemory ? [{ label: 'System Memory', checked: prefs.show_statusbar_memory, action: toggle('show_statusbar_memory') }] : []),
+    { label: 'App Version', checked: prefs.show_statusbar_version, action: toggle('show_statusbar_version') },
+  ];
+}
+
+/** Mouse hints of editors other than the 3D view (undefined: the 3D view's hints). */
+function editorHints(type: string | undefined): [string, string][] | undefined {
+  const pan: [string, string] = ['MMB', 'Pan View'];
+  switch (type) {
+    case undefined:
+    case 'VIEW_3D':
+      return undefined;
+    case 'SHADER':
+    case 'GEOMETRY':
+    case 'COMPOSITOR':
+    case 'DOPESHEET':
+    case 'TIMELINE':
+    case 'GRAPH':
+    case 'DRIVERS':
+    case 'NLA':
+    case 'SEQUENCE_EDITOR':
+    case 'CLIP_EDITOR':
+    case 'IMAGE_EDITOR':
+    case 'UV':
+      return [['LMB', 'Select'], pan, ['RMB', 'Context Menu']];
+    case 'OUTLINER':
+    case 'FILE_BROWSER':
+    case 'SPREADSHEET':
+      return [['LMB', 'Select'], pan, ['RMB', 'Context Menu']];
+    case 'TEXT':
+    case 'CONSOLE':
+      return [['LMB', 'Set Cursor'], pan, ['RMB', 'Context Menu']];
+    default:
+      return [pan, ['RMB', 'Context Menu']];
   }
 }
 

@@ -27,7 +27,7 @@ export function availableModes() {
   return MODE_ITEMS.filter((m) => m.types.includes('*') || (ob && m.types.includes(ob.type)));
 }
 
-function menuButton(label: string, items: () => MenuItem[]) {
+function menuButton(label: string, items: () => MenuItem[], search = false) {
   return h(
     'button',
     {
@@ -35,11 +35,11 @@ function menuButton(label: string, items: () => MenuItem[]) {
       class: 'hdr-menu',
       onpointerdown: (e: PointerEvent) => {
         e.preventDefault();
-        openMenu(items(), e.currentTarget as HTMLElement);
+        openMenu(items(), e.currentTarget as HTMLElement, { search });
       },
       onpointerenter: (e: PointerEvent) => {
         // menu bar hover switching while a header menu is open
-        if (document.querySelector('.hdr-menu.menu-open') && !(e.currentTarget as HTMLElement).classList.contains('menu-open')) openMenu(items(), e.currentTarget as HTMLElement);
+        if (document.querySelector('.hdr-menu.menu-open') && !(e.currentTarget as HTMLElement).classList.contains('menu-open')) openMenu(items(), e.currentTarget as HTMLElement, { search });
       },
     },
     label,
@@ -78,8 +78,8 @@ function iconDrop(id: string, iconName: string, tip: string, onDown: (el: HTMLEl
         onDown(e.currentTarget as HTMLElement);
       },
     },
-    icon(iconName),
-    icon('down_arrow_hlt', 'tiny'),
+    // a dropdown-only button (next to a toggle) shows just its arrow
+    iconName === 'down_arrow_hlt' ? icon('down_arrow_hlt', 'tiny') : [icon(iconName), icon('down_arrow_hlt', 'tiny')],
   );
 }
 
@@ -123,9 +123,10 @@ export function viewHeader(v: View3D): Child {
       h('span', null, mode.label),
       icon('down_arrow_hlt', 'tiny'),
     ),
+    mm?.headerLead?.() ?? null,
     menuButton('View', viewMenu),
     !mm?.select || mm.select().length ? menuButton('Select', selectMenu) : null,
-    (doc.mode === 'OBJECT' || doc.mode === 'EDIT') && (!mm?.add || mm.add().length) ? menuButton('Add', mm?.add ?? addMenu) : null,
+    (doc.mode === 'OBJECT' || doc.mode === 'EDIT') && (!mm?.add || mm.add().length) ? menuButton('Add', mm?.add ?? addMenu, true) : null,
     doc.mode === 'OBJECT' ? menuButton('Object', objectMenu) : null,
     ...(mm?.header?.() ?? []).map(([label, fn]) => menuButton(label, fn)),
     mm?.headerExtra?.() ?? null,
@@ -247,6 +248,10 @@ export function viewHeader(v: View3D): Child {
       iconToggle('ov', 'overlay', v.overlay.show_overlays, 'Show Overlays (Shift Alt Z)', () => ((v.overlay.show_overlays = !v.overlay.show_overlays), app.changed('ui'))),
       iconDrop('ov-pop', 'down_arrow_hlt', 'Overlays', (el) => openPopover(el, () => overlayPopover(v), { width: 280 }), 'hidden-icon'),
     ),
+    // edit mode overlays get their own dropdown
+    app.doc.mode === 'EDIT' && (app.activeObject?.type === 'MESH' || app.activeObject?.type === 'CURVE')
+      ? iconDrop('ov-edit', 'editmode_hlt', `${app.activeObject.type === 'MESH' ? 'Mesh' : 'Curve'} Edit Mode Overlays`, (el) => openPopover(el, () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, `${app.activeObject?.type === 'CURVE' ? 'Curve' : 'Mesh'} Edit Mode`), editOverlaySections(v)), { width: 260 }))
+      : null,
     iconToggle('xray', 'xray', sh.type === 'WIREFRAME' ? sh.show_xray_wireframe : sh.show_xray, 'Toggle X-Ray (Alt Z)', () => {
       if (sh.type === 'WIREFRAME') sh.show_xray_wireframe = !sh.show_xray_wireframe;
       else sh.show_xray = !sh.show_xray;
@@ -347,37 +352,50 @@ function overlayPopover(v: View3D): Child {
     (o as unknown as Record<string, unknown>)[k] = x;
     app.changed('ui');
   };
-  const editing = app.doc.mode === 'EDIT';
+  const axisBtn = (k: 'show_axis_x' | 'show_axis_y' | 'show_axis_z', l: string) => h('button', { key: k, class: { on: !!o[k] }, 'data-tip': `Show the ${l} axis line`, onclick: () => set(k)(!o[k]) }, l);
   return h(
     'div',
     { class: 'pop-panel' },
     h('div', { class: 'pop-title' }, 'Viewport Overlays'),
-    h('div', { class: 'pop-sub' }, 'Guides'),
-    h('div', { class: 'pop-grid' }, checkbox('o-grid', 'Grid', o.show_floor, set('show_floor')), checkbox('o-x', 'X', o.show_axis_x, set('show_axis_x')), checkbox('o-y', 'Y', o.show_axis_y, set('show_axis_y')), checkbox('o-z', 'Z', o.show_axis_z, set('show_axis_z'))),
-    numberField({ id: 'o-gscale', label: 'Scale', value: o.grid_scale, min: 0.001, max: 1000, set: (x) => set('grid_scale')(x) }),
-    h('div', { class: 'pop-grid' }, checkbox('o-text', 'Text Info', o.show_text, set('show_text')), checkbox('o-stats', 'Statistics', o.show_stats, set('show_stats')), checkbox('o-cursor', '3D Cursor', o.show_cursor, set('show_cursor')), checkbox('o-ann', 'Annotations', o.show_annotation, set('show_annotation'))),
-    h('div', { class: 'pop-sub' }, 'Objects'),
-    h('div', { class: 'pop-grid' }, checkbox('o-extras', 'Extras', o.show_extras, set('show_extras')), checkbox('o-rel', 'Relationship Lines', o.show_relationship_lines, set('show_relationship_lines')), checkbox('o-outline', 'Outline Selected', o.show_outline_selected, set('show_outline_selected')), checkbox('o-bones', 'Bones', o.show_bones, set('show_bones')), checkbox('o-orig', 'Origins', o.show_object_origins, set('show_object_origins')), checkbox('o-origall', 'Origins (All)', o.show_object_origins_all, set('show_object_origins_all')), checkbox('o-mpaths', 'Motion Paths', o.show_motion_paths !== false, set('show_motion_paths'))),
-    h('div', { class: 'pop-sub' }, 'Geometry'),
-    h('div', { class: 'pop-grid' }, checkbox('o-wire', 'Wireframe', o.show_wireframes, set('show_wireframes')), checkbox('o-faceor', 'Face Orientation', o.show_face_orientation, set('show_face_orientation'))),
-    numberField({ id: 'o-wireop', label: 'Opacity', value: o.wireframe_opacity, min: 0, max: 1, slider: true, set: (x) => set('wireframe_opacity')(x) }),
-    editing && app.activeObject?.type === 'CURVE'
-      ? [
-          h('div', { class: 'pop-sub' }, 'Curve Edit Mode'),
-          h('div', { class: 'pop-line' }, h('span', null, 'Handles'), enumMenu('o-handles', [{ value: 'ALL', label: 'All' }, { value: 'SELECTED', label: 'Selected' }, { value: 'NONE', label: 'None' }], o.display_handle ?? 'SELECTED', set('display_handle'))),
-          checkbox('o-cnorm', 'Normals', o.show_curve_normals !== false, set('show_curve_normals')),
-          numberField({ id: 'o-cnlen', label: 'Normal Size', value: o.normals_length, min: 0.0001, max: 100, set: (x) => set('normals_length')(x) }),
-        ]
-      : editing && app.activeObject?.type === 'MESH'
-      ? [
-          h('div', { class: 'pop-sub' }, 'Mesh Edit Mode'),
-          h('div', { class: 'pop-grid' }, checkbox('o-seam', 'Seams', o.show_edge_seams, set('show_edge_seams')), checkbox('o-sharp', 'Sharp', o.show_edge_sharp, set('show_edge_sharp')), checkbox('o-crease', 'Crease', o.show_edge_crease, set('show_edge_crease')), checkbox('o-fcen', 'Center', o.show_face_center, set('show_face_center')), checkbox('o-fnorm', 'Face Normals', o.show_face_normals, set('show_face_normals')), checkbox('o-vnorm', 'Vertex Normals', o.show_vertex_normals, set('show_vertex_normals')), checkbox('o-len', 'Edge Length', o.show_extra_edge_length, set('show_extra_edge_length')), checkbox('o-idx', 'Indices', o.show_extra_indices, set('show_extra_indices'))),
-          numberField({ id: 'o-nlen', label: 'Normal Size', value: o.normals_length, min: 0.0001, max: 100, set: (x) => set('normals_length')(x) }),
-        ]
-      : null,
+    panel('ov-guides', 'Guides', () => [
+      h('div', { class: 'pop-grid ov-guides' }, checkbox('o-grid', 'Grid', o.show_floor, set('show_floor')), h('div', { class: 'ov-axes' }, h('span', { class: 'ov-axes-label' }, 'Axes'), h('div', { class: 'enum-row' }, axisBtn('show_axis_x', 'X'), axisBtn('show_axis_y', 'Y'), axisBtn('show_axis_z', 'Z')))),
+      numberField({ id: 'o-gscale', label: 'Scale', value: o.grid_scale, min: 0.001, max: 1000, set: (x) => set('grid_scale')(x) }),
+      h('div', { class: 'pop-grid' }, checkbox('o-cursor', '3D Cursor', o.show_cursor, set('show_cursor')), checkbox('o-ann', 'Annotations', o.show_annotation, set('show_annotation'))),
+    ], { sub: true }),
+    panel('ov-text', 'Text', () => [h('div', { class: 'pop-grid' }, checkbox('o-text', 'General Info', o.show_text, set('show_text')), checkbox('o-stats', 'Statistics', o.show_stats, set('show_stats')))], { sub: true }),
+    panel('ov-objects', 'Objects', () => [
+      h('div', { class: 'pop-grid' }, checkbox('o-extras', 'Extras', o.show_extras, set('show_extras')), checkbox('o-bones', 'Bones', o.show_bones, set('show_bones')), checkbox('o-rel', 'Relationship Lines', o.show_relationship_lines, set('show_relationship_lines')), checkbox('o-mpaths', 'Motion Paths', o.show_motion_paths !== false, set('show_motion_paths')), checkbox('o-outline', 'Outline Selected', o.show_outline_selected, set('show_outline_selected')), checkbox('o-orig', 'Origins', o.show_object_origins, set('show_object_origins')), h('span'), checkbox('o-origall', 'Origins (All)', o.show_object_origins_all, set('show_object_origins_all'))),
+    ], { sub: true }),
+    panel('ov-geometry', 'Geometry', () => [
+      h('div', { class: 'row-split' }, checkbox('o-wire', '', o.show_wireframes, set('show_wireframes'), { tip: 'Wireframe\nShow the wireframe of every object' }), numberField({ id: 'o-wireop', label: 'Wireframe Opacity', value: o.wireframe_opacity, min: 0, max: 1, slider: true, set: (x) => set('wireframe_opacity')(x) })),
+      checkbox('o-faceor', 'Face Orientation', o.show_face_orientation, set('show_face_orientation')),
+    ], { sub: true }),
     overlayPopoverSections.map((f) => f(v)),
     overlayPopoverHooks.map((f) => f(v)),
   );
+}
+
+/** Overlays of the edit mode (own header popover next to the overlays one). */
+function editOverlaySections(v: View3D): Child {
+  const o = v.overlay;
+  const set = (k: keyof typeof o) => (x: unknown) => {
+    (o as unknown as Record<string, unknown>)[k] = x;
+    app.changed('ui');
+  };
+  if (app.activeObject?.type === 'CURVE')
+    return [
+      h('div', { class: 'pop-line' }, h('span', null, 'Handles'), enumMenu('o-handles', [{ value: 'ALL', label: 'All' }, { value: 'SELECTED', label: 'Selected' }, { value: 'NONE', label: 'None' }], o.display_handle ?? 'SELECTED', set('display_handle'))),
+      checkbox('o-cnorm', 'Normals', o.show_curve_normals !== false, set('show_curve_normals')),
+      numberField({ id: 'o-cnlen', label: 'Normal Size', value: o.normals_length, min: 0.0001, max: 100, set: (x) => set('normals_length')(x) }),
+    ];
+  return [
+    h('div', { class: 'pop-grid' }, checkbox('o-seam', 'Seams', o.show_edge_seams, set('show_edge_seams')), checkbox('o-sharp', 'Sharp', o.show_edge_sharp, set('show_edge_sharp')), checkbox('o-crease', 'Crease', o.show_edge_crease, set('show_edge_crease')), checkbox('o-fcen', 'Center', o.show_face_center, set('show_face_center'))),
+    panel('ov-mesh-measure', 'Measurement', () => [h('div', { class: 'pop-grid' }, checkbox('o-len', 'Edge Length', o.show_extra_edge_length, set('show_extra_edge_length')), checkbox('o-idx', 'Indices', o.show_extra_indices, set('show_extra_indices')))], { sub: true }),
+    panel('ov-mesh-normals', 'Normals', () => [
+      h('div', { class: 'pop-grid' }, checkbox('o-vnorm', 'Vertex Normals', o.show_vertex_normals, set('show_vertex_normals')), checkbox('o-fnorm', 'Face Normals', o.show_face_normals, set('show_face_normals'))),
+      numberField({ id: 'o-nlen', label: 'Size', value: o.normals_length, min: 0.0001, max: 100, set: (x) => set('normals_length')(x) }),
+    ], { sub: true }),
+  ];
 }
 
 function shadingPopover(v: View3D): Child {
@@ -405,6 +423,7 @@ function shadingPopover(v: View3D): Child {
   return h(
     'div',
     { class: 'pop-panel' },
+    h('div', { class: 'pop-title' }, 'Viewport Shading'),
     panel('sh-light', 'Lighting', () => [enumRow('s-light', items([['STUDIO', 'Studio'], ['MATCAP', 'MatCap'], ['FLAT', 'Flat']]), s.light, set('light'))], { sub: true }),
     panel('sh-color', 'Color', () => [
       h('div', { class: 'enum-grid' }, enumRow('s-color', items([['MATERIAL', 'Material'], ['OBJECT', 'Object'], ['VERTEX', 'Attribute'], ['SINGLE', 'Single'], ['RANDOM', 'Random'], ['TEXTURE', 'Texture']]), s.color_type, set('color_type'))),

@@ -6,12 +6,14 @@ import { objectTransformMenu, mirrorMenu } from './transformui';
 import './quadview';
 import { objectModeContextMenu, selectByTypeMenu, selectGroupedMenu, selectLinkedMenu, selectMoreLessMenu } from '../../object/menus';
 import { viewMenuExtras } from './hooks';
+import { activeView3D } from './view3d';
 
 export function viewMenu(): MenuItem[] {
+  const v = activeView3D();
   return [
-    { label: 'Toolbar', op: 'view3d.toggle_toolbar', shortcut: 'T' },
-    { label: 'Sidebar', op: 'view3d.toggle_sidebar', shortcut: 'N' },
-    { label: 'Tool Settings', op: 'view3d.toggle_tool_header' },
+    { label: 'Toolbar', op: 'view3d.toggle_toolbar', shortcut: 'T', checked: v ? v.showToolbar : undefined },
+    { label: 'Sidebar', op: 'view3d.toggle_sidebar', shortcut: 'N', checked: v ? v.showSidebar : undefined },
+    { label: 'Tool Settings', op: 'view3d.toggle_tool_header', checked: v ? v.showToolHeader !== false : undefined },
     ...viewMenuExtras.flatMap((f) => f()),
     { label: 'Adjust Last Operation', op: 'screen.redo_last', shortcut: 'F9' },
     { separator: true },
@@ -186,7 +188,7 @@ export function addMenu(): MenuItem[] {
         ['SPHERE', 'Sphere'],
         ['CONE', 'Cone'],
       ].map(([t, l]) => ({ label: l, icon: 'outliner_ob_empty', op: 'object.empty_add', props: { type: t } })) },
-    { label: 'Image', icon: 'image', submenu: () => [{ label: 'Reference', op: 'object.empty_image_add', props: { background: false } }, { label: 'Background', op: 'object.empty_image_add', props: { background: true } }, { label: 'Mesh Plane', op: 'image.import_as_mesh_planes' }, { label: 'Empty Image', op: 'object.empty_add', props: { type: 'IMAGE' } }] },
+    { label: 'Image', icon: 'image', submenu: () => [{ label: 'Reference', icon: 'image_reference', op: 'object.empty_image_add', props: { background: false } }, { label: 'Background', icon: 'image_background', op: 'object.empty_image_add', props: { background: true } }, { label: 'Mesh Plane', icon: 'plane', op: 'image.import_as_mesh_planes' }, { label: 'Empty Image', icon: 'file_image', op: 'object.empty_add', props: { type: 'IMAGE' } }] },
     { separator: true },
     { label: 'Light', icon: 'outliner_ob_light', submenu: () =>
       [
