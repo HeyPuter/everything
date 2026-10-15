@@ -56,6 +56,9 @@ interface Entry {
 const scene = new Scene();
 scene.matrixWorldAutoUpdate = false;
 const entries = new Map<string, Entry>();
+
+/** Particle draw data a mode wants hidden (e.g. hair being edited in Particle Edit mode). */
+export const particleDrawFilter: ((key: string, d: ParticleDraw) => boolean)[] = [];
 const vp = new Vector4();
 
 function build(d: ParticleDraw): Points | LineSegments {
@@ -78,6 +81,7 @@ function sync(localView: Set<string> | null) {
   for (const [key, d] of particleDraw) {
     const ev = app.graph.get(d.objectId);
     if (!ev || !ev.visible || (localView && !localView.has(d.objectId))) continue;
+    if (particleDrawFilter.some((f) => !f(key, d))) continue;
     seen.add(key);
     let e = entries.get(key);
     if (!e || e.data !== d) {
@@ -254,6 +258,8 @@ viewportExtensions.push((v) => {
     if (!r) return;
     sync(v.localView);
     syncVolumes(v.localView, camera);
+    // the realtime render engine draws smoke itself (lit, in final renders too)
+    if (v.shading.type === 'RENDERED' && app.doc.scene.render.engine === 'RASTER') for (const e of volumes.values()) e.mesh.visible = false;
     if (!scene.children.some((c) => c.visible)) return;
     r.getCurrentViewport(vp);
     for (const c of scene.children) if (c instanceof Points) (c.material as ShaderMaterial).uniforms.uHalfH.value = vp.w / 2;

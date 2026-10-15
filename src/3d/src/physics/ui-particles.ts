@@ -146,11 +146,19 @@ function displayPanel(s: ParticleSettingsX): Child {
 }
 
 function hairPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettingsX, m?: ModifierBase): Child[] {
+  const edited = !!ps.edited_hair;
   return [
+    h(
+      'div',
+      { class: 'row-aligned', style: { padding: '2px 8px 6px', gap: '4px' } },
+      edited ? opButton('particle.edited_clear', 'Free Edit', {}, { tip: 'The hair was edited by hand: drop the edits and grow it from the settings again' }) : null,
+      opButton('curves.convert_from_particle_system', 'Convert to Curves', {}, { tip: 'Add a hair curves object made from this hair' }),
+    ),
     panel('pa-emit', 'Emission', () => [
-      num(s, 'count', 'Number', { int: true, min: 0, max: 1000000, softMax: 100000 }),
+      edited ? note('The hair was edited in Particle Edit mode, so its number and length come from the edits') : null,
+      num(s, 'count', 'Number', { int: true, min: 0, max: 1000000, softMax: 100000, disabled: edited }),
       num(ps, 'seed', 'Seed', { int: true, min: 0 }),
-      num(s, 'hair_length', 'Hair Length', { min: 0, max: 1000, unit: 'distance' }),
+      num(s, 'hair_length', 'Hair Length', { min: 0, max: 1000, unit: 'distance', disabled: edited }),
       num(s, 'hair_step', 'Segments', { int: true, min: 1, max: 50 }),
       panel('pa-source', 'Source', () => [enumProp(s, 'emit_from', 'Emit From', [['VERT', 'Verts'], ['FACE', 'Faces'], ['VOLUME', 'Volume']])], { sub: true }),
     ]),

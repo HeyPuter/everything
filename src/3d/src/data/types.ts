@@ -4,6 +4,7 @@
 // All typed arrays are treated as immutable once committed to the undo history:
 // edits replace arrays instead of writing into them (see data/cow.ts).
 
+import type { RealtimeRenderSettings, RealtimeLightSettings, RealtimeMaterialSettings, RealtimeWorldSettings, LightProbeSettings } from '../render/realtime/types';
 export type ID = string;
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
@@ -24,7 +25,9 @@ export type ObjectType =
   | 'POINTCLOUD'
   | 'GREASEPENCIL'
   | 'SPEAKER'
-  | 'META';
+  | 'META'
+  | 'CURVES'
+  | 'LIGHT_PROBE';
 
 export type RotationMode = 'XYZ' | 'XZY' | 'YXZ' | 'YZX' | 'ZXY' | 'ZYX' | 'QUATERNION' | 'AXIS_ANGLE';
 
@@ -39,7 +42,9 @@ export type Mode =
   | 'PAINT_GREASE_PENCIL'
   | 'SCULPT_GREASE_PENCIL'
   | 'VERTEX_GREASE_PENCIL'
-  | 'WEIGHT_GREASE_PENCIL';
+  | 'WEIGHT_GREASE_PENCIL'
+  | 'SCULPT_CURVES'
+  | 'PARTICLE_EDIT';
 
 export type SelectMode = 'VERT' | 'EDGE' | 'FACE';
 
@@ -271,7 +276,7 @@ export interface TextBox {
 // ---------------------------------------------------------------------------
 // Lights / cameras / armatures
 
-export interface LightData {
+export interface LightData extends RealtimeLightSettings {
   id: ID;
   name: string;
   type: 'POINT' | 'SUN' | 'SPOT' | 'AREA';
@@ -509,7 +514,7 @@ export interface NodeGroupData {
   users?: number;
 }
 
-export interface MaterialData {
+export interface MaterialData extends RealtimeMaterialSettings {
   id: ID;
   name: string;
   use_nodes: boolean;
@@ -530,7 +535,7 @@ export interface MaterialData {
   grease_pencil?: import('../greasepencil/types').MaterialGPencilStyle;
 }
 
-export interface WorldData {
+export interface WorldData extends RealtimeWorldSettings {
   id: ID;
   name: string;
   color: Color;
@@ -722,10 +727,31 @@ export interface AnimData {
   tweak?: { track: number; strip: number; prev_action: ID | null; upper: boolean } | null;
 }
 
+export type DriverIdType = 'OBJECT' | 'SCENE' | 'MESH' | 'CURVE' | 'LIGHT' | 'CAMERA' | 'ARMATURE' | 'LATTICE' | 'MATERIAL' | 'WORLD' | 'IMAGE' | 'ACTION' | 'NODETREE' | 'TEXT' | 'COLLECTION' | 'PARTICLE';
+
+export interface DriverTarget {
+  /** target data-block (an object unless id_type says otherwise) */
+  id: ID | null;
+  /** table the id refers to (default OBJECT) */
+  id_type?: DriverIdType;
+  data_path: string;
+  /** pose bone of an armature target (Transform Channel, Distance, Rotational Difference) */
+  bone_target?: string;
+  transform_type?: string;
+  transform_space?: 'WORLD_SPACE' | 'TRANSFORM_SPACE' | 'LOCAL_SPACE';
+  /** how rotation channels are read: AUTO, an Euler order, QUATERNION or SWING_TWIST_X/Y/Z */
+  rotation_mode?: string;
+  /** Context Property variables: which context data-block the path is read from */
+  context_property?: 'ACTIVE_SCENE' | 'ACTIVE_VIEW_LAYER';
+  /** use fallback_value when the path can't be resolved instead of flagging an error */
+  use_fallback_value?: boolean;
+  fallback_value?: number;
+}
+
 export interface DriverVariable {
   name: string;
-  type: 'SINGLE_PROP' | 'TRANSFORMS' | 'ROTATION_DIFF' | 'LOC_DIFF';
-  targets: { id: ID | null; data_path: string; transform_type?: string; transform_space?: string }[];
+  type: 'SINGLE_PROP' | 'TRANSFORMS' | 'ROTATION_DIFF' | 'LOC_DIFF' | 'CONTEXT_PROP';
+  targets: DriverTarget[];
 }
 
 export interface Driver {
@@ -734,6 +760,10 @@ export interface Driver {
   type: 'AVERAGE' | 'SUM' | 'SCRIPTED' | 'MIN' | 'MAX';
   expression: string;
   variables: DriverVariable[];
+  /** scripted expressions can read the driven data-block as `self` */
+  use_self?: boolean;
+  /** maps the driver value (x) to the property value (y); without keys or modifiers the value passes through */
+  fcurve?: FCurve;
 }
 
 // ---------------------------------------------------------------------------
@@ -915,6 +945,8 @@ export interface ObjectData {
   show_only_shape_key?: boolean;
   /** sound settings of a SPEAKER object */
   speaker?: import('../object/speaker').SpeakerSettings;
+  /** settings of a LIGHT_PROBE object (src/render/realtime/probes) */
+  lightprobe?: LightProbeSettings;
   pass_index?: number;
   is_shadow_catcher?: boolean;
   is_holdout?: boolean;
@@ -948,7 +980,7 @@ export interface CollectionData {
 
 export type RenderEngine = 'RASTER' | 'PATHTRACE' | 'SOLID';
 
-export interface RenderSettings {
+export interface RenderSettings extends RealtimeRenderSettings {
   engine: RenderEngine;
   resolution_x: number;
   resolution_y: number;
@@ -1289,6 +1321,8 @@ export interface DocumentData {
   packed_files?: Record<ID, import('../geonodes/curves/importers').PackedFile>;
   /** Metaball data-blocks (src/metaball); absent in older files */
   metaballs?: Record<ID, import('../metaball/types').MetaballData>;
+  /** Hair curves data-blocks (src/hair); absent in older files */
+  hair_curves?: Record<ID, import('../hair/types').HairCurvesData>;
   /** Mode of the active object */
   mode: Mode;
   /** Ordering of object ids for stable iteration */

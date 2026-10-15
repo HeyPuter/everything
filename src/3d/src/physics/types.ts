@@ -236,8 +236,24 @@ export interface ParticleSettingsX extends ParticleSettings {
   use_collision?: boolean;
 }
 
+/** Hand-edited hair (Particle Edit mode): keys per strand in the emitter's object space. */
+export interface EditedHair {
+  /** first key of each strand plus the total key count */
+  key_offsets: Uint32Array;
+  /** key positions xyz */
+  co: Float32Array;
+  /** per key weight (0..1), e.g. for hair dynamics pinning */
+  weight: Float32Array;
+  /** per key selection */
+  select: Uint8Array;
+  /** per strand hidden flag */
+  hide: Uint8Array;
+}
+
 export interface ParticleSystemX extends ParticleSystem {
   point_cache?: PointCacheSettings;
+  /** set once the hair was edited by hand; parents then come from these keys */
+  edited_hair?: EditedHair | null;
   /** vertex groups shaping the emission (with invert toggles) */
   vertex_group_density?: string;
   invert_vertex_group_density?: boolean;

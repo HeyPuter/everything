@@ -2,7 +2,6 @@
 import type { ActionData, AnimData, DocumentData, ObjectData, NlaStrip, NlaTrack, TimelineMarker } from '../data/types';
 import { evaluateFCurve, hasCurveData } from './fcurve';
 import { getValue, setValue } from '../data/rna';
-import { evaluateDriver } from './drivers';
 
 /** Map a scene frame (clamped to the strip) to the action frame, honouring scale and repeat. */
 export function stripActionFrame(s: NlaStrip, frame: number): number {
@@ -174,14 +173,6 @@ export function applyAnimData(doc: DocumentData, ob: ObjectData, ad: AnimData, f
     }
     setValue(doc, ob, e.path, e.index, e.value);
     if (typeof e.value === 'number') lastWritten.set(k, { frame, anim: e.value });
-  }
-  for (const drv of ad.drivers) {
-    try {
-      const v = evaluateDriver(doc, ob, drv, frame);
-      if (Number.isFinite(v)) setValue(doc, ob, drv.data_path, drv.array_index, v);
-    } catch {
-      // invalid drivers are reported in the Drivers editor; evaluation continues
-    }
   }
 }
 

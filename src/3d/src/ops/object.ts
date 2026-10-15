@@ -142,13 +142,13 @@ export function deleteObjects(doc: DocumentData, ids: Set<string>) {
   purgeOrphans(doc);
 }
 
-export const DATA_TABLES: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices', META: 'metaballs' };
+export const DATA_TABLES: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices', META: 'metaballs', CURVES: 'hair_curves' };
 
 /** Remove data-blocks without users (meshes, materials stay if fake user). */
 export function purgeOrphans(doc: DocumentData) {
   const used = new Set<string>();
   for (const ob of Object.values(doc.objects)) if (ob.data) used.add(ob.data);
-  for (const t of ['meshes', 'curves', 'lights', 'cameras', 'armatures', 'lattices', 'metaballs'] as const) for (const id of Object.keys(doc[t] ?? {})) if (!used.has(id)) delete (doc[t] as Record<string, unknown>)[id];
+  for (const t of ['meshes', 'curves', 'lights', 'cameras', 'armatures', 'lattices', 'metaballs', 'hair_curves'] as const) for (const id of Object.keys(doc[t] ?? {})) if (!used.has(id)) delete (doc[t] as Record<string, unknown>)[id];
 }
 
 /** Copy a material for a duplicate; returns the new id. */
@@ -173,7 +173,7 @@ function duplicateObject(doc: DocumentData, ob: ObjectData, linked: boolean, mat
   // Preferences ▸ Editing ▸ Copy on Duplicate decides which data a plain duplicate copies
   const dup = prefs.duplicate;
   if (!linked && ob.data && dup[ob.type] !== false) {
-    const tables: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices', META: 'metaballs', GREASEPENCIL: 'grease_pencils' };
+    const tables: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices', META: 'metaballs', GREASEPENCIL: 'grease_pencils', CURVES: 'hair_curves' };
     const t = tables[ob.type];
     if (t && doc[t]) {
       const src = (doc[t] as Record<string, { id: string; name: string }>)[ob.data];
@@ -501,7 +501,7 @@ registerOperators([
   {
     idname: 'object.select_by_type',
     label: 'Select All by Type',
-    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'MESH', items: [['MESH', 'Mesh'], ['CURVE', 'Curve'], ['META', 'Metaball'], ['FONT', 'Text'], ['ARMATURE', 'Armature'], ['LATTICE', 'Lattice'], ['EMPTY', 'Empty'], ['CAMERA', 'Camera'], ['LIGHT', 'Light']] }, { id: 'extend', label: 'Extend', type: 'bool', default: false }],
+    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'MESH', items: [['MESH', 'Mesh'], ['CURVE', 'Curve'], ['META', 'Metaball'], ['FONT', 'Text'], ['CURVES', 'Curves'], ['ARMATURE', 'Armature'], ['LATTICE', 'Lattice'], ['EMPTY', 'Empty'], ['CAMERA', 'Camera'], ['LIGHT', 'Light']] }, { id: 'extend', label: 'Extend', type: 'bool', default: false }],
     poll: (ctx) => ctx.doc.mode === 'OBJECT',
     exec: (ctx, p) => {
       for (const o of Object.values(ctx.doc.objects)) {

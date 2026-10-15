@@ -1,0 +1,237 @@
+// Pose assets: an action holding one key per bone channel. Creating one stores the selected
+// bones' current pose; applying one sets (or blends towards) that pose on the selected bones of
+// an armature, or on every bone of the pose when none of them is selected.
+import { app, registerOperators } from '../app/app';
+import type { ActionData, DocumentData, FCurve, ObjectData, PoseBone } from '../data/types';
+import { newAction } from '../data/defaults';
+import { evaluateFCurve, insertKeyframe } from '../anim/fcurve';
+import { promptText } from '../ui/menu';
+import { renderPreview } from './preview';
+import { ensureCatalogPath } from './catalogs';
+import { newMetaData } from './types';
+import { findAsset, libraryDoc, libraryInfo, libraryChanged, removeFromLibrary, LOCAL } from './library';
+
+const BONE_PATH = /^pose\.bones\["((?:[^"\\]|\\.)*)"\]\.(location|rotation_quaternion|rotation_euler|rotation_axis_angle|scale)$/;
+
+export function isPoseAction(a: ActionData): boolean {
+  return a.fcurves.length > 0 && a.fcurves.every((f) => BONE_PATH.test(f.data_path));
+}
+
+/** Bones a pose action has channels for. */
+export function poseBones(a: ActionData): string[] {
+  const out = new Set<string>();
+  for (const f of a.fcurves) {
+    const m = BONE_PATH.exec(f.data_path);
+    if (m) out.add(m[1].replace(/\\"/g, '"'));
+  }
+  return [...out];
+}
+
+/** Frame the pose is read at: the first key of the action. */
+function poseFrame(a: ActionData) {
+  let f = Infinity;
+  for (const fc of a.fcurves) if (fc.keyframe_points.length) f = Math.min(f, fc.keyframe_points[0].co[0]);
+  return Number.isFinite(f) ? f : a.frame_range?.[0] ?? 1;
+}
+
+/** Set (factor 1) or blend towards a pose on an armature object; returns the number of bones changed. */
+export function applyPoseAsset(doc: DocumentData, ob: ObjectData, act: ActionData, factor = 1): number {
+  if (ob.type !== 'ARMATURE' || !ob.pose) return 0;
+  const names = poseBones(act);
+  const anySelected = names.some((n) => ob.pose![n]?.select);
+  const frame = poseFrame(act);
+  const touched = new Set<string>();
+  for (const fc of act.fcurves) {
+    const m = BONE_PATH.exec(fc.data_path);
+    if (!m) continue;
+    const name = m[1].replace(/\\"/g, '"');
+    const pb = ob.pose[name];
+    if (!pb || (anySelected && !pb.select)) continue;
+    const prop = m[2] as 'location' | 'rotation_quaternion' | 'rotation_euler' | 'rotation_axis_angle' | 'scale';
+    const arr = [...(pb[prop] as number[])];
+    if (fc.array_index >= arr.length) continue;
+    const v = evaluateFCurve(fc, frame);
+    arr[fc.array_index] = arr[fc.array_index] + (v - arr[fc.array_index]) * factor;
+    (pb as unknown as Record<string, number[]>)[prop] = arr;
+    touched.add(name);
+  }
+  void doc;
+  return touched.size;
+}
+
+function rotationProp(pb: PoseBone) {
+  return pb.rotation_mode === 'QUATERNION' ? 'rotation_quaternion' : pb.rotation_mode === 'AXIS_ANGLE' ? 'rotation_axis_angle' : 'rotation_euler';
+}
+
+/** A new action with the pose of the selected bones (all bones when none is selected). */
+export function poseToAction(ob: ObjectData, name: string): ActionData | null {
+  if (!ob.pose) return null;
+  const all = Object.entries(ob.pose);
+  const sel = all.filter(([, pb]) => pb.select);
+  const bones = sel.length ? sel : all;
+  if (!bones.length) return null;
+  const act = newAction(name);
+  for (const [bname, pb] of bones) {
+    const base = `pose.bones["${bname.replace(/"/g, '\\"')}"]`;
+    for (const prop of ['location', rotationProp(pb), 'scale'] as const) {
+      const vals = pb[prop] as number[];
+      vals.forEach((v, i) => {
+        const fc: FCurve = { data_path: `${base}.${prop}`, array_index: i, keyframe_points: [], extrapolation: 'CONSTANT', modifiers: [], group: bname };
+        insertKeyframe(fc, 1, v, { select_control_point: false, select_left_handle: false, select_right_handle: false });
+        act.fcurves.push(fc);
+      });
+    }
+  }
+  act.frame_range = [1, 1];
+  return act;
+}
+
+/** Change a pose action with the current pose: replace it, add the selected bones, or remove them. */
+export function modifyPose(act: ActionData, ob: ObjectData, mode: 'REPLACE' | 'ADD' | 'REMOVE'): boolean {
+  if (!ob.pose) return false;
+  const sel = Object.entries(ob.pose).filter(([, pb]) => pb.select).map(([n]) => n);
+  if (mode === 'REPLACE') {
+    const fresh = poseToAction(ob, act.name);
+    if (!fresh) return false;
+    act.fcurves = fresh.fcurves;
+    return true;
+  }
+  if (!sel.length) return false;
+  const boneOf = (f: FCurve) => BONE_PATH.exec(f.data_path)?.[1].replace(/\\"/g, '"');
+  act.fcurves = act.fcurves.filter((f) => !sel.includes(boneOf(f) ?? ''));
+  if (mode === 'ADD') {
+    const sub = poseToAction(ob, act.name);
+    if (sub) act.fcurves.push(...sub.fcurves);
+  }
+  return true;
+}
+
+/** A pose action from an asset reference ("library|actions:id"); plain action ids of the file work too. */
+export function poseAsset(ref: string): ActionData | null {
+  const e = findAsset(ref);
+  if (e?.table === 'actions') return (libraryDoc(e.library)?.actions[e.id] as ActionData | undefined) ?? null;
+  return app.doc.actions[ref] ?? null;
+}
+
+const inPose = () => app.doc.mode === 'POSE' && app.activeObject?.type === 'ARMATURE' && !!app.activeObject.pose;
+
+registerOperators([
+  {
+    idname: 'poselib.create_pose_asset',
+    label: 'Create Pose Asset',
+    description: 'Store the pose of the selected bones as a pose asset of the current file',
+    props: [
+      { id: 'pose_name', label: 'Pose Name', type: 'string', default: '' },
+      { id: 'catalog_path', label: 'Catalog', type: 'string', default: '' },
+    ],
+    poll: inPose,
+    invoke: (ctx, p) => {
+      if (p.pose_name) return createExec(ctx.doc, p);
+      promptText('Create Pose Asset', 'Pose', (n) => n && app.run('poselib.create_pose_asset', { ...p, pose_name: n }, { invoke: false, area: ctx.area }));
+      return 'CANCELLED';
+    },
+    exec: (ctx, p) => createExec(ctx.doc, p),
+  },
+  {
+    idname: 'poselib.apply_pose_asset',
+    label: 'Apply Pose Asset',
+    description: 'Set the selected bones (or all bones of the pose) to a pose asset; a blend factor below 1 moves part of the way',
+    props: [
+      { id: 'asset', label: 'Pose', type: 'string', default: '', hidden: true },
+      { id: 'blend_factor', label: 'Blend Factor', type: 'float', default: 1, min: 0, max: 1, subtype: 'factor' },
+    ],
+    poll: inPose,
+    exec: (ctx, p) => {
+      const act = poseAsset(String(p.asset));
+      const ob = app.activeObject;
+      if (!act || !ob) return 'CANCELLED';
+      return applyPoseAsset(ctx.doc, ob, act, p.blend_factor as number) ? 'FINISHED' : 'CANCELLED';
+    },
+  },
+  {
+    idname: 'poselib.pose_asset_select_bones',
+    label: 'Select Bones',
+    description: 'Select (or deselect) the bones a pose asset has channels for',
+    props: [
+      { id: 'asset', label: 'Pose', type: 'string', default: '', hidden: true },
+      { id: 'select', label: 'Select', type: 'bool', default: true },
+    ],
+    poll: inPose,
+    exec: (ctx, p) => {
+      const act = poseAsset(String(p.asset));
+      const ob = app.activeObject;
+      if (!act || !ob?.pose) return 'CANCELLED';
+      let n = 0;
+      for (const name of poseBones(act)) {
+        const pb = ob.pose[name];
+        if (!pb) continue;
+        pb.select = !!p.select;
+        n++;
+      }
+      if (!n) return 'CANCELLED';
+      void ctx;
+    },
+  },
+  {
+    idname: 'poselib.asset_modify',
+    label: 'Modify Pose Asset',
+    description: 'Update a pose asset from the current pose: replace it, add the selected bones, or remove them from it',
+    props: [
+      { id: 'asset', label: 'Pose', type: 'string', default: '', hidden: true },
+      { id: 'mode', label: 'Mode', type: 'enum', default: 'REPLACE', items: [['REPLACE', 'Replace'], ['ADD', 'Add Selected Bones'], ['REMOVE', 'Remove Selected Bones']] },
+    ],
+    poll: inPose,
+    exec: (ctx, p) => {
+      const e = findAsset(String(p.asset));
+      const act = e ? poseAsset(String(p.asset)) : null;
+      const ob = app.activeObject;
+      if (!e || !act || !ob || !libraryInfo(e.library)?.editable) {
+        app.report('WARNING', 'Only pose assets of the current file or of user libraries can be changed');
+        return 'CANCELLED';
+      }
+      if (!modifyPose(act, ob, p.mode as 'REPLACE')) {
+        app.report('WARNING', 'Select the bones to add or remove');
+        return 'CANCELLED';
+      }
+      if (e.library !== LOCAL) {
+        libraryChanged(e.library);
+        return 'CANCELLED';
+      }
+      void ctx;
+    },
+  },
+  {
+    idname: 'poselib.asset_delete',
+    label: 'Delete Pose Asset',
+    description: 'Delete a pose asset of the current file (or remove it from its user library)',
+    props: [{ id: 'asset', label: 'Pose', type: 'string', default: '', hidden: true }],
+    exec: (ctx, p) => {
+      const e = findAsset(String(p.asset));
+      if (!e || e.table !== 'actions' || !libraryInfo(e.library)?.editable) return 'CANCELLED';
+      if (e.library === LOCAL) {
+        if (Object.values(ctx.doc.objects).some((o) => o.animation_data?.action === e.id)) delete e.block.asset_data;
+        else delete ctx.doc.actions[e.id];
+        return 'FINISHED';
+      }
+      removeFromLibrary(e.library, [{ table: 'actions', id: e.id }]);
+      return 'CANCELLED';
+    },
+  },
+]);
+
+function createExec(doc: DocumentData, p: Record<string, unknown>) {
+  const ob = app.activeObject!;
+  const act = poseToAction(ob, String(p.pose_name || 'Pose'));
+  if (!act) return 'CANCELLED' as const;
+  const taken = new Set(Object.values(doc.actions).map((a) => a.name));
+  for (let i = 1; taken.has(act.name); i++) act.name = `${String(p.pose_name || 'Pose')}.${String(i).padStart(3, '0')}`;
+  act.use_fake_user = true;
+  doc.actions[act.id] = act;
+  const meta = newMetaData();
+  if (p.catalog_path) meta.catalog_id = ensureCatalogPath((doc.asset_catalogs ??= []), String(p.catalog_path));
+  const url = renderPreview(doc, 'objects', ob.id, ob.id);
+  if (url) meta.preview = url;
+  (act as ActionData & { asset_data?: typeof meta }).asset_data = meta;
+  app.report('INFO', `Created the pose asset "${act.name}"`);
+  return 'FINISHED' as const;
+}

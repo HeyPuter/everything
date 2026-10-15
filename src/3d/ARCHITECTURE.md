@@ -31,11 +31,17 @@ src/
   compositor/ Compositor nodes (GPU), Compositor editor, render post-processing
   animation/  Dope Sheet, Graph Editor, Drivers, NLA editors and their operators
   paint/      Sculpt, Vertex/Weight/Texture Paint, voxel remesh, automatic weights
+  hair/       Curves (hair) objects: data (doc.hair_curves), strand display / render tubes, Edit Mode,
+              Sculpt Curves brushes (brushmath.ts is pure), conversions, Deform Curves on Surface;
+              particle/: Particle Edit mode for hair particle systems (edited keys on the system)
   constraints/ Object/Bone Constraints tabs (constraint panels), constraint.* operators, Bone tab IK panel
   physics/    Rigid bodies (Rapier, lazy-loaded) and their joints, cloth, soft body, particles (boids,
               fluid, keyed, hair dynamics), fields, smoke and liquid domains, dynamic paint
   render/final/ Path tracer, raster engine, F12/animation render, Image Editor, color management;
               props/ holds the Render, Output, View Layer and camera-data properties panels
+  render/realtime/ Realtime engine effects injected into the scene materials (fxshader.ts: light
+              influence, screen tracing, horizon scan, planar / volume probes), bloom, shadows,
+              smoke and world volumes, AO / AOV passes, light probe objects (probes/)
   sequencer/  Video Sequencer (strips, effects, preview, audio)
   tracking/   Movie Clip Editor, 2D tracking, stabilization, Follow Track constraint
   mask/       Mask data-blocks (bezier splines with feather, shape keys, track parenting),
@@ -45,6 +51,9 @@ src/
   prefs/      Preferences editor: sections, keymap editor + key configurations, themes, studio
               lights / MatCaps / HDRIs, add-ons, NDOF devices
   assistant/  AI assistant sidebar (Puter AI): agent loop, scene snapshot, tools over the scripting API
+  assets/     Asset system: asset metadata on data-blocks (asset_data), catalogs, libraries (Current
+              File, built-in Essentials, user libraries in IndexedDB), previews, Asset Browser editor
+              (ASSETS), drag and drop, pose library, import of .blend asset marks (io/blend/assets.ts)
   edit/, modifiers/, storage/document.ts, core/   legacy polygon kernels kept for reuse
                                                  (unwrap/UV) and the legacy .3d.json parser
 ```
@@ -211,9 +220,26 @@ adds entries to File ▸ Import/Export. Native format: `io/native.ts`.
   add entries to the right-click menu of menu items
 - `ui/props.ts` `propertyAnimMenuHook` (right-click menu of keyframe decorators), `anim/keyingsets.ts`
   `propertyAnimExtraItems`; `editors/properties/tabs.ts` `sceneKeyingPanel`, `armatureDataPanels`
+- Assets (`assets/`): any data-block of an asset table can carry `asset_data`; `doc.asset_catalogs`
+  holds the file's catalogs. Menus of other editors are extended through hooks: `rowMenuHooks` /
+  `rowBadgeHooks` (`editors/outliner/menus.ts`), `idSelectorMenuHooks` (`ui/idmenu.ts`, data-block
+  selectors), `addMenuExtras` (`nodes/editor/context.ts`, node Add menu and search),
+  `shelfCategoryHooks` (`paint/assetshelf.ts`), `idAssetHooks` (`scripting/api.ts`, `ID.asset_mark()`)
+- Drivers: `anim/drivers.ts` evaluates variables and drivers (the depsgraph runs an object's drivers right
+  before its transform, after the objects they read); expressions compile in `anim/driverexpr.ts` (Python
+  subset, no globals). A driver's `fcurve` maps its value; the Drivers editor (`animation/driverseditor.ts`)
+  shows those curves through stand-in actions (`animation/drivercurves.ts`), settings UI in `driverpanel.ts`
+- Spreadsheet: `spreadsheet/data.ts` (sources, tables, columns), `filter.ts` (row filters, sorting, TSV; pure)
 - Animation editors (`animation/animeditor.ts`): `selectables()` feeds box/circle/lasso selection,
   `overlay` draws transient circle/lasso/slider readouts, `snapTo()`/`snapHeader()` snapping options;
   key-shaping logic lives in `animation/fcurvetools.ts` (pure) and its operators in `graphtools.ts`
+
+### Scripting extension points
+- `scripting/api.ts` `ID_MIXINS[table]` (members for a data-block wrapper), `NEW_DATA` / `addDataCollection` (new
+  `bpy.data` collections), `rna.ts` `mixin` and `arrayFactories` (new()/add()/remove() on lists reached through
+  the generic wrappers), `jsmodules.ts` `registerScriptModule` (a JS global plus `import name` in Python);
+  feature files are loaded through `scripting/api_ext.ts`. `scripting/handlers.ts` fires `bpy.app.handlers`.
+- Unit tests can run Python: `tests/unit/support/python.ts` loads the `pyodide` dev dependency (no network).
 
 ### Registration
 Feature modules are imported for side effects from `src/modules.ts` (`registerModules()`).

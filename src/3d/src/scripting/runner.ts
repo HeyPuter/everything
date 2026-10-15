@@ -3,7 +3,9 @@
 import { app } from '../app/app';
 import { scriptState, Struct, PropCollection, BoundArray } from './rna';
 import { bpy, bpy_extras } from './api';
+import './api_ext';
 import { mathutils, VecBase, Matrix } from './mathutils';
+import { scriptModules } from './jsmodules';
 
 // ---------------------------------------------------------------------------
 // output (scrollback of the Python Console; print() from scripts lands here too)
@@ -136,7 +138,7 @@ const scriptConsole = {
 
 /** Globals available to JavaScript scripts and the JS console. */
 export function jsGlobals(): Record<string, unknown> {
-  return { bpy, bpy_extras, mathutils, ...mathutils, C: bpy.context, D: bpy.data, print: printFn, console: scriptConsole };
+  return { bpy, bpy_extras, mathutils, ...mathutils, ...scriptModules, C: bpy.context, D: bpy.data, print: printFn, console: scriptConsole };
 }
 
 let lineOffset: number | null = null;

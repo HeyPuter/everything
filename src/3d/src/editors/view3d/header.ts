@@ -196,10 +196,12 @@ export function viewHeader(v: View3D): Child {
               ['CURVE', 'Curve', 'outliner_ob_curve'],
               ['META', 'Metaball', 'outliner_ob_meta'],
               ['FONT', 'Text', 'outliner_ob_font'],
+              ['CURVES', 'Curves', 'outliner_ob_curves'],
               ['ARMATURE', 'Armature', 'outliner_ob_armature'],
               ['LATTICE', 'Lattice', 'outliner_ob_lattice'],
               ['EMPTY', 'Empty', 'outliner_ob_empty'],
               ['LIGHT', 'Light', 'outliner_ob_light'],
+              ['LIGHT_PROBE', 'Light Probe', 'outliner_ob_lightprobe'],
               ['CAMERA', 'Camera', 'outliner_ob_camera'],
               ['SPEAKER', 'Speaker', 'outliner_ob_speaker'],
             ] as const
@@ -251,8 +253,8 @@ export function viewHeader(v: View3D): Child {
       iconDrop('ov-pop', 'down_arrow_hlt', 'Overlays', (el) => openPopover(el, () => overlayPopover(v), { width: 280 }), 'hidden-icon'),
     ),
     // edit mode overlays get their own dropdown
-    app.doc.mode === 'EDIT' && (app.activeObject?.type === 'MESH' || app.activeObject?.type === 'CURVE')
-      ? iconDrop('ov-edit', 'editmode_hlt', `${app.activeObject.type === 'MESH' ? 'Mesh' : 'Curve'} Edit Mode Overlays`, (el) => openPopover(el, () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, `${app.activeObject?.type === 'CURVE' ? 'Curve' : 'Mesh'} Edit Mode`), editOverlaySections(v)), { width: 260 }))
+    app.doc.mode === 'EDIT' && (app.activeObject?.type === 'MESH' || app.activeObject?.type === 'CURVE' || app.activeObject?.type === 'CURVES')
+      ? iconDrop('ov-edit', 'editmode_hlt', `${EDIT_OVERLAY_NAMES[app.activeObject.type]} Edit Mode Overlays`, (el) => openPopover(el, () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, `${EDIT_OVERLAY_NAMES[app.activeObject?.type ?? 'MESH']} Edit Mode`), editOverlaySections(v)), { width: 260 }))
       : null,
     iconToggle('xray', 'xray', sh.type === 'WIREFRAME' ? sh.show_xray_wireframe : sh.show_xray, 'Toggle X-Ray (Alt Z)', () => {
       if (sh.type === 'WIREFRAME') sh.show_xray_wireframe = !sh.show_xray_wireframe;
@@ -377,6 +379,8 @@ function overlayPopover(v: View3D): Child {
   );
 }
 
+const EDIT_OVERLAY_NAMES: Record<string, string> = { MESH: 'Mesh', CURVE: 'Curve', CURVES: 'Curves' };
+
 /** Overlays of the edit mode (own header popover next to the overlays one). */
 function editOverlaySections(v: View3D): Child {
   const o = v.overlay;
@@ -384,6 +388,8 @@ function editOverlaySections(v: View3D): Child {
     (o as unknown as Record<string, unknown>)[k] = x;
     app.changed('ui');
   };
+  if (app.activeObject?.type === 'CURVES')
+    return [h('div', { class: 'pop-line' }, h('span', null, 'Handles'), enumMenu('o-handles', [{ value: 'ALL', label: 'All' }, { value: 'SELECTED', label: 'Selected' }, { value: 'NONE', label: 'None' }], o.display_handle ?? 'SELECTED', set('display_handle')))];
   if (app.activeObject?.type === 'CURVE')
     return [
       h('div', { class: 'pop-line' }, h('span', null, 'Handles'), enumMenu('o-handles', [{ value: 'ALL', label: 'All' }, { value: 'SELECTED', label: 'Selected' }, { value: 'NONE', label: 'None' }], o.display_handle ?? 'SELECTED', set('display_handle'))),

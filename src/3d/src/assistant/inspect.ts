@@ -116,6 +116,22 @@ export class Inspector {
       return parts.join(', ');
     }
     if (ob.type === 'EMPTY') return ob.empty_display_type;
+    if (ob.type === 'GREASEPENCIL' && ob.data) {
+      const gp = d.grease_pencils?.[ob.data];
+      if (!gp) return '';
+      let strokes = 0;
+      for (const dr of gp.drawings) strokes += dr.offsets.length - 1;
+      return `${gp.layers.length} layer${gp.layers.length === 1 ? '' : 's'}, ${strokes} stroke${strokes === 1 ? '' : 's'}`;
+    }
+    if (ob.type === 'META' && ob.data) {
+      const mb = d.metaballs?.[ob.data];
+      return mb ? `${mb.elements.length} element${mb.elements.length === 1 ? '' : 's'}` : '';
+    }
+    if (ob.type === 'ARMATURE' && ob.data) {
+      const arm = d.armatures[ob.data];
+      return arm ? `${arm.bones.length} bone${arm.bones.length === 1 ? '' : 's'}` : '';
+    }
+    if (ob.type === 'SPEAKER' && ob.speaker) return `${ob.speaker.sound ? 'sound' : 'no sound'}, volume ${n(ob.speaker.volume, 2)}`;
     if (ob.type === 'FONT' && ob.data) {
       const t = d.curves[ob.data] as unknown as { body?: string } | undefined;
       return t?.body ? `text ${q(t.body.length > 40 ? `${t.body.slice(0, 39)}…` : t.body)}` : '';
@@ -239,6 +255,13 @@ export class Inspector {
     list('Texts', Object.values(d.texts));
     const r = d.scene.render;
     parts.push(`Render: engine ${r.engine}, ${r.resolution_x}×${r.resolution_y} at ${r.resolution_percentage}%, samples ${r.samples}, film transparent ${r.film_transparent}, output ${r.file_format}.`);
+    list('Grease pencils', Object.values(d.grease_pencils ?? {}));
+    list('Metaballs', Object.values(d.metaballs ?? {}));
+    list('Masks', Object.values(d.masks ?? {}));
+    const ks = d.scene.keying_sets ?? [];
+    if (ks.length) parts.push(`Keying sets: ${ks.map((k) => `${q(k.name)} (${k.paths.length} paths)`).join(', ')}; active ${d.scene.keying_set ?? 'LocRotScale'}`);
+    const seq = d.scene.sequence_editor;
+    if (seq?.strips?.length) parts.push(`Video sequencer: ${seq.strips.length} strips: ${seq.strips.slice(0, 30).map((st) => `${q(st.name)} ${st.type} ch${st.channel} ${n(st.frame_start + st.frame_offset_start, 2)}–${n(st.frame_start + st.frame_duration - st.frame_offset_end, 2)}`).join(', ')}${seq.strips.length > 30 ? ', …' : ''}`);
     if (d.scene.timeline_markers.length) parts.push(`Markers: ${d.scene.timeline_markers.map((m) => `${q(m.name)} @${m.frame}`).join(', ')}`);
     return parts.filter(Boolean).join('\n');
   }
@@ -295,7 +318,23 @@ export class Inspector {
         }
       }
     }
-    if (ad?.drivers?.length) lines.push(`Drivers: ${ad.drivers.length}`);
+    if (ad?.nla_tracks?.length) lines.push(`NLA tracks: ${ad.nla_tracks.map((t) => `${q(t.name)} [${t.strips.map((st) => `${q(st.name)} ${n(st.frame_start, 2)}–${n(st.frame_end, 2)}`).join(', ')}]`).join('; ')}`);
+    for (const dr of ad?.drivers ?? []) lines.push(`Driver ${dr.data_path}[${dr.array_index}]: ${dr.type}${dr.type === 'SCRIPTED' ? ` ${q(dr.expression)}` : ''}${dr.variables.length ? ` with ${dr.variables.map((v) => `${v.name} = ${v.type === 'SINGLE_PROP' ? `${v.targets[0]?.id ? q(this.name('objects', v.targets[0].id)) : 'self'}.${v.targets[0]?.data_path}` : v.type}`).join(', ')}` : ''}`);
+    if (ob.type === 'ARMATURE' && ob.data) {
+      const arm = d.armatures[ob.data];
+      if (arm) lines.push(`Bones: ${arm.bones.slice(0, 60).map((b) => `${q(b.name)}${b.parent ? ` (child of ${q(b.parent)})` : ''}`).join(', ')}${arm.bones.length > 60 ? ', …' : ''}`);
+      const posed = Object.entries(ob.pose ?? {}).filter(([, pb]) => !isZero(pb.location) || !isZero(pb.rotation_euler) || pb.rotation_quaternion[0] !== 1 || !isOne(pb.scale) || pb.constraints.length);
+      if (posed.length) lines.push(`Posed bones: ${posed.slice(0, 30).map(([name, pb]) => `${q(name)}${pb.constraints.length ? ` (constraints ${pb.constraints.map((c) => c.type).join(', ')})` : ''}`).join(', ')}`);
+    }
+    if (ob.type === 'GREASEPENCIL' && ob.data) {
+      const gp = d.grease_pencils?.[ob.data];
+      for (const l of gp?.layers ?? []) {
+        const strokes = l.frames.map((f) => (gp!.drawings[f.drawing]?.offsets.length ?? 1) - 1);
+        lines.push(`Layer ${q(l.name)}: keyframes ${l.frames.map((f, i) => `${f.frame_number} (${strokes[i]} strokes)`).join(', ') || 'none'}${l.hide ? ', hidden' : ''}${l.opacity !== 1 ? `, opacity ${n(l.opacity, 2)}` : ''}`);
+      }
+    }
+    for (const fx of ob.shader_effects ?? []) lines.push(`Effect ${q(fx.name)} (${fx.type}): ${settings(fx, ['id', 'name', 'type', 'show_expanded'], d)}`);
+    if (ob.type === 'SPEAKER' && ob.speaker) lines.push(`Speaker: ${ob.speaker.sound ? q(ob.speaker.sound.filepath) : 'no sound'}, volume ${n(ob.speaker.volume)}, pitch ${n(ob.speaker.pitch)}, starts at frame ${ob.speaker.frame_start}${ob.speaker.muted ? ', muted' : ''}.`);
     if (ob.rigid_body) lines.push(`Rigid body: ${(ob.rigid_body as unknown as { type: string }).type}`);
     if (ob.particle_systems?.length) lines.push(`Particle systems: ${ob.particle_systems.length}`);
     const custom = (ob as unknown as { custom?: Record<string, unknown> }).custom;

@@ -34,7 +34,8 @@ const COLOR_MODES = [
   { value: 'CUSTOM', label: 'User Defined' },
 ];
 
-export function drawFCurveSidebar(ed: GraphEditor): Child {
+/** `driver`: the curve belongs to a driver, whose property is set in the Drivers tab instead. */
+export function drawFCurveSidebar(ed: GraphEditor, opts: { driver?: boolean } = {}): Child {
   const r = ed.activeCurve();
   if (!r) return h('div', { class: 'sb-empty' }, 'No active F-Curve');
   const fc = r.fc;
@@ -51,24 +52,28 @@ export function drawFCurveSidebar(ed: GraphEditor): Child {
         }),
         h('span', null, `${channelLabel(fc.data_path, fc.array_index)} (${r.ob.name})`),
       ),
-      row(
-        'Data Path',
-        textField('g-path', fc.data_path, (v) => {
-          if (!v.trim()) return;
-          fc.data_path = v.trim();
-          commit(true, 'Change Data Path');
-        }),
-      ),
-      row(
-        'RNA Array Index',
-        numberField({
-          id: 'g-index',
-          value: fc.array_index,
-          int: true,
-          min: 0,
-          set: (v, f) => ((fc.array_index = v), commit(f, 'Change Array Index')),
-        }),
-      ),
+      opts.driver
+        ? null
+        : [
+            row(
+              'Data Path',
+              textField('g-path', fc.data_path, (v) => {
+                if (!v.trim()) return;
+                fc.data_path = v.trim();
+                commit(true, 'Change Data Path');
+              }),
+            ),
+            row(
+              'RNA Array Index',
+              numberField({
+                id: 'g-index',
+                value: fc.array_index,
+                int: true,
+                min: 0,
+                set: (v, f) => ((fc.array_index = v), commit(f, 'Change Array Index')),
+              }),
+            ),
+          ],
       row(
         'Display Color',
         enumMenu(

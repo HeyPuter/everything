@@ -38,6 +38,8 @@ export interface KeyEditor extends AnimEditor {
   activeCurve?(): CurveRef | null;
   toDispValue?(r: CurveRef, v: number): number;
   fromDispValue?(r: CurveRef, d: number): number;
+  /** editors whose x axis isn't time insert keys themselves (returns true when handled) */
+  insertKeys?(curves: CurveRef[], type: Keyframe['type']): boolean;
 }
 
 function keyEditor(ctx: OpContext, p: Prefix): KeyEditor | null {
@@ -526,6 +528,7 @@ function keyOps(p: Prefix): Operator[] {
         }
         const frame = ctx.doc.scene.frame_current;
         const kt = ctx.doc.scene.tool_settings.keyframe_type;
+        if (e.insertKeys?.(c, kt)) return;
         K.insertKeysAt(c, frame, kt, (r) => {
           const v = getValue(ctx.doc, r.ob, r.fc.data_path, r.fc.array_index);
           return typeof v === 'number' ? v : typeof v === 'boolean' ? +v : undefined;

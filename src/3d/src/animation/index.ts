@@ -13,3 +13,4 @@ import './channelops';
 import './nlaops';
 import '../anim/keyingsets';
 import './miscops';
+import './driverops';

@@ -33,6 +33,7 @@
     "gltf-validator": "^2.0.0-dev.3.10",
     "happy-dom": "20.14.5",
     "prettier": "^3.9.8",
+    "pyodide": "314.0.7",
     "typescript": "^7.0.2",
     "vite": "^8.3.0",
     "vitest": "^5.0.1"

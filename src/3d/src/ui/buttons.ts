@@ -49,7 +49,7 @@ function ownerLoc(b: PropBinding): OwnerLoc | null {
 }
 
 /** Object + path that animate the button, if it can be animated. */
-function animOf(b: PropBinding): { ob: ObjectData; path: string; index: number } | null {
+export function animOf(b: PropBinding): { ob: ObjectData; path: string; index: number } | null {
   const idx = b.index ?? -1;
   if (b.anim) return { ob: b.anim.ob, path: b.anim.path, index: b.anim.index ?? idx };
   const loc = ownerLoc(b);
@@ -635,7 +635,12 @@ function addDriver(b: PropBinding, all: boolean) {
   const p = driverProps(b, all);
   if (!p) return void app.report('WARNING', `"${b.label}" cannot be driven`);
   app.run('anim.driver_button_add', p, { invoke: false });
+  // then edit the new driver in a popover
+  if (app.poll('anim.driver_button_edit')) app.run('anim.driver_button_edit', { ...p, index: b.index ?? p.index }, { invoke: true });
 }
+
+/** Extra driver entries of the button context menu (Copy/Paste/Edit Driver, …), added by the animation module. */
+export const buttonDriverItems: ((ob: ObjectData, path: string, index: number, driven: boolean) => MenuItem[])[] = [];
 
 function removeDriver(b: PropBinding, all: boolean) {
   const p = driverProps(b, all);
@@ -768,6 +773,7 @@ export function buttonMenu(b: PropBinding): MenuItem[] {
         { label: arr ? 'Add Drivers' : 'Add Driver', shortcut: arr ? '' : 'Ctrl D', action: () => addDriver(b, true) },
         ...(arr && b.index !== undefined ? [{ label: 'Add Single Driver', shortcut: 'Ctrl D', action: () => addDriver(b, false) }] : []),
       );
+    items.push(...buttonDriverItems.flatMap((f) => f(a.ob, a.path, b.index ?? -1, st === 'driven')));
     items.push({ separator: true });
   }
   const hasDefault = defaultValue(b) !== undefined;

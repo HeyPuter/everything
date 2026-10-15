@@ -1,4 +1,5 @@
 // 3D viewport menus (View, Select, Add, Object, context menus).
+import { lightProbeAddMenu } from '../../render/realtime/probes/lightprobe';
 import type { MenuItem } from '../../ui/menu';
 import { app } from '../../app/app';
 import { modeMenus } from './modemenus';
@@ -198,6 +199,7 @@ export function addMenu(): MenuItem[] {
         ['SPOT', 'Spot', 'light_spot'],
         ['AREA', 'Area', 'light_area'],
       ].map(([t, l, i]) => ({ label: l, icon: i, op: 'object.light_add', props: { type: t } })) },
+    { label: 'Light Probe', icon: 'outliner_ob_lightprobe', submenu: lightProbeAddMenu },
     { separator: true },
     { label: 'Camera', icon: 'outliner_ob_camera', op: 'object.camera_add' },
     { separator: true },
@@ -238,6 +240,9 @@ function curveAddMenu(): MenuItem[] {
     { label: 'NURBS Curve', icon: 'curve_data', op: 'curve.primitive_nurbs_curve_add' },
     { label: 'NURBS Circle', icon: 'circle', op: 'curve.primitive_nurbs_circle_add' },
     { label: 'Path', icon: 'curve_data', op: 'curve.primitive_nurbs_path_add' },
+    { separator: true },
+    { label: 'Empty Hair', icon: 'outliner_ob_curves', op: 'object.curves_empty_hair_add' },
+    { label: 'Fur', icon: 'outliner_ob_curves', op: 'object.quick_fur' },
   ];
 }
 

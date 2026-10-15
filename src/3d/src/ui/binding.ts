@@ -68,4 +68,6 @@ export function bindingValue(b: PropBinding): unknown {
 export const buttonHooks = {
   /** a widget edit made with Alt held: copy the new value to the selected items */
   altEdit: (_id: string) => {},
+  /** text typed into a number field that starts with "#": make a driver with that expression (true when handled) */
+  hashExpression: (_id: string, _expression: string): boolean => false,
 };

@@ -205,3 +205,152 @@
 .ss-crumb-sep {
   color: var(--t-77, #767778);
 }
+.ss-side {
+  width: 280px;
+  flex: none;
+  background: var(--c-region);
+  border-left: 1px solid var(--c-border);
+  overflow-y: auto;
+}
+.ss-side[hidden],
+.ss-left[hidden] {
+  display: none;
+}
+.ss-side-body {
+  padding: 4px 6px 12px;
+}
+.ss-empty {
+  color: #888;
+  padding: 6px 10px;
+}
+.ss-tri {
+  width: 14px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #aaa;
+}
+.ss-left-node .ss-left-label {
+  color: #ccc;
+}
+.ss-hcell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: default;
+  user-select: none;
+}
+.ss-hcell:hover {
+  background: #383838;
+}
+.ss-hcell.sorted {
+  color: #fff;
+  background: #3a3a3a;
+}
+.ss-hcell.dragging {
+  opacity: 0.55;
+}
+.ss-hlabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+.ss-sort {
+  display: flex;
+  align-items: center;
+  color: var(--accent-hi);
+  font-size: 10px;
+}
+.ss-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+.ss-drop {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 24px;
+  background: var(--accent-hi);
+  pointer-events: none;
+  z-index: 3;
+}
+.ss-main {
+  position: relative;
+}
+.ss-rows {
+  user-select: none;
+}
+.ss-row.sel,
+.ss-row.sel .ss-cell.ss-idx {
+  background: #33445e;
+}
+.ss-cell.sel {
+  background: rgba(71, 114, 179, 0.45);
+}
+.ss-cell.t-string {
+  justify-content: flex-start;
+}
+.ss-cell.t-boolean {
+  justify-content: center;
+}
+.ss-mat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: auto;
+  color: #bbb;
+  white-space: pre;
+}
+.ss-filter {
+  background: var(--c-panel);
+  border-radius: 4px;
+  padding: 3px 4px;
+  margin-bottom: 4px;
+}
+.ss-filter.off {
+  opacity: 0.6;
+}
+.ss-filter.missing .ss-fcol {
+  box-shadow: inset 0 0 0 1px rgba(220, 160, 60, 0.6);
+}
+.ss-filter-hdr {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.ss-filter-hdr .ss-fcol {
+  flex: 1;
+  min-width: 0;
+}
+.ss-filter-body {
+  padding: 3px 0 2px;
+}
+.ss-fmissing {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #aaa;
+  padding: 3px 6px;
+}
+.ss-colrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 4px;
+}
+.ss-colrow .checkbox {
+  flex: 1;
+  min-width: 0;
+}
+.ss-coltype {
+  color: #888;
+  font-size: 10px;
+}

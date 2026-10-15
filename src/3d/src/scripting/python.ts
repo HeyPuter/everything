@@ -6,13 +6,17 @@ import { app } from '../app/app';
 import { Struct, BoundArray, PropCollection, isIdWrapper, pyError } from './rna';
 import { bpy, callOperator, opModules, opNames, type ExecContext } from './api';
 import { operators } from '../app/app';
-import { VecBase, Matrix } from './mathutils';
+import { VecBase, Matrix, mathutils } from './mathutils';
 import { registerScriptOperator, unregisterScriptOperator, registerScriptPanel, unregisterScriptPanel, UILayout, type ScriptProp } from './registry';
 import { output, inScript, type RunResult } from './runner';
+import { pyTimers, setPythonHandlerDispatch } from './handlers';
+import { registerScriptMenu, unregisterScriptMenu } from './menus';
+import { declareGroup, declareTypeProp, markGroup, removeTypeProp, type TypeProp } from './typeprops';
 import mathutilsPy from './py/mathutils.py?raw';
 import bpyPy from './py/bpy.py?raw';
 import runtimePy from './py/p3d_runtime.py?raw';
 import bpyExtrasPy from './py/bpy_extras.py?raw';
+import { pyModuleFiles, scriptModules } from './jsmodules';
 
 export const PYODIDE_VERSION = '314.0.7';
 export const PYODIDE_INDEX_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
@@ -42,6 +46,18 @@ export const python = {
 let py: PyodideAPI | null = null;
 let runtime: Record<string, PyProxyFn> | null = null;
 let loading: Promise<PyodideAPI> | null = null;
+
+type PyodideModule = { loadPyodide: (o: Record<string, unknown>) => Promise<PyodideAPI> };
+/** Where the runtime comes from: the CDN in the browser; tests point it at a local copy. */
+let pyodideSource: { load: () => Promise<PyodideModule>; indexURL?: string } = {
+  load: () => import(/* @vite-ignore */ `${PYODIDE_INDEX_URL}pyodide.mjs`) as Promise<PyodideModule>,
+  indexURL: PYODIDE_INDEX_URL,
+};
+
+/** Loads the runtime from elsewhere (a local package in tests) instead of the CDN. */
+export function setPyodideSource(load: () => Promise<PyodideModule>, indexURL?: string) {
+  pyodideSource = { load, indexURL };
+}
 
 function setState(s: PyState, err = '') {
   python.state = s;
@@ -105,6 +121,9 @@ function applyKw(fn: { __params?: string[]; name?: string }, args: unknown[], kw
   return a;
 }
 
+/** Returned by bridge.attr for methods (a string Python compares cheaply). */
+const METHOD = '\u0000method';
+
 export const bridge = {
   kind(v: unknown): string {
     if (v === null || v === undefined) return 'none';
@@ -119,6 +138,11 @@ export const bridge = {
     return 'struct';
   },
   bound: (v: VecBase) => !!(v as unknown as { __bound?: boolean }).__bound,
+  /** kind() in one call for live vectors: 'b:<kind>:<size>' (bound vectors keep their size). */
+  wrapkind(v: unknown): string {
+    if (v instanceof VecBase && (v as unknown as { __bound?: boolean }).__bound) return `b:${v.__kind}:${v.size}`;
+    return bridge.kind(v);
+  },
   components: (v: VecBase) => v.toArray(),
   order: (v: { order?: string }) => v.order ?? 'XYZ',
   vlen: (v: VecBase) => v.size,
@@ -129,6 +153,11 @@ export const bridge = {
   attrkind(o: object, name: string): 'method' | 'value' {
     if (!hasAttr(o, name)) throw pyError('AttributeError', `'${typeName(o)}' object has no attribute '${name}'`);
     return descriptorKind(o, name);
+  },
+  /** One call for attribute access: the value, or METHOD when it is a method to call. */
+  attr(o: Record<string, unknown>, name: string) {
+    if (!hasAttr(o, name)) throw pyError('AttributeError', `'${typeName(o)}' object has no attribute '${name}'`);
+    return descriptorKind(o, name) === 'method' ? METHOD : out(o[name]);
   },
   getattr(o: Record<string, unknown>, name: string) {
     if (!hasAttr(o, name)) throw pyError('AttributeError', `'${typeName(o)}' object has no attribute '${name}'`);
@@ -183,6 +212,11 @@ export const bridge = {
   list(o: Iterable<unknown>) {
     return [...o].map(out);
   },
+  /** Items with their wrap kinds in one call (iteration over big collections). */
+  listkinds(o: Iterable<unknown>) {
+    const items = [...o].map(out);
+    return [items, items.map((x) => (x === null || x === undefined || typeof x !== 'object' ? '' : bridge.wrapkind(x)))];
+  },
   same(a: unknown, b: unknown) {
     if (a === b) return true;
     if (isIdWrapper(a) && isIdWrapper(b)) return a.__id === b.__id;
@@ -192,6 +226,7 @@ export const bridge = {
   key(o: unknown) {
     if (isIdWrapper(o)) return `${o.__table}:${o.__id}`;
     if (o instanceof Struct) return o.__path;
+    if (!(o instanceof BoundArray) && typeof (o as { __key?: unknown })?.__key === 'string') return (o as { __key: string }).__key;
     return String(o);
   },
   repr(o: { repr?: () => string }) {
@@ -254,11 +289,34 @@ export const bridge = {
     });
   },
   unregister_panel: (id: string) => unregisterScriptPanel(id),
+  register_menu(spec: Record<string, unknown>) {
+    const draw = spec.draw as PyProxyFn;
+    const poll = spec.poll as PyProxyFn | undefined;
+    registerScriptMenu({ idname: String(spec.idname), label: String(spec.label ?? ''), draw: (layout) => void pyCall(() => draw(layout)), poll: poll ? () => !!pyCall(() => poll()) : undefined, language: 'python' });
+  },
+  unregister_menu: (id: string) => unregisterScriptMenu(id),
   report(type: string, msg: string) {
     app.report(type === 'ERROR' || type === 'WARNING' ? type : 'INFO', msg);
   },
   root: (name: string) => bpy[name],
+  /** A registered script module (bmesh, …) by name. */
+  module: (name: string) => scriptModules[name] ?? null,
+  /** The JavaScript mathutils module (the Python submodules forward to it). */
+  mathutils: () => mathutils,
   new_layout: () => new UILayout(),
+  /** bpy.app.handlers: Python registers one dispatcher (event, argument) and a counter of its handlers. */
+  set_handlers: (dispatch: PyProxyFn | null, count: PyProxyFn | null) => setPythonHandlerDispatch(dispatch as never, count as never),
+  /** bpy.app.timers: the Python side passes a function returning the next delay, or -1 to stop. */
+  /** Properties scripts add to data types and property groups (typeprops.ts). */
+  declare_type_prop: (type: string, name: string, spec: TypeProp) => declareTypeProp(String(type), String(name), spec),
+  remove_type_prop: (type: string, name: string) => removeTypeProp(String(type), String(name)),
+  declare_group(name: string, props: Record<string, TypeProp>) {
+    declareGroup(String(name), props);
+    markGroup(String(name));
+  },
+  timer_add: (fn: PyProxyFn, first: number, persistent: boolean) => pyTimers.add(fn as never, Number(first), !!persistent),
+  timer_remove: (id: number) => pyTimers.remove(id),
+  timer_active: (id: number) => pyTimers.active(id),
 };
 
 /** Call into Python, turning a Python traceback into a concise JavaScript error. */
@@ -288,9 +346,12 @@ export function loadPython(): Promise<PyodideAPI> {
   output.push(`Loading Python runtime… (Pyodide ${PYODIDE_VERSION} from cdn.jsdelivr.net)`, 'INFO');
   loading = (async () => {
     try {
-      const timeout = new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timed out after 90 s')), 90000));
-      const mod = (await Promise.race([import(/* @vite-ignore */ `${PYODIDE_INDEX_URL}pyodide.mjs`), timeout])) as { loadPyodide: (o: Record<string, unknown>) => Promise<PyodideAPI> };
-      const inst = await Promise.race([mod.loadPyodide({ indexURL: PYODIDE_INDEX_URL }), timeout]);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<never>((_, rej) => (timer = setTimeout(() => rej(new Error('timed out after 90 s')), 90000)));
+      timeout.catch(() => {});
+      const mod = await Promise.race([pyodideSource.load(), timeout]);
+      const inst = await Promise.race([mod.loadPyodide(pyodideSource.indexURL ? { indexURL: pyodideSource.indexURL } : {}), timeout]);
+      clearTimeout(timer);
       inst.setStdout({ batched: (s: string) => output.push(s, 'OUTPUT') });
       inst.setStderr({ batched: (s: string) => output.push(s, 'ERROR') });
       inst.registerJsModule('_p3d_bridge', bridge);
@@ -299,6 +360,7 @@ export function loadPython(): Promise<PyodideAPI> {
       inst.FS.writeFile('/home/pyodide/p3d/bpy.py', bpyPy);
       inst.FS.writeFile('/home/pyodide/p3d/p3d_runtime.py', runtimePy);
       inst.FS.writeFile('/home/pyodide/p3d/bpy_extras.py', bpyExtrasPy);
+      for (const [file, src] of Object.entries(pyModuleFiles)) inst.FS.writeFile(`/home/pyodide/p3d/${file}`, src);
       inst.runPython("import sys\nsys.path.insert(0, '/home/pyodide/p3d')\nimport bpy, mathutils, p3d_runtime, bpy_extras\nsys.modules['bpy_extras.object_utils'] = bpy_extras.object_utils");
       runtime = inst.pyimport('p3d_runtime');
       py = inst;

@@ -1,4 +1,6 @@
 // Properties tabs: scene, world, collection, object, data, material.
+import { materialSettingsPanel, ensureMaterialDefaults } from '../../render/realtime/materialprops';
+import { lightInfluencePanel, lightShadowPanel, lightDistancePanel, ensureLightDefaults } from '../../render/realtime/lightprops';
 import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
@@ -10,6 +12,7 @@ import { newMaterial, uid, newWorld } from '../../data/defaults';
 import { uniqueName } from '../../ops/object';
 import { cloneShared } from '../../data/cow';
 import { openMenu } from '../../ui/menu';
+import { idSelectorMenuHooks } from '../../ui/idmenu';
 import { materialSlots } from '../view3d/draw';
 import { uiList } from './uilist';
 import { cameraPanels } from '../../render/final/props/camera';
@@ -326,7 +329,16 @@ export function dataBlockSelector<T extends { id: string; name: string; use_fake
   const cur = items.find((i) => i.id === current);
   return h(
     'div',
-    { class: 'id-selector' },
+    {
+      class: 'id-selector',
+      oncontextmenu: (e: MouseEvent) => {
+        const extra = cur ? idSelectorMenuHooks.flatMap((f) => f(cur.id)) : [];
+        if (!extra.length) return;
+        e.preventDefault();
+        e.stopPropagation();
+        openMenu(extra, { x: e.clientX, y: e.clientY });
+      },
+    },
     h(
       'button',
       {
@@ -469,9 +481,6 @@ function lightData(o: ObjectData, la: LightData): Child {
       h('div', { class: 'enum-tabs' }, enumRow('la-type', [['POINT', 'Point', 'light_point'], ['SUN', 'Sun', 'light_sun'], ['SPOT', 'Spot', 'light_spot'], ['AREA', 'Area', 'light_area']].map(([v, l, i]) => ({ value: v, label: l, icon: i })), la.type, (v) => ((la.type = v as LightData['type']), la.type === 'SUN' && la.energy > 100 && (la.energy = 1), changed('Light Type')))),
       colorProp(la, 'color', 'Color', { anim: anim('color') }),
       la.type === 'SUN' ? num(la, 'energy', 'Strength', { min: 0, softMax: 10, anim: anim('energy') }) : num(la, 'energy', 'Power', { unit: 'power', min: 0, softMax: 10000, anim: anim('energy') }),
-      num(la, 'diffuse_factor', 'Diffuse', { min: 0, max: 1, slider: true }),
-      num(la, 'specular_factor', 'Specular', { min: 0, max: 1, slider: true }),
-      num(la, 'volume_factor', 'Volume', { min: 0, max: 1, slider: true }),
       la.type === 'SUN' ? num(la, 'angle', 'Angle', { unit: 'angle', min: 0, max: Math.PI }) : la.type !== 'AREA' ? num(la, 'shadow_soft_size', 'Radius', { unit: 'distance', min: 0 }) : null,
       la.type === 'AREA'
         ? [
@@ -480,10 +489,9 @@ function lightData(o: ObjectData, la: LightData): Child {
             la.shape === 'RECTANGLE' || la.shape === 'ELLIPSE' ? num(la, 'size_y', 'Y', { unit: 'distance', min: 0 }) : null,
           ]
         : null,
+      la.type === 'SPOT' ? panel('la-spot', 'Beam Shape', () => [num(la, 'spot_size', 'Spot Size', { unit: 'angle', min: (1 * Math.PI) / 180, max: Math.PI }), num(la, 'spot_blend', 'Blend', { min: 0, max: 1, slider: true }), bool(la, 'show_cone', 'Show Cone')], { sub: true }) : null,
+      (ensureLightDefaults(la), [lightInfluencePanel(o, la), lightShadowPanel(la), lightDistancePanel(la)]),
     ]),
-    la.type === 'SPOT' ? panel('la-spot', 'Beam Shape', () => [num(la, 'spot_size', 'Spot Size', { unit: 'angle', min: (1 * Math.PI) / 180, max: Math.PI }), num(la, 'spot_blend', 'Blend', { min: 0, max: 1, slider: true }), bool(la, 'show_cone', 'Show Cone')]) : null,
-    panel('la-shadow', 'Shadow', () => [num(la as never, 'shadow_buffer_bias' as never, 'Bias', { min: 0 })], { header: checkbox('la-shadow-on', '', la.use_shadow, (v) => ((la.use_shadow = v), changed('Light Shadow'))) }),
-    panel('la-cutoff', 'Custom Distance', () => [num(la as never, 'cutoff_distance' as never, 'Distance', { unit: 'distance', min: 0 })], { closed: true, header: checkbox('la-cut-on', '', !!la.use_custom_distance, (v) => ((la.use_custom_distance = v), changed('Custom Distance'))) }),
   ];
 }
 
@@ -576,7 +584,7 @@ export function activeMaterial(o: ObjectData | null): MaterialData | null {
 function slotOwner(o: ObjectData): { materials: (string | null)[] } | null {
   const doc = app.doc;
   if (!o.data) return null;
-  return (doc.meshes[o.data] ?? doc.curves[o.data] ?? doc.metaballs?.[o.data]) ?? null;
+  return (doc.meshes[o.data] ?? doc.curves[o.data] ?? doc.metaballs?.[o.data] ?? doc.hair_curves?.[o.data]) ?? null;
 }
 
 registerTab({
@@ -648,13 +656,7 @@ function materialPanels(ma: MaterialData): Child {
   return [
     panel('ma-preview', 'Preview', () => h('div', { class: 'mat-preview', style: { background: `radial-gradient(circle at 35% 35%, #ffffff88 0, transparent 30%), radial-gradient(circle, ${swatchCss(ma)} 0 60%, transparent 61%)` } }), { closed: true }),
     panel('ma-surface', 'Surface', () => (materialSurfacePanel.draw ? materialSurfacePanel.draw(ma) : h('div', { class: 'prop-note' }, 'Edit the node tree in the Shader Editor.'))),
-    panel('ma-settings', 'Settings', () => [
-      bool(ma, 'use_backface_culling', 'Backface Culling'),
-      enumProp(ma, 'blend_method', 'Blend Mode', [['OPAQUE', 'Opaque'], ['CLIP', 'Alpha Clip'], ['HASHED', 'Alpha Hashed'], ['BLEND', 'Alpha Blend']]),
-      ma.blend_method === 'CLIP' ? num(ma, 'alpha_threshold', 'Clip Threshold', { min: 0, max: 1, slider: true }) : null,
-      enumProp(ma as never, 'shadow_method' as never, 'Shadow Mode', [['NONE', 'None'], ['OPAQUE', 'Opaque'], ['CLIP', 'Alpha Clip'], ['HASHED', 'Alpha Hashed']]),
-      num(ma as never, 'pass_index' as never, 'Pass Index', { int: true, min: 0 }),
-    ], { closed: true }),
+    (ensureMaterialDefaults(ma), materialSettingsPanel(ma)),
     panel('ma-display', 'Viewport Display', () => [colorProp(ma, 'diffuse_color', 'Color', { alpha: true }), num(ma, 'metallic', 'Metallic', { min: 0, max: 1, slider: true }), num(ma, 'roughness', 'Roughness', { min: 0, max: 1, slider: true })], { closed: true }),
   ];
 }

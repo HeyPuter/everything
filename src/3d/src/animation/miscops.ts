@@ -15,6 +15,11 @@ import { BUILTIN_KEYING_SETS, propertyAnimExtraItems } from '../anim/keyingsets'
 import { shell } from '../ui/shell';
 
 let driverClipboard: Driver | null = null;
+/** Put a driver on the driver clipboard (Copy As New Driver). */
+export function setDriverClipboard(d: Driver) {
+  driverClipboard = structuredClone(d);
+}
+export const hasDriverClipboard = () => !!driverClipboard;
 let variablesClipboard: DriverVariable[] | null = null;
 
 const targetProps = [
@@ -27,6 +32,14 @@ const targetOb = (p: Record<string, unknown>): ObjectData | null => (p.object ? 
 function driversEd(ctx: OpContext): DriversEditor | null {
   const ed = ctx.area?.editor;
   return ed instanceof DriversEditor ? ed : null;
+}
+/** Driver named by object/data_path/index props, else the active driver of the Drivers editor. */
+function driverFor(ctx: OpContext, p: Record<string, unknown>): Driver | null {
+  if (p.data_path) {
+    const ob = targetOb(p);
+    return ob?.animation_data?.drivers.find((x) => x.data_path === p.data_path && ((p.index as number) < 0 || x.array_index === p.index)) ?? null;
+  }
+  return driversEd(ctx)?.active()?.d ?? null;
 }
 function animEd(ctx: OpContext): AnimEditor | null {
   const ed = ctx.area?.editor;
@@ -58,7 +71,10 @@ const ops: Operator[] = [
       const ob = targetOb(p);
       if (!ob || !p.data_path) return 'CANCELLED';
       const made = addDriver(ctx.doc, ob, p.data_path as string, p.index as number);
-      for (const d of made) Object.assign(d, structuredClone({ ...driverClipboard!, data_path: d.data_path, array_index: d.array_index }));
+      for (const d of made) {
+        Object.assign(d, structuredClone({ ...driverClipboard!, data_path: d.data_path, array_index: d.array_index }));
+        if (d.fcurve) Object.assign(d.fcurve, { data_path: d.data_path, array_index: d.array_index });
+      }
       if (!made.length) return 'CANCELLED';
     },
   },
@@ -66,21 +82,26 @@ const ops: Operator[] = [
     idname: 'graph.driver_variables_copy',
     label: 'Copy Driver Variables',
     description: 'Copy the variables of the active driver',
+    props: targetProps,
     undo: false,
-    poll: (ctx) => !!driversEd(ctx)?.active()?.d.variables.length,
-    exec: (ctx) => {
-      variablesClipboard = structuredClone(driversEd(ctx)!.active()!.d.variables);
+    poll: (ctx) => !!driverFor(ctx, {})?.variables.length,
+    exec: (ctx, p) => {
+      const d = driverFor(ctx, p);
+      if (!d?.variables.length) return 'CANCELLED';
+      variablesClipboard = structuredClone(d.variables);
+      app.report('INFO', `Copied ${d.variables.length} driver variable${d.variables.length === 1 ? '' : 's'}`);
     },
   },
   {
     idname: 'graph.driver_variables_paste',
     label: 'Paste Driver Variables',
     description: 'Add the copied variables to the active driver',
-    props: [{ id: 'replace', label: 'Replace Existing', type: 'bool', default: false }],
-    poll: (ctx) => !!driversEd(ctx)?.active() && !!variablesClipboard,
+    props: [...targetProps, { id: 'replace', label: 'Replace Existing', type: 'bool', default: false }],
+    poll: (ctx) => !!variablesClipboard && !!driverFor(ctx, {}),
     exec: (ctx, p) => {
-      const d = driversEd(ctx)!.active()!.d;
-      const vars = structuredClone(variablesClipboard!);
+      const d = driverFor(ctx, p);
+      if (!d || !variablesClipboard) return 'CANCELLED';
+      const vars = structuredClone(variablesClipboard);
       if (p.replace) d.variables = vars;
       else for (const v of vars) if (!d.variables.some((o) => o.name === v.name)) d.variables.push(v);
     },
