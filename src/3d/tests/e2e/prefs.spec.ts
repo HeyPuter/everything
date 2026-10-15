@@ -355,3 +355,32 @@ test('add-ons: install the example, run its operator, disable, persist across re
   await expect.poll(hasOp).toBe(false);
   await expectNoErrors(errors);
 });
+
+test('NDOF: device motion orbits, pans and zooms the hovered view following the preferences', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  const state = () => page.evaluate(async () => {
+    const v = (await import('/src/editors/view3d/view3d.ts')).activeView3D()!;
+    return { d: v.nav.distance, q: v.nav.rot.toArray(), p: v.nav.pivot.toArray() };
+  });
+  const s0 = await state();
+  await page.evaluate(async () => (await import('/src/prefs/ndof.ts')).applyNdof({ t: [0, 0, 1], r: [0, 0, 0] }, 0.1));
+  const s1 = await state();
+  expect(s1.d).toBeGreaterThan(s0.d);
+  await page.evaluate(async () => (await import('/src/prefs/ndof.ts')).applyNdof({ t: [0, 0, 0], r: [0, 1, 0] }, 0.1));
+  const s2 = await state();
+  expect(s2.q).not.toEqual(s1.q);
+  // a six-axis device: pushing the cap (device y) zooms; inverting the axis reverses it
+  await page.evaluate(() => {
+    const pad = { id: '3Dconnexion SpaceMouse (Vendor: 256f)', connected: true, mapping: '', axes: [0, 0.8, 0, 0, 0, 0], buttons: [] };
+    (navigator as unknown as { getGamepads: () => unknown[] }).getGamepads = () => [pad];
+  });
+  const z0 = (await state()).d;
+  await page.evaluate(async () => (await import('/src/prefs/ndof.ts')).pollNdof(0.1));
+  const z1 = (await state()).d;
+  await setPref(page, 'ndof_panz_invert_axis', true);
+  await page.evaluate(async () => (await import('/src/prefs/ndof.ts')).pollNdof(0.1));
+  const z2 = (await state()).d;
+  expect(Math.sign(z1 - z0)).toBe(-Math.sign(z2 - z1));
+  await expectNoErrors(errors);
+});

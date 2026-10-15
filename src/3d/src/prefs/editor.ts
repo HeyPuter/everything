@@ -76,7 +76,7 @@ export class PreferencesEditor implements Editor {
         { label: 'Revert to Saved Preferences', icon: 'km_restore', action: () => (revertPrefs(), app.report('INFO', 'Preferences reverted to the saved state')) },
         { label: 'Load Factory Preferences', icon: 'file_refresh', op: 'wm.read_factory_userpref' },
         { separator: true },
-        { label: 'Save Preferences', icon: 'file_tick', op: 'wm.save_userpref' },
+        { label: 'Save Preferences', icon: 'prefs_save', op: 'wm.save_userpref' },
       ],
       e.currentTarget as HTMLElement,
     );

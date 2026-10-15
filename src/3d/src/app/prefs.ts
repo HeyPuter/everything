@@ -277,7 +277,7 @@ export const defaultPreferences = (): Preferences => ({
   use_filter_files: true,
   use_scripts_auto_execute: false,
 
-  render_output_directory: '/tmp/',
+  render_output_directory: '//render/',
 });
 
 /** Stored values merged over the defaults (unknown keys from newer builds are kept). */

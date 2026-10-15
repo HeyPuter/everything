@@ -10,6 +10,7 @@ import { python, PYODIDE_INDEX_URL, PYODIDE_VERSION } from '../scripting/python'
 import { registerPrefSection } from './editor';
 import { pBool, pNum, pEnum, pText, pColor, note, infoRow } from './ui';
 import { setPref } from './store';
+import { ndofDevices } from './ndof';
 
 // ---------------------------------------------------------------------------
 // Interface
@@ -203,6 +204,21 @@ registerPrefSection({
       pBool('trackpad_orbit', 'Two-Finger Scroll Orbits', 'Two-finger scrolling orbits the view (off: it zooms)'),
       pEnum('touchpad_scroll_direction', 'Scroll Direction', [E('TRADITIONAL', 'Traditional', 'The view turns the way the fingers move'), E('NATURAL', 'Natural', 'The view turns against the finger movement')], { expand: true }),
     ]),
+    panel('pf-ndof', 'NDOF', () => {
+      const devs = ndofDevices();
+      return [
+        h('div', { class: 'prefs-note' }, devs.length ? `Connected: ${devs.map((d) => `${d.kind} (${d.id})`).join(', ')}` : 'No 3D mouse or game controller detected. Connect one and move it to wake it up.'),
+        pBool('ndof_enabled', 'Use 3D Mouse / Controller', 'Navigate the 3D Viewport under the pointer with a 3D mouse or a game controller'),
+        pEnum('ndof_navigation_mode', 'Navigation', [E('OBJECT', 'Object', 'The scene turns as if held in the hand'), E('FLY', 'Fly', 'The viewer moves through the scene')], { expand: true }),
+        pNum('ndof_translation_sensitivity', 'Pan Sensitivity', { min: 0.01, max: 40, precision: 2 }),
+        pNum('ndof_rotation_sensitivity', 'Orbit Sensitivity', { min: 0.01, max: 40, precision: 2 }),
+        pNum('ndof_deadzone', 'Deadzone', { min: 0, max: 0.9, slider: true, precision: 2, tip: 'Small movements below this are ignored' }),
+        pEnum('ndof_zoom_direction', 'Zoom Direction', [E('FORWARD', 'Forward / Backward', 'Push or pull the cap to zoom'), E('UP', 'Up / Down', 'Lift or press the cap to zoom')], { expand: true }),
+        pBool('ndof_lock_horizon', 'Lock Horizon', 'Keep the horizon level (no roll)'),
+        h('div', { class: 'prefs-subhead' }, 'Invert Axes'),
+        h('div', { class: 'prefs-grid' }, ([['ndof_panx_invert_axis', 'Pan X'], ['ndof_pany_invert_axis', 'Pan Y'], ['ndof_panz_invert_axis', 'Pan Z'], ['ndof_rotx_invert_axis', 'Pitch'], ['ndof_roty_invert_axis', 'Yaw'], ['ndof_rotz_invert_axis', 'Roll']] as const).map(([k, label]) => checkbox(`pf-${k}`, label, prefs[k], (v) => setPref(k, v)))),
+      ];
+    }, { closed: true }),
     panel('pf-tablet', 'Tablet', () => [
       pNum('pressure_threshold_max', 'Max Threshold', { min: 0.01, max: 1, slider: true, precision: 2, tip: 'Pen pressure that already counts as full strength' }),
       pNum('pressure_softness', 'Softness', { min: -1, max: 1, slider: true, precision: 2, tip: 'Above 0 light strokes get stronger, below 0 they get weaker' }),
