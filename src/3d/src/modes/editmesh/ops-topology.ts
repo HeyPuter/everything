@@ -62,6 +62,14 @@ export function extrudeRegion(m: MeshEdit, individual = false): 'FACES' | 'EDGES
       }
       // duplicate region vertices
       for (const fi of group) for (const v of m.faces[fi].verts) if (!map.has(v)) map.set(v, m.addVert(m.p(v), [[v, 1]], 1));
+      // a closed region (no boundary) keeps its original faces, turned inside out, as an inner shell
+      if ([...count.values()].every((c) => c !== 1))
+        for (const fi of group) {
+          const f = m.faces[fi];
+          const copy = { ...f, verts: [...f.verts], uvs: [...f.uvs], seams: [...f.seams], sharp: [...f.sharp], creases: [...f.creases], colors: f.colors ? [...f.colors] : undefined };
+          flipFace(copy);
+          m.faces.push(copy);
+        }
       // side walls along boundary edges, oriented to match the region winding
       for (const fi of group) {
         const f = m.faces[fi];
@@ -163,77 +171,7 @@ registerOperators([
       translateSelection(V(p.value as number[]));
     },
   },
-  {
-    idname: 'mesh.extrude_faces_move',
-    label: 'Extrude Individual Faces and Move',
-    props: [{ id: 'value', label: 'Move', type: 'vec3', default: [0, 0, 0], subtype: 'distance' }],
-    poll: (ctx) => editPoll(ctx),
-    invoke: (ctx) => {
-      if (!withEdit((m) => extrudeRegion(m, true) !== null)) return 'CANCELLED';
-      app.flush();
-      startTransform('SHRINKFATTEN', { event: ctx.event, label: 'Extrude Individual Faces' });
-      return 'RUNNING_MODAL';
-    },
-    exec: () => void withEdit((m) => extrudeRegion(m, true) !== null),
-  },
-  {
-    idname: 'mesh.extrude_edges_move',
-    label: 'Extrude Edges and Move',
-    poll: editPoll,
-    invoke: (ctx) => {
-      if (
-        !withEdit((m) => {
-          const save = m.faces.slice();
-          void save;
-          // force edge extrusion even if faces are selected
-          const faces = m.faces;
-          m.faces = [];
-          const edges = m.selectedEdges();
-          m.faces = faces;
-          if (!edges.length) return false;
-          const tmpSel = m.sel.slice();
-          extrudeEdgesOnly(m, edges);
-          void tmpSel;
-        })
-      )
-        return 'CANCELLED';
-      app.flush();
-      startTransform('TRANSLATION', { event: ctx.event, label: 'Extrude Edges' });
-      return 'RUNNING_MODAL';
-    },
-  },
-  {
-    idname: 'mesh.extrude_vertices_move',
-    label: 'Extrude Vertices and Move',
-    poll: editPoll,
-    invoke: (ctx) => {
-      if (
-        !withEdit((m) => {
-          const verts = m.selectedVerts();
-          if (!verts.length) return false;
-          for (const v of verts) {
-            const nv = m.addVert(m.p(v), [[v, 1]], 1);
-            m.looseEdges.push([v, nv]);
-            m.sel[v] = 0;
-          }
-        })
-      )
-        return 'CANCELLED';
-      app.flush();
-      startTransform('TRANSLATION', { event: ctx.event, label: 'Extrude Vertices' });
-      return 'RUNNING_MODAL';
-    },
-  },
 ]);
-
-function extrudeEdgesOnly(m: MeshEdit, edges: [number, number][]) {
-  const map = new Map<number, number>();
-  for (const [a, b] of edges) {
-    for (const v of [a, b]) if (!map.has(v)) map.set(v, m.addVert(m.p(v), [[v, 1]], 1));
-    m.faces.push(m.makeFace([a, b, map.get(b)!, map.get(a)!], undefined, [0, 0, 1, 0, 1, 1, 0, 1]));
-  }
-  for (const v of map.keys()) m.sel[v] = 0;
-}
 
 // ---------------------------------------------------------------------------
 // inset
@@ -578,7 +516,7 @@ function makeNormalsConsistentNew(m: MeshEdit) {
 // ---------------------------------------------------------------------------
 // subdivide
 
-function subdivide(m: MeshEdit, cuts: number, smoothness: number) {
+export function subdivide(m: MeshEdit, cuts: number, smoothness: number) {
   const selEdges = new Set(m.selectedEdges().map(([a, b]) => edgeKey(a, b)));
   if (!selEdges.size) return false;
   // new vertices along each selected edge (ordered from min to max vertex index)

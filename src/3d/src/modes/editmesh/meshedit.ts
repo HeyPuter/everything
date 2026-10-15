@@ -96,6 +96,20 @@ export class MeshEdit {
     me.loose_edges = this.looseEdges.length ? Uint32Array.from(this.looseEdges.flat()) : undefined;
   }
 
+  /** Deep copy (used by modal tools that recompute from a snapshot). */
+  clone(): MeshEdit {
+    const c = new MeshEdit();
+    c.pos = this.pos.slice();
+    c.sel = this.sel.slice();
+    c.hide = this.hide.slice();
+    c.weights = this.weights.map((w) => w.slice());
+    c.keys = this.keys.map((k) => k.slice());
+    c.pcolors = this.pcolors.map((k) => k.slice());
+    c.looseEdges = this.looseEdges.map((e) => [e[0], e[1]] as [number, number]);
+    c.faces = this.faces.map((f) => ({ ...f, verts: [...f.verts], uvs: [...f.uvs], seams: [...f.seams], sharp: [...f.sharp], creases: [...f.creases], colors: f.colors ? [...f.colors] : undefined }));
+    return c;
+  }
+
   p(i: number): Vec3 {
     return [this.pos[i * 3], this.pos[i * 3 + 1], this.pos[i * 3 + 2]];
   }

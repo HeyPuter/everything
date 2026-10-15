@@ -9,6 +9,7 @@ import { newObject, newMeshData, uid } from '../../data/defaults';
 import { uniqueName } from '../../ops/object';
 import { cloneShared } from '../../data/cow';
 import { triangulatePoly } from '../../mesh/mesh';
+import { trisToQuads } from './geom';
 import { modeHandlers } from '../../ops/modes';
 import type { PrimitiveArrays } from '../../mesh/primitives';
 
@@ -750,47 +751,7 @@ registerOperators([
     poll: editPoll,
     exec: (_ctx, p) =>
       void withEdit((m) => {
-        const fsel = new Set(m.selectedFaces().filter((fi) => m.faces[fi].verts.length === 3));
-        const ef = m.edgeFaces();
-        // candidate pairs sorted by planarity
-        const pairs: { a: number; b: number; score: number; key: string }[] = [];
-        for (const [k, l] of ef) {
-          if (l.length !== 2) continue;
-          const [fa] = l[0],
-            [fb] = l[1];
-          if (!fsel.has(fa) || !fsel.has(fb)) continue;
-          const na = new Vector3(...m.faceNormal(m.faces[fa])),
-            nb = new Vector3(...m.faceNormal(m.faces[fb]));
-          const ang = na.angleTo(nb);
-          if (ang > (p.face_threshold as number)) continue;
-          pairs.push({ a: fa, b: fb, score: ang, key: k });
-        }
-        pairs.sort((x, y) => x.score - y.score);
-        const used = new Set<number>();
-        const remove = new Set<number>();
-        const add: EFace[] = [];
-        for (const pr of pairs) {
-          if (used.has(pr.a) || used.has(pr.b)) continue;
-          const A = m.faces[pr.a],
-            B = m.faces[pr.b];
-          const [x, y] = pr.key.split(':').map(Number);
-          const oa = A.verts.find((v) => v !== x && v !== y)!,
-            ob = B.verts.find((v) => v !== x && v !== y)!;
-          const ia = A.verts.indexOf(oa);
-          const quad = [oa, A.verts[(ia + 1) % 3], ob, A.verts[(ia + 2) % 3]];
-          const uvOf = (v: number) => {
-            const i = A.verts.indexOf(v);
-            if (i >= 0) return [A.uvs[i * 2], A.uvs[i * 2 + 1]];
-            const j = B.verts.indexOf(v);
-            return [B.uvs[j * 2], B.uvs[j * 2 + 1]];
-          };
-          add.push(m.makeFace(quad, A, quad.flatMap(uvOf)));
-          used.add(pr.a);
-          used.add(pr.b);
-          remove.add(pr.a);
-          remove.add(pr.b);
-        }
-        m.faces = m.faces.filter((_, i) => !remove.has(i)).concat(add);
+        trisToQuads(m, new Set(m.selectedFaces()), p.face_threshold as number);
       }),
   },
   {

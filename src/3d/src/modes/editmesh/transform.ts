@@ -88,13 +88,25 @@ transformProviders.push({
       const basisWorld = wrot.clone().multiply(basisObj);
       // per-vertex normals for shrink/fatten
       const vn = new Float32Array(base.length);
+      const vnSel = new Uint8Array(nv);
       const cn = cornerNormals(me);
-      for (let c = 0; c < me.indices.length; c++) {
-        const v = me.indices[c] * 3;
-        vn[v] += cn[c * 3];
-        vn[v + 1] += cn[c * 3 + 1];
-        vn[v + 2] += cn[c * 3 + 2];
-      }
+      // vertices on selected faces follow those faces only (so extruded walls don't tilt them)
+      for (const onlySelected of [true, false])
+        for (let f = 0; f < me.offsets.length - 1; f++) {
+          const s = me.offsets[f],
+            e = me.offsets[f + 1];
+          let all = true;
+          for (let c = s; c < e; c++) if (!sel[me.indices[c]]) all = false;
+          if (all !== onlySelected) continue;
+          for (let c = s; c < e; c++) {
+            const v = me.indices[c] * 3;
+            if (!onlySelected && vnSel[me.indices[c]]) continue;
+            vn[v] += cn[c * 3];
+            vn[v + 1] += cn[c * 3 + 1];
+            vn[v + 2] += cn[c * 3 + 2];
+            if (onlySelected) vnSel[me.indices[c]] = 1;
+          }
+        }
       // proportional influence
       const weight = new Float32Array(nv);
       for (let i = 0; i < nv; i++) if (sel[i] && !me.hide_vert?.[i]) weight[i] = 1;

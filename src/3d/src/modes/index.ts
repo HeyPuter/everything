@@ -8,6 +8,8 @@ import './editmesh/ops-uv';
 import './editmesh/ui';
 import './editmesh/knife';
 import './editmesh/rip';
+import './editmesh/ops-extrude';
+import './editmesh/ops-cleanup';
 import './armature/armature';
 import './armature/boneprops';
 import './armature/tools';
