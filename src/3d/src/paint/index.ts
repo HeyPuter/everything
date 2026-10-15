@@ -6,6 +6,8 @@ import './cursor';
 import './sculptops';
 import './facesetops';
 import './gestureops';
+import './meshfilter';
+import './expand';
 import './vpaint';
 import './wpaint';
 import './tpaint';

@@ -222,6 +222,10 @@ const sculptMode = () => app.doc.mode === 'SCULPT';
 const k = (key: string, op: string, props?: Record<string, unknown>, mods: Partial<KeyItem> = {}): KeyItem => ({ key, op, props, ...mods, when: sculptMode });
 
 addKeys('Sculpt', [
+  k('A', 'sculpt.expand', { target: 'MASK', falloff_type: 'GEODESIC', invert: false, use_mask_preserve: true }, { shift: true }),
+  k('A', 'sculpt.expand', { target: 'MASK', falloff_type: 'NORMALS', invert: false, use_mask_preserve: true }, { shift: true, alt: true }),
+  k('W', 'sculpt.expand', { target: 'FACE_SETS', falloff_type: 'GEODESIC', invert: false, use_mask_preserve: false, use_modify_active: false }, { shift: true }),
+  k('W', 'sculpt.expand', { target: 'FACE_SETS', falloff_type: 'BOUNDARY_FACE_SET', invert: false, use_mask_preserve: false, use_modify_active: true }, { shift: true, alt: true }),
   k('H', 'sculpt.face_set_change_visibility', { mode: 'TOGGLE' }, { shift: true }),
   k('H', 'sculpt.face_set_change_visibility', { mode: 'HIDE_ACTIVE' }),
   k('H', 'paint.hide_show_all', { action: 'SHOW' }, { alt: true }),

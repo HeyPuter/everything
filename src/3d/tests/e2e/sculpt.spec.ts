@@ -105,3 +105,36 @@ test('lasso and box gestures mask, hide and create face sets', async ({ page }) 
   expect((await meshInfo(page)).hidden).toBe(0);
   await expectNoErrors(errors);
 });
+
+test('mesh filter tool drag and expand mask (Shift+A)', async ({ page }) => {
+  const errors = await openApp(page);
+  await setup(page);
+  const c = await viewportCenter(page);
+  const r0 = await page.evaluate(() => {
+    const a = (window as unknown as W).app;
+    a.run('paint.brush_select', { brush: 'builtin.mesh_filter' });
+    const me = a.doc.meshes[a.activeObject.data];
+    return Math.hypot(me.positions[3], me.positions[4], me.positions[5]);
+  });
+  await page.mouse.move(c.x, c.y);
+  await page.mouse.down();
+  await page.mouse.move(c.x + 100, c.y, { steps: 4 });
+  await page.mouse.up();
+  const r1 = await page.evaluate(() => {
+    const a = (window as unknown as W).app;
+    const me = a.doc.meshes[a.activeObject.data];
+    return { r: Math.hypot(me.positions[3], me.positions[4], me.positions[5]), op: a.lastOp?.idname };
+  });
+  expect(r1.op).toBe('sculpt.mesh_filter');
+  expect(r1.r).toBeGreaterThan(r0 + 0.05);
+  // expand: Shift+A over the mesh, move, click
+  await page.mouse.move(c.x, c.y);
+  await page.keyboard.press('Shift+a');
+  await page.mouse.move(c.x + 8, c.y + 6, { steps: 3 });
+  await page.mouse.down();
+  await page.mouse.up();
+  const m = await meshInfo(page);
+  expect(m.masked).toBeGreaterThan(0);
+  expect(m.masked).toBeLessThan(m.nv);
+  await expectNoErrors(errors);
+});
