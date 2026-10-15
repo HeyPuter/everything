@@ -40,3 +40,55 @@ test('adding a repeat zone adds both nodes, linked, inside a zone frame', async 
   await page.screenshot({ path: 'test-results/gn-zone.png' });
   await expectNoErrors(errors);
 });
+
+test('simulation zone: frames step, the modifier panel bakes and deletes the bake', async ({ page }) => {
+  const { errors } = await geometryEditor(page);
+  // simulation zone moving the geometry up by one unit per frame
+  await page.evaluate(async () => {
+    const { addNode, connect, ctxOf } = await import('/src/nodes/tree.ts');
+    const { getNodeType } = await import('/src/nodes/registry.ts');
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const tree = a.hoverArea.editor.tree();
+    const ctx = ctxOf(a.doc, tree);
+    const gin = tree.nodes.find((n: { type: string }) => n.type === 'NodeGroupInput');
+    const gout = tree.nodes.find((n: { type: string }) => n.type === 'NodeGroupOutput');
+    tree.links = [];
+    const si = addNode(tree, 'GeometryNodeSimulationInput', [-200, 0]);
+    const so = getNodeType('GeometryNodeSimulationInput').onAdd(tree, si)[0];
+    tree.links = tree.links.filter((l: { from_node: string }) => l.from_node !== si.id);
+    const sp = addNode(tree, 'GeometryNodeSetPosition', [0, 0]);
+    sp.inputs.Offset = [0, 0, 1];
+    connect(ctx, gin.id, gin && tree.interface.find((i: { in_out: string }) => i.in_out === 'INPUT').identifier, si.id, 'Item_0');
+    connect(ctx, si.id, 'Item_0', sp.id, 'Geometry');
+    connect(ctx, sp.id, 'Geometry', so.id, 'Item_0');
+    connect(ctx, so.id, 'Item_0', gout.id, tree.interface.find((i: { in_out: string }) => i.in_out === 'OUTPUT').identifier);
+    a.changed('doc');
+  });
+  const zAt = (f: number) =>
+    page.evaluate((f) => {
+      const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+      a.setFrame(f);
+      a.graph.evaluate(a.doc);
+      const m = a.graph.get(a.activeObject.id).mesh;
+      return Math.max(...Array.from(m.positions as Float32Array).filter((_, i) => i % 3 === 2));
+    }, f);
+  expect(await zAt(1)).toBeCloseTo(2);
+  expect(await zAt(2)).toBeCloseTo(3);
+  expect(await zAt(3)).toBeCloseTo(4);
+  // bake from the modifier panel
+  await page.locator('.rail-tab[data-tab="MODIFIER"]').first().click();
+  await page.waitForTimeout(200);
+  await page
+    .locator('.panel', { hasText: 'Bake' })
+    .locator('button', { hasText: /^Bake$/ })
+    .first()
+    .click();
+  await expect(page.locator('.gn-bake-status').first()).toContainText('Baked frames 1');
+  expect(await zAt(10)).toBeCloseTo(11);
+  await page
+    .locator('button', { hasText: /^Delete Bake$/ })
+    .first()
+    .click();
+  await expect(page.locator('.gn-bake-status').first()).not.toContainText('Baked');
+  await expectNoErrors(errors);
+});

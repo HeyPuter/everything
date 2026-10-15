@@ -1,7 +1,7 @@
 // Bake node: passes its items through until baked; then outputs the stored values (one frame
 // for a still bake, every frame of the range for an animation bake), ignoring its inputs.
 import type { NodeData } from '../../data/types';
-import { geoNode } from '../nodes/gndef';
+import { geoNode, enumProp } from '../nodes/gndef';
 import type { Val } from '../exec';
 import { coerce } from '../evaluator';
 import { extendSocket, itemSocket, nextItemId, readItems, writeItems } from './items';
@@ -50,6 +50,18 @@ geoNode(
     label: 'Bake',
     category: 'geometry',
     description: 'Store the data passing through so it no longer has to be computed (for a single frame or every frame of a range)',
+    props: [
+      enumProp(
+        'bake_mode',
+        'Bake Mode',
+        [
+          ['ANIMATION', 'Animation'],
+          ['STILL', 'Still'],
+        ],
+        'ANIMATION',
+        { expand: true },
+      ),
+    ],
     init: (n) => {
       if (n.props[KEY] === undefined)
         writeItems(n, KEY, [
