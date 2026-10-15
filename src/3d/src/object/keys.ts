@@ -21,4 +21,5 @@ addKeys('Object Mode', [
 addKeys('Mesh', [
   { key: 'H', ctrl: true, menu: hooksMenu, menuTitle: 'Hooks', when: editMesh },
   { key: 'G', ctrl: true, menu: vertexGroupsMenu, menuTitle: 'Vertex Groups', when: editMesh },
+  { key: 'P', ctrl: true, op: 'object.vertex_parent_set', when: editMesh },
 ]);

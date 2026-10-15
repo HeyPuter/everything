@@ -5,6 +5,7 @@ import { app } from '../../app/app';
 import { addKeys } from '../../app/keymap';
 import { modeMenus } from '../../editors/view3d/modemenus';
 import { editModeHooks } from '../../editors/view3d/hooks';
+import { hooksMenu } from '../../object/hooks';
 import { activeTools } from '../../app/prefs';
 import type { MenuItem } from '../../ui/menu';
 import { meshAddMenu, snapMenu } from '../../editors/view3d/menus';
@@ -56,7 +57,8 @@ export function vertexMenu(): MenuItem[] {
     { label: 'Rip Vertices', op: 'mesh.rip_move', shortcut: 'V' },
     { label: 'Separate', submenu: separateMenu, shortcut: 'P' },
     { separator: true },
-    { label: 'Add Hook to New Object', op: 'object.hook_add_newob' },
+    { label: 'Make Vertex Parent', op: 'object.vertex_parent_set', shortcut: 'Ctrl P' },
+    { label: 'Hooks', submenu: hooksMenu, shortcut: 'Ctrl H' },
   ];
 }
 

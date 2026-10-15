@@ -679,7 +679,9 @@ export interface ObjectData {
   type: ObjectType;
   data: ID | null;
   parent: ID | null;
-  parent_type: 'OBJECT' | 'BONE' | 'VERTEX';
+  parent_type: 'OBJECT' | 'BONE' | 'VERTEX' | 'VERTEX_3';
+  /** vertex indices of a VERTEX (first) / VERTEX_3 (all three) parent */
+  parent_vertices?: [number, number, number];
   parent_bone: string;
   /** inverse of the parent's world matrix at parenting time */
   matrix_parent_inverse: Mat4;

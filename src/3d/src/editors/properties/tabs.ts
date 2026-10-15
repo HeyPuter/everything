@@ -377,7 +377,7 @@ registerTab({
           if (!v) o.parent_type = 'OBJECT';
           changed('Set Parent');
         })),
-        o.parent ? enumProp(o, 'parent_type', 'Parent Type', [['OBJECT', 'Object'], ['BONE', 'Bone'], ['VERTEX', 'Vertex']]) : null,
+        o.parent ? enumProp(o, 'parent_type', 'Parent Type', [['OBJECT', 'Object'], ['BONE', 'Bone'], ['VERTEX', 'Vertex'], ['VERTEX_3', '3 Vertices']]) : null,
         o.parent && o.parent_type === 'BONE' ? textProp(o, 'parent_bone', 'Parent Bone') : null,
         num(o as never, 'pass_index' as never, 'Pass Index', { int: true, min: 0 }),
       ], { closed: true }),

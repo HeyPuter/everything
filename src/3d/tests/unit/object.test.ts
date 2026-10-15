@@ -603,3 +603,45 @@ describe('make instances real', () => {
     expect(inst.instance_type).toBe('NONE');
   });
 });
+
+describe('vertex parent', () => {
+  it('follows one vertex or a triangle of the parent mesh and keeps the child in place', () => {
+    const ob = cube();
+    const kid = addEmpty('Kid');
+    kid.location = [3, 0, 0];
+    select(ob, kid);
+    app.doc.scene.active_object = ob.id;
+    run('object.mode_set', { mode: 'EDIT' });
+    const me = meshOf(ob);
+    me.select_vert = new Uint8Array(8);
+    me.select_vert[0] = 1;
+    run('object.vertex_parent_set');
+    run('object.mode_set', { mode: 'OBJECT' });
+    expect(kid.parent).toBe(ob.id);
+    expect(kid.parent_type).toBe('VERTEX');
+    const pos = () => Array.from(app.graph.get(kid.id)!.world.elements.slice(12, 15)).map((v) => +v.toFixed(4));
+    expect(pos()).toEqual([3, 0, 0]);
+    // moving that vertex moves the child
+    const P = new Float32Array(me.positions);
+    P[2] += 1;
+    me.positions = P;
+    app.graph.evaluate(app.doc, false);
+    expect(pos()).toEqual([3, 0, 1]);
+    // moving another vertex does not
+    const Q = new Float32Array(me.positions);
+    Q[5] += 1;
+    me.positions = Q;
+    app.graph.evaluate(app.doc, false);
+    expect(pos()).toEqual([3, 0, 1]);
+  });
+
+  it('refuses two selected vertices', () => {
+    const ob = cube();
+    const kid = addEmpty('Kid');
+    select(ob, kid);
+    app.doc.scene.active_object = ob.id;
+    run('object.mode_set', { mode: 'EDIT' });
+    meshOf(ob).select_vert = Uint8Array.from([1, 1, 0, 0, 0, 0, 0, 0]);
+    expect(run('object.vertex_parent_set')).toBe('CANCELLED');
+  });
+});

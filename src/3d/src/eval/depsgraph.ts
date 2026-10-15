@@ -5,6 +5,7 @@ import { Matrix4, Quaternion, Vector3 } from 'three';
 import type { DocumentData, ObjectData, MeshData, ModifierBase } from '../data/types';
 import type { EvalMesh, ModifierContext } from './types';
 import { localMatrix, toMatrix4 } from './transform';
+import { vertexParentMatrix } from './vertexparent';
 import { modifierTypes } from './modifiers';
 import { constraintTypes } from './constraints';
 import { evaluatePose, type PoseResult } from './armature';
@@ -160,6 +161,16 @@ export class Depsgraph {
       }
     }
     for (const ob of order) this.evaluateData(doc, ob, this.objects.get(ob.id)!);
+    // vertex parents follow the evaluated (deformed) parent mesh: refresh them and their children
+    if (order.some((o) => o.parent_type === 'VERTEX' || o.parent_type === 'VERTEX_3')) {
+      const moved = new Set<string>();
+      for (const ob of order) {
+        if ((ob.parent_type === 'VERTEX' || ob.parent_type === 'VERTEX_3' || (ob.parent && moved.has(ob.parent))) && ob.parent) {
+          moved.add(ob.id);
+          this.evaluateTransform(doc, ob, this.objects.get(ob.id)!);
+        }
+      }
+    }
     return this;
   }
 
@@ -202,6 +213,11 @@ export class Depsgraph {
             const tail = new Matrix4().makeTranslation(0, bone.length, 0);
             pm.multiply(bone.pose).multiply(tail);
           }
+        } else if (ob.parent_type === 'VERTEX' || ob.parent_type === 'VERTEX_3') {
+          const pos = parent.mesh?.positions ?? (parent.ob.data ? doc.meshes[parent.ob.data]?.positions : undefined);
+          const verts = ob.parent_vertices ?? [0, 0, 0];
+          const vm = pos && vertexParentMatrix(pos, ob.parent_type === 'VERTEX' ? [verts[0]] : verts);
+          if (vm) pm.multiply(vm);
         }
         ev.world.premultiply(new Matrix4().multiplyMatrices(pm, toMatrix4(ob.matrix_parent_inverse)));
       }
