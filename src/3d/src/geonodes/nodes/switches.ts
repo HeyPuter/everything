@@ -147,7 +147,6 @@ gn(
   'converter',
   {
     exec: (ctx) => {
-      const t = (sprop(ctx.node, 'data_type') || 'GEOMETRY') as SocketType;
       const items = menuItems(ctx.node);
       const v = ctx.input('Menu');
       const name = typeof v === 'string' ? v : (items[0]?.name ?? '');

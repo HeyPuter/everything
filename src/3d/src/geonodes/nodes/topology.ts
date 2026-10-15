@@ -4,7 +4,7 @@ import './fdata';
 import { gn } from './defs';
 import { Field, allocField, evalFull, makeContext, type Evaluated, type FieldContext } from '../field';
 import { adaptDomain, readAttribute, type MeshComponent, type MeshTopology } from '../geometry';
-import { indexField, positionField } from '../inputs';
+import { indexField } from '../inputs';
 import { cornerNormals, faceNormals, smoothFlags } from '../meshutil';
 import type { Domain, FieldType } from '../types';
 
@@ -41,7 +41,7 @@ interface Groups {
   items: ArrayLike<number>;
 }
 
-function vertCornerGroups(m: MeshComponent, t: MeshTopology): Groups {
+function vertCornerGroups(t: MeshTopology): Groups {
   return { offsets: t.vertFaceOffsets, items: t.vertCorners };
 }
 function vertEdgeGroups(t: MeshTopology): Groups {
@@ -125,7 +125,7 @@ function ofNode(idname: string, indexId: string, outId: string, itemDomain: Doma
   });
 }
 
-ofNode('GeometryNodeCornersOfVertex', 'Vertex Index', 'Corner Index', 'CORNER', (m, t) => vertCornerGroups(m, t));
+ofNode('GeometryNodeCornersOfVertex', 'Vertex Index', 'Corner Index', 'CORNER', (_m, t) => vertCornerGroups(t));
 ofNode('GeometryNodeEdgesOfVertex', 'Vertex Index', 'Edge Index', 'EDGE', (_m, t) => vertEdgeGroups(t));
 ofNode('GeometryNodeCornersOfFace', 'Face Index', 'Corner Index', 'CORNER', (m) => faceCornerGroups(m), true);
 ofNode('GeometryNodeCornersOfEdge', 'Edge Index', 'Corner Index', 'CORNER', (m, t) => edgeCornerGroups(m, t));
@@ -449,7 +449,6 @@ gn('GeometryNodeInputShortestEdgePaths', 'input', {
   },
 });
 
-void positionField;
 
 // ---------------------------------------------------------------------------
 // UV Tangent

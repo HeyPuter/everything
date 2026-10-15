@@ -2,7 +2,6 @@
 import './fdata';
 import { gn, sprop } from './defs';
 import { isInternal, type Component, type GeometrySet } from '../geometry';
-import type { NodeData } from '../../data/types';
 
 // ---------------------------------------------------------------------------
 // Domain Size
@@ -172,4 +171,3 @@ gn(
   },
 );
 
-export type { NodeData };

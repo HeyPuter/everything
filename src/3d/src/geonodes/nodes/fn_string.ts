@@ -1,7 +1,7 @@
 // Text nodes: formatting, searching and editing strings, and number ↔ text conversion.
 // Strings are single values (not fields).
 import './fdata';
-import { gn, prop, sprop } from './defs';
+import { gn, sprop } from './defs';
 import { formatString, shortestFloat, toFixedExact, intToString, parseFloatPrefix, parseIntPrefix, type FormatValue } from '../strformat';
 import { readItems, itemListUI, registerItemNode, itemSocket, type ItemListDef, type NodeItem } from './items';
 import type { SocketDef } from '../../nodes/types';
@@ -258,4 +258,3 @@ gn('FunctionNodeInputSpecialCharacters', 'input', {
   exec: () => ({ 'Line Break': '\n', Tab: '\t' }),
 });
 
-void prop;
