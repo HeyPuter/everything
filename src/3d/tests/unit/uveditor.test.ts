@@ -426,3 +426,30 @@ describe('UV editing algorithms', () => {
     expect(islandCorners(t2, [0]).length).toBe(4);
   });
 });
+
+describe('unwrap follow-ups', () => {
+  it('fits islands back onto their pinned UVs', async () => {
+    const { afterUnwrap, similarityFit } = await import('../../src/editors/uv/unwrapextra');
+    const tf = similarityFit(
+      [
+        [0, 0],
+        [1, 0],
+      ],
+      [
+        [1, 1],
+        [1, 3],
+      ],
+    );
+    expect(tf(1, 0)[0]).toBeCloseTo(1);
+    expect(tf(1, 0)[1]).toBeCloseTo(3);
+    const me = gridMesh(2);
+    const before = new Float32Array(me.uvs);
+    // pin two corners, then pretend an unwrap scaled and moved everything
+    const pin = new Uint8Array(me.indices.length);
+    pin[0] = pin[me.offsets[3] + 2] = 1;
+    me.uv_pin = pin;
+    me.uvs = before.map((x) => x * 0.5 + 0.2);
+    afterUnwrap(me, before, visibleFaces(me, false));
+    for (let i = 0; i < before.length; i++) expect(me.uvs[i]).toBeCloseTo(before[i], 5);
+  });
+});

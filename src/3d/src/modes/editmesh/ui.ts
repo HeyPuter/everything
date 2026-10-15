@@ -1,5 +1,6 @@
 // Edit Mode menus, header select-mode buttons, keymap and tool behaviour.
 import { h } from '../../ui/h';
+import { unwrapMenu } from '../../editors/uv/uvmenus';
 import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
 import { addKeys } from '../../app/keymap';
@@ -112,14 +113,7 @@ export function faceMenu(): MenuItem[] {
 
 export function uvMenu(): MenuItem[] {
   return [
-    { label: 'Unwrap', op: 'uv.unwrap' },
-    { label: 'Smart UV Project', op: 'uv.smart_project' },
-    { label: 'Lightmap Pack', op: 'uv.lightmap_pack' },
-    { label: 'Follow Active Quads', op: 'uv.follow_active_quads' },
-    { separator: true },
-    { label: 'Cube Projection', op: 'uv.cube_project' },
-    { label: 'Cylinder Projection', op: 'uv.cylinder_project' },
-    { label: 'Sphere Projection', op: 'uv.sphere_project' },
+    ...unwrapMenu(),
     { separator: true },
     { label: 'Project from View', op: 'uv.project_from_view' },
     { label: 'Project from View (Bounds)', op: 'uv.project_from_view', props: { scale_to_bounds: true } },

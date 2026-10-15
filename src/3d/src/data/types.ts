@@ -845,6 +845,9 @@ export interface ToolSettings {
   keyframe_type: Keyframe['type'];
   use_uv_select_sync: boolean;
   uv_select_mode: 'VERTEX' | 'EDGE' | 'FACE' | 'ISLAND';
+  /** snapping while transforming UVs, and what to snap to */
+  use_snap_uv?: boolean;
+  snap_uv_element?: 'INCREMENT' | 'VERTEX';
   /** which UVs are selected together with a picked UV (default SHARED_LOCATION) */
   uv_sticky_select_mode?: 'SHARED_LOCATION' | 'DISABLED' | 'SHARED_VERTEX';
   // sculpt / paint

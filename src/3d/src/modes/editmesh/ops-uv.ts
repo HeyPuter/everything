@@ -7,9 +7,11 @@ import { editPoll } from './ops-basic';
 import { unwrapUV } from '../../edit/unwrap';
 import type { Topology } from '../../edit/topology';
 import { buildMesh } from '../../mesh/mesh';
+import type { MeshData } from '../../data/types';
 import { activeView3D } from '../../editors/view3d/view3d';
 import { newObject, uid, IDENTITY } from '../../data/defaults';
 import { addObjectToScene } from '../../ops/object';
+import { afterUnwrap } from '../../editors/uv/unwrapextra';
 import { newModifier } from '../../eval/modifiers';
 
 const V = (a: number[]) => new Vector3(a[0], a[1], a[2]);
@@ -232,13 +234,20 @@ registerOperators([
     idname: 'uv.unwrap',
     label: 'Unwrap',
     description: 'Unwrap the mesh of the object being edited, cutting along seams',
-    props: [{ id: 'method', label: 'Method', type: 'enum', default: 'CONFORMAL', items: [['ANGLE_BASED', 'Angle Based'], ['CONFORMAL', 'Conformal']] }, { id: 'margin', label: 'Margin', type: 'float', default: 0.001, min: 0, max: 1, subtype: 'factor' }],
+    props: [
+      { id: 'method', label: 'Method', type: 'enum', default: 'CONFORMAL', items: [['ANGLE_BASED', 'Angle Based'], ['CONFORMAL', 'Conformal'], ['MINIMUM_STRETCH', 'Minimum Stretch']] },
+      { id: 'iterations', label: 'Iterations', type: 'int', default: 10, min: 1, max: 1000, showIf: (p) => p.method === 'MINIMUM_STRETCH' },
+      { id: 'margin', label: 'Margin', type: 'float', default: 0.001, min: 0, max: 1, subtype: 'factor' },
+    ],
     poll: editPoll,
     exec: (_ctx, p) => {
       let failed = '';
+      // pinned UVs and the minimum-stretch relaxation are applied after the solve
+      const post: { me: MeshData; before: Float32Array; faces: number[] }[] = [];
       const ok = withEdit((m, _ob, me) => {
         const faces = targetFaces(m);
         if (!faces.length) return false;
+        post.push({ me, before: me.uvs, faces });
         // conformal solve per seam-delimited island; closed islands fall back to angle-based charts
         const t = buildMesh(m.pos, m.faces.map((f) => ({ verts: f.verts, uvs: f.uvs, seams: f.seams }))) as unknown as Topology;
         if (!t.seams) (t as { seams?: Uint32Array }).seams = new Uint32Array(t.indices.length);
@@ -262,6 +271,7 @@ registerOperators([
         app.report('WARNING', 'Select faces to unwrap');
         return 'CANCELLED';
       }
+      for (const x of post) afterUnwrap(x.me, x.before, x.faces, p.method === 'MINIMUM_STRETCH' ? (p.iterations as number) : 0);
       if (failed) app.report('WARNING', `Unwrap: ${failed} Used angle-based charts instead; mark seams for better results.`);
     },
   },

@@ -368,6 +368,17 @@ export class UVEditor implements Editor, UVView, View2D {
         (v) => ((this.pivot = v as UVPivot), this.area.drawHeader()),
         { iconOnly: true, tip: 'Pivot Point\nCenter for rotating and scaling (.)', title: 'Pivot Point' },
       ),
+      h('button', { class: { 'hdr-toggle': true, on: !!ts.use_snap_uv }, 'data-tip': 'Snap (Shift Tab)\nSnap while moving UVs; hold Ctrl to toggle while transforming', onclick: () => setTs('use_snap_uv', !ts.use_snap_uv, 'Snap') }, icon(ts.use_snap_uv ? 'snap_on' : 'snap_off')),
+      enumMenu(
+        'uv-snap-el',
+        [
+          { value: 'INCREMENT', label: 'Increment', icon: 'snap_increment', description: 'Snap to steps of the grid' },
+          { value: 'VERTEX', label: 'Vertex', icon: 'snap_vertex', description: 'Snap to UV vertices that are not moving' },
+        ],
+        ts.snap_uv_element ?? 'INCREMENT',
+        (v) => setTs('snap_uv_element', v as 'VERTEX', 'Snap To'),
+        { iconOnly: true, tip: 'Snap To\nWhat moving UVs snap to', title: 'Snap To' },
+      ),
       h('button', { class: { 'hdr-toggle': true, on: ts.use_proportional_edit }, 'data-tip': 'Proportional Editing (O)\nMove nearby UVs too, with a falloff', onclick: () => setTs('use_proportional_edit', !ts.use_proportional_edit, 'Proportional Editing') }, icon(ts.use_proportional_edit ? 'prop_on' : 'prop_off')),
     );
   }
@@ -793,12 +804,17 @@ export class UVEditor implements Editor, UVView, View2D {
     this.drawOverlays(g);
   }
 
-  private drawGrid(g: CanvasRenderingContext2D, hasImage: boolean) {
+  /** Spacing of the shown grid (UV units): lines 24–96 px apart. */
+  gridStep() {
     const s = this.scale();
-    // adaptive subdivision: lines 24–96 px apart
     let n = 8;
     while (s / n > 96 && n < 4096) n *= 2;
     while (s / n < 24 && n > 1) n /= 2;
+    return 1 / n;
+  }
+
+  private drawGrid(g: CanvasRenderingContext2D, hasImage: boolean) {
+    const n = Math.round(1 / this.gridStep());
     g.lineWidth = 1;
     g.strokeStyle = hasImage ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.3)';
     g.beginPath();

@@ -190,3 +190,39 @@ test('Image editor: new image, invert colors, flip, zoom ratio keys', async ({ p
   expect(await page.evaluate(() => (window as any).app.hoverArea.editor.zoom)).toBe(0.25); // eslint-disable-line @typescript-eslint/no-explicit-any
   await expectNoErrors(errors);
 });
+
+test('Image empty converts to a textured mesh plane in place', async ({ page }) => {
+  const errors = await openApp(page);
+  const res = await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.run('image.new', { name: 'Ref', width: 200, height: 100 }, { invoke: false });
+    const img = Object.values(a.doc.images as Record<string, { id: string; name: string }>).find((i) => i.name === 'Ref')!;
+    a.run('object.empty_image_add', { image: img.id, location: [1, 2, 3], rotation: [0, 0, 0] }, { invoke: false });
+    const r = a.run('image.convert_to_mesh_plane', {}, { invoke: false });
+    const ob = a.activeObject;
+    const me = a.doc.meshes[ob.data];
+    const xs = Array.from(me.positions as Float32Array).filter((_, i) => i % 3 === 0);
+    return { r, type: ob.type, loc: ob.location, width: Math.max(...xs) - Math.min(...xs), empties: Object.values(a.doc.objects as Record<string, { type: string }>).filter((o) => o.type === 'EMPTY').length };
+  });
+  expect(res.r).toBe('FINISHED');
+  expect(res.type).toBe('MESH');
+  expect(res.loc).toEqual([1, 2, 3]);
+  expect(res.width).toBeCloseTo(5, 4); // the empty is 5 units wide
+  expect(res.empties).toBe(0);
+  await expectNoErrors(errors);
+});
+
+test('UV editor: increment snapping moves in grid steps', async ({ page }) => {
+  const { errors, box } = await uvWorkspace(page);
+  await page.keyboard.press('Shift+Tab');
+  expect(await page.evaluate(() => (window as any).app.doc.scene.tool_settings.use_snap_uv)).toBe(true); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const before = await meshUVs(page);
+  await page.keyboard.press('g');
+  await page.mouse.move(box.x + box.width / 2 + 37, box.y + box.height / 2 + 3, { steps: 3 });
+  await page.mouse.down();
+  await page.mouse.up();
+  const step = await page.evaluate(() => (window as any).app.hoverArea.editor.gridStep()); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const d = (await meshUVs(page))[0] - before[0];
+  expect(Math.abs(d / step - Math.round(d / step))).toBeLessThan(1e-4);
+  await expectNoErrors(errors);
+});

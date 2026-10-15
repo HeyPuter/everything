@@ -309,6 +309,8 @@ export function objectMenu(): MenuItem[] {
     { label: 'Convert', submenu: () => [
       { label: 'Mesh', op: 'object.convert', props: { target: 'MESH' } },
       { label: 'Curve', op: 'object.convert', props: { target: 'CURVE' } },
+      { separator: true },
+      { label: 'Image Empty to Mesh Plane', op: 'image.convert_to_mesh_plane' },
     ] },
     { separator: true },
     { label: 'Show/Hide', submenu: () => [

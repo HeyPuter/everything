@@ -14,6 +14,8 @@ export interface UVView {
   toUV(x: number, y: number): { u: number; v: number };
   /** pixels per UV unit */
   scale(): number;
+  /** spacing of the grid lines shown (UV units) */
+  gridStep(): number;
   draw(): void;
   pivot: 'BOUNDING_BOX_CENTER' | 'CURSOR' | 'INDIVIDUAL_ORIGINS' | 'MEDIAN_POINT';
   image(): ImageData | null;

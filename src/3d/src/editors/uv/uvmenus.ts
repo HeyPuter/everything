@@ -11,6 +11,7 @@ export function unwrapMenu(): MenuItem[] {
   return [
     { label: 'Unwrap Angle Based', op: 'uv.unwrap', props: { method: 'ANGLE_BASED' } },
     { label: 'Unwrap Conformal', op: 'uv.unwrap', props: { method: 'CONFORMAL' } },
+    { label: 'Unwrap Minimum Stretch', op: 'uv.unwrap', props: { method: 'MINIMUM_STRETCH' } },
     { separator: true },
     { label: 'Smart UV Project…', op: 'uv.smart_project' },
     { label: 'Lightmap Pack…', op: 'uv.lightmap_pack' },
@@ -281,7 +282,20 @@ function falloffPie() {
   openPie('Proportional Editing Falloff', items, app.pointer.x, app.pointer.y, 'O');
 }
 
-function toggleSetting(key: 'use_proportional_edit' | 'use_uv_select_sync', label: string) {
+function snapElementMenu(): MenuItem[] {
+  const t = ts();
+  const set = (v: 'INCREMENT' | 'VERTEX') => () => {
+    t.snap_uv_element = v;
+    app.pushUndo('Snap To');
+    app.changed('ui', 'doc');
+  };
+  return [
+    { label: 'Increment', icon: 'snap_increment', active: (t.snap_uv_element ?? 'INCREMENT') === 'INCREMENT', action: set('INCREMENT') },
+    { label: 'Vertex', icon: 'snap_vertex', active: t.snap_uv_element === 'VERTEX', action: set('VERTEX') },
+  ];
+}
+
+function toggleSetting(key: 'use_proportional_edit' | 'use_uv_select_sync' | 'use_snap_uv', label: string) {
   const t = ts();
   t[key] = !t[key];
   app.pushUndo(label);
@@ -346,6 +360,8 @@ addKeys('UV Editor', [
   { key: 'M', ctrl: true, menu: () => mirrorMenu().slice(2), menuTitle: 'Mirror', when: editing },
   { key: 'S', shift: true, ctrl: true, alt: true, op: 'uv.shear', when: editing },
   { key: 'PERIOD', action: pivotPie, when: inUV },
+  { key: 'TAB', shift: true, action: () => toggleSetting('use_snap_uv', 'Snap'), when: editing },
+  { key: 'TAB', shift: true, ctrl: true, menu: snapElementMenu, menuTitle: 'Snap To', when: editing },
   { key: 'TAB', op: 'object.mode_set', props: { mode: 'EDIT', toggle: true }, when: inUV },
 ]);
 

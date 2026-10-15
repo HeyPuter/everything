@@ -1,12 +1,13 @@
 // Image operators shared by the Image Editor and the UV Editor: view (frame, zoom ratios, zoom
 // border, cursor), image editing (invert, flip, rotate, resize), replace/reload/save, clipboard,
 // render slots, and the "Image Generic" / "Image" keymaps.
-import { app, registerOperators, type OpContext } from '../../app/app';
+import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
+import { app, registerOperators, operators, type OpContext } from '../../app/app';
 import { addKeys } from '../../app/keymap';
 import type { ImageData as Img } from '../../data/types';
 import { imageCanvas, imageReady, primeImage, generatedPixels } from '../images';
 import { uid } from '../../data/defaults';
-import { uniqueName } from '../../ops/object';
+import { uniqueName, deleteObjects } from '../../ops/object';
 import { pickFile } from '../../io/native';
 import { download, renderResult } from './result';
 import { operatorDialog } from '../../editors/uv/dialog';
@@ -588,3 +589,61 @@ addKeys('Image', [
   ]),
   ...['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT'].map((key, i) => ({ key, action: () => setSlot(i), when: () => overRender() && overImageEditor() })),
 ]);
+
+// ---------------------------------------------------------------------------
+// image empties → mesh planes
+
+registerOperators([
+  {
+    idname: 'image.convert_to_mesh_plane',
+    label: 'Convert Image Empty to Mesh Plane',
+    description: 'Replace the selected image empties with textured mesh planes in the same place',
+    props: [
+      { id: 'shader', label: 'Shader', type: 'enum', default: 'PRINCIPLED', items: [['PRINCIPLED', 'Principled'], ['SHADELESS', 'Shadeless'], ['EMISSION', 'Emit']] },
+      { id: 'name_from', label: 'Name After', type: 'enum', default: 'OBJECT', items: [['OBJECT', 'Source Object'], ['IMAGE', 'Source Image']] },
+      { id: 'delete_ref', label: 'Delete Reference Object', type: 'bool', default: true },
+    ],
+    poll: (ctx) => ctx.doc.mode === 'OBJECT' && imageEmpties().length > 0,
+    exec: (ctx, p) => {
+      const doc = ctx.doc;
+      const importOp = operators.get('image.import_as_mesh_planes');
+      if (!importOp?.exec) return 'CANCELLED';
+      const empties = imageEmpties();
+      const made: string[] = [];
+      for (const em of empties) {
+        const img = doc.images[em.data!];
+        const size = em.empty_display_size ?? 1;
+        const big = Math.max(img.width, img.height, 1);
+        const w = (size * img.width) / big,
+          h = (size * img.height) / big;
+        const world = app.graph.get(em.id)?.world?.clone() ?? new Matrix4().compose(new Vector3(...em.location), new Quaternion().setFromEuler(new Euler(...em.rotation_euler, 'XYZ')), new Vector3(...em.scale));
+        const off = em.empty_image_offset ?? [-0.5, -0.5];
+        world.multiply(new Matrix4().makeTranslation((off[0] + 0.5) * w, (off[1] + 0.5) * h, 0));
+        const before = new Set(Object.keys(doc.objects));
+        importOp.exec(ctx, { image: img.id, height: h, shader: p.shader, align_view: false });
+        const ob = Object.values(doc.objects).find((o) => !before.has(o.id));
+        if (!ob) continue;
+        const pos = new Vector3(),
+          q = new Quaternion(),
+          sc = new Vector3();
+        world.decompose(pos, q, sc);
+        const e = new Euler().setFromQuaternion(q, 'XYZ');
+        ob.location = [pos.x, pos.y, pos.z];
+        ob.rotation_mode = 'XYZ';
+        ob.rotation_euler = [e.x, e.y, e.z];
+        ob.scale = [sc.x, sc.y, sc.z];
+        ob.name = uniqueName(doc, p.name_from === 'IMAGE' ? img.name.replace(/\.[a-z0-9]+$/i, '') : em.name);
+        made.push(ob.id);
+      }
+      if (!made.length) return 'CANCELLED';
+      if (p.delete_ref) deleteObjects(doc, new Set(empties.map((o) => o.id)));
+      for (const o of Object.values(doc.objects)) o.select = made.includes(o.id);
+      doc.scene.active_object = made[made.length - 1];
+      app.changed('doc', 'select');
+    },
+  },
+]);
+
+function imageEmpties() {
+  return app.doc.object_order.map((id) => app.doc.objects[id]).filter((o) => o?.select).filter((o) => o.type === 'EMPTY' && o.empty_display_type === 'IMAGE' && !!o.data && !!app.doc.images[o.data]);
+}

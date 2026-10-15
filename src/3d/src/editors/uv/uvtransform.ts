@@ -268,9 +268,47 @@ export function startUVTransform(kind: Kind, ctx: OpContext, props: Record<strin
     totalAng = 0;
   const cPx = view.toPx(center[0], center[1]);
   const startUV = view.toUV(start.x, start.y);
-  const pxStep = () => {
-    const img = view.image();
-    return img ? 1 / Math.max(img.width, img.height) : 1 / 64;
+  // snapping: the header toggle (Ctrl inverts it while transforming)
+  const snapOn = () => !!ts.use_snap_uv !== snap;
+  const snapElement = ts.snap_uv_element ?? 'INCREMENT';
+  // vertex snapping targets: UV vertices that do not move
+  const targets: [number, number][] = [];
+  const sources: [number, number][] = [];
+  if (kind === 'TRANSLATE')
+    for (const part of parts) {
+      for (let id = 0; id < part.t.vertCount; id++) {
+        const cs = part.t.vertCorners[id];
+        const moving = cs.some((c) => part.w[c] > 0);
+        const uv = part.t.vertUV(id);
+        if (!moving) targets.push(uv);
+        else if (cs.some((c) => part.w[c] >= 1)) sources.push(uv);
+      }
+    }
+  const snapVertex = (du: number, dv: number): [number, number] | null => {
+    // the target nearest to the pointer, within 20 px
+    const cur = view.toUV(mouse.x, mouse.y);
+    const r = 20 / view.scale();
+    let best: [number, number] | null = null,
+      bd = r;
+    for (const t of targets) {
+      const d = Math.hypot(t[0] - cur.u, t[1] - cur.v);
+      if (d < bd) {
+        bd = d;
+        best = t;
+      }
+    }
+    if (!best) return null;
+    // the moved UV closest to it lands exactly on it
+    let src: [number, number] | null = null;
+    bd = Infinity;
+    for (const s of sources) {
+      const d = Math.hypot(s[0] + du - best[0], s[1] + dv - best[1]);
+      if (d < bd) {
+        bd = d;
+        src = s;
+      }
+    }
+    return src ? [best[0] - src[0], best[1] - src[1]] : null;
   };
   const compute = () => {
     const num = numeric && numeric !== '-' ? parseFloat(numeric) : NaN;
@@ -283,10 +321,14 @@ export function startUVTransform(kind: Kind, ctx: OpContext, props: Record<strin
         du *= 0.1;
         dv *= 0.1;
       }
-      if (snap) {
-        const s = pxStep() * 8;
-        du = Math.round(du / s) * s;
-        dv = Math.round(dv / s) * s;
+      if (snapOn()) {
+        const v = snapElement === 'VERTEX' ? snapVertex(du, dv) : null;
+        if (v) [du, dv] = v;
+        else if (snapElement === 'INCREMENT') {
+          const s = view.gridStep() / (precise ? 4 : 1);
+          du = Math.round(du / s) * s;
+          dv = Math.round(dv / s) * s;
+        }
       }
       if (Number.isFinite(num)) {
         du = only === 1 ? 0 : num;
@@ -302,21 +344,21 @@ export function startUVTransform(kind: Kind, ctx: OpContext, props: Record<strin
       totalAng += precise ? d * 0.1 : d;
       lastAng = a;
       let ang = totalAng;
-      if (snap) ang = Math.round(ang / (Math.PI / 36)) * (Math.PI / 36);
+      if (snapOn()) ang = Math.round(ang / (Math.PI / 36)) * (Math.PI / 36);
       if (Number.isFinite(num)) ang = (num * Math.PI) / 180;
       value = [ang];
     } else if (kind === 'RESIZE') {
       const d0 = Math.max(1, Math.hypot(start.x - cPx.x, start.y - cPx.y));
       let s = Math.hypot(mouse.x - cPx.x, mouse.y - cPx.y) / d0;
       if (precise) s = 1 + (s - 1) * 0.1;
-      if (snap) s = Math.round(s * 10) / 10;
+      if (snapOn()) s = Math.round(s * 10) / 10;
       if (Number.isFinite(num)) s = num;
       value = [only === 1 ? 1 : s, only === 0 ? 1 : s];
     } else {
       let k = (mouse.x - start.x) / 100;
       if (constraint[1] && !constraint[0]) k = -(mouse.y - start.y) / 100;
       if (precise) k *= 0.1;
-      if (snap) k = Math.round(k * 10) / 10;
+      if (snapOn()) k = Math.round(k * 10) / 10;
       if (Number.isFinite(num)) k = num;
       value = [k];
     }
