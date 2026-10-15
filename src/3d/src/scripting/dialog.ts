@@ -25,6 +25,8 @@ interface DialogOpts {
   onClose?: () => void;
   /** extra title bar content */
   titleExtra?: () => Child;
+  /** hosts editors (an area window): keys and hover go to the editors as on the main screen */
+  hostsEditors?: boolean;
 }
 
 export function isDialogOpen(id: string) {
@@ -89,11 +91,12 @@ export function openDialog(o: DialogOpts): DialogHandle {
       o.onClose?.();
     },
   };
-  root.addEventListener('pointerenter', () => {
-    // keys pressed over a dialog must not reach the editor underneath
-    app.hoverArea = null;
-    app.activeArea = null;
-  });
+  if (!o.hostsEditors)
+    root.addEventListener('pointerenter', () => {
+      // keys pressed over a dialog must not reach the editor underneath
+      app.hoverArea = null;
+      app.activeArea = null;
+    });
   if (!o.floating)
     root.addEventListener('pointerdown', (e) => {
       if (e.target === root) handle.close();
@@ -123,7 +126,8 @@ export function openDialog(o: DialogOpts): DialogHandle {
   });
   open.set(o.id, handle);
   order.push(o.id);
-  (handle as DialogHandle & { modal: boolean }).modal = !o.floating;
+  (handle as DialogHandle & { modal: boolean; hostsEditors: boolean }).modal = !o.floating;
+  (handle as DialogHandle & { modal: boolean; hostsEditors: boolean }).hostsEditors = !!o.hostsEditors;
   unsub = app.subscribe(() => root.isConnected && handle.redraw());
   handle.redraw();
   return handle;
@@ -141,8 +145,8 @@ addEventListener(
   'keydown',
   (e) => {
     if (!order.length || anyPopupOpen()) return;
-    const top = open.get(order[order.length - 1]) as (DialogHandle & { modal: boolean }) | undefined;
-    if (!top) return;
+    const top = open.get(order[order.length - 1]) as (DialogHandle & { modal: boolean; hostsEditors: boolean }) | undefined;
+    if (!top || top.hostsEditors) return;
     const target = e.target as HTMLElement | null;
     const focusIn = [...open.values()].some((d) => d.el.contains(document.activeElement));
     const hoverIn = [...open.values()].some((d) => d.el.querySelector('.dialog')?.matches(':hover'));

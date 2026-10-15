@@ -44,33 +44,11 @@ interface OpenMenu {
   parent?: OpenMenu;
   child?: OpenMenu;
   owner?: HTMLElement;
-  /** pointer position and press count when the menu opened (a release without a drag doesn't activate) */
-  openX?: number;
-  openY?: number;
-  openPresses?: number;
   /** typing a character hands it to this (e.g. to start a search) instead of jumping to an item */
   onType?: (ch: string) => void;
 }
 
 const stack: OpenMenu[] = [];
-let pointerX = 0,
-  pointerY = 0,
-  presses = 0;
-addEventListener('pointermove', (e) => ((pointerX = e.clientX), (pointerY = e.clientY)), { capture: true, passive: true });
-addEventListener('pointerdown', (e) => ((pointerX = e.clientX), (pointerY = e.clientY), presses++), { capture: true, passive: true });
-
-/**
- * Releasing the button that opened a menu (e.g. a right-click) picks an item only after the
- * pointer was dragged onto it; releasing in place leaves the menu open.
- */
-function isOpeningRelease(m: OpenMenu, e: PointerEvent) {
-  const root = rootOf(m);
-  if (root.openPresses === undefined || presses !== root.openPresses) return false;
-  return Math.hypot(e.clientX - (root.openX ?? 0), e.clientY - (root.openY ?? 0)) < 6;
-}
-function rootOf(m: OpenMenu): OpenMenu {
-  return m.parent ? rootOf(m.parent) : m;
-}
 let closeCallbacks: (() => void)[] = [];
 
 export function anyPopupOpen() {
@@ -147,7 +125,17 @@ function renderMenu(m: OpenMenu) {
           renderMenu(m);
         },
         onpointerup: (e: PointerEvent) => {
-          if ((e.button === 0 || e.button === 2) && !isOpeningRelease(m, e)) activate(m, item, e);
+          // the release of the press that opened a context menu picks an item only after a drag
+          const p = openPress;
+          const opening = !!p && pressCount === p.presses;
+          if (opening && Math.hypot(e.clientX - p.x, e.clientY - p.y) < 6) return;
+          // right button: only that press-drag-release picks; other right clicks open the item's own menu
+          if (e.button === 0 || (e.button === 2 && opening)) activate(m, item, e);
+        },
+        oncontextmenu: (e: MouseEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!disabled && !item.submenu) openItemContext(m, item, e.clientX, e.clientY);
         },
       },
       h('span', { class: 'mi-icon' }, item.checked !== undefined ? icon(item.checked ? 'checkbox_hlt' : 'checkbox_dehlt') : item.active ? icon('dot') : item.icon ? icon(item.icon) : null),
@@ -157,6 +145,19 @@ function renderMenu(m: OpenMenu) {
     );
   });
   patch(m.el, vnodes);
+}
+
+function openItemContext(m: OpenMenu, item: MenuItem, x: number, y: number) {
+  const items = itemContextHooks.flatMap((f) => {
+    try {
+      return f(item);
+    } catch {
+      return [];
+    }
+  });
+  if (!items.length) return;
+  closeChild(m);
+  m.child = createMenu(items, x + 2, y - 4, m);
 }
 
 function closeChild(m: OpenMenu) {
@@ -186,7 +187,7 @@ function createMenu(items: MenuItem[], x: number, y: number, parent?: OpenMenu, 
   el.className = 'menu';
   el.setAttribute('role', 'menu');
   ensureLayer().append(el);
-  const m: OpenMenu = { el, items, index: -1, parent, openX: pointerX, openY: pointerY, openPresses: presses };
+  const m: OpenMenu = { el, items, index: -1, parent };
   if (title) el.dataset.title = title;
   renderMenu(m);
   stack.push(m);
@@ -201,8 +202,38 @@ function createMenu(items: MenuItem[], x: number, y: number, parent?: OpenMenu, 
   return m;
 }
 
+/** Builders of the right-click menu of a menu item (e.g. Add to Quick Favorites). */
+export const itemContextHooks: ((item: MenuItem) => MenuItem[])[] = [];
+
+let capturing: MenuItem[][] | null = null;
+/** Where the last context menu was opened at the pointer, and the press count then. */
+let openPress: { presses: number; x: number; y: number } | null = null;
+let pressCount = 0;
+if (typeof addEventListener === 'function') addEventListener('pointerdown', () => pressCount++, { capture: true, passive: true });
+
+/**
+ * Run `open` (code that would open a menu, e.g. a header button's pointer handler) and return the
+ * menu's items instead of showing it. Used for collapsed header menus and menu search.
+ */
+export function captureMenuItems(open: () => void): MenuItem[] {
+  const prev = capturing;
+  capturing = [];
+  try {
+    open();
+    return capturing[0] ?? [];
+  } catch {
+    return [];
+  } finally {
+    capturing = prev;
+  }
+}
+
 /** Open a popup menu at a screen position (or below an element). */
 export function openMenu(items: MenuItem[], at: { x: number; y: number } | HTMLElement, opts: { title?: string; under?: boolean; onType?: (ch: string) => void } = {}) {
+  if (capturing) {
+    capturing.push(items);
+    return null;
+  }
   closeMenus();
   let x: number, y: number;
   if (at instanceof HTMLElement) {
@@ -218,6 +249,7 @@ export function openMenu(items: MenuItem[], at: { x: number; y: number } | HTMLE
   const withTitle = opts.title ? [{ heading: opts.title }, ...items] : items;
   const m = createMenu(withTitle, x, y, undefined, opts.title);
   if (opts.onType) m.onType = opts.onType;
+  openPress = at instanceof HTMLElement ? null : { presses: pressCount, x: at.x, y: at.y };
   // context menus open with the pointer over the first actionable item
   if (!(at instanceof HTMLElement) && !opts.under) {
     const firstIdx = withTitle.findIndex((i) => !i.heading && !i.separator);
@@ -380,6 +412,8 @@ function renderPie(title: string) {
 // Popovers (panels that float under a button)
 
 export function openPopover(anchor: HTMLElement | { x: number; y: number }, render: () => Child, opts: { width?: number; className?: string } = {}) {
+  // collecting menu items (captureMenuItems) never opens popovers
+  if (capturing) return { el: document.createElement('div'), redraw: () => {} };
   closeMenus();
   const el = document.createElement('div');
   el.className = `popover ${opts.className ?? ''}`;
@@ -622,6 +656,8 @@ export function menuKey(e: KeyboardEvent): boolean {
 }
 
 export function pointerDownOutsideMenus(target: EventTarget | null) {
+  // synthetic presses used to collect menu items (captureMenuItems) never close menus
+  if (capturing) return false;
   if (!stack.length && !document.querySelector('.popup-layer > .popover')) return false;
   const t = target as HTMLElement;
   if (t?.closest?.('.menu, .popover, .pie')) return false;

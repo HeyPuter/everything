@@ -5,10 +5,27 @@ import { openMenu, promptText, type MenuItem } from './menu';
 import { app, registerOperators } from '../app/app';
 import { Screen, defaultWorkspaces, workspaceTemplates, type Workspace, type LayoutNode } from './screen';
 import { uiState, prefs } from '../app/prefs';
-import { importMenu, exportMenu, projectUiState } from '../io/files';
+import { projectUiState } from '../io/files';
+import { appMenu, fileMenu, editMenu, renderMenu, windowMenu, helpMenu, fileNewTemplates } from './topbar';
+
+export { fileNewTemplates };
 import { textField } from './widgets';
 import { setMode } from '../ops/object';
 import { assistantOpen } from '../assistant';
+import './screenops';
+import './favorites';
+import './areawindow';
+import './screenshot';
+import { APP_VERSION } from '../scripting/wmops';
+
+const STATUSBAR_KEY = 'p3d.ui.statusbar';
+function loadStatusbarShown() {
+  try {
+    return localStorage.getItem(STATUSBAR_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
 
 export class Shell {
   el: HTMLElement;
@@ -31,6 +48,7 @@ export class Shell {
     this.status.className = 'statusbar';
     root.append(this.top, main, this.status);
     this.screen = new Screen(main);
+    this.el.classList.toggle('no-statusbar', !this.showStatusbar);
     this.setWorkspace('Layout', false);
     projectUiState.save = () => ({
       workspace: this.active,
@@ -101,12 +119,37 @@ export class Shell {
     this.drawTop();
   }
 
-  moveWorkspace(name: string, dir: -1 | 1) {
+  /** Move a workspace tab to the front or the back of the tab list. */
+  moveWorkspace(name: string, to: 'FRONT' | 'BACK') {
     const i = this.workspaces.findIndex((w) => w.name === name);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= this.workspaces.length) return;
-    [this.workspaces[i], this.workspaces[j]] = [this.workspaces[j], this.workspaces[i]];
+    if (i < 0) return;
+    const [ws] = this.workspaces.splice(i, 1);
+    if (to === 'FRONT') this.workspaces.unshift(ws);
+    else this.workspaces.push(ws);
     this.drawTop();
+  }
+
+  /** Delete every workspace except `name`. */
+  deleteOtherWorkspaces(name: string) {
+    const keep = this.workspaces.find((w) => w.name === name);
+    if (!keep) return;
+    for (const w of this.workspaces) if (w !== keep) this.layouts.delete(w.name);
+    this.workspaces = [keep];
+    if (this.active !== name) {
+      this.active = '';
+      this.setWorkspace(name);
+    } else this.drawTop();
+  }
+
+  showStatusbar = loadStatusbarShown();
+  setStatusbarShown(v: boolean) {
+    this.showStatusbar = v;
+    this.el.classList.toggle('no-statusbar', !v);
+    try {
+      localStorage.setItem(STATUSBAR_KEY, v ? '1' : '0');
+    } catch {
+      // storage unavailable
+    }
   }
 
   setWorkspace(name: string, switchMode = true) {
@@ -182,17 +225,7 @@ export class Shell {
               onclick: () => this.setWorkspace(w.name),
               oncontextmenu: (e: MouseEvent) => {
                 e.preventDefault();
-                openMenu(
-                  [
-                    { label: 'Duplicate', action: () => this.duplicateWorkspace(w.name) },
-                    { label: 'Delete', disabled: this.workspaces.length <= 1, action: () => this.deleteWorkspace(w.name) },
-                    { label: 'Rename…', action: () => promptText('Rename Workspace', w.name, (n) => n && this.renameWorkspace(w.name, n)) },
-                    { separator: true },
-                    { label: 'Reorder to Front', action: () => this.moveWorkspace(w.name, -1) },
-                    { label: 'Reorder to Back', action: () => this.moveWorkspace(w.name, 1) },
-                  ],
-                  { x: e.clientX, y: e.clientY },
-                );
+                openMenu(workspaceMenu(this, w.name), { x: e.clientX, y: e.clientY });
               },
               ondblclick: () => promptText('Rename Workspace', w.name, (n) => n && this.renameWorkspace(w.name, n)),
             },
@@ -276,7 +309,7 @@ export class Shell {
     patch(this.status, [
       h('div', { class: 'sb-hints' }, m?.header ? h('span', { class: 'sb-modal' }, m.header()) : null, hints.map(([k, l]) => h('span', { class: 'sb-hint', key: k + l }, h('kbd', null, k), l))),
       h('div', { class: 'sb-center' }, showReport ? h('span', { class: `sb-report ${last.type.toLowerCase()}` }, icon(last.type === 'ERROR' ? 'error' : 'info_small'), last.message) : null),
-      h('div', { class: 'sb-right' }, this.fileStatus ? h('span', { class: 'sb-file' }, this.fileStatus) : null, h('span', { class: 'sb-stats' }, stats), h('span', { class: 'sb-version' }, 'v1.0')),
+      h('div', { class: 'sb-right' }, this.fileStatus ? h('span', { class: 'sb-file' }, this.fileStatus) : null, h('span', { class: 'sb-stats' }, stats), h('span', { class: 'sb-version' }, `v${APP_VERSION}`)),
     ]);
   }
 }
@@ -288,82 +321,21 @@ function modeHint() {
   return 'Select';
 }
 
-function appMenu(): MenuItem[] {
+/** Right-click menu of a workspace tab. */
+function workspaceMenu(sh: Shell, name: string): MenuItem[] {
+  const p = { name };
   return [
-    { label: 'About', action: () => app.run('wm.about') },
+    { label: 'Duplicate', op: 'workspace.duplicate', props: p },
+    { label: 'Delete', op: 'workspace.delete', props: p },
+    { label: 'Rename…', action: () => promptText('Rename Workspace', name, (n) => n && sh.renameWorkspace(name, n)) },
     { separator: true },
-    { label: 'Install Application…', disabled: true },
-  ];
-}
-
-/** File ▸ New entries (application templates, e.g. 2D Animation); modules append to it. */
-export const fileNewTemplates: { label: string; icon?: string; template: string }[] = [{ label: 'General', icon: 'file_blank', template: '' }];
-
-function fileMenu(): MenuItem[] {
-  return [
-    { label: 'New', icon: 'file_blank', submenu: () => fileNewTemplates.map((t) => ({ label: t.label, icon: t.icon, op: 'wm.read_homefile', props: t.template ? { app_template: t.template } : {}, shortcut: t.template ? undefined : 'Ctrl N' })) },
-    { label: 'Open…', icon: 'file_folder', shortcut: 'Ctrl O', op: 'wm.open_mainfile' },
-    { label: 'Recover Last Session', op: 'wm.recover_last_session' },
+    { label: 'Reorder to Front', op: 'workspace.reorder_to_front', props: p },
+    { label: 'Reorder to Back', op: 'workspace.reorder_to_back', props: p },
     { separator: true },
-    { label: 'Save', icon: 'file_3d', shortcut: 'Ctrl S', op: 'wm.save_mainfile' },
-    { label: 'Save As…', shortcut: 'Shift Ctrl S', op: 'wm.save_as_mainfile' },
-    { separator: true },
-    { label: 'Import', icon: 'import', submenu: importMenu },
-    { label: 'Export', icon: 'export', submenu: exportMenu },
-    { separator: true },
-    { label: 'Clean Up', submenu: () => [{ label: 'Purge Unused Data', op: 'outliner.orphans_purge' }] },
-    { separator: true },
-    { label: 'Defaults', submenu: () => [{ label: 'Load Factory Settings', op: 'wm.read_factory_settings' }] },
-  ];
-}
-
-function editMenu(): MenuItem[] {
-  return [
-    { label: 'Undo', shortcut: 'Ctrl Z', op: 'ed.undo', disabled: !app.undo.canUndo },
-    { label: 'Redo', shortcut: 'Shift Ctrl Z', op: 'ed.redo', disabled: !app.undo.canRedo },
-    { separator: true },
-    { label: 'Undo History…', shortcut: 'Ctrl Alt Z', op: 'ed.undo_history' },
-    { separator: true },
-    { label: 'Repeat Last', shortcut: 'Shift R', op: 'screen.repeat_last' },
-    { label: 'Adjust Last Operation…', shortcut: 'F9', op: 'screen.redo_last' },
-    { separator: true },
-    { label: 'Menu Search…', shortcut: 'F3', op: 'wm.search_menu' },
-    { label: 'Rename Active Item…', shortcut: 'F2', op: 'object.rename' },
-    { separator: true },
-    { label: 'Preferences…', icon: 'preferences', shortcut: 'Ctrl ,', op: 'screen.userpref_show' },
-  ];
-}
-
-function renderMenu(): MenuItem[] {
-  return [
-    { label: 'Render Image', icon: 'render', shortcut: 'F12', op: 'render.render' },
-    { label: 'Render Animation', shortcut: 'Ctrl F12', op: 'render.render', props: { animation: true } },
-    { separator: true },
-    { label: 'Render Audio…', op: 'sound.mixdown' },
-    { separator: true },
-    { label: 'View Render', shortcut: 'F11', op: 'render.view_show' },
-  ];
-}
-
-function windowMenu(shell: Shell): MenuItem[] {
-  return [
-    { label: 'Toggle Window Fullscreen', action: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()) },
-    { separator: true },
-    { label: 'Next Workspace', shortcut: 'Ctrl Page Down', op: 'screen.workspace_cycle', props: { direction: 'NEXT' } },
     { label: 'Previous Workspace', shortcut: 'Ctrl Page Up', op: 'screen.workspace_cycle', props: { direction: 'PREV' } },
+    { label: 'Next Workspace', shortcut: 'Ctrl Page Down', op: 'screen.workspace_cycle', props: { direction: 'NEXT' } },
     { separator: true },
-    { label: 'AI Assistant', icon: 'assistant', checked: assistantOpen(), op: 'wm.assistant_toggle' },
-    { separator: true },
-    { label: 'Show Status Bar Statistics', checked: prefs.show_statusbar_stats, action: () => ((prefs.show_statusbar_stats = !prefs.show_statusbar_stats), shell.drawStatus()) },
-    { separator: true },
-    { label: 'Save Screenshot', op: 'screen.screenshot' },
-  ];
-}
-
-function helpMenu(): MenuItem[] {
-  return [
-    { label: 'Keyboard Shortcuts', op: 'wm.keymap_reference' },
-    { label: 'About', op: 'wm.about' },
+    { label: 'Delete All Others', op: 'workspace.delete_all_others', props: p },
   ];
 }
 
@@ -371,6 +343,26 @@ export let shell: Shell;
 export function setShell(s: Shell) {
   shell = s;
 }
+
+/** Workspace named by an operator's `name` property (empty: the active one). */
+const wsName = (p: Record<string, unknown>) => String(p.name || shell?.active || '');
+const wsProp = { id: 'name', label: 'Workspace', type: 'string' as const, default: '', hidden: true };
+
+registerOperators([
+  { idname: 'workspace.duplicate', label: 'Duplicate Workspace', description: 'Add a copy of the workspace with the same layout', undo: false, props: [wsProp], poll: () => !!shell, exec: (_c, p) => shell.duplicateWorkspace(wsName(p)) },
+  { idname: 'workspace.delete', label: 'Delete Workspace', description: 'Remove the workspace tab', undo: false, props: [wsProp], poll: () => !!shell && shell.workspaces.length > 1, exec: (_c, p) => shell.deleteWorkspace(wsName(p)) },
+  { idname: 'workspace.reorder_to_front', label: 'Reorder Workspace to Front', description: 'Move the workspace tab to the start of the list', undo: false, props: [wsProp], poll: () => !!shell, exec: (_c, p) => shell.moveWorkspace(wsName(p), 'FRONT') },
+  { idname: 'workspace.reorder_to_back', label: 'Reorder Workspace to Back', description: 'Move the workspace tab to the end of the list', undo: false, props: [wsProp], poll: () => !!shell, exec: (_c, p) => shell.moveWorkspace(wsName(p), 'BACK') },
+  { idname: 'workspace.delete_all_others', label: 'Delete All Other Workspaces', description: 'Remove every workspace tab except this one', undo: false, props: [wsProp], poll: () => !!shell && shell.workspaces.length > 1, exec: (_c, p) => shell.deleteOtherWorkspaces(wsName(p)) },
+  {
+    idname: 'screen.toggle_statusbar',
+    label: 'Show Status Bar',
+    description: 'Show or hide the status bar at the bottom of the window',
+    undo: false,
+    poll: () => !!shell,
+    exec: () => shell.setStatusbarShown(!shell.showStatusbar),
+  },
+]);
 
 registerOperators([
   {
@@ -382,24 +374,6 @@ registerOperators([
       const i = shell.workspaces.findIndex((w) => w.name === shell.active);
       const n = shell.workspaces.length;
       shell.setWorkspace(shell.workspaces[(i + (p.direction === 'NEXT' ? 1 : n - 1)) % n].name);
-    },
-  },
-  {
-    idname: 'screen.screenshot',
-    label: 'Save Screenshot',
-    undo: false,
-    exec: () => {
-      import('../render/context').then(({ renderContext }) => {
-        if (!renderContext) return;
-        renderContext.engine.drawAll();
-        renderContext.engine.canvas.toBlob((b) => {
-          if (!b) return;
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(b);
-          a.download = 'screenshot.png';
-          a.click();
-        });
-      });
     },
   },
 ]);

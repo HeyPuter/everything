@@ -1,0 +1,12 @@
+/* Info editor: box selection rectangle. */
+.info-editor {
+  position: absolute;
+}
+.info-box {
+  display: none;
+  position: absolute;
+  z-index: 2;
+  border: 1px dashed rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.06);
+  pointer-events: none;
+}

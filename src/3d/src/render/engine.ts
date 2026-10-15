@@ -57,6 +57,8 @@ export class RenderEngine {
   lost = false;
   onLost?: (message: string) => void;
   frameCallbacks = new Set<() => void>();
+  /** called after every redraw of the shared canvas (e.g. to copy a viewport into an area window) */
+  afterDraw = new Set<() => void>();
 
   constructor(container: HTMLElement) {
     this.canvas = document.createElement('canvas');
@@ -138,6 +140,7 @@ export class RenderEngine {
       r.setRenderTarget(null);
     }
     r.setScissorTest(false);
+    for (const cb of this.afterDraw) cb();
   }
 
   /** Clear the current scissor region. */

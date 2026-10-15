@@ -156,6 +156,12 @@ adds entries to File ▸ Import/Export. Native format: `io/native.ts`.
 - `nodes/editor/context.ts` `registerNodeEditorProvider` (Shader, Geometry, Compositor editors; optional
   `linkViewer` for Ctrl Shift click, `viewPanels` / `optionsPanels` for the sidebar's View / Options tabs).
   Tree commands behind the node editor's menus are pure functions in `nodes/treeops.ts` and `nodes/iface.ts`.
+- Screen: `ui/layout.ts` (pure split/join/swap of the layout tree), `ui/screenops.ts` (area
+  operators); header buttons with class `hdr-menu` that open a menu on pointerdown are picked up
+  by F3 menu search and the collapsed-menus button (`captureMenuItems` in `ui/menu.ts`)
+- Top bar menus live in `ui/topbar.ts` (`fileNewTemplates`, `wm.call_menu` names); recent files,
+  the startup file and auto save snapshots in `io/session.ts`; `itemContextHooks` (`ui/menu.ts`)
+  add entries to the right-click menu of menu items
 
 ### Registration
 Feature modules are imported for side effects from `src/modules.ts` (`registerModules()`).

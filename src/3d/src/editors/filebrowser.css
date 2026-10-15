@@ -53,8 +53,30 @@
 }
 .fb-items.grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--fb-thumb, 96px) - 12px), 1fr));
   gap: 6px;
+}
+.fb-items.hlist {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(auto-fill, 22px);
+  grid-auto-columns: minmax(160px, 220px);
+  height: 100%;
+  column-gap: 8px;
+}
+.fb-items.hlist .fb-item {
+  flex-direction: row;
+  padding: 2px 6px;
+  height: 22px;
+}
+.fb-items.hlist .fb-icon,
+.fb-items.hlist .fb-icon svg,
+.fb-items.hlist .fb-thumb {
+  width: 16px;
+  height: 16px;
+}
+.fb-items.hlist .fb-name {
+  font-size: 12px;
 }
 .fb-items.list {
   display: flex;
@@ -82,14 +104,14 @@
   color: #fff;
 }
 .fb-icon {
-  width: 56px;
-  height: 56px;
+  width: calc(var(--fb-thumb, 96px) * 0.6);
+  height: calc(var(--fb-thumb, 96px) * 0.6);
   display: grid;
   place-items: center;
 }
 .fb-icon svg {
-  width: 36px;
-  height: 36px;
+  width: calc(var(--fb-thumb, 96px) * 0.38);
+  height: calc(var(--fb-thumb, 96px) * 0.38);
 }
 .fb-items.list .fb-icon,
 .fb-items.list .fb-icon svg {
@@ -97,8 +119,8 @@
   height: 16px;
 }
 .fb-thumb {
-  width: 64px;
-  height: 56px;
+  width: calc(var(--fb-thumb, 96px) * 0.7);
+  height: calc(var(--fb-thumb, 96px) * 0.6);
   object-fit: contain;
   background: repeating-conic-gradient(#3a3a3a 0 25%, #303030 0 50%) 0 0 / 12px 12px;
 }
@@ -132,9 +154,13 @@
 .fb-empty-small {
   color: #888;
   padding: 2px 8px;
+  grid-column: 1 / -1;
 }
 .fb-path {
   color: #aaa;
+  height: 20px;
+  border-radius: 4px;
+  text-align: left;
   padding: 0 8px;
   white-space: nowrap;
   overflow: hidden;
@@ -151,4 +177,49 @@
   .fb-side {
     display: none;
   }
+}
+
+.fb-items.list .fb-name {
+  flex: 1;
+  min-width: 0;
+}
+.fb-size,
+.fb-date {
+  flex: none;
+  color: #999;
+  font-size: 11px;
+  text-align: right;
+}
+.fb-size {
+  width: 70px;
+}
+.fb-date {
+  width: 120px;
+}
+.fb-item.on .fb-size,
+.fb-item.on .fb-date {
+  color: #e8ecf5;
+}
+.fb-item.active {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+.fb-main {
+  position: relative;
+}
+.fb-box {
+  position: absolute;
+  z-index: 2;
+  border: 1px dashed rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.06);
+  pointer-events: none;
+}
+.file-browser.no-sidebar .fb-side {
+  display: none;
+}
+.fb-filter-wrap {
+  display: flex;
+}
+.fb-path:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ddd;
 }

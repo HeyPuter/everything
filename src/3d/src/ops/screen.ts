@@ -1,6 +1,6 @@
 // Screen-level operators: undo/redo, frames & playback, search, keyframes, areas.
-import { app, registerOperators, operators } from '../app/app';
-import { openMenu, openSearch, type SearchEntry, type MenuItem } from '../ui/menu';
+import { app, registerOperators, operators, type AreaLike } from '../app/app';
+import { openMenu, openSearch, captureMenuItems, type SearchEntry, type MenuItem } from '../ui/menu';
 import { openRedoPopup } from '../ui/redo';
 import { insertKeyframesForObjects, deleteKeyframesAt, type KeyingSet } from '../anim/keyframes';
 import { shortcutLabel } from '../app/keymap';
@@ -175,18 +175,11 @@ registerOperators([
   {
     idname: 'wm.search_menu',
     label: 'Menu Search',
-    description: 'Search all operators',
+    description: 'Search the menus of the top bar and of the editor under the pointer, and all operators',
     undo: false,
-    exec: () => {
-      openSearch(() => {
-        const out: SearchEntry[] = [];
-        for (const op of operators.values()) {
-          if (op.internal) continue;
-          const sc = shortcutLabel(op.idname);
-          out.push({ label: op.label, path: op.idname.split('.')[0].replace(/^\w/, (c) => c.toUpperCase()), shortcut: sc, disabled: !app.poll(op.idname), run: () => app.run(op.idname) });
-        }
-        return out.sort((a, b) => a.label.localeCompare(b.label));
-      });
+    exec: (ctx) => {
+      const area = ctx.area;
+      openSearch(() => searchEntries(area));
     },
   },
   {
@@ -256,3 +249,79 @@ registerOperators([
     },
   },
 ]);
+
+// ---------------------------------------------------------------------------
+// menu search
+
+/** Menu buttons (top bar and the area's header) with their items, collected without opening them. */
+function menuRoots(area: AreaLike | null): { label: string; items: () => MenuItem[] }[] {
+  const capture = (b: HTMLElement) => () => captureMenuItems(() => b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 })));
+  const roots = [...document.querySelectorAll<HTMLElement>('.topbar .tb-menu')].map((b) => ({ label: b.textContent?.trim() ?? '', items: capture(b) }));
+  const header = (area?.el as HTMLElement | undefined)?.querySelector<HTMLElement>('.area-header');
+  if (header) for (const b of header.querySelectorAll<HTMLElement>('.hdr-menu')) roots.push({ label: b.textContent?.trim() ?? '', items: capture(b) });
+  return roots;
+}
+
+/** Flatten menus into search entries with their menu path (e.g. "View ▸ Area ▸ Vertical Split"). */
+export function menuEntries(roots: { label: string; items: () => MenuItem[] }[], maxDepth = 4): (SearchEntry & { op?: string })[] {
+  const out: (SearchEntry & { op?: string })[] = [];
+  const walk = (items: MenuItem[], path: string[], depth: number) => {
+    for (const it of items) {
+      if (it.separator || it.heading || it.custom) continue;
+      const label = it.label ?? (it.op ? operators.get(it.op)?.label : undefined);
+      if (!label) continue;
+      if (it.submenu) {
+        if (depth >= maxDepth) continue;
+        let sub: MenuItem[] = [];
+        try {
+          sub = it.submenu();
+        } catch {
+          sub = [];
+        }
+        walk(sub, [...path, label], depth + 1);
+        continue;
+      }
+      if (!it.op && !it.action) continue;
+      const disabled = !!it.disabled || (!!it.op && !app.poll(it.op));
+      out.push({
+        label,
+        path: path.join(' ▸ '),
+        icon: it.icon,
+        shortcut: it.shortcut ?? (it.op ? shortcutLabel(it.op, it.props) : ''),
+        disabled,
+        op: it.op,
+        run: () => (it.action ? it.action() : app.run(it.op!, it.props ?? {})),
+      });
+    }
+  };
+  for (const r of roots) {
+    let items: MenuItem[] = [];
+    try {
+      items = r.items();
+    } catch {
+      items = [];
+    }
+    walk(items, [r.label], 1);
+  }
+  return out;
+}
+
+function searchEntries(area: AreaLike | null): SearchEntry[] {
+  const menus = menuEntries(menuRoots(area));
+  const seen = new Set<string>();
+  const out: SearchEntry[] = [];
+  for (const e of menus) {
+    const k = `${e.path}|${e.label}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(e);
+  }
+  const inMenus = new Set(menus.map((e) => e.op).filter(Boolean));
+  const ops: SearchEntry[] = [];
+  for (const op of operators.values()) {
+    if (op.internal || inMenus.has(op.idname)) continue;
+    ops.push({ label: op.label, path: op.idname.split('.')[0].replace(/^\w/, (c) => c.toUpperCase()), shortcut: shortcutLabel(op.idname), disabled: !app.poll(op.idname, area), run: () => app.run(op.idname, {}, { area }) });
+  }
+  ops.sort((a, b) => a.label.localeCompare(b.label));
+  return [...out, ...ops];
+}

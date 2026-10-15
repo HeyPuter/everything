@@ -10,7 +10,7 @@ import { parentClearMenu, parentSetMenu } from '../object/menus';
 const objectMode = () => app.doc.mode === 'OBJECT';
 
 addKeys('Window', [
-  { key: 'N', ctrl: true, op: 'wm.read_homefile' },
+  { key: 'N', ctrl: true, op: 'wm.call_menu', props: { name: 'TOPBAR_MT_file_new' } },
   { key: 'O', ctrl: true, op: 'wm.open_mainfile' },
   { key: 'S', ctrl: true, op: 'wm.save_mainfile' },
   { key: 'S', ctrl: true, shift: true, op: 'wm.save_as_mainfile' },
