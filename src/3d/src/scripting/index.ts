@@ -8,30 +8,35 @@
 //   wmops.ts                        About, Keyboard Shortcuts, Preferences, Recover, Purge operators
 //   panels_ui.ts                    script panels in the 3D viewport sidebar
 //
-// Supported scripting subset (Python and JavaScript share one object model):
-//   bpy.data.<objects|meshes|materials|collections|cameras|lights|actions|images|texts|
-//             node_groups|worlds|curves|armatures|lattices|particles|brushes|scenes>
+// Supported scripting subset (Python and JavaScript share one object model; tests run both):
+//   bpy.data.<objects|meshes|materials|collections|cameras|lights|actions|images|texts|node_groups|
+//             worlds|curves|armatures|lattices|metaballs|grease_pencils|speakers|masks|movieclips|
+//             fonts|particles|brushes|scenes>
 //       coll["Name"], coll[0], get(), new(), remove(), len()/length, iteration, keys/values/items, find
-//   Object: name, type, data, parent, location/rotation_euler/rotation_quaternion/scale (live vectors),
-//       any document field, matrix_world (get/set), matrix_basis, matrix_local, dimensions,
-//       modifiers.new(name, type)/remove/clear, constraints.new(type)/remove, vertex_groups.new,
-//       keyframe_insert/keyframe_delete(data_path, index, frame), select_get/set, hide_get/set,
-//       visible_get, active_material, material_slots, children, users_collection, copy(), ob["prop"]
-//   Mesh: vertices[i].co/select/normal, edges, polygons (vertices, normal, center, area, use_smooth,
-//       material_index), loops, from_pydata(verts, edges, faces) (loose edges are not stored),
-//       update(), transform(), clear_geometry(), shade_smooth/flat(), materials.append/pop/clear,
-//       vertices/polygons.foreach_get/foreach_set, loops.foreach_get('vertex_index'),
-//       uv_layers (one map: active, new(), data[i].uv, foreach_get/foreach_set('uv'))
-//   Material/World: node_tree.nodes[name|i].inputs[name].default_value, nodes.new/remove,
-//       links.new(output, input)/remove, image nodes' .image; Camera: view_frame(scene);
-//   Images: images.new, images.load(name) of files offered by the app (scripting/files.ts,
-//       e.g. images attached to the AI assistant's chat); Action: fcurves.new/find/remove, keyframe_points.insert
-//   Scene: frame_current, frame_set(), frame_start/end, render.*, cursor, camera, world, collection,
-//       objects; Collection: objects.link/unlink, children.link/unlink, all_objects
-//   bpy.context: scene, object, active_object, selected_objects, visible_objects, view_layer
-//       (objects.active get/set), mode, collection, area, material, evaluated_depsgraph_get()
+//   Every struct (api_anim.ts): keyframe_insert/keyframe_delete/driver_add/driver_remove on any
+//       property an object reaches (data, modifiers, material node inputs, pose bones, shape keys),
+//       path_resolve, path_from_id, id_data; generic fields by name (rna.ts)
+//   Object: transforms (live vectors), matrix_world/basis/local, dimensions, modifiers (incl.
+//       GREASE_PENCIL_* on grease pencil objects), constraints, shader_effects, vertex_groups,
+//       shape keys, pose.bones (matrix, constraints), animation_data (action, nla_tracks/strips,
+//       drivers with variables), selection, visibility, materials, children, copy(), ob["prop"]
+//   Mesh (api_mesh.ts): vertices/edges (incl. loose)/polygons/loops/loop_triangles with flags and
+//       foreach_get/foreach_set, from_pydata, low-level add() + update(), attributes,
+//       color_attributes, vertex_colors, face sets, custom split normals, one UV map
+//   Armature: bones, edit_bones (Edit Mode), bone collections (modes/armature/scripting.ts)
+//   Grease pencil (api_data.ts): layers, frames, drawing.strokes/points, add_strokes; Curves:
+//       splines.new, bezier_points/points.add (api_shapes.ts); Metaballs: elements (metaball/)
+//   Material/World: node_tree nodes/links/sockets (socket keyframes), color ramps, image nodes;
+//       Images: new, load (files offered by the app, scripting/files.ts), pixels (api_image.ts)
+//   Action: fcurves new/find/remove, keyframe_points insert/add/remove/foreach, modifiers
+//   Scene: frame_set, render.*, view_layers (passes), keying_sets, timeline_markers,
+//       sequence_editor (strips.new_effect/new_scene/new_meta, active_strip), cursor, camera, world
+//   bpy.context (api_context.ts): objects, selection, mode, bones/pose bones, paint objects, data
+//       by type, tool_settings, area/region/screen/window, strips, temp_override
+//   bpy.app.handlers (frame change, depsgraph update, load, save, render, undo/redo, playback) and
+//       bpy.app.timers (handlers.ts)
 //   bpy.ops.<module>.<op>(**props[, 'INVOKE_DEFAULT']) → {'FINISHED'} / {'CANCELLED'}; poll()
-//   mathutils: Vector, Matrix, Euler, Quaternion, Color, geometry (subset), noise (Python, subset)
+//   mathutils: Vector, Matrix, Euler, Quaternion, Color, geometry, kdtree, bvhtree, noise
 //   bpy_extras.object_utils.world_to_camera_view(scene, camera, co)
 //   bpy.props: Float/Int/Bool/String/Enum/FloatVector/IntVector/BoolVectorProperty
 //   bpy.types.Operator: bl_idname, bl_label, bl_description, bl_options ('REGISTER', 'UNDO',
@@ -46,8 +51,8 @@
 //       deform, shape, float/int/string), bmesh.ops (create_*, extrude, transforms, delete,
 //       merge, subdivide, triangulate, inset, bevel, bridge, spin, mirror, dissolve, …),
 //       bmesh.utils / bmesh.geometry subsets, bmesh.types for isinstance()
-//   Not supported: bpy.app.handlers, modal operators, menus, PointerProperty /
-//       CollectionProperty, file-system access (images.load etc.).
+//   Not supported: modal operators, menus, PointerProperty / CollectionProperty, file-system
+//       access (only files the app offers), several scenes or view layers.
 import './scripting.css';
 import './icons';
 import './registry';
@@ -58,6 +63,7 @@ import './info';
 import './prefs_editor';
 import './wmops';
 import './panels_ui';
+import './api_ext';
 import './bmesh';
 import { applyKeymapOverrides } from './keymap_prefs';
 import { applyPreferences } from './prefs_editor';

@@ -63,7 +63,7 @@ export const GUIDES: Record<string, Guide> = {
       return [
         "const bm = bmesh.new(); bm.from_mesh(me) (or bmesh.from_edit_mesh(me) in Edit Mode); edit; bm.to_mesh(me); bm.free() (in Edit Mode: bmesh.update_edit_mesh(me)).",
         'Elements: bm.verts / bm.edges / bm.faces with .new(...), .remove(x), .ensure_lookup_table() before indexing; BMVert.co / .normal / .link_edges / .link_faces, BMEdge.verts / .other_vert(v), BMFace.verts / .edges / .loops / .normal / .calc_center_median(); loop UVs via bm.loops.layers.uv.verify() and loop[uv].uv.',
-        "Operators take the BMesh and an options object and return an object of results: const r = bmesh.ops.extrude_face_region(bm, {geom: bm.faces}); bmesh.ops.translate(bm, {vec: [0, 0, 1], verts: r.geom.filter((e) => e.co)}).",
+        "Operators take the BMesh and an options object and return an object of results: const r = bmesh.ops.extrude_face_region(bm, {geom: bm.faces}); bmesh.ops.translate(bm, {vec: [0, 0, 1], verts: r.geom.filter((e) => e.co)}). extrude_face_region keeps the original faces (inside the extrusion); remove them with bmesh.ops.delete(bm, {geom: faces, context: 'FACES_ONLY'}) for a closed shell.",
         `bmesh.ops: ${keysOf(b.ops).sort().join(', ')}.`,
       ].join('\n');
     },

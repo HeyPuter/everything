@@ -44,7 +44,24 @@ describe('api_help guides', () => {
     expect((await help('context')).content).toMatch(/active_pose_bone/);
     expect((await help('data')).content).toMatch(/grease_pencils/);
     const bm = await help('bmesh');
-    expect(bm.ok).toBe(true);
+    expect(bm.content).toMatch(/extrude_face_region.*inset_individual|inset_individual.*extrude_face_region/s);
+  });
+
+  it("the guides' examples run", async () => {
+    const r = await script(`
+      const me = D.meshes.new('Box'); const bm = bmesh.new();
+      bmesh.ops.create_cube(bm, {size: 1});
+      const res = bmesh.ops.extrude_face_region(bm, {geom: [...bm.faces].filter((f) => f.normal.z > 0.5)});
+      bmesh.ops.translate(bm, {vec: [0, 0, 1], verts: res.geom.filter((e) => e.co)});
+      bm.to_mesh(me); bm.free();
+      const ob = D.objects.new('Box', me); C.collection.objects.link(ob);
+      const tree = mathutils.bvhtree.BVHTree.FromObject(ob, C.evaluated_depsgraph_get());
+      const hit = tree.ray_cast([0, 0, 5], [0, 0, -1]);
+      print(me.polygons.length, hit[0].z.toFixed(2));
+      C.temp_override({active_object: ob, selected_objects: [ob]}, () => bpy.ops.object.shade_smooth());
+    `);
+    expect(r.ok).toBe(true);
+    expect(r.content).toContain('11 1.50');
   });
 
   it('describes the API without naming any other application', () => {
