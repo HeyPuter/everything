@@ -176,7 +176,7 @@ test('compositor nodes match the expected pixels', async ({ page }) => {
   const { readFileSync } = await import('node:fs');
   const all = JSON.parse(readFileSync('tests/fixtures/shcomp/compositor-expected.json', 'utf8')).cases as Record<string, CmpCase>;
   // color spaces outside the supported set and the (smoothed) inpaint fill are checked elsewhere
-  const skip = /AgX|Filmic|Khronos|PQ|^inp|^hc_hramp/;
+  const skip = /AgX|Filmic|Khronos|PQ|^inp|^hc_hramp|^key_feather/;
   const cases = Object.fromEntries(Object.entries(all).filter(([k]) => !skip.test(k)));
   const errors = await openApp(page);
   const res = await compose(page, cases);

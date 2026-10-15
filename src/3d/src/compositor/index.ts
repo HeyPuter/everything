@@ -18,6 +18,7 @@ import './ops/utility';
 import './ops/info';
 import './ops/colorspace';
 import './ops/distance';
+import './ops/keyingnode';
 import './session';
 import './editor';
 import './properties';
