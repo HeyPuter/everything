@@ -38,3 +38,32 @@ describe('Bevel options', () => {
     expect(out.custom_normals?.length).toBe(out.indices.length * 3);
   });
 });
+
+describe('Solidify options', () => {
+  const plane = () => newMeshData('p', prim.plane(2)) as unknown as EvalMesh;
+  it('flips normals, creases the rim and fills output groups', () => {
+    const m = plane();
+    m.vertex_groups = [{ name: 'shell' }, { name: 'rim' }];
+    m.weights = [new Float32Array(4), new Float32Array(4)];
+    const out = run('SOLIDIFY', m, { thickness: 0.1, edge_crease_outer: 1, edge_crease_rim: 0.5, shell_vertex_group: 'shell', rim_vertex_group: 'rim' });
+    expect(counts(out)).toEqual([8, 6]);
+    expect(Math.max(...out.creases!)).toBe(1);
+    expect(Array.from(out.creases!).filter((c) => c === 0.5).length).toBe(8);
+    expect(Array.from(out.weights![0]).filter((w) => w === 1).length).toBe(4);
+    expect(Array.from(out.weights![1]).filter((w) => w === 1).length).toBe(8);
+    const flipped = run('SOLIDIFY', plane(), { thickness: 0.1, use_flip_normals: true });
+    // the original side faces down after flipping
+    expect(flipped.normals[2]).toBeCloseTo(-1, 5);
+  });
+
+  it('scales thickness by a vertex group and clamps it', () => {
+    const m = plane();
+    m.vertex_groups = [{ name: 'G' }];
+    m.weights = [Float32Array.from([1, 1, 0, 0])];
+    const out = run('SOLIDIFY', m, { thickness: 0.1, vertex_group: 'G', thickness_vertex_group: 0.5, use_rim: false });
+    const zs = Array.from({ length: 4 }, (_, i) => out.positions[(4 + i) * 3 + 2]);
+    expect(zs.map((z) => Math.round(z * 1000) / 1000)).toEqual([-0.1, -0.1, -0.05, -0.05]);
+    const clamped = run('SOLIDIFY', plane(), { thickness: 5, thickness_clamp: 0.5, use_rim: false });
+    expect(clamped.positions[4 * 3 + 2]).toBeCloseTo(-1, 5);
+  });
+});

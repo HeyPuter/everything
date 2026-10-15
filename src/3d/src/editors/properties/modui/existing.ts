@@ -164,3 +164,30 @@ modifierExtraUI.SUBSURF = (_ob, m) => {
     ]),
   ];
 };
+
+// ---------------------------------------------------------------------------
+// Solidify
+
+modifierFields.SOLIDIFY = [];
+modifierExtraUI.SOLIDIFY = (ob, m) => {
+  const r = m as Rec;
+  return [
+    num(r, 'thickness', 'Thickness', { unit: 'distance' }),
+    num(r, 'offset', 'Offset', { min: -1, max: 1, slider: true }),
+    bool(r, 'use_even_offset', 'Even Thickness'),
+    h('div', { class: 'sub-label' }, 'Rim'),
+    bool(r, 'use_rim', 'Fill'),
+    bool(r, 'use_rim_only', 'Only Rim', { disabled: !r.use_rim }),
+    vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
+    r.vertex_group ? num(r, 'thickness_vertex_group', 'Factor', { min: 0, max: 1, slider: true }) : null,
+    sub(m, 'normals', 'Normals', () => [bool(r, 'use_flip_normals', 'Flip')]),
+    sub(m, 'materials', 'Materials', () => [num(r, 'material_offset', 'Material Offset', { int: true }), num(r, 'material_offset_rim', 'Rim', { int: true })]),
+    sub(m, 'edges', 'Edge Data', () => [
+      num(r, 'edge_crease_inner', 'Crease Inner', { min: 0, max: 1, slider: true }),
+      num(r, 'edge_crease_outer', 'Outer', { min: 0, max: 1, slider: true }),
+      num(r, 'edge_crease_rim', 'Rim', { min: 0, max: 1, slider: true }),
+    ]),
+    sub(m, 'clamp', 'Thickness Clamp', () => [num(r, 'thickness_clamp', 'Clamp', { min: 0, max: 100, softMax: 2, slider: true })]),
+    sub(m, 'vgroups', 'Output Vertex Groups', () => [vgroupRow(ob, m, 'shell_vertex_group', 'Shell'), vgroupRow(ob, m, 'rim_vertex_group', 'Rim')]),
+  ];
+};

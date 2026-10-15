@@ -659,18 +659,29 @@ function solidify(m: EvalMesh, mod: ModifierBase): EvalMesh {
   const even = bool(mod, 'use_even_offset');
   const rim = bool(mod, 'use_rim', true),
     rimOnly = bool(mod, 'use_rim_only');
+  const flip = bool(mod, 'use_flip_normals');
   const vn = vertexNormals(m);
   const P = m.positions,
     nv = P.length / 3;
-  const b = new MeshBuilder(m.weights?.length ?? 0, !!m.colors);
+  const groups = m.weights?.length ?? 0;
+  const b = new MeshBuilder(groups, !!m.colors);
   const inner = (offset - 1) / 2,
     outer = (offset + 1) / 2;
   const a = new Int32Array(nv),
     c = new Int32Array(nv);
-  // even thickness: scale by 1/cos(angle) between vertex normal and adjacent face normals
-  let scale: Float32Array | null = null;
+  // per-vertex thickness: vertex group (with the factor used at zero weight) and clamping
+  const scale = new Float32Array(nv).fill(1);
+  const gw = groupWeights(m, str(mod, 'vertex_group'));
+  if (gw) {
+    const f = num(mod, 'thickness_vertex_group', 0),
+      inv = bool(mod, 'invert_vertex_group');
+    for (let v = 0; v < nv; v++) {
+      const w = inv ? 1 - gw[v] : gw[v];
+      scale[v] = f + (1 - f) * w;
+    }
+  }
   if (even) {
-    scale = new Float32Array(nv).fill(1);
+    // even thickness: scale by 1/cos(angle) between vertex normal and adjacent face normals
     const vf = vertexFaces(m);
     const n: [number, number, number] = [0, 0, 0];
     for (let v = 0; v < nv; v++) {
@@ -682,26 +693,50 @@ function solidify(m: EvalMesh, mod: ModifierBase): EvalMesh {
         sum += Math.max(0.2, n[0] * vn[v * 3] + n[1] * vn[v * 3 + 1] + n[2] * vn[v * 3 + 2]);
         k++;
       }
-      if (k) scale[v] = 1 / (sum / k);
+      if (k) scale[v] /= sum / k;
     }
   }
+  const clamp = num(mod, 'thickness_clamp', 0);
+  if (clamp > 0) {
+    const et = edgeTopology(m);
+    const minLen = new Float32Array(nv).fill(Infinity);
+    for (let e = 0; e < et.count; e++) {
+      const x = et.verts[e * 2],
+        y = et.verts[e * 2 + 1];
+      const l = Math.hypot(P[x * 3] - P[y * 3], P[x * 3 + 1] - P[y * 3 + 1], P[x * 3 + 2] - P[y * 3 + 2]);
+      minLen[x] = Math.min(minLen[x], l);
+      minLen[y] = Math.min(minLen[y], l);
+    }
+    for (let v = 0; v < nv; v++) if (Number.isFinite(minLen[v]) && Math.abs(t * scale[v]) > minLen[v] * clamp) scale[v] = (Math.sign(scale[v]) * minLen[v] * clamp) / Math.abs(t || 1);
+  }
+  const shellG = (m.vertex_groups ?? []).findIndex((g) => g.name === str(mod, 'shell_vertex_group') && !!g.name);
+  const rimG = (m.vertex_groups ?? []).findIndex((g) => g.name === str(mod, 'rim_vertex_group') && !!g.name);
+  const wOf = (v: number, shell: boolean) => {
+    const w = weightsOf(m, v);
+    if (w && shell && shellG >= 0) w[shellG] = 1;
+    return w;
+  };
   for (let v = 0; v < nv; v++) {
-    const s = scale ? scale[v] : 1;
-    a[v] = b.addVert(P[v * 3] + vn[v * 3] * t * outer * s, P[v * 3 + 1] + vn[v * 3 + 1] * t * outer * s, P[v * 3 + 2] + vn[v * 3 + 2] * t * outer * s, m.origIndex?.[v] ?? v, weightsOf(m, v));
+    const s = scale[v];
+    a[v] = b.addVert(P[v * 3] + vn[v * 3] * t * outer * s, P[v * 3 + 1] + vn[v * 3 + 1] * t * outer * s, P[v * 3 + 2] + vn[v * 3 + 2] * t * outer * s, m.origIndex?.[v] ?? v, wOf(v, false));
   }
   for (let v = 0; v < nv; v++) {
-    const s = scale ? scale[v] : 1;
-    c[v] = b.addVert(P[v * 3] + vn[v * 3] * t * inner * s, P[v * 3 + 1] + vn[v * 3 + 1] * t * inner * s, P[v * 3 + 2] + vn[v * 3 + 2] * t * inner * s, -1, weightsOf(m, v));
+    const s = scale[v];
+    c[v] = b.addVert(P[v * 3] + vn[v * 3] * t * inner * s, P[v * 3 + 1] + vn[v * 3 + 1] * t * inner * s, P[v * 3 + 2] + vn[v * 3 + 2] * t * inner * s, -1, wOf(v, true));
   }
   const matOff = Math.round(num(mod, 'material_offset')),
     rimMat = Math.round(num(mod, 'material_offset_rim'));
   if (!rimOnly) {
-    appendMesh(b, m, a);
+    appendMesh(b, m, a, flip);
     const shifted = matOff && m.material_index ? { ...m, material_index: m.material_index.map((x) => x + matOff) as Uint16Array } : m;
-    appendMesh(b, shifted, c, true);
+    appendMesh(b, shifted, c, !flip);
   }
   if (rim) {
     const et = edgeTopology(m);
+    const cOuter = num(mod, 'edge_crease_outer'),
+      cInner = num(mod, 'edge_crease_inner'),
+      cRim = num(mod, 'edge_crease_rim');
+    const creased = cOuter > 0 || cInner > 0 || cRim > 0;
     for (let ci = 0; ci < m.indices.length; ci++) {
       const e = et.cornerEdge[ci];
       if (et.faceOffsets[e + 1] - et.faceOffsets[e] !== 1) continue;
@@ -710,7 +745,15 @@ function solidify(m: EvalMesh, mod: ModifierBase): EvalMesh {
         en = m.offsets[f + 1];
       const v0 = m.indices[ci],
         v1 = m.indices[ci + 1 < en ? ci + 1 : s];
-      b.addFace([a[v1], a[v0], c[v0], c[v1]], [0, 0, 1, 0, 1, 1, 0, 1], m.smooth?.[f] ?? 0, (m.material_index?.[f] ?? 0) + rimMat);
+      const quad = [a[v1], a[v0], c[v0], c[v1]];
+      // edges: outer (a1-a0), rim (a0-c0), inner (c0-c1), rim (c1-a1)
+      let creases = creased ? [cOuter, cRim, cInner, cRim] : undefined;
+      if (flip) {
+        quad.reverse();
+        if (creases) creases = [cInner, cRim, cOuter, cRim];
+      }
+      b.addFace(quad, [0, 0, 1, 0, 1, 1, 0, 1], m.smooth?.[f] ?? 0, (m.material_index?.[f] ?? 0) + rimMat, { creases });
+      if (rimG >= 0 && b.weights) for (const q of quad) b.weights[rimG][q] = 1;
     }
   }
   return b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle });
@@ -1379,7 +1422,14 @@ export const modifierTypes: Record<string, ModifierType> = {
     apply: mirrorMesh,
   },
   SCREW: { type: 'SCREW', label: 'Screw', category: 'GENERATE', icon: 'mod_screw', defaults: base({ angle: Math.PI * 2, steps: 16, render_steps: 16, screw_offset: 0, iterations: 1, axis: 'Z', use_merge_vertices: false, merge_threshold: 0.01, use_smooth_shade: true, use_flip: false }), apply: screw },
-  SOLIDIFY: { type: 'SOLIDIFY', label: 'Solidify', category: 'GENERATE', icon: 'mod_solidify', defaults: base({ thickness: 0.01, offset: -1, use_even_offset: false, use_rim: true, use_rim_only: false, material_offset: 0, material_offset_rim: 0, vertex_group: '' }), apply: solidify },
+  SOLIDIFY: {
+    type: 'SOLIDIFY',
+    label: 'Solidify',
+    category: 'GENERATE',
+    icon: 'mod_solidify',
+    defaults: base({ solidify_mode: 'EXTRUDE', thickness: 0.01, offset: -1, use_even_offset: false, use_quality_normals: false, use_rim: true, use_rim_only: false, use_flip_normals: false, thickness_clamp: 0, thickness_vertex_group: 0, material_offset: 0, material_offset_rim: 0, vertex_group: '', invert_vertex_group: false, shell_vertex_group: '', rim_vertex_group: '', edge_crease_inner: 0, edge_crease_outer: 0, edge_crease_rim: 0 }),
+    apply: solidify,
+  },
   SUBSURF: {
     type: 'SUBSURF',
     label: 'Subdivision Surface',
