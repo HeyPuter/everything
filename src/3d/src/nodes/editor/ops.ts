@@ -6,7 +6,7 @@ import { contextMenuItems, selectGroupedItems, separateItems } from './menus';
 import type { LinkData, NodeData, NodeTreeData } from '../../data/types';
 import { uid } from '../../data/defaults';
 import { NodeEditor } from './editor';
-import { ctxOf, dissolveNodes, internalLinks, joinInFrame, makeGroup, removeNodes, toggleHiddenSockets, ungroup, uniqueNodeName, nodeById } from '../tree';
+import { ctxOf, dissolveNodes, groupContains, internalLinks, joinInFrame, makeGroup, removeNodes, toggleHiddenSockets, ungroup, uniqueNodeName, nodeById } from '../tree';
 import { getNodeType, nodeLabel } from '../registry';
 
 export function nodeEditorOf(ctx: OpContext): NodeEditor | null {
@@ -471,12 +471,23 @@ const ops: Operator[] = [
         app.report('ERROR', 'Clipboard nodes belong to a different kind of node tree');
         return 'CANCELLED';
       }
+      // group input / output nodes only make sense inside node groups
+      const cur = ed.currentGroupId();
+      // a group cannot be pasted into itself (directly or nested)
+      const recursive = (n: NodeData) => {
+        const ref = n.props.node_tree as string | undefined;
+        const g = ref ? app.doc.node_groups[ref] : undefined;
+        return !!cur && !!g && (g.id === cur || groupContains(app.doc, g, cur));
+      };
+      const nodes = cb.nodes.filter((n) => (cur || (n.type !== 'NodeGroupInput' && n.type !== 'NodeGroupOutput')) && !recursive(n));
+      if (nodes.length < cb.nodes.length) app.report('WARNING', 'Some nodes cannot be pasted here (group inputs / outputs outside groups, or a group into itself)');
+      if (!nodes.length) return 'CANCELLED';
       const [px, py] = ed.toNode(app.pointer.x, app.pointer.y);
-      const cx = cb.nodes.reduce((s, n) => s + n.location[0], 0) / cb.nodes.length,
-        cy = cb.nodes.reduce((s, n) => s + n.location[1], 0) / cb.nodes.length;
+      const cx = nodes.reduce((s, n) => s + n.location[0], 0) / nodes.length,
+        cy = nodes.reduce((s, n) => s + n.location[1], 0) / nodes.length;
       const map = new Map<string, string>();
       for (const n of tree.nodes) n.select = false;
-      for (const src of cb.nodes) {
+      for (const src of nodes) {
         const n = structuredClone(src);
         n.id = uid('node');
         n.name = uniqueNodeName(tree, src.name);
@@ -486,7 +497,7 @@ const ops: Operator[] = [
         tree.nodes.push(n);
       }
       for (const n of tree.nodes) if (n.select && n.parent) n.parent = map.get(n.parent) ?? null;
-      for (const l of cb.links)
+      for (const l of cb.links.filter((x) => map.has(x.from_node) && map.has(x.to_node)))
         tree.links.push({
           ...l,
           id: uid('link'),

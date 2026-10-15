@@ -14,9 +14,11 @@
 .nd-editor.panning {
   cursor: grabbing;
 }
-.nd-editor.resizing,
+.nd-editor.resizing {
+  cursor: ew-resize;
+}
 .nd-editor.resizing * {
-  cursor: ew-resize !important;
+  cursor: inherit !important;
 }
 .nd-editor.box-pending {
   cursor: crosshair;
@@ -263,6 +265,9 @@
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.85),
     0 0 0 3px rgba(255, 255, 255, 0.85);
+}
+.nd-sock.dim {
+  opacity: 0.25;
 }
 .nd-sock.diamond {
   border-radius: 2px;

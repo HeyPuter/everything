@@ -363,6 +363,8 @@ export interface NodeTreeData {
   description?: string;
   /** node groups: width of newly added group nodes */
   default_group_node_width?: number;
+  /** node groups: header color of the group's nodes, by node category ('input', 'shader', …) */
+  color_tag?: string;
 }
 
 export interface NodeGroupData {

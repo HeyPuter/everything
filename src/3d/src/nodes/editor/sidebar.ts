@@ -48,6 +48,23 @@ const SOCKET_TYPE_ITEMS: [string, string][] = [
 
 let activeKey = '';
 
+/** Header colors a group's nodes can take (node categories). */
+const COLOR_TAGS: [string, string][] = [
+  ['NONE', 'None'],
+  ['attribute', 'Attribute'],
+  ['color', 'Color'],
+  ['converter', 'Converter'],
+  ['distort', 'Distort'],
+  ['filter', 'Filter'],
+  ['geometry', 'Geometry'],
+  ['input', 'Input'],
+  ['output', 'Output'],
+  ['script', 'Script'],
+  ['shader', 'Shader'],
+  ['texture', 'Texture'],
+  ['vector', 'Vector'],
+];
+
 export function drawSidebar(ed: Ed): Child {
   const tree = ed.tree();
   const tabs = ['Node', 'Tool', ...(ed.provider.viewPanels ? ['View'] : []), 'Options', ...(ed.path.length || tree?.interface ? ['Group'] : [])];
@@ -243,6 +260,15 @@ function groupProps(ed: Ed): Child {
     splitRow(
       'Description',
       textField(`nd-g-desc-${g.id}`, g.tree.description ?? '', (v) => ((g.tree.description = v || undefined), changed('Group Description')), { placeholder: 'Shown as the tooltip in Add menus' }),
+    ),
+    splitRow(
+      'Color Tag',
+      enumMenu(
+        `nd-g-tag-${g.id}`,
+        COLOR_TAGS.map(([value, label]) => ({ value, label })),
+        g.tree.color_tag ?? 'NONE',
+        (v) => ((g.tree.color_tag = v === 'NONE' ? undefined : v), changed('Group Color Tag')),
+      ),
     ),
     splitRow(
       'Node Width',

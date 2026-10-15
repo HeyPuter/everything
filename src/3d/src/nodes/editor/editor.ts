@@ -8,7 +8,7 @@ import type { Area, Editor } from '../../ui/screen';
 import { openMenu, openPopover, openSearch, type MenuItem, type SearchEntry } from '../../ui/menu';
 import { checkbox } from '../../ui/widgets';
 import type { NodeData, NodeTreeData } from '../../data/types';
-import { getNodeType, nodeSockets, nodeMenu, canConvert, SOCKET_COLORS, nodeLabel, propValue } from '../registry';
+import { getNodeType, nodeSockets, nodeMenu, canConvert, SOCKET_COLORS, propValue } from '../registry';
 import { connect, ctxOf, linkStatus, nodeById, insertOnLink, removeLinks, makeNode, internalLinks, frameChildren, compatibleGroups } from '../tree';
 import { layoutTree, linkCurve, sockKey, distToCurve, curvePolylineHit, pointInPolygon, type NodeLayout, type SocketPos, HEADER } from './layout';
 import { addReroutes, detachLinks, insertOffset, isFrame, isGroupNode, toggleLinkMute } from '../treeops';
@@ -150,6 +150,7 @@ export class NodeEditor implements Editor {
     this.toolbarEl.className = 'nd-toolbar';
     this.el.append(this.back, this.world, this.over, this.crumbsEl, this.emptyEl, this.toolbarEl, this.sideEl);
     this.el.addEventListener('pointerdown', (e) => this.onDown(e));
+    this.el.addEventListener('pointermove', (e) => this.onHover(e));
     this.el.addEventListener('wheel', (e) => this.onWheel(e), {
       passive: false,
     });
@@ -570,6 +571,7 @@ export class NodeEditor implements Editor {
         if (fa !== fb) return fa - fb;
         return (a.id === tree.active_node ? 1 : 0) - (b.id === tree.active_node ? 1 : 0);
       });
+      const dim = this.socketDimmer();
       for (const n of ordered) {
         const l = this.layouts.get(n.id);
         if (!l) continue;
@@ -583,6 +585,7 @@ export class NodeEditor implements Editor {
               active: tree.active_node === n.id,
               groupName: n.label ? undefined : groupName,
               highlightSockets: this.highlightSockets(),
+              dimSocket: dim,
               rerouteLabel: l.kind === 'REROUTE' ? n.label || (this.showOverlays && this.overlays.rerouteLabels ? rerouteSource(tree, n, this.layouts) : undefined) : undefined,
             },
             linkedOut.get(n.id) ?? new Set(),
@@ -599,6 +602,19 @@ export class NodeEditor implements Editor {
     this.el.dataset.tool = this.tool;
     this.drawBack(W, H);
     this.drawOver(W, H);
+  }
+
+  /** While dragging a link: which sockets it cannot be connected to. */
+  private socketDimmer(): ((p: SocketPos, nodeId: string) => boolean) | undefined {
+    const d = this.linkDrag;
+    if (!d) return undefined;
+    const own = new Set(d.ends.map((e) => e.node));
+    const type = d.ends[0].type;
+    return (p, nodeId) => {
+      if (p.isOutput === d.isOutput || own.has(nodeId)) return true;
+      if (type === 'CUSTOM' || p.socket.type === 'CUSTOM') return false;
+      return d.isOutput ? !canConvert(type, p.socket.type) : !canConvert(p.socket.type, type);
+    };
   }
 
   private highlightSockets(): Set<string> | undefined {
@@ -1053,6 +1069,23 @@ export class NodeEditor implements Editor {
     if (this.tool === 'SELECT_CIRCLE') return this.circleDrag(e, tree, mode);
     if (this.tool === 'TWEAK') return this.boxDrag(e, tree, mode, false);
     this.boxDrag(e, tree, mode);
+  }
+
+  /** Resize cursor over node and frame edges. */
+  private onHover(e: PointerEvent) {
+    if (e.buttons || app.modal) return;
+    let cursor = '';
+    const tree = this.tree();
+    if (tree && !(e.target as HTMLElement).closest('.nd-sidebar, .nd-toolbar, button, .num-field, .enum-menu, input') && !this.hitSocket(e.clientX, e.clientY)) {
+      const n = this.hitNode(e.clientX, e.clientY);
+      const ed = n ? this.resizeEdges(n, e.clientX, e.clientY) : null;
+      if (ed) {
+        const h = ed.l || ed.r,
+          v = ed.t || ed.b;
+        cursor = h && v ? ((ed.l && ed.t) || (ed.r && ed.b) ? 'nwse-resize' : 'nesw-resize') : v ? 'ns-resize' : 'ew-resize';
+      }
+    }
+    if (this.el.style.cursor !== cursor) this.el.style.cursor = cursor;
   }
 
   /** Double click: enter the group node under the pointer, or leave the group on empty space. */
@@ -1657,7 +1690,7 @@ export class NodeEditor implements Editor {
       } else drag = { isOutput: true, ends: [endOf(sock.node, id, true)], px, py };
     }
     this.linkDrag = drag;
-    this.drawOver();
+    this.render();
     let last = { x: e.clientX, y: e.clientY };
     const update = () => {
       const [x, y] = this.toNode(last.x, last.y);
@@ -1678,6 +1711,7 @@ export class NodeEditor implements Editor {
       (ev, moved) => {
         pan.stop();
         this.linkDrag = null;
+        this.render();
         drag.swap = ev.altKey;
         const t = drag.target;
         if (t) {

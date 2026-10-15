@@ -8,7 +8,7 @@ import { openMenu } from '../../ui/menu';
 import type { NodeData, NodeTreeData, SocketValue } from '../../data/types';
 import { getNodeType, inputValue, nodeLabel, nodePanels, propValue, NODE_CLASS_COLORS, SOCKET_COLORS } from '../registry';
 import type { NodeDrawContext, NodePropDef, ResolvedSocket } from '../types';
-import { HEADER, ROW, type NodeLayout, type Row } from './layout';
+import { HEADER, ROW, type NodeLayout, type Row, type SocketPos } from './layout';
 import { compatibleGroups } from '../tree';
 import { importImageFile } from '../../ops/data';
 
@@ -331,12 +331,17 @@ export interface NodeRenderState {
   invalid?: boolean;
   /** text shown above a reroute (its label, or the name of the socket feeding it) */
   rerouteLabel?: string;
+  /** while a link is dragged: sockets it cannot connect to are dimmed */
+  dimSocket?: (p: SocketPos, nodeId: string) => boolean;
 }
 
 const COLLAPSE_TIP = 'Collapse (H)';
 
 export function nodeColor(n: NodeData): string {
   const def = getNodeType(n.type);
+  // group nodes can take a category color from their group
+  const tag = def?.dynamicSockets && typeof n.props.node_tree === 'string' ? app.doc.node_groups[n.props.node_tree]?.tree.color_tag : undefined;
+  if (tag && tag in NODE_CLASS_COLORS) return NODE_CLASS_COLORS[tag as keyof typeof NODE_CLASS_COLORS];
   return NODE_CLASS_COLORS[def?.category ?? 'converter'] ?? '#3b3b3b';
 }
 
@@ -442,6 +447,7 @@ export function renderNode(l: NodeLayout, tree: NodeTreeData, st: NodeRenderStat
           out: p.isOutput,
           linked,
           hl: !!st.highlightSockets?.has(k),
+          dim: !!st.dimSocket?.(p, n.id),
           ext: p.socket.type === 'CUSTOM' && p.socket.identifier === '__extend__',
           diamond: p.socket.shape === 'DIAMOND' || p.socket.shape === 'DIAMOND_DOT',
         },
