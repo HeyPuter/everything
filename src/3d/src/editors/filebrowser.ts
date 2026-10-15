@@ -188,9 +188,21 @@ export class FileBrowser implements Editor {
     this.boxEl = document.createElement('div');
     this.boxEl.className = 'fb-box';
     this.el.append(this.side, this.main);
-    this.main.addEventListener('pointerdown', (e) => {
-      if (e.button === 0 && !(e.target as HTMLElement).closest('.fb-item, button')) this.boxSelect(e);
-    });
+    this.main.addEventListener(
+      'pointerdown',
+      (e) => {
+        if (e.button !== 0) return;
+        if (this.boxPending) {
+          // B: this drag is a box selection even when it starts on an item
+          this.boxPending = false;
+          e.preventDefault();
+          e.stopPropagation();
+          return this.boxSelect(e, true);
+        }
+        if (!(e.target as HTMLElement).closest('.fb-item, button')) this.boxSelect(e);
+      },
+      true,
+    );
     this.main.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       const it = (e.target as HTMLElement).closest<HTMLElement>('.fb-item');
@@ -304,6 +316,8 @@ export class FileBrowser implements Editor {
       { label: 'All', shortcut: 'A', op: 'file.select_all', props: { action: 'SELECT' } },
       { label: 'None', shortcut: 'Alt A', op: 'file.select_all', props: { action: 'DESELECT' } },
       { label: 'Invert', shortcut: 'Ctrl I', op: 'file.select_all', props: { action: 'INVERT' } },
+      { separator: true },
+      { label: 'Box Select', shortcut: 'B', op: 'file.select_box' },
     ];
   }
 
@@ -582,14 +596,24 @@ export class FileBrowser implements Editor {
     this.main.querySelector<HTMLElement>(`.fb-item[data-name="${CSS.escape(name)}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 
-  private boxSelect(down: PointerEvent) {
+  /** B: the next drag in the file list draws a selection box */
+  boxPending = false;
+
+  /** Scroll the active (or first selected) item into view. */
+  viewSelected() {
+    const name = this.active ?? this.selection()[0]?.name;
+    if (name) this.main.querySelector<HTMLElement>(`.fb-item[data-name="${CSS.escape(name)}"]`)?.scrollIntoView({ block: 'center', inline: 'center' });
+  }
+
+  private boxSelect(down: PointerEvent, always = false) {
     const sx = down.clientX,
       sy = down.clientY;
     const mode = down.shiftKey ? 'ADD' : down.ctrlKey || down.metaKey ? 'SUB' : 'SET';
-    let dragging = false;
+    let dragging = always;
+    if (always) this.main.append(this.boxEl);
     const move = (e: PointerEvent) => {
       if (!dragging && Math.hypot(e.clientX - sx, e.clientY - sy) < 5) return;
-      if (!dragging) this.main.append(this.boxEl);
+      if (!this.boxEl.isConnected) this.main.append(this.boxEl);
       dragging = true;
       const r = this.main.getBoundingClientRect();
       Object.assign(this.boxEl.style, { display: 'block', left: `${Math.min(sx, e.clientX) - r.left + this.main.scrollLeft}px`, top: `${Math.min(sy, e.clientY) - r.top + this.main.scrollTop}px`, width: `${Math.abs(e.clientX - sx)}px`, height: `${Math.abs(e.clientY - sy)}px` });
@@ -607,6 +631,10 @@ export class FileBrowser implements Editor {
         }
         return;
       }
+      // the click that follows the release must not reselect the item under the pointer
+      const swallow = (ev: Event) => ev.stopPropagation();
+      addEventListener('click', swallow, { capture: true, once: true });
+      setTimeout(() => removeEventListener('click', swallow, { capture: true }), 0);
       const x0 = Math.min(sx, e.clientX),
         x1 = Math.max(sx, e.clientX),
         y0 = Math.min(sy, e.clientY),
@@ -1073,6 +1101,8 @@ registerOperators([
     },
   },
   { idname: 'file.edit_directory_path', label: 'Edit Directory Path', description: 'Type the folder to go to (relative paths and .. work)', undo: false, poll: withDir, exec: (ctx) => fbOf(ctx)!.editPath() },
+  { idname: 'file.select_box', label: 'Box Select', description: 'Drag a box over files to select them (Shift adds, Ctrl removes)', undo: false, poll: (ctx) => !!fbOf(ctx), exec: (ctx) => void (fbOf(ctx)!.boxPending = true) },
+  { idname: 'file.view_selected', label: 'Frame Selected', description: 'Scroll the selected file into view', undo: false, poll: (ctx) => !!fbOf(ctx)?.selection().length, exec: (ctx) => fbOf(ctx)!.viewSelected() },
   { idname: 'file.start_filter', label: 'Filter', description: 'Type to filter the files', undo: false, poll: (ctx) => !!fbOf(ctx), exec: (ctx) => fbOf(ctx)!.startFilter() },
   { idname: 'file.hidden_toggle', label: 'Show Hidden', description: 'Show files and folders whose name starts with a dot', undo: false, poll: (ctx) => !!fbOf(ctx), exec: (ctx) => fbOf(ctx)!.toggleHidden() },
   { idname: 'file.sidebar_toggle', label: 'Toggle Sidebar', description: 'Show or hide the places sidebar', undo: false, poll: (ctx) => !!fbOf(ctx), exec: (ctx) => fbOf(ctx)!.toggleSidebar() },
@@ -1113,6 +1143,8 @@ addKeys('File Browser', [
   { key: 'B', ctrl: true, op: 'file.bookmark_add' },
   { key: 'F', ctrl: true, op: 'file.start_filter' },
   { key: 'L', ctrl: true, op: 'file.edit_directory_path' },
+  { key: 'B', op: 'file.select_box' },
+  { key: 'NUMPAD_PERIOD', op: 'file.view_selected' },
   { key: 'T', op: 'file.sidebar_toggle' },
   { key: 'ACCENT_GRAVE', op: 'file.view_pie' },
   { key: 'W', op: 'file.context_menu' },

@@ -418,6 +418,17 @@ test('File Browser: browser storage, new folder, rename, keyboard selection, del
   await expect(fb.locator('.fb-item.on')).toHaveCount(2);
   await page.keyboard.press('Alt+a');
   await expect(fb.locator('.fb-item.on')).toHaveCount(0);
+  // B, then drag from an item over the two files
+  const f1 = (await fb.locator('.fb-item', { hasText: 'one.txt' }).boundingBox())!;
+  const f2 = (await fb.locator('.fb-item', { hasText: 'two.py' }).boundingBox())!;
+  await page.keyboard.press('b');
+  await page.mouse.move(f1.x + 4, f1.y + 4);
+  await page.mouse.down();
+  await page.mouse.move(f2.x + f2.width - 4, f2.y + f2.height - 4, { steps: 3 });
+  await page.mouse.up();
+  await expect(fb.locator('.fb-item.on')).toHaveCount(2);
+  await page.mouse.move(v.x + 300, v.y + 300);
+  await page.keyboard.press('Alt+a');
   await page.keyboard.press('a');
   await expect(fb.locator('.fb-item.on')).toHaveCount(3);
   // list view shows sizes; sorting by size puts the larger file first
