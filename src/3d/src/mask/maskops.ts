@@ -513,10 +513,24 @@ const ops: Operator[] = [
           ['RESIZE', 'Scale'],
           ['FEATHER', 'Feather Width'],
         ],
+        hidden: true,
       },
+      { id: 'value', label: 'Value', type: 'vec3', default: [0, 0, 0], precision: 4 },
     ],
     poll: anySel,
     invoke: (_c, p) => (startTransform(p.mode as Mode) ? 'RUNNING_MODAL' : 'CANCELLED'),
+    exec: (_c, p) => {
+      const ed = maskEditor();
+      const m = ed ? hostMask(ed) : null;
+      if (!ed || !m) return 'CANCELLED';
+      const pts = selectedPoints(m).map((x) => x.point);
+      if (!pts.length) return 'CANCELLED';
+      const v = (p.value as number[]) ?? [0, 0, 0];
+      const mode = p.mode as Mode;
+      const value = mode === 'RESIZE' ? [v[0] || 1, v[1] || v[0] || 1] : mode === 'FEATHER' ? [v[0] || 1] : mode === 'ROTATE' ? [v[0]] : [v[0], v[1]];
+      transformPoints(snapPoints(pts), mode, value, aspectOf(ed));
+      done(ed);
+    },
   },
 ];
 
@@ -661,6 +675,60 @@ function startCircle(mode: 'SET' | 'ADD' | 'SUB') {
 
 type Mode = 'TRANSLATE' | 'ROTATE' | 'RESIZE' | 'FEATHER';
 
+interface PointSnap {
+  p: MaskPoint;
+  co: V;
+  hl: V;
+  hr: V;
+  w: number;
+}
+
+const snapPoints = (pts: MaskPoint[]): PointSnap[] => pts.map((p) => ({ p, co: [...p.co] as V, hl: [...p.handle_left] as V, hr: [...p.handle_right] as V, w: p.weight }));
+
+/**
+ * Transform snapshots of points around their median (aspect-correct): TRANSLATE value = [dx, dy]
+ * (frame units), ROTATE value[0] = radians, RESIZE value = [sx, sy], FEATHER value[0] = factor.
+ */
+export function transformPoints(orig: PointSnap[], mode: Mode, value: number[], aspect: number) {
+  const cx = orig.reduce((a, o) => a + o.co[0], 0) / orig.length,
+    cy = orig.reduce((a, o) => a + o.co[1], 0) / orig.length;
+  const tf = (v: V, f: (x: number, y: number) => V): V => {
+    const [x, y] = f((v[0] - cx) * aspect, v[1] - cy);
+    return [cx + x / aspect, cy + y];
+  };
+  for (const o of orig) {
+    o.p.co = [...o.co];
+    o.p.handle_left = [...o.hl];
+    o.p.handle_right = [...o.hr];
+    o.p.weight = o.w;
+  }
+  if (mode === 'TRANSLATE') {
+    const [dx, dy] = value;
+    for (const o of orig) {
+      o.p.co = [o.co[0] + dx, o.co[1] + dy];
+      o.p.handle_left = [o.hl[0] + dx, o.hl[1] + dy];
+      o.p.handle_right = [o.hr[0] + dx, o.hr[1] + dy];
+    }
+  } else if (mode === 'ROTATE') {
+    const c = Math.cos(value[0]),
+      sn = Math.sin(value[0]);
+    const rot = (x: number, y: number): V => [x * c - y * sn, x * sn + y * c];
+    for (const o of orig) {
+      o.p.co = tf(o.co, rot);
+      o.p.handle_left = tf(o.hl, rot);
+      o.p.handle_right = tf(o.hr, rot);
+    }
+  } else if (mode === 'FEATHER') for (const o of orig) o.p.weight = Math.max(0, o.w * value[0]);
+  else {
+    const sc = (x: number, y: number): V => [x * value[0], y * (value[1] ?? value[0])];
+    for (const o of orig) {
+      o.p.co = tf(o.co, sc);
+      o.p.handle_left = tf(o.hl, sc);
+      o.p.handle_right = tf(o.hr, sc);
+    }
+  }
+}
+
 export function startTransform(mode: Mode): boolean {
   const ed = maskEditor();
   if (!ed) return false;
@@ -668,66 +736,31 @@ export function startTransform(mode: Mode): boolean {
   const pts = selectedPoints(m).map((x) => x.point);
   if (!pts.length) return false;
   const aspect = aspectOf(ed);
-  const orig = pts.map((p) => ({ p, co: [...p.co] as V, hl: [...p.handle_left] as V, hr: [...p.handle_right] as V, w: p.weight }));
-  // pivot: median in aspect-corrected space
+  const orig = snapPoints(pts);
   const cx = orig.reduce((a, o) => a + o.co[0], 0) / orig.length,
     cy = orig.reduce((a, o) => a + o.co[1], 0) / orig.length;
   const sp0 = ed.local({ clientX: app.pointer.x, clientY: app.pointer.y });
   const start = s2m(ed, sp0.x, sp0.y);
-  const st = { text: '', axis: null as 'X' | 'Y' | null, value: 0 as number | V };
+  const st = { text: '', axis: null as 'X' | 'Y' | null, value: [0, 0] as number[] };
   let last: V = start;
   const apply = () => {
     const num = st.text && st.text !== '-' ? Number(st.text) : null;
-    for (const o of orig) {
-      o.p.co = [...o.co];
-      o.p.handle_left = [...o.hl];
-      o.p.handle_right = [...o.hr];
-      o.p.weight = o.w;
-    }
-    const tf = (v: V, f: (x: number, y: number) => V): V => {
-      const [x, y] = f((v[0] - cx) * aspect, v[1] - cy);
-      return [cx + x / aspect, cy + y];
-    };
+    let v: number[];
     if (mode === 'TRANSLATE') {
-      let d: V = [last[0] - start[0], last[1] - start[1]];
-      if (num !== null) d = st.axis === 'Y' ? [0, num] : [num, st.axis === 'X' ? 0 : 0];
-      if (st.axis === 'X') d[1] = 0;
-      if (st.axis === 'Y') d[0] = 0;
-      st.value = d;
-      for (const o of orig) {
-        o.p.co = [o.co[0] + d[0], o.co[1] + d[1]];
-        o.p.handle_left = [o.hl[0] + d[0], o.hl[1] + d[1]];
-        o.p.handle_right = [o.hr[0] + d[0], o.hr[1] + d[1]];
-      }
+      v = num !== null ? (st.axis === 'Y' ? [0, num] : [num, 0]) : [last[0] - start[0], last[1] - start[1]];
+      if (st.axis === 'X') v[1] = 0;
+      if (st.axis === 'Y') v[0] = 0;
     } else if (mode === 'ROTATE') {
       const a0 = Math.atan2(start[1] - cy, (start[0] - cx) * aspect),
         a1 = Math.atan2(last[1] - cy, (last[0] - cx) * aspect);
-      const a = num !== null ? (num * Math.PI) / 180 : a1 - a0;
-      st.value = a;
-      const c = Math.cos(a),
-        s = Math.sin(a);
-      const rot = (x: number, y: number): V => [x * c - y * s, x * s + y * c];
-      for (const o of orig) {
-        o.p.co = tf(o.co, rot);
-        o.p.handle_left = tf(o.hl, rot);
-        o.p.handle_right = tf(o.hr, rot);
-      }
+      v = [num !== null ? (num * Math.PI) / 180 : a1 - a0];
     } else {
       const d0 = Math.hypot((start[0] - cx) * aspect, start[1] - cy) || 1e-6;
       const k = num ?? Math.hypot((last[0] - cx) * aspect, last[1] - cy) / d0;
-      st.value = k;
-      if (mode === 'FEATHER') for (const o of orig) o.p.weight = Math.max(0, o.w * k);
-      else {
-        const kx = st.axis === 'Y' ? 1 : k,
-          ky = st.axis === 'X' ? 1 : k;
-        const sc = (x: number, y: number): V => [x * kx, y * ky];
-        for (const o of orig) {
-          o.p.co = tf(o.co, sc);
-          o.p.handle_left = tf(o.hl, sc);
-          o.p.handle_right = tf(o.hr, sc);
-        }
-      }
+      v = mode === 'FEATHER' ? [k] : [st.axis === 'Y' ? 1 : k, st.axis === 'X' ? 1 : k];
     }
+    st.value = v;
+    transformPoints(orig, mode, v, aspect);
     updateHandles(m, aspect);
     app.changed('doc');
     ed.draw();
@@ -737,7 +770,7 @@ export function startTransform(mode: Mode): boolean {
     cursor: mode === 'TRANSLATE' ? 'move' : 'crosshair',
     header: () => {
       const v = st.value;
-      const val = typeof v === 'number' ? (mode === 'ROTATE' ? `${((v * 180) / Math.PI).toFixed(1)}°` : v.toFixed(3)) : `${v[0].toFixed(4)}, ${v[1].toFixed(4)}`;
+      const val = mode === 'TRANSLATE' ? `${v[0].toFixed(4)}, ${v[1].toFixed(4)}` : mode === 'ROTATE' ? `${((v[0] * 180) / Math.PI).toFixed(1)}°` : (st.axis === 'Y' ? v[1] : v[0]).toFixed(3);
       return `${handler.label}: ${st.text ? st.text + '|' : val}${st.axis ? ` along ${st.axis}` : ''}`;
     },
     onPointerMove(e) {
@@ -772,6 +805,7 @@ export function startTransform(mode: Mode): boolean {
     },
     finish() {
       done(ed);
+      handler.redoOp = { idname: 'mask.transform', props: { mode, value: [st.value[0], st.value[1] ?? 0, 0] } };
     },
   };
   app.startModal(handler);

@@ -160,3 +160,21 @@ test('mask: a strip modifier limited to a mask only changes the inside', async (
   expect(v.inside).toBeGreaterThan(v.outside + 0.2);
   await expectNoErrors(errors);
 });
+
+test('mask: point transforms can be adjusted afterwards', async ({ page }) => {
+  const { errors } = await maskingWorkspace(page);
+  await page.keyboard.press('Alt+n');
+  await page.evaluate(() => (window as any).app.run('mask.primitive_square_add', { size: 0.2, location: [0.5, 0.5] }));
+  const before = (await mask(page)).layers[0].splines[0].points[0].co;
+  await page.keyboard.press('g');
+  const c = (await page.locator('.clip-root').first().boundingBox())!;
+  await page.mouse.move(c.x + c.width / 2 + 30, c.y + c.height / 2, { steps: 3 });
+  await page.mouse.down();
+  await page.mouse.up();
+  expect(await page.evaluate(() => (window as any).app.lastOp?.idname)).toBe('mask.transform');
+  await page.evaluate(() => (window as any).app.redoLast({ value: [0.1, 0.05, 0] }));
+  const after = (await mask(page)).layers[0].splines[0].points[0].co;
+  expect(after[0] - before[0]).toBeCloseTo(0.1, 6);
+  expect(after[1] - before[1]).toBeCloseTo(0.05, 6);
+  await expectNoErrors(errors);
+});
