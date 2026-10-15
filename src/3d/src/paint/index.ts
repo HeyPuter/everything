@@ -13,6 +13,7 @@ import './trim';
 import './sculpttransform';
 import './symops';
 import './voxeledit';
+import './dyntopostroke';
 import './vpaint';
 import './wpaint';
 import './tpaint';

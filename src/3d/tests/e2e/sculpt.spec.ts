@@ -219,3 +219,23 @@ test('weight paint gradient, quantize and lock pie', async ({ page }) => {
   await page.keyboard.press('Escape');
   await expectNoErrors(errors);
 });
+
+test('dyntopo refines the mesh under the brush', async ({ page }) => {
+  const errors = await openApp(page);
+  await setup(page, 'SCULPT', 'mesh.primitive_uv_sphere_add', { segments: 32, ring_count: 16, radius: 4 });
+  const c = await viewportCenter(page);
+  await page.locator('.tool-header button[data-tip^="Dyntopo"]').click();
+  const nf0 = await page.evaluate(() => {
+    const a = (window as unknown as W).app;
+    a.doc.scene.tool_settings.sculpt.detail_size = 4;
+    return a.doc.meshes[a.activeObject.data].offsets.length - 1;
+  });
+  expect(nf0).toBe(960); // triangulated
+  await page.mouse.move(c.x - 30, c.y);
+  await page.mouse.down();
+  await page.mouse.move(c.x + 30, c.y, { steps: 10 });
+  await page.mouse.up();
+  const m = await meshInfo(page);
+  expect(m.nf).toBeGreaterThan(nf0 * 2);
+  await expectNoErrors(errors);
+});

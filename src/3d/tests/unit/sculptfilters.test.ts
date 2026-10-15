@@ -223,3 +223,55 @@ describe('simple UVs', async () => {
     expect(cells.size).toBe(6);
   });
 });
+
+describe('dynamic topology', async () => {
+  const { remeshRegion, toTriMesh, fromTriMesh, compactVertices } = await import('../../src/paint/dyntopo');
+  // a 2×2 grid split into triangles
+  const tri = () => {
+    const g = grid(2, 2, 2);
+    const idx: number[] = [];
+    for (let f = 0; f < 4; f++) {
+      const q = Array.from(g.indices.subarray(g.offsets[f], g.offsets[f + 1]));
+      idx.push(q[0], q[1], q[2], q[0], q[2], q[3]);
+    }
+    return toTriMesh(g.positions, idx, new Float32Array(idx.length * 2), {}, [{ data: Array.from({ length: 9 }, (_, i) => i), comps: 1 }]);
+  };
+  const edgesClosed = (t: number[]) => {
+    const c = new Map<string, number>();
+    for (let i = 0; i < t.length; i += 3) {
+      if (t[i] < 0) continue;
+      for (let k = 0; k < 3; k++) {
+        const a = t[i + k],
+          b = t[i + ((k + 1) % 3)];
+        const key = a < b ? `${a},${b}` : `${b},${a}`;
+        c.set(key, (c.get(key) ?? 0) + 1);
+      }
+    }
+    return [...c.values()].every((n) => n <= 2);
+  };
+  it('splits long edges and keeps the surface manifold', () => {
+    const m = tri();
+    const region = new Set([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    const st = remeshRegion(m, region, 0.4, 0);
+    expect(st.splits).toBeGreaterThan(10);
+    const r = fromTriMesh(m);
+    expect(r.indices.length / 3).toBeGreaterThan(8);
+    expect(edgesClosed(Array.from(r.indices))).toBe(true);
+    // new vertices interpolate the vertex attribute
+    expect(m.vattrs[0].data.length).toBe(m.pos.length / 3);
+    // all positions stay in the plane
+    for (let v = 0; v < m.pos.length / 3; v++) expect(m.pos[v * 3 + 2]).toBeCloseTo(0);
+  });
+  it('collapses short edges without breaking the mesh', () => {
+    const m = tri();
+    remeshRegion(m, new Set([0, 1, 2, 3, 4, 5, 6, 7, 8]), 0.3, 0);
+    const before = fromTriMesh(m).indices.length / 3;
+    const st = remeshRegion(m, new Set(Array.from({ length: m.pos.length / 3 }, (_, i) => i)), Infinity, 0.5);
+    expect(st.collapses).toBeGreaterThan(0);
+    const r = fromTriMesh(m);
+    expect(r.indices.length / 3).toBeLessThan(before);
+    expect(edgesClosed(Array.from(r.indices))).toBe(true);
+    const { count } = compactVertices(m.pos.length / 3, r.indices);
+    for (const i of r.indices) expect(i).toBeLessThan(count);
+  });
+});

@@ -16,7 +16,7 @@ import { activeBrush, brushById, BRUSH_LISTS, brushInfo, isBrushMode, type Brush
 import { startGesture } from './gesture';
 import { startGradient } from './paintops';
 import { faceSetStroke } from './facesetbrush';
-import { automaskButton, automaskSettings } from './sculptmenus';
+import { automaskButton, automaskSettings, dyntopoSettings } from './sculptmenus';
 import { faceMaskOn, isSelectTool, PAINT_SELECT_TOOLS, vertMaskOn } from './selmask';
 import { cursorState, updateCursor } from './cursor';
 import { sculptStroke } from './sculpt';
@@ -306,7 +306,26 @@ function toolHeaderSettings(mode: BrushMode): Child {
         tip: 'Keep the sum of deform weights at 1 while painting',
       }),
     );
-  if (mode === 'SCULPT') parts.push(automaskButton());
+  if (mode === 'SCULPT') {
+    const ts = app.doc.scene.tool_settings.sculpt;
+    parts.push(
+      h(
+        'button',
+        {
+          key: 'th-dyntopo',
+          class: { 'hdr-toggle': true, on: !!ts.use_dyntopo },
+          'data-tip': 'Dyntopo\nAdd and remove triangles under the brush (click to toggle, right-click for settings)',
+          onclick: () => app.run('sculpt.dynamic_topology_toggle'),
+          oncontextmenu: (e: MouseEvent) => {
+            e.preventDefault();
+            openPopover(e.currentTarget as HTMLElement, () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, 'Dyntopo'), ...dyntopoSettings('pop-dt')), { width: 240 });
+          },
+        },
+        icon('dyntopo'),
+      ),
+    );
+    parts.push(automaskButton());
+  }
   parts.push(symmetryToggles('th'));
   return parts;
 }
@@ -606,6 +625,7 @@ function brushPanels(mode: BrushMode): Child[] {
         ]),
       );
   }
+  if (mode === 'SCULPT') out.push(panel('pt-dyntopo', 'Dyntopo', () => dyntopoSettings('pt-dt')));
   if (mode === 'SCULPT') out.push(panel('pt-automask', 'Auto-Masking', () => automaskSettings('pt-am')));
   out.push(
     panel(`pt-sym-${mode}`, 'Symmetry', () => [

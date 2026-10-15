@@ -92,3 +92,7 @@ registerIcons({
   automask:
     '<circle class="s" cx="8" cy="8" r="5.5" fill="none" stroke-width="1.2"/><path class="f" d="M8 2.5A5.5 5.5 0 0 1 8 13.5z" opacity=".6"/><path class="s" d="M3.5 12.5 12.5 3.5" stroke-width="1.2" stroke-linecap="round"/>',
 });
+
+registerIcons({
+  dyntopo: '<path class="s" d="M2 13 8 2.5 14 13zM5 7.75h6M8 13 5 7.75M8 13l3-5.25M3.5 10.4h3M9.5 10.4h3" fill="none" stroke-width="1.1" stroke-linejoin="round"/>',
+});

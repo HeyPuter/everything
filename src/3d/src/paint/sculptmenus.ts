@@ -7,7 +7,7 @@ import { overlayPopoverSections } from '../editors/view3d/hooks';
 import { modeMenus } from '../editors/view3d/modemenus';
 import { toolSettingsRenderers } from '../editors/view3d/toolbar';
 import { h, type Child } from '../ui/h';
-import { checkbox, enumMenu, numberField, type Unit } from '../ui/widgets';
+import { button, checkbox, enumMenu, numberField, opButton, row, type Unit } from '../ui/widgets';
 import { activeMeshData } from './session';
 import { faceSetEditTool, maskByColorTool, sculptToolHooks } from './sculpttools';
 
@@ -230,6 +230,8 @@ const k = (key: string, op: string, props?: Record<string, unknown>, mods: Parti
 
 addKeys('Sculpt', [
   k('R', 'object.voxel_size_edit'),
+  k('R', 'sculpt.dyntopo_detail_size_edit'),
+  k('R', 'sculpt.detail_flood_fill', {}, { ctrl: true }),
   k('A', 'sculpt.expand', { target: 'MASK', falloff_type: 'GEODESIC', invert: false, use_mask_preserve: true }, { shift: true }),
   k('A', 'sculpt.expand', { target: 'MASK', falloff_type: 'NORMALS', invert: false, use_mask_preserve: true }, { shift: true, alt: true }),
   k('W', 'sculpt.expand', { target: 'FACE_SETS', falloff_type: 'GEODESIC', invert: false, use_mask_preserve: false, use_modify_active: false }, { shift: true }),
@@ -386,3 +388,58 @@ overlayPopoverSections.push((v) => {
     h('div', { class: 'row-split' }, checkbox('o-sfs', 'Face Sets', o.show_sculpt_face_sets !== false, set('show_sculpt_face_sets')), numberField({ id: 'o-sfs-op', value: o.sculpt_mode_face_sets_opacity ?? 1, min: 0, max: 1, slider: true, set: set('sculpt_mode_face_sets_opacity') })),
   ];
 });
+
+// ---------------------------------------------------------------------------
+// dyntopo panel and header toggle
+
+export function dyntopoSettings(prefix: string): Child[] {
+  const ts = app.doc.scene.tool_settings.sculpt;
+  const ch = () => app.changed('ui');
+  const method = ts.detail_type_method ?? 'RELATIVE';
+  const rows: Child[] = [
+    checkbox(`${prefix}-on`, 'Dyntopo', !!ts.use_dyntopo, () => app.run('sculpt.dynamic_topology_toggle'), { tip: 'Add and remove triangles under the brush (triangulates the mesh)' }),
+  ];
+  if (!ts.use_dyntopo) return rows;
+  if (method === 'CONSTANT' || method === 'MANUAL')
+    rows.push(
+      h(
+        'div',
+        { class: 'row-split' },
+        numberField({ id: `${prefix}-res`, label: 'Resolution', value: ts.constant_detail_resolution ?? 6, min: 0.01, max: 1000, tip: 'Triangles per unit length', set: (x) => ((ts.constant_detail_resolution = x), ch()) }),
+        button(`${prefix}-sample`, icon('eyedropper'), () => app.run('sculpt.sample_detail_size', { mode: 'DYNTOPO' }), { tip: 'Sample the detail from the mesh under the cursor (click, then hover)' }),
+      ),
+    );
+  else if (method === 'BRUSH') rows.push(numberField({ id: `${prefix}-pct`, label: 'Detail Percentage', value: ts.detail_percent ?? 25, min: 0.5, max: 100, unit: 'percentage', tip: 'Edge length as a percentage of the brush radius', set: (x) => ((ts.detail_percent = x), ch()) }));
+  else rows.push(numberField({ id: `${prefix}-size`, label: 'Detail Size', value: ts.detail_size ?? 12, min: 0.5, max: 40, unit: 'pixel', tip: 'Edge length in screen pixels (R)', set: (x) => ((ts.detail_size = x), ch()) }));
+  rows.push(
+    row(
+      'Refine Method',
+      enumMenu(
+        `${prefix}-refine`,
+        [
+          { value: 'SUBDIVIDE', label: 'Subdivide Edges' },
+          { value: 'COLLAPSE', label: 'Collapse Edges' },
+          { value: 'SUBDIVIDE_COLLAPSE', label: 'Subdivide Collapse' },
+        ],
+        ts.detail_refine_method ?? 'SUBDIVIDE_COLLAPSE',
+        (x) => ((ts.detail_refine_method = x as 'SUBDIVIDE'), ch()),
+      ),
+    ),
+    row(
+      'Detailing',
+      enumMenu(
+        `${prefix}-type`,
+        [
+          { value: 'RELATIVE', label: 'Relative Detail' },
+          { value: 'CONSTANT', label: 'Constant Detail' },
+          { value: 'BRUSH', label: 'Brush Detail' },
+          { value: 'MANUAL', label: 'Manual Detail' },
+        ],
+        method,
+        (x) => ((ts.detail_type_method = x as 'RELATIVE'), ch()),
+      ),
+    ),
+    opButton('sculpt.detail_flood_fill', 'Detail Flood Fill'),
+  );
+  return rows;
+}

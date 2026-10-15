@@ -55,6 +55,9 @@ export interface StrokeState {
   lastEval: number;
   /** static auto-masking factors of this stroke */
   automask?: Float32Array | null;
+  /** dynamic topology: vertices touched since the last refinement, and its state */
+  dynRegion?: Set<number>;
+  dyn?: unknown;
   /** every vertex moved during the stroke (anchored / drag dot strokes restore them) */
   strokeVerts?: number[];
   strokeMark?: Uint8Array;
@@ -62,6 +65,13 @@ export interface StrokeState {
   startNormal?: Vector3 | null;
   viewDir?: Vector3 | null;
 }
+
+/** Dynamic topology callbacks (set by dyntopostroke.ts). */
+export const dyntopoHooks = {
+  begin: null as null | ((st: StrokeState) => void),
+  step: null as null | ((st: StrokeState, force: boolean) => void),
+  end: null as null | ((st: StrokeState) => void),
+};
 
 /** UI callbacks (set by the cursor/UI module; kept out of here so the brush code has no DOM deps). */
 export const sculptHooks = {
@@ -178,6 +188,7 @@ function areaPlane(st: StrokeState, n: number, nr: number, fallbackN: Vector3, c
 }
 
 function touch(st: StrokeState, v: number) {
+  if (st.dynRegion) st.dynRegion.add(v);
   if (st.strokeMark && !st.strokeMark[v]) {
     st.strokeMark[v] = 1;
     st.strokeVerts!.push(v);
@@ -729,6 +740,7 @@ export function sculptStroke(v: View3D, e: PointerEvent, override?: PaintBrush |
     st.strokeMark = new Uint8Array(s.nv);
   }
   st.startNormal = firstHit.normal.clone();
+  if (!maskBrush && !ANCHORED.has(tool)) dyntopoHooks.begin?.(st);
   stroke = st;
   runStroke(v, e, {
     spacing: () => (ANCHORED.has(tool) ? 0 : Math.max(1, brush.spacing || 10)),
@@ -739,31 +751,33 @@ export function sculptStroke(v: View3D, e: PointerEvent, override?: PaintBrush |
     update: () => {
       if (st.maskBrush) {
         maskChanged(st.mask!);
-        const m = s.syncedMesh();
+        const m = st.s.syncedMesh();
         if (!m?.geometry.getAttribute('paintMask')) invalidatePaintAttributes();
-        s.flush();
+        st.s.flush();
         app.changed('ui');
         return;
       }
-      if (s.direct) s.flush();
+      if (st.dyn) dyntopoHooks.step?.(st, false);
+      if (st.s.direct) st.s.flush();
       else {
         const now = performance.now();
         if (now - st.lastEval > 30) {
           st.lastEval = now;
-          reevaluate(s);
+          reevaluate(st.s);
         }
       }
       sculptHooks.afterUpdate?.(v);
     },
     end: () => {
       stroke = null;
+      if (st.dyn) dyntopoHooks.end?.(st);
       sculptStats.dabs = st.dabs;
       sculptStats.ms = st.dabTime;
-      sculptStats.verts = s.nv;
+      sculptStats.verts = st.s.nv;
       if (!st.maskBrush) {
         updateFlatNormals(st);
-        s.finishGeometry();
-        if (!s.direct) reevaluate(s);
+        st.s.finishGeometry();
+        if (!st.s.direct) reevaluate(st.s);
       } else {
         maskChanged(st.mask!);
         invalidatePaintAttributes();

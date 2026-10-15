@@ -33,7 +33,7 @@ registerOperators([
     label: 'Edit Voxel Size',
     description: 'Drag to change the voxel size used by Voxel Remesh',
     props: [{ id: 'voxel_size', label: 'Voxel Size', type: 'float', default: 0.1, min: 0.0001, max: 10, subtype: 'distance', precision: 4 }],
-    poll: () => !!activeMeshData() && (app.doc.mode === 'SCULPT' || app.doc.mode === 'OBJECT') && !!activeView3D(),
+    poll: () => !!activeMeshData() && (app.doc.mode === 'OBJECT' || (app.doc.mode === 'SCULPT' && !app.doc.scene.tool_settings.sculpt.use_dyntopo)) && !!activeView3D(),
     invoke: (ctx, p) => {
       const v = activeView3D()!;
       const s = meshSession();

@@ -872,7 +872,12 @@ export interface SculptSettings {
   radius: number; // px
   strength: number;
   use_dyntopo?: boolean;
+  /** dynamic topology detail: pixels (relative), percent of the brush, or constant resolution */
   detail_size?: number;
+  detail_type_method?: 'RELATIVE' | 'CONSTANT' | 'BRUSH' | 'MANUAL';
+  detail_refine_method?: 'SUBDIVIDE' | 'COLLAPSE' | 'SUBDIVIDE_COLLAPSE';
+  detail_percent?: number;
+  constant_detail_resolution?: number;
   use_frontface?: boolean;
   falloff: 'SMOOTH' | 'SPHERE' | 'ROOT' | 'SHARP' | 'LINEAR' | 'CONSTANT';
   autosmooth_factor: number;

@@ -251,7 +251,7 @@ registerOperators([
     idname: 'object.voxel_remesh',
     label: 'Voxel Remesh',
     description: 'Rebuild the mesh as an even quad grid from its volume (voxel size from the mesh settings)',
-    poll: () => !!activeMeshData() && (app.doc.mode === 'SCULPT' || app.doc.mode === 'OBJECT'),
+    poll: () => !!activeMeshData() && (app.doc.mode === 'OBJECT' || (app.doc.mode === 'SCULPT' && !app.doc.scene.tool_settings.sculpt.use_dyntopo)),
     exec: () => {
       const { me } = activeMeshData()!;
       const t0 = performance.now();
