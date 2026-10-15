@@ -4,7 +4,7 @@ import { app, type AreaLike } from '../app/app';
 import { keymaps, keyName, type KeyItem } from '../app/keymap';
 
 export function keyMatches(k: KeyItem, name: string, e: KeyboardEvent) {
-  if (k.key !== name) return false;
+  if (k.key !== name || k.inactive || (k.value ?? 'PRESS') !== 'PRESS') return false;
   if (k.any) return true;
   return !!k.shift === e.shiftKey && !!k.ctrl === (e.ctrlKey || e.metaKey) && !!k.alt === e.altKey;
 }

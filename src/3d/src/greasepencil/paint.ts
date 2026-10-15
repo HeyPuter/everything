@@ -22,6 +22,9 @@ import { guideSettings, guideCenter, guideConstraint } from './guides';
 import { fillRegion, extensionPreview } from './fill';
 import type { GPBrush, GPLayer, GreasePencilData } from './types';
 
+/** Drawing options from Preferences ▸ Editing ▸ Grease Pencil: pixels between recorded points. */
+export const gpDrawSettings = { minDistance: 1.5 };
+
 /** Primitive tools → their operators (see primitives.ts). */
 export const PRIM_OPS: Record<string, string> = {
   'builtin.line': 'grease_pencil.primitive_line',
@@ -208,7 +211,7 @@ function startDraw(v: View3D, e: PointerEvent) {
       }
       if (constrain) q = constrain(q);
       const last = samples[samples.length - 1];
-      if (last && Math.hypot(q.x - last.x, q.y - last.y) < 1.5) return;
+      if (last && Math.hypot(q.x - last.x, q.y - last.y) < gpDrawSettings.minDistance) return;
       samples.push({ x: q.x, y: q.y, pressure: d.pressure });
     },
     update: () => {

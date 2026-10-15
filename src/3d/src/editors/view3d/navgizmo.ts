@@ -3,6 +3,7 @@ import { Vector3 } from 'three';
 import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
+import { prefs } from '../../app/prefs';
 import type { View3D } from './view3d';
 import type { ViewName } from '../../render/navcam';
 
@@ -60,9 +61,12 @@ export function navGizmo(v: View3D): Child {
   return h(
     'div',
     { key: 'navgizmo', class: 'nav-gizmo-wrap' },
-    h(
+    // Preferences ▸ Viewport ▸ Mini Axes: the interactive gizmo, a small axes corner (drawn elsewhere) or nothing
+    prefs.mini_axis_type !== 'GIZMO'
+      ? null
+      : h(
       'svg',
-      { class: 'nav-gizmo', width: 80, height: 80, viewBox: '0 0 80 80', onpointerdown: startDrag },
+      { class: 'nav-gizmo', width: prefs.gizmo_size_navigate_v3d, height: prefs.gizmo_size_navigate_v3d, viewBox: '0 0 80 80', onpointerdown: startDrag },
       h('circle', { class: 'ng-bg', cx: 40, cy: 40, r: 38 }),
       items.map((it) =>
         h(
@@ -74,7 +78,9 @@ export function navGizmo(v: View3D): Child {
         ),
       ),
     ),
-    h(
+    !prefs.show_navigate_ui
+      ? null
+      : h(
       'div',
       { class: 'nav-buttons' },
       h('button', { class: 'nav-btn', 'data-tip': 'Zoom\nZoom in/out in the view (drag)', onpointerdown: (e: PointerEvent) => v.navDrag(e, 'zoom') }, icon('view_zoom')),

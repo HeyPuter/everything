@@ -4,7 +4,8 @@ import { valueSocket } from './geometry';
 import { fnField, ConstField, Field, constOf, type Evaluated } from '../field';
 import { mathFn, vectorFn, booleanFn, compareFloat, blend } from '../mathops';
 import { positionField, idField } from '../inputs';
-import { noiseTexture, noiseTexture3, hash3, u2f, type NoiseType } from '../noise';
+import { jhash2, jhash3 } from '../jhash';
+import { noiseTexture, noiseTexture3, type NoiseType } from '../noise';
 import { readCurve, evalCurve } from '../../nodes/curves';
 import { fieldTypeOfEnum, type FieldType } from '../types';
 import type { SocketDef, SocketType } from '../../nodes/types';
@@ -430,7 +431,7 @@ gn(
             const sp = st(p),
               si = st(i),
               ss = st(s);
-            for (let k = 0; k < n; k++) out[k] = u2f(hash3(i.data[k * si] >>> 0, s.data[k * ss] >>> 0, 0)) < p.data[k * sp] ? 1 : 0;
+            for (let k = 0; k < n; k++) out[k] = jhash2(i.data[k * si] >>> 0, s.data[k * ss] >>> 0) / 0xffffffff < p.data[k * sp] ? 1 : 0;
           }),
         };
       if (t === 'INT')
@@ -441,10 +442,9 @@ gn(
               si = st(i),
               ss = st(s);
             for (let k = 0; k < n; k++) {
-              const lo = a.data[k * sa],
-                hi = b.data[k * sb];
-              const r = u2f(hash3(i.data[k * si] >>> 0, s.data[k * ss] >>> 0, 0));
-              out[k] = Math.min(hi, Math.floor(lo + r * (hi - lo + 1)));
+              const lo = Math.min(a.data[k * sa], b.data[k * sb]),
+                hi = Math.max(a.data[k * sa], b.data[k * sb]);
+              out[k] = lo + (jhash2(i.data[k * si] >>> 0, s.data[k * ss] >>> 0) % (hi - lo + 1));
             }
           }),
         };
@@ -457,7 +457,7 @@ gn(
               ss = st(s);
             for (let k = 0; k < n; k++)
               for (let c = 0; c < 3; c++) {
-                const r = u2f(hash3(i.data[k * si] >>> 0, s.data[k * ss] >>> 0, c + 1));
+                const r = jhash3(s.data[k * ss] >>> 0, i.data[k * si] >>> 0, c) / 0xffffffff;
                 out[k * 3 + c] = a.data[k * sa + c] + r * (b.data[k * sb + c] - a.data[k * sa + c]);
               }
           }),
@@ -469,7 +469,7 @@ gn(
             si = st(i),
             ss = st(s);
           for (let k = 0; k < n; k++) {
-            const r = u2f(hash3(i.data[k * si] >>> 0, s.data[k * ss] >>> 0, 0));
+            const r = jhash2(s.data[k * ss] >>> 0, i.data[k * si] >>> 0) / 0xffffffff;
             out[k] = a.data[k * sa] + r * (b.data[k * sb] - a.data[k * sa]);
           }
         }),

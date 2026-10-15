@@ -16,7 +16,7 @@
   place-items: center;
 }
 .ol-row.col-active:not(.selected) {
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.07);
 }
 .ol-row.indirect .ol-name {
   font-style: italic;
@@ -45,20 +45,20 @@
   position: absolute;
   z-index: 5;
   pointer-events: none;
-  background: rgba(20, 20, 20, 0.92);
-  border: 1px solid #444;
+  background: rgb(from var(--g-14, #141414) r g b / 0.92);
+  border: 1px solid var(--g-44, #444);
   border-radius: 4px;
   padding: 2px 6px;
   font-size: 11px;
-  color: #ddd;
+  color: var(--t-dd, #ddd);
   white-space: nowrap;
 }
 .ol-box {
   position: absolute;
   z-index: 4;
   pointer-events: none;
-  border: 1px dashed rgba(255, 255, 255, 0.7);
-  background: rgba(255, 255, 255, 0.06);
+  border: 1px dashed rgba(var(--hl-rgb, 255, 255, 255), 0.7);
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.06);
 }
 .ol-chip {
   display: inline-flex;
@@ -67,7 +67,7 @@
 }
 .ol-chip-n {
   font-size: 10px;
-  color: #aaa;
+  color: var(--t-aa, #aaa);
   margin-right: 2px;
 }
 .ol-toggle-space {
@@ -79,7 +79,7 @@
   flex: none;
 }
 .ol-row.dim .ol-toggle:not(.off) {
-  color: #999;
+  color: var(--t-99, #999);
 }
 .ol-mode {
   width: 20px;
@@ -88,14 +88,14 @@
   display: grid;
   place-items: center;
   border-radius: 3px;
-  color: #888;
+  color: var(--t-88, #888);
   margin-left: 2px;
 }
 button.ol-mode:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.1);
 }
 .ol-mode.on {
-  color: #ddd;
+  color: var(--t-dd, #ddd);
 }
 .ol-users {
   display: flex;
@@ -105,7 +105,7 @@ button.ol-mode:hover {
 .ol-user-count {
   min-width: 22px;
   text-align: right;
-  color: #aaa;
+  color: var(--t-aa, #aaa);
   font-size: 11px;
   padding-right: 4px;
 }
@@ -159,7 +159,7 @@ button.ol-mode:hover {
 }
 .olf-head {
   font-size: 11px;
-  color: #999;
+  color: var(--t-99, #999);
   margin: 6px 0 2px;
 }
 .olf-head:first-child {
@@ -177,11 +177,11 @@ button.ol-mode:hover {
   place-items: center;
   border-radius: 3px;
   background: var(--w-field, #2b2b2b);
-  color: #888;
+  color: var(--t-88, #888);
 }
 .olf-col.on {
   background: var(--accent);
-  color: #fff;
+  color: var(--c-text-on-accent, #fff);
 }
 .olf-check {
   display: flex;
@@ -216,7 +216,7 @@ button.ol-mode:hover {
 }
 .olf-invert.on {
   background: var(--accent);
-  color: #fff;
+  color: var(--c-text-on-accent, #fff);
 }
 .olf-indent {
   padding-left: 18px;
@@ -232,8 +232,8 @@ button.ol-mode:hover {
   margin-left: 4px;
   padding: 0 5px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #aaa;
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.08);
+  color: var(--t-aa, #aaa);
   font-size: 10px;
   line-height: 14px;
 }

@@ -1,6 +1,7 @@
 // Extra 3D View navigation: zoom region, camera frame zoom, view locking, fly & walk navigation.
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { app, registerOperators } from '../app/app';
+import { prefs } from '../app/prefs';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { keymaps } from '../app/keymap';
 import { renderContext } from '../render/context';
@@ -224,16 +225,19 @@ function startFlight(kind: 'WALK' | 'FLY') {
   const before = { pivot: nav.pivot.clone(), rot: nav.rot.clone(), distance: nav.distance };
   const keys = new Set<string>();
   // base speed scales with the scene/view size
-  let speed = kind === 'WALK' ? Math.max(0.5, nav.distance * 0.25) : 0;
+  // walking starts at the speed set in Preferences ▸ Navigation ▸ Walk
+  let speed = kind === 'WALK' ? (prefs.walk_speed > 0 ? prefs.walk_speed : Math.max(0.5, nav.distance * 0.25)) : 0;
   const flyStep = Math.max(0.05, nav.distance * 0.02);
   const r = v.el.getBoundingClientRect();
   let mouse = { x: r.width / 2, y: r.height / 2 };
   let locked = false;
   // walk: gravity, jumping, teleport
-  let gravity = false;
+  let gravity = prefs.walk_use_gravity;
   let vz = 0;
-  let jumpHeight = 0.4;
-  const viewHeight = 1.6;
+  let jumpHeight = Math.max(0.01, prefs.walk_jump_height);
+  const viewHeight = Math.max(0.01, prefs.walk_view_height);
+  const mouseSpeed = 0.0035 * Math.max(0.01, prefs.walk_mouse_speed);
+  const mouseY = prefs.walk_use_mouse_reverse ? -1 : 1;
   let teleport: { from: Vector3; to: Vector3; t0: number } | null = null;
   // fly: pan with MMB, free look with Ctrl, axis locks
   let panning = false;
@@ -279,10 +283,11 @@ function startFlight(kind: 'WALK' | 'FLY') {
     const now = performance.now();
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
-    const mult = keys.has('SHIFT') ? (kind === 'WALK' ? 3 : 0.2) : keys.has('ALT') ? 0.25 : 1;
+    const mult = keys.has('SHIFT') ? (kind === 'WALK' ? Math.max(1, prefs.walk_speed_factor) : 0.2) : keys.has('ALT') ? 0.25 : 1;
     const eye = eyeOf();
     if (teleport) {
-      const t = Math.min(1, (now - teleport.t0) / 250);
+      const tt = Math.max(0, prefs.walk_teleport_time) * 1000;
+      const t = tt > 0 ? Math.min(1, (now - teleport.t0) / tt) : 1;
       const e = t * t * (3 - 2 * t);
       setEye(teleport.from.clone().lerp(teleport.to, e));
       if (t >= 1) teleport = null;
@@ -384,7 +389,7 @@ function startFlight(kind: 'WALK' | 'FLY') {
             ['X Z', 'Axis Lock'],
           ],
     onPointerMove(e) {
-      if (kind === 'WALK') look(e.movementX * 0.0035 * (keys.has('ALT') ? 0.25 : 1), e.movementY * 0.0035 * (keys.has('ALT') ? 0.25 : 1));
+      if (kind === 'WALK') look(e.movementX * mouseSpeed * (keys.has('ALT') ? 0.25 : 1), e.movementY * mouseSpeed * mouseY * (keys.has('ALT') ? 0.25 : 1));
       else if (panning) {
         const eye = eyeOf();
         const s = flyStep * 0.2;

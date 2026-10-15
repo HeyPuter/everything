@@ -32,8 +32,12 @@ function categories(mode: BrushMode): { name: string; brushes: BrushInfo[] }[] {
     else cur.push(b);
   }
   flush();
+  for (const f of shelfCategoryHooks) out.push(...f(mode));
   return out;
 }
+
+/** Extra shelf categories (e.g. brush assets of asset libraries). */
+export const shelfCategoryHooks: ((mode: BrushMode) => { name: string; brushes: BrushInfo[] }[])[] = [];
 
 interface ShelfState {
   show: boolean;
@@ -62,7 +66,8 @@ function tiles(mode: BrushMode, list: BrushInfo[], size: number, onPick?: () => 
         'data-tip': `${b.name}${b.shortcut ? `\nShortcut: ${b.shortcut}` : ''}\n${b.description}`,
         style: { width: `${size + 8}px` },
         onclick: () => {
-          app.run('paint.brush_select', { brush: b.id });
+          if (b.pick) b.pick();
+          else app.run('paint.brush_select', { brush: b.id });
           onPick?.();
         },
       },

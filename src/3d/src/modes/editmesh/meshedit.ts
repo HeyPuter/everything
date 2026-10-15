@@ -39,6 +39,8 @@ export class MeshEdit {
   keys: number[][] = [];
   /** POINT-domain color attributes (4 per vertex) */
   pcolors: number[][] = [];
+  /** skin modifier data (4 per vertex: radius x/y, root, loose), when the mesh has it */
+  skin: number[] | null = null;
   /** loose edges as vertex pairs (edges not belonging to any face) */
   looseEdges: [number, number][] = [];
   /** Edge/Face select mode: edges whose vertices are selected but which are not selected */
@@ -59,6 +61,7 @@ export class MeshEdit {
     const cornerColor = me.color_attributes.findIndex((c) => c.domain === 'CORNER');
     const cn = me.custom_normals && me.custom_normals.length === me.indices.length * 3 ? me.custom_normals : null;
     m.pcolors = me.color_attributes.filter((c) => c.domain === 'POINT').map((c) => Array.from(c.data));
+    m.skin = me.skin_vertices && me.skin_vertices.length === nv * 4 ? Array.from(me.skin_vertices) : null;
     for (let f = 0; f < me.offsets.length - 1; f++) {
       const a = me.offsets[f],
         b = me.offsets[f + 1];
@@ -104,6 +107,7 @@ export class MeshEdit {
     me.select_vert = Uint8Array.from(this.sel);
     me.hide_vert = this.hide.some(Boolean) ? Uint8Array.from(this.hide) : undefined;
     me.weights = this.weights.map((w) => Float32Array.from(w));
+    me.skin_vertices = this.skin ? Float32Array.from(this.skin) : undefined;
     me.shape_keys = me.shape_keys.map((k, i) => ({ ...k, data: Float32Array.from(this.keys[i] ?? this.pos) }));
     let pi = 0;
     const firstCorner = me.color_attributes.findIndex((c) => c.domain === 'CORNER');
@@ -187,6 +191,7 @@ export class MeshEdit {
     c.weights = this.weights.map((w) => w.slice());
     c.keys = this.keys.map((k) => k.slice());
     c.pcolors = this.pcolors.map((k) => k.slice());
+    c.skin = this.skin ? this.skin.slice() : null;
     c.looseEdges = this.looseEdges.map((e) => [e[0], e[1]] as [number, number]);
     c.edgeExcl = new Set(this.edgeExcl);
     c.faces = this.faces.map((f) => ({ ...f, verts: [...f.verts], uvs: [...f.uvs], seams: [...f.seams], sharp: [...f.sharp], creases: [...f.creases], colors: f.colors ? [...f.colors] : undefined, cnormals: f.cnormals ? [...f.cnormals] : undefined }));
@@ -229,6 +234,16 @@ export class MeshEdit {
         oz += (k[s * 3 + 2] - this.pos[s * 3 + 2]) * t;
       }
       k.push(p[0] + ox, p[1] + oy, p[2] + oz);
+    }
+    if (this.skin) {
+      // new vertices take the interpolated radius of their sources and are never roots
+      let rx = 0,
+        ry = 0;
+      for (const [s, t] of from) {
+        rx += (this.skin[s * 4] ?? 0.25) * t;
+        ry += (this.skin[s * 4 + 1] ?? 0.25) * t;
+      }
+      this.skin.push(from.length ? rx : 0.25, from.length ? ry : 0.25, 0, 0);
     }
     for (const c of this.pcolors) {
       const v = [0, 0, 0, 0];
@@ -278,6 +293,7 @@ export class MeshEdit {
     this.weights = this.weights.map((w) => pick(w, 1));
     this.keys = this.keys.map((k) => pick(k, 3));
     this.pcolors = this.pcolors.map((c) => pick(c, 4));
+    if (this.skin) this.skin = pick(this.skin, 4);
     for (const f of this.faces) f.verts = f.verts.map((v) => map[v]);
     this.faces = this.faces.filter((f) => f.verts.every((v) => v >= 0));
     this.looseEdges = this.looseEdges.map(([a, b]) => [map[a], map[b]] as [number, number]).filter(([a, b]) => a >= 0 && b >= 0);

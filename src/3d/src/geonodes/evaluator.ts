@@ -10,7 +10,7 @@ import { findSocket, allSockets, getNodeType, propValue, socketDefault } from '.
 import { ctxOf, internalLinks } from '../nodes/tree';
 import { rerouteType } from '../nodes/common';
 import type { SocketContext, SocketDef, SocketType } from '../nodes/types';
-import { geoExecs, type EvalEnv, type ExecContext, type Val } from './exec';
+import { geoExecs, type EvalEnv, type ExecContext, type Val, type WarningKind } from './exec';
 import { Field, ConstField, convertField, constOf } from './field';
 import { GeometrySet } from './geometry';
 import type { FieldType } from './types';
@@ -19,19 +19,23 @@ export interface NodeCacheEntry {
   sig: string;
   outputs: Record<string, Val>;
   used: number;
-  /** warnings raised when the node executed (re-reported on cache hits) */
-  warnings?: string[];
+  /** messages reported while the node (and the nodes it pulled) executed: [node path, message, severity]; re-reported on cache hits */
+  reports?: [string, string, WarningKind][];
 }
 export type NodeCache = Map<string, NodeCacheEntry>;
 
 export interface EvalLog {
   warnings: Map<string, string[]>;
+  /** severity per `${node path}\n${message}` (warnings when missing) */
+  kinds?: Map<string, WarningKind>;
+  /** every report in order (lets cached results re-report the messages of the nodes upstream) */
+  trace?: [string, string, WarningKind][];
   /** number of nodes executed (not served from the cache) */
   executed: number;
   generation: number;
 }
 
-export const FIELD_TYPES = new Set<SocketType>(['FLOAT', 'INT', 'BOOLEAN', 'VECTOR', 'RGBA', 'ROTATION']);
+export const FIELD_TYPES = new Set<SocketType>(['FLOAT', 'INT', 'BOOLEAN', 'VECTOR', 'RGBA', 'ROTATION', 'MATRIX']);
 
 /** 53-bit string hash (cyrb53). */
 export function hash(str: string, seed = 0): string {
@@ -109,8 +113,8 @@ export class TreeEval {
     public env: EvalEnv,
     public tree: NodeTreeData,
     public path: string,
-    private groupInput: (id: string) => Val,
-    private groupInputSig: (id: string) => string,
+    readonly groupInput: (id: string) => Val,
+    readonly groupInputSig: (id: string) => string,
     public cache: NodeCache,
     public log: EvalLog,
     public depth = 0,
@@ -127,11 +131,16 @@ export class TreeEval {
     }
   }
 
-  warn(node: NodeData, msg: string) {
-    const key = `${this.path}/${node.id}`;
+  warn(node: NodeData, msg: string, kind: WarningKind = 'WARNING') {
+    this.report(`${this.path}/${node.id}`, msg, kind);
+  }
+
+  private report(key: string, msg: string, kind: WarningKind) {
+    if (kind !== 'WARNING') this.log.kinds?.set(`${key}\n${msg}`, kind);
     const list = this.log.warnings.get(key) ?? [];
     if (!list.includes(msg)) list.push(msg);
     this.log.warnings.set(key, list);
+    (this.log.trace ??= []).push([key, msg, kind]);
   }
 
   links(nodeId: string, socket: string): LinkData[] {
@@ -254,11 +263,12 @@ export class TreeEval {
     const cached = this.cache.get(path);
     if (cached && cached.sig === sig) {
       cached.used = this.log.generation;
-      if (cached.warnings) for (const w of cached.warnings) this.warn(node, w);
+      for (const [k, msg, kind] of cached.reports ?? []) this.report(k, msg, kind);
       this.outputsMemo.set(node.id, cached.outputs);
       return cached.outputs;
     }
     this.visiting.add(node.id);
+    const traceStart = (this.log.trace ??= []).length;
     let outputs: Record<string, Val> = {};
     try {
       if (node.type === 'GeometryNodeGroup') outputs = this.groupNode(node, path);
@@ -277,7 +287,8 @@ export class TreeEval {
     }
     this.visiting.delete(node.id);
     this.outputsMemo.set(node.id, outputs);
-    this.cache.set(path, { sig, outputs, used: this.log.generation, warnings: this.log.warnings.get(path) ? [...this.log.warnings.get(path)!] : undefined });
+    const reports = (this.log.trace ?? []).slice(traceStart);
+    this.cache.set(path, { sig, outputs, used: this.log.generation, reports: reports.length ? reports : undefined });
     return outputs;
   }
 
@@ -336,6 +347,7 @@ export class TreeEval {
     };
     const ctx: ExecContext = {
       node,
+      evaluator: self,
       tree: self.tree,
       env: self.env,
       path,
@@ -406,7 +418,7 @@ export class TreeEval {
       },
       used: (out) => self.isUsed(node.id, out),
       anon: (out) => `#${path}:${out}`,
-      warn: (m) => self.warn(node, m),
+      warn: (m, k) => self.warn(node, m, k),
     };
     return ctx;
   }

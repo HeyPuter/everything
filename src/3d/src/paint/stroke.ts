@@ -2,6 +2,7 @@
 // (spaced along the path, a dab per event, airbrush over time, a straight line, or a single
 // anchored / dragged dab), with optional stabilizing (lazy mouse).
 import { h, type VNode } from '../ui/h';
+import { tabletPressure } from '../app/prefs';
 import { editModeHooks } from '../editors/view3d/hooks';
 import type { View3D } from '../editors/view3d/view3d';
 import { renderContext } from '../render/context';
@@ -87,7 +88,7 @@ export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
   let method: StrokeMethod = st.stroke_method ?? 'SPACE';
   if ((method === 'ANCHORED' || method === 'DRAG_DOT') && !handler.canRestore) method = 'SPACE';
   const p0 = v.local(e);
-  const rawPressure = (ev: PointerEvent) => (ev.pointerType === 'pen' && ev.pressure > 0 ? ev.pressure : 1);
+  const rawPressure = (ev: PointerEvent) => (ev.pointerType === 'pen' && ev.pressure > 0 ? tabletPressure(ev.pressure) : 1);
   // pressure drives the strength (unless turned off); size pressure scales the dab radius
   const pressure = (ev: PointerEvent) => (st.use_pressure_strength === false ? 1 : rawPressure(ev));
   let lastPressure = pressure(e);

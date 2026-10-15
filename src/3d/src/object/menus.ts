@@ -6,6 +6,7 @@ import type { MenuItem } from '../ui/menu';
 import { snapMenu } from '../editors/view3d/menus';
 import { addModifierMenu } from '../editors/properties/stack';
 import { objectTransformMenu as transformMenu, mirrorMenu } from '../editors/view3d/transformui';
+import { objectAssetMenu } from '../assets/menus';
 
 export { mirrorMenu };
 
@@ -267,6 +268,7 @@ export function objectMenu(): MenuItem[] {
     { label: 'Copy Objects', op: 'view3d.copybuffer', shortcut: 'Ctrl C' },
     { label: 'Paste Objects', op: 'view3d.pastebuffer', shortcut: 'Ctrl V' },
     { separator: true },
+    { label: 'Asset', submenu: () => objectAssetMenu() },
     { label: 'Collection', submenu: collectionMenu },
     { separator: true },
     { label: 'Relations', submenu: relationsMenu },
@@ -283,7 +285,7 @@ export function objectMenu(): MenuItem[] {
     { label: 'Animation', submenu: animationMenu },
     { label: 'Rigid Body', submenu: rigidBodyMenu },
     { separator: true },
-    { label: 'Quick Effects', submenu: () => [{ label: 'Quick Fur', op: 'object.quick_fur' }, { label: 'Quick Smoke', op: 'object.quick_smoke' }] },
+    { label: 'Quick Effects', submenu: () => [{ label: 'Quick Fur', op: 'object.quick_fur' }, { label: 'Quick Explode', op: 'object.quick_explode' }, { label: 'Quick Smoke', op: 'object.quick_smoke' }, { label: 'Quick Liquid', op: 'object.quick_liquid' }] },
     { separator: true },
     { label: 'Convert', submenu: convertMenu },
     { separator: true },

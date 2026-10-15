@@ -4,17 +4,17 @@
 import type { DocumentData } from '../data/types';
 
 /** Highest subdivision level any modifier may use (Infinity when Simplify is off). */
-export function simplifySubdivision(doc: DocumentData, render: boolean): number {
-  const r = doc.scene.render;
-  if (!r.use_simplify) return Infinity;
+export function simplifySubdivision(doc: DocumentData | undefined, render: boolean): number {
+  const r = doc?.scene?.render;
+  if (!r?.use_simplify) return Infinity;
   const v = render ? r.simplify_subdivision_render : r.simplify_subdivision;
   return Math.max(0, Math.round(v ?? 6));
 }
 
 /** Fraction of child particles that are generated (1 when Simplify is off). */
-export function simplifyChildParticles(doc: DocumentData, render: boolean): number {
-  const r = doc.scene.render;
-  if (!r.use_simplify) return 1;
+export function simplifyChildParticles(doc: DocumentData | undefined, render: boolean): number {
+  const r = doc?.scene?.render;
+  if (!r?.use_simplify) return 1;
   const v = render ? r.simplify_child_particles_render : r.simplify_child_particles;
   return Math.max(0, Math.min(1, v ?? 1));
 }

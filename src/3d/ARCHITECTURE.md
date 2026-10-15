@@ -31,10 +31,12 @@ src/
   compositor/ Compositor nodes (GPU), Compositor editor, render post-processing
   animation/  Dope Sheet, Graph Editor, Drivers, NLA editors and their operators
   paint/      Sculpt, Vertex/Weight/Texture Paint, voxel remesh, automatic weights
-  physics/    Rigid bodies (Rapier, lazy-loaded), cloth, soft body, particles, fields, smoke
   hair/       Curves (hair) objects: data (doc.hair_curves), strand display / render tubes, Edit Mode,
               Sculpt Curves brushes (brushmath.ts is pure), conversions, Deform Curves on Surface;
               particle/: Particle Edit mode for hair particle systems (edited keys on the system)
+  constraints/ Object/Bone Constraints tabs (constraint panels), constraint.* operators, Bone tab IK panel
+  physics/    Rigid bodies (Rapier, lazy-loaded) and their joints, cloth, soft body, particles (boids,
+              fluid, keyed, hair dynamics), fields, smoke and liquid domains, dynamic paint
   render/final/ Path tracer, raster engine, F12/animation render, Image Editor, color management;
               props/ holds the Render, Output, View Layer and camera-data properties panels
   sequencer/  Video Sequencer (strips, effects, preview, audio)
@@ -42,8 +44,13 @@ src/
   mask/       Mask data-blocks (bezier splines with feather, shape keys, track parenting),
               rasterization, the clip editor's mask mode, compositor Mask node
   greasepencil/ Grease Pencil objects, Draw/Edit/Sculpt modes, 2D Animation workspace
-  scripting/  bpy-style API (JavaScript + Pyodide Python), Text Editor, Console, Info, Preferences
+  scripting/  bpy-style API (JavaScript + Pyodide Python), Text Editor, Console, Info
+  prefs/      Preferences editor: sections, keymap editor + key configurations, themes, studio
+              lights / MatCaps / HDRIs, add-ons, NDOF devices
   assistant/  AI assistant sidebar (Puter AI): agent loop, scene snapshot, tools over the scripting API
+  assets/     Asset system: asset metadata on data-blocks (asset_data), catalogs, libraries (Current
+              File, built-in Essentials, user libraries in IndexedDB), previews, Asset Browser editor
+              (ASSETS), drag and drop, pose library, import of .blend asset marks (io/blend/assets.ts)
   edit/, modifiers/, storage/document.ts, core/   legacy polygon kernels kept for reuse
                                                  (unwrap/UV) and the legacy .3d.json parser
 ```
@@ -93,6 +100,21 @@ registerOperators([{ idname: 'mesh.subdivide', label: 'Subdivide', props: [...Pr
 Key names are event names: `'A'..'Z'`, `'ONE'..`, `'NUMPAD_1'`, `'TAB'`, `'SPACE'`,
 `'DEL'`, `'ESC'`, `'RET'`, `'F1'..`, `'LEFT_ARROW'`, … An editor lists the keymaps it uses in
 `editor.keymaps` (priority order); `Frames`, `Screen`, `Window` always apply. Ctrl also matches Cmd.
+Items may set `value` ('PRESS' default, 'RELEASE', 'CLICK', 'DOUBLE_CLICK') and `repeat: false`;
+`inactive` items are skipped (other key dispatchers must skip them too). Preferences ▸ Keymap
+rewrites the live items (`prefs/keyconfig_core.ts`): register keys with `addKeys` and the editor
+picks them up, including keys added after startup.
+
+### Preferences (`app/prefs.ts`, `prefs/`)
+`prefs` holds the values (persisted in localStorage). Change them with `setPref(key, value)`
+(`prefs/store.ts`): it applies and saves them (unless Auto-Save Preferences is off). Modules react
+through `onPrefsApply(fn)`; most effects are pushed into small settings objects owned by the
+module that uses them (`menuSettings`, `widgetSettings`, `keyframeDefaults`, `animSettings`,
+`textureSettings`, `renderViewSettings`, …) so those modules don't import the preferences.
+Add a section with `registerPrefSection({ id, label, group, draw })` (`prefs/editor.ts`); row
+helpers are in `prefs/ui.ts`. Themes write CSS variables plus canvas colour tables
+(`prefs/themes.ts`); canvas editors can use `canvasGrey(level)` (`ui/canvastheme.ts`) for greys
+that follow the theme. Studio lights, MatCaps and HDRIs: `render/studiolights.ts`.
 
 ### Editors (`ui/screen.ts`)
 ```ts
@@ -125,6 +147,13 @@ SPREADSHEET, PREFERENCES`. An editor id with no registration falls back to the 3
 `editors/properties/properties.ts`. Modifier panels get type-specific fields from
 `modifierFields[type]` and extra UI via `modifierExtraUI[type]` (`editors/properties/stack.ts`).
 
+### Constraints (`eval/constraints*.ts`, `eval/constraint_solve.ts`)
+`constraintTypes[type] = { apply(ownerMatrix, c, ctx), spaces, usesTarget, boneOnly, deps, isValid }`.
+The solver converts the owner (and `ctx.target`) into the constraint's owner/target space, applies the
+type and blends by influence; object stacks run in `evaluateTransform`, pose bone stacks (including the
+IK and Spline IK solvers, `eval/ik.ts`, `eval/splineik.ts`) in `evaluatePose`. Panels: `constraints/ui.ts`
+(`constraintExtraUI[type]` adds UI for types registered elsewhere).
+
 ### Evaluation (`eval/depsgraph.ts`)
 `app.graph.get(id)` → `EvalObject { world: Matrix4, mesh?: EvalMesh, pose?, visible, geomVersion }`.
 Modifiers: `registerModifier({ type, label, category, icon, defaults, apply(mesh, mod, ctx), deps?,
@@ -154,13 +183,29 @@ adds entries to File ▸ Import/Export. Native format: `io/native.ts`.
 (the "+" tab menu); layouts are built with `A(type)`, `H(ratio, a, b)`, `V(ratio, a, b)`, `dock()`.
 
 ### Other extension points
-- `eval/modifiers.ts` `registerModifier`, `editors/properties/stack.ts` `modifierFields` (panel rows)
+- `eval/modifiers.ts` `registerModifier`, `editors/properties/stack.ts` `modifierFields` (panel rows);
+  newer modifier families live in `eval/mods/` (pure, unit-tested; bind data in `_bind_*` typed arrays
+  on the modifier) with their panels/operators in `editors/properties/modui/` (`kit.ts` has sub-panels,
+  vertex group + invert rows, curve and texture widgets)
 - `editors/properties/properties.ts` `registerTab`, `tabs.ts` `objectExtraPanels`, `dataTabDrawers` (Object Data tab per object type)
 - `editors/properties/uilist.ts` `uiList(..., { specials, up, down })` for list specials menus and reordering
 - `object/instancing.ts` `objectDuplis` (instances an object shows; drawn via `SyncedObject.duplis`)
 - `editors/view3d/draw.ts` `drawHooks`, `render/scene.ts` `sceneSyncHooks`
 - `render/final` `renderPostHooks` (compositor), sequencer frame hooks in `job.ts`
 - `app/keymap.ts` `keyInputHooks` (raw text input, e.g. Text Edit Mode)
+- Geometry nodes: `geonodes/nodes/gndef.ts` `geoNode(spec, exec)` defines a node inline; `geonodes/menuplace.ts`
+  places Add-menu entries by the menu's item order. Zones (`geonodes/zones/`) keep their items as JSON on the
+  output node (`repeat_items`, `state_items`, …; inputs find them through `props.paired_output`); a zone output
+  runs its body through `ZoneEval` (`ExecContext.evaluator` is the running evaluator). `NodeTypeDef.onAdd` adds
+  companion nodes when a node is added interactively. `geonodes/menu.ts` holds the full Add-menu layout
+  (`GEOMETRY_MENU_LAYOUT`; the registered menu keeps entries whose types exist when it loads). Matrices are a
+  field type (16 floats, column-major); rotation fields hold XYZ Euler triples (`geonodes/rotmath.ts` converts
+  through quaternions). Dynamic item lists of Format String / Index Switch / Menu Switch use
+  `geonodes/nodes/items.ts` (JSON on the node, sidebar editor, links to the `__item__` socket). Primitives give
+  `MeshComponent.edgeOrder` (`geonodes/ops/edgeorder.ts`); other meshes number edges by first use in faces.
+  Node messages carry a severity (`ExecContext.warn(msg, kind)`); the provider's `nodeWarnings` shows them on
+  node headers. `tests/unit/gnspec.ts` builds trees from JSON specs; `tests/fixtures/geonodes/*.json` hold specs
+  with recorded expected attribute values.
 - `nodes/editor/context.ts` `registerNodeEditorProvider` (Shader, Geometry, Compositor editors; optional
   `linkViewer` for Ctrl Shift click, `viewPanels` / `optionsPanels` for the sidebar's View / Options tabs).
   Tree commands behind the node editor's menus are pure functions in `nodes/treeops.ts` and `nodes/iface.ts`.
@@ -172,6 +217,11 @@ adds entries to File ▸ Import/Export. Native format: `io/native.ts`.
   add entries to the right-click menu of menu items
 - `ui/props.ts` `propertyAnimMenuHook` (right-click menu of keyframe decorators), `anim/keyingsets.ts`
   `propertyAnimExtraItems`; `editors/properties/tabs.ts` `sceneKeyingPanel`, `armatureDataPanels`
+- Assets (`assets/`): any data-block of an asset table can carry `asset_data`; `doc.asset_catalogs`
+  holds the file's catalogs. Menus of other editors are extended through hooks: `rowMenuHooks` /
+  `rowBadgeHooks` (`editors/outliner/menus.ts`), `idSelectorMenuHooks` (`ui/idmenu.ts`, data-block
+  selectors), `addMenuExtras` (`nodes/editor/context.ts`, node Add menu and search),
+  `shelfCategoryHooks` (`paint/assetshelf.ts`), `idAssetHooks` (`scripting/api.ts`, `ID.asset_mark()`)
 - Animation editors (`animation/animeditor.ts`): `selectables()` feeds box/circle/lasso selection,
   `overlay` draws transient circle/lasso/slider readouts, `snapTo()`/`snapHeader()` snapping options;
   key-shaping logic lives in `animation/fcurvetools.ts` (pure) and its operators in `graphtools.ts`

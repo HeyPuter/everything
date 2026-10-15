@@ -5,7 +5,7 @@ import { Matrix4, Quaternion, Vector3 } from 'three';
 import type { ArmatureData, Bone, DocumentData, ObjectData, PoseBone, Vec3 } from '../data/types';
 import { poseBoneMatrix } from './transform';
 import type { Depsgraph } from './depsgraph';
-import { solveIK } from './ik';
+import { solveBoneConstraints } from './constraint_solve';
 
 export interface BoneEval {
   name: string;
@@ -112,38 +112,8 @@ export function evaluatePose(doc: DocumentData, ob: ObjectData, arm: ArmatureDat
     bones.set(b.name, ev);
     order.push(b.name);
   }
-  // Bone constraints (IK, copy rotation, damped track...) in armature space
-  if (ob.pose && !restPosition && graph) {
-    const armWorld = graph.get(ob.id)?.world ?? new Matrix4();
-    const armWorldInv = armWorld.clone().invert();
-    for (const name of order) {
-      const pb = ob.pose[name];
-      if (!pb?.constraints.length) continue;
-      for (const c of pb.constraints) {
-        if (c.mute || c.influence <= 0) continue;
-        if (c.type === 'IK') {
-          let targetPos: Vector3 | null = null;
-          const target = c.target ? graph.get(c.target as string) : undefined;
-          if (target) {
-            const tm = target.world.clone();
-            if (c.subtarget && target.pose) {
-              const tb = target.pose.bones.get(c.subtarget as string);
-              if (tb) tm.multiply(tb.pose);
-            }
-            targetPos = new Vector3().setFromMatrixPosition(tm).applyMatrix4(armWorldInv);
-          }
-          if (targetPos) {
-            let pole: Vector3 | null = null;
-            const poleOb = c.pole_target ? graph.get(c.pole_target as string) : undefined;
-            if (poleOb) pole = new Vector3().setFromMatrixPosition(poleOb.world).applyMatrix4(armWorldInv);
-            solveIK(bones, arm, name, targetPos, (c.chain_count as number) || 0, (c.iterations as number) || 500, c.influence, pole, ((c.pole_angle as number) ?? 0));
-          }
-        } else if (c.type === 'COPY_ROTATION' || c.type === 'DAMPED_TRACK' || c.type === 'TRACK_TO' || c.type === 'COPY_LOCATION' || c.type === 'LIMIT_ROTATION' || c.type === 'STRETCH_TO') {
-          applyBoneConstraint(bones, name, c, graph, armWorld, armWorldInv);
-        }
-      }
-    }
-  }
+  // Bone constraints (IK, copy rotation, damped track...) in hierarchy order
+  if (ob.pose && !restPosition && graph) solveBoneConstraints(graph, doc, ob, arm, bones, order, (name, m) => setBonePose(bones, name, m));
   let sig = '';
   for (const name of order) {
     const ev = bones.get(name)!;
@@ -173,50 +143,6 @@ export function setBonePose(bones: Map<string, BoneEval>, name: string, m: Matri
   const delta = m.clone().multiply(b.pose.clone().invert());
   b.pose.copy(m);
   propagateChildren(bones, name, delta);
-}
-
-function applyBoneConstraint(
-  bones: Map<string, BoneEval>,
-  name: string,
-  c: PoseBone['constraints'][number],
-  graph: Depsgraph,
-  armWorld: Matrix4,
-  armWorldInv: Matrix4,
-) {
-  const b = bones.get(name)!;
-  const target = c.target ? graph.get(c.target as string) : undefined;
-  if (!target && c.type !== 'LIMIT_ROTATION') return;
-  const tm = target ? target.world.clone() : new Matrix4();
-  if (target && c.subtarget && target.pose) {
-    const tb = target.pose.bones.get(c.subtarget as string);
-    if (tb) tm.multiply(tb.pose);
-  }
-  const tLocal = armWorldInv.clone().multiply(tm);
-  const p = new Vector3(),
-    q = new Quaternion(),
-    s = new Vector3();
-  b.pose.decompose(p, q, s);
-  const tp = new Vector3(),
-    tq = new Quaternion(),
-    ts = new Vector3();
-  tLocal.decompose(tp, tq, ts);
-  const inf = c.influence;
-  if (c.type === 'COPY_ROTATION') q.slerp(tq, inf);
-  else if (c.type === 'COPY_LOCATION') p.lerp(tp, inf);
-  else if (c.type === 'DAMPED_TRACK' || c.type === 'TRACK_TO' || c.type === 'STRETCH_TO') {
-    const yAxis = new Vector3(0, 1, 0).applyQuaternion(q);
-    const dir = tp.clone().sub(p);
-    const dist = dir.length();
-    dir.normalize();
-    const rot = new Quaternion().setFromUnitVectors(yAxis, dir);
-    const full = rot.multiply(q);
-    q.slerp(full, inf);
-    if (c.type === 'STRETCH_TO' && b.length > 0) s.y *= 1 + ((dist / b.length) - 1) * inf;
-  } else if (c.type === 'LIMIT_ROTATION') {
-    // limit in local space relative to rest
-    void armWorld;
-  }
-  setBonePose(bones, name, new Matrix4().compose(p, q, s));
 }
 
 /** Deform positions (object space) by an armature; returns new array. */

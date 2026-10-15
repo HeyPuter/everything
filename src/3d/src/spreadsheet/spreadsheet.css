@@ -3,7 +3,7 @@
   position: absolute;
   inset: 0;
   display: flex;
-  background: #1d1d1d;
+  background: var(--g-1d, #1d1d1d);
   color: var(--c-text);
   font-size: var(--fs);
   overflow: hidden;
@@ -23,7 +23,7 @@
   gap: 4px;
   height: 22px;
   padding: 0 6px;
-  color: #ccc;
+  color: var(--t-cc, #ccc);
 }
 .ss-left-row {
   display: flex;
@@ -39,15 +39,15 @@
   padding-left: 18px;
 }
 .ss-left-row:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.05);
 }
 .ss-left-row.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--c-text-on-accent, #fff);
 }
 .ss-left-row.empty .ss-left-label,
 .ss-left-row.empty .ss-left-count {
-  color: #777;
+  color: var(--t-77, #777);
 }
 .ss-left-label {
   flex: 1;
@@ -56,26 +56,26 @@
   white-space: nowrap;
 }
 .ss-left-count {
-  color: #bbb;
+  color: var(--t-bb, #bbb);
   font-variant-numeric: tabular-nums;
 }
 .ss-left-row.active .ss-left-count {
-  color: #fff;
+  color: var(--c-text-on-accent, #fff);
 }
 .ss-main {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: #282828;
+  background: var(--g-28, #282828);
 }
 .ss-head {
   flex: none;
   display: flex;
   height: 24px;
   overflow: hidden;
-  background: #303030;
-  border-bottom: 1px solid #1d1d1d;
+  background: var(--g-30, #303030);
+  border-bottom: 1px solid var(--g-1d, #1d1d1d);
 }
 .ss-hcell {
   flex: none;
@@ -84,11 +84,11 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  border-right: 1px solid #1f1f1f;
-  color: #e6e6e6;
+  border-right: 1px solid var(--g-1f, #1f1f1f);
+  color: var(--t-e6, #e6e6e6);
 }
 .ss-hcell.virtual {
-  color: #a8a8a8;
+  color: var(--t-a8, #a8a8a8);
   font-style: italic;
 }
 .ss-body {
@@ -113,13 +113,13 @@
   left: 0;
   height: 20px;
   display: flex;
-  background: #2b2b2b;
+  background: var(--g-2b, #2b2b2b);
 }
 .ss-row.odd {
-  background: #262626;
+  background: var(--g-26, #262626);
 }
 .ss-row:hover {
-  background: #353535;
+  background: var(--g-35, #353535);
 }
 .ss-cell {
   flex: none;
@@ -132,15 +132,15 @@
   gap: 8px;
   white-space: nowrap;
   overflow: hidden;
-  border-right: 1px solid #1f1f1f;
+  border-right: 1px solid var(--g-1f, #1f1f1f);
   font-variant-numeric: tabular-nums;
   box-sizing: border-box;
 }
 .ss-cell.ss-idx,
 .ss-hcell.ss-idx {
   justify-content: flex-end;
-  color: #8f8f8f;
-  background: #2f2f2f;
+  color: var(--t-8f, #8f8f8f);
+  background: var(--g-2f, #2f2f2f);
   position: sticky;
   left: 0;
   z-index: 1;
@@ -153,11 +153,11 @@
   margin-right: auto;
 }
 .ss-bool {
-  color: #888;
+  color: var(--t-88, #888);
   margin-right: auto;
 }
 .ss-bool.on {
-  color: #e6e6e6;
+  color: var(--t-e6, #e6e6e6);
 }
 .ss-swatch {
   width: 22px;
@@ -175,12 +175,12 @@
   justify-content: flex-end;
   gap: 8px;
   padding: 0 10px;
-  background: #303030;
-  border-top: 1px solid #1d1d1d;
-  color: #bbb;
+  background: var(--g-30, #303030);
+  border-top: 1px solid var(--g-1d, #1d1d1d);
+  color: var(--t-bb, #bbb);
 }
 .ss-sep {
-  color: #666;
+  color: var(--t-66, #666);
 }
 .ss-header .ss-state {
   display: flex;
@@ -192,7 +192,7 @@
   align-items: center;
   gap: 2px;
   margin-left: 8px;
-  color: #ccc;
+  color: var(--t-cc, #ccc);
   min-width: 0;
   overflow: hidden;
 }
@@ -203,5 +203,5 @@
   white-space: nowrap;
 }
 .ss-crumb-sep {
-  color: #777;
+  color: var(--t-77, #777);
 }

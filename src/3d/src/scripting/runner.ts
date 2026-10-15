@@ -14,12 +14,16 @@ export interface ConsoleLine {
   type: LineType;
 }
 
+/** Console limits (Preferences ▸ System ▸ Memory & Limits). */
+export const consoleSettings = { scrollback: 5000 };
+
 export const output = {
   lines: [] as ConsoleLine[],
   listeners: new Set<() => void>(),
   push(text: string, type: LineType = 'OUTPUT') {
     for (const l of String(text).replace(/\n$/, '').split('\n')) this.lines.push({ text: l, type });
-    if (this.lines.length > 5000) this.lines.splice(0, this.lines.length - 5000);
+    const max = Math.max(32, consoleSettings.scrollback);
+    if (this.lines.length > max) this.lines.splice(0, this.lines.length - max);
     this.notify();
   },
   clear() {

@@ -1,0 +1,9 @@
+IESNA:LM-63-2002
+[TEST] synthetic distribution for unit tests
+[MANUFAC] none
+TILT=NONE
+1 1000 1 7 1 1 2 0 0 0
+1 1 100
+0 30 60 90 120 150 180
+0
+1000 800 600 400 200 100 50

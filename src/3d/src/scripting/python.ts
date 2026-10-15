@@ -1,6 +1,7 @@
 // Python support via Pyodide (MPL-2.0), loaded lazily from the official jsDelivr CDN the
 // first time Python is used. JavaScript scripting works offline; Python needs the network
 // once per session to fetch the runtime.
+import { prefs } from '../app/prefs';
 import { app } from '../app/app';
 import { Struct, BoundArray, PropCollection, isIdWrapper, pyError } from './rna';
 import { bpy, callOperator, opModules, opNames, type ExecContext } from './api';
@@ -278,6 +279,11 @@ function pyCall<T>(fn: () => T): T {
 export function loadPython(): Promise<PyodideAPI> {
   if (py) return Promise.resolve(py);
   if (loading) return loading;
+  if (!prefs.use_online_access) {
+    const msg = 'Python needs to download its runtime, but online access is turned off (Preferences ▸ System ▸ Network).';
+    output.push(msg, 'ERROR');
+    return Promise.reject(new Error(msg));
+  }
   setState('loading');
   output.push(`Loading Python runtime… (Pyodide ${PYODIDE_VERSION} from cdn.jsdelivr.net)`, 'INFO');
   loading = (async () => {

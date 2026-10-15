@@ -7,6 +7,7 @@ import './quadview';
 import { objectModeContextMenu, selectByTypeMenu, selectGroupedMenu, selectLinkedMenu, selectMoreLessMenu } from '../../object/menus';
 import { viewMenuExtras } from './hooks';
 import { activeView3D } from './view3d';
+import { FIELD_TYPES } from '../../physics/types';
 
 export function viewMenu(): MenuItem[] {
   const v = activeView3D();
@@ -203,13 +204,7 @@ export function addMenu(): MenuItem[] {
     { label: 'Speaker', icon: 'outliner_ob_speaker', op: 'object.speaker_add' },
     { separator: true },
     { label: 'Force Field', icon: 'force_force', submenu: () =>
-      [
-        ['FORCE', 'Force'],
-        ['WIND', 'Wind'],
-        ['VORTEX', 'Vortex'],
-        ['TURBULENCE', 'Turbulence'],
-        ['DRAG', 'Drag'],
-      ].map(([t, l]) => ({ label: l, icon: `force_${t.toLowerCase()}`, op: 'object.effector_add', props: { type: t } })) },
+      FIELD_TYPES.map(([t, l, i]) => ({ label: l, icon: i, op: 'object.effector_add', props: { type: t } })) },
     { separator: true },
     { label: 'Collection Instance', icon: 'collection', submenu: () => {
       const cols = Object.values(app.doc.collections).filter((c) => c.id !== app.doc.scene.collection);

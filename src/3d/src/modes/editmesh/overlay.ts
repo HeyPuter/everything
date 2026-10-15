@@ -37,6 +37,8 @@ const C = {
   active: new Color(1, 1, 1),
   normal: new Color().setRGB(0.133, 0.867, 0.867).convertSRGBToLinear(),
 };
+/** Edit-mode colours (Preferences ▸ Themes writes them). */
+export const editMeshColors = C;
 
 const pointMat = (xray: boolean) =>
   new ShaderMaterial({

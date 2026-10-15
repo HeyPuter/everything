@@ -23,10 +23,31 @@ export function clothSetup(m: ClothModifier, mesh: EvalMesh, doc: DocumentData):
   const c = { ...defaultClothCollision(), ...m.collision_settings };
   const pin = groupWeights(mesh, s.vertex_group_mass);
   const quality = Math.max(1, Math.round(s.quality));
+  const n = mesh.positions.length / 3;
+  const group = (name: string | undefined) => (name ? groupWeights(mesh, name) : null);
+  const structural = group(s.vertex_group_structural_stiffness),
+    shear = group(s.vertex_group_shear_stiffness),
+    bending = group(s.vertex_group_bending),
+    shrink = group(s.vertex_group_shrink);
+  const anyWeights = structural || shear || bending || shrink;
+  const pressureW = s.use_pressure ? group(s.vertex_group_pressure) : null;
+  void n;
   return {
     shear: true,
     bend: true,
     collide: c.use_collision,
+    collection: c.collection ?? null,
+    sewing: !!s.use_sewing_springs,
+    internal: s.use_internal_springs ? { maxLength: s.internal_spring_max_length ?? 0, maxDiversion: s.internal_spring_max_diversion ?? Math.PI / 4, normalCheck: !!s.internal_spring_normal_check } : null,
+    weights: anyWeights
+      ? {
+          base: [s.tension_stiffness, s.compression_stiffness, s.shear_stiffness, s.bending_stiffness],
+          structural: structural ? { w: structural, tensionMax: s.tension_stiffness_max ?? s.tension_stiffness, compressionMax: s.compression_stiffness_max ?? s.compression_stiffness } : undefined,
+          shear: shear ? { w: shear, max: s.shear_stiffness_max ?? s.shear_stiffness } : undefined,
+          bending: bending ? { w: bending, max: s.bending_stiffness_max ?? s.bending_stiffness } : undefined,
+          shrink: shrink ? { w: shrink, min: s.shrink_min, max: s.shrink_max ?? 0 } : undefined,
+        }
+      : null,
     params: {
       dt: (s.time_scale || 0) / fps(doc),
       substeps: quality,
@@ -44,6 +65,13 @@ export function clothSetup(m: ClothModifier, mesh: EvalMesh, doc: DocumentData):
       collision: c.use_collision ? { distance: c.distance_min, quality: Math.max(1, Math.round(c.collision_quality)) } : null,
       self: c.use_self_collision ? { distance: c.self_distance_min, friction: c.self_friction } : null,
       restScale: 1 - Math.min(0.99, Math.max(-1, s.shrink_min)),
+      internalCompliance: [compliance(s.internal_tension_stiffness ?? 15), compliance(s.internal_compression_stiffness ?? 15)],
+      // sewing force 0 = as strong as possible
+      sewCompliance: (s.sewing_force_max ?? 0) > 0 ? compliance(s.sewing_force_max!, 10) : 1e-6,
+      pressure: s.use_pressure
+        ? { uniform: s.uniform_pressure_force ?? 0, factor: s.pressure_factor ?? 1, targetVolume: s.use_pressure_volume ? (s.target_volume ?? 0) : 0, density: s.fluid_density ?? 0, weights: pressureW ? Float32Array.from(pressureW) : null }
+        : null,
+      fieldTypeWeights: s.effector_weights_types ?? null,
     },
   };
 }
@@ -83,8 +111,12 @@ export function softBodySetup(m: SoftBodyModifier, mesh: EvalMesh, doc: Document
       shapeMatch: s.use_shape_match ? s.shape_stiffness : 0,
       fieldWeight: s.effector_weights_all,
       collision: s.use_collision ? { distance: s.ball_size, quality: 1 } : null,
-      self: null,
-      restScale: 1,
+      self: s.use_self_collision ? { distance: Math.max(0.001, s.self_ball_size ?? 0.1), friction: 1 } : null,
+      // spring length in percent of the rest length (0 keeps the rest length)
+      restScale: s.spring_length ? Math.max(0.01, s.spring_length / 100) : 1,
+      aero: s.aero ? { factor: s.aero, lift: s.aerodynamics_type === 'LIFT_FORCE' } : null,
+      plastic: s.plastic ? Math.min(1, s.plastic / 100) * 0.05 : 0,
+      fieldTypeWeights: (s as { effector_weights_types?: Record<string, number> }).effector_weights_types ?? null,
     },
   };
 }

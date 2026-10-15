@@ -253,6 +253,11 @@ const I: Record<string, string> = {
   force_wind: '<path class="c-mo s" d="M2 5h8a2 2 0 1 0-2-2M2 9h11a2 2 0 1 1-2 2M2 12h5" fill="none" stroke-width="1.3"/>',
   force_vortex: '<path class="c-mo s" d="M8 8a1.5 1.5 0 1 1 1.5 1.5A3 3 0 1 1 12 6 4.5 4.5 0 1 1 6 3" fill="none" stroke-width="1.2"/>',
   force_turbulence: '<path class="c-mo s" d="M2 8c2-4 4 4 6 0s4 4 6 0" fill="none" stroke-width="1.4"/>',
+  force_drag: '<path class="c-mo s" d="M2 8h7M7 5.5 9.5 8 7 10.5M12 3.5v9M14.5 5v6" fill="none" stroke-width="1.3"/>',
+  force_magnetic: '<path class="c-mo s" d="M4 2.5v6a4 4 0 0 0 8 0v-6" fill="none" stroke-width="2"/><path class="c-mo f" d="M3 2h2v2.2H3zM11 2h2v2.2h-2z"/>',
+  force_harmonic: '<path class="c-mo s" d="M1.5 8h1.5l1.5-3.5 2 7 2-7 2 7 1.5-3.5H14.5" fill="none" stroke-width="1.2"/>',
+  force_lennardjones: '<circle class="c-mo s" cx="5" cy="8" r="3" fill="none" stroke-width="1.2"/><circle class="c-mo f" cx="12" cy="8" r="2.2"/>',
+  force_curve: '<path class="c-mo s" d="M2 13c2.5-7 6.5 1 10-8" fill="none" stroke-width="1.3"/><path class="c-mo f" d="m10.2 4.2 3.6-1.4-.6 3.8z"/>',
   // misc
   hand: '<path class="f" d="M5.5 8V3.5a1 1 0 0 1 2 0V7h.5V2.5a1 1 0 0 1 2 0V7h.5V3.5a1 1 0 0 1 2 0V10c0 2.5-1.5 4.5-4.5 4.5S4 13 3 11L1.8 8.6a1 1 0 0 1 1.7-1L5.5 10z"/>',
   menu: '<path class="s" d="M3 4h10M3 8h10M3 12h10" stroke-width="1.4"/>',

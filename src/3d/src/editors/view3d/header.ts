@@ -1,8 +1,10 @@
 // 3D viewport header (mode selector, menus, transform settings, shading).
+import { solidLightingChooser, hdriChooser } from './studiochooser';
 import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { openMenu, openPopover, type MenuItem } from '../../ui/menu';
 import { app } from '../../app/app';
+import { prefs } from '../../app/prefs';
 import { currentOrientation, customOrientations, setOrientation, BUILTIN_ORIENTATIONS } from '../../ops/orientations';
 import { activeView3D, type View3D } from './view3d';
 import { viewMenu, selectMenu, addMenu, objectMenu } from './menus';
@@ -395,7 +397,7 @@ function editOverlaySections(v: View3D): Child {
     ];
   return [
     h('div', { class: 'pop-grid' }, checkbox('o-seam', 'Seams', o.show_edge_seams, set('show_edge_seams')), checkbox('o-sharp', 'Sharp', o.show_edge_sharp, set('show_edge_sharp')), checkbox('o-crease', 'Crease', o.show_edge_crease, set('show_edge_crease')), checkbox('o-fcen', 'Center', o.show_face_center, set('show_face_center'))),
-    panel('ov-mesh-measure', 'Measurement', () => [h('div', { class: 'pop-grid' }, checkbox('o-len', 'Edge Length', o.show_extra_edge_length, set('show_extra_edge_length')), checkbox('o-idx', 'Indices', o.show_extra_indices, set('show_extra_indices')))], { sub: true }),
+    panel('ov-mesh-measure', 'Measurement', () => [h('div', { class: 'pop-grid' }, checkbox('o-len', 'Edge Length', o.show_extra_edge_length, set('show_extra_edge_length')), prefs.show_developer_ui ? checkbox('o-idx', 'Indices', o.show_extra_indices, set('show_extra_indices')) : null)], { sub: true }),
     panel('ov-mesh-normals', 'Normals', () => [
       h('div', { class: 'pop-grid' }, checkbox('o-vnorm', 'Vertex Normals', o.show_vertex_normals, set('show_vertex_normals')), checkbox('o-fnorm', 'Face Normals', o.show_face_normals, set('show_face_normals'))),
       numberField({ id: 'o-nlen', label: 'Size', value: o.normals_length, min: 0.0001, max: 100, set: (x) => set('normals_length')(x) }),
@@ -420,6 +422,7 @@ function shadingPopover(v: View3D): Child {
       h('div', { class: 'pop-title' }, 'Lighting'),
       checkbox('s-lights', 'Scene Lights', s[lightsKey], set(lightsKey)),
       checkbox('s-world', 'Scene World', s[worldKey], set(worldKey)),
+      !s[worldKey] ? hdriChooser(v) : null,
       !s[worldKey] ? numberField({ id: 's-strength', label: 'Strength', value: s.studiolight_intensity, min: 0, max: 2, slider: true, set: (x) => set('studiolight_intensity')(x) }) : null,
       h('div', { class: 'pop-title' }, 'Render Pass'),
       h('div', { class: 'pop-line' }, 'Combined'),
@@ -429,7 +432,7 @@ function shadingPopover(v: View3D): Child {
     'div',
     { class: 'pop-panel' },
     h('div', { class: 'pop-title' }, 'Viewport Shading'),
-    panel('sh-light', 'Lighting', () => [enumRow('s-light', items([['STUDIO', 'Studio'], ['MATCAP', 'MatCap'], ['FLAT', 'Flat']]), s.light, set('light'))], { sub: true }),
+    panel('sh-light', 'Lighting', () => [enumRow('s-light', items([['STUDIO', 'Studio'], ['MATCAP', 'MatCap'], ['FLAT', 'Flat']]), s.light, set('light')), solidLightingChooser(v)], { sub: true }),
     panel('sh-color', 'Color', () => [
       h('div', { class: 'enum-grid' }, enumRow('s-color', items([['MATERIAL', 'Material'], ['OBJECT', 'Object'], ['VERTEX', 'Attribute'], ['SINGLE', 'Single'], ['RANDOM', 'Random'], ['TEXTURE', 'Texture']]), s.color_type, set('color_type'))),
       s.color_type === 'SINGLE' ? colorSwatch('s-single', s.single_color, (c) => set('single_color')(c.slice(0, 3))) : null,

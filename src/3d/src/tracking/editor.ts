@@ -1,5 +1,6 @@
 // Movie Clip Editor (CLIP_EDITOR): footage view with markers (pattern/search areas, paths),
 // Graph and Dope Sheet views of the tracks, header menus, toolbar (T) and sidebar (N).
+import { canvasGrey, canvasTextGrey } from '../ui/canvastheme';
 import { h, patch, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { app, type ChangeKind } from '../app/app';
@@ -348,12 +349,12 @@ export class ClipEditor implements Editor {
   }
 
   private drawClip(ctx: CanvasRenderingContext2D, w: number, hh: number, dpr: number) {
-    ctx.fillStyle = '#303030';
+    ctx.fillStyle = canvasGrey(0x30);
     ctx.fillRect(0, 0, w, hh);
     const c = this.clip;
     if (!c && this.mode === 'MASK') return this.drawMaskFrame(ctx, w, hh);
     if (!c) {
-      ctx.fillStyle = '#8a8a8a';
+      ctx.fillStyle = canvasTextGrey(0x8a);
       ctx.font = '12px var(--font, sans-serif)';
       ctx.textAlign = 'center';
       ctx.fillText('No movie clip: open one with Clip ▸ Open… (Alt O)', w / 2, hh / 2);

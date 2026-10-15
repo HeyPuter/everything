@@ -111,6 +111,8 @@ export interface NodePropDef {
   noLabel?: boolean;
   /** only drawn when the predicate holds */
   visible?: (node: NodeData) => boolean;
+  /** enum items that depend on the tree the node is in (defaults to `items`) */
+  itemsFor?: (tree?: NodeTreeData) => [string, string][] | undefined;
 }
 
 /** A collapsible panel of sockets/props inside a node (e.g. Principled BSDF ▸ Subsurface). */
@@ -168,6 +170,8 @@ export interface NodeTypeDef {
   dynamicSockets?: (node: NodeData, ctx: SocketContext) => { inputs: SocketDef[]; outputs: SocketDef[]; panels?: NodePanelDef[] };
   /** initialize props of a newly created node */
   init?: (node: NodeData) => void;
+  /** after the node is added interactively: add companion nodes (zone outputs) and return them */
+  onAdd?: (tree: NodeTreeData, node: NodeData) => NodeData[];
   /** custom body UI (color ramps, curves, image selector) drawn after props */
   drawBody?: (ctx: NodeDrawContext) => Child;
   /** extra height for custom body UI in node units */
@@ -235,4 +239,6 @@ export interface MenuCategory {
   items: (MenuEntry | MenuCategory | 'SEPARATOR')[];
   /** only shown for these trees (e.g. object vs world shader) */
   poll?: (ctx: { treeType: TreeType; shaderType?: 'OBJECT' | 'WORLD' }) => boolean;
+  /** top-level categories: draw a separator above this one in the Add menu */
+  separatorBefore?: boolean;
 }

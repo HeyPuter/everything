@@ -10,6 +10,7 @@ import { newMaterial, uid, newWorld } from '../../data/defaults';
 import { uniqueName } from '../../ops/object';
 import { cloneShared } from '../../data/cow';
 import { openMenu } from '../../ui/menu';
+import { idSelectorMenuHooks } from '../../ui/idmenu';
 import { materialSlots } from '../view3d/draw';
 import { uiList } from './uilist';
 import { cameraPanels } from '../../render/final/props/camera';
@@ -28,6 +29,8 @@ const ob = () => app.activeObject;
 export const objectExtraPanels: ((o: ObjectData) => Child)[] = [];
 /** Keying Sets panel of the Scene tab (drawn by the animation module). */
 export const sceneKeyingPanel: { draw: (() => Child) | null } = { draw: null };
+/** Rigid Body World panel of the Scene tab (provided by the physics module). */
+export const sceneRigidBodyPanel: { draw: (() => Child) | null } = { draw: null };
 const changed = (label: string) => {
   app.pushUndo(label);
   app.changed('doc');
@@ -82,7 +85,7 @@ registerTab({
         enumProp(s.unit_settings, 'length_unit', 'Length', [['ADAPTIVE', 'Adaptive'], ['KILOMETERS', 'Kilometers'], ['METERS', 'Meters'], ['CENTIMETERS', 'Centimeters'], ['MILLIMETERS', 'Millimeters'], ['MICROMETERS', 'Micrometers']]),
       ]),
       panel('sc-gravity', 'Gravity', () => [vecProp(s, 'gravity', 'Gravity', { unit: 'none' })], { header: checkbox('sc-grav-on', '', s.use_gravity, (v) => ((s.use_gravity = v), changed('Gravity'))) }),
-      panel('sc-rb', 'Rigid Body World', () =>
+      sceneRigidBodyPanel.draw ? sceneRigidBodyPanel.draw() : panel('sc-rb', 'Rigid Body World', () =>
         s.rigidbody_world
           ? [
               num(s.rigidbody_world, 'time_scale', 'Speed', { min: 0, max: 100 }),
@@ -324,7 +327,16 @@ export function dataBlockSelector<T extends { id: string; name: string; use_fake
   const cur = items.find((i) => i.id === current);
   return h(
     'div',
-    { class: 'id-selector' },
+    {
+      class: 'id-selector',
+      oncontextmenu: (e: MouseEvent) => {
+        const extra = cur ? idSelectorMenuHooks.flatMap((f) => f(cur.id)) : [];
+        if (!extra.length) return;
+        e.preventDefault();
+        e.stopPropagation();
+        openMenu(extra, { x: e.clientX, y: e.clientY });
+      },
+    },
     h(
       'button',
       {

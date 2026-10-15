@@ -4,6 +4,7 @@ import { h, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { app } from '../app/app';
 import { openMenu } from '../ui/menu';
+import { idSelectorMenuHooks } from '../ui/idmenu';
 import { textField } from '../ui/widgets';
 import type { ObjectData } from '../data/types';
 import { activeAction } from './channels';
@@ -36,7 +37,18 @@ export function actionSelector(ob: ObjectData): Child {
   const act = activeAction(app.doc, ob);
   return h(
     'div',
-    { key: 'action-sel', class: 'anim-idblock' },
+    {
+      key: 'action-sel',
+      class: 'anim-idblock',
+      // the same extra entries as data-block selectors (Mark as Asset, …)
+      oncontextmenu: (e: MouseEvent) => {
+        const extra = act ? idSelectorMenuHooks.flatMap((f) => f(act.id)) : [];
+        if (!extra.length) return;
+        e.preventDefault();
+        e.stopPropagation();
+        openMenu(extra, { x: e.clientX, y: e.clientY });
+      },
+    },
     h(
       'button',
       {

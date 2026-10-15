@@ -17,6 +17,8 @@ import './spreadsheet/index';
 import './tracking/index';
 import './sequencer/index';
 import './object/index';
+import './editors/properties/modui/index';
+import './assets/index';
 
 export function registerModules() {
   // modules register on import; this function exists to make the dependency explicit

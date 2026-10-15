@@ -6,7 +6,7 @@ import { appIcon, icon } from './icons';
 import { openMenu, type MenuItem } from './menu';
 import { app, registerOperators, operators, operatorListeners } from '../app/app';
 import { addKeys } from '../app/keymap';
-import { prefs, savePrefs } from '../app/prefs';
+import { prefs, savePrefs, formatDate } from '../app/prefs';
 import { importMenu, exportMenu } from '../io/files';
 import { recentFiles, clearRecent, recentBytes, loadProjectBytes, listSnapshots, openSnapshot, saveStartupFile, freshStart, type Snapshot } from '../io/session';
 import { APP_VERSION } from '../scripting/wmops';
@@ -27,7 +27,7 @@ function ago(t: number) {
   if (s < 60) return 'just now';
   if (s < 3600) return `${Math.round(s / 60)} min ago`;
   if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-  return new Date(t).toLocaleDateString();
+  return formatDate(t, false);
 }
 
 // ---------------------------------------------------------------------------
@@ -304,7 +304,7 @@ function autoSaveBody(list: Snapshot[]): Child {
             },
             icon('time'),
             h('span', { class: 'splash-recent-name' }, s.name),
-            h('span', { class: 'splash-recent-meta' }, `${s.reason ? `${s.reason} · ` : ''}${new Date(s.time).toLocaleString()} · ${sizeLabel(s.size)}`),
+            h('span', { class: 'splash-recent-meta' }, `${s.reason ? `${s.reason} · ` : ''}${formatDate(s.time)} · ${sizeLabel(s.size)}`),
           ),
         )
       : h('div', { class: 'splash-empty' }, `No auto saves yet. While you work, a copy of the project is kept every ${prefs.autosave_interval || 2} minutes (Preferences ▸ Save & Load).`),

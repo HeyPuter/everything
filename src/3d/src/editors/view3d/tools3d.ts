@@ -34,6 +34,8 @@ const scene = () => app.doc.scene as SceneExt;
 export const annotateSettings = {
   color: [0.12, 0.65, 0.95] as [number, number, number],
   thickness: 3,
+  /** pick distance of the annotation eraser in pixels */
+  eraserRadius: 12,
   placement: 'CURSOR' as 'CURSOR' | 'VIEW' | 'SURFACE',
 };
 
@@ -147,7 +149,7 @@ function annotatePointer(v: View3D, e: PointerEvent): boolean {
     sc.annotations = (sc.annotations ?? []).filter((s) => {
       for (let i = 0; i < s.points.length; i += 3) {
         const p = vv.project(new Vector3(s.points[i], s.points[i + 1], s.points[i + 2]));
-        if (Math.hypot(p.x - x, p.y - y) < 12) return false;
+        if (Math.hypot(p.x - x, p.y - y) < annotateSettings.eraserRadius) return false;
       }
       return true;
     });

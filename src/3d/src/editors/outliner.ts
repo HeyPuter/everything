@@ -27,7 +27,7 @@ import {
   type TreeState,
 } from './outliner/tree';
 import { moveCollection, moveObjectsToCollection } from './outliner/collections';
-import { contextMenuFor, emptyMenu, viewMenu } from './outliner/menus';
+import { contextMenuFor, emptyMenu, viewMenu, rowBadgeHooks } from './outliner/menus';
 import { filterPopover } from './outliner/filter';
 import { setCurrentOutliner } from './outliner/current';
 import './outliner/icons';
@@ -671,6 +671,7 @@ export class Outliner implements Editor {
                   onblur: (e: FocusEvent) => this.renaming === r.key && this.rename(r, (e.target as HTMLInputElement).value),
                 })
               : h('span', { class: 'ol-name' }, r.label),
+            rowBadgeHooks.map((f) => f(r)),
             r.count !== undefined ? h('span', { class: 'ol-count', 'data-tip': `${r.count} data-block${r.count === 1 ? '' : 's'}` }, String(r.count)) : null,
           ),
           r.chips?.length

@@ -1,6 +1,18 @@
 // A 2D time/value view used by the animation editors: frames along X, values
 // (or channel rows) along Y. Handles pan/zoom on both axes and grid steps.
 
+/** Display options of the animation editors (Preferences ▸ Animation sets these). */
+export const animSettings = {
+  /** smallest distance between time grid lines / labels, in pixels */
+  gridMinPx: 50,
+  /** how times are shown when an editor displays seconds */
+  timecode: 'MINIMAL' as 'MINIMAL' | 'SMPTE' | 'SMPTE_COMPACT' | 'MILLISECONDS' | 'SECONDS_ONLY',
+  /** opacity of unselected curves in the Graph Editor */
+  unselectedAlpha: 0.5,
+  /** Graph Editor shows keyframes only on selected curves */
+  onlySelectedKeys: false,
+};
+
 export class View2D {
   /** frame at the left edge of the region */
   x0 = -10;
@@ -68,7 +80,7 @@ export class View2D {
 }
 
 /** Grid/label step in frames so that labels are at least `minPx` apart. */
-export function frameStep(ppf: number, fps: number, minPx = 50): number {
+export function frameStep(ppf: number, fps: number, minPx = animSettings.gridMinPx): number {
   const f = Math.max(1, Math.round(fps));
   const cands = new Set<number>([1, 2, 5, 10]);
   for (const m of [0.25, 0.5, 1, 2, 5, 10, 20, 30, 60, 120, 300, 600, 1200, 3000, 6000]) {
@@ -91,4 +103,31 @@ export function formatValue(v: number, step: number) {
   const digits = Math.max(0, Math.min(6, -Math.floor(Math.log10(step) + 1e-9)));
   const s = v.toFixed(digits);
   return s === '-0' || /^-0\.0*$/.test(s) ? s.slice(1) : s;
+}
+
+/** A frame as time text in the timecode style of the preferences (Minimal: seconds+frames, e.g. 1+12 at 24 fps). */
+export function formatSeconds(frame: number, fps: number) {
+  const f = Math.round(frame);
+  const r = Math.max(1, Math.round(fps));
+  const sec = Math.trunc(f / r),
+    rest = Math.abs(f - sec * r);
+  const sign = f < 0 ? '-' : '';
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  const a = Math.abs(sec);
+  const hh = Math.floor(a / 3600),
+    mm = Math.floor((a % 3600) / 60),
+    ss = a % 60;
+  // Preferences ▸ Animation ▸ Timeline ▸ Timecode Style
+  switch (animSettings.timecode) {
+    case 'SMPTE':
+      return `${sign}${p2(hh)}:${p2(mm)}:${p2(ss)}:${p2(rest)}`;
+    case 'SMPTE_COMPACT':
+      return `${sign}${hh ? `${hh}:${p2(mm)}:` : mm ? `${mm}:` : ''}${hh || mm ? p2(ss) : ss}:${p2(rest)}`;
+    case 'MILLISECONDS':
+      return `${sign}${hh ? `${hh}:` : ''}${p2(mm)}:${p2(ss)}.${String(Math.round((rest / fps) * 1000)).padStart(3, '0')}`;
+    case 'SECONDS_ONLY':
+      return `${(f / fps).toFixed(1)}`;
+    default:
+      return `${f < 0 && sec === 0 ? '-' : ''}${sec}+${rest}`;
+  }
 }

@@ -43,7 +43,7 @@ commercial-only, source-available or custom-licensed packages are used.
 - The app is an independent, clean-room implementation. It contains no source code, icons, themes,
   text, startup files or other assets from Blender (GPL-2.0-or-later).
 - For file and scripting compatibility (`.blend` import, `bpy`-style scripts), some generated tables
-  (`src/nodes/shader/data.gen.ts`, `src/geonodes/data.gen.ts`, `src/io/blend/nodeprops.gen.ts`,
+  (`src/nodes/shader/data.gen.ts`, `src/geonodes/data.gen.ts`, `src/geonodes/data-fields.gen.ts`, `src/io/blend/nodeprops.gen.ts`,
   compositor node data) list node, socket and property *names, identifiers, enum items and default
   values* of the public `bpy` API. These are interface facts needed to read and write compatible
   data, not expressive code; they are flagged here for legal review.

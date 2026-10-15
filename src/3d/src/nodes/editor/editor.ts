@@ -9,12 +9,12 @@ import { openMenu, openPopover, openSearch, type MenuItem, type SearchEntry } fr
 import { checkbox } from '../../ui/widgets';
 import type { MaterialData, NodeData, NodeTreeData } from '../../data/types';
 import { canPreview, nodePreview, onPreviewReady, previewTreeKey } from './preview';
-import { getNodeType, nodeSockets, nodeMenu, canConvert, SOCKET_COLORS, propValue } from '../registry';
+import { getNodeType, nodeSockets, nodeMenu, canConvert, SOCKET_COLORS, propValue, NODE_EDITOR_COLORS, nodeEditorSettings } from '../registry';
 import { connect, ctxOf, linkStatus, nodeById, insertOnLink, removeLinks, makeNode, internalLinks, frameChildren, compatibleGroups } from '../tree';
 import { layoutTree, linkCurve, sockKey, distToCurve, curvePolylineHit, pointInPolygon, type NodeLayout, type SocketPos, HEADER } from './layout';
 import { addReroutes, detachLinks, insertOffset, isFrame, isGroupNode, toggleLinkMute } from '../treeops';
 import { renderNode } from './nodeui';
-import { providers, type NodeEditorProvider, type TreeRoot } from './context';
+import { providers, addMenuExtras, type NodeEditorProvider, type TreeRoot } from './context';
 import type { MenuCategory, MenuEntry, SocketType, TreeType } from '../types';
 import { drawSidebar } from './sidebar';
 import { drawToolbar, NODE_TOOLS, type NodeTool, type SelectMode } from './toolbar';
@@ -368,7 +368,8 @@ export class NodeEditor implements Editor {
 
   addMenuItems(at?: { x: number; y: number }): MenuItem[] {
     const items = this.nodeTypeItems((idname, settings) => this.addNodeInteractive(idname, settings, at), false);
-    return [{ label: 'Search...', icon: 'search', action: () => this.addSearch(at) }, { separator: true }, ...items];
+    const extra = addMenuExtras.flatMap((x) => x.items(this, at));
+    return [{ label: 'Search...', icon: 'search', action: () => this.addSearch(at) }, { separator: true }, ...items, ...(extra.length ? [{ separator: true }, ...extra] : [])];
   }
 
   /** Swap menu (Shift S): the Add menu's categories, replacing the selected nodes. */
@@ -401,7 +402,9 @@ export class NodeEditor implements Editor {
     const items: MenuItem[] = [];
     for (const c of nodeMenu(this.treeType())) {
       const sub = conv(c);
-      if (sub.length) items.push({ label: c.label, submenu: () => sub });
+      if (!sub.length) continue;
+      if (c.separatorBefore && items.length && !items[items.length - 1].separator) items.push({ separator: true });
+      items.push({ label: c.label, submenu: () => sub });
     }
     items.push({ separator: true });
     items.push({ label: 'Group', submenu: () => this.groupMenu(pick, swap) });
@@ -489,7 +492,7 @@ export class NodeEditor implements Editor {
   }
 
   addSearch(at?: { x: number; y: number }, initial = '') {
-    openSearch(() => this.addSearchEntries(at), app.pointer.x - 150, app.pointer.y - 20, 'Search nodes…', initial);
+    openSearch(() => [...this.addSearchEntries(at), ...addMenuExtras.flatMap((x) => x.search(this, at))], app.pointer.x - 150, app.pointer.y - 20, 'Search nodes…', initial);
   }
 
   /** Search for the node type to swap the selected nodes to. */
@@ -518,6 +521,8 @@ export class NodeEditor implements Editor {
     const prevSel = tree.nodes.filter((o) => o.select).map((o) => o.id);
     tree.nodes.push(n);
     tree.active_node = n.id;
+    const extra = getNodeType(n.type)?.onAdd?.(tree, n) ?? [];
+    for (const x of extra) x.select = true;
     // the group's preferred node width
     const gid = n.props.node_tree as string | undefined;
     const gw = gid && isGroupNode(n) ? app.doc.node_groups[gid]?.tree.default_group_node_width : undefined;
@@ -525,10 +530,11 @@ export class NodeEditor implements Editor {
     app.changed('doc');
     this.render();
     // the new node follows the pointer; cancelling removes it again
-    this.startGrab([n.id], 'key', `Add ${getNodeType(n.type)?.label ?? idname}`, undefined, p, {
+    const added = new Set([n.id, ...extra.map((x) => x.id)]);
+    this.startGrab([...added], 'key', `Add ${getNodeType(n.type)?.label ?? idname}`, undefined, p, {
       onCancel: () => {
-        tree.nodes = tree.nodes.filter((o) => o !== n);
-        tree.links = tree.links.filter((l) => l.from_node !== n.id && l.to_node !== n.id);
+        tree.nodes = tree.nodes.filter((o) => !added.has(o.id));
+        tree.links = tree.links.filter((l) => !added.has(l.from_node) && !added.has(l.to_node));
         tree.active_node = prevActive;
         for (const o of tree.nodes) o.select = prevSel.includes(o.id);
         onCancel?.();
@@ -626,6 +632,7 @@ export class NodeEditor implements Editor {
               highlightSockets: this.highlightSockets(),
               dimSocket: dim,
               titleTip: groupName !== undefined && gid ? app.doc.node_groups[gid]?.tree.description : undefined,
+              warnings: this.provider.nodeWarnings?.(this, n),
               preview: ma && n.show_preview && !n.hide && canPreview(n, app.doc, tree) ? (nodePreview(app.doc, ma, n, pkey) ?? '') : undefined,
               rerouteLabel: l.kind === 'REROUTE' ? n.label || (this.showOverlays && this.overlays.rerouteLabels ? rerouteSource(tree, n, this.layouts) : undefined) : undefined,
             },
@@ -680,7 +687,7 @@ export class NodeEditor implements Editor {
   drawBack(W = this.el.clientWidth, H = this.el.clientHeight) {
     if (!W || !H) return;
     const g = this.sizeCanvas(this.back, W, H);
-    g.fillStyle = '#1d1d1d';
+    g.fillStyle = NODE_EDITOR_COLORS.back;
     g.fillRect(0, 0, W, H);
     const v = this.view();
     // dot grid (two levels)
@@ -690,10 +697,10 @@ export class NodeEditor implements Editor {
     const ox = ((v.x % s) + s) % s,
       oy = ((v.y % s) + s) % s;
     const big = step * 5 * v.zoom;
-    g.fillStyle = '#2c2c2c';
+    g.fillStyle = NODE_EDITOR_COLORS.grid;
     for (let x = ox; x < W; x += s) for (let y = oy; y < H; y += s) g.fillRect(Math.round(x) - 1, Math.round(y) - 1, 2, 2);
     if (big > 40) {
-      g.fillStyle = '#353535';
+      g.fillStyle = NODE_EDITOR_COLORS.gridMajor;
       const bx = ((v.x % big) + big) % big,
         by = ((v.y % big) + big) % big;
       for (let x = bx; x < W; x += big) for (let y = by; y < H; y += big) g.fillRect(Math.round(x) - 1.5, Math.round(y) - 1.5, 3, 3);
@@ -1869,8 +1876,7 @@ export class NodeEditor implements Editor {
     const s = this.hitSocket(clientX, clientY, !d.isOutput);
     const own = new Set(d.ends.map((x) => x.node));
     const ok = (t: SocketPos & { node: string }) =>
-      !own.has(t.node) &&
-      d.ends.every((end) => t.socket.type === 'CUSTOM' || end.type === 'CUSTOM' || (d.isOutput ? canConvert(end.type, t.socket.type) : canConvert(t.socket.type, end.type)));
+      !own.has(t.node) && d.ends.every((end) => t.socket.type === 'CUSTOM' || end.type === 'CUSTOM' || (d.isOutput ? canConvert(end.type, t.socket.type) : canConvert(t.socket.type, end.type)));
     if (s && ok(s)) return s;
     const n = this.hitNode(clientX, clientY, false);
     if (!n || own.has(n.id)) return null;
@@ -1959,14 +1965,7 @@ export class NodeEditor implements Editor {
    * Interactive transform of nodes: move (G / drag), rotate (R) or scale (S) around the
    * selection centre. Moving a single unlinked node over a link inserts it there.
    */
-  startGrab(
-    ids: string[],
-    mode: 'key' | 'tweak',
-    label = 'Move',
-    ev?: PointerEvent,
-    from?: { x: number; y: number },
-    opts: { kind?: 'MOVE' | 'ROTATE' | 'SCALE'; onCancel?: () => void } = {},
-  ) {
+  startGrab(ids: string[], mode: 'key' | 'tweak', label = 'Move', ev?: PointerEvent, from?: { x: number; y: number }, opts: { kind?: 'MOVE' | 'ROTATE' | 'SCALE'; onCancel?: () => void } = {}) {
     const tree = this.tree();
     if (!tree || !ids.length) return;
     const kind = opts.kind ?? 'MOVE';
@@ -2086,7 +2085,7 @@ export class NodeEditor implements Editor {
         self.axisGuide = null;
         if (self.insertTarget && single) {
           const ctx = ctxOf(app.doc, tree);
-          if (insertOnLink(ctx, single.id, self.insertTarget)) insertOffset(tree, single, (n) => self.layouts.get(n.id)?.w ?? n.width ?? 140);
+          if (insertOnLink(ctx, single.id, self.insertTarget) && nodeEditorSettings.insertOffset) insertOffset(tree, single, (n) => self.layouts.get(n.id)?.w ?? n.width ?? 140, nodeEditorSettings.insertMargin);
         }
         self.insertTarget = null;
         if (kind !== 'MOVE') return;
@@ -2102,7 +2101,8 @@ export class NodeEditor implements Editor {
           }
         }
       },
-      header: () => `${info}   ${kind === 'MOVE' ? 'Move' : kind === 'ROTATE' ? 'Rotate' : 'Scale'} nodes: LMB/Enter confirm, RMB/Esc cancel, Ctrl ${self.snap ? 'free' : 'snap'}${kind === 'MOVE' ? ', X/Y axis' : ''}`,
+      header: () =>
+        `${info}   ${kind === 'MOVE' ? 'Move' : kind === 'ROTATE' ? 'Rotate' : 'Scale'} nodes: LMB/Enter confirm, RMB/Esc cancel, Ctrl ${self.snap ? 'free' : 'snap'}${kind === 'MOVE' ? ', X/Y axis' : ''}`,
     });
   }
 

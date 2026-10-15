@@ -29,7 +29,7 @@
   padding: 0 6px;
   background: var(--w-menu, #282828);
   border-radius: 3px;
-  color: #ddd;
+  color: var(--t-dd, #ddd);
   font-size: 11px;
 }
 .cmp-rl-row span {
@@ -44,10 +44,10 @@
   width: 22px;
   height: 19px;
   border-radius: 3px;
-  background: #545454;
+  background: var(--g-54, #545454);
 }
 .cmp-rl-render:hover {
-  background: #666;
+  background: var(--g-66, #666);
 }
 
 .cmp-sample {
@@ -55,9 +55,31 @@
   z-index: 5;
   padding: 3px 7px;
   border-radius: 4px;
-  background: rgba(20, 20, 20, 0.92);
-  color: #e6e6e6;
+  background: rgb(from var(--g-14, #141414) r g b / 0.92);
+  color: var(--t-e6, #e6e6e6);
   font: 11px var(--mono, monospace);
   white-space: pre;
   pointer-events: none;
+}
+
+/* node bodies: rows of small controls (File Output inputs, Cryptomatte buttons, Track Position) */
+.cmp-body-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cmp-body-row {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  min-width: 0;
+}
+.cmp-body-row > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.cmp-body-row .btn,
+.cmp-body-row button {
+  height: 20px;
 }

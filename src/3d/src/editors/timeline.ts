@@ -13,6 +13,12 @@ import { playbackFooter } from '../animation/footer';
 import { aggregate } from '../animation/aggregate';
 import { drawKey } from '../animation/theme';
 
+/** Cached frames drawn as strips along the bottom of the timeline (e.g. simulation caches). */
+export const timelineCacheProviders: (() => { frames: number[]; baked: boolean; color: string }[])[] = [];
+/** Extra drawing in the timeline's content area (e.g. physics cache bars) and its View menu entries. */
+export const timelineOverlays: ((g: CanvasRenderingContext2D, tl: Timeline, W: number) => void)[] = [];
+export const timelineViewMenuHooks: ((tl: Timeline) => MenuItem[])[] = [];
+
 export class Timeline extends DopeSheet {
   /** keys shown only for selected channels' objects (the summary of selected objects) */
   constructor(area: Area, state?: unknown) {
@@ -41,6 +47,7 @@ export class Timeline extends DopeSheet {
       { label: 'Only Show Selected', checked: this.onlySelected, action: () => ((this.onlySelected = !this.onlySelected), this.refresh(), app.changed('ui')) },
       { label: 'Show Hidden', checked: this.showHidden, action: () => ((this.showHidden = !this.showHidden), this.refresh(), app.changed('ui')) },
       { label: 'Show Seconds', checked: this.showSeconds, op: 'anim.show_seconds_toggle', shortcut: 'Ctrl T' },
+      ...timelineViewMenuHooks.flatMap((f) => f(this)),
       { separator: true },
       { label: 'Frame All', op: 'action.view_all', shortcut: 'Home' },
       { label: 'Frame Scene Range', op: 'anim.scene_range_frame' },
@@ -72,6 +79,8 @@ export class Timeline extends DopeSheet {
   }
 
   protected drawContent(g: CanvasRenderingContext2D, W: number) {
+    this.drawCaches(g, W);
+    for (const o of timelineOverlays) o(g, this, W);
     const ch = this.list.rows[0];
     if (!ch?.curves.length) return;
     const agg = aggregate(ch.curves.map((r) => r.fc));
@@ -81,6 +90,28 @@ export class Timeline extends DopeSheet {
       const x = this.view.fx(k.frame);
       if (x < -10 || x > W + 10) continue;
       drawKey(g, Math.round(x) + 0.5, Math.round(yc) + 0.5, size, k.type, k.selected, 'DIAMOND', 1);
+    }
+  }
+
+  /** Runs of cached frames as thin strips (brighter when baked). */
+  private drawCaches(g: CanvasRenderingContext2D, W: number) {
+    const caches = timelineCacheProviders.flatMap((p) => p());
+    let y = this.contentBottom() - 4;
+    for (const c of caches) {
+      if (!c.frames.length) continue;
+      g.fillStyle = c.color;
+      g.globalAlpha = c.baked ? 0.9 : 0.5;
+      let a = c.frames[0];
+      for (let i = 1; i <= c.frames.length; i++) {
+        const f = c.frames[i];
+        if (f === c.frames[i - 1] + 1) continue;
+        const x0 = Math.max(0, this.view.fx(a - 0.5)),
+          x1 = Math.min(W, this.view.fx(c.frames[i - 1] + 0.5));
+        if (x1 > x0) g.fillRect(x0, y, x1 - x0, 3);
+        a = f;
+      }
+      g.globalAlpha = 1;
+      y -= 4;
     }
   }
 }

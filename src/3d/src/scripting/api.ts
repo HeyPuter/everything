@@ -12,7 +12,23 @@ import { Matrix4 } from 'three';
 import { app, operators, type OpResult } from '../app/app';
 import type { DocumentData, ObjectData, MeshData, NodeTreeData, NodeData, ID, ImageData, TextData, CollectionData, MaterialData } from '../data/types';
 import { newMetaball } from '../metaball/data';
-import { newObject, newMeshData, newMaterial, newCollection, newCamera, newLight, newImage, newText, newAction, newNodeGroup, newWorld, newCurve, newArmature, newLattice, uid } from '../data/defaults';
+import {
+  newObject,
+  newMeshData,
+  newMaterial,
+  newCollection,
+  newCamera,
+  newLight,
+  newImage,
+  newText,
+  newAction,
+  newNodeGroup,
+  newWorld,
+  newCurve,
+  newArmature,
+  newLattice,
+  uid,
+} from '../data/defaults';
 import { buildMesh, edgeTopology, emptyMeshArrays, faceCenter, faceVerts, polyNormal } from '../mesh/mesh';
 import { cow, cloneShared } from '../data/cow';
 import { newModifier, modifierTypes } from '../eval/modifiers';
@@ -26,6 +42,8 @@ import { scriptFile, scriptFileNames } from './files';
 import { Matrix, Vector, mathutils } from './mathutils';
 import { allSockets, getNodeType, nodeSockets, nodeTypes, socketDefault } from '../nodes/registry';
 import { ctxOf, makeNode } from '../nodes/tree';
+import { zoneItemsFor, pairWithOutput } from '../geonodes/zones/script';
+import { nodeItemsFor } from '../geonodes/nodes/itemscript';
 import type { SocketDef } from '../nodes/types';
 import {
   Struct,
@@ -55,7 +73,11 @@ import {
 const doc = (): DocumentData => app.doc;
 
 export function uniqueName(table: Record<string, { name: string }>, base: string, exceptId?: string) {
-  const names = new Set(Object.values(table).filter((x) => (x as { id?: string }).id !== exceptId).map((o) => o.name));
+  const names = new Set(
+    Object.values(table)
+      .filter((x) => (x as { id?: string }).id !== exceptId)
+      .map((o) => o.name),
+  );
   if (!names.has(base)) return base;
   const stem = base.replace(/\.\d{3}$/, '');
   for (let i = 1; ; i++) {
@@ -64,7 +86,17 @@ export function uniqueName(table: Record<string, { name: string }>, base: string
   }
 }
 
-const DATA_TABLE: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', SURFACE: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices', META: 'metaballs' };
+const DATA_TABLE: Record<string, keyof DocumentData> = {
+  MESH: 'meshes',
+  CURVE: 'curves',
+  FONT: 'curves',
+  SURFACE: 'curves',
+  LIGHT: 'lights',
+  CAMERA: 'cameras',
+  ARMATURE: 'armatures',
+  LATTICE: 'lattices',
+  META: 'metaballs',
+};
 const TABLE_OBTYPE: Record<string, ObjectData['type']> = { meshes: 'MESH', curves: 'CURVE', lights: 'LIGHT', cameras: 'CAMERA', armatures: 'ARMATURE', lattices: 'LATTICE', metaballs: 'META' };
 const TYPE_NAME = Object.fromEntries(ID_TABLES) as Record<string, string>;
 
@@ -97,8 +129,9 @@ function countUsers(id: ID): number {
   const visit = (v: unknown, depth: number) => {
     if (depth > 12 || v === null || typeof v !== 'object' || ArrayBuffer.isView(v)) return;
     if (Array.isArray(v)) {
-      for (const x of v) if (x === id) n++;
-      else visit(x, depth + 1);
+      for (const x of v)
+        if (x === id) n++;
+        else visit(x, depth + 1);
       return;
     }
     for (const [k, x] of Object.entries(v)) {
@@ -118,6 +151,9 @@ function countUsers(id: ID): number {
 
 // ---------------------------------------------------------------------------
 // ID base
+
+/** Asset marking for scripts (installed by the asset system). */
+export const idAssetHooks: { mark?: (table: string, id: string) => void; clear?: (table: string, id: string) => void; preview?: (table: string, id: string) => void } = {};
 
 export class IDStruct extends Struct {
   readonly __kind: string = 'id';
@@ -186,6 +222,22 @@ export class IDStruct extends Struct {
   }
   user_clear() {
     /* users are derived from references in this implementation */
+  }
+  /** Asset metadata (None unless the data-block is an asset). */
+  get asset_data() {
+    return this.__raw.asset_data ? wrapField(this, 'asset_data', () => this.__resolve()) : null;
+  }
+  asset_mark() {
+    idAssetHooks.mark?.(this.__table, this.__id);
+    touched();
+  }
+  asset_clear() {
+    idAssetHooks.clear?.(this.__table, this.__id);
+    touched();
+  }
+  asset_generate_preview() {
+    idAssetHooks.preview?.(this.__table, this.__id);
+    touched();
   }
   animation_data_create() {
     const raw = this.__raw;
@@ -366,7 +418,13 @@ class ObjectStruct extends IDStruct {
   }
   get material_slots() {
     const ob = this.ob;
-    return materialSlots(ob).map((id, i) => ({ __kind: 'struct', name: id ? app.doc.materials[id]?.name ?? '' : '', material: id ? wrapId('materials', id) : null, link: ob.material_slots_link?.[i] ?? 'DATA', slot_index: i }));
+    return materialSlots(ob).map((id, i) => ({
+      __kind: 'struct',
+      name: id ? (app.doc.materials[id]?.name ?? '') : '',
+      material: id ? wrapId('materials', id) : null,
+      link: ob.material_slots_link?.[i] ?? 'DATA',
+      slot_index: i,
+    }));
   }
   get vertex_groups() {
     return new VertexGroupCollection(this.__id);
@@ -396,7 +454,8 @@ class ObjectStruct extends IDStruct {
     const f = frame === undefined || frame === null ? app.doc.scene.frame_current : Number(frame);
     const val = getValue(app.doc, ob, data_path);
     if (val === undefined) throw pyError('TypeError', `bpy_struct.keyframe_insert() property "${data_path}" not found`);
-    if (typeof val !== 'number' && typeof val !== 'boolean' && !Array.isArray(val) && !ArrayBuffer.isView(val)) throw pyError('TypeError', `bpy_struct.keyframe_insert() property "${data_path}" not animatable`);
+    if (typeof val !== 'number' && typeof val !== 'boolean' && !Array.isArray(val) && !ArrayBuffer.isView(val))
+      throw pyError('TypeError', `bpy_struct.keyframe_insert() property "${data_path}" not animatable`);
     keyProperty(app.doc, ob, data_path, index ?? -1, f);
     if (group) {
       const act = ensureAction(app.doc, ob);
@@ -427,7 +486,15 @@ class ObjectStruct extends IDStruct {
     const me = dataRecord(this.ob) as MeshData | null;
     if (!me || this.ob.type !== 'MESH') throw pyError('TypeError', 'shape keys require a mesh object');
     const basis = !me.shape_keys.length;
-    me.shape_keys.push({ name: basis ? 'Basis' : uniqueName(Object.fromEntries(me.shape_keys.map((k, i) => [i, k])), name), data: new Float32Array(me.positions), value: 0, slider_min: 0, slider_max: 1, mute: false, relative_key: me.shape_keys[0]?.name ?? 'Basis' });
+    me.shape_keys.push({
+      name: basis ? 'Basis' : uniqueName(Object.fromEntries(me.shape_keys.map((k, i) => [i, k])), name),
+      data: new Float32Array(me.positions),
+      value: 0,
+      slider_min: 0,
+      slider_max: 1,
+      mute: false,
+      relative_key: me.shape_keys[0]?.name ?? 'Basis',
+    });
     touched('geometry');
     const i = me.shape_keys.length - 1;
     return proxify(new Struct('ShapeKey', () => (dataRecord(this.ob) as MeshData | null)?.shape_keys[i] as unknown as Raw, `${this.__path}.data.shape_keys.key_blocks[${i}]`));
@@ -453,7 +520,7 @@ function dataRecord(ob: ObjectData): Raw | null {
 function materialSlots(ob: ObjectData): (ID | null)[] {
   const d = dataRecord(ob) as { materials?: (ID | null)[] } | null;
   const base = d?.materials ?? [];
-  return base.map((id, i) => (ob.material_slots_link?.[i] === 'OBJECT' ? ob.object_materials?.[i] ?? null : id));
+  return base.map((id, i) => (ob.material_slots_link?.[i] === 'OBJECT' ? (ob.object_materials?.[i] ?? null) : id));
 }
 
 /** Modifier/constraint stacks: `ob.modifiers.new(name, type)`, `.remove(m)`, `["Name"]`. */
@@ -475,7 +542,13 @@ class ModifierCollection extends PropCollection<unknown> {
   new(name: string, type: string) {
     const ob = this.ob();
     const t = String(type ?? '').toUpperCase();
-    if (!modifierTypes[t]) throw pyError('TypeError', `ObjectModifiers.new(): enum "${type}" not found in (${Object.keys(modifierTypes).map((k) => `'${k}'`).join(', ')})`);
+    if (!modifierTypes[t])
+      throw pyError(
+        'TypeError',
+        `ObjectModifiers.new(): enum "${type}" not found in (${Object.keys(modifierTypes)
+          .map((k) => `'${k}'`)
+          .join(', ')})`,
+      );
     if (ob.type !== 'MESH' && ob.type !== 'CURVE' && ob.type !== 'FONT' && ob.type !== 'LATTICE') throw pyError('RuntimeError', `Error: Object '${ob.name}' does not support modifiers`);
     const m = newModifier(t, uid('md'), ob.modifiers);
     if (name) m.name = uniqueName(Object.fromEntries(ob.modifiers.map((x) => [x.id, x])), String(name));
@@ -511,7 +584,9 @@ kwMethod(ModifierCollection.prototype, 'new', ['name', 'type']);
 function modifierWrapper(obId: string, mid: string) {
   const s = new Struct('Modifier', () => app.doc.objects[obId]?.modifiers.find((m) => m.id === mid) as Raw | undefined, '');
   Object.defineProperty(s, '__mid', { value: mid });
-  Object.defineProperty(s, '__path', { get: () => `bpy.data.objects[${JSON.stringify(app.doc.objects[obId]?.name)}].modifiers[${JSON.stringify(app.doc.objects[obId]?.modifiers.find((m) => m.id === mid)?.name)}]` });
+  Object.defineProperty(s, '__path', {
+    get: () => `bpy.data.objects[${JSON.stringify(app.doc.objects[obId]?.name)}].modifiers[${JSON.stringify(app.doc.objects[obId]?.modifiers.find((m) => m.id === mid)?.name)}]`,
+  });
   return proxify(s);
 }
 
@@ -533,7 +608,13 @@ class ConstraintCollection extends PropCollection<unknown> {
   new(type: string) {
     const ob = this.ob();
     const t = String(type ?? '').toUpperCase();
-    if (!constraintTypes[t] && !boneOnlyConstraints[t]) throw pyError('TypeError', `ObjectConstraints.new(): enum "${type}" not found in (${Object.keys(constraintTypes).map((k) => `'${k}'`).join(', ')})`);
+    if (!constraintTypes[t] && !boneOnlyConstraints[t])
+      throw pyError(
+        'TypeError',
+        `ObjectConstraints.new(): enum "${type}" not found in (${Object.keys(constraintTypes)
+          .map((k) => `'${k}'`)
+          .join(', ')})`,
+      );
     const c = newConstraint(t, uid('cn'));
     c.name = uniqueName(Object.fromEntries(ob.constraints.map((x) => [x.id, x])), c.name);
     ob.constraints.push(c);
@@ -558,7 +639,9 @@ kwMethod(ConstraintCollection.prototype, 'new', ['type']);
 function constraintWrapper(obId: string, cid: string) {
   const s = new Struct('Constraint', () => app.doc.objects[obId]?.constraints.find((c) => c.id === cid) as Raw | undefined, '');
   Object.defineProperty(s, '__cid', { value: cid });
-  Object.defineProperty(s, '__path', { get: () => `bpy.data.objects[${JSON.stringify(app.doc.objects[obId]?.name)}].constraints[${JSON.stringify(app.doc.objects[obId]?.constraints.find((c) => c.id === cid)?.name)}]` });
+  Object.defineProperty(s, '__path', {
+    get: () => `bpy.data.objects[${JSON.stringify(app.doc.objects[obId]?.name)}].constraints[${JSON.stringify(app.doc.objects[obId]?.constraints.find((c) => c.id === cid)?.name)}]`,
+  });
   return proxify(s);
 }
 
@@ -651,7 +734,10 @@ class MeshStruct extends IDStruct {
   get shape_keys() {
     const me = this.me;
     if (!me.shape_keys.length) return null;
-    return { __kind: 'struct', key_blocks: new BoundArray('ShapeKey', `${this.__path}.shape_keys.key_blocks`, () => (tableOf(app.doc, 'meshes')[this.__id] as unknown as MeshData | undefined)?.shape_keys, 'key_blocks') };
+    return {
+      __kind: 'struct',
+      key_blocks: new BoundArray('ShapeKey', `${this.__path}.shape_keys.key_blocks`, () => (tableOf(app.doc, 'meshes')[this.__id] as unknown as MeshData | undefined)?.shape_keys, 'key_blocks'),
+    };
   }
   /** Build geometry from Python-style lists: vertices [(x,y,z)…], edges [(a,b)…], faces [(i,j,k,…)…]. */
   from_pydata(vertices: unknown, edges: unknown = [], faces: unknown = [], shade_flat = true) {
@@ -718,7 +804,25 @@ class MeshStruct extends IDStruct {
     touched('geometry');
   }
 }
-const MESH_HIDDEN = new Set(['id', 'positions', 'offsets', 'indices', 'uvs', 'normals', 'seams', 'sharp', 'creases', 'smooth', 'material_index', 'select_vert', 'hide_vert', 'weights', 'users', 'materials', 'shape_keys']);
+const MESH_HIDDEN = new Set([
+  'id',
+  'positions',
+  'offsets',
+  'indices',
+  'uvs',
+  'normals',
+  'seams',
+  'sharp',
+  'creases',
+  'smooth',
+  'material_index',
+  'select_vert',
+  'hide_vert',
+  'weights',
+  'users',
+  'materials',
+  'shape_keys',
+]);
 kwMethod(MeshStruct.prototype, 'from_pydata', ['vertices', 'edges', 'faces', 'shade_flat']);
 kwMethod(MeshStruct.prototype, 'update', ['calc_edges', 'calc_edges_loose']);
 
@@ -755,10 +859,14 @@ class MeshVertices extends PropCollection<unknown> {
       __type: 'MeshVertex',
       index: i,
       get co() {
-        return boundVector('VECTOR', () => meshOf(id).positions.subarray(i * 3, i * 3 + 3), (k, x) => {
-          cow(meshOf(id), 'positions')[i * 3 + k] = x;
-          touched('geometry');
-        });
+        return boundVector(
+          'VECTOR',
+          () => meshOf(id).positions.subarray(i * 3, i * 3 + 3),
+          (k, x) => {
+            cow(meshOf(id), 'positions')[i * 3 + k] = x;
+            touched('geometry');
+          },
+        );
       },
       set co(v: unknown) {
         const a = toPlain(v) as number[];
@@ -828,7 +936,13 @@ class MeshEdges extends PropCollection<unknown> {
   list() {
     const me = meshOf(this.meId);
     const topo = edgeTopology(me);
-    return Array.from({ length: topo.count }, (_, i) => ({ __kind: 'struct', __type: 'MeshEdge', index: i, vertices: [topo.verts[i * 2], topo.verts[i * 2 + 1]], key: [topo.verts[i * 2], topo.verts[i * 2 + 1]] }));
+    return Array.from({ length: topo.count }, (_, i) => ({
+      __kind: 'struct',
+      __type: 'MeshEdge',
+      index: i,
+      vertices: [topo.verts[i * 2], topo.verts[i * 2 + 1]],
+      key: [topo.verts[i * 2], topo.verts[i * 2 + 1]],
+    }));
   }
   nameOf() {
     return '';
@@ -1021,10 +1135,14 @@ class MeshUVLayers extends PropCollection<unknown> {
       __kind: 'struct',
       __type: 'MeshUVLoop',
       get uv() {
-        return boundVector('VECTOR', () => meshOf(id).uvs.subarray(i * 2, i * 2 + 2), (k, x) => {
-          cow(meshOf(id), 'uvs')[i * 2 + k] = x;
-          touched('geometry');
-        });
+        return boundVector(
+          'VECTOR',
+          () => meshOf(id).uvs.subarray(i * 2, i * 2 + 2),
+          (k, x) => {
+            cow(meshOf(id), 'uvs')[i * 2 + k] = x;
+            touched('geometry');
+          },
+        );
       },
       set uv(v: unknown) {
         const a = toPlain(v) as number[];
@@ -1196,7 +1314,12 @@ const NODE_LABELS: Record<string, string> = {
 function nodeLabel(type: string) {
   if (NODE_LABELS[type]) return NODE_LABELS[type];
   const stem = type.replace(/^(ShaderNode|GeometryNode|CompositorNode|FunctionNode|NodeGroup|Node)/, '');
-  return stem.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^Bsdf (.*)$/, '$1 BSDF').replace(/^Tex (.*)$/, '$1 Texture') || type;
+  return (
+    stem
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/^Bsdf (.*)$/, '$1 BSDF')
+      .replace(/^Tex (.*)$/, '$1 Texture') || type
+  );
 }
 
 function nodeTypeEnum(bl: string) {
@@ -1352,6 +1475,42 @@ class NodeStruct extends Struct {
   private hasImage() {
     return 'image' in this.node.props || !!getNodeType(this.node.type)?.props.some((p) => p.id === 'image' && p.type === 'IMAGE');
   }
+  // zone and bake items (output nodes of zones, Bake nodes) and zone pairing
+  get repeat_items() {
+    return zoneItemsFor(this.getTree, this.__nid, 'repeat_items', `${this.__path}.repeat_items`);
+  }
+  get state_items() {
+    return zoneItemsFor(this.getTree, this.__nid, 'state_items', `${this.__path}.state_items`);
+  }
+  get input_items() {
+    return zoneItemsFor(this.getTree, this.__nid, 'input_items', `${this.__path}.input_items`);
+  }
+  get main_items() {
+    return zoneItemsFor(this.getTree, this.__nid, 'main_items', `${this.__path}.main_items`);
+  }
+  get generation_items() {
+    return zoneItemsFor(this.getTree, this.__nid, 'generation_items', `${this.__path}.generation_items`);
+  }
+  get bake_items() {
+    return zoneItemsFor(this.getTree, this.__nid, 'bake_items', `${this.__path}.bake_items`);
+  }
+  // Format String, Index Switch and Menu Switch items
+  get format_items() {
+    return nodeItemsFor(this.getTree, this.__nid, 'format_items', `${this.__path}.format_items`);
+  }
+  get index_switch_items() {
+    return nodeItemsFor(this.getTree, this.__nid, 'index_switch_items', `${this.__path}.index_switch_items`);
+  }
+  get enum_items() {
+    return nodeItemsFor(this.getTree, this.__nid, 'enum_items', `${this.__path}.enum_items`);
+  }
+  get paired_output(): unknown {
+    const id = this.node.props.paired_output;
+    return typeof id === 'string' && this.getTree()?.nodes.some((n) => n.id === id) ? nodeWrapper(this.getTree, id, this.__path.replace(/\[[^\]]*\]$/, '')) : undefined;
+  }
+  pair_with_output(output: unknown) {
+    return pairWithOutput(this.getTree, this.__nid, output);
+  }
 }
 const NODE_HIDDEN = new Set(['id', 'type', 'inputs', 'props', 'parent']);
 
@@ -1433,7 +1592,11 @@ class RampElements extends PropCollection<unknown> {
         set(0, Math.max(0, Math.min(1, Number(v))));
       },
       get color() {
-        return boundVector('COLOR', () => self.flat().slice(i * RAMP_STRIDE + 1, i * RAMP_STRIDE + 5), (k, x) => set(k + 1, x));
+        return boundVector(
+          'COLOR',
+          () => self.flat().slice(i * RAMP_STRIDE + 1, i * RAMP_STRIDE + 5),
+          (k, x) => set(k + 1, x),
+        );
       },
       set color(v: unknown) {
         const c = toPlain(v) as number[];
@@ -1537,8 +1700,43 @@ class SocketsCollection extends PropCollection<unknown> {
     const defs = this.defs();
     if (!defs) return this.socket(key);
     const d = this.lookup(key);
-    if (!d) throw pyError('KeyError', `'bpy_prop_collection[key]: key "${key}" not found' (${this.output ? 'outputs' : 'inputs'}: ${defs.map((x) => JSON.stringify(x.name)).join(', ') || 'none'})`);
-    return this.socket(d.identifier, d, defs.some((x) => x.identifier === d.identifier));
+    if (!d) {
+      const menu = this.output ? undefined : this.menuProp(key);
+      if (menu) return menu;
+      throw pyError('KeyError', `'bpy_prop_collection[key]: key "${key}" not found' (${this.output ? 'outputs' : 'inputs'}: ${defs.map((x) => JSON.stringify(x.name)).join(', ') || 'none'})`);
+    }
+    return this.socket(
+      d.identifier,
+      d,
+      defs.some((x) => x.identifier === d.identifier),
+    );
+  }
+  /** A menu input the node shows as a property (e.g. Match String's Operation): its value is the property. */
+  private menuProp(key: string) {
+    const n = this.node();
+    const p = getNodeType(n.type)?.props.find((x) => x.id === key && x.type === 'ENUM' && x.noLabel && x.items?.some(([v, l]) => v === l));
+    if (!p) return undefined;
+    const self = this;
+    return {
+      __kind: 'struct',
+      __type: 'NodeSocketMenu',
+      name: key,
+      identifier: key,
+      type: 'MENU',
+      is_output: false,
+      enabled: true,
+      is_linked: false,
+      get default_value() {
+        return (self.node().props[key] ?? p.d ?? null) as unknown;
+      },
+      set default_value(v: unknown) {
+        const val = String(v);
+        if (!p.items!.some(([x]) => x === val)) throw pyError('TypeError', `bpy_struct: item.default_value = '${val}': enum "${val}" not found in (${p.items!.map(([x]) => `'${x}'`).join(', ')})`);
+        self.node().props[key] = val;
+        touched();
+      },
+      toString: () => `<bpy_struct, NodeSocketMenu("${key}")>`,
+    };
   }
   override get(key: string | number, ...rest: unknown[]) {
     const def = rest.length ? rest[0] : null;
@@ -1573,7 +1771,9 @@ class SocketsCollection extends PropCollection<unknown> {
         return treeOrThrow(self.getTree).links.some((l) => (self.output ? l.from_node === self.nid && l.from_socket === id : l.to_node === self.nid && l.to_socket === id));
       },
       get links() {
-        return new LinksCollection(self.getTree, `${self.__path}[${JSON.stringify(name)}].links`, (l) => (self.output ? l.from_node === self.nid && l.from_socket === id : l.to_node === self.nid && l.to_socket === id)).list();
+        return new LinksCollection(self.getTree, `${self.__path}[${JSON.stringify(name)}].links`, (l) =>
+          self.output ? l.from_node === self.nid && l.from_socket === id : l.to_node === self.nid && l.to_socket === id,
+        ).list();
       },
       get default_value() {
         const n = self.node();
@@ -1948,7 +2148,6 @@ function fcurveWrapper(getAct: () => import('../data/types').ActionData | undefi
   return proxify(s);
 }
 
-
 class CameraStruct extends IDStruct {
   /**
    * The corners of the camera's frame in its local space
@@ -1983,7 +2182,10 @@ kwMethod(CameraStruct.prototype, 'view_frame', ['scene']);
 function worldToCameraView(scene: unknown, obj: unknown, coord: unknown) {
   if (!isIdWrapper(obj) || obj.__table !== 'objects' || (obj as unknown as { type: string }).type !== 'CAMERA') throw pyError('TypeError', 'world_to_camera_view(): obj must be a camera object');
   const ob = obj as unknown as { matrix_world: Matrix; data: CameraStruct };
-  const co = (ob.matrix_world.normalized().inverted().matmul(toPlain(coord) as number[])) as Vector;
+  const co = ob.matrix_world
+    .normalized()
+    .inverted()
+    .matmul(toPlain(coord) as number[]) as Vector;
   const z = -co.z;
   const cam = ob.data;
   let frame = cam.view_frame(scene).slice(0, 3);
@@ -2050,8 +2252,9 @@ export function removeDataBlock(table: string, id: string) {
   const scrub = (v: unknown, depth: number) => {
     if (depth > 12 || !v || typeof v !== 'object' || ArrayBuffer.isView(v)) return;
     if (Array.isArray(v)) {
-      for (let i = 0; i < v.length; i++) if (v[i] === id) v[i] = null;
-      else scrub(v[i], depth + 1);
+      for (let i = 0; i < v.length; i++)
+        if (v[i] === id) v[i] = null;
+        else scrub(v[i], depth + 1);
       return;
     }
     for (const [k, x] of Object.entries(v as Raw)) {
@@ -2101,7 +2304,8 @@ class IDCollection extends PropCollection<unknown> {
         let type: ObjectData['type'] = 'EMPTY',
           did: string | null = null;
         if (data !== null && data !== undefined) {
-          if (!isIdWrapper(data) || !TABLE_OBTYPE[data.__table]) throw pyError('TypeError', 'BlendDataObjects.new(): object_data must be a Mesh, Curve, Light, Camera, Armature, Lattice or MetaBall (or None)');
+          if (!isIdWrapper(data) || !TABLE_OBTYPE[data.__table])
+            throw pyError('TypeError', 'BlendDataObjects.new(): object_data must be a Mesh, Curve, Light, Camera, Armature, Lattice or MetaBall (or None)');
           type = TABLE_OBTYPE[data.__table];
           did = data.__id;
           if (data.__table === 'curves' && (tableOf(app.doc, 'curves')[did] as { body?: string })?.body !== undefined) type = 'FONT';
@@ -2347,7 +2551,16 @@ const sceneWrapper = proxify(new SceneStruct());
 function contextMode() {
   const m = app.doc.mode;
   const t = app.activeObject?.type;
-  if (m === 'EDIT') return t === 'CURVE' || t === 'FONT' ? `EDIT_${t === 'FONT' ? 'TEXT' : 'CURVE'}` : t === 'ARMATURE' ? 'EDIT_ARMATURE' : t === 'LATTICE' ? 'EDIT_LATTICE' : t === 'META' ? 'EDIT_METABALL' : 'EDIT_MESH';
+  if (m === 'EDIT')
+    return t === 'CURVE' || t === 'FONT'
+      ? `EDIT_${t === 'FONT' ? 'TEXT' : 'CURVE'}`
+      : t === 'ARMATURE'
+        ? 'EDIT_ARMATURE'
+        : t === 'LATTICE'
+          ? 'EDIT_LATTICE'
+          : t === 'META'
+            ? 'EDIT_METABALL'
+            : 'EDIT_MESH';
   if (m === 'WEIGHT_PAINT') return 'PAINT_WEIGHT';
   if (m === 'VERTEX_PAINT') return 'PAINT_VERTEX';
   if (m === 'TEXTURE_PAINT') return 'PAINT_TEXTURE';
@@ -2428,7 +2641,25 @@ export class Context {
 // ---------------------------------------------------------------------------
 // bpy.data
 
-const DATA_NAMES = ['objects', 'meshes', 'materials', 'collections', 'cameras', 'lights', 'actions', 'images', 'texts', 'node_groups', 'worlds', 'curves', 'armatures', 'lattices', 'metaballs', 'particles', 'brushes'];
+const DATA_NAMES = [
+  'objects',
+  'meshes',
+  'materials',
+  'collections',
+  'cameras',
+  'lights',
+  'actions',
+  'images',
+  'texts',
+  'node_groups',
+  'worlds',
+  'curves',
+  'armatures',
+  'lattices',
+  'metaballs',
+  'particles',
+  'brushes',
+];
 
 export const bpyData: Record<string, unknown> & { scenes: ScenesCollection } = {
   __kind: 'struct',
@@ -2632,7 +2863,10 @@ export const bpy: Record<string, unknown> = {
   path: {
     abspath: (p: string) => p,
     basename: (p: string) => String(p).split(/[\\/]/).pop() ?? '',
-    display_name: (p: string) => String(p).replace(/\.[^.]*$/, '').replace(/_/g, ' '),
+    display_name: (p: string) =>
+      String(p)
+        .replace(/\.[^.]*$/, '')
+        .replace(/_/g, ' '),
   },
 };
 

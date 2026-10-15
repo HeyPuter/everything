@@ -7,15 +7,28 @@ import type { EvalMesh, ModifierContext } from '../eval/types';
 import type { Depsgraph } from '../eval/depsgraph';
 import { meshSignature, baseEvalMesh } from '../eval/depsgraph';
 import { registerModifier } from '../eval/modifiers';
-import { arrayChecksum, rand01, frameOf, getCache, motionKey, outOfTime, strHash, worldAt, type FrameCache, type SimContext } from './common';
+import { arrayChecksum, collectionMembers, rand01, frameOf, getCache, motionKey, outOfTime, strHash, worldAt, type FrameCache, type SimContext } from './common';
 import { triangulate, closestOnTri } from './colliders';
+import { collectEffectors, effectorForce, fieldsKey } from './fields';
 import { newGrid, stepGas, type GasGrid, type GasParams } from './smoke-solver';
 import { physicsDoc } from './state';
 import { fps } from './meshsim';
 import { defaultPointCache, type PointCacheSettings } from './types';
+import { evaluateLiquid, fluidShared, liquidMesh } from './liquid';
 
 export interface FluidDomainSettings {
-  domain_type: 'GAS';
+  domain_type: 'GAS' | 'LIQUID';
+  /** liquid: FLIP/PIC blend, particles per cell axis and their jitter, surface meshing */
+  flip_ratio?: number;
+  particle_number?: number;
+  particle_randomness?: number;
+  use_mesh?: boolean;
+  mesh_particle_radius?: number;
+  mesh_scale?: number;
+  /** liquid viscosity = base × 10^-exponent (m²/s) */
+  use_diffusion?: boolean;
+  viscosity_base?: number;
+  viscosity_exponent?: number;
   resolution_max: number;
   time_scale: number;
   alpha: number;
@@ -28,6 +41,13 @@ export interface FluidDomainSettings {
   flame_vorticity: number;
   flame_max_temp: number;
   display_thickness: number;
+  /** flows and effectors are limited to these collections when set */
+  fluid_group?: string | null;
+  effector_group?: string | null;
+  /** field weights (gravity, all fields, and per field type) */
+  effector_weights_gravity?: number;
+  effector_weights_all?: number;
+  effector_weights_types?: Record<string, number>;
   use_collision_border_front: boolean;
   use_collision_border_back: boolean;
   use_collision_border_right: boolean;
@@ -37,7 +57,7 @@ export interface FluidDomainSettings {
 }
 
 export interface FluidFlowSettings {
-  flow_type: 'SMOKE' | 'BOTH' | 'FIRE';
+  flow_type: 'SMOKE' | 'BOTH' | 'FIRE' | 'LIQUID';
   flow_behavior: 'INFLOW' | 'GEOMETRY' | 'OUTFLOW';
   use_flow: boolean;
   smoke_color: [number, number, number];
@@ -67,6 +87,15 @@ export interface FluidModifier extends ModifierBase {
 export function defaultDomainSettings(): FluidDomainSettings {
   return {
     domain_type: 'GAS',
+    flip_ratio: 0.97,
+    particle_number: 2,
+    particle_randomness: 0.1,
+    use_mesh: true,
+    mesh_particle_radius: 2,
+    mesh_scale: 2,
+    use_diffusion: false,
+    viscosity_base: 1,
+    viscosity_exponent: 6,
     resolution_max: 32,
     time_scale: 1,
     alpha: 1,
@@ -79,6 +108,9 @@ export function defaultDomainSettings(): FluidDomainSettings {
     flame_vorticity: 0.5,
     flame_max_temp: 3,
     display_thickness: 1,
+    effector_weights_gravity: 1,
+    effector_weights_all: 1,
+    effector_weights_types: {},
     use_collision_border_front: false,
     use_collision_border_back: false,
     use_collision_border_right: false,
@@ -124,12 +156,13 @@ export const smokeDraw = new Map<string, SmokeDraw>();
 
 const fluidOf = (ob: ObjectData) => ob.modifiers.find((m) => m.type === 'FLUID') as FluidModifier | undefined;
 
-function participants(doc: DocumentData, kind: 'FLOW' | 'EFFECTOR'): { ob: ObjectData; m: FluidModifier }[] {
+function participants(doc: DocumentData, kind: 'FLOW' | 'EFFECTOR', domain?: FluidModifier): { ob: ObjectData; m: FluidModifier }[] {
   const out: { ob: ObjectData; m: FluidModifier }[] = [];
+  const only = domain ? collectionMembers(doc, kind === 'FLOW' ? domain.domain_settings?.fluid_group : domain.domain_settings?.effector_group) : null;
   for (const id of doc.object_order) {
     const ob = doc.objects[id];
     const m = ob ? fluidOf(ob) : undefined;
-    if (ob && m && m.fluid_type === kind && m.show_viewport && ob.type === 'MESH' && !ob.hide_viewport) out.push({ ob, m });
+    if (ob && m && m.fluid_type === kind && m.show_viewport && ob.type === 'MESH' && !ob.hide_viewport && (!only || only.has(ob.id))) out.push({ ob, m });
   }
   return out;
 }
@@ -145,9 +178,10 @@ function domainHash(doc: DocumentData, ob: ObjectData, m: FluidModifier, mesh: E
     doc.scene.gravity.join(','),
     doc.scene.use_gravity,
     fps(doc),
+    fieldsKey(doc, pc.frame_start),
   ];
   for (const kind of ['FLOW', 'EFFECTOR'] as const)
-    for (const p of participants(doc, kind)) {
+    for (const p of participants(doc, kind, m)) {
       const me = p.ob.data ? doc.meshes[p.ob.data] : undefined;
       parts.push(`${kind}:${p.ob.id}:${JSON.stringify(kind === 'FLOW' ? p.m.flow_settings : p.m.effector_settings)}:${me ? meshSignature(me) : ''}:${JSON.stringify(p.ob.modifiers.filter((x) => x !== p.m))}:${motionKey(doc, p.ob, pc.frame_start)}`);
     }
@@ -395,8 +429,8 @@ function stepDomain(ctx: SimContext, ob: ObjectData, m: FluidModifier, L: FluidL
   const n = g.nx * g.ny * g.nz;
   const f = fps(ctx.doc);
   const dtFrame = (s.time_scale || 0) / f;
-  const flows = participants(ctx.doc, 'FLOW');
-  const effectors = participants(ctx.doc, 'EFFECTOR');
+  const flows = participants(ctx.doc, 'FLOW', m);
+  const effectors = participants(ctx.doc, 'EFFECTOR', m);
   // obstacles
   g.solid.fill(0);
   for (const e of effectors) {
@@ -406,7 +440,7 @@ function stepDomain(ctx: SimContext, ob: ObjectData, m: FluidModifier, L: FluidL
   }
   // emitters (voxelized once per frame)
   const emit = flows
-    .filter((fl) => fl.m.flow_settings?.use_flow !== false)
+    .filter((fl) => fl.m.flow_settings?.use_flow !== false && fl.m.flow_settings?.flow_type !== 'LIQUID')
     .map((fl) => {
       const fs = { ...defaultFlowSettings(), ...fl.m.flow_settings };
       if (fs.flow_behavior === 'GEOMETRY' && k - 1 !== m.point_cache.frame_start) return null;
@@ -442,7 +476,7 @@ function stepDomain(ctx: SimContext, ob: ObjectData, m: FluidModifier, L: FluidL
   const P: GasParams = {
     dt,
     up: [up.x, up.y, up.z],
-    gravity: gmag * ((sc.x + sc.y + sc.z) / 3 || gridScale),
+    gravity: gmag * ((sc.x + sc.y + sc.z) / 3 || gridScale) * (s.effector_weights_gravity ?? 1),
     alpha: s.alpha,
     beta: s.beta,
     vorticity: s.vorticity * 4,
@@ -455,7 +489,15 @@ function stepDomain(ctx: SimContext, ob: ObjectData, m: FluidModifier, L: FluidL
     pressureIterations: 30,
     closed: [s.use_collision_border_left, s.use_collision_border_right, s.use_collision_border_front, s.use_collision_border_back, s.use_collision_border_bottom, s.use_collision_border_top],
   };
+  // force fields push the air: acceleration per cell (grid units), evaluated once per frame
+  const fieldAcc = fieldAccelerations(ctx, L.G, k, s.effector_weights_all ?? 1, s.effector_weights_types ?? null, g.u, g.v, g.w);
   for (let st = 0; st < sub; st++) {
+    if (fieldAcc)
+      for (let o = 0; o < n; o++) {
+        g.u[o] += fieldAcc[o * 3] * dt;
+        g.v[o] += fieldAcc[o * 3 + 1] * dt;
+        g.w[o] += fieldAcc[o * 3 + 2] * dt;
+      }
     for (const { fs, vx } of emit) {
       const w = vx.w;
       for (let o = 0; o < n; o++) {
@@ -487,6 +529,39 @@ function stepDomain(ctx: SimContext, ob: ObjectData, m: FluidModifier, L: FluidL
     }
     stepGas(g, P);
   }
+}
+
+/**
+ * Accelerations (grid cells per second², grid axes) the force fields give each cell of a domain grid,
+ * or null without fields. `u v w` are the current cell velocities (grid units per second).
+ */
+export function fieldAccelerations(ctx: SimContext, G: GridFrame, frame: number, weight: number, types: Record<string, number> | null, u?: Float32Array, v?: Float32Array, w?: Float32Array): Float32Array | null {
+  const effs = collectEffectors(ctx, frame - 1);
+  if (!effs.length || weight === 0) return null;
+  const { nx, ny, nz } = G;
+  const toWorld = G.toGrid.clone().invert();
+  const lin = G.toGrid.clone().setPosition(0, 0, 0);
+  const linInv = toWorld.clone().setPosition(0, 0, 0);
+  const out = new Float32Array(nx * ny * nz * 3);
+  const p = new Vector3(),
+    vel = new Vector3(),
+    f = [0, 0, 0];
+  const fpsv = fps(ctx.doc);
+  let o = 0;
+  for (let k = 0; k < nz; k++)
+    for (let j = 0; j < ny; j++)
+      for (let i = 0; i < nx; i++, o++) {
+        p.set(i + 0.5, j + 0.5, k + 0.5).applyMatrix4(toWorld);
+        vel.set(u ? u[o] : 0, v ? v[o] : 0, w ? w[o] : 0).applyMatrix4(linInv);
+        f[0] = f[1] = f[2] = 0;
+        effectorForce(effs, p.x, p.y, p.z, vel.x, vel.y, vel.z, frame, f, weight, null, types);
+        vel.set(f[0], f[1], f[2]).applyMatrix4(lin);
+        out[o * 3] = vel.x;
+        out[o * 3 + 1] = vel.y;
+        out[o * 3 + 2] = vel.z;
+      }
+  void fpsv;
+  return out;
 }
 
 export function evaluateDomain(ob: ObjectData, m: FluidModifier, mesh: EvalMesh, ctx: ModifierContext): { frame: FluidFrame; live: FluidLive } | null {
@@ -529,6 +604,11 @@ function fluidApply(mesh: EvalMesh, mod: ModifierBase, ctx: ModifierContext): Ev
   if (m.fluid_type !== 'DOMAIN' || ctx.editMode) {
     if (!ctx.render) smokeDraw.delete(key);
     return mesh;
+  }
+  if (m.domain_settings?.domain_type === 'LIQUID') {
+    if (!ctx.render) smokeDraw.delete(key);
+    const lr = evaluateLiquid(ctx.ob, m, mesh, ctx);
+    return lr ? liquidMesh(lr, { ...defaultDomainSettings(), ...m.domain_settings }) : mesh;
   }
   const r = evaluateDomain(ctx.ob, m, mesh, ctx);
   if (!ctx.render) {
@@ -582,3 +662,14 @@ registerModifier({
   },
   apply: fluidApply,
 });
+
+fluidShared.fns = {
+  participants,
+  voxelize,
+  gridFrame,
+  domainHash,
+  cacheKey: fluidCacheKey,
+  fieldAccelerations,
+  domainDefaults: defaultDomainSettings,
+  flowDefaults: defaultFlowSettings,
+};

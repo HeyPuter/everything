@@ -38,7 +38,7 @@ export interface MeshTopology {
   vertEdges: Uint32Array;
 }
 
-const topoCache = new WeakMap<Uint32Array, { loose: Uint32Array; nv: number; topo: MeshTopology }>();
+const topoCache = new WeakMap<Uint32Array, { loose: Uint32Array; nv: number; explicit?: Uint32Array; topo: MeshTopology }>();
 
 function nextPow2(n: number) {
   let p = 16;
@@ -110,29 +110,44 @@ function csr(count: number, n: number, keyOf: (i: number) => number): { offsets:
   return { offsets, fill: offsets.slice(0, count) };
 }
 
-export function buildTopology(nv: number, faceOffsets: Uint32Array, corners: Uint32Array, loose: Uint32Array): MeshTopology {
+/**
+ * Edges of a mesh: the `explicit` vertex pairs first (in their order and direction), then face
+ * edges not listed there in order of first use (each face from its closing edge, last corner to
+ * first, then corner by corner; stored low vertex first), then loose edges.
+ */
+export function buildTopology(nv: number, faceOffsets: Uint32Array, corners: Uint32Array, loose: Uint32Array, explicit?: Uint32Array): MeshTopology {
   const nf = faceOffsets.length - 1,
     nc = corners.length;
-  const hash = new EdgeHash(nc + loose.length / 2);
-  const ev = new Uint32Array((nc + loose.length) * 2 + 2);
+  const nx = explicit ? explicit.length / 2 : 0;
+  const hash = new EdgeHash(nc + loose.length / 2 + nx);
+  const ev = new Uint32Array((nc + loose.length + nx * 2) * 2 + 2);
   let ne = 0;
   const cornerEdge = new Uint32Array(nc),
     cornerFace = new Uint32Array(nc);
+  for (let i = 0; i < nx; i++) {
+    const x = explicit![i * 2],
+      y = explicit![i * 2 + 1];
+    if (x === y || x >= nv || y >= nv) continue;
+    if (hash.getOrAdd(x, y, ne) === ne) {
+      ev[ne * 2] = x;
+      ev[ne * 2 + 1] = y;
+      ne++;
+    }
+  }
   for (let f = 0; f < nf; f++) {
     const s = faceOffsets[f],
       e = faceOffsets[f + 1];
     for (let c = s; c < e; c++) {
       cornerFace[c] = f;
-      const x = corners[c],
-        y = corners[c + 1 < e ? c + 1 : s];
-      const id = hash.getOrAdd(x, y, ne);
-      if (id === ne) {
+      const x = corners[c === s ? e - 1 : c - 1],
+        y = corners[c];
+      if (hash.getOrAdd(x, y, ne) === ne) {
         ev[ne * 2] = Math.min(x, y);
         ev[ne * 2 + 1] = Math.max(x, y);
         ne++;
       }
-      cornerEdge[c] = id;
     }
+    for (let c = s; c < e; c++) cornerEdge[c] = hash.get(corners[c], corners[c + 1 < e ? c + 1 : s]);
   }
   for (let i = 0; i < loose.length; i += 2) {
     const x = loose[i],
@@ -201,12 +216,19 @@ export class MeshComponent {
   get edgeCount() {
     return this.topology().edgeCount;
   }
+  /**
+   * Edge order given by the mesh's maker (vertex pairs in order); it applies while the mesh keeps
+   * the corner and loose-edge arrays it was made for.
+   */
+  edgeOrder?: { edges: Uint32Array; corners: Uint32Array; loose: Uint32Array };
   topology(): MeshTopology {
     const nv = this.vertCount;
+    const eo = this.edgeOrder;
+    const explicit = eo && eo.corners === this.corners && eo.loose === this.looseEdges ? eo.edges : undefined;
     const c = topoCache.get(this.corners);
-    if (c && c.loose === this.looseEdges && c.nv === nv) return c.topo;
-    const topo = buildTopology(nv, this.faceOffsets, this.corners, this.looseEdges);
-    topoCache.set(this.corners, { loose: this.looseEdges, nv, topo });
+    if (c && c.loose === this.looseEdges && c.nv === nv && c.explicit === explicit) return c.topo;
+    const topo = buildTopology(nv, this.faceOffsets, this.corners, this.looseEdges, explicit);
+    topoCache.set(this.corners, { loose: this.looseEdges, nv, explicit, topo });
     return topo;
   }
   domainSize(d: Domain): number {
@@ -225,7 +247,9 @@ export class MeshComponent {
   }
   /** shallow copy (new attribute map, same arrays) */
   copy(): MeshComponent {
-    return new MeshComponent(this.positions, this.faceOffsets, this.corners, this.looseEdges, new Map(this.attrs), [...this.materials]);
+    const m = new MeshComponent(this.positions, this.faceOffsets, this.corners, this.looseEdges, new Map(this.attrs), [...this.materials]);
+    m.edgeOrder = this.edgeOrder;
+    return m;
   }
   withPositions(p: Float32Array): MeshComponent {
     const m = this.copy();

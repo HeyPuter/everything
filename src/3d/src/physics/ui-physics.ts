@@ -8,15 +8,20 @@ import { defaultDomainSettings, defaultFlowSettings, fluidCacheKey, type FluidMo
 import { icon } from '../ui/icons';
 import { modifierExtraUI } from '../editors/properties/stack';
 import type { ModifierBase, ObjectData } from '../data/types';
-import { insertTabAfter, changed, note, subHeading, vgroupRow, objectRow, cachePanel, fieldWeightsPanel } from './ui-common';
+import { insertTabAfter, changed, note, subHeading, vgroupRow, objectRow, cachePanel, fieldWeightsPanel, collectionRow } from './ui-common';
 import { meshSimKey } from './meshsim';
 import { RB_CACHE, rapierLoaded } from './rigidbody';
+import { RBC_TYPES } from './rbjoints';
+import { rbcTypePanels } from './ui-rbc';
+import { dynamicPaintPanels } from './ui-dynpaint';
+import { dpOf } from './dpops';
 import {
   defaultClothCollision,
   defaultClothSettings,
   defaultCollision,
   defaultField,
   defaultSoftBodySettings,
+  FIELD_TYPES,
   type ClothModifier,
   type CollisionSettingsX,
   type ForceFieldX,
@@ -66,6 +71,8 @@ function enableGrid(ob: ObjectPhysics): Child {
     const fl = fluidOf(ob);
     btns.push(toggleButton('Fluid', 'mod_fluid', !!fl, () => app.run('object.modifier_add', { type: 'FLUID' }), () => app.run('object.modifier_remove', { modifier: fl!.id })));
     btns.push(toggleButton('Rigid Body', 'physics', !!ob.rigid_body, () => app.run('rigidbody.object_add', { type: 'ACTIVE' }), () => app.run('rigidbody.object_remove')));
+    const dp = dpOf(ob);
+    btns.push(toggleButton('Dynamic Paint', 'mod_dynamicpaint', !!dp, () => app.run('object.modifier_add', { type: 'DYNAMIC_PAINT' }), () => app.run('object.modifier_remove', { modifier: dp!.id })));
   }
   btns.push(toggleButton('Rigid Body Constraint', 'constraint', !!ob.rigid_body_constraint, () => app.run('rigidbody.constraint_add', { type: 'FIXED' }), () => app.run('rigidbody.constraint_remove')));
   return h('div', { class: 'phys-enable' }, h('div', { class: 'sub-label' }, 'Enable physics for:'), h('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '2px', padding: '2px 8px 8px' } }, btns));
@@ -74,28 +81,47 @@ function enableGrid(ob: ObjectPhysics): Child {
 // ---------------------------------------------------------------------------
 // Force field
 
-const FIELD_TYPES: [string, string][] = [
-  ['FORCE', 'Force'],
-  ['WIND', 'Wind'],
-  ['VORTEX', 'Vortex'],
-  ['TURBULENCE', 'Turbulence'],
-  ['DRAG', 'Drag'],
+const SHAPES_ALL: [string, string][] = [
+  ['POINT', 'Point'],
+  ['LINE', 'Line'],
+  ['PLANE', 'Plane'],
+  ['SURFACE', 'Surface'],
+  ['POINTS', 'Every Point'],
 ];
 
 function fieldPanels(ob: ObjectPhysics): Child[] {
   const f = fillDefaults(ob.field as ForceFieldX, defaultField(ob.field!.type));
+  const t = f.type;
+  // surface shapes need mesh geometry on the field object
+  const shapes = ob.type === 'MESH' ? SHAPES_ALL : SHAPES_ALL.slice(0, 3);
+  const noiseSeed = [num(f, 'noise', 'Noise Amount', { min: 0, max: 10 }), num(f, 'seed', 'Seed', { int: true, min: 1, max: 128 })];
+  let settings: Child[];
+  if (t === 'DRAG') settings = [num(f, 'strength', 'Linear', { min: 0, max: 1000, softMax: 2 }), num(f, 'flow', 'Quadratic', { min: 0, max: 1000, softMax: 2 })];
+  else if (t === 'GUIDE')
+    settings = [
+      num(f, 'strength', 'Influence', { min: 0, max: 1, slider: true }),
+      num(f, 'guide_free', 'Free', { min: 0, max: 0.99, slider: true, tip: 'Last part of the particle lifetime in which particles move freely' }),
+      num(f, 'guide_minimum', 'Minimum Distance', { min: 0, max: 1000, unit: 'distance', tip: 'Particles further than this from the curve start are guided less (see Falloff Power)' }),
+      num(f, 'guide_clump_amount', 'Clump', { min: -1, max: 1, slider: true }),
+      bool(f, 'use_guide_path_add', 'Additive'),
+    ];
+  else if (t === 'HARMONIC') settings = [num(f, 'strength', 'Strength', { min: -1000, max: 1000, softMin: -10, softMax: 10 }), num(f, 'harmonic_damping', 'Damping', { min: 0, max: 10 }), num(f, 'rest_length', 'Rest Length', { min: 0, max: 1000, unit: 'distance' }), ...noiseSeed];
+  else if (t === 'LENNARDJ') settings = [num(f, 'strength', 'Strength', { min: -1000, max: 1000, softMin: -10, softMax: 10 }), num(f, 'size', 'Size', { min: 0.001, max: 1000, softMax: 10, unit: 'distance' }), ...noiseSeed];
+  else if (t === 'TURBULENCE') settings = [num(f, 'strength', 'Strength', { min: -1000, max: 1000, softMin: -10, softMax: 10 }), num(f, 'size', 'Size', { min: 0, max: 1000, softMax: 10, unit: 'distance' }), num(f, 'seed', 'Seed', { int: true, min: 1, max: 128 })];
+  else
+    settings = [
+      num(f, 'strength', 'Strength', { min: -1000, max: 1000, softMin: -10, softMax: 10 }),
+      t === 'VORTEX' ? num(f, 'inflow', 'Inflow', { min: -10, max: 10 }) : null,
+      t !== 'MAGNET' ? num(f, 'flow', 'Flow', { min: 0, max: 10 }) : null,
+      ...noiseSeed,
+    ];
   return [
     panel('ph-field', 'Force Fields', () => [
-      enumProp(f, 'type', 'Type', FIELD_TYPES),
+      enumProp(f, 'type', 'Type', FIELD_TYPES.map(([v, l]) => [v, l] as [string, string])),
+      t !== 'GUIDE' && t !== 'WIND' ? enumProp(f, 'shape', 'Shape', shapes) : null,
+      t === 'GUIDE' && ob.type !== 'CURVE' ? note('Curve guides follow the object\'s curve: use a curve object', 'error') : null,
       subHeading('Settings'),
-      f.type === 'DRAG'
-        ? [num(f, 'strength', 'Linear', { min: 0, max: 1000, softMax: 2 }), num(f, 'flow', 'Quadratic', { min: 0, max: 1000, softMax: 2 })]
-        : [
-            num(f, 'strength', 'Strength', { min: -1000, max: 1000, softMin: -10, softMax: 10 }),
-            f.type === 'TURBULENCE' ? num(f, 'size', 'Size', { min: 0, max: 1000, softMax: 10, unit: 'distance' }) : num(f, 'flow', 'Flow', { min: 0, max: 10 }),
-            f.type !== 'TURBULENCE' ? num(f, 'noise', 'Noise Amount', { min: 0, max: 10 }) : null,
-            num(f, 'seed', 'Seed', { int: true, min: 1, max: 128 }),
-          ],
+      settings,
     ]),
     panel('ph-field-falloff', 'Falloff', () => [
       enumProp(f, 'falloff_type', 'Shape', [['SPHERE', 'Sphere'], ['TUBE', 'Tube'], ['CONE', 'Cone']]),
@@ -117,9 +143,12 @@ function collisionPanels(ob: ObjectPhysics): Child[] {
     panel('ph-col', 'Collision', () => [
       panel('ph-col-part', 'Particle', () => [
         num(c, 'permeability', 'Permeability', { min: 0, max: 1, slider: true }),
+        num(c, 'stickiness', 'Stickiness', { min: 0, max: 1, slider: true }),
         bool(c, 'use_particle_kill', 'Kill Particles'),
         num(c, 'damping_factor', 'Damping', { min: 0, max: 1, slider: true }),
+        num(c, 'damping_random', 'Randomize', { min: 0, max: 1, slider: true }),
         num(c, 'friction_factor', 'Friction', { min: 0, max: 1, slider: true }),
+        num(c, 'friction_random', 'Randomize', { min: 0, max: 1, slider: true }),
       ], { sub: true }),
       panel('ph-col-cloth', 'Softbody & Cloth', () => [
         num(c, 'thickness_outer', 'Thickness Outer', { min: 0.001, max: 1, unit: 'distance' }),
@@ -144,29 +173,63 @@ function clothPanels(ob: ObjectPhysics, m: ClothModifier): Child[] {
       d ? note('Cloth is baked: delete the bake to change settings') : null,
       num(s, 'quality', 'Quality Steps', { int: true, min: 1, max: 80, disabled: d }),
       num(s, 'time_scale', 'Speed Multiplier', { min: 0, max: 10, disabled: d }),
-      panel('ph-cloth-phys', 'Physical Properties', () => [num(s, 'mass', 'Vertex Mass', { min: 0.001, max: 100, disabled: d }), num(s, 'air_damping', 'Air Viscosity', { min: 0, max: 10, disabled: d })], { sub: true }),
-      panel('ph-cloth-stiff', 'Stiffness', () => [
-        num(s, 'tension_stiffness', 'Tension', { min: 0, max: 10000, softMax: 100, disabled: d }),
-        num(s, 'compression_stiffness', 'Compression', { min: 0, max: 10000, softMax: 100, disabled: d }),
-        num(s, 'shear_stiffness', 'Shear', { min: 0, max: 10000, softMax: 100, disabled: d }),
-        num(s, 'bending_stiffness', 'Bending', { min: 0, max: 10000, softMax: 50, disabled: d }),
+      panel('ph-cloth-phys', 'Physical Properties', () => [
+        num(s, 'mass', 'Vertex Mass', { min: 0.001, max: 100, disabled: d }),
+        num(s, 'air_damping', 'Air Viscosity', { min: 0, max: 10, disabled: d }),
+        panel('ph-cloth-stiff', 'Stiffness', () => [
+          num(s, 'tension_stiffness', 'Tension', { min: 0, max: 10000, softMax: 100, disabled: d }),
+          num(s, 'compression_stiffness', 'Compression', { min: 0, max: 10000, softMax: 100, disabled: d }),
+          num(s, 'shear_stiffness', 'Shear', { min: 0, max: 10000, softMax: 100, disabled: d }),
+          num(s, 'bending_stiffness', 'Bending', { min: 0, max: 10000, softMax: 50, disabled: d }),
+        ], { sub: true }),
+        panel('ph-cloth-damp', 'Damping', () => [
+          num(s, 'tension_damping', 'Tension', { min: 0, max: 50, disabled: d }),
+          num(s, 'compression_damping', 'Compression', { min: 0, max: 50, disabled: d }),
+          num(s, 'shear_damping', 'Shear', { min: 0, max: 50, disabled: d }),
+          num(s, 'bending_damping', 'Bending', { min: 0, max: 50, disabled: d }),
+        ], { sub: true, closed: true }),
+        panel('ph-cloth-intern', 'Internal Springs', () => [
+          num(s, 'internal_spring_max_length', 'Max Spring Creation Length', { min: 0, max: 1000, unit: 'distance', disabled: d || !s.use_internal_springs, tip: '0 means no limit' }),
+          num(s, 'internal_spring_max_diversion', 'Max Creation Diversion', { min: 0, max: Math.PI / 2, unit: 'angle', disabled: d || !s.use_internal_springs }),
+          bool(s, 'internal_spring_normal_check', 'Check Surface Normals', { disabled: d || !s.use_internal_springs }),
+          num(s, 'internal_tension_stiffness', 'Tension', { min: 0, max: 10000, softMax: 100, disabled: d || !s.use_internal_springs }),
+          num(s, 'internal_compression_stiffness', 'Compression', { min: 0, max: 10000, softMax: 100, disabled: d || !s.use_internal_springs }),
+        ], { sub: true, closed: true, header: headerCheck(`cl-is-${m.id}`, s as never, 'use_internal_springs', 'Internal Springs', d) }),
+        panel('ph-cloth-press', 'Pressure', () => [
+          num(s, 'uniform_pressure_force', 'Pressure', { min: -10000, max: 10000, softMin: -100, softMax: 100, disabled: d || !s.use_pressure }),
+          bool(s, 'use_pressure_volume', 'Custom Volume', { disabled: d || !s.use_pressure }),
+          s.use_pressure_volume ? num(s, 'target_volume', 'Target Volume', { min: 0, max: 10000, disabled: d || !s.use_pressure }) : null,
+          num(s, 'pressure_factor', 'Pressure Scale', { min: 0, max: 10000, softMax: 10, disabled: d || !s.use_pressure }),
+          num(s, 'fluid_density', 'Fluid Density', { min: -1000, max: 1000, softMin: -100, softMax: 100, disabled: d || !s.use_pressure }),
+          vgroupRow(ob, s as never, 'vertex_group_pressure', 'Vertex Group', d || !s.use_pressure),
+        ], { sub: true, closed: true, header: headerCheck(`cl-pr-${m.id}`, s as never, 'use_pressure', 'Pressure', d) }),
       ], { sub: true }),
-      panel('ph-cloth-damp', 'Damping', () => [
-        num(s, 'tension_damping', 'Tension', { min: 0, max: 50, disabled: d }),
-        num(s, 'compression_damping', 'Compression', { min: 0, max: 50, disabled: d }),
-        num(s, 'shear_damping', 'Shear', { min: 0, max: 50, disabled: d }),
-        num(s, 'bending_damping', 'Bending', { min: 0, max: 50, disabled: d }),
-      ], { sub: true, closed: true }),
     ]),
     panel('ph-cloth-shape', 'Shape', () => [
       vgroupRow(ob, s as never, 'vertex_group_mass', 'Pin Group', d),
       num(s, 'pin_stiffness', 'Pin Stiffness', { min: 0, max: 1, slider: true, disabled: d }),
+      bool(s, 'use_sewing_springs', 'Sewing', { disabled: d, tip: 'Loose edges pull their two vertices together' }),
+      s.use_sewing_springs ? num(s, 'sewing_force_max', 'Max Sewing Force', { min: 0, max: 10000, disabled: d, tip: '0 pulls as hard as possible' }) : null,
+      vgroupRow(ob, s as never, 'vertex_group_shrink', 'Shrinking Group', d),
       num(s, 'shrink_min', 'Shrinking Factor', { min: -1, max: 0.99, disabled: d }),
+      s.vertex_group_shrink ? num(s, 'shrink_max', 'Max Shrinking', { min: -1, max: 0.99, disabled: d }) : null,
     ]),
     panel('ph-cloth-col', 'Collisions', () => [
       num(c, 'collision_quality', 'Quality', { int: true, min: 1, max: 20, disabled: d }),
-      panel('ph-cloth-objcol', 'Object Collisions', () => [num(c, 'distance_min', 'Distance', { min: 0.001, max: 1, unit: 'distance', disabled: d || !c.use_collision })], { sub: true, header: headerCheck(`cl-oc-${m.id}`, c as never, 'use_collision', 'Object Collisions', d) }),
+      panel('ph-cloth-objcol', 'Object Collisions', () => [
+        num(c, 'distance_min', 'Distance', { min: 0.001, max: 1, unit: 'distance', disabled: d || !c.use_collision }),
+        collectionRow(`cl-coll-${m.id}`, c as never, 'collection', 'Collision Collection', 'All colliders', d || !c.use_collision),
+      ], { sub: true, header: headerCheck(`cl-oc-${m.id}`, c as never, 'use_collision', 'Object Collisions', d) }),
       panel('ph-cloth-selfcol', 'Self Collisions', () => [num(c, 'self_friction', 'Friction', { min: 0, max: 80, disabled: d || !c.use_self_collision }), num(c, 'self_distance_min', 'Distance', { min: 0.001, max: 0.5, unit: 'distance', disabled: d || !c.use_self_collision })], { sub: true, header: headerCheck(`cl-sc-${m.id}`, c as never, 'use_self_collision', 'Self Collisions', d) }),
+    ], { closed: true }),
+    panel('ph-cloth-pw', 'Property Weights', () => [
+      vgroupRow(ob, s as never, 'vertex_group_structural_stiffness', 'Structural Group', d),
+      num(s, 'tension_stiffness_max', 'Max Tension', { min: 0, max: 10000, softMax: 100, disabled: d || !s.vertex_group_structural_stiffness }),
+      num(s, 'compression_stiffness_max', 'Max Compression', { min: 0, max: 10000, softMax: 100, disabled: d || !s.vertex_group_structural_stiffness }),
+      vgroupRow(ob, s as never, 'vertex_group_shear_stiffness', 'Shear Group', d),
+      num(s, 'shear_stiffness_max', 'Max Shearing', { min: 0, max: 10000, softMax: 100, disabled: d || !s.vertex_group_shear_stiffness }),
+      vgroupRow(ob, s as never, 'vertex_group_bending', 'Bending Group', d),
+      num(s, 'bending_stiffness_max', 'Max Bending', { min: 0, max: 10000, softMax: 50, disabled: d || !s.vertex_group_bending }),
     ], { closed: true }),
     fieldWeightsPanel('ph-cloth-fw', s, d),
     cachePanel('ph-cloth-cache', meshSimKey('CLOTH', ob, m), pc),
@@ -204,8 +267,18 @@ function softPanels(ob: ObjectPhysics, m: SoftBodyModifier): Child[] {
       num(s, 'pull', 'Pull', { min: 0, max: 0.999, slider: true, disabled: d || !s.use_edges }),
       num(s, 'push', 'Push', { min: 0, max: 0.999, slider: true, disabled: d || !s.use_edges }),
       num(s, 'damping', 'Damp', { min: 0, max: 50, disabled: d || !s.use_edges }),
+      num(s, 'plastic', 'Plasticity', { min: 0, max: 100, disabled: d || !s.use_edges }),
       num(s, 'bend', 'Bending', { min: 0, max: 10, disabled: d || !s.use_edges }),
+      num(s, 'spring_length', 'Length', { min: 0, max: 200, disabled: d || !s.use_edges, tip: 'Spring rest length in percent (0 keeps the modelled length)' }),
+      panel('ph-soft-aero', 'Aerodynamics', () => [
+        enumProp(s, 'aerodynamics_type', 'Type', [['SIMPLE', 'Simple'], ['LIFT_FORCE', 'Lift Force']], { disabled: d || !s.use_edges }),
+        num(s, 'aero', 'Factor', { min: 0, max: 30000, softMax: 100, disabled: d || !s.use_edges }),
+      ], { sub: true, closed: true }),
     ], { header: headerCheck(`sb-edges-${m.id}`, s as never, 'use_edges', 'Edges', d) }),
+    panel('ph-soft-self', 'Self Collision', () => [num(s, 'self_ball_size', 'Ball Size', { min: 0.001, max: 10, unit: 'distance', disabled: d || !s.use_self_collision })], {
+      header: headerCheck(`sb-self-${m.id}`, s as never, 'use_self_collision', 'Self Collision', d),
+      closed: true,
+    }),
     panel('ph-soft-shape', 'Shape Matching', () => [num(s, 'shape_stiffness', 'Stiffness', { min: 0, max: 1, slider: true, disabled: d || !s.use_shape_match }), note('Pulls the mesh back towards its rest shape (keeps volume).')], {
       header: headerCheck(`sb-shape-${m.id}`, s as never, 'use_shape_match', 'Shape Matching', d),
       closed: true,
@@ -246,7 +319,15 @@ function fluidPanels(ob: ObjectPhysics, m: FluidModifier): Child[] {
     out.push(
       panel('ph-fl-settings', 'Settings', () => [
         d ? note('Domain is baked: delete the bake to change settings') : null,
-        splitRow('Domain Type', h('span', { class: 'prop-note' }, 'Gas (smoke & fire)')),
+        enumProp(s, 'domain_type', 'Domain Type', [['GAS', 'Gas'], ['LIQUID', 'Liquid']], {
+          disabled: d,
+          onChange: () => {
+            // liquid stays inside the domain (closed borders) and shows its surface instead of a wire box
+            const liquid = s.domain_type === 'LIQUID';
+            for (const k of ['front', 'back', 'right', 'left', 'top', 'bottom'] as const) (s as unknown as Record<string, boolean>)[`use_collision_border_${k}`] = liquid;
+            ob.display_type = liquid ? 'TEXTURED' : 'WIRE';
+          },
+        }),
         num(s, 'resolution_max', 'Resolution Divisions', { int: true, min: 8, max: 128, disabled: d }),
         num(s, 'time_scale', 'Time Scale', { min: 0.01, max: 10, disabled: d }),
         panel('ph-fl-border', 'Border Collisions', () => [
@@ -257,37 +338,57 @@ function fluidPanels(ob: ObjectPhysics, m: FluidModifier): Child[] {
           bool(s, 'use_collision_border_top', 'Top', { disabled: d }),
           bool(s, 'use_collision_border_bottom', 'Bottom', { disabled: d }),
         ], { sub: true, closed: true }),
-        panel('ph-fl-gas', 'Gas', () => [
+        s.domain_type === 'LIQUID'
+          ? panel('ph-fl-liquid', 'Liquid', () => [
+              num(s, 'flip_ratio', 'FLIP Ratio', { min: 0, max: 1, slider: true, disabled: d, tip: '1 keeps the motion lively (FLIP), 0 smooths it (PIC)' }),
+              num(s, 'particle_number', 'Particles per Cell', { int: true, min: 1, max: 4, disabled: d, tip: 'Particles along each axis of an emitting cell' }),
+              num(s, 'particle_randomness', 'Randomness', { min: 0, max: 1, slider: true, disabled: d }),
+              panel('ph-fl-diff', 'Diffusion', () => [
+                num(s, 'viscosity_base', 'Base', { min: 0, max: 10, disabled: d || !s.use_diffusion, tip: 'Viscosity = base × 10^-exponent (m²/s)' }),
+                num(s, 'viscosity_exponent', 'Exponent', { int: true, min: 0, max: 10, disabled: d || !s.use_diffusion }),
+              ], { sub: true, closed: true, header: headerCheck(`fl-diff-${m.id}`, s as never, 'use_diffusion', 'Diffusion', d) }),
+              panel('ph-fl-mesh', 'Mesh', () => [
+                num(s, 'mesh_scale', 'Upres Factor', { int: true, min: 1, max: 4, disabled: !s.use_mesh }),
+                num(s, 'mesh_particle_radius', 'Particle Radius', { min: 0.5, max: 4, disabled: !s.use_mesh, tip: 'Radius of every particle in cells when building the surface' }),
+              ], { sub: true, header: headerCheck(`fl-mesh-${m.id}`, s as never, 'use_mesh', 'Mesh') }),
+            ], { sub: true })
+          : null,
+        s.domain_type === 'LIQUID' ? null : panel('ph-fl-gas', 'Gas', () => [
           num(s, 'alpha', 'Buoyancy Density', { min: -5, max: 5, disabled: d }),
           num(s, 'beta', 'Heat', { min: -5, max: 5, disabled: d }),
           num(s, 'vorticity', 'Vorticity', { min: 0, max: 4, disabled: d }),
         ], { sub: true }),
       ]),
-      panel('ph-fl-dissolve', 'Dissolve', () => [num(s, 'dissolve_speed', 'Time', { int: true, min: 1, max: 10000, disabled: d || !s.use_dissolve_smoke })], { header: headerCheck(`fl-dis-${m.id}`, s as never, 'use_dissolve_smoke', 'Dissolve', d), closed: true }),
-      panel('ph-fl-fire', 'Fire', () => [
+      panel('ph-fl-colls', 'Collections', () => [
+        collectionRow(`fl-fgrp-${m.id}`, s as never, 'fluid_group', 'Flow', 'All flows', d),
+        collectionRow(`fl-egrp-${m.id}`, s as never, 'effector_group', 'Effector', 'All effectors', d),
+      ], { closed: true }),
+      s.domain_type === 'LIQUID' ? null : panel('ph-fl-dissolve', 'Dissolve', () => [num(s, 'dissolve_speed', 'Time', { int: true, min: 1, max: 10000, disabled: d || !s.use_dissolve_smoke })], { header: headerCheck(`fl-dis-${m.id}`, s as never, 'use_dissolve_smoke', 'Dissolve', d), closed: true }),
+      s.domain_type === 'LIQUID' ? null : panel('ph-fl-fire', 'Fire', () => [
         num(s, 'burning_rate', 'Reaction Speed', { min: 0.01, max: 4, disabled: d }),
         num(s, 'flame_smoke', 'Flame Smoke', { min: 0, max: 8, disabled: d }),
         num(s, 'flame_vorticity', 'Vorticity', { min: 0, max: 2, disabled: d }),
         num(s, 'flame_max_temp', 'Temperature Maximum', { min: 1, max: 10, disabled: d }),
       ], { closed: true }),
-      panel('ph-fl-display', 'Viewport Display', () => [num(s, 'display_thickness', 'Thickness', { min: 0.001, max: 1000, softMax: 5 })], { closed: true }),
+      s.domain_type === 'LIQUID' ? null : panel('ph-fl-display', 'Viewport Display', () => [num(s, 'display_thickness', 'Thickness', { min: 0.001, max: 1000, softMax: 5 })], { closed: true }),
+      fieldWeightsPanel('ph-fl-fw', s as never, d),
       cachePanel('ph-fl-cache', fluidCacheKey(ob, m), pc),
     );
   } else if (m.fluid_type === 'FLOW') {
     const s = fillDefaults(m.flow_settings, defaultFlowSettings());
     out.push(
       panel('ph-fl-flow', 'Settings', () => [
-        enumProp(s, 'flow_type', 'Flow Type', [['SMOKE', 'Smoke'], ['BOTH', 'Fire + Smoke'], ['FIRE', 'Fire']]),
+        enumProp(s, 'flow_type', 'Flow Type', [['SMOKE', 'Smoke'], ['BOTH', 'Fire + Smoke'], ['FIRE', 'Fire'], ['LIQUID', 'Liquid']]),
         enumProp(s, 'flow_behavior', 'Flow Behavior', [['INFLOW', 'Inflow'], ['GEOMETRY', 'Geometry'], ['OUTFLOW', 'Outflow']]),
         bool(s, 'use_flow', 'Use Flow'),
-        s.flow_type !== 'FIRE' ? colorProp(s, 'smoke_color', 'Smoke Color') : null,
-        s.flow_type !== 'SMOKE' ? num(s, 'fuel_amount', 'Fuel', { min: 0, max: 10 }) : null,
-        num(s, 'temperature', 'Temperature Difference', { min: -10, max: 10 }),
-        s.flow_type !== 'FIRE' ? num(s, 'density', 'Density', { min: 0, max: 10 }) : null,
+        s.flow_type !== 'FIRE' && s.flow_type !== 'LIQUID' ? colorProp(s, 'smoke_color', 'Smoke Color') : null,
+        s.flow_type !== 'SMOKE' && s.flow_type !== 'LIQUID' ? num(s, 'fuel_amount', 'Fuel', { min: 0, max: 10 }) : null,
+        s.flow_type !== 'LIQUID' ? num(s, 'temperature', 'Temperature Difference', { min: -10, max: 10 }) : null,
+        s.flow_type !== 'FIRE' && s.flow_type !== 'LIQUID' ? num(s, 'density', 'Density', { min: 0, max: 10 }) : null,
       ]),
       panel('ph-fl-source', 'Flow Source', () => [
         num(s, 'surface_distance', 'Surface Emission', { min: 0, max: 10, tip: 'Emission distance from the mesh surface (in grid cells)' }),
-        num(s, 'volume_density', 'Volume Emission', { min: 0, max: 1, slider: true }),
+        s.flow_type !== 'LIQUID' ? num(s, 'volume_density', 'Volume Emission', { min: 0, max: 1, slider: true }) : null,
       ]),
       panel('ph-fl-vel', 'Initial Velocity', () => [
         num(s, 'velocity_factor', 'Source', { min: -2, max: 2, disabled: !s.use_initial_velocity, tip: 'Multiplier of the flow object velocity' }),
@@ -338,6 +439,12 @@ function rigidBodyPanels(ob: ObjectPhysics): Child[] {
         subHeading('Sensitivity'),
         h('div', { class: 'split-row' }, h('div', { class: 'sr-label' }, 'Margin'), h('div', { class: 'sr-value row-aligned' }, headerCheck(`rb-margin-${ob.id}`, rb as never, 'use_margin', 'Collision Margin', d)), h('span', { class: 'decorator-space' })),
         rb.use_margin ? num(rb, 'collision_margin', 'Margin', { min: 0, max: 1, unit: 'distance', disabled: d }) : null,
+        panel('ph-rb-colls', 'Collections', () => {
+          const cc = (rb.collision_collections ??= Array.from({ length: 20 }, (_, i) => i === 0));
+          const btn = (i: number) =>
+            h('button', { key: i, class: { tbtn: true, on: !!cc[i] }, disabled: d, 'data-tip': `Collision collection ${i + 1}`, style: { minWidth: '0', padding: '0' }, onclick: () => ((cc[i] = !cc[i]), changed('Collision Collection')) }, String(i + 1));
+          return [0, 10].map((o) => h('div', { key: o, class: 'row-aligned', style: { padding: '1px 0' } }, Array.from({ length: 10 }, (_, k) => btn(o + k))));
+        }, { sub: true, closed: true }),
       ], { sub: true }),
       rb.type === 'ACTIVE'
         ? panel('ph-rb-dyn', 'Dynamics', () => [
@@ -345,6 +452,7 @@ function rigidBodyPanels(ob: ObjectPhysics): Child[] {
             num(rb, 'linear_damping', 'Translation', { min: 0, max: 1, slider: true, disabled: d }),
             num(rb, 'angular_damping', 'Rotation', { min: 0, max: 1, slider: true, disabled: d }),
             bool(rb, 'use_deactivation', 'Deactivation', { disabled: d, tip: 'Let resting bodies go to sleep' }),
+            bool(rb as never, 'use_start_deactivated', 'Start Deactivated', { disabled: d || !rb.use_deactivation, tip: 'Asleep until something touches it' }),
           ], { sub: true, closed: true })
         : null,
     ]),
@@ -358,13 +466,19 @@ function rbConstraintPanels(ob: ObjectPhysics): Child[] {
   return [
     panel('ph-rbc', 'Rigid Body Constraint', () => [
       !app.doc.scene.rigidbody_world ? note('No rigid body world: add one in Scene properties', 'error') : null,
-      enumProp(c, 'type', 'Type', [['FIXED', 'Fixed'], ['POINT', 'Point'], ['HINGE', 'Hinge'], ['SLIDER', 'Slider']]),
-      c.type === 'HINGE' || c.type === 'SLIDER' ? note(`The ${c.type === 'HINGE' ? 'hinge' : 'slider'} axis is this object's local Z axis`) : null,
-      panel('ph-rbc-settings', 'Settings', () => [bool(c, 'enabled', 'Enabled'), bool(c, 'disable_collisions', 'Disable Collisions')], { sub: true }),
+      enumProp(c, 'type', 'Type', RBC_TYPES),
+      c.type === 'HINGE' ? note("The hinge turns around this object's local Z axis") : c.type === 'SLIDER' || c.type === 'PISTON' || c.type === 'MOTOR' ? note("The axis is this object's local X axis") : null,
+      panel('ph-rbc-settings', 'Settings', () => [
+        bool(c, 'enabled', 'Enabled'),
+        bool(c, 'disable_collisions', 'Disable Collisions'),
+        bool(c as never, 'use_breaking', 'Breakable'),
+        c.use_breaking ? num(c as never, 'breaking_threshold', 'Threshold', { min: 0, max: 1000, softMax: 100, tip: 'Impulse (in one step) that breaks the constraint' }) : null,
+      ], { sub: true }),
       panel('ph-rbc-objects', 'Objects', () => [
         objectRow(`rbc1-${ob.id}`, c as never, 'object1', 'First', (o) => !!o.rigid_body),
         objectRow(`rbc2-${ob.id}`, c as never, 'object2', 'Second', (o) => !!o.rigid_body),
       ], { sub: true }),
+      rbcTypePanels(c, ob.id),
     ]),
   ];
 }
@@ -388,6 +502,8 @@ insertTabAfter('CONSTRAINT', {
     if (fl) out.push(...fluidPanels(ob, fl));
     if (ob.rigid_body) out.push(...rigidBodyPanels(ob));
     if (ob.rigid_body_constraint) out.push(...rbConstraintPanels(ob));
+    const dp = isGeom(ob) ? dpOf(ob) : undefined;
+    if (dp) out.push(...dynamicPaintPanels(ob, dp));
     return out;
   },
 });
@@ -407,4 +523,5 @@ const gotoTab = (tab: string, text: string) => (_ob: ObjectData, _m: ModifierBas
 modifierExtraUI.CLOTH = gotoTab('PHYSICS', 'Settings are inside the Physics tab.');
 modifierExtraUI.SOFT_BODY = gotoTab('PHYSICS', 'Settings are inside the Physics tab.');
 modifierExtraUI.FLUID = gotoTab('PHYSICS', 'Settings are inside the Physics tab.');
+modifierExtraUI.DYNAMIC_PAINT = gotoTab('PHYSICS', 'Settings are inside the Physics tab.');
 modifierExtraUI.PARTICLE_SYSTEM = gotoTab('PARTICLES', 'Settings are inside the Particles tab.');

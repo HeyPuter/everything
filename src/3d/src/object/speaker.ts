@@ -7,7 +7,7 @@ import { newObject } from '../data/defaults';
 import type { ObjectData } from '../data/types';
 import { addObjectToScene } from '../ops/object';
 import { sceneSyncHooks } from '../render/scene';
-import { loadSound, mediaKind, mimeFor } from '../sequencer/media';
+import { loadSound, mediaKind, mimeFor, playbackContext } from '../sequencer/media';
 import { mixdownSources } from '../sequencer/audio';
 import { objectWorldAt } from '../physics/common';
 import type { MediaFile } from '../sequencer/types';
@@ -283,7 +283,7 @@ async function startAt() {
   stopAll();
   const list = speakers();
   if (!list.length) return;
-  ctx ??= new AudioContext({ latencyHint: 'interactive' });
+  ctx = playbackContext(ctx);
   if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
   const gen = ++generation;
   const bufs = await Promise.all(list.map((o) => loadSound(o.speaker!.sound!.bytes)));

@@ -4,7 +4,7 @@
 .nd-sock[data-sock='in:__item__'],
 .nd-sock[data-sock='out:__item__'] {
   background: transparent;
-  box-shadow: 0 0 0 1px rgba(200, 200, 200, 0.6);
+  box-shadow: 0 0 0 1px rgb(from var(--g-c8, #c8c8c8) r g b / 0.6);
 }
 
 .gn-id-rows {
@@ -31,7 +31,7 @@
 }
 .gn-viewer-body .btn.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--c-text-on-accent, #fff);
 }
 
 .gn-items {
@@ -72,15 +72,15 @@
   border-radius: 3px;
   display: grid;
   place-items: center;
-  color: #999;
+  color: var(--t-99, #999);
   background: transparent;
 }
 .gn-attr-toggle:hover {
-  color: #fff;
+  color: var(--t-ff, #fff);
   background: var(--w-regular);
 }
 .gn-attr-toggle.on {
-  color: #fff;
+  color: var(--c-text-on-accent, #fff);
   background: var(--accent);
 }
 .gn-warnings {
@@ -91,4 +91,11 @@
 }
 .gn-warnings .mod-error {
   background: rgba(172, 135, 55, 0.25);
+}
+.gn-warnings .mod-error.gn-error {
+  background: rgba(170, 60, 60, 0.3);
+}
+.gn-warnings .mod-error.gn-info {
+  background: rgba(90, 110, 140, 0.25);
+  color: inherit;
 }

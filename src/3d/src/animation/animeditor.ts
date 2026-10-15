@@ -10,7 +10,7 @@ import { textField, numberField } from '../ui/widgets';
 import { getValue, setValue } from '../data/rna';
 import { keyProperty } from '../anim/keyframes';
 import type { ObjectData, TimelineMarker } from '../data/types';
-import { View2D, frameStep } from './view2d';
+import { View2D, frameStep, formatSeconds } from './view2d';
 import { C } from './theme';
 import { buildChannels, channelSelected, type ChannelFilter, setChannelSelected, channelCurves, isExpanded, setExpanded, channelState, type Channel, type ChannelList, type SpaceKind, type CurveRef } from './channels';
 import { setKeySelected } from './keyedit';
@@ -1340,14 +1340,7 @@ export abstract class AnimEditor implements Editor {
   }
 }
 
-/** Frame as seconds+frames (e.g. 1+12 at 24 fps). */
-export function formatSeconds(frame: number, fps: number) {
-  const f = Math.round(frame);
-  const r = Math.max(1, Math.round(fps));
-  const sec = Math.trunc(f / r),
-    rest = Math.abs(f - sec * r);
-  return `${f < 0 && sec === 0 ? '-' : ''}${sec}+${rest}`;
-}
+export { formatSeconds } from './view2d';
 
 function div(cls: string) {
   const d = document.createElement('div');

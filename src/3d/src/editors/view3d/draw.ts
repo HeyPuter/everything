@@ -1,5 +1,6 @@
 // Viewport drawing: scene pass (per shading mode), grid & overlays, ID pass,
 // selection outline compositing.
+import { applyStudioLighting, hdriEnvironment } from '../../render/studiolights';
 import {
   Color,
   Scene,
@@ -96,6 +97,9 @@ export function setThemeBackground(srgb: [number, number, number]) {
 }
 
 const grid = createGrid();
+/** Colour tables of the viewport (Preferences ▸ Themes writes them). */
+export const viewportTheme = theme;
+export const gridMaterial = grid.mat;
 const overlayScene = new Scene();
 overlayScene.add(grid.mesh);
 overlayScene.matrixWorldAutoUpdate = false;
@@ -231,6 +235,8 @@ export function drawViewport(app: App, ctx: RenderContext, view: DrawView, x: nu
 
   // --- background & environment
   let bg: Color = theme.bg;
+  // the studio light / matcap this view uses (shared shader uniforms)
+  applyStudioLighting(sh);
   const rendered = sh.type === 'RENDERED';
   const material = sh.type === 'MATERIAL';
   const world = doc.scene.world ? doc.worlds[doc.scene.world] : null;
@@ -247,7 +253,7 @@ export function drawViewport(app: App, ctx: RenderContext, view: DrawView, x: nu
         else if (b) scene.background = b;
       }
     } else {
-      scene.environment = ctx.studio();
+      scene.environment = hdriEnvironment(r, engine.pmrem, sh.studio_hdri) ?? ctx.studio();
       scene.environmentIntensity = sh.studiolight_intensity;
     }
   }

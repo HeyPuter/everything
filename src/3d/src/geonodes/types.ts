@@ -5,10 +5,10 @@ import type { SocketValue } from '../data/types';
 export type Domain = 'POINT' | 'EDGE' | 'FACE' | 'CORNER' | 'CURVE' | 'INSTANCE';
 
 /** Attribute data types (`bpy` names; rotations are stored as XYZ Euler triples). */
-export type DataType = 'FLOAT' | 'INT' | 'BOOLEAN' | 'FLOAT_VECTOR' | 'FLOAT_COLOR' | 'FLOAT2' | 'QUATERNION' | 'INT8';
+export type DataType = 'FLOAT' | 'INT' | 'BOOLEAN' | 'FLOAT_VECTOR' | 'FLOAT_COLOR' | 'FLOAT2' | 'QUATERNION' | 'INT8' | 'FLOAT4X4';
 
 /** Value types flowing through field sockets. */
-export type FieldType = 'FLOAT' | 'INT' | 'BOOLEAN' | 'VECTOR' | 'RGBA' | 'ROTATION';
+export type FieldType = 'FLOAT' | 'INT' | 'BOOLEAN' | 'VECTOR' | 'RGBA' | 'ROTATION' | 'MATRIX';
 
 export type AttrArray = Float32Array | Int32Array | Uint8Array;
 
@@ -68,6 +68,7 @@ export const DATA_TYPE_LABELS: Record<string, string> = {
   FLOAT2: '2D Vector',
   QUATERNION: 'Rotation',
   INT8: '8-Bit Integer',
+  FLOAT4X4: '4x4 Matrix',
 };
 
 /** Components per element of a data type. */
@@ -80,13 +81,15 @@ export function dataComps(t: DataType): number {
       return 4;
     case 'FLOAT2':
       return 2;
+    case 'FLOAT4X4':
+      return 16;
     default:
       return 1;
   }
 }
 
 export function fieldComps(t: FieldType): number {
-  return t === 'VECTOR' || t === 'ROTATION' ? 3 : t === 'RGBA' ? 4 : 1;
+  return t === 'VECTOR' || t === 'ROTATION' ? 3 : t === 'RGBA' ? 4 : t === 'MATRIX' ? 16 : 1;
 }
 
 export function allocData(t: DataType, n: number): AttrArray {
@@ -109,6 +112,8 @@ export function fieldTypeOfData(t: DataType): FieldType {
       return 'RGBA';
     case 'QUATERNION':
       return 'ROTATION';
+    case 'FLOAT4X4':
+      return 'MATRIX';
     default:
       return 'FLOAT';
   }
@@ -126,13 +131,15 @@ export function dataTypeOfField(t: FieldType): DataType {
       return 'FLOAT_COLOR';
     case 'ROTATION':
       return 'QUATERNION';
+    case 'MATRIX':
+      return 'FLOAT4X4';
     default:
       return 'FLOAT';
   }
 }
 
 /** Socket type of a field type. */
-export function socketTypeOfField(t: FieldType): 'FLOAT' | 'INT' | 'BOOLEAN' | 'VECTOR' | 'RGBA' | 'ROTATION' {
+export function socketTypeOfField(t: FieldType): 'FLOAT' | 'INT' | 'BOOLEAN' | 'VECTOR' | 'RGBA' | 'ROTATION' | 'MATRIX' {
   return t;
 }
 
@@ -155,6 +162,10 @@ export function fieldTypeOfEnum(v: unknown): FieldType {
     case 'QUATERNION':
     case 'ROTATION':
       return 'ROTATION';
+    case 'FLOAT4X4':
+    case 'MATRIX':
+    case 'TRANSFORM':
+      return 'MATRIX';
     default:
       return 'FLOAT';
   }

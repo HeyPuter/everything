@@ -10,6 +10,7 @@ import type { ViewportRenderer, RenderEngine } from '../../render/engine';
 import { defaultOverlay, defaultShading, type Overlay, type Shading } from './state';
 import { drawViewport, pickId, readIds, renderIdPass, type DrawView } from './draw';
 import { prefs, activeTools } from '../../app/prefs';
+import { playbackFpsLabel } from '../../app/fps';
 import { viewHeader } from './header';
 import { toolbar, toolHeaderRow } from './toolbar';
 import { sidebar } from './sidebar';
@@ -316,8 +317,9 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     const lines = [viewName, `(${doc.scene.frame_current}) ${col ? col.name + ' | ' : 'Scene Collection | '}${ob?.name ?? ''}${doc.mode === 'POSE' && ob?.data ? ' : ' + (doc.armatures[ob.data]?.active_bone ?? '') : ''}`];
     const kf = ob?.animation_data?.action ? doc.actions[ob.animation_data.action]?.fcurves.some((f) => f.keyframe_points.some((k) => Math.abs(k.co[0] - doc.scene.frame_current) < 0.5)) : false;
     const stats = this.overlay.show_stats ? statsLines() : [];
+    const fps = app.playing && prefs.show_playback_fps ? playbackFpsLabel() : '';
     patch(this.infoEl, this.overlay.show_overlays && this.overlay.show_text
-      ? [h('div', { class: 'v3d-info-line' }, lines[0]), h('div', { class: { 'v3d-info-line': true, keyed: !!kf } }, lines[1]), stats.length ? h('div', { class: 'v3d-stats' }, stats.flatMap(([k, v]) => [h('span', { class: 'v3d-stat-k' }, k), h('span', { class: 'v3d-stat-v' }, v)])) : null, app.modal?.header ? null : null]
+      ? [fps ? h('div', { class: { 'v3d-info-line': true, 'v3d-fps': true, slow: fps.startsWith('!') } }, fps.replace(/^!/, '')) : null, prefs.show_view_name ? h('div', { class: 'v3d-info-line' }, lines[0]) : null, prefs.show_object_info ? h('div', { class: { 'v3d-info-line': true, keyed: !!kf } }, lines[1]) : null, stats.length ? h('div', { class: 'v3d-stats' }, stats.flatMap(([k, v]) => [h('span', { class: 'v3d-stat-k' }, k), h('span', { class: 'v3d-stat-v' }, v)])) : null, app.modal?.header ? null : null]
       : []);
     this.infoEl.style.left = this.showToolbar ? '52px' : '10px';
   }
@@ -476,8 +478,10 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       toD = tmp.distance;
     const t0 = performance.now();
     cancelAnimationFrame(this.anim);
+    // Preferences ▸ Navigation ▸ Smooth View (0 or Reduce Motion: jump)
+    const ms = prefs.use_reduce_motion ? 0 : prefs.smooth_view;
     const step = () => {
-      const t = Math.min(1, (performance.now() - t0) / 200);
+      const t = ms > 0 ? Math.min(1, (performance.now() - t0) / ms) : 1;
       const e = t * t * (3 - 2 * t);
       this.nav.pivot.lerpVectors(fromP, toP, e);
       this.nav.distance = fromD + (toD - fromD) * e;
@@ -536,7 +540,10 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       if (e.shiftKey) this.nav.pan(-e.deltaX, -e.deltaY);
       else if (e.altKey) this.zoomBy(Math.exp(e.deltaY * 0.005), p);
       else if (this.lockRotation) this.nav.pan(-e.deltaX, -e.deltaY);
-      else this.nav.orbit(e.deltaX * 0.005, e.deltaY * 0.005);
+      else {
+        const s = 0.005 * orbitScale() * (prefs.touchpad_scroll_direction === 'NATURAL' ? -1 : 1);
+        this.nav.orbit(e.deltaX * s, e.deltaY * s);
+      }
     } else {
       const dir = (e.deltaY > 0 ? 1 : -1) * (prefs.invert_zoom_wheel ? -1 : 1);
       if (e.shiftKey) this.nav.pan(0, -dir * 30);
@@ -636,7 +643,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       return;
     }
     const p = this.local(e);
-    const emulate3 = prefs.emulate_3_button_mouse && e.altKey && e.button === 0;
+    const emulate3 = prefs.emulate_3_button_mouse && emulateModifier(e) && e.button === 0;
     if (e.button === 3) {
       // the "back" mouse button frames the selection
       e.preventDefault();
@@ -658,7 +665,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       e.preventDefault();
       const s = { x: e.clientX, y: e.clientY };
       const mv = (ev: PointerEvent) => {
-        if (Math.hypot(ev.clientX - s.x, ev.clientY - s.y) < 5) return;
+        if (Math.hypot(ev.clientX - s.x, ev.clientY - s.y) <= prefs.drag_threshold_mouse) return;
         cleanup();
         lassoDrag(this, e, e.shiftKey ? 'SUB' : 'ADD');
       };
@@ -718,7 +725,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     let dragging = false;
     const move = (ev: PointerEvent) => {
       const q = this.local(ev);
-      if (!dragging && Math.hypot(q.x - start.x, q.y - start.y) > 4) {
+      if (!dragging && Math.hypot(q.x - start.x, q.y - start.y) > prefs.drag_threshold_mouse) {
         dragging = true;
         if (tool === 'builtin.select_lasso') {
           removeEventListener('pointermove', move);
@@ -731,7 +738,8 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
           removeEventListener('pointermove', move);
           removeEventListener('pointerup', up);
           selectPick(this, start.x, start.y, { extend: false, deselectAll: true, toggle: false });
-          app.run('transform.translate', {}, { event: { x: ev.clientX, y: ev.clientY } });
+          // Preferences ▸ Input ▸ Release Confirms: letting go of the button ends the move
+          app.run('transform.translate', { release_confirm: prefs.use_drag_immediately }, { event: { x: ev.clientX, y: ev.clientY } });
           return;
         }
       }
@@ -794,16 +802,20 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       last = { x: ev.clientX, y: ev.clientY };
       if (kind === 'orbit' && !ev.shiftKey && !ev.ctrlKey && this.lockRotation) this.nav.pan(dx, dy);
       else if (kind === 'orbit' && !ev.shiftKey && !ev.ctrlKey) {
-        const s = 0.0075;
+        const s = 0.0075 * orbitScale();
         if (freeRot) this.nav.rot.copy(freeRot);
         if (around) this.nav.orbitAround(around, dx * s, dy * s);
         else this.nav.orbit(dx * s, dy * s);
-        const snap = ev.altKey && !(prefs.emulate_3_button_mouse && (ev.buttons & 1));
+        const snap = ev.altKey && !(prefs.emulate_3_button_mouse && emulateModifier(ev) && (ev.buttons & 1));
         freeRot = snap ? this.nav.rot.clone() : null;
         if (snap) snapViewToAxis(this, this.nav.rot);
       } else if (kind === 'dolly') this.nav.pivot.addScaledVector(this.nav.forward, -dy * this.nav.distance * 0.005);
       else if (kind === 'pan' || (kind === 'orbit' && ev.shiftKey)) this.nav.pan(dx, dy);
-      else this.zoomBy(Math.exp(dy * 0.01), start);
+      else {
+        // Preferences ▸ Navigation ▸ Zoom: drag axis and direction
+        const d = (prefs.view_zoom_axis === 'HORIZONTAL' ? -dx : dy) * (prefs.invert_mouse_zoom ? -1 : 1);
+        this.zoomBy(Math.exp(d * 0.01), start);
+      }
       this.afterNav();
     };
     const up = () => {
@@ -952,6 +964,16 @@ export function statsLines(): [string, string][] {
     ['Faces', fmt(faces)],
     ['Triangles', fmt(tris)],
   ];
+}
+
+/** Orbit speed relative to the default 0.43° per pixel (Preferences ▸ Navigation). */
+function orbitScale() {
+  return Math.max(0.05, prefs.view_rotate_sensitivity) / 0.43;
+}
+
+/** The key that turns the left button into the middle one when emulating a 3-button mouse. */
+function emulateModifier(e: { altKey: boolean; metaKey: boolean }) {
+  return prefs.mouse_emulate_3_button_modifier === 'OSKEY' ? e.metaKey : e.altKey;
 }
 
 export function activeView3D(): View3D | null {

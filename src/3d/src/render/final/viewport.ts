@@ -13,6 +13,7 @@ import { PathTracerCore } from './pathtracer';
 import { Denoiser } from './denoise';
 import { floatTarget, normalDepthMaterial, renderOverride, renderAlbedo } from './gbuffer';
 import { studioEquirect } from './environment';
+import { hdriEquirect, hdriEnvironment, libraryVersion } from '../studiolights';
 import { renderCamera, cameraDof, apertureSample, apertureJitter, jitterProjection } from './camera';
 import { filterTable, sampleFilter } from './filter';
 import { halton } from './units';
@@ -94,11 +95,11 @@ export class ViewportRender {
       localView: this.v.localView,
       useSceneLights: sh.use_scene_lights_render,
       useSceneWorld: sh.use_scene_world_render,
-      studio: sh.use_scene_world_render ? null : mode === 'pathtrace' ? { texture: studioEquirect(), intensity: sh.studiolight_intensity } : { texture: ctx.studio(), intensity: sh.studiolight_intensity },
+      studio: sh.use_scene_world_render ? null : mode === 'pathtrace' ? { texture: hdriEquirect(sh.studio_hdri) ?? studioEquirect(), intensity: sh.studiolight_intensity } : { texture: hdriEnvironment(ctx.engine.renderer, ctx.engine.pmrem, sh.studio_hdri) ?? ctx.studio(), intensity: sh.studiolight_intensity },
       filmTransparent: r.film_transparent,
       ...(mode === 'raster' ? { lightScale: r.direct_light_intensity ?? 1, envScale: r.indirect_light_intensity ?? 1 } : {}),
     };
-    const key = `${app.revision}|${mode}|${opts.useSceneLights}|${opts.useSceneWorld}|${sh.studiolight_intensity}|${r.film_transparent}|${opts.lightScale}|${opts.envScale}|${this.v.localView ? [...this.v.localView].join(',') : ''}`;
+    const key = `${app.revision}|${mode}|${opts.useSceneLights}|${opts.useSceneWorld}|${sh.studiolight_intensity}|${sh.studio_hdri ?? ''}:${libraryVersion}|${r.film_transparent}|${opts.lightScale}|${opts.envScale}|${this.v.localView ? [...this.v.localView].join(',') : ''}`;
     if (!this.scene || this.scene.mode !== mode) {
       this.scene?.dispose();
       this.scene = new RenderScene(mode);

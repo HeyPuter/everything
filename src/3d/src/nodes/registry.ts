@@ -267,6 +267,12 @@ export function nodeTypesFor(treeType: TreeType): NodeTypeDef[] {
 // ---------------------------------------------------------------------------
 // Theme colors (header colors per node class, socket colors per type)
 
+/** Node editor behaviour (Preferences ▸ Editing ▸ Node Editor). */
+export const nodeEditorSettings = { insertOffset: true, insertMargin: 40 };
+
+/** Node editor canvas colours (Preferences ▸ Themes writes them). */
+export const NODE_EDITOR_COLORS = { back: '#1d1d1d', grid: '#2c2c2c', gridMajor: '#353535' };
+
 export const NODE_CLASS_COLORS: Record<NodeClass, string> = {
   input: '#83314a',
   output: '#4c1e2a',
@@ -315,7 +321,8 @@ export const SOCKET_COLORS: Record<SocketType, string> = {
 export function canConvert(from: SocketType, to: SocketType): boolean {
   if (from === to) return true;
   const numeric: SocketType[] = ['FLOAT', 'INT', 'BOOLEAN', 'VECTOR', 'RGBA', 'ROTATION'];
-  if (numeric.includes(from) && numeric.includes(to)) return !(from === 'ROTATION' && to !== 'VECTOR') && !(to === 'ROTATION' && from !== 'VECTOR');
+  if (numeric.includes(from) && numeric.includes(to)) return !(from === 'ROTATION' && to !== 'VECTOR') && !(to === 'ROTATION' && from !== 'VECTOR' && from !== 'FLOAT');
+  if ((from === 'ROTATION' && to === 'MATRIX') || (from === 'MATRIX' && to === 'ROTATION')) return true;
   if (to === 'SHADER') return from !== 'GEOMETRY' && numeric.includes(from);
   if (to === 'CUSTOM' || from === 'CUSTOM') return true;
   return false;

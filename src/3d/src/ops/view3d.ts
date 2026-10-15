@@ -3,6 +3,7 @@ import { Box3, Vector3, Matrix3, Matrix4, Quaternion, Euler } from 'three';
 import { orientationBasis } from './orientations';
 import { snapSelectedElements, activeElementPosition } from './transform';
 import { app, registerOperators } from '../app/app';
+import { prefs } from '../app/prefs';
 import { activeView3D, worldBounds, View3D } from '../editors/view3d/view3d';
 import { applyMatrixToObject, toMatrix4 } from '../eval/transform';
 import { renderContext } from '../render/context';
@@ -120,12 +121,13 @@ registerOperators([
   {
     idname: 'view3d.view_orbit',
     label: 'View Orbit',
-    props: [{ id: 'type', label: 'Orbit', type: 'enum', default: 'ORBITLEFT', items: [['ORBITLEFT', 'Orbit Left'], ['ORBITRIGHT', 'Orbit Right'], ['ORBITUP', 'Orbit Up'], ['ORBITDOWN', 'Orbit Down'], ['ORBITOPPOSITE', 'Orbit Opposite']] }, { id: 'angle', label: 'Roll', type: 'float', default: (15 * Math.PI) / 180, subtype: 'angle' }],
+    props: [{ id: 'type', label: 'Orbit', type: 'enum', default: 'ORBITLEFT', items: [['ORBITLEFT', 'Orbit Left'], ['ORBITRIGHT', 'Orbit Right'], ['ORBITUP', 'Orbit Up'], ['ORBITDOWN', 'Orbit Down'], ['ORBITOPPOSITE', 'Orbit Opposite']] }, { id: 'angle', label: 'Angle', type: 'float', default: 0, subtype: 'angle' }],
     poll: v3dTurnable,
     exec: (_ctx, p) => {
       const v = activeView3D()!;
       v.leaveCamera();
-      const a = p.angle as number;
+      // 0 uses the step of Preferences ▸ Navigation ▸ Rotation Angle
+      const a = (p.angle as number) || (prefs.rotation_angle * Math.PI) / 180;
       const wasAxis = v.nav.view !== 'USER';
       const keepOrtho = v.nav.ortho;
       if (p.type === 'ORBITLEFT') v.nav.step('yaw', -a);

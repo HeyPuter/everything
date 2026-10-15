@@ -7,7 +7,7 @@ import type { EvalMesh, ModifierContext } from './types';
 import { localMatrix, toMatrix4 } from './transform';
 import { vertexParentMatrix } from './vertexparent';
 import { modifierTypes } from './modifiers';
-import { constraintTypes } from './constraints';
+import { constraintDeps, solveObjectConstraints } from './constraint_solve';
 import { evaluatePose, type PoseResult } from './armature';
 import { curveToMesh } from './curve';
 import { applyAnimation } from '../anim/evaluate';
@@ -33,6 +33,8 @@ export interface EvalObject {
   world: Matrix4;
   /** world matrix before constraints */
   worldBasis: Matrix4;
+  /** parent's world matrix times the parent inverse (null without a parent): the owner's local space */
+  parentMatrix?: Matrix4 | null;
   visible: boolean;
   selectable: boolean;
   mesh?: EvalMesh;
@@ -56,10 +58,15 @@ function aid(a: object | undefined | null): number {
   return id;
 }
 
+/** JSON of a modifier stack with typed arrays (bind data, caches) replaced by identity ids. */
+export function modifiersSignature(mods: ModifierBase[]): string {
+  return JSON.stringify(mods, (_k, v) => (ArrayBuffer.isView(v) ? `#${aid(v)}` : v));
+}
+
 export function meshSignature(me: MeshData) {
   return `${aid(me.positions)}:${aid(me.indices)}:${aid(me.loose_edges)}:${aid(me.offsets)}:${aid(me.uvs)}:${aid(me.smooth)}:${aid(me.material_index)}:${aid(me.seams)}:${aid(me.sharp)}:${aid(me.creases)}:${aid(me.custom_normals)}:${aid(me.quad_flip)}:${aid(me.face_strength)}:${me.auto_smooth_angle ?? ''}:${me.weights.map(aid).join(',')}:${me.shape_keys
     .map((k) => `${aid(k.data)}=${k.mute ? 'm' : k.value}`)
-    .join(',')}:${me.color_attributes.map((c) => aid(c.data)).join(',')}:${me.active_color_index}`;
+    .join(',')}:${me.color_attributes.map((c) => aid(c.data)).join(',')}:${me.active_color_index}:${aid(me.skin_vertices)}`;
 }
 
 /** The mesh as if only its active shape key were applied, at full strength (shape key pinning). */
@@ -143,6 +150,9 @@ export class Depsgraph {
   simulationPositions = new Map<string, Float32Array>();
   /** Physics caches (rigid bodies) can override an object's world matrix (applied after constraints) */
   simulationMatrices = new Map<string, Matrix4>();
+  /** objects whose data was evaluated in the current pass */
+  private dataDone = new Set<string>();
+  private evaluating = false;
   /** Optional hook for geometry nodes evaluation (set by nodes module) */
   constructor(public doc: DocumentData) {}
 
@@ -159,6 +169,8 @@ export class Depsgraph {
     const order = this.sortObjects(doc);
     const visibleSet = visibleObjects(doc);
     const seen = new Set<string>();
+    this.dataDone.clear();
+    this.evaluating = true;
     for (const ob of order) {
       seen.add(ob.id);
       let ev = this.objects.get(ob.id);
@@ -171,18 +183,17 @@ export class Depsgraph {
       ev.visible = !!vis && !ob.hide && !ob.hide_viewport;
       ev.selectable = ev.visible && !ob.hide_select && !(vis?.noSelect ?? false);
       this.evaluateTransform(doc, ob, ev);
-    }
-    for (const id of [...this.objects.keys()]) if (!seen.has(id)) this.objects.delete(id);
-    for (const key of [...this.meshCache.keys()]) if (!seen.has(key)) this.meshCache.delete(key);
-    // data evaluation after all transforms (armatures need final matrices)
-    for (const ob of order) {
-      const ev = this.objects.get(ob.id)!;
+      // poses right after their armature's transform, so bone parents and bone targets later in the order are current
       if (ob.type === 'ARMATURE') {
         const arm = ob.data ? doc.armatures[ob.data] : undefined;
         ev.pose = arm ? evaluatePose(doc, ob, arm, this) : undefined;
       }
     }
-    for (const ob of order) this.evaluateData(doc, ob, this.objects.get(ob.id)!);
+    for (const id of [...this.objects.keys()]) if (!seen.has(id)) this.objects.delete(id);
+    for (const key of [...this.meshCache.keys()]) if (!seen.has(key)) this.meshCache.delete(key);
+    // data evaluation after all transforms (armatures need final matrices)
+    for (const ob of order) if (!this.dataDone.has(ob.id)) this.evaluateData(doc, ob, this.objects.get(ob.id)!);
+    this.evaluating = false;
     // vertex parents follow the evaluated (deformed) parent mesh: refresh them and their children
     if (order.some((o) => o.parent_type === 'VERTEX' || o.parent_type === 'VERTEX_3')) {
       const moved = new Set<string>();
@@ -207,9 +218,8 @@ export class Depsgraph {
       if (!ob) return;
       state.set(id, 1);
       if (ob.parent) visit(ob.parent);
-      for (const c of ob.constraints) if (c.target && !c.mute) visit(c.target as string);
-      for (const c of ob.constraints) if (!c.mute) for (const d of constraintTypes[c.type]?.deps?.(c, doc) ?? []) if (d && d !== ob.id) visit(d);
-      if (ob.pose) for (const pb of Object.values(ob.pose)) for (const c of pb.constraints) if (c.target && c.target !== ob.id) visit(c.target as string);
+      for (const c of ob.constraints) if (!c.mute) for (const d of constraintDeps(c, doc)) if (d !== ob.id) visit(d);
+      if (ob.pose) for (const pb of Object.values(ob.pose)) for (const c of pb.constraints) if (!c.mute) for (const d of constraintDeps(c, doc)) if (d !== ob.id) visit(d);
       for (const m of ob.modifiers) {
         const t = modifierTypes[m.type];
         for (const dep of t?.deps?.(m) ?? []) if (dep && dep !== ob.id) visit(dep);
@@ -244,22 +254,12 @@ export class Depsgraph {
             pm.multiply(bone.pose).multiply(tail);
           }
         }
-        ev.world.premultiply(new Matrix4().multiplyMatrices(pm, toMatrix4(ob.matrix_parent_inverse)));
-      }
-    }
+        ev.parentMatrix = new Matrix4().multiplyMatrices(pm, toMatrix4(ob.matrix_parent_inverse));
+        ev.world.premultiply(ev.parentMatrix);
+      } else ev.parentMatrix = null;
+    } else ev.parentMatrix = null;
     ev.worldBasis.copy(ev.world);
-    for (const c of ob.constraints) {
-      if (c.mute || c.influence <= 0) continue;
-      const t = constraintTypes[c.type];
-      if (!t) continue;
-      const before = ev.world.clone();
-      try {
-        t.apply(ev.world, c, { doc, graph: this, ob, frame: this.frame });
-      } catch {
-        ev.world.copy(before);
-      }
-      if (c.influence < 1) blendMatrices(before, ev.world, c.influence, ev.world);
-    }
+    solveObjectConstraints(this, doc, ob, ev.world, ev.parentMatrix ?? null);
     const simMatrix = this.simulationMatrices.get(ob.id);
     if (simMatrix) ev.world.copy(simMatrix);
   }
@@ -274,7 +274,7 @@ export class Depsgraph {
       if (cu) s += JSON.stringify(cu);
     }
     if (ob.modifiers.length) {
-      s += simplifySignature(doc, this.render) + '|' + JSON.stringify(ob.modifiers);
+      s += simplifySignature(doc, this.render) + '|' + modifiersSignature(ob.modifiers);
       for (const m of ob.modifiers) {
         const t = modifierTypes[m.type];
         if (!t) continue;
@@ -356,6 +356,20 @@ export class Depsgraph {
     ev.cage = cage;
     ev.geomVersion = version;
     ev.error = error;
+  }
+
+  /**
+   * Make sure an object's evaluated data is current in this evaluation pass (used by constraints that
+   * read another object's geometry before the data pass reaches it).
+   */
+  ensureData(id: string, depth = 0) {
+    if (!this.evaluating || this.dataDone.has(id) || depth > 32) return;
+    const ev = this.objects.get(id);
+    const ob = this.doc.objects[id];
+    if (!ev || !ob) return;
+    this.dataDone.add(id);
+    for (const m of ob.modifiers) for (const d of modifierTypes[m.type]?.deps?.(m) ?? []) if (d && d !== id) this.ensureData(d, depth + 1);
+    this.evaluateData(this.doc, ob, ev);
   }
 
   invalidate(id?: string) {

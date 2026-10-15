@@ -35,7 +35,13 @@ const settings = {
   /** vertical guide at a column */
   showMargin: false,
   marginColumn: 80,
+  /** typing an opening bracket or quote adds the closing one (Preferences ▸ Editing ▸ Text Editor) */
+  autoClose: false,
 };
+/** Text editor defaults that Preferences change. */
+export const textEditorSettings = settings;
+
+const PAIRS: Record<string, string> = { '(': ')', '[': ']', '{': '}', '"': '"', "'": "'" };
 
 function langOf(t: TextData | null): Lang {
   return t?.language ?? 'python';
@@ -356,6 +362,18 @@ export class TextEditor implements Editor {
       },
       { separator: true },
       { label: 'Run Script', icon: 'play', shortcut: 'Alt P', op: 'text.run_script', disabled: !t },
+      {
+        label: 'Register',
+        checked: !!t?.use_module,
+        disabled: !t,
+        description: 'Run this script when the project is opened (Preferences ▸ Save & Load ▸ Auto Run Scripts)',
+        action: () => {
+          if (!t) return;
+          t.use_module = !t.use_module;
+          app.pushUndo('Register Text');
+          app.changed('ui');
+        },
+      },
       { separator: true },
       { label: 'Unlink', icon: 'x', op: 'text.unlink', disabled: !t },
     ];
@@ -1303,6 +1321,30 @@ export class TextEditor implements Editor {
     return true;
   }
 
+  /** Auto-close: insert the closing character, wrap a selection, or step over a closing character. */
+  private autoClosePair(key: string): boolean {
+    const ta = this.ta;
+    const s = ta.selectionStart,
+      e = ta.selectionEnd;
+    const next = ta.value[e] ?? '';
+    const closers = new Set(Object.values(PAIRS));
+    if (closers.has(key) && s === e && next === key) {
+      ta.setSelectionRange(s + 1, s + 1);
+      this.updateCaret();
+      return true;
+    }
+    const close = PAIRS[key];
+    if (!close) return false;
+    const sel = ta.value.slice(s, e);
+    // quotes only pair up at word boundaries (not inside words like it's)
+    if ((key === '"' || key === "'") && !sel && /[\w]/.test(ta.value[s - 1] ?? '')) return false;
+    if (!sel && next && /[\w]/.test(next)) return false;
+    this.insert(key + sel + close);
+    ta.setSelectionRange(s + 1, s + 1 + sel.length);
+    this.updateCaret();
+    return true;
+  }
+
   // ---------------------------------------------------------------- keys
 
   private onKeyDown(e: KeyboardEvent) {
@@ -1330,6 +1372,10 @@ export class TextEditor implements Editor {
       return;
     }
     if (e.key === 'Backspace' && !e.ctrlKey && !e.metaKey && !e.altKey && this.smartBackspace()) {
+      e.preventDefault();
+      return;
+    }
+    if (settings.autoClose && !e.ctrlKey && !e.metaKey && !e.altKey && this.autoClosePair(e.key)) {
       e.preventDefault();
       return;
     }

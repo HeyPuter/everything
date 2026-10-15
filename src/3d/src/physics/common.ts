@@ -217,3 +217,18 @@ export function freeCache(key: string) {
 
 /** Clamp to integer frame. */
 export const frameOf = (graph: { frame: number }) => Math.floor(graph.frame + 1e-6);
+
+/** Objects in a collection and its child collections (null when no collection is given). */
+export function collectionMembers(doc: DocumentData, cid: string | null | undefined): Set<string> | null {
+  const c = cid ? doc.collections[cid] : undefined;
+  if (!c) return null;
+  const out = new Set<string>();
+  const visit = (id: string, depth: number) => {
+    const cc = doc.collections[id];
+    if (!cc || depth > 32) return;
+    for (const o of cc.objects) out.add(o);
+    for (const ch of cc.children) visit(ch, depth + 1);
+  };
+  visit(c.id, 0);
+  return out;
+}

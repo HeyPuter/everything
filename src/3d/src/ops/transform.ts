@@ -8,6 +8,7 @@
 import { Matrix3, Matrix4, Quaternion, Vector3 } from 'three';
 import { app, onAppReady, operators, registerOperator, registerOperators, type ModalHandler, type Operator, type PropDef } from '../app/app';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
+import { prefs } from '../app/prefs';
 import type { ObjectData } from '../data/types';
 import { applyMatrixToObject, toMatrix4, localMatrix } from '../eval/transform';
 import { insertKeyframesForObjects } from '../anim/keyframes';
@@ -52,6 +53,8 @@ export interface TProvider {
 }
 
 export const transformProviders: TProvider[] = [];
+/** Adjust an object's new loc/rot/scale while it is being transformed (e.g. limit constraints that affect transforms). */
+export const objectTransformFilters: ((ob: ObjectData) => void)[] = [];
 
 type Collected = NonNullable<ReturnType<TProvider['collect']>>;
 
@@ -123,6 +126,7 @@ function objectElement(ob: ObjectData, ids: Set<string>, weight: number, distanc
         }
         if (ob.lock_scale[i]) ob.scale[i] = before.scale[i];
       }
+      for (const f of objectTransformFilters) f(ob);
       originOnly?.apply();
       if (children.length) {
         const newWorld = parentMat.clone().multiply(localMatrix(ob, new Matrix4()));
@@ -1207,8 +1211,10 @@ export function startTransform(
     },
     onPointerMove(e: PointerEvent) {
       const r = v.el.getBoundingClientRect();
-      const nx = e.clientX - r.left,
-        ny = e.clientY - r.top;
+      // Continuous Grab: with the pointer locked, motion keeps counting past the window edges
+      const locked = document.pointerLockElement === v.el;
+      const nx = locked ? lastRaw.x + e.movementX : e.clientX - r.left,
+        ny = locked ? lastRaw.y + e.movementY : e.clientY - r.top;
       if (navigating) {
         // the view is being navigated: keep the transform as it is
         lastRaw = { x: nx, y: ny };
@@ -1355,6 +1361,7 @@ export function startTransform(
       return true;
     },
     cancel() {
+      releaseGrab(v);
       for (const e of s!.data.elements) e.restore();
       s!.data.onUpdate?.();
       s!.data.cancel();
@@ -1362,6 +1369,7 @@ export function startTransform(
       app.changed('doc');
     },
     finish() {
+      releaseGrab(v);
       s!.data.finish();
       cleanupOverlay();
       if (opts.redo) handler.redoOp = opts.redo(state.value);
@@ -1372,8 +1380,20 @@ export function startTransform(
   const precisionOffset = { x: 0, y: 0 };
   let lastRaw = { ...start };
   app.startModal(handler);
+  if (prefs.use_mouse_continuous) {
+    try {
+      const req = v.el.requestPointerLock?.() as unknown as Promise<void> | undefined;
+      req?.catch?.(() => {});
+    } catch {
+      // pointer lock unavailable: plain motion
+    }
+  }
   compute();
   return true;
+}
+
+function releaseGrab(v: View3D) {
+  if (document.pointerLockElement === v.el) document.exitPointerLock();
 }
 
 /** A value reached earlier combined with further mouse-driven change of the same mode. */
