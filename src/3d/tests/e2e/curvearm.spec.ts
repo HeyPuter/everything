@@ -347,3 +347,29 @@ test('lattice edit mode: select more / mirror, menus, edit-mode mirror', async (
   expect(await get(page, `+app.doc.lattices[app.activeObject.data].points[2 * 3].toFixed(3)`)).toBe(-(x0 as number));
   await expectNoErrors(errors);
 });
+
+test('convert text and mesh objects to curves', async ({ page }) => {
+  const errors = await openApp(page);
+  await fresh(page, 'object.text_add');
+  await page.waitForFunction(() => {
+    const a = (window as any).app;
+    return (a.graph.get(a.activeObject.id)?.mesh?.positions.length ?? 0) > 0;
+  });
+  await run(page, 'object.convert', { target: 'CURVE' });
+  expect(await get(page, 'app.activeObject.type')).toBe('CURVE');
+  expect(await get(page, `${CU}.splines.length`)).toBeGreaterThan(3);
+  expect(await get(page, `${CU}.dimensions`)).toBe('2D');
+  await run(page, 'object.select_all', { action: 'DESELECT' });
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const cube = Object.values(a.doc.objects).find((o: any) => o.name === 'Cube') as any;
+    cube.select = true;
+    a.doc.scene.active_object = cube.id;
+    a.changed('doc', 'select');
+  });
+  await run(page, 'object.convert', { target: 'CURVE', keep_original: true });
+  expect(await get(page, 'app.activeObject.type')).toBe('CURVE');
+  expect(await get(page, `${CU}.splines.reduce((s, sp) => s + sp.points.length - (sp.use_cyclic_u ? 0 : 1), 0)`)).toBe(12);
+  expect(await get(page, `Object.values(app.doc.objects).some(o => o.name === 'Cube' && o.type === 'MESH')`)).toBe(true);
+  await expectNoErrors(errors);
+});

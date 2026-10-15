@@ -240,3 +240,25 @@ describe('2D curve fill', () => {
     expect(area).toBeCloseTo(16 - 4, 5);
   });
 });
+
+import { edgeChains, meshToSplines } from '../../src/modes/curve/meshcurve';
+import * as prim from '../../src/mesh/primitives';
+
+describe('mesh to curve', () => {
+  it('chains edges into open polylines and loops', () => {
+    // a square loop and a separate 3-vertex line
+    const chains = edgeChains(7, [0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6]);
+    expect(chains.map((c) => [c.verts.length, c.cyclic]).sort()).toEqual([
+      [3, false],
+      [4, true],
+    ]);
+  });
+
+  it('turns every mesh edge into spline segments', () => {
+    const m = prim.plane(2);
+    const splines = meshToSplines(m as never);
+    expect(splines.length).toBe(1);
+    expect(splines[0].use_cyclic_u).toBe(true);
+    expect(splines[0].points.length).toBe(4);
+  });
+});

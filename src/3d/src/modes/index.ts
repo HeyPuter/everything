@@ -20,6 +20,7 @@ import './curve/curve';
 import './curve/ops-more';
 import './curve/menus';
 import './curve/tools';
+import './curve/convert';
 import './transformmodes';
 import './editxform';
 import './sidebar-items';
