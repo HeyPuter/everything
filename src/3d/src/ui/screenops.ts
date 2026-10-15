@@ -4,7 +4,6 @@ import { app, registerOperators, type OpContext } from '../app/app';
 import { addKeys } from '../app/keymap';
 import { promptText } from './menu';
 import type { Area, Side } from './screen';
-import { propertiesTabs } from '../editors/properties/properties';
 
 /** The area an operator acts on: the one under the pointer (or the last active one). */
 function areaOf(ctx: OpContext): Area | null {
@@ -123,22 +122,6 @@ registerOperators([
     exec: (ctx) => areaOf(ctx)!.flipHeaderSide(),
   },
   {
-    idname: 'screen.space_context_cycle',
-    label: 'Cycle Space Context',
-    description: 'Switch to the next or previous tab of the Properties editor',
-    undo: false,
-    props: [{ id: 'direction', label: 'Direction', type: 'enum', default: 'NEXT', items: [['NEXT', 'Next'], ['PREV', 'Previous']] }],
-    poll: (ctx) => areaOf(ctx)?.type === 'PROPERTIES',
-    exec: (ctx, p) => {
-      const ed = areaOf(ctx)!.editor as unknown as { tab: string; update(): void };
-      const tabs = propertiesTabs.filter((t) => t.poll());
-      if (!tabs.length) return 'CANCELLED';
-      const i = tabs.findIndex((t) => t.id === ed.tab);
-      ed.tab = tabs[(i + (p.direction === 'PREV' ? tabs.length - 1 : 1)) % tabs.length].id;
-      ed.update();
-    },
-  },
-  {
     idname: 'screen.back_to_previous',
     label: 'Back to Previous',
     description: 'Return from a maximized or fullscreen area to the full layout',
@@ -195,11 +178,6 @@ function renameActiveItem(ctx: OpContext): 'CANCELLED' {
   app.report('INFO', 'Nothing active to rename');
   return 'CANCELLED';
 }
-
-addKeys('Screen', [
-  { key: 'TAB', ctrl: true, op: 'screen.space_context_cycle', props: { direction: 'NEXT' } },
-  { key: 'TAB', ctrl: true, shift: true, op: 'screen.space_context_cycle', props: { direction: 'PREV' } },
-]);
 
 addKeys('Window', [
   { key: 'F2', op: 'wm.call_panel', props: { name: 'TOPBAR_PT_name' } },
