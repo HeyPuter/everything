@@ -480,3 +480,30 @@ test('the vector pass follows moving objects and drives Vector Blur', async ({ p
   expect(res.diff).toBeGreaterThan(0.05);
   await expectNoErrors(errors);
 });
+
+test('lights can use a node tree edited in the Shader Editor', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => {
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.activeObject = Object.values(a.doc.objects).find((o: any) => o.type === 'LIGHT'); // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.changed('select');
+  });
+  await page.locator('.ws-tab', { hasText: 'Shading' }).first().click();
+  await page.waitForTimeout(500);
+  const ed = page.locator('.nd-editor').first();
+  await expect(ed).toContainText('Use Nodes');
+  await page.locator('.area', { has: ed }).locator('label', { hasText: 'Use Nodes' }).first().click();
+  await page.waitForTimeout(300);
+  await expect(ed.locator('[data-node]')).toHaveCount(2);
+  const tint = await page.evaluate(async () => {
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const la = Object.values(a.doc.lights)[0] as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const em = la.node_tree.nodes.find((n: { type: string }) => n.type === 'ShaderNodeEmission');
+    em.inputs.Color = [1, 0, 0, 1];
+    a.changed('doc');
+    const { lightNodeTint } = await import('/src/nodes/shader/lightnodes.ts');
+    return { use: la.use_nodes, tint: lightNodeTint(la) };
+  });
+  expect(tint).toEqual({ use: true, tint: [1, 0, 0] });
+  await expectNoErrors(errors);
+});

@@ -68,6 +68,8 @@ export function renderVisibleObjects(doc: DocumentData): Set<string> {
 
 /** Extra renderable content (e.g. grease pencil strokes) added to the render scene after each build. */
 export const renderSceneHooks: ((rs: RenderScene, app: App, o: BuildOptions) => void)[] = [];
+/** Adjust a light's colour before it is applied (e.g. the emission of a light node tree). */
+export const lightTintHooks: ((la: LightData, color: Color) => void)[] = [];
 
 const tmpM = new Matrix4();
 const tmpV = new Vector3();
@@ -259,6 +261,7 @@ export class RenderScene {
     if (!L.matrix.equals(tmpM)) changed = true;
     L.matrix.copy(tmpM);
     const color = new Color(la.color[0], la.color[1], la.color[2]);
+    for (const hk of lightTintHooks) hk(la, color);
     const intensity = lightIntensity(la);
     if (!L.color.equals(color) || L.intensity !== intensity) changed = true;
     L.color.copy(color);

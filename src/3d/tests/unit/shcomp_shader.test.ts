@@ -210,3 +210,27 @@ describe('new shader nodes', () => {
     }
   });
 });
+
+describe('light node trees', () => {
+  it('fold the Light Output emission into a colour multiplier', async () => {
+    const { lightNodeTint, defaultLightTree } = await import('../../src/nodes/shader/lightnodes');
+    const la = { use_nodes: true, node_tree: defaultLightTree() } as unknown as import('../../src/data/types').LightData;
+    expect(lightNodeTint(la)).toEqual([1, 1, 1]);
+    const tree = la.node_tree!;
+    const em = tree.nodes.find((n) => n.type === 'ShaderNodeEmission')!;
+    em.inputs.Color = [1, 0.5, 0.25, 1];
+    em.inputs.Strength = 2;
+    expect(lightNodeTint(la)).toEqual([2, 1, 0.5]);
+    // a Blackbody node on the colour: warm light (red > blue)
+    const ctx = ctxOf(emptyDocument(), tree);
+    const bb = addNode(tree, 'ShaderNodeBlackbody', [-400, 0]);
+    bb.inputs.Temperature = 2000;
+    connect(ctx, bb.id, 'Color', em.id, 'Color');
+    const t = lightNodeTint(la);
+    expect(t[0]).toBeGreaterThan(t[2]);
+    // nothing linked to the output: no light; nodes disabled: unchanged
+    tree.links = tree.links.filter((l) => l.to_socket !== 'Surface');
+    expect(lightNodeTint(la)).toEqual([0, 0, 0]);
+    expect(lightNodeTint({ ...la, use_nodes: false })).toEqual([1, 1, 1]);
+  });
+});
