@@ -278,7 +278,7 @@ export function objectMenu(): MenuItem[] {
     { label: 'Animation', submenu: animationMenu },
     { label: 'Rigid Body', submenu: rigidBodyMenu },
     { separator: true },
-    { label: 'Quick Effects', submenu: () => [{ label: 'Quick Fur', op: 'object.quick_fur' }, { label: 'Quick Smoke', op: 'object.quick_smoke' }, { label: 'Quick Liquid', op: 'object.quick_liquid' }] },
+    { label: 'Quick Effects', submenu: () => [{ label: 'Quick Fur', op: 'object.quick_fur' }, { label: 'Quick Explode', op: 'object.quick_explode' }, { label: 'Quick Smoke', op: 'object.quick_smoke' }, { label: 'Quick Liquid', op: 'object.quick_liquid' }] },
     { separator: true },
     { label: 'Convert', submenu: convertMenu },
     { separator: true },

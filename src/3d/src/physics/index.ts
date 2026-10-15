@@ -69,3 +69,4 @@ import './dynpaint';
 import './dpops';
 import './quickliquid';
 import './ui-rbworld';
+import './quickexplode';
