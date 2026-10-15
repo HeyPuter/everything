@@ -46,6 +46,8 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   lockRotation = false;
   /** Quad View group this viewport belongs to, and its place in it */
   quad: { group: string; role: 'USER' | 'TOP' | 'FRONT' | 'RIGHT' } | null = null;
+  /** Quad View: panning / zooming one fixed view moves the other fixed views too */
+  quadSync = false;
   camOffset = { x: 0, y: 0 };
   localView: Set<string> | null = null;
   hiddenTypes = new Set<string>();
@@ -98,7 +100,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     this.infoEl = document.createElement('div');
     this.infoEl.className = 'v3d-info';
     this.el.append(this.regionEl, this.svg, this.infoEl, this.ui, this.boxEl);
-    const st = (state ?? {}) as { shading?: string | Partial<Shading>; matcap?: boolean; camera?: boolean; camZoom?: number; camOffset?: { x: number; y: number }; nav?: ReturnType<NavCamera['serialize']>; overlay?: Partial<Overlay>; toolbar?: boolean; sidebar?: boolean; clip?: number[][]; lockObject?: string; lockCursor?: boolean; lockRotation?: boolean; quad?: View3D['quad']; toolGizmo?: boolean; objectGizmos?: View3D['objectGizmos'] };
+    const st = (state ?? {}) as { shading?: string | Partial<Shading>; matcap?: boolean; camera?: boolean; camZoom?: number; camOffset?: { x: number; y: number }; nav?: ReturnType<NavCamera['serialize']>; overlay?: Partial<Overlay>; toolbar?: boolean; sidebar?: boolean; clip?: number[][]; lockObject?: string; lockCursor?: boolean; lockRotation?: boolean; quad?: View3D['quad']; quadSync?: boolean; toolGizmo?: boolean; objectGizmos?: View3D['objectGizmos'] };
     if (typeof st.shading === 'string') this.shading.type = st.shading as Shading['type'];
     else if (st.shading) Object.assign(this.shading, st.shading);
     if (st.matcap) this.shading.light = 'MATCAP';
@@ -114,6 +116,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     if (st.lockCursor) this.lockCursor = true;
     if (st.lockRotation) this.lockRotation = true;
     if (st.quad) this.quad = { ...st.quad };
+    if (st.quadSync) this.quadSync = true;
     if (st.toolGizmo === false) this.showToolGizmo = false;
     if (st.objectGizmos) Object.assign(this.objectGizmos, st.objectGizmos);
     this.nav.lens = prefs.view_lens;
@@ -309,7 +312,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   }
 
   serialize() {
-    return { nav: this.nav.serialize(), shading: { ...this.shading }, overlay: { ...this.overlay }, camera: this.cameraView, camZoom: this.camZoom, camOffset: { ...this.camOffset }, toolbar: this.showToolbar, sidebar: this.showSidebar, toolGizmo: this.showToolGizmo ? undefined : false, objectGizmos: Object.values(this.objectGizmos).some(Boolean) ? { ...this.objectGizmos } : undefined, clip: this.clipPlanes ?? undefined, lockObject: this.lockObject ?? undefined, lockCursor: this.lockCursor || undefined, lockRotation: this.lockRotation || undefined, quad: this.quad ?? undefined };
+    return { nav: this.nav.serialize(), shading: { ...this.shading }, overlay: { ...this.overlay }, camera: this.cameraView, camZoom: this.camZoom, camOffset: { ...this.camOffset }, toolbar: this.showToolbar, sidebar: this.showSidebar, toolGizmo: this.showToolGizmo ? undefined : false, objectGizmos: Object.values(this.objectGizmos).some(Boolean) ? { ...this.objectGizmos } : undefined, clip: this.clipPlanes ?? undefined, lockObject: this.lockObject ?? undefined, lockCursor: this.lockCursor || undefined, lockRotation: this.lockRotation || undefined, quad: this.quad ?? undefined, quadSync: this.quadSync || undefined };
   }
 
   dispose() {
@@ -570,9 +573,22 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
 
   afterNav() {
     if (this.cameraView && this.lockCameraToView) this.applyViewToCamera();
+    if (this.quad && this.quadSync && this.quad.role !== 'USER') this.syncQuad();
     renderContext?.engine.requestDraw();
     this.drawSvg();
     this.drawUI();
+  }
+
+  /** Quad View sync: the other fixed views share this view's center and zoom. */
+  private syncQuad() {
+    for (const a of this.area.screen.areas) {
+      const o = a.editor as unknown as View3D;
+      if (o === this || !(o instanceof View3D) || o.quad?.group !== this.quad!.group || o.quad.role === 'USER') continue;
+      o.nav.pivot.copy(this.nav.pivot);
+      o.nav.distance = this.nav.distance;
+      o.drawSvg();
+    }
+    renderContext?.engine.requestDraw();
   }
 
   /** Lock Camera to View: write navigation back to the scene camera. */
