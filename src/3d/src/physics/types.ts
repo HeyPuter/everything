@@ -68,6 +68,9 @@ export interface CollisionSettingsX extends CollisionSettings {
   friction_factor?: number;
   use_particle_kill?: boolean;
   permeability?: number;
+  stickiness?: number;
+  damping_random?: number;
+  friction_random?: number;
 }
 
 export interface ClothSettings {
@@ -158,6 +161,15 @@ export interface SoftBodySettings {
   ball_size: number;
   effector_weights_gravity: number;
   effector_weights_all: number;
+  effector_weights_types?: Record<string, number>;
+  /** edges: aerodynamics, plasticity, rest length scale (%) */
+  aerodynamics_type?: 'SIMPLE' | 'LIFT_FORCE';
+  aero?: number;
+  plastic?: number;
+  spring_length?: number;
+  /** self collision between the soft body's own vertices */
+  use_self_collision?: boolean;
+  self_ball_size?: number;
 }
 
 export interface SoftBodyModifier extends ModifierBase {
@@ -259,6 +271,9 @@ export function defaultCollision(): CollisionSettingsX {
     friction_factor: 0,
     use_particle_kill: false,
     permeability: 0,
+    stickiness: 0,
+    damping_random: 0,
+    friction_random: 0,
   };
 }
 
@@ -375,6 +390,13 @@ export function defaultSoftBodySettings(): SoftBodySettings {
     ball_size: 0.05,
     effector_weights_gravity: 1,
     effector_weights_all: 1,
+    effector_weights_types: {},
+    aerodynamics_type: 'SIMPLE',
+    aero: 0,
+    plastic: 0,
+    spring_length: 0,
+    use_self_collision: false,
+    self_ball_size: 0.1,
   };
 }
 

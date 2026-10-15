@@ -122,3 +122,51 @@ describe('cloth extras', () => {
     expect(sagAt(true)).toBeLessThan(sagAt(false) - 0.01);
   });
 });
+
+describe('soft body extras', () => {
+  it('plasticity keeps part of a deformation after the load is gone', () => {
+    const sag = (plastic: number) => {
+      caches.clear();
+      const doc = emptyDocument();
+      const ob = addMesh(doc, 'Sheet', grid(6, 6, 2), [0, 0, 2]);
+      const me = doc.meshes[ob.data!];
+      const nv = me.positions.length / 3;
+      const pin = new Float32Array(nv);
+      for (let i = 0; i < nv; i++) if (Math.abs(me.positions[i * 3]) > 0.99) pin[i] = 1;
+      me.vertex_groups.push({ name: 'Goal' });
+      me.weights.push(pin);
+      const m = newModifier('SOFT_BODY', uid('md'), []) as never as { settings: Record<string, unknown>; point_cache: { frame_end: number } };
+      Object.assign(m.settings, { vertex_group_goal: 'Goal', goal_default: 0, goal_min: 0, goal_max: 1, plastic: plastic, pull: 0.3, push: 0.3 });
+      m.point_cache.frame_end = 120;
+      ob.modifiers.push(m as never);
+      const g = new Depsgraph(doc);
+      at(g, doc, 40);
+      // the sheet sags between its pinned ends: the middle drops
+      const P = g.get(ob.id)!.mesh!.positions;
+      let minZ = Infinity;
+      for (let i = 2; i < P.length; i += 3) minZ = Math.min(minZ, P[i]);
+      return minZ;
+    };
+    // a plastic sheet keeps stretching, so it sags further
+    expect(sag(50)).toBeLessThan(sag(0) - 0.02);
+  });
+
+  it('aerodynamics slow a falling sheet down', () => {
+    const fall = (aero: number) => {
+      caches.clear();
+      const doc = emptyDocument();
+      const ob = addMesh(doc, 'Sheet', grid(4, 4, 2), [0, 0, 5]);
+      const m = newModifier('SOFT_BODY', uid('md'), []) as never as { settings: Record<string, unknown>; point_cache: { frame_end: number } };
+      Object.assign(m.settings, { use_goal: false, aero, use_collision: false });
+      m.point_cache.frame_end = 120;
+      ob.modifiers.push(m as never);
+      const g = new Depsgraph(doc);
+      at(g, doc, 30);
+      const P = g.get(ob.id)!.mesh!.positions;
+      let z = 0;
+      for (let i = 2; i < P.length; i += 3) z += P[i];
+      return z / (P.length / 3);
+    };
+    expect(fall(50)).toBeGreaterThan(fall(0) + 0.3);
+  });
+});

@@ -323,8 +323,12 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
           ry = vy - svy,
           rz = vz - svz;
         const vn = rx * nnx + ry * nny + rz * nnz;
-        const restitution = 1 - Math.min(1, Math.max(0, cs.damping_factor ?? 0));
-        const keepT = 1 - Math.min(1, Math.max(0, cs.friction_factor ?? 0));
+        // per-collision random variation of damping and friction
+        const dmp = (cs.damping_factor ?? 0) + ((cs.damping_random ?? 0) ? (rand01(seed, i, L.step, 51) - 0.5) * (cs.damping_random ?? 0) : 0);
+        const frc = (cs.friction_factor ?? 0) + ((cs.friction_random ?? 0) ? (rand01(seed, i, L.step, 52) - 0.5) * (cs.friction_random ?? 0) : 0);
+        const stick = Math.min(1, Math.max(0, cs.stickiness ?? 0));
+        const restitution = (1 - Math.min(1, Math.max(0, dmp))) * (1 - stick);
+        const keepT = (1 - Math.min(1, Math.max(0, frc))) * (1 - stick);
         const tx = rx - nnx * vn,
           ty = ry - nny * vn,
           tz = rz - nnz * vn;

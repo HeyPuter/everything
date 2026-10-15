@@ -319,6 +319,10 @@ export interface PBDParams {
   pressure?: { uniform: number; factor: number; targetVolume: number; density: number; weights: Float32Array | null } | null;
   /** effector weight per field type */
   fieldTypeWeights?: Record<string, number> | null;
+  /** aerodynamics: faces resist moving through the air (and generate lift) */
+  aero?: { factor: number; lift: boolean } | null;
+  /** plasticity: springs take on part of their stretch permanently (per frame fraction) */
+  plastic?: number;
 }
 
 export function initState(world: Float32Array): PBDState {
@@ -437,7 +441,7 @@ export function stepFrame(
   const lambda = new Float64Array(topo.a.length);
   const normals = new Float64Array(x.length);
   const f = new Float64Array(3);
-  const useNormals = effectors.some((e) => e.field.type === 'WIND');
+  const useNormals = effectors.some((e) => e.field.type === 'WIND') || !!(P.aero && P.aero.factor > 0);
   if (useNormals) vertexNormals(x, topo.tris, normals);
   const nrm: [number, number, number] = [0, 0, 1];
   const thick = P.collision?.distance ?? 0;
@@ -488,6 +492,27 @@ export function stepFrame(
         f[0] += pressureF[k];
         f[1] += pressureF[k + 1];
         f[2] += pressureF[k + 2];
+      }
+      if (P.aero && P.aero.factor > 0) {
+        // air pressure on the surface: against the motion along the normal (plus lift sideways)
+        const nx0 = normals[k],
+          ny0 = normals[k + 1],
+          nz0 = normals[k + 2];
+        const vn = v[k] * nx0 + v[k + 1] * ny0 + v[k + 2] * nz0;
+        const a = P.aero.factor * 0.1;
+        f[0] -= nx0 * vn * a * P.mass;
+        f[1] -= ny0 * vn * a * P.mass;
+        f[2] -= nz0 * vn * a * P.mass;
+        if (P.aero.lift) {
+          const tx = v[k] - nx0 * vn,
+            ty = v[k + 1] - ny0 * vn,
+            tz = v[k + 2] - nz0 * vn;
+          const sgn = vn >= 0 ? -1 : 1;
+          const tl = Math.hypot(tx, ty, tz);
+          f[0] += nx0 * tl * a * 0.5 * sgn * P.mass;
+          f[1] += ny0 * tl * a * 0.5 * sgn * P.mass;
+          f[2] += nz0 * tl * a * 0.5 * sgn * P.mass;
+        }
       }
       const drag = Math.max(0, 1 - P.airDamping * h);
       v[k] = (v[k] + h * (P.gravity[0] + f[0] * baseW)) * drag;
@@ -733,6 +758,20 @@ export function stepFrame(
           v[k + c] += (gv - v[k + c]) * a;
         }
       }
+  }
+  // plasticity: rest lengths creep towards the current lengths
+  if (P.plastic && P.plastic > 0) {
+    const A = topo.a,
+      B = topo.b,
+      R = topo.rest;
+    const rate = Math.min(1, P.plastic);
+    for (let c = 0; c < A.length; c++) {
+      if (topo.kind[c] !== KIND_STRUCT) continue;
+      const ia = A[c] * 3,
+        ja = B[c] * 3;
+      const len = Math.hypot(x[ia] - x[ja], x[ia + 1] - x[ja + 1], x[ia + 2] - x[ja + 2]);
+      R[c] += (len - R[c]) * rate;
+    }
   }
 }
 

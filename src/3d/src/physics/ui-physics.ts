@@ -143,9 +143,12 @@ function collisionPanels(ob: ObjectPhysics): Child[] {
     panel('ph-col', 'Collision', () => [
       panel('ph-col-part', 'Particle', () => [
         num(c, 'permeability', 'Permeability', { min: 0, max: 1, slider: true }),
+        num(c, 'stickiness', 'Stickiness', { min: 0, max: 1, slider: true }),
         bool(c, 'use_particle_kill', 'Kill Particles'),
         num(c, 'damping_factor', 'Damping', { min: 0, max: 1, slider: true }),
+        num(c, 'damping_random', 'Randomize', { min: 0, max: 1, slider: true }),
         num(c, 'friction_factor', 'Friction', { min: 0, max: 1, slider: true }),
+        num(c, 'friction_random', 'Randomize', { min: 0, max: 1, slider: true }),
       ], { sub: true }),
       panel('ph-col-cloth', 'Softbody & Cloth', () => [
         num(c, 'thickness_outer', 'Thickness Outer', { min: 0.001, max: 1, unit: 'distance' }),
@@ -261,8 +264,18 @@ function softPanels(ob: ObjectPhysics, m: SoftBodyModifier): Child[] {
       num(s, 'pull', 'Pull', { min: 0, max: 0.999, slider: true, disabled: d || !s.use_edges }),
       num(s, 'push', 'Push', { min: 0, max: 0.999, slider: true, disabled: d || !s.use_edges }),
       num(s, 'damping', 'Damp', { min: 0, max: 50, disabled: d || !s.use_edges }),
+      num(s, 'plastic', 'Plasticity', { min: 0, max: 100, disabled: d || !s.use_edges }),
       num(s, 'bend', 'Bending', { min: 0, max: 10, disabled: d || !s.use_edges }),
+      num(s, 'spring_length', 'Length', { min: 0, max: 200, disabled: d || !s.use_edges, tip: 'Spring rest length in percent (0 keeps the modelled length)' }),
+      panel('ph-soft-aero', 'Aerodynamics', () => [
+        enumProp(s, 'aerodynamics_type', 'Type', [['SIMPLE', 'Simple'], ['LIFT_FORCE', 'Lift Force']], { disabled: d || !s.use_edges }),
+        num(s, 'aero', 'Factor', { min: 0, max: 30000, softMax: 100, disabled: d || !s.use_edges }),
+      ], { sub: true, closed: true }),
     ], { header: headerCheck(`sb-edges-${m.id}`, s as never, 'use_edges', 'Edges', d) }),
+    panel('ph-soft-self', 'Self Collision', () => [num(s, 'self_ball_size', 'Ball Size', { min: 0.001, max: 10, unit: 'distance', disabled: d || !s.use_self_collision })], {
+      header: headerCheck(`sb-self-${m.id}`, s as never, 'use_self_collision', 'Self Collision', d),
+      closed: true,
+    }),
     panel('ph-soft-shape', 'Shape Matching', () => [num(s, 'shape_stiffness', 'Stiffness', { min: 0, max: 1, slider: true, disabled: d || !s.use_shape_match }), note('Pulls the mesh back towards its rest shape (keeps volume).')], {
       header: headerCheck(`sb-shape-${m.id}`, s as never, 'use_shape_match', 'Shape Matching', d),
       closed: true,

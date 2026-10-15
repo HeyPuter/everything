@@ -110,8 +110,11 @@ export function softBodySetup(m: SoftBodyModifier, mesh: EvalMesh, doc: Document
       shapeMatch: s.use_shape_match ? s.shape_stiffness : 0,
       fieldWeight: s.effector_weights_all,
       collision: s.use_collision ? { distance: s.ball_size, quality: 1 } : null,
-      self: null,
-      restScale: 1,
+      self: s.use_self_collision ? { distance: Math.max(0.001, s.self_ball_size ?? 0.1), friction: 1 } : null,
+      // spring length in percent of the rest length (0 keeps the rest length)
+      restScale: s.spring_length ? Math.max(0.01, s.spring_length / 100) : 1,
+      aero: s.aero ? { factor: s.aero, lift: s.aerodynamics_type === 'LIFT_FORCE' } : null,
+      plastic: s.plastic ? Math.min(1, s.plastic / 100) * 0.05 : 0,
       fieldTypeWeights: (s as { effector_weights_types?: Record<string, number> }).effector_weights_types ?? null,
     },
   };
