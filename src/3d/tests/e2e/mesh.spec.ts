@@ -224,3 +224,48 @@ test('sidebar Item tab shows the median of the selection and edits it', async ({
   await expect(page.locator('.panel', { hasText: 'Mean Crease' }).first()).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('Bisect and Poly Build tools work from the toolbar', async ({ page }) => {
+  const errors = await editCube(page);
+  await page.keyboard.press('a');
+  await page.locator('.tb-tool[data-tool="builtin.knife"]').click({ button: 'right' });
+  await page.locator('.menu-item', { hasText: 'Bisect' }).first().click();
+  const c = await hoverViewport(page);
+  // drag a horizontal line across the cube
+  await page.mouse.move(c.x - 250, c.y + 5);
+  await page.mouse.down();
+  await page.mouse.move(c.x - 100, c.y + 5, { steps: 4 });
+  await page.mouse.move(c.x + 250, c.y + 5, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForTimeout(50);
+  const [, faces] = await counts(page);
+  expect(faces).toBeGreaterThan(6);
+  expect(await get(page, 'app.lastOp && app.lastOp.idname')).toBe('mesh.bisect');
+  // Poly Build: Shift-click deletes the hovered vertex
+  await page.locator('.tb-tool[data-tool="builtin.poly_build"]').click();
+  const before = (await counts(page))[0];
+  const vpt = await page.evaluate(async () => {
+    const { activeView3D } = await import('/src/editors/view3d/view3d.ts');
+    const v = activeView3D()!;
+    const r = v.el.getBoundingClientRect();
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const P = a.doc.meshes[a.activeObject.data].positions;
+    // the vertex nearest to the camera
+    let best = { x: 0, y: 0, d: Infinity };
+    for (let i = 0; i < P.length; i += 3) {
+      const p = v.camera.position.clone().set(P[i], P[i + 1], P[i + 2]);
+      const d = p.distanceTo(v.camera.position);
+      const s = v.project(p);
+      if (d < best.d) best = { x: s.x + r.left, y: s.y + r.top, d };
+    }
+    return best;
+  });
+  await page.mouse.move(vpt.x, vpt.y);
+  await page.keyboard.down('Shift');
+  await page.mouse.down();
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
+  await page.waitForTimeout(50);
+  expect((await counts(page))[0]).toBe(before - 1);
+  await expectNoErrors(errors);
+});
