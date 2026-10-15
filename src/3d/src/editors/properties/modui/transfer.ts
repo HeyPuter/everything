@@ -124,7 +124,6 @@ modifierExtraUI.DATA_TRANSFER = (ob, m) => {
     ),
     sub(m, 'topology', 'Topology Mapping', () => [
       splitRow('Max Distance', h('div', { class: 'row-aligned' }, toggleIcon(r, 'use_max_distance', 'checkbox_hlt', 'Only Neighbor Geometry'), numField(m, 'max_distance', { unit: 'distance', min: 0, disabled: !r.use_max_distance }))),
-      num(r, 'ray_radius', 'Ray Radius', { unit: 'distance', min: 0 }),
     ]),
   ];
 };
