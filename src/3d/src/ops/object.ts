@@ -13,7 +13,7 @@ import { activeView3D } from '../editors/view3d/view3d';
 import { openMenu, promptText } from '../ui/menu';
 import { newConstraint } from '../eval/constraints';
 import { modeHandlers } from './modes';
-import { edgeChains, surfaceCenter, volumeCenter } from '../object/core';
+import { curvePoints, edgeChains, surfaceCenter, translateCurve, volumeCenter } from '../object/core';
 import { startInteractiveMirror } from '../object/mirror';
 import { defaultPoseBone } from '../eval/armature';
 import { newModifier } from '../eval/modifiers';
@@ -923,35 +923,37 @@ registerOperators([
       const doc = ctx.doc;
       for (const ob of app.selectedObjects()) {
         const me = objectData(doc, ob);
-        if (!me) continue;
+        const cu = !me && ob.type === 'CURVE' && ob.data ? doc.curves[ob.data] : undefined;
+        if (!me && !cu) continue;
+        // control points stand in for vertices on curves
+        const positions = me ? me.positions : curvePoints(cu!);
+        if (!positions.length) continue;
+        const shiftGeometry = (c: Vector3) => (me ? transformMeshData(me, new Matrix4().makeTranslation(-c.x, -c.y, -c.z)) : translateCurve(cu!, [-c.x, -c.y, -c.z]));
         const ev = app.graph.get(ob.id)!;
+        const median = () => {
+          const c = new Vector3();
+          for (let i = 0; i < positions.length; i += 3) c.add(new Vector3(positions[i], positions[i + 1], positions[i + 2]));
+          return c.multiplyScalar(1 / Math.max(1, positions.length / 3));
+        };
         let center = new Vector3();
         if (p.type === 'ORIGIN_CURSOR') center = new Vector3(...doc.scene.cursor.location).applyMatrix4(ev.world.clone().invert());
-        else if (p.type === 'GEOMETRY_ORIGIN') center = new Vector3();
-        else if ((p.type === 'ORIGIN_CENTER_OF_MASS' || p.type === 'ORIGIN_CENTER_OF_VOLUME') && me.offsets.length > 1) {
+        else if ((p.type === 'ORIGIN_CENTER_OF_MASS' || p.type === 'ORIGIN_CENTER_OF_VOLUME') && me && me.offsets.length > 1) {
           center.fromArray(p.type === 'ORIGIN_CENTER_OF_MASS' ? surfaceCenter(me) : volumeCenter(me));
         } else if (p.center === 'BOUNDS') {
-          const b = bounds(me.positions);
+          const b = bounds(positions);
           center.set((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2);
-        } else {
-          for (let i = 0; i < me.positions.length; i += 3) center.add(new Vector3(me.positions[i], me.positions[i + 1], me.positions[i + 2]));
-          center.multiplyScalar(1 / Math.max(1, me.positions.length / 3));
-        }
+        } else center = median();
         if (p.type === 'GEOMETRY_ORIGIN') {
-          let c = new Vector3();
-          for (let i = 0; i < me.positions.length; i += 3) c.add(new Vector3(me.positions[i], me.positions[i + 1], me.positions[i + 2]));
-          c = c.multiplyScalar(1 / Math.max(1, me.positions.length / 3));
-          transformMeshData(me, new Matrix4().makeTranslation(-c.x, -c.y, -c.z));
+          shiftGeometry(p.center === 'BOUNDS' ? center : median());
           continue;
         }
-        transformMeshData(me, new Matrix4().makeTranslation(-center.x, -center.y, -center.z));
+        shiftGeometry(center);
         // move the object so the geometry stays in place
-        const worldShift = center.clone().applyMatrix4(ev.world).sub(new Vector3().setFromMatrixPosition(ev.world));
         const parentInv = ob.parent ? app.graph.get(ob.parent)!.world.clone().multiply(toMatrix4(ob.matrix_parent_inverse)).invert() : new Matrix4();
-        const localShift = worldShift.clone().transformDirection(parentInv).multiplyScalar(worldShift.length() ? worldShift.length() / Math.max(1e-12, worldShift.clone().transformDirection(parentInv).length()) : 0);
-        void localShift;
-        const newWorld = ev.world.clone().premultiply(new Matrix4().makeTranslation(worldShift.x, worldShift.y, worldShift.z));
-        applyMatrixToObject(ob, parentInv.multiply(newWorld));
+        applyMatrixToObject(ob, parentInv.multiply(ev.world.clone().multiply(new Matrix4().makeTranslation(center.x, center.y, center.z))));
+        // children keep their place
+        const back = new Matrix4().makeTranslation(-center.x, -center.y, -center.z);
+        for (const child of Object.values(doc.objects)) if (child.parent === ob.id && child.parent_type === 'OBJECT') child.matrix_parent_inverse = fromMatrix4(back.clone().multiply(toMatrix4(child.matrix_parent_inverse)));
       }
     },
   },

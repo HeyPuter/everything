@@ -788,3 +788,23 @@ describe('shape key pinning', () => {
     expect(Q[0]).toBeCloseTo(me.positions[0] + 0.2);
   });
 });
+
+describe('set origin', () => {
+  it('works on curves and keeps children in place', () => {
+    run('curve.primitive_bezier_curve_add', { location: [0, 0, 0] });
+    const cu = app.activeObject!;
+    const data = app.doc.curves[cu.data!];
+    const before = data.splines[0].bezier_points.map((b) => [...b.co]);
+    const kid = addEmpty('Kid');
+    kid.location = [0, 5, 0];
+    kid.parent = cu.id;
+    app.graph.evaluate(app.doc, false);
+    const kidWorld = Array.from(app.graph.get(kid.id)!.world.elements);
+    app.doc.scene.cursor.location = [2, 0, 0];
+    select(cu);
+    run('object.origin_set', { type: 'ORIGIN_CURSOR' });
+    expect(cu.location.map((v) => +v.toFixed(4))).toEqual([2, 0, 0]);
+    expect(app.doc.curves[cu.data!].splines[0].bezier_points[0].co[0]).toBeCloseTo(before[0][0] - 2);
+    expect(near(app.graph.get(kid.id)!.world.elements, kidWorld, 1e-4)).toBe(true);
+  });
+});

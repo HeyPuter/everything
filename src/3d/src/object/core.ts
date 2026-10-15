@@ -1,6 +1,6 @@
 // Pure helpers for object-level data management (vertex groups, shape keys, names).
 // Kept free of app state so they can be unit tested directly.
-import type { MeshData, ShapeKey } from '../data/types';
+import type { CurveData, MeshData, ShapeKey } from '../data/types';
 
 // ---------------------------------------------------------------------------
 // names
@@ -350,4 +350,27 @@ export function edgeChains(offsets: ArrayLike<number>, indices: ArrayLike<number
     for (const n of adj[v])
       if (!used.has(key(v, n))) out.push(walk(v, n));
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// curve control points
+
+/** Control point positions of a curve (bezier knots and poly/NURBS points). */
+export function curvePoints(cu: CurveData): Float32Array {
+  const out: number[] = [];
+  for (const s of cu.splines) {
+    for (const b of s.bezier_points) out.push(b.co[0], b.co[1], b.co[2]);
+    for (const p of s.points) out.push(p.co[0], p.co[1], p.co[2]);
+  }
+  return new Float32Array(out);
+}
+
+/** Move every control point and handle of a curve. */
+export function translateCurve(cu: CurveData, d: [number, number, number]) {
+  const add = (v: number[]) => [v[0] + d[0], v[1] + d[1], v[2] + d[2]] as [number, number, number];
+  cu.splines = cu.splines.map((s) => ({
+    ...s,
+    bezier_points: s.bezier_points.map((b) => ({ ...b, co: add(b.co), handle_left: add(b.handle_left), handle_right: add(b.handle_right) })),
+    points: s.points.map((p) => ({ ...p, co: [p.co[0] + d[0], p.co[1] + d[1], p.co[2] + d[2], p.co[3]] as [number, number, number, number] })),
+  }));
 }
