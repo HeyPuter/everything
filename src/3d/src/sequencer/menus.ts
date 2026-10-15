@@ -393,6 +393,7 @@ export function stripMenu(preview = false): MenuItem[] {
     if (act.type === 'MOVIE') items.push({ separator: true }, { label: 'Movie Strip', submenu: () => [{ label: 'Set Render Size', op: 'sequencer.rendersize' }] });
     if (act.type === 'IMAGE') items.push({ separator: true }, { label: 'Set Render Size', op: 'sequencer.rendersize' }, { label: 'Separate Images', op: 'sequencer.images_separate', shortcut: 'Y' });
     if (act.type === 'MULTICAM') items.push({ separator: true }, { label: 'Split Multicam', submenu: () => multicamItems() });
+    if (act.type === 'SCENE') items.push({ separator: true }, { label: 'Update Scene Frame Range', op: 'sequencer.scene_frame_range_update' });
   }
   items.push(
     { separator: true },

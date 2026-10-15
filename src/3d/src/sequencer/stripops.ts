@@ -149,6 +149,23 @@ const ops: Operator[] = [
     },
   },
   {
+    idname: 'sequencer.scene_frame_range_update',
+    label: 'Update Scene Frame Range',
+    description: 'Fit the selected scene strips’ content length to the scene’s frame range',
+    poll: () => selectedStrips().some((s) => s.type === 'SCENE'),
+    exec: (c) => {
+      const len = Math.max(1, c.doc.scene.frame_end - c.doc.scene.frame_start + 1);
+      const changed = selectedStrips().filter((s) => s.type === 'SCENE' && !isLocked(s) && s.frame_duration !== len);
+      for (const s of changed) {
+        s.frame_duration = len;
+        S.clampOffsets(s);
+      }
+      if (!changed.length) return 'CANCELLED';
+      S.resolveOverlap(seqList(), changed, 'SHUFFLE');
+      afterEdit();
+    },
+  },
+  {
     idname: 'sequencer.movieclip_strip_add',
     label: 'Add Clip Strip',
     description: 'Add a strip showing a movie clip of the clip editor (optionally stabilized)',
