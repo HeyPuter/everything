@@ -47,6 +47,8 @@ export const fxUniforms = {
   ndVolMax: new Uniform([new Vector4(), new Vector4(), new Vector4(), new Vector4()]),
   /** world volume: view distances where the medium starts and ends */
   ndFogRange: new Uniform(new Vector4(0, 1e9, 0, 0)),
+  /** x: maximum brightness of each light's contribution, y: of indirect light (0 = no clamp) */
+  ndClamp: new Uniform(new Vector4(0, 0, 0, 0)),
 };
 
 /** Volume Scatter factors per light type (same packing as the influence factors). */
@@ -73,6 +75,11 @@ uniform mat4 ndPlTexMat;
 uniform vec4 ndPlN;
 uniform vec4 ndVolMin[ 4 ];
 uniform vec4 ndFogRange;
+uniform vec4 ndClamp;
+vec3 ndClampRGB( vec3 c, float m ) {
+  float b = max( c.r, max( c.g, c.b ) );
+  return m > 0.0 && b > m ? c * ( m / b ) : c;
+}
 uniform vec4 ndVolMax[ 4 ];
 #if NUM_POINT_LIGHTS > 0
 uniform vec2 ndLiPoint[ NUM_POINT_LIGHTS ];
@@ -279,8 +286,8 @@ ndLiH0 = sheenSpecularDirect;
 #endif
 `;
 const liApply = (arr: string) => `{ vec2 ndF = vec2( 1.0 ) - ${arr}[ i ];
-reflectedLight.directDiffuse = ndLiD0 + ( reflectedLight.directDiffuse - ndLiD0 ) * ndF.x;
-reflectedLight.directSpecular = ndLiS0 + ( reflectedLight.directSpecular - ndLiS0 ) * ndF.y;
+reflectedLight.directDiffuse = ndLiD0 + ndClampRGB( ( reflectedLight.directDiffuse - ndLiD0 ) * ndF.x, ndClamp.x );
+reflectedLight.directSpecular = ndLiS0 + ndClampRGB( ( reflectedLight.directSpecular - ndLiS0 ) * ndF.y, ndClamp.x );
 #ifdef USE_CLEARCOAT
 clearcoatSpecularDirect = ndLiC0 + ( clearcoatSpecularDirect - ndLiC0 ) * ndF.y;
 #endif
@@ -321,6 +328,8 @@ IncidentLight directLight;`;
 export const FX_MAPS = /* glsl */ `
 #if defined( RE_IndirectSpecular ) && defined( RE_IndirectDiffuse )
 iblIrradiance *= ndGridEnv;
+radiance = ndClampRGB( radiance, ndClamp.y );
+iblIrradiance = ndClampRGB( iblIrradiance, ndClamp.y * PI );
 {
   vec3 ndWP = ndWorldPos( geometryPosition );
   vec3 ndWN = normalize( ( vec4( geometryNormal, 0.0 ) * viewMatrix ).xyz );

@@ -29,6 +29,9 @@ export interface RealtimeRenderSettings {
   fast_gi_distance?: number;
   fast_gi_thickness_near?: number;
   fast_gi_bias?: number;
+  // --- light paths ▸ clamping (0 = no clamp)
+  clamp_surface_direct?: number;
+  clamp_surface_indirect?: number;
   // --- shadows
   use_shadows?: boolean;
   /** 0..1 multiplier of every shadow map resolution */

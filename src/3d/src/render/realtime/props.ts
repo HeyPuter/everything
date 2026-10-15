@@ -60,6 +60,8 @@ export function ensureRealtimeDefaults(r: RenderSettings) {
     volumetric_start: 0.1,
     volumetric_end: 100,
     use_volume_custom_range: false,
+    clamp_surface_direct: 0,
+    clamp_surface_indirect: 10,
     bloom_knee: 0.5,
     bloom_color: [1, 1, 1],
     bloom_clamp: 0,

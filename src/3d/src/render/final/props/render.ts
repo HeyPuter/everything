@@ -127,6 +127,12 @@ function rasterPanels(r: RenderSettings): Child {
           num(r, 'direct_light_intensity', 'Direct Light', { min: 0, softMax: 3, tip: 'Strength of light coming from lamps' }),
           num(r, 'indirect_light_intensity', 'Indirect Light', { min: 0, softMax: 3, tip: 'Strength of light coming from the world' }),
         ]),
+        sub('rs-lp-clamp', 'Clamping', () => [
+          sub('rs-lp-clamp-surface', 'Surface', () => [
+            num(r, 'clamp_surface_direct', 'Direct Light', { min: 0, softMax: 100, tip: 'Maximum brightness each light adds to a surface (0 for no limit): removes harsh highlights' }),
+            num(r, 'clamp_surface_indirect', 'Indirect Light', { min: 0, softMax: 100, tip: 'Maximum brightness of light from the world, probes and bounces (0 for no limit)' }),
+          ]),
+        ], { closed: true }),
       ],
       { closed: true },
     ),

@@ -317,3 +317,12 @@ test('a world volume fogs the realtime render, limited by the custom range', asy
   expect(difference(foggy, near)).toBeGreaterThan(0.005);
   await expectNoErrors(errors);
 });
+
+test('surface clamping limits direct light', async ({ page }) => {
+  const errors = await openApp(page);
+  await mirrorFloor(page, 0.3, 0);
+  const free = await renderPixels(page, { clamp_surface_direct: 0 });
+  const clamped = await renderPixels(page, { clamp_surface_direct: 0.05 });
+  expect(difference(free, clamped)).toBeGreaterThan(0.005);
+  await expectNoErrors(errors);
+});

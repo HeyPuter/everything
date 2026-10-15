@@ -11,6 +11,7 @@ import { traceSettings, bloomOptions, type TraceSettings } from '../realtime/set
 import { TraceBuffer } from '../realtime/trace';
 import { BloomPass, type BloomSettings } from '../realtime/bloom';
 import { beginProbes } from '../realtime/probes/capture';
+import { fxUniforms } from '../realtime/fxshader';
 
 export interface RasterEffects {
   /** screen effects allowed (tracing / horizon scan); false for quick previews */
@@ -24,6 +25,8 @@ export interface RasterEffects {
   sample?: number;
   /** sphere probe cubemap resolution */
   probeResolution?: number;
+  /** Light Paths ▸ Clamping ▸ Surface: direct, indirect (0 = off) */
+  clamp?: [number, number];
 }
 
 export function effectsFrom(r: RenderSettings): RasterEffects {
@@ -34,6 +37,7 @@ export function effectsFrom(r: RenderSettings): RasterEffects {
     trace: traceSettings(r),
     bloomSettings: bloomOptions(r),
     probeResolution: Number(r.gi_cubemap_resolution ?? 512) || 512,
+    clamp: [Math.max(0, r.clamp_surface_direct ?? 0), Math.max(0, r.clamp_surface_indirect ?? 10)],
   };
 }
 
@@ -92,6 +96,7 @@ export class RasterRenderer {
     renderer.toneMapping = 0; // NoToneMapping: keep scene-linear values
     // light probes (captures, planar reflection, per-object environments), then the screen
     // tracing buffer (which also renders this frame's shadow maps, reused by the main pass)
+    if (fx.clamp) fxUniforms.ndClamp.value.set(fx.clamp[0], fx.clamp[1], 0, 0);
     const restoreProbes = fx.gtao ? beginProbes(renderer, scene, camera, w, h, fx.probeResolution ?? 512) : null;
     const traced = this.trace.prepare(renderer, scene, camera, w, h, fx.gtao && fx.trace ? fx.trace : null, fx.sample ?? 0);
     if (traced) renderer.shadowMap.autoUpdate = false;
@@ -100,6 +105,7 @@ export class RasterRenderer {
     } finally {
       if (traced) this.trace.disarm();
       restoreProbes?.();
+      fxUniforms.ndClamp.value.set(0, 0, 0, 0);
       renderer.shadowMap.autoUpdate = shadowAuto;
       renderer.toneMapping = tm;
       renderer.setRenderTarget(prev);
