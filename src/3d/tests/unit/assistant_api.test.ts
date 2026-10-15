@@ -43,6 +43,7 @@ describe('api_help guides', () => {
     expect((await help('mathutils')).content).toMatch(/intersect_ray_tri/);
     expect((await help('context')).content).toMatch(/active_pose_bone/);
     expect((await help('data')).content).toMatch(/grease_pencils/);
+    expect((await help('geometry nodes')).content).toContain('interface.new_socket');
     const bm = await help('bmesh');
     expect(bm.content).toMatch(/extrude_face_region.*inset_individual|inset_individual.*extrude_face_region/s);
   });

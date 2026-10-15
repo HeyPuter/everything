@@ -125,6 +125,16 @@ export const GUIDES: Record<string, Guide> = {
         'Handlers and timers keep running after the script ends and are not undone with it: add them only when the user asks for something that must react over time, name the functions, and say how to remove them.',
       ].join('\n'),
   },
+  'geometry nodes': {
+    title: 'Geometry Nodes from scripts',
+    text: () =>
+      [
+        "const ng = D.node_groups.new('Scatter', 'GeometryNodeTree') (it starts with Group Input → Group Output); nodes.new('GeometryNodeDistributePointsOnFaces') etc.; links.new(a.outputs['Points'], b.inputs['Points']). Find node types with api_help(\"nodes <words>\") and sockets with api_help(\"node <idname>\").",
+        "Inputs the modifier can set: const s = ng.interface.new_socket({name: 'Density', in_out: 'INPUT', socket_type: 'NodeSocketFloat'}); s.default_value = 10; then link ng.nodes['Group Input'].outputs['Density']. Socket types: NodeSocketFloat, NodeSocketInt, NodeSocketBool, NodeSocketVector, NodeSocketColor, NodeSocketObject, NodeSocketCollection, NodeSocketMaterial, NodeSocketGeometry…; ng.interface.new_panel(name) groups inputs.",
+        "Use it: const mod = ob.modifiers.new('Scatter', 'NODES'); mod.node_group = ng; mod[s.identifier] = 25 (identifiers look like 'Socket_2'; mod.keys() lists them).",
+        'Curve nodes cover Bézier, NURBS, Catmull-Rom and poly splines (Set Spline Type, Curve to Mesh, Resample…); check the result with get_object (vertex/face counts after modifiers).',
+      ].join('\n'),
+  },
   sequencer: {
     title: 'Video Sequencer',
     text: () =>
@@ -146,6 +156,6 @@ export const GUIDES: Record<string, Guide> = {
 /** The guide for a topic name (case and plural forms ignored), or null. */
 export function findGuide(topic: string): Guide | null {
   const t = topic.trim().toLowerCase().replace(/^bpy\./, '').replace(/s$/, '');
-  for (const [k, g] of Object.entries(GUIDES)) if (k === t || `${k}s` === topic.trim().toLowerCase() || k.replace(/s$/, '') === t || (k === 'grease pencil' && /^(gp|grease ?pencil|grease_pencil)$/.test(t)) || (k === 'animation' && /^(keyframe|driver|nla|keying ?set)$/.test(t)) || (k === 'handlers' && /^(handler|timer|app\.handler|app\.timer)$/.test(t)) || (k === 'render' && /^(render setting|pass|view ?layer)$/.test(t))) return g;
+  for (const [k, g] of Object.entries(GUIDES)) if (k === t || `${k}s` === topic.trim().toLowerCase() || k.replace(/s$/, '') === t || (k === 'grease pencil' && /^(gp|grease ?pencil|grease_pencil)$/.test(t)) || (k === 'animation' && /^(keyframe|driver|nla|keying ?set)$/.test(t)) || (k === 'handlers' && /^(handler|timer|app\.handler|app\.timer)$/.test(t)) || (k === 'render' && /^(render setting|pass|view ?layer)$/.test(t)) || (k === 'geometry nodes' && /^(geometry ?node|gn|geonode|node group|node_group)$/.test(t))) return g;
   return null;
 }
