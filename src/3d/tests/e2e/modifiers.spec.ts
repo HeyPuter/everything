@@ -133,3 +133,48 @@ test('sculpting a multires mesh edits its sculpt level', async ({ page }) => {
   expect(Math.min(...zs)).toBeGreaterThan(-0.9);
   await expectNoErrors(errors);
 });
+
+test('mesh cache loads an MDD file from disk and data transfer creates its layers', async ({ page }) => {
+  const errors = await openApp(page);
+  // a 3-frame MDD for the 8-vertex cube: every frame lifts the cube by one unit
+  const P = [-1, -1, -1, -1, -1, 1, -1, 1, -1, -1, 1, 1, 1, -1, -1, 1, -1, 1, 1, 1, -1, 1, 1, 1];
+  const frames = 3,
+    points = 8;
+  const buf = Buffer.alloc(8 + frames * 4 + frames * points * 12);
+  buf.writeInt32BE(frames, 0);
+  buf.writeInt32BE(points, 4);
+  for (let f = 0; f < frames; f++) buf.writeFloatBE(f / 24, 8 + f * 4);
+  let o = 8 + frames * 4;
+  for (let f = 0; f < frames; f++) for (let i = 0; i < points * 3; i++, o += 4) buf.writeFloatBE(P[i] + (i % 3 === 2 ? f : 0), o);
+  await run(page, 'object.modifier_add', { type: 'MESH_CACHE' });
+  await modifierTab(page);
+  const chooser = page.waitForEvent('filechooser');
+  await page.locator('.panel.modifier button', { hasText: 'Open…' }).click();
+  await (await chooser).setFiles({ name: 'lift.mdd', mimeType: 'application/octet-stream', buffer: buf });
+  await expect(page.locator('.panel.modifier .mod-note', { hasText: '3 frames, 8 points' })).toBeVisible();
+  await page.evaluate(() => (window as any).app.setFrame(2)); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const zs = (await get(page, `Array.from(app.graph.get(app.activeObject.id).mesh.positions).filter((_, i) => i % 3 === 2)`)) as number[];
+  expect(Math.max(...zs)).toBeCloseTo(3, 4);
+
+  // data transfer: a source with a vertex group the target lacks
+  await run(page, 'object.modifier_remove', { modifier: (await get(page, 'app.activeObject.modifiers[0].id')) as string });
+  const target = (await get(page, 'app.activeObject.id')) as string;
+  await run(page, 'mesh.primitive_plane_add', { size: 4, location: [0, 0, 3] });
+  await run(page, 'object.vertex_group_add');
+  const source = (await get(page, 'app.activeObject.id')) as string;
+  await page.evaluate(([t]) => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    for (const ob of Object.values(a.doc.objects) as { id: string; select: boolean }[]) ob.select = ob.id === t;
+    a.doc.scene.active_object = t;
+    a.changed('select');
+  }, [target]);
+  await run(page, 'object.modifier_add', { type: 'DATA_TRANSFER' });
+  await page.evaluate(([s]) => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    Object.assign(a.activeObject.modifiers[0], { object: s, use_vert_data: true, data_types_verts: ['VGROUP_WEIGHTS'] });
+    a.changed('doc');
+  }, [source]);
+  await page.locator('.panel.modifier button', { hasText: 'Generate Data Layers' }).click();
+  expect(await get(page, `app.doc.meshes[app.activeObject.data].vertex_groups.map((g) => g.name)`)).toEqual(['Group']);
+  await expectNoErrors(errors);
+});
