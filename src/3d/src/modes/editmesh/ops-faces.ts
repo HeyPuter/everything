@@ -8,7 +8,7 @@ import { activeView3D } from '../../editors/view3d/view3d';
 import { MeshEdit, edgeKey, type EFace } from './meshedit';
 import { withEdit } from './context';
 import { editPoll, flipFace } from './ops-basic';
-import { V, edgeUseCount, vertexNormalsFromFaces, edgeChains, faceRegions, dissolveEdgeSet, triangulateCorners, dissolveCollinearVerts } from './geom';
+import { V, edgeUseCount, vertexNormalsFromFaces, edgeChains, faceRegions, dissolveEdgeSet, triangulateCorners, dissolveCollinearVerts, subFace } from './geom';
 
 // ---------------------------------------------------------------------------
 // solidify
@@ -269,9 +269,9 @@ function orientNewFaces(m: MeshEdit, first: number) {
 // beautify
 
 /** Flip shared edges of selected triangle pairs where that gives better shaped triangles. */
-export function beautifyFill(m: MeshEdit, angleLimit: number): number {
+export function beautifyFill(m: MeshEdit, angleLimit: number, only?: Set<number>): number {
   const isTri = (fi: number) => m.faces[fi].verts.length === 3;
-  const fsel = new Set(m.selectedFaces().filter(isTri));
+  const fsel = new Set((only ? [...only] : m.selectedFaces()).filter(isTri));
   let flips = 0;
   const minAngle = (p: Vector3[]) => {
     let best = Infinity;
@@ -327,6 +327,48 @@ export function beautifyFill(m: MeshEdit, angleLimit: number): number {
 }
 
 const P3 = (m: MeshEdit, v: number) => V(m.p(v));
+
+// ---------------------------------------------------------------------------
+// triangulate
+
+export function triangulate(m: MeshEdit, faces: Set<number>, quadMethod: string, ngonMethod: string) {
+  const out: EFace[] = [];
+  const fromNgons = new Set<number>();
+  const d2 = (a: number, b: number) => V(m.p(a)).distanceToSquared(V(m.p(b)));
+  const minAngle = (tri: number[]) => {
+    const p = tri.map((v) => V(m.p(v)));
+    let best = Infinity;
+    for (let i = 0; i < 3; i++) best = Math.min(best, p[(i + 1) % 3].clone().sub(p[i]).angleTo(p[(i + 2) % 3].clone().sub(p[i])));
+    return best;
+  };
+  m.faces.forEach((f, fi) => {
+    const n = f.verts.length;
+    if (!faces.has(fi) || n === 3) return out.push(f);
+    let tris: number[][];
+    if (n === 4) {
+      const a = [[0, 1, 2], [0, 2, 3]],
+        b = [[1, 2, 3], [1, 3, 0]];
+      const v = f.verts;
+      const shortA = d2(v[0], v[2]) <= d2(v[1], v[3]);
+      if (quadMethod === 'FIXED') tris = a;
+      else if (quadMethod === 'FIXED_ALTERNATE') tris = b;
+      else if (quadMethod === 'SHORTEST_DIAGONAL') tris = shortA ? a : b;
+      else if (quadMethod === 'LONGEST_DIAGONAL') tris = shortA ? b : a;
+      else {
+        // beauty: the split whose worst triangle angle is largest
+        const q = (t: number[][]) => Math.min(...t.map((x) => minAngle(x.map((i) => v[i]))));
+        tris = q(a) >= q(b) - 1e-9 ? a : b;
+      }
+    } else tris = triangulateCorners(m, f);
+    for (const t of tris) {
+      if (n > 4) fromNgons.add(out.length);
+      out.push(subFace(m, f, t));
+    }
+  });
+  m.faces = out;
+  if (ngonMethod === 'BEAUTY' && fromNgons.size) beautifyFill(m, Math.PI, fromNgons);
+  return true;
+}
 
 // ---------------------------------------------------------------------------
 // weld edges into faces
@@ -768,6 +810,23 @@ registerOperators([
         return 'CANCELLED';
       }
     },
+  },
+  {
+    idname: 'mesh.quads_convert_to_tris',
+    label: 'Triangulate Faces',
+    description: 'Split the selected faces into triangles',
+    props: [
+      {
+        id: 'quad_method',
+        label: 'Quad Method',
+        type: 'enum',
+        default: 'BEAUTY',
+        items: [['BEAUTY', 'Beauty', 'Split along the diagonal giving the best shaped triangles'], ['FIXED', 'Fixed', 'Split between the first and third corner'], ['FIXED_ALTERNATE', 'Fixed Alternate', 'Split between the second and fourth corner'], ['SHORTEST_DIAGONAL', 'Shortest Diagonal'], ['LONGEST_DIAGONAL', 'Longest Diagonal']],
+      },
+      { id: 'ngon_method', label: 'N-gon Method', type: 'enum', default: 'BEAUTY', items: [['BEAUTY', 'Beauty', 'Clip ears, then rearrange for better shaped triangles'], ['CLIP', 'Clip', 'Clip ears only']] },
+    ],
+    poll: editPoll,
+    exec: (_ctx, p) => void withEdit((m) => triangulate(m, new Set(m.selectedFaces()), p.quad_method as string, p.ngon_method as string)),
   },
   {
     idname: 'mesh.beautify_fill',

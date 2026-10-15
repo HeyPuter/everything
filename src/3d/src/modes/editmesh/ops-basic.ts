@@ -8,7 +8,6 @@ import { startTransform } from '../../ops/transform';
 import { newObject, newMeshData, uid } from '../../data/defaults';
 import { uniqueName } from '../../ops/object';
 import { cloneShared } from '../../data/cow';
-import { triangulatePoly } from '../../mesh/mesh';
 import { trisToQuads } from './geom';
 import { modeHandlers } from '../../ops/modes';
 import type { PrimitiveArrays } from '../../mesh/primitives';
@@ -742,27 +741,6 @@ registerOperators([
     label: 'Shade Flat',
     poll: editPoll,
     exec: () => void withEdit((m) => m.selectedFaces().forEach((fi) => (m.faces[fi].smooth = false))),
-  },
-  {
-    idname: 'mesh.quads_convert_to_tris',
-    label: 'Triangulate Faces',
-    poll: editPoll,
-    exec: () =>
-      void withEdit((m) => {
-        const out: EFace[] = [];
-        const fsel = new Set(m.selectedFaces());
-        m.faces.forEach((f, fi) => {
-          if (!fsel.has(fi) || f.verts.length === 3) return out.push(f);
-          const tmp: number[] = [];
-          triangulatePoly(m.pos, f.verts, tmp, 0);
-          for (let i = 0; i < tmp.length; i += 3) {
-            const c = [tmp[i], tmp[i + 1], tmp[i + 2]];
-            const nf = m.makeFace(c.map((k) => f.verts[k]), f, c.flatMap((k) => [f.uvs[k * 2], f.uvs[k * 2 + 1]]));
-            out.push(nf);
-          }
-        });
-        m.faces = out;
-      }),
   },
   {
     idname: 'mesh.tris_convert_to_quads',

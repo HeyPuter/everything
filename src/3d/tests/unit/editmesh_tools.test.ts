@@ -514,3 +514,67 @@ describe('custom normals', () => {
     ensureCustomNormals(m);
   });
 });
+
+describe('subdivide patterns', () => {
+  const corner = () => {
+    const m = cube();
+    // three corners of the top face: two adjacent edges are cut
+    selectWhere(m, (p) => p[2] > 0.9 && !(p[0] < -0.9 && p[1] < -0.9));
+    return m;
+  };
+  it('splits a quad corner straight, with an inner vertex, or as a fan', () => {
+    const s = corner();
+    subdivide(s, 1, 0, { quadcorner: 'STRAIGHT_CUT' });
+    expect(counts(s)).toEqual([10, 15, 7]);
+    const i = corner();
+    subdivide(i, 1, 0, { quadcorner: 'INNERVERT' });
+    expect(counts(i)).toEqual([11, 17, 8]);
+    const f = corner();
+    subdivide(f, 1, 0, { quadcorner: 'FAN' });
+    expect(counts(f)).toEqual([10, 16, 8]);
+  });
+  it('fractal displaces only the new vertices', () => {
+    const m = cube();
+    selectAll(m);
+    subdivide(m, 1, 0, { fractal: 5, seed: 1 });
+    for (let v = 0; v < 8; v++) expect(m.p(v).map(Math.abs)).toEqual([1, 1, 1]);
+    expect(m.pos.slice(24).some((x) => Math.abs(x) % 1 > 1e-3 && Math.abs(Math.abs(x) - 1) > 1e-3)).toBe(true);
+  });
+});
+
+import { bridgeLoops } from '../../src/modes/editmesh/ops-topology';
+import { triangulate } from '../../src/modes/editmesh/ops-faces';
+
+describe('bridge and triangulate options', () => {
+  const twoRings = () => {
+    const m = new MeshEdit();
+    for (const z of [0, 2]) {
+      const base = m.vcount;
+      for (let i = 0; i < 8; i++) m.addVert([Math.cos((i / 8) * Math.PI * 2), Math.sin((i / 8) * Math.PI * 2), z]);
+      for (let i = 0; i < 8; i++) m.looseEdges.push([base + i, base + ((i + 1) % 8)]);
+    }
+    selectAll(m);
+    return m;
+  };
+  it('bridges with cuts and merges', () => {
+    const m = twoRings();
+    expect(bridgeLoops(m, { cuts: 2, interpolation: 'LINEAR' })).toBe(true);
+    expect(m.vcount).toBe(32);
+    expect(m.faces.length).toBe(24);
+    const mm = twoRings();
+    bridgeLoops(mm, { merge: true, mergeFactor: 0.5 });
+    expect(mm.vcount).toBe(8);
+    expect(mm.p(0)[2]).toBeCloseTo(1);
+  });
+  it('triangulates quads with fixed and alternate splits', () => {
+    const a = cube();
+    selectFaces(a, (c) => c[2] > 0.9);
+    triangulate(a, new Set(a.selectedFaces()), 'FIXED', 'CLIP');
+    const b = cube();
+    selectFaces(b, (c) => c[2] > 0.9);
+    triangulate(b, new Set(b.selectedFaces()), 'FIXED_ALTERNATE', 'CLIP');
+    expect(a.faces.length).toBe(7);
+    const diag = (m: MeshEdit) => m.edges().filter(([x, y]) => m.p(x)[2] > 0.9 && m.p(y)[2] > 0.9 && m.p(x)[0] !== m.p(y)[0] && m.p(x)[1] !== m.p(y)[1]).map((e) => e.map((v) => m.p(v).join()).sort().join('|'));
+    expect(diag(a)).not.toEqual(diag(b));
+  });
+});
