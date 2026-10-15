@@ -295,3 +295,17 @@ const appRoot = bpy.app as Record<string, unknown>;
 appRoot.handlers = handlers;
 appRoot.timers = timersApi;
 appRoot.driver_namespace = {};
+
+/** Where the handler lists and timers stand (to undo what a failed or trial script registered). */
+export function handlerMark() {
+  return { lists: Object.fromEntries(HANDLER_NAMES.map((n) => [n, [...handlers[n]]])) as Record<HandlerName, Handler[]>, timers: new Set(timers.keys()) };
+}
+
+/** Removes handlers and timers registered since `mark`. */
+export function revertHandlers(mark: ReturnType<typeof handlerMark>) {
+  for (const n of HANDLER_NAMES) {
+    handlers[n].length = 0;
+    handlers[n].push(...mark.lists[n]);
+  }
+  for (const id of [...timers.keys()]) if (!mark.timers.has(id)) removeTimer(id);
+}

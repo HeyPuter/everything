@@ -382,6 +382,28 @@ class NlaStrips extends PropCollection<unknown> {
     Object.defineProperty(s, '__strip', { value: st });
     const obId = this.obId;
     Object.defineProperty(s, 'strips', { get: () => new NlaStrips(obId, () => (st.strips ??= []), s.__path) });
+    // the strip's length follows its action range, scale and repeat
+    const span = () => (st.action_frame_end - st.action_frame_start) * st.scale * st.repeat;
+    for (const key of ['scale', 'repeat'] as const)
+      Object.defineProperty(s, key, {
+        get: () => st[key],
+        set: (v: number) => {
+          const x = Number(v);
+          if (!(x > 0)) throw pyError('ValueError', `NlaStrip.${key} must be greater than 0`);
+          st[key] = x;
+          st.frame_end = st.frame_start + span();
+          touched();
+        },
+      });
+    Object.defineProperty(s, 'frame_end', {
+      get: () => st.frame_end,
+      set: (v: number) => {
+        const len = Math.max(1e-3, Number(v) - st.frame_start);
+        st.scale = len / Math.max(1e-6, (st.action_frame_end - st.action_frame_start) * st.repeat);
+        st.frame_end = st.frame_start + len;
+        touched();
+      },
+    });
     return proxify(s);
   }
   /** Adds a strip playing `action` from frame `start`; strips on a track may not overlap. */

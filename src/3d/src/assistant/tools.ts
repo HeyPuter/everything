@@ -14,6 +14,8 @@ import { getNodeType, nodeTypes } from '../nodes/registry';
 import { bridge, loadPython, runPythonText } from '../scripting/python';
 import { formatValue, jsGlobals, output, runJavaScript } from '../scripting/runner';
 import { Inspector } from './inspect';
+import { GUIDES, findGuide } from './guides';
+import { handlerMark, revertHandlers } from '../scripting/handlers';
 
 type Obj = Record<string, unknown>;
 
@@ -114,7 +116,7 @@ function geometryRefs(d: DocumentData, ob: ObjectData): unknown[] {
     const me = d.meshes[ob.data];
     return me ? [me, me.positions, me.indices, me.offsets, me.smooth, me.uvs] : [];
   }
-  const tables: Partial<Record<string, Record<string, unknown>>> = { CURVE: d.curves, SURFACE: d.curves, FONT: d.curves, LIGHT: d.lights, CAMERA: d.cameras, ARMATURE: d.armatures, LATTICE: d.lattices, META: d.metaballs };
+  const tables: Partial<Record<string, Record<string, unknown>>> = { CURVE: d.curves, SURFACE: d.curves, FONT: d.curves, LIGHT: d.lights, CAMERA: d.cameras, ARMATURE: d.armatures, LATTICE: d.lattices, META: d.metaballs, GREASEPENCIL: d.grease_pencils };
   const t = tables[ob.type];
   const data = t?.[ob.data];
   return data ? [JSON.stringify(data, (_k, v) => (ArrayBuffer.isView(v) ? Array.from(v as unknown as ArrayLike<number>) : v))] : [];
@@ -135,7 +137,7 @@ function sceneState(d: DocumentData): SceneState {
       materials: JSON.stringify([ob.object_materials, ob.material_slots_link, ob.data && d.meshes[ob.data]?.materials, ob.data && (d.curves[ob.data] as unknown as { materials?: unknown })?.materials]),
       visibility: JSON.stringify([ob.hide, ob.hide_viewport, ob.hide_render, ob.hide_select, ob.display_type]),
       animation: JSON.stringify([ob.animation_data, ob.animation_data?.action ? d.actions[ob.animation_data.action] : null]),
-      other: JSON.stringify([ob.rigid_body, ob.particle_systems, ob.field, ob.collision, ob.color, (ob as unknown as { custom?: unknown }).custom]),
+      other: JSON.stringify([ob.rigid_body, ob.particle_systems, ob.field, ob.collision, ob.color, (ob as unknown as { custom?: unknown }).custom, ob.pose, ob.shader_effects, ob.speaker && { ...ob.speaker, sound: !!ob.speaker.sound }]),
     });
   }
   const materials = new Map<string, string>();
@@ -161,6 +163,9 @@ function sceneState(d: DocumentData): SceneState {
       'rigid body world': JSON.stringify(s.rigidbody_world),
       compositing: JSON.stringify([s.use_nodes, s.compositing_node_group, s.compositor]),
       'timeline markers': JSON.stringify(s.timeline_markers),
+      'keying sets': JSON.stringify([s.keying_set, s.keying_sets]),
+      'video sequencer': JSON.stringify(s.sequence_editor?.strips ?? null, (_k, v) => (ArrayBuffer.isView(v) ? v.byteLength : v)),
+      'grease pencils': JSON.stringify(Object.keys(d.grease_pencils ?? {})),
     },
     mode: d.mode,
     active: s.active_object,
@@ -190,7 +195,7 @@ function describeChanges(before: SceneState, after: SceneState, ins: Inspector, 
     if (a.name !== b.name) what.push(`renamed from ${q(b.name)}`);
     if (a.type !== b.type) what.push(`converted to ${a.type}`);
     if (a.geometry.length !== b.geometry.length || a.geometry.some((x, i) => x !== b.geometry[i])) what.push(ob.type === 'MESH' ? 'geometry' : 'data');
-    for (const k of ASPECTS) if (k !== 'data' && a[k] !== b[k]) what.push(k === 'other' ? 'physics/custom properties' : k);
+    for (const k of ASPECTS) if (k !== 'data' && a[k] !== b[k]) what.push(k === 'other' ? 'pose/physics/effects/custom properties' : k);
     if (a.data !== b.data && !what.includes('data') && !what.includes('geometry')) what.push('data');
     if (what.length) changed.push({ ob, what });
   }
@@ -241,6 +246,7 @@ async function runScript(a: Obj, host: AssistantHost): Promise<ToolResult> {
   ins.settle();
   const before = sceneState(app.doc);
   const mark = app.undo.mark();
+  const handlersBefore = handlerMark();
   const reports = app.reports.length;
   const printed: string[] = [];
   const push = output.push;
@@ -264,6 +270,7 @@ async function runScript(a: Obj, host: AssistantHost): Promise<ToolResult> {
     const where = r.line ? ` at line ${r.line}` : '';
     const line = r.line ? code.split('\n')[r.line - 1] : undefined;
     app.revertUndo(mark);
+    revertHandlers(handlersBefore);
     ins.settle();
     return {
       ok: false,
@@ -275,6 +282,7 @@ async function runScript(a: Obj, host: AssistantHost): Promise<ToolResult> {
   const evalErrors = [...app.graph.objects.values()].filter((ev) => ev.error).map((ev) => `[error] ${JSON.stringify(ev.ob.name)}: ${ev.error}`);
   if (a.dry_run === true) {
     app.revertUndo(mark);
+    revertHandlers(handlersBefore);
     ins.settle();
     return { ok: true, content: ['The script ran as a dry run: its changes were undone, the scene is as it was.', out, [...opReports, ...evalErrors].join('\n'), diff.changed ? `It would have made these changes:\n${diff.text}` : ''].filter(Boolean).join('\n') };
   }
@@ -316,6 +324,9 @@ function apiHelp(topic: string, app: App): string {
   const t = topic.trim().replace(/\(\)$/, '');
   if (!t) throw new ToolError('Give a topic.');
   const lower = t.toLowerCase();
+  if (lower === 'topics' || lower === 'guides' || lower === 'help') return `Guides: ${Object.keys(GUIDES).map((k) => `"${k}" (${GUIDES[k].title})`).join(', ')}.\nAlso: "operators", "bpy.ops.<module>", "bpy.ops.<module>.<name>", "modifiers", "modifier <TYPE>", "constraints", "constraint <TYPE>", "nodes <words>", "node <idname>", or a JavaScript expression.`;
+  const guide = findGuide(t);
+  if (guide) return `${guide.title}:\n${guide.text()}`;
   if (lower === 'operators' || t === 'bpy.ops') {
     const mods = new Map<string, number>();
     for (const k of operators.keys()) mods.set(k.split('.')[0], (mods.get(k.split('.')[0]) ?? 0) + 1);
@@ -369,7 +380,7 @@ function apiHelp(topic: string, app: App): string {
   try {
     v = new Function(...Object.keys(g), `"use strict"; return (${t});`)(...Object.values(g));
   } catch (e) {
-    throw new ToolError(`Could not evaluate ${t}: ${(e as Error).message}. Topics: "operators", "bpy.ops.<module>", "bpy.ops.<module>.<name>", "modifiers", "modifier <TYPE>", "constraints", "nodes <words>", "node <idname>", or an expression such as D.objects['Cube'].data.`);
+    throw new ToolError(`Could not evaluate ${t}: ${(e as Error).message}. Topics: ${Object.keys(GUIDES).map((k) => `"${k}"`).join(', ')}, "operators", "bpy.ops.<module>", "bpy.ops.<module>.<name>", "modifiers", "modifier <TYPE>", "constraints", "nodes <words>", "node <idname>", or an expression such as D.objects['Cube'].data.`);
   }
   if (v === null || v === undefined || typeof v !== 'object') return `${t} = ${formatValue(v)} (${v === null ? 'null' : typeof v})`;
   const lines = [`${t}: ${bridge.typename(v)} ${short(formatValue(v), 300)}`];
@@ -447,7 +458,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'api_help',
     description:
-      'Look up the scripting API of this app (it follows the `bpy` naming conventions, but not everything is there and details differ, so check here instead of guessing). Topics: "operators" (modules), "bpy.ops.mesh" (operators in a module), "bpy.ops.mesh.primitive_cylinder_add" (its properties, defaults and enum values), "modifiers" / "modifier BEVEL", "constraints" / "constraint TRACK_TO", "nodes noise texture" (search node types) / "node ShaderNodeBsdfPrincipled" (sockets), or any JavaScript expression such as "D.objects[\'Cube\'].data" or "C.scene.render" to list its properties with current values and its methods.',
+      'Look up the scripting API of this app (it follows the `bpy` naming conventions, but not everything is there and details differ, so check here instead of guessing). Guides with examples: "data", "context", "mesh", "bmesh", "mathutils", "animation" (keyframes, drivers, NLA, keying sets), "armature", "grease pencil", "handlers" (and timers), "sequencer", "render" (and passes); "topics" lists them. Also "operators" (modules), "bpy.ops.mesh" (operators in a module), "bpy.ops.mesh.primitive_cylinder_add" (its properties, defaults and enum values), "modifiers" / "modifier BEVEL", "constraints" / "constraint TRACK_TO", "nodes noise texture" (search node types) / "node ShaderNodeBsdfPrincipled" (sockets), or any JavaScript expression such as "D.objects[\'Cube\'].data" or "C.scene.render" to list its properties with current values and its methods.',
     parameters: obj({ topic: S('What to look up') }, ['topic']),
     run: (a, h) => apiHelp(String(a.topic ?? ''), h.app),
   },
