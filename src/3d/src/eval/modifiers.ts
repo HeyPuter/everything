@@ -4,7 +4,7 @@ import type { ModifierBase } from '../data/types';
 import type { EvalMesh, ModifierContext, ModifierType } from './types';
 import { MeshBuilder, appendMesh, weightsOf, groupWeights, vertexNormals } from './meshbuild';
 import { edgeTopology, polyNormal, triangulatePoly, vertexFaces } from '../mesh/mesh';
-import { skinPositions } from './armature';
+import { armatureDeform } from './mods/skinning';
 import { proceduralTexture } from './textures';
 import { evalCurve } from '../nodes/curves';
 import { SurfaceQuery, PointQuery } from './mods/spatial';
@@ -1568,11 +1568,28 @@ function displace(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMes
 
 function armatureMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
   const armOb = typeof mod.object === 'string' ? ctx.graph.get(mod.object) : undefined;
-  if (!armOb?.pose || !m.vertex_groups || !m.weights) return m;
+  const arm = armOb?.ob.data ? ctx.doc?.armatures[armOb.ob.data] : undefined;
+  if (!armOb?.pose || !arm) return m;
+  const useGroups = bool(mod, 'use_vertex_groups', true),
+    useEnvelopes = bool(mod, 'use_bone_envelopes');
+  if (!useEnvelopes && (!m.vertex_groups || !m.weights)) return m;
   const own = ctx.graph.get(ctx.ob.id)!.world;
   const meshToArm = armOb.world.clone().invert().multiply(own);
   const armToMesh = meshToArm.clone().invert();
-  const positions = skinPositions(m.positions, m.vertex_groups, m.weights, armOb.pose, meshToArm, armToMesh, bool(mod, 'use_deform_preserve_volume'));
+  let positions = armatureDeform(m.positions, m.vertex_groups, m.weights, arm.bones, armOb.pose, meshToArm, armToMesh, {
+    useGroups,
+    useEnvelopes,
+    preserveVolume: bool(mod, 'use_deform_preserve_volume'),
+  });
+  // the modifier's own vertex group limits the influence
+  const mask = groupWeights(m, str(mod, 'vertex_group'));
+  if (mask) {
+    const inv = bool(mod, 'invert_vertex_group');
+    positions = Float32Array.from(positions, (x, k) => {
+      const w = inv ? 1 - mask[(k / 3) | 0] : mask[(k / 3) | 0];
+      return m.positions[k] + (x - m.positions[k]) * w;
+    });
+  }
   return { ...m, positions };
 }
 
@@ -1950,7 +1967,7 @@ export const modifierTypes: Record<string, ModifierType> = {
   WELD: { type: 'WELD', label: 'Weld', category: 'GENERATE', icon: 'automerge_off', defaults: base({ merge_threshold: 0.001, mode: 'ALL', loose_edges: false, vertex_group: '', invert_vertex_group: false }), apply: weldMod },
   WIREFRAME: { type: 'WIREFRAME', label: 'Wireframe', category: 'GENERATE', icon: 'mod_wireframe', defaults: base({ thickness: 0.02, offset: 0, use_replace: true, use_boundary: false, use_even_offset: true, material_offset: 0, vertex_group: '', invert_vertex_group: false, thickness_vertex_group: 0 }), apply: wireframe },
   // Deform
-  ARMATURE: { type: 'ARMATURE', label: 'Armature', category: 'DEFORM', icon: 'mod_armature', deformOnly: true, defaults: base({ object: null, use_vertex_groups: true, use_bone_envelopes: false, use_deform_preserve_volume: false }), deps: (m) => [m.object as string], apply: armatureMod },
+  ARMATURE: { type: 'ARMATURE', label: 'Armature', category: 'DEFORM', icon: 'mod_armature', deformOnly: true, defaults: base({ object: null, use_vertex_groups: true, use_bone_envelopes: false, use_deform_preserve_volume: false, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: armatureMod },
   CAST: { type: 'CAST', label: 'Cast', category: 'DEFORM', icon: 'mod_cast', deformOnly: true, defaults: base({ cast_type: 'SPHERE', factor: 0.5, radius: 0, size: 0, use_radius_as_size: true, object: null, use_x: true, use_y: true, use_z: true, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: cast },
   CURVE: { type: 'CURVE', label: 'Curve', category: 'DEFORM', icon: 'mod_curve', deformOnly: true, defaults: base({ object: null, deform_axis: 'POS_X', vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: curveMod },
   DISPLACE: {
