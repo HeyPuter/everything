@@ -6,12 +6,170 @@
 // parameters were least-squares fitted to expected values (grey ramp + primaries);
 // Filmic is a per-channel log-encoded sigmoid fitted the same way (see tests/unit/render.test.ts).
 
+import { evalCurve } from '../../nodes/curves';
+
 export type ViewTransform = 'STANDARD' | 'FILMIC' | 'AGX' | 'KHRONOS_PBR_NEUTRAL' | 'RAW';
 
 export interface ViewSettings {
   view_transform: ViewTransform;
   exposure: number;
   gamma: number;
+  /** creative look graded on top of the view transform (see LOOKS) */
+  look?: string;
+  use_white_balance?: boolean;
+  white_balance_temperature?: number;
+  white_balance_tint?: number;
+  /** display curve applied to the final display values */
+  use_curve_mapping?: boolean;
+  curve_mapping?: [number, number][];
+}
+
+/** Entries of the display curve lookup table (shared by the CPU and GLSL paths). */
+export const CURVE_TABLE_SIZE = 64;
+
+/** Lookup table of a display curve given by control points (smooth through the points). */
+export function curveTable(points: [number, number][]): Float32Array {
+  const pts = [...points].sort((a, b) => a[0] - b[0]).map(([x, y]) => ({ x, y, handle: 2 }));
+  const t = new Float32Array(CURVE_TABLE_SIZE);
+  for (let i = 0; i < CURVE_TABLE_SIZE; i++) t[i] = clamp01(evalCurve(pts, i / (CURVE_TABLE_SIZE - 1)));
+  return t;
+}
+
+/** Curve table of view settings, or null when off (or the identity). */
+export function viewCurve(s: ViewSettings): Float32Array | null {
+  if (!s.use_curve_mapping || !s.curve_mapping?.length) return null;
+  const p = s.curve_mapping;
+  if (p.length === 2 && p[0][0] === 0 && p[0][1] === 0 && p[1][0] === 1 && p[1][1] === 1) return null;
+  return curveTable(p);
+}
+
+/** Sample a curve table at x ∈ [0, 1]. */
+export function lookupCurve(t: Float32Array, x: number): number {
+  const n = t.length - 1;
+  const p = clamp01(x) * n;
+  const i = Math.min(n - 1, Math.floor(p));
+  const f = p - i;
+  return t[i] + (t[i + 1] - t[i]) * f;
+}
+
+/**
+ * Looks per view transform: a display-space grade [slope, offset, power, saturation]
+ * (y = (slope·x + offset)^power, then saturation around luminance). The parameters were
+ * least-squares fitted to the expected output of grey ramps and a saturated colour.
+ */
+export const LOOKS: Record<string, Record<string, [number, number, number, number]>> = {
+  AGX: {
+    'AgX - Punchy': [0.94, 0.05, 1.5, 0.97],
+    'AgX - Greyscale': [1, 0, 1, 0],
+    'AgX - Very High Contrast': [1.4, 0.02, 1.4, 0.75],
+    'AgX - High Contrast': [1.2, 0.13, 1.74, 0.82],
+    'AgX - Medium High Contrast': [1.18, -0.07, 0.86, 1.03],
+    'AgX - Base Contrast': [1, 0, 1, 1],
+    'AgX - Medium Low Contrast': [0.88, 0.11, 1.34, 0.94],
+    'AgX - Low Contrast': [0.8, 0.15, 1.46, 0.96],
+    'AgX - Very Low Contrast': [0.74, 0.15, 1.42, 1.01],
+  },
+  FILMIC: {
+    'Very High Contrast': [1.22, 0.06, 1.46, 0.84],
+    'High Contrast': [1.18, -0.15, 0.6, 1.13],
+    'Medium High Contrast': [1.1, -0.09, 0.76, 1.06],
+    'Medium Low Contrast': [0.86, 0.13, 1.36, 0.96],
+    'Low Contrast': [0.84, 0.15, 1.52, 0.91],
+    'Very Low Contrast': [0.84, 0.14, 1.58, 0.87],
+  },
+};
+
+/** Look grade of a view, or null for none. */
+export function lookParams(view: ViewTransform, look: string | undefined): [number, number, number, number] | null {
+  if (!look || look === 'None') return null;
+  const p = LOOKS[view]?.[look];
+  return p && !(p[0] === 1 && p[1] === 0 && p[2] === 1 && p[3] === 1) ? p : null;
+}
+
+/** Apply a look grade to display-encoded RGB (in place). */
+export function applyLook(c: number[], p: [number, number, number, number]) {
+  for (let i = 0; i < 3; i++) c[i] = Math.pow(clamp01(p[0] * c[i] + p[1]), p[2]);
+  if (p[3] !== 1) {
+    const l = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    for (let i = 0; i < 3; i++) c[i] = clamp01(l + (c[i] - l) * p[3]);
+  }
+}
+
+// --- white balance: chromatic adaptation from the illuminant (temperature, tint) to the
+// reference white (6500 K, tint 10), as per-channel gains in linear Rec.709
+
+function planckXY(T: number): [number, number] {
+  const t = Math.min(25000, Math.max(1667, T));
+  const x = t < 4000 ? -0.2661239e9 / t ** 3 - 0.2343589e6 / t ** 2 + 0.8776956e3 / t + 0.17991 : -3.0258469e9 / t ** 3 + 2.1070379e6 / t ** 2 + 0.2226347e3 / t + 0.24039;
+  const y = t < 2222 ? -1.1063814 * x ** 3 - 1.3481102 * x ** 2 + 2.18555832 * x - 0.20219683 : t < 4000 ? -0.9549476 * x ** 3 - 1.37418593 * x ** 2 + 2.09137015 * x - 0.16748867 : 3.081758 * x ** 3 - 5.8733867 * x ** 2 + 3.75112997 * x - 0.37001483;
+  return [x, y];
+}
+
+/** XYZ (Y = 1) of a white of colour temperature T with a tint offset across the locus. */
+export function whiteXYZ(T: number, tint: number): [number, number, number] {
+  const uv = (x: number, y: number) => {
+    const d = -2 * x + 12 * y + 3;
+    return [(4 * x) / d, (6 * y) / d];
+  };
+  const [x0, y0] = planckXY(T);
+  const [x1, y1] = planckXY(T * 1.001);
+  const [u0, v0] = uv(x0, y0);
+  const [u1, v1] = uv(x1, y1);
+  let nu = -(v1 - v0),
+    nv = u1 - u0;
+  const len = Math.hypot(nu, nv) || 1;
+  nu /= len;
+  nv /= len;
+  if (nv < 0) (nu = -nu), (nv = -nv);
+  const k = tint / 3000;
+  const u = u0 + nu * k,
+    v = v0 + nv * k;
+  const d = 2 * u - 8 * v + 4;
+  const x = (3 * u) / d,
+    y = (2 * v) / d;
+  return [x / y, 1, (1 - x - y) / y];
+}
+
+const BRADFORD: M3 = [0.8951, -0.7502, 0.0389, 0.2664, 1.7135, -0.0685, -0.1614, 0.0367, 1.0296];
+const XYZ_TO_REC709: M3 = [3.2406, -0.9689, 0.0557, -1.5372, 1.8758, -0.204, -0.4986, 0.0415, 1.057];
+
+/** Per-channel gains of the white balance (identity at 6500 K / tint 10). */
+export function whiteBalanceGains(temperature: number, tint: number): [number, number, number] {
+  const lms = (xyz: number[]) => {
+    const o = [0, 0, 0];
+    mul(BRADFORD, xyz[0], xyz[1], xyz[2], o);
+    return o;
+  };
+  const src = lms(whiteXYZ(temperature, tint));
+  const ref = lms(whiteXYZ(6500, 10));
+  // neutral (reference white) input → adapted LMS → XYZ → RGB
+  const d65 = lms([0.9505, 1, 1.089]);
+  const adapted = [(d65[0] * ref[0]) / src[0], (d65[1] * ref[1]) / src[1], (d65[2] * ref[2]) / src[2]];
+  const inv = invert3(BRADFORD);
+  const xyz = [0, 0, 0];
+  mul(inv, adapted[0], adapted[1], adapted[2], xyz);
+  const rgb = [0, 0, 0];
+  mul(XYZ_TO_REC709, xyz[0], xyz[1], xyz[2], rgb);
+  const white = [0, 0, 0];
+  mul(XYZ_TO_REC709, 0.9505, 1, 1.089, white);
+  // the adaptation is applied with a strength fitted to the expected results
+  const k = 1.8;
+  return [Math.pow(Math.max(1e-4, rgb[0] / white[0]), k), Math.pow(Math.max(1e-4, rgb[1] / white[1]), k), Math.pow(Math.max(1e-4, rgb[2] / white[2]), k)];
+}
+
+function invert3(m: M3): M3 {
+  const [a, b, c, d, e, f, g, h, i] = m;
+  const A = e * i - f * h,
+    B = -(d * i - f * g),
+    C = d * h - e * g;
+  const det = a * A + b * B + c * C;
+  return [A / det, -(b * i - c * h) / det, (b * f - c * e) / det, B / det, (a * i - c * g) / det, -(a * f - c * d) / det, C / det, -(a * h - b * g) / det, (a * e - b * d) / det];
+}
+
+/** White balance gains of view settings (null when off). */
+export function viewWhiteBalance(s: ViewSettings): [number, number, number] | null {
+  if (!s.use_white_balance) return null;
+  return whiteBalanceGains(s.white_balance_temperature ?? 6500, s.white_balance_tint ?? 10);
 }
 
 export const VIEW_INDEX: Record<ViewTransform, number> = { STANDARD: 0, AGX: 1, FILMIC: 2, KHRONOS_PBR_NEUTRAL: 3, RAW: 4 };
@@ -112,18 +270,23 @@ export function toneMap(c: number[], view: ViewTransform) {
  */
 export function displayPixel(r: number, g: number, b: number, a: number, s: ViewSettings, out: number[]) {
   const ex = Math.pow(2, s.exposure);
+  const wb = viewWhiteBalance(s) ?? [1, 1, 1];
   // un-premultiply so semi-transparent edges keep their colour
   const ia = a > 1e-6 && a < 1 ? 1 / a : 1;
-  out[0] = r * ia * ex;
-  out[1] = g * ia * ex;
-  out[2] = b * ia * ex;
+  out[0] = r * ia * ex * wb[0];
+  out[1] = g * ia * ex * wb[1];
+  out[2] = b * ia * ex * wb[2];
   toneMap(out, s.view_transform);
   const raw = s.view_transform === 'RAW';
   const ig = s.gamma > 0 ? 1 / s.gamma : 1;
+  for (let i = 0; i < 3; i++) out[i] = raw ? clamp01(out[i]) : srgbEncode(out[i]);
+  const look = lookParams(s.view_transform, s.look);
+  if (look) applyLook(out, look);
+  const curve = viewCurve(s);
   for (let i = 0; i < 3; i++) {
-    let v = raw ? clamp01(out[i]) : srgbEncode(out[i]);
+    let v = out[i];
     if (ig !== 1) v = Math.pow(Math.max(0, v), ig);
-    out[i] = clamp01(v);
+    out[i] = curve ? lookupCurve(curve, v) : clamp01(v);
   }
   out[3] = clamp01(a);
 }
@@ -171,6 +334,13 @@ function getLuts() {
 export function fastDisplay(s: ViewSettings): (r: number, g: number, b: number, a: number, out: number[]) => void {
   const L = getLuts();
   const ex = Math.pow(2, s.exposure);
+  const wb = viewWhiteBalance(s);
+  const wr = wb?.[0] ?? 1,
+    wg = wb?.[1] ?? 1,
+    wbb = wb?.[2] ?? 1;
+  const look = lookParams(s.view_transform, s.look);
+  const lk = [0, 0, 0];
+  const curve = viewCurve(s);
   const ig = s.gamma > 0 ? 1 / s.gamma : 1;
   const gam = ig !== 1 ? (x: number) => Math.pow(x, ig) : null;
   const view = s.view_transform;
@@ -184,9 +354,9 @@ export function fastDisplay(s: ViewSettings): (r: number, g: number, b: number, 
   const tmp = [0, 0, 0];
   return (r, g, b, a, out) => {
     const ia = a > 1e-6 && a < 1 ? 1 / a : 1;
-    r *= ia * ex;
-    g *= ia * ex;
-    b *= ia * ex;
+    r *= ia * ex * wr;
+    g *= ia * ex * wg;
+    b *= ia * ex * wbb;
     let x: number, y: number, z: number;
     if (view === 'AGX') {
       const u0 = L.agx((Math.log2(Math.max(M[0] * r + M[3] * g + M[6] * b, 1e-10)) - aMin) * aInv),
@@ -222,10 +392,22 @@ export function fastDisplay(s: ViewSettings): (r: number, g: number, b: number, 
       y = L.enc(clamp01(g));
       z = L.enc(clamp01(b));
     }
+    if (look) {
+      lk[0] = x;
+      lk[1] = y;
+      lk[2] = z;
+      applyLook(lk, look);
+      [x, y, z] = lk;
+    }
     if (gam) {
       x = gam(x);
       y = gam(y);
       z = gam(z);
+    }
+    if (curve) {
+      x = lookupCurve(curve, x);
+      y = lookupCurve(curve, y);
+      z = lookupCurve(curve, z);
     }
     out[0] = x;
     out[1] = y;
@@ -310,9 +492,10 @@ vec3 cmSrgb(vec3 c) {
   return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
 }
 // view: 0 standard, 1 agx, 2 filmic, 3 neutral, 4 raw
-vec4 cmDisplay(vec4 p, int view, float exposure, float invGamma) {
+// wb: white balance gains; look: slope, offset, power, saturation (identity: 1, 0, 1, 1)
+vec4 cmDisplayX(vec4 p, int view, float exposure, float invGamma, vec3 wb, vec4 look) {
   float a = clamp(p.a, 0.0, 1.0);
-  vec3 c = (a > 1e-6 && a < 1.0 ? p.rgb / a : p.rgb) * exposure;
+  vec3 c = (a > 1e-6 && a < 1.0 ? p.rgb / a : p.rgb) * exposure * wb;
   if (view == 2) c = vec3(cmFilmic1(c.r), cmFilmic1(c.g), cmFilmic1(c.b));
   else {
     if (view == 1) c = cmAgx(c);
@@ -320,7 +503,15 @@ vec4 cmDisplay(vec4 p, int view, float exposure, float invGamma) {
     else c = clamp(c, 0.0, 1.0);
     if (view != 4) c = cmSrgb(c);
   }
+  if (look != vec4(1.0, 0.0, 1.0, 1.0)) {
+    c = pow(clamp(look.x * c + look.y, 0.0, 1.0), vec3(look.z));
+    float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    c = clamp(vec3(l) + (c - vec3(l)) * look.w, 0.0, 1.0);
+  }
   if (invGamma != 1.0) c = pow(max(c, 0.0), vec3(invGamma));
   return vec4(clamp(c, 0.0, 1.0), a);
+}
+vec4 cmDisplay(vec4 p, int view, float exposure, float invGamma) {
+  return cmDisplayX(p, view, exposure, invGamma, vec3(1.0), vec4(1.0, 0.0, 1.0, 1.0));
 }
 `;

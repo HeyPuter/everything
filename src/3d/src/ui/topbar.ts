@@ -137,6 +137,9 @@ export function renderMenu(): MenuItem[] {
     { label: 'Render Audio…', op: 'sound.mixdown' },
     { separator: true },
     { label: 'View Render', shortcut: 'F11', op: 'render.view_show' },
+    { label: 'View Animation', shortcut: 'Ctrl F11', op: 'render.play_rendered_anim' },
+    { separator: true },
+    { label: 'Lock Interface', checked: !!app.doc.scene.render.use_lock_interface, action: () => ((app.doc.scene.render.use_lock_interface = !app.doc.scene.render.use_lock_interface), app.pushUndo('Lock Interface'), app.changed('doc')) },
   ];
 }
 

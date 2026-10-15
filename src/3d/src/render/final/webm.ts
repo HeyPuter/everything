@@ -108,12 +108,18 @@ export interface VideoWriter {
   finish(): Promise<Blob>;
 }
 
-export async function createVideoWriter(width: number, height: number, fps: number): Promise<VideoWriter> {
+/** Video bitrate (bits/s) for a frame size, rate and quality percentage (90 ≈ visually lossless-ish). */
+export function videoBitrate(w: number, h: number, fps: number, quality = 90): number {
+  const k = Math.pow(2, (Math.min(100, Math.max(0, quality)) - 90) / 15);
+  return Math.min(80e6, Math.max(2.5e5, w * h * fps * 0.12 * k));
+}
+
+export async function createVideoWriter(width: number, height: number, fps: number, quality = 90): Promise<VideoWriter> {
   const w = Math.max(2, width & ~1),
     h = Math.max(2, height & ~1);
   const VE = (globalThis as unknown as { VideoEncoder?: typeof VideoEncoder }).VideoEncoder;
   if (VE) {
-    const bitrate = Math.min(40e6, Math.max(2e6, w * h * fps * 0.12));
+    const bitrate = videoBitrate(w, h, fps, quality);
     for (const [codec, id] of [
       ['vp09.00.10.08', 'V_VP9'],
       ['vp8', 'V_VP8'],
@@ -128,7 +134,7 @@ export async function createVideoWriter(width: number, height: number, fps: numb
       return webCodecsWriter(VE, config, id, w, h, fps);
     }
   }
-  return mediaRecorderWriter(w, h, fps);
+  return mediaRecorderWriter(w, h, fps, videoBitrate(w, h, fps, quality));
 }
 
 function webCodecsWriter(VE: typeof VideoEncoder, config: VideoEncoderConfig, codec: 'V_VP8' | 'V_VP9', w: number, h: number, fps: number): VideoWriter {
@@ -172,7 +178,7 @@ function webCodecsWriter(VE: typeof VideoEncoder, config: VideoEncoderConfig, co
 }
 
 /** Fallback: re-time stored frames through a canvas stream at the target frame rate. */
-function mediaRecorderWriter(w: number, h: number, fps: number): VideoWriter {
+function mediaRecorderWriter(w: number, h: number, fps: number, bitrate: number): VideoWriter {
   const stored: ImageBitmap[] = [];
   return {
     async addFrame(canvas) {
@@ -186,7 +192,7 @@ function mediaRecorderWriter(w: number, h: number, fps: number): VideoWriter {
       const stream = c.captureStream(0);
       const track = stream.getVideoTracks()[0] as MediaStreamTrack & { requestFrame?: () => void };
       const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm';
-      const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: Math.max(2e6, w * h * fps * 0.12) });
+      const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: bitrate });
       const chunks: Blob[] = [];
       rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
       const done = new Promise<void>((r) => (rec.onstop = () => r()));

@@ -1,4 +1,4 @@
-// Properties tabs: render, output, scene, world, collection, object, data, material.
+// Properties tabs: scene, world, collection, object, data, material.
 import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
@@ -12,6 +12,7 @@ import { cloneShared } from '../../data/cow';
 import { openMenu } from '../../ui/menu';
 import { materialSlots } from '../view3d/draw';
 import { uiList } from './uilist';
+import { cameraPanels } from '../../render/final/props/camera';
 import { materialSpecials, shapeKeySpecials, vertexGroupSpecials } from '../../object/listmenus';
 import { propertiesCollection } from '../../object/relations';
 import { objectCollectionsPanel } from '../../object/collections';
@@ -55,129 +56,7 @@ registerTab({
   },
 });
 
-// ---------------------------------------------------------------------------
-// Render
-
-registerTab({
-  id: 'RENDER',
-  label: 'Render',
-  icon: 'render',
-  group: 1,
-  poll: () => true,
-  draw: () => {
-    const r = app.doc.scene.render;
-    const engines: [string, string][] = [
-      ['RASTER', 'Realtime (Raster)'],
-      ['PATHTRACE', 'Path Tracer'],
-      ['SOLID', 'Solid (Workbench)'],
-    ];
-    return [
-      enumProp(r, 'engine', 'Render Engine', engines),
-      r.engine === 'PATHTRACE'
-        ? [
-            panel('rs-sampling', 'Sampling', () => [
-              h('div', { class: 'sub-label' }, 'Viewport'),
-              num(r, 'preview_samples', 'Max Samples', { int: true, min: 1, max: 65536 }),
-              bool(r, 'preview_denoising', 'Denoise'),
-              h('div', { class: 'sub-label' }, 'Render'),
-              num(r, 'samples', 'Max Samples', { int: true, min: 1, max: 65536 }),
-              bool(r, 'use_denoising', 'Denoise'),
-            ]),
-            panel('rs-bounces', 'Light Paths', () => [num(r, 'max_bounces', 'Total', { int: true, min: 0, max: 64 }), num(r as never, 'diffuse_bounces' as never, 'Diffuse', { int: true, min: 0, max: 64 }), num(r as never, 'glossy_bounces' as never, 'Glossy', { int: true, min: 0, max: 64 }), num(r as never, 'transmission_bounces' as never, 'Transmission', { int: true, min: 0, max: 64 })]),
-          ]
-        : r.engine === 'RASTER'
-          ? [
-              panel('rs-sampling', 'Sampling', () => [num(r, 'raster_samples', 'Render Samples', { int: true, min: 1, max: 256 }), h('div', { class: 'prop-note' }, 'Temporal anti-aliasing samples accumulated for final renders.')]),
-              panel('rs-ao', 'Ambient Occlusion', () => [num(r, 'gtao_distance', 'Distance', { unit: 'distance', min: 0 })], { header: checkbox('rs-ao-on', '', r.use_gtao, (v) => ((r.use_gtao = v), changed('Ambient Occlusion'))), closed: true }),
-              panel('rs-bloom', 'Bloom', () => [num(r, 'bloom_threshold', 'Threshold', { min: 0 }), num(r, 'bloom_intensity', 'Intensity', { min: 0, softMax: 1 }), num(r, 'bloom_radius', 'Radius', { min: 0, softMax: 10 })], { header: checkbox('rs-bloom-on', '', r.use_bloom, (v) => ((r.use_bloom = v), changed('Bloom'))), closed: true }),
-              panel('rs-shadows', 'Shadows', () => [enumProp(r, 'shadow_cube_size', 'Cube Size', [['512', '512 px'], ['1024', '1024 px'], ['2048', '2048 px'], ['4096', '4096 px']].map(([v, l]) => ({ value: v, label: l }))), bool(r, 'use_soft_shadows', 'Soft Shadows')], { closed: true }),
-              panel('rs-motion', 'Motion Blur', () => [num(r, 'motion_blur_shutter', 'Shutter', { min: 0, max: 2 })], { header: checkbox('rs-mb-on', '', r.use_motion_blur, (v) => ((r.use_motion_blur = v), changed('Motion Blur'))), closed: true }),
-            ]
-          : [panel('rs-solid', 'Lighting', () => h('div', { class: 'prop-note' }, 'Renders with the viewport solid shading settings.'))],
-      panel('rs-film', 'Film', () => [bool(r, 'film_transparent', 'Transparent')], { closed: true }),
-      panel('rs-cm', 'Color Management', () => [
-        enumProp(r, 'view_transform', 'View Transform', [['STANDARD', 'Standard'], ['AGX', 'AgX'], ['FILMIC', 'Filmic'], ['KHRONOS_PBR_NEUTRAL', 'Khronos PBR Neutral'], ['RAW', 'Raw']]),
-        num(r, 'exposure', 'Exposure', { min: -32, max: 32, softMin: -10, softMax: 10 }),
-        num(r, 'gamma', 'Gamma', { min: 0, max: 5 }),
-      ], { closed: true }),
-    ];
-  },
-});
-
-// ---------------------------------------------------------------------------
-// Output
-
-registerTab({
-  id: 'OUTPUT',
-  label: 'Output',
-  icon: 'output',
-  group: 1,
-  poll: () => true,
-  draw: () => {
-    const s = app.doc.scene;
-    const r = s.render;
-    return [
-      panel('out-format', 'Format', () => [
-        splitRow(
-          'Resolution X',
-          numberField({ id: 'res-x', value: r.resolution_x, int: true, min: 4, max: 16384, unit: 'pixel', set: (v, f) => ((r.resolution_x = v), app.changed('doc'), f && app.pushUndo('Resolution')) }),
-        ),
-        splitRow('Y', numberField({ id: 'res-y', value: r.resolution_y, int: true, min: 4, max: 16384, unit: 'pixel', set: (v, f) => ((r.resolution_y = v), app.changed('doc'), f && app.pushUndo('Resolution')) })),
-        num(r, 'resolution_percentage', '%', { unit: 'percentage', int: true, min: 1, max: 1000, softMax: 100, slider: true }),
-        num(r, 'pixel_aspect_x', 'Aspect X', { min: 1, max: 200 }),
-        num(r, 'pixel_aspect_y', 'Y', { min: 1, max: 200 }),
-        splitRow(
-          'Frame Rate',
-          enumMenu(
-            'fps',
-            [23.98, 24, 25, 29.97, 30, 50, 59.94, 60, 120, 240].map((v) => ({ value: String(v), label: `${v} fps` })),
-            String(+(r.fps / r.fps_base).toFixed(2)),
-            (v) => {
-              const f = Number(v);
-              if (Number.isInteger(f)) {
-                r.fps = f;
-                r.fps_base = 1;
-              } else {
-                r.fps = Math.round(f);
-                r.fps_base = Math.round(f) / f;
-              }
-              changed('Frame Rate');
-            },
-          ),
-        ),
-      ]),
-      panel('out-range', 'Frame Range', () => [num(s, 'frame_start', 'Frame Start', { int: true, min: 0 }), num(s, 'frame_end', 'End', { int: true, min: 0 }), num(s, 'frame_step', 'Step', { int: true, min: 1 })]),
-      panel('out-output', 'Output', () => [
-        textProp(r, 'filepath', 'Output Path'),
-        enumProp(r, 'file_format', 'File Format', [['PNG', 'PNG'], ['JPEG', 'JPEG'], ['WEBP', 'WebP'], ['WEBM', 'WebM Video']]),
-        enumProp(r, 'color_mode', 'Color', [['BW', 'BW'], ['RGB', 'RGB'], ['RGBA', 'RGBA']]),
-      ]),
-    ];
-  },
-});
-
-// ---------------------------------------------------------------------------
-// View layer
-
-registerTab({
-  id: 'VIEW_LAYER',
-  label: 'View Layer',
-  icon: 'view_layer',
-  group: 1,
-  poll: () => true,
-  draw: () => {
-    const r = app.doc.scene.render;
-    return [
-      panel('vl-passes', 'Passes', () => [
-        h('div', { class: 'sub-label' }, 'Data'),
-        bool(r, 'use_pass_combined', 'Combined'),
-        bool(r, 'use_pass_z', 'Z'),
-        bool(r, 'use_pass_mist', 'Mist'),
-        bool(r, 'use_pass_normal', 'Normal'),
-      ]),
-    ];
-  },
-});
+// Render, Output and View Layer tabs live in src/render/final/props/.
 
 // ---------------------------------------------------------------------------
 // Scene
@@ -281,7 +160,7 @@ registerTab({
             ]
           : h('div', { class: 'prop-note' }, 'The world node tree has no Background node. Edit it in the Shader Editor (World).'),
       ),
-      panel('wo-mist', 'Mist Pass', () => [num(w as never, 'mist_start' as never, 'Start', { unit: 'distance' }), num(w as never, 'mist_depth' as never, 'Depth', { unit: 'distance' })], { closed: true }),
+      panel('wo-mist', 'Mist Pass', () => [num(w as never, 'mist_start' as never, 'Start', { unit: 'distance' }), num(w as never, 'mist_depth' as never, 'Depth', { unit: 'distance' }), enumProp(w as never, 'mist_falloff' as never, 'Falloff', [['QUADRATIC', 'Quadratic'], ['LINEAR', 'Linear'], ['INVERSE_QUADRATIC', 'Inverse Quadratic']])], { closed: true }),
       panel('wo-display', 'Viewport Display', () => [colorProp(w, 'color', 'Color')], { closed: true }),
     ];
   },
@@ -608,30 +487,7 @@ function lightData(o: ObjectData, la: LightData): Child {
 
 function cameraData(o: ObjectData, ca: CameraData): Child {
   const doc = app.doc;
-  return [
-    dataBlockSelector('ca', 'camera_data', Object.values(doc.cameras), ca.id, (id) => id && ((o.data = id), changed('Assign Camera')), () => {}, { noUnlink: true }),
-    panel('ca-lens', 'Lens', () => [
-      enumProp(ca, 'type', 'Type', [['PERSP', 'Perspective'], ['ORTHO', 'Orthographic'], ['PANO', 'Panoramic']]),
-      ca.type === 'ORTHO'
-        ? num(ca, 'ortho_scale', 'Orthographic Scale', { min: 0.001, anim: { ob: o, path: 'data.ortho_scale' } })
-        : ca.lens_unit === 'FOV'
-          ? splitRow('Field of View', numberField({ id: 'ca-fov', value: 2 * Math.atan(ca.sensor_width / 2 / ca.lens), unit: 'angle', min: 0.0064, max: 3.0107, set: (v, f) => ((ca.lens = ca.sensor_width / 2 / Math.tan(v / 2)), app.changed('doc'), f && app.pushUndo('Field of View')) }))
-          : num(ca, 'lens', 'Focal Length', { min: 1, max: 5000, softMax: 500, precision: 1, anim: { ob: o, path: 'data.lens' } }),
-      enumProp(ca, 'lens_unit', 'Lens Unit', [['MILLIMETERS', 'Millimeters'], ['FOV', 'Field of View']]),
-      num(ca, 'shift_x', 'Shift X', { min: -10, max: 10, step: 0.01 }),
-      num(ca, 'shift_y', 'Y', { min: -10, max: 10, step: 0.01 }),
-      num(ca, 'clip_start', 'Clip Start', { unit: 'distance', min: 1e-6 }),
-      num(ca, 'clip_end', 'End', { unit: 'distance', min: 1e-6 }),
-    ]),
-    panel('ca-dof', 'Depth of Field', () => [
-      objectProp(ca.dof, 'focus_object', 'Focus on Object', { undo: 'Focus Object' }),
-      num(ca.dof, 'focus_distance', 'Focus Distance', { unit: 'distance', min: 0, anim: { ob: o, path: 'data.dof.focus_distance' } }),
-      num(ca.dof, 'aperture_fstop', 'F-Stop', { min: 0.1, softMax: 128, precision: 1 }),
-      num(ca.dof, 'aperture_blades', 'Blades', { int: true, min: 0, max: 16 }),
-    ], { closed: true, header: checkbox('ca-dof-on', '', ca.dof.use_dof, (v) => ((ca.dof.use_dof = v), changed('Depth of Field'))) }),
-    panel('ca-sensor', 'Camera', () => [enumProp(ca, 'sensor_fit', 'Sensor Fit', [['AUTO', 'Auto'], ['HORIZONTAL', 'Horizontal'], ['VERTICAL', 'Vertical']]), num(ca, 'sensor_width', ca.sensor_fit === 'VERTICAL' ? 'Width' : 'Size', { unit: 'none', min: 1, max: 100 }), ca.sensor_fit !== 'AUTO' ? num(ca, 'sensor_height', 'Height', { min: 1, max: 100 }) : null], { closed: true }),
-    panel('ca-display', 'Viewport Display', () => [num(ca, 'display_size', 'Size', { unit: 'distance', min: 0.01, max: 1000 }), bool(ca, 'show_passepartout', 'Passepartout'), num(ca, 'passepartout_alpha', 'Opacity', { min: 0, max: 1, slider: true })], { closed: true }),
-  ];
+  return [dataBlockSelector('ca', 'camera_data', Object.values(doc.cameras), ca.id, (id) => id && ((o.data = id), changed('Assign Camera')), () => {}, { noUnlink: true }), cameraPanels(o, ca)];
 }
 
 function curveData(o: ObjectData, cu: CurveData): Child {

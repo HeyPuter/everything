@@ -308,11 +308,27 @@ export interface CameraData {
     focus_distance: number;
     aperture_fstop: number;
     aperture_blades: number;
+    /** rotation of the aperture polygon (radians) */
+    aperture_rotation?: number;
+    /** anamorphic distortion of the bokeh (1 = round) */
+    aperture_ratio?: number;
   };
   display_size: number;
   show_passepartout: boolean;
   passepartout_alpha: number;
   show_limits?: boolean;
+  /** camera view overlays (src/render/final/cameraoverlay.ts) */
+  show_name?: boolean;
+  show_safe_areas?: boolean;
+  show_safe_center?: boolean;
+  show_composition_thirds?: boolean;
+  show_composition_center?: boolean;
+  show_composition_center_diagonal?: boolean;
+  show_composition_golden?: boolean;
+  show_composition_golden_tria_a?: boolean;
+  show_composition_golden_tria_b?: boolean;
+  show_composition_harmony_tri_a?: boolean;
+  show_composition_harmony_tri_b?: boolean;
   users?: number;
 }
 
@@ -504,6 +520,7 @@ export interface WorldData {
   /** mist settings */
   mist_start?: number;
   mist_depth?: number;
+  mist_falloff?: 'QUADRATIC' | 'LINEAR' | 'INVERSE_QUADRATIC';
   users?: number;
 }
 
@@ -964,6 +981,97 @@ export interface RenderSettings {
   use_stamp?: boolean;
   dither_intensity: number;
   use_freestyle?: boolean;
+  // --- sampling / light paths (see src/render/final/props/render.ts)
+  /** realtime viewport anti-aliasing samples accumulated while the view is still */
+  preview_raster_samples?: number;
+  /** path tracer: stop sampling after this many seconds (0 = no limit) */
+  time_limit?: number;
+  sample_clamp_direct?: number;
+  sample_clamp_indirect?: number;
+  /** path tracer: roughness added along glossy paths to reduce caustic noise */
+  blur_glossy?: number;
+  /** realtime: scale of light from lamps / from the world */
+  direct_light_intensity?: number;
+  indirect_light_intensity?: number;
+  // --- simplify
+  use_simplify?: boolean;
+  simplify_subdivision?: number;
+  simplify_subdivision_render?: number;
+  simplify_child_particles?: number;
+  simplify_child_particles_render?: number;
+  // --- depth of field / motion blur / film
+  use_bokeh_jittered?: boolean;
+  motion_blur_position?: 'START' | 'CENTER' | 'END';
+  filter_size?: number;
+  pixel_filter_type?: 'BOX' | 'GAUSSIAN' | 'BLACKMAN_HARRIS';
+  filter_width?: number;
+  film_exposure?: number;
+  // --- performance
+  preview_pixel_size?: 'AUTO' | '1' | '2' | '4' | '8';
+  use_auto_tile?: boolean;
+  tile_size?: number;
+  // --- colour management
+  display_device?: string;
+  sequencer_colorspace?: string;
+  use_white_balance?: boolean;
+  white_balance_temperature?: number;
+  white_balance_tint?: number;
+  use_curve_mapping?: boolean;
+  /** display curve control points (x, y in 0..1) applied after the view transform */
+  curve_mapping?: [number, number][];
+  // --- output
+  frame_map_old?: number;
+  frame_map_new?: number;
+  use_border?: boolean;
+  border_min_x?: number;
+  border_min_y?: number;
+  border_max_x?: number;
+  border_max_y?: number;
+  use_crop_to_border?: boolean;
+  use_file_extension?: boolean;
+  /** JPEG / WebP quality (percent) */
+  quality?: number;
+  use_lock_interface?: boolean;
+  // --- metadata (stamp)
+  use_stamp_date?: boolean;
+  use_stamp_time?: boolean;
+  use_stamp_render_time?: boolean;
+  use_stamp_frame?: boolean;
+  use_stamp_frame_range?: boolean;
+  use_stamp_memory?: boolean;
+  use_stamp_hostname?: boolean;
+  use_stamp_camera?: boolean;
+  use_stamp_lens?: boolean;
+  use_stamp_scene?: boolean;
+  use_stamp_marker?: boolean;
+  use_stamp_filename?: boolean;
+  use_stamp_note?: boolean;
+  stamp_note_text?: string;
+  use_stamp_labels?: boolean;
+  stamp_font_size?: number;
+  stamp_foreground?: [number, number, number, number];
+  stamp_background?: [number, number, number, number];
+  /** Solid (Workbench) engine: shading of final renders */
+  display_shading?: {
+    light: 'STUDIO' | 'MATCAP' | 'FLAT';
+    color_type: 'MATERIAL' | 'OBJECT' | 'SINGLE' | 'RANDOM' | 'VERTEX' | 'TEXTURE';
+    single_color: [number, number, number];
+    show_backface_culling: boolean;
+    show_xray: boolean;
+    xray_alpha: number;
+    show_shadows: boolean;
+    show_cavity: boolean;
+    show_object_outline: boolean;
+    show_specular_highlight: boolean;
+  };
+  // --- view layer
+  /** the view layer is rendered */
+  use_view_layer?: boolean;
+  use_sky?: boolean;
+  use_solid?: boolean;
+  use_pass_position?: boolean;
+  use_pass_uv?: boolean;
+  use_pass_material_index?: boolean;
 }
 
 export interface ToolSettings {
@@ -1095,6 +1203,8 @@ export interface KeyingSetData {
 
 export interface SceneData {
   name: string;
+  /** camera view safe-area margins (fractions of the frame, x and y) */
+  safe_areas?: { title: [number, number]; action: [number, number]; title_center: [number, number]; action_center: [number, number] };
   frame_start: number;
   frame_end: number;
   frame_step: number;

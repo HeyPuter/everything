@@ -1,5 +1,5 @@
 // Final rendering: F12 still / Ctrl F12 animation, viewport renders, progress, cancel, passes.
-import { Color, type Camera, type WebGLRenderTarget, type WebGLRenderer, Matrix4, Vector4, type PerspectiveCamera } from 'three';
+import { Color, type Camera, type WebGLRenderTarget, type WebGLRenderer, Matrix4, Vector3, Vector4, type PerspectiveCamera } from 'three';
 import { app, registerOperators } from '../../app/app';
 import { renderContext } from '../context';
 import { RenderScene, type BuildOptions } from './renderscene';
@@ -7,9 +7,10 @@ import { RasterRenderer, Accumulator, effectsFrom } from './raster';
 import { PathTracerCore } from './pathtracer';
 import { Denoiser } from './denoise';
 import { floatTarget, normalDepthMaterial, renderOverride, renderAlbedo } from './gbuffer';
-import { renderCamera, viewportCameraForAspect, jitterProjection } from './camera';
-import { renderSize, frameList, jitter, shutterOffset, formatTime, frameFileName } from './units';
-import { renderResult, passToRGBA8, encodeRGBA8, download, toBW, EXT, renderPostHooks, type RenderResult, type FileFormat, type PassName } from './result';
+import { renderCamera, viewportCameraForAspect, jitterProjection, cameraDof, apertureSample, apertureJitter, regionRect, cropProjection, type PixelRect } from './camera';
+import { renderSize, frameList, jitter, halton, shutterOffset, formatTime, frameFileName, filmTransparent, tileCount, expandRegion } from './units';
+import { filterTable, sampleFilter } from './filter';
+import { renderResult, passToRGBA8, encodeRGBA8, download, toBW, EXT, MIME, renderPostHooks, PASS_CHANNELS, type RenderResult, type FileFormat, type PassName } from './result';
 import { studioEquirect } from './environment';
 import { ZipWriter } from './zip';
 import { createVideoWriter, type VideoWriter } from './webm';
@@ -18,9 +19,14 @@ import { defaultOverlay, defaultShading, type Shading } from '../../editors/view
 import { NavCamera } from '../navcam';
 import { activeView3D, type View3D } from '../../editors/view3d/view3d';
 import { showRenderView } from './renderwindow';
-import { shell } from '../../ui/shell';
+import { shell, statusWidgets } from '../../ui/shell';
+import { h } from '../../ui/h';
+import { icon } from '../../ui/icons';
 import type { ViewSettings } from './colormanage';
 import { passesFromGuide } from './passes';
+import { stampFields, burnStampOverlay, pngWithText } from './stamp';
+import { animationRecorder } from './playback';
+import { extraPasses, wantsExtraPasses } from './extrapasses';
 
 type Source = { kind: 'final' } | { kind: 'viewport'; view: View3D };
 
@@ -52,6 +58,7 @@ export interface JobState {
   started: number;
   phase: string;
   cancelled: boolean;
+  animation: boolean;
 }
 
 let job: JobState | null = null;
@@ -78,7 +85,7 @@ export async function renderSceneForJob(W: number, H: number, cameraId?: string 
   const prev = sc.camera;
   if (cameraId) sc.camera = cameraId;
   try {
-    return await renderFrame({ kind: 'final' }, W, H, () => {});
+    return await renderFrame({ kind: 'final' }, W, H, () => {}, null);
   } finally {
     sc.camera = prev;
   }
@@ -116,6 +123,25 @@ function statusText() {
   if (job.maxSamples > 1) parts.push(`Sample ${Math.min(job.sample, job.maxSamples)}/${job.maxSamples}`);
   return parts.join(' | ');
 }
+
+/** Overall progress of the running job (0..1). */
+export function jobProgress(j: JobState): number {
+  const frame = j.maxSamples > 0 ? Math.min(1, j.sample / j.maxSamples) : 0;
+  return Math.min(1, (j.frameIndex + frame) / Math.max(1, j.frameCount));
+}
+
+// progress bar with a cancel button in the status bar while a job runs
+statusWidgets.push(() =>
+  job
+    ? h(
+        'span',
+        { key: 'render-job', class: 'sb-job', 'data-tip': statusText() },
+        h('span', { class: 'sb-job-label' }, job.animation ? 'Render Animation' : 'Render'),
+        h('span', { class: 'sb-job-bar' }, h('span', { class: 'sb-job-fill', style: { width: `${(jobProgress(job) * 100).toFixed(1)}%` } })),
+        h('button', { class: 'sb-job-cancel', 'data-tip': 'Cancel the render (Esc)', onclick: () => cancelRender() }, icon('x')),
+      )
+    : null,
+);
 
 function check() {
   if (job?.cancelled) throw new Cancelled();
@@ -163,19 +189,24 @@ function saveState(renderer: WebGLRenderer) {
   };
 }
 
+
 // ---------------------------------------------------------------------------
 // frame rendering
 
-function cameraFor(src: Source, W: number, H: number): Camera | null {
-  if (src.kind === 'final') return renderCamera(app, W, H);
-  const v = src.view;
-  if (v.cameraView && app.doc.scene.camera) return renderCamera(app, W, H);
-  const nc = new NavCamera();
-  nc.load(v.nav.serialize());
-  nc.autoPersp = v.nav.autoPersp;
-  nc.resize(W, H);
-  nc.update();
-  return viewportCameraForAspect(nc.camera, W / H);
+function cameraFor(src: Source, W: number, H: number, region: PixelRect | null): Camera | null {
+  let cam: Camera | null;
+  if (src.kind === 'final' || (src.view.cameraView && app.doc.scene.camera)) cam = renderCamera(app, W, H);
+  else {
+    const v = src.view;
+    const nc = new NavCamera();
+    nc.load(v.nav.serialize());
+    nc.autoPersp = v.nav.autoPersp;
+    nc.resize(W, H);
+    nc.update();
+    cam = viewportCameraForAspect(nc.camera, W / H);
+  }
+  if (cam && region) cropProjection(cam, region, W, H);
+  return cam;
 }
 
 function engineFor(src: Source): 'RASTER' | 'PATHTRACE' | 'WORKBENCH' {
@@ -184,9 +215,11 @@ function engineFor(src: Source): 'RASTER' | 'PATHTRACE' | 'WORKBENCH' {
   return e === 'SOLID' ? 'WORKBENCH' : e;
 }
 
+
 function buildOptions(src: Source, mode: 'raster' | 'pathtrace'): BuildOptions {
   const r = app.doc.scene.render;
-  if (src.kind === 'final') return { mode, final: true, filmTransparent: r.film_transparent };
+  const realtime = mode === 'raster' ? { lightScale: r.direct_light_intensity ?? 1, envScale: r.indirect_light_intensity ?? 1 } : {};
+  if (src.kind === 'final') return { mode, final: true, filmTransparent: filmTransparent(r), hideSurfaces: r.use_solid === false, ...realtime };
   const sh = src.view.shading;
   const ctx = renderContext!;
   return {
@@ -197,6 +230,7 @@ function buildOptions(src: Source, mode: 'raster' | 'pathtrace'): BuildOptions {
     useSceneWorld: sh.use_scene_world_render,
     studio: sh.use_scene_world_render ? null : mode === 'pathtrace' ? { texture: studioEquirect(), intensity: sh.studiolight_intensity } : { texture: ctx.studio(), intensity: sh.studiolight_intensity },
     filmTransparent: r.film_transparent,
+    ...realtime,
   };
 }
 
@@ -209,17 +243,22 @@ function evaluateAt(frame: number) {
   app.evaluate();
 }
 
-async function renderFrame(src: Source, W: number, H: number, onPartial: (buf: Float32Array, samples: number) => void): Promise<FrameOutput> {
+
+async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf: Float32Array, samples: number) => void, region: PixelRect | null): Promise<FrameOutput> {
   const ctx = renderContext!;
   const renderer = ctx.engine.renderer;
   const doc = app.doc;
   const r = doc.scene.render;
   const engine = engineFor(src);
-  let camera = cameraFor(src, W, H);
+  // the render region renders only its pixels (the frame camera's projection is cropped)
+  const W = region?.w ?? FW,
+    H = region?.h ?? FH;
+  let camera = cameraFor(src, FW, FH, region);
   if (!camera) throw new Error('No camera found in scene');
   const restore = saveState(renderer);
+  const transparent = filmTransparent(r);
   const passesWanted = { z: r.use_pass_z, normal: r.use_pass_normal, mist: r.use_pass_mist };
-  const needGuide = passesWanted.z || passesWanted.normal || passesWanted.mist || (engine === 'WORKBENCH' && r.film_transparent);
+  const needGuide = passesWanted.z || passesWanted.normal || passesWanted.mist || (engine === 'WORKBENCH' && transparent);
   try {
     let combined: Float32Array;
     let samples = 1,
@@ -233,11 +272,16 @@ async function renderFrame(src: Source, W: number, H: number, onPartial: (buf: F
       const core = (finalCore ??= new PathTracerCore(renderer));
       core.applySettings(r);
       core.setSize(W, H);
-      const tiles = Math.max(1, Math.ceil(Math.sqrt((W * H) / (640 * 640))));
-      core.setTiles(tiles, tiles);
+      core.setTiles(...tileCount(r, W, H));
       core.sync(rs, camera, Math.random());
       core.reset();
       maxSamples = Math.max(1, src.kind === 'final' ? r.samples : r.preview_samples);
+      const timeLimit = src.kind === 'final' ? Math.max(0, r.time_limit ?? 0) : 0;
+      const exposure = r.film_exposure ?? 1;
+      const scale = (buf: Float32Array) => {
+        if (exposure !== 1) for (let i = 0; i < buf.length; i += 4) (buf[i] *= exposure), (buf[i + 1] *= exposure), (buf[i + 2] *= exposure);
+        return buf;
+      };
       job!.maxSamples = maxSamples;
       job!.phase = 'Compiling shaders';
       progress(true);
@@ -249,29 +293,62 @@ async function renderFrame(src: Source, W: number, H: number, onPartial: (buf: F
         core.sample();
       }
       job!.phase = 'Path Tracing';
+      const traceStart = performance.now();
+      // motion blur: the shutter interval is split into time slices, each traced with its share
+      // of the samples and averaged
+      const motion = r.use_motion_blur && src.kind === 'final' && r.motion_blur_shutter > 0;
+      const slices = motion ? Math.max(2, Math.min(32, Math.round(Math.sqrt(maxSamples) * 1.5))) : 1;
+      const frame = doc.scene.frame_current + (doc.scene.frame_subframe ?? 0);
+      const opts = buildOptions(src, 'pathtrace');
+      if (motion) accum.reset(W, H);
+      let done = 0;
       let batch = 1;
       let lastPreview = performance.now();
       let previewCost = 100;
       let last = performance.now();
-      while (core.samples < maxSamples) {
-        check();
-        for (let i = 0; i < batch && core.samples < maxSamples; i++) core.sample();
-        job!.sample = core.samples;
-        const now = performance.now();
-        if (now - lastPreview > Math.max(700, previewCost * 6)) {
-          onPartial(readFloat(renderer, core.renderTarget, W, H), core.samples);
-          lastPreview = performance.now();
-          previewCost = lastPreview - now;
+      let timeUp = false;
+      for (let sl = 0; sl < slices && !timeUp; sl++) {
+        const target = Math.max(1, Math.round((maxSamples * (sl + 1)) / slices) - Math.round((maxSamples * sl) / slices));
+        if (motion) {
+          evaluateAt(frame + shutterOffset(sl, slices, r.motion_blur_shutter, r.motion_blur_position ?? 'CENTER'));
+          rs.build(app, opts);
+          camera = cameraFor(src, FW, FH, region) ?? camera;
+          core.sync(rs, camera, Math.random());
+          core.reset();
         }
-        progress();
-        await nextFrame();
-        const dt = performance.now() - last;
-        last = performance.now();
-        if (dt < 34) batch = Math.min(64, batch + 1);
-        else if (dt > 70 && batch > 1) batch--;
+        while (core.samples < target) {
+          check();
+          for (let i = 0; i < batch && core.samples < target; i++) core.sample();
+          job!.sample = done + core.samples;
+          const now = performance.now();
+          if (timeLimit > 0 && (now - traceStart) / 1000 >= timeLimit * ((sl + 1) / slices) && core.samples > 0) {
+            timeUp = sl === slices - 1 || (now - traceStart) / 1000 >= timeLimit;
+            break;
+          }
+          if (now - lastPreview > Math.max(700, previewCost * 6)) {
+            onPartial(scale(readFloat(renderer, core.renderTarget, W, H)), done + core.samples);
+            lastPreview = performance.now();
+            previewCost = lastPreview - now;
+          }
+          progress();
+          await nextFrame();
+          const dt = performance.now() - last;
+          last = performance.now();
+          if (dt < 34) batch = Math.min(64, batch + 1);
+          else if (dt > 70 && batch > 1) batch--;
+        }
+        done += core.samples;
+        if (motion) accum.add(renderer, core.texture);
       }
-      samples = core.samples;
-      let resultRT: WebGLRenderTarget = core.renderTarget;
+      if (motion) {
+        evaluateAt(frame);
+        rs.build(app, opts);
+        camera = cameraFor(src, FW, FH, region) ?? camera;
+      }
+      samples = done;
+      if (timeLimit > 0 && samples < maxSamples) maxSamples = samples;
+      const source = motion ? accum.target : core.renderTarget;
+      let resultRT: WebGLRenderTarget = source;
       const denoise = src.kind === 'final' ? r.use_denoising : r.preview_denoising !== false;
       if (denoise) {
         job!.phase = 'Denoising';
@@ -282,12 +359,12 @@ async function renderFrame(src: Source, W: number, H: number, onPartial: (buf: F
         renderer.shadowMap.enabled = false;
         renderOverride(renderer, rs.scene, camera, guide, normalDepthMaterial);
         renderAlbedo(renderer, rs.scene, camera, albedo);
-        denoiser.run(renderer, core.texture, guide.texture, albedo.texture, W, H, samples);
+        denoiser.run(renderer, source.texture, guide.texture, albedo.texture, W, H, samples);
         resultRT = denoiser.out!;
         guide.dispose();
         albedo.dispose();
       }
-      combined = readFloat(renderer, resultRT, W, H);
+      combined = scale(readFloat(renderer, resultRT, W, H));
     } else if (engine === 'RASTER') {
       const rs = new RenderScene('raster');
       const opts = buildOptions(src, 'raster');
@@ -299,20 +376,34 @@ async function renderFrame(src: Source, W: number, H: number, onPartial: (buf: F
       job!.phase = 'Rendering';
       accum.reset(W, H);
       const motion = r.use_motion_blur && src.kind === 'final' && r.motion_blur_shutter > 0;
-      const frame = doc.scene.frame_current;
-      let base = (camera as PerspectiveCamera).projectionMatrix.clone();
+      const frame = doc.scene.frame_current + (doc.scene.frame_subframe ?? 0);
       const fx = effectsFrom(r);
+      fx.transparent = transparent;
+      const table = filterTable('BLACKMAN_HARRIS', r.filter_size ?? 1.5);
+      const lookThrough = src.kind === 'final' || src.view.cameraView;
+      const dofFor = () => (lookThrough && r.use_bokeh_jittered !== false ? cameraDof(app) : null);
+      let dof = dofFor();
+      let base = (camera as PerspectiveCamera).projectionMatrix.clone();
+      let basePos = camera.position.clone();
       let last = performance.now();
       for (let i = 0; i < maxSamples; i++) {
         check();
         if (motion) {
-          evaluateAt(frame + shutterOffset(i, maxSamples, r.motion_blur_shutter));
+          evaluateAt(frame + shutterOffset(i, maxSamples, r.motion_blur_shutter, r.motion_blur_position ?? 'CENTER'));
           rs.build(app, opts);
-          camera = renderCamera(app, W, H) ?? camera;
+          camera = cameraFor(src, FW, FH, region) ?? camera;
           base = (camera as PerspectiveCamera).projectionMatrix.clone();
+          basePos = camera.position.clone();
+          dof = dofFor();
         }
-        const [jx, jy] = jitter(i);
-        jitterProjection(camera, base, jx, jy, W, H);
+        // sub-pixel offset distributed like the pixel filter
+        const jx = i === 0 ? 0 : sampleFilter(table, halton(i + 1, 2)),
+          jy = i === 0 ? 0 : sampleFilter(table, halton(i + 1, 3));
+        if (dof && maxSamples > 1) {
+          const [ax, ay] = apertureSample(halton(i + 1, 5), halton(i + 1, 7), dof.blades, dof.rotation, dof.ratio);
+          apertureJitter(camera, basePos, base, ax * dof.radius, ay * dof.radius, dof.focus);
+          jitterProjection(camera, (camera as PerspectiveCamera).projectionMatrix.clone(), jx, jy, W, H);
+        } else jitterProjection(camera, base, jx, jy, W, H);
         const tex = raster.render(renderer, rs.scene, camera, W, H, fx);
         accum.add(renderer, tex);
         job!.sample = i + 1;
@@ -325,13 +416,17 @@ async function renderFrame(src: Source, W: number, H: number, onPartial: (buf: F
       if (motion) {
         evaluateAt(frame);
         rs.build(app, opts);
-        camera = renderCamera(app, W, H) ?? camera;
-      } else jitterProjection(camera, base, 0, 0, W, H);
+        camera = cameraFor(src, FW, FH, region) ?? camera;
+      } else {
+        camera.position.copy(basePos);
+        camera.updateMatrixWorld(true);
+        jitterProjection(camera, base, 0, 0, W, H);
+      }
       samples = maxSamples;
       combined = readFloat(renderer, accum.target, W, H);
     } else {
       // workbench: the viewport's own drawing code with overlays disabled
-      const shading: Shading = src.kind === 'viewport' ? { ...src.view.shading } : { ...defaultShading(), background_type: 'WORLD' };
+      const shading: Shading = src.kind === 'viewport' ? { ...src.view.shading } : { ...defaultShading(), background_type: 'WORLD', ...(r.display_shading ?? {}) };
       if (shading.type === 'RENDERED') shading.type = 'MATERIAL';
       const nav = new NavCamera();
       if (src.kind === 'viewport') nav.load(src.view.nav.serialize());
@@ -385,9 +480,9 @@ async function renderFrame(src: Source, W: number, H: number, onPartial: (buf: F
       const ortho = !!(camera as unknown as { isOrthographicCamera?: boolean }).isOrthographicCamera;
       Object.assign(
         passes,
-        passesFromGuide(g, W, H, (camera as PerspectiveCamera).projectionMatrixInverse.elements, ortho, { start: world?.mist_start ?? 5, depth: world?.mist_depth ?? 25 }, passesWanted),
+        passesFromGuide(g, W, H, (camera as PerspectiveCamera).projectionMatrixInverse.elements, ortho, { start: world?.mist_start ?? 5, depth: world?.mist_depth ?? 25, falloff: world?.mist_falloff }, passesWanted),
       );
-      if (engine === 'WORKBENCH' && r.film_transparent) {
+      if (engine === 'WORKBENCH' && transparent) {
         for (let i = 0; i < W * H; i++) {
           const a = g[i * 4 + 3] > 0 ? 1 : 0;
           combined[i * 4] *= a;
@@ -397,8 +492,9 @@ async function renderFrame(src: Source, W: number, H: number, onPartial: (buf: F
         }
       }
     }
+    if (src.kind === 'final' && wantsExtraPasses(r)) Object.assign(passes, extraPasses(renderer, guideScene, camera, W, H, r, doc));
     guideScene.dispose();
-    if (!(engine === 'WORKBENCH' && r.film_transparent) && !r.film_transparent) for (let i = 3; i < combined.length; i += 4) combined[i] = 1;
+    if (!transparent) for (let i = 3; i < combined.length; i += 4) combined[i] = 1;
     return { combined, passes, samples, maxSamples, view };
   } finally {
     restore();
@@ -416,7 +512,7 @@ function newResult(W: number, H: number, src: Source): RenderResult {
     width: W,
     height: H,
     passes: { Combined: new Float32Array(W * H * 4) },
-    filmTransparent: doc.scene.render.film_transparent,
+    filmTransparent: filmTransparent(doc.scene.render),
     info: {
       frame: doc.scene.frame_current,
       time: 0,
@@ -429,6 +525,21 @@ function newResult(W: number, H: number, src: Source): RenderResult {
   };
 }
 
+let lockEl: HTMLElement | null = null;
+
+/** Render ▸ Lock Interface: block editing while a render runs (Esc still cancels). */
+function lockInterface(on: boolean) {
+  if (on && !lockEl && typeof document !== 'undefined') {
+    lockEl = document.createElement('div');
+    lockEl.className = 'render-lock';
+    lockEl.title = 'The interface is locked while rendering (Render ▸ Lock Interface)';
+    document.body.append(lockEl);
+  } else if (!on && lockEl) {
+    lockEl.remove();
+    lockEl = null;
+  }
+}
+
 function beginModal(label: string) {
   app.startModal({
     label,
@@ -439,8 +550,8 @@ function beginModal(label: string) {
         if (e.type === 'keydown' && job) job.cancelled = true;
         return true;
       }
-      // other keys keep working in text fields while rendering
-      return false;
+      // other keys keep working in text fields while rendering (unless the interface is locked)
+      return !!lockEl;
     },
     cancel: () => {
       if (job) job.cancelled = true;
@@ -462,6 +573,24 @@ export interface RenderOptions {
   viewport: View3D | null;
 }
 
+/** Text metadata of a frame (Output ▸ Metadata) and the burnt-in overlay when enabled. */
+function applyMetadata(result: RenderResult, frame: number, time: number) {
+  const r = app.doc.scene.render;
+  const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize;
+  result.metadata = stampFields(r, { doc: app.doc, frame, renderTime: time, filename: app.filename, now: new Date(), hostname: typeof location !== 'undefined' ? location.hostname : undefined, memory: mem });
+  result.overlay = r.use_stamp ? burnStampOverlay(result.metadata, r, result.width, result.height) ?? undefined : undefined;
+}
+
+/** Encode the Combined pass of a result as an image file (with metadata text for PNG). */
+export async function encodeResult(result: RenderResult, format: FileFormat, opts: { colorMode: 'BW' | 'RGB' | 'RGBA'; quality?: number; view?: ViewSettings; dither?: number }): Promise<Uint8Array> {
+  const keepAlpha = opts.colorMode === 'RGBA' && result.filmTransparent && format !== 'JPEG';
+  let px = passToRGBA8(result, 'Combined', 'COLOR_ALPHA', opts.view ?? app.doc.scene.render, { keepAlpha, dither: opts.dither });
+  if (opts.colorMode === 'BW') px = toBW(px);
+  let bytes = await encodeRGBA8(px, result.width, result.height, format, { alpha: keepAlpha, quality: opts.quality });
+  if (format === 'PNG' && result.metadata?.length) bytes = pngWithText(bytes, result.metadata.map((f) => [f.key, f.value]));
+  return bytes;
+}
+
 /** Start a render job (still or animation). */
 export async function startRender(o: RenderOptions): Promise<boolean> {
   if (job) return false;
@@ -478,10 +607,18 @@ export async function startRender(o: RenderOptions): Promise<boolean> {
   }
   const doc = app.doc;
   const r = doc.scene.render;
-  const [W, H] = renderSize(r);
+  if (src.kind === 'final' && !seqHook && r.use_view_layer === false) {
+    app.report('ERROR', 'The view layer is disabled for rendering (View Layer ▸ Use for Rendering)');
+    return false;
+  }
+  const [FW, FH] = renderSize(r);
+  const region = src.kind === 'final' && !seqHook ? regionRect(r, FW, FH) : null;
+  const crop = !!region && !!r.use_crop_to_border;
+  const W = crop ? region.w : FW,
+    H = crop ? region.h : FH;
   const maxTex = ctx.engine.renderer.capabilities.maxTextureSize;
-  if (W > maxTex || H > maxTex) {
-    app.report('ERROR', `Render size ${W}×${H} exceeds the GPU limit of ${maxTex} px`);
+  if (FW > maxTex || FH > maxTex) {
+    app.report('ERROR', `Render size ${FW}×${FH} exceeds the GPU limit of ${maxTex} px`);
     return false;
   }
   const frames = o.animation ? frameList(doc.scene) : [doc.scene.frame_current];
@@ -491,14 +628,24 @@ export async function startRender(o: RenderOptions): Promise<boolean> {
   }
   const origFrame = doc.scene.frame_current;
   const origSub = doc.scene.frame_subframe ?? 0;
-  job = { frame: frames[0], frameIndex: 0, frameCount: frames.length, sample: 0, maxSamples: 1, started: performance.now(), phase: '', cancelled: false };
+  job = { frame: frames[0], frameIndex: 0, frameCount: frames.length, sample: 0, maxSamples: 1, started: performance.now(), phase: '', cancelled: false, animation: o.animation };
   const result = newResult(W, H, src);
   if (seqHook) result.info.engine = 'Sequencer';
   renderResult.set(result);
   showRenderView();
   beginModal(o.viewport ? 'Viewport Render' : 'Render');
+  if (r.use_lock_interface) lockInterface(true);
+  // final renders evaluate the scene with render settings (render levels, render visibility, simplify)
+  const finalEval = src.kind === 'final';
+  if (finalEval) {
+    app.graph.render = true;
+    app.evaluate();
+  }
   progress(true);
   await nextFrame();
+
+  // place a region render into the frame (transparent outside), or keep it cropped
+  const place = (buf: Float32Array, ch: number) => (region && !crop ? expandRegion(buf, ch, region, FW, FH) : buf);
 
   // animation output
   const format = r.file_format;
@@ -509,9 +656,11 @@ export async function startRender(o: RenderOptions): Promise<boolean> {
   frameCanvas.height = H;
   let ok = true;
   let rendered = 0;
+  const fps = r.fps / (r.fps_base || 1);
   try {
     if (o.animation) {
-      if (format === 'WEBM') video = (seqHook?.createVideoWriter ? await seqHook.createVideoWriter(W, H, r.fps / (r.fps_base || 1), frames) : null) ?? (await createVideoWriter(W, H, r.fps / (r.fps_base || 1)));
+      animationRecorder.begin(fps, W, H);
+      if (format === 'WEBM') video = (seqHook?.createVideoWriter ? await seqHook.createVideoWriter(W, H, fps, frames) : null) ?? (await createVideoWriter(W, H, fps, r.quality ?? 90));
       else zip = new ZipWriter();
     }
     for (let k = 0; k < frames.length; k++) {
@@ -521,32 +670,46 @@ export async function startRender(o: RenderOptions): Promise<boolean> {
       job.sample = 0;
       if (o.animation || f !== doc.scene.frame_current) evaluateAt(f);
       const t0 = performance.now();
-      const out = seqHook ? { passes: {}, samples: 1, maxSamples: 1, ...(await seqHook.renderFrame!(f, W, H)) } : await renderFrame(src, W, H, (buf, n) => {
-        result.passes = { Combined: buf };
-        result.info.samples = n;
-        renderResult.touch();
-        progress(true);
-      });
-      result.passes = { Combined: out.combined, ...out.passes };
-      result.info = { ...result.info, frame: f, samples: out.samples, maxSamples: out.maxSamples, time: (performance.now() - (o.animation ? t0 : job.started)) / 1000 };
+      const out = seqHook
+        ? { passes: {}, samples: 1, maxSamples: 1, ...(await seqHook.renderFrame!(f, W, H)) }
+        : await renderFrame(
+            src,
+            FW,
+            FH,
+            (buf, n) => {
+              result.passes = { Combined: place(buf, 4) };
+              result.info.samples = n;
+              renderResult.touch();
+              progress(true);
+            },
+            region,
+          );
+      const passes: Partial<Record<PassName, Float32Array>> = {};
+      for (const [name, buf] of Object.entries(out.passes) as [PassName, Float32Array][]) passes[name] = place(buf, PASS_CHANNELS[name]);
+      result.passes = { Combined: place(out.combined, 4), ...passes };
+      const time = (performance.now() - (o.animation ? t0 : job.started)) / 1000;
+      result.info = { ...result.info, frame: f, samples: out.samples, maxSamples: out.maxSamples, time };
       result.view = out.view;
+      result.viewLayer = undefined;
       if (!seqHook) for (const hook of renderPostHooks) await hook(result, { final: src.kind === 'final' });
+      if (src.kind === 'final') applyMetadata(result, f, time);
       rendered++;
       renderResult.touch();
       progress(true);
       if (o.animation) {
         const view = out.view ?? doc.scene.render;
-        const keepAlpha = r.color_mode === 'RGBA' && r.film_transparent && format !== 'WEBM' && format !== 'JPEG';
-        let px = passToRGBA8(result, 'Combined', 'COLOR_ALPHA', view, { keepAlpha, dither: r.dither_intensity });
-        if (r.color_mode === 'BW') px = toBW(px);
         if (video) {
+          const keepAlpha = false;
+          let px = passToRGBA8(result, 'Combined', 'COLOR_ALPHA', view, { keepAlpha, dither: r.dither_intensity });
+          if (r.color_mode === 'BW') px = toBW(px);
           const c2 = frameCanvas.getContext('2d')!;
           c2.putImageData(new ImageData(new Uint8ClampedArray(px), W, H), 0, 0);
           await video.addFrame(frameCanvas, k);
         } else if (zip) {
           const fmt = format as FileFormat;
-          const bytes = await encodeRGBA8(px, W, H, fmt, { alpha: keepAlpha });
-          zip.add(frameFileName(r.filepath, f, EXT[fmt]), bytes);
+          const bytes = await encodeResult(result, fmt, { colorMode: r.color_mode, quality: (r.quality ?? 90) / 100, view, dither: r.dither_intensity });
+          zip.add(frameFileName(r.filepath, f, EXT[fmt], r.use_file_extension !== false), bytes);
+          animationRecorder.addFrame(f, bytes, MIME[fmt]);
         }
       }
       await nextFrame();
@@ -563,25 +726,32 @@ export async function startRender(o: RenderOptions): Promise<boolean> {
   result.rendering = false;
   result.info.status = undefined;
   if (!o.animation) result.info.time = total;
-  // restore the scene frame
-  if (o.animation || doc.scene.frame_current !== origFrame || (doc.scene.frame_subframe ?? 0) !== origSub) {
+  if (finalEval) app.graph.render = false;
+  // restore the scene frame (and the viewport evaluation)
+  if (finalEval || o.animation || doc.scene.frame_current !== origFrame || (doc.scene.frame_subframe ?? 0) !== origSub) {
     doc.scene.frame_current = origFrame;
     doc.scene.frame_subframe = origSub;
     app.changed('frame');
   }
   job = null;
+  lockInterface(false);
   endModal();
   // write animation output (also the frames finished before a cancel)
   if (o.animation && rendered > 0) {
     const base = `${doc.scene.name || 'render'}_${frames[0]}-${frames[Math.min(rendered, frames.length) - 1]}`;
     try {
-      if (video) download(await video.finish(), `${base}.webm`, 'video/webm');
-      else if (zip) download(new Blob(zip.finish() as BlobPart[], { type: 'application/zip' }), `${base}.zip`, 'application/zip');
+      if (video) {
+        const blob = await video.finish();
+        animationRecorder.setVideo(blob);
+        download(blob, `${base}.webm`, 'video/webm');
+      } else if (zip) download(new Blob(zip.finish() as BlobPart[], { type: 'application/zip' }), `${base}.zip`, 'application/zip');
     } catch (e) {
       app.report('ERROR', `Could not write the animation: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
+  if (o.animation) animationRecorder.finish();
   renderResult.touch();
+  shellStatus();
   if (cancelled) app.report('WARNING', o.animation ? `Render cancelled after ${rendered} frame${rendered === 1 ? '' : 's'}` : 'Render cancelled');
   else if (ok) app.report('INFO', o.animation ? `Rendered ${rendered} frames in ${formatTime(total)}` : `Render finished in ${formatTime(total)}`);
   return ok && !cancelled;
@@ -637,4 +807,4 @@ registerOperators([
   },
 ]);
 
-export type { Matrix4 };
+export type { Matrix4, Vector3 };
