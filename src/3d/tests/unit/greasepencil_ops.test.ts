@@ -673,3 +673,14 @@ describe('vertex weight modifiers', () => {
     expect(inv[0].points[1].weights!.W).toBeCloseTo(0.2);
   });
 });
+
+describe('envelope and hook', () => {
+  it('envelope adds spread segments', () => {
+    setApp(new App(startupDocument()));
+    const c = { doc: app.doc, ob: app.activeObject!, gp: newGreasePencil(), layer: newLayer(), layerIndex: 0, frame: 1, keyFrame: 1, nextKeyFrame: null, prevStrokeCount: 0, world: new Matrix4() };
+    const out = kernels.GREASE_PENCIL_ENVELOPE([line([0, 1, 2, 3, 4])], { spread: 2 }, c);
+    expect(out.length).toBe(1 + 3);
+    expect(xs(out[1].points)).toEqual([0, 2]);
+    expect(kernels.GREASE_PENCIL_ENVELOPE([line([0, 1, 2, 3, 4])], { spread: 2, mode: 'FILLS' }, c)[1].cyclic).toBe(true);
+  });
+});

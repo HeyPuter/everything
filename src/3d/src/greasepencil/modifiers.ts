@@ -433,6 +433,29 @@ export const kernels: Record<string, Kernel> = {
 
   GREASE_PENCIL_BUILD: (ss, m, c) => buildStrokes(ss, m, c),
 
+  GREASE_PENCIL_ENVELOPE: (ss, m) => {
+    // strokes between points `spread` apart: lines (Segments) or filled quads (Fills)
+    const spread = Math.max(1, Math.round(num(m, 'spread', 10)));
+    const skip = Math.max(0, Math.round(num(m, 'skip', 0)));
+    const fills = str(m, 'mode', 'SEGMENTS') === 'FILLS';
+    const mat = Math.round(num(m, 'mat_nr', -1));
+    const th = num(m, 'thickness', 1),
+      st = num(m, 'strength', 1);
+    const out: GPStroke[] = [];
+    for (const s of ss) {
+      const P = s.points;
+      const n = P.length;
+      const last = s.cyclic ? n : n - spread;
+      for (let i = 0; i < last; i += 1 + skip) {
+        const j = (i + spread) % n;
+        const scale = (p: GPPoint) => ({ ...clonePt(p), select: false, radius: p.radius * th, opacity: p.opacity * st });
+        const pts = fills ? [P[i], P[(i + 1) % n], P[(j + 1) % n], P[j]].map(scale) : [scale(P[i]), scale(P[j])];
+        out.push({ ...s, points: pts, cyclic: fills, fill_id: 0, material_index: mat >= 0 ? mat : s.material_index });
+      }
+    }
+    return [...ss, ...out];
+  },
+
   GREASE_PENCIL_VERTEX_WEIGHT_PROXIMITY: (ss, m, c) => {
     const target = str(m, 'target_vertex_group');
     const ob = typeof m.object === 'string' ? app.graph.get(m.object as string) : null;
@@ -469,6 +492,8 @@ export const kernels: Record<string, Kernel> = {
   },
 
   GREASE_PENCIL_LATTICE: (ss, m, c) => viaMeshModifier('LATTICE', { object: m.object, strength: num(m, 'strength', 1), vertex_group: '' }, ss, c),
+
+  GREASE_PENCIL_HOOK: (ss, m, c) => viaMeshModifier('HOOK', { object: m.object, strength: num(m, 'strength', 1), falloff_radius: num(m, 'falloff_radius', 0), center: vec(m, 'center'), matrix_inverse: m.matrix_inverse, vertex_indices: [] }, ss, c),
 
   GREASE_PENCIL_ARMATURE: (ss, m, c) => viaMeshModifier('ARMATURE', { object: m.object, use_vertex_groups: true, use_deform_preserve_volume: bool(m, 'use_deform_preserve_volume') }, ss, c, true),
 
@@ -658,7 +683,7 @@ function passes(m: M, c: GPModContext, s: GPStroke | null): boolean {
 // vertex group influence: deforming / coloring modifiers act by each point's weight
 
 /** Modifiers that keep the points (their results can be blended per point). */
-export const WEIGHTED = new Set(['GREASE_PENCIL_THICKNESS', 'GREASE_PENCIL_OPACITY', 'GREASE_PENCIL_TINT', 'GREASE_PENCIL_NOISE', 'GREASE_PENCIL_OFFSET', 'GREASE_PENCIL_SMOOTH', 'GREASE_PENCIL_LATTICE', 'GREASE_PENCIL_SHRINKWRAP']);
+export const WEIGHTED = new Set(['GREASE_PENCIL_HOOK', 'GREASE_PENCIL_THICKNESS', 'GREASE_PENCIL_OPACITY', 'GREASE_PENCIL_TINT', 'GREASE_PENCIL_NOISE', 'GREASE_PENCIL_OFFSET', 'GREASE_PENCIL_SMOOTH', 'GREASE_PENCIL_LATTICE', 'GREASE_PENCIL_SHRINKWRAP']);
 
 /** Blend a kernel's result with the input by the points' group weights (unchanged when the topology differs). */
 export function weighByGroup(before: GPStroke[], after: GPStroke[], group: string, invert: boolean): GPStroke[] {
@@ -812,6 +837,7 @@ export const GP_MODIFIERS: Def[] = [
   { type: 'GREASE_PENCIL_ARRAY', label: 'Array', category: 'GENERATE', icon: 'mod_array', defaults: { count: 2, use_relative_offset: true, relative_offset: [1, 0, 0], use_constant_offset: false, constant_offset: [0, 0, 0], use_object_offset: false, offset_object: null, random_offset: [0, 0, 0], random_rotation: [0, 0, 0], random_scale: [0, 0, 0], use_uniform_random_scale: false, seed: 1, replace_material: 0 }, deps: (m) => [m.offset_object as string] },
   { type: 'GREASE_PENCIL_BUILD', label: 'Build', category: 'GENERATE', icon: 'mod_build', defaults: { mode: 'SEQUENTIAL', transition: 'GROW', time_mode: 'FRAMES', start_delay: 0, length: 100, concurrent_time_alignment: 'START', use_restrict_frame_range: false, frame_start: 1, frame_end: 125, percentage_factor: 0 } },
   { type: 'GREASE_PENCIL_DASH', label: 'Dot Dash', category: 'GENERATE', icon: 'mod_dash', defaults: { dash_offset: 0, segments: [{ name: 'Segment', dash: 2, gap: 1, radius: 1, opacity: 1, material_index: -1, use_cyclic: false }] } },
+  { type: 'GREASE_PENCIL_ENVELOPE', label: 'Envelope', category: 'GENERATE', icon: 'mod_envelope', defaults: { mode: 'SEGMENTS', spread: 10, skip: 0, thickness: 1, strength: 1, mat_nr: -1 } },
   { type: 'GREASE_PENCIL_LENGTH', label: 'Length', category: 'GENERATE', icon: 'mod_length', defaults: { mode: 'RELATIVE', start_factor: 0.1, end_factor: 0.1, start_length: 0.1, end_length: 0.1, use_random: false, random_start_factor: 0, random_end_factor: 0, seed: 0 } },
   { type: 'GREASE_PENCIL_MIRROR', label: 'Mirror', category: 'GENERATE', icon: 'mod_mirror', defaults: { use_axis_x: true, use_axis_y: false, use_axis_z: false, object: null }, deps: (m) => [m.object as string] },
   { type: 'GREASE_PENCIL_MULTIPLY', label: 'Multiple Strokes', category: 'GENERATE', icon: 'mod_multiply', defaults: { duplicates: 3, distance: 0.1, offset: 0, use_fade: false, fading_center: 0.5, fading_thickness: 0.5, fading_opacity: 0.5 } },
@@ -819,6 +845,7 @@ export const GP_MODIFIERS: Def[] = [
   { type: 'GREASE_PENCIL_SIMPLIFY', label: 'Simplify', category: 'GENERATE', icon: 'mod_simplify', defaults: { mode: 'FIXED', step: 1, factor: 0, length: 0.1, distance: 0.1 } },
   { type: 'GREASE_PENCIL_SUBDIV', label: 'Subdivide', category: 'GENERATE', icon: 'mod_subsurf', defaults: { level: 1, subdivision_type: 'CATMULL_CLARK' } },
   { type: 'GREASE_PENCIL_ARMATURE', label: 'Armature', category: 'DEFORM', icon: 'mod_armature', defaults: { object: null, use_vertex_groups: true, use_bone_envelopes: false, use_deform_preserve_volume: false }, deps: (m) => [m.object as string] },
+  { type: 'GREASE_PENCIL_HOOK', label: 'Hook', category: 'DEFORM', icon: 'hook', defaults: { object: null, strength: 1, falloff_radius: 0, center: [0, 0, 0], matrix_inverse: new Matrix4().toArray() }, deps: (m) => [m.object as string] },
   { type: 'GREASE_PENCIL_LATTICE', label: 'Lattice', category: 'DEFORM', icon: 'mod_lattice', defaults: { object: null, strength: 1 }, deps: (m) => [m.object as string] },
   { type: 'GREASE_PENCIL_NOISE', label: 'Noise', category: 'DEFORM', icon: 'mod_noise', defaults: { factor: 0.5, factor_strength: 0, factor_thickness: 0, noise_scale: 1, noise_offset: 0, use_random: true, random_mode: 'STEP', step: 4, seed: 1 } },
   { type: 'GREASE_PENCIL_OFFSET', label: 'Offset', category: 'DEFORM', icon: 'mod_offset', defaults: { offset_mode: 'RANDOM', location: [0, 0, 0], rotation: [0, 0, 0], scale: [0, 0, 0], stroke_location: [0, 0, 0], stroke_rotation: [0, 0, 0], stroke_scale: [0, 0, 0], seed: 0, stroke_step: 1, stroke_start_offset: 0, use_uniform_random_scale: false } },

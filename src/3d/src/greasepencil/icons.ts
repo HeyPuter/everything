@@ -95,6 +95,8 @@ registerIcons({
     '<circle class="f" cx="2.8" cy="7.5" r="2" opacity=".75"/><circle class="f" cx="13.2" cy="7.5" r="2" opacity=".75"/><circle class="s" cx="8" cy="8" r="5.5" fill="none" stroke-width="1.3"/><circle class="f" cx="6.2" cy="7" r=".9"/><circle class="f" cx="9.8" cy="7" r=".9"/><path class="s" d="M6 10.4c1.2 1 2.8 1 4 0" fill="none" stroke-width="1" stroke-linecap="round"/>',
   mod_vertex_weight:
     '<circle class="f" cx="4" cy="11.5" r="2" opacity=".35"/><circle class="f" cx="8" cy="8" r="2" opacity=".65"/><circle class="f" cx="12" cy="4.5" r="2"/><path class="s" d="M4 11.5 8 8l4-3.5" fill="none" stroke-width="1" opacity=".7"/>',
+  mod_envelope:
+    '<path class="s" d="M2 12C4 5 9 3 14 4" fill="none" stroke-width="1.5" stroke-linecap="round"/><path class="s" d="M2 12 9 3.6M4.4 8 14 4M3 10l8.8-6" fill="none" stroke-width=".8" opacity=".6"/>',
   gp_sculpt_randomize: '<path class="s" d="M1.5 10 3.5 6 5.5 11 7.5 4.5 9.5 10.5 11.5 5.5 14.5 9" fill="none" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/>',
   onionskin_on:
     '<circle class="s" cx="5.5" cy="8" r="3.6" fill="none" stroke-width="1" opacity=".45"/><circle class="s" cx="10.5" cy="8" r="3.6" fill="none" stroke-width="1" opacity=".45"/><circle class="f" cx="8" cy="8" r="3.6"/>',

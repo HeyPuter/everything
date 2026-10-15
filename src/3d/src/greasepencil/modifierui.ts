@@ -10,7 +10,7 @@ import type { ModifierBase, ObjectData } from '../data/types';
 import { gpOf, toStrokes, fromStrokes, normalizeDrawing } from './data';
 import { layerMatrix } from './render';
 import { GP_MODIFIERS, evaluateDrawing, activeModifiers, isGPModifier, WEIGHTED } from './modifiers';
-import { Matrix4 } from 'three';
+import { Matrix4, Vector3 } from 'three';
 
 type M = ModifierBase & Record<string, unknown>;
 const E = (...items: [string, string][]) => items;
@@ -183,6 +183,15 @@ const UI: Record<string, (ob: ObjectData, m: M) => Child> = {
     influence(ob, m),
   ],
   GREASE_PENCIL_DASH: (ob, m) => [num(m, 'dash_offset', 'Offset', { int: true }), dashSegments(m), influence(ob, m)],
+  GREASE_PENCIL_ENVELOPE: (ob, m) => [
+    enumProp(m, 'mode', 'Mode', E(['SEGMENTS', 'Segments'], ['FILLS', 'Fills'])),
+    num(m, 'spread', 'Spread Length', { int: true, min: 1, max: 1000 }),
+    num(m, 'thickness', 'Thickness', { min: 0, max: 10 }),
+    num(m, 'strength', 'Strength', { min: 0, max: 1, slider: true }),
+    num(m, 'skip', 'Skip Segments', { int: true, min: 0, max: 100 }),
+    num(m, 'mat_nr', 'Material Index', { int: true, min: -1, max: 255 }),
+    influence(ob, m),
+  ],
   GREASE_PENCIL_LENGTH: (ob, m) => [
     enumProp(m, 'mode', 'Mode', E(['RELATIVE', 'Relative'], ['ABSOLUTE', 'Absolute'])),
     m.mode === 'ABSOLUTE' ? [num(m, 'start_length', 'Start', { unit: 'distance' }), num(m, 'end_length', 'End', { unit: 'distance' })] : [num(m, 'start_factor', 'Start', { min: -10, max: 10 }), num(m, 'end_factor', 'End', { min: -10, max: 10 })],
@@ -218,6 +227,13 @@ const UI: Record<string, (ob: ObjectData, m: M) => Child> = {
     objectProp(m, 'object', 'Object', { filter: otherObject(ob, 'ARMATURE') }),
     bool(m, 'use_deform_preserve_volume', 'Preserve Volume'),
     h('div', { class: 'sub-label' }, 'Bones move the points of the vertex groups named after them'),
+  ],
+  GREASE_PENCIL_HOOK: (ob, m) => [
+    objectProp(m, 'object', 'Object', { filter: otherObject(ob), onChange: () => resetHook(ob, m) }),
+    num(m, 'strength', 'Strength', { min: 0, max: 1, slider: true }),
+    num(m, 'falloff_radius', 'Falloff Radius', { unit: 'distance', min: 0 }),
+    h('div', { class: 'btn-row' }, h('button', { class: 'btn', 'data-tip': 'Start following the hook object from where it is now', onclick: () => (resetHook(ob, m), changed('Reset Hook')) }, 'Reset'), h('button', { class: 'btn', 'data-tip': 'Center the falloff on the hook object', onclick: () => (recenterHook(ob, m), changed('Recenter Hook')) }, 'Recenter')),
+    influence(ob, m),
   ],
   GREASE_PENCIL_LATTICE: (ob, m) => [objectProp(m, 'object', 'Object', { filter: otherObject(ob, 'LATTICE') }), num(m, 'strength', 'Strength', { min: 0, max: 1, slider: true }), influence(ob, m)],
   GREASE_PENCIL_NOISE: (ob, m) => [
@@ -271,6 +287,18 @@ const UI: Record<string, (ob: ObjectData, m: M) => Child> = {
   GREASE_PENCIL_OPACITY: (ob, m) => [enumProp(m, 'color_mode', 'Mode', COLOR_MODES), bool(m, 'use_uniform_opacity', 'Uniform Opacity'), num(m, 'color_factor', 'Opacity Factor', { min: 0, max: 2, slider: true }), influence(ob, m)],
   GREASE_PENCIL_TINT: (ob, m) => [enumProp(m, 'color_mode', 'Mode', COLOR_MODES), num(m, 'factor', 'Factor', { min: 0, max: 1, slider: true }), colorProp(m, 'color', 'Color'), influence(ob, m)],
 };
+
+/** The hook starts from the object's current transform (no jump). */
+function resetHook(ob: ObjectData, m: M) {
+  const t = typeof m.object === 'string' ? app.graph.get(m.object) : null;
+  m.matrix_inverse = (t ? t.world.clone().invert() : new Matrix4()).toArray();
+  recenterHook(ob, m);
+}
+function recenterHook(ob: ObjectData, m: M) {
+  const t = typeof m.object === 'string' ? app.graph.get(m.object) : null;
+  const own = app.graph.get(ob.id)?.world ?? new Matrix4();
+  if (t) m.center = new Vector3().setFromMatrixPosition(t.world).applyMatrix4(own.clone().invert()).toArray();
+}
 
 function mirrorAxes(m: M): Child {
   const keys = ['use_axis_x', 'use_axis_y', 'use_axis_z'];
