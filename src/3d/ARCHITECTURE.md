@@ -174,6 +174,11 @@ adds entries to File ▸ Import/Export. Native format: `io/native.ts`.
   add entries to the right-click menu of menu items
 - `ui/props.ts` `propertyAnimMenuHook` (right-click menu of keyframe decorators), `anim/keyingsets.ts`
   `propertyAnimExtraItems`; `editors/properties/tabs.ts` `sceneKeyingPanel`, `armatureDataPanels`
+- Drivers: `anim/drivers.ts` evaluates variables and drivers (the depsgraph runs an object's drivers right
+  before its transform, after the objects they read); expressions compile in `anim/driverexpr.ts` (Python
+  subset, no globals). A driver's `fcurve` maps its value; the Drivers editor (`animation/driverseditor.ts`)
+  shows those curves through stand-in actions (`animation/drivercurves.ts`), settings UI in `driverpanel.ts`
+- Spreadsheet: `spreadsheet/data.ts` (sources, tables, columns), `filter.ts` (row filters, sorting, TSV; pure)
 - Animation editors (`animation/animeditor.ts`): `selectables()` feeds box/circle/lasso selection,
   `overlay` draws transient circle/lasso/slider readouts, `snapTo()`/`snapHeader()` snapping options;
   key-shaping logic lives in `animation/fcurvetools.ts` (pure) and its operators in `graphtools.ts`
