@@ -362,7 +362,7 @@ registerOperators([
     idname: 'image.resize',
     label: 'Resize Image',
     description: 'Scale the image to a new size in pixels',
-    props: [{ id: 'size', label: 'Size', type: 'vec2', default: [0, 0] }],
+    props: [{ id: 'size', label: 'Size', type: 'vec2', default: [0, 0], subtype: 'pixel' }],
     poll: imagePoll,
     invoke: (ctx) => {
       const img = view2D(ctx)!.shownImage()!;

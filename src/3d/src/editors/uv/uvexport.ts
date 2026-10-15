@@ -89,7 +89,7 @@ registerOperators([
     props: [
       { id: 'export_all', label: 'All UVs', type: 'bool', default: false },
       { id: 'mode', label: 'Format', type: 'enum', default: 'PNG', items: [['SVG', 'Scalable Vector Graphic (.svg)'], ['PNG', 'PNG Image (.png)']] },
-      { id: 'size', label: 'Size', type: 'vec2', default: [1024, 1024] },
+      { id: 'size', label: 'Size', type: 'vec2', default: [1024, 1024], subtype: 'pixel' },
       { id: 'opacity', label: 'Fill Opacity', type: 'float', default: 0.25, min: 0, max: 1, subtype: 'factor' },
       { id: 'filepath', label: 'File Name', type: 'string', default: '' },
     ],

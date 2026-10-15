@@ -25,6 +25,7 @@ import './uvops-select';
 import './uvops-edit';
 import './uvexport';
 import './uvicons';
+import './uvstyle';
 import './uvsculpt';
 
 export type UVTool = 'select' | 'select_box' | 'select_circle' | 'select_lasso' | 'cursor' | 'move' | 'rotate' | 'scale' | 'rip_region' | 'grab' | 'relax' | 'pinch';

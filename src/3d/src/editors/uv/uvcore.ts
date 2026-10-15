@@ -61,6 +61,7 @@ export class UVTopo {
   private _edges: Map<number, number[]> | null = null;
   private _islands: { faceIsland: Int32Array; count: number } | null = null;
   private _meshEdges: Map<number, number[]> | null = null;
+  private _byMeshVert: Map<number, number[]> | null = null;
 
   constructor(layer: UVLayer) {
     const me = layer.me;
@@ -231,10 +232,18 @@ export class UVTopo {
   stickyCorners(c: number, sticky: StickyMode): number[] {
     if (sticky === 'DISABLED') return [c];
     if (sticky === 'SHARED_VERTEX') {
-      const v = this.me.indices[c];
-      const out: number[] = [];
-      for (const f of this.faces) for (let k = this.me.offsets[f]; k < this.me.offsets[f + 1]; k++) if (this.me.indices[k] === v) out.push(k);
-      return out;
+      if (!this._byMeshVert) {
+        const m = new Map<number, number[]>();
+        for (const f of this.faces)
+          for (let k = this.me.offsets[f]; k < this.me.offsets[f + 1]; k++) {
+            const v = this.me.indices[k];
+            let l = m.get(v);
+            if (!l) m.set(v, (l = []));
+            l.push(k);
+          }
+        this._byMeshVert = m;
+      }
+      return this._byMeshVert.get(this.me.indices[c]) ?? [c];
     }
     return this.vertCorners[this.uvVert[c]];
   }

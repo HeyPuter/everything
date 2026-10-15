@@ -13,6 +13,7 @@ import type { ImageData as Img } from '../../data/types';
 import { renderResult, passToRGBA8, samplePixel, encodeRGBA8, canvasBytes, download, toBW, EXT, virtualImages, onVirtualImageChange, RENDER_SLOTS, type PassName, type ChannelMode, type FileFormat, type RenderResult } from './result';
 import { modifiedImages, type View2D } from './imageops';
 import { scopesPanel } from './scopes';
+import { lastOpPanel } from '../../ui/redo';
 import { formatTime } from './units';
 import type { ViewSettings } from './colormanage';
 
@@ -378,7 +379,7 @@ export class ImageEditor implements Editor, View2D {
       info.push(h('div', { class: 'ie-meta', key: 'meta' }, text));
     } else if (this.imageId === RENDER_RESULT) info.push(h('div', { class: 'ie-meta', key: 'meta' }, 'Render Result is empty: press F12 to render'));
     else if (this.imageId && virtualImages.has(this.imageId)) info.push(h('div', { class: 'ie-meta', key: 'meta' }, `${virtualImages.get(this.imageId)!.label} is empty`));
-    patch(this.ui, [...info, this.sampleBar(), this.showSidebar ? this.sidebar() : null]);
+    patch(this.ui, [...info, this.sampleBar(), this.showSidebar ? this.sidebar() : null, this.host.area ? lastOpPanel(this) : null]);
   }
 
   private sampleBar(): Child {

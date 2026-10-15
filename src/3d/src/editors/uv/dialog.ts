@@ -3,7 +3,7 @@ import { h } from '../../ui/h';
 import { app, operators, defaultProps, type AreaLike } from '../../app/app';
 import { openPopover } from '../../ui/menu';
 import { propWidget } from '../../ui/redo';
-import { enumRow } from '../../ui/widgets';
+import { enumRow, numberField } from '../../ui/widgets';
 
 export function operatorDialog(idname: string, opts: { title?: string; ok?: string; props?: Record<string, unknown>; area?: AreaLike | null; at?: { x: number; y: number } } = {}) {
   const op = operators.get(idname);
@@ -32,6 +32,20 @@ export function operatorDialog(idname: string, opts: { title?: string; ok?: stri
                 h('span', { class: 'pl-label' }, d.label ?? d.id),
                 enumRow(`dlg.${idname}.${d.id}`, (d.items ?? []).map(([value, label]) => ({ value, label: label.replace(/ \(\.[a-z]+\)$/, '') })), String(props[d.id]), set),
               );
+            // pixel sizes: whole numbers
+            if (d.type === 'vec2' && d.subtype === 'pixel') {
+              const v = props[d.id] as number[];
+              return h(
+                'div',
+                { class: 'prop-vec' },
+                h('div', { class: 'pv-label' }, d.label ?? d.id),
+                h(
+                  'div',
+                  { class: 'col' },
+                  ['X', 'Y'].map((axis, i) => numberField({ id: `dlg.${idname}.${d.id}.${i}`, label: axis, value: v[i], int: true, min: 1, max: 16384, unit: 'pixel', set: (x) => set(i ? [v[0], x] : [x, v[1]]) })),
+                ),
+              );
+            }
             return propWidget(d, props[d.id], set, `dlg.${idname}`);
           }),
         h(
