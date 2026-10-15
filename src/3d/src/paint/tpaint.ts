@@ -3,7 +3,9 @@
 // every texel is mapped back to its 3D point, projected to the screen for the brush falloff and
 // depth-tested against a small software depth buffer of the brush footprint (occlusion).
 import { Matrix4, Vector3 } from 'three';
-import { app, registerOperators } from '../app/app';
+import { app, operators, registerOperators } from '../app/app';
+import { openMenu } from '../ui/menu';
+import { activeView3D } from '../editors/view3d/view3d';
 import { uid, newImage, newMaterial } from '../data/defaults';
 import type { ImageData as Img, MaterialData, MeshData, NodeData, ObjectData } from '../data/types';
 import type { View3D } from '../editors/view3d/view3d';
@@ -694,6 +696,135 @@ registerOperators([
       });
       if (!img) return 'CANCELLED';
       paintDisplay.image = img.id;
+    },
+  },
+]);
+
+// ---------------------------------------------------------------------------
+// Project Image: paint an image onto the texture as seen from the current view
+
+function projectImage(v: View3D, src: Img): string | null {
+  const am = activeMeshData();
+  const s = meshSession();
+  if (!am || !s) return 'No mesh';
+  const { ob, me } = am;
+  if (!meshHasUVs(me)) return 'The mesh has no UVs';
+  const img0 = paintImage(ob);
+  if (!img0) return 'No paint texture';
+  const img = app.doc.images[img0.id];
+  const canvas = imageCanvas(img);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+  const W = canvas.width,
+    H = canvas.height;
+  const work = ctx.getImageData(0, 0, W, H);
+  const st: TexStroke = { img, W, H, ctx, work, orig: work.data.slice(), alpha: new Float32Array(W * H), dirty: [Infinity, Infinity, -1, -1] };
+  const sc = imageCanvas(src);
+  const sctx = sc.getContext('2d', { willReadFrequently: true });
+  if (!sctx) return 'Could not read the image';
+  const sd = sctx.getImageData(0, 0, sc.width, sc.height).data;
+  const M = screenMatrix(s, v).elements;
+  const Wv = Math.max(1, Math.round(v.width)),
+    Hv = Math.max(1, Math.round(v.height));
+  // software depth buffer of the whole view (nearest surface per pixel)
+  const depth = new Float32Array(Wv * Hv).fill(Infinity);
+  const P = s.positions;
+  const tmp = [0, 0, 0];
+  const sp = new Float32Array(9);
+  const ntri = s.tris.length / 3;
+  for (let t = 0; t < ntri; t++) {
+    let ok = true;
+    for (let k = 0; k < 3; k++) {
+      const vi = s.tris[t * 3 + k] * 3;
+      if (!proj(M, P[vi], P[vi + 1], P[vi + 2], Wv, Hv, tmp)) {
+        ok = false;
+        break;
+      }
+      sp[k * 3] = tmp[0];
+      sp[k * 3 + 1] = tmp[1];
+      sp[k * 3 + 2] = tmp[2];
+    }
+    if (!ok) continue;
+    const area = (sp[3] - sp[0]) * (sp[7] - sp[1]) - (sp[4] - sp[1]) * (sp[6] - sp[0]);
+    if (Math.abs(area) < 1e-9) continue;
+    const x0 = Math.max(0, Math.floor(Math.min(sp[0], sp[3], sp[6]))),
+      x1 = Math.min(Wv - 1, Math.ceil(Math.max(sp[0], sp[3], sp[6]))),
+      y0 = Math.max(0, Math.floor(Math.min(sp[1], sp[4], sp[7]))),
+      y1 = Math.min(Hv - 1, Math.ceil(Math.max(sp[1], sp[4], sp[7])));
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        const px = x + 0.5,
+          py = y + 0.5;
+        const w0 = ((sp[3] - px) * (sp[7] - py) - (sp[4] - py) * (sp[6] - px)) / area,
+          w1 = ((sp[6] - px) * (sp[1] - py) - (sp[7] - py) * (sp[0] - px)) / area,
+          w2 = 1 - w0 - w1;
+        if (w0 < -1e-4 || w1 < -1e-4 || w2 < -1e-4) continue;
+        const z = w0 * sp[2] + w1 * sp[5] + w2 * sp[8];
+        const i = y * Wv + x;
+        if (z < depth[i]) depth[i] = z;
+      }
+  }
+  const data = work.data;
+  for (let t = 0; t < ntri; t++) {
+    const i0 = s.tris[t * 3] * 3,
+      i1 = s.tris[t * 3 + 1] * 3,
+      i2 = s.tris[t * 3 + 2] * 3;
+    rasterTri(st, me, s, t, (ti, x, y, b0, b1, b2) => {
+      const lx = P[i0] * b0 + P[i1] * b1 + P[i2] * b2,
+        ly = P[i0 + 1] * b0 + P[i1 + 1] * b1 + P[i2 + 1] * b2,
+        lz = P[i0 + 2] * b0 + P[i1 + 2] * b1 + P[i2 + 2] * b2;
+      if (!proj(M, lx, ly, lz, Wv, Hv, tmp)) return;
+      const sx = Math.floor(tmp[0]),
+        sy = Math.floor(tmp[1]);
+      if (sx < 0 || sy < 0 || sx >= Wv || sy >= Hv) return;
+      const dz = depth[sy * Wv + sx];
+      if (dz !== Infinity && tmp[2] > dz + 2e-4 + Math.abs(dz) * 1e-4) return;
+      // the image stretched over the whole view
+      const ix = Math.min(sc.width - 1, Math.floor((tmp[0] / Wv) * sc.width)),
+        iy = Math.min(sc.height - 1, Math.floor((tmp[1] / Hv) * sc.height));
+      const q = (iy * sc.width + ix) * 4;
+      const a = sd[q + 3] / 255;
+      const p = ti * 4;
+      for (let c = 0; c < 3; c++) data[p + c] = Math.round(st.orig[p + c] + (sd[q + c] - st.orig[p + c]) * a);
+      data[p + 3] = Math.max(st.orig[p + 3], sd[q + 3]);
+      markDirty(st, x, y);
+    });
+  }
+  flushCanvas(st);
+  void commitImage(img, 'Project Image');
+  return null;
+}
+
+registerOperators([
+  {
+    idname: 'paint.project_image',
+    label: 'Project Image',
+    description: 'Paint an image onto the texture as seen from the current view (stretched over the view)',
+    props: [{ id: 'image', label: 'Image', type: 'string', default: '' }],
+    undo: false,
+    poll: () => app.doc.mode === 'TEXTURE_PAINT' && !!activeView3D() && Object.keys(app.doc.images).length > 0,
+    invoke: (ctx, p) => {
+      if (p.image && app.doc.images[p.image as string]) return operators.get('paint.project_image')!.exec!(ctx, p);
+      // pick the image from a menu
+      const cur = paintImage()?.id;
+      openMenu(
+        Object.values(app.doc.images)
+          .filter((im) => im.id !== cur)
+          .map((im) => ({ label: im.name, icon: 'image', action: () => app.run('paint.project_image', { image: im.id }) })),
+        { x: ctx.event?.x ?? app.pointer.x, y: ctx.event?.y ?? app.pointer.y },
+        { title: 'Project Image' },
+      );
+      return 'CANCELLED';
+    },
+    exec: (_c, p) => {
+      const v = activeView3D();
+      const src = app.doc.images[p.image as string];
+      if (!v || !src) return 'CANCELLED';
+      const err = projectImage(v, src);
+      if (err) {
+        app.report('ERROR', `Project Image: ${err}`);
+        return 'CANCELLED';
+      }
+      return 'CANCELLED';
     },
   },
 ]);
