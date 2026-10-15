@@ -986,6 +986,8 @@ export function startTransform(
       st.value = [vals ? typed(0) ?? 0 : amount];
       overlay.helpFrom = s!.pivot;
     }
+    // after navigating the view mid-transform, mouse motion continues from the value reached so far
+    if (navBase && navBase.mode === curMode && !vals) st.value = combineValues(curMode, navBase.value, st.value);
     state = st;
     applyState(s!, st);
     // overlay: constraint axes through the pivot, proportional radius
@@ -1046,7 +1048,18 @@ export function startTransform(
     lastAxisKey = '';
   };
 
+  /** Value reached before navigating the view (Alt + MMB / wheel) during the transform. */
+  let navBase: { mode: TransformMode; value: number[] } | null = null;
+  let navigating = false;
+  const rebase = () => {
+    navBase = { mode: curMode, value: [...state.value] };
+    // the next mouse-driven value starts from zero again
+    if (curMode === 'BEND' || curMode === 'WARP') return;
+    resetMouseRefs();
+  };
+
   const switchMode = (next: TransformMode) => {
+    navBase = null;
     for (const el of s!.data.elements) el.restore();
     s!.data.onUpdate?.();
     curMode = next;
@@ -1115,12 +1128,19 @@ export function startTransform(
       if (curMode === 'SHEAR') hints.push(['X Y', 'Direction']);
       hints.push(['Ctrl', 'Invert Snap'], ['Shift Tab', 'Snap Toggle'], ['Shift', 'Precision'], ['G R S', 'Mode']);
       if (proportional) hints.push(['Wheel/PgUp PgDn', 'Proportional Size']);
+      hints.push(['Alt MMB/Wheel', 'Navigate']);
       return hints;
     },
     onPointerMove(e: PointerEvent) {
       const r = v.el.getBoundingClientRect();
       const nx = e.clientX - r.left,
         ny = e.clientY - r.top;
+      if (navigating) {
+        // the view is being navigated: keep the transform as it is
+        lastRaw = { x: nx, y: ny };
+        mouse = { x: nx + precisionOffset.x, y: ny + precisionOffset.y };
+        return;
+      }
       precise = e.shiftKey;
       // precision: only a tenth of the motion counts while Shift is held (no jump on release)
       if (precise) {
@@ -1143,6 +1163,13 @@ export function startTransform(
     onPointerDown(e: PointerEvent) {
       if (e.button === 0) return 'FINISHED';
       if (e.button === 2) return 'CANCELLED';
+      if (e.button === 1 && e.altKey) {
+        // Alt passes the middle mouse button through to view navigation
+        e.preventDefault();
+        navigating = true;
+        v.navDrag(e, e.shiftKey ? 'pan' : e.ctrlKey ? 'zoom' : 'orbit');
+        return undefined;
+      }
       if (e.button === 1 && (curMode === 'TRANSLATION' || curMode === 'ROTATION' || curMode === 'RESIZE')) {
         e.preventDefault();
         auto = { plane: e.shiftKey, from: { ...mouse } };
@@ -1150,6 +1177,12 @@ export function startTransform(
       return undefined;
     },
     onPointerUp(e: PointerEvent) {
+      if (e.button === 1 && navigating) {
+        navigating = false;
+        rebase();
+        compute();
+        return undefined;
+      }
       if (e.button === 1 && auto) {
         auto = null;
         return undefined;
@@ -1158,7 +1191,15 @@ export function startTransform(
       return undefined;
     },
     onWheel(e: WheelEvent) {
-      if (proportional) setPropSize(propSize * (e.deltaY > 0 ? 1.1 : 1 / 1.1));
+      if (e.altKey) {
+        // Alt passes the wheel through to view zoom
+        v.zoomBy(e.deltaY > 0 ? 1.2 : 1 / 1.2, mouse);
+        v.afterNav();
+        rebase();
+        compute();
+        return;
+      }
+      setPropSize(propSize * (e.deltaY > 0 ? 1.1 : 1 / 1.1));
     },
     onKey(e: KeyboardEvent) {
       const k = e.key;
@@ -1259,6 +1300,14 @@ export function startTransform(
   app.startModal(handler);
   compute();
   return true;
+}
+
+/** A value reached earlier combined with further mouse-driven change of the same mode. */
+function combineValues(mode: TransformMode, base: number[], next: number[]): number[] {
+  if (mode === 'RESIZE' || mode === 'CURVE_SHRINKFATTEN') return next.map((x, i) => x * (base[i] ?? 1));
+  if (mode === 'TOSPHERE') return [Math.max(0, Math.min(1, (base[0] ?? 0) + (next[0] ?? 0)))];
+  if (mode === 'BEND' || mode === 'WARP') return next;
+  return next.map((x, i) => x + (base[i] ?? 0));
 }
 
 /** Rotation snapping step (radians) from the snapping settings. */

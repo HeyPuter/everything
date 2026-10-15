@@ -350,3 +350,24 @@ test('sidebar median of the edit selection can be typed', async ({ page }) => {
   expect(Math.max(...xs)).toBeCloseTo(2, 5);
   await expectNoErrors(errors);
 });
+
+test('navigating with Alt during a move keeps the moved amount', async ({ page }) => {
+  const errors = await openApp(page);
+  const c = await hoverViewport(page);
+  await page.keyboard.press('g');
+  await page.keyboard.press('x');
+  await page.mouse.move(c.x + 80, c.y + 40, { steps: 4 });
+  const before = await get<number>(page, 'app.activeObject.location[0]');
+  expect(Math.abs(before)).toBeGreaterThan(0.1);
+  // Alt + middle drag orbits the view; the object keeps its offset
+  await page.keyboard.down('Alt');
+  await page.mouse.down({ button: 'middle' });
+  await page.mouse.move(c.x + 160, c.y + 60, { steps: 4 });
+  await page.mouse.up({ button: 'middle' });
+  await page.keyboard.up('Alt');
+  expect(await get<number>(page, 'app.activeObject.location[0]')).toBeCloseTo(before, 5);
+  expect(await get(page, 'app.modal?.label')).toBe('Move');
+  await page.keyboard.press('Enter');
+  expect(await get<number>(page, 'app.activeObject.location[0]')).toBeCloseTo(before, 5);
+  await expectNoErrors(errors);
+});
