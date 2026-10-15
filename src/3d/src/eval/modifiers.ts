@@ -374,7 +374,7 @@ function removeDegenerate(m: EvalMesh): EvalMesh {
 // ---------------------------------------------------------------------------
 // Merge by distance (weld)
 
-export function weld(m: EvalMesh, threshold: number, onlyLoose = false): EvalMesh {
+export function weld(m: EvalMesh, threshold: number, onlyLoose = false, canMerge?: (u: number, v: number) => boolean): EvalMesh {
   const P = m.positions,
     nv = P.length / 3;
   const cell = Math.max(threshold, 1e-9);
@@ -404,14 +404,15 @@ export function weld(m: EvalMesh, threshold: number, onlyLoose = false): EvalMes
           const list = grid.get(`${gx + dx},${gy + dy},${gz + dz}`);
           if (!list) continue;
           for (const u of list)
-            if ((P[u * 3] - x) ** 2 + (P[u * 3 + 1] - y) ** 2 + (P[u * 3 + 2] - z) ** 2 <= threshold * threshold) {
+            if ((P[u * 3] - x) ** 2 + (P[u * 3 + 1] - y) ** 2 + (P[u * 3 + 2] - z) ** 2 <= threshold * threshold && (!canMerge || canMerge(u, v))) {
               found = u;
               break;
             }
         }
-    if (found >= 0) target[v] = found;
-    else {
-      target[v] = v;
+    if (found >= 0) target[v] = target[found];
+    else target[v] = v;
+    // with a merge rule, merged vertices stay candidates so chains (copy 0 ← 1 ← 2) resolve
+    if (found < 0 || canMerge) {
       const key = `${gx},${gy},${gz}`;
       const list = grid.get(key);
       if (list) list.push(v);
@@ -467,9 +468,21 @@ function arrayMesh(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMe
     const om = objectSpaceOf(ctx, mod.offset_object);
     if (om) step.premultiply(om);
   }
-  if (str(mod, 'fit_type', 'FIXED_COUNT') === 'FIT_LENGTH') {
+  const fit = str(mod, 'fit_type', 'FIXED_COUNT');
+  if (fit === 'FIT_LENGTH' || fit === 'FIT_CURVE') {
     const len = off.length() || 1;
-    count = Math.max(1, Math.floor(num(mod, 'fit_length', 4) / len) + 1);
+    let target = num(mod, 'fit_length', 4);
+    if (fit === 'FIT_CURVE') {
+      const cid = typeof mod.curve === 'string' ? mod.curve : null;
+      const cob = cid ? ctx.doc.objects[cid] : undefined;
+      const cu = cob?.data ? ctx.doc.curves[cob.data] : undefined;
+      target = 0;
+      for (const sp of cu?.splines ?? []) {
+        const pts = sampleSpline(sp, cu!.resolution_u).points;
+        for (let i = 1; i < pts.length; i++) target += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1], pts[i][2] - pts[i - 1][2]);
+      }
+    }
+    count = Math.max(1, Math.floor(target / len + 1e-6) + 1);
   }
   count = Math.min(count, 1000);
   const b = new MeshBuilder(m.weights?.length ?? 0, !!m.colors);
@@ -478,11 +491,13 @@ function arrayMesh(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMe
   const nv = P.length / 3;
   const uOff = num(mod, 'offset_u'),
     vOff = num(mod, 'offset_v');
+  const copyOf: number[] = [];
   for (let i = 0; i < count; i++) {
     const map = new Int32Array(nv);
     for (let k = 0; k < nv; k++) {
       v.set(P[k * 3], P[k * 3 + 1], P[k * 3 + 2]).applyMatrix4(cur);
       map[k] = b.addVert(v.x, v.y, v.z, i === 0 ? m.origIndex?.[k] ?? k : -1, weightsOf(m, k));
+      copyOf.push(i);
     }
     let src = m;
     if (uOff || vOff) {
@@ -496,8 +511,32 @@ function arrayMesh(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMe
     appendMesh(b, src, map);
     cur.premultiply(step);
   }
+  // caps: another object's mesh (in its own local coordinates) one step before the first copy
+  // and one step after the last
+  const cap = (id: unknown, mat: Matrix4, slot: number) => {
+    const ev = typeof id === 'string' && id !== ctx.ob.id ? ctx.graph.get(id) : undefined;
+    const cm = ev?.mesh;
+    if (!cm || cm.offsets.length < 2) return;
+    const cmap = new Int32Array(cm.positions.length / 3);
+    for (let k = 0; k < cmap.length; k++) {
+      v.fromArray(cm.positions, k * 3).applyMatrix4(mat);
+      cmap[k] = b.addVert(v.x, v.y, v.z, -1);
+      copyOf.push(slot);
+    }
+    appendMesh(b, { ...cm, colors: m.colors && cm.colors ? cm.colors : undefined }, cmap);
+  };
+  cap(mod.start_cap, step.clone().invert(), -1);
+  cap(mod.end_cap, cur, count);
   let out = b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle, instances: m.instances });
-  if (bool(mod, 'use_merge_vertices')) out = weld(out, num(mod, 'merge_threshold', 0.01));
+  if (bool(mod, 'use_merge_vertices')) {
+    // merge neighbouring copies (and caps with the copies they touch); first and last on request
+    const firstLast = bool(mod, 'use_merge_vertices_cap') && count > 2;
+    out = weld(out, num(mod, 'merge_threshold', 0.01), false, (u, w) => {
+      const a = copyOf[u],
+        c = copyOf[w];
+      return Math.abs(a - c) === 1 || (firstLast && ((a === 0 && c === count - 1) || (c === 0 && a === count - 1)));
+    });
+  }
   return out;
 }
 
@@ -1209,8 +1248,8 @@ export const modifierTypes: Record<string, ModifierType> = {
     label: 'Array',
     category: 'GENERATE',
     icon: 'mod_array',
-    defaults: base({ count: 2, fit_type: 'FIXED_COUNT', fit_length: 4, use_relative_offset: true, relative_offset_displace: [1, 0, 0], use_constant_offset: false, constant_offset_displace: [0.1, 0, 0], use_object_offset: false, offset_object: null, use_merge_vertices: false, merge_threshold: 0.01, offset_u: 0, offset_v: 0 }),
-    deps: (m) => [m.offset_object as string],
+    defaults: base({ count: 2, fit_type: 'FIXED_COUNT', fit_length: 4, curve: null, start_cap: null, end_cap: null, use_merge_vertices_cap: false, use_relative_offset: true, relative_offset_displace: [1, 0, 0], use_constant_offset: false, constant_offset_displace: [0.1, 0, 0], use_object_offset: false, offset_object: null, use_merge_vertices: false, merge_threshold: 0.01, offset_u: 0, offset_v: 0 }),
+    deps: (m) => [m.offset_object as string, m.start_cap as string, m.end_cap as string, m.curve as string],
     apply: arrayMesh,
   },
   BUILD: { type: 'BUILD', label: 'Build', category: 'GENERATE', icon: 'mod_build', defaults: base({ frame_start: 1, frame_duration: 100, use_random_order: false, seed: 0, use_reverse: false }), timeDependent: () => true, apply: build },
