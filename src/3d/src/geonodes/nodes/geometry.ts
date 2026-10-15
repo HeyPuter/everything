@@ -444,6 +444,7 @@ export function valueSocket(id: string, t: FieldType, name = id): SocketDef {
     VECTOR: [0, 0, 0],
     RGBA: [0, 0, 0, 1],
     ROTATION: [0, 0, 0],
+    MATRIX: undefined,
   };
   return {
     name,

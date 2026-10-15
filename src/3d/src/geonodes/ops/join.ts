@@ -26,6 +26,7 @@ const TYPE_RANK: Record<DataType, number> = {
   FLOAT_VECTOR: 5,
   QUATERNION: 5,
   FLOAT_COLOR: 6,
+  FLOAT4X4: 7,
 };
 
 function convertData(data: AttrArray, from: DataType, to: DataType, n: number): AttrArray {

@@ -4,7 +4,7 @@ import { makeContext, evalFull, evalSelection, type Field, type FieldContext } f
 import type { Domain } from '../types';
 
 /** Attribute data types offered by data-type menus. */
-export const DATA_TYPE_ITEMS = ['FLOAT', 'INT', 'BOOLEAN', 'FLOAT_VECTOR', 'FLOAT_COLOR', 'QUATERNION', 'FLOAT2'];
+export const DATA_TYPE_ITEMS = ['FLOAT', 'INT', 'BOOLEAN', 'FLOAT_VECTOR', 'FLOAT_COLOR', 'QUATERNION', 'FLOAT4X4', 'FLOAT2'];
 
 /** Domain holding positions of a component. */
 export const pointDomainOf = (c: Component): Domain => (c.kind === 'INSTANCES' ? 'INSTANCE' : 'POINT');

@@ -31,7 +31,7 @@ export interface EvalLog {
   generation: number;
 }
 
-export const FIELD_TYPES = new Set<SocketType>(['FLOAT', 'INT', 'BOOLEAN', 'VECTOR', 'RGBA', 'ROTATION']);
+export const FIELD_TYPES = new Set<SocketType>(['FLOAT', 'INT', 'BOOLEAN', 'VECTOR', 'RGBA', 'ROTATION', 'MATRIX']);
 
 /** 53-bit string hash (cyrb53). */
 export function hash(str: string, seed = 0): string {
