@@ -30,6 +30,8 @@ const settings = {
   fontSize: 12,
   matchCase: false,
   wrapAround: true,
+  /** Find Next continues into the other texts */
+  findAll: false,
   /** vertical guide at a column */
   showMargin: false,
   marginColumn: 80,
@@ -669,7 +671,7 @@ export class TextEditor implements Editor {
             h('button', { class: 'btn', onclick: () => this.replaceOne() }, 'Replace'),
           ),
           h('div', { class: 'te-find-row' }, h('button', { class: 'btn grow', onclick: () => this.replaceAll() }, 'Replace All')),
-          h('div', { class: 'te-find-opts' }, checkbox('te-case', 'Match Case', settings.matchCase, (v) => ((settings.matchCase = v), this.renderSidebar())), checkbox('te-wrap', 'Wrap Around', settings.wrapAround, (v) => ((settings.wrapAround = v), this.renderSidebar()))),
+          h('div', { class: 'te-find-opts' }, checkbox('te-case', 'Match Case', settings.matchCase, (v) => ((settings.matchCase = v), this.renderSidebar())), checkbox('te-wrap', 'Wrap Around', settings.wrapAround, (v) => ((settings.wrapAround = v), this.renderSidebar())), checkbox('te-all', 'All Data-Blocks', settings.findAll, (v) => ((settings.findAll = v), this.renderSidebar()), { tip: 'All Data-Blocks\nFind Next continues in the other texts' })),
         ]),
         panel('te-props', 'Properties', () => [
           h('div', { class: 'te-prop' }, numberField({ id: 'te-tabw', label: 'Tab Width', value: settings.tabWidth, int: true, min: 1, max: 8, set: (v) => ((settings.tabWidth = Math.round(v)), this.measure(), this.render()) })),
@@ -713,13 +715,14 @@ export class TextEditor implements Editor {
     const hay = settings.matchCase ? this.ta.value : this.ta.value.toLowerCase();
     const needle = settings.matchCase ? q : q.toLowerCase();
     let i = backwards ? hay.lastIndexOf(needle, from) : hay.indexOf(needle, from);
-    if (i < 0 && settings.wrapAround) i = backwards ? hay.lastIndexOf(needle) : hay.indexOf(needle);
+    if (i < 0 && settings.wrapAround && !settings.findAll) i = backwards ? hay.lastIndexOf(needle) : hay.indexOf(needle);
     return i < 0 ? null : [i, i + q.length];
   }
 
   findNext() {
     if (!this.text) return;
     const m = this.matchAt(this.ta.selectionEnd);
+    if (!m && settings.findAll && this.findInOtherTexts()) return;
     if (!m) {
       app.report('WARNING', `Text not found: ${this.findText}`);
       return;
@@ -727,6 +730,24 @@ export class TextEditor implements Editor {
     this.ta.focus();
     this.ta.setSelectionRange(m[0], m[1]);
     this.revealCaret();
+  }
+
+  /** All Data-Blocks: open the next text (in name order, wrapping) that contains the search text. */
+  private findInOtherTexts(): boolean {
+    const q = settings.matchCase ? this.findText : this.findText.toLowerCase();
+    if (!q) return false;
+    const texts = Object.values(app.doc.texts).sort((a, b) => a.name.localeCompare(b.name));
+    const cur = texts.findIndex((t) => t.id === this.textId);
+    for (let k = 1; k <= texts.length; k++) {
+      const t = texts[(cur + k) % texts.length];
+      const body = settings.matchCase ? t.body : t.body.toLowerCase();
+      const i = body.indexOf(q);
+      if (i < 0) continue;
+      if (t.id !== this.textId) this.setText(t.id);
+      requestAnimationFrame(() => this.setCaret(i, i + q.length));
+      return true;
+    }
+    return false;
   }
 
   private selectionMatches() {

@@ -673,3 +673,27 @@ test('Save Screenshot (Editor) saves the 3D view under the pointer', async ({ pa
   expect(Math.abs(h - box.height * dpr)).toBeLessThan(2);
   await expectNoErrors(errors);
 });
+
+test('Text Editor: Find Next across all texts', async ({ page }) => {
+  const errors = await openApp(page);
+  await newText(page, 'alpha only here');
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const t = { id: 'tx_second', name: 'Zeta', body: 'nothing\nneedle here', language: 'python' };
+    a.doc.texts[t.id] = t;
+    const ed = a.hoverArea.editor;
+    ed.findText = 'needle';
+  });
+  const run = (op: string) => page.evaluate((o) => { const a = (window as any).app; return a.run(o, {}, { area: a.hoverArea }); }, op);
+  await run('text.find');
+  expect(await get(page, 'app.reports.at(-1).message')).toContain('Text not found');
+  await page.evaluate(async () => {
+    const a = (window as any).app;
+    a.hoverArea.editor.toggleSidebar(true);
+  });
+  await page.locator('.te-sidebar .checkbox', { hasText: 'All Data-Blocks' }).dispatchEvent('pointerdown');
+  await run('text.find');
+  await expect.poll(() => get(page, 'app.hoverArea.editor.text.name')).toBe('Zeta');
+  await expect.poll(() => page.evaluate(() => { const t = document.querySelector('.te-input') as HTMLTextAreaElement; return t.value.slice(t.selectionStart, t.selectionEnd); })).toBe('needle');
+  await expectNoErrors(errors);
+});
