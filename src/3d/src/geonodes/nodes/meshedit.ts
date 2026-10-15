@@ -176,6 +176,10 @@ geoNode(
       return {
         Geometry: g.map((c) => {
           if (!hasDomain(c, domain)) return c;
+          if (domain === 'EDGE' && c.kind === 'MESH' && c.faceCount) {
+            ctx.warn('Edges of meshes with faces keep their order (it follows the faces)');
+            return c;
+          }
           const r = evalOn(c, domain, selF, [gid, w]);
           const order = sortOrder(r.ctx.size, r.sel, r.values[0], r.values[1]);
           let same = true;

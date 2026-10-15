@@ -368,16 +368,15 @@ export function reorder(c: Component, domain: Domain, order: Int32Array): Compon
       return remapEdgeAttrs(c, out);
     }
     if (domain === 'EDGE') {
-      // edges are derived from faces; only loose edges and edge attributes can be reordered
-      const topo = c.topology();
-      const out = c.copy();
-      for (const [name, a] of c.attrs) {
-        if (a.domain !== 'EDGE') continue;
-        const comps = dataComps(a.type);
-        const d = allocData(a.type, topo.edgeCount);
-        for (let i = 0; i < n; i++) for (let k = 0; k < comps; k++) d[i * comps + k] = a.data[order[i] * comps + k];
-        out.attrs.set(name, { ...a, data: d });
+      // edge order follows the faces; only meshes made of loose edges can be reordered
+      if (c.faceCount) return c;
+      const loose = new Uint32Array(n * 2);
+      for (let i = 0; i < n; i++) {
+        loose[i * 2] = c.looseEdges[order[i] * 2];
+        loose[i * 2 + 1] = c.looseEdges[order[i] * 2 + 1];
       }
+      const out = new MeshComponent(c.positions, c.faceOffsets, c.corners, loose, new Map(), [...c.materials]);
+      permute(c.attrs, 'EDGE', out.attrs);
       return out;
     }
     return c;
