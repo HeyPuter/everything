@@ -854,3 +854,23 @@ describe('quick effects', () => {
     expect(ob.modifiers.some((m) => m.type === 'PARTICLE_SYSTEM')).toBe(true);
   });
 });
+
+describe('visual geometry to objects', () => {
+  it('makes objects for the evaluated geometry and each instance', async () => {
+    const { Matrix4 } = await import('three');
+    const ob = cube();
+    const proto = addEmpty('Proto');
+    select(ob);
+    const ev = app.graph.get(ob.id)!;
+    ev.mesh = { ...ev.mesh!, instances: [{ objectId: proto.id, matrix: new Matrix4().makeTranslation(0, 0, 3).toArray() }, { mesh: ev.mesh!, matrix: new Matrix4().makeTranslation(5, 0, 0).toArray() }] };
+    const before = Object.keys(app.doc.objects).length;
+    run('object.visual_geometry_to_objects');
+    expect(Object.keys(app.doc.objects).length).toBe(before + 3);
+    const made = Object.values(app.doc.objects).filter((o) => o.select);
+    expect(made.map((o) => o.location.map((v) => +v.toFixed(3)))).toEqual([
+      [0, 0, 0],
+      [0, 0, 3],
+      [5, 0, 0],
+    ]);
+  });
+});

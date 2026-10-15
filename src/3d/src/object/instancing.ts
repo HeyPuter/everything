@@ -402,3 +402,68 @@ registerOperators([
     },
   },
 ]);
+
+// ---------------------------------------------------------------------------
+// visual geometry to objects
+
+function meshFromEval(doc: import('../data/types').DocumentData, name: string, m: import('../eval/types').EvalMesh, materials: (string | null)[]) {
+  const me = newMeshData(uniqueName(doc, name, 'meshes'), {
+    positions: new Float32Array(m.positions),
+    offsets: new Uint32Array(m.offsets),
+    indices: new Uint32Array(m.indices),
+    uvs: new Float32Array(m.uvs),
+    normals: new Float32Array(m.normals),
+    smooth: m.smooth ? new Uint8Array(m.smooth) : undefined,
+    material_index: m.material_index ? new Uint16Array(m.material_index) : undefined,
+  });
+  me.materials = [...materials];
+  doc.meshes[me.id] = me;
+  return me;
+}
+
+registerOperators([
+  {
+    idname: 'object.visual_geometry_to_objects',
+    label: 'Visual Geometry to Objects',
+    description: 'Turn the evaluated geometry of the selected objects, including generated instances, into separate real objects',
+    poll: (ctx) => ctx.doc.mode === 'OBJECT' && app.selectedObjects().some((o) => !!app.graph.get(o.id)?.mesh),
+    exec: (ctx) => {
+      const doc = ctx.doc;
+      const made: ObjectData[] = [];
+      for (const ob of app.selectedObjects()) {
+        const ev = app.graph.get(ob.id);
+        const m = ev?.mesh;
+        if (!ev || !m) continue;
+        const slots = materialSlots(doc, ob);
+        if (m.positions.length) {
+          const me = meshFromEval(doc, ob.name, { ...m, instances: undefined }, slots);
+          const o = newObject(`${ob.name} Geometry`, 'MESH', me.id);
+          addObjectToScene(doc, o, { location: [0, 0, 0], rotation: [0, 0, 0] });
+          applyMatrixToObject(o, ev.world);
+          made.push(o);
+        }
+        for (const it of m.instances ?? []) {
+          const world = ev.world.clone().multiply(new Matrix4().fromArray(it.matrix));
+          let o: ObjectData | null = null;
+          if (it.objectId && doc.objects[it.objectId]) {
+            o = duplicateObject(doc, doc.objects[it.objectId], true);
+            for (const c of Object.values(doc.collections)) c.objects = c.objects.filter((x) => x !== o!.id);
+            doc.collections[activeCollection(doc)].objects.push(o.id);
+            o.parent = null;
+            o.matrix_parent_inverse = [...IDENTITY];
+          } else if (it.mesh) {
+            const me = meshFromEval(doc, `${ob.name} Instance`, it.mesh, it.materialIds ?? slots);
+            o = newObject(`${ob.name} Instance`, 'MESH', me.id);
+            addObjectToScene(doc, o, { location: [0, 0, 0], rotation: [0, 0, 0] });
+          }
+          if (!o) continue;
+          applyMatrixToObject(o, world);
+          made.push(o);
+        }
+      }
+      if (!made.length) return 'CANCELLED';
+      for (const o of Object.values(doc.objects)) o.select = made.includes(o);
+      doc.scene.active_object = made[made.length - 1].id;
+    },
+  },
+]);

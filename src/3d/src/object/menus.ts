@@ -61,6 +61,7 @@ export function applyMenu(): MenuItem[] {
     { separator: true },
     { label: 'Visual Transform', op: 'object.visual_transform_apply' },
     { label: 'Visual Geometry to Mesh', op: 'object.convert', props: { target: 'MESH' } },
+    { label: 'Visual Geometry to Objects', op: 'object.visual_geometry_to_objects' },
     { label: 'Make Instances Real', op: 'object.duplicates_make_real' },
     { label: 'Parent Inverse', op: 'object.parent_inverse_apply' },
   ];
