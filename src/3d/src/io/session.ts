@@ -22,9 +22,13 @@ export interface Snapshot {
 const DB = 'p3d-session';
 const FILES = 'files';
 const KV = 'kv';
-/** Larger files are listed in Open Recent only for this session. */
+/** Larger files are not kept for Open Recent / Revert. */
 const MAX_STORED_BYTES = 96 * 1024 * 1024;
+/** Total size of the recent files kept in the browser; older ones are dropped beyond it. */
+const MAX_RECENT_TOTAL = 256 * 1024 * 1024;
+const fileKey = (name: string) => `recent:${name}`;
 export const MAX_SNAPSHOTS = 5;
+const MAX_SNAPSHOT_TOTAL = 512 * 1024 * 1024;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 function db(): Promise<IDBDatabase> {
@@ -65,8 +69,6 @@ export const kvSet = (key: string, value: unknown) => put(KV, `ui:${key}`, value
 // recent files
 
 let recent: RecentEntry[] = [];
-/** Bytes of recent files that could not be stored (too large), for this session only. */
-const memoryFiles = new Map<string, Uint8Array>();
 const listeners = new Set<() => void>();
 export function onSessionChange(fn: () => void) {
   listeners.add(fn);
@@ -80,28 +82,32 @@ export function recentFiles(): readonly RecentEntry[] {
 }
 
 export async function recordRecent(name: string, bytes: Uint8Array) {
-  const { list, dropped } = bumpRecent(recent, { name, time: Date.now(), size: bytes.length });
-  recent = list;
+  if (bytes.length > MAX_STORED_BYTES) return;
+  const bumped = bumpRecent(recent, { name, time: Date.now(), size: bytes.length });
+  const dropped = [...bumped.dropped];
+  // keep the stored total within budget (the newest file always stays)
+  let total = 0;
+  const kept = bumped.list.filter((e, i) => {
+    total += e.size;
+    if (i > 0 && total > MAX_RECENT_TOTAL) {
+      dropped.push(e.name);
+      return false;
+    }
+    return true;
+  });
+  recent = kept;
   notify();
-  for (const n of dropped) {
-    memoryFiles.delete(n);
-    await del(FILES, n);
-  }
-  if (bytes.length > MAX_STORED_BYTES) memoryFiles.set(name, bytes);
-  else {
-    memoryFiles.delete(name);
-    await put(FILES, name, bytes);
-  }
+  for (const n of dropped) await del(FILES, fileKey(n));
+  await put(FILES, fileKey(name), bytes);
   await put(KV, 'recent', recent);
 }
 
 export async function recentBytes(name: string): Promise<Uint8Array | null> {
-  return memoryFiles.get(name) ?? (await get<Uint8Array>(FILES, name)) ?? null;
+  return (await get<Uint8Array>(FILES, fileKey(name))) ?? null;
 }
 
 export async function clearRecent() {
-  for (const e of recent) await del(FILES, e.name);
-  memoryFiles.clear();
+  for (const e of recent) await del(FILES, fileKey(e.name));
   recent = [];
   await put(KV, 'recent', recent);
   notify();
@@ -187,9 +193,12 @@ export async function takeSnapshot(reason?: string) {
   const list = await listSnapshots();
   const key = `snapshot-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const next: Snapshot[] = [{ key, name, time: Date.now(), size: bytes.length, reason }, ...list];
-  for (const old of next.slice(MAX_SNAPSHOTS)) await del(FILES, old.key);
+  // at most MAX_SNAPSHOTS, and within the size budget (the newest always stays)
+  let total = 0;
+  const keep = next.filter((sn, i) => (total += sn.size) && (i === 0 || (i < MAX_SNAPSHOTS && total <= MAX_SNAPSHOT_TOTAL)));
+  for (const old of next) if (!keep.includes(old)) await del(FILES, old.key);
   await put(FILES, key, bytes);
-  await put(KV, 'snapshots', next.slice(0, MAX_SNAPSHOTS));
+  await put(KV, 'snapshots', keep);
   lastSnapshotRevision = app.revision;
   lastSnapshotTime = Date.now();
 }
