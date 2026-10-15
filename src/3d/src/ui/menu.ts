@@ -123,6 +123,8 @@ function renderMenu(m: OpenMenu) {
           renderMenu(m);
         },
         onpointerup: (e: PointerEvent) => {
+          // the release of the click that opened a context menu under the pointer does not pick an item
+          if (performance.now() - openedAt.t < 350 && Math.hypot(e.clientX - openedAt.x, e.clientY - openedAt.y) < 4) return;
           if (e.button === 0 || e.button === 2) activate(m, item, e);
         },
       },
@@ -177,9 +179,12 @@ function createMenu(items: MenuItem[], x: number, y: number, parent?: OpenMenu, 
   return m;
 }
 
+const openedAt = { t: 0, x: 0, y: 0 };
+
 /** Open a popup menu at a screen position (or below an element). */
 export function openMenu(items: MenuItem[], at: { x: number; y: number } | HTMLElement, opts: { title?: string; under?: boolean } = {}) {
   closeMenus();
+  if (!(at instanceof HTMLElement)) Object.assign(openedAt, { t: performance.now(), x: at.x, y: at.y });
   let x: number, y: number;
   if (at instanceof HTMLElement) {
     const r = at.getBoundingClientRect();

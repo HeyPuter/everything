@@ -1,258 +1,564 @@
-// Outliner: view-layer tree of collections, objects and their data.
+// Outliner: tree of the scene's collections and objects (view layer / scenes), every data-block
+// in the file, or unused data. Selection is kept in sync with object selection; collections and
+// other elements have their own outliner selection.
 import { h, patch, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
-import { app, registerOperators, type ChangeKind } from '../app/app';
+import { app, type ChangeKind } from '../app/app';
 import { registerEditor, type Area, type Editor } from '../ui/screen';
-import { openMenu, promptText, type MenuItem } from '../ui/menu';
-import type { CollectionData, ObjectData, DocumentData } from '../data/types';
-import { newCollection } from '../data/defaults';
-import { uniqueName, setActiveCollection, activeCollection, deleteObjects } from '../ops/object';
+import { openMenu, openPopover, promptText, type MenuItem } from '../ui/menu';
+import type { DocumentData, ObjectData } from '../data/types';
+import { uniqueName, setActiveCollection, activeCollection } from '../ops/object';
 import { applyMatrixToObject, fromMatrix4 } from '../eval/transform';
 import { Matrix4 } from 'three';
-import { modifierTypes } from '../eval/modifiers';
 import { textField } from '../ui/widgets';
+import {
+  buildRows,
+  defaultFilter,
+  allElements,
+  childrenMap,
+  objectsInside,
+  objectHierarchy,
+  ancestorCollections,
+  descendantCollections,
+  type DisplayMode,
+  type OutlinerFilter,
+  type Row,
+  type TreeState,
+} from './outliner/tree';
+import { moveCollection, moveObjectsToCollection } from './outliner/collections';
+import { contextMenuFor, emptyMenu, viewMenu } from './outliner/menus';
+import { filterPopover } from './outliner/filter';
+import { setCurrentOutliner } from './outliner/current';
+import './outliner/icons';
+import './outliner/ops';
+import './outliner/outliner.css';
 
-const OB_ICON: Record<string, string> = {
-  MESH: 'outliner_ob_mesh',
-  CURVE: 'outliner_ob_curve',
-  FONT: 'outliner_ob_font',
-  EMPTY: 'outliner_ob_empty',
-  LIGHT: 'outliner_ob_light',
-  CAMERA: 'outliner_ob_camera',
-  ARMATURE: 'outliner_ob_armature',
-  LATTICE: 'outliner_ob_lattice',
-  POINTCLOUD: 'outliner_ob_pointcloud',
-  GREASEPENCIL: 'outliner_ob_greasepencil',
+const MODE_ICON: Record<string, string> = {
+  EDIT: 'editmode_hlt',
+  POSE: 'pose_hlt',
+  SCULPT: 'sculptmode_hlt',
+  VERTEX_PAINT: 'vpaint_hlt',
+  WEIGHT_PAINT: 'wpaint_hlt',
+  TEXTURE_PAINT: 'tpaint_hlt',
 };
-const DATA_ICON: Record<string, string> = { MESH: 'mesh_data', CURVE: 'curve_data', FONT: 'curve_data', LIGHT: 'light_data', CAMERA: 'camera_data', ARMATURE: 'armature_data', LATTICE: 'outliner_ob_lattice', GREASEPENCIL: 'outliner_data_greasepencil' };
 
-interface Row {
-  key: string;
-  depth: number;
-  kind: 'collection' | 'object' | 'data' | 'modifier' | 'material' | 'scene' | 'constraint' | 'bone' | 'vgroup' | 'action';
-  label: string;
+type ColumnId = 'enable' | 'select' | 'hide' | 'viewport' | 'render' | 'holdout' | 'indirect';
+const COLUMNS: { id: ColumnId; show: keyof OutlinerFilter }[] = [
+  { id: 'enable', show: 'show_restrict_column_enable' },
+  { id: 'select', show: 'show_restrict_column_select' },
+  { id: 'hide', show: 'show_restrict_column_hide' },
+  { id: 'viewport', show: 'show_restrict_column_viewport' },
+  { id: 'render', show: 'show_restrict_column_render' },
+  { id: 'holdout', show: 'show_restrict_column_holdout' },
+  { id: 'indirect', show: 'show_restrict_column_indirect_only' },
+];
+
+interface Cell {
+  /** "on" means visible / enabled / selectable (the non-restricted state) */
+  on: boolean;
   icon: string;
-  id?: string;
-  collection?: CollectionData;
-  ob?: ObjectData;
-  expandable: boolean;
-  expanded: boolean;
-  /** extra small icons to the right of the name (data, modifiers, ...) */
-  chips?: string[];
+  tip: string;
+  set: (on: boolean) => void;
+  /** apply to children (Shift+click) */
+  recurse?: (on: boolean) => void;
+  /** isolate (Ctrl+click) */
+  isolate?: () => void;
 }
+
+type DragInfo = { kind: 'objects'; ids: string[] } | { kind: 'collection'; id: string } | { kind: 'material'; id: string };
+type DropZone = 'INTO' | 'BEFORE' | 'AFTER';
+
+const DISPLAY_MODES: [DisplayMode, string, string][] = [
+  ['SCENES', 'Scenes', 'scene_data'],
+  ['VIEW_LAYER', 'View Layer', 'view_layer'],
+  ['BLENDER_FILE', 'Blender File', 'file_3d'],
+  ['ORPHAN_DATA', 'Unused Data', 'trash'],
+];
 
 export class Outliner implements Editor {
   el: HTMLElement;
   keymaps = ['Outliner', 'Window', 'Screen'];
-  private list: HTMLElement;
-  private expanded = new Set<string>();
-  private collapsed = new Set<string>();
-  private filter = '';
-  displayMode: 'VIEW_LAYER' | 'SCENES' | 'BLENDER_FILE' | 'ORPHAN_DATA' = 'VIEW_LAYER';
-  private renaming: string | null = null;
-  private lastClicked: string | null = null;
-  private rows: Row[] = [];
-  private drag: { ids: string[]; kind: 'object' | 'collection' } | null = null;
+  list: HTMLElement;
+  private hint: HTMLElement;
+  private boxEl: HTMLElement;
+  displayMode: DisplayMode = 'VIEW_LAYER';
+  filter: OutlinerFilter = defaultFilter();
+  search = '';
+  /** explicit open / closed state of tree elements */
+  open = new Map<string, boolean>();
+  /** selected element keys (collections and other non-object elements; objects too when sync is off) */
+  sel = new Set<string>();
+  /** active element (walk cursor) */
+  activeKey: string | null = null;
+  rows: Row[] = [];
+  renaming: string | null = null;
+  private drag: DragInfo | null = null;
+  private toggleDrag: { col: ColumnId; on: boolean; done: Set<string> } | null = null;
+  private openDrag: { open: boolean; done: Set<string> } | null = null;
+  /** pending click on an already selected item (applied on release when no drag started) */
+  private pendingClick: { row: Row; ctrl: boolean; shift: boolean } | null = null;
 
-  constructor(public area: Area) {
+  constructor(
+    public area: Area,
+    state?: unknown,
+  ) {
     this.el = document.createElement('div');
     this.el.className = 'outliner';
     this.list = document.createElement('div');
     this.list.className = 'ol-list';
     this.list.tabIndex = -1;
-    this.el.append(this.list);
+    this.hint = document.createElement('div');
+    this.hint.className = 'ol-drop-hint';
+    this.hint.hidden = true;
+    this.boxEl = document.createElement('div');
+    this.boxEl.className = 'ol-box';
+    this.boxEl.hidden = true;
+    this.el.append(this.list, this.hint, this.boxEl);
+    const st = state as { mode?: DisplayMode; filter?: Partial<OutlinerFilter> } | undefined;
+    if (st?.mode && DISPLAY_MODES.some(([m]) => m === st.mode)) this.displayMode = st.mode;
+    if (st?.filter) Object.assign(this.filter, st.filter);
     this.list.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      if (!(e.target as HTMLElement).closest('.ol-row')) openMenu([{ label: 'New Collection', op: 'outliner.collection_new' }, { separator: true }, { label: 'Show All', op: 'object.hide_view_clear' }], { x: e.clientX, y: e.clientY });
+      if (!(e.target as HTMLElement).closest('.ol-row')) openMenu(emptyMenu(this), { x: e.clientX, y: e.clientY });
     });
+    this.list.addEventListener('pointerdown', (e) => this.onListDown(e));
+    this.el.addEventListener('pointerenter', () => setCurrentOutliner(this));
+    this.list.addEventListener('dragover', (e) => {
+      if (this.drag && !(e.target as HTMLElement).closest('.ol-row')) this.setHint(null);
+    });
+    setCurrentOutliner(this);
   }
 
+  // ---------------------------------------------------------------------------
+  // header
+
   header(): Child {
+    const dm = DISPLAY_MODES.find(([m]) => m === this.displayMode)!;
+    const viewLayer = this.displayMode === 'VIEW_LAYER' || this.displayMode === 'SCENES';
     return h(
       'div',
       { class: 'hdr-row' },
       h(
         'button',
         {
-          class: 'hdr-icondrop',
-          'data-tip': 'Display Mode',
+          class: 'hdr-icondrop ol-display-mode',
+          'data-tip': `Display Mode\nType of information to display: ${dm[1]}`,
           onpointerdown: (e: PointerEvent) => {
             e.preventDefault();
             openMenu(
-              [
-                ['VIEW_LAYER', 'View Layer', 'view_layer'],
-                ['SCENES', 'Scenes', 'scene_data'],
-                ['BLENDER_FILE', 'Data Blocks', 'file_3d'],
-                ['ORPHAN_DATA', 'Unused Data', 'trash'],
-              ].map(([v, l, i]) => ({ label: l, icon: i, active: this.displayMode === v, action: () => ((this.displayMode = v as Outliner['displayMode']), this.update()) })),
+              DISPLAY_MODES.map(([v, l, i]) => ({
+                label: l,
+                icon: i,
+                active: this.displayMode === v,
+                action: () => this.setDisplayMode(v),
+              })),
               e.currentTarget as HTMLElement,
               { title: 'Display Mode' },
             );
           },
         },
-        icon(this.displayMode === 'VIEW_LAYER' ? 'view_layer' : this.displayMode === 'SCENES' ? 'scene_data' : this.displayMode === 'BLENDER_FILE' ? 'file_3d' : 'trash'),
+        icon(dm[2]),
         icon('down_arrow_hlt', 'tiny'),
       ),
-      h('div', { class: 'hdr-search' }, textField('ol-search', this.filter, (v) => ((this.filter = v), this.update()), { placeholder: 'Search', icon: 'search', live: true })),
-      h('button', { class: 'hdr-toggle', 'data-tip': 'New Collection\nAdd a new collection inside selected collection', onclick: () => app.run('outliner.collection_new') }, icon('collection_new')),
+      h(
+        'div',
+        { class: 'hdr-search' },
+        textField('ol-search', this.search, (v) => this.setSearch(v), {
+          placeholder: 'Search',
+          icon: 'search',
+          live: true,
+          className: 'ol-search',
+        }),
+      ),
+      viewLayer
+        ? h(
+            'button',
+            {
+              class: {
+                'hdr-toggle': true,
+                'ol-filter-btn': true,
+                on: this.filterActive(),
+              },
+              'data-tip': 'Filter\nRestriction columns, sorting, and which elements are shown',
+              onpointerdown: (e: PointerEvent) => {
+                e.preventDefault();
+                openPopover(e.currentTarget as HTMLElement, () => filterPopover(this), { width: 250, className: 'ol-filter-pop' });
+              },
+            },
+            icon('filter'),
+            icon('down_arrow_hlt', 'tiny'),
+          )
+        : null,
+      viewLayer
+        ? h(
+            'button',
+            {
+              class: 'hdr-toggle',
+              'data-tip': 'New Collection\nAdd a new collection inside the selected collection',
+              onclick: () => app.run('outliner.collection_new', { nested: true }),
+            },
+            icon('collection_new'),
+          )
+        : null,
+      this.displayMode === 'ORPHAN_DATA'
+        ? h(
+            'button',
+            {
+              class: 'btn ol-purge',
+              'data-tip': 'Purge\nRemove every data-block without users',
+              onclick: () => app.run('outliner.orphans_purge'),
+            },
+            'Purge',
+          )
+        : null,
     );
   }
 
-  private buildRows(doc: DocumentData): Row[] {
-    const rows: Row[] = [];
-    const f = this.filter.toLowerCase();
-    if (this.displayMode === 'BLENDER_FILE' || this.displayMode === 'ORPHAN_DATA') {
-      const used = new Set<string>();
-      for (const o of Object.values(doc.objects)) {
-        if (o.data) used.add(o.data);
-        const d = o.data ? ((doc.meshes[o.data] ?? doc.curves[o.data]) as { materials?: (string | null)[] }) : undefined;
-        d?.materials?.forEach((m) => m && used.add(m));
-        if (o.animation_data?.action) used.add(o.animation_data.action);
-      }
-      if (doc.scene.world) used.add(doc.scene.world);
-      const groups: [string, keyof DocumentData, string][] = [
-        ['Actions', 'actions', 'action'],
-        ['Armatures', 'armatures', 'armature_data'],
-        ['Brushes', 'brushes', 'brush'],
-        ['Cameras', 'cameras', 'camera_data'],
-        ['Collections', 'collections', 'collection'],
-        ['Curves', 'curves', 'curve_data'],
-        ['Images', 'images', 'image'],
-        ['Lights', 'lights', 'light_data'],
-        ['Materials', 'materials', 'material'],
-        ['Meshes', 'meshes', 'mesh_data'],
-        ['Node Groups', 'node_groups', 'node_tree'],
-        ['Objects', 'objects', 'object'],
-        ['Texts', 'texts', 'text'],
-        ['Worlds', 'worlds', 'world'],
-      ];
-      for (const [label, key, ic] of groups) {
-        let items = Object.values(doc[key] as Record<string, { id: string; name: string; use_fake_user?: boolean }>);
-        if (this.displayMode === 'ORPHAN_DATA') items = items.filter((x) => !used.has(x.id) && key !== 'objects' && key !== 'collections' && key !== 'brushes');
-        if (!items.length) continue;
-        const gk = `g:${key}`;
-        const exp = !this.collapsed.has(gk);
-        rows.push({ key: gk, depth: 0, kind: 'scene', label: `${label}`, icon: ic, expandable: true, expanded: exp });
-        if (exp)
-          for (const it of items)
-            if (!f || it.name.toLowerCase().includes(f)) rows.push({ key: `${key}:${it.id}`, depth: 1, kind: key === 'objects' ? 'object' : 'data', id: it.id, ob: key === 'objects' ? (it as unknown as ObjectData) : undefined, label: it.name, icon: ic, expandable: false, expanded: false });
-      }
-      return rows;
-    }
-    const master = doc.collections[doc.scene.collection];
-    const sceneKey = 'scene';
-    if (this.displayMode === 'SCENES') rows.push({ key: sceneKey, depth: 0, kind: 'scene', label: doc.scene.name, icon: 'scene_data', expandable: false, expanded: true });
-    const base = this.displayMode === 'SCENES' ? 1 : 0;
-    const walk = (c: CollectionData, depth: number) => {
-      const ck = `c:${c.id}`;
-      const exp = !this.collapsed.has(ck);
-      const isMaster = c.id === master.id;
-      rows.push({ key: ck, depth, kind: 'collection', label: isMaster ? 'Scene Collection' : c.name, icon: isMaster ? 'scene' : 'collection', id: c.id, collection: c, expandable: c.children.length + c.objects.length > 0, expanded: exp });
-      if (!exp) return;
-      for (const ch of c.children) {
-        const cc = doc.collections[ch];
-        if (cc) walk(cc, depth + 1);
-      }
-      // objects: only roots (children nest under parents in the same collection)
-      const inCol = new Set(c.objects);
-      const objects = c.objects.map((id) => doc.objects[id]).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
-      for (const ob of objects) if (!ob.parent || !inCol.has(ob.parent)) this.objectRows(doc, ob, depth + 1, rows, inCol, f);
-    };
-    walk(master, base);
-    return rows;
+  /** true when the filter popover hides something (shown as a highlighted button) */
+  private filterActive() {
+    const f = this.filter;
+    return (
+      !f.use_filter_collection ||
+      !f.use_filter_object ||
+      f.filter_state !== 'ALL' ||
+      !f.use_filter_object_content ||
+      !f.use_filter_children ||
+      [
+        f.use_filter_object_mesh,
+        f.use_filter_object_armature,
+        f.use_filter_object_empty,
+        f.use_filter_object_light,
+        f.use_filter_object_camera,
+        f.use_filter_object_grease_pencil,
+        f.use_filter_object_others,
+      ].some((x) => !x)
+    );
   }
 
-  private objectRows(doc: DocumentData, ob: ObjectData, depth: number, rows: Row[], inCol: Set<string>, f: string) {
-    const ok = `o:${ob.id}`;
-    const children = Object.values(doc.objects).filter((c) => c.parent === ob.id).sort((a, b) => a.name.localeCompare(b.name));
-    const hasData = !!ob.data || ob.modifiers.length > 0 || ob.constraints.length > 0;
-    const exp = this.expanded.has(ok);
-    const match = !f || ob.name.toLowerCase().includes(f);
-    const chips: string[] = [];
-    if (ob.data) chips.push(DATA_ICON[ob.type] ?? 'mesh_data');
-    if (ob.modifiers.length) chips.push('modifier');
-    if (ob.constraints.length) chips.push('constraint');
-    const mats = ob.data ? ((doc.meshes[ob.data] ?? doc.curves[ob.data]) as { materials?: (string | null)[] } | undefined)?.materials?.filter(Boolean) ?? [] : [];
-    if (mats.length && !exp) chips.push('material');
-    if (match) rows.push({ key: ok, depth, kind: 'object', label: ob.name, icon: OB_ICON[ob.type] ?? 'object', id: ob.id, ob, expandable: hasData || children.length > 0, expanded: exp, chips: exp ? [] : chips });
-    if (exp && match) {
-      if (ob.data) {
-        const data = (doc.meshes[ob.data] ?? doc.curves[ob.data] ?? doc.lights[ob.data] ?? doc.cameras[ob.data] ?? doc.armatures[ob.data] ?? doc.lattices[ob.data] ?? doc.grease_pencils?.[ob.data]) as { name: string } | undefined;
-        rows.push({ key: `d:${ob.id}`, depth: depth + 1, kind: 'data', label: data?.name ?? '', icon: DATA_ICON[ob.type] ?? 'mesh_data', ob, expandable: false, expanded: false });
-        for (const m of mats) rows.push({ key: `m:${ob.id}:${m}`, depth: depth + 2, kind: 'material', label: doc.materials[m!]?.name ?? '', icon: 'material', ob, expandable: false, expanded: false });
-        if (ob.type === 'MESH') {
-          const me = doc.meshes[ob.data];
-          for (const g of me?.vertex_groups ?? []) rows.push({ key: `vg:${ob.id}:${g.name}`, depth: depth + 2, kind: 'vgroup', label: g.name, icon: 'group_vertex', ob, expandable: false, expanded: false });
-        }
-      }
-      if (ob.modifiers.length) {
-        const mk = `ms:${ob.id}`;
-        const mexp = !this.collapsed.has(mk);
-        rows.push({ key: mk, depth: depth + 1, kind: 'modifier', label: 'Modifiers', icon: 'modifier', ob, expandable: true, expanded: mexp });
-        if (mexp) for (const m of ob.modifiers) rows.push({ key: `md:${ob.id}:${m.id}`, depth: depth + 2, kind: 'modifier', label: m.name, icon: modifierTypes[m.type]?.icon ?? 'modifier', ob, expandable: false, expanded: false });
-      }
-      for (const c of ob.constraints) rows.push({ key: `cn:${ob.id}:${c.id}`, depth: depth + 1, kind: 'constraint', label: c.name, icon: 'constraint', ob, expandable: false, expanded: false });
-      if (ob.animation_data?.action && doc.actions[ob.animation_data.action]) rows.push({ key: `ac:${ob.id}`, depth: depth + 1, kind: 'action', label: doc.actions[ob.animation_data.action].name, icon: 'action', ob, expandable: false, expanded: false });
-    }
-    if (!exp && children.length && !f) {
-      // collapsed parents still list children (reference behaviour shows them nested once expanded)
-    }
-    if (exp || f) for (const c of children) this.objectRows(doc, c, depth + 1, rows, inCol, f);
+  setDisplayMode(m: DisplayMode) {
+    this.displayMode = m;
+    this.sel.clear();
+    this.activeKey = null;
+    this.redraw();
   }
+
+  setSearch(v: string) {
+    this.search = v;
+    this.update();
+  }
+
+  focusSearch() {
+    const input = this.area.headerEl.querySelector('.ol-search input') as HTMLInputElement | null;
+    input?.focus();
+    input?.select();
+  }
+
+  redraw() {
+    this.update();
+    this.area.drawHeader();
+  }
+
+  // ---------------------------------------------------------------------------
+  // tree state
+
+  treeState(): TreeState {
+    return {
+      mode: this.displayMode,
+      filter: this.filter,
+      search: this.search,
+      open: this.open,
+    };
+  }
+
+  setOpen(ekey: string, v: boolean) {
+    this.open.set(ekey, v);
+  }
+
+  allElements() {
+    return allElements(app.doc, this.treeState(), {
+      visible: (id) => app.isVisible(id),
+      selectable: (id) => app.isSelectable(id),
+    });
+  }
+
+  isSelected(r: Row): boolean {
+    if (r.kind === 'object' && r.ob && this.filter.use_sync_select) return !!app.doc.objects[r.ob.id]?.select;
+    return this.sel.has(r.ekey);
+  }
+
+  setSelected(r: Row, v: boolean) {
+    if (r.kind === 'object' && r.ob && this.filter.use_sync_select) {
+      const ob = app.doc.objects[r.ob.id];
+      if (ob) ob.select = v && !ob.hide;
+      if (!v) this.sel.delete(r.ekey);
+      return;
+    }
+    if (v) this.sel.add(r.ekey);
+    else this.sel.delete(r.ekey);
+  }
+
+  deselectAll() {
+    this.sel.clear();
+    if (this.filter.use_sync_select) for (const o of Object.values(app.doc.objects)) o.select = false;
+  }
+
+  isActive(r: Row): boolean {
+    if (r.kind === 'object' && r.ob) return app.doc.scene.active_object === r.ob.id && (this.activeKey === null || this.activeKey === r.ekey || !this.activeKey.startsWith('c:'));
+    return this.activeKey === r.ekey;
+  }
+
+  /** index of the walk cursor in the current rows */
+  cursorIndex(): number {
+    let i = this.activeKey ? this.rows.findIndex((r) => r.ekey === this.activeKey) : -1;
+    if (i < 0 && app.doc.scene.active_object) i = this.rows.findIndex((r) => r.kind === 'object' && r.ob?.id === app.doc.scene.active_object);
+    return i;
+  }
+
+  /** Selected elements of a kind, with the clicked/active one first. */
+  selectedRows(kind?: Row['kind']): Row[] {
+    const seen = new Set<string>();
+    const out: Row[] = [];
+    for (const r of this.rows) if ((!kind || r.kind === kind) && this.isSelected(r) && !seen.has(r.ekey)) (seen.add(r.ekey), out.push(r));
+    return out;
+  }
+
+  selectedCollections(): string[] {
+    const ids = this.selectedRows('collection')
+      .map((r) => r.id!)
+      .filter((id) => id !== app.doc.scene.collection);
+    // collections selected in the data-block list
+    for (const k of this.sel) if (k.startsWith('id:collections:')) ids.push(k.slice('id:collections:'.length));
+    return [...new Set(ids)].filter((id) => app.doc.collections[id]);
+  }
+
+  /** Make an element active: objects become the active object, collections the active collection. */
+  activate(r: Row) {
+    const doc = app.doc;
+    this.activeKey = r.ekey;
+    if (r.kind === 'collection' && r.id) {
+      setActiveCollection(r.id);
+      return;
+    }
+    const ob = r.ob ? doc.objects[r.ob.id] : undefined;
+    if (!ob) return;
+    if (r.kind === 'object') {
+      doc.scene.active_object = ob.id;
+      return;
+    }
+    // sub-elements activate their object and show the matching properties tab
+    if (this.filter.use_sync_select) ob.select = !ob.hide;
+    doc.scene.active_object = ob.id;
+    if (r.kind === 'material' && r.id) {
+      const slots = (doc.meshes[ob.data ?? ''] ?? doc.curves[ob.data ?? ''])?.materials ?? [];
+      const i = slots.indexOf(r.id);
+      const oi = ob.object_materials?.indexOf(r.id) ?? -1;
+      if (i >= 0 || oi >= 0) ob.active_material_index = i >= 0 ? i : oi;
+    }
+    const tab =
+      r.kind === 'material'
+        ? 'MATERIAL'
+        : r.kind === 'modifier' || r.kind === 'modifiers'
+          ? 'MODIFIER'
+          : r.kind === 'constraint' || r.kind === 'constraints'
+            ? 'CONSTRAINT'
+            : r.kind === 'data' || r.kind === 'vgroup' || r.kind === 'vgroups'
+              ? 'DATA'
+              : null;
+    if (tab) (window as unknown as { __propertiesTab?: string }).__propertiesTab = tab;
+  }
+
+  private selectionSignature() {
+    const doc = app.doc;
+    let s = `${doc.scene.active_object}|`;
+    for (const id of doc.object_order) if (doc.objects[id]?.select) s += `${id},`;
+    return s;
+  }
+
+  /** Apply a selection change; pushes an undo step when the object selection changed. */
+  commitSelection(before: string) {
+    if (this.selectionSignature() !== before) app.pushUndo('Outliner Selection');
+    app.changed('select', 'doc');
+  }
+
+  /** Click selection of a row (item_activate). */
+  clickRow(r: Row, opts: { ctrl?: boolean; shift?: boolean; recurse?: boolean } = {}) {
+    const doc = app.doc;
+    const before = this.selectionSignature();
+    if (r.kind === 'object' && r.ob) this.prepareModeSwitch(r.ob);
+    const selectable = (x: Row) => x.kind !== 'group' && x.kind !== 'file' && x.kind !== 'scene' && !(x.kind === 'collection' && x.id === doc.scene.collection && !opts.ctrl);
+    if (opts.shift) {
+      const a = this.cursorIndex();
+      const b = this.rows.findIndex((x) => x.key === r.key);
+      if (!opts.ctrl) this.deselectAll();
+      if (a >= 0 && b >= 0)
+        for (const x of this.rows.slice(Math.min(a, b), Math.max(a, b) + 1))
+          if (selectable(x)) this.setSelected(x, true);
+          else this.setSelected(r, true);
+      if (a < 0) this.activate(r);
+    } else if (opts.ctrl) {
+      const sel = this.isSelected(r);
+      const act = this.isActive(r);
+      if (sel && act) {
+        this.setSelected(r, false);
+        this.activeKey = null;
+      } else {
+        this.setSelected(r, true);
+        this.activate(r);
+      }
+    } else {
+      this.deselectAll();
+      this.setSelected(r, true);
+      this.activate(r);
+    }
+    if (opts.recurse) this.selectInside(r, true);
+    this.commitSelection(before);
+  }
+
+  /** Select (or deselect) everything inside a collection or below an object. */
+  selectInside(r: Row, v: boolean) {
+    const doc = app.doc;
+    if (r.kind === 'collection' && r.id) {
+      for (const id of objectsInside(doc, r.id)) if (doc.objects[id] && !doc.objects[id].hide) doc.objects[id].select = v;
+      for (const c of descendantCollections(doc, r.id)) v ? this.sel.add(`c:${c}`) : this.sel.delete(`c:${c}`);
+    } else if (r.kind === 'object' && r.ob) for (const id of objectHierarchy(doc, r.ob.id)) if (!doc.objects[id].hide) doc.objects[id].select = v;
+  }
+
+  /** Clicking another object while in an edit/paint mode leaves the mode, or transfers it. */
+  private prepareModeSwitch(ob: ObjectData) {
+    const doc = app.doc;
+    if (doc.mode === 'OBJECT' || doc.scene.active_object === ob.id) return;
+    if (doc.mode === 'POSE' && ob.type !== 'ARMATURE') return;
+    app.run('object.mode_set', { mode: 'OBJECT' });
+  }
+
+  /** Mode column: move the current mode to another object (Ctrl adds it to multi-object editing). */
+  modeTransfer(ob: ObjectData, add: boolean) {
+    const doc = app.doc;
+    const mode = doc.mode;
+    const act = app.activeObject;
+    if (mode === 'OBJECT' || !act) return;
+    const multi = mode === 'EDIT' || mode === 'POSE';
+    if (add && multi && ob.id === act.id) return;
+    app.run('object.mode_set', { mode: 'OBJECT' });
+    if (add && multi) {
+      const inMode = ob.select;
+      ob.select = !inMode;
+    } else {
+      for (const o of Object.values(doc.objects)) o.select = false;
+      ob.select = true;
+      doc.scene.active_object = ob.id;
+    }
+    act.select = true;
+    if (!add || !multi) act.select = act.id === ob.id;
+    app.run('object.mode_set', { mode });
+    app.changed('select', 'mode', 'doc');
+  }
+
+  // ---------------------------------------------------------------------------
+  // expansion
+
+  toggleOpen(r: Row, recursive: boolean, value = !r.expanded) {
+    this.setOpen(r.ekey, value);
+    // Shift: open/close every element below this row as well (also currently hidden ones)
+    if (recursive) for (const k of this.collectBelow(r)) this.setOpen(k, value);
+    this.update();
+  }
+
+  /** Element keys of the whole subtree below a row, regardless of expansion. */
+  private collectBelow(r: Row): string[] {
+    const keys: string[] = [];
+    const all = allElements(app.doc, { ...this.treeState(), search: '' });
+    let inside = false,
+      depth = -1;
+    for (const e of all) {
+      if (e.ekey === r.ekey) {
+        inside = true;
+        depth = e.depth;
+        continue;
+      }
+      if (inside) {
+        if (e.depth <= depth) break;
+        if (e.hasKids) keys.push(e.ekey);
+      }
+    }
+    return keys;
+  }
+
+  // ---------------------------------------------------------------------------
+  // drawing
 
   update(kinds?: Set<ChangeKind>) {
     void kinds;
     const doc = app.doc;
-    this.rows = this.buildRows(doc);
-    const act = doc.scene.active_object;
+    setCurrentOutliner(this.el.isConnected ? this : null, true);
+    this.rows = buildRows(doc, this.treeState(), {
+      visible: (id) => app.isVisible(id),
+      selectable: (id) => app.isSelectable(id),
+    });
     const actCol = activeCollection(doc);
+    const showModes = this.filter.show_mode_column && doc.mode !== 'OBJECT' && (this.displayMode === 'VIEW_LAYER' || this.displayMode === 'SCENES');
+    const act = app.activeObject;
+    const editIds = new Set(
+      doc.mode === 'EDIT' || doc.mode === 'POSE'
+        ? [
+            act?.id,
+            ...app
+              .selectedObjects()
+              .filter((o) => o.type === act?.type)
+              .map((o) => o.id),
+          ]
+        : [act?.id],
+    );
+    const cols = this.displayMode === 'VIEW_LAYER' || this.displayMode === 'SCENES' ? COLUMNS.filter((c) => this.filter[c.show]) : [];
+    const idModes = this.displayMode === 'BLENDER_FILE' || this.displayMode === 'ORPHAN_DATA';
+    const hiddenCols = this.hiddenCollections(doc);
     patch(
       this.list,
       this.rows.map((r, i) => {
         const ob = r.ob;
-        const isObjRow = r.kind === 'object' && ob;
-        const selected = isObjRow && ob.select && app.isVisible(ob.id);
-        const active = isObjRow && act === ob.id;
-        const colActive = r.kind === 'collection' && r.id === actCol;
-        const hidden = isObjRow ? !app.isVisible(ob.id) : r.collection ? r.collection.hide || r.collection.exclude : false;
+        const selected = this.isSelected(r);
+        const active = this.isActive(r);
+        const colActive = r.kind === 'collection' && r.id === actCol && !idModes;
+        const hidden = r.kind === 'object' && ob && !idModes ? !app.isVisible(ob.id) : r.kind === 'collection' && r.id ? hiddenCols.has(r.id) : false;
+        const ctag = r.collection && r.collection.color_tag && r.collection.color_tag !== 'NONE' ? `ct-${r.collection.color_tag}` : '';
         return h(
           'div',
           {
             key: r.key,
-            class: { 'ol-row': true, alt: i % 2 === 1, selected: !!selected || colActive, active: !!active, dim: !!hidden, editmode: !!(active && doc.mode === 'EDIT') },
-            style: { '--depth': String(r.depth) },
-            draggable: r.kind === 'object' || (r.kind === 'collection' && r.id !== doc.scene.collection) ? 'true' : 'false',
-            onpointerdown: (e: PointerEvent) => this.onRowDown(e, r),
-            ondblclick: (e: MouseEvent) => {
-              if ((e.target as HTMLElement).closest('.ol-toggle, .ol-arrow')) return;
-              this.renaming = r.key;
-              this.update();
+            'data-key': r.key,
+            class: {
+              'ol-row': true,
+              alt: i % 2 === 1,
+              selected,
+              active,
+              'col-active': colActive,
+              dim: !!hidden,
+              indirect: !!r.indirect,
+              match: !!r.match,
+              editmode: !!(active && r.kind === 'object' && doc.mode !== 'OBJECT'),
             },
+            style: { '--depth': String(r.depth) },
+            onpointerdown: (e: PointerEvent) => this.onRowDown(e, r),
             oncontextmenu: (e: MouseEvent) => {
               e.preventDefault();
-              this.contextMenu(e, r);
-            },
-            ondragstart: (e: DragEvent) => {
-              if (r.kind === 'object' && ob) {
-                const ids = ob.select ? app.selectedObjects().map((o) => o.id) : [ob.id];
-                this.drag = { ids, kind: 'object' };
-              } else if (r.kind === 'collection' && r.id) this.drag = { ids: [r.id], kind: 'collection' };
-              e.dataTransfer?.setData('text/plain', r.label);
-            },
-            ondragover: (e: DragEvent) => {
-              if (!this.drag) return;
-              if (r.kind === 'collection' || r.kind === 'object') {
-                e.preventDefault();
-                (e.currentTarget as HTMLElement).classList.add('drop');
+              e.stopPropagation();
+              if (!this.isSelected(r) || !this.isActive(r)) {
+                if (!this.isSelected(r)) this.clickRow(r);
+                else this.activeKey = r.ekey;
               }
+              openMenu(contextMenuFor(this, r), { x: e.clientX, y: e.clientY });
             },
-            ondragleave: (e: DragEvent) => (e.currentTarget as HTMLElement).classList.remove('drop'),
+            ondragover: (e: DragEvent) => this.onDragOver(e, r),
+            ondragleave: (e: DragEvent) => (e.currentTarget as HTMLElement).classList.remove('drop-into', 'drop-before', 'drop-after'),
             ondrop: (e: DragEvent) => {
               e.preventDefault();
-              (e.currentTarget as HTMLElement).classList.remove('drop');
-              this.onDrop(r, e.shiftKey, e.ctrlKey || e.metaKey);
+              const el = e.currentTarget as HTMLElement;
+              const zone: DropZone = el.classList.contains('drop-before') ? 'BEFORE' : el.classList.contains('drop-after') ? 'AFTER' : 'INTO';
+              el.classList.remove('drop-into', 'drop-before', 'drop-after');
+              this.onDrop(r, zone, e.ctrlKey || e.metaKey, e.shiftKey);
             },
           },
+          showModes ? this.modeCell(r, editIds) : null,
           h('span', { class: 'ol-indent' }),
           r.expandable
             ? h(
@@ -260,214 +566,552 @@ export class Outliner implements Editor {
                 {
                   class: 'ol-arrow',
                   tabindex: '-1',
+                  'aria-label': r.expanded ? 'Collapse' : 'Expand',
                   onpointerdown: (e: PointerEvent) => {
                     e.stopPropagation();
-                    this.toggleExpand(r, e.shiftKey);
+                    e.preventDefault();
+                    if (e.button !== 0) return;
+                    this.openDrag = {
+                      open: !r.expanded,
+                      done: new Set([r.ekey]),
+                    };
+                    addEventListener('pointerup', () => (this.openDrag = null), { once: true });
+                    this.toggleOpen(r, e.shiftKey);
+                  },
+                  onpointerenter: () => {
+                    const d = this.openDrag;
+                    if (!d || d.done.has(r.ekey)) return;
+                    d.done.add(r.ekey);
+                    if (r.expanded !== d.open) this.toggleOpen(r, false, d.open);
                   },
                 },
                 icon(r.expanded ? 'disclosure_tri_down' : 'disclosure_tri_right'),
               )
             : h('span', { class: 'ol-arrow-space' }),
-          h('span', { class: 'ol-icon' }, icon(r.icon)),
-          this.renaming === r.key
-            ? h('input', {
-                class: 'ol-rename',
-                value: r.label,
-                ref: (el: HTMLInputElement) =>
-                  requestAnimationFrame(() => {
-                    el.focus();
-                    el.select();
-                  }),
-                onkeydown: (e: KeyboardEvent) => {
-                  e.stopPropagation();
-                  if (e.key === 'Enter') this.rename(r, (e.target as HTMLInputElement).value);
-                  if (e.key === 'Escape') {
-                    this.renaming = null;
-                    this.update();
-                  }
-                },
-                onblur: (e: FocusEvent) => this.renaming === r.key && this.rename(r, (e.target as HTMLInputElement).value),
-              })
-            : h('span', { class: 'ol-name' }, r.label),
-          r.chips?.length ? h('span', { class: 'ol-chips' }, r.chips.map((c) => icon(c))) : null,
+          h(
+            'span',
+            {
+              class: 'ol-item',
+              draggable: this.isDraggable(r) ? 'true' : 'false',
+              ondragstart: (e: DragEvent) => this.onDragStart(e, r),
+              ondragend: () => {
+                this.drag = null;
+                this.setHint(null);
+              },
+              ondblclick: (e: MouseEvent) => {
+                if ((e.target as HTMLElement).closest('.ol-icon'))
+                  this.clickRow(r, {
+                    ctrl: e.ctrlKey || e.metaKey,
+                    shift: e.shiftKey,
+                    recurse: true,
+                  });
+                else this.startRename(r.key);
+              },
+            },
+            h('span', { class: `ol-icon ${ctag}` }, icon(r.icon)),
+            this.renaming === r.key
+              ? h('input', {
+                  class: 'ol-rename',
+                  value: r.label,
+                  ref: (el: HTMLInputElement) =>
+                    requestAnimationFrame(() => {
+                      el.focus();
+                      el.select();
+                    }),
+                  onpointerdown: (e: PointerEvent) => e.stopPropagation(),
+                  onkeydown: (e: KeyboardEvent) => {
+                    e.stopPropagation();
+                    if (e.key === 'Enter') this.rename(r, (e.target as HTMLInputElement).value);
+                    if (e.key === 'Escape') {
+                      this.renaming = null;
+                      this.update();
+                    }
+                  },
+                  onblur: (e: FocusEvent) => this.renaming === r.key && this.rename(r, (e.target as HTMLInputElement).value),
+                })
+              : h('span', { class: 'ol-name' }, r.label),
+          ),
+          r.chips?.length
+            ? h(
+                'span',
+                { class: 'ol-chips' },
+                r.chips.map((c) => h('span', { class: 'ol-chip', key: c.icon }, icon(c.icon), c.count > 1 ? h('span', { class: 'ol-chip-n' }, String(c.count)) : null)),
+              )
+            : null,
           h('span', { class: 'ol-spacer' }),
-          this.toggles(r),
+          idModes && r.users !== undefined ? this.userCells(r) : null,
+          cols.length
+            ? h(
+                'span',
+                { class: 'ol-toggles' },
+                cols.map((c) => this.toggleCell(r, c.id)),
+              )
+            : null,
         );
       }),
     );
   }
 
-  private toggles(r: Row): Child {
+  /** Collections hidden in the viewport through themselves or a parent. */
+  private hiddenCollections(doc: DocumentData): Set<string> {
+    const out = new Set<string>();
+    const walk = (id: string, hidden: boolean, depth: number) => {
+      const c = doc.collections[id];
+      if (!c || depth > 64) return;
+      const isMaster = id === doc.scene.collection;
+      const h2 = hidden || (!isMaster && (c.hide || c.exclude || c.hide_viewport));
+      if (h2) out.add(id);
+      for (const ch of c.children) walk(ch, h2, depth + 1);
+    };
+    walk(doc.scene.collection, false, 0);
+    return out;
+  }
+
+  private modeCell(r: Row, editIds: Set<string | undefined>): Child {
     const doc = app.doc;
+    const act = app.activeObject;
+    const ob = r.ob;
+    if (r.kind !== 'object' || !ob || !act || ob.type !== act.type || (doc.mode === 'POSE' && ob.type !== 'ARMATURE')) return h('span', { class: 'ol-mode' });
+    const inMode = editIds.has(ob.id);
+    return h(
+      'button',
+      {
+        class: { 'ol-mode': true, on: inMode },
+        tabindex: '-1',
+        'data-tip': inMode
+          ? 'Remove from the current mode (Ctrl+click), or click another object to switch to it'
+          : 'Switch the current mode to this object\nCtrl+click to add it to multi-object editing',
+        onpointerdown: (e: PointerEvent) => {
+          e.stopPropagation();
+          e.preventDefault();
+          this.modeTransfer(ob, e.ctrlKey || e.metaKey);
+        },
+      },
+      icon(inMode ? (MODE_ICON[doc.mode] ?? 'object_datamode') : 'dot'),
+    );
+  }
+
+  private userCells(r: Row): Child {
+    const table = r.table;
+    const rec = table ? (app.doc as unknown as Record<string, Record<string, { use_fake_user?: boolean }>>)[table]?.[r.id ?? ''] : undefined;
+    const canFake = !!rec && table !== 'objects' && table !== 'collections';
+    return h(
+      'span',
+      { class: 'ol-users' },
+      h(
+        'span',
+        {
+          class: 'ol-user-count',
+          'data-tip': 'Number of users of this data-block',
+        },
+        String(r.users ?? 0),
+      ),
+      canFake
+        ? h(
+            'button',
+            {
+              class: { 'ol-toggle': true, off: !r.fakeUser },
+              'data-tip': 'Fake User\nKeep this data-block in the file even without users',
+              onpointerdown: (e: PointerEvent) => {
+                e.stopPropagation();
+                e.preventDefault();
+                rec!.use_fake_user = !rec!.use_fake_user;
+                app.pushUndo(rec!.use_fake_user ? 'Add Fake User' : 'Clear Fake User');
+                app.changed('doc');
+              },
+            },
+            icon(r.fakeUser ? 'fake_user_on' : 'fake_user_off'),
+          )
+        : h('span', { class: 'ol-toggle-space' }),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // restriction columns
+
+  private cell(r: Row, col: ColumnId): Cell | null {
+    const doc = app.doc;
+    const push = (label: string) => {
+      app.pushUndo(label);
+      app.changed('doc', 'select');
+    };
     if (r.kind === 'collection' && r.collection && r.id !== doc.scene.collection) {
       const c = r.collection;
-      return h(
-        'span',
-        { class: 'ol-toggles' },
-        h('button', { class: { 'ol-toggle': true, off: c.exclude }, 'data-tip': 'Exclude from View Layer', onpointerdown: (e: PointerEvent) => this.flipCollection(e, c, 'exclude') }, icon(c.exclude ? 'checkbox_dehlt' : 'checkbox_hlt')),
-        h('button', { class: { 'ol-toggle': true, off: c.hide }, 'data-tip': 'Hide in Viewport', onpointerdown: (e: PointerEvent) => this.flipCollection(e, c, 'hide') }, icon(c.hide ? 'hide_on' : 'hide_off')),
-        h('button', { class: { 'ol-toggle': true, off: c.hide_render }, 'data-tip': 'Disable in Renders', onpointerdown: (e: PointerEvent) => this.flipCollection(e, c, 'hide_render') }, icon(c.hide_render ? 'restrict_render_on' : 'restrict_render_off')),
-      );
+      const id = c.id;
+      const flag = {
+        enable: 'exclude',
+        select: 'hide_select',
+        hide: 'hide',
+        viewport: 'hide_viewport',
+        render: 'hide_render',
+        holdout: 'holdout',
+        indirect: 'indirect_only',
+      }[col] as 'exclude';
+      const inverted = col === 'holdout' || col === 'indirect';
+      const raw = !!(c as unknown as Record<string, boolean>)[flag];
+      const on = inverted ? raw : !raw;
+      const setFlag = (cid: string, v: boolean) => {
+        const cc = doc.collections[cid];
+        if (cc) (cc as unknown as Record<string, boolean>)[flag] = inverted ? v : !v;
+      };
+      const icons: Record<ColumnId, [string, string, string]> = {
+        enable: ['checkbox_hlt', 'checkbox_dehlt', 'Exclude from View Layer'],
+        select: ['restrict_select_off', 'restrict_select_on', 'Disable Selection'],
+        hide: ['hide_off', 'hide_on', 'Hide in Viewport\nCtrl+click to isolate, Shift+click to include children'],
+        viewport: ['restrict_view_off', 'restrict_view_on', 'Disable in Viewports'],
+        render: ['restrict_render_off', 'restrict_render_on', 'Disable in Renders'],
+        holdout: ['holdout_on', 'holdout_off', 'Holdout\nMask out objects in this collection from the render'],
+        indirect: ['indirect_only_on', 'indirect_only_off', 'Indirect Only\nObjects only contribute to the scene indirectly (reflections, shadows)'],
+      };
+      const [onIc, offIc, tip] = icons[col];
+      return {
+        on,
+        icon: on ? onIc : offIc,
+        tip,
+        set: (v) => {
+          setFlag(id, v);
+          if (col === 'hide' && !v) for (const o of objectsInside(doc, id)) if (!app.isVisible(o)) doc.objects[o].select = false;
+          push('Collection Visibility');
+        },
+        recurse: (v) => {
+          for (const cid of [id, ...descendantCollections(doc, id)]) setFlag(cid, v);
+          if (col !== 'enable' && col !== 'holdout' && col !== 'indirect')
+            for (const oid of objectsInside(doc, id)) {
+              const o = doc.objects[oid];
+              const okey = {
+                select: 'hide_select',
+                hide: 'hide',
+                viewport: 'hide_viewport',
+                render: 'hide_render',
+              }[col] as 'hide';
+              o[okey] = !v;
+              if (col === 'hide' && !v) o.select = false;
+            }
+          push('Collection Visibility');
+        },
+        isolate: () => {
+          const keep = new Set([id, ...ancestorCollections(doc, id), ...descendantCollections(doc, id)]);
+          for (const cc of Object.values(doc.collections)) if (cc.id !== doc.scene.collection) setFlag(cc.id, inverted ? cc.id === id : keep.has(cc.id));
+          push('Isolate Collection');
+        },
+      };
     }
-    if (r.kind === 'object' && r.ob && this.displayMode !== 'BLENDER_FILE' && this.displayMode !== 'ORPHAN_DATA') {
-      const ob = r.ob;
-      return h(
-        'span',
-        { class: 'ol-toggles' },
-        h('button', { class: { 'ol-toggle': true, off: ob.hide }, 'data-tip': 'Hide in Viewport (H)', onpointerdown: (e: PointerEvent) => this.flipObject(e, ob, 'hide') }, icon(ob.hide ? 'hide_on' : 'hide_off')),
-        h('button', { class: { 'ol-toggle': true, off: ob.hide_render }, 'data-tip': 'Disable in Renders', onpointerdown: (e: PointerEvent) => this.flipObject(e, ob, 'hide_render') }, icon(ob.hide_render ? 'restrict_render_on' : 'restrict_render_off')),
-      );
+    if (r.kind === 'object' && r.ob && (col === 'select' || col === 'hide' || col === 'viewport' || col === 'render')) {
+      const ob = doc.objects[r.ob.id];
+      if (!ob) return null;
+      const key = (
+        {
+          select: 'hide_select',
+          hide: 'hide',
+          viewport: 'hide_viewport',
+          render: 'hide_render',
+        } as const
+      )[col];
+      const icons = {
+        select: ['restrict_select_off', 'restrict_select_on', 'Disable Selection'],
+        hide: ['hide_off', 'hide_on', 'Hide in Viewport (H)\nCtrl+click to isolate, Shift+click to include children'],
+        viewport: ['restrict_view_off', 'restrict_view_on', 'Disable in Viewports'],
+        render: ['restrict_render_off', 'restrict_render_on', 'Disable in Renders'],
+      }[col];
+      const apply = (o: ObjectData, v: boolean) => {
+        o[key] = !v;
+        if (!v && (key === 'hide' || key === 'hide_viewport' || key === 'hide_select')) o.select = false;
+      };
+      return {
+        on: !ob[key],
+        icon: !ob[key] ? icons[0] : icons[1],
+        tip: icons[2],
+        set: (v) => {
+          apply(ob, v);
+          push('Object Visibility');
+        },
+        recurse: (v) => {
+          for (const id of objectHierarchy(doc, ob.id)) apply(doc.objects[id], v);
+          push('Object Visibility');
+        },
+        isolate: () => {
+          for (const o of Object.values(doc.objects)) apply(o, o.id === ob.id);
+          push('Isolate Object');
+        },
+      };
+    }
+    if (r.kind === 'modifier' && r.ob && r.id && (col === 'viewport' || col === 'render')) {
+      const ob = doc.objects[r.ob.id];
+      const md = ob?.modifiers.find((m) => m.id === r.id);
+      if (!md) return null;
+      const key = col === 'viewport' ? 'show_viewport' : 'show_render';
+      const on = (md as unknown as Record<string, boolean>)[key] !== false;
+      return {
+        on,
+        icon: col === 'viewport' ? (on ? 'restrict_view_off' : 'restrict_view_on') : on ? 'restrict_render_off' : 'restrict_render_on',
+        tip: col === 'viewport' ? 'Display modifier in viewport' : 'Use modifier during render',
+        set: (v) => {
+          (md as unknown as Record<string, boolean>)[key] = v;
+          push('Toggle Modifier');
+        },
+      };
     }
     return null;
   }
 
-  private flipCollection(e: PointerEvent, c: CollectionData, key: 'exclude' | 'hide' | 'hide_render') {
-    e.stopPropagation();
-    e.preventDefault();
-    if (e.ctrlKey || e.metaKey) {
-      // isolate: only this collection visible
-      for (const other of Object.values(app.doc.collections)) if (other.id !== app.doc.scene.collection) other[key] = other.id !== c.id;
-    } else c[key] = !c[key];
-    app.pushUndo('Collection Visibility');
-    app.changed('doc', 'select');
+  private toggleCell(r: Row, col: ColumnId): Child {
+    const c = this.cell(r, col);
+    if (!c) return h('span', { class: 'ol-toggle-space', key: col });
+    return h(
+      'button',
+      {
+        key: col,
+        class: { 'ol-toggle': true, off: !c.on, [`col-${col}`]: true },
+        'data-tip': c.tip,
+        'aria-pressed': c.on ? 'true' : 'false',
+        onpointerdown: (e: PointerEvent) => {
+          e.stopPropagation();
+          e.preventDefault();
+          if (e.button !== 0) return;
+          if ((e.ctrlKey || e.metaKey) && c.isolate) return c.isolate();
+          if (e.shiftKey && c.recurse) return c.recurse(!c.on);
+          const v = !c.on;
+          this.toggleDrag = { col, on: v, done: new Set([r.key]) };
+          addEventListener('pointerup', () => (this.toggleDrag = null), {
+            once: true,
+          });
+          c.set(v);
+        },
+        onpointerenter: () => {
+          const d = this.toggleDrag;
+          if (!d || d.col !== col || d.done.has(r.key)) return;
+          d.done.add(r.key);
+          const cur = this.cell(r, col);
+          if (cur && cur.on !== d.on) cur.set(d.on);
+        },
+      },
+      icon(c.icon),
+    );
   }
 
-  private flipObject(e: PointerEvent, ob: ObjectData, key: 'hide' | 'hide_render') {
-    e.stopPropagation();
-    e.preventDefault();
-    if (e.ctrlKey || e.metaKey) {
-      for (const o of Object.values(app.doc.objects)) o[key] = o.id !== ob.id;
-    } else {
-      ob[key] = !ob[key];
-      if (key === 'hide' && ob.hide) ob.select = false;
-      // shift: apply to children too
-      if (e.shiftKey) for (const c of Object.values(app.doc.objects)) if (c.parent === ob.id) c[key] = ob[key];
-    }
-    app.pushUndo('Object Visibility');
-    app.changed('doc', 'select');
-  }
-
-  private toggleExpand(r: Row, recursive: boolean) {
-    const set = r.kind === 'object' ? this.expanded : this.collapsed;
-    const isOpen = r.expanded;
-    const flip = (key: string) => {
-      if (r.kind === 'object') {
-        if (isOpen) set.delete(key);
-        else set.add(key);
-      } else if (isOpen) set.add(key);
-      else set.delete(key);
-    };
-    flip(r.key);
-    if (recursive && r.collection) {
-      const walk = (c: CollectionData) => {
-        for (const ch of c.children) {
-          if (isOpen) this.collapsed.add(`c:${ch}`);
-          else this.collapsed.delete(`c:${ch}`);
-          walk(app.doc.collections[ch]);
-        }
-      };
-      walk(r.collection);
-    }
-    this.update();
-  }
+  // ---------------------------------------------------------------------------
+  // pointer interaction
 
   private onRowDown(e: PointerEvent, r: Row) {
     if (e.button !== 0) return;
-    if ((e.target as HTMLElement).closest('.ol-toggle, .ol-arrow, input')) return;
-    const doc = app.doc;
-    if (r.kind === 'collection' && r.id) {
-      setActiveCollection(r.id);
-      app.changed('ui');
-      this.update();
-      return;
-    }
-    const ob = r.ob;
-    if (!ob) return;
-    if (r.kind === 'material' || r.kind === 'modifier' || r.kind === 'data' || r.kind === 'constraint') {
-      // activating a sub-item activates its object and jumps to the matching properties tab
-      for (const o of Object.values(doc.objects)) o.select = false;
-      ob.select = true;
-      doc.scene.active_object = ob.id;
-      const tab = r.kind === 'material' ? 'MATERIAL' : r.kind === 'modifier' ? 'MODIFIER' : r.kind === 'constraint' ? 'CONSTRAINT' : 'DATA';
-      (window as unknown as { __propertiesTab?: string }).__propertiesTab = tab;
-      app.pushUndo('Outliner Select');
-      app.changed('select', 'doc');
-      return;
-    }
-    if (doc.mode !== 'OBJECT' && doc.mode !== 'POSE' && doc.scene.active_object !== ob.id) {
-      // switching the edited object (mode transfer)
-      app.run('object.mode_set', { mode: 'OBJECT' });
-    }
+    const t = e.target as HTMLElement;
+    if (t.closest('.ol-toggle, .ol-arrow, .ol-mode, input')) return;
+    if (this.renaming && this.renaming !== r.key) this.renaming = null;
     const ctrl = e.ctrlKey || e.metaKey;
-    if (e.shiftKey && this.lastClicked) {
-      // range select in row order
-      const ids = this.rows.filter((x) => x.kind === 'object' && x.ob).map((x) => x.ob!.id);
-      const a = ids.indexOf(this.lastClicked),
-        b = ids.indexOf(ob.id);
-      if (a >= 0 && b >= 0) for (const id of ids.slice(Math.min(a, b), Math.max(a, b) + 1)) doc.objects[id].select = true;
-    } else if (ctrl) {
-      ob.select = !ob.select || doc.scene.active_object !== ob.id;
-    } else {
-      for (const o of Object.values(doc.objects)) o.select = false;
-      ob.select = true;
+    if (t.closest('.ol-item')) {
+      // pressing an item: select now unless it's already selected (then wait: it may start a drag)
+      if (this.isSelected(r) && !ctrl && !e.shiftKey) {
+        this.pendingClick = { row: r, ctrl, shift: e.shiftKey };
+        const up = () => {
+          removeEventListener('pointerup', up, true);
+          const p = this.pendingClick;
+          this.pendingClick = null;
+          if (p && !this.drag) this.clickRow(p.row, { ctrl: p.ctrl, shift: p.shift });
+        };
+        addEventListener('pointerup', up, true);
+      } else this.clickRow(r, { ctrl, shift: e.shiftKey });
+      return;
     }
-    if (ob.select) doc.scene.active_object = ob.id;
-    this.lastClicked = ob.id;
-    // children of a selected collection move with the active collection
-    const col = Object.values(doc.collections).find((c) => c.objects.includes(ob.id));
-    if (col) setActiveCollection(col.id);
-    app.pushUndo('Outliner Select');
-    app.changed('select', 'doc');
+    // empty part of a row: click selects, dragging starts a box selection
+    e.preventDefault();
+    this.trackBox(e, () => this.clickRow(r, { ctrl, shift: e.shiftKey }));
   }
 
-  private rename(r: Row, name: string) {
-    this.renaming = null;
-    const doc = app.doc;
-    name = name.trim();
-    if (name) {
-      if (r.kind === 'object' && r.ob) r.ob.name = uniqueName(doc, name);
-      else if (r.kind === 'collection' && r.collection && r.id !== doc.scene.collection) r.collection.name = uniqueName(doc, name, 'collections');
-      else if (r.kind === 'data' && r.ob?.data) {
-        const d = (doc.meshes[r.ob.data] ?? doc.curves[r.ob.data] ?? doc.lights[r.ob.data] ?? doc.cameras[r.ob.data] ?? doc.armatures[r.ob.data]) as { name: string } | undefined;
-        if (d) d.name = name;
-      } else if (r.kind === 'modifier' && r.ob) {
-        const id = r.key.split(':')[2];
-        const m = r.ob.modifiers.find((x) => x.id === id);
-        if (m) m.name = name;
-      } else if (r.kind === 'material' && r.key.startsWith('m:')) {
-        const id = r.key.split(':')[2];
-        if (doc.materials[id]) doc.materials[id].name = name;
-      } else if (r.id && r.key.includes(':')) {
-        const [table, id] = r.key.split(':');
-        const item = (doc as unknown as Record<string, Record<string, { name: string }>>)[table]?.[id];
-        if (item) item.name = name;
+  private onListDown(e: PointerEvent) {
+    if (e.button !== 0 || (e.target as HTMLElement).closest('.ol-row')) return;
+    e.preventDefault();
+    this.trackBox(e, () => {
+      if (this.renaming) {
+        this.renaming = null;
+        this.update();
       }
-      app.pushUndo('Rename');
-    }
-    app.changed('doc');
-    this.update();
+      const before = this.selectionSignature();
+      this.deselectAll();
+      this.activeKey = null;
+      this.commitSelection(before);
+    });
   }
 
-  private onDrop(r: Row, shift: boolean, ctrl: boolean) {
+  /** Track a press: on release without moving `click` runs, dragging draws a selection box. */
+  private trackBox(e: PointerEvent, click: () => void, forced?: 'SET' | 'ADD' | 'SUB', done?: (r: 'FINISHED' | 'CANCELLED') => void) {
+    const x0 = e.clientX,
+      y0 = e.clientY;
+    let moved = false;
+    const mode = forced ?? (e.ctrlKey || e.metaKey ? 'SUB' : e.shiftKey ? 'ADD' : 'SET');
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 4) return;
+      moved = true;
+      this.drawBox(x0, y0, ev.clientX, ev.clientY);
+    };
+    const finish = (ev: PointerEvent | null) => {
+      removeEventListener('pointermove', move, true);
+      removeEventListener('pointerup', up, true);
+      removeEventListener('keydown', key, true);
+      this.boxEl.hidden = true;
+      if (!ev) return done?.('CANCELLED');
+      if (!moved) click();
+      else this.boxSelect(Math.min(y0, ev.clientY), Math.max(y0, ev.clientY), mode);
+      done?.('FINISHED');
+    };
+    const up = (ev: PointerEvent) => finish(ev);
+    const key = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') {
+        ev.stopPropagation();
+        finish(null);
+      }
+    };
+    addEventListener('pointermove', move, true);
+    addEventListener('pointerup', up, true);
+    addEventListener('keydown', key, true);
+  }
+
+  private drawBox(x0: number, y0: number, x1: number, y1: number) {
+    const r = this.el.getBoundingClientRect();
+    Object.assign(this.boxEl.style, {
+      left: `${Math.min(x0, x1) - r.left}px`,
+      top: `${Math.min(y0, y1) - r.top}px`,
+      width: `${Math.abs(x1 - x0)}px`,
+      height: `${Math.abs(y1 - y0)}px`,
+    });
+    this.boxEl.hidden = false;
+  }
+
+  /** Box select the rows that overlap the vertical range [top, bottom] (client coordinates). */
+  boxSelect(top: number, bottom: number, mode: 'SET' | 'ADD' | 'SUB') {
+    const before = this.selectionSignature();
+    if (mode === 'SET') this.deselectAll();
+    const els = [...this.list.querySelectorAll<HTMLElement>('.ol-row')];
+    let first: Row | null = null;
+    for (const el of els) {
+      const b = el.getBoundingClientRect();
+      if (b.bottom < top || b.top > bottom) continue;
+      const r = this.rows.find((x) => x.key === el.dataset.key);
+      if (!r || r.kind === 'group' || r.kind === 'file' || r.kind === 'scene' || (r.kind === 'collection' && r.id === app.doc.scene.collection)) continue;
+      this.setSelected(r, mode !== 'SUB');
+      first ??= r;
+    }
+    if (mode !== 'SUB' && first && !this.selectedRows().some((r) => this.isActive(r))) this.activate(first);
+    this.commitSelection(before);
+  }
+
+  /** Interactive box select started from the keyboard (B): drag a box in the outliner. */
+  startBoxSelect() {
+    app.startModal({
+      label: 'Box Select',
+      cursor: 'crosshair',
+      header: () => 'Box Select: drag over rows (Shift extend, Ctrl subtract), Esc to cancel',
+      onPointerDown: (e) => {
+        if (e.button !== 0) return 'CANCELLED';
+        const inside = this.list.contains(e.target as Node);
+        if (!inside) return 'CANCELLED';
+        const mode = e.ctrlKey || e.metaKey ? 'SUB' : e.shiftKey ? 'ADD' : 'SET';
+        // hand over to the box tracker, which ends the modal on release
+        queueMicrotask(() => this.trackBox(e, () => this.boxSelect(e.clientY, e.clientY, mode), mode));
+        return 'FINISHED';
+      },
+      onKey: (e) => (e.type === 'keydown' && e.key === 'Escape' ? 'CANCELLED' : undefined),
+      cancel: () => {},
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // drag and drop
+
+  private isDraggable(r: Row) {
+    if (r.kind === 'object') return true;
+    if (r.kind === 'collection') return r.id !== app.doc.scene.collection && this.displayMode !== 'BLENDER_FILE' && this.displayMode !== 'ORPHAN_DATA';
+    return r.kind === 'material' || (r.kind === 'id' && r.table === 'materials');
+  }
+
+  private onDragStart(e: DragEvent, r: Row) {
+    if (r.kind === 'object' && r.ob) {
+      const ids = this.isSelected(r) && this.filter.use_sync_select ? app.doc.object_order.filter((id) => app.doc.objects[id]?.select) : [r.ob.id];
+      this.drag = {
+        kind: 'objects',
+        ids: ids.includes(r.ob.id) ? ids : [r.ob.id],
+      };
+    } else if (r.kind === 'collection' && r.id) this.drag = { kind: 'collection', id: r.id };
+    else if (r.id) this.drag = { kind: 'material', id: r.id };
+    e.dataTransfer?.setData('text/plain', r.label);
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove';
+  }
+
+  private dropAction(r: Row, zone: DropZone, ctrl: boolean, shift: boolean): string | null {
+    const d = this.drag;
+    const doc = app.doc;
+    if (!d) return null;
+    if (d.kind === 'objects') {
+      if (r.kind === 'collection' && r.id && this.displayMode !== 'BLENDER_FILE') {
+        const parented = d.ids.some((id) => doc.objects[id]?.parent);
+        return ctrl ? 'Link to collection' : parented && !shift ? 'Move to collection and clear parent (Ctrl to link, Shift to keep parent)' : 'Move to collection (Ctrl to link)';
+      }
+      if (r.kind === 'object' && r.ob && !d.ids.includes(r.ob.id)) return 'Drop to set parent';
+      return null;
+    }
+    if (d.kind === 'collection') {
+      if (r.kind !== 'collection' || !r.id || r.id === d.id) return null;
+      if (zone !== 'INTO' && r.id === doc.scene.collection) return null;
+      return zone === 'INTO' ? 'Move inside collection' : zone === 'BEFORE' ? 'Move before collection' : 'Move after collection';
+    }
+    if (d.kind === 'material' && r.kind === 'object' && r.ob && (r.ob.type === 'MESH' || r.ob.type === 'CURVE' || r.ob.type === 'FONT')) return 'Drop material on object';
+    return null;
+  }
+
+  private onDragOver(e: DragEvent, r: Row) {
+    if (!this.drag) return;
+    const el = e.currentTarget as HTMLElement;
+    let zone: DropZone = 'INTO';
+    if (this.drag.kind === 'collection' && r.kind === 'collection') {
+      const b = el.getBoundingClientRect();
+      const f = (e.clientY - b.top) / b.height;
+      zone = f < 0.3 ? 'BEFORE' : f > 0.7 && !r.expanded ? 'AFTER' : 'INTO';
+    }
+    const action = this.dropAction(r, zone, e.ctrlKey || e.metaKey, e.shiftKey);
+    el.classList.remove('drop-into', 'drop-before', 'drop-after');
+    if (!action) {
+      this.setHint(null);
+      return;
+    }
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = e.ctrlKey || e.metaKey ? 'copy' : 'move';
+    el.classList.add(zone === 'INTO' ? 'drop-into' : zone === 'BEFORE' ? 'drop-before' : 'drop-after');
+    this.setHint(action, e.clientX, e.clientY);
+  }
+
+  private setHint(text: string | null, x = 0, y = 0) {
+    if (!text) {
+      this.hint.hidden = true;
+      return;
+    }
+    const r = this.el.getBoundingClientRect();
+    this.hint.textContent = text;
+    this.hint.hidden = false;
+    this.hint.style.left = `${Math.min(x - r.left + 14, r.width - 40)}px`;
+    this.hint.style.top = `${y - r.top + 16}px`;
+  }
+
+  private onDrop(r: Row, zone: DropZone, ctrl: boolean, shift: boolean) {
     const doc = app.doc;
     const d = this.drag;
+    const action = this.dropAction(r, zone, ctrl, shift);
     this.drag = null;
-    if (!d) return;
-    if (d.kind === 'object' && r.kind === 'collection' && r.id) {
-      for (const id of d.ids) {
-        if (!ctrl) for (const c of Object.values(doc.collections)) c.objects = c.objects.filter((x) => x !== id);
-        if (!doc.collections[r.id].objects.includes(id)) doc.collections[r.id].objects.push(id);
-        // dropping onto a collection also clears the parent (like dragging out of the parent)
-        if (shift) doc.objects[id].parent = null;
-      }
+    this.setHint(null);
+    if (!d || !action) return;
+    if (d.kind === 'objects' && r.kind === 'collection' && r.id) {
+      if (!ctrl && !shift) this.clearParentKeepTransform(d.ids.filter((id) => !d.ids.includes(doc.objects[id]?.parent ?? '')));
+      moveObjectsToCollection(doc, d.ids, r.id, ctrl);
       app.pushUndo(ctrl ? 'Link to Collection' : 'Move to Collection');
-    } else if (d.kind === 'object' && r.kind === 'object' && r.ob) {
-      // parent to the target object (keep transform)
+    } else if (d.kind === 'objects' && r.kind === 'object' && r.ob) {
       const parent = r.ob;
-      const pw = app.graph.get(parent.id)!.world.clone();
+      const pw = app.graph.get(parent.id)?.world.clone() ?? new Matrix4();
+      const parentCols = Object.values(doc.collections)
+        .filter((c) => c.objects.includes(parent.id))
+        .map((c) => c.id);
+      let n = 0;
       for (const id of d.ids) {
         if (id === parent.id) continue;
         const ob = doc.objects[id];
+        if (!ob) continue;
         let q: string | null = parent.id,
           cycle = false;
         while (q) {
@@ -475,232 +1119,254 @@ export class Outliner implements Editor {
           q = doc.objects[q]?.parent ?? null;
         }
         if (cycle) continue;
-        const w = app.graph.get(id)!.world.clone();
+        const w = app.graph.get(id)?.world.clone() ?? new Matrix4();
         ob.parent = parent.id;
+        ob.parent_type = 'OBJECT';
         ob.matrix_parent_inverse = fromMatrix4(new Matrix4());
         applyMatrixToObject(ob, pw.clone().invert().multiply(w));
+        // children follow the parent into its collection when they were not sharing one
+        const shared = parentCols.some((c) => doc.collections[c].objects.includes(id));
+        if (!shared && parentCols.length && this.displayMode !== 'BLENDER_FILE')
+          moveObjectsToCollection(doc, [id], r.parentCollection && parentCols.includes(r.parentCollection) ? r.parentCollection : parentCols[0], false);
+        n++;
       }
+      if (!n) return;
       app.pushUndo('Drop to Set Parent');
-    } else if (d.kind === 'collection' && r.kind === 'collection' && r.id && d.ids[0] !== r.id) {
-      const moving = d.ids[0];
-      // prevent cycles
-      const isDesc = (c: string): boolean => c === moving || doc.collections[c]?.children.some(isDesc) || false;
-      void isDesc;
-      const contains = (root: string, x: string): boolean => root === x || doc.collections[root].children.some((ch) => contains(ch, x));
-      if (contains(moving, r.id)) return;
-      for (const c of Object.values(doc.collections)) c.children = c.children.filter((x) => x !== moving);
-      doc.collections[r.id].children.push(moving);
+    } else if (d.kind === 'collection' && r.kind === 'collection' && r.id) {
+      if (!moveCollection(doc, d.id, r.id, zone)) {
+        app.report('WARNING', 'Cannot move a collection inside itself');
+        return;
+      }
       app.pushUndo('Move Collection');
+    } else if (d.kind === 'material' && r.kind === 'object' && r.ob) {
+      app.run('outliner.material_drop', { object: r.ob.id, material: d.id }, { invoke: false });
+      return;
     }
     app.changed('doc', 'select');
   }
 
-  private contextMenu(e: MouseEvent, r: Row) {
+  private clearParentKeepTransform(ids: string[]) {
     const doc = app.doc;
-    let items: MenuItem[] = [];
-    if (r.kind === 'collection' && r.collection) {
-      const c = r.collection;
-      const isMaster = r.id === doc.scene.collection;
-      items = [
-        { label: 'New Collection', op: 'outliner.collection_new' },
-        ...(isMaster
-          ? []
-          : [
-              { label: 'Duplicate Collection', action: () => app.run('outliner.collection_duplicate', { collection: c.id }) },
-              { label: 'Delete', action: () => app.run('outliner.collection_delete', { collection: c.id, hierarchy: false }) },
-              { label: 'Delete Hierarchy', action: () => app.run('outliner.collection_delete', { collection: c.id, hierarchy: true }) },
-            ]),
-        { separator: true },
-        { label: 'Select Objects', action: () => app.run('outliner.collection_objects_select', { collection: c.id }) },
-        { label: 'Deselect Objects', action: () => app.run('outliner.collection_objects_select', { collection: c.id, deselect: true }) },
-        { separator: true },
-        { label: 'Instance to Scene', disabled: isMaster, action: () => app.run('object.collection_instance_add', { collection: c.id }, { invoke: false }) },
-        { separator: true },
-        { label: 'Set Color Tag', submenu: () => (['NONE', 'COLOR_01', 'COLOR_02', 'COLOR_03', 'COLOR_04', 'COLOR_05', 'COLOR_06', 'COLOR_07', 'COLOR_08'] as const).map((t) => ({ label: t === 'NONE' ? 'None' : `Color ${t.slice(-1)}`, action: () => ((c.color_tag = t), app.pushUndo('Color Tag'), app.changed('doc')) })) },
-        { separator: true },
-        { label: 'Rename', action: () => ((this.renaming = r.key), this.update()) },
-      ];
-    } else if (r.kind === 'object' && r.ob) {
-      if (!r.ob.select) {
-        for (const o of Object.values(doc.objects)) o.select = false;
-        r.ob.select = true;
-        doc.scene.active_object = r.ob.id;
-        app.changed('select');
-      }
-      items = [
-        { label: 'Copy', op: 'view3d.copybuffer' },
-        { label: 'Paste', op: 'view3d.pastebuffer' },
-        { separator: true },
-        { label: 'Delete', op: 'object.delete', props: { confirm: false } },
-        { label: 'Delete Hierarchy', action: () => app.run('outliner.object_delete_hierarchy', { object: r.ob!.id }) },
-        { separator: true },
-        { label: 'Select', action: () => ((r.ob!.select = true), app.pushUndo('Select'), app.changed('select')) },
-        { label: 'Select Hierarchy', action: () => app.run('outliner.object_select_hierarchy', { object: r.ob!.id }) },
-        { label: 'Deselect', action: () => ((r.ob!.select = false), app.pushUndo('Deselect'), app.changed('select')) },
-        { separator: true },
-        { label: 'Show/Hide', submenu: () => [{ label: 'Show One Level', action: () => this.update() }, { label: 'Hide Selected', op: 'object.hide_view_set' }, { label: 'Show All', op: 'object.hide_view_clear' }] },
-        { label: 'Rename', shortcut: 'F2', action: () => ((this.renaming = r.key), this.update()) },
-      ];
-    } else items = [{ label: 'Rename', action: () => ((this.renaming = r.key), this.update()) }];
-    openMenu(items, { x: e.clientX, y: e.clientY });
+    for (const id of ids) {
+      const ob = doc.objects[id];
+      if (!ob?.parent) continue;
+      const w = app.graph.get(id)?.world;
+      ob.parent = null;
+      ob.matrix_parent_inverse = fromMatrix4(new Matrix4());
+      if (w) applyMatrixToObject(ob, w);
+    }
   }
 
-  onKey(e: KeyboardEvent): boolean {
-    const doc = app.doc;
-    if (e.code === 'KeyX' || e.code === 'Delete') {
-      const sel = app.selectedObjects();
-      if (sel.length) {
-        deleteObjects(doc, new Set(sel.map((o) => o.id)));
-        app.pushUndo('Delete');
-        app.changed('doc');
-        return true;
-      }
+  // ---------------------------------------------------------------------------
+  // rename
+
+  /** Start renaming a row (by row key), or the active element when no key is given. */
+  startRename(key?: string) {
+    if (!key) {
+      const i = this.cursorIndex();
+      key = i >= 0 ? this.rows[i].key : undefined;
     }
-    if (e.code === 'F2') {
-      const act = doc.scene.active_object;
-      if (act) {
-        this.renaming = `o:${act}`;
-        this.update();
-        return true;
-      }
-    }
-    if (e.code === 'KeyA' && !e.altKey && !e.ctrlKey) {
-      app.run('object.select_all', { action: 'SELECT' });
-      return true;
-    }
-    if (e.code === 'KeyA' && e.altKey) {
-      app.run('object.select_all', { action: 'DESELECT' });
-      return true;
-    }
-    if (e.code === 'KeyH') {
-      app.run(e.altKey ? 'object.hide_view_clear' : 'object.hide_view_set');
-      return true;
-    }
-    if (e.code === 'NumpadDecimal' || e.code === 'Period') {
-      // show active row: expand ancestors
-      const act = doc.scene.active_object ? doc.objects[doc.scene.active_object] : null;
-      let p = act?.parent;
-      while (p) {
-        this.expanded.add(`o:${p}`);
-        p = doc.objects[p]?.parent;
-      }
-      this.update();
-      this.list.querySelector('.ol-row.active')?.scrollIntoView({ block: 'nearest' });
-      return true;
-    }
-    return false;
+    const r = key ? this.rows.find((x) => x.key === key) : undefined;
+    if (!r || !this.canRename(r)) return false;
+    this.renaming = r.key;
+    this.update();
+    this.list.querySelector('.ol-rename')?.scrollIntoView({ block: 'nearest' });
+    return true;
   }
 
-  dispose() {}
+  canRename(r: Row) {
+    if (r.kind === 'collection') return r.id !== app.doc.scene.collection;
+    return r.kind !== 'group' && r.kind !== 'file' && r.kind !== 'modifiers' && r.kind !== 'constraints' && r.kind !== 'vgroups';
+  }
+
+  rename(r: Row, name: string) {
+    this.renaming = null;
+    const doc = app.doc;
+    name = name.trim();
+    if (name && name !== r.label) {
+      const tables = doc as unknown as Record<string, Record<string, { name: string }>>;
+      if (r.kind === 'object' && r.ob) doc.objects[r.ob.id].name = uniqueName(doc, name);
+      else if (r.kind === 'collection' && r.collection) doc.collections[r.collection.id].name = uniqueName(doc, name, 'collections');
+      else if (r.kind === 'scene') doc.scene.name = name;
+      else if (r.kind === 'modifier' && r.ob) {
+        const m = doc.objects[r.ob.id]?.modifiers.find((x) => x.id === r.id);
+        if (m) m.name = name;
+      } else if (r.kind === 'constraint' && r.ob) {
+        const c = doc.objects[r.ob.id]?.constraints.find((x) => x.id === r.id);
+        if (c) c.name = name;
+      } else if (r.kind === 'vgroup' && r.ob?.data) {
+        const g = doc.meshes[r.ob.data]?.vertex_groups?.find((x) => x.name === r.label);
+        if (g) g.name = name;
+      } else if (r.table && r.id) {
+        const t = tables[r.table];
+        if (t?.[r.id])
+          t[r.id].name = ['objects', 'meshes', 'materials', 'collections', 'curves', 'lights', 'cameras', 'armatures', 'actions', 'images', 'node_groups', 'texts'].includes(r.table)
+            ? uniqueName(doc, name, r.table as 'meshes')
+            : name;
+      }
+      app.pushUndo('Rename');
+    }
+    app.changed('doc');
+    this.update();
+  }
+
+  // ---------------------------------------------------------------------------
+  // view operations
+
+  /** Open the parents of the active element and scroll it into view. */
+  showActive() {
+    const doc = app.doc;
+    const act = doc.scene.active_object;
+    let ekey: string | null = null;
+    if (act && doc.objects[act] && !(this.activeKey?.startsWith('c:') ?? false)) {
+      ekey = `o:${act}`;
+      const cols = Object.values(doc.collections).filter((c) => c.objects.includes(act));
+      for (const c of cols) for (const a of [...ancestorCollections(doc, c.id), c.id]) this.setOpen(`c:${a}`, true);
+      let p = doc.objects[act].parent;
+      while (p && doc.objects[p]) {
+        this.setOpen(`o:${p}`, true);
+        for (const c of Object.values(doc.collections).filter((cc) => cc.objects.includes(p!))) for (const a of [...ancestorCollections(doc, c.id), c.id]) this.setOpen(`c:${a}`, true);
+        p = doc.objects[p].parent;
+      }
+      if (this.displayMode === 'BLENDER_FILE') {
+        this.setOpen('file', true);
+        this.setOpen('g:objects', true);
+        ekey = `id:objects:${act}`;
+      }
+    } else {
+      const cid = this.activeKey?.startsWith('c:') ? this.activeKey.slice(2) : activeCollection(doc);
+      ekey = `c:${cid}`;
+      for (const a of ancestorCollections(doc, cid)) this.setOpen(`c:${a}`, true);
+    }
+    this.setOpen('scene', true);
+    this.update();
+    const row = this.rows.find((r) => r.ekey === ekey);
+    if (row) {
+      this.activeKey = row.ekey;
+      const el = this.list.querySelector<HTMLElement>(`.ol-row[data-key="${CSS.escape(row.key)}"]`);
+      el?.scrollIntoView({ block: 'center' });
+    }
+  }
+
+  /** Open collections and objects with children; close everything else. */
+  showHierarchy() {
+    const kids = childrenMap(app.doc);
+    for (const e of this.allElements()) {
+      if (!e.hasKids) continue;
+      if (e.kind === 'collection' || e.kind === 'scene' || e.kind === 'file') this.setOpen(e.ekey, true);
+      else if (e.kind === 'object') this.setOpen(e.ekey, kids.has(e.ekey.slice(2)));
+      else this.setOpen(e.ekey, false);
+    }
+    this.update();
+    this.list.scrollTop = 0;
+  }
+
+  /** Expand (or collapse) one more level of the tree. */
+  showOneLevel(open: boolean) {
+    const els = this.allElements().filter((e) => e.hasKids && e.parentOpen);
+    if (open) {
+      const closed = els.filter((e) => !e.open);
+      if (!closed.length) return;
+      const d = Math.min(...closed.map((e) => e.depth));
+      for (const e of closed) if (e.depth === d) this.setOpen(e.ekey, true);
+    } else {
+      const opened = els.filter((e) => e.open);
+      if (!opened.length) return;
+      const d = Math.max(...opened.map((e) => e.depth));
+      if (d === 0 && opened.length && this.displayMode !== 'VIEW_LAYER') return;
+      for (const e of opened) if (e.depth === d) this.setOpen(e.ekey, false);
+    }
+    this.update();
+  }
+
+  /** Expand everything, or collapse everything when all is open. */
+  expandedToggle() {
+    const els = this.allElements().filter((e) => e.hasKids);
+    const anyClosed = els.some((e) => !e.open && e.depth > 0);
+    for (const e of els) if (e.depth > 0 || anyClosed) this.setOpen(e.ekey, anyClosed);
+    this.update();
+  }
+
+  scrollPage(up: boolean) {
+    this.list.scrollTop += (up ? -1 : 1) * Math.max(22, this.list.clientHeight - 22);
+  }
+
+  /** Keyboard walk: move the active element, expand or collapse with Left / Right. */
+  walk(direction: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT', extend: boolean, toggleAll: boolean) {
+    if (!this.rows.length) return;
+    let i = this.cursorIndex();
+    const cur = i >= 0 ? this.rows[i] : null;
+    if (direction === 'LEFT' || direction === 'RIGHT') {
+      if (!cur) return;
+      const openIt = direction === 'RIGHT';
+      if (cur.expandable && cur.expanded !== openIt) {
+        this.toggleOpen(cur, toggleAll, openIt);
+        return;
+      }
+      if (toggleAll && cur.expandable) {
+        this.toggleOpen(cur, true, openIt);
+        return;
+      }
+      // Left on a closed row walks to its parent; Right on an open row walks to its first child
+      const target = openIt ? (cur.expanded ? this.rows[i + 1] : null) : this.rows.find((r) => r.key === cur.parentKey);
+      if (target) this.walkTo(target, false);
+      return;
+    }
+    if (i < 0) i = direction === 'DOWN' ? -1 : this.rows.length;
+    let j = i + (direction === 'DOWN' ? 1 : -1);
+    while (j >= 0 && j < this.rows.length && (this.rows[j].kind === 'group' || this.rows[j].kind === 'file')) j += direction === 'DOWN' ? 1 : -1;
+    const target = this.rows[j];
+    if (!target) return;
+    if (extend && cur && this.isSelected(target) && this.isSelected(cur)) this.setSelected(cur, false);
+    this.walkTo(target, extend);
+  }
+
+  private walkTo(target: Row, extend: boolean) {
+    const before = this.selectionSignature();
+    if (target.kind === 'object' && target.ob) this.prepareModeSwitch(target.ob);
+    if (!extend) this.deselectAll();
+    if (target.kind !== 'collection' || target.id !== app.doc.scene.collection) this.setSelected(target, true);
+    this.activate(target);
+    this.commitSelection(before);
+    requestAnimationFrame(() => this.list.querySelector<HTMLElement>(`.ol-row[data-key="${CSS.escape(target.key)}"]`)?.scrollIntoView({ block: 'nearest' }));
+  }
+
+  selectAll(action: 'SELECT' | 'DESELECT' | 'INVERT' | 'TOGGLE') {
+    const before = this.selectionSignature();
+    const rows = this.rows.filter((r) => r.kind !== 'group' && r.kind !== 'file' && r.kind !== 'scene' && !(r.kind === 'collection' && r.id === app.doc.scene.collection));
+    if (action === 'TOGGLE') action = rows.some((r) => this.isSelected(r)) ? 'DESELECT' : 'SELECT';
+    if (action === 'DESELECT') this.deselectAll();
+    else if (action === 'SELECT') {
+      for (const r of rows) this.setSelected(r, true);
+      // objects inside collapsed rows count too
+      if (this.filter.use_sync_select && this.displayMode !== 'ORPHAN_DATA') for (const id of app.doc.object_order) if (app.isVisible(id) && app.isSelectable(id)) app.doc.objects[id].select = true;
+    } else {
+      const states = rows.map((r) => [r, this.isSelected(r)] as const);
+      const done = new Set<string>();
+      for (const [r, s] of states) {
+        if (done.has(r.ekey)) continue;
+        done.add(r.ekey);
+        this.setSelected(r, !s);
+      }
+    }
+    this.commitSelection(before);
+  }
+
+  serialize() {
+    return { mode: this.displayMode, filter: { ...this.filter } };
+  }
+
+  dispose() {
+    setCurrentOutliner(null, false, this);
+  }
 }
 
-registerEditor({ id: 'OUTLINER', label: 'Outliner', icon: 'outliner', group: 'Data', create: (area) => new Outliner(area) });
+registerEditor({
+  id: 'OUTLINER',
+  label: 'Outliner',
+  icon: 'outliner',
+  group: 'Data',
+  create: (area, state) => new Outliner(area, state),
+});
 
-registerOperators([
-  {
-    idname: 'outliner.collection_new',
-    label: 'New Collection',
-    description: 'Add a new collection inside selected collection',
-    exec: (ctx) => {
-      const doc = ctx.doc;
-      const parent = activeCollection(doc);
-      const c = newCollection(uniqueName(doc, 'Collection', 'collections'));
-      doc.collections[c.id] = c;
-      doc.collections[parent].children.push(c.id);
-      setActiveCollection(c.id);
-    },
-  },
-  {
-    idname: 'outliner.collection_delete',
-    label: 'Delete Collection',
-    props: [{ id: 'collection', label: 'Collection', type: 'string', default: '', hidden: true }, { id: 'hierarchy', label: 'Hierarchy', type: 'bool', default: false }],
-    exec: (ctx, p) => {
-      const doc = ctx.doc;
-      const id = p.collection as string;
-      const c = doc.collections[id];
-      if (!c || id === doc.scene.collection) return 'CANCELLED';
-      const parent = Object.values(doc.collections).find((x) => x.children.includes(id))!;
-      const remove = (cid: string, objects: Set<string>) => {
-        const cc = doc.collections[cid];
-        for (const ch of cc.children) remove(ch, objects);
-        cc.objects.forEach((o) => objects.add(o));
-        delete doc.collections[cid];
-      };
-      if (p.hierarchy) {
-        const objs = new Set<string>();
-        remove(id, objs);
-        parent.children = parent.children.filter((x) => x !== id);
-        // only delete objects that are not linked elsewhere
-        for (const o of [...objs]) if (Object.values(doc.collections).some((x) => x.objects.includes(o))) objs.delete(o);
-        deleteObjects(doc, objs);
-      } else {
-        parent.children = parent.children.filter((x) => x !== id).concat(c.children);
-        for (const o of c.objects) if (!parent.objects.includes(o)) parent.objects.push(o);
-        delete doc.collections[id];
-      }
-    },
-  },
-  {
-    idname: 'outliner.collection_duplicate',
-    label: 'Duplicate Collection',
-    props: [{ id: 'collection', label: 'Collection', type: 'string', default: '', hidden: true }],
-    exec: (ctx, p) => {
-      const doc = ctx.doc;
-      const src = doc.collections[p.collection as string];
-      if (!src) return 'CANCELLED';
-      const c = newCollection(uniqueName(doc, src.name, 'collections'));
-      c.objects = [...src.objects];
-      doc.collections[c.id] = c;
-      const parent = Object.values(doc.collections).find((x) => x.children.includes(src.id)) ?? doc.collections[doc.scene.collection];
-      parent.children.push(c.id);
-    },
-  },
-  {
-    idname: 'outliner.collection_objects_select',
-    label: 'Select Objects',
-    props: [{ id: 'collection', label: 'Collection', type: 'string', default: '', hidden: true }, { id: 'deselect', label: 'Deselect', type: 'bool', default: false }],
-    exec: (ctx, p) => {
-      const c = ctx.doc.collections[p.collection as string];
-      if (!c) return 'CANCELLED';
-      for (const id of c.objects) if (ctx.doc.objects[id]) ctx.doc.objects[id].select = !p.deselect;
-    },
-  },
-  {
-    idname: 'outliner.object_delete_hierarchy',
-    label: 'Delete Hierarchy',
-    props: [{ id: 'object', label: 'Object', type: 'string', default: '', hidden: true }],
-    exec: (ctx, p) => {
-      const ids = new Set<string>([p.object as string]);
-      let grew = true;
-      while (grew) {
-        grew = false;
-        for (const o of Object.values(ctx.doc.objects))
-          if (o.parent && ids.has(o.parent) && !ids.has(o.id)) {
-            ids.add(o.id);
-            grew = true;
-          }
-      }
-      deleteObjects(ctx.doc, ids);
-    },
-  },
-  {
-    idname: 'outliner.object_select_hierarchy',
-    label: 'Select Hierarchy',
-    props: [{ id: 'object', label: 'Object', type: 'string', default: '', hidden: true }],
-    exec: (ctx, p) => {
-      const ids = new Set<string>([p.object as string]);
-      let grew = true;
-      while (grew) {
-        grew = false;
-        for (const o of Object.values(ctx.doc.objects))
-          if (o.parent && ids.has(o.parent) && !ids.has(o.id)) {
-            ids.add(o.id);
-            grew = true;
-          }
-      }
-      for (const id of ids) ctx.doc.objects[id].select = true;
-    },
-  },
-]);
-
-export { promptText };
+export { promptText, viewMenu };
