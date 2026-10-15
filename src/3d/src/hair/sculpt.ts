@@ -271,7 +271,8 @@ export function startCurvesStroke(v: View3D, e: PointerEvent, opts: StrokeOption
   const proj = () => projectorFor(v, world);
   const mask = () => {
     const s = getAttr(hc, '.selection');
-    if (!s) return null;
+    // nothing selected: the brushes act on all curves
+    if (!s || !s.data.some((x) => x > 0)) return null;
     if (s.domain === 'POINT') return s.data as Float32Array;
     const out = new Float32Array(pointCount(hc));
     const o = hc.curve_offsets;
