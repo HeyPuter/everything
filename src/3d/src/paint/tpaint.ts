@@ -214,6 +214,7 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
   runStroke(v, e, {
     spacing: () => (tool === 'FILL' ? 0 : Math.max(1, b.spacing || 10)),
     radiusPx: () => b.radius,
+    settings: () => (tool === 'FILL' ? {} : b),
     dab: (d) => {
       if (tool === 'FILL') {
         if (!filled) fillAll(s, me, st, color, mode, b.strength);

@@ -55,6 +55,9 @@ export interface StrokeState {
   lastEval: number;
   /** static auto-masking factors of this stroke */
   automask?: Float32Array | null;
+  /** every vertex moved during the stroke (anchored / drag dot strokes restore them) */
+  strokeVerts?: number[];
+  strokeMark?: Uint8Array;
   /** normal auto-masking: start normal and the current view direction (object space) */
   startNormal?: Vector3 | null;
   viewDir?: Vector3 | null;
@@ -175,6 +178,10 @@ function areaPlane(st: StrokeState, n: number, nr: number, fallbackN: Vector3, c
 }
 
 function touch(st: StrokeState, v: number) {
+  if (st.strokeMark && !st.strokeMark[v]) {
+    st.strokeMark[v] = 1;
+    st.strokeVerts!.push(v);
+  }
   if (st.touchedStamp[v] !== st.stamp) {
     st.touchedStamp[v] = st.stamp;
     st.touched.push(v);
@@ -408,6 +415,20 @@ function dab(st: StrokeState, d: Dab, tool: string) {
   const strength = Math.max(0, b.strength) * d.pressure;
   const sym = app.doc.scene.tool_settings.sculpt;
   if (sym.use_automasking_view_normal) st.viewDir = s.localRay(v, d.x, d.y).direction;
+  if (d.restore && st.strokeVerts) {
+    // anchored / drag dot: start from the original surface again
+    const P = s.positions,
+      O = st.orig;
+    for (const vi of st.strokeVerts) {
+      P[vi * 3] = O[vi * 3];
+      P[vi * 3 + 1] = O[vi * 3 + 1];
+      P[vi * 3 + 2] = O[vi * 3 + 2];
+      if (st.layer) st.layer[vi] = 0;
+      touch(st, vi);
+    }
+    st.lastHit = null;
+  }
+  const radiusPx = d.radiusPx ?? b.radius;
 
   if (ANCHORED.has(tool)) {
     if (d.first) {
@@ -524,7 +545,7 @@ function dab(st: StrokeState, d: Dab, tool: string) {
   } else {
     const hit: Hit | null = s.raycast(v, d.x, d.y);
     if (!hit) return;
-    const R = s.pixelsToLocal(v, hit.world, b.radius);
+    const R = s.pixelsToLocal(v, hit.world, radiusPx);
     st.radiusLocal = R;
     const viewDir = s.localRay(v, d.x, d.y).direction;
     const strokeDir = st.lastHit ? hit.point.clone().sub(st.lastHit) : null;
@@ -702,11 +723,18 @@ export function sculptStroke(v: View3D, e: PointerEvent, override?: PaintBrush |
   };
   if (!hasMask(st.mask) && !maskBrush) st.mask = undefined;
   st.automask = strokeAutomask(s, me, ts, firstHit.face);
+  const sm = (b0.stroke_method ?? 'SPACE') as string;
+  if (sm === 'ANCHORED' || sm === 'DRAG_DOT') {
+    st.strokeVerts = [];
+    st.strokeMark = new Uint8Array(s.nv);
+  }
   st.startNormal = firstHit.normal.clone();
   stroke = st;
   runStroke(v, e, {
     spacing: () => (ANCHORED.has(tool) ? 0 : Math.max(1, brush.spacing || 10)),
     radiusPx: () => brush.radius,
+    settings: () => b0,
+    canRestore: !maskBrush && !ANCHORED.has(tool) && tool !== 'SNAKE_HOOK',
     dab: (d) => dab(st, d, tool),
     update: () => {
       if (st.maskBrush) {

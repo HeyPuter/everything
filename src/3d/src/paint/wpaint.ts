@@ -90,6 +90,7 @@ export function weightPaintStroke(v: View3D, e: PointerEvent): boolean {
   runStroke(v, e, {
     spacing: () => Math.max(1, b.spacing || 10),
     radiusPx: () => b.radius,
+    settings: () => b,
     dab: (d) => {
       const hit = s.raycast(v, d.x, d.y);
       if (b.falloff_shape === 'SPHERE' && !hit) return;

@@ -458,17 +458,32 @@ function brushPanels(mode: BrushMode): Child[] {
     );
     out.push(
       panel(`pt-stroke-${mode}`, 'Stroke', () => [
-        numberField({
-          id: 'pt-sp',
-          label: 'Spacing',
-          value: b.spacing ?? 10,
-          min: 1,
-          max: 1000,
-          int: true,
-          unit: 'percentage',
-          tip: 'Spacing between dabs as a percentage of the brush radius',
-          set: (x) => ((b.spacing = Math.round(x)), changed()),
-        }),
+        row('Stroke Method', enumMenu('pt-sm', strokeMethods(mode).map(([value, label]) => ({ value, label })), b.stroke_method ?? 'SPACE', (x) => ((b.stroke_method = x as PaintBrush['stroke_method']), changed()), { tip: 'How dabs are placed along the stroke (Alt E)' })),
+        (b.stroke_method ?? 'SPACE') === 'SPACE' || b.stroke_method === 'LINE' || b.stroke_method === 'AIRBRUSH'
+          ? numberField({
+              id: 'pt-sp',
+              label: 'Spacing',
+              value: b.spacing ?? 10,
+              min: 1,
+              max: 1000,
+              int: true,
+              unit: 'percentage',
+              tip: 'Spacing between dabs as a percentage of the brush radius',
+              set: (x) => ((b.spacing = Math.round(x)), changed()),
+            })
+          : null,
+        b.stroke_method === 'AIRBRUSH'
+          ? numberField({ id: 'pt-rate', label: 'Rate', value: b.rate ?? 0.1, min: 0.0001, max: 10, precision: 3, unit: 'time', tip: 'Interval between airbrush dabs (seconds)', set: (x) => ((b.rate = x), changed()) })
+          : null,
+        b.stroke_method !== 'LINE' && b.stroke_method !== 'ANCHORED'
+          ? checkbox('pt-stab', 'Stabilize Stroke', !!b.use_smooth_stroke, (x) => ((b.use_smooth_stroke = x), changed()), { tip: 'Let the brush trail behind the pointer for smoother lines (Shift S)' })
+          : null,
+        b.use_smooth_stroke && b.stroke_method !== 'LINE' && b.stroke_method !== 'ANCHORED'
+          ? [
+              numberField({ id: 'pt-stab-r', label: 'Radius', value: b.smooth_stroke_radius ?? 75, min: 10, max: 200, int: true, unit: 'pixel', tip: 'Distance the brush trails behind the pointer', set: (x) => ((b.smooth_stroke_radius = Math.round(x)), changed()) }),
+              numberField({ id: 'pt-stab-f', label: 'Factor', value: b.smooth_stroke_factor ?? 0.9, min: 0.5, max: 0.99, slider: true, tip: 'How smoothly the brush follows', set: (x) => ((b.smooth_stroke_factor = x), changed()) }),
+            ]
+          : null,
         mode !== 'SCULPT'
           ? checkbox('pt-acc', 'Accumulate', !!b.use_accumulate, (x) => ((b.use_accumulate = x), changed()), {
               tip: 'Keep adding within a stroke instead of limiting it to the brush strength',
@@ -932,7 +947,9 @@ function paintKey(v: View3D, e: KeyboardEvent): boolean {
     if (!matchKey(k, name, e)) continue;
     if (k.when && !k.when()) continue;
     if (k.menu) {
-      k.menu();
+      // pies open themselves and return no items; plain menus open at the pointer
+      const items = k.menu();
+      if (items.length) openMenu(items, { x: app.pointer.x, y: app.pointer.y }, { title: k.menuTitle });
       return true;
     }
     if (!k.op || !app.poll(k.op, v.area as never)) continue;
@@ -1088,3 +1105,57 @@ function lockPie(): MenuItem[] {
   );
   return [];
 }
+
+/** Stroke methods offered per mode (anchored / drag dot need a mode that can undo dabs). */
+export function strokeMethods(mode: BrushMode): [string, string][] {
+  const all: [string, string][] = [
+    ['DOTS', 'Dots'],
+    ['DRAG_DOT', 'Drag Dot'],
+    ['SPACE', 'Space'],
+    ['AIRBRUSH', 'Airbrush'],
+    ['ANCHORED', 'Anchored'],
+    ['LINE', 'Line'],
+  ];
+  return mode === 'SCULPT' ? all : all.filter(([m]) => m !== 'ANCHORED' && m !== 'DRAG_DOT');
+}
+
+registerOperators([
+  {
+    idname: 'paint.brush_stroke_method_set',
+    label: 'Set Stroke Method',
+    description: 'Choose how the dabs of the active brush are placed along the stroke',
+    props: [{ id: 'method', label: 'Stroke Method', type: 'enum', default: 'SPACE', items: [['DOTS', 'Dots'], ['DRAG_DOT', 'Drag Dot'], ['SPACE', 'Space'], ['AIRBRUSH', 'Airbrush'], ['ANCHORED', 'Anchored'], ['LINE', 'Line']] }],
+    undo: false,
+    poll: () => isBrushMode(app.doc.mode) && !!activeBrush(app.doc.mode as BrushMode),
+    exec: (_c, p) => {
+      const mode = app.doc.mode as BrushMode;
+      if (!strokeMethods(mode).some(([m]) => m === p.method)) return 'CANCELLED';
+      activeBrush(mode)!.stroke_method = p.method as PaintBrush['stroke_method'];
+      changed();
+    },
+  },
+  {
+    idname: 'paint.brush_smooth_stroke_toggle',
+    label: 'Toggle Stabilize Stroke',
+    description: 'Let the brush trail behind the pointer for smoother lines',
+    undo: false,
+    poll: () => isBrushMode(app.doc.mode) && !!activeBrush(app.doc.mode as BrushMode),
+    exec: () => {
+      const b = activeBrush(app.doc.mode as BrushMode)!;
+      b.use_smooth_stroke = !b.use_smooth_stroke;
+      app.report('INFO', `Stabilize Stroke ${b.use_smooth_stroke ? 'on' : 'off'}`);
+      changed();
+    },
+  },
+]);
+
+function strokeMethodMenu(): MenuItem[] {
+  const mode = app.doc.mode as BrushMode;
+  const cur = activeBrush(mode)?.stroke_method ?? 'SPACE';
+  return strokeMethods(mode).map(([m, label]) => ({ label, active: cur === m, op: 'paint.brush_stroke_method_set', props: { method: m } }));
+}
+for (const km of ['Sculpt', 'Vertex Paint', 'Weight Paint', 'Image Paint'])
+  addKeys(km, [
+    { key: 'E', alt: true, menu: strokeMethodMenu, menuTitle: 'Stroke Method', when: () => isBrushMode(app.doc.mode) },
+    { key: 'S', shift: true, op: 'paint.brush_smooth_stroke_toggle', when: () => isBrushMode(app.doc.mode) },
+  ]);

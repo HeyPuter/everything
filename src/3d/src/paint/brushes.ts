@@ -20,6 +20,13 @@ export interface PaintBrush extends BrushData {
   use_backface_culling?: boolean;
   /** sculpt mask brush: draw or smooth the mask */
   mask_tool?: 'DRAW' | 'SMOOTH';
+  /** how dabs are placed along the stroke */
+  stroke_method?: 'SPACE' | 'DOTS' | 'AIRBRUSH' | 'LINE' | 'ANCHORED' | 'DRAG_DOT';
+  use_smooth_stroke?: boolean;
+  smooth_stroke_radius?: number;
+  smooth_stroke_factor?: number;
+  /** airbrush interval (seconds) */
+  rate?: number;
   falloff: Falloff & BrushData['falloff'];
 }
 
