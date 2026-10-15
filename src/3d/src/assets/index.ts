@@ -61,8 +61,8 @@ onAppReady(() => {
       invoke: prev.invoke ? (ctx, p) => (browserOf(ctx) ? mine.exec(ctx, p) : prev.invoke!(ctx, p)) : undefined,
     });
   }
-  // user libraries are small: load them so menus (node Add menus) can list their assets
-  void loadLibraryIndex().then(() => Promise.all(userLibraries().map((l) => ensureLibrary(l.id))));
+  // load the user libraries after startup so menus (node Add menus, the brush shelf) can list their assets
+  setTimeout(() => void loadLibraryIndex().then(() => Promise.all(userLibraries().map((l) => ensureLibrary(l.id)))), 800);
 });
 
 // scripts: ID.asset_mark() / asset_clear() / asset_generate_preview()
