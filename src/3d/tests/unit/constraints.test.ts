@@ -114,3 +114,25 @@ describe('constraint spaces and Child Of', () => {
     expectMatrix(g.get(o.id)!.world, fixture.extra.space_loc_custom, 'custom');
   });
 });
+
+describe('animated constraint settings', () => {
+  it('keyframed influence blends the constraint over time', async () => {
+    const { insertKeyframe } = await import('../../src/anim/fcurve');
+    const doc = emptyDocument();
+    const t = addEmpty(doc, 'T', { loc: [4, 0, 0] });
+    const o = addEmpty(doc, 'O', {});
+    const c = newConstraint('COPY_LOCATION', 'c1');
+    c.target = t.id;
+    o.constraints.push(c);
+    const fc = { data_path: 'constraints["Copy Location"].influence', array_index: 0, keyframe_points: [], extrapolation: 'CONSTANT' as const, modifiers: [] };
+    insertKeyframe(fc, 1, 0, { interpolation: 'LINEAR' });
+    insertKeyframe(fc, 11, 1, { interpolation: 'LINEAR' });
+    const act = { id: 'act1', name: 'A', fcurves: [fc] };
+    doc.actions[act.id] = act as never;
+    o.animation_data = { action: act.id, nla_tracks: [], drivers: [] };
+    const g = new Depsgraph(doc);
+    doc.scene.frame_current = 6;
+    g.evaluate(doc);
+    expect(g.get(o.id)!.world.elements[12]).toBeCloseTo(2, 3);
+  });
+});

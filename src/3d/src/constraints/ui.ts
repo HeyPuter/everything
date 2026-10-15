@@ -4,7 +4,8 @@ import { h, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { app } from '../app/app';
 import { registerTab } from '../editors/properties/properties';
-import { panel, enumMenu, enumRow, textField, isPanelOpen, setPanelOpen, opButton, numberField, type EnumItem } from '../ui/widgets';
+import { panel, enumMenu, enumRow, textField, isPanelOpen, setPanelOpen, opButton, numberField, decorator, type EnumItem } from '../ui/widgets';
+import { keyProperty, keyState } from '../anim/keyframes';
 import { num, bool, enumProp, splitRow, vecProp, objectProp, textProp, type PropOpts } from '../ui/props';
 import { openMenu, type MenuItem } from '../ui/menu';
 import { availableConstraintTypes, constraintTypes } from '../eval/constraints';
@@ -649,6 +650,22 @@ export function constraintIsValid(ob: ObjectData, c: Constraint, bone?: string):
   return true;
 }
 
+/** Keyframe state of a constraint's influence (field colouring). */
+function influenceState(ob: ObjectData, c: Constraint, bone?: string) {
+  const st = keyState(app.doc, ob, `${constraintPath(c, bone)}.influence`);
+  return st === 'none' ? null : st;
+}
+
+/** Keyframe decorator for the influence. */
+function influenceDecorator(ob: ObjectData, c: Constraint, bone?: string): Child {
+  const path = `${constraintPath(c, bone)}.influence`;
+  return decorator(keyState(app.doc, ob, path), () => {
+    keyProperty(app.doc, ob, path);
+    app.pushUndo('Insert Keyframe');
+    app.changed('doc');
+  });
+}
+
 /** Header menu of a constraint panel. */
 function panelMenu(list: Constraint[], c: Constraint, bone?: string): MenuItem[] {
   const owner = bone ? 'BONE' : 'OBJECT';
@@ -729,9 +746,10 @@ function constraintPanel(ob: ObjectData, list: Constraint[], c: Constraint, bone
           splitRow(
             'Influence',
             withSide(
-              numberField({ id: `${c.id}.influence`, value: c.influence, min: 0, max: 1, slider: true, set: (v, final) => ((c.influence = v), app.changed('doc'), final && app.pushUndo('Change Influence')) }),
+              numberField({ id: `${c.id}.influence`, value: c.influence, min: 0, max: 1, slider: true, anim: influenceState(ob, c, bone), set: (v, final) => ((c.influence = v), app.changed('doc'), final && app.pushUndo('Change Influence')) }),
               iconOp('panel_close', 'constraint.disable_keep_transform', { constraint: c.name, owner }, 'Disable and Keep Transform: turn the influence off while keeping the owner where it is'),
             ),
+            influenceDecorator(ob, c, bone),
           ),
         )
       : null,
