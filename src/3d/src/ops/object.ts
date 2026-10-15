@@ -47,6 +47,9 @@ export { uniqueName };
 /** Set by the curve edit mode module: append a spline (object-space at location) to the edited curve. */
 export const curveEditHooks: { addSpline?: (sp: Spline, location: number[], rotation?: number[]) => boolean } = {};
 
+/** Let feature modules adjust the objects object.convert processes (e.g. a metaball family converts as one). */
+export const convertHooks: ((doc: DocumentData, objects: ObjectData[], keepOriginal: boolean) => ObjectData[])[] = [];
+
 /** Link a new object into the scene at the 3D cursor and make it active. */
 export function addObjectToScene(doc: DocumentData, ob: ObjectData, props: Record<string, unknown> = {}) {
   ob.name = uniqueName(doc, ob.name);
@@ -141,7 +144,7 @@ export function deleteObjects(doc: DocumentData, ids: Set<string>) {
 export function purgeOrphans(doc: DocumentData) {
   const used = new Set<string>();
   for (const ob of Object.values(doc.objects)) if (ob.data) used.add(ob.data);
-  for (const t of ['meshes', 'curves', 'lights', 'cameras', 'armatures', 'lattices'] as const) for (const id of Object.keys(doc[t])) if (!used.has(id)) delete (doc[t] as Record<string, unknown>)[id];
+  for (const t of ['meshes', 'curves', 'lights', 'cameras', 'armatures', 'lattices', 'metaballs'] as const) for (const id of Object.keys(doc[t] ?? {})) if (!used.has(id)) delete (doc[t] as Record<string, unknown>)[id];
 }
 
 function duplicateObject(doc: DocumentData, ob: ObjectData, linked: boolean): ObjectData {
@@ -150,7 +153,7 @@ function duplicateObject(doc: DocumentData, ob: ObjectData, linked: boolean): Ob
   copy.name = uniqueName(doc, ob.name);
   copy.animation_data = ob.animation_data ? cloneShared(ob.animation_data) : null;
   if (!linked && ob.data) {
-    const tables: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices' };
+    const tables: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices', META: 'metaballs' };
     const t = tables[ob.type];
     if (t) {
       const src = (doc[t] as Record<string, { id: string; name: string }>)[ob.data];
@@ -469,7 +472,7 @@ registerOperators([
   {
     idname: 'object.select_by_type',
     label: 'Select All by Type',
-    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'MESH', items: [['MESH', 'Mesh'], ['CURVE', 'Curve'], ['FONT', 'Text'], ['ARMATURE', 'Armature'], ['LATTICE', 'Lattice'], ['EMPTY', 'Empty'], ['CAMERA', 'Camera'], ['LIGHT', 'Light']] }, { id: 'extend', label: 'Extend', type: 'bool', default: false }],
+    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'MESH', items: [['MESH', 'Mesh'], ['CURVE', 'Curve'], ['META', 'Metaball'], ['FONT', 'Text'], ['ARMATURE', 'Armature'], ['LATTICE', 'Lattice'], ['EMPTY', 'Empty'], ['CAMERA', 'Camera'], ['LIGHT', 'Light']] }, { id: 'extend', label: 'Extend', type: 'bool', default: false }],
     poll: (ctx) => ctx.doc.mode === 'OBJECT',
     exec: (ctx, p) => {
       for (const o of Object.values(ctx.doc.objects)) {
@@ -675,7 +678,7 @@ registerOperators([
   {
     idname: 'object.editmode_toggle',
     label: 'Toggle Edit Mode',
-    poll: () => !!app.activeObject && ['MESH', 'CURVE', 'FONT', 'ARMATURE', 'LATTICE'].includes(app.activeObject.type),
+    poll: () => !!app.activeObject && ['MESH', 'CURVE', 'FONT', 'ARMATURE', 'LATTICE', 'META'].includes(app.activeObject.type),
     exec: (ctx) => {
       if (!setMode(ctx.doc, ctx.doc.mode === 'EDIT' ? 'OBJECT' : 'EDIT')) return 'CANCELLED';
       app.changed('mode');
@@ -1052,7 +1055,7 @@ registerOperators([
       for (const o of Object.values(doc.objects)) if (o.data) counts.set(o.data, (counts.get(o.data) ?? 0) + 1);
       for (const ob of app.selectedObjects()) {
         if (!ob.data || (counts.get(ob.data) ?? 0) < 2) continue;
-        const tables: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices' };
+        const tables: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices', META: 'metaballs' };
         const t = tables[ob.type];
         const src = (doc[t] as Record<string, { id: string; name: string }>)[ob.data];
         const d = cloneShared(src);
@@ -1192,9 +1195,11 @@ registerOperators([
         app.report('WARNING', 'Only conversion to mesh is supported');
         return 'CANCELLED';
       }
-      for (const ob of app.selectedObjects()) {
+      let targets = app.selectedObjects();
+      for (const hk of convertHooks) targets = hk(doc, targets, !!p.keep_original);
+      for (const ob of targets) {
         const ev = app.graph.get(ob.id);
-        if (!ev?.mesh || (ob.type !== 'MESH' && ob.type !== 'CURVE' && ob.type !== 'FONT')) continue;
+        if (!ev?.mesh || (ob.type !== 'MESH' && ob.type !== 'CURVE' && ob.type !== 'FONT' && ob.type !== 'META')) continue;
         const m = ev.mesh;
         let target = ob;
         if (p.keep_original) target = duplicateObject(doc, ob, true);
@@ -1207,7 +1212,7 @@ registerOperators([
           smooth: m.smooth ? new Uint8Array(m.smooth) : undefined,
           material_index: m.material_index ? new Uint16Array(m.material_index) : undefined,
         });
-        me.materials = [...(ob.data ? (doc.meshes[ob.data] ?? doc.curves[ob.data])?.materials ?? [] : [])];
+        me.materials = [...(ob.data ? (doc.meshes[ob.data] ?? doc.curves[ob.data] ?? doc.metaballs?.[ob.data])?.materials ?? [] : [])];
         if (m.vertex_groups && m.weights) {
           me.vertex_groups = m.vertex_groups.map((g) => ({ name: g.name }));
           me.weights = m.weights.map((w) => new Float32Array(w));

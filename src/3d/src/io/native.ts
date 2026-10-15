@@ -111,6 +111,7 @@ export function migrate(doc: DocumentData): DocumentData {
   doc.particles ??= {};
   doc.node_groups ??= {};
   doc.lattices ??= {};
+  doc.metaballs ??= {};
   doc.object_order ??= Object.keys(doc.objects);
   for (const ob of Object.values(doc.objects)) {
     ob.particle_systems ??= [];

@@ -23,8 +23,9 @@ const OB_ICON: Record<string, string> = {
   LATTICE: 'outliner_ob_lattice',
   POINTCLOUD: 'outliner_ob_pointcloud',
   GREASEPENCIL: 'outliner_ob_greasepencil',
+  META: 'outliner_ob_meta',
 };
-const DATA_ICON: Record<string, string> = { MESH: 'mesh_data', CURVE: 'curve_data', FONT: 'curve_data', LIGHT: 'light_data', CAMERA: 'camera_data', ARMATURE: 'armature_data', LATTICE: 'outliner_ob_lattice', GREASEPENCIL: 'outliner_data_greasepencil' };
+const DATA_ICON: Record<string, string> = { MESH: 'mesh_data', CURVE: 'curve_data', FONT: 'curve_data', LIGHT: 'light_data', CAMERA: 'camera_data', ARMATURE: 'armature_data', LATTICE: 'outliner_ob_lattice', GREASEPENCIL: 'outliner_data_greasepencil', META: 'meta_data' };
 
 interface Row {
   key: string;
@@ -105,7 +106,7 @@ export class Outliner implements Editor {
       const used = new Set<string>();
       for (const o of Object.values(doc.objects)) {
         if (o.data) used.add(o.data);
-        const d = o.data ? ((doc.meshes[o.data] ?? doc.curves[o.data]) as { materials?: (string | null)[] }) : undefined;
+        const d = o.data ? ((doc.meshes[o.data] ?? doc.curves[o.data] ?? doc.metaballs?.[o.data]) as { materials?: (string | null)[] }) : undefined;
         d?.materials?.forEach((m) => m && used.add(m));
         if (o.animation_data?.action) used.add(o.animation_data.action);
       }
@@ -172,12 +173,12 @@ export class Outliner implements Editor {
     if (ob.data) chips.push(DATA_ICON[ob.type] ?? 'mesh_data');
     if (ob.modifiers.length) chips.push('modifier');
     if (ob.constraints.length) chips.push('constraint');
-    const mats = ob.data ? ((doc.meshes[ob.data] ?? doc.curves[ob.data]) as { materials?: (string | null)[] } | undefined)?.materials?.filter(Boolean) ?? [] : [];
+    const mats = ob.data ? ((doc.meshes[ob.data] ?? doc.curves[ob.data] ?? doc.metaballs?.[ob.data]) as { materials?: (string | null)[] } | undefined)?.materials?.filter(Boolean) ?? [] : [];
     if (mats.length && !exp) chips.push('material');
     if (match) rows.push({ key: ok, depth, kind: 'object', label: ob.name, icon: OB_ICON[ob.type] ?? 'object', id: ob.id, ob, expandable: hasData || children.length > 0, expanded: exp, chips: exp ? [] : chips });
     if (exp && match) {
       if (ob.data) {
-        const data = (doc.meshes[ob.data] ?? doc.curves[ob.data] ?? doc.lights[ob.data] ?? doc.cameras[ob.data] ?? doc.armatures[ob.data] ?? doc.lattices[ob.data] ?? doc.grease_pencils?.[ob.data]) as { name: string } | undefined;
+        const data = (doc.meshes[ob.data] ?? doc.curves[ob.data] ?? doc.lights[ob.data] ?? doc.cameras[ob.data] ?? doc.armatures[ob.data] ?? doc.lattices[ob.data] ?? doc.grease_pencils?.[ob.data] ?? doc.metaballs?.[ob.data]) as { name: string } | undefined;
         rows.push({ key: `d:${ob.id}`, depth: depth + 1, kind: 'data', label: data?.name ?? '', icon: DATA_ICON[ob.type] ?? 'mesh_data', ob, expandable: false, expanded: false });
         for (const m of mats) rows.push({ key: `m:${ob.id}:${m}`, depth: depth + 2, kind: 'material', label: doc.materials[m!]?.name ?? '', icon: 'material', ob, expandable: false, expanded: false });
         if (ob.type === 'MESH') {
@@ -428,7 +429,7 @@ export class Outliner implements Editor {
       if (r.kind === 'object' && r.ob) r.ob.name = uniqueName(doc, name);
       else if (r.kind === 'collection' && r.collection && r.id !== doc.scene.collection) r.collection.name = uniqueName(doc, name, 'collections');
       else if (r.kind === 'data' && r.ob?.data) {
-        const d = (doc.meshes[r.ob.data] ?? doc.curves[r.ob.data] ?? doc.lights[r.ob.data] ?? doc.cameras[r.ob.data] ?? doc.armatures[r.ob.data]) as { name: string } | undefined;
+        const d = (doc.meshes[r.ob.data] ?? doc.curves[r.ob.data] ?? doc.lights[r.ob.data] ?? doc.cameras[r.ob.data] ?? doc.armatures[r.ob.data] ?? doc.metaballs?.[r.ob.data]) as { name: string } | undefined;
         if (d) d.name = name;
       } else if (r.kind === 'modifier' && r.ob) {
         const id = r.key.split(':')[2];

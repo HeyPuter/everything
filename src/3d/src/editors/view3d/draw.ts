@@ -147,7 +147,7 @@ function solidColor(doc: DocumentData, ob: ObjectData, shading: Shading, slot: n
 }
 
 export function materialSlots(doc: DocumentData, ob: ObjectData): (string | null)[] {
-  const data = ob.data ? ((doc.meshes[ob.data] ?? doc.curves[ob.data]) as { materials?: (string | null)[] } | undefined) : undefined;
+  const data = ob.data ? ((doc.meshes[ob.data] ?? doc.curves[ob.data] ?? doc.metaballs?.[ob.data]) as { materials?: (string | null)[] } | undefined) : undefined;
   const base = data?.materials ?? [];
   if (!ob.object_materials) return base;
   return base.map((m, i) => (ob.material_slots_link?.[i] === 'OBJECT' ? ob.object_materials![i] ?? null : m));
