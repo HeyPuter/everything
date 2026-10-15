@@ -1,288 +1,494 @@
-// Driver evaluation. Scripted expressions are parsed by a small, sandboxed
-// arithmetic expression evaluator (no access to globals), supporting the
-// common math functions and the variables defined on the driver.
-import type { DocumentData, Driver, ObjectData } from '../data/types';
-import { getValue } from '../data/rna';
-import { Matrix4, Vector3, Quaternion, Euler } from 'three';
-import { localMatrix } from '../eval/transform';
+// Driver evaluation: variables read properties and transforms of other data-blocks, the driver
+// combines them (scripted expression, average, sum, min, max) and its F-Curve maps the result to
+// the driven property's value. Expressions run in the sandboxed evaluator of driverexpr.ts.
+import type { DocumentData, Driver, DriverIdType, DriverTarget, DriverVariable, FCurve, ObjectData, PoseBone } from '../data/types';
+import { getValue, resolve, tokenize } from '../data/rna';
+import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
+import { localMatrix, poseBoneMatrix, threeOrder, toMatrix4 } from '../eval/transform';
+import { compileExpr, exprErrorText, runExpr, PY_KEYWORDS, type ExprEnv, type RefValue } from './driverexpr';
+import { evaluateFCurve } from './fcurve';
+import type { RotationMode } from '../data/types';
 
-const FUNCS: Record<string, (...a: number[]) => number> = {
-  sin: Math.sin,
-  cos: Math.cos,
-  tan: Math.tan,
-  asin: Math.asin,
-  acos: Math.acos,
-  atan: Math.atan,
-  atan2: Math.atan2,
-  sqrt: Math.sqrt,
-  abs: Math.abs,
-  floor: Math.floor,
-  ceil: Math.ceil,
-  round: Math.round,
-  min: Math.min,
-  max: Math.max,
-  pow: Math.pow,
-  exp: Math.exp,
-  log: (x, b) => (b ? Math.log(x) / Math.log(b) : Math.log(x)),
-  radians: (x) => (x * Math.PI) / 180,
-  degrees: (x) => (x * 180) / Math.PI,
-  clamp: (x, a = 0, b = 1) => Math.max(a, Math.min(b, x)),
-  lerp: (a, b, t) => a + (b - a) * t,
-  int: Math.trunc,
-  float: (x) => x,
-  bool: (x) => (x ? 1 : 0),
-  noise: (x) => Math.sin(x * 12.9898) * 0.5,
+// ---------------------------------------------------------------------------
+// expression helpers kept for number fields and transform input ("2*pi/3")
+
+type Compiled = ReturnType<typeof compileExpr>;
+
+export function parseExpression(src: string): Compiled {
+  return compileExpr(src);
+}
+
+export function evalExpression(node: Compiled, vars: Record<string, number>): number {
+  return runExpr(node, { vars });
+}
+
+// ---------------------------------------------------------------------------
+// evaluation context
+
+/** Evaluated state the driver can read (world matrices, poses); falls back to document values. */
+export interface DriverContext {
+  world?: (id: string) => Matrix4 | undefined;
+  /** world matrix before constraints */
+  basis?: (id: string) => Matrix4 | undefined;
+  /** evaluated pose bone matrices (armature space) */
+  bone?: (id: string, bone: string) => { pose: Matrix4; rest: Matrix4; parent: string | null } | undefined;
+  /** active object (Context Property ▸ Active View Layer) */
+  activeObject?: () => ObjectData | null;
+}
+
+export class DriverError extends Error {}
+
+const ID_TABLES: Record<DriverIdType, keyof DocumentData | null> = {
+  OBJECT: 'objects',
+  SCENE: null,
+  MESH: 'meshes',
+  CURVE: 'curves',
+  LIGHT: 'lights',
+  CAMERA: 'cameras',
+  ARMATURE: 'armatures',
+  LATTICE: 'lattices',
+  MATERIAL: 'materials',
+  WORLD: 'worlds',
+  IMAGE: 'images',
+  ACTION: 'actions',
+  NODETREE: 'node_groups',
+  TEXT: 'texts',
+  COLLECTION: 'collections',
+  PARTICLE: 'particles',
 };
-const CONSTS: Record<string, number> = { pi: Math.PI, e: Math.E, tau: Math.PI * 2, True: 1, False: 0 };
 
-type Node =
-  | { t: 'num'; v: number }
-  | { t: 'var'; n: string }
-  | { t: 'un'; op: string; a: Node }
-  | { t: 'bin'; op: string; a: Node; b: Node }
-  | { t: 'call'; f: string; args: Node[] }
-  | { t: 'cond'; c: Node; a: Node; b: Node };
-
-const cache = new Map<string, Node>();
-
-export function parseExpression(src: string): Node {
-  const hit = cache.get(src);
-  if (hit) return hit;
-  const toks = src.match(/\d+\.?\d*(?:[eE][-+]?\d+)?|\.\d+|[A-Za-z_][A-Za-z_0-9.]*|\*\*|==|!=|<=|>=|and|or|not|[-+*/%(),<>]/g) ?? [];
-  let i = 0;
-  const peek = () => toks[i],
-    next = () => toks[i++];
-  const expect = (t: string) => {
-    if (next() !== t) throw new Error(`Expected ${t}`);
-  };
-  const ternary = (): Node => {
-    const a = orExpr();
-    if (peek() === 'if') {
-      next();
-      const c = orExpr();
-      expect('else');
-      const b = ternary();
-      return { t: 'cond', c, a, b };
-    }
-    return a;
-  };
-  const orExpr = (): Node => {
-    let a = andExpr();
-    while (peek() === 'or') {
-      next();
-      a = { t: 'bin', op: 'or', a, b: andExpr() };
-    }
-    return a;
-  };
-  const andExpr = (): Node => {
-    let a = notExpr();
-    while (peek() === 'and') {
-      next();
-      a = { t: 'bin', op: 'and', a, b: notExpr() };
-    }
-    return a;
-  };
-  const notExpr = (): Node => (peek() === 'not' ? (next(), { t: 'un', op: 'not', a: notExpr() }) : cmp());
-  const cmp = (): Node => {
-    let a = sum();
-    while (['<', '>', '<=', '>=', '==', '!='].includes(peek())) {
-      const op = next();
-      a = { t: 'bin', op, a, b: sum() };
-    }
-    return a;
-  };
-  const sum = (): Node => {
-    let a = prod();
-    while (peek() === '+' || peek() === '-') {
-      const op = next();
-      a = { t: 'bin', op, a, b: prod() };
-    }
-    return a;
-  };
-  const prod = (): Node => {
-    let a = unary();
-    while (peek() === '*' || peek() === '/' || peek() === '%') {
-      const op = next();
-      a = { t: 'bin', op, a, b: unary() };
-    }
-    return a;
-  };
-  const unary = (): Node => {
-    if (peek() === '-') {
-      next();
-      return { t: 'un', op: '-', a: unary() };
-    }
-    if (peek() === '+') {
-      next();
-      return unary();
-    }
-    return power();
-  };
-  const power = (): Node => {
-    const a = atom();
-    if (peek() === '**') {
-      next();
-      return { t: 'bin', op: '**', a, b: unary() };
-    }
-    return a;
-  };
-  const atom = (): Node => {
-    const tok = next();
-    if (tok === undefined) throw new Error('Unexpected end of expression');
-    if (tok === '(') {
-      const e = ternary();
-      expect(')');
-      return e;
-    }
-    if (/^[\d.]/.test(tok)) return { t: 'num', v: parseFloat(tok) };
-    if (/^[A-Za-z_]/.test(tok)) {
-      const name = tok.replace(/^math\./, '');
-      if (peek() === '(') {
-        next();
-        const args: Node[] = [];
-        if (peek() !== ')') {
-          args.push(ternary());
-          while (peek() === ',') {
-            next();
-            args.push(ternary());
-          }
-        }
-        expect(')');
-        if (!FUNCS[name]) throw new Error(`Unknown function ${name}`);
-        return { t: 'call', f: name, args };
-      }
-      return { t: 'var', n: name };
-    }
-    throw new Error(`Unexpected ${tok}`);
-  };
-  const node = ternary();
-  if (i < toks.length) throw new Error(`Unexpected ${toks[i]}`);
-  cache.set(src, node);
-  return node;
+/** Data-blocks of an ID type: [id, name]. */
+export function idsOfType(doc: DocumentData, type: DriverIdType): { id: string; name: string }[] {
+  if (type === 'SCENE') return [{ id: 'scene', name: doc.scene.name || 'Scene' }];
+  const table = ID_TABLES[type];
+  const t = table ? (doc[table] as Record<string, { id?: string; name?: string }> | undefined) : undefined;
+  if (!t) return [];
+  if (type === 'OBJECT') return doc.object_order.filter((id) => t[id]).map((id) => ({ id, name: t[id].name ?? id }));
+  return Object.entries(t).map(([id, v]) => ({ id, name: v?.name ?? id }));
 }
 
-export function evalExpression(node: Node, vars: Record<string, number>): number {
-  switch (node.t) {
-    case 'num':
-      return node.v;
-    case 'var':
-      if (node.n in vars) return vars[node.n];
-      if (node.n in CONSTS) return CONSTS[node.n];
-      throw new Error(`Unknown variable ${node.n}`);
-    case 'un':
-      return node.op === '-' ? -evalExpression(node.a, vars) : evalExpression(node.a, vars) ? 0 : 1;
-    case 'cond':
-      return evalExpression(node.c, vars) ? evalExpression(node.a, vars) : evalExpression(node.b, vars);
-    case 'call':
-      return FUNCS[node.f](...node.args.map((a) => evalExpression(a, vars)));
-    case 'bin': {
-      const a = evalExpression(node.a, vars);
-      if (node.op === 'and') return a ? evalExpression(node.b, vars) : a;
-      if (node.op === 'or') return a ? a : evalExpression(node.b, vars);
-      const b = evalExpression(node.b, vars);
-      switch (node.op) {
-        case '+':
-          return a + b;
-        case '-':
-          return a - b;
-        case '*':
-          return a * b;
-        case '/':
-          return a / b;
-        case '%':
-          return ((a % b) + b) % b;
-        case '**':
-          return a ** b;
-        case '<':
-          return +(a < b);
-        case '>':
-          return +(a > b);
-        case '<=':
-          return +(a <= b);
-        case '>=':
-          return +(a >= b);
-        case '==':
-          return +(a === b);
-        case '!=':
-          return +(a !== b);
-      }
-    }
+/** The data-block a target refers to, or undefined. */
+export function targetBlock(doc: DocumentData, t: DriverTarget): Record<string, unknown> | undefined {
+  if (!t.id) return undefined;
+  const type = t.id_type ?? 'OBJECT';
+  if (type === 'SCENE') return doc.scene as unknown as Record<string, unknown>;
+  const table = ID_TABLES[type];
+  return table ? ((doc[table] as Record<string, Record<string, unknown>> | undefined)?.[t.id] ?? undefined) : undefined;
+}
+
+const targetObject = (doc: DocumentData, t: DriverTarget | undefined): ObjectData | undefined =>
+  t?.id && (t.id_type ?? 'OBJECT') === 'OBJECT' ? doc.objects[t.id] : undefined;
+
+/** Read a path on a plain data-block (not an object): props, ["name"] lookups and [index]. */
+export function readPath(root: unknown, path: string): unknown {
+  let cur: unknown = root;
+  let tokens;
+  try {
+    tokens = tokenize(path);
+  } catch {
+    return undefined;
   }
-  return 0;
+  for (const tok of tokens) {
+    if (cur == null || typeof cur !== 'object') return undefined;
+    const o = cur as Record<string, unknown>;
+    if (tok.kind === 'prop') {
+      if (tok.name in o) cur = o[tok.name];
+      else if (tok.name === 'key_blocks' && Array.isArray(o)) cur = o;
+      else if (tok.name === 'nodes' && o.tree && typeof o.tree === 'object') cur = (o.tree as Record<string, unknown>).nodes;
+      else if (tok.name === 'default_value') continue;
+      else return undefined;
+    } else if (tok.kind === 'key') {
+      if (Array.isArray(o)) cur = o.find((x) => x && typeof x === 'object' && ((x as { name?: string }).name === tok.key || (x as { identifier?: string }).identifier === tok.key));
+      else cur = o[tok.key];
+    } else cur = (o as unknown as unknown[])[tok.index];
+  }
+  return cur;
 }
 
-function transformValue(ob: ObjectData, type: string): number {
-  const m = localMatrix(ob, new Matrix4());
+function numeric(v: unknown): number | undefined {
+  if (typeof v === 'number') return v;
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  return undefined;
+}
+
+/** Value of a Single Property / Context Property target. Throws DriverError when it can't be read. */
+function propertyValue(doc: DocumentData, v: DriverVariable, ctx: DriverContext): number {
+  const t = v.targets[0];
+  if (!t) throw new DriverError('Invalid target');
+  const fallback = () => {
+    if (t.use_fallback_value) return t.fallback_value ?? 0;
+    return undefined;
+  };
+  if (!t.data_path) {
+    const fb = fallback();
+    if (fb !== undefined) return fb;
+    throw new DriverError('Invalid target channel: no path');
+  }
+  let raw: unknown;
+  if (v.type === 'CONTEXT_PROP') {
+    const root = t.context_property === 'ACTIVE_VIEW_LAYER' ? viewLayerRoot(ctx) : doc.scene;
+    raw = readPath(root, t.data_path);
+  } else {
+    const block = targetBlock(doc, t);
+    if (!block) {
+      const fb = fallback();
+      if (fb !== undefined) return fb;
+      throw new DriverError(t.id ? 'Invalid target: data-block not found' : 'Invalid target: no data-block chosen');
+    }
+    if ((t.id_type ?? 'OBJECT') === 'OBJECT') {
+      try {
+        raw = getValue(doc, block as unknown as ObjectData, t.data_path);
+      } catch {
+        raw = undefined;
+      }
+    } else raw = readPath(block, t.data_path);
+  }
+  const n = numeric(raw);
+  if (n === undefined) {
+    const fb = fallback();
+    if (fb !== undefined) return fb;
+    if (raw !== undefined && typeof raw === 'object') throw new DriverError('Invalid target channel: path points to a group of values (add an index like [0])');
+    throw new DriverError(`Invalid target channel: '${t.data_path}' not found`);
+  }
+  return n;
+}
+
+function viewLayerRoot(ctx: DriverContext) {
+  const active = ctx.activeObject?.() ?? null;
+  return { name: 'ViewLayer', objects: { active }, use: true };
+}
+
+// ---------------------------------------------------------------------------
+// transforms
+
+function parentMatrixOf(doc: DocumentData, ob: ObjectData, ctx: DriverContext, depth = 0): Matrix4 {
+  if (!ob.parent || depth > 64) return new Matrix4();
+  const p = doc.objects[ob.parent];
+  if (!p) return new Matrix4();
+  return worldOf(doc, p, ctx, depth + 1).clone().multiply(toMatrix4(ob.matrix_parent_inverse));
+}
+
+/** Evaluated world matrix (after constraints), or one built from the document (parents only). */
+function worldOf(doc: DocumentData, ob: ObjectData, ctx: DriverContext, depth = 0): Matrix4 {
+  const w = ctx.world?.(ob.id);
+  if (w) return w;
+  return parentMatrixOf(doc, ob, ctx, depth).multiply(localMatrix(ob, new Matrix4()));
+}
+
+interface TargetXform {
+  m: Matrix4;
+  /** raw channel values for Local Space (keeps Euler angles outside ±180°) */
+  raw?: { loc: number[]; euler?: number[]; order?: RotationMode; scale: number[] };
+  /** Euler order and values the rotation channels follow in AUTO mode */
+  order: RotationMode;
+  compat?: number[];
+}
+
+function boneOf(ob: ObjectData, name: string | undefined): PoseBone | undefined {
+  return name && ob.type === 'ARMATURE' ? (ob.pose?.[name] ?? undefined) : undefined;
+}
+
+function restOf(doc: DocumentData, ob: ObjectData, bone: string): Matrix4 | undefined {
+  const arm = ob.data ? doc.armatures[ob.data] : undefined;
+  const b = arm?.bones.find((x) => x.name === bone);
+  if (!b) return undefined;
+  const m = new Matrix4();
+  const head = new Vector3(...b.head),
+    tail = new Vector3(...b.tail);
+  const y = tail.clone().sub(head).normalize();
+  const q = new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), y);
+  if (y.y < -0.99999) q.setFromAxisAngle(new Vector3(0, 0, 1), Math.PI);
+  q.premultiply(new Quaternion().setFromAxisAngle(y, b.roll));
+  m.makeRotationFromQuaternion(q).setPosition(head);
+  return m;
+}
+
+/** Matrix (and raw channels) of a target in the requested space. */
+function targetTransform(doc: DocumentData, t: DriverTarget, ctx: DriverContext): TargetXform {
+  const ob = targetObject(doc, t);
+  if (!ob) throw new DriverError(t.id ? 'Invalid target: object not found' : 'Invalid target: no object chosen');
+  const space = t.transform_space ?? 'WORLD_SPACE';
+  const pb = t.bone_target ? boneOf(ob, t.bone_target) : undefined;
+  if (t.bone_target && !pb) throw new DriverError(`Invalid target: bone '${t.bone_target}' not found`);
+  if (pb) {
+    const order: RotationMode = pb.rotation_mode === 'QUATERNION' || pb.rotation_mode === 'AXIS_ANGLE' ? 'XYZ' : pb.rotation_mode;
+    const euler = pb.rotation_mode === order ? [...pb.rotation_euler] : undefined;
+    if (space === 'LOCAL_SPACE')
+      return { m: poseBoneMatrix(pb, new Matrix4()), raw: { loc: [...pb.location], euler, order, scale: [...pb.scale] }, order, compat: euler };
+    const ev = ctx.bone?.(ob.id, t.bone_target!);
+    const rest = ev?.rest ?? restOf(doc, ob, t.bone_target!) ?? new Matrix4();
+    const pose = ev?.pose ?? rest.clone().multiply(poseBoneMatrix(pb, new Matrix4()));
+    if (space === 'WORLD_SPACE') return { m: worldOf(doc, ob, ctx).clone().multiply(pose), order, compat: euler };
+    // transform space: posed bone relative to its rest position under the posed parent
+    let restRel = rest;
+    const parentEv = ev?.parent ? ctx.bone?.(ob.id, ev.parent) : undefined;
+    if (parentEv) restRel = parentEv.pose.clone().multiply(parentEv.rest.clone().invert()).multiply(rest);
+    return { m: restRel.clone().invert().multiply(pose), order, compat: euler };
+  }
+  const order: RotationMode = ob.rotation_mode === 'QUATERNION' || ob.rotation_mode === 'AXIS_ANGLE' ? 'XYZ' : ob.rotation_mode;
+  const euler = ob.rotation_mode === order ? [...ob.rotation_euler] : undefined;
+  const local = localMatrix(ob, new Matrix4());
+  if (space === 'LOCAL_SPACE')
+    return {
+      m: local,
+      raw: {
+        loc: ob.location.map((x, i) => x + ob.delta_location[i]),
+        euler: euler && !ob.delta_rotation_euler.some((x) => x) ? euler : undefined,
+        order,
+        scale: ob.scale.map((x, i) => x * ob.delta_scale[i]),
+      },
+      order,
+      compat: euler,
+    };
+  const world = worldOf(doc, ob, ctx);
+  if (space === 'WORLD_SPACE') return { m: world, order, compat: euler };
+  // transform space: constraints included, parenting removed
+  const basis = ctx.basis?.(ob.id);
+  if (basis) return { m: local.clone().multiply(basis.clone().invert()).multiply(world), order, compat: euler };
+  return { m: parentMatrixOf(doc, ob, ctx).invert().multiply(world), order, compat: euler };
+}
+
+const wrap = (v: number, ref: number) => v + Math.round((ref - v) / (2 * Math.PI)) * 2 * Math.PI;
+
+function swingTwist(q: Quaternion, axis: 0 | 1 | 2): number[] {
+  const c = [q.x, q.y, q.z];
+  const tv = [0, 0, 0];
+  tv[axis] = c[axis];
+  const twist = new Quaternion(tv[0], tv[1], tv[2], q.w);
+  if (twist.lengthSq() < 1e-12) twist.identity();
+  else twist.normalize();
+  let twistAngle = 2 * Math.atan2(c[axis], q.w);
+  if (twistAngle > Math.PI) twistAngle -= 2 * Math.PI;
+  if (twistAngle < -Math.PI) twistAngle += 2 * Math.PI;
+  const swing = q.clone().multiply(twist.clone().invert());
+  const s = swing.w < 0 ? -1 : 1;
+  const angle = 2 * Math.acos(Math.min(1, Math.abs(swing.w)));
+  const v = [swing.x * s, swing.y * s, swing.z * s];
+  const n = Math.hypot(v[0], v[1], v[2]);
+  const out = n > 1e-12 ? v.map((x) => (x / n) * angle) : [0, 0, 0];
+  out[axis] = twistAngle;
+  return [...out, angle];
+}
+
+/** Value of a Transform Channel target. */
+export function transformChannel(x: TargetXform, type: string, rotationMode = 'AUTO'): number {
   const p = new Vector3(),
     q = new Quaternion(),
     s = new Vector3();
-  m.decompose(p, q, s);
-  const e = new Euler().setFromQuaternion(q, 'ZYX');
-  switch (type) {
-    case 'LOC_X':
-      return p.x;
-    case 'LOC_Y':
-      return p.y;
-    case 'LOC_Z':
-      return p.z;
-    case 'ROT_X':
-      return e.x;
-    case 'ROT_Y':
-      return e.y;
-    case 'ROT_Z':
-      return e.z;
-    case 'SCALE_X':
-      return s.x;
-    case 'SCALE_Y':
-      return s.y;
-    case 'SCALE_Z':
-      return s.z;
+  x.m.decompose(p, q, s);
+  if (type.startsWith('LOC_')) {
+    const i = 'XYZ'.indexOf(type[4]);
+    return x.raw ? x.raw.loc[i] : p.getComponent(i);
   }
-  return 0;
+  if (type.startsWith('SCALE_')) {
+    const sc = x.raw ? x.raw.scale : [s.x, s.y, s.z];
+    if (type === 'SCALE_AVG') return Math.cbrt(sc[0] * sc[1] * sc[2]);
+    return sc['XYZ'.indexOf(type[6])];
+  }
+  // rotation
+  const comp = type === 'ROT_W' ? 3 : 'XYZ'.indexOf(type[4]);
+  if (rotationMode === 'QUATERNION') {
+    if (q.w < 0) q.set(-q.x, -q.y, -q.z, -q.w);
+    return comp === 3 ? q.w : [q.x, q.y, q.z][comp];
+  }
+  if (rotationMode.startsWith('SWING_TWIST_')) {
+    if (q.w < 0) q.set(-q.x, -q.y, -q.z, -q.w);
+    return swingTwist(q, 'XYZ'.indexOf(rotationMode.slice(-1)) as 0 | 1 | 2)[comp];
+  }
+  if (comp === 3) return 0;
+  if (rotationMode === 'AUTO' && x.raw?.euler) return x.raw.euler[comp];
+  const order = (rotationMode === 'AUTO' ? x.order : rotationMode) as RotationMode;
+  const e = new Euler().setFromQuaternion(q, threeOrder(order));
+  const v = [e.x, e.y, e.z][comp];
+  return rotationMode === 'AUTO' && x.compat ? wrap(v, x.compat[comp]) : v;
 }
 
-export function evaluateDriver(doc: DocumentData, owner: ObjectData, drv: Driver, frame: number): number {
-  const vars: Record<string, number> = { frame };
-  for (const v of drv.variables) {
-    const t0 = v.targets[0];
-    const target = t0?.id ? doc.objects[t0.id] : owner;
-    let value = 0;
-    if (v.type === 'SINGLE_PROP' && target) {
-      const path = t0.data_path;
-      const m = /^(.*)\[(\d+)\]$/.exec(path);
-      const raw = m ? getValue(doc, target, m[1], Number(m[2])) : getValue(doc, target, path);
-      value = typeof raw === 'number' ? raw : typeof raw === 'boolean' ? +raw : 0;
-    } else if (v.type === 'TRANSFORMS' && target) value = transformValue(target, t0.transform_type ?? 'LOC_X');
-    else if (v.type === 'LOC_DIFF') {
-      const a = v.targets[0]?.id ? doc.objects[v.targets[0].id!] : undefined,
-        b = v.targets[1]?.id ? doc.objects[v.targets[1].id!] : undefined;
-      if (a && b) value = Math.hypot(a.location[0] - b.location[0], a.location[1] - b.location[1], a.location[2] - b.location[2]);
-    } else if (v.type === 'ROTATION_DIFF') {
-      // angle between the two objects' (local) orientations
-      const a = v.targets[0]?.id ? doc.objects[v.targets[0].id!] : undefined,
-        b = v.targets[1]?.id ? doc.objects[v.targets[1].id!] : undefined;
-      if (a && b) {
-        const qa = new Quaternion(),
-          qb = new Quaternion();
-        localMatrix(a, new Matrix4()).decompose(new Vector3(), qa, new Vector3());
-        localMatrix(b, new Matrix4()).decompose(new Vector3(), qb, new Vector3());
-        value = 2 * Math.acos(Math.min(1, Math.abs(qa.dot(qb))));
-      }
+function worldQuat(doc: DocumentData, t: DriverTarget, ctx: DriverContext): Quaternion {
+  const x = targetTransform(doc, { ...t, transform_space: 'WORLD_SPACE' }, ctx);
+  const q = new Quaternion();
+  x.m.decompose(new Vector3(), q, new Vector3());
+  return q;
+}
+
+// ---------------------------------------------------------------------------
+// variables
+
+const NEEDS_TWO = new Set(['ROTATION_DIFF', 'LOC_DIFF']);
+export const variableTargetCount = (v: DriverVariable) => (NEEDS_TWO.has(v.type) ? 2 : 1);
+
+/** Value of one variable. Throws DriverError with a readable message when it can't be evaluated. */
+export function variableValue(doc: DocumentData, v: DriverVariable, ctx: DriverContext = {}): number {
+  switch (v.type) {
+    case 'SINGLE_PROP':
+    case 'CONTEXT_PROP':
+      return propertyValue(doc, v, ctx);
+    case 'TRANSFORMS': {
+      const t = v.targets[0];
+      if (!t) throw new DriverError('Invalid target');
+      return transformChannel(targetTransform(doc, t, ctx), t.transform_type ?? 'LOC_X', t.rotation_mode ?? 'AUTO');
     }
-    vars[v.name] = value;
+    case 'LOC_DIFF': {
+      const [a, b] = v.targets;
+      if (!a || !b) throw new DriverError('Invalid target: two objects needed');
+      const pa = new Vector3().setFromMatrixPosition(targetTransform(doc, a, ctx).m);
+      const pb = new Vector3().setFromMatrixPosition(targetTransform(doc, b, ctx).m);
+      return pa.distanceTo(pb);
+    }
+    case 'ROTATION_DIFF': {
+      const [a, b] = v.targets;
+      if (!a || !b) throw new DriverError('Invalid target: two objects needed');
+      const qa = worldQuat(doc, a, ctx),
+        qb = worldQuat(doc, b, ctx);
+      return 2 * Math.acos(Math.min(1, Math.abs(qa.dot(qb))));
+    }
   }
-  const values = drv.variables.map((v) => vars[v.name]);
-  switch (drv.type) {
-    case 'AVERAGE':
-      return values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
-    case 'SUM':
-      return values.reduce((a, b) => a + b, 0);
-    case 'MIN':
-      return values.length ? Math.min(...values) : 0;
-    case 'MAX':
-      return values.length ? Math.max(...values) : 0;
-    case 'SCRIPTED':
-      return evalExpression(parseExpression(drv.expression), vars);
+  throw new DriverError('Unknown variable type');
+}
+
+/** Why a variable name can't be used in expressions, or null when it is fine. */
+export function variableNameError(name: string): string | null {
+  if (!name) return 'Name is empty';
+  if (/^[0-9]/.test(name)) return 'Name starts with a number';
+  if (name.startsWith('_')) return 'Name starts with an underscore (reserved)';
+  if (/\s/.test(name)) return 'Name contains a space';
+  if (name.includes('.')) return 'Name contains a dot';
+  if (/[^A-Za-z0-9_]/.test(name)) return 'Name contains special characters';
+  if (PY_KEYWORDS.has(name)) return 'Name is a reserved word';
+  return null;
+}
+
+
+// ---------------------------------------------------------------------------
+// drivers
+
+export interface DriverResult {
+  /** combined driver value before the F-Curve mapping */
+  input: number;
+  /** final value written to the property */
+  value: number;
+  /** per-variable values (null on error) */
+  values: (number | null)[];
+  /** per-variable error messages */
+  varErrors: (string | null)[];
+  error: string | null;
+}
+
+/** Map the driver value through its F-Curve (keys and modifiers); passes through when it has neither. */
+export function driverCurveValue(fc: FCurve | undefined, x: number): number {
+  if (!fc || fc.mute) return x;
+  if (!fc.keyframe_points.length && !fc.modifiers.some((m) => !m.mute)) return x;
+  return evaluateFCurve(fc, x);
+}
+
+/** Evaluate a driver with full diagnostics. */
+export function runDriver(doc: DocumentData, owner: ObjectData, drv: Driver, frame: number, ctx: DriverContext = {}): DriverResult {
+  const vars: Record<string, number> = { frame };
+  const values: (number | null)[] = [];
+  const varErrors: (string | null)[] = [];
+  let error: string | null = null;
+  for (const v of drv.variables) {
+    const nameErr = variableNameError(v.name);
+    try {
+      const x = variableValue(doc, v, ctx);
+      values.push(x);
+      varErrors.push(nameErr);
+      vars[v.name] = x;
+    } catch (e) {
+      values.push(null);
+      varErrors.push(e instanceof Error ? e.message : String(e));
+    }
+    if (nameErr && drv.type === 'SCRIPTED') error ??= `Invalid variable name '${v.name}': ${nameErr}`;
   }
-  return 0;
+  const firstVarErr = varErrors.findIndex((x) => x !== null);
+  const ok = values.filter((x): x is number => x !== null);
+  let input = 0;
+  if (drv.type === 'SCRIPTED') {
+    try {
+      const c = compileExpr(drv.expression);
+      const env: ExprEnv = { vars };
+      if (drv.use_self) env.self = selfRef(doc, owner);
+      // a missing variable only matters when the expression reads it
+      for (const name of c.names)
+        if (!(name in vars)) {
+          const bad = drv.variables.findIndex((v) => v.name === name);
+          if (bad >= 0 && varErrors[bad]) throw new DriverError(`Variable '${name}': ${varErrors[bad]}`);
+        }
+      input = runExpr(c, env);
+    } catch (e) {
+      error ??= e instanceof DriverError ? e.message : exprErrorText(e);
+    }
+  } else {
+    if (firstVarErr >= 0) error ??= `Variable '${drv.variables[firstVarErr].name}': ${varErrors[firstVarErr]}`;
+    switch (drv.type) {
+      case 'AVERAGE':
+        input = ok.length ? ok.reduce((a, b) => a + b, 0) / ok.length : 0;
+        break;
+      case 'SUM':
+        input = ok.reduce((a, b) => a + b, 0);
+        break;
+      case 'MIN':
+        input = ok.length ? Math.min(...ok) : 0;
+        break;
+      case 'MAX':
+        input = ok.length ? Math.max(...ok) : 0;
+        break;
+    }
+  }
+  if (!error && !Number.isFinite(input)) error = 'Driver value is not a finite number';
+  const value = driverCurveValue(drv.fcurve, input);
+  return { input, value, values, varErrors, error };
+}
+
+function selfRef(doc: DocumentData, ob: ObjectData): RefValue {
+  return {
+    kind: 'ref',
+    path: '',
+    read: (path) => {
+      if (!path) return ob;
+      try {
+        if (path === 'name') return ob.name;
+        return getValue(doc, ob, path);
+      } catch {
+        return undefined;
+      }
+    },
+  };
+}
+
+/** Driver value written to the property (throws when the driver has errors). */
+export function evaluateDriver(doc: DocumentData, owner: ObjectData, drv: Driver, frame: number, ctx: DriverContext = {}): number {
+  const r = runDriver(doc, owner, drv, frame, ctx);
+  if (r.error) throw new DriverError(r.error);
+  return r.value;
+}
+
+/** Whether the driven property path resolves. */
+export function drivenPathValid(doc: DocumentData, ob: ObjectData, drv: Driver): boolean {
+  try {
+    if (!resolve(doc, ob, drv.data_path)) return false;
+    const v = getValue(doc, ob, drv.data_path);
+    if (v === undefined) return false;
+    if (Array.isArray(v) || ArrayBuffer.isView(v)) return drv.array_index >= 0 && drv.array_index < (v as ArrayLike<unknown>).length;
+    return typeof v === 'number' || typeof v === 'boolean';
+  } catch {
+    return false;
+  }
+}
+
+/** Objects a driver reads (used to order evaluation). */
+export function driverDependencies(drv: Driver): string[] {
+  const out: string[] = [];
+  for (const v of drv.variables) for (const t of v.targets) if (t.id && (t.id_type ?? 'OBJECT') === 'OBJECT') out.push(t.id);
+  return out;
+}
+
+/** Evaluate and apply all drivers of an object. */
+export function applyDrivers(doc: DocumentData, ob: ObjectData, frame: number, ctx: DriverContext, write: (path: string, index: number, value: number) => void) {
+  const ad = ob.animation_data;
+  if (!ad?.drivers.length) return;
+  for (const drv of ad.drivers) {
+    if (drv.fcurve?.mute) continue;
+    const r = runDriver(doc, ob, drv, frame, ctx);
+    if (!r.error && Number.isFinite(r.value)) write(drv.data_path, drv.array_index, r.value);
+  }
 }

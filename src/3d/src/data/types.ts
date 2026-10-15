@@ -705,10 +705,31 @@ export interface AnimData {
   tweak?: { track: number; strip: number; prev_action: ID | null; upper: boolean } | null;
 }
 
+export type DriverIdType = 'OBJECT' | 'SCENE' | 'MESH' | 'CURVE' | 'LIGHT' | 'CAMERA' | 'ARMATURE' | 'LATTICE' | 'MATERIAL' | 'WORLD' | 'IMAGE' | 'ACTION' | 'NODETREE' | 'TEXT' | 'COLLECTION' | 'PARTICLE';
+
+export interface DriverTarget {
+  /** target data-block (an object unless id_type says otherwise) */
+  id: ID | null;
+  /** table the id refers to (default OBJECT) */
+  id_type?: DriverIdType;
+  data_path: string;
+  /** pose bone of an armature target (Transform Channel, Distance, Rotational Difference) */
+  bone_target?: string;
+  transform_type?: string;
+  transform_space?: 'WORLD_SPACE' | 'TRANSFORM_SPACE' | 'LOCAL_SPACE';
+  /** how rotation channels are read: AUTO, an Euler order, QUATERNION or SWING_TWIST_X/Y/Z */
+  rotation_mode?: string;
+  /** Context Property variables: which context data-block the path is read from */
+  context_property?: 'ACTIVE_SCENE' | 'ACTIVE_VIEW_LAYER';
+  /** use fallback_value when the path can't be resolved instead of flagging an error */
+  use_fallback_value?: boolean;
+  fallback_value?: number;
+}
+
 export interface DriverVariable {
   name: string;
-  type: 'SINGLE_PROP' | 'TRANSFORMS' | 'ROTATION_DIFF' | 'LOC_DIFF';
-  targets: { id: ID | null; data_path: string; transform_type?: string; transform_space?: string }[];
+  type: 'SINGLE_PROP' | 'TRANSFORMS' | 'ROTATION_DIFF' | 'LOC_DIFF' | 'CONTEXT_PROP';
+  targets: DriverTarget[];
 }
 
 export interface Driver {
@@ -717,6 +738,10 @@ export interface Driver {
   type: 'AVERAGE' | 'SUM' | 'SCRIPTED' | 'MIN' | 'MAX';
   expression: string;
   variables: DriverVariable[];
+  /** scripted expressions can read the driven data-block as `self` */
+  use_self?: boolean;
+  /** maps the driver value (x) to the property value (y); without keys or modifiers the value passes through */
+  fcurve?: FCurve;
 }
 
 // ---------------------------------------------------------------------------
