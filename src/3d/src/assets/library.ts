@@ -392,9 +392,8 @@ export function removeFromLibrary(libraryId: string, targets: { table: AssetTabl
   return n;
 }
 
-/** Add every asset of a project file as a new user library (Import Library). */
-export async function importLibraryFile(name: string, bytes: Uint8Array): Promise<{ id: string; count: number }> {
-  const { doc } = decodeDocument(bytes);
+/** Add every asset of a document as a new user library (Import Library). */
+export async function importLibraryDoc(name: string, doc: DocumentData): Promise<{ id: string; count: number }> {
   const id = await createLibrary(name);
   const lib = state(id).doc!;
   const count = copyAssetsInto(lib, doc, assetsOf(doc).map(({ table, block }) => ({ table, id: block.id })));
@@ -403,6 +402,11 @@ export async function importLibraryFile(name: string, bytes: Uint8Array): Promis
   await saveLibrary(id, true);
   notifyLibraries();
   return { id, count };
+}
+
+/** Add every asset of a project file as a new user library. */
+export async function importLibraryFile(name: string, bytes: Uint8Array): Promise<{ id: string; count: number }> {
+  return importLibraryDoc(name, decodeDocument(bytes).doc);
 }
 
 /** Replace a user library with a saved project (the library opened as a file and saved). */

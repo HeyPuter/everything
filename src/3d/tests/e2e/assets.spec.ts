@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { openApp, expectNoErrors, viewportCenter } from './helpers';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -155,5 +156,24 @@ test('assets: a user library keeps copied assets across reloads; node group asse
     return ma.tree.nodes.filter((n: any) => n.type === 'ShaderNodeGroup').map((n: any) => a.doc.node_groups[n.props.node_tree]?.name);
   });
   expect(groups).toEqual(['Edge Tint']);
+  await expectNoErrors(errors);
+});
+
+test('assets: a .blend file with a catalog definition file becomes a user library', async ({ page }) => {
+  const errors = await openApp(page);
+  await openAssetsWorkspace(page);
+  const chooser = page.waitForEvent('filechooser');
+  await page.locator('.area[data-editor="ASSETS"] .hdr-menu', { hasText: /^Library$/ }).dispatchEvent('pointerdown');
+  await page.locator('.menu .menu-item', { hasText: 'Import Library' }).click();
+  const fc = await chooser;
+  await fc.setFiles([
+    { name: 'assets_zstd.blend', mimeType: 'application/octet-stream', buffer: readFileSync(new URL('../fixtures/blend/assets_zstd.blend', import.meta.url)) },
+    { name: 'catalogs.txt', mimeType: 'text/plain', buffer: Buffer.from('VERSION 1\n12345678-1234-4234-8234-123456789abc:Props/Boxes:Props-Boxes\n') },
+  ]);
+  await expect(page.locator('.ab-lib.on')).toContainText('assets_zstd');
+  await expect(page.locator('.ab-item')).toHaveCount(4);
+  await page.locator('.ab-cat', { hasText: /^Boxes/ }).click();
+  await expect(page.locator('.ab-item')).toHaveCount(1);
+  await expect(item(page, 'Cube')).toBeVisible();
   await expectNoErrors(errors);
 });

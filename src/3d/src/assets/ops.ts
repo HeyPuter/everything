@@ -11,7 +11,7 @@ import { activeCollection } from '../ops/object';
 import { newModifier } from '../eval/modifiers';
 import { currentOutliner } from '../editors/outliner/current';
 import { openMenu, promptText, type MenuItem } from '../ui/menu';
-import { download, pickFile } from '../io/native';
+import { download, pickFile, decodeDocument } from '../io/native';
 import { openFile, fileEvents } from '../io/files';
 import { renderPreview, previewFromFile, previewFromCanvas } from './preview';
 import { renderContext } from '../render/context';
@@ -28,7 +28,7 @@ import {
   refreshLibrary,
   copyToLibrary,
   removeFromLibrary,
-  importLibraryFile,
+  importLibraryDoc,
   exportLibraryBytes,
   writeLibraryBytes,
   catalogUndoPush,
@@ -518,18 +518,31 @@ registerOperators([
   {
     idname: 'asset.library_import',
     label: 'Import Asset Library',
-    description: 'Add the assets of a project file as a new asset library',
+    description: 'Add the assets of a project file (.p3d) or a .blend file as a new asset library; pick a catalog definition file (.txt) along with a .blend to keep its catalog names',
     undo: false,
     exec: (ctx) => {
       void (async () => {
-        const f = await pickFile('.p3d');
-        if (!f) return;
+        const files = await pickFiles('.p3d,.blend,.txt');
+        const main = files.find((f) => /\.(p3d|blend)$/i.test(f.name));
+        if (!main) {
+          if (files.length) app.report('WARNING', 'Pick a .p3d or .blend file');
+          return;
+        }
         try {
-          const { id, count } = await importLibraryFile(f.name.replace(/\.[^.]+$/, ''), new Uint8Array(await f.arrayBuffer()));
+          let doc: DocumentData;
+          const bytes = new Uint8Array(await main.arrayBuffer());
+          if (/\.blend$/i.test(main.name)) {
+            const { readBlend } = await import('../io/blend/convert');
+            const { applyCatalogFile } = await import('../io/blend/assets');
+            doc = (await readBlend(bytes)).doc;
+            const cats = files.find((f) => /\.txt$/i.test(f.name));
+            if (cats) applyCatalogFile(doc, await cats.text());
+          } else doc = decodeDocument(bytes).doc;
+          const { id, count } = await importLibraryDoc(main.name.replace(/\.[^.]+$/, ''), doc);
           browserOf(ctx)?.setLibrary(id);
-          app.report('INFO', `Imported ${count} asset${count === 1 ? '' : 's'} from "${f.name}"`);
+          app.report(count ? 'INFO' : 'WARNING', count ? `Imported ${count} asset${count === 1 ? '' : 's'} from "${main.name}"` : `"${main.name}" has no assets`);
         } catch (e) {
-          app.report('ERROR', `Cannot import "${f.name}": ${e instanceof Error ? e.message : e}`);
+          app.report('ERROR', `Cannot import "${main.name}": ${e instanceof Error ? e.message : e}`);
         }
       })();
     },
@@ -1010,4 +1023,17 @@ function captureRegion(square: boolean, done: (c: HTMLCanvasElement) => void) {
     done(out);
   });
   addEventListener('keydown', key, true);
+}
+
+/** Let the user pick one or more files. */
+function pickFiles(accept: string): Promise<File[]> {
+  return new Promise((res) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = accept;
+    input.onchange = () => res(Array.from(input.files ?? []));
+    input.addEventListener('cancel', () => res([]));
+    input.click();
+  });
 }

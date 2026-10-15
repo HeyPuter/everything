@@ -190,7 +190,7 @@ function socketTypeFromIdname(idname: string) {
 }
 
 /** Node groups become NodeGroupData; returns its id. */
-function convertGroup(gt: BStruct, parentType: NodeTreeData['type'], ctx: Ctx, stack: Set<number>): string | null {
+export function convertGroup(gt: BStruct, parentType: NodeTreeData['type'], ctx: Ctx, stack: Set<number>): string | null {
   const done = ctx.ids.get(gt.offset);
   if (done) return done;
   if (stack.has(gt.offset)) {
