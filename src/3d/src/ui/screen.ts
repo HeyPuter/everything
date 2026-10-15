@@ -4,7 +4,7 @@ import './screen.css';
 import { icon } from './icons';
 import { openMenu, captureMenuItems, type MenuItem } from './menu';
 import { app, type ChangeKind, type AreaLike } from '../app/app';
-import { GAP, areaRects, leaves, splitLayout, swapLayout, joinLayout, neighbourOn, removeFromLayout, replaceLeaf, type Side } from './layout';
+import { GAP, areaRects, leaves, splitLayout, swapLayout, joinLayout, neighbourOn, removeFromLayout, type Side } from './layout';
 
 export { areaRects, type Side };
 
@@ -109,9 +109,6 @@ export interface AreaUi {
   header?: boolean;
   flip?: boolean;
   menus?: boolean;
-  /** member of a quad view group (the group id), and whether it is the main (perspective) view */
-  quad?: string;
-  quadMain?: boolean;
 }
 
 const CORNERS = ['tl', 'tr', 'bl', 'br'] as const;
@@ -131,9 +128,6 @@ export class Area implements AreaLike {
   flipHeader?: boolean;
   /** header menus shown expanded (false: collapsed into one menu button) */
   showMenus = true;
-  /** quad view group this area belongs to */
-  quad?: string;
-  quadMain = false;
   private revealEl: HTMLElement;
   constructor(
     public screen: Screen,
@@ -145,8 +139,6 @@ export class Area implements AreaLike {
       this.showHeader = st.ui.header !== false;
       this.flipHeader = st.ui.flip;
       this.showMenus = st.ui.menus !== false;
-      this.quad = st.ui.quad;
-      this.quadMain = !!st.ui.quadMain;
     }
     this.el = document.createElement('div');
     this.el.className = 'area';
@@ -280,7 +272,6 @@ export class Area implements AreaLike {
       { separator: true },
       { label: max && !sc.fullscreen ? 'Back to Previous' : 'Toggle Maximize Area', shortcut: 'Ctrl Space', op: 'screen.screen_full_area', disabled: sc.fullscreen, action: run('screen.screen_full_area') },
       { label: max && sc.fullscreen ? 'Back to Previous' : 'Toggle Fullscreen Area', shortcut: 'Ctrl Alt Space', op: 'screen.screen_full_area', props: { use_hide_panels: true }, disabled: max && !sc.fullscreen, action: run('screen.screen_full_area', { use_hide_panels: true }) },
-      ...(this.type === 'VIEW_3D' ? [{ label: 'Toggle Quad View', shortcut: 'Ctrl Alt Q', op: 'screen.region_quadview', action: run('screen.region_quadview') } as MenuItem] : []),
       { separator: true },
       { label: 'Swap Areas…', op: 'screen.area_swap', disabled: !multi, action: run('screen.area_swap') },
       { label: 'Join Areas…', op: 'screen.area_join', disabled: !multi, action: run('screen.area_join') },
@@ -373,7 +364,7 @@ export class Area implements AreaLike {
 
   serialize(): AreaState {
     const st: AreaState = { id: this.id, type: this.type, state: this.editor.serialize?.() };
-    if (!this.showHeader || this.flipHeader !== undefined || !this.showMenus || this.quad) st.ui = { header: this.showHeader, flip: this.flipHeader, menus: this.showMenus, quad: this.quad, quadMain: this.quadMain || undefined };
+    if (!this.showHeader || this.flipHeader !== undefined || !this.showMenus) st.ui = { header: this.showHeader, flip: this.flipHeader, menus: this.showMenus };
     return st;
   }
 }
@@ -640,62 +631,6 @@ export class Screen {
     this.relayout();
     for (const x of [a, b]) x.drawHeader();
     app.changed('ui', 'view');
-  }
-
-  /**
-   * Quad view: the 3D view becomes four views (Top, Front, Right orthographic and the original
-   * view); toggling again on any of them brings back the single view.
-   */
-  toggleQuad(a: Area): boolean {
-    if (a.type !== 'VIEW_3D') return false;
-    this.exitMaximized();
-    if (a.quad) {
-      const group = this.areas.filter((x) => x.quad === a.quad);
-      const main = group.find((x) => x.quadMain) ?? a;
-      for (const x of group) {
-        if (x === main) continue;
-        const next = removeFromLayout(this.layout, x.id);
-        if (next) {
-          this.layout = next;
-          this.disposeArea(x);
-        }
-      }
-      main.quad = undefined;
-      main.quadMain = false;
-      this.relayout();
-      main.drawHeader();
-      app.changed('ui', 'view');
-      return true;
-    }
-    const gid = newAreaId();
-    const views = ['TOP', 'FRONT', 'RIGHT'] as const;
-    const states = views.map(() => {
-      const st = cloneAreaState(a);
-      const s = (st.state ?? {}) as Record<string, unknown>;
-      st.state = { ...s, camera: false };
-      st.ui = { quad: gid };
-      return st;
-    });
-    a.quad = gid;
-    a.quadMain = true;
-    const leaf = (st: AreaState): LayoutNode => ({ area: st });
-    this.layout = replaceLeaf(this.layout, a.id, { split: 'h', ratio: 0.5, a: { split: 'v', ratio: 0.5, a: leaf(states[0]), b: leaf(states[1]) }, b: { split: 'v', ratio: 0.5, a: leaf(states[2]), b: leaf(a.serialize()) } });
-    states.forEach((st, i) => {
-      const area = new Area(this, st);
-      this.areas.push(area);
-      this.el.append(area.el);
-      // the side views keep their header compact (no tool settings row)
-      area.editor.showToolHeader = false;
-      const nav = (area.editor as unknown as { nav?: { setAxisView(v: string): void; ortho: boolean } }).nav;
-      if (nav) {
-        nav.setAxisView(views[i]);
-        nav.ortho = true;
-      }
-    });
-    this.relayout();
-    for (const x of this.areas) if (x.quad === gid) (x.drawHeader(), x.editor.update(new Set(['doc', 'ui', 'view'])));
-    app.changed('ui', 'view');
-    return true;
   }
 
   /** Neighbour sharing the whole `side` edge of area `a`. */

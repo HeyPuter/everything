@@ -123,14 +123,6 @@ registerOperators([
     exec: (ctx) => areaOf(ctx)!.flipHeaderSide(),
   },
   {
-    idname: 'screen.region_quadview',
-    label: 'Toggle Quad View',
-    description: 'Split the 3D view into top, front, right and perspective views, or back into one',
-    undo: false,
-    poll: (ctx) => areaOf(ctx)?.type === 'VIEW_3D',
-    exec: (ctx) => (areaOf(ctx)!.screen.toggleQuad(areaOf(ctx)!) ? 'FINISHED' : 'CANCELLED'),
-  },
-  {
     idname: 'screen.space_context_cycle',
     label: 'Cycle Space Context',
     description: 'Switch to the next or previous tab of the Properties editor',
@@ -205,7 +197,6 @@ function renameActiveItem(ctx: OpContext): 'CANCELLED' {
 }
 
 addKeys('Screen', [
-  { key: 'Q', ctrl: true, alt: true, op: 'screen.region_quadview' },
   { key: 'TAB', ctrl: true, op: 'screen.space_context_cycle', props: { direction: 'NEXT' } },
   { key: 'TAB', ctrl: true, shift: true, op: 'screen.space_context_cycle', props: { direction: 'PREV' } },
 ]);

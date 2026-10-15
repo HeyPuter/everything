@@ -182,12 +182,3 @@ export function removeFromLayout(root: LayoutNode, id: string): LayoutNode | nul
   };
   return rec(root);
 }
-
-/** Replace the leaf `id` with another subtree. */
-export function replaceLeaf(root: LayoutNode, id: string, sub: LayoutNode): LayoutNode {
-  const rec = (n: LayoutNode): LayoutNode => {
-    if ('area' in n) return n.area.id === id ? sub : n;
-    return { ...n, a: rec(n.a), b: rec(n.b) };
-  };
-  return rec(root);
-}

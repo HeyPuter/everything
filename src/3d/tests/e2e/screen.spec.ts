@@ -449,25 +449,6 @@ test('File Browser: browser storage, new folder, rename, keyboard selection, del
   await expectNoErrors(errors);
 });
 
-test('Ctrl Alt Q toggles the quad view', async ({ page }) => {
-  const errors = await openApp(page);
-  const n0 = await areaCount(page);
-  const v = await areaBox(page, 'VIEW_3D');
-  await page.mouse.move(v.x + 300, v.y + 300);
-  await page.keyboard.press('Control+Alt+q');
-  await expect(page.locator('.area[data-editor="VIEW_3D"]')).toHaveCount(4);
-  await expect(page.locator('.v3d-info', { hasText: 'Top Orthographic' })).toBeVisible();
-  await expect(page.locator('.v3d-info', { hasText: 'Front Orthographic' })).toBeVisible();
-  await expect(page.locator('.v3d-info', { hasText: 'Right Orthographic' })).toBeVisible();
-  // toggling from one of the side views brings back the single view
-  const top = (await page.locator('.area[data-editor="VIEW_3D"]').first().boundingBox())!;
-  await page.mouse.move(top.x + 100, top.y + 150);
-  await page.keyboard.press('Control+Alt+q');
-  await expect(page.locator('.area[data-editor="VIEW_3D"]')).toHaveCount(1);
-  expect(await areaCount(page)).toBe(n0);
-  await expectNoErrors(errors);
-});
-
 test('Quick Favorites: add from a menu item, open with Q', async ({ page }) => {
   const errors = await openApp(page);
   await page.evaluate(() => localStorage.removeItem('p3d.quickfavorites.v1'));
