@@ -186,6 +186,31 @@ export class TextEditor implements Editor {
     document.addEventListener('selectionchange', this.onSelectionChange);
     addEventListener('focus', this.onWindowFocus);
     this.scroll.addEventListener('pointerdown', (e) => {
+      if (e.button === 0 && this.text && (e.target === this.gutter || this.gutter.contains(e.target as Node))) {
+        // line numbers: click selects the line, drag selects a range of lines
+        e.preventDefault();
+        this.ta.focus();
+        const first = this.lineAtY(e.clientY);
+        const sel = (to: number) => {
+          const v = this.ta.value;
+          const a = Math.min(first, to),
+            b = Math.max(first, to);
+          const start = this.lineStartPos(a);
+          let end = this.lineStartPos(b + 1);
+          if (end > v.length) end = v.length;
+          this.ta.setSelectionRange(start, end, to < first ? 'backward' : 'forward');
+          this.updateCaret();
+        };
+        sel(first);
+        const move = (ev: PointerEvent) => sel(this.lineAtY(ev.clientY));
+        const up = () => {
+          removeEventListener('pointermove', move);
+          removeEventListener('pointerup', up);
+        };
+        addEventListener('pointermove', move);
+        addEventListener('pointerup', up);
+        return;
+      }
       if (e.target === this.scroll || e.target === this.gutter || this.gutter.contains(e.target as Node)) {
         e.preventDefault();
         this.ta.focus();
@@ -772,6 +797,33 @@ export class TextEditor implements Editor {
       else if (bottom > sc.scrollTop + sc.clientHeight) sc.scrollTop = bottom - sc.clientHeight + 4;
       this.updateCaret();
     });
+  }
+
+  /** 0-based line index under a client y coordinate. */
+  private lineAtY(y: number) {
+    const rows = this.pre.children;
+    const top = this.pre.getBoundingClientRect().top;
+    const rel = y - top;
+    let lo = 0,
+      hi = rows.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if ((rows[mid] as HTMLElement).offsetTop <= rel) lo = mid;
+      else hi = mid - 1;
+    }
+    return Math.max(0, lo);
+  }
+
+  /** Character offset where 0-based line `n` starts (past the end for n beyond the last line). */
+  private lineStartPos(n: number) {
+    const v = this.ta.value;
+    let pos = 0;
+    for (let i = 0; i < n; i++) {
+      const nl = v.indexOf('\n', pos);
+      if (nl < 0) return v.length + 1;
+      pos = nl + 1;
+    }
+    return pos;
   }
 
   goToLine(n: number) {

@@ -610,3 +610,20 @@ test('Duplicate Area into New Window shows a working editor in a floating window
   await expect(win.locator('.outliner').getByText('Cube')).toHaveCount(0);
   await expectNoErrors(errors);
 });
+
+test('Text Editor: clicking and dragging line numbers selects lines', async ({ page }) => {
+  const errors = await openApp(page);
+  await newText(page, 'aa\nbbb\ncccc\nd');
+  const ln = page.locator('.te-ln');
+  await ln.nth(1).click();
+  const sel = () => page.evaluate(() => { const t = document.querySelector('.te-input') as HTMLTextAreaElement; return [t.selectionStart, t.selectionEnd]; });
+  expect(await sel()).toEqual([3, 7]);
+  const b1 = (await ln.nth(1).boundingBox())!;
+  const b3 = (await ln.nth(3).boundingBox())!;
+  await page.mouse.move(b1.x + 5, b1.y + 4);
+  await page.mouse.down();
+  await page.mouse.move(b3.x + 5, b3.y + 4, { steps: 3 });
+  await page.mouse.up();
+  expect(await sel()).toEqual([3, 13]);
+  await expectNoErrors(errors);
+});
