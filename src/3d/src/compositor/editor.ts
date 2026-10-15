@@ -131,6 +131,11 @@ export class CompositorEditor extends NodeEditor {
           e.preventDefault();
           e.stopImmediatePropagation();
           this.moveBackdrop(e.clientX, e.clientY, true);
+        } else if (e.button === 0 && e.altKey && !e.shiftKey && !(e.ctrlKey || e.metaKey) && this.backdrop && compositorState.viewer && !this.hitNode(e.clientX, e.clientY) && !app.modal) {
+          // Alt click on the backdrop: read the viewer's pixel values while the button is held
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          this.sampleBackdrop(e);
         }
       },
       { capture: true },
@@ -180,6 +185,47 @@ export class CompositorEditor extends NodeEditor {
       },
       header: () => 'Move backdrop: LMB/Enter confirm, RMB/Esc cancel',
     });
+  }
+
+  /** Viewer pixel under a screen point: [x, y, r, g, b, a] (straight alpha), or null outside the image. */
+  backdropPixel(clientX: number, clientY: number): number[] | null {
+    const v = compositorState.viewer;
+    if (!v) return null;
+    const r = this.el.getBoundingClientRect();
+    const W = this.el.clientWidth,
+      H = this.el.clientHeight;
+    const x0 = W / 2 - (v.width * this.backdropZoom) / 2 + this.backdropX,
+      y0 = H / 2 - (v.height * this.backdropZoom) / 2 + this.backdropY;
+    const px = Math.floor((clientX - r.left - x0) / this.backdropZoom),
+      py = Math.floor((clientY - r.top - y0) / this.backdropZoom);
+    if (px < 0 || py < 0 || px >= v.width || py >= v.height) return null;
+    const i = (py * v.width + px) * 4;
+    const a = v.data[i + 3];
+    const un = (c: number) => (a > 0 ? c / a : c);
+    // reported bottom-up like image coordinates
+    return [px, v.height - 1 - py, un(v.data[i]), un(v.data[i + 1]), un(v.data[i + 2]), a];
+  }
+
+  private sampleBackdrop(e: PointerEvent) {
+    const tip = document.createElement('div');
+    tip.className = 'cmp-sample';
+    this.el.append(tip);
+    const show = (x: number, y: number) => {
+      const p = this.backdropPixel(x, y);
+      const r = this.el.getBoundingClientRect();
+      tip.style.left = `${x - r.left + 14}px`;
+      tip.style.top = `${y - r.top + 14}px`;
+      tip.textContent = p ? `X ${p[0]}  Y ${p[1]}   R ${p[2].toFixed(3)}  G ${p[3].toFixed(3)}  B ${p[4].toFixed(3)}  A ${p[5].toFixed(3)}` : 'Outside the image';
+    };
+    show(e.clientX, e.clientY);
+    const mv = (ev: PointerEvent) => show(ev.clientX, ev.clientY);
+    const up = () => {
+      removeEventListener('pointermove', mv);
+      removeEventListener('pointerup', up);
+      tip.remove();
+    };
+    addEventListener('pointermove', mv);
+    addEventListener('pointerup', up);
   }
 
   zoomBackdrop(f: number) {

@@ -167,6 +167,7 @@ test('frames, duplicates keeping inputs and connecting to the output', async ({ 
   // F: join in a named frame
   await withTree(page, `(ed, t) => { for (const n of t.nodes) n.select = n.id === "${tex}" || n.id === "${inv}"; t.active_node = "${inv}"; app.changed("ui"); }`);
   await page.keyboard.press('f');
+  await expect(page.locator('.prompt-input')).toBeFocused();
   await page.keyboard.type('Pattern');
   await page.keyboard.press('Enter');
   const frame = await withTree<{ label: string; kids: number } | null>(page, '(ed, t) => { const f = t.nodes.find((n) => n.type === "NodeFrame"); return f ? { label: f.label, kids: t.nodes.filter((n) => n.parent === f.id).length } : null; }');
@@ -306,5 +307,45 @@ test('toolbar tools, snapping and sidebar tabs', async ({ page }) => {
   await withTree(page, `(ed, t) => { for (const n of t.nodes) n.select = n.id === "${bsdf}"; t.active_node = "${bsdf}"; app.changed("ui"); }`);
   await page.locator('.nd-side-toggles .checkbox', { hasText: 'Mute' }).click();
   expect(await withTree(page, `(ed, t) => !!t.nodes.find((n) => n.id === "${bsdf}").mute`)).toBe(true);
+  await expectNoErrors(errors);
+});
+
+test('Esc cancels a link drag, overlays toggle, backdrop sampling', async ({ page }) => {
+  const { errors } = await nodeEditor(page);
+  const out = await withTree<string>(page, '(ed, t) => t.nodes.find((n) => n.type === "ShaderNodeOutputMaterial").id');
+  // pick the BSDF link up from the Surface input, then cancel with Esc
+  const sock = (await page.locator(`[data-node="${out}"] .nd-sock:not(.out)`).first().boundingBox())!;
+  await page.mouse.move(sock.x + sock.width / 2, sock.y + sock.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(sock.x + 80, sock.y + 60, { steps: 5 });
+  expect(await withTree(page, '(ed, t) => t.links.length')).toBe(0);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  expect(await withTree(page, '(ed, t) => t.links.length')).toBe(1);
+  // Shift Alt Z hides the context path
+  await expect(page.locator('.nd-crumbs').first()).toBeVisible();
+  await page.keyboard.press('Shift+Alt+Z');
+  await expect(page.locator('.nd-crumbs').first()).toBeHidden();
+  // compositor backdrop: the sampled pixel of a fake 2×2 viewer image
+  await page.locator('.ws-tab', { hasText: 'Compositing' }).first().click();
+  await page.waitForTimeout(600);
+  const cbox = (await page.locator('.nd-editor').first().boundingBox())!;
+  await page.mouse.move(cbox.x + cbox.width / 2, cbox.y + cbox.height / 2);
+  const px = await page.evaluate(async () => {
+    // the module instance the app loaded (a dev server may add a cache-busting query)
+    const url = performance
+      .getEntriesByType('resource')
+      .map((e) => e.name)
+      .find((n) => n.includes('/src/compositor/session.ts'));
+    const { compositorState } = await import(url ?? '/src/compositor/session.ts');
+    const data = new Float32Array([1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0.5, 0.5, 0.2, 0.2, 0.2, 1]);
+    compositorState.viewer = { data, width: 2, height: 2, node: '', display: null } as never;
+    const ed = (window as unknown as { app: { hoverArea: { editor: { backdropPixel(x: number, y: number): number[] | null; backdropZoom: number; el: HTMLElement } } } }).app.hoverArea.editor;
+    ed.backdropZoom = 10;
+    const r = ed.el.getBoundingClientRect();
+    // bottom-left pixel of the image: (0, 0) — blue at half alpha
+    return ed.backdropPixel(r.left + r.width / 2 - 5, r.top + r.height / 2 + 5);
+  });
+  expect(px!.map((v) => Math.round(v * 100) / 100)).toEqual([0, 0, 0, 0, 1, 0.5]);
   await expectNoErrors(errors);
 });

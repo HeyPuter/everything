@@ -280,6 +280,20 @@
   background: var(--sc);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.9);
 }
+.nd-reroute-label {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translateX(-50%);
+  margin-bottom: 3px;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--nd-text);
+  pointer-events: none;
+}
+.nd-reroute-label.auto {
+  opacity: 0.6;
+}
 .nd-reroute.sel {
   box-shadow: 0 0 0 2px var(--nd-sel);
 }
@@ -425,6 +439,9 @@
   border-radius: 6px;
   max-height: calc(100% - 44px);
   overflow-y: auto;
+}
+.nd-crumbs[hidden] {
+  display: none;
 }
 .nd-toolbar[hidden] {
   display: none;

@@ -406,6 +406,14 @@ const ops: Operator[] = [
     exec: (ctx, p) => nodeEditorOf(ctx)!.zoomBy(Number(p.factor) || 1.25),
   },
   {
+    idname: 'node.toggle_overlays',
+    label: 'Show Overlays',
+    description: 'Toggle wire colors, reroute labels and the context path',
+    undo: false,
+    poll: (ctx) => !!nodeEditorOf(ctx),
+    exec: (ctx) => nodeEditorOf(ctx)!.toggleOverlays(),
+  },
+  {
     idname: 'node.toggle_snap',
     label: 'Snap',
     description: 'Toggle snapping nodes to the grid while moving and resizing them',
@@ -555,6 +563,7 @@ addKeys('Node Editor', [
   { key: 'TAB', op: 'node.group_edit', props: { exit: false } },
   { key: 'TAB', ctrl: true, op: 'node.group_edit', props: { exit: true } },
   { key: 'TAB', shift: true, op: 'node.toggle_snap' },
+  { key: 'Z', shift: true, alt: true, op: 'node.toggle_overlays' },
   { key: 'HOME', op: 'node.view_all' },
   { key: 'NUMPAD_PERIOD', op: 'node.view_selected' },
   { key: 'NUMPAD_PLUS', op: 'node.zoom', props: { factor: 1.25 } },

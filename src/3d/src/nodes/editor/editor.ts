@@ -5,7 +5,8 @@ import { h, patch, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { app, type ChangeKind } from '../../app/app';
 import type { Area, Editor } from '../../ui/screen';
-import { openMenu, openSearch, type MenuItem, type SearchEntry } from '../../ui/menu';
+import { openMenu, openPopover, openSearch, type MenuItem, type SearchEntry } from '../../ui/menu';
+import { checkbox } from '../../ui/widgets';
 import type { NodeData, NodeTreeData } from '../../data/types';
 import { getNodeType, nodeSockets, nodeMenu, canConvert, SOCKET_COLORS, nodeLabel, propValue } from '../registry';
 import { connect, ctxOf, linkStatus, nodeById, insertOnLink, removeLinks, makeNode, internalLinks, frameChildren, compatibleGroups } from '../tree';
@@ -73,6 +74,8 @@ export class NodeEditor implements Editor {
   showToolbar = true;
   /** snap nodes to the grid while moving / resizing (Ctrl inverts) */
   snap = false;
+  showOverlays = true;
+  overlays = { wireColors: true, rerouteLabels: true, contextPath: true };
   /** active toolbar tool and its selection mode */
   tool: NodeTool = 'SELECT_BOX';
   selectMode: SelectMode = 'SET';
@@ -113,6 +116,8 @@ export class NodeEditor implements Editor {
       path?: { group: string; node: string }[];
       toolbar?: boolean;
       snap?: boolean;
+      showOverlays?: boolean;
+      overlays?: Partial<NodeEditor['overlays']>;
       tool?: NodeTool;
       selectMode?: SelectMode;
     };
@@ -120,6 +125,8 @@ export class NodeEditor implements Editor {
     if (st.sidebar) this.showSidebar = true;
     if (st.toolbar === false) this.showToolbar = false;
     if (st.snap) this.snap = true;
+    if (st.showOverlays === false) this.showOverlays = false;
+    if (st.overlays) Object.assign(this.overlays, st.overlays);
     if (st.tool && NODE_TOOLS.some((t) => t.id === st.tool)) this.tool = st.tool;
     if (st.selectMode) this.selectMode = st.selectMode;
     if (st.views) this.views = new Map(st.views);
@@ -254,7 +261,33 @@ export class NodeEditor implements Editor {
 
   /** Snap and sidebar toggles at the right end of the header. */
   headerToggles(): Child {
+    const ov = (key: keyof NodeEditor['overlays'], label: string) =>
+      checkbox(`nd-ov-${key}`, label, this.overlays[key], (v) => {
+        this.overlays[key] = v;
+        app.changed('ui');
+      });
     return [
+      h(
+        'div',
+        { class: 'hdr-group', key: 'overlay' },
+        h('button', { class: { 'hdr-toggle': true, on: this.showOverlays }, 'data-tip': 'Show Overlays (Shift Alt Z)', onclick: () => this.toggleOverlays() }, icon('overlay')),
+        h(
+          'button',
+          {
+            class: 'hdr-icondrop',
+            'data-tip': 'Overlays',
+            onpointerdown: (e: PointerEvent) => {
+              e.preventDefault();
+              openPopover(
+                e.currentTarget as HTMLElement,
+                () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, 'Node Editor Overlays'), ov('wireColors', 'Wire Colors'), ov('rerouteLabels', 'Reroute Auto Labels'), ov('contextPath', 'Context Path')),
+                { width: 220 },
+              );
+            },
+          },
+          icon('down_arrow_hlt', 'tiny'),
+        ),
+      ),
       h(
         'button',
         {
@@ -276,6 +309,11 @@ export class NodeEditor implements Editor {
         icon('menu'),
       ),
     ];
+  }
+
+  toggleOverlays() {
+    this.showOverlays = !this.showOverlays;
+    app.changed('ui');
   }
 
   toggleSnap() {
@@ -486,6 +524,7 @@ export class NodeEditor implements Editor {
       });
     }
     patch(this.crumbsEl, crumbs);
+    this.crumbsEl.hidden = !(this.showOverlays && this.overlays.contextPath);
     patch(this.emptyEl, tree ? [] : [h('div', { class: 'nd-empty-msg' }, this.provider.emptyMessage?.(this) ?? '')]);
     this.layouts = tree ? layoutTree(app.doc, tree) : new Map();
     const key = this.treeKey();
@@ -523,6 +562,7 @@ export class NodeEditor implements Editor {
               active: tree.active_node === n.id,
               groupName: n.label ? undefined : groupName,
               highlightSockets: this.highlightSockets(),
+              rerouteLabel: l.kind === 'REROUTE' ? n.label || (this.showOverlays && this.overlays.rerouteLabels ? rerouteSource(tree, n, this.layouts) : undefined) : undefined,
             },
             linkedOut.get(n.id) ?? new Set(),
             linkedIn.get(n.id) ?? new Set(),
@@ -592,7 +632,7 @@ export class NodeEditor implements Editor {
       if (!a || !b) continue;
       const st = linkStatus(ctx, l);
       const hl = sel.has(l.from_node) || sel.has(l.to_node);
-      let color = SOCKET_COLORS[a.socket.type] ?? '#9a9a9a';
+      let color = this.showOverlays && this.overlays.wireColors ? (SOCKET_COLORS[a.socket.type] ?? '#9a9a9a') : '#9a9a9a';
       if (!st.valid) color = '#e33b3b';
       else if (l.is_muted) color = '#c04040';
       const [x1, y1] = this.toScreen(a.x, a.y),
@@ -1008,7 +1048,11 @@ export class NodeEditor implements Editor {
     } else if (!n && this.path.length) app.run('node.group_edit', { exit: true }, { area: this.area });
   }
 
-  private track(e: PointerEvent, move: (ev: PointerEvent, dist: number) => void, up: (ev: PointerEvent, moved: boolean) => void) {
+  /**
+   * Follow a pointer drag until its button is released. With `cancel`, Esc or pressing another
+   * mouse button aborts the drag instead.
+   */
+  private track(e: PointerEvent, move: (ev: PointerEvent, dist: number) => void, up: (ev: PointerEvent, moved: boolean) => void, cancel?: () => void) {
     const sx = e.clientX,
       sy = e.clientY;
     let moved = false;
@@ -1017,14 +1061,35 @@ export class NodeEditor implements Editor {
       if (d > 3) moved = true;
       move(ev, d);
     };
-    const u = (ev: PointerEvent) => {
-      if (ev.button !== e.button) return;
+    const stop = () => {
       removeEventListener('pointermove', mv);
       removeEventListener('pointerup', u);
+      removeEventListener('pointerdown', other, true);
+      removeEventListener('keydown', key, true);
+    };
+    const u = (ev: PointerEvent) => {
+      if (ev.button !== e.button) return;
+      stop();
       up(ev, moved);
+    };
+    const abort = (ev: Event) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      stop();
+      cancel!();
+    };
+    const other = (ev: PointerEvent) => {
+      if (ev.button !== e.button) abort(ev);
+    };
+    const key = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') abort(ev);
     };
     addEventListener('pointermove', mv);
     addEventListener('pointerup', u);
+    if (cancel) {
+      addEventListener('pointerdown', other, true);
+      addEventListener('keydown', key, true);
+    }
   }
 
   /**
@@ -1164,6 +1229,9 @@ export class NodeEditor implements Editor {
     const w0 = lay.w,
       h0 = lay.h,
       loc0 = [...n.location] as [number, number];
+    const width0 = n.width,
+      height0 = n.props.height,
+      shrink0 = n.props.shrink;
     const [x0, y0] = this.toNode(e.clientX, e.clientY);
     const def = getNodeType(n.type);
     const frame = lay.kind === 'FRAME';
@@ -1197,6 +1265,18 @@ export class NodeEditor implements Editor {
           app.pushUndo('Resize Node');
           app.changed('doc');
         }
+      },
+      () => {
+        this.el.classList.remove('resizing');
+        n.width = width0;
+        n.location = loc0;
+        if (frame) {
+          if (height0 === undefined) delete n.props.height;
+          else n.props.height = height0;
+          if (shrink0 === undefined) delete n.props.shrink;
+          else n.props.shrink = shrink0;
+        }
+        this.render();
       },
     );
   }
@@ -1232,6 +1312,10 @@ export class NodeEditor implements Editor {
         this.applyBox(tree, this.box);
         this.box = null;
         app.changed('ui');
+      },
+      () => {
+        this.box = null;
+        this.drawOver();
       },
     );
   }
@@ -1315,6 +1399,10 @@ export class NodeEditor implements Editor {
           if (n) this.selectOnly(tree, n);
           app.changed('ui');
         }
+        this.drawOver();
+      },
+      () => {
+        this.lasso = null;
         this.drawOver();
       },
     );
@@ -1452,6 +1540,10 @@ export class NodeEditor implements Editor {
         }
         if (line.length > 1) this.applyGesture(mode, line);
       },
+      () => {
+        this.knife = null;
+        this.drawOver();
+      },
     );
   }
 
@@ -1523,6 +1615,7 @@ export class NodeEditor implements Editor {
       return { node, socket, type: p?.socket.type ?? 'FLOAT', x: p?.x ?? px, y: p?.y ?? py };
     };
     let drag: LinkDrag;
+    const before = tree.links.slice();
     const id = sock.socket.identifier;
     if (!sock.isOutput) {
       const existing = tree.links.filter((l) => l.to_node === sock.node && l.to_socket === id);
@@ -1582,6 +1675,13 @@ export class NodeEditor implements Editor {
           this.render();
           this.linkDragSearch(drag, ev.clientX, ev.clientY);
         } else this.render();
+      },
+      () => {
+        // cancelled: links picked up from sockets go back
+        pan.stop();
+        this.linkDrag = null;
+        tree.links = before;
+        this.render();
       },
     );
   }
@@ -1861,6 +1961,8 @@ export class NodeEditor implements Editor {
       sidebar: this.showSidebar,
       toolbar: this.showToolbar,
       snap: this.snap,
+      showOverlays: this.showOverlays,
+      overlays: this.overlays,
       tool: this.tool,
       selectMode: this.selectMode,
       views: [...this.views.entries()].slice(-32),
@@ -1892,4 +1994,19 @@ function groupNodeType(t: TreeType) {
 }
 function compatibleGroupsFor(t: TreeType, exclude?: string) {
   return compatibleGroups(app.doc, t, exclude);
+}
+
+/** Name of the socket that feeds a reroute (following chains of reroutes). */
+function rerouteSource(tree: NodeTreeData, n: NodeData, layouts: Map<string, NodeLayout>): string | undefined {
+  let cur: NodeData | undefined = n;
+  for (let i = 0; i < 64 && cur; i++) {
+    const l = tree.links.find((x) => x.to_node === cur!.id);
+    if (!l) return undefined;
+    const from = nodeById(tree, l.from_node);
+    if (!from) return undefined;
+    if (getNodeType(from.type)?.layout !== 'REROUTE') return layouts.get(from.id)?.sockets.get(sockKey(true, l.from_socket))?.socket.label;
+    if (from.label) return from.label;
+    cur = from;
+  }
+  return undefined;
 }

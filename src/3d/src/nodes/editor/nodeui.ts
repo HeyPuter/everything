@@ -329,6 +329,8 @@ export interface NodeRenderState {
   highlightSockets?: Set<string>;
   groupName?: string;
   invalid?: boolean;
+  /** text shown above a reroute (its label, or the name of the socket feeding it) */
+  rerouteLabel?: string;
 }
 
 const COLLAPSE_TIP = 'Collapse (H)';
@@ -394,16 +396,20 @@ export function renderNode(l: NodeLayout, tree: NodeTreeData, st: NodeRenderStat
   const custom = n.use_custom_color && n.color ? `rgb(${n.color.map((c) => Math.round(Math.pow(Math.max(0, Math.min(1, c)), 1 / 2.2) * 255)).join(',')})` : null;
   if (l.kind === 'REROUTE') {
     const s = l.sockets.get('out:Output')!;
-    return h('div', {
-      key,
-      class: { 'nd-reroute': true, sel: !!n.select, active: st.active },
-      'data-node': n.id,
-      style: {
-        left: `${l.x}px`,
-        top: `${l.y}px`,
-        '--sc': SOCKET_COLORS[s.socket.type] ?? '#888',
+    return h(
+      'div',
+      {
+        key,
+        class: { 'nd-reroute': true, sel: !!n.select, active: st.active },
+        'data-node': n.id,
+        style: {
+          left: `${l.x}px`,
+          top: `${l.y}px`,
+          '--sc': SOCKET_COLORS[s.socket.type] ?? '#888',
+        },
       },
-    });
+      st.rerouteLabel ? h('span', { class: { 'nd-reroute-label': true, auto: !n.label } }, st.rerouteLabel) : null,
+    );
   }
   if (l.kind === 'FRAME') {
     const size = (propValue(n, 'label_size') as number) ?? 20;
