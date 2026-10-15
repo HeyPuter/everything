@@ -1,7 +1,7 @@
 // "Affect Transform": limit constraints that also hold back interactive transforms, so the object's
 // own location/rotation/scale never leave the allowed range while it is moved.
 import { Matrix4 } from 'three';
-import { app } from '../app/app';
+import { app, onAppReady } from '../app/app';
 import type { ObjectData } from '../data/types';
 import { objectTransformFilters } from '../ops/transform';
 import { solveObjectConstraints } from '../eval/constraint_solve';
@@ -31,4 +31,5 @@ export function limitObjectTransform(ob: ObjectData) {
   if (!kinds.has('LIMIT_SCALE')) ob.scale = before.scale as typeof ob.scale;
 }
 
-objectTransformFilters.push(limitObjectTransform);
+// registered once the app exists: the transform operators module may still be loading here
+onAppReady(() => objectTransformFilters.push(limitObjectTransform));
