@@ -34,30 +34,30 @@
 /* corner action zones */
 .area-corner {
   position: absolute;
-  width: 9px;
-  height: 9px;
+  width: 7px;
+  height: 7px;
   z-index: 7;
   cursor: crosshair;
 }
 .area-corner.tl {
   left: 0;
   top: 0;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0 28%, transparent 28%);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0 34%, transparent 34%);
 }
 .area-corner.tr {
   right: 0;
   top: 0;
-  background: linear-gradient(225deg, rgba(255, 255, 255, 0.16) 0 28%, transparent 28%);
+  background: linear-gradient(225deg, rgba(255, 255, 255, 0.16) 0 34%, transparent 34%);
 }
 .area-corner.bl {
   left: 0;
   bottom: 0;
-  background: linear-gradient(45deg, rgba(255, 255, 255, 0.16) 0 28%, transparent 28%);
+  background: linear-gradient(45deg, rgba(255, 255, 255, 0.16) 0 34%, transparent 34%);
 }
 .area-corner.br {
   right: 0;
   bottom: 0;
-  background: linear-gradient(315deg, rgba(255, 255, 255, 0.16) 0 28%, transparent 28%);
+  background: linear-gradient(315deg, rgba(255, 255, 255, 0.16) 0 34%, transparent 34%);
 }
 .area-corner:hover {
   filter: brightness(2.2);
