@@ -1,9 +1,9 @@
 # 3D
 
-A browser-based, open-source alternative to Blender: modeling, sculpting, UV editing, shader /
+A Blender alternative that runs entirely in the browser: modeling, sculpting, UV editing, shader /
 geometry / compositor nodes, animation and rigging, physics, path-traced and real-time rendering,
-video editing, motion tracking, Grease Pencil and scripting. It is written from scratch in
-TypeScript on top of three.js (WebGL2) and runs entirely in the browser.
+video editing, motion tracking, Grease Pencil and scripting, with nothing to install. It is written
+from scratch in TypeScript on top of three.js (WebGL2).
 
 This project is independent: it is a clean-room implementation that contains no Blender source code,
 icons, themes or other assets, and it is not affiliated with or endorsed by the Blender Foundation.
