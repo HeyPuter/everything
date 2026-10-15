@@ -1,5 +1,5 @@
 // Extension points so modes (edit mesh, sculpt, paint, pose) plug into the viewport.
-import type { VNode } from '../../ui/h';
+import type { Child, VNode } from '../../ui/h';
 import type { View3D } from './view3d';
 
 export interface PickOptions {
@@ -33,3 +33,6 @@ export const editModeHooks = {
  * cleanup function, called when the viewport is disposed.
  */
 export const viewportExtensions: ((v: View3D) => (() => void) | void)[] = [];
+
+/** Extra sections of the Viewport Overlays popover (e.g. per-mode display options). */
+export const overlayPopoverSections: ((v: View3D) => Child)[] = [];

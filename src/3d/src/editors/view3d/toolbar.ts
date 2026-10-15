@@ -15,6 +15,22 @@ export interface ToolDef {
   description?: string;
   /** alternates shown when long-pressing (e.g. select box / circle / lasso) */
   group?: string;
+  /** tools sharing this toolbar slot (long-press / right-click to pick one) */
+  alternates?: ToolDef[];
+}
+
+/** Last picked tool of each alternates slot (keyed by the slot's first tool id). */
+const slotPick: Record<string, string> = {};
+
+/** The tool shown in a slot: the active one if it belongs to the slot, else the last picked. */
+function slotTool(t: ToolDef, cur: string): ToolDef {
+  if (!t.alternates) return t;
+  const hit = t.alternates.find((a) => a.id === cur);
+  if (hit) {
+    slotPick[t.id] = hit.id;
+    return hit;
+  }
+  return t.alternates.find((a) => a.id === slotPick[t.id]) ?? t;
 }
 
 const SELECT_TOOLS: ToolDef[] = [
@@ -97,19 +113,34 @@ export function toolbar(v: View3D): Child {
   return h(
     'div',
     { key: 'toolbar', class: 'v3d-toolbar' },
-    tools.map((t, i) => {
-      if (!t) return h('div', { key: `sep${i}`, class: 'tb-sep' });
+    tools.map((slot, i) => {
+      if (!slot) return h('div', { key: `sep${i}`, class: 'tb-sep' });
+      const t = slotTool(slot, cur);
+      const alts = slot.alternates;
       const isSelectSlot = t.group === 'select';
       const active = t.id === cur;
       return h(
         'button',
         {
           key: t.id + i,
-          class: { 'tb-tool': true, on: active, 'has-alt': isSelectSlot },
+          class: { 'tb-tool': true, on: active, 'has-alt': isSelectSlot || !!alts },
           'data-tool': t.id,
           'data-tip': `${t.label}${t.shortcut ? `\nShortcut: ${t.shortcut}` : ''}${t.description ? `\n${t.description}` : ''}`,
           onpointerdown: (e: PointerEvent) => {
             e.preventDefault();
+            if (alts) {
+              const el = e.currentTarget as HTMLElement;
+              const pick = () => openMenu(alts.map((s) => ({ label: s.label, icon: s.icon, active: s.id === activeTools[mode], shortcut: s.shortcut, action: () => setActiveTool(s.id) })), el);
+              if (e.button === 2) return pick();
+              setActiveTool(t.id);
+              const timer = setTimeout(pick, 350);
+              const up = () => {
+                clearTimeout(timer);
+                removeEventListener('pointerup', up);
+              };
+              addEventListener('pointerup', up);
+              return;
+            }
             if (isSelectSlot && (e.button === 2 || e.detail > 1)) {
               openMenu(SELECT_TOOLS.map((s) => ({ label: s.label, icon: s.icon, active: s.id === cur, action: () => setActiveTool(s.id) })), e.currentTarget as HTMLElement);
               return;
@@ -137,7 +168,7 @@ export function toolbar(v: View3D): Child {
 export function toolHeader(v: View3D): Child {
   const mode = app.doc.mode;
   const cur = activeTools[mode];
-  const all = [...SELECT_TOOLS, ...(toolsFor(mode).filter(Boolean) as ToolDef[])];
+  const all = [...SELECT_TOOLS, ...(toolsFor(mode).filter(Boolean) as ToolDef[]).flatMap((x) => x.alternates ?? [x])];
   const t = all.find((x) => x.id === cur);
   const settings = toolSettingsFor(cur);
   return h('div', { class: 'tool-header' }, t ? h('span', { class: 'th-tool' }, icon(t.icon), h('span', null, t.label)) : null, settings);

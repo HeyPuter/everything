@@ -90,7 +90,9 @@ function gather(st: StrokeState, c: Vector3, radius: number, viewDir: Vector3 | 
   let n = 0;
   const nv = s.nv;
   const ff = !!st.brush.use_frontface && viewDir;
+  const hid = s.hiddenV;
   for (let v = 0; v < nv; v++) {
+    if (hid && hid[v]) continue;
     const i = v * 3;
     const dx = P[i] - cx;
     if (dx > radius || dx < -radius) continue;
@@ -632,8 +634,8 @@ function mirrorVec(v: Vector3, s: Sign): Vector3 {
 }
 
 /** Start a sculpt stroke (LMB in Sculpt Mode). */
-export function sculptStroke(v: View3D, e: PointerEvent): boolean {
-  const b0 = activeBrush('SCULPT');
+export function sculptStroke(v: View3D, e: PointerEvent, override?: PaintBrush | null): boolean {
+  const b0 = override ?? activeBrush('SCULPT');
   const s = meshSession();
   const ob = app.activeObject;
   const me = ob?.data ? app.doc.meshes[ob.data] : undefined;

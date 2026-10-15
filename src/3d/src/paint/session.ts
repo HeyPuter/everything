@@ -9,6 +9,7 @@ import { triangulatePoly, vertexFaces, vertexNeighbors } from '../mesh/mesh';
 import { renderContext } from '../render/context';
 import { shareGeometry } from '../render/geometry';
 import type { View3D } from '../editors/view3d/view3d';
+import { activeHiddenFaces, hiddenVerts } from './fsdata';
 
 export interface Hit {
   /** hit point in object space */
@@ -64,6 +65,9 @@ export class MeshSession {
   private dirtyExtra = new Map<string, [number, number]>();
   /** true when the synced geometry mirrors the base mesh corner-for-corner */
   direct = false;
+  /** Sculpt Mode hidden faces / vertices (null when everything is visible) */
+  hiddenF: Uint8Array | null = null;
+  hiddenV: Uint8Array | null = null;
 
   constructor(ob: ObjectData, me: MeshData) {
     this.obId = ob.id;
@@ -266,7 +270,12 @@ export class MeshSession {
   raycast(v: View3D, x: number, y: number): Hit | null {
     this.refit();
     const ray = this.localRay(v, x, y);
-    const hit = this.bvh.raycastFirst(ray, DoubleSide);
+    let hit = this.hiddenF ? null : this.bvh.raycastFirst(ray, DoubleSide);
+    if (this.hiddenF) {
+      const hf = this.hiddenF;
+      const all = this.bvh.raycast(ray, DoubleSide).sort((a, b) => a.distance - b.distance);
+      hit = all.find((x) => x.faceIndex != null && !hf[this.triFace[x.faceIndex]]) ?? null;
+    }
     if (!hit || hit.faceIndex == null) return null;
     const tri = hit.faceIndex;
     const face = this.triFace[tri];
@@ -442,9 +451,10 @@ export function meshSession(): MeshSession | null {
   if (!ob || !me || !me.indices.length) return null;
   if (current && current.obId === ob.id && current.meshId === me.id && current.indices === me.indices && current.offsets === me.offsets && current.nv === me.positions.length / 3) {
     current.setPositions(me.positions, false);
-    return current;
-  }
-  current = new MeshSession(ob, me);
+  } else current = new MeshSession(ob, me);
+  const sculpt = app.doc.mode === 'SCULPT';
+  current.hiddenF = sculpt ? activeHiddenFaces(me) : null;
+  current.hiddenV = current.hiddenF ? hiddenVerts(me) : null;
   return current;
 }
 

@@ -8,6 +8,8 @@ import type { SyncedObject } from '../render/scene';
 import { imageTexture } from '../render/images';
 import { isBrushMode } from './brushes';
 import type { MeshSession } from './session';
+import { faceSetColor, faceSetsOf, activeHiddenFaces } from './fsdata';
+import { meshGeometry } from '../render/geometry';
 
 const vert = /* glsl */ `
   varying vec3 vNormal;
@@ -17,6 +19,10 @@ const vert = /* glsl */ `
   varying float vMask;
   varying float vWeight;
   varying vec2 vUv;
+  varying vec3 vFset;
+  #ifdef USE_FSET
+  attribute vec3 paintFaceSet;
+  #endif
   #ifdef USE_VCOLOR
   attribute vec4 color;
   #endif
@@ -46,6 +52,11 @@ const vert = /* glsl */ `
     #else
     vWeight = 0.0;
     #endif
+    #ifdef USE_FSET
+    vFset = paintFaceSet;
+    #else
+    vFset = vec3(1.0);
+    #endif
     vUv = uv;
     gl_Position = projectionMatrix * mv;
   }
@@ -57,7 +68,9 @@ const frag = /* glsl */ `
   uniform int uLighting;
   uniform float uMaskOpacity;
   uniform float uWeightOpacity;
+  uniform float uFsetOpacity;
   uniform sampler2D uMap;
+  varying vec3 vFset;
   varying vec3 vNormal;
   varying vec3 vViewPos;
   varying vec3 vWorldNormal;
@@ -78,6 +91,9 @@ const frag = /* glsl */ `
     vec3 base = uColor * vColor.rgb;
     #ifdef USE_MAP
     base *= texture2D(uMap, vUv).rgb;
+    #endif
+    #ifdef USE_FSET
+    base *= mix(vec3(1.0), pow(vFset, vec3(2.2)), uFsetOpacity);
     #endif
     #ifdef USE_WEIGHT
     // heat map colors are display values: convert to linear for the sRGB output transform
@@ -118,6 +134,8 @@ interface PaintMatOpts {
   vcolor?: boolean;
   mask?: boolean;
   weight?: boolean;
+  faceSets?: boolean;
+  faceSetOpacity?: number;
   map?: Texture | null;
   backface?: boolean;
   maskOpacity?: number;
@@ -127,13 +145,14 @@ interface PaintMatOpts {
 const cache = new Map<string, ShaderMaterial>();
 
 export function paintMaterial(o: PaintMatOpts): ShaderMaterial {
-  const key = `${o.color.map((c) => c.toFixed(3)).join(',')}|${o.lighting}|${o.specular ? 1 : 0}|${o.vcolor ? 1 : 0}|${o.mask ? 1 : 0}|${o.weight ? 1 : 0}|${o.map ? o.map.uuid : ''}|${o.backface ? 1 : 0}`;
+  const key = `${o.color.map((c) => c.toFixed(3)).join(',')}|${o.lighting}|${o.specular ? 1 : 0}|${o.vcolor ? 1 : 0}|${o.mask ? 1 : 0}|${o.weight ? 1 : 0}|${o.faceSets ? 1 : 0}|${o.map ? o.map.uuid : ''}|${o.backface ? 1 : 0}`;
   let m = cache.get(key);
   if (!m) {
     const defines: Record<string, string> = {};
     if (o.vcolor) defines.USE_VCOLOR = '';
     if (o.mask) defines.USE_MASK = '';
     if (o.weight) defines.USE_WEIGHT = '';
+    if (o.faceSets) defines.USE_FSET = '';
     if (o.map) defines.USE_MAP = '';
     m = new ShaderMaterial({
       vertexShader: vert,
@@ -149,6 +168,7 @@ export function paintMaterial(o: PaintMatOpts): ShaderMaterial {
         },
         uMaskOpacity: { value: 0.75 },
         uWeightOpacity: { value: 1 },
+        uFsetOpacity: { value: 1 },
         uMap: { value: o.map ?? null },
       },
       side: o.backface ? FrontSide : DoubleSide,
@@ -165,6 +185,7 @@ export function paintMaterial(o: PaintMatOpts): ShaderMaterial {
   }
   m.uniforms.uMaskOpacity.value = o.maskOpacity ?? 0.75;
   m.uniforms.uWeightOpacity.value = o.weightOpacity ?? 1;
+  m.uniforms.uFsetOpacity.value = o.faceSetOpacity ?? 1;
   return m;
 }
 
@@ -266,10 +287,12 @@ drawHooks.materials.push((so: SyncedObject, mode, view, mats) => {
   const ob = so.ev.ob;
   const active = ob.id === app.activeObject?.id && ob.type === 'MESH';
   mesh.frustumCulled = !(active && docMode === 'SCULPT');
+  if (mesh.geometry.userData.hideOrigIndex && !(active && docMode === 'SCULPT')) restoreIndex(mesh.geometry);
   if (!active || !isBrushMode(docMode) || mode === 'WIREFRAME') return;
   const me = ob.data ? app.doc.meshes[ob.data] : undefined;
   if (!me) return;
   const g = mesh.geometry;
+  applyHiddenFaces(g, me, so, docMode === 'SCULPT');
   const pos = g.getAttribute('position');
   const direct = !!pos && pos.count === me.indices.length && so.ev.mesh?.indices === me.indices;
   const sh = view.shading;
@@ -277,8 +300,14 @@ drawHooks.materials.push((so: SyncedObject, mode, view, mats) => {
   const specular = sh.show_specular_highlight;
   const backface = sh.show_backface_culling;
   if (docMode === 'SCULPT') {
-    if (mode !== 'SOLID' || !direct || !hasMask(me.sculpt_mask)) return;
-    cornerAttr(g, 'paintMask', me, me.sculpt_mask, `${attrVersion}`);
+    if (mode !== 'SOLID' || !direct) return;
+    const ov = view.overlay;
+    const showOv = ov.show_overlays !== false;
+    const mask = showOv && ov.show_sculpt_mask !== false && hasMask(me.sculpt_mask);
+    const fsets = showOv && ov.show_sculpt_face_sets !== false && hasVisibleFaceSets(me);
+    if (!mask && !fsets) return;
+    if (mask) cornerAttr(g, 'paintMask', me, me.sculpt_mask, `${attrVersion}`);
+    if (fsets) faceSetAttr(g, me);
     for (let i = 0; i < mats.length; i++) {
       const b = solidBase(mats[i]);
       mats[i] = paintMaterial({
@@ -287,8 +316,10 @@ drawHooks.materials.push((so: SyncedObject, mode, view, mats) => {
         lighting,
         specular,
         backface,
-        mask: true,
-        maskOpacity: view.overlay.sculpt_mode_mask_opacity,
+        mask,
+        maskOpacity: ov.sculpt_mode_mask_opacity,
+        faceSets: fsets,
+        faceSetOpacity: ov.sculpt_mode_face_sets_opacity ?? 1,
       });
     }
   } else if (docMode === 'VERTEX_PAINT') {
@@ -335,3 +366,106 @@ drawHooks.materials.push((so: SyncedObject, mode, view, mats) => {
 });
 
 drawHooks.skipOutline.push((ob) => isBrushMode(app.doc.mode) && ob.id === app.activeObject?.id);
+
+// ---------------------------------------------------------------------------
+// face sets
+
+/** Whether any face is in a colored (non-default) face set. */
+const fsAny = new WeakMap<Int32Array, boolean>();
+export function hasVisibleFaceSets(me: MeshData): boolean {
+  const fs = faceSetsOf(me);
+  if (!fs) return false;
+  let r = fsAny.get(fs);
+  if (r === undefined) {
+    const def = me.face_sets_color_default ?? 1;
+    r = false;
+    for (let i = 0; i < fs.length; i++)
+      if (fs[i] !== def) {
+        r = true;
+        break;
+      }
+    fsAny.set(fs, r);
+  }
+  return r;
+}
+
+function faceSetAttr(g: BufferGeometry, me: MeshData) {
+  const fs = faceSetsOf(me)!;
+  const nc = me.indices.length;
+  let a = g.getAttribute('paintFaceSet') as BufferAttribute | undefined;
+  if (!a || a.count !== nc) {
+    a = new BufferAttribute(new Float32Array(nc * 3), 3);
+    g.setAttribute('paintFaceSet', a);
+    g.userData.fsetSrc = undefined;
+  }
+  const seed = me.face_sets_color_seed ?? 0,
+    def = me.face_sets_color_default ?? 1;
+  const key = `${seed}:${def}`;
+  if (g.userData.fsetSrc === fs && g.userData.fsetKey === key && g.userData.fsetIdx === me.indices) return;
+  const arr = a.array as Float32Array;
+  const colors = new Map<number, [number, number, number]>();
+  for (let f = 0; f < fs.length; f++) {
+    let c = colors.get(fs[f]);
+    if (!c) {
+      c = faceSetColor(fs[f], seed, def);
+      colors.set(fs[f], c);
+    }
+    for (let k = me.offsets[f]; k < me.offsets[f + 1]; k++) arr.set(c, k * 3);
+  }
+  a.needsUpdate = true;
+  g.userData.fsetSrc = fs;
+  g.userData.fsetKey = key;
+  g.userData.fsetIdx = me.indices;
+}
+
+// ---------------------------------------------------------------------------
+// hidden faces (Sculpt Mode): drawn by swapping in an index buffer without their triangles
+
+function restoreIndex(g: BufferGeometry) {
+  const u = g.userData;
+  if (!u.hideOrigIndex) return;
+  g.setIndex(u.hideOrigIndex);
+  g.clearGroups();
+  for (const gr of u.hideOrigGroups as { start: number; count: number; materialIndex?: number }[]) g.addGroup(gr.start, gr.count, gr.materialIndex);
+  u.hideOrigIndex = undefined;
+  u.hideOrigGroups = undefined;
+  u.hideSrc = undefined;
+}
+
+function applyHiddenFaces(g: BufferGeometry, me: MeshData, so: SyncedObject, sculpt: boolean) {
+  const hide = sculpt ? activeHiddenFaces(me) : null;
+  const ev = so.ev.mesh;
+  const usable = !!hide && !!ev && ev.indices === me.indices && ev.offsets === me.offsets;
+  if (!usable) {
+    restoreIndex(g);
+    return;
+  }
+  const u = g.userData;
+  if (u.hideSrc === hide && u.hideIdx === me.indices) return;
+  restoreIndex(g);
+  const info = meshGeometry(ev);
+  if (info.geometry !== g && info.geometry.index !== g.index) return;
+  const idx = g.index;
+  if (!idx) return;
+  const src = idx.array as ArrayLike<number>;
+  const groups = g.groups.map((x) => ({ ...x }));
+  const out = new (src instanceof Uint16Array ? Uint16Array : Uint32Array)(src.length);
+  let n = 0;
+  g.clearGroups();
+  for (const gr of groups) {
+    const start = n;
+    for (let i = gr.start; i < gr.start + gr.count; i += 3) {
+      const t = i / 3;
+      if (hide![info.triFace[t]]) continue;
+      out[n++] = src[i];
+      out[n++] = src[i + 1];
+      out[n++] = src[i + 2];
+    }
+    g.addGroup(start, n - start, gr.materialIndex);
+  }
+  u.hideOrigIndex = idx;
+  u.hideOrigGroups = groups;
+  g.setIndex(new BufferAttribute(out.slice(0, n), 1));
+  u.hideSrc = hide;
+  u.hideIdx = me.indices;
+}

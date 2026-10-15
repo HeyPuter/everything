@@ -12,10 +12,12 @@ import { extraToolLists, toolSettingsRenderers, setActiveTool, type ToolDef } fr
 import { sidebarTabs } from '../editors/view3d/sidebar';
 import { modeMenus } from '../editors/view3d/modemenus';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
-import { activeBrush, BRUSH_LISTS, brushInfo, isBrushMode, type BrushMode, type PaintBrush } from './brushes';
+import { activeBrush, brushById, BRUSH_LISTS, brushInfo, isBrushMode, type BrushMode, type PaintBrush } from './brushes';
+import { startGesture } from './gesture';
 import { cursorState, updateCursor } from './cursor';
 import { sculptStroke } from './sculpt';
-import { boxMaskDrag } from './sculptops';
+import { gestureToolPointer, gestureTools, registerToolSettings, sculptToolHooks, sculptToolSlots } from './sculpttools';
+import { operators } from '../app/app';
 import { vertexPaintStroke, sampleVertexColor } from './vpaint';
 import { weightPaintStroke, sampleWeight, ensureActiveGroup } from './wpaint';
 import { texturePaintStroke, sampleImageColor, paintImage, meshHasUVs } from './tpaint';
@@ -28,15 +30,7 @@ import { falloff as falloffFn } from './math';
 // toolbar
 
 const EXTRA_TOOLS: Record<BrushMode, ToolDef[]> = {
-  SCULPT: [
-    {
-      id: 'builtin.box_mask',
-      label: 'Box Mask',
-      icon: 'box_mask',
-      shortcut: 'B',
-      description: 'Mask vertices inside a box (Ctrl: unmask)',
-    },
-  ],
+  SCULPT: [],
   VERTEX_PAINT: [],
   WEIGHT_PAINT: [
     {
@@ -64,11 +58,14 @@ for (const mode of Object.keys(BRUSH_LISTS) as BrushMode[]) {
         : null,
     );
     if (EXTRA_TOOLS[mode].length) out.push(null, ...EXTRA_TOOLS[mode]);
+    if (mode === 'SCULPT') {
+      out.push(null, ...sculptToolSlots((op) => operators.has(op)));
+      registerToolSettings(toolSettingsRenderers);
+    }
     return out;
   };
   for (const b of BRUSH_LISTS[mode]) if (b) toolSettingsRenderers[b.id] = () => toolHeaderSettings(mode);
 }
-toolSettingsRenderers['builtin.box_mask'] = () => h('span', { class: 'th-label' }, 'Drag to mask · Ctrl+drag to unmask');
 toolSettingsRenderers['builtin.sample_weight'] = () => [h('span', { class: 'th-label' }, 'Click on the mesh to sample the weight'), weightField('th-sw')];
 
 // ---------------------------------------------------------------------------
@@ -320,7 +317,7 @@ function brushPanels(mode: BrushMode): Child[] {
       ),
     ]),
   );
-  if (tool === 'builtin.box_mask' || tool === 'builtin.sample_weight' || !b) {
+  if (gestureTools[tool] || tool?.startsWith('builtin.') || !b) {
     if (tool === 'builtin.sample_weight') out.push(panel('pt-sw', 'Sample Weight', () => [weightField('pt-sw-w')]));
   } else {
     out.push(
@@ -573,91 +570,6 @@ const sc = (km: string, op: string, props?: Record<string, unknown>) => {
   const k = (keymaps[km] ?? []).find((x) => x.op === op && (!props || Object.entries(props).every(([p, v]) => x.props?.[p] === v)));
   return k ? keyLabel(k) : undefined;
 };
-
-modeMenus.SCULPT = {
-  header: () => [
-    [
-      'Sculpt',
-      () => [
-        {
-          label: 'Voxel Remesh',
-          op: 'object.voxel_remesh',
-          shortcut: sc('Sculpt', 'object.voxel_remesh'),
-        },
-        { label: 'Rebuild BVH', op: 'sculpt.optimize' },
-        { separator: true },
-        {
-          label: 'Brush Radius',
-          op: 'wm.radial_control',
-          props: { data: 'size' },
-          shortcut: 'F',
-        },
-        {
-          label: 'Brush Strength',
-          op: 'wm.radial_control',
-          props: { data: 'strength' },
-          shortcut: 'Shift F',
-        },
-      ],
-    ],
-    ['Mask', maskMenu],
-  ],
-};
-
-function maskMenu(): MenuItem[] {
-  return [
-    {
-      label: 'Invert Mask',
-      op: 'paint.mask_flood_fill',
-      props: { mode: 'INVERT' },
-      shortcut: 'Ctrl I',
-    },
-    {
-      label: 'Fill Mask',
-      op: 'paint.mask_flood_fill',
-      props: { mode: 'VALUE', value: 1 },
-    },
-    {
-      label: 'Clear Mask',
-      op: 'paint.mask_flood_fill',
-      props: { mode: 'VALUE', value: 0 },
-      shortcut: 'Alt M',
-    },
-    { separator: true },
-    { label: 'Box Mask', op: 'paint.mask_box_gesture', shortcut: 'B' },
-    { separator: true },
-    {
-      label: 'Smooth Mask',
-      op: 'sculpt.mask_filter',
-      props: { filter_type: 'SMOOTH' },
-    },
-    {
-      label: 'Sharpen Mask',
-      op: 'sculpt.mask_filter',
-      props: { filter_type: 'SHARPEN' },
-    },
-    {
-      label: 'Grow Mask',
-      op: 'sculpt.mask_filter',
-      props: { filter_type: 'GROW' },
-    },
-    {
-      label: 'Shrink Mask',
-      op: 'sculpt.mask_filter',
-      props: { filter_type: 'SHRINK' },
-    },
-    {
-      label: 'Increase Contrast',
-      op: 'sculpt.mask_filter',
-      props: { filter_type: 'CONTRAST_INCREASE' },
-    },
-    {
-      label: 'Decrease Contrast',
-      op: 'sculpt.mask_filter',
-      props: { filter_type: 'CONTRAST_DECREASE' },
-    },
-  ];
-}
 
 modeMenus.VERTEX_PAINT = {
   header: () => [
@@ -986,10 +898,24 @@ editModeHooks.pointer.push((v, e) => {
   const ob = app.activeObject;
   if (!ob || ob.type !== 'MESH') return false;
   const tool = activeTools[mode];
-  if (mode === 'SCULPT' && tool === 'builtin.box_mask') return boxMaskDrag(v, e);
+  if (mode === 'SCULPT' && gestureTools[tool]) return gestureToolPointer(v, e, tool);
+  if (mode === 'SCULPT' && sculptToolHooks.pointer.some((f) => f(v, e, tool))) return true;
   if (mode === 'WEIGHT_PAINT' && tool === 'builtin.sample_weight') {
     app.run('paint.weight_sample', {}, { event: { x: e.clientX, y: e.clientY } });
     return true;
+  }
+  if (mode === 'SCULPT' && e.shiftKey && (e.ctrlKey || e.metaKey) && operators.has('paint.mask_lasso_gesture')) {
+    // Shift+Ctrl+drag: lasso mask (with Alt: unmask)
+    return startGesture(v, { op: 'paint.mask_lasso_gesture', kind: 'LASSO', props: { value: e.altKey ? 0 : 1 }, label: 'Lasso Mask' }, e);
+  }
+  if (mode === 'SCULPT' && e.altKey) {
+    // Alt: temporary Mask brush (keeps the current radius); Ctrl+Alt removes mask
+    const mb = brushById('brush_mask');
+    const cur = activeBrush('SCULPT');
+    if (mb) {
+      sculptStroke(v, e, { ...mb, radius: cur?.radius ?? mb.radius, mask_tool: 'DRAW' });
+      return true;
+    }
   }
   if (mode === 'SCULPT') sculptStroke(v, e);
   else if (mode === 'VERTEX_PAINT') vertexPaintStroke(v, e);

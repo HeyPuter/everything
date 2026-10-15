@@ -114,6 +114,14 @@ export interface MeshData {
   remesh_voxel_size?: number;
   /** Sculpt mode mask, one value per vertex (0 = unmasked, 1 = fully masked). */
   sculpt_mask?: Float32Array;
+  /** Sculpt face sets, one id per face (ids start at 1). */
+  sculpt_face_set?: Int32Array;
+  /** Face set id drawn without a color (the "default" set). */
+  face_sets_color_default?: number;
+  /** Seed for the face set display colors. */
+  face_sets_color_seed?: number;
+  /** Per-face hidden flag used by Sculpt Mode visibility tools. */
+  hide_poly?: Uint8Array;
   /** edges that do not belong to any face (vertex index pairs) */
   loose_edges?: Uint32Array;
   /** UV editor selection, one flag per face corner */
