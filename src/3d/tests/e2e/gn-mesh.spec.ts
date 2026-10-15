@@ -131,9 +131,10 @@ test('zone items: links to the extend socket become items; the sidebar list adds
 });
 
 test('mesh operation, sampling and instance nodes are in the Add menu', async ({ page }) => {
-  const { errors } = await geometryEditor(page);
+  const { errors, box } = await geometryEditor(page);
   const open = async (...path: string[]) => {
     await page.keyboard.press('Escape');
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.keyboard.press('Shift+A');
     for (const p of path) await menuItem(page, p).hover();
   };
@@ -218,6 +219,7 @@ test('swap (Shift S) wraps the selection in a zone, then turns it into another k
   await page.keyboard.press('Shift+S');
   await menuItem(page, 'Utilities').hover();
   await menuItem(page, 'Repeat').click();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   const chain = () =>
     withTree<string[]>(
       page,
