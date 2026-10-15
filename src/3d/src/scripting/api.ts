@@ -49,6 +49,7 @@ import {
   ID_TABLES,
   structHooks,
   mixin,
+  assignField,
   type Raw,
 } from './rna';
 
@@ -534,8 +535,62 @@ class ModifierCollection extends PropCollection<unknown> {
 }
 kwMethod(ModifierCollection.prototype, 'new', ['name', 'type']);
 
+/** Values a Geometry Nodes modifier passes to its group's inputs, by interface identifier. */
+export function syncNodesModifier(m: Raw) {
+  const g = typeof m.node_group === 'string' ? app.doc.node_groups[m.node_group] : undefined;
+  for (const it of g?.tree.interface ?? []) {
+    if (it.in_out !== 'INPUT' || it.socket_type === 'NodeSocketGeometry' || m[it.identifier] !== undefined) continue;
+    const d = it.default_value;
+    const t = it.socket_type;
+    m[it.identifier] = Array.isArray(d) ? [...d] : (d ?? (t === 'NodeSocketBool' ? false : t === 'NodeSocketVector' || t === 'NodeSocketRotation' ? [0, 0, 0] : t === 'NodeSocketColor' ? [0.8, 0.8, 0.8, 1] : t === 'NodeSocketString' ? '' : /Object|Collection|Material|Image|Texture|Font/.test(t) ? null : 0));
+  }
+}
+
+/** Modifiers: settings by name; Geometry Nodes inputs also as mod["Socket_1"]. */
+class ModifierStruct extends Struct {
+  override getItem(key: string) {
+    const raw = this.__raw;
+    if (raw.type === 'NODES') {
+      syncNodesModifier(raw);
+      if (key in raw && key !== 'id') return wrapField(this, key, () => this.__resolve());
+    }
+    return super.getItem(key);
+  }
+  override setItem(key: string, value: unknown) {
+    const raw = this.__raw;
+    if (raw.type === 'NODES') {
+      syncNodesModifier(raw);
+      if (key in raw && key !== 'id' && key !== 'type' && key !== 'name') {
+        if (raw[key] === null || raw[key] === undefined) raw[key] = toPlain(value);
+        else assignField(raw, key, value, 'NodesModifier');
+        touched('geometry');
+        return;
+      }
+    }
+    super.setItem(key, value);
+  }
+  override keys() {
+    const raw = this.__raw;
+    if (raw.type !== 'NODES') return super.keys();
+    syncNodesModifier(raw);
+    return Object.keys(raw).filter((k) => /^Socket_\d+/.test(k));
+  }
+  get node_group() {
+    const raw = this.__raw;
+    if (raw.type !== 'NODES') return undefined;
+    return typeof raw.node_group === 'string' && app.doc.node_groups[raw.node_group] ? wrapId('node_groups', raw.node_group) : null;
+  }
+  set node_group(v: unknown) {
+    const raw = this.__raw;
+    if (raw.type !== 'NODES') throw pyError('AttributeError', `'${raw.type}' modifiers have no node_group`);
+    raw.node_group = v === null || v === undefined ? null : expectId(v, 'node_groups', 'NodeTree');
+    syncNodesModifier(raw);
+    touched('geometry');
+  }
+}
+
 export function modifierWrapper(obId: string, mid: string) {
-  const s = new Struct('Modifier', () => app.doc.objects[obId]?.modifiers.find((m) => m.id === mid) as Raw | undefined, '');
+  const s = new ModifierStruct('Modifier', () => app.doc.objects[obId]?.modifiers.find((m) => m.id === mid) as Raw | undefined, '');
   Object.defineProperty(s, '__mid', { value: mid });
   Object.defineProperty(s, '__path', { get: () => `bpy.data.objects[${JSON.stringify(app.doc.objects[obId]?.name)}].modifiers[${JSON.stringify(app.doc.objects[obId]?.modifiers.find((m) => m.id === mid)?.name)}]` });
   return proxify(s);

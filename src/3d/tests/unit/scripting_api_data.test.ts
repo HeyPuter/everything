@@ -257,3 +257,32 @@ describe('curves and shape keys', () => {
     ).toBe('2 Basis 0 data.shape_keys.key_blocks["Up"].value\n1');
   });
 });
+
+describe('geometry node groups from scripts', () => {
+  it('interface sockets feed the modifier, set as mod["Socket_n"]', () => {
+    expect(
+      run(`
+      const ng = D.node_groups.new('Grow', 'GeometryNodeTree');
+      const s = ng.interface.new_socket({name: 'Height', in_out: 'INPUT', socket_type: 'NodeSocketFloat'});
+      s.default_value = 2;
+      const inp = ng.nodes['Group Input'], out = ng.nodes['Group Output'];
+      const tr = ng.nodes.new('GeometryNodeTransform');
+      const comb = ng.nodes.new('ShaderNodeCombineXYZ');
+      ng.links.new(inp.outputs['Geometry'], tr.inputs['Geometry']);
+      ng.links.new(inp.outputs['Height'], comb.inputs['Z']);
+      ng.links.new(comb.outputs['Vector'], tr.inputs['Translation']);
+      ng.links.new(tr.outputs['Geometry'], out.inputs['Geometry']);
+      const ob = D.objects['Cube'];
+      const mod = ob.modifiers.new('GN', 'NODES'); mod.node_group = ng;
+      print(s.identifier, mod[s.identifier], ng.interface.items_tree.length);
+      mod[s.identifier] = 5;
+      print(mod.keys().join(','), ob.dimensions.z);
+    `),
+    ).toMatch(/^Socket_\d+ 2 3\nSocket_\d+ 2$/);
+    app.evaluate();
+    const ev = app.graph.get(obj('Cube').id)!;
+    let maxZ = -Infinity;
+    for (let i = 2; i < ev.mesh!.positions.length; i += 3) maxZ = Math.max(maxZ, ev.mesh!.positions[i]);
+    expect(maxZ).toBeCloseTo(6);
+  });
+});

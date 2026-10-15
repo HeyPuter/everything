@@ -155,4 +155,18 @@ describe('Python scripts', () => {
     `),
     ).toBe('data.energy 250');
   });
+
+  py('geometry node group interface and modifier inputs', () => {
+    expect(
+      runPy(`
+      import bpy
+      ng = bpy.data.node_groups.new("Lift", "GeometryNodeTree")
+      sock = ng.interface.new_socket(name="Amount", in_out="INPUT", socket_type="NodeSocketFloat")
+      mod = bpy.data.objects["Cube"].modifiers.new(name="GN", type="NODES")
+      mod.node_group = ng
+      mod[sock.identifier] = 3.5
+      print(mod[sock.identifier], sock.identifier in mod.keys(), [i.name for i in ng.interface.items_tree])
+    `),
+    ).toBe("3.5 True ['Geometry', 'Geometry', 'Amount']");
+  });
 });
