@@ -288,3 +288,28 @@ test('B box select adds and removes, Shift+B zoom region in and out', async ({ p
   expect(await dist()).toBeGreaterThan(d1);
   await expectNoErrors(errors);
 });
+
+test('local axis constraint moves each object along its own axis', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const cam = Object.values(a.doc.objects as Record<string, any>).find((o) => o.name === 'Camera'); // eslint-disable-line @typescript-eslint/no-explicit-any
+    cam.select = true;
+    cam.location = [0, 0, 0];
+    cam.rotation_euler = [0, 0, Math.PI / 2];
+    a.activeObject.rotation_euler = [0, 0, 0];
+    a.changed('doc');
+  });
+  // X twice switches the constraint from global to local
+  await page.keyboard.press('g');
+  await page.keyboard.press('x');
+  await page.keyboard.press('x');
+  await expect(page.locator('.hdr-modal-text')).toContainText('along local X');
+  await page.keyboard.type('2');
+  await page.keyboard.press('Enter');
+  const locs = await get<number[][]>(page, `['Cube', 'Camera'].map(n => Object.values(app.doc.objects).find(o => o.name === n).location.map(v => Math.round(v * 1000) / 1000))`);
+  expect(locs[0]).toEqual([2, 0, 0]);
+  expect(locs[1]).toEqual([0, 2, 0]);
+  await expectNoErrors(errors);
+});

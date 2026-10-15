@@ -359,7 +359,8 @@ function maskedValue(st: TState): number[] {
 /** World matrix applied to one element for a state. */
 function elementMatrix(s: Session, st: TState, e: TElement): Matrix4 {
   const w = e.weight;
-  const B = s.perElement && st.orientType === 'LOCAL' ? orthonormalBasis(e.basis) : st.basis;
+  // Local constraints follow each object's own axes; free moves are shared by all elements
+  const B = s.perElement && st.orientType === 'LOCAL' && st.axes ? orthonormalBasis(e.basis) : st.basis;
   const center = s.individual ? e.center : st.center ?? s.pivot;
   switch (st.mode) {
     case 'TRANSLATION': {
