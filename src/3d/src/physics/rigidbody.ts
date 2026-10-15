@@ -51,6 +51,8 @@ interface Live {
   hooks: RAPIERNS.PhysicsHooks | null;
   /** the engine only runs contact filters when stepping with an event queue */
   events: RAPIERNS.EventQueue | null;
+  /** breakable joints and the impulse that breaks them */
+  breakable: { joint: RAPIERNS.ImpulseJoint; b1: Body; b2: Body; threshold: number; broken: boolean }[];
 }
 
 /** Bit mask of a rigid body's collision collections (first collection when unset). */
@@ -199,6 +201,7 @@ function buildWorld(R: Rapier, doc: DocumentData): Live {
   const bodies: Body[] = [];
   const byId = new Map<string, Body>();
   const masks = new Map<number, number>();
+  const breakable: Live['breakable'] = [];
   for (const ob of rigidBodyObjects(doc)) {
     const rb = ob.rigid_body as RigidBodyX;
     const { p, q, s } = decompose(objectWorldAt(doc, ob, w.frame_start));
@@ -231,6 +234,7 @@ function buildWorld(R: Rapier, doc: DocumentData): Live {
     const cm = decompose(objectWorldAt(doc, ob, w.frame_start));
     const joint = createJoint(R, world, c, b1, b2, cm.p, cm.q, world.timestep);
     joint.setContactsEnabled(!c.disable_collisions);
+    if (c.use_breaking) breakable.push({ joint, b1, b2, threshold: Math.max(0, Number(c.breaking_threshold ?? 10)), broken: false });
   }
   const filtered = [...masks.values()].some((m) => m !== 1);
   const hooks: RAPIERNS.PhysicsHooks | null = filtered
@@ -239,7 +243,7 @@ function buildWorld(R: Rapier, doc: DocumentData): Live {
         filterIntersectionPair: () => true,
       }
     : null;
-  return { world, bodies, hooks, events: hooks ? new R.EventQueue(false) : null };
+  return { world, bodies, hooks, events: hooks ? new R.EventQueue(false) : null, breakable };
 }
 
 function snapshot(live: Live): Float32Array {
@@ -283,7 +287,47 @@ function stepWorld(doc: DocumentData, live: Live, frame: number, graph: Depsgrap
       b.body.resetForces(false);
       if (f[0] || f[1] || f[2]) b.body.addForce({ x: f[0], y: f[1], z: f[2] }, true);
     }
+    // velocities before the step: the change beyond gravity is the impulse the solver applied
+    const watch = live.breakable.length ? breakWatch(live, doc) : null;
     live.world.step(live.events ?? undefined, live.hooks ?? undefined);
+    if (watch) breakJoints(live, watch);
+  }
+}
+
+interface BreakWatch {
+  v: Map<Body, { x: number; y: number; z: number }>;
+  g: [number, number, number];
+  dt: number;
+}
+
+function breakWatch(live: Live, doc: DocumentData): BreakWatch {
+  const w = doc.scene.rigidbody_world as RigidBodyWorldX;
+  const gw = w.effector_weights_gravity ?? 1;
+  const g = doc.scene.use_gravity ? doc.scene.gravity : [0, 0, 0];
+  const v = new Map<Body, { x: number; y: number; z: number }>();
+  for (const b of live.breakable)
+    if (!b.broken) for (const body of [b.b1, b.b2]) if (body.dynamic && !v.has(body)) v.set(body, { ...body.body.linvel() });
+  return { v, g: [g[0] * gw, g[1] * gw, g[2] * gw], dt: live.world.timestep };
+}
+
+/** Remove joints whose bodies received more than their breaking impulse in the last step. */
+function breakJoints(live: Live, w: BreakWatch) {
+  for (const b of live.breakable) {
+    if (b.broken) continue;
+    let impulse = 0;
+    for (const body of [b.b1, b.b2]) {
+      const before = w.v.get(body);
+      if (!before) continue;
+      const after = body.body.linvel();
+      const dx = after.x - before.x - w.g[0] * w.dt,
+        dy = after.y - before.y - w.g[1] * w.dt,
+        dz = after.z - before.z - w.g[2] * w.dt;
+      impulse = Math.max(impulse, body.mass * Math.hypot(dx, dy, dz));
+    }
+    if (impulse > b.threshold) {
+      live.world.removeImpulseJoint(b.joint, true);
+      b.broken = true;
+    }
   }
 }
 

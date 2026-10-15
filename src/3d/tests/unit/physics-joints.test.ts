@@ -156,3 +156,18 @@ describe('rigid body collision collections and deactivation', () => {
     expect(pos(at(g, doc, c, 60)).z).toBeCloseTo(2, 3);
   });
 });
+
+describe('breakable rigid body constraints', () => {
+  it('a joint holds until the impulse on its bodies exceeds the threshold', () => {
+    const hang = (threshold: number) => {
+      const doc = scene();
+      const anchor = box(doc, 'Anchor', 0.2, [0, 0, 3], 'PASSIVE');
+      const body = box(doc, 'Body', 0.4, [0, 0, 2.5], 'ACTIVE');
+      joint(doc, anchor, body, [0, 0, 2.8], [0, 0, 0], { type: 'FIXED', use_breaking: true, breaking_threshold: threshold });
+      const g = new Depsgraph(doc);
+      return pos(at(g, doc, body, 40)).z;
+    };
+    expect(hang(10)).toBeCloseTo(2.5, 1);
+    expect(hang(0.001)).toBeLessThan(1);
+  });
+});

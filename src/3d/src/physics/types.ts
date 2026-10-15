@@ -42,6 +42,9 @@ export interface RigidBodyConstraintData {
   motor_lin_max_impulse?: number;
   motor_ang_max_impulse?: number;
   spring_type?: 'SPRING1' | 'SPRING2';
+  /** the joint breaks when its bodies receive more than this impulse in one step */
+  use_breaking?: boolean;
+  breaking_threshold?: number;
   [key: string]: unknown;
 }
 

@@ -461,7 +461,12 @@ function rbConstraintPanels(ob: ObjectPhysics): Child[] {
       !app.doc.scene.rigidbody_world ? note('No rigid body world: add one in Scene properties', 'error') : null,
       enumProp(c, 'type', 'Type', RBC_TYPES),
       c.type === 'HINGE' ? note("The hinge turns around this object's local Z axis") : c.type === 'SLIDER' || c.type === 'PISTON' || c.type === 'MOTOR' ? note("The axis is this object's local X axis") : null,
-      panel('ph-rbc-settings', 'Settings', () => [bool(c, 'enabled', 'Enabled'), bool(c, 'disable_collisions', 'Disable Collisions')], { sub: true }),
+      panel('ph-rbc-settings', 'Settings', () => [
+        bool(c, 'enabled', 'Enabled'),
+        bool(c, 'disable_collisions', 'Disable Collisions'),
+        bool(c as never, 'use_breaking', 'Breakable'),
+        c.use_breaking ? num(c as never, 'breaking_threshold', 'Threshold', { min: 0, max: 1000, softMax: 100, tip: 'Impulse (in one step) that breaks the constraint' }) : null,
+      ], { sub: true }),
       panel('ph-rbc-objects', 'Objects', () => [
         objectRow(`rbc1-${ob.id}`, c as never, 'object1', 'First', (o) => !!o.rigid_body),
         objectRow(`rbc2-${ob.id}`, c as never, 'object2', 'Second', (o) => !!o.rigid_body),
