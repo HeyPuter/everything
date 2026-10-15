@@ -82,8 +82,29 @@ export function viewMenu(ed: SeqEditorLike & { showToolbar: boolean; showSidebar
       { label: 'Show Seconds', shortcut: 'Ctrl T', checked: ed.showSeconds, action: () => ((ed.showSeconds = !ed.showSeconds), ed.redraw(), app.changed('ui')) },
       { label: 'Show Markers', checked: ed.showMarkers, action: () => ((ed.showMarkers = !ed.showMarkers), ed.redraw()) },
       { separator: true },
-      { label: 'Set Preview Range to Strips', op: 'sequencer.set_range_to_strips', props: { preview: true }, shortcut: 'Ctrl Alt P' },
-      { label: 'Set Frame Range to Strips', op: 'sequencer.set_range_to_strips', props: { preview: false } },
+      {
+        label: 'Range',
+        submenu: () => [
+          { label: 'Set Preview Range to Strips', op: 'sequencer.set_range_to_strips', props: { preview: true }, shortcut: 'Ctrl Alt P' },
+          { label: 'Clear Preview Range', op: 'anim.previewrange_clear' },
+          { separator: true },
+          { label: 'Set Frame Range to Strips', op: 'sequencer.set_range_to_strips', props: { preview: false } },
+        ],
+      },
+      {
+        label: 'Navigation',
+        submenu: () => [
+          { label: 'Play Animation', op: 'screen.animation_play', shortcut: 'Space' },
+          { separator: true },
+          { label: 'Go to Current Frame', op: 'sequencer.view_frame', shortcut: 'Numpad 0' },
+          { separator: true },
+          { label: 'Jump to Previous Strip', op: 'sequencer.strip_jump', props: { next: false, center: false }, shortcut: 'Page Up' },
+          { label: 'Jump to Next Strip', op: 'sequencer.strip_jump', props: { next: true, center: false }, shortcut: 'Page Down' },
+          { separator: true },
+          { label: 'Jump to Previous Strip (Center)', op: 'sequencer.strip_jump', props: { next: false, center: true }, shortcut: 'Alt Page Up' },
+          { label: 'Jump to Next Strip (Center)', op: 'sequencer.strip_jump', props: { next: true, center: true }, shortcut: 'Alt Page Down' },
+        ],
+      },
       { separator: true },
     );
   if (preview)
@@ -110,8 +131,17 @@ export function viewMenu(ed: SeqEditorLike & { showToolbar: boolean; showSidebar
     { label: 'Sequencer', icon: 'seq_sequencer', active: ed.view === 'SEQUENCER', action: () => ed.setView('SEQUENCER') },
     { label: 'Preview', icon: 'seq_preview', active: ed.view === 'PREVIEW', action: () => ed.setView('PREVIEW') },
     { label: 'Sequencer & Preview', icon: 'seq_splitview', active: ed.view === 'SEQUENCER_PREVIEW', action: () => ed.setView('SEQUENCER_PREVIEW') },
+    { label: 'Toggle Sequencer/Preview', op: 'sequencer.view_toggle', shortcut: 'Ctrl Tab' },
     { separator: true },
+    {
+      label: 'Render Preview',
+      submenu: () => [
+        { label: 'Render Sequencer Image', op: 'render.render', props: { animation: false } },
+        { label: 'Render Sequencer Animation', op: 'render.render', props: { animation: true } },
+      ],
+    },
     { label: 'Render Audio…', op: 'sound.mixdown' },
+    { label: 'Export Subtitles…', icon: 'export', op: 'sequencer.export_subtitles' },
   );
   return items;
 }

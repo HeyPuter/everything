@@ -1,6 +1,7 @@
 // Sequencer keymaps (default left-click-select layout).
 import { addKeys } from '../app/keymap';
-import { addMenu, selectMenu, changeMenu, retimingMenu } from './menus';
+import { addMenu, selectMenu, changeMenu, retimingMenu, contextMenu, stripMenu } from './menus';
+import { hoverSeq } from './context';
 import { pivotPie, mirrorItems, viewPie } from './previewops';
 
 addKeys('Sequencer', [
@@ -68,11 +69,14 @@ addKeys('Sequencer', [
   { key: 'E', op: 'transform.transform', props: { mode: 'TIME_EXTEND' } },
   { key: 'S', op: 'sequencer.slip' },
   { key: 'M', op: 'screen.marker_add' },
+  { key: 'W', menu: contextMenu, menuTitle: 'Sequencer' },
   { key: 'P', ctrl: true, alt: true, op: 'sequencer.set_range_to_strips', props: { preview: true } },
 ]);
 
 addKeys('SequencerPreview', [
   { key: 'TAB', op: 'sequencer.text_edit_mode_toggle' },
+  { key: 'D', shift: true, op: 'sequencer.preview_duplicate_move' },
+  { key: 'W', menu: () => stripMenu(true), menuTitle: 'Sequencer Preview' },
   { key: 'A', op: 'sequencer.select_all', props: { action: 'SELECT' } },
   { key: 'A', alt: true, op: 'sequencer.select_all', props: { action: 'DESELECT' } },
   { key: 'I', ctrl: true, op: 'sequencer.select_all', props: { action: 'INVERT' } },
@@ -105,4 +109,7 @@ addKeys('SequencerPreview', [
 ]);
 
 addKeys('Sequencer Channels', [{ key: 'HOME', op: 'sequencer.view_all' }]);
-addKeys('SequencerCommon', []);
+addKeys('SequencerCommon', [
+  { key: 'E', ctrl: true, op: 'sequencer.refresh_all' },
+  { key: 'Z', shift: true, alt: true, action: () => (hoverSeq() as unknown as { toggleOverlays?: () => void } | null)?.toggleOverlays?.() },
+]);

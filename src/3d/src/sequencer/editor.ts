@@ -231,6 +231,14 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     app.changed('ui');
   }
 
+  toggleOverlays() {
+    this.showOverlays = !this.showOverlays;
+    this.preview.showOverlays = this.showOverlays;
+    this.redraw();
+    this.preview.draw();
+    app.changed('ui');
+  }
+
   toggleSidebar() {
     this.showSidebar = !this.showSidebar;
     this.layout();
@@ -377,7 +385,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       h(
         'div',
         { class: 'hdr-group', key: 'overlay' },
-        h('button', { class: { 'hdr-toggle': true, on: this.showOverlays }, 'data-tip': 'Show Overlays', onclick: () => ((this.showOverlays = !this.showOverlays), (this.preview.showOverlays = this.showOverlays), this.redraw(), this.preview.draw(), app.changed('ui')) }, icon('overlay')),
+        h('button', { class: { 'hdr-toggle': true, on: this.showOverlays }, 'data-tip': 'Show Overlays (Shift Alt Z)', onclick: () => this.toggleOverlays() }, icon('overlay')),
         h(
           'button',
           {

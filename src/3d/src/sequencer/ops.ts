@@ -332,6 +332,19 @@ const ops: Operator[] = [
     },
   },
   {
+    idname: 'sequencer.preview_duplicate_move',
+    label: 'Duplicate Strips',
+    description: 'Duplicate the selected strips and move their images in the preview',
+    poll: () => anySelected() && overPreview(),
+    invoke: () => {
+      const list = seqList();
+      duplicate(list, list.filter((s) => s.select));
+      S.resolveOverlap(list, list.filter((s) => s.select), toolSettings().overlap_mode);
+      afterEdit();
+      return startPreviewTransform(hoverSeq()!, 'TRANSLATE', app.pointer.x, app.pointer.y) ? 'RUNNING_MODAL' : 'FINISHED';
+    },
+  },
+  {
     idname: 'sequencer.mute',
     label: 'Mute Strips',
     description: 'Mute (un)selected strips',
