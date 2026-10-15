@@ -26,11 +26,18 @@ function missingTypes(ng: BStruct, seen = new Set<number>()): string[] {
   return [...out];
 }
 
-/** IDProperty int / float / double / boolean value. */
-function idpValue(prop: BStruct, ctx: Ctx): number | boolean | null {
+/** IDProperty int / float / double / boolean value, or a short int / float array (vectors, colors). */
+function idpValue(prop: BStruct, ctx: Ctx): number | boolean | number[] | null {
   const type = prop.num('type');
   const data = prop.sub('data');
   if (!data) return null;
+  if (type === 5) {
+    const len = prop.num('len');
+    const sub = prop.num('subtype');
+    if (len < 1 || len > 16) return null;
+    const arr = sub === 2 ? ctx.f.float32(data.ptr('pointer'), len, prop.block) : sub === 1 ? ctx.f.int32(data.ptr('pointer'), len, prop.block) : null;
+    return arr ? Array.from(arr) : null;
+  }
   const off = data.offset + (data.field('val')?.offset ?? 0);
   if (type === 1) return data.num('val');
   if (type === 2) return ctx.f.dv.getFloat32(off, ctx.f.littleEndian);
@@ -40,7 +47,7 @@ function idpValue(prop: BStruct, ctx: Ctx): number | boolean | null {
 }
 
 /** Modifier settings of a geometry nodes modifier, or null when its group can't be evaluated here. */
-export function importGeometryNodes(d: BStruct, ctx: Ctx): { node_group: string | null; inputs: Record<string, number | boolean> } | null {
+export function importGeometryNodes(d: BStruct, ctx: Ctx): { node_group: string | null; inputs: Record<string, number | boolean | number[]> } | null {
   const ng = d.ref('node_group');
   if (!ng) return { node_group: null, inputs: {} };
   const missing = missingTypes(ng);
@@ -52,12 +59,24 @@ export function importGeometryNodes(d: BStruct, ctx: Ctx): { node_group: string 
   if (!id) return null;
   const g = ctx.doc.node_groups[id];
   if (g) g.is_modifier = true;
-  const inputs: Record<string, number | boolean> = {};
+  const inputs: Record<string, number | boolean | number[]> = {};
   const props = d.sub('settings')?.ref('properties');
+  const ok = (v: unknown): v is number | boolean | number[] => v !== null && (Array.isArray(v) ? v.every(Number.isFinite) : Number.isFinite(Number(v)));
   for (const p of props?.sub('data')?.list('group') ?? []) {
     const name = p.str('name');
+    if (!name) continue;
+    if (p.num('type') === 6) {
+      // one group per input: its value and whether an attribute is used instead
+      for (const c of p.sub('data')?.list('group') ?? []) {
+        const key = c.str('name');
+        const v = idpValue(c, ctx);
+        if (key === 'value' && ok(v)) inputs[name] = v;
+        else if (key === 'type' && typeof v === 'number') inputs[`${name}_use_attribute`] = v === 1;
+      }
+      continue;
+    }
     const v = idpValue(p, ctx);
-    if (name && v !== null && Number.isFinite(Number(v))) inputs[name] = v;
+    if (ok(v)) inputs[name] = v;
   }
   return { node_group: id, inputs };
 }

@@ -15,6 +15,8 @@ bpy.context.scene.collection.objects.link(ob)
 ng = bpy.data.node_groups.new('Zones', 'GeometryNodeTree')
 ng.interface.new_socket('Geometry', in_out='INPUT', socket_type='NodeSocketGeometry')
 ng.interface.new_socket('Geometry', in_out='OUTPUT', socket_type='NodeSocketGeometry')
+vec = ng.interface.new_socket('Offset', in_out='INPUT', socket_type='NodeSocketVector')
+num = ng.interface.new_socket('Scale', in_out='INPUT', socket_type='NodeSocketFloat')
 gi = ng.nodes.new('NodeGroupInput')
 go = ng.nodes.new('NodeGroupOutput')
 L = ng.links.new
@@ -62,6 +64,9 @@ L(bk.outputs['Geometry'], go.inputs[0])
 
 mod = ob.modifiers.new('GN', 'NODES')
 mod.node_group = ng
+getattr(mod.properties.inputs, vec.identifier).value = (1.0, 2.0, 3.0)
+getattr(mod.properties.inputs, num.identifier).value = 0.5
+print('IDS', vec.identifier, num.identifier)
 bpy.ops.wm.save_as_mainfile(filepath=os.path.join(outdir, 'zones.blend'), compress=True)
 dg = bpy.context.evaluated_depsgraph_get()
 e = ob.evaluated_get(dg).data

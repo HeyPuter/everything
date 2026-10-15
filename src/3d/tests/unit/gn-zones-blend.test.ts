@@ -51,3 +51,14 @@ describe('zones from .blend files', () => {
     expect(Array.from(r.geometry.mesh!.positions)).toEqual([0, 0, 3]);
   });
 });
+
+describe('geometry nodes modifier inputs from .blend files', () => {
+  it('keeps number and vector inputs', () => {
+    const ob = Object.values(doc.objects).find((o) => o.name === 'Zoned')!;
+    const m = ob.modifiers.find((x) => x.type === 'NODES')!;
+    const g = doc.node_groups[m.node_group as string];
+    const ids = Object.fromEntries((g.tree.interface ?? []).filter((i) => i.in_out === 'INPUT').map((i) => [i.name, i.identifier]));
+    expect(m[ids.Offset]).toEqual([1, 2, 3]);
+    expect(m[ids.Scale]).toBe(0.5);
+  });
+});
