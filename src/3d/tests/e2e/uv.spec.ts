@@ -255,3 +255,36 @@ test('Image editor: render slots cycle with J / Alt J and number keys', async ({
   await expect(page.locator('.ie-header .enum-menu', { hasText: 'Slot 2' })).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('Image editor: Paint mode in Texture Paint shows the brushes and paints on the image', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.locator('.ws-tab', { hasText: 'Texture Paint' }).first().click();
+  await page.waitForTimeout(300);
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.run('paint.add_texture_paint_slot', {}, { invoke: false });
+    a.doc.scene.tool_settings.unified_paint.color = [1, 0, 0];
+  });
+  await expect(page.locator('.ie-toolbar .tb-tool')).toHaveCount(4);
+  await expect(page.locator('.ie-toolhdr')).toBeVisible();
+  const ie = (await page.locator('.ie-root').first().boundingBox())!;
+  const cx = ie.x + ie.width / 2,
+    cy = ie.y + ie.height / 2;
+  await page.mouse.move(cx - 40, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 40, cy, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const px = await page.evaluate(async ([x, y]) => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const ed = a.hoverArea.editor;
+    const r = ed.el.getBoundingClientRect();
+    const [ix, iy] = ed.toImage(x - r.left, y - r.top);
+    const { imageCanvas } = await import('/src/render/images.ts');
+    const c = imageCanvas(ed.image);
+    return Array.from(c.getContext('2d').getImageData(Math.floor(ix), Math.floor(iy), 1, 1).data);
+  }, [cx, cy]);
+  expect(px[0]).toBeGreaterThan(200);
+  expect(px[1]).toBeLessThan(120);
+  await expectNoErrors(errors);
+});

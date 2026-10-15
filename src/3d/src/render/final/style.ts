@@ -5,6 +5,10 @@ const css = /* css */ `
 .ie-ui { position: absolute; inset: 0; pointer-events: none; }
 .ie-ui > .ie-sidebar { pointer-events: auto; top: 0; }
 .ie-ui > .redo-panel { pointer-events: auto; bottom: 30px; }
+.ie-ui > .ie-toolhdr { pointer-events: auto; position: absolute; top: 0; left: 0; right: 0; height: 28px; padding: 0 6px; gap: 6px; background: rgba(40, 40, 40, 0.92); border-bottom: 1px solid #222; overflow: hidden; }
+.ie-ui > .ie-toolbar { pointer-events: auto; top: 34px; }
+.ie-ui > .ie-toolhdr ~ .ie-sidebar { top: 28px; }
+.ie-header > .enum-menu.ie-mode { min-width: 80px; margin-left: 0; margin-right: 4px; }
 .scope-box { display: flex; flex-direction: column; gap: 4px; }
 .scope-svg { display: block; height: 110px; border-radius: 3px; }
 .scope-img { display: block; width: 100%; image-rendering: auto; border-radius: 3px; background: #1d1d1d; }

@@ -14,6 +14,11 @@ import { renderResult, passToRGBA8, samplePixel, encodeRGBA8, canvasBytes, downl
 import { modifiedImages, type View2D } from './imageops';
 import { scopesPanel } from './scopes';
 import { lastOpPanel } from '../../ui/redo';
+import { imagePaintStroke, paintBrush } from './imagepaint';
+import { paintImage } from '../../paint/tpaint';
+import { BRUSH_LISTS } from '../../paint/brushes';
+import { toolHeaderSettings } from '../../paint/ui';
+import { activeTools } from '../../app/prefs';
 import { formatTime } from './units';
 import type { ViewSettings } from './colormanage';
 
@@ -71,6 +76,10 @@ export class ImageEditor implements Editor, View2D {
   fitted = false;
   showSidebar = false;
   sidebarTab = 'Image';
+  /** View or Paint; unset follows the object mode (Paint while in Texture Paint mode) */
+  uiMode: 'VIEW' | 'PAINT' | null = null;
+  showToolbar = true;
+  private hover: { x: number; y: number } | null = null;
   private canvas: HTMLCanvasElement;
   private ui: HTMLElement;
   private cache: { key: string; canvas: HTMLCanvasElement } | null = null;
@@ -94,7 +103,9 @@ export class ImageEditor implements Editor, View2D {
     this.ui = document.createElement('div');
     this.ui.className = 'ie-ui';
     this.el.append(this.canvas, this.ui);
-    const st = (state ?? {}) as { render?: boolean; image?: string | null; pass?: PassName; channel?: ChannelMode; zoom?: number; off?: [number, number]; sidebar?: boolean; layer?: ResultLayer };
+    const st = (state ?? {}) as { render?: boolean; image?: string | null; pass?: PassName; channel?: ChannelMode; zoom?: number; off?: [number, number]; sidebar?: boolean; layer?: ResultLayer; mode?: 'VIEW' | 'PAINT'; toolbar?: boolean };
+    if (st.mode === 'VIEW' || st.mode === 'PAINT') this.uiMode = st.mode;
+    if (st.toolbar === false) this.showToolbar = false;
     if (st.render) this.imageId = RENDER_RESULT;
     if (st.image !== undefined) this.imageId = st.image;
     if (st.pass) this.pass = st.pass;
@@ -130,7 +141,14 @@ export class ImageEditor implements Editor, View2D {
   // data
 
   get image(): Img | null {
+    if (!this.imageId && this.paintMode()) return paintImage(app.activeObject);
     return this.imageId && this.imageId !== RENDER_RESULT ? app.doc.images[this.imageId] ?? null : null;
+  }
+
+  /** Painting on the image (instead of viewing and sampling it). */
+  paintMode(): boolean {
+    if (this.host.close) return false; // the render window only views
+    return this.uiMode === 'PAINT' || (this.uiMode === null && app.doc.mode === 'TEXTURE_PAINT');
   }
 
   get result(): RenderResult | null {
@@ -359,6 +377,18 @@ export class ImageEditor implements Editor, View2D {
     ctx.imageSmoothingEnabled = this.zoom < 1;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(src, x, y, dw, dh);
+    if (this.paintMode()) this.drawUVOverlay(ctx, x, y, dw, dh);
+    // brush circle
+    if (this.paintMode() && this.hover && this.image) {
+      const b = paintBrush();
+      if (b) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(this.hover.x, this.hover.y, b.radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
     // sample cross-hair
     if (this.sample) {
       const sx = x + (Math.floor(this.sample.x) + 0.5) * this.zoom,
@@ -383,7 +413,15 @@ export class ImageEditor implements Editor, View2D {
       info.push(h('div', { class: 'ie-meta', key: 'meta' }, text));
     } else if (this.imageId === RENDER_RESULT) info.push(h('div', { class: 'ie-meta', key: 'meta' }, 'Render Result is empty: press F12 to render'));
     else if (this.imageId && virtualImages.has(this.imageId)) info.push(h('div', { class: 'ie-meta', key: 'meta' }, `${virtualImages.get(this.imageId)!.label} is empty`));
-    patch(this.ui, [...info, this.sampleBar(), this.showSidebar ? this.sidebar() : null, this.host.area ? lastOpPanel(this) : null]);
+    const paint = this.paintMode();
+    patch(this.ui, [
+      ...info,
+      paint ? h('div', { key: 'ie-toolhdr', class: 'hdr-row ie-toolhdr' }, toolHeaderSettings('TEXTURE_PAINT')) : null,
+      paint && this.showToolbar ? this.paintToolbar() : null,
+      this.sampleBar(),
+      this.showSidebar ? this.sidebar() : null,
+      this.host.area ? lastOpPanel(this) : null,
+    ]);
   }
 
   private sampleBar(): Child {
@@ -442,6 +480,18 @@ export class ImageEditor implements Editor, View2D {
     return h(
       'div',
       { class: 'hdr-row ie-header' },
+      this.host.close
+        ? null
+        : enumMenu(
+            'ie-mode',
+            [
+              { value: 'VIEW', label: 'View', icon: 'image', description: 'View and sample the image' },
+              { value: 'PAINT', label: 'Paint', icon: 'tpaint_hlt', description: 'Paint on the image with the Texture Paint brushes' },
+            ],
+            this.paintMode() ? 'PAINT' : 'VIEW',
+            (v) => ((this.uiMode = v as 'VIEW'), this.fitted = false, this.draw(), this.drawUI(), this.host.redrawHeader()),
+            { tip: 'Editing context of the Image Editor', className: 'ie-mode' },
+          ),
       menu('View', () => this.viewMenu()),
       menu('Image', () => this.imageMenu()),
       h(
@@ -517,6 +567,7 @@ export class ImageEditor implements Editor, View2D {
 
   private viewMenu(): MenuItem[] {
     const items: MenuItem[] = [
+      ...(this.paintMode() ? [{ label: 'Toolbar', checked: this.showToolbar, shortcut: 'T', action: () => ((this.showToolbar = !this.showToolbar), this.drawUI()) }] : []),
       { label: 'Sidebar', checked: this.showSidebar, shortcut: 'N', action: () => this.toggleSidebar() },
       { separator: true },
       { label: 'Zoom In', op: 'image.view_zoom_in', shortcut: 'Numpad +' },
@@ -844,8 +895,77 @@ export class ImageEditor implements Editor, View2D {
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
 
+  /** Texture Paint brushes as a toolbar (shared with painting in the 3D Viewport). */
+  private paintToolbar(): Child {
+    const cur = paintBrush()?.id;
+    return h(
+      'div',
+      { key: 'ie-toolbar', class: 'v3d-toolbar ie-toolbar' },
+      BRUSH_LISTS.TEXTURE_PAINT.map((t, i) =>
+        t
+          ? h(
+              'button',
+              {
+                key: t.id,
+                class: { 'tb-tool': true, on: t.id === cur },
+                'data-tool': t.id,
+                'data-tip': `${t.name}\n${t.description}`,
+                onpointerdown: (e: PointerEvent) => {
+                  e.preventDefault();
+                  activeTools.TEXTURE_PAINT = t.id;
+                  app.changed('ui');
+                },
+              },
+              icon(t.icon),
+            )
+          : h('div', { key: `sep${i}`, class: 'tb-sep' }),
+      ),
+    );
+  }
+
+  /** UV wireframe of the active mesh over the image (Paint mode). */
+  private drawUVOverlay(ctx: CanvasRenderingContext2D, x: number, y: number, dw: number, dh: number) {
+    const ob = app.activeObject;
+    if (!ob || ob.type !== 'MESH' || !ob.data) return;
+    const me = app.doc.meshes[ob.data];
+    if (!me?.uvs?.length) return;
+    const editSel = app.doc.mode === 'EDIT' ? me.select_vert : undefined;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let f = 0; f < me.offsets.length - 1; f++) {
+      const s0 = me.offsets[f],
+        e0 = me.offsets[f + 1];
+      if (editSel) {
+        let all = true;
+        for (let c = s0; c < e0; c++) if (!editSel[me.indices[c]]) all = false;
+        if (!all) continue;
+      }
+      for (let c = s0; c < e0; c++) {
+        const px = x + me.uvs[c * 2] * dw,
+          py = y + (1 - me.uvs[c * 2 + 1]) * dh;
+        if (c === s0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
   private bind() {
     const el = this.canvas;
+    el.addEventListener('pointermove', (e) => {
+      if (!this.paintMode()) return;
+      this.hover = this.local(e);
+      this.draw();
+    });
+    el.addEventListener('pointerleave', () => {
+      if (!this.hover) return;
+      this.hover = null;
+      this.draw();
+    });
     el.addEventListener('wheel', (e) => {
       e.preventDefault();
       const p = this.local(e);
@@ -883,6 +1003,12 @@ export class ImageEditor implements Editor, View2D {
         el.addEventListener('pointerup', up);
         return;
       }
+      if (e.button === 0 && this.paintMode()) {
+        const img = this.image;
+        if (!img) app.report('WARNING', 'No image to paint on: create or open one, or add a paint slot to the object');
+        else imagePaintStroke(this, img, e);
+        return;
+      }
       if (e.button === 0) {
         // sample the pixel under the cursor while the button is held
         el.setPointerCapture(e.pointerId);
@@ -915,6 +1041,7 @@ export class ImageEditor implements Editor, View2D {
     if (e.type !== 'keydown') return false;
     const ctrl = e.ctrlKey || e.metaKey;
     if (e.code === 'KeyN' && !ctrl && !e.altKey && !e.shiftKey) return this.toggleSidebar(), true;
+    if (e.code === 'KeyT' && !ctrl && !e.altKey && !e.shiftKey && this.paintMode()) return ((this.showToolbar = !this.showToolbar), this.drawUI()), true;
 
     if (e.key === 'Escape' && this.host.close && !app.modal) return this.host.close(), true;
     return false;
@@ -942,7 +1069,7 @@ export class ImageEditor implements Editor, View2D {
   }
 
   serialize() {
-    return { image: this.imageId, pass: this.pass, channel: this.channel, zoom: this.zoom, off: [this.offX, this.offY], sidebar: this.showSidebar, layer: this.layer };
+    return { image: this.imageId, pass: this.pass, channel: this.channel, zoom: this.zoom, off: [this.offX, this.offY], sidebar: this.showSidebar, layer: this.layer, mode: this.uiMode ?? undefined, toolbar: this.showToolbar };
   }
 
   dispose() {

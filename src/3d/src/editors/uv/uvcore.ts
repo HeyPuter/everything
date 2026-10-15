@@ -259,8 +259,11 @@ export function selReader(layer: UVLayer): (c: number) => boolean {
     const s = me.select_vert;
     return (c) => !!s?.[me.indices[c]];
   }
+  // UVs that never had a UV selection of their own (new or rebuilt meshes) count as selected,
+  // so the faces picked in the 3D Viewport show up selected in the UV editor
   const s = me.uv_select && me.uv_select.length === me.indices.length ? me.uv_select : null;
-  return (c) => !!s?.[c];
+  if (!s) return () => true;
+  return (c) => !!s[c];
 }
 
 /** Writable copy of a layer's selection; `commit` stores it back on the mesh. */
@@ -273,7 +276,7 @@ export class SelEdit {
     if (this.sync) {
       const nv = me.positions.length / 3;
       this.arr = me.select_vert && me.select_vert.length === nv ? new Uint8Array(me.select_vert) : new Uint8Array(nv);
-    } else this.arr = me.uv_select && me.uv_select.length === me.indices.length ? new Uint8Array(me.uv_select) : new Uint8Array(me.indices.length);
+    } else this.arr = me.uv_select && me.uv_select.length === me.indices.length ? new Uint8Array(me.uv_select) : new Uint8Array(me.indices.length).fill(1);
   }
   get(c: number) {
     return !!this.arr[this.sync ? this.layer.me.indices[c] : c];
