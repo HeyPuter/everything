@@ -209,6 +209,9 @@ export class PreferencesEditor implements Editor {
             splitRow('', checkbox('pf-around', 'Orbit Around Selection', prefs.use_rotate_around_active, (v) => setPref('use_rotate_around_active', v)), undefined, 'check'),
             splitRow('', checkbox('pf-persp', 'Auto Perspective', prefs.use_auto_perspective, (v) => setPref('use_auto_perspective', v), { tip: 'Auto Perspective\nAutomatically switch between orthographic and perspective when changing between side-on and user views' }), undefined, 'check'),
           ]),
+          panel('pf-fly', 'Fly & Walk', () => [
+            splitRow('View Navigation', enumMenu('pf-navmode', [{ value: 'WALK', label: 'Walk', description: 'Shift ` walks through the scene' }, { value: 'FLY', label: 'Fly', description: 'Shift ` flies through the scene' }], prefs.navigation_mode ?? 'WALK', (v) => setPref('navigation_mode', v as 'WALK'))),
+          ]),
           panel('pf-zoom', 'Zoom', () => [
             splitRow('', checkbox('pf-zmouse', 'Zoom to Mouse Position', prefs.use_zoom_to_mouse, (v) => setPref('use_zoom_to_mouse', v)), undefined, 'check'),
             splitRow('', checkbox('pf-zinv', 'Invert Zoom Wheel Direction', prefs.invert_zoom_wheel, (v) => setPref('invert_zoom_wheel', v)), undefined, 'check'),

@@ -169,7 +169,10 @@ export function viewHeader(v: View3D): Child {
       iconToggle('prop', propOn ? 'prop_on' : 'prop_off', propOn, 'Proportional Editing (O)', () => setTool(doc.mode === 'OBJECT' ? 'use_proportional_edit_objects' : 'use_proportional_edit', !propOn)),
       iconDrop('propfall', 'smooth', 'Proportional Editing Falloff', (el) =>
         openMenu(
-          ['SMOOTH', 'SPHERE', 'ROOT', 'INVERSE_SQUARE', 'SHARP', 'LINEAR', 'CONSTANT', 'RANDOM'].map((f) => ({ label: f[0] + f.slice(1).toLowerCase().replace('_', ' '), active: ts.proportional_edit_falloff === f, action: () => setTool('proportional_edit_falloff', f) })),
+          [
+            ...['SMOOTH', 'SPHERE', 'ROOT', 'INVERSE_SQUARE', 'SHARP', 'LINEAR', 'CONSTANT', 'RANDOM'].map((f) => ({ label: f[0] + f.slice(1).toLowerCase().replace('_', ' '), active: ts.proportional_edit_falloff === f, action: () => setTool('proportional_edit_falloff', f) })),
+            ...(doc.mode === 'EDIT' ? [{ separator: true } as MenuItem, { label: 'Connected Only', checked: ts.use_proportional_connected, action: () => setTool('use_proportional_connected', !ts.use_proportional_connected) }] : []),
+          ],
           el,
           { title: 'Proportional Editing Falloff' },
         ),
