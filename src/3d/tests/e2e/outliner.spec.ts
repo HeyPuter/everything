@@ -45,6 +45,14 @@ test('outliner: click, ctrl and shift selection stay in sync with objects', asyn
   await row(page, 'Collection').locator('.ol-name').click();
   expect(await selected(page)).toEqual([]);
   await expect(row(page, 'Collection')).toHaveClass(/selected/);
+  // clicking an object's data toggles edit mode
+  await row(page, 'Cube').locator('.ol-arrow').dispatchEvent('pointerdown');
+  await row(page, 'Cube', 1).locator('.ol-name').click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as Win).app.doc.mode)).toBe('EDIT');
+  expect(await activeName(page)).toBe('Cube');
+  await row(page, 'Cube', 1).locator('.ol-name').click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as Win).app.doc.mode)).toBe('OBJECT');
+  await row(page, 'Cube').locator('.ol-arrow').dispatchEvent('pointerdown');
   // clicking empty space deselects everything
   await row(page, 'Cube').locator('.ol-name').click();
   const list = (await page.locator('.outliner .ol-list').first().boundingBox())!;

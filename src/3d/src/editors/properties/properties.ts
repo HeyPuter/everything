@@ -97,11 +97,12 @@ export class Properties implements Editor {
     this.body.className = 'prop-body';
     main.append(this.crumbs, this.body);
     this.el.append(this.rail, main);
-    const st = state as { tab?: string; panelOrder?: Record<string, string[]>; outlinerSync?: Properties['outlinerSync']; hiddenTabs?: string[] } | undefined;
+    const st = state as { tab?: string; panelOrder?: Record<string, string[]>; outlinerSync?: Properties['outlinerSync']; hiddenTabs?: string[]; zoom?: number } | undefined;
     if (st?.tab) this.tab = st.tab;
     if (st?.panelOrder) this.panelOrder = { ...st.panelOrder };
     if (st?.outlinerSync) this.outlinerSync = st.outlinerSync;
     if (Array.isArray(st?.hiddenTabs)) this.hiddenTabs = [...st.hiddenTabs];
+    if (typeof st?.zoom === 'number' && st.zoom !== 1) this.zoomBy(st.zoom);
     // Ctrl+wheel cycles the tabs (number fields and menus use it themselves and stop it)
     this.el.addEventListener(
       'wheel',
@@ -206,6 +207,25 @@ export class Properties implements Editor {
         return false;
       }
     });
+  }
+
+  /** Region zoom (scales the panels), 1 = 100%. */
+  zoom = 1;
+
+  scrollPage(dir: number) {
+    this.body.scrollTop += dir * Math.max(40, this.body.clientHeight - 40);
+  }
+
+  zoomBy(f: number) {
+    this.zoom = Math.max(0.6, Math.min(2, Math.round(this.zoom * f * 100) / 100));
+    this.body.style.zoom = this.zoom === 1 ? '' : String(this.zoom);
+  }
+
+  /** Home: back to 100% zoom and the top of the tab. */
+  resetView() {
+    this.zoom = 1;
+    this.body.style.zoom = '';
+    this.body.scrollTop = 0;
   }
 
   setTab(id: string) {
@@ -392,7 +412,7 @@ export class Properties implements Editor {
   }
 
   serialize() {
-    return { tab: this.tab, panelOrder: this.panelOrder, outlinerSync: this.outlinerSync, hiddenTabs: this.hiddenTabs };
+    return { tab: this.tab, panelOrder: this.panelOrder, outlinerSync: this.outlinerSync, hiddenTabs: this.hiddenTabs, zoom: this.zoom };
   }
 
   dispose() {}
@@ -465,4 +485,15 @@ addKeys('Property Editor', [
   { key: 'F', alt: true, op: 'buttons.clear_filter' },
   { key: 'TAB', ctrl: true, op: 'screen.space_context_cycle', props: { direction: 'NEXT' } },
   { key: 'TAB', ctrl: true, shift: true, op: 'screen.space_context_cycle', props: { direction: 'PREV' } },
+  // scrolling and zooming the panel region
+  { key: 'PAGE_DOWN', action: () => hoveredProps()?.scrollPage(1) },
+  { key: 'PAGE_UP', action: () => hoveredProps()?.scrollPage(-1) },
+  { key: 'NUMPAD_PLUS', action: () => hoveredProps()?.zoomBy(1.1) },
+  { key: 'NUMPAD_MINUS', action: () => hoveredProps()?.zoomBy(1 / 1.1) },
+  { key: 'HOME', action: () => hoveredProps()?.resetView() },
 ]);
+
+function hoveredProps(): Properties | null {
+  const ed = (app.hoverArea ?? app.activeArea)?.editor;
+  return ed instanceof Properties ? ed : null;
+}

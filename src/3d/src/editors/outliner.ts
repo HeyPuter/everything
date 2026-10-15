@@ -66,6 +66,9 @@ interface Cell {
   isolate?: () => void;
 }
 
+/** Object types whose data can be edited in Edit Mode. */
+const EDITABLE = new Set(['MESH', 'CURVE', 'FONT', 'ARMATURE', 'LATTICE']);
+
 /** Row height and list padding (px), used to draw only the visible part of long trees. */
 const ROW_H = 22;
 const PAD = 2;
@@ -400,7 +403,7 @@ export class Outliner implements Editor {
   clickRow(r: Row, opts: { ctrl?: boolean; shift?: boolean; recurse?: boolean } = {}) {
     const doc = app.doc;
     const before = this.selectionSignature();
-    if (r.kind === 'object' && r.ob) this.prepareModeSwitch(r.ob);
+    if (r.ob && (r.kind === 'object' || (this.displayMode !== 'BLENDER_FILE' && this.displayMode !== 'ORPHAN_DATA'))) this.prepareModeSwitch(r.ob);
     const selectable = (x: Row) => x.kind !== 'group' && x.kind !== 'file' && x.kind !== 'scene' && !(x.kind === 'collection' && x.id === doc.scene.collection && !opts.ctrl);
     if (opts.shift) {
       const a = this.cursorIndex();
@@ -428,6 +431,11 @@ export class Outliner implements Editor {
     }
     if (opts.recurse) this.selectInside(r, true);
     this.commitSelection(before);
+    // clicking an object's data toggles edit mode on it
+    if (r.kind === 'data' && r.ob && !opts.ctrl && !opts.shift && EDITABLE.has(r.ob.type) && this.displayMode !== 'BLENDER_FILE') {
+      const doc = app.doc;
+      if (doc.scene.active_object === r.ob.id) app.run('object.mode_set', { mode: doc.mode === 'EDIT' ? 'OBJECT' : 'EDIT' });
+    }
   }
 
   /** Select (or deselect) everything inside a collection or below an object. */
@@ -1367,7 +1375,7 @@ export class Outliner implements Editor {
 
   private walkTo(target: Row, extend: boolean) {
     const before = this.selectionSignature();
-    if (target.kind === 'object' && target.ob) this.prepareModeSwitch(target.ob);
+    if (target.ob) this.prepareModeSwitch(target.ob);
     if (!extend) this.deselectAll();
     if (target.kind !== 'collection' || target.id !== app.doc.scene.collection) this.setSelected(target, true);
     this.activate(target);
