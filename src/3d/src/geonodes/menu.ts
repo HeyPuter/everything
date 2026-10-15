@@ -378,6 +378,7 @@ export const GEOMETRY_MENU: MenuCategory[] = [
       e('FunctionNodeAxisAngleToRotation'),
       e('FunctionNodeEulerToRotation'),
       e('FunctionNodeInvertRotation'),
+      e('ShaderNodeMix', 'Mix Rotation', { data_type: 'ROTATION' }),
       e('FunctionNodeRotateRotation'),
       e('FunctionNodeRotateVector'),
       e('FunctionNodeRotationToAxisAngle'),

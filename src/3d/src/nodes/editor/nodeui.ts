@@ -153,7 +153,7 @@ export function propWidget(node: NodeData, p: NodePropDef, key: string, ctx: { t
   const id = `${key}:p:${p.id}`;
   switch (p.type) {
     case 'ENUM': {
-      const items = (p.items ?? []).map(([value, l]) => ({ value, label: l }));
+      const items = (p.itemsFor?.(ctx.tree) ?? p.items ?? []).map(([value, l]) => ({ value, label: l }));
       if (p.expand)
         return h(
           'div',

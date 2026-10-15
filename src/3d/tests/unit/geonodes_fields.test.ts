@@ -36,6 +36,7 @@ import { resolveItemLinks, ITEM_SOCKET } from '../../src/geonodes/nodes/items';
 import { formatItems } from '../../src/geonodes/nodes/fn_string';
 import { formatString, shortestFloat } from '../../src/geonodes/strformat';
 import { testEnv } from './gnspec';
+import { getNodeType } from '../../src/nodes/registry';
 import type { ModifierBase, NodeGroupData, NodeTreeData } from '../../src/data/types';
 
 function group(): { doc: ReturnType<typeof emptyDocument>; g: NodeGroupData; tree: NodeTreeData } {
@@ -248,5 +249,14 @@ describe('scene input nodes', () => {
     near(single(r, 'r0N'), 2);
     expect(single(r, 'xE')).toBe(false);
     near(single(r, 'xP'), [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  });
+});
+
+describe('Mix node rotation mode', () => {
+  it('is offered in geometry trees only', () => {
+    const p = getNodeType('ShaderNodeMix')!.props.find((x) => x.id === 'data_type')!;
+    const ids = (t: 'GEOMETRY' | 'SHADER') => (p.itemsFor?.({ type: t, nodes: [], links: [] }) ?? p.items ?? []).map(([v]) => v);
+    expect(ids('GEOMETRY')).toContain('ROTATION');
+    expect(ids('SHADER')).not.toContain('ROTATION');
   });
 });

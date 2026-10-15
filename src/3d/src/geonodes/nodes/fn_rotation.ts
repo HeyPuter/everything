@@ -263,3 +263,63 @@ if (getNodeType('FunctionNodeRotationToEuler'))
   geoExecs.FunctionNodeRotationToEuler = {
     exec: (ctx) => ({ Euler: lift('VECTOR', [ctx.field('Rotation', 'ROTATION')], ([e]) => toE(toQ(e))) }),
   };
+
+// ---------------------------------------------------------------------------
+// Mix Rotation: the Mix node's rotation mode (geometry trees only)
+
+/** Spherical interpolation between two rotations (t outside 0…1 extrapolates). */
+export function slerp(a: Quat, b: Quat, t: number): Quat {
+  let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+  let bb = b;
+  if (d < 0) {
+    d = -d;
+    bb = [-b[0], -b[1], -b[2], -b[3]];
+  }
+  if (d > 0.9995) return quatNormalize([a[0] + (bb[0] - a[0]) * t, a[1] + (bb[1] - a[1]) * t, a[2] + (bb[2] - a[2]) * t, a[3] + (bb[3] - a[3]) * t]);
+  const th = Math.acos(Math.min(1, d));
+  const s = Math.sin(th);
+  const wa = Math.sin((1 - t) * th) / s,
+    wb = Math.sin(t * th) / s;
+  return [a[0] * wa + bb[0] * wb, a[1] * wa + bb[1] * wb, a[2] * wa + bb[2] * wb, a[3] * wa + bb[3] * wb];
+}
+
+{
+  const mix = getNodeType('ShaderNodeMix');
+  const prev = geoExecs.ShaderNodeMix;
+  if (mix && prev && !mix.inputs.some((s) => s.identifier === 'A_Rotation')) {
+    const rot = (id: string, name: string): SocketDef => ({ name, identifier: id, type: 'ROTATION', default: [0, 0, 0], subtype: 'EULER' });
+    const at = mix.inputs.findIndex((s) => s.identifier === 'B_Color') + 1;
+    mix.inputs.splice(at, 0, rot('A_Rotation', 'A'), rot('B_Rotation', 'B'));
+    mix.outputs.push(rot('Result_Rotation', 'Result'));
+    const dt = mix.props.find((p) => p.id === 'data_type');
+    if (dt?.items) {
+      const base = dt.items;
+      dt.itemsFor = (tree) => (tree?.type === 'GEOMETRY' ? [...base, ['ROTATION', 'Rotation']] : base);
+    }
+    const avail = mix.available;
+    mix.available = (n, s, isOut) => {
+      if (n.props.data_type !== 'ROTATION') return s.identifier.endsWith('_Rotation') ? false : (avail?.(n, s, isOut) ?? true);
+      return s.identifier === 'Factor_Float' || s.identifier.endsWith('_Rotation');
+    };
+    for (const id of ['factor_mode', 'blend_type', 'clamp_result']) {
+      const p = mix.props.find((x) => x.id === id);
+      if (p) {
+        const vis = p.visible;
+        p.visible = (n) => n.props.data_type !== 'ROTATION' && (vis ? vis(n) : true);
+      }
+    }
+    geoExecs.ShaderNodeMix = {
+      ...prev,
+      exec: (ctx) => {
+        if (sprop(ctx.node, 'data_type') !== 'ROTATION') return prev.exec(ctx);
+        const clampF = ctx.node.props.clamp_factor !== false;
+        return {
+          Result_Rotation: lift('ROTATION', [ctx.field('Factor_Float', 'FLOAT'), ctx.field('A_Rotation', 'ROTATION'), ctx.field('B_Rotation', 'ROTATION')], ([f, a, b]) => {
+            const t = clampF ? Math.max(0, Math.min(1, f as number)) : (f as number);
+            return toE(slerp(toQ(a), toQ(b), t));
+          }),
+        };
+      },
+    };
+  }
+}
