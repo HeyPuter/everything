@@ -6,6 +6,7 @@ import { num, bool, enumProp, colorProp, splitRow } from '../../../ui/props';
 import { LOOKS } from '../colormanage';
 import type { RenderSettings } from '../../../data/types';
 import { renderSettings, changed, headerToggle, sub } from './common';
+import { curveWidget } from './curvewidget';
 
 export const ENGINES = [
   { value: 'RASTER', label: 'Realtime (Raster)', description: 'Realtime rasterization with shadows, ambient occlusion and bloom' },
@@ -84,6 +85,18 @@ function colorManagementPanel(r: RenderSettings): Child {
           num(r, 'white_balance_tint', 'Tint', { min: -500, max: 500, softMin: -150, softMax: 150, precision: 1, tip: 'Green–magenta shift of the light in the scene' }),
         ],
         { closed: true, header: headerToggle(r, 'use_white_balance', 'White Balance') },
+      ),
+      sub(
+        'rs-cm-curves',
+        'Curves',
+        () =>
+          curveWidget(
+            'rs-cm-curve',
+            () => r.curve_mapping ?? [[0, 0], [1, 1]],
+            (pts) => (r.curve_mapping = pts),
+            'Display curve applied after the view transform',
+          ),
+        { closed: true, header: headerToggle(r, 'use_curve_mapping', 'Curves') },
       ),
     ],
     { closed: true },

@@ -282,3 +282,18 @@ describe('camera guides and mist falloff', async () => {
     expect(mistFactor(15, 5, 20, 'INVERSE_QUADRATIC')).toBeCloseTo(Math.SQRT1_2, 6);
   });
 });
+
+describe('display curve', async () => {
+  const { curveTable, lookupCurve, viewCurve } = await import('../../src/render/final/colormanage');
+  it('identity curve is skipped and custom curves pass through their points', () => {
+    expect(viewCurve({ view_transform: 'STANDARD', exposure: 0, gamma: 1, use_curve_mapping: true, curve_mapping: [[0, 0], [1, 1]] })).toBeNull();
+    const t = curveTable([
+      [0, 0],
+      [0.5, 0.8],
+      [1, 1],
+    ]);
+    expect(lookupCurve(t, 0.5)).toBeCloseTo(0.8, 2);
+    expect(lookupCurve(t, 0)).toBeCloseTo(0, 5);
+    expect(lookupCurve(t, 1)).toBeCloseTo(1, 5);
+  });
+});

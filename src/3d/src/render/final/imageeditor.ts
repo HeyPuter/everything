@@ -199,7 +199,7 @@ export class ImageEditor implements Editor, View2D {
     const r = this.result;
     if (r) {
       const v = sceneView(r);
-      return `R${this.imageId}|${this.imageId === RENDER_RESULT ? renderResult.slot : ''}|${r.version}|${this.layer}|${this.pass}|${this.channel}|${v.view_transform}|${v.exposure}|${v.gamma}|${v.look}|${v.use_white_balance ? `${v.white_balance_temperature},${v.white_balance_tint}` : ''}|${r.width}x${r.height}|${r.overlay ? 'S' : ''}`;
+      return `R${this.imageId}|${this.imageId === RENDER_RESULT ? renderResult.slot : ''}|${r.version}|${this.layer}|${this.pass}|${this.channel}|${v.view_transform}|${v.exposure}|${v.gamma}|${v.look}|${v.use_white_balance ? `${v.white_balance_temperature},${v.white_balance_tint}` : ''}|${v.use_curve_mapping ? JSON.stringify(v.curve_mapping) : ''}|${r.width}x${r.height}|${r.overlay ? 'S' : ''}`;
     }
     const img = this.image;
     if (!img) return '';

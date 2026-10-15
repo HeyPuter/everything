@@ -6,6 +6,8 @@
 // parameters were least-squares fitted to expected values (grey ramp + primaries);
 // Filmic is a per-channel log-encoded sigmoid fitted the same way (see tests/unit/render.test.ts).
 
+import { evalCurve } from '../../nodes/curves';
+
 export type ViewTransform = 'STANDARD' | 'FILMIC' | 'AGX' | 'KHRONOS_PBR_NEUTRAL' | 'RAW';
 
 export interface ViewSettings {
@@ -17,6 +19,37 @@ export interface ViewSettings {
   use_white_balance?: boolean;
   white_balance_temperature?: number;
   white_balance_tint?: number;
+  /** display curve applied to the final display values */
+  use_curve_mapping?: boolean;
+  curve_mapping?: [number, number][];
+}
+
+/** Entries of the display curve lookup table (shared by the CPU and GLSL paths). */
+export const CURVE_TABLE_SIZE = 64;
+
+/** Lookup table of a display curve given by control points (smooth through the points). */
+export function curveTable(points: [number, number][]): Float32Array {
+  const pts = [...points].sort((a, b) => a[0] - b[0]).map(([x, y]) => ({ x, y, handle: 2 }));
+  const t = new Float32Array(CURVE_TABLE_SIZE);
+  for (let i = 0; i < CURVE_TABLE_SIZE; i++) t[i] = clamp01(evalCurve(pts, i / (CURVE_TABLE_SIZE - 1)));
+  return t;
+}
+
+/** Curve table of view settings, or null when off (or the identity). */
+export function viewCurve(s: ViewSettings): Float32Array | null {
+  if (!s.use_curve_mapping || !s.curve_mapping?.length) return null;
+  const p = s.curve_mapping;
+  if (p.length === 2 && p[0][0] === 0 && p[0][1] === 0 && p[1][0] === 1 && p[1][1] === 1) return null;
+  return curveTable(p);
+}
+
+/** Sample a curve table at x ∈ [0, 1]. */
+export function lookupCurve(t: Float32Array, x: number): number {
+  const n = t.length - 1;
+  const p = clamp01(x) * n;
+  const i = Math.min(n - 1, Math.floor(p));
+  const f = p - i;
+  return t[i] + (t[i + 1] - t[i]) * f;
 }
 
 /**
@@ -249,10 +282,11 @@ export function displayPixel(r: number, g: number, b: number, a: number, s: View
   for (let i = 0; i < 3; i++) out[i] = raw ? clamp01(out[i]) : srgbEncode(out[i]);
   const look = lookParams(s.view_transform, s.look);
   if (look) applyLook(out, look);
+  const curve = viewCurve(s);
   for (let i = 0; i < 3; i++) {
     let v = out[i];
     if (ig !== 1) v = Math.pow(Math.max(0, v), ig);
-    out[i] = clamp01(v);
+    out[i] = curve ? lookupCurve(curve, v) : clamp01(v);
   }
   out[3] = clamp01(a);
 }
@@ -306,6 +340,7 @@ export function fastDisplay(s: ViewSettings): (r: number, g: number, b: number, 
     wbb = wb?.[2] ?? 1;
   const look = lookParams(s.view_transform, s.look);
   const lk = [0, 0, 0];
+  const curve = viewCurve(s);
   const ig = s.gamma > 0 ? 1 / s.gamma : 1;
   const gam = ig !== 1 ? (x: number) => Math.pow(x, ig) : null;
   const view = s.view_transform;
@@ -368,6 +403,11 @@ export function fastDisplay(s: ViewSettings): (r: number, g: number, b: number, 
       x = gam(x);
       y = gam(y);
       z = gam(z);
+    }
+    if (curve) {
+      x = lookupCurve(curve, x);
+      y = lookupCurve(curve, y);
+      z = lookupCurve(curve, z);
     }
     out[0] = x;
     out[1] = y;

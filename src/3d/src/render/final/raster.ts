@@ -7,7 +7,7 @@ import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import type { RenderSettings } from '../../data/types';
 import { floatTarget, Blit } from './gbuffer';
-import { displayGLSL, VIEW_INDEX, lookParams, viewWhiteBalance, type ViewSettings } from './colormanage';
+import { displayGLSL, VIEW_INDEX, lookParams, viewWhiteBalance, viewCurve, CURVE_TABLE_SIZE, type ViewSettings } from './colormanage';
 
 export interface RasterEffects {
   gtao: boolean;
@@ -134,16 +134,25 @@ export const displayMaterial = new ShaderMaterial({
     uComposite: { value: 1 },
     uWb: { value: new Vector3(1, 1, 1) },
     uLook: { value: new Vector4(1, 0, 1, 1) },
+    uCurve: { value: new Float32Array(CURVE_TABLE_SIZE) },
+    uUseCurve: { value: 0 },
   },
   vertexShader: /* glsl */ `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
   fragmentShader: /* glsl */ `
     uniform sampler2D tMap; uniform int uView; uniform float uExposure; uniform float uInvGamma; uniform vec3 uBg; uniform float uComposite; uniform vec3 uWb; uniform vec4 uLook;
+    uniform float uCurve[${CURVE_TABLE_SIZE}]; uniform float uUseCurve;
+    float cmCurve1(float x) {
+      float p = clamp(x, 0.0, 1.0) * ${CURVE_TABLE_SIZE - 1}.0;
+      int i = int(min(floor(p), ${CURVE_TABLE_SIZE - 2}.0));
+      return mix(uCurve[i], uCurve[i + 1], p - float(i));
+    }
     varying vec2 vUv;
     ${displayGLSL}
     void main() {
       vec4 p = texture2D(tMap, vUv);
       if (uComposite > 0.5) { p.rgb += uBg * (1.0 - clamp(p.a, 0.0, 1.0)); p.a = 1.0; }
       gl_FragColor = cmDisplayX(p, uView, uExposure, uInvGamma, uWb, uLook);
+      if (uUseCurve > 0.5) gl_FragColor.rgb = vec3(cmCurve1(gl_FragColor.r), cmCurve1(gl_FragColor.g), cmCurve1(gl_FragColor.b));
     }`,
 });
 
@@ -157,6 +166,9 @@ export function setDisplay(s: ViewSettings, exposureOffset: number, bg: Color | 
   (u.uWb.value as Vector3).set(wb[0], wb[1], wb[2]);
   const look = lookParams(s.view_transform, s.look) ?? [1, 0, 1, 1];
   (u.uLook.value as Vector4).set(look[0], look[1], look[2], look[3]);
+  const curve = viewCurve(s);
+  u.uUseCurve.value = curve ? 1 : 0;
+  if (curve) (u.uCurve.value as Float32Array).set(curve);
   u.uComposite.value = bg ? 1 : 0;
   if (bg) u.uBg.value.copy(bg);
 }

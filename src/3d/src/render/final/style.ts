@@ -46,6 +46,14 @@ const css = /* css */ `
 .split-row.rs-engine .sr-value { flex: 1 0 max-content; }
 .split-row.rs-engine .enum-menu { min-width: max-content; }
 .out-stamp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; padding: 2px 0 4px 8%; }
+/* colour management curve */
+.cm-curve { display: flex; flex-direction: column; gap: 4px; padding: 2px 4px; }
+.cm-curve-svg { width: 100%; max-width: 220px; aspect-ratio: 1; align-self: center; touch-action: none; cursor: crosshair; }
+.cm-curve-bg { fill: #1f1f1f; stroke: #3a3a3a; }
+.cm-curve-grid { stroke: #2f2f2f; stroke-width: 1; fill: none; }
+.cm-curve-diag { stroke: #3d3d3d; stroke-width: 1; fill: none; stroke-dasharray: 3 3; }
+.cm-curve-line { stroke: #e6e6e6; stroke-width: 1.5; fill: none; }
+.cm-curve-pt { fill: #fff; stroke: #222; stroke-width: 1; }
 /* status bar: render job progress */
 .sb-job { display: inline-flex; align-items: center; gap: 6px; margin-right: 12px; color: #ddd; }
 .sb-job-bar { position: relative; width: 140px; height: 8px; border-radius: 4px; background: #1d1d1d; box-shadow: 0 0 0 1px #3c3c3c inset; overflow: hidden; }
