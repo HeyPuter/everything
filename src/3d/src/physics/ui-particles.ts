@@ -78,6 +78,20 @@ function emitterPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettin
     ]),
     renderPanel(ob, s),
     displayPanel(s),
+    panel('pa-children', 'Children', () => [
+      h('div', { class: 'enum-row', style: { margin: '2px 8px' } },
+        (['NONE', 'SIMPLE'] as const).map((t) => h('button', { key: t, class: { on: (s.child_type ?? 'NONE') === t }, onclick: () => ((s.child_type = t), changed('Child Type')) }, t === 'NONE' ? 'None' : 'Simple')),
+      ),
+      s.child_type === 'SIMPLE'
+        ? [
+            num(s, 'child_nbr', 'Display Amount', { int: true, min: 0, max: 100000, softMax: 100 }),
+            num(s, 'rendered_child_count', 'Render Amount', { int: true, min: 0, max: 100000, softMax: 100 }),
+            num(s, 'child_radius', 'Radius', { min: 0, max: 100000, softMax: 10, unit: 'distance' }),
+            num(s, 'child_size', 'Size', { min: 0.01, max: 100000, softMax: 10 }),
+            num(s, 'child_size_random', 'Randomize Size', { min: 0, max: 1, slider: true }),
+          ]
+        : null,
+    ], { closed: true }),
     vertexGroupsPanel(ob, ps, false),
     fieldWeightsPanel('pa-fw', s, d),
     cachePanel('pa-cache', key, pc),

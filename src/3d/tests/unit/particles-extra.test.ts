@@ -177,3 +177,23 @@ describe('hair dynamics', () => {
     void m;
   });
 });
+
+describe('emitter children', () => {
+  it('simple children surround every parent within the radius', () => {
+    caches.clear();
+    const doc = emptyDocument();
+    const ob = addMesh(doc, 'Emitter', plane(1));
+    emitter(doc, ob, { physics_type: 'NO', count: 10, render_type: 'HALO', child_type: 'SIMPLE', child_nbr: 3, child_radius: 0.5 });
+    const g = new Depsgraph(doc);
+    at(g, doc, 5);
+    const d = [...particleDrawValues()].find((x) => x.objectId === ob.id)!;
+    expect(d.count).toBe(40);
+    const P = d.points!;
+    for (let k = 0; k < 10; k++)
+      for (let c = 1; c <= 3; c++) {
+        const p = k * 4,
+          q = p + c;
+        expect(Math.hypot(P[q * 3] - P[p * 3], P[q * 3 + 1] - P[p * 3 + 1], P[q * 3 + 2] - P[p * 3 + 2])).toBeLessThanOrEqual(0.5 + 1e-6);
+      }
+  });
+});

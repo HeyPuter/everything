@@ -203,8 +203,10 @@ export interface ParticleSettingsX extends ParticleSettings {
   phase_factor?: number;
   phase_factor_random?: number;
   angular_velocity_mode?: 'NONE' | 'VELOCITY' | 'HORIZONTAL' | 'VERTICAL' | 'GLOBAL_X' | 'GLOBAL_Y' | 'GLOBAL_Z' | 'RAND';
-  /** emitter children (simple) */
+  /** emitter children (simple): display amount, size and its randomness */
   child_nbr?: number;
+  child_size?: number;
+  child_size_random?: number;
   /** share of the particles shown in the viewport (%) */
   display_percentage?: number;
   object_factor?: number;
@@ -481,6 +483,9 @@ export function defaultParticleSettings(id: string, name: string): ParticleSetti
     use_collision: true,
     users: 1,
     display_percentage: 100,
+    child_nbr: 10,
+    child_size: 1,
+    child_size_random: 0,
     rotation_mode: 'VEL',
     rotation_factor_random: 0,
     phase_factor: 0,

@@ -689,16 +689,36 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
       const vis = (i: number) => (frame.state[i] === 1 || (showDead && frame.state[i] === 2)) && (pct >= 100 || rand01(seed, i, 90) * 100 < pct);
       let count = 0;
       for (let i = 0; i < n; i++) if (vis(i)) count++;
+      // simple children: copies of every parent at fixed random offsets within the child radius
+      const nChild = s.child_type === 'SIMPLE' ? Math.max(0, Math.round(ctx.render ? (s.rendered_child_count ?? 0) : (s.child_nbr ?? 10))) : 0;
+      const childOffset = (i: number, c: number, out: Vector3) => {
+        const r = (s.child_radius ?? 0.2) * Math.cbrt(rand01(seed, i, c, 100));
+        const u = rand01(seed, i, c, 101) * 2 - 1,
+          t = rand01(seed, i, c, 102) * Math.PI * 2;
+        const q = Math.sqrt(1 - u * u);
+        return out.set(Math.cos(t) * q * r, Math.sin(t) * q * r, u * r);
+      };
+      const childSize = (i: number, c: number) => (s.child_size ?? 1) * (1 - (s.child_size_random ?? 0) * rand01(seed, i, c, 103));
       if (wantPoints) {
-        const pts = new Float32Array(count * 3),
-          sizes = new Float32Array(count);
+        const total = count * (1 + nChild);
+        const pts = new Float32Array(total * 3),
+          sizes = new Float32Array(total);
+        const off = new Vector3();
         let w = 0;
         for (let i = 0; i < n; i++) {
           if (!vis(i)) continue;
+          const size = show === 'DOT' ? s.display_size ?? 0.05 : s.particle_size * (1 - s.size_random * rand01(seed, i, 2)) * (res.sizeMul ? res.sizeMul[i] : 1);
           pts.set(frame.pos.subarray(i * 3, i * 3 + 3), w * 3);
-          sizes[w++] = show === 'DOT' ? s.display_size ?? 0.05 : s.particle_size * (1 - s.size_random * rand01(seed, i, 2)) * (res.sizeMul ? res.sizeMul[i] : 1);
+          sizes[w++] = size;
+          for (let c = 0; c < nChild; c++) {
+            childOffset(i, c, off);
+            pts[w * 3] = frame.pos[i * 3] + off.x;
+            pts[w * 3 + 1] = frame.pos[i * 3 + 1] + off.y;
+            pts[w * 3 + 2] = frame.pos[i * 3 + 2] + off.z;
+            sizes[w++] = show === 'DOT' ? size : size * childSize(i, c);
+          }
         }
-        draw = { objectId: ob.id, space: 'WORLD', points: pts, sizes, lines: null, color, count };
+        draw = { objectId: ob.id, space: 'WORLD', points: pts, sizes, lines: null, color, count: total };
       }
       if (wantLines) {
         // a line per particle along its direction of travel
@@ -750,6 +770,10 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
           const q = particleRotation(s, seed, i, vel, normal, owner, Math.max(0, (res.at - res.birth[i]) / fpsv));
           const size = s.particle_size * (1 - s.size_random * rand01(seed, i, 2)) * (res.sizeMul ? res.sizeMul[i] : 1);
           pushInstances(instances, owner, p, q, size, i, seed);
+          for (let c = 0; c < nChild; c++) {
+            const cp = childOffset(i, c, new Vector3()).add(p);
+            pushInstances(instances, owner, cp, q, size * childSize(i, c), i * 131 + c + 1, seed);
+          }
         }
       }
     }
