@@ -22,6 +22,7 @@ export type SocketType =
   | 'IMAGE'
   | 'MATERIAL'
   | 'TEXTURE'
+  | 'FONT'
   | 'CLOSURE'
   | 'BUNDLE'
   | 'CUSTOM';

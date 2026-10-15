@@ -411,3 +411,80 @@ describe('recorded node results', () => {
     });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Text
+
+import { textLayout } from '../../src/geonodes/curves/text';
+import { layoutTextWith, type GlyphSource } from '../../src/io/textlayout';
+import type { Spline } from '../../src/data/types';
+
+const squareGlyph = (): Spline[] => [
+  {
+    type: 'BEZIER',
+    bezier_points: [
+      [0, 0],
+      [0.4, 0],
+      [0.4, 0.6],
+      [0, 0.6],
+    ].map(([x, y]) => ({ co: [x, y, 0], handle_left: [x, y, 0], handle_right: [x, y, 0], handle_left_type: 'VECTOR', handle_right_type: 'VECTOR', radius: 1, tilt: 0 })),
+    points: [],
+    use_cyclic_u: true,
+    resolution_u: 0,
+    order_u: 4,
+    use_smooth: false,
+    material_index: 0,
+  },
+];
+const fakeFont: GlyphSource = { advance: () => 0.5, outline: () => squareGlyph(), hasStyle: () => true };
+
+describe('text nodes', () => {
+  it('String to Curves makes one instance per character with line and word indices', () => {
+    textLayout.fn = (cu) => layoutTextWith(cu, fakeFont);
+    const t = setup();
+    const s = node(t, 'GeometryNodeStringToCurves', { String: 'Hi you  there\nab c', Size: 2 });
+    const a = node(t, 'GeometryNodeStoreNamedAttribute', { Name: 'line' }, { data_type: 'INT', domain: 'INSTANCE' });
+    const b = node(t, 'GeometryNodeStoreNamedAttribute', { Name: 'word' }, { data_type: 'INT', domain: 'INSTANCE' });
+    link(t, s, 'Curve Instances', a, 'Geometry');
+    link(t, s, 'Line', a, 'Value');
+    link(t, a, 'Geometry', b, 'Geometry');
+    link(t, s, 'Word', b, 'Value');
+    const inst = run(t, b).instances!;
+    expect(inst.count).toBe(18);
+    expect(Array.from(inst.attrs.get('line')!.data)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1]);
+    expect(Array.from(inst.attrs.get('word')!.data)).toEqual([0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 4, 4]);
+    // advance 0.5 em at size 2: the second character starts one unit to the right
+    expect(inst.transforms[16 + 12]).toBeCloseTo(1);
+    const ref = inst.references[inst.refIndex[0]];
+    expect(ref.geometry.curves!.pointCount).toBe(4);
+    expect(Math.max(...ref.geometry.curves!.positions)).toBeCloseTo(1.2);
+  });
+  it('Join Strings joins linked strings with the delimiter', () => {
+    textLayout.fn = (cu) => layoutTextWith(cu, fakeFont);
+    const t = setup();
+    const a = node(t, 'FunctionNodeInputString', {}, { string: 'ab' });
+    const b = node(t, 'FunctionNodeInputString', {}, { string: 'cde' });
+    const j = node(t, 'GeometryNodeStringJoin', { Delimiter: '--' });
+    link(t, a, 'String', j, 'Strings');
+    link(t, b, 'String', j, 'Strings');
+    const s = node(t, 'GeometryNodeStringToCurves');
+    link(t, j, 'String', s, 'String');
+    expect(run(t, s, 'Curve Instances').instances!.count).toBe('ab--cde'.length);
+  });
+  it('truncates overflowing text into the remainder', () => {
+    textLayout.fn = (cu) => layoutTextWith(cu, fakeFont);
+    const make = () => {
+      const t = setup();
+      const s = node(t, 'GeometryNodeStringToCurves', { String: 'aa bb cc dd', 'Text Box Width': 2.6, 'Text Box Height': 1 }, { Overflow: 'Truncate' });
+      return { t, s };
+    };
+    const a = make();
+    expect(run(a.t, a.s, 'Curve Instances').instances!.count).toBe(6);
+    const b = make();
+    const j = node(b.t, 'GeometryNodeStringJoin');
+    link(b.t, b.s, 'Remainder', j, 'Strings');
+    const s2 = node(b.t, 'GeometryNodeStringToCurves');
+    link(b.t, j, 'String', s2, 'String');
+    expect(run(b.t, s2, 'Curve Instances').instances!.count).toBe('cc dd'.length);
+  });
+});

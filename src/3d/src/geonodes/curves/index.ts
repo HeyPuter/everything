@@ -4,4 +4,5 @@ import './primitives';
 import './write';
 import './read';
 import './ops';
+import './text';
 export {};

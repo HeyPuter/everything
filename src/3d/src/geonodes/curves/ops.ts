@@ -1,7 +1,8 @@
 // Curve operation nodes: Reverse Curve, Subdivide Curve, Trim Curve.
 import { gn, prop, sprop } from './defs';
 import { evalOn } from '../nodes/common';
-import { type CurvesComponent } from '../geometry';
+import { CurvesComponent, GeometrySet, gatherArray, type AttrMap, type PointsComponent } from '../geometry';
+import { dataComps } from '../types';
 import { curveLengths } from '../curveutil';
 import { joinCurves } from '../ops/join';
 import { CT, HT, bezierPoint, catmullWeights, curveTypes, evaluateCurves, handleData, pointInts, pointVectors, recalcHandles, writeHandles } from './curvedata';
@@ -585,3 +586,39 @@ gn(
 );
 
 place('Curve/Operations', 'GeometryNodeFilletCurve');
+
+// ---------------------------------------------------------------------------
+// Points to Curves
+
+/** Poly curves through points grouped by ID (in order of first appearance), sorted by weight. */
+export function pointsToCurves(p: PointsComponent, group: Int32Array, weight: Float32Array): CurvesComponent {
+  const n = p.count;
+  const groups = new Map<number, number[]>();
+  for (let i = 0; i < n; i++) {
+    let g = groups.get(group[i]);
+    if (!g) groups.set(group[i], (g = []));
+    g.push(i);
+  }
+  const order: number[] = [];
+  const offs: number[] = [0];
+  for (const list of groups.values()) {
+    list.sort((a, b) => weight[a] - weight[b] || a - b);
+    order.push(...list);
+    offs.push(order.length);
+  }
+  const attrs: AttrMap = new Map();
+  for (const [name, a] of p.attrs) attrs.set(name, { domain: 'POINT', type: a.type, data: gatherArray(a.data, dataComps(a.type), order) });
+  const pos = gatherArray(p.positions, 3, order) as Float32Array;
+  return new CurvesComponent(pos, Uint32Array.from(offs), new Uint8Array(groups.size), attrs, p.materials);
+}
+
+gn('GeometryNodePointsToCurves', 'geometry', {
+  exec: (ctx) => {
+    const g = ctx.geometry('Points');
+    if (!g.points || !g.points.count) return { Curves: GeometrySet.empty() };
+    const r = evalOn(g.points, 'POINT', undefined, [ctx.field('Curve Group ID', 'INT'), ctx.field('Weight', 'FLOAT')]);
+    return { Curves: new GeometrySet(undefined, undefined, pointsToCurves(g.points, r.values[0] as Int32Array, r.values[1] as Float32Array)) };
+  },
+});
+
+place('Point', 'GeometryNodePointsToCurves');
