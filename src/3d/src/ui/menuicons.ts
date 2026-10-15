@@ -30,4 +30,12 @@ registerIcons({
   editor_shader: '<rect class="s" x="1.5" y="2.5" width="6" height="5" rx="1" fill="none" stroke-width="1.2"/><path class="s" d="M7.5 5c2.5 0 1.5 5.5 3 5.5" fill="none" stroke-width="1.2"/><circle class="s" cx="11.8" cy="10.8" r="2.7" fill="none" stroke-width="1.2"/><path class="s" d="M10.4 9.6a1.6 1.6 0 0 1 1.6-.8" fill="none" stroke-width="1"/>',
   editor_geometry: '<rect class="s" x="1.5" y="2.5" width="6" height="5" rx="1" fill="none" stroke-width="1.2"/><path class="s" d="M7.5 5c2.5 0 1.5 5 3 5" fill="none" stroke-width="1.2"/><path class="s" d="M12 7.5l2.6 6H9.4z" fill="none" stroke-width="1.2" stroke-linejoin="round"/>',
   drivers: '<path class="s" d="M6 12.5c2.5 0 3-9 7.5-9" fill="none" stroke-width="1.4"/><circle class="s" cx="3.5" cy="12.5" r="2" fill="none" stroke-width="1.2"/><path class="s" d="M3.5 8.5v2M3.5 14.5v1" stroke-width="1.2"/>',
+  // two-way arrow (mirror, invert)
+  arrow_leftright: '<path class="s" d="M2.5 8h11" stroke-width="1.3"/><path class="f" d="M1.5 8 5 5v6zM14.5 8 11 5v6z"/>',
+  // colour channels: all three overlapping, or one channel; alpha as a checker square
+  image_rgb: '<circle cx="6" cy="6.2" r="3.4" fill="#e04a4a" opacity=".9"/><circle cx="10" cy="6.2" r="3.4" fill="#4ac04a" opacity=".8"/><circle cx="8" cy="9.8" r="3.4" fill="#4a7ae0" opacity=".8"/>',
+  rgb_red: '<circle cx="8" cy="8" r="4.5" fill="#e04a4a"/>',
+  rgb_green: '<circle cx="8" cy="8" r="4.5" fill="#4ac04a"/>',
+  rgb_blue: '<circle cx="8" cy="8" r="4.5" fill="#4a7ae0"/>',
+  image_alpha: '<rect class="s" x="2.5" y="2.5" width="11" height="11" rx="1" fill="none" stroke-width="1.2"/><path class="f" d="M3 3h5v5H3zM8 8h5v5H8z" opacity=".75"/>',
 });

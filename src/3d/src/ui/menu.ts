@@ -103,9 +103,22 @@ Object.assign(opIcons, {
   'text.copy': 'copydown',
   'text.paste': 'pastedown',
 });
+Object.assign(opIcons, {
+  'object.vertex_group_mirror': 'arrow_leftright',
+  'object.vertex_group_lock': (p: Record<string, unknown>) => (p.action === 'UNLOCK' ? 'unlocked' : p.action === 'INVERT' ? 'arrow_leftright' : 'locked'),
+  'image.invert': (p: Record<string, unknown>) => {
+    const n = [p.invert_r, p.invert_g, p.invert_b].filter(Boolean).length;
+    return n > 1 ? 'image_rgb' : p.invert_r ? 'rgb_red' : p.invert_g ? 'rgb_green' : p.invert_b ? 'rgb_blue' : p.invert_a ? 'image_alpha' : undefined;
+  },
+});
 for (const ed of ['action', 'graph']) {
   opIcons[`${ed}.copy`] = 'copydown';
   opIcons[`${ed}.paste`] = (p: Record<string, unknown>) => (p.flipped ? 'pasteflipdown' : 'pastedown');
+}
+
+/** The icon a menu entry shows: its own, or its operator's default. */
+export function menuItemIcon(item: MenuItem): string | undefined {
+  return itemIcon(item);
 }
 
 function itemIcon(item: MenuItem): string | undefined {
