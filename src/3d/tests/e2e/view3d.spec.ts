@@ -342,6 +342,7 @@ test('sidebar median of the edit selection can be typed', async ({ page }) => {
   await page.keyboard.press('n');
   await page.click('.sb-tab:has-text("Item")');
   await page.locator('.v3d-sidebar .num-field').first().click();
+  await expect(page.locator('.v3d-sidebar input.num-field')).toBeFocused();
   await page.keyboard.type('1');
   await page.keyboard.press('Enter');
   const xs = await get<number[]>(page, 'Array.from(app.doc.meshes[app.activeObject.data].positions).filter((_, i) => i % 3 === 0)');
