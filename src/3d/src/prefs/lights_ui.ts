@@ -78,7 +78,8 @@ if (typeof window !== 'undefined') void loadLibrary();
 function redrawViews() {
   renderContext?.forceSync();
   renderContext?.engine.requestDraw();
-  app.changed('ui', 'view');
+  // the library loads asynchronously and may finish when no app exists (tests, teardown)
+  app?.changed('ui', 'view');
 }
 onLibraryChange(redrawViews);
 
