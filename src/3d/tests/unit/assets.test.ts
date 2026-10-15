@@ -220,7 +220,7 @@ describe('Essentials library', () => {
     const doc = essentialsDocument();
     const assets = assetsOf(doc);
     const kinds = new Set(assets.map((a) => a.table));
-    for (const k of ['materials', 'node_groups', 'worlds', 'objects', 'collections', 'actions']) expect(kinds.has(k as never)).toBe(true);
+    for (const k of ['materials', 'node_groups', 'worlds', 'objects', 'collections', 'actions', 'brushes']) expect(kinds.has(k as never)).toBe(true);
     expect(assets.length).toBeGreaterThanOrEqual(18);
     const cats = new Set((doc.asset_catalogs ?? []).map((c) => c.id));
     for (const a of assets) {

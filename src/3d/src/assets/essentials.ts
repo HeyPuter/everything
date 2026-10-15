@@ -1,7 +1,7 @@
 // The built-in "Essentials" library: a small set of original assets made in code (materials,
 // node groups, worlds, props and actions). Built once on first use; ids are fixed so that
 // "Append (Reuse Data)" recognises data appended in earlier sessions.
-import type { DocumentData, MaterialData, NodeGroupData, NodeTreeData, ObjectData, SocketValue, WorldData, FCurve } from '../data/types';
+import type { BrushData, DocumentData, MaterialData, NodeGroupData, NodeTreeData, ObjectData, SocketValue, WorldData, FCurve } from '../data/types';
 import { emptyDocument, newMaterial, newWorld, newMeshData, newObject, newCollection, newAction, uid, geometryNodesTree } from '../data/defaults';
 import { cylinder, uvSphere, plane, grid } from '../mesh/primitives';
 import { addNode, connect, ctxOf, addInterfaceSocket } from '../nodes/tree';
@@ -334,6 +334,18 @@ function buildActions(doc: DocumentData) {
   (hop as typeof hop & { asset_data?: AssetMetaData }).asset_data = meta(doc, 'Animation', 'A single jump up and back down.', ['jump', 'motion']);
 }
 
+function buildBrushes(doc: DocumentData) {
+  const brush = (name: string, mode: BrushData['mode'], tool: string, catalog: string, description: string, tags: string[], extra: Partial<BrushData>) => {
+    const b: BrushData = { id: uid('br'), name, sculpt_tool: tool, mode, strength: 0.5, radius: 50, falloff: 'SMOOTH', direction: 'ADD', auto_smooth_factor: 0, spacing: 10, ...extra };
+    doc.brushes[b.id] = b;
+    (b as BrushData & { asset_data?: AssetMetaData }).asset_data = meta(doc, catalog, description, tags);
+  };
+  brush('Soft Clay', 'SCULPT', 'CLAY_STRIPS', 'Brushes/Sculpt', 'Gentle clay strips that smooth as they build, for blocking in forms.', ['clay', 'build'], { strength: 0.35, radius: 70, auto_smooth_factor: 0.3 });
+  brush('Crisp Crease', 'SCULPT', 'CREASE', 'Brushes/Sculpt', 'A narrow, hard crease for panel lines and folds.', ['crease', 'detail'], { strength: 0.7, radius: 25, falloff: 'SHARP' });
+  brush('Red Airbrush', 'TEXTURE_PAINT', 'TEXDRAW', 'Brushes/Paint', 'A wide, soft red spray for texture painting.', ['paint', 'soft'], { strength: 0.25, radius: 80, color: [0.8, 0.05, 0.04], hardness: 0 });
+  brush('Yellow Marker', 'VERTEX_PAINT', 'DRAW', 'Brushes/Paint', 'A small, firm yellow marker for vertex colors.', ['paint', 'marker'], { strength: 1, radius: 18, color: [1, 0.8, 0.05], hardness: 0.9 });
+}
+
 /** Replace the random ids of the library's data-blocks with fixed ones. */
 function fixIds(doc: DocumentData): DocumentData {
   const map = new Map<string, string>();
@@ -366,6 +378,7 @@ export function essentialsDocument(): DocumentData {
   buildWorlds(doc);
   buildObjects(doc, clay);
   buildActions(doc);
+  buildBrushes(doc);
   built = fixIds(doc);
   return built;
 }
