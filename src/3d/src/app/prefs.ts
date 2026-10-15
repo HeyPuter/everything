@@ -7,6 +7,8 @@ export interface Preferences {
   /** trackpad: two-finger scroll orbits (true) or zooms (false) */
   trackpad_orbit: boolean;
   orbit_method: 'TURNTABLE' | 'TRACKBALL';
+  /** Shift ` starts walk or fly navigation */
+  navigation_mode?: 'WALK' | 'FLY';
   use_zoom_to_mouse: boolean;
   use_rotate_around_active: boolean;
   use_auto_perspective: boolean;

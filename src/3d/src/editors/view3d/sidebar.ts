@@ -4,7 +4,7 @@ import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
 import type { View3D } from './view3d';
-import { panel, numberField, row, col, checkbox, enumMenu, decorator } from '../../ui/widgets';
+import { panel, numberField, row, col, checkbox, enumMenu, decorator, opButton } from '../../ui/widgets';
 import type { ObjectData } from '../../data/types';
 import { keyState, keyProperty } from '../../anim/keyframes';
 import { renderContext } from '../../render/context';
@@ -175,6 +175,20 @@ sidebarTabs.push(
             numberField({ id: 'v-cs', label: 'Start', value: v.nav.clipStart, min: 1e-6, unit: 'distance', set: (x) => ((v.nav.clipStart = x), app.changed('ui')) }),
             numberField({ id: 'v-ce', label: 'End', value: v.nav.clipEnd, min: 1e-3, unit: 'distance', set: (x) => ((v.nav.clipEnd = x), app.changed('ui')) }),
           ),
+          v.cameraView ? checkbox('v-region', 'Render Region', !!(app.doc.scene.render as { use_border?: boolean }).use_border, (x) => ((app.doc.scene.render as { use_border?: boolean }).use_border = x, app.pushUndo('Render Region'), app.changed('doc', 'ui'))) : null,
+          v.clipPlanes ? h('div', { class: 'sb-row-btn' }, opButton('view3d.clip_border', 'Clear Clipping Region')) : null,
+        ]),
+        panel('sb-view-lock', 'View Lock', () => [
+          row(
+            'Lock to Object',
+            enumMenu('v-lockob', [{ value: '', label: '—' }, ...Object.values(app.doc.objects).map((o) => ({ value: o.id, label: o.name, icon: 'object' }))], v.lockObject ?? '', (id) => {
+              v.lockObject = id || null;
+              if (id) v.lockCursor = false;
+              v.afterNav();
+              app.changed('ui');
+            }),
+          ),
+          !v.lockObject ? checkbox('v-lockcur', 'Lock to 3D Cursor', v.lockCursor, (x) => ((v.lockCursor = x), v.afterNav(), app.changed('ui'))) : null,
           checkbox('v-lock', 'Lock Camera to View', v.lockCameraToView, (x) => ((v.lockCameraToView = x), app.changed('ui'))),
         ]),
         panel('sb-cursor', '3D Cursor', () => [

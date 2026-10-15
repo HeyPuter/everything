@@ -5,6 +5,7 @@ import { ShaderMaterial, Color, DoubleSide, FrontSide, Vector3, Vector4, type Si
 const solidVert = /* glsl */ `
   #include <common>
   #include <skinning_pars_vertex>
+  #include <clipping_planes_pars_vertex>
   varying vec3 vNormal;
   varying vec3 vViewPos;
   varying vec3 vWorldNormal;
@@ -23,6 +24,8 @@ const solidVert = /* glsl */ `
     vWorldNormal = normalize(mat3(modelMatrix) * objectNormal);
     vec4 mv = modelViewMatrix * vec4(transformed, 1.0);
     vViewPos = mv.xyz;
+    vec4 mvPosition = mv;
+    #include <clipping_planes_vertex>
     #ifdef USE_VCOLOR
     vColor = color;
     #else
@@ -42,7 +45,9 @@ const solidFrag = /* glsl */ `
   varying vec3 vViewPos;
   varying vec3 vWorldNormal;
   varying vec4 vColor;
+  #include <clipping_planes_pars_fragment>
   void main() {
+    #include <clipping_planes_fragment>
     vec3 n = normalize(vNormal);
     if (!gl_FrontFacing) n = -n;
     vec3 base = uColor * vColor.rgb;
@@ -105,6 +110,7 @@ export function solidMaterial(o: SolidOptions): ShaderMaterial {
     polygonOffset: true,
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
+    clipping: true,
   });
   solidCache.set(key, m);
   return m;
@@ -114,17 +120,24 @@ export function solidMaterial(o: SolidOptions): ShaderMaterial {
 // ID pass: object id encoded in RGB (id+1), alpha = 1
 
 const idVert = /* glsl */ `
+  #include <clipping_planes_pars_vertex>
   void main() {
     vec3 transformed = position;
     #ifdef USE_INSTANCING
     transformed = (instanceMatrix * vec4(position, 1.0)).xyz;
     #endif
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
+    vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.0);
+    #include <clipping_planes_vertex>
+    gl_Position = projectionMatrix * mvPosition;
   }
 `;
 const idFrag = /* glsl */ `
   uniform vec4 uId;
-  void main() { gl_FragColor = uId; }
+  #include <clipping_planes_pars_fragment>
+  void main() {
+    #include <clipping_planes_fragment>
+    gl_FragColor = uId;
+  }
 `;
 
 const idCache = new Map<number, ShaderMaterial>();
@@ -138,6 +151,7 @@ export function idMaterial(id: number, side: Side = DoubleSide): ShaderMaterial 
     fragmentShader: idFrag,
     uniforms: { uId: { value: new Vector4((v & 255) / 255, ((v >> 8) & 255) / 255, ((v >> 16) & 255) / 255, 1) } },
     side,
+    clipping: true,
   });
   idCache.set(key, m);
   return m;

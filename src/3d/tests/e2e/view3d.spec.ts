@@ -112,3 +112,82 @@ test('custom transform orientations', async ({ page }) => {
   expect(await get(page, 'app.doc.scene.transform_orientations.length')).toBe(0);
   await expectNoErrors(errors);
 });
+
+const view = (page: Page, expr: string) =>
+  page.evaluate(async (e) => {
+    const { activeView3D } = await import('/src/editors/view3d/view3d.ts');
+    const v = activeView3D()!;
+    return new Function('v', `return ${e}`)(v);
+  }, expr);
+
+test('view regions: clipping region, render region, center pick, relative axis views', async ({ page }) => {
+  const errors = await openApp(page);
+  const c = await hoverViewport(page);
+  // Alt+B: drag a clipping region; the cube outside it can no longer be picked
+  await page.keyboard.press('Alt+B');
+  await page.mouse.move(c.x - 300, c.y - 200);
+  await page.mouse.down();
+  await page.mouse.move(c.x - 200, c.y - 100, { steps: 3 });
+  await page.mouse.up();
+  expect(await view(page, 'v.clipPlanes?.length')).toBe(4);
+  expect(await view(page, `v.pick(v.width / 2, v.height / 2, 2)`)).toBeNull();
+  await page.keyboard.press('Alt+B');
+  expect(await view(page, 'v.clipPlanes')).toBeNull();
+  // Ctrl+B in camera view sets the render region, Ctrl+Alt+B clears it
+  await page.keyboard.press('Numpad0');
+  await page.keyboard.press('Control+B');
+  await page.mouse.move(c.x - 60, c.y - 40);
+  await page.mouse.down();
+  await page.mouse.move(c.x + 60, c.y + 40, { steps: 3 });
+  await page.mouse.up();
+  const border = await get<number[]>(page, '[app.doc.scene.render.border_min_x, app.doc.scene.render.border_max_x]');
+  expect(await get(page, 'app.doc.scene.render.use_border')).toBe(true);
+  expect(border[0]).toBeGreaterThan(0.2);
+  expect(border[1]).toBeLessThan(0.8);
+  await page.keyboard.press('Control+Alt+B');
+  expect(await get(page, 'app.doc.scene.render.use_border')).toBe(false);
+  await page.keyboard.press('Numpad0');
+  // Alt+MMB click centers the view on the surface under the mouse
+  await page.mouse.move(c.x, c.y);
+  await page.keyboard.down('Alt');
+  await page.mouse.down({ button: 'middle' });
+  await page.mouse.up({ button: 'middle' });
+  // Alt+MMB drag turns to the axis view on that side
+  await page.mouse.down({ button: 'middle' });
+  await page.mouse.move(c.x, c.y + 60, { steps: 4 });
+  await page.mouse.up({ button: 'middle' });
+  await page.keyboard.up('Alt');
+  await page.waitForTimeout(250);
+  expect(await view(page, 'v.nav.view')).toBe('TOP');
+  expect(await view(page, 'Math.abs(v.nav.pivot.length() - 0) < 1.75')).toBe(true);
+  // View ▸ View Regions lists the region operators
+  await page.locator('.hdr-menu', { hasText: 'View' }).first().click();
+  await page.locator('.menu-item', { hasText: 'View Regions' }).hover();
+  await expect(page.locator('.menu-item', { hasText: 'Clipping Region' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expectNoErrors(errors);
+});
+
+test('walk and fly navigation', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  const eye = () => view(page, 'v.nav.eye.toArray()') as Promise<number[]>;
+  const e0 = await eye();
+  await page.keyboard.press('Shift+Backquote');
+  expect(await get(page, 'app.modal?.label')).toBe('Walk Navigation');
+  await page.keyboard.down('w');
+  await page.waitForTimeout(300);
+  await page.keyboard.up('w');
+  await page.keyboard.press('Enter');
+  const e1 = await eye();
+  expect(Math.hypot(e1[0] - e0[0], e1[1] - e0[1])).toBeGreaterThan(0.1);
+  expect(e1[2]).toBeCloseTo(e0[2], 5);
+  // fly: W accelerates, Escape restores the view
+  await run(page, 'view3d.fly');
+  await page.keyboard.press('w');
+  await page.waitForTimeout(250);
+  await page.keyboard.press('Escape');
+  const e2 = await eye();
+  expect(e2.map((x) => +x.toFixed(4))).toEqual(e1.map((x) => +x.toFixed(4)));
+  await expectNoErrors(errors);
+});

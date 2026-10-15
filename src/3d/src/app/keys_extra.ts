@@ -85,20 +85,6 @@ registerOperators([
     undo: false,
   },
   {
-    idname: 'view3d.dolly',
-    label: 'Dolly View',
-    description: 'Move the view forward or backward without changing the pivot distance',
-    props: [{ id: 'delta', label: 'Delta', type: 'int', default: 1 }],
-    poll: () => !!activeView3D(),
-    exec: (_ctx, p) => {
-      const v = activeView3D()!;
-      v.leaveCamera();
-      v.nav.pivot.add(v.nav.forward.multiplyScalar((p.delta as number) * v.nav.distance * 0.2));
-      v.afterNav();
-    },
-    undo: false,
-  },
-  {
     idname: 'wm.toolbar',
     label: 'Toolbar',
     description: 'Show the toolbar tools of the current mode in a popup',

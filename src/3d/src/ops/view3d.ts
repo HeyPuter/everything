@@ -6,6 +6,7 @@ import { applyMatrixToObject, toMatrix4 } from '../eval/transform';
 import { renderContext } from '../render/context';
 import { openPie } from '../ui/menu';
 import { setActiveTool } from '../editors/view3d/toolbar';
+import { relativeAxisView } from '../editors/view3d/navextra';
 import { cloneShared } from '../data/cow';
 import { uid } from '../data/defaults';
 import { uniqueName, activeCollection } from './object';
@@ -71,6 +72,11 @@ registerOperators([
     exec: (_ctx, p) => {
       const v = activeView3D()!;
       v.leaveCamera();
+      if (p.relative) {
+        relativeAxisView(v, p.type as string);
+        redraw(v);
+        return;
+      }
       v.nav.setAxisView(p.type as 'FRONT');
       if (p.align_active && app.activeObject) {
         const q = new Quaternion();

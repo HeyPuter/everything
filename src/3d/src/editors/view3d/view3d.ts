@@ -1,5 +1,5 @@
 // 3D Viewport editor.
-import { Vector3, Matrix4, PerspectiveCamera, OrthographicCamera, Box3, type Camera } from 'three';
+import { Vector3, Matrix4, PerspectiveCamera, OrthographicCamera, Box3, Quaternion, type Camera } from 'three';
 import { h, patch, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { app, type ChangeKind } from '../../app/app';
@@ -22,6 +22,7 @@ import { lastOpPanel } from '../../ui/redo';
 import { editModeHooks, viewportExtensions } from './hooks';
 import { circlePaint, lassoDrag, modeFromEvent } from './selectshapes';
 import { applyMatrixToObject } from '../../eval/transform';
+import { altMiddle, snapViewToAxis } from './navextra';
 
 export class View3D implements Editor, ViewportRenderer, DrawView {
   el: HTMLElement;
@@ -36,6 +37,10 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   camZoom = 1;
   /** object whose origin the view follows (View Lock to Active) */
   lockObject: string | null = null;
+  /** the view follows the 3D cursor (Lock to 3D Cursor) */
+  lockCursor = false;
+  /** Clipping Region planes (world space [nx, ny, nz, constant], inward normals) */
+  clipPlanes: number[][] | null = null;
   camOffset = { x: 0, y: 0 };
   localView: Set<string> | null = null;
   hiddenTypes = new Set<string>();
@@ -84,7 +89,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     this.infoEl = document.createElement('div');
     this.infoEl.className = 'v3d-info';
     this.el.append(this.regionEl, this.svg, this.infoEl, this.ui, this.boxEl);
-    const st = (state ?? {}) as { shading?: string | Partial<Shading>; matcap?: boolean; camera?: boolean; camZoom?: number; camOffset?: { x: number; y: number }; nav?: ReturnType<NavCamera['serialize']>; overlay?: Partial<Overlay>; toolbar?: boolean; sidebar?: boolean };
+    const st = (state ?? {}) as { shading?: string | Partial<Shading>; matcap?: boolean; camera?: boolean; camZoom?: number; camOffset?: { x: number; y: number }; nav?: ReturnType<NavCamera['serialize']>; overlay?: Partial<Overlay>; toolbar?: boolean; sidebar?: boolean; clip?: number[][]; lockObject?: string; lockCursor?: boolean };
     if (typeof st.shading === 'string') this.shading.type = st.shading as Shading['type'];
     else if (st.shading) Object.assign(this.shading, st.shading);
     if (st.matcap) this.shading.light = 'MATCAP';
@@ -95,6 +100,9 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     if (st.camOffset) this.camOffset = { ...st.camOffset };
     if (st.toolbar !== undefined) this.showToolbar = st.toolbar;
     if (st.sidebar !== undefined) this.showSidebar = st.sidebar;
+    if (Array.isArray(st.clip) && st.clip.length) this.clipPlanes = st.clip;
+    if (st.lockObject) this.lockObject = st.lockObject;
+    if (st.lockCursor) this.lockCursor = true;
     this.nav.lens = prefs.view_lens;
     this.nav.autoPersp = prefs.use_auto_perspective;
     this.bindInput();
@@ -129,7 +137,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       const ev = app.graph.get(this.lockObject);
       if (ev) this.nav.pivot.setFromMatrixPosition(ev.world);
       else this.lockObject = null;
-    }
+    } else if (this.lockCursor && !this.cameraView) this.nav.pivot.fromArray(app.doc.scene.cursor.location);
     const hadCamera = !!this.sceneCamera;
     this.updateSceneCamera();
     // the navigation gizmo follows the scene camera once camera view is first resolved
@@ -288,7 +296,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   }
 
   serialize() {
-    return { nav: this.nav.serialize(), shading: { ...this.shading }, overlay: { ...this.overlay }, camera: this.cameraView, camZoom: this.camZoom, camOffset: { ...this.camOffset }, toolbar: this.showToolbar, sidebar: this.showSidebar };
+    return { nav: this.nav.serialize(), shading: { ...this.shading }, overlay: { ...this.overlay }, camera: this.cameraView, camZoom: this.camZoom, camOffset: { ...this.camOffset }, toolbar: this.showToolbar, sidebar: this.showSidebar, clip: this.clipPlanes ?? undefined, lockObject: this.lockObject ?? undefined, lockCursor: this.lockCursor || undefined };
   }
 
   dispose() {
@@ -581,9 +589,15 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     }
     const p = this.local(e);
     const emulate3 = prefs.emulate_3_button_mouse && e.altKey && e.button === 0;
+    if (e.button === 1 && e.altKey && !emulate3) {
+      // Alt+MMB: click centers the view on the surface, drag snaps to the axis view in that direction
+      e.preventDefault();
+      altMiddle(this, e);
+      return;
+    }
     if (e.button === 1 || emulate3) {
       e.preventDefault();
-      this.navDrag(e, e.shiftKey ? 'pan' : e.ctrlKey ? 'zoom' : 'orbit');
+      this.navDrag(e, e.shiftKey && e.ctrlKey ? 'dolly' : e.shiftKey ? 'pan' : e.ctrlKey ? 'zoom' : 'orbit');
       return;
     }
     if (e.button === 2 && e.ctrlKey && !app.modal) {
@@ -706,15 +720,22 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     } catch {
       // ignore
     }
+    // free rotation while Alt snaps the displayed view to the nearest axis view
+    let freeRot: Quaternion | null = null;
     const move = (ev: PointerEvent) => {
       const dx = ev.clientX - last.x,
         dy = ev.clientY - last.y;
       last = { x: ev.clientX, y: ev.clientY };
       if (kind === 'orbit' && !ev.shiftKey && !ev.ctrlKey) {
         const s = 0.0075;
+        if (freeRot) this.nav.rot.copy(freeRot);
         if (around) this.nav.orbitAround(around, dx * s, dy * s);
         else this.nav.orbit(dx * s, dy * s);
-      } else if (kind === 'pan' || (kind === 'orbit' && ev.shiftKey)) this.nav.pan(dx, dy);
+        const snap = ev.altKey && !(prefs.emulate_3_button_mouse && (ev.buttons & 1));
+        freeRot = snap ? this.nav.rot.clone() : null;
+        if (snap) snapViewToAxis(this, this.nav.rot);
+      } else if (kind === 'dolly') this.nav.pivot.addScaledVector(this.nav.forward, -dy * this.nav.distance * 0.005);
+      else if (kind === 'pan' || (kind === 'orbit' && ev.shiftKey)) this.nav.pan(dx, dy);
       else this.zoomBy(Math.exp(dy * 0.01), start);
       this.afterNav();
     };
