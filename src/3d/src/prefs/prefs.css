@@ -554,3 +554,12 @@ body.no-region-toggles .area-header-reveal {
   border-radius: 3px;
   border: 1px solid var(--c-panel-outline);
 }
+.prefs-font-row {
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+}
+.prefs-font-row .text-field {
+  flex: 1;
+  min-width: 0;
+}

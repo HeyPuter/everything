@@ -22,6 +22,7 @@ import './lights_ui';
 import './addons';
 import './ndof';
 import './filepaths';
+import './fonts';
 import './ops';
 import { startKeyconfig } from './keyconfig';
 import { applyPreferences } from './store';

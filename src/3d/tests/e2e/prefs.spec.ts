@@ -434,3 +434,16 @@ test('keymap event values: double click, click and release run through the real 
   await expect(win).toHaveCount(1);
   await expectNoErrors(errors);
 });
+
+test('text rendering: a font file becomes the interface font and stays after a reload', async ({ page }) => {
+  const errors = await openApp(page);
+  await openPrefs(page, 'INTERFACE');
+  const chooser = page.waitForEvent('filechooser');
+  await page.locator('[aria-label="Load Interface Font file"]').click();
+  await (await chooser).setFiles('node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2');
+  await expect.poll(() => rootVar(page, '--font')).toContain('jetbrains-mono-latin-400-normal (file)');
+  await page.reload();
+  await page.waitForFunction(() => !!(window as unknown as { app?: unknown }).app);
+  await expect.poll(() => page.evaluate(() => [...document.fonts].some((f) => f.family.includes('(file)') && f.status === 'loaded'))).toBe(true);
+  await expectNoErrors(errors);
+});

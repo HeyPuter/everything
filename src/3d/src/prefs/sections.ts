@@ -3,7 +3,9 @@
 // own modules.
 import { h, type Child } from '../ui/h';
 import { app } from '../app/app';
-import { panel, checkbox, colorSwatch } from '../ui/widgets';
+import { panel, checkbox, colorSwatch, textField } from '../ui/widgets';
+import { icon } from '../ui/icons';
+import { loadFontFile, clearFontFile, isFileFont } from './fonts';
 import { splitRow } from '../ui/props';
 import { prefs, formatDate } from '../app/prefs';
 import { renderContext } from '../render/context';
@@ -15,6 +17,20 @@ import { ndofDevices } from './ndof';
 
 // ---------------------------------------------------------------------------
 // Interface
+
+function fontRow(slot: 'ui' | 'mono', label: string, placeholder: string): Child {
+  const key = slot === 'ui' ? 'font_ui' : 'font_ui_mono';
+  return splitRow(
+    label,
+    h(
+      'div',
+      { class: 'prefs-font-row' },
+      textField(`pf-${key}`, prefs[key], (v) => setPref(key, v), { placeholder }),
+      h('button', { class: 'btn icon-btn', 'data-tip': 'Load Font File\nUse a .ttf, .otf or .woff font file', 'aria-label': `Load ${label} file`, onclick: () => void loadFontFile(slot) }, icon('file_folder')),
+      prefs[key] ? h('button', { class: 'btn icon-btn', 'data-tip': 'Default\nUse the built-in font', 'aria-label': `Reset ${label}`, onclick: () => void (isFileFont(slot) ? clearFontFile(slot) : setPref(key, '')) }, icon('x')) : null,
+    ),
+  );
+}
 
 const E = (value: string, label: string, description?: string) => ({ value, label, description });
 
@@ -67,9 +83,9 @@ registerPrefSection({
     ], { closed: true }),
     panel('pf-text', 'Text Rendering', () => [
       pBool('use_text_antialiasing', 'Anti-Aliasing', 'Smooth the edges of interface text'),
-      pText('font_ui', 'Interface Font', 'Inter (built in)'),
-      pText('font_ui_mono', 'Monospaced Font', 'JetBrains Mono (built in)'),
-      note('Enter the name of a font installed on this computer, e.g. "Helvetica Neue". Leave empty for the built-in fonts.'),
+      fontRow('ui', 'Interface Font', 'Inter (built in)'),
+      fontRow('mono', 'Monospaced Font', 'JetBrains Mono (built in)'),
+      note('Enter the name of a font installed on this computer (e.g. "Helvetica Neue"), or load a font file. Leave empty for the built-in fonts.'),
     ]),
     panel('pf-menus', 'Menus', () => [
       pBool('use_mouse_over_open', 'Open on Mouse Over', 'Menu bar menus open when the pointer rests on them'),
