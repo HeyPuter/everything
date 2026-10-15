@@ -106,6 +106,7 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
   instanceCollections = false;
   view: View = 'THUMBNAIL';
   size = 'SMALL';
+  sortBy: 'NAME' | 'CATALOG' | 'TYPE' = 'NAME';
   filter = '';
   types = new Set<AssetTable>(ASSET_TABLES);
   showSidebar = true;
@@ -123,7 +124,7 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
     public area: Area,
     state?: unknown,
   ) {
-    const st = (state ?? {}) as Partial<{ library: string; catalog: string | null; view: View; size: string; types: AssetTable[]; sidebar: boolean; details: boolean; method: ImportSetting; instance: boolean; collapsed: string[]; filter: string }>;
+    const st = (state ?? {}) as Partial<{ library: string; catalog: string | null; view: View; size: string; types: AssetTable[]; sidebar: boolean; details: boolean; method: ImportSetting; instance: boolean; collapsed: string[]; filter: string; sort: string }>;
     if (st.library) this.library = st.library;
     if (st.catalog !== undefined) this.catalogPath = st.catalog;
     if (st.view === 'LIST_VERTICAL' || st.view === 'THUMBNAIL') this.view = st.view;
@@ -135,6 +136,7 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
     if (st.instance !== undefined) this.instanceCollections = st.instance;
     if (st.collapsed) this.collapsed = new Set(st.collapsed);
     if (st.filter) this.filter = st.filter;
+    if (st.sort === 'CATALOG' || st.sort === 'TYPE') this.sortBy = st.sort;
     this.el = document.createElement('div');
     this.el.className = 'asset-browser';
     this.side = document.createElement('div');
@@ -173,7 +175,7 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
   }
 
   serialize() {
-    return { library: this.library, catalog: this.catalogPath, view: this.view, size: this.size, types: [...this.types], sidebar: this.showSidebar, details: this.showDetails, method: this.importMethod, instance: this.instanceCollections, collapsed: [...this.collapsed], filter: this.filter };
+    return { library: this.library, catalog: this.catalogPath, view: this.view, size: this.size, types: [...this.types], sidebar: this.showSidebar, details: this.showDetails, method: this.importMethod, instance: this.instanceCollections, collapsed: [...this.collapsed], filter: this.filter, sort: this.sortBy };
   }
 
   dispose() {
@@ -222,7 +224,12 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
         const m = e.block.asset_data!;
         return e.block.name.toLowerCase().includes(text) || m.tags.some((t) => t.toLowerCase().includes(text)) || m.description.toLowerCase().includes(text);
       })
-      .sort((a, b) => a.block.name.localeCompare(b.block.name, undefined, { numeric: true, sensitivity: 'base' }) || a.table.localeCompare(b.table));
+      .sort((a, b) => {
+        const byName = a.block.name.localeCompare(b.block.name, undefined, { numeric: true, sensitivity: 'base' }) || a.table.localeCompare(b.table);
+        if (this.sortBy === 'CATALOG') return catalogPathOf(a).localeCompare(catalogPathOf(b)) || byName;
+        if (this.sortBy === 'TYPE') return ASSET_TABLES.indexOf(a.table) - ASSET_TABLES.indexOf(b.table) || byName;
+        return byName;
+      });
   }
 
   selection(): AssetEntry[] {
@@ -403,6 +410,17 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
       { label: 'Thumbnails', active: this.view === 'THUMBNAIL', action: () => this.setView('THUMBNAIL') },
       { label: 'List', active: this.view === 'LIST_VERTICAL', action: () => this.setView('LIST_VERTICAL') },
       { label: 'Display Size', submenu: () => DISPLAY_SIZES.map(([k, l]) => ({ label: l, active: this.size === k, action: () => ((this.size = k), this.draw()) })) },
+      {
+        label: 'Sort By',
+        submenu: () =>
+          (
+            [
+              ['NAME', 'Name'],
+              ['CATALOG', 'Asset Catalog'],
+              ['TYPE', 'Type'],
+            ] as const
+          ).map(([k, l]) => ({ label: l, active: this.sortBy === k, action: () => ((this.sortBy = k), this.draw()) })),
+      },
       { separator: true },
       { label: 'Sidebar', shortcut: 'T', checked: this.showSidebar, op: 'file.sidebar_toggle' },
       { label: 'Asset Details', shortcut: 'N', checked: this.showDetails, op: 'asset.details_toggle' },
