@@ -17,10 +17,54 @@ function clipRange(c: MovieClipData): [number, number] {
   return [clipToSceneFrame(c, 1), clipToSceneFrame(c, Math.max(1, c.frame_duration))];
 }
 
+/** Selected curve points (knots) of the graph view: "track|frame|axis" (UI state per editor). */
+const knotSel = new WeakMap<ClipEditor, Set<string>>();
+export function graphSelection(ed: ClipEditor): Set<string> {
+  let s = knotSel.get(ed);
+  if (!s) knotSel.set(ed, (s = new Set()));
+  return s;
+}
+export const knotKey = (track: string, frame: number, axis: 'x' | 'y') => `${track}|${frame}|${axis}`;
+
+/** Knots near a graph-region point (region-local px, below the header). */
+export function graphKnotAt(ed: ClipEditor, x: number, y: number, radius = 7): { track: MovieTrackingTrack; frame: number; axis: 'x' | 'y' } | null {
+  const c = ed.clip;
+  if (!c) return null;
+  const v = ed.v2;
+  let best: { track: MovieTrackingTrack; frame: number; axis: 'x' | 'y' } | null = null,
+    bd = radius;
+  for (const t of c.tracking.tracks) {
+    if (!t.select || t.hide) continue;
+    for (const seg of speeds(c, t))
+      for (const s of seg)
+        for (const axis of ['x', 'y'] as const) {
+          if (!(axis === 'x' ? ed.graphShow.speed_x : ed.graphShow.speed_y) || !ed.graphShow.motion) continue;
+          const d = Math.hypot(v.fx(s.f) - x, v.vy(s[axis]) - y);
+          if (d < bd) ((bd = d), (best = { track: t, frame: s.m, axis }));
+        }
+  }
+  return best;
+}
+
+/** All knots of the shown curves with their region-local positions. */
+export function graphKnots(ed: ClipEditor): { track: MovieTrackingTrack; frame: number; axis: 'x' | 'y'; x: number; y: number }[] {
+  const c = ed.clip;
+  if (!c) return [];
+  const v = ed.v2;
+  const out: { track: MovieTrackingTrack; frame: number; axis: 'x' | 'y'; x: number; y: number }[] = [];
+  for (const t of c.tracking.tracks) {
+    if (!t.select || t.hide) continue;
+    for (const seg of speeds(c, t))
+      for (const s of seg)
+        for (const axis of ['x', 'y'] as const) if ((axis === 'x' ? ed.graphShow.speed_x : ed.graphShow.speed_y) && ed.graphShow.motion) out.push({ track: t, frame: s.m, axis, x: v.fx(s.f), y: v.vy(s[axis]) + 24 });
+  }
+  return out;
+}
+
 /** speed samples (pixels/frame) per enabled frame of a track */
 function speeds(c: MovieClipData, t: MovieTrackingTrack) {
-  const out: { f: number; x: number; y: number; key: boolean }[][] = [];
-  let seg: { f: number; x: number; y: number; key: boolean }[] = [];
+  const out: { f: number; m: number; x: number; y: number; key: boolean }[][] = [];
+  let seg: { f: number; m: number; x: number; y: number; key: boolean }[] = [];
   for (const m of t.markers) {
     const prev = markerExact(t, m.frame - 1);
     if (m.mute || !prev || prev.mute) {
@@ -28,7 +72,7 @@ function speeds(c: MovieClipData, t: MovieTrackingTrack) {
       seg = [];
       continue;
     }
-    seg.push({ f: clipToSceneFrame(c, m.frame), x: (m.co[0] - prev.co[0]) * c.size[0], y: (m.co[1] - prev.co[1]) * c.size[1], key: m.is_keyed });
+    seg.push({ f: clipToSceneFrame(c, m.frame), m: m.frame, x: (m.co[0] - prev.co[0]) * c.size[0], y: (m.co[1] - prev.co[1]) * c.size[1], key: m.is_keyed });
   }
   if (seg.length) out.push(seg);
   return out;
@@ -163,6 +207,15 @@ export function drawGraph(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: numb
           seg.forEach((s, i) => (i ? ctx.lineTo(v.fx(s.f), v.vy(s[key])) : ctx.moveTo(v.fx(s.f), v.vy(s[key]))));
           ctx.stroke();
           if (v.ppf > 4) for (const s of seg) ctx.fillRect(v.fx(s.f) - (s.key ? 2.5 : 1.5), v.vy(s[key]) - (s.key ? 2.5 : 1.5), s.key ? 5 : 3, s.key ? 5 : 3);
+          // selected knots
+          const sel = graphSelection(ed);
+          if (sel.size)
+            for (const s of seg)
+              if (sel.has(knotKey(t.name, s.m, key))) {
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(v.fx(s.f) - 3.5, v.vy(s[key]) - 3.5, 7, 7);
+                ctx.fillStyle = col;
+              }
         }
       }
     }
@@ -181,6 +234,13 @@ export function drawGraph(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: numb
     }
   }
   drawCurrentFrame(ed, ctx, h, top);
+  if (ed.boxRect) {
+    const b = ed.boxRect;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeStyle = '#fff';
+    ctx.strokeRect(Math.min(b.x0, b.x1) + 0.5, Math.min(b.y0, b.y1) + 0.5, Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
+    ctx.setLineDash([]);
+  }
 }
 
 function scrub(ed: ClipEditor, e: PointerEvent, x: number) {
@@ -204,7 +264,28 @@ export function graphPointer(ed: ClipEditor, e: PointerEvent, p: { x: number; y:
   const c = ed.clip;
   const top = 24;
   if (c && p.y > top) {
-    // click on a curve point selects that track
+    // click on a knot selects it (Shift extends / toggles)
+    const k = graphKnotAt(ed, p.x, p.y - top);
+    const sel = graphSelection(ed);
+    if (k) {
+      const key = knotKey(k.track.name, k.frame, k.axis);
+      if (e.shiftKey) {
+        if (sel.has(key)) sel.delete(key);
+        else sel.add(key);
+      } else {
+        sel.clear();
+        sel.add(key);
+      }
+      c.tracking.active_track = k.track.name;
+      app.changed('ui');
+      ed.draw();
+      return;
+    }
+    if (!e.shiftKey && sel.size) {
+      sel.clear();
+      ed.draw();
+    }
+    // click on a curve selects that track
     const v = ed.v2;
     let best: MovieTrackingTrack | null = null,
       bd = 7;

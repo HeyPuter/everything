@@ -41,6 +41,12 @@ export interface BuildOptions {
   /** environment used when the scene world is not used (raster: PMREM texture) */
   studio?: { texture: Texture; intensity: number } | null;
   filmTransparent?: boolean;
+  /** multiplier of lamp intensities (realtime Light Paths ▸ Direct Light) */
+  lightScale?: number;
+  /** multiplier of world lighting (realtime Light Paths ▸ Indirect Light) */
+  envScale?: number;
+  /** view layer filter: leave surfaces out of the render */
+  hideSurfaces?: boolean;
 }
 
 interface Entry {
@@ -68,6 +74,8 @@ export function renderVisibleObjects(doc: DocumentData): Set<string> {
 
 /** Extra renderable content (e.g. grease pencil strokes) added to the render scene after each build. */
 export const renderSceneHooks: ((rs: RenderScene, app: App, o: BuildOptions) => void)[] = [];
+/** Adjust a light's colour before it is applied (e.g. the emission of a light node tree). */
+export const lightTintHooks: ((la: LightData, color: Color) => void)[] = [];
 
 const tmpM = new Matrix4();
 const tmpV = new Vector3();
@@ -84,6 +92,7 @@ export class RenderScene {
   envKey = '';
   bounds = new Sphere(new Vector3(), 1);
   mode: BuildOptions['mode'];
+  private lightScale = 1;
 
   constructor(mode: BuildOptions['mode']) {
     this.mode = mode;
@@ -94,6 +103,7 @@ export class RenderScene {
   build(app: App, o: BuildOptions) {
     const doc = app.doc;
     this.mode = o.mode;
+    this.lightScale = Math.max(0, o.lightScale ?? 1);
     const renderable = o.final ? renderVisibleObjects(doc) : null;
     const seen = new Set<string>();
     let structure = false,
@@ -111,7 +121,7 @@ export class RenderScene {
         if (this.syncLight(doc.lights[ob.data], ev.world, e)) lights = true;
         continue;
       }
-      if (!ev.mesh || !ev.mesh.indices.length) continue;
+      if (!ev.mesh || !ev.mesh.indices.length || o.hideSurfaces) continue;
       seen.add(ev.id);
       let e = this.entries.get(ev.id);
       if (!e) this.entries.set(ev.id, (e = { meshes: [] }));
@@ -259,12 +269,16 @@ export class RenderScene {
     if (!L.matrix.equals(tmpM)) changed = true;
     L.matrix.copy(tmpM);
     const color = new Color(la.color[0], la.color[1], la.color[2]);
-    const intensity = lightIntensity(la);
+    for (const hk of lightTintHooks) hk(la, color);
+    const intensity = lightIntensity(la) * this.lightScale;
     if (!L.color.equals(color) || L.intensity !== intensity) changed = true;
     L.color.copy(color);
     L.intensity = intensity;
+    // realtime: Custom Distance fades the light out at the cutoff distance
+    const cutoff = this.mode === 'raster' && la.use_custom_distance ? Math.max(0, la.cutoff_distance ?? 40) : 0;
+    if ((L as PointLight).distance !== undefined && (L as PointLight).distance !== cutoff && L.type !== 'DirectionalLight') changed = true;
     if (L instanceof PointLight) {
-      L.distance = 0;
+      L.distance = cutoff;
       L.decay = 2;
     } else if (L instanceof PhysicalSpotLight) {
       const angle = Math.min(Math.PI / 2 - 1e-3, la.spot_size / 2);
@@ -273,7 +287,7 @@ export class RenderScene {
       L.angle = angle;
       L.penumbra = Math.min(1, Math.max(0, la.spot_blend));
       L.decay = 2;
-      L.distance = 0;
+      L.distance = cutoff;
       L.radius = radius;
     } else if (L instanceof ShapedAreaLight) {
       const [w, h] = areaLightSize(la);
@@ -367,6 +381,11 @@ export class RenderScene {
       this.envKey = 'none';
       s.environment = null;
       s.background = o.filmTransparent ? null : new Color(0, 0, 0);
+    }
+    const k = Math.max(0, o.envScale ?? 1);
+    if (k !== 1) {
+      s.environmentIntensity *= k;
+      this.envKey += `*${k}`;
     }
   }
 

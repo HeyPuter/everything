@@ -579,7 +579,7 @@ addKeys('Drivers', [
 registerEditor({
   id: 'DRIVERS',
   label: 'Drivers',
-  icon: 'graph',
+  icon: 'drivers',
   group: 'Animation',
   create: (a, s) => new DriversEditor(a, s),
 });

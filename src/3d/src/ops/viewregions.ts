@@ -7,7 +7,6 @@ import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { editModeHooks } from '../editors/view3d/hooks';
 import { drawHooks } from '../editors/view3d/draw';
 import { renderContext } from '../render/context';
-import { renderPostHooks } from '../render/final/result';
 import type { RenderSettings } from '../data/types';
 import { prefs } from '../app/prefs';
 import { h } from '../ui/h';
@@ -155,28 +154,7 @@ editModeHooks.svg.push((v) => {
   return h('rect', { class: 'render-region', x: x0, y: y0, width: x1 - x0, height: y1 - y0, fill: 'none', stroke: '#e0503c', 'stroke-width': 1.2, 'stroke-dasharray': '6 4' });
 });
 
-/** Final renders only keep the pixels inside the render region (the rest is transparent). */
-renderPostHooks.unshift((res, ctx) => {
-  const r = renderSettings();
-  if (!ctx.final || !r.use_border) return;
-  const W = res.width,
-    H = res.height;
-  const x0 = Math.floor((r.border_min_x ?? 0) * W),
-    x1 = Math.ceil((r.border_max_x ?? 1) * W),
-    // passes are stored top-down, the region is measured bottom-up
-    y0 = Math.floor((1 - (r.border_max_y ?? 1)) * H),
-    y1 = Math.ceil((1 - (r.border_min_y ?? 0)) * H);
-  const mask = (buf: Float32Array | undefined, ch: number) => {
-    if (!buf) return;
-    for (let y = 0; y < H; y++)
-      for (let x = 0; x < W; x++) {
-        if (x >= x0 && x < x1 && y >= y0 && y < y1) continue;
-        buf.fill(0, (y * W + x) * ch, (y * W + x + 1) * ch);
-      }
-  };
-  mask(res.passes.Combined, 4);
-  mask(res.passes.Normal, 4);
-});
+// Final renders render only the region's pixels (src/render/final/job.ts).
 
 // ---------------------------------------------------------------------------
 // operators

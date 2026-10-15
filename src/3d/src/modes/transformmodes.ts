@@ -32,13 +32,14 @@ function install() {
     ],
     poll: (ctx) => Object.values(transformModes).some((h) => h.poll(ctx)) || (!!prev && (!prev.poll || prev.poll(ctx))),
     invoke: (ctx, p) => {
+      // a mode handler that doesn't apply here (e.g. curve radius while editing Grease Pencil) passes the call on
       const h = transformModes[p.mode as string];
-      if (h) return h.poll(ctx) ? h.invoke(ctx, p) : 'CANCELLED';
+      if (h?.poll(ctx)) return h.invoke(ctx, p);
       return prev?.invoke ? prev.invoke(ctx, p) : prev?.exec ? prev.exec(ctx, p) : 'CANCELLED';
     },
     exec: (ctx, p) => {
       const h = transformModes[p.mode as string];
-      if (h) return h.poll(ctx) ? h.exec(ctx, p) : 'CANCELLED';
+      if (h?.poll(ctx)) return h.exec(ctx, p);
       return prev?.exec ? prev.exec(ctx, p) : 'CANCELLED';
     },
   });

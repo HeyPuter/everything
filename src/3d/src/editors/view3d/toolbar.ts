@@ -6,6 +6,7 @@ import { activeTools, uiState } from '../../app/prefs';
 import type { View3D } from './view3d';
 import { enumRow } from '../../ui/widgets';
 import { openMenu } from '../../ui/menu';
+import { toolHeaderRightHooks, optionsButton, hasToolOptions } from './tooloptions';
 
 export interface ToolDef {
   id: string;
@@ -40,8 +41,8 @@ const SELECT_TOOLS: ToolDef[] = [
   { id: 'builtin.select_lasso', label: 'Select Lasso', icon: 'select_lasso', group: 'select', description: 'Select items using lasso selection' },
 ];
 
+// the cursor shares the select tools' box; transform tools and annotate/measure get their own boxes
 const COMMON: (ToolDef | null)[] = [
-  null,
   { id: 'builtin.cursor', label: 'Cursor', icon: 'cursor', description: 'Set the cursor location, drag to transform' },
   null,
   { id: 'builtin.move', label: 'Move', icon: 'transform_move', shortcut: 'G', description: 'Move selected items' },
@@ -151,7 +152,7 @@ export function toolbar(v: View3D): Child {
           key: t.id + i,
           class: { 'tb-tool': true, on: active, 'has-alt': !!choices },
           'data-tool': t.id,
-          'data-tip': `${t.label}${t.shortcut ? `\nShortcut: ${t.shortcut}` : ''}${t.description ? `\n${t.description}` : ''}`,
+          'data-tip': `${t.label}${t.description ? `\n${t.description}` : ''}${t.shortcut ? `\nShortcut: ${t.shortcut}` : ''}`,
           onpointerdown: (e: PointerEvent) => {
             e.preventDefault();
             if (choices && (e.button === 2 || e.detail > 1)) {
@@ -186,6 +187,13 @@ export function toolHeader(v: View3D): Child {
   const settings = toolSettingsFor(cur);
   return h('div', { class: 'tool-header' }, t ? h('span', { class: 'th-tool' }, icon(t.icon), h('span', null, t.label)) : null, settings);
   void v;
+}
+
+/** The whole tool settings row of the 3D view: the active tool's settings, then mode toggles and the Options dropdown at the right. */
+export function toolHeaderRow(v: View3D): Child {
+  const right = toolHeaderRightHooks.map((f) => f()).filter((c) => c !== null && c !== undefined && c !== false);
+  const opts = hasToolOptions() ? optionsButton() : null;
+  return [toolHeader(v), h('div', { key: 'th-gap', class: 'hdr-spacer' }), right.length || opts ? h('div', { key: 'th-right', class: 'th-right' }, ...right, opts) : null];
 }
 
 export const toolSettingsRenderers: Record<string, () => Child> = {};

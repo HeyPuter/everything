@@ -1,10 +1,20 @@
 // Sequencer evaluation: renders the channel stack at a frame on the GPU compositor.
 // Each strip produces a full-frame premultiplied image (source → crop/transform → colour →
 // modifiers) that is blended over the channels below with its blend mode and opacity.
-import type { SeqChannel, SequenceEditor, Strip } from './types';
+import type { SeqChannel, SequenceEditor, Strip, StripModifier } from './types';
 import { Compositor, placementMatrix, isPixelExact, type Source, type Target } from './gpu';
 import { renderStack, contentFrame, effectFac, effectInputs, findStrip, speedInputFrame, TRANSITIONS, activeAt, allStrips } from './strips';
 import { getMovie, loadImage } from './media';
+import { valueAt } from './fades';
+import { animatedStrip } from './stripanim';
+import { bakeCurveTable, nodeCurves } from '../compositor/color/curvemap';
+import { rasterizeMask } from '../mask/raster';
+import { parentResolver } from '../mask/parent';
+import { clipSource } from '../tracking/source';
+import { clipFrameToSourceIndex } from '../tracking/types';
+import { stabilizationMatrix } from '../tracking/stabilize';
+import { app } from '../app/app';
+import { hasRetiming, speedAt } from './retime';
 import { drawTextStrip } from './text';
 import type { RGBA8Image } from './scene';
 
@@ -35,6 +45,14 @@ export function compositor(): Compositor {
 }
 
 let textCanvas: HTMLCanvasElement | null = null;
+let maskCanvas: HTMLCanvasElement | null = null;
+
+/** 3×3 column-major product a·b. */
+function mul3(a: number[], b: number[]): number[] {
+  const r = new Array(9).fill(0);
+  for (let c = 0; c < 3; c++) for (let rI = 0; rI < 3; rI++) for (let k = 0; k < 3; k++) r[c * 3 + rI] += a[k * 3 + rI] * b[c * 3 + k];
+  return r;
+}
 
 export class SequencerRender {
   constructor(
@@ -64,7 +82,19 @@ export class SequencerRender {
     if (this.o.cancelled?.()) throw new Cancelled();
   }
 
+  /** lists being rendered (innermost last): multicam selectors look up their source channel here */
+  private lists: Strip[][] = [];
+
   async renderList(list: Strip[], channels: SeqChannel[] | undefined, frame: number): Promise<Target> {
+    this.lists.push(list);
+    try {
+      return await this.renderListInner(list, channels, frame);
+    } finally {
+      this.lists.pop();
+    }
+  }
+
+  private async renderListInner(list: Strip[], channels: SeqChannel[] | undefined, frame: number): Promise<Target> {
     const c = this.comp;
     let acc = c.acquire();
     c.clear(acc);
@@ -84,7 +114,7 @@ export class SequencerRender {
       }
       if (!layer) continue;
       const out = c.acquire();
-      c.blend(out, acc, layer, s.blend_type, s.blend_alpha);
+      c.blend(out, acc, layer, s.blend_type, valueAt(s, 'blend_alpha', frame));
       c.release(acc);
       c.release(layer);
       acc = out;
@@ -92,8 +122,60 @@ export class SequencerRender {
     return acc;
   }
 
+  /** masks of the modifiers of strips being rendered (released after the strip) */
+  private modMasks = new Map<StripModifier, Target>();
+  /** strips whose modifier masks are being prepared (a strip cannot mask itself through others) */
+  private masking = new Set<Strip>();
+
   /** A strip's full-frame image at `frame` (null if it produces nothing). */
   async renderStrip(s: Strip, frame: number): Promise<Target | null> {
+    const prepared: StripModifier[] = [];
+    for (const m of s.modifiers ?? []) {
+      if (m.mute || !m.input_mask_type || m.input_mask_type === 'NONE') continue;
+      const t = await this.modifierMask(m, s, frame);
+      if (t) {
+        this.modMasks.set(m, t);
+        prepared.push(m);
+      }
+    }
+    try {
+      return await this.renderStripInner(s, frame);
+    } finally {
+      for (const m of prepared) {
+        this.comp.release(this.modMasks.get(m));
+        this.modMasks.delete(m);
+      }
+    }
+  }
+
+  /** The mask image of a modifier: another strip's image or a rasterized mask data-block. */
+  private async modifierMask(m: StripModifier, owner: Strip, frame: number): Promise<Target | null> {
+    const c = this.comp;
+    const o = this.o;
+    if (m.input_mask_type === 'STRIP') {
+      const src = m.input_mask_strip ? findStrip(this.all, m.input_mask_strip) : null;
+      if (!src || src === owner || this.masking.has(src)) return null;
+      this.masking.add(owner);
+      try {
+        return await this.renderStrip(src, frame);
+      } finally {
+        this.masking.delete(owner);
+      }
+    }
+    const mk = m.input_mask_id ? app.doc.masks?.[m.input_mask_id] : undefined;
+    if (!mk) return null;
+    maskCanvas ??= document.createElement('canvas');
+    rasterizeMask(mk, frame, this.Wk, this.Hk, true, maskCanvas, parentResolver(app.doc));
+    const src = c.upload(maskCanvas, o.W, o.H);
+    const t = c.acquire();
+    c.place(t, src, placementMatrix(o.W, o.H, o.W, o.H, { offset_x: 0, offset_y: 0, scale_x: 1, scale_y: 1, rotation: 0, origin: [0.5, 0.5] }, o.k), [0, 0, o.W, o.H], false, false, true);
+    c.dropSource(src);
+    return t;
+  }
+
+  private async renderStripInner(strip: Strip, frame: number): Promise<Target | null> {
+    // keyframed properties at this frame
+    const s = animatedStrip(strip, frame);
     const c = this.comp;
     const o = this.o;
     switch (s.type) {
@@ -137,7 +219,7 @@ export class SequencerRender {
         const w = s.orig_width || info.width,
           h = s.orig_height || info.height;
         if (o.live) {
-          const v = m.live(t);
+          const v = m.live(t, hasRetiming(s) ? Math.max(0.0625, Math.min(16, speedAt(s, frame - s.frame_start))) : 1);
           if (!v) return null;
           const src = c.upload(v, w, h);
           const out = this.finish(s, src);
@@ -165,6 +247,58 @@ export class SequencerRender {
       }
       case 'META': {
         const t = await this.renderList(s.strips ?? [], s.channels, frame);
+        return this.finish(s, c.asSource(t, o.W, o.H), true, t);
+      }
+      case 'MOVIECLIP': {
+        const clip = s.clip ? app.doc.movieclips?.[s.clip] : undefined;
+        if (!clip) return null;
+        const srcP = clipSource(clip);
+        if (!srcP) return null;
+        const fs = await srcP;
+        this.check();
+        const clipFrame = contentFrame(s, frame) + 1;
+        const idx = clipFrameToSourceIndex(clip, clipFrame);
+        if (idx < 0) return null;
+        const bmp = await fs.get(idx);
+        this.check();
+        if (!bmp) return null;
+        const [w, h] = clip.size[0] ? clip.size : [bmp.width, bmp.height];
+        const src = c.upload(bmp, w, h);
+        let out: Target;
+        if (s.stabilize2d && clip.tracking.stabilization.use_2d_stabilization) {
+          // stabilize in the clip's pixel space, then place like any image
+          const T = stabilizationMatrix(clip, clipFrame);
+          const M = placementMatrix(o.W, o.H, w, h, s.transform, o.k);
+          const S3 = [T[0], T[1], 0, T[2], T[3], 0, T[4], T[5], 1];
+          const MS = mul3(M, S3);
+          out = c.acquire();
+          const cr = s.crop;
+          c.place(out, src, MS as typeof M, [cr.min_x, cr.min_y, w - cr.max_x, h - cr.max_y], s.use_flip_x, s.use_flip_y, false);
+          out = this.finish({ ...s, transform: { ...s.transform, offset_x: 0, offset_y: 0, scale_x: 1, scale_y: 1, rotation: 0 }, crop: { min_x: 0, max_x: 0, min_y: 0, max_y: 0 }, use_flip_x: false, use_flip_y: false }, c.asSource(out, o.W, o.H), true, out);
+        } else out = this.finish(s, src);
+        c.dropSource(src);
+        return out;
+      }
+      case 'MASK': {
+        const m = s.mask ? app.doc.masks?.[s.mask] : undefined;
+        if (!m) return null;
+        // the mask's own animation runs from the strip start
+        const mf = m.frame_start + Math.floor(frame - s.frame_start);
+        maskCanvas ??= document.createElement('canvas');
+        rasterizeMask(m, mf, this.Wk, this.Hk, true, maskCanvas, parentResolver(app.doc));
+        const src = c.upload(maskCanvas, o.W, o.H);
+        const out = this.finish(s, src);
+        c.dropSource(src);
+        return out;
+      }
+      case 'MULTICAM': {
+        // shows the strip of the source channel (below the selector) at this frame
+        const list = this.lists[this.lists.length - 1] ?? [];
+        const ch = s.multicam_source ?? 0;
+        if (ch <= 0 || ch >= s.channel) return null;
+        const src = list.find((x) => x.channel === ch && !x.mute && x.type !== 'SOUND' && activeAt(x, frame));
+        const t = src ? await this.renderStrip(src, frame) : null;
+        if (!t) return null;
         return this.finish(s, c.asSource(t, o.W, o.H), true, t);
       }
       case 'SOUND':
@@ -268,12 +402,26 @@ export class SequencerRender {
     }
     for (const m of s.modifiers ?? []) {
       if (m.mute) continue;
-      const n = c.acquire();
+      let n = c.acquire();
       if (m.type === 'COLOR_BALANCE' && m.color_balance) c.colorBalance(n, img, m.color_balance, m.color_multiply ?? 1);
       else if (m.type === 'BRIGHT_CONTRAST') c.brightContrast(n, img, m.bright ?? 0, m.contrast ?? 0);
+      else if (m.type === 'WHITE_BALANCE') c.whiteBalance(n, img, m.white_value ?? [1, 1, 1]);
+      else if (m.type === 'CURVES' && m.curve_mapping) {
+        const cm = m.curve_mapping;
+        const key = JSON.stringify([0, 1, 2, 3].map((i) => cm[`curve_${i}`]).concat([cm.curve_extend ?? '']));
+        c.curves(n, img, key, () => bakeCurveTable(nodeCurves(cm, 4)), (cm.black_level as number[]) ?? [0, 0, 0], (cm.white_level as number[]) ?? [1, 1, 1]);
+      }
       else {
         c.release(n);
         continue;
+      }
+      // a mask limits where the modifier applies
+      const mask = this.modMasks.get(m);
+      if (mask) {
+        const mixed = c.acquire();
+        c.maskMix(mixed, img, n, mask);
+        c.release(n);
+        n = mixed;
       }
       c.release(img);
       img = n;

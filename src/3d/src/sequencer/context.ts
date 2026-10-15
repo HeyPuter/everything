@@ -30,7 +30,11 @@ export interface SeqEditorLike {
   previewScale(): number;
   previewFit(): void;
   previewZoom(factor: number): void;
-  startBoxSelect(e: { clientX: number; clientY: number }, mode?: 'SET' | 'ADD' | 'SUB'): void;
+  startBoxSelect(e: { clientX: number; clientY: number }, mode?: 'SET' | 'ADD' | 'SUB', startNow?: boolean, opts?: { includeHandles?: boolean; ignoreConnections?: boolean }): void;
+  startCircle(mode?: 'SET' | 'ADD' | 'SUB'): void;
+  startLasso(e: { clientX: number; clientY: number }, mode?: 'SET' | 'ADD' | 'SUB'): void;
+  /** strip under a client point (timeline or preview, by the hovered region) */
+  pickStrip(clientX: number, clientY: number): Strip | null;
   /** strips flagged as overlapping during a transform (drawn red) */
   invalid: Set<Strip>;
   showSeconds: boolean;

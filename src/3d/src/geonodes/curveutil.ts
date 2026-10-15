@@ -22,7 +22,24 @@ export function curveLengths(c: CurvesComponent): {
   return { segment, total };
 }
 
+/** Per curve: first and last tangent overrides (NaN = none), e.g. Bézier ends following handles. */
+export const endTangentOverrides = new WeakMap<CurvesComponent, Float32Array>();
+
 export function curveTangents(c: CurvesComponent): Float32Array {
+  const out = polyTangents(c);
+  const ends = endTangentOverrides.get(c);
+  if (ends)
+    for (let k = 0; k < c.curveCount; k++) {
+      const s = c.curveOffsets[k],
+        e = c.curveOffsets[k + 1];
+      if (e - s < 2) continue;
+      if (!Number.isNaN(ends[k * 6])) out.set(ends.subarray(k * 6, k * 6 + 3), s * 3);
+      if (!Number.isNaN(ends[k * 6 + 3])) out.set(ends.subarray(k * 6 + 3, k * 6 + 6), (e - 1) * 3);
+    }
+  return out;
+}
+
+function polyTangents(c: CurvesComponent): Float32Array {
   const P = c.positions,
     out = new Float32Array(P.length);
   for (let k = 0; k < c.curveCount; k++) {
@@ -84,10 +101,24 @@ function rotateAround(v: number[], axis: number[], angle: number): number[] {
 export function curveNormals(c: CurvesComponent, tangents = curveTangents(c)): Float32Array {
   const out = new Float32Array(c.positions.length);
   const tilt = c.attrs.get('tilt');
+  const modes = c.attrs.get('normal_mode');
+  const custom = c.attrs.get('custom_normal');
   for (let k = 0; k < c.curveCount; k++) {
     const s = c.curveOffsets[k],
       e = c.curveOffsets[k + 1];
     if (e <= s) continue;
+    const mode = modes && modes.domain === 'CURVE' ? modes.data[k] : 0;
+    if (mode === 1 || (mode === 2 && custom)) {
+      // Z up: horizontal, to the right of the direction of travel; free: the stored normal
+      for (let i = s; i < e; i++) {
+        let n = mode === 1 ? [tangents[i * 3 + 1], -tangents[i * 3], 0] : [custom!.data[i * 3], custom!.data[i * 3 + 1], custom!.data[i * 3 + 2]];
+        const l = Math.hypot(n[0], n[1], n[2]);
+        n = l > 1e-9 ? n.map((x) => x / l) : mode === 1 ? [1, 0, 0] : [0, 0, 1];
+        out.set(n, i * 3);
+      }
+      applyTilt(out, tangents, tilt?.data, s, e);
+      continue;
+    }
     const t0 = [tangents[s * 3], tangents[s * 3 + 1], tangents[s * 3 + 2]];
     // initial normal: tangent × Z (horizontal, to the right of the direction of travel);
     // curves starting along Z use the X axis
@@ -140,15 +171,19 @@ export function curveNormals(c: CurvesComponent, tangents = curveTangents(c)): F
         out.set(r, i * 3);
       }
     }
-    if (tilt)
-      for (let i = s; i < e; i++) {
-        const a = tilt.data[i];
-        if (!a) continue;
-        const tt = [tangents[i * 3], tangents[i * 3 + 1], tangents[i * 3 + 2]];
-        out.set(rotateAround([out[i * 3], out[i * 3 + 1], out[i * 3 + 2]], tt, a), i * 3);
-      }
+    applyTilt(out, tangents, tilt?.data, s, e);
   }
   return out;
+}
+
+function applyTilt(out: Float32Array, tangents: Float32Array, tilt: ArrayLike<number> | undefined, s: number, e: number) {
+  if (!tilt) return;
+  for (let i = s; i < e; i++) {
+    const a = tilt[i];
+    if (!a) continue;
+    const tt = [tangents[i * 3], tangents[i * 3 + 1], tangents[i * 3 + 2]];
+    out.set(rotateAround([out[i * 3], out[i * 3 + 1], out[i * 3 + 2]], tt, a), i * 3);
+  }
 }
 
 /** Euler XYZ rotation that maps local Z to `z` and local X to `x` (orthonormalized). */

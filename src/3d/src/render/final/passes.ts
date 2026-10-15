@@ -7,7 +7,7 @@ import type { PassName } from './result';
  * the camera axis, 1e10 for background), world Normal and Mist (camera distance mapped
  * through the world mist range).
  */
-export function passesFromGuide(guide: Float32Array, W: number, H: number, invProj: number[], ortho: boolean, mist: { start: number; depth: number }, want: { z: boolean; normal: boolean; mist: boolean }) {
+export function passesFromGuide(guide: Float32Array, W: number, H: number, invProj: number[], ortho: boolean, mist: { start: number; depth: number; falloff?: 'QUADRATIC' | 'LINEAR' | 'INVERSE_QUADRATIC' }, want: { z: boolean; normal: boolean; mist: boolean }) {
   const out: Partial<Record<PassName, Float32Array>> = {};
   const n = W * H;
   const Z = want.z || want.mist ? new Float32Array(n) : null;
@@ -41,7 +41,7 @@ export function passesFromGuide(guide: Float32Array, W: number, H: number, invPr
             const cz = len > 0 ? -vz / len : 1;
             dist = d / Math.max(1e-6, cz);
           }
-          M[i] = mistFactor(dist, mist.start, mist.depth);
+          M[i] = mistFactor(dist, mist.start, mist.depth, mist.falloff);
         }
       }
     }

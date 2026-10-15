@@ -4,6 +4,8 @@ import './shader/defs';
 import './shader/nodegen';
 import './shader/material';
 import './shader/world';
+import './shader/extraui';
+import './shader/constants';
 import './editor/nodes.css';
 import './editor/ops';
 import './editor/commands';

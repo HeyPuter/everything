@@ -1,6 +1,8 @@
 // Viewport display of geometry nodes results that the scene mesh does not show: point clouds
 // (shaded spheres sized by radius), curves and loose edges next to faces, generated materials
 // (Set Material) and the active Viewer's attribute colors.
+import { evaluatedCurves } from './curves/curvedata';
+import { curvesWithGreasePencil } from './curves/gpdata';
 import { Scene, Points, LineSegments, BufferGeometry, BufferAttribute, ShaderMaterial, LineBasicMaterial, Color, Vector4, type Camera } from 'three';
 import { app } from '../app/app';
 import { viewportExtensions } from '../editors/view3d/hooks';
@@ -60,8 +62,9 @@ function build(g: GeometrySet, hasFaces: boolean): (Points | LineSegments)[] {
     out.push(p);
   }
   const seg: number[] = [];
-  if (g.curves) {
-    const c = g.curves;
+  const dc = curvesWithGreasePencil(g);
+  if (dc) {
+    const c = evaluatedCurves(dc);
     for (let k = 0; k < c.curveCount; k++) {
       const s = c.curveOffsets[k],
         e = c.curveOffsets[k + 1];

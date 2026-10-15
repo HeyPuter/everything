@@ -4,6 +4,7 @@ import type { DocumentData, NodeData, NodeTreeData, ObjectData, SocketValue } fr
 import type { Field } from './field';
 import type { GeometrySet } from './geometry';
 import type { FieldType } from './types';
+import type { TreeEval } from './evaluator';
 
 /** Value flowing through a socket. */
 export type Val = number | boolean | string | number[] | Field | GeometrySet | null | undefined;
@@ -30,6 +31,8 @@ export interface EvalEnv {
 
 export interface ExecContext {
   node: NodeData;
+  /** the evaluator running this node (zones evaluate their bodies through it) */
+  evaluator: TreeEval;
   tree: NodeTreeData;
   env: EvalEnv;
   /** unique, deterministic path of the node (for anonymous attribute names) */
@@ -41,6 +44,8 @@ export interface ExecContext {
   geometry(id: string): GeometrySet;
   /** all geometries linked into a multi-input socket (in link order) */
   geometries(id: string): GeometrySet[];
+  /** all values linked into a multi-input socket (in link order) */
+  values(id: string): Val[];
   field(id: string, type?: FieldType): Field;
   float(id: string): number;
   int(id: string): number;
@@ -70,6 +75,9 @@ export interface GeoNodeExec {
 }
 
 export const geoExecs: Record<string, GeoNodeExec> = {};
+
+/** Node types evaluated in a modifier's tree even when nothing uses their outputs (gizmos). */
+export const alwaysEvaluated = new Set<string>();
 
 export function registerExec(idname: string, e: GeoNodeExec) {
   geoExecs[idname] = e;

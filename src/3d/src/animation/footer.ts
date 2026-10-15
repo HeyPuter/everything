@@ -20,15 +20,15 @@ export const KEY_TYPES: [Keyframe['type'], string][] = [
   ['GENERATED', 'Generated'],
 ];
 
-function popoverButton(label: string, ic: string | null, body: () => Child) {
+function popoverButton(label: string, ic: string | null, body: () => Child, cls = 'hdr-menu hdr-pop') {
   return h(
     'button',
     {
       key: `pop-${label}`,
-      class: 'hdr-menu',
+      class: cls,
       onpointerdown: (e: PointerEvent) => {
         e.preventDefault();
-        openPopover(e.currentTarget as HTMLElement, () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, label), body()), { width: 240 });
+        openPopover(e.currentTarget as HTMLElement, () => h('div', { class: 'pop-panel' }, body()), { width: 260 });
       },
     },
     ic ? icon(ic) : null,
@@ -37,14 +37,14 @@ function popoverButton(label: string, ic: string | null, body: () => Child) {
   );
 }
 
-export function playbackFooter(): Child {
+/** A label/value row of a popover (label right-aligned on the left, controls on the right). */
+const popRow = (label: string, ...content: Child[]) => h('div', { class: 'opt-split' }, h('span', { class: 'opt-label' }, label), h('div', { class: 'opt-col' }, ...content));
+
+function playbackPopover(): Child {
   const s = app.doc.scene;
-  const ts = s.tool_settings;
-  const playing = app.playing;
-  return h(
-    'div',
-    { class: 'hdr-row anim-footer-row' },
-    popoverButton('Playback', null, () => [
+  return [
+    popRow(
+      'Sync',
       enumMenu(
         'anim-sync',
         [
@@ -55,102 +55,79 @@ export function playbackFooter(): Child {
         s.sync_mode,
         (v) => ((s.sync_mode = v as 'NONE'), app.pushUndo('Sync Mode'), app.changed('ui')),
       ),
-      h('div', { class: 'pop-label' }, 'Playback'),
+    ),
+    popRow(
+      'Playback',
       checkbox('anim-limit-range', 'Limit to Frame Range', !!s.lock_frame_selection_to_range, (v) => ((s.lock_frame_selection_to_range = v), app.pushUndo('Limit to Frame Range'), app.changed('ui')), {
         tip: 'Scrubbing stays inside the scene (or preview) frame range',
       }),
       checkbox('anim-follow', 'Follow Current Frame', playbackOptions.follow, (v) => ((playbackOptions.follow = v), app.changed('ui')), {
         tip: 'Animation editors scroll to keep the playhead in view during playback',
       }),
-    ]),
-    popoverButton('Keying', 'keyframe', () => [
-      h('div', { class: 'pop-label' }, 'Active Keying Set'),
-      enumMenu(
-        'anim-ks',
-        keyingSetItems().map(([value, label]) => ({ value, label })),
-        s.keying_set ?? 'LocRotScale',
-        (v) => ((s.keying_set = v as 'Location'), app.pushUndo('Keying Set'), app.changed('ui')),
-      ),
-      h('div', { class: 'pop-label' }, 'New Keyframe Type'),
-      enumMenu(
-        'anim-kt',
-        KEY_TYPES.map(([value, label]) => ({ value, label })),
-        ts.keyframe_type,
-        (v) => ((ts.keyframe_type = v as Keyframe['type']), app.pushUndo('Keyframe Type'), app.changed('ui')),
-      ),
-    ]),
+    ),
+  ];
+}
+
+function keyingPopover(): Child {
+  const s = app.doc.scene;
+  const ts = s.tool_settings;
+  return [
+    h('div', { class: 'opt-head' }, 'Active Keying Set'),
+    enumMenu(
+      'anim-ks',
+      keyingSetItems().map(([value, label]) => ({ value, label })),
+      s.keying_set ?? 'LocRotScale',
+      (v) => ((s.keying_set = v as 'Location'), app.pushUndo('Keying Set'), app.changed('ui')),
+    ),
+    h('div', { class: 'opt-head' }, 'New Keyframe Type'),
+    enumMenu(
+      'anim-kt',
+      KEY_TYPES.map(([value, label]) => ({ value, label })),
+      ts.keyframe_type,
+      (v) => ((ts.keyframe_type = v as Keyframe['type']), app.pushUndo('Keyframe Type'), app.changed('ui')),
+    ),
+  ];
+}
+
+const tbtn = (ic: string, tip: string, onclick: () => void, on = false) => h('button', { key: tip, class: { 'hdr-toggle': true, on }, 'data-tip': tip, onclick }, icon(ic));
+
+/** Header controls shared by the Timeline, Dope Sheet and Sequencer: playback options, auto keying, transport, frames. */
+export function playbackFooter(extra: Child = null): Child {
+  const s = app.doc.scene;
+  const ts = s.tool_settings;
+  const playing = app.playing;
+  return h(
+    'div',
+    { class: 'hdr-row anim-footer-row' },
+    popoverButton('Playback', null, playbackPopover),
     h('div', { class: 'hdr-spacer' }),
+    // auto keying with the keying options in its dropdown
     h(
-      'button',
-      {
-        class: {
-          'hdr-toggle': true,
-          on: ts.use_keyframe_insert_auto,
-          rec: true,
+      'div',
+      { key: 'rec', class: 'hdr-group' },
+      h(
+        'button',
+        {
+          key: 'rec-toggle',
+          class: { 'hdr-toggle': true, on: ts.use_keyframe_insert_auto, rec: true },
+          'data-tip': 'Auto Keying\nAutomatic keyframe insertion for objects, bones and masks',
+          onclick: () => ((ts.use_keyframe_insert_auto = !ts.use_keyframe_insert_auto), app.pushUndo('Auto Keying'), app.changed('ui')),
         },
-        'data-tip': 'Auto Keying\nAutomatic keyframe insertion for objects, bones and masks',
-        onclick: () => ((ts.use_keyframe_insert_auto = !ts.use_keyframe_insert_auto), app.pushUndo('Auto Keying'), app.changed('ui')),
-      },
-      icon('rec'),
+        icon('rec'),
+      ),
+      popoverButton('', null, keyingPopover, 'hdr-icondrop hidden-icon keying-drop'),
     ),
     h(
       'div',
-      { class: 'hdr-group play' },
-      h(
-        'button',
-        {
-          class: 'hdr-toggle',
-          'data-tip': 'Jump to Endpoint\nJump to first frame (Shift ←)',
-          onclick: () => app.run('screen.frame_jump', { end: false }),
-        },
-        icon('rew'),
-      ),
-      h(
-        'button',
-        {
-          class: 'hdr-toggle',
-          'data-tip': 'Jump to Keyframe\nPrevious keyframe (↓)',
-          onclick: () => app.run('screen.keyframe_jump', { next: false }),
-        },
-        icon('prev_keyframe'),
-      ),
-      h(
-        'button',
-        {
-          class: { 'hdr-toggle': true, on: playing === 'reverse' },
-          'data-tip': 'Play Animation in Reverse',
-          onclick: () => app.run('screen.animation_play', { reverse: true }),
-        },
-        icon(playing === 'reverse' ? 'pause' : 'play_reverse'),
-      ),
-      h(
-        'button',
-        {
-          class: { 'hdr-toggle': true, on: playing === 'forward' },
-          'data-tip': 'Play Animation (Space)',
-          onclick: () => app.run('screen.animation_play'),
-        },
-        icon(playing === 'forward' ? 'pause' : 'play'),
-      ),
-      h(
-        'button',
-        {
-          class: 'hdr-toggle',
-          'data-tip': 'Jump to Keyframe\nNext keyframe (↑)',
-          onclick: () => app.run('screen.keyframe_jump', { next: true }),
-        },
-        icon('next_keyframe'),
-      ),
-      h(
-        'button',
-        {
-          class: 'hdr-toggle',
-          'data-tip': 'Jump to Endpoint\nJump to last frame (Shift →)',
-          onclick: () => app.run('screen.frame_jump', { end: true }),
-        },
-        icon('ff'),
-      ),
+      { key: 'transport', class: 'hdr-group play' },
+      tbtn('rew', 'Jump to Endpoint\nJump to first frame (Shift ←)', () => app.run('screen.frame_jump', { end: false })),
+      tbtn('prev_keyframe', 'Jump to Keyframe\nPrevious keyframe (↓)', () => app.run('screen.keyframe_jump', { next: false })),
+      tbtn(playing === 'reverse' ? 'pause' : 'play_reverse', 'Play Animation in Reverse', () => app.run('screen.animation_play', { reverse: true }), playing === 'reverse'),
+      tbtn(playing === 'forward' ? 'pause' : 'play', 'Play Animation (Space)', () => app.run('screen.animation_play'), playing === 'forward'),
+      tbtn('next_keyframe', 'Jump to Keyframe\nNext keyframe (↑)', () => app.run('screen.keyframe_jump', { next: true })),
+      tbtn('ff', 'Jump to Endpoint\nJump to last frame (Shift →)', () => app.run('screen.frame_jump', { end: true })),
     ),
+    extra,
     h('div', { class: 'hdr-spacer' }),
     h(
       'div',
@@ -164,23 +141,23 @@ export function playbackFooter(): Child {
       }),
     ),
     h(
-      'button',
-      {
-        class: { 'hdr-toggle': true, on: !!s.use_preview_range },
-        'data-tip': 'Use Preview Range\nUse an alternative start/end frame range for animation playback and view renders',
-        onclick: () => (
-          (s.use_preview_range = !s.use_preview_range),
-          (s.frame_preview_start ??= s.frame_start),
-          (s.frame_preview_end ??= s.frame_end),
-          app.pushUndo('Preview Range'),
-          app.changed('ui')
-        ),
-      },
-      icon('time'),
-    ),
-    h(
       'div',
       { class: 'tl-range' },
+      h(
+        'button',
+        {
+          class: { 'hdr-toggle': true, 'tl-preview': true, on: !!s.use_preview_range },
+          'data-tip': 'Use Preview Range\nUse an alternative start/end frame range for animation playback and view renders',
+          onclick: () => (
+            (s.use_preview_range = !s.use_preview_range),
+            (s.frame_preview_start ??= s.frame_start),
+            (s.frame_preview_end ??= s.frame_end),
+            app.pushUndo('Preview Range'),
+            app.changed('ui')
+          ),
+        },
+        icon('time'),
+      ),
       numberField({
         id: 'anim-start',
         label: 'Start',

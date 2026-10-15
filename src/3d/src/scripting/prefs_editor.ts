@@ -192,9 +192,14 @@ export class PreferencesEditor implements Editor {
             splitRow('Resolution Scale', numberField({ id: 'pf-scale', value: prefs.resolution_scale, min: 0.25, max: 4, step: 0.05, precision: 2, slider: true, set: (v, f) => f && setPref('resolution_scale', Math.round(v * 100) / 100) })),
             splitRow('Font Size', numberField({ id: 'pf-font', value: prefs.font_size, min: 8, max: 24, int: true, unit: 'pixel', set: (v, f) => f && setPref('font_size', Math.round(v)) })),
             splitRow('', checkbox('pf-tips', 'Tooltips', prefx.show_tooltips, (v) => setPref('show_tooltips', v)), undefined, 'check'),
+            splitRow('', checkbox('pf-tips-py', 'Python Tooltips', prefs.show_tooltips_python, (v) => setPref('show_tooltips_python', v), { tip: 'Python Tooltips\nTooltips end with the scripting call or data path of the button' }), undefined, 'check'),
           ]),
           panel('pf-editors', 'Editors', () => [splitRow('', checkbox('pf-splash', 'Splash Screen', prefs.show_splash, (v) => setPref('show_splash', v), { tip: 'Splash Screen\nShow the splash screen with recent files when the application starts fresh' }), undefined, 'check')]),
-          panel('pf-status', 'Status Bar', () => [splitRow('', checkbox('pf-stats', 'Scene Statistics', prefs.show_statusbar_stats, (v) => setPref('show_statusbar_stats', v)), undefined, 'check')]),
+          panel('pf-status', 'Status Bar', () => [
+            splitRow('', checkbox('pf-stats', 'Scene Statistics', prefs.show_statusbar_stats, (v) => setPref('show_statusbar_stats', v)), undefined, 'check'),
+            splitRow('', checkbox('pf-duration', 'Scene Duration', prefs.show_statusbar_scene_duration, (v) => setPref('show_statusbar_scene_duration', v)), undefined, 'check'),
+            splitRow('', checkbox('pf-version', 'App Version', prefs.show_statusbar_version, (v) => setPref('show_statusbar_version', v)), undefined, 'check'),
+          ]),
         ];
       case 'VIEWPORT':
         return [

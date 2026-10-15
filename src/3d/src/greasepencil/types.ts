@@ -33,6 +33,8 @@ export interface GPDrawing {
   fill_opacity: Float32Array;
   /** strokes sharing a non-zero fill id are filled together (even-odd: inner curves are holes) */
   fill_id: Int32Array;
+  /** per point weights of the vertex groups, by group name */
+  weights?: Record<string, Float32Array>;
 }
 
 export interface GPFrame {
@@ -61,6 +63,33 @@ export interface GPLayer {
   scale: Vec3;
   /** keyframes sorted by frame_number */
   frames: GPFrame[];
+  /** Relations: parent object (and bone), pass index for modifier / effect filters */
+  parent?: string | null;
+  parent_type?: 'OBJECT' | 'BONE';
+  parent_bone?: string;
+  /** inverse of the parent's world matrix at parenting time, relative to the object (column-major) */
+  parent_inverse?: number[];
+  pass_index?: number;
+  /** Masks: the layer only shows inside (or outside, inverted) the strokes of its mask layers */
+  use_masks?: boolean;
+  mask_layers?: GPLayerMask[];
+  active_mask_index?: number;
+  /** Display: channel color in the dope sheet */
+  channel_color?: Color;
+  /** name of the layer group the layer belongs to */
+  parent_group?: string;
+}
+
+export interface GPLayerGroup {
+  name: string;
+  expanded?: boolean;
+  color_tag?: string;
+}
+
+export interface GPLayerMask {
+  name: string;
+  hide: boolean;
+  invert: boolean;
 }
 
 export interface GreasePencilData {
@@ -82,6 +111,11 @@ export interface GreasePencilData {
   use_onion_fade: boolean;
   use_onion_loop: boolean;
   users?: number;
+  /** layer groups (members are kept next to each other in the stack) */
+  layer_groups?: GPLayerGroup[];
+  /** vertex groups (weights live on the drawings, by name) */
+  vertex_groups?: { name: string; lock_weight?: boolean }[];
+  active_vertex_group_index?: number;
 }
 
 export interface MaterialGPencilStyle {
@@ -92,7 +126,18 @@ export interface MaterialGPencilStyle {
   fill_color: [number, number, number, number];
   mode: 'LINE' | 'DOTS' | 'BOX';
   stroke_style: 'SOLID';
-  fill_style: 'SOLID';
+  fill_style: 'SOLID' | 'GRADIENT';
+  /** gradient fills */
+  gradient_type?: 'LINEAR' | 'RADIAL';
+  mix_color?: [number, number, number, number];
+  mix_factor?: number;
+  flip?: boolean;
+  texture_offset?: [number, number];
+  texture_angle?: number;
+  texture_scale?: [number, number];
+  /** holdout: cut the strokes / fills below instead of drawing */
+  use_stroke_holdout?: boolean;
+  use_fill_holdout?: boolean;
   alignment_mode: 'PATH' | 'OBJECT' | 'FIXED';
   hide: boolean;
   lock: boolean;
@@ -111,6 +156,21 @@ export interface GPToolSettings {
   use_gpencil_draw_additive: boolean;
   use_gpencil_draw_onback: boolean;
   use_grease_pencil_multi_frame_editing: boolean;
+  /** Sculpt / Vertex Paint: only affect selected points, strokes or segments */
+  use_gpencil_select_mask_point?: boolean;
+  use_gpencil_select_mask_stroke?: boolean;
+  use_gpencil_select_mask_segment?: boolean;
+  use_gpencil_vertex_select_mask_point?: boolean;
+  use_gpencil_vertex_select_mask_stroke?: boolean;
+  use_gpencil_vertex_select_mask_segment?: boolean;
+  /** Sculpt auto-masking */
+  use_automasking_stroke?: boolean;
+  use_automasking_layer_stroke?: boolean;
+  use_automasking_material_stroke?: boolean;
+  use_automasking_layer_active?: boolean;
+  use_automasking_material_active?: boolean;
+  /** Edit Mode: scaling also scales the thickness */
+  use_scale_thickness?: boolean;
   /** per tool brush settings, keyed by tool id */
   gpencil_brushes: Record<string, GPBrush>;
   /** active Draw brush preset id */
@@ -123,12 +183,27 @@ export interface GPBrush {
   strength: number;
   use_pressure_size: boolean;
   use_pressure_strength: boolean;
-  /** Draw: post smoothing factor and steps */
+  /** Draw: post-processing (smoothing factor and steps, subdivisions, simplify, trim) */
+  use_settings_postprocess?: boolean;
   pen_smooth_factor?: number;
   pen_smooth_steps?: number;
+  pen_subdivision_steps?: number;
+  simplify_factor?: number;
+  use_trim?: boolean;
+  /** Draw: stabilizer (lazy mouse) */
+  use_smooth_stroke?: boolean;
+  smooth_stroke_radius?: number;
+  smooth_stroke_factor?: number;
+  /** Draw: per point randomness */
+  use_settings_random?: boolean;
+  random_pressure?: number;
+  random_strength?: number;
+  pen_jitter?: number;
   /** Draw: color mode */
   color_mode?: 'MATERIAL' | 'VERTEXCOLOR';
   color?: Color;
+  /** swapped with `color` by X */
+  secondary_color?: Color;
   /** Erase */
   eraser_mode?: 'SOFT' | 'HARD' | 'STROKE';
   /** Tint */
@@ -137,8 +212,24 @@ export interface GPBrush {
   fill_layer_mode?: 'ACTIVE' | 'ABOVE' | 'BELOW' | 'ALL_ABOVE' | 'ALL_BELOW' | 'VISIBLE';
   dilate?: number;
   fill_direction?: 'NORMAL' | 'INVERT';
+  /** Fill gap closure: extension length (world units), mode, stop at strokes, show the lines */
+  fill_extend?: number;
+  fill_extend_mode?: 'EXTEND' | 'RADIUS';
+  use_collide_strokes?: boolean;
+  show_fill_extend?: boolean;
   /** Primitives: number of subdivisions per edge */
   subdivision?: number;
   /** Sculpt brushes: affect the stroke falloff */
   direction?: 'ADD' | 'SUBTRACT';
+}
+
+/** A visual effect applied to a grease pencil object's rendered image. */
+export interface ShaderFx {
+  id: string;
+  name: string;
+  type: string;
+  show_viewport: boolean;
+  show_render: boolean;
+  show_expanded: boolean;
+  [key: string]: unknown;
 }

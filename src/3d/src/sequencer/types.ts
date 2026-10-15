@@ -25,7 +25,10 @@ export type StripType =
   | 'TRANSFORM'
   | 'SPEED'
   | 'GLOW'
-  | 'GAUSSIAN_BLUR';
+  | 'GAUSSIAN_BLUR'
+  | 'MULTICAM'
+  | 'MASK'
+  | 'MOVIECLIP';
 
 export type BlendType =
   | 'REPLACE'
@@ -84,7 +87,16 @@ export interface StripCrop {
   max_y: number;
 }
 
-export type ModifierType = 'COLOR_BALANCE' | 'BRIGHT_CONTRAST';
+export type ModifierType = 'COLOR_BALANCE' | 'BRIGHT_CONTRAST' | 'WHITE_BALANCE' | 'CURVES' | 'SOUND_EQUALIZER';
+
+/** One band of the sound equalizer. */
+export interface EqBand {
+  type: 'LOWSHELF' | 'PEAKING' | 'HIGHSHELF';
+  frequency: number;
+  /** dB */
+  gain: number;
+  q: number;
+}
 
 export interface ColorBalanceData {
   correction_method: 'LIFT_GAMMA_GAIN' | 'OFFSET_POWER_SLOPE';
@@ -113,6 +125,25 @@ export interface StripModifier {
   /** BRIGHT_CONTRAST */
   bright?: number;
   contrast?: number;
+  /** WHITE_BALANCE: this colour becomes white */
+  white_value?: number[];
+  /** SOUND_EQUALIZER: filter bands (sound strips) */
+  bands?: EqBand[];
+  /** CURVES: curve mapping (combined, red, green, blue) stored like the RGB Curves node's props */
+  curve_mapping?: Record<string, import('../data/types').SocketValue>;
+  /** limit the modifier to a mask: another strip's image or a mask data-block */
+  input_mask_type?: 'NONE' | 'STRIP' | 'ID';
+  input_mask_strip?: string | null;
+  input_mask_id?: string | null;
+}
+
+/** Retiming key: timeline offset from frame_start → content frame offset. */
+export interface RetimingKey {
+  frame: number;
+  content: number;
+  select?: boolean;
+  /** the segment starting at this key eases between the neighbouring speeds */
+  transition?: boolean;
 }
 
 export interface ImageElement {
@@ -146,6 +177,8 @@ export interface Strip {
   effect_fader: number;
   color_tag: ColorTag;
   modifiers: StripModifier[];
+  /** name of the active modifier (highlighted; copy and other modifier tools start from it) */
+  active_modifier?: string | null;
   // visual
   transform: StripTransform;
   crop: StripCrop;
@@ -177,6 +210,8 @@ export interface Strip {
   // color / text
   color?: number[];
   text?: string;
+  /** TEXT: a font file embedded in the document (the bundled sans-serif when unset) */
+  font_file?: MediaFile | null;
   font_size?: number;
   use_bold?: boolean;
   use_italic?: boolean;
@@ -217,6 +252,13 @@ export interface Strip {
   speed_frame_number?: number;
   speed_length?: number;
   blend_effect?: BlendType;
+  /** MOVIECLIP: the movie clip shown and whether its 2D stabilization applies */
+  clip?: string | null;
+  stabilize2d?: boolean;
+  /** MASK: the mask data-block shown */
+  mask?: string | null;
+  /** MULTICAM: channel shown by the selector */
+  multicam_source?: number;
   factor?: number;
   // legacy Transform effect
   translation_unit?: 'PIXELS' | 'PERCENT';
@@ -229,7 +271,17 @@ export interface Strip {
   // meta
   strips?: Strip[];
   channels?: SeqChannel[];
+  /** names of the strips this one is connected to (selected and edited together) */
+  connections?: string[];
+  /** speed changes (see retime.ts); with keys, frame_duration is the retimed timeline length */
+  retiming_keys?: RetimingKey[];
+  show_retiming_keys?: boolean;
+  /** animated properties (fades, keyframes): [timeline frame, value] keys per property, linear */
+  keys?: Partial<Record<StripKeyPath, [number, number][]>>;
 }
+
+/** Strip properties that can be animated with keyframes. */
+export type StripKeyPath = 'blend_alpha' | 'volume' | 'transform.offset_x' | 'transform.offset_y' | 'transform.scale_x' | 'transform.scale_y' | 'transform.rotation';
 
 export interface SeqChannel {
   name: string;
@@ -243,8 +295,16 @@ export interface SequenceEditor {
   active_strip: string | null;
   /** names of the meta strips being edited, outermost first */
   meta_stack: string[];
+  /** play a short piece of the sound when the frame changes while not playing */
+  use_audio_scrub?: boolean;
+  /** frame overlay: reference frame offset from the current frame (or the frame itself when locked) */
   overlay_frame?: number;
   show_overlay_frame?: boolean;
+  use_overlay_frame_lock?: boolean;
+  /** how the reference frame shows: inside a rectangle over the current one, alone, or not */
+  overlay_frame_type?: 'RECTANGLE' | 'REFERENCE' | 'CURRENT';
+  /** the rectangle, as shares of the frame: [x0, y0, x1, y1] (y up) */
+  overlay_frame_rect?: [number, number, number, number];
   proxy_storage?: 'PER_STRIP' | 'PROJECT';
   use_cache_raw?: boolean;
   use_cache_final?: boolean;
@@ -259,6 +319,16 @@ export interface SequencerToolSettings {
   snap_ignore_muted: boolean;
   snap_ignore_sound: boolean;
   snap_distance: number;
+  /** scrubbing in the ruler snaps the playhead to strip edges (with snapping on) */
+  use_snap_current_frame_to_strips?: boolean;
+  /** preview snapping targets */
+  snap_to_borders?: boolean;
+  snap_to_center?: boolean;
+  snap_to_strips_preview?: boolean;
+  /** preview transforms pivot around this */
+  pivot_point?: 'MEDIAN_POINT' | 'BOUNDING_BOX_CENTER' | 'CURSOR' | 'INDIVIDUAL_ORIGINS';
+  /** 2D cursor of the preview, output pixels from the frame centre */
+  cursor_location?: [number, number];
 }
 
 declare module '../data/types' {

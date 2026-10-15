@@ -8,5 +8,7 @@ import './nodes/utilities';
 import './nodes/output';
 import './nodes/gnfields';
 import './menu';
+import './curves';
 import './modifier';
+import './gnmesh';
 export {};

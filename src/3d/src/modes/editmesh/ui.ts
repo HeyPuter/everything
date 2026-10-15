@@ -13,6 +13,7 @@ import { meshAddMenu, snapMenu } from '../../editors/view3d/menus';
 import { editTransformExtras, mirrorMenu } from '../../editors/view3d/transformui';
 import { selectMode, inMeshEdit } from './context';
 import { similarMenu } from './select-extra';
+import { toolHeaderRightHooks } from '../../editors/view3d/tooloptions';
 
 const isMeshEdit = () => inMeshEdit();
 
@@ -514,8 +515,11 @@ function selectModeButtons() {
       },
       icon(ic),
     );
-  return [h('div', { key: 'selmodes', class: 'hdr-group select-modes' }, btn(0, 'snap_vertex', 'Vertex', 'VERT'), btn(1, 'snap_edge', 'Edge', 'EDGE'), btn(2, 'snap_face', 'Face', 'FACE')), symmetryButtons()];
+  return h('div', { key: 'selmodes', class: 'hdr-group select-modes' }, btn(0, 'snap_vertex', 'Vertex', 'VERT'), btn(1, 'snap_edge', 'Edge', 'EDGE'), btn(2, 'snap_face', 'Face', 'FACE'));
 }
+
+// mesh symmetry sits at the right of the tool settings row
+toolHeaderRightHooks.push(() => (inMeshEdit() ? symmetryButtons() : null));
 
 /** Mesh symmetry toggles: edits on one side are mirrored to the other. */
 function symmetryButtons() {
@@ -557,7 +561,7 @@ modeMenus.EDIT = {
   select: () => (isMeshEdit() ? selectMenuEdit() : []),
   add: addMenuEdit,
   context: contextMenu,
-  headerExtra: selectModeButtons,
+  headerLead: selectModeButtons,
 };
 
 // ---------------------------------------------------------------------------

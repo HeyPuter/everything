@@ -143,7 +143,7 @@ function newGroupFor(ed: GeometryNodeEditor) {
 registerNodeEditorProvider({
   id: 'GEOMETRY',
   label: 'Geometry Node Editor',
-  icon: 'geometry_nodes',
+  icon: 'editor_geometry',
   treeType: () => 'GEOMETRY',
   root: (e) => {
     const ed = e as unknown as GeometryNodeEditor;
@@ -242,7 +242,7 @@ registerNodeEditorProvider({
 registerEditor({
   id: 'GEOMETRY',
   label: 'Geometry Node Editor',
-  icon: 'geometry_nodes',
+  icon: 'editor_geometry',
   group: 'General',
   create: (a, s) => new GeometryNodeEditor(a, s),
 });

@@ -553,8 +553,13 @@ registerExec('CompositorNodeDilateErode', (x) => {
   if (!r.domain) return x.out('Mask', r);
   const size = Math.round(x.num('Size'));
   if (!size) return x.out('Mask', r);
-  const type = menuValue(x.node, 'Type') || 'Steps';
-  const d = r.domain;
+  const out = dilateErodeTexture(x, r.tex!, r.domain, size, menuValue(x.node, 'Type') || 'Steps', menuValue(x.node, 'Falloff'), Math.max(0, x.num('Falloff Size')));
+  x.out('Mask', Result.image('FLOAT', out, r.domain));
+});
+
+/** Dilate (size > 0) or erode a mask texture: Steps (square), Distance (disc), Threshold or Feather. */
+export function dilateErodeTexture(x: NodeCtx, src: Texture, d: Domain, size: number, type: string, falloffName: string, falloffSize: number): Texture {
+  const r = { tex: src };
   const R = Math.min(Math.abs(size), 512);
   const dilate = size > 0;
   let out: Texture;
@@ -583,7 +588,7 @@ registerExec('CompositorNodeDilateErode', (x) => {
     });
   } else if (type === 'Threshold') {
     out = x.alloc(d);
-    const falloff = Math.max(0, x.num('Falloff Size'));
+    const falloff = falloffSize;
     x.pass('threshold', THRESHOLD, out, {
       u_src: r.tex!,
       u_r: Math.min(R + Math.ceil(falloff) + 1, 128),
@@ -591,7 +596,7 @@ registerExec('CompositorNodeDilateErode', (x) => {
       u_falloff: falloff,
     });
   } else {
-    const fn = FALLOFF[menuValue(x.node, 'Falloff')] ?? FALLOFF.Smooth;
+    const fn = FALLOFF[falloffName] ?? FALLOFF.Smooth;
     const w = new Float32Array((R + 1) * 4);
     for (let i = 0; i <= R; i++) w[i * 4] = fn(1 - i / (R + 1));
     const wt = x.ev.alloc(R + 1, 1, 'falloff');
@@ -615,8 +620,8 @@ registerExec('CompositorNodeDilateErode', (x) => {
     });
     out = b;
   }
-  x.out('Mask', Result.image('FLOAT', out, d));
-});
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // Despeckle: replace isolated pixels that differ from most of their neighbours by their average

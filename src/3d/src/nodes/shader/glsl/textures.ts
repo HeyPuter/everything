@@ -8,7 +8,7 @@ export const TEXTURES: GlslLib = {
 float nd_checker(vec3 p, float scale) {
   p = (p * scale + 0.000001) * 0.999999;
   ivec3 i = ivec3(floor(p));
-  return ((i.x + i.y + i.z) & 1) == 0 ? 1.0 : 0.0;
+  return ((i.x + i.y + i.z) & 1) == 1 ? 1.0 : 0.0;
 }
 `,
   },

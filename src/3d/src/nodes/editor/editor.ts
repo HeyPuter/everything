@@ -401,7 +401,9 @@ export class NodeEditor implements Editor {
     const items: MenuItem[] = [];
     for (const c of nodeMenu(this.treeType())) {
       const sub = conv(c);
-      if (sub.length) items.push({ label: c.label, submenu: () => sub });
+      if (!sub.length) continue;
+      if (c.separatorBefore && items.length && !items[items.length - 1].separator) items.push({ separator: true });
+      items.push({ label: c.label, submenu: () => sub });
     }
     items.push({ separator: true });
     items.push({ label: 'Group', submenu: () => this.groupMenu(pick, swap) });
@@ -518,6 +520,8 @@ export class NodeEditor implements Editor {
     const prevSel = tree.nodes.filter((o) => o.select).map((o) => o.id);
     tree.nodes.push(n);
     tree.active_node = n.id;
+    const extra = getNodeType(n.type)?.onAdd?.(tree, n) ?? [];
+    for (const x of extra) x.select = true;
     // the group's preferred node width
     const gid = n.props.node_tree as string | undefined;
     const gw = gid && isGroupNode(n) ? app.doc.node_groups[gid]?.tree.default_group_node_width : undefined;
@@ -525,10 +529,11 @@ export class NodeEditor implements Editor {
     app.changed('doc');
     this.render();
     // the new node follows the pointer; cancelling removes it again
-    this.startGrab([n.id], 'key', `Add ${getNodeType(n.type)?.label ?? idname}`, undefined, p, {
+    const added = new Set([n.id, ...extra.map((x) => x.id)]);
+    this.startGrab([...added], 'key', `Add ${getNodeType(n.type)?.label ?? idname}`, undefined, p, {
       onCancel: () => {
-        tree.nodes = tree.nodes.filter((o) => o !== n);
-        tree.links = tree.links.filter((l) => l.from_node !== n.id && l.to_node !== n.id);
+        tree.nodes = tree.nodes.filter((o) => !added.has(o.id));
+        tree.links = tree.links.filter((l) => !added.has(l.from_node) && !added.has(l.to_node));
         tree.active_node = prevActive;
         for (const o of tree.nodes) o.select = prevSel.includes(o.id);
         onCancel?.();

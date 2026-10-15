@@ -455,12 +455,9 @@
   top: 34px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 3px;
-  background: rgba(40, 40, 40, 0.92);
-  border-radius: 6px;
   max-height: calc(100% - 44px);
   overflow-y: auto;
+  scrollbar-width: none;
 }
 .nd-crumbs[hidden] {
   display: none;
@@ -468,10 +465,9 @@
 .nd-toolbar[hidden] {
   display: none;
 }
-.nd-toolbar .tb-sep {
-  height: 1px;
-  margin: 2px 4px;
-  background: #4a4a4a;
+.nd-toolbar > .tb-tool:first-child {
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
 }
 .nd-editor[data-tool='SELECT_LASSO'],
 .nd-editor[data-tool='SELECT_CIRCLE'],

@@ -326,8 +326,10 @@ export class Properties implements Editor {
     patch(
       this.rail,
       tabs.map((t) => {
-        const sep = t.group !== undefined && t.group !== lastGroup && lastGroup !== -1;
-        lastGroup = t.group ?? lastGroup;
+        // scene-wide tabs (render settings through world) share one box; the collection gets its own
+        const g = t.id === 'SCENE' || t.id === 'WORLD' ? 1 : t.group;
+        const sep = g !== undefined && g !== lastGroup && lastGroup !== -1;
+        lastGroup = g ?? lastGroup;
         return [
           sep ? h('div', { key: `sep-${t.id}`, class: 'rail-sep' }) : null,
           h(
