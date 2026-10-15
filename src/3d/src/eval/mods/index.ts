@@ -3,3 +3,5 @@ import './weights';
 import './uv';
 import './normals';
 import './transfer';
+import './smooth';
+import './bind';
