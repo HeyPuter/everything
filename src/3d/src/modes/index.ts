@@ -21,6 +21,7 @@ import './curve/menus';
 import './curve/tools';
 import './transformmodes';
 import './editxform';
+import './sidebar-items';
 import './text/text';
 import './text/props';
 export {};
