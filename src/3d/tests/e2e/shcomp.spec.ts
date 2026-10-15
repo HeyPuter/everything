@@ -208,3 +208,105 @@ test('compositor nodes match the expected pixels', async ({ page }) => {
   expect(failures).toEqual([]);
   await expectNoErrors(errors);
 });
+
+test('movie clip nodes show footage frames, stabilize and undistort them', async ({ page }) => {
+  const { readFileSync } = await import('node:fs');
+  const exp = JSON.parse(readFileSync('tests/fixtures/shcomp/tracking-expected.json', 'utf8'));
+  const errors = await openApp(page);
+  const res = await page.evaluate(async () => {
+    const { newMovieClip, newTrack, newMarker, insertMarker, clipTable } = await import('/src/tracking/types.ts');
+    const { addNode, connect, ctxOf } = await import('/src/nodes/tree.ts');
+    const { compositingGroup, newCompositingGroup } = await import('/src/compositor/data.ts');
+    const { runCompositor } = await import('/src/compositor/run.ts');
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const doc = a.doc;
+    // three 32×16 frames: red = x, green = y, blue = frame / 4 (8-bit sRGB)
+    const W = 32,
+      H = 16;
+    const seq = [];
+    for (let f = 1; f <= 3; f++) {
+      const c = document.createElement('canvas');
+      c.width = W;
+      c.height = H;
+      const g = c.getContext('2d')!;
+      const im = g.createImageData(W, H);
+      for (let y = 0; y < H; y++)
+        for (let x = 0; x < W; x++) {
+          const k = ((H - 1 - y) * W + x) * 4;
+          im.data.set([Math.round((x / W) * 255), Math.round((y / H) * 255), Math.round((f / 4) * 255), 255], k);
+        }
+      g.putImageData(im, 0, 0);
+      const blob: Blob = await new Promise((r) => c.toBlob((b) => r(b!), 'image/png'));
+      seq.push({ mime: 'image/png', bytes: new Uint8Array(await blob.arrayBuffer()), name: `frame_${f}.png` });
+    }
+    const clip = newMovieClip('mc_test', 'Footage', { source: 'SEQUENCE', sequence: seq, size: [W, H], frame_duration: 3 });
+    const t = newTrack(clip.tracking, 'T1');
+    t.use_2d_stabilization = true;
+    clip.tracking.tracks.push(t);
+    for (const [f, co] of [
+      [1, [0.25, 0.5]],
+      [2, [0.3, 0.55]],
+      [3, [0.4, 0.5]],
+    ] as [number, [number, number]][])
+      insertMarker(t, newMarker(f, co, [W, H], 4, 8));
+    clipTable(doc)[clip.id] = clip;
+    doc.scene.frame_current = 2;
+    const r = doc.scene.render;
+    r.resolution_x = W;
+    r.resolution_y = H;
+    r.resolution_percentage = 100;
+    const run = (type: string | null, setup?: (n: { props: Record<string, unknown>; inputs: Record<string, unknown> }) => void) => {
+      const g = compositingGroup(doc) ?? newCompositingGroup(doc);
+      const tree = g.tree;
+      tree.nodes = tree.nodes.filter((n: { type: string }) => n.type === 'NodeGroupOutput');
+      tree.links = [];
+      const ctx = ctxOf(doc, tree);
+      const mc = addNode(tree, 'CompositorNodeMovieClip', [0, 0]);
+      mc.props.clip = clip.id;
+      let src = mc;
+      if (type) {
+        const n = addNode(tree, type, [200, 0]);
+        n.props.clip = clip.id;
+        setup?.(n);
+        connect(ctxOf(doc, tree), mc.id, 'Image', n.id, 'Image');
+        src = n;
+      }
+      connect(ctx, src.id, 'Image', tree.nodes[0].id, 'Socket_1');
+      return runCompositor(doc, { layers: null, composite: true, viewer: false });
+    };
+    // the first run starts decoding the footage; wait until the frame is there
+    let out = run(null);
+    for (let i = 0; i < 50 && [...out.errors.values()].some((e) => /Loading/.test(e)); i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      out = run(null);
+    }
+    const px = (o: ReturnType<typeof run>, x: number, y: number) => Array.from(o.composite!.data.subarray(((H - 1 - y) * W + x) * 4, ((H - 1 - y) * W + x) * 4 + 4));
+    const frame = [px(out, 0, 0), px(out, 31, 0), px(out, 0, 15), px(out, 16, 8)];
+    // stabilization moves frame 2 back by the track's motion since the anchor frame (1)
+    clip.tracking.stabilization.use_2d_stabilization = true;
+    clip.tracking.stabilization.anchor_frame = 1;
+    const stab = run('CompositorNodeStabilize');
+    clip.tracking.camera.k1 = -0.3;
+    const und = run('CompositorNodeMovieDistortion');
+    return {
+      frame,
+      errors: [...out.errors.values()],
+      stab: [px(stab, 10, 8), px(stab, 12, 8)],
+      stabErrors: [...stab.errors.values()],
+      undErrors: [...und.errors.values()],
+      undCentre: px(und, 16, 8),
+      undCorner: px(und, 1, 1),
+    };
+  });
+  expect(res.errors).toEqual([]);
+  res.frame.forEach((p: number[], i: number) => p.forEach((v, c) => expect(Math.abs(v - exp.image_frame2[i][c]), `pixel ${i} channel ${c}`).toBeLessThan(0.012)));
+  // the track moved +1.6 px in x from frame 1 to 2: stabilized pixel 10 shows source x ≈ 11.6
+  expect(res.stabErrors).toEqual([]);
+  const srgb = (v: number) => (v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055);
+  expect(srgb(res.stab[0][0]) * 32).toBeGreaterThan(11);
+  expect(srgb(res.stab[0][0]) * 32).toBeLessThan(12.3);
+  expect(res.undErrors).toEqual([]);
+  // the lens model keeps the optical centre and moves the corners
+  expect(Math.abs(res.undCentre[0] - res.frame[3][0])).toBeLessThan(0.02);
+  await expectNoErrors(errors);
+});

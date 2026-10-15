@@ -58,6 +58,10 @@ let onDecoded: (() => void) | null = null;
 export function setImageDecodedCallback(fn: () => void) {
   onDecoded = fn;
 }
+/** Tell the compositor that pixels it waited for (images, movie frames) became available. */
+export function notifyDecoded() {
+  onDecoded?.();
+}
 
 export function imageKey(img: Img): string {
   return `${img.id}|${img.revision ?? 0}|${img.bytes?.length ?? 0}|${img.width}x${img.height}|${img.source}|${img.generated_type}|${img.generated_color?.join(',')}|${img.colorspace}|${img.alpha_mode ?? ''}`;

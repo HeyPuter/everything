@@ -19,6 +19,7 @@ import './ops/info';
 import './ops/colorspace';
 import './ops/distance';
 import './ops/keyingnode';
+import './ops/clip';
 import './session';
 import './editor';
 import './properties';

@@ -129,3 +129,31 @@ describe('compositor registration', () => {
     expect(nodeSockets(n).inputs.map((s) => s.identifier)).toEqual(['Image', 'Kernel Data Type', 'Color Kernel', 'Normalize Kernel']);
   });
 });
+
+describe('Track Position', () => {
+  it('reports absolute, relative and frame positions and speeds like the expected values', async () => {
+    const { trackPosition } = await import('../../src/compositor/ops/clip');
+    const { newMovieClip, newTrack, newMarker, insertMarker } = await import('../../src/tracking/types');
+    const exp = JSON.parse(readFileSync(resolve(process.cwd(), 'tests/fixtures/shcomp/tracking-expected.json'), 'utf8'));
+    const clip = newMovieClip('mc1', 'Clip', { size: [32, 16], frame_duration: 3 });
+    const t = newTrack(clip.tracking, 'T1');
+    clip.tracking.tracks.push(t);
+    for (const [f, co] of [
+      [1, [0.25, 0.5]],
+      [2, [0.3, 0.55]],
+      [3, [0.4, 0.5]],
+    ] as [number, [number, number]][])
+      insertMarker(t, newMarker(f, co, [32, 16], 4, 8));
+    for (const [key, xy] of Object.entries(exp.trackpos as Record<string, [number, number]>)) {
+      const [frame, mode] = key.split('_');
+      const r = trackPosition(clip, 'T1', mode, Number(frame), 2);
+      expect(r.x, key).toBeCloseTo(xy[0], 4);
+      expect(r.y, key).toBeCloseTo(xy[1], 4);
+    }
+    for (const [frame, sp] of Object.entries(exp.speed as Record<string, number[]>)) {
+      const r = trackPosition(clip, 'T1', 'Absolute', Number(frame), 0);
+      r.speed.forEach((v, i) => expect(v, `speed ${frame}`).toBeCloseTo(sp[i], 4));
+    }
+    expect(trackPosition(clip, 'missing', 'Absolute', 1, 0)).toEqual({ x: 0, y: 0, speed: [0, 0, 0, 0] });
+  });
+});
