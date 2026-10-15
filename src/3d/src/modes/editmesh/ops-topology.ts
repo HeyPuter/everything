@@ -1097,11 +1097,15 @@ interface BevelState {
   clamp: boolean;
   seam: boolean;
   sharp: boolean;
+  offsetType: 'OFFSET' | 'WIDTH' | 'DEPTH' | 'PERCENT' | 'ABSOLUTE';
+  harden: boolean;
 }
+
+const OFFSET_TYPES: BevelState['offsetType'][] = ['OFFSET', 'WIDTH', 'DEPTH', 'PERCENT', 'ABSOLUTE'];
 
 function applyBevel(m: MeshEdit, st: BevelState) {
   if (st.offset <= 0) return false;
-  return st.affect === 'VERTICES' ? bevelVertices(m, st.clamp ? Math.min(st.offset, bevelClampLimit(m) * 2) : st.offset, st.segments, st.profile) : bevelEdges(m, st.offset, st.segments, st.profile, { clamp: st.clamp, markSeam: st.seam, markSharp: st.sharp });
+  return st.affect === 'VERTICES' ? bevelVertices(m, st.clamp ? Math.min(st.offset, bevelClampLimit(m) * 2) : st.offset, st.segments, st.profile) : bevelEdges(m, st.offset, st.segments, st.profile, { clamp: st.clamp, markSeam: st.seam, markSharp: st.sharp, offsetType: st.offsetType, harden: st.harden });
 }
 
 /**
@@ -1119,6 +1123,8 @@ function startBevelModal(p: Record<string, unknown>) {
     clamp: !!p.clamp_overlap,
     seam: !!p.mark_seam,
     sharp: !!p.mark_sharp,
+    offsetType: OFFSET_TYPES.includes(p.offset_type as 'OFFSET') ? (p.offset_type as 'OFFSET') : 'OFFSET',
+    harden: !!p.harden_normals,
   };
   const snaps = editMeshObjects().map(({ me }) => ({ me, m: MeshEdit.from(me) }));
   const hasSel = () => snaps.some((s) => (st.affect === 'VERTICES' ? s.m.selectedVerts().length : s.m.selectedEdges().length));
@@ -1177,7 +1183,7 @@ function startBevelModal(p: Record<string, unknown>) {
   app.startModal({
     label: st.affect === 'VERTICES' ? 'Bevel Vertices' : 'Bevel',
     header: () =>
-      `Bevel ${st.affect === 'VERTICES' ? 'Vertices' : 'Edges'} — ${mode === 'OFFSET' ? '[Width]' : 'Width'}: ${val('OFFSET', st.offset.toFixed(4) + ' m')}  ${mode === 'SEGMENTS' ? '[Segments]' : 'Segments'}: ${val('SEGMENTS', String(st.segments))}  ${mode === 'PROFILE' ? '[Shape]' : 'Shape'}: ${val('PROFILE', st.profile.toFixed(3))}  Clamp: ${on(st.clamp)}  Seams: ${on(st.seam)}  Sharp: ${on(st.sharp)}`,
+      `Bevel ${st.affect === 'VERTICES' ? 'Vertices' : 'Edges'} — ${mode === 'OFFSET' ? '[Width]' : 'Width'}: ${val('OFFSET', st.offset.toFixed(4) + ' m')}  ${mode === 'SEGMENTS' ? '[Segments]' : 'Segments'}: ${val('SEGMENTS', String(st.segments))}  ${mode === 'PROFILE' ? '[Shape]' : 'Shape'}: ${val('PROFILE', st.profile.toFixed(3))}  Width Type: ${st.offsetType[0] + st.offsetType.slice(1).toLowerCase()}  Clamp: ${on(st.clamp)}  Seams: ${on(st.seam)}  Sharp: ${on(st.sharp)}  Harden: ${on(st.harden)}`,
     status: () => [
       ['LMB', 'Confirm'],
       ['RMB', 'Cancel'],
@@ -1189,6 +1195,8 @@ function startBevelModal(p: Record<string, unknown>) {
       ['C', 'Clamp Overlap'],
       ['U', 'Mark Seams'],
       ['K', 'Mark Sharp'],
+      ['M', 'Width Type'],
+      ['H', 'Harden Normals'],
     ],
     onPointerMove(e) {
       if (typed) return;
@@ -1222,6 +1230,8 @@ function startBevelModal(p: Record<string, unknown>) {
       } else if (k === 'c') st.clamp = !st.clamp;
       else if (k === 'u') st.seam = !st.seam;
       else if (k === 'k') st.sharp = !st.sharp;
+      else if (k === 'h') st.harden = !st.harden;
+      else if (k === 'm') st.offsetType = OFFSET_TYPES[(OFFSET_TYPES.indexOf(st.offsetType) + 1) % OFFSET_TYPES.length];
       else if (e.key === '+' || (e.code === 'NumpadAdd' && !typed)) st.segments = Math.min(1000, st.segments + 1);
       else if ((e.key === '-' && typed === '' && mode === 'SEGMENTS') || e.code === 'NumpadSubtract') st.segments = Math.max(1, st.segments - 1);
       else if (/^[0-9.]$/.test(e.key) || (e.key === '-' && !typed)) {
@@ -1240,7 +1250,7 @@ function startBevelModal(p: Record<string, unknown>) {
     },
     finish() {
       this.label = st.affect === 'VERTICES' ? 'Bevel Vertices' : 'Bevel';
-      this.redoOp = { idname: 'mesh.bevel', props: { offset: st.offset, segments: st.segments, profile: st.profile, affect: st.affect, clamp_overlap: st.clamp, mark_seam: st.seam, mark_sharp: st.sharp } };
+      this.redoOp = { idname: 'mesh.bevel', props: { offset_type: st.offsetType, offset: st.offset, segments: st.segments, profile: st.profile, affect: st.affect, clamp_overlap: st.clamp, mark_seam: st.seam, mark_sharp: st.sharp, harden_normals: st.harden } };
     },
   });
   return 'RUNNING_MODAL' as const;
@@ -1477,6 +1487,7 @@ registerOperators([
     label: 'Bevel',
     description: 'Cut off the selected edges or vertices at an angle',
     props: [
+      { id: 'offset_type', label: 'Width Type', type: 'enum', default: 'OFFSET', items: [['OFFSET', 'Offset', 'Distance of the new edges from the old one'], ['WIDTH', 'Width', 'Width of the bevel face'], ['DEPTH', 'Depth', 'Distance from the old edge to the bevel face'], ['PERCENT', 'Percent', 'Percentage of the adjacent edge length'], ['ABSOLUTE', 'Absolute', 'Distance along the adjacent edges']] },
       { id: 'offset', label: 'Width', type: 'float', default: 0, min: 0, subtype: 'distance' },
       { id: 'segments', label: 'Segments', type: 'int', default: 1, min: 1, max: 1000 },
       { id: 'profile', label: 'Shape', type: 'float', default: 0.5, min: 0, max: 1, subtype: 'factor' },
@@ -1484,11 +1495,12 @@ registerOperators([
       { id: 'clamp_overlap', label: 'Clamp Overlap', type: 'bool', default: false },
       { id: 'mark_seam', label: 'Mark Seams', type: 'bool', default: false, showIf: (p) => p.affect !== 'VERTICES' },
       { id: 'mark_sharp', label: 'Mark Sharp', type: 'bool', default: false, showIf: (p) => p.affect !== 'VERTICES' },
+      { id: 'harden_normals', label: 'Harden Normals', type: 'bool', default: false, showIf: (p) => p.affect !== 'VERTICES' },
     ],
     poll: editPoll,
     invoke: (_ctx, p) => startBevelModal(p),
     exec: (_ctx, p) => {
-      const st: BevelState = { offset: p.offset as number, segments: p.segments as number, profile: p.profile as number, affect: p.affect === 'VERTICES' ? 'VERTICES' : 'EDGES', clamp: !!p.clamp_overlap, seam: !!p.mark_seam, sharp: !!p.mark_sharp };
+      const st: BevelState = { offset: p.offset as number, segments: p.segments as number, profile: p.profile as number, affect: p.affect === 'VERTICES' ? 'VERTICES' : 'EDGES', clamp: !!p.clamp_overlap, seam: !!p.mark_seam, sharp: !!p.mark_sharp, offsetType: OFFSET_TYPES.includes(p.offset_type as 'OFFSET') ? (p.offset_type as 'OFFSET') : 'OFFSET', harden: !!p.harden_normals };
       if (!withEdit((m) => applyBevel(m, st))) return 'CANCELLED';
     },
   },

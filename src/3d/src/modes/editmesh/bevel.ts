@@ -149,6 +149,41 @@ export interface BevelOptions {
   markSharp?: boolean;
   /** limit the width so neighbouring bevels don't overlap */
   clamp?: boolean;
+  /** what the amount measures (default: offset of the new edges from the old one, along the faces) */
+  offsetType?: 'OFFSET' | 'WIDTH' | 'DEPTH' | 'PERCENT' | 'ABSOLUTE';
+  /** keep the faces next to the bevel flat-shaded with custom normals and shade the bevel smoothly */
+  harden?: boolean;
+}
+
+/** Convert a width / depth / percentage amount to the offset along the faces (averaged over the selection). */
+export function bevelOffsetFrom(m: MeshEdit, amount: number, type: BevelOptions['offsetType']): number {
+  if (!type || type === 'OFFSET' || type === 'ABSOLUTE') return amount;
+  const sel = m.selectedEdges();
+  const ef = m.edgeFaces();
+  if (type === 'PERCENT') {
+    // percentage of the unselected edges leaving the beveled vertices
+    const selKeys = new Set(sel.map(([a, b]) => edgeKey(a, b)));
+    const verts = new Set(sel.flat());
+    let sum = 0,
+      n = 0;
+    for (const [a, b] of m.edges())
+      if (!selKeys.has(edgeKey(a, b)) && (verts.has(a) || verts.has(b))) {
+        sum += V(m.p(a)).distanceTo(V(m.p(b)));
+        n++;
+      }
+    return n ? (amount / 100) * (sum / n) : 0;
+  }
+  // interior angle between the faces of each beveled edge
+  let sum = 0,
+    n = 0;
+  for (const [a, b] of sel) {
+    const l = ef.get(edgeKey(a, b));
+    if (!l || l.length !== 2) continue;
+    sum += Math.PI - V(m.faceNormal(m.faces[l[0][0]])).angleTo(V(m.faceNormal(m.faces[l[1][0]])));
+    n++;
+  }
+  const phi = n ? sum / n : Math.PI / 2;
+  return type === 'WIDTH' ? amount / Math.max(1e-6, 2 * Math.sin(phi / 2)) : amount / Math.max(1e-6, Math.cos(phi / 2));
 }
 
 /** Largest width that keeps the corners of neighbouring bevels from crossing. */
@@ -166,6 +201,7 @@ export function bevelClampLimit(m: MeshEdit): number {
 }
 
 export function bevelEdges(m: MeshEdit, offset: number, segments: number, profile = 0.5, opts: BevelOptions = {}): boolean {
+  offset = bevelOffsetFrom(m, offset, opts.offsetType);
   if (opts.clamp) offset = Math.min(offset, bevelClampLimit(m));
   const sel = new Set(m.selectedEdges().map(([a, b]) => edgeKey(a, b)));
   if (!sel.size || offset <= 0) return false;
@@ -224,6 +260,7 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
   };
   // strips
   const junction = new Map<number, number[][]>(); // vertex -> rows meeting there
+  const strips: { face: EFace; A: EFace; B: EFace }[] = [];
   for (const k of sel) {
     const l = ef.get(k);
     if (!l || l.length !== 2) continue;
@@ -241,6 +278,7 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
       rb = rowVerts(b1, b2, b);
     for (let s = 0; s < segs; s++) {
       const strip = m.makeFace([rb[s], ra[s], ra[s + 1], rb[s + 1]], A);
+      if (opts.harden) strips.push({ face: strip, A, B: m.faces[fb] });
       // the strip's outer edges border the original faces
       for (const [flag, on] of [['seams', opts.markSeam], ['sharp', opts.markSharp]] as const)
         if (on) {
@@ -335,5 +373,34 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
   m.sel = m.sel.map(() => 1);
   makeNormalsConsistent(m, false, false);
   m.sel = saved;
+  if (opts.harden && strips.length) hardenNormals(m, strips);
   return true;
+}
+
+/** Flat custom normals on the faces beside the bevel; the bevel blends between them. */
+function hardenNormals(m: MeshEdit, strips: { face: EFace; A: EFace; B: EFace }[]) {
+  const stripSet = new Set(strips.map((s) => s.face));
+  const avg = new Map<number, Vector3>();
+  for (const f of stripSet) {
+    const n = V(m.faceNormal(f));
+    for (const v of f.verts) (avg.get(v) ?? avg.set(v, new Vector3()).get(v)!).add(n);
+  }
+  const flat = (f: EFace) => {
+    const n = m.faceNormal(f);
+    f.cnormals = f.verts.flatMap(() => n);
+  };
+  for (const s of strips) {
+    flat(s.A);
+    flat(s.B);
+  }
+  for (const s of strips) {
+    const f = s.face;
+    f.smooth = true;
+    f.cnormals = f.verts.flatMap((v) => {
+      if (s.A.verts.includes(v)) return m.faceNormal(s.A);
+      if (s.B.verts.includes(v)) return m.faceNormal(s.B);
+      const n = (avg.get(v) ?? new Vector3(0, 0, 1)).clone().normalize();
+      return [n.x, n.y, n.z];
+    });
+  }
 }

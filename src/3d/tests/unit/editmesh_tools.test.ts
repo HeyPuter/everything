@@ -802,3 +802,22 @@ describe('face strength', () => {
     expect(me.face_strength![2]).toBe(2);
   });
 });
+
+describe('bevel width types and harden normals', () => {
+  it('measures the bevel face width and hardens the neighbours', () => {
+    const m = cube();
+    selectWhere(m, (p) => p[2] > 0.9 && p[0] > 0.9);
+    bevelEdges(m, 0.2, 1, 0.5, { offsetType: 'WIDTH', harden: true });
+    // the chamfer face is 0.2 wide
+    const chamfer = m.faces.find((f) => {
+      const n = m.faceNormal(f);
+      return Math.abs(n[0] - n[2]) < 1e-6 && n[0] > 0.5;
+    })!;
+    const ys = chamfer.verts.map((v) => m.p(v));
+    const w = Math.min(...ys.slice(1).map((p) => Math.hypot(p[0] - ys[0][0], p[2] - ys[0][2])).filter((d) => d > 1e-6));
+    expect(w).toBeCloseTo(0.2, 4);
+    const top = m.faces.find((f) => m.faceNormal(f)[2] > 0.99)!;
+    expect(top.cnormals?.slice(0, 3)).toEqual([0, 0, 1]);
+    expect(chamfer.smooth).toBe(true);
+  });
+});

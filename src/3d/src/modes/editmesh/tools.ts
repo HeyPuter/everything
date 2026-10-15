@@ -56,7 +56,7 @@ toolsByMode.EDIT = [
 export const toolProps: Record<string, Record<string, unknown>> = {
   'builtin.extrude_region': { use_dissolve_ortho_edges: false },
   'builtin.inset_faces': { use_individual: false, use_outset: false },
-  'builtin.bevel': { affect: 'EDGES', segments: 1, profile: 0.5 },
+  'builtin.bevel': { offset_type: 'OFFSET', affect: 'EDGES', segments: 1, profile: 0.5 },
   'builtin.knife': { use_occlude_geometry: true, only_selected: false },
   'builtin.bisect': { use_fill: false, clear_inner: false, clear_outer: false },
   'builtin.poly_build': { create_quads: true },
@@ -76,6 +76,16 @@ const num = (tool: string, key: string, label: string, o: { min?: number; max?: 
 toolSettingsRenderers['builtin.extrude_region'] = () => check('builtin.extrude_region', 'use_dissolve_ortho_edges', 'Dissolve Orthogonal Edges', 'Merge the new side faces into coplanar neighbours');
 toolSettingsRenderers['builtin.inset_faces'] = () => [check('builtin.inset_faces', 'use_individual', 'Individual', 'Inset each face separately'), check('builtin.inset_faces', 'use_outset', 'Outset', 'Grow outwards instead of inwards')];
 toolSettingsRenderers['builtin.bevel'] = () => [
+  field(
+    110,
+    enumMenu(
+      'bevel-type',
+      ['OFFSET', 'WIDTH', 'DEPTH', 'PERCENT', 'ABSOLUTE'].map((v) => ({ value: v, label: v[0] + v.slice(1).toLowerCase() })),
+      tp('builtin.bevel').offset_type as string,
+      (v) => ((tp('builtin.bevel').offset_type = v), refresh()),
+      { tip: 'What the dragged amount measures' },
+    ),
+  ),
   field(
     110,
     enumMenu(
