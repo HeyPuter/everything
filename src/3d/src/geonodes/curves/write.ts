@@ -110,10 +110,7 @@ gn(
       }) as Record<string, never>,
   },
   {
-    propPatch: {
-      mode: { visible: () => false },
-      handle_type: { expand: true },
-    },
+    propPatch: { mode: { visible: () => false } },
     drawBody: sideToggles('mode'),
     bodyHeight: () => 26,
   },
