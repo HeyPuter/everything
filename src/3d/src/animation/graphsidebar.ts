@@ -279,6 +279,26 @@ export function drawModifiersSidebar(ed: GraphEditor): Child {
         'Add Modifier',
         icon('down_arrow_hlt', 'tiny'),
       ),
+      h(
+        'button',
+        {
+          class: 'btn anim-sb-iconbtn',
+          'data-tip': 'Copy F-Modifiers\nCopy the modifiers of the active F-Curve',
+          disabled: !app.poll('graph.fmodifier_copy', ed.area),
+          onclick: () => app.run('graph.fmodifier_copy', {}, { area: ed.area }),
+        },
+        icon('copydown'),
+      ),
+      h(
+        'button',
+        {
+          class: 'btn anim-sb-iconbtn',
+          'data-tip': 'Paste F-Modifiers\nAdd the copied modifiers to the active F-Curve',
+          disabled: !app.poll('graph.fmodifier_paste', ed.area),
+          onclick: () => app.run('graph.fmodifier_paste', { only_active: true }, { area: ed.area }),
+        },
+        icon('pastedown'),
+      ),
     ),
     fc.modifiers.map((m, i) => modifierPanel(fc, m, i)),
   ];

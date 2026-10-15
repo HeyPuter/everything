@@ -2216,9 +2216,11 @@ input.num-field.editing {
 }
 .anim-sb-add {
   padding: 4px 6px 6px;
+  display: flex;
+  gap: 4px;
 }
 .anim-sb-addbtn {
-  width: 100%;
+  flex: 1;
 }
 .anim-sb-inline {
   display: flex;
