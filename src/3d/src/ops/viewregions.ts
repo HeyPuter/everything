@@ -43,6 +43,8 @@ export function dragRegion(v: View3D, label: string, done: (x0: number, y0: numb
   region.start = null;
   region.mouse = { x: app.pointer.x - r().left, y: app.pointer.y - r().top };
   let info: RegionDragInfo = { button: 0, shift: false, ctrl: false };
+  // holding Space while dragging moves the whole rectangle
+  let moving = false;
   const end = () => {
     region.view = null;
     region.start = null;
@@ -66,7 +68,9 @@ export function dragRegion(v: View3D, label: string, done: (x0: number, y0: numb
       return undefined;
     },
     onPointerMove(e) {
+      const prev = region.mouse;
       region.mouse = local(e);
+      if (moving && region.start && prev) region.start = { x: region.start.x + region.mouse.x - prev.x, y: region.start.y + region.mouse.y - prev.y };
       if (region.start) v.showBox(region.start.x, region.start.y, region.mouse.x, region.mouse.y, 'box');
       v.drawSvg();
     },
@@ -80,6 +84,7 @@ export function dragRegion(v: View3D, label: string, done: (x0: number, y0: numb
       return 'FINISHED';
     },
     onKey(e) {
+      if (e.key === ' ') moving = e.type === 'keydown';
       if (e.type === 'keydown' && e.key === 'Escape') return 'CANCELLED';
       return true;
     },
