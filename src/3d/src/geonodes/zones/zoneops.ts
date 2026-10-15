@@ -1,8 +1,11 @@
 // Operators for zones: adding a zone (both nodes, linked) and managing zone / bake items on the
 // active node (add, remove, move), usable from search and scripts.
-import { app, registerOperators, type OpContext, type Operator } from '../../app/app';
+import { app, onAppReady, operators, registerOperators, type OpContext, type Operator } from '../../app/app';
 import { nodeEditorOf } from '../../nodes/editor/ops';
-import { nodeById } from '../../nodes/tree';
+import { ctxOf, makeNode, nodeById } from '../../nodes/tree';
+import { swapNode } from '../../nodes/treeops';
+import { findSocket, getNodeType } from '../../nodes/registry';
+import { uid } from '../../data/defaults';
 import type { NodeData, NodeTreeData } from '../../data/types';
 import type { SocketType } from '../../nodes/types';
 import { readItems, writeItems, pairedOutput } from './items';
@@ -162,3 +165,88 @@ registerOperators([
   ...itemOps('foreach_geometry_element_zone_generation', 'Generation', list('FOREACH', 'generation_items'), types('FOREACH'), 'active_generation_index'),
   ...itemOps('bake_node', 'Bake', BAKE_LIST, [BAKE], 'active_index'),
 ]);
+
+// ---------------------------------------------------------------------------
+// Swapping to a zone (Shift S): turn a selected zone into another kind, or wrap the selection
+
+const KEYS: Record<string, string> = { REPEAT: 'repeat_items', SIMULATION: 'state_items', FOREACH: 'generation_items' };
+
+/** Items of a zone converted for another kind (same ids, so sockets keep matching). */
+function convertedItems(from: NodeData, fromKind: string, toKind: string): Record<string, string | number> {
+  const items = readItems(from, KEYS[fromKind]).map((it) => ({ ...it }));
+  const kept = items;
+  for (const it of kept) {
+    if (toKind === 'SIMULATION') it.attribute_domain ??= 'POINT';
+    if (toKind === 'FOREACH') it.domain ??= 'POINT';
+  }
+  const next = Math.max(Number(from.props.next_item_id ?? 0), ...items.map((i) => i.id + 1));
+  return { [KEYS[toKind]]: JSON.stringify(kept), next_item_id: next };
+}
+
+function swapZone(tree: NodeTreeData, kind: (typeof ZONES)[number]): boolean {
+  const sctx = ctxOf(app.doc, tree);
+  const sel = tree.nodes.filter((n) => n.select && getNodeType(n.type)?.layout !== 'FRAME');
+  const zin = sel.find((n) => ZONES.some((z) => z.input === n.type));
+  if (zin) {
+    const from = zoneOfType(zin.type)!;
+    const oldOut = pairedOutput(tree, zin);
+    if (from === kind || !oldOut) return false;
+    const settings = convertedItems(oldOut, from.id, kind.id);
+    const tmp = makeNode(tree, kind.output, oldOut.location, settings);
+    tree.nodes.push(tmp);
+    const newIn = swapNode(sctx, zin, kind.input, { paired_output: tmp.id });
+    tree.nodes = tree.nodes.filter((n) => n !== tmp);
+    const newOut = swapNode(sctx, oldOut, kind.output, settings);
+    if (!newIn || !newOut) return false;
+    newIn.props.paired_output = newOut.id;
+    return true;
+  }
+  if (!sel.length) return false;
+  // wrap the selection: geometry entering it passes the zone input, geometry leaving it the output
+  const ids = new Set(sel.map((n) => n.id));
+  const x0 = Math.min(...sel.map((n) => n.location[0])),
+    x1 = Math.max(...sel.map((n) => n.location[0] + (n.width ?? 140)));
+  const y = sel.reduce((s, n) => s + n.location[1], 0) / sel.length;
+  const out = makeNode(tree, kind.output, [x1 + 60, y]);
+  const inp = makeNode(tree, kind.input, [x0 - 200, y], { paired_output: out.id });
+  tree.nodes.push(inp, out);
+  const isGeo = (n: NodeData, s: string, output: boolean) => findSocket(n, s, output, sctx)?.type === 'GEOMETRY';
+  const g = kind.id === 'FOREACH' ? null : readItems(out, KEYS[kind.id]).find((i) => i.socket_type === 'GEOMETRY');
+  const outItem = kind.id === 'FOREACH' ? readItems(out, 'generation_items').find((i) => i.socket_type === 'GEOMETRY') : g;
+  const enter = tree.links.find((l) => ids.has(l.to_node) && !ids.has(l.from_node) && isGeo(nodeById(tree, l.from_node)!, l.from_socket, true));
+  if (enter && (g || kind.id === 'FOREACH')) {
+    const [inSock, outSock] = kind.id === 'FOREACH' ? ['Geometry', 'Element'] : [`Item_${g!.id}`, `Item_${g!.id}`];
+    tree.links.push({ id: uid('link'), from_node: enter.from_node, from_socket: enter.from_socket, to_node: inp.id, to_socket: inSock });
+    enter.from_node = inp.id;
+    enter.from_socket = outSock;
+  }
+  const leave = tree.links.filter((l) => ids.has(l.from_node) && !ids.has(l.to_node) && isGeo(nodeById(tree, l.from_node)!, l.from_socket, true));
+  if (leave.length && outItem) {
+    const sid = kind.id === 'FOREACH' ? `Generation_${outItem.id}` : `Item_${outItem.id}`;
+    const first = leave[0];
+    tree.links.push({ id: uid('link'), from_node: first.from_node, from_socket: first.from_socket, to_node: out.id, to_socket: sid });
+    for (const l of leave.filter((x) => x.from_node === first.from_node && x.from_socket === first.from_socket)) {
+      l.from_node = out.id;
+      l.from_socket = sid;
+    }
+  }
+  inp.select = out.select = true;
+  return true;
+}
+
+onAppReady(() => {
+  const prev = operators.get('node.swap_node');
+  if (!prev?.exec) return;
+  const exec = prev.exec;
+  registerOperators([
+    {
+      ...prev,
+      exec: (ctx, p) => {
+        const kind = ZONES.find((z) => z.input === p.type);
+        const tree = nodeEditorOf(ctx)?.tree();
+        if (!kind || !tree) return exec(ctx, p);
+        return swapZone(tree, kind) ? 'FINISHED' : 'CANCELLED';
+      },
+    },
+  ]);
+});

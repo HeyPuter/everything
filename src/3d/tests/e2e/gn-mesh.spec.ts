@@ -195,3 +195,48 @@ test('duplicating a zone pairs the copies with each other', async ({ page }) => 
   expect(ok).toBe(true);
   await expectNoErrors(errors);
 });
+
+test('swap (Shift S) wraps the selection in a zone, then turns it into another kind of zone', async ({ page }) => {
+  const { errors, box } = await geometryEditor(page);
+  const sp = await page.evaluate(async () => {
+    const { addNode, connect, ctxOf } = await import('/src/nodes/tree.ts');
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const tree = a.hoverArea.editor.tree();
+    const gin = tree.nodes.find((n: { type: string }) => n.type === 'NodeGroupInput');
+    const gout = tree.nodes.find((n: { type: string }) => n.type === 'NodeGroupOutput');
+    tree.links = [];
+    const sp = addNode(tree, 'GeometryNodeSetPosition', [0, 0]);
+    const ctx = ctxOf(a.doc, tree);
+    connect(ctx, gin.id, tree.interface.find((i: { in_out: string }) => i.in_out === 'INPUT').identifier, sp.id, 'Geometry');
+    connect(ctx, sp.id, 'Geometry', gout.id, tree.interface.find((i: { in_out: string }) => i.in_out === 'OUTPUT').identifier);
+    for (const n of tree.nodes) n.select = n === sp;
+    tree.active_node = sp.id;
+    a.changed('doc');
+    return sp.id;
+  });
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.press('Shift+S');
+  await menuItem(page, 'Utilities').hover();
+  await menuItem(page, 'Repeat').click();
+  const chain = () =>
+    withTree<string[]>(
+      page,
+      `(ed, t) => { const out = []; let id = t.nodes.find((n) => n.type === 'NodeGroupInput').id;
+        for (let k = 0; k < 6; k++) { const l = t.links.find((x) => x.from_node === id); if (!l) break; id = l.to_node; out.push(t.nodes.find((n) => n.id === id).type); }
+        return out; }`,
+    );
+  expect(await chain()).toEqual(['GeometryNodeRepeatInput', 'GeometryNodeSetPosition', 'GeometryNodeRepeatOutput', 'NodeGroupOutput']);
+  // swapping the selected zone to a simulation keeps the links
+  await page.evaluate((id) => {
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const t = a.hoverArea.editor.tree();
+    for (const n of t.nodes) n.select = n.type === 'GeometryNodeRepeatInput';
+    void id;
+    a.run('node.swap_node', { type: 'GeometryNodeSimulationInput', settings: '{}' }, { area: a.hoverArea });
+  }, sp);
+  expect(await chain()).toEqual(['GeometryNodeSimulationInput', 'GeometryNodeSetPosition', 'GeometryNodeSimulationOutput', 'NodeGroupOutput']);
+  expect(
+    await withTree(page, `(ed, t) => t.nodes.find((n) => n.type === 'GeometryNodeSimulationInput').props.paired_output === t.nodes.find((n) => n.type === 'GeometryNodeSimulationOutput').id`),
+  ).toBe(true);
+  await expectNoErrors(errors);
+});
