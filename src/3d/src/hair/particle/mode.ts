@@ -44,6 +44,8 @@ export interface ParticleEditSettings {
   display_step: number;
   /** draw the children while editing */
   show_children: boolean;
+  /** closed mesh hair is cut to by Shape Cut */
+  shape_object?: string | null;
   use_default_interpolate: boolean;
   default_key_count: number;
 }

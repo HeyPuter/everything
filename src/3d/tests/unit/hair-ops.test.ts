@@ -275,3 +275,20 @@ describe('curves draw', () => {
     expect(r3(hc.positions.slice(12, 15))).toEqual([1, 0, 2]);
   });
 });
+
+describe('particle shape cut', () => {
+  it('cuts hair where it leaves a closed mesh', async () => {
+    const { ShapeVolume, cutToShape } = await import('../../src/hair/particle/shapecut');
+    const { editedFromStrands } = await import('../../src/hair/particle/keys');
+    const c = prim.cube(2);
+    const vol = new ShapeVolume({ positions: c.positions, offsets: c.offsets, indices: c.indices, uvs: c.uvs, normals: new Float32Array(0) });
+    expect(vol.inside(new Vector3(0, 0, 0))).toBe(true);
+    expect(vol.inside(new Vector3(0, 0, 2))).toBe(false);
+    // one hair from the centre straight up to z = 3, one starting outside
+    const ed = editedFromStrands(Float32Array.from([0.1, 0.2, 0, 0.1, 0.2, 1.5, 0.1, 0.2, 3, 5, 0, 0, 5, 0, 1, 5, 0, 2]), 3, 2);
+    const r = cutToShape(ed, vol, new Matrix4());
+    expect(r.cut).toBe(1);
+    expect(r.ed.co[8]).toBeCloseTo(1, 3);
+    expect(r.ed.co[17]).toBe(2);
+  });
+});

@@ -17,6 +17,8 @@ import type { EditedHair, ParticleSystemX } from '../../physics/types';
 import { h, type Child, type VNode } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { checkbox, enumMenu, numberField } from '../../ui/widgets';
+import { objectProp } from '../../ui/props';
+import './shapecut';
 import type { MenuItem } from '../../ui/menu';
 import { hairBrushAccess, type HairBrushAccess } from '../sculptui';
 import { PE_TOOLS, activePE, activePETool, inPE, peBrush, peSettings, type PESelectMode } from './mode';
@@ -119,6 +121,9 @@ toolOptionSections.push((idp) => {
     h('div', { class: 'sub-label' }, 'Preserve'),
     tog('use_preserve_length', 'Strand Lengths', 'Combing keeps the length of the hair'),
     tog('use_preserve_root', 'Root Positions', 'Hair roots cannot be moved'),
+    h('div', { class: 'sub-label' }, 'Cut Particles to Shape'),
+    objectProp(pe as unknown as { shape_object: string | null }, 'shape_object', 'Shape Object', { filter: (o) => o.type === 'MESH' && o.id !== a?.ob.id, none: 'None' }),
+    pe.shape_object ? h('button', { key: `${idp}-pe-cut`, class: 'btn', onclick: () => app.run('particle.shape_cut') }, 'Cut') : null,
     h('div', { class: 'opt-head' }, 'Viewport Display'),
     numberField({ id: `${idp}-pe-steps`, label: 'Path Steps', value: pe.display_step, min: 0, max: 10, int: true, tip: 'Smoothness of the drawn hair paths (powers of two)', set: (x) => ((pe.display_step = Math.round(x)), app.changed('ui', 'doc')) }),
     tog('show_children', 'Children', 'Also draw the child hair while editing'),
