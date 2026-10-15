@@ -129,6 +129,8 @@ export interface GPBrush {
   /** Draw: color mode */
   color_mode?: 'MATERIAL' | 'VERTEXCOLOR';
   color?: Color;
+  /** swapped with `color` by X */
+  secondary_color?: Color;
   /** Erase */
   eraser_mode?: 'SOFT' | 'HARD' | 'STROKE';
   /** Tint */

@@ -421,6 +421,32 @@ registerOperators([
   {
     idname: 'grease_pencil.set_active_material',
     label: 'Set Active Material',
+    description: 'Make a material slot the active one (by default the material of the first selected stroke)',
+    props: [{ id: 'slot', label: 'Slot', type: 'int', default: -1, min: -1 }],
+    poll: pollGP,
+    exec: (ctx, p) => {
+      const { ob, gp } = activeGP()!;
+      let slot = p.slot as number;
+      if (slot < 0) {
+        // from the selection (Edit Mode)
+        if (ctx.doc.mode !== 'EDIT') return 'CANCELLED';
+        for (const d of gp.drawings) {
+          const sel = d.select;
+          if (!sel) continue;
+          for (let s = 0; s + 1 < d.offsets.length && slot < 0; s++) for (let i = d.offsets[s]; i < d.offsets[s + 1]; i++) if (sel[i]) slot = d.material_index[s];
+          if (slot >= 0) break;
+        }
+        if (slot < 0) return 'CANCELLED';
+      }
+      if (slot >= Math.max(1, gp.materials.length)) return 'CANCELLED';
+      ob.active_material_index = slot;
+    },
+    redo: false,
+  },
+  {
+    idname: 'grease_pencil.set_material',
+    label: 'Set Active Material',
+    description: 'Make a material slot the active one (new strokes use it)',
     props: [{ id: 'slot', label: 'Slot', type: 'int', default: 0, min: 0 }],
     poll: pollGP,
     exec: (_c, p) => {

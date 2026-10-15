@@ -35,7 +35,9 @@ export type Mode =
   | 'TEXTURE_PAINT'
   | 'POSE'
   | 'PAINT_GREASE_PENCIL'
-  | 'SCULPT_GREASE_PENCIL';
+  | 'SCULPT_GREASE_PENCIL'
+  | 'VERTEX_GREASE_PENCIL'
+  | 'WEIGHT_GREASE_PENCIL';
 
 export type SelectMode = 'VERT' | 'EDGE' | 'FACE';
 

@@ -4,19 +4,13 @@
 import { Matrix3, Matrix4, Vector3, Box3, Scene, Points, PointsMaterial, BufferGeometry, Float32BufferAttribute, LineSegments, LineBasicMaterial } from 'three';
 import { app, registerOperators } from '../app/app';
 import { editModeHooks, viewportExtensions } from '../editors/view3d/hooks';
-import { transformProviders, startTransform, type TElement } from '../ops/transform';
+import { transformProviders, type TElement } from '../ops/transform';
 import { setGizmoCenterHook, gizmoCenterHook } from '../editors/view3d/gizmo';
 import { frameHooks } from '../ops/view3d';
-import { modeMenus } from '../editors/view3d/modemenus';
-import { addKeys } from '../app/keymap';
-import { h } from '../ui/h';
-import { icon } from '../ui/icons';
-import type { MenuItem } from '../ui/menu';
 import { renderContext } from '../render/context';
 import { gpOf, gpTS, toStrokes, fromStrokes, frameAt, normalizeDrawing, uniqueLayerName, newLayer, setKeyframe, emptyDrawing, type GPStroke } from './data';
 import { layerMatrix } from './render';
 import { smoothPoints, subdivideStroke, joinStrokes, filterPoints, simplifyPoints } from './strokeops';
-import { animationMenu, layerMenu, placementControls } from './ui';
 import type { GPDrawing, GPLayer, GreasePencilData } from './types';
 import type { ObjectData } from '../data/types';
 
@@ -56,10 +50,10 @@ export function editTargets(): EditTarget[] {
   return out;
 }
 
-const drawing = (t: EditTarget) => normalizeDrawing(ctx()!.gp.drawings[t.idx]);
-const setDrawing = (t: EditTarget, d: GPDrawing) => (ctx()!.gp.drawings[t.idx] = d);
+export const drawing = (t: EditTarget) => normalizeDrawing(ctx()!.gp.drawings[t.idx]);
+export const setDrawing = (t: EditTarget, d: GPDrawing) => (ctx()!.gp.drawings[t.idx] = d);
 
-function strokeOfPoint(d: GPDrawing, i: number) {
+export function strokeOfPoint(d: GPDrawing, i: number) {
   let lo = 0,
     hi = d.offsets.length - 2;
   while (lo < hi) {
@@ -70,10 +64,10 @@ function strokeOfPoint(d: GPDrawing, i: number) {
   return lo;
 }
 
-const strokeMode = () => gpTS(app.doc).gpencil_selectmode_edit === 'STROKE';
+export const strokeMode = () => gpTS(app.doc).gpencil_selectmode_edit === 'STROKE';
 
 /** In stroke selection mode a stroke is selected as a whole. */
-function expandToStrokes(d: GPDrawing) {
+export function expandToStrokes(d: GPDrawing) {
   const sel = d.select!;
   for (let s = 0; s + 1 < d.offsets.length; s++) {
     let any = false;
@@ -87,7 +81,7 @@ function commitSelection(label: string) {
   app.changed('select', 'doc');
 }
 
-function withSelection(t: EditTarget, fn: (sel: Uint8Array, d: GPDrawing) => void) {
+export function withSelection(t: EditTarget, fn: (sel: Uint8Array, d: GPDrawing) => void) {
   const d = drawing(t);
   const sel = d.select!.slice();
   const nd = { ...d, select: sel };
@@ -121,7 +115,11 @@ editModeHooks.pick.unshift((v, x, y, o) => {
   if (best) {
     withSelection(best.t, (sel, d) => {
       const s = strokeOfPoint(d, best!.i);
-      const range: [number, number] = strokeMode() ? [d.offsets[s], d.offsets[s + 1]] : [best!.i, best!.i + 1];
+      const range: [number, number] = strokeMode()
+        ? [d.offsets[s], d.offsets[s + 1]]
+        : gpTS(app.doc).gpencil_selectmode_edit === 'SEGMENT'
+          ? segmentRange(v, targets, best!.t, d, s, best!.i)
+          : [best!.i, best!.i + 1];
       const on = o.deselect ? 0 : o.toggle && sel[best!.i] ? 0 : 1;
       sel.fill(on, range[0], range[1]);
     });
@@ -154,6 +152,78 @@ editModeHooks.box.unshift((v, x0, y0, x1, y1, mode) => {
   commitSelection('Box Select');
   return true;
 });
+
+editModeHooks.region.unshift((v, r, mode) => {
+  if (!inGPEdit()) return false;
+  const inside =
+    r.kind === 'circle'
+      ? (x: number, y: number) => Math.hypot(x - r.x, y - r.y) <= r.r
+      : (x: number, y: number) => {
+          // even-odd test against the lasso polygon
+          let c = false;
+          const P = r.kind === 'lasso' ? r.pts : [];
+          for (let i = 0, j = P.length - 1; i < P.length; j = i++)
+            if (P[i].y > y !== P[j].y > y && x < ((P[j].x - P[i].x) * (y - P[i].y)) / (P[j].y - P[i].y) + P[i].x) c = !c;
+          return r.kind === 'box' ? x >= Math.min(r.x0, r.x1) && x <= Math.max(r.x0, r.x1) && y >= Math.min(r.y0, r.y1) && y <= Math.max(r.y0, r.y1) : c;
+        };
+  for (const t of editTargets())
+    withSelection(t, (sel, d) => {
+      const hit = new Uint8Array(sel.length);
+      for (let i = 0; i < sel.length; i++) {
+        tmp.set(d.position[i * 3], d.position[i * 3 + 1], d.position[i * 3 + 2]).applyMatrix4(t.world);
+        const s = v.project(tmp);
+        hit[i] = inside(s.x, s.y) ? 1 : 0;
+      }
+      if (strokeMode()) expandToStrokes({ ...d, select: hit });
+      for (let i = 0; i < sel.length; i++) {
+        const cur = sel[i],
+          ht = hit[i];
+        sel[i] = mode === 'SET' ? ht : mode === 'ADD' ? cur | ht : mode === 'SUB' ? cur & (ht ^ 1) : mode === 'AND' ? cur & ht : cur ^ ht;
+      }
+    });
+  commitSelection(r.kind === 'circle' ? 'Circle Select' : 'Lasso Select');
+  return true;
+});
+
+/** 2D segment intersection parameter along a→b, or null. */
+function segHit(ax: number, ay: number, bx: number, by: number, cx: number, cy: number, dx: number, dy: number): number | null {
+  const rx = bx - ax,
+    ry = by - ay,
+    sx = dx - cx,
+    sy = dy - cy;
+  const den = rx * sy - ry * sx;
+  if (Math.abs(den) < 1e-12) return null;
+  const t = ((cx - ax) * sy - (cy - ay) * sx) / den,
+    u = ((cx - ax) * ry - (cy - ay) * rx) / den;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : null;
+}
+
+/** Point range of stroke `s` around point `pi` bounded by the nearest crossings with other strokes (screen space). */
+function segmentRange(v: Parameters<(typeof editModeHooks.pick)[number]>[0], targets: EditTarget[], tgt: EditTarget, d: GPDrawing, s: number, pi: number): [number, number] {
+  const a = d.offsets[s],
+    b = d.offsets[s + 1];
+  const scr = (t: EditTarget, dd: GPDrawing, i: number) => {
+    tmp.set(dd.position[i * 3], dd.position[i * 3 + 1], dd.position[i * 3 + 2]).applyMatrix4(t.world);
+    return v.project(tmp);
+  };
+  const own = Array.from({ length: b - a }, (_, k) => scr(tgt, d, a + k));
+  // crossings per segment index of this stroke (k → between point a+k and a+k+1)
+  const cut = new Set<number>();
+  for (const t of targets) {
+    const od = drawing(t);
+    for (let os = 0; os + 1 < od.offsets.length; os++) {
+      if (t === tgt && os === s) continue;
+      const pts = Array.from({ length: od.offsets[os + 1] - od.offsets[os] }, (_, k) => scr(t, od, od.offsets[os] + k));
+      for (let k = 0; k + 1 < own.length; k++)
+        for (let m = 0; m + 1 < pts.length; m++) if (segHit(own[k].x, own[k].y, own[k + 1].x, own[k + 1].y, pts[m].x, pts[m].y, pts[m + 1].x, pts[m + 1].y) !== null) cut.add(k);
+    }
+  }
+  let lo = pi - a,
+    hi = pi - a;
+  while (lo > 0 && !cut.has(lo - 1)) lo--;
+  while (hi < own.length - 1 && !cut.has(hi)) hi++;
+  return [a + lo, a + hi + 1];
+}
 
 // ---------------------------------------------------------------------------
 // overlay: points (selected = orange) and thin edit lines
@@ -238,7 +308,7 @@ viewportExtensions.push((v) => {
 // ---------------------------------------------------------------------------
 // transforms
 
-function selectedWorld(): Vector3[] {
+export function selectedWorld(): Vector3[] {
   const out: Vector3[] = [];
   for (const t of editTargets()) {
     const d = drawing(t);
@@ -253,14 +323,16 @@ transformProviders.unshift({
     const els: TElement[] = [];
     const restores: (() => void)[] = [];
     const live: { t: EditTarget; d: GPDrawing }[] = [];
+    const scaleThickness = (gpTS(app.doc) as unknown as { use_scale_thickness?: boolean }).use_scale_thickness !== false;
     for (const t of editTargets()) {
       const d0 = drawing(t);
       if (!d0.select!.some((x) => x)) continue;
       const before = d0.position;
-      const d = { ...d0, position: d0.position.slice() };
+      const rBefore = d0.radius;
+      const d = { ...d0, position: d0.position.slice(), radius: d0.radius.slice() };
       setDrawing(t, d);
       live.push({ t, d });
-      restores.push(() => setDrawing(t, { ...d, position: before }));
+      restores.push(() => setDrawing(t, { ...d, position: before, radius: rBefore }));
       const inv = t.world.clone().invert();
       const basis = new Matrix3().setFromMatrix4(t.world);
       for (let i = 0; i < d.select!.length; i++) {
@@ -271,16 +343,19 @@ transformProviders.unshift({
           center: p0,
           basis,
           weight: 1,
-          apply(m: Matrix4) {
+          apply(m: Matrix4, c: { mode: string }) {
             q.copy(p0).applyMatrix4(m).applyMatrix4(inv);
             d.position[i * 3] = q.x;
             d.position[i * 3 + 1] = q.y;
             d.position[i * 3 + 2] = q.z;
+            // Scale Thickness: scaling also scales the stroke radius
+            if (c.mode === 'RESIZE' && scaleThickness) d.radius[i] = rBefore[i] * Math.cbrt(Math.abs(m.determinant()));
           },
           restore() {
             d.position[i * 3] = before[i * 3];
             d.position[i * 3 + 1] = before[i * 3 + 1];
             d.position[i * 3 + 2] = before[i * 3 + 2];
+            d.radius[i] = rBefore[i];
           },
         });
       }
@@ -288,7 +363,7 @@ transformProviders.unshift({
     if (!els.length) return null;
     const bump = () => {
       // the elements write into private arrays; publish a copy (new identity → GPU rebuild)
-      for (const { t, d } of live) setDrawing(t, { ...d, position: d.position.slice() });
+      for (const { t, d } of live) setDrawing(t, { ...d, position: d.position.slice(), radius: d.radius.slice() });
     };
     return {
       elements: els,
@@ -327,7 +402,7 @@ frameHooks.unshift(() => {
 const poll = () => inGPEdit();
 
 /** Apply a stroke-list transform to every edit target; returns false when nothing changed. */
-function mapStrokes(fn: (strokes: GPStroke[], t: EditTarget) => GPStroke[] | null): boolean {
+export function mapStrokes(fn: (strokes: GPStroke[], t: EditTarget) => GPStroke[] | null): boolean {
   let changed = false;
   for (const t of editTargets()) {
     const out = fn(toStrokes(drawing(t)), t);
@@ -339,8 +414,8 @@ function mapStrokes(fn: (strokes: GPStroke[], t: EditTarget) => GPStroke[] | nul
   return changed;
 }
 
-const anySel = (s: GPStroke) => s.points.some((p) => p.select);
-const allSel = (s: GPStroke) => s.points.every((p) => p.select);
+export const anySel = (s: GPStroke) => s.points.some((p) => p.select);
+export const allSel = (s: GPStroke) => s.points.every((p) => p.select);
 
 registerOperators([
   {
@@ -419,8 +494,9 @@ registerOperators([
         type: 'enum',
         default: 'POINT',
         items: [
-          ['POINT', 'Point'],
-          ['STROKE', 'Stroke'],
+          ['POINT', 'Point', 'Select individual points'],
+          ['STROKE', 'Stroke', 'Select whole strokes'],
+          ['SEGMENT', 'Segment', 'Select the part of a stroke between its crossings with other strokes'],
         ],
       },
     ],
@@ -501,17 +577,6 @@ registerOperators([
         })
       )
         return 'CANCELLED';
-    },
-  },
-  {
-    idname: 'grease_pencil.duplicate_move',
-    label: 'Duplicate',
-    poll,
-    invoke: (c) => {
-      if (app.run('grease_pencil.duplicate', {}, { invoke: false }) !== 'FINISHED') return 'CANCELLED';
-      app.flush();
-      startTransform('TRANSLATION', { event: c.event });
-      return 'RUNNING_MODAL';
     },
   },
   {
@@ -857,290 +922,3 @@ registerOperators([
   },
 ]);
 
-// ---------------------------------------------------------------------------
-// menus & keys
-
-function deleteMenu(): MenuItem[] {
-  return [
-    { label: 'Delete Points', op: 'grease_pencil.delete' },
-    {
-      label: 'Dissolve',
-      op: 'grease_pencil.dissolve',
-      props: { type: 'POINTS' },
-    },
-    {
-      label: 'Dissolve Unselected',
-      op: 'grease_pencil.dissolve',
-      props: { type: 'UNSELECT' },
-    },
-    { separator: true },
-    {
-      label: 'Delete Active Keyframe (Active Layer)',
-      op: 'grease_pencil.active_frame_delete',
-      props: { all: false },
-    },
-    {
-      label: 'Delete Active Keyframes (All Layers)',
-      op: 'grease_pencil.active_frame_delete',
-      props: { all: true },
-    },
-  ];
-}
-
-function gpMenu(): MenuItem[] {
-  return [
-    {
-      label: 'Transform',
-      submenu: () => [
-        { label: 'Move', op: 'transform.translate', shortcut: 'G' },
-        { label: 'Rotate', op: 'transform.rotate', shortcut: 'R' },
-        { label: 'Scale', op: 'transform.resize', shortcut: 'S' },
-      ],
-    },
-    { separator: true },
-    { label: 'Layer', submenu: layerMenu },
-    { label: 'Animation', submenu: animationMenu },
-    { separator: true },
-    {
-      label: 'Duplicate',
-      op: 'grease_pencil.duplicate_move',
-      shortcut: 'Shift D',
-    },
-    {
-      label: 'Move to Layer',
-      submenu: () =>
-        (ctx()?.gp.layers ?? [])
-          .map((l) => ({
-            label: l.name,
-            op: 'grease_pencil.move_to_layer',
-            props: { target_layer_name: l.name },
-          }))
-          .reverse(),
-    },
-    { separator: true },
-    { label: 'Delete', submenu: deleteMenu, shortcut: 'X' },
-  ];
-}
-
-function strokeMenu(): MenuItem[] {
-  const c = ctx();
-  return [
-    { label: 'Subdivide', op: 'grease_pencil.stroke_subdivide' },
-    { label: 'Simplify', op: 'grease_pencil.stroke_simplify' },
-    { separator: true },
-    {
-      label: 'Join Selection',
-      op: 'grease_pencil.join_selection',
-      shortcut: 'Ctrl J',
-    },
-    { separator: true },
-    {
-      label: 'Assign Material',
-      submenu: () =>
-        (c?.gp.materials ?? []).map((id, i) => ({
-          label: (id && app.doc.materials[id]?.name) || '(empty)',
-          icon: 'material',
-          op: 'grease_pencil.stroke_material_set',
-          props: { slot: i },
-        })),
-    },
-    {
-      label: 'Toggle Cyclic',
-      op: 'grease_pencil.cyclical_set',
-      props: { type: 'TOGGLE' },
-      shortcut: 'Alt C',
-    },
-    {
-      label: 'Close',
-      op: 'grease_pencil.cyclical_set',
-      props: { type: 'CLOSE' },
-      shortcut: 'F',
-    },
-    {
-      label: 'Set Caps',
-      submenu: () => [
-        {
-          label: 'Rounded',
-          op: 'grease_pencil.caps_set',
-          props: { type: 'ROUND' },
-        },
-        {
-          label: 'Flat',
-          op: 'grease_pencil.caps_set',
-          props: { type: 'FLAT' },
-        },
-        {
-          label: 'Toggle Start',
-          op: 'grease_pencil.caps_set',
-          props: { type: 'START' },
-        },
-        {
-          label: 'Toggle End',
-          op: 'grease_pencil.caps_set',
-          props: { type: 'END' },
-        },
-      ],
-    },
-    { label: 'Switch Direction', op: 'grease_pencil.stroke_switch_direction' },
-    { separator: true },
-    {
-      label: 'Set Uniform Thickness',
-      op: 'grease_pencil.set_uniform_thickness',
-    },
-    { label: 'Set Uniform Opacity', op: 'grease_pencil.set_uniform_opacity' },
-  ];
-}
-
-function pointMenu(): MenuItem[] {
-  return [
-    { label: 'Smooth', op: 'grease_pencil.stroke_smooth' },
-    { label: 'Subdivide', op: 'grease_pencil.stroke_subdivide' },
-    { separator: true },
-    { label: 'Dissolve', op: 'grease_pencil.dissolve' },
-  ];
-}
-
-function selectItems(): MenuItem[] {
-  return [
-    {
-      label: 'All',
-      op: 'grease_pencil.select_all',
-      props: { action: 'SELECT' },
-      shortcut: 'A',
-    },
-    {
-      label: 'None',
-      op: 'grease_pencil.select_all',
-      props: { action: 'DESELECT' },
-      shortcut: 'Alt A',
-    },
-    {
-      label: 'Invert',
-      op: 'grease_pencil.select_all',
-      props: { action: 'INVERT' },
-      shortcut: 'Ctrl I',
-    },
-    { separator: true },
-    { label: 'Linked', op: 'grease_pencil.select_linked', shortcut: 'Ctrl L' },
-    {
-      label: 'More',
-      op: 'grease_pencil.select_more',
-      shortcut: 'Ctrl Numpad +',
-    },
-    {
-      label: 'Less',
-      op: 'grease_pencil.select_less',
-      shortcut: 'Ctrl Numpad -',
-    },
-  ];
-}
-
-function selectModeButtons() {
-  const m = gpTS(app.doc).gpencil_selectmode_edit;
-  const btn = (mode: 'POINT' | 'STROKE', ic: string, tip: string) =>
-    h(
-      'button',
-      {
-        key: `gpsm-${mode}`,
-        class: { 'hdr-toggle': true, on: m === mode },
-        'data-tip': tip,
-        onclick: () => app.run('grease_pencil.set_selection_mode', { mode }),
-      },
-      icon(ic),
-    );
-  return h(
-    'div',
-    {
-      key: 'gp-selmode',
-      class: 'hdr-group',
-      style: { display: 'flex', gap: '1px' },
-    },
-    btn('POINT', 'gp_select_points', 'Point\nSelect only points (1)'),
-    btn('STROKE', 'gp_select_strokes', 'Stroke\nSelect all stroke points (2)'),
-  );
-}
-
-const prevEdit = modeMenus.EDIT;
-modeMenus.EDIT = {
-  ...prevEdit,
-  header: () =>
-    inGPEdit()
-      ? [
-          ['Grease Pencil', gpMenu],
-          ['Stroke', strokeMenu],
-          ['Point', pointMenu],
-        ]
-      : (prevEdit?.header?.() ?? []),
-  select: () => (inGPEdit() ? selectItems() : (prevEdit?.select?.() ?? [])),
-  add: () => (inGPEdit() ? [] : (prevEdit?.add?.() ?? [])),
-  context: () => (inGPEdit() ? [...pointMenu(), { separator: true }, ...strokeMenu().slice(0, 4), { separator: true }, { label: 'Delete', submenu: deleteMenu }] : (prevEdit?.context?.() ?? [])),
-  headerExtra: () => (inGPEdit() ? [selectModeButtons(), placementControls()] : (prevEdit?.headerExtra?.() ?? null)),
-};
-
-addKeys('Grease Pencil', [
-  {
-    key: 'A',
-    op: 'grease_pencil.select_all',
-    props: { action: 'SELECT' },
-    when: inGPEdit,
-  },
-  {
-    key: 'A',
-    alt: true,
-    op: 'grease_pencil.select_all',
-    props: { action: 'DESELECT' },
-    when: inGPEdit,
-  },
-  {
-    key: 'I',
-    ctrl: true,
-    op: 'grease_pencil.select_all',
-    props: { action: 'INVERT' },
-    when: inGPEdit,
-  },
-  { key: 'L', ctrl: true, op: 'grease_pencil.select_linked', when: inGPEdit },
-  { key: 'L', op: 'grease_pencil.select_linked', when: inGPEdit },
-  {
-    key: 'NUMPAD_PLUS',
-    ctrl: true,
-    op: 'grease_pencil.select_more',
-    when: inGPEdit,
-  },
-  {
-    key: 'NUMPAD_MINUS',
-    ctrl: true,
-    op: 'grease_pencil.select_less',
-    when: inGPEdit,
-  },
-  { key: 'X', menu: deleteMenu, menuTitle: 'Delete', when: inGPEdit },
-  { key: 'DEL', menu: deleteMenu, menuTitle: 'Delete', when: inGPEdit },
-  { key: 'D', shift: true, op: 'grease_pencil.duplicate_move', when: inGPEdit },
-  { key: 'J', ctrl: true, op: 'grease_pencil.join_selection', when: inGPEdit },
-  {
-    key: 'C',
-    alt: true,
-    op: 'grease_pencil.cyclical_set',
-    props: { type: 'TOGGLE' },
-    when: inGPEdit,
-  },
-  {
-    key: 'F',
-    op: 'grease_pencil.cyclical_set',
-    props: { type: 'CLOSE' },
-    when: inGPEdit,
-  },
-  {
-    key: 'ONE',
-    op: 'grease_pencil.set_selection_mode',
-    props: { mode: 'POINT' },
-    when: inGPEdit,
-  },
-  {
-    key: 'TWO',
-    op: 'grease_pencil.set_selection_mode',
-    props: { mode: 'STROKE' },
-    when: inGPEdit,
-  },
-  { key: 'I', menu: animationMenu, menuTitle: 'Animation', when: inGPEdit },
-  { key: 'Y', menu: layerMenu, menuTitle: 'Layer', when: inGPEdit },
-]);

@@ -14,6 +14,7 @@ import { propertiesTabs } from '../editors/properties/properties';
 import { editModeHooks, viewportExtensions } from '../editors/view3d/hooks';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { gpTS, gpBrush, gpOf, DRAW_PRESETS, slotStyle } from './data';
+import { drawMenu, sculptMenu } from './menus';
 import { cursorRadius } from './paint';
 import type { GPBrush, GPToolSettings } from './types';
 
@@ -604,113 +605,7 @@ export function placementControls(): Child {
 // ---------------------------------------------------------------------------
 // header menus
 
-export function animationMenu(): MenuItem[] {
-  return [
-    {
-      label: 'Insert Blank Keyframe (Active Layer)',
-      op: 'grease_pencil.insert_blank_frame',
-      props: { all_layers: false },
-    },
-    {
-      label: 'Insert Blank Keyframe (All Layers)',
-      op: 'grease_pencil.insert_blank_frame',
-      props: { all_layers: true },
-    },
-    { separator: true },
-    {
-      label: 'Duplicate Active Keyframe (Active Layer)',
-      op: 'grease_pencil.frame_duplicate',
-      props: { all: false },
-    },
-    {
-      label: 'Duplicate Active Keyframe (All Layers)',
-      op: 'grease_pencil.frame_duplicate',
-      props: { all: true },
-    },
-    { separator: true },
-    {
-      label: 'Delete Active Keyframe (Active Layer)',
-      op: 'grease_pencil.active_frame_delete',
-      props: { all: false },
-    },
-    {
-      label: 'Delete Active Keyframes (All Layers)',
-      op: 'grease_pencil.active_frame_delete',
-      props: { all: true },
-    },
-  ];
-}
-
-export function layerMenu(): MenuItem[] {
-  return [
-    { label: 'Add New Layer', op: 'grease_pencil.layer_add' },
-    { label: 'Duplicate Layer', op: 'grease_pencil.layer_duplicate' },
-    { label: 'Merge Down', op: 'grease_pencil.layer_merge' },
-    {
-      label: 'Move Up',
-      op: 'grease_pencil.layer_move',
-      props: { direction: 'UP' },
-    },
-    {
-      label: 'Move Down',
-      op: 'grease_pencil.layer_move',
-      props: { direction: 'DOWN' },
-    },
-    { label: 'Remove Layer', op: 'grease_pencil.layer_remove' },
-    { separator: true },
-    { label: 'Hide Active Layer', op: 'grease_pencil.layer_hide' },
-    {
-      label: 'Hide Inactive Layers',
-      op: 'grease_pencil.layer_hide',
-      props: { unselected: true },
-    },
-    { label: 'Show All Layers', op: 'grease_pencil.layer_reveal' },
-    { separator: true },
-    {
-      label: 'Lock All Layers',
-      op: 'grease_pencil.layer_lock_all',
-      props: { lock: true },
-    },
-    {
-      label: 'Unlock All Layers',
-      op: 'grease_pencil.layer_lock_all',
-      props: { lock: false },
-    },
-    { separator: true },
-    {
-      label: 'Active Layer',
-      submenu: () =>
-        (gpOf(app.doc, app.activeObject)?.layers ?? [])
-          .map((l, i, all) => ({
-            label: l.name,
-            active: gpOf(app.doc, app.activeObject)?.active_layer_index === i,
-            op: 'grease_pencil.layer_active',
-            props: { layer: i },
-          }))
-          .reverse(),
-    },
-  ];
-}
-
-function drawMenu(): MenuItem[] {
-  return [
-    { label: 'Animation', submenu: animationMenu },
-    { label: 'Layer', submenu: layerMenu },
-    { separator: true },
-    {
-      label: 'Brush Size',
-      op: 'grease_pencil.radial_control',
-      props: { data: 'size' },
-      shortcut: 'F',
-    },
-    {
-      label: 'Brush Strength',
-      op: 'grease_pencil.radial_control',
-      props: { data: 'strength' },
-      shortcut: 'Shift F',
-    },
-  ];
-}
+export { animationMenu, layerMenu } from './menus';
 
 modeMenus.PAINT_GREASE_PENCIL = {
   header: () => [['Draw', drawMenu]],
@@ -718,28 +613,7 @@ modeMenus.PAINT_GREASE_PENCIL = {
   headerExtra: placementControls,
 };
 modeMenus.SCULPT_GREASE_PENCIL = {
-  header: () => [
-    [
-      'Sculpt',
-      () => [
-        { label: 'Animation', submenu: animationMenu },
-        { label: 'Layer', submenu: layerMenu },
-        { separator: true },
-        {
-          label: 'Brush Size',
-          op: 'grease_pencil.radial_control',
-          props: { data: 'size' },
-          shortcut: 'F',
-        },
-        {
-          label: 'Brush Strength',
-          op: 'grease_pencil.radial_control',
-          props: { data: 'strength' },
-          shortcut: 'Shift F',
-        },
-      ],
-    ],
-  ],
+  header: () => [['Sculpt', sculptMenu]],
   select: () => [],
   headerExtra: placementControls,
 };
@@ -973,33 +847,11 @@ editModeHooks.svg.push((v) => {
 // ---------------------------------------------------------------------------
 // keymap (highest priority in the 3D view while a grease pencil mode is active)
 
-const paint = () => app.doc.mode === 'PAINT_GREASE_PENCIL';
-const sculpt = () => app.doc.mode === 'SCULPT_GREASE_PENCIL';
-const paintOrSculpt = () => paint() || sculpt();
+const paintOrSculpt = () => app.doc.mode === 'PAINT_GREASE_PENCIL' || app.doc.mode === 'SCULPT_GREASE_PENCIL';
 
 addKeys('Grease Pencil', [
-  {
-    key: 'F',
-    op: 'grease_pencil.radial_control',
-    props: { data: 'size' },
-    when: paintOrSculpt,
-  },
-  {
-    key: 'F',
-    shift: true,
-    op: 'grease_pencil.radial_control',
-    props: { data: 'strength' },
-    when: paintOrSculpt,
-  },
-  {
-    key: 'I',
-    menu: animationMenu,
-    menuTitle: 'Animation',
-    when: paintOrSculpt,
-  },
-  { key: 'X', op: 'grease_pencil.active_frame_delete', when: paint },
-  { key: 'DEL', op: 'grease_pencil.active_frame_delete', when: paint },
-  { key: 'Y', menu: layerMenu, menuTitle: 'Layer', when: paintOrSculpt },
+  { key: 'F', op: 'grease_pencil.radial_control', props: { data: 'size' }, when: paintOrSculpt },
+  { key: 'F', shift: true, op: 'grease_pencil.radial_control', props: { data: 'strength' }, when: paintOrSculpt },
 ]);
 
 viewportExtensions.push((v) => {

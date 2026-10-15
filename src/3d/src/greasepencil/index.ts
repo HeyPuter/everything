@@ -12,6 +12,13 @@ import './edit';
 import './properties';
 import './dopesheet';
 import './workspace';
+import './menus';
+import './interpolate';
+import './cleanup';
+import './layerops';
+import './brushops';
+import './editops';
+import './editmenus';
 import { addMenuHooks } from '../editors/view3d/menus';
 
 addMenuHooks.push(() => [

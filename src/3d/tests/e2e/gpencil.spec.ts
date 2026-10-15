@@ -1,0 +1,128 @@
+// Grease Pencil: Draw / Edit Mode menus and shortcuts, interpolation, clean up.
+import { test, expect, type Page } from '@playwright/test';
+import { openApp, hoverViewport, expectNoErrors } from './helpers';
+
+const get = (page: Page, expr: string) => page.evaluate(`(() => { const app = window.app; return ${expr}; })()`);
+const run = (page: Page, op: string, props: Record<string, unknown> = {}) => page.evaluate(([o, p]) => (window as any).app.run(o, p, { invoke: false }), [op, props] as const); // eslint-disable-line @typescript-eslint/no-explicit-any
+
+const gp = `app.doc.grease_pencils[app.activeObject.data]`;
+const strokeCount = (page: Page) => get(page, `${gp}.drawings.reduce((a, d) => a + d.offsets.length - 1, 0)`) as Promise<number>;
+
+async function strokeObject(page: Page, mode: string) {
+  await run(page, 'object.select_all', { action: 'SELECT' });
+  await run(page, 'object.delete');
+  await run(page, 'object.grease_pencil_add', { type: 'STROKE' });
+  await run(page, 'object.mode_set', { mode });
+  await page.waitForTimeout(100);
+  await hoverViewport(page);
+}
+
+async function headerMenu(page: Page, label: string) {
+  await page.locator('.hdr-menu', { hasText: new RegExp(`^${label}$`) }).first().dispatchEvent('pointerdown');
+  await page.waitForSelector('.menu');
+}
+
+test('draw mode: Draw menu, layer / keyframe shortcuts, interpolation', async ({ page }) => {
+  const errors = await openApp(page);
+  await strokeObject(page, 'PAINT_GREASE_PENCIL');
+  await headerMenu(page, 'Draw');
+  for (const item of ['Active Layer', 'Animation', 'Interpolate Sequence', 'Show/Hide', 'Clean Up', 'Sample Color']) await expect(page.locator('.menu .menu-item', { hasText: item }).first()).toBeVisible();
+  await page.keyboard.press('Escape');
+  await hoverViewport(page);
+  // H hides the active layer, Alt H shows all
+  await page.keyboard.press('h');
+  expect(await get(page, `${gp}.layers[${gp}.active_layer_index].hide`)).toBe(true);
+  await page.keyboard.press('Alt+h');
+  expect(await get(page, `${gp}.layers.every((l) => !l.hide)`)).toBe(true);
+  // Numpad * isolates the active layer
+  await page.keyboard.press('NumpadMultiply');
+  expect(await get(page, `${gp}.layers.filter((l) => l.lock).length`)).toBe(1);
+  await page.keyboard.press('NumpadMultiply');
+  // Shift I inserts a blank keyframe on frame 10, then Shift Ctrl E interpolates frames 2-9
+  await page.evaluate(() => (window as any).app.setFrame(10)); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.keyboard.press('Shift+i');
+  const keys = () => get(page, `${gp}.layers[${gp}.active_layer_index].frames.map((f) => f.frame_number + ':' + f.keyframe_type[0])`);
+  expect(await keys()).toEqual(['1:K', '10:K']);
+  // give the blank key the strokes of frame 1, moved up
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const g = a.doc.grease_pencils[a.activeObject.data];
+    const l = g.layers[g.active_layer_index];
+    const src = g.drawings[l.frames[0].drawing];
+    const pos = src.position.slice();
+    for (let i = 2; i < pos.length; i += 3) pos[i] += 1;
+    g.drawings[l.frames[1].drawing] = { ...src, position: pos };
+    a.pushUndo('Test Drawing');
+    a.changed('doc');
+  });
+  await page.evaluate(() => (window as any).app.setFrame(5)); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.keyboard.press('Shift+Control+e');
+  expect(await keys()).toEqual(['1:K', '2:B', '3:B', '4:B', '5:B', '6:B', '7:B', '8:B', '9:B', '10:K']);
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(50);
+  await page.evaluate(() => (window as any).app.setFrame(5)); // eslint-disable-line @typescript-eslint/no-explicit-any
+  // Ctrl E: one breakdown on the current frame, confirmed with Enter
+  await page.keyboard.press('Control+e');
+  await page.keyboard.press('Enter');
+  expect(await keys()).toEqual(['1:K', '5:B', '10:K']);
+  // Alt I ▸ delete the active keyframe
+  await page.keyboard.press('Alt+i');
+  await page.locator('.menu .menu-item', { hasText: 'Delete Active Keyframe (Active Layer)' }).click();
+  expect(await keys()).toEqual(['1:K', '10:K']);
+  // [ / ] scale the brush
+  const size = () => get(page, `app.doc.scene.tool_settings.gpencil_brushes['builtin.brush.Draw'].size`);
+  const s0 = (await size()) as number;
+  await page.keyboard.press(']');
+  expect(await size()).toBeGreaterThan(s0);
+  await expectNoErrors(errors);
+});
+
+test('edit mode: menus and shortcuts', async ({ page }) => {
+  const errors = await openApp(page);
+  await strokeObject(page, 'EDIT');
+  for (const [menu, items] of [
+    ['Grease Pencil', ['Transform', 'Mirror', 'Snap', 'Active Layer', 'Animation', 'Interpolate Sequence', 'Duplicate', 'Split', 'Copy', 'Paste', 'Show/Hide', 'Separate', 'Clean Up', 'Outline', 'Delete']],
+    ['Stroke', ['Subdivide', 'Subdivide and Smooth', 'Simplify Stroke', 'Join', 'Move to Layer', 'Assign Material', 'Arrange', 'Close', 'Toggle Cyclic', 'Set Caps', 'Switch Direction', 'Set Start Point', 'Set Uniform Thickness', 'Set Uniform Opacity']],
+    ['Point', ['Extrude', 'Smooth']],
+    ['Select', ['All', 'None', 'Invert', 'Random', 'Alternated', 'More', 'Less', 'Select Similar', 'Fill', 'Linked', 'First', 'Last']],
+  ] as const) {
+    await headerMenu(page, menu);
+    for (const item of items) await expect(page.locator('.menu .menu-item', { hasText: item }).first(), `${menu} ▸ ${item}`).toBeVisible();
+    await page.keyboard.press('Escape');
+  }
+  await hoverViewport(page);
+  await page.keyboard.press('a');
+  const n0 = await strokeCount(page);
+  // Ctrl C / Ctrl V duplicate the selection into the active layer
+  await page.keyboard.press('Control+c');
+  await page.keyboard.press('Control+v');
+  expect(await strokeCount(page)).toBe(n0 + 3);
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(50);
+  // E extrudes and moves: confirm right away
+  await page.keyboard.press('e');
+  await page.keyboard.press('Enter');
+  expect(await strokeCount(page)).toBeGreaterThan(n0);
+  // extrude and move is a single undo step
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(50);
+  // 3 switches to segment selection mode
+  await page.keyboard.press('3');
+  expect(await get(page, 'app.doc.scene.tool_settings.gpencil_selectmode_edit')).toBe('SEGMENT');
+  await page.keyboard.press('1');
+  // Alt S scales the radius of the selected points
+  const r0 = (await get(page, `${gp}.drawings[0].radius[0]`)) as number;
+  await page.keyboard.press('Alt+s');
+  await page.keyboard.type('2');
+  await page.keyboard.press('Enter');
+  expect(await get(page, `${gp}.drawings[0].radius[0]`)).toBeCloseTo(r0 * 2, 5);
+  // M ▸ New Layer moves the selection to a new layer
+  await page.keyboard.press('m');
+  await expect(page.locator('.menu .menu-item', { hasText: 'New Layer' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  // P separates the selection into a new object
+  await hoverViewport(page);
+  await page.keyboard.press('p');
+  expect(await get(page, 'Object.keys(app.doc.objects).length')).toBe(2);
+  await expectNoErrors(errors);
+});
