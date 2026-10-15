@@ -103,3 +103,14 @@ describe('Weld, Mask and Triangulate options', () => {
     expect(diag(run('TRIANGULATE', m, { quad_method: 'FIXED_ALTERNATE' }))).toBe('13');
   });
 });
+
+describe('Decimate options', () => {
+  it('un-subdivides and keeps quads after collapsing flat areas', () => {
+    const fine = modifierTypes.SUBSURF.apply(cube(), { ...modifierTypes.SUBSURF.defaults(), levels: 2, use_limit_surface: false } as never, {} as ModifierContext);
+    expect(counts(run('DECIMATE', fine, { decimate_type: 'UNSUBDIV', iterations: 2 }))).toEqual([8, 6]);
+    const grid = newMeshData('g', prim.grid(8, 8, 2)) as unknown as EvalMesh;
+    const tri = run('DECIMATE', grid, { ratio: 0.5, use_collapse_triangulate: true });
+    const quads = run('DECIMATE', grid, { ratio: 0.5 });
+    expect(quads.offsets.length).toBeLessThan(tri.offsets.length);
+  });
+});

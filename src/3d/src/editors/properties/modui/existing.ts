@@ -4,7 +4,7 @@ import { num, bool, enumProp, vecProp, splitRow } from '../../../ui/props';
 import { enumRow, enumMenu } from '../../../ui/widgets';
 import { app } from '../../../app/app';
 import { modifierFields, modifierExtraUI } from '../stack';
-import { sub, headerCheck, objRow, vgroupRow, touch, textureRows, boolToggles, curveWidget } from './kit';
+import { sub, headerCheck, objRow, vgroupRow, touch, textureRows, boolToggles, curveWidget, flagToggles } from './kit';
 import type { ModifierBase } from '../../../data/types';
 
 type Rec = Record<string, unknown>;
@@ -477,5 +477,44 @@ modifierExtraUI.SHRINKWRAP = (ob, m) => {
         ]
       : null,
     vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
+  ];
+};
+
+// ---------------------------------------------------------------------------
+// Decimate
+
+modifierFields.DECIMATE = [];
+modifierExtraUI.DECIMATE = (ob, m) => {
+  const r = m as Rec;
+  const type = String(r.decimate_type ?? 'COLLAPSE');
+  const faces = app.graph.get(ob.id)?.mesh ? app.graph.get(ob.id)!.mesh!.offsets.length - 1 : 0;
+  return [
+    splitRow(
+      'Type',
+      enumRow(
+        `${m.id}.decimate_type`,
+        [
+          { value: 'COLLAPSE', label: 'Collapse' },
+          { value: 'UNSUBDIV', label: 'Un-Subdivide' },
+          { value: 'DISSOLVE', label: 'Planar' },
+        ],
+        type,
+        (v) => ((r.decimate_type = v), touch('Change Decimate Type')),
+      ),
+    ),
+    type === 'COLLAPSE' ? [num(r, 'ratio', 'Ratio', { min: 0, max: 1, slider: true }), bool(r, 'use_collapse_triangulate', 'Triangulate')] : null,
+    type === 'UNSUBDIV' ? num(r, 'iterations', 'Iterations', { int: true, min: 0, max: 32767, softMax: 100 }) : null,
+    type === 'DISSOLVE'
+      ? [
+          num(r, 'angle_limit', 'Angle Limit', { unit: 'angle', min: 0, max: Math.PI }),
+          flagToggles(r, 'delimit', 'Delimit', [
+            ['SMOOTH', 'Smooth'],
+            ['MATERIAL', 'Material'],
+            ['SEAM', 'Seam'],
+            ['SHARP', 'Sharp'],
+          ]),
+        ]
+      : null,
+    h('div', { class: 'mod-note' }, `Face Count: ${faces}`),
   ];
 };

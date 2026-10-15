@@ -13,6 +13,7 @@ import { MeshEdit, edgeKey } from '../modes/editmesh/meshedit';
 import { bevelEdges } from '../modes/editmesh/bevel';
 import { bevelMeshVertices } from './mods/vbevel';
 import { voxelRemesh } from '../paint/remesh';
+import { unsubdivide } from './mods/multires';
 
 const num = (m: ModifierBase, k: string, d = 0) => (typeof m[k] === 'number' ? (m[k] as number) : d);
 const bool = (m: ModifierBase, k: string, d = false) => (typeof m[k] === 'boolean' ? (m[k] as boolean) : d);
@@ -498,7 +499,7 @@ export function decimateCollapse(m: EvalMesh, ratio: number): EvalMesh {
 }
 
 /** Planar decimation: merge neighbouring faces whose normals differ by less than the angle limit. */
-export function decimateDissolve(m: EvalMesh, angle: number): EvalMesh {
+export function decimateDissolve(m: EvalMesh, angle: number, delimit: string[] = ['MATERIAL']): EvalMesh {
   const nf = m.offsets.length - 1;
   const et = edgeTopology(m);
   const normals = Array.from({ length: nf }, (_, f) => faceNormal(m.positions, m.indices, m.offsets[f], m.offsets[f + 1]).normalize());
@@ -507,13 +508,25 @@ export function decimateDissolve(m: EvalMesh, angle: number): EvalMesh {
     while (parent[x] !== x) x = parent[x] = parent[parent[x]];
     return x;
   };
+  // per-edge flags from the per-corner arrays
+  const flagged = (arr: Uint32Array | undefined) => {
+    const out = new Uint8Array(et.count);
+    if (arr) for (let c = 0; c < m.indices.length; c++) if (arr[c]) out[et.cornerEdge[c]] = 1;
+    return out;
+  };
+  const seamE = delimit.includes('SEAM') ? flagged(m.seams) : null,
+    sharpE = delimit.includes('SHARP') ? flagged(m.sharp) : null;
+  const edgeFlag = (arr: Uint32Array | undefined, e: number) => (arr === m.seams ? seamE : sharpE)?.[e] === 1;
   for (let e = 0; e < et.count; e++) {
     const s = et.faceOffsets[e],
       t = et.faceOffsets[e + 1];
     if (t - s !== 2) continue;
     const f0 = et.faces[s],
       f1 = et.faces[s + 1];
-    if ((m.material_index?.[f0] ?? 0) !== (m.material_index?.[f1] ?? 0)) continue;
+    if (delimit.includes('MATERIAL') && (m.material_index?.[f0] ?? 0) !== (m.material_index?.[f1] ?? 0)) continue;
+    if (delimit.includes('SEAM') && edgeFlag(m.seams, e)) continue;
+    if (delimit.includes('SHARP') && edgeFlag(m.sharp, e)) continue;
+    if (delimit.includes('SMOOTH') && (m.smooth?.[f0] ?? 0) !== (m.smooth?.[f1] ?? 0)) continue;
     if (normals[f0].angleTo(normals[f1]) <= angle) parent[find(f0)] = find(f1);
   }
   // group faces, then trace each region's boundary as one polygon (regions with holes stay split)
@@ -595,9 +608,59 @@ export function decimateDissolve(m: EvalMesh, angle: number): EvalMesh {
 
 function decimateMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
   const type = str(mod, 'decimate_type', 'COLLAPSE');
-  if (type === 'DISSOLVE') return decimateDissolve(m, num(mod, 'angle_limit', (5 * Math.PI) / 180));
+  if (type === 'DISSOLVE') return decimateDissolve(m, num(mod, 'angle_limit', (5 * Math.PI) / 180), (mod.delimit as string[] | undefined) ?? []);
+  if (type === 'UNSUBDIV') {
+    // undo regular subdivision steps (as long as the mesh is a subdivided quad mesh)
+    let out = m;
+    for (let i = 0; i < Math.max(0, Math.round(num(mod, 'iterations', 0))); i++) {
+      const r = unsubdivide(out);
+      if (!r) break;
+      out = r.coarse;
+    }
+    return out;
+  }
   const ratio = Math.max(0, Math.min(1, num(mod, 'ratio', 1)));
-  return ratio >= 1 ? m : decimateCollapse(m, ratio);
+  if (ratio >= 1) return m;
+  const out = decimateCollapse(m, ratio);
+  return bool(mod, 'use_collapse_triangulate') ? out : quadsFromTriangles(out);
+}
+
+/** Join flat neighbouring triangle pairs back into quads. */
+function quadsFromTriangles(m: EvalMesh): EvalMesh {
+  const nf = m.offsets.length - 1;
+  const used = new Uint8Array(nf);
+  const et = edgeTopology(m);
+  const fn = Array.from({ length: nf }, (_, f) => faceNormal(m.positions, m.indices, m.offsets[f], m.offsets[f + 1]).normalize());
+  const faces: PolyFace[] = [];
+  for (let f = 0; f < nf; f++) {
+    if (used[f]) continue;
+    const s = m.offsets[f];
+    let merged = false;
+    if (m.offsets[f + 1] - s === 3)
+      for (let k = 0; k < 3 && !merged; k++) {
+        const e = et.cornerEdge[s + k];
+        if (et.faceOffsets[e + 1] - et.faceOffsets[e] !== 2) continue;
+        const g = et.faces[et.faceOffsets[e]] === f ? et.faces[et.faceOffsets[e] + 1] : et.faces[et.faceOffsets[e]];
+        if (used[g] || m.offsets[g + 1] - m.offsets[g] !== 3 || fn[f].dot(fn[g]) < 0.9995) continue;
+        const a = m.indices[s + k],
+          b = m.indices[s + ((k + 1) % 3)],
+          c = m.indices[s + ((k + 2) % 3)];
+        const gs = m.offsets[g];
+        let o = -1,
+          oc = -1;
+        for (let q = gs; q < gs + 3; q++) if (m.indices[q] !== a && m.indices[q] !== b) (o = m.indices[q]), (oc = q);
+        if (o < 0) continue;
+        const uv = (corner: number) => [m.uvs[corner * 2], m.uvs[corner * 2 + 1]];
+        faces.push({ verts: [a, o, b, c], uvs: [...uv(s + k), ...uv(oc), ...uv(s + ((k + 1) % 3)), ...uv(s + ((k + 2) % 3))], material: m.material_index?.[f] ?? 0, smooth: !!m.smooth?.[f] });
+        used[f] = used[g] = 1;
+        merged = true;
+      }
+    if (!merged) {
+      used[f] = 1;
+      faces.push({ verts: Array.from(m.indices.subarray(s, m.offsets[f + 1])), uvs: Array.from(m.uvs.subarray(s * 2, m.offsets[f + 1] * 2)), material: m.material_index?.[f] ?? 0, smooth: !!m.smooth?.[f] });
+    }
+  }
+  return buildMesh(Array.from(m.positions), faces) as EvalMesh;
 }
 
 // ---------------------------------------------------------------------------
@@ -756,7 +819,7 @@ registerModifier({
   label: 'Decimate',
   category: 'GENERATE',
   icon: 'mod_decim',
-  defaults: base({ decimate_type: 'COLLAPSE', ratio: 1, angle_limit: (5 * Math.PI) / 180 }),
+  defaults: base({ decimate_type: 'COLLAPSE', ratio: 1, use_collapse_triangulate: false, iterations: 0, angle_limit: (5 * Math.PI) / 180, delimit: [] }),
   apply: decimateMod,
 });
 registerModifier({
@@ -790,11 +853,7 @@ modifierFields.BOOLEAN = [
   ['operand_type', 'Operand Type', 'enum', [['OBJECT', 'Object'], ['COLLECTION', 'Collection']]],
   ['object', 'Object', 'object'],
 ];
-modifierFields.DECIMATE = [
-  ['decimate_type', 'Type', 'enum', [['COLLAPSE', 'Collapse'], ['DISSOLVE', 'Planar']]],
-  ['ratio', 'Ratio', 'factor'],
-  ['angle_limit', 'Angle Limit', 'angle'],
-];
+modifierFields.DECIMATE = [];
 modifierFields.REMESH = [
   ['mode', 'Mode', 'enum', [['VOXEL', 'Voxel']]],
   ['voxel_size', 'Voxel Size', 'dist'],
