@@ -117,7 +117,9 @@ registerPrefSection({
       pBool('show_playback_fps', 'Playback Frame Rate (FPS)', 'Show the frame rate reached while the animation plays'),
       pNum('view_lens', 'Default Focal Length', { min: 1, max: 250, int: true, tip: 'Lens of newly opened 3D Viewports, in millimeters' }),
       pNum('gizmo_size', 'Gizmo Size', { min: 10, max: 200, int: true, unit: 'pixel', tip: 'Size of the move, rotate and scale gizmos' }),
-      pNum('gizmo_size_navigate_v3d', 'Navigation Gizmo Size', { min: 30, max: 200, int: true, unit: 'pixel' }),
+      pEnum('mini_axis_type', 'Navigation', [E('GIZMO', 'Interactive Gizmo', 'The clickable axes gizmo in the upper-right corner'), E('MINIMAL', 'Simple Axes', 'Small axes in the lower-left corner'), E('NONE', 'None')]),
+      prefs.mini_axis_type === 'GIZMO' ? pNum('gizmo_size_navigate_v3d', 'Navigation Gizmo Size', { min: 30, max: 200, int: true, unit: 'pixel' }) : null,
+      prefs.mini_axis_type === 'MINIMAL' ? [pNum('mini_axis_size', 'Axes Size', { min: 10, max: 64, int: true, unit: 'pixel' }), pNum('mini_axis_brightness', 'Axes Brightness', { min: 0, max: 10, int: true, slider: true })] : null,
     ]),
     panel('pf-vp-quality', 'Quality', () => [
       pEnum('viewport_aa', 'Anti-Aliasing', [E('OFF', 'No Anti-Aliasing', 'Fastest, jagged edges'), E('MSAA', 'Multisample', 'Smooth edges using the GPU’s multisampling')], { expand: true }),

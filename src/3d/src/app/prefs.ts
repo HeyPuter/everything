@@ -53,6 +53,10 @@ export interface Preferences {
   show_playback_fps: boolean;
   gizmo_size: number;
   gizmo_size_navigate_v3d: number;
+  /** navigation gizmo, small axes in the lower-left corner, or none */
+  mini_axis_type: 'GIZMO' | 'MINIMAL' | 'NONE';
+  mini_axis_size: number;
+  mini_axis_brightness: number;
   view_lens: number;
   /** multisample anti-aliasing (applies when the app starts) */
   viewport_aa: 'OFF' | 'MSAA';
@@ -208,6 +212,9 @@ export const defaultPreferences = (): Preferences => ({
   show_playback_fps: true,
   gizmo_size: 75,
   gizmo_size_navigate_v3d: 80,
+  mini_axis_type: 'GIZMO',
+  mini_axis_size: 25,
+  mini_axis_brightness: 8,
   view_lens: 50,
   viewport_aa: 'MSAA',
   anisotropic_filter: 8,

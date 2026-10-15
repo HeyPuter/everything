@@ -23,6 +23,7 @@ import './addons';
 import './ndof';
 import './filepaths';
 import './fonts';
+import './miniaxes';
 import './ops';
 import { startKeyconfig } from './keyconfig';
 import { applyPreferences } from './store';

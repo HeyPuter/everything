@@ -188,6 +188,12 @@ test('interface preferences: factor display, header position, status bar, naviga
   await setPref(page, 'show_navigate_ui', false);
   await expect(page.locator('.nav-buttons')).toHaveCount(0);
 
+  await setPref(page, 'mini_axis_type', 'MINIMAL');
+  await expect(page.locator('.view3d .nav-gizmo')).toHaveCount(0);
+  await expect(page.locator('.view3d .mini-axes').first()).toBeAttached();
+  await setPref(page, 'mini_axis_type', 'GIZMO');
+  await expect(page.locator('.view3d .nav-gizmo').first()).toBeVisible();
+
   await setPref(page, 'show_view_name', false);
   await expect(page.locator('.v3d-info-line', { hasText: 'Perspective' })).toHaveCount(0);
   await expect(page.locator('.v3d-info-line', { hasText: 'Cube' }).first()).toBeVisible();

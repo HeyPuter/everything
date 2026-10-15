@@ -61,7 +61,10 @@ export function navGizmo(v: View3D): Child {
   return h(
     'div',
     { key: 'navgizmo', class: 'nav-gizmo-wrap' },
-    h(
+    // Preferences ▸ Viewport ▸ Mini Axes: the interactive gizmo, a small axes corner (drawn elsewhere) or nothing
+    prefs.mini_axis_type !== 'GIZMO'
+      ? null
+      : h(
       'svg',
       { class: 'nav-gizmo', width: prefs.gizmo_size_navigate_v3d, height: prefs.gizmo_size_navigate_v3d, viewBox: '0 0 80 80', onpointerdown: startDrag },
       h('circle', { class: 'ng-bg', cx: 40, cy: 40, r: 38 }),
