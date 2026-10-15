@@ -336,6 +336,14 @@ export function boundVector(subtype: 'EULER' | 'QUATERNION' | 'COLOR' | 'VECTOR'
   return v;
 }
 
+/** Properties scripts declared on struct types (typeprops.ts): looked up after the stored fields. */
+export const NOT_DECLARED = Symbol('not declared');
+export const structTypeProps: {
+  get: (t: Struct, key: string) => unknown;
+  set: (t: Struct, key: string, v: unknown) => boolean;
+  has: (t: Struct, key: string) => boolean;
+} = { get: () => NOT_DECLARED, set: () => false, has: () => false };
+
 /** Proxy a struct so raw document fields are readable/writable as properties. */
 export function proxify<T extends Struct>(s: T): T {
   return new Proxy(s, {
@@ -346,7 +354,8 @@ export function proxify<T extends Struct>(s: T): T {
       if (Object.prototype.hasOwnProperty.call(raw, p) && !t.__hidden().has(p)) return wrapField(t, p, () => t.__resolve());
       const ex = t.__extra();
       if (ex && Object.prototype.hasOwnProperty.call(ex, p)) return wrapField(t, p, () => (t.__resolve() ? t.__extra() : null));
-      return undefined;
+      const declared = structTypeProps.get(t, p);
+      return declared === NOT_DECLARED ? undefined : declared;
     },
     set(t, p, v, r) {
       if (typeof p === 'symbol' || p in t) {
@@ -367,13 +376,14 @@ export function proxify<T extends Struct>(s: T): T {
         touched();
         return true;
       }
+      if (structTypeProps.set(t, p, v)) return true;
       throw pyError('AttributeError', `'${t.__type}' object has no attribute '${p}'`);
     },
     has(t, p) {
       if (p in t) return true;
       if (typeof p === 'symbol') return false;
       const raw = t.__resolve();
-      return !!raw && ((Object.prototype.hasOwnProperty.call(raw, p) && !t.__hidden().has(p)) || !!(t.__extra() && p in t.__extra()!));
+      return !!raw && ((Object.prototype.hasOwnProperty.call(raw, p) && !t.__hidden().has(p)) || !!(t.__extra() && p in t.__extra()!) || structTypeProps.has(t, p));
     },
   });
 }

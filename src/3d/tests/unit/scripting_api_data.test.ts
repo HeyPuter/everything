@@ -299,3 +299,22 @@ describe('object helpers', () => {
     ).toBe('-1,-1,-1 1,1,1\nFINISHED Cube.001 0');
   });
 });
+
+describe('properties added to data types', () => {
+  it('scalar properties, property groups and collections on objects and the scene', () => {
+    expect(
+      run(`
+      bpy.types.Object.weight = bpy.props.FloatProperty({default: 1.5, min: 0, max: 10});
+      class Settings extends bpy.types.PropertyGroup { static properties = { count: bpy.props.IntProperty({default: 3}), label: bpy.props.StringProperty({default: 'x'}) } }
+      bpy.utils.register_class(Settings);
+      bpy.types.Scene.settings = bpy.props.PointerProperty({type: Settings});
+      bpy.types.Scene.items = bpy.props.CollectionProperty({type: Settings});
+      const ob = D.objects['Cube'];
+      print(ob.weight); ob.weight = 20; print(ob.weight, ob['weight']);
+      print(C.scene.settings.count); C.scene.settings.count = 7;
+      const it = C.scene.items.add(); it.label = 'first';
+      print(C.scene.settings.count, C.scene.items.length, C.scene.items[0].label, C.scene.items[0].count);
+    `),
+    ).toBe('1.5\n10 10\n3\n7 1 first 3');
+  });
+});

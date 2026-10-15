@@ -169,4 +169,30 @@ describe('Python scripts', () => {
     `),
     ).toBe("3.5 True ['Geometry', 'Geometry', 'Amount']");
   });
+
+  py('property groups and properties added to types', () => {
+    expect(
+      runPy(`
+      import bpy
+      from bpy.props import FloatProperty, IntProperty, PointerProperty, CollectionProperty
+
+      class Tool(bpy.types.PropertyGroup):
+          size: FloatProperty(default=0.5)
+          steps: IntProperty(default=4)
+
+      bpy.utils.register_class(Tool)
+      bpy.types.Scene.tool = PointerProperty(type=Tool)
+      bpy.types.Object.marks = CollectionProperty(type=Tool)
+      bpy.types.Object.mass_hint = FloatProperty(default=2.0)
+      scene = bpy.context.scene
+      scene.tool.steps = 9
+      ob = bpy.data.objects["Cube"]
+      m = ob.marks.add()
+      m.size = 1.25
+      print(scene.tool.size, scene.tool.steps, len(ob.marks), ob.marks[0].size, ob.mass_hint)
+      del bpy.types.Object.mass_hint
+      print(hasattr(ob, "mass_hint"))
+    `),
+    ).toBe('0.5 9 1 1.25 2\nFalse');
+  });
 });

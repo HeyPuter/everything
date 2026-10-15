@@ -455,6 +455,11 @@ class _PropDef:
                 v = list(v)
             if k == "default" and isinstance(v, set):
                 v = sorted(v)[0] if v else None
+            if k == "type" and isinstance(v, type):
+                if not issubclass(v, PropertyGroup):
+                    raise TypeError("%sProperty(type=%s): only bpy.types.PropertyGroup subclasses are supported" % (self.type.title(), v.__name__))
+                o["group"] = v.__name__
+                continue
             o[k] = v
         return o
 
@@ -497,11 +502,11 @@ class _Props:
 
     @staticmethod
     def PointerProperty(**kw):
-        raise TypeError("PointerProperty is not supported by this application")
+        return _PropDef("POINTER", kw)
 
     @staticmethod
     def CollectionProperty(**kw):
-        raise TypeError("CollectionProperty is not supported by this application")
+        return _PropDef("COLLECTION", kw)
 
 
 props = _Props()
@@ -517,6 +522,17 @@ class _TypeMeta(type):
             t = str(_br.typename(obj._js))
             return t == cls.__name__ or cls.__name__ in ("ID", "bpy_struct") and _br.kind(obj._js) == "id"
         return type.__instancecheck__(cls, obj)
+
+    def __setattr__(cls, name, value):
+        # bpy.types.Object.weight = bpy.props.FloatProperty(...) adds a property to every Object
+        if isinstance(value, _PropDef):
+            _call(_br.declare_type_prop, cls.__name__, name, _tojs(value.spec()))
+        type.__setattr__(cls, name, value)
+
+    def __delattr__(cls, name):
+        _br.remove_type_prop(cls.__name__, name)
+        if name in cls.__dict__:
+            type.__delattr__(cls, name)
 
 
 class _Report:
@@ -782,8 +798,12 @@ class _Utils:
             if not hasattr(cls, "draw"):
                 raise TypeError("register_class(...): panel '%s' needs a draw() method" % cls.__name__)
             _register_panel(cls)
-        elif issubclass(cls, (Menu, PropertyGroup)):
-            raise TypeError("register_class(...): %s subclasses are not supported by this application" % cls.__mro__[1].__name__)
+        elif issubclass(cls, PropertyGroup):
+            props = {k: v.spec() for k, v in _op_props(cls).items()}
+            _call(_br.declare_group, cls.__name__, _tojs(props))
+            _registered[cls] = ("group", cls.__name__, [])
+        elif issubclass(cls, Menu):
+            raise TypeError("register_class(...): Menu subclasses are not supported by this application")
         else:
             raise TypeError("register_class(...): expected a subclass of bpy.types.Operator or bpy.types.Panel")
 
@@ -794,7 +814,7 @@ class _Utils:
             raise RuntimeError("unregister_class(...): missing bl_rna attribute from '%s' instance (may not be registered)" % cls.__name__)
         if entry[0] == "op":
             _br.unregister_operator(entry[1])
-        else:
+        elif entry[0] == "panel":
             _br.unregister_panel(entry[1])
         _release(entry)
 

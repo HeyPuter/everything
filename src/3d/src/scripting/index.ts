@@ -38,7 +38,9 @@
 //   bpy.ops.<module>.<op>(**props[, 'INVOKE_DEFAULT']) → {'FINISHED'} / {'CANCELLED'}; poll()
 //   mathutils: Vector, Matrix, Euler, Quaternion, Color, geometry, kdtree, bvhtree, noise
 //   bpy_extras.object_utils.world_to_camera_view(scene, camera, co)
-//   bpy.props: Float/Int/Bool/String/Enum/FloatVector/IntVector/BoolVectorProperty
+//   bpy.props: Float/Int/Bool/String/Enum/FloatVector/IntVector/BoolVectorProperty, and
+//       Pointer/CollectionProperty of PropertyGroups; bpy.types.<Type>.<name> = <prop> adds a
+//       property to a data type, stored in its custom properties (typeprops.ts)
 //   bpy.types.Operator: bl_idname, bl_label, bl_description, bl_options ('REGISTER', 'UNDO',
 //       'INTERNAL'), annotated properties, poll(), execute(), invoke() (no modal), self.report()
 //   bpy.types.Panel: bl_space_type='VIEW_3D', bl_region_type='UI', bl_category (sidebar tab;
@@ -51,8 +53,8 @@
 //       deform, shape, float/int/string), bmesh.ops (create_*, extrude, transforms, delete,
 //       merge, subdivide, triangulate, inset, bevel, bridge, spin, mirror, dissolve, …),
 //       bmesh.utils / bmesh.geometry subsets, bmesh.types for isinstance()
-//   Not supported: modal operators, menus, PointerProperty / CollectionProperty, file-system
-//       access (only files the app offers), several scenes or view layers.
+//   Not supported: modal operators, menus, data-block PointerProperty, file-system access (only
+//       files the app offers), several scenes or view layers.
 import './scripting.css';
 import './icons';
 import './registry';
