@@ -177,3 +177,48 @@ test('assets: a .blend file with a catalog definition file becomes a user librar
   await expect(item(page, 'Cube')).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('assets: pose library in the sidebar and brush assets in the sculpt shelf', async ({ page }) => {
+  const errors = await openApp(page);
+  const c = await viewportCenter(page);
+  await page.mouse.move(c.x, c.y);
+  await page.evaluate(() => {
+    const a = (window as unknown as Win).app;
+    a.run('object.select_all', { action: 'DESELECT' });
+    a.run('object.armature_add');
+    a.run('object.mode_set', { mode: 'POSE' });
+    const ob = a.activeObject;
+    const bone: any = Object.values(ob.pose)[0];
+    bone.location = [0, 0, 1];
+    bone.select = true;
+    a.changed('doc');
+  });
+  await page.locator('.area[data-editor="VIEW_3D"] .hdr-menu', { hasText: /^Pose$/ }).dispatchEvent('pointerdown');
+  await page.locator('.menu .menu-item', { hasText: 'Create Pose Asset' }).click();
+  await page.locator('.prompt-input').fill('Raised');
+  await page.locator('.prompt-input').press('Enter');
+  const loc = () => page.evaluate(() => (Object.values((window as unknown as Win).app.activeObject.pose)[0] as any).location);
+  await page.evaluate(() => {
+    const a = (window as unknown as Win).app;
+    (Object.values(a.activeObject.pose)[0] as any).location = [0, 0, 0];
+    a.changed('doc');
+  });
+  await page.keyboard.press('n');
+  await page.locator('.view3d').first().getByText('Animation', { exact: true }).click();
+  await page.locator('.pl-pose[data-pose="Raised"]').click();
+  expect(await loc()).toEqual([0, 0, 1]);
+  // sculpt mode: Essentials brushes in the shelf's Assets tab
+  await page.evaluate(() => {
+    const a = (window as unknown as Win).app;
+    a.run('object.mode_set', { mode: 'OBJECT' });
+    const cube: any = Object.values(a.doc.objects).find((o: any) => o.name === 'Cube');
+    a.run('object.select_all', { action: 'DESELECT' });
+    cube.select = true;
+    a.doc.scene.active_object = cube.id;
+    a.run('object.mode_set', { mode: 'SCULPT' });
+  });
+  await page.locator('.ps-tab', { hasText: 'Assets' }).click();
+  await page.locator('.ps-tile', { hasText: 'Soft Clay' }).click();
+  expect(await page.evaluate(() => (Object.values((window as unknown as Win).app.doc.brushes) as any[]).some((b) => b.name === 'Soft Clay'))).toBe(true);
+  await expectNoErrors(errors);
+});
