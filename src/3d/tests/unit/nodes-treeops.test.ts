@@ -283,3 +283,34 @@ describe('groups', () => {
     expect(groupInsert(d, t, gnode.id, new Set([copy.id]))).toBe(false);
   });
 });
+
+describe('group interface panels', () => {
+  it('adds, orders and removes panels; group nodes get them', async () => {
+    const { addInterfacePanel, interfaceEntries, moveInterfaceEntry, removeInterfacePanel, setSocketPanel } = await import('../../src/nodes/iface');
+    const { nodePanels } = await import('../../src/nodes/registry');
+    const { addInterfaceSocket } = await import('../../src/nodes/tree');
+    const d = emptyDocument();
+    const g: NodeTreeData = { type: 'SHADER', nodes: [], links: [], interface: [] };
+    const a = addInterfaceSocket(g, 'INPUT', 'A', 'FLOAT', 0);
+    const b = addInterfaceSocket(g, 'INPUT', 'B', 'FLOAT', 0);
+    const c = addInterfaceSocket(g, 'INPUT', 'C', 'FLOAT', 0);
+    addInterfaceSocket(g, 'OUTPUT', 'Out', 'FLOAT');
+    const p = addInterfacePanel(g, 'Details');
+    setSocketPanel(g, a.identifier, p.identifier);
+    setSocketPanel(g, c.identifier, p.identifier);
+    const label = (e: ReturnType<typeof interfaceEntries>[number]) => (e.kind === 'panel' ? `[${e.panel.name}]` : e.item.name);
+    expect(interfaceEntries(g).map(label)).toEqual(['B', 'Out', '[Details]', 'A', 'C']);
+    expect(moveInterfaceEntry(g, c.identifier, -1)).toBe(true);
+    expect(interfaceEntries(g).map(label)).toEqual(['B', 'Out', '[Details]', 'C', 'A']);
+    // B is first in its own (top-level) group and cannot move up
+    expect(moveInterfaceEntry(g, b.identifier, -1)).toBe(false);
+    d.node_groups.g1 = { id: 'g1', name: 'G', tree: g };
+    const t = tree();
+    const gn = addNode(t, 'ShaderNodeGroup', [0, 0], { node_tree: 'g1' });
+    expect(nodePanels(gn, ctxOf(d, t))).toEqual([{ name: 'Details', inputs: [c.identifier, a.identifier], closed: false }]);
+    removeInterfacePanel(g, p.identifier);
+    expect(g.interface_panels).toBeUndefined();
+    expect(interfaceEntries(g).every((e) => e.kind === 'socket')).toBe(true);
+    expect(nodePanels(gn, ctxOf(d, t))).toEqual([]);
+  });
+});

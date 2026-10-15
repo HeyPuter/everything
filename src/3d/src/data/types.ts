@@ -354,7 +354,9 @@ export interface NodeTreeData {
   nodes: NodeData[];
   links: LinkData[];
   /** For node groups: interface sockets */
-  interface?: { in_out: 'INPUT' | 'OUTPUT'; name: string; socket_type: string; default_value?: SocketValue; min_value?: number; max_value?: number; identifier: string; hide_value?: boolean }[];
+  interface?: { in_out: 'INPUT' | 'OUTPUT'; name: string; socket_type: string; default_value?: SocketValue; min_value?: number; max_value?: number; identifier: string; hide_value?: boolean; /** identifier of the interface panel holding this input */ panel?: string }[];
+  /** node groups: collapsible panels that organize the group node's inputs */
+  interface_panels?: { identifier: string; name: string; default_closed?: boolean }[];
   active_node?: ID | null;
   view?: { x: number; y: number; zoom: number };
   /** node groups: description shown as a tooltip */

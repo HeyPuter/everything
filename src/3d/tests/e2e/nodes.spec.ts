@@ -210,6 +210,17 @@ test('groups: make, enter by double click, separate and insert', async ({ page }
   const g = await nodeHeader(page, gid);
   await page.mouse.dblclick(g.x, g.y);
   expect(await withTree(page, '(ed) => ed.path.length')).toBe(1);
+  // the sidebar's Group tab adds an interface panel; a new input goes into the selected panel
+  await page.keyboard.press('n');
+  await page.locator('.nd-side-tab', { hasText: 'Group' }).click();
+  await page.locator('[data-tip^="Add Panel"]').click();
+  await page.locator('[data-tip^="Add Input Socket"]').click();
+  expect(await withTree(page, '(ed, t) => t.interface.filter((i) => i.panel === t.interface_panels[0].identifier).length')).toBe(1);
+  // the Panel menu takes it out again
+  await page.locator('.split-row', { hasText: 'Panel' }).locator('.enum-menu').click();
+  await menuItem(page, 'None').click();
+  expect(await withTree(page, '(ed, t) => t.interface.some((i) => i.panel)')).toBe(false);
+  await page.keyboard.press('n');
   // P ▸ Move takes the math node back out and returns to the material
   await withTree(page, '(ed, t) => { for (const n of t.nodes) n.select = n.type === "ShaderNodeMath"; app.changed("ui"); }');
   await page.keyboard.press('p');

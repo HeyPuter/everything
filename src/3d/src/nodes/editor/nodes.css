@@ -540,6 +540,13 @@
   border-radius: 3px;
   cursor: default;
 }
+.nd-iface-item.panel {
+  font-weight: 600;
+  gap: 2px;
+}
+.nd-iface-item.nested {
+  padding-left: 16px;
+}
 .nd-iface-item.on {
   background: var(--c-ol-active);
 }

@@ -6,7 +6,7 @@ import { app } from '../../app/app';
 import { numberField, checkbox, enumMenu, colorSwatch, textField, type Unit } from '../../ui/widgets';
 import { openMenu } from '../../ui/menu';
 import type { NodeData, NodeTreeData, SocketValue } from '../../data/types';
-import { getNodeType, inputValue, nodeLabel, propValue, NODE_CLASS_COLORS, SOCKET_COLORS } from '../registry';
+import { getNodeType, inputValue, nodeLabel, nodePanels, propValue, NODE_CLASS_COLORS, SOCKET_COLORS } from '../registry';
 import type { NodeDrawContext, NodePropDef, ResolvedSocket } from '../types';
 import { HEADER, ROW, type NodeLayout, type Row } from './layout';
 import { compatibleGroups } from '../tree';
@@ -361,8 +361,7 @@ function rowContent(node: NodeData, row: Row, key: string, tree: NodeTreeData): 
             if (e.button !== 0) return;
             e.stopPropagation();
             const name = row.panel!.name;
-            const def2 = getNodeType(node.type)!;
-            const open = new Set(node.open_panels ?? def2.panels!.filter((p) => !p.closed).map((p) => p.name));
+            const open = new Set(node.open_panels ?? nodePanels(node, { doc: app.doc, tree }).filter((p) => !p.closed).map((p) => p.name));
             if (open.has(name)) open.delete(name);
             else open.add(name);
             node.open_panels = [...open];

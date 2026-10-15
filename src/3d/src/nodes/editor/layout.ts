@@ -1,7 +1,7 @@
 // Node layout in node-space units (zoom 1): rows, sizes and socket positions. Pure (no DOM), so
 // the DOM renderer, the link canvas and hit-testing all agree on socket positions.
 import type { DocumentData, NodeData, NodeTreeData } from '../../data/types';
-import { getNodeType, nodeSockets, propValue } from '../registry';
+import { getNodeType, nodePanels, nodeSockets, propValue } from '../registry';
 import type { NodePanelDef, NodePropDef, ResolvedSocket } from '../types';
 
 export const HEADER = 22;
@@ -163,7 +163,7 @@ export function layoutNode(doc: DocumentData, tree: NodeTreeData, n: NodeData, l
     });
     cy += ROW;
   }
-  const panels = def?.panels ?? [];
+  const panels = nodePanels(n, { doc, tree });
   const inPanel = new Set(panels.flatMap((p) => [...p.inputs, ...(p.props ?? [])]));
   if (!n.hide_options) {
     for (const p of visibleProps(n, def?.props ?? [])) {
