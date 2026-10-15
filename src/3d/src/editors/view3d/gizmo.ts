@@ -155,7 +155,7 @@ export function gizmoPointerDown(v: View3D, e: PointerEvent): boolean {
   const constraint = Number.isInteger(i) ? (kind === 'plane' ? [0, 1, 2].map((k) => k !== i) : [0, 1, 2].map((k) => k === i)) : undefined;
   const ev = { x: e.clientX, y: e.clientY };
   const mode = kind === 'move' || kind === 'plane' || kind === 'view' ? 'TRANSLATION' : kind === 'scale' ? 'RESIZE' : kind === 'trackball' ? 'TRACKBALL' : 'ROTATION';
-  if (startTransform(mode, { constraint, event: ev, release_confirm: true, orient: currentOrientation() })) {
+  if (startTransform(mode, { constraint, event: ev, release_confirm: true, orient: currentOrientation(), redoSelf: true })) {
     const up = (pe: PointerEvent) => {
       removeEventListener('pointerup', up, true);
       if (app.modal) app.endModal('FINISHED');
