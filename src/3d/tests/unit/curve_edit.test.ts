@@ -221,3 +221,22 @@ describe('curve editing kernels', () => {
     }
   });
 });
+
+import { curveToMesh } from '../../src/eval/curve';
+
+describe('2D curve fill', () => {
+  it('fills an outline with a hole (front faces up, area = outer - inner)', () => {
+    const sq = (r: number) => spline([bp([-r, -r, 0], [-r, -r, 0], [-r, -r, 0], 'VECTOR'), bp([r, -r, 0], [r, -r, 0], [r, -r, 0], 'VECTOR'), bp([r, r, 0], [r, r, 0], [r, r, 0], 'VECTOR'), bp([-r, r, 0], [-r, r, 0], [-r, r, 0], 'VECTOR')], true);
+    const cu = curve(sq(2), sq(1));
+    cu.dimensions = '2D';
+    cu.fill_mode = 'FRONT';
+    cu.resolution_u = 1;
+    const m = curveToMesh(cu);
+    let area = 0;
+    for (let f = 0; f < m.offsets.length - 1; f++) {
+      const v = [...m.indices.subarray(m.offsets[f], m.offsets[f + 1])].map((i) => [m.positions[i * 3], m.positions[i * 3 + 1]]);
+      for (let k = 1; k + 1 < v.length; k++) area += ((v[k][0] - v[0][0]) * (v[k + 1][1] - v[0][1]) - (v[k][1] - v[0][1]) * (v[k + 1][0] - v[0][0])) / 2;
+    }
+    expect(area).toBeCloseTo(16 - 4, 5);
+  });
+});

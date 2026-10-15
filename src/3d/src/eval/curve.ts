@@ -3,7 +3,7 @@
 import type { CurveData, Spline, Vec3 } from '../data/types';
 import type { EvalMesh } from './types';
 import { buildMesh, type PolyFace } from '../mesh/mesh';
-import { triangulatePoly } from '../mesh/mesh';
+import { ShapeUtils, Vector2 } from 'three';
 import { textToCurves } from './text';
 
 export interface SampledSpline {
@@ -160,15 +160,16 @@ export function curveToMesh(cu: CurveData, isText = false): EvalMesh {
     if (closed.length) {
       const fillAt = (z: number, flip: boolean) => {
         for (const poly of groupOutlines(closed)) {
-          // merge holes into the outline with bridge edges, then ear-clip
-          const ring = bridgeHoles(poly.outer, poly.holes);
+          // earcut handles holes robustly (bridged rings break simple ear clipping)
+          const contour = poly.outer.map((p) => new Vector2(p[0], p[1]));
+          const holes = poly.holes.map((hole) => hole.map((p) => new Vector2(p[0], p[1])));
+          const tris = ShapeUtils.triangulateShape(contour, holes);
           const base = positions.length / 3;
-          ring.forEach((p) => add([p[0], p[1], z + 0]));
-          const tri: number[] = [];
-          triangulatePoly(new Float32Array(ring.flatMap((p) => [p[0], p[1], 0])), Array.from({ length: ring.length }, (_, i) => i), tri, 0);
-          for (let i = 0; i < tri.length; i += 3) {
-            const t = [base + tri[i], base + tri[i + 1], base + tri[i + 2]];
-            faces.push({ verts: flip ? [t[0], t[2], t[1]] : t, material: poly.material });
+          // (triangulateShape may drop duplicated end points: use its arrays for the vertices)
+          for (const p of [...contour, ...holes.flat()]) add([p.x, p.y, z + 0]);
+          for (const t of tris) {
+            const v = [base + t[0], base + t[1], base + t[2]];
+            faces.push({ verts: flip ? [v[0], v[2], v[1]] : v, material: poly.material });
           }
         }
       };
@@ -283,27 +284,3 @@ function groupOutlines(closed: SampledSpline[]): Outline[] {
   return out;
 }
 
-/** Connect holes to the outer ring with zero-width bridges (for ear clipping). */
-function bridgeHoles(outer: Vec3[], holes: Vec3[][]): Vec3[] {
-  let ring = [...outer];
-  const sorted = [...holes].sort((a, b) => Math.max(...b.map((p) => p[0])) - Math.max(...a.map((p) => p[0])));
-  for (const hole of sorted) {
-    let hi = 0;
-    hole.forEach((p, i) => p[0] > hole[hi][0] && (hi = i));
-    const hp = hole[hi];
-    let best = -1,
-      bestD = Infinity;
-    ring.forEach((p, i) => {
-      if (p[0] < hp[0]) return;
-      const d = Math.hypot(p[0] - hp[0], p[1] - hp[1]);
-      if (d < bestD) {
-        bestD = d;
-        best = i;
-      }
-    });
-    if (best < 0) best = 0;
-    const holeSeq = [...hole.slice(hi), ...hole.slice(0, hi + 1)];
-    ring = [...ring.slice(0, best + 1), ...holeSeq, ring[best], ...ring.slice(best + 1)];
-  }
-  return ring;
-}

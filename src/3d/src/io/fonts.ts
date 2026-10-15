@@ -4,16 +4,50 @@
 import { parse, type Font, type Glyph } from 'opentype.js';
 import type { BezierPoint, CurveData, Spline, Vec3 } from '../data/types';
 import { setGlyphProvider } from '../eval/text';
+import { layoutTextWith, type FontStyle, type GlyphSource, type TextLayout } from './textlayout';
 import latinUrl from '@fontsource/inter/files/inter-latin-400-normal.woff?url';
+import boldUrl from '@fontsource/inter/files/inter-latin-700-normal.woff?url';
+import italicUrl from '@fontsource/inter/files/inter-latin-400-italic.woff?url';
+import boldItalicUrl from '@fontsource/inter/files/inter-latin-700-italic.woff?url';
 import latinExtUrl from '@fontsource/inter/files/inter-latin-ext-400-normal.woff?url';
 import greekUrl from '@fontsource/inter/files/inter-greek-400-normal.woff?url';
 import cyrillicUrl from '@fontsource/inter/files/inter-cyrillic-400-normal.woff?url';
 
 let fonts: Font[] = [];
-const outlineCache = new Map<string, Spline[]>();
+/** outline cache per font face (subsets and styles share names but not glyph indices) */
+const outlineCache = new WeakMap<Font, Map<number, Spline[]>>();
+
+/** Styled faces (latin subset), loaded on first use; other scripts fall back to the regular face. */
+const STYLE_URLS: Record<Exclude<FontStyle, 'REGULAR'>, string> = { BOLD: boldUrl, ITALIC: italicUrl, BOLD_ITALIC: boldItalicUrl };
+const styled = new Map<FontStyle, Font | null>();
+const styleLoading = new Set<FontStyle>();
+/** Called when a styled face finished loading (text objects using it must re-evaluate). */
+export const fontLoadListeners: (() => void)[] = [];
+
+function requestStyle(style: FontStyle) {
+  if (style === 'REGULAR' || styled.has(style) || styleLoading.has(style) || typeof fetch === 'undefined') return;
+  styleLoading.add(style);
+  fetch(STYLE_URLS[style])
+    .then((r) => r.arrayBuffer())
+    .then((b) => parse(b))
+    .catch(() => null)
+    .then((f) => {
+      styled.set(style, f);
+      styleLoading.delete(style);
+      for (const fn of fontLoadListeners) fn();
+    });
+}
 
 /** Glyph lookup with fallback across the loaded subsets. */
-function glyphFor(ch: string): { font: Font; glyph: Glyph } | null {
+function glyphFor(ch: string, style: FontStyle = 'REGULAR'): { font: Font; glyph: Glyph } | null {
+  if (style !== 'REGULAR') {
+    requestStyle(style);
+    const f = styled.get(style);
+    if (f) {
+      const idx = f.charToGlyphIndex(ch);
+      if (idx > 0) return { font: f, glyph: f.glyphs.get(idx) };
+    }
+  }
   for (const font of fonts) {
     const idx = font.charToGlyphIndex(ch);
     if (idx > 0) return { font, glyph: font.glyphs.get(idx) };
@@ -27,9 +61,10 @@ function bp(co: Vec3): BezierPoint {
 }
 
 /** Glyph outline (em units, y up) as cyclic Bézier splines. */
-function glyphOutline(font: Font, glyph: Glyph): Spline[] {
-  const key = `${font.names.fullName?.en}|${glyph.index}`;
-  const hit = outlineCache.get(key);
+export function glyphOutline(font: Font, glyph: Glyph): Spline[] {
+  let cache = outlineCache.get(font);
+  if (!cache) outlineCache.set(font, (cache = new Map()));
+  const hit = cache.get(glyph.index);
   if (hit) return hit;
   const s = 1 / font.unitsPerEm;
   const out: Spline[] = [];
@@ -80,58 +115,29 @@ function glyphOutline(font: Font, glyph: Glyph): Spline[] {
     } else if (c.type === 'Z') close();
   }
   close();
-  outlineCache.set(key, out);
+  cache.set(glyph.index, out);
   return out;
 }
 
-export interface TextLayout {
-  splines: Spline[];
-  /** caret positions (x, y of the baseline, in object units) for every character index 0..len */
-  carets: [number, number][];
-  lineHeight: number;
-  size: number;
-}
+const source: GlyphSource = {
+  advance(ch, style) {
+    const g = glyphFor(ch, style);
+    return g ? (g.glyph.advanceWidth ?? 0) / g.font.unitsPerEm : 0;
+  },
+  outline(ch, style) {
+    const g = glyphFor(ch, style);
+    return g ? glyphOutline(g.font, g.glyph) : null;
+  },
+  hasStyle(style) {
+    return style === 'REGULAR' || !!styled.get(style);
+  },
+};
 
-/** Lay out a text body: per-line advance, character/line spacing and alignment. */
+export type { TextLayout };
+
+/** Lay out a text body (see textlayout.ts) with the bundled fonts. */
 export function layoutText(cu: CurveData): TextLayout {
-  const body = cu.body ?? '';
-  const size = cu.size ?? 1;
-  const lineHeight = 1.2 * size * (cu.space_line ?? 1);
-  const lines = body.split('\n');
-  const splines: Spline[] = [];
-  const carets: [number, number][] = [];
-  if (!fonts.length) return { splines, carets: [[0, 0]], lineHeight, size };
-  const widths = lines.map((line) => {
-    let w = 0;
-    for (const ch of line) {
-      const g = glyphFor(ch);
-      if (g) w += ((g.glyph.advanceWidth ?? 0) / g.font.unitsPerEm) * size * (cu.space_character ?? 1);
-    }
-    return w;
-  });
-  const total = (lines.length - 1) * lineHeight;
-  const yOffset = cu.align_y === 'CENTER' ? total / 2 - size * 0.35 : cu.align_y === 'BOTTOM' ? total : 0;
-  lines.forEach((line, li) => {
-    const w = widths[li];
-    let x = cu.align_x === 'CENTER' ? -w / 2 : cu.align_x === 'RIGHT' ? -w : 0;
-    const y = -li * lineHeight + yOffset;
-    for (const ch of line) {
-      carets.push([x, y]);
-      const g = glyphFor(ch);
-      if (!g) continue;
-      for (const sp of glyphOutline(g.font, g.glyph)) {
-        const c: Spline = { ...sp, bezier_points: sp.bezier_points.map((b) => ({ ...b, co: tr(b.co, x, y, size), handle_left: tr(b.handle_left, x, y, size), handle_right: tr(b.handle_right, x, y, size) })) };
-        splines.push(c);
-      }
-      x += ((g.glyph.advanceWidth ?? 0) / g.font.unitsPerEm) * size * (cu.space_character ?? 1);
-    }
-    carets.push([x, y]); // end of line (the newline character's position)
-  });
-  return { splines, carets, lineHeight, size };
-}
-
-function tr(p: Vec3, x: number, y: number, size: number): Vec3 {
-  return [p[0] * size + x, p[1] * size + y, 0];
+  return layoutTextWith(cu, fonts.length ? source : null);
 }
 
 let loading: Promise<void> | null = null;

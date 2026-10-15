@@ -70,8 +70,10 @@ function toolKey(mode: string) {
 
 export function toolsFor(mode: string): (ToolDef | null)[] {
   if (extraToolLists[mode]) return extraToolLists[mode]();
-  const list = toolsByMode[toolKey(mode)] ?? toolsByMode.OBJECT;
-  return mode === 'SCULPT' || mode.endsWith('PAINT') ? list : [selectSlot(), ...list];
+  const key = toolKey(mode);
+  const list = toolsByMode[key] ?? toolsByMode.OBJECT;
+  // text editing has its own selection tool instead of box / circle / lasso
+  return mode === 'SCULPT' || mode.endsWith('PAINT') || key === 'EDIT_FONT' ? list : [selectSlot(), ...list];
 }
 
 function selectSlot(): ToolDef {

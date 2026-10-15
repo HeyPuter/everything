@@ -253,3 +253,58 @@ test('armature edit mode: fill and separate via keys, metaball mirror', async ({
   expect(await get(page, `app.doc.metaballs[app.activeObject.data].elements[0].co.map(v => +v.toFixed(3))`)).toEqual([-0.5, 0, 0]);
   await expectNoErrors(errors);
 });
+
+test('text edit mode: word moves, styles, kerning, case, menus, text boxes', async ({ page }) => {
+  const errors = await openApp(page);
+  await fresh(page, 'object.text_add');
+  await page.waitForFunction(() => {
+    const a = (window as any).app;
+    return (a.graph.get(a.activeObject.id)?.mesh?.positions.length ?? 0) > 0;
+  });
+  await page.keyboard.press('Tab');
+  const body = () => get(page, `${CU}.body`);
+  await page.keyboard.press('Control+a');
+  await page.keyboard.type('hello big world');
+  expect(await body()).toBe('hello big world');
+  // Ctrl+Left twice: before "big"; Shift+Ctrl+Right selects it; Ctrl+B bolds it
+  await page.keyboard.press('Control+ArrowLeft');
+  await page.keyboard.press('Control+ArrowLeft');
+  await page.keyboard.press('Control+Shift+ArrowRight');
+  await page.keyboard.press('Control+b');
+  expect(await get(page, `${CU}.body_format.map(f => f.use_bold ? 'b' : '-').join('')`)).toBe('------bbb------');
+  // To Uppercase on the selection
+  await run(page, 'font.case_set', { case: 'UPPER' });
+  expect(await body()).toBe('hello BIG world');
+  // Ctrl+Backspace deletes the previous word
+  await page.keyboard.press('End');
+  await page.keyboard.press('Control+Backspace');
+  expect(await body()).toBe('hello BIG ');
+  // Alt+Right adds kerning to the character before the cursor
+  await page.keyboard.press('Alt+ArrowRight');
+  expect(await get(page, `${CU}.body_format[9].kerning`)).toBe(1);
+  // menus
+  const t = await headerMenu(page, 'Text');
+  for (const l of ['Cut', 'Copy', 'Paste', 'Paste File…', 'To Uppercase', 'Insert Unicode…', 'Special Characters', 'Toggle Bold', 'Kerning', 'Delete']) expect(t).toContain(l);
+  const s = await headerMenu(page, 'Select');
+  for (const l of ['All', 'Top', 'Line Begin', 'Previous Word', 'Next Word']) expect(s).toContain(l);
+  // unicode insert
+  await page.evaluate(() => (window as any).app.run('font.text_insert_unicode', { code: '00E9' }, { invoke: false }));
+  expect(await body()).toBe('hello BIG é');
+  // text boxes: a narrow box wraps the text onto several lines
+  await page.keyboard.press('Tab');
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.doc.curves[a.activeObject.data].text_boxes = [{ x: 0, y: 0, width: 2.5, height: 0 }];
+    a.changed('doc', 'geometry');
+    a.flush();
+  });
+  const ys = (await page.evaluate(() => {
+    const a = (window as any).app;
+    const p = a.graph.get(a.activeObject.id).mesh.positions;
+    let min = Infinity;
+    for (let i = 1; i < p.length; i += 3) min = Math.min(min, p[i]);
+    return min;
+  })) as number;
+  expect(ys).toBeLessThan(-1);
+  await expectNoErrors(errors);
+});

@@ -22,4 +22,5 @@ import './curve/tools';
 import './transformmodes';
 import './editxform';
 import './text/text';
+import './text/props';
 export {};

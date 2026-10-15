@@ -180,12 +180,39 @@ export interface CurveData {
   // Text (FONT objects share curve data like the reference app)
   body?: string;
   size?: number;
-  align_x?: 'LEFT' | 'CENTER' | 'RIGHT' | 'JUSTIFY';
-  align_y?: 'TOP' | 'CENTER' | 'BOTTOM';
+  align_x?: 'LEFT' | 'CENTER' | 'RIGHT' | 'JUSTIFY' | 'FLUSH';
+  align_y?: 'TOP_BASELINE' | 'TOP' | 'CENTER' | 'BOTTOM' | 'BOTTOM_BASELINE';
   space_line?: number;
   space_character?: number;
+  space_word?: number;
   font_family?: string;
   users?: number;
+  /** per-character styles, parallel to `body` (UTF-16 code units) */
+  body_format?: CharFormat[];
+  underline_position?: number;
+  underline_height?: number;
+  small_caps_scale?: number;
+  shear?: number;
+  offset_x?: number;
+  offset_y?: number;
+  /** text frames; a box with width 0 does not wrap */
+  text_boxes?: TextBox[];
+  overflow?: 'NONE' | 'SCALE' | 'TRUNCATE';
+}
+
+export interface CharFormat {
+  use_bold?: boolean;
+  use_italic?: boolean;
+  use_underline?: boolean;
+  use_small_caps?: boolean;
+  kerning?: number;
+}
+
+export interface TextBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 // ---------------------------------------------------------------------------

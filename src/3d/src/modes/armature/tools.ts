@@ -38,9 +38,12 @@ modeHandlers.EDIT = {
   enter(ob) {
     const ok = prevEnter ? prevEnter(ob) : true;
     if (ok) {
-      const ids = new Set((toolsByMode[`EDIT_${ob.type}`] ?? toolsByMode.EDIT).filter(Boolean).map((t) => t!.id));
+      const list = (toolsByMode[`EDIT_${ob.type}`] ?? toolsByMode.EDIT).filter(Boolean);
+      const ids = new Set(list.map((t) => t!.id));
       const cur = activeTools.EDIT;
-      if (cur && !cur.startsWith('builtin.select') && !ids.has(cur)) activeTools.EDIT = 'builtin.select_box';
+      if (ob.type === 'FONT') {
+        if (!ids.has(cur)) activeTools.EDIT = list[0]!.id;
+      } else if (cur && (!cur.startsWith('builtin.select') || cur === 'builtin.select_text') && !ids.has(cur)) activeTools.EDIT = 'builtin.select_box';
     }
     return ok;
   },
