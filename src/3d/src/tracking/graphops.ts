@@ -492,3 +492,36 @@ addKeys('Clip Editor', [
   { key: 'S', alt: true, action: () => toggleOverlay('show_marker_search') },
   { key: 'H', ctrl: true, action: () => toggleOverlay('use_mute_footage') },
 ]);
+
+/** Shift E: marker settings pie for the selected tracks. */
+function markerPie() {
+  const ed = currentClipEditor();
+  const c = ed?.clip;
+  if (!c) return;
+  const sel = c.tracking.tracks.filter((t) => t.select && !t.lock);
+  const act = sel.find((t) => t.name === c.tracking.active_track) ?? sel[0];
+  const set = (label: string, fn: (t: (typeof sel)[number]) => void) => () => {
+    for (const t of sel) fn(t);
+    app.pushUndo(label);
+    app.changed('doc');
+  };
+  const model = (m: 'Loc' | 'LocRot' | 'LocScale' | 'LocRotScale' | 'Affine', label: string) => ({ label, active: act?.motion_model === m, action: set('Motion Model', (t) => (t.motion_model = m)) });
+  openPie(
+    'Marker Settings',
+    [
+      model('Loc', 'Location'),
+      model('Affine', 'Affine'),
+      { label: 'Match Previous Frame', active: act?.pattern_match === 'PREV_FRAME', action: set('Pattern Match', (t) => (t.pattern_match = 'PREV_FRAME')) },
+      { label: 'Match Keyframe', active: act?.pattern_match === 'KEYFRAME', action: set('Pattern Match', (t) => (t.pattern_match = 'KEYFRAME')) },
+      { label: act?.use_brute ? 'Prepass: On' : 'Prepass: Off', action: set('Prepass', (t) => (t.use_brute = !act?.use_brute)) },
+      { label: act?.use_normalization ? 'Normalize: On' : 'Normalize: Off', action: set('Normalize', (t) => (t.use_normalization = !act?.use_normalization)) },
+      model('LocRot', 'Location & Rotation'),
+      model('LocRotScale', 'Location, Rotation & Scale'),
+    ],
+    app.pointer.x,
+    app.pointer.y,
+    'KeyE',
+  );
+}
+
+addKeys('Clip', [{ key: 'E', shift: true, when: () => inClip() && !!currentClipEditor()?.clip?.tracking.tracks.some((t) => t.select), action: markerPie }]);
