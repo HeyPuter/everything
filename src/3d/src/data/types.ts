@@ -191,6 +191,9 @@ export interface CurveData {
   id: ID;
   name: string;
   dimensions: '2D' | '3D';
+  /** Path animation: frames for one run along the path, and the current position in frames (animatable). */
+  path_duration?: number;
+  eval_time?: number;
   splines: Spline[];
   resolution_u: number;
   bevel_depth: number;
