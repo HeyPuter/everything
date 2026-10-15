@@ -185,6 +185,19 @@ export class Area implements AreaLike {
       e.preventDefault();
       openMenu(this.headerMenu(), { x: e.clientX, y: e.clientY });
     });
+    // a header wider than the area scrolls sideways with the wheel
+    for (const el of [this.headerEl, this.toolHeaderEl])
+      el.addEventListener(
+        'wheel',
+        (e) => {
+          if ((e.target as HTMLElement).closest('input, textarea, .num-field')) return;
+          const box = [el, ...el.querySelectorAll<HTMLElement>(':scope > *')].find((x) => x.scrollWidth > x.clientWidth + 1);
+          if (!box) return;
+          e.preventDefault();
+          box.scrollLeft += Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+        },
+        { passive: false },
+      );
     this.toolHeaderEl.addEventListener('contextmenu', (e) => {
       if ((e.target as HTMLElement).closest('input, textarea')) return;
       e.preventDefault();
