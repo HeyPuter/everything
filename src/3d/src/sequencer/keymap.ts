@@ -88,6 +88,7 @@ addKeys('SequencerPreview', [
   { key: 'R', op: 'sequencer.strip_transform', props: { mode: 'ROTATE' } },
   { key: 'S', op: 'sequencer.strip_transform', props: { mode: 'RESIZE' } },
   { key: 'PERIOD', action: pivotPie },
+  { key: 'PERIOD', ctrl: true, op: 'sequencer.strip_transform', props: { mode: 'ORIGIN' } },
   { key: 'M', ctrl: true, menu: mirrorItems, menuTitle: 'Mirror' },
   { key: 'G', alt: true, op: 'sequencer.strip_transform_clear', props: { property: 'POSITION' } },
   { key: 'R', alt: true, op: 'sequencer.strip_transform_clear', props: { property: 'ROTATION' } },

@@ -5,10 +5,10 @@
 import { app } from '../app/app';
 import type { Strip, StripTransform } from './types';
 import { isLocked, toolSettings, type SeqEditorLike } from './context';
-import { stripImageCorners, previewStrips } from './transform';
+import { stripImageCorners, previewStrips, stripPlacement } from './transform';
 import { snapDelta } from './selection';
 
-export type PreviewMode = 'TRANSLATE' | 'ROTATE' | 'RESIZE';
+export type PreviewMode = 'TRANSLATE' | 'ROTATE' | 'RESIZE' | 'ORIGIN';
 export type Pivot = 'MEDIAN_POINT' | 'BOUNDING_BOX_CENTER' | 'CURSOR' | 'INDIVIDUAL_ORIGINS';
 
 export const PIVOTS: [Pivot, string][] = [
@@ -116,6 +116,23 @@ function applyTo(snaps: Snap[], mode: PreviewMode | 'MIRROR', value: number[], p
       t.scale_y = n.t.scale_y * sy;
       t.offset_x = n.t.offset_x + (p[0] + (n.c[0] - p[0]) * sx - n.c[0]);
       t.offset_y = n.t.offset_y + (p[1] + (n.c[1] - p[1]) * sy - n.c[1]);
+    } else if (mode === 'ORIGIN') {
+      // move the origin by value (output px) while the image stays where it is
+      const [W, H] = res();
+      const { w, h, M } = stripPlacement({ ...n.s, transform: n.t } as Strip, W, H);
+      const a = M[0],
+        b = M[1],
+        c = M[3],
+        d = M[4];
+      const det = a * d - b * c || 1e-9;
+      const dx = value[0],
+        dy = value[1];
+      // image-space shift of the origin: (R S)^-1 · d
+      const ix = (d * dx - c * dy) / det,
+        iy = (-b * dx + a * dy) / det;
+      t.origin = [n.t.origin[0] + ix / w, n.t.origin[1] + iy / h];
+      t.offset_x = n.t.offset_x + dx - ix;
+      t.offset_y = n.t.offset_y + dy - iy;
     } else {
       // mirror across the pivot on X (value[0]) and/or Y (value[1])
       if (value[0]) {
@@ -179,11 +196,11 @@ export function startPreviewTransform(ed: SeqEditorLike, mode: PreviewMode, cx: 
     const [fx, fy] = pointerFrame();
     const num = st.text && st.text !== '-' ? Number(st.text) : null;
     let v: number[];
-    if (mode === 'TRANSLATE') {
+    if (mode === 'TRANSLATE' || mode === 'ORIGIN') {
       v = num !== null ? [st.axis === 'Y' ? 0 : num, st.axis === 'Y' ? num : 0] : [Math.round(fx - fx0), Math.round(fy - fy0)];
       if (st.axis === 'X') v[1] = 0;
       if (st.axis === 'Y') v[0] = 0;
-      if (num === null && snapOn()) {
+      if (num === null && snapOn() && mode === 'TRANSLATE') {
         const moved: [number, number, number, number] = [box[0] + v[0], box[1] + v[1], box[2] + v[0], box[3] + v[1]];
         const [dx, dy] = snapDelta(moved, others, W, H, 10 / Math.max(1e-6, ed.previewScale()), { borders: ts.snap_to_borders !== false, center: ts.snap_to_center !== false });
         if (st.axis !== 'Y') v[0] += dx;
@@ -204,12 +221,12 @@ export function startPreviewTransform(ed: SeqEditorLike, mode: PreviewMode, cx: 
     app.changed('doc');
   };
   const handler = {
-    label: mode === 'TRANSLATE' ? 'Move' : mode === 'ROTATE' ? 'Rotate' : 'Resize',
-    cursor: mode === 'TRANSLATE' ? 'move' : 'crosshair',
+    label: mode === 'TRANSLATE' ? 'Move' : mode === 'ROTATE' ? 'Rotate' : mode === 'ORIGIN' ? 'Move Origin' : 'Resize',
+    cursor: mode === 'TRANSLATE' || mode === 'ORIGIN' ? 'move' : 'crosshair',
     header: () => {
       const v = st.value;
-      const val = mode === 'TRANSLATE' ? `${Math.round(v[0])} px, ${Math.round(v[1])} px` : mode === 'ROTATE' ? `${((v[0] * 180) / Math.PI).toFixed(1)}°` : st.axis ? (st.axis === 'X' ? v[0] : v[1]).toFixed(3) : v[0].toFixed(3);
-      return `${mode === 'TRANSLATE' ? 'Move' : mode === 'ROTATE' ? 'Rotate' : 'Scale'}: ${st.text ? st.text + '|' : val}${st.axis ? ` along ${st.axis}` : ''}`;
+      const val = mode === 'TRANSLATE' || mode === 'ORIGIN' ? `${Math.round(v[0])} px, ${Math.round(v[1])} px` : mode === 'ROTATE' ? `${((v[0] * 180) / Math.PI).toFixed(1)}°` : st.axis ? (st.axis === 'X' ? v[0] : v[1]).toFixed(3) : v[0].toFixed(3);
+      return `${handler.label}: ${st.text ? st.text + '|' : val}${st.axis ? ` along ${st.axis}` : ''}`;
     },
     status: () =>
       [

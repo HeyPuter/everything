@@ -404,6 +404,21 @@ export function stripImageCorners(s: Strip, W: number, H: number): [number, numb
   return [tf(x0, y0), tf(x1, y0), tf(x1, y1), tf(x0, y1)];
 }
 
+/** Image size (w, h) a strip is placed with and its placement matrix (output px, y up). */
+export function stripPlacement(s: Strip, W: number, H: number): { w: number; h: number; M: number[] } {
+  const w = s.type === 'TEXT' || !s.orig_width ? W : s.orig_width,
+    h = s.type === 'TEXT' || !s.orig_width ? H : (s.orig_height ?? H);
+  return { w, h, M: placementMatrix(W, H, w, h, s.transform, 1) };
+}
+
+/** The strip's transform origin (pivot of its own rotation / scale) in output pixels. */
+export function stripOrigin(s: Strip, W: number, H: number): [number, number] {
+  const { w, h, M } = stripPlacement(s, W, H);
+  const x = s.transform.origin[0] * w,
+    y = s.transform.origin[1] * h;
+  return [M[0] * x + M[3] * y + M[6], M[1] * x + M[4] * y + M[7]];
+}
+
 export function previewStrips(frame: number): Strip[] {
   return seqList()
     .filter((s) => s.type !== 'SOUND' && !s.mute && activeAt(s, frame))

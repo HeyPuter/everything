@@ -325,3 +325,32 @@ test('sequencer: frame overlay (O sets the reference, Shift O toggles) and the V
   await expect(page.locator('.seq-sb .panel', { hasText: 'Frame Overlay' }).last()).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('sequencer: Move Origin (Ctrl .) moves the pivot without moving the image', async ({ page }) => {
+  const { errors } = await videoWorkspace(page);
+  const pv = (await page.locator('.seq-pv').first().boundingBox())!;
+  const cx = pv.x + pv.width / 2,
+    cy = pv.y + pv.height / 2;
+  await page.mouse.click(cx, cy);
+  await page.evaluate(() => {
+    const s = (window as any).app.doc.scene.sequence_editor.strips.find((x: any) => x.name === 'Text');
+    s.transform.rotation = 0.5;
+    s.transform.scale_x = 1.5;
+    (window as any).app.pushUndo('setup');
+  });
+  const corners = () =>
+    page.evaluate(async () => {
+      const T = await import('/src/sequencer/transform.ts' as any);
+      const s = (window as any).app.doc.scene.sequence_editor.strips.find((x: any) => x.name === 'Text');
+      return { c: T.stripImageCorners(s, 1920, 1080).flat(), o: [...s.transform.origin] };
+    });
+  const before = await corners();
+  await page.keyboard.press('Control+Period');
+  await page.mouse.move(cx + 60, cy - 30, { steps: 3 });
+  await page.mouse.down();
+  await page.mouse.up();
+  const after = await corners();
+  after.c.forEach((v: number, i: number) => expect(v).toBeCloseTo(before.c[i], 3));
+  expect(Math.abs(after.o[0] - before.o[0]) + Math.abs(after.o[1] - before.o[1])).toBeGreaterThan(0.01);
+  await expectNoErrors(errors);
+});

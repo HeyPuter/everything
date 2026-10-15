@@ -728,7 +728,7 @@ const ops: Operator[] = [
     label: 'Transform Strip Image',
     description: 'Move, rotate or scale the selected strips in the preview',
     props: [
-      { id: 'mode', label: 'Mode', type: 'enum', default: 'TRANSLATE', items: [['TRANSLATE', 'Move'], ['ROTATE', 'Rotate'], ['RESIZE', 'Scale']], hidden: true },
+      { id: 'mode', label: 'Mode', type: 'enum', default: 'TRANSLATE', items: [['TRANSLATE', 'Move'], ['ROTATE', 'Rotate'], ['RESIZE', 'Scale'], ['ORIGIN', 'Move Origin']], hidden: true },
       { id: 'value', label: 'Value', type: 'vec3', default: [0, 0, 0] },
     ],
     poll: () => anySelected() && overPreview(),

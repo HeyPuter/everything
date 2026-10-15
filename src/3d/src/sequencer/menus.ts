@@ -439,6 +439,8 @@ export function imageMenu(): MenuItem[] {
         { label: 'Move', op: 'sequencer.strip_transform', props: { mode: 'TRANSLATE' }, shortcut: 'G' },
         { label: 'Rotate', op: 'sequencer.strip_transform', props: { mode: 'ROTATE' }, shortcut: 'R' },
         { label: 'Scale', op: 'sequencer.strip_transform', props: { mode: 'RESIZE' }, shortcut: 'S' },
+        { separator: true },
+        { label: 'Move Origin', op: 'sequencer.strip_transform', props: { mode: 'ORIGIN' }, shortcut: 'Ctrl .' },
       ],
     },
     { label: 'Mirror', submenu: mirrorItems },

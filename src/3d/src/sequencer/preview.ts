@@ -5,7 +5,7 @@ import { app } from '../app/app';
 import { withCompositor, SequencerRender, Cancelled } from './render';
 import { renderScenePreview } from './scene';
 import { pauseIdleMovies } from './media';
-import { stripImageCorners, previewStrips, pointInPoly } from './transform';
+import { stripImageCorners, previewStrips, pointInPoly, stripOrigin } from './transform';
 import { activeStrip, hasEditor } from './context';
 import type { Strip } from './types';
 import { editedText, drawTextEditOverlay } from './textedit';
@@ -362,6 +362,17 @@ export class PreviewRegion {
       pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
       g.closePath();
       g.stroke();
+      if (s === act) {
+        // the strip's own origin
+        const [ox, oy] = this.toLocal(...stripOrigin(s, W, H));
+        g.beginPath();
+        g.arc(ox, oy, 3.5, 0, Math.PI * 2);
+        g.fillStyle = T.active;
+        g.fill();
+        g.strokeStyle = '#000';
+        g.lineWidth = 1;
+        g.stroke();
+      }
     }
   }
 
