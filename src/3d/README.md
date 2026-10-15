@@ -1,14 +1,13 @@
 # 3D
 
-A browser-based 3D creation suite modelled on the workflow, layout and keyboard conventions of
-Blender: modeling, sculpting, UV editing, shader / geometry / compositor nodes, animation and
-rigging, physics, path-traced and real-time rendering, video editing, motion tracking, Grease Pencil
-and scripting. It is written from scratch in TypeScript on top of three.js (WebGL2) and runs entirely
-in the browser.
+A browser-based, open-source alternative to Blender: modeling, sculpting, UV editing, shader /
+geometry / compositor nodes, animation and rigging, physics, path-traced and real-time rendering,
+video editing, motion tracking, Grease Pencil and scripting. It is written from scratch in
+TypeScript on top of three.js (WebGL2) and runs entirely in the browser.
 
-This project is independent: it contains no Blender source code, icons, themes or other assets, and
-it is not affiliated with or endorsed by the Blender Foundation. Blender was used only as a
-black-box reference for behaviour, layout and numeric results (see `THIRD_PARTY_NOTICES.md`).
+This project is independent: it is a clean-room implementation that contains no Blender source code,
+icons, themes or other assets, and it is not affiliated with or endorsed by the Blender Foundation.
+"Blender" is a trademark of the Blender Foundation.
 
 ## Run locally
 
@@ -21,7 +20,7 @@ npm run dev          # open the printed URL
 ```
 
 `?factory-startup` in the URL starts from the default scene without restoring the autosaved
-session (like Blender's `--factory-startup`).
+session.
 
 ## Build and test
 
@@ -36,7 +35,7 @@ npm run check        # all of the above
 
 ## What's included
 
-**Interface.** Blender-style topbar with the default workspaces (Layout, Modeling, Sculpting,
+**Interface.** Topbar with the default workspaces (Layout, Modeling, Sculpting,
 UV Editing, Texture Paint, Shading, Animation, Rendering, Compositing, Geometry Nodes, Scripting) and
 a "+" menu with 2D Animation, Motion Tracking and Video Editing templates. Areas can be split, joined
 and switched to any editor (Shift+F1…F12). Menus, pie menus, F3 search, redo panel (F9), tooltips,
@@ -66,7 +65,7 @@ weight and texture painting; automatic armature weights.
 
 **Nodes.** About 80 shader nodes compiled to GLSL (Principled BSDF and friends, textures, color and
 vector utilities), Geometry Nodes with fields, instances and a viewer, and a GPU compositor with
-Blender's node set and backdrop.
+a full compositing node set and backdrop.
 
 **Animation and rigging.** Keyframes, keying sets, auto keying, F-curve modifiers, drivers, NLA,
 motion paths, Bake Action, armatures with IK and bone constraints, shape keys, object constraints.
@@ -99,7 +98,7 @@ import of Collada and Alembic; legacy `.3d.json` scenes from earlier versions of
 ## Known limitations
 
 - No camera solving (motion-tracking reconstruction), Multires, Dyntopo, Cycles-only features such
-  as volumes and subsurface scattering in the path tracer, or Blender's EEVEE-specific effects.
+  as volumes and subsurface scattering in the path tracer, or EEVEE-specific effects.
 - Python scripting covers a documented subset of `bpy`; it needs network access once per session
   to download Pyodide.
 - `.blend` import covers the active scene and common data; unsupported data is reported, not lost

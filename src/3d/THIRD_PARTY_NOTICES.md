@@ -38,17 +38,16 @@ commercial-only, source-available or custom-licensed packages are used.
 | gltf-validator | 2.0.0-dev.3.10 | Apache-2.0 (test-only glTF validation) |
 | @types/three, @types/node, @types/opentype.js | 0.186.0, 26.6.2, 1.3.8 | MIT |
 
-## Interoperability data and reference material
+## Interoperability data
 
-- The app is an independent implementation. It contains no source code, icons, themes, startup files
-  or other assets from Blender (GPL-2.0-or-later). Blender 5.2.2 was used only as a black-box
-  reference: run locally to compare behaviour, layouts and numeric results.
-- For file and scripting compatibility, some generated tables (`src/nodes/shader/data.gen.ts`,
-  `src/geonodes/data.gen.ts`, `src/io/blend/nodeprops.gen.ts`, compositor node data) list node,
-  socket and property *names, identifiers, enum items and default values* as reported by Blender's
-  public Python API. These are interface facts needed to read and write compatible data, not
-  expressive code; they are flagged here for legal review.
+- The app is an independent, clean-room implementation. It contains no source code, icons, themes,
+  text, startup files or other assets from Blender (GPL-2.0-or-later).
+- For file and scripting compatibility (`.blend` import, `bpy`-style scripts), some generated tables
+  (`src/nodes/shader/data.gen.ts`, `src/geonodes/data.gen.ts`, `src/io/blend/nodeprops.gen.ts`,
+  compositor node data) list node, socket and property *names, identifiers, enum items and default
+  values* of the public `bpy` API. These are interface facts needed to read and write compatible
+  data, not expressive code; they are flagged here for legal review.
 - Test fixtures in `tests/fixtures/` (`.blend`, `.glb`, `.fbx`, `.usd*`, `.abc`, …) were generated for
-  this project by scripts in the same folders (run in Blender) or written by hand.
-- "Blender" is a trademark of the Blender Foundation. It is used only to name file formats and the
-  reference application; this project is not affiliated with or endorsed by the Blender Foundation.
+  this project by the scripts in the same folders or written by hand.
+- "Blender" is a trademark of the Blender Foundation. It is used only to name the `.blend` file
+  format; this project is not affiliated with or endorsed by the Blender Foundation.

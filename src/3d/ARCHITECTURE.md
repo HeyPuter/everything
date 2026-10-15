@@ -2,7 +2,7 @@
 
 This app is a browser-based 3D creation suite. Everything is plain TypeScript (no framework),
 rendered with **three.js** (WebGL2). The world is **Z-up**, units are meters, angles are radians
-internally. Property names follow the publicly documented RNA names of the reference 3D suite
+internally. Property names follow the widely used `bpy` scripting conventions
 (`location`, `rotation_euler`, `hide_render`, …) so animation paths, scripting and importers map 1:1.
 
 ```
@@ -79,7 +79,7 @@ registerOperators([{ idname: 'mesh.subdivide', label: 'Subdivide', props: [...Pr
 
 ### Keymaps (`app/keymap.ts`)
 `addKeys('Keymap Name', [{ key: 'G', shift?, ctrl?, alt?, op: 'transform.translate', props?, when?: () => bool, menu?: () => MenuItem[] }])`.
-Key names are reference-style event names: `'A'..'Z'`, `'ONE'..`, `'NUMPAD_1'`, `'TAB'`, `'SPACE'`,
+Key names are event names: `'A'..'Z'`, `'ONE'..`, `'NUMPAD_1'`, `'TAB'`, `'SPACE'`,
 `'DEL'`, `'ESC'`, `'RET'`, `'F1'..`, `'LEFT_ARROW'`, … An editor lists the keymaps it uses in
 `editor.keymaps` (priority order); `Frames`, `Screen`, `Window` always apply. Ctrl also matches Cmd.
 
@@ -156,8 +156,8 @@ They run before the `App` instance exists: use `onAppReady(fn)` (`app/app.ts`) f
 needs `app` (e.g. `app.subscribe`).
 
 ## Conventions
-- Never copy code or assets from the reference application (GPL); implement independently.
-  Socket/property/operator *names* follow its public documentation for compatibility.
+- Never copy code, text, icons or other assets from any other application; implement everything
+  independently. Socket/property/operator *names* follow public `bpy` identifiers for compatibility.
 - Prefer small focused files under the feature's own directory.
 - Every visible control must work; don't add menu entries for operators that don't exist.
 - Use `app.report('ERROR', …)` for recoverable failures instead of throwing to the UI.
