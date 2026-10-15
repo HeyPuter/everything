@@ -471,6 +471,7 @@ export class SpreadsheetEditor implements Editor {
     const ik = `i:${pk}`;
     const n = inst?.count ?? 0;
     const open = this.expanded.has(ik);
+    if (depth > 0 && !n) return out;
     out.push(
       this.leftRow({ path, key: 'INSTANCES', domain: 'INSTANCE' }, 'Instances', 'ss_instance', n, depth, inst?.references.length ? { key: ik, open } : undefined),
     );
@@ -844,8 +845,11 @@ export class SpreadsheetEditor implements Editor {
     return { cols: this.cols.slice(c0, c1 + 1), rows: this.rows.subarray(r0, r1 + 1), whole: s.c0 < 0 };
   }
 
+  /** text of the last copy from this editor */
+  copied = '';
+
   copyText(text: string, what: string) {
-    lastCopied = text;
+    lastCopied = this.copied = text;
     try {
       void navigator.clipboard?.writeText(text).catch(() => {});
     } catch {

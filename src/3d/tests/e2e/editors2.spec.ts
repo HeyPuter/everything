@@ -146,7 +146,6 @@ async function openSpreadsheet(page: Page) {
   await setAreaType(page, 'TIMELINE', 'SPREADSHEET', true);
   return page.locator('.area[data-editor="SPREADSHEET"]');
 }
-const ssEditor = `(async () => { const { shell } = await import('/src/ui/shell.ts'); return shell.screen.findArea('SPREADSHEET').editor; })()`;
 
 test('Spreadsheet: data set region, sorting, columns, filters and copying cells', async ({ page }) => {
   const errors = await openApp(page);
@@ -222,7 +221,10 @@ test('Spreadsheet: data set region, sorting, columns, filters and copying cells'
   await page.mouse.up();
   await expect(ss.locator('.ss-footer')).toContainText('Selected: 2 × 2');
   await page.keyboard.press('Control+c');
-  const copied = await page.evaluate(async () => (await import('/src/spreadsheet/spreadsheet.ts')).lastCopied);
+  const copied: string = await page.evaluate(async () => {
+    const { shell } = await import('/src/ui/shell.ts');
+    return shell.screen.findArea('SPREADSHEET').editor.copied;
+  });
   expect(copied.split('\n').length).toBe(2);
   expect(copied.split('\n')[0].split('\t').length).toBe(6); // two vector columns
   await expectNoErrors(errors);
@@ -265,5 +267,40 @@ test('Spreadsheet: pinning, selected only in Edit Mode, instances and 100k rows'
   expect(await ss.locator('.ss-row').count()).toBeLessThan(120);
   await ss.locator('.ss-body').evaluate((el) => (el.scrollTop = el.scrollHeight));
   await expect(ss.locator('.ss-row .ss-idx', { hasText: '100488' })).toHaveCount(1);
+  await expectNoErrors(errors);
+});
+
+test('Spreadsheet: instances list their references and nested geometry', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const app = (window as any).app;
+    const { addNode, connect, ctxOf } = await import('/src/nodes/tree.ts');
+    const { geometryNodesTree, uid } = await import('/src/data/defaults.ts');
+    app.run('object.modifier_add', { type: 'NODES' });
+    const ob = app.activeObject;
+    const id = uid('ng');
+    const t = geometryNodesTree();
+    app.doc.node_groups[id] = { id, name: 'Scatter', tree: t, is_modifier: true };
+    ob.modifiers[ob.modifiers.length - 1].node_group = id;
+    const out = t.nodes.find((n: any) => n.type === 'NodeGroupOutput');
+    const grid = addNode(t, 'GeometryNodeMeshGrid', [0, 0]);
+    Object.assign(grid.inputs, { 'Vertices X': 3, 'Vertices Y': 3 });
+    const cube = addNode(t, 'GeometryNodeMeshCube', [0, 0]);
+    const iop = addNode(t, 'GeometryNodeInstanceOnPoints', [0, 0]);
+    t.links = t.links.filter((l: any) => l.to_node !== out.id);
+    const c = ctxOf(app.doc, t);
+    connect(c, grid.id, 'Mesh', iop.id, 'Points');
+    connect(c, cube.id, 'Mesh', iop.id, 'Instance');
+    connect(c, iop.id, 'Instances', out.id, 'Geometry');
+    app.changed('doc');
+  });
+  const ss = await openSpreadsheet(page);
+  await ss.locator('.ss-left-row', { hasText: 'Instances' }).first().click();
+  await expect(ss.locator('.ss-footer')).toContainText('Rows: 9');
+  await expect(ss.locator('.ss-hcell[data-col="Transform"]')).toHaveCount(1);
+  await ss.locator('.ss-left-node').first().click();
+  await ss.locator('.ss-left-row', { hasText: 'Vertex' }).nth(1).click();
+  await expect(ss.locator('.ss-footer')).toContainText('Rows: 8');
+  await expect(ss.locator('.ss-crumbs')).toContainText('Geometry 0');
   await expectNoErrors(errors);
 });
