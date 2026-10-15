@@ -298,7 +298,7 @@ function autoSaveBody(list: Snapshot[]): Child {
             },
             icon('time'),
             h('span', { class: 'splash-recent-name' }, s.name),
-            h('span', { class: 'splash-recent-meta' }, `${new Date(s.time).toLocaleString()} · ${sizeLabel(s.size)}`),
+            h('span', { class: 'splash-recent-meta' }, `${s.reason ? `${s.reason} · ` : ''}${new Date(s.time).toLocaleString()} · ${sizeLabel(s.size)}`),
           ),
         )
       : h('div', { class: 'splash-empty' }, `No auto saves yet. While you work, a copy of the project is kept every ${prefs.autosave_interval || 2} minutes (Preferences ▸ Save & Load).`),

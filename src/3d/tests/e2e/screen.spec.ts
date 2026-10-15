@@ -560,3 +560,20 @@ test('File Browser: save the project into browser storage, then Save updates it 
   expect(downloaded).toBe(false);
   await expectNoErrors(errors);
 });
+
+test('unsaved work is kept as an auto save before New File', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const a = (window as any).app;
+    a.activeObject.name = 'Precious';
+    a.pushUndo('Rename');
+    a.run('wm.read_homefile', { use_factory_startup: true });
+  });
+  expect(await get(page, 'app.activeObject.name')).toBe('Cube');
+  await page.evaluate(() => (window as any).app.run('wm.recover_auto_save'));
+  const row = page.locator('.autosave-list .splash-item', { hasText: 'Before New File' });
+  await expect(row).toBeVisible();
+  await row.click();
+  await expect.poll(() => get(page, 'app.activeObject.name')).toBe('Precious');
+  await expectNoErrors(errors);
+});

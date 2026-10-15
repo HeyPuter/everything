@@ -43,6 +43,8 @@ export const fileEvents = {
    * Save then updates that file instead of downloading a copy.
    */
   saveTarget: null as { name: string; write(bytes: Uint8Array): Promise<void> } | null,
+  /** called right before the document is replaced (keeps unsaved work recoverable) */
+  beforeReplace: ((_reason: string) => {}) as (reason: string) => void,
 };
 
 let autosaveTimer = 0;
@@ -80,6 +82,7 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
   try {
     if (isNativeFile(bytes)) {
       const { doc, extra } = decodeDocument(bytes);
+      if (mode === 'open') fileEvents.beforeReplace('Before Opening a File');
       app.setDocument(doc);
       app.filename = file.name;
       if (extra.ui) projectUiState.load(extra.ui as Record<string, unknown>);
@@ -87,6 +90,7 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
       for (const f of fileEvents.opened) f(file.name, bytes);
     } else if (name.endsWith('.json') || name.endsWith('.3d.json')) {
       const doc = importLegacyScene(new TextDecoder().decode(bytes));
+      fileEvents.beforeReplace('Before Opening a File');
       app.setDocument(doc);
       app.filename = file.name.replace(/\.3d\.json$|\.json$/i, '.p3d');
       app.report('INFO', `Imported legacy scene "${file.name}"`);
@@ -94,6 +98,7 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
       const handler = formats.find((f) => f.import && f.extensions.some((x) => name.endsWith(x)));
       if (!handler) throw new Error(`Unsupported file type: ${file.name}`);
       if (mode === 'open' && handler.open) {
+        fileEvents.beforeReplace('Before Opening a File');
         await handler.open(file);
         app.dirty = false;
         return;
@@ -144,6 +149,7 @@ registerOperators([
     undo: false,
     props: [{ id: 'use_factory_startup', label: 'Factory Startup', type: 'bool', default: false }],
     exec: (_ctx, p) => {
+      fileEvents.beforeReplace('Before New File');
       if (!p.use_factory_startup && fileEvents.loadStartup()) {
         app.filename = 'untitled.p3d';
         fileEvents.saveTarget = null;

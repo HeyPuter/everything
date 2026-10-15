@@ -15,6 +15,8 @@ export interface Snapshot {
   name: string;
   time: number;
   size: number;
+  /** why it was taken (e.g. "Before New File"); timed auto saves have none */
+  reason?: string;
 }
 
 const DB = 'p3d-session';
@@ -106,8 +108,9 @@ export async function clearRecent() {
 }
 
 /** Load a project from bytes into the application (as Open does). */
-export function loadProjectBytes(bytes: Uint8Array, name: string) {
+export function loadProjectBytes(bytes: Uint8Array, name: string, reason = 'Before Opening a File') {
   const { doc, extra } = decodeDocument(bytes);
+  if (reason) fileEvents.beforeReplace(reason);
   app.setDocument(doc);
   app.filename = name;
   if (extra.ui && typeof extra.ui === 'object') projectUiState.load(extra.ui as Record<string, unknown>);
@@ -160,7 +163,7 @@ export async function clearStartupFile() {
 export function loadStartupFile(): boolean {
   if (!startup) return false;
   try {
-    loadProjectBytes(startup, 'untitled.p3d');
+    loadProjectBytes(startup, 'untitled.p3d', '');
     return true;
   } catch {
     return false;
@@ -178,11 +181,12 @@ export async function listSnapshots(): Promise<Snapshot[]> {
   return [...list].sort((a, b) => b.time - a.time);
 }
 
-export async function takeSnapshot() {
+export async function takeSnapshot(reason?: string) {
   const bytes = encodeDocument(app.doc, { ui: projectUiState.save() });
+  const name = app.filename;
   const list = await listSnapshots();
-  const key = `snapshot-${Date.now()}`;
-  const next = [{ key, name: app.filename, time: Date.now(), size: bytes.length }, ...list];
+  const key = `snapshot-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const next: Snapshot[] = [{ key, name, time: Date.now(), size: bytes.length, reason }, ...list];
   for (const old of next.slice(MAX_SNAPSHOTS)) await del(FILES, old.key);
   await put(FILES, key, bytes);
   await put(KV, 'snapshots', next.slice(0, MAX_SNAPSHOTS));
@@ -229,6 +233,11 @@ export const sessionReady = typeof window === 'undefined' ? Promise.resolve() : 
 fileEvents.opened.push((name, bytes) => void recordRecent(name, bytes));
 fileEvents.saved.push((name, bytes) => void recordRecent(name, bytes));
 fileEvents.loadStartup = loadStartupFile;
+// unsaved work is kept as an auto save before it is replaced (New, Open, Revert, …)
+fileEvents.beforeReplace = (reason: string) => {
+  if (!app.dirty || !app.undo.canUndo) return;
+  void takeSnapshot(reason).catch(() => {});
+};
 fileEvents.openRecent = openRecent;
 
 let resolveFresh: (fresh: boolean) => void = () => {};
