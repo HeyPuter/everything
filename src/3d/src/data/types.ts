@@ -1,5 +1,5 @@
-// Core document model. Field names follow the publicly documented RNA property
-// names of the reference application (snake_case) so animation data paths, the
+// Core document model. Field names follow the publicly documented `bpy` RNA property
+// naming conventions (snake_case) so animation data paths, the
 // scripting API and file importers can map 1:1 without translation tables.
 // All typed arrays are treated as immutable once committed to the undo history:
 // edits replace arrays instead of writing into them (see data/cow.ts).
@@ -173,7 +173,7 @@ export interface CurveData {
   taper_object?: ID | null;
   use_fill_caps: boolean;
   materials: (ID | null)[];
-  // Text (FONT objects share curve data like the reference app)
+  // Text (FONT objects share curve data)
   body?: string;
   size?: number;
   align_x?: 'LEFT' | 'CENTER' | 'RIGHT' | 'JUSTIFY';

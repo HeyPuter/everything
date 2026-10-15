@@ -144,7 +144,7 @@ declare module '../data/types' {
 }
 
 // ---------------------------------------------------------------------------
-// defaults (values measured from the reference application's factory settings)
+// defaults (factory settings)
 
 export function defaultTrackingSettings(): MovieTrackingSettings {
   return {

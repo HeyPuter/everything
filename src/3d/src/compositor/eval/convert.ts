@@ -2,7 +2,7 @@
 //
 // Storage: FLOAT/INT/BOOLEAN → (v, v, v, 1); VECTOR → (x, y, z, w) (unused components 0);
 // RGBA → premultiplied (r, g, b, a). Colours convert to floats by Rec.709 luminance, vectors by
-// the average of their components (matching the reference compositor's implicit conversions).
+// the average of their components (the compositor's implicit conversions).
 import type { DataType } from './result';
 
 export type GType = 'float' | 'vec3' | 'vec4';

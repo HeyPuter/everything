@@ -1,4 +1,4 @@
-// Curve mapping evaluation matching the reference's curve widgets: cubic Bézier segments with
+// Curve mapping evaluation for the curve widgets: cubic Bézier segments with
 // automatically computed handles (end handles aim at the neighbour's handle), "vector" handles
 // (straight segments) and auto-clamped handles (flat at extrema); outside the points the curve
 // extends horizontally or along the end tangents. The curves themselves are stored by the

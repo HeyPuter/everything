@@ -1,7 +1,7 @@
 // IR → document conversion shared by all importers.
 // Coordinate conversion: every node matrix is conjugated by G = unitScale·Axis
 // (L' = G L G⁻¹) and vertex data is multiplied by G, so an object with identity rotation in the
-// file keeps identity rotation in the document (like the reference app's glTF importer).
+// file keeps identity rotation in the document (the glTF importer's convention).
 import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import type { ArmatureData, Bone, DocumentData, FCurve, ID, ImageData, Keyframe, MeshData, ObjectData, ShapeKey } from '../../data/types';
 import { newArmature, newCamera, newLight, newMeshData, newObject, newAction, newImage, uid } from '../../data/defaults';

@@ -1,5 +1,5 @@
-// Viewport camera (view matrix from pivot, distance and orientation), like the
-// reference "view3d region": orbit around a pivot, dolly, pan, numpad views.
+// Viewport camera (view matrix from pivot, distance and orientation): orbit around a
+// pivot, dolly, pan, numpad views.
 import { PerspectiveCamera, OrthographicCamera, Quaternion, Vector3, Matrix4, Euler } from 'three';
 import { prefs } from '../app/prefs';
 
@@ -11,7 +11,7 @@ export class NavCamera {
   /** orientation of the view (camera looks along its local -Z, up = local +Y) */
   rot = new Quaternion();
   ortho = false;
-  /** automatic ortho in axis views (reference preference: Auto Perspective) */
+  /** automatic ortho in axis views (preference: Auto Perspective) */
   autoPersp = true;
   lens = 50;
   sensor = 72;
@@ -27,7 +27,7 @@ export class NavCamera {
   constructor() {
     this.persp.up.set(0, 0, 1);
     this.orthoCam.up.set(0, 0, 1);
-    // default "User Perspective" of the reference startup file
+    // default "User Perspective" of the startup scene
     this.setViewQuat([0.71238, 0.44106, 0.28736, 0.46412]);
     this.distance = 18.388;
     this.pivot.set(-0.0207, -0.046, 0.0007);
@@ -39,7 +39,7 @@ export class NavCamera {
     this.rot.copy(q);
   }
 
-  /** Set from a reference-style view rotation quaternion (w, x, y, z). */
+  /** Set from a view rotation quaternion (w, x, y, z). */
   setViewQuat(q: [number, number, number, number]) {
     this.rot.set(q[1], q[2], q[3], q[0]).normalize();
   }
@@ -73,7 +73,7 @@ export class NavCamera {
   /** horizontal FOV from lens & sensor */
   get fovY(): number {
     const fovX = 2 * Math.atan(this.sensor / 2 / this.lens);
-    // reference applies the sensor to the larger dimension
+    // the sensor applies to the larger dimension
     if (this.aspect >= 1) return 2 * Math.atan(Math.tan(fovX / 2) / this.aspect);
     return fovX;
   }

@@ -1,4 +1,4 @@
-// UI list widget (reference "UIList"): selectable rows with add/remove buttons.
+// UI list widget ("UIList"): selectable rows with add/remove buttons.
 import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 

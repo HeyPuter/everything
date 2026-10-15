@@ -679,7 +679,7 @@ export function readFbx(bytes: Uint8Array, opts: FbxReadOptions = {}): IRScene {
     const sampleTimes: number[] = [];
     for (let t = tmin; t <= tmax + 1e-9; t += 1 / fps) sampleTimes.push(Math.min(t, tmax));
     if (sampleTimes.length < 2) sampleTimes.push(tmax);
-    // FBX time 0 is frame 1 (the reference exporter writes the first frame at t = 0)
+    // FBX time 0 is frame 1 (exporters write the first frame at t = 0)
     const shift = 1 / fps;
     for (const [id, pm] of props) {
       const o = objs.get(id);

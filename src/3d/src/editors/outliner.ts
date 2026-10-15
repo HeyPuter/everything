@@ -195,7 +195,7 @@ export class Outliner implements Editor {
       if (ob.animation_data?.action && doc.actions[ob.animation_data.action]) rows.push({ key: `ac:${ob.id}`, depth: depth + 1, kind: 'action', label: doc.actions[ob.animation_data.action].name, icon: 'action', ob, expandable: false, expanded: false });
     }
     if (!exp && children.length && !f) {
-      // collapsed parents still list children (reference behaviour shows them nested once expanded)
+      // collapsed parents still list children (shown nested once expanded)
     }
     if (exp || f) for (const c of children) this.objectRows(doc, c, depth + 1, rows, inCol, f);
   }

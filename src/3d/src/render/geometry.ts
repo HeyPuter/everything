@@ -28,7 +28,7 @@ export function meshGeometry(m: EvalMesh): GeometryInfo {
     pos[c * 3 + 1] = m.positions[v + 1];
     pos[c * 3 + 2] = m.positions[v + 2];
     uv[c * 2] = m.uvs[c * 2] ?? 0;
-    // glTF-style flip so images map like the reference (V up)
+    // glTF-style flip so images map with V up
     uv[c * 2 + 1] = m.uvs[c * 2 + 1] ?? 0;
   }
   // triangulate per face, grouped by material

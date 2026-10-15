@@ -99,7 +99,7 @@
 1
 ]
 ],
-"source": "Blender 5.2.2 (compositor, Group Output render result read back as 32-bit EXR)",
+"source": "compositor, Group Output render result read back as 32-bit EXR",
 "cases": {
 "passthrough": {
 "nodes": {},

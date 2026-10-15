@@ -29,21 +29,21 @@ function objResources() {
   ]);
 }
 
-/** A document built from the Blender fixture (glTF), used as export source. */
+/** A document built from the glTF fixture, used as export source. */
 function sourceDoc() {
   const doc = freshDoc();
-  commitScene(doc, readGltf(fixture('blender_scene.glb')));
+  commitScene(doc, readGltf(fixture('ref_scene.glb')));
   doc.scene.frame_current = 1;
   return doc;
 }
 
 describe('Wavefront OBJ', () => {
-  it('imports Blender OBJ output with n-gons, materials, textures and smooth groups (matches Blender import)', () => {
+  it('imports OBJ with n-gons, materials, textures and smooth groups (matches the expected import)', () => {
     const doc = freshDoc();
-    const ir = readObj(new TextDecoder().decode(fixture('blender_scene.obj')), { resources: objResources() });
+    const ir = readObj(new TextDecoder().decode(fixture('ref_scene.obj')), { resources: objResources() });
     const res = commitScene(doc, ir);
     expect(res.objects.map((o) => o.name).sort()).toEqual(['Cube', 'Ngon', 'Plane', 'Skinned', 'Sphere']);
-    // numbers printed by Blender's own OBJ importer for the same file
+    // expected import counts for this file
     expect(sizes(doc, 'Cube')).toEqual({ verts: 8, faces: 6, sizes: { 4: 6 } });
     expect(sizes(doc, 'Sphere')).toEqual({ verts: 62, faces: 72, sizes: { 3: 24, 4: 48 } });
     expect(sizes(doc, 'Ngon')).toEqual({ verts: 6, faces: 1, sizes: { 6: 1 } });
@@ -69,7 +69,7 @@ describe('Wavefront OBJ', () => {
     expect(res.warnings).toEqual([]);
   });
 
-  it('parses MTL PBR mapping like the reference exporter (Ns ↔ roughness, Ka/illum ↔ metallic)', () => {
+  it('parses MTL PBR mapping (Ns ↔ roughness, Ka/illum ↔ metallic)', () => {
     const m = parseMtl('newmtl A\nNs 640\nKa 1 1 1\nKd 0.1 0.2 0.3\nd 0.5\nillum 2\nmap_Bump -bm 0.7 n.png\n');
     expect(m[0].Ns).toBe(640);
     expect(m[0].maps.map_bump).toEqual({ file: 'n.png', bm: 0.7 });
@@ -78,7 +78,7 @@ describe('Wavefront OBJ', () => {
   it('round-trips n-gons, UVs, materials and smooth flags through export → import', () => {
     const src = sourceDoc();
     const obj = freshDoc();
-    commitScene(obj, readObj(new TextDecoder().decode(fixture('blender_scene.obj')), { resources: objResources() }));
+    commitScene(obj, readObj(new TextDecoder().decode(fixture('ref_scene.obj')), { resources: objResources() }));
     const scene = buildExportScene(obj, { animation: false }, new Depsgraph(obj).evaluate(obj));
     const out = writeObj(scene, { mtlName: 'out.mtl' });
     dumpOutput('roundtrip.obj', out.obj);
@@ -115,9 +115,9 @@ describe('Wavefront OBJ', () => {
 });
 
 describe('STL', () => {
-  it('imports binary STL like Blender (merged vertices)', () => {
+  it('imports binary STL with merged vertices', () => {
     const doc = freshDoc();
-    commitScene(doc, readStl(fixture('blender_scene.stl'), { name: 'scene' }));
+    commitScene(doc, readStl(fixture('ref_scene.stl'), { name: 'scene' }));
     expect(sizes(doc, 'scene')).toEqual({ verts: 96, faces: 166, sizes: { 3: 166 } });
   });
   it('round-trips binary and ASCII', () => {
@@ -137,15 +137,15 @@ describe('STL', () => {
 });
 
 describe('PLY', () => {
-  it('imports binary PLY from Blender with n-gons and UVs', () => {
+  it('imports binary PLY with n-gons and UVs', () => {
     const doc = freshDoc();
-    commitScene(doc, readPly(fixture('blender_scene.ply'), { name: 'scene' }));
+    commitScene(doc, readPly(fixture('ref_scene.ply'), { name: 'scene' }));
     expect(sizes(doc, 'scene')).toEqual({ verts: 147, faces: 90, sizes: { 4: 63, 3: 24, 6: 1, 8: 2 } });
     expect(doc.meshes[byName(doc, 'scene').data!].uvs.some((v) => v !== 0)).toBe(true);
   });
   it('round-trips ASCII and binary with vertex colors', () => {
     const doc = freshDoc();
-    commitScene(doc, readPly(fixture('blender_scene.ply'), { name: 'scene' }));
+    commitScene(doc, readPly(fixture('ref_scene.ply'), { name: 'scene' }));
     const me = doc.meshes[byName(doc, 'scene').data!];
     const nv = me.positions.length / 3;
     const colorOf = (x: number, y: number, z: number) => [Math.abs(Math.sin(x * 3.1)), Math.abs(Math.cos(y * 2.3)), Math.abs(Math.sin(z * 1.7 + 0.3))];

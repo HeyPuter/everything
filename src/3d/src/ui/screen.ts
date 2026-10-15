@@ -452,12 +452,12 @@ export const A = (type: EditorTypeId, state?: unknown): LayoutNode => ({ area: {
 export const H = (ratio: number, a: LayoutNode, b: LayoutNode): LayoutNode => ({ split: 'h', ratio, a, b });
 export const V = (ratio: number, a: LayoutNode, b: LayoutNode): LayoutNode => ({ split: 'v', ratio, a, b });
 
-/** Right-hand dock: outliner above properties (proportions from the reference defaults). */
+/** Right-hand dock: outliner above properties (default proportions). */
 export const dock = () => V(0.18, A('OUTLINER'), A('PROPERTIES'));
 
 /**
- * Workspace templates offered by the "+" button next to the workspace tabs (grouped like the
- * reference application's Add Workspace menu: General, 2D Animation, Sculpting, VFX, Video Editing).
+ * Workspace templates offered by the "+" button next to the workspace tabs (grouped in the
+ * Add Workspace menu: General, 2D Animation, Sculpting, VFX, Video Editing).
  * Modules register extra templates with registerWorkspaceTemplate().
  */
 export const workspaceTemplates: { category: string; create: () => Workspace }[] = [];

@@ -1,5 +1,5 @@
 // Cloth and Soft Body modifiers (category Physics). Settings live on the modifier
-// (reference: ClothModifier.settings / collision_settings / point_cache).
+// (ClothModifier.settings / collision_settings / point_cache).
 import { registerModifier } from '../eval/modifiers';
 import { groupWeights } from '../eval/meshbuild';
 import type { DocumentData } from '../data/types';
@@ -15,7 +15,7 @@ import {
   type SoftBodyModifier,
 } from './types';
 
-/** Stiffness (reference units) → XPBD compliance. 0 disables the constraint. */
+/** Stiffness (settings units) → XPBD compliance. 0 disables the constraint. */
 export const compliance = (k: number, scale = 1000) => (k > 0 ? 1 / (k * scale) : 1e6);
 
 export function clothSetup(m: ClothModifier, mesh: EvalMesh, doc: DocumentData): MeshSimSetup {
@@ -61,7 +61,7 @@ export function softBodySetup(m: SoftBodyModifier, mesh: EvalMesh, doc: Document
     }
   }
   const quality = Math.max(1, Math.round(s.quality));
-  // goal weight 1 means fully pinned (reference: goal strength max = no dynamics)
+  // goal weight 1 means fully pinned (goal strength max = no dynamics)
   const pin = goal ? goal.map((g) => (g >= 0.999 ? 1 : 0)) : null;
   return {
     shear: s.use_edges,

@@ -4,7 +4,7 @@ import type { DocumentData, NodeData, NodeTreeData, SocketValue } from '../data/
 
 export type TreeType = NodeTreeData['type'];
 
-/** Socket data types (reference names, with FLOAT for 'VALUE'). */
+/** Socket data types (`bpy` names, with FLOAT for 'VALUE'). */
 export type SocketType =
   | 'FLOAT'
   | 'INT'
@@ -183,7 +183,7 @@ export interface NodeTypeDef {
 export type NodeClass =
   'input' | 'output' | 'shader' | 'texture' | 'color' | 'vector' | 'converter' | 'group' | 'layout' | 'geometry' | 'attribute' | 'distort' | 'matte' | 'filter' | 'script' | 'interface' | 'pattern';
 
-/** Raw interface data (generated from the reference app). */
+/** Raw interface data (generated node interface tables). */
 export type RawSocket = [
   name: string,
   identifier: string,

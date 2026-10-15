@@ -1,7 +1,7 @@
 import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import type { ObjectData, PoseBone, RotationMode, Vec3, Vec4 } from '../data/types';
 
-/** Reference-app Euler order 'XYZ' (X applied first) equals three.js order 'ZYX'. */
+/** Document Euler order 'XYZ' (X applied first) equals three.js order 'ZYX'. */
 export function threeOrder(mode: RotationMode): Euler['order'] {
   if (mode === 'QUATERNION' || mode === 'AXIS_ANGLE') return 'ZYX';
   return mode.split('').reverse().join('') as Euler['order'];

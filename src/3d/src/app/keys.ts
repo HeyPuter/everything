@@ -1,5 +1,5 @@
-// Default key bindings, modelled on the reference application's default keymap
-// (left-click select). Key names follow the reference event type identifiers.
+// Default key bindings (left-click select). Key names are the event type
+// identifiers used throughout the keymaps.
 import { addKeys } from './keymap';
 import { app } from './app';
 import { addMenu, applyMenu, objectContextMenu } from '../editors/view3d/menus';

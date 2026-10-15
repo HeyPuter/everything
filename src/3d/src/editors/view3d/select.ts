@@ -18,7 +18,7 @@ export function selectPick(v: View3D, x: number, y: number, o: PickOptions) {
     } else cycleState = { x, y, order: hit.order, index: 0 };
   } else cycleState = null;
   if (doc.mode !== 'OBJECT' && doc.mode !== 'POSE' && id && id !== doc.scene.active_object) {
-    // clicking another object outside object mode is ignored (reference behaviour: no mode switching via click)
+    // clicking another object outside object mode is ignored (no mode switching via click)
     return;
   }
   if (!id) {

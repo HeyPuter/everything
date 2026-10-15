@@ -29,7 +29,7 @@ const apply = (type: string, m: EvalMesh, props: Record<string, unknown> = {}, c
 };
 
 describe('extra modifiers', () => {
-  it('bevel: all cube edges at the default angle limit (counts match the reference: 26 faces / 24 verts)', () => {
+  it('bevel: all cube edges at the default angle limit (expected counts: 26 faces / 24 verts)', () => {
     const out = apply('BEVEL', mesh(prim.cube(2)), { width: 0.2 });
     expect(faces(out)).toBe(26);
     expect(verts(out)).toBe(24);

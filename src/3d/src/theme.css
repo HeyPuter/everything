@@ -1,4 +1,4 @@
-/* Dark theme with values measured from the reference application's default theme. */
+/* Dark theme: the app's default colour values. */
 :root {
   --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;

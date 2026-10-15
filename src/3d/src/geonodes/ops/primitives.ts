@@ -1,5 +1,5 @@
-// Mesh and curve primitives with the reference element order (vertex/face numbering), so
-// index-based node setups behave the same.
+// Mesh and curve primitives with a fixed element order (vertex/face numbering), so
+// index-based node setups behave predictably.
 import { CurvesComponent, MeshComponent, type AttrMap } from '../geometry';
 
 /** Collects faces and builds a mesh component (UVs per corner as an optional attribute). */

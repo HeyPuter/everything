@@ -1,5 +1,5 @@
 // glTF 2.0 writer (.glb / .gltf with embedded data URIs) from an ExportScene.
-// Implemented from the Khronos glTF 2.0 specification. Z-up → Y-up like the reference exporter.
+// Implemented from the Khronos glTF 2.0 specification. Z-up → Y-up.
 import { Matrix3, Matrix4, Quaternion, Vector3 } from 'three';
 import type { ImageData } from '../../../data/types';
 import { triangulatePoly } from '../../../mesh/mesh';

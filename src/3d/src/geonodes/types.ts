@@ -1,10 +1,10 @@
 // Shared types of the geometry nodes system.
 import type { SocketValue } from '../data/types';
 
-/** Attribute domains (reference names). */
+/** Attribute domains (`bpy` names). */
 export type Domain = 'POINT' | 'EDGE' | 'FACE' | 'CORNER' | 'CURVE' | 'INSTANCE';
 
-/** Attribute data types (reference names; rotations are stored as XYZ Euler triples). */
+/** Attribute data types (`bpy` names; rotations are stored as XYZ Euler triples). */
 export type DataType = 'FLOAT' | 'INT' | 'BOOLEAN' | 'FLOAT_VECTOR' | 'FLOAT_COLOR' | 'FLOAT2' | 'QUATERNION' | 'INT8';
 
 /** Value types flowing through field sockets. */

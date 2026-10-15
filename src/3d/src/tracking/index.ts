@@ -14,7 +14,7 @@ import { registerWorkspaceTemplate, A, H, V } from '../ui/screen';
 
 registerWorkspaceTemplate('VFX', () => ({
   name: 'Motion Tracking',
-  // proportions measured from the reference VFX template
+  // default VFX template proportions
   layout: H(
     0.826,
     V(0.29, H(0.527, A('CLIP_EDITOR', { view: 'DOPESHEET' }), A('VIEW_3D')), V(0.73, A('CLIP_EDITOR', { view: 'CLIP' }), V(0.82, A('CLIP_EDITOR', { view: 'GRAPH' }), A('TIMELINE')))),

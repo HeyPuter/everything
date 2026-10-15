@@ -1,4 +1,4 @@
-// Text strip rasterisation (2D canvas, bundled Inter font). Geometry follows reference renders:
+// Text strip rasterisation (2D canvas, bundled Inter font). Geometry:
 // font_size is the em size in output pixels, the anchor box spans ascent 0.96 em / descent
 // 0.24 em around the baseline, lines advance 1.16 em, shadow_offset and outline_width are
 // relative to the font size and box_margin to the image width.

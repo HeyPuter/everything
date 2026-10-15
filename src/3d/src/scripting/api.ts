@@ -1,5 +1,5 @@
 // The `bpy`-style scripting object model over the document (independent implementation;
-// only the public names follow the reference API so existing snippets keep working).
+// the public names follow the `bpy` naming conventions so existing snippets keep working).
 //
 //   bpy.data      data-block collections with [name] / get / new / remove / iteration
 //   bpy.context   scene, object, selected_objects, view_layer.objects.active, mode, collection
@@ -973,8 +973,8 @@ class MeshLoops extends PropCollection<unknown> {
 const hasUVs = (me: MeshData) => me.indices.length > 0 && me.uvs.length === me.indices.length * 2;
 
 /**
- * A mesh's UV maps. Meshes here have one, stored per face corner (loop) like
- * the reference's: uv_layers.active.data[loop_index].uv, or all at once with
+ * A mesh's UV maps. Meshes here have one, stored per face corner (loop):
+ * uv_layers.active.data[loop_index].uv, or all at once with
  * foreach_get / foreach_set('uv', flat). new() gives the one map a name.
  */
 class MeshUVLayers extends PropCollection<unknown> {
@@ -1167,7 +1167,7 @@ const SOCKET_DEFAULTS: Record<string, Record<string, unknown>> = {
   ShaderNodeValue: { Value: 0.5 },
 };
 
-/** Node types of older versions of the reference application, and what replaced them. */
+/** Legacy node type names, and what replaced them. */
 const LEGACY_NODES: Record<string, string> = {
   ShaderNodeMixRGB: "ShaderNodeMix with data_type = 'RGBA'; its sockets are Factor, A, B and Result",
   ShaderNodeTexMusgrave: 'ShaderNodeTexNoise (noise_type FBM, MULTIFRACTAL, …)',
@@ -1358,7 +1358,7 @@ const RAMP_STRIDE = 5;
 
 function colorRamp(node: () => NodeData, path: string) {
   const flat = () => node().props.color_ramp as number[];
-  /** Writes the stops back, sorted by position as the reference keeps them. */
+  /** Writes the stops back, sorted by position. */
   const write = (f: number[]) => {
     const stops: number[][] = [];
     for (let i = 0; i + RAMP_STRIDE <= f.length; i += RAMP_STRIDE) stops.push(f.slice(i, i + RAMP_STRIDE));
@@ -1510,7 +1510,7 @@ class SocketsCollection extends PropCollection<unknown> {
     return null;
   }
   list() {
-    // Every socket in order, the unavailable ones too (enabled false), so indices match the reference.
+    // Every socket in order, the unavailable ones too (enabled false), so indices stay stable.
     const all = this.defs(true);
     if (all) {
       const on = new Set(this.defs()!.map((d) => d.identifier));
@@ -1542,7 +1542,7 @@ class SocketsCollection extends PropCollection<unknown> {
   override get(key: string | number, ...rest: unknown[]) {
     const def = rest.length ? rest[0] : null;
     if (typeof key === 'string') {
-      // inputs['Name'] (the collection proxy passes an explicit undefined) raises like the reference, naming the sockets there are.
+      // inputs['Name'] (the collection proxy passes an explicit undefined) raises, naming the sockets there are.
       if (rest.length === 1 && rest[0] === undefined && this.defs() && !/^(_|then$|toJSON$|asymmetricMatch$|nodeType$|\$\$)/.test(key)) return this.getItem(key);
       try {
         return this.getItem(key);
@@ -1950,8 +1950,8 @@ function fcurveWrapper(getAct: () => import('../data/types').ActionData | undefi
 
 class CameraStruct extends IDStruct {
   /**
-   * The corners of the camera's frame in its local space, as the reference
-   * returns them (top right, bottom right, bottom left, top left): with a
+   * The corners of the camera's frame in its local space
+   * (top right, bottom right, bottom left, top left): with a
    * scene, shaped by its render resolution and pixel aspect; lens shift included.
    */
   view_frame(scene: unknown = null) {
@@ -1974,7 +1974,7 @@ class CameraStruct extends IDStruct {
 kwMethod(CameraStruct.prototype, 'view_frame', ['scene']);
 
 /**
- * bpy_extras.object_utils.world_to_camera_view, as in the reference: where a
+ * bpy_extras.object_utils.world_to_camera_view: where a
  * world-space point falls in the camera's frame, x and y from 0 to 1 (bottom
  * left to top right, outside that range when off frame) and z the distance in
  * front of the camera. Used for projecting a photo onto a model through the camera.
@@ -2091,7 +2091,7 @@ class IDCollection extends PropCollection<unknown> {
     touched();
     return wrapId(this.table, rec.id);
   }
-  /** Create a new data-block. Arguments follow the reference API per collection type. */
+  /** Create a new data-block. Arguments follow the `bpy` conventions per collection type. */
   new(name: string = TYPE_NAME[this.table], ...rest: unknown[]) {
     name = String(name ?? '');
     switch (this.table) {

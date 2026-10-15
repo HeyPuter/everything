@@ -31,7 +31,7 @@ export function effectsFrom(r: RenderSettings): RasterEffects {
   };
 }
 
-/** Map the reference bloom settings onto the bloom pass (strength, radius 0..1). */
+/** Map the scene's bloom settings onto the bloom pass (strength, radius 0..1). */
 export function bloomParams(intensity: number, radius: number): { strength: number; radius: number } {
   return { strength: Math.max(0, intensity) * 12, radius: Math.min(1, Math.max(0, radius / 10)) };
 }

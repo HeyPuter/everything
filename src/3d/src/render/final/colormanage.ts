@@ -3,7 +3,7 @@
 // and as GLSL (viewport display of path-traced / post-processed buffers).
 // Khronos PBR Neutral follows its public specification (as in three.js, MIT). AgX keeps the
 // rec.2020 inset/outset structure of three.js' AgX but uses our own hyperbolic sigmoid whose
-// parameters were least-squares fitted to measured reference renders (grey ramp + primaries);
+// parameters were least-squares fitted to expected values (grey ramp + primaries);
 // Filmic is a per-channel log-encoded sigmoid fitted the same way (see tests/unit/render.test.ts).
 
 export type ViewTransform = 'STANDARD' | 'FILMIC' | 'AGX' | 'KHRONOS_PBR_NEUTRAL' | 'RAW';
@@ -108,7 +108,7 @@ export function toneMap(c: number[], view: ViewTransform) {
 
 /**
  * Full display transform of one premultiplied linear RGBA pixel → display-encoded RGBA in [0,1].
- * RAW skips the sRGB encoding (values written as-is, like the reference "Raw" view).
+ * RAW skips the sRGB encoding (values written as-is: the "Raw" view).
  */
 export function displayPixel(r: number, g: number, b: number, a: number, s: ViewSettings, out: number[]) {
   const ex = Math.pow(2, s.exposure);

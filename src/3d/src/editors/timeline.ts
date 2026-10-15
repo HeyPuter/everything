@@ -24,7 +24,7 @@ export class FrameView {
   }
   /** label step in frames adapting to zoom */
   step() {
-    // steps follow the frame rate (divisors, then multiples of fps) like the reference timeline
+    // steps follow the frame rate (divisors, then multiples of fps)
     const target = 50 / this.ppf;
     const fps = Math.max(1, Math.round(app.doc.scene.render.fps));
     const steps = [1, 2];

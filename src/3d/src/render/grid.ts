@@ -5,7 +5,7 @@ export function createGrid() {
   const mat = new ShaderMaterial({
     uniforms: {
       uColor: { value: new Color(0.329, 0.329, 0.329) },
-      // theme axis colors (sRGB) at the intensity the reference viewport draws them; the shader works in linear space
+      // theme axis colors (sRGB) at the viewport's axis intensity; the shader works in linear space
       uAxisX: { value: new Color().setRGB(0.85, 0.17, 0.274, SRGBColorSpace) },
       uAxisY: { value: new Color().setRGB(0.463, 0.734, 0.0, SRGBColorSpace) },
       uAxisZ: { value: new Color().setRGB(0.133, 0.48, 0.85, SRGBColorSpace) },

@@ -1,4 +1,4 @@
-// Sequencer operators (reference idnames): selection, editing, meta strips, view, adding strips.
+// Sequencer operators: selection, editing, meta strips, view, adding strips.
 import { app, registerOperators, operators, type Operator } from '../app/app';
 import type { Strip, StripType, ModifierType } from './types';
 import * as S from './strips';
@@ -291,7 +291,7 @@ const ops: Operator[] = [
       if (!ed || !startSlide(ed, app.pointer.x, app.pointer.y, {
         label: 'Duplicate Strips',
         onCancel: () => {
-          // cancelling the move keeps the copies in place (as in the reference), resolving overlap
+          // cancelling the move keeps the copies in place, resolving overlap
           S.resolveOverlap(list, copies, toolSettings().overlap_mode);
           afterEdit();
           app.pushUndo('Duplicate Strips');
@@ -838,7 +838,7 @@ const ops: Operator[] = [
   },
 ];
 
-/** Time Extend uses the reference's generic transform operator name. */
+/** Time Extend uses the generic transform operator name. */
 if (!operators.has('transform.transform'))
   ops.push({
     idname: 'transform.transform',

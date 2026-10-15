@@ -11,7 +11,7 @@ export interface PointCacheSettings {
 
 export interface RigidBodyWorldX extends RigidBodyWorld {
   is_baked?: boolean;
-  /** effector weight for gravity (reference: effector_weights.gravity) */
+  /** effector weight for gravity (effector_weights.gravity) */
   effector_weights_gravity?: number;
 }
 

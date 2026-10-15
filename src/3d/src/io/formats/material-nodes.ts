@@ -1,5 +1,5 @@
 // IR material ⇄ Principled BSDF node trees.
-// Socket keys use the reference app's socket identifiers (e.g. 'Base Color', 'A_Color').
+// Socket keys are the node socket identifiers (e.g. 'Base Color', 'A_Color').
 import type { DocumentData, LinkData, MaterialData, NodeData, NodeTreeData, ID } from '../../data/types';
 import { newMaterial, uid } from '../../data/defaults';
 import type { IRMaterial, IRTexRef } from './ir';
@@ -227,7 +227,7 @@ export function buildMaterial(ir: IRMaterial, imageIds: (ID | null)[], name: str
     }
   }
 
-  // Unlit: emission-only shader (like the reference importer's background/emission mix, simplified)
+  // Unlit: emission-only shader
   if (ir.unlit) {
     inp['Emission Color'] = [...ir.baseColor.slice(0, 3), 1];
     inp['Emission Strength'] = 1;
@@ -253,7 +253,7 @@ export function buildMaterial(ir: IRMaterial, imageIds: (ID | null)[], name: str
 
 function mappingInputs(ref: IRTexRef): NodeData['inputs'] {
   // KHR_texture_transform operates on glTF UVs (top-left origin); our UVs are bottom-left
-  // (v' = 1 - v). Convert the 2D affine transform accordingly, like the reference importer.
+  // (v' = 1 - v). Convert the 2D affine transform accordingly.
   const [ox, oy] = ref.offset ?? [0, 0];
   const [sx, sy] = ref.scale ?? [1, 1];
   const r = ref.rotation ?? 0;

@@ -291,7 +291,7 @@ export async function writeUsda(scene: ExportScene, opts: UsdWriteOptions = {}):
     w.line(`uniform token[] joints = [${arm.bones.map((b) => quote(path.get(b.name)!)).join(', ')}]`);
     w.line(`uniform matrix4d[] bindTransforms = [${arm.bones.map((b) => matrix(scaled(b.rest))).join(', ')}]`);
     w.line(`uniform matrix4d[] restTransforms = [${restLocal.map((m) => matrix(scaled(m))).join(', ')}]`);
-    // bone lengths (USD skeletons have none); the reference importer reads this primvar
+    // bone lengths (USD skeletons have none); importers that know this primvar read it
     w.line(`float[] primvars:blender:bone_lengths = [${arm.bones.map((b) => fmt(b.length * unit)).join(', ')}] (`);
     w.line('    interpolation = "uniform"');
     w.line(')');

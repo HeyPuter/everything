@@ -367,7 +367,7 @@ export class PythonConsole implements Editor {
   }
 
   onKey(e: KeyboardEvent): boolean {
-    // typing anywhere over the console focuses the input (like the reference console)
+    // typing anywhere over the console focuses the input
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && document.activeElement !== this.input) {
       this.input.focus();
       return false;

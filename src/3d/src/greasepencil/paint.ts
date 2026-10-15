@@ -33,8 +33,8 @@ export function drawContext(): {
 }
 
 /**
- * Index of the drawing to modify on `layer` at the current frame. Creates keyframes the way the
- * reference does: no key yet → a new blank key; with auto keying, drawing on a held frame inserts a
+ * Index of the drawing to modify on `layer` at the current frame. Keyframe rules:
+ * no key yet → a new blank key; with auto keying, drawing on a held frame inserts a
  * new key (a copy of the held drawing when `copy` or additive drawing is on).
  */
 export function editableDrawing(gp: GreasePencilData, layer: GPLayer, frame: number, copy: boolean): number {

@@ -33,7 +33,7 @@ function tree(): NodeTreeData {
 }
 
 describe('node registry', () => {
-  it('has reference socket names and defaults for the Principled BSDF', () => {
+  it('has the expected socket names and defaults for the Principled BSDF', () => {
     const d = getNodeType('ShaderNodeBsdfPrincipled')!;
     expect(d.label).toBe('Principled BSDF');
     expect(d.width).toBe(240);

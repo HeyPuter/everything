@@ -1,4 +1,4 @@
-// Sequencer colours (values of the reference default theme / sampled from its Video Editing UI).
+// Sequencer colours (default theme values).
 import type { Strip, StripType, ColorTag } from './types';
 
 export const T = {

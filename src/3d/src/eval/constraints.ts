@@ -190,7 +190,7 @@ export const constraintTypes: Record<string, ConstraintType> = {
       const d = o.p.distanceTo(v2);
       let dist = c.distance as number;
       if (!dist) {
-        // first evaluation stores the current distance (like the reference app's reset)
+        // first evaluation stores the current distance
         dist = d;
         c.distance = d;
       }

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readGltf } from '../../src/io/formats/gltf/read';
 import { commitScene } from '../../src/io/formats/to-document';
 import { Depsgraph } from '../../src/eval/depsgraph';
-import { fixture, freshDoc, byName, BLENDER_BBOX, expectBBox, dumpOutput } from '../fixtures/formats/helpers';
+import { fixture, freshDoc, byName, EXPECTED_BBOX, expectBBox, dumpOutput } from '../fixtures/formats/helpers';
 import { buildExportScene } from '../../src/io/formats/scene-builder';
 import { writeGltf } from '../../src/io/formats/gltf/write';
 // @ts-expect-error no types
@@ -14,10 +14,10 @@ async function validate(bytes: Uint8Array | string) {
   return report.issues as { numErrors: number; numWarnings: number; messages: { code: string; message: string; severity: number; pointer?: string }[] };
 }
 
-describe('glTF import (Blender-exported fixture)', () => {
+describe('glTF import (fixture)', () => {
   it('imports hierarchy, meshes, materials, lights, camera, armature, shape keys and animations', () => {
     const doc = freshDoc();
-    const ir = readGltf(fixture('blender_scene.glb'));
+    const ir = readGltf(fixture('ref_scene.glb'));
     const res = commitScene(doc, ir);
     const names = res.objects.map((o) => o.name).sort();
     expect(names).toEqual(['Cam', 'Cube', 'Ngon', 'Plane', 'Point', 'Rig', 'Skinned', 'Sphere', 'Spot', 'Sun'].sort());
@@ -39,7 +39,7 @@ describe('glTF import (Blender-exported fixture)', () => {
     const sun = byName(doc, 'Sun');
     expect(doc.lights[sun.data!].energy).toBeCloseTo(2.5, 3);
     expect(byName(doc, 'Point').location).toEqual([expect.closeTo(0, 4), expect.closeTo(0, 4), expect.closeTo(5, 4)]);
-    // camera orientation matches Blender: rotation_euler (1.1, 0, 0.8)
+    // expected camera orientation: rotation_euler (1.1, 0, 0.8)
     const cam = byName(doc, 'Cam');
     expect(cam.rotation_euler[0]).toBeCloseTo(1.1, 4);
     expect(cam.rotation_euler[2]).toBeCloseTo(0.8, 4);
@@ -72,7 +72,7 @@ describe('glTF import (Blender-exported fixture)', () => {
 
   it('skinned mesh deforms like the source (rest pose and animated pose)', () => {
     const doc = freshDoc();
-    commitScene(doc, readGltf(fixture('blender_scene.glb')));
+    commitScene(doc, readGltf(fixture('ref_scene.glb')));
     const graph = new Depsgraph(doc);
     const skinned = byName(doc, 'Skinned');
     doc.scene.frame_current = 1;
@@ -100,17 +100,17 @@ describe('glTF import (Blender-exported fixture)', () => {
     expect(maxY).toBeGreaterThan(0.5);
   });
 
-  it('matches Blender evaluated geometry at frames 1/12/24 (skin, shape keys, object animation)', () => {
+  it('matches the expected evaluated geometry at frames 1/12/24 (skin, shape keys, object animation)', () => {
     const doc = freshDoc();
-    commitScene(doc, readGltf(fixture('blender_scene.glb')));
+    commitScene(doc, readGltf(fixture('ref_scene.glb')));
     const graph = new Depsgraph(doc);
-    for (const [name, frames] of Object.entries(BLENDER_BBOX)) for (const [f, bb] of Object.entries(frames)) expectBBox(doc, name, Number(f), bb, 2e-3, graph);
+    for (const [name, frames] of Object.entries(EXPECTED_BBOX)) for (const [f, bb] of Object.entries(frames)) expectBBox(doc, name, Number(f), bb, 2e-3, graph);
   });
 
   for (const format of ['GLB', 'GLTF_EMBEDDED'] as const)
     it(`round-trips through ${format} export: valid file, same evaluated geometry`, async () => {
       const src = freshDoc();
-      commitScene(src, readGltf(fixture('blender_scene.glb')));
+      commitScene(src, readGltf(fixture('ref_scene.glb')));
       src.scene.frame_current = 1;
       const graph = new Depsgraph(src).evaluate(src);
       const scene = buildExportScene(src, {}, graph);
@@ -125,7 +125,7 @@ describe('glTF import (Blender-exported fixture)', () => {
       const res = commitScene(doc, readGltf(bytes));
       expect(res.objects.map((o) => o.name).sort()).toEqual(['Cam', 'Cube', 'Ngon', 'Plane', 'Point', 'Rig', 'Skinned', 'Sphere', 'Spot', 'Sun'].sort());
       const g2 = new Depsgraph(doc);
-      for (const [name, frames] of Object.entries(BLENDER_BBOX)) for (const [f, bb] of Object.entries(frames)) expectBBox(doc, name, Number(f), bb, 2e-3, g2);
+      for (const [name, frames] of Object.entries(EXPECTED_BBOX)) for (const [f, bb] of Object.entries(frames)) expectBBox(doc, name, Number(f), bb, 2e-3, g2);
       const cam = byName(doc, 'Cam');
       expect(cam.rotation_euler[0]).toBeCloseTo(1.1, 4);
       expect(doc.lights[byName(doc, 'Point').data!].energy).toBeCloseTo(500, 2);
@@ -137,11 +137,11 @@ describe('glTF import (Blender-exported fixture)', () => {
   it('Merge Vertices welds split vertices and keeps hard edges sharp', async () => {
     const { cornerNormals } = await import('../../src/mesh/mesh');
     const doc = freshDoc();
-    commitScene(doc, readGltf(fixture('blender_scene.glb')), { mergeVertices: true });
+    commitScene(doc, readGltf(fixture('ref_scene.glb')), { mergeVertices: true });
     const cube = doc.meshes[byName(doc, 'Cube').data!];
     expect(cube.positions.length / 3).toBe(8);
     const sphere = doc.meshes[byName(doc, 'Sphere').data!];
-    expect(sphere.positions.length / 3).toBe(62); // Blender's vertex count
+    expect(sphere.positions.length / 3).toBe(62); // expected vertex count
     // flat cube faces stay flat: every corner normal equals its face normal
     const n = cornerNormals(cube);
     for (let f = 0; f < cube.offsets.length - 1; f++)

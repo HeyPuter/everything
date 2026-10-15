@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-// Geometry nodes: node evaluation compared with values computed by the reference application
-// (same node setups evaluated there; counts and positions recorded below).
+// Geometry nodes: node evaluation compared with expected values
+// (counts and positions recorded below).
 import { describe, it, expect } from 'vitest';
 import '../../src/nodes/common';
 import '../../src/nodes/shader/defs';
@@ -104,7 +104,7 @@ const close = (a: number[], b: number[], eps = 1e-4) => a.every((x, i) => Math.a
 // ---------------------------------------------------------------------------
 
 describe('geometry node registry', () => {
-  it('registers reference node names, sockets and defaults', () => {
+  it('registers the expected node names, sockets and defaults', () => {
     const grid = getNodeType('GeometryNodeMeshGrid')!;
     expect(grid.label).toBe('Grid');
     expect(grid.inputs.map((s) => [s.identifier, s.default])).toEqual([
@@ -122,7 +122,7 @@ describe('geometry node registry', () => {
 });
 
 describe('primitives', () => {
-  it('matches reference element counts', () => {
+  it('matches the expected element counts', () => {
     expect([gridMesh(1, 1, 3, 3, null)].map((m) => [m.vertCount, m.edgeCount, m.faceCount])[0]).toEqual([9, 12, 4]);
     const cube4 = cubeMesh([1, 1, 1], 4, 3, 2, null);
     expect([cube4.vertCount, cube4.edgeCount, cube4.faceCount]).toEqual([24, 44, 22]);
@@ -131,7 +131,7 @@ describe('primitives', () => {
     const cone = coneMesh(32, 1, 1, 0, 1, 2, 0, 'NGON', null).mesh;
     expect([cone.vertCount, cone.edgeCount, cone.faceCount]).toEqual([33, 64, 33]);
   });
-  it('builds UV sphere and ico sphere like the reference', () => {
+  it('builds UV sphere and ico sphere with the expected element order', () => {
     const t = setup();
     const r = run(t, node(t, 'GeometryNodeMeshUVSphere'), 'Mesh');
     expect(counts(r.geometry)).toEqual([482, 992, 512]);
@@ -139,7 +139,7 @@ describe('primitives', () => {
     const r2 = run(t2, node(t2, 'GeometryNodeMeshIcoSphere', { Subdivisions: 3 }), 'Mesh');
     expect(counts(r2.geometry)).toEqual([162, 480, 320]);
   });
-  it('orders grid and cube vertices like the reference', () => {
+  it('orders grid and cube vertices in the expected order', () => {
     const g = gridMesh(1, 1, 3, 3, null);
     expect(Array.from(g.positions.subarray(3, 6))).toEqual([-0.5, 0, 0]);
     expect(Array.from(g.corners.subarray(0, 4))).toEqual([0, 3, 4, 1]);
@@ -149,7 +149,7 @@ describe('primitives', () => {
 });
 
 describe('fields', () => {
-  it('Grid + Set Position with a math offset gives reference positions', () => {
+  it('Grid + Set Position with a math offset gives the expected positions', () => {
     const t = setup();
     const g = node(t, 'GeometryNodeMeshGrid', {
       'Size X': 2,
@@ -171,7 +171,7 @@ describe('fields', () => {
     link(t, g, 'Mesh', sp, 'Geometry');
     link(t, comb, 'Vector', sp, 'Offset');
     const r = run(t, sp);
-    // reference: 12 verts, 17 edges, 6 faces
+    // expected: 12 verts, 17 edges, 6 faces
     expect(counts(r.geometry)).toEqual([12, 17, 6]);
     const ref = [
       [-1.0, -0.5, -1.0],
@@ -190,7 +190,7 @@ describe('fields', () => {
     ref.forEach((p3, i) => expect(close(pos(r.geometry, i), p3)).toBe(true));
   });
 
-  it('Map Range / Compare / Boolean Math selection deletes the reference number of points', () => {
+  it('Map Range / Compare / Boolean Math selection deletes the expected number of points', () => {
     const t = setup();
     const g = node(t, 'GeometryNodeMeshGrid', {
       'Vertices X': 10,
@@ -230,7 +230,7 @@ describe('fields', () => {
 });
 
 describe('instances', () => {
-  it('Instance on Points creates one instance per point; realizing gives reference counts', () => {
+  it('Instance on Points creates one instance per point; realizing gives the expected counts', () => {
     for (const realize of [false, true]) {
       const t = setup();
       const g = node(t, 'GeometryNodeMeshGrid', {
@@ -282,7 +282,7 @@ describe('mesh operations', () => {
     link(t, s, 'Mesh', e, 'Mesh');
     return run(t, e, 'Mesh').geometry;
   };
-  it('Extrude Mesh matches reference counts', () => {
+  it('Extrude Mesh matches the expected counts', () => {
     expect(counts(extrude('FACES', true, 'cube'))).toEqual([32, 60, 30]);
     const all = extrude('FACES', false, 'cube');
     expect(counts(all)).toEqual([8, 12, 6]);
@@ -311,7 +311,7 @@ describe('mesh operations', () => {
     link(t, c, 'Mesh', s, 'Mesh');
     return run(t, s, 'Mesh').geometry;
   };
-  it('Subdivide Mesh and Subdivision Surface match reference counts and positions', () => {
+  it('Subdivide Mesh and Subdivision Surface match the expected counts and positions', () => {
     const simple = subdiv('GeometryNodeSubdivideMesh', 2);
     expect(counts(simple)).toEqual([98, 192, 96]);
     const s1 = subdiv('GeometryNodeSubdivisionSurface', 1, true);
@@ -414,7 +414,7 @@ describe('mesh operations', () => {
 });
 
 describe('curves', () => {
-  it('Curve to Mesh sweeps the profile like the reference', () => {
+  it('Curve to Mesh sweeps the profile as expected', () => {
     const t = setup();
     const c = node(t, 'GeometryNodeCurvePrimitiveCircle', { Resolution: 8 });
     const p = node(t, 'GeometryNodeCurvePrimitiveCircle', {
@@ -472,7 +472,7 @@ describe('points', () => {
     const a = distribute(0),
       b = distribute(0),
       c = distribute(1);
-    // reference: 40 points for area 4 × density 10
+    // expected: 40 points for area 4 × density 10
     expect(a.count).toBe(40);
     expect(Array.from(a.positions)).toEqual(Array.from(b.positions));
     expect(Array.from(a.positions)).not.toEqual(Array.from(c.positions));

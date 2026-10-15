@@ -370,7 +370,7 @@ export function domainSize(c: Component, d: Domain): number {
   return c.domainSize(d);
 }
 
-/** Domains available on a component (in reference order). */
+/** Domains available on a component (in canonical order). */
 export function componentDomains(c: Component): Domain[] {
   switch (c.kind) {
     case 'MESH':

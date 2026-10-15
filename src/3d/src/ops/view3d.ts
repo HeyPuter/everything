@@ -166,7 +166,7 @@ registerOperators([
     exec: (ctx) => {
       const v = activeView3D()!;
       if (!ctx.doc.scene.camera) {
-        // like the reference: use the first camera object if none is active
+        // use the first camera object if none is active
         const cam = Object.values(ctx.doc.objects).find((o) => o.type === 'CAMERA');
         if (!cam) {
           app.report('WARNING', 'No active camera found');

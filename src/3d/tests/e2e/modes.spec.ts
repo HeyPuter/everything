@@ -44,7 +44,7 @@ test('mesh edit mode: extrude, inset, loop cut, undo', async ({ page }) => {
   await expectNoErrors(errors);
 });
 
-test('mesh edit mode: Ctrl+B bevel with a typed width (counts match the reference: 24 verts / 26 faces)', async ({ page }) => {
+test('mesh edit mode: Ctrl+B bevel with a typed width (expected counts: 24 verts / 26 faces)', async ({ page }) => {
   const errors = await openApp(page);
   await hoverViewport(page);
   await page.keyboard.press('Tab');

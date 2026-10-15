@@ -8,7 +8,7 @@ import { icon } from '../ui/icons';
 import type { ObjectData } from '../data/types';
 import { caches } from './common';
 
-/** Register a properties tab right after another one (keeps the reference tab order). */
+/** Register a properties tab right after another one (keeps the default tab order). */
 export function insertTabAfter(afterId: string, tab: PropertiesTab) {
   const i = propertiesTabs.findIndex((t) => t.id === afterId);
   if (i >= 0) propertiesTabs.splice(i + 1, 0, tab);

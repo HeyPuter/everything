@@ -169,7 +169,7 @@ function streaks(x: NodeCtx, h: Texture, dirs: [number, number][], iterations: n
     else x.pass('scale', SCALE, n2, { u_src: cur, u_k: 1 });
     total = n2;
   }
-  // a streak spreads the energy of each highlight along its length; scale like the reference
+  // a streak spreads the energy of each highlight along its length (scaled to match the other glare types)
   const out = x.ev.alloc(h.w, h.h, 'streaks');
   x.pass('scale', SCALE, out, {
     u_src: total!,

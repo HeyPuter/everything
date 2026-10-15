@@ -1,4 +1,4 @@
-// Header, context and add menus of the Video Sequencer (reference layout and labels).
+// Header, context and add menus of the Video Sequencer.
 import { app } from '../app/app';
 import type { MenuItem } from '../ui/menu';
 import { markerMenu } from '../animation/animeditor';

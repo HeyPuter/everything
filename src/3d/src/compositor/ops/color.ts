@@ -135,7 +135,7 @@ registerPixel('CompositorNodePosterize', (g) => {
   g.out('Image', 'vec4', `vec4(floor(${c}.rgb * ${s}) / ${s}, ${c}.a)`);
 });
 
-// Mix: compositor colour blending (reference formulas), shader generator for float/vector
+// Mix: compositor colour blending, shader generator for float/vector
 registerPixel('ShaderNodeMix', (g) => {
   if ((g.str('data_type') || 'FLOAT') !== 'RGBA') return nodeGenerators.ShaderNodeMix(g);
   g.lib('cmp_blend');
@@ -145,7 +145,7 @@ registerPixel('ShaderNodeMix', (g) => {
   g.out('Result_Color', 'vec4', g.prop('clamp_result') ? `clamp(${r}, 0.0, 1.0)` : r);
 });
 
-// RGB Curves: black/white levels, combined curve then the channel curves (reference curve shapes)
+// RGB Curves: black/white levels, combined curve then the channel curves
 registerPixel('CompositorNodeCurveRGB', (g) => {
   g.lib('cmp_curve');
   // curve widget storage: 0 combined, 1–3 red/green/blue
@@ -200,7 +200,7 @@ registerPixel('CompositorNodeColorCorrection', (g) => {
   g.stmt(`${r} = 0.5 + (${r} - 0.5) * ${con};`);
   g.stmt(`${r} = ${r} * ${gain} + ${off};`);
   g.stmt(`${r} = pow(max(${r}, vec3(0.0)), vec3(1.0 / max(${gam}, 1e-6)));`);
-  // channels that are not positive are left untouched (reference behaviour)
+  // channels that are not positive are left untouched
   g.stmt(`${r} = mix(${c}.rgb, ${r}, step(vec3(1e-30), ${c}.rgb));`);
   const mask = g.tmp('float', g.in('Mask', 'float'));
   const apply = g.tmp('vec3', `vec3(${g.in('Apply On Red', 'float')} > 0.5 ? 1.0 : 0.0, ${g.in('Apply On Green', 'float')} > 0.5 ? 1.0 : 0.0, ${g.in('Apply On Blue', 'float')} > 0.5 ? 1.0 : 0.0)`);

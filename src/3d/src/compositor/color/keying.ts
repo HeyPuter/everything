@@ -1,5 +1,5 @@
 // Keying (matte) operations, CPU + GLSL mirrors. Every keyer computes a matte, combines it with
-// the input alpha (min) and premultiplies the image by it (reference behaviour, measured).
+// the input alpha (min) and premultiplies the image by it.
 import { rgbToHsv, rgbToYcc, rgbToYuv, luma, type RGBA, type RGB } from './colorops';
 
 const clamp = (x: number, a: number, b: number) => (x < a ? a : x > b ? b : x);

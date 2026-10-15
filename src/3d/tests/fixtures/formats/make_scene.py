@@ -1,5 +1,5 @@
-"""Build a small rich test scene in Blender and export it in several formats.
-usage: blender -b --factory-startup --python make_scene.py -- OUTDIR
+"""Build a small rich test scene with bpy and export it in several formats.
+usage: <bpy host> -b --factory-startup --python make_scene.py -- OUTDIR
 """
 import bpy, sys, os, math, json
 out = sys.argv[sys.argv.index('--') + 1]

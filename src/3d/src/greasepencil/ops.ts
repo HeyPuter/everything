@@ -153,7 +153,7 @@ export function createGreasePencilObject(doc: DocumentData, type: 'EMPTY' | 'STR
 
 /** Keyframe operations shared by the 3D view menus and the dope sheet. */
 export function insertBlankFrame(gp: GreasePencilData, layer: GPLayer, frame: number, type: GPKeyframeType = 'KEYFRAME') {
-  // an existing key at this frame is shifted forward (reference behaviour)
+  // an existing key at this frame is shifted forward
   const at = layer.frames.find((f) => f.frame_number === frame);
   if (at) for (const f of layer.frames) if (f.frame_number >= frame) f.frame_number += 1;
   setKeyframe(gp, layer, frame, emptyDrawing(), type);

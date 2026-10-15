@@ -109,7 +109,7 @@ export function stripExt(name: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Axis conversion (forward/up enums as in the reference app's IO options)
+// Axis conversion (forward/up axis enums of the IO options)
 
 export type AxisId = 'X' | 'Y' | 'Z' | '-X' | '-Y' | '-Z';
 export const AXIS_ITEMS: [string, string][] = [

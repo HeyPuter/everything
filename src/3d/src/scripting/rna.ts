@@ -141,7 +141,7 @@ export function toPlain(v: unknown, current?: unknown): unknown {
 const INT_KEY = /(^|_)(levels|count|segments|iterations|resolution(_[uvxy])?|samples|steps|seed|subdivisions|vertices|rings|frame(_start|_end|_step|_current|_offset)?|index|bounces|order_u|render_levels|quality|width|height|percentage|fps|offset_u|axis)$/;
 export const isIntKey = (key: string) => INT_KEY.test(key) && !/factor|offset$|size/.test(key);
 
-/** Assign a script value to a document field with type coercion like the reference API. */
+/** Assign a script value to a document field with type coercion. */
 export function assignField(raw: Raw, key: string, value: unknown, typeName = 'struct') {
   const cur = raw[key];
   let v = toPlain(value, cur);

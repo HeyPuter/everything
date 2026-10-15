@@ -6,12 +6,12 @@ import { readGltf } from '../../src/io/formats/gltf/read';
 import { commitScene } from '../../src/io/formats/to-document';
 import { buildExportScene } from '../../src/io/formats/scene-builder';
 import { Depsgraph } from '../../src/eval/depsgraph';
-import { fixture, freshDoc, byName, BLENDER_BBOX, expectBBox, dumpOutput } from '../fixtures/formats/helpers';
+import { fixture, freshDoc, byName, EXPECTED_BBOX, expectBBox, dumpOutput } from '../fixtures/formats/helpers';
 
-// Printed by Blender 5.2 (wm.fbx_import) for this fixture. The reference importer maps FBX time t to
-// frame t·fps + 1 while its exporter writes frame/fps, so its own round trip is one frame late;
-// our importer reproduces the importer exactly.
-const FBX_ORACLE: Record<string, Record<number, [number[], number[]]>> = {
+// Expected import result for this fixture. FBX time t maps to frame t·fps + 1 on import, while the
+// fixture's writer stores frame/fps, so a round trip through that writer lands one frame late;
+// our importer follows the import convention exactly.
+const FBX_EXPECTED: Record<string, Record<number, [number[], number[]]>> = {
   Skinned: {
     1: [
       [3.7, -0.3, 0],
@@ -56,10 +56,10 @@ const FBX_ORACLE: Record<string, Record<number, [number[], number[]]>> = {
   },
 };
 
-describe('FBX import (Blender-exported binary FBX 7.4)', () => {
+describe('FBX import (binary FBX 7.4 fixture)', () => {
   it('imports objects, n-gons, materials, textures, lights, camera, armature, shape keys', () => {
     const doc = freshDoc();
-    const res = commitScene(doc, readFbx(fixture('blender_scene.fbx')));
+    const res = commitScene(doc, readFbx(fixture('ref_scene.fbx')));
     const names = res.objects.map((o) => o.name).sort();
     expect(names).toEqual(['Cam', 'Cube', 'Ngon', 'Plane', 'Point', 'Rig', 'Skinned', 'Sphere', 'Spot', 'Sun'].sort());
     const cube = byName(doc, 'Cube');
@@ -95,18 +95,18 @@ describe('FBX import (Blender-exported binary FBX 7.4)', () => {
     expect(doc.images[tex!.props.image as string].width).toBe(4);
   });
 
-  it('matches Blender importing the same FBX (frames 1/12/24)', () => {
+  it('matches the expected import of the same FBX (frames 1/12/24)', () => {
     const doc = freshDoc();
-    commitScene(doc, readFbx(fixture('blender_scene.fbx')));
+    commitScene(doc, readFbx(fixture('ref_scene.fbx')));
     const g = new Depsgraph(doc);
-    for (const [name, frames] of Object.entries(FBX_ORACLE)) for (const [f, bb] of Object.entries(frames)) expectBBox(doc, name, Number(f), bb, 2e-3, g);
+    for (const [name, frames] of Object.entries(FBX_EXPECTED)) for (const [f, bb] of Object.entries(frames)) expectBBox(doc, name, Number(f), bb, 2e-3, g);
   });
 });
 
 describe('FBX export', () => {
   it('writes a valid binary FBX that re-imports with the same scene and animation', async () => {
     const src = freshDoc();
-    commitScene(src, readGltf(fixture('blender_scene.glb')));
+    commitScene(src, readGltf(fixture('ref_scene.glb')));
     src.scene.frame_current = 1;
     const scene = buildExportScene(src, {}, new Depsgraph(src).evaluate(src));
     const out = await writeFbx(scene, {});
@@ -130,13 +130,13 @@ describe('FBX export', () => {
     const res = commitScene(doc, readFbx(out.bytes));
     expect(res.objects.map((o) => o.name).sort()).toEqual(['Cam', 'Cube', 'Ngon', 'Plane', 'Point', 'Rig', 'Skinned', 'Sphere', 'Spot', 'Sun'].sort());
     const g = new Depsgraph(doc);
-    for (const [name, frames] of Object.entries(BLENDER_BBOX)) for (const [f, bb] of Object.entries(frames)) expectBBox(doc, name, Number(f), bb, 3e-3, g);
+    for (const [name, frames] of Object.entries(EXPECTED_BBOX)) for (const [f, bb] of Object.entries(frames)) expectBBox(doc, name, Number(f), bb, 3e-3, g);
     const cam = byName(doc, 'Cam');
     expect(cam.rotation_euler.map((v) => +v.toFixed(3) + 0)).toEqual([1.1, 0, 0.8]);
     expect(doc.lights[byName(doc, 'Spot').data!].energy).toBeCloseTo(800, 2);
     // n-gons survive (the glTF source is triangulated, so check the OBJ-like n-gon path separately)
     const obj = freshDoc();
-    commitScene(obj, readFbx(fixture('blender_scene.fbx')));
+    commitScene(obj, readFbx(fixture('ref_scene.fbx')));
     const out2 = await writeFbx(buildExportScene(obj, {}, new Depsgraph(obj).evaluate(obj)), {});
     dumpOutput('roundtrip_ngons.fbx', out2.bytes);
     const back = freshDoc();
@@ -144,8 +144,8 @@ describe('FBX export', () => {
     expect(back.meshes[byName(back, 'Ngon').data!].offsets[1]).toBe(6);
     expect(back.meshes[byName(back, 'Cube').data!].offsets.length - 1).toBe(6);
     const g2 = new Depsgraph(back);
-    // timing is preserved exactly: the result equals the source document (= the FBX oracle)
-    for (const [name, frames] of Object.entries(FBX_ORACLE)) for (const [f, bb] of Object.entries(frames)) expectBBox(back, name, Number(f), bb, 3e-3, g2);
+    // timing is preserved exactly: the result equals the source document (= the expected FBX import)
+    for (const [name, frames] of Object.entries(FBX_EXPECTED)) for (const [f, bb] of Object.entries(frames)) expectBBox(back, name, Number(f), bb, 3e-3, g2);
   });
 });
 
@@ -183,7 +183,7 @@ function toAscii(nodes: FbxNode[]): string {
 
 describe('FBX ASCII', () => {
   it('parses ASCII FBX into the same scene as the binary file', () => {
-    const bin = fixture('blender_scene.fbx');
+    const bin = fixture('ref_scene.fbx');
     const ascii = new TextEncoder().encode(toAscii(parseFbx(bin).nodes));
     const a = freshDoc(),
       b = freshDoc();

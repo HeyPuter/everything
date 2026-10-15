@@ -1,6 +1,6 @@
 // Generic struct reader on top of the container: resolves fields by name using the
 // file's SDNA, follows pointers through the old-address map, walks ListBases and
-// pointer arrays. Nothing here knows about specific Blender structs.
+// pointer arrays. Nothing here knows about specific DNA structs.
 import { decompress as zstdDecompress } from 'fzstd';
 import { BlendError, LIMITS, detectCompression, parseHeader, parseSdna, readBHeads, type AddrKey, type BHead, type BlendHeader, type Sdna, type SdnaField, type SdnaStruct, addrKey } from './container';
 

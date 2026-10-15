@@ -85,7 +85,7 @@ export function vertexNormals(m: MeshComponent): Float32Array {
   return out;
 }
 
-/** Per-face smooth flags (from the sharp_face attribute; missing = smooth like the reference). */
+/** Per-face smooth flags (from the sharp_face attribute; missing = smooth). */
 export function smoothFlags(m: MeshComponent): Uint8Array {
   const sf = m.attrs.get('sharp_face');
   const out = new Uint8Array(m.faceCount);

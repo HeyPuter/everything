@@ -253,7 +253,7 @@ export function triangulatePoly(pos: ArrayLike<number>, verts: ArrayLike<number>
     return;
   }
   if (n === 4) {
-    // choose the shorter diagonal like the reference app does for quads
+    // quads are split along their shorter diagonal
     const d02 = dist2(pos, verts[0], verts[2]),
       d13 = dist2(pos, verts[1], verts[3]);
     if (d02 <= d13) out.push(base, base + 1, base + 2, base, base + 2, base + 3);

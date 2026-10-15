@@ -1,7 +1,7 @@
 // Grease Pencil viewport / render drawing. Strokes are drawn by a custom shader: segment quads are
 // expanded in screen space around their end points and shaded as tapered capsules (round joins and
 // caps, per point radius / color / opacity, anti-aliased edges); dots/squares materials draw one
-// quad per point; fills are triangles. Depth ordering follows the reference default:
+// quad per point; fills are triangles. Depth ordering (default 2D Layers):
 //   2D Layers: every stroke (and fill) gets a draw order; fragments write the object's depth minus
 //              a tiny step per order, so later strokes draw over earlier ones, overlaps inside one
 //              stroke never blend twice, and the object as a whole is still depth tested against
@@ -402,7 +402,7 @@ export function layerMatrix(l: GPLayer): Matrix4 {
   return new Matrix4().compose(new Vector3(...l.translation), new Quaternion().setFromEuler(new Euler(l.rotation[0], l.rotation[1], l.rotation[2], 'XYZ')), new Vector3(...l.scale));
 }
 
-/** Modes that show onion skins (the reference shows them while drawing/editing). */
+/** Modes that show onion skins (while drawing/editing). */
 const ONION_MODES = new Set(['PAINT_GREASE_PENCIL', 'EDIT', 'SCULPT_GREASE_PENCIL']);
 
 export const gpDisplay = {
@@ -824,5 +824,5 @@ export function setStrokePreview(obId: string | null, d: GPDrawing | null, layer
   renderContext?.engine.requestDraw();
 }
 
-// no selection outline on the object being drawn / sculpted (reference behaviour)
+// no selection outline on the object being drawn / sculpted
 drawHooks.skipOutline.push((ob) => (app.doc.mode === 'PAINT_GREASE_PENCIL' || app.doc.mode === 'SCULPT_GREASE_PENCIL') && app.doc.scene.active_object === ob.id);

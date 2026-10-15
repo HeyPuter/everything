@@ -1,7 +1,7 @@
-// Per-pixel sequencer math (reference implementation, unit tested). The GPU compositor
+// Per-pixel sequencer math (CPU implementation, unit tested). The GPU compositor
 // (gpu.ts) implements the same formulas in GLSL. Values are display-referred sRGB in 0..1, the
 // sequencer's working space; RGBA tuples are premultiplied unless named "straight".
-// Formulas were matched numerically against reference renders (see tests/unit/sequencer.test.ts).
+// Expected values are in tests/unit/sequencer.test.ts.
 import type { BlendType, ColorBalanceData } from './types';
 
 export type RGBA = [number, number, number, number];

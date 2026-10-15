@@ -1,5 +1,5 @@
-// Mesh primitive generators. Dimensions and default segment counts follow the
-// reference application's Add > Mesh defaults (Z-up, size 2 / radius 1).
+// Mesh primitive generators. Dimensions and default segment counts are the
+// Add > Mesh defaults (Z-up, size 2 / radius 1).
 import { buildMesh, type PolyFace } from './mesh';
 
 export type PrimitiveArrays = ReturnType<typeof buildMesh>;

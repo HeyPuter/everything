@@ -1,9 +1,6 @@
 // Per-pixel colour operations of the compositor colour nodes. Every function exists twice: a
-// TypeScript version (single values, unit tests against numbers measured in the reference
-// application) and the GLSL version in COLOR_GLSL used by the GPU passes. Both operate on
-// premultiplied scene-linear RGBA, like the reference compositor (no un-premultiplication).
-//
-// Formulas were derived independently by fitting black-box measurements of the reference.
+// TypeScript version (single values, unit tests against expected values) and the GLSL version in COLOR_GLSL used by the GPU passes. Both operate on
+// premultiplied scene-linear RGBA (no un-premultiplication).
 
 export type RGBA = [number, number, number, number];
 export type RGB = [number, number, number];
@@ -13,7 +10,7 @@ const mixf = (a: number, b: number, t: number) => a + (b - a) * t;
 export const luma = (c: ArrayLike<number>) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
 
 // ---------------------------------------------------------------------------
-// HSV / HSL (hue in [0, 1); conversions keep out-of-range values like the reference)
+// HSV / HSL (hue in [0, 1); conversions keep out-of-range values)
 
 export function rgbToHsv(r: number, g: number, b: number): RGB {
   let k = 0;
@@ -261,7 +258,7 @@ const xyToUv = (x: number, y: number): [number, number] => {
 /**
  * CIE 1931 xy of an illuminant given by a colour temperature and a tint: the Planckian point is
  * moved perpendicular to the locus in CIE 1960 uv by tint / 3000 (positive tint = magenta).
- * Parameters fitted to the reference (Bradford adaptation, see tests).
+ * Bradford adaptation (expected values in the tests).
  */
 export function illuminantXY(temperature: number, tint: number): [number, number] {
   const T = clamp(temperature, 1667, 25000);

@@ -790,7 +790,7 @@ setTimeout(shareNodeTypes, 0);
 makeGroupNodeType('CompositorNodeGroup', CMP);
 groupNodeIdnames.COMPOSITOR = 'CompositorNodeGroup';
 
-// ramps of new compositor Color Ramp nodes start like the reference (black → white)
+// ramps of new compositor Color Ramp nodes start black → white
 void defaultRamp;
 
 // ---------------------------------------------------------------------------

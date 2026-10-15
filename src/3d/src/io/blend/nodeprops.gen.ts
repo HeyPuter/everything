@@ -1,5 +1,5 @@
 // GENERATED (see tests/fixtures/blend/make_node_enums.py): for every shader node type, one
-// node per enum item / boolean state was written by Blender headlessly and the DNA field
+// node per enum item / boolean state was written to a .blend file by a bpy script and the DNA field
 // that changed was recorded by reading the file back with this package's own reader. Maps DNA storage of
 // node settings (custom1/custom2/storage.*) to RNA property names and enum identifiers.
 // f = field path, e = value -> enum identifier, b = bit mask (negative = inverted bit).

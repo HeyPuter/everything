@@ -76,7 +76,7 @@ describe('strip timing', () => {
     expect([S.finalStart(m), S.finalEnd(m), m.frame_offset_start]).toEqual([20, 70, 0]);
   });
 
-  it('computes transition factors like the reference (0 at the first frame)', () => {
+  it('computes transition factors (0 at the first frame)', () => {
     const e = ed();
     const x = add(e, 'CROSS', 3, 1, 30);
     expect(S.effectFac(x, 11)).toBeCloseTo(1 / 3, 5);
@@ -261,7 +261,7 @@ describe('channels & overlap', () => {
   });
 });
 
-// Reference values: Blender 5.2 sequencer renders (sRGB, 8×8 colour strips), bottom (0.2,0.5,0.8),
+// Expected values: sequencer renders (sRGB, 8×8 colour strips), bottom (0.2,0.5,0.8),
 // top (0.6,0.3,0.1), opacity 0.7. Tolerance 1.5/255 except where noted.
 const REF: Partial<Record<BlendType, [number, number, number]>> = {
   CROSS: [0.4784, 0.3607, 0.3098],
@@ -292,7 +292,7 @@ const REF: Partial<Record<BlendType, [number, number, number]>> = {
 
 describe('blend modes', () => {
   for (const [mode, ref] of Object.entries(REF) as [BlendType, [number, number, number]][]) {
-    it(`${mode} matches the reference`, () => {
+    it(`${mode} matches the expected values`, () => {
       const out = B.blendPixel(mode, [0.2, 0.5, 0.8, 1], [0.6, 0.3, 0.1, 1], 0.7);
       for (let i = 0; i < 3; i++) expect(Math.abs(out[i] - ref[i])).toBeLessThan(mode === 'HUE' || mode === 'COLOR' ? 4 / 255 : 2 / 255);
       expect(out[3]).toBeCloseTo(1, 5);
@@ -315,19 +315,19 @@ describe('blend modes', () => {
 });
 
 describe('effects', () => {
-  it('crossfades over the effect length (reference frames 11/16/20 of 1..31)', () => {
+  it('crossfades over the effect length (expected values at frames 11/16/20 of 1..31)', () => {
     const red: B.RGBA = [1, 0, 0, 1],
       blue: B.RGBA = [0, 0.4, 1, 1];
     expect(B.effectPixel('CROSS', red, blue, 1 / 3)[0]).toBeCloseTo(0.6667, 3);
     expect(B.effectPixel('CROSS', red, blue, 0.5)[2]).toBeCloseTo(0.5, 3);
-    // gamma cross reference: 0.4431, 0.0426, 0.1097 at fac 1/3
+    // gamma cross expected: 0.4431, 0.0426, 0.1097 at fac 1/3
     const g = B.effectPixel('GAMMA_CROSS', red, blue, 1 / 3);
     expect(g[0]).toBeCloseTo(0.4444, 2);
     expect(g[1]).toBeCloseTo(0.0444, 2);
     expect(g[2]).toBeCloseTo(0.1111, 2);
   });
 
-  it('two-input effects follow the reference input order', () => {
+  it('two-input effects use the expected input order', () => {
     const red: B.RGBA = [1, 0, 0, 1],
       blue: B.RGBA = [0, 0.4, 1, 1];
     expect(B.effectPixel('ADD', red, blue, 1)).toEqual([1, 0.4, 1, 1]);
@@ -337,10 +337,10 @@ describe('effects', () => {
     expect(B.effectPixel('ALPHA_UNDER', red, blue, 1)).toEqual(blue);
   });
 
-  it('wipe masks match the reference layouts at fac 1/3', () => {
+  it('wipe masks match the expected layouts at fac 1/3', () => {
     const W = 16,
       H = 8;
-    // integer pixel coordinates, y = 0 is the bottom row (reference rows from a 16×8 render)
+    // integer pixel coordinates, y = 0 is the bottom row (expected rows from a 16×8 render)
     const row = (type: 'SINGLE' | 'DOUBLE' | 'IRIS' | 'CLOCK', dir: 'OUT' | 'IN', y: number) =>
       Array.from({ length: W }, (_, x) => (B.wipeMask(x, y, W, H, 1 / 3, type, dir, 0, 0) > 0.5 ? 'B' : 'R')).join('');
     const ref: Record<string, string[]> = {
@@ -367,7 +367,7 @@ describe('effects', () => {
 describe('colour correction', () => {
   const near = (a: number[], b: number[], tol = 2 / 255) => a.forEach((v, i) => expect(Math.abs(v - b[i])).toBeLessThan(tol));
   const cb = () => S.newColorBalance();
-  it('lift/gamma/gain matches the reference', () => {
+  it('lift/gamma/gain matches the expected values', () => {
     const d = cb();
     d.lift = [1.2, 1, 1];
     d.gamma = [1, 1.3, 1];
@@ -382,7 +382,7 @@ describe('colour correction', () => {
     d.invert_lift = d.invert_gamma = d.invert_gain = true;
     near(B.colorBalance([0.4, 0.5, 0.6], d), [0.2784, 0.4078, 0.749]);
   });
-  it('offset/power/slope matches the reference', () => {
+  it('offset/power/slope matches the expected values', () => {
     const d = cb();
     d.correction_method = 'OFFSET_POWER_SLOPE';
     d.offset = [1.1, 1, 1];
@@ -398,11 +398,11 @@ describe('colour correction', () => {
     all.slope = [0.8, 0.8, 0.8];
     near(B.colorBalance([0.4, 0.5, 0.6], all), [0.5137, 0.5883, 0.6588]);
   });
-  it('brightness/contrast matches the reference', () => {
+  it('brightness/contrast matches the expected values', () => {
     near(B.brightContrast([0.4, 0.5, 0.6], 0.1, 20), [0.3765, 0.502, 0.6274]);
     near(B.brightContrast([0.4, 0.5, 0.6], 10, -20), [0.502, 0.5804, 0.6588]);
   });
-  it('strip saturation and multiply match the reference', () => {
+  it('strip saturation and multiply match the expected values', () => {
     near(B.stripColor([0.4, 0.5, 0.6], 0.5, 0.8), [0.4, 0.4392, 0.4745], 3 / 255);
   });
 });

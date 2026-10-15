@@ -1135,7 +1135,7 @@ const ops: Operator[] = [
 registerOperators(ops);
 
 // ---------------------------------------------------------------------------
-// keymaps (reference default layout)
+// keymaps (default layout)
 
 const isClipView = () => currentClipEditor()?.view === 'CLIP';
 

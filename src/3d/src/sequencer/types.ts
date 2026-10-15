@@ -1,5 +1,5 @@
 // Video Sequencer data model. Stored additively on the scene (`scene.sequence_editor`) using the
-// public RNA names of the reference application (Blender 5.x: strips, channels, frame_start,
+// public `bpy` RNA naming conventions (strips, channels, frame_start,
 // frame_offset_start, blend_type, …). Plain JSON-able objects; media bytes are typed arrays so
 // undo snapshots and the native file format share them instead of copying.
 import type { ID } from '../data/types';

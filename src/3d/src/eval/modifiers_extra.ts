@@ -199,7 +199,7 @@ function booleanMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalM
     const triMat = new Int32Array(Math.ceil((g.index ? g.index.count : g.getAttribute('position').count) / 3));
     for (const gr of g.groups) for (let t = gr.start / 3; t < (gr.start + gr.count) / 3; t++) triMat[t] = gr.materialIndex ?? 0;
     const out = fromTriangles(g, (t) => triMat[t]);
-    // operand faces keep the target's first material (the reference application maps operand materials)
+    // operand faces keep the target's first material (operand materials are not mapped)
     out.smooth = new Uint8Array(out.offsets.length - 1).fill(m.smooth?.[0] ?? 0);
     return out;
   } catch {
@@ -587,7 +587,7 @@ function weightedNormalMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
     const b = new Vector3(P[n * 3] - P[v * 3], P[n * 3 + 1] - P[v * 3 + 1], P[n * 3 + 2] - P[v * 3 + 2]);
     return a.angleTo(b);
   };
-  // the dominant faces win: weights are ranked and scaled by (weight/50)^rank like the reference behaviour
+  // the dominant faces win: weights are ranked and scaled by (weight/50)^rank
   const value = (f: number, c: number) => (mode === 'CORNER_ANGLE' ? cornerAngle(c, f) : mode === 'FACE_AREA_WITH_ANGLE' ? area[f] * cornerAngle(c, f) : area[f]);
   const cornersOf: number[][] = Array.from({ length: nv }, () => []);
   const cornerFace = new Int32Array(m.indices.length);

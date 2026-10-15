@@ -1,6 +1,5 @@
 // Interface data (socket names, identifiers, types, defaults and node properties) of the
-// reference suite's compositor nodes, extracted from its public Python API (bpy) with a dump
-// script. Factual interface data used for file/UI compatibility; it contains no code.
+// compositor nodes, following the public `bpy` interface. Factual interface data used for file/UI compatibility; it contains no code.
 // Generated: do not edit by hand. Behaviour lives in nodes/*.ts and ops/*.ts.
 import type { CompRawNode } from './raw';
 

@@ -48,7 +48,7 @@ export interface Ctx {
 
 export const keyOf = (s: BStruct) => s.offset;
 
-/** Blender-style 4x4 (column-major float[4][4]) → flat array. */
+/** Stored .blend 4x4 matrix (column-major float[4][4]) → flat array. */
 export function mat4(s: BStruct, name: string): number[] | null {
   const v = s.nums(name);
   if (v.length !== 16 || v.some((x) => !Number.isFinite(x))) return null;

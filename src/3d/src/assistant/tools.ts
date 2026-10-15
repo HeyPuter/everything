@@ -447,7 +447,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'api_help',
     description:
-      'Look up the scripting API of this app (it follows the reference bpy API but is not identical, so check here instead of guessing). Topics: "operators" (modules), "bpy.ops.mesh" (operators in a module), "bpy.ops.mesh.primitive_cylinder_add" (its properties, defaults and enum values), "modifiers" / "modifier BEVEL", "constraints" / "constraint TRACK_TO", "nodes noise texture" (search node types) / "node ShaderNodeBsdfPrincipled" (sockets), or any JavaScript expression such as "D.objects[\'Cube\'].data" or "C.scene.render" to list its properties with current values and its methods.',
+      'Look up the scripting API of this app (it follows the `bpy` naming conventions, but not everything is there and details differ, so check here instead of guessing). Topics: "operators" (modules), "bpy.ops.mesh" (operators in a module), "bpy.ops.mesh.primitive_cylinder_add" (its properties, defaults and enum values), "modifiers" / "modifier BEVEL", "constraints" / "constraint TRACK_TO", "nodes noise texture" (search node types) / "node ShaderNodeBsdfPrincipled" (sockets), or any JavaScript expression such as "D.objects[\'Cube\'].data" or "C.scene.render" to list its properties with current values and its methods.',
     parameters: obj({ topic: S('What to look up') }, ['topic']),
     run: (a, h) => apiHelp(String(a.topic ?? ''), h.app),
   },

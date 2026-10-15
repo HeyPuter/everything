@@ -1,5 +1,5 @@
 // Node tree conversion (material / world / group trees) into NodeTreeData.
-// Node types keep the reference idnames; inputs are keyed by socket identifier.
+// Node types keep the idnames stored in the file; inputs are keyed by socket identifier.
 import type { NodeData, NodeTreeData, SocketValue, LinkData } from '../../data/types';
 import { uid } from '../../data/defaults';
 import type { BStruct } from './reader';

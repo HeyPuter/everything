@@ -1,4 +1,4 @@
-// Per-viewport display settings (shading & overlays), mirroring the reference
+// Per-viewport display settings (shading & overlays), using the `bpy`
 // View3DShading / View3DOverlay property names.
 export interface Shading {
   type: 'WIREFRAME' | 'SOLID' | 'MATERIAL' | 'RENDERED';

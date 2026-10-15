@@ -1,4 +1,4 @@
-// Box Mask and Ellipse Mask. Coordinates follow the reference: texel / (size − 1) relative to the
+// Box Mask and Ellipse Mask. Coordinates: texel / (size − 1) relative to the
 // position, y scaled by the aspect ratio, rotated, compared with half the size.
 import { registerExec } from '../eval/evaluator';
 import { Result, IDENTITY, type Domain, type Xform } from '../eval/result';

@@ -23,7 +23,7 @@ export interface Token {
 
 const isIdStart = (c: string) => /[A-Za-z_$À-￿]/.test(c);
 const isId = (c: string) => /[\w$À-￿]/.test(c);
-// '.' and ',' stay in the plain text colour (as in the reference editor)
+// '.' and ',' stay in the plain text colour
 const SYMBOLS = /[+\-*/%=<>!&|^~?:;()[\]{}@]/;
 
 function readNumber(s: string, i: number) {

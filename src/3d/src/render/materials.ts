@@ -56,9 +56,8 @@ const solidFrag = /* glsl */ `
       float rim = pow(1.0 - max(n.z, 0.0), 2.0);
       col = base * (0.25 + 0.75 * d) + vec3(0.25) * rim + vec3(0.25) * pow(max(dot(reflect(-l1, n), vec3(0.0, 0.0, 1.0)), 0.0), 18.0);
     } else {
-      // studio lighting: a key light fixed relative to the view plus ambient. The weights were
-      // fitted to the reference application's default Solid shading (measured face brightness of
-      // the default cube from the default view), not copied from its implementation.
+      // studio lighting: a key light fixed relative to the view plus ambient. The weights set
+      // the default Solid shading look (face brightness of the default cube from the default view).
       vec3 v = normalize(-vViewPos);
       vec3 L1 = normalize(vec3(-0.398, 0.455, 0.796));
       float d1 = max(dot(n, L1), 0.0);

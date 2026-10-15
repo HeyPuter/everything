@@ -40,7 +40,7 @@ export function dispatchEditorKeys(e: KeyboardEvent, area: AreaLike, keymapNames
 }
 
 /**
- * Keyboard focus follows the mouse (like the reference application): when the pointer is over
+ * Keyboard focus follows the mouse: when the pointer is over
  * another area, keys typed while a text field of this editor has focus go to that area instead.
  */
 export function redirectIfElsewhere(e: KeyboardEvent, area: AreaLike, field: HTMLElement): boolean {

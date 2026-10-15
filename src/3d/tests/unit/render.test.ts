@@ -3,7 +3,7 @@ import { srgbEncode, srgbDecode, displayPixel, fastDisplay, toneMap, toDisplayRG
 import { lightIntensity, areaLightArea, renderSize, frameList, halton, jitter, shutterOffset, mistFactor, bounceSettings, formatTime, frameFileName } from '../../src/render/final/units';
 import { crc32, ZipWriter, concatBytes } from '../../src/render/final/zip';
 import { ebmlSize, muxWebM } from '../../src/render/final/webm';
-import { texelDirection, referenceEquirectUV } from '../../src/render/final/environment';
+import { texelDirection, zUpEquirectUV } from '../../src/render/final/environment';
 import { passesFromGuide } from '../../src/render/final/passes';
 import { depthRange, passToRGBA8, samplePixel, toBW, type RenderResult } from '../../src/render/final/result';
 import { ATROUS_TAPS, denoiseSchedule } from '../../src/render/final/denoise';
@@ -58,12 +58,12 @@ describe('colour management', () => {
   it('AgX keeps mid grey in the expected display range', () => {
     const o = [0, 0, 0, 0];
     displayPixel(0.18, 0.18, 0.18, 1, { view_transform: 'AGX', exposure: 0, gamma: 1 }, o);
-    // the reference AgX base shows 18% grey around 0.46–0.52 display value
+    // the AgX base view shows 18% grey around 0.46–0.52 display value
     expect(o[0]).toBeGreaterThan(0.4);
     expect(o[0]).toBeLessThan(0.56);
   });
-  it('matches measured reference display values (grey ramp and primaries)', () => {
-    // [linear input, reference display value] measured from reference renders
+  it('matches the expected display values (grey ramp and primaries)', () => {
+    // [linear input, expected display value]
     const cases: [ViewSettings['view_transform'], number, number, number][] = [
       ['AGX', 0.0625, 0.259, 0.01],
       ['AGX', 0.25, 0.532, 0.01],
@@ -126,7 +126,7 @@ describe('colour management', () => {
 
 describe('render units', () => {
   const base = { shape: 'SQUARE' as const, size: 1, size_y: 1 };
-  it('converts light power like the reference', () => {
+  it('converts light power', () => {
     expect(lightIntensity({ ...base, type: 'POINT', energy: 1000 })).toBeCloseTo(1000 / (4 * Math.PI), 6);
     expect(lightIntensity({ ...base, type: 'SPOT', energy: 1000 })).toBeCloseTo(1000 / (4 * Math.PI), 6);
     expect(lightIntensity({ ...base, type: 'SUN', energy: 3 })).toBe(3);
@@ -173,7 +173,7 @@ describe('render units', () => {
     expect(bloomParams(0.05, 6.5)).toEqual({ strength: 0.6000000000000001, radius: 0.65 });
     expect(bloomParams(0, 50).radius).toBe(1);
   });
-  it('fits the camera sensor like the reference', () => {
+  it('fits the camera sensor to the larger dimension', () => {
     const ca = { sensor_fit: 'AUTO' as const, sensor_width: 36, sensor_height: 24, lens: 50 };
     const [hx, hy] = frustumHalfExtents(ca, 16 / 9);
     expect(hx).toBeCloseTo(0.36, 6);
@@ -244,12 +244,12 @@ describe('environment mapping', () => {
     const d = texelDirection(0.3, 0.7);
     expect(Math.hypot(...d)).toBeCloseTo(1, 9);
   });
-  it('uses the reference orientation for image backgrounds', () => {
-    expect(referenceEquirectUV([0, 0, 1])[1]).toBeCloseTo(1, 6);
-    expect(referenceEquirectUV([0, 0, -1])[1]).toBeCloseTo(0, 6);
+  it('uses the expected orientation for image backgrounds', () => {
+    expect(zUpEquirectUV([0, 0, 1])[1]).toBeCloseTo(1, 6);
+    expect(zUpEquirectUV([0, 0, -1])[1]).toBeCloseTo(0, 6);
     // looking along -X hits the image centre
-    expect(referenceEquirectUV([-1, 0, 0])[0]).toBeCloseTo(0.5, 6);
-    expect(referenceEquirectUV([-1, 0, 0])[1]).toBeCloseTo(0.5, 6);
+    expect(zUpEquirectUV([-1, 0, 0])[0]).toBeCloseTo(0.5, 6);
+    expect(zUpEquirectUV([-1, 0, 0])[1]).toBeCloseTo(0.5, 6);
   });
 });
 

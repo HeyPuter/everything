@@ -58,7 +58,7 @@ function placePoint(v: View3D, x: number, y: number, mode: 'CURSOR' | 'VIEW' | '
 const rgbCss = (c: number[]) => `rgb(${c.map((x) => Math.round(Math.max(0, Math.min(1, x)) * 255)).join(',')})`;
 
 // ---------------------------------------------------------------------------
-// drawing (always visible while overlays are on, as in the reference application)
+// drawing (always visible while overlays are on)
 
 let preview: VNode | null = null;
 let activeRuler = -1;

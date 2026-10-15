@@ -1,8 +1,8 @@
-// Grease Pencil data model (curves-based, like the reference application's "Grease Pencil v3"):
+// Grease Pencil data model (curves-based):
 // a data-block holds layers; each layer has keyframes (frame number → drawing index); a drawing
 // stores its strokes as struct-of-arrays typed buffers (point domain + curve domain) so undo
 // snapshots share them and the native file format stores them as binary buffers.
-// Property names follow the reference application's public RNA names.
+// Property names follow the public `bpy` RNA naming conventions.
 import type { ID, Color, Vec3 } from '../data/types';
 
 export type GPKeyframeType = 'KEYFRAME' | 'BREAKDOWN' | 'MOVING_HOLD' | 'EXTREME' | 'JITTER' | 'GENERATED';
@@ -101,7 +101,7 @@ export interface MaterialGPencilStyle {
   pass_index: number;
 }
 
-/** Grease Pencil tool settings stored on scene.tool_settings (reference RNA names). */
+/** Grease Pencil tool settings stored on scene.tool_settings (`bpy` RNA names). */
 export interface GPToolSettings {
   gpencil_stroke_placement_view3d: 'ORIGIN' | 'CURSOR' | 'SURFACE' | 'STROKE';
   gpencil_surface_offset: number;

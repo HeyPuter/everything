@@ -109,7 +109,7 @@ export function bool<T extends object>(owner: T, key: keyof T & string, label: s
   );
 }
 
-/** Checkbox with the label in the label column (reference "heading" style). */
+/** Checkbox with the label in the label column ("heading" style). */
 export function boolHeading<T extends object>(owner: T, key: keyof T & string, heading: string, label = '', o: PropOpts = {}) {
   return splitRow(
     heading,

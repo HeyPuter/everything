@@ -47,7 +47,7 @@ modeHandlers.EDIT = {
   },
 };
 
-// header mode menu: Edit / Sculpt / Draw for grease pencil objects (reference order)
+// header mode menu: Edit / Sculpt / Draw for grease pencil objects
 const edit = MODE_ITEMS.find((m) => m.mode === 'EDIT');
 if (edit && !edit.types.includes('GREASEPENCIL')) edit.types.push('GREASEPENCIL');
 const sculptAt = MODE_ITEMS.findIndex((m) => m.mode === 'SCULPT');

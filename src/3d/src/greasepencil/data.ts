@@ -549,7 +549,7 @@ export interface OnionFrame {
 }
 
 /**
- * Keyframes shown as onion skins for `layer` at `frame` (reference behaviour: RELATIVE counts
+ * Keyframes shown as onion skins for `layer` at `frame` (RELATIVE counts
  * keyframes, ABSOLUTE counts frames, SELECTED shows selected keyframes), filtered by keyframe type.
  */
 export function onionFrames(gp: GreasePencilData, layer: GPLayer, frame: number, range?: { start: number; end: number }): OnionFrame[] {

@@ -1,7 +1,7 @@
 // World → equirectangular float environment for final rendering and the path tracer.
 // The texture is baked in three.js' equirect convention (Y = "up" axis of the lookup) but
 // indexed by our Z-up world directions, so no environment rotation is needed and image
-// backgrounds keep the reference orientation.
+// backgrounds keep their expected orientation.
 import { DataTexture, RGBAFormat, FloatType, HalfFloatType, DataUtils, LinearSRGBColorSpace, EquirectangularReflectionMapping, LinearFilter, Color, type Texture, type WebGLRenderTarget } from 'three';
 import { renderContext } from '../context';
 import type { DocumentData, WorldData } from '../../data/types';
@@ -24,8 +24,8 @@ export function texelDirection(u: number, v: number): [number, number, number] {
   return [Math.cos(theta) * Math.cos(phi), Math.sin(theta), Math.cos(theta) * Math.sin(phi)];
 }
 
-/** Reference-convention equirect coordinates (Z-up) of a world direction. */
-export function referenceEquirectUV(d: [number, number, number]): [number, number] {
+/** Z-up equirect coordinates of a world direction. */
+export function zUpEquirectUV(d: [number, number, number]): [number, number] {
   const u = (Math.atan2(d[1], -d[0]) + Math.PI) / (2 * Math.PI);
   const v = (Math.atan2(d[2], Math.hypot(d[0], d[1])) + Math.PI / 2) / Math.PI;
   return [u - Math.floor(u), Math.min(1, Math.max(0, v))];
@@ -124,7 +124,7 @@ export function worldEnvironment(doc: DocumentData): WorldEnvironment | null {
     const lut = new Float32Array(256);
     for (let i = 0; i < 256; i++) lut[i] = lin ? srgbDecode(i / 255) : i / 255;
     sample = (d, o) => {
-      const [u, v] = referenceEquirectUV(d);
+      const [u, v] = zUpEquirectUV(d);
       // bilinear lookup (image rows are top-down: v=1 is row 0)
       const fx = u * sw - 0.5,
         fy = (1 - v) * sh - 0.5;

@@ -45,7 +45,7 @@ function uniqueModifierName(ob: ObjectData | null, base = 'GeometryNodes') {
     if (!names.has(n)) return n;
   }
 }
-// new NODES modifiers are named like the reference ("GeometryNodes")
+// new NODES modifiers are named "GeometryNodes"
 setModifierNameHook(() => uniqueModifierName(app.activeObject));
 
 /** Fill missing modifier input values from the group interface defaults. */

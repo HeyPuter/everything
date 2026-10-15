@@ -9,7 +9,7 @@ import type { Texture } from '../gpu/gpu';
 import { denoiseSchedule, ATROUS_TAPS } from '../../render/final/denoise';
 
 // ---------------------------------------------------------------------------
-// filter weights (reference filter shapes; t = |offset| / radius)
+// filter weights (t = |offset| / radius)
 
 export type BlurType = 'Flat' | 'Tent' | 'Quadratic' | 'Cubic' | 'Gaussian' | 'Fast Gaussian' | 'Catrom' | 'Mitch';
 

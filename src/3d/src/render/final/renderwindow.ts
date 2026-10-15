@@ -1,4 +1,4 @@
-// Floating render view (like the reference's render window, F11) hosting an Image Editor
+// Floating render view (the render window, F11) hosting an Image Editor
 // on the Render Result. An Image Editor area already showing the Render Result is used instead.
 import { patch } from '../../ui/h';
 import { app, registerOperators, type AreaLike } from '../../app/app';

@@ -39,7 +39,7 @@ export function ensureFCurve(act: ActionData, path: string, index: number): FCur
       extrapolation: 'CONSTANT',
       modifiers: [],
       group: bone ? bone[1] : GROUPS[path] ?? undefined,
-      // vector transform channels default to "Auto XYZ to RGB" like the reference preferences
+      // vector transform channels default to "Auto XYZ to RGB"
       color_mode: /(^|\.)(location|rotation_euler|rotation_quaternion|rotation_axis_angle|scale|delta_location|delta_rotation_euler|delta_scale)$/.test(path) ? (/rotation_(quaternion|axis_angle)$/.test(path) ? 'AUTO_YRGB' : 'AUTO_RGB') : 'AUTO_RAINBOW',
     };
     act.fcurves.push(fc);

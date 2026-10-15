@@ -1,7 +1,7 @@
 # Builds a test scene covering the .blend importer's features, saves it (uncompressed,
-# zstd-compressed and as a minimal library-write) and dumps the values Blender reports for
-# it to scene.json (used by tests/unit/blend.test.ts as the cross-check reference).
-# Usage: /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
+# zstd-compressed and as a minimal library-write) and dumps the values bpy reports for
+# it to scene.json (used by tests/unit/blend.test.ts as the expected values).
+# Usage: <bpy host> -b --factory-startup \
 #          --python tests/fixtures/blend/make_scene.py -- <outdir>
 # then copy <outdir>/scene_zstd.blend, scene_min_zstd.blend and scene.json here.
 import bpy, bmesh, sys, json, math, os

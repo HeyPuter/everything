@@ -145,7 +145,7 @@ export class ClipEditor implements Editor {
     this.clipId = id;
     this.fitted = false;
     this.v2Fitted = false;
-    // like the reference: a clip shown in an editor becomes the scene's active clip if none is set
+    // a clip shown in an editor becomes the scene's active clip if none is set
     if (id && !app.doc.scene.active_clip) app.doc.scene.active_clip = id;
     lastClipEditor = this;
     this.redrawAll();
@@ -749,7 +749,7 @@ export class ClipEditor implements Editor {
     let moved = false;
     const [W, H] = c.size;
     const [ix0, iy0] = this.toImage(start.x, start.y);
-    // moving every selected marker together (like the reference's slide on a selection)
+    // moving every selected marker together
     const others = hd.kind === 'move' ? this.tracks().filter((o) => o !== t && o.select && !o.lock) : [];
     const otherOrig = others.map((o) => ({ o, m: markerAt(o, f) ? cloneMarker(markerAt(o, f)!, f) : null, exact: markerExact(o, f) ? cloneMarker(markerExact(o, f)!) : null }));
     const move = (ev: PointerEvent) => {

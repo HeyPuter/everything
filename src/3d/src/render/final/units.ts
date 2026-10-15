@@ -1,5 +1,5 @@
-// Pure conversions between the document's (reference-compatible) settings and renderer units.
-// Light units were calibrated against reference renders of the default scene:
+// Pure conversions between the document's settings and renderer units.
+// Light units (calibrated on the default scene):
 // point/spot radiant intensity I = P / 4π (W/sr), sun irradiance = strength (W/m²),
 // area light radiance L = P / (π · A).
 import type { LightData, RenderSettings, SceneData } from '../../data/types';
@@ -68,7 +68,7 @@ export function shutterOffset(i: number, n: number, shutter: number): number {
   return ((i + 0.5) / n - 0.5) * shutter;
 }
 
-/** Mist factor (0 near → 1 far) with the reference's default quadratic falloff. */
+/** Mist factor (0 near → 1 far) with the default quadratic falloff. */
 export function mistFactor(dist: number, start: number, depth: number): number {
   if (depth <= 0) return dist >= start ? 1 : 0;
   const x = Math.min(1, Math.max(0, (dist - start) / depth));
@@ -82,7 +82,7 @@ export function bounceSettings(r: Pick<RenderSettings, 'max_bounces' | 'diffuse_
   return { bounces: Math.max(1, Math.min(total, surface)), transmissive: Math.max(0, Math.min(total, r.transmission_bounces ?? total)) };
 }
 
-/** Format seconds like the reference status text (MM:SS.cc). */
+/** Format seconds for the status text (MM:SS.cc). */
 export function formatTime(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = sec - m * 60;

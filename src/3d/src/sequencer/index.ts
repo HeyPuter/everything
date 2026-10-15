@@ -17,7 +17,7 @@ const SEQ: EditorTypeId = 'SEQUENCE_EDITOR';
 
 registerEditor({ id: SEQ, label: 'Video Sequencer', icon: 'sequence', group: 'General', create: (area, state) => new SequencerEditor(area, state) });
 
-// Video Editing template (reference layout): file browser | preview | properties over a full-width sequencer
+// Video Editing template: file browser | preview | properties over a full-width sequencer
 registerWorkspaceTemplate('Video Editing', () => ({
   name: 'Video Editing',
   layout: V(0.476, H(0.2, A('FILE_BROWSER'), H(0.785, A(SEQ, { view: 'PREVIEW', showToolbar: true }), A('PROPERTIES', { tab: 'SCENE' }))), A(SEQ, { view: 'SEQUENCER' })),

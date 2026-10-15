@@ -1,5 +1,5 @@
 // Interface data (socket names, identifiers, types, defaults, ranges and node properties) of the
-// reference suite's shader nodes, extracted from its public Python API (bpy) with a dump script.
+// shader nodes, following the public `bpy` interface.
 // This is factual interface data used for file and UI compatibility; it contains no code.
 // Generated: do not edit by hand — behaviour lives in shader/defs.ts.
 import type { RawNodeData } from '../types';

@@ -1,5 +1,4 @@
-// Small modal dialogs for format options (like the reference app's file-browser side panel)
-// and for picking companion files (external glTF buffers/textures, OBJ materials).
+// Small modal dialogs for format options and for picking companion files (external glTF buffers/textures, OBJ materials).
 
 export interface FormatOption {
   id: string;

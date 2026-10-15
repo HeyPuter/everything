@@ -72,6 +72,6 @@ const tab: PropertiesTab = {
   },
 };
 
-// Blender order: … Object Data, Bone, Bone Constraints, Material …
+// tab order: … Object Data, Bone, Bone Constraints, Material …
 const at = propertiesTabs.findIndex((t) => t.id === 'DATA');
 propertiesTabs.splice(at >= 0 ? at + 1 : propertiesTabs.length, 0, tab);

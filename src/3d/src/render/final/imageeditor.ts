@@ -296,7 +296,7 @@ export class ImageEditor implements Editor {
     if (!this.fitted) {
       this.fitted = true;
       const z = Math.min((w - 20) / size[0], (hh - 20) / size[1]);
-      // like the reference: start at 1:1 unless the image does not fit
+      // start at 1:1 unless the image does not fit
       this.zoom = Math.min(1, Math.max(1 / 64, z));
       this.offX = this.offY = 0;
     }

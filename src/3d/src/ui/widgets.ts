@@ -1,4 +1,4 @@
-// Property widgets in the style of the reference UI: drag-to-edit number fields,
+// Property widgets: drag-to-edit number fields,
 // sliders, checkboxes, enum menus, color swatches with a picker, text fields.
 import { h, type VNode, type Child } from './h';
 import { icon } from './icons';
@@ -702,7 +702,7 @@ export function panel(id: string, title: Child, body: () => Child, opts: { close
         onpointerdown: (e: PointerEvent) => {
           if ((e.target as HTMLElement).closest('button, input, .num-field, label, .enum-menu')) return;
           e.preventDefault();
-          // ctrl-click: collapse all others (reference behaviour)
+          // ctrl-click: collapse all others
           setPanelOpen(id, !open);
           app.changed('ui');
         },

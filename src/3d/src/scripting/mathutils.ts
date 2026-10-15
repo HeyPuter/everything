@@ -2,7 +2,7 @@
 // the documented `mathutils` module (Vector, Matrix, Euler, Quaternion, Color) so scripts
 // written against that API run here. JavaScript has no operator overloading, so the
 // arithmetic operators are exposed as methods (`add`, `sub`, `mul`, `matmul`, ...).
-// Matrices are row-major (m[row][col]) and act on column vectors, like the reference API.
+// Matrices are row-major (m[row][col]) and act on column vectors.
 
 export type VecLike = ArrayLike<number> | VecBase;
 export type EulerOrder = 'XYZ' | 'XZY' | 'YXZ' | 'YZX' | 'ZXY' | 'ZYX';
@@ -94,7 +94,7 @@ export class Vector extends VecBase {
     super(values);
   }
 
-  /** Euclidean length (as in the reference API); the component count is `size`. */
+  /** Euclidean length; the component count is `size`. */
   get length() {
     return this.magnitude;
   }

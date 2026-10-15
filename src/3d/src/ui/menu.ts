@@ -193,7 +193,7 @@ export function openMenu(items: MenuItem[], at: { x: number; y: number } | HTMLE
   }
   const withTitle = opts.title ? [{ heading: opts.title }, ...items] : items;
   const m = createMenu(withTitle, x, y, undefined, opts.title);
-  // context menus open with the pointer over the first actionable item, like the reference app
+  // context menus open with the pointer over the first actionable item
   if (!(at instanceof HTMLElement) && !opts.under) {
     const firstIdx = withTitle.findIndex((i) => !i.heading && !i.separator);
     const row = m.el.children[firstIdx] as HTMLElement | undefined;
@@ -222,7 +222,7 @@ export interface PieItem {
   active?: boolean;
 }
 
-/** Order: W, E, S, N, NW, NE, SW, SE (like the reference layout). */
+/** Pie menu item order: W, E, S, N, NW, NE, SW, SE. */
 const PIE_DIRS = [180, 0, 270, 90, 135, 45, 225, 315];
 
 let pie: { el: HTMLElement; items: (PieItem | null)[]; cx: number; cy: number; hl: number; opened: number; key?: string } | null = null;
@@ -372,7 +372,7 @@ export function openPopover(anchor: HTMLElement | { x: number; y: number }, rend
   el.style.top = `${top}px`;
   const unsub = app.subscribe(() => el.isConnected && draw());
   onMenusClosed(() => unsub());
-  // close when the pointer leaves the popover by a margin (like the reference behaviour)
+  // close when the pointer leaves the popover by a margin
   const leave = (e: PointerEvent) => {
     if (!el.isConnected) return removeEventListener('pointermove', leave);
     if (document.activeElement && el.contains(document.activeElement) && (document.activeElement as HTMLElement).tagName === 'INPUT') return;

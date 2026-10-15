@@ -211,7 +211,7 @@ export function readAlembic(bytes: Uint8Array): IRScene {
         mesh.materials.push(mi);
         for (const f of list) if (f < mat.length) mat[f] = si;
       });
-      // faces outside every face set use the first one (like the reference importer)
+      // faces outside every face set use the first one
       mesh.materialIndex = mat;
     }
     // vertex animation → one shape key per sample with "hat" weights (exact linear interpolation)

@@ -161,7 +161,7 @@ export function literal(type: GType, v: SocketValue, N = 'ndN'): string {
   return `nd_cl_empty(${N})`;
 }
 
-/** Implicit conversion between GLSL types (reference conversion rules). */
+/** Implicit conversion between GLSL types (implicit socket conversion rules). */
 export function convert(expr: string, from: GType, to: GType, N = 'ndN'): string {
   if (from === to) return expr;
   if (to === 'NdClosure') {

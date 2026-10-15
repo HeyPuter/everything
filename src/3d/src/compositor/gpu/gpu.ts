@@ -2,7 +2,7 @@
 // passes with multiple render targets, a texture pool and read-back. The compositor runs in its
 // own context so it never disturbs the viewport renderer's GL state.
 //
-// Conventions: textures are stored bottom-up (row 0 = bottom, like GL and the reference
+// Conventions: textures are stored bottom-up (row 0 = bottom, like GL and the
 // compositor's pixel space); sampling is always done with texelFetch (NEAREST storage) and the
 // helpers in glsl.ts, so float-linear filtering support is not required.
 import { GLSL_COMMON } from './glsl';

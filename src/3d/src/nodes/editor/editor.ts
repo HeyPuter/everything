@@ -340,7 +340,7 @@ export class NodeEditor implements Editor {
     openSearch(() => this.addSearchEntries(at), app.pointer.x - 150, app.pointer.y - 20, 'Search nodes…');
   }
 
-  /** Add a node under the pointer and start moving it (like the reference Add menu). */
+  /** Add a node under the pointer and start moving it. */
   addNodeInteractive(idname: string, settings: Record<string, unknown>, at?: { x: number; y: number }) {
     const tree = this.tree();
     if (!tree) {

@@ -310,7 +310,7 @@ registerOperators([
         ts.mesh_select_mode[i] = !ts.mesh_select_mode[i];
         if (!ts.mesh_select_mode.some(Boolean)) ts.mesh_select_mode[i] = true;
       } else ts.mesh_select_mode = [i === 0, i === 1, i === 2];
-      // switching to face mode keeps only fully selected faces (like the reference flush)
+      // switching to face mode keeps only fully selected faces
       if (i === 2 && !p.use_extend)
         for (const { me } of editMeshObjects()) {
           ensureSelection(me);

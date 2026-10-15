@@ -1,6 +1,6 @@
 // "Follow Track" object constraint (2D mode): places the owner where the active camera sees the
 // track's marker, at the owner's current depth along the camera view axis (or on the surface of a
-// depth object). The math mirrors the reference behavior measured numerically: the marker frame is
+// depth object). The math: the marker frame is
 // mapped into the camera frame (Stretch / Fit / Crop for differing aspect ratios), camera shift is
 // added in frame units, the sensor is always fitted automatically, and the owner's orientation
 // becomes its own rotation/scale composed with the camera's.

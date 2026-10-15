@@ -1,7 +1,7 @@
 # Probe file for deriving how shader-node enum/boolean settings are stored in DNA: one node
 # per enum item / boolean state, plus <out>.json describing each node. Reading it back with
 # src/io/blend/reader.ts and diffing the node fields produced src/io/blend/nodeprops.gen.ts.
-# Usage: Blender -b --factory-startup --python make_node_enums.py -- <out.blend>
+# Usage: <bpy host> -b --factory-startup --python make_node_enums.py -- <out.blend>
 import bpy, sys, json
 out = sys.argv[-1]
 bpy.ops.wm.read_factory_settings(use_empty=True)

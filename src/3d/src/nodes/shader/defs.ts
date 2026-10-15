@@ -17,7 +17,7 @@ function def(idname: string, category: NodeClass, extra: Partial<NodeTypeDef> = 
   if (!raw) throw new Error(`missing shader node data ${idname}`);
   const d = defineFromRaw(idname, raw, { category, treeTypes: SH, ...extra });
   d.props = d.props.filter((x) => !CUSTOM_PROP_TYPES.has(x.type as string));
-  // reference behaviour: Weight sockets are internal
+  // Weight sockets are internal
   for (const s of d.inputs) if (s.identifier === 'Weight' && s.type === 'FLOAT' && d.category === 'shader') s.disabled = true;
   return d;
 }

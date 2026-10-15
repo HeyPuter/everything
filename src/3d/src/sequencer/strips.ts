@@ -441,7 +441,7 @@ export function dependentEffects(list: Strip[], names: Set<string>): Strip[] {
   return [...out];
 }
 
-/** Effects with inputs span the intersection of their inputs (as in the reference). */
+/** Effects with inputs span the intersection of their inputs. */
 export function updateEffectRanges(list: Strip[]) {
   const all = allStrips(list);
   for (let pass = 0; pass < 4; pass++) {

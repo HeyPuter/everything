@@ -1,7 +1,7 @@
 // Compositor values: single values (constants) or images living on the GPU in a domain.
 //
 // A domain is an image size plus a 2D affine transform placing the image's centred pixel space
-// in the compositing plane (like the reference compositor, transform nodes only change the
+// in the compositing plane (transform nodes only change the
 // transform; pixels are resampled — "realized" — when an operation needs inputs on a common
 // domain, or at the outputs).
 import type { Texture } from '../gpu/gpu';
@@ -141,7 +141,7 @@ export function asVec4(type: DataType, v: SocketValue): [number, number, number,
   return [f, f, f, type === 'RGBA' ? 1 : 0];
 }
 
-/** Implicit conversion of a single value between socket types (reference compositor rules). */
+/** Implicit conversion of a single value between socket types (compositor rules). */
 export function convertValue(v: SocketValue, from: DataType, to: DataType): SocketValue {
   if (from === to) return Array.isArray(v) ? [...v] : v;
   const num = (x: SocketValue) => (typeof x === 'boolean' ? (x ? 1 : 0) : typeof x === 'number' ? x : 0);

@@ -1,5 +1,5 @@
 // Compositor editor (editor type COMPOSITOR): the generic node editor on the scene's compositing
-// node group, with the reference header (View/Select/Add/Node, node group selector, Backdrop
+// node group, with the standard header (View/Select/Add/Node, node group selector, Backdrop
 // toggle and channels) and the Viewer backdrop drawn behind the nodes (zoom V / Alt V, move
 // Alt + middle mouse, fit).
 import { h, type Child } from '../ui/h';

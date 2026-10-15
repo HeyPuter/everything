@@ -187,7 +187,7 @@ export function curveToPoints(
   for (let i = 0; i < n; i++) {
     const t = [T[i * 3], T[i * 3 + 1], T[i * 3 + 2]],
       nn = [N[i * 3], N[i * 3 + 1], N[i * 3 + 2]];
-    // reference: X follows the tangent, Z the normal
+    // X follows the tangent, Z the normal
     rot.set(eulerFromAxes(t, nn), i * 3);
   }
   const attrs: AttrMap = new Map();

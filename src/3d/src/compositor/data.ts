@@ -1,4 +1,4 @@
-// Scene compositing data model (reference 5.x semantics): the scene's compositing node tree is a
+// Scene compositing data model: the scene's compositing node tree is a
 // node group (`scene.compositing_node_group`, tree type COMPOSITOR) whose Group Output is the
 // composite result. Compositing applies to final renders when the group is set, the scene's
 // (deprecated but still honoured) `use_nodes` is on and Output ▸ Post Processing ▸ Compositing

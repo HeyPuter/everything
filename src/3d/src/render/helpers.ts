@@ -84,7 +84,7 @@ export function cameraWire(ca: CameraData, aspect: number): Seg {
   return out;
 }
 
-/** Filled "up" triangle of the camera as triangles (drawn solid like the reference). */
+/** Filled "up" triangle of the camera as triangles (drawn solid). */
 export function cameraTriangle(ca: CameraData, aspect: number): Seg {
   const s = ca.display_size;
   const sensor = ca.sensor_fit === 'VERTICAL' ? ca.sensor_height : ca.sensor_width;

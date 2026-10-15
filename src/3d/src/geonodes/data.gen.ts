@@ -1,7 +1,6 @@
 // Interface data (node labels, widths, socket names/identifiers/types/defaults and node
-// properties) of the reference suite's geometry nodes, extracted from its public Python API
-// (bpy) with a dump script run against the application as a black box. Factual interface data
-// for UI and file compatibility; it contains no code. Generated: behaviour lives in nodes/*.ts.
+// properties) of the geometry nodes, following the public `bpy` interface (names, identifiers
+// and defaults). Factual interface data for UI and file compatibility; it contains no code. Generated: behaviour lives in nodes/*.ts.
 import type { GnRawNode } from './types';
 
 export const GN_NODE_DATA: Record<string, GnRawNode> = {

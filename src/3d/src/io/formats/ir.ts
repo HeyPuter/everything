@@ -40,7 +40,7 @@ export interface IRNode {
   camera?: IRCamera;
   light?: IRLight;
   /**
-   * For cameras/lights: matrix mapping the reference camera/light frame (looks down -Z,
+   * For cameras/lights: matrix mapping the canonical camera/light frame (looks down -Z,
    * +Y up) into the node's local frame, in source space. Identity for glTF/USD.
    */
   attachCorrection?: M4;

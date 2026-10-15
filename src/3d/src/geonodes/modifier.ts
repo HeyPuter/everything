@@ -269,7 +269,7 @@ function viewerColors(g: GeometrySet): GeometrySet {
 }
 
 let nameHook: (() => string) | null = null;
-/** UI layer hook naming new modifiers (reference name "GeometryNodes", made unique per object). */
+/** UI layer hook naming new modifiers ("GeometryNodes", made unique per object). */
 export function setModifierNameHook(fn: () => string) {
   nameHook = fn;
 }

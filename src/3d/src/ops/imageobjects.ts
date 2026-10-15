@@ -235,7 +235,7 @@ function emptyData(o: ObjectData) {
   return parts;
 }
 
-// Empties always get an Object Data tab (as in the reference application).
+// Empties always get an Object Data tab.
 const dataTab = propertiesTabs.find((t) => t.id === 'DATA');
 if (dataTab) {
   const poll = dataTab.poll,

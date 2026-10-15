@@ -64,7 +64,7 @@ const TREE: {
   { label: 'Instances', icon: 'ss_instance', key: 'INSTANCES', domains: [] },
 ];
 
-/** Element counts like the reference (3.6K, 1.2M). */
+/** Compact element counts (3.6K, 1.2M). */
 export const shortCount = (n: number) => (n < 1000 ? String(n) : n < 1e6 ? `${(n / 1000).toFixed(n < 1e4 ? 1 : 0)}K` : `${(n / 1e6).toFixed(n < 1e7 ? 1 : 0)}M`);
 
 const fmt = (v: number) => {
@@ -261,7 +261,7 @@ export class SpreadsheetEditor implements Editor {
   /** Rebuild the data set list and the table columns. */
   refresh() {
     const viewer = viewerActiveFor(app.activeObject);
-    // follow the reference: activating a viewer switches the spreadsheet to its data
+    // activating a viewer switches the spreadsheet to its data
     if (viewer && !this.wasViewer) this.state = 'VIEWER_NODE';
     if (!viewer && this.state === 'VIEWER_NODE') this.state = 'EVALUATED';
     this.wasViewer = viewer;

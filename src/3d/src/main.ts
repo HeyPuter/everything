@@ -45,7 +45,7 @@ import { loadFonts } from './io/fonts';
 import { registerModules } from './modules';
 import { restoreAssistant } from './assistant';
 
-// The reference application is Z-up; three.js defaults to Y-up for helpers.
+// The app is Z-up; three.js defaults to Y-up for helpers.
 Object3D.DEFAULT_UP.set(0, 0, 1);
 
 setApp(new App(startupDocument()));
@@ -111,7 +111,7 @@ void loadFonts(() => {
 // Recover the last autosaved session (if any) without blocking startup. If the user already
 // changed something before the stored session finished loading, their work wins.
 const startRevision = app.revision;
-// `?factory-startup` skips session recovery (like the reference application's --factory-startup flag)
+// `?factory-startup` skips session recovery
 const factoryStartup = new URLSearchParams(location.search).has('factory-startup');
 const recovered = (factoryStartup ? Promise.resolve(null) : loadRecovery())
   .then((rec) => {

@@ -13,7 +13,7 @@ export interface FbxWriteOptions {
   up?: AxisId;
   /** global scale applied on top of the unit conversion */
   scale?: number;
-  /** 'CM': UnitScaleFactor 1 with root objects scaled ×100 (reference default); 'M': UnitScaleFactor 100 */
+  /** 'CM': UnitScaleFactor 1 with root objects scaled ×100 (default); 'M': UnitScaleFactor 100 */
   units?: 'CM' | 'M';
   embedTextures?: boolean;
   animation?: boolean;
@@ -583,7 +583,7 @@ export async function writeFbx(scene: ExportScene, opts: FbxWriteOptions = {}): 
   let stackStart = 0,
     stackStop = 0;
   if (opts.animation !== false && scene.tracks.length && frames.length > 1) {
-    // FBX time 0 is frame 1 (as read by the reference importer and ours)
+    // FBX time 0 is frame 1 (the convention our importer reads back)
     const times = frames.map((f) => Math.round(((f - 1) / fps) * KTIME));
     stackStart = times[0];
     stackStop = times[times.length - 1];

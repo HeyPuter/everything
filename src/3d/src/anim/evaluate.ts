@@ -106,7 +106,7 @@ export function applyAnimData(doc: DocumentData, ob: ObjectData, ad: AnimData, f
     if (action) blendAction(doc, ob, acc, action, frame, ad.action_blend_type ?? 'REPLACE', ad.action_influence ?? 1);
   }
   for (const e of acc.values()) {
-    // Like the reference application, a manual edit of an animated property stays until the
+    // A manual edit of an animated property stays until the
     // frame changes or the animation itself changes (it is not overwritten on every update).
     const k = `${ob.id}|${e.path}|${e.index}`;
     const last = lastWritten.get(k);

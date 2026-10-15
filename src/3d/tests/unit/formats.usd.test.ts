@@ -6,7 +6,7 @@ import { readZip } from '../../src/io/formats/usd/zip';
 import { commitScene } from '../../src/io/formats/to-document';
 import { buildExportScene } from '../../src/io/formats/scene-builder';
 import { Depsgraph } from '../../src/eval/depsgraph';
-import { fixture, freshDoc, byName, BLENDER_BBOX, expectBBox, dumpOutput } from '../fixtures/formats/helpers';
+import { fixture, freshDoc, byName, EXPECTED_BBOX, expectBBox, dumpOutput } from '../fixtures/formats/helpers';
 import type { DocumentData } from '../../src/data/types';
 
 const NAMES = ['Cam', 'Cube', 'Ngon', 'Plane', 'Point', 'Rig', 'Skinned', 'Sphere', 'Spot', 'Sun'].sort();
@@ -37,25 +37,25 @@ function checkScene(doc: DocumentData, cubeFaces = 6) {
   const tex = doc.materials[plane.materials[0]!].tree.nodes.find((n) => n.type === 'ShaderNodeTexImage');
   expect(doc.images[tex!.props.image as string].width).toBe(4);
   const g = new Depsgraph(doc);
-  for (const [name, frames] of Object.entries(BLENDER_BBOX)) for (const [f, bb] of Object.entries(frames)) expectBBox(doc, name, Number(f), bb, 2e-3, g);
+  for (const [name, frames] of Object.entries(EXPECTED_BBOX)) for (const [f, bb] of Object.entries(frames)) expectBBox(doc, name, Number(f), bb, 2e-3, g);
 }
 
-describe('USD import (Blender-exported USDA / USDC / USDZ)', () => {
+describe('USD import (USDA / USDC / USDZ fixtures)', () => {
   it('USDA text: hierarchy, meshes, materials, lights, camera, UsdSkel skin + animation, blend shapes', () => {
     const doc = freshDoc();
-    const res = commitScene(doc, readUsd(fixture('blender_scene.usda'), { resources: new Map([['checker.png', fixture('checker.png')]]) }));
+    const res = commitScene(doc, readUsd(fixture('ref_scene.usda'), { resources: new Map([['checker.png', fixture('checker.png')]]) }));
     expect(res.objects.map((o) => o.name).sort()).toEqual(NAMES);
     checkScene(doc);
   });
   it('USDC crate (binary)', () => {
     const doc = freshDoc();
-    const res = commitScene(doc, readUsd(fixture('blender_scene.usdc'), { resources: new Map([['checker.png', fixture('checker.png')]]) }));
+    const res = commitScene(doc, readUsd(fixture('ref_scene.usdc'), { resources: new Map([['checker.png', fixture('checker.png')]]) }));
     expect(res.objects.map((o) => o.name).sort()).toEqual(NAMES);
     checkScene(doc);
   });
   it('USDZ package (crate + textures inside)', () => {
     const doc = freshDoc();
-    const res = commitScene(doc, readUsd(fixture('blender_scene.usdz')));
+    const res = commitScene(doc, readUsd(fixture('ref_scene.usdz')));
     expect(res.objects.map((o) => o.name).sort()).toEqual(NAMES);
     checkScene(doc);
   });
@@ -92,7 +92,7 @@ def Xform "A" (
 describe('USD export', () => {
   it('writes USDA/USDZ that re-import with the same scene, materials, skin and animation', async () => {
     const src = freshDoc();
-    commitScene(src, readUsd(fixture('blender_scene.usdz')));
+    commitScene(src, readUsd(fixture('ref_scene.usdz')));
     src.scene.frame_current = 1;
     const scene = buildExportScene(src, {}, new Depsgraph(src).evaluate(src));
     const out = await writeUsda(scene, {});

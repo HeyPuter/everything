@@ -75,7 +75,7 @@ export function componentOf(g: GeometrySet, k: ComponentKey): Component | undefi
 
 const fmtName = (n: string) => (n === '.viewer' ? 'Viewer' : n);
 
-/** Columns of a component domain (Blender order: position first, then attributes). */
+/** Columns of a component domain (position first, then attributes). */
 export function columnsOf(c: Component, domain: Domain): Column[] {
   const cols: Column[] = [];
   const n = c.domainSize(domain);

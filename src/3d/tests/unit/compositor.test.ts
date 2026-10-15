@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-// Compositor: per-pixel colour math against values measured in the reference application, and
-// graph evaluation order. Reference numbers: tests/fixtures/compositor/blender-color-nodes.json
+// Compositor: per-pixel colour math against expected values, and
+// graph evaluation order. Expected numbers: tests/fixtures/compositor/color-nodes-expected.json
 // (two 8-pixel images P/Q pushed through single nodes, read back as 32-bit float).
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -54,7 +54,7 @@ interface Case {
   >;
   expected: number[][];
 }
-const ref = JSON.parse(readFileSync(resolve(process.cwd(), 'tests/fixtures/compositor/blender-color-nodes.json'), 'utf8')) as {
+const ref = JSON.parse(readFileSync(resolve(process.cwd(), 'tests/fixtures/compositor/color-nodes-expected.json'), 'utf8')) as {
   P: RGBA[];
   Q: RGBA[];
   cases: Record<string, Case>;
@@ -75,7 +75,7 @@ function expectPixels(name: string, got: number[][], tol = 2e-3) {
 const inp = (name: string, node = 'X') => ref.cases[name].nodes[node].inputs ?? {};
 const num = (v: unknown, d: number) => (typeof v === 'number' ? v : d);
 
-describe('compositor colour nodes match the reference', () => {
+describe('compositor colour nodes match the expected values', () => {
   it('implicit conversions', () => {
     // colour → float uses Rec.709 luminance (on premultiplied values), output float → (v, v, v, 1)
     expectPixels(
@@ -154,7 +154,7 @@ describe('compositor colour nodes match the reference', () => {
       );
     }
     const i = inp('cb_cdl');
-    // colour sockets are clamped to >= 0 by the reference UI/RNA
+    // colour sockets are clamped to >= 0 on input
     const off = (i['Color Offset'] as number[]).map((v) => Math.max(0, v));
     expectPixels(
       'cb_cdl',
@@ -484,13 +484,13 @@ describe('compositor graph evaluation', () => {
 });
 
 describe('compositor sampling and kernels', () => {
-  it('realizes domains centred with integer offsets (pixel exact like the reference)', () => {
+  it('realizes domains centred with integer offsets (pixel exact)', () => {
     // a 2×1 image centred in 6×4: output pixel (2, 1) samples source pixel (0, 0) exactly
     const m = realizeMap({ w: 6, h: 4, xf: [...IDENTITY] as Xform }, { w: 2, h: 1, xf: [...IDENTITY] as Xform });
     expect([m[0] * 2.5 + m[3] * 1.5 + m[6], m[1] * 2.5 + m[4] * 1.5 + m[7]]).toEqual([0.5, 0.5]);
   });
 
-  it('blur kernels match the reference impulse responses', () => {
+  it('blur kernels match the expected impulse responses', () => {
     // measured centre / neighbour weights for size 3 (x) and 2 (y)
     const g = blurKernel('Gaussian', 3),
       gy = blurKernel('Gaussian', 2);
@@ -504,7 +504,7 @@ describe('compositor sampling and kernels', () => {
     expect(blurKernel('Cubic', 3)[3] * blurKernel('Cubic', 2)[2]).toBeCloseTo(0.1891, 3);
   });
 
-  it('curve mapping matches the reference curve widget (auto handles, extrapolation)', () => {
+  it('curve mapping matches the expected curve widget output (auto handles, extrapolation)', () => {
     const c = curveEvaluator(
       [
         { x: 0, y: 0, handle: 0 },

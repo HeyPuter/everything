@@ -1,7 +1,7 @@
 // Output Properties ▸ Post Processing: the Compositing pipeline toggle (render.use_compositing)
 // and dithering, appended to the Output tab without changing its module. When another module
 // (the Video Sequencer) already contributes a "Post Processing" panel, its rows are merged into
-// this one so the tab shows a single panel like the reference.
+// this one so the tab shows a single panel.
 import { h, type Child, type VNode } from '../ui/h';
 import { app } from '../app/app';
 import { panel } from '../ui/widgets';

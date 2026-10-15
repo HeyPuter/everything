@@ -1,5 +1,5 @@
 // io/formats subsystem entry point: import feature files here for their registration side effects.
-// Order defines the order in File ▸ Import / Export (mirrors the reference app's menu order).
+// Order defines the order in File ▸ Import / Export.
 import './collada-format';
 import './alembic/index';
 import './usd/index';

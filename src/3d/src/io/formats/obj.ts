@@ -507,7 +507,7 @@ export function writeObj(scene: ExportScene, opts: ObjWriteOptions = {}): ObjOut
       const ni = nIndex[c] >= 0 ? nStart + nIndex[c] + 1 : 0;
       return ni ? `${vi}/${ti || ''}/${ni}` : ti ? `${vi}/${ti}` : `${vi}`;
     };
-    // faces sorted by material for fewer usemtl switches (like the reference exporter)
+    // faces sorted by material for fewer usemtl switches
     const order = Array.from({ length: nf }, (_, f) => f).sort((a, b) => (m.materialIndex[a] ?? 0) - (m.materialIndex[b] ?? 0));
     const tmp: number[] = [];
     for (const f of order) {

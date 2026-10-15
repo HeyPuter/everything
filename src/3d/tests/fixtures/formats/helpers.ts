@@ -46,8 +46,8 @@ export function worldBBox(doc: DocumentData, name: string, frame: number, graph 
   return { min, max };
 }
 
-/** Bounding boxes printed by the Blender oracle script (scene.blend, frames 1/12/24). */
-export const BLENDER_BBOX: Record<string, Record<number, [number[], number[]]>> = {
+/** Expected bounding boxes of the fixture scene (frames 1/12/24). */
+export const EXPECTED_BBOX: Record<string, Record<number, [number[], number[]]>> = {
   Skinned: {
     1: [
       [3.7, -0.3, 0],
@@ -98,7 +98,7 @@ export function expectBBox(doc: DocumentData, name: string, frame: number, expec
   if (!(err <= tol)) throw new Error(`${name}@${frame}: bbox ${JSON.stringify(bb)} differs from ${JSON.stringify(expected)} (err ${err})`);
 }
 
-/** When FORMATS_OUT is set, write exported files there for external (Blender) cross-checks. */
+/** When FORMATS_OUT is set, write exported files there for external cross-checks. */
 export function dumpOutput(name: string, bytes: Uint8Array | string) {
   const dir = process.env.FORMATS_OUT;
   if (!dir) return;

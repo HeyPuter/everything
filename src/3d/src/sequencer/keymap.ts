@@ -1,4 +1,4 @@
-// Sequencer keymaps (default left-click-select layout of the reference application, 5.x).
+// Sequencer keymaps (default left-click-select layout).
 import { addKeys } from '../app/keymap';
 import { addMenu, selectMenu } from './menus';
 

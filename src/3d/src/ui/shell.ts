@@ -162,7 +162,7 @@ export class Shell {
         {
           class: 'ws-tabs',
           role: 'tablist',
-          // the tab strip scrolls horizontally with the wheel when it doesn't fit (as in the reference UI)
+          // the tab strip scrolls horizontally with the wheel when it doesn't fit
           onwheel: (e: WheelEvent) => {
             const el = e.currentTarget as HTMLElement;
             if (el.scrollWidth <= el.clientWidth) return;

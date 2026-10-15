@@ -1,5 +1,5 @@
 // Brush footprint for vertex-based paint modes (vertex colors, weights): projected (screen space
-// circle, the default like the reference app) or spherical (3D distance around the surface hit),
+// circle, the default) or spherical (3D distance around the surface hit),
 // with optional front-face test and normal falloff, plus symmetry passes.
 import { Matrix3, Matrix4, Vector3 } from 'three';
 import type { View3D } from '../editors/view3d/view3d';
