@@ -104,7 +104,7 @@ export function selectMenu(): MenuItem[] {
     { label: 'Box Select', op: 'view3d.select_box_tool', shortcut: 'B' },
     { label: 'Circle Select', op: 'view3d.select_circle_tool', shortcut: 'C' },
     { separator: true },
-    { label: 'Select All by Type', submenu: () => ['MESH', 'CURVE', 'FONT', 'ARMATURE', 'LATTICE', 'EMPTY', 'CAMERA', 'LIGHT'].map((t) => ({ label: t[0] + t.slice(1).toLowerCase(), op: 'object.select_by_type', props: { type: t } })) },
+    { label: 'Select All by Type', submenu: () => ['MESH', 'CURVE', 'META', 'FONT', 'ARMATURE', 'LATTICE', 'EMPTY', 'CAMERA', 'LIGHT'].map((t) => ({ label: t === 'META' ? 'Metaball' : t[0] + t.slice(1).toLowerCase(), op: 'object.select_by_type', props: { type: t } })) },
     { label: 'Select Active Camera', op: 'object.select_camera' },
     { label: 'Select Mirror', op: 'object.select_mirror', shortcut: 'Shift Ctrl M' },
     { label: 'Select Random', op: 'object.select_random' },

@@ -101,6 +101,20 @@ describe('metaball objects', () => {
     expect(Object.keys(app.doc.metaballs ?? {}).length).toBe(0);
   });
 
+  it('honours the edit update method', () => {
+    const ob = addBall([0, 0, 0]);
+    const mb = app.doc.metaballs![ob.data!];
+    mb.elements.push({ ...structuredClone(mb.elements[0]), co: [5, 0, 0] });
+    const n2 = faces(ob)!;
+    mb.update_method = 'NEVER';
+    app.graph.editObjects.add(ob.id);
+    faces(ob);
+    mb.elements.pop();
+    expect(faces(ob)).toBe(n2); // frozen while editing
+    app.graph.editObjects.delete(ob.id);
+    expect(faces(ob)).toBeLessThan(n2);
+  });
+
   it('round-trips through the native file format', () => {
     const ob = addBall([0, 0, 0], 'ELLIPSOID');
     const mb = app.doc.metaballs![ob.data!];
