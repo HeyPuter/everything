@@ -19,7 +19,7 @@ import { currentOrientation, orientationBasis, orientationLabel } from './orient
 import { BUILTIN_ORIENTATIONS } from './orientation_list';
 import { around, basisAxis, bendMatrix, evalNumeric, falloffWeight, randomOffset, seededRandom, shearMatrix, toSpherePoint, warpPoint, type BendFrame } from './transform_math';
 
-export type TransformMode = 'TRANSLATION' | 'ROTATION' | 'RESIZE' | 'TRACKBALL' | 'SHRINKFATTEN' | 'TOSPHERE' | 'SHEAR' | 'PUSHPULL' | 'EDGESLIDE' | 'BEND' | 'WARP' | 'TILT' | 'CURVE_SHRINKFATTEN';
+export type TransformMode = 'TRANSLATION' | 'ROTATION' | 'RESIZE' | 'TRACKBALL' | 'SHRINKFATTEN' | 'TOSPHERE' | 'SHEAR' | 'PUSHPULL' | 'EDGESLIDE' | 'BEND' | 'WARP' | 'TILT' | 'CURVE_SHRINKFATTEN' | 'MIRROR';
 
 /** Modes that change a per-element value (curve tilt / radius) instead of positions. */
 const VALUE_MODES = new Set<TransformMode>(['TILT', 'CURVE_SHRINKFATTEN']);
@@ -419,6 +419,12 @@ function elementMatrix(s: Session, st: TState, e: TElement): Matrix4 {
     case 'TILT':
     case 'CURVE_SHRINKFATTEN':
       return new Matrix4();
+    case 'MIRROR': {
+      // scale by -1 along the constrained axes
+      const sv = [0, 1, 2].map((i) => (st.axes?.[i] ? -1 : 1));
+      const b4 = new Matrix4().setFromMatrix3(B);
+      return around(center, b4.clone().multiply(new Matrix4().makeScale(sv[0], sv[1], sv[2])).multiply(b4.clone().invert()));
+    }
     case 'WARP': {
       const c = st.center ?? s.pivot;
       const wp = st.warp ?? { min: -1, max: 1, offset: 0 };
@@ -499,6 +505,7 @@ const MODE_OP: Partial<Record<TransformMode, string>> = {
   WARP: 'transform.vertex_warp',
   TILT: 'transform.tilt',
   CURVE_SHRINKFATTEN: 'transform.transform',
+  MIRROR: 'transform.mirror',
 };
 
 function proportionalProps() {
@@ -532,6 +539,8 @@ export function stateToOperator(st: TState): { idname: string; props: Record<str
       return { idname, props: { warp_angle: v[0], offset_angle: st.warp?.offset ?? 0, min: round(st.warp?.min ?? -1), max: round(st.warp?.max ?? 1), center: st.center?.toArray().map(round) ?? [0, 0, 0], viewmat: orient.orient_matrix } };
     case 'CURVE_SHRINKFATTEN':
       return { idname, props: { mode: 'CURVE_SHRINKFATTEN', value: [v[0], 0, 0], orient_type: 'GLOBAL' } };
+    case 'MIRROR':
+      return { idname, props: { ...orient, ...cons } };
     default:
       return { idname, props: { value: v[0], ...proportionalProps() } };
   }
@@ -615,7 +624,9 @@ function axisIndex(v: unknown, fallback: number) {
 }
 
 function stateFromProps(mode: TransformMode, p: Record<string, unknown>, s: Session): TState {
-  const cons = p.constraint_axis as boolean[] | undefined;
+  let cons = p.constraint_axis as boolean[] | undefined;
+  // older scripts mirror with a single axis index
+  if (mode === 'MIRROR' && !cons?.some(Boolean) && typeof p.axis === 'number') cons = [0, 1, 2].map((i) => i === p.axis);
   const axes = cons && cons.some(Boolean) ? [...cons] : null;
   const { basis, type } = basisFromProps(p, mode === 'ROTATION' && !axes ? 'VIEW' : 'GLOBAL');
   const st: TState = { mode, value: [], axes, orientType: type, basis, orientAxis: axisIndex(p.orient_axis, 2), orientAxisOrtho: axisIndex(p.orient_axis_ortho, 0) };
@@ -1004,6 +1015,9 @@ export function startTransform(
       if (snapOn()) angle = Math.round(angle / (5 * deg)) * 5 * deg;
       st.value = [vals ? (typed(0) ?? 0) * deg : angle];
       overlay.helpFrom = cursor;
+    } else if (curMode === 'MIRROR') {
+      // the mirror axis comes from the X / Y / Z keys only
+      st.value = [];
     } else if (curMode === 'TILT') {
       // the tilt follows the mouse turning around the selection center
       let angle = -rotTotal;
@@ -1035,7 +1049,7 @@ export function startTransform(
     applyState(s!, st);
     // overlay: constraint axes through the pivot, proportional radius
     overlay.pivot = (curMode === 'BEND' || curMode === 'WARP' ? cursor : s!.pivot).clone();
-    overlay.axes = constraint && (curMode === 'TRANSLATION' || curMode === 'ROTATION' || curMode === 'RESIZE') ? [0, 1, 2].filter((i) => (curMode === 'ROTATION' && nFree === 2 ? !constraint!.axes[i] : constraint!.axes[i])).map((i) => ({ dir: basisAxis(basis, i), color: AXIS_COLORS[i] })) : [];
+    overlay.axes = constraint && (curMode === 'TRANSLATION' || curMode === 'ROTATION' || curMode === 'RESIZE' || curMode === 'MIRROR') ? [0, 1, 2].filter((i) => (curMode === 'ROTATION' && nFree === 2 ? !constraint!.axes[i] : constraint!.axes[i])).map((i) => ({ dir: basisAxis(basis, i), color: AXIS_COLORS[i] })) : [];
     overlay.propRadius = proportional ? propSize : 0;
     overlay.mouse = { ...mouse };
     renderContext?.engine.requestDraw();
@@ -1128,7 +1142,7 @@ export function startTransform(
     compute();
   };
 
-  const modeLabel = () => ({ TRANSLATION: 'Move', ROTATION: 'Rotate', RESIZE: 'Resize', TRACKBALL: 'Trackball', SHRINKFATTEN: 'Shrink/Fatten', TOSPHERE: 'To Sphere', SHEAR: 'Shear', PUSHPULL: 'Push/Pull', EDGESLIDE: 'Edge Slide', BEND: 'Bend', WARP: 'Warp', TILT: 'Tilt', CURVE_SHRINKFATTEN: 'Radius' })[curMode];
+  const modeLabel = () => ({ TRANSLATION: 'Move', ROTATION: 'Rotate', RESIZE: 'Resize', TRACKBALL: 'Trackball', SHRINKFATTEN: 'Shrink/Fatten', TOSPHERE: 'To Sphere', SHEAR: 'Shear', PUSHPULL: 'Push/Pull', EDGESLIDE: 'Edge Slide', BEND: 'Bend', WARP: 'Warp', TILT: 'Tilt', CURVE_SHRINKFATTEN: 'Radius', MIRROR: 'Mirror' })[curMode];
 
   const fmt = (x: number) => (Math.abs(x) < 1e-6 ? '0' : x.toFixed(4).replace(/\.?0+$/, ''));
   const fmtDeg = (x: number) => `${fmt((x * 180) / Math.PI)}°`;
@@ -1153,6 +1167,7 @@ export function startTransform(
     else if (curMode === 'WARP') body = `Warp: ${fmtDeg(v0[0] ?? 0)}`;
     else if (curMode === 'TOSPHERE') body = `To Sphere: ${fmt(v0[0] ?? 0)}`;
     else if (curMode === 'TILT') body = `Tilt: ${fmtDeg(v0[0] ?? 0)}`;
+    else if (curMode === 'MIRROR') body = constraint ? 'Mirror' : 'Mirror: press X, Y or Z to choose the axis';
     else if (curMode === 'CURVE_SHRINKFATTEN') body = `Shrink/Fatten: ${fmt(v0[0] ?? 1)}`;
     else body = `${modeLabel()}: ${fmt(v0[0] ?? 0)} m`;
     return `${body}${cname}${numTxt}${snapOn() ? '  (Snap)' : ''}${prop}`;
@@ -1168,6 +1183,7 @@ export function startTransform(
         ['RMB/Esc', 'Cancel'],
       ];
       if (curMode === 'TRANSLATION' || curMode === 'ROTATION' || curMode === 'RESIZE') hints.push(['X Y Z', 'Axis'], ['Shift X Y Z', 'Plane'], ['C', 'Clear Constraints'], ['MMB', 'Automatic Constraint']);
+      if (curMode === 'MIRROR') hints.push(['X Y Z', 'Mirror Axis'], ['Shift X Y Z', 'Mirror Plane']);
       if (curMode === 'SHEAR') hints.push(['X Y', 'Direction']);
       hints.push(['Ctrl', 'Invert Snap'], ['Shift Tab', 'Snap Toggle'], ['Shift', 'Precision'], ['G R S', 'Mode']);
       if (proportional) hints.push(['Wheel/PgUp PgDn', 'Proportional Size']);
@@ -1284,7 +1300,7 @@ export function startTransform(
         const axis = code === 'KeyX' ? 0 : code === 'KeyY' ? 1 : 2;
         if (curMode === 'SHEAR') {
           if (axis < 2) shearOrtho = axis;
-        } else if (curMode === 'TRANSLATION' || curMode === 'ROTATION' || curMode === 'RESIZE') {
+        } else if (curMode === 'TRANSLATION' || curMode === 'ROTATION' || curMode === 'RESIZE' || curMode === 'MIRROR') {
           setConstraint(axis, e.shiftKey);
           // typed values move to the newly constrained fields
           if (num.idx >= numFields()) num.idx = 0;
@@ -1411,7 +1427,11 @@ function transformOp(idname: string, label: string, mode: TransformMode, descrip
     description,
     props: [...props, { id: 'release_confirm', label: 'Confirm on Release', type: 'bool', default: false, hidden: true }],
     poll,
-    invoke: (ctx, p) => invokeModal(mode, p, ctx),
+    invoke: (ctx, p) => {
+      // a mirror with a given axis applies right away (the menu's X / Y / Z entries)
+      if (mode === 'MIRROR' && ((p.constraint_axis as boolean[] | undefined)?.some(Boolean) || (typeof p.axis === 'number' && p.axis >= 0))) return execTransform(mode, p);
+      return invokeModal(mode, p, ctx);
+    },
     exec: (_ctx, p) => execTransform(mode, p),
   };
 }
@@ -1488,6 +1508,11 @@ registerOperators([
 ]);
 
 registerOperators([
+  transformOp('transform.mirror', 'Mirror', 'MIRROR', 'Mirror selected items around one or more axes', [
+    ...ORIENT_PROPS,
+    CONSTRAINT_PROP,
+    { id: 'axis', label: 'Axis', type: 'int', default: -1, hidden: true },
+  ]),
   transformOp('transform.tilt', 'Tilt', 'TILT', 'Tilt the selected curve control points', [{ id: 'value', label: 'Angle', type: 'float', default: 0, subtype: 'angle' }, ...PROPORTIONAL_PROPS], () => !!activeView3D() && curveEditData() !== null),
 ]);
 

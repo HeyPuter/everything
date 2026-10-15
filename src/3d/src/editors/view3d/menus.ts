@@ -2,7 +2,7 @@
 import type { MenuItem } from '../../ui/menu';
 import { app } from '../../app/app';
 import { modeMenus } from './modemenus';
-import { objectTransformMenu } from './transformui';
+import { objectTransformMenu, mirrorMenu } from './transformui';
 import './quadview';
 
 export function viewMenu(): MenuItem[] {
@@ -255,7 +255,7 @@ export function objectMenu(): MenuItem[] {
       { label: 'Origin to Center of Mass (Surface)', op: 'object.origin_set', props: { type: 'ORIGIN_CENTER_OF_MASS' } },
     ] },
     { label: 'Apply', shortcut: 'Ctrl A', submenu: applyMenu },
-    { label: 'Mirror', submenu: () => ['X', 'Y', 'Z'].map((a, i) => ({ label: `${a} Global`, op: 'transform.mirror', props: { axis: i } })) },
+    { label: 'Mirror', submenu: mirrorMenu },
     { label: 'Clear', submenu: () => [
       { label: 'Location', op: 'object.location_clear', shortcut: 'Alt G' },
       { label: 'Rotation', op: 'object.rotation_clear', shortcut: 'Alt R' },
@@ -397,7 +397,7 @@ export function objectContextMenu(): MenuItem[] {
     { separator: true },
     { label: 'Rename Active Object…', op: 'object.rename', shortcut: 'F2' },
     { separator: true },
-    { label: 'Mirror', submenu: () => ['X', 'Y', 'Z'].map((a, i) => ({ label: `${a} Global`, op: 'transform.mirror', props: { axis: i } })) },
+    { label: 'Mirror', submenu: mirrorMenu },
     { label: 'Snap', submenu: snapMenu },
     { label: 'Parent', submenu: () => [{ label: 'Object', op: 'object.parent_set', props: { type: 'OBJECT' } }, { label: 'Clear Parent', op: 'object.parent_clear', props: { type: 'CLEAR' } }] },
     { label: 'Move to Collection', op: 'object.move_to_collection', shortcut: 'M' },

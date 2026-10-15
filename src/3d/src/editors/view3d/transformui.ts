@@ -40,6 +40,18 @@ export function objectTransformMenu(): MenuItem[] {
   ];
 }
 
+/** Mirror menu: interactive, or around the global / local axes. */
+export function mirrorMenu(): MenuItem[] {
+  const axis = (a: number) => [0, 1, 2].map((i) => i === a);
+  return [
+    { label: 'Interactive Mirror', op: 'transform.mirror' },
+    { separator: true },
+    ...['X', 'Y', 'Z'].map((n, i) => ({ label: `${n} Global`, op: 'transform.mirror', props: { constraint_axis: axis(i), orient_type: 'GLOBAL' } })),
+    { separator: true },
+    ...['X', 'Y', 'Z'].map((n, i) => ({ label: `${n} Local`, op: 'transform.mirror', props: { constraint_axis: axis(i), orient_type: 'LOCAL' } })),
+  ];
+}
+
 /** Extra entries of the Mesh / Curve ▸ Transform menus (after Push/Pull). */
 export function editTransformExtras(): MenuItem[] {
   return [

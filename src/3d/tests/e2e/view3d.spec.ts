@@ -435,3 +435,37 @@ test('a viewport can look through its own local camera', async ({ page }) => {
   expect(await get(page, 'app.doc.scene.camera')).toBe(sceneCam);
   await expectNoErrors(errors);
 });
+
+test('mirror: menu axes and the interactive mirror', async ({ page }) => {
+  const errors = await openApp(page);
+  const c = await hoverViewport(page);
+  await run(page, 'transform.mirror', { constraint_axis: [true, false, false], orient_type: 'GLOBAL' });
+  expect(await get(page, 'app.activeObject.scale.map(v => Math.round(v * 1000) / 1000)')).toEqual([-1, 1, 1]);
+  expect(await get(page, 'app.lastOp.idname')).toBe('transform.mirror');
+  // interactive: choose Z with the key, confirm with a click
+  await page.keyboard.press('Control+z');
+  await run(page, 'transform.mirror');
+  await page.keyboard.press('z');
+  await page.mouse.click(c.x, c.y);
+  // the evaluated matrix is mirrored along Z (the object may store it as another scale + rotation)
+  const m = await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.flush();
+    return Array.from(a.graph.get(a.activeObject.id).world.elements as number[]).map((v) => Math.round(v * 1000) / 1000);
+  });
+  expect([m[0], m[5], m[10]]).toEqual([1, 1, -1]);
+  // edit mode: vertices are mirrored around the pivot
+  await page.keyboard.press('Control+z');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('a');
+  await run(page, 'transform.translate', { value: [1, 0, 0] }, { invoke: false });
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.doc.scene.tool_settings.transform_pivot_point = 'CURSOR';
+  });
+  await run(page, 'transform.mirror', { constraint_axis: [true, false, false], orient_type: 'GLOBAL' });
+  const xs = await get<number[]>(page, 'Array.from(app.doc.meshes[app.activeObject.data].positions).filter((_, i) => i % 3 === 0)');
+  expect(Math.min(...xs)).toBeCloseTo(-2, 5);
+  expect(Math.max(...xs)).toBeCloseTo(0, 5);
+  await expectNoErrors(errors);
+});
