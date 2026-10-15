@@ -275,3 +275,25 @@ describe('dynamic topology', async () => {
     for (const i of r.indices) expect(i).toBeLessThan(count);
   });
 });
+
+describe('cloth filter', async () => {
+  const { clothSimulate } = await import('../../src/paint/filters');
+  it('lets a pinned grid fall while keeping edge lengths', () => {
+    const g = grid(6, 6, 2);
+    const nb = vertexNeighbors(g);
+    const edges: number[] = [];
+    for (let v = 0; v < 49; v++) for (let k = nb.offsets[v]; k < nb.offsets[v + 1]; k++) if (nb.neighbors[k] > v) edges.push(v, nb.neighbors[k]);
+    const free = new Float32Array(49).fill(1);
+    for (let x = 0; x < 7; x++) free[x] = 0; // pin one border row
+    const normals = new Float32Array(49 * 3);
+    const res = clothSimulate({ orig: g.positions, normals, edges: Uint32Array.from(edges), free, down: [0, 0, -1], center: [0, 0, 0] }, 'GRAVITY', 1);
+    for (let x = 0; x < 7; x++) expect(res[x * 3 + 2]).toBe(0);
+    expect(res[48 * 3 + 2]).toBeLessThan(-0.05);
+    // edges stay close to their rest length
+    const a = 47,
+      b = 48;
+    const len = Math.hypot(res[b * 3] - res[a * 3], res[b * 3 + 1] - res[a * 3 + 1], res[b * 3 + 2] - res[a * 3 + 2]);
+    expect(len).toBeGreaterThan(0.25);
+    expect(len).toBeLessThan(0.45);
+  });
+});

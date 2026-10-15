@@ -8,6 +8,7 @@ import './facesetops';
 import './gestureops';
 import './meshfilter';
 import './colorfilter';
+import './clothfilter';
 import './expand';
 import './maskops';
 import './trim';

@@ -266,3 +266,91 @@ export function applyMeshFilter(m: FilterMesh, p: FilterParams): Float32Array {
   }
   return P;
 }
+
+// ---------------------------------------------------------------------------
+// cloth
+
+export interface ClothInput {
+  orig: Float32Array;
+  normals: Float32Array;
+  edges: Uint32Array;
+  /** 0 = pinned, 1 = free */
+  free: Float32Array;
+  down: [number, number, number];
+  center: [number, number, number];
+}
+
+/** Simulate the filter from the rest positions (deterministic for a strength). */
+export function clothSimulate(c: ClothInput, type: string, strength: number, iterations = 4): Float32Array {
+  const x = c.orig.slice();
+  const nv = x.length / 3;
+  const ne = c.edges.length / 2;
+  const rest = new Float32Array(ne);
+  for (let e = 0; e < ne; e++) {
+    const a = c.edges[e * 2] * 3,
+      b = c.edges[e * 2 + 1] * 3;
+    rest[e] = Math.hypot(x[b] - x[a], x[b + 1] - x[a + 1], x[b + 2] - x[a + 2]);
+  }
+  let avg = 0;
+  for (let e = 0; e < ne; e++) avg += rest[e];
+  avg /= ne || 1;
+  const steps = Math.max(1, Math.min(60, Math.ceil(Math.abs(strength) * 12)));
+  const k = (strength / steps) * avg * 1.5;
+  if (type === 'SCALE') for (let e = 0; e < ne; e++) rest[e] *= 1 + strength * 0.5;
+  // verlet integration: forces accelerate the cloth, constraints keep its edges
+  const prev = x.slice();
+  for (let s = 0; s < steps; s++) {
+    for (let v = 0; v < nv; v++) {
+      const f = c.free[v];
+      if (!f) continue;
+      const i = v * 3;
+      for (let q = 0; q < 3; q++) {
+        const vel = (x[i + q] - prev[i + q]) * 0.92;
+        prev[i + q] = x[i + q];
+        x[i + q] += vel;
+      }
+      let dx = 0,
+        dy = 0,
+        dz = 0;
+      if (type === 'GRAVITY') [dx, dy, dz] = c.down;
+      else if (type === 'INFLATE') [dx, dy, dz] = [c.normals[i], c.normals[i + 1], c.normals[i + 2]];
+      else if (type === 'EXPAND' || type === 'PINCH') {
+        dx = x[i] - c.center[0];
+        dy = x[i + 1] - c.center[1];
+        dz = x[i + 2] - c.center[2];
+        const l = Math.hypot(dx, dy, dz) || 1;
+        const sgn = type === 'PINCH' ? -1 : 1;
+        dx = (dx / l) * sgn;
+        dy = (dy / l) * sgn;
+        dz = (dz / l) * sgn;
+      } else continue;
+      x[i] += dx * k * f;
+      x[i + 1] += dy * k * f;
+      x[i + 2] += dz * k * f;
+    }
+    // keep the edge lengths (pinned vertices do not move)
+    for (let it = 0; it < iterations; it++)
+      for (let e = 0; e < ne; e++) {
+        const va = c.edges[e * 2],
+          vb = c.edges[e * 2 + 1];
+        const wa = c.free[va],
+          wb = c.free[vb];
+        if (wa + wb === 0) continue;
+        const a = va * 3,
+          b = vb * 3;
+        const ddx = x[b] - x[a],
+          ddy = x[b + 1] - x[a + 1],
+          ddz = x[b + 2] - x[a + 2];
+        const l = Math.hypot(ddx, ddy, ddz) || 1e-9;
+        const corr = (l - rest[e]) / l / (wa + wb);
+        x[a] += ddx * corr * wa;
+        x[a + 1] += ddy * corr * wa;
+        x[a + 2] += ddz * corr * wa;
+        x[b] -= ddx * corr * wb;
+        x[b + 1] -= ddy * corr * wb;
+        x[b + 2] -= ddz * corr * wb;
+      }
+  }
+  return x;
+}
+
