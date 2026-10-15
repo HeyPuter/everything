@@ -33,3 +33,9 @@ export const isDriverAction = (a: ActionData | undefined) => !!a && a.id.startsW
 export function driverOfCurve(ob: ObjectData, fc: FCurve): Driver | undefined {
   return ob.animation_data?.drivers.find((d) => d.fcurve === fc);
 }
+
+/** Keys define the mapping once added: drop the untouched default Generator so they take effect. */
+export function dropDefaultGenerator(fc: FCurve) {
+  const m = fc.modifiers;
+  if (m.length === 1 && m[0].type === 'GENERATOR' && !m[0].use_additive && !m[0].mute && JSON.stringify(m[0].coefficients) === '[0,1]' && !m[0].use_restricted_range && !m[0].use_influence) fc.modifiers = [];
+}

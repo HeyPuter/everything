@@ -53,7 +53,8 @@ function driversArea(): Area | null {
   const screen = shell.screen;
   const existing = screen.findArea('DRIVERS');
   if (existing) return existing;
-  const base = (app.hoverArea && screen.areas.includes(app.hoverArea as Area) ? (app.hoverArea as Area) : null) ?? screen.areas.reduce<Area | null>((best, a) => (!best || a.rect.w * a.rect.h > best.rect.w * best.rect.h ? a : best), null);
+  // the largest area gives up its lower part (the button pressed is usually in a small side area)
+  const base = screen.areas.reduce<Area | null>((best, a) => (!best || a.rect.w * a.rect.h > best.rect.w * best.rect.h ? a : best), null);
   if (!base) return null;
   const area = screen.split(base, 'v', 0.55);
   if (!area) return null;

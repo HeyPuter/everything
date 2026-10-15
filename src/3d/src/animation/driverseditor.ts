@@ -23,7 +23,7 @@ import { drawFCurveSidebar, drawModifiersSidebar } from './graphsidebar';
 import { setKeySelected } from './keyedit';
 import { proportionalHeader } from './proportional';
 import { appDriverContext, driverError, driverSettings, drivenPropertyRow, newDriverVariable } from './driverpanel';
-import { defaultDriverCurve, driverOfCurve, ensureDriverCurve } from './drivercurves';
+import { defaultDriverCurve, driverOfCurve, dropDefaultGenerator, ensureDriverCurve } from './drivercurves';
 import './drivers.css';
 
 export { driverError, newDriverVariable };
@@ -64,7 +64,7 @@ export class DriversEditor extends GraphEditor {
 
   /** The active driver: the one whose curve is active, else the first selected or listed one. */
   active(): { ob: ObjectData; d: Driver } | null {
-    const r = this.activeCurve();
+    const r = super.activeCurve();
     if (r) {
       const d = driverOfCurve(r.ob, r.fc);
       if (d) return { ob: r.ob, d };
@@ -83,6 +83,23 @@ export class DriversEditor extends GraphEditor {
     this.rebuild();
     const r = this.list.curves.find((c) => c.fc === fc);
     if (r) this.activeKey = curveId(r);
+  }
+
+  /** Falls back to the active driver's curve so the F-Curve and Modifiers tabs always have one. */
+  activeCurve(): CurveRef | null {
+    const r = super.activeCurve();
+    if (r) return r;
+    const a = this.active();
+    return a ? (this.visibleCurves().find((c) => c.fc === a.d.fcurve) ?? null) : null;
+  }
+
+  protected onCanvasDown(e: PointerEvent) {
+    // Ctrl+RMB inserts a key on the active curve: keys replace the default Generator line
+    if (e.button === 2 && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+      const r = this.activeCurve();
+      if (r) dropDefaultGenerator(r.fc);
+    }
+    super.onCanvasDown(e);
   }
 
   clickChannel(ch: Channel, extend: boolean) {
@@ -234,6 +251,17 @@ export class DriversEditor extends GraphEditor {
     return false;
   }
 
+  /** the view was panned or zoomed by hand: keep it when the area is resized */
+  private navigated = false;
+  protected afterViewChange() {
+    this.navigated = true;
+    super.afterViewChange();
+  }
+  resize() {
+    if (!this.navigated) this.fitted = false;
+    super.resize();
+  }
+
   protected fitInitial(W: number) {
     this.view.width = W;
     const a = this.active();
@@ -350,6 +378,7 @@ export class DriversEditor extends GraphEditor {
       const x = res.error ? 0 : res.input;
       const y = res.error ? x : res.value;
       for (const k of r.fc.keyframe_points) setKeySelected(k, false);
+      dropDefaultGenerator(r.fc);
       setKeySelected(insertKeyframe(r.fc, x, y, { type }), true);
     }
     return true;
