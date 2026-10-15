@@ -247,21 +247,23 @@ export class Area implements AreaLike {
     this.editor.resize?.();
   }
 
-  /** View ▸ Area menu: split, maximize, fullscreen, close. */
+  /** View ▸ Area menu: split, maximize, fullscreen, swap, join, close. */
   areaMenu(): MenuItem[] {
     const sc = this.screen;
     const max = sc.maximized === this;
+    const run = (op: string, props: Record<string, unknown> = {}) => () => app.run(op, props, { area: this });
+    const multi = sc.areas.length > 1 && !sc.maximized;
     return [
-      { label: 'Horizontal Split', action: () => sc.interactiveSplit(this, 'v') },
-      { label: 'Vertical Split', action: () => sc.interactiveSplit(this, 'h') },
+      { label: 'Horizontal Split', op: 'screen.area_split', props: { direction: 'HORIZONTAL' }, action: run('screen.area_split', { direction: 'HORIZONTAL' }) },
+      { label: 'Vertical Split', op: 'screen.area_split', props: { direction: 'VERTICAL' }, action: run('screen.area_split', { direction: 'VERTICAL' }) },
       { separator: true },
-      { label: max && !sc.fullscreen ? 'Back to Previous' : 'Toggle Maximize Area', shortcut: 'Ctrl Space', disabled: sc.fullscreen, action: () => sc.toggleMaximize(this) },
-      { label: max && sc.fullscreen ? 'Back to Previous' : 'Toggle Fullscreen Area', shortcut: 'Ctrl Alt Space', disabled: max && !sc.fullscreen, action: () => sc.toggleMaximize(this, true) },
+      { label: max && !sc.fullscreen ? 'Back to Previous' : 'Toggle Maximize Area', shortcut: 'Ctrl Space', op: 'screen.screen_full_area', disabled: sc.fullscreen, action: run('screen.screen_full_area') },
+      { label: max && sc.fullscreen ? 'Back to Previous' : 'Toggle Fullscreen Area', shortcut: 'Ctrl Alt Space', op: 'screen.screen_full_area', props: { use_hide_panels: true }, disabled: max && !sc.fullscreen, action: run('screen.screen_full_area', { use_hide_panels: true }) },
       { separator: true },
-      { label: 'Swap Areas…', disabled: sc.areas.length <= 1 || !!sc.maximized, action: () => sc.interactivePick(this, 'swap') },
-      { label: 'Join Areas…', disabled: sc.areas.length <= 1 || !!sc.maximized, action: () => sc.interactivePick(this, 'join') },
+      { label: 'Swap Areas…', op: 'screen.area_swap', disabled: !multi, action: run('screen.area_swap') },
+      { label: 'Join Areas…', op: 'screen.area_join', disabled: !multi, action: run('screen.area_join') },
       { separator: true },
-      { label: 'Close Area', disabled: sc.areas.length <= 1 || !!sc.maximized, action: () => sc.close(this) },
+      { label: 'Close Area', op: 'screen.area_close', disabled: !multi, action: run('screen.area_close') },
     ];
   }
 

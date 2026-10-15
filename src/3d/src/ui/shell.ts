@@ -5,11 +5,15 @@ import { openMenu, promptText, type MenuItem } from './menu';
 import { app, registerOperators } from '../app/app';
 import { Screen, defaultWorkspaces, workspaceTemplates, type Workspace, type LayoutNode } from './screen';
 import { uiState, prefs } from '../app/prefs';
-import { importMenu, exportMenu, projectUiState } from '../io/files';
+import { projectUiState } from '../io/files';
+import { appMenu, fileMenu, editMenu, renderMenu, windowMenu, helpMenu, fileNewTemplates } from './topbar';
+
+export { fileNewTemplates };
 import { textField } from './widgets';
 import { setMode } from '../ops/object';
 import { assistantOpen } from '../assistant';
 import './screenops';
+import { APP_VERSION } from '../scripting/wmops';
 
 const STATUSBAR_KEY = 'p3d.ui.statusbar';
 function loadStatusbarShown() {
@@ -302,7 +306,7 @@ export class Shell {
     patch(this.status, [
       h('div', { class: 'sb-hints' }, m?.header ? h('span', { class: 'sb-modal' }, m.header()) : null, hints.map(([k, l]) => h('span', { class: 'sb-hint', key: k + l }, h('kbd', null, k), l))),
       h('div', { class: 'sb-center' }, showReport ? h('span', { class: `sb-report ${last.type.toLowerCase()}` }, icon(last.type === 'ERROR' ? 'error' : 'info_small'), last.message) : null),
-      h('div', { class: 'sb-right' }, this.fileStatus ? h('span', { class: 'sb-file' }, this.fileStatus) : null, h('span', { class: 'sb-stats' }, stats), h('span', { class: 'sb-version' }, 'v1.0')),
+      h('div', { class: 'sb-right' }, this.fileStatus ? h('span', { class: 'sb-file' }, this.fileStatus) : null, h('span', { class: 'sb-stats' }, stats), h('span', { class: 'sb-version' }, `v${APP_VERSION}`)),
     ]);
   }
 }
@@ -312,85 +316,6 @@ function modeHint() {
   if (m === 'SCULPT') return 'Sculpt';
   if (m.endsWith('PAINT')) return 'Paint';
   return 'Select';
-}
-
-function appMenu(): MenuItem[] {
-  return [
-    { label: 'About', action: () => app.run('wm.about') },
-    { separator: true },
-    { label: 'Install Application…', disabled: true },
-  ];
-}
-
-/** File ▸ New entries (application templates, e.g. 2D Animation); modules append to it. */
-export const fileNewTemplates: { label: string; icon?: string; template: string }[] = [{ label: 'General', icon: 'file_blank', template: '' }];
-
-function fileMenu(): MenuItem[] {
-  return [
-    { label: 'New', icon: 'file_blank', submenu: () => fileNewTemplates.map((t) => ({ label: t.label, icon: t.icon, op: 'wm.read_homefile', props: t.template ? { app_template: t.template } : {}, shortcut: t.template ? undefined : 'Ctrl N' })) },
-    { label: 'Open…', icon: 'file_folder', shortcut: 'Ctrl O', op: 'wm.open_mainfile' },
-    { label: 'Recover Last Session', op: 'wm.recover_last_session' },
-    { separator: true },
-    { label: 'Save', icon: 'file_3d', shortcut: 'Ctrl S', op: 'wm.save_mainfile' },
-    { label: 'Save As…', shortcut: 'Shift Ctrl S', op: 'wm.save_as_mainfile' },
-    { separator: true },
-    { label: 'Import', icon: 'import', submenu: importMenu },
-    { label: 'Export', icon: 'export', submenu: exportMenu },
-    { separator: true },
-    { label: 'Clean Up', submenu: () => [{ label: 'Purge Unused Data', op: 'outliner.orphans_purge' }] },
-    { separator: true },
-    { label: 'Defaults', submenu: () => [{ label: 'Load Factory Settings', op: 'wm.read_factory_settings' }] },
-  ];
-}
-
-function editMenu(): MenuItem[] {
-  return [
-    { label: 'Undo', shortcut: 'Ctrl Z', op: 'ed.undo', disabled: !app.undo.canUndo },
-    { label: 'Redo', shortcut: 'Shift Ctrl Z', op: 'ed.redo', disabled: !app.undo.canRedo },
-    { separator: true },
-    { label: 'Undo History…', shortcut: 'Ctrl Alt Z', op: 'ed.undo_history' },
-    { separator: true },
-    { label: 'Repeat Last', shortcut: 'Shift R', op: 'screen.repeat_last' },
-    { label: 'Adjust Last Operation…', shortcut: 'F9', op: 'screen.redo_last' },
-    { separator: true },
-    { label: 'Menu Search…', shortcut: 'F3', op: 'wm.search_menu' },
-    { label: 'Rename Active Item…', shortcut: 'F2', op: 'object.rename' },
-    { separator: true },
-    { label: 'Preferences…', icon: 'preferences', shortcut: 'Ctrl ,', op: 'screen.userpref_show' },
-  ];
-}
-
-function renderMenu(): MenuItem[] {
-  return [
-    { label: 'Render Image', icon: 'render', shortcut: 'F12', op: 'render.render' },
-    { label: 'Render Animation', shortcut: 'Ctrl F12', op: 'render.render', props: { animation: true } },
-    { separator: true },
-    { label: 'Render Audio…', op: 'sound.mixdown' },
-    { separator: true },
-    { label: 'View Render', shortcut: 'F11', op: 'render.view_show' },
-  ];
-}
-
-function windowMenu(shell: Shell): MenuItem[] {
-  return [
-    { label: 'Toggle Window Fullscreen', action: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()) },
-    { separator: true },
-    { label: 'Next Workspace', shortcut: 'Ctrl Page Down', op: 'screen.workspace_cycle', props: { direction: 'NEXT' } },
-    { label: 'Previous Workspace', shortcut: 'Ctrl Page Up', op: 'screen.workspace_cycle', props: { direction: 'PREV' } },
-    { separator: true },
-    { label: 'AI Assistant', icon: 'assistant', checked: assistantOpen(), op: 'wm.assistant_toggle' },
-    { separator: true },
-    { label: 'Show Status Bar Statistics', checked: prefs.show_statusbar_stats, action: () => ((prefs.show_statusbar_stats = !prefs.show_statusbar_stats), shell.drawStatus()) },
-    { separator: true },
-    { label: 'Save Screenshot', op: 'screen.screenshot' },
-  ];
-}
-
-function helpMenu(): MenuItem[] {
-  return [
-    { label: 'Keyboard Shortcuts', op: 'wm.keymap_reference' },
-    { label: 'About', op: 'wm.about' },
-  ];
 }
 
 /** Right-click menu of a workspace tab. */

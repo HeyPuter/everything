@@ -609,6 +609,8 @@ export function menuKey(e: KeyboardEvent): boolean {
 }
 
 export function pointerDownOutsideMenus(target: EventTarget | null) {
+  // synthetic presses used to collect menu items (captureMenuItems) never close menus
+  if (capturing) return false;
   if (!stack.length && !document.querySelector('.popup-layer > .popover')) return false;
   const t = target as HTMLElement;
   if (t?.closest?.('.menu, .popover, .pie')) return false;

@@ -271,7 +271,7 @@ registerOperators([
     exec: () => saveUserPrefs(),
   },
   {
-    idname: 'wm.read_factory_settings',
+    idname: 'wm.read_factory_userpref',
     label: 'Load Factory Preferences',
     description: 'Load factory default preferences and key bindings (your scene is kept)',
     undo: false,
@@ -279,13 +279,40 @@ registerOperators([
     exec: (_c, p) => {
       if (p.confirm) {
         openMenu(
-          [{ heading: 'Load factory default preferences?' }, { label: 'Load Factory Preferences', icon: 'error', action: () => app.run('wm.read_factory_settings', { confirm: false }) }],
+          [{ heading: 'Load factory default preferences?' }, { label: 'Load Factory Preferences', icon: 'error', action: () => app.run('wm.read_factory_userpref', { confirm: false }) }],
           { x: app.pointer.x, y: app.pointer.y },
         );
         return 'CANCELLED';
       }
       factoryPrefs();
       app.report('INFO', 'Factory preferences loaded');
+    },
+  },
+  {
+    idname: 'wm.read_factory_settings',
+    label: 'Load Factory Settings',
+    description: 'Start over with the factory default scene, workspaces and preferences (your saved startup file is kept)',
+    undo: false,
+    props: [
+      { id: 'confirm', label: 'Confirm', type: 'bool', default: true, hidden: true },
+      { id: 'use_empty', label: 'Empty', type: 'bool', default: false },
+    ],
+    exec: (_c, p) => {
+      if (p.confirm) {
+        openMenu(
+          [{ heading: 'Load factory settings? Unsaved changes are lost.' }, { label: 'Load Factory Settings', icon: 'error', action: () => app.run('wm.read_factory_settings', { confirm: false, use_empty: p.use_empty }) }],
+          { x: app.pointer.x, y: app.pointer.y },
+        );
+        return 'CANCELLED';
+      }
+      factoryPrefs();
+      app.run('wm.read_homefile', { use_factory_startup: true });
+      if (p.use_empty) {
+        app.run('object.select_all', { action: 'SELECT' }, { invoke: false });
+        app.run('object.delete', { confirm: false }, { invoke: false });
+        app.undo.reset(app.doc);
+      }
+      app.report('INFO', 'Factory settings loaded');
     },
   },
   {

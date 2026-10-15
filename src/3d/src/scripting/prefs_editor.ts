@@ -169,7 +169,7 @@ export class PreferencesEditor implements Editor {
                   { label: 'Save Preferences', op: 'wm.save_userpref' },
                   { label: 'Revert to Saved Preferences', action: () => revertPrefs() },
                   { separator: true },
-                  { label: 'Load Factory Preferences', op: 'wm.read_factory_settings' },
+                  { label: 'Load Factory Preferences', op: 'wm.read_factory_userpref' },
                 ],
                 e.currentTarget as HTMLElement,
               );

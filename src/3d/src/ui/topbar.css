@@ -1,0 +1,154 @@
+/* Splash screen and the Recover Auto Save list. */
+
+.splash-dialog .dialog-title {
+  display: none;
+}
+.splash-dialog .dialog-body {
+  padding: 0;
+}
+.splash {
+  display: flex;
+  flex-direction: column;
+}
+.splash-hero {
+  position: relative;
+  height: 150px;
+  overflow: hidden;
+  border-radius: 8px 8px 0 0;
+  background:
+    radial-gradient(120% 140% at 85% 10%, #3a5f9f 0%, transparent 55%),
+    radial-gradient(90% 120% at 10% 100%, #8a4a1f 0%, transparent 60%),
+    linear-gradient(160deg, #1e2533, #141820);
+  cursor: pointer;
+}
+.splash-orbits span {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.splash-orbits .o1 {
+  width: 260px;
+  height: 260px;
+  right: -40px;
+  top: -70px;
+}
+.splash-orbits .o2 {
+  width: 170px;
+  height: 170px;
+  right: 6px;
+  top: -24px;
+  border-color: rgba(255, 190, 120, 0.22);
+}
+.splash-orbits .o3 {
+  width: 90px;
+  height: 90px;
+  right: 46px;
+  top: 16px;
+  background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0.04) 60%);
+}
+.splash-brand {
+  position: absolute;
+  left: 22px;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #fff;
+}
+.splash-name {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.splash-ver {
+  font-size: 12px;
+  opacity: 0.75;
+}
+.splash-cols {
+  display: flex;
+  gap: 18px;
+  padding: 14px 18px 6px;
+}
+.splash-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.splash-col.wide {
+  flex: 1.5;
+}
+.splash-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--c-text-dim);
+  margin: 0 0 6px 6px;
+}
+.splash-gap {
+  height: 10px;
+}
+.splash-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 4px;
+  text-align: left;
+  color: var(--c-text);
+  min-width: 0;
+}
+.splash-item:hover {
+  background: var(--w-menu-item-hl);
+  color: #fff;
+}
+.splash-recent-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.splash-recent-meta {
+  font-size: 11px;
+  color: var(--c-text-dim);
+  white-space: nowrap;
+}
+.splash-item:hover .splash-recent-meta {
+  color: #dde;
+}
+.splash-empty {
+  padding: 6px 8px;
+  color: var(--c-text-dim);
+  font-size: 12px;
+}
+.splash-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin-top: 8px;
+}
+.splash-foot .grow {
+  flex: 1;
+}
+.splash-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--c-text-dim);
+}
+.autosave-list {
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  min-height: 80px;
+}
+@media (max-width: 560px) {
+  .splash-cols {
+    flex-direction: column;
+  }
+}

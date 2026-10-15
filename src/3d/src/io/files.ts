@@ -30,6 +30,16 @@ export const projectUiState = {
   load: (_s: Record<string, unknown>) => {},
 };
 
+/** Notifications for session features (recent files) and the user's startup file. */
+export const fileEvents = {
+  opened: [] as ((name: string, bytes: Uint8Array) => void)[],
+  saved: [] as ((name: string, bytes: Uint8Array) => void)[],
+  /** loads the saved startup file; false when there is none */
+  loadStartup: (() => false) as () => boolean,
+  /** opens a recently used file by name */
+  openRecent: null as ((name: string) => Promise<boolean>) | null,
+};
+
 let autosaveTimer = 0;
 let lastSavedRevision = -1;
 
@@ -68,6 +78,7 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
       app.filename = file.name;
       if (extra.ui) projectUiState.load(extra.ui as Record<string, unknown>);
       app.report('INFO', `Opened "${file.name}"`);
+      for (const f of fileEvents.opened) f(file.name, bytes);
     } else if (name.endsWith('.json') || name.endsWith('.3d.json')) {
       const doc = importLegacyScene(new TextDecoder().decode(bytes));
       app.setDocument(doc);
@@ -93,22 +104,33 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
   }
 }
 
-export function saveFile(name = app.filename) {
+/** Save the project (download). A copy leaves the current file name and modified state alone. */
+export function saveFile(name = app.filename, copy = false) {
   const bytes = encodeDocument(app.doc, { ui: projectUiState.save() });
   if (!name.toLowerCase().endsWith('.p3d')) name = `${name.replace(/\.[^.]+$/, '')}.p3d`;
   download(bytes, name);
-  app.filename = name;
-  app.dirty = false;
-  app.report('INFO', `Saved "${name}"`);
+  if (!copy) {
+    app.filename = name;
+    app.dirty = false;
+  }
+  for (const f of fileEvents.saved) f(name, bytes);
+  app.report('INFO', copy ? `Saved a copy as "${name}"` : `Saved "${name}"`);
 }
 
 registerOperators([
   {
     idname: 'wm.read_homefile',
     label: 'New File',
-    description: 'Open the default startup file',
+    description: 'Start a new file from the startup file (your saved one, or the factory default)',
     undo: false,
-    exec: () => {
+    props: [{ id: 'use_factory_startup', label: 'Factory Startup', type: 'bool', default: false }],
+    exec: (_ctx, p) => {
+      if (!p.use_factory_startup && fileEvents.loadStartup()) {
+        app.filename = 'untitled.p3d';
+        app.dirty = false;
+        void clearRecovery();
+        return;
+      }
       app.setDocument(startupDocument());
       app.filename = 'untitled.p3d';
       app.dirty = false;
@@ -120,7 +142,12 @@ registerOperators([
     label: 'Open…',
     description: 'Open a project file (.p3d), a legacy scene (.3d.json) or a supported 3D model',
     undo: false,
-    invoke: () => {
+    props: [{ id: 'filepath', label: 'File Path', type: 'string', default: '', hidden: true }],
+    invoke: (_ctx, p) => {
+      if (p.filepath) {
+        void fileEvents.openRecent?.(String(p.filepath));
+        return 'CANCELLED';
+      }
       void pickFile(['.p3d', '.json', ...formats.flatMap((f) => (f.import ? f.extensions : []))].join(',')).then((f) => f && openFile(f));
       return 'CANCELLED';
     },
@@ -143,10 +170,21 @@ registerOperators([
   {
     idname: 'wm.save_as_mainfile',
     label: 'Save As…',
+    description: 'Save the project under a new name',
     undo: false,
-    invoke: () => {
-      import('../ui/menu').then(({ promptText }) => promptText('Save As', app.filename, (n) => n && saveFile(n)));
+    props: [
+      { id: 'filepath', label: 'File Path', type: 'string', default: '' },
+      { id: 'copy', label: 'Save Copy', type: 'bool', default: false },
+    ],
+    invoke: (_ctx, p) => {
+      const copy = !!p.copy;
+      const suggest = copy ? app.filename.replace(/(\.p3d)?$/i, '_copy.p3d') : app.filename;
+      import('../ui/menu').then(({ promptText }) => promptText(copy ? 'Save Copy' : 'Save As', suggest, (n) => n && saveFile(n, copy)));
       return 'CANCELLED';
+    },
+    exec: (_ctx, p) => {
+      if (!p.filepath) return 'CANCELLED';
+      saveFile(String(p.filepath), !!p.copy);
     },
   },
   {
