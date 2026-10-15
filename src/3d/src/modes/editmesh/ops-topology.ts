@@ -713,6 +713,38 @@ export function subdivide(m: MeshEdit, cuts: number, smoothness: number, opts: S
     }
     // a quad with two adjacent cut edges (a corner)
     const cutAt = f.verts.map((v, i) => selEdges.has(edgeKey(v, f.verts[(i + 1) % n])));
+    if (n === 4 && cutAt.filter(Boolean).length === 2 && cutAt[0] === cutAt[2]) {
+      // two opposite cut edges: a strip of quads across the face
+      const k = cutAt[0] ? 0 : 1;
+      const c = [k, k + 1, k + 2, (k + 3) % 4];
+      const [v0, v1, v2, v3] = c.map((i) => f.verts[i]);
+      const top = [v0, ...along(v0, v1), v1],
+        bottom = [v3, ...along(v3, v2), v2];
+      const N = cuts + 1;
+      const uvT = (j: number) => lerpUV(c[0], c[1], j / N),
+        uvB = (j: number) => lerpUV(c[3], c[2], j / N);
+      for (let j = 0; j < N; j++) {
+        const nf = m.makeFace([top[j], top[j + 1], bottom[j + 1], bottom[j]], f, [...uvT(j), ...uvT(j + 1), ...uvB(j + 1), ...uvB(j)]);
+        for (const [e, src] of [[0, c[0]], [2, c[2]]])
+          if (f.seams[src] || f.sharp[src] || f.creases[src]) {
+            nf.seams[e] = f.seams[src];
+            nf.sharp[e] = f.sharp[src];
+            nf.creases[e] = f.creases[src];
+          }
+        if (j === 0) {
+          nf.seams[3] = f.seams[c[3]];
+          nf.sharp[3] = f.sharp[c[3]];
+          nf.creases[3] = f.creases[c[3]];
+        }
+        if (j === N - 1) {
+          nf.seams[1] = f.seams[c[1]];
+          nf.sharp[1] = f.sharp[c[1]];
+          nf.creases[1] = f.creases[c[1]];
+        }
+        out.push(nf);
+      }
+      continue;
+    }
     if (n === 4 && cutAt.filter(Boolean).length === 2) {
       const k = [0, 1, 2, 3].find((i) => cutAt[(i + 3) % 4] && cutAt[i]);
       if (k !== undefined) {

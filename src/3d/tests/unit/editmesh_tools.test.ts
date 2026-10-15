@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { Vector3 } from 'three';
 import { newMeshData } from '../../src/data/defaults';
 import * as prim from '../../src/mesh/primitives';
-import { MeshEdit } from '../../src/modes/editmesh/meshedit';
+import { MeshEdit, edgeKey } from '../../src/modes/editmesh/meshedit';
 import { subdivide, extrudeRegion } from '../../src/modes/editmesh/ops-topology';
 import { shrinkFatten, extrudeRepeat, dissolveOrthogonalWalls, moveSelected, screw } from '../../src/modes/editmesh/ops-extrude';
 import { dissolveLimited, collapseEdges, deleteEdgeLoops, makePlanar, splitNonPlanar, splitConcave, fillHoles, unsubdivideStep, decimate, dissolveDegenerate } from '../../src/modes/editmesh/ops-cleanup';
@@ -598,5 +598,33 @@ describe('edge slide', () => {
     expect(Math.abs(zs[0])).toBeCloseTo(0.5);
     applyEdgeSlide(m, base, slides, -0.5, false, false);
     expect(Math.round(m.p(slides[0].v)[2] * 1e4) / 1e4).toBeCloseTo(-zs[0]);
+  });
+});
+
+import { selectFaces as selFaces, selectEdges as selEdges, selectedFaceSet } from '../../src/modes/editmesh/selset';
+
+describe('exact edge / face selection', () => {
+  it('keeps three faces of a 2x2 grid selected without the fourth', () => {
+    const me = newMeshData('G', prim.grid(2, 2));
+    selFaces(me, new Set([0, 1, 2]));
+    expect(selectedFaceSet(me).size).toBe(3);
+    const m = MeshEdit.from(me);
+    expect(m.selectedFaces().length).toBe(3);
+    // an operator on the selection keeps it exact (written back with the new arrays)
+    m.write(me);
+    expect(MeshEdit.from(me).selectedFaces().length).toBe(3);
+  });
+  it('selects two opposite edges of a quad and subdivides only those', () => {
+    const me = newMeshData('P', prim.plane());
+    const m0 = MeshEdit.from(me);
+    const f = m0.faces[0].verts;
+    selEdges(me, new Set([edgeKey(f[0], f[1]), edgeKey(f[2], f[3])]));
+    const m = MeshEdit.from(me);
+    expect(m.selectedEdges().length).toBe(2);
+    expect(m.selectedFaces().length).toBe(0);
+    subdivide(m, 1, 0);
+    expect(m.vcount).toBe(6);
+    expect(m.faces.length).toBe(2);
+    expect(m.faces.every((x) => x.verts.length === 4)).toBe(true);
   });
 });

@@ -4,6 +4,7 @@
 // topology changes.
 import type { MeshData } from '../../data/types';
 import { buildMesh, polyNormal } from '../../mesh/mesh';
+import { exclusionsOf, setExclusions } from './selset';
 import type { Vec3 } from '../../data/types';
 
 export interface EFace {
@@ -19,6 +20,8 @@ export interface EFace {
   cnormals?: number[];
   /** selection flag kept for face-mode bookkeeping (derived from verts when synced) */
   hidden?: boolean;
+  /** Edge/Face select mode: all vertices are selected but the face itself is not */
+  selX?: boolean;
 }
 
 export class MeshEdit {
@@ -34,6 +37,8 @@ export class MeshEdit {
   pcolors: number[][] = [];
   /** loose edges as vertex pairs (edges not belonging to any face) */
   looseEdges: [number, number][] = [];
+  /** Edge/Face select mode: edges whose vertices are selected but which are not selected */
+  edgeExcl = new Set<string>();
 
   get vcount() {
     return this.pos.length / 3;
@@ -67,6 +72,11 @@ export class MeshEdit {
     }
     const loose = me.loose_edges;
     if (loose) for (let i = 0; i < loose.length; i += 2) m.looseEdges.push([loose[i], loose[i + 1]]);
+    const ex = exclusionsOf(me);
+    if (ex) {
+      for (const f of ex.faces) if (m.faces[f]) m.faces[f].selX = true;
+      m.edgeExcl = new Set(ex.edges);
+    }
     return m;
   }
 
@@ -99,6 +109,21 @@ export class MeshEdit {
     });
     me.loose_edges = this.looseEdges.length ? Uint32Array.from(this.looseEdges.flat()) : undefined;
     me.custom_normals = this.customNormals();
+    // keep the exact edge/face selection with the new selection array
+    const sel = this.sel;
+    const faces = new Set<number>();
+    this.faces.forEach((f, i) => {
+      if (f.selX && f.verts.every((v) => sel[v])) faces.add(i);
+    });
+    const edges = new Set<string>();
+    if (this.edgeExcl.size) {
+      const all = new Set(this.edges().map(([a, b]) => edgeKey(a, b)));
+      for (const k of this.edgeExcl) {
+        const [a, b] = k.split(':').map(Number);
+        if (sel[a] && sel[b] && all.has(k)) edges.add(k);
+      }
+    }
+    setExclusions(me.select_vert, { faces, edges });
   }
 
   /** Per-corner custom normals, or undefined when no face carries any (missing ones get the automatic normal). */
@@ -149,6 +174,7 @@ export class MeshEdit {
     c.keys = this.keys.map((k) => k.slice());
     c.pcolors = this.pcolors.map((k) => k.slice());
     c.looseEdges = this.looseEdges.map((e) => [e[0], e[1]] as [number, number]);
+    c.edgeExcl = new Set(this.edgeExcl);
     c.faces = this.faces.map((f) => ({ ...f, verts: [...f.verts], uvs: [...f.uvs], seams: [...f.seams], sharp: [...f.sharp], creases: [...f.creases], colors: f.colors ? [...f.colors] : undefined, cnormals: f.cnormals ? [...f.cnormals] : undefined }));
     return c;
   }
@@ -241,6 +267,7 @@ export class MeshEdit {
     for (const f of this.faces) f.verts = f.verts.map((v) => map[v]);
     this.faces = this.faces.filter((f) => f.verts.every((v) => v >= 0));
     this.looseEdges = this.looseEdges.map(([a, b]) => [map[a], map[b]] as [number, number]).filter(([a, b]) => a >= 0 && b >= 0);
+    this.remapEdgeExcl(map);
     return map;
   }
 
@@ -280,7 +307,20 @@ export class MeshEdit {
     }
     this.faces = this.faces.filter((f) => new Set(f.verts).size >= 3 && f.verts.length === new Set(f.verts).size);
     this.looseEdges = this.looseEdges.map(([a, b]) => [map[a], map[b]] as [number, number]).filter(([a, b]) => a !== b);
+    this.remapEdgeExcl(map);
     this.compact();
+  }
+
+  private remapEdgeExcl(map: number[]) {
+    if (!this.edgeExcl.size) return;
+    const out = new Set<string>();
+    for (const k of this.edgeExcl) {
+      const [a, b] = k.split(':').map(Number);
+      const x = map[a],
+        y = map[b];
+      if (x >= 0 && y >= 0 && x !== y && x !== undefined && y !== undefined) out.add(edgeKey(x, y));
+    }
+    this.edgeExcl = out;
   }
 
   // -------------------------------------------------------------------------
@@ -360,13 +400,13 @@ export class MeshEdit {
   selectedFaces(): number[] {
     const out: number[] = [];
     this.faces.forEach((f, i) => {
-      if (f.verts.every((v) => this.sel[v] && !this.hide[v])) out.push(i);
+      if (!f.selX && f.verts.every((v) => this.sel[v] && !this.hide[v])) out.push(i);
     });
     return out;
   }
 
   selectedEdges(): [number, number][] {
-    return this.edges().filter(([a, b]) => this.sel[a] && this.sel[b] && !this.hide[a] && !this.hide[b]);
+    return this.edges().filter(([a, b]) => this.sel[a] && this.sel[b] && !this.hide[a] && !this.hide[b] && !this.edgeExcl.has(edgeKey(a, b)));
   }
 }
 

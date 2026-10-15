@@ -5,12 +5,9 @@ import type { View3D } from '../../editors/view3d/view3d';
 import { editMeshObjects, selectMode, active, inMeshEdit, ensureSelection, pushSelectHistory } from './context';
 import { pickContext, nearestVertex, nearestEdge, pickFace, vertsInRegion, facesInRegion, type Region } from './pick';
 import { MeshEdit, edgeKey } from './meshedit';
+import { selectedFaceSet, selectedEdgeSet, selectFaces, selectEdges, setExclusions } from './selset';
 import type { MeshData } from '../../data/types';
 import { edgeTopology } from '../../mesh/mesh';
-
-const flushFaceMode = (me: MeshData, faces: number[], sel: Uint8Array, value: number) => {
-  for (const f of faces) for (let c = me.offsets[f]; c < me.offsets[f + 1]; c++) sel[me.indices[c]] = value;
-};
 
 function commitSel(label: string) {
   app.pushUndo(label);
@@ -66,17 +63,39 @@ function pick(v: View3D, x: number, y: number, o: { extend?: boolean; toggle?: b
     return true;
   }
   const me = best.me;
+  if (best.kind !== 'VERT') {
+    // edge / face mode: work on the exact edge or face set
+    const isFace = best.kind === 'FACE';
+    const key: string | number = isFace ? best.f! : edgeKey(best.e![0], best.e![1]);
+    const set = (isFace ? selectedFaceSet(me) : selectedEdgeSet(me)) as Set<string | number>;
+    const wasSel = set.has(key);
+    const isAct = active.objectId === best.obId && active.kind === best.kind && (isFace ? active.index === best.f : edgeKey(active.edge[0], active.edge[1]) === key);
+    if (o.deselect) set.delete(key);
+    else if (o.toggle && wasSel && isAct) set.delete(key);
+    else {
+      if (!o.toggle && !o.extend) {
+        for (const { me: m2 } of editMeshObjects()) if (m2 !== me) m2.select_vert = new Uint8Array(m2.positions.length / 3);
+        set.clear();
+      }
+      set.add(key);
+    }
+    if (isFace) selectFaces(me, set as Set<number>);
+    else selectEdges(me, set as Set<string>);
+    active.objectId = best.obId;
+    active.kind = best.kind;
+    active.index = isFace ? best.f! : -1;
+    active.edge = best.e ?? [-1, -1];
+    if (!o.deselect && set.has(key)) pushSelectHistory();
+    commitSel('Select');
+    return true;
+  }
   const sel = new Uint8Array(me.select_vert!);
-  const verts = best.kind === 'VERT' ? [best.v!] : best.kind === 'EDGE' ? best.e! : Array.from(me.indices.subarray(me.offsets[best.f!], me.offsets[best.f! + 1]));
-  const isSel = verts.every((vv) => sel[vv]);
-  const isActive = active.objectId === best.obId && active.kind === best.kind && (best.kind === 'VERT' ? active.index === best.v : best.kind === 'FACE' ? active.index === best.f : active.edge.join() === best.e!.join());
-  if (o.deselect) for (const vv of verts) sel[vv] = 0;
-  else if (o.toggle && isSel && isActive) {
-    // shift-click on the active element deselects it
-    if (best.kind === 'FACE') flushFaceMode(me, [best.f!], sel, 0);
-    else for (const vv of verts) sel[vv] = 0;
-    if (best.kind === 'FACE') reselectFacesAfterDeselect(me, sel);
-  } else {
+  const verts = [best.v!];
+  const isSel = !!sel[best.v!];
+  const isActive = active.objectId === best.obId && active.kind === 'VERT' && active.index === best.v;
+  if (o.deselect) sel[best.v!] = 0;
+  else if (o.toggle && isSel && isActive) sel[best.v!] = 0;
+  else {
     if (!o.toggle && !o.extend) for (const { me: m2 } of editMeshObjects()) if (m2 !== me) m2.select_vert = new Uint8Array(m2.positions.length / 3);
     if (!o.toggle && !o.extend) sel.fill(0);
     for (const vv of verts) sel[vv] = 1;
@@ -89,12 +108,6 @@ function pick(v: View3D, x: number, y: number, o: { extend?: boolean; toggle?: b
   if (!o.deselect) pushSelectHistory();
   commitSel('Select');
   return true;
-}
-
-/** After deselecting a face in face mode, keep vertices of other selected faces selected. */
-function reselectFacesAfterDeselect(me: MeshData, sel: Uint8Array) {
-  void me;
-  void sel;
 }
 
 function region(v: View3D, r: Region, mode: 'SET' | 'ADD' | 'SUB' | 'AND' | 'XOR'): boolean {
@@ -119,6 +132,32 @@ function region(v: View3D, r: Region, mode: 'SET' | 'ADD' | 'SUB' | 'AND' | 'XOR
         if (vin[a] && vin[b]) inside[a] = inside[b] = 1;
       }
     } else for (const i of vertsInRegion(c, r)) inside[i] = 1;
+    if (sm !== 'VERT') {
+      // combine exact edge / face sets
+      const cur = (sm === 'FACE' ? selectedFaceSet(me) : selectedEdgeSet(me)) as Set<string | number>;
+      const hit = new Set<string | number>();
+      if (sm === 'FACE') for (const f of facesInRegion(c, r)) hit.add(f);
+      else {
+        const et = edgeTopology(me);
+        for (let e = 0; e < et.count; e++) {
+          const a = et.verts[e * 2],
+            b = et.verts[e * 2 + 1];
+          if (inside[a] && inside[b]) hit.add(edgeKey(a, b));
+        }
+      }
+      const out = new Set<string | number>();
+      if (mode === 'SET') hit.forEach((k) => out.add(k));
+      else if (mode === 'ADD') [...cur, ...hit].forEach((k) => out.add(k));
+      else if (mode === 'SUB') cur.forEach((k) => !hit.has(k) && out.add(k));
+      else if (mode === 'AND') cur.forEach((k) => hit.has(k) && out.add(k));
+      else {
+        cur.forEach((k) => !hit.has(k) && out.add(k));
+        hit.forEach((k) => !cur.has(k) && out.add(k));
+      }
+      if (sm === 'FACE') selectFaces(me, out as Set<number>);
+      else selectEdges(me, out as Set<string>);
+      continue;
+    }
     const sel = new Uint8Array(me.select_vert!);
     for (let i = 0; i < nv; i++) {
       const a = sel[i],
@@ -238,6 +277,37 @@ export function edgeRing(me: MeshData, a: number, b: number): [number, number][]
 
 function selectLoopOrRing(me: MeshData, a: number, b: number, ring: boolean, extend: boolean, mode: string) {
   const edges = ring ? edgeRing(me, a, b) : edgeLoop(me, a, b);
+  if (mode === 'EDGE') {
+    const set = extend ? selectedEdgeSet(me) : new Set<string>();
+    const keys = edges.map(([x, y]) => edgeKey(x, y));
+    const allSel = extend && keys.every((k) => set.has(k));
+    for (const k of keys) {
+      if (allSel) set.delete(k);
+      else set.add(k);
+    }
+    selectEdges(me, set);
+    return;
+  }
+  if (mode === 'FACE') {
+    // face loop: the faces between consecutive ring edges
+    const ringEdges = ring ? edges : edgeRing(me, a, b);
+    const ringKeys = new Set(ringEdges.map(([x, y]) => edgeKey(x, y)));
+    const set = extend ? selectedFaceSet(me) : new Set<number>();
+    const loopFaces: number[] = [];
+    for (let f = 0; f < me.offsets.length - 1; f++) {
+      const vs = me.indices.subarray(me.offsets[f], me.offsets[f + 1]);
+      let n = 0;
+      for (let i = 0; i < vs.length; i++) if (ringKeys.has(edgeKey(vs[i], vs[(i + 1) % vs.length]))) n++;
+      if (n >= 2) loopFaces.push(f);
+    }
+    const allSel = extend && loopFaces.every((f) => set.has(f));
+    for (const f of loopFaces) {
+      if (allSel) set.delete(f);
+      else set.add(f);
+    }
+    selectFaces(me, set);
+    return;
+  }
   const sel = extend ? new Uint8Array(me.select_vert!) : new Uint8Array(me.positions.length / 3);
   // when extending onto an already selected loop: toggle off
   const allSel = extend && edges.every(([x, y]) => sel[x] && sel[y]);
@@ -325,17 +395,16 @@ registerOperators([
           }
         ts.mesh_select_mode = [i === 0, i === 1, i === 2];
       }
-      // switching to face mode keeps only fully selected faces (like the reference flush)
+      // vertex mode flushes: everything the selected vertices cover counts as selected again
+      if (ts.mesh_select_mode[0]) for (const { me } of editMeshObjects()) if (me.select_vert) setExclusions(me.select_vert, null);
+      // switching to face mode keeps only fully selected faces
       if (i === 2 && !p.use_extend && !p.use_expand)
         for (const { me } of editMeshObjects()) {
           ensureSelection(me);
-          const sel = new Uint8Array(me.positions.length / 3);
-          for (let f = 0; f < me.offsets.length - 1; f++) {
-            let all = true;
-            for (let c = me.offsets[f]; c < me.offsets[f + 1]; c++) if (!me.select_vert![me.indices[c]]) all = false;
-            if (all) for (let c = me.offsets[f]; c < me.offsets[f + 1]; c++) sel[me.indices[c]] = 1;
-          }
-          me.select_vert = sel;
+          // the set as seen from the previous mode (edge exclusions still apply)
+          const m = MeshEdit.from(me);
+          ts.mesh_select_mode = [false, false, true];
+          selectFaces(me, new Set(m.selectedFaces()));
         }
     },
     redo: false,
@@ -355,16 +424,25 @@ registerOperators([
           if (me.hide_vert?.[i]) continue;
           s[i] = action === 'SELECT' ? 1 : action === 'DESELECT' ? 0 : s[i] ^ 1;
         }
-        if (action === 'INVERT' && selectMode() === 'FACE') {
+        const sm = selectMode();
+        if (action === 'INVERT' && sm === 'FACE') {
           // invert at face level
-          const was = me.select_vert!;
-          const ns = new Uint8Array(s.length);
+          const cur = selectedFaceSet(me);
+          const out = new Set<number>();
           for (let f = 0; f < me.offsets.length - 1; f++) {
-            let all = true;
-            for (let c = me.offsets[f]; c < me.offsets[f + 1]; c++) if (!was[me.indices[c]]) all = false;
-            if (!all) for (let c = me.offsets[f]; c < me.offsets[f + 1]; c++) ns[me.indices[c]] = 1;
+            let hidden = false;
+            for (let c = me.offsets[f]; c < me.offsets[f + 1]; c++) if (me.hide_vert?.[me.indices[c]]) hidden = true;
+            if (!hidden && !cur.has(f)) out.add(f);
           }
-          me.select_vert = ns;
+          selectFaces(me, out);
+        } else if (action === 'INVERT' && sm === 'EDGE') {
+          const cur = selectedEdgeSet(me);
+          const out = new Set<string>();
+          for (const [a, b] of MeshEdit.from(me).edges()) {
+            const k = edgeKey(a, b);
+            if (!cur.has(k) && !me.hide_vert?.[a] && !me.hide_vert?.[b]) out.add(k);
+          }
+          selectEdges(me, out);
         } else me.select_vert = s;
       }
       if (action === 'DESELECT') active.kind = '';

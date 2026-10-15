@@ -152,3 +152,42 @@ test('F3 search finds the new tools and the redo panel adjusts them', async ({ p
   expect(minZ).toBeCloseTo(-1, 4);
   await expectNoErrors(errors);
 });
+
+test('edge mode: Ctrl+Alt+click selects an edge ring without the edges between; Subdivide cuts across', async ({ page }) => {
+  const errors = await editCube(page);
+  await page.keyboard.press('2');
+  // screen position of the middle of a vertical cube edge facing the viewer
+  const pt = await page.evaluate(async () => {
+    const { activeView3D } = await import('/src/editors/view3d/view3d.ts');
+    const v = activeView3D()!;
+    const r = v.el.getBoundingClientRect();
+    // the vertical edge nearest the camera
+    let best = { x: 0, y: 0, d: Infinity };
+    for (const x of [-1, 1])
+      for (const y of [-1, 1]) {
+        const p = v.camera.position.clone().set(x, y, 0);
+        const d = p.distanceTo(v.camera.position);
+        const s = v.project(p);
+        if (d < best.d) best = { x: s.x + r.left, y: s.y + r.top, d };
+      }
+    return best;
+  });
+  await page.mouse.move(pt.x, pt.y);
+  await page.keyboard.down('Control');
+  await page.keyboard.down('Alt');
+  await page.mouse.down();
+  await page.mouse.up();
+  await page.keyboard.up('Alt');
+  await page.keyboard.up('Control');
+  await page.waitForTimeout(50);
+  const sel = await page.evaluate(async () => {
+    const { MeshEdit } = await import('/src/modes/editmesh/meshedit.ts');
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const m = MeshEdit.from(a.doc.meshes[a.activeObject.data]);
+    return [m.selectedVerts().length, m.selectedEdges().length, m.selectedFaces().length];
+  });
+  expect(sel).toEqual([8, 4, 0]);
+  await page.evaluate(() => (window as any).app.run('mesh.subdivide', { number_cuts: 1 })); // eslint-disable-line @typescript-eslint/no-explicit-any
+  expect(await counts(page)).toEqual([12, 10]);
+  await expectNoErrors(errors);
+});
