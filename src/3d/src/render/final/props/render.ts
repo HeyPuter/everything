@@ -150,7 +150,19 @@ function rasterPanels(r: RenderSettings): Child {
       { closed: true },
     ),
     motionBlurPanel(r),
-    panel('rs-film', 'Film', () => [num(r, 'filter_size', 'Filter Size', { min: 0, max: 100, softMax: 10, precision: 2, tip: 'Width (pixels) of the anti-aliasing filter: larger values give softer edges' }), bool(r, 'film_transparent', 'Transparent', { tip: 'Render the world background as transparent' })], { closed: true }),
+    panel(
+      'rs-film',
+      'Film',
+      () => [
+        num(r, 'filter_size', 'Filter Size', { min: 0, max: 100, softMax: 10, precision: 2, tip: 'Width (pixels) of the anti-aliasing filter: larger values give softer edges' }),
+        bool(r, 'film_transparent', 'Transparent', { tip: 'Render the world background as transparent' }),
+        sub('rs-film-overscan', 'Overscan', () => [num(r, 'overscan_size', 'Size', { min: 0, max: 50, softMax: 10, precision: 1, tip: 'Margin (percent of the frame) traced around the image: reflections and occlusion near the edges stay stable' })], {
+          closed: true,
+          header: headerToggle(r, 'use_overscan', 'Overscan'),
+        }),
+      ],
+      { closed: true },
+    ),
     panel('rs-perf', 'Performance', () => [performanceViewport(r)], { closed: true }),
   ];
 }

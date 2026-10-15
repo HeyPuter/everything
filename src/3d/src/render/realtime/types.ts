@@ -29,6 +29,10 @@ export interface RealtimeRenderSettings {
   fast_gi_distance?: number;
   fast_gi_thickness_near?: number;
   fast_gi_bias?: number;
+  // --- film: the traced buffer covers a margin around the frame
+  use_overscan?: boolean;
+  /** percent of the frame size */
+  overscan_size?: number;
   // --- light paths ▸ clamping (0 = no clamp)
   clamp_surface_direct?: number;
   clamp_surface_indirect?: number;

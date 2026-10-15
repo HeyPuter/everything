@@ -23,6 +23,8 @@ export interface TraceSettings {
   giDistance: number;
   giThickness: number;
   giBias: number;
+  /** extra margin of the traced buffer (fraction of the frame size per side) */
+  overscan: number;
 }
 
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -62,6 +64,7 @@ export function traceSettings(r: RenderSettings): TraceSettings {
     giDistance: Math.max(0, num(r.fast_gi_distance, legacyAo ? r.gtao_distance : 0)),
     giThickness: Math.max(1e-4, num(r.fast_gi_thickness_near, 0.25)),
     giBias: clamp(num(r.fast_gi_bias, 0.05), 0, 1),
+    overscan: r.use_overscan ? clamp(num(r.overscan_size, 3), 0, 50) / 100 : 0,
   };
 }
 

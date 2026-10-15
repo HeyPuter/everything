@@ -40,6 +40,23 @@ const packMaterial = new ShaderMaterial({
     }`,
 });
 
+const overscanCam = { cam: null as Camera | null };
+
+/** The camera widened by `overscan` (fraction of the frame per side); the camera itself when 0. */
+export function overscanCamera(camera: Camera, overscan: number): Camera {
+  if (!(overscan > 0)) return camera;
+  const c = (overscanCam.cam = camera.clone());
+  const pm = (c as PerspectiveCamera).projectionMatrix;
+  pm.copy((camera as PerspectiveCamera).projectionMatrix);
+  const k = 1 / (1 + 2 * overscan);
+  const e = pm.elements;
+  // scale clip-space x/y: perspective (with jitter terms) and orthographic alike
+  for (const i of [0, 4, 8, 12]) e[i] *= k;
+  for (const i of [1, 5, 9, 13]) e[i] *= k;
+  (c as PerspectiveCamera).projectionMatrixInverse.copy(pm).invert();
+  return c;
+}
+
 /** Size of the traced buffer for a render of W×H at resolution divisor `div`. */
 export function traceSize(W: number, H: number, div: number): [number, number] {
   const d = Math.max(1, div);
@@ -88,10 +105,12 @@ export class TraceBuffer {
     const prevTarget = renderer.getRenderTarget();
     const scissor = renderer.getScissorTest();
     renderer.setScissorTest(false);
+    // overscan: a wider view than the frame, so rays leaving the frame can still hit
+    const cam = overscanCamera(camera, t.overscan);
     renderer.setRenderTarget(this.scene);
     renderer.clear(true, true, true);
-    renderer.render(scene, camera);
-    this.invProj.copy((camera as PerspectiveCamera).projectionMatrix).invert();
+    renderer.render(scene, cam);
+    this.invProj.copy((cam as PerspectiveCamera).projectionMatrix).invert();
     packMaterial.uniforms.tColor.value = this.scene!.texture;
     packMaterial.uniforms.tDepth.value = this.scene!.depthTexture;
     packMaterial.uniforms.uInvProj.value = this.invProj;
@@ -100,7 +119,7 @@ export class TraceBuffer {
     renderer.setRenderTarget(prevTarget);
     renderer.setScissorTest(scissor);
     u.ndSsTex.value = this.packed!.texture;
-    u.ndSsProj.value.copy((camera as PerspectiveCamera).projectionMatrix);
+    u.ndSsProj.value.copy((cam as PerspectiveCamera).projectionMatrix);
     u.ndSsr.value.set(t.maxRoughness, t.thickness, t.steps, t.temporal ? 1 : 0);
     u.ndGi.value.set(t.giDistance, t.giThickness, t.giRays, t.giSteps);
     u.ndGi2.value.set(t.giBias, 0, 0, 0);

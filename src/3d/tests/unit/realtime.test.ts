@@ -288,3 +288,17 @@ describe('render settings defaults', async () => {
     expect(captureKey({ probe: { ...p, clip_end: 5 }, world: w }, 512)).not.toBe(k);
   });
 });
+
+describe('overscan', async () => {
+  const { overscanCamera } = await import('../../src/render/realtime/trace');
+  const { PerspectiveCamera, Vector3 } = await import('three');
+  it('maps the frame edge inside the widened view', () => {
+    const cam = new PerspectiveCamera(50, 1, 0.1, 100);
+    cam.updateMatrixWorld(true);
+    expect(overscanCamera(cam, 0)).toBe(cam);
+    const wide = overscanCamera(cam, 0.25);
+    const edge = new Vector3(1, 0, 0.5).unproject(cam);
+    const p = edge.clone().project(wide);
+    expect(p.x).toBeCloseTo(1 / 1.5);
+  });
+});

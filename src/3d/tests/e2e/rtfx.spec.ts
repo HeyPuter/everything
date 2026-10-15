@@ -326,3 +326,12 @@ test('surface clamping limits direct light', async ({ page }) => {
   expect(difference(free, clamped)).toBeGreaterThan(0.005);
   await expectNoErrors(errors);
 });
+
+test('overscan widens the traced buffer', async ({ page }) => {
+  const errors = await openApp(page);
+  await mirrorFloor(page);
+  const plain = await renderPixels(page, { use_ssr: true });
+  const wide = await renderPixels(page, { use_ssr: true, use_overscan: true, overscan_size: 20 });
+  expect(difference(plain, wide)).toBeGreaterThan(0.0001);
+  await expectNoErrors(errors);
+});
