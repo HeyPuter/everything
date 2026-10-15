@@ -1020,7 +1020,7 @@ input.num-field.editing {
 }
 .panel-header .ph-title {
   flex: 1;
-  font-weight: 500;
+  font-weight: 400;
   color: #e6e6e6;
   white-space: nowrap;
   overflow: hidden;
