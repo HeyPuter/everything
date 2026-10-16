@@ -10,8 +10,8 @@ import type { DocumentData, ID } from '../data/types';
 import { IDStruct, bpyData, wrapId } from '../scripting/api';
 import { PropCollection, kwMethod, pyError, touched, isIdWrapper } from '../scripting/rna';
 import { decodeDocument, isNativeFile } from '../io/native';
-import { appendFromDoc, deleteLibrary, idTables, isLinked, libraries, linkFromDoc, lockLinked, makeLocal, makeOverride, recordOf, refOf, tableOfId, tablesOf, type Pick } from './core';
-import { cacheSource, cachedInfo, cachedSource, cachedKeyByName, libraryFor, reloadLibraries, reportReload, formatOf } from './runtime';
+import { appendFromDoc, deleteLibrary, idTables, libraries, linkFromDoc, lockLinked, makeLocal, makeOverride, recordOf, tableOfId, tablesOf, type Pick } from './core';
+import { cacheSource, cachedInfo, cachedSource, cachedKeyByName, libraryFor, reloadLibraries, reportReload } from './runtime';
 import { fingerprint, putStored, listStored } from './store';
 import type { LibraryData } from './types';
 
@@ -314,4 +314,4 @@ Object.defineProperty(IDStruct.prototype, 'make_local', { value: make_local, wri
 Object.defineProperty(IDStruct.prototype, 'override_hierarchy_create', { value: override_hierarchy_create, writable: true, configurable: true });
 Object.defineProperty(IDStruct.prototype, 'override_create', { value: override_hierarchy_create, writable: true, configurable: true });
 
-export { LibraryStruct, resolveSource, refOf, formatOf };
+export { LibraryStruct, resolveSource };

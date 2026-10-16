@@ -5,7 +5,7 @@ import { h, patch, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { app, type ChangeKind } from '../app/app';
 import { registerEditor, type Area, type Editor } from '../ui/screen';
-import { openMenu, openPopover, promptText, type MenuItem } from '../ui/menu';
+import { openMenu, openPopover, promptText } from '../ui/menu';
 import type { DocumentData, ObjectData } from '../data/types';
 import { uniqueName, setActiveCollection, activeCollection } from '../ops/object';
 import { Vector3 } from 'three';
@@ -27,7 +27,7 @@ import {
   type Row,
   type TreeState,
 } from './outliner/tree';
-import { moveCollection, moveObjectsToCollection } from './outliner/collections';
+import { moveCollection } from './outliner/collections';
 import { contextMenuFor, emptyMenu, viewMenu, rowBadgeHooks } from './outliner/menus';
 import { filterPopover } from './outliner/filter';
 import { setCurrentOutliner } from './outliner/current';

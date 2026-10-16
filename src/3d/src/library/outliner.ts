@@ -25,7 +25,6 @@ import {
   tableOfId,
   tablesOf,
 } from './core';
-import { overrideSelectionItems } from './menus';
 import type { LibraryData } from './types';
 
 const libIcon = (l: LibraryData) => (l.is_missing ? 'library_data_broken' : l.parent ? 'library_data_indirect' : 'library_data_direct');
@@ -355,4 +354,3 @@ kindMenuHooks.library = (ol, r): MenuItem[] => {
 
 kindMenuHooks.override = (ol): MenuItem[] => [{ label: 'Reset to Linked Value', op: 'outliner.liboverride_property_remove' }, ...commonItems(ol)];
 
-export { overrideSelectionItems };

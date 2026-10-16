@@ -10,7 +10,6 @@ import { openLibraryBrowser, typeLabel, type BrowseResult, type FileRef } from '
 import {
   appendFromDoc,
   clearOverrides,
-  deleteLibrary,
   dropUnusedLibraries,
   hierarchyOf,
   isLinked,
@@ -31,8 +30,8 @@ import {
   type Pick,
 } from './core';
 import { cachedInfo, cachedSource, isLibraryFile, libraryBytes, libraryFor, reloadLibraries, reportReload } from './runtime';
-import { fingerprint, putStored, getStored } from './store';
-import type { LibraryData, LinkableID } from './types';
+import { putStored, getStored } from './store';
+import type { LibraryData } from './types';
 
 // ---------------------------------------------------------------------------
 // link / append
@@ -219,7 +218,7 @@ function collectionHolds(doc: DocumentData, cid: ID, obId: ID, depth = 0): boole
   return c.objects.includes(obId) || c.children.some((ch) => collectionHolds(doc, ch, obId, depth + 1));
 }
 
-const selectedOverrides = (ctx: OpContext) => app.selectedObjects().filter((o) => isOverride(o));
+const selectedOverrides = (_ctx: OpContext) => app.selectedObjects().filter((o) => isOverride(o));
 
 // ---------------------------------------------------------------------------
 
@@ -576,13 +575,4 @@ if (typeof window !== 'undefined') {
 
 // ---------------------------------------------------------------------------
 
-/** Menus of the Outliner and the 3D view call these. */
-export const libraryOps = { reloadAndCommit, deleteLibraryNow, fingerprint };
 
-function deleteLibraryNow(libId: ID): number {
-  const n = deleteLibrary(app.doc, libId);
-  lockLinked(app.doc);
-  return n;
-}
-
-export type { LinkableID };

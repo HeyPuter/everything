@@ -10,11 +10,10 @@ import { checkbox, textField } from '../ui/widgets';
 import { openDialog, closeDialog, type DialogHandle } from '../scripting/dialog';
 import { recentFiles, recentBytes, kvGet } from '../io/session';
 import { pickFile } from '../io/native';
-import type { DocumentData, ID } from '../data/types';
+import type { DocumentData } from '../data/types';
 import { idTables, tablesOf, libraries, isLinked, linkedId } from './core';
 import { rememberFile, listStored, latestBytes, type StoredLibrary } from './store';
 import { sourceDoc, formatOf, isLibraryFile } from './runtime';
-import type { LibraryData } from './types';
 import './icons';
 import './library.css';
 
@@ -571,4 +570,4 @@ export function openLibraryBrowser(o: BrowseOptions, at?: FileRef): LibraryBrows
   return b;
 }
 
-export type { LibraryBrowser, LibraryData, ID };
+export type { LibraryBrowser };
