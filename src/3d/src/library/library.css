@@ -218,3 +218,9 @@
   text-overflow: ellipsis;
   opacity: 0.75;
 }
+.lb-empty-btn {
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

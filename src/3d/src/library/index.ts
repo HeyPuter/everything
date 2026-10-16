@@ -6,3 +6,4 @@ import './guards';
 import './ops';
 import './menus';
 import './outliner';
+import './scripting';

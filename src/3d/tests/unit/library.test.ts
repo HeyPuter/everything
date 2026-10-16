@@ -18,7 +18,7 @@ import {
   closureOf,
   dropUnusedLibraries,
 } from '../../src/library/core';
-import { isReadOnly } from '../../src/library/readonly';
+import { isReadOnly, withLinkedWrites } from '../../src/library/readonly';
 import { cloneShared } from '../../src/data/cow';
 
 const lib = (id = 'li_a'): LibraryData => ({ id, name: 'props.p3d', filepath: 'Recent/props.p3d', source: { kind: 'recent', key: 'k1' }, format: 'p3d' });
@@ -58,8 +58,12 @@ describe('linking', () => {
     lockLinked(target);
     expect(isReadOnly(ob)).toBe(true);
     expect(() => {
-      ob.location[0] = 5;
+      ob.location = [5, 0, 0];
     }).toThrow();
+    expect(() => ob.modifiers.push({} as never)).toThrow();
+    // evaluation (animation, drivers) may still write current values
+    withLinkedWrites(() => (ob.location = [1, 2, 3]));
+    expect(ob.location).toEqual([1, 2, 3]);
     expect(() => {
       ob.name = 'x';
     }).toThrow();

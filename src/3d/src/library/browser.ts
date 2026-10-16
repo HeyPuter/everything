@@ -443,14 +443,15 @@ class LibraryBrowser {
       return h(
         'div',
         { class: 'lb-empty' },
-        this.status ||
+        h('div', null, this.status ||
           (loc?.kind === 'recent'
             ? 'No recent projects yet. Projects you open or save appear here; use Choose File… to link from a file on your computer.'
             : loc?.kind === 'libraries'
               ? 'This project does not link any files yet.'
               : loc?.kind === 'dir'
                 ? 'No project files in this folder.'
-                : 'Nothing to show.'),
+                : 'Nothing to show.')),
+        !this.status && (loc?.kind === 'recent' || loc?.kind === 'libraries' || loc?.kind === 'dir') ? h('button', { class: 'btn lb-empty-btn', onclick: () => void this.chooseFile() }, icon('file_folder'), 'Choose File…') : null,
       );
     return h(
       'div',

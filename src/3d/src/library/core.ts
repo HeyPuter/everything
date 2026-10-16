@@ -170,6 +170,8 @@ export interface LinkOptions {
   instance_object_data?: boolean;
   /** location of new instance objects */
   location?: Vec3;
+  /** put the picked data-blocks into the scene (default); scripts place them themselves */
+  place?: boolean;
 }
 
 export interface LinkResult {
@@ -265,7 +267,7 @@ export function linkFromDoc(target: DocumentData, src: DocumentData, lib: Librar
     placed.push(ob.id);
     return ob;
   };
-  for (const p of picked) {
+  for (const p of opts.place === false ? [] : picked) {
     const rec = tt[p.table][p.id];
     if (p.table === 'objects') {
       const inScene = Object.values(target.collections).some((c) => !isLinked(c) && c.objects.includes(p.id));
@@ -783,7 +785,7 @@ export function appendFromDoc(target: DocumentData, src: DocumentData, picks: Pi
       delete c.library;
       delete c.override_library;
       c.library_weak_reference = opts.key ? { key: opts.key, ref: id } : null;
-      const taken = new Set(Object.values(dst).map((x) => x.name));
+      const taken = new Set(Object.values(dst).filter((x) => !x.library).map((x) => x.name));
       c.name = uniqueLocalName(c.name, taken);
       if (opts.set_fake && pickedIds.has(id)) c.use_fake_user = true;
       if (opts.clear_asset_data) delete c.asset_data;
@@ -801,7 +803,7 @@ export function appendFromDoc(target: DocumentData, src: DocumentData, picks: Pi
   const placed: ID[] = [];
   const collections: ID[] = [];
   const picked = picks.filter((p) => map.has(p.id)).map((p) => ({ table: p.table, id: map.get(p.id)!.local }));
-  for (const p of picked) {
+  for (const p of opts.place === false ? [] : picked) {
     const rec = tt[p.table][p.id];
     if (p.table === 'objects') {
       if (!inAppended.has(p.id) && !Object.values(target.collections).some((c) => c.objects.includes(p.id))) into.objects.push(p.id);

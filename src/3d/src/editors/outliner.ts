@@ -12,6 +12,7 @@ import { Vector3 } from 'three';
 import { surfaceHit } from '../ops/view3d';
 import { textField } from '../ui/widgets';
 import { findStrip } from '../sequencer/strips';
+import { isReadOnly } from '../library/readonly';
 import {
   buildRows,
   defaultFilter,
@@ -812,7 +813,7 @@ export class Outliner implements Editor {
   private userCells(r: Row): Child {
     const table = r.table;
     const rec = table ? (app.doc as unknown as Record<string, Record<string, { use_fake_user?: boolean }>>)[table]?.[r.id ?? ''] : undefined;
-    const canFake = !!rec && table !== 'objects' && table !== 'collections';
+    const canFake = !!rec && table !== 'objects' && table !== 'collections' && !isReadOnly(rec);
     return h(
       'span',
       { class: 'ol-users' },
@@ -865,6 +866,8 @@ export class Outliner implements Editor {
         holdout: 'holdout',
         indirect: 'indirect_only',
       }[col] as 'exclude';
+      // linked collections only take the view layer toggles
+      if (isReadOnly(c) && (col === 'select' || col === 'viewport' || col === 'render')) return null;
       const inverted = col === 'holdout' || col === 'indirect';
       const raw = !!(c as unknown as Record<string, boolean>)[flag];
       const on = inverted ? raw : !raw;
@@ -896,6 +899,7 @@ export class Outliner implements Editor {
           if (col !== 'enable' && col !== 'holdout' && col !== 'indirect')
             for (const oid of objectsInside(doc, id)) {
               const o = doc.objects[oid];
+              if (isReadOnly(o) && col !== 'hide') continue;
               const okey = {
                 select: 'hide_select',
                 hide: 'hide',
@@ -916,7 +920,7 @@ export class Outliner implements Editor {
     }
     if (r.kind === 'object' && r.ob && (col === 'select' || col === 'hide' || col === 'viewport' || col === 'render')) {
       const ob = doc.objects[r.ob.id];
-      if (!ob) return null;
+      if (!ob || (isReadOnly(ob) && col !== 'hide')) return null;
       const key = (
         {
           select: 'hide_select',
@@ -932,6 +936,7 @@ export class Outliner implements Editor {
         render: ['restrict_render_off', 'restrict_render_on', 'Disable in Renders'],
       }[col];
       const apply = (o: ObjectData, v: boolean) => {
+        if (isReadOnly(o) && key !== 'hide') return;
         o[key] = !v;
         if (!v && (key === 'hide' || key === 'hide_viewport' || key === 'hide_select')) o.select = false;
       };
@@ -1263,8 +1268,8 @@ export class Outliner implements Editor {
   }
 
   canRename(r: Row) {
-    const rec = r.kind === 'object' && r.ob ? app.doc.objects[r.ob.id] : r.kind === 'collection' && r.id ? app.doc.collections[r.id] : null;
-    if (rec && (rec as { library?: string }).library) return false;
+    const rec = r.kind === 'object' && r.ob ? app.doc.objects[r.ob.id] : r.kind === 'collection' && r.id ? app.doc.collections[r.id] : r.table && r.id ? (app.doc as unknown as Record<string, Record<string, unknown>>)[r.table]?.[r.id] : null;
+    if (rec && isReadOnly(rec)) return false;
     if (r.kind === 'collection') return r.id !== app.doc.scene.collection;
     return !['group', 'file', 'modifiers', 'constraints', 'vgroups', 'library', 'rna', 'override'].includes(r.kind);
   }

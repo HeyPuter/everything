@@ -7,6 +7,7 @@ import type { DocumentData, ID } from '../data/types';
 import { decodeDocument, isNativeFile } from '../io/native';
 import { lockLinked, libraries, reloadFromDoc, stabilizeIds, linkedRecords } from './core';
 import type { LibraryData } from './types';
+import { withLinkedWrites } from './readonly';
 import { fingerprint, getStored, latestBytes, type StoredLibrary } from './store';
 import { uid } from '../data/defaults';
 
@@ -49,6 +50,13 @@ export function cachedInfo(key: string) {
 /** The last decoded document of a stored library file (operators run synchronously on it). */
 export function cachedSource(key: string): DocumentData | undefined {
   return decoded.get(key)?.doc;
+}
+
+/** Key of a cached source document by file name (newest first). */
+export function cachedKeyByName(name: string): string | undefined {
+  let hit: string | undefined;
+  for (const [k, v] of decoded) if (v.entry?.name === name) hit = k;
+  return hit;
 }
 
 /** Remember a decoded document for a key (used by scripts and tests that bring their own files). */
@@ -163,6 +171,9 @@ async function reloadOnOpen() {
 
 onAppReady((a) => {
   lockLinked(a.doc);
+  // animation, drivers and simulations write evaluated values into linked data as well
+  const evaluate = a.graph.evaluate.bind(a.graph);
+  a.graph.evaluate = ((...args: Parameters<typeof evaluate>) => withLinkedWrites(() => evaluate(...args))) as typeof a.graph.evaluate;
   // every document the app switches to (open, new, undo, redo) gets its linked data locked;
   // opening a file with libraries reloads them
   const set = a.setDocument.bind(a);

@@ -158,3 +158,57 @@ test('Outliner: libraries in Data Blocks, Library Overrides, Data API and Video 
   await expect(ol.locator('.ol-row').first()).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('Linking from a recent project follows its saved changes; dropped project files offer Open / Link / Append', async ({ page }) => {
+  const errors = await openApp(page);
+  const v1 = await rigProject(page, 'Crate');
+  await page.evaluate(async (bytes) => {
+    const { recordRecent } = await import('/src/io/session.ts');
+    await recordRecent('props.p3d', new Uint8Array(bytes));
+  }, v1);
+  await page.evaluate(() => (window as any).app.run('wm.link'));
+  const dlg = page.locator('.lb');
+  await dlg.locator('.fb-side-item', { hasText: 'Recent Projects' }).click();
+  await dlg.locator('.lb-row', { hasText: 'props.p3d' }).dblclick();
+  await dlg.locator('.lb-row', { hasText: 'Objects' }).dblclick();
+  await dlg.locator('.lb-row', { hasText: 'Crate' }).click();
+  // options: no instancing needed for objects; Select stays on
+  await dlg.locator('.lb-go').click();
+  await expect(dlg).toHaveCount(0);
+  expect(await names(page)).toContain('Crate@L');
+  expect(await page.evaluate(() => (window as any).app.activeObject.name)).toBe('Crate');
+  // the library project is saved again with the crate moved
+  const v2 = await page.evaluate(async () => {
+    const { decodeDocument, encodeDocument } = await import('/src/io/native.ts');
+    const { recentBytes, recordRecent } = await import('/src/io/session.ts');
+    const d = decodeDocument((await recentBytes('props.p3d'))!).doc;
+    (Object.values(d.objects).find((o: any) => o.name === 'Crate') as any).location = [0, 0, 3];
+    await recordRecent('props.p3d', encodeDocument(d));
+    return true;
+  });
+  expect(v2).toBe(true);
+  await page.evaluate(() => (window as any).app.run('wm.lib_reload', {}, { invoke: false }));
+  await expect.poll(() => page.evaluate(() => (window as any).app.activeObject.location[2])).toBe(3);
+  // undo goes back to before the reload
+  await page.evaluate(() => (window as any).app.undoStep());
+  expect(await page.evaluate(() => (window as any).app.activeObject?.location[2] ?? 0)).toBe(0);
+  // a project file dropped onto the window
+  const bytes = v1;
+  await page.evaluate(async (bytes) => {
+    const dt = new DataTransfer();
+    dt.items.add(new File([new Uint8Array(bytes)], 'dropped.p3d'));
+    const target = document.querySelector('.view3d')!;
+    const r = target.getBoundingClientRect();
+    const at = { clientX: r.left + 200, clientY: r.top + 200, dataTransfer: dt, bubbles: true, cancelable: true };
+    target.dispatchEvent(new DragEvent('dragover', at));
+    target.dispatchEvent(new DragEvent('drop', at));
+  }, bytes);
+  await expect(page.locator('.menu .menu-item', { hasText: 'Append…' })).toBeVisible();
+  await page.locator('.menu .menu-item', { hasText: 'Append…' }).click();
+  await expect(page.locator('.lb .lb-crumb', { hasText: 'dropped.p3d' })).toBeVisible();
+  await page.locator('.lb .lb-row', { hasText: 'Objects' }).dblclick();
+  await page.locator('.lb .lb-row', { hasText: 'Root' }).click();
+  await page.locator('.lb .lb-go').click();
+  expect(await names(page)).toContain('Root');
+  await expectNoErrors(errors);
+});

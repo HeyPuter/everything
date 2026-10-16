@@ -219,6 +219,14 @@ class _Struct:
     def __bool__(self):
         return True
 
+    # structs that are context managers (e.g. ``bpy.data.libraries.load(...)``)
+    def __enter__(self):
+        return _wrap(_call(_br.call, self._js, "__enter__", js.Array.new(), js.Object.new()))
+
+    def __exit__(self, *exc):
+        _call(_br.call, self._js, "__exit__", _tojs([exc[0] is not None]), js.Object.new())
+        return False
+
     @property
     def bl_rna(self):
         return _wrap(_br.getattr(self._js, "bl_rna"))

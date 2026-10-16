@@ -6,6 +6,17 @@
 
 const readonly = new WeakSet<object>();
 
+/** Evaluation (animation, drivers, simulation) writes current values into linked data too. */
+let writesOpen = 0;
+export function withLinkedWrites<T>(fn: () => T): T {
+  writesOpen++;
+  try {
+    return fn();
+  } finally {
+    writesOpen--;
+  }
+}
+
 /** Is this object part of a linked (read-only) data-block? */
 export function isReadOnly(o: unknown): boolean {
   return !!o && typeof o === 'object' && readonly.has(o as object);
@@ -23,7 +34,9 @@ function lockNested(v: unknown, depth: number) {
   readonly.add(v);
   if (Array.isArray(v)) {
     for (const x of v) lockNested(x, depth + 1);
-    Object.freeze(v);
+    // lists (of ids, modifiers, …) are frozen; number vectors stay writable for evaluation
+    // (animation writes animated values into them) and widgets show them disabled
+    if (!v.length || !v.every((x) => typeof x === 'number' || typeof x === 'boolean')) Object.freeze(v);
     return;
   }
   for (const k of Object.keys(v)) {
@@ -48,13 +61,14 @@ function same(a: unknown, b: unknown): boolean {
 function lockKey(o: object, k: string) {
   const d = Object.getOwnPropertyDescriptor(o, k);
   if (!d || !('value' in d) || !d.writable) return;
-  const value = d.value;
+  let value = d.value;
   Object.defineProperty(o, k, {
     enumerable: d.enumerable,
     configurable: false,
     get: () => value,
     set: (v: unknown) => {
-      if (!same(v, value)) throw new TypeError(`Cannot assign to read only property '${k}' of linked data`);
+      if (writesOpen > 0) value = v;
+      else if (!same(v, value)) throw new TypeError(`Cannot assign to read only property '${k}' of linked data`);
     },
   });
 }

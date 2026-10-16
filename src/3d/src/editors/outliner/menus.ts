@@ -285,7 +285,16 @@ function rowMenu(ol: Outliner, r: Row): MenuItem[] {
     case 'material':
     case 'action':
     case 'id':
-      return [...idDataMenu(r), ...(hookItems(r).length ? [{ separator: true }, ...hookItems(r)] : []), ...common(ol)];
+      return [
+        ...(r.kind === 'id' && r.table === 'collections' && r.id
+          ? [
+              { label: 'Link to Scene', op: 'outliner.collection_link', disabled: app.doc.collections[app.doc.scene.collection]?.children.includes(r.id) },
+              { label: 'Instance to Scene', op: 'outliner.collection_instance' },
+              { label: 'Delete Hierarchy', op: 'outliner.collection_hierarchy_delete' },
+              { separator: true },
+            ]
+          : []),
+        ...idDataMenu(r), ...(hookItems(r).length ? [{ separator: true }, ...hookItems(r)] : []), ...common(ol)];
     case 'modifier':
     case 'modifiers':
       return [
