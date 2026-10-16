@@ -46,8 +46,10 @@ export function bakeOptions(p: Record<string, unknown>): BakeOptions {
   const cageName = String(p.cage_object ?? '');
   const cage = cageName ? Object.values(app.doc.objects).find((o) => o.name === cageName || o.id === cageName) : null;
   if (cageName && !cage) throw new Error(`No object named "${cageName}" to use as the cage`);
+  const type = String(p.type ?? 'COMBINED').toUpperCase();
+  if (!BAKE_TYPES.some(([t]) => t === type)) throw new Error(`Unknown bake type "${type}" (use one of ${BAKE_TYPES.map(([t]) => t).join(', ')})`);
   return {
-    type: (String(p.type ?? 'COMBINED').toUpperCase() as BakeType) || 'COMBINED',
+    type: type as BakeType,
     filter: contributions(filterList(p.pass_filter), b),
     margin: Math.max(0, Math.round(Number(p.margin ?? b.margin))),
     margin_type: (p.margin_type as BakeOptions['margin_type']) ?? b.margin_type,
