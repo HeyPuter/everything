@@ -95,8 +95,10 @@ function dashSegments(m: M): Child {
       h(
         'div',
         { class: 'gpm-seg-btns' },
-        h('button', { class: 'btn', 'data-tip': 'Add a dash segment', onclick: () => (segs.push({ name: `Segment.${String(segs.length).padStart(3, '0')}`, dash: 2, gap: 1, radius: 1, opacity: 1, material_index: -1, use_cyclic: false }), (m.segment_active_index = segs.length - 1), changed('Add Segment')) }, icon('add')),
-        h('button', { class: 'btn', 'data-tip': 'Remove the active segment', disabled: segs.length <= 1, onclick: () => segs.length > 1 && (segs.splice(active, 1), (m.segment_active_index = Math.max(0, active - 1)), changed('Remove Segment')) }, icon('remove')),
+        h('button', { class: 'btn', 'data-tip': 'Add a dash segment', onclick: () => app.run('object.grease_pencil_dash_modifier_segment_add', { modifier: m.name }) }, icon('add')),
+        h('button', { class: 'btn', 'data-tip': 'Remove the active segment', disabled: segs.length <= 1, onclick: () => app.run('object.grease_pencil_dash_modifier_segment_remove', { modifier: m.name }) }, icon('remove')),
+        h('button', { class: 'btn', 'data-tip': 'Move the segment up', disabled: active <= 0, onclick: () => app.run('object.grease_pencil_dash_modifier_segment_move', { modifier: m.name, type: 'UP' }) }, icon('triangle_up')),
+        h('button', { class: 'btn', 'data-tip': 'Move the segment down', disabled: active >= segs.length - 1, onclick: () => app.run('object.grease_pencil_dash_modifier_segment_move', { modifier: m.name, type: 'DOWN' }) }, icon('triangle_down')),
       ),
     ),
     seg
@@ -119,13 +121,6 @@ function chainSegments(m: M): Child {
   const segs = ((m.segments as Record<string, unknown>[] | undefined) ??= []);
   const active = Math.min(segs.length - 1, Math.max(0, (m.segment_active_index as number) ?? 0));
   const seg = segs[active];
-  const move = (d: number) => {
-    const j = active + d;
-    if (j < 0 || j >= segs.length) return;
-    [segs[active], segs[j]] = [segs[j], segs[active]];
-    m.segment_active_index = j;
-    changed('Move Segment');
-  };
   return [
     h(
       'div',
@@ -140,24 +135,10 @@ function chainSegments(m: M): Child {
       h(
         'div',
         { class: 'gpm-seg-btns' },
-        h(
-          'button',
-          {
-            class: 'btn',
-            'data-tip': 'Add a segment',
-            onclick: () => {
-              const last = segs[segs.length - 1];
-              const st = last ? (last.seg_end as number) + 1 : 1;
-              segs.push({ name: `Segment.${String(segs.length).padStart(3, '0')}`, seg_start: st, seg_end: st + 1, seg_mode: 'NORMAL', seg_repeat: 1 });
-              m.segment_active_index = segs.length - 1;
-              changed('Add Segment');
-            },
-          },
-          icon('add'),
-        ),
-        h('button', { class: 'btn', 'data-tip': 'Remove the active segment', disabled: !seg, onclick: () => seg && (segs.splice(active, 1), (m.segment_active_index = Math.max(0, active - 1)), changed('Remove Segment')) }, icon('remove')),
-        h('button', { class: 'btn', 'data-tip': 'Move the segment up', disabled: active <= 0, onclick: () => move(-1) }, icon('triangle_up')),
-        h('button', { class: 'btn', 'data-tip': 'Move the segment down', disabled: active >= segs.length - 1, onclick: () => move(1) }, icon('triangle_down')),
+        h('button', { class: 'btn', 'data-tip': 'Add a segment', onclick: () => app.run('object.grease_pencil_time_modifier_segment_add', { modifier: m.name }) }, icon('add')),
+        h('button', { class: 'btn', 'data-tip': 'Remove the active segment', disabled: !seg, onclick: () => app.run('object.grease_pencil_time_modifier_segment_remove', { modifier: m.name }) }, icon('remove')),
+        h('button', { class: 'btn', 'data-tip': 'Move the segment up', disabled: active <= 0, onclick: () => app.run('object.grease_pencil_time_modifier_segment_move', { modifier: m.name, type: 'UP' }) }, icon('triangle_up')),
+        h('button', { class: 'btn', 'data-tip': 'Move the segment down', disabled: active >= segs.length - 1, onclick: () => app.run('object.grease_pencil_time_modifier_segment_move', { modifier: m.name, type: 'DOWN' }) }, icon('triangle_down')),
       ),
     ),
     seg
