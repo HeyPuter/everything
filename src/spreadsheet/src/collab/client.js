@@ -11,6 +11,7 @@ import { Replica } from './replica.js';
 import { call, CollabError } from './api.js';
 import { canEdit, hash, keyPair, MAX_PEER_CHANGE, packState, unpackState, verify } from './protocol.js';
 import { PeerNetwork } from './peers.js';
+import { MAX_BATCH, MAX_CHANGE } from './ops.js';
 import { sanitizeState } from './server/service.js';
 
 /** Revisions between checkpoints written by an editor's browser. */
@@ -19,6 +20,16 @@ const CHECKPOINT_EVERY = 50;
 const CHECKPOINT_IDLE = 60_000;
 /** People not heard from for this long are taken off the list. */
 const PEOPLE_TTL = 20_000;
+
+/** The oldest of `changes` that fit in one commit: at most `limit` of them and MAX_CHANGE characters (at least one, which the room judges). */
+function batch(changes, limit) {
+  let size = 2;
+  for (let n = 0; n < changes.length && n < limit; n++) {
+    size += JSON.stringify(changes[n]).length + (n ? 1 : 0);
+    if (n && size > MAX_CHANGE) return changes.slice(0, n);
+  }
+  return changes.slice(0, limit);
+}
 
 export class RoomClient extends EventTarget {
   /**
@@ -163,15 +174,21 @@ export class RoomClient extends EventTarget {
     this.setStatus();
   }
 
-  /** Send pending changes (one commit at a time; a refused one is rebased and sent again). */
+  /**
+   * Send pending changes (one commit at a time; a refused one is rebased and sent again). A commit carries as
+   * many of the oldest as the room takes in one (MAX_BATCH changes, MAX_CHANGE characters), so a long spell
+   * offline drains in several. A batch the room refuses for good is split until the change it refuses is the
+   * one sent alone: the ones before it still arrive.
+   */
   flush() {
     if (this.closed) return Promise.resolve();
     if (this.flushing) { this.flushAgain = true; return this.flushing; }
     clearTimeout(this.retryTimer);
     this.flushing = this.serial(async () => {
-      for (let round = 0; round < 50 && !this.closed; round++) {
+      let limit = MAX_BATCH;
+      for (let round = 0; round < 50 && !this.closed;) {
         this.flushAgain = false;
-        const changes = this.replica.outgoing();
+        const changes = batch(this.replica.outgoing(), limit);
         if (!changes.length) break;
         if (!this.canEdit) { this.replica.discardPending(); await this.persist(); break; }
         this.setStatus('syncing');
@@ -179,6 +196,11 @@ export class RoomClient extends EventTarget {
         try {
           res = await this.request({ op: 'commit', base: this.replica.rev, changes, session: this.session });
         } catch (error) {
+          if (error instanceof CollabError && [400, 413, 422].includes(error.status) && changes.length > 1) {
+            limit = Math.ceil(changes.length / 2);
+            round++;
+            continue;
+          }
           if (error instanceof CollabError && [400, 403, 413, 422].includes(error.status)) {
             // Refused for good: later changes may build on it, so they go too, and the workbook shows the room's state.
             this.replica.discardPending();
@@ -194,7 +216,7 @@ export class RoomClient extends EventTarget {
         if (res.accepted) {
           this.announce(res);
           if (!this.flushAgain && !this.replica.pending.length) break;
-        }
+        } else round++;
       }
       this.retryDelay = 1000;
       this.setStatus('connected');

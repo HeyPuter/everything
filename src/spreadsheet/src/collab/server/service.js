@@ -8,7 +8,7 @@
  */
 
 import { canEdit, canManage, decode, hash, ID, INVITE_ROLES, keyPair, MAX_STATE, SESSION_TTL, sign, unpackState } from '../protocol.js';
-import { MAX_CHANGE, OpError, validateChange } from '../ops.js';
+import { MAX_BATCH, MAX_CHANGE, OpError, validateChange } from '../ops.js';
 
 export const INVITE_DAYS = 7;
 const DAY = 86_400_000;
@@ -346,7 +346,7 @@ export class RoomService {
   async commit(room, meta, user, member, input) {
     if (!canEdit(member.role)) fail(403, 'You can view this shared workbook but not change it.');
     const changes = input.changes;
-    if (!Array.isArray(changes) || !changes.length || changes.length > 500) fail(400, 'Invalid change.');
+    if (!Array.isArray(changes) || !changes.length || changes.length > MAX_BATCH) fail(400, 'Invalid change.');
     const text = JSON.stringify(changes);
     if (text.length > MAX_CHANGE) fail(413, 'This change is too large to save.');
     try { for (const ch of changes) validateChange(ch); } catch (e) { fail(400, e instanceof OpError ? e.message : 'Invalid change.'); }

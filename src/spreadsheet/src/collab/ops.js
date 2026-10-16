@@ -25,6 +25,8 @@ export const MAX_ROW = 1048575;
 export const MAX_COL = 16383;
 /** Largest change a commit carries (characters of JSON). */
 export const MAX_CHANGE = 4_000_000;
+/** Most changes a commit carries (more wait for the next one). */
+export const MAX_BATCH = 500;
 export const MAX_OPS = 20_000;
 
 /** Settings kept per row or column (or per cell, for notes): each index is a register of its own. */
