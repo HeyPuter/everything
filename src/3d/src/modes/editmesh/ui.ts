@@ -160,6 +160,9 @@ export function edgeMenu(): MenuItem[] {
     { separator: true },
     { label: 'Mark Sharp from Vertices', op: 'mesh.mark_sharp', props: { use_verts: true } },
     { label: 'Set Sharpness by Angle', op: 'mesh.set_sharpness_by_angle' },
+    { separator: true },
+    { label: 'Mark Freestyle Edge', op: 'mesh.mark_freestyle_edge', props: { clear: false } },
+    { label: 'Clear Freestyle Edge', op: 'mesh.mark_freestyle_edge', props: { clear: true } },
   ];
 }
 
@@ -172,6 +175,9 @@ function faceDataMenu(): MenuItem[] {
     { label: 'Reverse UVs', op: 'mesh.uvs_reverse' },
     { separator: true },
     { label: 'Flip Quad Tessellation', op: 'mesh.flip_quad_tessellation' },
+    { separator: true },
+    { label: 'Mark Freestyle Face', op: 'mesh.mark_freestyle_face', props: { clear: false } },
+    { label: 'Clear Freestyle Face', op: 'mesh.mark_freestyle_face', props: { clear: true } },
   ];
 }
 

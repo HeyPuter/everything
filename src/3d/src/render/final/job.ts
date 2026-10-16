@@ -82,6 +82,22 @@ export const finalRenderHooks: {
   createVideoWriter?: (W: number, H: number, fps: number, frames: number[]) => Promise<VideoWriter | null>;
 } = {};
 
+/** Line drawing over a rendered frame (final renders): composites into `combined` or adds passes. */
+export interface FrameLineContext {
+  combined: Float32Array;
+  passes: Partial<Record<PassName, Float32Array>>;
+  camera: Camera;
+  /** rendered size (the region when a render region is set) and full frame height */
+  width: number;
+  height: number;
+  frameHeight: number;
+  /** throws when the render was cancelled */
+  check: () => void;
+  /** show a phase in the status bar and let the interface breathe */
+  phase: (label: string) => Promise<void>;
+}
+export const frameLineHooks: ((f: FrameLineContext) => void | Promise<void>)[] = [];
+
 /** Render the scene camera (or `cameraId`) at the evaluated frame from inside a running render job. */
 export async function renderSceneForJob(W: number, H: number, cameraId?: string | null): Promise<{ combined: Float32Array; view?: ViewSettings }> {
   if (!job) throw new Error('No render job is running');
@@ -508,6 +524,23 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
     if (src.kind === 'final' && wantsIdPasses(doc)) Object.assign(passes, (await renderIdPasses({ renderer, scene: guideScene.scene, camera, W, H, doc, yieldFrame: nextFrame })).passes);
     guideScene.dispose();
     if (!transparent) for (let i = 3; i < combined.length; i += 4) combined[i] = 1;
+    if (src.kind === 'final')
+      for (const hk of frameLineHooks)
+        await hk({
+          combined,
+          passes,
+          camera,
+          width: W,
+          height: H,
+          frameHeight: FH,
+          check,
+          phase: async (label) => {
+            job!.phase = label;
+            progress(true);
+            await nextFrame();
+            check();
+          },
+        });
     return { combined, passes, samples, maxSamples, view };
   } finally {
     restore();
