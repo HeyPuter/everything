@@ -7,5 +7,7 @@ import './ui';
 import './overlay';
 import './lineart';
 import './lineartui';
+import './gpsvgimport';
+import './gpexportops';
 
 export {};

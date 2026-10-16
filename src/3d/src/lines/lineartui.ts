@@ -5,7 +5,7 @@ import { h, type Child } from '../ui/h';
 import { panel, enumMenu, opButton, checkbox } from '../ui/widgets';
 import { num, bool, enumProp, objectProp, splitRow } from '../ui/props';
 import { modifierExtraUI } from '../editors/properties/stack';
-import { objectExtraPanels } from '../editors/properties/tabs';
+import { objectExtraPanels, collectionExtraPanels } from '../editors/properties/tabs';
 import type { ModifierBase, ObjectData } from '../data/types';
 import { gpOf } from '../greasepencil/data';
 import type { LineartUsage } from './types';
@@ -108,3 +108,16 @@ objectExtraPanels.push((o: ObjectData) => {
     { closed: true },
   );
 });
+
+// Collection ▸ Line Art
+collectionExtraPanels.push((c) =>
+  panel(
+    'col-lineart',
+    'Line Art',
+    () => {
+      c.lineart_usage ??= 'INCLUDE';
+      return enumProp(c, 'lineart_usage', 'Usage', USAGE.slice(1), { tip: 'How the objects of this collection take part in line art' });
+    },
+    { closed: true },
+  ),
+);
