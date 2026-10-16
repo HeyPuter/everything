@@ -93,6 +93,10 @@ describe('times', () => {
     expect(p.dueTime).toBeNull();
     expect(p.title).toBe('meet 9:99am');
     expect(parse('lunch 13pm').dueTime).toBeNull();
+    expect(parse('lunch 0pm').dueTime).toBeNull();
+    expect(parse('meet 0am').dueTime).toBeNull();
+    expect(parse('call 0:30am').dueTime).toBeNull();
+    expect(parse('meet 0am').title).toBe('meet 0am');
   });
 
   it('combines date and time', () => {

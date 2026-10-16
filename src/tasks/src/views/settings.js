@@ -54,6 +54,44 @@ export function settingsView() {
     )
   );
 
+  /* ---------- lists ---------- */
+
+  if (store.lists.length > 0) {
+    const listOptions = [
+      { id: '', name: 'First list (default)' },
+      ...store.lists.map((l) => ({ id: l.id, name: l.name })),
+    ];
+    const defaultListSelect = el('select.input', {
+      'aria-label': 'Default list for new tasks',
+      style: { width: 'auto', minWidth: '140px', padding: '6px 10px', fontSize: '13px' },
+      onchange: async (e) => {
+        const val = e.target.value || null;
+        await store.updateSettings({ defaultListId: val });
+        toast('Default list updated');
+      },
+    },
+      ...listOptions.map((opt) =>
+        el('option', {
+          value: opt.id,
+          selected: (store.settings.defaultListId || '') === opt.id,
+        }, opt.name))
+    );
+
+    root.append(
+      el('div.section-label', {}, 'Lists'),
+      el('div.card', {},
+        el('div.setting-row', {},
+          el('span.s-icon', { html: icon('list', 19) }),
+          el('div.grow', {},
+            el('div.s-label', {}, 'Default list'),
+            el('div.s-sub', {}, 'Where new tasks are saved when no list is specified')
+          ),
+          el('div.s-end', {}, defaultListSelect)
+        )
+      )
+    );
+  }
+
   /* ---------- reminders ---------- */
 
   root.append(

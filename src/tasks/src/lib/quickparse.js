@@ -154,9 +154,10 @@ export function parseQuickAdd(text, { lists = [], today = todayISO(), ignore = n
   /* --- time --- */
 
   grab(new RegExp(String.raw`(^|\s)(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)${B}`, 'i'), 'time', (m) => {
-    let h = Number(m[2]) % 12;
+    const hour = Number(m[2]);
+    if (hour < 1 || hour > 12) return false;
+    let h = hour % 12;
     if (m[4].toLowerCase() === 'pm') h += 12;
-    if (Number(m[2]) > 12) return false;
     if (m[3] && Number(m[3]) > 59) return false; // "9:99am" is not a time
     out.dueTime = `${pad2(h)}:${m[3] || '00'}`;
     return out.dueTime;
