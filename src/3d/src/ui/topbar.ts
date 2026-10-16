@@ -196,8 +196,8 @@ export function appMenu(): MenuItem[] {
   ];
 }
 
-/** Menus that wm.call_menu can open by name. */
-const NAMED_MENUS: Record<string, [string, () => MenuItem[]]> = {
+/** Menus that wm.call_menu (and wm.search_single_menu) can open by name; other modules may add theirs. */
+export const NAMED_MENUS: Record<string, [string, () => MenuItem[]]> = {
   TOPBAR_MT_file_new: ['New File', fileNewMenu],
   TOPBAR_MT_file_open_recent: ['Open Recent', openRecentMenu],
   TOPBAR_MT_file_context_menu: ['File', fileContextMenu],
