@@ -101,7 +101,7 @@ export function openTextBoxDialog(ctx, { textbox = null } = {}) {
       el('span.field-hint', {}, `Up to ${TEXT_MAX_LENGTH.toLocaleString('en-US')} characters`)),
     el('div.row.row-2', {},
       el('label.field', {}, el('span.field-label', {}, 'Size'), sizeSel),
-      el('div.field', {}, el('span.field-label', {}, 'Style'), el('div.row', { style: { gap: '14px' } }, check('bold', 'Bold'), check('italic', 'Italic'), check('border', 'Border')))),
+      el('div.field', {}, el('span.field-label', {}, 'Style'), el('div.row.textbox-style-checks', {}, check('bold', 'Bold'), check('italic', 'Italic'), check('border', 'Border')))),
     el('div.row.row-2', {},
       el('label.field', {}, el('span.field-label', {}, 'Text color'), colorSel),
       el('label.field', {}, el('span.field-label', {}, 'Fill'), fillSel)),

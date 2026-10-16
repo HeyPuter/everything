@@ -43,4 +43,12 @@ describe('dialogs at phone width', () => {
     expect(foot).toMatch(/flex-wrap:\s*wrap/);
     expect(foot).toMatch(/row-gap:\s*\d+px/);
   });
+
+  it('wraps the text box Bold, Italic and Border checks once the dialog narrows', () => {
+    const css = read('components.css');
+    expect(rule(css, '.textbox-style-checks')).toMatch(/gap:\s*14px/);
+    expect(rule(media(css, '(max-width: 480px) { .textbox-style-checks'), '.textbox-style-checks')).toMatch(/flex-wrap:\s*wrap/);
+    const js = readFileSync(new URL('../src/ui/textboxdialog.js', import.meta.url), 'utf8');
+    expect(js).toContain("el('div.row.textbox-style-checks'");
+  });
 });

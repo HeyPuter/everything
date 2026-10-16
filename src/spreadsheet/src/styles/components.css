@@ -1171,6 +1171,10 @@ body[data-view="editor"] .toast-root { bottom: calc(var(--statusbar-h) + var(--t
   .share-add .share-mode { flex: 1; }
 }
 
+/* Insert ▸ Text Box: Bold, Italic and Border side by side, wrapping once the dialog is narrower than its 440px */
+.textbox-style-checks { gap: 14px; }
+@media (max-width: 480px) { .textbox-style-checks { flex-wrap: wrap; row-gap: 6px; } }
+
 /* Dropdown chip colors in the validation manager */
 .chip-colors { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .chip-color-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
