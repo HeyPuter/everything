@@ -230,3 +230,23 @@ describe('pipeline', () => {
     expect(edgeTypeSelected(set, F.MATERIAL)).toBe(false);
   });
 });
+
+describe('intersections', () => {
+  it('finds where two cubes cut through each other', async () => {
+    const { intersectionEdges } = await import('../../src/lines/core/intersections');
+    const a = cube(2),
+      b = cube(2, [1, 1, 1]);
+    const edges = intersectionEdges(
+      [
+        { ...a, world: identity, object: 0 },
+        { ...b, world: identity, object: 1 },
+      ],
+      () => true,
+    );
+    expect(edges.length).toBeGreaterThan(0);
+    // every intersection point lies on both cubes' surfaces (within the overlap box 0..1)
+    for (const e of edges) for (const p of [e.pa, e.pb]) for (const c of p) expect(c).toBeGreaterThan(-1e-4), expect(c).toBeLessThan(1 + 1e-4);
+    // separated cubes do not intersect
+    expect(intersectionEdges([{ ...cube(1), world: identity, object: 0 }, { ...cube(1, [5, 0, 0]), world: identity, object: 1 }], () => true).length).toBe(0);
+  });
+});

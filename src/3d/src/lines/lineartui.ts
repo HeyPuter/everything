@@ -50,6 +50,7 @@ function lineArtUI(ob: ObjectData, m0: ModifierBase): Child {
       bool(m, 'use_contour', 'Contour', { tip: 'Outlines and silhouettes' }),
       h('div', { class: 'la-crease' }, bool(m, 'use_crease', 'Crease'), m.use_crease ? num(m, 'crease_threshold', 'Threshold', { unit: 'angle', min: 0, max: Math.PI, tip: 'Faces meeting at a sharper angle than this draw a crease line' }) : null),
       m.use_crease ? bool(m, 'use_crease_on_smooth', 'Crease On Smooth', { tip: 'Also draw creases between smooth-shaded faces' }) : null,
+      bool(m, 'use_intersection', 'Intersections', { tip: 'Lines where the surfaces of two objects cut through each other' }),
       bool(m, 'use_material', 'Material Borders', { tip: 'Edges between faces of different materials' }),
       bool(m, 'use_edge_mark', 'Edge Marks', { tip: 'Edges marked with Mark Freestyle Edge' }),
       bool(m, 'use_loose', 'Loose', { tip: 'Edges without faces' }),

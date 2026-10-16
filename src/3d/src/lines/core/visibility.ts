@@ -82,7 +82,7 @@ interface Occluder {
 
 const bvhCache = new WeakMap<Float32Array, { indices: Uint32Array; bvh: MeshBVH; triFace: Uint32Array }>();
 
-function bvhFor(o: OccluderInput) {
+export function bvhFor(o: OccluderInput) {
   const hit = bvhCache.get(o.positions);
   if (hit && hit.indices === o.indices) return hit;
   const t = triangulateMesh(o);

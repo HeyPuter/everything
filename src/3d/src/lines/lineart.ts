@@ -19,6 +19,7 @@ import { newPoint, newStroke, type GPStroke } from '../greasepencil/data';
 import { extractFeatures, F, type FeatureEdge } from './core/features';
 import { Occlusion, visibilityPieces, type OccluderInput } from './core/visibility';
 import { chainPieces } from './core/chain';
+import { intersectionEdges } from './core/intersections';
 import { worldPositions, type LineObject } from './core/pipeline';
 import { lineCamera, lineObjects, inCollection } from './scene';
 
@@ -182,6 +183,11 @@ export function computeLineArt(m: M, doc: DocumentData): LineArtStroke[] {
       if (m.use_face_mark && !faceMarkKeeps(m, o, e)) continue;
       edges.push({ ...e, flags });
     }
+  }
+  if (m.use_intersection) {
+    const lineIdx = new Set(lines.map((o) => occluders.indexOf(o)));
+    const noIx = new Set(occluders.map((o, i) => (usage(doc, o.id) === 'NO_INTERSECTION' ? i : -1)));
+    for (const e of intersectionEdges(occ, (a, b) => (lineIdx.has(a) || lineIdx.has(b)) && !noIx.has(a) && !noIx.has(b))) edges.push(e);
   }
   const lo = Math.max(0, Math.round(num(m, 'level_start'))),
     hi = m.use_multiple_levels ? Math.max(lo, Math.round(num(m, 'level_end'))) : lo;
