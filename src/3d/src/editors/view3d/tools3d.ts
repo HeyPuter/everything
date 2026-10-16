@@ -1,4 +1,4 @@
-// Interactive viewport tools shared by Object and Edit Mode: Annotate, Measure, Add Cube.
+// Interactive viewport tools shared by Object and Edit Mode: Annotate, Measure.
 // Annotations and rulers are stored on the scene so they are saved and undoable.
 import { Vector3 } from 'three';
 import { app, registerOperators } from '../../app/app';
@@ -9,10 +9,6 @@ import { h, type VNode } from '../../ui/h';
 import { surfaceHit, cursorToolSettings } from '../../ops/view3d';
 import { toolSettingsRenderers } from './toolbar';
 import { colorSwatch, formatNumber, numberField, enumMenu, opButton, checkbox } from '../../ui/widgets';
-import { newMeshData, newObject } from '../../data/defaults';
-import * as prim from '../../mesh/primitives';
-import { addObjectToScene, uniqueName } from '../../ops/object';
-import { modeHandlers } from '../../ops/modes';
 import { addKeys } from '../../app/keymap';
 import type { SceneData } from '../../data/types';
 
@@ -248,152 +244,11 @@ function measurePointer(v: View3D, e: PointerEvent): boolean {
   return true;
 }
 
-// ---------------------------------------------------------------------------
-// Add Cube: drag the base on the ground (or a surface), then move to set the height, click to confirm.
-
-function addCubePointer(v: View3D, e: PointerEvent): boolean {
-  const { x, y } = localXY(v, e);
-  const hit = surfaceHit(v, x, y);
-  const base = hit ?? new Vector3(...app.doc.scene.cursor.location);
-  // base plane: horizontal through the start point
-  const planeZ = base.z;
-  const onPlane = (px: number, py: number) => {
-    const { origin, dir } = v.ray(px, py);
-    if (Math.abs(dir.z) < 1e-6) return null;
-    const t = (planeZ - origin.z) / dir.z;
-    return t > 0 ? origin.clone().addScaledVector(dir, t) : null;
-  };
-  const p0 = onPlane(x, y) ?? base.clone();
-  let p1 = p0.clone();
-  let height = 0;
-  let phase: 'BASE' | 'HEIGHT' = 'BASE';
-  let heightStartY = 0;
-  const box = () => {
-    const minX = Math.min(p0.x, p1.x),
-      maxX = Math.max(p0.x, p1.x),
-      minY = Math.min(p0.y, p1.y),
-      maxY = Math.max(p0.y, p1.y);
-    return { minX, maxX, minY, maxY, z0: Math.min(planeZ, planeZ + height), z1: Math.max(planeZ, planeZ + height) };
-  };
-  const draw = () => {
-    const b = box();
-    const c = [
-      [b.minX, b.minY, b.z0],
-      [b.maxX, b.minY, b.z0],
-      [b.maxX, b.maxY, b.z0],
-      [b.minX, b.maxY, b.z0],
-      [b.minX, b.minY, b.z1],
-      [b.maxX, b.minY, b.z1],
-      [b.maxX, b.maxY, b.z1],
-      [b.minX, b.maxY, b.z1],
-    ].map((q) => v.project(new Vector3(q[0], q[1], q[2])));
-    const E = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
-    preview = h('g', {}, E.map(([i, j]) => h('line', { x1: c[i].x, y1: c[i].y, x2: c[j].x, y2: c[j].y, stroke: '#ffffff', 'stroke-width': 1.2 })));
-    app.changed('ui');
-  };
-  const finish = () => {
-    cleanup();
-    preview = null;
-    const b = box();
-    const sx = b.maxX - b.minX,
-      sy = b.maxY - b.minY,
-      sz = b.z1 - b.z0;
-    if (sx < 1e-4 || sy < 1e-4) {
-      app.changed('ui');
-      return;
-    }
-    const center = new Vector3((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, (b.z0 + b.z1) / 2);
-    const arrays = prim.cube(2);
-    const P = arrays.positions;
-    const zs = Math.max(sz, 1e-4);
-    for (let i = 0; i < P.length; i += 3) {
-      P[i] *= sx / 2;
-      P[i + 1] *= sy / 2;
-      P[i + 2] *= zs / 2;
-    }
-    const doc = app.doc;
-    if (doc.mode === 'EDIT') {
-      modeHandlers.EDIT?.addPrimitive?.(arrays, { location: center.toArray(), rotation: [0, 0, 0] });
-      app.pushUndo('Add Cube');
-    } else {
-      const me = newMeshData(uniqueName(doc, 'Cube', 'meshes'), arrays);
-      doc.meshes[me.id] = me;
-      addObjectToScene(doc, newObject('Cube', 'MESH', me.id), { location: center.toArray() });
-      app.pushUndo('Add Cube');
-    }
-    app.changed('doc');
-  };
-  const move = (ev: PointerEvent) => {
-    const q = localXY(v, ev);
-    if (phase === 'BASE') {
-      const p = onPlane(q.x, q.y);
-      if (p) p1 = p;
-      if (ev.shiftKey) {
-        // square base
-        const s = Math.max(Math.abs(p1.x - p0.x), Math.abs(p1.y - p0.y));
-        p1 = new Vector3(p0.x + Math.sign(p1.x - p0.x || 1) * s, p0.y + Math.sign(p1.y - p0.y || 1) * s, planeZ);
-      }
-    } else {
-      // height follows vertical mouse motion scaled by the view's pixel size at the base
-      const center = new Vector3((p0.x + p1.x) / 2, (p0.y + p1.y) / 2, planeZ);
-      height = (heightStartY - q.y) * v.nav.pixelSize(center);
-      if (ev.ctrlKey) height = Math.round(height * 10) / 10;
-    }
-    draw();
-  };
-  const up = () => {
-    if (phase === 'BASE') {
-      phase = 'HEIGHT';
-      heightStartY = app.pointer.y - v.el.getBoundingClientRect().top;
-      const d = Math.max(Math.abs(p1.x - p0.x), Math.abs(p1.y - p0.y));
-      height = d; // start as a cube-ish shape
-      heightStartY += d / Math.max(1e-6, v.nav.pixelSize(p0));
-      draw();
-    }
-  };
-  const down = (ev: PointerEvent) => {
-    if (phase !== 'HEIGHT') return;
-    ev.preventDefault();
-    ev.stopPropagation();
-    if (ev.button === 0) finish();
-    else cancel();
-  };
-  const key = (ev: KeyboardEvent) => {
-    if (ev.key === 'Escape') {
-      ev.preventDefault();
-      ev.stopPropagation();
-      cancel();
-    } else if (ev.key === 'Enter' && phase === 'HEIGHT') {
-      ev.preventDefault();
-      ev.stopPropagation();
-      finish();
-    }
-  };
-  const cancel = () => {
-    cleanup();
-    preview = null;
-    app.changed('ui');
-  };
-  const cleanup = () => {
-    removeEventListener('pointermove', move);
-    removeEventListener('pointerup', up);
-    removeEventListener('pointerdown', down, true);
-    removeEventListener('keydown', key, true);
-  };
-  addEventListener('pointermove', move);
-  addEventListener('pointerup', up);
-  addEventListener('pointerdown', down, true);
-  addEventListener('keydown', key, true);
-  draw();
-  return true;
-}
-
 editModeHooks.pointer.push((v, e) => {
   const t = tool();
   if (e.altKey) return false;
   if (t === 'builtin.annotate') return annotatePointer(v, e);
   if (t === 'builtin.measure') return measurePointer(v, e);
-  if (t === 'builtin.add_cube' && (app.doc.mode === 'OBJECT' || (app.doc.mode === 'EDIT' && app.activeObject?.type === 'MESH'))) return addCubePointer(v, e);
   return false;
 });
 
@@ -465,7 +320,6 @@ toolSettingsRenderers['builtin.annotate'] = () =>
 toolSettingsRenderers['builtin.measure'] = () =>
   h('span', { class: 'th-settings' }, h('span', { class: 'th-label' }, 'Drag to measure · drag a midpoint to measure an angle · Ctrl snaps to surfaces · X removes the active ruler'), opButton('view3d.ruler_clear', 'Clear Rulers'));
 
-toolSettingsRenderers['builtin.add_cube'] = () => h('span', { class: 'th-label' }, 'Drag to define the base (Shift: square), move to set the height, click to confirm');
 
 
 toolSettingsRenderers['builtin.cursor'] = () =>

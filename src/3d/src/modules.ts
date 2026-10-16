@@ -20,6 +20,7 @@ import './sequencer/index';
 import './object/index';
 import './editors/properties/modui/index';
 import './assets/index';
+import './modeling/index';
 
 export function registerModules() {
   // modules register on import; this function exists to make the dependency explicit

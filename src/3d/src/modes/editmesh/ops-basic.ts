@@ -530,7 +530,7 @@ modeHandlers.EDIT = {
     const world = app.graph.get(ob.id)?.world ?? new Matrix4();
     const loc = new Vector3(...((props.location as number[]) ?? app.doc.scene.cursor.location));
     const rot = (props.rotation as number[]) ?? [0, 0, 0];
-    const m4 = world.clone().invert().multiply(new Matrix4().compose(loc, new Quaternion().setFromEuler(new Euler(rot[0], rot[1], rot[2], 'ZYX')), new Vector3(1, 1, 1)));
+    const m4 = world.clone().invert().multiply(new Matrix4().compose(loc, new Quaternion().setFromEuler(new Euler(rot[0], rot[1], rot[2], 'ZYX')), new Vector3(...((props.scale as number[] | null) ?? [1, 1, 1]))));
     const m = MeshEdit.from(me);
     m.sel.fill(0);
     const base = m.vcount;
