@@ -38,7 +38,7 @@ import './outliner/dataapi';
 import './outliner/ops_more';
 import './outliner/scenes';
 import { rowSync } from './outliner/sync';
-import { valueCell, idTypeFilterPopover, overridesFilterPopover } from './outliner/headers';
+import { valueCell, idTypeFilterPopover, overridesFilterPopover, dataApiEditMenu } from './outliner/headers';
 import './outliner/outliner.css';
 
 const MODE_ICON: Record<string, string> = {
@@ -203,6 +203,19 @@ export class Outliner implements Editor {
         icon(dm[2]),
         icon('down_arrow_hlt', 'tiny'),
       ),
+      this.displayMode === 'DATA_API'
+        ? h(
+            'button',
+            {
+              class: 'hdr-menu',
+              onpointerdown: (e: PointerEvent) => {
+                e.preventDefault();
+                openMenu(dataApiEditMenu(), e.currentTarget as HTMLElement);
+              },
+            },
+            'Edit',
+          )
+        : null,
       h(
         'div',
         { class: 'hdr-search' },

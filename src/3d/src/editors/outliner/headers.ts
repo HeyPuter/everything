@@ -4,6 +4,7 @@ import { h, type Child } from '../../ui/h';
 import { app } from '../../app/app';
 import { checkbox, enumMenu, numberField } from '../../ui/widgets';
 import type { Outliner } from '../outliner';
+import type { MenuItem } from '../../ui/menu';
 import { ID_GROUPS, type Row } from './tree';
 
 /** Editable value of a Data API row. */
@@ -90,4 +91,15 @@ export function overridesFilterPopover(ol: Outliner): Child {
     h('div', { class: 'olf-head' }, 'Filter'),
     h('div', { class: 'olf-check' }, checkbox('olf-ovsys', 'System Overrides', f.use_filter_lib_override_system, (v) => set(ol, 'use_filter_lib_override_system', v), { tip: 'Also list overrides made only because the hierarchy needs them' })),
   );
+}
+
+/** Data API display mode: Edit menu (keying sets and drivers of the selected properties). */
+export function dataApiEditMenu(): MenuItem[] {
+  return [
+    { label: 'Add Selected to Keying Set', shortcut: 'K', op: 'outliner.keyingset_add_selected' },
+    { label: 'Remove Selected from Keying Set', shortcut: 'Alt K', op: 'outliner.keyingset_remove_selected' },
+    { separator: true },
+    { label: 'Add Drivers for Selected', shortcut: 'Ctrl D', op: 'outliner.drivers_add_selected' },
+    { label: 'Delete Drivers for Selected', shortcut: 'Ctrl Alt D', op: 'outliner.drivers_delete_selected' },
+  ];
 }
