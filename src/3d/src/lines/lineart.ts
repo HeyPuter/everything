@@ -16,7 +16,7 @@ import { renderSize } from '../render/final/units';
 import { renderVisibleObjects } from '../render/final/renderscene';
 import { kernels, kernelKeys, generatorTypes, GP_EXTRA_TYPES, type GPModContext } from '../greasepencil/modifiers';
 import { newPoint, newStroke, type GPStroke } from '../greasepencil/data';
-import { extractFeatures, F, type FeatureEdge } from './core/features';
+import { extractFeatures, F, type FeatureEdge, type ViewInfo } from './core/features';
 import { Occlusion, visibilityPieces, type OccluderInput } from './core/visibility';
 import { chainPieces, joinNearEnds } from './core/chain';
 import { intersectionEdges } from './core/intersections';
@@ -62,6 +62,8 @@ export const LINEART_DEFAULTS = {
   use_material_mask: false,
   use_material_mask_match: false,
   use_material_mask_bits: [false, false, false, false, false, false, false, false],
+  use_light_contour: false,
+  light_contour_object: null,
   use_face_mark: false,
   use_face_mark_invert: false,
   use_face_mark_boundaries: false,
@@ -76,7 +78,7 @@ registerModifier({
   icon: 'mod_lineart',
   objectTypes: ['GREASEPENCIL'],
   defaults: () => ({ ...LINEART_DEFAULTS }),
-  deps: (m) => [m.source_object as string, m.source_camera as string],
+  deps: (m) => [m.source_object as string, m.source_camera as string, m.light_contour_object as string],
   apply: (mesh) => mesh,
 });
 GP_EXTRA_TYPES.add('LINEART');
@@ -134,6 +136,8 @@ function signature(m: M, doc: DocumentData): string {
   const r = doc.scene.render;
   const parts = [cev ? Array.from(cev.world.elements, (x) => x.toFixed(5)).join(',') : '', JSON.stringify(ca ?? null), r.resolution_x, r.resolution_y, r.pixel_aspect_x, r.pixel_aspect_y];
   parts.push(JSON.stringify(Object.values(doc.materials).map((ma) => ma.lineart ?? 0)));
+  const light = m.use_light_contour && typeof m.light_contour_object === 'string' ? app.graph.get(m.light_contour_object) : undefined;
+  if (light) parts.push(Array.from(light.world.elements, (x) => x.toFixed(5)).join(','));
   const visible = renderVisibleObjects(doc);
   for (const ev of app.graph.objects.values()) {
     if (!ev.mesh || ev.ob.type === 'GREASEPENCIL' || !visible.has(ev.id)) continue;
@@ -151,6 +155,17 @@ function faceMarkKeeps(m: M, o: LineObject, e: FeatureEdge): boolean {
   if (m.use_face_mark_keep_contour !== false && e.flags & (F.SILHOUETTE | F.BORDER)) return true;
   const hit = m.use_face_mark_boundaries ? a !== b : a || b;
   return m.use_face_mark_invert ? !hit : hit;
+}
+
+/** The light as a viewpoint (a sun looks along its axis, other lights from their position). */
+function lightViewOf(doc: DocumentData, id: string | null): ViewInfo | null {
+  const ev = id ? app.graph.get(id) : undefined;
+  if (!ev) return null;
+  const e = ev.world.elements;
+  const la = ev.ob.type === 'LIGHT' && ev.ob.data ? doc.lights[ev.ob.data] : undefined;
+  const ortho = la?.type === 'SUN';
+  const len = Math.hypot(e[8], e[9], e[10]) || 1;
+  return { ortho, eye: [e[12], e[13], e[14]], dir: [-e[8] / len, -e[9] / len, -e[10] / len] };
 }
 
 /** Occlusion levels of an object's faces from their materials (undefined when all count once). */
@@ -214,11 +229,12 @@ export function computeLineArt(m: M, doc: DocumentData): LineArtStroke[] {
   const cam = lineCamera(camera, W, H);
   const { lines, occluders } = sources(m, doc);
   if (!lines.length) return [];
-  const mask = (m.use_contour ? F.SILHOUETTE | F.BORDER : 0) | (m.use_loose ? F.LOOSE : 0) | (m.use_crease ? F.CREASE : 0) | (m.use_material ? F.MATERIAL : 0) | (m.use_edge_mark ? F.EDGE_MARK : 0);
+  const mask = (m.use_contour ? F.SILHOUETTE | F.BORDER : 0) | (m.use_light_contour ? F.LIGHT_CONTOUR : 0) | (m.use_loose ? F.LOOSE : 0) | (m.use_crease ? F.CREASE : 0) | (m.use_material ? F.MATERIAL : 0) | (m.use_edge_mark ? F.EDGE_MARK : 0);
   const edges: FeatureEdge[] = [];
   const occ: OccluderInput[] = [];
   occluders.forEach((o, i) => occ.push({ positions: o.positions, offsets: o.offsets, indices: o.indices, world: o.world, object: i, faceWeight: faceWeights(doc, o) }));
   const transfer = weightTransfer(m);
+  const lightView = m.use_light_contour ? lightViewOf(doc, m.light_contour_object as string | null) : null;
   const maskBits = m.use_material_mask ? ((m.use_material_mask_bits as boolean[] | undefined) ?? []) : null;
   for (const o of lines) {
     const i = occluders.indexOf(o);
@@ -236,6 +252,10 @@ export function computeLineArt(m: M, doc: DocumentData): LineArtStroke[] {
       const wt = transfer ? transfer(o) : null;
       edges.push(wt ? { ...e, flags, wa: wt(e.ia), wb: wt(e.ib) } : { ...e, flags });
     }
+    // light contours: where the surface turns from lit to unlit, as seen from the light
+    if (lightView)
+      for (const e of extractFeatures({ positions: wp, offsets: o.offsets, indices: o.indices, object: i }, lightView, { creaseAngle: 0 }))
+        if (e.flags & F.SILHOUETTE) edges.push({ ...e, flags: F.LIGHT_CONTOUR });
   }
   if (m.use_intersection) {
     const lineIdx = new Set(lines.map((o) => occluders.indexOf(o)));

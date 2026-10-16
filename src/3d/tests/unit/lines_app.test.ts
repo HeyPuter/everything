@@ -160,6 +160,17 @@ describe('line art', () => {
     expect(computeLineArt(m, app.doc).length).toBe(0);
   });
 
+  it('draws light contours where the cube turns away from the light', () => {
+    app.run('object.grease_pencil_add', { type: 'LINEART_SCENE' });
+    const m = app.activeObject!.modifiers[0] as ModifierBase & Record<string, unknown>;
+    m.use_contour = m.use_crease = m.use_loose = m.use_edge_mark = m.use_intersection = false;
+    app.evaluate();
+    expect(computeLineArt(m, app.doc).length).toBe(0);
+    m.use_light_contour = true;
+    m.light_contour_object = Object.values(app.doc.objects).find((o) => o.type === 'LIGHT')!.id;
+    expect(computeLineArt(m, app.doc).length).toBeGreaterThan(0);
+  });
+
   it('object line art takes the active object as source', () => {
     app.doc.scene.active_object = cube().id;
     app.run('object.grease_pencil_add', { type: 'LINEART_OBJECT' });

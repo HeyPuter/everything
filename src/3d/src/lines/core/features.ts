@@ -16,6 +16,7 @@ export const F = {
   EXTERNAL_CONTOUR: 256,
   LOOSE: 512,
   INTERSECTION: 1024,
+  LIGHT_CONTOUR: 2048,
 } as const;
 
 export interface FeatureMesh {

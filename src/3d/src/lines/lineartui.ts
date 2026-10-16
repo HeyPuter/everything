@@ -69,6 +69,8 @@ function lineArtUI(ob: ObjectData, m0: ModifierBase): Child {
       bool(m, 'use_material', 'Material Borders', { tip: 'Edges between faces of different materials' }),
       bool(m, 'use_edge_mark', 'Edge Marks', { tip: 'Edges marked with Mark Freestyle Edge' }),
       bool(m, 'use_loose', 'Loose', { tip: 'Edges without faces' }),
+      bool(m, 'use_light_contour', 'Light Contour', { tip: 'Where surfaces turn away from a light' }),
+      m.use_light_contour ? objectProp(m, 'light_contour_object', 'Light Object', { filter: (o) => o.type === 'LIGHT' || o.type === 'EMPTY' || o.type === 'CAMERA' }) : null,
     ]),
     sub(`la-occl-${m.id}`, 'Occlusion', () => [
       bool(m, 'use_multiple_levels', 'Range', { tip: 'Draw lines hidden behind a range of surfaces' }),
