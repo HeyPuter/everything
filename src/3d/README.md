@@ -97,8 +97,10 @@ import of Collada and Alembic; legacy `.3d.json` scenes from earlier versions of
 
 ## Known limitations
 
-- No camera solving (motion-tracking reconstruction), Multires, Dyntopo, Cycles-only features such
-  as volumes and subsurface scattering in the path tracer, or EEVEE-specific effects.
+- No camera solving (motion-tracking reconstruction), Multires, Dyntopo or EEVEE-specific effects.
+  The path tracer renders up to 8 volumes at once (one medium at a time where they overlap) and
+  random-walk subsurface scattering for up to 64 materials; the realtime engine has no subsurface
+  scattering.
 - Python scripting covers a documented subset of `bpy`; it needs network access once per session
   to download Pyodide.
 - `.blend` import covers the active scene and common data; unsupported data is reported, not lost
