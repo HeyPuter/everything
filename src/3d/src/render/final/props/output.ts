@@ -1,7 +1,5 @@
 // Properties ▸ Output: image format, frame range, output files and metadata.
 import { h, type Child } from '../../../ui/h';
-import { icon } from '../../../ui/icons';
-import { openMenu } from '../../../ui/menu';
 import { app } from '../../../app/app';
 import { registerTab } from '../../../editors/properties/properties';
 import { panel, enumMenu, numberField, textField, checkbox } from '../../../ui/widgets';
@@ -26,37 +24,10 @@ export const FORMAT_PRESETS: [string, number, number, number, number, number][] 
   ['Portrait 1080 × 1350', 1080, 1350, 1, 1, 30],
 ];
 
-function presetsButton(r: RenderSettings): Child {
-  return h(
-    'button',
-    {
-      class: 'hdr-toggle out-presets',
-      'data-tip': 'Format Presets',
-      onpointerdown: (e: PointerEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        openMenu(
-          FORMAT_PRESETS.map(([label, x, y, ax, ay, fps]) => ({
-            label,
-            action: () => {
-              Object.assign(r, { resolution_x: x, resolution_y: y, resolution_percentage: 100, pixel_aspect_x: ax, pixel_aspect_y: ay }, fpsFromPreset(fps));
-              customFps = false;
-              changed('Format Preset');
-            },
-          })),
-          e.currentTarget as HTMLElement,
-          { title: 'Format Presets' },
-        );
-      },
-    },
-    icon('collapsemenu'),
-  );
-}
-
 function formatPanel(r: RenderSettings): Child {
   const preset = fpsPreset(r);
   const showCustom = customFps || preset === 'custom';
-  return panel('out-format', h('span', { class: 'out-format-title' }, 'Format', presetsButton(r)), () => [
+  return panel('out-format', 'Format', () => [
     splitRow('Resolution X', numberField({ id: 'res-x', value: r.resolution_x, int: true, min: 4, max: 65536, unit: 'pixel', set: (v, f) => ((r.resolution_x = v), app.changed('doc'), f && app.pushUndo('Resolution')) })),
     splitRow('Y', numberField({ id: 'res-y', value: r.resolution_y, int: true, min: 4, max: 65536, unit: 'pixel', set: (v, f) => ((r.resolution_y = v), app.changed('doc'), f && app.pushUndo('Resolution')) })),
     num(r, 'resolution_percentage', '%', { unit: 'percentage', int: true, min: 1, max: 1000, softMax: 100, slider: true }),

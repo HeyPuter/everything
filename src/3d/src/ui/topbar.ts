@@ -80,6 +80,8 @@ export function fileMenu(): MenuItem[] {
         { label: 'Load Factory Settings', op: 'wm.read_factory_settings' },
       ],
     },
+    { separator: true },
+    { label: 'Quit', icon: 'panel_close', shortcut: 'Ctrl Q', op: 'wm.quit_blender' },
   ];
 }
 
@@ -165,7 +167,10 @@ export function windowMenu(sh: Shell): MenuItem[] {
 export function helpMenu(): MenuItem[] {
   return [
     { label: 'Keyboard Shortcuts', op: 'wm.keymap_reference' },
+    ...(prefs.show_developer_ui ? [{ label: 'Operator Cheat Sheet', op: 'wm.operator_cheat_sheet' }] : []),
     { separator: true },
+    // feedback goes through Puter's own dialog, so it is offered where the app runs inside Puter
+    ...(window.self !== window.top || (globalThis as { puter?: unknown }).puter ? [{ label: 'Report a Bug', op: 'wm.url_open_preset', props: { type: 'BUG' } }] : []),
     { label: 'Save System Info', op: 'wm.sysinfo' },
     { separator: true },
     { label: 'About', icon: 'info_small', op: 'wm.about' },

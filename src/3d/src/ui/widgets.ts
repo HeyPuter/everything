@@ -901,6 +901,9 @@ export function setPanelSearch(q: string) {
 /** Press on a panel header and drag over others to open / close them all. */
 let panelDrag: { open: boolean; done: Set<string> } | null = null;
 
+/** Extra header buttons of panels by panel id (e.g. the preset menu), added by other modules. */
+export const panelHeaderExtras: Record<string, () => Child> = {};
+
 /** Collapsible panel (sub-panels nest inside). */
 export function panel(id: string, title: Child, body: () => Child, opts: { closed?: boolean; header?: Child; sub?: boolean; className?: string; icon?: string } = {}): VNode {
   const open = panelSearch ? true : isPanelOpen(id, !opts.closed);
@@ -943,6 +946,7 @@ export function panel(id: string, title: Child, body: () => Child, opts: { close
       opts.icon ? icon(opts.icon) : null,
       opts.header ?? null,
       h('span', { class: 'ph-title' }, title),
+      panelHeaderExtras[id] ? h('span', { class: 'ph-extra' }, panelHeaderExtras[id]()) : null,
       opts.sub ? null : h('span', { class: 'ph-grip', 'data-tip': 'Drag to reorder panels' }, '⠿'),
     ),
     open ? h('div', { class: 'panel-body' }, body()) : null,

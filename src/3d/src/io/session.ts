@@ -240,6 +240,12 @@ async function init() {
 
 export const sessionReady = typeof window === 'undefined' ? Promise.resolve() : init().catch(() => {});
 
+/** Read the recent files list again (another tab may have changed it). */
+export async function reloadRecent() {
+  recent = (await get<RecentEntry[]>(KV, 'recent')) ?? [];
+  notify();
+}
+
 fileEvents.opened.push((name, bytes) => void recordRecent(name, bytes));
 fileEvents.saved.push((name, bytes) => void recordRecent(name, bytes));
 fileEvents.loadStartup = loadStartupFile;

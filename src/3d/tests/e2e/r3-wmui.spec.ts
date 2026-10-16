@@ -154,3 +154,80 @@ test('operator buttons: right-click assigns a shortcut that works and copies the
   expect(await page.evaluate(async () => !!(await import('/src/ui/shortcuts.ts')).findShortcut('wm.properties_add', { data_path: 'object' }))).toBe(false);
   await expectNoErrors(errors);
 });
+
+test('panel presets: built-in format presets, user presets saved in IndexedDB', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.locator('.rail-tab[data-tab="OUTPUT"]').click();
+  const btn = page.locator('[data-panel="out-format"] .preset-btn');
+  await btn.dispatchEvent('pointerdown');
+  await page.locator('.popup-layer .menu .mi-label', { hasText: /^HDTV 720p$/ }).click();
+  const res = () => page.evaluate(() => {
+    const r = (window as unknown as { app: AnyApp }).app.doc.scene.render;
+    return [r.resolution_x, r.resolution_y];
+  });
+  expect(await res()).toEqual([1280, 720]);
+  // save the current values as a preset of our own
+  await page.evaluate(() => {
+    const a = (window as unknown as { app: AnyApp }).app;
+    a.doc.scene.render.resolution_x = 1000;
+    a.doc.scene.render.resolution_y = 500;
+    a.run('render.preset_add', { name: 'Half Wide' });
+    a.doc.scene.render.resolution_x = 64;
+  });
+  await page.evaluate(async () => (await import('/src/ui/presets.ts')).presetsSaved());
+  await page.reload();
+  await page.waitForFunction(() => !!(window as unknown as { app?: unknown }).app);
+  await page.evaluate(async () => (await import('/src/ui/presets.ts')).presetsLoaded);
+  await page.locator('.rail-tab[data-tab="OUTPUT"]').click();
+  await page.locator('[data-panel="out-format"] .preset-btn').dispatchEvent('pointerdown');
+  await page.locator('.popup-layer .menu .mi-label', { hasText: /^Half Wide$/ }).click();
+  expect(await res()).toEqual([1000, 500]);
+  // generic panel presets: camera sensor sizes
+  await page.evaluate(() => {
+    const a = (window as unknown as { app: AnyApp }).app;
+    const cam = Object.values(a.doc.objects as Record<string, { id: string; type: string }>).find((o) => o.type === 'CAMERA')!;
+    for (const o of Object.values(a.doc.objects as Record<string, { select: boolean }>)) o.select = false;
+    (a.doc.objects as Record<string, { select: boolean }>)[cam.id].select = true;
+    a.doc.scene.active_object = cam.id;
+    a.changed('select');
+  });
+  await page.locator('.rail-tab[data-tab="DATA"]').click();
+  await page.locator('[data-panel="ca-sensor"] .preset-btn').dispatchEvent('pointerdown');
+  await page.locator('.popup-layer .menu .mi-label', { hasText: /^Super 35$/ }).click();
+  const sensor = await page.evaluate(() => {
+    const a = (window as unknown as { app: AnyApp }).app;
+    const c = a.doc.cameras[a.activeObject.data];
+    return [c.sensor_width, c.sensor_height];
+  });
+  expect(sensor).toEqual([24.89, 18.66]);
+  await expectNoErrors(errors);
+});
+
+test('operator presets in the redo panel; restore defaults; quit asks to save; cheat sheet', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  await run(page, 'mesh.primitive_cube_add', { size: 3 });
+  const panel = page.locator('.redo-panel');
+  await panel.locator('.redo-header').click();
+  await expect(panel.locator('.op-presets')).toBeVisible();
+  await page.evaluate(() => (window as unknown as { app: AnyApp }).app.run('wm.operator_preset_add', { name: 'Big', operator: 'mesh.primitive_cube_add' }));
+  const size = () => page.evaluate(() => (window as unknown as { app: { lastOp: { props: Record<string, unknown> } } }).app.lastOp.props.size);
+  await run(page, 'mesh.primitive_cube_add', {});
+  expect(await size()).toBe(2);
+  await panel.locator('.op-preset-menu').dispatchEvent('pointerdown');
+  await page.locator('.popup-layer .menu .mi-label', { hasText: /^Big$/ }).click();
+  expect(await size()).toBe(3);
+  await panel.locator('.op-preset-menu').dispatchEvent('pointerdown');
+  await page.locator('.popup-layer .menu .mi-label', { hasText: /^Restore Defaults$/ }).click();
+  expect(await size()).toBe(2);
+  // quit with unsaved changes asks first
+  await page.keyboard.press('Control+q');
+  await expect(page.locator('.dialog', { hasText: 'Save changes before quitting?' })).toBeVisible();
+  await page.locator('.dialog button', { hasText: 'Cancel' }).click();
+  // cheat sheet text block
+  await run(page, 'wm.operator_cheat_sheet');
+  const sheet = await page.evaluate(() => Object.values((window as unknown as { app: AnyApp }).app.doc.texts as Record<string, { name: string; body: string }>).find((t) => t.name.startsWith('OperatorList'))?.body ?? '');
+  expect(sheet).toContain('bpy.ops.mesh.primitive_cube_add(size=2, ');
+  expect(await run(page, 'wm.url_open', { url: 'javascript:alert(1)' })).toBe('CANCELLED');
+  await expectNoErrors(errors);
+});
