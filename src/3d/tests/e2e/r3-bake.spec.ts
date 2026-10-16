@@ -131,7 +131,7 @@ test('Bake panel: bake with progress, undo in one step, Esc cancels', async ({ p
   await expect(page.locator('.prop-note.bake-into')).toContainText('“T”');
   const before = await page.evaluate(() => Object.values((window as any).app.doc.images).find((i: any) => i.name === 'T') as any).then((i) => i.revision ?? 0);
   await page.locator('.bake-button').click();
-  await expect.poll(() => page.evaluate(() => (window as any).app.reports.at(-1)?.message ?? '')).toMatch(/Baked normal/);
+  await expect.poll(() => page.evaluate(() => (window as any).app.reports.at(-1)?.message ?? '')).toMatch(/Baked Normal/);
   const img = () => page.evaluate(() => (Object.values((window as any).app.doc.images).find((i: any) => i.name === 'T') as any).revision ?? 0);
   expect(await img()).toBeGreaterThan(before);
   await page.keyboard.press('Control+z');

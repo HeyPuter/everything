@@ -20,7 +20,7 @@ import { BakeTracer, type TraceConfig, type Lobe } from './tracer';
 import { rasterGeometry, rasterMaterial, type MaterialChannel, type RasterSource } from './raster';
 import { planTargets, type BakeTarget } from './targets';
 import { newBuffer, BAKED, swizzle, toTangentSpace, toObjectSpace, encodeUnit, extendMargin, adjacentFacesMargin, seamEdges, composite, storeBytes, type BakeBuffer } from './encode';
-import { SAMPLED_TYPES, contributionProblem, type BakeType, type Contributions, type BakeSettings, type NormalSwizzle } from './settings';
+import { SAMPLED_TYPES, BAKE_TYPES, contributionProblem, type BakeType, type Contributions, type BakeSettings, type NormalSwizzle } from './settings';
 
 /** Everything a bake needs (the operator's properties resolved against the scene settings). */
 export interface BakeOptions {
@@ -125,7 +125,7 @@ function basisOf(m: Matrix4): number[] {
 export function imageSurface(renderer: WebGLRenderer, ev: { mesh: EvalMesh; world: Matrix4 }, slots: number[], W: number, H: number, cage: { mesh: EvalMesh; world: Matrix4 } | null): Surface {
   const geometry = meshGeometry(ev.mesh).geometry;
   const src: RasterSource = { geometry, world: ev.world, slots: new Set(slots) };
-  const [P, N, T, B] = withGL(renderer, () => (['POSITION', 'NORMAL', 'TANGENT', 'BITANGENT'] as const).map((c) => rasterGeometry(renderer, src, c, W, H)));
+  const P = withGL(renderer, () => rasterGeometry(renderer, src, 'POSITION', W, H));
   const n = W * H;
   const covered = new Uint8Array(n);
   const uv = new Float32Array(n * 2);
@@ -134,7 +134,16 @@ export function imageSurface(renderer: WebGLRenderer, ev: { mesh: EvalMesh; worl
     uv[i * 2] = ((i % W) + 0.5) / W;
     uv[i * 2 + 1] = (Math.floor(i / W) + 0.5) / H;
   }
-  const s: Surface = { W, H, P, N, T, B, covered, uv, basis: basisOf(ev.world), raster: src };
+  const s = { W, H, P, covered, uv, basis: basisOf(ev.world), raster: src } as Surface;
+  // the other channels are drawn when a pass first needs them (large images hold a lot of floats)
+  for (const [key, ch] of [
+    ['N', 'NORMAL'],
+    ['T', 'TANGENT'],
+    ['B', 'BITANGENT'],
+  ] as const) {
+    let v: Float32Array | null = null;
+    Object.defineProperty(s, key, { enumerable: true, get: () => (v ??= withGL(renderer, () => rasterGeometry(renderer, src, ch, W, H))) });
+  }
   if (cage) {
     const cg = meshGeometry(cage.mesh).geometry;
     const csrc: RasterSource = { geometry: cg, world: cage.world, slots: new Set(slots) };
@@ -371,8 +380,9 @@ export function* bakeSteps(o: BakeOptions, ctx: RunContext): Generator<void, Bak
       w.me.color_attributes[w.attr] = { ...attr, data: w.data };
     }
     app.changed('doc');
-    const where = [...accum.keys()].map((id) => `"${doc.images[id].name}"`).concat(colorWrites.length ? [`${colorWrites.length} color attribute${colorWrites.length > 1 ? 's' : ''}`] : []);
-    return { ok: true, message: `Baked ${o.type.toLowerCase().replace(/_/g, ' ')} into ${where.join(', ')} in ${formatTime((performance.now() - st.started) / 1000)}` };
+    const where = [...accum.keys()].map((id) => `"${doc.images[id].name}"`).concat(colorWrites.map((w) => `the colors of "${w.me.name}"`));
+    const label = BAKE_TYPES.find(([t]) => t === o.type)?.[1] ?? o.type;
+    return { ok: true, message: `Baked ${label} into ${where.join(', ')} in ${formatTime((performance.now() - st.started) / 1000)}` };
   } catch (e) {
     if (e instanceof Cancelled) return { ok: false, message: 'Bake cancelled' };
     if (e instanceof BakeError) return { ok: false, message: e.message };
