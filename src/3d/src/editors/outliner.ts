@@ -1,6 +1,8 @@
 // Outliner: tree of the scene's collections and objects (view layer / scenes), every data-block
 // in the file, or unused data. Selection is kept in sync with object selection; collections and
 // other elements have their own outliner selection.
+import { renameScene, sceneById } from '../scenes/scenes';
+import { switchScene } from '../scenes/switch';
 import { h, patch, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { app, type ChangeKind } from '../app/app';
@@ -407,6 +409,11 @@ export class Outliner implements Editor {
     const doc = app.doc;
     const before = this.selectionSignature();
     if (r.ob && (r.kind === 'object' || (this.displayMode !== 'BLENDER_FILE' && this.displayMode !== 'ORPHAN_DATA'))) this.prepareModeSwitch(r.ob);
+    // clicking another scene makes it the active scene
+    if (r.kind === 'scene' && r.id && r.id !== doc.scene.id && sceneById(doc, r.id)) {
+      switchScene(r.id);
+      return;
+    }
     const selectable = (x: Row) => x.kind !== 'group' && x.kind !== 'file' && x.kind !== 'scene' && !(x.kind === 'collection' && x.id === doc.scene.collection && !opts.ctrl);
     if (opts.shift) {
       const a = this.cursorIndex();
@@ -1245,7 +1252,7 @@ export class Outliner implements Editor {
       const tables = doc as unknown as Record<string, Record<string, { name: string }>>;
       if (r.kind === 'object' && r.ob) doc.objects[r.ob.id].name = uniqueName(doc, name);
       else if (r.kind === 'collection' && r.collection) doc.collections[r.collection.id].name = uniqueName(doc, name, 'collections');
-      else if (r.kind === 'scene') doc.scene.name = name;
+      else if (r.kind === 'scene') renameScene(doc, sceneById(doc, r.id) ?? doc.scene, name);
       else if (r.kind === 'modifier' && r.ob) {
         const m = doc.objects[r.ob.id]?.modifiers.find((x) => x.id === r.id);
         if (m) m.name = name;

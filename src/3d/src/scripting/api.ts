@@ -2384,65 +2384,111 @@ function wrapKw(fn: (...a: unknown[]) => unknown, params: string[]) {
 // ---------------------------------------------------------------------------
 // Scene / view layer / context
 
+/** Raw record of scene `id` (the active scene when `id` is null). */
+function sceneRaw(id: string | null): Raw | null {
+  const d = app.doc;
+  if (!id || d.scene.id === id) return (!id || d.scene.id === id ? d.scene : null) as unknown as Raw;
+  return (d.scenes?.[id] ?? null) as unknown as Raw | null;
+}
+
 export class SceneStruct extends Struct {
   readonly __kind: string = 'id';
   readonly __table = 'scenes';
-  readonly __id = 'scene';
-  constructor() {
-    super('Scene', () => app.doc.scene as unknown as Raw, 'bpy.data.scenes["Scene"]');
+  /** `sid` binds the wrapper to one scene; without it, it follows the active scene */
+  constructor(readonly __sid: string | null = null) {
+    super('Scene', () => sceneRaw(__sid), '');
+  }
+  get __id(): string {
+    return this.__sid ?? app.doc.scene.id ?? 'scene';
+  }
+  /** the scene record */
+  get __sc(): import('../data/types').SceneData {
+    return this.__raw as unknown as import('../data/types').SceneData;
+  }
+  /** whether this is the active scene */
+  get __active() {
+    return this.__resolve() === (app.doc.scene as unknown as Raw);
+  }
+  override get __path() {
+    return `bpy.data.scenes[${JSON.stringify(this.__resolve()?.name ?? '?')}]`;
   }
   override __hidden() {
     return SCENE_HIDDEN;
   }
   get name() {
-    return app.doc.scene.name;
+    return this.__sc.name;
   }
   set name(v: string) {
-    app.doc.scene.name = String(v) || 'Scene';
+    sceneHooks.rename?.(this.__sc, String(v));
+    if (!sceneHooks.rename) this.__sc.name = String(v) || 'Scene';
     touched();
   }
   get frame_current() {
-    return app.doc.scene.frame_current;
+    return this.__sc.frame_current;
   }
   set frame_current(v: number) {
-    app.doc.scene.frame_current = Math.round(Number(v));
+    this.__sc.frame_current = Math.round(Number(v));
     touched('frame');
   }
   frame_set(frame: number, subframe = 0) {
+    if (!this.__active) {
+      this.__sc.frame_current = Math.round(Number(frame));
+      this.__sc.frame_subframe = Number(subframe);
+      touched('frame');
+      return;
+    }
     app.setFrame(Number(frame), Number(subframe));
     scriptState.mutated = true;
     ensureEvaluated();
   }
   get objects() {
-    return new SceneObjects();
+    return new SceneObjects(this.__sid);
   }
   get collection() {
-    return wrapId('collections', app.doc.scene.collection);
-  }
-  get view_layers() {
-    return [viewLayer];
+    return wrapId('collections', this.__sc.collection);
   }
   get users() {
     return 1;
   }
   get use_fake_user() {
-    return false;
+    return !!this.__sc.use_fake_user;
+  }
+  set use_fake_user(v: boolean) {
+    this.__sc.use_fake_user = !!v;
+    touched();
   }
   override toString() {
-    return `<bpy_struct, Scene("${app.doc.scene.name}")>`;
+    return `<bpy_struct, Scene("${this.__resolve()?.name ?? '<removed>'}")>`;
   }
   override repr() {
-    return `bpy.data.scenes[${JSON.stringify(app.doc.scene.name)}]`;
+    return this.__path;
   }
+}
+/** Scene behaviour supplied by the scenes module (unique renaming, object sets of inactive scenes). */
+export const sceneHooks: {
+  rename?: (sc: import('../data/types').SceneData, name: string) => void;
+  objects?: (sc: import('../data/types').SceneData) => ID[];
+  list?: () => import('../data/types').SceneData[];
+  create?: (name: string) => import('../data/types').SceneData;
+  remove?: (id: string) => boolean;
+} = {};
+const sceneWrappers = new Map<string, unknown>();
+/** Wrapper bound to scene `id`. */
+export function sceneWrapperFor(id: string): unknown {
+  let w = sceneWrappers.get(id);
+  if (!w) sceneWrappers.set(id, (w = proxify(new SceneStruct(id))));
+  return w;
 }
 const SCENE_HIDDEN = new Set(['id', 'custom', 'active_object', 'collection', 'compositor']);
 kwMethod(SceneStruct.prototype, 'frame_set', ['frame', 'subframe']);
 
 class SceneObjects extends PropCollection<unknown> {
-  constructor() {
+  constructor(readonly sid: string | null = null) {
     super('bpy.context.scene.objects');
   }
   list() {
+    const sc = this.sid ? app.doc.scenes?.[this.sid] : null;
+    if (sc && sceneHooks.objects) return sceneHooks.objects(sc).map((id) => wrapId('objects', id));
     return sceneObjectIds().map((id) => wrapId('objects', id));
   }
   nameOf(x: unknown) {
@@ -2455,15 +2501,27 @@ class ScenesCollection extends PropCollection<unknown> {
     super('bpy.data.scenes');
   }
   list() {
-    return [sceneWrapper];
+    const all = sceneHooks.list?.() ?? [app.doc.scene];
+    return all.map((sc) => sceneWrapperFor(sc.id ?? 'scene'));
   }
-  nameOf() {
-    return app.doc.scene.name;
+  nameOf(x: unknown) {
+    return (x as { name: string }).name;
   }
-  new() {
-    throw pyError('RuntimeError', 'this application supports a single scene per file');
+  new(name = 'Scene') {
+    if (!sceneHooks.create) throw pyError('RuntimeError', 'scenes are not available');
+    const sc = sceneHooks.create(String(name));
+    touched();
+    return sceneWrapperFor(sc.id!);
+  }
+  remove(scene: unknown) {
+    const id = (scene as { __id?: string } | null)?.__id;
+    if (!id || !sceneHooks.remove) throw pyError('TypeError', 'Scenes.remove(): expected a Scene');
+    if (!sceneHooks.remove(id)) throw pyError('RuntimeError', 'Scenes.remove(): a file needs at least one scene');
+    touched();
   }
 }
+kwMethod(ScenesCollection.prototype, 'new', ['name']);
+kwMethod(ScenesCollection.prototype, 'remove', ['scene', 'do_unlink']);
 
 class ViewLayerObjects extends SceneObjects {
   get active() {
@@ -2523,7 +2581,7 @@ export class Context {
   readonly __kind = 'struct';
   readonly __type = 'Context';
   get scene() {
-    return sceneWrapper;
+    return sceneWrapperFor(app.doc.scene.id ?? 'scene');
   }
   get object() {
     const ob = app.activeObject;
@@ -2842,4 +2900,4 @@ export const bpy: Record<string, unknown> = {
   },
 };
 
-export { mathutils, Matrix, Vector, sceneWrapper, same, IDCollection };
+export { mathutils, Matrix, Vector, sceneWrapper, same, IDCollection, sceneRaw };
