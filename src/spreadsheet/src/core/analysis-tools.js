@@ -757,9 +757,12 @@ export function rankAndPercentile(groups) {
   groups.forEach((g, gi) => {
     const c = gi * 4;
     const pts = g.values.map((v, i) => ({ v, i })).filter((p) => isNum(p.v));
-    const xs = pts.map((p) => p.v);
+    // One range for every call: the functions keep its sorted numbers by its values array, so the column
+    // sorts once and each point is a binary search rather than a sort of its own.
+    const xs = column(pts.map((p) => p.v));
+    const rank = fnOf('RANK.EQ'), percent = fnOf('PERCENTRANK.INC');
     pts.sort((p, q) => q.v - p.v || p.i - q.i);
-    out.table(0, c, ['Point', g.label, 'Rank', 'Percent'], pts.map((p) => [p.i + 1, p.v, call('RANK.EQ', p.v, xs), call('PERCENTRANK.INC', xs, p.v)]));
+    out.table(0, c, ['Point', g.label, 'Rank', 'Percent'], pts.map((p) => [p.i + 1, p.v, rank([p.v, xs]), percent([xs, p.v])]));
     pts.forEach((_, i) => out.style(1 + i, c + 3, PERCENT));
   });
   return finish(out);
