@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Page, type Locator } from '@playwright/test';
 
 /** Errors logged by the page (console errors and uncaught exceptions). */
 export function trackErrors(page: Page) {
@@ -59,4 +59,17 @@ export async function objectNames(page: Page): Promise<string[]> {
 
 export async function expectNoErrors(errors: string[]) {
   expect(errors, errors.join('\n')).toEqual([]);
+}
+
+/**
+ * Open a header menu of an area (`scope`: the area or an element inside it). A narrow header folds
+ * its menus into the single menu button; then the menu is opened from there.
+ */
+export async function openHeaderMenu(page: Page, scope: Locator, label: string | RegExp) {
+  const btn = scope.locator('.hdr-menu', { hasText: label }).first();
+  if (await btn.isVisible()) return btn.click();
+  const areaEl = scope.locator('xpath=ancestor-or-self::*[contains(concat(" ", normalize-space(@class), " "), " area ")][1]');
+  await areaEl.locator('.hdr-collapsed-menus').first().click();
+  const re = typeof label === 'string' ? new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) : label;
+  await page.locator('.menu .menu-item', { hasText: re }).first().hover();
 }

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { openApp, expectNoErrors } from './helpers';
+import { openApp, expectNoErrors, openHeaderMenu } from './helpers';
 
 /** Open the UV Editing workspace with every face selected (UVs shown and selected). */
 async function uvWorkspace(page: Page) {
@@ -85,13 +85,13 @@ test('UV editor: click, shift-click and box selection', async ({ page }) => {
 
 test('UV editor: menus run operators (pin, merge, select mode)', async ({ page }) => {
   const { errors, box } = await uvWorkspace(page);
-  await page.locator('.uv-header .hdr-menu', { hasText: 'UV' }).click();
+  await openHeaderMenu(page, page.locator('.uv-header').first(), 'UV');
   await page.locator('.popup-layer .menu-item', { hasText: /^Pin/ }).first().click();
   const pins = await page.evaluate(() => Array.from(((window as any).app.doc.meshes[(window as any).app.activeObject.data].uv_pin ?? []) as Uint8Array).filter(Boolean).length); // eslint-disable-line @typescript-eslint/no-explicit-any
   expect(pins).toBe(24);
   // Select ▸ Select All by Trait ▸ Pinned after deselecting
   await page.keyboard.press('Alt+a');
-  await page.locator('.uv-header .hdr-menu', { hasText: 'Select' }).click();
+  await openHeaderMenu(page, page.locator('.uv-header').first(), 'Select');
   await page.locator('.popup-layer .menu-item', { hasText: 'Select All by Trait' }).hover();
   await page.locator('.popup-layer .menu-item', { has: page.locator('.mi-label', { hasText: /^Pinned$/ }) }).click();
   expect(await selCount(page)).toBe(24);
@@ -134,7 +134,7 @@ test('UV editor: context menu, toolbar tools and sidebar', async ({ page }) => {
 
 test('UV editor: export layout dialog downloads an SVG', async ({ page }) => {
   const { errors } = await uvWorkspace(page);
-  await page.locator('.uv-header .hdr-menu', { hasText: 'UV' }).click();
+  await openHeaderMenu(page, page.locator('.uv-header').first(), 'UV');
   await page.locator('.popup-layer .menu-item', { hasText: 'Export UV Layout' }).click();
   const dlg = page.locator('.op-dialog[data-op="uv.export_layout"]');
   await expect(dlg).toBeVisible();
@@ -172,7 +172,7 @@ test('Image editor: new image, invert colors, flip, zoom ratio keys', async ({ p
     });
   await page.waitForTimeout(100);
   expect((await px()).p.slice(0, 3)).toEqual([255, 0, 0]);
-  await page.locator('.ie-header .hdr-menu', { hasText: 'Image' }).click();
+  await openHeaderMenu(page, page.locator('.ie-header').first(), 'Image');
   await page.locator('.popup-layer .menu-item', { hasText: 'Invert' }).first().hover();
   await page.locator('.popup-layer .menu-item', { hasText: 'Invert Image Colors' }).click();
   expect((await px()).p.slice(0, 3)).toEqual([0, 255, 255]);

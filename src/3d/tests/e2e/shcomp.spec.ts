@@ -583,7 +583,7 @@ test('Add menus list the new shader and compositor nodes in their categories', a
   const keying = await open('Compositing', ['Keying']);
   expect(keying.some((t) => t.startsWith('Keying Screen'))).toBe(true);
   const tracking = await open('Compositing', ['Tracking']);
-  expect(tracking.map((t) => t.trim())).toEqual(['Stabilize 2D', 'Track Position']);
+  expect(tracking.map((t) => t.trim())).toEqual(['Plane Track Deform', 'Stabilize 2D', 'Track Position']);
   const adjust = await open('Compositing', ['Color', 'Adjust']);
   expect(adjust.indexOf('Hue Correct')).toBe(adjust.indexOf('Gamma') + 1);
   await expectNoErrors(errors);

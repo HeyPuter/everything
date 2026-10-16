@@ -1,7 +1,7 @@
 // Node editor interactions shared by the Shader, Geometry Node and Compositor editors: menus,
 // selection tools, link gestures, frames, groups, swapping and viewing node results.
 import { test, expect, type Page } from '@playwright/test';
-import { openApp, expectNoErrors } from './helpers';
+import { openApp, expectNoErrors, openHeaderMenu } from './helpers';
 
 /** Open a workspace and hover its node editor. */
 async function nodeEditor(page: Page, workspace = 'Shading') {
@@ -238,7 +238,7 @@ test('groups: make, enter by double click, separate and insert', async ({ page }
   expect(await withTree(page, '(ed, t) => t.nodes.filter((n) => n.type === "ShaderNodeMath").length')).toBe(2);
   // Insert Into Group (Node menu) moves the second math node into the group
   await withTree(page, `(ed, t) => { for (const n of t.nodes) n.select = n.id === "${m2}" || n.id === "${gid}"; t.active_node = "${gid}"; app.changed("ui"); }`);
-  await page.locator('.nd-header .hdr-menu', { hasText: 'Node' }).first().dispatchEvent('pointerdown');
+  await openHeaderMenu(page, page.locator('.nd-header').first(), 'Node');
   await menuItem(page, 'Insert Into Group').click();
   expect(await withTree(page, `(ed, t) => !t.nodes.some((n) => n.id === "${m2}")`)).toBe(true);
   // double click on empty space inside the group goes back up
@@ -292,6 +292,8 @@ test('viewer linking in the geometry and compositor editors', async ({ page }) =
 test('toolbar tools, snapping and sidebar tabs', async ({ page }) => {
   const { errors, box } = await nodeEditor(page);
   const [bsdf, out] = await withTree<string[]>(page, '(ed, t) => [t.nodes.find((n) => n.type === "ShaderNodeBsdfPrincipled").id, t.nodes.find((n) => n.type === "ShaderNodeOutputMaterial").id]');
+  // this workspace starts with the toolbar hidden
+  await withTree(page, '(ed) => { ed.showToolbar = true; app.changed("ui"); }');
   // the Links Cut tool cuts with a plain left drag
   await page.locator('.nd-toolbar .tb-tool').nth(4).click();
   const a = (await nodeHeader(page, bsdf)).box,

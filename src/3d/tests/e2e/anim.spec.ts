@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { openApp, expectNoErrors } from './helpers';
+import { openApp, expectNoErrors, openHeaderMenu } from './helpers';
 
 /** Key the cube's X location and turn the 3D view into the given animation editor. */
 async function setup(page: Page, editor: 'GRAPH' | 'DOPESHEET' | 'NLA', vals = [0, 1, 3, 2, 5, 4, 6, 2, 0], sel = [2, 3, 4, 5, 6]) {
@@ -45,7 +45,7 @@ const keyValues = (page: Page) =>
 test('graph editor: blend slider from the Key menu, then adjust it from the redo panel', async ({ page }) => {
   const errors = await openApp(page);
   const box = await setup(page, 'GRAPH');
-  await area(page, 'GRAPH').locator('.hdr-menu', { hasText: /^Key$/ }).click();
+  await openHeaderMenu(page, area(page, 'GRAPH'), /^Key$/);
   await page.locator('.menu-item', { hasText: /^Blend/ }).first().hover();
   await page.locator('.menu-item', { hasText: 'Blend to Neighbor' }).click();
   await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2, { steps: 4 });
@@ -92,10 +92,10 @@ test('graph editor: circle select, select key handles and euler filter entries',
     return app.doc.actions[ob.animation_data.action].fcurves[0].keyframe_points.filter((k: { select_control_point: boolean }) => k.select_control_point).length;
   });
   expect(selected).toBeGreaterThan(0);
-  await area(page, 'GRAPH').locator('.hdr-menu', { hasText: 'Select' }).click();
+  await openHeaderMenu(page, area(page, 'GRAPH'), 'Select');
   await expect(page.locator('.menu-item', { hasText: 'Select Handles' })).toBeVisible();
   await page.keyboard.press('Escape');
-  await area(page, 'GRAPH').locator('.hdr-menu', { hasText: 'Channel' }).click();
+  await openHeaderMenu(page, area(page, 'GRAPH'), 'Channel');
   await expect(page.locator('.menu-item', { hasText: 'Discontinuity (Euler) Filter' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expectNoErrors(errors);
@@ -122,7 +122,7 @@ test('markers: add, select, rename, camera bind and delete', async ({ page }) =>
   await page.mouse.move(box.x + box.width / 2, box.y + box.height - 8);
   await page.keyboard.press('A');
   expect(await page.evaluate(() => (window as any).app.doc.scene.timeline_markers.every((m: { select: boolean }) => m.select))).toBe(true); // eslint-disable-line @typescript-eslint/no-explicit-any
-  await area(page, 'DOPESHEET').locator('.hdr-menu', { hasText: 'Marker' }).click();
+  await openHeaderMenu(page, area(page, 'DOPESHEET'), 'Marker');
   await expect(page.locator('.menu-item', { hasText: 'Bind Camera to Markers' })).toBeVisible();
   await page.locator('.menu-item', { hasText: 'Delete Marker' }).click();
   expect(await page.evaluate(() => (window as any).app.doc.scene.timeline_markers.length)).toBe(0); // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -218,12 +218,12 @@ test('pose mode: in-between slider, propagate, names and selection sets', async 
   // select mirror, flip names, selection set
   await page.keyboard.press('Shift+Control+M');
   expect(await page.evaluate(() => (window as any).app.activeObject.pose['Arm.R'].select)).toBe(true); // eslint-disable-line @typescript-eslint/no-explicit-any
-  await area(page, 'VIEW_3D').locator('.hdr-menu', { hasText: 'Pose' }).click();
+  await openHeaderMenu(page, area(page, 'VIEW_3D'), 'Pose');
   await page.locator('.menu-item', { hasText: 'Selection Sets' }).hover();
   await page.locator('.menu-item', { hasText: 'Create and Add Selected' }).click();
   expect(await page.evaluate(() => (window as any).app.activeObject.selection_sets[0].bones)).toEqual(['Arm.R']); // eslint-disable-line @typescript-eslint/no-explicit-any
   await page.keyboard.press('A');
-  await area(page, 'VIEW_3D').locator('.hdr-menu', { hasText: 'Pose' }).click();
+  await openHeaderMenu(page, area(page, 'VIEW_3D'), 'Pose');
   await page.locator('.menu-item', { hasText: 'Names' }).hover();
   await page.locator('.menu-item', { hasText: 'Flip Names' }).click();
   const names = await page.evaluate(() => {
@@ -275,7 +275,7 @@ test('NLA: tweak mode, meta strips, transitions and strip menu', async ({ page }
   await expect(area(page, 'NLA').locator('.hdr-toggle', { hasText: 'Tweaking' })).toBeVisible();
   await page.keyboard.press('Tab');
   expect(await page.evaluate(() => !!(window as any).app.activeObject.animation_data.tweak)).toBe(false); // eslint-disable-line @typescript-eslint/no-explicit-any
-  await area(page, 'NLA').locator('.hdr-menu', { hasText: 'Strip' }).click();
+  await openHeaderMenu(page, area(page, 'NLA'), 'Strip');
   for (const label of ['Make Meta', 'Linked Duplicate', 'Apply Scale', 'Make Single User', 'Start Tweaking Strip Actions (Full Stack)']) await expect(page.locator('.menu-item', { hasText: label }).first()).toBeVisible();
   await page.keyboard.press('Escape');
   await expectNoErrors(errors);
@@ -365,7 +365,7 @@ test('property menu: copy/paste driver, view curve in the Graph Editor; select k
     const { shell } = await import('/src/ui/shell.ts');
     shell.screen.areas.find((a: { type: string }) => a.type === 'GRAPH').setType('DOPESHEET');
   });
-  await page.locator('.area[data-editor="DOPESHEET"] .hdr-menu', { hasText: 'Select' }).click();
+  await openHeaderMenu(page, area(page, 'DOPESHEET'), 'Select');
   await page.locator('.menu-item', { hasText: 'Select By Type' }).hover();
   await expect(page.locator('.menu-item', { hasText: 'Breakdown' })).toBeVisible();
   await page.keyboard.press('Escape');
@@ -422,7 +422,7 @@ test('graph editor: sound to samples bakes an audio envelope', async ({ page }) 
     app.changed('doc');
   });
   const chooser = page.waitForEvent('filechooser');
-  await area(page, 'GRAPH').locator('.hdr-menu', { hasText: 'Channel' }).click();
+  await openHeaderMenu(page, area(page, 'GRAPH'), 'Channel');
   await page.locator('.menu-item', { hasText: 'Sound to Samples' }).click();
   await (await chooser).setFiles({ name: 'tone.wav', mimeType: 'audio/wav', buffer: wav(1, 0.5) });
   await page.waitForFunction(() => {
@@ -450,7 +450,7 @@ test('action editor: make markers local, then add pose markers', async ({ page }
     app.changed('doc');
   });
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await area(page, 'DOPESHEET').locator('.hdr-menu', { hasText: 'Marker' }).click();
+  await openHeaderMenu(page, area(page, 'DOPESHEET'), 'Marker');
   await page.locator('.menu-item', { hasText: 'Make Markers Local' }).click();
   const r = await page.evaluate(() => {
     const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
