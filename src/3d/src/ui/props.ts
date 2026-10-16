@@ -221,6 +221,7 @@ export function vecProp<T extends object>(owner: T, key: keyof T & string, label
               'button',
               {
                 class: { 'lock-btn': true, on: !!locks?.[li] },
+                disabled: !!o.disabled || isReadOnly(o.lock.owner),
                 'data-tip': `Lock ${label} ${names[i]}\nDisable editing this channel in the 3D viewport`,
                 'aria-label': `Lock ${label} ${names[i]}`,
                 'aria-pressed': locks?.[li] ? 'true' : 'false',

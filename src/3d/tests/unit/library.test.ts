@@ -283,3 +283,29 @@ describe('deleting a library', () => {
     expect(target.object_order).not.toContain(placed);
   });
 });
+
+describe('relocating a library', () => {
+  it('finds data-blocks by name in another file', () => {
+    const target = startupDocument();
+    const src = startupDocument();
+    const res = linkFromDoc(target, src, lib(), [{ table: 'objects', id: cubeOf(src).id }]);
+    const lid = res.picked[0].id;
+    // a different file with a cube of the same name (other ids)
+    const other = startupDocument();
+    for (const t of ['objects', 'meshes', 'materials'] as const) {
+      const table = other[t] as Record<string, { id: string }>;
+      for (const [id, rec] of Object.entries(table)) {
+        delete table[id];
+        rec.id = `x_${id}`;
+        table[rec.id] = rec;
+      }
+    }
+    const ob = cubeOf(other);
+    ob.data = `x_${ob.data}`;
+    other.meshes[ob.data].materials = other.meshes[ob.data].materials.map((m) => (m ? `x_${m}` : m));
+    ob.location = [0, 0, 7];
+    const r = reloadFromDoc(target, 'li_a', other);
+    expect(r.missing).toEqual([]);
+    expect(target.objects[lid].location).toEqual([0, 0, 7]);
+  });
+});

@@ -214,7 +214,7 @@ registerTab({
     const c = propertiesCollection();
     if (!c) return h('div', { class: 'prop-note' }, 'No collection');
     return [
-      h('div', { class: 'id-row' }, icon('collection'), textField('col-name', c.name, (v) => ((c.name = uniqueName(doc, v, 'collections')), changed('Rename Collection')))),
+      h('div', { class: 'id-row' }, icon(idDecoration(c.id)?.icon ?? 'collection'), idDecoration(c.id)?.readonly ? h('span', { class: 'text-field ids-name-ro', 'data-tip': idDecoration(c.id)!.tip }, c.name) : textField('col-name', c.name, (v) => ((c.name = uniqueName(doc, v, 'collections')), changed('Rename Collection')))),
       panel('col-restrict', 'Restrictions', () => [boolHeading(c, 'hide_select', 'Selectable', '', {}), bool(c, 'hide_render', 'Disable in Renders'), bool(c, 'holdout' as never, 'Holdout'), bool(c, 'indirect_only' as never, 'Indirect Only')]),
       panel(
         'col-instancing',
@@ -244,7 +244,7 @@ registerTab({
     const rotPath = o.rotation_mode === 'QUATERNION' ? 'rotation_quaternion' : o.rotation_mode === 'AXIS_ANGLE' ? 'rotation_axis_angle' : 'rotation_euler';
     const parents = Object.values(doc.objects).filter((x) => x.id !== o.id);
     return [
-      h('div', { class: 'id-row' }, icon('object'), textField('ob-name', o.name, (v) => ((o.name = uniqueName(doc, v)), changed('Rename Object')))),
+      h('div', { class: 'id-row' }, icon(idDecoration(o.id)?.icon ?? 'object'), idDecoration(o.id)?.readonly ? h('span', { class: 'text-field ids-name-ro', 'data-tip': idDecoration(o.id)!.tip }, o.name) : textField('ob-name', o.name, (v) => ((o.name = uniqueName(doc, v)), changed('Rename Object')))),
       panel('ob-transform', 'Transform', () => [
         vecProp(o, 'location', 'Location', { unit: 'distance', anim: { ob: o, path: 'location' }, lock: { owner: o, key: 'lock_location' } }),
         o.rotation_mode === 'QUATERNION'

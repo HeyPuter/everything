@@ -209,14 +209,14 @@ function indirectLibrary(target: DocumentData, srcLib: LibraryData, parent: ID, 
 }
 
 /** Local ids of source data-blocks when they are linked from `lib`. */
-function linkMap(target: DocumentData, src: DocumentData, lib: LibraryData, picks: Pick[], indirect: ID[]): Map<ID, { table: string; local: ID; libId: ID }> {
+function linkMap(target: DocumentData, src: DocumentData, lib: LibraryData, picks: Pick[], indirect: ID[], aliases?: ReadonlyMap<ID, ID>): Map<ID, { table: string; local: ID; libId: ID }> {
   const st = tablesOf(src);
   const srcLibs = (src as unknown as { libraries?: Record<ID, LibraryData> }).libraries ?? {};
   const map = new Map<ID, { table: string; local: ID; libId: ID }>();
   for (const { table, id } of closureOf(src, picks)) {
     const rec = st[table][id];
     const via = rec.library && srcLibs[rec.library] ? indirectLibrary(target, srcLibs[rec.library], lib.id, indirect) : null;
-    map.set(id, via ? { table, local: linkedId(via.id, refOf(id, rec.library!)), libId: via.id } : { table, local: linkedId(lib.id, id), libId: lib.id });
+    map.set(id, via ? { table, local: linkedId(via.id, refOf(id, rec.library!)), libId: via.id } : { table, local: aliases?.get(id) ?? linkedId(lib.id, id), libId: lib.id });
   }
   return map;
 }
@@ -308,16 +308,25 @@ export function reloadFromDoc(target: DocumentData, libId: ID, src: DocumentData
   const st = tablesOf(src);
   const missing: string[] = [];
   const picks: Pick[] = [];
+  // data-blocks are found by their id in the file, else by name (a relocated or rebuilt file)
+  const aliases = new Map<ID, ID>();
   for (const { table, rec } of mine) {
     const ref = refOf(rec.id, libId);
-    if (st[table]?.[ref]) picks.push({ table, id: ref });
-    else missing.push(rec.name);
+    if (st[table]?.[ref]) {
+      picks.push({ table, id: ref });
+      continue;
+    }
+    const byName = Object.values(st[table] ?? {}).find((x) => x.name === rec.name && !x.library && x.id !== src.scene.collection);
+    if (byName && !aliases.has(byName.id)) {
+      aliases.set(byName.id, rec.id);
+      picks.push({ table, id: byName.id });
+    } else missing.push(rec.name);
   }
   // remember what overrides changed against the old references
   const overrides = overrideGroups(target).filter((g) => g.members.some((m) => tt[m.table][m.reference]?.library === libId));
   const changes = overrides.map((g) => ({ g, changed: g.members.map((m) => overriddenKeys(target, m.table, m.id, g.map)) }));
   const indirect: ID[] = [];
-  const map = linkMap(target, src, lib, picks, indirect);
+  const map = linkMap(target, src, lib, picks, indirect, aliases);
   const idMap = new Map([...map].map(([k, v]) => [k, v.local]));
   let updated = 0,
     added = 0;
