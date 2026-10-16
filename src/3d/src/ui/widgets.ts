@@ -652,9 +652,28 @@ export function colorSwatch(id: string, value: number[], set: (v: number[], fina
       class: { 'color-swatch': true, [`anim-${opts.anim}`]: !!opts.anim },
       style: { '--swatch': colorCss(value, linear), '--alpha': String(value[3] ?? 1) },
       'data-tip': `Color\n#${colorHex(value, linear)}`,
+      // a click opens the picker; dragging the swatch carries its colour to another colour button
       onpointerdown: (e: PointerEvent) => {
         e.preventDefault();
-        openColorPicker(e.currentTarget as HTMLElement, value, set, opts.alpha ?? value.length > 3, linear);
+        if (e.button !== 0) return;
+        const el = e.currentTarget as HTMLElement;
+        const x0 = e.clientX,
+          y0 = e.clientY;
+        const move = (ev: PointerEvent) => {
+          if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+          done();
+          buttonHooks.colorDrag(value.slice(), ev);
+        };
+        const up = () => {
+          done();
+          openColorPicker(el, value, set, opts.alpha ?? value.length > 3, linear);
+        };
+        const done = () => {
+          removeEventListener('pointermove', move, true);
+          removeEventListener('pointerup', up, true);
+        };
+        addEventListener('pointermove', move, true);
+        addEventListener('pointerup', up, true);
       },
     },
     h('span', { class: 'sw-color' }),

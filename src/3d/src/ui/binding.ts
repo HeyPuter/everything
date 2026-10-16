@@ -70,6 +70,8 @@ export const buttonHooks = {
   altEdit: (_id: string) => {},
   /** text typed into a number field that starts with "#": make a driver with that expression (true when handled) */
   hashExpression: (_id: string, _expression: string): boolean => false,
+  /** a colour swatch is being dragged (drop it on another colour button) */
+  colorDrag: (_rgba: number[], _e: PointerEvent) => {},
 };
 
 /** The most recently drawn widget bound to `owner[key]` (enum items, limits), if any. */

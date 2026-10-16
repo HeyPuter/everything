@@ -63,6 +63,7 @@ test('property context menu lists keyframe, driver, keying set, path and copy en
       'Add Drivers',
       'Add Single Driver',
       'Open Drivers Editor',
+      'Pick Driver Source…',
       '---',
       'Add All to Keying Set',
       'Add Single to Keying Set',
@@ -284,5 +285,41 @@ test('UI lists: drag to reorder, resize, filter, rename with F2, Delete removes;
   await page.mouse.wheel(0, -100);
   await page.keyboard.up('Control');
   await expect(cb).toHaveClass(on0 ? /^(?!.*\bon\b)/ : /\bon\b/);
+  await expectNoErrors(errors);
+});
+
+test('eyedroppers and drops: driver source pick, colour swatch drag, Outliner object onto an object field', async ({ page }) => {
+  const errors = await openApp(page);
+  await objectTab(page);
+  const locX = page.locator('.panel-body .num-field').first();
+  await locX.click({ button: 'right' });
+  await page.locator('.popup-layer .menu .mi-label', { hasText: 'Pick Driver Source…' }).click();
+  // click Scale X: it now drives Location X
+  const scale = page.locator('[data-panel="ob-transform"] .num-field').nth(6);
+  await scale.click();
+  const drv = await page.evaluate(() => {
+    const a = (window as unknown as { app: AnyApp }).app;
+    const d = a.activeObject.animation_data?.drivers?.[0];
+    return d ? [d.data_path, d.array_index, d.variables[0].targets[0].data_path] : null;
+  });
+  expect(drv).toEqual(['location', 0, 'scale[0]']);
+  // material tab: drag Base Color onto another colour socket
+  await page.locator('.rail-tab[data-tab="MATERIAL"]').click();
+  const swatches = page.locator('.color-swatch[data-id]');
+  await expect(swatches.first()).toBeVisible();
+  const n = await swatches.count();
+  expect(n).toBeGreaterThan(1);
+  const a = (await swatches.nth(0).boundingBox())!;
+  const b = (await swatches.nth(1).boundingBox())!;
+  const colors = () => page.evaluate(() => [...document.querySelectorAll('.color-swatch[data-id]')].map((e) => (e as HTMLElement).style.getPropertyValue('--swatch')));
+  const before = await colors();
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(a.x + a.width / 2 + 20, a.y + a.height / 2 + 10, { steps: 3 });
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 6 });
+  await page.mouse.up();
+  expect(before[1]).not.toBe(before[0]);
+  await expect.poll(async () => (await colors())[1]).toBe(before[0]);
+  await expect(page.locator('.popover')).toHaveCount(0);
   await expectNoErrors(errors);
 });

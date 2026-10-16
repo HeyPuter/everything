@@ -358,7 +358,7 @@ buttonHooks.altEdit = (id: string) => {
 // eyedroppers
 
 /** The area under a screen point (areas set themselves as hovered when the pointer enters). */
-function areaEditorAt(x: number, y: number): { type?: string; editor?: { pick?: (x: number, y: number, r?: number) => { id: string } | null; el?: HTMLElement } } | null {
+export function areaEditorAt(x: number, y: number): { type?: string; editor?: { pick?: (x: number, y: number, r?: number) => { id: string } | null; el?: HTMLElement } } | null {
   const a = app.hoverArea;
   if (!a || !a.el.contains(document.elementFromPoint(x, y))) return null;
   return a as never;
@@ -381,7 +381,7 @@ function pickObjectAt(e: PointerEvent): string | null {
   return null;
 }
 
-function startEyedropper(label: string, status: string, onPick: (e: PointerEvent) => boolean) {
+export function startEyedropper(label: string, status: string, onPick: (e: PointerEvent) => boolean) {
   document.body.classList.add('eyedropper-active');
   const end = () => document.body.classList.remove('eyedropper-active');
   app.startModal({

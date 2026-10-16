@@ -12,6 +12,7 @@ import { availableConstraintTypes, constraintTypes } from '../eval/constraints';
 import type { ArmatureTarget } from '../eval/constraints_more';
 import type { Constraint, ObjectData } from '../data/types';
 import { constraintPath } from './ops';
+import { bindProp } from '../ui/binding';
 
 /** Extra panel content for constraint types registered by feature modules (e.g. Follow Track). */
 export const constraintExtraUI: Record<string, (ob: ObjectData, c: Constraint) => Child> = {};
@@ -122,6 +123,8 @@ function targetRows(ob: ObjectData, c: C, bone: string | undefined, o: { headTai
   const bones = boneItems(c[key] as string);
   const rows: Child[] = [objectProp(c, key, o.label ?? 'Target', { filter, undo: `Set ${o.label ?? 'Target'}` })];
   if (bones) {
+    // bound so the button menu, Jump to Target and the bone eyedropper (E) work on it
+    bindProp({ id: `${c.id}.${sub}`, owner: c as unknown as Record<string, unknown>, key: sub, label: 'Bone', kind: 'enum', items: bones.map((b) => b.value), undo: 'Set Bone' });
     rows.push(splitRow('Bone', enumMenu(`${c.id}.${sub}`, bones, String(c[sub] ?? ''), (v) => ((c[sub] = v), commit('Set Bone')))));
     if (o.headTail && c[sub]) rows.push(num(c, 'head_tail', 'Head/Tail', { min: 0, max: 1, slider: true }));
   }

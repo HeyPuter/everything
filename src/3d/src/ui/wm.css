@@ -136,3 +136,25 @@
   width: 22px;
   height: 20px;
 }
+
+/* colour drag and drop */
+.color-drag {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 22px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  z-index: 10000;
+}
+body.color-dragging,
+body.color-dragging * {
+  cursor: copy !important;
+}
+.drop-target {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

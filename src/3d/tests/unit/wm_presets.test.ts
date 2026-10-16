@@ -42,3 +42,16 @@ describe('presets', () => {
     expect(operatorCheatSheet()).toContain("bpy.ops.test.sheet(count=4, mode='A')");
   });
 });
+
+describe('colour drops', () => {
+  it('keeps the target alpha unless the dropped colour has one; starts from the default of unset inputs', async () => {
+    const { dropColor } = await import('../../src/ui/eyedroppers');
+    const owner: Record<string, unknown> = { color: [0, 0, 0, 0.5] };
+    expect(dropColor({ id: 'a', owner, key: 'color', label: 'Color', kind: 'color' }, [1, 0.5, 0.25])).toBe(true);
+    expect(owner.color).toEqual([1, 0.5, 0.25, 0.5]);
+    const inputs: Record<string, unknown> = {};
+    expect(dropColor({ id: 'b', owner: inputs, key: 'Base Color', label: 'Base Color', kind: 'color', def: [0.8, 0.8, 0.8, 1] }, [0.1, 0.2, 0.3, 0.4])).toBe(true);
+    expect(inputs['Base Color']).toEqual([0.1, 0.2, 0.3, 0.4]);
+    expect(dropColor({ id: 'c', owner, key: 'color', label: 'X', kind: 'number' }, [1, 1, 1])).toBe(false);
+  });
+});
