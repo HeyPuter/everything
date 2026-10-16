@@ -94,11 +94,11 @@ function lineArtUI(ob: ObjectData, m0: ModifierBase): Child {
     sub(`la-chain-${m.id}`, 'Chaining', () => [num(m, 'chaining_image_threshold', 'Image Threshold', { min: 0, max: 0.3, precision: 4, tip: 'Join line ends closer than this (fraction of the image diagonal)' })], { closed: true }),
     sub(`la-comp-${m.id}`, 'Composition', () => [
       num(m, 'overscan', 'Overscan', { min: 0, max: 0.5, slider: true, tip: 'Keep lines this far (fraction of the frame) outside the camera view' }),
-      bool(m, 'use_image_boundary_trimming', 'Image Boundary Trimming', { tip: 'Cut the lines at the image border' }),
+      bool(m, 'use_image_boundary_trimming', 'Trim to Image', { tip: 'Cut the lines at the image border' }),
       num(m, 'stroke_depth_offset', 'Depth Offset', { unit: 'distance', min: -0.5, max: 0.5, tip: 'Move the strokes towards the camera so surfaces do not cover them' }),
-      m.use_custom_camera ? null : bool(m, 'use_offset_towards_custom_camera', 'Towards Custom Camera', { tip: 'Offset the strokes towards the camera below instead of the active one' }),
+      m.use_custom_camera ? null : bool(m, 'use_offset_towards_custom_camera', 'Offset Camera', { tip: 'Offset the strokes towards another camera (below) instead of the one they are seen from' }),
       !m.use_custom_camera && m.use_offset_towards_custom_camera ? objectProp(m, 'source_camera', 'Camera', { filter: (o) => o.type === 'CAMERA' }) : null,
-      bool(m, 'use_custom_camera', 'Use Custom Camera'),
+      bool(m, 'use_custom_camera', 'Custom Camera', { tip: 'See the lines through another camera than the scene camera' }),
       m.use_custom_camera ? objectProp(m, 'source_camera', 'Camera', { filter: (o) => o.type === 'CAMERA' }) : null,
     ], { closed: true }),
     sub(`la-bake-${m.id}`, 'Bake', () =>
