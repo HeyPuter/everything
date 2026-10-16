@@ -222,6 +222,7 @@ function runAdd(kind: string, name: string, remove: boolean) {
   else {
     const op = presetKind(kind)?.addOp;
     if (op) app.run(op, { name, remove_name: remove });
+    else addOrRemove(kind, name, remove);
   }
 }
 

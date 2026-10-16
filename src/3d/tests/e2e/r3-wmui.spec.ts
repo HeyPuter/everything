@@ -323,3 +323,25 @@ test('eyedroppers and drops: driver source pick, colour swatch drag, Outliner ob
   await expect(page.locator('.popover')).toHaveCount(0);
   await expectNoErrors(errors);
 });
+
+test('export options dialog has an operator preset menu', async ({ page }) => {
+  const errors = await openApp(page);
+  await run(page, 'wm.export', { format: 'gltf' });
+  const dlg = page.locator('.io-dialog');
+  await expect(dlg).toBeVisible();
+  const first = dlg.locator('input[type="checkbox"]').first();
+  const was = await first.isChecked();
+  await dlg.locator('.io-presets').dispatchEvent('pointerdown');
+  await page.locator('.popup-layer .menu .mi-label', { hasText: 'Add Preset…' }).click();
+  await expect(page.locator('.prompt-popup input')).toBeFocused();
+  await page.keyboard.type('Mine');
+  await page.keyboard.press('Enter');
+  await first.click();
+  expect(await first.isChecked()).toBe(!was);
+  await dlg.locator('.io-presets').dispatchEvent('pointerdown');
+  await page.locator('.popup-layer .menu .mi-label', { hasText: /^Mine$/ }).click();
+  expect(await first.isChecked()).toBe(was);
+  await expect(dlg).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expectNoErrors(errors);
+});

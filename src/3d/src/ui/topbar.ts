@@ -123,6 +123,7 @@ export function editMenu(): MenuItem[] {
     { label: 'Repeat History…', op: 'screen.repeat_history' },
     { separator: true },
     { label: 'Menu Search…', icon: 'search', shortcut: 'F3', op: 'wm.search_menu' },
+    ...(prefs.show_developer_ui ? [{ label: 'Operator Search…', op: 'wm.search_operator' }] : []),
     { separator: true },
     { label: 'Rename Active Item…', shortcut: 'F2', op: 'wm.call_panel', props: { name: 'TOPBAR_PT_name' } },
     { label: 'Batch Rename…', shortcut: 'Ctrl F2', op: 'wm.batch_rename' },

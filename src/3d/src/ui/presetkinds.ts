@@ -9,7 +9,8 @@ import { openMenu } from './menu';
 import { getBinding, type PropBinding } from './binding';
 import { panelHeaderExtras, isPanelOpen, setPanelOpen } from './widgets';
 import { opDialogHeaderHooks } from './ophooks';
-import { registerPresetKind, presetMenu, operatorPresetRow, setOperatorPresetTarget, type PresetValues } from './presets';
+import { registerPresetKind, presetMenu, operatorPresetRow, setOperatorPresetTarget, type PresetKind, type PresetValues } from './presets';
+import { optionsDialogHooks } from '../io/formats/ui';
 import { FORMAT_PRESETS } from '../render/final/props/output';
 import { fpsFromPreset } from '../render/final/units';
 
@@ -160,3 +161,32 @@ opDialogHeaderHooks.push((idname, props, apply) => {
   return operatorPresetRow(idname);
 });
 
+
+// ---------------------------------------------------------------------------
+// import / export option dialogs: a preset menu above the options
+
+optionsDialogHooks.push((key, values, sync) => {
+  const kind = `io:${key}`;
+  const k: PresetKind = {
+    id: kind,
+    label: 'Operator Presets',
+    undo: null,
+    capture: () => ({ ...values }),
+    apply: (v) => {
+      for (const [id, x] of Object.entries(v)) if (id in values && typeof x === typeof values[id]) values[id] = x;
+      sync();
+    },
+  };
+  registerPresetKind(k);
+  const btn = document.createElement('button');
+  btn.className = 'btn io-presets';
+  btn.type = 'button';
+  btn.textContent = 'Operator Presets';
+  btn.title = 'Saved option sets for this format';
+  btn.onpointerdown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openMenu(presetMenu(kind), btn, { title: 'Operator Presets' });
+  };
+  return btn;
+});

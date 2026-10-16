@@ -158,3 +158,13 @@ body.color-dragging * {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+
+/* menus opened from modal option dialogs (their preset menu) show above them */
+body:has(.io-dialog-overlay) .popup-layer {
+  z-index: 10001;
+}
+.io-dialog .btn.io-presets {
+  align-self: stretch;
+  text-align: left;
+  margin-bottom: 4px;
+}

@@ -280,3 +280,6 @@ registerOperators([
 ]);
 
 addKeys('Window', [{ key: 'W', alt: true, op: 'wm.toolbar_fallback_pie' }]);
+
+// Alt O in edit modes: proportional editing only reaches connected geometry
+addKeys('3D View', [{ key: 'O', alt: true, op: 'wm.context_toggle', props: { data_path: 'tool_settings.use_proportional_connected' }, when: () => app.doc.mode === 'EDIT' }]);
