@@ -268,9 +268,13 @@ export class ViewportRender {
     renderer.shadowMap.enabled = false;
     s.background = null;
     s.overrideMaterial = depthOnlyMaterial;
+    // volumes (ray-marched boxes) do not occlude overlays
+    const hidden = s.children.filter((c) => c.visible && (c.userData.noDepth || c.userData.smokeOf));
+    for (const c of hidden) c.visible = false;
     this.restoreRect();
     renderer.clearDepth();
     renderer.render(s, camera);
+    for (const c of hidden) c.visible = true;
     s.background = bg;
     s.overrideMaterial = over;
     renderer.shadowMap.enabled = se;

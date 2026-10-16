@@ -283,6 +283,8 @@ onAppReady(() => {
   const op = operators.get('object.modifier_apply');
   if (!op?.exec) return;
   const orig = op.exec;
+  const poll = op.poll;
+  op.poll = (ctx) => (app.activeObject?.type === 'VOLUME' ? app.doc.mode === 'OBJECT' && !!app.activeObject.modifiers.length : poll ? poll(ctx) : true);
   op.exec = (ctx, p) => {
     const ob = app.activeObject;
     const vo = volumeOf(ctx.doc, ob);

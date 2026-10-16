@@ -6,6 +6,8 @@ import type { RenderScene } from './renderscene';
 import type { RenderSettings } from '../../data/types';
 import { bounceSettings } from './units';
 import { filterGLSL, filterTable, type PixelFilter } from './filter';
+import { applySssUniforms, applyVolumeUniforms, patchVolumeShader, ptVolumeSets, volumeUniforms } from './ptvolume';
+import type { Data3DTexture, Material } from 'three';
 
 interface Inner {
   _pathTracer: {
@@ -183,6 +185,31 @@ export class PathTracerCore {
     this.inner = (this.pt as unknown as Inner)._pathTracer;
     this.inner.tiles.set(1, 1);
     const mat = this.inner.material;
+    // volumes and subsurface scattering (src/render/final/ptvolume.ts)
+    const vol = patchVolumeShader(mat.fragmentShader);
+    if (vol) {
+      Object.assign(mat.uniforms, volumeUniforms());
+      (mat as unknown as { defines: Record<string, number> }).defines.ND_VOLUMES = 0;
+      mat.fragmentShader = vol;
+      mat.needsUpdate = true;
+      this.volumes = true;
+      // the fog code paths also serve the world volume (no fog material needed), and the volume
+      // atlas needs a texture unit: the background then comes from the environment map (the
+      // same image for scene worlds). Overrides are applied where the library sets its defines
+      // so the shader is not recompiled every frame.
+      const m = mat as unknown as { onBeforeRender: (...a: unknown[]) => void; setDefine(k: string, v: number): void };
+      const set = m.setDefine.bind(mat);
+      m.setDefine = (k: string, v: number) => {
+        if (k === 'FEATURE_FOG' && this.forceFog) v = 1;
+        if (k === 'FEATURE_BACKGROUND_MAP' && this.hasVolumes) v = 0;
+        set(k, v);
+      };
+      const before = m.onBeforeRender.bind(mat);
+      m.onBeforeRender = (...a: unknown[]) => {
+        set('ND_VOLUMES', this.hasVolumes ? 1 : 0);
+        before(...a);
+      };
+    } else console.warn('Path tracer: volume and subsurface support unavailable (unexpected shader layout)');
     const patched = patchPathTracingShader(mat.fragmentShader);
     if (patched) {
       mat.uniforms.ptFilter = { value: filterTable('BLACKMAN_HARRIS', 1.5) };
@@ -230,6 +257,26 @@ export class PathTracerCore {
 
   private patched = false;
   private filterKey = '';
+  private volumes = false;
+  private forceFog = false;
+  private hasVolumes = false;
+  private volumeCache: { key: string; tex: Data3DTexture | null } = { key: '', tex: null };
+  private volumeKey = '';
+
+  /** Volume and subsurface data of the render scene (after its geometry is set). */
+  private syncVolumes(rs: RenderScene, structure: boolean): boolean {
+    if (!this.volumes) return false;
+    const u = this.inner.material.uniforms;
+    if (structure) applySssUniforms(u, ((this.pt as unknown as { _materials?: Material[] })._materials ?? []) as Material[]);
+    const set = ptVolumeSets.get(rs.scene);
+    applyVolumeUniforms(u, set, this.volumeCache);
+    this.forceFog = !!set?.world;
+    this.hasVolumes = !!set?.volumes.length;
+    const key = `${set?.key ?? ''}|${JSON.stringify(set?.world ?? null)}`;
+    if (key === this.volumeKey) return false;
+    this.volumeKey = key;
+    return true;
+  }
 
   get samples() {
     return Math.floor(this.inner.samples);
@@ -300,9 +347,11 @@ export class PathTracerCore {
       this.revision = revision;
       this.storeCamera(camera);
       this.updateLinks(rs);
+      this.syncVolumes(rs, true);
       this.reset();
       return;
     }
+    if (this.syncVolumes(rs, false)) this.reset();
     if (rs.lightsVersion !== this.lightsVersion) {
       this.lightsVersion = rs.lightsVersion;
       this.pt.updateLights();

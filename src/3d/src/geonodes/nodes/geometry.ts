@@ -245,6 +245,13 @@ gn(
   },
 );
 
+/** The volume grids of a geometry on their own. */
+function volumeOnly(g: GeometrySet): GeometrySet {
+  const out = new GeometrySet();
+  out.volume = g.volume;
+  return out;
+}
+
 gn(
   'GeometryNodeSeparateComponents',
   'geometry',
@@ -256,10 +263,11 @@ gn(
         Curve: new GeometrySet(undefined, undefined, g.curves),
         'Point Cloud': new GeometrySet(undefined, g.points),
         Instances: new GeometrySet(undefined, undefined, undefined, g.instances),
+        Volume: volumeOnly(g),
       };
     },
   },
-  { drop: ['Grease Pencil', 'Volume'] },
+  { drop: ['Grease Pencil'] },
 );
 
 // ---------------------------------------------------------------------------

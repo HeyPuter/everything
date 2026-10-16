@@ -569,7 +569,7 @@ class ModifierCollection extends PropCollection<unknown> {
     const t = String(type ?? '').toUpperCase();
     if (!modifierTypes[t]) throw pyError('TypeError', `ObjectModifiers.new(): enum "${type}" not found in (${Object.keys(modifierTypes).map((k) => `'${k}'`).join(', ')})`);
     const gp = t.startsWith('GREASE_PENCIL_');
-    if (ob.type === 'GREASEPENCIL' ? !gp : gp || (ob.type !== 'MESH' && ob.type !== 'CURVE' && ob.type !== 'FONT' && ob.type !== 'LATTICE' && ob.type !== 'POINTCLOUD'))
+    if (ob.type === 'GREASEPENCIL' ? !gp : gp || (ob.type !== 'MESH' && ob.type !== 'CURVE' && ob.type !== 'FONT' && ob.type !== 'LATTICE' && ob.type !== 'POINTCLOUD' && ob.type !== 'VOLUME') || (!!modifierTypes[t].objectTypes && !modifierTypes[t].objectTypes!.includes(ob.type)))
       throw pyError('RuntimeError', `Error: Object '${ob.name}' does not support ${gp ? 'grease pencil ' : ob.type === 'GREASEPENCIL' ? 'mesh ' : ''}modifiers${ob.type === 'GREASEPENCIL' ? ' (use the GREASE_PENCIL_* types)' : ''}`);
     const m = newModifier(t, uid('md'), ob.modifiers);
     if (name) m.name = uniqueName(Object.fromEntries(ob.modifiers.map((x) => [x.id, x])), String(name));
