@@ -51,6 +51,8 @@ export interface WireframeOptions {
   even: boolean;
   relative: boolean;
   replace: boolean;
+  /** crease weight for the edges running along the original edges (0: none) */
+  crease?: number;
 }
 
 /** Turn the edges of the selected faces into closed four-sided tubes. */
@@ -108,6 +110,8 @@ export function wireframe(m: MeshEdit, o: WireframeOptions): boolean {
     for (let i = 0; i < n; i++) {
       const v = f.verts[i];
       const q = insetPoint(V(m.p(v)), V(m.p(f.verts[(i + n - 1) % n])), V(m.p(f.verts[(i + 1) % n])), normal, (t * sc(v)) / 2);
+      // the offset shifts the whole frame along the vertex normal, face corners included
+      if (o.offset) q.addScaledVector(vnorm.get(v) ?? normal, (t * sc(v) * o.offset) / 2);
       corner.set(`${fi}:${v}`, m.addVert([q.x, q.y, q.z], [[v, 1]], 1));
     }
   }
@@ -145,7 +149,10 @@ export function wireframe(m: MeshEdit, o: WireframeOptions): boolean {
         b = f.verts[(i + 1) % n];
       const aF = corner.get(`${fi}:${a}`)!,
         bF = corner.get(`${fi}:${b}`)!;
-      tubes.push(m.makeFace([outer.get(a)!, outer.get(b)!, bF, aF], f), m.makeFace([aF, bF, inner.get(b)!, inner.get(a)!], f));
+      const t1 = m.makeFace([outer.get(a)!, outer.get(b)!, bF, aF], f),
+        t2 = m.makeFace([aF, bF, inner.get(b)!, inner.get(a)!], f);
+      if (o.crease) for (const t of [t1, t2]) t.creases[0] = t.creases[2] = o.crease;
+      tubes.push(t1, t2);
       if (count.get(edgeKey(a, b)) === 1 && o.boundary) {
         // the open side of a boundary edge
         const aX = boundaryPt.get(a)!,
@@ -155,10 +162,9 @@ export function wireframe(m: MeshEdit, o: WireframeOptions): boolean {
     }
   }
   const all = new Set(fsel);
-  if (o.replace) {
-    m.faces = m.faces.filter((_, i) => !all.has(i));
-    for (const v of vnorm.keys()) m.sel[v] = 0;
-  }
+  // only the new frame stays selected
+  for (const v of vnorm.keys()) m.sel[v] = 0;
+  if (o.replace) m.faces = m.faces.filter((_, i) => !all.has(i));
   m.faces.push(...tubes);
   if (o.replace) m.compact();
   return true;
@@ -173,6 +179,10 @@ export function gridFill(m: MeshEdit, span: number, offset: number, simple = fal
   if (chains.length !== 1 || !chains[0].closed) return false;
   let loop = chains[0].verts;
   const N = loop.length;
+  // canonical walk: from the lowest vertex index towards its higher-numbered neighbour
+  const s0 = loop.indexOf(Math.min(...loop));
+  loop = [...loop.slice(s0), ...loop.slice(0, s0)];
+  if (N > 2 && loop[N - 1] > loop[1]) loop = [loop[0], ...loop.slice(1).reverse()];
   if (N < 4 || N % 2) return false;
   span = Math.max(1, Math.min(N / 2 - 1, span));
   const a = span,
@@ -808,10 +818,12 @@ registerOperators([
       { id: 'use_replace', label: 'Replace', type: 'bool', default: true },
       { id: 'thickness', label: 'Thickness', type: 'float', default: 0.01, min: 0, max: 10000, softMax: 1, subtype: 'distance' },
       { id: 'offset', label: 'Offset', type: 'float', default: 0.01, min: -10000, max: 10000, softMin: -1, softMax: 1, subtype: 'distance' },
+      { id: 'use_crease', label: 'Crease', type: 'bool', default: false },
+      { id: 'crease_weight', label: 'Crease Weight', type: 'float', default: 0.01, min: 0, max: 1000, softMax: 1, subtype: 'factor', showIf: (p) => !!p.use_crease },
     ],
     poll: editPoll,
     exec: (_ctx, p) =>
-      withEdit((m) => wireframe(m, { thickness: p.thickness as number, offset: p.offset as number, boundary: !!p.use_boundary, even: !!p.use_even_offset, relative: !!p.use_relative_offset, replace: !!p.use_replace })) ? 'FINISHED' : 'CANCELLED',
+      withEdit((m) => wireframe(m, { thickness: p.thickness as number, offset: p.offset as number, boundary: !!p.use_boundary, even: !!p.use_even_offset, relative: !!p.use_relative_offset, replace: !!p.use_replace, crease: p.use_crease ? Math.min(1, p.crease_weight as number) : 0 })) ? 'FINISHED' : 'CANCELLED',
   },
   {
     idname: 'mesh.fill_grid',

@@ -236,7 +236,7 @@ function outlinerDrop(): [string, Record<string, unknown>][] {
   if (!d) return [];
   if (d.kind === 'objects') return d.ids.map((id) => ['node.add_object', { session_uid: id }]);
   if (d.kind === 'collection') return [['node.add_collection', { session_uid: d.id }]];
-  const op = ID_DROPS[d.table ?? 'materials'];
+  const op = ID_DROPS[d.kind === 'data' ? d.table : 'materials'];
   return op ? [[op, { session_uid: d.id }]] : [];
 }
 

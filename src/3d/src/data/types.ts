@@ -1217,6 +1217,12 @@ export interface ToolSettings {
   use_mesh_mirror_x?: boolean;
   use_mesh_mirror_y?: boolean;
   use_mesh_mirror_z?: boolean;
+  /** interactive add tools: where the base is placed, how it is oriented, what Ctrl snaps to */
+  plane_depth?: 'SURFACE' | 'CURSOR_PLANE' | 'CURSOR_VIEW';
+  plane_orientation?: 'SURFACE' | 'DEFAULT';
+  snap_elements_tool?: 'GEOMETRY' | 'DEFAULT';
+  plane_axis?: 'X' | 'Y' | 'Z';
+  plane_axis_auto?: boolean;
 }
 
 export interface SculptSettings {

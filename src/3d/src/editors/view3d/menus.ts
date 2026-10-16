@@ -229,7 +229,7 @@ export function meshAddMenu(): MenuItem[] {
     mk('Torus', 'mesh.primitive_torus_add', 'torus'),
     { separator: true },
     mk('Grid', 'mesh.primitive_grid_add', 'grid'),
-    mk('Robot Head', 'mesh.primitive_mascot_add', 'mascot'),
+    mk('Monkey', 'mesh.primitive_monkey_add', 'monkey'),
   ];
 }
 

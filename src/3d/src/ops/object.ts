@@ -4,6 +4,7 @@ import { app, registerOperators, type OpContext, type PropDef } from '../app/app
 import type { DocumentData, ObjectData, MeshData, Mode, ObjectType, ID, Spline } from '../data/types';
 import { newObject, newMeshData, newLight, newCamera, newCurve, newArmature, newLattice, newCollection, uid, IDENTITY, newMaterial } from '../data/defaults';
 import * as prim from '../mesh/primitives';
+import { monkey } from '../mesh/monkey';
 import { applyMatrixToObject, localMatrix, toMatrix4, fromMatrix4, setRotationFromQuaternion } from '../eval/transform';
 import { cloneShared } from '../data/cow';
 import { bounds, buildMesh, toPolys } from '../mesh/mesh';
@@ -86,7 +87,7 @@ function primitiveOp(idname: string, label: string, name: string, props: PropDef
     idname,
     label,
     description: `Construct a ${label.replace('Add ', '').toLowerCase()} mesh`,
-    props: [...props, { id: 'generate_uvs', label: 'Generate UVs', type: 'bool' as const, default: true }, ...transformProps],
+    props: [...props, { id: 'generate_uvs', label: 'Generate UVs', type: 'bool' as const, default: true }, ...transformProps, { id: 'scale', label: 'Scale', type: 'vec3' as const, default: null, hidden: true }],
     poll: (ctx: OpContext) => ctx.doc.mode === 'OBJECT' || ctx.doc.mode === 'EDIT',
     exec: (ctx: OpContext, p: Record<string, unknown>) => {
       const doc = ctx.doc;
@@ -103,6 +104,7 @@ function primitiveOp(idname: string, label: string, name: string, props: PropDef
       if (p.location === null) p.location = [...doc.scene.cursor.location];
       if (p.rotation === null) delete p.rotation;
       addObjectToScene(doc, ob, p);
+      if (Array.isArray(p.scale)) ob.scale = [...(p.scale as number[])] as [number, number, number];
       if (!p.rotation) p.rotation = [...ob.rotation_euler];
       return 'FINISHED';
     },
@@ -338,6 +340,7 @@ registerOperators([
     (p) => prim.torus(p.major_segments as number, p.minor_segments as number, p.major_radius as number, p.minor_radius as number),
   ),
   primitiveOp('mesh.primitive_grid_add', 'Add Grid', 'Grid', [{ id: 'x_subdivisions', label: 'X Subdivisions', type: 'int', default: 10, min: 1, max: 10000 }, { id: 'y_subdivisions', label: 'Y Subdivisions', type: 'int', default: 10, min: 1, max: 10000 }, sizeProp()], (p) => prim.grid(p.x_subdivisions as number, p.y_subdivisions as number, p.size as number)),
+  primitiveOp('mesh.primitive_monkey_add', 'Add Monkey', 'Monkey', [sizeProp()], (p) => monkey(p.size as number)),
   primitiveOp('mesh.primitive_mascot_add', 'Add Robot Head', 'Robot', [], () => prim.mascot(), true),
   {
     idname: 'object.empty_add',
