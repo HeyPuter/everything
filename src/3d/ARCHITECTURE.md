@@ -54,6 +54,10 @@ src/
   assets/     Asset system: asset metadata on data-blocks (asset_data), catalogs, libraries (Current
               File, built-in Essentials, user libraries in IndexedDB), previews, Asset Browser editor
               (ASSETS), drag and drop, pose library, import of .blend asset marks (io/blend/assets.ts)
+  library/    Linked libraries: Library data-blocks (doc.libraries) and the library file store
+              (IndexedDB: Open Recent projects, folder handles, picked copies), File ▸ Link / Append
+              browser, read-only linked data, reload on open, relocate, Make Local, library
+              overrides, bpy.data.libraries; core.ts is pure (unit tested)
   edit/, modifiers/, storage/document.ts, core/   legacy polygon kernels kept for reuse
                                                  (unwrap/UV) and the legacy .3d.json parser
 ```
@@ -233,6 +237,17 @@ adds entries to File ▸ Import/Export. Native format: `io/native.ts`.
 - Animation editors (`animation/animeditor.ts`): `selectables()` feeds box/circle/lasso selection,
   `overlay` draws transient circle/lasso/slider readouts, `snapTo()`/`snapHeader()` snapping options;
   key-shaping logic lives in `animation/fcurvetools.ts` (pure) and its operators in `graphtools.ts`
+
+### Linked data (`library/`)
+A linked data-block lives in its normal table with `library` set to a Library id; its id is
+`<id in the library file>~<library id>`, so local users keep working across reloads. Linked records
+are made read-only by `lockLinked` (`library/readonly.ts`): writes throw (operators are rolled back
+with a clear report), except view-layer state (`select`, `hide`, collection `exclude`…), `_` caches
+and number vectors that evaluation writes (the depsgraph runs inside `withLinkedWrites`). Widgets ask
+`isReadOnly(owner)` to draw disabled. Overrides are local copies with `override_library.reference`;
+`reloadFromDoc` keeps the keys an override changed. Outliner display modes defined outside
+`tree.ts` register in `modeBuilders`, Data Blocks roots in `fileModeRoots`, row menus per element kind
+in `kindMenuHooks` (`editors/outliner/menus.ts`) and synced selection in `rowSync`.
 
 ### Scripting extension points
 - `scripting/api.ts` `ID_MIXINS[table]` (members for a data-block wrapper), `NEW_DATA` / `addDataCollection` (new
