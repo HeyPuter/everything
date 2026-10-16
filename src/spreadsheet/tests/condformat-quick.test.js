@@ -12,7 +12,7 @@ it('subtracts one rectangle from another into at most four pieces', () => {
 
 it('writes above-average rules as a relative formula over the range', () => {
   const rule = quickRule(parseRange('B2:B9'), 'above', { style: { bold: true } });
-  expect(rule).toEqual({ range: parseRange('B2:B9'), type: 'formula', value: 'B2>AVERAGE($B$2:$B$9)', style: { bold: true } });
+  expect(rule).toEqual({ range: parseRange('B2:B9'), type: 'formula', value: 'AND(ISNUMBER(B2),B2>AVERAGE($B$2:$B$9))', style: { bold: true } });
   expect(quickRule(parseRange('B2:B9'), 'between', { value: '1', value2: '5' })).toMatchObject({ type: 'between', value: 1, value2: 5 });
   expect(quickRule(parseRange('B2:B9'), 'dup', { choice: 'unique' }).type).toBe('unique');
 });
@@ -32,7 +32,7 @@ it('applies quick rules that format the right cells and survive an XLSX round tr
   const rules = back.sheet(back.activeSheetId).rules;
   expect(rules.map(r => r.type)).toEqual(['gt', 'formula', 'databar']);
   expect(rules[0]).toMatchObject({ value: 4, style: { bg: '#ffd6d6', color: '#9c1c1c' } });
-  expect(rules[1].value.replace(/^=/, '')).toBe('A1<AVERAGE($A$1:$A$4)');
+  expect(rules[1].value.replace(/^=/, '')).toBe('AND(ISNUMBER(A1),A1<AVERAGE($A$1:$A$4))');
 });
 
 it('clears rules from the selection by trimming them, or from the whole sheet, in one undo step', () => {

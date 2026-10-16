@@ -73,12 +73,16 @@ export function presetRule(range, preset) {
   return null;
 }
 
-/** A quick rule from the dialog's choices. Above and below average are formulas for the range's top-left cell. */
+/**
+ * A quick rule from the dialog's choices. Above and below average are formulas for the range's top-left cell;
+ * as in Excel they format numbers only, never text or blank cells.
+ */
 export function quickRule(range, key, { value = '', value2 = '', choice = null, style = {} } = {}) {
   const def = QUICK_RULES[key];
   if (def.average) {
     const abs = rangeName(range).replace(/([A-Z]+)(\d+)/g, '$$$1$$$2');
-    return { range, type: 'formula', value: `${cellName(range.r1, range.c1)}${def.average}AVERAGE(${abs})`, style };
+    const cell = cellName(range.r1, range.c1);
+    return { range, type: 'formula', value: `AND(ISNUMBER(${cell}),${cell}${def.average}AVERAGE(${abs}))`, style };
   }
   const type = def.choice ? choice || def.type : def.type;
   const number = v => (def.numeric ? Number(v) : v);
