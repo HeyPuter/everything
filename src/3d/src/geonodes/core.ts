@@ -7,6 +7,7 @@ import './nodes/point';
 import './nodes/utilities';
 import './nodes/output';
 import './nodes/gnfields';
+import './bundles/core';
 import './menu';
 import './curves';
 import './modifier';

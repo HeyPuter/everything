@@ -8,9 +8,9 @@ import { findSocket, getNodeType } from '../../nodes/registry';
 import { uid } from '../../data/defaults';
 import type { NodeData, NodeTreeData } from '../../data/types';
 import type { SocketType } from '../../nodes/types';
-import { readItems, writeItems, pairedOutput } from './items';
+import { ITEM_TYPES, readItems, writeItems, pairedOutput } from './items';
 import { ZONES, BAKE, zoneOfType, type ItemList } from './kinds';
-import { addItem, removeItem } from './itemops';
+import { accepts, addItem, removeItem } from './itemops';
 
 function activeNode(ctx: OpContext): { tree: NodeTreeData; node: NodeData } | null {
   const ed = nodeEditorOf(ctx);
@@ -31,17 +31,6 @@ function holderFor(ctx: OpContext, nodeTypes: string[]): { tree: NodeTreeData; h
 
 const BAKE_LIST: ItemList = { key: 'bake_items', prefix: 'Item_', label: 'Bake Items', extend: [] };
 
-const ITEM_TYPE_ITEMS: [string, string][] = [
-  ['FLOAT', 'Float'],
-  ['INT', 'Integer'],
-  ['BOOLEAN', 'Boolean'],
-  ['VECTOR', 'Vector'],
-  ['RGBA', 'Color'],
-  ['ROTATION', 'Rotation'],
-  ['STRING', 'String'],
-  ['GEOMETRY', 'Geometry'],
-];
-
 function itemOps(prefix: string, label: string, list: ItemList, nodeTypes: string[], activeKey: string): Operator[] {
   const poll = (ctx: OpContext) => !!holderFor(ctx, nodeTypes);
   const done = () => app.changed('doc');
@@ -50,7 +39,7 @@ function itemOps(prefix: string, label: string, list: ItemList, nodeTypes: strin
       idname: `node.${prefix}_item_add`,
       label: `Add ${label} Item`,
       description: `Add an item to the ${label.toLowerCase()} items of the active node`,
-      props: [{ id: 'socket_type', label: 'Type', type: 'enum', default: list.key === 'generation_items' ? 'GEOMETRY' : 'FLOAT', items: ITEM_TYPE_ITEMS }],
+      props: [{ id: 'socket_type', label: 'Type', type: 'enum', default: list.key === 'generation_items' ? 'GEOMETRY' : 'FLOAT', items: ITEM_TYPES.filter(([t]) => accepts(list, t)) }],
       poll,
       exec: (ctx, p) => {
         const h = holderFor(ctx, nodeTypes)!;
@@ -141,6 +130,7 @@ registerOperators([
   addZoneOp('node.add_repeat_zone', 'Add Repeat Zone', zone('REPEAT').input),
   addZoneOp('node.add_simulation_zone', 'Add Simulation Zone', zone('SIMULATION').input),
   addZoneOp('node.add_foreach_geometry_element_zone', 'Add For Each Geometry Element Zone', zone('FOREACH').input),
+  addZoneOp('node.add_closure_zone', 'Add Closure Zone', zone('CLOSURE').input),
   {
     idname: 'node.add_zone',
     label: 'Add Zone',
@@ -164,12 +154,14 @@ registerOperators([
   ...itemOps('foreach_geometry_element_zone_main', 'Main', list('FOREACH', 'main_items'), types('FOREACH'), 'active_main_index'),
   ...itemOps('foreach_geometry_element_zone_generation', 'Generation', list('FOREACH', 'generation_items'), types('FOREACH'), 'active_generation_index'),
   ...itemOps('bake_node', 'Bake', BAKE_LIST, [BAKE], 'active_index'),
+  ...itemOps('closure_input', 'Closure Input', list('CLOSURE', 'input_items'), types('CLOSURE'), 'active_input_index'),
+  ...itemOps('closure_output', 'Closure Output', list('CLOSURE', 'output_items'), types('CLOSURE'), 'active_output_index'),
 ]);
 
 // ---------------------------------------------------------------------------
 // Swapping to a zone (Shift S): turn a selected zone into another kind, or wrap the selection
 
-const KEYS: Record<string, string> = { REPEAT: 'repeat_items', SIMULATION: 'state_items', FOREACH: 'generation_items' };
+const KEYS: Record<string, string> = { REPEAT: 'repeat_items', SIMULATION: 'state_items', FOREACH: 'generation_items', CLOSURE: 'output_items' };
 
 /** Items of a zone converted for another kind (same ids, so sockets keep matching). */
 function convertedItems(from: NodeData, fromKind: string, toKind: string): Record<string, string | number> {

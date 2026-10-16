@@ -9,8 +9,13 @@ import type { TreeEval } from './evaluator';
 /** Severity of a reported message. */
 export type WarningKind = 'ERROR' | 'WARNING' | 'INFO';
 
+/** Values that are only passed along (bundles, closures): identified by their kind. */
+export interface OpaqueVal {
+  readonly opaqueKind: string;
+}
+
 /** Value flowing through a socket. */
-export type Val = number | boolean | string | number[] | Field | GeometrySet | null | undefined;
+export type Val = number | boolean | string | number[] | Field | GeometrySet | OpaqueVal | null | undefined;
 
 /** Environment of one modifier evaluation. */
 export interface EvalEnv {

@@ -36,6 +36,8 @@ export const ITEM_TYPES: [SocketType, string][] = [
   ['MATERIAL', 'Material'],
   ['IMAGE', 'Image'],
   ['GEOMETRY', 'Geometry'],
+  ['BUNDLE', 'Bundle'],
+  ['CLOSURE', 'Closure'],
 ];
 
 export const FIELD_ITEM_TYPES = new Set<SocketType>(['FLOAT', 'INT', 'BOOLEAN', 'VECTOR', 'RGBA', 'ROTATION']);
@@ -89,7 +91,7 @@ export function itemSocket(it: ZoneItem, identifier: string, opts: Partial<Socke
     ...opts,
   };
   if (FIELD_ITEM_TYPES.has(it.socket_type) && !s.shape) s.shape = 'DIAMOND_DOT';
-  if (['OBJECT', 'COLLECTION', 'MATERIAL', 'IMAGE', 'GEOMETRY', 'MATRIX'].includes(it.socket_type)) s.hide_value = true;
+  if (['OBJECT', 'COLLECTION', 'MATERIAL', 'IMAGE', 'GEOMETRY', 'MATRIX', 'BUNDLE', 'CLOSURE'].includes(it.socket_type)) s.hide_value = true;
   return s;
 }
 

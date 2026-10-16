@@ -6,6 +6,8 @@ export interface NodeItem {
   name: string;
   /** socket type of the item (Format String) */
   type?: string;
+  /** other per-list fields (data_type, socket_type, …) */
+  [key: string]: unknown;
 }
 
 export function readItems(n: NodeData, prop: string, fallback: NodeItem[] = []): NodeItem[] {
