@@ -71,3 +71,10 @@ export const buttonHooks = {
   /** text typed into a number field that starts with "#": make a driver with that expression (true when handled) */
   hashExpression: (_id: string, _expression: string): boolean => false,
 };
+
+/** The most recently drawn widget bound to `owner[key]` (enum items, limits), if any. */
+export function findBinding(owner: object, key: string): PropBinding | undefined {
+  let found: PropBinding | undefined;
+  for (const b of bindings.values()) if (b.owner === owner && b.key === key) found = b;
+  return found;
+}

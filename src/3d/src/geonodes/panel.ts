@@ -6,7 +6,7 @@ import { app } from '../app/app';
 import { modifierExtraUI } from '../editors/properties/stack';
 import { dataBlockSelector } from '../editors/properties/tabs';
 import { num, bool, vecProp, colorProp, textProp, splitRow } from '../ui/props';
-import { enumMenu, textField, panel } from '../ui/widgets';
+import { enumMenu, textField, panel, checkbox } from '../ui/widgets';
 import { interfaceSocketType } from '../nodes/registry';
 import { newNodeGroup, uid } from '../data/defaults';
 import { uniqueGroupName } from '../nodes/tree';
@@ -206,8 +206,20 @@ function nodesPanel(ob: ObjectData, m: ModifierBase): Child {
       return [
         shown.filter((i) => !i.panel || !panels.some((p) => p.identifier === i.panel)).map(row),
         panels.map((p) => {
-          const members = shown.filter((i) => i.panel === p.identifier);
-          return members.length ? panel(`gnmod-${m.id}-p-${p.identifier}`, p.name, () => members.map(row), { sub: true, closed: !!p.default_closed }) : null;
+          const toggle = p.toggle ? shown.find((i) => i.identifier === p.toggle) : undefined;
+          const members = shown.filter((i) => i.panel === p.identifier && i !== toggle);
+          // a panel toggle is a checkbox in the panel header
+          const header = toggle
+            ? h(
+                'span',
+                { class: 'gn-panel-toggle' },
+                checkbox(`gnmod-${m.id}-pt-${toggle.identifier}`, '', m[toggle.identifier] === undefined ? toggle.default_value !== false : !!m[toggle.identifier], (v) => {
+                  m[toggle.identifier] = v;
+                  changed('Toggle Panel');
+                }),
+              )
+            : undefined;
+          return members.length || toggle ? panel(`gnmod-${m.id}-p-${p.identifier}`, p.name, () => members.map(row), { sub: true, closed: !!p.default_closed, header }) : null;
         }),
       ];
     })(),

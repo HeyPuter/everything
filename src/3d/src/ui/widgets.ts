@@ -441,6 +441,9 @@ export function opButton(idname: string, label?: string, props: Record<string, u
     {
       key: `op-${idname}-${label ?? ''}-${JSON.stringify(props)}`,
       class: `btn op ${opts.className ?? ''}`,
+      // right-click menu (shortcuts, Quick Favorites, Python command) and F1 help find the call here
+      'data-op': idname,
+      'data-op-props': Object.keys(props).length ? JSON.stringify(props) : null,
       disabled: !enabled,
       'data-tip': menuSettings.pythonTips && opts.tip ? `${opts.tip}\nPython: bpy.ops.${idname}()` : (opts.tip ?? ''),
       onclick: (e: MouseEvent) => app.run(idname, props, { event: { x: e.clientX, y: e.clientY } }),

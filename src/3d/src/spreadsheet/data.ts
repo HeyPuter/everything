@@ -183,6 +183,12 @@ export function columnsOf(c: Component, domain: Domain, internal = false): Colum
     const a = viewer.domain === domain ? viewer : readAttribute(c, '.viewer', domain);
     if (a) cols.push({ name: 'Viewer', type: a.type, data: a.data, comps: dataComps(a.type) });
   }
+  for (const k of c.attrs.keys()) {
+    if (!k.startsWith('.viewer:')) continue;
+    const src = c.attrs.get(k)!;
+    const a = src.domain === domain ? src : readAttribute(c, k, domain);
+    if (a) cols.push({ name: k.slice(8), type: a.type, data: a.data, comps: dataComps(a.type) });
+  }
   if (c.kind === 'INSTANCES') {
     const names: string[] = [];
     const pos = new Float32Array(n * 3),
@@ -216,7 +222,7 @@ export function columnsOf(c: Component, domain: Domain, internal = false): Colum
     for (let i = 0; i < counts.length; i++) counts[i] = c.curveOffsets[i + 1] - c.curveOffsets[i];
     cols.push({ name: 'Points', type: 'INT', data: counts, comps: 1, virtual: true });
   }
-  const names = [...c.attrs.keys()].filter((k) => k !== '.viewer' && (internal || !isInternal(k))).sort((a, b) => a.localeCompare(b));
+  const names = [...c.attrs.keys()].filter((k) => k !== '.viewer' && !k.startsWith('.viewer:') && (internal || !isInternal(k))).sort((a, b) => a.localeCompare(b));
   for (const name of names) {
     const a = c.attrs.get(name)!;
     if (a.domain !== domain) continue;

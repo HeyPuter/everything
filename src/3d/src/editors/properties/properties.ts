@@ -367,7 +367,7 @@ export class Properties implements Editor {
                     'span',
                     { class: 'crumb-sub' },
                     ' › ',
-                    (app.doc.meshes[ob.data] ?? app.doc.curves[ob.data] ?? app.doc.lights[ob.data] ?? app.doc.cameras[ob.data] ?? app.doc.armatures[ob.data] ?? app.doc.metaballs?.[ob.data] ?? app.doc.hair_curves?.[ob.data])?.name ?? '',
+                    (app.doc.meshes[ob.data] ?? app.doc.curves[ob.data] ?? app.doc.lights[ob.data] ?? app.doc.cameras[ob.data] ?? app.doc.armatures[ob.data] ?? app.doc.metaballs?.[ob.data] ?? app.doc.hair_curves?.[ob.data] ?? app.doc.volumes?.[ob.data] ?? app.doc.pointclouds?.[ob.data])?.name ?? '',
                   )
                 : null,
             )

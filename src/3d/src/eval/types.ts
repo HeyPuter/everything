@@ -36,6 +36,8 @@ export interface EvalMesh {
   instances?: GeometryInstance[];
   /** Curves (polylines) to draw as wires */
   curves?: { points: Float32Array; cyclic: boolean }[];
+  /** Volume grids (object space) of volume objects and geometry nodes output (src/volume) */
+  volume?: import('../volume/types').VolumeGrid[];
 }
 
 export interface GeometryInstance {

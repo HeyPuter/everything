@@ -262,6 +262,9 @@ function solidPanels(r: RenderSettings): Child {
   ];
 }
 
+/** Extra Render tab panels shown above Color Management (registered by feature modules). */
+export const renderExtraPanels: ((r: RenderSettings) => Child)[] = [];
+
 registerTab({
   id: 'RENDER',
   label: 'Render',
@@ -273,6 +276,7 @@ registerTab({
     return [
       engineRow(r),
       r.engine === 'PATHTRACE' ? pathTracePanels(r) : r.engine === 'RASTER' ? rasterPanels(r) : solidPanels(r),
+      ...renderExtraPanels.map((f) => f(r)),
       colorManagementPanel(r),
     ];
   },

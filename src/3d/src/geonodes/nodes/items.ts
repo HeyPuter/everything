@@ -1,161 +1,98 @@
-// Dynamic item lists of geometry nodes (Format String inputs, Index Switch and Menu Switch
-// items): items are stored on the node as JSON, edited in the sidebar, and links dropped on the
-// node's empty "item" socket turn into new items.
+// Dynamic item lists of nodes: the sidebar list editor (the list logic and operators are in
+// itemcore.ts and re-exported here).
 import { h, type Child } from '../../ui/h';
-import { button, enumMenu, textField } from '../../ui/widgets';
-import { icon } from '../../ui/icons';
-import { app, onAppReady } from '../../app/app';
-import { findSocket } from '../../nodes/registry';
-import { ctxOf, nodeById } from '../../nodes/tree';
-import { uid } from '../../data/defaults';
-import type { NodeData } from '../../data/types';
-import type { NodeDrawContext, SocketDef } from '../../nodes/types';
-import { readItems, writeItems, type NodeItem } from './itemdata';
+import { enumMenu } from '../../ui/widgets';
+import { splitRow } from '../../ui/props';
+import { app } from '../../app/app';
+import { uiList } from '../../editors/properties/uilist';
+import type { NodeDrawContext } from '../../nodes/types';
+import { writeItems, type NodeItem } from './itemdata';
+import { activeIndex, addItem, listItems, moveActiveItem, removeItem, uniqueName, type ItemListDef } from './itemcore';
 
-export { readItems, writeItems, type NodeItem };
-
-export const ITEM_SOCKET = '__item__';
-
-export interface ItemListDef {
-  /** node property holding the JSON list */
-  prop: string;
-  title: string;
-  /** input / output socket identifiers of an item */
-  inSocket?: (it: NodeItem) => string;
-  outSocket?: (it: NodeItem) => string;
-  /** item types offered in the sidebar ([value, label]) */
-  types?: [string, string][];
-  /** item type for a socket linked to the item socket (undefined: link refused) */
-  typeFor?: (s: SocketDef) => string | undefined;
-  /** default name of a new item */
-  defaultName: (items: NodeItem[], s?: SocketDef) => string;
-  /** whether items have editable names */
-  named?: boolean;
-  /** items cannot go below this count */
-  min?: number;
-}
-
-export function addItem(n: NodeData, def: ItemListDef, current: NodeItem[], name?: string, type?: string): NodeItem {
-  let id = 0;
-  while (current.some((i) => i.id === id)) id++;
-  const it: NodeItem = { id, name: name || def.defaultName(current), ...(type ? { type } : {}) };
-  writeItems(n, def.prop, [...current, it]);
-  return it;
-}
+export * from './itemcore';
 
 /** Sidebar list editor for the items of a node. */
-export function itemListUI(ctx: NodeDrawContext, def: ItemListDef, items: NodeItem[]): Child {
+export function itemListUI(ctx: NodeDrawContext, def: ItemListDef, items: NodeItem[] = listItems(ctx.node, def)): Child {
+  const n = ctx.node;
+  const ak = activeKeyOf(def);
+  const tk = typeKeyOf(def);
+  const active = activeIndex(n, def, items);
+  const cur = items[active];
   const set = (list: NodeItem[], label: string) => {
-    writeItems(ctx.node, def.prop, list);
+    writeItems(n, def.prop, list);
     ctx.changed(label, true);
   };
-  const unlink = (it: NodeItem) => {
-    ctx.tree.links = ctx.tree.links.filter(
-      (l) => !((def.inSocket && l.to_node === ctx.node.id && l.to_socket === def.inSocket(it)) || (def.outSocket && l.from_node === ctx.node.id && l.from_socket === def.outSocket(it))),
+  const update = (patch: Partial<NodeItem>) =>
+    set(
+      items.map((x) => (x === cur ? { ...x, ...patch } : x)),
+      'Change Item',
     );
-  };
   return h(
     'div',
-    { class: 'gn-items' },
+    { class: 'gn-items gn-zone-items' },
     h('div', { class: 'sub-label' }, def.title),
-    items.map((it, i) =>
-      h(
-        'div',
-        { key: String(it.id), class: 'gn-item-row' },
-        def.named === false
-          ? h('span', { class: 'nd-label' }, String(i))
-          : textField(`${ctx.key}:it-name:${it.id}`, it.name, (v) =>
-              set(
-                items.map((x) => (x === it ? { ...x, name: v || x.name } : x)),
-                'Rename Item',
-              ),
-            ),
-        def.types
-          ? enumMenu(
-              `${ctx.key}:it-type:${it.id}`,
-              def.types.map(([value, label]) => ({ value, label })),
-              it.type ?? def.types[0][0],
-              (v) =>
+    uiList(
+      `${ctx.key}:${def.prop}`,
+      items.map((it, i) => ({ key: String(it.id), label: def.named === false ? String(i) : it.name })),
+      active,
+      (i) => {
+        n.props[ak] = i;
+        ctx.changed('Select Item', false);
+        app.changed('ui');
+      },
+      {
+        add: () => {
+          addItem(n, def, items);
+          n.props[ak] = items.length;
+          ctx.changed('Add Item', true);
+        },
+        remove:
+          cur && items.length > (def.min ?? 0)
+            ? () => {
+                removeItem(ctx.tree, n, def, cur.id);
+                n.props[ak] = Math.max(0, active - 1);
+                ctx.changed('Remove Item', true);
+              }
+            : undefined,
+        rename:
+          def.named === false
+            ? undefined
+            : (i, name) => {
+                if (!name) return;
                 set(
-                  items.map((x) => (x === it ? { ...x, type: v } : x)),
-                  'Change Item Type',
-                ),
-            )
-          : null,
-        button(
-          `${ctx.key}:it-up:${it.id}`,
-          icon('triangle_up'),
-          () => {
-            if (i === 0) return;
-            const l = [...items];
-            [l[i - 1], l[i]] = [l[i], l[i - 1]];
-            set(l, 'Move Item');
-          },
-          { tip: 'Move item up', disabled: i === 0 },
-        ),
-        button(
-          `${ctx.key}:it-del:${it.id}`,
-          icon('remove'),
-          () => {
-            unlink(it);
-            set(
-              items.filter((_, k) => k !== i),
-              'Remove Item',
-            );
-          },
-          { tip: 'Remove item', disabled: items.length <= (def.min ?? 0) },
-        ),
-      ),
+                  items.map((x, k) =>
+                    k === i
+                      ? {
+                          ...x,
+                          name: uniqueName(
+                            items.filter((y) => y !== x),
+                            name,
+                          ),
+                        }
+                      : x,
+                  ),
+                  'Rename Item',
+                );
+              },
+        up: () => moveActiveItem(n, def, -1) && ctx.changed('Move Item', true),
+        down: () => moveActiveItem(n, def, 1) && ctx.changed('Move Item', true),
+        rows: 3,
+      },
     ),
-    button(`${ctx.key}:it-add`, [icon('add'), 'Add Item'], () => {
-      addItem(ctx.node, def, items, undefined, def.types?.[0][0]);
-      ctx.changed('Add Item', true);
-    }),
+    cur && def.types
+      ? splitRow(
+          'Type',
+          enumMenu(
+            `${ctx.key}:${def.prop}:type:${cur.id}`,
+            def.types.map(([value, label]) => ({ value, label })),
+            String((cur as Record<string, unknown>)[tk] ?? def.types[0][0]),
+            (v) => update({ [tk]: v } as Partial<NodeItem>),
+          ),
+        )
+      : null,
+    cur && def.extra ? def.extra(ctx, cur, update) : null,
   );
 }
 
-const itemNodes = new Map<string, { def: ItemListDef; items: (n: NodeData) => NodeItem[] }>();
-
-/** Register a node type whose item socket creates items when linked. */
-export function registerItemNode(idname: string, def: ItemListDef, items: (n: NodeData) => NodeItem[]) {
-  itemNodes.set(idname, { def, items });
-}
-
-/** Turn links made to or from the item socket into new items. Returns whether anything changed. */
-export function resolveItemLinks(doc = app.doc): boolean {
-  let any = false;
-  for (const g of Object.values(doc.node_groups)) {
-    const tree = g.tree;
-    if (tree.type !== 'GEOMETRY') continue;
-    for (const l of [...tree.links]) {
-      const toItem = l.to_socket === ITEM_SOCKET,
-        fromItem = l.from_socket === ITEM_SOCKET;
-      if (!toItem && !fromItem) continue;
-      const node = nodeById(tree, toItem ? l.to_node : l.from_node);
-      const reg = node ? itemNodes.get(node.type) : undefined;
-      if (!node || !reg) continue;
-      const other = nodeById(tree, toItem ? l.from_node : l.to_node);
-      tree.links = tree.links.filter((x) => x !== l);
-      any = true;
-      if (!other) continue;
-      const s = findSocket(other, toItem ? l.from_socket : l.to_socket, toItem, ctxOf(doc, tree));
-      if (!s) continue;
-      const type = reg.def.typeFor ? reg.def.typeFor(s) : undefined;
-      if (reg.def.typeFor && !type) continue;
-      const cur = reg.items(node);
-      const it = addItem(node, reg.def, cur, reg.def.named === false ? String(cur.length) : s.name || reg.def.defaultName(cur, s), type);
-      if (toItem && reg.def.inSocket) tree.links.push({ ...l, id: uid('link'), to_socket: reg.def.inSocket(it) });
-      if (fromItem && reg.def.outSocket) tree.links.push({ ...l, id: uid('link'), from_socket: reg.def.outSocket(it) });
-    }
-  }
-  return any;
-}
-
-onAppReady((a) => {
-  a.subscribe((kinds) => {
-    if (kinds.has('doc') && itemNodes.size && resolveItemLinks(a.doc)) a.changed('doc');
-  });
-});
-
-/** The empty socket that accepts links to create items. */
-export const itemSocket = (): SocketDef => ({ name: '', identifier: ITEM_SOCKET, type: 'CUSTOM', hide_value: true });
+const typeKeyOf = (def: ItemListDef) => def.typeKey ?? 'type';
+const activeKeyOf = (def: ItemListDef) => def.activeKey ?? 'active_index';

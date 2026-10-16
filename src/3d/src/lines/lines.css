@@ -1,0 +1,93 @@
+/* Line rendering panels (View Layer ▸ Freestyle, line styles) */
+.fs-enum .enum-row > button {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fs-heading {
+  color: var(--t-bb, #bbbcbe);
+  margin: 8px 2px 3px;
+}
+.fs-sel-by {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 2px;
+  margin-bottom: 4px;
+}
+.fs-sel-by > .btn {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fs-edge-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0 8px;
+  margin: 4px 0 4px 8px;
+}
+.fs-edge-type {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--row);
+  gap: 4px;
+}
+.fs-x {
+  width: 22px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--t-99, #999a9b);
+  opacity: 0.55;
+}
+.fs-x:hover:not(:disabled) {
+  background: var(--w-regular-hover);
+  opacity: 1;
+}
+.fs-x.on {
+  background: var(--accent);
+  color: var(--c-text-on-accent, #fff);
+  opacity: 1;
+}
+.fs-x:disabled {
+  opacity: 0.2;
+}
+.fs-add-mod {
+  width: 100%;
+  margin: 6px 0;
+  justify-content: center;
+  gap: 4px;
+}
+.fs-modifier .mod-name {
+  flex: 1;
+  min-width: 40px;
+}
+.fs-mod-icon {
+  display: grid;
+  place-items: center;
+}
+.fs-ramp,
+.fs-curve {
+  margin: 4px 0 6px;
+}
+.fs-pair {
+  display: contents;
+}
+.fs-fill-range {
+  width: 100%;
+  justify-content: center;
+  gap: 4px;
+  margin: 2px 0 4px;
+}
+.panel.fs-inactive > .panel-body {
+  opacity: 0.6;
+}
+.fs-off {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

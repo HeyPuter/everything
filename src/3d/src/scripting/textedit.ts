@@ -256,11 +256,12 @@ export class TextEditor implements Editor {
       { class: 'hdr-row te-header' },
       menu('View', () => this.viewMenu()),
       menu('Text', () => this.textMenu()),
-      menu('Edit', () => this.editMenu()),
-      menu('Select', () => this.selectMenu()),
-      menu('Format', () => this.formatMenu()),
+      // editing menus only while a text is shown
+      t ? menu('Edit', () => this.editMenu()) : null,
+      t ? menu('Select', () => this.selectMenu()) : null,
+      t ? menu('Format', () => this.formatMenu()) : null,
       menu('Templates', () => templateMenu((tpl) => this.openTemplate(tpl))),
-      h('div', { class: 'te-sep' }),
+      h('div', { class: 'hdr-spacer' }),
       this.idSelector(t),
       h('div', { class: 'hdr-spacer' }),
       t

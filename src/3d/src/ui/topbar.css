@@ -21,30 +21,15 @@
     linear-gradient(160deg, #1f2433, #141820);
   cursor: pointer;
 }
-.splash-orbits span {
+.splash-art {
   position: absolute;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
-.splash-orbits .o1 {
-  width: 260px;
-  height: 260px;
-  right: -40px;
-  top: -70px;
-}
-.splash-orbits .o2 {
-  width: 170px;
-  height: 170px;
-  right: 6px;
-  top: -24px;
-  border-color: rgba(253, 194, 117, 0.22);
-}
-.splash-orbits .o3 {
-  width: 90px;
-  height: 90px;
-  right: 46px;
-  top: 16px;
-  background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0.04) 60%);
+.splash-grid line {
+  stroke: rgba(170, 195, 255, 0.13);
+  stroke-width: 1;
 }
 .splash-brand {
   position: absolute;
@@ -254,4 +239,72 @@
 }
 .btn.primary:disabled {
   opacity: 0.5;
+}
+
+/* Quick Setup (first run) */
+.qs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 22px 16px;
+}
+.qs .splash-head {
+  margin: 0;
+  font-size: calc(var(--fs) + 3px);
+  color: var(--t-ff, #fff);
+}
+.qs-lead {
+  margin: 0 0 4px;
+  color: var(--t-99, #9a9b9d);
+}
+.qs-label {
+  color: var(--t-bb, #bbbcbe);
+}
+.qs-row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+.qs-themes {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.qs-theme {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 4px 5px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  color: var(--t-cc, #cdced0);
+}
+.qs-theme svg {
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.qs-theme:hover {
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.06);
+}
+.qs-theme.on {
+  border-color: var(--accent);
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.06);
+}
+.qs-foot {
+  display: flex;
+  margin-top: 6px;
+}
+.qs-foot .grow {
+  flex: 1;
+}
+.qs-next {
+  min-width: 110px;
+  background: var(--accent);
+  color: var(--c-text-on-accent, #fff);
+}
+.qs-next:hover {
+  filter: brightness(1.1);
 }

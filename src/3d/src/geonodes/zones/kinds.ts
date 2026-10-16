@@ -10,10 +10,12 @@ export interface ItemList {
   label: string;
   /** node type and socket of the "add item" socket that extends this list */
   extend: { node: 'input' | 'output'; socket: string }[];
+  /** only field-capable types (For Each Element inputs and main items) */
+  fieldOnly?: boolean;
 }
 
 export interface ZoneKind {
-  id: 'REPEAT' | 'SIMULATION' | 'FOREACH';
+  id: 'REPEAT' | 'SIMULATION' | 'FOREACH' | 'CLOSURE';
   label: string;
   input: string;
   output: string;
@@ -29,6 +31,8 @@ export const SIM_OUTPUT = 'GeometryNodeSimulationOutput';
 export const FOREACH_INPUT = 'GeometryNodeForeachGeometryElementInput';
 export const FOREACH_OUTPUT = 'GeometryNodeForeachGeometryElementOutput';
 export const BAKE = 'GeometryNodeBake';
+export const CLOSURE_INPUT = 'NodeClosureInput';
+export const CLOSURE_OUTPUT = 'NodeClosureOutput';
 
 export const ZONES: ZoneKind[] = [
   {
@@ -78,12 +82,14 @@ export const ZONES: ZoneKind[] = [
         prefix: 'Input_',
         label: 'Input Fields',
         extend: [{ node: 'input', socket: EXTEND }],
+        fieldOnly: true,
       },
       {
         key: 'main_items',
         prefix: 'Main_',
         label: 'Main Geometry',
         extend: [{ node: 'output', socket: '__extend__main' }],
+        fieldOnly: true,
       },
       {
         key: 'generation_items',
@@ -93,6 +99,27 @@ export const ZONES: ZoneKind[] = [
       },
     ],
     color: [67, 118, 142],
+  },
+  {
+    id: 'CLOSURE',
+    label: 'Closure',
+    input: CLOSURE_INPUT,
+    output: CLOSURE_OUTPUT,
+    lists: [
+      {
+        key: 'input_items',
+        prefix: 'Item_',
+        label: 'Closure Inputs',
+        extend: [{ node: 'input', socket: EXTEND }],
+      },
+      {
+        key: 'output_items',
+        prefix: 'Item_',
+        label: 'Closure Outputs',
+        extend: [{ node: 'output', socket: EXTEND }],
+      },
+    ],
+    color: [150, 104, 52],
   },
 ];
 

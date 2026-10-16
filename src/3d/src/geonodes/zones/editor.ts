@@ -251,7 +251,15 @@ const DOMAIN_ITEMS = [
 ];
 
 const activeKey = (list: ItemList) =>
-  list.key === 'input_items' ? 'active_input_index' : list.key === 'main_items' ? 'active_main_index' : list.key === 'generation_items' ? 'active_generation_index' : 'active_index';
+  list.key === 'input_items'
+    ? 'active_input_index'
+    : list.key === 'output_items'
+      ? 'active_output_index'
+      : list.key === 'main_items'
+        ? 'active_main_index'
+        : list.key === 'generation_items'
+          ? 'active_generation_index'
+          : 'active_index';
 
 function itemListUI(ctx: NodeDrawContext, holder: NodeData, list: ItemList): Child {
   const items = readItems(holder, list.key);

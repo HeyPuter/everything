@@ -154,6 +154,8 @@ export const SOCKET_IDNAME: Record<string, string> = {
   ROTATION: 'NodeSocketRotation',
   MATRIX: 'NodeSocketMatrix',
   MENU: 'NodeSocketMenu',
+  CLOSURE: 'NodeSocketClosure',
+  BUNDLE: 'NodeSocketBundle',
 };
 
 /** Sockets of a group interface as node sockets. */
@@ -218,6 +220,7 @@ export function interfacePanels(tree: NodeTreeData | undefined): NodePanelDef[] 
     name: p.name,
     inputs: (tree.interface ?? []).filter((i) => i.in_out === 'INPUT' && i.panel === p.identifier).map((i) => i.identifier),
     closed: !!p.default_closed,
+    ...(p.toggle ? { toggle: p.toggle } : {}),
   }));
 }
 

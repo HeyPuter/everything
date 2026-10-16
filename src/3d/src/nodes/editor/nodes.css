@@ -335,6 +335,10 @@
 .nd-frame.active {
   box-shadow: 0 0 0 1.5px var(--nd-active);
 }
+.nd-frame.attach-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+}
 .nd-frame-label {
   padding: 4px 10px;
   color: rgba(var(--hl-rgb, 255, 255, 255), 0.75);
@@ -582,6 +586,21 @@
 }
 .nd-iface-dir {
   color: var(--t-99, #999a9b);
+}
+.nd-iface-badge {
+  margin-left: auto;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  color: var(--t-99, #999a9b);
+  background: var(--g-3a, #3a3b3c);
+}
+.nd-panel-toggle {
+  display: inline-flex;
+  align-items: center;
+}
+.nd-panel-toggle .checkbox {
+  gap: 0;
 }
 .nd-iface-btns {
   display: flex;

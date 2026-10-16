@@ -36,6 +36,7 @@ import { renderContext } from '../../render/context';
 import { hashName } from './util';
 import { patchFx } from '../../render/realtime/fxshader';
 import { applyRealtimeMaterial, realtimeMaterialKey } from '../../render/realtime/materialfx';
+import { manualTexSpace } from '../../render/texspace';
 
 /**
  * Path tracer hints for surface closures the generic conversion does not know: builders keyed by
@@ -290,10 +291,16 @@ function updateObjectGroup(g: UniformsGroup, renderer: WebGLRenderer, geometry: 
   const u = g.uniforms as Uniform[];
   if (!geometry.boundingBox) geometry.computeBoundingBox();
   const bb = geometry.boundingBox!;
-  (u[0].value as Vector4).set(bb.min.x, bb.min.y, bb.min.z, 0);
-  (u[1].value as Vector4).set(bb.max.x, bb.max.y, bb.max.z, 0);
   const id = object.userData.id as string | undefined;
   const ob = id ? app?.doc.objects[id] : undefined;
+  const ts = manualTexSpace(app?.doc, ob);
+  if (ts) {
+    (u[0].value as Vector4).set(ts[0], ts[1], ts[2], 0);
+    (u[1].value as Vector4).set(ts[3], ts[4], ts[5], 0);
+  } else {
+    (u[0].value as Vector4).set(bb.min.x, bb.min.y, bb.min.z, 0);
+    (u[1].value as Vector4).set(bb.max.x, bb.max.y, bb.max.z, 0);
+  }
   (u[2].value as Vector4).set(ob ? hashName(ob.name) : 0, ob?.pass_index ?? 0, (group as unknown as { materialIndex?: number } | null)?.materialIndex ?? 0, 0);
   const c = ob?.color ?? [1, 1, 1, 1];
   (u[3].value as Vector4).set(c[0], c[1], c[2], c[3] ?? 1);

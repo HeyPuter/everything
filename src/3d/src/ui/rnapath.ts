@@ -111,6 +111,8 @@ export function fullDataPath(loc: OwnerLoc, key: string, index?: number): string
 export function relDataPath(loc: OwnerLoc, key: string): string {
   // node socket values: inputs["Roughness"].default_value
   if (/(^|\.)(inputs|outputs)$/.test(loc.path)) return `${loc.path}[${q(key)}].default_value`;
+  // custom properties are addressed on their data-block / struct: ["prop"]
+  if (/(^|\.)custom$/.test(loc.path)) return `${loc.path.replace(/\.?custom$/, '')}[${q(key)}]`;
   return join(loc.path, isIdent(key) ? key : `[${q(key)}]`);
 }
 
@@ -128,7 +130,7 @@ export function animTarget(doc: DocumentData, loc: OwnerLoc, key: string, prefer
   const order = prefer ? [prefer, ...obs.filter((o) => o !== prefer)] : obs;
   if (DATA_TABLE_VALUES.has(loc.table)) {
     const ob = order.find((o) => o.data === loc.id && DATA_TABLE[o.type] === loc.table);
-    return ob ? { ob, path: `data.${rel}` } : null;
+    return ob ? { ob, path: join('data', rel) } : null;
   }
   if (loc.table === 'materials') {
     // only the active material of an object is addressable from the object
@@ -138,7 +140,7 @@ export function animTarget(doc: DocumentData, loc: OwnerLoc, key: string, prefer
       return mid === loc.id;
     });
     if (!ob) return null;
-    return { ob, path: `material.${rel.replace(/^node_tree\./, '')}` };
+    return { ob, path: join('material', rel.replace(/^node_tree\./, '')) };
   }
   return null;
 }

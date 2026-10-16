@@ -397,6 +397,8 @@ function availability(d: NodeTypeDef, rules: Record<string, (n: NodeData) => boo
     for (const a of r.aovs ?? []) if (a.name) outputs.push({ name: a.name, identifier: `AOV ${a.name}`, type: a.type === 'VALUE' ? 'FLOAT' : 'RGBA' });
     // light groups: the image lit by each group
     for (const g of rlLayer(n, ctx.doc).layer?.lightgroups ?? []) if (g.name) outputs.push({ name: `Combined_${g.name}`, identifier: `Combined_${g.name}`, type: 'RGBA' });
+    // lines drawn as their own pass (View Layer ▸ Freestyle ▸ As Render Pass)
+    if (r.use_freestyle && r.freestyle_settings?.as_render_pass) outputs.push({ name: 'Freestyle', identifier: 'Freestyle', type: 'RGBA' });
     const depth = Math.max(2, Math.min(16, Math.round(r.pass_cryptomatte_depth ?? 6)));
     for (const [layer, on] of [
       ['CryptoObject', r.use_pass_cryptomatte_object],

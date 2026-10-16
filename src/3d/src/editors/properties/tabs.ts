@@ -19,6 +19,7 @@ import { cameraPanels } from '../../render/final/props/camera';
 import { materialSpecials, shapeKeySpecials, vertexGroupSpecials } from '../../object/listmenus';
 import { propertiesCollection } from '../../object/relations';
 import { objectCollectionsPanel } from '../../object/collections';
+import { customPropsPanelBody } from '../../ui/customprops';
 
 /** Small lock toggle used inside list rows. */
 function lockToggle(on: boolean, tip: string, toggle: () => void): Child {
@@ -194,7 +195,7 @@ export function imageSlot(owner: Record<string, unknown>, key: string, label: st
       'div',
       { class: 'row-aligned' },
       enumMenu(`img-${oid(owner)}`, [{ value: '', label: '—' }, ...images.map((i) => ({ value: i.id, label: i.name, icon: 'image' }))], String(owner[key] ?? ''), (v) => ((owner[key] = v || null), changed('Assign Image'))),
-      button(`img-open-${oid(owner)}`, icon('file_folder'), () => app.run('image.open', { target_owner: true }, { invoke: true }) && void 0, { tip: 'Open Image' }),
+      button(`img-open-${oid(owner)}`, icon('file_folder'), () => app.run('image.open', { target_owner: true }, { invoke: true }) && void 0, { tip: 'Open Image', className: 'ra-icon' }),
     ),
   );
 }
@@ -298,32 +299,10 @@ registerTab({
         colorProp(o, 'color', 'Color', { alpha: true }),
         o.type === 'EMPTY' ? [enumProp(o, 'empty_display_type', 'Display As', [['PLAIN_AXES', 'Plain Axes'], ['ARROWS', 'Arrows'], ['SINGLE_ARROW', 'Single Arrow'], ['CIRCLE', 'Circle'], ['CUBE', 'Cube'], ['SPHERE', 'Sphere'], ['CONE', 'Cone'], ['IMAGE', 'Image']]), num(o, 'empty_display_size', 'Size', { unit: 'distance', min: 0 })] : null,
       ], { closed: true }),
-      panel('ob-custom', 'Custom Properties', () => customProps(o.custom), { closed: true }),
+      panel('ob-custom', 'Custom Properties', () => customPropsPanelBody(o as never, 'object'), { closed: true }),
     ];
   },
 });
-
-export function customProps(custom: Record<string, unknown>): Child {
-  return [
-    button('cp-new', [icon('add'), 'New'], () => {
-      let i = 0;
-      while (`prop${i ? i : ''}` in custom) i++;
-      custom[`prop${i ? i : ''}`] = 1.0;
-      changed('Add Property');
-    }),
-    Object.entries(custom).map(([k, v]) =>
-      h(
-        'div',
-        { key: k, class: 'custom-prop' },
-        typeof v === 'number'
-          ? splitRow(k, numberField({ id: `cp.${k}`, value: v, set: (x, f) => ((custom[k] = x), app.changed('doc'), f && app.pushUndo('Edit Property')) }), h('button', { class: 'icon-btn', onclick: () => (delete custom[k], changed('Remove Property')) }, icon('x')))
-          : typeof v === 'boolean'
-            ? splitRow(k, checkbox(`cp.${k}`, '', v, (x) => ((custom[k] = x), changed('Edit Property'))), h('button', { class: 'icon-btn', onclick: () => (delete custom[k], changed('Remove Property')) }, icon('x')))
-            : splitRow(k, textField(`cp.${k}`, String(v), (x) => ((custom[k] = x), changed('Edit Property'))), h('button', { class: 'icon-btn', onclick: () => (delete custom[k], changed('Remove Property')) }, icon('x'))),
-      ),
-    ),
-  ];
-}
 
 // ---------------------------------------------------------------------------
 // Data-block selector (browse / name / new / unlink)
@@ -587,7 +566,7 @@ export function activeMaterial(o: ObjectData | null): MaterialData | null {
 function slotOwner(o: ObjectData): { materials: (string | null)[] } | null {
   const doc = app.doc;
   if (!o.data) return null;
-  return (doc.meshes[o.data] ?? doc.curves[o.data] ?? doc.metaballs?.[o.data] ?? doc.hair_curves?.[o.data]) ?? null;
+  return (doc.meshes[o.data] ?? doc.curves[o.data] ?? doc.metaballs?.[o.data] ?? doc.hair_curves?.[o.data] ?? doc.volumes?.[o.data] ?? doc.pointclouds?.[o.data]) ?? null;
 }
 
 registerTab({
@@ -655,11 +634,15 @@ export const materialSurfacePanel: { draw: ((ma: MaterialData) => Child) | null 
 /** Hook for the World ▸ Surface panel (set by the nodes module). */
 export const worldSurfacePanel: { draw: ((w: WorldData) => Child) | null } = { draw: null };
 
+/** Extra Material tab panels shown above Viewport Display (registered by feature modules). */
+export const materialExtraPanels: ((ma: MaterialData) => Child)[] = [];
+
 function materialPanels(ma: MaterialData): Child {
   return [
     panel('ma-preview', 'Preview', () => h('div', { class: 'mat-preview', style: { background: `radial-gradient(circle at 35% 35%, #ffffff88 0, transparent 30%), radial-gradient(circle, ${swatchCss(ma)} 0 60%, transparent 61%)` } }), { closed: true }),
     panel('ma-surface', 'Surface', () => (materialSurfacePanel.draw ? materialSurfacePanel.draw(ma) : h('div', { class: 'prop-note' }, 'Edit the node tree in the Shader Editor.'))),
     (ensureMaterialDefaults(ma), materialSettingsPanel(ma)),
+    ...materialExtraPanels.map((f) => f(ma)),
     panel('ma-display', 'Viewport Display', () => [colorProp(ma, 'diffuse_color', 'Color', { alpha: true }), num(ma, 'metallic', 'Metallic', { min: 0, max: 1, slider: true }), num(ma, 'roughness', 'Roughness', { min: 0, max: 1, slider: true })], { closed: true }),
   ];
 }

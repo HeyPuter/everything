@@ -177,3 +177,27 @@ body.screen-gesture-active * {
   top: 0;
   pointer-events: none;
 }
+
+/* Narrow areas: labelled header dropdowns keep only their icons */
+.area-header.hdr-compact .hdr-mode:has(> svg) > span,
+.area-header.hdr-compact .hdr-drop:has(> svg) > span {
+  display: none;
+}
+.area-header.hdr-compact .hdr-mode,
+.area-header.hdr-compact .hdr-drop {
+  gap: 2px;
+  margin-right: 3px;
+}
+/* A header row wider than its area scrolls; the clipped edges fade out */
+.area-header .clip-r,
+.area-toolheader .clip-r {
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+.area-header .clip-l,
+.area-toolheader .clip-l {
+  mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent);
+}
+.area-header .clip-l.clip-r,
+.area-toolheader .clip-l.clip-r {
+  mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+}

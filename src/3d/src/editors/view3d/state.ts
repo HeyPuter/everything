@@ -23,6 +23,8 @@ export interface Shading {
   use_scene_world_render: boolean;
   studiolight_intensity: number;
   studiolight_background_alpha: number;
+  /** blur of the studio HDRI drawn behind the scene (0 sharp … 1 soft) */
+  studiolight_background_blur?: number;
   studiolight_rotate_z: number;
   /** Preferences ▸ Lights entries used by Solid (studio light, matcap) and Material Preview (HDRI) */
   studio_light?: string;
@@ -78,6 +80,8 @@ export interface Overlay {
   weight_paint_mode_opacity: number;
   texture_paint_mode_opacity: number;
   show_annotation: boolean;
+  /** Material Preview / Rendered: matte and mirror preview spheres in the corner */
+  show_look_dev?: boolean;
 }
 
 export const defaultShading = (): Shading => ({
@@ -103,6 +107,7 @@ export const defaultShading = (): Shading => ({
   use_scene_world_render: true,
   studiolight_intensity: 1,
   studiolight_background_alpha: 0,
+  studiolight_background_blur: 0.5,
   studiolight_rotate_z: 0,
 });
 

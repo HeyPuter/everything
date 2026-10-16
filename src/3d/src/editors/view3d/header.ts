@@ -349,6 +349,8 @@ function setTool(key: string, value: unknown) {
 
 /** Extra sections of the Viewport Overlays popover (e.g. grease pencil options). */
 export const overlayPopoverHooks: ((v: View3D) => Child)[] = [];
+/** Extra sections of the Mesh Edit Mode overlays popover. */
+export const editOverlayHooks: ((v: View3D) => Child)[] = [];
 
 function overlayPopover(v: View3D): Child {
   const o = v.overlay;
@@ -366,7 +368,10 @@ function overlayPopover(v: View3D): Child {
       numberField({ id: 'o-gscale', label: 'Scale', value: o.grid_scale, min: 0.001, max: 1000, set: (x) => set('grid_scale')(x) }),
       h('div', { class: 'pop-grid' }, checkbox('o-cursor', '3D Cursor', o.show_cursor, set('show_cursor')), checkbox('o-ann', 'Annotations', o.show_annotation, set('show_annotation'))),
     ], { sub: true }),
-    panel('ov-text', 'Text', () => [h('div', { class: 'pop-grid' }, checkbox('o-text', 'General Info', o.show_text, set('show_text')), checkbox('o-stats', 'Statistics', o.show_stats, set('show_stats')))], { sub: true }),
+    panel('ov-text', 'Text', () => [
+      h('div', { class: 'pop-grid' }, checkbox('o-text', 'General Info', o.show_text, set('show_text')), checkbox('o-stats', 'Statistics', o.show_stats, set('show_stats'))),
+      v.shading.type === 'MATERIAL' || v.shading.type === 'RENDERED' ? checkbox('o-lookdev', 'HDRI Preview', !!o.show_look_dev, set('show_look_dev'), { tip: 'HDRI Preview\nShow a matte and a mirror sphere lit by the current environment' }) : null,
+    ], { sub: true }),
     panel('ov-objects', 'Objects', () => [
       h('div', { class: 'pop-grid' }, checkbox('o-extras', 'Extras', o.show_extras, set('show_extras')), checkbox('o-bones', 'Bones', o.show_bones, set('show_bones')), checkbox('o-rel', 'Relationship Lines', o.show_relationship_lines, set('show_relationship_lines')), checkbox('o-mpaths', 'Motion Paths', o.show_motion_paths !== false, set('show_motion_paths')), checkbox('o-outline', 'Outline Selected', o.show_outline_selected, set('show_outline_selected')), checkbox('o-orig', 'Origins', o.show_object_origins, set('show_object_origins')), h('span'), checkbox('o-origall', 'Origins (All)', o.show_object_origins_all, set('show_object_origins_all'))),
     ], { sub: true }),
@@ -403,6 +408,7 @@ function editOverlaySections(v: View3D): Child {
       h('div', { class: 'pop-grid' }, checkbox('o-vnorm', 'Vertex Normals', o.show_vertex_normals, set('show_vertex_normals')), checkbox('o-fnorm', 'Face Normals', o.show_face_normals, set('show_face_normals'))),
       numberField({ id: 'o-nlen', label: 'Size', value: o.normals_length, min: 0.0001, max: 100, set: (x) => set('normals_length')(x) }),
     ], { sub: true }),
+    editOverlayHooks.map((f) => f(v)),
   ];
 }
 
@@ -424,7 +430,16 @@ function shadingPopover(v: View3D): Child {
       checkbox('s-lights', 'Scene Lights', s[lightsKey], set(lightsKey)),
       checkbox('s-world', 'Scene World', s[worldKey], set(worldKey)),
       !s[worldKey] ? hdriChooser(v) : null,
-      !s[worldKey] ? numberField({ id: 's-strength', label: 'Strength', value: s.studiolight_intensity, min: 0, max: 2, slider: true, set: (x) => set('studiolight_intensity')(x) }) : null,
+      !s[worldKey]
+        ? h(
+            'div',
+            { class: 'col pop-col' },
+            numberField({ id: 's-rot', label: 'Rotation', value: s.studiolight_rotate_z ?? 0, min: -Math.PI, max: Math.PI, unit: 'angle', slider: true, set: (x) => set('studiolight_rotate_z')(x) }),
+            numberField({ id: 's-strength', label: 'Strength', value: s.studiolight_intensity, min: 0, max: 2, slider: true, set: (x) => set('studiolight_intensity')(x) }),
+            numberField({ id: 's-wop', label: 'World Opacity', value: s.studiolight_background_alpha ?? 0, min: 0, max: 1, slider: true, set: (x) => set('studiolight_background_alpha')(x) }),
+            numberField({ id: 's-blur', label: 'Blur', value: s.studiolight_background_blur ?? 0.5, min: 0, max: 1, slider: true, set: (x) => set('studiolight_background_blur')(x) }),
+          )
+        : null,
       h('div', { class: 'pop-title' }, 'Render Pass'),
       h('div', { class: 'pop-line' }, 'Combined'),
     );

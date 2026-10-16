@@ -23,6 +23,7 @@ const ITEM_STRUCT: Record<string, string> = {
   main_items: 'ForeachGeometryElementMainItem',
   generation_items: 'ForeachGeometryElementGenerationItem',
   bake_items: 'BakeItem',
+  output_items: 'NodeClosureOutputItem',
 };
 
 class ZoneItems extends PropCollection<unknown> {

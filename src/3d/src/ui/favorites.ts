@@ -1,9 +1,8 @@
-// Quick Favorites (Q): menu items the user collects by right-clicking them in any menu
-// (Add to Quick Favorites), plus Copy Python Command for operator items.
+// Quick Favorites (Q): menu items and operator buttons the user collects by right-clicking them
+// (Add to Quick Favorites).
 import { app } from '../app/app';
 import { addKeys } from '../app/keymap';
 import { itemContextHooks, type MenuItem } from './menu';
-import { formatOpCall } from '../scripting/oplog';
 
 interface Favorite {
   label: string;
@@ -55,21 +54,12 @@ export function favoritesMenu(): MenuItem[] {
   return favorites.map((f) => ({ label: f.label, icon: f.icon, op: f.op, props: f.props }));
 }
 
-itemContextHooks.push((item) => {
-  if (!item.op) return [];
+/** Add to / Remove from Quick Favorites for an operator call (menu items and operator buttons). */
+export function favoriteMenuItem(item: MenuItem): MenuItem {
   const fav = favorites.some((f) => same(f, item));
-  return [
-    fav ? { label: 'Remove from Quick Favorites', icon: 'remove', action: () => removeFavorite(item) } : { label: 'Add to Quick Favorites', icon: 'add', action: () => addFavorite(item) },
-    { separator: true },
-    {
-      label: 'Copy Python Command',
-      action: () =>
-        void navigator.clipboard?.writeText(formatOpCall(item.op!, item.props ?? {})).then(
-          () => app.report('INFO', 'Copied the Python command'),
-          () => app.report('WARNING', 'Clipboard access was denied'),
-        ),
-    },
-  ];
-});
+  return fav ? { label: 'Remove from Quick Favorites', icon: 'remove', action: () => removeFavorite(item) } : { label: 'Add to Quick Favorites', icon: 'add', action: () => addFavorite(item) };
+}
+
+itemContextHooks.push((item) => (item.op ? [favoriteMenuItem(item)] : []));
 
 addKeys('Window', [{ key: 'Q', menu: favoritesMenu, menuTitle: 'Quick Favorites' }]);

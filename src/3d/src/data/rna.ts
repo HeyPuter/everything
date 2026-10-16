@@ -123,7 +123,13 @@ export function resolve(doc: DocumentData, ob: ObjectData, path: string): Resolv
         cur = findByName(cur as { name: string }[], tok.key);
         continue;
       }
-      if (last) return { owner: cur as Record<string, unknown>, key: tok.key };
+      if (last) {
+        // ["name"] on a data-block or struct addresses its custom property
+        const rec = cur as Record<string, unknown>;
+        const custom = rec.custom as Record<string, unknown> | undefined;
+        if (!(tok.key in rec) && custom && typeof custom === 'object' && tok.key in custom) return { owner: custom, key: tok.key };
+        return { owner: rec, key: tok.key };
+      }
       cur = (cur as Record<string, unknown>)[tok.key];
       continue;
     }

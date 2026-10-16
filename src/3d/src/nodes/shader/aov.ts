@@ -7,6 +7,7 @@ import { Codegen, MATERIAL_CONTEXT } from './codegen';
 import { initialValue, materialPreamble, usesObjectBlock } from './material';
 import { app } from '../../app/app';
 import { hashName } from './util';
+import { manualTexSpace } from '../../render/texspace';
 
 /** AOV Output nodes of a tree writing to `name` (top level; the first active one wins). */
 export function aovNode(tree: NodeTreeData, name: string): NodeData | null {
@@ -75,10 +76,11 @@ ${body}
     mat.onBeforeRender = (renderer, _s, _c, geometry: BufferGeometry, object: Object3D) => {
       if (!geometry.boundingBox) geometry.computeBoundingBox();
       const bb = geometry.boundingBox!;
-      (uniforms.ndBBoxMin.value as Vector4).set(bb.min.x, bb.min.y, bb.min.z, 0);
-      (uniforms.ndBBoxMax.value as Vector4).set(bb.max.x, bb.max.y, bb.max.z, 0);
       const id = object.userData.id as string | undefined;
       const ob = id ? app?.doc.objects[id] : undefined;
+      const ts = manualTexSpace(app?.doc, ob);
+      (uniforms.ndBBoxMin.value as Vector4).set(ts ? ts[0] : bb.min.x, ts ? ts[1] : bb.min.y, ts ? ts[2] : bb.min.z, 0);
+      (uniforms.ndBBoxMax.value as Vector4).set(ts ? ts[3] : bb.max.x, ts ? ts[4] : bb.max.y, ts ? ts[5] : bb.max.z, 0);
       (uniforms.ndObjInfo.value as Vector4).set(ob ? hashName(ob.name) : 0, ob?.pass_index ?? 0, 0, 0);
       const c = ob?.color ?? [1, 1, 1, 1];
       (uniforms.ndObjColor.value as Vector4).set(c[0], c[1], c[2], c[3] ?? 1);
