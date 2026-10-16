@@ -28,7 +28,8 @@ import { readySource } from './source';
 import { stabilizationMatrix, autoscaleFactor, type Affine2 } from './stabilize';
 import { drawToolbar, drawSidebar, drawPatternPreviews } from './panels';
 import { solveErrorText } from './solvepanels';
-import { reprojectBundle } from './reconstruction';
+import { reprojectBundle, clipIntrinsics, undistortPixelWith, distortPixelWith } from './reconstruction';
+import { hasDistortion, type Intrinsics } from './solve/intrinsics';
 import { proxySource, type ProxyRenderSize } from './proxy';
 import { drawPlaneTracks, planeCornerDown, planeBodyDown } from './planeops';
 import { drawGraph, drawDopesheet, graphPointer, dopesheetPointer, frameGraphAll, frameDopesheetAll } from './graphs';
@@ -54,6 +55,10 @@ export interface ClipOverlays {
   show_cache: boolean;
   /** reprojected bundles of the camera solve ("3D markers") */
   show_bundles?: boolean;
+  /** show the footage (and markers) with the lens distortion removed */
+  render_undistorted?: boolean;
+  /** grid of straight lines showing the lens distortion */
+  show_grid?: boolean;
   /** mask mode: draw splines, and show the mask as a matte over (or instead of) the footage */
   show_mask_spline?: boolean;
   mask_overlay_mode?: 'NONE' | 'COMBINED' | 'ALPHACHANNEL';
@@ -228,8 +233,27 @@ export class ClipEditor implements Editor {
     return stabilizationMatrix(c, this.clipFrame, z);
   }
 
-  /** footage pixel → screen (editor-local CSS px) */
+  /** Lens model when the footage is shown undistorted (Render Undistorted), else null. */
+  undistortLens(): Intrinsics | null {
+    const c = this.clip;
+    if (!c || !this.overlays.render_undistorted || !c.size[0] || this.mode === 'MASK') return null;
+    const I = clipIntrinsics(c);
+    return hasDistortion(I) ? I : null;
+  }
+
+  /** footage pixel → screen (editor-local CSS px); shown undistorted when Render Undistorted is on */
   toScreen(x: number, y: number, T: Affine2 | null = this.stab()): [number, number] {
+    const L = this.undistortLens();
+    if (L) {
+      const H = this.frameSize()[1];
+      const u = undistortPixelWith(L, x, H - y);
+      return this.viewScreen(u[0], H - u[1], T);
+    }
+    return this.viewScreen(x, y, T);
+  }
+
+  /** displayed (possibly undistorted) footage pixel → screen */
+  viewScreen(x: number, y: number, T: Affine2 | null = this.stab()): [number, number] {
     const [W, H] = this.frameSize();
     if (T) {
       const by = H - y;
@@ -253,6 +277,11 @@ export class ClipEditor implements Editor {
         by = H - y - T[5];
       x = (T[3] * bx - T[2] * by) / det;
       y = H - (-T[1] * bx + T[0] * by) / det;
+    }
+    const L = this.undistortLens();
+    if (L) {
+      const d = distortPixelWith(L, x, H - y);
+      return [d[0], H - d[1]];
     }
     return [x, y];
   }
@@ -389,27 +418,30 @@ export class ClipEditor implements Editor {
     const shown = (src && this.displaySource()) || src;
     const bmp = inRange && shown ? shown.peek(idx) : null;
     // canvas affine for footage → screen (with stabilization)
-    const p0 = this.toScreen(0, 0, T),
-      px = this.toScreen(1, 0, T),
-      py = this.toScreen(0, 1, T);
+    const p0 = this.viewScreen(0, 0, T),
+      px = this.viewScreen(1, 0, T),
+      py = this.viewScreen(0, 1, T);
     ctx.save();
     ctx.setTransform(dpr * (px[0] - p0[0]), dpr * (px[1] - p0[1]), dpr * (py[0] - p0[0]), dpr * (py[1] - p0[1]), dpr * p0[0], dpr * p0[1]);
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, W, H);
-    if (bmp && !this.overlays.use_mute_footage) {
+    const lens = this.undistortLens();
+    if (bmp && !this.overlays.use_mute_footage && !lens) {
       const filter = c.tracking.stabilization.filter_type;
       ctx.imageSmoothingEnabled = T ? filter !== 'NEAREST' : this.zoom < 1;
       ctx.imageSmoothingQuality = filter === 'BICUBIC' ? 'high' : 'low';
       ctx.drawImage(bmp, 0, 0, W, H);
     }
     ctx.restore();
+    if (bmp && !this.overlays.use_mute_footage && lens) this.drawUndistorted(ctx, bmp, lens, T);
+    if (this.overlays.show_grid) this.drawLensGrid(ctx, T);
     if (inRange && src && !bmp) this.request(idx);
     if (inRange && src) this.prefetchAround(idx);
     // frame outline
     ctx.strokeStyle = 'rgba(0, 0, 0,0.6)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    const fc = [this.toScreen(0, 0, T), this.toScreen(W, 0, T), this.toScreen(W, H, T), this.toScreen(0, H, T)];
+    const fc = [this.viewScreen(0, 0, T), this.viewScreen(W, 0, T), this.viewScreen(W, H, T), this.viewScreen(0, H, T)];
     fc.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
     ctx.closePath();
     ctx.stroke();
@@ -443,6 +475,90 @@ export class ClipEditor implements Editor {
     const job = jobState.get();
     if (job) ctx.fillText(`${job.label}… ${Math.round(job.progress * 100)}%${job.detail ? `  ${job.detail}` : ''}  (Esc to stop)`, left, 32);
     ctx.shadowBlur = 0;
+  }
+
+  /** Footage with the lens distortion removed: a grid of triangles, each mapped affinely. */
+  private drawUndistorted(ctx: CanvasRenderingContext2D, bmp: CanvasImageSource & { width: number; height: number }, L: Intrinsics, T: Affine2 | null) {
+    const [W, H] = this.frameSize();
+    const N = 12;
+    const src: [number, number][][] = [],
+      dst: [number, number][][] = [];
+    for (let j = 0; j <= N; j++) {
+      src.push([]);
+      dst.push([]);
+      for (let i = 0; i <= N; i++) {
+        const ux = (i / N) * W,
+          uy = (j / N) * H;
+        const d = distortPixelWith(L, ux, H - uy);
+        src[j].push([(d[0] / W) * bmp.width, ((H - d[1]) / H) * bmp.height]);
+        dst[j].push(this.viewScreen(ux, uy, T));
+      }
+    }
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    const tri = (s: [number, number][], p: [number, number][]) => {
+      const [sa, sb, sc] = s,
+        [pa, pb, pc] = p;
+      const den = (sb[0] - sa[0]) * (sc[1] - sa[1]) - (sc[0] - sa[0]) * (sb[1] - sa[1]);
+      if (Math.abs(den) < 1e-9) return;
+      const m11 = ((pb[0] - pa[0]) * (sc[1] - sa[1]) - (pc[0] - pa[0]) * (sb[1] - sa[1])) / den;
+      const m12 = ((pc[0] - pa[0]) * (sb[0] - sa[0]) - (pb[0] - pa[0]) * (sc[0] - sa[0])) / den;
+      const m21 = ((pb[1] - pa[1]) * (sc[1] - sa[1]) - (pc[1] - pa[1]) * (sb[1] - sa[1])) / den;
+      const m22 = ((pc[1] - pa[1]) * (sb[0] - sa[0]) - (pb[1] - pa[1]) * (sc[0] - sa[0])) / den;
+      const cx = (pa[0] + pb[0] + pc[0]) / 3,
+        cy = (pa[1] + pb[1] + pc[1]) / 3;
+      ctx.save();
+      ctx.beginPath();
+      for (const [k, q] of [pa, pb, pc].entries()) {
+        const x = q[0] + (q[0] - cx) * 0.03,
+          y = q[1] + (q[1] - cy) * 0.03;
+        if (k) ctx.lineTo(x, y);
+        else ctx.moveTo(x, y);
+      }
+      ctx.closePath();
+      ctx.clip();
+      ctx.transform(m11, m21, m12, m22, pa[0] - m11 * sa[0] - m12 * sa[1], pa[1] - m21 * sa[0] - m22 * sa[1]);
+      ctx.drawImage(bmp, 0, 0);
+      ctx.restore();
+    };
+    for (let j = 0; j < N; j++)
+      for (let i = 0; i < N; i++) {
+        tri([src[j][i], src[j][i + 1], src[j + 1][i + 1]], [dst[j][i], dst[j][i + 1], dst[j + 1][i + 1]]);
+        tri([src[j][i], src[j + 1][i + 1], src[j + 1][i]], [dst[j][i], dst[j + 1][i + 1], dst[j + 1][i]]);
+      }
+    ctx.restore();
+  }
+
+  /** Grid of straight lines in the undistorted image, drawn where the lens shows them. */
+  private drawLensGrid(ctx: CanvasRenderingContext2D, T: Affine2 | null) {
+    const c = this.clip;
+    if (!c?.size[0]) return;
+    const [W, H] = c.size;
+    const I = clipIntrinsics(c);
+    const undistorted = !!this.undistortLens();
+    const at = (ux: number, uy: number) => {
+      if (undistorted || !hasDistortion(I)) return this.viewScreen(ux, uy, T);
+      const d = distortPixelWith(I, ux, H - uy);
+      return this.viewScreen(d[0], H - d[1], T);
+    };
+    const N = 10,
+      S = 40;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 64, 64, 0.65)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let k = 0; k <= N; k++)
+      for (const vertical of [false, true]) {
+        for (let s = 0; s <= S; s++) {
+          const a = (k / N) * (vertical ? W : H),
+            b = (s / S) * (vertical ? H : W);
+          const p = vertical ? at(a, b) : at(b, a);
+          if (s) ctx.lineTo(p[0], p[1]);
+          else ctx.moveTo(p[0], p[1]);
+        }
+      }
+    ctx.stroke();
+    ctx.restore();
   }
 
   /** The 2D cursor (Shift right click places it). */
@@ -1543,6 +1659,8 @@ function overlayMenu(ed: ClipEditor): MenuItem[] {
     { separator: true },
     { heading: 'Clip Display' },
     tog('Show Stable', 'show_stable'),
+    tog('Render Undistorted', 'render_undistorted'),
+    tog('Grid', 'show_grid'),
     tog('Mute', 'use_mute_footage', 'Ctrl H'),
     tog('Cache Line', 'show_cache'),
   ];

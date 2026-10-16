@@ -185,3 +185,14 @@ export function reprojectBundle(clip: MovieClipData, obj: TrackingObjectData, bu
   if (p.z >= -1e-9) return null;
   return toPixel(clipIntrinsics(clip), p.x / -p.z, p.y / -p.z);
 }
+
+/** Pixel (origin bottom-left) with the lens distortion removed, for given intrinsics. */
+export function undistortPixelWith(I: Intrinsics, px: number, py: number): [number, number] {
+  const [x, y] = fromPixel(I, px, py);
+  return [I.cx + I.focal * x, I.cy + I.focal * I.aspect * y];
+}
+
+/** Inverse of undistortPixelWith: where the lens shows an undistorted pixel. */
+export function distortPixelWith(I: Intrinsics, px: number, py: number): [number, number] {
+  return toPixel(I, (px - I.cx) / I.focal, (py - I.cy) / (I.focal * I.aspect));
+}

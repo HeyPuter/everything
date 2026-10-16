@@ -384,3 +384,29 @@ test('camsolve: mask point operators (add vertex, select, slide, feather, re-key
   expect(r).toEqual({ points: 3, selected: [true, false, false], moved: 25, feather: true, rekeyed: 30, mode: 'MASK' });
   await expectNoErrors(errors);
 });
+
+test('camsolve: Render Undistorted and lens grid in the clip display', async ({ page }) => {
+  const errors = await solvableClip(page, { frames: 6, points: 10 });
+  const clipView = page.locator('.clip-root').nth(1);
+  const box = (await clipView.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.locator('.clip-overlays').first().dispatchEvent('pointerdown');
+  await page.locator('.menu .menu-item', { hasText: 'Render Undistorted' }).click();
+  await page.locator('.menu .menu-item', { hasText: 'Grid' }).click();
+  await page.keyboard.press('Escape');
+  const r = await page.evaluate(() => {
+    const app = (window as any).app;
+    const ed = app.hoverArea.editor;
+    app.doc.movieclips.MC_s.tracking.camera.k1 = -0.2;
+    app.changed('doc');
+    const p = [100, 80];
+    const s = ed.toScreen(p[0], p[1]);
+    const back = ed.toImage(s[0], s[1]);
+    const plain = ed.viewScreen(p[0], p[1]);
+    return { on: ed.overlays.render_undistorted && ed.overlays.show_grid, err: Math.hypot(back[0] - p[0], back[1] - p[1]), moved: Math.hypot(s[0] - plain[0], s[1] - plain[1]) > 1 };
+  });
+  expect(r.on).toBe(true);
+  expect(r.err).toBeLessThan(1e-3);
+  expect(r.moved).toBe(true);
+  await expectNoErrors(errors);
+});
