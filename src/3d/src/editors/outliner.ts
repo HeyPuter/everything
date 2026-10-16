@@ -1145,7 +1145,7 @@ export class Outliner implements Editor {
 
   private isDraggable(r: Row) {
     if (r.kind === 'object') return true;
-    if (r.kind === 'collection') return r.id !== app.doc.scene.collection && this.displayMode !== 'BLENDER_FILE' && this.displayMode !== 'ORPHAN_DATA';
+    if (r.kind === 'collection') return r.id !== app.doc.scene.collection && this.displayMode !== 'BLENDER_FILE' && this.displayMode !== 'ORPHAN_DATA' && !isReadOnly(parentOf(app.doc, r.id ?? ''));
     return r.kind === 'material' || (r.kind === 'id' && r.table === 'materials');
   }
 
@@ -1167,6 +1167,9 @@ export class Outliner implements Editor {
     const d = this.drag;
     const doc = app.doc;
     if (!d) return null;
+    // linked collections cannot take new content (moving a linked collection itself is fine)
+    if (r.kind === 'collection' && r.id && isReadOnly(doc.collections[r.id]) && (d.kind === 'objects' || zone === 'INTO')) return null;
+    if (d.kind === 'collection' && zone !== 'INTO' && r.id && isReadOnly(parentOf(doc, r.id))) return null;
     if (d.kind === 'objects') {
       if (r.kind === 'collection' && r.id && this.displayMode !== 'BLENDER_FILE') {
         const parented = d.ids.some((id) => doc.objects[id]?.parent);
@@ -1470,6 +1473,9 @@ export class Outliner implements Editor {
 // onto the object under the pointer
 
 let viewportDrag: DragInfo | null = null;
+
+/** The collection that holds collection `id`. */
+const parentOf = (doc: DocumentData, id: string) => Object.values(doc.collections).find((c) => c.children.includes(id));
 
 function viewportAt(e: DragEvent): { el: HTMLElement; pick(x: number, y: number, r?: number): { id: string } | null; unproject(x: number, y: number, d: Vector3): Vector3 } | null {
   const target = e.target as HTMLElement | null;

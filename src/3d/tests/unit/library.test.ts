@@ -241,6 +241,26 @@ describe('library overrides', () => {
     expect(target.objects[cubeId].rotation_euler).toEqual(cubeOf(v2).rotation_euler);
   });
 
+  it('overrides of an object bring the linked objects that follow it', () => {
+    const target = startupDocument();
+    const src = rigLibrary();
+    const rootSrc = Object.values(src.objects).find((o) => o.name === 'Root')!;
+    const crateSrc = cubeOf(src);
+    const res = linkFromDoc(target, src, lib(), [
+      { table: 'objects', id: rootSrc.id },
+      { table: 'objects', id: crateSrc.id },
+    ]);
+    lockLinked(target);
+    const ov = makeOverride(target, 'objects', res.picked[0].id)!;
+    const crateOv = Object.values(target.objects).find((o) => o.name === 'Cube' && (o as unknown as { override_library?: object }).override_library)!;
+    expect(crateOv.parent).toBe(ov);
+    // the scene now shows the overrides instead of the linked objects
+    const master = target.collections[target.scene.collection];
+    expect(master.objects).toContain(ov);
+    expect(master.objects).toContain(crateOv.id);
+    expect(master.objects).not.toContain(res.picked[0].id);
+  });
+
   it('clears a hierarchy back to the linked collection', () => {
     const { target, root, linkedCol } = overridden();
     expect(clearOverrides(target, [root])).toBe(3);

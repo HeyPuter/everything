@@ -34,6 +34,7 @@ function valueOf(owner: Record<string, unknown>, key: string, ro: boolean, ids: 
   const readonly = ro || isReadOnly(owner) || key === 'id';
   if (typeof v === 'number') return { kind: readonly ? 'readonly' : Number.isInteger(v) && !/(location|rotation|scale|factor|strength|radius|size|value|weight|energy|alpha)/.test(key) ? 'int' : 'number', get: () => owner[key], set: (x) => (owner[key] = x) };
   if (typeof v === 'boolean') return { kind: readonly ? 'readonly' : 'bool', get: () => owner[key], set: (x) => (owner[key] = x) };
+  if (key === 'id' && typeof v === 'string') return { kind: 'readonly', get: () => owner[key] };
   if (typeof v === 'string') {
     // references to other data-blocks show the data-block's name and are not typed into
     if (ids.has(v)) return { kind: 'readonly', get: () => `→ ${ids.get(owner[key] as string) ?? owner[key]}` };

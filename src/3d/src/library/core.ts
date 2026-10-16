@@ -587,7 +587,23 @@ function overrideScope(doc: DocumentData, table: string, root: ID): Pick[] {
     for (const o of c.objects) addOb(o);
   };
   if (table === 'collections') addCol(root, 0);
-  else addOb(root);
+  else {
+    addOb(root);
+    // linked objects that follow the root (children, meshes deformed by an armature) come too
+    const lib = libOf(doc.objects[root]);
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const ob of Object.values(doc.objects)) {
+        if (seen.has(ob.id) || libOf(ob) !== lib) continue;
+        let uses = false;
+        forEachString(ob, (s) => (uses ||= seen.has(s) && !!doc.objects[s]));
+        if (uses) {
+          addOb(ob.id);
+          grew = true;
+        }
+      }
+    }
+  }
   return out;
 }
 

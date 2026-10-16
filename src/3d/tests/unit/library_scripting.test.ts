@@ -105,6 +105,24 @@ describe('link / append operators', () => {
   });
 });
 
+describe('relocating', () => {
+  it('replaces a linked data-block by one of another file; local users follow', () => {
+    app.run('wm.link', { filepath: KEY, files: 'materials/Material' }, { invoke: false });
+    const linkedMat = Object.values(app.doc.materials).find((m) => (m as unknown as { library?: string }).library)!;
+    // a local mesh uses the linked material
+    const cube = Object.values(app.doc.objects).find((o) => o.name === 'Cube')!;
+    app.doc.meshes[cube.data!].materials = [linkedMat.id];
+    const other = startupDocument();
+    Object.values(other.materials)[0].name = 'Steel';
+    cacheSource('copy:metals.p3d:test', other, { key: 'copy:metals.p3d:test', name: 'metals.p3d', path: 'metals.p3d' });
+    expect(app.run('wm.id_linked_relocate', { id: linkedMat.id, filepath: 'copy:metals.p3d:test', files: 'materials/Steel' }, { invoke: false })).toBe('FINISHED');
+    const now = app.doc.materials[app.doc.meshes[cube.data!].materials[0]!];
+    expect(now.name).toBe('Steel');
+    expect(app.doc.materials[linkedMat.id]).toBeUndefined();
+    expect(Object.values(app.doc.libraries ?? {}).map((l) => l.name)).toEqual(['metals.p3d']);
+  });
+});
+
 describe('scripting', () => {
   it('bpy.data.libraries.load links by name (JavaScript)', () => {
     const out = run(`
