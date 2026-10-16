@@ -283,6 +283,11 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     return viewHeader(this);
   }
 
+  /** room the sidebar takes at the right edge (corner overlays keep clear of it) */
+  get lookdevInset() {
+    return this.showSidebar ? ((this.ui.querySelector('.v3d-sidebar') as HTMLElement | null)?.offsetWidth ?? 0) : 0;
+  }
+
   toolHeader(): Child {
     return toolHeaderRow(this);
   }

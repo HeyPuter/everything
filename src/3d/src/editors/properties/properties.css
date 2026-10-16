@@ -95,3 +95,74 @@ body.eyedropper-active * {
   gap: 2px;
   padding: 6px 8px 8px;
 }
+
+/* read-only lists and greyed groups of the extra data panels */
+.is-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.attr-table {
+  display: flex;
+  flex-direction: column;
+  background: var(--w-list, rgba(0, 0, 0, 0.18));
+  border-radius: var(--radius);
+  padding: 2px 0;
+}
+.attr-row {
+  display: grid;
+  grid-template-columns: 18px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  height: var(--row);
+  padding: 0 6px;
+}
+.attr-row .attr-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attr-row .attr-meta {
+  color: var(--t-99, #999a9c);
+  font-size: 0.92em;
+}
+
+/* Camera ▸ Background Images: one framed box per image */
+.bgimg-box {
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(var(--hl-rgb, 255, 255, 255), 0.05);
+  margin: 4px 0;
+}
+.bgimg-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: calc(var(--row) + 4px);
+  padding: 0 4px;
+}
+.bgimg-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bgimg-expand,
+.bgimg-btn {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius);
+  color: var(--t-cc, #cdced0);
+}
+.bgimg-btn:hover,
+.bgimg-expand:hover {
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.1);
+}
+.bgimg-btn:not(.on) {
+  opacity: 0.6;
+}
+.bgimg-body {
+  padding: 2px 4px 6px;
+}

@@ -192,7 +192,7 @@ export function imageSlot(owner: Record<string, unknown>, key: string, label: st
       'div',
       { class: 'row-aligned' },
       enumMenu(`img-${oid(owner)}`, [{ value: '', label: '—' }, ...images.map((i) => ({ value: i.id, label: i.name, icon: 'image' }))], String(owner[key] ?? ''), (v) => ((owner[key] = v || null), changed('Assign Image'))),
-      button(`img-open-${oid(owner)}`, icon('file_folder'), () => app.run('image.open', { target_owner: true }, { invoke: true }) && void 0, { tip: 'Open Image' }),
+      button(`img-open-${oid(owner)}`, icon('file_folder'), () => app.run('image.open', { target_owner: true }, { invoke: true }) && void 0, { tip: 'Open Image', className: 'ra-icon' }),
     ),
   );
 }

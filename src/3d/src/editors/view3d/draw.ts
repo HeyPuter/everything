@@ -40,6 +40,7 @@ import type { App } from '../../app/app';
 import type { DocumentData, ObjectData, WorldData } from '../../data/types';
 import type { SyncedObject } from '../../render/scene';
 import { evaluateWorldForViewport } from '../../render/world';
+import { drawEnvironmentBackground, drawLookdevSpheres } from './lookdev';
 
 export interface DrawView {
   nav: NavCamera;
@@ -57,6 +58,8 @@ export interface DrawView {
   width: number;
   height: number;
   extraOverlays: ((scene: Scene, camera: Camera) => void)[];
+  /** room kept free at the right edge (sidebar) for corner overlays such as the preview spheres */
+  lookdevInset?: number;
   /** progressive renderer for path-traced view (optional) */
   pathTracer?: { render(camera: Camera, w: number, h: number): boolean } | null;
 }
@@ -257,6 +260,9 @@ export function drawViewport(app: App, ctx: RenderContext, view: DrawView, x: nu
       scene.environmentIntensity = sh.studiolight_intensity;
     }
   }
+  // the studio HDRI rotates around the world Z axis (scene worlds keep their own orientation)
+  const studioEnv = (rendered || material) && !useWorld;
+  scene.environmentRotation.set(0, 0, studioEnv ? (sh.studiolight_rotate_z ?? 0) : 0);
   if (sh.background_type === 'VIEWPORT' && !rendered) bg = new Color().setRGB(...sh.background_color);
   if (sh.background_type === 'WORLD' && !rendered && world) bg = new Color(world.color[0], world.color[1], world.color[2]);
   if (rendered && doc.scene.render.film_transparent) bg = new Color(0.107, 0.11, 0.117);
@@ -270,6 +276,9 @@ export function drawViewport(app: App, ctx: RenderContext, view: DrawView, x: nu
   else engine.setToneMapping('STANDARD', 0);
 
   engine.clear(bg, 1);
+  // Material Preview / Rendered with the studio HDRI: the HDRI can show behind the scene
+  if (studioEnv && scene.environment && (sh.studiolight_background_alpha ?? 0) > 0)
+    drawEnvironmentBackground(r, camera, scene.environment, bg, { alpha: sh.studiolight_background_alpha, blur: sh.studiolight_background_blur ?? 0.5, intensity: sh.studiolight_intensity, rotation: sh.studiolight_rotate_z ?? 0 });
 
   // --- rendered view drawn by the attached render engine (render/final); it returns false to
   // fall back to the built-in pass (e.g. for the Solid render engine)
@@ -299,6 +308,10 @@ export function drawViewport(app: App, ctx: RenderContext, view: DrawView, x: nu
     afterScene();
     for (const hdn of hiddenForScene) hdn.o.visible = hdn.v;
   }
+
+  // preview spheres showing the lighting on a matte and a mirror surface
+  if (ov.show_overlays && ov.show_look_dev && (material || rendered) && scene.environment)
+    drawLookdevSpheres(r, camera, scene.environment, { x, y, w, h }, { intensity: studioEnv ? sh.studiolight_intensity : 1, rotation: studioEnv ? (sh.studiolight_rotate_z ?? 0) : 0, right: view.lookdevInset ?? 0 });
 
   // reset tone mapping for overlays
   engine.setToneMapping('STANDARD', 0);

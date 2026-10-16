@@ -23,7 +23,9 @@ import './favorites';
 import './areawindow';
 import './screenshot';
 import './menuicons';
+import './moreicons';
 import { APP_VERSION } from '../scripting/wmops';
+import { mouseHints } from './statushints';
 
 const STATUSBAR_KEY = 'p3d.ui.statusbar';
 function loadStatusbarShown() {
@@ -43,6 +45,8 @@ export class Shell {
   layouts = new Map<string, LayoutNode>();
   active = '';
   fileStatus = '';
+  /** modifier keys held (the status bar's mouse hints follow them) */
+  mods = { shift: false, ctrl: false, alt: false };
 
   constructor(root: HTMLElement) {
     this.el = root;
@@ -54,7 +58,19 @@ export class Shell {
     this.status = document.createElement('footer');
     this.status.className = 'statusbar';
     root.append(this.top, main, this.status);
+    // right-click anywhere on the status bar chooses what its right side shows
+    this.status.addEventListener('contextmenu', (e) => (e.preventDefault(), openMenu(statusMenu(this), { x: e.clientX, y: e.clientY }, { title: 'Status Bar' })));
     this.screen = new Screen(main);
+    // the mouse hints follow the modifier keys being held
+    const mods = (e: KeyboardEvent | null) => {
+      const next = { shift: !!e?.shiftKey, ctrl: !!(e?.ctrlKey || e?.metaKey), alt: !!e?.altKey };
+      if (next.shift === this.mods.shift && next.ctrl === this.mods.ctrl && next.alt === this.mods.alt) return;
+      this.mods = next;
+      this.drawStatus();
+    };
+    addEventListener('keydown', (e) => mods(e), { capture: true, passive: true });
+    addEventListener('keyup', (e) => mods(e), { capture: true, passive: true });
+    addEventListener('blur', () => mods(null));
     // the mouse hints follow the editor under the pointer
     let lastHover: unknown = null;
     main.addEventListener('pointerover', () => {
@@ -297,11 +313,7 @@ export class Shell {
   drawStatus() {
     const m = app.modal;
     const doc = app.doc;
-    const hints: [string, string][] = m?.status?.() ?? editorHints(app.hoverArea?.type) ?? [
-      ['LMB', modeHint()],
-      ['MMB', 'Rotate View'],
-      ['RMB', doc.mode === 'OBJECT' ? 'Object' : 'Context Menu'],
-    ];
+    const hints: [string, string][] = m?.status?.() ?? mouseHints({ editor: app.hoverArea?.type, mode: doc.mode, objectType: app.activeObject?.type, ...this.mods }) ?? [];
     const last = app.reports[app.reports.length - 1];
     const showReport = last && Date.now() - last.time < 6000;
     const right: Child[] = [];
@@ -314,7 +326,7 @@ export class Shell {
     patch(this.status, [
       h('div', { class: 'sb-hints' }, m?.header ? h('span', { class: 'sb-modal' }, m.header()) : null, hints.map(([k, l]) => h('span', { class: 'sb-hint', key: k + l }, hintKey(k), l))),
       h('div', { class: 'sb-center' }, statusWidgets.map((w) => w()), showReport ? h('span', { class: `sb-report ${last.type.toLowerCase()}` }, icon(last.type === 'ERROR' ? 'error' : 'info_small'), last.message) : null),
-      h('div', { class: 'sb-right', oncontextmenu: (e: MouseEvent) => (e.preventDefault(), openMenu(statusMenu(this), { x: e.clientX, y: e.clientY })) }, right.flatMap((c, i) => (i ? [h('span', { key: `sep${i}`, class: 'sb-sep' }), c] : [c]))),
+      h('div', { class: 'sb-right' }, right.flatMap((c, i) => (i ? [h('span', { key: `sep${i}`, class: 'sb-sep' }), c] : [c]))),
     ]);
   }
 }
@@ -368,45 +380,6 @@ function statusMenu(sh: Shell): MenuItem[] {
     ...(hasMemory ? [{ label: 'System Memory', checked: prefs.show_statusbar_memory, action: toggle('show_statusbar_memory') }] : []),
     { label: 'App Version', checked: prefs.show_statusbar_version, action: toggle('show_statusbar_version') },
   ];
-}
-
-/** Mouse hints of editors other than the 3D view (undefined: the 3D view's hints). */
-function editorHints(type: string | undefined): [string, string][] | undefined {
-  const pan: [string, string] = ['MMB', 'Pan View'];
-  switch (type) {
-    case undefined:
-    case 'VIEW_3D':
-      return undefined;
-    case 'SHADER':
-    case 'GEOMETRY':
-    case 'COMPOSITOR':
-    case 'DOPESHEET':
-    case 'TIMELINE':
-    case 'GRAPH':
-    case 'DRIVERS':
-    case 'NLA':
-    case 'SEQUENCE_EDITOR':
-    case 'CLIP_EDITOR':
-    case 'IMAGE_EDITOR':
-    case 'UV':
-      return [['LMB', 'Select'], pan, ['RMB', 'Context Menu']];
-    case 'OUTLINER':
-    case 'FILE_BROWSER':
-    case 'SPREADSHEET':
-      return [['LMB', 'Select'], pan, ['RMB', 'Context Menu']];
-    case 'TEXT':
-    case 'CONSOLE':
-      return [['LMB', 'Set Cursor'], pan, ['RMB', 'Context Menu']];
-    default:
-      return [pan, ['RMB', 'Context Menu']];
-  }
-}
-
-function modeHint() {
-  const m = app.doc.mode;
-  if (m === 'SCULPT') return 'Sculpt';
-  if (m.endsWith('PAINT')) return 'Paint';
-  return 'Select';
 }
 
 /** Right-click menu of a workspace tab. */

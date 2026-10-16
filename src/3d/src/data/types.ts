@@ -155,6 +155,10 @@ export interface MeshData {
   /** faces hidden in the UV editor (without sync selection), one flag per face */
   uv_hide?: Uint8Array;
   users?: number;
+  /** texture space (Generated coordinates): automatic from the bounds, or location ± size */
+  use_auto_texspace?: boolean;
+  texspace_location?: [number, number, number];
+  texspace_size?: [number, number, number];
 }
 
 // ---------------------------------------------------------------------------
@@ -200,6 +204,10 @@ export interface Spline {
 export interface CurveData {
   id: ID;
   name: string;
+  /** texture space (Generated coordinates): automatic from the bounds, or location ± size */
+  use_auto_texspace?: boolean;
+  texspace_location?: [number, number, number];
+  texspace_size?: [number, number, number];
   dimensions: '2D' | '3D';
   /** Path animation: frames for one run along the path, and the current position in frames (animatable). */
   path_duration?: number;
@@ -342,7 +350,25 @@ export interface CameraData {
   show_composition_golden_tria_b?: boolean;
   show_composition_harmony_tri_a?: boolean;
   show_composition_harmony_tri_b?: boolean;
+  /** reference images drawn behind or in front of the scene when looking through this camera */
+  show_background_images?: boolean;
+  background_images?: CameraBackgroundImage[];
   users?: number;
+}
+
+export interface CameraBackgroundImage {
+  image: ID | null;
+  alpha: number;
+  display_depth: 'BACK' | 'FRONT';
+  frame_method: 'STRETCH' | 'FIT' | 'CROP';
+  /** offset in units of the camera frame width */
+  offset: [number, number];
+  rotation: number;
+  scale: number;
+  use_flip_x: boolean;
+  use_flip_y: boolean;
+  show_background_image: boolean;
+  show_expanded: boolean;
 }
 
 export interface Bone {
@@ -1257,6 +1283,9 @@ export interface KeyingSetData {
 
 export interface SceneData {
   name: string;
+  /** step of the timeline's Jump buttons (Ctrl ← / →), in time_jump_unit */
+  time_jump_delta?: number;
+  time_jump_unit?: 'SECONDS' | 'FRAMES';
   /** camera view safe-area margins (fractions of the frame, x and y) */
   safe_areas?: { title: [number, number]; action: [number, number]; title_center: [number, number]; action_center: [number, number] };
   frame_start: number;
