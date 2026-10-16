@@ -309,5 +309,5 @@ onAppReady(() => {
   const op = operators.get('object.modifier_add');
   if (!op) return;
   const poll = op.poll;
-  op.poll = (ctx) => app.activeObject?.type === 'VOLUME' || (poll ? poll(ctx) : true);
+  op.poll = (ctx) => app.activeObject?.type === 'VOLUME' || app.activeObject?.type === 'POINTCLOUD' || (poll ? poll(ctx) : true);
 });
