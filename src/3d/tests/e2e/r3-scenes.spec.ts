@@ -94,3 +94,49 @@ test('View Layer tab: light groups list with add and remove', async ({ page }) =
   await expect(lg.getByText('Lightgroup', { exact: true })).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('F12 renders every view layer; the Render Layers node can read another scene', async ({ page }) => {
+  const errors = await openApp(page);
+  const res = await page.evaluate(async () => {
+    const app = (window as any).app;
+    const { renderResult } = await import('/src/render/final/result.ts' as string);
+    const { renderJob } = await import('/src/render/final/job.ts' as string);
+    const { newCompositingGroup } = await import('/src/compositor/data.ts' as string);
+    const { activateScene } = await import('/src/scenes/scenes.ts' as string);
+    const render = async () => {
+      app.run('render.render');
+      await new Promise<void>((ok) => {
+        const t = setInterval(() => {
+          if (!renderJob()) {
+            clearInterval(t);
+            ok();
+          }
+        }, 50);
+      });
+      const rr = renderResult.get();
+      const i = (Math.floor(rr.height * 0.55) * rr.width + Math.floor(rr.width * 0.5)) * 4;
+      return { px: rr.passes.Combined[i], layers: rr.layers?.map((l: any) => `${l.scene}/${l.name}`) ?? [] };
+    };
+    const first = app.doc.scene;
+    Object.assign(first.render, { resolution_percentage: 10, raster_samples: 2, engine: 'RASTER' });
+    app.run('scene.view_layer_add', { type: 'EMPTY' }, { invoke: false });
+    const layered = await render();
+    app.run('scene.view_layer_remove', {}, { invoke: false });
+    app.run('scene.new', { type: 'FULL_COPY' }, { invoke: false });
+    const b = app.doc.scene;
+    (Object.values(app.doc.objects) as any[]).find((o) => o.name === 'Cube.001').hide_render = true;
+    activateScene(app.doc, first.id);
+    app.changed('doc');
+    const g = newCompositingGroup(app.doc);
+    const own = await render();
+    g.tree.nodes.find((n: any) => n.type === 'CompositorNodeRLayers').props.scene = b.id;
+    app.changed('doc');
+    const other = await render();
+    return { layered, own, other };
+  });
+  expect(res.layered.layers).toEqual(['Scene/ViewLayer', 'Scene/ViewLayer.001']);
+  expect(res.other.layers).toContain('Scene.001/ViewLayer');
+  // the other scene has no cube: the composite shows its background
+  expect(res.own.px).toBeGreaterThan(res.other.px + 0.05);
+  await expectNoErrors(errors);
+});
