@@ -982,6 +982,9 @@ export type RenderEngine = 'RASTER' | 'PATHTRACE' | 'SOLID';
 
 export interface RenderSettings extends RealtimeRenderSettings {
   engine: RenderEngine;
+  /** texture baking (src/bake/settings.ts) */
+  bake?: import('../bake/settings').BakeSettings;
+  bake_type?: import('../bake/settings').BakeType;
   resolution_x: number;
   resolution_y: number;
   resolution_percentage: number;

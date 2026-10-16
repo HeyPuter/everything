@@ -8,3 +8,4 @@ import './api_shapes';
 import './api_image';
 import './api_nodes';
 import './script_ops';
+import '../bake/script';
