@@ -91,3 +91,37 @@
   align-items: center;
   gap: 6px;
 }
+/* Line Art modifier */
+.la-crease {
+  display: contents;
+}
+.la-bake {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  margin: 2px 0 4px;
+}
+.la-bake > .btn {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.la-bits {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 1px;
+}
+.la-bits > .btn {
+  min-width: 0;
+  padding: 0;
+}
+.la-filter {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+.la-filter > .text-field {
+  flex: 1;
+  min-width: 0;
+}

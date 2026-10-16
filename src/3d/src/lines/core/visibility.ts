@@ -68,6 +68,8 @@ export interface OccluderInput {
   /** object → world, column-major */
   world: ArrayLike<number>;
   object: number;
+  /** surfaces each face counts as when it hides a line (default 1; 0 hides nothing) */
+  faceWeight?: Uint8Array;
 }
 
 interface Occluder {
@@ -78,11 +80,12 @@ interface Occluder {
   object: number;
   center: Vector3;
   radius: number;
+  faceWeight?: Uint8Array;
 }
 
 const bvhCache = new WeakMap<Float32Array, { indices: Uint32Array; bvh: MeshBVH; triFace: Uint32Array }>();
 
-function bvhFor(o: OccluderInput) {
+export function bvhFor(o: OccluderInput) {
   const hit = bvhCache.get(o.positions);
   if (hit && hit.indices === o.indices) return hit;
   const t = triangulateMesh(o);
@@ -108,6 +111,8 @@ export class Occlusion {
   /** world-space tolerance for hits at the target point */
   eps = 1e-5;
   rays = 0;
+  /** surfaces facing away from the viewer hide nothing */
+  cullBack = false;
 
   constructor(inputs: OccluderInput[]) {
     let extent = 0;
@@ -120,7 +125,7 @@ export class Occlusion {
       const scale = world.getMaxScaleOnAxis();
       const radius = box.getSize(new Vector3()).length() * 0.5 * scale;
       extent = Math.max(extent, center.length() + radius);
-      this.list.push({ bvh, triFace, inv: world.clone().invert(), world, object: o.object, center, radius });
+      this.list.push({ bvh, triFace, inv: world.clone().invert(), world, object: o.object, center, radius, faceWeight: o.faceWeight });
     }
     this.eps = Math.max(1e-6, extent * 2e-6);
   }
@@ -154,7 +159,8 @@ export class Occlusion {
       for (const h of hits) {
         const face = oc.triFace[h.faceIndex ?? 0];
         if (oc.object === object && (face === f0 || face === f1)) continue;
-        n++;
+        if (this.cullBack && h.face && h.face.normal.dot(_ray.direction) > 0) continue;
+        n += oc.faceWeight ? oc.faceWeight[face] ?? 1 : 1;
         if (n > limit) return n;
       }
     }

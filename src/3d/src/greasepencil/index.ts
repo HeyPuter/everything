@@ -33,6 +33,8 @@ import './vertexpaint';
 import './weightpaint';
 import './sculptui';
 import './overlays';
+import './segmentops';
+import './annotations';
 import { addMenuHooks } from '../editors/view3d/menus';
 
 addMenuHooks.push(() => [
@@ -58,6 +60,10 @@ addMenuHooks.push(() => [
         op: 'object.grease_pencil_add',
         props: { type: 'MONKEY' },
       },
+      { separator: true },
+      { label: 'Scene Line Art', icon: 'mod_lineart', op: 'object.grease_pencil_add', props: { type: 'LINEART_SCENE' } },
+      { label: 'Collection Line Art', icon: 'mod_lineart', op: 'object.grease_pencil_add', props: { type: 'LINEART_COLLECTION' } },
+      { label: 'Object Line Art', icon: 'mod_lineart', op: 'object.grease_pencil_add', props: { type: 'LINEART_OBJECT' } },
     ],
   },
 ]);

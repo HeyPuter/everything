@@ -253,10 +253,14 @@ sidebarTabs.push(
             ])
           : null,
         panel('sb-collections', 'Collections', () => collectionRows(), { closed: true }),
+        ...viewTabPanels.map((f) => f(v)),
       ];
     },
   },
 );
+
+/** Extra panels at the end of the View tab (e.g. Annotations). */
+export const viewTabPanels: ((v: View3D) => Child)[] = [];
 
 /** Viewports of the same Quad View group. */
 function quadMembers(v: View3D): View3D[] {

@@ -20,6 +20,17 @@ export interface AnnotationStroke {
   points: number[]; // flat xyz, world space
   color: [number, number, number];
   thickness: number;
+  /** annotation layer (by name); its colour and thickness win when it exists */
+  layer?: string;
+}
+
+export interface AnnotationLayer {
+  name: string;
+  color: [number, number, number];
+  thickness: number;
+  annotation_opacity: number;
+  annotation_hide: boolean;
+  lock: boolean;
 }
 export interface Ruler {
   a: [number, number, number];
@@ -28,8 +39,28 @@ export interface Ruler {
   c?: [number, number, number];
 }
 
-type SceneExt = SceneData & { annotations?: AnnotationStroke[]; rulers?: Ruler[] };
+type SceneExt = SceneData & { annotations?: AnnotationStroke[]; rulers?: Ruler[]; annotation_layers?: AnnotationLayer[]; annotation_layer_active?: number };
 const scene = () => app.doc.scene as SceneExt;
+
+/** The active annotation layer (created on demand when `create`). */
+export function activeAnnotationLayer(create = false): AnnotationLayer | null {
+  const sc = scene();
+  const list = sc.annotation_layers ?? [];
+  if (!list.length) {
+    if (!create) return null;
+    sc.annotation_layers = [{ name: 'Note', color: [...annotateSettings.color] as [number, number, number], thickness: annotateSettings.thickness, annotation_opacity: 1, annotation_hide: false, lock: false }];
+    sc.annotation_layer_active = 0;
+  }
+  const l = sc.annotation_layers!;
+  return l[Math.max(0, Math.min(l.length - 1, sc.annotation_layer_active ?? 0))] ?? null;
+}
+
+/** How a stroke draws: its layer's colour, thickness and opacity (null when the layer is hidden). */
+function strokeLook(s: AnnotationStroke): { color: number[]; thickness: number; opacity: number } | null {
+  const l = s.layer ? scene().annotation_layers?.find((x) => x.name === s.layer) : undefined;
+  if (l?.annotation_hide) return null;
+  return { color: l?.color ?? s.color, thickness: l?.thickness ?? s.thickness, opacity: l?.annotation_opacity ?? 1 };
+}
 
 export const annotateSettings = {
   color: [0.12, 0.65, 0.95] as [number, number, number],
@@ -78,7 +109,8 @@ editModeHooks.svg.push((v) => {
       if (p.z > 1) continue;
       pts.push(`${p.x.toFixed(1)},${p.y.toFixed(1)}`);
     }
-    if (pts.length > 1) parts.push(h('polyline', { points: pts.join(' '), fill: 'none', stroke: rgbCss(s.color), 'stroke-width': s.thickness, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+    const look = strokeLook(s);
+    if (pts.length > 1 && look) parts.push(h('polyline', { points: pts.join(' '), fill: 'none', stroke: rgbCss(look.color), 'stroke-width': look.thickness, 'stroke-opacity': look.opacity, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
   }
   (sc.rulers ?? []).forEach((r, i) => {
     const a = v.project(new Vector3(...r.a)),
@@ -125,6 +157,13 @@ editModeHooks.svg.push((v) => {
 
 function annotatePointer(v: View3D, e: PointerEvent): boolean {
   const erase = e.ctrlKey;
+  const layer = activeAnnotationLayer(!erase);
+  if (layer?.lock) {
+    app.report('WARNING', `Annotation layer "${layer.name}" is locked`);
+    return true;
+  }
+  const lookColor = layer?.color ?? annotateSettings.color,
+    lookWidth = layer?.thickness ?? annotateSettings.thickness;
   const pts: number[] = [];
   const add = (ev: PointerEvent) => {
     const { x, y } = localXY(v, ev);
@@ -139,14 +178,16 @@ function annotatePointer(v: View3D, e: PointerEvent): boolean {
       const s = v.project(new Vector3(pts[i], pts[i + 1], pts[i + 2]));
       screen.push(`${s.x.toFixed(1)},${s.y.toFixed(1)}`);
     }
-    preview = h('polyline', { points: screen.join(' '), fill: 'none', stroke: rgbCss(annotateSettings.color), 'stroke-width': annotateSettings.thickness, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+    preview = h('polyline', { points: screen.join(' '), fill: 'none', stroke: rgbCss(lookColor), 'stroke-width': lookWidth, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
     app.changed('ui');
   };
   let erased = false;
   const eraseAt = (vv: View3D, x: number, y: number) => {
     const sc = scene();
     const before = sc.annotations?.length ?? 0;
+    const locked = new Set((sc.annotation_layers ?? []).filter((l) => l.lock || l.annotation_hide).map((l) => l.name));
     sc.annotations = (sc.annotations ?? []).filter((s) => {
+      if (s.layer && locked.has(s.layer)) return true;
       for (let i = 0; i < s.points.length; i += 3) {
         const p = vv.project(new Vector3(s.points[i], s.points[i + 1], s.points[i + 2]));
         if (Math.hypot(p.x - x, p.y - y) < annotateSettings.eraserRadius) return false;
@@ -170,7 +211,7 @@ function annotatePointer(v: View3D, e: PointerEvent): boolean {
     }
     if (pts.length >= 6) {
       const sc = scene();
-      sc.annotations = [...(sc.annotations ?? []), { points: pts, color: [...annotateSettings.color] as [number, number, number], thickness: annotateSettings.thickness }];
+      sc.annotations = [...(sc.annotations ?? []), { points: pts, color: [...lookColor] as [number, number, number], thickness: lookWidth, layer: layer?.name }];
       app.pushUndo('Annotate');
     }
     app.changed('doc');
@@ -436,17 +477,38 @@ addKeys('3D View', [
   { key: 'DEL', op: 'view3d.ruler_remove', when: () => tool() === 'builtin.measure' && activeRuler >= 0 },
 ]);
 
+// the colour and thickness edit the active annotation layer when there is one
 toolSettingsRenderers['builtin.annotate'] = () =>
   h(
     'span',
     { class: 'th-settings' },
     h('span', { class: 'th-label' }, 'Color'),
-    colorSwatch('ann-color', annotateSettings.color, (c) => {
+    colorSwatch('ann-color', activeAnnotationLayer()?.color ?? annotateSettings.color, (c, final) => {
       annotateSettings.color = [c[0], c[1], c[2]];
+      const l = activeAnnotationLayer();
+      if (l) {
+        l.color = [c[0], c[1], c[2]];
+        if (final) app.pushUndo('Annotation Color');
+      }
       app.changed('ui');
     }),
     h('span', { class: 'th-label' }, 'Thickness'),
-    numberField({ id: 'ann-thick', value: annotateSettings.thickness, min: 1, max: 10, int: true, set: (x) => ((annotateSettings.thickness = x), app.changed('ui')) }),
+    numberField({
+      id: 'ann-thick',
+      value: activeAnnotationLayer()?.thickness ?? annotateSettings.thickness,
+      min: 1,
+      max: 10,
+      int: true,
+      set: (x, final) => {
+        annotateSettings.thickness = x;
+        const l = activeAnnotationLayer();
+        if (l) {
+          l.thickness = x;
+          if (final) app.pushUndo('Annotation Thickness');
+        }
+        app.changed('ui');
+      },
+    }),
     h('span', { class: 'th-label' }, 'Placement'),
     enumMenu(
       'ann-place',

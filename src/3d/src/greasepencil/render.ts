@@ -55,7 +55,7 @@ import { renderSceneHooks, renderVisibleObjects } from '../render/final/rendersc
 import { buildStrokeBuffers, type StrokeBuffers, type StrokeStyle } from './geometry';
 import { gpOf, frameAt, onionFrames, onionAlpha, slotStyle } from './data';
 import type { GPDrawing, GPLayer, GreasePencilData } from './types';
-import { activeModifiers, layerFrame, evaluateDrawing } from './modifiers';
+import { activeModifiers, layerFrame, evaluateDrawing, generatorTypes } from './modifiers';
 import { applyEffects } from './effectsgl';
 import { fadeFactor } from './overlays';
 import type { ShaderFx } from './types';
@@ -582,7 +582,7 @@ export function objectEntries(doc: DocumentData, gp: GreasePencilData, frame: nu
     const shownFrame = ob && mods.length ? layerFrame(ob, { layer, layerIndex: li, doc, gp }, frame, mods) : frame;
     const fr = frameAt(layer, shownFrame);
     let d = fr ? gp.drawings[fr.drawing] : undefined;
-    if (!d || d.offsets.length < 2) return;
+    if (!d || (d.offsets.length < 2 && !mods.some((m) => generatorTypes.has(m.type)))) return;
     if (ob && mods.length) {
       const k = layer.frames.indexOf(fr!);
       const prev = k > 0 ? gp.drawings[layer.frames[k - 1].drawing] : undefined;

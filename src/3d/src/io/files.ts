@@ -18,6 +18,9 @@ export interface FormatHandler {
   export?: (opts: { selectedOnly: boolean }) => Promise<{ bytes: Uint8Array | string; mime: string; ext: string }>;
   /** shown in File > Import/Export */
   description?: string;
+  /** operators the File ▸ Import / Export entries run instead (they ask for their own options) */
+  importOp?: string;
+  exportOp?: string;
 }
 
 export const formats: FormatHandler[] = [];
@@ -247,11 +250,11 @@ registerOperators([
 ]);
 
 export function importMenu(): MenuItem[] {
-  return formats.filter((f) => f.import).map((f) => ({ label: f.label, description: f.description, op: 'wm.import', props: { format: f.id } }));
+  return formats.filter((f) => f.import || f.importOp).map((f) => (f.importOp ? { label: f.label, description: f.description, op: f.importOp } : { label: f.label, description: f.description, op: 'wm.import', props: { format: f.id } }));
 }
 
 export function exportMenu(): MenuItem[] {
-  return formats.filter((f) => f.export).map((f) => ({ label: f.label, description: f.description, submenu: () => [{ label: 'All', op: 'wm.export', props: { format: f.id } }, { label: 'Selected Only', op: 'wm.export', props: { format: f.id, use_selection: true } }] }));
+  return formats.filter((f) => f.export || f.exportOp).map((f) => f.exportOp ? { label: f.label, description: f.description, op: f.exportOp } : ({ label: f.label, description: f.description, submenu: () => [{ label: 'All', op: 'wm.export', props: { format: f.id } }, { label: 'Selected Only', op: 'wm.export', props: { format: f.id, use_selection: true } }] }));
 }
 
 export { openMenu };

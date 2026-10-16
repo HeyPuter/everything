@@ -36,6 +36,8 @@ export interface MaterialAttrs {
   specular: [number, number, number];
   hardness: number;
   alpha: number;
+  /** which material a line between two materials takes (higher wins) */
+  priority?: number;
 }
 
 type M = LineStyleModifier & Record<string, unknown>;
@@ -154,7 +156,7 @@ function geometryModifier(pts: SV[], m: M, seed: number, round: number): SV[] {
       const s = m.use_pure_random !== false ? seed * 7919 + round * 104729 + Math.floor(hash(seed, pts.length, Math.round(pts[0].x)) * 1e6) : 12345;
       let out = pts.map((p, i) => {
         const [nx, ny] = normalAt(pts, i);
-        const d = amp * fbm2(s, p.x / sc, p.y / sc, oct);
+        const d = 2 * amp * fbm2(s, p.x / sc, p.y / sc, oct);
         return { ...p, x: p.x + nx * d, y: p.y + ny * d };
       });
       if (m.smooth !== false) out = out.map((p, i) => (i === 0 || i === out.length - 1 ? p : { ...p, x: (out[i - 1].x + p.x * 2 + out[i + 1].x) / 4, y: (out[i - 1].y + p.y * 2 + out[i + 1].y) / 4 }));
@@ -171,7 +173,8 @@ function geometryModifier(pts: SV[], m: M, seed: number, round: number): SV[] {
         dy = -Math.sin(ang);
       const arc = arcLengths(pts);
       return pts.map((p, i) => {
-        const v = m.type === 'PERLIN_NOISE_1D' ? fbm1(sd, arc[i] / freq, oct) : fbm2(sd, p.x / freq, p.y / freq, oct);
+        // fractal sums rarely reach ±1: scale so the amplitude is about the largest offset
+        const v = 2 * (m.type === 'PERLIN_NOISE_1D' ? fbm1(sd, arc[i] / freq, oct) : fbm2(sd, p.x / freq, p.y / freq, oct));
         return { ...p, x: p.x + dx * amp * v, y: p.y + dy * amp * v };
       });
     }

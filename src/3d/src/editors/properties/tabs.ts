@@ -232,9 +232,13 @@ registerTab({
         ],
         { closed: true },
       ),
+      ...collectionExtraPanels.map((f) => f(c)),
     ];
   },
 });
+
+/** Extra Collection tab panels (registered by feature modules). */
+export const collectionExtraPanels: ((c: import('../../data/types').CollectionData) => Child)[] = [];
 
 // ---------------------------------------------------------------------------
 // Object

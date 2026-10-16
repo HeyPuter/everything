@@ -5,5 +5,10 @@ import './ops';
 import './render';
 import './ui';
 import './overlay';
+import './lineart';
+import './lineartui';
+import './gpsvgimport';
+import './gpexportops';
+import './api';
 
 export {};

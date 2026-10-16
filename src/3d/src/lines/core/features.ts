@@ -15,6 +15,8 @@ export const F = {
   CONTOUR: 128,
   EXTERNAL_CONTOUR: 256,
   LOOSE: 512,
+  INTERSECTION: 1024,
+  LIGHT_CONTOUR: 2048,
 } as const;
 
 export interface FeatureMesh {
@@ -28,6 +30,8 @@ export interface FeatureMesh {
   edgeMarks?: Uint8Array;
   /** per face: face marked */
   faceMarks?: Uint8Array;
+  /** per corner: the edge always counts as a crease (e.g. marked sharp) */
+  creaseMarks?: Uint32Array | Uint8Array;
   looseEdges?: Uint32Array;
   /** index of the object in the scene list */
   object: number;
@@ -54,6 +58,8 @@ export interface FeatureOptions {
   loose?: boolean;
   /** suggestive contours: minimum strength of the curvature derivative */
   krEpsilon?: number;
+  /** suggestive contours: size of the neighbourhood curvature is measured over (world units) */
+  sphereRadius?: number;
   /** suggestive contours: lines are kept where the surface faces the viewer at most this much (cos) */
   suggestiveLimit?: number;
 }
@@ -78,6 +84,9 @@ export interface FeatureEdge {
   m1: number;
   /** a point on the inner side of the line (front face centre), for one-sided thickness */
   inner?: [number, number, number];
+  /** vertex group weights at the two ends (Line Art weight transfer) */
+  wa?: Record<string, number>;
+  wb?: Record<string, number>;
 }
 
 const sub = (P: Float32Array, a: number, b: number, o: number[]) => {
@@ -250,6 +259,8 @@ export function extractFeatures(m: FeatureMesh, view: ViewInfo, o: FeatureOption
   // corners per edge (for the edge marks, any corner counts)
   const marked = m.edgeMarks ? new Uint8Array(ne) : null;
   if (marked) for (let c = 0; c < m.indices.length; c++) if (m.edgeMarks![c]) marked[et.cornerEdge[c]] = 1;
+  const forced = m.creaseMarks ? new Uint8Array(ne) : null;
+  if (forced) for (let c = 0; c < m.indices.length; c++) if (m.creaseMarks![c]) forced[et.cornerEdge[c]] = 1;
   for (let e = 0; e < ne; e++) {
     const k0 = et.faceOffsets[e],
       k1 = et.faceOffsets[e + 1];
@@ -275,7 +286,7 @@ export function extractFeatures(m: FeatureMesh, view: ViewInfo, o: FeatureOption
         inner = [C[frontFace * 3], C[frontFace * 3 + 1], C[frontFace * 3 + 2]];
       }
       if (nfaces === 2) {
-        if (angleOf[e] < creaseLimit) flags |= F.CREASE;
+        if (angleOf[e] < creaseLimit || forced?.[e]) flags |= F.CREASE;
         if (o.materialBoundaries !== false && (m.material_index?.[f0] ?? 0) !== (m.material_index?.[f1] ?? 0)) flags |= F.MATERIAL;
         if (vTurn && vCount && turn[e] > (3 * Math.PI) / 180 && !(flags & F.CREASE)) {
           const va = et.verts[e * 2],
@@ -393,6 +404,32 @@ function suggestiveContours(m: FeatureMesh, VN: Float32Array, ndv: Float32Array,
       wy = tv[1] - d * n1,
       wz = tv[2] - d * n2;
     Dw[v] = (G[v * 3] * wx + G[v * 3 + 1] * wy + G[v * 3 + 2] * wz) / W[v];
+  }
+  // curvature is measured over a neighbourhood of about the sphere radius: smooth the derivative
+  // over as many rings of neighbours as fit in it
+  if (o.sphereRadius && o.sphereRadius > 0) {
+    const et = edgeTopology(m);
+    let total = 0;
+    for (let e = 0; e < et.count; e++) {
+      const a = et.verts[e * 2],
+        b = et.verts[e * 2 + 1];
+      total += Math.hypot(P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2]);
+    }
+    const mean = total / Math.max(1, et.count);
+    const rings = Math.min(6, Math.floor(o.sphereRadius / Math.max(1e-9, mean)));
+    for (let it = 0; it < rings; it++) {
+      const sum = new Float32Array(nv),
+        cnt = new Float32Array(nv);
+      for (let e = 0; e < et.count; e++) {
+        const a = et.verts[e * 2],
+          b = et.verts[e * 2 + 1];
+        sum[a] += Dw[b];
+        sum[b] += Dw[a];
+        cnt[a]++;
+        cnt[b]++;
+      }
+      for (let v = 0; v < nv; v++) if (cnt[v]) Dw[v] = (Dw[v] + sum[v]) / (cnt[v] + 1);
+    }
   }
   const limit = o.suggestiveLimit ?? 0.6;
   const eps = Math.max(0, o.krEpsilon ?? 0);
