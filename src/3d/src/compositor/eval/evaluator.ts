@@ -34,6 +34,8 @@ export interface EvalEnv {
   viewer: string | null;
   /** evaluate the composite output (Group Output) */
   composite: boolean;
+  /** values of the root tree's Group Input sockets by identifier (node groups run on an image) */
+  groupInputs?: Record<string, Result>;
 }
 
 export interface Scope {
@@ -304,7 +306,8 @@ export class Evaluator {
               continue;
             }
           }
-          outs.set(s.identifier, Result.single(dataTypeOf(s.type), socketDefault(s)));
+          const given = !scope.outer ? this.env.groupInputs?.[s.identifier] : undefined;
+          outs.set(s.identifier, given ?? Result.single(dataTypeOf(s.type), socketDefault(s)));
         }
       } else if (def?.dynamicSockets && node.props.node_tree !== undefined) {
         this.group(scope, node, outs);

@@ -4,7 +4,7 @@ import { icon } from '../ui/icons';
 import { app } from '../app/app';
 import { num, bool, enumProp, splitRow, oid, type PropOpts } from '../ui/props';
 import { panel, numberField, colorSwatch, checkbox, textField, enumMenu, button, opButton } from '../ui/widgets';
-import { openMenu } from '../ui/menu';
+import { openMenu, promptText } from '../ui/menu';
 import type { Strip, StripModifier, ColorBalanceData } from './types';
 import { BLEND_ITEMS, inputCount, isStill, finalStart, finalEnd, finalDuration, setLeftHandle, setRightHandle, translateStrip, isVisual, TRANSITIONS, findStrip, resolveOverlap } from './strips';
 import { activeStrip, afterEdit, seqEditor, seqList, toolSettings, hasEditor, sceneFps } from './context';
@@ -13,6 +13,10 @@ import { restartPlayback } from './audio';
 import { movieCacheStats } from './media';
 import { pickFiles, fileBytes } from './add';
 import { drawCurves } from '../nodes/editor/rampui';
+import { extraModifierUI, modifierAddItems } from './modextra';
+import { proxyPanel } from './proxyui';
+import { stylePresetMenu } from './textpresets';
+import { EQUALIZER_LAYOUTS } from './modops';
 import type { NodeData, NodeTreeData } from '../data/types';
 
 const edited: PropOpts = { onChange: () => (afterEdit(), restartPlayback()) };
@@ -186,6 +190,22 @@ function textStylePanels(s: Strip): Child {
   return [
     panel('seq-text-style', 'Style', () => [
       splitRow(
+        'Presets',
+        h(
+          'button',
+          {
+            class: 'btn seq-style-presets',
+            'data-tip': 'Text style presets: apply one to the selected text strips, or save this style',
+            onpointerdown: (e: PointerEvent) => {
+              e.preventDefault();
+              openMenu(stylePresetMenu((cb) => promptText('Preset Name', 'Style', (v) => v && cb(v))), e.currentTarget as HTMLElement);
+            },
+          },
+          'Presets',
+          icon('down_arrow_hlt', 'tiny'),
+        ),
+      ),
+      splitRow(
         'Font',
         h(
           'div',
@@ -274,6 +294,7 @@ function sourcePanel(s: Strip): Child {
   }
   if (s.orig_width) rows.push(splitRow('Resolution', h('span', { class: 'seq-src' }, `${s.orig_width} × ${s.orig_height}`)));
   if (s.type === 'MOVIE') rows.push(splitRow('FPS', h('span', { class: 'seq-src' }, s.fps ? `${+s.fps.toFixed(3)}` : '—')));
+  if (s.type === 'MOVIE') rows.push(bool(s, 'use_deinterlace', 'Deinterlace'));
   if (s.type === 'MOVIECLIP') {
     const clips = Object.values(app.doc.movieclips ?? {});
     rows.push(
@@ -442,15 +463,43 @@ function modifierPanel(s: Strip, m: StripModifier, i: number): Child {
     }),
     button(`seq-mod-up-${i}`, icon('triangle_up'), () => app.run('sequencer.strip_modifier_move', { name: m.name, direction: 'UP' }), { tip: 'Move Up', disabled: i === 0 }),
     button(`seq-mod-down-${i}`, icon('triangle_down'), () => app.run('sequencer.strip_modifier_move', { name: m.name, direction: 'DOWN' }), { tip: 'Move Down', disabled: i === s.modifiers.length - 1 }),
+    h(
+      'button',
+      {
+        class: 'icon-btn seq-mod-more',
+        'data-tip': 'More modifier commands',
+        onpointerdown: (e: PointerEvent) => {
+          e.preventDefault();
+          openMenu(
+            [
+              { label: 'Duplicate', icon: 'duplicate', op: 'sequencer.strip_modifier_duplicate', props: { name: m.name } },
+              { label: 'Copy to Selected Strips', op: 'sequencer.strip_modifier_copy', props: { type: 'APPEND' } },
+              { separator: true },
+              { label: 'Move to First', icon: 'triangle_up', op: 'sequencer.strip_modifier_move_to_index', props: { modifier: m.name, index: 0 }, disabled: i === 0 },
+              { label: 'Move to Last', icon: 'triangle_down', op: 'sequencer.strip_modifier_move_to_index', props: { modifier: m.name, index: s.modifiers.length - 1 }, disabled: i === s.modifiers.length - 1 },
+            ],
+            e.currentTarget as HTMLElement,
+          );
+        },
+      },
+      icon('down_arrow_hlt'),
+    ),
     button(`seq-mod-x-${i}`, icon('x'), () => app.run('sequencer.strip_modifier_remove', { name: m.name }), { tip: 'Remove Modifier' }),
   );
   return panel(`seq-mod-${i}-${m.type}`, '', () => {
+    const extra = extraModifierUI(s, m, maskRows);
+    if (extra !== undefined) return extra;
     if (m.type === 'BRIGHT_CONTRAST') return [num(m, 'bright', 'Brightness', { precision: 3 }), num(m, 'contrast', 'Contrast', { min: -100, max: 100, precision: 3 }), maskRows(s, m)];
     if (m.type === 'WHITE_BALANCE') return [color(m as never, 'white_value', 'White Value'), maskRows(s, m)];
     if (m.type === 'SOUND_EQUALIZER') {
       const bands = (m.bands ??= []);
       const ed: PropOpts = { onChange: () => restartPlayback() };
-      return bands.map((b, i) =>
+      const redefine = h(
+        'div',
+        { class: 'row-aligned seq-eq-redefine' },
+        ...EQUALIZER_LAYOUTS.map(([v, l]) => opButton('sequencer.strip_modifier_equalizer_redefine', l, { graphs: v, name: m.name }, { tip: 'Replace the bands with a new set spread over the audible range' })),
+      );
+      return [redefine, bands.map((b, i) =>
         panel(
           `seq-eq-${oid(m)}-${i}`,
           b.type === 'LOWSHELF' ? 'Low Shelf' : b.type === 'HIGHSHELF' ? 'High Shelf' : `Band ${i}`,
@@ -466,7 +515,7 @@ function modifierPanel(s: Strip, m: StripModifier, i: number): Child {
           ],
           { sub: true },
         ),
-      );
+      )];
     }
     if (m.type === 'CURVES') {
       m.curve_mapping ??= {};
@@ -495,7 +544,6 @@ function modifierPanel(s: Strip, m: StripModifier, i: number): Child {
 export function modifiersTab(): Child {
   const s = hasEditor() ? activeStrip() : null;
   if (!s) return h('div', { class: 'sb-empty' }, 'No active strip');
-  const sound = s.type === 'SOUND';
   return [
     stripHeader(s),
     h(
@@ -508,17 +556,7 @@ export function modifiersTab(): Child {
           'data-tip': 'Add Modifier\nAdd a modifier to the active strip',
           onpointerdown: (e: PointerEvent) => {
             e.preventDefault();
-            openMenu(
-              sound
-                ? [{ label: 'Equalizer', icon: 'file_sound', op: 'sequencer.strip_modifier_add', props: { type: 'SOUND_EQUALIZER' } }]
-                : [
-                { label: 'Color Balance', icon: 'seq_color', op: 'sequencer.strip_modifier_add', props: { type: 'COLOR_BALANCE' } },
-                { label: 'Brightness/Contrast', icon: 'seq_adjustment', op: 'sequencer.strip_modifier_add', props: { type: 'BRIGHT_CONTRAST' } },
-                { label: 'White Balance', icon: 'seq_color', op: 'sequencer.strip_modifier_add', props: { type: 'WHITE_BALANCE' } },
-                { label: 'Curves', icon: 'seq_color', op: 'sequencer.strip_modifier_add', props: { type: 'CURVES' } },
-              ],
-              e.currentTarget as HTMLElement,
-            );
+            openMenu(modifierAddItems(s), e.currentTarget as HTMLElement);
           },
         },
         icon('add'),
@@ -536,6 +574,7 @@ export function modifiersTab(): Child {
 export function cacheTab(info: { previewSize: string; renderMs: number; scale: number }): Child {
   const st = movieCacheStats();
   return [
+    proxyPanel(info.previewSize),
     panel('seq-cache', 'Cache', () => [
       splitRow('Movies', h('span', { class: 'seq-src' }, String(st.movies))),
       splitRow('Cached Frames', h('span', { class: 'seq-src' }, String(st.frames))),

@@ -6,6 +6,7 @@ import { loadSound, MIX_RATE, playbackContext } from './media';
 import { soundSegment, panGains } from './wav';
 import { keysOf, keyValue } from './fades';
 import { hasRetiming, retimedPieces } from './retime';
+import { echoNode, pitchRatio, pitchedBuffer } from './modextra';
 
 interface Voice {
   s: Strip;
@@ -54,9 +55,11 @@ function schedule(ctx: BaseAudioContext, dest: AudioNode, buf: AudioBuffer, v: V
     for (const [f, val] of keys) if (f > from) gain.gain.linearRampToValueAtTime(Math.max(0, val), at(f));
   }
   let node: AudioNode = gain;
-  // equalizer modifiers: biquad filters after the gain
+  // equalizer modifiers: biquad filters after the gain; echo: a delay line
   for (const m of v.s.modifiers ?? []) {
-    if (m.mute || m.type !== 'SOUND_EQUALIZER') continue;
+    if (m.mute) continue;
+    if (m.type === 'ECHO') node = echoNode(ctx, node, m);
+    if (m.type !== 'SOUND_EQUALIZER') continue;
     for (const b of m.bands ?? []) {
       if (!b.gain) continue;
       const f = ctx.createBiquadFilter();
@@ -91,9 +94,13 @@ function schedule(ctx: BaseAudioContext, dest: AudioNode, buf: AudioBuffer, v: V
     node = merge;
   }
   node.connect(dest);
+  // pitch modifiers: the buffer is replaced by a pitch-shifted copy (same duration)
+  let ratio = 1;
+  for (const m of v.s.modifiers ?? []) if (!m.mute && m.type === 'PITCH') ratio *= pitchRatio(m);
+  const played = pitchedBuffer(ctx, buf, ratio);
   return live.map((p) => {
     const src = ctx.createBufferSource();
-    src.buffer = buf;
+    src.buffer = played;
     src.playbackRate.value = p.rate;
     src.connect(gain);
     src.start(t0 + p.delay, p.offset, Math.min(p.duration, buf.duration - p.offset));

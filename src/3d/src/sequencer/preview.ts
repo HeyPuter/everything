@@ -1,5 +1,6 @@
 // Preview region: shows the sequencer output at the current frame (GPU composite), with zoom/pan,
 // selection outlines and image transforms of the selected strips.
+import type { ProxySize } from './proxy';
 import { drawShape, type SelectShape } from './shapes';
 import { app } from '../app/app';
 import { withCompositor, SequencerRender, Cancelled } from './render';
@@ -19,7 +20,7 @@ export function overlayRefFrame(ed: { show_overlay_frame?: boolean; overlay_fram
   return ed.use_overlay_frame_lock ? (ed.overlay_frame ?? 0) : current + (ed.overlay_frame ?? 0);
 }
 
-export type PreviewSize = 'AUTO' | 'SCENE' | 'PROXY_75' | 'PROXY_50' | 'PROXY_25';
+export type PreviewSize = 'AUTO' | 'SCENE' | 'PROXY_100' | 'PROXY_75' | 'PROXY_50' | 'PROXY_25';
 
 export class PreviewRegion {
   el: HTMLElement;
@@ -162,6 +163,7 @@ export class PreviewRegion {
   private compositeScale(): number {
     switch (this.size) {
       case 'SCENE':
+      case 'PROXY_100':
         return 1;
       case 'PROXY_75':
         return 0.75;
@@ -228,6 +230,7 @@ export class PreviewRegion {
         sceneStart: s.frame_start,
         sceneImage: renderScenePreview,
         cancelled: () => my !== this.gen || this.disposed,
+        proxy: this.size.startsWith('PROXY_') ? (Number(this.size.slice(6)) as ProxySize) : undefined,
       });
       const t = await sr.render(ed, frame);
       comp.present(t);

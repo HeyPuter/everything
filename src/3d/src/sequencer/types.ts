@@ -87,7 +87,7 @@ export interface StripCrop {
   max_y: number;
 }
 
-export type ModifierType = 'COLOR_BALANCE' | 'BRIGHT_CONTRAST' | 'WHITE_BALANCE' | 'CURVES' | 'SOUND_EQUALIZER';
+export type ModifierType = 'COLOR_BALANCE' | 'BRIGHT_CONTRAST' | 'WHITE_BALANCE' | 'CURVES' | 'HUE_CORRECT' | 'MASK' | 'TONEMAP' | 'COMPOSITOR' | 'SOUND_EQUALIZER' | 'PITCH' | 'ECHO';
 
 /** One band of the sound equalizer. */
 export interface EqBand {
@@ -131,6 +131,29 @@ export interface StripModifier {
   bands?: EqBand[];
   /** CURVES: curve mapping (combined, red, green, blue) stored like the RGB Curves node's props */
   curve_mapping?: Record<string, import('../data/types').SocketValue>;
+  /** HUE_CORRECT: hue / saturation / value curves over the hue (curve widget props) */
+  hue_mapping?: Record<string, import('../data/types').SocketValue>;
+  /** TONEMAP */
+  tonemap_type?: 'RD_PHOTORECEPTOR' | 'RH_SIMPLE';
+  key?: number;
+  offset?: number;
+  gamma?: number;
+  intensity?: number;
+  /** TONEMAP photoreceptor contrast (0 = automatic) */
+  tm_contrast?: number;
+  adaptation?: number;
+  correction?: number;
+  /** COMPOSITOR: compositing node group applied to the strip image */
+  node_group?: string | null;
+  /** PITCH */
+  pitch_mode?: 'SEMITONES' | 'RATIO';
+  semitones?: number;
+  cents?: number;
+  ratio?: number;
+  /** ECHO: delay (seconds), feedback and wet mix (0..1) */
+  delay?: number;
+  feedback?: number;
+  mix?: number;
   /** limit the modifier to a mask: another strip's image or a mask data-block */
   input_mask_type?: 'NONE' | 'STRIP' | 'ID';
   input_mask_strip?: string | null;
@@ -144,6 +167,18 @@ export interface RetimingKey {
   select?: boolean;
   /** the segment starting at this key eases between the neighbouring speeds */
   transition?: boolean;
+}
+
+/** Proxy settings of a movie strip: which reduced sizes to build and their JPEG quality. */
+export interface StripProxy {
+  build_25: boolean;
+  build_50: boolean;
+  build_75: boolean;
+  build_100: boolean;
+  /** 1..100 */
+  quality: number;
+  /** rebuild sizes that are already built */
+  use_overwrite: boolean;
 }
 
 export interface ImageElement {
@@ -198,6 +233,11 @@ export interface Strip {
   elements?: ImageElement[];
   /** movie frame rate */
   fps?: number;
+  /** MOVIE: preview from proxies (reduced copies) when the preview is set to a proxy size */
+  use_proxy?: boolean;
+  proxy?: StripProxy;
+  /** MOVIE: blend the two fields of interlaced frames */
+  use_deinterlace?: boolean;
   // sound
   volume?: number;
   pan?: number;

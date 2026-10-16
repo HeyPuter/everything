@@ -1,5 +1,10 @@
 // Styles for the Video Sequencer editor (injected once).
 const css = /* css */ `
+.seq-proxy-sizes { display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.seq-cmpmod-ng { padding: 2px 8px 4px; }
+.seq-eq-redefine { padding: 2px 8px 4px; gap: 4px; }
+.seq-eq-redefine .btn { flex: 1; min-width: 0; }
+.seq-mod-more { width: 22px; height: 22px; }
 .seq-sb-note { color: var(--text-dim, #999a9b); font-size: 11px; padding: 2px 4px 4px; line-height: 1.35; }
 .seq-ed { position: absolute; inset: 0; display: flex; flex-direction: column; background: #181a1b; }
 .seq-body { flex: 1; display: flex; min-height: 0; }

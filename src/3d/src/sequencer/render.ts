@@ -8,6 +8,9 @@ import { getMovie, loadImage } from './media';
 import { valueAt } from './fades';
 import { animatedStrip } from './stripanim';
 import { bakeCurveTable, nodeCurves } from '../compositor/color/curvemap';
+import { applyExtraModifier } from './modextra';
+import { proxyFrame, type ProxySize } from './proxy';
+import { deinterlaceFrame } from './deinterlace';
 import { rasterizeMask } from '../mask/raster';
 import { parentResolver } from '../mask/parent';
 import { clipSource } from '../tracking/source';
@@ -33,6 +36,8 @@ export interface RenderOptions {
   sceneImage: (frame: number, cameraId: string | null, w: number, h: number) => Promise<RGBA8Image | null>;
   /** cancelled renders stop early (stale preview requests) */
   cancelled?: () => boolean;
+  /** proxy size the preview uses for movie strips with built proxies */
+  proxy?: ProxySize;
 }
 
 export class Cancelled extends Error {}
@@ -218,6 +223,16 @@ export class SequencerRender {
         if (!info) return null;
         const w = s.orig_width || info.width,
           h = s.orig_height || info.height;
+        if (o.proxy && s.use_proxy) {
+          const pf = await proxyFrame(s, o.proxy, contentFrame(s, frame));
+          this.check();
+          if (pf) {
+            const src = c.upload(pf, w, h);
+            const out = this.finish(s, src);
+            c.dropSource(src);
+            return out;
+          }
+        }
         if (o.live) {
           const v = m.live(t, hasRetiming(s) ? Math.max(0.0625, Math.min(16, speedAt(s, frame - s.frame_start))) : 1);
           if (!v) return null;
@@ -230,7 +245,7 @@ export class SequencerRender {
         const bmp = await m.frame(t, width);
         this.check();
         if (!bmp) return null;
-        const src = c.upload(bmp, w, h);
+        const src = s.use_deinterlace ? c.upload(deinterlaceFrame(bmp, bmp.width, bmp.height), w, h) : c.upload(bmp, w, h);
         const out = this.finish(s, src);
         c.dropSource(src);
         return out;
@@ -411,12 +426,12 @@ export class SequencerRender {
         const key = JSON.stringify([0, 1, 2, 3].map((i) => cm[`curve_${i}`]).concat([cm.curve_extend ?? '']));
         c.curves(n, img, key, () => bakeCurveTable(nodeCurves(cm, 4)), (cm.black_level as number[]) ?? [0, 0, 0], (cm.white_level as number[]) ?? [1, 1, 1]);
       }
-      else {
+      else if (!applyExtraModifier(c, n, img, m, this.modMasks.get(m) ?? null)) {
         c.release(n);
         continue;
       }
-      // a mask limits where the modifier applies
-      const mask = this.modMasks.get(m);
+      // a mask limits where the modifier applies (the Mask modifier uses it as the alpha instead)
+      const mask = m.type === 'MASK' ? undefined : this.modMasks.get(m);
       if (mask) {
         const mixed = c.acquire();
         c.maskMix(mixed, img, n, mask);

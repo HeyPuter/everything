@@ -5,6 +5,7 @@ import type { BlendType, ColorBalanceData, ModifierType, SeqChannel, SequenceEdi
 import { MAX_CHANNELS } from './types';
 import { hasRetiming, contentLength, mapContent } from './retime';
 import { defaultCurves } from '../nodes/curves';
+import { defaultHueCurves } from '../compositor/color/colorspace';
 
 // ---------------------------------------------------------------------------
 // classification
@@ -266,6 +267,12 @@ export function newModifier(type: ModifierType, name: string): StripModifier {
       ],
     };
   if (type === 'CURVES') return { name, type, mute: false, show_expanded: true, curve_mapping: defaultCurves('RGB') };
+  if (type === 'HUE_CORRECT') return { name, type, mute: false, show_expanded: true, hue_mapping: defaultHueCurves() };
+  if (type === 'MASK') return { name, type, mute: false, show_expanded: true, input_mask_type: 'STRIP' };
+  if (type === 'TONEMAP') return { name, type, mute: false, show_expanded: true, tonemap_type: 'RH_SIMPLE', key: 0.18, offset: 1, gamma: 1, intensity: 0, tm_contrast: 0, adaptation: 1, correction: 0 };
+  if (type === 'COMPOSITOR') return { name, type, mute: false, show_expanded: true, node_group: null };
+  if (type === 'PITCH') return { name, type, mute: false, show_expanded: true, pitch_mode: 'SEMITONES', semitones: 0, cents: 0, ratio: 1 };
+  if (type === 'ECHO') return { name, type, mute: false, show_expanded: true, delay: 0.25, feedback: 0.5, mix: 0.5 };
   return { name, type, mute: false, show_expanded: true, bright: 0, contrast: 0 };
 }
 

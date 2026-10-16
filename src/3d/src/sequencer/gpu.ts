@@ -762,6 +762,124 @@ export class Compositor {
     gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b);
     return Array.from(b).map((v) => v / 255);
   }
+
+  // ------------------------------------------------------------------ extension passes
+
+  /** Premultiplied float RGBA of a target, rows bottom-up. */
+  readFloat(src: Target): Float32Array {
+    const gl = this.gl;
+    this.bindTarget(src);
+    const out = new Float32Array(src.w * src.h * 4);
+    if (this.float) gl.readPixels(0, 0, src.w, src.h, gl.RGBA, gl.FLOAT, out);
+    else {
+      const b = new Uint8Array(src.w * src.h * 4);
+      gl.readPixels(0, 0, src.w, src.h, gl.RGBA, gl.UNSIGNED_BYTE, b);
+      for (let i = 0; i < b.length; i++) out[i] = b[i] / 255;
+    }
+    return out;
+  }
+
+  /** Upload premultiplied float RGBA (rows bottom-up) into a texture (reused when given). */
+  uploadFloat(data: Float32Array, w: number, h: number, existing?: WebGLTexture): WebGLTexture {
+    const gl = this.gl;
+    const tex = existing ?? gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, data);
+    this.texParams(true);
+    return tex;
+  }
+
+  deleteTexture(tex: WebGLTexture) {
+    this.gl.deleteTexture(tex);
+  }
+
+  private lutTextures = new Map<string, WebGLTexture>();
+
+  /**
+   * Run a fragment shader over `dst` (compiled once per name). Textures bind to units in order
+   * (as uniforms `uTex0`, `uTex1`, …); numbers and arrays of 2–4 / 9 / 16 become uniforms.
+   */
+  pass(name: string, fs: string, dst: Target, textures: WebGLTexture[], uniforms: Record<string, number | number[]> = {}) {
+    const gl = this.gl;
+    if (!this.progs[name]) this.progs[name] = this.program(VS_FULL, fs);
+    this.bindTarget(dst);
+    const u = this.use(name);
+    textures.forEach((t, i) => {
+      this.bindTex(i, t);
+      gl.uniform1i(u(`uTex${i}`), i);
+    });
+    for (const [k, v] of Object.entries(uniforms)) {
+      const loc = u(k);
+      if (typeof v === 'number') gl.uniform1f(loc, v);
+      else if (v.length === 2) gl.uniform2fv(loc, v);
+      else if (v.length === 3) gl.uniform3fv(loc, v);
+      else if (v.length === 4) gl.uniform4fv(loc, v);
+      else if (v.length === 9) gl.uniformMatrix3fv(loc, false, v);
+      else if (v.length === 16) gl.uniformMatrix4fv(loc, false, v);
+    }
+    this.draw();
+  }
+
+  /** A float lookup table texture (width × 1 RGBA), cached by key. */
+  lut(key: string, width: number, bake: () => Float32Array): WebGLTexture {
+    const gl = this.gl;
+    let tex = this.lutTextures.get(key);
+    if (tex) return tex;
+    tex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, width, 1, 0, gl.RGBA, gl.FLOAT, bake());
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    if (this.lutTextures.size > 32) {
+      const [k, t] = this.lutTextures.entries().next().value!;
+      gl.deleteTexture(t);
+      this.lutTextures.delete(k);
+    }
+    this.lutTextures.set(key, tex);
+    return tex;
+  }
+
+  private small: { tex: WebGLTexture; fbo: WebGLFramebuffer; w: number; h: number } | null = null;
+
+  /** Straight-alpha RGBA of a target scaled down to at most 64 pixels wide (for image statistics). */
+  sample(src: Target): { data: Float32Array; w: number; h: number } {
+    const gl = this.gl;
+    const w = Math.max(1, Math.min(64, src.w)),
+      h = Math.max(1, Math.round((src.h * w) / src.w));
+    if (!this.small || this.small.w !== w || this.small.h !== h) {
+      if (this.small) {
+        gl.deleteTexture(this.small.tex);
+        gl.deleteFramebuffer(this.small.fbo);
+      }
+      const tex = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, this.float ? gl.RGBA16F : gl.RGBA8, w, h);
+      this.texParams(false);
+      const fbo = gl.createFramebuffer()!;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+      this.small = { tex, fbo, w, h };
+    }
+    const t = { tex: this.small.tex, fbo: this.small.fbo, w, h };
+    this.copy(t, src);
+    this.bindTarget(t);
+    const out = new Float32Array(w * h * 4);
+    if (this.float) gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, out);
+    else {
+      const b = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, b);
+      for (let i = 0; i < b.length; i++) out[i] = b[i] / 255;
+    }
+    for (let i = 0; i < out.length; i += 4) {
+      const a = out[i + 3];
+      if (a > 0) for (let k = 0; k < 3; k++) out[i + k] /= a;
+    }
+    return { data: out, w, h };
+  }
 }
 
 /** Image → frame matrix for a strip transform (all in output pixels, y up), scaled by `k`. */

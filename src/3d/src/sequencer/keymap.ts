@@ -38,6 +38,7 @@ addKeys('Sequencer', [
   { key: 'S', alt: true, op: 'sequencer.swap_inputs' },
   { key: 'O', alt: true, op: 'sequencer.offset_clear' },
   { key: 'D', shift: true, op: 'sequencer.duplicate_move' },
+  { key: 'D', alt: true, op: 'sequencer.duplicate_move_linked' },
   { key: 'X', op: 'sequencer.retiming_key_delete' },
   { key: 'DEL', op: 'sequencer.retiming_key_delete' },
   { key: 'X', op: 'sequencer.delete' },
@@ -79,6 +80,8 @@ addKeys('Sequencer', [
 addKeys('SequencerPreview', [
   { key: 'TAB', op: 'sequencer.text_edit_mode_toggle' },
   { key: 'D', shift: true, op: 'sequencer.preview_duplicate_move' },
+  { key: 'D', alt: true, op: 'sequencer.preview_duplicate_move_linked' },
+  { key: 'O', op: 'sequencer.view_ghost_border' },
   { key: 'W', menu: () => stripMenu(true), menuTitle: 'Sequencer Preview' },
   { key: 'A', op: 'sequencer.select_all', props: { action: 'SELECT' } },
   { key: 'A', alt: true, op: 'sequencer.select_all', props: { action: 'DESELECT' } },
