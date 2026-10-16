@@ -19,6 +19,7 @@ import { cameraPanels } from '../../render/final/props/camera';
 import { materialSpecials, shapeKeySpecials, vertexGroupSpecials } from '../../object/listmenus';
 import { propertiesCollection } from '../../object/relations';
 import { objectCollectionsPanel } from '../../object/collections';
+import { customPropsPanelBody } from '../../ui/customprops';
 
 /** Small lock toggle used inside list rows. */
 function lockToggle(on: boolean, tip: string, toggle: () => void): Child {
@@ -295,32 +296,10 @@ registerTab({
         colorProp(o, 'color', 'Color', { alpha: true }),
         o.type === 'EMPTY' ? [enumProp(o, 'empty_display_type', 'Display As', [['PLAIN_AXES', 'Plain Axes'], ['ARROWS', 'Arrows'], ['SINGLE_ARROW', 'Single Arrow'], ['CIRCLE', 'Circle'], ['CUBE', 'Cube'], ['SPHERE', 'Sphere'], ['CONE', 'Cone'], ['IMAGE', 'Image']]), num(o, 'empty_display_size', 'Size', { unit: 'distance', min: 0 })] : null,
       ], { closed: true }),
-      panel('ob-custom', 'Custom Properties', () => customProps(o.custom), { closed: true }),
+      panel('ob-custom', 'Custom Properties', () => customPropsPanelBody(o as never, 'object'), { closed: true }),
     ];
   },
 });
-
-export function customProps(custom: Record<string, unknown>): Child {
-  return [
-    button('cp-new', [icon('add'), 'New'], () => {
-      let i = 0;
-      while (`prop${i ? i : ''}` in custom) i++;
-      custom[`prop${i ? i : ''}`] = 1.0;
-      changed('Add Property');
-    }),
-    Object.entries(custom).map(([k, v]) =>
-      h(
-        'div',
-        { key: k, class: 'custom-prop' },
-        typeof v === 'number'
-          ? splitRow(k, numberField({ id: `cp.${k}`, value: v, set: (x, f) => ((custom[k] = x), app.changed('doc'), f && app.pushUndo('Edit Property')) }), h('button', { class: 'icon-btn', onclick: () => (delete custom[k], changed('Remove Property')) }, icon('x')))
-          : typeof v === 'boolean'
-            ? splitRow(k, checkbox(`cp.${k}`, '', v, (x) => ((custom[k] = x), changed('Edit Property'))), h('button', { class: 'icon-btn', onclick: () => (delete custom[k], changed('Remove Property')) }, icon('x')))
-            : splitRow(k, textField(`cp.${k}`, String(v), (x) => ((custom[k] = x), changed('Edit Property'))), h('button', { class: 'icon-btn', onclick: () => (delete custom[k], changed('Remove Property')) }, icon('x'))),
-      ),
-    ),
-  ];
-}
 
 // ---------------------------------------------------------------------------
 // Data-block selector (browse / name / new / unlink)

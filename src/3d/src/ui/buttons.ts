@@ -2,7 +2,7 @@
 // the value, reset to default, keyframes and drivers, data paths, copy to selected objects,
 // eyedroppers, and the right-click button menu. Shortcuts live in the "User Interface" keymap and
 // apply to the button under the pointer.
-import { app, registerOperators, type OpContext } from '../app/app';
+import { app, operators, registerOperators, type OpContext } from '../app/app';
 import { addKeys, keymaps, keyInputHooks, keyName, keyLabel, type KeyItem } from '../app/keymap';
 import { openMenu, tooltipHooks, menuSettings, type MenuItem } from './menu';
 import { bindingAt, bindingValue, buttonHooks, getBinding, type PropBinding } from './binding';
@@ -148,9 +148,16 @@ const KEY_DEFAULTS: Record<string, unknown> = {
   influence: 1,
 };
 
+/** Defaults known by other modules (e.g. custom properties); the first non-undefined answer wins. */
+export const buttonDefaultHooks: ((b: PropBinding) => unknown)[] = [];
+
 /** Default value of a button's property; undefined when unknown. */
 export function defaultValue(b: PropBinding): unknown {
   if (b.def !== undefined) return b.def;
+  for (const f of buttonDefaultHooks) {
+    const v = f(b);
+    if (v !== undefined) return structuredClone(v);
+  }
   const owner = b.owner as Record<string, unknown>;
   // modifiers and constraints know their type defaults
   if (typeof owner.type === 'string' && modifierTypes[owner.type as string] && 'show_viewport' in owner) {
@@ -738,67 +745,100 @@ const sc = (op: string, props?: Record<string, unknown>) => {
   return '';
 };
 
+/** Sections of the button context menu, in order; other modules add entries to a section. */
+export type ButtonMenuSlot = 'keyframes' | 'drivers' | 'keyingsets' | 'reset' | 'datapath' | 'selected' | 'target' | 'values' | 'help';
+export const buttonMenuHooks: { slot: ButtonMenuSlot; items: (b: PropBinding) => MenuItem[] }[] = [];
+
+/** Whether the property is one of a data-block's custom properties. */
+export function isCustomProp(b: PropBinding): boolean {
+  const loc = ownerLoc(b);
+  return !!loc && /(^|\.)custom$/.test(loc.path);
+}
+
+export { ownerLoc as buttonOwnerLoc, withButton, defaultValue as buttonDefault, readClipboard, writeClipboard };
+
 export function buttonMenu(b: PropBinding): MenuItem[] {
   const a = animOf(b);
   const cur = b.owner[b.key];
   const arr = isArray(cur) && (cur as number[]).length > 1;
+  const single = arr && b.index !== undefined;
   const run =
     (op: string, props: Record<string, unknown> = {}) =>
     () =>
       withButton(b, () => app.run(op, props));
-  const items: MenuItem[] = [];
+  const sections: Record<ButtonMenuSlot, MenuItem[]> = { keyframes: [], drivers: [], keyingsets: [], reset: [], datapath: [], selected: [], target: [], values: [], help: [] };
+  const loc = ownerLoc(b);
   if (a) {
     const st = keyState(app.doc, a.ob, a.path, -1);
     const k = keyedCurves(b, true);
-    items.push(
-      { label: arr ? 'Insert Keyframes' : 'Insert Keyframe', shortcut: sc('anim.keyframe_insert_button'), action: run('anim.keyframe_insert_button', { all: true }) },
-      ...(arr && b.index !== undefined ? [{ label: 'Insert Single Keyframe', action: run('anim.keyframe_insert_button', { all: false }) }] : []),
-    );
-    if (st !== 'none' && st !== 'driven' && k?.curves.length) {
-      items.push(
-        { label: arr ? 'Delete Keyframes' : 'Delete Keyframe', shortcut: sc('anim.keyframe_delete_button'), disabled: st !== 'keyed', action: run('anim.keyframe_delete_button', { all: true }) },
-        ...(arr && b.index !== undefined ? [{ label: 'Delete Single Keyframe', disabled: st !== 'keyed', action: run('anim.keyframe_delete_button', { all: false }) }] : []),
+    const animated = st !== 'none' && st !== 'driven' && !!k?.curves.length;
+    const keyed = animated && keyState(app.doc, a.ob, a.path, single ? (b.index ?? -1) : -1) === 'keyed';
+    const t = { object: a.ob.id, data_path: a.path, index: b.index ?? -1 };
+    // keyframes
+    if (keyed)
+      sections.keyframes.push(
+        { label: arr ? 'Replace Keyframes' : 'Replace Keyframe', shortcut: sc('anim.keyframe_insert_button'), action: run('anim.keyframe_insert_button', { all: true }) },
+        ...(single ? [{ label: 'Replace Single Keyframe', action: run('anim.keyframe_insert_button', { all: false }) }] : []),
+        { label: arr ? 'Delete Keyframes' : 'Delete Keyframe', shortcut: sc('anim.keyframe_delete_button'), action: run('anim.keyframe_delete_button', { all: true }) },
+        ...(single ? [{ label: 'Delete Single Keyframe', action: run('anim.keyframe_delete_button', { all: false }) }] : []),
+      );
+    else if (st !== 'driven')
+      sections.keyframes.push(
+        { label: arr ? 'Insert Keyframes' : 'Insert Keyframe', shortcut: sc('anim.keyframe_insert_button'), action: run('anim.keyframe_insert_button', { all: true }) },
+        ...(single ? [{ label: 'Insert Single Keyframe', action: run('anim.keyframe_insert_button', { all: false }) }] : []),
+      );
+    if (animated) {
+      sections.keyframes.push(
         { label: arr ? 'Clear Keyframes' : 'Clear Keyframe', shortcut: sc('anim.keyframe_clear_button'), action: run('anim.keyframe_clear_button', { all: true }) },
-        ...(arr && b.index !== undefined ? [{ label: 'Clear Single Keyframes', action: run('anim.keyframe_clear_button', { all: false }) }] : []),
+        ...(single ? [{ label: 'Clear Single Keyframes', action: run('anim.keyframe_clear_button', { all: false }) }] : []),
       );
+      if (operators.has('anim.view_curve_in_graph_editor')) sections.keyframes.push({ label: 'View in Graph Editor', op: 'anim.view_curve_in_graph_editor', props: { ...t, index: single ? t.index : -1, isolate: false } });
     }
-    items.push({ separator: true });
+    // drivers (the animation module adds Copy / Paste / Edit Driver and the Drivers editor)
+    const driverExtras = buttonDriverItems.flatMap((f) => f(a.ob, a.path, b.index ?? -1, st === 'driven')).filter((it) => it.op !== 'ui.copy_as_driver_button');
     if (st === 'driven')
-      items.push(
+      sections.drivers.push(
         { label: arr ? 'Delete Drivers' : 'Delete Driver', shortcut: 'Ctrl Alt D', action: () => removeDriver(b, true) },
-        ...(arr && b.index !== undefined ? [{ label: 'Delete Single Driver', action: () => removeDriver(b, false) }] : []),
+        ...(single ? [{ label: 'Delete Single Driver', action: () => removeDriver(b, false) }] : []),
+        ...driverExtras,
       );
-    else
-      items.push(
+    else if (!animated)
+      sections.drivers.push(
         { label: arr ? 'Add Drivers' : 'Add Driver', shortcut: arr ? '' : 'Ctrl D', action: () => addDriver(b, true) },
-        ...(arr && b.index !== undefined ? [{ label: 'Add Single Driver', shortcut: 'Ctrl D', action: () => addDriver(b, false) }] : []),
+        ...(single ? [{ label: 'Add Single Driver', shortcut: 'Ctrl D', action: () => addDriver(b, false) }] : []),
+        ...driverExtras,
       );
-    items.push(...buttonDriverItems.flatMap((f) => f(a.ob, a.path, b.index ?? -1, st === 'driven')));
-    items.push({ separator: true });
+    // keying sets
+    if (operators.has('anim.keyingset_button_add'))
+      sections.keyingsets.push(
+        { label: arr ? 'Add All to Keying Set' : 'Add to Keying Set', op: 'anim.keyingset_button_add', props: { ...t, all: true } },
+        ...(single ? [{ label: 'Add Single to Keying Set', op: 'anim.keyingset_button_add', props: { ...t, all: false } }] : []),
+        ...(inKeyingSet(a.ob.id, a.path) ? [{ label: 'Remove from Keying Set', op: 'anim.keyingset_button_remove', props: { ...t, all: true } }] : []),
+      );
+    if (st !== 'driven' && operators.has('ui.copy_as_driver_button') && loc) sections.datapath.push({ label: 'Copy as New Driver', op: 'ui.copy_as_driver_button', props: t });
   }
+  // reset
   const hasDefault = defaultValue(b) !== undefined;
-  items.push(
+  sections.reset.push(
     { label: arr ? 'Reset All to Default Values' : 'Reset to Default Value', shortcut: sc('ui.reset_default_button'), disabled: !hasDefault, action: run('ui.reset_default_button', { all: true }) },
-    ...(arr && b.index !== undefined ? [{ label: 'Reset Single to Default Value', disabled: !hasDefault, action: run('ui.reset_default_button', { all: false }) }] : []),
+    ...(single ? [{ label: 'Reset Single to Default Value', disabled: !hasDefault, action: run('ui.reset_default_button', { all: false }) }] : []),
   );
-  const loc = ownerLoc(b);
-  if (loc) {
-    items.push(
-      { separator: true },
+  // data paths (before Copy as New Driver)
+  if (loc)
+    sections.datapath.unshift(
       { label: 'Copy Data Path', shortcut: sc('ui.copy_data_path_button'), action: run('ui.copy_data_path_button', { full_path: false }) },
       { label: 'Copy Full Data Path', shortcut: sc('ui.copy_data_path_button', { full_path: true }), action: run('ui.copy_data_path_button', { full_path: true }) },
     );
-  }
+  // copy to selected
   if (loc && (loc.table === 'objects' || animTarget(app.doc, loc, b.key, app.activeObject))) {
     const many = app.selectedObjects().length > 1;
-    items.push(
-      { separator: true },
+    sections.selected.push(
       { label: arr ? 'Copy All to Selected' : 'Copy to Selected', disabled: !many, action: run('ui.copy_to_selected_button', { all: true }) },
-      ...(arr && b.index !== undefined ? [{ label: 'Copy Single to Selected', disabled: !many, action: run('ui.copy_to_selected_button', { all: false }) }] : []),
+      ...(single ? [{ label: 'Copy Single to Selected', disabled: !many, action: run('ui.copy_to_selected_button', { all: false }) }] : []),
     );
   }
-  items.push(
-    { separator: true },
+  // values
+  sections.values.push(
     { label: 'Copy Value', shortcut: 'Ctrl C', action: () => copyButtonValue(b, false) },
     { label: 'Paste Value', shortcut: 'Ctrl V', action: () => void readClipboard().then((t) => t && pasteButtonValue(b, t, false)) },
     ...(arr
@@ -808,10 +848,38 @@ export function buttonMenu(b: PropBinding): MenuItem[] {
         ]
       : []),
   );
-  if (b.kind === 'color') items.push({ separator: true }, { label: 'Eyedropper', shortcut: 'E', action: () => colorEyedropper(b) });
-  if (b.kind === 'object') items.push({ separator: true }, { label: 'Eyedropper', shortcut: 'E', action: () => idEyedropper(b) });
-  if (isDepth(b)) items.push({ separator: true }, { label: 'Depth Eyedropper', shortcut: 'E', action: () => depthEyedropper(b) });
+  if (b.kind === 'color') sections.values.push({ label: 'Eyedropper', shortcut: 'E', action: () => colorEyedropper(b) });
+  if (b.kind === 'object') sections.values.push({ label: 'Eyedropper', shortcut: 'E', action: () => idEyedropper(b) });
+  if (isDepth(b)) sections.values.push({ label: 'Depth Eyedropper', shortcut: 'E', action: () => depthEyedropper(b) });
+  for (const hk of buttonMenuHooks) {
+    try {
+      sections[hk.slot].push(...withButton(b, () => hk.items(b)));
+    } catch {
+      // a broken hook never hides the rest of the menu
+    }
+  }
+  const items: MenuItem[] = [];
+  for (const k of Object.keys(sections) as ButtonMenuSlot[]) {
+    const list = sections[k];
+    if (!list.length) continue;
+    if (items.length) items.push({ separator: true });
+    // entries run (and poll) with this button as the target, wherever the pointer is by then
+    items.push(
+      ...list.map((it): MenuItem => {
+        if (it.action) return { ...it, action: () => withButton(b, it.action!) };
+        if (!it.op) return it;
+        const { op, props = {} } = it;
+        return { ...it, op: undefined, disabled: it.disabled || !withButton(b, () => app.poll(op)), action: () => withButton(b, () => app.run(op, props)) };
+      }),
+    );
+  }
   return items;
+}
+
+function inKeyingSet(obId: string, path: string): boolean {
+  const name = app.doc.scene.keying_set;
+  const set = name?.startsWith('KS:') ? app.doc.scene.keying_sets?.find((k) => `KS:${k.name}` === name) : undefined;
+  return !!set?.paths.some((p) => p.id === obId && p.data_path === path);
 }
 
 addEventListener(

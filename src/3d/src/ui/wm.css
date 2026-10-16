@@ -1,0 +1,99 @@
+/* Generic UI: custom property rows, operator dialogs, help cards. */
+
+.custom-prop {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.custom-prop > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.custom-prop .cp-tools {
+  display: flex;
+  gap: 1px;
+}
+.custom-prop .cp-tools .icon-btn {
+  width: 20px;
+  height: 20px;
+}
+.btn.cp-new {
+  width: 100%;
+  margin-bottom: 4px;
+}
+.btn.cp-python {
+  width: 100%;
+  text-align: left;
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.op-dialog .prop-line,
+.op-dialog .num-field {
+  min-height: var(--row);
+}
+.op-dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+.op-dialog-buttons .btn {
+  min-width: 90px;
+}
+
+.help-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 2px 4px;
+  user-select: text;
+}
+.help-card .hc-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--c-text-hi);
+}
+.help-card .hc-desc {
+  margin: 0 0 4px;
+  color: var(--c-text);
+  white-space: pre-line;
+  line-height: 1.4;
+}
+.help-card .hc-row {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+.help-card .hc-key {
+  color: var(--c-text-dim);
+  text-align: right;
+}
+.help-card .hc-val {
+  color: var(--c-text);
+  overflow-wrap: anywhere;
+}
+.help-card code {
+  font: 11px var(--mono);
+  color: var(--c-text-hi);
+}
+.help-card .hc-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--c-border);
+  color: var(--c-text-dim);
+  font-size: 11px;
+}
+.help-card kbd {
+  font: 10px var(--font);
+  color: var(--c-text);
+  border: 1px solid var(--c-border);
+  border-radius: 3px;
+  padding: 0 3px;
+}

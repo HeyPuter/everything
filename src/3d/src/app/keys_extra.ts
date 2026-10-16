@@ -220,7 +220,7 @@ registerOperators([
   },
 ]);
 
-function orientationPie() {
+export function orientationPie() {
   const cur = currentOrientation();
   // W E S N NW NE SW SE: the built-in orientations in order, then the first custom one
   const items: (PieItem | null)[] = BUILTIN_ORIENTATIONS.map(([o, label, ic]) => ({ label, icon: ic, active: cur === o, action: () => setOrientation(o) }));
@@ -229,7 +229,7 @@ function orientationPie() {
   openPie('Transform Orientation', items, app.pointer.x, app.pointer.y, 'COMMA');
 }
 
-function falloffPie() {
+export function falloffPie() {
   const ts = app.doc.scene.tool_settings;
   const items = (['SMOOTH', 'SPHERE', 'ROOT', 'INVERSE_SQUARE', 'SHARP', 'LINEAR', 'CONSTANT', 'RANDOM'] as const).map((f) => ({
     label: f === 'INVERSE_SQUARE' ? 'Inverse Square' : f[0] + f.slice(1).toLowerCase(),
