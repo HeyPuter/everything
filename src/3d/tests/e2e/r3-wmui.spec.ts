@@ -349,3 +349,12 @@ test('export options dialog has an operator preset menu', async ({ page }) => {
   await page.keyboard.press('Escape');
   await expectNoErrors(errors);
 });
+
+test('F1 over a menu entry shows its help card', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.locator('.topbar .tb-menu', { hasText: 'File' }).dispatchEvent('pointerdown');
+  await page.locator('.popup-layer .menu .mi-label', { hasText: /^Save$/ }).hover();
+  await page.keyboard.press('F1');
+  await expect(page.locator('.help-card')).toContainText('bpy.ops.wm.save_mainfile()');
+  await expectNoErrors(errors);
+});

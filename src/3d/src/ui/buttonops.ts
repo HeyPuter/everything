@@ -6,7 +6,7 @@ import { app, operators, registerOperators } from '../app/app';
 import { addKeys, shortcutLabel } from '../app/keymap';
 import { h, type Child } from './h';
 import { icon } from './icons';
-import { openMenu, openPopover, itemContextHooks, type MenuItem } from './menu';
+import { openMenu, openPopover, itemContextHooks, menuHelpHook, type MenuItem } from './menu';
 import { bindingAt, bindingValue, type PropBinding } from './binding';
 import { activateHovered, animOf, buttonDefaultHooks, buttonMenuHooks, buttonOwnerLoc, isCustomProp, targetButton, writeClipboard } from './buttons';
 import { fullDataPath } from './rnapath';
@@ -444,3 +444,5 @@ registerOperators([
 ]);
 
 addKeys('Window', [{ key: 'F1', op: 'wm.doc_view_manual_ui_context' }]);
+
+menuHelpHook.show = (item, at) => item.op && showHelp({ kind: 'op', op: item.op, props: item.props ?? {}, label: item.label ?? operators.get(item.op)?.label ?? item.op }, at);
