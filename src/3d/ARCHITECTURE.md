@@ -54,6 +54,10 @@ src/
   assets/     Asset system: asset metadata on data-blocks (asset_data), catalogs, libraries (Current
               File, built-in Essentials, user libraries in IndexedDB), previews, Asset Browser editor
               (ASSETS), drag and drop, pose library, import of .blend asset marks (io/blend/assets.ts)
+  scenes/     Multiple scenes (doc.scene is the active one, others in doc.scenes with their master
+              collection), view layers (active layer's passes / collection flags are live, others
+              stored and swapped in), light linking + light groups (rendervis.ts feeds RenderScene),
+              background scenes, topbar Scene / View Layer selectors, bpy scenes & view layers
   edit/, modifiers/, storage/document.ts, core/   legacy polygon kernels kept for reuse
                                                  (unwrap/UV) and the legacy .3d.json parser
 ```
