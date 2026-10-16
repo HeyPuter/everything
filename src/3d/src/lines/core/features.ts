@@ -29,6 +29,8 @@ export interface FeatureMesh {
   edgeMarks?: Uint8Array;
   /** per face: face marked */
   faceMarks?: Uint8Array;
+  /** per corner: the edge always counts as a crease (e.g. marked sharp) */
+  creaseMarks?: Uint32Array | Uint8Array;
   looseEdges?: Uint32Array;
   /** index of the object in the scene list */
   object: number;
@@ -254,6 +256,8 @@ export function extractFeatures(m: FeatureMesh, view: ViewInfo, o: FeatureOption
   // corners per edge (for the edge marks, any corner counts)
   const marked = m.edgeMarks ? new Uint8Array(ne) : null;
   if (marked) for (let c = 0; c < m.indices.length; c++) if (m.edgeMarks![c]) marked[et.cornerEdge[c]] = 1;
+  const forced = m.creaseMarks ? new Uint8Array(ne) : null;
+  if (forced) for (let c = 0; c < m.indices.length; c++) if (m.creaseMarks![c]) forced[et.cornerEdge[c]] = 1;
   for (let e = 0; e < ne; e++) {
     const k0 = et.faceOffsets[e],
       k1 = et.faceOffsets[e + 1];
@@ -279,7 +283,7 @@ export function extractFeatures(m: FeatureMesh, view: ViewInfo, o: FeatureOption
         inner = [C[frontFace * 3], C[frontFace * 3 + 1], C[frontFace * 3 + 2]];
       }
       if (nfaces === 2) {
-        if (angleOf[e] < creaseLimit) flags |= F.CREASE;
+        if (angleOf[e] < creaseLimit || forced?.[e]) flags |= F.CREASE;
         if (o.materialBoundaries !== false && (m.material_index?.[f0] ?? 0) !== (m.material_index?.[f1] ?? 0)) flags |= F.MATERIAL;
         if (vTurn && vCount && turn[e] > (3 * Math.PI) / 180 && !(flags & F.CREASE)) {
           const va = et.verts[e * 2],

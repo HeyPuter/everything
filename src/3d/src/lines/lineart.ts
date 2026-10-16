@@ -18,7 +18,7 @@ import { kernels, kernelKeys, generatorTypes, GP_EXTRA_TYPES, type GPModContext 
 import { newPoint, newStroke, type GPStroke } from '../greasepencil/data';
 import { extractFeatures, F, type FeatureEdge } from './core/features';
 import { Occlusion, visibilityPieces, type OccluderInput } from './core/visibility';
-import { chainPieces } from './core/chain';
+import { chainPieces, joinNearEnds } from './core/chain';
 import { intersectionEdges } from './core/intersections';
 import { worldPositions, type LineObject } from './core/pipeline';
 import { lineCamera, lineObjects, inCollection } from './scene';
@@ -225,7 +225,7 @@ export function computeLineArt(m: M, doc: DocumentData): LineArtStroke[] {
     const ob = doc.objects[o.id];
     const crease = ob?.lineart?.use_crease_override ? ob.lineart.crease_threshold : num(m, 'crease_threshold', (140 * Math.PI) / 180);
     const wp = worldPositions(o.positions, o.world);
-    for (const e of extractFeatures({ positions: wp, offsets: o.offsets, indices: o.indices, material_index: o.material_index, smooth: o.smooth, edgeMarks: o.edgeMarks, looseEdges: o.looseEdges, object: i, creaseAngle: crease }, cam.view, { creaseAngle: crease, loose: true, materialBoundaries: true })) {
+    for (const e of extractFeatures({ positions: wp, offsets: o.offsets, indices: o.indices, material_index: o.material_index, smooth: o.smooth, edgeMarks: o.edgeMarks, looseEdges: o.looseEdges, object: i, creaseAngle: crease, creaseMarks: m.use_crease_on_sharp !== false ? o.sharp : undefined }, cam.view, { creaseAngle: crease, loose: true, materialBoundaries: true })) {
       let flags = e.flags;
       // smooth-shaded surfaces only crease where asked
       if (!m.use_crease_on_smooth && o.smooth && e.f0 >= 0 && e.f1 >= 0 && o.smooth[e.f0] && o.smooth[e.f1]) flags &= ~F.CREASE;
@@ -244,11 +244,21 @@ export function computeLineArt(m: M, doc: DocumentData): LineArtStroke[] {
   }
   const lo = Math.max(0, Math.round(num(m, 'level_start'))),
     hi = m.use_multiple_levels ? Math.max(lo, Math.round(num(m, 'level_end'))) : lo;
-  const pieces = visibilityPieces(edges, cam, new Occlusion(occ), { maxQi: hi, margin: Math.max(0, num(m, 'overscan', 0.1)) }).filter((p) => p.qi >= lo && p.qi <= hi);
-  const strokes = chainPieces(pieces, cam, { use_chaining: true, chaining: 'PLAIN', rounds: 1 });
+  const margin = m.use_image_boundary_trimming ? 0 : Math.max(0, num(m, 'overscan', 0.1));
+  const pieces = visibilityPieces(edges, cam, new Occlusion(occ), { maxQi: hi, margin }).filter((p) => p.qi >= lo && p.qi <= hi);
+  let strokes = chainPieces(pieces, cam, { use_chaining: true, chaining: 'PLAIN', rounds: 1 });
+  const thr = num(m, 'chaining_image_threshold', 0.001) * Math.hypot(W, H);
+  if (thr > 0) strokes = joinNearEnds(strokes, thr);
   const off = num(m, 'stroke_depth_offset', 0.05);
-  const eye = cam.view.eye,
+  let eye = cam.view.eye,
     dir = cam.view.dir;
+  // the offset may push towards another camera than the one the lines are seen from
+  const towards = m.use_offset_towards_custom_camera && !m.use_custom_camera && typeof m.source_camera === 'string' ? app.graph.get(m.source_camera) : undefined;
+  if (towards) {
+    const e = towards.world.elements;
+    eye = [e[12], e[13], e[14]];
+    dir = [-e[8], -e[9], -e[10]];
+  }
   return strokes
     .filter((s) => s.pts.length >= 2)
     .map((s) => ({

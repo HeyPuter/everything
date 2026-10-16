@@ -269,3 +269,24 @@ describe('occlusion weights', () => {
     expect(Math.min(...qi2.map((p) => p.qi))).toBeGreaterThanOrEqual(4);
   });
 });
+
+describe('line art helpers', () => {
+  it('joins chains whose ends are close in the image', async () => {
+    const { joinNearEnds } = await import('../../src/lines/core/chain');
+    const a = { pts: [sv(0, 0), sv(10, 0)], qi: 0, flags: 0 };
+    const b = { pts: [sv(20, 0), sv(10.5, 0)], qi: 0, flags: 0 };
+    const c = { pts: [sv(50, 50), sv(60, 50)], qi: 0, flags: 0 };
+    const out = joinNearEnds([a, b, c], 1);
+    expect(out.length).toBe(2);
+    expect(out[0].pts.map((p) => p.x)).toEqual([0, 10, 20]);
+  });
+
+  it('forces creases on marked edges', () => {
+    const c = cube();
+    const marks = new Uint8Array(24);
+    marks[0] = 1;
+    // a flat crease limit: only the marked edge creases
+    const edges = extractFeatures({ ...c, object: 0, creaseMarks: marks }, camera([4, -5, 3]).view, { creaseAngle: 0.01 });
+    expect(edges.filter((e) => e.flags & F.CREASE).length).toBe(1);
+  });
+});

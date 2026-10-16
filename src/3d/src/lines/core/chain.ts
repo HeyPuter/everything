@@ -349,3 +349,41 @@ export function selectAndSort(strokes: Stroke2D[], o: SelectSortOptions): Stroke
   if (o.use_chain_count) list = list.slice(0, Math.max(0, Math.round(o.chain_count ?? 0)));
   return list;
 }
+
+/** Join strokes whose ends lie within `thr` pixels of each other (greedy, nearest first). */
+export function joinNearEnds(strokes: Stroke2D[], thr: number): Stroke2D[] {
+  if (strokes.length < 2 || strokes.length > 4000) return strokes;
+  const list = strokes.map((s) => ({ ...s, pts: [...s.pts] }));
+  const alive = list.map(() => true);
+  const d = (a: SV, b: SV) => Math.hypot(a.x - b.x, a.y - b.y);
+  for (let i = 0; i < list.length; i++) {
+    if (!alive[i]) continue;
+    for (let guard = 0; guard < list.length; guard++) {
+      const s = list[i];
+      const end = s.pts[s.pts.length - 1],
+        start = s.pts[0];
+      let best = -1,
+        bestD = thr,
+        how = 0;
+      for (let j = 0; j < list.length; j++) {
+        if (j === i || !alive[j] || list[j].qi !== s.qi) continue;
+        const t = list[j];
+        const cands = [d(end, t.pts[0]), d(end, t.pts[t.pts.length - 1]), d(start, t.pts[t.pts.length - 1]), d(start, t.pts[0])];
+        for (let k = 0; k < 4; k++)
+          if (cands[k] < bestD) {
+            bestD = cands[k];
+            best = j;
+            how = k;
+          }
+      }
+      if (best < 0) break;
+      const t = list[best].pts;
+      if (how === 0) s.pts.push(...t.slice(1));
+      else if (how === 1) s.pts.push(...[...t].reverse().slice(1));
+      else if (how === 2) s.pts.unshift(...t.slice(0, -1));
+      else s.pts.unshift(...[...t].reverse().slice(0, -1));
+      alive[best] = false;
+    }
+  }
+  return list.filter((_, i) => alive[i]);
+}
