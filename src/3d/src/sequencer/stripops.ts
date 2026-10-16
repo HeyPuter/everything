@@ -8,6 +8,7 @@ import { restartPlayback } from './audio';
 import { clearMovieCaches, getMovie, loadImage, loadSound, mimeFor } from './media';
 import { pickFiles, ACCEPT, fileBytes, fitScale, addEffect } from './add';
 import { download } from '../io/native';
+import { sceneByName } from '../scenes/scenes';
 import { subtitlesSrt } from './subtitles';
 import { effectTypesFor, changeEffectType, swapData } from './stripdata';
 export { effectTypesFor };
@@ -154,10 +155,13 @@ const ops: Operator[] = [
     description: 'Fit the selected scene strips’ content length to the scene’s frame range',
     poll: () => selectedStrips().some((s) => s.type === 'SCENE'),
     exec: (c) => {
-      const len = Math.max(1, c.doc.scene.frame_end - c.doc.scene.frame_start + 1);
-      const changed = selectedStrips().filter((s) => s.type === 'SCENE' && !isLocked(s) && s.frame_duration !== len);
+      const lenOf = (s: Strip) => {
+        const sc = sceneByName(c.doc, s.scene) ?? c.doc.scene;
+        return Math.max(1, sc.frame_end - sc.frame_start + 1);
+      };
+      const changed = selectedStrips().filter((s) => s.type === 'SCENE' && !isLocked(s) && s.frame_duration !== lenOf(s));
       for (const s of changed) {
-        s.frame_duration = len;
+        s.frame_duration = lenOf(s);
         S.clampOffsets(s);
       }
       if (!changed.length) return 'CANCELLED';

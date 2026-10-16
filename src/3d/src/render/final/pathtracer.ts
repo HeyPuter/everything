@@ -1,6 +1,6 @@
 // Progressive path tracer built on three-gpu-pathtracer's WebGLPathTracer. We drive the inner
 // accumulation renderer directly so the result can be denoised and colour-managed ourselves.
-import { Matrix4, type Camera, type WebGLRenderer, type Texture, type WebGLRenderTarget } from 'three';
+import { Matrix4, type Camera, type Light, type Material, type Object3D, type WebGLRenderer, type Texture, type WebGLRenderTarget } from 'three';
 import { WebGLPathTracer } from 'three-gpu-pathtracer';
 import type { RenderScene } from './renderscene';
 import type { RenderSettings } from '../../data/types';
@@ -71,6 +71,94 @@ export function patchPathTracingShader(src: string): string | null {
   return head + body;
 }
 
+/**
+ * Light linking and indirect-only surfaces: per-light masks of the link groups a light lights
+ * (receivers) and that cast its shadows (blockers); materials carry their link group and an
+ * "invisible to camera rays" flag in their shading flags. Supplied by the scenes module.
+ */
+export const pathTracerLinkHook: {
+  data?: (rs: RenderScene, lights: Light[], materials: Material[]) => { lights: Float32Array; on: boolean };
+} = {};
+
+/** Patch the path tracing shader for light linking and indirect-only surfaces (null when the shader does not match). */
+export function patchLightLinking(src: string): string | null {
+  const helpersAt = src.indexOf('float applyFilteredGlossy(');
+  const mainAt = src.indexOf('void main()');
+  if (helpersAt < 0 || mainAt < 0) return null;
+  const helpers = `
+    uniform int ptLinkOn;
+    // per light (path tracer order): bit masks of the link groups it lights / that block it
+    uniform vec2 ptLinkL[ ${PT_LINK_LIGHTS} ];
+    uint ptCurMat = 0u;
+    int ptCurLight = -1;
+    int ptSkips = 0;
+    // link group and indirect-only flag are packed above the shading flags of each material
+    int ptMatFlags( uint m ) { return int( texelFetch1D( materials, m * uint( MATERIAL_PIXELS ) + 14u ).b + 0.5 ); }
+    bool ptIndirectOnly( uint m ) { return ( ( ptMatFlags( m ) >> 3 ) & 1 ) != 0; }
+    // channel 0: does the light light material m, 1: does material m block the light
+    bool ptLinkTest( int light, uint m, int ch ) {
+      if ( ptLinkOn == 0 || light < 0 || light >= ${PT_LINK_LIGHTS} ) return true;
+      vec2 L = ptLinkL[ light ];
+      int g = ( ptMatFlags( m ) >> 4 ) & 31;
+      int mask = int( ( ch == 0 ? L.x : L.y ) + 0.5 );
+      return ( ( mask >> g ) & 1 ) != 0;
+    }
+  `;
+  let head = src.slice(0, helpersAt) + helpers + src.slice(helpersAt, mainAt);
+  let body = src.slice(mainAt);
+  // light sampling: the sampled light must light the shading point; its shadow rays only see blockers
+  const sample = /LightRecord lightRec = randomLightSample\( lights\.tex, iesProfiles, lights\.count, rayOrigin, rand3\( 6 \) \);/;
+  if (!sample.test(head)) return null;
+  head = head.replace(
+    sample,
+    `vec3 ptR = rand3( 6 );
+     LightRecord lightRec = randomLightSample( lights.tex, iesProfiles, lights.count, rayOrigin, ptR );
+     int ptLi = min( int( ptR.x * float( lights.count ) ), int( lights.count ) - 1 );
+     if ( ! ptLinkTest( ptLi, ptCurMat, 0 ) ) lightRec.pdf = 0.0;
+     ptCurLight = ptLi;`,
+  );
+  const envBranch = /\} else if \( envMapInfo\.totalSum != 0\.0 && environmentIntensity != 0\.0 \) \{/;
+  if (!envBranch.test(head)) return null;
+  head = head.replace(envBranch, (m) => `ptCurLight = -1;\n${m}`);
+  const shadowSkip = /if \( ! material\.castShadow && isShadowRay \) \{\s*continue;\s*\}/;
+  if (!shadowSkip.test(head)) return null;
+  head = head.replace(shadowSkip, (m) => `${m}\n if ( ! ptLinkTest( ptCurLight, materialIndex, 1 ) ) { continue; }`);
+  // main loop: remember the shading material, skip indirect-only surfaces for camera rays
+  const read = 'Material material = readMaterialInfo( materials, materialIndex );';
+  if (!body.includes(read)) return null;
+  body = body.replace(read, `${read}\n ptCurMat = materialIndex;`);
+  const matte = '// early out if this is a matte material';
+  if (!body.includes(matte)) return null;
+  body = body.replace(
+    matte,
+    `if ( state.firstRay && ptLinkOn != 0 && ptIndirectOnly( materialIndex ) && ptSkips < 8 ) {
+       ptSkips ++;
+       ray.origin = stepRayOrigin( ray.origin, ray.direction, - surfaceHit.faceNormal, surfaceHit.dist );
+       i --;
+       state.depth --;
+       continue;
+     }
+     ${matte}`,
+  );
+  const hit = 'intersectLightAtIndex( lights.tex, ray.origin, ray.direction, i, lightRec ) &&';
+  if (!body.includes(hit)) return null;
+  body = body.replace(hit, `${hit} ptLinkTest( int( i ), ptCurMat, 0 ) &&`);
+  return head + body;
+}
+
+/** Lights with individual link masks in the path tracer (later lights are not linked). */
+export const PT_LINK_LIGHTS = 64;
+
+/** Lights in the path tracer's order (visible lights sorted by descending uuid). */
+function tracerLights(root: Object3D): Light[] {
+  const out: Light[] = [];
+  root.traverse((c) => {
+    const l = c as Light & { isRectAreaLight?: boolean; isSpotLight?: boolean; isPointLight?: boolean; isDirectionalLight?: boolean };
+    if (c.visible && (l.isRectAreaLight || l.isSpotLight || l.isPointLight || l.isDirectionalLight)) out.push(l);
+  });
+  return out.sort((a, b) => (a.uuid < b.uuid ? 1 : a.uuid > b.uuid ? -1 : 0));
+}
+
 export class PathTracerCore {
   readonly pt: WebGLPathTracer;
   private inner: Inner['_pathTracer'];
@@ -104,6 +192,40 @@ export class PathTracerCore {
       mat.needsUpdate = true;
       this.patched = true;
     }
+    const linked = patchLightLinking(mat.fragmentShader);
+    if (linked) {
+      mat.uniforms.ptLinkOn = { value: 0 };
+      mat.uniforms.ptLinkL = { value: new Float32Array(PT_LINK_LIGHTS * 2) };
+      mat.fragmentShader = linked;
+      mat.needsUpdate = true;
+      this.linkPatched = true;
+    }
+  }
+
+  private linkPatched = false;
+  private linkKey = '';
+
+  /** Upload light linking / indirect-only data for the current scene. */
+  private updateLinks(rs: RenderScene) {
+    if (!this.linkPatched) return;
+    const u = this.inner.material.uniforms;
+    const mats = ((this.pt as unknown as { _materials?: Material[] })._materials ?? []) as Material[];
+    const d = pathTracerLinkHook.data && rs.vis ? pathTracerLinkHook.data(rs, tracerLights(rs.scene), mats) : null;
+    const key = d && d.on ? `${Array.from(d.lights).join(',')}|${mats.length}` : '';
+    if (key === this.linkKey) return;
+    this.linkKey = key;
+    u.ptLinkOn.value = d?.on ? 1 : 0;
+    if (!d?.on) {
+      this.reset();
+      return;
+    }
+    const L = u.ptLinkL.value as Float32Array;
+    L.fill(0);
+    for (let i = 0; i < PT_LINK_LIGHTS && i * 4 < d.lights.length; i++) {
+      L[i * 2] = d.lights[i * 4];
+      L[i * 2 + 1] = d.lights[i * 4 + 1];
+    }
+    this.reset();
   }
 
   private patched = false;
@@ -177,12 +299,14 @@ export class PathTracerCore {
       this.envKey = rs.envKey;
       this.revision = revision;
       this.storeCamera(camera);
+      this.updateLinks(rs);
       this.reset();
       return;
     }
     if (rs.lightsVersion !== this.lightsVersion) {
       this.lightsVersion = rs.lightsVersion;
       this.pt.updateLights();
+      this.updateLinks(rs);
       this.reset();
     }
     if (rs.envKey !== this.envKey) {

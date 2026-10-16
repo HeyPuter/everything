@@ -8,6 +8,8 @@ import { renderSettings, sub } from './common';
 /** Extra rows of Passes ▸ Data and extra View Layer panels (registered by feature modules). */
 export const viewLayerDataItems: (() => Child)[] = [];
 export const viewLayerPanels: (() => Child)[] = [];
+/** Extra rows of the View Layer panel (e.g. the per-layer sample count). */
+export const viewLayerMainItems: (() => Child)[] = [];
 
 registerTab({
   id: 'VIEW_LAYER',
@@ -19,7 +21,11 @@ registerTab({
     const r = renderSettings();
     r.ambient_occlusion_distance ??= 1;
     return [
-      panel('vl-layer', 'View Layer', () => [bool(r, 'use_view_layer', 'Use for Rendering', { tip: 'Render this view layer (F12 / Ctrl F12)' })]),
+      panel('vl-layer', 'View Layer', () => [
+        bool(r, 'use_view_layer', 'Use for Rendering', { tip: 'Render this view layer with F12 / Ctrl F12 (every view layer used for rendering is rendered)' }),
+        bool(r, 'use_single_layer', 'Render Single Layer', { tip: 'F12 / Ctrl F12 render only the active view layer' }),
+        ...viewLayerMainItems.map((f) => f()),
+      ]),
       panel('vl-passes', 'Passes', () => [
         sub('vl-passes-data', 'Data', () => [
           bool(r, 'use_pass_combined', 'Combined', { tip: 'The final image (always rendered)', disabled: true }),

@@ -817,13 +817,14 @@ const ops: Operator[] = [
       { id: 'frame_start', label: 'Start Frame', type: 'int', default: 0 },
       { id: 'channel', label: 'Channel', type: 'int', default: 1, min: 1, max: 128 },
       { id: 'camera', label: 'Camera', type: 'string', default: '' },
+      { id: 'scene', label: 'Scene', type: 'string', default: '', hidden: true },
     ],
     invoke: (_c, p) => {
       const [frame, channel] = insertPoint();
       return app.run('sequencer.scene_strip_add', { ...p, frame_start: frame, channel }, { invoke: false });
     },
     exec: (_c, p) => {
-      addScene(p.frame_start as number, p.channel as number, (p.camera as string) || null);
+      addScene(p.frame_start as number, p.channel as number, (p.camera as string) || null, (p.scene as string) || null);
       done();
     },
   },

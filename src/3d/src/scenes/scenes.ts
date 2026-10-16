@@ -8,6 +8,7 @@ import { defaultScene, newCollection, uid } from '../data/defaults';
 import { cloneShared } from '../data/cow';
 import { applyLiveFlags, captureLiveFlags, collectionTree, ensureViewLayers } from './viewlayers';
 import type { LayerCollectionFlags } from './types';
+import './sets';
 
 export type SceneNewType = 'NEW' | 'EMPTY' | 'LINK_COPY' | 'FULL_COPY';
 
@@ -184,7 +185,6 @@ export function newScene(doc: DocumentData, type: SceneNewType, dup?: { duplicat
     sc.collection = master.id;
     sc.active_object = null;
     sc.custom = {};
-    delete sc.custom_ui;
     delete (sc as { asset_data?: unknown }).asset_data;
     ensureViewLayers(sc);
     const liveFlags = captureLiveFlags(doc);
@@ -322,6 +322,7 @@ export function deleteScene(doc: DocumentData, id: ID): boolean {
   }
   const removed = doc.scenes![id];
   delete doc.scenes![id];
+  for (const s of allScenes(doc)) if (s.background_set === id) s.background_set = null;
   // objects of the deleted scene's master collection that nothing else links
   const linked = new Set<ID>();
   for (const c of Object.values(doc.collections)) for (const o of c.objects) linked.add(o);

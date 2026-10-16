@@ -56,3 +56,139 @@ test('top bar: view layers keep their own collection exclusion', async ({ page }
   await expect.poll(() => page.evaluate(() => (window as any).app.doc.scene.view_layers.map((l: any) => l.name))).toEqual(['ViewLayer.001']);
   await expectNoErrors(errors);
 });
+
+test('light linking: Ctrl L ▸ Link Receivers and the Object ▸ Shading list', async ({ page }) => {
+  const errors = await openApp(page);
+  // select the cube, then the light (active)
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const obs = Object.values(a.doc.objects) as any[];
+    for (const o of obs) o.select = o.name === 'Cube' || o.name === 'Light';
+    a.doc.scene.active_object = obs.find((o) => o.name === 'Light').id;
+    a.changed('select');
+  });
+  const box = await page.locator('.view3d').first().boundingBox();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.keyboard.press('Control+l');
+  await menuItem(page, 'Link Receivers');
+  await menuItem(page, 'Exclude');
+  await expect.poll(() => page.evaluate(() => Object.values((window as any).app.doc.collections).some((c: any) => c.name === 'Light Linking for Light'))).toBe(true);
+  await page.locator('.rail-tab[data-tab="OBJECT"]').first().click();
+  await page.locator('[data-panel="ob-shading"] > .panel-header').click();
+  await expect(page.locator('.properties').getByText('Light Linking', { exact: true })).toBeVisible();
+  await expect(page.locator('.properties .ll-state.exclude')).toHaveCount(1);
+  // flip the state to include
+  await page.locator('.properties .ll-state.exclude').click();
+  await expect.poll(() => page.evaluate(() => Object.values((Object.values((window as any).app.doc.collections).find((c: any) => c.name === 'Light Linking for Light') as any).light_linking))).toEqual(['INCLUDE']);
+  await expect(page.locator('.properties .ll-state.exclude')).toHaveCount(0);
+  await expectNoErrors(errors);
+});
+
+test('View Layer tab: light groups list with add and remove', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.locator('.rail-tab[data-tab="VIEW_LAYER"]').first().click();
+  const lg = page.locator('[data-panel="vl-lightgroups"]');
+  await lg.locator('> .panel-header').click();
+  await lg.locator('.ul-side button[data-tip="Add"]').click();
+  await expect.poll(() => page.evaluate(() => (window as any).app.doc.scene.view_layers[0].lightgroups.map((g: any) => g.name))).toEqual(['Lightgroup']);
+  await expect(lg.getByText('Lightgroup', { exact: true })).toBeVisible();
+  await expectNoErrors(errors);
+});
+
+test('F12 renders every view layer; the Render Layers node can read another scene', async ({ page }) => {
+  const errors = await openApp(page);
+  const res = await page.evaluate(async () => {
+    const app = (window as any).app;
+    const { renderResult } = await import('/src/render/final/result.ts' as string);
+    const { renderJob } = await import('/src/render/final/job.ts' as string);
+    const { newCompositingGroup } = await import('/src/compositor/data.ts' as string);
+    const { activateScene } = await import('/src/scenes/scenes.ts' as string);
+    const render = async () => {
+      app.run('render.render');
+      await new Promise<void>((ok) => {
+        const t = setInterval(() => {
+          if (!renderJob()) {
+            clearInterval(t);
+            ok();
+          }
+        }, 50);
+      });
+      const rr = renderResult.get();
+      const i = (Math.floor(rr.height * 0.55) * rr.width + Math.floor(rr.width * 0.5)) * 4;
+      return { px: rr.passes.Combined[i], layers: rr.layers?.map((l: any) => `${l.scene}/${l.name}`) ?? [] };
+    };
+    const first = app.doc.scene;
+    Object.assign(first.render, { resolution_percentage: 10, raster_samples: 2, engine: 'RASTER' });
+    app.run('scene.view_layer_add', { type: 'EMPTY' }, { invoke: false });
+    const layered = await render();
+    app.run('scene.view_layer_remove', {}, { invoke: false });
+    app.run('scene.new', { type: 'FULL_COPY' }, { invoke: false });
+    const b = app.doc.scene;
+    (Object.values(app.doc.objects) as any[]).find((o) => o.name === 'Cube.001').hide_render = true;
+    activateScene(app.doc, first.id);
+    app.changed('doc');
+    const g = newCompositingGroup(app.doc);
+    const own = await render();
+    g.tree.nodes.find((n: any) => n.type === 'CompositorNodeRLayers').props.scene = b.id;
+    app.changed('doc');
+    const other = await render();
+    return { layered, own, other };
+  });
+  expect(res.layered.layers).toEqual(['Scene/ViewLayer', 'Scene/ViewLayer.001']);
+  expect(res.other.layers).toContain('Scene.001/ViewLayer');
+  // the other scene has no cube: the composite shows its background
+  expect(res.own.px).toBeGreaterThan(res.other.px + 0.05);
+  await expectNoErrors(errors);
+});
+
+test('light and shadow linking change renders in both engines', async ({ page }) => {
+  const errors = await openApp(page);
+  const res = await page.evaluate(async () => {
+    const app = (window as any).app;
+    const { renderResult } = await import('/src/render/final/result.ts' as string);
+    const { renderJob } = await import('/src/render/final/job.ts' as string);
+    Object.assign(app.doc.scene.render, { resolution_percentage: 10, samples: 16, raster_samples: 2, use_denoising: false });
+    app.run('mesh.primitive_plane_add', { size: 20, location: [0, 0, -1] }, { invoke: false });
+    const obs = Object.values(app.doc.objects) as any[];
+    const light = obs.find((o) => o.name === 'Light');
+    const cube = obs.find((o) => o.name === 'Cube');
+    app.doc.lights[light.data].use_shadow = true;
+    const mean = async () => {
+      app.run('render.render');
+      await new Promise<void>((ok) => {
+        const t = setInterval(() => {
+          if (!renderJob()) {
+            clearInterval(t);
+            ok();
+          }
+        }, 50);
+      });
+      const c = renderResult.get().passes.Combined;
+      let s = 0;
+      for (let i = 0; i < c.length; i += 4) s += c[i];
+      return s / (c.length / 4);
+    };
+    const out: Record<string, number[]> = {};
+    for (const engine of ['RASTER', 'PATHTRACE']) {
+      app.doc.scene.render.engine = engine;
+      delete light.light_linking;
+      app.changed('doc');
+      const normal = await mean();
+      for (const o of Object.values(app.doc.objects) as any[]) o.select = o === light || o === cube;
+      app.doc.scene.active_object = light.id;
+      app.changed('select');
+      app.run('object.light_linking_blockers_link', { link_state: 'EXCLUDE' }, { invoke: false });
+      const noShadow = await mean();
+      app.run('object.light_linking_receivers_link', { link_state: 'INCLUDE' }, { invoke: false });
+      const onlyCube = await mean();
+      out[engine] = [normal, noShadow, onlyCube];
+    }
+    return out;
+  });
+  for (const [normal, noShadow, onlyCube] of Object.values(res)) {
+    expect(noShadow).toBeGreaterThan(normal);
+    // lighting only the cube leaves the floor unlit
+    expect(onlyCube).toBeLessThan(normal);
+  }
+  await expectNoErrors(errors);
+});

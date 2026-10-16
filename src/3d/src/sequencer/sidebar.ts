@@ -2,6 +2,7 @@
 import { h, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { app } from '../app/app';
+import { sceneByName, sceneObjects, scenesByName } from '../scenes/scenes';
 import { num, bool, enumProp, splitRow, oid, type PropOpts } from '../ui/props';
 import { panel, numberField, colorSwatch, checkbox, textField, enumMenu, button, opButton } from '../ui/widgets';
 import { openMenu } from '../ui/menu';
@@ -303,8 +304,20 @@ function sourcePanel(s: Strip): Child {
   }
   if (s.type === 'SCENE') {
     const doc = app.doc;
-    const cams = doc.object_order.map((id) => doc.objects[id]).filter((o) => o?.type === 'CAMERA');
-    rows.push(splitRow('Scene', h('span', { class: 'seq-src' }, s.scene ?? doc.scene.name)));
+    const target = sceneByName(doc, s.scene) ?? doc.scene;
+    const inScene = sceneObjects(doc, target);
+    const cams = doc.object_order.filter((id) => inScene.has(id)).map((id) => doc.objects[id]).filter((o) => o?.type === 'CAMERA');
+    rows.push(
+      splitRow(
+        'Scene',
+        enumMenu(`seq-scene-${oid(s)}`, scenesByName(doc).map((sc) => ({ value: sc.name, label: sc.name, icon: 'scene_data' })), target.name, (v) => {
+          s.scene = v;
+          s.scene_camera = null;
+          app.pushUndo('Change Scene');
+          app.changed('doc');
+        }),
+      ),
+    );
     rows.push(
       splitRow(
         'Camera',

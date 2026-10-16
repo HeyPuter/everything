@@ -1,6 +1,7 @@
 // Time marker operators shared by the Timeline, Dope Sheet, Graph Editor and NLA editor:
 // add (M), delete (X), select (click / box / all / before-after), move (G), duplicate
 // (Shift D), rename (F2), jump and bind camera to markers (Ctrl B), plus the Marker menu.
+import { scenesByName } from '../scenes/scenes';
 import { app, registerOperators, type OpContext } from '../app/app';
 import { promptText, type MenuItem } from '../ui/menu';
 import type { TimelineMarker } from '../data/types';
@@ -379,6 +380,13 @@ export function markerMenu(): MenuItem[] {
     { label: 'Rename Marker', op: 'marker.rename', shortcut: 'F2' },
     { separator: true },
     { label: 'Delete Marker', op: 'marker.delete', shortcut: 'X' },
+    {
+      label: 'Duplicate Marker to Scene',
+      submenu: () => {
+        const others = scenesByName(app.doc).filter((sc) => sc !== app.doc.scene);
+        return others.length ? others.map((sc) => ({ label: sc.name, icon: 'scene_data', op: 'marker.make_links_scene', props: { scene: sc.id } })) : [{ label: 'No other scenes', disabled: true }];
+      },
+    },
     { label: 'Duplicate Marker', op: 'marker.duplicate', shortcut: 'Shift D' },
     { label: 'Add Marker', op: 'marker.add', shortcut: 'M' },
     ...(hoverEditor()?.space() === 'ACTION' ? [{ separator: true }, { label: 'Make Markers Local', op: 'action.markers_make_local' }] : []),

@@ -3,6 +3,22 @@
 // the compositor (Math, Map Range, Mix, Color Ramp, …) get the COMPOSITOR tree type added.
 import type { NodeData } from '../../data/types';
 import { app } from '../../app/app';
+import type { DocumentData, RenderSettings } from '../../data/types';
+import { openMenu, type MenuItem } from '../../ui/menu';
+import { sceneById, scenesByName } from '../../scenes/scenes';
+import { ensureViewLayers, layerRender } from '../../scenes/viewlayers';
+
+/** View layer settings of the scene / layer a Render Layers node reads (its passes decide the outputs). */
+function rlLayer(n: NodeData, doc: DocumentData = app.doc) {
+  const sc = sceneById(doc, String(n.props.scene ?? '')) ?? doc.scene;
+  const layers = ensureViewLayers(sc);
+  const i = n.props.layer ? layers.findIndex((l) => l.name === n.props.layer) : (sc.active_view_layer ?? 0);
+  return { sc, index: i < 0 ? (sc.active_view_layer ?? 0) : i, layer: layers[i < 0 ? (sc.active_view_layer ?? 0) : i] };
+}
+function rlRender(n: NodeData, doc: DocumentData = app.doc): Partial<RenderSettings> {
+  const { sc, index } = rlLayer(n, doc);
+  return layerRender(sc, index);
+}
 import { h } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { getNodeType, propValue, registerNodeMenu, registerNodeType } from '../../nodes/registry';
@@ -258,18 +274,76 @@ function availability(d: NodeTypeDef, rules: Record<string, (n: NodeData) => boo
   const d = cdef('CompositorNodeRLayers', 'input', {
     description: 'Input render passes of the scene',
   });
-  // scene / view layer (one of each here) and a button rendering the scene
+  // scene and view layer to read (empty: the active scene / its active layer), a button rendering the scene
+  d.props = [
+    { id: 'scene', name: 'Scene', type: 'STRING', d: '', visible: () => false },
+    { id: 'layer', name: 'Layer', type: 'STRING', d: '', visible: () => false },
+  ];
   d.bodyHeight = () => 48;
-  d.drawBody = () =>
-    h(
+  d.drawBody = (ctx) => {
+    const n = ctx.node;
+    const doc = app.doc;
+    const sc = sceneById(doc, String(n.props.scene ?? '')) ?? doc.scene;
+    const layers = ensureViewLayers(sc);
+    const layerName = String(n.props.layer ?? '') || layers[sc.active_view_layer ?? 0]?.name || 'ViewLayer';
+    const pick = (e: PointerEvent, items: MenuItem[]) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openMenu(items, e.currentTarget as HTMLElement);
+    };
+    return h(
       'div',
       { class: 'cmp-rl-body' },
-      h('div', { class: 'cmp-rl-row' }, icon('scene_data'), h('span', null, app.doc.scene.name)),
+      h(
+        'div',
+        {
+          class: 'cmp-rl-row cmp-rl-pick cmp-rl-scene',
+          'data-tip': 'Scene\nScene whose render passes the node outputs',
+          onpointerdown: (e: PointerEvent) =>
+            pick(
+              e,
+              scenesByName(doc).map((s) => ({
+                label: s.name,
+                icon: 'scene_data',
+                active: s === sc,
+                action: () => {
+                  n.props.scene = s === doc.scene ? '' : s.id!;
+                  n.props.layer = '';
+                  ctx.changed('Render Layers Scene', true);
+                },
+              })),
+            ),
+        },
+        icon('scene_data'),
+        h('span', null, sc.name),
+        icon('down_arrow_hlt', 'tiny'),
+      ),
       h(
         'div',
         { class: 'cmp-rl-row' },
-        icon('view_layer'),
-        h('span', null, 'ViewLayer'),
+        h(
+          'div',
+          {
+            class: 'cmp-rl-pick cmp-rl-layer',
+            'data-tip': 'View Layer\nView layer whose render passes the node outputs',
+            onpointerdown: (e: PointerEvent) =>
+              pick(
+                e,
+                layers.map((l) => ({
+                  label: l.name,
+                  icon: 'view_layer',
+                  active: l.name === layerName,
+                  action: () => {
+                    n.props.layer = l.name;
+                    ctx.changed('Render Layers Layer', true);
+                  },
+                })),
+              ),
+          },
+          icon('view_layer'),
+          h('span', null, layerName),
+          icon('down_arrow_hlt', 'tiny'),
+        ),
         h(
           'button',
           {
@@ -281,7 +355,7 @@ function availability(d: NodeTypeDef, rules: Record<string, (n: NodeData) => boo
         ),
       ),
     );
-  // all supported passes; availability follows the View Layer ▸ Passes settings
+  };
   d.outputs = [
     { name: 'Image', identifier: 'Image', type: 'RGBA' },
     { name: 'Alpha', identifier: 'Alpha', type: 'FLOAT' },
@@ -290,9 +364,9 @@ function availability(d: NodeTypeDef, rules: Record<string, (n: NodeData) => boo
     { name: 'Mist', identifier: 'Mist', type: 'FLOAT' },
     { name: 'AO', identifier: 'AO', type: 'FLOAT' },
   ];
-  d.available = (_n, s, out) => {
+  d.available = (n, s, out) => {
     if (!out) return true;
-    const r = app?.doc?.scene.render;
+    const r = app?.doc ? rlRender(n) : null;
     if (!r) return true;
     if (s.identifier === 'Depth') return !!r.use_pass_z;
     if (s.identifier === 'Normal') return !!r.use_pass_normal;
@@ -318,9 +392,11 @@ function availability(d: NodeTypeDef, rules: Record<string, (n: NodeData) => boo
   );
   // shader AOVs and cryptomatte layers follow the View Layer settings
   d.dynamicSockets = (n, ctx) => {
-    const r = ctx.doc.scene.render;
+    const r = rlRender(n, ctx.doc);
     const outputs = [...d.outputs];
     for (const a of r.aovs ?? []) if (a.name) outputs.push({ name: a.name, identifier: `AOV ${a.name}`, type: a.type === 'VALUE' ? 'FLOAT' : 'RGBA' });
+    // light groups: the image lit by each group
+    for (const g of rlLayer(n, ctx.doc).layer?.lightgroups ?? []) if (g.name) outputs.push({ name: `Combined_${g.name}`, identifier: `Combined_${g.name}`, type: 'RGBA' });
     // lines drawn as their own pass (View Layer ▸ Freestyle ▸ As Render Pass)
     if (r.use_freestyle && r.freestyle_settings?.as_render_pass) outputs.push({ name: 'Freestyle', identifier: 'Freestyle', type: 'RGBA' });
     const depth = Math.max(2, Math.min(16, Math.round(r.pass_cryptomatte_depth ?? 6)));

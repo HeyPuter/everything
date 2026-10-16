@@ -17,6 +17,7 @@ import { app } from '../app/app';
 import { hasRetiming, speedAt } from './retime';
 import { drawTextStrip } from './text';
 import type { RGBA8Image } from './scene';
+import { sceneByName, withSceneAsync } from '../scenes/scenes';
 
 export interface RenderOptions {
   /** output (render) resolution */
@@ -236,8 +237,15 @@ export class SequencerRender {
         return out;
       }
       case 'SCENE': {
-        const sf = o.sceneStart + contentFrame(s, frame);
-        const img = await o.sceneImage(sf, s.scene_camera ?? null, this.Wk, this.Hk);
+        // a strip can show another scene of the file (rendered with that scene made active)
+        const target = sceneByName(app.doc, s.scene);
+        const other = target && target !== app.doc.scene ? target : null;
+        const sf = (other ? other.frame_start : o.sceneStart) + contentFrame(s, frame);
+        let img: RGBA8Image | null;
+        if (other) {
+          img = await withSceneAsync(app.doc, other.id!, () => o.sceneImage(sf, s.scene_camera ?? null, this.Wk, this.Hk));
+          app.evaluate();
+        } else img = await o.sceneImage(sf, s.scene_camera ?? null, this.Wk, this.Hk);
         this.check();
         if (!img) return null;
         const src = c.upload({ data: img.data, width: img.width, height: img.height, bottomUp: img.bottomUp }, o.W, o.H);

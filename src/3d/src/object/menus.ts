@@ -165,9 +165,13 @@ function trackMenu(): MenuItem[] {
   ];
 }
 
+/** Extra entries of Link/Transfer Data (Link Objects to Scene at the top, light linking at the bottom). */
+export const linkDataMenuHooks: { top: (() => MenuItem[])[]; bottom: (() => MenuItem[])[] } = { top: [], bottom: [] };
+
 export function linkDataMenu(): MenuItem[] {
   const l = (label: string, type: string): MenuItem => ({ label, op: 'object.make_links_data', props: { type } });
   return [
+    ...linkDataMenuHooks.top.flatMap((f) => f()),
     l('Link Object Data', 'OBDATA'),
     l('Link Materials', 'MATERIAL'),
     l('Link Animation Data', 'ANIMATION'),
@@ -179,6 +183,7 @@ export function linkDataMenu(): MenuItem[] {
     { separator: true },
     { label: 'Transfer Mesh Data', op: 'object.data_transfer' },
     { label: 'Transfer Mesh Data Layout', op: 'object.datalayout_transfer' },
+    ...linkDataMenuHooks.bottom.flatMap((f) => f()),
   ];
 }
 

@@ -55,11 +55,30 @@ const RATIOS: [string, number][] = [
   ['8:1', 8],
 ];
 
-/** Render Result layer shown: the post-processed (composited) image or the raw view layer passes. */
-export type ResultLayer = 'COMPOSITE' | 'VIEW_LAYER';
+/**
+ * Render Result layer shown: the post-processed (composited) image, the raw view layer passes,
+ * or one of several rendered view layers (`L:<scene>/<layer>`).
+ */
+export type ResultLayer = 'COMPOSITE' | 'VIEW_LAYER' | `L:${string}`;
+const layerKey = (l: { scene: string; name: string }): ResultLayer => `L:${l.scene}/${l.name}`;
 function resultLayer(r: RenderResult | null, layer: ResultLayer): RenderResult | null {
+  if (r?.layers && layer.startsWith('L:')) {
+    const l = r.layers.find((x) => layerKey(x) === layer);
+    if (l) return { ...r, passes: l.passes };
+  }
   if (!r?.viewLayer) return r;
   return layer === 'VIEW_LAYER' ? { ...r, passes: r.viewLayer } : { ...r, passes: { Combined: r.passes.Combined } };
+}
+
+/** Entries of the layer menu of a render result. */
+function layerItems(r: RenderResult): { value: string; label: string; description?: string }[] {
+  const out: { value: string; label: string; description?: string }[] = [];
+  if (r.viewLayer) out.push({ value: 'COMPOSITE', label: 'Composite', description: 'The post-processed (composited) image' });
+  if (r.layers?.length) {
+    const scenes = new Set(r.layers.map((l) => l.scene));
+    for (const l of r.layers) out.push({ value: layerKey(l), label: scenes.size > 1 ? `${l.scene} ▸ ${l.name}` : l.name, description: 'The render passes of this view layer' });
+  } else if (r.viewLayer) out.push({ value: 'VIEW_LAYER', label: 'View Layer', description: 'The render passes of the view layer' });
+  return out;
 }
 
 function sceneView(r: RenderResult | null): ViewSettings {
@@ -193,7 +212,7 @@ export class ImageEditor implements Editor, View2D {
   private passes(): PassName[] {
     const r = this.result;
     if (!r) return [];
-    return [...PASS_ORDER.filter((p) => r.passes[p]), ...(Object.keys(r.passes) as PassName[]).filter((p) => p.startsWith('AOV '))];
+    return [...PASS_ORDER.filter((p) => r.passes[p]), ...(Object.keys(r.passes) as PassName[]).filter((p) => p.startsWith('AOV ') || p.startsWith('Combined_'))];
   }
 
   private sourceKey(): string {
@@ -568,14 +587,11 @@ export class ImageEditor implements Editor, View2D {
               h('button', { class: 'btn ie-open', onclick: () => this.open() }, icon('file_folder'), 'Open'),
             ],
       ),
-      fullResult?.viewLayer
+      fullResult && (fullResult.viewLayer || fullResult.layers)
         ? enumMenu(
             'ie-layer',
-            [
-              { value: 'COMPOSITE', label: 'Composite', description: 'The post-processed (composited) image' },
-              { value: 'VIEW_LAYER', label: 'View Layer', description: 'The render passes of the view layer' },
-            ],
-            this.layer,
+            layerItems(fullResult),
+            layerItems(fullResult).some((i) => i.value === this.layer) ? this.layer : (fullResult.viewLayer ? 'COMPOSITE' : layerKey(fullResult.layers!.find((l) => l.passes.Combined === fullResult.passes.Combined) ?? fullResult.layers![0])),
             (v) => ((this.layer = v as ResultLayer), (this.cache = null), this.draw(), this.drawUI(), this.host.redrawHeader()),
             { tip: 'Render layer to display' },
           )
