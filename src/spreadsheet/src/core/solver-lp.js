@@ -297,7 +297,8 @@ export function* branchAndBound(relax, lb0, ub0, { integer, groups = [], intTol 
       continue;
     }
     const x = res.x.map((v, k) => (isInt[k] ? Math.round(v) : v));
-    // All-different groups: two members on one value split into "below it" and "above it" for one of them.
+    // All-different groups: when two members share a value, either the first moves off it (below or above)
+    // or it keeps the value and the other moves off it. All four cases together cover every solution.
     let clash = null;
     for (const g of groups) {
       const seen = new Map();
@@ -309,10 +310,13 @@ export function* branchAndBound(relax, lb0, ub0, { integer, groups = [], intTol 
       if (clash) break;
     }
     if (clash) {
-      const { k, v } = clash;
-      const below = { lb: node.lb.slice(), ub: node.ub.slice() }, above = { lb: node.lb.slice(), ub: node.ub.slice() };
+      const { k, v, other } = clash;
+      const child = () => ({ lb: node.lb.slice(), ub: node.ub.slice() });
+      const below = child(), above = child(), otherBelow = child(), otherAbove = child();
       below.ub[k] = v - 1; above.lb[k] = v + 1;
-      stack.push(above, below);
+      for (const c of [otherBelow, otherAbove]) { c.lb[k] = v; c.ub[k] = v; }
+      otherBelow.ub[other] = v - 1; otherAbove.lb[other] = v + 1;
+      stack.push(otherAbove, otherBelow, above, below);
       continue;
     }
     found++;
