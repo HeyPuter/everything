@@ -315,20 +315,24 @@ export function buildPivot(wb, sheetId, spec) {
     // whose value is blank or "" is left out of every count alike.
     const parts = spec.agg === 'count' ? [...all, `${ref(valCol)},"<>"`] : [ref(valCol), ...all];
     const body = `${ifsName}(${parts.join(',')})`;
-    // An average over no rows is #DIV/0!; the cell shows nothing instead, as an empty
-    // intersection of a pivot table does. Rows with no number among them still divide by zero.
-    return spec.agg === 'average' && all.length ? `IF(COUNTIFS(${all.join(',')})=0,"",${body})` : body;
+    // An average over no rows is #DIV/0!, and a max or min over none is 0; the cell shows nothing instead,
+    // as an empty intersection of a pivot table does. Rows with no number among them still divide by zero.
+    const blankWhenEmpty = spec.agg === 'average' || spec.agg === 'max' || spec.agg === 'min';
+    return blankWhenEmpty && all.length ? `IF(COUNTIFS(${all.join(',')})=0,"",${body})` : body;
   };
   // A total is read off the category cells it stands under, so the categories always add up to it. The
   // labels are the ones found when the pivot was built (rebuild to pick up new ones, as with any pivot),
   // while the formulas are live: a total counted over the whole source instead would count rows in
   // categories the pivot has no row for, and stand above rows that no longer reach it. An average is not
   // the average of the category averages, so it alone stays the live aggregate over the source.
+  // MAX and MIN skip the blank cells, and over only blank ones (a filter leaving a category no rows) the
+  // total is blank too rather than 0.
   const totalName = { sum: 'SUM', count: 'SUM', max: 'MAX', min: 'MIN' }[spec.agg];
+  const total = (range) => (spec.agg === 'max' || spec.agg === 'min' ? `IF(COUNT(${range})=0,"",${totalName}(${range}))` : `${totalName}(${range})`);
   const down = (c) => `$${colName(c)}$${top + 2}:$${colName(c)}$${top + 1 + rowValues.length}`;
   const across = (r) => `$B$${r + 1}:$${colName(valueColumns)}$${r + 1}`;
-  const rowTotal = (r, rv) => (totalName ? `${totalName}(${across(r)})` : formula([rowCrit(r, rv)]));
-  const grand = (c, crits = []) => (totalName ? `${totalName}(${down(c)})`
+  const rowTotal = (r, rv) => (totalName ? total(across(r)) : formula([rowCrit(r, rv)]));
+  const grand = (c, crits = []) => (totalName ? total(down(c))
     : crits.length || filterCrits.length ? formula(crits) : `${plainName}(${ref(valCol)})`);
   rowValues.forEach((rv, i) => {
     const r = top + 1 + i;
