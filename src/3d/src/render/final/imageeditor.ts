@@ -21,7 +21,7 @@ import { scopesPanel } from './scopes';
 import { lastOpPanel } from '../../ui/redo';
 import { uiList } from '../../editors/properties/uilist';
 import { isTiled, tileName, tileView, atlasLayout, tileCell } from '../udim';
-import { makeTiled, makeSingle } from './udimops';
+import { makeTiled, makeSingle, openImageFiles } from './udimops';
 import { imagePaintStroke, paintBrush } from './imagepaint';
 import { paintImage } from '../../paint/tpaint';
 import { BRUSH_LISTS } from '../../paint/brushes';
@@ -819,10 +819,18 @@ export class ImageEditor implements Editor, View2D {
     });
   }
 
+  /** Open image files (several files of one UDIM set become a tiled image) and show the first. */
   open() {
-    this.awaitingOpen = true;
-    this.seenLastImage = lastImage;
-    app.run('image.open');
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = 'image/png,image/jpeg,image/webp,image/gif,image/bmp,.hdr,.exr';
+    input.onchange = async () => {
+      const ids = await openImageFiles(Array.from(input.files ?? []));
+      this.seenLastImage = lastImage;
+      if (ids[0]) this.setImage(ids[0]);
+    };
+    input.click();
   }
 
   reload() {

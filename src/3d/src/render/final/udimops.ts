@@ -212,6 +212,7 @@ registerOperators([
 /** Open files: UDIM sets (two or more tiles of one pattern) become tiled images, the rest single images. */
 export async function openImageFiles(files: File[]): Promise<string[]> {
   const ids: string[] = [];
+  let tiled = 0;
   const sets = detectUdimSets(files.map((f) => f.name)).filter((s) => s.files.length > 1);
   const inSet = new Set(sets.flatMap((s) => s.files.map((f) => f.index)));
   for (const set of sets) {
@@ -247,6 +248,7 @@ export async function openImageFiles(files: File[]): Promise<string[]> {
       active_tile_index: 0,
     };
     ids.push(id);
+    tiled++;
     app.report('INFO', `Loaded UDIM image "${doc.images[id].name}" with ${tiles.length} tiles`);
   }
   for (let i = 0; i < files.length; i++) {
@@ -254,7 +256,8 @@ export async function openImageFiles(files: File[]): Promise<string[]> {
     const id = await importImageFile(files[i]);
     if (id) ids.push(id);
   }
-  if (ids.length) {
+  // single images push their own undo step
+  if (tiled) {
     app.pushUndo('Open Images');
     app.changed('doc');
   }
