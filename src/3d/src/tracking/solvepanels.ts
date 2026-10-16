@@ -71,6 +71,7 @@ export function solveToolbar(ed: ClipEditor, c: MovieClipData): Child[] {
         h('div', { class: 'btn-col' }, opButton('clip.filter_tracks', 'Filter Tracks')),
       ];
     }, { closed: true }),
+    panel('clip-t-plane', 'Plane Track', () => [h('div', { class: 'btn-col' }, opButton('clip.create_plane_track', 'Create Plane Track')), h('div', { class: 'clip-info' }, 'Select four or more tracks on a flat surface.')], { closed: true }),
     panel('clip-t-geometry', 'Geometry', () => [h('div', { class: 'btn-col' }, opButton('clip.bundles_to_mesh', '3D Markers to Mesh'), opButton('clip.track_to_empty', 'Link Empty to Track'))], { closed: true }),
   ];
   if (cam) {

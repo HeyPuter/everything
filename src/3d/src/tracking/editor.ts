@@ -20,6 +20,7 @@ import {
   markerExact,
   sceneToClipFrame,
   tobj,
+  normalizeTracking,
   type MovieClipData,
   type MovieTrackingMarker,
   type MovieTrackingTrack,
@@ -180,7 +181,10 @@ export class ClipEditor implements Editor {
   // data
 
   get clip(): MovieClipData | null {
-    return (this.clipId && clipTable(app.doc)[this.clipId]) || null;
+    const c = (this.clipId && clipTable(app.doc)[this.clipId]) || null;
+    // clips from older files get the camera-solve fields
+    if (c && !c.tracking.reconstruction) normalizeTracking(c.tracking);
+    return c;
   }
 
   setClip(id: string | null) {
@@ -454,6 +458,7 @@ export class ClipEditor implements Editor {
       this.drawMarkers(ctx, T);
       if (this.overlays.show_bundles !== false) this.drawBundles(ctx, T);
       drawSelectShape(ctx, this.shapeOverlay);
+      this.drawCursor(ctx);
     }
     if (this.boxRect) {
       const b = this.boxRect;

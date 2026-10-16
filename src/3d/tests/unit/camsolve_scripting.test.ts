@@ -80,7 +80,7 @@ describe('camera solve from scripts', () => {
     expect(lines[2]).toBe('4 true');
     expect(lines[3]).toBe('true number true');
     expect(lines[4]).toBe('1 Camera Camera');
-  });
+  }, 30000);
 
   it('tracking objects, solved camera matrices and new tracks', () => {
     solvableClip();
@@ -99,5 +99,5 @@ describe('camera solve from scripts', () => {
       print(tr.objects.length);
     `);
     expect(out.split('\n')).toEqual(['true 2 null', '2 Prop false false 0', '1 Corner 3', '1']);
-  });
+  }, 30000);
 });

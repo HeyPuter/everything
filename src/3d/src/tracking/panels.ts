@@ -146,7 +146,7 @@ const TOOL_TABS = ['Track', 'Solve'];
 // ---------------------------------------------------------------------------
 // sidebar
 
-const TABS = ['Track', 'Footage', 'Stabilization'];
+const TABS = ['Track', 'Footage', 'Stabilization', 'View'];
 
 export function drawSidebar(ed: ClipEditor): Child {
   const c = ed.clip;
@@ -155,6 +155,7 @@ export function drawSidebar(ed: ClipEditor): Child {
   if (!c) body = [h('div', { class: 'sb-empty' }, 'No active movie clip')];
   else if (ed.sidebarTab === 'Footage') body = footageTab(ed, c);
   else if (ed.sidebarTab === 'Stabilization') body = stabilizationTab(ed, c);
+  else if (ed.sidebarTab === 'View') body = viewTab(ed);
   else body = trackTab(ed, c);
   return h(
     'div',
@@ -319,6 +320,22 @@ function markerPanel(ed: ClipEditor, c: MovieClipData, t: MovieTrackingTrack, f:
     ),
     field('clip-sw', 'Search Width', (held.search_max[0] - held.search_min[0]) * W, (v, fin) => edit('Search Size', (m) => ((m.search_min = [-v / 2 / W, m.search_min[1]]), (m.search_max = [v / 2 / W, m.search_max[1]])), fin)),
     field('clip-sh', 'Height', (held.search_max[1] - held.search_min[1]) * H, (v, fin) => edit('Search Size', (m) => ((m.search_min = [m.search_min[0], -v / 2 / H]), (m.search_max = [m.search_max[0], v / 2 / H])), fin)),
+  ];
+}
+
+function viewTab(ed: ClipEditor): Child[] {
+  const [W, H] = ed.frameSize();
+  const set = (i: 0 | 1, v: number) => {
+    ed.cursor = i === 0 ? [v / W, ed.cursor[1]] : [ed.cursor[0], v / H];
+    ed.draw();
+    app.changed('ui');
+  };
+  return [
+    panel('clip-n-cursor', '2D Cursor', () => [
+      splitRow('Location X', numberField({ id: 'clip-cursor-x', value: ed.cursor[0] * W, unit: 'pixel', set: (v) => set(0, v) })),
+      splitRow('Y', numberField({ id: 'clip-cursor-y', value: ed.cursor[1] * H, unit: 'pixel', set: (v) => set(1, v) })),
+      h('div', { class: 'btn-col' }, opButton('clip.view_center_cursor', 'Center View to Cursor')),
+    ]),
   ];
 }
 

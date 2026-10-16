@@ -394,6 +394,7 @@ test('camsolve: Render Undistorted and lens grid in the clip display', async ({ 
   await page.locator('.menu .menu-item', { hasText: 'Render Undistorted' }).click();
   await page.locator('.menu .menu-item', { hasText: 'Grid' }).click();
   await page.keyboard.press('Escape');
+  await page.mouse.move(box.x + box.width / 2 + 5, box.y + box.height / 2 + 5);
   const r = await page.evaluate(() => {
     const app = (window as any).app;
     const ed = app.hoverArea.editor;

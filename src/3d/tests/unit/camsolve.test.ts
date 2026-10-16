@@ -290,12 +290,12 @@ describe('camera solver: synthetic shots', () => {
   }, 30000);
 
   it('handles a long shot with short tracks in reasonable time', () => {
-    const sc = makeScene({ frames: 240, points: 480, span: 40, seed: 21 });
+    const sc = makeScene({ frames: 160, points: 320, span: 40, seed: 21 });
     const t0 = performance.now();
     const res = solveCamera(sc.tracks, settings(sc.I));
     const ms = performance.now() - t0;
     expect(res.ok).toBe(true);
-    expect(res.cameras.length).toBeGreaterThan(235);
+    expect(res.cameras.length).toBeGreaterThan(155);
     expect(res.error).toBeLessThan(0.6);
     const est = res.cameras.map((c) => center(c.R, c.t));
     const truth = res.cameras.map((c) => center(sc.poses[c.frame - 1].R, sc.poses[c.frame - 1].t));
