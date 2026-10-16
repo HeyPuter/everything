@@ -83,3 +83,35 @@ test('Properties: object Animation, world Volume, mesh Attributes / Texture Spac
   await expect(props.locator('.bgimg-box')).toHaveCount(0);
   await expectNoErrors(errors);
 });
+
+test('Status bar hints follow held modifiers; first-run splash starts with Quick Setup', async ({ page }) => {
+  const errors = await openApp(page);
+  const v = page.locator('.area[data-editor="VIEW_3D"] .area-main').first();
+  const box = (await v.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const hints = page.locator('.statusbar .sb-hints');
+  await expect(hints).toContainText('Rotate View');
+  await page.keyboard.down('Shift');
+  await expect(hints).toContainText('Set 3D Cursor');
+  await expect(hints).toContainText('Pan View');
+  await page.keyboard.up('Shift');
+  await expect(hints).toContainText('Rotate View');
+  // right-click on the status bar chooses its contents
+  await page.locator('.statusbar').click({ button: 'right' });
+  await expect(page.locator('.menu').last()).toContainText('Scene Statistics');
+  await page.keyboard.press('Escape');
+  // Quick Setup on the first run, then the regular splash
+  await page.evaluate(async () => {
+    localStorage.removeItem('3d.quick_setup_done');
+    (await import('/src/ui/topbar.ts' as any)).showSplash({ startup: true });
+  });
+  const qs = page.locator('.splash .qs');
+  await expect(qs).toBeVisible();
+  await qs.locator('.enum-row button', { hasText: 'Search' }).click();
+  expect(await page.evaluate(async () => (await import('/src/prefs/keyconfig.ts' as any)).keyconfig.data.options.spacebar_action)).toBe('SEARCH');
+  await qs.locator('.enum-row button', { hasText: 'Play' }).click();
+  await qs.locator('.qs-next').click();
+  await expect(page.locator('.splash .splash-cols')).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('3d.quick_setup_done'))).toBe('1');
+  await expectNoErrors(errors);
+});

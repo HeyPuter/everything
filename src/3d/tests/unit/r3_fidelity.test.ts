@@ -41,3 +41,20 @@ describe('texture space', () => {
     expect(manualTexSpace(doc, ob)).toEqual([-1, -1, -1, 3, 1, 1]);
   });
 });
+
+import { mouseHints } from '../../src/ui/statushints';
+
+describe('status bar mouse hints', () => {
+  const base = { editor: 'VIEW_3D', mode: 'OBJECT', objectType: 'MESH', shift: false, ctrl: false, alt: false };
+  it('follow the held modifiers in the 3D viewport', () => {
+    expect(mouseHints(base)).toEqual([['LMB', 'Select'], ['MMB', 'Rotate View'], ['RMB', 'Object']]);
+    expect(mouseHints({ ...base, shift: true })).toEqual([['LMB', 'Toggle Selection'], ['MMB', 'Pan View'], ['RMB', 'Set 3D Cursor']]);
+    expect(mouseHints({ ...base, ctrl: true })?.[1]).toEqual(['MMB', 'Zoom View']);
+    expect(mouseHints({ ...base, mode: 'EDIT', alt: true })?.[0]).toEqual(['LMB', 'Select Loop']);
+    expect(mouseHints({ ...base, mode: 'SCULPT', ctrl: true })?.[0]).toEqual(['LMB', 'Sculpt (Inverted)']);
+  });
+  it('describe node editor gestures', () => {
+    expect(mouseHints({ ...base, editor: 'SHADER', ctrl: true })?.[2]).toEqual(['RMB', 'Cut Links']);
+    expect(mouseHints({ ...base, editor: 'SHADER', shift: true })?.[2]).toEqual(['RMB', 'Add Reroute']);
+  });
+});
