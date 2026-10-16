@@ -111,10 +111,10 @@ export function fmtDuration(seconds) {
  */
 export const SAMPLE_DOWNLOADS = [
   {
-    name: 'Puter Wallpaper (SVG)',
-    url: './samples/wallpaper-sample.svg',
+    name: 'Puter Crystal Nebula (4K JPG)',
+    url: './samples/puter-crystal-wallpaper.jpg',
     category: 'image',
-    size: 1450,
+    size: 700638,
   },
   {
     name: 'Puter Guide (TXT)',
