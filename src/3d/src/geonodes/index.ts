@@ -9,6 +9,7 @@ import './display';
 import './curves/gizmoui';
 import './gnmesh-ui';
 import './bundles/ui';
+import './viewerops';
 import { installItemResolver } from './editor';
 import { app, onAppReady } from '../app/app';
 import { pruneModifierCaches } from './modifier';

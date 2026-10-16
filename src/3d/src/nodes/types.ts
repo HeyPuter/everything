@@ -123,6 +123,8 @@ export interface NodePanelDef {
   /** props drawn at the top of the panel */
   props?: string[];
   closed?: boolean;
+  /** boolean input shown as a checkbox in the panel header */
+  toggle?: string;
 }
 
 /** Context passed to dynamic socket resolvers (group nodes need the document). */

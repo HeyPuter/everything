@@ -448,6 +448,9 @@ function rowContent(node: NodeData, row: Row, key: string, tree: NodeTreeData): 
           },
         },
         icon(row.open ? 'disclosure_tri_down' : 'disclosure_tri_right'),
+        row.socket && !row.linked
+          ? h('span', { class: 'nd-panel-toggle', onpointerdown: (e: PointerEvent) => e.stopPropagation() }, socketValueWidget(node, row.socket, `${key}:ptoggle`, { label: false }))
+          : null,
         h('span', { class: 'nd-label' }, row.panel!.name),
       );
     case 'body':

@@ -60,3 +60,53 @@ test('item lists of bundle, closure and capture nodes in the sidebar', async ({ 
   await page.keyboard.press('Escape');
   await expectNoErrors(errors);
 });
+
+test('dropping outliner items and interface sockets adds nodes; panel toggles; attach and viewer ops', async ({ page }) => {
+  const { errors, box } = await nodeEditor(page);
+  await page.evaluate(() => (window as unknown as { app: { run(id: string): void } }).app.run('node.new_geometry_nodes_modifier'));
+  await page.waitForTimeout(200);
+  // drag the Cube from the outliner into the node editor: an Object Info node for it
+  await page
+    .locator('.ol-row', { has: page.locator('.ol-name', { hasText: /^Cube$/ }) })
+    .first()
+    .locator('.ol-item')
+    .dragTo(page.locator('.nd-editor').first(), { targetPosition: { x: box.width / 2, y: box.height / 2 } });
+  await page.waitForTimeout(150);
+  expect(await withTree(page, `(ed, t) => { const n = t.nodes.find((x) => x.type === "GeometryNodeObjectInfo"); return n && app.doc.objects[n.inputs.Object].name; }`)).toBe('Cube');
+  // interface: a panel with a toggle input; the group's input list drags out as a Group Input node
+  const run = (id: string, p: object = {}) => page.evaluate(([id, p]) => (window as unknown as { app: { run(id: string, p: object): string } }).app.run(id, p), [id, p] as const);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  expect(await run('node.interface_item_new', { item_type: 'PANEL' })).toBe('FINISHED');
+  expect(await run('node.interface_item_new_panel_toggle')).toBe('FINISHED');
+  expect(await withTree(page, '(ed, t) => !!t.interface_panels[0].toggle')).toBe(true);
+  expect(await run('node.interface_item_unlink_panel_toggle')).toBe('FINISHED');
+  expect(await run('node.interface_item_make_panel_toggle')).toBe('CANCELLED');
+  await page.keyboard.press('n');
+  await page.locator('.nd-side-tab', { hasText: 'Group' }).click();
+  const rows = page.locator('.nd-iface-item[draggable="true"]');
+  await rows.first().dragTo(page.locator('.nd-editor').first(), { targetPosition: { x: 80, y: 80 } });
+  await page.waitForTimeout(150);
+  expect(await withTree(page, '(ed, t) => t.nodes.filter((n) => n.type === "NodeGroupInput").some((n) => n.hidden_sockets?.length)')).toBe(true);
+  // a frame: attach the selected node to it with node.attach at the frame
+  await page.mouse.move(box.x + 100, box.y + 100);
+  const [frame] = await addNodes(page, [['NodeFrame', 0, 0]]);
+  // a fixed-size frame near the top left of the view
+  await withTree(
+    page,
+    `(ed, t) => { const r = ed.el.getBoundingClientRect(); const [x, y] = ed.toNode(r.left + 60, r.top + 60); const f = t.nodes.find((n) => n.id === "${frame}"); f.location = [x, -y]; f.props.shrink = false; f.width = 200; f.props.height = 120; app.changed("doc"); }`,
+  );
+  await page.waitForTimeout(100);
+  const ob = await withTree<string>(page, '(ed, t) => t.nodes.find((x) => x.type === "GeometryNodeObjectInfo").id');
+  await activate(page, ob);
+  const fb = (await page.locator(`[data-node="${frame}"]`).boundingBox())!;
+  await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2);
+  expect(await run('node.attach')).toBe('FINISHED');
+  expect(await withTree(page, `(ed, t) => t.nodes.find((n) => n.id === "${ob}").parent`)).toBe(frame);
+  // header toggle for auto-offset
+  const before = await page.evaluate(() => document.querySelectorAll('.nd-header .hdr-toggle.on').length);
+  await page.locator('.nd-header [data-tip^="Auto-offset"]').first().click();
+  await page.waitForTimeout(100);
+  expect(await page.evaluate(() => document.querySelectorAll('.nd-header .hdr-toggle.on').length)).not.toBe(before);
+  await page.locator('.nd-header [data-tip^="Auto-offset"]').first().click();
+  await expectNoErrors(errors);
+});
