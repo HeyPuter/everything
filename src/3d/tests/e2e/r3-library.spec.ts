@@ -198,6 +198,18 @@ test('Linking from a recent project follows its saved changes; dropped project f
   // undo goes back to before the reload
   await page.evaluate(() => (window as any).app.undoStep());
   expect(await page.evaluate(() => (window as any).app.activeObject?.location[2] ?? 0)).toBe(0);
+  // saved, then opened again: the library is read again on open (no undo step for it)
+  await page.evaluate(async () => {
+    const { encodeDocument, decodeDocument } = await import('/src/io/native.ts');
+    const { recordRecent, recentBytes } = await import('/src/io/session.ts');
+    await recordRecent('scene.p3d', encodeDocument((window as any).app.doc));
+    const d = decodeDocument((await recentBytes('props.p3d'))!).doc;
+    (Object.values(d.objects).find((o: any) => o.name === 'Crate') as any).location = [0, 0, 5];
+    await recordRecent('props.p3d', encodeDocument(d));
+    (window as any).app.run('wm.open_mainfile', { filepath: 'scene.p3d' });
+  });
+  await expect.poll(() => page.evaluate(() => (Object.values((window as any).app.doc.objects) as any[]).find((o) => o.name === 'Crate' && o.library)?.location[2])).toBe(5);
+  expect(await page.evaluate(() => (window as any).app.undo.canUndo)).toBe(false);
   // a project file dropped onto the window
   const bytes = v1;
   await page.evaluate(async (bytes) => {
