@@ -8,7 +8,7 @@ import { h, type Child } from './h';
 import { icon } from './icons';
 import { openMenu, openPopover, itemContextHooks, type MenuItem } from './menu';
 import { bindingAt, bindingValue, type PropBinding } from './binding';
-import { animOf, buttonDefaultHooks, buttonMenuHooks, buttonOwnerLoc, isCustomProp, targetButton, writeClipboard } from './buttons';
+import { activateHovered, animOf, buttonDefaultHooks, buttonMenuHooks, buttonOwnerLoc, isCustomProp, targetButton, writeClipboard } from './buttons';
 import { fullDataPath } from './rnapath';
 import { favoriteMenuItem } from './favorites';
 import { shortcutMenuItems } from './shortcuts';
@@ -268,6 +268,34 @@ registerOperators([
     exec: () => {
       const ob = opButtonAt(hoveredElement())!;
       copyPythonCommand(ob.op, ob.props);
+    },
+  },
+]);
+
+registerOperators([
+  {
+    idname: 'ui.button_execute',
+    label: 'Press Button',
+    description: 'Press the button under the mouse (start typing in a field, toggle, open a menu)',
+    undo: false,
+    internal: true,
+    props: [{ id: 'skip_depressed', label: 'Skip Depressed', type: 'bool', default: false }],
+    poll: () => !!targetButton(),
+    exec: () => activateHovered(),
+  },
+  {
+    idname: 'ui.button_string_clear',
+    label: 'Clear Button String',
+    description: 'Empty the text field under the mouse',
+    redo: false,
+    poll: () => {
+      const b = targetButton();
+      return !!b && b.kind === 'text';
+    },
+    exec: () => {
+      const b = targetButton()!;
+      b.owner[b.key] = '';
+      b.onChange?.();
     },
   },
 ]);

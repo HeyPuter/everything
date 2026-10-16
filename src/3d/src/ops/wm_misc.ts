@@ -341,6 +341,22 @@ registerOperators([
     },
   },
   {
+    idname: 'wm.properties_context_change',
+    label: 'Change Properties Tab',
+    description: 'Show a tab of the Properties editor (OBJECT, MODIFIER, MATERIAL, …)',
+    undo: false,
+    internal: true,
+    props: [{ id: 'context', label: 'Context', type: 'string', default: '' }],
+    exec: (ctx, p) => {
+      const tab = String(p.context ?? '').toUpperCase();
+      const a = ctx.area?.type === 'PROPERTIES' ? (ctx.area as Area) : shell?.screen.findArea('PROPERTIES');
+      const ed = a?.editor as unknown as { setTab?: (id: string) => void } | undefined;
+      if (!ed?.setTab || !tab) return 'CANCELLED';
+      ed.setTab(tab);
+      app.changed('ui');
+    },
+  },
+  {
     idname: 'wm.quit_blender',
     label: 'Quit',
     description: 'Leave the app, offering to save unsaved changes first',

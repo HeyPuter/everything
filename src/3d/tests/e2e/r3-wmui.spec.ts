@@ -153,6 +153,10 @@ test('operator buttons: right-click assigns a shortcut that works and copies the
   await expect(page.locator('.popup-layer .menu .mi-label', { hasText: 'Change Shortcut' })).toBeVisible();
   await page.locator('.popup-layer .menu .mi-label', { hasText: 'Remove Shortcut' }).click();
   expect(await page.evaluate(async () => !!(await import('/src/ui/shortcuts.ts')).findShortcut('wm.properties_add', { data_path: 'object' }))).toBe(false);
+  // Ctrl Shift C over an operator button copies its Python command
+  await btn.hover();
+  await page.keyboard.press('Control+Shift+c');
+  expect(await page.evaluate(() => (window as unknown as { app: AnyApp }).app.reports.at(-1)?.message)).toContain('Copied: bpy.ops.wm.properties_add(');
   await expectNoErrors(errors);
 });
 
