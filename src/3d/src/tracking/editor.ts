@@ -29,6 +29,7 @@ import { stabilizationMatrix, autoscaleFactor, type Affine2 } from './stabilize'
 import { drawToolbar, drawSidebar, drawPatternPreviews } from './panels';
 import { solveErrorText } from './solvepanels';
 import { reprojectBundle } from './reconstruction';
+import { proxySource, type ProxyRenderSize } from './proxy';
 import { drawPlaneTracks, planeCornerDown, planeBodyDown } from './planeops';
 import { drawGraph, drawDopesheet, graphPointer, dopesheetPointer, frameGraphAll, frameDopesheetAll } from './graphs';
 import { jobState } from './jobs';
@@ -104,6 +105,8 @@ export class ClipEditor implements Editor {
   dopesheetInvert = false;
   dopesheetScroll = 0;
   boxPending = false;
+  /** proxy size the footage is displayed at (when the clip uses proxies) */
+  proxyRenderSize: ProxyRenderSize = 'FULL';
   /** Tracking (markers) or Mask (editing masks over the footage) */
   mode: 'TRACKING' | 'MASK' = 'TRACKING';
   /** mask edited in mask mode */
@@ -154,6 +157,8 @@ export class ClipEditor implements Editor {
     const ext = state as { cursor?: [number, number]; pivot?: 'MEDIAN_POINT' } | undefined;
     if (ext?.cursor) this.cursor = ext.cursor;
     if (ext?.pivot) this.pivot = ext.pivot;
+    const px = (state as { proxy?: ProxyRenderSize } | undefined)?.proxy;
+    if (px) this.proxyRenderSize = px;
     if (!this.clipId) this.clipId = app.doc.scene.active_clip ?? Object.keys(clipTable(app.doc))[0] ?? null;
     this.bind();
     this.ro = new ResizeObserver(() => this.draw());
@@ -381,7 +386,8 @@ export class ClipEditor implements Editor {
     const cf = this.clipFrame;
     const idx = clipFrameToSourceIndex(c, cf);
     const inRange = cf >= 1 && cf <= c.frame_duration && idx >= 0;
-    const bmp = inRange && src ? src.peek(idx) : null;
+    const shown = (src && this.displaySource()) || src;
+    const bmp = inRange && shown ? shown.peek(idx) : null;
     // canvas affine for footage → screen (with stabilization)
     const p0 = this.toScreen(0, 0, T),
       px = this.toScreen(1, 0, T),
@@ -490,13 +496,20 @@ export class ClipEditor implements Editor {
     void hh;
   }
 
+  /** Source the footage is shown from: a built proxy of the chosen size, else the footage. */
+  displaySource() {
+    const c = this.clip;
+    if (!c) return null;
+    return proxySource(c, this.proxyRenderSize) ?? readySource(c);
+  }
+
   private retryLater() {
     setTimeout(() => this.el.isConnected && this.draw(), 100);
   }
 
   private request(idx: number) {
     const c = this.clip;
-    const src = c && readySource(c);
+    const src = c && this.displaySource();
     if (!src || this.loading.has(idx)) return;
     this.loading.add(idx);
     void src.get(idx).finally(() => {
@@ -508,7 +521,7 @@ export class ClipEditor implements Editor {
   /** decode a few frames ahead during playback / scrubbing */
   private prefetchAround(idx: number) {
     const c = this.clip;
-    const src = c && readySource(c);
+    const src = c && this.displaySource();
     if (!src) return;
     const n = app.playing ? 6 : 1;
     for (let k = 1; k <= n; k++) if (idx + k < src.frameCount && !src.peek(idx + k) && !this.loading.has(idx + k)) {
@@ -1269,7 +1282,7 @@ export class ClipEditor implements Editor {
   }
 
   serialize() {
-    return { clip: this.clipId, view: this.view, zoom: this.zoom, off: [this.offX, this.offY], toolbar: this.showToolbar, sidebar: this.showSidebar, sidebarTab: this.sidebarTab, overlays: this.overlays, lock: this.lockSelection, mode: this.mode, mask: this.maskId, cursor: this.cursor, pivot: this.pivot };
+    return { clip: this.clipId, view: this.view, zoom: this.zoom, off: [this.offX, this.offY], toolbar: this.showToolbar, sidebar: this.showSidebar, sidebarTab: this.sidebarTab, overlays: this.overlays, lock: this.lockSelection, mode: this.mode, mask: this.maskId, cursor: this.cursor, pivot: this.pivot, proxy: this.proxyRenderSize };
   }
 
   dispose() {
@@ -1304,6 +1317,7 @@ function viewMenu(ed: ClipEditor): MenuItem[] {
       opItem('Frame All', 'clip.view_all'),
       opItem('Frame All Fit', 'clip.view_all', { fit_view: true }),
       opItem('Frame Selected', 'clip.view_selected'),
+      opItem('Center View to Cursor', 'clip.view_center_cursor'),
       { label: 'Zoom', submenu: () => [opItem('Zoom In', 'clip.view_zoom_in'), opItem('Zoom Out', 'clip.view_zoom_out'), { separator: true }, ...[8, 4, 2, 1, 0.5, 0.25, 0.125].map((r) => opItem(`Zoom ${r >= 1 ? `${r}:1` : `1:${1 / r}`}`, 'clip.view_zoom_ratio', { ratio: r }))] },
       { separator: true },
       { label: 'Lock to Selection', checked: ed.lockSelection, shortcut: 'L', op: 'clip.lock_selection_toggle' },
@@ -1382,8 +1396,10 @@ function clipMenu(): MenuItem[] {
     opItem('Open…', 'clip.open', undefined, { icon: 'file_folder' }),
     { separator: true },
     opItem('Set Scene Frames', 'clip.set_scene_frames'),
+    opItem('Set Active Clip', 'clip.set_active_clip'),
     opItem('Prefetch Frames', 'clip.prefetch'),
     opItem('Reload Clip', 'clip.reload'),
+    { label: 'Proxy', submenu: () => [opItem('Rebuild Proxy', 'clip.rebuild_proxy'), opItem('Delete Proxy', 'clip.delete_proxy')] },
     { separator: true },
     opItem('Export Stabilized Footage…', 'clip.export_stabilized_footage'),
     opItem('Export Stabilization Data…', 'clip.export_stabilization_data'),

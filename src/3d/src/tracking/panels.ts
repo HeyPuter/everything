@@ -11,6 +11,7 @@ import { measureMotion } from './stabilize';
 import type { ClipEditor } from './editor';
 import { solveToolbar, objectsPanel, distortionRows } from './solvepanels';
 import { planeTrackPanel } from './planeops';
+import { proxyPanel } from './proxypanel';
 
 const MODELS: [MotionModel, string][] = [
   ['Loc', 'Location'],
@@ -151,7 +152,7 @@ export function drawSidebar(ed: ClipEditor): Child {
   if (!TABS.includes(ed.sidebarTab)) ed.sidebarTab = 'Track';
   let body: Child[];
   if (!c) body = [h('div', { class: 'sb-empty' }, 'No active movie clip')];
-  else if (ed.sidebarTab === 'Footage') body = footageTab(c);
+  else if (ed.sidebarTab === 'Footage') body = footageTab(ed, c);
   else if (ed.sidebarTab === 'Stabilization') body = stabilizationTab(ed, c);
   else body = trackTab(ed, c);
   return h(
@@ -319,7 +320,7 @@ function markerPanel(ed: ClipEditor, c: MovieClipData, t: MovieTrackingTrack, f:
   ];
 }
 
-function footageTab(c: MovieClipData): Child[] {
+function footageTab(ed: ClipEditor, c: MovieClipData): Child[] {
   const src = readySource(c);
   return [
     panel('clip-n-footage', 'Footage Settings', () => [
@@ -341,6 +342,7 @@ function footageTab(c: MovieClipData): Child[] {
       valueRow('Cached Frames', src ? String(src.cached().length) : '0'),
       h('div', { class: 'btn-row' }, opButton('clip.prefetch', 'Prefetch'), opButton('clip.reload', 'Reload')),
     ]),
+    proxyPanel(ed, c),
   ];
 }
 

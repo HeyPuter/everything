@@ -229,3 +229,93 @@ test('camsolve: plane track from four tracks, corner slide and Plane Track Defor
   expect(node).toBe('CompositorNodePlaneTrackDeform');
   await expectNoErrors(errors);
 });
+
+test('camsolve: clip editor operators (select, cursor, view, mode, active clip, frames)', async ({ page }) => {
+  const errors = await solvableClip(page, { frames: 20, points: 20 });
+  const clipView = page.locator('.clip-root').nth(1);
+  const box = (await clipView.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const r = await page.evaluate(() => {
+    const app = (window as any).app;
+    const ed = app.hoverArea.editor;
+    const c = app.doc.movieclips.MC_s;
+    app.setFrame(4);
+    const t = c.tracking.tracks.find((x: any) => x.markers.some((m: any) => m.frame === 4));
+    const m = t.markers.find((x: any) => x.frame === 4);
+    const out: any = {};
+    out.select = app.run('clip.select', { location: [m.co[0] + 0.001, m.co[1]] }, { invoke: false });
+    out.active = c.tracking.active_track === t.name && t.select;
+    app.run('clip.cursor_set', { location: [0.25, 0.75] }, { invoke: false });
+    out.cursor = [...ed.cursor];
+    app.run('clip.view_center_cursor');
+    out.centered = [Math.round(ed.offX), Math.round(ed.offY)];
+    app.run('clip.mode_set', { mode: 'MASK' });
+    out.mask = ed.mode;
+    app.run('clip.mode_set', { mode: 'TRACKING' });
+    app.doc.scene.active_clip = null;
+    app.run('clip.set_active_clip');
+    out.activeClip = app.doc.scene.active_clip;
+    app.run('clip.change_frame', { frame: 9 }, { invoke: false });
+    out.frame = app.doc.scene.frame_current;
+    const before = [...m.co];
+    c.tracking.tracks.forEach((x: any) => (x.select = x === t));
+    app.run('clip.slide_marker', { offset: [0.01, -0.02] }, { invoke: false });
+    const m9 = t.markers.find((x: any) => x.frame === 9);
+    out.slid = !!m9 && m9.is_keyed;
+    void before;
+    return out;
+  });
+  expect(r).toEqual({ select: 'FINISHED', active: true, cursor: [0.25, 0.75], centered: [320, 180], mask: 'MASK', activeClip: 'MC_s', frame: 9, slid: true });
+  // the dope sheet channel operator selects a track by its row
+  const ds = page.locator('.clip-root').nth(0);
+  const dbox = (await ds.boundingBox())!;
+  await page.mouse.move(dbox.x + 50, dbox.y + 60);
+  const sel = await page.evaluate(() => {
+    const app = (window as any).app;
+    app.run('clip.dopesheet_select_channel', { location: [10, 24 + 20 * 2 + 5], extend: false }, { invoke: false });
+    return app.doc.movieclips.MC_s.tracking.tracks.filter((t: any) => t.select).length;
+  });
+  expect(sel).toBe(1);
+  await expectNoErrors(errors);
+});
+
+test('camsolve: proxies of an image sequence are built and shown', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const { openClipFiles } = await import('/src/tracking/index.ts' as any);
+    const { shell } = await import('/src/ui/shell.ts' as any);
+    const { workspaceTemplates } = await import('/src/ui/screen.ts' as any);
+    shell.addWorkspace(workspaceTemplates.find((t: any) => t.create().name === 'Motion Tracking').create());
+    const files: File[] = [];
+    for (let i = 0; i < 6; i++) {
+      const cv = document.createElement('canvas');
+      cv.width = 320;
+      cv.height = 180;
+      const g = cv.getContext('2d')!;
+      g.fillStyle = `hsl(${i * 50}, 70%, 50%)`;
+      g.fillRect(0, 0, 320, 180);
+      const b: Blob = await new Promise((res) => cv.toBlob((x) => res(x!), 'image/png'));
+      files.push(new File([b], `f${String(i).padStart(3, '0')}.png`, { type: 'image/png' }));
+    }
+    await openClipFiles(files);
+  });
+  await page.waitForTimeout(300);
+  const clipView = page.locator('.clip-root').nth(1);
+  const box = (await clipView.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await clipView.locator('.clip-sidebar .sb-tab', { hasText: 'Footage' }).click();
+  await clipView.locator('[data-id="clip-use-proxy"]').click();
+  await expect(clipView.locator('.clip-sidebar .panel', { hasText: 'Proxy' }).locator('button', { hasText: 'Build Proxy' })).toBeEnabled();
+  await clipView.locator('.clip-sidebar button', { hasText: 'Build Proxy' }).click();
+  await page.waitForFunction(() => document.querySelector('.clip-sidebar .clip-info')?.textContent?.includes('Built: 25%'), null, { timeout: 15000 });
+  const shown = await page.evaluate(() => {
+    const ed = (window as any).app.hoverArea.editor;
+    ed.proxyRenderSize = 'PROXY_25';
+    const s = ed.displaySource();
+    return [s.width, s.height, s.frameCount];
+  });
+  expect(shown).toEqual([80, 45, 6]);
+  await page.evaluate(() => (window as any).app.run('clip.delete_proxy'));
+  expect(await page.evaluate(() => (window as any).app.hoverArea.editor.displaySource().width)).toBe(320);
+  await expectNoErrors(errors);
+});

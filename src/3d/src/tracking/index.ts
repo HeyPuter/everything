@@ -17,6 +17,8 @@ import './solvemenus';
 import './scenesetup';
 import './bundles3d';
 import './planenode';
+import './editorops';
+import './proxy';
 import '../mask/index';
 import { registerWorkspaceTemplate, A, H, V } from '../ui/screen';
 
