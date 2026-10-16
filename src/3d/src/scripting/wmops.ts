@@ -343,6 +343,8 @@ registerOperators([
     label: 'Purge Unused Data',
     description: 'Remove all unused data-blocks (meshes, materials, images, actions, node groups, textures…) without a fake user',
     props: [
+      { id: 'do_local_ids', label: 'Local Data-blocks', type: 'bool', default: true },
+      { id: 'do_linked_ids', label: 'Linked Data-blocks', type: 'bool', default: true },
       { id: 'do_recursive', label: 'Recursive Delete', type: 'bool', default: true },
       { id: 'confirm', label: 'Confirm', type: 'bool', default: true, hidden: true },
     ],
@@ -358,14 +360,14 @@ registerOperators([
           { heading: `Purge Unused Data (${prev.total} data-block${prev.total === 1 ? '' : 's'})` },
           ...prev.byType.map(([t, n]) => ({ label: `${n} ${t}`, disabled: true })),
           { separator: true },
-          { label: 'Delete', icon: 'trash', action: () => app.run('outliner.orphans_purge', { do_recursive: p.do_recursive, confirm: false }, { invoke: false }) },
+          { label: 'Delete', icon: 'trash', action: () => app.run('outliner.orphans_purge', { do_recursive: p.do_recursive, do_local_ids: p.do_local_ids, do_linked_ids: p.do_linked_ids, confirm: false }, { invoke: false }) },
         ],
         { x: app.pointer.x, y: app.pointer.y },
       );
       return 'CANCELLED';
     },
     exec: (ctx, p) => {
-      const n = purgeOrphanData(ctx.doc, !!p.do_recursive);
+      const n = purgeOrphanData(ctx.doc, !!p.do_recursive, { local: p.do_local_ids !== false, linked: p.do_linked_ids !== false });
       if (!n) {
         app.report('INFO', 'No orphaned data-blocks to purge');
         return 'CANCELLED';

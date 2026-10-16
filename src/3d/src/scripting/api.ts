@@ -31,6 +31,7 @@ import {
 } from '../data/defaults';
 import { buildMesh, edgeTopology, emptyMeshArrays, faceCenter, faceVerts, polyNormal } from '../mesh/mesh';
 import { cow, cloneShared } from '../data/cow';
+import { dropUnusedLibraries } from '../library/core';
 import { newModifier, modifierTypes } from '../eval/modifiers';
 import { newConstraint, constraintTypes, boneOnlyConstraints } from '../eval/constraints';
 import { keyProperty, ensureAction, ensureFCurve } from '../anim/keyframes';
@@ -2702,9 +2703,7 @@ export const bpyData: Record<string, unknown> & { scenes: ScenesCollection } = {
   },
   /** Remove unused data-blocks; returns the number removed. */
   orphans_purge(do_local_ids = true, do_linked_ids = true, do_recursive = true) {
-    void do_local_ids;
-    void do_linked_ids;
-    const n = purgeOrphanData(app.doc, !!do_recursive);
+    const n = purgeOrphanData(app.doc, !!do_recursive, { local: !!do_local_ids, linked: !!do_linked_ids });
     if (n) touched();
     return n;
   },
@@ -2729,7 +2728,9 @@ kwMethod(bpyData, 'orphans_purge', ['do_local_ids', 'do_linked_ids', 'do_recursi
 export const PURGEABLE = ['meshes', 'curves', 'lights', 'cameras', 'armatures', 'lattices', 'metaballs', 'materials', 'images', 'actions', 'node_groups', 'textures', 'particles', 'worlds'];
 
 /** Delete data-blocks with zero users and no fake user. Returns how many were removed. */
-export function purgeOrphanData(d: DocumentData, recursive = true): number {
+export function purgeOrphanData(d: DocumentData, recursive = true, which: { local?: boolean; linked?: boolean } = {}): number {
+  const local = which.local !== false,
+    linked = which.linked !== false;
   let removed = 0;
   for (let pass = 0; pass < 16; pass++) {
     const refs = new Set<string>();
@@ -2758,6 +2759,7 @@ export function purgeOrphanData(d: DocumentData, recursive = true): number {
       if (!t) continue;
       for (const [id, rec] of Object.entries(t)) {
         if (rec?.use_fake_user || refs.has(id)) continue;
+        if (rec?.library ? !linked : !local) continue;
         if (table === 'worlds' && d.scene.world === id) continue;
         delete t[id];
         n++;
@@ -2766,6 +2768,8 @@ export function purgeOrphanData(d: DocumentData, recursive = true): number {
     removed += n;
     if (!n || !recursive) break;
   }
+  // libraries nothing is linked from any more go too
+  if (removed && linked) dropUnusedLibraries(d);
   return removed;
 }
 

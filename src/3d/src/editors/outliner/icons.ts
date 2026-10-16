@@ -9,5 +9,7 @@ registerIcons({
   outliner_expand_all: '<path class="s" d="M4 3l4 4 4-4M4 9l4 4 4-4" fill="none" stroke-width="1.4" stroke-linejoin="round"/>',
   outliner_hierarchy:
     '<path class="s" d="M3 3h4M5 3v9h4M5 8h4" fill="none" stroke-width="1.3"/><rect class="f" x="10" y="6.5" width="3.5" height="3" rx=".6"/><rect class="f" x="10" y="10.5" width="3.5" height="3" rx=".6"/>',
+  // a small tree of properties (Data API display mode)
+  rna: '<circle class="f" cx="4" cy="3.5" r="1.6"/><path class="s" d="M4 5v7.5h3M4 8.5h3" fill="none" stroke-width="1.2"/><rect class="f" x="8" y="7" width="6" height="3" rx=".8"/><rect class="f" x="8" y="11" width="6" height="3" rx=".8" opacity=".7"/>',
   outliner_show_active: '<circle class="s" cx="8" cy="8" r="5" fill="none" stroke-width="1.3"/><circle class="f" cx="8" cy="8" r="2"/>',
 });

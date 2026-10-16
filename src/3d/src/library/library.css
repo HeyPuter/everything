@@ -1,0 +1,226 @@
+/* Library browser (File > Link / Append, relocating libraries) */
+.library-browser .dialog-body {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.lb {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  outline: none;
+}
+.lb-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--c-header, #2d2e30);
+  border-bottom: 1px solid var(--c-border, #121315);
+}
+.lb-crumbs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.lb-crumb {
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 3px;
+  color: var(--c-text-dim);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lb-crumb:hover {
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.06);
+  color: var(--c-text);
+}
+.lb-crumb.on {
+  color: var(--c-text);
+  font-weight: 600;
+}
+.lb-crumb-sep {
+  color: var(--c-text-dim);
+  opacity: 0.6;
+}
+.lb-filter {
+  width: 170px;
+  flex: none;
+}
+.lb-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.lb-side {
+  width: 168px;
+}
+.lb-center {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-outliner, #252627);
+}
+.lb-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px;
+}
+.lb-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 3px;
+  cursor: default;
+  user-select: none;
+}
+.lb-row:nth-child(even) {
+  background: rgba(255, 255, 255, 0.025);
+}
+.lb-row:hover {
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.07);
+}
+.lb-row.on {
+  background: var(--c-ol-active, #354b82);
+  color: var(--c-text-hi, #fff);
+}
+.lb-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lb-detail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--c-text-dim);
+  font-size: 11px;
+}
+.lb-row.on .lb-detail {
+  color: inherit;
+  opacity: 0.8;
+}
+.lb-chev {
+  display: inline-flex;
+  opacity: 0.6;
+}
+.lb-badge {
+  display: inline-flex;
+  opacity: 0.85;
+}
+.lb-empty {
+  margin: auto;
+  max-width: 360px;
+  padding: 24px;
+  text-align: center;
+  color: var(--c-text-dim);
+  line-height: 1.5;
+}
+.lb-status {
+  padding: 4px 10px;
+  color: var(--c-text-dim);
+  border-top: 1px solid var(--c-border, #121315);
+}
+.lb-opts {
+  width: 190px;
+  flex: none;
+  padding: 6px 8px;
+  overflow-y: auto;
+  background: var(--g-2b, #28292a);
+  border-left: 1px solid var(--g-1d, #1a1b1c);
+}
+.lb-opt {
+  margin: 2px 0;
+}
+.lb-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  background: var(--c-header, #2d2e30);
+  border-top: 1px solid var(--c-border, #121315);
+}
+.lb-summary {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--c-text-dim);
+}
+.lb-summary > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lb-count {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent, #4b70b5);
+  color: var(--c-text-on-accent, #fff);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+.lb-go {
+  min-width: 84px;
+}
+
+/* linked data markers (outliner rows, data-block selectors) */
+.lib-mark {
+  display: inline-flex;
+  flex: none;
+  opacity: 0.8;
+}
+.lib-mark.missing {
+  opacity: 1;
+}
+.lib-tag {
+  margin-left: 4px;
+  color: var(--c-text-dim);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.ids-lib {
+  height: var(--row);
+  width: 22px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: var(--w-regular);
+}
+.ids-name-ro {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0.75;
+}
+.lb-empty-btn {
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

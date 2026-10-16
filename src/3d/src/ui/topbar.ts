@@ -15,7 +15,6 @@ import { assistantOpen } from '../assistant';
 import { renderContext } from '../render/context';
 import { shell, type Shell } from './shell';
 import './topbar.css';
-import './appenddialog';
 import { externalDataMenu } from '../io/externaldata';
 import { quickSetupBody, quickSetupPending, splashArt } from './quicksetup';
 
@@ -66,7 +65,8 @@ export function fileMenu(): MenuItem[] {
     { label: 'Save Copy…', op: 'wm.save_as_mainfile', props: { copy: true } },
     { label: 'Save Incremental', shortcut: 'Ctrl Alt S', op: 'wm.save_mainfile', props: { incremental: true } },
     { separator: true },
-    { label: 'Append…', icon: 'link', op: 'wm.append' },
+    { label: 'Link…', icon: 'link', op: 'wm.link' },
+    { label: 'Append…', icon: 'append_blend', op: 'wm.append' },
     { separator: true },
     { label: 'Import', icon: 'import', submenu: importMenu },
     { label: 'Export', icon: 'export', submenu: exportMenu },
@@ -93,7 +93,8 @@ export function fileContextMenu(): MenuItem[] {
     { label: 'Open…', icon: 'file_folder', shortcut: 'Ctrl O', op: 'wm.open_mainfile' },
     { label: 'Open Recent', submenu: openRecentMenu },
     { separator: true },
-    { label: 'Append…', icon: 'link', op: 'wm.append' },
+    { label: 'Link…', icon: 'link', op: 'wm.link' },
+    { label: 'Append…', icon: 'append_blend', op: 'wm.append' },
     { separator: true },
     { label: 'Save', shortcut: 'Ctrl S', op: 'wm.save_mainfile' },
     { label: 'Save As…', shortcut: 'Shift Ctrl S', op: 'wm.save_as_mainfile' },

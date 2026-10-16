@@ -1390,6 +1390,8 @@ export interface DocumentData {
   volumes?: Record<ID, import('../volume/types').VolumeData>;
   /** Point cloud data-blocks (src/pointcloud); absent in older files */
   pointclouds?: Record<ID, import('../pointcloud/types').PointCloudData>;
+  /** Library files this file links data-blocks from (src/library); absent in older files */
+  libraries?: Record<ID, import('../library/types').LibraryData>;
   /** Mode of the active object */
   mode: Mode;
   /** Ordering of object ids for stable iteration */

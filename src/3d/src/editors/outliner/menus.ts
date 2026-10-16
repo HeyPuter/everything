@@ -85,12 +85,16 @@ const hookItems = (r: Row) => rowMenuHooks.flatMap((f) => f(r));
 export function idDataMenu(r: Row): MenuItem[] {
   const fake = r.table !== 'objects' && r.table !== 'collections';
   const single = r.kind === 'data' || r.kind === 'material' || r.kind === 'action';
+  const rec = (r.kind === 'object' && r.ob ? app.doc.objects[r.ob.id] : r.table && r.id ? (app.doc as unknown as Record<string, Record<string, unknown>>)[r.table]?.[r.id] : undefined) as { library?: string; override_library?: object } | undefined;
+  const linked = !!rec?.library || !!rec?.override_library;
   return [
     idItem('UNLINK', 'Unlink', {
       disabled: r.kind === 'data' || (r.kind === 'id' && r.table !== 'collections'),
     }),
+    ...(linked ? [idItem('LOCAL', 'Make Local', { icon: 'unlinked' })] : []),
     ...(single ? [idItem('SINGLE', 'Make Single User')] : []),
     idItem('DELETE', 'Delete'),
+    idItem('REMAP', 'Remap Users'),
     { separator: true },
     idItem('COPY', 'Copy', { disabled: !app.poll('outliner.id_copy') }),
     idItem('PASTE', 'Paste', { disabled: !app.poll('outliner.id_paste') }),
@@ -264,7 +268,14 @@ export function contextMenuFor(ol: Outliner, r: Row): MenuItem[] {
   return withShortcuts(rowMenu(ol, r));
 }
 
+/** Row menus of element kinds defined by other display modes (libraries, strips, properties…). */
+export const kindMenuHooks: Partial<Record<Row['kind'], (ol: Outliner, r: Row) => MenuItem[]>> = {};
+/** The View and Area submenus every row menu ends with. */
+export const commonItems = (ol: Outliner) => common(ol);
+
 function rowMenu(ol: Outliner, r: Row): MenuItem[] {
+  const hook = kindMenuHooks[r.kind];
+  if (hook) return hook(ol, r);
   switch (r.kind) {
     case 'collection':
       return collectionMenu(ol, r);
@@ -274,7 +285,16 @@ function rowMenu(ol: Outliner, r: Row): MenuItem[] {
     case 'material':
     case 'action':
     case 'id':
-      return [...idDataMenu(r), ...(hookItems(r).length ? [{ separator: true }, ...hookItems(r)] : []), ...common(ol)];
+      return [
+        ...(r.kind === 'id' && r.table === 'collections' && r.id
+          ? [
+              { label: 'Link to Scene', op: 'outliner.collection_link', disabled: app.doc.collections[app.doc.scene.collection]?.children.includes(r.id) },
+              { label: 'Instance to Scene', op: 'outliner.collection_instance' },
+              { label: 'Delete Hierarchy', op: 'outliner.collection_hierarchy_delete' },
+              { separator: true },
+            ]
+          : []),
+        ...idDataMenu(r), ...(hookItems(r).length ? [{ separator: true }, ...hookItems(r)] : []), ...common(ol)];
     case 'modifier':
     case 'modifiers':
       return [

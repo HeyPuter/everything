@@ -6,6 +6,7 @@
 //   Adjust Last Operation;
 // - the operators' exec() rebuilds the TState from their properties and applies it once.
 import { Matrix3, Matrix4, Quaternion, Vector3 } from 'three';
+import { isReadOnly } from '../library/readonly';
 import { app, onAppReady, operators, registerOperator, registerOperators, type ModalHandler, type Operator, type PropDef } from '../app/app';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { prefs } from '../app/prefs';
@@ -147,7 +148,10 @@ function objectElement(ob: ObjectData, ids: Set<string>, weight: number, distanc
 const objectProvider: TProvider = {
   collect({ proportional }) {
     if (app.doc.mode !== 'OBJECT') return null;
-    const sel = app.selectedObjects().filter((o) => app.isSelectable(o.id) || o.select);
+    const all = app.selectedObjects().filter((o) => app.isSelectable(o.id) || o.select);
+    // linked objects are read-only (overrides and local copies can move)
+    const sel = all.filter((o) => !isReadOnly(o));
+    if (sel.length < all.length) app.report('WARNING', 'Linked objects cannot be transformed; make a library override or make them local');
     if (!sel.length) return null;
     const ids = new Set(sel.map((o) => o.id));
     const roots = sel.filter((o) => !hasSelectedAncestor(o, ids));

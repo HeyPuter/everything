@@ -48,11 +48,12 @@ export const DISPLAY_SIZES: [string, string, number][] = [
   ['LARGE', 'Large', 208],
 ];
 
-const IMPORT_LABELS: Record<ImportSetting, string> = { FOLLOW_PREFS: 'Follow Library', APPEND: 'Append', APPEND_REUSE: 'Append (Reuse Data)' };
+const IMPORT_LABELS: Record<ImportSetting, string> = { FOLLOW_PREFS: 'Follow Library', LINK: 'Link', APPEND: 'Append', APPEND_REUSE: 'Append (Reuse Data)' };
 const IMPORT_TIPS: Record<ImportSetting, string> = {
   FOLLOW_PREFS: 'Use the import method set for each asset’s library (Library ▸ Default Import Method)',
   APPEND: 'Copy the asset and everything it uses into this file, every time',
   APPEND_REUSE: 'Copy the asset, but reuse data this file already got from the same library (materials, meshes, node groups…)',
+  LINK: 'Use the asset from its library without copying it: read-only here, and it follows changes made in the library (built-in assets are appended)',
 };
 
 const browsers = new Set<AssetBrowser>();
@@ -472,7 +473,7 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
             {
               label: 'Default Import Method',
               submenu: (): MenuItem[] =>
-                (['APPEND', 'APPEND_REUSE'] as const).map((m) => ({ label: m === 'APPEND' ? 'Append' : 'Append (Reuse Data)', active: libraryInfo(this.library)?.import_method === m, action: () => setLibraryImportMethod(this.library, m) })),
+                (['LINK', 'APPEND', 'APPEND_REUSE'] as const).map((m) => ({ label: IMPORT_LABELS[m], active: libraryInfo(this.library)?.import_method === m, action: () => setLibraryImportMethod(this.library, m) })),
             },
           ]
         : []),

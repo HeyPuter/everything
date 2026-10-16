@@ -2,6 +2,8 @@
 // assets (adding objects and collections, assigning materials, worlds and actions, adding node
 // groups to node trees and as Geometry Nodes modifiers).
 import { app, registerOperators, type OpContext } from '../app/app';
+import { linkAsset } from '../library/assets';
+import { isLinked } from '../library/core';
 import type { DocumentData, ID, NodeTreeData, ObjectData } from '../data/types';
 import type { TreeType } from '../nodes/types';
 import { compatibleGroups, makeNode } from '../nodes/tree';
@@ -144,10 +146,11 @@ const IMPORT_METHODS: [string, string, string][] = [
   ['FOLLOW_PREFS', 'Follow Library', 'Use the import method set for the asset’s library'],
   ['APPEND', 'Append', 'Copy the asset and everything it uses into this file'],
   ['APPEND_REUSE', 'Append (Reuse Data)', 'Copy the asset, reusing data this file already got from the same library'],
+  ['LINK', 'Link', 'Use the asset from its library without copying it: it stays read-only and follows changes to the library'],
 ];
 
 function methodFor(library: string, setting: unknown): ImportMethod {
-  if (setting === 'APPEND' || setting === 'APPEND_REUSE') return setting;
+  if (setting === 'APPEND' || setting === 'APPEND_REUSE' || setting === 'LINK') return setting;
   return libraryInfo(library)?.import_method ?? 'APPEND';
 }
 
@@ -161,7 +164,15 @@ export function useAsset(doc: DocumentData, ref: string, method: unknown): { tab
     app.report('WARNING', 'The asset library is still loading');
     return null;
   }
-  const res = importAsset(doc, src, r.library, r.table, r.id, methodFor(r.library, method));
+  const m = methodFor(r.library, method);
+  if (m === 'LINK') {
+    // only user libraries are files that can be linked; built-in assets are appended
+    if (libraryInfo(r.library)?.kind === 'USER') {
+      const lid = linkAsset(doc, src, r.library, libraryInfo(r.library)!.name, r.table, r.id);
+      return lid ? { table: r.table, id: lid, objects: [] } : null;
+    }
+  }
+  const res = importAsset(doc, src, r.library, r.table, r.id, m === 'LINK' ? 'APPEND_REUSE' : m);
   return res ? { table: res.table, id: res.id, objects: res.objects } : null;
 }
 
@@ -670,7 +681,8 @@ registerOperators([
       }
       const res = useAsset(doc, String(p.asset), p.import_method);
       if (!res) return 'CANCELLED';
-      placeObjects(doc, [res.id, ...res.objects], activeCollection(doc), loc);
+      // linked objects stay where their library has them
+      placeObjects(doc, [res.id, ...res.objects], activeCollection(doc), isLinked(doc.objects[res.id]) ? undefined : loc);
     },
   },
   {
@@ -688,7 +700,11 @@ registerOperators([
       const res = useAsset(doc, String(p.asset), p.import_method);
       if (!res) return 'CANCELLED';
       if (r.library === LOCAL || p.use_instance) addCollectionInstance(doc, res.id, activeCollection(doc), loc);
-      else placeCollection(doc, res.id, activeCollection(doc), loc);
+      else if (isLinked(doc.collections[res.id])) {
+        // a linked collection cannot be moved: it is added as it is
+        const into = doc.collections[activeCollection(doc)] ?? doc.collections[doc.scene.collection];
+        if (!into.children.includes(res.id)) into.children.push(res.id);
+      } else placeCollection(doc, res.id, activeCollection(doc), loc);
     },
   },
   {

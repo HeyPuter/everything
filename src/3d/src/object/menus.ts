@@ -7,6 +7,7 @@ import { snapMenu } from '../editors/view3d/menus';
 import { addModifierMenu } from '../editors/properties/stack';
 import { objectTransformMenu as transformMenu, mirrorMenu } from '../editors/view3d/transformui';
 import { objectAssetMenu } from '../assets/menus';
+import { libOverrideMenu, makeLocalMenu } from '../library/menus';
 
 export { mirrorMenu };
 
@@ -95,7 +96,7 @@ function singleUserMenu(): MenuItem[] {
 }
 
 function relationsMenu(): MenuItem[] {
-  return [{ label: 'Make Instance Face', op: 'object.make_dupli_face' }, { separator: true }, { label: 'Make Single User', submenu: singleUserMenu }];
+  return [{ label: 'Make Instance Face', op: 'object.make_dupli_face' }, { separator: true }, { label: 'Make Local', submenu: makeLocalMenu }, { label: 'Make Single User', submenu: singleUserMenu }];
 }
 
 /** Parent types that make sense for the active (parent) object. */
@@ -276,6 +277,7 @@ export function objectMenu(): MenuItem[] {
     { label: 'Asset', submenu: () => objectAssetMenu() },
     { label: 'Collection', submenu: collectionMenu },
     { separator: true },
+    { label: 'Library Override', submenu: libOverrideMenu },
     { label: 'Relations', submenu: relationsMenu },
     { label: 'Parent', submenu: parentMenu },
     { label: 'Modifiers', icon: 'modifier', submenu: modifiersMenu },

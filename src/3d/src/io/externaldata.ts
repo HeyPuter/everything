@@ -31,6 +31,9 @@ export function externalDataMenu(): MenuItem[] {
   return [
     { label: 'Unpack Resources', op: 'file.unpack_all' },
     { separator: true },
+    { label: 'Pack Linked Libraries', op: 'file.pack_libraries' },
+    { label: 'Unpack Linked Libraries', op: 'file.unpack_libraries' },
+    { separator: true },
     { label: 'Report Missing Files', op: 'file.report_missing_files' },
     { label: 'Find Missing Files…', op: 'file.find_missing_files' },
   ];

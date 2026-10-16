@@ -331,6 +331,7 @@ export class FileBrowser implements Editor {
     const writable = !!this.dir?.removeEntry;
     return [
       { label: first?.kind === 'dir' ? 'Open Folder' : first && category(first.name) === 'model' ? 'Import' : 'Open', shortcut: 'Enter', disabled: !first, op: 'file.execute' },
+      ...(one.length === 1 && first?.kind === 'file' && /\.(p3d|blend\d*)$/i.test(first.name) ? [{ label: 'Link…', icon: 'link', disabled: !app.poll('wm.link'), action: () => this.linkFrom(first, true) }, { label: 'Append…', icon: 'append_blend', disabled: !app.poll('wm.append'), action: () => this.linkFrom(first, false) }] : []),
       { separator: true },
       { label: 'Rename…', shortcut: 'F2', disabled: one.length !== 1 || !writable, op: 'file.rename' },
       { label: 'Delete', shortcut: 'X', disabled: !one.length || !writable, op: 'file.delete' },
@@ -342,6 +343,12 @@ export class FileBrowser implements Editor {
       { separator: true },
       { label: 'Select All', shortcut: 'A', op: 'file.select_all', props: { action: 'SELECT' } },
     ];
+  }
+
+  /** Link or append data-blocks from a project file of this folder (opens the library browser in it). */
+  private linkFrom(it: Item, link: boolean) {
+    const path = [...this.path.map((d) => d.name || 'Browser Storage'), it.name].join('/');
+    void import('../library/ops').then((m) => m.browseFile(link, { name: it.name, path, handle: it.handle as unknown as FileSystemFileHandle | undefined, file: it.file }));
   }
 
   setView(v: View) {

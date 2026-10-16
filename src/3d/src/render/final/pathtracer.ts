@@ -7,7 +7,7 @@ import type { RenderSettings } from '../../data/types';
 import { bounceSettings } from './units';
 import { filterGLSL, filterTable, type PixelFilter } from './filter';
 import { applySssUniforms, applyVolumeUniforms, patchVolumeShader, ptVolumeSets, volumeUniforms } from './ptvolume';
-import type { Data3DTexture, Material } from 'three';
+import type { Data3DTexture } from 'three';
 
 interface Inner {
   _pathTracer: {

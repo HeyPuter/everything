@@ -12,7 +12,7 @@ import { newMaterial, uid, newWorld } from '../../data/defaults';
 import { uniqueName } from '../../ops/object';
 import { cloneShared } from '../../data/cow';
 import { openMenu } from '../../ui/menu';
-import { idSelectorMenuHooks } from '../../ui/idmenu';
+import { idSelectorMenuHooks, idDecoration } from '../../ui/idmenu';
 import { materialSlots } from '../view3d/draw';
 import { uiList } from './uilist';
 import { cameraPanels } from '../../render/final/props/camera';
@@ -221,7 +221,7 @@ registerTab({
     const c = propertiesCollection();
     if (!c) return h('div', { class: 'prop-note' }, 'No collection');
     return [
-      h('div', { class: 'id-row' }, icon('collection'), textField('col-name', c.name, (v) => ((c.name = uniqueName(doc, v, 'collections')), changed('Rename Collection')))),
+      h('div', { class: 'id-row' }, icon(idDecoration(c.id)?.icon ?? 'collection'), idDecoration(c.id)?.readonly ? h('span', { class: 'text-field ids-name-ro', 'data-tip': idDecoration(c.id)!.tip }, c.name) : textField('col-name', c.name, (v) => ((c.name = uniqueName(doc, v, 'collections')), changed('Rename Collection')))),
       panel('col-restrict', 'Restrictions', () => [boolHeading(c, 'hide_select', 'Selectable', '', {}), bool(c, 'hide_render', 'Disable in Renders'), bool(c, 'holdout' as never, 'Holdout'), bool(c, 'indirect_only' as never, 'Indirect Only')]),
       panel(
         'col-instancing',
@@ -255,7 +255,7 @@ registerTab({
     const rotPath = o.rotation_mode === 'QUATERNION' ? 'rotation_quaternion' : o.rotation_mode === 'AXIS_ANGLE' ? 'rotation_axis_angle' : 'rotation_euler';
     const parents = Object.values(doc.objects).filter((x) => x.id !== o.id);
     return [
-      h('div', { class: 'id-row' }, icon('object'), textField('ob-name', o.name, (v) => ((o.name = uniqueName(doc, v)), changed('Rename Object')))),
+      h('div', { class: 'id-row' }, icon(idDecoration(o.id)?.icon ?? 'object'), idDecoration(o.id)?.readonly ? h('span', { class: 'text-field ids-name-ro', 'data-tip': idDecoration(o.id)!.tip }, o.name) : textField('ob-name', o.name, (v) => ((o.name = uniqueName(doc, v)), changed('Rename Object')))),
       panel('ob-transform', 'Transform', () => [
         vecProp(o, 'location', 'Location', { unit: 'distance', anim: { ob: o, path: 'location' }, lock: { owner: o, key: 'lock_location' } }),
         o.rotation_mode === 'QUATERNION'
@@ -335,7 +335,7 @@ export function dataBlockSelector<T extends { id: string; name: string; use_fake
         'data-tip': 'Browse',
         onpointerdown: (e: PointerEvent) => {
           e.preventDefault();
-          openMenu(items.map((i) => ({ label: i.name, icon: iconName, active: i.id === current, action: () => set(i.id) })), e.currentTarget as HTMLElement);
+          openMenu(items.map((i) => ({ label: i.name, icon: idDecoration(i.id)?.icon ?? iconName, description: idDecoration(i.id)?.note, active: i.id === current, action: () => set(i.id) })), e.currentTarget as HTMLElement);
         },
       },
       icon(iconName),
@@ -343,9 +343,10 @@ export function dataBlockSelector<T extends { id: string; name: string; use_fake
     ),
     cur
       ? [
-          textField(`${id}-name`, cur.name, (v) => ((cur.name = v), changed('Rename'))),
+          idDecoration(cur.id) ? h('span', { class: 'ids-lib', 'data-tip': idDecoration(cur.id)!.tip }, icon(idDecoration(cur.id)!.icon)) : null,
+          idDecoration(cur.id)?.readonly ? h('span', { class: 'text-field ids-name-ro', 'data-tip': idDecoration(cur.id)!.tip }, cur.name) : textField(`${id}-name`, cur.name, (v) => ((cur.name = v), changed('Rename'))),
           opts.users && opts.users > 1 ? h('button', { class: 'ids-users', 'data-tip': 'Display number of users of this data (click to make a single-user copy)', onclick: () => opts.duplicate?.() }, String(opts.users)) : null,
-          h('button', { class: { 'ids-btn': true, on: !!cur.use_fake_user }, 'data-tip': 'Fake User\nSave this data-block even if it has no users', onclick: () => ((cur.use_fake_user = !cur.use_fake_user), changed('Fake User')) }, icon(cur.use_fake_user ? 'fake_user_on' : 'fake_user_off')),
+          h('button', { class: { 'ids-btn': true, on: !!cur.use_fake_user }, 'data-tip': 'Fake User\nSave this data-block even if it has no users', disabled: !!idDecoration(cur.id)?.readonly, onclick: () => app.run('ed.lib_id_fake_user_toggle', { id: cur.id }, { invoke: false }) }, icon(cur.use_fake_user ? 'fake_user_on' : 'fake_user_off')),
           opts.duplicate ? h('button', { class: 'ids-btn', 'data-tip': 'New (duplicate)', onclick: () => opts.duplicate!() }, icon('duplicate')) : null,
           opts.noUnlink ? null : h('button', { class: 'ids-btn', 'data-tip': 'Unlink Data-Block', onclick: () => set(null) }, icon('x')),
         ]
