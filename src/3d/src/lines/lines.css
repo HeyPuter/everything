@@ -91,3 +91,19 @@
   align-items: center;
   gap: 6px;
 }
+/* Line Art modifier */
+.la-crease {
+  display: contents;
+}
+.la-bake {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  margin: 2px 0 4px;
+}
+.la-bake > .btn {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

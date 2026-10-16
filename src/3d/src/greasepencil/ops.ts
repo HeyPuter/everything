@@ -215,6 +215,9 @@ export function createGreasePencilObject(doc: DocumentData, type: 'EMPTY' | 'STR
   return ob;
 }
 
+/** Extra kinds of Add ▸ Grease Pencil objects (e.g. line art), by `type`. */
+export const gpAddTypes: Record<string, (doc: DocumentData, props: Record<string, unknown>) => ObjectData> = {};
+
 /** Keyframe operations shared by the 3D view menus and the dope sheet. */
 export function insertBlankFrame(gp: GreasePencilData, layer: GPLayer, frame: number, type: GPKeyframeType = 'KEYFRAME') {
   // an existing key at this frame is shifted forward
@@ -261,12 +264,17 @@ registerOperators([
           ['EMPTY', 'Blank', 'An empty grease pencil object'],
           ['STROKE', 'Stroke', 'A grease pencil object with a sample stroke'],
           ['MONKEY', 'Monkey', 'A grease pencil object with a drawn monkey head'],
+          ['LINEART_SCENE', 'Scene Line Art', 'Lines of every object in the scene, seen from the camera'],
+          ['LINEART_COLLECTION', 'Collection Line Art', 'Lines of the objects in the active collection, seen from the camera'],
+          ['LINEART_OBJECT', 'Object Line Art', 'Lines of the active object, seen from the camera'],
         ],
       },
       ...transformProps,
     ],
     poll: (ctx) => ctx.doc.mode === 'OBJECT',
     exec: (ctx, p) => {
+      const extra = gpAddTypes[p.type as string];
+      if (extra) return void extra(ctx.doc, p);
       createGreasePencilObject(ctx.doc, p.type as 'EMPTY' | 'STROKE' | 'MONKEY', p);
     },
   },

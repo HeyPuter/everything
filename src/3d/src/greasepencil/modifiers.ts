@@ -711,7 +711,13 @@ export function weighByGroup(before: GPStroke[], after: GPStroke[], group: strin
 // evaluation
 
 export const GP_MOD_PREFIX = 'GREASE_PENCIL_';
-export const isGPModifier = (type: string) => type.startsWith(GP_MOD_PREFIX);
+/** Modifier types of grease pencil objects without the prefix (Line Art keeps its `bpy` name). */
+export const GP_EXTRA_TYPES = new Set(['LINEART']);
+export const isGPModifier = (type: string) => type.startsWith(GP_MOD_PREFIX) || GP_EXTRA_TYPES.has(type);
+/** Extra cache key parts of kernels that read other scene data (e.g. Line Art: camera, sources). */
+export const kernelKeys: Record<string, (m: ModifierBase, c: GPModContext) => string> = {};
+/** Generator types: they draw even into an empty drawing. */
+export const generatorTypes = new Set<string>();
 
 /** Grease pencil modifiers of an object that are enabled for the viewport (or render). */
 export function activeModifiers(ob: ObjectData, render = false): ModifierBase[] {
@@ -814,7 +820,8 @@ export function evaluateDrawing(d: GPDrawing, c: GPModContext, mods: ModifierBas
       const lat = ev?.ob.type === 'LATTICE' && ev.ob.data ? c.doc.lattices?.[ev.ob.data]?.points : undefined;
       return ev ? `${ev.world.elements.map((x) => x.toFixed(4)).join(',')}${ev.pose ? `:${ev.pose.signature}` : ''}${lat ? `:${identity(lat)}` : ''}${ev.geomVersion ? `:${ev.geomVersion}` : ''}` : '';
     });
-  const key = `${c.layerIndex}|${c.layer.name}|${c.layer.pass_index ?? 0}|${JSON.stringify(list)}|${timeDep ? `${c.frame}|${c.keyFrame}|${c.prevStrokeCount}` : ''}|${deps.join(';')}|${c.world.elements.join(',')}|${c.gp.materials.join(',')}`;
+  const extra = list.map((m) => kernelKeys[m.type]?.(m, c) ?? '').join(';');
+  const key = `${c.layerIndex}|${c.layer.name}|${c.layer.pass_index ?? 0}|${JSON.stringify(list)}|${extra}|${timeDep ? `${c.frame}|${c.keyFrame}|${c.prevStrokeCount}` : ''}|${deps.join(';')}|${c.world.elements.join(',')}|${c.gp.materials.join(',')}`;
   let per = cache.get(d);
   const hit = per?.get(key);
   if (hit) return hit;

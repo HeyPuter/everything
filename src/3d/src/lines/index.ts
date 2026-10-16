@@ -5,5 +5,7 @@ import './ops';
 import './render';
 import './ui';
 import './overlay';
+import './lineart';
+import './lineartui';
 
 export {};
