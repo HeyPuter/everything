@@ -202,3 +202,51 @@ test('Image Editor: render slots, Pack, sampling with a sample size, Shading hea
   await expect(page.locator('.area[data-editor="IMAGE_EDITOR"] .hdr-collapsed-menus')).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('UDIM tiles: convert, add / fill / remove tiles, bake into the tile under the UVs', async ({ page }) => {
+  const errors = await openApp(page);
+  // a plane whose UVs lie in tile 1002, emitting green
+  await script(
+    page,
+    PLANE(
+      16,
+      `
+      const me = window.app.doc.meshes[window.app.activeObject.data];
+      me.uvs = me.uvs.map((v, i) => (i % 2 === 0 ? v + 1 : v));
+      window.app.changed('doc');
+      const bs = ma.node_tree.nodes['Principled BSDF'];
+      bs.inputs['Emission Color'].default_value = [0, 1, 0, 1];
+      bs.inputs['Emission Strength'].default_value = 1;`,
+    ),
+  );
+  const id = await page.evaluate(() => (Object.values((window as any).app.doc.images).find((i: any) => i.name === 'T') as any).id);
+  const area = await imageEditor(page, id);
+  const box = (await area.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.press('n');
+  // Source ▸ UDIM Tiles
+  await area.locator(`[data-id="ie-src-${id}"]`).click();
+  await page.locator('.menu-item', { hasText: 'UDIM Tiles' }).first().click();
+  await expect(area.locator('[data-panel="ie-udim"]')).toBeVisible();
+  const tiles = () => page.evaluate((i) => (window as any).app.doc.images[i].tiles.map((t: any) => t.number), id);
+  expect(await tiles()).toEqual([1001]);
+  await area.locator('[data-panel="ie-udim"] .ul-side button').first().click(); // +
+  await page.evaluate(() => (window as any).app.run('image.tile_add', { number: 1011, count: 2 }, { invoke: false }));
+  expect(await tiles()).toEqual([1001, 1002, 1011, 1012]);
+  await page.evaluate(() => (window as any).app.run('image.tile_remove'));
+  expect(await tiles()).toEqual([1001, 1002, 1011]);
+  await page.evaluate(() => (window as any).app.run('image.tile_fill', { color: [1, 0, 0, 1], width: 8, height: 8, generated_type: 'BLANK' }, { invoke: false }));
+  // bake: tile 1002 receives the emission, the others are cleared
+  const px = await page.evaluate(async (i) => {
+    const a = (window as any).app;
+    a.run('object.bake', { type: 'EMIT', margin: 0 }, { invoke: false });
+    const { readTile } = await import('/src/render/final/udimops.ts' as string);
+    const img = a.doc.images[i];
+    img.tiles.forEach((_: unknown, k: number) => readTile(img, k));
+    await new Promise((r) => setTimeout(r, 300));
+    return img.tiles.map((_: unknown, k: number) => Array.from(readTile(img, k).data.slice(0, 4)));
+  }, id);
+  expect(px[1]).toEqual([0, 255, 0, 255]);
+  expect(px[0]).toEqual([0, 0, 0, 255]);
+  await expectNoErrors(errors);
+});

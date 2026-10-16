@@ -179,7 +179,7 @@ describe('bake shaders', () => {
   });
   it('material shaders draw in UV space and output the requested channel', () => {
     const p = patchBakeShader(ShaderLib.physical.vertexShader, ShaderLib.physical.fragmentShader, 'ROUGHNESS');
-    expect(p.vertex).toContain('gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);');
+    expect(p.vertex).toContain('gl_Position = vec4((uv - bakeUVOffset) * 2.0 - 1.0, 0.0, 1.0);');
     expect(p.fragment).toContain('vec3(roughnessFactor)');
     expect(p.fragment).not.toContain('gl_FrontFacing');
   });

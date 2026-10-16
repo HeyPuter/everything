@@ -51,6 +51,7 @@ export function bakeMultires(): MultiresOutcome {
     const low = multiresAtLevel(base, mod, level);
     const high = displacedTop(base, mod);
     const img = doc.images[t.image!];
+    if (img.source === 'TILED') return { ok: false, message: `"${img.name}" has UDIM tiles: bake multires detail into a single image` };
     const pixels = readPixels(img);
     if (!pixels) return { ok: false, message: `Image "${img.name}" is still loading` };
     const W = pixels.width,

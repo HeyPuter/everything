@@ -1,4 +1,5 @@
 // Per-node GLSL generators for shader nodes (registered into codegen's `nodeGenerators`).
+import { tileGrid } from '../../render/udim';
 import { registerGenerator, fmt, type NodeGen } from './codegen';
 import { readRamp, bakeRamp, bakeCurves, type CurveKind } from '../curves';
 import { MATH_SINGLE } from './defs';
@@ -601,6 +602,13 @@ registerGenerator('ShaderNodeTexImage', (g) => {
   else if (proj === 'SPHERE') c = `nd_tex_sample(${tex}, nd_sphere_uv(${v}), ${interp}, ${ext})`;
   else if (proj === 'TUBE') c = `nd_tex_sample(${tex}, nd_tube_uv(${v}), ${interp}, ${ext})`;
   else c = `nd_tex_sample(${tex}, ${v}.xy, ${interp}, ${ext})`;
+  const im = g.doc.images[img];
+  if (im.source === 'TILED' && im.tiles?.length && proj !== 'BOX') {
+    // UDIM tiles: the texture is an atlas of the tiles (render/udim.ts)
+    const { cols, rows } = tileGrid(im.tiles.map((t) => t.number));
+    const uv = proj === 'SPHERE' ? `nd_sphere_uv(${v})` : proj === 'TUBE' ? `nd_tube_uv(${v})` : `${v}.xy`;
+    c = `nd_tex_udim(${tex}, ${uv}, vec2(${cols}.0, ${rows}.0), ${interp})`;
+  }
   const r = g.tmp('vec4', c);
   g.out('Color', 'vec4', `vec4(${r}.rgb, 1.0)`);
   g.out('Alpha', 'float', `${r}.a`);

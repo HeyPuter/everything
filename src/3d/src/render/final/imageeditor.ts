@@ -20,6 +20,8 @@ import { modifiedImages, type View2D } from './imageops';
 import { scopesPanel } from './scopes';
 import { lastOpPanel } from '../../ui/redo';
 import { uiList } from '../../editors/properties/uilist';
+import { isTiled, tileName, tileView, atlasLayout, tileCell } from '../udim';
+import { makeTiled, makeSingle } from './udimops';
 import { imagePaintStroke, paintBrush } from './imagepaint';
 import { paintImage } from '../../paint/tpaint';
 import { BRUSH_LISTS } from '../../paint/brushes';
@@ -391,6 +393,8 @@ export class ImageEditor implements Editor, View2D {
     ctx.imageSmoothingEnabled = this.zoom < 1;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(src, x, y, dw, dh);
+    const shownImg = this.result ? null : this.image;
+    if (isTiled(shownImg)) this.drawTiles(ctx, shownImg, x, y, dw, dh);
     if (this.paintMode()) this.drawUVOverlay(ctx, x, y, dw, dh);
     // brush circle
     if (this.paintMode() && this.hover && this.image) {
@@ -416,6 +420,32 @@ export class ImageEditor implements Editor, View2D {
       ctx.lineTo(sx, sy + 8);
       ctx.stroke();
     }
+  }
+
+  /** UDIM tiles: outline each tile's cell, label it, and mark the active one. */
+  private drawTiles(ctx: CanvasRenderingContext2D, img: Img, x: number, y: number, dw: number, dh: number) {
+    const { cols, rows } = atlasLayout(img);
+    const cw = dw / cols,
+      chh = dh / rows;
+    ctx.save();
+    ctx.font = `${Math.max(9, Math.min(14, cw / 8))}px ${getComputedStyle(this.el).fontFamily || 'sans-serif'}`;
+    ctx.textBaseline = 'top';
+    img.tiles!.forEach((t, i) => {
+      const [c, r] = tileCell(t.number);
+      const tx = x + c * cw,
+        ty = y + (rows - 1 - r) * chh;
+      const active = i === (img.active_tile_index ?? 0);
+      ctx.strokeStyle = active ? 'rgba(255, 255, 255, 0.85)' : 'rgba(255, 255, 255, 0.35)';
+      ctx.lineWidth = active ? 1.5 : 1;
+      ctx.strokeRect(Math.round(tx) + 0.5, Math.round(ty) + 0.5, Math.round(cw) - 1, Math.round(chh) - 1);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+      const label = tileName(img, i);
+      const tw = ctx.measureText(label).width;
+      ctx.fillRect(tx + 3, ty + 3, tw + 8, 16);
+      ctx.fillStyle = '#e8e9ea';
+      ctx.fillText(label, tx + 7, ty + 5);
+    });
+    ctx.restore();
   }
 
   /** Empty Render Result: a transparent frame with the output's aspect ratio and a hint. */
@@ -919,6 +949,35 @@ export class ImageEditor implements Editor, View2D {
   // ---------------------------------------------------------------------
   // sidebar
 
+  /** Sidebar ▸ Image ▸ UDIM Tiles: the tiles (active one highlighted), add / remove / fill. */
+  private udimPanel(img: Img): Child {
+    const area = this.host.area ?? null;
+    const act = img.active_tile_index ?? 0;
+    return panel('ie-udim', 'UDIM Tiles', () => [
+      uiList(
+        `ie-udim-${img.id}`,
+        img.tiles!.map((t, i) => ({ key: String(t.number), label: tileName(img, i), icon: 'image' })),
+        act,
+        (i) => ((img.active_tile_index = i), app.changed('ui'), this.draw()),
+        {
+          add: () => app.run('image.tile_add', {}, { area }),
+          remove: () => app.run('image.tile_remove', {}, { area, invoke: false }),
+          rename: (i, name) => {
+            img.tiles![i] = { ...img.tiles![i], label: name.replace(/^\d+\s*·?\s*/, '') || undefined };
+            app.pushUndo('Rename Tile');
+            app.changed('doc');
+          },
+          rows: 3,
+        },
+      ),
+      splitRow('Size', h('span', { class: 'ie-value' }, (() => {
+        const v = tileView(img, Math.min(act, img.tiles!.length - 1));
+        return `${v.width} × ${v.height}${v.bytes ? '' : ' (generated)'}`;
+      })())),
+      h('div', { class: 'btn-col' }, button('ie-tile-fill', 'Fill Tile', () => app.run('image.tile_fill', {}, { area }), { tip: 'Fill the active tile with a color (Adjust Last Operation for the color, pattern and size)' })),
+    ]);
+  }
+
   private sidebar(): Child {
     const img = this.image;
     const r = this.result;
@@ -957,9 +1016,27 @@ export class ImageEditor implements Editor, View2D {
       const c = imageCanvas(img);
       body.push(
         panel('ie-image', 'Image', () => [
-          splitRow('Source', h('span', { class: 'ie-value' }, img.source === 'GENERATED' ? 'Generated' : img.source === 'FILE' ? 'Single Image' : img.source)),
+          splitRow(
+            'Source',
+            img.source === 'FILE' || img.source === 'GENERATED' || img.source === 'TILED'
+              ? enumMenu(
+                  `ie-src-${img.id}`,
+                  [
+                    img.bytes?.length || img.source === 'FILE' ? { value: 'FILE', label: 'Single Image', description: 'One image' } : { value: 'GENERATED', label: 'Generated', description: 'Pixels made from a color or pattern' },
+                    { value: 'TILED', label: 'UDIM Tiles', description: 'Several tiles, each covering one unit square of UV space (1001, 1002, …)' },
+                  ],
+                  img.source,
+                  (v) => {
+                    if (v === 'TILED') makeTiled(img);
+                    else makeSingle(img);
+                    set(v === 'TILED' ? 'Image to UDIM Tiles' : 'Image to Single Image');
+                  },
+                  { tip: 'Where the image pixels come from' },
+                )
+              : h('span', { class: 'ie-value' }, img.source),
+          ),
           img.filepath ? splitRow('File', h('span', { class: 'ie-value' }, img.filepath)) : null,
-          splitRow('Size', h('span', { class: 'ie-value' }, `${c.width} × ${c.height}, RGBA byte`)),
+          splitRow('Size', h('span', { class: 'ie-value' }, isTiled(img) ? `${img.tiles!.length} tile${img.tiles!.length > 1 ? 's' : ''}, RGBA byte` : `${c.width} × ${c.height}, RGBA byte`)),
           splitRow(
             'Color Space',
             enumMenu(
@@ -974,6 +1051,7 @@ export class ImageEditor implements Editor, View2D {
             ),
           ),
         ]),
+        isTiled(img) ? this.udimPanel(img) : null,
         img.source === 'GENERATED'
           ? panel('ie-gen', 'Generated', () => [
               splitRow('X', numberField({ id: `ie-gx-${img.id}`, value: img.width, int: true, min: 1, max: 16384, unit: 'pixel', set: (v, f) => ((img.width = v), f && set('Image Size'), app.changed('doc')) })),
@@ -1211,6 +1289,7 @@ export class ImageEditor implements Editor, View2D {
       if (e.button === 0 && this.paintMode()) {
         const img = this.image;
         if (!img) app.report('WARNING', 'No image to paint on: create or open one, or add a paint slot to the object');
+        else if (isTiled(img)) app.report('WARNING', 'Painting on UDIM tiles is not supported yet: paint a single image');
         else imagePaintStroke(this, img, e);
         return;
       }
@@ -1273,7 +1352,7 @@ export class ImageEditor implements Editor, View2D {
 
 /** The New Image popup; `done` receives the new image id. */
 export function newImageDialog(anchor: HTMLElement | undefined, done: (id: string) => void) {
-  const p = { name: 'Untitled', width: 1024, height: 1024, color: [0, 0, 0, 1] as number[], generated_type: 'BLANK', alpha: true };
+  const p = { name: 'Untitled', width: 1024, height: 1024, color: [0, 0, 0, 1] as number[], generated_type: 'BLANK', alpha: true, tiled: false };
   const at = anchor ?? { x: app.pointer.x, y: app.pointer.y };
   const pop = openPopover(
     at,
@@ -1300,6 +1379,7 @@ export function newImageDialog(anchor: HTMLElement | undefined, done: (id: strin
         ),
         splitRow('Alpha', numberField({ id: 'ie-new-ca', value: p.color[3] ?? 1, min: 0, max: 1, slider: true, unit: 'factor', disabled: !p.alpha, set: (v) => ((p.color[3] = v), pop.redraw()) })),
         splitRow('', checkbox('ie-new-a', 'Alpha', p.alpha, (v) => ((p.alpha = v), pop.redraw()))),
+        splitRow('', checkbox('ie-new-tiled', 'Tiled', p.tiled, (v) => ((p.tiled = v), pop.redraw()), { tip: 'Make a UDIM image: add more tiles in Sidebar ▸ Image ▸ UDIM Tiles' })),
         splitRow(
           'Generated Type',
           enumRow(
@@ -1318,7 +1398,7 @@ export function newImageDialog(anchor: HTMLElement | undefined, done: (id: strin
           { class: 'ie-dialog-buttons' },
           button('ie-new-ok', 'OK', () => {
             const color = [...p.color.slice(0, 3), p.alpha ? (p.color[3] ?? 1) : 1];
-            app.run('image.new', { name: p.name, width: p.width, height: p.height, color, generated_type: p.generated_type }, { invoke: false });
+            app.run('image.new', { name: p.name, width: p.width, height: p.height, color, generated_type: p.generated_type, tiled: p.tiled }, { invoke: false });
             if (lastImage) done(lastImage);
             pop.el.remove();
           }),

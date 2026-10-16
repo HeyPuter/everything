@@ -14,6 +14,7 @@ import {
   DoubleSide,
   NoBlending,
   Matrix3,
+  Vector2,
   Material,
   MeshStandardMaterial,
   MeshPhysicalMaterial,
@@ -35,14 +36,18 @@ const GEOMETRY_INDEX: Record<GeometryChannel, number> = { POSITION: 0, NORMAL: 1
 const camera = new OrthographicCamera(-1, 1, 1, -1, -1, 1);
 camera.updateMatrixWorld(true);
 
+/** UV square drawn (UDIM tiles: the tile's column and row), shared by every bake shader. */
+const uvOffset = { value: new Vector2() };
+
 const geometryMaterial = new ShaderMaterial({
   side: DoubleSide,
   depthTest: false,
   depthWrite: false,
   blending: NoBlending,
-  uniforms: { bakeMode: { value: 0 }, bakeNormalMatrix: { value: new Matrix3() } },
+  uniforms: { bakeMode: { value: 0 }, bakeNormalMatrix: { value: new Matrix3() }, bakeUVOffset: uvOffset },
   vertexShader: /* glsl */ `
     uniform mat3 bakeNormalMatrix;
+    uniform vec2 bakeUVOffset;
     varying vec3 vBakeP;
     varying vec3 vBakeN;
     varying vec2 vBakeUV;
@@ -50,7 +55,7 @@ const geometryMaterial = new ShaderMaterial({
       vBakeP = (modelMatrix * vec4(position, 1.0)).xyz;
       vBakeN = bakeNormalMatrix * normal;
       vBakeUV = uv;
-      gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+      gl_Position = vec4((uv - bakeUVOffset) * 2.0 - 1.0, 0.0, 1.0);
     }`,
   fragmentShader: /* glsl */ `
     uniform int bakeMode;
@@ -78,6 +83,7 @@ const geometryMaterial = new ShaderMaterial({
 
 const hidden = new ShaderMaterial({ visible: false });
 
+
 /** Float render target reused between passes of the same size. */
 let target: WebGLRenderTarget | null = null;
 function targetFor(w: number, h: number) {
@@ -99,6 +105,8 @@ export interface RasterSource {
   world: Matrix4;
   /** material slot index → baked (only these groups are drawn) */
   slots: Set<number>;
+  /** UV square drawn into the target (UDIM tile column and row; default 0, 0) */
+  tile?: [number, number];
 }
 
 function draw(renderer: WebGLRenderer, src: RasterSource, materials: (slot: number) => Material, w: number, h: number): Float32Array {
@@ -113,6 +121,7 @@ function draw(renderer: WebGLRenderer, src: RasterSource, materials: (slot: numb
   const scene = new Scene();
   scene.matrixWorldAutoUpdate = false;
   scene.add(mesh);
+  uvOffset.value.set(src.tile?.[0] ?? 0, src.tile?.[1] ?? 0);
   const rt = targetFor(w, h);
   const prev = renderer.getRenderTarget();
   const prevAuto = renderer.autoClear;
@@ -185,7 +194,9 @@ function outputGLSL(channel: MaterialChannel, nodes: boolean): string {
 
 /** Patch compiled material shaders to draw in UV space and output `channel` (exported for tests). */
 export function patchBakeShader(vertex: string, fragment: string, channel: MaterialChannel): { vertex: string; fragment: string } {
-  const v = vertex.replace('#include <project_vertex>', '#include <project_vertex>\ngl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);');
+  const v = vertex
+    .replace('#include <common>', '#include <common>\nuniform vec2 bakeUVOffset;')
+    .replace('#include <project_vertex>', '#include <project_vertex>\ngl_Position = vec4((uv - bakeUVOffset) * 2.0 - 1.0, 0.0, 1.0);');
   const nodes = /\bndC\b/.test(fragment);
   let f = fragment
     // the surface is seen from straight above (view-dependent nodes, back-facing mirrored islands)
@@ -220,6 +231,7 @@ function bakeVariant(src: Material, channel: MaterialChannel): Material {
   mat.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms, renderer: WebGLRenderer) => {
     original?.(shader, renderer);
     const p = patchBakeShader(shader.vertexShader, shader.fragmentShader, channel);
+    shader.uniforms.bakeUVOffset = uvOffset;
     shader.vertexShader = p.vertex;
     shader.fragmentShader = p.fragment;
   };

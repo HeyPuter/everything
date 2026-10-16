@@ -284,7 +284,7 @@ export interface SeamMesh {
 }
 
 /** UV border edges of the faces accepted by `useFace`, with the matching edge across each seam. */
-export function seamEdges(m: SeamMesh, W: number, H: number, useFace: (f: number) => boolean): SeamEdge[] {
+export function seamEdges(m: SeamMesh, W: number, H: number, useFace: (f: number) => boolean, tile: [number, number] = [0, 0]): SeamEdge[] {
   const nf = m.offsets.length - 1;
   const key = (a: number, b: number) => (a < b ? `${a}_${b}` : `${b}_${a}`);
   const byEdge = new Map<string, { f: number; c0: number; c1: number }[]>();
@@ -297,7 +297,7 @@ export function seamEdges(m: SeamMesh, W: number, H: number, useFace: (f: number
       x += m.uvs[c * 2];
       y += m.uvs[c * 2 + 1];
     }
-    return [(x / (e - s)) * W, (y / (e - s)) * H];
+    return [(x / (e - s) - tile[0]) * W, (y / (e - s) - tile[1]) * H];
   };
   for (let f = 0; f < nf; f++) {
     if (!useFace(f)) continue;
@@ -311,7 +311,7 @@ export function seamEdges(m: SeamMesh, W: number, H: number, useFace: (f: number
       l.push({ f, c0: c, c1 });
     }
   }
-  const uv = (c: number): [number, number] => [m.uvs[c * 2] * W, m.uvs[c * 2 + 1] * H];
+  const uv = (c: number): [number, number] => [(m.uvs[c * 2] - tile[0]) * W, (m.uvs[c * 2 + 1] - tile[1]) * H];
   const same = (p: [number, number], q: [number, number]) => Math.abs(p[0] - q[0]) < 1e-3 && Math.abs(p[1] - q[1]) < 1e-3;
   const out: SeamEdge[] = [];
   for (const list of byEdge.values()) {

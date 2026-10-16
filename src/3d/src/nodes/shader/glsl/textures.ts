@@ -86,6 +86,20 @@ vec4 nd_tex_sample(sampler2D t, vec2 uv, int interp, int ext) {
   if (interp == 2) return nd_tex_cubic(t, uv);
   return textureGrad(t, uv, dx, dy);
 }
+// UDIM: the tiles sit in an atlas of grid.x × grid.y cells, cell (c, r) holding UV square (c, r)
+vec4 nd_tex_udim(sampler2D t, vec2 uv, vec2 grid, int interp) {
+  vec2 cell = floor(uv);
+  if (cell.x < 0.0 || cell.y < 0.0 || cell.x >= grid.x || cell.y >= grid.y) return vec4(0.0);
+  vec2 size = vec2(textureSize(t, 0)) / grid;
+  vec2 f = clamp(uv - cell, 0.5 / size, 1.0 - 0.5 / size);
+  vec2 a = (cell + f) / grid;
+  if (interp == 1) return texelFetch(t, ivec2(floor(a * vec2(textureSize(t, 0)))), 0);
+#ifdef ND_NO_DERIV
+  return textureLod(t, a, 0.0);
+#else
+  return textureGrad(t, a, dFdx(uv) / grid, dFdy(uv) / grid);
+#endif
+}
 vec2 nd_sphere_uv(vec3 v) { v = v * 2.0 - 1.0; return vec2(atan(v.y, v.x) / 6.2831853 + 0.5, atan(v.z, length(v.xy)) / 3.14159265 + 0.5); }
 vec2 nd_tube_uv(vec3 v) { v = v * 2.0 - 1.0; return vec2(atan(v.y, v.x) / 6.2831853 + 0.5, (v.z + 1.0) * 0.5); }
 vec4 nd_tex_box(sampler2D t, vec3 p, vec3 n, float blend, int interp, int ext) {

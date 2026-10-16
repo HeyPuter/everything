@@ -14,7 +14,9 @@ import { bounceSettings, formatTime } from '../render/final/units';
 import { shell, statusWidgets } from '../ui/shell';
 import { h } from '../ui/h';
 import { icon } from '../ui/icons';
-import type { ObjectData, MeshData } from '../data/types';
+import type { ObjectData, MeshData, ImageData } from '../data/types';
+import { isTiled, tileCell } from '../render/udim';
+import { readTile, writeTile } from '../render/final/udimops';
 import type { EvalMesh } from '../eval/types';
 import { BakeTracer, type TraceConfig, type Lobe } from './tracer';
 import { rasterGeometry, rasterMaterial, type MaterialChannel, type RasterSource } from './raster';
@@ -122,17 +124,17 @@ function basisOf(m: Matrix4): number[] {
   return [e[0], e[1], e[2], e[4], e[5], e[6], e[8], e[9], e[10]];
 }
 
-export function imageSurface(renderer: WebGLRenderer, ev: { mesh: EvalMesh; world: Matrix4 }, slots: number[], W: number, H: number, cage: { mesh: EvalMesh; world: Matrix4 } | null): Surface {
+export function imageSurface(renderer: WebGLRenderer, ev: { mesh: EvalMesh; world: Matrix4 }, slots: number[], W: number, H: number, cage: { mesh: EvalMesh; world: Matrix4 } | null, tile: [number, number] = [0, 0]): Surface {
   const geometry = meshGeometry(ev.mesh).geometry;
-  const src: RasterSource = { geometry, world: ev.world, slots: new Set(slots) };
+  const src: RasterSource = { geometry, world: ev.world, slots: new Set(slots), tile };
   const P = withGL(renderer, () => rasterGeometry(renderer, src, 'POSITION', W, H));
   const n = W * H;
   const covered = new Uint8Array(n);
   const uv = new Float32Array(n * 2);
   for (let i = 0; i < n; i++) {
     covered[i] = P[i * 4 + 3] > 0.5 ? 1 : 0;
-    uv[i * 2] = ((i % W) + 0.5) / W;
-    uv[i * 2 + 1] = (Math.floor(i / W) + 0.5) / H;
+    uv[i * 2] = tile[0] + ((i % W) + 0.5) / W;
+    uv[i * 2 + 1] = tile[1] + (Math.floor(i / W) + 0.5) / H;
   }
   const s = { W, H, P, covered, uv, basis: basisOf(ev.world), raster: src } as Surface;
   // the other channels are drawn when a pass first needs them (large images hold a lot of floats)
@@ -146,7 +148,7 @@ export function imageSurface(renderer: WebGLRenderer, ev: { mesh: EvalMesh; worl
   }
   if (cage) {
     const cg = meshGeometry(cage.mesh).geometry;
-    const csrc: RasterSource = { geometry: cg, world: cage.world, slots: new Set(slots) };
+    const csrc: RasterSource = { geometry: cg, world: cage.world, slots: new Set(slots), tile };
     [s.cageP, s.cageN] = withGL(renderer, () => (['POSITION', 'NORMAL'] as const).map((c) => rasterGeometry(renderer, csrc, c, W, H)));
   }
   return s;
@@ -311,30 +313,42 @@ export function* bakeSteps(o: BakeOptions, ctx: RunContext): Generator<void, Bak
     const cage = o.use_selected_to_active && o.use_cage && o.cage_object ? doc.objects[o.cage_object] : null;
     if (o.use_selected_to_active && o.use_cage && o.cage_object && !cage) throw new BakeError('The cage object no longer exists');
     const samples = Math.max(1, Math.round(o.samples ?? doc.scene.render.samples ?? 128));
-    const accum = new Map<string, BakeBuffer>();
+    const accum = new Map<string, { img: ImageData; tile: number | null; buf: BakeBuffer }>();
     const colorWrites: { me: MeshData; attr: number; data: Float32Array }[] = [];
-    const total = plan.targets.length;
+    // UDIM images bake each tile separately (its UV square drawn into the tile's pixels)
+    const units: { t: BakeTarget; tile: number | null }[] = [];
+    for (const t of plan.targets) {
+      const img = t.kind === 'IMAGE' ? doc.images[t.image!] : null;
+      if (isTiled(img)) img.tiles.forEach((_, i) => units.push({ t, tile: i }));
+      else units.push({ t, tile: null });
+    }
+    const total = units.length;
     for (let ti = 0; ti < total; ti++) {
       check(ctx);
-      const t = plan.targets[ti];
+      const { t, tile } = units[ti];
       const ev = app.graph.get(t.object.id);
       if (!ev?.mesh || !ev.mesh.indices.length) throw new BakeError(`"${t.object.name}" has no faces to bake`);
-      st.label = t.kind === 'IMAGE' ? `${t.object.name} → ${doc.images[t.image!]?.name}` : `${t.object.name} → color attribute`;
+      const img = t.kind === 'IMAGE' ? doc.images[t.image!] : null;
+      st.label = img ? `${t.object.name} → ${img.name}${tile !== null ? ` ${img.tiles![tile].number}` : ''}` : `${t.object.name} → color attribute`;
       const base = ti / total;
       const span = 1 / total;
       let surf: Surface;
-      let pixels: globalThis.ImageData | null = null;
-      if (t.kind === 'IMAGE') {
-        const img = doc.images[t.image!];
-        pixels = readPixels(img);
-        if (!pixels) throw new BakeError(`Image "${img.name}" is still loading`);
+      const cell: [number, number] = tile !== null ? tileCell(img!.tiles![tile].number) : [0, 0];
+      if (img) {
+        let pixels = tile !== null ? readTile(img, tile) : readPixels(img);
+        // tiles decode in the background: wait a little for them when baking interactively
+        for (let k = 0; !pixels && !ctx.sync && k < 120; k++) {
+          yield;
+          pixels = tile !== null ? readTile(img, tile) : readPixels(img);
+        }
+        if (!pixels) throw new BakeError(`Image "${img.name}" is still loading: bake again in a moment`);
         let cageEv: { mesh: EvalMesh; world: Matrix4 } | null = null;
         if (cage) {
           const cev = app.graph.get(cage.id);
           if (!cev?.mesh || cev.mesh.indices.length !== ev.mesh.indices.length) throw new BakeError(`The cage "${cage.name}" must have the same faces as "${t.object.name}"`);
           cageEv = { mesh: cev.mesh, world: cev.world };
         }
-        surf = imageSurface(renderer, { mesh: ev.mesh, world: ev.world }, t.slots, pixels.width, pixels.height, cageEv);
+        surf = imageSurface(renderer, { mesh: ev.mesh, world: ev.world }, t.slots, pixels.width, pixels.height, cageEv, cell);
       } else {
         const me = doc.meshes[t.object.data!];
         const attr = me.color_attributes[me.active_color_index ?? 0];
@@ -345,18 +359,19 @@ export function* bakeSteps(o: BakeOptions, ctx: RunContext): Generator<void, Bak
       }
       const own = !o.use_selected_to_active && t.kind === 'IMAGE';
       const result = yield* bakePass(o, ctx, renderer, t, surf, own, sources, samples, (f) => (st.progress = base + span * f));
-      if (t.kind === 'IMAGE') {
+      if (img) {
         if (o.margin > 0) {
           if (o.margin_type === 'ADJACENT_FACES') {
             const slots = new Set(t.slots);
             const mi = ev.mesh.material_index;
-            const edges = seamEdges(ev.mesh, surf.W, surf.H, (f) => slots.has(mi?.[f] ?? 0));
+            const edges = seamEdges(ev.mesh, surf.W, surf.H, (f) => slots.has(mi?.[f] ?? 0), cell);
             adjacentFacesMargin(result, o.margin, edges);
           } else extendMargin(result, o.margin);
         }
-        const acc = accum.get(t.image!);
-        if (acc) composite(acc, result);
-        else accum.set(t.image!, result);
+        const key = `${img.id}|${tile ?? -1}`;
+        const acc = accum.get(key);
+        if (acc) composite(acc.buf, result);
+        else accum.set(key, { img, tile, buf: result });
       } else {
         const me = doc.meshes[t.object.data!];
         const ai = me.active_color_index ?? 0;
@@ -368,11 +383,12 @@ export function* bakeSteps(o: BakeOptions, ctx: RunContext): Generator<void, Bak
     }
     // store
     const clear: [number, number, number, number] = o.type === 'NORMAL' ? [0.5, 0.5, 1, 1] : [0, 0, 0, 1];
-    for (const [id, buf] of accum) {
-      const img = doc.images[id];
-      const prev = readPixels(img);
+    for (const { img, tile, buf } of accum.values()) {
+      const prev = tile !== null ? readTile(img, tile) : readPixels(img);
       const bytes = storeBytes(buf, prev?.data ?? null, { srgb: img.colorspace === 'sRGB', clear: o.use_clear ? clear : null });
-      writePixels(img, new ImageData(bytes as Uint8ClampedArray<ArrayBuffer>, buf.width, buf.height));
+      const data = new ImageData(bytes as Uint8ClampedArray<ArrayBuffer>, buf.width, buf.height);
+      if (tile !== null) writeTile(img, tile, data);
+      else writePixels(img, data);
     }
     for (const w of colorWrites) {
       const attr = w.me.color_attributes[w.attr];
@@ -380,7 +396,7 @@ export function* bakeSteps(o: BakeOptions, ctx: RunContext): Generator<void, Bak
       w.me.color_attributes[w.attr] = { ...attr, data: w.data };
     }
     app.changed('doc');
-    const where = [...accum.keys()].map((id) => `"${doc.images[id].name}"`).concat(colorWrites.map((w) => `the colors of "${w.me.name}"`));
+    const where = [...new Set([...accum.values()].map((a) => a.img.name))].map((n) => `"${n}"`).concat(colorWrites.map((w) => `the colors of "${w.me.name}"`));
     const label = BAKE_TYPES.find(([t]) => t === o.type)?.[1] ?? o.type;
     return { ok: true, message: `Baked ${label} into ${where.join(', ')} in ${formatTime((performance.now() - st.started) / 1000)}` };
   } catch (e) {
