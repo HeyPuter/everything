@@ -86,7 +86,7 @@ test('camsolve: solve from the Solve tab, error in the header and track panel', 
 /** World positions of bundles (through the scene camera's own transform) by track index. */
 const bundlesWorld = (page: Page, idx: number[]) =>
   page.evaluate(async (idx) => {
-    const { Vector3 } = await import('/node_modules/.vite/deps/three.js' as any).catch(() => import('three' as any));
+    const { Vector3 } = await import('/node_modules/.vite/deps/three.js' as any);
     const app = (window as any).app;
     app.graph.evaluate(app.doc);
     const M = app.graph.get(app.doc.scene.camera).worldBasis;
@@ -408,5 +408,44 @@ test('camsolve: Render Undistorted and lens grid in the clip display', async ({ 
   expect(r.on).toBe(true);
   expect(r.err).toBeLessThan(1e-3);
   expect(r.moved).toBe(true);
+  await expectNoErrors(errors);
+});
+
+test('camsolve: object solve drives an Object Solver constraint', async ({ page }) => {
+  const errors = await solvableClip(page, { frames: 24, points: 50 });
+  const r = await page.evaluate(async () => {
+    const { Matrix4, Vector3 } = await import('/node_modules/.vite/deps/three.js' as any);
+    const app = (window as any).app;
+    const c = app.doc.movieclips.MC_s;
+    // the generated tracks become the tracks of a tracked object (the camera keeps none)
+    app.run('clip.tracking_object_new');
+    const obj = c.tracking.objects[0];
+    obj.tracks = c.tracking.tracks;
+    c.tracking.tracks = [];
+    app.run('clip.solve_camera', {}, { invoke: false });
+    const rec = obj.reconstruction;
+    // an empty follows the object through the scene camera
+    app.run('object.empty_add', { location: [0, 0, 0] });
+    const ob = app.activeObject;
+    app.run('object.constraint_add', { type: 'OBJECT_SOLVER' });
+    const con = ob.constraints.find((x: any) => x.type === 'OBJECT_SOLVER');
+    con.object = obj.name;
+    app.setFrame(15);
+    app.changed('doc');
+    app.graph.evaluate(app.doc);
+    const objWorld = app.graph.get(ob.id).world;
+    const camWorld = app.graph.get(app.doc.scene.camera).world;
+    // a bundle seen through the scene camera with the clip's lens lands on its marker
+    const t = obj.tracks.find((x: any) => x.has_bundle && x.markers.some((m: any) => m.frame === 15));
+    const m = t.markers.find((x: any) => x.frame === 15);
+    const p = new Vector3(...t.bundle).applyMatrix4(objWorld).applyMatrix4(new Matrix4().copy(camWorld).invert());
+    const f = (c.tracking.camera.focal_length * c.size[0]) / c.tracking.camera.sensor_width;
+    const px = c.size[0] / 2 + (f * p.x) / -p.z,
+      py = c.size[1] / 2 + (f * p.y) / -p.z;
+    return { valid: rec.is_valid, err: rec.average_error, miss: Math.hypot(px - m.co[0] * c.size[0], py - m.co[1] * c.size[1]), solverValid: true };
+  });
+  expect(r.valid).toBe(true);
+  expect(r.err).toBeLessThan(0.5);
+  expect(r.miss).toBeLessThan(0.5);
   await expectNoErrors(errors);
 });
