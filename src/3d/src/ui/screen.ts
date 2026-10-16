@@ -129,6 +129,10 @@ export class Area implements AreaLike {
   flipHeader?: boolean;
   /** header menus shown expanded (false: collapsed into one menu button) */
   showMenus = true;
+  /** how far the header is compacted to fit a narrow area (see fitHeader) */
+  headerFit = 0;
+  /** area width and header contents the compaction was chosen for */
+  private fitKey = '';
   private revealEl: HTMLElement;
   constructor(
     public screen: Screen,
@@ -191,6 +195,22 @@ export class Area implements AreaLike {
         },
         { passive: false },
       );
+    // middle-drag pans a header that does not fit its area
+    for (const el of [this.headerEl, this.toolHeaderEl])
+      el.addEventListener('pointerdown', (e) => {
+        if (e.button !== 1) return;
+        const box = [el, ...el.querySelectorAll<HTMLElement>(':scope > *')].find((x) => x.scrollWidth > x.clientWidth + 1);
+        if (!box) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const x0 = e.clientX,
+          s0 = box.scrollLeft;
+        const move = (ev: PointerEvent) => (box.scrollLeft = s0 - (ev.clientX - x0));
+        const up = () => (removeEventListener('pointermove', move, true), removeEventListener('pointerup', up, true));
+        addEventListener('pointermove', move, true);
+        addEventListener('pointerup', up, true);
+      });
+    for (const el of [this.headerEl, this.toolHeaderEl]) el.addEventListener('scroll', () => markHeaderScroll(el), { capture: true, passive: true });
     this.toolHeaderEl.addEventListener('contextmenu', (e) => {
       if ((e.target as HTMLElement).closest('input, textarea')) return;
       e.preventDefault();
@@ -317,10 +337,15 @@ export class Area implements AreaLike {
     return [...this.headerEl.querySelectorAll<HTMLElement>('.hdr-menu')].filter((b) => this.isMenuButton(b)).map((b) => ({ label: b.textContent?.trim() ?? '', items: () => captureMenu(b) }));
   }
 
+  /** Menus folded into the single menu button (by the user, or because the area is too narrow). */
+  get menusFolded() {
+    return !this.showMenus || this.headerFit >= 2;
+  }
+
   /** Hide the header's menu buttons while the menus are collapsed (popover buttons stay). */
   private applyMenuCollapse() {
     for (const b of this.headerEl.querySelectorAll<HTMLElement>('.hdr-menu')) {
-      const hide = !this.showMenus && this.isMenuButton(b);
+      const hide = this.menusFolded && this.isMenuButton(b);
       if (hide !== (b.style.display === 'none')) b.style.display = hide ? 'none' : '';
     }
   }
@@ -340,7 +365,7 @@ export class Area implements AreaLike {
       icon(t?.icon ?? 'view3d'),
       icon('down_arrow_hlt', 'tiny'),
     );
-    const collapsed = this.showMenus
+    const collapsed = !this.menusFolded
       ? null
       : h(
           'button',
@@ -358,7 +383,9 @@ export class Area implements AreaLike {
           icon('collapsemenu'),
         );
     patch(this.headerEl, [typeButton, collapsed, this.editor.header()]);
-    if (!this.showMenus || this.headerEl.querySelector('.hdr-menu[style*="none"]')) this.applyMenuCollapse();
+    if (this.menusFolded || this.headerEl.querySelector('.hdr-menu[style*="none"]')) this.applyMenuCollapse();
+    this.headerEl.classList.toggle('hdr-compact', this.headerFit >= 1);
+    scheduleHeaderFit(this);
     if (this.editor.toolHeader && this.editor.showToolHeader !== false) {
       this.toolHeaderEl.hidden = false;
       patch(this.toolHeaderEl, this.editor.toolHeader());
@@ -366,10 +393,84 @@ export class Area implements AreaLike {
     this.el.classList.toggle('no-toolheader', this.toolHeaderEl.hidden);
   }
 
+  /** What the header compaction depends on: the area width and the header's contents. */
+  private headerFitKey() {
+    const row = this.headerEl.lastElementChild;
+    return `${Math.round(this.rect.w)}|${this.type}|${row?.childElementCount ?? 0}|${this.headerEl.querySelectorAll('.hdr-menu').length}`;
+  }
+
+  /** Start over from the full header when the width or contents changed (a write phase). */
+  resetHeaderFit() {
+    const key = this.headerFitKey();
+    if (key === this.fitKey) return false;
+    this.fitKey = key;
+    if (this.headerFit === 0) return true;
+    this.headerFit = 0;
+    this.drawHeader();
+    return true;
+  }
+
+  /** Whether the header's contents are wider than the area (a read phase). */
+  headerOverflows() {
+    if (!this.showHeader || this.el.style.display === 'none' || !this.rect.w) return false;
+    const over = (x: Element) => x.scrollWidth > x.clientWidth + 1;
+    return over(this.headerEl) || [...this.headerEl.children].some(over);
+  }
+
+  /**
+   * A header that does not fit first drops the text of its labelled dropdowns (their icons stay),
+   * then folds its menus into the single menu button; whatever still does not fit scrolls (wheel,
+   * middle-drag) with a fade at the clipped edge.
+   */
+  compactHeader() {
+    if (this.headerFit >= 2) return false;
+    this.headerFit++;
+    this.drawHeader();
+    this.fitKey = this.headerFitKey();
+    return true;
+  }
+
   serialize(): AreaState {
     const st: AreaState = { id: this.id, type: this.type, state: this.editor.serialize?.() };
     if (!this.showHeader || this.flipHeader !== undefined || !this.showMenus) st.ui = { header: this.showHeader, flip: this.flipHeader, menus: this.showMenus };
     return st;
+  }
+}
+
+// Header fitting runs once after a batch of header redraws: writes (resets) first, then the
+// measurements of every area, then the compaction, so layout is computed as few times as possible.
+const fitQueue = new Set<Area>();
+let fitting = false;
+function scheduleHeaderFit(a: Area) {
+  if (fitting) return;
+  if (!fitQueue.size) queueMicrotask(runHeaderFit);
+  fitQueue.add(a);
+}
+function runHeaderFit() {
+  const areas = [...fitQueue].filter((a) => a.el.isConnected);
+  fitQueue.clear();
+  fitting = true;
+  try {
+    for (const a of areas) a.resetHeaderFit();
+    for (let pass = 0; pass < 2; pass++) {
+      const over = areas.filter((a) => a.headerOverflows());
+      if (!over.length) break;
+      for (const a of over) a.compactHeader();
+    }
+    for (const a of areas) for (const el of [a.headerEl, a.toolHeaderEl]) markHeaderScroll(el);
+  } finally {
+    fitting = false;
+  }
+}
+
+/** Fade the clipped edges of a scrolled header row. */
+function markHeaderScroll(el: HTMLElement) {
+  for (const box of [el, ...el.querySelectorAll<HTMLElement>(':scope > *')]) {
+    const over = box.scrollWidth > box.clientWidth + 1;
+    const l = over && box.scrollLeft > 1;
+    const r = over && box.scrollLeft + box.clientWidth < box.scrollWidth - 1;
+    if (box.classList.contains('clip-l') !== l) box.classList.toggle('clip-l', l);
+    if (box.classList.contains('clip-r') !== r) box.classList.toggle('clip-r', r);
   }
 }
 
@@ -941,6 +1042,8 @@ export function registerWorkspaceTemplate(category: string, create: () => Worksp
 
 export function defaultWorkspaces(): Workspace[] {
   // each workspace opens the Properties editor on the tab its task needs most
+  // look development: the studio HDRI shows (blurred) behind the scene, with the preview spheres
+  const lookdevView = { shading: { type: 'MATERIAL', studio_hdri: 'sky', studiolight_background_alpha: 1, studiolight_background_blur: 0.5 }, overlay: { show_look_dev: true }, toolbar: false };
   const sculptView = { shading: 'SOLID', matcap: true, nav: { distance: 7 }, overlay: { show_floor: false, show_axis_x: false, show_axis_y: false, show_stats: true } };
   return [
     { name: 'Layout', layout: H(0.822, V(0.925, A('VIEW_3D'), A('TIMELINE')), dock()) },
@@ -948,12 +1051,12 @@ export function defaultWorkspaces(): Workspace[] {
     { name: 'Sculpting', layout: H(0.822, A('VIEW_3D', sculptView), dock('TOOL')), mode: 'SCULPT' },
     { name: 'UV Editing', layout: H(0.822, H(0.5, A('UV'), A('VIEW_3D')), dock('DATA')), mode: 'EDIT' },
     { name: 'Texture Paint', layout: H(0.822, H(0.5, A('IMAGE_EDITOR'), A('VIEW_3D', { shading: 'MATERIAL' })), dock('TOOL')), mode: 'TEXTURE_PAINT' },
-    { name: 'Shading', layout: H(0.822, H(0.16, V(0.5, A('FILE_BROWSER'), A('IMAGE_EDITOR')), V(0.5, A('VIEW_3D', { shading: 'MATERIAL' }), A('SHADER'))), dock('WORLD')) },
-    { name: 'Animation', layout: H(0.822, V(0.58, H(0.35, A('VIEW_3D', { camera: true }), A('VIEW_3D')), A('DOPESHEET')), V(0.18, A('OUTLINER'), A('PROPERTIES'))) },
+    { name: 'Shading', layout: H(0.822, H(0.16, V(0.5, A('FILE_BROWSER'), A('IMAGE_EDITOR')), V(0.5, A('VIEW_3D', lookdevView), A('SHADER', { toolbar: false }))), dock('WORLD')) },
+    { name: 'Animation', layout: H(0.822, V(0.58, H(0.35, A('VIEW_3D', { camera: true, toolbar: false }), A('VIEW_3D', { toolbar: false })), A('DOPESHEET')), V(0.18, A('OUTLINER'), A('PROPERTIES'))) },
     { name: 'Rendering', layout: H(0.822, V(0.925, A('IMAGE_EDITOR', { render: true, sidebar: true }), A('TIMELINE')), A('PROPERTIES', { tab: 'RENDER' })) },
-    { name: 'Compositing', layout: H(0.822, V(0.92, V(0.48, A('IMAGE_EDITOR', { render: true }), A('COMPOSITOR')), A('TIMELINE')), A('PROPERTIES', { tab: 'OUTPUT' })) },
-    { name: 'Geometry Nodes', layout: H(0.822, V(0.92, V(0.48, H(0.42, A('SPREADSHEET'), A('VIEW_3D')), A('GEOMETRY')), A('TIMELINE')), dock('MODIFIER')) },
-    { name: 'Scripting', layout: H(0.822, H(0.36, V(0.38, A('VIEW_3D'), V(0.7, A('CONSOLE'), A('INFO'))), A('TEXT')), V(0.18, A('OUTLINER'), V(0.3, A('OUTLINER', { displayMode: 'BLENDER_FILE' }), A('PROPERTIES', { tab: 'RENDER' })))) },
+    { name: 'Compositing', layout: H(0.822, V(0.92, V(0.48, A('IMAGE_EDITOR', { render: true }), A('COMPOSITOR', { sidebar: true })), A('TIMELINE')), A('PROPERTIES', { tab: 'OUTPUT' })) },
+    { name: 'Geometry Nodes', layout: H(0.822, V(0.92, V(0.48, H(0.42, A('SPREADSHEET'), A('VIEW_3D')), A('GEOMETRY', { toolbar: false })), A('TIMELINE')), dock('MODIFIER')) },
+    { name: 'Scripting', layout: H(0.822, H(0.36, V(0.38, A('VIEW_3D', { toolbar: false }), V(0.7, A('CONSOLE'), A('INFO'))), A('TEXT')), V(0.18, A('OUTLINER'), V(0.3, A('OUTLINER', { displayMode: 'BLENDER_FILE' }), A('PROPERTIES', { tab: 'RENDER' })))) },
   ];
 }
 
