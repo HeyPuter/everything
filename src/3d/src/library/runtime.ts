@@ -83,6 +83,9 @@ export async function libraryBytes(lib: LibraryData, prompt = false): Promise<Ui
   return (await latestBytes(lib.source.key, prompt))?.bytes ?? null;
 }
 
+/** Library sources that are not files (e.g. asset libraries): their document and a revision. */
+export const sourceResolvers: Partial<Record<LibraryData['source']['kind'], (lib: LibraryData) => Promise<{ doc: DocumentData; fp: string } | null>>> = {};
+
 export interface ReloadSummary {
   reloaded: string[];
   unchanged: string[];
@@ -103,6 +106,23 @@ export async function reloadLibraries(ids?: ID[], opts: { force?: boolean; promp
   // parents first: data linked through a library comes with it
   libs.sort((a, b) => Number(!!a.parent) - Number(!!b.parent));
   for (const lib of libs) {
+    const resolver = sourceResolvers[lib.source.kind];
+    if (resolver) {
+      const got = await resolver(lib).catch(() => null);
+      const cur = libraries(app.doc)[lib.id];
+      if (!cur) continue;
+      if (!got) {
+        cur.is_missing = true;
+        sum.missingFiles.push(lib.name);
+      } else if (!opts.force && cur.revision === got.fp && !cur.is_missing) sum.unchanged.push(lib.name);
+      else {
+        const r = reloadFromDoc(app.doc, lib.id, got.doc);
+        cur.revision = got.fp;
+        sum.reloaded.push(lib.name);
+        sum.missingData.push(...r.missing);
+      }
+      continue;
+    }
     const bytes = await libraryBytes(lib, opts.prompt);
     const cur = libraries(app.doc)[lib.id];
     if (!cur) continue;

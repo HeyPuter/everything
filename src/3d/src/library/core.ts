@@ -228,6 +228,8 @@ function linkedCopy(rec: Rec, idMap: ReadonlyMap<string, string>, local: ID, lib
   delete copy.override_library;
   delete copy.library_weak_reference;
   delete copy.use_fake_user;
+  // linked data is not an asset of this file (it stays one in its library)
+  delete copy.asset_data;
   return copy;
 }
 

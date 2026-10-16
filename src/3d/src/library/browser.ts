@@ -231,7 +231,7 @@ class LibraryBrowser {
           .filter((r) => isLibraryFile(r.name))
           .map((r) => ({ key: `r:${r.name}`, kind: 'file' as const, name: r.name, icon: 'file_3d', detail: ago(r.time), ref: { name: r.name, path: `Recent/${r.name}`, recentName: r.name } }));
       case 'libraries': {
-        const own = Object.values(libraries(app.doc));
+        const own = Object.values(libraries(app.doc)).filter((l) => l.source.kind !== 'asset');
         const stored = await listStored();
         const out: Entry[] = own.map((l) => ({ key: `l:${l.id}`, kind: 'file' as const, name: l.name, icon: l.is_missing ? 'library_data_broken' : 'library_data_direct', detail: 'linked by this project', ref: { name: l.name, path: l.filepath, key: l.source.key } }));
         for (const s of stored) if (!own.some((l) => l.source.key === s.key)) out.push({ key: `s:${s.key}`, kind: 'file', name: s.name, icon: 'file_3d', detail: `used ${ago(s.time)}`, ref: { name: s.name, path: s.path, key: s.key, recentName: s.recentName, handle: s.handle } });

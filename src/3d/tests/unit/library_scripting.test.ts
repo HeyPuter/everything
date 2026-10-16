@@ -176,3 +176,36 @@ describe('data-block selector operators', () => {
     expect(!!(app.doc.collections[col.id] as unknown as { override_library: { is_system_override?: boolean } }).override_library.is_system_override).toBe(!before);
   });
 });
+
+describe('linking assets', () => {
+  it('links user library assets and follows changes to the library', async () => {
+    const lib = await import('../../src/assets/library');
+    const { essentialsDocument } = await import('../../src/assets/essentials');
+    const { reloadLibraries } = await import('../../src/library/runtime');
+    lib.resetLibrariesForTests();
+    const shelf = await lib.createLibrary('Shelf');
+    const ess = essentialsDocument();
+    const gold = Object.values(ess.materials).find((m) => m.name === 'Polished Gold')!;
+    const ped = Object.values(ess.objects).find((o) => o.name === 'Pedestal')!;
+    await lib.copyToLibrary(shelf, [{ table: 'materials', id: gold.id }, { table: 'objects', id: ped.id }], ess);
+    const ldoc = (await lib.ensureLibrary(shelf))!;
+    const goldIn = Object.values(ldoc.materials).find((m) => m.name === 'Polished Gold')!;
+    const pedIn = Object.values(ldoc.objects).find((o) => o.name === 'Pedestal')!;
+    const cube = Object.values(app.doc.objects).find((o) => o.name === 'Cube')!;
+    expect(app.run('object.drop_named_material', { asset: `${shelf}|materials:${goldIn.id}`, object: cube.id, import_method: 'LINK' }, { invoke: false, area: null })).toBe('FINISHED');
+    const mid = app.doc.meshes[cube.data!].materials[0]!;
+    expect((app.doc.materials[mid] as unknown as { library?: string }).library).toBeTruthy();
+    expect(Object.values(app.doc.libraries ?? {}).map((l) => [l.name, l.source.kind])).toEqual([['Shelf', 'asset']]);
+    expect(app.run('object.add_named', { asset: `${shelf}|objects:${pedIn.id}`, location: [3, 0, 0], import_method: 'LINK' }, { invoke: false, area: null })).toBe('FINISHED');
+    const linkedPed = Object.values(app.doc.objects).find((o) => o.name === 'Pedestal')!;
+    expect((linkedPed as unknown as { library?: string }).library).toBeTruthy();
+    expect(Object.values(app.doc.collections).some((c) => c.objects.includes(linkedPed.id))).toBe(true);
+    // the library's material changes; a reload brings it in
+    goldIn.name = 'Polished Gold';
+    (goldIn as unknown as { diffuse_color: number[] }).diffuse_color = [0.1, 0.2, 0.3, 1];
+    lib.notifyLibraries();
+    const sum = await reloadLibraries();
+    expect(sum.reloaded).toEqual(['Shelf']);
+    expect((app.doc.materials[mid] as unknown as { diffuse_color: number[] }).diffuse_color).toEqual([0.1, 0.2, 0.3, 1]);
+  });
+});

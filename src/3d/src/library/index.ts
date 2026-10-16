@@ -7,3 +7,4 @@ import './ops';
 import './menus';
 import './outliner';
 import './scripting';
+import './assets';

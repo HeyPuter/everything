@@ -9,9 +9,10 @@ export interface LibrarySource {
   /**
    * recent: a project from the Open Recent list (updated whenever it is saved again);
    * handle: a file in a folder opened in the File Browser or in Browser Storage (re-read on reload);
-   * copy: a file picked from the computer (only the copy taken when it was linked).
+   * copy: a file picked from the computer (only the copy taken when it was linked);
+   * asset: a user asset library (Asset Browser), linked through the Link import method.
    */
-  kind: 'recent' | 'handle' | 'copy';
+  kind: 'recent' | 'handle' | 'copy' | 'asset';
   /** key of the file in the library store */
   key: string;
 }

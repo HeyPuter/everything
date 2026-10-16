@@ -17,7 +17,7 @@ import { ASSET_TABLES, assetsOf, blockOf, tableOf, type AssetBlock, type AssetCa
 export const LOCAL = 'LOCAL';
 export const ESSENTIALS = 'ESSENTIALS';
 
-export type ImportMethod = 'APPEND' | 'APPEND_REUSE';
+export type ImportMethod = 'APPEND' | 'APPEND_REUSE' | 'LINK';
 
 export interface LibraryInfo {
   id: string;
