@@ -59,6 +59,14 @@ function solvableTracks(obj: TrackingObjectData) {
   return obj.tracks.filter((t) => t.weight > 0 && t.markers.filter((m) => !m.mute).length >= 2).length;
 }
 
+function enoughTracks(c: MovieClipData): boolean {
+  const n = solvableTracks(tobj(c));
+  const need = c.tracking.settings.use_tripod_solver && isCameraActive(c) ? 3 : 8;
+  if (n >= need) return true;
+  app.report('ERROR', `At least ${need} tracks with markers on two or more frames are needed (${n} found)`);
+  return false;
+}
+
 /** Copy the solved lens to the scene camera so the 3D view matches the footage. */
 export function copyLensToCamera(doc: DocumentData, clip: MovieClipData, ob: ObjectData | null | undefined) {
   if (!ob || ob.type !== 'CAMERA' || !ob.data) return;
@@ -207,20 +215,33 @@ const ops: Operator[] = [
     idname: 'clip.solve_camera',
     label: 'Solve Camera',
     description: 'Reconstruct the camera motion (or the motion of the active tracking object) and the 3D positions of the tracks from the tracked markers',
-    undo: false,
     poll: (ctx) => {
       const c = contextClip(ctx);
       return !!c && c.size[0] > 0 && solvableTracks(tobj(c)) > 0;
     },
-    exec: (ctx) => {
+    // interactively the solve runs in a worker (progress, Esc cancels); scripts solve right away
+    invoke: (ctx) => {
       const c = contextClip(ctx)!;
-      const n = solvableTracks(tobj(c));
-      if (n < (c.tracking.settings.use_tripod_solver ? 3 : 8)) {
-        app.report('ERROR', `At least ${c.tracking.settings.use_tripod_solver ? 3 : 8} tracks with markers on two or more frames are needed (${n} found)`);
-        return 'CANCELLED';
-      }
+      if (!enoughTracks(c)) return 'CANCELLED';
       void solveJob(c.id);
       return 'CANCELLED';
+    },
+    exec: (ctx) => {
+      const c = contextClip(ctx)!;
+      if (!enoughTracks(c)) return 'CANCELLED';
+      const cam = isCameraActive(c);
+      const res = solveCamera(solveTracks(c, tobj(c)), solveSettings(c, tobj(c), cam));
+      applySolution(c, tobj(c), res, cam);
+      if (!res.ok) {
+        app.report('ERROR', res.message);
+        return 'FINISHED';
+      }
+      if (cam) {
+        ctx.doc.scene.active_clip ??= c.id;
+        copyLensToCamera(ctx.doc, c, ctx.doc.objects[ctx.doc.scene.camera ?? '']);
+      }
+      for (const id of Object.keys(ctx.doc.objects)) app.graph.invalidate(id);
+      app.report('INFO', `Solved ${res.cameras.length} frames; average reprojection error ${res.error.toFixed(4)} px`);
     },
   },
   {

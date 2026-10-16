@@ -250,11 +250,47 @@ export function defaultTrackingSettings(): MovieTrackingSettings {
     use_default_green_channel: true,
     use_default_blue_channel: true,
     default_weight: 1,
+    ...solveSettingsDefaults(),
   };
 }
 
+function solveSettingsDefaults(): Partial<MovieTrackingSettings> {
+  return {
+    use_keyframe_selection: true,
+    use_tripod_solver: false,
+    refine_intrinsics_focal_length: false,
+    refine_intrinsics_principal_point: false,
+    refine_intrinsics_radial_distortion: false,
+    refine_intrinsics_tangential_distortion: false,
+    clean_frames: 0,
+    clean_error: 0,
+    clean_action: 'SELECT',
+    distance: 1,
+    object_distance: 1,
+  };
+}
+
+const CAMERA_EXTRA = { division_k1: 0, division_k2: 0, brown_k1: 0, brown_k2: 0, brown_k3: 0, brown_k4: 0, brown_p1: 0, brown_p2: 0 };
+
+/** Fill the camera-solve fields older files lack (settings, lens models, solution, objects). */
+export function normalizeTracking(t: MovieTracking) {
+  for (const [k, v] of Object.entries(solveSettingsDefaults())) if ((t.settings as unknown as Record<string, unknown>)[k] === undefined) (t.settings as unknown as Record<string, unknown>)[k] = v;
+  for (const [k, v] of Object.entries(CAMERA_EXTRA)) if ((t.camera as unknown as Record<string, unknown>)[k] === undefined) (t.camera as unknown as Record<string, unknown>)[k] = v;
+  t.camera.distortion_model ??= 'POLYNOMIAL';
+  t.reconstruction ??= emptyReconstruction();
+  t.plane_tracks ??= [];
+  t.objects ??= [];
+  t.active_object_index ??= 0;
+  t.keyframe_a ??= 1;
+  t.keyframe_b ??= 30;
+  for (const o of t.objects) {
+    o.reconstruction ??= emptyReconstruction();
+    o.plane_tracks ??= [];
+  }
+}
+
 export function defaultTrackingCamera(): MovieTrackingCamera {
-  return { sensor_width: 35, focal_length: 24, units: 'MILLIMETERS', principal_point: [0, 0], pixel_aspect: 1, distortion_model: 'POLYNOMIAL', k1: 0, k2: 0, k3: 0 };
+  return { sensor_width: 35, focal_length: 24, units: 'MILLIMETERS', principal_point: [0, 0], pixel_aspect: 1, distortion_model: 'POLYNOMIAL', k1: 0, k2: 0, k3: 0, ...CAMERA_EXTRA };
 }
 
 export function defaultStabilization(): MovieTrackingStabilization {
@@ -291,7 +327,7 @@ export function newMovieClip(id: ID, name: string, opts: Partial<MovieClipData> 
     frame_start: 1,
     frame_offset: 0,
     frame_duration: 0,
-    tracking: { settings: defaultTrackingSettings(), camera: defaultTrackingCamera(), tracks: [], active_track: null, stabilization: defaultStabilization() },
+    tracking: { settings: defaultTrackingSettings(), camera: defaultTrackingCamera(), tracks: [], active_track: null, stabilization: defaultStabilization(), reconstruction: emptyReconstruction(), plane_tracks: [], objects: [], active_object_index: 0, keyframe_a: 1, keyframe_b: 30 },
     users: 0,
     ...opts,
   };
