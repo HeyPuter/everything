@@ -3,8 +3,11 @@
 // scene.render.bake and bpy.ops.object.bake work through the generic wrappers.
 import { app } from '../app/app';
 import { ID_MIXINS, SceneStruct } from '../scripting/api';
-import { Struct, proxify, touched } from '../scripting/rna';
+import { Struct, proxify, touched, writableTypeStructs } from '../scripting/rna';
 import type { ImageData } from '../data/types';
+
+// scene.render.bake.type (Normals / Displacement for multires baking)
+writableTypeStructs.add('Bake');
 
 const COLORSPACES: [ImageData['colorspace'], string][] = [
   ['sRGB', 'sRGB'],

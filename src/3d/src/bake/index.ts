@@ -3,3 +3,4 @@
 import './style';
 import './ops';
 import './panel';
+import './multires';

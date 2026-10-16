@@ -71,7 +71,7 @@ let tracer: BakeTracer | null = null;
 // ---------------------------------------------------------------------------
 // renderer state
 
-function withGL<T>(renderer: WebGLRenderer, fn: () => T): T {
+export function withGL<T>(renderer: WebGLRenderer, fn: () => T): T {
   const target = renderer.getRenderTarget();
   const scissor = renderer.getScissorTest();
   const viewport = renderer.getViewport(new Vector4());
@@ -93,7 +93,7 @@ function withGL<T>(renderer: WebGLRenderer, fn: () => T): T {
 // ---------------------------------------------------------------------------
 // per-texel surface data of a target
 
-interface Surface {
+export interface Surface {
   W: number;
   H: number;
   /** world position, smooth normal, tangent, bitangent per texel (xyz, stride 4) */
@@ -122,7 +122,7 @@ function basisOf(m: Matrix4): number[] {
   return [e[0], e[1], e[2], e[4], e[5], e[6], e[8], e[9], e[10]];
 }
 
-function imageSurface(renderer: WebGLRenderer, ev: { mesh: EvalMesh; world: Matrix4 }, slots: number[], W: number, H: number, cage: { mesh: EvalMesh; world: Matrix4 } | null): Surface {
+export function imageSurface(renderer: WebGLRenderer, ev: { mesh: EvalMesh; world: Matrix4 }, slots: number[], W: number, H: number, cage: { mesh: EvalMesh; world: Matrix4 } | null): Surface {
   const geometry = meshGeometry(ev.mesh).geometry;
   const src: RasterSource = { geometry, world: ev.world, slots: new Set(slots) };
   const [P, N, T, B] = withGL(renderer, () => (['POSITION', 'NORMAL', 'TANGENT', 'BITANGENT'] as const).map((c) => rasterGeometry(renderer, src, c, W, H)));

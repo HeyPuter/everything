@@ -54,6 +54,33 @@ test('baked passes have the expected values', async ({ page }) => {
   await expectNoErrors(errors);
 });
 
+test('bake from multires: detail of the top level as normals and displacement', async ({ page }) => {
+  const errors = await openApp(page);
+  const out = await script(
+    page,
+    `
+    const ob = C.object;
+    bpy.ops.object.modifier_add({type: 'MULTIRES'});
+    bpy.ops.object.multires_subdivide({modifier: 'Multires', mode: 'CATMULL_CLARK'});
+    bpy.ops.object.multires_subdivide({modifier: 'Multires', mode: 'CATMULL_CLARK'});
+    ob.modifiers[0].levels = 0;
+    const ma = ob.data.materials[0];
+    const img = D.images.new('T', 64, 64); img.colorspace_settings.name = 'Non-Color';
+    const n = ma.node_tree.nodes.new('ShaderNodeTexImage'); n.image = img; ma.node_tree.nodes.active = n;
+    C.scene.render.bake.use_multires = true;
+    const sum = () => [...img.pixels].reduce((a, b) => a + b, 0);
+    bpy.ops.object.bake_image();
+    const normals = sum();
+    C.scene.render.bake.type = 'DISPLACEMENT';
+    bpy.ops.object.bake_image();
+    window.__out = { normals, disp: sum(), report: window.app.reports.at(-1).message };`,
+  );
+  // the smoothed top level dips inside the cube: heights are negative (below mid grey)
+  expect(out.report).toMatch(/Baked multires displacement into "T" \(heights -/);
+  expect(out.normals).toBeGreaterThan(0);
+  await expectNoErrors(errors);
+});
+
 test('ambient occlusion next to a wall and a tilted surface baked selected-to-active', async ({ page }) => {
   const errors = await openApp(page);
   const out = await script(
