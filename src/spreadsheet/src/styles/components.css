@@ -1385,4 +1385,4 @@ body[data-view="editor"] .toast-root { bottom: calc(var(--statusbar-h) + var(--t
 .print-preview-page { display: block; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.06); }
 .print-preview-nav { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .print-preview-step:disabled { opacity: 0.35; }
-@media (max-width: 799px) { .print-layout { grid-template-columns: 1fr; } .print-preview { position: static; } }
+@media (max-width: 799px) { .print-layout { grid-template-columns: minmax(0, 1fr); } .print-preview { position: static; } }

@@ -51,4 +51,9 @@ describe('dialogs at phone width', () => {
     const js = readFileSync(new URL('../src/ui/textboxdialog.js', import.meta.url), 'utf8');
     expect(js).toContain("el('div.row.textbox-style-checks'");
   });
+
+  it('lets the Print dialog stack into one column no wider than the window', () => {
+    const narrow = media(read('components.css'), '(max-width: 799px)');
+    expect(rule(narrow, '.print-layout')).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  });
 });
