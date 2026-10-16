@@ -11,6 +11,7 @@ import { convertNodeTree } from './nodes';
 import { convertModifiers, convertConstraints } from './modifiers';
 import { convertAnimData, mergeAnimData } from './anim';
 import { readAssetMarks } from './assets';
+import { importIdProps } from './idprops';
 
 export interface BlendImport {
   doc: DocumentData;
@@ -584,7 +585,11 @@ export function convertBlend(f: BlendFile): BlendImport {
     if (ob.list('particlesystem').length) warn.add('Particle systems not imported', o.name);
     if (ob.ref('rigidbody_object')) warn.add('Rigid body settings not imported', o.name);
     if (ob.ref('soft')) warn.add('Soft body settings not imported', o.name);
-    if (ob.sub('id')?.ptr('properties')) warn.add('Custom properties not imported', o.name);
+    const idp = importIdProps(ob.sub('id'), ctx);
+    if (idp) {
+      Object.assign((o.custom ??= {}), idp.values);
+      if (idp.skipped) warn.add('Some custom properties not imported (groups, data-block pointers)', o.name);
+    }
     return o;
   }
 
