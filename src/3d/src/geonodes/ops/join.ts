@@ -1,4 +1,5 @@
 // Join, transform and realize geometry (attributes are merged by name).
+import { joinVolumes } from '../../volume/component';
 import {
   CurvesComponent,
   EdgeHash,
@@ -280,6 +281,7 @@ export function joinGeometries(list: GeometrySet[]): GeometrySet {
     inst.length ? joinInstances(inst) : undefined,
   );
   out.greasePencil = joinGreasePencil(nonEmpty.map((g) => g.greasePencil));
+  out.volume = joinVolumes(nonEmpty.map((g) => g.volume));
   return out;
 }
 
@@ -303,6 +305,7 @@ export function transformComponent(c: Component, m: ArrayLike<number>): Componen
 export function transformGeometry(g: GeometrySet, m: ArrayLike<number>): GeometrySet {
   const out = g.map((c) => transformComponent(c, m));
   if (g.greasePencil) out.greasePencil = transformGreasePencil(g.greasePencil, m);
+  if (g.volume) out.volume = g.volume.transformed(m);
   return out;
 }
 
