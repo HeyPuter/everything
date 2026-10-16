@@ -75,8 +75,8 @@ test('Format String items are added in the sidebar', async ({ page }) => {
   await page.waitForTimeout(200);
   const tab = page.locator('.nd-sidebar .rail-tab, .nd-side-tabs button', { hasText: 'Node' }).first();
   if (await tab.count()) await tab.click();
-  await page.locator('.gn-items button', { hasText: 'Add Item' }).first().click();
-  await page.locator('.gn-items button', { hasText: 'Add Item' }).first().click();
+  await page.locator('.gn-items .ul-side button[data-tip="Add"]').first().click();
+  await page.locator('.gn-items .ul-side button[data-tip="Add"]').first().click();
   const items = await withTree<{ name: string }[]>(page, `(ed, t) => JSON.parse(t.nodes.find((n) => n.id === "${fid}").props.format_items)`);
   expect(items.map((i) => i.name)).toEqual(['Value', 'Value_2']);
   await expect(page.locator(`[data-node="${fid}"]`)).toContainText('Value_2');

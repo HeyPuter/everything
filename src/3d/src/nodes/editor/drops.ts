@@ -11,7 +11,8 @@ import { NodeEditor, editorOfElement } from './editor';
 import { ifaceState } from './sidebar';
 import { outlinerDrag } from '../../editors/outliner';
 import { importImageFile } from '../../ops/data';
-import { packFile } from '../../geonodes/curves/importers';
+import { uid } from '../../data/defaults';
+import type { DocumentData } from '../../data/types';
 
 function editorOf(ctx: OpContext): NodeEditor | null {
   const ed = ctx.area?.editor;
@@ -273,6 +274,14 @@ addEventListener('drop', (e) => {
   outlinerDrag(true);
   items.forEach(([op, props], i) => run(op, props, i * 30));
 });
+
+/** Store a file in the document for import nodes (replacing a stored file of the same name). */
+function packFile(doc: DocumentData, name: string, bytes: Uint8Array) {
+  doc.packed_files ??= {};
+  const old = Object.values(doc.packed_files).find((f) => f.name === name);
+  const id = old?.id ?? uid('pf');
+  doc.packed_files[id] = { id, name, bytes };
+}
 
 async function dropFiles(ed: NodeEditor, files: File[], location: number[]) {
   const tree = ed.tree();

@@ -108,7 +108,7 @@ function meshSig(m: EvalMesh) {
 // ---------------------------------------------------------------------------
 // Environment
 
-function makeEnv(doc: DocumentData, ob: ObjectData, graph: Depsgraph, frame: number, render: boolean): EvalEnv {
+export function makeEnv(doc: DocumentData, ob: ObjectData, graph: Depsgraph, frame: number, render: boolean): EvalEnv {
   const self = graph.get(ob.id)?.world.elements ?? Array.from(identity());
   const geoCache = new Map<string, GeometrySet | null>();
   return {

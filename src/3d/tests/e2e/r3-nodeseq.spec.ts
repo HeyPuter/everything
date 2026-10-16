@@ -55,6 +55,15 @@ test('item lists of bundle, closure and capture nodes in the sidebar', async ({ 
   await page.evaluate(() => (window as unknown as { app: { run(id: string, p?: object): string } }).app.run('node.capture_attribute_item_add', { item_type: 'FLOAT_VECTOR' }));
   expect(await withTree(page, `(ed, t) => JSON.parse(t.nodes.find((n) => n.id === "${cap}").props.capture_items).map((i) => i.data_type)`)).toEqual(['FLOAT_VECTOR']);
   await expect(page.locator('.nd-sidebar .gn-zone-items .ul-row')).toHaveCount(1);
+  // the Add menu: Utilities ▸ Bundle / Closure / List next to the other categories
+  const menu = await page.evaluate(() => {
+    const ed = (window as any).app.hoverArea.editor; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const items = ed.addMenuItems() as { label?: string; submenu?: () => { label?: string }[] }[];
+    const util = items.find((i) => i.label === 'Utilities')!.submenu!().map((i) => i.label);
+    return { top: items.map((i) => i.label), util };
+  });
+  expect(menu.top).toEqual(expect.arrayContaining(['Input', 'Output', 'Attribute', 'Utilities']));
+  expect(menu.util).toEqual(expect.arrayContaining(['Math', 'Bundle', 'Closure', 'List']));
   // the closure zone comes from the Add menu (Utilities ▸ Closure ▸ Closure)
   expect(await page.evaluate(() => (window as unknown as { app: { run(id: string): string } }).app.run('node.add_closure_zone'))).toBe('RUNNING_MODAL');
   await page.keyboard.press('Escape');
@@ -108,5 +117,40 @@ test('dropping outliner items and interface sockets adds nodes; panel toggles; a
   await page.waitForTimeout(100);
   expect(await page.evaluate(() => document.querySelectorAll('.nd-header .hdr-toggle.on').length)).not.toBe(before);
   await page.locator('.nd-header [data-tip^="Auto-offset"]').first().click();
+  await expectNoErrors(errors);
+});
+
+test('node tools: a tool group made in the Tool context runs from the Node Tools menu', async ({ page }) => {
+  const { errors } = await nodeEditor(page);
+  await page.locator('.nd-header .gn-context').click();
+  await page.locator('.menu .menu-item', { hasText: /^Tool/ }).first().click();
+  await expect(page.locator('.nd-header .gn-context')).toContainText('Tool');
+  await page.locator('.nd-header .id-selector').first().getByText('New').click();
+  expect(await withTree(page, '(ed, t) => !!t && app.doc.node_groups[ed.toolGroup].is_tool')).toBe(true);
+  // tool-only nodes are offered in this context
+  expect(await page.evaluate(() => (window as any).app.hoverArea.editor.addSearchEntries().some((e: { label: string }) => /3D Cursor/.test(e.label)))).toBe(true); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.evaluate(async () => {
+    const { addNode, connect, ctxOf } = await import('/src/nodes/tree.ts');
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const t = a.hoverArea.editor.tree();
+    const gin = t.nodes.find((n: { type: string }) => n.type === 'NodeGroupInput'),
+      gout = t.nodes.find((n: { type: string }) => n.type === 'NodeGroupOutput');
+    t.links = [];
+    const sp = addNode(t, 'GeometryNodeSetPosition', [0, 0]);
+    sp.inputs.Offset = [0, 0, 0.5];
+    const c = ctxOf(a.doc, t);
+    connect(c, gin.id, 'Geometry', sp.id, 'Geometry');
+    connect(c, sp.id, 'Geometry', gout.id, 'Geometry');
+    a.changed('doc');
+  });
+  await page.locator('.hdr-menu', { hasText: 'Node Tools' }).first().dispatchEvent('pointerdown');
+  await page.locator('.menu .menu-item', { hasText: 'Tool' }).first().click();
+  await page.waitForTimeout(100);
+  expect(
+    await page.evaluate(() => {
+      const a = (window as any).app;
+      return a.doc.meshes[a.activeObject.data].positions[2];
+    }),
+  ).toBeCloseTo(1.5); // eslint-disable-line @typescript-eslint/no-explicit-any
   await expectNoErrors(errors);
 });
