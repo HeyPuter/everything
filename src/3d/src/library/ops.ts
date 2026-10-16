@@ -487,7 +487,51 @@ const ops: Operator[] = [
     },
   },
 ];
+ops.push(
+  {
+    idname: 'ed.lib_id_fake_user_toggle',
+    label: 'Toggle Fake User',
+    description: 'Keep the data-block in the file even when nothing uses it (or stop keeping it)',
+    props: [{ id: 'id', label: 'Data-Block', type: 'string', default: '', hidden: true }],
+    // run by data-block selectors, which name the data-block
+    internal: true,
+    exec: (ctx, p) => {
+      const id = String(p.id || ctx.doc.scene.active_object || '');
+      const table = tableOfId(ctx.doc, id);
+      const rec = table ? tablesOf(ctx.doc)[table][id] : undefined;
+      if (!rec || table === 'objects' || table === 'collections' || isLinked(rec)) return (app.report('WARNING', 'This data-block cannot have a fake user'), 'CANCELLED');
+      rec.use_fake_user = !rec.use_fake_user;
+    },
+  },
+  {
+    idname: 'ed.lib_id_override_editable_toggle',
+    label: 'Toggle Library Override Editable',
+    description: 'Make a library override that was made only for its hierarchy editable, or the other way round',
+    props: [{ id: 'id', label: 'Data-Block', type: 'string', default: '', hidden: true }],
+    poll: (ctx) => Object.values(ctx.doc.objects).some(isOverride) || Object.values(ctx.doc.collections).some(isOverride),
+    exec: (ctx, p) => {
+      const rec = recordOf(ctx.doc, String(p.id || ctx.doc.scene.active_object || ''));
+      const ov = rec?.override_library;
+      if (!ov) return 'CANCELLED';
+      ov.is_system_override = !ov.is_system_override;
+    },
+  },
+  {
+    idname: 'wm.drop_import_file',
+    label: 'Import Dropped Files',
+    description: 'Import files dropped onto the window with the format that reads them',
+    undo: false,
+    internal: true,
+    exec: () => {
+      const files = pendingImports.splice(0);
+      if (!files.length) return 'CANCELLED';
+      for (const f of files) void openFile(f, 'import');
+      return 'CANCELLED';
+    },
+  },
+);
 registerOperators(ops);
+const pendingImports: File[] = [];
 
 // ---------------------------------------------------------------------------
 // dropping project files onto the window
@@ -525,7 +569,8 @@ if (typeof window !== 'undefined') {
       return;
     }
     // other files: import the ones a format reads
-    for (const f of files) void openFile(f, 'import');
+    pendingImports.push(...files);
+    app.run('wm.drop_import_file', {}, { invoke: false });
   });
 }
 

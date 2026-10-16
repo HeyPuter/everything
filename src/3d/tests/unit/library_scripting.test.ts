@@ -159,3 +159,20 @@ describe('scripting', () => {
     expect(out).toBe("Rig None ['Crate', 'Root']\nprops.p3d props.p3d 1\nRoot True\nTrue");
   });
 });
+
+describe('data-block selector operators', () => {
+  it('toggles fake users and editable overrides', () => {
+    const mat = Object.values(app.doc.materials)[0];
+    app.run('ed.lib_id_fake_user_toggle', { id: mat.id }, { invoke: false });
+    expect(mat.use_fake_user).toBe(true);
+    app.run('wm.link', { filepath: KEY, files: 'collections/Rig' }, { invoke: false });
+    const empty = Object.values(app.doc.objects).find((o) => o.name === 'Rig')!;
+    app.doc.scene.active_object = empty.id;
+    app.run('object.make_override_library', {}, { invoke: false });
+    const col = Object.values(app.doc.collections).find((c) => c.name === 'Rig' && (c as unknown as { override_library?: object }).override_library)!;
+    const ov = (col as unknown as { override_library: { is_system_override?: boolean } }).override_library;
+    const before = !!ov.is_system_override;
+    app.run('ed.lib_id_override_editable_toggle', { id: col.id }, { invoke: false });
+    expect(!!(app.doc.collections[col.id] as unknown as { override_library: { is_system_override?: boolean } }).override_library.is_system_override).toBe(!before);
+  });
+});
