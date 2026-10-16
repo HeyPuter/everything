@@ -5,10 +5,11 @@ import { icon } from '../ui/icons';
 import { app } from '../app/app';
 import { panel, numberField, checkbox, enumMenu, textField, opButton, colorSwatch, toggleButton } from '../ui/widgets';
 import { num, bool, enumProp, splitRow, vecProp } from '../ui/props';
-import { activeTrack, clipFrameToSourceIndex, ensureMarker, focalPixels, markerAt, markerExact, type MovieClipData, type MovieTrackingTrack, type MotionModel } from './types';
+import { tobj, activeTrack, clipFrameToSourceIndex, ensureMarker, focalPixels, markerAt, markerExact, type MovieClipData, type MovieTrackingTrack, type MotionModel } from './types';
 import { readySource, frameCache, cacheSettings } from './source';
 import { measureMotion } from './stabilize';
 import type { ClipEditor } from './editor';
+import { solveToolbar, objectsPanel, distortionRows } from './solvepanels';
 
 const MODELS: [MotionModel, string][] = [
   ['Loc', 'Location'],
@@ -123,8 +124,21 @@ export function drawToolbar(ed: ClipEditor): Child {
       }),
     );
   }
-  return h('div', { key: 'toolbar', class: 'clip-toolbar' }, h('div', { class: 'sb-body' }, body), h('div', { class: 'sb-tabs' }, h('button', { class: 'sb-tab on' }, 'Track')));
+  if (!TOOL_TABS.includes(ed.toolbarTab)) ed.toolbarTab = 'Track';
+  const shown = c && ed.toolbarTab === 'Solve' ? solveToolbar(ed, c) : body;
+  return h(
+    'div',
+    { key: 'toolbar', class: 'clip-toolbar' },
+    h('div', { class: 'sb-body' }, shown),
+    h(
+      'div',
+      { class: 'sb-tabs' },
+      TOOL_TABS.map((t) => h('button', { key: t, class: { 'sb-tab': true, on: t === ed.toolbarTab }, onclick: () => ((ed.toolbarTab = t), ed.drawUI()) }, t)),
+    ),
+  );
 }
+
+const TOOL_TABS = ['Track', 'Solve'];
 
 // ---------------------------------------------------------------------------
 // sidebar
@@ -154,7 +168,7 @@ export function drawSidebar(ed: ClipEditor): Child {
 function trackTab(ed: ClipEditor, c: MovieClipData): Child[] {
   const t = activeTrack(c);
   const f = ed.clipFrame;
-  const out: Child[] = [];
+  const out: Child[] = [objectsPanel(c)];
   out.push(
     panel('clip-n-track', 'Track', () => {
       if (!t) return h('div', { class: 'sb-empty' }, 'No active track');
@@ -163,10 +177,10 @@ function trackTab(ed: ClipEditor, c: MovieClipData): Child[] {
           'div',
           { class: 'clip-name-row' },
           textField(`clip-tname-${t.name}`, t.name, (v) => {
-            if (!v || v === t.name || c.tracking.tracks.some((o) => o.name === v)) return;
+            if (!v || v === t.name || tobj(c).tracks.some((o) => o.name === v)) return;
             // keep references by name in constraints in sync
             for (const ob of Object.values(app.doc.objects)) for (const con of ob.constraints) if (con.type === 'FOLLOW_TRACK' && con.track === t.name) con.track = v;
-            if (c.tracking.active_track === t.name) c.tracking.active_track = v;
+            if (tobj(c).active_track === t.name) tobj(c).active_track = v;
             t.name = v;
             commit('Rename Track');
           }),
@@ -182,6 +196,7 @@ function trackTab(ed: ClipEditor, c: MovieClipData): Child[] {
         num(t, 'weight', 'Weight', { min: 0, max: 1, slider: true, unit: 'factor', tip: 'Influence of this track on a final solution' }),
         num(t, 'weight_stab', 'Stab Weight', { min: 0, max: 1, slider: true, unit: 'factor', tip: 'Influence of this track on 2D stabilization' }),
         h('div', { class: 'clip-info' }, t.last_correlation !== undefined ? `Correlation of the last tracked frame: ${t.last_correlation.toFixed(3)}` : 'Not tracked yet'),
+        t.has_bundle ? h('div', { class: 'clip-solve-status' }, `Average Error: ${(t.average_error ?? 0).toFixed(4)} px`) : null,
         splitRow(
           'Custom Color',
           h(
@@ -244,11 +259,7 @@ function trackTab(ed: ClipEditor, c: MovieClipData): Child[] {
           ]),
           vecProp(cam, 'principal_point', 'Optical Center', { min: -1, max: 1, step: 0.01 }),
           h('div', { class: 'btn-col' }, opButton('clip.set_center_principal', 'Set Principal to Center')),
-          enumProp(cam, 'distortion_model', 'Lens Distortion', [['POLYNOMIAL', 'Polynomial']]),
-          num(cam, 'k1', 'K1', { softMin: -10, softMax: 10, precision: 4, tip: 'First coefficient of third order polynomial radial distortion' }),
-          num(cam, 'k2', 'K2', { softMin: -10, softMax: 10, precision: 4, tip: 'Second coefficient of third order polynomial radial distortion' }),
-          num(cam, 'k3', 'K3', { softMin: -10, softMax: 10, precision: 4, tip: 'Third coefficient of third order polynomial radial distortion' }),
-          h('div', { class: 'clip-info' }, 'Distortion is used by the Follow Track constraint (Undistort).'),
+          ...distortionRows(c),
         ],
         { sub: true },
       ),

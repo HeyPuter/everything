@@ -52,6 +52,64 @@ export interface MovieTrackingTrack {
   use_2d_stabilization_rotation: boolean;
   /** correlation of the last tracked frame (display only) */
   last_correlation?: number;
+  /** reconstructed 3D position (camera solve) in reconstruction space */
+  has_bundle?: boolean;
+  bundle?: [number, number, number];
+  /** average reprojection error of the bundle over the solved frames (pixels) */
+  average_error?: number;
+}
+
+/** Solved camera of one frame. */
+export interface MovieReconstructedCamera {
+  frame: number;
+  /** camera world matrix in reconstruction space (column-major 4×4, looking down −Z) */
+  matrix: number[];
+  average_error: number;
+}
+
+export interface MovieTrackingReconstruction {
+  is_valid: boolean;
+  average_error: number;
+  cameras: MovieReconstructedCamera[];
+}
+
+/** Plane marker: the four corners of the plane (normalized frame coordinates, origin bottom-left). */
+export interface MovieTrackingPlaneMarker {
+  frame: number;
+  corners: [Vec2, Vec2, Vec2, Vec2];
+  mute: boolean;
+  /** placed by the user rather than computed from the tracks */
+  is_keyed?: boolean;
+}
+
+export interface MovieTrackingPlaneTrack {
+  name: string;
+  /** names of the point tracks the plane follows */
+  tracks: string[];
+  markers: MovieTrackingPlaneMarker[];
+  select: boolean;
+  /** image shown on the plane in the clip editor */
+  image: ID | null;
+  image_opacity: number;
+  use_auto_keying: boolean;
+}
+
+/** Tracks and solution of one tracked object (the camera's live directly on MovieTracking). */
+export interface TrackingObjectData {
+  tracks: MovieTrackingTrack[];
+  active_track: string | null;
+  plane_tracks?: MovieTrackingPlaneTrack[];
+  active_plane_track?: string | null;
+  reconstruction?: MovieTrackingReconstruction;
+  /** first / second keyframe of the reconstruction (clip frames) */
+  keyframe_a?: number;
+  keyframe_b?: number;
+}
+
+export interface MovieTrackingObject extends TrackingObjectData {
+  name: string;
+  /** scale of the object solution in camera space */
+  scale: number;
 }
 
 export interface MovieTrackingSettings {
@@ -68,7 +126,23 @@ export interface MovieTrackingSettings {
   use_default_green_channel: boolean;
   use_default_blue_channel: boolean;
   default_weight: number;
+  // camera solve
+  use_keyframe_selection?: boolean;
+  use_tripod_solver?: boolean;
+  refine_intrinsics_focal_length?: boolean;
+  refine_intrinsics_principal_point?: boolean;
+  refine_intrinsics_radial_distortion?: boolean;
+  refine_intrinsics_tangential_distortion?: boolean;
+  // clean up
+  clean_frames?: number;
+  clean_error?: number;
+  clean_action?: 'SELECT' | 'DELETE_TRACK' | 'DELETE_SEGMENTS';
+  /** distances used by Set Scale / Set Solution Scale */
+  distance?: number;
+  object_distance?: number;
 }
+
+export type DistortionModelName = 'POLYNOMIAL' | 'DIVISION' | 'BROWN';
 
 export interface MovieTrackingCamera {
   sensor_width: number;
@@ -78,10 +152,18 @@ export interface MovieTrackingCamera {
   /** optical center, normalized to -1..1 around the frame center */
   principal_point: Vec2;
   pixel_aspect: number;
-  distortion_model: 'POLYNOMIAL';
+  distortion_model: DistortionModelName;
   k1: number;
   k2: number;
   k3: number;
+  division_k1?: number;
+  division_k2?: number;
+  brown_k1?: number;
+  brown_k2?: number;
+  brown_k3?: number;
+  brown_k4?: number;
+  brown_p1?: number;
+  brown_p2?: number;
 }
 
 export interface MovieTrackingStabilization {
@@ -104,13 +186,20 @@ export interface MovieTrackingStabilization {
   active_rotation_track_index: number;
 }
 
-export interface MovieTracking {
+export interface MovieTracking extends TrackingObjectData {
   settings: MovieTrackingSettings;
   camera: MovieTrackingCamera;
+  /** the camera's tracks */
   tracks: MovieTrackingTrack[];
   /** name of the active track */
   active_track: string | null;
   stabilization: MovieTrackingStabilization;
+  /** name of the camera tracking object */
+  camera_object_name?: string;
+  /** tracked objects besides the camera */
+  objects?: MovieTrackingObject[];
+  /** 0: the camera, i > 0: objects[i − 1] */
+  active_object_index?: number;
 }
 
 export interface MovieClipData {
@@ -259,8 +348,10 @@ export function newTrack(tracking: MovieTracking, name: string): MovieTrackingTr
   };
 }
 
-export function uniqueTrackName(tracking: MovieTracking, base: string): string {
-  const names = new Set(tracking.tracks.map((t) => t.name));
+/** Track name unique within the active tracking object (or the given object). */
+export function uniqueTrackName(tracking: MovieTracking | TrackingObjectData, base: string): string {
+  const owner = 'settings' in tracking ? activeObjectData(tracking as MovieTracking) : tracking;
+  const names = new Set(owner.tracks.map((t) => t.name));
   if (!names.has(base)) return base;
   const stem = base.replace(/\.\d{3}$/, '');
   for (let i = 1; ; i++) {
@@ -271,6 +362,49 @@ export function uniqueTrackName(tracking: MovieTracking, base: string): string {
 
 // ---------------------------------------------------------------------------
 // accessors
+
+/** The tracking object being edited (its tracks are the ones shown in the clip editor). */
+export function tobj(clip: MovieClipData): TrackingObjectData {
+  return activeObjectData(clip.tracking);
+}
+
+export function activeObjectData(tracking: MovieTracking): TrackingObjectData {
+  const i = tracking.active_object_index ?? 0;
+  return (i > 0 && tracking.objects?.[i - 1]) || tracking;
+}
+
+/** Whether the active tracking object is the camera. */
+export function isCameraActive(clip: MovieClipData): boolean {
+  const i = clip.tracking.active_object_index ?? 0;
+  return !(i > 0 && clip.tracking.objects?.[i - 1]);
+}
+
+/** Tracking object by name ('' or the camera's name: the camera). */
+export function trackingObjectByName(clip: MovieClipData, name: string | null | undefined): TrackingObjectData {
+  if (!name || name === cameraObjectName(clip)) return clip.tracking;
+  return clip.tracking.objects?.find((o) => o.name === name) ?? clip.tracking;
+}
+
+export function cameraObjectName(clip: MovieClipData) {
+  return clip.tracking.camera_object_name ?? 'Camera';
+}
+
+/** All tracking objects: the camera first. */
+export function trackingObjects(clip: MovieClipData): { name: string; data: TrackingObjectData; is_camera: boolean }[] {
+  return [{ name: cameraObjectName(clip), data: clip.tracking, is_camera: true }, ...(clip.tracking.objects ?? []).map((o) => ({ name: o.name, data: o as TrackingObjectData, is_camera: false }))];
+}
+
+export function emptyReconstruction(): MovieTrackingReconstruction {
+  return { is_valid: false, average_error: 0, cameras: [] };
+}
+
+export function reconstructionOf(o: TrackingObjectData): MovieTrackingReconstruction {
+  return (o.reconstruction ??= emptyReconstruction());
+}
+
+export function planeTracksOf(o: TrackingObjectData): MovieTrackingPlaneTrack[] {
+  return (o.plane_tracks ??= []);
+}
 
 export function clipTable(doc: { movieclips?: Record<ID, MovieClipData> }): Record<ID, MovieClipData> {
   return (doc.movieclips ??= {});
@@ -369,8 +503,9 @@ export function ensureMarker(track: MovieTrackingTrack, frame: number): MovieTra
 }
 
 export function activeTrack(clip: MovieClipData): MovieTrackingTrack | null {
-  const n = clip.tracking.active_track;
-  return n ? (clip.tracking.tracks.find((t) => t.name === n) ?? null) : null;
+  const o = tobj(clip);
+  const n = o.active_track;
+  return n ? (o.tracks.find((t) => t.name === n) ?? null) : null;
 }
 
 /** Focal length in pixels for the clip width. */

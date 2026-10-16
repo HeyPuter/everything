@@ -8,7 +8,8 @@ import { Matrix4, Vector3 } from 'three';
 import type { Constraint, DocumentData } from '../data/types';
 import type { ConstraintContext } from '../eval/types';
 import { constraintTypes } from '../eval/constraints';
-import { clipTable, markerAt, sceneToClipFrame, focalPixels, principalPixels, type MovieClipData } from './types';
+import { clipTable, markerAt, sceneToClipFrame, focalPixels, principalPixels, trackingObjectByName, type MovieClipData } from './types';
+import { undistortClipPixel } from './reconstruction';
 
 export interface FollowCamera {
   type: 'PERSP' | 'ORTHO' | 'PANO';
@@ -140,6 +141,8 @@ export function rayMesh(origin: Vector3, dir: Vector3, positions: ArrayLike<numb
 
 export interface FollowInputs {
   clip: MovieClipData;
+  /** tracks to look the track up in (default: the camera's) */
+  tracks?: MovieClipData['tracking']['tracks'];
   trackName: string;
   sceneFrame: number;
   cameraWorld: Matrix4;
@@ -152,7 +155,7 @@ export interface FollowInputs {
 
 /** World matrix of the owner after the constraint (owner rotation/scale composed with the camera's). */
 export function followTrackMatrix(owner: Matrix4, inp: FollowInputs): Matrix4 | null {
-  const track = inp.clip.tracking.tracks.find((t) => t.name === inp.trackName);
+  const track = (inp.tracks ?? inp.clip.tracking.tracks).find((t) => t.name === inp.trackName);
   if (!track) return null;
   const mk = markerAt(track, sceneToClipFrame(inp.clip, Math.floor(inp.sceneFrame)));
   if (!mk) return null;
@@ -160,7 +163,7 @@ export function followTrackMatrix(owner: Matrix4, inp: FollowInputs): Matrix4 | 
     v = mk.co[1] + track.offset[1];
   const [W, H] = inp.clip.size;
   if (inp.undistort && W > 0 && H > 0) {
-    const [px, py] = undistortPixel(inp.clip, u * W, v * H);
+    const [px, py] = inp.clip.tracking.camera.distortion_model && inp.clip.tracking.camera.distortion_model !== 'POLYNOMIAL' ? undistortClipPixel(inp.clip, u * W, v * H) : undistortPixel(inp.clip, u * W, v * H);
     u = px / W;
     v = py / H;
   }
@@ -205,7 +208,7 @@ constraintTypes.FOLLOW_TRACK = {
   type: 'FOLLOW_TRACK',
   label: 'Follow Track',
   category: 'MOTION_TRACKING',
-  defaults: () => ({ use_active_clip: true, clip: null, track: '', camera: null, depth_object: null, frame_method: 'STRETCH', use_undistorted_position: false }),
+  defaults: () => ({ use_active_clip: true, clip: null, track: '', object: '', camera: null, depth_object: null, frame_method: 'STRETCH', use_undistorted_position: false, use_3d_position: false }),
   deps: (c: Constraint, doc: DocumentData) => [(c.camera as string | null) ?? doc.scene.camera, c.depth_object as string | null],
   apply(owner: Matrix4, c: Constraint, ctx: ConstraintContext) {
     const clip = constraintClip(ctx.doc, c);
@@ -214,10 +217,20 @@ constraintTypes.FOLLOW_TRACK = {
     const camEv = camId ? ctx.graph.get(camId) : undefined;
     const camData = camEv?.ob.type === 'CAMERA' && camEv.ob.data ? ctx.doc.cameras[camEv.ob.data] : undefined;
     if (!camEv || !camData) return;
+    const owning = trackingObjectByName(clip, c.object as string);
+    if (c.use_3d_position) {
+      // the reconstructed position, placed like the camera's solve (camera tracks only)
+      const t = owning === clip.tracking ? owning.tracks.find((x) => x.name === c.track) : undefined;
+      if (!t?.has_bundle || !t.bundle) return;
+      const p = new Vector3(...t.bundle).applyMatrix4(camEv.worldBasis);
+      owner.setPosition(p);
+      return;
+    }
     const depthEv = c.depth_object ? ctx.graph.get(c.depth_object as string) : undefined;
     const r = ctx.doc.scene.render;
     const m = followTrackMatrix(owner, {
       clip,
+      tracks: owning.tracks,
       trackName: c.track as string,
       sceneFrame: ctx.frame,
       cameraWorld: camEv.world,

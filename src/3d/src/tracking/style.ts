@@ -49,6 +49,14 @@ const css = /* css */ `
 .clip-list-btns .btn { width: 24px; height: 22px; padding: 0; display: grid; place-items: center; }
 .icon-btn { display: inline-grid; place-items: center; padding: 0 4px; }
 .panel-check { display: inline-flex; margin-right: 4px; }
+.clip-refine-col { display: flex; flex-direction: column; gap: 3px; padding: 2px 0; min-width: 0; }
+.clip-refine-col .checkbox { white-space: nowrap; }
+.clip-solve-status { color: #d6d7d9; font-size: 11px; padding: 3px 10px 4px; font-variant-numeric: tabular-nums; }
+.clip-objects { min-height: 44px; }
+.clip-obj-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clip-obj-err { color: #9a9b9c; font-size: 10px; font-variant-numeric: tabular-nums; }
+.clip-list-item.on .clip-obj-err { color: #e2e7f2; }
+.clip-header-error { color: #c8c9cb; font-size: 11px; margin: 0 8px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 `;
 
 if (typeof document !== 'undefined' && !document.getElementById('tracking-style')) {

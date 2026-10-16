@@ -4,7 +4,7 @@ import { app, registerOperators, type Operator } from '../app/app';
 import { addKeys, keymaps } from '../app/keymap';
 import { currentClipEditor, type ClipEditor } from './editor';
 import { graphSelection, graphKnots, knotKey, frameGraphAll, frameDopesheetAll } from './graphs';
-import { enabledMarkerAt, markerAt, type MovieClipData } from './types';
+import { tobj, enabledMarkerAt, markerAt, type MovieClipData, type MovieTrackingTrack } from './types';
 import { pointInPolygon } from '../sequencer/selection';
 import { openPie } from '../ui/menu';
 import { isShortTrack, dropShortSegments, maxAcceleration } from './cleanup';
@@ -31,7 +31,7 @@ function selectedKnots(ed: ClipEditor) {
     // the X and Y knots of a frame are the same marker
     if (seen.has(`${name}|${f}`)) continue;
     seen.add(`${name}|${f}`);
-    const t = c.tracking.tracks.find((x) => x.name === name);
+    const t = tobj(c).tracks.find((x) => x.name === name);
     if (t) out.push({ track: t, frame: Number(f) });
   }
   return out;
@@ -54,11 +54,11 @@ function markerPoints(ed: ClipEditor) {
 
 function selectMarkers(ed: ClipEditor, test: (x: number, y: number) => boolean, mode: 'SET' | 'ADD' | 'SUB') {
   const c = ed.clip!;
-  if (mode === 'SET') for (const t of c.tracking.tracks) t.select = false;
+  if (mode === 'SET') for (const t of tobj(c).tracks) t.select = false;
   for (const p of markerPoints(ed))
     if (test(p.x, p.y)) {
       p.t.select = mode !== 'SUB';
-      if (p.t.select) c.tracking.active_track = p.t.name;
+      if (p.t.select) tobj(c).active_track = p.t.name;
     }
   app.changed('doc');
 }
@@ -105,7 +105,7 @@ const ops: Operator[] = [
     invoke: (_c, p) => {
       const ed = currentClipEditor()!;
       const mode = p.mode as 'SET' | 'ADD' | 'SUB';
-      if (mode === 'SET') for (const t of ed.clip!.tracking.tracks) t.select = false;
+      if (mode === 'SET') for (const t of tobj(ed.clip!).tracks) t.select = false;
       const q = ed.local({ clientX: app.pointer.x, clientY: app.pointer.y });
       const c = { kind: 'circle' as const, x: q.x, y: q.y, r: circleRadius };
       let paint: 'ADD' | 'SUB' | null = null;
@@ -268,8 +268,8 @@ const ops: Operator[] = [
         n += before - track.markers.length;
       }
       graphSelection(ed).clear();
-      c.tracking.tracks = c.tracking.tracks.filter((t) => t.markers.length > 0);
-      if (!c.tracking.tracks.some((t) => t.name === c.tracking.active_track)) c.tracking.active_track = null;
+      tobj(c).tracks = tobj(c).tracks.filter((t) => t.markers.length > 0);
+      if (!tobj(c).tracks.some((t) => t.name === tobj(c).active_track)) tobj(c).active_track = null;
       return n ? 'FINISHED' : 'CANCELLED';
     },
   },
@@ -277,15 +277,15 @@ const ops: Operator[] = [
     idname: 'clip.graph_delete_curve',
     label: 'Delete Curve',
     description: 'Delete the track of the active curve',
-    poll: () => inGraph() && !!currentClipEditor()!.clip!.tracking.active_track,
+    poll: () => inGraph() && !!tobj(currentClipEditor()!.clip!).active_track,
     exec: () => {
       const ed = currentClipEditor()!;
       const c = ed.clip!;
-      const name = c.tracking.active_track;
-      const t = c.tracking.tracks.find((x) => x.name === name);
+      const name = tobj(c).active_track;
+      const t = tobj(c).tracks.find((x) => x.name === name);
       if (!t || t.lock) return 'CANCELLED';
-      c.tracking.tracks = c.tracking.tracks.filter((x) => x !== t);
-      c.tracking.active_track = null;
+      tobj(c).tracks = tobj(c).tracks.filter((x) => x !== t);
+      tobj(c).active_track = null;
       graphSelection(ed).clear();
     },
   },
@@ -385,9 +385,10 @@ registerOperators([
   {
     idname: 'clip.clean_tracks',
     label: 'Clean Tracks',
-    description: 'Select, delete or trim tracks whose tracked runs are shorter than a number of frames',
+    description: 'Select, delete or trim tracks whose tracked runs are shorter than a number of frames or whose solve error is too large',
     props: [
       { id: 'frames', label: 'Tracked Frames', type: 'int', default: 0, min: 0 },
+      { id: 'error', label: 'Reprojection Error', type: 'float', default: 0, min: 0, precision: 3, subtype: 'pixel' },
       {
         id: 'action',
         label: 'Type',
@@ -404,15 +405,17 @@ registerOperators([
     exec: (_c, p) => {
       const c = currentClipEditor()!.clip!;
       const frames = p.frames as number;
-      const bad = c.tracking.tracks.filter((t) => !t.lock && isShortTrack(t, frames));
-      if (p.action === 'SELECT') for (const t of c.tracking.tracks) t.select = bad.includes(t);
-      else if (p.action === 'DELETE_TRACK') c.tracking.tracks = c.tracking.tracks.filter((t) => !bad.includes(t));
+      const error = Number(p.error ?? 0);
+      const highError = (t: MovieTrackingTrack) => error > 0 && !!t.has_bundle && (t.average_error ?? 0) > error;
+      const bad = tobj(c).tracks.filter((t) => !t.lock && (isShortTrack(t, frames) || highError(t)));
+      if (p.action === 'SELECT') for (const t of tobj(c).tracks) t.select = bad.includes(t);
+      else if (p.action === 'DELETE_TRACK') tobj(c).tracks = tobj(c).tracks.filter((t) => !bad.includes(t));
       else {
-        for (const t of c.tracking.tracks) if (!t.lock) dropShortSegments(t, frames);
-        c.tracking.tracks = c.tracking.tracks.filter((t) => t.markers.length > 0);
+        for (const t of tobj(c).tracks) if (!t.lock) dropShortSegments(t, frames);
+        tobj(c).tracks = tobj(c).tracks.filter((t) => t.markers.length > 0 && !highError(t));
       }
-      if (!c.tracking.tracks.some((t) => t.name === c.tracking.active_track)) c.tracking.active_track = null;
-      app.report('INFO', `${bad.length} track${bad.length === 1 ? '' : 's'} shorter than ${frames} frames`);
+      if (!tobj(c).tracks.some((t) => t.name === tobj(c).active_track)) tobj(c).active_track = null;
+      app.report('INFO', `${bad.length} track${bad.length === 1 ? '' : 's'} ${error > 0 ? `shorter than ${frames} frames or above ${error} px` : `shorter than ${frames} frames`}`);
     },
   },
   {
@@ -424,7 +427,7 @@ registerOperators([
     exec: (_c, p) => {
       const c = currentClipEditor()!.clip!;
       let n = 0;
-      for (const t of c.tracking.tracks) {
+      for (const t of tobj(c).tracks) {
         t.select = !t.hide && maxAcceleration(t, c.size) > (p.track_threshold as number);
         if (t.select) n++;
       }
@@ -498,8 +501,8 @@ function markerPie() {
   const ed = currentClipEditor();
   const c = ed?.clip;
   if (!c) return;
-  const sel = c.tracking.tracks.filter((t) => t.select && !t.lock);
-  const act = sel.find((t) => t.name === c.tracking.active_track) ?? sel[0];
+  const sel = tobj(c).tracks.filter((t) => t.select && !t.lock);
+  const act = sel.find((t) => t.name === tobj(c).active_track) ?? sel[0];
   const set = (label: string, fn: (t: (typeof sel)[number]) => void) => () => {
     for (const t of sel) fn(t);
     app.pushUndo(label);
@@ -524,4 +527,4 @@ function markerPie() {
   );
 }
 
-addKeys('Clip', [{ key: 'E', shift: true, when: () => inClip() && !!currentClipEditor()?.clip?.tracking.tracks.some((t) => t.select), action: markerPie }]);
+addKeys('Clip', [{ key: 'E', shift: true, when: () => inClip() && !!currentClipEditor()?.tracks().some((t) => t.select), action: markerPie }]);

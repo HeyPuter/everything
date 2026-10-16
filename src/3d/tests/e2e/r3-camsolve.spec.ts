@@ -1,0 +1,177 @@
+import { test, expect, type Page } from '@playwright/test';
+import { openApp, expectNoErrors } from './helpers';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+/**
+ * Motion Tracking workspace with a 1280×720 clip whose tracks are the projections of random
+ * 3D points seen by a camera dollying sideways (so the clip can be solved).
+ */
+async function solvableClip(page: Page, opts: { frames?: number; points?: number } = {}) {
+  const errors = await openApp(page);
+  await page.evaluate(
+    async ({ frames, points }) => {
+      const { shell } = await import('/src/ui/shell.ts' as any);
+      const { workspaceTemplates } = await import('/src/ui/screen.ts' as any);
+      const T = await import('/src/tracking/types.ts' as any);
+      const app = (window as any).app;
+      const W = 1280,
+        H = 720;
+      const c = T.newMovieClip('MC_s', 'shot', { size: [W, H], frame_duration: frames });
+      const f = (c.tracking.camera.focal_length * W) / c.tracking.camera.sensor_width;
+      let seed = 7;
+      const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0), seed / 4294967296);
+      const rot = (yaw: number) => [Math.cos(yaw), 0, -Math.sin(yaw), 0, 1, 0, Math.sin(yaw), 0, Math.cos(yaw)];
+      for (let i = 0; i < points; i++) {
+        const X = [(rnd() - 0.5) * 10, (rnd() - 0.5) * 5, 5 + rnd() * 8];
+        const t = T.newTrack(c.tracking, 'Track');
+        for (let k = 1; k <= frames; k++) {
+          const s = (k - 1) / (frames - 1);
+          const C = [-1.5 + 3 * s, 0.2 * Math.sin(3 * s), 0.6 * s];
+          const R = rot(-0.3 + 0.6 * s);
+          const d = [X[0] - C[0], X[1] - C[1], X[2] - C[2]];
+          const p = [R[0] * d[0] + R[1] * d[1] + R[2] * d[2], R[3] * d[0] + R[4] * d[1] + R[5] * d[2], R[6] * d[0] + R[7] * d[1] + R[8] * d[2]];
+          if (p[2] < 0.5) continue;
+          const px = W / 2 + (f * p[0]) / p[2],
+            py = H / 2 - (f * p[1]) / p[2];
+          if (px < 0 || py < 0 || px > W || py > H) continue;
+          t.markers.push(T.newMarker(k, [px / W, py / H], c.size, 21, 71));
+        }
+        t.select = false;
+        if (t.markers.length > 1) c.tracking.tracks.push(t);
+      }
+      T.clipTable(app.doc)['MC_s'] = c;
+      app.doc.scene.active_clip = 'MC_s';
+      shell.addWorkspace(workspaceTemplates.find((t: any) => t.create().name === 'Motion Tracking').create());
+      app.setFrame(1);
+      app.pushUndo('Test Clip');
+    },
+    { frames: opts.frames ?? 30, points: opts.points ?? 60 },
+  );
+  await page.waitForTimeout(300);
+  return errors;
+}
+
+const clipState = (page: Page) =>
+  page.evaluate(() => {
+    const c = (window as any).app.doc.movieclips.MC_s;
+    const rec = c.tracking.reconstruction;
+    return { valid: !!rec?.is_valid, error: rec?.average_error ?? 0, cameras: rec?.cameras.length ?? 0, bundles: c.tracking.tracks.filter((t: any) => t.has_bundle).length };
+  });
+
+async function solve(page: Page) {
+  await page.evaluate(() => (window as any).app.run('clip.solve_camera'));
+  await page.waitForFunction(() => !!(window as any).app.doc.movieclips.MC_s.tracking.reconstruction?.is_valid, null, { timeout: 30000 });
+}
+
+test('camsolve: solve from the Solve tab, error in the header and track panel', async ({ page }) => {
+  const errors = await solvableClip(page);
+  const clipView = page.locator('.clip-root').nth(1);
+  await clipView.locator('.clip-toolbar .sb-tab', { hasText: 'Solve' }).click();
+  await expect(clipView.locator('.clip-toolbar .panel', { hasText: 'Orientation' })).toBeVisible();
+  await clipView.locator('.clip-toolbar button', { hasText: 'Solve Camera Motion' }).click();
+  await page.waitForFunction(() => !!(window as any).app.doc.movieclips.MC_s.tracking.reconstruction?.is_valid, null, { timeout: 30000 });
+  const st = await clipState(page);
+  expect(st.cameras).toBe(30);
+  expect(st.error).toBeLessThan(0.5);
+  expect(st.bundles).toBeGreaterThan(50);
+  await expect(page.locator('.clip-header-error').first()).toContainText('Solve error');
+  await expect(clipView.locator('.clip-solve-status').first()).toContainText('30 frames');
+  // the solve is one undo step
+  await page.keyboard.press('Control+z');
+  expect((await clipState(page)).valid).toBe(false);
+  await expectNoErrors(errors);
+});
+
+/** World positions of bundles (through the scene camera's own transform) by track index. */
+const bundlesWorld = (page: Page, idx: number[]) =>
+  page.evaluate(async (idx) => {
+    const { Vector3 } = await import('/node_modules/.vite/deps/three.js' as any).catch(() => import('three' as any));
+    const app = (window as any).app;
+    app.graph.evaluate(app.doc);
+    const M = app.graph.get(app.doc.scene.camera).worldBasis;
+    const c = app.doc.movieclips.MC_s;
+    return idx.map((i) => new Vector3(...c.tracking.tracks[i].bundle).applyMatrix4(M).toArray());
+  }, idx);
+
+test('camsolve: setup tracking scene, orientation and 3D markers to mesh', async ({ page }) => {
+  const errors = await solvableClip(page);
+  await solve(page);
+  await page.evaluate(() => (window as any).app.run('clip.setup_tracking_scene'));
+  const cam = await page.evaluate(() => {
+    const app = (window as any).app;
+    const ob = app.doc.objects[app.doc.scene.camera];
+    const ca = app.doc.cameras[ob.data];
+    return { solver: ob.constraints.map((c: any) => c.type), bg: ca.background_images?.[0]?.source, show: ca.show_background_images, comp: !!app.doc.scene.compositing_node_group, res: [app.doc.scene.render.resolution_x, app.doc.scene.render.resolution_y] };
+  });
+  expect(cam).toEqual({ solver: ['CAMERA_SOLVER'], bg: 'MOVIE_CLIP', show: true, comp: true, res: [1280, 720] });
+  // the camera follows the solved path
+  const follow = await page.evaluate(() => {
+    const app = (window as any).app;
+    app.setFrame(12);
+    app.graph.evaluate(app.doc);
+    const w = app.graph.get(app.doc.scene.camera).world.elements;
+    const rc = app.doc.movieclips.MC_s.tracking.reconstruction.cameras.find((c: any) => c.frame === 12).matrix;
+    return Math.max(...w.map((v: number, i: number) => Math.abs(v - rc[i])));
+  });
+  expect(follow).toBeLessThan(1e-5);
+  // floor through three tracks
+  await page.evaluate(() => {
+    const app = (window as any).app;
+    const c = app.doc.movieclips.MC_s;
+    c.tracking.tracks.forEach((t: any, i: number) => (t.select = i < 3));
+    c.tracking.active_track = c.tracking.tracks[0].name;
+    app.run('clip.set_plane', { plane: 'FLOOR' });
+  });
+  for (const p of await bundlesWorld(page, [0, 1, 2])) expect(Math.abs(p[2])).toBeLessThan(1e-4);
+  // origin at the active track
+  await page.evaluate(() => (window as any).app.run('clip.set_origin'));
+  const [o] = await bundlesWorld(page, [0]);
+  expect(Math.hypot(...o)).toBeLessThan(1e-4);
+  // scale: two tracks 2 m apart
+  await page.evaluate(() => {
+    const app = (window as any).app;
+    const c = app.doc.movieclips.MC_s;
+    c.tracking.tracks.forEach((t: any, i: number) => (t.select = i === 1 || i === 2));
+    app.run('clip.set_scale', { distance: 2 });
+  });
+  const [a, b] = await bundlesWorld(page, [1, 2]);
+  expect(Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])).toBeCloseTo(2, 4);
+  // the floor is still the floor
+  for (const p of await bundlesWorld(page, [1, 2])) expect(Math.abs(p[2])).toBeLessThan(1e-4);
+  // vertices for every bundle
+  const n = await page.evaluate(() => {
+    const app = (window as any).app;
+    app.doc.movieclips.MC_s.tracking.tracks.forEach((t: any) => (t.select = false));
+    app.run('clip.bundles_to_mesh');
+    return app.doc.meshes[app.activeObject.data].positions.length / 3;
+  });
+  expect(n).toBe((await clipState(page)).bundles);
+  await expectNoErrors(errors);
+});
+
+test('camsolve: solving pie, reconstruction menu, tracking objects and clear solution', async ({ page }) => {
+  const errors = await solvableClip(page);
+  const clipView = page.locator('.clip-root').nth(1);
+  const box = (await clipView.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.press('Shift+s');
+  await expect(page.locator('.pie-item', { hasText: 'Solve Camera' })).toBeVisible();
+  await page.locator('.pie-item', { hasText: 'Solve Camera' }).click();
+  await page.waitForFunction(() => !!(window as any).app.doc.movieclips.MC_s.tracking.reconstruction?.is_valid, null, { timeout: 30000 });
+  // Reconstruction menu lists the orientation tools
+  await page.locator('.clip-header .hdr-menu', { hasText: 'Reconstruction' }).first().dispatchEvent('pointerdown');
+  for (const l of ['Set Origin', 'Set Floor', 'Set Wall', 'Set X Axis', 'Apply Solution Scale', '3D Markers to Mesh']) await expect(page.locator('.menu .menu-item', { hasText: l }).first()).toBeVisible();
+  await page.keyboard.press('Escape');
+  // a tracking object: its own (empty) track list, then removed again
+  await clipView.locator('.clip-sidebar button[data-tip="Add a tracking object"]').click();
+  expect(await page.evaluate(() => (window as any).app.doc.movieclips.MC_s.tracking.active_object_index)).toBe(1);
+  await expect(clipView.locator('.clip-objects .clip-list-item')).toHaveCount(2);
+  expect(await page.evaluate(() => (window as any).app.hoverArea?.editor?.tracks?.().length ?? -1)).toBe(0);
+  await clipView.locator('.clip-sidebar button[data-tip="Remove the active tracking object"]').click();
+  await expect(clipView.locator('.clip-objects .clip-list-item')).toHaveCount(1);
+  // Track ▸ Clear ▸ Solution
+  await page.evaluate(() => (window as any).app.run('clip.clear_solution'));
+  expect(await clipState(page)).toEqual({ valid: false, error: 0, cameras: 0, bundles: 0 });
+  await expectNoErrors(errors);
+});

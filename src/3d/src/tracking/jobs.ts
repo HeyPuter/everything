@@ -6,6 +6,8 @@ export interface Job {
   label: string;
   progress: number;
   cancelled: boolean;
+  /** current step, shown after the progress */
+  detail?: string;
 }
 
 let current: Job | null = null;
@@ -45,7 +47,7 @@ export async function runJob(label: string, fn: (job: Job) => Promise<string | v
         return true;
       },
       cancel: () => {},
-      header: () => `${label}… ${Math.round(job.progress * 100)}%`,
+      header: () => `${label}… ${Math.round(job.progress * 100)}%${job.detail ? ` (${job.detail})` : ''}`,
       status: () => [['Esc', 'Stop']],
     });
   let ok = true;

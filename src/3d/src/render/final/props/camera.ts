@@ -36,6 +36,9 @@ function margins(owner: Record<string, [number, number]>, key: string, label: st
   return [field(0, `${label} X`), field(1, 'Y')];
 }
 
+/** Panels other modules add after the built-in camera data panels. */
+export const cameraExtraPanels: ((o: ObjectData, ca: CameraData) => Child)[] = [];
+
 export function cameraPanels(o: ObjectData, ca: CameraData): Child {
   const dof = ca.dof as CameraData['dof'] & { aperture_rotation: number; aperture_ratio: number };
   dof.aperture_rotation ??= 0;
@@ -105,5 +108,6 @@ export function cameraPanels(o: ObjectData, ca: CameraData): Child {
       ],
       { closed: true },
     ),
+    ...cameraExtraPanels.map((f) => f(o, ca)),
   ];
 }

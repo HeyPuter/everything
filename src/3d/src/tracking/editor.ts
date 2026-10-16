@@ -19,6 +19,7 @@ import {
   markerAt,
   markerExact,
   sceneToClipFrame,
+  tobj,
   type MovieClipData,
   type MovieTrackingMarker,
   type MovieTrackingTrack,
@@ -26,6 +27,8 @@ import {
 import { readySource } from './source';
 import { stabilizationMatrix, autoscaleFactor, type Affine2 } from './stabilize';
 import { drawToolbar, drawSidebar, drawPatternPreviews } from './panels';
+import { solveErrorText } from './solvepanels';
+import { reprojectBundle } from './reconstruction';
 import { drawGraph, drawDopesheet, graphPointer, dopesheetPointer, frameGraphAll, frameDopesheetAll } from './graphs';
 import { jobState } from './jobs';
 import { lastOpPanel } from '../ui/redo';
@@ -47,6 +50,8 @@ export interface ClipOverlays {
   show_stable: boolean;
   use_mute_footage: boolean;
   show_cache: boolean;
+  /** reprojected bundles of the camera solve ("3D markers") */
+  show_bundles?: boolean;
   /** mask mode: draw splines, and show the mask as a matte over (or instead of) the footage */
   show_mask_spline?: boolean;
   mask_overlay_mode?: 'NONE' | 'COMBINED' | 'ALPHACHANNEL';
@@ -185,7 +190,8 @@ export class ClipEditor implements Editor {
 
   /** Visible tracks (not hidden). */
   tracks(): MovieTrackingTrack[] {
-    return this.clip?.tracking.tracks.filter((t) => !t.hide) ?? [];
+    const c = this.clip;
+    return c ? tobj(c).tracks.filter((t) => !t.hide) : [];
   }
 
   // ---------------------------------------------------------------------------
@@ -406,6 +412,7 @@ export class ClipEditor implements Editor {
       this.drawCursor(ctx);
     } else {
       this.drawMarkers(ctx, T);
+      if (this.overlays.show_bundles !== false) this.drawBundles(ctx, T);
       drawSelectShape(ctx, this.shapeOverlay);
     }
     if (this.boxRect) {
@@ -426,7 +433,7 @@ export class ClipEditor implements Editor {
     const info = `Frame: ${cf} / ${c.frame_duration}${src ? `  ${W}×${H}  ${src.fps} fps  [${src.kind === 'webcodecs' ? 'WebCodecs' : src.kind === 'video' ? 'Video element' : 'Image sequence'}]` : '  Loading…'}${!inRange ? '  (outside of the clip)' : ''}`;
     ctx.fillText(info, left, 16);
     const job = jobState.get();
-    if (job) ctx.fillText(`${job.label}… ${Math.round(job.progress * 100)}%  (Esc to stop)`, left, 32);
+    if (job) ctx.fillText(`${job.label}… ${Math.round(job.progress * 100)}%${job.detail ? `  ${job.detail}` : ''}  (Esc to stop)`, left, 32);
     ctx.shadowBlur = 0;
   }
 
@@ -639,6 +646,7 @@ export class ClipEditor implements Editor {
         if (ov.show_info && t.select) {
           lines.push(m.mute ? 'Disabled' : m.frame === f ? (m.is_keyed ? 'Keyframed' : 'Tracked') : 'Estimated');
           if (t.last_correlation !== undefined && !m.mute) lines.push(`Correlation: ${t.last_correlation.toFixed(3)}`);
+          if (t.has_bundle) lines.push(`Average Error: ${(t.average_error ?? 0).toFixed(3)} px`);
           if (t.lock) lines.push('Locked');
         }
         const bx = Math.max(...quad.map((q) => q[0])) + 4,
@@ -653,6 +661,40 @@ export class ClipEditor implements Editor {
           ctx.fillText(l, bx, by + i * 13);
         });
       }
+    }
+  }
+
+  /** Reprojected bundles: where the solved camera sees each reconstructed track, joined to its marker. */
+  private drawBundles(ctx: CanvasRenderingContext2D, T: Affine2 | null) {
+    const c = this.clip!;
+    const o = tobj(c);
+    if (!o.reconstruction?.is_valid) return;
+    const f = this.clipFrame;
+    const [W, H] = c.size;
+    for (const t of this.tracks()) {
+      if (!t.has_bundle || !t.bundle) continue;
+      const m = enabledMarkerAt(t, f);
+      if (!m || m.frame !== f) continue;
+      const q = reprojectBundle(c, o, t.bundle, f);
+      if (!q) continue;
+      const a = this.toScreen((m.co[0] + t.offset[0]) * W, (1 - m.co[1] - t.offset[1]) * H, T);
+      const b = this.toScreen(q[0], H - q[1], T);
+      const err = Math.hypot((m.co[0] + t.offset[0]) * W - q[0], (m.co[1] + t.offset[1]) * H - q[1]);
+      const col = err < 1 ? '#4fd06b' : err < 3 ? '#f0c419' : '#f0483e';
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(a[0], a[1]);
+      ctx.lineTo(b[0], b[1]);
+      ctx.stroke();
+      ctx.fillStyle = '#000000';
+      ctx.beginPath();
+      ctx.arc(b[0], b[1], 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(b[0], b[1], 2.2, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
@@ -823,15 +865,15 @@ export class ClipEditor implements Editor {
     if (hit) {
       const t = hit.track;
       if (e.shiftKey && hit.kind === 'move') {
-        if (t.select && c.tracking.active_track === t.name) t.select = false;
+        if (t.select && tobj(c).active_track === t.name) t.select = false;
         else {
           t.select = true;
-          c.tracking.active_track = t.name;
+          tobj(c).active_track = t.name;
         }
       } else {
-        if (!t.select) for (const o of c.tracking.tracks) o.select = false;
+        if (!t.select) for (const o of tobj(c).tracks) o.select = false;
         t.select = true;
-        c.tracking.active_track = t.name;
+        tobj(c).active_track = t.name;
       }
       app.changed('doc');
       this.drawUI();
@@ -954,7 +996,7 @@ export class ClipEditor implements Editor {
       if (!dragged || !b) {
         if (!fromKey) {
           let any = false;
-          for (const t of c.tracking.tracks) if (t.select) ((t.select = false), (any = true));
+          for (const t of tobj(c).tracks) if (t.select) ((t.select = false), (any = true));
           if (any) app.pushUndo('Select');
           app.changed('doc');
         }
@@ -976,7 +1018,7 @@ export class ClipEditor implements Editor {
         else if (!extend) t.select = false;
       }
       const act = activeTrack(c);
-      if (!act?.select) c.tracking.active_track = c.tracking.tracks.find((t) => t.select)?.name ?? c.tracking.active_track;
+      if (!act?.select) tobj(c).active_track = tobj(c).tracks.find((t) => t.select)?.name ?? tobj(c).active_track;
       app.pushUndo('Box Select');
       app.changed('doc');
     };
@@ -1065,6 +1107,7 @@ export class ClipEditor implements Editor {
         ? [menu('Select', () => maskSelectMenu()), menu('Add', () => maskAddMenu()), menu('Mask', () => maskMenu())]
         : [this.view === 'GRAPH' ? menu('Select', () => graphSelectMenu()) : this.view !== 'DOPESHEET' ? menu('Select', () => selectMenu()) : null, this.view === 'CLIP' ? [menu('Clip', () => clipMenu()), menu('Track', () => trackMenu()), menu('Reconstruction', () => reconstructionMenu())] : null],
       h('div', { class: 'hdr-spacer' }),
+      c && this.view === 'CLIP' && this.mode !== 'MASK' && solveErrorText(c) ? h('span', { class: 'clip-header-error', 'data-tip': 'Average reprojection error of the solution' }, solveErrorText(c)) : null,
       this.view === 'CLIP' && this.mode === 'MASK' ? maskBrowse(this) : null,
       h(
         'div',
@@ -1353,7 +1396,13 @@ function trackMenu(): MenuItem[] {
     },
     {
       label: 'Clear',
-      submenu: () => [opItem('Before', 'clip.clear_track_path', { action: 'UPTO', clear_active: false }), opItem('After', 'clip.clear_track_path', { action: 'REMAINED', clear_active: false }), opItem('Track Path', 'clip.clear_track_path', { action: 'ALL', clear_active: false })],
+      submenu: () => [
+        opItem('Before', 'clip.clear_track_path', { action: 'UPTO', clear_active: false }),
+        opItem('After', 'clip.clear_track_path', { action: 'REMAINED', clear_active: false }),
+        opItem('Track Path', 'clip.clear_track_path', { action: 'ALL', clear_active: false }),
+        { separator: true },
+        opItem('Solution', 'clip.clear_solution'),
+      ],
     },
     { label: 'Refine', submenu: () => [opItem('Backwards', 'clip.refine_markers', { backwards: true }), opItem('Forwards', 'clip.refine_markers', { backwards: false })] },
     { label: 'Clean Up', submenu: () => [opItem('Clean Tracks', 'clip.clean_tracks'), opItem('Filter Tracks', 'clip.filter_tracks')] },
@@ -1379,8 +1428,24 @@ function trackMenu(): MenuItem[] {
   ];
 }
 
+/** The Distance setting of the shown clip (used by Set Scale / Apply Solution Scale). */
+export function sceneDistance(): number {
+  return currentClipEditor()?.clip?.tracking.settings.distance ?? 1;
+}
+
 function reconstructionMenu(): MenuItem[] {
-  return [opItem('Link Empty to Track', 'clip.track_to_empty')];
+  return [
+    opItem('Set Origin', 'clip.set_origin'),
+    opItem('Set Floor', 'clip.set_plane', { plane: 'FLOOR' }),
+    opItem('Set Wall', 'clip.set_plane', { plane: 'WALL' }),
+    opItem('Set X Axis', 'clip.set_axis', { axis: 'X' }),
+    opItem('Set Y Axis', 'clip.set_axis', { axis: 'Y' }),
+    opItem('Set Scale', 'clip.set_scale', { distance: sceneDistance() }),
+    opItem('Apply Solution Scale', 'clip.apply_solution_scale', { distance: sceneDistance() }),
+    { separator: true },
+    opItem('Link Empty to Track', 'clip.track_to_empty'),
+    opItem('3D Markers to Mesh', 'clip.bundles_to_mesh'),
+  ];
 }
 
 export function contextMenu(): MenuItem[] {
