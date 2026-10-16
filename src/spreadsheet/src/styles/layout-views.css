@@ -16,7 +16,7 @@
 .cv-add .check-group.vertical { flex-direction: column; }
 @media (max-width: 560px) {
   .cv-top { flex-direction: column; }
-  .cv-buttons { flex-direction: row; padding-top: 0; }
+  .cv-buttons { flex-direction: row; flex-wrap: wrap; padding-top: 0; }
 }
 
 /* ---------- Arrange: several drawing objects selected ---------- */

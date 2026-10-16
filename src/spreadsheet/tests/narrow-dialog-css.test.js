@@ -31,4 +31,10 @@ describe('dialogs at phone width', () => {
     expect(rule(narrow, '.opt-dialog')).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
     expect(rule(narrow, '.opt-nav-list')).toMatch(/overflow-x:\s*auto/);
   });
+
+  it('wraps the Sheet View Options buttons onto a second row instead of pushing Delete off screen', () => {
+    const narrow = media(read('layout-views.css'), '(max-width: 560px)');
+    expect(rule(narrow, '.cv-buttons')).toMatch(/flex-direction:\s*row/);
+    expect(rule(narrow, '.cv-buttons')).toMatch(/flex-wrap:\s*wrap/);
+  });
 });
