@@ -1,7 +1,7 @@
 // Grease Pencil Line Art modifier: feature lines of scene meshes seen from a camera, chained into
 // 3D strokes on a target layer (computed live and cached, or baked into keyframes).
 import { Matrix4, Vector3 } from 'three';
-import { app, registerOperators } from '../app/app';
+import { app, registerOperators, onAppReady, operators } from '../app/app';
 import { runJob, setProgress } from '../tracking/jobs';
 import { layerMatrix } from '../greasepencil/render';
 import { registerModifier, newModifier } from '../eval/modifiers';
@@ -390,3 +390,22 @@ registerOperators([
     },
   },
 ]);
+
+// a Line Art modifier added to an object draws into its active layer with its first material
+onAppReady(() => {
+  const op = operators.get('object.modifier_add');
+  if (!op?.exec) return;
+  const base = op.exec;
+  op.exec = (ctx, p) => {
+    const r = base(ctx, p);
+    const ob = app.activeObject;
+    if (p.type !== 'LINEART' || !ob || ob.type !== 'GREASEPENCIL') return r;
+    const m = ob.modifiers[ob.modifiers.length - 1] as M | undefined;
+    const gp = gpOf(ctx.doc, ob);
+    if (m?.type === 'LINEART' && gp) {
+      if (!m.target_layer) m.target_layer = gp.layers[gp.active_layer_index]?.name ?? gp.layers[0]?.name ?? '';
+      if (!m.target_material) m.target_material = gp.materials.find((x) => !!x) ?? null;
+    }
+    return r;
+  };
+});

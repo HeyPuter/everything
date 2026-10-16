@@ -168,6 +168,16 @@ describe('line art', () => {
     expect(m.source_object).toBe(cube().id);
   });
 
+  it('a Line Art modifier added from the menu targets the active layer', () => {
+    app.run('object.grease_pencil_add', { type: 'STROKE' });
+    app.run('object.modifier_add', { type: 'LINEART' });
+    const ob = app.activeObject!;
+    const m = ob.modifiers[ob.modifiers.length - 1] as ModifierBase & Record<string, unknown>;
+    const gp = gpOf(app.doc, ob)!;
+    expect(m.target_layer).toBe(gp.layers[gp.active_layer_index].name);
+    expect(m.target_material).toBe(gp.materials[0]);
+  });
+
   it('clears baked line art', () => {
     app.run('object.grease_pencil_add', { type: 'LINEART_SCENE' });
     const ob = app.activeObject!;
