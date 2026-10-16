@@ -549,3 +549,34 @@ function addToolSettings() {
   ];
 }
 for (const t of ADD_TOOLS) toolSettingsRenderers[t.id] = addToolSettings;
+
+// a cube placed by a matrix (location, rotation and size in one), for gizmo-driven adding
+registerOperators([
+  {
+    idname: 'mesh.primitive_cube_add_gizmo',
+    label: 'Add Cube',
+    description: 'Add a cube placed by a transform matrix (location, rotation and size)',
+    props: [
+      { id: 'calc_uvs', label: 'Generate UVs', type: 'bool', default: true },
+      { id: 'align', label: 'Align', type: 'enum', default: 'WORLD', items: [['WORLD', 'World'], ['VIEW', 'View'], ['CURSOR', '3D Cursor']] },
+      { id: 'location', label: 'Location', type: 'vec3', default: null, subtype: 'distance' },
+      { id: 'rotation', label: 'Rotation', type: 'vec3', default: null, subtype: 'angle' },
+      { id: 'matrix', label: 'Matrix', type: 'string', default: '', hidden: true },
+    ],
+    poll: () => addMode(),
+    exec: (ctx, p) => {
+      const cube = operators.get('mesh.primitive_cube_add')!;
+      const props: Record<string, unknown> = { ...defaultProps(cube), align: p.align, location: p.location, rotation: p.rotation };
+      const m = typeof p.matrix === 'string' && p.matrix ? p.matrix.split(/[ ,]+/).map(Number) : null;
+      if (m && m.length === 16 && m.every(Number.isFinite)) {
+        const pos = new Vector3(),
+          q = new Quaternion(),
+          sc = new Vector3();
+        new Matrix4().fromArray(m).decompose(pos, q, sc);
+        const e = new Euler().setFromQuaternion(q, 'ZYX');
+        Object.assign(props, { location: pos.toArray(), rotation: [e.x, e.y, e.z], scale: sc.toArray() });
+      }
+      return cube.exec?.(ctx, props) ?? 'CANCELLED';
+    },
+  },
+]);

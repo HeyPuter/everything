@@ -70,3 +70,27 @@ test('interactive add: drag a base, lift the height, click; tool settings and ed
   expect((await counts(page))[0]).toBe(before + 64);
   await expectNoErrors(errors);
 });
+
+test('poly build: hover preview, split an edge at the cursor and dissolve it again', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  await page.keyboard.press('Tab');
+  await page.locator('.tb-tool[data-tool="builtin.poly_build"]').click();
+  // the middle of the edge between two projected cube corners
+  const { box } = await viewportCenter(page);
+  const at = await page.evaluate(async () => {
+    const { activeView3D } = await import('/src/editors/view3d/view3d.ts' as string);
+    const v = activeView3D();
+    const Vector3 = v.nav.pivot.constructor;
+    const a = v.project(new Vector3(1, 1, 1)),
+      b = v.project(new Vector3(1, -1, 1));
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  });
+  await page.mouse.move(box.x + at.x, box.y + at.y);
+  await expect(page.locator('.polybuild-preview')).toHaveCount(1);
+  expect(await page.evaluate(() => (window as any).app.run('mesh.polybuild_split_at_cursor', {}, { invoke: true }))).toBe('FINISHED'); // eslint-disable-line @typescript-eslint/no-explicit-any
+  expect((await counts(page))[0]).toBe(9);
+  expect(await page.evaluate(() => (window as any).app.run('mesh.polybuild_dissolve_at_cursor', {}, { invoke: true }))).toBe('FINISHED'); // eslint-disable-line @typescript-eslint/no-explicit-any
+  expect((await counts(page))[0]).toBe(8);
+  await expectNoErrors(errors);
+});

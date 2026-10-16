@@ -1,6 +1,7 @@
 // Outliner: tree of the scene's collections and objects (view layer / scenes), every data-block
 // in the file, or unused data. Selection is kept in sync with object selection; collections and
 // other elements have their own outliner selection.
+import { dropTypeFor } from '../modeling/dropops';
 import { h, patch, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { app, type ChangeKind } from '../app/app';
@@ -74,7 +75,7 @@ const ROW_H = 22;
 const PAD = 2;
 const VIRTUAL_MIN = 150;
 
-type DragInfo = { kind: 'objects'; ids: string[] } | { kind: 'collection'; id: string } | { kind: 'material'; id: string };
+type DragInfo = { kind: 'objects'; ids: string[] } | { kind: 'collection'; id: string } | { kind: 'material'; id: string } | { kind: 'data'; table: string; id: string };
 type DropZone = 'INTO' | 'BEFORE' | 'AFTER';
 
 const DISPLAY_MODES: [DisplayMode, string, string][] = [
@@ -1077,7 +1078,7 @@ export class Outliner implements Editor {
   private isDraggable(r: Row) {
     if (r.kind === 'object') return true;
     if (r.kind === 'collection') return r.id !== app.doc.scene.collection && this.displayMode !== 'BLENDER_FILE' && this.displayMode !== 'ORPHAN_DATA';
-    return r.kind === 'material' || (r.kind === 'id' && r.table === 'materials');
+    return r.kind === 'material' || (r.kind === 'id' && (r.table === 'materials' || r.table === 'worlds' || (!!r.table && !!r.id && !!dropTypeFor(r.table, r.id))));
   }
 
   private onDragStart(e: DragEvent, r: Row) {
@@ -1088,6 +1089,7 @@ export class Outliner implements Editor {
         ids: ids.includes(r.ob.id) ? ids : [r.ob.id],
       };
     } else if (r.kind === 'collection' && r.id) this.drag = { kind: 'collection', id: r.id };
+    else if (r.kind === 'id' && r.id && r.table && r.table !== 'materials') this.drag = { kind: 'data', table: r.table, id: r.id };
     else if (r.id) this.drag = { kind: 'material', id: r.id };
     e.dataTransfer?.setData('text/plain', r.label);
     if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove';
@@ -1437,7 +1439,7 @@ function viewportAt(e: DragEvent): { el: HTMLElement; pick(x: number, y: number,
 
 addEventListener('dragover', (e) => {
   const d = viewportDrag;
-  if (!d || (d.kind !== 'collection' && d.kind !== 'material') || !viewportAt(e)) return;
+  if (!d || !viewportAt(e)) return;
   e.preventDefault();
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
 });
@@ -1459,6 +1461,15 @@ addEventListener('drop', (e) => {
     const hit = v.pick(x, y, 4);
     if (hit) app.run('outliner.material_drop', { object: hit.id, material: d.id }, { invoke: false });
     else app.report('WARNING', 'Drop the material on an object');
+  } else if (d.kind === 'objects') {
+    // an object dropped into the view moves under the mouse
+    const ob = app.doc.objects[d.ids[0]];
+    if (ob && app.doc.mode === 'OBJECT') app.run('object.transform_to_mouse', { name: ob.name, drop_x: Math.round(x), drop_y: Math.round(y) }, { invoke: false });
+  } else if (d.kind === 'data') {
+    const rec = (app.doc as unknown as Record<string, Record<string, { name: string }>>)[d.table]?.[d.id];
+    if (!rec) return;
+    if (d.table === 'worlds') app.run('view3d.drop_world', { name: rec.name }, { invoke: false });
+    else if (app.doc.mode === 'OBJECT') app.run('object.data_instance_add', { name: rec.name, type: dropTypeFor(d.table, d.id), drop_x: Math.round(x), drop_y: Math.round(y) }, { invoke: false });
   }
 });
 
