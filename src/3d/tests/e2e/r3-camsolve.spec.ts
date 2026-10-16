@@ -319,3 +319,34 @@ test('camsolve: proxies of an image sequence are built and shown', async ({ page
   expect(await page.evaluate(() => (window as any).app.hoverArea.editor.displaySource().width)).toBe(320);
   await expectNoErrors(errors);
 });
+
+test('camsolve: camera, track color and tracking settings presets', async ({ page }) => {
+  const errors = await solvableClip(page, { frames: 10, points: 12 });
+  const clipView = page.locator('.clip-root').nth(1);
+  await clipView.locator('.clip-sidebar .panel', { hasText: 'Camera' }).locator('.clip-preset-btn').first().dispatchEvent('pointerdown');
+  await page.locator('.menu .menu-item', { hasText: 'Micro Four Thirds' }).click();
+  expect(await page.evaluate(() => (window as any).app.doc.movieclips.MC_s.tracking.camera.sensor_width)).toBe(17.3);
+  // user preset: save, apply after a change, remove
+  await page.evaluate(() => (window as any).app.run('clip.camera_preset_add', { name: 'My Rig' }, { invoke: false }));
+  await page.evaluate(() => ((window as any).app.doc.movieclips.MC_s.tracking.camera.sensor_width = 30));
+  await clipView.locator('.clip-sidebar .panel', { hasText: 'Camera' }).locator('.clip-preset-btn').first().dispatchEvent('pointerdown');
+  await page.locator('.menu .menu-item', { hasText: 'My Rig' }).click();
+  expect(await page.evaluate(() => (window as any).app.doc.movieclips.MC_s.tracking.camera.sensor_width)).toBe(17.3);
+  await page.evaluate(() => (window as any).app.run('clip.camera_preset_add', { name: 'My Rig', remove_name: true }, { invoke: false }));
+  // tracking settings preset from the toolbar
+  await clipView.locator('.clip-toolbar .panel', { hasText: 'Tracking Settings' }).locator('.clip-preset-btn').first().dispatchEvent('pointerdown');
+  await page.locator('.menu .menu-item', { hasText: 'Fast Motion' }).click();
+  expect(await page.evaluate(() => (window as any).app.doc.movieclips.MC_s.tracking.settings.default_search_size)).toBe(201);
+  // track color preset colors the active track
+  await page.evaluate(() => {
+    const app = (window as any).app;
+    const c = app.doc.movieclips.MC_s;
+    c.tracking.active_track = c.tracking.tracks[0].name;
+    c.tracking.tracks[0].select = true;
+    app.changed('doc');
+  });
+  await clipView.locator('.clip-sidebar .clip-color-row .clip-preset-btn').dispatchEvent('pointerdown');
+  await page.locator('.menu .menu-item', { hasText: 'Cyan' }).click();
+  expect(await page.evaluate(() => (window as any).app.doc.movieclips.MC_s.tracking.tracks[0].use_custom_color)).toBe(true);
+  await expectNoErrors(errors);
+});

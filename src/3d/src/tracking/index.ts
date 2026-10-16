@@ -19,6 +19,7 @@ import './bundles3d';
 import './planenode';
 import './editorops';
 import './proxy';
+import './presets';
 import '../mask/index';
 import { registerWorkspaceTemplate, A, H, V } from '../ui/screen';
 

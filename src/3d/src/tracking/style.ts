@@ -56,6 +56,9 @@ const css = /* css */ `
 .clip-obj-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .clip-obj-err { color: #9a9b9c; font-size: 10px; font-variant-numeric: tabular-nums; }
 .clip-list-item.on .clip-obj-err { color: #e2e7f2; }
+.clip-panel-title { display: inline-flex; align-items: center; gap: 6px; flex: 1; }
+.clip-panel-title .clip-preset-btn { margin-left: auto; opacity: 0.8; }
+.clip-preset-btn { height: 20px; }
 .clip-proxy-sizes { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 6px; }
 .clip-header-error { color: #c8c9cb; font-size: 11px; margin: 0 8px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 `;

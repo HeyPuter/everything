@@ -11,6 +11,7 @@ import { measureMotion } from './stabilize';
 import type { ClipEditor } from './editor';
 import { solveToolbar, objectsPanel, distortionRows } from './solvepanels';
 import { planeTrackPanel } from './planeops';
+import { presetButton } from './presets';
 import { proxyPanel } from './proxypanel';
 
 const MODELS: [MotionModel, string][] = [
@@ -57,7 +58,7 @@ export function drawToolbar(ed: ClipEditor): Child {
     body.push(
       panel('clip-t-clip', 'Clip', () => [h('div', { class: 'btn-col' }, opButton('clip.set_scene_frames', 'Set Scene Frames')), h('div', { class: 'btn-row' }, opButton('clip.prefetch', 'Prefetch'), opButton('clip.reload', 'Reload'))]),
       panel('clip-t-marker', 'Marker', () => [h('div', { class: 'btn-row' }, opButton('clip.add_marker_at_click', 'Add'), opButton('clip.delete_track', 'Delete')), h('div', { class: 'btn-col' }, opButton('clip.detect_features', 'Detect Features'))]),
-      panel('clip-t-settings', 'Tracking Settings', () => [
+      panel('clip-t-settings', h('span', { class: 'clip-panel-title' }, 'Tracking Settings', presetButton(c, 'settings', 'Tracking Settings Presets')), () => [
         num(s, 'default_pattern_size', 'Pattern Size', { int: true, min: 5, max: 1000, unit: 'pixel', tip: 'Size of pattern area for newly created tracks' }),
         num(s, 'default_search_size', 'Search Size', { int: true, min: 5, max: 1000, unit: 'pixel', tip: 'Size of search area for newly created tracks' }),
         enumProp(s, 'default_motion_model', 'Motion Model', MODELS, { tip: 'Default motion model to use for tracking' }),
@@ -207,6 +208,7 @@ function trackTab(ed: ClipEditor, c: MovieClipData): Child[] {
             checkbox('clip-tcc', '', t.use_custom_color, (v) => ((t.use_custom_color = v), commit('Custom Color'))),
             colorSwatch('clip-tcolor', t.color, (v, fin) => ((t.color = [v[0], v[1], v[2]]), commit('Track Color', fin)), { linear: false }),
             h('button', { class: 'btn icon-btn', 'data-tip': 'Copy Color\nCopy color to all selected tracks', disabled: !app.poll('clip.track_copy_color'), onclick: () => app.run('clip.track_copy_color') }, icon('duplicate')),
+            presetButton(c, 'color', 'Track Color Presets'),
           ),
         ),
       ];
@@ -234,7 +236,7 @@ function trackTab(ed: ClipEditor, c: MovieClipData): Child[] {
     );
   const cam = c.tracking.camera;
   out.push(
-    panel('clip-n-camera', 'Camera', () => [
+    panel('clip-n-camera', h('span', { class: 'clip-panel-title' }, 'Camera', presetButton(c, 'camera', 'Camera Presets')), () => [
       num(cam, 'sensor_width', 'Sensor Width', { min: 0, max: 500, unit: 'none', tip: 'Width of CCD sensor in millimeters' }),
       num(cam, 'pixel_aspect', 'Pixel Aspect', { min: 0.1, max: 5000, tip: 'Pixel aspect ratio' }),
       panel(
