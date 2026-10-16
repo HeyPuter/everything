@@ -1,48 +1,47 @@
-// Scripting access to the item lists of Format String (`format_items.new('FLOAT', "x")`),
-// Index Switch (`index_switch_items.new()`) and Menu Switch (`enum_items.new("Name")`).
+// Scripting access to the item lists of nodes: Format String (`format_items.new('FLOAT', "x")`),
+// Index Switch (`index_switch_items.new()`), Menu Switch (`enum_items.new("Name")`), Capture
+// Attribute (`capture_items`), Viewer (`viewer_items`), bundles (`bundle_items`), Evaluate Closure
+// (`input_items` / `output_items`) and lists (`list_items`). Lists are the ones registered with
+// `registerItemNode`, so sockets, types and links follow the same rules as in the editor.
 import type { NodeData, NodeTreeData } from '../../data/types';
 import { PropCollection, kwMethod, pyError, touched } from '../../scripting/rna';
-import { writeItems, formatItems, indexItems, menuItems, type NodeItem } from './itemdata';
+import { writeItems, type NodeItem } from './itemdata';
+import { itemListsOf, listItems, removeItem, uniqueName, type ItemListDef } from './itemcore';
 
-interface ListSpec {
-  type: string;
-  struct: string;
-  read: (n: NodeData) => NodeItem[];
-  /** socket types accepted by new() (Format String) */
-  types?: string[];
-  named: boolean;
-}
-
-const LISTS: Record<string, ListSpec> = {
-  format_items: { type: 'FunctionNodeFormatString', struct: 'NodeFunctionFormatStringItem', read: formatItems, types: ['FLOAT', 'INT', 'STRING'], named: true },
-  index_switch_items: { type: 'GeometryNodeIndexSwitch', struct: 'IndexSwitchItem', read: indexItems, named: false },
-  enum_items: { type: 'GeometryNodeMenuSwitch', struct: 'NodeEnumItem', read: menuItems, named: true },
-};
-
-const uniqueName = (items: NodeItem[], name: string) => {
-  const names = new Set(items.map((i) => i.name));
-  if (!names.has(name)) return name;
-  for (let k = 1; ; k++) {
-    const n = `${name}.${String(k).padStart(3, '0')}`;
-    if (!names.has(n)) return n;
-  }
+/** Struct names per list property (and node type where they differ). */
+const STRUCTS: Record<string, string> = {
+  format_items: 'NodeFunctionFormatStringItem',
+  index_switch_items: 'IndexSwitchItem',
+  enum_items: 'NodeEnumItem',
+  capture_items: 'NodeGeometryCaptureAttributeItem',
+  viewer_items: 'NodeGeometryViewerItem',
+  bundle_items: 'NodeBundleItem',
+  'NodeEvaluateClosure:input_items': 'NodeEvaluateClosureInputItem',
+  'NodeEvaluateClosure:output_items': 'NodeEvaluateClosureOutputItem',
+  list_items: 'NodeListItem',
 };
 
 class NodeItems extends PropCollection<unknown> {
   constructor(
     private tree: () => NodeTreeData,
     private node: () => NodeData,
-    private key: string,
-    private spec: ListSpec,
+    private def: ItemListDef,
+    private struct_: string,
     path: string,
   ) {
     super(path);
   }
+  private get typeKey() {
+    return this.def.typeKey ?? 'type';
+  }
+  private get types(): string[] | undefined {
+    return this.def.types?.map(([t]) => t);
+  }
   private all() {
-    return this.spec.read(this.node());
+    return listItems(this.node(), this.def);
   }
   private write(items: NodeItem[]) {
-    writeItems(this.node(), this.key, items);
+    writeItems(this.node(), this.def.prop, items);
     touched();
   }
   list() {
@@ -59,15 +58,19 @@ class NodeItems extends PropCollection<unknown> {
       return it;
     };
     const update = (patch: Partial<NodeItem>) => self.write(self.all().map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    const setType = (v: string) => {
+      if (!self.types?.includes(String(v))) throw pyError('TypeError', `bpy_struct: item type '${v}' is not supported here`);
+      update({ [self.typeKey]: String(v) } as Partial<NodeItem>);
+    };
     return {
       __kind: 'struct',
-      __type: self.spec.struct,
+      __type: self.struct_,
       __itemId: id,
       get name() {
         return cur().name;
       },
       set name(v: string) {
-        if (!self.spec.named) return;
+        if (self.def.named === false) return;
         update({
           name: uniqueName(
             self.all().filter((x) => x.id !== id),
@@ -76,13 +79,18 @@ class NodeItems extends PropCollection<unknown> {
         });
       },
       get socket_type() {
-        return cur().type ?? 'FLOAT';
+        return String(cur()[self.typeKey] ?? self.def.types?.[0][0] ?? 'FLOAT');
       },
       set socket_type(v: string) {
-        if (!self.spec.types?.includes(String(v))) throw pyError('TypeError', `bpy_struct: item.socket_type = '${v}' is not a supported type here`);
-        update({ type: String(v) });
+        setType(v);
       },
-      toString: () => `<bpy_struct, ${self.spec.struct}("${cur().name}")>`,
+      get data_type() {
+        return String(cur()[self.typeKey] ?? self.def.types?.[0][0] ?? 'FLOAT');
+      },
+      set data_type(v: string) {
+        setType(v);
+      },
+      toString: () => `<bpy_struct, ${self.struct_}("${cur().name}")>`,
     };
   }
   new(a?: unknown, b?: unknown) {
@@ -90,25 +98,22 @@ class NodeItems extends PropCollection<unknown> {
     let id = 0;
     while (items.some((i) => i.id === id)) id++;
     let it: NodeItem;
-    if (this.spec.types) {
-      const t = String(a ?? 'FLOAT');
-      if (!this.spec.types.includes(t)) throw pyError('TypeError', `${this.__path}.new(): socket type '${a}' is not supported here`);
-      it = { id, name: uniqueName(items, String(b ?? 'Value') || 'Value'), type: t };
-    } else if (this.spec.named) it = { id, name: uniqueName(items, String(a ?? 'Item') || 'Item') };
+    if (this.types) {
+      const t = String(a ?? this.types[0]);
+      if (!this.types.includes(t)) throw pyError('TypeError', `${this.__path}.new(): socket type '${a}' is not supported here`);
+      const base = b === undefined || b === null || b === '' ? (this.def.types!.find(([v]) => v === t)?.[1] ?? 'Value') : String(b);
+      it = { id, name: uniqueName(items, base), [this.typeKey]: t };
+    } else if (this.def.named !== false) it = { id, name: uniqueName(items, String(a ?? 'Item') || 'Item') };
     else it = { id, name: String(items.length) };
+    this.def.init?.(it);
     this.write([...items, it]);
     return this.struct(id);
   }
   remove(item: unknown) {
     const id = (item as { __itemId?: number })?.__itemId;
-    const items = this.all();
-    const it = items.find((x) => x.id === id);
-    if (!it) throw pyError('ValueError', `${this.__path}.remove(): item not found`);
-    const tree = this.tree();
-    const nid = this.node().id;
-    const sock = `Item_${it.id}`;
-    tree.links = tree.links.filter((l) => !((l.to_node === nid && l.to_socket === sock) || (l.from_node === nid && l.from_socket === sock)));
-    this.write(items.filter((x) => x !== it));
+    if (!this.all().some((x) => x.id === id)) throw pyError('ValueError', `${this.__path}.remove(): item not found`);
+    removeItem(this.tree(), this.node(), this.def, id!);
+    touched();
   }
   clear() {
     for (const it of this.list()) this.remove(it);
@@ -128,10 +133,11 @@ kwMethod(NodeItems.prototype, 'move', ['from_index', 'to_index']);
 
 /** The item collection `key` of a node, or undefined when the node has none. */
 export function nodeItemsFor(getTree: () => NodeTreeData | null | undefined, nid: string, key: string, path: string): unknown {
-  const spec = LISTS[key];
   const tree = getTree();
   const node = tree?.nodes.find((n) => n.id === nid);
-  if (!spec || !tree || !node || node.type !== spec.type) return undefined;
+  if (!tree || !node) return undefined;
+  const def = itemListsOf(node.type).find((d) => d.prop === key);
+  if (!def) return undefined;
   const t = () => {
     const x = getTree();
     if (!x) throw pyError('ReferenceError', 'node tree has been removed');
@@ -142,5 +148,5 @@ export function nodeItemsFor(getTree: () => NodeTreeData | null | undefined, nid
     if (!x) throw pyError('ReferenceError', 'node has been removed');
     return x;
   };
-  return new NodeItems(t, n, key, spec, path);
+  return new NodeItems(t, n, def, STRUCTS[`${node.type}:${key}`] ?? STRUCTS[key] ?? 'NodeItem', path);
 }

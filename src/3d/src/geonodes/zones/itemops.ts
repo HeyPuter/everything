@@ -12,7 +12,7 @@ function allKeys(n: NodeData): string[] {
 /** Which types a list accepts. */
 export function accepts(list: ItemList, t: SocketType): boolean {
   if (!ITEM_TYPES.some(([v]) => v === t)) return false;
-  if (list.key === 'input_items' || list.key === 'main_items') return FIELD_ITEM_TYPES.has(t);
+  if (list.fieldOnly) return FIELD_ITEM_TYPES.has(t);
   return true;
 }
 

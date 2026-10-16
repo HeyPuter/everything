@@ -24,6 +24,8 @@ const FORMAT_DEF: ItemListDef = {
   prop: 'format_items',
   title: 'Format Items',
   inSocket: formatIn,
+  ops: 'format_string',
+  opLabel: 'Format String',
   types: FORMAT_TYPES,
   typeFor: (s) => (s.type === 'INT' || s.type === 'BOOLEAN' ? 'INT' : s.type === 'STRING' ? 'STRING' : s.type === 'FLOAT' ? 'FLOAT' : undefined),
   defaultName: (items) => {

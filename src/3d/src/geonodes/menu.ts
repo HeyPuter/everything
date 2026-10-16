@@ -348,7 +348,7 @@ export const GEOMETRY_MENU_LAYOUT: MenuCategory[] = [
     ]),
     S,
     cat('Bundle', [e('NodeCombineBundle'), e('NodeSeparateBundle'), e('NodeGetBundleItem'), e('NodeGetNestedBundlePaths'), e('NodeStoreBundleItem'), e('NodeJoinBundle')]),
-    cat('Closure', [e('NodeEvaluateClosure')]),
+    cat('Closure', [e('NodeClosureInput', 'Closure'), e('NodeEvaluateClosure')]),
     cat('Field', [
       e('GeometryNodeAccumulateField'),
       e('GeometryNodeClusterByDistance'),

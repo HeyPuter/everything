@@ -195,17 +195,20 @@ export function layoutNode(doc: DocumentData, tree: NodeTreeData, n: NodeData, l
   for (const s of showIn) if (!inPanel.has(s.identifier)) addInput(s);
   const open = new Set(n.open_panels ?? []);
   for (const p of panels) {
-    const members = showIn.filter((s) => p.inputs.includes(s.identifier));
+    const toggle = p.toggle ? showIn.find((s) => s.identifier === p.toggle) : undefined;
+    const members = showIn.filter((s) => p.inputs.includes(s.identifier) && s !== toggle);
     const pprops = n.hide_options
       ? []
       : visibleProps(
           n,
           (def?.props ?? []).filter((x) => p.props?.includes(x.id)),
         );
-    if (!members.length && !pprops.length) continue;
+    if (!members.length && !pprops.length && !toggle) continue;
     const isOpen = open.has(p.name) || (!p.closed && !n.open_panels);
     const headerY = cy;
-    rows.push({ kind: 'panel', y: cy, h: PANEL_ROW, panel: p, open: isOpen });
+    rows.push({ kind: 'panel', y: cy, h: PANEL_ROW, panel: p, open: isOpen, ...(toggle ? { socket: toggle, linked: linked.has(toggle.identifier) } : {}) });
+    // the panel toggle's socket sits on the panel header
+    if (toggle) sockets.set(sockKey(false, toggle.identifier), { x, y: y + cy + PANEL_ROW / 2, socket: toggle, isOutput: false });
     cy += PANEL_ROW;
     if (isOpen) {
       for (const pr of pprops) {

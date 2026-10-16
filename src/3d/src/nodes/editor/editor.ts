@@ -137,6 +137,7 @@ export class NodeEditor implements Editor {
     if (Array.isArray(st.path)) this.path = st.path;
     this.el = document.createElement('div');
     this.el.className = 'nd-editor';
+    editorOfElement.set(this.el, this);
     this.el.tabIndex = -1;
     this.back = document.createElement('canvas');
     this.back.className = 'nd-back';
@@ -319,6 +320,16 @@ export class NodeEditor implements Editor {
           },
           icon('down_arrow_hlt', 'tiny'),
         ),
+      ),
+      h(
+        'button',
+        {
+          key: 'insert-offset',
+          class: { 'hdr-toggle': true, on: nodeEditorSettings.insertOffset },
+          'data-tip': 'Auto-offset\nMake room automatically when a node is dropped onto a link',
+          onclick: () => app.run('node.insert_offset_toggle'),
+        },
+        icon(nodeEditorSettings.insertOffset ? 'node_insert_on' : 'node_insert_off'),
       ),
       h(
         'button',
@@ -2040,6 +2051,7 @@ export class NodeEditor implements Editor {
       }
       this.insertTarget = single ? this.linkAt(clientX, clientY, 12) : null;
       this.refreshPositions();
+      if (kind === 'MOVE') this.markAttachTarget(this.attachTargets(tree, nodes, all));
     };
     const pan = this.edgePanner(() => apply(lastClient[0], lastClient[1], snapOn));
     const self = this;
@@ -2074,6 +2086,7 @@ export class NodeEditor implements Editor {
       },
       cancel() {
         pan.stop();
+        self.markAttachTarget(new Map());
         self.axisGuide = null;
         for (const n of nodes) n.location = orig.get(n.id)!;
         self.insertTarget = null;
@@ -2088,22 +2101,36 @@ export class NodeEditor implements Editor {
           if (insertOnLink(ctx, single.id, self.insertTarget) && nodeEditorSettings.insertOffset) insertOffset(tree, single, (n) => self.layouts.get(n.id)?.w ?? n.width ?? 140, nodeEditorSettings.insertMargin);
         }
         self.insertTarget = null;
+        self.markAttachTarget(new Map());
         if (kind !== 'MOVE') return;
         // dropping nodes on a frame attaches them
-        for (const n of nodes) {
-          if (n.parent || isFrame(n)) continue;
-          const l = self.layouts.get(n.id);
-          if (!l) continue;
-          for (const f of tree.nodes) {
-            if (!isFrame(f) || all.has(f.id)) continue;
-            const fl = self.layouts.get(f.id);
-            if (fl && l.x >= fl.x && l.y >= fl.y && l.x + l.w <= fl.x + fl.w && l.y + l.h <= fl.y + fl.h) n.parent = f.id;
-          }
-        }
+        for (const [nid, fid] of self.attachTargets(tree, nodes, all)) nodeById(tree, nid)!.parent = fid;
       },
       header: () =>
         `${info}   ${kind === 'MOVE' ? 'Move' : kind === 'ROTATE' ? 'Rotate' : 'Scale'} nodes: LMB/Enter confirm, RMB/Esc cancel, Ctrl ${self.snap ? 'free' : 'snap'}${kind === 'MOVE' ? ', X/Y axis' : ''}`,
     });
+  }
+
+  /** Frames that moved, unparented nodes would be attached to when dropped (node id → frame id). */
+  attachTargets(tree: NodeTreeData, nodes: NodeData[], moving: Set<string>): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const n of nodes) {
+      if (n.parent || isFrame(n)) continue;
+      const l = this.layouts.get(n.id);
+      if (!l) continue;
+      for (const f of tree.nodes) {
+        if (!isFrame(f) || moving.has(f.id)) continue;
+        const fl = this.layouts.get(f.id);
+        if (fl && l.x >= fl.x && l.y >= fl.y && l.x + l.w <= fl.x + fl.w && l.y + l.h <= fl.y + fl.h) out.set(n.id, f.id);
+      }
+    }
+    return out;
+  }
+
+  /** Highlight the frames that dropped nodes will join. */
+  markAttachTarget(targets: Map<string, string>) {
+    const ids = new Set(targets.values());
+    for (const el of this.world.querySelectorAll<HTMLElement>('.nd-frame')) el.classList.toggle('attach-target', ids.has(el.dataset.node ?? ''));
   }
 
   // -------------------------------------------------------------------------
@@ -2143,6 +2170,9 @@ export class NodeEditor implements Editor {
 
 // ---------------------------------------------------------------------------
 // helpers
+
+/** Node editor owning an element (drop targets find their editor without a hovered area). */
+export const editorOfElement = new WeakMap<Element, NodeEditor>();
 
 function lighten(hex: string, k: number) {
   const n = parseInt(hex.slice(1), 16);

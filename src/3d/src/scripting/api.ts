@@ -1404,7 +1404,23 @@ class NodeStruct extends Struct {
     return zoneItemsFor(this.getTree, this.__nid, 'state_items', `${this.__path}.state_items`);
   }
   get input_items() {
-    return zoneItemsFor(this.getTree, this.__nid, 'input_items', `${this.__path}.input_items`);
+    return zoneItemsFor(this.getTree, this.__nid, 'input_items', `${this.__path}.input_items`) ?? nodeItemsFor(this.getTree, this.__nid, 'input_items', `${this.__path}.input_items`);
+  }
+  get output_items() {
+    return zoneItemsFor(this.getTree, this.__nid, 'output_items', `${this.__path}.output_items`) ?? nodeItemsFor(this.getTree, this.__nid, 'output_items', `${this.__path}.output_items`);
+  }
+  // Capture Attribute, Viewer, bundle and list items
+  get capture_items() {
+    return nodeItemsFor(this.getTree, this.__nid, 'capture_items', `${this.__path}.capture_items`);
+  }
+  get viewer_items() {
+    return nodeItemsFor(this.getTree, this.__nid, 'viewer_items', `${this.__path}.viewer_items`);
+  }
+  get bundle_items() {
+    return nodeItemsFor(this.getTree, this.__nid, 'bundle_items', `${this.__path}.bundle_items`);
+  }
+  get list_items() {
+    return nodeItemsFor(this.getTree, this.__nid, 'list_items', `${this.__path}.list_items`);
   }
   get main_items() {
     return zoneItemsFor(this.getTree, this.__nid, 'main_items', `${this.__path}.main_items`);

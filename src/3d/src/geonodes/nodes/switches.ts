@@ -65,7 +65,16 @@ function choiceField(t: FieldType, selector: Field, options: Field[], pick: (sel
 // Index Switch
 
 const indexIn = (it: NodeItem) => `Item_${it.id}`;
-const INDEX_DEF: ItemListDef = { prop: 'index_switch_items', title: 'Items', inSocket: indexIn, named: false, defaultName: (items) => String(items.length), min: 1 };
+const INDEX_DEF: ItemListDef = {
+  prop: 'index_switch_items',
+  title: 'Items',
+  inSocket: indexIn,
+  named: false,
+  defaultName: (items) => String(items.length),
+  min: 1,
+  ops: 'index_switch',
+  opLabel: 'Index Switch',
+};
 registerItemNode('GeometryNodeIndexSwitch', INDEX_DEF, indexItems);
 
 gn(
@@ -124,6 +133,8 @@ const MENU_DEF: ItemListDef = {
   prop: 'enum_items',
   title: 'Menu Items',
   inSocket: menuIn,
+  ops: 'enum_definition',
+  opLabel: 'Menu',
   defaultName: (items) => {
     const names = new Set(items.map((i) => i.name));
     for (let k = 0; ; k++) {

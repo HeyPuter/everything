@@ -76,7 +76,7 @@ const ROW_H = 22;
 const PAD = 2;
 const VIRTUAL_MIN = 150;
 
-type DragInfo = { kind: 'objects'; ids: string[] } | { kind: 'collection'; id: string } | { kind: 'material'; id: string };
+type DragInfo = { kind: 'objects'; ids: string[] } | { kind: 'collection'; id: string } | { kind: 'material'; id: string; /** data-block table of the dragged row */ table?: string };
 type DropZone = 'INTO' | 'BEFORE' | 'AFTER';
 
 const DISPLAY_MODES: [DisplayMode, string, string][] = [
@@ -1095,7 +1095,7 @@ export class Outliner implements Editor {
         ids: ids.includes(r.ob.id) ? ids : [r.ob.id],
       };
     } else if (r.kind === 'collection' && r.id) this.drag = { kind: 'collection', id: r.id };
-    else if (r.id) this.drag = { kind: 'material', id: r.id };
+    else if (r.id) this.drag = { kind: 'material', id: r.id, table: r.kind === 'material' ? 'materials' : r.table };
     e.dataTransfer?.setData('text/plain', r.label);
     if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove';
     viewportDrag = this.drag;
@@ -1434,6 +1434,13 @@ export class Outliner implements Editor {
 
 let viewportDrag: DragInfo | null = null;
 
+/** The outliner item being dragged (for drop targets in other editors), cleared once dropped. */
+export function outlinerDrag(clear = false): DragInfo | null {
+  const d = viewportDrag;
+  if (clear) viewportDrag = null;
+  return d;
+}
+
 function viewportAt(e: DragEvent): { el: HTMLElement; pick(x: number, y: number, r?: number): { id: string } | null; unproject(x: number, y: number, d: Vector3): Vector3 } | null {
   const target = e.target as HTMLElement | null;
   if (!target?.closest?.('.view3d')) return null;
@@ -1444,7 +1451,7 @@ function viewportAt(e: DragEvent): { el: HTMLElement; pick(x: number, y: number,
 
 addEventListener('dragover', (e) => {
   const d = viewportDrag;
-  if (!d || (d.kind !== 'collection' && d.kind !== 'material') || !viewportAt(e)) return;
+  if (!d || (d.kind !== 'collection' && d.kind !== 'material') || (d.kind === 'material' && d.table && d.table !== 'materials') || !viewportAt(e)) return;
   e.preventDefault();
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
 });

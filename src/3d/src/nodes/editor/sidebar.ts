@@ -3,14 +3,14 @@
 import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
-import { openMenu } from '../../ui/menu';
+import { openMenu, type MenuItem } from '../../ui/menu';
 import { colorSpecials } from './colorpresets';
 import { panel, textField, checkbox, colorSwatch, enumMenu, numberField, button } from '../../ui/widgets';
 import { splitRow } from '../../ui/props';
 import type { NodeTreeData } from '../../data/types';
 import { getNodeType, nodeSockets, interfaceSocketType, SOCKET_IDNAME, SOCKET_COLORS } from '../registry';
 import { nodeById, addInterfaceSocket, uniqueGroupName } from '../tree';
-import { addInterfacePanel, interfaceEntries, moveInterfaceEntry, removeInterfacePanel, setSocketPanel } from '../iface';
+import { addInterfacePanel, duplicateInterfaceItem, interfaceEntries, moveInterfaceEntry, removeInterfaceItem, setSocketPanel, panelOfToggle } from '../iface';
 import { propWidget, socketValueWidget, nodeChanged } from './nodeui';
 import { visibleProps } from './layout';
 import type { NodeTypeDef } from '../types';
@@ -44,9 +44,13 @@ const SOCKET_TYPE_ITEMS: [string, string][] = [
   ['MATERIAL', 'Material'],
   ['ROTATION', 'Rotation'],
   ['MATRIX', 'Matrix'],
+  ['MENU', 'Menu'],
+  ['BUNDLE', 'Bundle'],
+  ['CLOSURE', 'Closure'],
 ];
 
-let activeKey = '';
+/** Active item (socket or panel identifier) of the Group tab's interface list. */
+export const ifaceState: { activeKey: string; dragSocket: string | null } = { activeKey: '', dragSocket: null };
 
 /** Header colors a group's nodes can take (node categories). */
 const COLOR_TAGS: [string, string][] = [
@@ -293,56 +297,40 @@ function groupTab(tree: NodeTreeData): Child {
   const items = tree.interface ?? [];
   const entries = interfaceEntries(tree);
   const ids = entries.map((e) => (e.kind === 'socket' ? e.item.identifier : e.panel.identifier));
-  if (!ids.includes(activeKey)) activeKey = ids[0] ?? '';
-  const it = items.find((x) => x.identifier === activeKey);
-  const activePanel = (tree.interface_panels ?? []).find((p) => p.identifier === activeKey);
+  if (!ids.includes(ifaceState.activeKey)) ifaceState.activeKey = ids[0] ?? '';
+  const it = items.find((x) => x.identifier === ifaceState.activeKey);
+  const activePanel = (tree.interface_panels ?? []).find((p) => p.identifier === ifaceState.activeKey);
   // new inputs go into the selected panel (or the panel of the selected socket)
   const targetPanel = activePanel?.identifier ?? (it?.in_out === 'INPUT' ? it.panel : undefined);
   const move = (d: -1 | 1) => {
-    if (moveInterfaceEntry(tree, activeKey, d)) changed('Move Interface Item');
+    if (moveInterfaceEntry(tree, ifaceState.activeKey, d)) changed('Move Interface Item');
   };
   const add = (inOut: 'INPUT' | 'OUTPUT') => {
     const item = addInterfaceSocket(tree, inOut, inOut === 'INPUT' ? 'Input' : 'Output', tree.type === 'GEOMETRY' ? 'GEOMETRY' : 'FLOAT', tree.type === 'GEOMETRY' ? undefined : 0);
     if (inOut === 'INPUT' && targetPanel) item.panel = targetPanel;
-    activeKey = item.identifier;
+    ifaceState.activeKey = item.identifier;
     changed('Add Interface Socket');
   };
   const addPanel = () => {
-    activeKey = addInterfacePanel(tree).identifier;
+    ifaceState.activeKey = addInterfacePanel(tree).identifier;
     changed('Add Interface Panel');
   };
   const remove = () => {
-    if (activePanel) {
-      removeInterfacePanel(tree, activePanel.identifier);
-      changed('Remove Interface Panel');
-      return;
-    }
-    if (!it) return;
-    tree.interface = items.filter((x) => x !== it);
-    tree.links = tree.links.filter(
-      (l) =>
-        !(
-          (l.from_socket === it.identifier && tree.nodes.find((n) => n.id === l.from_node)?.type === 'NodeGroupInput') ||
-          (l.to_socket === it.identifier && tree.nodes.find((n) => n.id === l.to_node)?.type === 'NodeGroupOutput')
-        ),
-    );
-    changed('Remove Interface Socket');
+    if (removeInterfaceItem(tree, ifaceState.activeKey)) changed(activePanel ? 'Remove Interface Panel' : 'Remove Interface Socket');
   };
   const duplicate = () => {
-    if (!it) return;
-    const copy = addInterfaceSocket(tree, it.in_out, it.name, interfaceSocketType(it.socket_type).type, it.default_value);
-    copy.socket_type = it.socket_type;
-    if (it.min_value !== undefined) copy.min_value = it.min_value;
-    if (it.max_value !== undefined) copy.max_value = it.max_value;
-    if (it.hide_value) copy.hide_value = true;
-    if (it.panel) copy.panel = it.panel;
-    // keep the copy right after the original
-    const list = tree.interface!;
-    list.splice(list.indexOf(copy), 1);
-    list.splice(list.indexOf(it) + 1, 0, copy);
-    activeKey = copy.identifier;
+    const copy = duplicateInterfaceItem(tree, ifaceState.activeKey, (io, name) => addInterfaceSocket(tree, io, name, 'FLOAT'));
+    if (!copy) return;
+    ifaceState.activeKey = copy.identifier;
     changed('Duplicate Interface Item');
   };
+  const specials = (): MenuItem[] => [
+    { label: 'Duplicate Item', op: 'node.interface_item_duplicate' },
+    { separator: true },
+    { label: 'Add Panel Toggle', op: 'node.interface_item_new_panel_toggle' },
+    { label: 'Make Panel Toggle', op: 'node.interface_item_make_panel_toggle' },
+    { label: 'Unlink Panel Toggle', op: 'node.interface_item_unlink_panel_toggle' },
+  ];
   const t = it ? interfaceSocketType(it.socket_type) : null;
   const panelItems = [{ value: '', label: 'None' }, ...(tree.interface_panels ?? []).map((p) => ({ value: p.identifier, label: p.name }))];
   return panel('nd-side-iface', 'Group Sockets', () => [
@@ -358,8 +346,20 @@ function groupTab(tree: NodeTreeData): Child {
             'div',
             {
               key: id,
-              class: { 'nd-iface-item': true, on: id === activeKey, panel: e.kind === 'panel', nested: e.depth > 0 },
-              onclick: () => ((activeKey = id), app.changed('ui')),
+              class: { 'nd-iface-item': true, on: id === ifaceState.activeKey, panel: e.kind === 'panel', nested: e.depth > 0 },
+              onclick: () => ((ifaceState.activeKey = id), app.changed('ui')),
+              // inputs can be dragged into the editor as a Group Input node showing just that socket
+              ...(e.kind === 'socket' && e.item.in_out === 'INPUT'
+                ? {
+                    draggable: 'true',
+                    'data-tip': 'Drag into the editor to add a Group Input node with only this socket',
+                    ondragstart: (ev: DragEvent) => {
+                      ifaceState.dragSocket = id;
+                      ev.dataTransfer?.setData('text/plain', e.item.name);
+                    },
+                    ondragend: () => setTimeout(() => (ifaceState.dragSocket = null), 0),
+                  }
+                : {}),
             },
             e.kind === 'panel'
               ? [icon('disclosure_tri_down'), h('span', null, e.panel.name)]
@@ -370,6 +370,7 @@ function groupTab(tree: NodeTreeData): Child {
                   }),
                   h('span', { class: 'nd-iface-dir' }, e.item.in_out === 'INPUT' ? '→' : '←'),
                   e.item.name,
+                  panelOfToggle(tree, e.item.identifier) ? h('span', { class: 'nd-iface-badge', 'data-tip': 'Panel toggle: shown as a checkbox in the panel header' }, 'toggle') : null,
                 ],
           );
         }),
@@ -389,6 +390,18 @@ function groupTab(tree: NodeTreeData): Child {
           tip: 'Duplicate Socket',
           disabled: !it,
         }),
+        h(
+          'button',
+          {
+            class: 'btn nd-if-specials',
+            'data-tip': 'More interface commands (panel toggles, duplicate)',
+            onpointerdown: (e: PointerEvent) => {
+              e.preventDefault();
+              openMenu(specials(), e.currentTarget as HTMLElement);
+            },
+          },
+          icon('down_arrow_hlt'),
+        ),
         button('nd-if-up', icon('triangle_up'), () => move(-1), {
           tip: 'Move Up',
           disabled: !it && !activePanel,

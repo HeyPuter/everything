@@ -212,7 +212,7 @@ export class CompositorEditor extends NodeEditor {
     return [px, v.height - 1 - py, un(v.data[i]), un(v.data[i + 1]), un(v.data[i + 2]), a];
   }
 
-  private sampleBackdrop(e: PointerEvent) {
+  sampleBackdrop(e: { clientX: number; clientY: number }) {
     const tip = document.createElement('div');
     tip.className = 'cmp-sample';
     this.el.append(tip);
