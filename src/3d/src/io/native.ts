@@ -116,7 +116,10 @@ export function migrate(doc: DocumentData): DocumentData {
   doc.hair_curves ??= {};
   doc.object_order ??= Object.keys(doc.objects);
   // render settings added later get their defaults
-  if (doc.scene?.render) for (const [k, v] of Object.entries(defaultRender())) (doc.scene.render as unknown as Record<string, unknown>)[k] ??= v;
+  for (const sc of [doc.scene, ...Object.values(doc.scenes ?? {})]) if (sc?.render) for (const [k, v] of Object.entries(defaultRender())) (sc.render as unknown as Record<string, unknown>)[k] ??= v;
+  // scenes are data-blocks with ids (files from before multiple scenes have one scene without)
+  if (doc.scene) doc.scene.id ??= `sc_${Math.random().toString(36).slice(2, 10)}`;
+  for (const [id, sc] of Object.entries(doc.scenes ?? {})) sc.id = id;
   for (const ob of Object.values(doc.objects)) {
     ob.particle_systems ??= [];
     ob.custom ??= {};

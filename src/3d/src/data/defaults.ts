@@ -590,6 +590,7 @@ export function defaultBrushes(): Record<ID, BrushData> {
 
 export function defaultScene(collection: ID, world: ID): SceneData {
   return {
+    id: uid('sc'),
     name: 'Scene',
     frame_start: 1,
     frame_end: 250,

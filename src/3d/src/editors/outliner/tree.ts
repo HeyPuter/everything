@@ -1,6 +1,7 @@
 // Outliner tree model: filter settings, the element tree for each display mode, flattening
 // into rows (with search and expansion state) and data-block user counts. Pure functions of the
 // document so they can be unit tested without the UI.
+import { allScenes, childOfInactiveScene, linkedInInactiveScene, scenesByName } from '../../scenes/scenes';
 import type { CollectionData, DocumentData, ObjectData } from '../../data/types';
 import { modifierTypes } from '../../eval/modifiers';
 
@@ -336,8 +337,8 @@ export function userCounts(doc: DocumentData): Map<string, number> {
 /** Data-blocks without real users; collections and objects count as used when linked to the scene. */
 export function isOrphan(doc: DocumentData, table: string, id: string, users: Map<string, number>): boolean {
   if (table === 'brushes') return false;
-  if (table === 'collections') return id !== doc.scene.collection && !Object.values(doc.collections).some((c) => c.children.includes(id)) && !(users.get(id) ?? 0);
-  if (table === 'objects') return !Object.values(doc.collections).some((c) => c.objects.includes(id));
+  if (table === 'collections') return id !== doc.scene.collection && !Object.values(doc.collections).some((c) => c.children.includes(id)) && !childOfInactiveScene(doc, id) && !(users.get(id) ?? 0);
+  if (table === 'objects') return !Object.values(doc.collections).some((c) => c.objects.includes(id)) && !linkedInInactiveScene(doc, id);
   if (table === 'worlds' && doc.scene.world === id) return false;
   return !(users.get(id) ?? 0);
 }
@@ -657,9 +658,9 @@ function buildIdModes(doc: DocumentData, st: TreeState): Node[] {
       label: 'Scenes',
       icon: 'scene_data',
       table: 'scenes',
-      count: 1,
       defaultOpen: false,
-      children: () => [{ ekey: 'id:scenes:scene', kind: 'scene', label: doc.scene.name, icon: 'scene_data', id: 'scene', table: 'scenes', defaultOpen: false, searchable: true, children: () => [] }],
+      count: allScenes(doc).length,
+      children: () => scenesByName(doc).map((sc) => ({ ekey: `id:scenes:${sc.id}`, kind: 'scene' as const, label: sc.name, icon: 'scene_data', id: sc.id, table: 'scenes', defaultOpen: false, searchable: true, children: () => [] })),
     };
     const at = groups.findIndex((g) => g.label.localeCompare('Scenes') > 0);
     groups.splice(at < 0 ? groups.length : at, 0, scenes);
@@ -687,9 +688,14 @@ function rootNodes(doc: DocumentData, st: TreeState, tc: TreeContext): Node[] {
         kind: 'scene',
         label: doc.scene.name,
         icon: 'scene_data',
+        id: doc.scene.id,
         defaultOpen: true,
         children: () => vl,
       },
+      // the other scenes (click to make one active)
+      ...scenesByName(doc)
+        .filter((sc) => sc !== doc.scene)
+        .map((sc): Node => ({ ekey: `scene:${sc.id}`, kind: 'scene', label: sc.name, icon: 'scene_data', id: sc.id, defaultOpen: false, searchable: true, children: () => [] })),
     ];
   return vl;
 }

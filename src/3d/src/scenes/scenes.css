@@ -1,0 +1,55 @@
+/* Top bar Scene / View Layer selectors */
+.tb-scene.tb-id {
+  gap: 1px;
+  padding: 0;
+  background: transparent;
+}
+.tb-id .tbid-browse,
+.tb-id .tbid-btn {
+  height: 22px;
+  display: grid;
+  place-items: center;
+  background: var(--w-menu, #2c2c2c);
+  color: var(--t-dd, #dedfe1);
+}
+.tb-id .tbid-browse {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0 3px 0 5px;
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+.tb-id .tbid-btn {
+  width: 22px;
+}
+.tb-id .tbid-btn:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.tb-id .tbid-browse:hover,
+.tb-id .tbid-btn:hover:not(.disabled) {
+  background: var(--w-menu-item-hl, #3b3c3e);
+}
+.tb-id .tbid-btn.disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.tb-id .text-field.tbid-name {
+  height: 22px;
+  width: 110px;
+  border-radius: 0;
+  background: var(--g-1d, #1a1b1c);
+}
+.tb-id-layer .text-field.tbid-name {
+  width: 96px;
+}
+
+/* light linking / light group lists */
+.ll-state {
+  width: 22px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+}
+.ll-state.exclude {
+  color: var(--c-error, #e06c6c);
+}

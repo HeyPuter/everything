@@ -12,6 +12,8 @@ export { fileNewTemplates };
 
 /** Extra status bar content (e.g. the progress of a running render job), drawn before reports. */
 export const statusWidgets: (() => Child)[] = [];
+/** Scene / view layer selectors at the right of the top bar (replace the plain scene name field). */
+export const topbarSceneWidgets: (() => Child)[] = [];
 import { textField } from './widgets';
 import { setMode, activeCollection } from '../ops/object';
 import { statsLines } from '../editors/view3d/view3d';
@@ -281,8 +283,12 @@ export class Shell {
         icon('assistant'),
         'Assistant',
       ),
-      h('div', { class: 'tb-scene' }, icon('scene_data'), textField('scene-name', app.doc.scene.name, (v) => ((app.doc.scene.name = v || 'Scene'), app.pushUndo('Rename Scene'), app.changed('doc')))),
-      h('div', { class: 'tb-scene' }, icon('view_layer'), h('span', { class: 'tb-vl' }, 'ViewLayer')),
+      topbarSceneWidgets.length
+        ? topbarSceneWidgets.map((f) => f())
+        : [
+            h('div', { class: 'tb-scene' }, icon('scene_data'), textField('scene-name', app.doc.scene.name, (v) => ((app.doc.scene.name = v || 'Scene'), app.pushUndo('Rename Scene'), app.changed('doc')))),
+            h('div', { class: 'tb-scene' }, icon('view_layer'), h('span', { class: 'tb-vl' }, 'ViewLayer')),
+          ],
     ]);
     const tabs = this.top.querySelector<HTMLElement>('.ws-tabs');
     if (tabs) tabs.classList.toggle('overflow', tabs.scrollLeft + tabs.clientWidth < tabs.scrollWidth - 1);
