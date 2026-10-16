@@ -3,7 +3,8 @@ import {
   Download, Pause, Play, Trash2, Folder, ExternalLink, HardDrive, Cloud,
   FileText, Film, Music, Archive, Image, Monitor, Sun, Moon, Plus, Check,
   RefreshCw, AlertCircle, Settings, X, Search, CheckCircle2, Clock, Terminal,
-  ChevronRight, Zap, Copy, Filter, ArrowDownToLine, MoreVertical
+  ChevronRight, Zap, Copy, Filter, ArrowDownToLine, MoreVertical,
+  User, LogOut, Volume2, VolumeX, Layers, Info
 } from 'lucide';
 
 const ICONS = {
@@ -39,6 +40,12 @@ const ICONS = {
   filter: Filter,
   arrowDown: ArrowDownToLine,
   more: MoreVertical,
+  user: User,
+  logOut: LogOut,
+  volume: Volume2,
+  volumeMute: VolumeX,
+  layers: Layers,
+  info: Info,
 };
 
 export function icon(name, size = 18, strokeWidth = 2) {

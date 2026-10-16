@@ -7,12 +7,13 @@ export class Store {
     this.tasks = [];
     this.activeCategory = 'all';
     this.searchQuery = '';
+    this.selectedTaskId = null;
     this.subscribers = new Set();
     this.settings = {
       theme: 'system',
       saveTarget: 'cloud',
       maxConcurrent: 3,
-      soundOnComplete: true,
+      soundEnabled: true,
     };
 
     this.loadState();
@@ -46,12 +47,14 @@ export class Store {
       receivedBytes: 0,
       progress: 0,
       speed: 0,
+      avgSpeed: 0,
       eta: null,
       status: 'queued',
       error: null,
       createdAt: Date.now(),
       startedAt: null,
       completedAt: null,
+      elapsedSeconds: 0,
       saveTarget: data.saveTarget || this.settings.saveTarget,
       savedPath: null,
     };
@@ -60,6 +63,22 @@ export class Store {
     this.saveState();
     this.notify();
     return task;
+  }
+
+  addBatchTasks(urls, saveTarget) {
+    const created = [];
+    for (const url of urls) {
+      const trimmed = url.trim();
+      if (!trimmed || !/^https?:\/\//i.test(trimmed)) continue;
+      const task = this.addTask({ url: trimmed, saveTarget });
+      created.push(task);
+    }
+    return created;
+  }
+
+  selectTask(id) {
+    this.selectedTaskId = id;
+    this.notify();
   }
 
   updateTask(id, patch) {
@@ -74,18 +93,25 @@ export class Store {
 
   removeTask(id) {
     this.tasks = this.tasks.filter((t) => t.id !== id);
+    if (this.selectedTaskId === id) {
+      this.selectedTaskId = null;
+    }
     this.saveState();
     this.notify();
   }
 
   clearCompleted() {
     this.tasks = this.tasks.filter((t) => t.status !== 'completed');
+    if (this.selectedTaskId && !this.tasks.some((t) => t.id === this.selectedTaskId)) {
+      this.selectedTaskId = null;
+    }
     this.saveState();
     this.notify();
   }
 
   clearAll() {
     this.tasks = [];
+    this.selectedTaskId = null;
     this.saveState();
     this.notify();
   }

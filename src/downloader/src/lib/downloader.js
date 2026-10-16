@@ -1,11 +1,11 @@
 import { extractFilename, detectCategory } from './types.js';
+import { playDownloadCompleteChime } from './sound.js';
 
 export class DownloadEngine {
   constructor(store) {
     this.store = store;
     this.activeControllers = new Map(); // id -> AbortController
     this.activeBlobs = new Map(); // id -> Blob
-    this.speedTrackers = new Map(); // id -> { lastTime, lastBytes, speed }
   }
 
   async probeUrl(url) {
@@ -47,10 +47,13 @@ export class DownloadEngine {
     const controller = new AbortController();
     this.activeControllers.set(task.id, controller);
 
+    const startTime = Date.now();
+
     this.store.updateTask(task.id, {
       status: 'connecting',
       error: null,
       speed: 0,
+      startedAt: task.startedAt || startTime,
     });
 
     try {
@@ -73,7 +76,6 @@ export class DownloadEngine {
         filename: resolvedName,
         category,
         totalBytes,
-        startedAt: task.startedAt || Date.now(),
       });
 
       const reader = response.body.getReader();
@@ -118,14 +120,19 @@ export class DownloadEngine {
       }
 
       // Download complete
+      const finishTime = Date.now();
+      const elapsedSeconds = Math.max(0.1, (finishTime - startTime) / 1000);
+      const avgSpeed = Math.round(receivedBytes / elapsedSeconds);
+
       const mime = response.headers.get('content-type') || 'application/octet-stream';
       const blob = new Blob(chunks, { type: mime });
       this.activeBlobs.set(task.id, blob);
 
       let savedPath = null;
 
-      // Save to Puter Cloud filesystem if Puter is active
-      if (typeof puter !== 'undefined' && puter.fs) {
+      // Save to Puter Cloud filesystem if Puter is active and cloud is target
+      const target = task.saveTarget || this.store.settings.saveTarget;
+      if (target === 'cloud' && typeof puter !== 'undefined' && puter.fs) {
         try {
           await puter.fs.mkdir('/Downloads').catch(() => {});
           const cloudPath = `/Downloads/${resolvedName}`;
@@ -143,10 +150,17 @@ export class DownloadEngine {
         receivedBytes,
         totalBytes: totalBytes || receivedBytes,
         speed: 0,
+        avgSpeed,
+        elapsedSeconds: Math.round(elapsedSeconds),
         eta: 0,
-        completedAt: Date.now(),
+        completedAt: finishTime,
         savedPath,
       });
+
+      // Play completion chime if enabled
+      if (this.store.settings.soundEnabled) {
+        playDownloadCompleteChime();
+      }
 
     } catch (err) {
       this.activeControllers.delete(task.id);
@@ -227,7 +241,7 @@ export class DownloadEngine {
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 10000);
     } else {
-      // Trigger download via direct link if blob expired from memory
+      // Trigger download via direct link
       const a = document.createElement('a');
       a.href = task.url;
       a.download = task.filename || 'download';
@@ -236,5 +250,9 @@ export class DownloadEngine {
       a.click();
       a.remove();
     }
+  }
+
+  getBlob(id) {
+    return this.activeBlobs.get(id) || null;
   }
 }

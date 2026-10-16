@@ -189,4 +189,32 @@ describe('Store functionality', () => {
     store.removeTask(t2.id);
     expect(store.tasks.length).toBe(0);
   });
+
+  it('handles batch task creation correctly', () => {
+    const urls = [
+      'https://example.com/file1.zip',
+      'https://example.com/file2.mp4',
+      '   ',
+      'invalid-url',
+      'https://example.com/file3.pdf',
+    ];
+
+    const tasks = store.addBatchTasks(urls, 'cloud');
+    expect(tasks.length).toBe(3);
+    expect(tasks[0].filename).toBe('file1.zip');
+    expect(tasks[1].filename).toBe('file2.mp4');
+    expect(tasks[2].filename).toBe('file3.pdf');
+    expect(store.tasks.length).toBe(3);
+  });
+
+  it('manages task selection for inspector drawer', () => {
+    const t1 = store.addTask({ url: 'https://example.com/item.zip' });
+    expect(store.selectedTaskId).toBeNull();
+
+    store.selectTask(t1.id);
+    expect(store.selectedTaskId).toBe(t1.id);
+
+    store.removeTask(t1.id);
+    expect(store.selectedTaskId).toBeNull();
+  });
 });
