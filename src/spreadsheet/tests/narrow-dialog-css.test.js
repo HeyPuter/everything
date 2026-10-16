@@ -37,4 +37,10 @@ describe('dialogs at phone width', () => {
     expect(rule(narrow, '.cv-buttons')).toMatch(/flex-direction:\s*row/);
     expect(rule(narrow, '.cv-buttons')).toMatch(/flex-wrap:\s*wrap/);
   });
+
+  it('wraps the Share dialog footer so Done stays inside the window', () => {
+    const foot = rule(read('components.css'), '.share-foot');
+    expect(foot).toMatch(/flex-wrap:\s*wrap/);
+    expect(foot).toMatch(/row-gap:\s*\d+px/);
+  });
 });

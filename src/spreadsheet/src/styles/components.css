@@ -1160,7 +1160,9 @@ body[data-view="editor"] .toast-root { bottom: calc(var(--statusbar-h) + var(--t
   background: var(--accent-wash); color: var(--accent); font-size: 13px; font-weight: 600;
 }
 .share-level { flex: none; font-size: 13px; color: var(--ink-3); }
-.share-foot { margin-top: 16px; align-items: center; }
+.share-foot { margin-top: 16px; align-items: center; flex-wrap: wrap; row-gap: 8px; }
+/* On a narrow window Done wraps onto its own row; it stays at the right edge there too. */
+.share-foot > :last-child { margin-left: auto; }
 /* Wide enough for an email address and the placeholder beside the level and the button, short of a wide dialog */
 @media (min-width: 640px) { .modal-panel.share-panel { max-width: 520px; } }
 @media (max-width: 480px) {
