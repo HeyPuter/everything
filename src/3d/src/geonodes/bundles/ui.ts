@@ -10,6 +10,7 @@ import { opButton } from '../../ui/widgets';
 import { itemListUI, readItems } from '../nodes/items';
 import { pairedOutput } from '../zones/items';
 import { CLOSURE_INPUT, CLOSURE_OUTPUT } from '../zones/kinds';
+import { FIELD_TO_LIST_ITEMS, CLOSURE_TO_LIST_ITEMS } from './lists';
 import { COMBINE_BUNDLE, COMBINE_ITEMS, EVALUATE_CLOSURE, EVAL_INPUTS, EVAL_OUTPUTS, SEPARATE_BUNDLE, SEPARATE_ITEMS, SYNCABLE, linkedSignature, syncSockets, type Signature } from './nodes';
 
 const strip = (l: { name: string; socket_type?: unknown }[]) => l.map((i) => `${i.name}:${String(i.socket_type ?? 'FLOAT')}`).join('|');
@@ -18,10 +19,7 @@ const strip = (l: { name: string; socket_type?: unknown }[]) => l.map((i) => `${
 function ownSignature(tree: NodeTreeData, n: NodeData): Signature {
   if (n.type === COMBINE_BUNDLE || n.type === SEPARATE_BUNDLE) return { items: readItems(n, 'bundle_items') as never };
   const holder = n.type === CLOSURE_INPUT ? pairedOutput(tree, n) : n;
-  return {
-    inputs: (holder ? readItems(holder, 'input_items') : []) as never,
-    outputs: (holder ? readItems(holder, 'output_items') : []) as never,
-  };
+  return { inputs: (holder ? readItems(holder, 'input_items') : []) as never, outputs: (holder ? readItems(holder, 'output_items') : []) as never };
 }
 
 /** Whether a node's items differ from the signature of what it is linked to. */
@@ -39,15 +37,7 @@ function syncRow(ctx: NodeDrawContext): Child {
     'div',
     { class: 'gn-sync-row' },
     h('span', { class: 'prop-note' }, 'The linked node defines different items'),
-    opButton(
-      'node.sockets_sync',
-      'Sync Sockets',
-      { node_name: ctx.node.name },
-      {
-        icon: 'file_refresh',
-        tip: 'Update the items of this node to match the node it is linked to',
-      },
-    ),
+    opButton('node.sockets_sync', 'Sync Sockets', { node_name: ctx.node.name }, { icon: 'file_refresh', tip: 'Update the items of this node to match the node it is linked to' }),
   );
 }
 
@@ -59,6 +49,8 @@ const withSync =
 getNodeType(COMBINE_BUNDLE)!.drawOptions = withSync((ctx) => itemListUI(ctx, COMBINE_ITEMS));
 getNodeType(SEPARATE_BUNDLE)!.drawOptions = withSync((ctx) => itemListUI(ctx, SEPARATE_ITEMS));
 getNodeType(EVALUATE_CLOSURE)!.drawOptions = withSync((ctx) => [itemListUI(ctx, EVAL_INPUTS), itemListUI(ctx, EVAL_OUTPUTS)]);
+getNodeType('GeometryNodeFieldToList')!.drawOptions = (ctx) => itemListUI(ctx, FIELD_TO_LIST_ITEMS);
+getNodeType('GeometryNodeClosureToList')!.drawOptions = (ctx) => itemListUI(ctx, CLOSURE_TO_LIST_ITEMS);
 for (const id of [CLOSURE_INPUT, CLOSURE_OUTPUT]) {
   const d = getNodeType(id)!;
   const prev = d.drawOptions;
@@ -84,15 +76,7 @@ registerOperators([
     idname: 'node.sockets_sync',
     label: 'Sync Sockets',
     description: 'Update the items of bundle and closure nodes to match the nodes they are linked to',
-    props: [
-      {
-        id: 'node_name',
-        label: 'Node Name',
-        type: 'string',
-        default: '',
-        hidden: true,
-      },
-    ],
+    props: [{ id: 'node_name', label: 'Node Name', type: 'string', default: '', hidden: true }],
     poll: (ctx) => {
       const tree = treeOf(ctx);
       return !!tree && targets(tree, '').length + tree.nodes.filter((n) => SYNCABLE.has(n.type)).length > 0;

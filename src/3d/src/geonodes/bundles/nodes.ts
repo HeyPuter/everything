@@ -19,11 +19,7 @@ export const JOIN_BUNDLE = 'NodeJoinBundle';
 export const EVALUATE_CLOSURE = 'NodeEvaluateClosure';
 
 const itemId = (it: { id: number }) => `Item_${it.id}`;
-const asZone = (it: NodeItem): ZoneItem => ({
-  id: it.id,
-  name: it.name,
-  socket_type: (it.socket_type as SocketType) ?? 'FLOAT',
-});
+const asZone = (it: NodeItem): ZoneItem => ({ id: it.id, name: it.name, socket_type: (it.socket_type as SocketType) ?? 'FLOAT' });
 const typeOf = (it: NodeItem): SocketType => (it.socket_type as SocketType) ?? 'FLOAT';
 
 /** Item type for a socket linked to an "add item" socket (every value type except shaders). */
@@ -71,10 +67,7 @@ geoNode(
     category: 'converter',
     description: 'Pack several named values into one bundle',
     outputs: [bundleSock()],
-    dynamicSockets: (node) => ({
-      inputs: [...bundleItems(node).map((it) => itemSocket(asZone(it), itemId(it))), addSocket()],
-      outputs: [bundleSock()],
-    }),
+    dynamicSockets: (node) => ({ inputs: [...bundleItems(node).map((it) => itemSocket(asZone(it), itemId(it))), addSocket()], outputs: [bundleSock()] }),
   },
   {
     exec: (ctx) => {
@@ -92,10 +85,7 @@ geoNode(
     category: 'converter',
     description: 'Read named values out of a bundle (missing values use their defaults)',
     inputs: [bundleSock()],
-    dynamicSockets: (node) => ({
-      inputs: [bundleSock()],
-      outputs: [...bundleItems(node).map((it) => itemSocket(asZone(it), itemId(it))), addSocket()],
-    }),
+    dynamicSockets: (node) => ({ inputs: [bundleSock()], outputs: [...bundleItems(node).map((it) => itemSocket(asZone(it), itemId(it))), addSocket()] }),
   },
   {
     exec: (ctx) => {
@@ -131,11 +121,7 @@ geoNode(
       const bundle = b instanceof BundleValue ? b : new BundleValue();
       const path = ctx.string('Path');
       const e = bundle.get(path);
-      return {
-        Bundle: ctx.bool('Remove') ? bundle.without(path) : bundle,
-        Item: entryAs(e, itemTypeOf(ctx.node)),
-        Exists: !!e,
-      };
+      return { Bundle: ctx.bool('Remove') ? bundle.without(path) : bundle, Item: entryAs(e, itemTypeOf(ctx.node)), Exists: !!e };
     },
   },
 );
@@ -149,10 +135,7 @@ geoNode(
     props: [enumProp('socket_type', 'Type', VALUE_TYPES, 'FLOAT')],
     inputs: [bundleSock(), sock('Path', 'STRING', { d: '' }), sock('Item', 'FLOAT', { d: 0 })],
     outputs: [bundleSock()],
-    dynamicSockets: (node) => ({
-      inputs: [bundleSock(), sock('Path', 'STRING', { d: '' }), valueSock(node, 'Item')],
-      outputs: [bundleSock()],
-    }),
+    dynamicSockets: (node) => ({ inputs: [bundleSock(), sock('Path', 'STRING', { d: '' }), valueSock(node, 'Item')], outputs: [bundleSock()] }),
   },
   {
     exec: (ctx) => {
@@ -163,12 +146,7 @@ geoNode(
         ctx.warn('The path is empty');
         return { Bundle: bundle };
       }
-      return {
-        Bundle: bundle.with(path, {
-          type: itemTypeOf(ctx.node),
-          value: ctx.input('Item'),
-        }),
-      };
+      return { Bundle: bundle.with(path, { type: itemTypeOf(ctx.node), value: ctx.input('Item') }) };
     },
   },
 );
@@ -182,11 +160,7 @@ geoNode(
     inputs: [bundleSock('Bundle', { multiInput: true })],
     outputs: [bundleSock()],
   },
-  {
-    exec: (ctx) => ({
-      Bundle: BundleValue.join(ctx.values('Bundle').filter((v): v is BundleValue => v instanceof BundleValue)),
-    }),
-  },
+  { exec: (ctx) => ({ Bundle: BundleValue.join(ctx.values('Bundle').filter((v): v is BundleValue => v instanceof BundleValue)) }) },
 );
 
 // ---------------------------------------------------------------------------
@@ -201,10 +175,7 @@ geoNode(
     label: 'Closure Input',
     category: 'converter',
     description: 'Start of a closure zone: the values the closure is called with',
-    dynamicSockets: (node, ctx) => ({
-      inputs: [],
-      outputs: [...closureInputs(pairedOutput(ctx.tree, node)).map((it) => itemSocket(it, itemId(it))), extendSocket()],
-    }),
+    dynamicSockets: (node, ctx) => ({ inputs: [], outputs: [...closureInputs(pairedOutput(ctx.tree, node)).map((it) => itemSocket(it, itemId(it))), extendSocket()] }),
     onAdd: (tree, n) => addPairedOutput(tree, n, CLOSURE_OUTPUT),
   },
   {
@@ -229,10 +200,7 @@ geoNode(
       n.props.output_items ??= '[]';
     },
     outputs: [sock('Closure', 'CLOSURE', { hide_value: true })],
-    dynamicSockets: (node) => ({
-      inputs: [...closureOutputs(node).map((it) => itemSocket(it, itemId(it))), extendSocket()],
-      outputs: [sock('Closure', 'CLOSURE', { hide_value: true })],
-    }),
+    dynamicSockets: (node) => ({ inputs: [...closureOutputs(node).map((it) => itemSocket(it, itemId(it))), extendSocket()], outputs: [sock('Closure', 'CLOSURE', { hide_value: true })] }),
   },
   {
     exec: (ctx) => {
@@ -241,9 +209,7 @@ geoNode(
         ctx.warn('The closure output has no paired closure input');
         return { Closure: null };
       }
-      return {
-        Closure: new ClosureValue(ctx.evaluator, inp, ctx.node, closureInputs(ctx.node), closureOutputs(ctx.node)),
-      };
+      return { Closure: new ClosureValue(ctx.evaluator, inp, ctx.node, closureInputs(ctx.node), closureOutputs(ctx.node)) };
     },
   },
 );
@@ -270,11 +236,7 @@ geoNode(
         return result;
       };
       if (!(c instanceof ClosureValue)) return defaults();
-      const args: ClosureArg[] = evalInputs(ctx.node).map((it) => ({
-        name: it.name,
-        type: typeOf(it),
-        value: ctx.input(itemId(it)),
-      }));
+      const args: ClosureArg[] = evalInputs(ctx.node).map((it) => ({ name: it.name, type: typeOf(it), value: ctx.input(itemId(it)) }));
       const vals = c.evaluate(
         args,
         outs.map((it) => ({ name: it.name, type: typeOf(it) })),
@@ -325,11 +287,7 @@ function downstreamNodes(tree: NodeTreeData, nodeId: string, socket: string): No
   return out;
 }
 
-const simple = (items: { name: string; socket_type?: unknown }[]) =>
-  items.map((it) => ({
-    name: it.name,
-    socket_type: (it.socket_type as SocketType) ?? 'FLOAT',
-  }));
+const simple = (items: { name: string; socket_type?: unknown }[]) => items.map((it) => ({ name: it.name, socket_type: (it.socket_type as SocketType) ?? 'FLOAT' }));
 
 /** The signature a linked node defines for this node's bundle or closure, if any. */
 export function linkedSignature(tree: NodeTreeData, node: NodeData): Signature | null {
@@ -344,11 +302,7 @@ export function linkedSignature(tree: NodeTreeData, node: NodeData): Signature |
   }
   if (node.type === EVALUATE_CLOSURE) {
     const src = upstreamNode(tree, node.id, 'Closure');
-    if (src?.type === CLOSURE_OUTPUT)
-      return {
-        inputs: simple(closureInputs(src)),
-        outputs: simple(closureOutputs(src)),
-      };
+    if (src?.type === CLOSURE_OUTPUT) return { inputs: simple(closureInputs(src)), outputs: simple(closureOutputs(src)) };
     return null;
   }
   if (node.type === CLOSURE_OUTPUT || node.type === CLOSURE_INPUT) {
@@ -382,11 +336,7 @@ export function syncSockets(tree: NodeTreeData, node: NodeData): boolean {
   if (!holder) return false;
   const state = () => JSON.stringify([holder.props.bundle_items, holder.props.input_items, holder.props.output_items, tree.links.length]);
   const before = state();
-  const mk = (id: number, s: { name: string; socket_type: SocketType }) => ({
-    id,
-    name: s.name,
-    socket_type: s.socket_type,
-  });
+  const mk = (id: number, s: { name: string; socket_type: SocketType }) => ({ id, name: s.name, socket_type: s.socket_type });
   const unlinkMissing = (holder: NodeData, keep: Set<number>, side: 'in' | 'out', nodes: string[]) => {
     tree.links = tree.links.filter((l) => {
       const sock = side === 'in' ? l.to_socket : l.from_socket;

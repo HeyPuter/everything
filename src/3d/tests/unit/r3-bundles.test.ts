@@ -158,3 +158,36 @@ describe('item lists', () => {
     expect(listItems(comb, COMBINE_ITEMS).map((i) => i.id)).toEqual([b.id]);
   });
 });
+
+describe('lists', () => {
+  it('builds lists from fields and reads, filters and sorts them', async () => {
+    const { FIELD_TO_LIST_ITEMS } = await import('../../src/geonodes/bundles/lists');
+    const t = setup();
+    const ftl = node(t, 'GeometryNodeFieldToList', { Count: 5 });
+    const it = addItem(ftl, FIELD_TO_LIST_ITEMS, [], 'V', 'INT');
+    // values: (index * 3) mod 5 → 0 3 1 4 2
+    const idx = node(t, 'GeometryNodeInputIndex');
+    const math = node(t, 'FunctionNodeIntegerMath', { Value_001: 3 }, { operation: 'MULTIPLY' });
+    link(t, idx, 'Index', math, 'Value');
+    const mod = node(t, 'FunctionNodeIntegerMath', { Value_001: 5 }, { operation: 'MODULO' });
+    link(t, math, 'Value', mod, 'Value');
+    link(t, mod, 'Value', ftl, `Field_${it.id}`);
+    const sort = node(t, 'GeometryNodeSortList', {}, { socket_type: 'INT' });
+    link(t, ftl, `List_${it.id}`, sort, 'List');
+    link(t, mod, 'Value', sort, 'Sort Weight');
+    const get = node(t, 'GeometryNodeListGetItem', { Index: 3 }, { socket_type: 'INT' });
+    link(t, sort, 'List', get, 'List');
+    const len = node(t, 'GeometryNodeListLength', {}, { data_type: 'INT' });
+    link(t, ftl, `List_${it.id}`, len, 'List');
+    // points: count = length, z of point = sorted[3] (= 3)
+    const pts = node(t, 'GeometryNodePoints');
+    link(t, len, 'Length', pts, 'Count');
+    const xyz = node(t, 'ShaderNodeCombineXYZ');
+    link(t, get, 'Value', xyz, 'Z');
+    link(t, xyz, 'Vector', pts, 'Position');
+    const r = run(t, pts, 'Points');
+    const p = r.geometry.points!.positions as Float32Array;
+    expect(p.length / 3).toBe(5);
+    expect(p[2]).toBe(3);
+  });
+});

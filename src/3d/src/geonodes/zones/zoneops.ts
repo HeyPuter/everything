@@ -101,6 +101,7 @@ function itemOps(prefix: string, label: string, list: ItemList, nodeTypes: strin
 }
 
 const zone = (id: string) => ZONES.find((z) => z.id === id)!;
+const REPEAT_INPUT_TYPE = 'GeometryNodeRepeatInput';
 const types = (id: string) => [zone(id).input, zone(id).output];
 const list = (id: string, key: string) => zone(id).lists.find((l) => l.key === key)!;
 
@@ -226,6 +227,26 @@ function swapZone(tree: NodeTreeData, kind: (typeof ZONES)[number]): boolean {
   inp.select = out.select = true;
   return true;
 }
+
+registerOperators([
+  {
+    idname: 'node.swap_zone',
+    label: 'Swap Zone',
+    description: 'Turn the selected zone into another kind of zone, or wrap the selected nodes in a new zone',
+    props: [
+      { id: 'input_node_type', label: 'Input Node Type', type: 'string', default: REPEAT_INPUT_TYPE, hidden: true },
+      { id: 'output_node_type', label: 'Output Node Type', type: 'string', default: '', hidden: true },
+    ],
+    poll: (ctx) => !!nodeEditorOf(ctx)?.tree()?.nodes.some((n) => n.select),
+    exec: (ctx, p) => {
+      const kind = ZONES.find((z) => z.input === p.input_node_type);
+      const tree = nodeEditorOf(ctx)?.tree();
+      if (!kind || !tree) return 'CANCELLED';
+      if (!swapZone(tree, kind)) return 'CANCELLED';
+      app.changed('doc');
+    },
+  },
+]);
 
 onAppReady(() => {
   const prev = operators.get('node.swap_node');

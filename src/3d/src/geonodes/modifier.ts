@@ -15,6 +15,7 @@ import { Field, ConstField } from './field';
 import { storeOn } from './nodes/geometry';
 import { isActiveViewer, VIEWER } from './nodes/output';
 import { gnResults, viewerState, resultListeners } from './results';
+import { viewerItems, viewerItemIn, viewerAttr } from './nodes/vieweritems';
 import { fieldTypeOfEnum, type Domain, type FieldType } from './types';
 import { hasDomain } from './nodes/common';
 
@@ -229,6 +230,16 @@ export function evaluateGroup(group: NodeGroupData, m: ModifierBase, env: EvalEn
       const gv = gs ? root.inputValue(vn, gs) : undefined;
       viewer = gv instanceof GeometrySet ? gv : GeometrySet.empty();
       const dom = String(vn.props.domain ?? 'AUTO');
+      const pick = (c: Component): Domain => (dom !== 'AUTO' && hasDomain(c, dom as Domain) ? (dom as Domain) : c.kind === 'INSTANCES' ? 'INSTANCE' : 'POINT');
+      // extra values of the viewer, each stored as its own attribute
+      for (const it of viewerItems(vn)) {
+        const s = socks.find((x) => x.identifier === viewerItemIn(it));
+        if (!s || !root.links(vn.id, s.identifier).length) continue;
+        const t = fieldTypeOfEnum(String(it.data_type ?? 'FLOAT'));
+        const v = root.inputValue(vn, s);
+        const f = v instanceof Field ? v : new ConstField(t, (v ?? 0) as number);
+        viewer = viewer.map((c: Component) => storeOn(c, (viewerDomain = pick(c)), viewerAttr(it), t, f));
+      }
       if (vs && root.links(vn.id, 'Value').length) {
         const t = fieldTypeOfEnum(vn.props.data_type ?? 'FLOAT');
         const v = root.inputValue(vn, vs);

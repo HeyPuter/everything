@@ -136,13 +136,7 @@ export class ClosureValue implements OpaqueVal {
       return want.map((w) => {
         const it = this.outputs.find((o) => o.name === w.name);
         if (!it) return coerce(undefined, w.type);
-        return entryAs(
-          {
-            type: it.socket_type,
-            value: z.outputInput(this.output, `Item_${it.id}`),
-          },
-          w.type,
-        );
+        return entryAs({ type: it.socket_type, value: z.outputInput(this.output, `Item_${it.id}`) }, w.type);
       });
     } finally {
       closureDepth--;
