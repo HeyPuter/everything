@@ -73,6 +73,8 @@ function dialog(title: string, onCancel: () => void): DialogParts {
   const parts: DialogParts = { root, body, close: () => {} };
   // modal key handling regardless of focus: Escape cancels, Enter confirms, app shortcuts are blocked
   const onKey = (e: KeyboardEvent) => {
+    // menus and prompts opened from the dialog (e.g. its preset menu) handle their own keys
+    if ((e.target as Element | null)?.closest?.('.popup-layer') || document.querySelector('.popup-layer .menu')) return;
     const inside = root.contains(e.target as Node);
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -126,6 +128,9 @@ function buttonRow(parts: DialogParts, okLabel: string, ok: () => void, cancel: 
   return o;
 }
 
+/** Rows other modules put at the top of options dialogs (the preset menu); `sync` redraws the inputs. */
+export const optionsDialogHooks: ((key: string, values: Record<string, unknown>, sync: () => void) => HTMLElement | null)[] = [];
+
 /** Show options; resolves with the chosen values or rejects with AbortError. */
 export function optionsDialog(title: string, key: string, options: FormatOption[], okLabel: string, intro?: string): Promise<Record<string, unknown>> {
   const values = loadOptions(key, options);
@@ -138,8 +143,20 @@ export function optionsDialog(title: string, key: string, options: FormatOption[
       p.textContent = intro;
       parts.body.append(p);
     }
-    const rows: { o: FormatOption; el: HTMLElement }[] = [];
+    const rows: { o: FormatOption; el: HTMLElement; input?: HTMLInputElement | HTMLSelectElement }[] = [];
     const refresh = () => rows.forEach(({ o, el }) => (el.style.display = !o.showIf || o.showIf(values) ? '' : 'none'));
+    const sync = () => {
+      for (const r of rows) {
+        if (!r.input) continue;
+        if (r.input instanceof HTMLInputElement && r.input.type === 'checkbox') r.input.checked = !!values[r.o.id];
+        else r.input.value = String(values[r.o.id]);
+      }
+      refresh();
+    };
+    for (const f of optionsDialogHooks) {
+      const el = f(key, values, sync);
+      if (el) parts.body.append(el);
+    }
     for (const o of options) {
       const row = document.createElement('label');
       row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:var(--row);';
@@ -194,7 +211,7 @@ export function optionsDialog(title: string, key: string, options: FormatOption[
         row.append(name, num);
       }
       input.setAttribute('aria-label', o.label);
-      rows.push({ o, el: row });
+      rows.push({ o, el: row, input });
       parts.body.append(row);
     }
     refresh();

@@ -1,16 +1,12 @@
 // Operator dialog: a popup with an operator's properties and an OK button (the properties dialog
 // operators open from invoke). Other modules add a row above the properties (e.g. presets).
-import { h, type Child } from './h';
+import { h } from './h';
 import { app, operators, defaultProps } from '../app/app';
 import { openPopover, closeMenus } from './menu';
 import { propWidget } from './redo';
+import { opHeader } from './ophooks';
 
-/** Rows drawn at the top of operator dialogs and redo panels (the preset menu). */
-export const opDialogHeaderHooks: ((idname: string, props: Record<string, unknown>, apply: (p: Record<string, unknown>) => void) => Child)[] = [];
-
-export function opHeader(idname: string, props: Record<string, unknown>, apply: (p: Record<string, unknown>) => void): Child {
-  return opDialogHeaderHooks.map((f) => f(idname, props, apply));
-}
+export { opDialogHeaderHooks } from './ophooks';
 
 /**
  * Show the operator's properties; OK runs it (non-interactively) with the edited values.

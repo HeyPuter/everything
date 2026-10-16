@@ -13,31 +13,8 @@ import type { Unit } from './widgets';
 
 type Rec = Record<string, unknown>;
 
-export type CustomPropType = 'FLOAT' | 'INT' | 'BOOL' | 'STRING' | 'FLOAT_ARRAY' | 'INT_ARRAY' | 'BOOL_ARRAY' | 'PYTHON';
-
-export interface CustomPropMeta {
-  type?: CustomPropType;
-  min?: number;
-  max?: number;
-  soft_min?: number;
-  soft_max?: number;
-  step?: number;
-  precision?: number;
-  subtype?: string;
-  description?: string;
-  default?: unknown;
-}
-
-export function customPropMeta(block: Rec, key: string): CustomPropMeta {
-  return ((block.custom_ui as Record<string, CustomPropMeta> | undefined)?.[key] ?? {}) as CustomPropMeta;
-}
-
-export function setCustomPropMeta(block: Rec, key: string, meta: CustomPropMeta | null) {
-  const all = ((block.custom_ui as Record<string, CustomPropMeta> | undefined) ??= {});
-  if (meta) all[key] = meta;
-  else delete all[key];
-  if (!Object.keys(all).length) delete block.custom_ui;
-}
+export { customPropMeta, setCustomPropMeta, type CustomPropMeta, type CustomPropType } from './custommeta';
+import { customPropMeta, setCustomPropMeta, type CustomPropMeta, type CustomPropType } from './custommeta';
 
 /** Type of a stored value (the settings decide between float and int). */
 export function typeOf(v: unknown, meta: CustomPropMeta = {}): CustomPropType {

@@ -358,7 +358,7 @@ buttonHooks.altEdit = (id: string) => {
 // eyedroppers
 
 /** The area under a screen point (areas set themselves as hovered when the pointer enters). */
-function areaEditorAt(x: number, y: number): { type?: string; editor?: { pick?: (x: number, y: number, r?: number) => { id: string } | null; el?: HTMLElement } } | null {
+export function areaEditorAt(x: number, y: number): { type?: string; editor?: { pick?: (x: number, y: number, r?: number) => { id: string } | null; el?: HTMLElement } } | null {
   const a = app.hoverArea;
   if (!a || !a.el.contains(document.elementFromPoint(x, y))) return null;
   return a as never;
@@ -381,7 +381,7 @@ function pickObjectAt(e: PointerEvent): string | null {
   return null;
 }
 
-function startEyedropper(label: string, status: string, onPick: (e: PointerEvent) => boolean) {
+export function startEyedropper(label: string, status: string, onPick: (e: PointerEvent) => boolean) {
   document.body.classList.add('eyedropper-active');
   const end = () => document.body.classList.remove('eyedropper-active');
   app.startModal({
@@ -655,7 +655,7 @@ function removeDriver(b: PropBinding, all: boolean) {
 }
 
 /** Enter over a button: start typing in a number field, toggle a checkbox, open a menu. */
-function activateHovered() {
+export function activateHovered() {
   const el = document.elementFromPoint(app.pointer.x, app.pointer.y)?.closest('[data-id]') as HTMLElement | null;
   if (!el || !targetButton()) return;
   const r = el.getBoundingClientRect();
@@ -719,13 +719,16 @@ function matches(k: KeyItem, name: string, e: KeyboardEvent) {
 // Button shortcuts win over editor keymaps while a property button is under the pointer.
 keyInputHooks.push((e) => {
   if (e.type !== 'keydown' || e.repeat) return false;
-  const b = targetButton();
+  // property buttons, and operator buttons (Copy Python Command)
+  const b = targetButton() ?? (document.elementFromPoint(app.pointer.x, app.pointer.y)?.closest('[data-op]:not(.popup-layer *)') ? true : null);
   if (!b) return false;
   const name = keyName(e);
   for (const k of keymaps['User Interface'] ?? []) {
     if (!matches(k, name, e)) continue;
     if (k.when && !k.when()) continue;
     if (k.action) {
+      // value actions need a property button
+      if (b === true) continue;
       k.action();
       return true;
     }

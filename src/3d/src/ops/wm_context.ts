@@ -67,6 +67,15 @@ function spaceField(ed: Rec, name: string): string | null {
   return null;
 }
 
+/** Editors keep some display switches in an overlay settings object: find the one that has `name`. */
+function overlayOwner(ed: Rec, name: string): Rec | null {
+  for (const k of ['overlay', 'overlays']) {
+    const o = ed[k];
+    if (o && typeof o === 'object' && name in (o as Rec)) return o as Rec;
+  }
+  return null;
+}
+
 /** Redraw an editor after one of its settings changed. */
 export function refreshEditor(ed: Rec | undefined) {
   if (!ed) return;
@@ -85,7 +94,7 @@ export function refreshEditor(ed: Rec | undefined) {
 
 function spaceProxy(ed: Rec): Rec {
   return new Proxy({} as Rec, {
-    has: (_t, k) => typeof k === 'string' && (spaceField(ed, k) !== null || k === 'type' || k === 'overlay'),
+    has: (_t, k) => typeof k === 'string' && (spaceField(ed, k) !== null || k === 'type' || k === 'overlay' || !!overlayOwner(ed, k)),
     get(_t, k) {
       if (typeof k !== 'string') return undefined;
       if (k === 'type') return hovered()?.type;
@@ -93,12 +102,17 @@ function spaceProxy(ed: Rec): Rec {
       if (f) return ed[f];
       // editors without an overlay settings object keep their overlay switches on the editor itself
       if (k === 'overlay') return spaceProxy(ed);
-      return undefined;
+      return overlayOwner(ed, k)?.[k];
     },
     set(_t, k, v) {
       if (typeof k !== 'string') return false;
       const f = spaceField(ed, k);
-      if (!f) return false;
+      if (!f) {
+        const o = overlayOwner(ed, k);
+        if (!o) return false;
+        o[k] = v;
+        return true;
+      }
       const toggler = TOGGLERS[f];
       if (toggler && typeof ed[toggler] === 'function') {
         if (!!ed[f] !== !!v) (ed[toggler] as () => void).call(ed);

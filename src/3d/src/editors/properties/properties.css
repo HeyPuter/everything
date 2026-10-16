@@ -166,3 +166,36 @@ body.eyedropper-active * {
 .bgimg-body {
   padding: 2px 4px 6px;
 }
+/* UI list: drag to reorder, resize grip */
+.ul-rows {
+  position: relative;
+}
+.ul-row.ul-dragging {
+  opacity: 0.55;
+}
+.ul-drop {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+.ul-filter-toggle-row {
+  align-items: center;
+  justify-content: space-between;
+}
+.ul-grip-space {
+  width: 18px;
+}
+.ul-resize {
+  width: 18px;
+  height: 10px;
+  cursor: ns-resize;
+  background: radial-gradient(circle, var(--g-6a, #68696b) 0.8px, transparent 1.1px) 0 1px / 3.5px 4px;
+  opacity: 0.7;
+}
+.ul-resize:hover {
+  opacity: 1;
+}

@@ -97,3 +97,77 @@
   border-radius: 3px;
   padding: 0 3px;
 }
+
+/* preset menus: panel header button and the operator preset row */
+.panel-header .ph-extra {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+.panel-header .preset-btn {
+  width: 22px;
+  height: 18px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius);
+  color: var(--c-text-dim);
+  opacity: 0.8;
+}
+.panel-header .preset-btn:hover {
+  background: var(--w-regular-hover);
+  color: var(--c-text-hi);
+  opacity: 1;
+}
+.op-presets {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 4px;
+}
+.op-presets .op-preset-menu {
+  flex: 1;
+  min-width: 0;
+}
+.op-presets .icon-btn {
+  width: 22px;
+  height: 20px;
+}
+
+/* colour drag and drop */
+.color-drag {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 22px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  z-index: 10000;
+}
+body.color-dragging,
+body.color-dragging * {
+  cursor: copy !important;
+}
+.drop-target {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* menus opened from modal option dialogs (their preset menu) show above them */
+body:has(.io-dialog-overlay) .popup-layer {
+  z-index: 10001;
+}
+.io-dialog .btn.io-presets {
+  align-self: stretch;
+  text-align: left;
+  margin-bottom: 4px;
+}
+.custom-prop .split-row {
+  grid-template-columns: minmax(56px, 32%) 1fr 18px;
+}

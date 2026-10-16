@@ -6,9 +6,9 @@ import { app, operators, registerOperators } from '../app/app';
 import { addKeys, shortcutLabel } from '../app/keymap';
 import { h, type Child } from './h';
 import { icon } from './icons';
-import { openMenu, openPopover, itemContextHooks, type MenuItem } from './menu';
+import { openMenu, openPopover, itemContextHooks, menuHelpHook, type MenuItem } from './menu';
 import { bindingAt, bindingValue, type PropBinding } from './binding';
-import { animOf, buttonDefaultHooks, buttonMenuHooks, buttonOwnerLoc, isCustomProp, targetButton, writeClipboard } from './buttons';
+import { activateHovered, animOf, buttonDefaultHooks, buttonMenuHooks, buttonOwnerLoc, isCustomProp, targetButton, writeClipboard } from './buttons';
 import { fullDataPath } from './rnapath';
 import { favoriteMenuItem } from './favorites';
 import { shortcutMenuItems } from './shortcuts';
@@ -272,6 +272,34 @@ registerOperators([
   },
 ]);
 
+registerOperators([
+  {
+    idname: 'ui.button_execute',
+    label: 'Press Button',
+    description: 'Press the button under the mouse (start typing in a field, toggle, open a menu)',
+    undo: false,
+    internal: true,
+    props: [{ id: 'skip_depressed', label: 'Skip Depressed', type: 'bool', default: false }],
+    poll: () => !!targetButton(),
+    exec: () => activateHovered(),
+  },
+  {
+    idname: 'ui.button_string_clear',
+    label: 'Clear Button String',
+    description: 'Empty the text field under the mouse',
+    redo: false,
+    poll: () => {
+      const b = targetButton();
+      return !!b && b.kind === 'text';
+    },
+    exec: () => {
+      const b = targetButton()!;
+      b.owner[b.key] = '';
+      b.onChange?.();
+    },
+  },
+]);
+
 addKeys('User Interface', [{ key: 'C', ctrl: true, shift: true, op: 'ui.copy_python_command_button' }]);
 
 // ---------------------------------------------------------------------------
@@ -416,3 +444,5 @@ registerOperators([
 ]);
 
 addKeys('Window', [{ key: 'F1', op: 'wm.doc_view_manual_ui_context' }]);
+
+menuHelpHook.show = (item, at) => item.op && showHelp({ kind: 'op', op: item.op, props: item.props ?? {}, label: item.label ?? operators.get(item.op)?.label ?? item.op }, at);

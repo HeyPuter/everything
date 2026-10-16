@@ -4,3 +4,6 @@ import './wm_context';
 import './wm_menus';
 import '../ui/buttonops';
 import '../ui/customprops_tabs';
+import '../ui/presetkinds';
+import './wm_misc';
+import '../ui/eyedroppers';

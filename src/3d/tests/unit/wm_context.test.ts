@@ -114,3 +114,38 @@ describe('custom properties', () => {
     expect(app.doc).toBe(doc);
   });
 });
+
+describe('number field expressions with units', () => {
+  it('adds mixed units and converts to base units', async () => {
+    const { parseNumber } = await import('../../src/ui/widgets');
+    expect(parseNumber('1m+20cm', 'distance')).toBeCloseTo(1.2);
+    expect(parseNumber('6ft 2in', 'distance')).toBeCloseTo(1.8796);
+    expect(parseNumber('1e3mm', 'distance')).toBeCloseTo(1);
+    expect(parseNumber('2*3', 'distance')).toBe(6);
+    expect(parseNumber('45', 'angle')).toBeCloseTo(Math.PI / 4);
+    expect(parseNumber('90°', 'angle')).toBeCloseTo(Math.PI / 2);
+    expect(parseNumber('1.5rad', 'angle')).toBeCloseTo(1.5);
+    expect(parseNumber('250ms', 'time')).toBeCloseTo(0.25);
+    expect(parseNumber('3 s', 'time')).toBe(3);
+    expect(parseNumber('5 px', 'pixel')).toBe(5);
+    expect(parseNumber('100 W', 'power')).toBe(100);
+    expect(parseNumber('50%', 'percentage')).toBe(50);
+    expect(() => parseNumber('1d', 'none')).toThrow();
+  });
+});
+
+describe('custom properties in files', () => {
+  it('values and settings survive a .p3d round trip', async () => {
+    const { encodeDocument, decodeDocument } = await import('../../src/io/native');
+    const block = cube as unknown as Record<string, unknown>;
+    cube.custom = { weight: 2 };
+    applyPropertyEdit(block, { ...editPropsFor(block, 'weight', 'object'), property_type: 'INT', value_int: 3, min: 0, max: 9, default_value: 1, description: 'Count' });
+    const me = doc.meshes[cube.data!] as unknown as Record<string, unknown>;
+    me.custom = { level: 0.25 };
+    const back = decodeDocument(encodeDocument(doc)).doc;
+    const ob2 = back.objects[cube.id] as unknown as Record<string, unknown>;
+    expect(ob2.custom).toEqual({ weight: 3 });
+    expect(customPropMeta(ob2, 'weight')).toMatchObject({ type: 'INT', min: 0, max: 9, default: 1, description: 'Count' });
+    expect((back.meshes[cube.data!] as unknown as Record<string, unknown>).custom).toEqual({ level: 0.25 });
+  });
+});

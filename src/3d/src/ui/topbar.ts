@@ -81,6 +81,8 @@ export function fileMenu(): MenuItem[] {
         { label: 'Load Factory Settings', op: 'wm.read_factory_settings' },
       ],
     },
+    { separator: true },
+    { label: 'Quit', icon: 'panel_close', shortcut: 'Ctrl Q', op: 'wm.quit_blender' },
   ];
 }
 
@@ -122,6 +124,7 @@ export function editMenu(): MenuItem[] {
     { label: 'Repeat History…', op: 'screen.repeat_history' },
     { separator: true },
     { label: 'Menu Search…', icon: 'search', shortcut: 'F3', op: 'wm.search_menu' },
+    ...(prefs.show_developer_ui ? [{ label: 'Operator Search…', op: 'wm.search_operator' }] : []),
     { separator: true },
     { label: 'Rename Active Item…', shortcut: 'F2', op: 'wm.call_panel', props: { name: 'TOPBAR_PT_name' } },
     { label: 'Batch Rename…', shortcut: 'Ctrl F2', op: 'wm.batch_rename' },
@@ -166,7 +169,10 @@ export function windowMenu(sh: Shell): MenuItem[] {
 export function helpMenu(): MenuItem[] {
   return [
     { label: 'Keyboard Shortcuts', op: 'wm.keymap_reference' },
+    ...(prefs.show_developer_ui ? [{ label: 'Operator Cheat Sheet', op: 'wm.operator_cheat_sheet' }] : []),
     { separator: true },
+    // feedback goes through Puter's own dialog, so it is offered where the app runs inside Puter
+    ...(window.self !== window.top || (globalThis as { puter?: unknown }).puter ? [{ label: 'Report a Bug', op: 'wm.url_open_preset', props: { type: 'BUG' } }] : []),
     { label: 'Save System Info', op: 'wm.sysinfo' },
     { separator: true },
     { label: 'About', icon: 'info_small', op: 'wm.about' },

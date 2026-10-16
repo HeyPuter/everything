@@ -4,6 +4,7 @@ import { icon } from './icons';
 import { app, operators, type PropDef } from '../app/app';
 import { numberField, checkbox, enumMenu, textField, isPanelOpen, setPanelOpen } from './widgets';
 import { openPopover } from './menu';
+import { opHeader } from './ophooks';
 
 export function propWidget(d: PropDef, value: unknown, set: (v: unknown, final: boolean) => void, idPrefix: string): Child {
   const id = `${idPrefix}.${d.id}`;
@@ -75,7 +76,8 @@ function redoProps(): Child {
   const op = operators.get(last.idname);
   if (!op?.props) return null;
   const props = last.props;
-  return op.props
+  const header = opHeader(last.idname, props, (p) => app.redoLast(p));
+  return [header, op.props
     .filter((d) => !d.hidden && (!d.showIf || d.showIf(props)))
     .map((d) =>
       propWidget(d, pending[d.id] ?? props[d.id], (v, final) => {
@@ -90,7 +92,7 @@ function redoProps(): Child {
         else timer = window.setTimeout(apply, 60);
         app.changed('ui');
       }, `redo.${last.idname}`),
-    );
+    )];
 }
 
 export function lastOpPanel(_v: unknown): Child {

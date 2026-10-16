@@ -358,6 +358,9 @@ function createMenu(items: MenuItem[], x: number, y: number, parent?: OpenMenu, 
   return m;
 }
 
+/** Shows the help card of a menu entry (F1 while a menu is open); set by ui/buttonops. */
+export const menuHelpHook: { show?: (item: MenuItem, at: { x: number; y: number }) => void } = {};
+
 /** Builders of the right-click menu of a menu item (e.g. Add to Quick Favorites). */
 export const itemContextHooks: ((item: MenuItem) => MenuItem[])[] = [];
 
@@ -839,6 +842,14 @@ export function menuKey(e: KeyboardEvent): boolean {
   }
   if (e.key === 'Enter' && m.index >= 0) {
     activate(m, m.items[m.index]);
+    return true;
+  }
+  // F1: help for the highlighted entry
+  if (e.key === 'F1' && m.index >= 0 && menuHelpHook.show && m.items[m.index]?.op) {
+    const item = m.items[m.index];
+    const row = m.el.children[m.index]?.getBoundingClientRect();
+    closeMenus();
+    menuHelpHook.show(item, row ? { x: row.right, y: row.top } : { x: app.pointer.x, y: app.pointer.y });
     return true;
   }
   let root = m;
