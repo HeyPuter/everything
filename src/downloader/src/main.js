@@ -279,6 +279,9 @@ function renderTaskCard(task) {
           <button class="icon-btn btn-retry" data-id="${task.id}" title="Retry">
             ${icon('refresh', 16)}
           </button>
+          <button class="icon-btn btn-save-device" data-id="${task.id}" title="Open or download directly in browser">
+            ${icon('external', 16)}
+          </button>
         ` : ''}
 
         ${isCompleted ? `

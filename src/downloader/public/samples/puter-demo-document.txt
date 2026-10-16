@@ -1,0 +1,21 @@
+========================================================================
+Puter OS Downloader - Demonstration Document
+========================================================================
+
+Welcome to Downloader for Puter Cloud OS!
+
+Features demonstrated by this download:
+1. High-speed streaming chunks via ReadableStream.
+2. Real-time bandwidth measurement (KB/s, MB/s) and ETA tracking.
+3. Automatic category detection (categorized as "Document").
+4. Saved straight to your Puter Cloud storage in /Downloads/.
+5. Instant export option to your local computer.
+
+Developed with:
+- Vanilla JavaScript & Modern CSS
+- Lucide Icons
+- Puter.js v2 SDK
+- Vite Build Tool
+
+Open-source and MIT Licensed.
+========================================================================

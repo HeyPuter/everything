@@ -154,9 +154,13 @@ export class DownloadEngine {
         // Paused or cancelled intentionally
         return;
       }
+      let errMsg = err.message || 'Download failed';
+      if (errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError')) {
+        errMsg = 'CORS/Network restricted (click external icon to download directly)';
+      }
       this.store.updateTask(task.id, {
         status: 'error',
-        error: err.message || 'Download failed',
+        error: errMsg,
         speed: 0,
       });
     }

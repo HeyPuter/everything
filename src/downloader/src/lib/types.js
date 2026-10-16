@@ -111,27 +111,27 @@ export function fmtDuration(seconds) {
  */
 export const SAMPLE_DOWNLOADS = [
   {
-    name: 'Puter Logo (SVG)',
-    url: 'https://assets.puter.com/brand/puter-logo.svg',
+    name: 'Puter Wallpaper (SVG)',
+    url: './samples/wallpaper-sample.svg',
     category: 'image',
-    size: 2450,
+    size: 1450,
   },
   {
-    name: 'Sample Audio (MP3)',
-    url: 'https://cdn.freesound.org/previews/274/274178_5121236-lq.mp3',
-    category: 'audio',
-    size: 325000,
-  },
-  {
-    name: 'NASA Earth Wallpaper (JPG)',
-    url: 'https://images-assets.nasa.gov/image/PIA18033/PIA18033~thumb.jpg',
-    category: 'image',
-    size: 68400,
-  },
-  {
-    name: 'Sample Document (PDF)',
-    url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+    name: 'Puter Guide (TXT)',
+    url: './samples/puter-demo-document.txt',
     category: 'document',
-    size: 13264,
+    size: 720,
+  },
+  {
+    name: 'Everything Logo (PNG)',
+    url: 'https://raw.githubusercontent.com/HeyPuter/everything/main/assets/everything.png',
+    category: 'image',
+    size: 32000,
+  },
+  {
+    name: 'Lucide ES Module (JS)',
+    url: 'https://cdn.jsdelivr.net/npm/lucide@latest/dist/esm/lucide.js',
+    category: 'program',
+    size: 51200,
   },
 ];
