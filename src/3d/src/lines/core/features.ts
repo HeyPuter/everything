@@ -57,6 +57,8 @@ export interface FeatureOptions {
   loose?: boolean;
   /** suggestive contours: minimum strength of the curvature derivative */
   krEpsilon?: number;
+  /** suggestive contours: size of the neighbourhood curvature is measured over (world units) */
+  sphereRadius?: number;
   /** suggestive contours: lines are kept where the surface faces the viewer at most this much (cos) */
   suggestiveLimit?: number;
 }
@@ -401,6 +403,32 @@ function suggestiveContours(m: FeatureMesh, VN: Float32Array, ndv: Float32Array,
       wy = tv[1] - d * n1,
       wz = tv[2] - d * n2;
     Dw[v] = (G[v * 3] * wx + G[v * 3 + 1] * wy + G[v * 3 + 2] * wz) / W[v];
+  }
+  // curvature is measured over a neighbourhood of about the sphere radius: smooth the derivative
+  // over as many rings of neighbours as fit in it
+  if (o.sphereRadius && o.sphereRadius > 0) {
+    const et = edgeTopology(m);
+    let total = 0;
+    for (let e = 0; e < et.count; e++) {
+      const a = et.verts[e * 2],
+        b = et.verts[e * 2 + 1];
+      total += Math.hypot(P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2]);
+    }
+    const mean = total / Math.max(1, et.count);
+    const rings = Math.min(6, Math.floor(o.sphereRadius / Math.max(1e-9, mean)));
+    for (let it = 0; it < rings; it++) {
+      const sum = new Float32Array(nv),
+        cnt = new Float32Array(nv);
+      for (let e = 0; e < et.count; e++) {
+        const a = et.verts[e * 2],
+          b = et.verts[e * 2 + 1];
+        sum[a] += Dw[b];
+        sum[b] += Dw[a];
+        cnt[a]++;
+        cnt[b]++;
+      }
+      for (let v = 0; v < nv; v++) if (cnt[v]) Dw[v] = (Dw[v] + sum[v]) / (cnt[v] + 1);
+    }
   }
   const limit = o.suggestiveLimit ?? 0.6;
   const eps = Math.max(0, o.krEpsilon ?? 0);

@@ -145,6 +145,7 @@ export function prepareLines(input: Pick<LineRenderInput, 'objects' | 'camera' |
       materialBoundaries: true,
       smoothness: settings.use_smoothness,
       krEpsilon: settings.kr_derivative_epsilon,
+      sphereRadius: settings.sphere_radius,
     }))
       edges.push(e);
     occ.push({ positions: o.positions, offsets: o.offsets, indices: o.indices, world: o.world, object: i });
