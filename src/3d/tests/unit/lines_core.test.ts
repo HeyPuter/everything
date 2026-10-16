@@ -250,3 +250,22 @@ describe('intersections', () => {
     expect(intersectionEdges([{ ...cube(1), world: identity, object: 0 }, { ...cube(1, [5, 0, 0]), world: identity, object: 1 }], () => true).length).toBe(0);
   });
 });
+
+describe('occlusion weights', () => {
+  it('faces with zero weight let lines show through', () => {
+    const back = cube(1, [0, 3, 0]);
+    const front = cube(2, [0, 0, 0]);
+    const cam = camera([0, -8, 0]);
+    const edges = extractFeatures({ ...back, object: 1 }, cam.view, { creaseAngle: 2.3 });
+    const make = (w?: Uint8Array) =>
+      new Occlusion([
+        { ...front, world: identity, object: 0, faceWeight: w },
+        { ...back, world: identity, object: 1 },
+      ]);
+    expect(visibilityPieces(edges, cam, make()).some((p) => p.qi === 0)).toBe(false);
+    expect(visibilityPieces(edges, cam, make(new Uint8Array(6))).some((p) => p.qi === 0)).toBe(true);
+    // double weight: the front cube hides twice per crossing
+    const qi2 = visibilityPieces(edges, cam, make(new Uint8Array(6).fill(2)), { maxQi: 10 });
+    expect(Math.min(...qi2.map((p) => p.qi))).toBeGreaterThanOrEqual(4);
+  });
+});

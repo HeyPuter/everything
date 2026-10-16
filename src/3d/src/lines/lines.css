@@ -107,3 +107,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.la-bits {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 1px;
+}
+.la-bits > .btn {
+  min-width: 0;
+  padding: 0;
+}

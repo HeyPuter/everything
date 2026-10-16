@@ -68,6 +68,8 @@ export interface OccluderInput {
   /** object → world, column-major */
   world: ArrayLike<number>;
   object: number;
+  /** surfaces each face counts as when it hides a line (default 1; 0 hides nothing) */
+  faceWeight?: Uint8Array;
 }
 
 interface Occluder {
@@ -78,6 +80,7 @@ interface Occluder {
   object: number;
   center: Vector3;
   radius: number;
+  faceWeight?: Uint8Array;
 }
 
 const bvhCache = new WeakMap<Float32Array, { indices: Uint32Array; bvh: MeshBVH; triFace: Uint32Array }>();
@@ -120,7 +123,7 @@ export class Occlusion {
       const scale = world.getMaxScaleOnAxis();
       const radius = box.getSize(new Vector3()).length() * 0.5 * scale;
       extent = Math.max(extent, center.length() + radius);
-      this.list.push({ bvh, triFace, inv: world.clone().invert(), world, object: o.object, center, radius });
+      this.list.push({ bvh, triFace, inv: world.clone().invert(), world, object: o.object, center, radius, faceWeight: o.faceWeight });
     }
     this.eps = Math.max(1e-6, extent * 2e-6);
   }
@@ -154,7 +157,7 @@ export class Occlusion {
       for (const h of hits) {
         const face = oc.triFace[h.faceIndex ?? 0];
         if (oc.object === object && (face === f0 || face === f1)) continue;
-        n++;
+        n += oc.faceWeight ? oc.faceWeight[face] ?? 1 : 1;
         if (n > limit) return n;
       }
     }

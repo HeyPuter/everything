@@ -132,6 +132,13 @@ export interface LineStyleData {
 /** Line art usage of objects / collections. */
 export type LineartUsage = 'INHERIT' | 'INCLUDE' | 'OCCLUSION_ONLY' | 'EXCLUDE' | 'INTERSECTION_ONLY' | 'NO_INTERSECTION' | 'FORCE_INTERSECTION';
 
+export interface MaterialLineArt {
+  use_material_mask: boolean;
+  use_material_mask_bits: boolean[];
+  /** surfaces a face of this material counts as when it hides lines (0: transparent) */
+  mat_occlusion: number;
+}
+
 export interface ObjectLineArt {
   usage: LineartUsage;
   use_crease_override: boolean;
@@ -154,6 +161,8 @@ declare module '../data/types' {
     /** colour (and alpha) handed to line styles reading the material */
     line_color?: [number, number, number, number];
     line_priority?: number;
+    /** Line Art: occlusion levels of the faces and mask bits */
+    lineart?: MaterialLineArt;
   }
   interface MeshData {
     /** per face corner: the edge from this corner to the next is marked for line rendering */

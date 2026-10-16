@@ -5,7 +5,7 @@ import { h, type Child } from '../ui/h';
 import { panel, enumMenu, opButton, checkbox } from '../ui/widgets';
 import { num, bool, enumProp, objectProp, splitRow } from '../ui/props';
 import { modifierExtraUI } from '../editors/properties/stack';
-import { objectExtraPanels, collectionExtraPanels } from '../editors/properties/tabs';
+import { objectExtraPanels, collectionExtraPanels, materialExtraPanels } from '../editors/properties/tabs';
 import type { ModifierBase, ObjectData } from '../data/types';
 import { gpOf } from '../greasepencil/data';
 import type { LineartUsage } from './types';
@@ -20,6 +20,21 @@ const sub = (id: string, title: string, body: () => Child, opts: { closed?: bool
 
 function pick(m: M, key: string, label: string, items: { value: string; label: string; icon?: string }[], none = true): Child {
   return splitRow(label, enumMenu(`${m.id}.${key}`, none ? [{ value: '', label: '—' }, ...items] : items, String(m[key] ?? ''), (v) => ((m[key] = v || null), changed(`Set ${label}`))));
+}
+
+/** Eight mask bit toggles. */
+function maskBits(owner: Record<string, unknown>, key: string, label: string): Child {
+  const bits = ((owner[key] as boolean[] | undefined) ??= [false, false, false, false, false, false, false, false]);
+  return splitRow(
+    label,
+    h(
+      'div',
+      { class: 'la-bits' },
+      bits.map((b, i) =>
+        h('button', { key: String(i), class: { btn: true, on: b }, 'data-tip': `Mask bit ${i + 1}`, onclick: () => ((bits[i] = !b), changed('Mask Bit')) }, String(i + 1)),
+      ),
+    ),
+  );
 }
 
 function lineArtUI(ob: ObjectData, m0: ModifierBase): Child {
@@ -59,6 +74,10 @@ function lineArtUI(ob: ObjectData, m0: ModifierBase): Child {
       bool(m, 'use_multiple_levels', 'Range', { tip: 'Draw lines hidden behind a range of surfaces' }),
       num(m, 'level_start', m.use_multiple_levels ? 'Level Start' : 'Level', { int: true, min: 0, max: 128, tip: 'How many surfaces hide the lines (0 = visible lines)' }),
       m.use_multiple_levels ? num(m, 'level_end', 'Level End', { int: true, min: 0, max: 128 }) : null,
+      sub(`la-mask-${m.id}`, 'Material Mask', () => [maskBits(m, 'use_material_mask_bits', 'Mask'), bool(m, 'use_material_mask_match', 'Exact Match', { tip: 'Materials must have exactly these bits (otherwise any shared bit)' })], {
+        closed: true,
+        header: checkbox(`la-mm-on-${m.id}`, '', !!m.use_material_mask, (v) => ((m.use_material_mask = v), changed('Material Mask'))),
+      }),
     ], { closed: true }),
     sub(`la-fm-${m.id}`, 'Face Mark Filtering', () => [
       bool(m, 'use_face_mark_invert', 'Invert', { tip: 'Use the unmarked faces instead' }),
@@ -122,3 +141,22 @@ collectionExtraPanels.push((c) =>
     { closed: true },
   ),
 );
+
+// Material ▸ Line Art: mask bits and how much the material hides lines
+materialExtraPanels.push((ma) => {
+  if (ma.grease_pencil) return null;
+  return panel(
+    'ma-lineart',
+    'Line Art',
+    () => {
+      ma.lineart ??= { use_material_mask: false, use_material_mask_bits: [false, false, false, false, false, false, false, false], mat_occlusion: 1 };
+      const la = ma.lineart;
+      return [
+        bool(la, 'use_material_mask', 'Material Mask', { tip: 'Line Art modifiers with a material mask draw lines of this material when the bits match' }),
+        la.use_material_mask ? maskBits(la as unknown as Record<string, unknown>, 'use_material_mask_bits', 'Bits') : null,
+        num(la, 'mat_occlusion', 'Levels', { int: true, min: 0, max: 5, tip: 'How many surfaces a face of this material counts as when it hides lines (0: lines show through)' }),
+      ];
+    },
+    { closed: true },
+  );
+});

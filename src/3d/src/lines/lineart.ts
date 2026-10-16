@@ -59,6 +59,9 @@ export const LINEART_DEFAULTS = {
   vertex_group: '',
   invert_source_vertex_group: false,
   use_output_vertex_group_match_by_name: true,
+  use_material_mask: false,
+  use_material_mask_match: false,
+  use_material_mask_bits: [false, false, false, false, false, false, false, false],
   use_face_mark: false,
   use_face_mark_invert: false,
   use_face_mark_boundaries: false,
@@ -130,6 +133,7 @@ function signature(m: M, doc: DocumentData): string {
   const ca = cev?.ob.data ? doc.cameras[cev.ob.data] : undefined;
   const r = doc.scene.render;
   const parts = [cev ? Array.from(cev.world.elements, (x) => x.toFixed(5)).join(',') : '', JSON.stringify(ca ?? null), r.resolution_x, r.resolution_y, r.pixel_aspect_x, r.pixel_aspect_y];
+  parts.push(JSON.stringify(Object.values(doc.materials).map((ma) => ma.lineart ?? 0)));
   const visible = renderVisibleObjects(doc);
   for (const ev of app.graph.objects.values()) {
     if (!ev.mesh || ev.ob.type === 'GREASEPENCIL' || !visible.has(ev.id)) continue;
@@ -147,6 +151,26 @@ function faceMarkKeeps(m: M, o: LineObject, e: FeatureEdge): boolean {
   if (m.use_face_mark_keep_contour !== false && e.flags & (F.SILHOUETTE | F.BORDER)) return true;
   const hit = m.use_face_mark_boundaries ? a !== b : a || b;
   return m.use_face_mark_invert ? !hit : hit;
+}
+
+/** Occlusion levels of an object's faces from their materials (undefined when all count once). */
+function faceWeights(doc: DocumentData, o: LineObject): Uint8Array | undefined {
+  const lv = o.materials.map((id) => (id ? doc.materials[id]?.lineart?.mat_occlusion : undefined) ?? 1);
+  if (lv.every((x) => x === 1)) return undefined;
+  const nf = o.offsets.length - 1;
+  const out = new Uint8Array(nf);
+  for (let f = 0; f < nf; f++) out[f] = Math.max(0, Math.min(255, Math.round(lv[o.material_index?.[f] ?? 0] ?? 1)));
+  return out;
+}
+
+/** Material mask filtering: lines of faces whose materials share a selected mask bit (all of them with exact match). */
+function materialMaskKeeps(doc: DocumentData, o: LineObject, e: FeatureEdge, bits: boolean[], exact: boolean): boolean {
+  const matBits = (slot: number) => {
+    const la = o.materials[slot] ? doc.materials[o.materials[slot]!]?.lineart : undefined;
+    return la?.use_material_mask ? la.use_material_mask_bits : [];
+  };
+  const test = (mb: boolean[]) => (exact ? bits.every((b, i) => !!b === !!mb[i]) : bits.some((b, i) => b && mb[i]));
+  return test(matBits(e.m0)) || (e.f1 >= 0 && test(matBits(e.m1)));
 }
 
 export interface LineArtStroke {
@@ -168,7 +192,8 @@ export function computeLineArt(m: M, doc: DocumentData): LineArtStroke[] {
   const mask = (m.use_contour ? F.SILHOUETTE | F.BORDER : 0) | (m.use_loose ? F.LOOSE : 0) | (m.use_crease ? F.CREASE : 0) | (m.use_material ? F.MATERIAL : 0) | (m.use_edge_mark ? F.EDGE_MARK : 0);
   const edges: FeatureEdge[] = [];
   const occ: OccluderInput[] = [];
-  occluders.forEach((o, i) => occ.push({ positions: o.positions, offsets: o.offsets, indices: o.indices, world: o.world, object: i }));
+  occluders.forEach((o, i) => occ.push({ positions: o.positions, offsets: o.offsets, indices: o.indices, world: o.world, object: i, faceWeight: faceWeights(doc, o) }));
+  const maskBits = m.use_material_mask ? ((m.use_material_mask_bits as boolean[] | undefined) ?? []) : null;
   for (const o of lines) {
     const i = occluders.indexOf(o);
     const ob = doc.objects[o.id];
@@ -181,6 +206,7 @@ export function computeLineArt(m: M, doc: DocumentData): LineArtStroke[] {
       flags &= mask;
       if (!flags) continue;
       if (m.use_face_mark && !faceMarkKeeps(m, o, e)) continue;
+      if (maskBits && !materialMaskKeeps(doc, o, e, maskBits, !!m.use_material_mask_match)) continue;
       edges.push({ ...e, flags });
     }
   }
