@@ -34,6 +34,7 @@ import './weightpaint';
 import './sculptui';
 import './overlays';
 import './segmentops';
+import './annotations';
 import { addMenuHooks } from '../editors/view3d/menus';
 
 addMenuHooks.push(() => [

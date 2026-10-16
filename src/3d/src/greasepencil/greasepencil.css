@@ -63,3 +63,10 @@
   align-items: center;
   gap: 3px;
 }
+/* View tab ▸ Annotations */
+.ann-props {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+}

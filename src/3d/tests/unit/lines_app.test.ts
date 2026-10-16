@@ -227,3 +227,24 @@ describe('grease pencil modifier segments', () => {
     expect(time.segments!.map((s) => s.seg_start)).toEqual([1, 3]);
   });
 });
+
+describe('annotation layers', () => {
+  it('adds, moves, clears and removes layers', () => {
+    const sc = app.doc.scene as unknown as { annotation_layers?: { name: string }[]; annotation_layer_active?: number; annotations?: { layer?: string }[] };
+    expect(app.run('gpencil.annotation_add')).toBe('FINISHED');
+    app.run('gpencil.layer_annotation_add');
+    expect(sc.annotation_layers!.map((l) => l.name)).toEqual(['Note', 'Note.001']);
+    expect(sc.annotation_layer_active).toBe(1);
+    sc.annotations = [{ layer: 'Note' }, { layer: 'Note.001' }] as never;
+    app.run('gpencil.annotation_active_frame_delete');
+    expect(sc.annotations!.map((s) => s.layer)).toEqual(['Note']);
+    app.run('gpencil.layer_annotation_move', { type: 'DOWN' });
+    expect(sc.annotation_layers!.map((l) => l.name)).toEqual(['Note.001', 'Note']);
+    expect(sc.annotation_layer_active).toBe(0);
+    sc.annotation_layer_active = 1;
+    app.run('gpencil.layer_annotation_remove');
+    expect(sc.annotations!.length).toBe(0);
+    app.run('gpencil.data_unlink');
+    expect(sc.annotation_layers!.length).toBe(0);
+  });
+});
