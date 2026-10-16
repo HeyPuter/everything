@@ -11,3 +11,4 @@ import './script_ops';
 import '../scenes/scripting';
 import '../bake/script';
 import './api_idprops';
+import '../tracking/scripting';

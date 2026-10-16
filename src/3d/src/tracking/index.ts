@@ -11,6 +11,15 @@ import './editor';
 import './ops';
 import './graphops';
 import './constraintui';
+import './solvers';
+import './solveops';
+import './solvemenus';
+import './scenesetup';
+import './bundles3d';
+import './planenode';
+import './editorops';
+import './proxy';
+import './presets';
 import '../mask/index';
 import { registerWorkspaceTemplate, A, H, V } from '../ui/screen';
 

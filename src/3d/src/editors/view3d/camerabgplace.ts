@@ -4,7 +4,7 @@ import type { CameraBackgroundImage } from '../../data/types';
 export type Rect = { x: number; y: number; w: number; h: number };
 
 export function newBackgroundImage(image: string | null = null): CameraBackgroundImage {
-  return { image, alpha: 0.5, display_depth: 'BACK', frame_method: 'STRETCH', offset: [0, 0], rotation: 0, scale: 1, use_flip_x: false, use_flip_y: false, show_background_image: true, show_expanded: true };
+  return { source: 'IMAGE', image, clip: null, use_camera_clip: true, alpha: 0.5, display_depth: 'BACK', frame_method: 'STRETCH', offset: [0, 0], rotation: 0, scale: 1, use_flip_x: false, use_flip_y: false, show_background_image: true, show_expanded: true };
 }
 
 /**

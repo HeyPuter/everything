@@ -148,39 +148,63 @@ registerExec('CompositorNodeStabilize', (x) => {
 });
 
 // ---------------------------------------------------------------------------
-// Movie Distortion: the clip's polynomial lens model
+// Movie Distortion: the clip's lens model (polynomial, division or Brown)
 
 const DISTORTION = `
 uniform sampler2D u_src;
 uniform vec2 u_f;
 uniform vec2 u_c;
 uniform float u_pa;
-uniform vec3 u_k;
+uniform vec4 u_k;
+uniform vec2 u_p;
+uniform int u_model; // 0 polynomial, 1 division, 2 Brown
 uniform int u_undistort;
 layout(location = 0) out vec4 o0;
 vec2 toNorm(vec2 p) { return vec2((p.x - u_c.x) / u_f.x, (p.y * u_pa - u_c.y) / u_f.y); }
 vec2 toPx(vec2 n) { return vec2(n.x * u_f.x + u_c.x, (n.y * u_f.y + u_c.y) / u_pa); }
-float radial(vec2 n) { float r2 = dot(n, n); return 1.0 + u_k.x * r2 + u_k.y * r2 * r2 + u_k.z * r2 * r2 * r2; }
-void main() {
-  vec2 p = gl_FragCoord.xy;
-  vec2 n = toNorm(p);
-  vec2 q;
-  if (u_undistort == 1) q = toPx(n * radial(n));
-  else {
-    // the source pixel is the undistorted position of this (distorted) one
-    vec2 u = n;
-    for (int i = 0; i < 20; i++) u = n / radial(u);
-    q = toPx(u);
+// undistorted → distorted normalized coordinates
+vec2 distortN(vec2 n) {
+  if (u_model == 1) {
+    vec2 d = n;
+    for (int i = 0; i < 20; i++) { float r2 = dot(d, d); d = n * (1.0 + u_k.x * r2 + u_k.y * r2 * r2); }
+    return d;
   }
+  float r2 = dot(n, n);
+  float L = 1.0 + u_k.x * r2 + u_k.y * r2 * r2 + u_k.z * r2 * r2 * r2;
+  if (u_model == 2) L += u_k.w * r2 * r2 * r2 * r2;
+  vec2 d = n * L;
+  if (u_model == 2) d += vec2(2.0 * u_p.x * n.x * n.y + u_p.y * (r2 + 2.0 * n.x * n.x), u_p.x * (r2 + 2.0 * n.y * n.y) + 2.0 * u_p.y * n.x * n.y);
+  return d;
+}
+vec2 undistortN(vec2 d) {
+  if (u_model == 1) { float r2 = dot(d, d); return d / (1.0 + u_k.x * r2 + u_k.y * r2 * r2); }
+  vec2 u = d;
+  for (int i = 0; i < 20; i++) u += d - distortN(u);
+  return u;
+}
+void main() {
+  vec2 n = toNorm(gl_FragCoord.xy);
+  // undistorting reads the source where the lens put this point; distorting the reverse
+  vec2 q = u_undistort == 1 ? toPx(distortN(n)) : toPx(undistortN(n));
   o0 = cmpBilinear(u_src, q, 0, 0);
 }`;
+
+/** Lens model of a clip camera as shader uniforms (null without distortion). */
+function lensUniforms(clip: MovieClipData): { model: number; k: number[]; p: number[] } | null {
+  const cam = clip.tracking.camera;
+  const model = cam.distortion_model === 'DIVISION' ? 1 : cam.distortion_model === 'BROWN' ? 2 : 0;
+  const k = model === 1 ? [cam.division_k1 ?? 0, cam.division_k2 ?? 0, 0, 0] : model === 2 ? [cam.brown_k1 ?? 0, cam.brown_k2 ?? 0, cam.brown_k3 ?? 0, cam.brown_k4 ?? 0] : [cam.k1, cam.k2, cam.k3, 0];
+  const pp = model === 2 ? [cam.brown_p1 ?? 0, cam.brown_p2 ?? 0] : [0, 0];
+  return k.some((v) => v !== 0) || pp.some((v) => v !== 0) ? { model, k, p: pp } : null;
+}
 
 registerExec('CompositorNodeMovieDistortion', (x) => {
   const r = x.input('Image');
   const clip = nodeClip(x);
   if (!r.domain || !clip || clip.size[0] <= 0) return x.out('Image', r);
   const cam = clip.tracking.camera;
-  if (!cam.k1 && !cam.k2 && !cam.k3) return x.out('Image', r);
+  const lens = lensUniforms(clip);
+  if (!lens) return x.out('Image', r);
   const d = r.domain;
   // lens parameters are defined for the footage size: scale them to the image size
   const sx = d.w / clip.size[0],
@@ -194,7 +218,9 @@ registerExec('CompositorNodeMovieDistortion', (x) => {
     u_f: [f, f * pa],
     u_c: [cx * sx, cy * sy * pa],
     u_pa: pa,
-    u_k: [cam.k1, cam.k2, cam.k3],
+    u_k: lens.k,
+    u_p: lens.p,
+    u_model: lens.model,
     u_undistort: menuValue(x.node, 'Type') === 'Distort' ? 0 : 1,
   });
   x.out('Image', Result.image('RGBA', t, d));

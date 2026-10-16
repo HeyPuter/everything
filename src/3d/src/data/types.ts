@@ -357,7 +357,12 @@ export interface CameraData {
 }
 
 export interface CameraBackgroundImage {
+  /** what is shown: an image, or a movie clip (footage of a camera solve); absent means image */
+  source?: 'IMAGE' | 'MOVIE_CLIP';
   image: ID | null;
+  clip?: ID | null;
+  /** with a movie clip source: use the scene's active clip */
+  use_camera_clip?: boolean;
   alpha: number;
   display_depth: 'BACK' | 'FRONT';
   frame_method: 'STRETCH' | 'FIT' | 'CROP';

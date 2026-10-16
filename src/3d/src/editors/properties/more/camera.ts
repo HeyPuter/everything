@@ -4,7 +4,9 @@ import { h, type Child } from '../../../ui/h';
 import { icon } from '../../../ui/icons';
 import { app } from '../../../app/app';
 import { panel, opButton } from '../../../ui/widgets';
-import { num, enumProp, vecProp, splitRow } from '../../../ui/props';
+import { num, enumProp, vecProp, splitRow, bool } from '../../../ui/props';
+import { enumMenu } from '../../../ui/widgets';
+import { clipTable } from '../../../tracking/types';
 import { imageSlot } from '../tabs';
 import { headerToggle } from '../../../render/final/props/common';
 import type { CameraBackgroundImage, CameraData } from '../../../data/types';
@@ -18,6 +20,10 @@ const changed = (label: string) => {
 
 function imageBox(ca: CameraData, bg: CameraBackgroundImage, i: number): Child {
   const img = bg.image ? app.doc.images[bg.image] : undefined;
+  const isClip = bg.source === 'MOVIE_CLIP';
+  const clipId = bg.use_camera_clip ? app.doc.scene.active_clip : bg.clip;
+  const clip = clipId ? clipTable(app.doc)[clipId] : undefined;
+  const name = isClip ? (bg.use_camera_clip ? `Active Clip${clip ? ` (${clip.name})` : ''}` : (clip?.name ?? 'Not Set')) : (img?.name ?? 'Not Set');
   return h(
     'div',
     { key: `bg${i}`, class: 'bgimg-box' },
@@ -25,7 +31,7 @@ function imageBox(ca: CameraData, bg: CameraBackgroundImage, i: number): Child {
       'div',
       { class: 'bgimg-head' },
       h('button', { class: 'bgimg-expand', 'data-tip': 'Show the settings of this image', onclick: () => ((bg.show_expanded = !bg.show_expanded), app.changed('ui')) }, icon(bg.show_expanded ? 'disclosure_tri_down' : 'disclosure_tri_right')),
-      h('span', { class: 'bgimg-name' }, img?.name ?? 'Not Set'),
+      h('span', { class: 'bgimg-name' }, name),
       h('button', { class: { 'bgimg-btn': true, on: bg.show_background_image }, 'data-tip': 'Show this image in the camera view', onclick: () => ((bg.show_background_image = !bg.show_background_image), changed('Show Background Image')) }, icon(bg.show_background_image ? 'hide_off' : 'hide_on')),
       h('button', { class: 'bgimg-btn', 'data-tip': 'Remove this image', onclick: () => app.run('view3d.camera_background_image_remove', { index: i }) }, icon('x')),
     ),
@@ -33,7 +39,15 @@ function imageBox(ca: CameraData, bg: CameraBackgroundImage, i: number): Child {
       ? h(
           'div',
           { class: 'bgimg-body' },
-          imageSlot(bg as unknown as Record<string, unknown>, 'image', 'Image'),
+          enumProp(bg, 'source', 'Source', [['IMAGE', 'Image'], ['MOVIE_CLIP', 'Movie Clip']]),
+          isClip
+            ? [
+                bool(bg, 'use_camera_clip', 'Camera Clip', { tip: "Show the scene's active movie clip" }),
+                bg.use_camera_clip
+                  ? null
+                  : splitRow('Clip', enumMenu(`ca-bg-clip-${i}`, [{ value: '', label: '—' }, ...Object.values(clipTable(app.doc)).map((c) => ({ value: c.id, label: c.name, icon: 'clip_editor' }))], bg.clip ?? '', (v) => ((bg.clip = v || null), changed('Background Clip')))),
+              ]
+            : imageSlot(bg as unknown as Record<string, unknown>, 'image', 'Image'),
           num(bg, 'alpha', 'Opacity', { min: 0, max: 1, slider: true }),
           enumProp(bg, 'display_depth', 'Depth', [['BACK', 'Back'], ['FRONT', 'Front']]),
           enumProp(bg, 'frame_method', 'Frame Method', [['STRETCH', 'Stretch'], ['FIT', 'Fit'], ['CROP', 'Crop']]),

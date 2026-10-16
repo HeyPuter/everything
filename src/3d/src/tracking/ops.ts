@@ -25,6 +25,8 @@ import {
   newTrack,
   sceneToClipFrame,
   trackSpan,
+  tobj,
+  trackingObjectByName,
   uniqueTrackName,
   type MovieClipData,
   type MovieTrackingMarker,
@@ -37,6 +39,7 @@ import { runJob, setProgress } from './jobs';
 import { trackStep, refineMarkers, detectInFrame, toNormalized } from './trackjob';
 import { stabilizationTable, stabilizationMatrix, autoscaleFactor } from './stabilize';
 import { createVideoWriter } from '../render/final/webm';
+import { refreshPlaneTracks } from './planeops';
 
 // ---------------------------------------------------------------------------
 // context helpers
@@ -56,12 +59,17 @@ export function contextClip(ctx?: OpContext): MovieClipData | null {
 }
 
 const hasClip = (ctx: OpContext) => !!contextClip(ctx);
+const BAKEABLE = ['FOLLOW_TRACK', 'CAMERA_SOLVER', 'OBJECT_SOLVER'];
+const ctxTracks = (ctx: OpContext) => {
+  const c = contextClip(ctx);
+  return c ? tobj(c).tracks : [];
+};
 const hasFootage = (ctx: OpContext) => {
   const c = contextClip(ctx);
   return !!c && c.size[0] > 0;
 };
 const curFrame = (clip: MovieClipData) => sceneToClipFrame(clip, app.doc.scene.frame_current);
-const selectedTracks = (clip: MovieClipData) => clip.tracking.tracks.filter((t) => t.select && !t.hide);
+const selectedTracks = (clip: MovieClipData) => tobj(clip).tracks.filter((t) => t.select && !t.hide);
 
 // ---------------------------------------------------------------------------
 // opening footage
@@ -336,10 +344,10 @@ const ops: Operator[] = [
       const loc = p.location as [number, number];
       const tr = newTrack(c.tracking, 'Track');
       insertMarker(tr, newMarker(curFrame(c), [loc[0], loc[1]], c.size, c.tracking.settings.default_pattern_size, c.tracking.settings.default_search_size));
-      for (const t of c.tracking.tracks) t.select = false;
+      for (const t of tobj(c).tracks) t.select = false;
       tr.select = true;
-      c.tracking.tracks.push(tr);
-      c.tracking.active_track = tr.name;
+      tobj(c).tracks.push(tr);
+      tobj(c).active_track = tr.name;
     },
   },
   {
@@ -362,9 +370,9 @@ const ops: Operator[] = [
           const cl = ed.clip!;
           const tr = newTrack(cl.tracking, 'Track');
           insertMarker(tr, newMarker(curFrame(cl), [ix / cl.size[0], 1 - iy / cl.size[1]], cl.size, cl.tracking.settings.default_pattern_size, cl.tracking.settings.default_search_size));
-          for (const t of cl.tracking.tracks) t.select = false;
-          cl.tracking.tracks.push(tr);
-          cl.tracking.active_track = tr.name;
+          for (const t of tobj(cl).tracks) t.select = false;
+          tobj(cl).tracks.push(tr);
+          tobj(cl).active_track = tr.name;
           return 'FINISHED';
         },
         onKey: (e) => (e.type === 'keydown' && e.key === 'Escape' ? 'CANCELLED' : true),
@@ -383,7 +391,7 @@ const ops: Operator[] = [
     label: 'Delete Track',
     description: 'Delete selected tracks',
     props: [{ id: 'confirm', label: 'Confirm', type: 'bool', default: true, hidden: true }],
-    poll: (ctx) => !!contextClip(ctx)?.tracking.tracks.some((t) => t.select && !t.hide),
+    poll: (ctx) => !!ctxTracks(ctx).some((t) => t.select && !t.hide) || !!(contextClip(ctx) && tobj(contextClip(ctx)!).plane_tracks?.some((p) => p.select)),
     invoke: (ctx, p) => {
       if (!p.confirm) return ops.find((o) => o.idname === 'clip.delete_track')!.exec!(ctx, p);
       openMenu([{ label: 'Delete Track', icon: 'trash', op: 'clip.delete_track', props: { confirm: false } }], { x: app.pointer.x, y: app.pointer.y }, { title: 'Delete track?' });
@@ -391,9 +399,17 @@ const ops: Operator[] = [
     },
     exec: (ctx) => {
       const c = contextClip(ctx)!;
-      const n = c.tracking.tracks.filter((t) => t.select && !t.hide).length;
-      c.tracking.tracks = c.tracking.tracks.filter((t) => !(t.select && !t.hide));
-      if (!c.tracking.tracks.some((t) => t.name === c.tracking.active_track)) c.tracking.active_track = null;
+      const n = tobj(c).tracks.filter((t) => t.select && !t.hide).length;
+      const gone = new Set(tobj(c).tracks.filter((t) => t.select && !t.hide).map((t) => t.name));
+      tobj(c).tracks = tobj(c).tracks.filter((t) => !(t.select && !t.hide));
+      // plane tracks: the selected ones go, the others forget the deleted point tracks
+      const o = tobj(c);
+      if (o.plane_tracks) {
+        o.plane_tracks = o.plane_tracks.filter((p) => !p.select);
+        for (const p of o.plane_tracks) p.tracks = p.tracks.filter((x) => !gone.has(x));
+        if (!o.plane_tracks.some((p) => p.name === o.active_plane_track)) o.active_plane_track = null;
+      }
+      if (!tobj(c).tracks.some((t) => t.name === tobj(c).active_track)) tobj(c).active_track = null;
       app.report('INFO', `Deleted ${n} track${n === 1 ? '' : 's'}`);
     },
   },
@@ -401,7 +417,7 @@ const ops: Operator[] = [
     idname: 'clip.delete_marker',
     label: 'Delete Marker',
     description: 'Delete marker for current frame from selected tracks',
-    poll: (ctx) => !!contextClip(ctx)?.tracking.tracks.some((t) => t.select && !t.hide),
+    poll: (ctx) => !!ctxTracks(ctx).some((t) => t.select && !t.hide),
     exec: (ctx) => {
       const c = contextClip(ctx)!;
       const f = curFrame(c);
@@ -411,8 +427,8 @@ const ops: Operator[] = [
         t.markers = t.markers.filter((m) => m.frame !== f);
         n += before - t.markers.length;
       }
-      c.tracking.tracks = c.tracking.tracks.filter((t) => t.markers.length > 0);
-      if (!c.tracking.tracks.some((t) => t.name === c.tracking.active_track)) c.tracking.active_track = null;
+      tobj(c).tracks = tobj(c).tracks.filter((t) => t.markers.length > 0);
+      if (!tobj(c).tracks.some((t) => t.name === tobj(c).active_track)) tobj(c).active_track = null;
       if (!n) return 'CANCELLED';
     },
   },
@@ -445,7 +461,7 @@ const ops: Operator[] = [
           if (!clip) break;
           const f = sceneToClipFrame(clip, app.doc.scene.frame_current);
           if (backwards ? f <= 1 : f >= clip.frame_duration) break;
-          const tracks = clip.tracking.tracks.filter((t) => t.select && !t.hide && !t.lock && enabledMarkerAt(t, f) && !(t.frames_limit > 0 && (counts.get(t.name) ?? 0) >= t.frames_limit));
+          const tracks = tobj(clip).tracks.filter((t) => t.select && !t.hide && !t.lock && enabledMarkerAt(t, f) && !(t.frames_limit > 0 && (counts.get(t.name) ?? 0) >= t.frames_limit));
           if (!tracks.length) break;
           const out = await trackStep(clip, tracks, f, backwards);
           for (const t of tracks) counts.set(t.name, (counts.get(t.name) ?? 0) + 1);
@@ -458,6 +474,8 @@ const ops: Operator[] = [
           // yield to the UI between frames
           await new Promise((r) => setTimeout(r, 0));
         }
+        const done = clipTable(app.doc)[clipId];
+        if (done && tobj(done).plane_tracks?.length) refreshPlaneTracks(done);
         return `Tracked ${frames} frame${frames === 1 ? '' : 's'}${failed.size ? `; lost: ${[...failed].join(', ')}` : ''}`;
       });
     },
@@ -536,12 +554,12 @@ const ops: Operator[] = [
       const f = curFrame(clip);
       const opts = { margin: Number(p.margin), threshold: Number(p.threshold), min_distance: Number(p.min_distance) };
       const place = (c: MovieClipData, feats: { x: number; y: number }[]) => {
-        for (const t of c.tracking.tracks) t.select = false;
+        for (const t of tobj(c).tracks) t.select = false;
         for (const ft of feats) {
           const tr = newTrack(c.tracking, 'Track');
           insertMarker(tr, newMarker(f, toNormalized(c, ft.x, ft.y), c.size, c.tracking.settings.default_pattern_size, c.tracking.settings.default_search_size));
-          c.tracking.tracks.push(tr);
-          c.tracking.active_track = tr.name;
+          tobj(c).tracks.push(tr);
+          tobj(c).active_track = tr.name;
         }
         app.report('INFO', `Detected ${feats.length} feature${feats.length === 1 ? '' : 's'}`);
       };
@@ -586,8 +604,8 @@ const ops: Operator[] = [
     poll: hasClip,
     exec: (ctx, p) => {
       const c = contextClip(ctx)!;
-      for (const t of c.tracking.tracks) if (t.select !== !!p.unselected) t.hide = true;
-      for (const t of c.tracking.tracks) if (t.hide) t.select = false;
+      for (const t of tobj(c).tracks) if (t.select !== !!p.unselected) t.hide = true;
+      for (const t of tobj(c).tracks) if (t.hide) t.select = false;
     },
   },
   {
@@ -596,7 +614,7 @@ const ops: Operator[] = [
     description: 'Clear hide selected tracks',
     poll: hasClip,
     exec: (ctx) => {
-      for (const t of contextClip(ctx)!.tracking.tracks)
+      for (const t of tobj(contextClip(ctx)!).tracks)
         if (t.hide) {
           t.hide = false;
           t.select = true;
@@ -621,10 +639,11 @@ const ops: Operator[] = [
     poll: hasClip,
     exec: (ctx, p) => {
       const c = contextClip(ctx)!;
-      const vis = c.tracking.tracks.filter((t) => !t.hide);
+      const vis = tobj(c).tracks.filter((t) => !t.hide);
       let action = p.action;
       if (action === 'TOGGLE') action = vis.some((t) => t.select) ? 'DESELECT' : 'SELECT';
       for (const t of vis) t.select = action === 'SELECT' ? true : action === 'DESELECT' ? false : !t.select;
+      for (const p of tobj(c).plane_tracks ?? []) p.select = action === 'SELECT' ? true : action === 'DESELECT' ? false : !p.select;
     },
   },
   {
@@ -667,7 +686,7 @@ const ops: Operator[] = [
       const c = contextClip(ctx)!;
       const f = curFrame(c);
       const act = activeTrack(c);
-      for (const t of c.tracking.tracks) {
+      for (const t of tobj(c).tracks) {
         if (t.hide) continue;
         const ex = markerExact(t, f),
           m = markerAt(t, f);
@@ -750,7 +769,7 @@ const ops: Operator[] = [
           } else insertMarker(act, cloneMarker(m));
         }
       if (c.tracking.stabilization) for (const o of others) if (o.use_2d_stabilization) act.use_2d_stabilization = true;
-      c.tracking.tracks = c.tracking.tracks.filter((t) => !others.includes(t));
+      tobj(c).tracks = tobj(c).tracks.filter((t) => !others.includes(t));
     },
   },
   {
@@ -777,10 +796,10 @@ const ops: Operator[] = [
         insertMarker(tr, m);
       }
       if (!tr.markers.length) return 'CANCELLED';
-      if (!p.keep_original) c.tracking.tracks = c.tracking.tracks.filter((t) => !sel.includes(t));
-      for (const t of c.tracking.tracks) t.select = false;
-      c.tracking.tracks.push(tr);
-      c.tracking.active_track = tr.name;
+      if (!p.keep_original) tobj(c).tracks = tobj(c).tracks.filter((t) => !sel.includes(t));
+      for (const t of tobj(c).tracks) t.select = false;
+      tobj(c).tracks.push(tr);
+      tobj(c).active_track = tr.name;
     },
   },
   {
@@ -788,7 +807,7 @@ const ops: Operator[] = [
     label: 'Copy Tracks',
     description: 'Copy the selected tracks to the internal clipboard',
     undo: false,
-    poll: (ctx) => !!contextClip(ctx)?.tracking.tracks.some((t) => t.select),
+    poll: (ctx) => !!ctxTracks(ctx).some((t) => t.select),
     exec: (ctx) => {
       clipboard = structuredClone(selectedTracks(contextClip(ctx)!));
       app.report('INFO', `Copied ${clipboard.length} track(s)`);
@@ -801,13 +820,13 @@ const ops: Operator[] = [
     poll: (ctx) => hasClip(ctx) && clipboard.length > 0,
     exec: (ctx) => {
       const c = contextClip(ctx)!;
-      for (const t of c.tracking.tracks) t.select = false;
+      for (const t of tobj(c).tracks) t.select = false;
       for (const src of clipboard) {
         const t = structuredClone(src);
         t.name = uniqueTrackName(c.tracking, t.name);
         t.select = true;
-        c.tracking.tracks.push(t);
-        c.tracking.active_track = t.name;
+        tobj(c).tracks.push(t);
+        tobj(c).active_track = t.name;
       }
     },
   },
@@ -844,7 +863,7 @@ const ops: Operator[] = [
     idname: 'clip.track_settings_to_track',
     label: 'Apply Default Settings',
     description: 'Apply default tracking settings to all selected tracks',
-    poll: (ctx) => !!contextClip(ctx)?.tracking.tracks.some((t) => t.select),
+    poll: (ctx) => !!ctxTracks(ctx).some((t) => t.select),
     exec: (ctx) => {
       const c = contextClip(ctx)!;
       const s = c.tracking.settings;
@@ -940,31 +959,42 @@ const ops: Operator[] = [
       const ob = newObject(t.name, 'EMPTY', null);
       addObjectToScene(ctx.doc, ob, { location: [0, 0, 0] });
       const con = newConstraint('FOLLOW_TRACK', uid('cn'));
-      Object.assign(con, { use_active_clip: false, clip: c.id, track: t.name });
+      const objIndex = c.tracking.active_object_index ?? 0;
+      Object.assign(con, { use_active_clip: false, clip: c.id, track: t.name, object: objIndex > 0 ? (c.tracking.objects?.[objIndex - 1]?.name ?? '') : '', use_3d_position: !!t.has_bundle && objIndex === 0 });
       ob.constraints.push(con);
     },
   },
   {
     idname: 'clip.constraint_to_fcurve',
     label: 'Constraint to F-Curve',
-    description: "Create F-Curves for object which will copy object's movement caused by this constraint",
+    description: 'Bake the motion this tracking constraint gives the object into keyframes and remove the constraint',
     props: [{ id: 'constraint', label: 'Constraint', type: 'string', default: '' }],
-    poll: (ctx) => !!app.activeObject?.constraints.some((c) => c.type === 'FOLLOW_TRACK'),
+    poll: () => !!app.activeObject?.constraints.some((c) => BAKEABLE.includes(c.type)),
     exec: (ctx, p) => {
       const ob = app.activeObject!;
-      const con = ob.constraints.find((c) => c.type === 'FOLLOW_TRACK' && (!p.constraint || c.name === p.constraint));
+      const con = ob.constraints.find((c) => BAKEABLE.includes(c.type) && (!p.constraint || c.name === p.constraint));
       if (!con) return 'CANCELLED';
       const doc = ctx.doc;
       const clipsT = clipTable(doc);
-      const clip = (con.use_active_clip ? clipsT[doc.scene.active_clip ?? ''] : clipsT[(con.clip as string) ?? '']) ?? null;
-      const track = clip?.tracking.tracks.find((t) => t.name === con.track);
-      if (!clip || !track) {
-        app.report('ERROR', 'Movie clip or track to get keyframes from is not set');
-        return 'CANCELLED';
+      const clip = (con.use_active_clip !== false ? clipsT[doc.scene.active_clip ?? ''] : clipsT[(con.clip as string) ?? '']) ?? null;
+      let span: [number, number] | null = null;
+      if (con.type === 'FOLLOW_TRACK') {
+        const track = clip ? trackingObjectByName(clip, con.object as string).tracks.find((t) => t.name === con.track) : undefined;
+        if (!clip || !track) {
+          app.report('ERROR', 'Movie clip or track to get keyframes from is not set');
+          return 'CANCELLED';
+        }
+        span = trackSpan(track);
+      } else {
+        const rec = clip ? trackingObjectByName(clip, con.type === 'OBJECT_SOLVER' ? (con.object as string) : '').reconstruction : undefined;
+        if (!clip || !rec?.is_valid) {
+          app.report('ERROR', 'The movie clip has no camera solution to bake');
+          return 'CANCELLED';
+        }
+        span = [rec.cameras[0].frame, rec.cameras[rec.cameras.length - 1].frame];
       }
-      const span = trackSpan(track);
-      const a = span ? clipToSceneFrame(clip, span[0]) : doc.scene.frame_start,
-        b = span ? clipToSceneFrame(clip, span[1]) : doc.scene.frame_end;
+      const a = span ? clipToSceneFrame(clip!, span[0]) : doc.scene.frame_start,
+        b = span ? clipToSceneFrame(clip!, span[1]) : doc.scene.frame_end;
       const keep = doc.scene.frame_current;
       const samples: { f: number; m: Matrix4 }[] = [];
       for (let f = a; f <= b; f++) {
@@ -1127,7 +1157,7 @@ const ops: Operator[] = [
     label: 'Transform Markers',
     props: [{ id: 'mode', label: 'Mode', type: 'enum', default: 'TRANSLATE', items: [['TRANSLATE', 'Move'], ['ROTATE', 'Rotate'], ['RESIZE', 'Resize']] }],
     internal: true,
-    poll: (ctx) => contextEditor(ctx)?.view === 'CLIP' && !!contextClip(ctx)?.tracking.tracks.some((t) => t.select && !t.lock),
+    poll: (ctx) => contextEditor(ctx)?.view === 'CLIP' && !!ctxTracks(ctx).some((t) => t.select && !t.lock),
     invoke: (ctx, p) => transformInvoke(ctx, p.mode as string),
   },
 ];

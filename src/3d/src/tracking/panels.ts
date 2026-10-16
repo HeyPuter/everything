@@ -5,10 +5,14 @@ import { icon } from '../ui/icons';
 import { app } from '../app/app';
 import { panel, numberField, checkbox, enumMenu, textField, opButton, colorSwatch, toggleButton } from '../ui/widgets';
 import { num, bool, enumProp, splitRow, vecProp } from '../ui/props';
-import { activeTrack, clipFrameToSourceIndex, ensureMarker, focalPixels, markerAt, markerExact, type MovieClipData, type MovieTrackingTrack, type MotionModel } from './types';
+import { tobj, activeTrack, clipFrameToSourceIndex, ensureMarker, focalPixels, markerAt, markerExact, type MovieClipData, type MovieTrackingTrack, type MotionModel } from './types';
 import { readySource, frameCache, cacheSettings } from './source';
 import { measureMotion } from './stabilize';
 import type { ClipEditor } from './editor';
+import { solveToolbar, objectsPanel, distortionRows } from './solvepanels';
+import { planeTrackPanel } from './planeops';
+import { presetButton } from './presets';
+import { proxyPanel } from './proxypanel';
 
 const MODELS: [MotionModel, string][] = [
   ['Loc', 'Location'],
@@ -54,7 +58,7 @@ export function drawToolbar(ed: ClipEditor): Child {
     body.push(
       panel('clip-t-clip', 'Clip', () => [h('div', { class: 'btn-col' }, opButton('clip.set_scene_frames', 'Set Scene Frames')), h('div', { class: 'btn-row' }, opButton('clip.prefetch', 'Prefetch'), opButton('clip.reload', 'Reload'))]),
       panel('clip-t-marker', 'Marker', () => [h('div', { class: 'btn-row' }, opButton('clip.add_marker_at_click', 'Add'), opButton('clip.delete_track', 'Delete')), h('div', { class: 'btn-col' }, opButton('clip.detect_features', 'Detect Features'))]),
-      panel('clip-t-settings', 'Tracking Settings', () => [
+      panel('clip-t-settings', h('span', { class: 'clip-panel-title' }, 'Tracking Settings', presetButton(c, 'settings', 'Tracking Settings Presets')), () => [
         num(s, 'default_pattern_size', 'Pattern Size', { int: true, min: 5, max: 1000, unit: 'pixel', tip: 'Size of pattern area for newly created tracks' }),
         num(s, 'default_search_size', 'Search Size', { int: true, min: 5, max: 1000, unit: 'pixel', tip: 'Size of search area for newly created tracks' }),
         enumProp(s, 'default_motion_model', 'Motion Model', MODELS, { tip: 'Default motion model to use for tracking' }),
@@ -123,21 +127,35 @@ export function drawToolbar(ed: ClipEditor): Child {
       }),
     );
   }
-  return h('div', { key: 'toolbar', class: 'clip-toolbar' }, h('div', { class: 'sb-body' }, body), h('div', { class: 'sb-tabs' }, h('button', { class: 'sb-tab on' }, 'Track')));
+  if (!TOOL_TABS.includes(ed.toolbarTab)) ed.toolbarTab = 'Track';
+  const shown = c && ed.toolbarTab === 'Solve' ? solveToolbar(ed, c) : body;
+  return h(
+    'div',
+    { key: 'toolbar', class: 'clip-toolbar' },
+    h('div', { class: 'sb-body' }, shown),
+    h(
+      'div',
+      { class: 'sb-tabs' },
+      TOOL_TABS.map((t) => h('button', { key: t, class: { 'sb-tab': true, on: t === ed.toolbarTab }, onclick: () => ((ed.toolbarTab = t), ed.drawUI()) }, t)),
+    ),
+  );
 }
+
+const TOOL_TABS = ['Track', 'Solve'];
 
 // ---------------------------------------------------------------------------
 // sidebar
 
-const TABS = ['Track', 'Footage', 'Stabilization'];
+const TABS = ['Track', 'Footage', 'Stabilization', 'View'];
 
 export function drawSidebar(ed: ClipEditor): Child {
   const c = ed.clip;
   if (!TABS.includes(ed.sidebarTab)) ed.sidebarTab = 'Track';
   let body: Child[];
   if (!c) body = [h('div', { class: 'sb-empty' }, 'No active movie clip')];
-  else if (ed.sidebarTab === 'Footage') body = footageTab(c);
+  else if (ed.sidebarTab === 'Footage') body = footageTab(ed, c);
   else if (ed.sidebarTab === 'Stabilization') body = stabilizationTab(ed, c);
+  else if (ed.sidebarTab === 'View') body = viewTab(ed);
   else body = trackTab(ed, c);
   return h(
     'div',
@@ -154,7 +172,7 @@ export function drawSidebar(ed: ClipEditor): Child {
 function trackTab(ed: ClipEditor, c: MovieClipData): Child[] {
   const t = activeTrack(c);
   const f = ed.clipFrame;
-  const out: Child[] = [];
+  const out: Child[] = [objectsPanel(c)];
   out.push(
     panel('clip-n-track', 'Track', () => {
       if (!t) return h('div', { class: 'sb-empty' }, 'No active track');
@@ -163,10 +181,10 @@ function trackTab(ed: ClipEditor, c: MovieClipData): Child[] {
           'div',
           { class: 'clip-name-row' },
           textField(`clip-tname-${t.name}`, t.name, (v) => {
-            if (!v || v === t.name || c.tracking.tracks.some((o) => o.name === v)) return;
+            if (!v || v === t.name || tobj(c).tracks.some((o) => o.name === v)) return;
             // keep references by name in constraints in sync
             for (const ob of Object.values(app.doc.objects)) for (const con of ob.constraints) if (con.type === 'FOLLOW_TRACK' && con.track === t.name) con.track = v;
-            if (c.tracking.active_track === t.name) c.tracking.active_track = v;
+            if (tobj(c).active_track === t.name) tobj(c).active_track = v;
             t.name = v;
             commit('Rename Track');
           }),
@@ -182,6 +200,7 @@ function trackTab(ed: ClipEditor, c: MovieClipData): Child[] {
         num(t, 'weight', 'Weight', { min: 0, max: 1, slider: true, unit: 'factor', tip: 'Influence of this track on a final solution' }),
         num(t, 'weight_stab', 'Stab Weight', { min: 0, max: 1, slider: true, unit: 'factor', tip: 'Influence of this track on 2D stabilization' }),
         h('div', { class: 'clip-info' }, t.last_correlation !== undefined ? `Correlation of the last tracked frame: ${t.last_correlation.toFixed(3)}` : 'Not tracked yet'),
+        t.has_bundle ? h('div', { class: 'clip-solve-status' }, `Average Error: ${(t.average_error ?? 0).toFixed(4)} px`) : null,
         splitRow(
           'Custom Color',
           h(
@@ -190,11 +209,13 @@ function trackTab(ed: ClipEditor, c: MovieClipData): Child[] {
             checkbox('clip-tcc', '', t.use_custom_color, (v) => ((t.use_custom_color = v), commit('Custom Color'))),
             colorSwatch('clip-tcolor', t.color, (v, fin) => ((t.color = [v[0], v[1], v[2]]), commit('Track Color', fin)), { linear: false }),
             h('button', { class: 'btn icon-btn', 'data-tip': 'Copy Color\nCopy color to all selected tracks', disabled: !app.poll('clip.track_copy_color'), onclick: () => app.run('clip.track_copy_color') }, icon('duplicate')),
+            presetButton(c, 'color', 'Track Color Presets'),
           ),
         ),
       ];
     }),
   );
+  out.push(planeTrackPanel(ed, c));
   if (t)
     out.push(
       panel('clip-n-tsettings', 'Tracking Settings', () => [
@@ -216,7 +237,7 @@ function trackTab(ed: ClipEditor, c: MovieClipData): Child[] {
     );
   const cam = c.tracking.camera;
   out.push(
-    panel('clip-n-camera', 'Camera', () => [
+    panel('clip-n-camera', h('span', { class: 'clip-panel-title' }, 'Camera', presetButton(c, 'camera', 'Camera Presets')), () => [
       num(cam, 'sensor_width', 'Sensor Width', { min: 0, max: 500, unit: 'none', tip: 'Width of CCD sensor in millimeters' }),
       num(cam, 'pixel_aspect', 'Pixel Aspect', { min: 0.1, max: 5000, tip: 'Pixel aspect ratio' }),
       panel(
@@ -244,11 +265,7 @@ function trackTab(ed: ClipEditor, c: MovieClipData): Child[] {
           ]),
           vecProp(cam, 'principal_point', 'Optical Center', { min: -1, max: 1, step: 0.01 }),
           h('div', { class: 'btn-col' }, opButton('clip.set_center_principal', 'Set Principal to Center')),
-          enumProp(cam, 'distortion_model', 'Lens Distortion', [['POLYNOMIAL', 'Polynomial']]),
-          num(cam, 'k1', 'K1', { softMin: -10, softMax: 10, precision: 4, tip: 'First coefficient of third order polynomial radial distortion' }),
-          num(cam, 'k2', 'K2', { softMin: -10, softMax: 10, precision: 4, tip: 'Second coefficient of third order polynomial radial distortion' }),
-          num(cam, 'k3', 'K3', { softMin: -10, softMax: 10, precision: 4, tip: 'Third coefficient of third order polynomial radial distortion' }),
-          h('div', { class: 'clip-info' }, 'Distortion is used by the Follow Track constraint (Undistort).'),
+          ...distortionRows(c),
         ],
         { sub: true },
       ),
@@ -306,7 +323,23 @@ function markerPanel(ed: ClipEditor, c: MovieClipData, t: MovieTrackingTrack, f:
   ];
 }
 
-function footageTab(c: MovieClipData): Child[] {
+function viewTab(ed: ClipEditor): Child[] {
+  const [W, H] = ed.frameSize();
+  const set = (i: 0 | 1, v: number) => {
+    ed.cursor = i === 0 ? [v / W, ed.cursor[1]] : [ed.cursor[0], v / H];
+    ed.draw();
+    app.changed('ui');
+  };
+  return [
+    panel('clip-n-cursor', '2D Cursor', () => [
+      splitRow('Location X', numberField({ id: 'clip-cursor-x', value: ed.cursor[0] * W, unit: 'pixel', set: (v) => set(0, v) })),
+      splitRow('Y', numberField({ id: 'clip-cursor-y', value: ed.cursor[1] * H, unit: 'pixel', set: (v) => set(1, v) })),
+      h('div', { class: 'btn-col' }, opButton('clip.view_center_cursor', 'Center View to Cursor')),
+    ]),
+  ];
+}
+
+function footageTab(ed: ClipEditor, c: MovieClipData): Child[] {
   const src = readySource(c);
   return [
     panel('clip-n-footage', 'Footage Settings', () => [
@@ -328,6 +361,7 @@ function footageTab(c: MovieClipData): Child[] {
       valueRow('Cached Frames', src ? String(src.cached().length) : '0'),
       h('div', { class: 'btn-row' }, opButton('clip.prefetch', 'Prefetch'), opButton('clip.reload', 'Reload')),
     ]),
+    proxyPanel(ed, c),
   ];
 }
 

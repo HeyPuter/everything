@@ -2,7 +2,7 @@
 // view (tracked segments and keyframes per track). Frames on the X axis are scene frames.
 import { app } from '../app/app';
 import { frameStep, valueStep, formatValue } from '../animation/view2d';
-import { clipToSceneFrame, markerExact, trackSpan, type MovieClipData, type MovieTrackingTrack } from './types';
+import { tobj, clipToSceneFrame, markerExact, trackSpan, type MovieClipData, type MovieTrackingTrack } from './types';
 import type { ClipEditor } from './editor';
 
 const BG = '#2d2e30',
@@ -33,7 +33,7 @@ export function graphKnotAt(ed: ClipEditor, x: number, y: number, radius = 7): {
   const v = ed.v2;
   let best: { track: MovieTrackingTrack; frame: number; axis: 'x' | 'y' } | null = null,
     bd = radius;
-  for (const t of c.tracking.tracks) {
+  for (const t of tobj(c).tracks) {
     if (!t.select || t.hide) continue;
     for (const seg of speeds(c, t))
       for (const s of seg)
@@ -52,7 +52,7 @@ export function graphKnots(ed: ClipEditor): { track: MovieTrackingTrack; frame: 
   if (!c) return [];
   const v = ed.v2;
   const out: { track: MovieTrackingTrack; frame: number; axis: 'x' | 'y'; x: number; y: number }[] = [];
-  for (const t of c.tracking.tracks) {
+  for (const t of tobj(c).tracks) {
     if (!t.select || t.hide) continue;
     for (const seg of speeds(c, t))
       for (const s of seg)
@@ -143,7 +143,7 @@ export function frameGraphAll(ed: ClipEditor) {
   ed.v2.fitX(a, b);
   let lo = Infinity,
     hi = -Infinity;
-  for (const t of c.tracking.tracks)
+  for (const t of tobj(c).tracks)
     if (t.select && !t.hide)
       for (const seg of speeds(c, t))
         for (const s of seg) {
@@ -192,7 +192,7 @@ export function drawGraph(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: numb
     ctx.rect(0, top, w, h - top);
     ctx.clip();
     ctx.translate(0, top);
-    for (const t of c.tracking.tracks) {
+    for (const t of tobj(c).tracks) {
       if (!t.select || t.hide) continue;
       const segs = speeds(c, t);
       for (const [on, key, col] of [
@@ -227,7 +227,7 @@ export function drawGraph(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: numb
     ctx.fillText('X speed (px/frame)', w - 10, top + 16);
     ctx.fillStyle = SPEED_Y;
     ctx.fillText('Y speed (px/frame)', w - 10, top + 30);
-    if (!c.tracking.tracks.some((t) => t.select && !t.hide)) {
+    if (!tobj(c).tracks.some((t) => t.select && !t.hide)) {
       ctx.fillStyle = TEXT;
       ctx.textAlign = 'center';
       ctx.fillText('Select tracks to show their motion curves', w / 2, top + (h - top) / 2);
@@ -276,7 +276,7 @@ export function graphPointer(ed: ClipEditor, e: PointerEvent, p: { x: number; y:
         sel.clear();
         sel.add(key);
       }
-      c.tracking.active_track = k.track.name;
+      tobj(c).active_track = k.track.name;
       app.changed('ui');
       ed.draw();
       return;
@@ -289,7 +289,7 @@ export function graphPointer(ed: ClipEditor, e: PointerEvent, p: { x: number; y:
     const v = ed.v2;
     let best: MovieTrackingTrack | null = null,
       bd = 7;
-    for (const t of c.tracking.tracks) {
+    for (const t of tobj(c).tracks) {
       if (!t.select || t.hide) continue;
       for (const seg of speeds(c, t))
         for (const s of seg)
@@ -300,9 +300,9 @@ export function graphPointer(ed: ClipEditor, e: PointerEvent, p: { x: number; y:
           }
     }
     if (best) {
-      if (!e.shiftKey) for (const t of c.tracking.tracks) t.select = false;
+      if (!e.shiftKey) for (const t of tobj(c).tracks) t.select = false;
       best.select = true;
-      c.tracking.active_track = best.name;
+      tobj(c).active_track = best.name;
       app.pushUndo('Select');
       app.changed('doc');
     }
@@ -340,7 +340,7 @@ function segments(t: MovieTrackingTrack): [number, number][] {
 export function sortedTracks(ed: ClipEditor): MovieTrackingTrack[] {
   const c = ed.clip;
   if (!c) return [];
-  const list = c.tracking.tracks.filter((t) => !t.hide);
+  const list = tobj(c).tracks.filter((t) => !t.hide);
   const longest = (t: MovieTrackingTrack) => Math.max(0, ...segments(t).map(([a, b]) => b - a + 1));
   const total = (t: MovieTrackingTrack) => segments(t).reduce((s, [a, b]) => s + b - a + 1, 0);
   if (ed.dopesheetSort === 'NAME') list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
@@ -369,7 +369,7 @@ export function drawDopesheet(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: 
   const tracks = sortedTracks(ed);
   const maxScroll = Math.max(0, tracks.length * ROW_H - (h - HEAD_H));
   ed.dopesheetScroll = Math.min(ed.dopesheetScroll, maxScroll);
-  const act = c?.tracking.active_track;
+  const act = c ? tobj(c).active_track : null;
   // rows
   ctx.save();
   ctx.beginPath();
@@ -471,10 +471,10 @@ export function dopesheetPointer(ed: ClipEditor, e: PointerEvent, p: { x: number
     if (!t) return;
     if (e.shiftKey || e.ctrlKey) t.select = !t.select;
     else {
-      for (const o of c.tracking.tracks) o.select = false;
+      for (const o of tobj(c).tracks) o.select = false;
       t.select = true;
     }
-    if (t.select) c.tracking.active_track = t.name;
+    if (t.select) tobj(c).active_track = t.name;
     app.pushUndo('Select Channel');
     app.changed('doc');
     return;

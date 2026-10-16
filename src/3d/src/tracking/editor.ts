@@ -19,6 +19,8 @@ import {
   markerAt,
   markerExact,
   sceneToClipFrame,
+  tobj,
+  normalizeTracking,
   type MovieClipData,
   type MovieTrackingMarker,
   type MovieTrackingTrack,
@@ -26,6 +28,11 @@ import {
 import { readySource } from './source';
 import { stabilizationMatrix, autoscaleFactor, type Affine2 } from './stabilize';
 import { drawToolbar, drawSidebar, drawPatternPreviews } from './panels';
+import { solveErrorText } from './solvepanels';
+import { reprojectBundle, clipIntrinsics, undistortPixelWith, distortPixelWith } from './reconstruction';
+import { hasDistortion, type Intrinsics } from './solve/intrinsics';
+import { proxySource, type ProxyRenderSize } from './proxy';
+import { drawPlaneTracks, planeCornerDown, planeBodyDown } from './planeops';
 import { drawGraph, drawDopesheet, graphPointer, dopesheetPointer, frameGraphAll, frameDopesheetAll } from './graphs';
 import { jobState } from './jobs';
 import { lastOpPanel } from '../ui/redo';
@@ -47,6 +54,12 @@ export interface ClipOverlays {
   show_stable: boolean;
   use_mute_footage: boolean;
   show_cache: boolean;
+  /** reprojected bundles of the camera solve ("3D markers") */
+  show_bundles?: boolean;
+  /** show the footage (and markers) with the lens distortion removed */
+  render_undistorted?: boolean;
+  /** grid of straight lines showing the lens distortion */
+  show_grid?: boolean;
   /** mask mode: draw splines, and show the mask as a matte over (or instead of) the footage */
   show_mask_spline?: boolean;
   mask_overlay_mode?: 'NONE' | 'COMBINED' | 'ALPHACHANNEL';
@@ -98,6 +111,8 @@ export class ClipEditor implements Editor {
   dopesheetInvert = false;
   dopesheetScroll = 0;
   boxPending = false;
+  /** proxy size the footage is displayed at (when the clip uses proxies) */
+  proxyRenderSize: ProxyRenderSize = 'FULL';
   /** Tracking (markers) or Mask (editing masks over the footage) */
   mode: 'TRACKING' | 'MASK' = 'TRACKING';
   /** mask edited in mask mode */
@@ -148,6 +163,8 @@ export class ClipEditor implements Editor {
     const ext = state as { cursor?: [number, number]; pivot?: 'MEDIAN_POINT' } | undefined;
     if (ext?.cursor) this.cursor = ext.cursor;
     if (ext?.pivot) this.pivot = ext.pivot;
+    const px = (state as { proxy?: ProxyRenderSize } | undefined)?.proxy;
+    if (px) this.proxyRenderSize = px;
     if (!this.clipId) this.clipId = app.doc.scene.active_clip ?? Object.keys(clipTable(app.doc))[0] ?? null;
     this.bind();
     this.ro = new ResizeObserver(() => this.draw());
@@ -164,7 +181,10 @@ export class ClipEditor implements Editor {
   // data
 
   get clip(): MovieClipData | null {
-    return (this.clipId && clipTable(app.doc)[this.clipId]) || null;
+    const c = (this.clipId && clipTable(app.doc)[this.clipId]) || null;
+    // clips from older files get the camera-solve fields
+    if (c && !c.tracking.reconstruction) normalizeTracking(c.tracking);
+    return c;
   }
 
   setClip(id: string | null) {
@@ -185,7 +205,8 @@ export class ClipEditor implements Editor {
 
   /** Visible tracks (not hidden). */
   tracks(): MovieTrackingTrack[] {
-    return this.clip?.tracking.tracks.filter((t) => !t.hide) ?? [];
+    const c = this.clip;
+    return c ? tobj(c).tracks.filter((t) => !t.hide) : [];
   }
 
   // ---------------------------------------------------------------------------
@@ -216,8 +237,27 @@ export class ClipEditor implements Editor {
     return stabilizationMatrix(c, this.clipFrame, z);
   }
 
-  /** footage pixel → screen (editor-local CSS px) */
+  /** Lens model when the footage is shown undistorted (Render Undistorted), else null. */
+  undistortLens(): Intrinsics | null {
+    const c = this.clip;
+    if (!c || !this.overlays.render_undistorted || !c.size[0] || this.mode === 'MASK') return null;
+    const I = clipIntrinsics(c);
+    return hasDistortion(I) ? I : null;
+  }
+
+  /** footage pixel → screen (editor-local CSS px); shown undistorted when Render Undistorted is on */
   toScreen(x: number, y: number, T: Affine2 | null = this.stab()): [number, number] {
+    const L = this.undistortLens();
+    if (L) {
+      const H = this.frameSize()[1];
+      const u = undistortPixelWith(L, x, H - y);
+      return this.viewScreen(u[0], H - u[1], T);
+    }
+    return this.viewScreen(x, y, T);
+  }
+
+  /** displayed (possibly undistorted) footage pixel → screen */
+  viewScreen(x: number, y: number, T: Affine2 | null = this.stab()): [number, number] {
     const [W, H] = this.frameSize();
     if (T) {
       const by = H - y;
@@ -241,6 +281,11 @@ export class ClipEditor implements Editor {
         by = H - y - T[5];
       x = (T[3] * bx - T[2] * by) / det;
       y = H - (-T[1] * bx + T[0] * by) / det;
+    }
+    const L = this.undistortLens();
+    if (L) {
+      const d = distortPixelWith(L, x, H - y);
+      return [d[0], H - d[1]];
     }
     return [x, y];
   }
@@ -374,29 +419,33 @@ export class ClipEditor implements Editor {
     const cf = this.clipFrame;
     const idx = clipFrameToSourceIndex(c, cf);
     const inRange = cf >= 1 && cf <= c.frame_duration && idx >= 0;
-    const bmp = inRange && src ? src.peek(idx) : null;
+    const shown = (src && this.displaySource()) || src;
+    const bmp = inRange && shown ? shown.peek(idx) : null;
     // canvas affine for footage → screen (with stabilization)
-    const p0 = this.toScreen(0, 0, T),
-      px = this.toScreen(1, 0, T),
-      py = this.toScreen(0, 1, T);
+    const p0 = this.viewScreen(0, 0, T),
+      px = this.viewScreen(1, 0, T),
+      py = this.viewScreen(0, 1, T);
     ctx.save();
     ctx.setTransform(dpr * (px[0] - p0[0]), dpr * (px[1] - p0[1]), dpr * (py[0] - p0[0]), dpr * (py[1] - p0[1]), dpr * p0[0], dpr * p0[1]);
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, W, H);
-    if (bmp && !this.overlays.use_mute_footage) {
+    const lens = this.undistortLens();
+    if (bmp && !this.overlays.use_mute_footage && !lens) {
       const filter = c.tracking.stabilization.filter_type;
       ctx.imageSmoothingEnabled = T ? filter !== 'NEAREST' : this.zoom < 1;
       ctx.imageSmoothingQuality = filter === 'BICUBIC' ? 'high' : 'low';
       ctx.drawImage(bmp, 0, 0, W, H);
     }
     ctx.restore();
+    if (bmp && !this.overlays.use_mute_footage && lens) this.drawUndistorted(ctx, bmp, lens, T);
+    if (this.overlays.show_grid) this.drawLensGrid(ctx, T);
     if (inRange && src && !bmp) this.request(idx);
     if (inRange && src) this.prefetchAround(idx);
     // frame outline
     ctx.strokeStyle = 'rgba(0, 0, 0,0.6)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    const fc = [this.toScreen(0, 0, T), this.toScreen(W, 0, T), this.toScreen(W, H, T), this.toScreen(0, H, T)];
+    const fc = [this.viewScreen(0, 0, T), this.viewScreen(W, 0, T), this.viewScreen(W, H, T), this.viewScreen(0, H, T)];
     fc.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
     ctx.closePath();
     ctx.stroke();
@@ -405,8 +454,11 @@ export class ClipEditor implements Editor {
       drawMask(this, ctx, this.overlays.show_mask_spline !== false);
       this.drawCursor(ctx);
     } else {
+      drawPlaneTracks(this, ctx, T);
       this.drawMarkers(ctx, T);
+      if (this.overlays.show_bundles !== false) this.drawBundles(ctx, T);
       drawSelectShape(ctx, this.shapeOverlay);
+      this.drawCursor(ctx);
     }
     if (this.boxRect) {
       const b = this.boxRect;
@@ -426,8 +478,92 @@ export class ClipEditor implements Editor {
     const info = `Frame: ${cf} / ${c.frame_duration}${src ? `  ${W}×${H}  ${src.fps} fps  [${src.kind === 'webcodecs' ? 'WebCodecs' : src.kind === 'video' ? 'Video element' : 'Image sequence'}]` : '  Loading…'}${!inRange ? '  (outside of the clip)' : ''}`;
     ctx.fillText(info, left, 16);
     const job = jobState.get();
-    if (job) ctx.fillText(`${job.label}… ${Math.round(job.progress * 100)}%  (Esc to stop)`, left, 32);
+    if (job) ctx.fillText(`${job.label}… ${Math.round(job.progress * 100)}%${job.detail ? `  ${job.detail}` : ''}  (Esc to stop)`, left, 32);
     ctx.shadowBlur = 0;
+  }
+
+  /** Footage with the lens distortion removed: a grid of triangles, each mapped affinely. */
+  private drawUndistorted(ctx: CanvasRenderingContext2D, bmp: CanvasImageSource & { width: number; height: number }, L: Intrinsics, T: Affine2 | null) {
+    const [W, H] = this.frameSize();
+    const N = 12;
+    const src: [number, number][][] = [],
+      dst: [number, number][][] = [];
+    for (let j = 0; j <= N; j++) {
+      src.push([]);
+      dst.push([]);
+      for (let i = 0; i <= N; i++) {
+        const ux = (i / N) * W,
+          uy = (j / N) * H;
+        const d = distortPixelWith(L, ux, H - uy);
+        src[j].push([(d[0] / W) * bmp.width, ((H - d[1]) / H) * bmp.height]);
+        dst[j].push(this.viewScreen(ux, uy, T));
+      }
+    }
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    const tri = (s: [number, number][], p: [number, number][]) => {
+      const [sa, sb, sc] = s,
+        [pa, pb, pc] = p;
+      const den = (sb[0] - sa[0]) * (sc[1] - sa[1]) - (sc[0] - sa[0]) * (sb[1] - sa[1]);
+      if (Math.abs(den) < 1e-9) return;
+      const m11 = ((pb[0] - pa[0]) * (sc[1] - sa[1]) - (pc[0] - pa[0]) * (sb[1] - sa[1])) / den;
+      const m12 = ((pc[0] - pa[0]) * (sb[0] - sa[0]) - (pb[0] - pa[0]) * (sc[0] - sa[0])) / den;
+      const m21 = ((pb[1] - pa[1]) * (sc[1] - sa[1]) - (pc[1] - pa[1]) * (sb[1] - sa[1])) / den;
+      const m22 = ((pc[1] - pa[1]) * (sb[0] - sa[0]) - (pb[1] - pa[1]) * (sc[0] - sa[0])) / den;
+      const cx = (pa[0] + pb[0] + pc[0]) / 3,
+        cy = (pa[1] + pb[1] + pc[1]) / 3;
+      ctx.save();
+      ctx.beginPath();
+      for (const [k, q] of [pa, pb, pc].entries()) {
+        const x = q[0] + (q[0] - cx) * 0.03,
+          y = q[1] + (q[1] - cy) * 0.03;
+        if (k) ctx.lineTo(x, y);
+        else ctx.moveTo(x, y);
+      }
+      ctx.closePath();
+      ctx.clip();
+      ctx.transform(m11, m21, m12, m22, pa[0] - m11 * sa[0] - m12 * sa[1], pa[1] - m21 * sa[0] - m22 * sa[1]);
+      ctx.drawImage(bmp, 0, 0);
+      ctx.restore();
+    };
+    for (let j = 0; j < N; j++)
+      for (let i = 0; i < N; i++) {
+        tri([src[j][i], src[j][i + 1], src[j + 1][i + 1]], [dst[j][i], dst[j][i + 1], dst[j + 1][i + 1]]);
+        tri([src[j][i], src[j + 1][i + 1], src[j + 1][i]], [dst[j][i], dst[j + 1][i + 1], dst[j + 1][i]]);
+      }
+    ctx.restore();
+  }
+
+  /** Grid of straight lines in the undistorted image, drawn where the lens shows them. */
+  private drawLensGrid(ctx: CanvasRenderingContext2D, T: Affine2 | null) {
+    const c = this.clip;
+    if (!c?.size[0]) return;
+    const [W, H] = c.size;
+    const I = clipIntrinsics(c);
+    const undistorted = !!this.undistortLens();
+    const at = (ux: number, uy: number) => {
+      if (undistorted || !hasDistortion(I)) return this.viewScreen(ux, uy, T);
+      const d = distortPixelWith(I, ux, H - uy);
+      return this.viewScreen(d[0], H - d[1], T);
+    };
+    const N = 10,
+      S = 40;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 64, 64, 0.65)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let k = 0; k <= N; k++)
+      for (const vertical of [false, true]) {
+        for (let s = 0; s <= S; s++) {
+          const a = (k / N) * (vertical ? W : H),
+            b = (s / S) * (vertical ? H : W);
+          const p = vertical ? at(a, b) : at(b, a);
+          if (s) ctx.lineTo(p[0], p[1]);
+          else ctx.moveTo(p[0], p[1]);
+        }
+      }
+    ctx.stroke();
+    ctx.restore();
   }
 
   /** The 2D cursor (Shift right click places it). */
@@ -481,13 +617,20 @@ export class ClipEditor implements Editor {
     void hh;
   }
 
+  /** Source the footage is shown from: a built proxy of the chosen size, else the footage. */
+  displaySource() {
+    const c = this.clip;
+    if (!c) return null;
+    return proxySource(c, this.proxyRenderSize) ?? readySource(c);
+  }
+
   private retryLater() {
     setTimeout(() => this.el.isConnected && this.draw(), 100);
   }
 
   private request(idx: number) {
     const c = this.clip;
-    const src = c && readySource(c);
+    const src = c && this.displaySource();
     if (!src || this.loading.has(idx)) return;
     this.loading.add(idx);
     void src.get(idx).finally(() => {
@@ -499,7 +642,7 @@ export class ClipEditor implements Editor {
   /** decode a few frames ahead during playback / scrubbing */
   private prefetchAround(idx: number) {
     const c = this.clip;
-    const src = c && readySource(c);
+    const src = c && this.displaySource();
     if (!src) return;
     const n = app.playing ? 6 : 1;
     for (let k = 1; k <= n; k++) if (idx + k < src.frameCount && !src.peek(idx + k) && !this.loading.has(idx + k)) {
@@ -639,6 +782,7 @@ export class ClipEditor implements Editor {
         if (ov.show_info && t.select) {
           lines.push(m.mute ? 'Disabled' : m.frame === f ? (m.is_keyed ? 'Keyframed' : 'Tracked') : 'Estimated');
           if (t.last_correlation !== undefined && !m.mute) lines.push(`Correlation: ${t.last_correlation.toFixed(3)}`);
+          if (t.has_bundle) lines.push(`Average Error: ${(t.average_error ?? 0).toFixed(3)} px`);
           if (t.lock) lines.push('Locked');
         }
         const bx = Math.max(...quad.map((q) => q[0])) + 4,
@@ -653,6 +797,40 @@ export class ClipEditor implements Editor {
           ctx.fillText(l, bx, by + i * 13);
         });
       }
+    }
+  }
+
+  /** Reprojected bundles: where the solved camera sees each reconstructed track, joined to its marker. */
+  private drawBundles(ctx: CanvasRenderingContext2D, T: Affine2 | null) {
+    const c = this.clip!;
+    const o = tobj(c);
+    if (!o.reconstruction?.is_valid) return;
+    const f = this.clipFrame;
+    const [W, H] = c.size;
+    for (const t of this.tracks()) {
+      if (!t.has_bundle || !t.bundle) continue;
+      const m = enabledMarkerAt(t, f);
+      if (!m || m.frame !== f) continue;
+      const q = reprojectBundle(c, o, t.bundle, f);
+      if (!q) continue;
+      const a = this.toScreen((m.co[0] + t.offset[0]) * W, (1 - m.co[1] - t.offset[1]) * H, T);
+      const b = this.toScreen(q[0], H - q[1], T);
+      const err = Math.hypot((m.co[0] + t.offset[0]) * W - q[0], (m.co[1] + t.offset[1]) * H - q[1]);
+      const col = err < 1 ? '#4fd06b' : err < 3 ? '#f0c419' : '#f0483e';
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(a[0], a[1]);
+      ctx.lineTo(b[0], b[1]);
+      ctx.stroke();
+      ctx.fillStyle = '#000000';
+      ctx.beginPath();
+      ctx.arc(b[0], b[1], 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(b[0], b[1], 2.2, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
@@ -819,19 +997,24 @@ export class ClipEditor implements Editor {
       if (t) this.slide(e, { track: t, kind: 'move', index: -1 }, start, 'Add Marker');
       return;
     }
+    if (planeCornerDown(this, e, start)) return;
     const hit = this.hit(start.x, start.y);
+    if (!hit && planeBodyDown(this, e, start)) return void this.drawUI();
     if (hit) {
       const t = hit.track;
       if (e.shiftKey && hit.kind === 'move') {
-        if (t.select && c.tracking.active_track === t.name) t.select = false;
+        if (t.select && tobj(c).active_track === t.name) t.select = false;
         else {
           t.select = true;
-          c.tracking.active_track = t.name;
+          tobj(c).active_track = t.name;
         }
       } else {
-        if (!t.select) for (const o of c.tracking.tracks) o.select = false;
+        if (!t.select) {
+          for (const o of tobj(c).tracks) o.select = false;
+          for (const p of tobj(c).plane_tracks ?? []) p.select = false;
+        }
         t.select = true;
-        c.tracking.active_track = t.name;
+        tobj(c).active_track = t.name;
       }
       app.changed('doc');
       this.drawUI();
@@ -954,7 +1137,8 @@ export class ClipEditor implements Editor {
       if (!dragged || !b) {
         if (!fromKey) {
           let any = false;
-          for (const t of c.tracking.tracks) if (t.select) ((t.select = false), (any = true));
+          for (const t of tobj(c).tracks) if (t.select) ((t.select = false), (any = true));
+          for (const p of tobj(c).plane_tracks ?? []) if (p.select) ((p.select = false), (any = true));
           if (any) app.pushUndo('Select');
           app.changed('doc');
         }
@@ -976,7 +1160,7 @@ export class ClipEditor implements Editor {
         else if (!extend) t.select = false;
       }
       const act = activeTrack(c);
-      if (!act?.select) c.tracking.active_track = c.tracking.tracks.find((t) => t.select)?.name ?? c.tracking.active_track;
+      if (!act?.select) tobj(c).active_track = tobj(c).tracks.find((t) => t.select)?.name ?? tobj(c).active_track;
       app.pushUndo('Box Select');
       app.changed('doc');
     };
@@ -1065,6 +1249,7 @@ export class ClipEditor implements Editor {
         ? [menu('Select', () => maskSelectMenu()), menu('Add', () => maskAddMenu()), menu('Mask', () => maskMenu())]
         : [this.view === 'GRAPH' ? menu('Select', () => graphSelectMenu()) : this.view !== 'DOPESHEET' ? menu('Select', () => selectMenu()) : null, this.view === 'CLIP' ? [menu('Clip', () => clipMenu()), menu('Track', () => trackMenu()), menu('Reconstruction', () => reconstructionMenu())] : null],
       h('div', { class: 'hdr-spacer' }),
+      c && this.view === 'CLIP' && this.mode !== 'MASK' && solveErrorText(c) ? h('span', { class: 'clip-header-error', 'data-tip': 'Average reprojection error of the solution' }, solveErrorText(c)) : null,
       this.view === 'CLIP' && this.mode === 'MASK' ? maskBrowse(this) : null,
       h(
         'div',
@@ -1218,7 +1403,7 @@ export class ClipEditor implements Editor {
   }
 
   serialize() {
-    return { clip: this.clipId, view: this.view, zoom: this.zoom, off: [this.offX, this.offY], toolbar: this.showToolbar, sidebar: this.showSidebar, sidebarTab: this.sidebarTab, overlays: this.overlays, lock: this.lockSelection, mode: this.mode, mask: this.maskId, cursor: this.cursor, pivot: this.pivot };
+    return { clip: this.clipId, view: this.view, zoom: this.zoom, off: [this.offX, this.offY], toolbar: this.showToolbar, sidebar: this.showSidebar, sidebarTab: this.sidebarTab, overlays: this.overlays, lock: this.lockSelection, mode: this.mode, mask: this.maskId, cursor: this.cursor, pivot: this.pivot, proxy: this.proxyRenderSize };
   }
 
   dispose() {
@@ -1253,6 +1438,7 @@ function viewMenu(ed: ClipEditor): MenuItem[] {
       opItem('Frame All', 'clip.view_all'),
       opItem('Frame All Fit', 'clip.view_all', { fit_view: true }),
       opItem('Frame Selected', 'clip.view_selected'),
+      opItem('Center View to Cursor', 'clip.view_center_cursor'),
       { label: 'Zoom', submenu: () => [opItem('Zoom In', 'clip.view_zoom_in'), opItem('Zoom Out', 'clip.view_zoom_out'), { separator: true }, ...[8, 4, 2, 1, 0.5, 0.25, 0.125].map((r) => opItem(`Zoom ${r >= 1 ? `${r}:1` : `1:${1 / r}`}`, 'clip.view_zoom_ratio', { ratio: r }))] },
       { separator: true },
       { label: 'Lock to Selection', checked: ed.lockSelection, shortcut: 'L', op: 'clip.lock_selection_toggle' },
@@ -1331,8 +1517,10 @@ function clipMenu(): MenuItem[] {
     opItem('Open…', 'clip.open', undefined, { icon: 'file_folder' }),
     { separator: true },
     opItem('Set Scene Frames', 'clip.set_scene_frames'),
+    opItem('Set Active Clip', 'clip.set_active_clip'),
     opItem('Prefetch Frames', 'clip.prefetch'),
     opItem('Reload Clip', 'clip.reload'),
+    { label: 'Proxy', submenu: () => [opItem('Rebuild Proxy', 'clip.rebuild_proxy'), opItem('Delete Proxy', 'clip.delete_proxy')] },
     { separator: true },
     opItem('Export Stabilized Footage…', 'clip.export_stabilized_footage'),
     opItem('Export Stabilization Data…', 'clip.export_stabilization_data'),
@@ -1353,13 +1541,23 @@ function trackMenu(): MenuItem[] {
     },
     {
       label: 'Clear',
-      submenu: () => [opItem('Before', 'clip.clear_track_path', { action: 'UPTO', clear_active: false }), opItem('After', 'clip.clear_track_path', { action: 'REMAINED', clear_active: false }), opItem('Track Path', 'clip.clear_track_path', { action: 'ALL', clear_active: false })],
+      submenu: () => [
+        opItem('Before', 'clip.clear_track_path', { action: 'UPTO', clear_active: false }),
+        opItem('After', 'clip.clear_track_path', { action: 'REMAINED', clear_active: false }),
+        opItem('Track Path', 'clip.clear_track_path', { action: 'ALL', clear_active: false }),
+        { separator: true },
+        opItem('Solution', 'clip.clear_solution'),
+      ],
     },
     { label: 'Refine', submenu: () => [opItem('Backwards', 'clip.refine_markers', { backwards: true }), opItem('Forwards', 'clip.refine_markers', { backwards: false })] },
     { label: 'Clean Up', submenu: () => [opItem('Clean Tracks', 'clip.clean_tracks'), opItem('Filter Tracks', 'clip.filter_tracks')] },
     { separator: true },
     opItem('Add Marker', 'clip.add_marker_at_click'),
     opItem('Detect Features', 'clip.detect_features'),
+    { separator: true },
+    opItem('Create Plane Track', 'clip.create_plane_track'),
+    opItem('New Image from Plane Marker', 'clip.new_image_from_plane_marker'),
+    opItem('Update Image from Plane Marker', 'clip.update_image_from_plane_marker'),
     { separator: true },
     opItem('Join Tracks', 'clip.join_tracks'),
     opItem('Average Tracks', 'clip.average_tracks'),
@@ -1379,8 +1577,24 @@ function trackMenu(): MenuItem[] {
   ];
 }
 
+/** The Distance setting of the shown clip (used by Set Scale / Apply Solution Scale). */
+export function sceneDistance(): number {
+  return currentClipEditor()?.clip?.tracking.settings.distance ?? 1;
+}
+
 function reconstructionMenu(): MenuItem[] {
-  return [opItem('Link Empty to Track', 'clip.track_to_empty')];
+  return [
+    opItem('Set Origin', 'clip.set_origin'),
+    opItem('Set Floor', 'clip.set_plane', { plane: 'FLOOR' }),
+    opItem('Set Wall', 'clip.set_plane', { plane: 'WALL' }),
+    opItem('Set X Axis', 'clip.set_axis', { axis: 'X' }),
+    opItem('Set Y Axis', 'clip.set_axis', { axis: 'Y' }),
+    opItem('Set Scale', 'clip.set_scale', { distance: sceneDistance() }),
+    opItem('Apply Solution Scale', 'clip.apply_solution_scale', { distance: sceneDistance() }),
+    { separator: true },
+    opItem('Link Empty to Track', 'clip.track_to_empty'),
+    opItem('3D Markers to Mesh', 'clip.bundles_to_mesh'),
+  ];
 }
 
 export function contextMenu(): MenuItem[] {
@@ -1450,6 +1664,8 @@ function overlayMenu(ed: ClipEditor): MenuItem[] {
     { separator: true },
     { heading: 'Clip Display' },
     tog('Show Stable', 'show_stable'),
+    tog('Render Undistorted', 'render_undistorted'),
+    tog('Grid', 'show_grid'),
     tog('Mute', 'use_mute_footage', 'Ctrl H'),
     tog('Cache Line', 'show_cache'),
   ];
