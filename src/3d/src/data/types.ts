@@ -1282,6 +1282,9 @@ export interface KeyingSetData {
 
 export interface SceneData {
   name: string;
+  /** step of the timeline's Jump buttons (Ctrl ← / →), in time_jump_unit */
+  time_jump_delta?: number;
+  time_jump_unit?: 'SECONDS' | 'FRAMES';
   /** camera view safe-area margins (fractions of the frame, x and y) */
   safe_areas?: { title: [number, number]; action: [number, number]; title_center: [number, number]; action_center: [number, number] };
   frame_start: number;

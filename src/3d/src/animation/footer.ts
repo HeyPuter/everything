@@ -7,6 +7,8 @@ import { openPopover } from '../ui/menu';
 import { numberField, enumMenu, checkbox } from '../ui/widgets';
 import type { Keyframe } from '../data/types';
 import { keyingSetItems } from '../anim/keyingsets';
+import { prefs } from '../app/prefs';
+import { setPref } from '../prefs/store';
 
 /** Playback options kept for the session. */
 export const playbackOptions = { follow: false };
@@ -86,6 +88,28 @@ function keyingPopover(): Child {
       ts.keyframe_type,
       (v) => ((ts.keyframe_type = v as Keyframe['type']), app.pushUndo('Keyframe Type'), app.changed('ui')),
     ),
+    h('div', { class: 'opt-head' }, 'Auto Keying'),
+    checkbox('anim-only-needed', 'Only Insert Needed', prefs.use_keyframe_insert_needed, (v) => (setPref('use_keyframe_insert_needed', v), app.changed('ui')), { tip: 'Skip keyframes that would not change the curve (also in Preferences ▸ Animation)' }),
+  ];
+}
+
+function timeJumpPopover(): Child {
+  const s = app.doc.scene;
+  return [
+    h('div', { class: 'opt-head' }, 'Time Jump'),
+    popRow('Delta', numberField({ id: 'anim-jump-delta', value: s.time_jump_delta ?? 1, min: 0.001, softMax: 100, precision: s.time_jump_unit === 'FRAMES' ? 0 : 2, set: (v, f) => ((s.time_jump_delta = v), app.changed('ui'), f && app.pushUndo('Time Jump Delta')) })),
+    popRow(
+      'Unit',
+      enumMenu(
+        'anim-jump-unit',
+        [
+          { value: 'SECONDS', label: 'Seconds' },
+          { value: 'FRAMES', label: 'Frames' },
+        ],
+        s.time_jump_unit ?? 'SECONDS',
+        (v) => ((s.time_jump_unit = v as 'SECONDS'), app.pushUndo('Time Jump Unit'), app.changed('ui')),
+      ),
+    ),
   ];
 }
 
@@ -126,6 +150,14 @@ export function playbackFooter(extra: Child = null): Child {
       tbtn(playing === 'forward' ? 'pause' : 'play', 'Play Animation (Space)', () => app.run('screen.animation_play'), playing === 'forward'),
       tbtn('next_keyframe', 'Jump to Keyframe\nNext keyframe (↑)', () => app.run('screen.keyframe_jump', { next: true })),
       tbtn('ff', 'Jump to Endpoint\nJump to last frame (Shift →)', () => app.run('screen.frame_jump', { end: true })),
+    ),
+    // jump back / forward by the time jump step, with the step in its dropdown
+    h(
+      'div',
+      { key: 'jump', class: 'hdr-group time-jump' },
+      tbtn('time_jump_back', 'Jump Time by Delta\nJump back by the time jump step (Ctrl ←)', () => app.run('screen.time_jump', { backward: true })),
+      tbtn('time_jump_forward', 'Jump Time by Delta\nJump forward by the time jump step (Ctrl →)', () => app.run('screen.time_jump', { backward: false })),
+      popoverButton('', null, timeJumpPopover, 'hdr-icondrop hidden-icon time-jump-drop'),
     ),
     extra,
     h('div', { class: 'hdr-spacer' }),

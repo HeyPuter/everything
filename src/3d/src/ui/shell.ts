@@ -21,6 +21,7 @@ import './favorites';
 import './areawindow';
 import './screenshot';
 import './menuicons';
+import './moreicons';
 import { APP_VERSION } from '../scripting/wmops';
 import { mouseHints } from './statushints';
 

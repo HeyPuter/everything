@@ -137,10 +137,12 @@ registerOperators([
   {
     idname: 'screen.time_jump',
     label: 'Jump Time by Delta',
-    description: 'Jump forward or backward by one second',
+    description: 'Jump forward or backward by the scene’s time jump step (one second by default)',
     props: [{ id: 'backward', label: 'Backwards', type: 'bool', default: false }],
     exec: (ctx, p) => {
-      const step = Math.max(1, Math.round(ctx.doc.scene.render.fps));
+      const sc = ctx.doc.scene;
+      const delta = sc.time_jump_delta ?? 1;
+      const step = Math.max(1, Math.round(sc.time_jump_unit === 'FRAMES' ? delta : delta * (sc.render.fps / (sc.render.fps_base || 1))));
       app.setFrame(ctx.doc.scene.frame_current + (p.backward ? -step : step));
     },
     undo: false,
