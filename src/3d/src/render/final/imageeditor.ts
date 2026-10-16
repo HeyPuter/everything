@@ -21,7 +21,7 @@ import { scopesPanel } from './scopes';
 import { lastOpPanel } from '../../ui/redo';
 import { uiList } from '../../editors/properties/uilist';
 import { isTiled, tileName, tileView, atlasLayout, tileCell } from '../udim';
-import { makeTiled, makeSingle, openImageFiles } from './udimops';
+import { makeTiled, makeSingle, openImageFiles, saveTiles } from './udimops';
 import { imagePaintStroke, paintBrush } from './imagepaint';
 import { paintImage } from '../../paint/tpaint';
 import { BRUSH_LISTS } from '../../paint/brushes';
@@ -885,6 +885,8 @@ export class ImageEditor implements Editor, View2D {
   }
 
   async save() {
+    // UDIM images: every tile, named with the <UDIM> token
+    if (isTiled(this.image)) return saveTiles(this.image);
     const { format, colorMode } = this.outputDefaults();
     await this.saveWith(format, colorMode, 0.9, this.defaultName(format));
   }
@@ -902,6 +904,7 @@ export class ImageEditor implements Editor, View2D {
   }
 
   saveAsDialog(anchor?: HTMLElement) {
+    if (isTiled(this.image)) return void saveTiles(this.image);
     const d = this.outputDefaults();
     const p = { format: d.format, colorMode: d.colorMode, quality: 90, name: this.defaultName(d.format) };
     const pop = openPopover(
