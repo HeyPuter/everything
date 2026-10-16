@@ -14,6 +14,7 @@ import { drawRamp, drawCurves } from '../nodes/editor/rampui';
 import type { NodeData } from '../data/types';
 import type { RenderSettings, MaterialData } from '../data/types';
 import { activeLineSet, freestyleSettings, lineStyleOf, modifierList, MODIFIER_TYPES, COLOR_BLEND, VALUE_BLEND, MATERIAL_ATTRIBUTES, type ModifierKind } from './defaults';
+import './lines.css';
 import { EDGE_TYPES, linestyleTable, type LineSet, type LineStyleData, type LineStyleModifier } from './types';
 
 const changed = (label: string) => {
@@ -47,12 +48,16 @@ const items = (pairs: [string, string][]) => pairs.map(([value, label]) => ({ va
 
 /** Expanded enum as a row of buttons, data-bound. */
 function enumButtons<T extends object>(owner: T, key: keyof T & string, label: string, pairs: [string, string][]): Child {
+  // long option lists read better as a menu in the narrow properties column
+  if (pairs.reduce((n, p) => n + p[1].length, 0) > 9) return enumProp(owner, key, label, pairs);
   return splitRow(
     label,
     enumRow(`fs-${key}`, items(pairs), String(owner[key]), (v) => {
       (owner as Record<string, unknown>)[key] = v;
       changed(`Change ${label}`);
     }),
+    undefined,
+    'fs-enum',
   );
 }
 
@@ -131,7 +136,7 @@ function edgeTypeGrid(set: LineSet): Child {
         h(
           'button',
           {
-            class: { 'hdr-toggle': true, on: !!set[xk] },
+            class: { 'fs-x': true, on: !!set[xk] },
             disabled: !set[sk],
             'data-tip': `Exclude ${label}\nSelect edges that are not of this type`,
             onclick: () => ((set[xk] = !set[xk]), changed(`Exclude ${label}`)),
@@ -180,9 +185,8 @@ function lineSetPanel(): Child {
     ),
     set
       ? [
-          splitRow(
-            'Selection By',
-            h(
+          h('div', { class: 'fs-heading' }, 'Selection By'),
+          h(
               'div',
               { class: 'fs-sel-by' },
               toggle(set, 'select_by_visibility', 'Visibility', 'Select lines by how far they are hidden'),
@@ -191,7 +195,6 @@ function lineSetPanel(): Child {
               toggle(set, 'select_by_collection', 'Collection', 'Select lines of the objects in a collection'),
               toggle(set, 'select_by_image_border', 'Image Border', 'Select only lines inside the image'),
             ),
-          ),
           set.select_by_visibility
             ? sub('vl-fs-ls-vis', 'Visibility', () => [
                 enumButtons(set, 'visibility', 'Type', [
@@ -411,6 +414,7 @@ function geometryRows(m: LineStyleModifier): Child {
   return null;
 }
 
+const KIND_ICON: Record<ModifierKind, string> = { color: 'fs_color', alpha: 'fs_alpha', thickness: 'line_data', geometry: 'mod_wave' };
 const KIND_OP: Record<ModifierKind, string> = { color: 'scene.freestyle_color_modifier_add', alpha: 'scene.freestyle_alpha_modifier_add', thickness: 'scene.freestyle_thickness_modifier_add', geometry: 'scene.freestyle_geometry_modifier_add' };
 
 function modifierBox(kind: ModifierKind, m: LineStyleModifier, i: number, count: number): Child {
@@ -431,8 +435,8 @@ function modifierBox(kind: ModifierKind, m: LineStyleModifier, i: number, count:
         },
       },
       h('span', { class: 'ph-arrow' }, icon(m.expanded ? 'disclosure_tri_down' : 'disclosure_tri_right')),
+      h('span', { class: 'fs-mod-icon', 'data-tip': typeLabel }, icon(KIND_ICON[kind])),
       textField(`${key}-name`, m.name, (v) => ((m.name = v), changed('Rename Modifier')), { className: 'mod-name' }),
-      h('span', { class: 'fs-mod-type' }, typeLabel),
       h('button', { class: { 'mod-toggle': true, on: m.use }, 'data-tip': 'Use\nEnable or disable this modifier', onclick: () => ((m.use = !m.use), changed('Toggle Modifier')) }, icon(m.use ? 'restrict_render_off' : 'restrict_render_on')),
       h(
         'button',

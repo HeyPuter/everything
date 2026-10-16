@@ -15,5 +15,9 @@ registerIcons({
   // edge mark: an edge between two vertices with a tick
   freestyle_edge:
     '<path class="s" d="M3 13 13 3" stroke-width="1.8" stroke-linecap="round"/><circle class="f" cx="3" cy="13" r="1.6"/><circle class="f" cx="13" cy="3" r="1.6"/><path class="s" d="M9.5 11.5h4M11.5 9.5v4" stroke-width="1.1" stroke-linecap="round"/>',
+  // colour modifier: a swatch ring
+  fs_color: '<circle class="s" cx="8" cy="8" r="5.2" fill="none" stroke-width="1.3"/><path class="f" d="M8 2.8a5.2 5.2 0 0 1 0 10.4z"/>',
+  // alpha modifier: half checker square
+  fs_alpha: '<rect class="s" x="2.6" y="2.6" width="10.8" height="10.8" rx="1" fill="none" stroke-width="1.2"/><path class="f" d="M3 3h5v5H3zM8 8h5v5H8z" opacity=".75"/>',
   freestyle_face: '<path class="f" d="M2.5 3.5h8v8h-8z" opacity=".45"/><path class="s" d="M2.5 3.5h8v8h-8z" fill="none" stroke-width="1.2"/><path class="s" d="M11 12h3.5M12.75 10.25v3.5" stroke-width="1.1" stroke-linecap="round"/>',
 });
