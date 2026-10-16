@@ -79,6 +79,9 @@ export interface FeatureEdge {
   m1: number;
   /** a point on the inner side of the line (front face centre), for one-sided thickness */
   inner?: [number, number, number];
+  /** vertex group weights at the two ends (Line Art weight transfer) */
+  wa?: Record<string, number>;
+  wb?: Record<string, number>;
 }
 
 const sub = (P: Float32Array, a: number, b: number, o: number[]) => {

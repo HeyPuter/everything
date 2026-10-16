@@ -2,7 +2,8 @@
 // objects, collections and materials.
 import { app } from '../app/app';
 import { h, type Child } from '../ui/h';
-import { panel, enumMenu, opButton, checkbox } from '../ui/widgets';
+import { panel, enumMenu, opButton, checkbox, textField } from '../ui/widgets';
+import { icon } from '../ui/icons';
 import { num, bool, enumProp, objectProp, splitRow } from '../ui/props';
 import { modifierExtraUI } from '../editors/properties/stack';
 import { objectExtraPanels, collectionExtraPanels, materialExtraPanels } from '../editors/properties/tabs';
@@ -84,6 +85,11 @@ function lineArtUI(ob: ObjectData, m0: ModifierBase): Child {
       bool(m, 'use_face_mark_boundaries', 'Boundaries', { tip: 'Only the edges where marked and unmarked faces meet' }),
       bool(m, 'use_face_mark_keep_contour', 'Keep Contour', { tip: 'Keep outlines regardless of the marks' }),
     ], { closed: true, header: checkbox(`la-fm-on-${m.id}`, '', !!m.use_face_mark, (v) => ((m.use_face_mark = v), changed('Face Mark Filtering'))) }),
+    sub(`la-vw-${m.id}`, 'Vertex Weight Transfer', () => [
+      splitRow('Filter Source', h('div', { class: 'la-filter' }, textField(`${m.id}.svg`, String(m.source_vertex_group ?? ''), (v) => ((m.source_vertex_group = v), changed('Filter Source')), { placeholder: 'Group name prefix' }), h('button', { class: { 'fs-x': true, on: !!m.invert_source_vertex_group }, 'data-tip': 'Invert\nUse the groups that do not start with the prefix', onclick: () => ((m.invert_source_vertex_group = !m.invert_source_vertex_group), changed('Invert Filter')) }, icon('gp_invert')))),
+      bool(m, 'use_output_vertex_group_match_by_name', 'Match Output', { tip: 'Write each source group to the grease pencil group of the same name' }),
+      m.use_output_vertex_group_match_by_name ? null : pick(m, 'vertex_group', 'Target', (gp?.vertex_groups ?? []).map((g) => ({ value: g.name, label: g.name, icon: 'group_vertex' }))),
+    ], { closed: true }),
     sub(`la-comp-${m.id}`, 'Composition', () => [
       num(m, 'overscan', 'Overscan', { min: 0, max: 0.5, slider: true, tip: 'Keep lines this far (fraction of the frame) outside the camera view' }),
       num(m, 'stroke_depth_offset', 'Depth Offset', { unit: 'distance', min: -0.5, max: 0.5, tip: 'Move the strokes towards the camera so surfaces do not cover them' }),

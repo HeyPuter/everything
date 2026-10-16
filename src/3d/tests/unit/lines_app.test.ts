@@ -168,6 +168,24 @@ describe('line art', () => {
     expect(m.source_object).toBe(cube().id);
   });
 
+  it('transfers source vertex group weights to the strokes', async () => {
+    const me = app.doc.meshes[cube().data!] as MeshData;
+    me.vertex_groups = [{ name: 'rim' } as never];
+    me.weights = [new Float32Array(me.positions.length / 3).fill(0.75)];
+    app.run('object.grease_pencil_add', { type: 'LINEART_SCENE' });
+    const ob = app.activeObject!;
+    const m = ob.modifiers[0] as ModifierBase & Record<string, unknown>;
+    m.source_vertex_group = 'ri';
+    m.use_output_vertex_group_match_by_name = false;
+    m.vertex_group = 'lines';
+    app.evaluate();
+    const { lineArtStrokes } = await import('../../src/lines/lineart');
+    const { Matrix4 } = await import('three');
+    const strokes = lineArtStrokes(m, app.doc, new Matrix4(), gpOf(app.doc, ob)!.materials);
+    expect(strokes.length).toBeGreaterThan(0);
+    expect(strokes[0].points[0].weights?.lines).toBeCloseTo(0.75);
+  });
+
   it('a Line Art modifier added from the menu targets the active layer', () => {
     app.run('object.grease_pencil_add', { type: 'STROKE' });
     app.run('object.modifier_add', { type: 'LINEART' });

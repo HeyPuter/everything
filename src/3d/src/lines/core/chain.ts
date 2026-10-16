@@ -18,6 +18,15 @@ export interface SV {
   curv: number;
   /** +1: the surface lies on the (-dy, dx) side of the stroke, -1 the other side, 0 unknown */
   side: number;
+  /** vertex group weights carried from the source mesh */
+  w?: Record<string, number>;
+}
+
+function lerpWeights(a: Record<string, number> | undefined, b: Record<string, number> | undefined, t: number): Record<string, number> | undefined {
+  if (!a && !b) return undefined;
+  const out: Record<string, number> = {};
+  for (const k of new Set([...Object.keys(a ?? {}), ...Object.keys(b ?? {})])) out[k] = (a?.[k] ?? 0) + ((b?.[k] ?? 0) - (a?.[k] ?? 0)) * t;
+  return out;
 }
 
 export interface Stroke2D {
@@ -46,6 +55,7 @@ export function lerpSV(a: SV, b: SV, t: number): SV {
     angle: a.angle + (b.angle - a.angle) * t,
     curv: a.curv + (b.curv - a.curv) * t,
     side: t < 0.5 ? a.side : b.side,
+    w: lerpWeights(a.w, b.w, t),
   };
 }
 
@@ -53,7 +63,7 @@ function pieceVertex(p: Piece, t: number, cam: LineCamera, side: number, mat: nu
   const e = p.edge;
   const w = lerp3(e.pa, e.pb, t);
   const s = projectPoint(cam, w[0], w[1], w[2]);
-  return { x: s[0], y: s[1], dist: s[3], p: w, mat, obj: e.object, angle: e.angle, curv: e.curvature, side };
+  return { x: s[0], y: s[1], dist: s[3], p: w, mat, obj: e.object, angle: e.angle, curv: e.curvature, side, w: e.wa || e.wb ? lerpWeights(e.wa, e.wb, t) : undefined };
 }
 
 /** Which side of the piece (in its own a → b direction) the surface lies on. */

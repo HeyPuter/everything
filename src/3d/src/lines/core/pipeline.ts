@@ -24,6 +24,9 @@ export interface LineObject {
   world: ArrayLike<number>;
   /** material id per slot */
   materials: (string | null)[];
+  /** vertex group weights per vertex, and the groups' names */
+  weights?: Float32Array[];
+  groups?: string[];
 }
 
 export interface LineRenderInput {

@@ -173,8 +173,33 @@ function materialMaskKeeps(doc: DocumentData, o: LineObject, e: FeatureEdge, bit
   return test(matBits(e.m0)) || (e.f1 >= 0 && test(matBits(e.m1)));
 }
 
+/** Vertex weights of the source groups named by `source_vertex_group` (prefix), per vertex of an object. */
+function weightTransfer(m: M): ((o: LineObject) => ((v: number) => Record<string, number> | undefined) | null) | null {
+  const prefix = String(m.source_vertex_group ?? '');
+  if (!m.vertex_group && !m.use_output_vertex_group_match_by_name) return null;
+  if (!prefix && !m.vertex_group) return null;
+  const inv = !!m.invert_source_vertex_group;
+  return (o) => {
+    if (!o.weights?.length || !o.groups) return null;
+    const pick = o.groups.map((n, i) => (n.startsWith(prefix) !== inv ? i : -1)).filter((i) => i >= 0);
+    if (!pick.length) return null;
+    const nv = o.positions.length / 3;
+    return (v) => {
+      if (v < 0 || v >= nv) return undefined;
+      const out: Record<string, number> = {};
+      for (const g of pick) {
+        const w = o.weights![g]?.[v] ?? 0;
+        if (w > 0) out[o.groups![g]] = w;
+      }
+      return out;
+    };
+  };
+}
+
 export interface LineArtStroke {
   points: [number, number, number][];
+  /** per point source group weights (when weights are transferred) */
+  weights?: (Record<string, number> | undefined)[];
 }
 
 const cache = new Map<string, LineArtStroke[]>();
@@ -193,6 +218,7 @@ export function computeLineArt(m: M, doc: DocumentData): LineArtStroke[] {
   const edges: FeatureEdge[] = [];
   const occ: OccluderInput[] = [];
   occluders.forEach((o, i) => occ.push({ positions: o.positions, offsets: o.offsets, indices: o.indices, world: o.world, object: i, faceWeight: faceWeights(doc, o) }));
+  const transfer = weightTransfer(m);
   const maskBits = m.use_material_mask ? ((m.use_material_mask_bits as boolean[] | undefined) ?? []) : null;
   for (const o of lines) {
     const i = occluders.indexOf(o);
@@ -207,7 +233,8 @@ export function computeLineArt(m: M, doc: DocumentData): LineArtStroke[] {
       if (!flags) continue;
       if (m.use_face_mark && !faceMarkKeeps(m, o, e)) continue;
       if (maskBits && !materialMaskKeeps(doc, o, e, maskBits, !!m.use_material_mask_match)) continue;
-      edges.push({ ...e, flags });
+      const wt = transfer ? transfer(o) : null;
+      edges.push(wt ? { ...e, flags, wa: wt(e.ia), wb: wt(e.ib) } : { ...e, flags });
     }
   }
   if (m.use_intersection) {
@@ -225,6 +252,7 @@ export function computeLineArt(m: M, doc: DocumentData): LineArtStroke[] {
   return strokes
     .filter((s) => s.pts.length >= 2)
     .map((s) => ({
+      weights: s.pts.some((v) => v.w) ? s.pts.map((v) => v.w) : undefined,
       points: s.pts.map((v) => {
         const p = v.p;
         let dx: number, dy: number, dz: number;
@@ -260,11 +288,20 @@ export function lineArtStrokes(m: M, doc: DocumentData, world: Matrix4, material
   const r = num(m, 'radius', 0.0025),
     a = num(m, 'opacity', 1);
   const v = new Vector3();
+  const target = String(m.vertex_group ?? '');
+  const byName = !!m.use_output_vertex_group_match_by_name;
   return cachedLineArt(m, doc).map((s) =>
     newStroke(
-      s.points.map((p) => {
+      s.points.map((p, i) => {
         v.set(p[0], p[1], p[2]).applyMatrix4(inv);
-        return newPoint([v.x, v.y, v.z], r, a);
+        const pt = newPoint([v.x, v.y, v.z], r, a);
+        const w = s.weights?.[i];
+        if (w) {
+          // matching names keep each group; otherwise the strongest source weight goes to the target group
+          if (byName && !target) pt.weights = { ...w };
+          else if (target) pt.weights = { [target]: Math.max(0, ...Object.values(w)) };
+        }
+        return pt;
       }),
       { material_index: mat },
     ),

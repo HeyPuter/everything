@@ -47,7 +47,7 @@ export function lineObjects(app: App, filter?: (ob: ObjectData) => boolean): Lin
     if (!m) continue;
     const slots = materialSlots(doc, ob);
     if (m.indices.length || m.looseEdges?.length)
-      out.push({ id: ob.id, positions: m.positions, offsets: m.offsets, indices: m.indices, material_index: m.material_index, smooth: m.smooth, looseEdges: m.looseEdges, world: ev.world.elements, materials: slots, ...marksFor(doc, ob, m) });
+      out.push({ id: ob.id, positions: m.positions, offsets: m.offsets, indices: m.indices, material_index: m.material_index, smooth: m.smooth, looseEdges: m.looseEdges, world: ev.world.elements, materials: slots, weights: m.weights, groups: (m.vertex_groups ?? (ob.type === 'MESH' && ob.data ? doc.meshes[ob.data]?.vertex_groups : undefined))?.map((g) => g.name), ...marksFor(doc, ob, m) });
     for (const it of m.instances ?? []) {
       const src = it.mesh ?? (it.objectId ? app.graph.get(it.objectId)?.mesh : undefined);
       if (!src || !src.indices.length) continue;

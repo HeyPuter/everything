@@ -116,3 +116,12 @@
   min-width: 0;
   padding: 0;
 }
+.la-filter {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+.la-filter > .text-field {
+  flex: 1;
+  min-width: 0;
+}
