@@ -237,3 +237,37 @@ button.ol-mode:hover {
   font-size: 10px;
   line-height: 14px;
 }
+
+/* Data API display mode: property values */
+.ol-api-value {
+  flex: none;
+  width: 42%;
+  max-width: 220px;
+  min-width: 90px;
+  display: flex;
+  align-items: center;
+  margin-right: 4px;
+}
+.ol-api-value > * {
+  flex: 1;
+  min-width: 0;
+}
+.ol-api-value .num-field {
+  height: 18px;
+}
+.ol-api-text {
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: var(--w-field, #1a1b1c);
+  color: var(--c-text);
+  border: none;
+  font: inherit;
+}
+.ol-api-ro {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--c-text-dim);
+  padding: 0 4px;
+}

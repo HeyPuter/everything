@@ -6,6 +6,10 @@ import { numberField, checkbox, enumMenu, colorSwatch, textField, decorator, typ
 import type { ObjectData } from '../data/types';
 import { keyState, keyProperty } from '../anim/keyframes';
 import { bindProp, type PropBinding } from './binding';
+import { isReadOnly } from '../library/readonly';
+
+/** Fields of linked (read-only) data draw disabled. */
+const ro = (owner: object, o: PropOpts): PropOpts => (isReadOnly(owner) ? { ...o, disabled: true, tip: o.tip ?? 'Linked data is read-only (make it local or override it to edit)' } : o);
 
 /** Register what a widget edits so generic button interactions (ui/buttons.ts) can act on it. */
 function bind(id: string, owner: object, key: string, label: string, kind: PropBinding['kind'], o: PropOpts = {}, extra: Partial<PropBinding> = {}) {
@@ -79,6 +83,7 @@ export function splitRow(label: string, content: Child, decoration: Child = h('s
 }
 
 export function num<T extends object>(owner: T, key: keyof T & string, label: string, o: PropOpts = {}) {
+  o = ro(owner, o);
   const value = owner[key] as unknown as number;
   bind(`${oid(owner)}.${key}`, owner, key, label, 'number', o);
   return splitRow(
@@ -108,6 +113,7 @@ export function num<T extends object>(owner: T, key: keyof T & string, label: st
 }
 
 export function bool<T extends object>(owner: T, key: keyof T & string, label: string, o: PropOpts = {}) {
+  o = ro(owner, o);
   bind(`${oid(owner)}.${key}`, owner, key, label, 'bool', o);
   return h(
     'div',
@@ -127,6 +133,7 @@ export function bool<T extends object>(owner: T, key: keyof T & string, label: s
 
 /** Checkbox with the label in the label column ("heading" style). */
 export function boolHeading<T extends object>(owner: T, key: keyof T & string, heading: string, label = '', o: PropOpts = {}) {
+  o = ro(owner, o);
   bind(`${oid(owner)}.${key}`, owner, key, label || heading, 'bool', o);
   return splitRow(
     heading,
@@ -139,6 +146,7 @@ export function boolHeading<T extends object>(owner: T, key: keyof T & string, h
 }
 
 export function enumProp<T extends object>(owner: T, key: keyof T & string, label: string, items: (EnumItem | [string, string])[], o: PropOpts = {}) {
+  o = ro(owner, o);
   const list = items.map((i) => (Array.isArray(i) ? { value: i[0], label: i[1] } : i));
   bind(`${oid(owner)}.${key}`, owner, key, label, 'enum', o, { items: list.map((x) => x.value) });
   return splitRow(
@@ -175,6 +183,7 @@ export function textProp<T extends object>(owner: T, key: keyof T & string, labe
 
 /** Stacked vector fields: first row carries the label ("Location X"), following rows "Y", "Z". */
 export function vecProp<T extends object>(owner: T, key: keyof T & string, label: string, o: PropOpts & { names?: string[]; lock?: { owner: object; key: string; offset?: number } } = {}) {
+  o = { ...o, ...(isReadOnly(owner) ? { disabled: true } : {}) };
   const arr = owner[key] as unknown as number[];
   const names = o.names ?? ['X', 'Y', 'Z', 'W'];
   return h(
@@ -193,6 +202,7 @@ export function vecProp<T extends object>(owner: T, key: keyof T & string, label
           step: o.step,
           precision: o.precision,
           slider: o.slider,
+          disabled: o.disabled,
           anim: o.anim ? (() => {
             const st = keyState(app.doc, o.anim!.ob, o.anim!.path, i);
             return st === 'none' ? null : st;

@@ -4,7 +4,7 @@
 import type { CollectionData, DocumentData, ObjectData } from '../../data/types';
 import { modifierTypes } from '../../eval/modifiers';
 
-export type DisplayMode = 'SCENES' | 'VIEW_LAYER' | 'BLENDER_FILE' | 'ORPHAN_DATA';
+export type DisplayMode = 'SCENES' | 'VIEW_LAYER' | 'SEQUENCE' | 'BLENDER_FILE' | 'DATA_API' | 'LIBRARY_OVERRIDES' | 'ORPHAN_DATA';
 export type FilterState = 'ALL' | 'VISIBLE' | 'SELECTED' | 'ACTIVE' | 'SELECTABLE';
 
 export interface OutlinerFilter {
@@ -33,6 +33,13 @@ export interface OutlinerFilter {
   use_filter_object_camera: boolean;
   use_filter_object_grease_pencil: boolean;
   use_filter_object_others: boolean;
+  /** Data Blocks / Unused Data: only list one data-block type */
+  use_filter_id_type: boolean;
+  filter_id_type: string;
+  /** Library Overrides: overridden properties, or the override hierarchies */
+  lib_override_view_mode: 'PROPERTIES' | 'HIERARCHIES';
+  /** Library Overrides: also list overrides made as part of a hierarchy */
+  use_filter_lib_override_system: boolean;
 }
 
 export function defaultFilter(): OutlinerFilter {
@@ -62,10 +69,14 @@ export function defaultFilter(): OutlinerFilter {
     use_filter_object_camera: true,
     use_filter_object_grease_pencil: true,
     use_filter_object_others: true,
+    use_filter_id_type: false,
+    filter_id_type: 'objects',
+    lib_override_view_mode: 'PROPERTIES',
+    use_filter_lib_override_system: false,
   };
 }
 
-export type RowKind = 'scene' | 'file' | 'collection' | 'object' | 'data' | 'material' | 'modifiers' | 'modifier' | 'constraints' | 'constraint' | 'vgroups' | 'vgroup' | 'action' | 'group' | 'id';
+export type RowKind = 'scene' | 'file' | 'collection' | 'object' | 'data' | 'material' | 'modifiers' | 'modifier' | 'constraints' | 'constraint' | 'vgroups' | 'vgroup' | 'action' | 'group' | 'id' | 'library' | 'strip' | 'rna' | 'override';
 
 export interface Row {
   /** unique per position in the tree (an object linked to two collections has two rows) */
@@ -99,6 +110,18 @@ export interface Row {
   fakeUser?: boolean;
   /** number of items in a data-block type group */
   count?: number;
+  /** Data API: the value shown (and edited) in the value column */
+  value?: RowValue;
+  /** Data API property path / Library Overrides property name / strip name */
+  path?: string;
+}
+
+/** A property value shown in the Data API display mode. */
+export interface RowValue {
+  get(): unknown;
+  set?(v: unknown): void;
+  kind: 'number' | 'int' | 'bool' | 'string' | 'enum' | 'vector' | 'color' | 'readonly';
+  items?: string[];
 }
 
 export interface TreeState {
@@ -109,7 +132,7 @@ export interface TreeState {
   open: Map<string, boolean>;
 }
 
-interface Node {
+export interface TreeNode {
   ekey: string;
   kind: RowKind;
   label: string;
@@ -127,8 +150,21 @@ interface Node {
   count?: number;
   /** search ignores structural rows that only group other elements */
   searchable?: boolean;
-  children: () => Node[];
+  value?: RowValue;
+  path?: string;
+  /** whether there are children, when known without building them */
+  hasKids?: boolean;
+  children: () => TreeNode[];
 }
+
+/** Builders of display modes defined in their own files (Data API, Video Sequencer, …). */
+export const modeBuilders: Partial<Record<DisplayMode, (doc: DocumentData, st: TreeState, tc: TreeContext) => TreeNode[]>> = {};
+
+/** Extra root elements of the Data Blocks mode after "Current File" (linked libraries). */
+export const fileModeRoots: ((doc: DocumentData, st: TreeState, idNode: (table: string, it: { id: string; name: string; use_fake_user?: boolean }, users: Map<string, number>) => TreeNode) => TreeNode[])[] = [];
+
+/** Is a data-block local (not linked from a library)? */
+const isLocal = (x: unknown) => !(x as { library?: string | null }).library;
 
 export const OB_ICON: Record<string, string> = {
   MESH: 'outliner_ob_mesh',
@@ -385,14 +421,14 @@ export interface TreeContext {
   selectable: (id: string) => boolean;
 }
 
-function buildViewLayer(doc: DocumentData, st: TreeState, tc: TreeContext): Node[] {
+function buildViewLayer(doc: DocumentData, st: TreeState, tc: TreeContext): TreeNode[] {
   const f = st.filter;
   const kids = childrenMap(doc);
   const master = doc.collections[doc.scene.collection];
   const sortObs = (l: ObjectData[]) => (f.use_sort_alpha ? [...l].sort(byName) : l);
   const passes = (ob: ObjectData) => objectPasses(ob, f, doc, tc.visible, tc.selectable);
 
-  const objectNode = (ob: ObjectData, colId: string | undefined, inCol: Set<string> | null, depth: number): Node => ({
+  const objectNode = (ob: ObjectData, colId: string | undefined, inCol: Set<string> | null, depth: number): TreeNode => ({
     ekey: `o:${ob.id}`,
     kind: 'object',
     label: ob.name,
@@ -404,7 +440,7 @@ function buildViewLayer(doc: DocumentData, st: TreeState, tc: TreeContext): Node
     defaultOpen: false,
     searchable: true,
     children: () => {
-      const out: Node[] = [];
+      const out: TreeNode[] = [];
       if (f.use_filter_object_content) out.push(...objectContent(doc, ob));
       if (f.use_filter_children && depth < 64) for (const c of liftFiltered(sortObs(kids.get(ob.id) ?? []))) out.push(objectNode(c, colId, inCol, depth + 1));
       return out;
@@ -419,7 +455,7 @@ function buildViewLayer(doc: DocumentData, st: TreeState, tc: TreeContext): Node
     }
     return out;
   };
-  const objectsOf = (c: CollectionData): Node[] => {
+  const objectsOf = (c: CollectionData): TreeNode[] => {
     if (!f.use_filter_object) return [];
     const inCol = new Set(c.objects);
     const obs = c.objects.map((id) => doc.objects[id]).filter(Boolean);
@@ -427,7 +463,7 @@ function buildViewLayer(doc: DocumentData, st: TreeState, tc: TreeContext): Node
     const list = f.use_filter_children ? liftFiltered(sortObs(roots)) : sortObs(roots).filter(passes);
     return list.map((o) => objectNode(o, c.id, inCol, 0));
   };
-  const collectionNode = (c: CollectionData, depth: number): Node => {
+  const collectionNode = (c: CollectionData, depth: number): TreeNode => {
     const isMaster = c.id === master.id;
     return {
       ekey: `c:${c.id}`,
@@ -463,9 +499,9 @@ function buildViewLayer(doc: DocumentData, st: TreeState, tc: TreeContext): Node
   return [collectionNode(master, 0)];
 }
 
-function objectContent(doc: DocumentData, ob: ObjectData): Node[] {
-  const out: Node[] = [];
-  const leaf = (n: Omit<Node, 'children' | 'defaultOpen'>): Node => ({
+function objectContent(doc: DocumentData, ob: ObjectData): TreeNode[] {
+  const out: TreeNode[] = [];
+  const leaf = (n: Omit<TreeNode, 'children' | 'defaultOpen'>): TreeNode => ({
     ...n,
     defaultOpen: false,
     children: () => [],
@@ -499,7 +535,7 @@ function objectContent(doc: DocumentData, ob: ObjectData): Node[] {
       defaultOpen: false,
       searchable: true,
       children: () => {
-        const l: Node[] = mats.map((m) =>
+        const l: TreeNode[] = mats.map((m) =>
           leaf({
             ekey: `m:${ob.id}:${m}`,
             kind: 'material',
@@ -581,77 +617,47 @@ function objectContent(doc: DocumentData, ob: ObjectData): Node[] {
   return out;
 }
 
-function buildIdModes(doc: DocumentData, st: TreeState): Node[] {
-  const orphans = st.mode === 'ORPHAN_DATA';
-  const users = userCounts(doc);
-  const groups: Node[] = [];
+/** Element of one data-block in the Data Blocks / Unused Data modes. */
+export function idNode(table: string, it: { id: string; name: string; use_fake_user?: boolean }, users: Map<string, number>, ekeyPrefix = 'id'): TreeNode {
+  const base = { label: it.name, id: it.id, table, defaultOpen: false, searchable: true, users: users.get(it.id) ?? 0, fakeUser: !!it.use_fake_user, children: () => [] };
+  if (table === 'objects') return { ...base, ekey: `${ekeyPrefix}:objects:${it.id}`, kind: 'object', icon: OB_ICON[(it as unknown as ObjectData).type] ?? 'object', ob: it as unknown as ObjectData };
+  if (table === 'collections') return { ...base, ekey: `${ekeyPrefix}:collections:${it.id}`, kind: 'id', icon: 'collection', collection: it as unknown as CollectionData };
+  return { ...base, ekey: `${ekeyPrefix}:${table}:${it.id}`, kind: 'id', icon: ID_GROUPS.find((g) => g[1] === table)?.[2] ?? 'file' };
+}
+
+/** Type groups of data-blocks (those passing `keep`), as in the Data Blocks display mode. */
+export function idGroups(doc: DocumentData, st: TreeState, keep: (table: string, x: { id: string; name: string; use_fake_user?: boolean }) => boolean, users: Map<string, number>, ekeyPrefix = 'g', defaultOpen = false): TreeNode[] {
+  const groups: TreeNode[] = [];
   for (const [label, table, ic] of ID_GROUPS) {
+    if (st.filter.use_filter_id_type && st.filter.filter_id_type !== table) continue;
     const rec = doc[table] as Record<string, { id: string; name: string; use_fake_user?: boolean }> | undefined;
     if (!rec) continue;
     // the scene collection belongs to the scene and is not listed as a data-block
-    let items = Object.values(rec).filter((x) => table !== 'collections' || x.id !== doc.scene.collection);
-    if (orphans) items = items.filter((x) => isOrphan(doc, table, x.id, users) || (x.use_fake_user && !(users.get(x.id) ?? 0)));
+    const items = Object.values(rec).filter((x) => (table !== 'collections' || x.id !== doc.scene.collection) && keep(table, x));
     if (!items.length) continue;
     items.sort(byName);
     groups.push({
-      ekey: `g:${table}`,
+      ekey: `${ekeyPrefix}:${table}`,
       kind: 'group',
       label,
       icon: ic,
       table,
       count: items.length,
-      defaultOpen: orphans,
-      children: () =>
-        items.map((it) =>
-          table === 'objects'
-            ? {
-                ekey: `id:objects:${it.id}`,
-                kind: 'object',
-                label: it.name,
-                icon: OB_ICON[(it as unknown as ObjectData).type] ?? 'object',
-                id: it.id,
-                table,
-                ob: it as unknown as ObjectData,
-                defaultOpen: false,
-                searchable: true,
-                users: users.get(it.id) ?? 0,
-                fakeUser: !!it.use_fake_user,
-                children: () => [],
-              }
-            : table === 'collections'
-              ? {
-                  ekey: `id:collections:${it.id}`,
-                  kind: 'id',
-                  label: it.name,
-                  icon: 'collection',
-                  id: it.id,
-                  table,
-                  collection: it as unknown as CollectionData,
-                  defaultOpen: false,
-                  searchable: true,
-                  users: users.get(it.id) ?? 0,
-                  fakeUser: !!it.use_fake_user,
-                  children: () => [],
-                }
-              : {
-                  ekey: `id:${table}:${it.id}`,
-                  kind: 'id',
-                  label: it.name,
-                  icon: ic,
-                  id: it.id,
-                  table,
-                  defaultOpen: false,
-                  searchable: true,
-                  users: users.get(it.id) ?? 0,
-                  fakeUser: !!it.use_fake_user,
-                  children: () => [],
-                },
-        ),
+      defaultOpen,
+      children: () => items.map((it) => idNode(table, it, users, ekeyPrefix === 'g' ? 'id' : `${ekeyPrefix}id`)),
     });
   }
-  if (!orphans) {
+  return groups;
+}
+
+function buildIdModes(doc: DocumentData, st: TreeState): TreeNode[] {
+  const orphans = st.mode === 'ORPHAN_DATA';
+  const users = userCounts(doc);
+  if (orphans) return idGroups(doc, st, (table, x) => isOrphan(doc, table, x.id, users) || (!!x.use_fake_user && !(users.get(x.id) ?? 0)), users, 'g', true);
+  const groups = idGroups(doc, st, (_t, x) => isLocal(x), users);
+  if (!st.filter.use_filter_id_type || st.filter.filter_id_type === 'scenes') {
     // the scene is listed with the data-blocks (it is not stored in a table)
-    const scenes: Node = {
+    const scenes: TreeNode = {
       ekey: 'g:scenes',
       kind: 'group',
       label: 'Scenes',
@@ -664,7 +670,6 @@ function buildIdModes(doc: DocumentData, st: TreeState): Node[] {
     const at = groups.findIndex((g) => g.label.localeCompare('Scenes') > 0);
     groups.splice(at < 0 ? groups.length : at, 0, scenes);
   }
-  if (orphans) return groups;
   return [
     {
       ekey: 'file',
@@ -674,25 +679,33 @@ function buildIdModes(doc: DocumentData, st: TreeState): Node[] {
       defaultOpen: true,
       children: () => groups,
     },
+    ...fileModeRoots.flatMap((f) => f(doc, st, (table, it, u) => idNode(table, it, u))),
   ];
 }
 
-function rootNodes(doc: DocumentData, st: TreeState, tc: TreeContext): Node[] {
+function rootNodes(doc: DocumentData, st: TreeState, tc: TreeContext): TreeNode[] {
+  const extra = modeBuilders[st.mode];
+  if (extra) return extra(doc, st, tc);
   if (st.mode === 'BLENDER_FILE' || st.mode === 'ORPHAN_DATA') return buildIdModes(doc, st);
   const vl = buildViewLayer(doc, st, tc);
-  if (st.mode === 'SCENES')
-    return [
-      {
-        ekey: 'scene',
-        kind: 'scene',
-        label: doc.scene.name,
-        icon: 'scene_data',
-        defaultOpen: true,
-        children: () => vl,
-      },
-    ];
+  if (st.mode === 'SCENES') return sceneRoots(doc, vl);
   return vl;
 }
+
+/** Scenes display mode: one element per scene with its view layer tree (replaceable). */
+export const scenesMode = {
+  roots: (doc: DocumentData, viewLayer: TreeNode[]): TreeNode[] => [
+    {
+      ekey: 'scene',
+      kind: 'scene',
+      label: doc.scene.name,
+      icon: 'scene_data',
+      defaultOpen: true,
+      children: () => viewLayer,
+    },
+  ],
+};
+const sceneRoots = (doc: DocumentData, vl: TreeNode[]) => scenesMode.roots(doc, vl);
 
 /** Does `label` match the search string under the current filter settings? */
 export function nameMatches(label: string, search: string, f: Pick<OutlinerFilter, 'use_filter_complete' | 'use_filter_case_sensitive'>): boolean {
@@ -723,15 +736,15 @@ const ZERO_TC: TreeContext = { visible: () => true, selectable: () => true };
 export function buildRows(doc: DocumentData, st: TreeState, tc: TreeContext = ZERO_TC): Row[] {
   const rows: Row[] = [];
   const search = st.search.trim();
-  const memoKids = new Map<Node, Node[]>();
-  const kidsOf = (n: Node) => {
+  const memoKids = new Map<TreeNode, TreeNode[]>();
+  const kidsOf = (n: TreeNode) => {
     let k = memoKids.get(n);
     if (!k) memoKids.set(n, (k = n.children()));
     return k;
   };
-  const selfMatch = (n: Node) => !!n.searchable && nameMatches(n.label, search, st.filter);
-  const memoMatch = new Map<Node, boolean>();
-  const subtreeMatch = (n: Node, depth = 0): boolean => {
+  const selfMatch = (n: TreeNode) => !!n.searchable && nameMatches(n.label, search, st.filter);
+  const memoMatch = new Map<TreeNode, boolean>();
+  const subtreeMatch = (n: TreeNode, depth = 0): boolean => {
     let m = memoMatch.get(n);
     if (m === undefined) {
       m = selfMatch(n) || (depth < 128 && kidsOf(n).some((c) => subtreeMatch(c, depth + 1)));
@@ -739,7 +752,7 @@ export function buildRows(doc: DocumentData, st: TreeState, tc: TreeContext = ZE
     }
     return m;
   };
-  const chipsOf = (n: Node) => {
+  const chipsOf = (n: TreeNode) => {
     const counts = new Map<string, number>();
     for (const c of kidsOf(n)) {
       // group rows summarise as their own icon
@@ -747,10 +760,11 @@ export function buildRows(doc: DocumentData, st: TreeState, tc: TreeContext = ZE
     }
     return [...counts].slice(0, 10).map(([icon, count]) => ({ icon, count }));
   };
-  const emit = (n: Node, depth: number, parentKey: string) => {
+  const emit = (n: TreeNode, depth: number, parentKey: string) => {
     if (search && !subtreeMatch(n)) return;
     const key = parentKey ? `${parentKey}/${n.ekey}` : n.ekey;
-    const hasKids = kidsOf(n).length > 0;
+    // nodes that know whether they have children skip building them while collapsed
+    const hasKids = n.hasKids !== undefined && !search && !isOpen(st, n.ekey, n.defaultOpen) ? n.hasKids : kidsOf(n).length > 0;
     const expanded = hasKids && (search ? kidsOf(n).some((c) => subtreeMatch(c)) || isOpen(st, n.ekey, n.defaultOpen) : isOpen(st, n.ekey, n.defaultOpen));
     rows.push({
       key,
@@ -767,12 +781,14 @@ export function buildRows(doc: DocumentData, st: TreeState, tc: TreeContext = ZE
       parentKey: parentKey || undefined,
       expandable: hasKids,
       expanded,
-      chips: hasKids && !expanded ? chipsOf(n) : undefined,
+      chips: hasKids && !expanded && n.hasKids === undefined ? chipsOf(n) : undefined,
       indirect: n.indirect,
       match: !!search && selfMatch(n),
       users: n.users,
       fakeUser: n.fakeUser,
       count: n.count,
+      value: n.value,
+      path: n.path,
     });
     if (expanded && depth < 256) for (const c of kidsOf(n)) emit(c, depth + 1, key);
   };
@@ -806,7 +822,7 @@ export function allElements(
     hasKids: boolean;
   }[] = [];
   const seen = new Set<string>();
-  const walk = (n: Node, depth: number, parentOpen: boolean) => {
+  const walk = (n: TreeNode, depth: number, parentOpen: boolean) => {
     if (depth > maxDepth) return;
     const kids = n.children();
     const open = isOpen(st, n.ekey, n.defaultOpen);

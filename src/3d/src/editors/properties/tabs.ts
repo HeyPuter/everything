@@ -12,7 +12,7 @@ import { newMaterial, uid, newWorld } from '../../data/defaults';
 import { uniqueName } from '../../ops/object';
 import { cloneShared } from '../../data/cow';
 import { openMenu } from '../../ui/menu';
-import { idSelectorMenuHooks } from '../../ui/idmenu';
+import { idSelectorMenuHooks, idDecoration } from '../../ui/idmenu';
 import { materialSlots } from '../view3d/draw';
 import { uiList } from './uilist';
 import { cameraPanels } from '../../render/final/props/camera';
@@ -346,7 +346,7 @@ export function dataBlockSelector<T extends { id: string; name: string; use_fake
         'data-tip': 'Browse',
         onpointerdown: (e: PointerEvent) => {
           e.preventDefault();
-          openMenu(items.map((i) => ({ label: i.name, icon: iconName, active: i.id === current, action: () => set(i.id) })), e.currentTarget as HTMLElement);
+          openMenu(items.map((i) => ({ label: i.name, icon: idDecoration(i.id)?.icon ?? iconName, description: idDecoration(i.id)?.note, active: i.id === current, action: () => set(i.id) })), e.currentTarget as HTMLElement);
         },
       },
       icon(iconName),
@@ -354,7 +354,8 @@ export function dataBlockSelector<T extends { id: string; name: string; use_fake
     ),
     cur
       ? [
-          textField(`${id}-name`, cur.name, (v) => ((cur.name = v), changed('Rename'))),
+          idDecoration(cur.id) ? h('span', { class: 'ids-lib', 'data-tip': idDecoration(cur.id)!.tip }, icon(idDecoration(cur.id)!.icon)) : null,
+          idDecoration(cur.id)?.readonly ? h('span', { class: 'text-field ids-name-ro', 'data-tip': idDecoration(cur.id)!.tip }, cur.name) : textField(`${id}-name`, cur.name, (v) => ((cur.name = v), changed('Rename'))),
           opts.users && opts.users > 1 ? h('button', { class: 'ids-users', 'data-tip': 'Display number of users of this data (click to make a single-user copy)', onclick: () => opts.duplicate?.() }, String(opts.users)) : null,
           h('button', { class: { 'ids-btn': true, on: !!cur.use_fake_user }, 'data-tip': 'Fake User\nSave this data-block even if it has no users', onclick: () => ((cur.use_fake_user = !cur.use_fake_user), changed('Fake User')) }, icon(cur.use_fake_user ? 'fake_user_on' : 'fake_user_off')),
           opts.duplicate ? h('button', { class: 'ids-btn', 'data-tip': 'New (duplicate)', onclick: () => opts.duplicate!() }, icon('duplicate')) : null,

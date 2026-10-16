@@ -8,10 +8,10 @@ import { registerEditor, type Area, type Editor } from '../ui/screen';
 import { openMenu, openPopover, promptText, type MenuItem } from '../ui/menu';
 import type { DocumentData, ObjectData } from '../data/types';
 import { uniqueName, setActiveCollection, activeCollection } from '../ops/object';
-import { applyMatrixToObject, fromMatrix4 } from '../eval/transform';
-import { Matrix4, Vector3 } from 'three';
+import { Vector3 } from 'three';
 import { surfaceHit } from '../ops/view3d';
 import { textField } from '../ui/widgets';
+import { findStrip } from '../sequencer/strips';
 import {
   buildRows,
   defaultFilter,
@@ -32,6 +32,12 @@ import { filterPopover } from './outliner/filter';
 import { setCurrentOutliner } from './outliner/current';
 import './outliner/icons';
 import './outliner/ops';
+import './outliner/sequence';
+import './outliner/dataapi';
+import './outliner/ops_more';
+import './outliner/scenes';
+import { rowSync } from './outliner/sync';
+import { valueCell, idTypeFilterPopover, overridesFilterPopover } from './outliner/headers';
 import './outliner/outliner.css';
 
 const MODE_ICON: Record<string, string> = {
@@ -77,11 +83,14 @@ const VIRTUAL_MIN = 150;
 type DragInfo = { kind: 'objects'; ids: string[] } | { kind: 'collection'; id: string } | { kind: 'material'; id: string };
 type DropZone = 'INTO' | 'BEFORE' | 'AFTER';
 
-const DISPLAY_MODES: [DisplayMode, string, string][] = [
-  ['SCENES', 'Scenes', 'scene_data'],
-  ['VIEW_LAYER', 'View Layer', 'view_layer'],
-  ['BLENDER_FILE', 'Data Blocks', 'file_3d'],
-  ['ORPHAN_DATA', 'Unused Data', 'trash'],
+const DISPLAY_MODES: [DisplayMode, string, string, string][] = [
+  ['SCENES', 'Scenes', 'scene_data', 'Every scene with its view layer tree'],
+  ['VIEW_LAYER', 'View Layer', 'view_layer', 'Collections and objects of the view layer'],
+  ['SEQUENCE', 'Video Sequencer', 'seq_sequencer', 'The strips of the Video Sequencer'],
+  ['BLENDER_FILE', 'Data Blocks', 'file_3d', 'Every data-block of this file and of its linked libraries'],
+  ['DATA_API', 'Data API', 'rna', 'All data and its properties, with their values'],
+  ['LIBRARY_OVERRIDES', 'Library Overrides', 'library_override', 'Library overrides and what they change'],
+  ['ORPHAN_DATA', 'Unused Data', 'trash', 'Data-blocks nothing uses (deleted when the file is saved, unless they have a fake user)'],
 ];
 
 export class Outliner implements Editor {
@@ -146,7 +155,17 @@ export class Outliner implements Editor {
     });
     this.el.addEventListener('pointerenter', () => setCurrentOutliner(this));
     this.list.addEventListener('dragover', (e) => {
-      if (this.drag && !(e.target as HTMLElement).closest('.ol-row')) this.setHint(null);
+      if (!this.drag || (e.target as HTMLElement).closest('.ol-row')) return;
+      // objects with a parent can be dropped on the empty space to clear it
+      if (this.drag.kind === 'objects' && this.drag.ids.some((id) => app.doc.objects[id]?.parent) && (this.displayMode === 'VIEW_LAYER' || this.displayMode === 'SCENES')) {
+        e.preventDefault();
+        this.setHint('Drop to clear parent', e.clientX, e.clientY);
+      } else this.setHint(null);
+    });
+    this.list.addEventListener('drop', (e) => {
+      if (!this.drag || (e.target as HTMLElement).closest('.ol-row')) return;
+      e.preventDefault();
+      this.onDropEmpty();
     });
     setCurrentOutliner(this);
   }
@@ -168,9 +187,10 @@ export class Outliner implements Editor {
           onpointerdown: (e: PointerEvent) => {
             e.preventDefault();
             openMenu(
-              DISPLAY_MODES.map(([v, l, i]) => ({
+              DISPLAY_MODES.map(([v, l, i, d]) => ({
                 label: l,
                 icon: i,
+                description: d,
                 active: this.displayMode === v,
                 action: () => this.setDisplayMode(v),
               })),
@@ -220,6 +240,36 @@ export class Outliner implements Editor {
               onclick: () => app.run('outliner.collection_new', { nested: true }),
             },
             icon('collection_new'),
+          )
+        : null,
+      this.displayMode === 'BLENDER_FILE' || this.displayMode === 'ORPHAN_DATA'
+        ? h(
+            'button',
+            {
+              class: { 'hdr-toggle': true, 'ol-filter-btn': true, on: this.filter.use_filter_id_type },
+              'data-tip': 'Filter\nOnly show one data-block type',
+              onpointerdown: (e: PointerEvent) => {
+                e.preventDefault();
+                openPopover(e.currentTarget as HTMLElement, () => idTypeFilterPopover(this), { width: 220, className: 'ol-filter-pop' });
+              },
+            },
+            icon('filter'),
+            icon('down_arrow_hlt', 'tiny'),
+          )
+        : null,
+      this.displayMode === 'LIBRARY_OVERRIDES'
+        ? h(
+            'button',
+            {
+              class: { 'hdr-toggle': true, 'ol-filter-btn': true, on: this.filter.use_filter_lib_override_system },
+              'data-tip': 'Filter\nHow library overrides are listed',
+              onpointerdown: (e: PointerEvent) => {
+                e.preventDefault();
+                openPopover(e.currentTarget as HTMLElement, () => overridesFilterPopover(this), { width: 230, className: 'ol-filter-pop' });
+              },
+            },
+            icon('filter'),
+            icon('down_arrow_hlt', 'tiny'),
           )
         : null,
       this.displayMode === 'ORPHAN_DATA'
@@ -304,11 +354,18 @@ export class Outliner implements Editor {
   }
 
   isSelected(r: Row): boolean {
+    const sync = rowSync[r.kind];
+    if (sync && this.filter.use_sync_select) return sync.get(r);
     if (r.kind === 'object' && r.ob && this.filter.use_sync_select) return !!app.doc.objects[r.ob.id]?.select;
     return this.sel.has(r.ekey);
   }
 
   setSelected(r: Row, v: boolean) {
+    const sync = rowSync[r.kind];
+    if (sync && this.filter.use_sync_select) {
+      sync.set(r, v);
+      return;
+    }
     if (r.kind === 'object' && r.ob && this.filter.use_sync_select) {
       const ob = app.doc.objects[r.ob.id];
       if (ob) ob.select = v && !ob.hide;
@@ -321,7 +378,12 @@ export class Outliner implements Editor {
 
   deselectAll() {
     this.sel.clear();
-    if (this.filter.use_sync_select) for (const o of Object.values(app.doc.objects)) o.select = false;
+    if (!this.filter.use_sync_select) return;
+    if (this.displayMode === 'SEQUENCE') {
+      for (const r of this.rows) rowSync[r.kind]?.set(r, false);
+      return;
+    }
+    for (const o of Object.values(app.doc.objects)) o.select = false;
   }
 
   isActive(r: Row): boolean {
@@ -357,6 +419,7 @@ export class Outliner implements Editor {
   activate(r: Row) {
     const doc = app.doc;
     this.activeKey = r.ekey;
+    if (rowSync[r.kind]?.activate) return rowSync[r.kind]!.activate!(r);
     if (r.kind === 'collection' && r.id) {
       setActiveCollection(r.id);
       return;
@@ -682,6 +745,7 @@ export class Outliner implements Editor {
               )
             : null,
           h('span', { class: 'ol-spacer' }),
+          r.value ? valueCell(r) : null,
           idModes && r.users !== undefined ? this.userCells(r) : null,
           cols.length
             ? h(
@@ -1156,40 +1220,9 @@ export class Outliner implements Editor {
     this.setHint(null);
     if (!d || !action) return;
     if (d.kind === 'objects' && r.kind === 'collection' && r.id) {
-      if (!ctrl && !shift) this.clearParentKeepTransform(d.ids.filter((id) => !d.ids.includes(doc.objects[id]?.parent ?? '')));
-      moveObjectsToCollection(doc, d.ids, r.id, ctrl);
-      app.pushUndo(ctrl ? 'Link to Collection' : 'Move to Collection');
+      app.run('outliner.collection_drop', { objects: d.ids.join('|'), collection: r.id, link: ctrl, keep_parent: shift }, { invoke: false });
     } else if (d.kind === 'objects' && r.kind === 'object' && r.ob) {
-      const parent = r.ob;
-      const pw = app.graph.get(parent.id)?.world.clone() ?? new Matrix4();
-      const parentCols = Object.values(doc.collections)
-        .filter((c) => c.objects.includes(parent.id))
-        .map((c) => c.id);
-      let n = 0;
-      for (const id of d.ids) {
-        if (id === parent.id) continue;
-        const ob = doc.objects[id];
-        if (!ob) continue;
-        let q: string | null = parent.id,
-          cycle = false;
-        while (q) {
-          if (q === id) cycle = true;
-          q = doc.objects[q]?.parent ?? null;
-        }
-        if (cycle) continue;
-        const w = app.graph.get(id)?.world.clone() ?? new Matrix4();
-        ob.parent = parent.id;
-        ob.parent_type = 'OBJECT';
-        ob.matrix_parent_inverse = fromMatrix4(new Matrix4());
-        applyMatrixToObject(ob, pw.clone().invert().multiply(w));
-        // children follow the parent into its collection when they were not sharing one
-        const shared = parentCols.some((c) => doc.collections[c].objects.includes(id));
-        if (!shared && parentCols.length && this.displayMode !== 'BLENDER_FILE')
-          moveObjectsToCollection(doc, [id], r.parentCollection && parentCols.includes(r.parentCollection) ? r.parentCollection : parentCols[0], false);
-        n++;
-      }
-      if (!n) return;
-      app.pushUndo('Drop to Set Parent');
+      app.run('outliner.parent_drop', { children: d.ids.join('|'), parent: r.ob.id, collection: this.displayMode === 'BLENDER_FILE' ? '' : (r.parentCollection ?? '') }, { invoke: false });
     } else if (d.kind === 'collection' && r.kind === 'collection' && r.id) {
       if (!moveCollection(doc, d.id, r.id, zone)) {
         app.report('WARNING', 'Cannot move a collection inside itself');
@@ -1203,16 +1236,13 @@ export class Outliner implements Editor {
     app.changed('doc', 'select');
   }
 
-  private clearParentKeepTransform(ids: string[]) {
-    const doc = app.doc;
-    for (const id of ids) {
-      const ob = doc.objects[id];
-      if (!ob?.parent) continue;
-      const w = app.graph.get(id)?.world;
-      ob.parent = null;
-      ob.matrix_parent_inverse = fromMatrix4(new Matrix4());
-      if (w) applyMatrixToObject(ob, w);
-    }
+  /** Objects dropped below the tree lose their parent. */
+  private onDropEmpty() {
+    const d = this.drag;
+    this.drag = null;
+    this.setHint(null);
+    if (d?.kind !== 'objects' || !d.ids.some((id) => app.doc.objects[id]?.parent)) return;
+    app.run('outliner.parent_clear', { objects: d.ids.join('|') }, { invoke: false });
   }
 
   // ---------------------------------------------------------------------------
@@ -1233,8 +1263,10 @@ export class Outliner implements Editor {
   }
 
   canRename(r: Row) {
+    const rec = r.kind === 'object' && r.ob ? app.doc.objects[r.ob.id] : r.kind === 'collection' && r.id ? app.doc.collections[r.id] : null;
+    if (rec && (rec as { library?: string }).library) return false;
     if (r.kind === 'collection') return r.id !== app.doc.scene.collection;
-    return r.kind !== 'group' && r.kind !== 'file' && r.kind !== 'modifiers' && r.kind !== 'constraints' && r.kind !== 'vgroups';
+    return !['group', 'file', 'modifiers', 'constraints', 'vgroups', 'library', 'rna', 'override'].includes(r.kind);
   }
 
   rename(r: Row, name: string) {
@@ -1252,6 +1284,13 @@ export class Outliner implements Editor {
       } else if (r.kind === 'constraint' && r.ob) {
         const c = doc.objects[r.ob.id]?.constraints.find((x) => x.id === r.id);
         if (c) c.name = name;
+      } else if (r.kind === 'strip' && r.path) {
+        const ed = doc.scene.sequence_editor;
+        const st = ed ? findStrip(ed.strips, r.path) : null;
+        if (st && !findStrip(ed!.strips, name)) {
+          if (ed!.active_strip === st.name) ed!.active_strip = name;
+          st.name = name;
+        }
       } else if (r.kind === 'vgroup' && r.ob?.data) {
         const g = doc.meshes[r.ob.data]?.vertex_groups?.find((x) => x.name === r.label);
         if (g) g.name = name;

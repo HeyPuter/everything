@@ -112,6 +112,16 @@ function notifyOperator(idname: string, props: Record<string, unknown>) {
   }
 }
 
+/** Turn exceptions into report messages; modules can add friendlier wording for their errors. */
+export const errorDescribers: ((e: unknown) => string | null)[] = [];
+function describeError(e: unknown): string {
+  for (const f of errorDescribers) {
+    const m = f(e);
+    if (m) return m;
+  }
+  return e instanceof Error ? e.message : String(e);
+}
+
 export function defaultProps(op: Operator): Record<string, unknown> {
   const p: Record<string, unknown> = {};
   for (const d of op.props ?? []) p[d.id] = structuredClone(d.default);
@@ -282,7 +292,7 @@ export class App {
     try {
       result = opts.invoke !== false && op.invoke ? op.invoke(ctx, full) : op.exec ? op.exec(ctx, full) : 'CANCELLED';
     } catch (e) {
-      this.report('ERROR', `${op.label}: ${e instanceof Error ? e.message : String(e)}`);
+      this.report('ERROR', `${op.label}: ${describeError(e)}`);
       // restore last good state
       const cur = this.undo.current();
       if (cur && op.undo !== false) this.setDocument(cur, false);
@@ -314,7 +324,7 @@ export class App {
       this.undo.replaceTop(this.doc, op.label);
       this.lastOp = { ...last, props: merged };
     } catch (e) {
-      this.report('ERROR', e instanceof Error ? e.message : String(e));
+      this.report('ERROR', describeError(e));
       const cur = this.undo.current();
       if (cur) this.setDocument(cur, false);
     }

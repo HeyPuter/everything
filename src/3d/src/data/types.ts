@@ -1323,6 +1323,8 @@ export interface DocumentData {
   metaballs?: Record<ID, import('../metaball/types').MetaballData>;
   /** Hair curves data-blocks (src/hair); absent in older files */
   hair_curves?: Record<ID, import('../hair/types').HairCurvesData>;
+  /** Library files this file links data-blocks from (src/library); absent in older files */
+  libraries?: Record<ID, import('../library/types').LibraryData>;
   /** Mode of the active object */
   mode: Mode;
   /** Ordering of object ids for stable iteration */

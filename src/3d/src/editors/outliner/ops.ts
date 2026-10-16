@@ -9,6 +9,8 @@ import { currentOutliner } from './current';
 import { DATA_TABLE, objectHierarchy, objectsInside, parentCollection, type Row } from './tree';
 import * as C from './collections';
 import { removeDataBlock } from '../../scripting/api';
+import { makeLocal, lockLinked } from '../../library/core';
+import { deleteIds } from './ops_more';
 
 const hasOutliner = (ctx: OpContext) => !!currentOutliner(ctx);
 const notIdMode = (ctx: OpContext) => {
@@ -164,7 +166,20 @@ function idOperation(doc: DocumentData, type: string, targets: string[]): number
         n++;
         break;
       }
+      case 'LOCAL': {
+        // linked data-blocks (and overrides) become regular local data
+        const r = rec as { library?: string; override_library?: object };
+        if (!r.library && !r.override_library) continue;
+        makeLocal(doc, [id]);
+        lockLinked(doc);
+        n++;
+        break;
+      }
       case 'DELETE':
+        if ((rec as { library?: string }).library) {
+          n += deleteIds(doc, [{ table, id }]);
+          continue;
+        }
         if (table === 'objects') deleteObjects(doc, new Set([id]));
         else if (table === 'collections') C.deleteCollections(doc, [id], false);
         else removeDataBlock(table, id);
@@ -591,11 +606,19 @@ registerOperators([
           ['SELECT', 'Select'],
           ['DESELECT', 'Deselect'],
           ['SELECT_HIERARCHY', 'Select Hierarchy'],
+          ['REMAP', 'Remap Users'],
+          ['RENAME', 'Rename'],
         ],
       },
     ],
     poll: (ctx) => hasOutliner(ctx) && Object.keys(ctx.doc.objects).length > 0,
+    invoke: (ctx, p) => {
+      if (p.type === 'REMAP') return (void app.run('outliner.id_remap'), 'CANCELLED');
+      if (p.type === 'RENAME') return (void currentOutliner(ctx)?.startRename(), 'CANCELLED');
+      return operators.get('outliner.object_operation')!.exec!(ctx, p);
+    },
     exec: (ctx, p) => {
+      if (p.type === 'REMAP' || p.type === 'RENAME') return 'CANCELLED';
       const doc = ctx.doc;
       const ol = currentOutliner(ctx);
       const ids = ol ? ol.selectedRows('object').map((r) => r.ob!.id) : selectedObjectIds(ctx);
@@ -671,8 +694,10 @@ registerOperators([
         default: 'UNLINK',
         items: [
           ['UNLINK', 'Unlink'],
+          ['LOCAL', 'Make Local'],
           ['SINGLE', 'Make Single User'],
           ['DELETE', 'Delete'],
+          ['REMAP', 'Remap Users'],
           ['COPY', 'Copy'],
           ['PASTE', 'Paste'],
           ['ADD_FAKE', 'Add Fake User'],
@@ -695,6 +720,7 @@ registerOperators([
       if (p.type === 'RENAME') return (void currentOutliner(ctx)?.startRename(), 'CANCELLED');
       if (p.type === 'COPY') return (void app.run('outliner.id_copy', {}, { invoke: false }), 'CANCELLED');
       if (p.type === 'PASTE') return (void app.run('outliner.id_paste', {}, { invoke: false }), 'CANCELLED');
+      if (p.type === 'REMAP') return (void app.run('outliner.id_remap'), 'CANCELLED');
       // fix the targets so Adjust Last Operation re-runs on the same elements
       p.targets = (p.targets as string) || idTargetsFromSelection(ctx).join('|');
       return idExec(ctx, p);
