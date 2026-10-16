@@ -733,6 +733,9 @@ export class ImageEditor implements Editor, View2D {
     if (this.imageId === RENDER_RESULT)
       items.push(
         { separator: true },
+        { label: 'Render Region…', op: 'image.render_border', shortcut: 'Ctrl B' },
+        { label: 'Clear Render Region', op: 'image.clear_render_border', shortcut: 'Ctrl Alt B' },
+        { separator: true },
         { label: 'Cycle Render Slot', op: 'image.cycle_render_slot', shortcut: 'J' },
         { label: 'Cycle Render Slot (Reverse)', op: 'image.cycle_render_slot', props: { reverse: true }, shortcut: 'Alt J' },
       );

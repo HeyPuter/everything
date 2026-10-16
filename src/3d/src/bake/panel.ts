@@ -102,17 +102,13 @@ function bakePanel(r: RenderSettings): Child {
                     ['TANGENT', 'Tangent'],
                     ['OBJECT', 'Object'],
                   ], { tip: 'Tangent space follows the surface (for deforming or tiling meshes); object space is fixed to the object' }),
-                  splitRow(
-                    'Swizzle',
-                    h(
-                      'div',
-                      { class: 'bake-swizzle' },
-                      (['normal_r', 'normal_g', 'normal_b'] as const).map((k, i) =>
-                        enumMenu(`rs-bake-${k}`, SWIZZLE.map(([value, label]) => ({ value, label })), b[k], (v) => {
-                          b[k] = v as typeof b.normal_r;
-                          changed('Normal Swizzle');
-                        }, { tip: `Axis stored in the ${'RGB'[i]} channel (flip G for the other common normal map convention)` }),
-                      ),
+                  (['normal_r', 'normal_g', 'normal_b'] as const).map((k, i) =>
+                    splitRow(
+                      i === 0 ? 'Swizzle R' : 'RGB'[i],
+                      enumMenu(`rs-bake-${k}`, SWIZZLE.map(([value, label]) => ({ value, label })), b[k], (v) => {
+                        b[k] = v as typeof b.normal_r;
+                        changed('Normal Swizzle');
+                      }, { tip: `Axis stored in the ${'RGB'[i]} channel (−Y in G gives the other common normal map convention)` }),
                     ),
                   ),
                 ]

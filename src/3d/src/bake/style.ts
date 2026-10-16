@@ -9,8 +9,6 @@ const css = /* css */ `
 .bake-run .btn { display: inline-flex; align-items: center; gap: 3px; height: 24px; padding: 0 8px; }
 .prop-note.warn { color: #e0b25c; }
 .prop-note.bake-into { color: var(--t-99, #999a9b); }
-.bake-swizzle { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
-.bake-swizzle > .enum-menu { min-width: 0; }
 `;
 
 if (typeof document !== 'undefined') {
