@@ -54,6 +54,34 @@ test('baked passes have the expected values', async ({ page }) => {
   await expectNoErrors(errors);
 });
 
+test('procedural node textures bake through the material shader', async ({ page }) => {
+  const errors = await openApp(page);
+  const out = await script(
+    page,
+    PLANE(
+      16,
+      `
+      const nt = ma.node_tree;
+      const ck = nt.nodes.new('ShaderNodeTexChecker');
+      ck.inputs['Scale'].default_value = 2;
+      ck.inputs['Color1'].default_value = [1, 0, 0, 1];
+      ck.inputs['Color2'].default_value = [0, 0, 1, 1];
+      nt.links.new(nt.nodes.new('ShaderNodeTexCoord').outputs['UV'], ck.inputs['Vector']);
+      nt.links.new(ck.outputs['Color'], nt.nodes['Principled BSDF'].inputs['Base Color']);
+      nt.nodes.active = n;
+      bpy.ops.object.bake({type: 'DIFFUSE', pass_filter: ['COLOR']});
+      window.__out = [px(2, 2), px(12, 2), px(12, 12), px(2, 12)];`,
+    ),
+  );
+  expect(out).toEqual([
+    [0, 0, 255, 255],
+    [255, 0, 0, 255],
+    [0, 0, 255, 255],
+    [255, 0, 0, 255],
+  ]);
+  await expectNoErrors(errors);
+});
+
 test('bake from multires: detail of the top level as normals and displacement', async ({ page }) => {
   const errors = await openApp(page);
   const out = await script(
