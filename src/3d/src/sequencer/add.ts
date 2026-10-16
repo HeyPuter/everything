@@ -2,6 +2,7 @@
 // (colour, text, adjustment layer), scene strips and effect strips.
 import { connect } from './connect';
 import { app } from '../app/app';
+import { sceneById } from '../scenes/scenes';
 import type { Strip, StripType, MediaFile } from './types';
 import { newStrip, uniqueName, freeChannel, inputCount, finalStart, finalEnd, updateEffectRanges } from './strips';
 import { seqEditor, seqList, setActive, toolSettings, sceneFps, afterEdit } from './context';
@@ -194,8 +195,8 @@ function typeName(t: StripType): string {
   }
 }
 
-export function addScene(frame: number, channel: number, cameraId: string | null = null): Strip {
-  const sc = app.doc.scene;
+export function addScene(frame: number, channel: number, cameraId: string | null = null, sceneId: string | null = null): Strip {
+  const sc = sceneById(app.doc, sceneId) ?? app.doc.scene;
   const len = Math.max(1, sc.frame_end - sc.frame_start + 1);
   const s = newStrip('SCENE', sc.name || 'Scene', channel, frame, len);
   s.scene = sc.name;

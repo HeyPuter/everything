@@ -2,9 +2,9 @@
 // "Viewer Node" image, and re-composites the last render live (debounced) while the tree or the
 // relevant scene settings change.
 import { app, onAppReady } from '../app/app';
-import type { DocumentData } from '../data/types';
+import type { DocumentData, NodeTreeData } from '../data/types';
 import { renderResult, renderPostHooks, virtualImages, touchVirtualImage, type RenderResult, type PassName } from '../render/final/result';
-import { renderJob } from '../render/final/job';
+import { renderJob, finalRenderHooks } from '../render/final/job';
 import { runCompositor, pickViewer, type RunResult } from './run';
 import { compositingActive, compositingGroup } from './data';
 import { imageKey, setImageDecodedCallback } from './eval/cache';
@@ -58,17 +58,41 @@ function rawPasses(r: RenderResult): Partial<Record<PassName, Float32Array>> {
   return r.viewLayer ?? r.passes;
 }
 
+function sourceOf(r: RenderResult, passes: Partial<Record<PassName, Float32Array>>): LayerSource {
+  return {
+    width: r.width,
+    height: r.height,
+    version: `${idOf(passes.Combined!)}|${passes.Depth ? idOf(passes.Depth) : 0}|${passes.Normal ? idOf(passes.Normal) : 0}|${passes.Mist ? idOf(passes.Mist) : 0}`,
+    passes,
+  };
+}
+
 function layersOf(r: RenderResult | null): LayerSource | null {
   if (!r) return null;
   const passes = rawPasses(r);
   if (!passes.Combined) return null;
-  return {
-    width: r.width,
-    height: r.height,
-    version: `${idOf(passes.Combined)}|${passes.Depth ? idOf(passes.Depth) : 0}|${passes.Normal ? idOf(passes.Normal) : 0}|${passes.Mist ? idOf(passes.Mist) : 0}`,
-    passes,
-  };
+  const src = sourceOf(r, passes);
+  // every rendered view layer, for Render Layers nodes that pick a scene / layer
+  if (r.layers?.length) src.named = Object.fromEntries(r.layers.filter((l) => l.passes.Combined).map((l) => [`${l.scene}/${l.name}`, sourceOf(r, l.passes)]));
+  return src;
 }
+
+/** View layers of other scenes that the compositing tree reads (rendered with each frame). */
+finalRenderHooks.extraLayers = () => {
+  const doc = app.doc;
+  const g = compositingGroup(doc);
+  if (!g || !compositingActive(doc)) return [];
+  const out: { scene: string; layer: string }[] = [];
+  const visit = (tree: NodeTreeData, depth: number) => {
+    for (const n of tree.nodes) {
+      if (n.type === 'CompositorNodeRLayers' && n.props.scene && n.props.scene !== doc.scene.id && !n.mute) out.push({ scene: String(n.props.scene), layer: String(n.props.layer ?? '') });
+      const sub = n.props.node_tree ? doc.node_groups[String(n.props.node_tree)] : undefined;
+      if (sub && depth < 8) visit(sub.tree, depth + 1);
+    }
+  };
+  visit(g.tree, 0);
+  return out;
+};
 
 function sceneView() {
   const r = app.doc.scene.render;

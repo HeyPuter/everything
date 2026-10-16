@@ -1,6 +1,8 @@
 // Input nodes: Render Layers, Image, Color, Value, Bokeh Image, Scene Time, Time Curve.
 import type { SocketValue } from '../../data/types';
-import { registerExec, type NodeCtx, type PassName } from '../eval/evaluator';
+import { registerExec, type LayerSource, type NodeCtx, type PassName } from '../eval/evaluator';
+import { sceneById } from '../../scenes/scenes';
+import { ensureViewLayers } from '../../scenes/viewlayers';
 import { Result, IDENTITY, type Domain, type Xform } from '../eval/result';
 import { cachedTexture, imageKey, imageSource } from '../eval/cache';
 import { nodeCurves } from '../color/curvemap';
@@ -13,7 +15,7 @@ const ident = (): Xform => [...IDENTITY] as Xform;
 
 /** Upload a top-down render pass as a bottom-up RGBA texture in the compositor's storage format. */
 function passTexture(x: NodeCtx, pass: PassName): Texture | null {
-  const L = x.env.layers;
+  const L = nodeLayers(x);
   const src = L?.passes[pass];
   if (!L || !src) return null;
   return cachedTexture(`rl|${L.version}|${pass}`, () => {
@@ -42,8 +44,20 @@ uniform sampler2D u_src;
 layout(location = 0) out vec4 o0;
 void main() { float a = cmpPx(u_src).a; o0 = vec4(vec3(a), 1.0); }`;
 
-registerExec('CompositorNodeRLayers', (x) => {
+/** The rendered layer a Render Layers node reads: its scene / view layer, else the main render. */
+function nodeLayers(x: NodeCtx): LayerSource | null {
   const L = x.env.layers;
+  const scene = x.str('scene');
+  const layer = x.str('layer');
+  if (!L?.named || (!scene && !layer)) return L;
+  const doc = x.env.doc;
+  const sc = sceneById(doc, scene) ?? doc.scene;
+  const name = layer || ensureViewLayers(sc)[sc.active_view_layer ?? 0]?.name;
+  return L.named[`${sc.name}/${name}`] ?? (sc === doc.scene ? L : null);
+}
+
+registerExec('CompositorNodeRLayers', (x) => {
+  const L = nodeLayers(x);
   if (!L) {
     // no render yet: transparent images (single values fill the canvas)
     x.outs.set('Image', Result.single('RGBA', [0, 0, 0, 0]));

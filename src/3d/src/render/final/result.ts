@@ -3,7 +3,7 @@ import { toDisplayRGBA8, displayPixel, type ViewSettings } from './colormanage';
 import { compositeOverlay, type StampField } from './stamp';
 
 /** Built-in passes plus shader AOVs (`AOV <name>`, see render/realtime/aov.ts). */
-export type PassName = 'Combined' | 'Depth' | 'Normal' | 'Mist' | 'Position' | 'UV' | 'IndexOB' | 'IndexMA' | 'DiffCol' | 'Emit' | 'AO' | `AOV ${string}`;
+export type PassName = 'Combined' | 'Depth' | 'Normal' | 'Mist' | 'Position' | 'UV' | 'IndexOB' | 'IndexMA' | 'DiffCol' | 'Emit' | 'AO' | `AOV ${string}` | `Combined_${string}`;
 export type ChannelMode = 'COLOR_ALPHA' | 'COLOR' | 'ALPHA' | 'Z';
 
 export interface RenderInfo {
@@ -32,6 +32,8 @@ export interface RenderResult {
   view?: ViewSettings;
   /** raw render passes when `passes.Combined` holds a post-processed (composited) image */
   viewLayer?: Partial<Record<PassName, Float32Array>>;
+  /** every rendered view layer (when more than one was rendered), by scene and layer name */
+  layers?: { name: string; scene: string; passes: Partial<Record<PassName, Float32Array>> }[];
   /** metadata of the render (Output ▸ Metadata), written into saved files */
   metadata?: StampField[];
   /** burnt-in metadata: RGBA8 overlay drawn over the display-converted Combined pass */
@@ -69,7 +71,7 @@ export function passChannels(name: PassName, buf?: Float32Array, pixels?: number
 
 /** Readable label of a pass. */
 export function passLabel(name: PassName): string {
-  return PASS_LABELS[name] ?? (name.startsWith('AOV ') ? name.slice(4) : name);
+  return PASS_LABELS[name] ?? (name.startsWith('AOV ') ? name.slice(4) : name.startsWith('Combined_') ? `Light Group ${name.slice(9)}` : name);
 }
 
 /** Display order of passes (pass menus, Render Layers outputs). */

@@ -281,7 +281,7 @@ class ViewLayerStruct extends Struct {
     return this.__path;
   }
 }
-const LAYER_HIDDEN = new Set(['stored', 'lightgroups', 'custom', 'custom_ui']);
+const LAYER_HIDDEN = new Set(['stored', 'lightgroups']);
 for (const k of LAYER_RENDER_KEYS) {
   if (k === 'use_view_layer' || k === 'aovs') continue;
   Object.defineProperty(ViewLayerStruct.prototype, k, {

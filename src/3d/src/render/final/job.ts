@@ -31,6 +31,8 @@ import { extraPasses, wantsExtraPasses } from './extrapasses';
 import { renderIdPasses, wantsIdPasses } from './idpasses';
 import { ambientOcclusionPass } from '../realtime/aopass';
 import { aovPasses } from '../realtime/aov';
+import { activeLayerIndex, activeViewLayer, ensureViewLayers, renderLayers, setActiveViewLayer } from '../../scenes/viewlayers';
+import { sceneById, withSceneAsync } from '../../scenes/scenes';
 
 type Source = { kind: 'final' } | { kind: 'viewport'; view: View3D };
 
@@ -80,6 +82,8 @@ export const finalRenderHooks: {
   renderFrame?: (frame: number, W: number, H: number) => Promise<{ combined: Float32Array; view?: ViewSettings }>;
   /** optional video writer (e.g. WebM with an audio track) */
   createVideoWriter?: (W: number, H: number, fps: number, frames: number[]) => Promise<VideoWriter | null>;
+  /** view layers of other scenes the compositor reads (Render Layers nodes): rendered with each frame */
+  extraLayers?: () => { scene: string; layer: string }[];
 } = {};
 
 /** Render the scene camera (or `cameraId`) at the evaluated frame from inside a running render job. */
@@ -220,9 +224,18 @@ function engineFor(src: Source): 'RASTER' | 'PATHTRACE' | 'WORKBENCH' {
 }
 
 
+/** Light group being rendered (its lights and, when it is the world's group, the world only). */
+let lightGroup: string | null = null;
+
 function buildOptions(src: Source, mode: 'raster' | 'pathtrace'): BuildOptions {
   const r = app.doc.scene.render;
   const realtime = mode === 'raster' ? { lightScale: r.direct_light_intensity ?? 1, envScale: r.indirect_light_intensity ?? 1 } : {};
+  if (src.kind === 'final' && lightGroup !== null) {
+    const doc = app.doc;
+    const g = lightGroup;
+    const world = doc.scene.world ? doc.worlds[doc.scene.world] : null;
+    return { mode, final: true, filmTransparent: filmTransparent(r), hideSurfaces: r.use_solid === false, ...realtime, lightFilter: (id) => doc.objects[id]?.lightgroup === g, useSceneWorld: world?.lightgroup === g, studio: null };
+  }
   if (src.kind === 'final') return { mode, final: true, filmTransparent: filmTransparent(r), hideSurfaces: r.use_solid === false, ...realtime };
   const sh = src.view.shading;
   const ctx = renderContext!;
@@ -264,7 +277,7 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
   const passesWanted = { z: r.use_pass_z, normal: r.use_pass_normal, mist: r.use_pass_mist };
   const wantAo = !!r.use_pass_ambient_occlusion && src.kind === 'final';
   const wantAov = src.kind === 'final' && (r.aovs ?? []).some((a) => a.name);
-  const needGuide = passesWanted.z || passesWanted.normal || passesWanted.mist || wantAo || wantAov || (engine === 'WORKBENCH' && transparent);
+  const needGuide = lightGroup === null && (passesWanted.z || passesWanted.normal || passesWanted.mist || wantAo || wantAov || (engine === 'WORKBENCH' && transparent));
   try {
     let combined: Float32Array;
     let samples = 1,
@@ -281,7 +294,8 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
       core.setTiles(...tileCount(r, W, H));
       core.sync(rs, camera, Math.random());
       core.reset();
-      maxSamples = Math.max(1, src.kind === 'final' ? r.samples : r.preview_samples);
+      // a view layer can override the scene's sample count
+      maxSamples = Math.max(1, src.kind === 'final' ? activeViewLayer(doc.scene).samples || r.samples : r.preview_samples);
       const timeLimit = src.kind === 'final' ? Math.max(0, r.time_limit ?? 0) : 0;
       const exposure = r.film_exposure ?? 1;
       const scale = (buf: Float32Array) => {
@@ -503,9 +517,9 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
         }
       }
     }
-    if (src.kind === 'final' && wantsExtraPasses(r)) Object.assign(passes, extraPasses(renderer, guideScene, camera, W, H, r, doc));
+    if (src.kind === 'final' && lightGroup === null && wantsExtraPasses(r)) Object.assign(passes, extraPasses(renderer, guideScene, camera, W, H, r, doc));
     // cryptomatte, shader AOVs and speed vectors
-    if (src.kind === 'final' && wantsIdPasses(doc)) Object.assign(passes, (await renderIdPasses({ renderer, scene: guideScene.scene, camera, W, H, doc, yieldFrame: nextFrame })).passes);
+    if (src.kind === 'final' && lightGroup === null && wantsIdPasses(doc)) Object.assign(passes, (await renderIdPasses({ renderer, scene: guideScene.scene, camera, W, H, doc, yieldFrame: nextFrame })).passes);
     guideScene.dispose();
     if (!transparent) for (let i = 3; i < combined.length; i += 4) combined[i] = 1;
     return { combined, passes, samples, maxSamples, view };
@@ -620,8 +634,11 @@ export async function startRender(o: RenderOptions): Promise<boolean> {
   }
   const doc = app.doc;
   const r = doc.scene.render;
-  if (src.kind === 'final' && !seqHook && r.use_view_layer === false) {
-    app.report('ERROR', 'The view layer is disabled for rendering (View Layer ▸ Use for Rendering)');
+  // final renders render every view layer used for rendering (or only the active one)
+  const activeLayer = activeLayerIndex(doc.scene);
+  const layerList = src.kind === 'final' && !seqHook ? (r.use_single_layer ? [activeLayer] : renderLayers(doc.scene)) : [activeLayer];
+  if (!layerList.length) {
+    app.report('ERROR', 'No view layer is enabled for rendering (View Layer ▸ Use for Rendering)');
     return false;
   }
   const [FW, FH] = renderSize(r);
@@ -683,23 +700,88 @@ export async function startRender(o: RenderOptions): Promise<boolean> {
       job.sample = 0;
       if (o.animation || f !== doc.scene.frame_current) evaluateAt(f);
       const t0 = performance.now();
-      const out = seqHook
-        ? { passes: {}, samples: 1, maxSamples: 1, ...(await seqHook.renderFrame!(f, W, H)) }
-        : await renderFrame(
-            src,
-            FW,
-            FH,
-            (buf, n) => {
-              result.passes = { Combined: place(buf, 4) };
-              result.info.samples = n;
-              renderResult.touch();
-              progress(true);
-            },
-            region,
-          );
-      const passes: Partial<Record<PassName, Float32Array>> = {};
-      for (const [name, buf] of Object.entries(out.passes) as [PassName, Float32Array][]) passes[name] = place(buf, passChannels(name, buf, out.combined.length / 4));
-      result.passes = { Combined: place(out.combined, 4), ...passes };
+      const partial = (buf: Float32Array, n: number) => {
+        result.passes = { Combined: place(buf, 4) };
+        result.info.samples = n;
+        renderResult.touch();
+        progress(true);
+      };
+      const placed = (o: FrameOutput) => {
+        const passes: Partial<Record<PassName, Float32Array>> = {};
+        for (const [name, buf] of Object.entries(o.passes) as [PassName, Float32Array][]) passes[name] = place(buf, passChannels(name, buf, o.combined.length / 4));
+        return { Combined: place(o.combined, 4), ...passes };
+      };
+      let out: FrameOutput;
+      const layerResults: NonNullable<RenderResult['layers']> = [];
+      if (seqHook) out = { passes: {}, samples: 1, maxSamples: 1, ...(await seqHook.renderFrame!(f, W, H)) };
+      else {
+        // each view layer renders with its own passes and collection visibility
+        let main: FrameOutput | null = null;
+        const layers = ensureViewLayers(doc.scene);
+        for (const li of layerList) {
+          const swap = li !== activeLayer;
+          if (swap) {
+            setActiveViewLayer(doc, li);
+            app.evaluate();
+          }
+          if (layerList.length > 1) result.info.status = layers[li].name;
+          try {
+            const o = await renderFrame(src, FW, FH, partial, region);
+            // light groups: the image lit by each group's lights (and the world when it is in the group)
+            for (const g of layers[li].lightgroups ?? []) {
+              if (!g.name) continue;
+              result.info.status = `${layers.length > 1 ? `${layers[li].name} ▸ ` : ''}Light Group ${g.name}`;
+              lightGroup = g.name;
+              try {
+                const lg = await renderFrame(src, FW, FH, () => {}, region);
+                o.passes[`Combined_${g.name}`] = lg.combined;
+              } finally {
+                lightGroup = null;
+              }
+            }
+            if (li === activeLayer || !main) main = o;
+            if (layerList.length > 1 || finalRenderHooks.extraLayers) layerResults.push({ name: layers[li].name, scene: doc.scene.name, passes: placed(o) });
+          } finally {
+            if (swap) {
+              setActiveViewLayer(doc, activeLayer);
+              app.evaluate();
+            }
+          }
+        }
+        out = main!;
+        // view layers of other scenes read by the compositor
+        if (src.kind === 'final')
+          for (const want of finalRenderHooks.extraLayers?.() ?? []) {
+            const sc = sceneById(doc, want.scene);
+            if (!sc || sc === doc.scene || layerResults.some((l) => l.scene === sc.name && l.name === (want.layer || ensureViewLayers(sc)[activeLayerIndex(sc)].name))) continue;
+            if (!sc.camera) {
+              app.report('WARNING', `Scene “${sc.name}” has no camera: its view layer is not rendered`);
+              continue;
+            }
+            await withSceneAsync(doc, sc.id!, async () => {
+              const s2 = doc.scene;
+              const prevFrame = s2.frame_current;
+              const act = activeLayerIndex(s2);
+              const found = want.layer ? ensureViewLayers(s2).findIndex((l) => l.name === want.layer) : -1;
+              const li = found >= 0 ? found : act;
+              s2.frame_current = f;
+              if (li !== act) setActiveViewLayer(doc, li);
+              try {
+                app.evaluate();
+                result.info.status = `${s2.name} ▸ ${ensureViewLayers(s2)[li].name}`;
+                const o = await renderFrame(src, FW, FH, () => {}, region);
+                layerResults.push({ name: ensureViewLayers(s2)[li].name, scene: s2.name, passes: placed(o) });
+              } finally {
+                if (li !== act) setActiveViewLayer(doc, act);
+                s2.frame_current = prevFrame;
+              }
+            });
+            app.evaluate();
+          }
+        result.info.status = undefined;
+      }
+      result.passes = placed(out);
+      result.layers = layerResults.length > 1 ? layerResults : undefined;
       const time = (performance.now() - (o.animation ? t0 : job.started)) / 1000;
       result.info = { ...result.info, frame: f, samples: out.samples, maxSamples: out.maxSamples, time };
       result.view = out.view;

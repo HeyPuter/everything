@@ -1,5 +1,6 @@
 // Header, context and add menus of the Video Sequencer.
 import { app } from '../app/app';
+import { sceneObjects, scenesByName } from '../scenes/scenes';
 import type { MenuItem } from '../ui/menu';
 import { markerMenu } from '../animation/animeditor';
 import { activeStrip, selectedStrips, hasEditor, seqEditor, type SeqEditorLike } from './context';
@@ -10,9 +11,15 @@ import { stripIcon } from './theme';
 
 const camOptions = (): MenuItem[] => {
   const doc = app.doc;
-  const cams = doc.object_order.map((id) => doc.objects[id]).filter((o) => o?.type === 'CAMERA');
-  const items: MenuItem[] = [{ label: `${doc.scene.name || 'Scene'} (Active Camera)`, icon: 'scene_data', op: 'sequencer.scene_strip_add', props: { camera: '' } }];
-  for (const c of cams) items.push({ label: `${doc.scene.name || 'Scene'} — ${c.name}`, icon: 'outliner_ob_camera', op: 'sequencer.scene_strip_add', props: { camera: c.id } });
+  const items: MenuItem[] = [];
+  // every scene of the file, through its active camera or one of its cameras
+  for (const sc of scenesByName(doc)) {
+    const inScene = sceneObjects(doc, sc);
+    const cams = doc.object_order.filter((id) => inScene.has(id)).map((id) => doc.objects[id]).filter((o) => o?.type === 'CAMERA');
+    const scene = sc === doc.scene ? '' : sc.id!;
+    items.push({ label: `${sc.name || 'Scene'} (Active Camera)`, icon: 'scene_data', op: 'sequencer.scene_strip_add', props: { camera: '', scene } });
+    for (const c of cams) items.push({ label: `${sc.name || 'Scene'} — ${c.name}`, icon: 'outliner_ob_camera', op: 'sequencer.scene_strip_add', props: { camera: c.id, scene } });
+  }
   return items;
 };
 

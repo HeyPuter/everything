@@ -184,7 +184,6 @@ export function newScene(doc: DocumentData, type: SceneNewType, dup?: { duplicat
     sc.collection = master.id;
     sc.active_object = null;
     sc.custom = {};
-    delete sc.custom_ui;
     delete (sc as { asset_data?: unknown }).asset_data;
     ensureViewLayers(sc);
     const liveFlags = captureLiveFlags(doc);

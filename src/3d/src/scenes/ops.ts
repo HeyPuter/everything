@@ -8,6 +8,7 @@ import type { DocumentData, ID } from '../data/types';
 import { activeSceneId, allScenes, deleteScene, newScene, sceneById, scenesByName, type SceneNewType } from './scenes';
 import { activeLayerIndex, activeViewLayer, addViewLayer, ensureViewLayers, removeViewLayer, type ViewLayerAddType } from './viewlayers';
 import type { AovData } from '../render/final/idpasses';
+import { linkDataMenuHooks } from '../object/menus';
 
 const SCENE_NEW_ITEMS: [string, string, string][] = [
   ['NEW', 'New', 'Add a new, empty scene with default settings'],
@@ -253,3 +254,6 @@ export function otherScenesMenu(op: string) {
 }
 
 export { switchScene, switchViewLayer };
+
+// Link/Transfer Data ▸ Link Objects to Scene
+linkDataMenuHooks.top.push(() => [{ label: 'Link Objects to Scene', submenu: () => otherScenesMenu('object.make_links_scene') }, { separator: true }]);

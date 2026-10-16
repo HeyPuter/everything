@@ -56,3 +56,41 @@ test('top bar: view layers keep their own collection exclusion', async ({ page }
   await expect.poll(() => page.evaluate(() => (window as any).app.doc.scene.view_layers.map((l: any) => l.name))).toEqual(['ViewLayer.001']);
   await expectNoErrors(errors);
 });
+
+test('light linking: Ctrl L ▸ Link Receivers and the Object ▸ Shading list', async ({ page }) => {
+  const errors = await openApp(page);
+  // select the cube, then the light (active)
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const obs = Object.values(a.doc.objects) as any[];
+    for (const o of obs) o.select = o.name === 'Cube' || o.name === 'Light';
+    a.doc.scene.active_object = obs.find((o) => o.name === 'Light').id;
+    a.changed('select');
+  });
+  const box = await page.locator('.view3d').first().boundingBox();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.keyboard.press('Control+l');
+  await menuItem(page, 'Link Receivers');
+  await menuItem(page, 'Exclude');
+  await expect.poll(() => page.evaluate(() => Object.values((window as any).app.doc.collections).some((c: any) => c.name === 'Light Linking for Light'))).toBe(true);
+  await page.locator('.rail-tab[data-tab="OBJECT"]').first().click();
+  await page.locator('[data-panel="ob-shading"] > .panel-header').click();
+  await expect(page.locator('.properties').getByText('Light Linking', { exact: true })).toBeVisible();
+  await expect(page.locator('.properties .ll-state.exclude')).toHaveCount(1);
+  // flip the state to include
+  await page.locator('.properties .ll-state.exclude').click();
+  await expect.poll(() => page.evaluate(() => Object.values((Object.values((window as any).app.doc.collections).find((c: any) => c.name === 'Light Linking for Light') as any).light_linking))).toEqual(['INCLUDE']);
+  await expect(page.locator('.properties .ll-state.exclude')).toHaveCount(0);
+  await expectNoErrors(errors);
+});
+
+test('View Layer tab: light groups list with add and remove', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.locator('.rail-tab[data-tab="VIEW_LAYER"]').first().click();
+  const lg = page.locator('[data-panel="vl-lightgroups"]');
+  await lg.locator('> .panel-header').click();
+  await lg.locator('.ul-side button[data-tip="Add"]').click();
+  await expect.poll(() => page.evaluate(() => (window as any).app.doc.scene.view_layers[0].lightgroups.map((g: any) => g.name))).toEqual(['Lightgroup']);
+  await expect(lg.getByText('Lightgroup', { exact: true })).toBeVisible();
+  await expectNoErrors(errors);
+});

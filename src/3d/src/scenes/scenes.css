@@ -53,3 +53,20 @@
 .ll-state.exclude {
   color: var(--c-error, #e06c6c);
 }
+
+/* compositor Render Layers node: scene / view layer pickers */
+.cmp-rl-pick {
+  cursor: pointer;
+}
+.cmp-rl-row > .cmp-rl-layer {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+}
+.cmp-rl-scene:hover,
+.cmp-rl-row > .cmp-rl-layer:hover {
+  color: var(--t-ff, #ffffff);
+}

@@ -1,12 +1,17 @@
 // View Layer tab: Vector pass, Cryptomatte and Shader AOV panels (passes rendered by
 // idpasses.ts and read by the compositor's Render Layers and Cryptomatte nodes).
 import { h } from '../../ui/h';
-import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
-import { panel, button, textField, enumMenu } from '../../ui/widgets';
+import { panel, textField, enumMenu } from '../../ui/widgets';
+import { uiList } from '../../editors/properties/uilist';
 import { bool, num } from '../../ui/props';
 import { viewLayerDataItems, viewLayerPanels } from './props/viewlayer';
 import type { AovData } from './idpasses';
+
+/** Where the active AOV row is kept: the active view layer (set by the scenes module). */
+export const aovListState: () => { active_aov_index?: number } = () => (passesUiHooks.activeLayer?.() ?? fallbackState);
+const fallbackState: { active_aov_index?: number } = {};
+export const passesUiHooks: { activeLayer?: () => { active_aov_index?: number } } = {};
 
 const changed = (label: string) => {
   app.pushUndo(label);
@@ -34,36 +39,54 @@ viewLayerPanels.push(() => {
 viewLayerPanels.push(() => {
   const r = app.doc.scene.render;
   const aovs = r.aovs ?? [];
-  const uniqueAov = (base: string) => {
-    const names = new Set(aovs.map((a) => a.name));
-    let n = base;
-    for (let i = 1; names.has(n); i++) n = `${base}.${String(i).padStart(3, '0')}`;
-    return n;
-  };
+  const vl = aovListState();
+  const act = Math.min(aovs.length - 1, Math.max(0, vl.active_aov_index ?? 0));
   return panel(
     'vl-aov',
     'Shader AOV',
     () => [
-      ...aovs.map((a: AovData, i: number) =>
-        h(
-          'div',
-          { class: 'row', key: `aov${i}` },
-          textField(`vl-aov-name-${i}`, a.name, (v) => ((a.name = v.trim() || a.name), changed('Rename AOV'))),
-          enumMenu(
-            `vl-aov-type-${i}`,
-            [
-              { value: 'COLOR', label: 'Color' },
-              { value: 'VALUE', label: 'Value' },
-            ],
-            a.type,
-            (v) => ((a.type = v as AovData['type']), changed('AOV Type')),
-            { title: 'Type' },
-          ),
-          button(`vl-aov-del-${i}`, icon('x'), () => ((r.aovs = aovs.filter((x) => x !== a)), changed('Remove AOV')), { tip: 'Remove AOV' }),
-        ),
+      uiList(
+        'vl-aovs',
+        aovs.map((a: AovData) => ({
+          key: a.name,
+          label: a.name,
+          icon: a.type === 'VALUE' ? 'dot' : 'texture',
+          right: h('span', { class: 'ul-note' }, a.type === 'VALUE' ? 'Value' : 'Color'),
+        })),
+        act,
+        (i) => ((vl.active_aov_index = i), app.changed('ui')),
+        {
+          add: () => app.run('scene.view_layer_add_aov'),
+          remove: aovs.length ? () => app.run('scene.view_layer_remove_aov') : undefined,
+          rename: (i, name) => {
+            const n = name.trim();
+            if (!n || aovs.some((x, k) => k !== i && x.name === n)) return;
+            aovs[i].name = n;
+            changed('Rename AOV');
+          },
+        },
       ),
-      aovs.length ? null : h('div', { class: 'prop-note' }, 'AOV Output nodes write into the passes listed here'),
-      button('vl-aov-add', [icon('add'), 'Add AOV'], () => ((r.aovs = [...aovs, { name: uniqueAov('AOV'), type: 'COLOR' }]), changed('Add AOV')), { tip: 'Add a shader AOV pass' }),
+      aovs[act]
+        ? h(
+            'div',
+            { class: 'row' },
+            textField(`vl-aov-name-${act}`, aovs[act].name, (v) => {
+              const n = v.trim();
+              if (n && !aovs.some((x, k) => k !== act && x.name === n)) aovs[act].name = n;
+              changed('Rename AOV');
+            }),
+            enumMenu(
+              `vl-aov-type-${act}`,
+              [
+                { value: 'COLOR', label: 'Color' },
+                { value: 'VALUE', label: 'Value' },
+              ],
+              aovs[act].type,
+              (v) => ((aovs[act].type = v as AovData['type']), changed('AOV Type')),
+              { title: 'Type' },
+            ),
+          )
+        : h('div', { class: 'prop-note' }, 'AOV Output nodes write into the passes listed here'),
     ],
     { closed: true },
   );

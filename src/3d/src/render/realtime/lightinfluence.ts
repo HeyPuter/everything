@@ -32,6 +32,14 @@ export function packedLightOrder<T extends LightLike>(lights: T[]): T[] {
   return [...lights].sort((a, b) => (b.castShadow ? 2 : 0) - (a.castShadow ? 2 : 0) + (b.map ? 1 : 0) - (a.map ? 1 : 0));
 }
 
+const packed: { light: LightLike; kind: LightKind; index: number }[] = [];
+/** Lights of the last influence update with their type and slot (per-object light linking). */
+export function lastPackedLights(): readonly { light: LightLike; kind: LightKind; index: number }[] {
+  return packed;
+}
+/** Hooks run after the influence factors are computed for a render (they may keep a copy). */
+export const influenceUpdatedHooks: (() => void)[] = [];
+
 /** Fill the per-type arrays with (1 - diffuse, 1 - glossy) for lights in packing order. */
 export function influenceArrays(lights: LightLike[]): Record<LightKind, Float32Array> {
   const out: Record<LightKind, Float32Array> = {
@@ -45,10 +53,12 @@ export function influenceArrays(lights: LightLike[]): Record<LightKind, Float32A
   const vol: Partial<Record<LightKind, Float32Array>> = { point: volumeFactorUniforms.ndLvPoint.value, spot: volumeFactorUniforms.ndLvSpot.value, dir: volumeFactorUniforms.ndLvDir.value };
   for (const a of Object.values(vol)) a!.fill(1);
   const n: Record<LightKind, number> = { point: 0, spot: 0, dir: 0, sun: 0, rect: 0 };
+  packed.length = 0;
   for (const l of packedLightOrder(lights)) {
     const k = lightKind(l);
     if (!k) continue;
     const i = n[k]++;
+    packed.push({ light: l, kind: k, index: i });
     if (i >= MAX_LIGHTS) continue;
     const f = l.userData.influence;
     if (!f) continue;
@@ -72,6 +82,7 @@ export function updateLightInfluence(scene: Scene, camera: Camera) {
   collect(scene, camera);
   influenceArrays(collected as unknown as LightLike[]);
   collected.length = 0;
+  for (const fn of influenceUpdatedHooks) fn();
 }
 
 /** Keep the influence uniforms in sync whenever `scene` renders. */

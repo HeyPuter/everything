@@ -70,6 +70,8 @@ export interface BuildOptions {
   envScale?: number;
   /** view layer filter: leave surfaces out of the render */
   hideSurfaces?: boolean;
+  /** light group renders: only these lights (object ids) light the scene */
+  lightFilter?: (id: string) => boolean;
 }
 
 interface Entry {
@@ -97,6 +99,18 @@ export function renderVisibleObjects(doc: DocumentData): Set<string> {
   return out;
 }
 
+/** Opaque per-build state of the view layer visibility / light linking hooks. */
+export type RenderVisState = object;
+/**
+ * View layer render visibility (holdout, indirect only) and light linking, provided by the
+ * scenes module: `prepare` runs once per build, `materials` picks the materials of each mesh.
+ */
+export const renderVisHooks: {
+  prepare?: (doc: DocumentData, mode: BuildOptions['mode'], objects: string[], lights: string[]) => RenderVisState | null;
+  materials?: (st: RenderVisState, obId: string, mats: Material[], mesh: Mesh) => Material[];
+  reset?: (mesh: Mesh) => void;
+} = {};
+
 /** Extra renderable content (e.g. grease pencil strokes) added to the render scene after each build. */
 export const renderSceneHooks: ((rs: RenderScene, app: App, o: BuildOptions) => void)[] = [];
 /** Adjust a light's colour before it is applied (e.g. the emission of a light node tree). */
@@ -117,6 +131,8 @@ export class RenderScene {
   envKey = '';
   bounds = new Sphere(new Vector3(), 1);
   mode: BuildOptions['mode'];
+  /** view layer visibility / light linking state of the last build */
+  vis: RenderVisState | null = null;
   private lightScale = 1;
   private lightThreshold = 0;
 
@@ -133,6 +149,16 @@ export class RenderScene {
     this.lightScale = Math.max(0, o.lightScale ?? 1);
     this.lightThreshold = o.mode === 'raster' ? shadowSettings(doc.scene.render).threshold : 0;
     const renderable = o.final ? renderVisibleObjects(doc) : null;
+    // holdout / indirect only / light linking of the visible objects
+    const visIds: string[] = [],
+      lightIds: string[] = [];
+    if (renderVisHooks.prepare) {
+      for (const ev of app.graph.objects.values()) {
+        const visible = renderable ? renderable.has(ev.id) : ev.visible && !ev.ob.hide_render && (!o.localView || o.localView.has(ev.id));
+        if (visible) (ev.ob.type === 'LIGHT' ? lightIds : visIds).push(ev.id);
+      }
+    }
+    this.vis = renderVisHooks.prepare?.(doc, o.mode, visIds, lightIds) ?? null;
     const seen = new Set<string>();
     let structure = false,
       lights = false;
@@ -142,11 +168,12 @@ export class RenderScene {
       const visible = renderable ? renderable.has(ev.id) : ev.visible && !ob.hide_render && (!o.localView || o.localView.has(ev.id));
       if (!visible) continue;
       if (ob.type === 'LIGHT') {
-        if (o.useSceneLights === false || !ob.data || !doc.lights[ob.data]) continue;
+        if (o.useSceneLights === false || !ob.data || !doc.lights[ob.data] || (o.lightFilter && !o.lightFilter(ev.id))) continue;
         seen.add(ev.id);
         let e = this.entries.get(ev.id);
         if (!e) this.entries.set(ev.id, (e = { meshes: [] }));
         if (this.syncLight(doc.lights[ob.data], ev.world, e)) lights = true;
+        e.light!.userData.obId = ev.id;
         continue;
       }
       if (!ev.mesh || !ev.mesh.indices.length || o.hideSurfaces) continue;
@@ -254,7 +281,9 @@ export class RenderScene {
         im.computeBoundingSphere();
       }
       m.matrix.copy(w.matrix);
-      const mats = matFor(w.geo);
+      let mats = matFor(w.geo);
+      renderVisHooks.reset?.(m);
+      if (this.vis && renderVisHooks.materials) mats = renderVisHooks.materials(this.vis, ob.id, mats, m);
       const cur = Array.isArray(m.material) ? m.material : [m.material];
       const next = m instanceof InstancedMesh ? [mats[0]] : mats;
       if (cur.length !== next.length || cur.some((c, k) => c !== next[k])) {

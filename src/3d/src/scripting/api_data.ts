@@ -1068,8 +1068,8 @@ class Strips extends PropCollection<unknown> {
   }
   /** Adds a strip showing this scene (through `scene`'s active camera, or the given one). */
   new_scene(name: string, scene: unknown, channel: number, frame_start: number) {
-    void scene;
-    const sc = app.doc.scene;
+    const sid = (scene as { __id?: string } | null)?.__id;
+    const sc = (sid && (app.doc.scene.id === sid ? app.doc.scene : app.doc.scenes?.[sid])) || app.doc.scene;
     const s = newStrip('SCENE', String(name || sc.name), Number(channel), Math.round(Number(frame_start)), Math.max(1, sc.frame_end - sc.frame_start + 1));
     (s as unknown as Any).scene = sc.name;
     return this.add(s, String(name || sc.name));

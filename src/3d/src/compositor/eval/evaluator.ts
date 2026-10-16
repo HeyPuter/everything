@@ -21,6 +21,8 @@ export interface LayerSource {
   /** changes whenever the pixels change (texture cache key) */
   version: string;
   passes: Partial<Record<PassName, Float32Array>>;
+  /** other rendered view layers by `<scene name>/<layer name>` (Render Layers nodes pick one) */
+  named?: Record<string, LayerSource>;
 }
 
 export interface EvalEnv {
