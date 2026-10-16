@@ -5853,6 +5853,8 @@ export class Workbook extends EventTarget {
       });
       for (const s of this.sheets) {
         s.sparklineGroups = mapNativeSparklineReferences(s.sparklineGroups, f => follow(f, s.name));
+        // A chart's series, titles and linked text are references like any formula's.
+        s.charts = s.charts.map(chart => mapChartReferences(chart, f => follow(f, s.name)));
         for (const cell of s.cells.values()) {
           if (cell.f == null) continue;
           cell.f = follow(cell.f, s.name);
@@ -6641,6 +6643,8 @@ export class Workbook extends EventTarget {
       });
       for (const s of this.sheets) {
         s.sparklineGroups = mapNativeSparklineReferences(s.sparklineGroups, f => renumber(f, s.name));
+        // The moved sheet's own charts read its lines as its cell formulas do; charts elsewhere follow below.
+        if (s === sheet) s.charts = s.charts.map(chart => mapChartReferences(chart, f => renumber(f, s.name)));
         if (s === sheet) s.sparklineGroups = mapNativeSparklineDestinations(s.sparklineGroups, mapRange);
         for (const cell of s.cells.values()) if (cell.f != null) cell.f = renumber(cell.f, s.name);
         s.tables = s.tables.map((t) => !t.calc ? t : { ...t, calc: Object.fromEntries(
