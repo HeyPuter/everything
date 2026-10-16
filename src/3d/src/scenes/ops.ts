@@ -9,6 +9,7 @@ import { activeSceneId, allScenes, deleteScene, newScene, sceneById, scenesByNam
 import { activeLayerIndex, activeViewLayer, addViewLayer, ensureViewLayers, removeViewLayer, type ViewLayerAddType } from './viewlayers';
 import type { AovData } from '../render/final/idpasses';
 import { linkDataMenuHooks } from '../object/menus';
+import { rowMenuHooks } from '../editors/outliner/menus';
 
 const SCENE_NEW_ITEMS: [string, string, string][] = [
   ['NEW', 'New', 'Add a new, empty scene with default settings'],
@@ -205,6 +206,24 @@ registerOperators([
     },
   },
   {
+    idname: 'outliner.scene_operation',
+    label: 'Outliner Scene Operation',
+    description: 'Apply an operation to a scene listed in the outliner',
+    props: [
+      { id: 'type', label: 'Scene Operation', type: 'enum', default: 'DELETE', items: [['DELETE', 'Delete', 'Delete the scene']] },
+      { id: 'scene', label: 'Scene', type: 'string', default: '', hidden: true },
+    ],
+    poll: (ctx) => allScenes(ctx.doc).length > 1,
+    exec: (ctx, p) => {
+      const sc = sceneById(ctx.doc, String(p.scene)) ?? ctx.doc.scene;
+      if (sc === ctx.doc.scene && !objectMode()) return 'CANCELLED';
+      if (!deleteScene(ctx.doc, sc.id!)) return 'CANCELLED';
+      sceneChanged();
+      app.report('INFO', `Deleted scene “${sc.name}”`);
+      return 'FINISHED';
+    },
+  },
+  {
     idname: 'object.make_links_scene',
     label: 'Link Objects to Scene',
     description: 'Link the selected objects into another scene (into its scene collection)',
@@ -257,3 +276,13 @@ export { switchScene, switchViewLayer };
 
 // Link/Transfer Data ▸ Link Objects to Scene
 linkDataMenuHooks.top.push(() => [{ label: 'Link Objects to Scene', submenu: () => otherScenesMenu('object.make_links_scene') }, { separator: true }]);
+
+// Outliner: context menu of scene rows
+rowMenuHooks.push((r) =>
+  r.kind === 'scene' && r.id
+    ? [
+        { label: 'Delete', op: 'outliner.scene_operation', props: { type: 'DELETE', scene: r.id }, disabled: allScenes(app.doc).length < 2 },
+        { label: 'New Scene', submenu: sceneNewMenu },
+      ]
+    : [],
+);

@@ -1,7 +1,7 @@
 // .blend → DocumentData conversion. Both apps are Z-up, metres and radians, so transforms and
 // geometry are copied without axis changes.
 import { Quaternion, Vector3 } from 'three';
-import type { ArmatureData, Bone, CameraData, CollectionData, CurveData, DocumentData, ID, ImageData, LatticeData, LightData, MaterialData, ObjectData, ObjectType, PoseBone, RotationMode, Spline, WorldData, BezierPoint, HandleType, AnimData } from '../../data/types';
+import type { RenderSettings, ArmatureData, Bone, CameraData, CollectionData, CurveData, DocumentData, ID, ImageData, LatticeData, LightData, MaterialData, ObjectData, ObjectType, PoseBone, RotationMode, Spline, WorldData, BezierPoint, HandleType, AnimData } from '../../data/types';
 import { emptyDocument, newArmature, newCamera, newCollection, newCurve, newLight, newMaterial, newObject, newWorld, uid } from '../../data/defaults';
 import { resolve } from '../../data/rna';
 import { BlendFile, BlendError, type BStruct } from './reader';
@@ -193,6 +193,8 @@ export function convertBlend(f: BlendFile): BlendImport {
     w.color = [wo.num('horr'), wo.num('horg'), wo.num('horb')];
     w.mist_start = wo.num('miststa');
     w.mist_depth = wo.num('mistdist');
+    const lg = wo.ref('lightgroup')?.str('name');
+    if (lg) w.lightgroup = lg;
     const nt = wo.ref('nodetree');
     if (nt && (wo.num('use_nodes') !== 0 || version >= 500)) {
       w.tree = convertNodeTree(nt, 'WORLD', ctx);
@@ -624,6 +626,8 @@ export function convertBlend(f: BlendFile): BlendImport {
       if (ob) {
         addObject(ob);
         obs.push(ob);
+        // light linking state of the member (0 include, 1 exclude)
+        if (co.sub('light_linking')?.num('link_state') === 1) (data.light_linking ??= {})[objectIds.get(ob.offset)!] = 'EXCLUDE';
       }
     }
     collectionMembers.set(data.id, obs);
@@ -633,6 +637,7 @@ export function convertBlend(f: BlendFile): BlendImport {
         if (!cc) continue;
         const cid = convertCollection(cc, false, depth + 1);
         if (!data.children.includes(cid) && cid !== data.id) data.children.push(cid);
+        if (ch.sub('light_linking')?.num('link_state') === 1) (data.light_linking ??= {})[cid] = 'EXCLUDE';
       }
     return data.id;
   };
@@ -654,10 +659,20 @@ export function convertBlend(f: BlendFile): BlendImport {
     }
     collectionMembers.set(col.id, obs);
   }
-  // objects referenced from instanced collections not linked to the scene
+  // objects referenced from instanced collections not linked to the scene, and light / shadow
+  // linking collections
+  const lightLinks = new Map<string, { receiver: ID | null; blocker: ID | null }>();
   for (let i = 0; i < objectsToConvert.length; i++) {
     const dup = objectsToConvert[i].ref('dup_group');
     if (dup && dup.type === 'Collection' && !ids.has(dup.offset)) convertCollection(dup, false, 1);
+    const ll = objectsToConvert[i].ref('light_linking');
+    if (ll) {
+      const rc = ll.ref('receiver_collection'),
+        bc = ll.ref('blocker_collection');
+      const receiver = rc ? convertCollection(rc, false, 1) : null;
+      const blocker = bc ? convertCollection(bc, false, 1) : null;
+      if (receiver || blocker) lightLinks.set(objectIds.get(objectsToConvert[i].offset)!, { receiver, blocker });
+    }
   }
   // parents / targets referenced but not in the scene stay unresolved (reported per object)
 
@@ -680,6 +695,12 @@ export function convertBlend(f: BlendFile): BlendImport {
       if (id && doc.objects[id] && !c.objects.includes(id)) c.objects.push(id);
     }
   }
+  for (const [id, l] of lightLinks) if (doc.objects[id]) doc.objects[id].light_linking = { receiver_collection: l.receiver, blocker_collection: l.blocker };
+  for (const ob of objectsToConvert) {
+    const id = objectIds.get(ob.offset);
+    const lg = ob.ref('lightgroup')?.str('name');
+    if (id && lg && doc.objects[id]) doc.objects[id].lightgroup = lg;
+  }
   // drop dangling parent links (object failed to import)
   for (const o of Object.values(doc.objects)) if (o.parent && !doc.objects[o.parent]) o.parent = null;
   // camera DOF focus objects
@@ -696,19 +717,43 @@ export function convertBlend(f: BlendFile): BlendImport {
   const viewLayers = sc.list('view_layers', 1000);
   const curVl = glob?.ref('cur_view_layer');
   const vl = (curVl && viewLayers.find((v) => v.offset === curVl.offset)) ?? viewLayers[0];
-  if (viewLayers.length > 1) warn.add('Only one view layer used for visibility', vl?.str('name') ?? '');
-  if (vl) {
+  // every view layer: its name, Use for Rendering and per-collection flags (the active one is live)
+  const layerFlagsOf = (layer: BStruct) => {
+    const out: Record<string, { exclude?: boolean; hide?: boolean; holdout?: boolean; indirect_only?: boolean }> = {};
     const walk = (lc: BStruct, depth: number) => {
       const cs = lc.ref('collection');
       const cid = cs ? ids.get(cs.offset) : undefined;
       if (cid && cid !== masterId) {
         const fl = lc.num('flag');
-        doc.collections[cid].exclude = (fl & 16) !== 0;
-        doc.collections[cid].hide = (fl & 128) !== 0;
+        const f = { exclude: (fl & 16) !== 0, holdout: (fl & 32) !== 0, indirect_only: (fl & 64) !== 0, hide: (fl & 128) !== 0 };
+        out[cid] = Object.fromEntries(Object.entries(f).filter(([, v]) => v));
       }
       if (depth < 256) for (const c of lc.list('layer_collections', 100_000)) walk(c, depth + 1);
     };
-    for (const lc of vl.list('layer_collections', 100_000)) walk(lc, 0);
+    for (const lc of layer.list('layer_collections', 100_000)) walk(lc, 0);
+    return out;
+  };
+  if (viewLayers.length) {
+    doc.scene.view_layers = viewLayers.map((l) => {
+      const groups = l.list('lightgroups', 1000).map((g) => ({ name: g.str('name') })).filter((g) => g.name);
+      return groups.length ? { name: l.str('name') || 'ViewLayer', lightgroups: groups } : { name: l.str('name') || 'ViewLayer' };
+    });
+    doc.scene.active_view_layer = Math.max(0, viewLayers.indexOf(vl!));
+    viewLayers.forEach((l, i) => {
+      if (l === vl) return;
+      const render: Partial<RenderSettings> = { use_view_layer: (l.num('flag') & 1) !== 0 };
+      doc.scene.view_layers![i].stored = { render, collections: layerFlagsOf(l) };
+    });
+  }
+  if (vl) {
+    for (const [cid, f] of Object.entries(layerFlagsOf(vl))) {
+      const c = doc.collections[cid];
+      c.exclude = !!f.exclude;
+      c.hide = !!f.hide;
+      if (f.holdout) c.holdout = true;
+      if (f.indirect_only) c.indirect_only = true;
+    }
+    doc.scene.render.use_view_layer = (vl.num('flag') & 1) !== 0;
     for (const b of vl.list('object_bases', 1_000_000)) {
       const id = ctx.objectRef(b.ref('object'));
       if (!id || !doc.objects[id]) continue;

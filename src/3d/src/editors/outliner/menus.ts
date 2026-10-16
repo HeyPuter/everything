@@ -325,6 +325,7 @@ function rowMenu(ol: Outliner, r: Row): MenuItem[] {
           disabled: !ol.canRename(r),
           action: () => ol.startRename(r.key),
         },
+        ...(hookItems(r).length ? [{ separator: true }, ...hookItems(r)] : []),
         ...common(ol),
       ];
   }
