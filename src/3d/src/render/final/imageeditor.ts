@@ -11,14 +11,17 @@ import { splitRow } from '../../ui/props';
 import { imageCanvas, imageTexture, touchImage, generatedPixels } from '../images';
 import { lastImage } from '../../ops/data';
 import type { ImageData as Img } from '../../data/types';
-import { renderResult, passToRGBA8, samplePixel, encodeRGBA8, canvasBytes, download, toBW, EXT, virtualImages, onVirtualImageChange, RENDER_SLOTS, PASS_ORDER, passLabel, type PassName, type ChannelMode, type FileFormat, type RenderResult } from './result';
+import { renderResult, passToRGBA8, samplePixel, encodeRGBA8, canvasBytes, download, toBW, EXT, virtualImages, onVirtualImageChange, PASS_ORDER, passLabel, type PassName, type ChannelMode, type FileFormat, type RenderResult } from './result';
 import { renderSize } from './units';
-import { LOOKS } from './colormanage';
+import { LOOKS, displayPixel } from './colormanage';
 import { pngWithText } from './stamp';
 import { num } from '../../ui/props';
 import { modifiedImages, type View2D } from './imageops';
 import { scopesPanel } from './scopes';
 import { lastOpPanel } from '../../ui/redo';
+import { uiList } from '../../editors/properties/uilist';
+import { isTiled, tileName, tileView, atlasLayout, tileCell } from '../udim';
+import { makeTiled, makeSingle, openImageFiles, saveTiles } from './udimops';
 import { imagePaintStroke, paintBrush } from './imagepaint';
 import { paintImage } from '../../paint/tpaint';
 import { BRUSH_LISTS } from '../../paint/brushes';
@@ -104,6 +107,10 @@ export class ImageEditor implements Editor, View2D {
   /** View or Paint; unset follows the object mode (Paint while in Texture Paint mode) */
   uiMode: 'VIEW' | 'PAINT' | null = null;
   showToolbar = true;
+  /** View mode: show the Sample tool's settings over the image */
+  showToolSettings = true;
+  /** width of the square averaged when sampling pixels */
+  sampleSize = 1;
   private hover: { x: number; y: number } | null = null;
   private canvas: HTMLCanvasElement;
   private ui: HTMLElement;
@@ -128,9 +135,11 @@ export class ImageEditor implements Editor, View2D {
     this.ui = document.createElement('div');
     this.ui.className = 'ie-ui';
     this.el.append(this.canvas, this.ui);
-    const st = (state ?? {}) as { render?: boolean; image?: string | null; pass?: PassName; channel?: ChannelMode; zoom?: number; off?: [number, number]; sidebar?: boolean; layer?: ResultLayer; mode?: 'VIEW' | 'PAINT'; toolbar?: boolean };
+    const st = (state ?? {}) as { toolSettings?: boolean; sampleSize?: number; render?: boolean; image?: string | null; pass?: PassName; channel?: ChannelMode; zoom?: number; off?: [number, number]; sidebar?: boolean; layer?: ResultLayer; mode?: 'VIEW' | 'PAINT'; toolbar?: boolean };
     if (st.mode === 'VIEW' || st.mode === 'PAINT') this.uiMode = st.mode;
     if (st.toolbar === false) this.showToolbar = false;
+    if (st.toolSettings === false) this.showToolSettings = false;
+    if (st.sampleSize) this.sampleSize = st.sampleSize;
     if (st.render) this.imageId = RENDER_RESULT;
     if (st.image !== undefined) this.imageId = st.image;
     if (st.pass) this.pass = st.pass;
@@ -403,6 +412,8 @@ export class ImageEditor implements Editor, View2D {
     ctx.imageSmoothingEnabled = this.zoom < 1;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(src, x, y, dw, dh);
+    const shownImg = this.result ? null : this.image;
+    if (isTiled(shownImg)) this.drawTiles(ctx, shownImg, x, y, dw, dh);
     if (this.paintMode()) this.drawUVOverlay(ctx, x, y, dw, dh);
     // brush circle
     if (this.paintMode() && this.hover && this.image) {
@@ -428,6 +439,32 @@ export class ImageEditor implements Editor, View2D {
       ctx.lineTo(sx, sy + 8);
       ctx.stroke();
     }
+  }
+
+  /** UDIM tiles: outline each tile's cell, label it, and mark the active one. */
+  private drawTiles(ctx: CanvasRenderingContext2D, img: Img, x: number, y: number, dw: number, dh: number) {
+    const { cols, rows } = atlasLayout(img);
+    const cw = dw / cols,
+      chh = dh / rows;
+    ctx.save();
+    ctx.font = `${Math.max(9, Math.min(14, cw / 8))}px ${getComputedStyle(this.el).fontFamily || 'sans-serif'}`;
+    ctx.textBaseline = 'top';
+    img.tiles!.forEach((t, i) => {
+      const [c, r] = tileCell(t.number);
+      const tx = x + c * cw,
+        ty = y + (rows - 1 - r) * chh;
+      const active = i === (img.active_tile_index ?? 0);
+      ctx.strokeStyle = active ? 'rgba(255, 255, 255, 0.85)' : 'rgba(255, 255, 255, 0.35)';
+      ctx.lineWidth = active ? 1.5 : 1;
+      ctx.strokeRect(Math.round(tx) + 0.5, Math.round(ty) + 0.5, Math.round(cw) - 1, Math.round(chh) - 1);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+      const label = tileName(img, i);
+      const tw = ctx.measureText(label).width;
+      ctx.fillRect(tx + 3, ty + 3, tw + 8, 16);
+      ctx.fillStyle = '#e8e9ea';
+      ctx.fillText(label, tx + 7, ty + 5);
+    });
+    ctx.restore();
   }
 
   /** Empty Render Result: a transparent frame with the output's aspect ratio and a hint. */
@@ -476,7 +513,7 @@ export class ImageEditor implements Editor, View2D {
     const paint = this.paintMode();
     patch(this.ui, [
       ...info,
-      paint ? h('div', { key: 'ie-toolhdr', class: 'hdr-row ie-toolhdr' }, toolHeaderSettings('TEXTURE_PAINT')) : null,
+      paint ? h('div', { key: 'ie-toolhdr', class: 'hdr-row ie-toolhdr' }, toolHeaderSettings('TEXTURE_PAINT')) : this.showToolSettings && (this.image || this.result) && !this.host.close ? this.sampleToolHeader() : null,
       paint && this.showToolbar ? this.paintToolbar() : null,
       this.sampleBar(),
       this.showSidebar ? this.sidebar() : null,
@@ -484,16 +521,59 @@ export class ImageEditor implements Editor, View2D {
     ]);
   }
 
+  /**
+   * Pixel values averaged over the sample square around (x, y): raw values (render passes in
+   * scene-linear, images as stored 0–1) plus colour-managed display values for renders.
+   */
+  sampleValues(x: number, y: number, size = this.sampleSize): { raw: number[]; display?: number[]; depth?: number } | null {
+    const half = Math.floor((Math.max(1, size) - 1) / 2);
+    const r = this.result;
+    if (r) {
+      let acc: number[] | null = null;
+      let depth: number | undefined;
+      let n = 0;
+      for (let yy = y - half; yy < y - half + size; yy++)
+        for (let xx = x - half; xx < x - half + size; xx++) {
+          const s = samplePixel(r, this.pass, xx, yy, sceneView(r));
+          if (!s) continue;
+          acc = acc ? acc.map((v, k) => v + s.raw[k]) : s.raw.slice();
+          if (xx === x && yy === y) depth = s.depth;
+          n++;
+        }
+      if (!acc || !n) return null;
+      const raw = acc.map((v) => v / n);
+      const out: { raw: number[]; display?: number[]; depth?: number } = { raw, depth };
+      if (this.pass === 'Combined') {
+        const d = [0, 0, 0, 0];
+        displayPixel(raw[0], raw[1], raw[2], raw[3] ?? 1, sceneView(r), d);
+        out.display = d;
+      }
+      return out;
+    }
+    const img = this.image;
+    if (!img) return null;
+    const c = imageCanvas(img);
+    const x0 = Math.max(0, x - half),
+      y0 = Math.max(0, y - half);
+    const x1 = Math.min(c.width, x - half + size),
+      y1 = Math.min(c.height, y - half + size);
+    if (x < 0 || y < 0 || x >= c.width || y >= c.height || x1 <= x0 || y1 <= y0) return null;
+    const p = c.getContext('2d', { willReadFrequently: true })!.getImageData(x0, y0, x1 - x0, y1 - y0).data;
+    const acc = [0, 0, 0, 0];
+    for (let i = 0; i < p.length; i += 4) for (let k = 0; k < 4; k++) acc[k] += p[i + k];
+    const n = p.length / 4;
+    return { raw: acc.map((v) => v / n / 255) };
+  }
+
   private sampleBar(): Child {
     if (!this.sample) return null;
     const x = Math.floor(this.sample.x),
       y = Math.floor(this.sample.y);
     const f = (v: number) => v.toFixed(3);
-    const r = this.result;
+    const s = this.sampleValues(x, y);
+    if (!s) return null;
     let parts: Child[] = [];
-    if (r) {
-      const s = samplePixel(r, this.pass, x, y, sceneView(r));
-      if (!s) return null;
+    if (this.result) {
       if (this.pass === 'Combined') {
         parts = [`R:${f(s.raw[0])}`, `G:${f(s.raw[1])}`, `B:${f(s.raw[2])}`, `A:${f(s.raw[3])}`];
         if (s.display) parts.push(h('span', { class: 'ie-cm' }, `CM R:${f(s.display[0])} G:${f(s.display[1])} B:${f(s.display[2])}`));
@@ -501,14 +581,44 @@ export class ImageEditor implements Editor, View2D {
       else parts = [`${this.pass === 'Depth' ? 'Z' : 'V'}:${s.raw[0] >= 1e9 ? '∞' : f(s.raw[0])}`];
       if (s.depth !== undefined && this.pass !== 'Depth') parts.push(`Z:${s.depth >= 1e9 ? '∞' : f(s.depth)}`);
     } else {
-      const img = this.image;
-      if (!img) return null;
-      const c = imageCanvas(img);
-      if (x < 0 || y < 0 || x >= c.width || y >= c.height) return null;
-      const p = c.getContext('2d', { willReadFrequently: true })!.getImageData(x, y, 1, 1).data;
-      parts = [`R:${p[0]}`, `G:${p[1]}`, `B:${p[2]}`, `A:${p[3]}`, h('span', { class: 'ie-cm' }, `${f(p[0] / 255)} ${f(p[1] / 255)} ${f(p[2] / 255)} ${f(p[3] / 255)}`)];
+      const b = s.raw.map((v) => Math.round(v * 255));
+      parts = [`R:${b[0]}`, `G:${b[1]}`, `B:${b[2]}`, `A:${b[3]}`, h('span', { class: 'ie-cm' }, `${f(s.raw[0])} ${f(s.raw[1])} ${f(s.raw[2])} ${f(s.raw[3])}`)];
     }
-    return h('div', { class: 'ie-sample', key: 'sample' }, h('span', null, `X:${x} Y:${y}`), ...parts.map((p) => h('span', null, p)));
+    const size = this.sampleSize > 1 ? h('span', { class: 'ie-cm' }, `${this.sampleSize}×${this.sampleSize} px`) : null;
+    return h('div', { class: 'ie-sample', key: 'sample' }, h('span', null, `X:${x} Y:${y}`), ...parts.map((p) => h('span', null, p)), size);
+  }
+
+  /** Tool settings of the Sample tool (View mode). */
+  private sampleToolHeader(): Child {
+    return h(
+      'div',
+      { key: 'ie-samplehdr', class: 'hdr-row ie-toolhdr ie-samplehdr' },
+      h('span', { class: 'ie-tool-name', 'data-tip': 'Sample\nClick and drag over the image to read pixel values (Ctrl: set the display black point, Shift: the white point)' }, icon('eyedropper'), 'Sample'),
+      h('span', { class: 'ie-tool-label' }, 'Sample Size'),
+      numberField({ id: 'ie-sample-size', value: this.sampleSize, int: true, min: 1, max: 128, unit: 'pixel', tip: 'Width of the square of pixels averaged when sampling', set: (v) => ((this.sampleSize = Math.max(1, Math.round(v))), this.drawUI()) }),
+    );
+  }
+
+  /** Set the display curve's black or white point to the sampled render color (Ctrl / Shift click). */
+  setCurvePoint(point: 'BLACK_POINT' | 'WHITE_POINT', x: number, y: number): boolean {
+    const r = this.result;
+    if (!r || r.view) return false;
+    const s = this.sampleValues(Math.floor(x), Math.floor(y));
+    if (!s) return false;
+    const cm = app.doc.scene.render;
+    // the level is measured before the curve itself
+    const d = [0, 0, 0, 0];
+    displayPixel(s.raw[0], s.raw[1] ?? s.raw[0], s.raw[2] ?? s.raw[0], 1, { ...sceneView(r), use_curve_mapping: false }, d);
+    const level = Math.max(0, Math.min(1, 0.2126 * d[0] + 0.7152 * d[1] + 0.0722 * d[2]));
+    const pts = cm.use_curve_mapping && cm.curve_mapping?.length ? cm.curve_mapping : [[0, 0], [1, 1]] as [number, number][];
+    let lo = pts[0][0],
+      hi = pts[pts.length - 1][0];
+    if (point === 'BLACK_POINT') lo = Math.min(level, hi - 1e-3);
+    else hi = Math.max(level, lo + 1e-3);
+    cm.curve_mapping = [[lo, 0], [hi, 1]];
+    cm.use_curve_mapping = true;
+    this.cache = null;
+    return true;
   }
 
   // ---------------------------------------------------------------------
@@ -599,7 +709,7 @@ export class ImageEditor implements Editor, View2D {
       isRender
         ? enumMenu(
             'ie-slot',
-            Array.from({ length: RENDER_SLOTS }, (_, i) => ({ value: String(i), label: `Slot ${i + 1}${renderResult.hasRender(i) ? '' : ' (empty)'}` })),
+            Array.from({ length: renderResult.count }, (_, i) => ({ value: String(i), label: `${renderResult.slotName(i)}${renderResult.hasRender(i) ? '' : ' (empty)'}` })),
             String(renderResult.slot),
             (v) => (renderResult.setSlot(Number(v)), app.changed('ui')),
             { tip: 'Render Slot\nRenders go into the shown slot; keep earlier renders in other slots to compare them (J / Alt J, 1–8)' },
@@ -626,6 +736,7 @@ export class ImageEditor implements Editor, View2D {
     const items: MenuItem[] = [
       ...(this.paintMode() ? [{ label: 'Toolbar', checked: this.showToolbar, shortcut: 'T', action: () => ((this.showToolbar = !this.showToolbar), this.drawUI()) }] : []),
       { label: 'Sidebar', checked: this.showSidebar, shortcut: 'N', action: () => this.toggleSidebar() },
+      ...(this.paintMode() || this.host.close ? [] : [{ label: 'Tool Settings', checked: this.showToolSettings, action: () => ((this.showToolSettings = !this.showToolSettings), this.drawUI()) }]),
       { separator: true },
       { label: 'Zoom In', op: 'image.view_zoom_in', shortcut: 'Numpad +' },
       { label: 'Zoom Out', op: 'image.view_zoom_out', shortcut: 'Numpad -' },
@@ -637,6 +748,9 @@ export class ImageEditor implements Editor, View2D {
     ];
     if (this.imageId === RENDER_RESULT)
       items.push(
+        { separator: true },
+        { label: 'Render Region…', op: 'image.render_border', shortcut: 'Ctrl B' },
+        { label: 'Clear Render Region', op: 'image.clear_render_border', shortcut: 'Ctrl Alt B' },
         { separator: true },
         { label: 'Cycle Render Slot', op: 'image.cycle_render_slot', shortcut: 'J' },
         { label: 'Cycle Render Slot (Reverse)', op: 'image.cycle_render_slot', props: { reverse: true }, shortcut: 'Alt J' },
@@ -691,6 +805,7 @@ export class ImageEditor implements Editor, View2D {
                 { label: 'Rotate 180°', op: 'image.rotate_orthogonal', props: { degrees: '180' } },
               ],
             },
+            ...(img.source === 'GENERATED' ? [{ separator: true }, { label: 'Pack', icon: 'package', op: 'image.pack' }] : []),
             { separator: true },
             { label: 'Copy', op: 'image.clipboard_copy' },
           ]
@@ -723,10 +838,18 @@ export class ImageEditor implements Editor, View2D {
     });
   }
 
+  /** Open image files (several files of one UDIM set become a tiled image) and show the first. */
   open() {
-    this.awaitingOpen = true;
-    this.seenLastImage = lastImage;
-    app.run('image.open');
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = 'image/png,image/jpeg,image/webp,image/gif,image/bmp,.hdr,.exr';
+    input.onchange = async () => {
+      const ids = await openImageFiles(Array.from(input.files ?? []));
+      this.seenLastImage = lastImage;
+      if (ids[0]) this.setImage(ids[0]);
+    };
+    input.click();
   }
 
   reload() {
@@ -778,6 +901,8 @@ export class ImageEditor implements Editor, View2D {
   }
 
   async save() {
+    // UDIM images: every tile, named with the <UDIM> token
+    if (isTiled(this.image)) return saveTiles(this.image);
     const { format, colorMode } = this.outputDefaults();
     await this.saveWith(format, colorMode, 0.9, this.defaultName(format));
   }
@@ -795,6 +920,7 @@ export class ImageEditor implements Editor, View2D {
   }
 
   saveAsDialog(anchor?: HTMLElement) {
+    if (isTiled(this.image)) return void saveTiles(this.image);
     const d = this.outputDefaults();
     const p = { format: d.format, colorMode: d.colorMode, quality: 90, name: this.defaultName(d.format) };
     const pop = openPopover(
@@ -853,6 +979,35 @@ export class ImageEditor implements Editor, View2D {
   // ---------------------------------------------------------------------
   // sidebar
 
+  /** Sidebar ▸ Image ▸ UDIM Tiles: the tiles (active one highlighted), add / remove / fill. */
+  private udimPanel(img: Img): Child {
+    const area = this.host.area ?? null;
+    const act = img.active_tile_index ?? 0;
+    return panel('ie-udim', 'UDIM Tiles', () => [
+      uiList(
+        `ie-udim-${img.id}`,
+        img.tiles!.map((t, i) => ({ key: String(t.number), label: tileName(img, i), icon: 'image' })),
+        act,
+        (i) => ((img.active_tile_index = i), app.changed('ui'), this.draw()),
+        {
+          add: () => app.run('image.tile_add', {}, { area }),
+          remove: () => app.run('image.tile_remove', {}, { area, invoke: false }),
+          rename: (i, name) => {
+            img.tiles![i] = { ...img.tiles![i], label: name.replace(/^\d+\s*·?\s*/, '') || undefined };
+            app.pushUndo('Rename Tile');
+            app.changed('doc');
+          },
+          rows: 3,
+        },
+      ),
+      splitRow('Size', h('span', { class: 'ie-value' }, (() => {
+        const v = tileView(img, Math.min(act, img.tiles!.length - 1));
+        return `${v.width} × ${v.height}${v.bytes ? '' : ' (generated)'}`;
+      })())),
+      h('div', { class: 'btn-col' }, button('ie-tile-fill', 'Fill Tile', () => app.run('image.tile_fill', {}, { area }), { tip: 'Fill the active tile with a color (Adjust Last Operation for the color, pattern and size)' })),
+    ]);
+  }
+
   private sidebar(): Child {
     const img = this.image;
     const r = this.result;
@@ -864,16 +1019,17 @@ export class ImageEditor implements Editor, View2D {
         ...(this.imageId === RENDER_RESULT
           ? [
               panel('ie-slots', 'Render Slots', () => [
-                h(
-                  'div',
-                  { class: 'ie-slot-list' },
-                  Array.from({ length: RENDER_SLOTS }, (_, i) =>
-                    h(
-                      'button',
-                      { key: i, class: { 'ie-slot': true, on: renderResult.slot === i, empty: !renderResult.hasRender(i) }, onclick: () => (renderResult.setSlot(i), app.changed('ui')) },
-                      `Slot ${i + 1}`,
-                    ),
-                  ),
+                uiList(
+                  'ie-slot-list',
+                  Array.from({ length: renderResult.count }, (_, i) => ({ key: String(i), label: renderResult.slotName(i), icon: renderResult.hasRender(i) ? 'render' : 'dot', right: renderResult.hasRender(i) ? null : h('span', { class: 'ie-slot-empty' }, 'empty') })),
+                  renderResult.slot,
+                  (i) => (renderResult.setSlot(i), app.changed('ui')),
+                  {
+                    add: () => app.run('image.add_render_slot', {}, { area: this.host.area ?? null }),
+                    remove: () => app.run('image.remove_render_slot', {}, { area: this.host.area ?? null }),
+                    rename: (i, name) => (renderResult.renameSlot(i, name), app.changed('ui')),
+                    rows: 4,
+                  },
                 ),
                 h('div', { class: 'btn-col' }, button('ie-slot-clear', 'Clear Slot', () => app.run('image.clear_render_slot', {}, { area: this.host.area ?? null }))),
               ]),
@@ -890,9 +1046,27 @@ export class ImageEditor implements Editor, View2D {
       const c = imageCanvas(img);
       body.push(
         panel('ie-image', 'Image', () => [
-          splitRow('Source', h('span', { class: 'ie-value' }, img.source === 'GENERATED' ? 'Generated' : img.source === 'FILE' ? 'Single Image' : img.source)),
+          splitRow(
+            'Source',
+            img.source === 'FILE' || img.source === 'GENERATED' || img.source === 'TILED'
+              ? enumMenu(
+                  `ie-src-${img.id}`,
+                  [
+                    img.bytes?.length || img.source === 'FILE' ? { value: 'FILE', label: 'Single Image', description: 'One image' } : { value: 'GENERATED', label: 'Generated', description: 'Pixels made from a color or pattern' },
+                    { value: 'TILED', label: 'UDIM Tiles', description: 'Several tiles, each covering one unit square of UV space (1001, 1002, …)' },
+                  ],
+                  img.source,
+                  (v) => {
+                    if (v === 'TILED') makeTiled(img);
+                    else makeSingle(img);
+                    set(v === 'TILED' ? 'Image to UDIM Tiles' : 'Image to Single Image');
+                  },
+                  { tip: 'Where the image pixels come from' },
+                )
+              : h('span', { class: 'ie-value' }, img.source),
+          ),
           img.filepath ? splitRow('File', h('span', { class: 'ie-value' }, img.filepath)) : null,
-          splitRow('Size', h('span', { class: 'ie-value' }, `${c.width} × ${c.height}, RGBA byte`)),
+          splitRow('Size', h('span', { class: 'ie-value' }, isTiled(img) ? `${img.tiles!.length} tile${img.tiles!.length > 1 ? 's' : ''}, RGBA byte` : `${c.width} × ${c.height}, RGBA byte`)),
           splitRow(
             'Color Space',
             enumMenu(
@@ -907,6 +1081,7 @@ export class ImageEditor implements Editor, View2D {
             ),
           ),
         ]),
+        isTiled(img) ? this.udimPanel(img) : null,
         img.source === 'GENERATED'
           ? panel('ie-gen', 'Generated', () => [
               splitRow('X', numberField({ id: `ie-gx-${img.id}`, value: img.width, int: true, min: 1, max: 16384, unit: 'pixel', set: (v, f) => ((img.width = v), f && set('Image Size'), app.changed('doc')) })),
@@ -1070,6 +1245,28 @@ export class ImageEditor implements Editor, View2D {
     ctx.restore();
   }
 
+  /** Show pixel values under the pointer until the mouse button is released. */
+  beginSample(clientX: number, clientY: number) {
+    const update = (cx: number, cy: number) => {
+      const q = this.local({ clientX: cx, clientY: cy });
+      const [ix, iy] = this.toImage(q.x, q.y);
+      this.sample = { x: ix, y: iy };
+      this.draw();
+      this.drawUI();
+    };
+    update(clientX, clientY);
+    const move = (ev: PointerEvent) => update(ev.clientX, ev.clientY);
+    const up = () => {
+      removeEventListener('pointermove', move, true);
+      removeEventListener('pointerup', up, true);
+      this.sample = null;
+      this.draw();
+      this.drawUI();
+    };
+    addEventListener('pointermove', move, true);
+    addEventListener('pointerup', up, true);
+  }
+
   private bind() {
     const el = this.canvas;
     el.addEventListener('pointermove', (e) => {
@@ -1122,29 +1319,17 @@ export class ImageEditor implements Editor, View2D {
       if (e.button === 0 && this.paintMode()) {
         const img = this.image;
         if (!img) app.report('WARNING', 'No image to paint on: create or open one, or add a paint slot to the object');
+        else if (isTiled(img)) app.report('WARNING', 'Painting on UDIM tiles is not supported yet: paint a single image');
         else imagePaintStroke(this, img, e);
         return;
       }
       if (e.button === 0) {
-        // sample the pixel under the cursor while the button is held
-        el.setPointerCapture(e.pointerId);
-        const update = (ev: PointerEvent) => {
-          const q = this.local(ev);
-          const [ix, iy] = this.toImage(q.x, q.y);
-          this.sample = { x: ix, y: iy };
-          this.draw();
-          this.drawUI();
-        };
-        update(e);
-        const up = () => {
-          el.removeEventListener('pointermove', update);
-          el.removeEventListener('pointerup', up);
-          this.sample = null;
-          this.draw();
-          this.drawUI();
-        };
-        el.addEventListener('pointermove', update);
-        el.addEventListener('pointerup', up);
+        const event = { x: e.clientX, y: e.clientY, ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey };
+        const area = this.host.area ?? null;
+        // Ctrl / Shift click on a render: display black / white point; otherwise sample while held
+        if ((e.ctrlKey || e.metaKey || e.shiftKey) && this.result && !this.result.view) app.run('image.curves_point_set', { point: e.shiftKey ? 'WHITE_POINT' : 'BLACK_POINT', size: this.sampleSize }, { area, event });
+        else if (area) app.run('image.sample', { size: this.sampleSize }, { area, event });
+        else this.beginSample(e.clientX, e.clientY);
       }
     });
     el.addEventListener('contextmenu', (e) => {
@@ -1185,7 +1370,7 @@ export class ImageEditor implements Editor, View2D {
   }
 
   serialize() {
-    return { image: this.imageId, pass: this.pass, channel: this.channel, zoom: this.zoom, off: [this.offX, this.offY], sidebar: this.showSidebar, layer: this.layer, mode: this.uiMode ?? undefined, toolbar: this.showToolbar };
+    return { image: this.imageId, pass: this.pass, channel: this.channel, zoom: this.zoom, off: [this.offX, this.offY], sidebar: this.showSidebar, layer: this.layer, mode: this.uiMode ?? undefined, toolbar: this.showToolbar, toolSettings: this.showToolSettings, sampleSize: this.sampleSize };
   }
 
   dispose() {
@@ -1197,7 +1382,7 @@ export class ImageEditor implements Editor, View2D {
 
 /** The New Image popup; `done` receives the new image id. */
 export function newImageDialog(anchor: HTMLElement | undefined, done: (id: string) => void) {
-  const p = { name: 'Untitled', width: 1024, height: 1024, color: [0, 0, 0, 1] as number[], generated_type: 'BLANK', alpha: true };
+  const p = { name: 'Untitled', width: 1024, height: 1024, color: [0, 0, 0, 1] as number[], generated_type: 'BLANK', alpha: true, tiled: false };
   const at = anchor ?? { x: app.pointer.x, y: app.pointer.y };
   const pop = openPopover(
     at,
@@ -1224,6 +1409,7 @@ export function newImageDialog(anchor: HTMLElement | undefined, done: (id: strin
         ),
         splitRow('Alpha', numberField({ id: 'ie-new-ca', value: p.color[3] ?? 1, min: 0, max: 1, slider: true, unit: 'factor', disabled: !p.alpha, set: (v) => ((p.color[3] = v), pop.redraw()) })),
         splitRow('', checkbox('ie-new-a', 'Alpha', p.alpha, (v) => ((p.alpha = v), pop.redraw()))),
+        splitRow('', checkbox('ie-new-tiled', 'Tiled', p.tiled, (v) => ((p.tiled = v), pop.redraw()), { tip: 'Make a UDIM image: add more tiles in Sidebar ▸ Image ▸ UDIM Tiles' })),
         splitRow(
           'Generated Type',
           enumRow(
@@ -1242,7 +1428,7 @@ export function newImageDialog(anchor: HTMLElement | undefined, done: (id: strin
           { class: 'ie-dialog-buttons' },
           button('ie-new-ok', 'OK', () => {
             const color = [...p.color.slice(0, 3), p.alpha ? (p.color[3] ?? 1) : 1];
-            app.run('image.new', { name: p.name, width: p.width, height: p.height, color, generated_type: p.generated_type }, { invoke: false });
+            app.run('image.new', { name: p.name, width: p.width, height: p.height, color, generated_type: p.generated_type, tiled: p.tiled }, { invoke: false });
             if (lastImage) done(lastImage);
             pop.el.remove();
           }),

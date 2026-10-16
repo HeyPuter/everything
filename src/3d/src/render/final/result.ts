@@ -82,44 +82,75 @@ export const PASS_LABELS: Record<PassName, string> = { Combined: 'Combined', Dep
 
 /** Render slots: renders go into the active slot so earlier ones can be compared. */
 export const RENDER_SLOTS = 8;
-const slots: (RenderResult | null)[] = new Array(RENDER_SLOTS).fill(null);
+interface Slot {
+  name: string;
+  result: RenderResult | null;
+}
+const slots: Slot[] = Array.from({ length: RENDER_SLOTS }, (_, i) => ({ name: `Slot ${i + 1}`, result: null }));
 let activeSlot = 0;
 const listeners = new Set<(pixels: boolean) => void>();
 
 export const renderResult = {
   get(): RenderResult | null {
-    return slots[activeSlot];
+    return slots[activeSlot]?.result ?? null;
   },
   set(r: RenderResult | null) {
-    slots[activeSlot] = r;
+    slots[activeSlot].result = r;
     this.touch();
   },
   /** Index of the slot that is shown and rendered into. */
   get slot() {
     return activeSlot;
   },
+  /** Number of render slots. */
+  get count() {
+    return slots.length;
+  },
   setSlot(i: number) {
-    activeSlot = Math.max(0, Math.min(RENDER_SLOTS - 1, i));
+    activeSlot = Math.max(0, Math.min(slots.length - 1, i));
     this.touch();
   },
   hasRender(i: number) {
-    return !!slots[i];
+    return !!slots[i]?.result;
+  },
+  slotName(i: number) {
+    return slots[i]?.name ?? '';
+  },
+  renameSlot(i: number, name: string) {
+    if (slots[i] && name.trim()) slots[i].name = name.trim();
+    this.touchInfo();
+  },
+  /** Add an empty slot after the existing ones and show it. */
+  addSlot(name?: string) {
+    let n = slots.length + 1;
+    while (slots.some((s) => s.name === `Slot ${n}`)) n++;
+    slots.push({ name: name?.trim() || `Slot ${n}`, result: null });
+    this.setSlot(slots.length - 1);
+    return slots.length - 1;
+  },
+  /** Remove the active slot (one slot always remains). */
+  removeSlot() {
+    if (slots.length <= 1) return false;
+    slots.splice(activeSlot, 1);
+    this.setSlot(Math.min(activeSlot, slots.length - 1));
+    return true;
   },
   /** Next (or previous) slot holding a render; the active slot when there is none. */
   cycle(reverse = false) {
-    for (let k = 1; k <= RENDER_SLOTS; k++) {
-      const i = (activeSlot + (reverse ? -k : k) + RENDER_SLOTS * 2) % RENDER_SLOTS;
-      if (slots[i]) return i;
+    const n = slots.length;
+    for (let k = 1; k <= n; k++) {
+      const i = (activeSlot + (reverse ? -k : k) + n * 2) % n;
+      if (slots[i].result) return i;
     }
     return activeSlot;
   },
   clearSlot() {
-    slots[activeSlot] = null;
+    slots[activeSlot].result = null;
     this.touch();
   },
   /** Pixels changed (bumps the version so displays re-convert). */
   touch() {
-    const current = slots[activeSlot];
+    const current = slots[activeSlot]?.result;
     if (current) current.version++;
     for (const l of listeners) l(true);
   },

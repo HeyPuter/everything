@@ -12,6 +12,14 @@ import { uniqueName, deleteObjects } from '../../ops/object';
 import { pickFile } from '../../io/native';
 import { download, renderResult } from './result';
 import { operatorDialog } from '../../editors/uv/dialog';
+import { registerIcons } from '../../ui/icons';
+import { isTiled } from '../udim';
+import { readTile, writeTile } from './udimops';
+
+registerIcons({
+  // a parcel: box, lid seam and a strip of tape
+  package: '<path class="s" d="M2.5 5.5h11v8h-11zM2 3h12v2.5H2zM6.5 3v4.5h3V3" fill="none" stroke-width="1.2" stroke-linejoin="round"/>',
+});
 
 /** What the view operators need from an image-like editor. */
 export interface View2D {
@@ -154,6 +162,19 @@ export function resizePixels(d: globalThis.ImageData, w: number, h: number): glo
 function editPixels(ctx: OpContext, fn: (d: globalThis.ImageData) => globalThis.ImageData) {
   const img = view2D(ctx)?.shownImage();
   if (!img) return 'CANCELLED' as const;
+  if (isTiled(img)) {
+    // UDIM images: the edit applies to the active tile
+    const i = img.active_tile_index ?? 0;
+    const d = readTile(img, i);
+    if (!d) {
+      app.report('WARNING', 'The tile is still loading');
+      return 'CANCELLED' as const;
+    }
+    writeTile(img, i, fn(d));
+    app.changed('doc');
+    view2D(ctx)?.draw();
+    return 'FINISHED' as const;
+  }
   const d = readPixels(img);
   if (!d) {
     app.report('WARNING', 'The image is still loading');
@@ -187,6 +208,15 @@ async function saveImage(img: Img, name = fileName(img)) {
   download(blob, name);
   modifiedImages.delete(img.id);
   app.report('INFO', `Saved "${name}"`);
+}
+
+/** The Image Editor's sampling (image.sample, image.curves_point_set). */
+interface SampleEditor {
+  el: HTMLElement;
+  sampleSize: number;
+  beginSample(clientX: number, clientY: number): void;
+  setCurvePoint(point: 'BLACK_POINT' | 'WHITE_POINT', x: number, y: number): boolean;
+  toImage(x: number, y: number): [number, number];
 }
 
 /** Editors with their own save behaviour (render results with color management). */
@@ -472,6 +502,48 @@ registerOperators([
     },
   },
   {
+    idname: 'image.sample',
+    label: 'Sample Color',
+    description: 'Show the pixel values under the pointer while the mouse button is held',
+    props: [{ id: 'size', label: 'Sample Size', type: 'int', default: 1, min: 1, max: 128, subtype: 'pixel' }],
+    poll: (ctx) => ctx.area?.type === 'IMAGE_EDITOR' && !!(ctx.area.editor as Partial<SampleEditor>).beginSample,
+    undo: false,
+    invoke: (ctx, p) => {
+      const ed = ctx.area!.editor as SampleEditor;
+      ed.sampleSize = Math.max(1, Math.round(Number(p.size) || 1));
+      const ev = ctx.event ?? app.pointer;
+      ed.beginSample(ev.x, ev.y);
+      return 'FINISHED';
+    },
+  },
+  {
+    idname: 'image.curves_point_set',
+    label: 'Set Curves Point',
+    description: 'Set the black or white point of the display curve to the color under the pointer (renders)',
+    props: [
+      { id: 'point', label: 'Point', type: 'enum', default: 'BLACK_POINT', items: [['BLACK_POINT', 'Black Point'], ['WHITE_POINT', 'White Point']] },
+      { id: 'size', label: 'Sample Size', type: 'int', default: 1, min: 1, max: 128, subtype: 'pixel' },
+    ],
+    poll: (ctx) => ctx.area?.type === 'IMAGE_EDITOR' && !!(ctx.area.editor as Partial<SampleEditor>).setCurvePoint && !!view2D(ctx)?.showsRender?.(),
+    invoke: (ctx, p) => {
+      const ed = ctx.area!.editor as SampleEditor;
+      const ev = ctx.event ?? app.pointer;
+      const r = ed.el.getBoundingClientRect();
+      const [x, y] = ed.toImage(ev.x - r.left, ev.y - r.top);
+      ed.sampleSize = Math.max(1, Math.round(Number(p.size) || 1));
+      if (!ed.setCurvePoint(p.point as 'BLACK_POINT', x, y)) return 'CANCELLED';
+      app.report('INFO', `${p.point === 'WHITE_POINT' ? 'White' : 'Black'} point set (Render ▸ Color Management ▸ Curves)`);
+      app.changed('doc');
+    },
+  },
+  {
+    idname: 'image.pack',
+    label: 'Pack Image',
+    description: 'Store the generated pixels in the project as an image (later changes to the generator settings no longer regenerate it)',
+    poll: (ctx) => view2D(ctx)?.shownImage()?.source === 'GENERATED',
+    exec: (ctx) => editPixels(ctx, (d) => d),
+  },
+  {
     idname: 'image.clipboard_copy',
     label: 'Copy Image',
     description: 'Copy the image to the system clipboard',
@@ -534,6 +606,28 @@ registerOperators([
       const next = renderResult.cycle(!!p.reverse);
       if (next === renderResult.slot) return 'CANCELLED';
       renderResult.setSlot(next);
+      app.changed('ui');
+    },
+  },
+  {
+    idname: 'image.add_render_slot',
+    label: 'Add Render Slot',
+    description: 'Add an empty render slot and show it (the next render goes into it)',
+    poll: (ctx) => !!view2D(ctx)?.showsRender?.(),
+    undo: false,
+    exec: () => {
+      renderResult.addSlot();
+      app.changed('ui');
+    },
+  },
+  {
+    idname: 'image.remove_render_slot',
+    label: 'Remove Render Slot',
+    description: 'Remove the shown render slot and its render',
+    poll: (ctx) => !!view2D(ctx)?.showsRender?.() && renderResult.count > 1,
+    undo: false,
+    exec: () => {
+      if (!renderResult.removeSlot()) return 'CANCELLED';
       app.changed('ui');
     },
   },
@@ -609,7 +703,7 @@ addKeys('Image', [
     { key: `NUMPAD_${n}`, ctrl: true, op: 'image.view_zoom_ratio', props: { ratio: n }, when: overView },
     { key: `NUMPAD_${n}`, shift: true, op: 'image.view_zoom_ratio', props: { ratio: n }, when: overView },
   ]),
-  ...['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT'].map((key, i) => ({ key, action: () => setSlot(i), when: () => overRender() && overImageEditor() })),
+  ...['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE'].map((key, i) => ({ key, action: () => setSlot(i), when: () => overRender() && overImageEditor() && i < renderResult.count })),
 ]);
 
 // ---------------------------------------------------------------------------

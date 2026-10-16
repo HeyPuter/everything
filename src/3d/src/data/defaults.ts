@@ -24,6 +24,7 @@ import type {
   BrushData,
 } from './types';
 import { startupCube } from '../mesh/primitives';
+import { defaultBakeSettings } from '../bake/settings';
 
 let counter = 0;
 export function uid(prefix = 'id'): ID {
@@ -36,6 +37,8 @@ export const IDENTITY: Mat4 = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 export function defaultRender(): RenderSettings {
   return {
     engine: 'RASTER',
+    bake: defaultBakeSettings(),
+    bake_type: 'COMBINED',
     resolution_x: 1920,
     resolution_y: 1080,
     resolution_percentage: 100,

@@ -1,6 +1,7 @@
 // Image data-blocks → GPU textures (decoded from bytes or generated).
 import { CanvasTexture, SRGBColorSpace, NoColorSpace, RepeatWrapping, type Texture, LinearMipmapLinearFilter, LinearFilter, NearestFilter } from 'three';
 import type { ImageData as Img, DocumentData } from '../data/types';
+import { isTiled, tilesKey, drawAtlas, onTileReady, setGeneratedDrawer } from './udim';
 
 interface Entry {
   key: string;
@@ -27,7 +28,11 @@ export function onImageReady(fn: () => void) {
   onReady = fn;
 }
 
+/** bumps when a UDIM tile finished decoding (tiled images rebuild their atlas) */
+let tileVersion = 0;
+
 function keyOf(img: Img) {
+  if (isTiled(img)) return `T|${tilesKey(img)}|${tileVersion}|${img.colorspace}`;
   return `${img.width}x${img.height}|${img.source}|${img.generated_type}|${img.generated_color?.join(',')}|${img.revision ?? 0}|${img.bytes ? img.bytes.length : 0}|${img.colorspace}`;
 }
 
@@ -81,6 +86,7 @@ function entry(img: Img): Entry {
   const key = keyOf(img);
   let e = cache.get(img.id);
   if (e && e.key === key) return e;
+  if (isTiled(img)) return tiledEntry(img, key, e);
   const canvas = e?.canvas ?? document.createElement('canvas');
   if (canvas.width !== img.width || canvas.height !== img.height) {
     canvas.width = Math.max(1, img.width);
@@ -124,6 +130,29 @@ function entry(img: Img): Entry {
   tex.needsUpdate = true;
   return fresh;
 }
+
+/** UDIM images: the tiles laid out in one atlas (cells follow the UV squares). */
+function tiledEntry(img: Img, key: string, e: Entry | undefined): Entry {
+  const canvas = e?.canvas ?? document.createElement('canvas');
+  const tex = e?.tex ?? new CanvasTexture(canvas);
+  const fresh: Entry = { key, tex, canvas, ready: false };
+  cache.set(img.id, fresh);
+  fresh.ready = drawAtlas(img, canvas) === img.tiles!.length;
+  if (tex.image !== canvas) tex.image = canvas;
+  tex.colorSpace = img.colorspace === 'sRGB' ? SRGBColorSpace : NoColorSpace;
+  tex.wrapS = tex.wrapT = RepeatWrapping;
+  tex.minFilter = LinearMipmapLinearFilter;
+  tex.magFilter = LinearFilter;
+  tex.anisotropy = textureSettings.anisotropy;
+  tex.needsUpdate = true;
+  return fresh;
+}
+
+onTileReady(() => {
+  tileVersion++;
+  onReady?.();
+});
+setGeneratedDrawer((v, ctx) => generatedPixels({ id: '', name: '', mime: v.mime, bytes: null, width: v.width, height: v.height, source: 'GENERATED', colorspace: 'sRGB', generated_type: v.generated_type, generated_color: v.generated_color }, ctx));
 
 export function imageTexture(img: Img, interpolation: 'Linear' | 'Closest' | 'Cubic' | 'Smart' = 'Linear', colorspace?: 'sRGB' | 'Non-Color'): Texture {
   const e = entry(img);

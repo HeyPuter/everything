@@ -11,6 +11,7 @@ import { splitRow } from '../../ui/props';
 import { lastOpPanel } from '../../ui/redo';
 import type { ImageData } from '../../data/types';
 import { imageCanvas } from '../../render/images';
+import { isTiled, atlasLayout, tileCell } from '../../render/udim';
 import { lastImage } from '../../ops/data';
 import { newImageDialog } from '../../render/final/imageeditor';
 import type { View2D } from '../../render/final/imageops';
@@ -750,7 +751,8 @@ export class UVEditor implements Editor, UVView, View2D {
     const t0 = this.toPx(0, 1),
       t1 = this.toPx(1, 0);
     const img = this.image();
-    if (img) {
+    if (isTiled(img)) this.drawTiles(g, img);
+    else if (img) {
       g.imageSmoothingEnabled = this.scale() / Math.max(1, img.width) < 2;
       g.drawImage(imageCanvas(img), t0.x, t0.y, t1.x - t0.x, t1.y - t0.y);
     } else {
@@ -863,6 +865,28 @@ export class UVEditor implements Editor, UVView, View2D {
       }
     });
     this.drawOverlays(g);
+  }
+
+  /** UDIM images: every tile in its UV square, outlined and numbered. */
+  private drawTiles(g: CanvasRenderingContext2D, img: ImageData) {
+    const { cols, rows } = atlasLayout(img);
+    const a = this.toPx(0, rows),
+      b = this.toPx(cols, 0);
+    g.imageSmoothingEnabled = true;
+    g.drawImage(imageCanvas(img), a.x, a.y, b.x - a.x, b.y - a.y);
+    g.save();
+    g.font = '11px Inter, sans-serif';
+    g.textBaseline = 'top';
+    for (const t of img.tiles ?? []) {
+      const [c, r] = tileCell(t.number);
+      const p0 = this.toPx(c, r + 1),
+        p1 = this.toPx(c + 1, r);
+      g.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+      g.strokeRect(Math.round(p0.x) + 0.5, Math.round(p0.y) + 0.5, Math.round(p1.x - p0.x), Math.round(p1.y - p0.y));
+      g.fillStyle = 'rgba(255, 255, 255, 0.75)';
+      g.fillText(t.label ? `${t.number} ${t.label}` : String(t.number), p0.x + 5, p0.y + 5);
+    }
+    g.restore();
   }
 
   /** Spacing of the shown grid (UV units): lines 24–96 px apart. */

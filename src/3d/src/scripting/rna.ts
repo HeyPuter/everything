@@ -181,6 +181,8 @@ export function assignField(raw: Raw, key: string, value: unknown, typeName = 's
 
 const HIDDEN = new Set(['id', 'tree', 'custom', 'users', '__proto__']);
 const READONLY = new Set(['type', 'bl_idname']);
+/** Struct types whose `type` field is a plain setting scripts may change (e.g. the multires bake type). */
+export const writableTypeStructs = new Set<string>();
 
 export class Struct {
   readonly __kind: string = 'struct';
@@ -364,7 +366,7 @@ export function proxify<T extends Struct>(s: T): T {
         return true;
       }
       const raw = t.__raw;
-      if (READONLY.has(p)) throw pyError('AttributeError', `bpy_struct: attribute "${p}" from "${t.__type}" is read-only`);
+      if (READONLY.has(p) && !(p === 'type' && writableTypeStructs.has(t.__type))) throw pyError('AttributeError', `bpy_struct: attribute "${p}" from "${t.__type}" is read-only`);
       if (Object.prototype.hasOwnProperty.call(raw, p) && !t.__hidden().has(p)) {
         assignField(raw, p, v, t.__type);
         touched();

@@ -179,6 +179,9 @@ function motionBlurPanel(r: RenderSettings): Child {
   );
 }
 
+/** Extra panels appended to the path tracer's Render properties (e.g. Bake). */
+export const pathTraceExtraPanels: ((r: RenderSettings) => Child)[] = [];
+
 function pathTracePanels(r: RenderSettings): Child {
   return [
     panel('rs-sampling', 'Sampling', () => [
@@ -234,6 +237,7 @@ function pathTracePanels(r: RenderSettings): Child {
       ],
       { closed: true },
     ),
+    pathTraceExtraPanels.map((p) => p(r)),
   ];
 }
 

@@ -1051,7 +1051,7 @@ export function defaultWorkspaces(): Workspace[] {
     { name: 'Sculpting', layout: H(0.822, A('VIEW_3D', sculptView), dock('TOOL')), mode: 'SCULPT' },
     { name: 'UV Editing', layout: H(0.822, H(0.5, A('UV'), A('VIEW_3D')), dock('DATA')), mode: 'EDIT' },
     { name: 'Texture Paint', layout: H(0.822, H(0.5, A('IMAGE_EDITOR'), A('VIEW_3D', { shading: 'MATERIAL' })), dock('TOOL')), mode: 'TEXTURE_PAINT' },
-    { name: 'Shading', layout: H(0.822, H(0.16, V(0.5, A('FILE_BROWSER'), A('IMAGE_EDITOR')), V(0.5, A('VIEW_3D', lookdevView), A('SHADER', { toolbar: false }))), dock('WORLD')) },
+    { name: 'Shading', layout: H(0.822, H(0.16, V(0.5, A('FILE_BROWSER'), { area: { id: newAreaId(), type: 'IMAGE_EDITOR', ui: { menus: false } } }), V(0.5, A('VIEW_3D', lookdevView), A('SHADER', { toolbar: false }))), dock('WORLD')) },
     { name: 'Animation', layout: H(0.822, V(0.58, H(0.35, A('VIEW_3D', { camera: true, toolbar: false }), A('VIEW_3D', { toolbar: false })), A('DOPESHEET')), V(0.18, A('OUTLINER'), A('PROPERTIES'))) },
     { name: 'Rendering', layout: H(0.822, V(0.925, A('IMAGE_EDITOR', { render: true, sidebar: true }), A('TIMELINE')), A('PROPERTIES', { tab: 'RENDER' })) },
     { name: 'Compositing', layout: H(0.822, V(0.92, V(0.48, A('IMAGE_EDITOR', { render: true }), A('COMPOSITOR', { sidebar: true })), A('TIMELINE')), A('PROPERTIES', { tab: 'OUTPUT' })) },

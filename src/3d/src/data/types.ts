@@ -583,7 +583,7 @@ export interface ImageData {
   bytes: Uint8Array | null;
   width: number;
   height: number;
-  source: 'FILE' | 'GENERATED' | 'VIEWER' | 'RENDER';
+  source: 'FILE' | 'GENERATED' | 'VIEWER' | 'RENDER' | 'TILED';
   generated_type?: 'BLANK' | 'UV_GRID' | 'COLOR_GRID';
   generated_color?: Color4;
   colorspace: 'sRGB' | 'Non-Color' | 'Linear';
@@ -593,6 +593,23 @@ export interface ImageData {
   revision?: number;
   use_fake_user?: boolean;
   users?: number;
+  /** UDIM tiles (source 'TILED'): the first tile uses the image's own pixels (src/render/udim.ts) */
+  tiles?: UdimTile[];
+  active_tile_index?: number;
+}
+
+/** One tile of a UDIM image: number 1001 + u + 10 × v of the UV square it covers. */
+export interface UdimTile {
+  number: number;
+  label?: string;
+  /** encoded pixels (null: generated); unused for the first tile */
+  bytes?: Uint8Array | null;
+  mime?: string;
+  width: number;
+  height: number;
+  generated_type?: 'BLANK' | 'UV_GRID' | 'COLOR_GRID';
+  generated_color?: Color4;
+  revision?: number;
 }
 
 export interface TextData {
@@ -1009,6 +1026,9 @@ export type RenderEngine = 'RASTER' | 'PATHTRACE' | 'SOLID';
 
 export interface RenderSettings extends RealtimeRenderSettings {
   engine: RenderEngine;
+  /** texture baking (src/bake/settings.ts) */
+  bake?: import('../bake/settings').BakeSettings;
+  bake_type?: import('../bake/settings').BakeType;
   resolution_x: number;
   resolution_y: number;
   resolution_percentage: number;

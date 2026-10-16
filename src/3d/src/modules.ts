@@ -25,6 +25,7 @@ import './scenes/index';
 import './volume/index';
 import './lines/index';
 import './ops/wm_index';
+import './bake/index';
 
 export function registerModules() {
   // modules register on import; this function exists to make the dependency explicit

@@ -12,6 +12,11 @@ const css = /* css */ `
 .scope-box { display: flex; flex-direction: column; gap: 4px; }
 .scope-svg { display: block; height: 110px; border-radius: 3px; }
 .scope-img { display: block; width: 100%; image-rendering: auto; border-radius: 3px; background: #1a1b1c; }
+.ie-samplehdr { gap: 8px; }
+.ie-samplehdr .ie-tool-name { display: inline-flex; align-items: center; gap: 4px; color: #e6e7e8; flex: none; }
+.ie-samplehdr .ie-tool-label { color: #bbbcbe; flex: none; }
+.ie-samplehdr .num-field { width: 90px; flex: none; }
+.ie-slot-empty { color: #87888a; font-size: 11px; }
 .ie-slot-list { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; margin-bottom: 4px; }
 .ie-slot { height: 20px; border-radius: 3px; background: #37383a; color: #dedfe1; font-size: 11px; }
 .ie-slot.empty { color: #87888a; }
