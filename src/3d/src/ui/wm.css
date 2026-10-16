@@ -168,3 +168,6 @@ body:has(.io-dialog-overlay) .popup-layer {
   text-align: left;
   margin-bottom: 4px;
 }
+.custom-prop .split-row {
+  grid-template-columns: minmax(56px, 32%) 1fr 18px;
+}

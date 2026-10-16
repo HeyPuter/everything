@@ -156,6 +156,8 @@ panelHeaderExtras['rs-cm-curves'] = () => presetHeaderButton('panel:rs-cm-curves
 // operator presets in operator dialogs
 
 opDialogHeaderHooks.push((idname, props, apply) => {
+  // window-manager and interface operations (Edit Property, …) have no presets
+  if (/^(wm|ui)\./.test(idname)) return null;
   // the latest drawn dialog / redo panel of the operator is where its presets read and write
   setOperatorPresetTarget(idname, { get: () => props, set: (v) => apply(v) });
   return operatorPresetRow(idname);
