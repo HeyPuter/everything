@@ -9,5 +9,6 @@ import './lineart';
 import './lineartui';
 import './gpsvgimport';
 import './gpexportops';
+import './api';
 
 export {};
