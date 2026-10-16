@@ -81,7 +81,7 @@ import { ARRAY_BUDGET, evaluate, evaluateFormula, isVolatile, paramSpec, resetAr
 import { FUNCTIONS, err, isError, isRange, scalar, compareStoredValues, toText } from './formula/functions.js';
 import { parseDelimited } from './tsv.js';
 import { splitPieces, detectDelimiter, DEFAULT_SPLIT } from './text-split.js';
-import { adjustFormula, adjustRefForInsert, adjustRefForDelete, adjustRefForDeletedLines, deleteMap, renameSheetInFormula, shiftFormula, resolveRelativeName, mapFormulaRefs, parseRefText, refToText, MAX_ROW, MAX_COL, quoteSheet, sheetKey, sameSheetName } from './refs.js';
+import { adjustFormula, adjustRefForInsert, adjustRefForDelete, adjustRefForDeletedLines, deleteMap, renameSheetInFormula, shiftFormula, resolveRelativeName, mapRelativeNameRef, isAbsoluteRef, mapFormulaRefs, parseRefText, refToText, MAX_ROW, MAX_COL, quoteSheet, sheetKey, sameSheetName } from './refs.js';
 import { headerlessTableColumns, normalizeTableHeaderState, headerlessInsertColumns, headerlessDeleteColumns, headerlessJoinColumns, headerlessResizeNames } from './table-header-row.js';
 import { tableStyle, tableRows, normalizeCustomTableStyle, customTableStyleAt, validateTableName, MAX_TABLE_NAME_LENGTH, parseTableSpec, resolveTableSpec, renderTableSpec, renameTableInFormula, tableColumnRenames, renameColumnsInFormula, tableRefsToA1, hasTableRefs } from './tables.js';
 import { tokenize, upperName, isWorkbookNameScope, isExternalFormulaToken } from './formula/tokenizer.js';
@@ -3972,7 +3972,7 @@ export class Workbook extends EventTarget {
       if (!template && (owner === source && move.sourceCell(r, c) || owner === target && move.targetCell(r, c))) return formula;
       return move.follow(formula, owner.name);
     }, 'Move cells');
-    this._rewriteNamedFormulas((formula, name) => move.follow(formula, name.sheet || null), 'Move cells');
+    this._rewriteNamedFormulas((formula, name) => move.follow(formula, name.sheet || null, name.relative === true), 'Move cells');
     // Conditional formats and native sparklines have their own destination move.
     this._rewriteRuleFormulas((formula, owner) => move.follow(formula, owner.name), 'Move cells', { conditional: false, sparklines: false });
     return carried;
@@ -4029,9 +4029,10 @@ export class Workbook extends EventTarget {
     // A 3D span (Sheet1:Two!A1) names the same cells on every sheet between two tabs, so one sheet's
     // moved block cannot take it along; it stays where it is.
     const inSrc = (ref) => !ref.sheetEnd && ref.kind !== 'cols' && ref.kind !== 'rows' && ref.r1 >= src.r1 && ref.r2 <= src.r2 && ref.c1 >= src.c1 && ref.c2 <= src.c2;
-    const follow = (formula, ownerSheet) => mapFormulaRefs(formula, (ref) => {
+    // A relative defined name's offsets name different cells from every cell that uses it: only its wholly absolute references follow.
+    const follow = (formula, ownerSheet, relativeName = false) => mapFormulaRefs(formula, (ref) => {
       const target = ref.sheet ?? ownerSheet;
-      if (!sameSheetName(target, sheet.name) || !inSrc(ref)) return ref;
+      if (!sameSheetName(target, sheet.name) || !inSrc(ref) || (relativeName && !isAbsoluteRef(ref))) return ref;
       // Absolute references move too: the cell they name has moved.
       return { ...ref, r1: ref.r1 + dr, r2: ref.r2 + dr, c1: ref.c1 + dc, c2: ref.c2 + dc };
     });
@@ -4055,7 +4056,7 @@ export class Workbook extends EventTarget {
         if (!template && owner === sheet && entries.has(cellKey(r, c))) return formula;
         return follow(formula, owner.name);
       }, 'Move cells');
-      const names = this.names.map((n) => ({ ...n, ref: follow(n.ref, n.sheet || null) }));
+      const names = this.names.map((n) => ({ ...n, ref: follow(n.ref, n.sheet || null, n.relative === true) }));
       if (names.some((n, i) => n.ref !== this.names[i].ref)) this._setNames(names, 'Move cells');
       // Tables inside the block keep their name, columns, and templates (which followed above like any
       // formula). They step aside while the cells are written, so their headers leaving and landing are
@@ -4226,9 +4227,10 @@ export class Workbook extends EventTarget {
     // A 3D span stays where it is, as when the block is dragged: it names every sheet between two tabs.
     const inSrc = (ref) => !ref.sheetEnd && ref.kind !== 'cols' && ref.kind !== 'rows' && ref.r1 >= src.r1 && ref.r2 <= src.r2 && ref.c1 >= src.c1 && ref.c2 <= src.c2;
     // A reference into the cut block follows it, naming the new sheet when the block changed sheets.
-    const follow = (formula, ownerSheet) => mapFormulaRefs(formula, (ref) => {
+    // A relative defined name's offsets stay put, as they do when the block is dragged.
+    const follow = (formula, ownerSheet, relativeName = false) => mapFormulaRefs(formula, (ref) => {
       const target = ref.sheet ?? ownerSheet;
-      if (!sameSheetName(target, source.name) || !inSrc(ref)) return ref;
+      if (!sameSheetName(target, source.name) || !inSrc(ref) || (relativeName && !isAbsoluteRef(ref))) return ref;
       const moved = { ...ref, r1: ref.r1 + dr, r2: ref.r2 + dr, c1: ref.c1 + dc, c2: ref.c2 + dc };
       if (ref.sheet != null || across) moved.sheet = sheet.name;
       return moved;
@@ -4248,7 +4250,7 @@ export class Workbook extends EventTarget {
         if (!template && owner === sheet && r >= dst.r1 && r <= dst.r2 && c >= dst.c1 && c <= dst.c2) return formula; // overwritten below
         return follow(formula, owner.name);
       }, 'Move cells');
-      const names = this.names.map((n) => ({ ...n, ref: follow(n.ref, n.sheet || null) }));
+      const names = this.names.map((n) => ({ ...n, ref: follow(n.ref, n.sheet || null, n.relative === true) }));
       if (names.some((n, i) => n.ref !== this.names[i].ref)) this._setNames(names, 'Move cells');
       // Tables inside the block keep their name, columns, and templates, which keep pointing at what they
       // pointed at as moved formulas do. They step aside while the cells are written, so their headers
@@ -5830,12 +5832,13 @@ export class Workbook extends EventTarget {
       // Only references that lie within the band follow the shift.
       this.nativePivots = mapNativePivotRanges(this.nativePivots, sheetId, ref => insideBand(ref)
         ? remove ? adjustRefForDelete(ref, axis, at, n) : adjustRefForInsert(ref, axis, at, n) : ref);
-      const follow = (formula, ownerSheet) => mapFormulaRefs(formula, (ref) => {
+      // A relative defined name's offsets name different cells from every cell that uses it: only its wholly absolute references follow.
+      const follow = (formula, ownerSheet, relativeName = false) => mapFormulaRefs(formula, (ref) => {
         const target = ref.sheet ?? ownerSheet;
         if (!sameSheetName(target, sheet.name)) return ref;
         if (ref.kind === 'cols' || ref.kind === 'rows') return ref;
-        if (!insideBand(ref)) return ref;
-        return remove ? adjustRefForDelete(ref, axis, at, n) : adjustRefForInsert(ref, axis, at, n);
+        const edit = (m) => (!insideBand(m) ? m : remove ? adjustRefForDelete(m, axis, at, n) : adjustRefForInsert(m, axis, at, n));
+        return relativeName ? mapRelativeNameRef(ref, axis, edit, true) : edit(ref);
       });
       for (const s of this.sheets) {
         s.sparklineGroups = mapNativeSparklineReferences(s.sparklineGroups, f => follow(f, s.name));
@@ -5847,7 +5850,7 @@ export class Workbook extends EventTarget {
           Object.entries(t.calc).map(([c, f]) => [c, follow(f, s.name)]),
         ) });
       }
-      this.names = this.names.map((nm) => ({ ...nm, ref: follow(nm.ref, nm.sheet || null) }));
+      this.names = this.names.map((nm) => ({ ...nm, ref: follow(nm.ref, nm.sheet || null, nm.relative === true) }));
       // A row inserted among a table's data rows by shifting its cells down is a new table row, and
       // gets the calculated columns as one inserted with the row tools does. The templates were
       // adjusted above, so the shift is not applied to the fresh formulas a second time.
@@ -6517,16 +6520,20 @@ export class Workbook extends EventTarget {
       sheet.groups[groupKey] = sheet.groups[groupKey]
         .map((g) => { const span = mapSpan(g.from, g.to); return span.contiguous ? { ...g, from: span.lo, to: span.hi } : null; })
         .filter(Boolean);
-      const renumber = (formula, ownerSheet) => mapFormulaRefs(formula, (ref) => {
+      const renumber = (formula, ownerSheet, relativeName = false) => mapFormulaRefs(formula, (ref) => {
         const target = ref.sheet ?? ownerSheet;
         if (!sameSheetName(target, sheet.name)) return ref;
         if (axis === 'row' && ref.kind === 'cols') return ref;
         if (axis === 'col' && ref.kind === 'rows') return ref;
-        if (!straddles(ref)) return mapRange(ref);
-        // A range the block partly overlaps loses the lines that leave it and gains those that
-        // land inside it, as if they were deleted and inserted, rather than growing to span both.
-        const cut = adjustRefForDelete(ref, axis, from, count);
-        return cut && adjustRefForInsert(cut, axis, landing, count);
+        const edit = (m) => {
+          if (!straddles(m)) return mapRange(m);
+          // A range the block partly overlaps loses the lines that leave it and gains those that
+          // land inside it, as if they were deleted and inserted, rather than growing to span both.
+          const cut = adjustRefForDelete(m, axis, from, count);
+          return cut && adjustRefForInsert(cut, axis, landing, count);
+        };
+        // A relative defined name's offsets are not addresses: only its absolute coordinates follow the lines.
+        return relativeName ? mapRelativeNameRef(ref, axis, edit) : edit(ref);
       });
       // A chart, filter, or protected range the block partly overlaps is treated like such a
       // reference: it loses the lines that leave it and gains those that land inside it.
@@ -6628,7 +6635,7 @@ export class Workbook extends EventTarget {
           Object.entries(t.calc).map(([c, f]) => [c, renumber(f, s.name)]),
         ) });
       }
-      this.names = this.names.map((n) => ({ ...n, ref: renumber(n.ref, n.sheet || null) }));
+      this.names = this.names.map((n) => ({ ...n, ref: renumber(n.ref, n.sheet || null, n.relative === true) }));
       // On other sheets, a conditional-format, validation or filter formula names the moved sheet to
       // read its data: that reference points at the data wherever it now is, so it follows the move
       // however it is spelled, as it follows an insertion, a deletion (adjustBlockRules) and a block

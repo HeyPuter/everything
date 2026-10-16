@@ -1,4 +1,4 @@
-import { mapFormulaRefs, sameSheetName } from './refs.js';
+import { isAbsoluteRef, mapFormulaRefs, sameSheetName } from './refs.js';
 
 /** Visible-row/column cuts are translations of contiguous runs. Index endpoints
  * instead of scanning every run for every formula in a fragmented selection. */
@@ -15,8 +15,9 @@ export function packedMoveReferences(source, target, rows, cols, r0, c0) {
     destinationCell: (r, c) => rr.has(r) && cc.has(c) ? { r: r0 + rr.get(r), c: c0 + cc.get(c) } : null,
     sourceCell: (r, c) => rr.has(r) && cc.has(c),
     targetCell: (r, c) => r >= r0 && r < r0 + rows.length && c >= c0 && c < c0 + cols.length,
-    follow: (formula, owner) => mapFormulaRefs(formula, ref => {
-      if (!sameSheetName(ref.sheet ?? owner, source)) return ref;
+    // A relative defined name's offsets stay put: only its wholly absolute references follow the cut.
+    follow: (formula, owner, relativeName = false) => mapFormulaRefs(formula, ref => {
+      if (!sameSheetName(ref.sheet ?? owner, source) || (relativeName && !isAbsoluteRef(ref))) return ref;
       const next = moved(ref);
       return next ? { ...next, ...(ref.sheet != null || across ? { sheet: target } : {}) } : ref;
     }),

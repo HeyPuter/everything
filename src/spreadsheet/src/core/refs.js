@@ -347,18 +347,37 @@ export function adjustFormula(formula, { ownerSheet, sheetName, axis, at, count,
       const covered = sheetsBetween?.(ref.sheet, ref.sheetEnd) || [ref.sheet, ref.sheetEnd];
       if (!covered.some(same)) return ref;
     } else if (!same(ref.sheet ?? ownerSheet)) return ref;
-    if (!relativeName) return remove ? adjustRefForDeletedLines(ref, axis, deleted) : adjustRefForInsert(ref, axis, at, count);
-    // A relative defined-name coordinate is an offset, not a stored cell
-    // address. Only its absolute coordinates follow inserted/deleted lines.
-    const dimension = axis === 'row' ? 'r' : 'c', absolute = axis === 'row' ? 'absR' : 'absC';
-    const relative = [1, 2].filter(end => !ref[`${absolute}${end}`]);
-    if (relative.length === 2) return ref;
-    const fixed = { ...ref };
-    for (const end of relative) fixed[`${dimension}${end}`] = end === 1 ? 0 : axis === 'row' ? MAX_ROW : MAX_COL;
-    const result = remove ? adjustRefForDeletedLines(fixed, axis, deleted) : adjustRefForInsert(fixed, axis, at, count);
-    if (result) for (const end of relative) result[`${dimension}${end}`] = ref[`${dimension}${end}`];
-    return result;
+    const edit = (r) => (remove ? adjustRefForDeletedLines(r, axis, deleted) : adjustRefForInsert(r, axis, at, count));
+    return relativeName ? mapRelativeNameRef(ref, axis, edit) : edit(ref);
   });
+}
+
+/** Does the ref name the same cells wherever it is used (every coordinate it has absolute)? */
+export function isAbsoluteRef(ref) {
+  const rows = ref.kind === 'cols' || (ref.absR1 && ref.absR2);
+  const cols = ref.kind === 'rows' || (ref.absC1 && ref.absC2);
+  return !!(rows && cols);
+}
+
+/**
+ * A relative defined name's relative coordinates are offsets from the cell that uses it (stored, as .xlsx
+ * stores them, from A1), not addresses: no structural edit moves them. `edit` rewrites the ref as an edit
+ * along `axis` would, judged by its absolute coordinates alone: a relative end along the axis is stretched
+ * to the sheet's edge for it and put back after. With `block`, for an edit only some cells of each line
+ * feel (Insert or Delete cells, a cut), a relative coordinate on either axis leaves the ref alone, since
+ * which cells it names depends on where it is used.
+ */
+export function mapRelativeNameRef(ref, axis, edit, block = false) {
+  if (isAbsoluteRef(ref)) return edit(ref);
+  if (block) return ref;
+  const dimension = axis === 'row' ? 'r' : 'c', absolute = axis === 'row' ? 'absR' : 'absC';
+  const relative = [1, 2].filter(end => !ref[`${absolute}${end}`]);
+  if (relative.length === 2) return ref;
+  const fixed = { ...ref };
+  for (const end of relative) fixed[`${dimension}${end}`] = end === 1 ? 0 : axis === 'row' ? MAX_ROW : MAX_COL;
+  const result = edit(fixed);
+  if (result) for (const end of relative) result[`${dimension}${end}`] = ref[`${dimension}${end}`];
+  return result;
 }
 
 /**
