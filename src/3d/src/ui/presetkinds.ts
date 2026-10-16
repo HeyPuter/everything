@@ -131,13 +131,12 @@ registerPresetKind({
 panelHeaderExtras['out-format'] = () => presetHeaderButton('render_format', 'out-format', 'Format Presets');
 
 panelPresets('ca-sensor', 'Sensor Presets', 'camera.preset_add', () => SENSOR_PRESETS.map(([n, w, hh]) => [n, { sensor_width: w, sensor_height: hh }]));
-panelPresets('clip-n-camera', 'Camera Presets', 'clip.camera_preset_add', () => SENSOR_PRESETS.map(([n, w]) => [n, { sensor_width: w, pixel_aspect: 1 }]));
 panelPresets('ph-fl-diff', 'Viscosity Presets', 'fluid.preset_add', () => VISCOSITY_PRESETS.map(([n, b, e]) => [n, { viscosity_base: b, viscosity_exponent: e }]));
 panelPresets('ph-cloth', 'Cloth Presets', 'cloth.preset_add');
 panelPresets('pa-hairdyn', 'Hair Dynamics Presets', 'particle.hair_dynamics_preset_add');
-panelPresets('clip-n-tsettings', 'Tracking Settings Presets', 'clip.tracking_settings_preset_add');
 panelPresets('rs-cm-wb', 'White Balance Presets', 'render.color_management_white_balance_preset_add');
-panelPresets('seq-text-style', 'Text Style Presets', 'sequencer.text_strip_style_preset_add');
+// movie clip camera / track color / tracking settings presets (tracking/presets.ts) and text strip
+// style presets (sequencer/textpresets.ts) have their own menus
 
 // display curves: the curve widget is not a bound button either
 registerPresetKind({

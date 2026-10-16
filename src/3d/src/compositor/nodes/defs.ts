@@ -10,9 +10,10 @@ import { ensureViewLayers, layerRender } from '../../scenes/viewlayers';
 
 /** View layer settings of the scene / layer a Render Layers node reads (its passes decide the outputs). */
 function rlLayer(n: NodeData, doc: DocumentData = app.doc) {
-  const sc = sceneById(doc, String(n.props.scene ?? '')) ?? doc.scene;
+  const props = n.props ?? {};
+  const sc = sceneById(doc, String(props.scene ?? '')) ?? doc.scene;
   const layers = ensureViewLayers(sc);
-  const i = n.props.layer ? layers.findIndex((l) => l.name === n.props.layer) : (sc.active_view_layer ?? 0);
+  const i = props.layer ? layers.findIndex((l) => l.name === props.layer) : (sc.active_view_layer ?? 0);
   return { sc, index: i < 0 ? (sc.active_view_layer ?? 0) : i, layer: layers[i < 0 ? (sc.active_view_layer ?? 0) : i] };
 }
 function rlRender(n: NodeData, doc: DocumentData = app.doc): Partial<RenderSettings> {

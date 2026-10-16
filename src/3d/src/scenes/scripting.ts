@@ -297,6 +297,16 @@ for (const k of LAYER_RENDER_KEYS) {
   });
 }
 
+// settings other modules add to the view layer API (e.g. line rendering) are scene-wide: reach
+// them through the active layer's legacy struct
+for (const k of ['use_freestyle', 'freestyle_settings'])
+  Object.defineProperty(ViewLayerStruct.prototype, k, {
+    get: () => (legacyViewLayer as Any)[k],
+    set: (v: unknown) => ((legacyViewLayer as Any)[k] = v),
+    enumerable: true,
+    configurable: true,
+  });
+
 const layerWrappers = new WeakMap<ViewLayerData, unknown>();
 function layerWrapper(sid: string, l: ViewLayerData) {
   let w = layerWrappers.get(l);

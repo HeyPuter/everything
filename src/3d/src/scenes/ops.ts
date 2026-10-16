@@ -5,7 +5,8 @@ import { app, registerOperators, type OpContext } from '../app/app';
 import { objectMode, sceneChanged, switchScene, switchViewLayer } from './switch';
 import { duplicateObject, uniqueName } from '../ops/object';
 import type { DocumentData, ID } from '../data/types';
-import { activeSceneId, allScenes, deleteScene, newScene, sceneById, scenesByName, type SceneNewType } from './scenes';
+import { activateScene, activeSceneId, allScenes, deleteScene, newScene, sceneById, scenesByName, type SceneNewType } from './scenes';
+import { setSceneAdapter } from '../sequencer/sceneadapter';
 import { activeLayerIndex, activeViewLayer, addViewLayer, ensureViewLayers, removeViewLayer, type ViewLayerAddType } from './viewlayers';
 import type { AovData } from '../render/final/idpasses';
 import { linkDataMenuHooks } from '../object/menus';
@@ -286,3 +287,18 @@ rowMenuHooks.push((r) =>
       ]
     : [],
 );
+
+// Video Sequencer: Scene strips can show any scene, and Add ▸ Scene can make a new one (the new
+// scene is created without leaving the scene being edited)
+setSceneAdapter({
+  list: () => scenesByName(app.doc).map((sc) => sc.name),
+  create: (type) => {
+    if (!objectMode()) return null;
+    const doc = app.doc;
+    const back = activeSceneId(doc);
+    const sc = newScene(doc, type as SceneNewType, { duplicateObject, uniqueName: (d, b, k) => uniqueName(d, b, k ?? 'objects') });
+    activateScene(doc, back);
+    sceneChanged();
+    return sc.name;
+  },
+});

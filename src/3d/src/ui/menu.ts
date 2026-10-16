@@ -376,6 +376,9 @@ if (typeof addEventListener === 'function') addEventListener('pointerdown', () =
  */
 export function captureMenuItems(open: () => void): MenuItem[] {
   const prev = capturing;
+  // the synthetic press must not make its area the active / hovered one or count as a user press
+  const { activeArea, hoverArea } = app;
+  const presses = pressCount;
   capturing = [];
   try {
     open();
@@ -384,6 +387,9 @@ export function captureMenuItems(open: () => void): MenuItem[] {
     return [];
   } finally {
     capturing = prev;
+    app.activeArea = activeArea;
+    app.hoverArea = hoverArea;
+    pressCount = presses;
   }
 }
 
