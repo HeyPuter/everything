@@ -147,3 +147,58 @@ test('Bake panel: bake with progress, undo in one step, Esc cancels', async ({ p
   expect(await img()).toBe(before);
   await expectNoErrors(errors);
 });
+
+/** Make the first area an Image Editor showing `id` (or the Render Result) and return its box. */
+async function imageEditor(page: Page, id: string | null) {
+  await page.evaluate((imgId) => {
+    const a = (window as any).app;
+    const el = document.querySelector('.area[data-editor="IMAGE_EDITOR"], .area[data-editor="VIEW_3D"]') as HTMLElement;
+    el.dispatchEvent(new PointerEvent('pointerenter'));
+    const area = a.hoverArea;
+    area.setType('IMAGE_EDITOR');
+    area.editor.setImage(imgId ?? '__render_result__');
+  }, id);
+  return page.locator('.area[data-editor="IMAGE_EDITOR"]').first();
+}
+
+test('Image Editor: render slots, Pack, sampling with a sample size, Shading header', async ({ page }) => {
+  const errors = await openApp(page);
+  const area = await imageEditor(page, null);
+  const box = (await area.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const slots = () => page.evaluate(async () => ((await import('/src/render/final/result.ts' as string)) as any).renderResult.count);
+  const n0 = await slots();
+  await page.evaluate(() => (window as any).app.run('image.add_render_slot'));
+  expect(await slots()).toBe(n0 + 1);
+  await page.evaluate(() => (window as any).app.run('image.remove_render_slot'));
+  expect(await slots()).toBe(n0);
+  // a generated image: Pack stores its pixels; sampling shows averaged values while dragging
+  const id = await page.evaluate(() => {
+    const a = (window as any).app;
+    a.run('image.new', { name: 'Gen', width: 64, height: 64, color: [1, 0, 0, 1] }, { invoke: false });
+    return Object.values(a.doc.images).find((i: any) => i.name === 'Gen').id as string;
+  });
+  await imageEditor(page, id);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.evaluate(() => (window as any).app.run('image.pack'));
+  expect(await page.evaluate((i) => (window as any).app.doc.images[i].source, id)).toBe('FILE');
+  await expect(area.locator('.ie-samplehdr')).toBeVisible();
+  const size = area.locator('.ie-samplehdr .num-field').first();
+  await size.dblclick();
+  const input = page.locator('input.editing');
+  await expect(input).toBeVisible();
+  await input.fill('5');
+  await input.press('Enter');
+  const canvas = area.locator('.ie-canvas');
+  const cb = (await canvas.boundingBox())!;
+  await page.mouse.move(cb.x + cb.width / 2, cb.y + cb.height / 2);
+  await page.mouse.down();
+  await expect(area.locator('.ie-sample')).toContainText('R:255');
+  await expect(area.locator('.ie-sample')).toContainText('5×5 px');
+  await page.mouse.up();
+  await expect(area.locator('.ie-sample')).toHaveCount(0);
+  // the narrow Image Editor of the Shading workspace starts with its menus collapsed
+  await page.locator('.ws-tab', { hasText: 'Shading' }).first().click();
+  await expect(page.locator('.area[data-editor="IMAGE_EDITOR"] .hdr-collapsed-menus')).toBeVisible();
+  await expectNoErrors(errors);
+});
