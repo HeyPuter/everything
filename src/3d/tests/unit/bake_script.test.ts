@@ -62,3 +62,21 @@ describe('bake settings in Python', () => {
     expect(out).toBe('8 False AO TANGENT');
   });
 });
+
+describe('UDIM tiles in scripts', () => {
+  it('source, tiles.new / get / remove / active', () => {
+    const out = run(`
+      const img = D.images.new('U', 8, 8);
+      img.source = 'TILED';
+      const t = img.tiles.new(1002, 'Arm');
+      img.tiles.new({tile_number: 1011});
+      print(img.source, img.tiles.length, t.number, t.label, img.tiles.get(1011).number, img.tiles.get(1500));
+      img.tiles.active_index = 1;
+      print(img.tiles.active.number);
+      img.tiles.remove(img.tiles.get(1002));
+      print([...img.tiles].map((x) => x.number).join(','));
+      img.source = 'GENERATED';
+      print(img.source, img.tiles.length)`);
+    expect(out).toBe('TILED 3 1002 Arm 1011 null\n1002\n1001,1011\nGENERATED 0');
+  });
+});

@@ -3,7 +3,9 @@
 // token.
 import { app, registerOperators, operators, onAppReady, type OpContext } from '../../app/app';
 import type { ImageData as Img, UdimTile } from '../../data/types';
-import { isTiled, tileView, nextFreeTile, validTileNumber, detectUdimSets, udimFileName, tileCanvas, encodeTilePixels, forgetTiles, UDIM_START } from '../udim';
+import { isTiled, tileView, nextFreeTile, detectUdimSets, udimFileName, tileCanvas, encodeTilePixels, makeTiled, makeSingle, addTile, removeTile } from '../udim';
+
+export { makeTiled, makeSingle, addTile, removeTile };
 import { touchImage } from '../images';
 import { view2D } from './imageops';
 import { download } from './result';
@@ -14,55 +16,6 @@ import { uniqueName } from '../../ops/object';
 
 const shown = (ctx: OpContext): Img | null => view2D(ctx)?.shownImage() ?? null;
 const tiledPoll = (ctx: OpContext) => isTiled(shown(ctx));
-
-/** Turn an image into a UDIM image whose first tile (1001) is its current pixels. */
-export function makeTiled(img: Img) {
-  if (img.source === 'TILED' && img.tiles?.length) return;
-  if (img.source !== 'GENERATED' && img.source !== 'FILE') return;
-  if (img.source === 'GENERATED') img.bytes = null;
-  img.source = 'TILED';
-  img.tiles = [{ number: UDIM_START, width: img.width, height: img.height }];
-  img.active_tile_index = 0;
-}
-
-/** Back to a single image (the first tile is kept). */
-export function makeSingle(img: Img) {
-  if (img.source !== 'TILED') return;
-  img.source = img.bytes?.length ? 'FILE' : 'GENERATED';
-  img.tiles = undefined;
-  img.active_tile_index = undefined;
-  forgetTiles(img.id);
-}
-
-/** Add a tile (sorted by number); returns its index, or -1 when the number is taken or invalid. */
-export function addTile(img: Img, number: number, opts: { label?: string; width: number; height: number; color?: [number, number, number, number]; generated_type?: UdimTile['generated_type'] }): number {
-  if (!isTiled(img) || !validTileNumber(number) || img.tiles.some((t) => t.number === number)) return -1;
-  const tile: UdimTile = { number, label: opts.label || undefined, bytes: null, width: opts.width, height: opts.height, generated_type: opts.generated_type ?? 'BLANK', generated_color: opts.color ?? [0, 0, 0, 1] };
-  // the first tile stays first: it holds the image's own pixels
-  let at = img.tiles.findIndex((t, i) => i > 0 && t.number > number);
-  if (at < 0) at = img.tiles.length;
-  img.tiles = [...img.tiles.slice(0, at), tile, ...img.tiles.slice(at)];
-  return at;
-}
-
-/** Remove tile `i`; removing the first one moves the next tile's pixels into the image. */
-export function removeTile(img: Img, i: number): boolean {
-  if (!isTiled(img) || img.tiles.length < 2 || i < 0 || i >= img.tiles.length) return false;
-  if (i === 0) {
-    const next = img.tiles[1];
-    img.bytes = next.bytes ?? null;
-    img.mime = next.mime ?? 'image/png';
-    img.width = next.width;
-    img.height = next.height;
-    img.generated_type = next.generated_type;
-    img.generated_color = next.generated_color;
-    img.revision = (img.revision ?? 0) + 1;
-    img.tiles = [{ number: next.number, label: next.label, width: next.width, height: next.height }, ...img.tiles.slice(2)];
-  } else img.tiles = img.tiles.filter((_, k) => k !== i);
-  img.active_tile_index = Math.min(img.active_tile_index ?? 0, img.tiles.length - 1);
-  forgetTiles(img.id);
-  return true;
-}
 
 /** Replace tile `i` with generated content. */
 export function fillTile(img: Img, i: number, opts: { width: number; height: number; color: [number, number, number, number]; generated_type: UdimTile['generated_type'] }) {
