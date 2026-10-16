@@ -725,6 +725,13 @@ input.num-field.editing {
 .row-aligned > :last-child {
   border-radius: 0 var(--radius) var(--radius) 0;
 }
+.row-aligned > .ra-icon {
+  flex: none;
+  width: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
 
 .checkbox {
   display: inline-flex;
