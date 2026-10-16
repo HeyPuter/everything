@@ -81,7 +81,7 @@ const ROW_H = 22;
 const PAD = 2;
 const VIRTUAL_MIN = 150;
 
-type DragInfo = { kind: 'objects'; ids: string[] } | { kind: 'collection'; id: string } | { kind: 'material'; id: string };
+type DragInfo = { kind: 'objects'; ids: string[] } | { kind: 'collection'; id: string } | { kind: 'material'; id: string } | { kind: 'stack'; item: 'modifier' | 'constraint'; ob: string; id: string };
 type DropZone = 'INTO' | 'BEFORE' | 'AFTER';
 
 const DISPLAY_MODES: [DisplayMode, string, string, string][] = [
@@ -1146,6 +1146,7 @@ export class Outliner implements Editor {
   private isDraggable(r: Row) {
     if (r.kind === 'object') return true;
     if (r.kind === 'collection') return r.id !== app.doc.scene.collection && this.displayMode !== 'BLENDER_FILE' && this.displayMode !== 'ORPHAN_DATA' && !isReadOnly(parentOf(app.doc, r.id ?? ''));
+    if ((r.kind === 'modifier' || r.kind === 'constraint') && r.ob && r.id) return !isReadOnly(app.doc.objects[r.ob.id]);
     return r.kind === 'material' || (r.kind === 'id' && r.table === 'materials');
   }
 
@@ -1157,6 +1158,7 @@ export class Outliner implements Editor {
         ids: ids.includes(r.ob.id) ? ids : [r.ob.id],
       };
     } else if (r.kind === 'collection' && r.id) this.drag = { kind: 'collection', id: r.id };
+    else if ((r.kind === 'modifier' || r.kind === 'constraint') && r.ob && r.id) this.drag = { kind: 'stack', item: r.kind, ob: r.ob.id, id: r.id };
     else if (r.id) this.drag = { kind: 'material', id: r.id };
     e.dataTransfer?.setData('text/plain', r.label);
     if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove';
@@ -1170,6 +1172,12 @@ export class Outliner implements Editor {
     // linked collections cannot take new content (moving a linked collection itself is fine)
     if (r.kind === 'collection' && r.id && isReadOnly(doc.collections[r.id]) && (d.kind === 'objects' || zone === 'INTO')) return null;
     if (d.kind === 'collection' && zone !== 'INTO' && r.id && isReadOnly(parentOf(doc, r.id))) return null;
+    if (d.kind === 'stack') {
+      if (r.kind === d.item && r.ob && r.id !== d.id) return r.ob.id === d.ob ? (zone === 'AFTER' ? 'Move after' : 'Move before') : `Copy to "${r.ob.name}"`;
+      if (r.kind === 'object' && r.ob && r.ob.id !== d.ob && !isReadOnly(r.ob)) return `Copy to "${r.ob.name}"`;
+      return null;
+    }
+    if (d.kind === 'objects' && r.kind === 'scene' && this.displayMode === 'SCENES') return 'Add to scene';
     if (d.kind === 'objects') {
       if (r.kind === 'collection' && r.id && this.displayMode !== 'BLENDER_FILE') {
         const parented = d.ids.some((id) => doc.objects[id]?.parent);
@@ -1191,10 +1199,10 @@ export class Outliner implements Editor {
     if (!this.drag) return;
     const el = e.currentTarget as HTMLElement;
     let zone: DropZone = 'INTO';
-    if (this.drag.kind === 'collection' && r.kind === 'collection') {
+    if ((this.drag.kind === 'collection' && r.kind === 'collection') || (this.drag.kind === 'stack' && r.kind === this.drag.item)) {
       const b = el.getBoundingClientRect();
       const f = (e.clientY - b.top) / b.height;
-      zone = f < 0.3 ? 'BEFORE' : f > 0.7 && !r.expanded ? 'AFTER' : 'INTO';
+      zone = this.drag.kind === 'stack' ? (f < 0.5 ? 'BEFORE' : 'AFTER') : f < 0.3 ? 'BEFORE' : f > 0.7 && !r.expanded ? 'AFTER' : 'INTO';
     }
     const action = this.dropAction(r, zone, e.ctrlKey || e.metaKey, e.shiftKey);
     el.classList.remove('drop-into', 'drop-before', 'drop-after');
@@ -1227,6 +1235,14 @@ export class Outliner implements Editor {
     this.drag = null;
     this.setHint(null);
     if (!d || !action) return;
+    if (d.kind === 'stack') {
+      app.run('outliner.datastack_drop', { kind: d.item, object: d.ob, item: d.id, target_object: r.ob?.id ?? '', target_item: r.kind === d.item ? r.id : '', after: zone === 'AFTER' }, { invoke: false });
+      return;
+    }
+    if (d.kind === 'objects' && r.kind === 'scene') {
+      app.run('outliner.scene_drop', { objects: d.ids.join('|') }, { invoke: false });
+      return;
+    }
     if (d.kind === 'objects' && r.kind === 'collection' && r.id) {
       app.run('outliner.collection_drop', { objects: d.ids.join('|'), collection: r.id, link: ctrl, keep_parent: shift }, { invoke: false });
     } else if (d.kind === 'objects' && r.kind === 'object' && r.ob) {

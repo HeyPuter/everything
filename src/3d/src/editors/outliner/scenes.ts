@@ -36,3 +36,20 @@ kindMenuHooks.scene = (ol, r: Row): MenuItem[] => [
   { label: 'Rename', shortcut: 'F2', disabled: !ol.canRename(r), action: () => ol.startRename(r.key) },
   ...commonItems(ol),
 ];
+
+registerOperators([
+  {
+    idname: 'outliner.scene_drop',
+    label: 'Drop Object to Scene',
+    description: 'Add the dragged objects to the scene they are dropped on (in its scene collection)',
+    props: [{ id: 'objects', label: 'Objects', type: 'string', default: '', hidden: true }],
+    exec: (ctx, p) => {
+      const master = ctx.doc.collections[ctx.doc.scene.collection];
+      const ids = String(p.objects ?? '')
+        .split('|')
+        .filter((id) => ctx.doc.objects[id] && !master.objects.includes(id));
+      if (!ids.length) return 'CANCELLED';
+      master.objects.push(...ids);
+    },
+  },
+]);

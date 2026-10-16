@@ -527,3 +527,65 @@ onAppReady(() => {
     return exec(ctx, p);
   };
 });
+
+// ---------------------------------------------------------------------------
+// modifier / constraint stacks (datastack_drop) and dropping objects on the scene (scene_drop)
+
+type StackItem = { id: string; name: string };
+const stackOf = (ob: ObjectData, kind: string): StackItem[] => (kind === 'constraint' ? ob.constraints : ob.modifiers) as unknown as StackItem[];
+
+function uniqueItemName(list: StackItem[], name: string) {
+  if (!list.some((x) => x.name === name)) return name;
+  const stem = name.replace(/\.\d{3}$/, '');
+  for (let i = 1; ; i++) {
+    const n = `${stem}.${String(i).padStart(3, '0')}`;
+    if (!list.some((x) => x.name === n)) return n;
+  }
+}
+
+registerOperators([
+  {
+    idname: 'outliner.datastack_drop',
+    label: 'Data Stack Drop',
+    description: 'Reorder a modifier or constraint by dragging it within its stack, or copy it onto another object',
+    props: [
+      { id: 'kind', label: 'Kind', type: 'enum', default: 'modifier', items: [['modifier', 'Modifier'], ['constraint', 'Constraint']] },
+      { id: 'object', label: 'Object', type: 'string', default: '', hidden: true },
+      { id: 'item', label: 'Item', type: 'string', default: '', hidden: true },
+      { id: 'target_object', label: 'Target Object', type: 'string', default: '', hidden: true },
+      { id: 'target_item', label: 'Target Item', type: 'string', default: '', hidden: true },
+      { id: 'after', label: 'After', type: 'bool', default: false },
+    ],
+    exec: (ctx, p) => {
+      const doc = ctx.doc;
+      const src = doc.objects[String(p.object)];
+      const dst = doc.objects[String(p.target_object || p.object)];
+      if (!src || !dst) return 'CANCELLED';
+      const kind = String(p.kind);
+      const from = stackOf(src, kind);
+      const item = from.find((x) => x.id === p.item);
+      if (!item) return 'CANCELLED';
+      const to = stackOf(dst, kind).slice();
+      let at = p.target_item ? to.findIndex((x) => x.id === p.target_item) : to.length;
+      if (at < 0) at = to.length;
+      else if (p.target_item && p.after) at++;
+      if (src === dst) {
+        // reorder within the stack
+        const i = to.indexOf(item);
+        to.splice(i, 1);
+        if (i < at) at--;
+        to.splice(at, 0, item);
+        if (to.every((x, k) => x === from[k])) return 'CANCELLED';
+      } else {
+        const c = structuredClone(item) as StackItem & { is_active?: boolean };
+        c.id = `${item.id.split('_')[0] || 'md'}_${Math.random().toString(36).slice(2, 10)}`;
+        c.name = uniqueItemName(to, item.name);
+        c.is_active = false;
+        to.splice(at, 0, c);
+      }
+      if (kind === 'constraint') dst.constraints = to as never;
+      else dst.modifiers = to as never;
+      app.graph.invalidate();
+    },
+  },
+]);

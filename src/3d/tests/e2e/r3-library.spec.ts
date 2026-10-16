@@ -212,3 +212,78 @@ test('Linking from a recent project follows its saved changes; dropped project f
   expect(await names(page)).toContain('Root');
   await expectNoErrors(errors);
 });
+
+const olRow = (page: Page, name: string) => page.locator('.outliner .ol-row', { has: page.locator('.ol-name', { hasText: new RegExp(`^${name}$`) }) }).first();
+
+test('Outliner operations: modifier drag, remap users, hierarchy delete, keying sets and drivers from Data API rows', async ({ page }) => {
+  const errors = await openApp(page);
+  // two modifiers on the cube, shown in the outliner
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.run('object.modifier_add', { type: 'SUBSURF' }, { invoke: false });
+    a.run('object.modifier_add', { type: 'BEVEL' }, { invoke: false });
+  });
+  await page.evaluate(async () => {
+    const { currentOutliner } = await import('/src/editors/outliner/current.ts');
+    const o = currentOutliner()!;
+    const cube = (Object.values((window as any).app.doc.objects) as any[]).find((x) => x.name === 'Cube');
+    o.setOpen(`o:${cube.id}`, true);
+    o.setOpen(`ms:${cube.id}`, true);
+    o.update();
+  });
+  const mods = () => page.evaluate(() => (window as any).app.activeObject.modifiers.map((m: any) => m.name));
+  expect(await mods()).toEqual(['Subdivision Surface', 'Bevel']);
+  // drag Bevel onto the top half of Subdivision: it moves first
+  await olRow(page, 'Bevel').locator('.ol-item').dragTo(olRow(page, 'Subdivision Surface'), { targetPosition: { x: 60, y: 3 } });
+  expect(await mods()).toEqual(['Bevel', 'Subdivision Surface']);
+  // a modifier dropped on another object: a copy goes there
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const obs = Object.values(a.doc.objects) as any[];
+    const cube = obs.find((o) => o.name === 'Cube');
+    const cam = obs.find((o) => o.name === 'Camera');
+    a.run('outliner.datastack_drop', { kind: 'modifier', object: cube.id, item: cube.modifiers[0].id, target_object: cam.id }, { invoke: false });
+  });
+  expect(await page.evaluate(() => (Object.values((window as any).app.doc.objects) as any[]).find((o) => o.name === 'Camera').modifiers.map((m: any) => m.name))).toEqual(['Bevel']);
+  // remap users: the cube's mesh users switch to a new mesh
+  const remapped = await page.evaluate(() => {
+    const a = (window as any).app;
+    const cube = a.activeObject;
+    const me = a.doc.meshes[cube.data];
+    a.run('mesh.primitive_uv_sphere_add', {}, { invoke: false });
+    const sphere = a.activeObject;
+    a.run('outliner.id_remap', { id_type: 'meshes', old_id: me.id, new_id: sphere.data }, { invoke: false });
+    return cube.data === sphere.data || a.doc.objects[cube.id].data === sphere.data;
+  });
+  expect(remapped).toBe(true);
+  // delete a collection hierarchy with what is inside
+  await page.evaluate(async () => {
+    const a = (window as any).app;
+    const { currentOutliner } = await import('/src/editors/outliner/current.ts');
+    const o = currentOutliner()!;
+    const col = (Object.values(a.doc.collections) as any[]).find((c) => c.name === 'Collection');
+    o.update();
+    const r = o.rows.find((x: any) => x.kind === 'collection' && x.id === col.id);
+    o.clickRow(r);
+    a.run('outliner.collection_hierarchy_delete', {}, { invoke: false });
+  });
+  expect(await page.evaluate(() => Object.keys((window as any).app.doc.objects).length)).toBe(0);
+  // Data API: K adds the selected property to a keying set, Ctrl D adds a driver
+  await page.evaluate(() => (window as any).app.run('object.empty_add', {}, { invoke: false }));
+  const ob = await page.evaluate(() => (window as any).app.activeObject.id);
+  await page.evaluate(async (ob) => {
+    const { currentOutliner } = await import('/src/editors/outliner/current.ts');
+    const o = currentOutliner()!;
+    o.setDisplayMode('DATA_API');
+    for (const k of ['api:objects', `api:objects:${ob}`, `api:objects:${ob}/location`]) o.setOpen(k, true);
+    o.update();
+  }, ob);
+  await olRow(page, '2').click();
+  const b = (await page.locator('.outliner .ol-list').first().boundingBox())!;
+  await page.mouse.move(b.x + 40, b.y + b.height - 8);
+  await page.keyboard.press('k');
+  expect(await page.evaluate(() => (window as any).app.doc.scene.keying_sets?.[0]?.paths.map((p: any) => `${p.data_path}[${p.index}]`))).toEqual(['location[2]']);
+  await page.keyboard.press('Control+d');
+  expect(await page.evaluate(() => (window as any).app.activeObject.animation_data?.drivers.map((d: any) => `${d.data_path}[${d.array_index}]`))).toEqual(['location[2]']);
+  await expectNoErrors(errors);
+});
