@@ -24,8 +24,8 @@
  */
 
 import { Workbook, sheetShapeJSON, sameJSON, cloneCell } from '../core/workbook.js';
-import { cellKey, parseKey } from '../core/cell.js';
-import { LINE_PROPS, SHEET_PROPS, BOOK_PROPS, mapCellKey, mapLineKey, mergeRuns, transformStructure, isStructure } from './ops.js';
+import { cellKey, parseKey, cutText } from '../core/cell.js';
+import { LINE_PROPS, SHEET_PROPS, BOOK_PROPS, MAX_LABEL, mapCellKey, mapLineKey, mergeRuns, transformStructure, isStructure } from './ops.js';
 import { applyOps, contentOf, sheetJSON, lineValues } from './apply.js';
 
 const UNDO_LIMIT = 100;
@@ -485,9 +485,12 @@ export class Replica extends EventTarget {
 
   /* ---------- Receiving ---------- */
 
-  /** The changes not yet in the room's log, in the form to send (on top of revision `rev`). */
+  /**
+   * The changes not yet in the room's log, in the form to send (on top of revision `rev`). A step's name can be
+   * longer than the room keeps ("Show scenario" and a long scenario name): it travels cut to the room's length.
+   */
   outgoing() {
-    return this.pending.map(({ id, label, ops }) => ({ id, label, ops }));
+    return this.pending.map(({ id, label, ops }) => ({ id, label: label == null ? label : cutText(label, MAX_LABEL), ops }));
   }
 
   /**

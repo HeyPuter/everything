@@ -28,6 +28,8 @@ export const MAX_CHANGE = 4_000_000;
 /** Most changes a commit carries (more wait for the next one). */
 export const MAX_BATCH = 500;
 export const MAX_OPS = 20_000;
+/** Longest label a change carries (the name of the step in Undo and Show Changes). */
+export const MAX_LABEL = 200;
 
 /** Settings kept per row or column (or per cell, for notes): each index is a register of its own. */
 export const LINE_PROPS = Object.freeze({
@@ -81,7 +83,7 @@ const axisMax = (axis) => (axis === 'row' ? MAX_ROW : axis === 'col' ? MAX_COL :
 export function validateChange(change) {
   if (!isRecord(change)) bad('change');
   if (typeof change.id !== 'string' || !CHANGE_ID.test(change.id)) bad('id');
-  if (change.label != null && (typeof change.label !== 'string' || change.label.length > 200)) bad('label');
+  if (change.label != null && (typeof change.label !== 'string' || change.label.length > MAX_LABEL)) bad('label');
   if (!Array.isArray(change.ops) || !change.ops.length || change.ops.length > MAX_OPS) bad('ops');
   for (const op of change.ops) validateOp(op);
   return change;
