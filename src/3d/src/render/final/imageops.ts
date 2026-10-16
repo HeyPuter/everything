@@ -13,6 +13,8 @@ import { pickFile } from '../../io/native';
 import { download, renderResult } from './result';
 import { operatorDialog } from '../../editors/uv/dialog';
 import { registerIcons } from '../../ui/icons';
+import { isTiled } from '../udim';
+import { readTile, writeTile } from './udimops';
 
 registerIcons({
   // a parcel: box, lid seam and a strip of tape
@@ -160,6 +162,19 @@ export function resizePixels(d: globalThis.ImageData, w: number, h: number): glo
 function editPixels(ctx: OpContext, fn: (d: globalThis.ImageData) => globalThis.ImageData) {
   const img = view2D(ctx)?.shownImage();
   if (!img) return 'CANCELLED' as const;
+  if (isTiled(img)) {
+    // UDIM images: the edit applies to the active tile
+    const i = img.active_tile_index ?? 0;
+    const d = readTile(img, i);
+    if (!d) {
+      app.report('WARNING', 'The tile is still loading');
+      return 'CANCELLED' as const;
+    }
+    writeTile(img, i, fn(d));
+    app.changed('doc');
+    view2D(ctx)?.draw();
+    return 'FINISHED' as const;
+  }
   const d = readPixels(img);
   if (!d) {
     app.report('WARNING', 'The image is still loading');
