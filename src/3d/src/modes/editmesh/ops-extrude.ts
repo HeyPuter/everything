@@ -7,7 +7,8 @@ import { activeView3D } from '../../editors/view3d/view3d';
 import { MeshEdit, edgeKey } from './meshedit';
 import { withEdit, editMeshObjects } from './context';
 import { editPoll } from './ops-basic';
-import { extrudeRegion } from './ops-topology';
+import { extrudeRegion, extrudeTypes } from './ops-topology';
+import { flipFace } from './ops-basic';
 import { V, vertexNormalsFromFaces, dissolveEdgeSet, dissolveCollinearVerts, edgeChains } from './geom';
 
 /** Move every selected vertex along the normal of its selected faces (shrink/fatten). */
@@ -75,8 +76,9 @@ export function screw(m: MeshEdit, steps: number, turns: number, center: Vector3
   if (!edges.length || chains.length !== 1) return false;
   const chain = chains[0];
   axis = axis.clone().normalize();
-  // advance per turn: the profile's open-end offset projected on the axis
-  const advance = chain.closed ? 0 : V(m.p(chain.verts[chain.verts.length - 1])).sub(V(m.p(chain.verts[0]))).dot(axis);
+  // advance per turn: the offset from the profile's later end to its first end (lowest index), along the axis
+  const ends = [chain.verts[0], chain.verts[chain.verts.length - 1]].sort((a, b) => a - b);
+  const advance = chain.closed ? 0 : V(m.p(ends[0])).sub(V(m.p(ends[1]))).dot(axis);
   const total = steps * turns;
   const profile = chain.verts;
   let prev = new Map(profile.map((v) => [v, v]));
@@ -95,7 +97,8 @@ export function screw(m: MeshEdit, steps: number, turns: number, center: Vector3
   return true;
 }
 
-function extrudeEdges(m: MeshEdit): boolean {
+/** Extrude each selected edge into a quad (faces are ignored; edges share their new vertices). */
+export function extrudeEdges(m: MeshEdit): boolean {
   const edges = m.selectedEdges();
   if (!edges.length) return false;
   const ef = m.edgeFaces();
@@ -116,7 +119,8 @@ function extrudeEdges(m: MeshEdit): boolean {
   return true;
 }
 
-function extrudeVerts(m: MeshEdit): boolean {
+/** Extrude each selected vertex into a new wire edge. */
+export function extrudeVerts(m: MeshEdit): boolean {
   const verts = m.selectedVerts();
   if (!verts.length) return false;
   for (const v of verts) {
@@ -147,9 +151,10 @@ function regionNormalWorld(): Vector3 {
 function invokeExtrudeMove(ctx: OpContext, idname: string, label: string, opts: { dissolveOrtho?: boolean; free?: boolean } = {}) {
   let faces = false;
   if (!withEdit((m) => {
-    const k = extrudeRegion(m);
+    if (!m.selectedVerts().length) return false;
+    // nothing to extrude in this select mode: the selection is simply moved
+    const k = extrudeRegion(m, false, extrudeTypes());
     if (k === 'FACES') faces = true;
-    return k !== null;
   }))
     return 'CANCELLED' as const;
   app.flush();
@@ -171,7 +176,8 @@ function invokeExtrudeMove(ctx: OpContext, idname: string, label: string, opts: 
 function execExtrudeMove(p: Record<string, unknown>) {
   const value = V((p.value as number[]) ?? [0, 0, 0]);
   const ok = withEdit((m, ob) => {
-    if (!extrudeRegion(m)) return false;
+    if (!m.selectedVerts().length) return false;
+    extrudeRegion(m, false, extrudeTypes());
     moveSelected(m, toLocal(ob, value));
     if (p.use_dissolve_ortho_edges) dissolveOrthogonalWalls(m);
   });
@@ -179,7 +185,7 @@ function execExtrudeMove(p: Record<string, unknown>) {
 }
 
 function invokeExtrudeShrink(ctx: OpContext, idname: string, label: string, individual = false) {
-  if (!withEdit((m) => extrudeRegion(m, individual) !== null)) return 'CANCELLED' as const;
+  if (!withEdit((m) => extrudeRegion(m, individual, individual ? { edges: false, verts: false } : extrudeTypes()) !== null)) return 'CANCELLED' as const;
   app.flush();
   return startTransform('SHRINKFATTEN', { event: ctx.event, label, redo: (v) => ({ idname, props: { value: v[0] } }) }) ? ('RUNNING_MODAL' as const) : ('CANCELLED' as const);
 }
@@ -225,7 +231,7 @@ registerOperators([
     props: offsetProp,
     poll: editPoll,
     invoke: (ctx) => invokeExtrudeShrink(ctx, 'view3d.edit_mesh_extrude_move_shrink_fatten', 'Extrude Faces Along Normals'),
-    exec: (_ctx, p) => (withEdit((m) => (extrudeRegion(m) ? void shrinkFatten(m, p.value as number) : false)) ? 'FINISHED' : 'CANCELLED'),
+    exec: (_ctx, p) => (withEdit((m) => (extrudeRegion(m, false, extrudeTypes()) ? void shrinkFatten(m, p.value as number) : false)) ? 'FINISHED' : 'CANCELLED'),
   },
   {
     idname: 'mesh.extrude_region_shrink_fatten',
@@ -234,7 +240,7 @@ registerOperators([
     props: offsetProp,
     poll: editPoll,
     invoke: (ctx) => invokeExtrudeShrink(ctx, 'mesh.extrude_region_shrink_fatten', 'Extrude Region and Shrink/Fatten'),
-    exec: (_ctx, p) => (withEdit((m) => (extrudeRegion(m) ? void shrinkFatten(m, p.value as number) : false)) ? 'FINISHED' : 'CANCELLED'),
+    exec: (_ctx, p) => (withEdit((m) => (extrudeRegion(m, false, extrudeTypes()) ? void shrinkFatten(m, p.value as number) : false)) ? 'FINISHED' : 'CANCELLED'),
   },
   {
     idname: 'mesh.extrude_faces_move',
@@ -243,7 +249,7 @@ registerOperators([
     props: offsetProp,
     poll: editPoll,
     invoke: (ctx) => invokeExtrudeShrink(ctx, 'mesh.extrude_faces_move', 'Extrude Individual Faces', true),
-    exec: (_ctx, p) => (withEdit((m) => (m.selectedFaces().length && extrudeRegion(m, true) ? void shrinkFatten(m, p.value as number) : false)) ? 'FINISHED' : 'CANCELLED'),
+    exec: (_ctx, p) => (withEdit((m) => (m.selectedFaces().length && extrudeRegion(m, true, { edges: false, verts: false }) ? void shrinkFatten(m, p.value as number) : false)) ? 'FINISHED' : 'CANCELLED'),
   },
   {
     idname: 'mesh.extrude_edges_move',
@@ -323,5 +329,91 @@ registerOperators([
         return 'CANCELLED';
       }
     },
+  },
+]);
+
+// ---------------------------------------------------------------------------
+// extrude without moving (building blocks for scripts and macros) and the context-aware variants
+
+/** Turn every face touching the new (selected) geometry around. */
+function flipNew(m: MeshEdit) {
+  for (const f of m.faces) if (f.verts.some((v) => m.sel[v])) flipFace(f);
+}
+
+const flipProp = { id: 'use_normal_flip', label: 'Flip Normals', type: 'bool' as const, default: false };
+const orthoProp = { id: 'use_dissolve_ortho_edges', label: 'Dissolve Orthogonal Edges', type: 'bool' as const, default: false };
+const extrudeOnly = (individual: boolean) => (_ctx: OpContext, p: Record<string, unknown>) =>
+  withEdit((m) => {
+    if (!extrudeRegion(m, individual, individual ? { edges: false, verts: false } : extrudeTypes())) return false;
+    if (p.use_normal_flip) flipNew(m);
+  })
+    ? ('FINISHED' as const)
+    : ('CANCELLED' as const);
+
+/** Faces selected anywhere in the edited meshes? */
+const anyFaceSelected = () => editMeshObjects().some(({ me }) => MeshEdit.from(me).selectedFaces().length > 0);
+
+registerOperators([
+  {
+    idname: 'mesh.extrude_region',
+    label: 'Extrude Region',
+    description: 'Extrude the selected faces as one region (plus selected edges and vertices the select mode allows), without moving them',
+    props: [flipProp, orthoProp],
+    poll: editPoll,
+    exec: extrudeOnly(false),
+  },
+  {
+    idname: 'mesh.extrude_context',
+    label: 'Extrude Context',
+    description: 'Extrude whatever the select mode makes extrudable, without moving it',
+    props: [flipProp, orthoProp],
+    poll: editPoll,
+    exec: extrudeOnly(false),
+  },
+  {
+    idname: 'mesh.extrude_verts_indiv',
+    label: 'Extrude Only Vertices',
+    description: 'Give every selected vertex a new edge, ignoring the edges and faces between them',
+    poll: editPoll,
+    exec: () => (withEdit((m) => extrudeVerts(m)) ? 'FINISHED' : 'CANCELLED'),
+  },
+  {
+    idname: 'mesh.extrude_edges_indiv',
+    label: 'Extrude Only Edges',
+    description: 'Turn every selected edge into a new face, ignoring the faces between them',
+    props: [flipProp],
+    poll: editPoll,
+    exec: (_ctx, p) =>
+      withEdit((m) => {
+        if (!extrudeEdges(m)) return false;
+        if (p.use_normal_flip) flipNew(m);
+      })
+        ? 'FINISHED'
+        : 'CANCELLED',
+  },
+  {
+    idname: 'mesh.extrude_faces_indiv',
+    label: 'Extrude Individual Faces',
+    description: 'Extrude every selected face on its own, without moving it',
+    poll: editPoll,
+    exec: extrudeOnly(true),
+  },
+  {
+    idname: 'view3d.edit_mesh_extrude_individual_move',
+    label: 'Extrude Individual and Move',
+    description: 'Extrude each face along its own normal, or each edge / vertex on its own in Edge / Vertex select mode',
+    poll: editPoll,
+    invoke: (ctx) => {
+      const [, e, f] = app.doc.scene.tool_settings.mesh_select_mode;
+      const id = f && anyFaceSelected() ? 'mesh.extrude_faces_move' : e || f ? 'mesh.extrude_edges_move' : 'mesh.extrude_vertices_move';
+      return app.run(id, {}, { event: ctx.event }) as 'RUNNING_MODAL' | 'CANCELLED' | 'FINISHED';
+    },
+  },
+  {
+    idname: 'view3d.edit_mesh_extrude_manifold_normal',
+    label: 'Extrude Manifold Along Normals',
+    description: 'Extrude the selected faces along their normal and merge the side walls into the neighbouring surface',
+    poll: editPoll,
+    invoke: (ctx) => app.run('mesh.extrude_manifold', {}, { event: ctx.event }) as 'RUNNING_MODAL' | 'CANCELLED' | 'FINISHED',
   },
 ]);

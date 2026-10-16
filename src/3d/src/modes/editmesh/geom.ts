@@ -445,22 +445,59 @@ export function edgeChains(edges: [number, number][]): { verts: number[]; closed
   return out;
 }
 
-/** Join pairs of adjacent triangles (in `faces`) into quads when their normals differ by less than `maxAngle`. */
-export function trisToQuads(m: MeshEdit, faces: Set<number>, maxAngle: number): number {
+export interface JoinTrianglesOptions {
+  /** largest deviation of the quad's corners from a right angle */
+  shapeThreshold?: number;
+  /** don't join across edges where these differ */
+  compareSeam?: boolean;
+  compareSharp?: boolean;
+  compareMaterials?: boolean;
+  compareUVs?: boolean;
+}
+
+/**
+ * Join pairs of adjacent triangles (in `faces`) into quads when their normals differ by less than
+ * `maxAngle` and the quad is not too far from rectangular; the flattest, squarest pairs go first.
+ */
+export function trisToQuads(m: MeshEdit, faces: Set<number>, maxAngle: number, opts: JoinTrianglesOptions = {}): number {
   const fsel = new Set([...faces].filter((fi) => m.faces[fi].verts.length === 3));
   const ef = m.edgeFaces();
-  // candidate pairs sorted by planarity
-  const pairs: { a: number; b: number; score: number; key: string }[] = [];
+  const shapeMax = opts.shapeThreshold ?? Math.PI;
+  const pairs: { a: number; b: number; score: number; key: string; quad: number[] }[] = [];
   for (const [k, l] of ef) {
     if (l.length !== 2) continue;
-    const [fa] = l[0],
-      [fb] = l[1];
+    const [fa, ca] = l[0],
+      [fb, cb] = l[1];
     if (!fsel.has(fa) || !fsel.has(fb)) continue;
-    const na = V(m.faceNormal(m.faces[fa])),
-      nb = V(m.faceNormal(m.faces[fb]));
-    const ang = na.angleTo(nb);
+    const A = m.faces[fa],
+      B = m.faces[fb];
+    if (opts.compareSeam && (A.seams[ca] || B.seams[cb])) continue;
+    if (opts.compareSharp && (A.sharp[ca] || B.sharp[cb])) continue;
+    if (opts.compareMaterials && A.material !== B.material) continue;
+    const [x, y] = k.split(':').map(Number);
+    if (opts.compareUVs) {
+      const uv = (f: typeof A, v: number) => [f.uvs[f.verts.indexOf(v) * 2], f.uvs[f.verts.indexOf(v) * 2 + 1]];
+      if ([x, y].some((v) => Math.hypot(uv(A, v)[0] - uv(B, v)[0], uv(A, v)[1] - uv(B, v)[1]) > 1e-4)) continue;
+    }
+    const ang = V(m.faceNormal(A)).angleTo(V(m.faceNormal(B)));
     if (ang > maxAngle) continue;
-    pairs.push({ a: fa, b: fb, score: ang, key: k });
+    const oa = A.verts.find((v) => v !== x && v !== y)!,
+      ob = B.verts.find((v) => v !== x && v !== y)!;
+    const ia = A.verts.indexOf(oa);
+    const quad = [oa, A.verts[(ia + 1) % 3], ob, A.verts[(ia + 2) % 3]];
+    // how far each corner is from square
+    let shape = 0;
+    let convex = true;
+    const pn = V(m.faceNormal(A)).add(V(m.faceNormal(B)));
+    for (let i = 0; i < 4; i++) {
+      const p = V(m.p(quad[i]));
+      const e1 = V(m.p(quad[(i + 3) % 4])).sub(p),
+        e2 = V(m.p(quad[(i + 1) % 4])).sub(p);
+      shape = Math.max(shape, Math.abs(e1.angleTo(e2) - Math.PI / 2));
+      if (e2.clone().cross(e1).dot(pn) <= 0) convex = false;
+    }
+    if (!convex || shape > shapeMax) continue;
+    pairs.push({ a: fa, b: fb, score: ang / Math.max(1e-6, maxAngle) + shape / Math.max(1e-6, shapeMax), key: k, quad });
   }
   pairs.sort((x, y) => x.score - y.score);
   const used = new Set<number>();
@@ -470,18 +507,13 @@ export function trisToQuads(m: MeshEdit, faces: Set<number>, maxAngle: number): 
     if (used.has(pr.a) || used.has(pr.b)) continue;
     const A = m.faces[pr.a],
       B = m.faces[pr.b];
-    const [x, y] = pr.key.split(':').map(Number);
-    const oa = A.verts.find((v) => v !== x && v !== y)!,
-      ob = B.verts.find((v) => v !== x && v !== y)!;
-    const ia = A.verts.indexOf(oa);
-    const quad = [oa, A.verts[(ia + 1) % 3], ob, A.verts[(ia + 2) % 3]];
     const uvOf = (v: number) => {
       const i = A.verts.indexOf(v);
       if (i >= 0) return [A.uvs[i * 2], A.uvs[i * 2 + 1]];
       const j = B.verts.indexOf(v);
       return [B.uvs[j * 2], B.uvs[j * 2 + 1]];
     };
-    add.push(m.makeFace(quad, A, quad.flatMap(uvOf)));
+    add.push(m.makeFace(pr.quad, A, pr.quad.flatMap(uvOf)));
     used.add(pr.a);
     used.add(pr.b);
     remove.add(pr.a);
