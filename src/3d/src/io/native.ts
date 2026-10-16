@@ -114,6 +114,8 @@ export function migrate(doc: DocumentData): DocumentData {
   doc.lattices ??= {};
   doc.metaballs ??= {};
   doc.hair_curves ??= {};
+  doc.volumes ??= {};
+  doc.pointclouds ??= {};
   doc.object_order ??= Object.keys(doc.objects);
   // render settings added later get their defaults
   if (doc.scene?.render) for (const [k, v] of Object.entries(defaultRender())) (doc.scene.render as unknown as Record<string, unknown>)[k] ??= v;

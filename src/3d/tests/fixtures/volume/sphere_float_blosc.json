@@ -1,0 +1,176 @@
+{
+ "file": "sphere_float_blosc.vdb",
+ "grids": [
+  {
+   "name": "density",
+   "type": "float",
+   "class": "fog volume",
+   "background": 0.0,
+   "bbox_min": [
+    -8,
+    -13,
+    -6
+   ],
+   "bbox_max": [
+    47,
+    47,
+    47
+   ],
+   "active_voxels": 11219,
+   "index_to_world": [
+    {
+     "ijk": [
+      0,
+      0,
+      0
+     ],
+     "xyz": [
+      1.0,
+      2.0,
+      3.0
+     ]
+    },
+    {
+     "ijk": [
+      1,
+      0,
+      0
+     ],
+     "xyz": [
+      1.25,
+      2.0,
+      3.0
+     ]
+    },
+    {
+     "ijk": [
+      0,
+      1,
+      0
+     ],
+     "xyz": [
+      1.0,
+      2.25,
+      3.0
+     ]
+    },
+    {
+     "ijk": [
+      0,
+      0,
+      1
+     ],
+     "xyz": [
+      1.0,
+      2.0,
+      3.25
+     ]
+    },
+    {
+     "ijk": [
+      3,
+      -2,
+      7
+     ],
+     "xyz": [
+      1.75,
+      1.5,
+      4.75
+     ]
+    }
+   ],
+   "samples": [
+    {
+     "ijk": [
+      3,
+      -2,
+      5
+     ],
+     "value": 1.0,
+     "active": true
+    },
+    {
+     "ijk": [
+      8,
+      -2,
+      5
+     ],
+     "value": 0.5833333134651184,
+     "active": true
+    },
+    {
+     "ijk": [
+      3,
+      -9,
+      8
+     ],
+     "value": 0.36535224318504333,
+     "active": true
+    },
+    {
+     "ijk": [
+      14,
+      -2,
+      5
+     ],
+     "value": 0.0833333358168602,
+     "active": true
+    },
+    {
+     "ijk": [
+      15,
+      -2,
+      5
+     ],
+     "value": 0.0,
+     "active": false
+    },
+    {
+     "ijk": [
+      20,
+      20,
+      20
+     ],
+     "value": 0.0,
+     "active": false
+    },
+    {
+     "ijk": [
+      32,
+      32,
+      32
+     ],
+     "value": 0.5,
+     "active": true
+    },
+    {
+     "ijk": [
+      47,
+      40,
+      33
+     ],
+     "value": 0.5,
+     "active": true
+    },
+    {
+     "ijk": [
+      48,
+      40,
+      33
+     ],
+     "value": 0.0,
+     "active": false
+    },
+    {
+     "ijk": [
+      -9,
+      -14,
+      -7
+     ],
+     "value": 0.0,
+     "active": false
+    }
+   ]
+  }
+ ]
+}

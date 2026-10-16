@@ -20,6 +20,8 @@ import './sequencer/index';
 import './object/index';
 import './editors/properties/modui/index';
 import './assets/index';
+// volume and point cloud objects (after geometry nodes: they add nodes and modifiers)
+import './volume/index';
 
 export function registerModules() {
   // modules register on import; this function exists to make the dependency explicit

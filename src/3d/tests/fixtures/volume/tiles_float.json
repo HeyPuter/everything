@@ -1,0 +1,140 @@
+{
+ "file": "tiles_float.vdb",
+ "grids": [
+  {
+   "name": "tiles",
+   "type": "float",
+   "class": "unknown",
+   "background": 0.0,
+   "bbox_min": [
+    -5,
+    0,
+    0
+   ],
+   "bbox_max": [
+    4223,
+    4095,
+    4095
+   ],
+   "active_voxels": 68721573889,
+   "index_to_world": [
+    {
+     "ijk": [
+      0,
+      0,
+      0
+     ],
+     "xyz": [
+      0.0,
+      0.0,
+      0.0
+     ]
+    },
+    {
+     "ijk": [
+      1,
+      0,
+      0
+     ],
+     "xyz": [
+      1.0,
+      0.0,
+      0.0
+     ]
+    },
+    {
+     "ijk": [
+      0,
+      1,
+      0
+     ],
+     "xyz": [
+      0.0,
+      1.0,
+      0.0
+     ]
+    },
+    {
+     "ijk": [
+      0,
+      0,
+      1
+     ],
+     "xyz": [
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "ijk": [
+      3,
+      -2,
+      7
+     ],
+     "xyz": [
+      3.0,
+      -2.0,
+      7.0
+     ]
+    }
+   ],
+   "samples": [
+    {
+     "ijk": [
+      0,
+      0,
+      0
+     ],
+     "value": 2.0,
+     "active": true
+    },
+    {
+     "ijk": [
+      4095,
+      4095,
+      4095
+     ],
+     "value": 2.0,
+     "active": true
+    },
+    {
+     "ijk": [
+      4100,
+      5,
+      5
+     ],
+     "value": 3.0,
+     "active": true
+    },
+    {
+     "ijk": [
+      4100,
+      200,
+      5
+     ],
+     "value": 0.0,
+     "active": false
+    },
+    {
+     "ijk": [
+      -5,
+      7,
+      9
+     ],
+     "value": 7.0,
+     "active": true
+    },
+    {
+     "ijk": [
+      -4,
+      7,
+      9
+     ],
+     "value": 0.0,
+     "active": false
+    }
+   ]
+  }
+ ]
+}

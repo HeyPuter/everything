@@ -6,6 +6,8 @@ import { CurvesComponent, GeometrySet, MeshComponent, PointsComponent, mulMat, i
 import { cornerNormals, edgeAttrToCorners, faceNormals, smoothFlags } from './meshutil';
 import { curveObjectToCurves, evaluatedCurves } from './curves/curvedata';
 import { curvesWithGreasePencil } from './curves/gpdata';
+import { VolumeComponent } from '../volume/component';
+import { volumeWire } from '../volume/wire';
 
 export interface GnEvalMesh extends EvalMesh {
   /** materials of the generated geometry by material index (when set by nodes) */
@@ -23,6 +25,13 @@ export const primeGeometry = (m: EvalMesh, g: GeometrySet) => void inputCache.se
 export function evalMeshToGeometry(m: EvalMesh, source?: MeshData | null): GeometrySet {
   const hit = inputCache.get(m);
   if (hit) return hit;
+  if (m.volume && m.offsets.length <= 1) {
+    // a volume (its positions are only the display wire)
+    const g = new GeometrySet();
+    g.volume = new VolumeComponent(m.volume);
+    inputCache.set(m, g);
+    return g;
+  }
   const nc = m.indices.length,
     nf = m.offsets.length - 1,
     nv = m.positions.length / 3;
@@ -337,6 +346,15 @@ export function geometryToEvalMesh(g: GeometrySet, opts: OutputOptions = {}): Gn
     flattenInstances(g.instances, null, list, opts, 0);
     out.instances = list;
   }
+  if (g.volume?.grids.length) {
+    out.volume = g.volume.grids;
+    if (!out.positions.length) {
+      // show the volume's bounds as a wire
+      const w = volumeWire(g.volume.grids, { wireframe_type: 'BOUNDS', wireframe_detail: 'COARSE' });
+      out.positions = w.positions;
+      out.looseEdges = w.edges;
+    }
+  }
   return out;
 }
 
@@ -344,7 +362,7 @@ export { isIdentity };
 
 /** Material slots of an object (object-linked slots override data slots). */
 export function materialSlots(doc: DocumentData, ob: ObjectData): (string | null)[] {
-  const data = ob.data ? ((doc.meshes[ob.data] ?? doc.curves[ob.data] ?? doc.metaballs?.[ob.data] ?? doc.hair_curves?.[ob.data]) as { materials?: (string | null)[] } | undefined) : undefined;
+  const data = ob.data ? ((doc.meshes[ob.data] ?? doc.curves[ob.data] ?? doc.metaballs?.[ob.data] ?? doc.hair_curves?.[ob.data] ?? doc.volumes?.[ob.data] ?? doc.pointclouds?.[ob.data]) as { materials?: (string | null)[] } | undefined) : undefined;
   const base = data?.materials ?? [];
   if (!ob.object_materials) return [...base];
   return base.map((m, i) => (ob.material_slots_link?.[i] === 'OBJECT' ? (ob.object_materials![i] ?? null) : m));

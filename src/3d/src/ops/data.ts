@@ -16,7 +16,7 @@ function activeMesh(): { ob: ObjectData; me: MeshData } | null {
 
 function slotOwner(ob: ObjectData) {
   const doc = app.doc;
-  return ob.data ? (doc.meshes[ob.data] ?? doc.curves[ob.data] ?? doc.metaballs?.[ob.data] ?? doc.hair_curves?.[ob.data]) : undefined;
+  return ob.data ? (doc.meshes[ob.data] ?? doc.curves[ob.data] ?? doc.metaballs?.[ob.data] ?? doc.hair_curves?.[ob.data] ?? doc.volumes?.[ob.data] ?? doc.pointclouds?.[ob.data]) : undefined;
 }
 
 registerOperators([
