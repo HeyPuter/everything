@@ -118,7 +118,7 @@
 .opt-key-message.good { color: var(--pos); }
 
 @media (max-width: 720px) {
-  .opt-dialog { grid-template-columns: 1fr; height: auto; }
+  .opt-dialog { grid-template-columns: minmax(0, 1fr); height: auto; }
   .opt-nav { border-right: 0; border-bottom: 1px solid var(--hairline); }
   .opt-nav-list { flex-direction: row; overflow-x: auto; }
   .opt-nav-item { width: auto; white-space: nowrap; }
