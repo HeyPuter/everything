@@ -212,6 +212,20 @@ export function drawLineSets(input: LineRenderInput, sets: LineSet[], lp: LinePi
     }
     return i;
   };
+  // a line between two materials takes the one with the higher line priority
+  if (input.material) {
+    const prio = (obj: number, slot: number) => {
+      const id = input.objects[obj]?.materials[slot];
+      return id ? input.material!(id)?.priority ?? 0 : 0;
+    };
+    const seen = new Set<FeatureEdge>();
+    for (const p of lp.pieces) {
+      const e = p.edge;
+      if (seen.has(e) || e.m0 === e.m1) continue;
+      seen.add(e);
+      if (prio(e.object, e.m1) > prio(e.object, e.m0)) [e.m0, e.m1] = [e.m1, e.m0];
+    }
+  }
   const raster = new StrokeRaster(W, H);
   let count = 0;
   for (const set of sets) {

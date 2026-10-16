@@ -290,3 +290,31 @@ describe('line art helpers', () => {
     expect(edges.filter((e) => e.flags & F.CREASE).length).toBe(1);
   });
 });
+
+describe('material priority', () => {
+  it('lines between two materials take the higher priority material colour', () => {
+    const c = cube();
+    const cam = camera([4, -5, 3], 120, 120);
+    const fs = defaultFreestyleSettings();
+    const set = newLineSet('LineSet', 'ls');
+    set.select_silhouette = set.select_border = set.select_crease = false;
+    set.select_material_boundary = true;
+    fs.linesets.push(set);
+    const ls = { ...newLineStyle(), id: 'ls' } as LineStyleData;
+    const mod = newLineStyleModifier('color', 'MATERIAL');
+    ls.color_modifiers.push(mod);
+    const mats: Record<string, { line: [number, number, number, number]; priority: number }> = { red: { line: [1, 0, 0, 1], priority: 0 }, blue: { line: [0, 0, 1, 1], priority: 5 } };
+    const material = (id: string) => ({ ...mats[id], diffuse: [1, 1, 1, 1] as [number, number, number, number], specular: [1, 1, 1] as [number, number, number], hardness: 50, alpha: 1 });
+    // top face blue, others red: the top rim is a material boundary
+    const mi = new Uint16Array([0, 1, 0, 0, 0, 0]);
+    const { layer } = renderLines({ objects: [{ id: 'ob', ...c, material_index: mi, world: identity, materials: ['red', 'blue'] }], camera: cam, settings: fs, linestyles: { ls }, thicknessScale: 1, material });
+    let r = 0,
+      b = 0;
+    for (let i = 0; i < layer.length; i += 4) {
+      r += layer[i];
+      b += layer[i + 2];
+    }
+    expect(b).toBeGreaterThan(0);
+    expect(r).toBe(0);
+  });
+});

@@ -71,6 +71,7 @@ export function materialAttrs(doc: DocumentData, id: string): MaterialAttrs | nu
     specular: [spec, spec, spec],
     hardness: Math.round((1 - (ma.roughness ?? 0.5)) * 511),
     alpha: d[3] ?? 1,
+    priority: ma.line_priority ?? 0,
   };
 }
 

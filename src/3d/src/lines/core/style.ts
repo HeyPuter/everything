@@ -36,6 +36,8 @@ export interface MaterialAttrs {
   specular: [number, number, number];
   hardness: number;
   alpha: number;
+  /** which material a line between two materials takes (higher wins) */
+  priority?: number;
 }
 
 type M = LineStyleModifier & Record<string, unknown>;
