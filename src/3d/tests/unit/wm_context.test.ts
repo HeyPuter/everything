@@ -133,3 +133,19 @@ describe('number field expressions with units', () => {
     expect(() => parseNumber('1d', 'none')).toThrow();
   });
 });
+
+describe('custom properties in files', () => {
+  it('values and settings survive a .p3d round trip', async () => {
+    const { encodeDocument, decodeDocument } = await import('../../src/io/native');
+    const block = cube as unknown as Record<string, unknown>;
+    cube.custom = { weight: 2 };
+    applyPropertyEdit(block, { ...editPropsFor(block, 'weight', 'object'), property_type: 'INT', value_int: 3, min: 0, max: 9, default_value: 1, description: 'Count' });
+    const me = doc.meshes[cube.data!] as unknown as Record<string, unknown>;
+    me.custom = { level: 0.25 };
+    const back = decodeDocument(encodeDocument(doc)).doc;
+    const ob2 = back.objects[cube.id] as unknown as Record<string, unknown>;
+    expect(ob2.custom).toEqual({ weight: 3 });
+    expect(customPropMeta(ob2, 'weight')).toMatchObject({ type: 'INT', min: 0, max: 9, default: 1, description: 'Count' });
+    expect((back.meshes[cube.data!] as unknown as Record<string, unknown>).custom).toEqual({ level: 0.25 });
+  });
+});
