@@ -23,6 +23,7 @@ import {
 } from 'three';
 import { PhysicalSpotLight, ShapedAreaLight } from 'three-gpu-pathtracer';
 import type { App } from '../../app/app';
+import { backgroundSetRoots } from '../../scenes/sets';
 import type { DocumentData, LightData, ObjectData } from '../../data/types';
 import type { EvalMesh } from '../../eval/types';
 import { meshGeometry } from '../geometry';
@@ -95,6 +96,10 @@ export function renderVisibleObjects(doc: DocumentData): Set<string> {
     for (const ch of c.children) walk(ch);
   };
   walk(doc.scene.collection);
+  for (const set of backgroundSetRoots(doc)) {
+    for (const id of set.objects) out.add(id);
+    for (const ch of set.children) walk(ch);
+  }
   for (const id of [...out]) if (doc.objects[id]?.hide_render) out.delete(id);
   return out;
 }

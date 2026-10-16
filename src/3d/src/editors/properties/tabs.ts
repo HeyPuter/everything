@@ -30,6 +30,8 @@ const ob = () => app.activeObject;
 
 /** Extra Object-tab panels contributed by other modules (shown after Instancing, e.g. Motion Paths). */
 export const objectExtraPanels: ((o: ObjectData) => Child)[] = [];
+/** Extra rows of the Scene tab's Scene panel (e.g. Background Scene). */
+export const sceneMainRows: (() => Child)[] = [];
 /** Extra World-tab panels contributed by other modules (shown before Viewport Display). */
 export const worldExtraPanels: ((w: WorldData) => Child)[] = [];
 /** Keying Sets panel of the Scene tab (drawn by the animation module). */
@@ -82,6 +84,7 @@ registerTab({
       panel('sc-scene', 'Scene', () => [
         objectProp(s, 'camera', 'Camera', { filter: (c) => c.type === 'CAMERA', undo: 'Scene Camera' }),
         splitRow('World', enumMenu('sc-world', [{ value: '', label: '—' }, ...worlds.map((w) => ({ value: w.id, label: w.name, icon: 'world' }))], s.world ?? '', (v) => ((s.world = v || null), changed('Scene World')))),
+        ...sceneMainRows.map((f) => f()),
       ]),
       panel('sc-units', 'Units', () => [
         enumProp(s.unit_settings, 'system', 'Unit System', [['NONE', 'None'], ['METRIC', 'Metric'], ['IMPERIAL', 'Imperial']]),

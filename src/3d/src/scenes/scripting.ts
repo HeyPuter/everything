@@ -340,6 +340,19 @@ class SceneLayers {
   get view_layers() {
     return new ViewLayers((this as unknown as SceneStruct).__id);
   }
+  /** Background scene (a Scene or None) */
+  get background_set() {
+    const id = (this as unknown as SceneStruct).__sc.background_set;
+    return id && sceneById(app.doc, id) ? sceneWrapperFor(id) : null;
+  }
+  set background_set(v: unknown) {
+    const sc = (this as unknown as SceneStruct).__sc;
+    const id = v === null || v === undefined ? null : (v as { __id?: string }).__id;
+    if (v !== null && v !== undefined && (!id || !sceneById(app.doc, id))) throw pyError('TypeError', 'Scene.background_set: expected a Scene or None');
+    if (id === sc.id) throw pyError('ValueError', 'Scene.background_set: a scene cannot be its own background');
+    sc.background_set = id;
+    touched();
+  }
 }
 mixin(SceneStruct, SceneLayers, true);
 

@@ -136,6 +136,19 @@ describe('scenes', () => {
   });
 });
 
+describe('background scene', () => {
+  it('shows the set scene objects, not selectable', () => {
+    const first = app.doc.scene;
+    app.run('scene.new', { type: 'NEW' }, { invoke: false });
+    app.doc.scene.background_set = first.id!;
+    const vis = visibleObjects(app.doc);
+    expect([...vis.keys()].map((id) => app.doc.objects[id].name).sort()).toEqual(['Camera', 'Cube', 'Light']);
+    expect([...vis.values()].every((v) => v.noSelect)).toBe(true);
+    deleteScene(app.doc, first.id!);
+    expect(app.doc.scene.background_set).toBeNull();
+  });
+});
+
 describe('view layers', () => {
   it('a scene has a default view layer', () => {
     expect(ensureViewLayers(app.doc.scene).map((l) => l.name)).toEqual(['ViewLayer']);

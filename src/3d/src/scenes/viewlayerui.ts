@@ -1,14 +1,18 @@
 // View Layer tab additions: per-layer path tracer samples, the Light Groups list (add / remove,
-// add used / remove unused) and the World ▸ Settings light group field.
+// add used / remove unused), view layer custom properties and Scene ▸ Background Scene.
 import { h } from '../ui/h';
 import { app } from '../app/app';
-import { panel, numberField } from '../ui/widgets';
+import { panel, numberField, enumMenu } from '../ui/widgets';
+import { sceneMainRows } from '../editors/properties/tabs';
+import { sceneById, scenesByName } from './scenes';
+import './sets';
 import { splitRow } from '../ui/props';
 import { uiList } from '../editors/properties/uilist';
 import { viewLayerMainItems, viewLayerPanels } from '../render/final/props/viewlayer';
 import { passesUiHooks } from '../render/final/passesui';
 import { activeViewLayer } from './viewlayers';
 import { usedLightgroups } from './ops';
+import { customPropsPanelBody } from '../ui/customprops';
 
 passesUiHooks.activeLayer = () => activeViewLayer(app.doc.scene);
 
@@ -79,5 +83,31 @@ viewLayerPanels.push(() => {
       groups.length ? h('div', { class: 'prop-note' }, 'Each group renders a pass lit only by its lights (Object ▸ Shading ▸ Light Group)') : null,
     ],
     { closed: !groups.length },
+  );
+});
+
+// View Layer ▸ Custom Properties
+viewLayerPanels.push(() => {
+  const vl = activeViewLayer(app.doc.scene) as unknown as Record<string, unknown>;
+  return panel('view_layer-custom', 'Custom Properties', () => customPropsPanelBody(vl, 'view_layer'), { closed: true });
+});
+
+// Scene ▸ Background Scene
+sceneMainRows.push(() => {
+  const doc = app.doc;
+  const s = doc.scene;
+  const others = scenesByName(doc).filter((x) => x !== s);
+  return splitRow(
+    'Background Scene',
+    enumMenu(
+      'sc-background-set',
+      [{ value: '', label: '—' }, ...others.map((x) => ({ value: x.id!, label: x.name, icon: 'scene_data' }))],
+      s.background_set && sceneById(doc, s.background_set) ? s.background_set : '',
+      (v) => {
+        s.background_set = v || null;
+        changed('Background Scene');
+      },
+      { tip: 'Background Scene\nShow the objects of another scene behind this one (not selectable)' },
+    ),
   );
 });

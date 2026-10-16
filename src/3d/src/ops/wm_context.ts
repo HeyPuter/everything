@@ -2,6 +2,7 @@
 // "tool_settings.use_snap", "space_data.show_region_ui", "object.data.energy" or
 // "preferences.inputs.ndof_translation_sensitivity". Key bindings, menus and scripts use them to
 // toggle, cycle, set and scale settings without a dedicated operator for each one.
+import { activeViewLayer } from '../scenes/viewlayers';
 import { app, operators, registerOperators, onAppReady, type Operator, type PropDef } from '../app/app';
 import { prefs, type Preferences } from '../app/prefs';
 import { setPref } from '../prefs/store';
@@ -176,6 +177,8 @@ function rootValue(name: string): { value: unknown; scope: Scope } | null {
       return { value: doc.scene, scope: 'doc' };
     case 'tool_settings':
       return { value: doc.scene.tool_settings, scope: 'doc' };
+    case 'view_layer':
+      return { value: activeViewLayer(doc.scene), scope: 'doc' };
     case 'world':
       return { value: doc.scene.world ? table('worlds')?.[doc.scene.world] : null, scope: 'doc' };
     case 'space_data': {
