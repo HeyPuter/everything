@@ -65,8 +65,6 @@ function lineArtUI(ob: ObjectData, m0: ModifierBase): Child {
     sub(`la-edges-${m.id}`, 'Edge Types', () => [
       bool(m, 'use_contour', 'Contour', { tip: 'Outlines and silhouettes' }),
       h('div', { class: 'la-crease' }, bool(m, 'use_crease', 'Crease'), m.use_crease ? num(m, 'crease_threshold', 'Threshold', { unit: 'angle', min: 0, max: Math.PI, tip: 'Faces meeting at a sharper angle than this draw a crease line' }) : null),
-      m.use_crease ? bool(m, 'use_crease_on_smooth', 'Crease On Smooth', { tip: 'Also draw creases between smooth-shaded faces' }) : null,
-      m.use_crease ? bool(m, 'use_crease_on_sharp', 'Crease On Sharp', { tip: 'Edges marked sharp always draw a crease' }) : null,
       bool(m, 'use_intersection', 'Intersections', { tip: 'Lines where the surfaces of two objects cut through each other' }),
       bool(m, 'use_material', 'Material Borders', { tip: 'Edges between faces of different materials' }),
       bool(m, 'use_edge_mark', 'Edge Marks', { tip: 'Edges marked with Mark Freestyle Edge' }),
@@ -91,6 +89,13 @@ function lineArtUI(ob: ObjectData, m0: ModifierBase): Child {
       bool(m, 'use_output_vertex_group_match_by_name', 'Match Output', { tip: 'Write each source group to the grease pencil group of the same name' }),
       m.use_output_vertex_group_match_by_name ? null : pick(m, 'vertex_group', 'Target', (gp?.vertex_groups ?? []).map((g) => ({ value: g.name, label: g.name, icon: 'group_vertex' }))),
     ], { closed: true }),
+    sub(`la-geo-${m.id}`, 'Geometry Processing', () => [
+      bool(m, 'use_custom_camera', 'Custom Camera', { tip: 'See the lines through another camera than the scene camera' }),
+      m.use_custom_camera ? objectProp(m, 'source_camera', 'Camera', { filter: (o) => o.type === 'CAMERA' }) : null,
+      bool(m, 'use_crease_on_smooth', 'Crease On Smooth', { tip: 'Also draw creases between smooth-shaded faces' }),
+      bool(m, 'use_crease_on_sharp', 'Crease On Sharp', { tip: 'Edges marked sharp always draw a crease' }),
+      bool(m, 'use_back_face_culling', 'Back Face Culling', { tip: 'Surfaces facing away from the camera hide no lines' }),
+    ], { closed: true }),
     sub(`la-chain-${m.id}`, 'Chaining', () => [num(m, 'chaining_image_threshold', 'Image Threshold', { min: 0, max: 0.3, precision: 4, tip: 'Join line ends closer than this (fraction of the image diagonal)' })], { closed: true }),
     sub(`la-comp-${m.id}`, 'Composition', () => [
       num(m, 'overscan', 'Overscan', { min: 0, max: 0.5, slider: true, tip: 'Keep lines this far (fraction of the frame) outside the camera view' }),
@@ -98,8 +103,6 @@ function lineArtUI(ob: ObjectData, m0: ModifierBase): Child {
       num(m, 'stroke_depth_offset', 'Depth Offset', { unit: 'distance', min: -0.5, max: 0.5, tip: 'Move the strokes towards the camera so surfaces do not cover them' }),
       m.use_custom_camera ? null : bool(m, 'use_offset_towards_custom_camera', 'Offset Camera', { tip: 'Offset the strokes towards another camera (below) instead of the one they are seen from' }),
       !m.use_custom_camera && m.use_offset_towards_custom_camera ? objectProp(m, 'source_camera', 'Camera', { filter: (o) => o.type === 'CAMERA' }) : null,
-      bool(m, 'use_custom_camera', 'Custom Camera', { tip: 'See the lines through another camera than the scene camera' }),
-      m.use_custom_camera ? objectProp(m, 'source_camera', 'Camera', { filter: (o) => o.type === 'CAMERA' }) : null,
     ], { closed: true }),
     sub(`la-bake-${m.id}`, 'Bake', () =>
       h(

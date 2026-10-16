@@ -245,7 +245,9 @@ export function computeLineArt(m: M, doc: DocumentData): LineArtStroke[] {
   const lo = Math.max(0, Math.round(num(m, 'level_start'))),
     hi = m.use_multiple_levels ? Math.max(lo, Math.round(num(m, 'level_end'))) : lo;
   const margin = m.use_image_boundary_trimming ? 0 : Math.max(0, num(m, 'overscan', 0.1));
-  const pieces = visibilityPieces(edges, cam, new Occlusion(occ), { maxQi: hi, margin }).filter((p) => p.qi >= lo && p.qi <= hi);
+  const occlusion = new Occlusion(occ);
+  occlusion.cullBack = !!m.use_back_face_culling;
+  const pieces = visibilityPieces(edges, cam, occlusion, { maxQi: hi, margin }).filter((p) => p.qi >= lo && p.qi <= hi);
   let strokes = chainPieces(pieces, cam, { use_chaining: true, chaining: 'PLAIN', rounds: 1 });
   const thr = num(m, 'chaining_image_threshold', 0.001) * Math.hypot(W, H);
   if (thr > 0) strokes = joinNearEnds(strokes, thr);

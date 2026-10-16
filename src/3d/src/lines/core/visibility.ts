@@ -111,6 +111,8 @@ export class Occlusion {
   /** world-space tolerance for hits at the target point */
   eps = 1e-5;
   rays = 0;
+  /** surfaces facing away from the viewer hide nothing */
+  cullBack = false;
 
   constructor(inputs: OccluderInput[]) {
     let extent = 0;
@@ -157,6 +159,7 @@ export class Occlusion {
       for (const h of hits) {
         const face = oc.triFace[h.faceIndex ?? 0];
         if (oc.object === object && (face === f0 || face === f1)) continue;
+        if (this.cullBack && h.face && h.face.normal.dot(_ray.direction) > 0) continue;
         n += oc.faceWeight ? oc.faceWeight[face] ?? 1 : 1;
         if (n > limit) return n;
       }

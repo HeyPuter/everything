@@ -318,3 +318,20 @@ describe('material priority', () => {
     expect(r).toBe(0);
   });
 });
+
+describe('back face culling', () => {
+  it('surfaces facing away hide nothing when culled', () => {
+    const back = cube(1, [0, 3, 0]);
+    // a quad between the camera (at -Y) and the cube, wound to face +Y (away from the camera)
+    const quad = { positions: new Float32Array([-2, 0, -2, 2, 0, -2, 2, 0, 2, -2, 0, 2]), offsets: new Uint32Array([0, 4]), indices: new Uint32Array([0, 3, 2, 1]) };
+    const cam = camera([0, -8, 0]);
+    const edges = extractFeatures({ ...back, object: 1 }, cam.view, { creaseAngle: 2.3 });
+    const occ = new Occlusion([
+      { ...quad, world: identity, object: 0 },
+      { ...back, world: identity, object: 1 },
+    ]);
+    expect(visibilityPieces(edges, cam, occ).some((p) => p.qi === 0)).toBe(false);
+    occ.cullBack = true;
+    expect(visibilityPieces(edges, cam, occ).some((p) => p.qi === 0)).toBe(true);
+  });
+});
