@@ -287,3 +287,44 @@ test('Outliner operations: modifier drag, remap users, hierarchy delete, keying 
   expect(await page.evaluate(() => (window as any).app.activeObject.animation_data?.drivers.map((d: any) => `${d.data_path}[${d.array_index}]`))).toEqual(['location[2]']);
   await expectNoErrors(errors);
 });
+
+test('Relocate a library to another file, pack it into the project', async ({ page }) => {
+  const errors = await openApp(page);
+  const v1 = await rigProject(page, 'Crate');
+  const v2 = await rigProject(page, 'Crate');
+  await page.evaluate(
+    async ([a, b]) => {
+      const { recordRecent } = await import('/src/io/session.ts');
+      const { decodeDocument, encodeDocument } = await import('/src/io/native.ts');
+      await recordRecent('props.p3d', new Uint8Array(a));
+      // another file whose crate is somewhere else (different ids)
+      const d = decodeDocument(new Uint8Array(b)).doc;
+      (Object.values(d.objects).find((o: any) => o.name === 'Crate') as any).location = [5, 0, 0];
+      await recordRecent('props_v2.p3d', encodeDocument(d));
+    },
+    [v1, v2],
+  );
+  await page.evaluate(() => (window as any).app.run('wm.link'));
+  const dlg = page.locator('.lb');
+  await dlg.locator('.fb-side-item', { hasText: 'Recent Projects' }).click();
+  await dlg.locator('.lb-row', { hasText: /^props\.p3d/ }).dblclick();
+  await dlg.locator('.lb-row', { hasText: 'Objects' }).dblclick();
+  await dlg.locator('.lb-row', { hasText: 'Crate' }).click();
+  await dlg.locator('.lb-go').click();
+  await expect(dlg).toHaveCount(0);
+  // Outliner > Data Blocks > library menu > Relocate…
+  await outlinerMode(page, 'BLENDER_FILE');
+  const ol = page.locator('.outliner').first();
+  await ol.locator('.ol-row', { hasText: 'props.p3d' }).click({ button: 'right' });
+  await page.locator('.menu .menu-item', { hasText: 'Relocate' }).click();
+  await expect(dlg).toBeVisible();
+  await dlg.locator('.fb-side-item', { hasText: 'Recent Projects' }).click();
+  await dlg.locator('.lb-row', { hasText: 'props_v2.p3d' }).dblclick();
+  await expect(dlg).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => (Object.values((window as any).app.doc.objects) as any[]).find((o) => o.name === 'Crate').location[0])).toBe(5);
+  expect(await page.evaluate(() => Object.values((window as any).app.doc.libraries).map((l: any) => l.name))).toEqual(['props_v2.p3d']);
+  // File > External Data > Pack Linked Libraries stores the file inside the project
+  await page.evaluate(() => (window as any).app.run('file.pack_libraries', {}, { invoke: false }));
+  await expect.poll(() => page.evaluate(() => (Object.values((window as any).app.doc.libraries) as any[])[0].packed_file?.length ?? 0)).toBeGreaterThan(0);
+  await expectNoErrors(errors);
+});
