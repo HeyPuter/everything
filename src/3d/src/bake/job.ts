@@ -41,6 +41,8 @@ export interface BakeOptions {
   normal_b: NormalSwizzle;
   target: 'IMAGE_TEXTURES' | 'VERTEX_COLORS';
   use_clear: boolean;
+  /** where view-dependent shading is seen from */
+  view_from?: 'ABOVE_SURFACE' | 'ACTIVE_CAMERA';
   /** samples for noisy passes (default: the scene's render samples) */
   samples?: number;
 }
@@ -268,6 +270,19 @@ function elementSurface(ev: { mesh: EvalMesh; world: Matrix4 }, domain: 'POINT' 
 // ---------------------------------------------------------------------------
 // the bake
 
+/** The scene camera's position and viewing direction (null without a camera). */
+function cameraView(): { pos: number[]; forward: number[]; ortho: boolean } | null {
+  const doc = app.doc;
+  const id = doc.scene.camera;
+  const ob = id ? doc.objects[id] : null;
+  const ev = id ? app.graph.get(id) : null;
+  if (!ob || !ev) return null;
+  const e = ev.world.elements;
+  const f = [-e[8], -e[9], -e[10]];
+  const l = Math.hypot(f[0], f[1], f[2]) || 1;
+  return { pos: [e[12], e[13], e[14]], forward: f.map((x) => x / l), ortho: (ob.data ? doc.cameras[ob.data]?.type : undefined) === 'ORTHO' };
+}
+
 export interface BakeOutcome {
   ok: boolean;
   message: string;
@@ -457,14 +472,22 @@ function* bakePass(o: BakeOptions, ctx: RunContext, renderer: WebGLRenderer, t: 
       dir = new Float32Array(n * 4);
     const radius = s.raster?.geometry.boundingSphere?.radius ?? s.radius ?? 1;
     const eps = Math.max(1e-4, 2e-4 * radius);
+    // View From ▸ Active Camera: the surface is seen from the scene camera (where it faces it)
+    const cam = !s2a && o.view_from === 'ACTIVE_CAMERA' ? cameraView() : null;
     for (let i = 0; i < n; i++) {
       if (!s.covered[i]) continue;
       const P = s.cageP && s.cageP[i * 4 + 3] > 0.5 ? s.cageP : s.P;
       const N = s.cageP && s.cageP[i * 4 + 3] > 0.5 ? s.cageN! : s.N;
       const off = !s2a || s.cageP ? eps : Math.max(eps, o.cage_extrusion);
+      let d = [-N[i * 4], -N[i * 4 + 1], -N[i * 4 + 2]];
+      if (cam) {
+        const v = cam.ortho ? cam.forward : [P[i * 4] - cam.pos[0], P[i * 4 + 1] - cam.pos[1], P[i * 4 + 2] - cam.pos[2]];
+        const l = Math.hypot(v[0], v[1], v[2]);
+        if (l > 0 && v[0] * N[i * 4] + v[1] * N[i * 4 + 1] + v[2] * N[i * 4 + 2] < -0.05 * l) d = v.map((x) => x / l);
+      }
       for (let k = 0; k < 3; k++) {
-        origin[i * 4 + k] = P[i * 4 + k] + N[i * 4 + k] * off;
-        dir[i * 4 + k] = -N[i * 4 + k];
+        origin[i * 4 + k] = P[i * 4 + k] - d[k] * off;
+        dir[i * 4 + k] = d[k];
       }
       origin[i * 4 + 3] = 1;
       dir[i * 4 + 3] = !s2a ? 3 * eps : o.max_ray_distance > 0 ? o.max_ray_distance + off : 0;

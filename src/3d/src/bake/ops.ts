@@ -62,6 +62,7 @@ export function bakeOptions(p: Record<string, unknown>): BakeOptions {
     normal_b: (p.normal_b as BakeOptions['normal_b']) ?? b.normal_b,
     target: (p.target as BakeOptions['target']) ?? b.target,
     use_clear: !!(p.use_clear ?? b.use_clear),
+    view_from: b.view_from,
   };
 }
 

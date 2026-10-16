@@ -113,6 +113,12 @@ function bakePanel(r: RenderSettings): Child {
                   ),
                 ]
               : null,
+            LIT_TYPES.has(type)
+              ? enumProp(b, 'view_from', 'View From', [
+                  ['ABOVE_SURFACE', 'Above Surface'],
+                  ['ACTIVE_CAMERA', 'Active Camera'],
+                ], { tip: 'Where reflections and other view-dependent shading are seen from: straight above each point, or the scene camera' })
+              : null,
             type === 'AO' ? num(r as RenderSettings & { ambient_occlusion_distance: number }, 'ambient_occlusion_distance', 'Distance', { unit: 'distance', min: 0, softMax: 100, tip: 'Surfaces farther than this do not occlude' }) : null,
             LIT_TYPES.has(type) ? influencePanel(r, type) : null,
             sub('rs-bake-s2a', 'Selected to Active', () => selectedToActive(r), { closed: true, header: headerToggle(b, 'use_selected_to_active', 'Selected to Active') }),
