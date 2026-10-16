@@ -437,7 +437,16 @@ function meshData(o: ObjectData, me: MeshData): Child {
         me.color_attributes.map((c) => ({ key: c.name, label: c.name, icon: 'group_vcol', right: h('span', { class: 'ul-meta' }, c.domain === 'POINT' ? 'Vertex' : 'Face Corner') })),
         me.active_color_index,
         (i) => ((me.active_color_index = i), app.changed('doc')),
-        { add: () => app.run('geometry.color_attribute_add'), remove: () => app.run('geometry.color_attribute_remove') },
+        {
+          add: () => app.run('geometry.color_attribute_add'),
+          remove: () => app.run('geometry.color_attribute_remove'),
+          rename: (i, name) => {
+            name = name.trim();
+            if (!name || me.color_attributes.some((c, j) => j !== i && c.name === name)) return;
+            me.color_attributes[i].name = name;
+            changed('Rename Color Attribute');
+          },
+        },
       ),
     ]),
     panel('me-remesh', 'Remesh', () => [
@@ -595,6 +604,14 @@ registerTab({
           specials: materialSpecials,
           up: slots.length > 1 ? () => app.run('object.material_slot_move', { direction: 'UP' }) : undefined,
           down: slots.length > 1 ? () => app.run('object.material_slot_move', { direction: 'DOWN' }) : undefined,
+          // renaming a slot renames its material
+          rename: (i, name) => {
+            const m = slots[i] ? doc.materials[slots[i]!] : undefined;
+            name = name.trim();
+            if (!m || !name || name === m.name) return;
+            m.name = uniqueName(doc, name, 'materials');
+            changed('Rename Material');
+          },
           extra: app.doc.mode === 'EDIT' ? h('div', { class: 'btn-row' }, opButton('object.material_slot_assign', 'Assign'), opButton('object.material_slot_select', 'Select'), opButton('object.material_slot_deselect', 'Deselect')) : null,
         },
       ),

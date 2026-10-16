@@ -114,3 +114,22 @@ describe('custom properties', () => {
     expect(app.doc).toBe(doc);
   });
 });
+
+describe('number field expressions with units', () => {
+  it('adds mixed units and converts to base units', async () => {
+    const { parseNumber } = await import('../../src/ui/widgets');
+    expect(parseNumber('1m+20cm', 'distance')).toBeCloseTo(1.2);
+    expect(parseNumber('6ft 2in', 'distance')).toBeCloseTo(1.8796);
+    expect(parseNumber('1e3mm', 'distance')).toBeCloseTo(1);
+    expect(parseNumber('2*3', 'distance')).toBe(6);
+    expect(parseNumber('45', 'angle')).toBeCloseTo(Math.PI / 4);
+    expect(parseNumber('90°', 'angle')).toBeCloseTo(Math.PI / 2);
+    expect(parseNumber('1.5rad', 'angle')).toBeCloseTo(1.5);
+    expect(parseNumber('250ms', 'time')).toBeCloseTo(0.25);
+    expect(parseNumber('3 s', 'time')).toBe(3);
+    expect(parseNumber('5 px', 'pixel')).toBe(5);
+    expect(parseNumber('100 W', 'power')).toBe(100);
+    expect(parseNumber('50%', 'percentage')).toBe(50);
+    expect(() => parseNumber('1d', 'none')).toThrow();
+  });
+});

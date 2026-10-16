@@ -76,32 +76,40 @@ function trim(v: number, digits: number) {
   return t === '-0' ? '0' : t;
 }
 
-/** Parse user text (expressions + unit suffixes) into an internal value. */
+/** Length units (to metres) and angle units (to radians) accepted after numbers in fields. */
+const LENGTH_UNITS: Record<string, number> = { km: 1000, m: 1, cm: 0.01, mm: 0.001, um: 1e-6, 'µm': 1e-6, mi: 1609.344, yd: 0.9144, ft: 0.3048, "'": 0.3048, in: 0.0254, '"': 0.0254, thou: 0.0000254 };
+const ANGLE_UNITS: Record<string, number> = { '°': Math.PI / 180, deg: Math.PI / 180, d: Math.PI / 180, rad: 1, r: 1, '"': Math.PI / 648000, "'": Math.PI / 10800 };
+/** Units of the other kinds of fields (time, mass, power, pixels). */
+const OTHER_UNITS: Partial<Record<Unit, Record<string, number>>> = {
+  time: { ms: 0.001, s: 1, sec: 1, min: 60, h: 3600 },
+  mass: { mg: 1e-6, g: 0.001, kg: 1, t: 1000 },
+  power: { mw: 0.001, w: 1, kw: 1000 },
+  pixel: { px: 1 },
+};
+const UNIT_RE = /(\d*\.?\d+(?:e[+-]?\d+)?)\s*(km|mm|cm|um|µm|mi|yd|ft|in|thou|ms|mg|mw|kw|kg|px|sec|min|m|°|deg|rad|d|r|s|g|h|t|w|'|")(?![a-z_])/gi;
+
+/**
+ * Parse user text (an expression, numbers may carry units: "1m + 20cm", "6ft 2in", "90°",
+ * "1.5rad") into an internal value (metres, radians, …). Plain numbers in angle fields are degrees.
+ */
 export function parseNumber(text: string, unit: Unit = 'none'): number {
   let t = text.trim().replace(/,/g, '.');
-  let scale = 1;
-  const unitMatch = /(mm|cm|km|m|°|deg|d|r|rad|%|px|s|kg|w)\s*$/i.exec(t);
+  if (unit === 'percentage') t = t.replace(/%\s*$/, '');
+  const angle = unit === 'angle';
   let explicitAngle = false;
-  if (unitMatch) {
-    const u = unitMatch[1].toLowerCase();
-    t = t.slice(0, unitMatch.index);
-    if (u === 'mm') scale = 0.001;
-    else if (u === 'cm') scale = 0.01;
-    else if (u === 'km') scale = 1000;
-    else if (u === '°' || u === 'deg' || u === 'd') {
-      scale = Math.PI / 180;
-      explicitAngle = true;
-    } else if (u === 'r' || u === 'rad') {
-      scale = 1;
-      explicitAngle = true;
-    }
-  }
-  // allow simple unit-tagged terms inside expressions like "1m+20cm"
-  t = t.replace(/(\d+(?:\.\d+)?)\s*cm/g, '($1*0.01)').replace(/(\d+(?:\.\d+)?)\s*mm/g, '($1*0.001)').replace(/(\d+(?:\.\d+)?)\s*m\b/g, '($1)');
+  // 6ft 2in → 6ft+2in (adjacent quantities add up)
+  t = t.replace(/(\d\s*(?:km|mm|cm|um|µm|mi|yd|ft|in|thou|m|°|deg|rad|'|"))\s+(?=\d)/gi, '$1+');
+  t = t.replace(UNIT_RE, (all, num: string, u: string) => {
+    const key = u.toLowerCase();
+    const other = OTHER_UNITS[unit];
+    const scale = angle ? ANGLE_UNITS[key] : other ? other[key] : LENGTH_UNITS[key];
+    if (scale === undefined) return all;
+    if (angle) explicitAngle = true;
+    return `(${num}*${scale})`;
+  });
   const v = evalExpression(parseExpression(t), {});
-  if (unit === 'angle' && !explicitAngle) return (v * Math.PI) / 180;
-  if (unit === 'percentage') return v;
-  return v * scale;
+  if (angle && !explicitAngle) return (v * Math.PI) / 180;
+  return v;
 }
 
 function clamp(v: number, o: NumberOpts) {
@@ -169,12 +177,14 @@ export function numberField(o: NumberOpts): VNode {
       'data-tip': o.tip ?? '',
       style: o.slider ? { '--fill': `${frac * 100}%` } : null,
       onpointerdown: (e: PointerEvent) => !o.disabled && startDrag(e, o),
+      // Ctrl+wheel steps the value (with Alt too: on all selected items)
       onwheel: (e: WheelEvent) => {
-        if (!e.ctrlKey || o.disabled) return;
+        if (!(e.ctrlKey || e.metaKey) || o.disabled) return;
         e.preventDefault();
         e.stopPropagation();
         const v = clamp(o.value + (e.deltaY < 0 ? 1 : -1) * displayStep(o), o);
         o.set(v, true);
+        if (e.altKey) buttonHooks.altEdit(o.id);
       },
     },
     o.slider ? h('div', { class: 'num-fill' }) : null,
@@ -393,6 +403,14 @@ export function checkbox(id: string, label: string, value: boolean, set: (v: boo
         // Alt+click: set the same value on the other selected items
         if (e.altKey) buttonHooks.altEdit(id);
       },
+      // Ctrl+wheel toggles (with Alt too: on all selected items)
+      onwheel: (e: WheelEvent) => {
+        if (!(e.ctrlKey || e.metaKey) || opts.disabled) return;
+        e.preventDefault();
+        e.stopPropagation();
+        set(!value);
+        if (e.altKey) buttonHooks.altEdit(id);
+      },
       onpointerenter: () => {
         const d = checkDrag;
         if (!d || opts.disabled || d.done.has(id)) return;
@@ -478,7 +496,10 @@ export function enumMenu(id: string, items: EnumItem[], value: string, set: (v: 
         e.stopPropagation();
         const i = items.findIndex((it) => it.value === value);
         const next = items[Math.max(0, Math.min(items.length - 1, (i < 0 ? 0 : i) + (e.deltaY > 0 ? 1 : -1)))];
-        if (next && next.value !== value) set(next.value);
+        if (next && next.value !== value) {
+          set(next.value);
+          if (e.altKey) buttonHooks.altEdit(id);
+        }
       },
       onpointerdown: (e: PointerEvent) => {
         e.preventDefault();

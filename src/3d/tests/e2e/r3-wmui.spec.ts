@@ -231,3 +231,58 @@ test('operator presets in the redo panel; restore defaults; quit asks to save; c
   expect(await run(page, 'wm.url_open', { url: 'javascript:alert(1)' })).toBe('CANCELLED');
   await expectNoErrors(errors);
 });
+
+test('UI lists: drag to reorder, resize, filter, rename with F2, Delete removes; Ctrl+wheel toggles', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => {
+    const a = (window as unknown as { app: AnyApp }).app;
+    for (let i = 0; i < 4; i++) a.run('object.vertex_group_add');
+  });
+  await page.locator('.rail-tab[data-tab="DATA"]').click();
+  const list = page.locator('.uilist[data-list="vg"]');
+  const names = () => page.evaluate(() => {
+    const a = (window as unknown as { app: AnyApp }).app;
+    return (a.doc.meshes[a.activeObject.data].vertex_groups as { name: string }[]).map((g) => g.name);
+  });
+  expect(await names()).toEqual(['Group', 'Group.001', 'Group.002', 'Group.003']);
+  const r0 = (await list.locator('.ul-row').nth(0).boundingBox())!;
+  const r2 = (await list.locator('.ul-row').nth(2).boundingBox())!;
+  await page.mouse.move(r0.x + 40, r0.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(r0.x + 40, r0.y + 20, { steps: 3 });
+  await page.mouse.move(r2.x + 40, r2.y + r2.height - 2, { steps: 5 });
+  await page.mouse.up();
+  expect(await names()).toEqual(['Group.001', 'Group.002', 'Group', 'Group.003']);
+  // resize: three rows more than the four it had
+  const g = (await list.locator('.ul-resize').boundingBox())!;
+  await page.mouse.move(g.x + 5, g.y + 5);
+  await page.mouse.down();
+  await page.mouse.move(g.x + 5, g.y + 5 + 66, { steps: 4 });
+  await page.mouse.up();
+  expect(Math.round((await list.locator('.ul-rows').boundingBox())!.height)).toBe(7 * 22 + 4);
+  // F2 renames the active item, Delete removes it
+  await list.locator('.ul-row').nth(0).click();
+  await page.keyboard.press('F2');
+  await page.locator('.ul-rename').fill('Spine');
+  await page.keyboard.press('Enter');
+  expect((await names())[0]).toBe('Spine');
+  await list.locator('.ul-row').nth(0).hover();
+  await page.keyboard.press('Delete');
+  expect(await names()).toEqual(['Group.002', 'Group', 'Group.003']);
+  // Ctrl+F over the list opens its filter
+  await list.hover();
+  await page.keyboard.press('Control+f');
+  await expect(list.locator('.ul-filter-text input')).toBeFocused();
+  await page.keyboard.press('Escape');
+  // Ctrl+wheel over a checkbox toggles it
+  await page.locator('.rail-tab[data-tab="OBJECT"]').click();
+  await page.locator('[data-panel="ob-display"] .panel-header').click();
+  const cb = page.locator('[data-panel="ob-display"] .checkbox').first();
+  const on0 = await cb.evaluate((e) => e.classList.contains('on'));
+  await cb.hover();
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up('Control');
+  await expect(cb).toHaveClass(on0 ? /^(?!.*\bon\b)/ : /\bon\b/);
+  await expectNoErrors(errors);
+});
