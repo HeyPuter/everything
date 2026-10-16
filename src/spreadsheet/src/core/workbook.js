@@ -97,7 +97,7 @@ import { explainError } from './errhelp.js';
 import { impliedFormulaStyle } from './implied-format.js';
 import { formulaReachesOut } from './reaches-out.js';
 import { STYLE_KEYS, BORDER_STYLE_KEYS, GRID_RANGE, intersection, rowRuns, readStyleResets, styleResetAt, assignStyleExceptionRegions, compactStyleResets, removeStyleResets, mapStyleResets, shiftStyleResets, permuteStyleResets, moveLineStyleResets, moveStyleResets } from './style-resets.js';
-import { normalizeScenarios, copyScenarios, mapScenarioCells } from './scenarios.js';
+import { normalizeScenarios, copyScenarios, mapScenarioCells, setScenarios } from './scenarios.js';
 import { normalizeQueries, serializeQueries } from './queries.js';
 import { normalizeScripts, serializeScripts } from './scripts.js';
 import { installSheetGroups } from './sheet-group.js';
@@ -4099,10 +4099,19 @@ export class Workbook extends EventTarget {
       // wholly inside the block travel with it.
       if (sheet.validations.some((v) => inside(v.range))) this._setValidations(sheet, sheet.validations.map((v) => (inside(v.range) ? { ...v, range: shifted(v.range) } : v)), 'Move cells');
       if (sheet.charts.some((ch) => inside(ch.range))) this._setCharts(sheet, sheet.charts.map((ch) => (inside(ch.range) ? { ...ch, range: shifted(ch.range) } : ch)), 'Move cells');
+      this._moveScenarioCells(sheet, inside, shifted);
       this._rewriteRuleFormulas((formula, owner) => follow(formula, owner.name), 'Move cells', { conditional: false });
       this._moveNativeSparklines(sheet, sheet, src, dst);
     });
     return dst;
+  }
+
+  /** Scenario changing cells (and result cells) inside a moved block follow it, as one undo step of the move. */
+  _moveScenarioCells(sheet, inside, shifted) {
+    if (!sheet.scenarios) return;
+    const probe = { scenarios: sheet.scenarios };
+    mapScenarioCells(probe, (m) => (inside(m) ? shifted(m) : m));
+    if (!sameJSON(probe.scenarios, sheet.scenarios)) setScenarios(this, sheet.id, probe.scenarios, 'Move cells');
   }
 
   /** Carry native sparkline destinations with a cut, retaining shared settings.
@@ -4308,6 +4317,8 @@ export class Workbook extends EventTarget {
       };
       carryOver('validations', (s, list) => this._setValidations(s, list, 'Move cells'));
       if (!across && sheet.charts.some((ch) => inside(ch.range))) this._setCharts(sheet, sheet.charts.map((ch) => (inside(ch.range) ? { ...ch, range: shifted(ch.range) } : ch)), 'Move cells');
+      // A scenario's cells are its own sheet's: they follow a block moved within the sheet.
+      if (!across) this._moveScenarioCells(sheet, inside, shifted);
       this._rewriteRuleFormulas((formula, owner) => follow(formula, owner.name), 'Move cells', { conditional: false });
       this._moveNativeSparklines(source, sheet, src, dst);
     });
@@ -6597,6 +6608,7 @@ export class Workbook extends EventTarget {
       sheet.rules = sheet.rules.flatMap((rule) => splitRule(rule, 'value'));
       sheet.validations = sheet.validations.flatMap((rule) => splitRule(rule, 'source'));
       sheet.protectedRanges = sheet.protectedRanges.map((p) => ({ ...p, range: moveRect(p.range) }));
+      mapScenarioCells(sheet, moveRect);
       sheet.charts = sheet.charts.map((ch) => ({ ...ch, ...mapCellDrawing(ch, p => ({ ...p, [axis === 'row' ? 'r' : 'c']: map(p[axis === 'row' ? 'r' : 'c']) })), range: moveRect(ch.range), anchor: ch.anchorMode === 'absolute' ? ch.anchor : { r: axis === 'row' ? map(ch.anchor.r) : ch.anchor.r, c: axis === 'col' ? map(ch.anchor.c) : ch.anchor.c } }));
       sheet.tables = sheet.tables.map((t) => {
         const range = mapRange(t.range);
