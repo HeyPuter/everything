@@ -349,11 +349,13 @@ export class GeometrySet {
   ) {}
   /** Grease Pencil layers (curves/gpencil.ts); passed through nodes that do not handle them */
   greasePencil?: import('./curves/gpdata').GreasePencilComponent;
+  /** Volume grids (src/volume/component.ts); passed through nodes that do not handle them */
+  volume?: import('../volume/component').VolumeComponent;
   static empty() {
     return new GeometrySet();
   }
   isEmpty() {
-    return !this.mesh && !this.points && !this.curves && !this.instances && !this.greasePencil;
+    return !this.mesh && !this.points && !this.curves && !this.instances && !this.greasePencil && !this.volume?.grids.length;
   }
   components(): Component[] {
     const out: Component[] = [];
@@ -366,6 +368,7 @@ export class GeometrySet {
   with(c: Component | null | undefined, kind?: ComponentKind): GeometrySet {
     const g = new GeometrySet(this.mesh, this.points, this.curves, this.instances);
     g.greasePencil = this.greasePencil;
+    g.volume = this.volume;
     const k = c?.kind ?? kind;
     if (k === 'MESH') g.mesh = (c as MeshComponent) ?? undefined;
     else if (k === 'POINTS') g.points = (c as PointsComponent) ?? undefined;
@@ -381,6 +384,7 @@ export class GeometrySet {
       if (r) g.setComponent(r);
     }
     g.greasePencil = this.greasePencil;
+    g.volume = this.volume;
     return g;
   }
   setComponent(c: Component) {

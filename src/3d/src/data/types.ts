@@ -27,7 +27,8 @@ export type ObjectType =
   | 'SPEAKER'
   | 'META'
   | 'CURVES'
-  | 'LIGHT_PROBE';
+  | 'LIGHT_PROBE'
+  | 'VOLUME';
 
 export type RotationMode = 'XYZ' | 'XZY' | 'YXZ' | 'YZX' | 'ZXY' | 'ZYX' | 'QUATERNION' | 'AXIS_ANGLE';
 
@@ -1323,6 +1324,10 @@ export interface DocumentData {
   metaballs?: Record<ID, import('../metaball/types').MetaballData>;
   /** Hair curves data-blocks (src/hair); absent in older files */
   hair_curves?: Record<ID, import('../hair/types').HairCurvesData>;
+  /** Volume data-blocks (src/volume); absent in older files */
+  volumes?: Record<ID, import('../volume/types').VolumeData>;
+  /** Point cloud data-blocks (src/pointcloud); absent in older files */
+  pointclouds?: Record<ID, import('../pointcloud/types').PointCloudData>;
   /** Mode of the active object */
   mode: Mode;
   /** Ordering of object ids for stable iteration */
