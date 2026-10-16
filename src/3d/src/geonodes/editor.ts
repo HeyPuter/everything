@@ -87,22 +87,31 @@ function changed(label: string) {
 export class GeometryNodeEditor extends NodeEditor {
   keymaps = ['Geometry Node Editor', 'Node Editor', 'Node Generic'];
   pinned: string | null = null;
+  /** what the editor shows: the active object's modifier group, or a node group used as a tool */
+  gnType: 'MODIFIER' | 'TOOL' = 'MODIFIER';
+  toolGroup: string | null = null;
   constructor(area: Area, state: unknown) {
     super(area, state, 'GEOMETRY');
-    const st = (state ?? {}) as { pinned?: string | null };
+    const st = (state ?? {}) as { pinned?: string | null; gnType?: 'MODIFIER' | 'TOOL'; toolGroup?: string | null };
     if (st.pinned) this.pinned = st.pinned;
+    if (st.gnType === 'TOOL') this.gnType = 'TOOL';
+    if (st.toolGroup) this.toolGroup = st.toolGroup;
   }
   serialize() {
-    return { ...super.serialize(), pinned: this.pinned };
+    return { ...super.serialize(), pinned: this.pinned, gnType: this.gnType, toolGroup: this.toolGroup };
   }
 }
 
-function editorGroup(ed: GeometryNodeEditor): {
+export function editorGroup(ed: GeometryNodeEditor): {
   group: NodeGroupData | undefined;
   ob: ObjectData | null;
   mod: ModifierBase | undefined;
 } {
   const doc = app.doc;
+  if (ed.gnType === 'TOOL') {
+    const g = ed.toolGroup ? doc.node_groups[ed.toolGroup] : undefined;
+    return { group: g?.is_tool ? g : undefined, ob: null, mod: undefined };
+  }
   if (ed.pinned) {
     const g = doc.node_groups[ed.pinned];
     if (!g) ed.pinned = null;

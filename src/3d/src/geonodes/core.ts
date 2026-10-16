@@ -9,6 +9,7 @@ import './nodes/output';
 import './nodes/vieweritems';
 import './nodes/gnfields';
 import './bundles/core';
+import './tools/nodes';
 import './menu';
 import './curves';
 import './modifier';

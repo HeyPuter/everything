@@ -35,6 +35,20 @@ export interface EvalEnv {
   collectionObjects(id: string): string[];
   /** cache signature of another object's state (geometry version + transform) */
   objectSig(id: string): string;
+  /** set while a node group runs as a tool (geometry.execute_node_group) */
+  tool?: ToolEnv;
+}
+
+/** What a tool node group sees of the editor it runs from. */
+export interface ToolEnv {
+  mode: 'OBJECT' | 'EDIT' | 'SCULPT';
+  /** 3D cursor in the object's local space */
+  cursor: { location: [number, number, number]; rotation: [number, number, number] };
+  /** active element in Edit Mode */
+  active?: { domain: 'POINT' | 'EDGE' | 'FACE'; index: number };
+  mouse?: { x: number; y: number; width: number; height: number };
+  /** view and projection matrices of the viewport (column-major) */
+  view?: { view: number[]; projection: number[]; ortho: boolean };
 }
 
 export interface ExecContext {

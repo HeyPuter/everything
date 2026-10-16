@@ -2,6 +2,7 @@
 // node group, with the standard header (View/Select/Add/Node, node group selector, Backdrop
 // toggle and channels) and the Viewer backdrop drawn behind the nodes (zoom V / Alt V, move
 // Alt + middle mouse, fit).
+import type { NodeGroupData } from '../data/types';
 import { h, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { app, registerOperators, type OpContext } from '../app/app';
@@ -102,7 +103,17 @@ function backdropCanvas(src: HTMLCanvasElement, channels: BackdropChannels): HTM
   return c;
 }
 
+/** The node group of the active strip's Compositor modifier (set by the sequencer). */
+export const stripGroupHooks = {
+  group: (): NodeGroupData | null => null,
+  label: (): string => '',
+  set: (_id: string | null): void => {},
+  create: (): void => {},
+};
+
 export class CompositorEditor extends NodeEditor {
+  /** which tree the editor shows: the scene's compositing group, or the active strip's modifier group */
+  cmpContext: 'SCENE' | 'SEQUENCER' = 'SCENE';
   keymaps = ['Compositor', 'Node Editor', 'Node Generic'];
   backdrop = true;
   backdropZoom = 1;
@@ -123,6 +134,7 @@ export class CompositorEditor extends NodeEditor {
     if (st.backdropZoom) this.backdropZoom = st.backdropZoom;
     if (st.backdropOffset) [this.backdropX, this.backdropY] = st.backdropOffset;
     if (st.backdropChannels) this.backdropChannels = st.backdropChannels;
+    if ((state as { cmpContext?: string } | null)?.cmpContext === 'SEQUENCER') this.cmpContext = 'SEQUENCER';
     this.unsubUpdate = onCompositorUpdate(() => {
       if (this.el.isConnected) {
         this.drawBack();
@@ -295,12 +307,55 @@ export class CompositorEditor extends NodeEditor {
     return h(
       'div',
       { class: 'hdr-row nd-header' },
+      h(
+        'button',
+        {
+          class: 'hdr-menu cmp-context',
+          'data-tip': 'Which node tree to edit: the scene’s compositing, or the Compositor modifier of the active strip',
+          onpointerdown: (e: PointerEvent) => {
+            e.preventDefault();
+            const pick = (c: 'SCENE' | 'SEQUENCER') => () => {
+              this.cmpContext = c;
+              this.path = [];
+              app.changed('ui');
+            };
+            openMenu(
+              [
+                { label: 'Scene', icon: 'scene_data', active: this.cmpContext === 'SCENE', action: pick('SCENE') },
+                { label: 'Sequencer', icon: 'sequence', active: this.cmpContext === 'SEQUENCER', action: pick('SEQUENCER') },
+              ],
+              e.currentTarget as HTMLElement,
+            );
+          },
+        },
+        this.cmpContext === 'SEQUENCER' ? 'Sequencer' : 'Scene',
+        icon('down_arrow_hlt', 'tiny'),
+      ),
       menu('View', () => this.compositorViewMenu()),
       menu('Select', () => selectMenu()),
       this.addMenuButton(),
       menu('Node', () => nodeMenuItems(this)),
       h('div', { class: 'hdr-spacer' }),
-      h(
+      this.cmpContext === 'SEQUENCER'
+        ? h(
+            'div',
+            { class: 'nd-ids' },
+            stripGroupHooks.label()
+              ? dataBlockSelector(
+                  'cmp-strip-ng',
+                  'node_tree',
+                  Object.values(doc.node_groups).filter((g) => g.tree.type === 'COMPOSITOR'),
+                  stripGroupHooks.group()?.id ?? null,
+                  (id) => {
+                    stripGroupHooks.set(id);
+                    this.path = [];
+                    changed('Assign Strip Node Group');
+                  },
+                  () => (stripGroupHooks.create(), (this.path = []), changed('New Strip Node Group')),
+                )
+              : h('span', { class: 'prop-note' }, 'The active strip has no Compositor modifier'),
+          )
+        : h(
         'div',
         { class: 'nd-ids' },
         dataBlockSelector(
@@ -422,6 +477,7 @@ export class CompositorEditor extends NodeEditor {
       backdropZoom: this.backdropZoom,
       backdropOffset: [this.backdropX, this.backdropY],
       backdropChannels: this.backdropChannels,
+      cmpContext: this.cmpContext,
     };
   }
 
@@ -439,7 +495,11 @@ registerNodeEditorProvider({
   icon: 'node_compositing',
   treeType: () => 'COMPOSITOR',
   menuPoll: (idname) => compositorEntryPoll(idname),
-  root: () => {
+  root: (e) => {
+    if ((e as unknown as CompositorEditor).cmpContext === 'SEQUENCER') {
+      const sg = stripGroupHooks.group();
+      return sg ? { tree: sg.tree, key: `cmp-strip:${sg.id}`, groupId: sg.id, crumbs: [['sequence', stripGroupHooks.label()], ['node_tree', sg.name]] } : null;
+    }
     const g = compositingGroup(app.doc);
     if (!g) return null;
     return {
@@ -452,7 +512,7 @@ registerNodeEditorProvider({
       ],
     };
   },
-  emptyMessage: () => 'Click New to create a compositing node group',
+  emptyMessage: (e) => ((e as CompositorEditor).cmpContext === 'SEQUENCER' ? (stripGroupHooks.label() ? 'Click New to create a node group for the strip' : 'Add a Compositor modifier to the active strip to edit its nodes here') : 'Click New to create a compositing node group'),
   viewPanels: (ed) => {
     const e = ed as CompositorEditor;
     const redraw = () => {

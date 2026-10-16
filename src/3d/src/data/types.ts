@@ -537,6 +537,13 @@ export interface NodeGroupData {
   tree: NodeTreeData;
   is_modifier?: boolean;
   is_tool?: boolean;
+  /** tools: modes and object types the tool is offered for (all when unset) */
+  is_mode_object?: boolean;
+  is_mode_edit?: boolean;
+  is_mode_sculpt?: boolean;
+  is_type_mesh?: boolean;
+  is_type_curve?: boolean;
+  is_type_pointcloud?: boolean;
   use_fake_user?: boolean;
   users?: number;
 }

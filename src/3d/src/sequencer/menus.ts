@@ -1,4 +1,6 @@
 // Header, context and add menus of the Video Sequencer.
+import { modifierAddItems as addModifierItems } from './modextra';
+import { changeSceneItems, newSceneItems } from './sceneadapter';
 import { app } from '../app/app';
 import { sceneObjects, scenesByName } from '../scenes/scenes';
 import type { MenuItem } from '../ui/menu';
@@ -26,7 +28,7 @@ const camOptions = (): MenuItem[] => {
 export function addMenu(): MenuItem[] {
   const fx = (type: string, label: string): MenuItem => ({ label, op: 'sequencer.effect_strip_add', props: { type }, icon: inputCount(type as 'ADD') ? stripIcon(type as 'ADD') : undefined });
   return [
-    { label: 'Scene', icon: 'scene_data', submenu: camOptions },
+    { label: 'Scene', icon: 'scene_data', submenu: () => [...camOptions(), ...newSceneItems()] },
     {
       label: 'Clip',
       icon: 'clip_editor',
@@ -145,10 +147,20 @@ export function viewMenu(ed: SeqEditorLike & { showToolbar: boolean; showSidebar
           [
             ['AUTO', 'Automatic (fit display)'],
             ['SCENE', 'Scene Size'],
+            ['PROXY_100', '100% (proxies)'],
             ['PROXY_75', '75%'],
             ['PROXY_50', '50%'],
             ['PROXY_25', '25%'],
           ].map(([v, l]) => ({ label: l, active: ed.previewSize === v, action: () => ed.setPreviewSize(v) })),
+      },
+      {
+        label: 'Proxy',
+        submenu: () => [
+          { label: 'Setup', op: 'sequencer.enable_proxies' },
+          { label: 'Rebuild', op: 'sequencer.rebuild_proxy' },
+          { separator: true },
+          ...(['PROXY_25', 'PROXY_50', 'PROXY_75', 'PROXY_100'] as const).map((v) => ({ label: `Preview with ${v.slice(6)}% Proxies`, active: ed.previewSize === v, action: () => ed.setPreviewSize(v) })),
+        ],
       },
       { separator: true },
     );
@@ -284,6 +296,7 @@ export function retimingMenu(): MenuItem[] {
   return [
     { label: 'Add Retiming Key', op: 'sequencer.retiming_key_add' },
     { label: 'Add Freeze Frame', op: 'sequencer.retiming_freeze_frame_add' },
+    { label: 'Add Freeze Frame and Slide', op: 'sequencer.retiming_add_freeze_frame_slide' },
   ];
 }
 
@@ -291,8 +304,8 @@ function stripRetimingItems(): MenuItem[] {
   const act = hasEditor() ? activeStrip() : null;
   return [
     { label: 'Add Retiming Key', op: 'sequencer.retiming_key_add' },
-    { label: 'Add Freeze Frame', op: 'sequencer.retiming_freeze_frame_add' },
-    { label: 'Add Speed Transition', op: 'sequencer.retiming_transition_add' },
+    { label: 'Add Freeze Frame', op: 'sequencer.retiming_add_freeze_frame_slide' },
+    { label: 'Add Speed Transition', op: 'sequencer.retiming_add_transition_slide' },
     { separator: true },
     { label: 'Delete Retiming Keys', op: 'sequencer.retiming_key_delete', shortcut: 'X' },
     { label: 'Reset Retiming', op: 'sequencer.retiming_reset' },
@@ -327,6 +340,7 @@ export function changeMenu(): MenuItem[] {
   const items: MenuItem[] = [];
   if (act && ['MOVIE', 'SOUND', 'IMAGE'].includes(act.type)) items.push({ label: 'Path/Files', op: 'sequencer.change_path' });
   if (act && effectTypesFor(act.type).length) items.push({ label: 'Effect Type', submenu: effectChangeMenu });
+  items.push(...changeSceneItems());
   if (!items.length) items.push({ label: 'Nothing to change for the active strip', disabled: true } as MenuItem);
   return items;
 }
@@ -339,6 +353,7 @@ export function stripMenu(preview = false): MenuItem[] {
     items.push(
       { separator: true },
       { label: 'Duplicate', op: 'sequencer.preview_duplicate_move', shortcut: 'Shift D' },
+      { label: 'Duplicate Linked', op: 'sequencer.preview_duplicate_move_linked', shortcut: 'Alt D' },
       { label: 'Copy', op: 'sequencer.copy', shortcut: 'Ctrl C' },
       { label: 'Paste', op: 'sequencer.paste', shortcut: 'Ctrl V' },
       { label: 'Delete', op: 'sequencer.delete', shortcut: 'X' },
@@ -386,6 +401,7 @@ export function stripMenu(preview = false): MenuItem[] {
     { label: 'Copy', op: 'sequencer.copy', shortcut: 'Ctrl C' },
     { label: 'Paste', op: 'sequencer.paste', shortcut: 'Ctrl V' },
     { label: 'Duplicate', op: 'sequencer.duplicate_move', shortcut: 'Shift D' },
+    { label: 'Duplicate Linked', op: 'sequencer.duplicate_move_linked', shortcut: 'Alt D' },
     { separator: true },
     { label: 'Delete', op: 'sequencer.delete', shortcut: 'X' },
   );
@@ -407,7 +423,7 @@ export function stripMenu(preview = false): MenuItem[] {
           ],
         },
       );
-    if (act.type === 'MOVIE') items.push({ separator: true }, { label: 'Movie Strip', submenu: () => [{ label: 'Set Render Size', op: 'sequencer.rendersize' }] });
+    if (act.type === 'MOVIE') items.push({ separator: true }, { label: 'Movie Strip', submenu: () => [{ label: 'Set Render Size', op: 'sequencer.rendersize' }, { label: 'Deinterlace Movies', op: 'sequencer.deinterlace_selected_movies' }] });
     if (act.type === 'IMAGE') items.push({ separator: true }, { label: 'Set Render Size', op: 'sequencer.rendersize' }, { label: 'Separate Images', op: 'sequencer.images_separate', shortcut: 'Y' });
     if (act.type === 'MULTICAM') items.push({ separator: true }, { label: 'Split Multicam', submenu: () => multicamItems() });
     if (act.type === 'SCENE') items.push({ separator: true }, { label: 'Update Scene Frame Range', op: 'sequencer.scene_frame_range_update' });
@@ -439,13 +455,7 @@ function multicamItems(): MenuItem[] {
 }
 
 function modifierAddItems(): MenuItem[] {
-  if (hasEditor() && activeStrip()?.type === 'SOUND') return [{ label: 'Equalizer', op: 'sequencer.strip_modifier_add', props: { type: 'SOUND_EQUALIZER' } }];
-  return [
-    { label: 'Brightness/Contrast', op: 'sequencer.strip_modifier_add', props: { type: 'BRIGHT_CONTRAST' } },
-    { label: 'Color Balance', op: 'sequencer.strip_modifier_add', props: { type: 'COLOR_BALANCE' } },
-    { label: 'Curves', op: 'sequencer.strip_modifier_add', props: { type: 'CURVES' } },
-    { label: 'White Balance', op: 'sequencer.strip_modifier_add', props: { type: 'WHITE_BALANCE' } },
-  ];
+  return addModifierItems(hasEditor() ? activeStrip() : null);
 }
 
 function animationItem(): MenuItem {
@@ -455,8 +465,8 @@ function animationItem(): MenuItem {
       { label: 'Insert Keyframe', op: 'sequencer.keyframe_insert' },
       { label: 'Insert Keyframe with Keying Set', submenu: keyingMenu },
       { separator: true },
-      { label: 'Delete Keyframes', op: 'sequencer.keyframe_delete' },
-      { label: 'Clear Keyframes', op: 'sequencer.keyframe_clear' },
+      { label: 'Delete Keyframes', op: 'anim.keyframe_delete_vse', shortcut: 'Alt I' },
+      { label: 'Clear Keyframes', op: 'anim.keyframe_clear_vse' },
     ],
   };
 }
@@ -520,6 +530,7 @@ export function contextMenu(): MenuItem[] {
     { label: 'Copy', op: 'sequencer.copy', shortcut: 'Ctrl C' },
     { label: 'Paste', op: 'sequencer.paste', shortcut: 'Ctrl V' },
     { label: 'Duplicate', op: 'sequencer.duplicate_move', shortcut: 'Shift D' },
+    { label: 'Duplicate Linked', op: 'sequencer.duplicate_move_linked', shortcut: 'Alt D' },
     { label: 'Delete', op: 'sequencer.delete', shortcut: 'X' },
     { separator: true },
     { label: 'Split', op: 'sequencer.split', props: { type: 'SOFT' }, shortcut: 'K' },
