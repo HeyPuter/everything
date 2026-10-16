@@ -1,9 +1,10 @@
 // Volume operators: Add ▸ Volume ▸ Empty / Import OpenVDB…, grid list editing, and the OpenVDB
 // file format entry (File ▸ Import, drag and drop). Files are parsed in a worker with progress in
 // the header; Esc stops the import.
-import { app, registerOperators, type PropDef } from '../app/app';
+import { app, onAppReady, operators, registerOperators, type PropDef } from '../app/app';
 import { newObject } from '../data/defaults';
-import type { DocumentData, ObjectData } from '../data/types';
+import type { DocumentData, MaterialData, ObjectData } from '../data/types';
+import { addNode, connect, ctxOf } from '../nodes/tree';
 import { addObjectToScene } from '../ops/object';
 import { pickFile } from '../io/native';
 import { registerFormat } from '../io/files';
@@ -252,3 +253,32 @@ registerFormat({
     await importVdbFile(file);
   },
 });
+
+// New materials of volume objects start as a Principled Volume (no surface)
+onAppReady(() => {
+  const op = operators.get('material.new');
+  if (!op?.exec) return;
+  const orig = op.exec;
+  op.exec = (ctx, p) => {
+    const r = orig(ctx, p);
+    const ob = app.activeObject;
+    const vo = volumeOf(ctx.doc, ob);
+    if (r === 'CANCELLED' || !ob || !vo) return r;
+    const ma = ctx.doc.materials[vo.materials[ob.active_material_index] ?? ''];
+    if (ma) makeVolumeMaterial(ctx.doc, ma);
+    return r;
+  };
+});
+
+/** Turn a material into a plain Principled Volume (the default look of volume objects). */
+export function makeVolumeMaterial(doc: DocumentData, ma: MaterialData) {
+  const t = ma.tree;
+  const out = t.nodes.find((n) => n.type === 'ShaderNodeOutputMaterial');
+  if (!out) return;
+  const keep = new Set([out.id]);
+  t.nodes = t.nodes.filter((n) => keep.has(n.id));
+  t.links = [];
+  const v = addNode(t, 'ShaderNodeVolumePrincipled', [out.location[0] - 300, out.location[1]]);
+  connect(ctxOf(doc, t), v.id, 'Volume', out.id, 'Volume');
+  ma.use_nodes = true;
+}

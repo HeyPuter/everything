@@ -31,6 +31,8 @@ export interface PbrHint {
   thickness?: number;
   attenuationColor?: [number, number, number] | Color;
   attenuationDistance?: number;
+  /** random-walk subsurface scattering (path tracer only) */
+  subsurface?: { weight: number; radius: [number, number, number]; scale: number; ior: number; anisotropy: number } | null;
 }
 
 const cache = new WeakMap<Material, { version: number; hint: number; out: MeshPhysicalMaterial }>();
@@ -128,6 +130,7 @@ function convertInto(src: Material, m: MeshPhysicalMaterial) {
     m.transmission = 0;
   }
   if (hint) applyHint(m, hint);
+  m.userData.sss = hint?.subsurface ?? null;
 }
 
 function applyHint(m: MeshPhysicalMaterial, h: PbrHint) {

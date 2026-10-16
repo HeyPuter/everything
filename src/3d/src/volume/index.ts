@@ -8,6 +8,8 @@ import './display';
 import './ops';
 import './properties';
 import './modifiers';
+import './render';
+import '../render/final/ptsss';
 import '../pointcloud/index';
 
 OB_ICON.VOLUME = 'outliner_ob_volume';
