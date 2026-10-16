@@ -2,10 +2,10 @@
 // - Holdout (collection or object): the object renders as a transparent cut-out (alpha 0).
 // - Indirect Only (collection) / object "Camera" ray visibility off: the object is invisible to
 //   the camera but still casts shadows (and, in the path tracer, shows in reflections and bounces).
-// - Light linking: lights only light their receivers; in the path tracer only blockers cast their
-//   shadows. The realtime engine honours receivers (per object influence of each light).
+// - Light linking: lights only light their receivers and only blockers cast their shadows (the
+//   realtime engine sets per-object light factors and hides non-blockers in each shadow pass).
 // RenderScene asks `renderVisHooks` for the variant materials of each mesh.
-import { MeshBasicMaterial, NoBlending, type Light, type Material, type Mesh, type MeshPhysicalMaterial } from 'three';
+import { MeshBasicMaterial, NoBlending, type Light, type Material, type Mesh, type MeshPhysicalMaterial, type Scene } from 'three';
 import type { DocumentData, ID } from '../data/types';
 import { renderVisHooks, type RenderVisState } from '../render/final/renderscene';
 import { pathTracerLinkHook } from '../render/final/pathtracer';
@@ -145,7 +145,8 @@ renderVisHooks.materials = (st, obId, mats, mesh) => {
   const table = s.table;
   if (table) {
     mesh.onBeforeRender = () => applyGroupInfluence(table, group);
-  }
+    mesh.userData.linkGroup = group;
+  } else delete mesh.userData.linkGroup;
   if (holdout) return mats.map(() => rasterHoldout());
   if (indirect) return mats.map(() => rasterHidden());
   return mats.map((m) => rasterVariant(m, group));
@@ -153,6 +154,47 @@ renderVisHooks.materials = (st, obId, mats, mesh) => {
 
 renderVisHooks.reset = (mesh) => {
   delete (mesh as Partial<Mesh>).onBeforeRender;
+  delete mesh.userData.linkGroup;
+};
+
+// realtime shadow linking: while a light's shadow map renders, meshes that don't block it are
+// hidden (the shadow pass runs after the render lists are built, so the camera still sees them)
+const managed = new WeakMap<Scene, { table: LinkTable | null; meshes: Mesh[] }>();
+const hidden: Mesh[] = [];
+function restoreHidden() {
+  for (const m of hidden) m.visible = true;
+  hidden.length = 0;
+}
+influenceUpdatedHooks.push(restoreHidden);
+
+renderVisHooks.finish = (st, scene) => {
+  const s = st as { table: LinkTable | null; mode: string } | null;
+  const table = s && s.mode === 'raster' ? s.table : null;
+  const meshes: Mesh[] = [];
+  if (table) scene.traverse((o) => (o as Mesh).isMesh && o.userData.linkGroup !== undefined && meshes.push(o as Mesh));
+  managed.set(scene, { table, meshes });
+  if (!table) return;
+  for (const c of scene.children) {
+    const L = c as Light & { shadow?: { getCamera?: (face: number) => unknown; __linkWrapped?: boolean } };
+    const sh = L.shadow;
+    if (!L.isLight || !sh?.getCamera || sh.__linkWrapped) continue;
+    sh.__linkWrapped = true;
+    const base = sh.getCamera.bind(sh);
+    sh.getCamera = (face: number) => {
+      const st2 = managed.get(scene);
+      restoreHidden();
+      const masks = st2?.table ? st2.table.lights.get((L.userData as { obId?: ID }).obId ?? '') : undefined;
+      if (masks && st2)
+        for (const m of st2.meshes) {
+          if (masks.block & (1 << (m.userData.linkGroup as number))) continue;
+          if (m.visible) {
+            m.visible = false;
+            hidden.push(m);
+          }
+        }
+      return base(face);
+    };
+  }
 };
 
 /** Link masks of the lights in the path tracer's light order. */

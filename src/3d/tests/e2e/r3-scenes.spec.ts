@@ -140,3 +140,55 @@ test('F12 renders every view layer; the Render Layers node can read another scen
   expect(res.own.px).toBeGreaterThan(res.other.px + 0.05);
   await expectNoErrors(errors);
 });
+
+test('light and shadow linking change renders in both engines', async ({ page }) => {
+  const errors = await openApp(page);
+  const res = await page.evaluate(async () => {
+    const app = (window as any).app;
+    const { renderResult } = await import('/src/render/final/result.ts' as string);
+    const { renderJob } = await import('/src/render/final/job.ts' as string);
+    Object.assign(app.doc.scene.render, { resolution_percentage: 10, samples: 16, raster_samples: 2, use_denoising: false });
+    app.run('mesh.primitive_plane_add', { size: 20, location: [0, 0, -1] }, { invoke: false });
+    const obs = Object.values(app.doc.objects) as any[];
+    const light = obs.find((o) => o.name === 'Light');
+    const cube = obs.find((o) => o.name === 'Cube');
+    app.doc.lights[light.data].use_shadow = true;
+    const mean = async () => {
+      app.run('render.render');
+      await new Promise<void>((ok) => {
+        const t = setInterval(() => {
+          if (!renderJob()) {
+            clearInterval(t);
+            ok();
+          }
+        }, 50);
+      });
+      const c = renderResult.get().passes.Combined;
+      let s = 0;
+      for (let i = 0; i < c.length; i += 4) s += c[i];
+      return s / (c.length / 4);
+    };
+    const out: Record<string, number[]> = {};
+    for (const engine of ['RASTER', 'PATHTRACE']) {
+      app.doc.scene.render.engine = engine;
+      delete light.light_linking;
+      app.changed('doc');
+      const normal = await mean();
+      for (const o of Object.values(app.doc.objects) as any[]) o.select = o === light || o === cube;
+      app.doc.scene.active_object = light.id;
+      app.changed('select');
+      app.run('object.light_linking_blockers_link', { link_state: 'EXCLUDE' }, { invoke: false });
+      const noShadow = await mean();
+      app.run('object.light_linking_receivers_link', { link_state: 'INCLUDE' }, { invoke: false });
+      const onlyCube = await mean();
+      out[engine] = [normal, noShadow, onlyCube];
+    }
+    return out;
+  });
+  for (const [normal, noShadow, onlyCube] of Object.values(res)) {
+    expect(noShadow).toBeGreaterThan(normal);
+    // lighting only the cube leaves the floor unlit
+    expect(onlyCube).toBeLessThan(normal);
+  }
+  await expectNoErrors(errors);
+});

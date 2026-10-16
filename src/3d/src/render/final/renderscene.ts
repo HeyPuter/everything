@@ -114,6 +114,8 @@ export const renderVisHooks: {
   prepare?: (doc: DocumentData, mode: BuildOptions['mode'], objects: string[], lights: string[]) => RenderVisState | null;
   materials?: (st: RenderVisState, obId: string, mats: Material[], mesh: Mesh) => Material[];
   reset?: (mesh: Mesh) => void;
+  /** after each build (also without state: clears what an earlier build set up) */
+  finish?: (st: RenderVisState | null, scene: Scene) => void;
 } = {};
 
 /** Extra renderable content (e.g. grease pencil strokes) added to the render scene after each build. */
@@ -211,6 +213,7 @@ export class RenderScene {
     if (this.syncWorldSun(doc, o)) lights = true;
     this.fitSunShadows(doc);
     for (const hk of renderSceneHooks) hk(this, app, o);
+    renderVisHooks.finish?.(this.vis, this.scene);
     for (const e of this.entries.values()) if (e.light) (e.base ??= new Matrix4()).copy(e.light.matrix);
     this.scene.updateMatrixWorld(true);
     if (structure) this.structureVersion++;
