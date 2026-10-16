@@ -184,3 +184,34 @@ describe('bake shaders', () => {
     expect(p.fragment).not.toContain('gl_FrontFacing');
   });
 });
+
+describe('.blend import of bake settings', () => {
+  it('reads RenderData.bake and the path tracer bake type', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { readBlend } = await import('../../src/io/blend/convert');
+    const bytes = new Uint8Array(readFileSync(new URL('../fixtures/blend/bake_zstd.blend', import.meta.url)));
+    const { doc } = await readBlend(bytes);
+    const r = doc.scene.render;
+    expect(r.bake_type).toBe('AO');
+    expect(r.bake).toMatchObject({
+      margin: 7,
+      margin_type: 'EXTEND',
+      normal_space: 'OBJECT',
+      normal_r: 'NEG_X',
+      normal_g: 'NEG_Y',
+      normal_b: 'POS_Y',
+      use_selected_to_active: true,
+      use_cage: true,
+      use_clear: false,
+      target: 'VERTEX_COLORS',
+      type: 'DISPLACEMENT',
+      use_pass_direct: false,
+      use_pass_color: false,
+      use_pass_indirect: true,
+      use_pass_emit: true,
+    });
+    expect(r.bake!.cage_extrusion).toBeCloseTo(0.25);
+    expect(r.bake!.max_ray_distance).toBeCloseTo(0.5);
+    expect(doc.objects[r.bake!.cage_object!]?.name).toBe('Cage');
+  });
+});

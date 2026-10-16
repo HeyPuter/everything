@@ -11,6 +11,7 @@ import { convertNodeTree } from './nodes';
 import { convertModifiers, convertConstraints } from './modifiers';
 import { convertAnimData, mergeAnimData } from './anim';
 import { readAssetMarks } from './assets';
+import { importBakeSettings } from './bake';
 
 export interface BlendImport {
   doc: DocumentData;
@@ -757,6 +758,7 @@ export function convertBlend(f: BlendFile): BlendImport {
     const look = vs.str('look');
     if (look) s.render.look = look.replace(/^(AgX|Filmic) - /, '') || 'None';
   }
+  importBakeSettings(sc, s.render, ctx);
   const cursor = sc.sub('cursor');
   if (cursor) s.cursor = { location: vec3(cursor, 'location'), rotation_euler: vec3(cursor, 'rotation_euler') };
   const unit = sc.sub('unit');
