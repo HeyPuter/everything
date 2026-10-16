@@ -169,10 +169,16 @@ test('Linking from a recent project follows its saved changes; dropped project f
   await page.evaluate(() => (window as any).app.run('wm.link'));
   const dlg = page.locator('.lb');
   await dlg.locator('.fb-side-item', { hasText: 'Recent Projects' }).click();
-  await dlg.locator('.lb-row', { hasText: 'props.p3d' }).dblclick();
+  // the keyboard walks the browser: Down picks the first row, Enter opens it
+  await dlg.locator('.lb-row', { hasText: 'props.p3d' }).waitFor();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
   await dlg.locator('.lb-row', { hasText: 'Objects' }).dblclick();
   await dlg.locator('.lb-row', { hasText: 'Crate' }).click();
-  // options: no instancing needed for objects; Select stays on
+  // Backspace goes up a level and back keeps the pick
+  await page.keyboard.press('Backspace');
+  await expect(dlg.locator('.lb-row', { hasText: 'Collections' })).toBeVisible();
+  await expect(dlg.locator('.lb-count')).toHaveText('1');
   await dlg.locator('.lb-go').click();
   await expect(dlg).toHaveCount(0);
   expect(await names(page)).toContain('Crate@L');

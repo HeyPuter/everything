@@ -25,6 +25,8 @@ registerIcons({
   // a file with an arrow going into it (append: copy data in)
   append_blend:
     '<path class="s" d="M6.5 1.8h4.5l3 3V14H6.5" fill="none" stroke-width="1.2" stroke-linejoin="round"/><path class="s" d="M1.5 9h7M6 6.3 8.7 9 6 11.7" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>',
+  // a closed box: stored inside the project
+  library_packed: '<path class="s" d="M2.5 5 8 2.5 13.5 5v6.2L8 13.7 2.5 11.2z" fill="none" stroke-width="1.2" stroke-linejoin="round"/><path class="s" d="M2.5 5 8 7.5 13.5 5M8 7.5v6.2" fill="none" stroke-width="1.1"/>',
   // several stacked files: the libraries of this project
   libraries:
     '<path class="s" d="M5 1.8h5.2l2.8 2.8V11H5z" fill="none" stroke-width="1.2" stroke-linejoin="round"/><path class="s" d="M3 4v10h7.5" fill="none" stroke-width="1.2" stroke-linejoin="round"/>',

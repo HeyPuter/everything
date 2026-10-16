@@ -510,13 +510,32 @@ class LibraryBrowser {
       {
         class: 'lb',
         tabindex: '-1',
+        'data-keys': '',
+        ref: (el: HTMLElement) => requestAnimationFrame(() => el.focus()),
         onkeydown: (e: KeyboardEvent) => {
           if ((e.target as HTMLElement).closest('input')) return;
-          if (e.key === 'Enter') {
+          e.stopPropagation();
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            // walk the list (Shift extends among data-blocks)
+            e.preventDefault();
+            const list = this.visible();
+            if (!list.length) return;
+            const cur = list.findIndex((x) => x.key === this.anchor);
+            const next = list[Math.max(0, Math.min(list.length - 1, cur < 0 ? 0 : cur + (e.key === 'ArrowDown' ? 1 : -1)))];
+            if (!(e.shiftKey && next.kind === 'item')) this.sel.clear();
+            this.sel.add(next.key);
+            this.anchor = next.key;
+            this.syncPicks();
+            this.redraw();
+            requestAnimationFrame(() => this.dlg.el.querySelector('.lb-row.on:last-of-type, .lb-row[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }));
+          } else if (e.key === 'Enter') {
             e.preventDefault();
             const one = this.entries.find((x) => this.sel.has(x.key));
             if (one && one.kind !== 'item') void this.activate(one);
             else void this.confirm();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            closeDialog(DIALOG);
           } else if (e.key === 'Backspace') {
             e.preventDefault();
             void this.up();

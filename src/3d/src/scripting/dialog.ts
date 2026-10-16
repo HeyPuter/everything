@@ -137,7 +137,8 @@ let z = 950;
 const nextZ = () => ++z;
 const order: string[] = [];
 
-const isField = (t: EventTarget | null) => !!(t as HTMLElement)?.closest?.('input, textarea, select, [contenteditable="true"]');
+/** Fields, and dialog content that handles its own keys (marked with data-keys). */
+const isField = (t: EventTarget | null) => !!(t as HTMLElement)?.closest?.('input, textarea, select, [contenteditable="true"], [data-keys]');
 
 // Registered at module load (before the global keyboard handler), so keys aimed at a dialog
 // never trigger editor shortcuts underneath. Escape closes the top-most dialog.

@@ -60,6 +60,18 @@ rowBadgeHooks.push((r) => {
   return h('span', { key: 'lib', class: { 'lib-mark': true, missing }, 'data-tip': linkTip(rec) }, icon(ic));
 });
 
+// library rows: stored in the project, or missing
+rowBadgeHooks.push((r) => {
+  if (r.kind !== 'library' || !r.id) return null;
+  const lib = libraries(app.doc)[r.id];
+  if (!lib) return null;
+  return [
+    lib.packed_file?.length ? h('span', { key: 'packed', class: 'lib-mark', 'data-tip': 'Packed\nThe library file is stored inside this project' }, icon('library_packed')) : null,
+    lib.is_missing ? h('span', { key: 'missing', class: 'lib-tag', 'data-tip': 'The file could not be read: its data is shown as last loaded. Relocate the library to fix it.' }, 'missing') : null,
+    h('span', { key: 'path', class: 'lib-tag', 'data-tip': lib.filepath }, lib.filepath === lib.name ? '' : lib.filepath.replace(/\/[^/]*$/, '')),
+  ];
+});
+
 rowMenuHooks.push((r) => {
   const rec = rowRecord(r);
   if (!rec || (!rec.library && !rec.override_library)) return [];
