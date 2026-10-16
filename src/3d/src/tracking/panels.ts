@@ -10,6 +10,7 @@ import { readySource, frameCache, cacheSettings } from './source';
 import { measureMotion } from './stabilize';
 import type { ClipEditor } from './editor';
 import { solveToolbar, objectsPanel, distortionRows } from './solvepanels';
+import { planeTrackPanel } from './planeops';
 
 const MODELS: [MotionModel, string][] = [
   ['Loc', 'Location'],
@@ -210,6 +211,7 @@ function trackTab(ed: ClipEditor, c: MovieClipData): Child[] {
       ];
     }),
   );
+  out.push(planeTrackPanel(ed, c));
   if (t)
     out.push(
       panel('clip-n-tsettings', 'Tracking Settings', () => [

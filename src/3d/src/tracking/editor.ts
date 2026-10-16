@@ -29,6 +29,7 @@ import { stabilizationMatrix, autoscaleFactor, type Affine2 } from './stabilize'
 import { drawToolbar, drawSidebar, drawPatternPreviews } from './panels';
 import { solveErrorText } from './solvepanels';
 import { reprojectBundle } from './reconstruction';
+import { drawPlaneTracks, planeCornerDown, planeBodyDown } from './planeops';
 import { drawGraph, drawDopesheet, graphPointer, dopesheetPointer, frameGraphAll, frameDopesheetAll } from './graphs';
 import { jobState } from './jobs';
 import { lastOpPanel } from '../ui/redo';
@@ -411,6 +412,7 @@ export class ClipEditor implements Editor {
       drawMask(this, ctx, this.overlays.show_mask_spline !== false);
       this.drawCursor(ctx);
     } else {
+      drawPlaneTracks(this, ctx, T);
       this.drawMarkers(ctx, T);
       if (this.overlays.show_bundles !== false) this.drawBundles(ctx, T);
       drawSelectShape(ctx, this.shapeOverlay);
@@ -861,7 +863,9 @@ export class ClipEditor implements Editor {
       if (t) this.slide(e, { track: t, kind: 'move', index: -1 }, start, 'Add Marker');
       return;
     }
+    if (planeCornerDown(this, e, start)) return;
     const hit = this.hit(start.x, start.y);
+    if (!hit && planeBodyDown(this, e, start)) return void this.drawUI();
     if (hit) {
       const t = hit.track;
       if (e.shiftKey && hit.kind === 'move') {
@@ -871,7 +875,10 @@ export class ClipEditor implements Editor {
           tobj(c).active_track = t.name;
         }
       } else {
-        if (!t.select) for (const o of tobj(c).tracks) o.select = false;
+        if (!t.select) {
+          for (const o of tobj(c).tracks) o.select = false;
+          for (const p of tobj(c).plane_tracks ?? []) p.select = false;
+        }
         t.select = true;
         tobj(c).active_track = t.name;
       }
@@ -997,6 +1004,7 @@ export class ClipEditor implements Editor {
         if (!fromKey) {
           let any = false;
           for (const t of tobj(c).tracks) if (t.select) ((t.select = false), (any = true));
+          for (const p of tobj(c).plane_tracks ?? []) if (p.select) ((p.select = false), (any = true));
           if (any) app.pushUndo('Select');
           app.changed('doc');
         }
@@ -1409,6 +1417,10 @@ function trackMenu(): MenuItem[] {
     { separator: true },
     opItem('Add Marker', 'clip.add_marker_at_click'),
     opItem('Detect Features', 'clip.detect_features'),
+    { separator: true },
+    opItem('Create Plane Track', 'clip.create_plane_track'),
+    opItem('New Image from Plane Marker', 'clip.new_image_from_plane_marker'),
+    opItem('Update Image from Plane Marker', 'clip.update_image_from_plane_marker'),
     { separator: true },
     opItem('Join Tracks', 'clip.join_tracks'),
     opItem('Average Tracks', 'clip.average_tracks'),

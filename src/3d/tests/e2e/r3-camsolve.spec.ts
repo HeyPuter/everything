@@ -175,3 +175,57 @@ test('camsolve: solving pie, reconstruction menu, tracking objects and clear sol
   expect(await clipState(page)).toEqual({ valid: false, error: 0, cameras: 0, bundles: 0 });
   await expectNoErrors(errors);
 });
+
+test('camsolve: plane track from four tracks, corner slide and Plane Track Deform node', async ({ page }) => {
+  const errors = await solvableClip(page, { frames: 20, points: 30 });
+  const r = await page.evaluate(() => {
+    const app = (window as any).app;
+    const c = app.doc.movieclips.MC_s;
+    app.setFrame(5);
+    // four tracks visible on frame 5
+    const vis = c.tracking.tracks.filter((t: any) => t.markers.some((m: any) => m.frame === 5)).slice(0, 4);
+    vis.forEach((t: any) => (t.select = true));
+    app.changed('doc');
+    app.run('clip.create_plane_track');
+    const pt = c.tracking.plane_tracks[0];
+    return { name: pt?.name, tracks: pt?.tracks.length, frames: pt?.markers.length, active: c.tracking.active_plane_track };
+  });
+  expect(r.name).toBe('Plane Track');
+  expect(r.tracks).toBe(4);
+  expect(r.frames).toBeGreaterThan(5);
+  expect(r.active).toBe('Plane Track');
+  // the sidebar shows the Plane Track panel
+  const clipView = page.locator('.clip-root').nth(1);
+  await expect(clipView.locator('.clip-sidebar .panel', { hasText: 'Plane Track' })).toBeVisible();
+  // drag a corner on screen: the corner moves on this frame
+  const box = (await clipView.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.press('Home');
+  const p = await page.evaluate(() => {
+    const app = (window as any).app;
+    const e = app.hoverArea.editor;
+    const c = app.doc.movieclips.MC_s;
+    const m = c.tracking.plane_tracks[0].markers.find((x: any) => x.frame === 5);
+    const s = e.toScreen(m.corners[2][0] * c.size[0], (1 - m.corners[2][1]) * c.size[1]);
+    const rc = e.el.getBoundingClientRect();
+    return { x: rc.left + s[0], y: rc.top + s[1], before: m.corners[2] };
+  });
+  await page.mouse.move(p.x, p.y);
+  await page.mouse.down();
+  await page.mouse.move(p.x + 20, p.y + 10, { steps: 4 });
+  await page.mouse.up();
+  const after = await page.evaluate(() => (window as any).app.doc.movieclips.MC_s.tracking.plane_tracks[0].markers.find((x: any) => x.frame === 5).corners[2]);
+  expect(after[0]).toBeGreaterThan(p.before[0]);
+  // Slide by operator (scriptable form)
+  await page.evaluate(() => (window as any).app.run('clip.slide_plane_marker', { corner: 0, offset: [0.01, 0] }));
+  const keyed = await page.evaluate(() => (window as any).app.doc.movieclips.MC_s.tracking.plane_tracks[0].markers.find((x: any) => x.frame === 5).is_keyed);
+  expect(keyed).toBe(true);
+  // the compositor node lists under Add ▸ Tracking and evaluates without errors
+  const node = await page.evaluate(async () => {
+    const { nodeMenu } = await import('/src/nodes/registry.ts' as any);
+    const cat = nodeMenu('COMPOSITOR').find((x: any) => x.label === 'Tracking');
+    return cat.items.map((i: any) => i.idname).filter(Boolean)[0];
+  });
+  expect(node).toBe('CompositorNodePlaneTrackDeform');
+  await expectNoErrors(errors);
+});

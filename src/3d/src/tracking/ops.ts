@@ -39,6 +39,7 @@ import { runJob, setProgress } from './jobs';
 import { trackStep, refineMarkers, detectInFrame, toNormalized } from './trackjob';
 import { stabilizationTable, stabilizationMatrix, autoscaleFactor } from './stabilize';
 import { createVideoWriter } from '../render/final/webm';
+import { refreshPlaneTracks } from './planeops';
 
 // ---------------------------------------------------------------------------
 // context helpers
@@ -390,7 +391,7 @@ const ops: Operator[] = [
     label: 'Delete Track',
     description: 'Delete selected tracks',
     props: [{ id: 'confirm', label: 'Confirm', type: 'bool', default: true, hidden: true }],
-    poll: (ctx) => !!ctxTracks(ctx).some((t) => t.select && !t.hide),
+    poll: (ctx) => !!ctxTracks(ctx).some((t) => t.select && !t.hide) || !!(contextClip(ctx) && tobj(contextClip(ctx)!).plane_tracks?.some((p) => p.select)),
     invoke: (ctx, p) => {
       if (!p.confirm) return ops.find((o) => o.idname === 'clip.delete_track')!.exec!(ctx, p);
       openMenu([{ label: 'Delete Track', icon: 'trash', op: 'clip.delete_track', props: { confirm: false } }], { x: app.pointer.x, y: app.pointer.y }, { title: 'Delete track?' });
@@ -399,7 +400,15 @@ const ops: Operator[] = [
     exec: (ctx) => {
       const c = contextClip(ctx)!;
       const n = tobj(c).tracks.filter((t) => t.select && !t.hide).length;
+      const gone = new Set(tobj(c).tracks.filter((t) => t.select && !t.hide).map((t) => t.name));
       tobj(c).tracks = tobj(c).tracks.filter((t) => !(t.select && !t.hide));
+      // plane tracks: the selected ones go, the others forget the deleted point tracks
+      const o = tobj(c);
+      if (o.plane_tracks) {
+        o.plane_tracks = o.plane_tracks.filter((p) => !p.select);
+        for (const p of o.plane_tracks) p.tracks = p.tracks.filter((x) => !gone.has(x));
+        if (!o.plane_tracks.some((p) => p.name === o.active_plane_track)) o.active_plane_track = null;
+      }
       if (!tobj(c).tracks.some((t) => t.name === tobj(c).active_track)) tobj(c).active_track = null;
       app.report('INFO', `Deleted ${n} track${n === 1 ? '' : 's'}`);
     },
@@ -465,6 +474,8 @@ const ops: Operator[] = [
           // yield to the UI between frames
           await new Promise((r) => setTimeout(r, 0));
         }
+        const done = clipTable(app.doc)[clipId];
+        if (done && tobj(done).plane_tracks?.length) refreshPlaneTracks(done);
         return `Tracked ${frames} frame${frames === 1 ? '' : 's'}${failed.size ? `; lost: ${[...failed].join(', ')}` : ''}`;
       });
     },
@@ -632,6 +643,7 @@ const ops: Operator[] = [
       let action = p.action;
       if (action === 'TOGGLE') action = vis.some((t) => t.select) ? 'DESELECT' : 'SELECT';
       for (const t of vis) t.select = action === 'SELECT' ? true : action === 'DESELECT' ? false : !t.select;
+      for (const p of tobj(c).plane_tracks ?? []) p.select = action === 'SELECT' ? true : action === 'DESELECT' ? false : !p.select;
     },
   },
   {
