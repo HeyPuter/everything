@@ -350,3 +350,37 @@ test('camsolve: camera, track color and tracking settings presets', async ({ pag
   expect(await page.evaluate(() => (window as any).app.doc.movieclips.MC_s.tracking.tracks[0].use_custom_color)).toBe(true);
   await expectNoErrors(errors);
 });
+
+test('camsolve: mask point operators (add vertex, select, slide, feather, re-key)', async ({ page }) => {
+  const errors = await solvableClip(page, { frames: 10, points: 10 });
+  const clipView = page.locator('.clip-root').nth(1);
+  const box = (await clipView.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const r = await page.evaluate(() => {
+    const app = (window as any).app;
+    const ed = app.hoverArea.editor;
+    app.run('clip.mode_set', { mode: 'MASK' });
+    app.run('mask.new');
+    const m = Object.values(app.doc.masks as Record<string, any>)[0];
+    const run = (id: string, p: any) => app.run(id, p, { invoke: false });
+    run('mask.add_vertex', { location: [0.2, 0.2] });
+    run('mask.add_vertex', { location: [0.6, 0.2] });
+    run('mask.add_vertex', { location: [0.6, 0.6] });
+    const sp = m.layers[0].splines[0];
+    const out: any = { points: sp.points.length };
+    run('mask.select', { location: [0.2, 0.2] });
+    out.selected = sp.points.map((p: any) => p.select);
+    run('mask.slide_point', { offset: [0.05, 0] });
+    out.moved = Math.round(sp.points[0].co[0] * 100);
+    run('mask.add_feather_vertex', { location: [0.25, 0.3] });
+    out.feather = sp.points[0].weight > 0;
+    run('mask.shape_key_insert', {});
+    run('mask.slide_point', { offset: [0.05, 0] });
+    run('mask.shape_key_rekey', { location: true, feather: true });
+    out.rekeyed = Math.round(m.layers[0].shape_keys[0].data[0] * 100);
+    out.mode = ed.mode;
+    return out;
+  });
+  expect(r).toEqual({ points: 3, selected: [true, false, false], moved: 25, feather: true, rekeyed: 30, mode: 'MASK' });
+  await expectNoErrors(errors);
+});

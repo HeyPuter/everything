@@ -109,6 +109,8 @@ export function maskMenu(): MenuItem[] {
       submenu: () => [
         { label: 'Insert Shape Key', op: 'mask.shape_key_insert', shortcut: 'I' },
         { label: 'Clear Shape Key', op: 'mask.shape_key_clear', shortcut: 'Alt I' },
+        { label: 'Feather Reset Animation', op: 'mask.shape_key_feather_reset' },
+        { label: 'Re-Key Points of Selected Shapes', op: 'mask.shape_key_rekey' },
       ],
     },
     {
@@ -202,7 +204,7 @@ export function maskToolbar(ed: Host): Child {
           ),
         ),
       ]),
-      panel('mask-t-anim', 'Animation', () => [h('div', { class: 'btn-row' }, opButton('mask.shape_key_insert', 'Insert Key'), opButton('mask.shape_key_clear', 'Clear Key'))]),
+      panel('mask-t-anim', 'Animation', () => [h('div', { class: 'btn-row' }, opButton('mask.shape_key_insert', 'Insert Key'), opButton('mask.shape_key_clear', 'Clear Key')), h('div', { class: 'btn-col' }, opButton('mask.shape_key_rekey', 'Re-Key Selected Points'), opButton('mask.shape_key_feather_reset', 'Reset Feather Animation'))]),
       panel('mask-t-parent', 'Parenting', () => [h('div', { class: 'btn-row' }, opButton('mask.parent_set', 'Parent'), opButton('mask.parent_clear', 'Clear'))]),
     );
   return h('div', { key: 'toolbar', class: 'clip-toolbar' }, h('div', { class: 'sb-body' }, body));

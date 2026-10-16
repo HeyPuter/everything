@@ -3,6 +3,7 @@
 // (compositor.ts) and the Masking workspace template.
 import './maskops';
 import './compositor';
+import './pointops';
 import { onAppReady } from '../app/app';
 import { addKeys, keymaps } from '../app/keymap';
 import { registerWorkspaceTemplate, A, H, V } from '../ui/screen';
