@@ -2884,6 +2884,10 @@ function parse_local_file(blob/*:CFBlob*/, csz/*:number*/, usz/*:number*/, o/*:C
 
 	/* [file data] */
 	var data = blob.slice(blob.l, blob.l + _csz);
+	/* Puter Spreadsheet local patch: a local header that leaves the sizes to a data descriptor (flag 8)
+	 * says 0, which inflated without bound; the central directory's size, which the app checks against
+	 * its limits before reading, bounds it instead. */
+	if(!_usz && (flags & 8)) _usz = usz;
 	switch(meth) {
 		case 8: data = _inflateRawSync(blob, _usz); break;
 		case 0: blob.l += _csz; break; // TODO: scan for magic number

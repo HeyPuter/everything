@@ -2250,8 +2250,12 @@ const MAX_UNPACKED_BYTES = 512 * 1024 * 1024;
 /**
  * What the parts of a zip declare they unpack to: `{ largest, total }`, or null when the bytes
  * are not a zip (an .xls, a text file) or its directory cannot be read, where nothing is claimed
- * and the file is read as before. A zip64 directory, which holds sizes this app cannot open
- * anyway, counts as past every limit.
+ * and the file is read as before. A part's local header says so a second time, and the reader
+ * unpacks by that header, so the larger of the two claims counts; a part whose header leaves its
+ * size to a data descriptor after the data (as streaming writers do) is unpacked no further than
+ * the directory says. A zip64 size is read where it is given; a size marked as zip64 without one,
+ * and a part with compressed data that claims to unpack to nothing in both places, count as past
+ * every limit.
  */
 function declaredUnpackedSize(bytes) {
   const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
@@ -2267,15 +2271,33 @@ function declaredUnpackedSize(bytes) {
   let at = u32(eocd + 16);
   const beyond = { largest: Infinity, total: Infinity };
   if (at === 0xffffffff || count === 0xffff) return beyond;
+  // A zip64 extended-information field (0x0001) in an extra block holds a 64-bit size, which the
+  // reader takes in place of the header's (the field's first eight bytes, as it reads them).
+  const zip64 = (start, length) => {
+    for (let p = start, end = Math.min(start + length, u8.length); p + 4 <= end; p += 4 + u16(p + 2)) {
+      if (u16(p) === 0x0001 && u16(p + 2) >= 8 && p + 12 <= u8.length) return u32(p + 8) * 2 ** 32 + u32(p + 4);
+    }
+    return null;
+  };
   let largest = 0;
   let total = 0;
   for (let i = 0; i < count; i++) {
     if (at < 0 || at + 46 > u8.length || u32(at) !== 0x02014b50) return null;
-    const size = u32(at + 24);
-    if (size === 0xffffffff) return beyond;
+    const compressed = u32(at + 20);
+    const nameLength = u16(at + 28), extraLength = u16(at + 30);
+    // The reader goes to the local header the directory points at and reads its fields there,
+    // whatever its signature, so those are read the same way.
+    const local = u32(at + 42);
+    if (local === 0xffffffff) return beyond;
+    if (local + 30 > u8.length) return null;
+    const header = [u32(at + 24), u32(local + 22)];
+    const wide = [zip64(at + 46 + nameLength, extraLength), zip64(local + 30 + u16(local + 26), u16(local + 28))].filter((n) => n != null);
+    if (header.includes(0xffffffff) && !wide.length) return beyond;
+    const size = Math.max(...header.filter((n) => n !== 0xffffffff), ...wide);
+    if (!size && compressed > 2) return beyond; // an empty part deflates to two bytes
     if (size > largest) largest = size;
     total += size;
-    at += 46 + u16(at + 28) + u16(at + 30) + u16(at + 32);
+    at += 46 + nameLength + extraLength + u16(at + 32);
   }
   return { largest, total };
 }
