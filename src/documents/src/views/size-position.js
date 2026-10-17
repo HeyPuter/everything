@@ -106,7 +106,9 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
 
   /* ---- Size ---- */
   const width = num(inches(image.width), { min: 0.01, max: 22, 'aria-label': 'Width (in)' }), height = num(inches(image.height), { min: 0.01, max: 22, 'aria-label': 'Height (in)' });
-  const rotation = num(Math.round((info.transform?.rotation ?? (image.rotation || 0) / 60000) * 10) / 10, { min: -3600, max: 3600, step: 1, 'aria-label': 'Rotation (degrees)' });
+  const rotation = num(Math.round((info.transform?.rotation ?? (image.rotation || 0) / 60000) * 10) / 10, { min: -3600, max: 3600, step: 'any', 'aria-label': 'Rotation (degrees)' });
+  // The fields show rounded values; an untouched field keeps the exact size and rotation behind it.
+  const shown = { width: width.value, height: height.value, rotation: rotation.value };
   const scaleW = num(100, { min: 1, max: 1000, step: 1, 'aria-label': 'Scale width (%)' }), scaleH = num(100, { min: 1, max: 1000, step: 1, 'aria-label': 'Scale height (%)' });
   const lock = optionBox('Lock aspect ratio', image.aspectLocked !== false && (kind === 'picture' || !!image.aspectLocked));
   const ratio = image.width / image.height;
@@ -165,7 +167,12 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
     e.preventDefault();
     error.hidden = true;
     const form = e.target;
-    for (const input of form.querySelectorAll('input[type=number]:not(:disabled)')) if (!input.checkValidity() || input.value === '') { input.reportValidity(); return; }
+    for (const input of form.querySelectorAll('input[type=number]:not(:disabled)')) if (!input.checkValidity() || input.value === '') {
+      // Show the tab holding the field, so the browser can point at it.
+      const tab = Object.entries(panels).find(([, panel]) => panel.contains(input))?.[0];
+      if (tab) select(tab);
+      input.reportValidity(); return;
+    }
     const mode = wrapValue();
     const spec = mode === 'inline' ? { inline: true } : {
       horizontal: hAlignRadio.input.checked && !hAlignRadio.input.disabled ? { relativeFrom: hAlignFrom.value, align: hAlign.value } : { relativeFrom: hOffsetFrom.value, offset: emu(hOffset) },
@@ -176,7 +183,7 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
       ...(mode === 'front' || mode === 'behind' ? { allowOverlap: allowOverlap.input.checked, layoutInCell: layoutInCell.input.checked } : { allowOverlap: true, layoutInCell: true }),
       ...(frame.inline ? { order: Math.max(0, ...engine.model.paragraphs.flatMap(p => p.runs).filter(r => r.image?.anchor).map(r => r.image.anchor.order || 0)) + 1 } : {}),
     };
-    const nextWidth = emu(width), nextHeight = emu(height), turn = Number(rotation.value);
+    const nextWidth = width.value === shown.width ? image.width : emu(width), nextHeight = height.value === shown.height ? image.height : emu(height), turn = Number(rotation.value);
     try {
     await apply(async drawing => {
       writeFrame(drawing, spec);
@@ -187,7 +194,7 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
         const ext = child(child(after.properties, A, 'xfrm'), A, 'ext');
         if (ext) { ext.setAttribute('cx', String(nextWidth)); ext.setAttribute('cy', String(nextHeight)); }
       }
-      if (after.properties && Math.abs(turn - (info.transform?.rotation || 0)) > 0.001) setTransform(after.properties, { rotation: turn });
+      if (after.properties && rotation.value !== shown.rotation && Math.abs(turn - (info.transform?.rotation || 0)) > 0.001) setTransform(after.properties, { rotation: turn });
       // Aspect lock (§20.1.2.2.19 graphicFrameLocks noChangeAspect).
       let locks = child(after.frame, WP, 'cNvGraphicFramePr');
       if (!locks) { locks = make(drawing.ownerDocument, WP, 'cNvGraphicFramePr'); after.frame.insertBefore(locks, child(after.frame, A, 'graphic')); }
@@ -205,7 +212,7 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
       error.hidden = false;
     }
   }
-  const content = el('form.pic-layout-dialog', { onsubmit: submit }, tabList, position, wrapping, size, error,
+  const content = el('form.pic-layout-dialog', { noValidate: true, onsubmit: submit }, tabList, position, wrapping, size, error,
     !formattable ? el('p.pic-hint', {}, 'This object keeps its own layout settings; only its wrapping can change from the Wrap Text menu.') : null,
     el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit', disabled: !formattable }, 'OK')));
   const modal = openModal({ title: 'Layout', content, wide: true, onClose });

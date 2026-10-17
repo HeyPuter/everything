@@ -301,6 +301,39 @@ test('alt text typed for one picture stays with it when another object or the te
   expect(errors).toEqual([]);
 });
 
+test('the Layout dialog keeps an untouched size and free rotation exactly, and shows the tab of an invalid field', async ({ page }, info) => {
+  const { input, errors } = await start(page);
+  const ribbon = await insertPicture(page, input);
+  // Rotate freely with the handle (no Shift): a fractional angle.
+  const host = page.locator('.canvas-editor-content');
+  const frame = await host.locator('.canvas-image-frame').first().boundingBox(), handle = await host.getByRole('button', { name: 'Rotate image', exact: true }).boundingBox();
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down(); await page.mouse.move(frame.x + frame.width / 2 + 37, frame.y + frame.height / 2 - 90, { steps: 5 }); await page.mouse.up();
+  const frameXml = xml => [xml.match(/<wp:extent [^>]*>/)[0], xml.match(/<a:xfrm[^>]*>/)[0]];
+  let before;
+  await expect.poll(async () => { before = frameXml((await save(page, info, 'layout-exact-before')).xml('word/document.xml')); return before[1]; }).toMatch(/rot="\d*[1-9]\d{0,3}"/);
+  // A 128 px picture is 1.333… in wide; the dialog shows 1.33 and must not resize it to that.
+  await ribbon.getByRole('button', { name: 'Size and Position…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Layout' });
+  await dialog.getByRole('tab', { name: 'Text Wrapping' }).click();
+  await dialog.getByText('In front of text', { exact: true }).click();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeHidden();
+  const after = frameXml((await save(page, info, 'layout-exact-after')).xml('word/document.xml'));
+  expect(after).toEqual(before);
+  expect(after[0]).toBe('<wp:extent cx="1219200" cy="1219200"/>');
+  // An invalid size entered on the Size tab is pointed out there, whichever tab is showing on OK.
+  await ribbon.getByRole('button', { name: 'Size and Position…' }).click();
+  await dialog.getByRole('tab', { name: 'Size' }).click();
+  await dialog.getByRole('spinbutton', { name: 'Width (in)' }).fill('0');
+  await dialog.getByRole('tab', { name: 'Position' }).click();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog.getByRole('tab', { name: 'Size' })).toHaveAttribute('aria-selected', 'true');
+  await expect(dialog.getByRole('spinbutton', { name: 'Width (in)' })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(errors).toEqual([]);
+});
+
 test('Picture Format at phone width', async ({ page }) => {
   const { input, errors } = await start(page, { width: 390 });
   await insertPicture(page, input);
