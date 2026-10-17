@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-// jsdom lays nothing out or applies a stylesheet, so the rules that keep dialogs inside a phone-width window,
+// jsdom lays nothing out and applies no stylesheet, so the rules that keep dialogs inside a phone-width window,
 // and their lists readable and visibly focused, are checked as text.
 const read = (name) => readFileSync(new URL(`../src/styles/${name}`, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 
@@ -62,5 +62,10 @@ describe('dialog lists for the keyboard and the eye', () => {
   it('rings a query row in Queries & Connections when the keyboard focuses it', () => {
     // The row drops the outline for the mouse; the keyboard needs the accent ring the other lists draw.
     expect(rules(read('queries.css'), '.qc-item:focus-visible').join(';')).toMatch(/outline:\s*2px solid var\(--accent\)/);
+  });
+
+  it('keeps the detail line of a selected Options list row at the second ink', () => {
+    // --ink-3 on --accent-wash is 3.98:1 in the dark theme; --ink-2 is above 7:1 in both.
+    expect(rule(read('options.css'), '.opt-option[aria-selected="true"] .opt-option-detail')).toMatch(/color:\s*var\(--ink-2\)/);
   });
 });

@@ -86,6 +86,8 @@
 .opt-list:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
 .opt-option { display: flex; align-items: center; gap: 7px; padding: 3px 8px; border-radius: 4px; font-size: 13px; cursor: default; min-height: 26px; }
 .opt-option[aria-selected="true"] { background: var(--accent-wash); }
+/* The third ink falls short of 4.5:1 on the wash in the dark theme; the second reads in both. */
+.opt-option[aria-selected="true"] .opt-option-detail { color: var(--ink-2); }
 .opt-list:focus .opt-option[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
 .opt-list:focus .opt-option[aria-selected="true"] .opt-option-detail, .opt-list:focus .opt-option[aria-selected="true"] kbd { color: inherit; border-color: currentColor; }
 .opt-option.muted { color: var(--ink-3); }
