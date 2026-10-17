@@ -73,3 +73,24 @@ test('Ignore All, Add to Dictionary and turning checking off', async ({ page }) 
   await page.getByRole('menuitem', { name: 'Recheck Document' }).click();
   await expect(proofing(page)).toHaveAttribute('aria-label', /3 errors found/);
 });
+
+test('the Spelling pane corrects the word where it is now after the text before it changed', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  for (const button of ['Change', 'Change All']) {
+    const input = await newDocument(page, 'Hello teh world, and teh end.');
+    await input.press('ControlOrMeta+Home');
+    await input.press('F7');
+    const pane = page.getByRole('complementary', { name: 'Spelling' });
+    await expect(pane.locator('mark')).toHaveText('teh');
+    // The pane stays open while the writer types before the word.
+    await input.focus();
+    await input.press('ControlOrMeta+Home');
+    await page.keyboard.type('Big ');
+    await pane.getByRole('button', { name: button, exact: true }).click();
+    await expect(input).toHaveValue(button === 'Change' ? 'Big Hello the world, and teh end.' : 'Big Hello the world, and the end.');
+    // One correction is one undo step.
+    await input.press('ControlOrMeta+z');
+    await expect(input).toHaveValue('Big Hello teh world, and teh end.');
+  }
+  expect(errors).toEqual([]);
+});

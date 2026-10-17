@@ -100,12 +100,40 @@ export function createProofing({ editor, pkg, error, onState = () => {} }) {
 
   const misspellingAt = position => results.revision === engineReady()?.session.body.revision ? results.misspelled.find(m => m.start <= position && position <= m.end) : null;
 
+  /**
+   * The body's occurrences of a misspelled word as the text stands now. A misspelling was found by an
+   * earlier check, and the panes stay open while the document is edited, so its offsets can be stale.
+   */
+  function occurrences(word) {
+    const body = engineReady()?.session.body; if (!body) return [];
+    return wordsToCheck(proofingText(body.text, body.paragraphs)).filter(w => w.word === word);
+  }
+  /** Where misspelling `m` is now: itself while the text is unchanged, else the nearest occurrence of its word, or null. */
+  function locate(m) {
+    const body = engineReady()?.session.body; if (!body) return null;
+    if (body.text.slice(m.start, m.end) === m.word) return m;
+    return occurrences(m.word).reduce((best, w) => !best || Math.abs(w.start - m.start) < Math.abs(best.start - m.start) ? w : best, null);
+  }
+  /** Replace a misspelling; returns where it was replaced, or false. */
   function replaceWord(m, text) {
     const engine = engineReady(); if (!engine || !editable()) return false;
     engine.finishComposition();
     if (engine.session.path !== null) engine.editStory(null);
-    const ok = engine.execute(() => { engine.model.select(m.start, m.end); engine.model.replace(text); });
+    const at = locate(m);
+    if (!at) { schedule(0); return false; }
+    const ok = engine.execute(() => { engine.model.select(at.start, at.end); engine.model.replace(text); });
     engine.focus(); engine.onSelection?.();
+    schedule(0);
+    return ok ? at : false;
+  }
+  /** Replace every occurrence of a misspelled word except those ignored once, as one undo step. */
+  function replaceAll(word, text) {
+    const engine = engineReady(); if (!engine || !editable()) return false;
+    engine.finishComposition();
+    if (engine.session.path !== null) engine.editStory(null);
+    const targets = occurrences(word).filter(m => !ignoredOnce.has(`${m.start}:${m.word}`)).reverse();
+    if (!targets.length) return false;
+    const ok = engine.execute(() => { for (const m of targets) { engine.model.select(m.start, m.end); engine.model.replace(text); } });
     schedule(0);
     return ok;
   }
@@ -119,13 +147,16 @@ export function createProofing({ editor, pkg, error, onState = () => {} }) {
   const context = el('p.ed-proof-context');
   const suggestions = el('div.ed-proof-suggestions', { role: 'listbox', 'aria-label': 'Suggestions' });
   const button = (label, onclick, primary = false) => el(primary ? 'button.btn.btn-primary' : 'button.btn.btn-outline', { type: 'button', onclick }, label);
-  const change = button('Change', () => { const choice = selectedSuggestion(); if (current && choice) { replaceWord(current, choice); next(current.start + choice.length); } }, true);
+  const change = button('Change', () => {
+    const choice = selectedSuggestion(); if (!current || !choice) return;
+    const at = replaceWord(current, choice);
+    next(at ? at.start + choice.length : current.start);
+  }, true);
   const changeAll = button('Change All', () => {
     const choice = selectedSuggestion(); if (!current || !choice) return;
-    const engine = engineReady(); if (!engine || !editable()) return;
-    const word = current.word, targets = results.misspelled.filter(m => m.word === word).reverse();
-    engine.execute(() => { for (const m of targets) { engine.model.select(m.start, m.end); engine.model.replace(choice); } });
-    schedule(0); queueMicrotask(() => next(current.start));
+    const at = locate(current);
+    replaceAll(current.word, choice);
+    queueMicrotask(() => next(at ? at.start : current.start));
   });
   const ignoreOnce = button('Ignore Once', () => { if (!current) return; ignoredOnce.add(`${current.start}:${current.word}`); next(current.end); });
   const ignoreAllButton = button('Ignore All', () => { if (!current) return; ignoreAll(current.word); next(current.end); });
@@ -226,14 +257,7 @@ export function createProofing({ editor, pkg, error, onState = () => {} }) {
     },
     suggest(word) { return speller?.suggest(word) || []; },
     change(m, text) { return replaceWord(m, text); },
-    changeAll(word, text) {
-      const engine = engineReady(); if (!engine || !editable()) return false;
-      const targets = results.misspelled.filter(m => m.word === word).reverse();
-      if (!targets.length) return false;
-      if (engine.session.path !== null) engine.editStory(null);
-      const ok = engine.execute(() => { for (const m of targets) { engine.model.select(m.start, m.end); engine.model.replace(text); } });
-      schedule(0); return ok;
-    },
+    changeAll(word, text) { return replaceAll(word, text); },
     ignoreOnce(m) { ignoredOnce.add(`${m.start}:${m.word}`); schedule(0); },
     ignoreAll, addToDictionary,
     /** Forget Ignore and Ignore All choices for this session (Reset Ignored Words). */
