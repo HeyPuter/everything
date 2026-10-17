@@ -53,6 +53,28 @@ test('paragraph chords set spacing, indents and styles, and move paragraphs', as
   expect(errors).toEqual([]);
 });
 
+test('Go To +n counts from the caret when it is before the first target', async ({ page }) => {
+  const input = await newDocument(page, 'Intro text\nHeading A\nbody one\nHeading B\nbody two');
+  for (const heading of ['Heading A', 'Heading B']) { await caretIn(input, heading); await input.press('Control+Alt+1'); }
+  const dialog = page.getByRole('dialog', { name: 'Go To' });
+  for (const [move, heading] of [['+1', 'Heading A'], ['+2', 'Heading B']]) {
+    await caretIn(input, 'Intro');
+    await input.press('F5');
+    await dialog.getByLabel('Go to what').selectOption('heading');
+    await dialog.getByLabel('Enter heading number').fill(move);
+    await dialog.getByRole('button', { name: 'Go To' }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(await input.evaluate(el => el.value.slice(el.selectionStart, el.selectionStart + 9))).toBe(heading);
+  }
+  // Nothing comes before the first heading.
+  await caretIn(input, 'Intro');
+  await input.press('F5');
+  await dialog.getByLabel('Go to what').selectOption('heading');
+  await dialog.getByLabel('Enter heading number').fill('-1');
+  await dialog.getByRole('button', { name: 'Go To' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('This document has 2 headings.');
+});
+
 test('Go To jumps to pages, headings and bookmarks, and the Breaks menu inserts a column break', async ({ page }) => {
   const input = await newDocument(page, 'Start');
   for (let i = 0; i < 2; i++) { await input.press('End'); await input.press('ControlOrMeta+Enter'); await page.keyboard.type(`Page ${i + 2} text`); }

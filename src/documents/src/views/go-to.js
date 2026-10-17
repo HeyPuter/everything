@@ -86,8 +86,9 @@ export function openGoTo(engine, { onClose } = {}) {
     const targets = goToTargets(engine, kind.value), n = Number(match[2]);
     let index;
     if (match[1]) {
+      // Before the first target, +1 is the first one.
       const here = targets.findLastIndex(t => t.position <= current());
-      index = Math.max(0, here) + (match[1] === '+' ? n : -n);
+      index = here + (match[1] === '+' ? n : -n);
     } else index = n - 1;
     const target = targets[index];
     if (!target) { fail(targets.length ? `This document has ${targets.length} ${kind.selectedOptions[0].textContent.toLowerCase()}${targets.length === 1 ? '' : 's'}.` : `This document has no ${kind.selectedOptions[0].textContent.toLowerCase()}s.`); return; }
