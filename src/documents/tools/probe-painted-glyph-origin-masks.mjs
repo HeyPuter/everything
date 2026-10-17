@@ -5,8 +5,11 @@ import {chromium} from '@playwright/test';
 import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {dirname} from 'node:path';
-const [source,output,...options]=process.argv.slice(2);
-if(!source||!output||options.some(option=>!['--include-bold','--include-bmp'].includes(option)))throw Error('Usage: node tools/probe-painted-glyph-origin-masks.mjs source.docx output.json [--include-bold] [--include-bmp]');
+const [source,output,...args]=process.argv.slice(2);
+// The dev server's address: Playwright runs it on PLAYWRIGHT_PORT, a manual run on Vite's default.
+const baseURL=args.find(option=>option.startsWith('--base-url='))?.slice('--base-url='.length)||'http://127.0.0.1:5173';
+const options=args.filter(option=>!option.startsWith('--base-url='));
+if(!source||!output||options.some(option=>!['--include-bold','--include-bmp'].includes(option)))throw Error('Usage: node tools/probe-painted-glyph-origin-masks.mjs source.docx output.json [--include-bold] [--include-bmp] [--base-url=URL]');
 const includeBold=options.includes('--include-bold');
 const includeBmp=options.includes('--include-bmp');
 const sourceHash=()=>createHash('sha256').update(readFileSync(source)).digest('hex');
@@ -51,7 +54,7 @@ try{
    return native.call(this,text,x,y,...rest);
   };
  });
- await page.goto('http://127.0.0.1:5173/playground.html');
+ await page.goto(new URL('/playground.html',baseURL).href);
  await page.evaluate(async()=>{const guard=await import('/src/engine/embedded-fonts.js');
   if(guard.decodeEmbeddedFont.toString()!=='()=>null'||guard.embeddedFontSources.toString()!=='()=>null')throw Error('Opaque font guard missing');});
  const old=await page.getByRole('textbox',{name:'Document text'}).elementHandle();
