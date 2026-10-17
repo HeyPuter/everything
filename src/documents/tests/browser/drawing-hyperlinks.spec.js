@@ -32,7 +32,7 @@ test('matches native linked picture frames and opens only active outer links',as
   reference.links.forEach((r,i)=>{expect(active[i].target).toBe(r.target);for(const key of ['x','y','width','height'])expect(Math.abs(active[i][key]*.75-r[key]),key).toBeLessThan(.15);});
   writeFileSync(info.outputPath('geometry.json'),JSON.stringify(g,null,2));
   const canvas=page.locator('canvas.canvas-page').first();await canvas.scrollIntoViewIfNeeded();const box=await canvas.boundingBox(),scale=box.width/g.width;
-  for(const index of [0,1,2,3]){const f=g.frames[index];await page.keyboard.down('Control');await page.mouse.click(box.x+(f.x+f.width/2)*scale,box.y+(f.y+f.height/2)*scale);await page.keyboard.up('Control');}
+  for(const index of [0,1,2,3]){const f=g.frames[index];await page.keyboard.down('ControlOrMeta');await page.mouse.click(box.x+(f.x+f.width/2)*scale,box.y+(f.y+f.height/2)*scale);await page.keyboard.up('ControlOrMeta');}
   expect(await page.evaluate(()=>window.linkOpens)).toEqual([[outer,'_blank','noopener,noreferrer'],[outer,'_blank','noopener,noreferrer']]);
   sameParts(unzipSync(readFileSync(await save(page,info,'noedit'))),unzipSync(source));
   writeFileSync(info.outputPath('page1.png'),Buffer.from((await canvas.evaluate(c=>c.toDataURL())).split(',')[1],'base64'));
@@ -64,7 +64,7 @@ test('keeps quoted and named inner frames inactive through browser editing', asy
   const canvas = page.locator('canvas.canvas-page').first(); await canvas.scrollIntoViewIfNeeded();
   const box = await canvas.boundingBox(), scale = box.width / g.width;
   for (const f of g.frames) {
-    await page.keyboard.down('Control'); await page.mouse.click(box.x + (f.x + f.width / 2) * scale, box.y + (f.y + f.height / 2) * scale); await page.keyboard.up('Control');
+    await page.keyboard.down('ControlOrMeta'); await page.mouse.click(box.x + (f.x + f.width / 2) * scale, box.y + (f.y + f.height / 2) * scale); await page.keyboard.up('ControlOrMeta');
   }
   expect(await page.evaluate(() => window.linkOpens)).toEqual(ref.links.map(target => [target, '_blank', 'noopener,noreferrer']));
   sameParts(unzipSync(readFileSync(await save(page, info, 'inner-noedit'))), unzipSync(bytes));
