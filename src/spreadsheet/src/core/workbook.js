@@ -4348,6 +4348,13 @@ export class Workbook extends EventTarget {
     cells.forEach((row, i) => row.forEach((cell, j) => { if (cell?.array) arrayCells.set(cellKey(i, j), cell); }));
     const sourceArrays = arrayCells.size ? new FixedArrayIndex(arrayCells) : null;
     const filledArrays = new Map();
+    // Merged cells in the source repeat in every copy of it the fill lays down, as a paste tiles them; a
+    // destination merge they cover whole gives way, and one they would cut through refuses the fill.
+    const mergePlan = this._fillMergePlan(sheet, src, tgt, vertical, fillLimit);
+    if (mergePlan === false) return;
+    const covered = mergePlan
+      ? (r, c) => mergePlan.retainedBody(r, c) || mergePlan.kept.some(m => r >= m.r1 && r <= m.r2 && c >= m.c1 && c <= m.c2 && (r !== m.r1 || c !== m.c1))
+      : (r, c) => this._coveredByMerge(sheetId, r, c);
 
     const seriesFor = (list) => {
       const nums = list.map((cell) => cell?.f == null && typeof cell?.v === 'number' ? cell.v : null);
@@ -4441,7 +4448,8 @@ export class Workbook extends EventTarget {
         const r = vertical ? p : src.r1 + k;
         const c = vertical ? src.c1 + k : p;
         // Cells hidden under a merge are never written: a merged cell takes one value, at its top-left.
-        if (!inGrid(r, c, fillLimit) || this._coveredByMerge(sheetId, r, c)) continue;
+        // Those under a merge the fill lays down take the source's covered cells, as a paste gives them.
+        if (!inGrid(r, c, fillLimit) || covered(r, c)) continue;
         const idx = ((offset % n) + n) % n;
         const base = list[idx];
         if (sparkSources.size) {
@@ -4501,8 +4509,8 @@ export class Workbook extends EventTarget {
     }
     for (const a of filledArrays.values()) if (a.count !== a.total) { this._arrayRefused(sheet, a); return; }
     // Sparkline-only cells have no scalar change to report. Preflight the whole
-    // edit before changing their metadata, including array and protection guards.
-    if (sparkTargets.size && (this._gridLocked(sheet) ||
+    // edit before changing their metadata (or laying down merges), including array and protection guards.
+    if ((sparkTargets.size || mergePlan) && (this._gridLocked(sheet) ||
         entries.some(({ r, c }) => this._protectedAt(sheet, r, c)) ||
         this._fixedWritesBlocked(sheet, entries))) {
       this.setCellsWithTableHeaders(sheetId, entries, 'Fill');
@@ -4528,6 +4536,7 @@ export class Workbook extends EventTarget {
       }
       // A fill over a table header renames its column and keeps the headers distinct, as a paste does.
       const changed = this.setCellsWithTableHeaders(sheetId, entries, 'Fill');
+      if (mergePlan?.ranges.length) this._setMerges(sheet, mergePlan.next, 'Fill');
       // Rows filled under a table join it, whether the fill handle was dragged or double-clicked or Ctrl+D
       // pressed; the drag's own extendTableToCover call afterwards finds the table already grown. A fill
       // that wrote nothing (one a protected cell refused) grows no table. The whole target goes over, not
@@ -4535,6 +4544,45 @@ export class Workbook extends EventTarget {
       // Blank native anchors are real filled content even without scalar writes.
       if ((changed || nativeChanged) && tgt.r2 > src.r2) this.extendTableToCover(sheetId, { r1: tgt.r1, c1: tgt.c1, r2: tgt.r2, c2: tgt.c2 });
     });
+  }
+
+  /**
+   * The merges a fill lays down: each merge wholly inside the source block, repeated in every copy of the
+   * block along the fill (copies sit on the source's own grid, so a fill up or left lines up too) where it
+   * lands wholly inside the target. Planned against the sheet's merges as a paste is (planPasteMerges).
+   * Null when there is nothing to lay down; false, said, when the fill must be refused.
+   */
+  _fillMergePlan(sheet, src, tgt, vertical, limit) {
+    const own = sheet.merges.filter(m => m.r1 >= src.r1 && m.c1 >= src.c1 && m.r2 <= src.r2 && m.c2 <= src.c2);
+    if (!own.length) return null;
+    // Rows a filter hides are skipped by the fill, so its copies of the block are not whole: no merge repeats.
+    if (vertical && sheet.filterHidden?.size && [...sheet.filterHidden].some(r => r >= tgt.r1 && r <= tgt.r2 && (r < src.r1 || r > src.r2))) return null;
+    const size = vertical ? src.r2 - src.r1 + 1 : src.c2 - src.c1 + 1;
+    const [start, lo, hi] = vertical ? [src.r1, tgt.r1, tgt.r2] : [src.c1, tgt.c1, tgt.c2];
+    const incoming = [];
+    for (let t = Math.floor((lo - start) / size); start + t * size <= hi; t++) {
+      if (t === 0) continue;
+      const d = t * size;
+      for (const m of own) {
+        const next = vertical ? { ...m, r1: m.r1 + d, r2: m.r2 + d } : { ...m, c1: m.c1 + d, c2: m.c2 + d };
+        if ((vertical ? next.r1 < lo || next.r2 > hi : next.c1 < lo || next.c2 > hi) || next.r2 >= limit.rows || next.c2 >= limit.cols) continue;
+        incoming.push({ r1: next.r1, c1: next.c1, r2: next.r2, c2: next.c2 });
+      }
+    }
+    if (!incoming.length) return null;
+    const plan = planPasteMerges(sheet.merges, incoming);
+    if (plan.error) { this._emit('merge-paste', sheet.id, { reason: plan.error }); return false; }
+    if (this._gridLocked(sheet) || plan.ranges.some(m => this.lockedIn(sheet.id, m))) return false;
+    for (const m of plan.ranges) {
+      const array = this._fixedArrays(sheet).overlapping(m).next().value;
+      if (array) { this._arrayRefused(sheet, array, 'overlap'); return false; }
+      if (sheet.tables.some(t => intersection(m, { ...t.range, r2: tableRows(t).dataEnd }))) {
+        this._emit('merge-paste', sheet.id, { reason: 'table' }); return false;
+      }
+    }
+    // Only the destination merges near the target can cover a filled cell.
+    const kept = plan.remaining.filter(m => intersection(m, tgt));
+    return { ...plan, kept };
   }
 
   /**
