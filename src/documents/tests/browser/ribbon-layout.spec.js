@@ -387,3 +387,19 @@ test('on a wide touch screen the ribbon grows to its fingertip-high rows instead
     } finally { await context.close(); }
   }
 });
+
+test('on a Mac the Thesaurus tooltip names a chord that opens the Thesaurus, not one that collapses the ribbon', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'MacIntel' }));
+  await openEditor(page);
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Happy people');
+  await input.evaluate(el => { el.focus(); el.setSelectionRange(0, 5); el.dispatchEvent(new Event('select')); });
+  await tab(page, 'Review').click();
+  const title = await page.locator('#ribbon-panel-review').getByRole('button', { name: 'Thesaurus', exact: true }).getAttribute('title');
+  const chord = title.match(/\(([^)]+)\)/)[1];
+  // Cmd+Option+R belongs to Collapse the Ribbon, which takes it first.
+  await input.focus();
+  await page.keyboard.press(chord.replace('Cmd', 'Meta').replace('Option', 'Alt'));
+  await expect(page.getByRole('complementary', { name: 'Thesaurus pane' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Collapse the ribbon' })).toBeAttached();
+});

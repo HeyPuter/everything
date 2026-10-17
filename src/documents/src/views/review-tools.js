@@ -176,7 +176,7 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
     const has = !!editor();
     if (menuId === 'tools') return [
       { label: 'Spelling and Grammar', icon: 'spelling', items: commands.spellingItems() },
-      { label: 'Thesaurus…', icon: 'thesaurus', shortcut: MOD_KEY === 'Cmd' ? 'Option+Cmd+R' : 'Shift+F7', disabled: !has, onSelect: commands.thesaurus },
+      { label: 'Thesaurus…', icon: 'thesaurus', shortcut: 'Shift+F7', disabled: !has, onSelect: commands.thesaurus },
       { label: 'Translate', icon: 'translate', disabled: !has, items: commands.translateItems() },
       { label: 'Language…', icon: 'language', disabled: !ready(), onSelect: languageDialog },
       { separator: true },
