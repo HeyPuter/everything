@@ -1,7 +1,7 @@
 /** Validation records travel independently of cell values and formats. */
 import { shiftFormula } from './refs.js';
 import { isRangeSource } from './validation.js';
-import { intersection, clearRangeRecordsAtCells, compactRangeRecords, rangesCoveringCells } from './range-records.js';
+import { intersection, clearRangeRecordsAtCells, compactRangeRecords, rangesCoveringCells, removeRangeRecords } from './range-records.js';
 
 const relative = rule => rule.type === 'formula' || rule.type === 'list' && rule.relativeSource === true && isRangeSource(rule.source);
 const clone = rule => ({ ...rule, range: { ...rule.range }, ...(Array.isArray(rule.source) ? { source: [...rule.source] } : {}), ...(rule.colors ? { colors: { ...rule.colors } } : {}) });
@@ -54,4 +54,35 @@ export function replaceValidations(saved, incoming, cells, newId) {
   const coverage = rangesCoveringCells(cells);
   const added = incoming.flatMap(rule => coverage.map(({ range }) => intersection(rule.range, range)).filter(Boolean).map(range => piece(rule, range, newId())));
   return !added.length && kept.length === saved.length && kept.every((rule, i) => rule === saved[i]) ? saved : [...kept, ...added];
+}
+
+/**
+ * A cut block's validation goes with its cells: each rule's part inside `src` leaves it and lands at `dst`,
+ * replacing whatever rule the destination had, as a paste replaces it. A moved piece keeps the formula it
+ * read at its old place (the cut's own reference rewrite then points it at the moved cells); a piece left
+ * behind reads from its new corner, as a pasted-over rule's remains do. `targetRules` is null for a move
+ * within one sheet. Works on the rules' ranges, so a cut of whole columns costs what one cell does.
+ */
+export function moveValidations(sourceRules, targetRules, src, dst, newId) {
+  const dr = dst.r1 - src.r1, dc = dst.c1 - src.c1;
+  const moved = sourceRules.flatMap(rule => {
+    const cut = intersection(rule.range, src);
+    if (!cut) return [];
+    const range = { r1: cut.r1 + dr, c1: cut.c1 + dc, r2: cut.r2 + dr, c2: cut.c2 + dc };
+    const same = ['r1', 'c1', 'r2', 'c2'].every(k => cut[k] === rule.range[k]);
+    return [{ ...(same ? clone(rule) : piece(rule, cut, newId())), range }];
+  });
+  const carve = (rules, area) => {
+    if (!rules.some(rule => intersection(rule.range, area))) return rules;
+    const remaining = removeRangeRecords(rules.map((rule, index) => ({ range: rule.range, rule, index })), area);
+    return compactRangeRecords(remaining, r => r.index).sort((a, b) => a.index - b.index).map(({ rule, range }) =>
+      ['r1', 'c1', 'r2', 'c2'].every(k => range[k] === rule.range[k]) ? rule : piece(rule, range, newId()));
+  };
+  if (targetRules == null) {
+    const kept = carve(carve(sourceRules, src), dst);
+    const next = moved.length ? [...kept, ...moved] : kept;
+    return { source: next, target: next };
+  }
+  const target = carve(targetRules, dst);
+  return { source: carve(sourceRules, src), target: moved.length ? [...target, ...moved] : target };
 }

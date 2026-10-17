@@ -18,7 +18,7 @@ import { nativeSparklineDateMismatch, nativeSparklineLocation } from './native-s
 import { importedNativeSparklines } from './native-sparkline-import.js';
 import { packedMoveReferences } from './packed-move-refs.js';
 import { copyNativeSparklines, mapPastedNativeSparklines, replacePastedNativeSparklines } from './native-sparkline-paste.js';
-import { copyValidations, mapPastedValidations, replaceValidations } from './validation-paste.js';
+import { copyValidations, mapPastedValidations, replaceValidations, moveValidations } from './validation-paste.js';
 import { NATIVE_ICON_SETS, nativeIconFor, nativeIconCount } from './native-icons.js';
 import { conditionalRuleGroups, conditionalGroupPieces, distinctConditionalRanges } from './conditional-groups.js';
 import { moveConditionalFormats, conditionalMoveBlocks } from './conditional-move.js';
@@ -4095,9 +4095,10 @@ export class Workbook extends EventTarget {
         const moved = sheet.merges.filter(inside).map((m) => ({ r1: m.r1 + dr, c1: m.c1 + dc, r2: m.r2 + dr, c2: m.c2 + dc }));
         if (kept.length + moved.length !== sheet.merges.length || moved.length) this._setMerges(sheet, [...kept, ...moved], 'Move cells');
       }
-      // Validation rules and chart sources that lie
-      // wholly inside the block travel with it.
-      if (sheet.validations.some((v) => inside(v.range))) this._setValidations(sheet, sheet.validations.map((v) => (inside(v.range) ? { ...v, range: shifted(v.range) } : v)), 'Move cells');
+      // Validation goes with the cells it covers, replacing the destination's as a paste does; chart
+      // sources that lie wholly inside the block travel with it.
+      const validations = moveValidations(sheet.validations, null, src, dst, newId).target;
+      if (validations !== sheet.validations) this._setValidations(sheet, validations, 'Move cells');
       if (sheet.charts.some((ch) => inside(ch.range))) this._setCharts(sheet, sheet.charts.map((ch) => (inside(ch.range) ? { ...ch, range: shifted(ch.range) } : ch)), 'Move cells');
       this._moveScenarioCells(sheet, inside, shifted);
       this._rewriteRuleFormulas((formula, owner) => follow(formula, owner.name), 'Move cells', { conditional: false });
@@ -4307,15 +4308,11 @@ export class Workbook extends EventTarget {
       if (across && movedMerges.length) this._setMerges(source, source.merges.filter((m) => !inside(m)), 'Move cells');
       const keptMerges = sheet.merges.filter((m) => !overlapsDst(m) && (across || !inside(m)));
       if (keptMerges.length !== sheet.merges.length || movedMerges.length) this._setMerges(sheet, [...keptMerges, ...movedMerges], 'Move cells');
-      const carryOver = (key, setter) => {
-        const moved = source[key].filter((x) => inside(x.range)).map((x) => ({ ...x, range: shifted(x.range) }));
-        if (!moved.length) return;
-        if (across) {
-          setter(source, source[key].filter((x) => !inside(x.range)));
-          setter(sheet, [...sheet[key], ...moved]);
-        } else setter(sheet, sheet[key].map((x) => (inside(x.range) ? { ...x, range: shifted(x.range) } : x)));
-      };
-      carryOver('validations', (s, list) => this._setValidations(s, list, 'Move cells'));
+      // Validation goes with the cells it covers, the part of a rule outside the block staying behind, and
+      // replaces the destination's, as a paste does.
+      const validations = moveValidations(source.validations, across ? sheet.validations : null, src, dst, newId);
+      if (across && validations.source !== source.validations) this._setValidations(source, validations.source, 'Move cells');
+      if (validations.target !== sheet.validations) this._setValidations(sheet, validations.target, 'Move cells');
       if (!across && sheet.charts.some((ch) => inside(ch.range))) this._setCharts(sheet, sheet.charts.map((ch) => (inside(ch.range) ? { ...ch, range: shifted(ch.range) } : ch)), 'Move cells');
       // A scenario's cells are its own sheet's: they follow a block moved within the sheet.
       if (!across) this._moveScenarioCells(sheet, inside, shifted);
