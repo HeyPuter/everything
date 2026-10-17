@@ -14,6 +14,7 @@ export const MAX_DECIMAL_PLACES = 20;
 
 import { formatWithCode, codeDateKind, codeScalesPercent, codeLocale, localeTag, MAX_FORMAT_CODE_LENGTH } from './numfmt.js';
 import { normalizeNumberDigits } from './number-shape.js';
+import { parseDecimalText } from './formula/number-text.js';
 
 /** Font families a cell can ask for: [key, label, CSS stack]. The default is the app font. */
 /**
@@ -716,8 +717,10 @@ export function parseInput(text, loc = locale) {
   // The sign may lead, as Turkish writes %12,5 (and -%12,5), and a typed %50 reads in any regional format.
   if (t.endsWith('%') || /^[-+]?%/.test(t)) {
     const body = (t.endsWith('%') ? t.slice(0, -1) : t.replace('%', '')).trim();
-    const n = body !== '' && /\d/.test(body) ? localeNumber(body, info) : null;
-    if (n != null) return { v: n / 100, f: null, fmt: 'percent' };
+    // The percent moves the decimal point of the digits as typed, as VALUE reads it, so 12.3% is
+    // 0.123 exactly as Excel stores it and not 12.3 / 100 (0.12300000000000001).
+    const n = body !== '' && /\d/.test(body) ? localeNumber(body, info, (digits) => parseDecimalText(digits, -2)) : null;
+    if (n != null) return { v: n, f: null, fmt: 'percent' };
   }
 
   if (/\d/.test(t)) {
