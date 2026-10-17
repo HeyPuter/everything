@@ -95,6 +95,21 @@ describe('the Spelling dialog', () => {
     const { dialog } = await mount({ A1: '=1+1', A2: '12' });
     expect(dialog.querySelector('.spell-status').textContent).toMatch(/no text to check/);
   });
+
+  it('puts the focus on Close at the end without scrolling a phone\'s bottom sheet past its title', async () => {
+    const calls = [];
+    const focus = HTMLElement.prototype.focus;
+    vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (opts) { calls.push([this, opts]); return focus.call(this, opts); });
+    for (const phone of [true, false]) {
+      vi.stubGlobal('matchMedia', (q) => ({ matches: phone ? !/min-width/.test(q) : true, addEventListener() {}, removeEventListener() {} }));
+      calls.length = 0;
+      const { button } = await mount({ A1: '12' });
+      const close = button('Close');
+      expect(document.activeElement).toBe(close);
+      expect(calls.find(([n]) => n === close)[1]).toEqual({ preventScroll: phone });
+      view.destroy(); view = null; closeAllModals(); document.body.innerHTML = '<div id="app"></div>';
+    }
+  });
 });
 
 describe('the thesaurus answer', () => {

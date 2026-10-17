@@ -153,7 +153,8 @@ export async function openSpellingDialog(ctx, { language = spellingLanguage() } 
       changeTo.disabled = true;
       status.textContent = `The spelling check is complete for ${scope ? 'the selection' : 'the sheet'}.`;
       refreshButtons();
-      modal?.panel?.querySelector('.row-end .btn')?.focus();
+      // As openModal does: on a phone the bottom sheet keeps its title and close button in view.
+      modal?.panel?.querySelector('.row-end .btn')?.focus({ preventScroll: !matchMedia('(min-width: 640px)').matches });
       return;
     }
     changeTo.disabled = false;
