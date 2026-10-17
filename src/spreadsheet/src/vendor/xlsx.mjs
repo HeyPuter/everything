@@ -3434,29 +3434,29 @@ function numdate(v/*:number*/)/*:Date|number*/ {
 
 /* ISO 8601 Duration */
 function parse_isodur(s) {
-	var sec = 0, mt = 0, time = false;
-	var m = s.match(/P([0-9\.]+Y)?([0-9\.]+M)?([0-9\.]+D)?T([0-9\.]+H)?([0-9\.]+M)?([0-9\.]+S)?/);
+	/* Puter Spreadsheet local patch: a duration may be negative (LibreOffice writes -PT01H30M00S for a
+	 * negative time), may carry fractional seconds (PT00H01M23.45S) and a day count (P1DT02H00M00S, a
+	 * time past 24 hours); the sign was dropped, every field was read as a whole number, and a day count
+	 * fell through to the month check and refused the file. Years and months still have no fixed length. */
+	var sec = 0, time = false;
+	var m = s.match(/^\s*([-+])?P([0-9\.]+Y)?([0-9\.]+M)?([0-9\.]+D)?(?:T([0-9\.]+H)?([0-9\.]+M)?([0-9\.]+S)?)?\s*$/);
 	if(!m) throw new Error("|" + s + "| is not an ISO8601 Duration");
-	for(var i = 1; i != m.length; ++i) {
+	for(var i = 2; i != m.length; ++i) {
 		if(!m[i]) continue;
-		mt = 1;
-		if(i > 3) time = true;
+		if(i > 4) time = true;
+		var v = parseFloat(m[i]);
 		switch(m[i].slice(m[i].length-1)) {
 			case 'Y':
 				throw new Error("Unsupported ISO Duration Field: " + m[i].slice(m[i].length-1));
-			case 'D': mt *= 24;
-				/* falls through */
-			case 'H': mt *= 60;
-				/* falls through */
+			case 'D': sec += v * 86400; break;
+			case 'H': sec += v * 3600; break;
 			case 'M':
 				if(!time) throw new Error("Unsupported ISO Duration Field: M");
-				else mt *= 60;
-				/* falls through */
-			case 'S': break;
+				sec += v * 60; break;
+			case 'S': sec += v; break;
 		}
-		sec += mt * parseInt(m[i], 10);
 	}
-	return sec;
+	return m[1] == "-" ? -sec : sec;
 }
 
 /* Blame https://bugs.chromium.org/p/v8/issues/detail?id=7863 for the regexide */
