@@ -19,6 +19,10 @@ it('keeps single-cell and bare forms scalar', () => {
   expect(calc('ROW()')).toBe(100);
   expect(calc('COLUMN()')).toBe(26);
   expect(calc('ROW(5)')).toEqual({ error: '#VALUE!' });
+});
+
+// A whole column numbers the rows it is read to, spilling from a cell as Excel's does (see row-column-whole-line).
+it('starts a whole column or row at its first number', () => {
   expect(calc('ROW(A:A)')).toBe(1);
   expect(calc('COLUMN(3:3)')).toBe(1);
 });

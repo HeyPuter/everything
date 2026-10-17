@@ -12003,6 +12003,12 @@ export class Workbook extends EventTarget {
         if (!target) return null;
         return this.spillRangeAt(target.id, ref.r1, ref.c1);
       },
+      // The used area of a sheet, to which a whole column or row is read (see getRangeValues): ROW(A:A)
+      // numbers the rows that read covers without calculating a cell of them. Null for an empty sheet.
+      usedArea: (sheetName) => {
+        const target = byName(sheetName);
+        return target && target.kind !== 'chart' ? this.usedRange(target.id) : null;
+      },
       getRangeValues: (ref) => {
         const target = byName(ref.sheet);
         if (!target || target.kind === 'chart') return [[err('#REF!')]];

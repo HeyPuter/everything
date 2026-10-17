@@ -68,13 +68,14 @@ it('keeps current-row references independent of other dependent rows after inser
 });
 
 it.each([
-  // A whole-column or whole-row reference answers with its first index, however large the sheet.
+  // A whole-column or whole-row reference numbers the rows (columns) in use, starting at its first
+  // index, however large the sheet: here no used area is known, so only the first.
   ['ROW', 'Data!A:A'], ['COLUMN', 'Data!1:1'],
 ])('%s reads no cell to answer for %s', (fn, ref) => {
   const failRead = () => { throw new Error('An address check read cell values'); };
   expect(evaluate(parseFormula(`${fn}(${ref})`), {
     sheetExists: () => true, getValue: failRead, getRangeValues: failRead,
-  })).toBe(1);
+  }).values).toEqual([[1]]);
 });
 
 it.each(['ROW', 'COLUMN'])('%s reads no cell for a written-out span of the whole grid', (fn) => {

@@ -579,6 +579,32 @@ function indexCriterion(match, range) {
   match.positions = positions;
 }
 
+/**
+ * ROW(A:A) or COLUMN(1:1): the numbers of the rows (columns) a whole column (row) is read to — the
+ * sheet's used area, found without calculating a cell, as an address check must not — standing for
+ * the whole of it, as A:A<>"" does. The two then pair row for row, so LOOKUP(2,1/(A:A<>""),ROW(A:A))
+ * and MAX(IF(A:A<>"",ROW(A:A))) find the last row in use; a million-row array is never built for the
+ * rows past the data, which ROWS counts no more than it does for A:A*2.
+ */
+function wholeLine({ ref }, ctx, axis) {
+  const used = ctx.usedArea ? ctx.usedArea(ref.sheet) : null;
+  const rows = axis === 'rows';
+  const first = rows ? ref.r1 : ref.c1;
+  const n = Math.max(used ? (rows ? used.r2 : used.c2) : -1, first) - first + 1;
+  // The last numbering built is kept, as a range read is shared (and, like one, never written to): a
+  // column of formulas each asking ROW(A:A) gets the one array, and whatever is indexed by its values
+  // array is reused with it. Freezing it cost more than building it afresh.
+  const key = `${axis},${first},${n}`;
+  if (wholeLines[axis]?.key !== key) {
+    const numbers = Array.from({ length: n }, (_, i) => first + i + 1);
+    wholeLines[axis] = { key, values: rows ? numbers.map((v) => [v]) : [numbers] };
+  }
+  const values = wholeLines[axis].values;
+  return rows ? { range: true, values, extent: [ref.r2 - ref.r1 + 1, 1], tall: true }
+    : { range: true, values, extent: [1, ref.c2 - ref.c1 + 1], wide: true };
+}
+const wholeLines = {};
+
 /** The rows and columns of a range that were read: the values it holds, which may stop short of the cells it names. */
 function readWindow(range) {
   return [range.values.length, range.values[0]?.length || 0];
@@ -2237,6 +2263,7 @@ export const FUNCTIONS = {
   },
   // ROW(A1:A4) is the array {1;2;3;4}, the classic input to SUMPRODUCT and MOD tricks.
   // Its cap is SEQUENCE's, so the two functions answer the same span the same way.
+  // ROW(A:A) numbers the rows a whole column is read to (see wholeLine).
   ROW: {
     localeContext: false,
     callerContext: args => args.length ? [] : ['row'],
@@ -2249,10 +2276,10 @@ export const FUNCTIONS = {
       }
       if (!isRange(a) || !a.ref) return err('#VALUE!');
       const { r1, r2 } = a.ref;
-      // A whole column keeps answering with its first row, since an address check must never
-      // allocate a million-row array; a written-out span past the cap is #NUM!, as SEQUENCE
-      // answers past its own, rather than the first row again, which reads as a real answer.
-      if (r2 === r1 || a.ref.kind === 'cols') return r1 + 1;
+      if (r2 === r1) return r1 + 1;
+      if (a.ref.kind === 'cols') return wholeLine(a, ctx, 'rows');
+      // A written-out span past the cap is #NUM!, as SEQUENCE answers past its own, rather than
+      // the first row again, which reads as a real answer.
       if (r2 - r1 + 1 > 100000) return err('#NUM!'); // SEQUENCE's cap, so both refuse the same span
       return { range: true, values: Array.from({ length: r2 - r1 + 1 }, (_, i) => [r1 + i + 1]) };
     },
@@ -2270,7 +2297,8 @@ export const FUNCTIONS = {
       }
       if (!isRange(a) || !a.ref) return err('#VALUE!');
       const { c1, c2 } = a.ref;
-      if (c2 === c1 || a.ref.kind === 'rows') return c1 + 1; // a whole row, as ROW answers for a whole column
+      if (c2 === c1) return c1 + 1;
+      if (a.ref.kind === 'rows') return wholeLine(a, ctx, 'cols'); // a whole row, as ROW answers for a whole column
       if (c2 - c1 + 1 > 100000) return err('#NUM!');
       return { range: true, values: [Array.from({ length: c2 - c1 + 1 }, (_, i) => c1 + i + 1)] };
     },
