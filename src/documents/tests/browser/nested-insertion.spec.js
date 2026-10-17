@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {showAllTools} from './helpers/editor-tools.js';
+import {showAllTools,onTab} from './helpers/editor-tools.js';
 import {reopenDocx} from './helpers/reopen-docx.js';
 for(const label of ['Outer before','Inner line 1'])test(`inserts a table inside ${label} using its cell width`,async({page},info)=>{
  const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('/playground.html');await showAllTools(page);
@@ -7,7 +7,7 @@ for(const label of ['Outer before','Inner line 1'])test(`inserts a table inside 
  const input=page.getByRole('textbox',{name:'Document text'});await expect(input).toHaveValue(/Inner line 6/);
  const before=await input.inputValue();
  await input.evaluate((el,label)=>{const at=el.value.indexOf(label)+5;el.focus();el.setSelectionRange(at,at);el.dispatchEvent(new Event('select',{bubbles:true}));},label);
- const insert=page.getByRole('button',{name:'Insert table',exact:true});await expect(insert).toBeEnabled();await insert.click();
+ const insert=(await onTab(page,'insert')).getByRole('button',{name:'Insert table',exact:true});await expect(insert).toBeEnabled();await insert.click();
  await page.getByLabel('Table rows',{exact:true}).fill('2');await page.getByLabel('Table columns',{exact:true}).fill('2');await page.getByRole('button',{name:'Insert',exact:true}).click();
  await expect(page.getByRole('dialog')).toHaveCount(0);await expect(input).toBeFocused();
  const inserted=await input.inputValue();expect(inserted.length).toBe(before.length+5);
