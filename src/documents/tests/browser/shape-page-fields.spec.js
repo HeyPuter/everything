@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { unzipSync } from 'fflate';
 import { reopenDocx } from './helpers/reopen-docx.js';
-import { showAllTools } from './helpers/editor-tools.js';
+import { showAllTools, onTab } from './helpers/editor-tools.js';
 for(const suffix of ['', '-header', '-plain']) test(`paints native drawing page fields ${suffix} and retains their sources`,async({page},info)=>{
   const header=suffix==='-header',plain=suffix==='-plain',name='shape-page-fields'+suffix,source=`public/fixtures/${name}.docx`,bytes=readFileSync(source);
   const ref=JSON.parse(readFileSync(`tests/fixtures/${name}/reference.json`));
@@ -35,7 +35,7 @@ for(const suffix of ['', '-header', '-plain']) test(`paints native drawing page 
   await input.press('ControlOrMeta+z');await expect(input).toHaveValue(original);await check(ref.pages);expect(unzipSync(readFileSync(await save('undo')))).toEqual(before);
   await reopenDocx(page,input,edited,editedText);await check(ref.pages);
   if(header)return;
-  await input.press('ControlOrMeta+Home');await showAllTools(page);await page.getByRole('button',{name:'Page break',exact:true}).click();
+  await input.press('ControlOrMeta+Home');await showAllTools(page);await(await onTab(page,'insert')).getByRole('button',{name:'Page break',exact:true}).click();
   const moved=ref.pages.map((p,i)=>({...p,F0:i===0?(plain?'iv':'IV'):i===1?(plain?'v':'V'):'8',F1:i===0?(plain?'iv':'IV'):i===1?(plain?'v':'V'):'8',F4:'4',F6:i<2?'3':'1'}));
   await check([{},...moved]);const movedText=await input.inputValue(),movedFile=await save('repaginated');
   await reopenDocx(page,input,movedFile,movedText);await check([{},...moved]);
