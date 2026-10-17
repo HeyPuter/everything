@@ -24,7 +24,8 @@ async function screenshot(page, info, index, name) { const png = await page.loca
 test('edits inherited row heights with accessible controls and preserves merged and repeated rows through reopen', async ({ page }, info) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   const input = await fixture(page), text = await input.inputValue(), button = (await onTab(page, 'tableLayout')).getByRole('button', { name: 'Row height', exact: true }), undo = page.getByRole('button', { name: 'Undo', exact: true });
-  await expectTableCommandUnavailable(page, 'Row height'); await select(input, 'Inherited minimum');
+  // Entering a table shows the Table Layout tab without switching to it; bring it forward as a user would.
+  await expectTableCommandUnavailable(page, 'Row height'); await select(input, 'Inherited minimum'); await onTab(page, 'tableLayout');
   await expect(button.locator('svg')).toHaveAttribute('aria-hidden', 'true');
   await select(input, 'Inherited minimum'); await expect(button).toHaveAttribute('title', 'Row height: At least 48 pt'); const before = await input.evaluate(el => parseFloat(el.style.top));
   await button.focus(); await button.press('Enter'); let d = page.getByRole('dialog', { name: 'Row height', exact: true });
@@ -37,7 +38,7 @@ test('edits inherited row heights with accessible controls and preserves merged 
   await select(input, 'Header height'); await height(page, 'atLeast', 42);
   await expect(input).toHaveValue(text); await screenshot(page, info, 0, 'row-heights-page.png'); await screenshot(page, info, 2, 'row-heights-continued.png');
   const saved = await download(page, info, 'row-heights.docx'); await reopenDocx(page, input, saved, text); await expect(undo).toBeDisabled();
-  for (const [label, title] of [['Inherited minimum', 'At least 72 pt'], ['Direct automatic', 'At least 48 pt'], ['Omitted rule', 'Automatic'], ['Merged owner', 'At least 48 pt'], ['Header height', 'At least 42 pt']]) { await select(input, label); await expect(button).toHaveAttribute('title', 'Row height: ' + title); }
+  for (const [label, title] of [['Inherited minimum', 'At least 72 pt'], ['Direct automatic', 'At least 48 pt'], ['Omitted rule', 'Automatic'], ['Merged owner', 'At least 48 pt'], ['Header height', 'At least 42 pt']]) { await select(input, label); await onTab(page, 'tableLayout'); await expect(button).toHaveAttribute('title', 'Row height: ' + title); }
   expect(errors).toEqual([]);
 });
 
