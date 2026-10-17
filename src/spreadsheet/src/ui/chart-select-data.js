@@ -171,8 +171,9 @@ export function openSelectDataDialog(ctx, chart) {
     el('div.select-data-columns', {},
       el('div.select-data-box', {}, el('span.field-label', {}, 'Legend Entries (Series)'), seriesTools, seriesList),
       el('div.select-data-box', {}, el('span.field-label', {}, 'Category Labels'), categoryTools, categoryList)),
-    el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: hiddenAndEmpty }, 'Hidden and Empty Cells'), el('div.grow'),
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
+    el('div.row.row-end.select-data-foot', {}, el('button.btn.btn-ghost', { type: 'button', onclick: hiddenAndEmpty }, 'Hidden and Empty Cells'),
+      el('div.row.select-data-actions', {},
+        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, 'OK'))));
   render();
   const modal = openModal({ title: 'Select Data Source', content, wide: true, initialFocus: rangeInput, onClose: () => ctx.grid.focus() });
   return modal;

@@ -80,6 +80,15 @@ describe('dialogs at phone width', () => {
     expect(js).toContain("el('div.row.rec-pivot-foot'");
     expect(js).toContain("el('div.row.rec-pivot-actions'");
   });
+
+  it('wraps Cancel and OK under Hidden and Empty Cells in Select Data Source, instead of pushing that button off the left edge', () => {
+    const css = read('chart-ui.css');
+    expect(rule(css, '.select-data-foot')).toMatch(/flex-wrap:\s*wrap/);
+    expect(rule(css, '.select-data-actions')).toMatch(/margin-left:\s*auto/);
+    const js = readFileSync(new URL('../src/ui/chart-select-data.js', import.meta.url), 'utf8');
+    expect(js).toContain("el('div.row.row-end.select-data-foot'");
+    expect(js).toContain("el('div.row.select-data-actions'");
+  });
 });
 
 describe('dialog lists for the keyboard and the eye', () => {

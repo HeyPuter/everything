@@ -83,6 +83,9 @@
 .select-data-list { min-height: 140px; max-height: 220px; overflow: auto; border: 1px solid var(--hairline); border-radius: 4px; padding: 2px; }
 .select-data-row { display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 6px; border: 0; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .select-data-row[aria-selected="true"] { background: var(--accent-soft, var(--surface-3)); }
+/* Cancel and OK keep together at the right; on a phone they wrap under Hidden and Empty Cells. */
+.select-data-foot { flex-wrap: wrap; row-gap: 8px; }
+.select-data-actions { margin-left: auto; }
 .chart-move-form { display: flex; flex-direction: column; gap: 10px; }
 .chart-move-row { display: flex; align-items: center; gap: 10px; }
 .chart-move-row .check { min-width: 110px; }
