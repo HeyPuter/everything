@@ -13,11 +13,12 @@ for (const fixture of ['theme-gray-tints', 'theme-gray-boundaries']) test(`paint
   await expect(input).toHaveValue(/^C000/, { timeout: 60000 });
   await expect(input).toHaveJSProperty('readOnly', false);
   const check = async () => {
-    await expect(page.locator('canvas.canvas-page')).toHaveCount(Math.ceil(colors.length / 35));
-    await expect.poll(() => page.locator('canvas.canvas-page').evaluateAll((pages, colors) => colors.map((c, i) => {
-      // Original fixed rows: 20pt high, 36pt top margin, 35 rows per canvas.
-      return [...pages[Math.floor(i / 35)].getContext('2d').getImageData(288, Math.round((46 + 20 * (i % 35)) * 4 / 3), 1, 1).data].slice(0, 3);
-    }), colors), { timeout: 30000 }).toEqual(colors.map(c => c.rgb));
+    // Fixed rows 20pt high under a 36pt top margin; each label's page is the native page recorded in the
+    // reference (36 exact rows fill the 720pt body, as in the native PDF).
+    const rows = colors.map(c => [c.page, colors.filter(o => o.page === c.page).indexOf(c)]);
+    await expect(page.locator('canvas.canvas-page')).toHaveCount(Math.max(...colors.map(c => c.page)) + 1);
+    await expect.poll(() => page.locator('canvas.canvas-page').evaluateAll((pages, rows) => rows.map(([p, k]) =>
+      [...pages[p].getContext('2d').getImageData(288, Math.round((46 + 20 * k) * 4 / 3), 1, 1).data].slice(0, 3)), rows), { timeout: 30000 }).toEqual(colors.map(c => c.rgb));
   };
   await check();
   await input.focus(); await input.press('ControlOrMeta+Home'); await page.keyboard.insertText('Test ');
