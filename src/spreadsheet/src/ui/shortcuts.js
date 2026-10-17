@@ -21,7 +21,8 @@ const GROUPS = [
     [`${MOD_KEY} + Backspace`, 'Scroll back to the active cell'],
     [`${MOD_KEY} + Shift + P or Alt + /`, 'Search the menus: every action by name'],
     [`${MOD_KEY} + J`, 'Open or close the AI assistant (Escape in it goes back to the sheet)'],
-    ['Page Up / Page Down', 'Scroll a screen'],
+    ['Page Up / Page Down', 'Scroll a screen up / down'],
+    ['Alt + Page Up / Alt + Page Down', 'Scroll a screen left / right'],
     // Browsers keep Ctrl+PgUp/PgDn for their own tabs on Windows and Linux, so the Alt chords come first.
     ['Alt + → / Alt + ←', `Next / previous sheet (also ${MOD_KEY} + Page Down / Page Up)`],
     ['End, then an arrow', 'Jump to the edge of the data (End Mode); End, then Home: the last cell'],

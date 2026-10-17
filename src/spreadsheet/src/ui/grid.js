@@ -4860,14 +4860,34 @@ export function createGrid(opts) {
       case 'PageUp': {
         e.preventDefault();
         if (mod) { opts.onCommand?.('sheet', key === 'PageDown' ? 'next' : 'prev'); return; }
-        // A page is the rows the scrolling part of the viewport shows, wherever it is scrolled to.
+        // A page is the rows the scrolling part of the viewport shows, wherever it is scrolled to; with Alt
+        // it is the columns, and the page goes right or left, as in Excel.
         ensureOffsets();
-        const st = viewport.scrollTop - shift.y;
-        const page = rowOffsets.indexAt(st + viewport.clientHeight) - rowOffsets.indexAt(st + frozen.h) - 1;
+        const across = e.altKey;
+        const offsets = across ? colOffsets : rowOffsets;
+        const at = across ? colX : rowY;
+        const scrolled = () => (across ? viewport.scrollLeft - shift.x : viewport.scrollTop - shift.y);
+        const before = scrolled();
+        const page = offsets.indexAt(before + (across ? viewport.clientWidth : viewport.clientHeight)) - offsets.indexAt(before + (across ? frozen.w : frozen.h)) - 1;
         const n = Math.max(1, page) * (key === 'PageDown' ? 1 : -1);
         const origin = e.shiftKey ? sel.focus : sel.active;
-        const target = visibleTarget({ r: clamp(origin.r + n, 0, b.rows - 1), c: origin.c }, Math.sign(n), 0);
-        setSelection(e.shiftKey ? S.extendTo(sel, target.r, target.c) : S.single(target.r, target.c));
+        const target = across
+          ? visibleTarget({ r: origin.r, c: clamp(origin.c + n, 0, b.cols - 1) }, 0, Math.sign(n))
+          : visibleTarget({ r: clamp(origin.r + n, 0, b.rows - 1), c: origin.c }, Math.sign(n), 0);
+        // The sheet scrolls by the page too, so the cell lands where the one it left was on screen.
+        const onScreen = at(across ? origin.c : origin.r) - before;
+        setSelection(e.shiftKey ? S.extendTo(sel, target.r, target.c) : S.single(target.r, target.c), { scroll: false });
+        if (across) windowsFor(null, target.c); else windowsFor(target.r, null);
+        const next = Math.max(across ? -shift.x : -shift.y, at(across ? target.c : target.r) - onScreen);
+        // A page past the lines laid out so far reaches the blank ones it shows, as scrolling there does.
+        const room = next + (across ? viewport.clientWidth : viewport.clientHeight) - offsets.total();
+        if (room > 0 && !offsets.win) {
+          const s = sheet();
+          const more = Math.ceil(room / Math.max(1, Math.round((across ? s.defaultColWidth : s.defaultRowHeight) * zoom)));
+          if (wb.ensureSize(sheetId, across ? 0 : s.rows + more, across ? s.cols + more : 0)) rebuildOffsets();
+        }
+        if (across) scrollViewportTo(next, viewport.scrollTop - shift.y); else scrollViewportTo(viewport.scrollLeft - shift.x, next);
+        scrollIntoView(target);
         return;
       }
       case 'Delete':
