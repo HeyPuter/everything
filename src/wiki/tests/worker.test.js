@@ -295,6 +295,20 @@ describe('collaboration worker: access edge cases', () => {
     await expect(commit(env, bob, `${root}.c`, (y) => C.reply(y, thread, 'a reply', 'bob'))).resolves.toBeTruthy();
   });
 
+  it('lets people edit their own messages and the owner delete anyone’s', async () => {
+    const root = await created(env);
+    const c = await env.service().call(alice, { op: 'invite', room: ROOM, role: 'commenter' });
+    await env.service().call(bob, { op: 'join', room: ROOM, token: c.token });
+    const C = await import('../src/data/comments.js');
+    let thread;
+    await commit(env, bob, `${root}.c`, (y) => (thread = C.addThread(y, { text: 'draft', by: 'bob' })));
+    const msg = (y) => C.getThread(y, thread).messages[0];
+    await expect(commit(env, bob, `${root}.c`, (y) => C.editMessage(y, thread, msg(y).id, 'final'))).resolves.toBeTruthy();
+    expect(msg(await read(env, alice, `${root}.c`)).text).toBe('final');
+    await expect(commit(env, alice, `${root}.c`, (y) => C.deleteMessage(y, thread, msg(y).id))).resolves.toBeTruthy();
+    expect(C.getThread(await read(env, alice, `${root}.c`), thread)).toBe(null);
+  });
+
   it('wipes the history of pages deleted for good', async () => {
     const root = await created(env);
     await commit(env, alice, root, (y) => insertBlock(y, { text: 'secret' }));

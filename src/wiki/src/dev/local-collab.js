@@ -97,20 +97,38 @@ export function localCollab(user) {
   const listeners = new Set();
   const puter = fakePuter(listeners);
   const subs = new Map();
+  // Subjects name their room (in the owner's key or the handle), so a signal
+  // reaches only that space. Handles made before they named it get a signal
+  // without detail, which fetches everything.
+  const deliver = (key, value) => {
+    const room = key.split(':')[1];
+    for (const [subject, fn] of subs) {
+      if (subject.includes(room)) fn({ event: { op: 'set', key, value } });
+      else if (/^kv:dev-[0-9a-f]{8}-[0-9a-f]{4}-/.test(subject)) fn({ event: { op: 'set', key, value: {} } });
+    }
+  };
   // Other tabs' writes arrive as storage events; turn signal writes into live events.
   window.addEventListener('storage', (e) => {
     if (e.key !== KEY) return;
-    for (const [subject, fn] of subs) fn({ event: { op: 'set', value: { docs: ['*'] } }, subject });
+    let before = {};
+    let after = {};
+    try {
+      before = JSON.parse(e.oldValue || '{}').kv || {};
+      after = JSON.parse(e.newValue || '{}').kv || {};
+    } catch {
+      return;
+    }
+    for (const [key, value] of Object.entries(after)) if (key.endsWith(':ev:signal') && JSON.stringify(before[key]) !== JSON.stringify(value)) deliver(key, value);
   });
   listeners.add((key, value) => {
-    if (!key.endsWith(':ev:signal')) return;
-    for (const [subject, fn] of subs) if (subject.endsWith(key) || subject.endsWith(':signal')) fn({ event: { op: 'set', key, value } });
+    if (key.endsWith(':ev:signal')) deliver(key, value);
   });
   const identity = user.username === OWNER.username ? OWNER : user;
   return {
     request: async (_server, op, data) => {
       try {
-        const service = new WikiService(puter, { fetcher: async () => ({ ok: true, json: async () => ({ handle: `dev-${identity.uuid}` }) }) });
+        const fetcher = async (_url, init) => ({ ok: true, json: async () => ({ handle: `dev-${identity.uuid.slice(0, 8)}-${init?.body ? JSON.parse(init.body).prefix.split(':')[1] : 'x'}` }) });
+        const service = new WikiService(puter, { fetcher });
         return structuredClone(await service.call(identity, { op, ...data }));
       } catch (err) {
         throw Object.assign(new Error(err.message), { status: err.status || 500 });

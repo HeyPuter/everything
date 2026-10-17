@@ -9,7 +9,7 @@
 import { Y, makeDoc, local } from './ydoc.js';
 import { getPage, descendants, pagesOf, PAGE_FIELDS, childrenOf } from './tree.js';
 import { listBlocks, insertBlocks, blocksOf } from './page.js';
-import { listProps, listViews, listRows } from './database.js';
+import { cloneDatabase } from './database.js';
 import { keyBetween } from '../lib/order.js';
 import { uid } from '../lib/ids.js';
 
@@ -109,26 +109,7 @@ export function cloneDocContent(src, dst, idMap) {
       blocks.map(({ id, order, delta, ...rest }) => ({ ...rest, delta: remapDelta(delta, idMap), ...(rest.page ? { page: idMap.get(rest.page) || rest.page } : {}) })),
     );
   }
-  const db = src.getMap('db');
-  if (db.get('props') instanceof Y.Map) {
-    local(dst, () => {
-      const out = dst.getMap('db');
-      const props = new Y.Map();
-      const views = new Y.Map();
-      const rows = new Y.Map();
-      out.set('props', props);
-      out.set('views', views);
-      out.set('rows', rows);
-      for (const { id, ...p } of listProps(src)) props.set(id, p);
-      for (const { id, ...v } of listViews(src)) views.set(id, v);
-      for (const r of listRows(src)) {
-        const m = new Y.Map();
-        m.set('order', r.order);
-        for (const [k, v] of Object.entries(r.values)) m.set(k, v);
-        rows.set(idMap.get(r.id) || r.id, m);
-      }
-    });
-  }
+  cloneDatabase(src, dst, (id) => idMap.get(id) || id);
   return dst;
 }
 

@@ -13,7 +13,8 @@
  *   cp:<doc>             { path, at, prevAt }   the latest checkpoint of a document
  *   cps:<doc>            [{ at, path }]   earlier checkpoints kept as page history
  *   presence:<session>   { session, uuid, username, page, expires }  (expires on its own)
- *   ev:signal            { nonce, docs }   rewritten on every save, for live updates
+ *   ev:signal            { nonce, seq, docs, keys, session }   rewritten on every save, for live updates
+ *   seq                  counter numbering the signals, so a client can tell it missed one
  *   handle:<uuid>        an event handle that lets that person watch ev:
  *   assetbytes           bytes of images stored for the space
  *
@@ -47,6 +48,8 @@ const OVERLAP = 120_000;
 /** A copy not refreshed for this long is read again from its checkpoint. */
 const RELOAD = 5 * 60_000;
 const MAX_ROSTER = 200;
+const SESSION = /^[a-z0-9]{8,40}$/;
+const LOG_TAIL = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z:[0-9a-f]{16}$/;
 
 /** Documents this instance has read, by room and document. */
 export const DOCS = new Map();
@@ -309,10 +312,19 @@ export class WikiService {
 
   /* ---------- live updates ---------- */
 
-  async notify(room, docs = []) {
-    await this.kv.set(`wk:${room}:ev:signal`, { nonce: crypto.randomUUID(), docs: docs.slice(0, 32) }).catch(() => {
+  /**
+   * Tells everyone watching the space that something changed. docs lists
+   * the documents saved (empty: people or settings changed), keys the log
+   * record of each, so a client can fetch exactly that edit, and session
+   * who saved it, so their own tab can skip it.
+   */
+  async notify(room, docs = [], { keys = null, session = null } = {}) {
+    try {
+      const seq = await this.kv.incr(`wk:${room}:seq`);
+      await this.kv.set(`wk:${room}:ev:signal`, { nonce: crypto.randomUUID(), seq, docs: docs.slice(0, 32), ...(keys ? { keys } : {}), ...(session ? { session } : {}) });
+    } catch {
       /* the edit is saved; clients also poll */
-    });
+    }
   }
 
   async events(room, user) {
@@ -428,10 +440,19 @@ export class WikiService {
 
     if (input.op === 'sync') {
       const wanted = input.docs && typeof input.docs === 'object' ? Object.entries(input.docs).slice(0, 40) : [];
+      const hints = input.keys && typeof input.keys === 'object' ? input.keys : {};
       const updates = {};
       for (const [docId, vector] of wanted) {
         id(docId, DOC);
         const entry = await this.load(room, docId);
+        // A signal named the edit: read that record directly, since this
+        // instance's copy may predate it and a listing may not show it yet.
+        const hint = hints[docId];
+        const logPrefix = `${prefix}log:${docId}:`;
+        if (typeof hint === 'string' && hint.startsWith(logPrefix) && LOG_TAIL.test(hint.slice(logPrefix.length)) && !entry.seen.has(hint)) {
+          const value = await this.kv.get(hint).catch(() => null);
+          if (value) await this.applyRow(entry, { key: hint, value }, true);
+        }
         const sv = vector ? decode(vector, 100_000) : undefined;
         updates[docId] = encode(sv ? Y.encodeStateAsUpdate(entry.ydoc, sv) : Y.encodeStateAsUpdate(entry.ydoc));
       }
@@ -479,7 +500,7 @@ export class WikiService {
       await this.kv.set(key, record);
       entry.seen.add(key);
       entry.count++;
-      await this.notify(room, [docId]);
+      await this.notify(room, [docId], { keys: { [docId]: key }, session: typeof input.session === 'string' && SESSION.test(input.session) ? input.session : null });
       if (entry.count >= CHECKPOINT_EVERY || (entry.cp && this.now() - entry.cp.at > CHECKPOINT_AGE)) await this.checkpoint(room, docId, entry).catch(() => {});
       const sv = input.vector ? decode(input.vector, 100_000) : null;
       return { update: sv ? encode(Y.encodeStateAsUpdate(entry.ydoc, sv)) : null, role, serverTime: this.now() };

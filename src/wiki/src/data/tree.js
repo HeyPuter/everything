@@ -36,13 +36,49 @@ export function getPage(doc, id) {
   return out;
 }
 
-export function allPages(doc) {
-  const out = [];
+/**
+ * Every page, and children by parent in order, derived from the tree and
+ * rebuilt after each change instead of on every query. Reads made while a
+ * transaction is open skip it, so they see the writes made so far.
+ */
+const indexes = new WeakMap();
+
+function index(doc) {
+  let st = indexes.get(doc);
+  if (!st) {
+    st = { built: null, writing: false };
+    doc.on('beforeTransaction', () => {
+      st.built = null;
+      st.writing = true;
+    });
+    doc.on('beforeObserverCalls', () => {
+      st.writing = false;
+    });
+    indexes.set(doc, st);
+  }
+  if (st.writing) return buildIndex(doc);
+  return (st.built ||= buildIndex(doc));
+}
+
+function buildIndex(doc) {
+  const all = [];
+  const children = new Map();
   for (const id of pagesOf(doc).keys()) {
     const p = getPage(doc, id);
-    if (p) out.push(p);
+    if (!p) continue;
+    Object.freeze(p);
+    all.push(p);
+    const key = p.parent ?? null;
+    if (!children.has(key)) children.set(key, []);
+    children.get(key).push(p);
   }
-  return out;
+  for (const list of children.values()) list.sort(compareOrder);
+  return { all, children };
+}
+
+/** Every page (shared, read-only snapshots). */
+export function allPages(doc) {
+  return index(doc).all.slice();
 }
 
 export function hasPage(doc, id) {
@@ -51,9 +87,7 @@ export function hasPage(doc, id) {
 
 /** Children of a page (or of the top level), in order. */
 export function childrenOf(doc, parent = null, { trashed = false, rows = false } = {}) {
-  return allPages(doc)
-    .filter((p) => (p.parent ?? null) === parent && (trashed || !p.trashed) && (rows || !p.row))
-    .sort(compareOrder);
+  return (index(doc).children.get(parent) || []).filter((p) => (trashed || !p.trashed) && (rows || !p.row));
 }
 
 /** Pages from the top level down to this one (inclusive). */
@@ -71,12 +105,7 @@ export function ancestors(doc, id) {
 
 /** This page and every page under it, rows included. */
 export function descendants(doc, id) {
-  const byParent = new Map();
-  for (const p of allPages(doc)) {
-    const key = p.parent ?? null;
-    if (!byParent.has(key)) byParent.set(key, []);
-    byParent.get(key).push(p.id);
-  }
+  const { children } = index(doc);
   const out = [];
   const stack = [id];
   const seen = new Set();
@@ -85,7 +114,7 @@ export function descendants(doc, id) {
     if (seen.has(cur)) continue;
     seen.add(cur);
     out.push(cur);
-    for (const c of byParent.get(cur) || []) stack.push(c);
+    for (const c of children.get(cur) || []) stack.push(c.id);
   }
   return out;
 }
@@ -127,10 +156,12 @@ function orderAt(doc, parent, { before = null, after = null } = {}) {
 
 /** Adds a page. Returns its id. */
 export function addPage(doc, { id = uid(), parent = null, title = '', kind = 'page', icon = null, row = false, before = null, after = null, by = null, extra = {} } = {}) {
+  // Read before the transaction opens, while the tree index is current.
+  const order = orderAt(doc, parent, { before, after });
   local(doc, () => {
     const m = new Y.Map();
     const now = Date.now();
-    const fields = { title, icon, cover: null, parent, order: orderAt(doc, parent, { before, after }), kind, created: now, createdBy: by, updated: now, updatedBy: by, trashed: null, ...extra };
+    const fields = { title, icon, cover: null, parent, order, kind, created: now, createdBy: by, updated: now, updatedBy: by, trashed: null, ...extra };
     if (row) fields.row = true;
     for (const [k, v] of Object.entries(fields)) m.set(k, v);
     pagesOf(doc).set(id, m);
@@ -174,9 +205,8 @@ export function movePage(doc, id, parent = null, { before = null, after = null }
   if (!hasPage(doc, id) || id === parent || wouldCycle(doc, id, parent)) return false;
   if (parent && !hasPage(doc, parent)) return false;
   const m = pagesOf(doc).get(id);
+  const order = orderAt(doc, parent, { before: before === id ? null : before, after: after === id ? null : after });
   local(doc, () => {
-    // Order among the new siblings, computed without this page in the list.
-    const order = orderAt(doc, parent, { before: before === id ? null : before, after: after === id ? null : after });
     m.set('parent', parent);
     m.set('order', order);
   });

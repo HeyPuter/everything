@@ -3,10 +3,16 @@
  * which people who can comment (but not edit) are allowed to change:
  *
  *   threads: Y.Map<threadId, Y.Map{ block, quote, resolved, created, by, messages: Y.Array }>
- *   message: { id, by, text, at, edited }
+ *   message: Y.Map{ id, by, text, at, edited, deleted }
  *
  * A thread with a block is anchored to that block (and the text that was
  * selected when it started); one without is about the whole page.
+ *
+ * Replies append to the array, so replies sent at once all stay. Editing
+ * or deleting sets fields on the message, so it never moves or doubles.
+ * Messages written before they were Y.Maps are plain objects; the first
+ * edit swaps one for a Y.Map, and reads drop the copies that two edits at
+ * once used to leave behind.
  */
 import { Y, local } from './ydoc.js';
 import { uid } from '../lib/ids.js';
@@ -17,6 +23,31 @@ function threadsOf(doc) {
   return doc.getMap('threads');
 }
 
+const plainMessage = (x) => (x instanceof Y.Map ? x.toJSON() : x);
+
+/** The version of a message to show when older edits left copies of it. */
+function pick(copies) {
+  return copies.find((c) => c.deleted) || copies.reduce((best, c) => ((c.edited || 0) >= (best.edited || 0) ? c : best));
+}
+
+/** Messages in order, one per id. */
+function messagesOf(arr) {
+  const byId = new Map();
+  for (const x of arr?.toArray() || []) {
+    const msg = plainMessage(x);
+    if (!msg?.id) continue;
+    if (!byId.has(msg.id)) byId.set(msg.id, []);
+    byId.get(msg.id).push(msg);
+  }
+  return [...byId.values()].map(pick);
+}
+
+function messageValue(fields) {
+  const m = new Y.Map();
+  for (const [k, v] of Object.entries(fields)) if (v !== undefined) m.set(k, v);
+  return m;
+}
+
 function plainThread(id, m) {
   return {
     id,
@@ -25,7 +56,7 @@ function plainThread(id, m) {
     resolved: !!m.get('resolved'),
     created: m.get('created') || 0,
     by: m.get('by') || null,
-    messages: (m.get('messages')?.toArray() || []).filter((x) => x && !x.deleted),
+    messages: messagesOf(m.get('messages')).filter((x) => !x.deleted),
   };
 }
 
@@ -53,7 +84,7 @@ export function addThread(doc, { block = null, quote = '', text, by = null }) {
     m.set('created', Date.now());
     m.set('by', by);
     m.set('messages', messages);
-    messages.push([{ id: uid(), by, text: clean, at: Date.now() }]);
+    messages.push([messageValue({ id: uid(), by, text: clean, at: Date.now() })]);
     threadsOf(doc).set(id, m);
   });
   return id;
@@ -65,7 +96,7 @@ export function reply(doc, threadId, text, by = null) {
   if (!(m instanceof Y.Map) || !clean) return null;
   const id = uid();
   local(doc, () => {
-    m.get('messages').push([{ id, by, text: clean, at: Date.now() }]);
+    m.get('messages').push([messageValue({ id, by, text: clean, at: Date.now() })]);
     // Replying to a resolved thread opens it again.
     if (m.get('resolved')) m.set('resolved', false);
   });
@@ -78,16 +109,26 @@ export function setResolved(doc, threadId, resolved) {
   local(doc, () => m.set('resolved', !!resolved));
 }
 
-function replaceMessage(doc, threadId, messageId, fn) {
+/** Sets fields on a message (undefined removes one). */
+function changeMessage(doc, threadId, messageId, fields) {
   const m = threadsOf(doc).get(threadId);
   if (!(m instanceof Y.Map)) return false;
   const arr = m.get('messages');
-  const i = arr.toArray().findIndex((x) => x?.id === messageId);
-  if (i < 0) return false;
+  const copies = arr
+    .toArray()
+    .map((x, i) => ({ x, i }))
+    .filter(({ x }) => plainMessage(x)?.id === messageId);
+  if (!copies.length) return false;
   local(doc, () => {
-    const next = fn(arr.get(i));
-    arr.delete(i, 1);
-    arr.insert(i, [next]);
+    let maps = copies.filter(({ x }) => x instanceof Y.Map).map(({ x }) => x);
+    const plain = copies.filter(({ x }) => !(x instanceof Y.Map));
+    for (const { i } of [...plain].reverse()) arr.delete(i, 1);
+    if (!maps.length) {
+      const replacement = messageValue(pick(plain.map(({ x }) => x)));
+      arr.insert(plain[0].i, [replacement]);
+      maps = [replacement];
+    }
+    for (const map of maps) for (const [k, v] of Object.entries(fields)) v === undefined ? map.delete(k) : map.set(k, v);
   });
   return true;
 }
@@ -95,12 +136,12 @@ function replaceMessage(doc, threadId, messageId, fn) {
 export function editMessage(doc, threadId, messageId, text) {
   const clean = String(text || '').trim().slice(0, MAX_TEXT);
   if (!clean) return false;
-  return replaceMessage(doc, threadId, messageId, (msg) => ({ ...msg, text: clean, edited: Date.now() }));
+  return changeMessage(doc, threadId, messageId, { text: clean, edited: Date.now() });
 }
 
 /** Deletes a message; a thread with no messages left disappears. */
 export function deleteMessage(doc, threadId, messageId) {
-  const ok = replaceMessage(doc, threadId, messageId, (msg) => ({ id: msg.id, by: msg.by, at: msg.at, deleted: true }));
+  const ok = changeMessage(doc, threadId, messageId, { deleted: true, text: undefined, edited: undefined });
   const t = getThread(doc, threadId);
   if (ok && t && !t.messages.length) local(doc, () => threadsOf(doc).delete(threadId));
   return ok;

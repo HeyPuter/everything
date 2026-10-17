@@ -314,6 +314,8 @@ export class DatabaseView {
     }
     const view = this.view;
     const focusKey = document.activeElement?.closest?.('[data-fkey]')?.dataset.fkey;
+    // TODO: add virtualization. Every view builds a DOM node per row and
+    // rebuilds them all on each change, which gets slow past a few thousand rows.
     this.el.replaceChildren(this.tabs(view), this.toolbar(view), this.chips(view), this.body(view));
     if (focusKey) this.el.querySelector(`[data-fkey="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
   }

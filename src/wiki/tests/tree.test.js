@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';
+import { keysAfter } from '../src/lib/order.js';
 import { addPage, childrenOf, movePage, trashPage, restorePage, deletePage, isTrashed, ancestors, trashedPages, updatePage, getPage, wouldCycle } from '../src/data/tree.js';
 
 describe('page tree', () => {
@@ -76,5 +77,51 @@ describe('page tree', () => {
     Y.applyUpdate(two, Y.encodeStateAsUpdate(one));
     expect(getPage(one, a)).toMatchObject({ title: 'Renamed', parent: b });
     expect(getPage(two, a)).toMatchObject({ title: 'Renamed', parent: b });
+  });
+
+  it('answers queries from an index that follows every change', () => {
+    const doc = new Y.Doc();
+    const a = addPage(doc, { title: 'A' });
+    expect(childrenOf(doc).map((p) => p.title)).toEqual(['A']);
+    // Inside a transaction, reads see the writes made so far.
+    doc.transact(() => {
+      addPage(doc, { title: 'B' });
+      expect(childrenOf(doc).map((p) => p.title)).toEqual(['A', 'B']);
+    });
+    // Observers run after the transaction and see its result.
+    let seen = null;
+    doc.getMap('pages').observeDeep(() => {
+      seen = childrenOf(doc).map((p) => p.title);
+    });
+    updatePage(doc, a, { title: 'A2' });
+    expect(seen).toEqual(['A2', 'B']);
+    // Updates from someone else invalidate it too.
+    const other = new Y.Doc();
+    Y.applyUpdate(other, Y.encodeStateAsUpdate(doc));
+    addPage(other, { title: 'C', parent: a });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(other));
+    expect(childrenOf(doc, a).map((p) => p.title)).toEqual(['C']);
+    expect(() => {
+      childrenOf(doc)[0].title = 'x';
+    }).toThrow();
+  });
+
+  it('keeps sidebar-style queries cheap in a tree of 10,000 pages', () => {
+    const doc = new Y.Doc();
+    const db = addPage(doc, { title: 'DB', kind: 'database' });
+    doc.transact(() => {
+      const keys = keysAfter('', 10000);
+      for (let i = 0; i < 10000; i++) {
+        const m = new Y.Map();
+        for (const [k, v] of Object.entries({ title: `Row ${i}`, parent: db, order: keys[i], kind: 'page', row: true, trashed: null })) m.set(k, v);
+        doc.getMap('pages').set(`r${i}`, m);
+      }
+    });
+    const start = performance.now();
+    // A change, then a render that asks every visible item for its children.
+    addPage(doc, { parent: db, title: 'One more', row: true });
+    for (let i = 0; i < 200; i++) childrenOf(doc, i ? `r${i}` : null);
+    expect(performance.now() - start).toBeLessThan(500);
+    expect(childrenOf(doc, db, { rows: true }).at(-1).title).toBe('One more');
   });
 });

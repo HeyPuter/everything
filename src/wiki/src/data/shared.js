@@ -3,8 +3,11 @@
  * (see worker/service.js). Edits are Yjs updates. They are kept locally
  * (memory and IndexedDB) until the worker confirms them, sent in small
  * batches, and merged with everyone else's. Live updates arrive through
- * Puter events on the space's signal key; periodic synchronization covers
- * the rest. The flow follows the Whiteboard app's collaboration session.
+ * Puter events on the space's signal key, which names the documents that
+ * changed, so only those are fetched; a signal without that detail, or a
+ * gap in the signal numbers, fetches every open document, and periodic
+ * synchronization covers the rest. The flow follows the Whiteboard app's
+ * collaboration session.
  */
 import { Y, REMOTE, encodeBase64, decodeBase64 } from './ydoc.js';
 import { Space, DOC_ID } from './space.js';
@@ -52,6 +55,10 @@ export class SharedSpace extends Space {
     this.failures = 0;
     this.closed = false;
     this.subscription = null;
+    // Documents to fetch on the next synchronization (id -> log key or null), or all of them.
+    this.queued = new Map();
+    this.queuedAll = false;
+    this.signal = { docs: new Map(), all: false, people: false, seq: null };
   }
 
   request(op, data = {}) {
@@ -230,6 +237,7 @@ export class SharedSpace extends Space {
           update: encodeBase64(merged),
           id: await sha256Hex(merged),
           vector: encodeBase64(Y.encodeStateVector(entry.doc)),
+          session: this.session,
         });
         entry.pending.splice(0, count);
         this.failures = 0;
@@ -279,48 +287,60 @@ export class SharedSpace extends Space {
     }
   }
 
-  /** Reads what others saved into every open document. */
-  async synchronize() {
+  /**
+   * Reads what others saved, into the given open documents (a Map of id to
+   * the log key a signal named, or null), or into every open document.
+   * Calls made while one runs are merged into the next round.
+   */
+  async synchronize(only = null) {
     if (this.closed) return;
-    if (this.syncing) {
-      this.syncAgain = true;
-      return this.syncing;
-    }
+    if (only) for (const [id, key] of only) this.queued.set(id, key || this.queued.get(id) || null);
+    else this.queuedAll = true;
+    if (this.syncing) return this.syncing;
     this.syncing = (async () => {
-      this.evict();
-      const ids = [...this.entries.keys()];
-      if (!ids.length) return;
-      try {
-        // The worker answers up to 40 documents per request.
-        for (let i = 0; i < ids.length; i += 40) {
-          const docs = {};
-          for (const id of ids.slice(i, i + 40)) {
-            const e = this.entries.get(id);
-            if (e) docs[id] = encodeBase64(Y.encodeStateVector(e.doc));
-          }
-          const res = await this.request('sync', { docs });
-          this.afterSync(res);
-          for (const [id, update] of Object.entries(res.updates || {})) {
-            const e = this.entries.get(id);
-            if (e && update) Y.applyUpdate(e.doc, decodeBase64(update), REMOTE);
-          }
-        }
-        if (this.status === 'offline' || this.status === 'error') this.updateStatus();
-      } catch (err) {
-        if (err.status === 403 || err.status === 404) {
-          this.lost(err);
-          return;
-        }
-        this.setStatus(typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : 'error', err.message);
+      while (!this.closed && (this.queuedAll || this.queued.size)) {
+        const all = this.queuedAll;
+        const hints = this.queued;
+        this.queuedAll = false;
+        this.queued = new Map();
+        if (!(await this.syncRound(all ? null : [...hints.keys()], hints))) break;
       }
     })().finally(() => {
       this.syncing = null;
-      if (this.syncAgain) {
-        this.syncAgain = false;
-        this.synchronize();
-      }
     });
     return this.syncing;
+  }
+
+  /** One synchronization request per 40 documents. Returns false when it failed. */
+  async syncRound(ids, hints) {
+    if (!ids) this.evict();
+    const list = (ids || [...this.entries.keys()]).filter((id) => this.entries.has(id));
+    if (!list.length) return true;
+    try {
+      // The worker answers up to 40 documents per request.
+      for (let i = 0; i < list.length; i += 40) {
+        const docs = {};
+        const keys = {};
+        for (const id of list.slice(i, i + 40)) {
+          const e = this.entries.get(id);
+          if (!e) continue;
+          docs[id] = encodeBase64(Y.encodeStateVector(e.doc));
+          if (hints.get(id)) keys[id] = hints.get(id);
+        }
+        const res = await this.request('sync', { docs, ...(Object.keys(keys).length ? { keys } : {}) });
+        this.afterSync(res);
+        for (const [id, update] of Object.entries(res.updates || {})) {
+          const e = this.entries.get(id);
+          if (e && update) Y.applyUpdate(e.doc, decodeBase64(update), REMOTE);
+        }
+      }
+      if (this.status === 'offline' || this.status === 'error') this.updateStatus();
+      return true;
+    } catch (err) {
+      if (err.status === 403 || err.status === 404) this.lost(err);
+      else this.setStatus(typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : 'error', err.message);
+      return false;
+    }
   }
 
   schedulePoll() {
@@ -360,18 +380,7 @@ export class SharedSpace extends Space {
       sub = await this.events.onLocal(
         subject,
         (payload) => {
-          if (this.closed || failed) return;
-          const docs = payload?.event?.value?.docs;
-          if (Array.isArray(docs) && !docs.length) this.peopleChanged = true;
-          if (this.eventTimer) return;
-          this.eventTimer = setTimeout(() => {
-            this.eventTimer = null;
-            this.synchronize();
-            if (this.peopleChanged) {
-              this.peopleChanged = false;
-              this.heartbeatSoon();
-            }
-          }, 150);
+          if (!this.closed && !failed) this.onSignal(payload?.event?.value);
         },
         {
           includeValue: true,
@@ -391,6 +400,35 @@ export class SharedSpace extends Space {
     } catch {
       /* periodic synchronization keeps working */
     }
+  }
+
+  /** Notes what a live signal says changed; acts on a short batch of them. */
+  onSignal(value) {
+    const sig = this.signal;
+    const docs = value?.docs;
+    if (!Array.isArray(docs) || docs.length >= 32) sig.all = true;
+    else if (!docs.length) sig.people = true;
+    // This tab's own saves come back with the commit's answer already.
+    else if (!value.session || value.session !== this.session) for (const d of docs) if (typeof d === 'string') sig.docs.set(d, value.keys?.[d] || sig.docs.get(d) || null);
+    if (Number.isInteger(value?.seq)) {
+      // A skipped number is a signal that never arrived: its documents are unknown.
+      if (sig.seq !== null && value.seq > sig.seq + 1) sig.all = true;
+      if (sig.seq === null || value.seq > sig.seq) sig.seq = value.seq;
+    }
+    if (this.eventTimer) return;
+    this.eventTimer = setTimeout(() => {
+      this.eventTimer = null;
+      const { all, docs: changed, people } = sig;
+      sig.all = false;
+      sig.people = false;
+      sig.docs = new Map();
+      if (all) {
+        // One round for everything, still reading the named edits directly.
+        for (const [id, key] of changed) this.queued.set(id, key || this.queued.get(id) || null);
+        this.synchronize();
+      } else if (changed.size) this.synchronize(changed);
+      if (people) this.heartbeatSoon();
+    }, 150);
   }
 
   heartbeatSoon() {

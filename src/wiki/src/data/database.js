@@ -1,9 +1,15 @@
 /**
  * A database is a page whose document holds a schema, views and rows:
  *
- *   db.props: Y.Map<propId, { name, type, order, options? }>
- *   db.views: Y.Map<viewId, { name, type, order, sorts, filters, groupBy, hidden, widths }>
+ *   db.props: Y.Map<propId, Y.Map{ name, type, order, options? }>
+ *     options: Y.Map<optionId, { name, color, order }>
+ *   db.views: Y.Map<viewId, Y.Map{ name, type, order, sorts, filters, groupBy, dateProp, hidden, widths }>
  *   db.rows:  Y.Map<rowId, Y.Map<propId | 'order', value>>
+ *
+ * Anything two people may change independently has its own key, so their
+ * edits merge: two new tags, a filter and a column width, two cells.
+ * Documents made before props and views were Y.Maps hold plain objects
+ * there; they read the same and become Y.Maps on their next change.
  *
  * Every row is also a page in the space's tree (same id, `row: true`), so
  * it has a title, an icon, its own content and shows up in search. The
@@ -64,17 +70,81 @@ export function isDatabase(doc) {
   return root(doc).get('props') instanceof Y.Map;
 }
 
+/* ---------- prop and view entries ---------- */
+
+function optionList(options) {
+  if (Array.isArray(options)) return options;
+  if (!(options instanceof Y.Map)) return undefined;
+  return [...options.entries()].map(([id, o]) => ({ id, ...o })).sort(compareOrder).map(({ order, ...o }) => o);
+}
+
+/** A prop or view as a plain object, from either storage shape. */
+function plainEntry(id, v) {
+  if (!v) return null;
+  if (!(v instanceof Y.Map)) return { id, ...v };
+  const out = { id };
+  for (const [k, x] of v.entries()) out[k] = k === 'options' ? optionList(x) : x;
+  return out;
+}
+
+/** Brings a select's options in line with a list, touching only what changed. */
+function writeOptions(m, list) {
+  let opts = m.get('options');
+  if (!(opts instanceof Y.Map)) {
+    opts = new Y.Map();
+    m.set('options', opts);
+  }
+  const want = (list || []).filter((o) => o?.id);
+  const ids = new Set(want.map((o) => o.id));
+  for (const id of [...opts.keys()]) if (!ids.has(id)) opts.delete(id);
+  const old = new Map(opts.entries());
+  // Existing options keep their keys unless the list reorders them.
+  const kept = want.filter((o) => old.has(o.id)).map((o) => o.id);
+  const reordered = kept.join() !== optionList(opts).map((o) => o.id).join();
+  let prev = '';
+  want.forEach((o, i) => {
+    const was = old.get(o.id);
+    let order = reordered ? null : was?.order;
+    if (!order) {
+      const next = reordered ? '' : want.slice(i + 1).map((x) => old.get(x.id)?.order).find(Boolean) || '';
+      order = keyBetween(prev, next > prev ? next : '');
+    }
+    const value = { name: String(o.name ?? ''), color: o.color || 'gray', order };
+    if (!was || was.name !== value.name || was.color !== value.color || was.order !== order) opts.set(o.id, value);
+    prev = order;
+  });
+}
+
+const same = (a, b) => a === b || (typeof a === 'object' && typeof b === 'object' && JSON.stringify(a) === JSON.stringify(b));
+
+/** Writes fields onto an entry one key at a time (Y.Map shape), converting an old one first. */
+function writeEntry(container, id, patch) {
+  let m = container.get(id);
+  if (!(m instanceof Y.Map)) {
+    const fields = m || {};
+    m = new Y.Map();
+    container.set(id, m);
+    patch = { ...fields, ...patch };
+  }
+  for (const [k, v] of Object.entries(patch)) {
+    if (k === 'id') continue;
+    if (k === 'options') writeOptions(m, v);
+    else if (v === undefined) m.delete(k);
+    else if (!same(m.get(k), v)) m.set(k, v);
+  }
+  return m;
+}
+
 /** Sets up an empty database with a title property and a table view. */
 export function initDatabase(doc, { props = null, view = 'table' } = {}) {
   local(doc, () => {
     const p = sub(doc, 'props');
     sub(doc, 'views');
     sub(doc, 'rows');
-    if (!p.has(TITLE)) p.set(TITLE, { name: 'Name', type: 'title', order: 'a' });
+    if (!p.has(TITLE)) writeEntry(p, TITLE, { name: 'Name', type: 'title', order: 'a' });
     let order = 'b';
     for (const spec of props || [{ name: 'Tags', type: 'multi' }]) {
-      const id = uid(8);
-      p.set(id, { ...spec, order, ...(spec.type === 'status' && !spec.options ? { options: STATUS_OPTIONS() } : {}), ...(['select', 'multi'].includes(spec.type) && !spec.options ? { options: [] } : {}) });
+      writeEntry(p, uid(8), { ...spec, order, ...(spec.type === 'status' && !spec.options ? { options: STATUS_OPTIONS() } : {}), ...(['select', 'multi'].includes(spec.type) && !spec.options ? { options: [] } : {}) });
       order = keyBetween(order, '');
     }
     if (!listViews(doc).length) addView(doc, { type: view });
@@ -84,12 +154,11 @@ export function initDatabase(doc, { props = null, view = 'table' } = {}) {
 export function listProps(doc) {
   const p = root(doc).get('props');
   if (!(p instanceof Y.Map)) return [];
-  return [...p.entries()].map(([id, v]) => ({ id, ...v })).sort(compareOrder);
+  return [...p.entries()].map(([id, v]) => plainEntry(id, v)).filter(Boolean).sort(compareOrder);
 }
 
 export function getProp(doc, id) {
-  const v = root(doc).get('props')?.get(id);
-  return v ? { id, ...v } : null;
+  return plainEntry(id, root(doc).get('props')?.get(id));
 }
 
 export function addProp(doc, { name, type = 'text', after = null } = {}) {
@@ -99,7 +168,7 @@ export function addProp(doc, { name, type = 'text', after = null } = {}) {
   const hi = props[i + 1]?.order || '';
   const id = uid(8);
   local(doc, () => {
-    sub(doc, 'props').set(id, {
+    writeEntry(sub(doc, 'props'), id, {
       name: name || PROP_TYPES[type]?.label || 'Property',
       type,
       order: keyBetween(lo, hi > lo ? hi : ''),
@@ -112,11 +181,12 @@ export function addProp(doc, { name, type = 'text', after = null } = {}) {
 export function updateProp(doc, id, patch) {
   const cur = getProp(doc, id);
   if (!cur) return;
-  const { id: _id, ...rest } = { ...cur, ...patch };
-  if (id === TITLE) rest.type = 'title';
+  const next = { ...patch };
+  if (id === TITLE) next.type = 'title';
+  const type = next.type ?? cur.type;
   // Changing to a type with options keeps existing ones, or starts empty.
-  if (['select', 'multi', 'status'].includes(rest.type) && !Array.isArray(rest.options)) rest.options = rest.type === 'status' ? STATUS_OPTIONS() : [];
-  local(doc, () => sub(doc, 'props').set(id, rest));
+  if (['select', 'multi', 'status'].includes(type) && !Array.isArray(next.options ?? cur.options)) next.options = type === 'status' ? STATUS_OPTIONS() : [];
+  local(doc, () => writeEntry(sub(doc, 'props'), id, next));
 }
 
 export function deleteProp(doc, id) {
@@ -144,12 +214,11 @@ export function ensureOption(doc, propId, name) {
 export function listViews(doc) {
   const v = root(doc).get('views');
   if (!(v instanceof Y.Map)) return [];
-  return [...v.entries()].map(([id, x]) => ({ id, ...x })).sort(compareOrder);
+  return [...v.entries()].map(([id, x]) => plainEntry(id, x)).filter(Boolean).sort(compareOrder);
 }
 
 export function getView(doc, id) {
-  const v = root(doc).get('views')?.get(id);
-  return v ? { id, ...v } : null;
+  return plainEntry(id, root(doc).get('views')?.get(id));
 }
 
 export function addView(doc, { type = 'table', name = null } = {}) {
@@ -158,7 +227,7 @@ export function addView(doc, { type = 'table', name = null } = {}) {
   const groupBy = type === 'board' ? listProps(doc).find((p) => p.type === 'status' || p.type === 'select')?.id || null : null;
   const dateProp = type === 'calendar' ? listProps(doc).find((p) => p.type === 'date')?.id || null : null;
   local(doc, () => {
-    sub(doc, 'views').set(id, {
+    writeEntry(sub(doc, 'views'), id, {
       name: name || VIEW_TYPES[type]?.label || 'View',
       type,
       order: keyBetween(views.at(-1)?.order || '', ''),
@@ -174,16 +243,32 @@ export function addView(doc, { type = 'table', name = null } = {}) {
 }
 
 export function updateView(doc, id, patch) {
-  const cur = getView(doc, id);
-  if (!cur) return;
-  const { id: _id, ...rest } = { ...cur, ...patch };
-  local(doc, () => sub(doc, 'views').set(id, rest));
+  if (!getView(doc, id)) return;
+  local(doc, () => writeEntry(sub(doc, 'views'), id, patch));
 }
 
 export function deleteView(doc, id) {
   if (listViews(doc).length <= 1) return false;
   local(doc, () => sub(doc, 'views').delete(id));
   return true;
+}
+
+/** Copies a database's schema, views and rows into another document. */
+export function cloneDatabase(src, dst, rowId = (id) => id) {
+  if (!isDatabase(src)) return;
+  local(dst, () => {
+    const props = sub(dst, 'props');
+    const views = sub(dst, 'views');
+    const rows = sub(dst, 'rows');
+    for (const { id, ...p } of listProps(src)) writeEntry(props, id, p);
+    for (const { id, ...v } of listViews(src)) writeEntry(views, id, v);
+    for (const r of listRows(src)) {
+      const m = new Y.Map();
+      m.set('order', r.order);
+      for (const [k, v] of Object.entries(r.values)) m.set(k, v);
+      rows.set(rowId(r.id), m);
+    }
+  });
 }
 
 /* ---------- rows ---------- */

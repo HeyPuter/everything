@@ -4,17 +4,25 @@
  *   blocks: Y.Map<blockId, Y.Map>   one entry per block, with
  *     type, order (fractional key), indent (0..MAX_INDENT), text (Y.Text)
  *     and type-specific fields: checked, collapsed, color, bg, language,
- *     icon, asset, url, caption, width, page (child page id), table.
+ *     icon, asset, url, caption, width, page (child page id), table
+ *     (see table.js).
  *
  * Blocks are a flat list ordered by key. Nesting is an indent level: a
  * toggle hides the blocks after it that are indented further, and list
- * numbering restarts whenever the indent or the type changes. Keeping the
- * list flat means two people moving or adding blocks never clash.
+ * numbering restarts whenever the indent or the type changes.
+ *
+ * This is a deliberate compromise. A tree (a parent id per block) moves a
+ * block with its children in one write. Here moving a parent rewrites the
+ * order of every block under it, and a block someone else adds inside that
+ * group at the same moment stays behind at the old spot.
+ * The flat list keeps rendering, selection and indenting simple and can
+ * never form a cycle; switch to parent ids if that case starts to matter.
  */
 import { Y, local } from './ydoc.js';
 import { uid } from '../lib/ids.js';
 import { keyBetween, compareOrder } from '../lib/order.js';
 import { applyDelta, splitDelta, deltaText } from './richtext.js';
+import { readTable, tableValue } from './table.js';
 
 export const MAX_INDENT = 6;
 
@@ -57,6 +65,7 @@ export function getBlock(doc, id) {
   const out = { id };
   for (const [k, v] of m.entries()) {
     if (k === 'text') out.delta = v instanceof Y.Text ? v.toDelta() : [];
+    else if (k === 'table') out.table = readTable(v);
     else out[k] = v;
   }
   out.type ||= 'paragraph';
@@ -114,7 +123,7 @@ function fillBlock(m, { type = 'paragraph', indent = 0, delta = null, text = '',
   m.set('text', yt);
   if (delta && delta.length) yt.applyDelta(delta);
   else if (text) yt.insert(0, text);
-  for (const [k, v] of Object.entries(fields)) if (v !== undefined && k !== 'id' && k !== 'order') m.set(k, v);
+  for (const [k, v] of Object.entries(fields)) if (v !== undefined && k !== 'id' && k !== 'order') m.set(k, k === 'table' ? tableValue(v) : v);
 }
 
 /** Inserts a block before or after another (or at the end). Returns its id. */
@@ -162,6 +171,7 @@ export function setBlock(doc, id, patch) {
     for (const [k, v] of Object.entries(patch)) {
       if (k === 'id' || k === 'text' || k === 'delta') continue;
       if (v === undefined || v === null) m.delete(k);
+      else if (k === 'table') m.set(k, tableValue(v));
       else if (m.get(k) !== v) m.set(k, v);
     }
   });
@@ -175,7 +185,7 @@ export function setType(doc, id, type, extra = {}) {
     const old = m.get('type');
     if (old !== type) for (const f of TYPE_FIELDS) if (!(f in extra)) m.delete(f);
     m.set('type', type);
-    for (const [k, v] of Object.entries(extra)) m.set(k, v);
+    for (const [k, v] of Object.entries(extra)) m.set(k, k === 'table' ? tableValue(v) : v);
     // Code holds plain text.
     if (BLOCK_TYPES[type].plain) {
       const t = m.get('text');
@@ -365,7 +375,7 @@ export function pageText(doc, { limit = Infinity } = {}) {
     const t = deltaText(b.delta);
     if (t) out += (out ? '\n' : '') + t;
     if (b.caption) out += `\n${b.caption}`;
-    if (b.type === 'table' && b.table) for (const r of b.table.rows || []) out += `\n${(r.cells || []).join(' ')}`;
+    if (b.type === 'table' && b.table) for (const r of b.table.rows) out += `\n${r.join(' ')}`;
     if (out.length > limit) break;
   }
   return out;
