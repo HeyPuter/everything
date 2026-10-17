@@ -231,7 +231,7 @@ test('the app uses the canvas engine and saves and reopens through Puter storage
   await expect(page.getByRole('combobox', { name: 'Table actions', exact: true })).toBeEnabled();
   await input.press('Tab'); await page.keyboard.insertText('Next cell');
   await expect(input).toHaveValue(/Cloud cell\nNext cell/);
-  expect((await page.locator('canvas.canvas-page').first().boundingBox()).width).toBeCloseTo(11906 / 15, 1);
+  expect((await page.locator('canvas.canvas-page').first().boundingBox()).width).toBeCloseTo(11906 / 15, 0);
 });
 
 test('page setup and explicit breaks preserve selection, undo, mixed formatting and DOCX semantics', async ({ page }, testInfo) => {
@@ -247,7 +247,7 @@ test('page setup and explicit breaks preserve selection, undo, mixed formatting 
   await expect(input).toHaveValue('Before break\nAfter break\nSame paragraph\nNew page from style\nLast paragraph');
   await expect(canvases).toHaveCount(3);
   let box = await canvases.first().boundingBox();
-  expect(box.width).toBeCloseTo(16838 / 15, 1); expect(box.height).toBeCloseTo(11906 / 15, 1);
+  expect(box.width).toBeCloseTo(16838 / 15, 0); expect(box.height).toBeCloseTo(11906 / 15, 0);
   await input.press('ControlOrMeta+Home'); await input.press('Shift+End');
   const selection = await input.evaluate(el => [el.selectionStart, el.selectionEnd]);
   await setup.click();
@@ -265,7 +265,7 @@ test('page setup and explicit breaks preserve selection, undo, mixed formatting 
   await apply.click();
   expect(await input.evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual(selection);
   box = await canvases.first().boundingBox(); expect(box.width).toBe(816); expect(box.height).toBe(1056);
-  await undo.click(); expect((await canvases.first().boundingBox()).width).toBeCloseTo(16838 / 15, 1);
+  await undo.click(); expect((await canvases.first().boundingBox()).width).toBeCloseTo(16838 / 15, 0);
   await redo.click(); expect((await canvases.first().boundingBox()).width).toBe(816);
   await page.getByRole('combobox', { name: 'Zoom' }).selectOption('0.5');
   await canvases.first().scrollIntoViewIfNeeded(); box = await canvases.first().boundingBox();

@@ -330,7 +330,8 @@ it('scales the viewport below 50% without changing layout, selection or edit his
   const layout = editor.layout, snapshot = editor.model.snapshot(), history = [...editor.session.history];
   editor.setZoom(0.35);
   expect(editor.zoom).toBe(0.35); expect(editor.layout).toBe(layout);
-  expect(editor.canvases[0].style.width).toBe(`${layout.pages[0].width * .35}px`);
+  // Shown at its backing store's whole-pixel size (devicePixelRatio 1 here), within half a pixel of the zoomed page.
+  expect(editor.canvases[0].style.width).toBe(`${Math.round(layout.pages[0].width * .35)}px`);
   expect(editor.model.snapshot()).toEqual(snapshot); expect(editor.session.history).toEqual(history);
   expect(editor.input.selectionStart).toBe(1); expect(editor.input.selectionEnd).toBe(4);
   editor.setZoom(NaN); expect(editor.zoom).toBe(.35);
