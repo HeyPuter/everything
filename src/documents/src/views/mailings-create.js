@@ -71,6 +71,12 @@ export function openEnvelopes({ mode = 'create', delivery: initialDelivery = '',
   const options = () => {
     const d = dims();
     if (d.width < 3 * IN || d.height < 2.5 * IN || d.width > 22 * IN || d.height > 22 * IN) throw new Error('Envelopes must be between 3 × 2½ in and 22 × 22 in.');
+    // The delivery address has to fit on the envelope's one page: placed too far right it wraps letter by
+    // letter, too low it runs onto more pages (and an address past the bottom cannot be added at all).
+    // One line more for the return address paragraph, which stays even when it is empty.
+    const lines = (mode === 'merge' ? 4 : Math.max(1, delivery.value.trim().split('\n').length)) + 1;
+    const maxLeft = d.width - 2.4 * IN, maxTop = d.height - 0.6 * IN - lines * Number(fontSize.value) * 1.3 / 72 * IN;
+    if (readInches(left) > maxLeft || readInches(top) > maxTop) throw new Error(`Place the delivery address on the envelope: at most ${round(Math.max(0, maxLeft) / IN)} in from the left and ${round(Math.max(0, maxTop) / IN)} in from the top.`);
     store(RETURN_KEY, returnAddress.value); store(ENVELOPE_KEY, JSON.stringify({ size: size.value, omit: omit.input.checked, fontSize: fontSize.value }));
     return { width: d.width, height: d.height, delivery: delivery.value, returnAddress: returnAddress.value, omitReturn: omit.input.checked, deliveryLeft: readInches(left), deliveryTop: readInches(top), fontSize: Number(fontSize.value) };
   };

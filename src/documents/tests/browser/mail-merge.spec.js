@@ -217,6 +217,33 @@ test('adds an envelope to the document and prints labels from the Labels dialog'
   expect(errors).toEqual([]);
 });
 
+test('Envelopes keeps the delivery address on the envelope page', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/playground.html');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(input).toHaveValue(/^A small beginning/);
+  const before = await input.inputValue();
+  await page.getByRole('tab', { name: 'Mailings' }).click();
+  await ribbon(page).getByRole('button', { name: 'Envelopes', exact: true }).click();
+  const envelope = page.getByRole('dialog', { name: 'Envelopes' });
+  await envelope.getByRole('textbox', { name: 'Delivery address' }).fill('Rosa Vidal\n1 Pier Rd');
+  // Past the bottom of a 9½ × 4⅛ in envelope: refused with a reason instead of doing nothing.
+  await envelope.getByLabel('Delivery address from top (in)').fill('9');
+  await envelope.getByRole('button', { name: 'Add to Document' }).click();
+  await expect(envelope.getByRole('alert')).toContainText('Place the delivery address on the envelope');
+  // Too far right, the address would wrap letter by letter onto more pages.
+  await envelope.getByLabel('Delivery address from top (in)').fill('2');
+  await envelope.getByLabel('Delivery address from left (in)').fill('9');
+  await envelope.getByRole('button', { name: 'Add to Document' }).click();
+  await expect(envelope.getByRole('alert')).toContainText('Place the delivery address on the envelope');
+  await expect(input).toHaveValue(before);
+  await envelope.getByLabel('Delivery address from left (in)').fill('4');
+  await envelope.getByRole('button', { name: 'Add to Document' }).click();
+  await expect(envelope).toHaveCount(0);
+  await expect(page.locator('canvas.canvas-page')).toHaveCount(2);
+  expect(errors).toEqual([]);
+});
+
 test('Labels opens its collapsed measurements to show a value that needs fixing', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto('/playground.html');
