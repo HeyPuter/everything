@@ -169,6 +169,10 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
   const mirroredIndents = new Map(paragraphs.filter(p => p.format?.mirrorIndents && !p.cellId && (p.format.indentRight ?? 0) !== (p.format.indentLeft ?? 0)).map(p => [p.id, ((p.format.indentRight ?? 0) - (p.format.indentLeft ?? 0)) / 15]));
   const paginateParagraphs = createParagraphPaginator();
   const measure = (text, style) => measureTextGeometry(text, style, measureBase);
+  // Body paragraphs measured by an earlier layout with this measurer (paragraph-measure-cache.js).
+  const paragraphCache = measureBase.paragraphCache?.();
+  const pageKeys = new WeakMap(), sharedKey = paragraphCache && JSON.stringify([numbering ?? null, revisionView]);
+  const pageKey = geometry => { let key = pageKeys.get(geometry); if (key === undefined) pageKeys.set(geometry, key = JSON.stringify(geometry)); return key; };
   // A screen view (web, draft, read) lays every section out on its own display geometry.
   const viewPage = storyOptions.viewGeometry || (geometry => geometry);
   page = viewPage(page);
@@ -252,8 +256,15 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
         const previous = paragraphs[block.index - 1];
         const edges = cellEdges?.first && !cellEdges.rowStart && !Object.hasOwn(cellEdges, 'previousStyleId') && previous ? { ...cellEdges, previousStyleId: previous.resolvedStyleId ?? previous.styleId ?? null } : cellEdges;
         const textMeasure = page.rotatedCellText ? (text, style) => rotatedCellTextMetrics(measure(text, style), style) : measure;
-        const measured = measureParagraph(block.paragraph, block.offset, textMeasure, page, markers[block.index], numbering, edges,
-          page.paragraphFrameFlow ? undefined : wrapHints && { ...wrapHints, exclusions: wrapHints.exclusions.filter(e => cellEdges ? e.cellId === block.paragraph.cellId : !e.cellId) }, !cellEdges && keepBoundaryLine);
+        const hints = page.paragraphFrameFlow ? undefined : wrapHints && { ...wrapHints, exclusions: wrapHints.exclusions.filter(e => cellEdges ? e.cellId === block.paragraph.cellId : !e.cellId) };
+        const run = () => measureParagraph(block.paragraph, block.offset, textMeasure, page, markers[block.index], numbering, edges, hints, !cellEdges && keepBoundaryLine);
+        // Cells, wrapping around drawings, unequal columns and drawings themselves (whose objects
+        // keep their identity) are always measured again.
+        let key = null;
+        if (paragraphCache && !cellEdges && !hints && !page.rotatedCellText && !page.columnWidthAt && !block.paragraph.runs.some(r => r.image)) {
+          try { key = JSON.stringify([block.paragraph, pageKey(page), markers[block.index] ?? null, keepBoundaryLine, sharedKey]); } catch { key = null; }
+        }
+        const measured = key === null ? run() : paragraphCache.measure(key, block.offset, run);
         // Removing a floating frame from body flow must not join paragraph
         // borders across the source paragraph that interrupted the group.
         if (!page.paragraphFrameFlow && framePlan.byParagraph.has(previous?.id)) measured.borderGroupStart = true;

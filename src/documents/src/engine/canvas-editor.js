@@ -16,6 +16,7 @@ import { pageStoryAtPoint } from './page-story-hit.js';
 import { paintImage } from './paint-image.js';
 import { prepareText3dFonts } from './text-3d-fonts.js';
 import { localFontVersion } from './local-fonts.js';
+import { ParagraphMeasureCache } from './paragraph-measure-cache.js';
 import { displayedFont } from './font-availability.js';
 import { preparedScriptMetrics } from './script-font-size.js';
 import { text3dSurface } from './text-3d.js';
@@ -105,11 +106,16 @@ export class CanvasEditor {
     // of times. Remember each measurement by style and exact text. A style object's key is computed once
     // (layout writes only its own output fields onto it, never ones measurement reads); font changes clear
     // the memory (refreshFonts, deferred script/separator faces, local font access); callers get a copy.
+    // Measured paragraphs follow the same memory: they are dropped whenever measurements are.
+    const measuredParagraphs = new ParagraphMeasureCache();
     let byStyle = new WeakMap(), byKey = new Map(), entries = 0, measuredFonts = localFontVersion();
-    this.measureCache = { clear() { byStyle = new WeakMap(); byKey = new Map(); entries = 0; } };
-    this.measure = (text, style) => {
+    this.measureCache = { clear() { byStyle = new WeakMap(); byKey = new Map(); entries = 0; measuredParagraphs.clear(); } };
+    const checkFonts = () => {
       const fonts = localFontVersion();
       if (fonts !== measuredFonts) { this.measureCache.clear(); measuredFonts = fonts; }
+    };
+    this.measure = (text, style) => {
+      checkFonts();
       let texts = byStyle.get(style);
       if (!texts) {
         const key = JSON.stringify(style, (name, value) => LAYOUT_OUTPUT.has(name) ? undefined : value);
@@ -125,6 +131,7 @@ export class CanvasEditor {
       }
       return { ...result };
     };
+    this.measure.paragraphCache = () => { checkFonts(); return measuredParagraphs; };
     const listen = (node, name, fn) => node.addEventListener(name, fn, { signal: this.abort.signal });
     listen(this.pages, 'pointerdown', e => this.pointerDown(e));
     listen(this.pages, 'pointermove', e => this.pointerMove(e));
@@ -509,6 +516,7 @@ export class CanvasEditor {
   }
   /** Lay the body and its page stories out for a view (null: the authored pages). */
   computeLayout(view = this.view) {
+    this.measure.paragraphCache?.().nextGeneration();
     const body = this.session.body;
     const stories = view ? viewPageStories(this.pageStories, view.kind) : this.pageStories;
     let layout = layoutDocument(body.paragraphs, this.measure, pageGeometry(body.pageSettings), body.numbering, body.tables, stories, { bestEffort: this.readOnly, drawingLayouts: this.drawingLayouts, ...(!this.readOnly ? { styles: this.model.styles } : {}), ...(view ? { viewGeometry: viewGeometry(view) } : {}) });
