@@ -73,7 +73,9 @@ export function openCompareDialog({ mode = 'compare', editor, pkg, documentName,
       hint(combine ? 'The result keeps the original document with its own changes and comments, and adds the revised copy\'s differences as tracked changes.' : 'The result is the revised document, with what changed since the original shown as tracked changes. Its comments are kept.')),
     status,
     el('div.modal-actions', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), run));
-  const modal = openModal({ title: combine ? 'Combine Documents' : 'Compare Documents', content, wide: true });
+  // Closing the dialog while documents are still being read or compared abandons the comparison.
+  let closed = false;
+  const modal = openModal({ title: combine ? 'Combine Documents' : 'Compare Documents', content, wide: true, onClose: () => { closed = true; } });
   if (editor() && pkg()) (combine ? original : revised).current();
   // Compare with an earlier version (Version History): that version is the original, and the comparison runs at once.
   if (presetOriginal) { original.set(presetOriginal); refresh(); queueMicrotask(() => content.requestSubmit()); }
@@ -82,7 +84,9 @@ export function openCompareDialog({ mode = 'compare', editor, pkg, documentName,
   async function compare() {
     const api = engineApi(); if (!api) throw new Error('The editor is still loading.');
     const [a, b] = await Promise.all([sources.original.read(), sources.revised.read()]);
+    if (closed) return;
     const [originalPkg, revisedPkg] = await Promise.all([api.DocxPackage.open(a), api.DocxPackage.open(b)]);
+    if (closed) return;
     if (originalPkg.readOnly || revisedPkg.readOnly) throw new Error('One of the documents uses features this editor can only display, so it cannot be compared.');
     const basePkg = combine ? originalPkg : revisedPkg, otherPkg = combine ? revisedPkg : originalPkg;
     const label2 = label.value.trim() || api.documentAuthor(revisedPkg.parts) || author() || 'Author';

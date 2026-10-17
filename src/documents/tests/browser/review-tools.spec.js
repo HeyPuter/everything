@@ -251,6 +251,27 @@ test('Compare Documents shows both sources beside the result and opens it with t
   expect(errors).toEqual([]);
 });
 
+test('closing Compare Documents while it works abandons the comparison', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await newDocument(page, 'Placeholder.');
+  await onTab(page, 'review');
+  await page.evaluate(() => document.querySelector('#ribbon-panel-review [aria-label="Compare"][aria-haspopup="menu"]')?.click());
+  await page.getByRole('menuitem', { name: 'Compare…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Compare Documents' });
+  const [original, revised] = await dialog.locator('input[type="file"]').all();
+  await original.setInputFiles('tests/fixtures/review/original.docx');
+  await revised.setInputFiles('tests/fixtures/review/revised.docx');
+  // Escape while the documents are still being read: the result must not appear afterwards.
+  await dialog.evaluate(node => {
+    node.querySelector('button[type="submit"]').click();
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+  await expect(dialog).toHaveCount(0);
+  await page.waitForTimeout(1500);
+  await expect(page.getByRole('dialog', { name: 'Compared Document' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test('comments mention reviewers, list in the Comments pane and filter by author', async ({ page }, info) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.setViewportSize({ width: 1440, height: 900 });
