@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
-import { unzipSync, strFromU8 } from 'fflate';
+import { unzipSync, zipSync, strFromU8 } from 'fflate';
 import { DocxPackage, createDocx } from '../src/engine/docx.js';
 import { TextDocument } from '../src/engine/model.js';
 import { readCoreProperties, writeCoreProperties, corePropertiesPath, w3cdtf } from '../src/engine/docx-core-properties.js';
@@ -91,5 +91,16 @@ describe('document core properties', () => {
     const doc = new DOMParser().parseFromString(strFromU8(parts['docProps/core.xml']), 'application/xml');
     expect(doc.getElementsByTagNameNS('http://purl.org/dc/elements/1.1/', 'title')[0].textContent).toBe('T');
     expect(doc.getElementsByTagNameNS('http://purl.org/dc/terms/', 'modified')[0].getAttributeNS('http://www.w3.org/2001/XMLSchema-instance', 'type')).toBe('dcterms:W3CDTF');
+  });
+
+  it('refuses property edits when the properties part cannot be read, so saving keeps working', async () => {
+    const parts = unzipSync(source);
+    parts['docProps/core.xml'] = new TextEncoder().encode('<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"><dc:title>unbound');
+    const pkg = await DocxPackage.open(zipSync(parts)), doc = model(pkg);
+    expect(() => pkg.setCoreProperties({ title: 'New title' })).toThrow(/cannot be read/);
+    doc.select(0); doc.replace('Saved ');
+    const out = await save(pkg, doc);
+    expect(out['docProps/core.xml']).toEqual(parts['docProps/core.xml']);
+    expect(model(await DocxPackage.open(zipSync(out))).text.startsWith('Saved ')).toBe(true);
   });
 });

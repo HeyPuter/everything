@@ -129,8 +129,10 @@ export function createBackstage(api) {
     const form = el('form.bs-props', { onsubmit: e => {
       e.preventDefault();
       const data = Object.fromEntries(new FormData(form).entries());
-      const changed = api.setProperties?.(data);
-      saved.textContent = changed ? 'Properties updated. They are saved with the document.' : 'No changes.';
+      try {
+        const changed = api.setProperties?.(data);
+        saved.textContent = changed ? 'Properties updated. They are saved with the document.' : 'No changes.';
+      } catch (error) { saved.textContent = error?.message || String(error); }
     } },
     field('title', 'Title'), field('subject', 'Subject'), field('creator', 'Author'), field('keywords', 'Keywords'),
     field('category', 'Category'), field('contentStatus', 'Status'), field('description', 'Comments', { multiline: true }),

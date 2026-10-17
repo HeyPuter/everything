@@ -2002,6 +2002,9 @@ export class DocxPackage {
     const current = this.coreProperties;
     const changed = Object.entries(edits).filter(([key, value]) => current[key] !== value);
     if (!changed.length) return false;
+    // An unreadable part would make every later save fail; refuse the edit instead.
+    const existing = corePropertiesPath(this.parts);
+    if (existing) try { xml(this.parts[existing]); } catch { throw new Error('This document’s properties part cannot be read, so its properties cannot be changed.'); }
     this.coreEdits = { ...(this.coreEdits || {}), ...Object.fromEntries(changed) };
     return true;
   }
