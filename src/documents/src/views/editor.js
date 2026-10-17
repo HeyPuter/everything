@@ -150,7 +150,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     const editor = engine; if (!editor) return;
     const selection = [...editor.model.range], revision = editor.session.revision;
     try {
-      const text = editor.model.text.slice(...selection), { html } = editor.clipboardData();
+      // The same text and HTML a keyboard copy writes: pictures as their alternative text, not as placeholders.
+      const { text, html } = editor.clipboardData();
       if (html && typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
         await navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob([text], { type: 'text/plain' }), 'text/html': new Blob([html], { type: 'text/html' }) })]);
       } else await navigator.clipboard.writeText(text);
