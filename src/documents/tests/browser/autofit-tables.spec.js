@@ -2,19 +2,21 @@ import { showAllTools, onTab } from './helpers/editor-tools.js';
 import { reopenDocx } from './helpers/reopen-docx.js';
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { unzipSync } from 'fflate';
+import { unzipSync, strFromU8 } from 'fflate';
 
 test('edits imported AutoFit tables and preferred widths with undo and preservation', async ({ page }, testInfo) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto('/playground.html'); await showAllTools(page); await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/autofit-tables.docx');
   const input = page.getByRole('textbox', { name: 'Document text' });
   const properties = (await onTab(page, 'tableLayout')).getByRole('button', { name: 'Table properties', exact: true });
+  // Table properties is on the contextual Table Layout tab, which shows (unselected) inside a table.
+  const openProperties = async () => { await onTab(page, 'tableLayout'); await properties.click(); };
   const actions = page.getByRole('combobox', { name: 'Table actions', exact: true });
   const select = text => input.evaluate((el, text) => { const start = el.value.indexOf(text); el.setSelectionRange(start, start + text.length); el.dispatchEvent(new Event('select', { bubbles: true })); }, text);
   await expect(input).toHaveValue(/^AutoFit columns/); await showAllTools(page);
   await expect((await onTab(page, 'tableLayout')).getByRole('button', { name: 'Table properties', exact: true, includeHidden: true })).toBeDisabled();
   await expect(properties).toBeHidden();
-  await select('Extraordinary'); await expect(properties.locator('svg')).toHaveAttribute('aria-hidden', 'true');
+  await select('Extraordinary'); await onTab(page, 'tableLayout'); await expect(properties.locator('svg')).toHaveAttribute('aria-hidden', 'true');
   await properties.focus(); await properties.press('Space');
   await expect(page.getByRole('dialog', { name: 'Table properties' })).toBeVisible();
   await expect(page.getByLabel('Table layout', { exact: true })).toHaveValue('autofit');
@@ -22,14 +24,14 @@ test('edits imported AutoFit tables and preferred widths with undo and preservat
   await expect(page.getByRole('dialog')).toHaveCount(0); await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
   await page.keyboard.insertText('Extraordinary revised');
   await actions.selectOption('fitContents'); await actions.selectOption('fitPage');
-  await properties.click(); await page.getByLabel('Preferred table width', { exact: true }).fill('83.33');
+  await openProperties(); await page.getByLabel('Preferred table width', { exact: true }).fill('83.33');
   await page.getByLabel('Table alignment', { exact: true }).selectOption('center');
   await page.getByLabel('Column width (in)', { exact: true }).fill('1.25');
   await page.screenshot({ path: testInfo.outputPath('autofit-properties.png'), animations: 'disabled' });
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await properties.click(); await expect(page.getByLabel('Preferred table width', { exact: true })).toHaveValue('100');
+  await openProperties(); await expect(page.getByLabel('Preferred table width', { exact: true })).toHaveValue('100');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: 'Redo', exact: true }).click();
@@ -38,10 +40,13 @@ test('edits imported AutoFit tables and preferred widths with undo and preservat
   await page.getByRole('button', { name: 'Download .docx', exact: true }).click();
   const saved = testInfo.outputPath('autofit-tables.docx'); await (await download).saveAs(saved);
   const original = unzipSync(readFileSync('public/fixtures/autofit-tables.docx')), exported = unzipSync(readFileSync(saved));
-  for (const [name, data] of Object.entries(original)) if (name !== 'word/document.xml') expect(Buffer.from(exported[name]).equals(Buffer.from(data)), name).toBe(true);
+  // Edited text invalidates the saved clean proofing state (§17.15.1.65); nothing else in settings changes.
+  const proofed = strFromU8(original['word/settings.xml']).replace('w:spelling="clean" w:grammar="clean"', 'w:spelling="dirty" w:grammar="dirty"');
+  expect(proofed).not.toBe(strFromU8(original['word/settings.xml'])); expect(strFromU8(exported['word/settings.xml'])).toBe(proofed);
+  for (const [name, data] of Object.entries(original)) if (!['word/document.xml', 'word/settings.xml'].includes(name)) expect(Buffer.from(exported[name]).equals(Buffer.from(data)), name).toBe(true);
   await reopenDocx(page, input, saved, await input.inputValue()); await expect(input).toHaveValue(text);
   await select('Extraordinary revised'); await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await properties.click(); await expect(page.getByLabel('Preferred table width', { exact: true })).toHaveValue('83.33');
+  await openProperties(); await expect(page.getByLabel('Preferred table width', { exact: true })).toHaveValue('83.33');
   await expect(page.getByLabel('Table alignment', { exact: true })).toHaveValue('center');
   await expect(page.getByLabel('Column width (in)', { exact: true })).toHaveValue('1.25');
   expect(errors).toEqual([]);
@@ -52,6 +57,8 @@ test('fits new tables, changes layout and widths, and materializes a zero grid f
   await page.goto('/playground.html'); await showAllTools(page); await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/autofit-tables.docx');
   const input = page.getByRole('textbox', { name: 'Document text' });
   const properties = (await onTab(page, 'tableLayout')).getByRole('button', { name: 'Table properties', exact: true });
+  // Table properties is on the contextual Table Layout tab, which shows (unselected) inside a table.
+  const openProperties = async () => { await onTab(page, 'tableLayout'); await properties.click(); };
   await expect(input).toHaveValue(/^AutoFit columns/);
   await input.evaluate(el => { const at = el.value.indexOf('One'); el.setSelectionRange(at, at); el.dispatchEvent(new Event('select', { bubbles: true })); });
   await page.getByRole('combobox', { name: 'Table actions', exact: true }).selectOption('addColumn');
@@ -64,9 +71,9 @@ test('fits new tables, changes layout and widths, and materializes a zero grid f
   await input.press('Backspace');
   await input.evaluate(el => { const at = el.value.indexOf('One'); el.setSelectionRange(at, at + 3); el.dispatchEvent(new Event('select', { bubbles: true })); });
   await page.keyboard.insertText('W'); // Fixed conversion must not round below the single-glyph minimum.
-  await properties.click(); await page.getByLabel('Table layout', { exact: true }).selectOption('fixed');
+  await openProperties(); await page.getByLabel('Table layout', { exact: true }).selectOption('fixed');
   await page.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
-  await properties.click(); await expect(page.getByLabel('Table layout', { exact: true })).toHaveValue('fixed');
+  await openProperties(); await expect(page.getByLabel('Table layout', { exact: true })).toHaveValue('fixed');
   expect(Number(await page.getByLabel('Column width (in)', { exact: true }).inputValue())).toBeGreaterThan(0);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   page.once('dialog', d => d.accept()); await page.getByRole('button', { name: 'New', exact: true }).click();
@@ -74,7 +81,7 @@ test('fits new tables, changes layout and widths, and materializes a zero grid f
   await page.getByRole('button', { name: 'Insert', exact: true }).click();
   await page.keyboard.insertText('One'); await input.press('Tab'); await page.keyboard.insertText('Two');
   const actions = page.getByRole('combobox', { name: 'Table actions', exact: true });
-  await actions.selectOption('fitContents'); await properties.click();
+  await actions.selectOption('fitContents'); await openProperties();
   await expect(page.getByLabel('Table width unit', { exact: true })).toHaveValue('auto');
   await page.getByLabel('Table layout', { exact: true }).selectOption('fixed');
   await page.getByLabel('Table width unit', { exact: true }).selectOption('dxa');
@@ -93,7 +100,7 @@ test('fits new tables, changes layout and widths, and materializes a zero grid f
   expect(await page.getByLabel('Table indent (in)', { exact: true }).evaluate(el => el.validity.rangeOverflow)).toBe(true);
   await page.getByLabel('Table indent (in)', { exact: true }).fill('0.25');
   await page.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
-  await properties.click(); await expect(page.getByLabel('Table layout', { exact: true })).toHaveValue('fixed');
+  await openProperties(); await expect(page.getByLabel('Table layout', { exact: true })).toHaveValue('fixed');
   await page.getByLabel('Table column', { exact: true }).selectOption({ value: '0' }); await expect(page.getByLabel('Column width (in)', { exact: true })).toHaveValue('1');
   await page.getByLabel('Table column', { exact: true }).selectOption({ value: '1' }); await expect(page.getByLabel('Column width (in)', { exact: true })).toHaveValue('3');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -103,7 +110,7 @@ test('fits new tables, changes layout and widths, and materializes a zero grid f
   const saved = testInfo.outputPath('new-autofit-tables.docx'); await (await download).saveAs(saved);
   await reopenDocx(page, input, saved, await input.inputValue()); await expect(input).toHaveValue(text);
   await input.evaluate(el => { const at = el.value.indexOf('One'); el.setSelectionRange(at, at); el.dispatchEvent(new Event('select', { bubbles: true })); });
-  await properties.click(); await expect(page.getByLabel('Table layout', { exact: true })).toHaveValue('autofit');
+  await openProperties(); await expect(page.getByLabel('Table layout', { exact: true })).toHaveValue('autofit');
   await expect(page.getByLabel('Table width unit', { exact: true })).toHaveValue('pct');
   await expect(page.getByLabel('Preferred table width', { exact: true })).toHaveValue('100');
   await expect(page.getByLabel('Table indent (in)', { exact: true })).toHaveValue('0.25');
