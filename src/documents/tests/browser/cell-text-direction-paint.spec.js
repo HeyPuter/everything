@@ -49,7 +49,6 @@ for (const name of ['control', 'automatic', 'mode15']) test(`paints and edits ro
         checks.push({ expected: stop.offset, actual: hitTest(editor.layout, physical.page, point.x, point.y), page: physical.page, point, caret, selection, clip });
       }
     }
-    const images = editor.canvases.map(canvas => canvas.toDataURL().split(',')[1]);
     const rotatedIds = new Set(editor.layout.lines.filter(line => line.cellText).map(line => line.cellId));
     const ink = editor.layout.cells.filter(cell => rotatedIds.has(cell.id)).map(cell => {
       const canvas = editor.canvases[cell.page], scale = canvas.width / editor.layout.pages[cell.page].width;
@@ -57,6 +56,10 @@ for (const name of ['control', 'automatic', 'mode15']) test(`paints and edits ro
       let dark = 0; for (let i = 0; i < pixels.length; i += 4) if (pixels[i] < 100 && pixels[i + 1] < 100 && pixels[i + 2] < 100) dark++;
       return dark;
     });
+    // The ink readback can move Chrome to a different canvas raster path, which changes antialiasing
+    // by a level on a few pixels. Capture the reference after it so the restored repaint uses the same path.
+    editor.paint();
+    const images = editor.canvases.map(canvas => canvas.toDataURL().split(',')[1]);
     const position = editor.layout.lines.find(line => line.cellText).start;
     const text = editor.model.text;
     editor.model.select(position, position); editor.focus();
