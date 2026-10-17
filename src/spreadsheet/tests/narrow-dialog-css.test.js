@@ -66,6 +66,11 @@ describe('dialogs at phone width', () => {
     expect(rule(narrow, '.pq-settings')).toMatch(/min-height:\s*auto/);
     expect(rule(narrow, '.pq-settings')).not.toMatch(/max-height/);
   });
+
+  it('breaks a dialog title that is one long file name or URL, keeping the close button on screen', () => {
+    // A flex item is no narrower than its longest word unless the word may break; `anywhere` lets it.
+    expect(rule(read('components.css'), '.modal-title')).toMatch(/overflow-wrap:\s*anywhere/);
+  });
 });
 
 describe('dialog lists for the keyboard and the eye', () => {

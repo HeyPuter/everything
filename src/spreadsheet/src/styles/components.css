@@ -389,6 +389,8 @@ textarea.input { resize: vertical; min-height: 80px; line-height: 1.4; }
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.01em;
+  /* A title can carry a file name or a URL with no spaces; it breaks rather than push the close button off a phone. */
+  overflow-wrap: anywhere;
 }
 
 .modal-text {
