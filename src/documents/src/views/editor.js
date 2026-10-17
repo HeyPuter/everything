@@ -1142,8 +1142,15 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   editorCommands.copyFormat = editCommands.copyFormat = () => { baseCopyFormat(); formatClipboard = true; };
   root.addEventListener('copy', () => { formatClipboard = false; }, true);
   root.addEventListener('cut', () => { formatClipboard = false; }, true);
-  keymap = createKeymap({ defaults: builtInChords, run: id => {
+  // A text field of the window's own (the search box, a comment, a pane's input) keeps its keys for its
+  // own editing: Cmd/Ctrl+Y redoes there and F4 does not repeat a command on the document. Only the
+  // commands that are not about the document's text still run.
+  const TEXT_FIELD = 'textarea, select, [contenteditable]:not([contenteditable="false"]), input:not([type]), input[type="text"], input[type="search"], input[type="number"], input[type="email"], input[type="url"], input[type="tel"], input[type="password"]';
+  const typingElsewhere = target => !!target?.matches?.(TEXT_FIELD) && !target.matches('.canvas-input') && !target.closest('.outline-view');
+  const FIELD_COMMANDS = /^(app|file|view)\.|^edit\.(findNext|findPrevious|goTo)$/;
+  keymap = createKeymap({ defaults: builtInChords, run: (id, e) => {
     if (backstage.isOpen && !id.startsWith('app.')) return false;
+    if (typingElsewhere(e?.target) && !FIELD_COMMANDS.test(id)) return false;
     if (builtInCommands[id]) return builtInCommands[id]();
     const entry = chrome.entries().find(e => e.id === id);
     if (!entry || entry.disabled) return false;
