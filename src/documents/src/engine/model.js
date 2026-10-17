@@ -1242,11 +1242,15 @@ export class TextDocument {
   commentRange() {
     let [start, end] = this.range;
     if (start !== end) return [start, end];
-    const text = this.text, word = /[\p{L}\p{N}_'’-]/u;
+    // Step by code point and keep combining marks, so astral letters and
+    // decomposed or Indic words are anchored whole, never mid-grapheme.
+    const text = this.text, word = /^[\p{L}\p{M}\p{N}_'’-]$/u, points = boundaries(text);
+    const before = at => /[\uDC00-\uDFFF]/.test(text[at - 1]) && at > 1 ? text.slice(at - 2, at) : text[at - 1];
+    const after = at => String.fromCodePoint(text.codePointAt(at));
     let a = start, b = start;
-    while (a > 0 && word.test(text[a - 1])) a--;
-    while (b < text.length && word.test(text[b])) b++;
-    return [a, b];
+    while (a > 0 && word.test(before(a))) a -= before(a).length;
+    while (b < text.length && word.test(after(b))) b += after(b).length;
+    return [points.findLast(p => p <= a) ?? 0, points.find(p => p >= b) ?? text.length];
   }
   addComment({ author = '', initials, text = '', date = new Date().toISOString().replace(/\.\d+Z$/, 'Z'), range } = {}) {
     this.comments ||= [];

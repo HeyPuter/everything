@@ -73,3 +73,23 @@ describe('removing an empty paragraph', () => {
     } finally { dom.window.close(); delete globalThis.DOMParser; delete globalThis.XMLSerializer; }
   });
 });
+
+describe('a comment made at a caret', () => {
+  const range = (text, caret) => {
+    const doc = new TextDocument([paragraph(text)], undefined, undefined, undefined, [], {}, { comments: [] });
+    doc.select(caret);
+    const [start, end] = doc.commentRange();
+    return doc.text.slice(start, end);
+  };
+  it('anchors the whole word, including combining marks and astral letters', () => {
+    expect(range('cafe\u0301 au lait', 1)).toBe('cafe\u0301');
+    expect(range('नमस्ते दुनिया', 1)).toBe('नमस्ते');
+    expect(range('𝐀𝐁𝐂 x', 2)).toBe('𝐀𝐁𝐂');
+    expect(range("don't stop", 2)).toBe("don't");
+  });
+  it('anchors comment markers on grapheme boundaries', () => {
+    const doc = new TextDocument([paragraph('cafe\u0301 au')], undefined, undefined, undefined, [], {}, { comments: [] });
+    doc.select(2); const id = doc.addComment({ text: 'Accent' });
+    expect(doc.commentList.find(c => c.id === id)).toMatchObject({ start: 0, end: 5 });
+  });
+});
