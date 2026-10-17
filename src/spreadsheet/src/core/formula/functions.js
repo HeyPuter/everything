@@ -8557,4 +8557,16 @@ for (const name of LIFTED) {
   if (def) { def.lift = true; def.elementwise = true; }
 }
 
+/**
+ * Functions that read every argument's values in turn, so the first error among them is the answer
+ * wherever it lies. A reference argument is read only once the function runs, after the evaluator has
+ * met any error given directly: the evaluator looks back through the arguments before it, so
+ * SUM(A1,NA()) with #DIV/0! in A1 is #DIV/0!, as Excel answers, not the #N/A that came later.
+ */
+const ERRORS_IN_ORDER = `
+SUM AVERAGE MIN MAX PRODUCT MEDIAN STDEV STDEV.P VAR VAR.P MODE MODE.MULT SUMSQ GEOMEAN HARMEAN AVEDEV DEVSQ
+SKEW SKEW.P KURT AVERAGEA MAXA MINA STDEVA STDEVPA VARA VARPA AND OR XOR CONCAT TEXTJOIN
+`.trim().split(/\s+/);
+for (const name of ERRORS_IN_ORDER) FUNCTIONS[name].errorsInOrder = true;
+
 export const FUNCTION_NAMES = Object.keys(FUNCTIONS).sort();

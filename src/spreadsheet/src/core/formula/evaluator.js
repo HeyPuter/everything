@@ -315,6 +315,15 @@ function fullRange(v) {
   return { ...v, values };
 }
 
+/** The first error inside the range arguments, read in order, or null. */
+function firstError(args) {
+  for (const a of args) {
+    if (!isRange(a)) continue;
+    for (const row of a.values) for (const v of row) if (isError(v)) return v;
+  }
+  return null;
+}
+
 /** A built-in's answer for evaluated arguments: cell by cell when a single-value function meets an array. */
 function callNative(def, args, ctx) {
   if (def.lift && args.some(isArray)) return liftCall(def, args, ctx);
@@ -752,8 +761,9 @@ export function evaluate(node, ctx, final = false) {
         }
         const v = evaluate(arg, ctx);
         // Errors in direct arguments stop the call, unless the function
-        // exists to inspect them (ISERROR, TYPE, N).
-        if (!def.tolerant && isError(v)) return v;
+        // exists to inspect them (ISERROR, TYPE, N). One reading its arguments
+        // in turn answers with an error in a range before it, if there is one.
+        if (!def.tolerant && isError(v)) return def.errorsInOrder ? firstError(args) || v : v;
         args.push(v);
       }
       // A range result stays a range so it can feed another function
