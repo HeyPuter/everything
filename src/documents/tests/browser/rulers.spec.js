@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { onTab } from './helpers/editor-tools.js';
+import { onTab, menuBarMenu } from './helpers/editor-tools.js';
 import { readFileSync } from 'node:fs';
 import { unzipSync, strFromU8 } from 'fflate';
 import { openReadOnlyPreview } from './helpers/preview.js';
@@ -104,16 +104,16 @@ test('tabs, keyboard edits, units, zoom, scroll and visibility', async ({ page }
   expect(vertical.y).toBeCloseTo((await canvas.boundingBox()).y, 0);
   await page.locator('.canvas-host').evaluate(el => { el.scrollTop = 1660; });
   await expect.poll(async () => Math.abs((await page.getByRole('group', { name: 'Vertical ruler' }).boundingBox()).y - (await page.locator('.canvas-page').nth(1).boundingBox()).y)).toBeLessThan(1);
-  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await menuBarMenu(page, 'View');
   await page.getByRole('menuitemcheckbox', { name: 'Ruler', exact: true }).click();
   await expect(ruler).toBeHidden();
-  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await menuBarMenu(page, 'View');
   await page.getByRole('menuitemcheckbox', { name: 'Ruler', exact: true }).click();
   await expect(ruler).toBeVisible();
   await page.getByRole('checkbox', { name: 'Text mode' }).check(); await expect(ruler).toBeHidden();
   await page.getByRole('checkbox', { name: 'Text mode' }).uncheck(); await expect(ruler).toBeVisible();
-  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Measurement units' }).hover();
+  await menuBarMenu(page, 'View');
+  await page.getByRole('menu', { name: 'View', exact: true }).getByRole('menuitem', { name: 'Units', exact: true }).hover();
   await page.getByRole('menuitemradio', { name: 'Centimeters' }).click();
   await expect(slider(page, 'First line indent')).toHaveAttribute('aria-valuetext', '-0.64 cm');
   await slider(page, 'First line indent').press('ArrowRight');
@@ -134,7 +134,9 @@ test('exact settings, invalid edits and read-only documents remain safe', async 
   await expect(slider(page, 'First line indent')).toHaveAttribute('aria-valuenow', '-360');
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
   await openReadOnlyPreview(page, 'public/fixtures/best-effort.docx');
-  const handles = page.getByRole('slider');
+  // Every ruler handle is disabled; the status bar's zoom slider stays usable in a preview.
+  const handles = page.getByRole('group', { name: /^(Horizontal|Vertical) ruler$/ }).getByRole('slider');
+  expect(await handles.count()).toBeGreaterThan(0);
   for (const h of await handles.all()) await expect(h).toBeDisabled();
   const saved = await save(page, info, 'ruler-readonly.docx');
   expect(readFileSync(saved)).toEqual(readFileSync('public/fixtures/best-effort.docx'));
