@@ -2,12 +2,15 @@ import { test, expect } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { openReadOnlyPreview } from './helpers/preview.js';
 const folder = 'tests/fixtures/hyperlink-child-recovery/';
-const variants = ['leading', 'trailing', 'multiple', 'deleted'];
+// Permission markers inside a hyperlink remain unsupported there and keep the read-only preview. A tracked
+// deletion inside a hyperlink is an editable revision since Track Changes support (docs/conformance.md,
+// "Tracked changes"; tests/hyperlink-child-recovery.test.js), so it opens for editing with its markup shown.
+const variants = ['leading', 'trailing', 'multiple'];
 
 for (const zoom of [1, 0.75]) test(`unsupported hyperlink children preserve healthy rendering at ${zoom}`, async ({ page }, info) => {
   test.setTimeout(180000);
   await page.goto('/playground.html', { waitUntil: 'domcontentloaded' });
-  const inputs = Object.fromEntries(['healthy', ...variants].map(name => [name, [...readFileSync(`${folder}${name}.docx`)]]));
+  const inputs = Object.fromEntries(['healthy', ...variants, 'deleted'].map(name => [name, [...readFileSync(`${folder}${name}.docx`)]]));
   const results = await page.evaluate(async ({ inputs, zoom }) => {
     const { openCanvasDocument } = await import('/src/engine/open-document.js');
     const { CanvasEditor } = await import('/src/engine/canvas-editor.js');
@@ -25,14 +28,19 @@ for (const zoom of [1, 0.75]) test(`unsupported hyperlink children preserve heal
           fragments: l.fragments.map(f => ({ text: f.text, x: f.x, width: f.width, bold: f.bold })) })) };
       editor.destroy(); host.remove();
     }
-    return Object.keys(inputs).filter(name => name !== 'healthy').map(name => ({ name,
+    return Object.keys(inputs).filter(name => name !== 'healthy').map(name => ({ name, editable: !rendered[name].readOnly,
       editableControl: !rendered.healthy.readOnly, readOnly: rendered[name].readOnly,
       tables: rendered[name].tables, pictures: rendered[name].pictures, errors: rendered[name].errors,
       samePixels: JSON.stringify(rendered[name].pixels) === JSON.stringify(rendered.healthy.pixels),
       sameGeometry: JSON.stringify(rendered[name].geometry) === JSON.stringify(rendered.healthy.geometry) }));
   }, { inputs, zoom });
   for (const result of results) {
-    expect(result.editableControl).toBe(true); expect(result.readOnly).toBe(true);
+    expect(result.editableControl).toBe(true);
+    if (result.name === 'deleted') {
+      expect(result.editable).toBe(true); expect(result.tables).toBe(1); expect(result.pictures).toBe(4); expect(result.errors).toEqual([]);
+      continue;
+    }
+    expect(result.readOnly).toBe(true);
     expect(result.tables).toBe(1); expect(result.pictures).toBe(4); expect(result.errors).toEqual([]);
     expect(result.samePixels, result.name).toBe(true); expect(result.sameGeometry, result.name).toBe(true);
   }
