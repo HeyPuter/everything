@@ -241,6 +241,31 @@ test('typing while cropping finishes the crop without replacing the picture', as
   expect(await page.evaluate(() => window.errors)).toEqual([]);
 });
 
+test('arrow keys on a crop handle move it as dragging would', async ({ page }) => {
+  await open(page);
+  await select(page, 1);
+  const before = await state(page, 1);
+  await page.evaluate(() => window.e.startCrop());
+  const press = async (handle, key, times = 4) => { const button = host(page).getByRole('button', { name: `Crop ${handle}`, exact: true }); await button.focus(); for (let i = 0; i < times; i++) await button.press(key); };
+  // Left on the right handle trims the right side; Up on it changes nothing.
+  await press('e', 'ArrowLeft');
+  await press('e', 'ArrowUp', 2);
+  // Down on the top handle trims the top.
+  await press('n', 'ArrowDown', 2);
+  expect(await page.evaluate(() => window.e.cropActive)).toBe(true);
+  // Enter on the handle confirms and hands the keyboard back to the document.
+  await host(page).getByRole('button', { name: 'Crop n', exact: true }).press('Enter');
+  expect(await page.evaluate(() => window.e.cropActive)).toBe(false);
+  await expect(host(page).getByRole('textbox', { name: 'Document text' })).toBeFocused();
+  const cropped = await state(page, 1);
+  expect(cropped.width).toBeCloseTo(before.width - 4 * 9525, -2);
+  expect(cropped.height).toBeCloseTo(before.height - 2 * 9525, -2);
+  expect(cropped.frame.x).toBeCloseTo(before.frame.x, 1);
+  expect(cropped.frame.y).toBeCloseTo(before.frame.y + 2, 1);
+  expect(cropped.history).toBe(before.history + 1);
+  expect(await page.evaluate(() => window.errors)).toEqual([]);
+});
+
 test('handles at phone width and without a layout-options hook', async ({ page }) => {
   await open(page, { width: 390, layoutOptions: false });
   await page.evaluate(() => window.e.setZoom(0.45));

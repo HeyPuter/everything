@@ -343,6 +343,15 @@ export function createImageInteraction(editor) {
     const b = make('button', 'canvas-crop-handle', { type: 'button', 'aria-label': `Crop ${handle}`, 'data-crop': handle });
     listen(b, 'pointerdown', e => { e.stopPropagation(); begin(e, `crop-${handle}`); });
     listen(b, 'mousedown', e => e.preventDefault());
+    // From the keyboard an arrow moves the handle that way, as dragging it would; Enter and Escape finish.
+    listen(b, 'keydown', e => {
+      if (!crop || gesture) return;
+      if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endCrop(e.key === 'Enter'); editor.focus(); return; }
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+      e.preventDefault(); e.stopPropagation();
+      const step = e.shiftKey ? 10 : 1, dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0, dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+      crop.rect = dragCropRect(crop.rect, handle, dx, dy); showCrop();
+    });
     cropFrame.append(b); return b;
   });
   void cropHandles;
