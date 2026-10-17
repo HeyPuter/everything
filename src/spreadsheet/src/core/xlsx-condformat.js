@@ -23,8 +23,26 @@ function thresholdReferences(rule, ranges, legacy) {
   return out;
 }
 
-export function readXlsxConditionalFormats(xml, styles, themes, definedNames, { priorities = false, legacyThresholds = false } = {}) {
+const BARE_NUMBER = /^\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s*$/;
+
+/**
+ * `dateTargets(ranges)`, given for a file on the 1904 date system, says whether a rule's cells are
+ * date-formatted. Their values were moved to this app's 1900 serials, and a bare-number threshold over
+ * them (a "greater than 2024-01-01" Excel stores as 43830) is a 1904 serial too, moved with them.
+ */
+export function readXlsxConditionalFormats(xml, styles, themes, definedNames, { priorities = false, legacyThresholds = false, dateTargets = null } = {}) {
   const rules = [];
+  const dated = new WeakMap();
+  const serial = (value, targets) => {
+    if (!dateTargets || !BARE_NUMBER.test(value)) return value;
+    if (!dated.has(targets)) dated.set(targets, !!dateTargets(targets));
+    return dated.get(targets) ? String(Number(value) + 1462) : value;
+  };
+  // A scale's, a bar's or an icon set's number thresholds ("num" stops).
+  const serialStops = (rule, targets) => {
+    if (dateTargets) for (const key of Object.keys(rule)) if (rule[`${key}Type`] === 'num') rule[key] = serial(rule[key], targets);
+    return rule;
+  };
   const parseRanges = text => String(text || '').trim().split(/\s+/).flatMap(ref => {
       if (!/^\$?[A-Z]{1,3}\$?[1-9]\d*(?::\$?[A-Z]{1,3}\$?[1-9]\d*)?$/i.test(ref)) return [];
       const range = parseRange(ref);
@@ -73,6 +91,7 @@ export function readXlsxConditionalFormats(xml, styles, themes, definedNames, { 
           ? `IFERROR(IF(${formulas[0]},TRUE,FALSE),TRUE)` : formulas[0] };
       }
       else if (type === 'cellIs' && formulas[0]) {
+        formulas.splice(0, 2, ...formulas.slice(0, 2).map(value => serial(value, ranges)));
         const cell = cellName(base.r1, base.c1), op = attr(source, 'operator');
         const operators = { equal: '=', notEqual: '<>', lessThan: '<', lessThanOrEqual: '<=', greaterThan: '>', greaterThanOrEqual: '>=' };
         let value;
@@ -123,7 +142,7 @@ export function readXlsxConditionalFormats(xml, styles, themes, definedNames, { 
         if (rule && formulas[0] && !rule.barActiveFormula) rule.barActiveFormula = formulas[0];
       }
       if (!rule || (['formula', 'dup', 'unique'].includes(rule.type) && !style)) continue;
-      rule = thresholdReferences(rule, targets, legacyThresholds);
+      rule = thresholdReferences(serialStops(rule, targets), targets, legacyThresholds);
       for (const [i, range] of targets.entries()) {
         if (targets.slice(0, i).some(g => g.r1 <= range.r1 && g.c1 <= range.c1 && g.r2 >= range.r2 && g.c2 >= range.c2)) continue;
         rules.push({
@@ -144,7 +163,7 @@ export function readXlsxConditionalFormats(xml, styles, themes, definedNames, { 
       const priority = Number(attr(source, 'priority'));
       if (attr(source, 'type') !== 'iconSet' || !Number.isInteger(priority) || priority <= 0) continue;
       let rule = readXlsxIcons(source, ranges, definedNames, true);
-      if (rule) rule = thresholdReferences(rule, ranges, legacyThresholds);
+      if (rule) rule = thresholdReferences(serialStops(rule, ranges), ranges, legacyThresholds);
       if (rule) for (const range of ranges) rules.push({ ...rule, range, style: {}, relativeNames: true, priority,
         ...(['1', 'true'].includes(attr(block, 'pivot')) ? { pivot: true } : {}),
         ...(rule.iconActiveFormula ? { iconActiveFormula: shiftFormula(rule.iconActiveFormula, range.r1 - base.r1, range.c1 - base.c1) } : {}),
@@ -153,7 +172,7 @@ export function readXlsxConditionalFormats(xml, styles, themes, definedNames, { 
   }
   for (const entry of extended) if (!consumed.has(entry) && entry.priority > 0) {
     let rule = readExtendedBar(entry, null, themes, definedNames);
-    if (rule) rule = thresholdReferences(rule, entry.ranges, legacyThresholds);
+    if (rule) rule = thresholdReferences(serialStops(rule, entry.ranges), entry.ranges, legacyThresholds);
     const base = entry.ranges.reduce((a, g) => ({ r1: Math.min(a.r1, g.r1), c1: Math.min(a.c1, g.c1) }));
     if (rule) for (const range of entry.ranges) rules.push({ ...rebaseConditionalPredicate(rule, range.r1 - base.r1, range.c1 - base.c1),
       range, style: {}, relativeNames: true, ...(entry.pivot ? { pivot: true } : {}), priority: entry.priority, stopIfTrue: ['1', 'true'].includes(attr(entry.source, 'stopIfTrue')) });
