@@ -43,9 +43,11 @@ if(fixture!=='zero-axis-group-effects') test(`${fixture}: paths match independen
           strokes=[];
           decoded=initial.forPage(null,frame);
         }
+        // Scenes that can be painted for the screen defer their raster until the bitmap is first read.
+        const bitmap=decoded.bitmap;
         result.push(strokes.map(s => ({width:s.width*.75,points:s.points.map(([x,y]) => [(x+decoded.left)*.75,(y+decoded.top)*.75])})));
-        const surface=new OffscreenCanvas(decoded.bitmap.width,decoded.bitmap.height), context=surface.getContext('2d');
-        context.drawImage(decoded.bitmap,0,0);
+        const surface=new OffscreenCanvas(bitmap.width,bitmap.height), context=surface.getContext('2d');
+        context.drawImage(bitmap,0,0);
         const pixels=context.getImageData(0,0,surface.width,surface.height).data;
         result[result.length-1][0].ink=Array.from(pixels).filter((v,i)=>i%4===3 && v>0).length;
         initial.close();
