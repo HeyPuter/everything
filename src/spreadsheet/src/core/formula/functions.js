@@ -2113,15 +2113,19 @@ export const FUNCTIONS = {
       if (isError(i)) return i;
       if (i < 0) return notFound === undefined ? err('#N/A') : notFound;
       const vertical = l.values.length >= (l.values[0]?.length || 0);
+      // A return reference answers with the cells found, as INDEX does, so XLOOKUP(...):XLOOKUP(...)
+      // spans a range and ROW, CELL and ISREF see an address; an array with no address answers values.
+      const ref = r.ref && !r.ref.sheetEnd ? r.ref : null;
+      const found = (values, r1, r2, c1, c2) => ref
+        ? { range: true, values, ref: { ...ref, kind: r1 === r2 && c1 === c2 ? 'cell' : 'range', r1, r2, c1, c2 } }
+        : values.length === 1 && values[0].length === 1 ? values[0][0] : { range: true, values };
       // A two-dimensional return range answers with the whole row (or column).
       if (vertical) {
         const row = r.values[i];
         if (!row) return err('#N/A');
-        return row.length === 1 ? row[0] ?? null : { range: true, values: [row.map((v) => v ?? null)] };
+        return found([row.map((v) => v ?? null)], ref?.r1 + i, ref?.r1 + i, ref?.c1, ref?.c2);
       }
-      const col = r.values.map((row) => row[i]);
-      if (col.length === 1) return col[0] ?? null;
-      return { range: true, values: col.map((v) => [v ?? null]) };
+      return found(r.values.map((row) => [row[i] ?? null]), ref?.r1, ref?.r2, ref?.c1 + i, ref?.c1 + i);
     }, [0]),
     array: true,
   },
