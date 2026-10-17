@@ -52,7 +52,9 @@ export async function joinRoom(link, user) {
   const client = new CollabClient({ transport, user, room: link.room, sendDelay: link.local ? 30 : 150 });
   const joined = await client.connect();
   let base = joined.base || null;
-  if (!base && !link.local) base = decode((await call(sdk(), link.server, { op: 'base', room: link.room })).base);
+  // Joined but unable to open: leave again, or the room keeps being synchronized for an editor that never opened.
+  try { if (!base && !link.local) base = decode((await call(sdk(), link.server, { op: 'base', room: link.room })).base); }
+  catch (error) { await client.close().catch(() => {}); throw error; }
   return { client, base, name: joined.name || 'Shared document', link, role: client.role, ownerName: joined.ownerName };
 }
 
