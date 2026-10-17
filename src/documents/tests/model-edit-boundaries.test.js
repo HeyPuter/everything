@@ -93,3 +93,36 @@ describe('a comment made at a caret', () => {
     expect(doc.commentList.find(c => c.id === id)).toMatchObject({ start: 0, end: 5 });
   });
 });
+
+describe('Replace with Track Changes on', () => {
+  const tracked = text => {
+    const doc = new TextDocument([paragraph(text)], undefined, undefined, undefined, [], {}, { trackChanges: true });
+    doc.revisionAuthor = 'Me'; return doc;
+  };
+  const marks = doc => doc.revisions.map(r => [r.type, r.author, doc.text.slice(r.start, r.end)]);
+  it('records Replace All as tracked deletions and insertions', () => {
+    const doc = tracked('one cat, two cat');
+    expect(doc.replaceMatches('cat', 'dog', {}, true)).toBe(2);
+    expect(marks(doc)).toEqual([['del', 'Me', 'cat'], ['ins', 'Me', 'dog'], ['del', 'Me', 'cat'], ['ins', 'Me', 'dog']]);
+    expect(doc.selection).toEqual({ anchor: 10, focus: 10 });
+    expect(doc.history).toHaveLength(1);
+    doc.undo(); expect(doc.text).toBe('one cat, two cat'); expect(doc.revisions).toEqual([]);
+    doc.redo(); doc.resolveRevisions(false); expect(doc.text).toBe('one cat, two cat');
+    doc.undo(); doc.resolveRevisions(true); expect(doc.text).toBe('one dog, two dog');
+  });
+  it('records a single Replace as a tracked change', () => {
+    const doc = tracked('one cat, two cat');
+    doc.select(4, 7);
+    expect(doc.replaceMatches('cat', 'dog', {}, false)).toBe(1);
+    expect(marks(doc)).toEqual([['del', 'Me', 'cat'], ['ins', 'Me', 'dog']]);
+  });
+  it('changes nothing, including history, when every match is already deleted text', () => {
+    const doc = tracked('one cat, two cat');
+    doc.select(4, 7); doc.replace(''); doc.select(13, 16); doc.replace('');
+    doc.select(0); const before = JSON.stringify(doc.paragraphs), history = doc.history.length;
+    expect(doc.replaceMatches('cat', '', {}, true)).toBe(0);
+    expect(JSON.stringify(doc.paragraphs)).toBe(before); expect(doc.history).toHaveLength(history);
+    expect(doc.selection).toEqual({ anchor: 0, focus: 0 });
+    doc.undo(); expect(doc.revisions.map(r => r.type)).toEqual(['del']);
+  });
+});

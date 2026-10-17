@@ -1707,6 +1707,7 @@ export class TextDocument {
       matches=expanded;
     }
     if (!matches.length) return 0;
+    if (this.trackChanges && !this.trackingInternal) return this.trackedReplaceMatches(matches, text);
     const persistentRanges = this.hasPersistentControls ? contentControlRanges(this.paragraphs).filter(r => r.control.persistent) : [];
     const updatedControls = new Map();
     for (const m of matches) {
@@ -1771,6 +1772,23 @@ export class TextDocument {
     const preservedBlockControls = this.hasBlockControls ? inlineEditAncestors(this.paragraphs, matches) : undefined;
     this.checkpoint(); this.paragraphs = paragraphs;
     this.select(matches[0].start + (matches[0].insertedLength ?? text.length)); this.didChange(preservedBlockControls); return matches.length;
+  }
+  // With Track Changes on, each replacement is an ordinary tracked edit, so
+  // the found text is marked deleted and the replacement inserted. One step.
+  trackedReplaceMatches(matches, text) {
+    // Replacing text that is already marked deleted can change nothing; keep history exact then.
+    const before = this.snapshot(); let count = 0;
+    for (const m of [...matches].reverse()) {
+      this.selection = { anchor: m.start, focus: m.end };
+      this.typingFormat = {}; this.typingStyle = null; this.typingDirectCleared = false;
+      if (this.replace(text, { checkpoint: false })) count++;
+    }
+    if (!count) { this.selection = before.selection; return 0; }
+    this.history.push(before);
+    if (this.history.length > 100) this.history.shift();
+    this.future = [];
+    this.selection = { anchor: this.selection.focus, focus: this.selection.focus };
+    this.didChange(); return count;
   }
   leaveEmptyControl(side, destination) {
     const caret = this.selection.controlCaret;
