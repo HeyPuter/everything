@@ -140,8 +140,10 @@ export class CanvasEditor {
     listen(this.pages, 'pointerdown', e => this.pointerDown(e));
     listen(this.pages, 'pointermove', e => this.pointerMove(e));
     listen(this.pages, 'pointerup', e => this.pointerUp(e));
-    listen(this.pages, 'pointercancel', () => { this.dragging = false; this.dragControl = null; this.imageInteraction.cancel(); });
+    listen(this.pages, 'pointercancel', () => { this.touch = null; this.dragging = false; this.dragControl = null; this.imageInteraction.cancel(); });
     listen(this.pages, 'contextmenu', e => {
+      // A long press opens the menu; lifting that finger is not a tap.
+      this.touch = null;
       e.preventDefault(); const selected=this.model.selectedImage, position = this.point(e, false), normal=this.pointImage;
       this.point({clientX:e.clientX,clientY:e.clientY,altKey:true},false);
       const candidate=this.pointImage, picture=normal || (selected && candidate?.image.id===selected.id ? candidate : null);
@@ -996,8 +998,24 @@ export class CanvasEditor {
     const local = line.cellText?.line || line, edge = local.stops.reduce((right, s) => Math.max(right, s.x), -Infinity);
     return x > edge && local.stops.some(s => s.offset === position && s.x === edge) ? { ...caret, side: 'after' } : caret;
   }
-  pointerDown(e) {
+  /**
+   * A finger on the pages may be starting a scroll (touch-action: pan-y), so it does not place the
+   * caret or bring up the keyboard yet: a tap does that when the finger lifts, and a sideways drag,
+   * which never scrolls, selects from where it went down. Pictures take the press at once.
+   */
+  deferTouch(e) {
+    if (e.pointerType !== 'touch' || this.model.selectedImage || this.imageInteraction.active) return false;
+    this.point(e, false);
+    if (this.pointImage) return false;
+    // Scrolling is up to touch-action; this only stops the emulated mouse press from taking focus.
+    e.preventDefault();
+    this.touch = { down: e, x: e.clientX, y: e.clientY };
+    return true;
+  }
+  pointerDown(e, tapped = false) {
     if (e.button !== 0 || this.composition) return;
+    if (!tapped && this.deferTouch(e)) return;
+    this.touch = null;
     this.typingGroup = null; this.deleteGroup = null;
     e.preventDefault();
     // Crop mode and Shift+click drawing selection take the press first (image-interaction.js).
@@ -1057,11 +1075,17 @@ export class CanvasEditor {
     this.dragControl = dragRange && dragRange.start === dragRange.end
       ? { position, caret: dragSelection.controlCaret, model: this.model, revision: this.session.revision } : null;
     this.dragging = true;
-    this.pages.setPointerCapture(e.pointerId);
+    // A tap is handled as its finger lifts, when there is no pointer left to capture.
+    try { this.pages.setPointerCapture(e.pointerId); } catch { /* released */ }
     this.preferredX = null;
     this.focus(); this.onSelection();
   }
   pointerMove(e) {
+    if (this.touch?.down.pointerId === e.pointerId) {
+      const dx = Math.abs(e.clientX - this.touch.x), dy = Math.abs(e.clientY - this.touch.y);
+      if (dx < 10 || dx <= dy) return;
+      this.pointerDown(this.touch.down, true);
+    }
     if (this.imageInteraction.move(e)) return;
     if (!this.dragging) {
       this.point(e, false);
@@ -1081,6 +1105,12 @@ export class CanvasEditor {
     else if (e.clientY < bounds.top + 30) this.host.scrollTop -= 20;
   }
   pointerUp(e) {
+    if (this.touch?.down.pointerId === e.pointerId) {
+      const { down, x, y } = this.touch;
+      this.touch = null;
+      if (Math.hypot(e.clientX - x, e.clientY - y) > 10) return;
+      this.pointerDown(down, true);
+    }
     if (this.imageInteraction.end(e)) return;
     const control = this.dragControl, wasDragging = this.dragging;
     this.dragging = false; this.dragControl = null;
