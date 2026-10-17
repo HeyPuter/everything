@@ -1487,6 +1487,9 @@ export class CanvasEditor {
       else if (e.metaKey && ['ArrowUp', 'ArrowDown'].includes(e.key)) this.move(e.key === 'ArrowUp' ? 'Home' : 'End', e.shiftKey, false, true);
       else this.move(e.key, e.shiftKey, e.altKey || e.ctrlKey, mod);
     } else if (['Backspace', 'Delete'].includes(e.key) && !mod && !e.altKey) {
+      // Shift+Delete on a selection is Cut on Windows and Linux; the browser's own key binding sends
+      // the cut event (copy, then delete), or a plain forward delete on a Mac.
+      if (e.key === 'Delete' && e.shiftKey && this.model.range[0] !== this.model.range[1]) return;
       e.preventDefault(); this.deleteText(e.key === 'Backspace' ? -1 : 1);
     }
   }
