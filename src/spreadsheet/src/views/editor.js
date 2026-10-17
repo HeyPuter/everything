@@ -341,6 +341,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   ctx.autocorrect = autoCorrector;
   if (!session.signedOut) syncAutoCorrectSettings().catch(() => {});
 
+  // The undo steps of formatting applied while the open entry is typed (see ENTRY_FORMAT_COMMANDS).
+  const entryFormatSteps = new Set();
+  let entryOpen = false;
   const grid = createGrid({
     wb,
     sheetId: wb.activeSheetId,
@@ -366,7 +369,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       for (const f of formulas) wb.setInput(sid, r, f.c, f.input);
     },
     onSelection: notify,
-    onEdit: (e) => { if (e.editing) { endCut(); optionButton?.hide(); } else entryPasted = false; notify(); }, // typing into a cell ends a cut
+    onEdit: (e) => {
+      if (e.editing) { endCut(); optionButton?.hide(); } else entryPasted = false; // typing into a cell ends a cut
+      if (e.editing && !entryOpen) entryFormatSteps.clear();
+      entryOpen = !!e.editing;
+      notify();
+    },
+    // An entry given up takes the formatting applied while it was typed with it.
+    onEditCancel: () => { if (entryFormatSteps.size) wb.discardSteps(entryFormatSteps); entryFormatSteps.clear(); },
     onCommand: (cmd, arg) => run(cmd, arg),
     onFilled: (info) => offerAutoFill(info),
     // A chart's own elements (Chart Design, Format and the Format pane) follow the chart selected on the grid.
@@ -1367,6 +1377,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     'borders', 'bg', 'color', 'font', 'fontSize', 'fontStep', 'rotate', 'insertRows', 'insertCols', 'deleteRows', 'deleteCols', 'insertCells',
     'deleteCells', 'clear', 'clearFormat', 'clearAll', 'hide', 'cellStyle']);
   let lastRepeatable = null;
+  /**
+   * The formatting commands that can act while a cell is typed into (Ctrl/Cmd+B, the ribbon), and the undo steps
+   * they recorded during the entry now open: Escape gives up the entry and takes those back with it.
+   */
+  const ENTRY_FORMAT_COMMANDS = new Set(['bold', 'italic', 'underline', 'strike', 'fmt', 'align', 'valign', 'wrap', 'wrapMode', 'indent', 'dec',
+    'borders', 'bg', 'color', 'font', 'fontSize', 'fontStep', 'rotate', 'cellStyle']);
   /** The Power Query Editor, on a query of the workbook or a new one not yet saved. */
   function editQuery(_, opts = {}) {
     if (destroyed) return;
@@ -1427,7 +1443,16 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     }, { section });
   }
 
-  async function run(cmd, arg) {
+  function run(cmd, arg) {
+    if (!ENTRY_FORMAT_COMMANDS.has(cmd) || !grid?.editing) return runCommand(cmd, arg);
+    const mark = wb.historyTop;
+    const result = runCommand(cmd, arg);
+    // A formatting command acts at once; with the entry still open, the steps it recorded belong to that entry.
+    if (grid.editing) for (const step of wb.historySince(mark) || []) entryFormatSteps.add(step);
+    return result;
+  }
+
+  async function runCommand(cmd, arg) {
     // While a script runs the workbook is its alone; one Undo takes back everything it did once it ends.
     if (automate?.running && !AUTOMATE_COMMANDS.has(cmd)) { toast('A script is running. Wait for it to finish, or stop it in the Code Editor', { icon: 'info' }); return; }
     // F4 (and Ctrl+Y with nothing to redo) repeats the last formatting or structural command on the selection now.

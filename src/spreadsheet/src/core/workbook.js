@@ -12651,6 +12651,16 @@ export class Workbook extends EventTarget {
     return true;
   }
   redoLabels(n = 10) { return this._future.slice(-n).reverse().map((e) => e.label); }
+  /**
+   * Take back the newest steps while they are among `steps`, leaving none of them to redo: a cell entry given up
+   * with Escape discards the formatting applied while it was typed, as Excel does. How many were taken back.
+   */
+  discardSteps(steps) {
+    let n = 0;
+    while (this._history.length && steps.has(this._history.at(-1)) && this.undo()) { this._future.pop(); n++; }
+    if (n) this._emit('history');
+    return n;
+  }
   /** Undo (or redo) several steps at once. Returns how many were taken. */
   undoSteps(n) { let k = 0; while (k < n && this.undo()) k++; return k; }
   redoSteps(n) { let k = 0; while (k < n && this.redo()) k++; return k; }

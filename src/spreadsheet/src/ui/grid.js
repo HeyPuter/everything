@@ -3557,10 +3557,15 @@ export function createGrid(opts) {
     setSelection(next, { scrollActive: true });
   }
 
-  function cancelEdit() {
+  /**
+   * Close the editor without writing. The entry is given up (Escape, the formula bar's Cancel), so the editor
+   * hears of it and takes back the formatting applied while it was typed; `discard: false` hands the entry on.
+   */
+  function cancelEdit({ discard = true } = {}) {
     if (!edit) return;
     returnHome();
     endEdit();
+    if (discard) opts.onEditCancel?.();
     schedule();
   }
 
@@ -5165,7 +5170,7 @@ export function createGrid(opts) {
           input.value = next;
           input.setSelectionRange(a + open.length, a + open.length + args.length);
           setEditText(next, { fromEditor: input === editor });
-        } else { cancelEdit(); opts.onCommand?.('functionArgs', name); }
+        } else { cancelEdit({ discard: false }); opts.onCommand?.('functionArgs', name); }
         return;
       }
     }
