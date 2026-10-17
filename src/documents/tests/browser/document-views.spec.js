@@ -164,6 +164,24 @@ test('Read Mode turns pages, blocks typing, changes page colour and returns with
   await expect(page.locator('.canvas-host')).not.toHaveClass(/is-reading/);
 });
 
+test('Read Mode stays read-only after going to a heading from the Navigation pane', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const input = await headings(page);
+  const before = await input.inputValue();
+  await (await viewTab(page)).getByRole('button', { name: 'Read Mode', exact: true }).click();
+  const toolbar = page.getByRole('toolbar', { name: 'Read Mode' });
+  await toolbar.getByRole('button', { name: 'Tools' }).click();
+  await page.getByRole('menuitem', { name: 'Navigation Pane' }).click();
+  await page.getByRole('complementary', { name: 'Navigation' }).getByRole('treeitem', { name: /Background/ }).click();
+  await expect(page.locator('.canvas-host')).toBeFocused();
+  // The text input's own editing keys must not reach the document while reading.
+  for (const key of ['End', 'Backspace', 'Alt+Shift+ArrowUp', 'ControlOrMeta+Backspace']) await page.keyboard.press(key);
+  await page.keyboard.type('zz');
+  expect(await input.inputValue()).toBe(before);
+  await expect(toolbar).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test('switching through every view leaves the saved document unchanged', async ({ page }, info) => {
   const input = await headings(page);
   const before = await download(page, info, 'before-views');

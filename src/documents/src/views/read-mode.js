@@ -176,6 +176,9 @@ export function createReadMode({ editor, host, root: rootOf, exit, toggleNavigat
       window.addEventListener('keydown', onKey, { signal: keyAbort.current.signal });
       host.addEventListener('pointerdown', onPointer, { capture: true, signal: keyAbort.current.signal });
       host.addEventListener('wheel', onWheel, { passive: false, signal: keyAbort.current.signal });
+      // Going to a heading or a search result puts focus in the document's text input, whose own key
+      // handling would edit (Backspace, Alt+Shift+Arrow, Ctrl+V). Reading keeps focus on the pages.
+      host.addEventListener('focusin', e => { if (e.target.matches?.('.canvas-input')) focusSurface(); }, { signal: keyAbort.current.signal });
       resize.observe(host);
       apply();
       // The screen holding the caret, once the reading pages exist.
