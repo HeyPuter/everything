@@ -185,13 +185,19 @@ export function createBackstage(api) {
         api.savePdf ? tile('Download PDF', 'pdf', act(() => api.savePdf())) : null))];
     const name = el('input.input', { value: api.title?.() || '', 'aria-label': 'New file name', maxLength: 120 });
     const message = el('p.bs-muted', { role: 'status' });
+    const submit = el('button.btn.btn-primary', { type: 'submit' }, 'Save As');
     const saveAs = el('form.bs-inline-form', { onsubmit: async e => {
       e.preventDefault();
+      // A second press (or Enter) while the copy is written would only report that its name is now taken.
+      if (submit.disabled) return;
+      submit.disabled = true;
       message.textContent = 'Saving a copy…';
-      const failure = await api.saveAs(name.value);
-      message.textContent = failure || 'Saved. You are now editing the copy.';
-      if (!failure) { api.refreshTitle?.(); }
-    } }, el('label.bs-field', {}, el('span.field-label', {}, 'Save a copy as'), name), el('button.btn.btn-primary', { type: 'submit' }, 'Save As'));
+      try {
+        const failure = await api.saveAs(name.value);
+        message.textContent = failure || 'Saved. You are now editing the copy.';
+        if (!failure) { api.refreshTitle?.(); }
+      } finally { submit.disabled = false; }
+    } }, el('label.bs-field', {}, el('span.field-label', {}, 'Save a copy as'), name), submit);
     return [...heading('Save', api.saveStatus?.()),
       el('section.bs-section', {}, el('div.bs-tiles', {},
         tile('Save now', 'save', act(() => api.save()), { primary: true, hint: `${MOD_KEY}+S` }),

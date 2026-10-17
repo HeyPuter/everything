@@ -122,3 +122,21 @@ test('an invited editor keeps edits made after the owner stopped sharing', async
   expect(Object.keys(await drive(guest)).filter(p => /^Documents\/[^/]+\.docx$/.test(p))).toHaveLength(1);
   await ownerContext.close(); await guestContext.close();
 });
+
+test('File > Save: pressing Save As twice saves one copy and says so', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Original');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+  await page.evaluate(() => window.__puterFaults.push({ op: 'write', path: 'Copy\\.docx$', delay: 600, times: 1 }));
+  await page.getByRole('button', { name: 'File', exact: true }).click();
+  const view = page.getByRole('dialog', { name: 'File' });
+  await view.getByRole('tab', { name: 'Save' }).click();
+  await view.getByRole('textbox', { name: 'New file name' }).fill('Copy');
+  const saveAs = view.getByRole('button', { name: 'Save As', exact: true });
+  await saveAs.click();
+  await saveAs.click({ force: true }).catch(() => {});
+  await expect(view.getByRole('status').filter({ hasText: /Saved|exists|Saving/ })).toHaveText('Saved. You are now editing the copy.');
+  await page.waitForTimeout(800);
+  await expect(view.getByRole('status').filter({ hasText: /Saved|exists|Saving/ })).toHaveText('Saved. You are now editing the copy.');
+  expect(await page.evaluate(() => window.__docs.current.view.doc.path)).toBe('Documents/Copy.docx');
+});
