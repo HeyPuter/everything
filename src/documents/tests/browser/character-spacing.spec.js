@@ -24,17 +24,19 @@ test('measures and paints expanded/condensed text, edits styles and preserves im
   });
   const errors = []; page.on('pageerror', e => errors.push(e.message)); await page.goto('/playground.html'); await showAllTools(page); await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/character-spacing.docx');
   const input = page.getByRole('textbox', { name: 'Document text' }), button = page.getByRole('button', { name: 'Character spacing', exact: true }); await expect(input).toHaveValue(/^Character spacing Á😀/); const text = await input.inputValue(); expect(await page.locator('canvas.canvas-page').count()).toBeGreaterThan(1);
+  // Script runs in the bundled Noto Sans use the face-dependent script size (script-font-size.js): its
+  // metrics select the 60% size rounded to half points, applied to both axes (scaleX equals scaleY).
   const samples = await page.evaluate(() => ['Expanded', 'Condensed', 'Spaced super', 'Spaced sub', '1.'].map(text => {
     const p = window.spacedPaint[text], c = document.createElement('canvas').getContext('2d'); c.font = p.font; c.fontKerning = 'none'; c.letterSpacing = '0px';
     // Use independent fixture values: Chromium's getter can return '' after save(),
     // although the saved spacing still affects measureText/fillText correctly.
-    const points = text === 'Expanded' ? 2 : text === 'Condensed' ? -.5 : 1, scriptScale = text.startsWith('Spaced ') ? .65 : 1;
+    const points = text === 'Expanded' ? 2 : text === 'Condensed' ? -.5 : 1, size = parseFloat(/([\d.]+)px/.exec(p.font)[1]) * .75, scriptScale = text.startsWith('Spaced ') ? Math.round(2 * size * .6) / 2 / size : 1;
     const span = document.createElement('span'); span.style.cssText = 'position:absolute;white-space:pre;font:' + p.font + ';font-kerning:none;letter-spacing:' + points * 4 / 3 / scriptScale + 'px'; span.textContent = text; document.body.append(span); const cssWidth = span.getBoundingClientRect().width; span.remove();
-    return { text, ...p, plain: c.measureText(text).width, cssWidth, baseScale: Object.entries(window.spacedPaint).find(([text]) => text.startsWith('Character spacing '))[1].a };
+    return { text, ...p, scriptScale, plain: c.measureText(text).width, cssWidth, baseScale: Object.entries(window.spacedPaint).find(([text]) => text.startsWith('Character spacing '))[1].a };
   }));
   for (const p of samples) {
     const points = p.text === 'Expanded' ? 2 : p.text === 'Condensed' ? -.5 : 1, scaleX = p.a / p.baseScale;
-    expect((p.width - p.plain) * scaleX, p.text).toBeCloseTo([...p.text].length * points * 4 / 3, 3); expect(p.width, p.text + ' CSS reference').toBeCloseTo(p.cssWidth, 1); expect(p.d / p.baseScale).toBeCloseTo(p.text.startsWith('Spaced ') ? .6 : 1);
+    expect((p.width - p.plain) * scaleX, p.text).toBeCloseTo([...p.text].length * points * 4 / 3, 3); expect(p.width, p.text + ' CSS reference').toBeCloseTo(p.cssWidth, 1); expect(p.d / p.baseScale).toBeCloseTo(p.scriptScale, 5); expect(p.a / p.baseScale).toBeCloseTo(p.scriptScale, 5);
   }
   for (const [text, value] of [['Expanded', 2], ['Condensed', -.5], ['Paragraph expanded', 1.25], ['Character condensed', -.25], ['Explicit zero', 0], ['Spaced header', 2]]) { await choose(input, text); await expect(button).toHaveAttribute('title', `Character spacing: ${value} pt`); }
   await choose(input, 'Expanded'); await spacing(page, 1.75); await expect(page.getByRole('spinbutton', { name: 'Font size (pt)', exact: true })).toHaveValue('12'); await page.getByRole('button', { name: 'Undo', exact: true }).click(); await expect(button).toHaveAttribute('title', 'Character spacing: 2 pt'); await page.getByRole('button', { name: 'Redo', exact: true }).click();

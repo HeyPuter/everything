@@ -24,13 +24,15 @@ test('paints scaled glyphs with absolute spacing, edits inherited widths and pre
   });
   const errors = []; page.on('pageerror', e => errors.push(e.message)); await page.goto('/playground.html'); await showAllTools(page); await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/text-width.docx');
   const input = page.getByRole('textbox', { name: 'Document text' }), button = page.getByRole('button', { name: 'Text width', exact: true }); await expect(input).toHaveValue(/^Text width Á😀/); const text = await input.inputValue(); expect(await page.locator('canvas.canvas-page').count()).toBeGreaterThan(1); await expect(button.locator('svg')).toHaveAttribute('aria-hidden', 'true');
+  // Script runs in the bundled Noto Sans use the face-dependent script size (script-font-size.js): its
+  // metrics select the 60% size rounded to half points, applied to both axes (scaleX equals scaleY).
   const samples = await page.evaluate(() => [['Wide', 200, false], ['Compressed', 50, false], ['Wide super', 150, true], ['Narrow sub', 75, true], ['Percent width', 75, false], ['1.', 160, false]].map(([text, percent, script]) => {
-    const p = window.widthPaint[text], expectedX = percent / 100 * (script ? .65 : 1), c = document.createElement('canvas').getContext('2d'); c.font = p.font; c.fontKerning = 'none'; c.letterSpacing = '0px';
+    const p = window.widthPaint[text], size = parseFloat(/([\d.]+)px/.exec(p.font)[1]) * .75, scriptScale = script ? Math.round(2 * size * .6) / 2 / size : 1, expectedX = percent / 100 * scriptScale, c = document.createElement('canvas').getContext('2d'); c.font = p.font; c.fontKerning = 'none'; c.letterSpacing = '0px';
     const span = document.createElement('span'); span.style.cssText = 'position:absolute;white-space:pre;font:' + p.font + ';font-kerning:none;letter-spacing:' + (script ? 4 / 3 / expectedX : 0) + 'px;transform:scaleX(' + expectedX + ')'; span.textContent = text; document.body.append(span); const cssWidth = span.getBoundingClientRect().width; span.remove();
-    return { text, ...p, script, expectedX, plain: c.measureText(text).width, cssWidth, baseScale: Object.entries(window.widthPaint).find(([text]) => text.startsWith('Text width '))[1].a };
+    return { text, ...p, script, scriptScale, expectedX, plain: c.measureText(text).width, cssWidth, baseScale: Object.entries(window.widthPaint).find(([text]) => text.startsWith('Text width '))[1].a };
   }));
   for (const p of samples) {
-    const scaleX = p.a / p.baseScale; expect(scaleX, p.text).toBeCloseTo(p.expectedX, 5); expect(p.d / p.baseScale).toBeCloseTo(p.script ? .6 : 1);
+    const scaleX = p.a / p.baseScale; expect(scaleX, p.text).toBeCloseTo(p.expectedX, 5); expect(p.d / p.baseScale).toBeCloseTo(p.scriptScale, 5);
     expect((p.width - p.plain) * scaleX, p.text + ' spacing').toBeCloseTo(p.script ? [...p.text].length * 4 / 3 : 0, 3); expect(p.width * scaleX, p.text + ' CSS width').toBeCloseTo(p.cssWidth, 1);
   }
   for (const [text, value] of [['Wide', 200], ['Compressed', 50], ['Paragraph wide', 125], ['Character compressed', 75], ['Explicit normal', 100], ['Missing value reset', 100], ['Wide header', 150]]) { await choose(input, text); await expect(button).toHaveAttribute('title', `Text width: ${value}%`); }
