@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { unzipSync, strFromU8 } from 'fflate';
 import { readFileSync } from 'node:fs';
-import { downloadDocx, onTab } from './helpers/editor-tools.js';
+import { downloadDocx, onTab, showAllTools } from './helpers/editor-tools.js';
 import { reopenDocx } from './helpers/reopen-docx.js';
 
 const input = page => page.getByRole('textbox', { name: 'Document text' });
@@ -30,6 +30,7 @@ test('a plain-text file opens as one paragraph per line and saves as a document'
 const style = page => page.getByRole('combobox', { name: 'Paragraph style', exact: true });
 async function state(page, text) {
   await input(page).evaluate((el, text) => { const at = el.value.indexOf(text); el.focus(); el.setSelectionRange(at, at + text.length); el.dispatchEvent(new Event('select')); }, text);
+  await onTab(page, 'home');
   const pressed = name => page.getByRole('button', { name, exact: true }).getAttribute('aria-pressed');
   return { style: await style(page).inputValue(), bold: await pressed('Bold'), italic: await pressed('Italic'), bullets: await pressed('Bulleted list'), numbers: await pressed('Numbered list') };
 }
@@ -38,6 +39,7 @@ async function importFile(page, name, mimeType, source) {
   await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
   await page.locator('input[type=file][accept=".docx"]').setInputFiles({ name, mimeType, buffer: Buffer.from(source) });
   await expect(page.getByRole('textbox', { name: 'Document name' })).toHaveValue(name.replace(/\.\w+$/, ''));
+  await showAllTools(page); // the Paragraph style list is in the Formatting Pane
 }
 
 test('a Markdown file opens with its headings, lists, emphasis and table text', async ({ page }, info) => {
