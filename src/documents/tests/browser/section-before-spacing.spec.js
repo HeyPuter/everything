@@ -1,7 +1,7 @@
 import {test,expect} from '@playwright/test';
 import {readFileSync,writeFileSync} from 'node:fs';
 import {unzipSync} from 'fflate';
-import {showAllTools} from './helpers/editor-tools.js';
+import {showAllTools,onTab} from './helpers/editor-tools.js';
 import {reopenDocx} from './helpers/reopen-docx.js';
 const refs=JSON.parse(readFileSync('tests/fixtures/section-before-spacing/reference.json')).variants;
 for(const ref of refs)test(`matches native section and explicit page spacing: ${ref.file}`,async({page},info)=>{
@@ -24,7 +24,7 @@ for(const ref of refs)test(`matches native section and explicit page spacing: ${
  }
  writeFileSync(info.outputPath('section-start.png'),Buffer.from(await canvases.nth(2).evaluate(c=>c.toDataURL().split(',')[1]),'base64'));
  await input.evaluate(el=>{const at=el.value.indexOf('Previous S02');el.setSelectionRange(at,at);el.dispatchEvent(new Event('select',{bubbles:true}));});
- const after=page.getByRole('spinbutton',{name:'Space after paragraph (pt)',exact:true});await after.fill('8');await after.press('Tab');
+ const after=(await onTab(page,'layout')).getByRole('spinbutton',{name:'Space after paragraph (pt)',exact:true});await after.fill('8');await after.press('Tab');
  const editedBaseline=ref.cases[2].startBaseline-5;
  await expect.poll(async()=>Math.abs((await positions()).find(p=>p.text==='StartS02').baseline-editedBaseline)).toBeLessThan(.1);
  const download=page.waitForEvent('download');await page.getByRole('button',{name:'Download .docx',exact:true}).click();

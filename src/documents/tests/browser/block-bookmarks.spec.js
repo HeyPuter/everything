@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {showAllTools} from './helpers/editor-tools.js';
+import {showAllTools,onTab} from './helpers/editor-tools.js';
 import {reopenDocx} from './helpers/reopen-docx.js';
 for(const location of ['body','cell'])test(`edits and navigates ${location} block bookmarks after export`,async({page},info)=>{
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
@@ -14,7 +14,7 @@ for(const location of ['body','cell'])test(`edits and navigates ${location} bloc
   const pending=page.waitForEvent('download');await page.getByRole('button',{name:'Download .docx',exact:true}).click();
   const path=info.outputPath(`block-bookmark-${location}.docx`);await(await pending).saveAs(path);
   await reopenDocx(page,input,path,expected);
-  await page.getByRole('button',{name:'Bookmarks',exact:true}).click();
+  await (await onTab(page,'insert')).getByRole('button',{name:'Bookmarks',exact:true}).click();
   const list=page.getByRole('listbox',{name:'Document bookmarks',exact:true});
   const id=await list.locator('option').filter({hasText:/^WholeBlock ·/}).getAttribute('value');await list.selectOption(id);
   await page.getByRole('dialog').getByRole('button',{name:'Go to bookmark',exact:true}).click();
@@ -35,6 +35,6 @@ test('retains a cell bookmark and control when merging adjacent cells',async({pa
   const pending=page.waitForEvent('download');await page.getByRole('button',{name:'Download .docx',exact:true}).click();
   const path=info.outputPath('block-bookmark-merged.docx');await(await pending).saveAs(path);
   await reopenDocx(page,input,path,original);
-  await page.getByRole('button',{name:'Bookmarks',exact:true}).click();
+  await (await onTab(page,'insert')).getByRole('button',{name:'Bookmarks',exact:true}).click();
   await expect(page.getByRole('listbox',{name:'Document bookmarks',exact:true}).locator('option').filter({hasText:/^WholeBlock ·/})).toHaveCount(1);
 });

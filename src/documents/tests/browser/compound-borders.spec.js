@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { unzipSync } from 'fflate';
-import { showAllTools } from './helpers/editor-tools.js';
+import { showAllTools, onTab } from './helpers/editor-tools.js';
 import { reopenDocx } from './helpers/reopen-docx.js';
 
 for (const name of ['controls', 'edges', 'frame']) test(`renders and edits compound border ${name} without losing source declarations`, async ({ page }, info) => {
@@ -20,7 +20,7 @@ for (const name of ['controls', 'edges', 'frame']) test(`renders and edits compo
  for (const cell of [false, true]) {
   await input.evaluate((el, cell) => { const at = cell ? el.value.lastIndexOf('Border control') : el.value.indexOf('Border control'); el.focus(); el.setSelectionRange(at, at + 14); el.dispatchEvent(new Event('select', { bubbles:true })); }, cell);
   const title = cell ? 'Cell borders' : 'Paragraph borders', prefix = cell ? 'Top cell border' : 'Top border';
-  await page.getByRole('button', { name: title, exact:true }).click();
+  await (await onTab(page, cell ? 'tableDesign' : 'home')).getByRole('button', { name: title, exact:true }).click();
   const dialog = page.getByRole('dialog', { name:title, exact:true });
   await expect(dialog.getByRole('combobox', { name:`${prefix} style`, exact:true })).toHaveValue('thinThickLargeGap');
   await dialog.getByRole('spinbutton', { name:`${prefix} width (pt)`, exact:true }).fill('1.625');

@@ -1,7 +1,7 @@
 import {test,expect} from '@playwright/test';
 import {readFileSync} from 'node:fs';
 import {unzipSync} from 'fflate';
-import {showAllTools} from './helpers/editor-tools.js';
+import {showAllTools,onTab} from './helpers/editor-tools.js';
 import {reopenDocx} from './helpers/reopen-docx.js';
 const source='tests/fixtures/column-bookmarks/collapsed.docx';
 test('navigates and edits a collapsed column-tagged bookmark without expanding its range',async({page},info)=>{
@@ -11,7 +11,7 @@ test('navigates and edits a collapsed column-tagged bookmark without expanding i
  const original=await input.inputValue(),parts=unzipSync(readFileSync(source));
  const save=async name=>{const pending=page.waitForEvent('download');await page.getByRole('button',{name:'Download .docx',exact:true}).click();const path=info.outputPath(name+'.docx');await(await pending).saveAs(path);return path;};
  const go=async()=>{
-  await page.getByRole('button',{name:'Bookmarks',exact:true}).click();
+  await (await onTab(page,'insert')).getByRole('button',{name:'Bookmarks',exact:true}).click();
   const list=page.getByRole('listbox',{name:'Document bookmarks',exact:true});await expect(list.locator('option')).toHaveCount(2);
   const id=await list.locator('option').filter({hasText:/^CollapsedCell ·/}).getAttribute('value');await list.selectOption(id);
   await page.getByRole('dialog').getByRole('button',{name:'Go to bookmark',exact:true}).click();

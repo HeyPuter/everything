@@ -1,4 +1,4 @@
-import { showAllTools } from './helpers/editor-tools.js';
+import { showAllTools, onTab } from './helpers/editor-tools.js';
 import { test, expect } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
 import { reopenDocx } from './helpers/reopen-docx.js';
@@ -8,7 +8,8 @@ const reset = page => button(page, 'Clear direct paragraph formatting');
 const size = page => page.getByRole('spinbutton', { name: 'Font size (pt)', exact: true });
 const style = page => page.getByRole('combobox', { name: 'Paragraph style', exact: true });
 const spacing = page => page.getByRole('combobox', { name: 'Line spacing', exact: true });
-const before = page => page.getByRole('spinbutton', { name: 'Space before paragraph (pt)', exact: true });
+// Space before lives on the Layout tab; its value is read while the Home tab stays in front.
+const before = page => page.getByRole('spinbutton', { name: 'Space before paragraph (pt)', exact: true, includeHidden: true });
 async function fixture(page) {
   await page.goto('/playground.html'); await showAllTools(page); await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/clear-paragraph-formatting.docx');
   const input = page.getByRole('textbox', { name: 'Document text' }); await expect(input).toHaveValue(/^Clear direct paragraph formatting/); return input;
@@ -33,7 +34,7 @@ test('restores paragraph inheritance, pagination and numbering while retaining t
   await input.press('ControlOrMeta+a'); await reset(page).click(); await expect(input).toHaveValue(text); expect(await page.locator('canvas.canvas-page').count()).toBeLessThan(pages);
   await button(page, 'Undo').click(); expect(await page.locator('canvas.canvas-page').count()).toBe(pages); await expect(button(page, 'Undo')).toBeDisabled(); await button(page, 'Redo').click();
   for (const [text, numbered] of [['Style numbering returns', true], ['Direct numbering removed', false], ['Style numbering switches', true]]) { await select(input, text); await expect(button(page, 'Numbered list')).toHaveAttribute('aria-pressed', String(numbered)); }
-  await select(input, 'Linked paragraph'); await expect(button(page, 'Insert or edit link')).toHaveAttribute('aria-pressed', 'true');
+  await select(input, 'Linked paragraph'); await onTab(page, 'insert'); await expect(button(page, 'Insert or edit link')).toHaveAttribute('aria-pressed', 'true'); await onTab(page, 'home');
   await select(input, 'Direct paragraph Á😀'); await page.locator('.canvas-host').evaluate(el => { el.scrollTop = 0; }); await page.screenshot({ path: info.outputPath('paragraph-reset-toolbar.png') }); await screenshot(page, info, 0, 'paragraph-reset-page.png'); await screenshot(page, info, 2, 'paragraph-reset-table.png');
   const saved = await download(page, info, 'clear-paragraph-formatting.docx'); await reopenDocx(page, input, saved, text); await select(input, 'Direct paragraph Á😀'); await expect(before(page)).toHaveValue('4'); await expect(button(page, 'Italic')).toHaveAttribute('aria-pressed', 'true'); await expect(button(page, 'Undo')).toBeDisabled();
   await button(page, 'Edit paragraph style').click(); await page.getByRole('combobox', { name: 'Style alignment', exact: true }).selectOption('center'); await button(page, 'Apply').click(); await expect(button(page, 'Align center')).toHaveAttribute('aria-pressed', 'true'); expect(errors).toEqual([]);
@@ -42,7 +43,7 @@ test('restores paragraph inheritance, pagination and numbering while retaining t
 test('resets new headings without removing heading styles or italic text', async ({ page }, info) => {
   await page.goto('/playground.html'); await showAllTools(page); await button(page, 'New').click(); const input = page.getByRole('textbox', { name: 'Document text' });
   await input.fill('First Á😀\nSecond'); await input.press('ControlOrMeta+a'); await style(page).selectOption('Heading1'); await button(page, 'Italic').click();
-  await button(page, 'Align right').click(); await spacing(page).selectOption('2'); await before(page).fill('20'); await before(page).press('Tab'); await button(page, 'Numbered list').click(); await reset(page).click();
+  await button(page, 'Align right').click(); await spacing(page).selectOption('2'); await onTab(page, 'layout'); await before(page).fill('20'); await before(page).press('Tab'); await onTab(page, 'home'); await button(page, 'Numbered list').click(); await reset(page).click();
   await expect(style(page)).toHaveValue('Heading1'); await expect(size(page)).toHaveValue('20'); await expect(button(page, 'Italic')).toHaveAttribute('aria-pressed', 'true'); await expect(button(page, 'Align left')).toHaveAttribute('aria-pressed', 'true'); await expect(button(page, 'Numbered list')).toHaveAttribute('aria-pressed', 'false'); await expect(before(page)).toHaveValue('12');
   const saved = await download(page, info, 'new-clear-paragraph-formatting.docx'); await reopenDocx(page, input, saved, 'First Á😀\nSecond'); await select(input, 'Second'); await expect(size(page)).toHaveValue('20'); await expect(button(page, 'Italic')).toHaveAttribute('aria-pressed', 'true'); await expect(style(page)).toHaveValue('Heading1'); await screenshot(page, info, 0, 'new-paragraph-reset.png');
 });

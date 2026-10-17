@@ -56,7 +56,7 @@ test('preserves inherited and partial no-ops and redo when another style field c
     await select(input, text); const d = await open(page); await expect(mode(d)).toHaveValue(value); await d.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(undo).toBeDisabled();
   }
   await select(input, 'Rule inherits'); let d = await open(page); await d.getByRole('spinbutton', { name: 'Style space after (pt)', exact: true }).fill('12'); await d.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(control(page)).toHaveText('At least 24 pt');
-  await undo.click(); d = await open(page); await d.getByRole('button', { name: 'Apply', exact: true }).click(); await page.getByRole('button', { name: 'Redo', exact: true }).click(); await expect(page.getByRole('spinbutton', { name: 'Space after paragraph (pt)', exact: true })).toHaveValue('12');
+  await undo.click(); d = await open(page); await d.getByRole('button', { name: 'Apply', exact: true }).click(); await page.getByRole('button', { name: 'Redo', exact: true }).click(); await expect(page.getByRole('spinbutton', { name: 'Space after paragraph (pt)', exact: true, includeHidden: true })).toHaveValue('12');
   await select(input, 'Base A'); await spacing(page, 'atLeast', 32); await select(input, 'Rule inherits'); await expect(control(page)).toHaveText('At least 32 pt');
 });
 

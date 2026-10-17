@@ -1,7 +1,7 @@
 import {test,expect} from '@playwright/test';
 import {readFileSync} from 'node:fs';
 import {unzipSync} from 'fflate';
-import {showAllTools} from './helpers/editor-tools.js';
+import {showAllTools,onTab} from './helpers/editor-tools.js';
 import {reopenDocx} from './helpers/reopen-docx.js';
 const reference=JSON.parse(readFileSync('tests/fixtures/nested-tables/nested-width-reference.json','utf8'));
 const select=async(input,label)=>input.evaluate((el,label)=>{const at=el.value.indexOf(label);el.focus();el.setSelectionRange(at,at);el.dispatchEvent(new Event('select',{bubbles:true}));},label);
@@ -15,7 +15,7 @@ for(const mode of ['width-half','width-half-15'])test(`uses native parent-relati
  await page.getByLabel('Open DOCX file').setInputFiles(`tests/fixtures/nested-tables/nested-clipping-${mode}.docx`);const input=page.getByRole('textbox',{name:'Document text'});await expect(input).toHaveValue(/Inner line 6/);
  matches(await bounds(page),reference[mode].colors.inner);await select(input,'Inner line 1');
  const actions=page.getByRole('combobox',{name:'Table actions',exact:true});await expect(actions.locator('option[value="fitPage"]')).toHaveText('Fit to cell');
- await page.getByRole('button',{name:'Table properties',exact:true}).click();await expect(page.getByRole('dialog')).toContainText('Percent widths use the containing cell’s writing width.');await page.getByRole('button',{name:'Cancel',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);
+ await (await onTab(page,'tableLayout')).getByRole('button',{name:'Table properties',exact:true}).click();await expect(page.getByRole('dialog')).toContainText('Percent widths use the containing cell’s writing width.');await page.getByRole('button',{name:'Cancel',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);
  await actions.selectOption('fitPage');matches(await bounds(page),reference[mode.endsWith('-15')?'width-full-15':'width-full'].colors.inner);
  await page.getByRole('button',{name:'Undo',exact:true}).click();matches(await bounds(page),reference[mode].colors.inner);
  await page.getByRole('button',{name:'Redo',exact:true}).click();matches(await bounds(page),reference[mode.endsWith('-15')?'width-full-15':'width-full'].colors.inner);
@@ -29,7 +29,7 @@ test('explains preserved nested header flags and permits explicit removal and un
  // Inspect the option itself; Playwright's disabled matcher follows its label
  // to the enclosing enabled select in this inspector.
  await expect(actions.locator('option[value="repeatHeader"]')).toHaveJSProperty('disabled',true);await expect(actions.locator('option[value="repeatHeader"]')).toHaveText('Nested tables do not repeat their own header rows');await expect(actions.locator('option[value="clearHeader"]')).toHaveText('Remove header flags');await expect(actions.locator('option[value="clearHeader"]')).toHaveJSProperty('disabled',false);
- await page.getByRole('button',{name:'Table properties',exact:true}).click();await expect(page.getByRole('dialog')).toContainText('imported header flags are preserved until removed');await page.getByRole('button',{name:'Cancel',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);
+ await (await onTab(page,'tableLayout')).getByRole('button',{name:'Table properties',exact:true}).click();await expect(page.getByRole('dialog')).toContainText('imported header flags are preserved until removed');await page.getByRole('button',{name:'Cancel',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);
  await actions.selectOption('clearHeader');await expect(actions.locator('option[value="clearHeader"]')).toHaveJSProperty('disabled',true);await page.getByRole('button',{name:'Undo',exact:true}).click();await expect(actions.locator('option[value="clearHeader"]')).toHaveJSProperty('disabled',false);
  const event=page.waitForEvent('download');await page.getByRole('button',{name:'Download .docx',exact:true}).click();const path=info.outputPath('nested-header-flags-restored.docx');await(await event).saveAs(path);
  expect(unzipSync(readFileSync(path))).toEqual(unzipSync(readFileSync(source)));
