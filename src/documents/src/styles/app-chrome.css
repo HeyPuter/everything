@@ -17,6 +17,8 @@
 .ed-title-details:hover { background: var(--ed-hover); color: var(--ed-ink); }
 .ed-title-popover { display: grid; gap: 10px; min-width: min(300px, 80vw); padding: 2px 4px 4px; }
 .ed-title-location { display: grid; gap: 2px; font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
+/* Version History, Properties and Rename together are wider than the popover: they wrap rather than push it open. */
+.ed-title-popover > .row { flex-wrap: wrap; }
 
 /* AutoSave switch */
 .ed-autosave { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 0 6px 0 2px; font-size: 12px; color: var(--ed-ink-2); cursor: default; user-select: none; }

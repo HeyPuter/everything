@@ -91,3 +91,19 @@ test('the status bar keeps its zoom controls whole between phone and desktop wid
     expect(result, `${width}px`).toEqual({ overflow: false, zoomInside: true, apart: true });
   }
 });
+
+test('the document details popover holds its fields and buttons inside its frame', async ({ page }) => {
+  for (const width of [820, 1440]) {
+    await openEditor(page, width);
+    await page.getByRole('button', { name: 'Document details' }).click();
+    const popover = page.getByRole('dialog', { name: 'Document' });
+    await expect(popover.getByRole('button', { name: 'Rename' })).toBeVisible();
+    // Version History, Properties and Rename side by side were wider than the popover and spilled past its edge.
+    const spill = await popover.evaluate(panel => {
+      const frame = panel.getBoundingClientRect();
+      return [...panel.querySelectorAll('input, button')].filter(n => { const r = n.getBoundingClientRect(); return r.right > frame.right + 0.5 || r.left < frame.left - 0.5; }).map(n => n.getAttribute('aria-label') || n.textContent);
+    });
+    expect(spill, `${width}px`).toEqual([]);
+    await page.keyboard.press('Escape');
+  }
+});
