@@ -235,7 +235,8 @@ export function matchesRule(rule, value, ctx = {}) {
   }
   if (t === 'top' || t === 'bottom') {
     const n = Math.trunc(num(rule.value) ?? 0);
-    const v = num(value);
+    // Only a number ranks, as in Excel: the ranking counts numbers alone, and a number stored as text is text.
+    const v = typeof value === 'number' ? value : null;
     const sorted = ctx.numbers || [];
     if (v === null || n < 1 || !sorted.length) return false;
     if (t === 'top') return v >= sorted[Math.min(n, sorted.length) - 1];

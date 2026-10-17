@@ -76,8 +76,9 @@ export function conditionalRuleFormula(rule) {
     const count = Math.trunc(number(rule.value) ?? 0);
     if (count < 1) return 'FALSE';
     const g = rule.range, range = scopedSource(rule) || `${absolute(g.r1, g.c1)}:${absolute(g.r2, g.c2)}`;
-    // AGGREGATE ignores error cells, as the model's numeric range statistics do.
-    return safe(`${numeric(cell)}${type === 'top' ? '>=' : '<='}AGGREGATE(${type === 'top' ? 14 : 15},6,${range},MIN(${count},COUNT(${range})))`);
+    // AGGREGATE ignores error cells, as the model's numeric range statistics do. Only a number ranks:
+    // text that reads as one is no more ranked than counted.
+    return safe(`AND(ISNUMBER(${cell}),${cell}${type === 'top' ? '>=' : '<='}AGGREGATE(${type === 'top' ? 14 : 15},6,${range},MIN(${count},COUNT(${range}))))`);
   }
   if (type === 'date') {
     const day = `INT(${numeric(cell)})`, today = 'TODAY()', monday = `${today}-MOD(${today}+5,7)`;
