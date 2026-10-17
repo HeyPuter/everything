@@ -10,11 +10,15 @@ test('matches native story stacking while preserving visible stories, body front
  test.setTimeout(90000);
  expect(createHash('sha256').update(readFileSync(source)).digest('hex')).toBe(reference.sourceSha256);
  expect(createHash('sha256').update(readFileSync('tests/fixtures/story-drawing-layers/native.pdf')).digest('hex')).toBe(reference.pdfSha256);
- await page.goto('/playground.html');await page.getByLabel('Open DOCX file').setInputFiles(source);
+ await page.goto('/playground.html');
+ // While the body is edited the screen dims the header and footer bands (canvas-story-chrome.js), a
+ // screen-only cue the native PDF does not have. Compare the editor's printed pages, which omit it.
+ await page.evaluate(async()=>{const {CanvasEditor}=await import('/src/engine/canvas-editor.js');const paint=CanvasEditor.prototype.paint;CanvasEditor.prototype.paint=function(...args){window.storyEditor=this;return paint.apply(this,args);};});
+ await page.getByLabel('Open DOCX file').setInputFiles(source);
  const input=page.getByRole('textbox',{name:'Document text'});await expect(input).toHaveValue(/^BODY TEXT/);await expect(input).toHaveJSProperty('readOnly',false);
  const check=async()=>{
   await expect(page.locator('canvas.canvas-page')).toHaveCount(5);await expect(page.locator('#playground-error')).toBeEmpty();
-  const actual=await page.evaluate(ref=>Array.from(document.querySelectorAll('canvas.canvas-page'),(c,i)=>{
+  const actual=await page.evaluate(ref=>Array.from(window.storyEditor.printSheets(),(c,i)=>{
    const ctx=c.getContext('2d'),scale=c.width/612;
    return {samples:ref.pages[i].samples.map(s=>Array.from(ctx.getImageData(Math.round(s.x*scale),Math.round(s.y*scale),1,1).data).slice(0,3)),regions:ref.pages[i].regions.map(r=>{
     const [x,y,w,h]=r.rect,data=ctx.getImageData(Math.round(x*scale),Math.round(y*scale),Math.round(w*scale),Math.round(h*scale)).data;let dark=0;
