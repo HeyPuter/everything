@@ -15,7 +15,8 @@ for(const missingFont of [false,true]) test(`matches native shape-edge spacing a
   OffscreenCanvasRenderingContext2D.prototype.fillText=function(text,x,y,...rest){
    if(/^E\d{2} /.test(text)){
     const m=this.getTransform(),metrics=this.measureText(text);
-    window.shapePaint.push({text,font:this.font,color:this.fillStyle,baseline:(m.b*x+m.d*y+m.f)/2*.75,ascent:metrics.actualBoundingBoxAscent*.75,descent:metrics.actualBoundingBoxDescent*.75});
+    // Upright shape text paints at the raster density (m.d), which follows the page scale.
+    window.shapePaint.push({text,font:this.font,color:this.fillStyle,baseline:(m.b*x+m.d*y+m.f)/m.d*.75,ascent:metrics.actualBoundingBoxAscent*.75,descent:metrics.actualBoundingBoxDescent*.75});
    }
    return fill.call(this,text,x,y,...rest);
   };
