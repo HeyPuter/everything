@@ -30,9 +30,11 @@ test('unlinked text-frame paragraph breaks match the native reference and surviv
  await reopenDocx(page,input,edited,'Edited '+original);await expect(input).toBeEditable();await check();
 });
 
-test('retains fonts and pagination when editing layout needs a structured read-only fallback',async({page},info)=>{
+// Oversized body lines now open editable, one fresh page per line (docs/conformance.md,
+// "Oversized body text and physical-page editing bounds"), instead of a read-only fallback.
+test('retains fonts and pagination for oversized body lines, which open editable',async({page},info)=>{
  const source=root+'oversized-body.docx';await page.goto('/playground.html');await page.getByLabel('Open DOCX file').setInputFiles(source);
- const input=page.getByRole('textbox',{name:'Document text'});await expect(input).toHaveJSProperty('readOnly',true);await expect(input).toHaveValue('A\nB');await expect(page.locator('canvas.canvas-page')).toHaveCount(2);
+ const input=page.getByRole('textbox',{name:'Document text'});await expect(input).toHaveJSProperty('readOnly',false);await expect(input).toHaveValue('A\nB');await expect(page.locator('canvas.canvas-page')).toHaveCount(2);
  const ref=JSON.parse(readFileSync(root+'oversized-reference.json')),hash=b=>createHash('sha256').update(b).digest('hex');expect(hash(readFileSync(source))).toBe(ref.sourceSha256);expect(hash(readFileSync(root+'oversized-native.pdf'))).toBe(ref.pdfSha256);
  const bounds=await page.locator('canvas.canvas-page').evaluateAll(cs=>cs.map(c=>{const a=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let l=c.width,r=-1,t=c.height,b=-1;for(let i=0;i<a.length;i+=4)if(a[i]-a[i+1]>40&&a[i]-a[i+2]>30){const x=(i/4)%c.width,y=Math.floor(i/4/c.width);l=Math.min(l,x);r=Math.max(r,x);t=Math.min(t,y);b=Math.max(b,y);}return [l,t,r+1,b+1].map(v=>v*612/c.width);}));for(let i=0;i<2;i++)for(let k=0;k<4;k++)expect(Math.abs(bounds[i][k]-ref.pages[i].ink[k])).toBeLessThan(1.1);
  const pending=page.waitForEvent('download');await page.getByRole('button',{name:'Download .docx',exact:true}).click();const path=info.outputPath('oversized-noedit.docx');await(await pending).saveAs(path);expect(unzipSync(readFileSync(path))).toEqual(unzipSync(readFileSync(source)));
