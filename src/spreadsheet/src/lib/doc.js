@@ -319,9 +319,12 @@ export class Doc extends EventTarget {
     return P.ensureXlsx(this.name);
   }
 
-  /** File and version operations may still be pending while the book is clean. */
+  /**
+   * File and version operations may still be pending while the book is clean, as may, in a shared workbook
+   * whose changes have all reached the room, the owner's file the next quiet moment is to write.
+   */
   get hasPendingWrites() {
-    return this._saving != null;
+    return this._saving != null || !!this._sharedFileDue;
   }
 
   destroy() {
@@ -471,7 +474,7 @@ export class Doc extends EventTarget {
   setAutoSave(on) {
     setAutoSaveEnabled(!!on);
     // Off, an edit's AutoSave still waiting is dropped too; a retry of a failed save keeps going, as it does after Save.
-    if (!on && !this._timerIsRetry) clearTimeout(this._timer);
+    if (!on && !this._timerIsRetry) { clearTimeout(this._timer); this._sharedFileDue = false; }
     if (on && this.wb.dirty && !session.signedOut) this.save({ auto: true }).catch(() => {});
     this.dispatchEvent(new CustomEvent('autosave', { detail: { on: !!on } }));
   }
@@ -921,6 +924,7 @@ export class Doc extends EventTarget {
     if (this.isOwner && autoSaveEnabled() && !session.signedOut) {
       clearTimeout(this._timer);
       this._timer = setTimeout(() => this.save({ auto: true }).catch(() => {}), SHARED_FILE_MS);
+      this._sharedFileDue = true;
     }
   }
 
@@ -928,6 +932,7 @@ export class Doc extends EventTarget {
   async _saveShared({ auto = false } = {}) {
     const client = this.collab;
     clearTimeout(this._timer);
+    this._sharedFileDue = false;
     await client.flush();
     await client.settled();
     if (client.replica.pending.length) {
@@ -957,7 +962,9 @@ export class Doc extends EventTarget {
     this.collab.removeEventListener('status', this._onRoomStatus);
     this.wb.removeEventListener('change', this._onChange);
     session.removeEventListener('change', this._onSession);
-    this.collab.leave().catch(() => {});
+    // Leaving saves: the file the last changes were waiting a quiet moment to reach is written on the way out.
+    const written = this._sharedFileDue ? this.save({ auto: true }).catch(() => {}) : this._saving?.catch(() => {});
+    Promise.resolve(written).then(() => this.collab.leave()).catch(() => {});
   }
 
   static fromDraft(key) {
