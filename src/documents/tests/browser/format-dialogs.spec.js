@@ -140,3 +140,39 @@ test('Paragraph dialog: indents, spacing, line and page breaks with preview, Tab
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   expect(errors).toEqual([]);
 });
+
+test('Format dialogs bring forward the tab holding an invalid value instead of ignoring OK', async ({ page }) => {
+  const { input, errors } = await blank(page, 'First paragraph text');
+  await select(input, 'First');
+  await ribbon(page, 'Font Settings').click();
+  const font = page.getByRole('dialog', { name: 'Font' });
+  await font.getByRole('tab', { name: 'Advanced' }).click();
+  await font.getByLabel('Scale (%)').fill('700');
+  await font.getByRole('tab', { name: 'Font', exact: true }).click();
+  await font.getByRole('button', { name: 'OK' }).click();
+  // OK stays in the dialog and shows the field that needs fixing.
+  await expect(font.getByRole('tab', { name: 'Advanced' })).toHaveAttribute('aria-selected', 'true');
+  await expect(font.getByLabel('Scale (%)')).toBeFocused();
+  await font.getByRole('button', { name: 'Cancel' }).click();
+  await expect(font).toHaveCount(0);
+
+  await ribbon(page, 'Paragraph Settings').click();
+  const paragraph = page.getByRole('dialog', { name: 'Paragraph' });
+  await paragraph.getByLabel('Left indent (in)').fill('99');
+  await paragraph.getByRole('tab', { name: 'Line and Page Breaks' }).click();
+  await paragraph.getByRole('button', { name: 'OK' }).click();
+  await expect(paragraph.getByRole('tab', { name: 'Indents and Spacing' })).toHaveAttribute('aria-selected', 'true');
+  await expect(paragraph.getByLabel('Left indent (in)')).toBeFocused();
+  await paragraph.getByRole('button', { name: 'Cancel' }).click();
+
+  await onTab(page, 'layout');
+  await page.locator('.ribbon-card').getByRole('button', { name: 'Page setup', exact: true }).click();
+  const setup = page.getByRole('dialog', { name: 'Page setup' });
+  await setup.getByRole('tab', { name: 'Layout' }).click();
+  await setup.getByLabel('Header (in)').fill('-3');
+  await setup.getByRole('tab', { name: 'Page' }).click();
+  await setup.getByRole('button', { name: 'Apply' }).click();
+  await expect(setup.getByRole('alert')).toContainText('Enter a measurement');
+  await expect(setup.getByLabel('Header (in)')).toBeFocused();
+  expect(errors).toEqual([]);
+});

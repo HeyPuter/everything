@@ -2,6 +2,7 @@ import { el, isComposing } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { PAPER_SIZES, validatePageSettings, readingPageSize } from '../engine/page-settings.js';
 import { recallUnit } from '../lib/units.js';
+import { revealControl } from './format-dialog-kit.js';
 
 /** Twips per display unit. */
 const PER_UNIT = { in: 1440, cm: 1440 / 2.54 };
@@ -184,7 +185,7 @@ export function openPageSetup(settings, apply, options = {}) {
   const content = el('form.ed-dialog-body.ps-dialog', { noValidate: true, onsubmit: e => {
     e.preventDefault();
     const invalid = Object.values(inputs).find(input => input.value === '' || input.validity.badInput || input.validity.rangeUnderflow || input.validity.rangeOverflow);
-    if (invalid) { error.textContent = `Enter a measurement from ${invalid.min} to ${invalid.max} ${unit}.`; error.hidden = false; invalid.focus(); return; }
+    if (invalid) { error.textContent = `Enter a measurement from ${invalid.min} to ${invalid.max} ${unit}.`; error.hidden = false; revealControl(invalid); invalid.focus(); return; }
     try {
       const patch = changes(), storyPatch = storyChanges();
       validatePageSettings({ ...settings, ...patch });

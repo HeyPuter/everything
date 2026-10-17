@@ -35,6 +35,27 @@ export function tabStrip(label, tabs, { prefix = fieldId('fmt-tab'), onShow = ()
   return { node: el('div.ed-font-tabs', { role: 'tablist', 'aria-label': label }, ...buttons), show, buttons };
 }
 
+/** Bring a tab to the front when it holds `control`, so focus and the browser's message can reach it. */
+export function revealControl(control) {
+  const panel = control?.closest('[role="tabpanel"][hidden]');
+  if (panel) control.form?.querySelector(`[role="tab"][aria-controls="${CSS.escape(panel.id)}"]`)?.click();
+}
+/**
+ * Validation of a tabbed form points at its first invalid control. A control on a hidden tab cannot be
+ * focused, so without this OK would do nothing at all; its tab comes to the front first.
+ */
+export function revealInvalidTabs(form) {
+  let revealed = false;
+  form.addEventListener('invalid', e => {
+    // One validation fires `invalid` at each failing control in order; the first is the one reported.
+    if (revealed) return;
+    revealed = true;
+    setTimeout(() => { revealed = false; });
+    revealControl(e.target);
+  }, true);
+  return form;
+}
+
 /** A label above a control. */
 export const field = (label, control, hint = null) => el('label.ed-font-field', {}, el('span.field-label', {}, label), control, hint && el('span.field-hint', {}, hint));
 /** A checkbox with a label; `state` true, false or null (mixed). */
@@ -97,6 +118,7 @@ export function openFormatDialog({ title, body, submit, extra = [], okLabel = 'O
   el('div.fmt-footer', {}, el('div.fmt-footer-start', {}, ...extra),
     el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, okLabel))));
   if (className) form.classList.add(...className.split(' '));
+  revealInvalidTabs(form);
   modal = openModal({ title, content: form, wide, onClose });
   modal.panel.classList.add('fmt-dialog-panel');
   modal.fail = fail;
