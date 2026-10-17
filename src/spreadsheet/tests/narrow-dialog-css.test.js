@@ -89,6 +89,10 @@ describe('dialogs at phone width', () => {
     expect(js).toContain("el('div.row.row-end.select-data-foot'");
     expect(js).toContain("el('div.row.select-data-actions'");
   });
+
+  it('wraps Load, Transform Data and Cancel in the Get Data preview and Navigator dialogs', () => {
+    expect(rule(read('queries.css'), '.pq-dialog-buttons')).toMatch(/flex-wrap:\s*wrap/);
+  });
 });
 
 describe('dialog lists for the keyboard and the eye', () => {

@@ -121,7 +121,7 @@
 .pq-nav-list { display: flex; flex-direction: column; border: 1px solid var(--hairline); border-radius: 4px; padding: 4px; overflow: auto; max-height: 360px; }
 .pq-nav-item { display: flex; align-items: center; gap: 6px; border: 0; background: none; font: inherit; color: var(--ink); text-align: left; padding: 4px 6px; border-radius: 4px; cursor: pointer; }
 .pq-nav-item[aria-selected="true"] { background: var(--accent-wash); font-weight: 600; }
-.pq-dialog-buttons { gap: 8px; }
+.pq-dialog-buttons { gap: 8px; flex-wrap: wrap; }
 .pq-split { display: inline-flex; }
 .pq-split > .btn-primary { border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important; }
 .pq-load-arrow { border-top-left-radius: 0 !important; border-bottom-left-radius: 0 !important; padding: 0 6px !important; background: var(--accent) !important; color: var(--accent-ink); border-color: var(--accent) !important; border-left: 1px solid rgba(255, 255, 255, 0.4) !important; }
