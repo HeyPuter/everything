@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { unzipSync, strFromU8 } from 'fflate';
 import { readFileSync } from 'node:fs';
-import { downloadDocx } from './helpers/editor-tools.js';
+import { downloadDocx, onTab, showAllTools } from './helpers/editor-tools.js';
 
 const input = page => page.getByRole('textbox', { name: 'Document text' });
 const button = (page, name) => page.getByRole('button', { name, exact: true });
@@ -10,7 +10,7 @@ async function select(page, text, from = 0, length = text.length) {
   await input(page).evaluate((el, [text, from, length]) => { const at = el.value.indexOf(text, from); if (at < 0) throw Error(text); el.focus(); el.setSelectionRange(at, at + length); el.dispatchEvent(new Event('select')); }, [text, from, length]);
 }
 async function state(page, text, from = 0) {
-  await select(page, text, from);
+  await select(page, text, from); await onTab(page, 'home');
   return { style: await style(page).inputValue(), bold: await button(page, 'Bold').getAttribute('aria-pressed'), italic: await button(page, 'Italic').getAttribute('aria-pressed'), bullets: await button(page, 'Bulleted list').getAttribute('aria-pressed') };
 }
 const paste = (page, html, text) => input(page).evaluate((el, [html, text]) => {
@@ -20,6 +20,7 @@ const paste = (page, html, text) => input(page).evaluate((el, [html, text]) => {
 async function blank(page) {
   await page.goto('/mock.html#/new');
   await expect(button(page, 'Bold')).toBeEnabled();
+  await showAllTools(page); // the Paragraph style list is in the Formatting Pane
 }
 
 test('copy and paste inside a document keeps headings, lists and text formatting in one undo step', async ({ browser }) => {
@@ -75,7 +76,7 @@ test('HTML from another application keeps headings, lists, emphasis, color and l
   expect(await state(page, 'red italic')).toMatchObject({ italic: 'true' });
   await expect(page.getByRole('button', { name: 'Text color' })).toHaveAttribute('title', 'Text color: #FF0000');
   for (const item of ['First item', 'Second item']) expect(await state(page, item)).toMatchObject({ bullets: 'true' });
-  await select(page, 'link'); await expect(button(page, 'Insert or edit link')).toHaveAttribute('aria-pressed', 'true');
+  await select(page, 'link'); await onTab(page, 'insert'); await expect(button(page, 'Insert or edit link')).toHaveAttribute('aria-pressed', 'true');
   await input(page).press('ControlOrMeta+z'); await expect(input(page)).toHaveValue('');
   await input(page).press('ControlOrMeta+Shift+z');
   const download = page.waitForEvent('download'); await downloadDocx(page);
@@ -90,7 +91,7 @@ test('plain text and unsupported destinations keep the plain-text paste', async 
   await expect(input(page)).toHaveValue('Just text\nTwo lines');
   // Inside a table cell the plain text goes in as before.
   await input(page).press('ControlOrMeta+End'); await page.keyboard.press('Enter');
-  await button(page, 'Insert table').click(); await page.getByRole('button', { name: 'Insert', exact: true }).click();
+  await onTab(page, 'insert'); await button(page, 'Insert table').click(); await page.getByRole('menu', { name: 'Insert table' }).getByRole('menuitem', { name: '2 columns, 2 rows' }).click();
   await paste(page, '<h1>Heading</h1>', 'Cell text');
   await expect(input(page)).toHaveValue(/Cell text/);
 });
