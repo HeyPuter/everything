@@ -1,7 +1,7 @@
 import {test,expect} from '@playwright/test';
 import {readFileSync} from 'node:fs';
 import {unzipSync} from 'fflate';
-import {showAllTools} from './helpers/editor-tools.js';
+import {showAllTools,onTab} from './helpers/editor-tools.js';
 import {reopenDocx} from './helpers/reopen-docx.js';
 const source='public/fixtures/table-row-alignment.docx';
 const reference=JSON.parse(readFileSync('tests/fixtures/table-row-alignment/reference.json','utf8'));
@@ -21,11 +21,13 @@ test('matches native row alignment, exposes mixed state, and preserves structura
  // A closed modal stays in the DOM for its exit animation. The page can
  // reopen properties immediately; only the active dialog owns these controls.
  const dialog=page.locator('.modal-root:not(.closing)').getByRole('dialog',{name:'Table properties',exact:true});
- await select('T0R0C0');const properties=page.getByRole('button',{name:'Table properties',exact:true});await properties.click();await expect(dialog.getByLabel('Table alignment',{exact:true})).toHaveValue('mixed');await dialog.getByRole('button',{name:'Apply',exact:true}).click();await expect(page.getByRole('button',{name:'Undo',exact:true})).toBeDisabled();
+ // Table properties is on the contextual Table Layout tab, which shows (unselected) inside a table.
+ const properties=page.getByRole('button',{name:'Table properties',exact:true}),openProperties=async()=>{await onTab(page,'tableLayout');await properties.click();};
+ await select('T0R0C0');await openProperties();await expect(dialog.getByLabel('Table alignment',{exact:true})).toHaveValue('mixed');await dialog.getByRole('button',{name:'Apply',exact:true}).click();await expect(page.getByRole('button',{name:'Undo',exact:true})).toBeDisabled();
  const download=async suffix=>{const pending=page.waitForEvent('download');await page.getByRole('button',{name:'Download .docx',exact:true}).click();const path=info.outputPath(`row-alignment${suffix}.docx`);await(await pending).saveAs(path);return path;};
- await properties.click();await dialog.getByLabel('Table alignment',{exact:true}).selectOption('left');await dialog.getByRole('button',{name:'Apply',exact:true}).click();const aligned=await download('-aligned');await page.getByRole('button',{name:'Undo',exact:true}).click();
+ await openProperties();await dialog.getByLabel('Table alignment',{exact:true}).selectOption('left');await dialog.getByRole('button',{name:'Apply',exact:true}).click();const aligned=await download('-aligned');await page.getByRole('button',{name:'Undo',exact:true}).click();
  await select('T0R1C0');await page.getByRole('combobox',{name:'Table actions',exact:true}).selectOption('addRow');await page.keyboard.insertText('New right row');const added=await download('-added');await input.press('ControlOrMeta+z');await input.press('ControlOrMeta+z');
  const original=await input.inputValue(),a=unzipSync(readFileSync(source)),b=unzipSync(readFileSync(await download('-undo')));for(const name of Object.keys(a))expect(Buffer.from(a[name]).equals(Buffer.from(b[name])),name).toBe(true);
- await reopenDocx(page,input,aligned,original);await select('T0R0C0');await properties.click();await expect(dialog.getByLabel('Table alignment',{exact:true})).toHaveValue('left');await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
+ await reopenDocx(page,input,aligned,original);await select('T0R0C0');await openProperties();await expect(dialog.getByLabel('Table alignment',{exact:true})).toHaveValue('left');await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
  await page.getByLabel('Open DOCX file').setInputFiles(added);await expect(input).toHaveValue(/New right row/);await expect(page.locator('#playground-error')).toBeEmpty();
 });
