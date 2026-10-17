@@ -1084,7 +1084,9 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     findSite: cloud ? () => (doc.path && P.canHost() ? findSite(doc.path) : Promise.resolve(null)) : null,
     unpublish: site => unpublishPage(site),
     setEditingMode: mode => editorCommands.setEditingMode(mode), preferences: section => openPreferencesDialog(section),
-    onOpen: () => { engine?.finishComposition(); },
+    // The File button says whether the File view it opens is showing.
+    onOpen: () => { engine?.finishComposition(); root?.querySelector('.ribbon-file')?.setAttribute('aria-expanded', 'true'); },
+    onClose: () => root?.querySelector('.ribbon-file')?.setAttribute('aria-expanded', 'false'),
   });
   // A shared document restored through the room is one undoable change for everyone (version-history.js); otherwise the file is replaced.
   async function restoreVersionFile(version, { confirm = true } = {}) {

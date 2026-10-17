@@ -66,9 +66,12 @@ test('the menu bar has the classic menus, moves with the arrow keys and runs com
 test('the File view opens over the editor, edits document properties that save into the file, and exports', async ({ page }, info) => {
   await openEditor(page);
   await text(page).fill('Harbour report\nThe tide was high.');
-  await page.getByRole('button', { name: 'File', exact: true }).click();
+  const fileButton = page.locator('.ribbon-file');
+  await expect(fileButton).toHaveAttribute('aria-expanded', 'false');
+  await fileButton.click();
   const view = page.getByRole('dialog', { name: 'File' });
   await expect(view).toBeVisible();
+  await expect(fileButton).toHaveAttribute('aria-expanded', 'true');
   await expect(view.getByRole('tab', { name: 'Info' })).toHaveAttribute('aria-selected', 'true');
   await expect(view.locator('.bs-facts').last()).toContainText('Words');
   await view.getByRole('textbox', { name: 'Title', exact: true }).fill('Harbour Report');
@@ -79,6 +82,7 @@ test('the File view opens over the editor, edits document properties that save i
   await page.keyboard.press('Escape');
   await expect(view).toBeHidden();
   await expect(text(page)).toBeFocused();
+  await expect(fileButton).toHaveAttribute('aria-expanded', 'false');
   // Export: .docx carries the properties; Markdown and plain text carry the words.
   await page.getByRole('button', { name: 'File', exact: true }).click();
   await view.getByRole('tab', { name: 'Export' }).click();
