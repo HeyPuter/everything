@@ -198,6 +198,40 @@ test('citations, sources and bibliography follow the chosen style', async ({ pag
   expect(strFromU8(parts[item])).toContain('<b:Tag>Lov20</b:Tag><b:SourceType>JournalArticle</b:SourceType>');
 });
 
+test('Edit Source keeps tag names unique', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await openEditor(page);
+  await page.keyboard.type('Body text.');
+  await onTab(page, 'references');
+  for (const [author, title] of [['Smith, Ann', 'First Book'], ['Jones, Bob', 'Second Book']]) {
+    await page.evaluate(() => { const m = window.__docs.current.view.engine.model; m.select(m.text.length); });
+    await ribbon(page).getByRole('button', { name: 'Insert Citation', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Add New Source…' }).click();
+    const source = page.getByRole('dialog', { name: 'Create Source' });
+    await source.getByLabel('Author', { exact: true }).fill(author);
+    await source.getByLabel('Title', { exact: true }).fill(title);
+    await source.getByLabel('Year', { exact: true }).fill('2020');
+    await source.getByRole('button', { name: 'OK', exact: true }).click();
+    await expect(source).toHaveCount(0);
+  }
+  await ribbon(page).getByRole('button', { name: 'Manage Sources', exact: true }).click();
+  const manager = page.getByRole('dialog', { name: 'Source Manager' });
+  const current = manager.getByRole('listbox', { name: 'Current list' });
+  await expect(current.getByRole('option')).toHaveCount(2);
+  await current.selectOption('Smi20');
+  await manager.getByRole('button', { name: 'Edit…', exact: true }).click();
+  const edit = page.getByRole('dialog', { name: 'Edit Source' });
+  await edit.getByLabel('Tag name').fill('Jon20');
+  await edit.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(edit.getByRole('alert')).toHaveText('A source with that tag already exists in this document.');
+  await edit.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await manager.getByRole('button', { name: 'Done', exact: true }).click();
+  const parts = await download(page, info, 'unique-tags.docx');
+  const item = Object.keys(parts).find(n => /^customXml\/item\d+\.xml$/.test(n));
+  expect(strFromU8(parts[item]).match(/<b:Tag>[^<]*<\/b:Tag>/g)).toEqual(['<b:Tag>Smi20</b:Tag>', '<b:Tag>Jon20</b:Tag>']);
+  expect(errors).toEqual([]);
+});
+
 test('captions, cross-references and a table of figures', async ({ page }, info) => {
   await openEditor(page);
   await page.keyboard.type('Chart one');

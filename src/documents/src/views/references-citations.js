@@ -104,7 +104,8 @@ export function createCitationCommands(ctx) {
   });
   const joinNames = list => (list || []).map(p => p.corporate || [p.last, [p.first, p.middle].filter(Boolean).join(' ')].filter(Boolean).join(', ')).join('; ');
 
-  async function sourceDialog({ source = null, onSave, title = source ? 'Edit Source' : 'Create Source' }) {
+  /** `existing()` is the list the source belongs to (the document's, or the master list `place`): tags are unique in it. */
+  async function sourceDialog({ source = null, onSave, title = source ? 'Edit Source' : 'Create Source', existing = () => documentData().data.sources, place = 'this document' }) {
     const [bib, , styles] = await engineModules();
     const style = currentStyle();
     const typeOptions = bib.COMMON_SOURCE_TYPES.map(id => [id, bib.SOURCE_TYPES[id].label]).concat(Object.keys(bib.SOURCE_TYPES).filter(id => !bib.COMMON_SOURCE_TYPES.includes(id)).map(id => [id, bib.SOURCE_TYPES[id].label]));
@@ -165,8 +166,9 @@ export function createCitationCommands(ctx) {
     ], onSubmit: async () => {
       const draft = current();
       if (!draft.tag) throw new Error('Give the source a tag name.');
-      const others = documentData().data.sources.filter(s => s.tag !== source?.tag);
-      if (!source && others.some(s => s.tag.toLowerCase() === draft.tag.toLowerCase())) throw new Error('A source with that tag already exists in this document.');
+      // Editing may rename the tag too: it must not take another source's.
+      const others = existing().filter(s => s.tag !== source?.tag);
+      if (others.some(s => s.tag.toLowerCase() === draft.tag.toLowerCase())) throw new Error(`A source with that tag already exists in ${place}.`);
       if (!draft.guid) draft.guid = bib.newGuid();
       await onSave(draft);
     } });
@@ -234,7 +236,7 @@ export function createCitationCommands(ctx) {
     const edit = () => {
       const [source] = selected(focused); if (!source) return;
       const inMaster = focused === masterList;
-      sourceDialog({ source, onSave: async draft => {
+      sourceDialog({ source, ...(inMaster ? { existing: () => master, place: 'the master list' } : {}), onSave: async draft => {
         if (inMaster) { master = saveMasterSources(master.map(s => s.tag === source.tag ? draft : s)); }
         else {
           await saveSources(documentData().data.sources.map(s => s.tag === source.tag ? draft : s));
