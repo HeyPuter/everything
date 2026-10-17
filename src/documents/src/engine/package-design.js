@@ -5,9 +5,9 @@
  * elements it owns, and leaves every other part byte-for-byte unchanged. The editor reopens the result,
  * so what is displayed is read back through the ordinary readers.
  */
-import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
+import { strFromU8, strToU8, unzipSync } from 'fflate';
 import { relatedPartPath } from './docx-relationships.js';
-import { relationshipPartPath, relativePartTarget } from './package-part-paths.js';
+import { relationshipPartPath, relativePartTarget, zipPackage } from './package-part-paths.js';
 import { createPageStoryPart } from './docx-page-story-create.js';
 import { themeColorTransform } from './colors.js';
 import { COLOR_SLOTS, STYLE_SET_STYLES, resolvedTheme, STYLE_SETS } from './document-themes.js';
@@ -595,7 +595,7 @@ export function hasPageFill(parts) {
 /* ---- Packages as blobs ---- */
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 export async function blobParts(blob) { return unzipSync(new Uint8Array(await blob.arrayBuffer())); }
-export function partsBlob(parts) { return new Blob([zipSync(parts)], { type: DOCX_MIME }); }
+export function partsBlob(parts) { return new Blob([zipPackage(parts)], { type: DOCX_MIME }); }
 /** A theme part's XML text, or null. */
 export function themePartXml(parts) { const path = themePartPath(parts); return path ? strFromU8(parts[path]) : null; }
 /** The theme part inside a .thmx theme package (a ZIP), or the text of a .xml theme file. */

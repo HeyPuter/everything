@@ -4,6 +4,7 @@ import { unzipSync, zipSync, strToU8, strFromU8 } from 'fflate';
 import { readFileSync } from 'node:fs';
 import { createDocx, DocxPackage, W } from '../src/engine/docx.js';
 import { TextDocument, paragraph } from '../src/engine/model.js';
+import { partsBlob } from '../src/engine/package-design.js';
 
 let dom;
 beforeAll(() => {
@@ -187,5 +188,38 @@ describe('OOXML run-format conformance', () => {
   });
   it.each(['<w:sz w:val="oops"/>', '<w:sz w:val="27.5"/>', '<w:u w:val="zigzag"/>'])('rejects unsupported effective run properties instead of misrendering them: %s', async properties => {
     await expect(DocxPackage.open(await fixture(`<w:p><w:r><w:rPr>${properties}</w:rPr><w:t>A</w:t></w:r></w:p>`))).rejects.toMatchObject({ name: 'UnsupportedDocumentError' });
+  });
+  it('stores already-compressed pictures and deflates XML when saving or repackaging', async () => {
+    // Pseudo-random bytes stand in for compressed picture data; a padded picture still deflates.
+    let seed = 2463534242;
+    const picture = new Uint8Array(400000).map(() => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return seed & 255; }), padded = new Uint8Array(400000);
+    const input = await fixture('<w:p><w:r><w:t>Hello</w:t></w:r></w:p>', { 'word/media/photo.JPG': picture, 'word/media/chart.png': picture, 'word/media/padded.png': padded });
+    // Central directory records: compression method at +10, name length at +28.
+    const methods = output => {
+      const result = {}, view = new DataView(output.buffer, output.byteOffset);
+      for (let at = output.length - 22; at >= 0; at--) if (view.getUint32(at, true) === 0x06054b50) {
+        for (let entry = view.getUint32(at + 16, true); view.getUint32(entry, true) === 0x02014b50;) {
+          const nameLength = view.getUint16(entry + 28, true);
+          result[strFromU8(output.subarray(entry + 46, entry + 46 + nameLength))] = view.getUint16(entry + 10, true);
+          entry += 46 + nameLength + view.getUint16(entry + 30, true) + view.getUint16(entry + 32, true);
+        }
+        return result;
+      }
+    };
+    const output = await bytes((await DocxPackage.open(input)).export());
+    const expected = { 'word/media/photo.JPG': 0, 'word/media/chart.png': 0, 'word/media/padded.png': 8, 'word/document.xml': 8, '[Content_Types].xml': 8 };
+    expect(methods(output)).toMatchObject(expected);
+    expect(unzipSync(output)['word/media/photo.JPG']).toEqual(picture);
+    // Design changes repackage the saved parts before reopening them.
+    expect(methods(await bytes(partsBlob(unzipSync(output))))).toMatchObject(expected);
+  });
+  it('deflates every picture when stored pictures would exceed the open limit', async () => {
+    // Random bytes exactly where the compressibility samples look, padding between them.
+    const picture = new Uint8Array(24 * 1024 * 1024), sample = 1 << 15;
+    let seed = 88675123;
+    for (const at of [0, (picture.length - sample) >> 1, picture.length - sample]) for (let i = at; i < at + sample; i++) { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; picture[i] = seed & 255; }
+    const output = await bytes((await DocxPackage.open(await fixture('<w:p><w:r><w:t>Hello</w:t></w:r></w:p>', { 'word/media/scan.png': picture }))).export());
+    expect(output.length).toBeLessThan(1024 * 1024);
+    expect((await DocxPackage.open(output)).readOnly).not.toBe(true);
   });
 });
