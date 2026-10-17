@@ -241,6 +241,27 @@ test('the ribbon collapses to its tabs and shows KeyTips for the keyboard', asyn
   await expect(page.locator('.ed-keytip')).toHaveCount(0);
 });
 
+test('command search and KeyTips reach the Draw and Mailings tabs the feature modules add', async ({ page }) => {
+  await openEditor(page);
+  const search = page.getByRole('combobox', { name: 'Search for commands' });
+  const results = page.getByRole('listbox', { name: 'Commands' });
+  await search.click(); await search.fill('highlight merge fields');
+  await expect(results.getByRole('option').first()).toContainText('Mailings');
+  await search.click(); await search.fill('lasso');
+  await expect(results.getByRole('option').first()).toContainText('Lasso Select');
+  await search.press('Enter');
+  await expect(page.locator('#ribbon-tab-draw')).toHaveAttribute('aria-selected', 'true');
+  // KeyTips label every tab, these two among them.
+  await text(page).focus();
+  await page.keyboard.press('Alt');
+  await expect(page.locator('.ed-keytip', { hasText: /^JI$/ })).toBeVisible();
+  await expect(page.locator('.ed-keytip', { hasText: /^M$/ })).toBeVisible();
+  await page.keyboard.press('m');
+  await expect(page.locator('#ribbon-tab-mailings')).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+});
+
 test('the right-click menu fits a link, and Edit > Links lists and removes links', async ({ page }) => {
   await openEditor(page);
   await page.evaluate(() => { const e = window.__docs.current.view.engine; e.model.replace('Visit the site today'); e.model.select(6, 14); e.setHyperlink('https://example.com', null, { appearance: true }); e.model.select(8); e.syncInput(); e.onSelection(); });

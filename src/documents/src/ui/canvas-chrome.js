@@ -526,7 +526,9 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
     c.exportButton.title = 'Download .docx';
     c.exportButton.replaceChildren(commandIconEl('download', 16), el('span', {}, 'Download .docx'));
   }
-  const allTabs = [home, insert, design, layout, references, review, view, tableDesign, tableLayout, picture, shapeFormat, ...moduleTabs];
+  // Every tab the ribbon holds, the feature modules' standard tabs (Draw, Mailings) among them: command search,
+  // Customize Keyboard and the KeyTips list their commands from here.
+  const allTabs = [...standardTabs, tableDesign, tableLayout, picture, shapeFormat, ...moduleTabs];
   let modes = null, titleBar = null;
   const menuContext = { w, c, a, local, kit, focusEditor, inDocument, engineReady, rulers, engine: () => a.engine?.(),
     tableAction, tableOption, shortcut: id => w.shortcutFor?.(id) ?? null, menuAnchor: () => document.activeElement,
