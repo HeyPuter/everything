@@ -34,7 +34,8 @@ const GROUPS = [
   ]],
   ['Paragraph', [
     [[`${MOD_KEY} + L`, `${MOD_KEY} + Shift + L`], 'Align left'],
-    [[`${MOD_KEY} + E`, `${MOD_KEY} + Shift + E`], 'Align center'],
+    // Cmd/Ctrl+Shift+E is Track Changes, so only the plain chord centers.
+    [`${MOD_KEY} + E`, 'Align center'],
     [[`${MOD_KEY} + R`, `${MOD_KEY} + Shift + R`], 'Align right'],
     [[`${MOD_KEY} + J`, `${MOD_KEY} + Shift + J`], 'Justify'],
     [`${MOD_KEY} + Shift + 8`, 'Bulleted list'],
