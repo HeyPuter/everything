@@ -351,3 +351,12 @@ it('pastes a long formatted HTML clipboard as plain text instead of formatting i
   expect(editor.model.paragraphs[0].runs.find(r => r.text === 'bold')?.bold).toBe(true);
   expect(errors).not.toHaveBeenCalled();
 });
+
+it('pastes a list copied from Word as list paragraphs', () => {
+  const item = (list, marker, text) => `<p class=MsoListParagraph style='text-indent:-.25in;mso-list:${list}'><![if !supportLists]><span style='mso-list:Ignore'>${marker}<span style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp;&nbsp; </span></span><![endif]>${text}<o:p></o:p></p>`;
+  editor.model.select(0, editor.model.text.length);
+  editor.pasteData('·\tOne\n·\tTwo', `<body><!--StartFragment-->${item('l0 level1 lfo1', '·', 'One')}${item('l0 level1 lfo1', '·', 'Two')}<!--EndFragment--></body>`);
+  expect(editor.model.text).toBe('One\nTwo');
+  expect(editor.model.paragraphs.map(p => !!p.list)).toEqual([true, true]);
+  expect(errors).not.toHaveBeenCalled();
+});

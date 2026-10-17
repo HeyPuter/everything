@@ -129,6 +129,16 @@ function inherited(el, format) {
   return next;
 }
 
+// Word writes a list item as a paragraph styled mso-list:l0 level1, with its number or bullet as text
+// in a span styled mso-list:Ignore (for browsers without list support). The marker is not content.
+const msoList = el => /mso-list\s*:\s*([^;"']*)/i.exec(el.getAttribute?.('style') || '')?.[1].trim() || '';
+function wordListItem(el) {
+  const level = /^l\d+\s+level(\d+)/i.exec(msoList(el))?.[1];
+  if (!level) return null;
+  const marker = [...el.querySelectorAll('[style]')].find(child => /^ignore$/i.test(msoList(child)))?.textContent.replace(/[\s\u00a0]/g, '') || '';
+  return { kind: /^\(?[0-9a-z]{1,6}[.)]$/i.test(marker) ? 'number' : 'bullet', level: Math.max(0, Math.min(8, Number(level) - 1)) };
+}
+
 function fromForeignHtml(body) {
   const paragraphs = [];
   let current = null;
@@ -163,7 +173,7 @@ function fromForeignHtml(body) {
       append(text, format, context.link);
       return;
     }
-    if (node.nodeType !== 1 || SKIPPED.has(node.tagName)) return;
+    if (node.nodeType !== 1 || SKIPPED.has(node.tagName) || /^ignore$/i.test(msoList(node))) return;
     const tag = node.tagName;
     if (tag === 'BR') { if (!node.classList?.contains('Apple-interchange-newline')) append('\v', format, context.link); return; }
     const next = inherited(node, format);
@@ -183,7 +193,7 @@ function fromForeignHtml(body) {
       if (!['UL', 'OL', 'TABLE', 'TBODY', 'THEAD', 'TFOOT', 'DL', 'BODY'].includes(tag)) {
         const heading = /^H([1-6])$/.exec(tag)?.[1];
         const align = { center: 'center', right: 'right', justify: 'both' }[node.style?.textAlign];
-        start({ styleName: heading ? `Heading ${heading}` : 'Normal', alignment: align || null, list: tag === 'LI' ? ctx.list || { kind: 'bullet', level: 0 } : null });
+        start({ styleName: heading ? `Heading ${heading}` : 'Normal', alignment: align || null, list: tag === 'LI' ? ctx.list || { kind: 'bullet', level: 0 } : wordListItem(node) });
       }
     }
     if (tag === 'LI') ctx.item = current;

@@ -21577,6 +21577,15 @@ skip the command they never needed, and a paste that would need more than
 is inserted as its plain text. Opening an HTML or Markdown file is unchanged.
 Unit tests cover the limit and the plain fallback (2026-10-16).
 
+Word puts a list on the clipboard as paragraphs styled `mso-list:lN levelM`,
+with each number or bullet typed out in a span styled `mso-list:Ignore` for
+browsers without list support. Those markers were pasted as text (a middle
+dot or "1." and a run of no-break spaces) in front of ordinary paragraphs.
+Paste now drops the marker and makes the paragraph a bulleted or numbered list
+item (numbered when the marker reads like 1., a) or iv.) at level M (§17.9);
+the list's own numbering definition is not carried over. Unit tests cover the
+conversion and the paste (2026-10-16).
+
 ### Markdown and HTML import (2026-10-05)
 
 Markdown (.md, with GitHub tables, task lists and strikethrough) and HTML files
