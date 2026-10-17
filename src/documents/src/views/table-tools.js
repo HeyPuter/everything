@@ -394,7 +394,11 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
         for (const { input, key } of sizeInputs) {
           if (document.activeElement === input) continue;
           if (!b || !engine) { input.value = ''; continue; }
-          const value = key === 'height' ? rowHeightsOf(engine, b.table).slice(b.top, b.bottom + 1) : (() => { const w = widthsOf(engine, b.table); return w.length ? [w.slice(b.left, b.right).reduce((x, y) => x + y, 0)] : []; })();
+          // Width: each selected cell of the top row, which is what the spinner sets.
+          const value = key === 'height' ? rowHeightsOf(engine, b.table).slice(b.top, b.bottom + 1) : (() => {
+            const w = widthsOf(engine, b.table);
+            return w.length ? rowGrid(b.table.rows[b.top]).filter(c => c.column >= b.left && c.end <= b.right).map(c => w.slice(c.column, c.end).reduce((x, y) => x + y, 0)) : [];
+          })();
           const v = value.length && value.every(x => Math.abs(x - value[0]) < 8) ? String(Number((value[0] / 1440).toFixed(2))) : '';
           if (input.value !== v) input.value = v;
         }
