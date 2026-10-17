@@ -17,7 +17,8 @@ test('preserves neighboring table artwork when one cell anchor cannot be laid ou
  test.setTimeout(120000);
  const parts=unzipSync(readFileSync('public/fixtures/table-global-anchors.docx'));
  const original=strFromU8(parts['word/document.xml']);
- const changed=original.replace(/(<wp:positionV\b[^>]*relativeFrom=")[^"]+/, '$1paragraph');
+ // Numeric page X with paragraph Y is laid out in cells now; an aligned X with paragraph Y is still guarded.
+ const changed=original.replace(/(<wp:positionV\b[^>]*relativeFrom=")[^"]+/, '$1paragraph').replace(/(<wp:positionH\b[^>]*>)<wp:posOffset>[^<]*<\/wp:posOffset>/, '$1<wp:align>center</wp:align>');
  expect(changed).not.toBe(original);parts['word/document.xml']=strToU8(changed);
  const source=Buffer.from(zipSync(parts));writeFileSync(info.outputPath('mixed-anchor-source.docx'),source);
  await page.goto('/playground.html');await page.getByLabel('Open DOCX file').setInputFiles({name:'mixed-anchor.docx',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',buffer:source});

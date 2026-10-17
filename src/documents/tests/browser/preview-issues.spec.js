@@ -9,7 +9,8 @@ for(const entry of ['/playground.html','/mock.html'])test('read-only feature lis
  await expect(summary).toContainText('Unsupported features detected');
  await summary.focus();await summary.press('Enter');
  const items=notice.locator('li');await expect(items.filter({hasText:'Right-to-left paragraph layout'})).toHaveCount(1);
- await expect(items.filter({hasText:'Hidden text'})).toHaveCount(1);await expect(items.filter({hasText:/border/i})).toHaveCount(1);
+ // Hidden text (w:vanish) is editable now, so its repeated declarations are not reported.
+ await expect(items.filter({hasText:'Hidden text'})).toHaveCount(0);await expect(items.filter({hasText:/border/i})).toHaveCount(1);
  const labels=await items.allTextContents();expect(new Set(labels).size).toBe(labels.length);
  await expect(page.getByRole('textbox',{name:'Document text'})).toHaveJSProperty('readOnly',true);
  await expect(page.locator('canvas.canvas-page')).toHaveCount(1);

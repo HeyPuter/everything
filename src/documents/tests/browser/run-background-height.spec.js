@@ -46,7 +46,8 @@ test('matches native run-background heights across spacing, direction and mixed 
     expect(Math.abs(sample.pixelBottom-native.rect.y-native.rect.height), `case ${sample.index+1} painted bottom`).toBeLessThan(1);
   }
   await page.getByLabel('Open DOCX file').setInputFiles(root + 'control.docx');
-  await expect(page.getByRole('textbox', { name: 'Document text' })).toHaveJSProperty('readOnly', true);
+  // Run-level RTL (w:rtl) is editable, so the control opens for editing; an untouched download keeps every part.
+  await expect(page.getByRole('textbox', { name: 'Document text' })).toHaveJSProperty('readOnly', false);
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download .docx', exact: true }).click();
   const output = info.outputPath('noedit.docx'); await (await pending).saveAs(output);
