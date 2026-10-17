@@ -123,3 +123,20 @@ test('quick presses in one place count as a double press only when nothing came 
   await page.mouse.click(spot.x, spot.y);
   expect(await selected(page)).toMatch(/^\S+$/u);
 });
+
+test('a click in Text mode moves the selection the toolbar acts on', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.evaluate(() => window.__docs.current.view.engine.setAccessible(true));
+  await input(page).fill('Hello world');
+  await input(page).evaluate(el => { el.focus(); el.setSelectionRange(6, 11); el.dispatchEvent(new Event('select')); });
+  // A click near the start of the plain text field collapses its selection there.
+  const box = await input(page).boundingBox();
+  await page.mouse.click(box.x + 30, box.y + 36);
+  const native = await input(page).evaluate(el => [el.selectionStart, el.selectionEnd]);
+  expect(native[0]).toBe(native[1]);
+  expect(native[0]).toBeLessThan(6);
+  expect(await page.evaluate(() => [...window.__docs.current.view.engine.model.range])).toEqual(native);
+  await page.getByRole('button', { name: 'Bold', exact: true }).click();
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].runs.some(r => r.bold))).toBe(false);
+});

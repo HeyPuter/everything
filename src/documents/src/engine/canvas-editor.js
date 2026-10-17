@@ -179,6 +179,9 @@ export class CanvasEditor {
     listen(this.input, 'compositionend', () => this.finishComposition());
     listen(this.input, 'select', () => this.nativeSelection());
     listen(this.input, 'keyup', () => this.nativeSelection());
+    // A click in the native text (accessible text mode) moves the caret with no key or select
+    // event; the toolbar's commands must act where it now is.
+    listen(this.input, 'pointerup', () => this.nativeSelection());
     listen(this.input, 'focus', () => this.paint());
     listen(this.input, 'blur', () => { this.finishComposition(); this.paint(); });
     listen(this.input, 'copy', e => this.copy(e, false));
