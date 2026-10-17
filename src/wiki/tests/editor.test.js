@@ -318,4 +318,30 @@ describe('structure edge cases', () => {
     expect(listBlocks(doc)[0].table.rows).toEqual([['mine', 'b'], ['c', 'theirs'], ['', '']]);
     expect(listBlocks(other)[0].table.rows).toEqual(listBlocks(doc)[0].table.rows);
   });
+
+  it('undoes typing in a table cell, saved or not, and shows it in that cell', async () => {
+    const { doc } = mount([{ type: 'table', table: { rows: [['a', 'b']], header: false } }]);
+    const cell = () => host.querySelector('td');
+    const undo = () => cell().dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, metaKey: true, bubbles: true }));
+    cell().tabIndex = 0;
+    cell().focus();
+    // Undo right after typing, before the cell saved on its own.
+    cell().textContent = 'typed';
+    cell().dispatchEvent(new Event('input'));
+    undo();
+    await new Promise((r) => setTimeout(r, 500));
+    expect(listBlocks(doc)[0].table.rows).toEqual([['a', 'b']]);
+    expect(cell().textContent).toBe('a');
+    // Undo after it saved, while the caret is still in the cell.
+    cell().textContent = 'again';
+    cell().dispatchEvent(new Event('input'));
+    await new Promise((r) => setTimeout(r, 500));
+    expect(listBlocks(doc)[0].table.rows).toEqual([['again', 'b']]);
+    editor.undo.stopCapturing();
+    undo();
+    await tick();
+    expect(document.activeElement).toBe(cell());
+    expect(listBlocks(doc)[0].table.rows).toEqual([['a', 'b']]);
+    expect(cell().textContent).toBe('a');
+  });
 });

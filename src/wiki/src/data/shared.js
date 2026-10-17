@@ -55,7 +55,7 @@ export class SharedSpace extends Space {
     this.failures = 0;
     this.closed = false;
     this.subscription = null;
-    // Documents to fetch on the next synchronization (id -> log key or null), or all of them.
+    // Documents to fetch on the next synchronization (id -> log keys signals named), or all of them.
     this.queued = new Map();
     this.queuedAll = false;
     this.signal = { docs: new Map(), all: false, people: false, seq: null };
@@ -289,12 +289,12 @@ export class SharedSpace extends Space {
 
   /**
    * Reads what others saved, into the given open documents (a Map of id to
-   * the log key a signal named, or null), or into every open document.
+   * the log keys signals named for it), or into every open document.
    * Calls made while one runs are merged into the next round.
    */
   async synchronize(only = null) {
     if (this.closed) return;
-    if (only) for (const [id, key] of only) this.queued.set(id, key || this.queued.get(id) || null);
+    if (only) for (const [id, keys] of only) this.queue(id, keys);
     else this.queuedAll = true;
     if (this.syncing) return this.syncing;
     this.syncing = (async () => {
@@ -311,6 +311,13 @@ export class SharedSpace extends Space {
     return this.syncing;
   }
 
+  /** Adds a document to the next round, with log keys named for it (a key, or a list or set of them). */
+  queue(id, keys = null) {
+    const set = this.queued.get(id) || new Set();
+    for (const k of typeof keys === 'string' ? [keys] : keys || []) if (typeof k === 'string') set.add(k);
+    this.queued.set(id, set);
+  }
+
   /** One synchronization request per 40 documents. Returns false when it failed. */
   async syncRound(ids, hints) {
     if (!ids) this.evict();
@@ -325,7 +332,8 @@ export class SharedSpace extends Space {
           const e = this.entries.get(id);
           if (!e) continue;
           docs[id] = encodeBase64(Y.encodeStateVector(e.doc));
-          if (hints.get(id)) keys[id] = hints.get(id);
+          // The worker reads up to 16 named records per document.
+          if (hints.get(id)?.size) keys[id] = [...hints.get(id)].slice(-16);
         }
         const res = await this.request('sync', { docs, ...(Object.keys(keys).length ? { keys } : {}) });
         this.afterSync(res);
@@ -406,14 +414,28 @@ export class SharedSpace extends Space {
   onSignal(value) {
     const sig = this.signal;
     const docs = value?.docs;
+    // This tab's own saves come back with the commit's answer already.
+    const own = !!value?.session && value.session === this.session && !!value.by && value.by === this.user?.uuid;
     if (!Array.isArray(docs) || docs.length >= 32) sig.all = true;
     else if (!docs.length) sig.people = true;
-    // This tab's own saves come back with the commit's answer already.
-    else if (!value.session || value.session !== this.session) for (const d of docs) if (typeof d === 'string') sig.docs.set(d, value.keys?.[d] || sig.docs.get(d) || null);
+    else if (!own) {
+      for (const d of docs) {
+        if (typeof d !== 'string') continue;
+        const keys = sig.docs.get(d) || new Set();
+        const key = value.keys?.[d];
+        if (typeof key === 'string') keys.add(key);
+        sig.docs.set(d, keys);
+      }
+    }
     if (Number.isInteger(value?.seq)) {
-      // A skipped number is a signal that never arrived: its documents are unknown.
-      if (sig.seq !== null && value.seq > sig.seq + 1) sig.all = true;
+      // A skipped number is a signal that never arrived: its documents are
+      // unknown. So are those of signals sent before the first one seen here.
+      if (sig.seq === null || value.seq > sig.seq + 1) sig.all = true;
       if (sig.seq === null || value.seq > sig.seq) sig.seq = value.seq;
+    } else {
+      // An older worker does not number its signals, so a missed one would
+      // go unnoticed: read everything, as clients did before.
+      sig.all = true;
     }
     if (this.eventTimer) return;
     this.eventTimer = setTimeout(() => {
@@ -424,7 +446,7 @@ export class SharedSpace extends Space {
       sig.docs = new Map();
       if (all) {
         // One round for everything, still reading the named edits directly.
-        for (const [id, key] of changed) this.queued.set(id, key || this.queued.get(id) || null);
+        for (const [id, keys] of changed) this.queue(id, keys);
         this.synchronize();
       } else if (changed.size) this.synchronize(changed);
       if (people) this.heartbeatSoon();

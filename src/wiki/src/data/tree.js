@@ -46,17 +46,16 @@ const indexes = new WeakMap();
 function index(doc) {
   let st = indexes.get(doc);
   if (!st) {
-    st = { built: null, writing: false };
+    st = { built: null };
+    // Every change runs in a transaction, and each one starts with this.
     doc.on('beforeTransaction', () => {
       st.built = null;
-      st.writing = true;
-    });
-    doc.on('beforeObserverCalls', () => {
-      st.writing = false;
     });
     indexes.set(doc, st);
   }
-  if (st.writing) return buildIndex(doc);
+  // Yjs sets _transaction while one is open (this may be the first read, so
+  // no event said so); an index built then would miss the rest of it.
+  if (doc._transaction) return buildIndex(doc);
   return (st.built ||= buildIndex(doc));
 }
 

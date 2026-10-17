@@ -82,4 +82,14 @@ describe('comments', () => {
     expect(arr.length).toBe(2);
     expect(arr.get(0)).toBeInstanceOf(Y.Map);
   });
+
+  it('skips a thread whose message list is not a list it can read', () => {
+    const doc = new Y.Doc();
+    const t = C.addThread(doc, { text: 'start', by: 'sam' });
+    const m = doc.getMap('threads').get(t);
+    m.set('messages', m.get('messages').toJSON());
+    expect(C.listThreads(doc)).toEqual([]);
+    expect(C.reply(doc, t, 'hi', 'sam')).toBe(null);
+    expect(C.editMessage(doc, t, 'x', 'hi')).toBe(false);
+  });
 });

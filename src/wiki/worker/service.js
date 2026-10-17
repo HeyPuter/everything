@@ -13,7 +13,7 @@
  *   cp:<doc>             { path, at, prevAt }   the latest checkpoint of a document
  *   cps:<doc>            [{ at, path }]   earlier checkpoints kept as page history
  *   presence:<session>   { session, uuid, username, page, expires }  (expires on its own)
- *   ev:signal            { nonce, seq, docs, keys, session }   rewritten on every save, for live updates
+ *   ev:signal            { nonce, seq, docs, keys, session, by }   rewritten on every save, for live updates
  *   seq                  counter numbering the signals, so a client can tell it missed one
  *   handle:<uuid>        an event handle that lets that person watch ev:
  *   assetbytes           bytes of images stored for the space
@@ -50,6 +50,8 @@ const RELOAD = 5 * 60_000;
 const MAX_ROSTER = 200;
 const SESSION = /^[a-z0-9]{8,40}$/;
 const LOG_TAIL = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z:[0-9a-f]{16}$/;
+/** Log records a sync reads directly per document. */
+const MAX_HINTS = 16;
 
 /** Documents this instance has read, by room and document. */
 export const DOCS = new Map();
@@ -94,6 +96,49 @@ function keep(key, entry) {
 }
 
 /**
+ * A comments document as plain data for checkComments. Messages note
+ * whether they are Y.Maps, and threads that are not a Y.Map holding a
+ * Y.Array of messages carry no fields, so swapping a value for a plain
+ * lookalike counts as a change.
+ */
+export function commentState(ydoc) {
+  const out = {};
+  for (const [id, t] of ydoc.getMap('threads').entries()) {
+    const messages = t instanceof Y.Map ? t.get('messages') : null;
+    if (!(messages instanceof Y.Array)) {
+      out[id] = { invalid: true };
+      continue;
+    }
+    out[id] = {
+      ...t.toJSON(),
+      messages: messages.toArray().map((m) => (m instanceof Y.Map ? { ...m.toJSON(), $map: true } : m && typeof m === 'object' ? { ...m, $map: false } : m)),
+    };
+  }
+  return out;
+}
+
+/** Whether everything an update adds or deletes took effect, instead of waiting on edits this copy lacks. */
+function integrated(ydoc, bytes) {
+  const sv = Y.decodeStateVector(Y.encodeStateVector(ydoc));
+  for (const [client, clock] of Y.parseUpdateMeta(bytes).to) if ((sv.get(client) || 0) < clock) return false;
+  for (const [client, ranges] of Y.decodeUpdate(bytes).ds.clients) for (const r of ranges) if ((sv.get(client) || 0) < r.clock + r.len) return false;
+  return true;
+}
+
+/** Copies of each message by id (older versions could leave several). */
+function copiesById(messages) {
+  const out = new Map();
+  for (const m of messages) {
+    if (!m || typeof m !== 'object') continue;
+    if (!out.has(m.id)) out.set(m.id, []);
+    out.get(m.id).push(m);
+  }
+  return out;
+}
+
+const sameCopies = (a, b) => JSON.stringify(a.map((m) => JSON.stringify(m)).sort()) === JSON.stringify(b.map((m) => JSON.stringify(m)).sort());
+
+/**
  * Comments carry who wrote them, and only the worker can vouch for that:
  * a change may add messages and threads in the caller's own name, edit or
  * delete their own messages, and resolve threads they started (anyone who
@@ -111,19 +156,24 @@ export function checkComments(before, after, user, role) {
       for (const m of messages) if (m?.by !== me) deny();
       continue;
     }
-    for (const field of ['block', 'quote', 'created', 'by']) if (JSON.stringify(old[field]) !== JSON.stringify(t[field])) deny();
+    for (const field of ['block', 'quote', 'created', 'by', 'invalid']) if (JSON.stringify(old[field]) !== JSON.stringify(t[field])) deny();
     if (!!old.resolved !== !!t.resolved && !(isEditor || old.by === me || messages.length > (old.messages || []).length)) deny();
-    const oldById = new Map((old.messages || []).map((m) => [m?.id, m]));
-    for (const m of messages) {
-      const prev = oldById.get(m?.id);
+    const was = copiesById(Array.isArray(old.messages) ? old.messages : []);
+    const now = copiesById(messages);
+    for (const [mid, copies] of now) {
+      const prev = was.get(mid);
       if (!prev) {
-        if (m?.by !== me) deny();
+        if (copies.some((m) => m.by !== me)) deny();
         continue;
       }
-      if (JSON.stringify(prev) === JSON.stringify(m)) continue;
-      if (prev.by !== m.by || prev.at !== m.at) deny();
-      if (prev.by !== me && !(m.deleted && role === 'owner')) deny();
+      if (sameCopies(prev, copies)) continue;
+      const authors = new Set(prev.map((m) => m.by));
+      if (copies.some((m) => !authors.has(m.by) || !prev.some((p) => p.at === m.at))) deny();
+      const mine = authors.size === 1 && authors.has(me);
+      if (!mine && !(role === 'owner' && copies.every((m) => m.deleted))) deny();
     }
+    // A message leaves its thread only when its author or the owner removes it.
+    for (const [mid, prev] of was) if (!now.has(mid) && role !== 'owner' && prev.some((m) => m.by !== me)) deny();
   }
   for (const [id, t] of Object.entries(before)) {
     if (after[id]) continue;
@@ -240,6 +290,13 @@ export class WikiService {
 
   async checkpoint(room, doc, entry) {
     if (entry.retry.size) return;
+    // Another instance may have checkpointed since this copy was read and
+    // dropped records this copy never listed; its checkpoint holds them.
+    const latest = await this.kv.get(`wk:${room}:cp:${doc}`);
+    if (latest?.path && latest.at !== entry.cp?.at) {
+      Y.applyUpdate(entry.ydoc, decode(await this.readFile(latest.path)));
+      entry.cp = latest;
+    }
     const state = encode(Y.encodeStateAsUpdate(entry.ydoc));
     const path = `wiki/shared/${room}/cp/${doc}-${(await hash(state)).slice(0, 24)}.txt`;
     await this.writeFile(path, state);
@@ -316,12 +373,12 @@ export class WikiService {
    * Tells everyone watching the space that something changed. docs lists
    * the documents saved (empty: people or settings changed), keys the log
    * record of each, so a client can fetch exactly that edit, and session
-   * who saved it, so their own tab can skip it.
+   * and by (the account) who saved it, so their own tab can skip it.
    */
-  async notify(room, docs = [], { keys = null, session = null } = {}) {
+  async notify(room, docs = [], { keys = null, session = null, by = null, seq = null } = {}) {
     try {
-      const seq = await this.kv.incr(`wk:${room}:seq`);
-      await this.kv.set(`wk:${room}:ev:signal`, { nonce: crypto.randomUUID(), seq, docs: docs.slice(0, 32), ...(keys ? { keys } : {}), ...(session ? { session } : {}) });
+      seq ??= await this.kv.incr(`wk:${room}:seq`);
+      await this.kv.set(`wk:${room}:ev:signal`, { nonce: crypto.randomUUID(), seq, docs: docs.slice(0, 32), ...(keys ? { keys } : {}), ...(session ? { session, by } : {}) });
     } catch {
       /* the edit is saved; clients also poll */
     }
@@ -445,13 +502,14 @@ export class WikiService {
       for (const [docId, vector] of wanted) {
         id(docId, DOC);
         const entry = await this.load(room, docId);
-        // A signal named the edit: read that record directly, since this
-        // instance's copy may predate it and a listing may not show it yet.
-        const hint = hints[docId];
+        // Signals named these edits: read their records directly, since this
+        // instance's copy may predate them and a listing may not show them yet.
         const logPrefix = `${prefix}log:${docId}:`;
-        if (typeof hint === 'string' && hint.startsWith(logPrefix) && LOG_TAIL.test(hint.slice(logPrefix.length)) && !entry.seen.has(hint)) {
-          const value = await this.kv.get(hint).catch(() => null);
-          if (value) await this.applyRow(entry, { key: hint, value }, true);
+        const named = Object.hasOwn(hints, docId) ? [hints[docId]].flat().slice(0, 64) : [];
+        const fresh = [...new Set(named.filter((k) => typeof k === 'string' && k.startsWith(logPrefix) && LOG_TAIL.test(k.slice(logPrefix.length)) && !entry.seen.has(k)))].sort().slice(-MAX_HINTS);
+        if (fresh.length) {
+          const values = await this.kv.get(fresh).catch(() => []);
+          for (let i = 0; i < fresh.length; i++) if (values?.[i]) await this.applyRow(entry, { key: fresh[i], value: values[i] }, true);
         }
         const sv = vector ? decode(vector, 100_000) : undefined;
         updates[docId] = encode(sv ? Y.encodeStateAsUpdate(entry.ydoc, sv) : Y.encodeStateAsUpdate(entry.ydoc));
@@ -472,16 +530,28 @@ export class WikiService {
       }
       const digest = await hash(bytes);
       if (input.id !== digest) fail(400, 'Update checksum does not match.');
-      const entry = await this.load(room, docId);
+      let entry = await this.load(room, docId);
       // Comments: people may add and change only their own messages.
       if (docId.endsWith('.c')) {
-        const trial = new Y.Doc();
-        Y.applyUpdate(trial, Y.encodeStateAsUpdate(entry.ydoc));
-        const before = trial.getMap('threads').toJSON();
-        Y.applyUpdate(trial, bytes);
-        const after = trial.getMap('threads').toJSON();
-        trial.destroy();
-        checkComments(before, after, user, role);
+        const attempt = () => {
+          const trial = new Y.Doc();
+          Y.applyUpdate(trial, Y.encodeStateAsUpdate(entry.ydoc));
+          const before = commentState(trial);
+          Y.applyUpdate(trial, bytes);
+          const result = { before, after: commentState(trial), complete: integrated(trial, bytes) };
+          trial.destroy();
+          return result;
+        };
+        let trial = attempt();
+        // Part of the edit builds on something this copy lacks, so its effect
+        // cannot be checked: read the document again, or have the client retry.
+        if (!trial.complete) {
+          DOCS.delete(`${room}|${docId}`);
+          entry = await this.load(room, docId);
+          trial = attempt();
+        }
+        if (!trial.complete) fail(409, 'This comment depends on changes that are still arriving. Try again.');
+        checkComments(trial.before, trial.after, user, role);
       }
       Y.applyUpdate(entry.ydoc, bytes);
       if (Y.encodeStateAsUpdate(entry.ydoc).length > DOC_LIMIT) {
@@ -497,10 +567,12 @@ export class WikiService {
         await this.writeFile(record.path, input.update);
       }
       const key = `${prefix}log:${docId}:${new Date(at).toISOString()}:${digest.slice(0, 16)}`;
-      await this.kv.set(key, record);
+      // The signal's number is taken while the record is written; the signal
+      // itself goes out after, so a client reading the record finds it.
+      const [, seq] = await Promise.all([this.kv.set(key, record), this.kv.incr(`${prefix}seq`).catch(() => null)]);
       entry.seen.add(key);
       entry.count++;
-      await this.notify(room, [docId], { keys: { [docId]: key }, session: typeof input.session === 'string' && SESSION.test(input.session) ? input.session : null });
+      await this.notify(room, [docId], { keys: { [docId]: key }, session: typeof input.session === 'string' && SESSION.test(input.session) ? input.session : null, by: user.uuid, seq });
       if (entry.count >= CHECKPOINT_EVERY || (entry.cp && this.now() - entry.cp.at > CHECKPOINT_AGE)) await this.checkpoint(room, docId, entry).catch(() => {});
       const sv = input.vector ? decode(input.vector, 100_000) : null;
       return { update: sv ? encode(Y.encodeStateAsUpdate(entry.ydoc, sv)) : null, role, serverTime: this.now() };

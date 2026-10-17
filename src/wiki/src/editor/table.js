@@ -10,6 +10,16 @@ import { openMenu } from '../ui/menu.js';
 
 const shapeOf = (data) => `${data.rowIds.join(',')}|${data.colIds.join(',')}|${data.header ? 'h' : ''}`;
 
+function caretAtEnd(el) {
+  const sel = window.getSelection();
+  if (!sel) return;
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
 export function renderTable(editor, main, b) {
   const ro = editor.readOnly;
   const data = b.table || T.readTable(null);
@@ -20,8 +30,11 @@ export function renderTable(editor, main, b) {
     data.rows.forEach((row, r) =>
       row.forEach((text, c) => {
         const cell = existing.rows[r]?.cells[c];
-        // Cells typed in here and not saved yet keep what was typed.
-        if (cell && cell !== document.activeElement && !main._typed?.has(cell) && cell.textContent !== text) cell.textContent = text;
+        // Cells typed in here and not saved yet keep what was typed; the
+        // focused cell otherwise shows changes too (undo, someone else).
+        if (!cell || main._typed?.has(cell) || cell.textContent === text) return;
+        cell.textContent = text;
+        if (cell === document.activeElement) caretAtEnd(cell);
       }),
     );
     return;
@@ -56,6 +69,9 @@ export function renderTable(editor, main, b) {
       cell.textContent = text;
       cell.addEventListener('input', () => {
         typed.add(cell);
+        // The cells no longer match what was last rendered (an undo can bring
+        // back exactly that), so the next render compares them again.
+        editor.rendered.delete(b.id);
         save();
       });
       cell.addEventListener('keydown', (e) => key(e, r, c));

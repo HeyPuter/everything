@@ -467,6 +467,9 @@ export class Editor {
   currentSel() {
     const id = this.focusedBlockId();
     const el = id && this.textEl(id);
+    // A table cell or caption keeps its own focus through undo; restoring it
+    // as a block selection would put the next keystroke on the whole block.
+    if (id && !el?.contains(document.activeElement)) return null;
     const off = el && getSelectionOffsets(el);
     return id ? { id, start: off?.start ?? 0, end: off?.end ?? off?.start ?? 0 } : null;
   }
@@ -765,6 +768,9 @@ export class Editor {
   }
 
   flushInput() {
+    // Table cells save on their own a moment after typing.
+    const table = document.activeElement?.closest?.('.table-main');
+    if (table && this.root.contains(table)) table._save?.flush();
     // A render still pending means the DOM is older than the document; it
     // holds nothing new to save.
     if (this.renderQueued) return;

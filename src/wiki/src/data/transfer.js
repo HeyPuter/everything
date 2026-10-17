@@ -80,7 +80,10 @@ export async function importSubtree(from, to, bundle, parent = null, { after = n
   for (const [docId, state] of Object.entries(bundle.docs)) await to.putDoc(docId, state);
   const sibs = childrenOf(to.tree, parent);
   const i = after ? sibs.findIndex((p) => p.id === after) : sibs.length - 1;
-  const order = keyBetween(sibs[i]?.order || '', sibs[i + 1]?.order || '');
+  const lo = sibs[i]?.order || '';
+  const hi = sibs[i + 1]?.order || '';
+  // Siblings can share a key (two people adding at the same spot); go after it.
+  const order = keyBetween(lo, hi > lo ? hi : '');
   local(to.tree, () => {
     for (const p of bundle.pages) {
       const m = new Y.Map();
@@ -130,7 +133,9 @@ export async function cloneSubtree(space, rootId, { titleSuffix = ' (copy)', par
   const targetParent = parent === undefined ? root.parent : parent;
   const sibs = childrenOf(space.tree, targetParent);
   const i = sibs.findIndex((p) => p.id === rootId);
-  const order = keyBetween(i >= 0 ? sibs[i].order : sibs.at(-1)?.order || '', i >= 0 ? sibs[i + 1]?.order || '' : '');
+  const lo = (i >= 0 ? sibs[i].order : sibs.at(-1)?.order) || '';
+  const hi = (i >= 0 && sibs[i + 1]?.order) || '';
+  const order = keyBetween(lo, hi > lo ? hi : '');
   local(space.tree, () => {
     const now = Date.now();
     for (const id of ids) {

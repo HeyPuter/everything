@@ -229,7 +229,7 @@ describe('shared spaces after a refused edit', () => {
       insertBlock(pa, { text: 'x' });
       await a.flushAll();
       const first = ctx.env.data.get(`wk:${ROOM}:ev:signal`);
-      expect(first).toMatchObject({ docs: [ctx.root], session: a.session });
+      expect(first).toMatchObject({ docs: [ctx.root], session: a.session, by: alice.uuid });
       expect(first.keys[ctx.root]).toMatch(new RegExp(`^wk:${ROOM}:log:${ctx.root}:`));
       expect(ctx.env.data.has(first.keys[ctx.root])).toBe(true);
       insertBlock(pa, { text: 'y' });
@@ -260,30 +260,66 @@ describe('shared spaces after a refused edit', () => {
       a.close();
     });
 
+    it('reads every record a batch of signals named', async () => {
+      const a = await open(ctx.env, alice);
+      const pa = await a.doc(ctx.root);
+      // Two edits in a row saved through another worker instance.
+      const other = new Y.Doc();
+      Y.applyUpdate(other, Y.encodeStateAsUpdate(pa));
+      const keys = [];
+      for (const [i, text] of ['one', 'two'].entries()) {
+        const before = Y.encodeStateVector(other);
+        insertBlock(other, { text });
+        const key = `wk:${ROOM}:log:${ctx.root}:${new Date(ctx.env.now + i).toISOString()}:${String(i).repeat(16)}`;
+        ctx.env.data.set(key, { id: 'x', author: bob.uuid, username: 'bob', at: ctx.env.now + i, update: encode(Y.encodeStateAsUpdate(other, before)) });
+        keys.push(key);
+      }
+      a.onSignal({ seq: 1, docs: [ctx.root], keys: { [ctx.root]: keys[0] }, session: 'someoneelse0', by: bob.uuid });
+      a.onSignal({ seq: 2, docs: [ctx.root], keys: { [ctx.root]: keys[1] }, session: 'someoneelse0', by: bob.uuid });
+      await wait(200);
+      await a.syncing;
+      expect(texts(pa)).toEqual(['hello', 'one', 'two']);
+      a.close();
+    });
+
     it('fetches only what a signal names, skips its own saves, and catches up after a gap', async () => {
       const a = await open(ctx.env, alice);
       await a.doc(ctx.root);
       const calls = watchSyncs(a);
-      a.onSignal({ seq: 1, docs: [ctx.root], keys: { [ctx.root]: 'k1' }, session: 'someoneelse0' });
-      await wait(200);
-      expect(calls).toEqual([{ docs: [ctx.root], keys: { [ctx.root]: 'k1' } }]);
-      calls.length = 0;
-      a.onSignal({ seq: 2, docs: [ctx.root], session: a.session });
-      a.onSignal({ seq: 3, docs: ['notopen'], session: 'someoneelse0' });
-      await wait(200);
-      expect(calls).toEqual([]);
-      a.onSignal({ seq: 5, docs: [ctx.root], keys: { [ctx.root]: 'k5' }, session: 'someoneelse0' });
+      const from = (seq, extra = {}) => ({ seq, docs: [ctx.root], session: 'someoneelse0', by: bob.uuid, ...extra });
+      // The first signal also stands for any sent before this tab listened.
+      a.onSignal(from(1, { keys: { [ctx.root]: 'k1' } }));
       await wait(200);
       expect(calls).toHaveLength(1);
       expect(calls[0].docs.sort()).toEqual([ctx.root, 'tree'].sort());
-      expect(calls[0].keys).toEqual({ [ctx.root]: 'k5' });
+      expect(calls[0].keys).toEqual({ [ctx.root]: ['k1'] });
       calls.length = 0;
-      // People coming and going refresh the roster, not the documents.
-      a.onSignal({ seq: 6, docs: [] });
+      a.onSignal(from(2, { keys: { [ctx.root]: 'k2' } }));
+      a.onSignal(from(3, { keys: { [ctx.root]: 'k3' } }));
+      await wait(200);
+      expect(calls).toEqual([{ docs: [ctx.root], keys: { [ctx.root]: ['k2', 'k3'] } }]);
+      calls.length = 0;
+      a.onSignal(from(4, { session: a.session, by: alice.uuid }));
+      a.onSignal(from(5, { docs: ['notopen'] }));
       await wait(200);
       expect(calls).toEqual([]);
-      // A signal without detail (an older worker) fetches everything.
-      a.onSignal({ nonce: 'n' });
+      // Someone else naming this tab's session is not skipped.
+      a.onSignal(from(6, { session: a.session }));
+      await wait(200);
+      expect(calls).toEqual([{ docs: [ctx.root], keys: null }]);
+      calls.length = 0;
+      a.onSignal(from(8, { keys: { [ctx.root]: 'k8' } }));
+      await wait(200);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].docs.sort()).toEqual([ctx.root, 'tree'].sort());
+      expect(calls[0].keys).toEqual({ [ctx.root]: ['k8'] });
+      calls.length = 0;
+      // People coming and going refresh the roster, not the documents.
+      a.onSignal({ seq: 9, docs: [] });
+      await wait(200);
+      expect(calls).toEqual([]);
+      // Signals from an older worker carry no numbers, so each fetches everything.
+      a.onSignal({ nonce: 'n', docs: [ctx.root] });
       await wait(200);
       expect(calls[0].docs.sort()).toEqual([ctx.root, 'tree'].sort());
       a.close();

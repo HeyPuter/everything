@@ -33,7 +33,7 @@ function pick(copies) {
 /** Messages in order, one per id. */
 function messagesOf(arr) {
   const byId = new Map();
-  for (const x of arr?.toArray() || []) {
+  for (const x of arr instanceof Y.Array ? arr.toArray() : []) {
     const msg = plainMessage(x);
     if (!msg?.id) continue;
     if (!byId.has(msg.id)) byId.set(msg.id, []);
@@ -93,7 +93,7 @@ export function addThread(doc, { block = null, quote = '', text, by = null }) {
 export function reply(doc, threadId, text, by = null) {
   const m = threadsOf(doc).get(threadId);
   const clean = String(text || '').trim().slice(0, MAX_TEXT);
-  if (!(m instanceof Y.Map) || !clean) return null;
+  if (!(m instanceof Y.Map) || !(m.get('messages') instanceof Y.Array) || !clean) return null;
   const id = uid();
   local(doc, () => {
     m.get('messages').push([messageValue({ id, by, text: clean, at: Date.now() })]);
@@ -114,6 +114,7 @@ function changeMessage(doc, threadId, messageId, fields) {
   const m = threadsOf(doc).get(threadId);
   if (!(m instanceof Y.Map)) return false;
   const arr = m.get('messages');
+  if (!(arr instanceof Y.Array)) return false;
   const copies = arr
     .toArray()
     .map((x, i) => ({ x, i }))

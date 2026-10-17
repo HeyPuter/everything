@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import * as Y from 'yjs';
 import { Workspace } from '../src/data/workspace.js';
 import { memoryBackend, memoryKv } from '../src/data/backend.js';
 import { memoryCache } from '../src/data/cache.js';
-import { childrenOf, getPage } from '../src/data/tree.js';
+import { childrenOf, getPage, addPage, updatePage } from '../src/data/tree.js';
+import { cloneSubtree } from '../src/data/transfer.js';
 import { listBlocks, insertBlocks } from '../src/data/page.js';
 import { listRows } from '../src/data/database.js';
 import { deltaText } from '../src/data/richtext.js';
@@ -83,5 +85,15 @@ describe('moving and copying safely', () => {
     // Deleting a row for good removes it from the database too.
     await ws.deleteForever(ws.personal, copy);
     expect(listRows(db).map((r) => r.id)).not.toContain(copy);
+  });
+
+  it('copies a page next to a sibling that shares its order key', async () => {
+    const tree = new Y.Doc();
+    const a = addPage(tree, { id: 'pagea', title: 'A' });
+    const b = addPage(tree, { id: 'pageb', title: 'B' });
+    updatePage(tree, b, { order: getPage(tree, a).order });
+    const space = { tree, doc: async () => new Y.Doc(), putDoc: async () => {} };
+    const copy = await cloneSubtree(space, a);
+    expect(childrenOf(tree).map((p) => p.id)).toContain(copy);
   });
 });

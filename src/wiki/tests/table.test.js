@@ -76,6 +76,24 @@ describe('table blocks', () => {
     expect(listBlocks(doc)).toHaveLength(3);
   });
 
+  it('keeps every row and column of imported and older tables', () => {
+    const big = Array.from({ length: T.MAX_ROWS + 10 }, (_, r) => Array.from({ length: T.MAX_COLS + 5 }, (_, c) => `${r}.${c}`));
+    const doc = new Y.Doc();
+    const imported = insertBlock(doc, { type: 'table', table: { rows: big, header: true } });
+    expect(getBlock(doc, imported).table.rows).toEqual(big);
+    const old = insertBlock(doc, { type: 'paragraph' });
+    doc.getMap('blocks').get(old).set('type', 'table');
+    doc.getMap('blocks').get(old).set('table', { rows: big, header: true });
+    T.setCells(doc, old, [{ row: 'r0', col: 'c0', text: 'changed' }]);
+    expect(getBlock(doc, old).table.rows).toEqual([['changed', ...big[0].slice(1)], ...big.slice(1)]);
+  });
+
+  it('treats a malformed table value as an empty table', () => {
+    const doc = new Y.Doc();
+    const id = insertBlock(doc, { type: 'table', table: { rows: 'not rows' } });
+    expect(getBlock(doc, id).table.rows).toEqual([['']]);
+  });
+
   it('respects the size limits', () => {
     const doc = new Y.Doc();
     const id = insertBlock(doc, { type: 'table', table: { rows: Array.from({ length: T.MAX_ROWS }, () => ['x']) } });

@@ -56,10 +56,14 @@ export function readTable(value) {
   };
 }
 
-/** A new table structure holding plain { rows, header } data. */
+/**
+ * A new table structure holding plain { rows, header } data. The size
+ * limits only stop adding rows and columns, so imported and older tables
+ * keep everything they hold.
+ */
 export function tableValue(data, { rowIds = null, colIds = null } = {}) {
-  const src = data?.rows?.length ? data.rows.slice(0, MAX_ROWS) : [['']];
-  const width = Math.min(MAX_COLS, Math.max(1, ...src.map((r) => (Array.isArray(r) ? r.length : 0))));
+  const src = Array.isArray(data?.rows) && data.rows.length ? data.rows : [['']];
+  const width = src.reduce((w, r) => Math.max(w, Array.isArray(r) ? r.length : 0), 1);
   const rIds = rowIds || src.map(() => uid(8));
   const cIds = colIds || Array.from({ length: width }, () => uid(8));
   const m = new Y.Map();
@@ -89,7 +93,7 @@ function tableOf(doc, blockId) {
   if (value instanceof Y.Map) return value;
   // Same ids as readTable gives the plain table, so callers' ids still apply.
   const plain = readTable(value);
-  const m = tableValue(plain, { rowIds: plain.rowIds.slice(0, MAX_ROWS), colIds: plain.colIds.slice(0, MAX_COLS) });
+  const m = tableValue(plain, { rowIds: plain.rowIds, colIds: plain.colIds });
   block.set('table', m);
   return m;
 }

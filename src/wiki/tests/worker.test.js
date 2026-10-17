@@ -4,6 +4,7 @@ import { fakePuter, alice, bob, cam } from './helpers/puter.js';
 import { encode, decode, hash } from '../src/collab/protocol.js';
 import { addPage } from '../src/data/tree.js';
 import { insertBlock, listBlocks } from '../src/data/page.js';
+import { DOCS } from '../worker/service.js';
 
 const ROOM = 'room0000abcd';
 
@@ -30,6 +31,10 @@ async function commit(env, user, doc, mutate) {
   mutate(y);
   const update = Y.encodeStateAsUpdate(y, before);
   return svc.call(user, { op: 'commit', room: ROOM, doc, update: encode(update), id: await hash(update) });
+}
+
+async function send(env, user, doc, update) {
+  return env.service().call(user, { op: 'commit', room: ROOM, doc, update: encode(update), id: await hash(update) });
 }
 
 async function read(env, user, doc) {
@@ -273,6 +278,30 @@ describe('collaboration worker: access edge cases', () => {
     expect(blocks.some((b) => b.delta[0]?.insert === big)).toBe(true);
   }, 30000);
 
+  it('never checkpoints a copy that misses edits another instance already checkpointed', async () => {
+    const root = await created(env);
+    const words = async () => listBlocks(await read(env, alice, root)).map((b) => b.delta[0]?.insert);
+    // This instance reads the page, then sits idle.
+    await read(env, alice, root);
+    const stale = DOCS.get(`${ROOM}|${root}`);
+    // Meanwhile another instance saves edits, and two checkpoints drop the
+    // first edit's record from the log.
+    env.forget();
+    await commit(env, alice, root, (y) => insertBlock(y, { text: 'kept' }));
+    env.now += 31 * 60_000;
+    await commit(env, alice, root, (y) => insertBlock(y, { text: 'a' }));
+    env.now += 31 * 60_000;
+    await commit(env, alice, root, (y) => insertBlock(y, { text: 'b' }));
+    // Back here, whose copy listed the log a minute ago, an edit is saved
+    // and triggers a checkpoint.
+    env.forget();
+    stale.listedAt = env.now - 60_000;
+    DOCS.set(`${ROOM}|${root}`, stale);
+    await commit(env, alice, root, (y) => insertBlock(y, { text: 'c' }));
+    env.forget();
+    expect(await words()).toEqual(expect.arrayContaining(['Welcome', 'kept', 'a', 'b', 'c']));
+  });
+
   it('only accepts comments in the author’s own name', async () => {
     const root = await created(env);
     const c = await env.service().call(alice, { op: 'invite', room: ROOM, role: 'commenter' });
@@ -307,6 +336,77 @@ describe('collaboration worker: access edge cases', () => {
     expect(msg(await read(env, alice, `${root}.c`)).text).toBe('final');
     await expect(commit(env, alice, `${root}.c`, (y) => C.deleteMessage(y, thread, msg(y).id))).resolves.toBeTruthy();
     expect(C.getThread(await read(env, alice, `${root}.c`), thread)).toBe(null);
+  });
+
+  describe('comments changed around the rules', () => {
+    let root;
+    let C;
+    let thread;
+    const messages = (y) => y.getMap('threads').get(thread).get('messages');
+    const texts = async () => C.getThread(await read(env, alice, `${root}.c`), thread).messages.map((m) => m.text);
+    beforeEach(async () => {
+      root = await created(env);
+      const c = await env.service().call(alice, { op: 'invite', room: ROOM, role: 'commenter' });
+      await env.service().call(bob, { op: 'join', room: ROOM, token: c.token });
+      C = await import('../src/data/comments.js');
+      await commit(env, alice, `${root}.c`, (y) => (thread = C.addThread(y, { text: 'mine', by: 'alice' })));
+      await commit(env, bob, `${root}.c`, (y) => C.reply(y, thread, 'reply', 'bob'));
+    });
+
+    it('refuses removing someone else’s message or swapping it for a plain lookalike', async () => {
+      await expect(commit(env, bob, `${root}.c`, (y) => messages(y).delete(0, 1))).rejects.toMatchObject({ status: 403 });
+      await expect(
+        commit(env, bob, `${root}.c`, (y) => {
+          const copy = messages(y).get(0).toJSON();
+          messages(y).delete(0, 1);
+          messages(y).insert(0, [copy]);
+        }),
+      ).rejects.toMatchObject({ status: 403 });
+      // A plain list or thread would hide the thread or break every reader.
+      await expect(commit(env, bob, `${root}.c`, (y) => y.getMap('threads').get(thread).set('messages', messages(y).toJSON()))).rejects.toMatchObject({ status: 403 });
+      await expect(commit(env, bob, `${root}.c`, (y) => y.getMap('threads').set(thread, y.getMap('threads').get(thread).toJSON()))).rejects.toMatchObject({ status: 403 });
+      expect(await texts()).toEqual(['mine', 'reply']);
+    });
+
+    it('refuses an edit of a message the worker has not seen yet', async () => {
+      // Alice writes a reply that is not saved yet; Bob builds an edit of it.
+      const ya = await read(env, alice, `${root}.c`);
+      const base = Y.encodeStateVector(ya);
+      C.reply(ya, thread, 'hello', 'alice');
+      const aliceReply = Y.encodeStateAsUpdate(ya, base);
+      const yb = new Y.Doc();
+      Y.applyUpdate(yb, Y.encodeStateAsUpdate(ya));
+      const known = Y.encodeStateVector(yb);
+      messages(yb).get(2).set('text', 'forged');
+      await expect(send(env, bob, `${root}.c`, Y.encodeStateAsUpdate(yb, known))).rejects.toMatchObject({ status: 409 });
+      await send(env, alice, `${root}.c`, aliceReply);
+      expect(await texts()).toEqual(['mine', 'reply', 'hello']);
+    });
+
+    it('accepts a reply to a message another worker instance saved', async () => {
+      const ya = await read(env, alice, `${root}.c`);
+      const base = Y.encodeStateVector(ya);
+      C.reply(ya, thread, 'from elsewhere', 'alice');
+      const update = Y.encodeStateAsUpdate(ya, base);
+      env.data.set(`wk:${ROOM}:log:${root}.c:${new Date(env.now).toISOString()}:${'b'.repeat(16)}`, { id: 'x', author: alice.uuid, username: 'alice', at: env.now, update: encode(update) });
+      const yb = new Y.Doc();
+      Y.applyUpdate(yb, Y.encodeStateAsUpdate(ya));
+      const known = Y.encodeStateVector(yb);
+      C.reply(yb, thread, 'answer', 'bob');
+      await expect(send(env, bob, `${root}.c`, Y.encodeStateAsUpdate(yb, known))).resolves.toBeTruthy();
+      expect(await texts()).toEqual(['mine', 'reply', 'from elsewhere', 'answer']);
+    });
+
+    it('lets people reply next to duplicate copies of a message that older versions left', async () => {
+      await commit(env, alice, `${root}.c`, (y) => {
+        const first = messages(y).get(0).toJSON();
+        messages(y).delete(0, 1);
+        messages(y).insert(0, [{ ...first, text: 'one', edited: 2 }, { ...first, text: 'two', edited: 1 }]);
+      });
+      await expect(commit(env, bob, `${root}.c`, (y) => C.reply(y, thread, 'still here', 'bob'))).resolves.toBeTruthy();
+      await expect(commit(env, alice, `${root}.c`, (y) => C.editMessage(y, thread, C.getThread(y, thread).messages[0].id, 'merged'))).resolves.toBeTruthy();
+      expect(await texts()).toEqual(['merged', 'reply', 'still here']);
+    });
   });
 
   it('wipes the history of pages deleted for good', async () => {

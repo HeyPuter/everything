@@ -106,6 +106,25 @@ describe('page tree', () => {
     }).toThrow();
   });
 
+  it('keeps the index right when its first read happens inside a transaction', () => {
+    const doc = new Y.Doc();
+    doc.transact(() => {
+      addPage(doc, { title: 'A' });
+      addPage(doc, { title: 'B' });
+    });
+    expect(childrenOf(doc).map((p) => p.title)).toEqual(['A', 'B']);
+    expect(new Set(childrenOf(doc).map((p) => p.order)).size).toBe(2);
+    // A fresh copy (as after a reset) whose first query is a restore.
+    const parent = addPage(doc, { title: 'P' });
+    const child = addPage(doc, { title: 'C', parent });
+    trashPage(doc, child);
+    trashPage(doc, parent);
+    const fresh = new Y.Doc();
+    Y.applyUpdate(fresh, Y.encodeStateAsUpdate(doc));
+    restorePage(fresh, child);
+    expect(childrenOf(fresh).map((p) => p.title)).toEqual(['A', 'B', 'C']);
+  });
+
   it('keeps sidebar-style queries cheap in a tree of 10,000 pages', () => {
     const doc = new Y.Doc();
     const db = addPage(doc, { title: 'DB', kind: 'database' });
