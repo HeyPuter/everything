@@ -33,7 +33,8 @@ export const DEFAULT_OUTLINE = 'Plan\n  Goals\n  Budget\nBuild\n  Prototype\nRev
 /** An outline in text: one item per line, indented (spaces, tabs or leading - * •) for sub-items. */
 export function parseOutline(text) {
   const root = { text: '', children: [] }, stack = [{ depth: -1, node: root }];
-  for (const raw of String(text || '').split(/\r?\n/)) {
+  // A pasted line break (vertical tab) or form feed also starts a new item.
+  for (const raw of String(text || '').split(/\r\n|[\n\r\v\f]/)) {
     if (!raw.trim()) continue;
     const indent = raw.match(/^[ \t]*/)[0].replace(/\t/g, '  ').length;
     const bullet = raw.trim().match(/^[-*•]\s*/)?.[0].length || 0;

@@ -48,3 +48,13 @@ it('every layout and color set saves as a group of shapes that reopens editable 
     expect(parsed.items).toEqual(items);
   }
 });
+
+it('writes diagram text pasted with line breaks or control characters as readable XML', async () => {
+  // A line break copied from a document arrives as a vertical tab, which XML 1.0 cannot hold.
+  const items = parseOutline('Plan\u000bahead\n  Goals\u0001');
+  const xml = diagramDrawingXml({ layout: DIAGRAM_LAYOUTS[0].id, items, id: 1 });
+  expect(xml).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/);
+  const fragment = await readDrawingFragment(xml);
+  expect(items.map(i => i.text)).toEqual(['Plan', 'ahead']);
+  expect(parseDiagramDescription(fragment.image.alt).items).toEqual(parseOutline('Plan\nahead\n  Goals'));
+});
