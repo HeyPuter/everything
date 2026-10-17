@@ -6483,6 +6483,14 @@ export class Workbook extends EventTarget {
     // A merged block the move would cut through, taking a line out of it or landing lines inside it, is refused, as
     // sorting through one is, rather than dropping the merge; one the moved lines carry whole follows them.
     if (sheet.merges.some(straddles)) return null;
+    // A PivotTable report is one indivisible layout, as for insertions and deletions (pivotLineEditBlocked):
+    // the move may carry it whole or shift it, but not take lines out of it or land lines inside it.
+    for (const pivot of this.nativePivots?.tables || []) {
+      const range = pivot.owner === sheetId && parseRefText(pivot.ref || '');
+      if (!range || !straddles(range)) continue;
+      this._emit('pivot-edit', sheetId, { name: pivot.name, range, reason: 'partial' });
+      return null;
+    }
     // Lines landing inside a protected range grow it over cells nobody may then fill, as an insertion inside
     // one does: refuse and say so, the way moving a protected line away is refused just above. A range the
     // move only shifts keeps the lines it had, and is left alone.
@@ -6495,6 +6503,13 @@ export class Workbook extends EventTarget {
     // Rule and filter formulas are rewritten through their own writers; the transaction folds
     // those steps into this one structural undo entry.
     this.transaction(label, () => this._structural(label, () => {
+      // Reports move whole with their lines (one cut through was refused above); a pivot cache's source range
+      // follows its data as a reference does.
+      this.nativePivots = mapNativePivotRanges(this.nativePivots, sheetId, (ref) => {
+        if (!straddles(ref)) return mapRange(ref);
+        const cut = adjustRefForDelete(ref, axis, from, count);
+        return cut && adjustRefForInsert(cut, axis, landing, count);
+      });
       const moved = new Map();
       for (const [key, cell] of sheet.cells) {
         const { r, c } = parseKey(key);
