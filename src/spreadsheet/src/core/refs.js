@@ -176,7 +176,8 @@ export function shiftRef(ref, dr, dc) {
     if (!ref.absC1) out.c1 += dc;
     if (!ref.absC2) out.c2 += dc;
   }
-  if (out.r1 < 0 || out.c1 < 0 || out.r2 > MAX_ROW || out.c2 > MAX_COL) return null;
+  // Either end of a range may have moved (only its relative ends do): every coordinate must stay on the grid.
+  if ([out.r1, out.r2].some((r) => r < 0 || r > MAX_ROW) || [out.c1, out.c2].some((c) => c < 0 || c > MAX_COL)) return null;
   return out;
 }
 
