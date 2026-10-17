@@ -407,7 +407,9 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
       Object.assign(input, { type: 'number', step: 0.05, min: 0, max: 22, className: 'canvas-spacing ribbon-number' });
       input.setAttribute('aria-label', `${label} (in)`);
       input.addEventListener('change', () => {
-        const engine = ready(); if (!engine || !input.checkValidity() || input.value === '') { input.reportValidity(); return; }
+        // The arrows step by 0.05, but any distance in range is accepted, as Page Setup accepts it.
+        const v = input.validity;
+        const engine = ready(); if (!engine || input.value === '' || v.badInput || v.rangeOverflow || v.rangeUnderflow) { input.reportValidity(); return; }
         try { engine.finishComposition(); engine.setPageSettings({ [key]: Math.round(Number(input.value) * IN) }); } catch (e) { fail(e); }
       });
       input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); input.dispatchEvent(new Event('change')); editor()?.focus(); } });

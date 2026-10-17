@@ -172,6 +172,22 @@ test('Custom Table of Contents opens Other styles to show a level that needs fix
   expect(errors).toEqual([]);
 });
 
+test('Header from Top accepts a distance between the arrow steps', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await openEditor(page);
+  await page.keyboard.type('Body text.');
+  await onTab(page, 'insert');
+  await page.locator('.ribbon-card').getByRole('button', { name: 'Header', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Edit Header' }).click();
+  const distance = page.getByLabel('Header from Top (in)');
+  await distance.fill('0.33');
+  await distance.press('Enter');
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.session.body.pageSettings.header)).toBe(475);
+  const parts = await download(page, info, 'header-distance.docx');
+  expect(strFromU8(parts['word/document.xml'])).toMatch(/<w:pgMar [^>]*w:header="475"/);
+  expect(errors).toEqual([]);
+});
+
 test('citations, sources and bibliography follow the chosen style', async ({ page }, info) => {
   await openEditor(page);
   await page.keyboard.type('Engines compute.');
