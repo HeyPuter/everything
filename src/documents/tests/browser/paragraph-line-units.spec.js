@@ -11,7 +11,7 @@ for (const name of ['paragraph-line-units', 'paragraph-line-units-default-24']) 
   await page.addInitScript(() => {
     window.gapLabels = {}; const paint = CanvasRenderingContext2D.prototype.fillText;
     CanvasRenderingContext2D.prototype.fillText = function(text, x, y, ...args) {
-      if (this.canvas.classList.contains('canvas-page') && /^K\d{2}[ABCD]$/.test(text.trim())) window.gapLabels[text.trim()] = y * .75;
+      if (this.canvas.classList.contains('canvas-page') && /^K\d{2}[ABCD]$/.test(text.trim())) { const m = this.getTransform(); window.gapLabels[text.trim()] = (m.b * x + m.d * y + m.f) * .75; }
       return paint.call(this, text, x, y, ...args);
     };
   });

@@ -15,7 +15,7 @@ for(const ref of origins)test('paints displaced cell origins: '+ref.file,async({
  expect(unzipSync(readFileSync(await download(page,info,'unchanged.docx')))).toEqual(unzipSync(readFileSync('public/fixtures/'+ref.file)));
 });
 for(const ref of refs)test('paints native unwrapped cell flow: '+ref.file,async({page},info)=>{
- await page.addInitScript(()=>{window.cellFlowPaint={};const original=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(t,x,y,...rest){window.cellFlowPaint[t]={x,y};return original.call(this,t,x,y,...rest);};});
+ await page.addInitScript(()=>{window.cellFlowPaint={};const original=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(t,x,y,...rest){const m=this.getTransform();window.cellFlowPaint[t]={x:m.a*x+m.c*y+m.e,y:m.b*x+m.d*y+m.f};return original.call(this,t,x,y,...rest);};});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('/playground.html');await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/'+ref.file);
  const input=page.getByRole('textbox',{name:'Document text'});await expect(input).toHaveValue(new RegExp('^'+ref.pages[0].lines[0].text));await expect(input).toBeEditable();
  await expect(page.locator('canvas.canvas-page')).toHaveCount(ref.pages.length);

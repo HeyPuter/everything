@@ -8,7 +8,7 @@ for(const ref of refs)test(`matches native section and explicit page spacing: ${
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.addInitScript(()=>{
   window.spacingPaint=[];const original=CanvasRenderingContext2D.prototype.fillText;
-  CanvasRenderingContext2D.prototype.fillText=function(text,x,y,...args){window.spacingPaint.push({text,x,y,canvas:this.canvas});return original.call(this,text,x,y,...args);};
+  CanvasRenderingContext2D.prototype.fillText=function(text,x,y,...args){const m=this.getTransform();window.spacingPaint.push({text,x:m.a*x+m.c*y+m.e,y:m.b*x+m.d*y+m.f,canvas:this.canvas});return original.call(this,text,x,y,...args);};
  });
  await page.goto('/playground.html');await showAllTools(page);await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/'+ref.file);
  const input=page.getByRole('textbox',{name:'Document text'}),canvases=page.locator('canvas.canvas-page');

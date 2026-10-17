@@ -10,7 +10,8 @@ async function download(page, info, name) {
 for (const ref of refs) test('paints native automatic spacing: '+ref.file, async ({page},info)=>{
   await page.addInitScript(()=>{
     window.spacingPaint={}; const original=CanvasRenderingContext2D.prototype.fillText;
-    CanvasRenderingContext2D.prototype.fillText=function(text,x,y,...rest){window.spacingPaint[text]={x,y};return original.call(this,text,x,y,...rest);};
+    // Text can be painted at the origin of a translated, scaled context; record the page position.
+    CanvasRenderingContext2D.prototype.fillText=function(text,x,y,...rest){const m=this.getTransform();window.spacingPaint[text]={x:m.a*x+m.c*y+m.e,y:m.b*x+m.d*y+m.f};return original.call(this,text,x,y,...rest);};
   });
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto('/playground.html');await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/'+ref.file);
