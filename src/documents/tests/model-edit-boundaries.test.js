@@ -214,3 +214,31 @@ describe('Decrease Indent', () => {
     expect(doc.changeListLevel(1)).toBe(true); expect(indents()).toEqual([720, 720, 360]);
   });
 });
+
+describe('tracked editing in a long document', () => {
+  // Count the JSON written while editing: a tracked keystroke should not serialize the whole document.
+  const serialized = run => {
+    const original = JSON.stringify; let count = 0;
+    JSON.stringify = (...args) => { const out = original(...args); count += out?.length || 0; return out; };
+    try { run(); } finally { JSON.stringify = original; }
+    return count;
+  };
+  const large = () => {
+    const doc = new TextDocument(Array.from({ length: 2000 }, (_, i) => paragraph(`Paragraph ${i} with some ordinary words in it.`)), undefined, undefined, undefined, [], {}, { trackChanges: true });
+    doc.revisionAuthor = 'Me'; return doc;
+  };
+  it('compares only the edited paragraphs when typing and deleting', () => {
+    const doc = large(), size = JSON.stringify(doc.paragraphs).length;
+    doc.select(doc.paragraphOffset(1000) + 5);
+    const cost = serialized(() => { doc.replace('x'); doc.select(doc.paragraphOffset(1000) + 2); doc.delete(1); doc.delete(1); });
+    expect(doc.revisions.map(r => r.type)).toEqual(['del', 'ins']);
+    expect(cost).toBeLessThan(size / 10);
+  });
+  it('keeps tracked Replace All linear in the number of matches', () => {
+    const doc = large(), size = JSON.stringify(doc.paragraphs).length;
+    let count;
+    const cost = serialized(() => { count = doc.replaceMatches('ordinary', '', {}, true); });
+    expect(count).toBe(2000); expect(doc.revisions).toHaveLength(2000);
+    expect(cost).toBeLessThan(size * 4);
+  });
+});

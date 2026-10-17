@@ -1853,7 +1853,10 @@ export class TextDocument {
   trackedReplace(text, { checkpoint = true, ...rest } = {}) {
     const [start, end] = this.range, backward = this.selection.focus < this.selection.anchor;
     if (checkpoint) this.checkpoint();
-    const before = JSON.stringify(this.paragraphs);
+    // Inserting text always changes the document. Only a pure deletion can be a
+    // no-op (text already marked deleted), and it can only touch the selected paragraphs.
+    const span = () => this.paragraphs.length + JSON.stringify(this.paragraphs.slice(locate(this.paragraphs, start).index, locate(this.paragraphs, end).index + 1));
+    const before = text ? null : span();
     this.trackingInternal = true;
     let caret, deletionRevision = null;
     try {
@@ -1907,7 +1910,7 @@ export class TextDocument {
       } else caret = backward ? start : insertAt;
       if (!text && deletionRevision) this.lastTrackedDeletion = { text: documentText(this.paragraphs).slice(start, end - removed), author: deletionRevision.author, date: deletionRevision.date };
     } finally { this.trackingInternal = false; }
-    if (JSON.stringify(this.paragraphs) === before) {
+    if (before !== null && span() === before) {
       if (checkpoint) this.history.pop();
       this.selection = { anchor: caret, focus: caret };
       return false;
