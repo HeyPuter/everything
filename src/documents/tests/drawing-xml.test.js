@@ -159,6 +159,19 @@ describe('shape formatting', () => {
     expect(xml).toMatch(/<a:xfrm rot="900000">/);
     expect(xml).toMatch(/anchor="ctr"/);
   });
+  it('declares the w14 text effects of shape text ignorable', async () => {
+    const { pkg, doc } = await saved();
+    const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main', W14 = 'http://schemas.microsoft.com/office/word/2010/wordml', MC = 'http://schemas.openxmlformats.org/markup-compatibility/2006';
+    const effects = drawing => setTextRunEffects(drawingParts(drawing).shape.getElementsByTagNameNS(W, 'txbxContent')[0], { fill: 'C00000', shadow: { distance: 25400, direction: 45, alpha: 0.4 } });
+    await edit(pkg, doc, images(doc)[1], effects);
+    await edit(pkg, doc, images(doc)[1], effects);
+    const { xml } = await roundTrip(pkg, doc);
+    const tree = new DOMParser().parseFromString(xml, 'application/xml'), fill = tree.getElementsByTagNameNS(W14, 'textFill')[0];
+    expect(fill).toBeTruthy();
+    const declared = [];
+    for (let at = fill; at?.nodeType === 1; at = at.parentNode) declared.push(...(at.getAttributeNS(MC, 'Ignorable') || '').split(/\s+/).filter(p => p && at.lookupNamespaceURI(p) === W14));
+    expect(declared).toEqual(['w14']);
+  });
   it('changes the preset and pattern fill', async () => {
     const { pkg, doc } = await saved();
     const next = await edit(pkg, doc, images(doc)[1], drawing => {

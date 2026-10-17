@@ -23953,7 +23953,9 @@ grouped.
 - Body properties (§20.1.2.1.1 `wps:bodyPr`): `anchor` (t, ctr, b), `lIns`/`tIns`/`rIns`/`bIns`, `wrap`
   (square/none), `a:spAutoFit`/`a:noAutofit`.
 - WordArt Styles on shape text: run properties in `w:txbxContent` — `w:color` and the w14 effects
-  `w14:shadow`, `w14:textOutline`, `w14:textFill` (MS-DOCX §2.6) in CT_RPr order.
+  `w14:shadow`, `w14:textOutline`, `w14:textFill` (MS-DOCX §2.6) in CT_RPr order, with `w14`
+  declared in `mc:Ignorable` on the text box content (ECMA-376 Part 3 §10.2.1) unless an enclosing
+  element of the drawing already declares it.
 
 ### Validation
 

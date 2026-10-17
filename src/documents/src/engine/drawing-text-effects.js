@@ -11,6 +11,13 @@ const ORDER = ['rStyle', 'rFonts', 'b', 'bCs', 'i', 'iCs', 'caps', 'smallCaps', 
 const ORDER14 = ['glow', 'shadow', 'reflection', 'textOutline', 'textFill', 'scene3d', 'props3d', 'ligatures', 'numForm', 'numSpacing', 'stylisticSets', 'cntxtAlts'];
 const rank = node => node.namespaceURI === W ? (node.localName === 'rPrChange' ? 1000 : ORDER.indexOf(node.localName)) : node.namespaceURI === W14 ? 100 + ORDER14.indexOf(node.localName) : 500;
 
+const MC = 'http://schemas.openxmlformats.org/markup-compatibility/2006';
+// Whether the w14 namespace is already ignorable here (declared on this element or an ancestor).
+const ignorable = node => {
+  for (let at = node; at?.nodeType === 1; at = at.parentNode) if ((at.getAttributeNS(MC, 'Ignorable') || '').split(/\s+/).some(prefix => prefix && at.lookupNamespaceURI(prefix) === W14)) return true;
+  return false;
+};
+
 function place(rPr, node) {
   const after = [...rPr.children].find(c => rank(c) > rank(node));
   rPr.insertBefore(node, after || null);
@@ -31,8 +38,14 @@ export function setTextRunEffects(content, patch) {
   const doc = content.ownerDocument;
   const runs = [...content.getElementsByTagNameNS(W, 'r')];
   if (!runs.length) throw new Error('The shape has no text to format.');
-  // The w14 prefix must be declared where the effects are written.
+  // The w14 prefix must be declared where the effects are written, and declared ignorable (ECMA-376
+  // Part 3 §10.2.1) so consumers without the extension keep the plain text instead of rejecting it.
   if (!content.lookupNamespaceURI('w14')) content.setAttributeNS(XMLNS, 'xmlns:w14', W14);
+  if (!ignorable(content)) {
+    if (!content.lookupNamespaceURI('mc')) content.setAttributeNS(XMLNS, 'xmlns:mc', MC);
+    const prefixes = new Set((content.getAttributeNS(MC, 'Ignorable') || '').split(/\s+/).filter(Boolean));
+    prefixes.add(content.lookupPrefix(W14) || 'w14'); content.setAttributeNS(MC, `${content.lookupPrefix(MC) || 'mc'}:Ignorable`, [...prefixes].join(' '));
+  }
   for (const run of runs) {
     let rPr = [...run.children].find(c => c.namespaceURI === W && c.localName === 'rPr');
     if (!rPr) { rPr = doc.createElementNS(W, 'w:rPr'); run.insertBefore(rPr, run.firstChild); }
