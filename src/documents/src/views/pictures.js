@@ -127,7 +127,7 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
       setEffects(sp, { shadow: style.effects?.shadow ? { ...style.effects.shadow, color: '000000' } : null, glow: null, softEdge: null, reflection: null });
     })),
     body: (patch, label = 'Text Box') => apply(label, async drawing => { const { body } = drawingParts(drawing); if (!body) throw new Error('This shape has no text.'); setBodyProperties(body, patch); }),
-    altText: ({ description, title, decorative }) => apply('Alt Text', async drawing => { const { docPr } = drawingParts(drawing); setDocProperties(docPr, { description, title, decorative }); }),
+    altText: ({ description, title, decorative }, image) => apply('Alt Text', async drawing => { const { docPr } = drawingParts(drawing); setDocProperties(docPr, { description, title, decorative }); }, image ?? selected()),
     rename: (image, name) => apply('Rename', async drawing => { setDocProperties(drawingParts(drawing).docPr, { name }); }, image),
     setHidden: (image, hidden) => apply(hidden ? 'Hide' : 'Show', async drawing => { const { docPr } = drawingParts(drawing); if (hidden) docPr.setAttribute('hidden', '1'); else docPr.removeAttribute('hidden'); }, image),
     rotate: (degrees, label = 'Rotate') => rotateBy(degrees, label),

@@ -23,14 +23,19 @@ export function createPane(context) {
       el('label.pic-check', { htmlFor: 'pic-alt-decorative' }, decorative, 'Mark as decorative'),
       el('p.pic-hint', {}, 'Decorative objects add visual interest but are not informative, like stylistic borders. Screen readers skip them.'),
       el('div.pic-actions', {}, el('button.btn.btn-primary.btn-sm', { type: 'button', onclick: () => save() }, 'Save'))));
-  let shown = null;
+  // `owner` is the object the fields describe. Selecting another object while a field still has focus
+  // refreshes the pane before the field blurs, so edits are saved to their owner, never to the new selection.
+  let shown = null, owner = null, saved = null;
   const current = () => { const image = selected(); return image ? describe(image) : null; };
-  async function save() {
-    const image = selected(); if (!image) return;
+  async function save(image = owner) {
+    if (!image) return;
     const info = describe(image) || {};
     const next = { description: decorative.checked ? '' : description.value.trim(), title: title.value.trim(), decorative: decorative.checked };
     if (next.description === (info.description || '') && next.title === (info.title || '') && next.decorative === !!info.decorative) return;
-    await commands.altText(next);
+    const key = JSON.stringify([image.id, next]);
+    if (key === saved) return;
+    saved = key;
+    await commands.altText(next, image);
   }
   description.addEventListener('input', () => { counter.textContent = `${description.value.length} / 2000`; });
   description.addEventListener('blur', () => save());
@@ -42,12 +47,14 @@ export function createPane(context) {
     const image = selected(), info = current();
     const key = image ? `${image.id}:${image.shell?.length}:${image.alt}` : '';
     if (key === shown) return;
-    shown = key;
+    const switched = (owner?.id ?? null) !== (image?.id ?? null);
+    if (switched) save(owner);
+    shown = key; owner = image; saved = null;
     const disabled = !image || !info;
     for (const control of [description, title, decorative]) control.disabled = disabled;
     target.textContent = !image ? 'Select a picture or shape to describe it.' : `${image.name || 'Object'} (${{ picture: 'picture', shape: 'shape', textBox: 'text box', group: 'group', chart: 'chart', diagram: 'diagram' }[kind(image)] || 'object'})`;
-    if (document.activeElement !== description) description.value = info?.description ?? image?.alt ?? '';
-    if (document.activeElement !== title) title.value = info?.title || '';
+    if (switched || document.activeElement !== description) description.value = info?.description ?? image?.alt ?? '';
+    if (switched || document.activeElement !== title) title.value = info?.title || '';
     decorative.checked = !!info?.decorative;
     description.disabled = disabled || decorative.checked;
     counter.textContent = `${description.value.length} / 2000`;

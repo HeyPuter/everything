@@ -276,6 +276,31 @@ test('remove background, artistic effects, layout options, compress and rotating
   expect(errors).toEqual([]);
 });
 
+test('alt text typed for one picture stays with it when another object or the text is selected', async ({ page }, info) => {
+  const { input, errors } = await start(page);
+  await insertPicture(page, input);
+  await onTab(page, 'insert');
+  await page.getByLabel('Insert picture file').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: PNG });
+  await expect.poll(async () => (await input.inputValue()).split(OBJECT).length - 1).toBe(2);
+  await onTab(page, 'picture');
+  // The second picture is selected: describe it, then click the first one without saving first.
+  await page.locator('#ribbon-panel-picture').getByRole('button', { name: 'Alt Text', exact: true }).click();
+  const alt = page.getByRole('complementary', { name: 'Alt Text pane' }), description = alt.getByRole('textbox', { name: 'Description' });
+  await expect(alt).toContainText('Picture 2');
+  await description.fill('Second picture');
+  const box = await page.locator('canvas.canvas-page').first().boundingBox();
+  await page.mouse.click(box.x + 136, box.y + 136);
+  await expect(alt).toContainText('Picture 1');
+  await expect(description).toHaveValue('');
+  // A description left in the field when clicking into the text is kept too.
+  await description.fill('First picture');
+  await page.mouse.click(box.x + 600, box.y + 300);
+  await expect(alt).toContainText('Select a picture or shape');
+  await expect.poll(async () => [...(await save(page, info, 'alt-text-owner')).xml('word/document.xml').matchAll(/<wp:docPr [^>]*>/g)].map(m => m[0].match(/descr="([^"]*)"/)?.[1] ?? ''))
+    .toEqual(['First picture', 'Second picture']);
+  expect(errors).toEqual([]);
+});
+
 test('Picture Format at phone width', async ({ page }) => {
   const { input, errors } = await start(page, { width: 390 });
   await insertPicture(page, input);
