@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { unzipSync, strFromU8 } from 'fflate';
-import { showAllTools } from './helpers/editor-tools.js';
+import { showAllTools, onTab } from './helpers/editor-tools.js';
 import { reopenDocx } from './helpers/reopen-docx.js';
 const select = (input,text,from=0,to=text.length) => input.evaluate((el,{text,from,to}) => { const at=el.value.indexOf(text);el.focus();el.setSelectionRange(at+from,at+to);el.dispatchEvent(new Event('select',{bubbles:true})); },{text,from,to});
 const download = async (page,info,name) => { const pending=page.waitForEvent('download');await page.getByRole('button',{name:'Download .docx',exact:true}).click();const path=info.outputPath(name);await(await pending).saveAs(path);return path; };
@@ -12,7 +12,7 @@ for(const [name,target,changed] of [['table-bookmarks','Alpha','AlXpha'],['table
  await select(input,target);const copied=await input.evaluate(el=>{const data=new DataTransfer();el.dispatchEvent(new ClipboardEvent('copy',{bubbles:true,cancelable:true,clipboardData:data}));return data.getData('text/plain');});expect(copied).toBe(target);
  await select(input,target,2,2);await input.evaluate(el=>{const data=new DataTransfer();data.setData('text/plain','X');el.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:data}));});const expected=original.replace(target,changed);await expect(input).toHaveValue(expected);
  const saved=await download(page,info,`${name}.docx`);await page.getByRole('button',{name:'Undo',exact:true}).click();await expect(input).toHaveValue(original);sameParts(unzipSync(readFileSync(`public/fixtures/${name}.docx`)),unzipSync(readFileSync(await download(page,info,`${name}-undo.docx`))));
- await reopenDocx(page,input,saved,expected);await page.getByRole('button',{name:'Bookmarks',exact:true}).click();const list=page.getByRole('listbox',{name:'Document bookmarks',exact:true});await expect(list.locator('option')).toHaveCount(name==='table-bookmarks'?7:3);
+ await reopenDocx(page,input,saved,expected);await (await onTab(page,'insert')).getByRole('button',{name:'Bookmarks',exact:true}).click();const list=page.getByRole('listbox',{name:'Document bookmarks',exact:true});await expect(list.locator('option')).toHaveCount(name==='table-bookmarks'?7:3);
  if(name==='table-bookmarks'){const id=await list.locator('option').filter({hasText:/^FirstRow ·/}).getAttribute('value');await list.selectOption(id);await page.getByRole('dialog').getByRole('button',{name:'Go to bookmark',exact:true}).click();expect(await input.evaluate(el=>el.selectionStart)).toBe(expected.indexOf(changed));}
  expect(errors).toEqual([]);
 });
