@@ -140,7 +140,7 @@ export class CanvasEditor {
     listen(this.pages, 'pointerdown', e => this.pointerDown(e));
     listen(this.pages, 'pointermove', e => this.pointerMove(e));
     listen(this.pages, 'pointerup', e => this.pointerUp(e));
-    listen(this.pages, 'pointercancel', () => { this.touch = null; this.dragging = false; this.dragControl = null; this.imageInteraction.cancel(); });
+    listen(this.pages, 'pointercancel', () => { this.touch = null; this.dragging = false; this.dragControl = null; this.stopAutoScroll(); this.imageInteraction.cancel(); });
     listen(this.pages, 'contextmenu', e => {
       // A long press opens the menu; lifting that finger is not a tap.
       this.touch = null;
@@ -1093,6 +1093,12 @@ export class CanvasEditor {
       this.pages.style.cursor = this.pointLink && (e.ctrlKey || e.metaKey) ? 'pointer' : '';
       return;
     }
+    this.dragTo(e);
+    this.dragPoint = { clientX: e.clientX, clientY: e.clientY, altKey: e.altKey };
+    this.autoScroll();
+  }
+  /** Extend a pointer selection to a point. */
+  dragTo(e) {
     const position = this.point(e), selection = this.model.selection;
     const extent = pointerControlSelection(selection, position);
     this.model.select(selection.anchor, position,
@@ -1100,10 +1106,26 @@ export class CanvasEditor {
       this.dragControl.model === this.model && this.dragControl.revision === this.session.revision ? this.dragControl.caret
         : position === selection.anchor ? selection.controlCaret || (extent && { id: extent.id, side: 'inside' }) : undefined, extent);
     this.syncInput(); this.paint(); this.onSelection();
-    const bounds = this.host.getBoundingClientRect();
-    if (e.clientY > bounds.bottom - 30) this.host.scrollTop += 20;
-    else if (e.clientY < bounds.top + 30) this.host.scrollTop -= 20;
   }
+  /**
+   * While a selection drag holds the pointer near or past an edge of the view, keep scrolling (faster
+   * the further out it is) and extend the selection over the text that comes under it, as native
+   * selection does; the pointer need not keep moving.
+   */
+  autoScroll() {
+    const step = () => {
+      const point = this.dragPoint, bounds = this.host.getBoundingClientRect(), edge = 30;
+      const speed = beyond => beyond > 0 ? Math.min(80, 8 + Math.round(beyond / 2)) : 0;
+      const dy = point ? speed(point.clientY - (bounds.bottom - edge)) - speed(bounds.top + edge - point.clientY) : 0;
+      const dx = point ? speed(point.clientX - (bounds.right - edge)) - speed(bounds.left + edge - point.clientX) : 0;
+      if (!this.dragging || this.destroyed || !dx && !dy) { this.stopAutoScroll(); return; }
+      const { scrollTop, scrollLeft } = this.host;
+      this.host.scrollTop += dy; this.host.scrollLeft += dx;
+      if (this.host.scrollTop !== scrollTop || this.host.scrollLeft !== scrollLeft) this.dragTo(point);
+    };
+    if (!this.scrollTimer) { this.scrollTimer = setInterval(step, 30); step(); }
+  }
+  stopAutoScroll() { clearInterval(this.scrollTimer); this.scrollTimer = null; this.dragPoint = null; }
   pointerUp(e) {
     if (this.touch?.down.pointerId === e.pointerId) {
       const { down, x, y } = this.touch;
@@ -1113,7 +1135,7 @@ export class CanvasEditor {
     }
     if (this.imageInteraction.end(e)) return;
     const control = this.dragControl, wasDragging = this.dragging;
-    this.dragging = false; this.dragControl = null;
+    this.dragging = false; this.dragControl = null; this.stopAutoScroll();
     if (!wasDragging || !control || this.readOnly || this.composition ||
       control.model !== this.model || control.revision !== this.session.revision) return;
     const position = this.point(e);
@@ -1581,5 +1603,5 @@ export class CanvasEditor {
   releaseImages(images) { for (const image of images.values()) if (!this.borrowedImages.has(image)) image.close?.(); images.clear(); }
   destroy() {
     if (this.paintTask) (this.paintTask.idle ? cancelIdleCallback : clearTimeout)(this.paintTask.id);
-    this.destroyed = true; this.abort.abort(); this.releaseImages(this.images); this.borrowedImages.clear(); this.host.replaceChildren(); }
+    this.destroyed = true; this.stopAutoScroll(); this.abort.abort(); this.releaseImages(this.images); this.borrowedImages.clear(); this.host.replaceChildren(); }
 }

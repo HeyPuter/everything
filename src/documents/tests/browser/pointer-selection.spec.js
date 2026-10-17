@@ -43,3 +43,25 @@ test('a double click on the right half of a word’s last letter selects that wo
   expect(await at(geometry.o[1] + 1)).toBe(' ');
   expect(await at(geometry.space - 1)).toBe(' ');
 });
+
+test('holding a selection drag at the bottom edge keeps scrolling and extending the selection', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill(Array.from({ length: 200 }, (_, i) => `Paragraph number ${i}`).join('\n'));
+  const state = () => page.evaluate(() => { const e = window.__docs.current.view.engine; return { scroll: e.host.scrollTop, end: e.model.range[1] }; });
+  const host = await page.evaluate(() => { const h = window.__docs.current.view.engine.host; h.scrollTop = 0; return h.getBoundingClientRect().toJSON(); });
+  const box = await page.locator('canvas.canvas-page').first().boundingBox();
+  await page.mouse.move(box.x + 150, box.y + 110);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 150, host.bottom - 5, { steps: 4 });
+  const start = await state();
+  // The pointer stays still; the view keeps scrolling and the selection follows the text under it.
+  await expect.poll(async () => (await state()).scroll, { timeout: 5000 }).toBeGreaterThan(start.scroll + 400);
+  expect((await state()).end).toBeGreaterThan(start.end);
+  await page.mouse.up();
+  const released = await state();
+  await page.waitForTimeout(300);
+  expect((await state()).scroll).toBe(released.scroll);
+  expect(await input(page).evaluate(el => el.selectionEnd)).toBe(released.end);
+});
