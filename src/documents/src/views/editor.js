@@ -101,6 +101,9 @@ import { createVersionHistory } from './version-history.js';
 import { createAssistantPane } from './assistant-pane.js';
 import { openCompareDialog } from './compare-dialog.js';
 
+/** How long leaving the editor waits for a save before asking what to do. */
+export const FLUSH_STALL_MS = 15000;
+
 /** First canvas milestone. Cloud persistence remains owned by Doc. */
 export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromTemplate, local = false }) {
   const printAbort = new AbortController();
@@ -1615,8 +1618,20 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       engine?.finishComposition();
       if (!doc.dirty && doc.status !== 'saving') return true;
       if (!doc.exporter) return false;
-      try { return await doc.flush(); }
+      // A save that never answers (a stalled connection) must not keep the user in the editor: after a while
+      // leaving asks, as it does after a failed save, and the save itself goes on.
+      const flushing = doc.flush();
+      flushing.catch(() => {});
+      let timer;
+      const stalled = new Promise(resolve => { timer = setTimeout(() => resolve('stalled'), FLUSH_STALL_MS); });
+      try {
+        const saved = await Promise.race([flushing, stalled]);
+        if (saved !== 'stalled') return saved;
+        if (!destroyed) toast('Saving is taking longer than usual. Check your connection.', { icon: 'alert', duration: 8000 });
+        return false;
+      }
       catch (e) { if (!session.signedOut) error(e); return false; }
+      finally { clearTimeout(timer); }
     },
     destroy() {
       drawingTextModal?.close();

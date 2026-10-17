@@ -162,3 +162,20 @@ test('autosave waits for an open IME composition instead of reporting a failed s
   expect(seen).not.toContain('error');
   expect(await page.evaluate(() => window.__docs.current.view.engine.model.text)).toBe('Kept 안녕');
 });
+
+test('leaving while a save hangs asks instead of waiting forever', async ({ page }) => {
+  test.setTimeout(60000);
+  await openEditor(page);
+  await text(page).fill('Kept');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+  await page.evaluate(() => window.__puterFaults.push({ op: 'write', path: '^Documents/[^/]+\\.docx$', delay: 120000, times: 1 }));
+  await text(page).press('End'); await page.keyboard.type(' more');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saving…');
+  await page.evaluate(() => { location.hash = '#/home'; });
+  const dialog = page.getByRole('dialog', { name: 'Leave without saving?' });
+  await expect(dialog).toBeVisible({ timeout: 30000 });
+  await expect(page.locator('.toast-root')).toContainText('Saving is taking longer than usual');
+  await dialog.getByRole('button', { name: 'Keep editing' }).click();
+  await expect(page).toHaveURL(/#\/edit\//);
+  await expect(text(page)).toHaveValue('Kept more');
+});
