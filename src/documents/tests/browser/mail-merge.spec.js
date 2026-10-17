@@ -217,6 +217,25 @@ test('adds an envelope to the document and prints labels from the Labels dialog'
   expect(errors).toEqual([]);
 });
 
+test('Labels opens its collapsed measurements to show a value that needs fixing', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/playground.html');
+  await expect(page.getByRole('textbox', { name: 'Document text' })).toHaveValue(/^A small beginning/);
+  await page.getByRole('tab', { name: 'Mailings' }).click();
+  await ribbon(page).getByRole('button', { name: 'Labels', exact: true }).click();
+  const labels = page.getByRole('dialog', { name: 'Labels' });
+  await labels.getByRole('textbox', { name: 'Address' }).fill('Sam Lee');
+  const measurements = labels.locator('details.mm-details');
+  await measurements.locator('summary').click();
+  await labels.getByLabel('Labels across').fill('40');
+  await measurements.locator('summary').click();
+  await expect(measurements).not.toHaveAttribute('open', '');
+  await labels.getByRole('button', { name: 'New Document' }).click();
+  await expect(measurements).toHaveAttribute('open', '');
+  await expect(labels.getByLabel('Labels across')).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
 test('prints one copy per recipient and saves email messages when sending is unavailable', async ({ page }, info) => {
   test.setTimeout(120000);
   const errors = [];

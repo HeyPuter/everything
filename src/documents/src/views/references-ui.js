@@ -6,6 +6,7 @@
 import { el } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { closeMenu } from '../ui/menu.js';
+import { revealInvalidControls } from './format-dialog-kit.js';
 
 let uid = 0;
 export const nextId = prefix => `${prefix}-${++uid}`;
@@ -61,6 +62,7 @@ export function openDialog({ title, body, submitLabel = 'OK', onSubmit, wide = f
     finally { busy = false; if (!closed) submit.disabled = false; }
   } }, ...body, error,
   el('div.row.row-end.ref-actions', {}, ...actions, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, cancelLabel), submit));
+  revealInvalidControls(form);
   modal = openModal({ title, content: form, wide, onClose: () => { closed = true; onClose?.(); } });
   const showError = message => { error.textContent = message; error.hidden = !message; };
   return { modal, form, submit, showError, close: () => modal.close() };

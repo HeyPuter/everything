@@ -153,6 +153,25 @@ test('Footnote and Endnote Apply checks the start number before changing the set
   expect(errors).toEqual([]);
 });
 
+test('Custom Table of Contents opens Other styles to show a level that needs fixing', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await openEditor(page);
+  await page.keyboard.type('Body text.');
+  await onTab(page, 'references');
+  await ribbon(page).getByRole('button', { name: 'Table of Contents', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Custom Table of Contents…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Table of Contents' });
+  const others = dialog.locator('details.ref-details');
+  await others.locator('summary').click();
+  const level = dialog.getByLabel('TOC level for Normal');
+  await level.fill('12');
+  await others.locator('summary').click();
+  await dialog.getByRole('button', { name: 'Insert', exact: true }).click();
+  await expect(others).toHaveAttribute('open', '');
+  await expect(level).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
 test('citations, sources and bibliography follow the chosen style', async ({ page }, info) => {
   await openEditor(page);
   await page.keyboard.type('Engines compute.');

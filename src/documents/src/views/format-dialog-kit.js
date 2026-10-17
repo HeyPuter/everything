@@ -35,16 +35,17 @@ export function tabStrip(label, tabs, { prefix = fieldId('fmt-tab'), onShow = ()
   return { node: el('div.ed-font-tabs', { role: 'tablist', 'aria-label': label }, ...buttons), show, buttons };
 }
 
-/** Bring a tab to the front when it holds `control`, so focus and the browser's message can reach it. */
+/** Bring a tab to the front and open the collapsed sections that hold `control`, so focus and the browser's message can reach it. */
 export function revealControl(control) {
+  for (let section = control?.closest('details:not([open])'); section; section = section.parentElement?.closest('details:not([open])')) section.open = true;
   const panel = control?.closest('[role="tabpanel"][hidden]');
   if (panel) control.form?.querySelector(`[role="tab"][aria-controls="${CSS.escape(panel.id)}"]`)?.click();
 }
 /**
- * Validation of a tabbed form points at its first invalid control. A control on a hidden tab cannot be
- * focused, so without this OK would do nothing at all; its tab comes to the front first.
+ * Validation of a form points at its first invalid control. A control on a hidden tab or in a closed
+ * section cannot be focused, so without this OK would do nothing at all; it is shown first.
  */
-export function revealInvalidTabs(form) {
+export function revealInvalidControls(form) {
   let revealed = false;
   form.addEventListener('invalid', e => {
     // One validation fires `invalid` at each failing control in order; the first is the one reported.
@@ -118,7 +119,7 @@ export function openFormatDialog({ title, body, submit, extra = [], okLabel = 'O
   el('div.fmt-footer', {}, el('div.fmt-footer-start', {}, ...extra),
     el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, okLabel))));
   if (className) form.classList.add(...className.split(' '));
-  revealInvalidTabs(form);
+  revealInvalidControls(form);
   modal = openModal({ title, content: form, wide, onClose });
   modal.panel.classList.add('fmt-dialog-panel');
   modal.fail = fail;

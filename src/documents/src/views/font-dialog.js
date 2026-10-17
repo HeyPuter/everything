@@ -4,7 +4,7 @@ import { UNDERLINE_STYLES } from '../engine/underlines.js';
 import { FALLBACK_SIZES } from '../lib/fontsize.js';
 import { openTextColor } from './text-color.js';
 import { fontChoices } from './font-picker.js';
-import { revealInvalidTabs } from './format-dialog-kit.js';
+import { revealInvalidControls } from './format-dialog-kit.js';
 
 const STYLES = [['regular', 'Regular'], ['italic', 'Italic'], ['bold', 'Bold'], ['boldItalic', 'Bold Italic']];
 const SCALES = [200, 150, 100, 90, 80, 66, 50, 33];
@@ -197,7 +197,7 @@ export function openFontDialog({ format: f, sample = '', apply, onClose, setDefa
       } }, 'Set As Default'),
       textEffects && el('button.btn.btn-outline', { type: 'button', onclick: () => { modal.close(); textEffects(); } }, 'Text Effects…')),
     el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, 'OK'))));
-  revealInvalidTabs(form);
+  revealInvalidControls(form);
   modal = openModal({ title, content: form, wide: true, onClose });
   font.focus(); font.select();
   return modal;

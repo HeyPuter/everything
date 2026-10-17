@@ -5,6 +5,7 @@
 import { el, fieldId } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import '../styles/mailings.css';
+import { revealInvalidControls } from './format-dialog-kit.js';
 
 /** A labelled control. */
 export function field(label, control, hint = null) {
@@ -65,6 +66,7 @@ export function dialog({ title, body, submit = 'OK', onSubmit, actions = [], siz
     finally { if (submitButton) submitButton.disabled = false; }
   } }, ...[body].flat().filter(Boolean), error,
   el('div.row.row-end.mm-actions', {}, ...actions, cancel ? el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, cancel) : null, submitButton));
+  revealInvalidControls(form);
   const modal = openModal({ title, content: form, wide: !!size, onClose });
   modal.panel.classList.add('mm-dialog');
   if (size) modal.panel.classList.add(`mm-${size}`);
