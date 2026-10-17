@@ -579,3 +579,44 @@ test('a protected document opens with its permissions shown and unlocks with its
   expect(strFromU8(parts['word/settings.xml'])).toMatch(/<w:documentProtection w:edit="readOnly" w:enforcement="0"\/>/);
   expect(errors).toEqual([]);
 });
+
+test('a comment being written survives edits elsewhere in the document', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input.fill('Alpha beta gamma.');
+  await select(input, 6, 10);
+  await onTab(page, 'review');
+  await review(page).getByRole('button', { name: 'New Comment', exact: true }).click();
+  const box = page.locator('.ed-comment-draft textarea');
+  await box.pressSequentially('Half written');
+  // Someone else's edit (a collaborator, an autosave rewrite) lands before the anchored word.
+  const edit = (at, text) => page.evaluate(([at, text]) => {
+    const engine = window.__docs.current.view.engine, range = [...engine.model.range];
+    engine.execute(() => { engine.model.select(at); engine.model.replace(text); engine.model.select(...range); });
+  }, [at, text]);
+  await edit(0, 'Intro ');
+  await expect(box).toHaveValue('Half written');
+  // Even when the box does not have focus, a rebuilt column keeps the words typed so far.
+  await input.focus();
+  await edit(0, 'More ');
+  await page.evaluate(() => {
+    const engine = window.__docs.current.view.engine, at = engine.model.text.indexOf('gamma');
+    engine.execute(() => engine.model.addComment({ author: 'Grace', text: 'Elsewhere', range: [at, at + 5] }));
+  });
+  await expect(page.locator('.ed-comment-card:not(.ed-comment-draft)')).toHaveCount(1);
+  await expect(box).toHaveValue('Half written');
+  await box.evaluate(b => { b.focus(); b.setSelectionRange(b.value.length, b.value.length); });
+  await box.pressSequentially(' and finished');
+  await box.press('ControlOrMeta+Enter');
+  // The comment keeps what was typed and is still anchored on the word it was started on.
+  const comments = () => page.evaluate(() => {
+    const model = window.__docs.current.view.engine.model, text = model.text;
+    return model.commentList.map(c => [c.text, text.slice(c.start, c.end)]);
+  });
+  await expect.poll(comments).toEqual([['Half written and finished', 'beta'], ['Elsewhere', 'gamma']]);
+  await expect(input).toHaveValue('More Intro Alpha beta gamma.');
+  expect(errors).toEqual([]);
+});
