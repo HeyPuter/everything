@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { TextDocument, paragraph } from '../src/engine/model.js';
+import { TextDocument, paragraph, boundaries } from '../src/engine/model.js';
 import { emptyStyles } from '../src/engine/styles.js';
 import { JSDOM } from 'jsdom';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
@@ -124,5 +124,44 @@ describe('Replace with Track Changes on', () => {
     expect(JSON.stringify(doc.paragraphs)).toBe(before); expect(doc.history).toHaveLength(history);
     expect(doc.selection).toEqual({ anchor: 0, focus: 0 });
     doc.undo(); expect(doc.revisions.map(r => r.type)).toEqual(['del']);
+  });
+});
+
+describe('grapheme boundaries after an edit', () => {
+  // Count the text handed to the grapheme segmenter: an edit should cost its paragraph, not the document.
+  const segmented = run => {
+    const original = Intl.Segmenter.prototype.segment; let count = 0;
+    Intl.Segmenter.prototype.segment = function (text) { count += text.length; return original.call(this, text); };
+    try { run(); } finally { Intl.Segmenter.prototype.segment = original; }
+    return count;
+  };
+  const large = () => new TextDocument(Array.from({ length: 2000 }, (_, i) => paragraph(`Paragraph ${i} with some ordinary words in it.`)));
+  it('matches a full segmentation through random edits, joiners, regional indicators and CR', () => {
+    const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+    const full = text => [...graphemes.segment(text)].map(s => s.index).concat(text.length);
+    const atoms = ['a', '\n', 'e', '́', '\u{1F44D}', '\u{1F3FD}', '‍', '\u{1F1EB}', '\u{1F1F7}', 'क', '्', 'ष', 'ᄀ', 'ᅡ', '\r', ' '];
+    let seed = 3, text = 'start\nof text';
+    const random = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    for (let i = 0; i < 3000; i++) {
+      const at = Math.floor(random() * (text.length + 1)), removed = Math.floor(random() * 3);
+      let inserted = ''; for (let k = Math.floor(random() * 4); k > 0; k--) inserted += atoms[Math.floor(random() * atoms.length)];
+      text = text.slice(0, at) + inserted + text.slice(at + removed);
+      expect(boundaries(text)).toEqual(full(text));
+    }
+  });
+  it('segments only the edited paragraph when typing in a long document', () => {
+    const doc = large();
+    doc.select(doc.text.length); boundaries(doc.text);
+    const cost = segmented(() => { doc.replace('x'); boundaries(doc.text); doc.select(doc.selection.focus); doc.delete(-1); boundaries(doc.text); });
+    expect(doc.text.endsWith('in it.')).toBe(true);
+    expect(cost).toBeLessThan(500);
+  });
+  it('keeps advanced Replace All from re-segmenting the document per match', () => {
+    const doc = large();
+    let count;
+    const cost = segmented(() => { count = doc.replaceMatches('words', 'terms', { advanced: true, matchCase: true }, true); });
+    expect(count).toBe(2000);
+    expect(doc.paragraphs[1999].runs[0].text).toBe('Paragraph 1999 with some ordinary terms in it.');
+    expect(cost).toBeLessThan(doc.text.length * 4);
   });
 });

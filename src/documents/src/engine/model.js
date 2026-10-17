@@ -170,21 +170,56 @@ function setCellWidths(table, widths) {
 
 // Selection commands ask for the same document's boundaries many times in a
 // row; segmenting a long document each time made batched edits quadratic.
-let boundaryText = null, boundaryPoints = null;
+let boundaryText = null, boundaryPoints = null, boundaryList = null;
+const segmentPoints = (text, from, to) => [...inlineSegments(text.slice(from, to))].map(s => from + s.index);
 export function boundaries(text) {
   if (text !== boundaryText) {
-    boundaryPoints = Object.freeze([...inlineSegments(text)].map(s => s.index).concat(text.length));
+    // CR LF is one grapheme, so a stray CR makes a separator break uncertain.
+    const whole = boundaryText === null || text.includes('\r') || boundaryText.includes('\r');
+    boundaryList = whole ? segmentPoints(text, 0, text.length).concat(text.length) : editedBoundaries(boundaryText, boundaryList, text);
+    // Callers share the frozen copy; copying from a frozen array is slow, so edits rebase the private list.
+    boundaryPoints = Object.freeze(boundaryList.slice());
     boundaryText = text;
   }
   return boundaryPoints;
 }
+// After an edit, segment only the changed paragraphs. A line feed always
+// breaks graphemes (UAX #29 GB4/GB5), so points outside them are reused or shifted.
+function editedBoundaries(old, points, text) {
+  const shortest = Math.min(old.length, text.length);
+  let prefix = 0, suffix = 0;
+  while (prefix < shortest && old.charCodeAt(prefix) === text.charCodeAt(prefix)) prefix++;
+  while (suffix < shortest - prefix && old.charCodeAt(old.length - 1 - suffix) === text.charCodeAt(text.length - 1 - suffix)) suffix++;
+  const from = prefix ? text.lastIndexOf('\n', prefix - 1) + 1 : 0, found = text.indexOf('\n', text.length - suffix);
+  const to = found < 0 ? text.length : found, delta = text.length - old.length;
+  const firstAt = position => { let low = 0, high = points.length; while (low < high) { const middle = (low + high) >> 1; if (points[middle] < position) low = middle + 1; else high = middle; } return low; };
+  const kept = firstAt(from), moved = firstAt(to - delta);
+  const result = points.slice(0, kept).concat(segmentPoints(text, from, to));
+  for (let i = moved; i < points.length; i++) result.push(points[i] + delta);
+  return result;
+}
 
 export function locate(paragraphs, position) {
-  let offset = Math.max(0, Math.min(position, documentText(paragraphs).length));
+  // Clamp within the walk; joining the whole document text made every lookup allocate it.
+  let offset = Math.max(0, position);
   for (let index = 0; index < paragraphs.length; index++) {
     const length = paragraphText(paragraphs[index]).length;
-    if (offset <= length || index === paragraphs.length - 1) return { index, offset };
+    if (offset <= length || index === paragraphs.length - 1) return { index, offset: Math.min(offset, length) };
     offset -= length + 1;
+  }
+}
+
+// The first grapheme boundary at or after a position. Paragraph separators
+// always break graphemes, so only the paragraph holding it is segmented.
+function nextBoundary(paragraphs, position) {
+  let at = 0;
+  for (let index = 0; index < paragraphs.length; index++) {
+    const text = paragraphText(paragraphs[index]);
+    if (position <= at + text.length || index === paragraphs.length - 1) {
+      for (const segment of inlineSegments(text)) if (at + segment.index >= position) return at + segment.index;
+      return at + text.length;
+    }
+    at += text.length + 1;
   }
 }
 
@@ -2162,7 +2197,7 @@ export class TextDocument {
     }
     if (restoredParagraphs) this.paragraphs = restoredParagraphs;
     if (updatedBlockControl) for (const p of this.paragraphs) if (p.blockControls) p.blockControls = p.blockControls.map(c => c.id === updatedBlockControl.id ? updatedBlockControl : c);
-    const caret = boundaries(this.text).find(p => p >= start + text.length - (blockBoundary?.keepBlock ? 1 : 0)) ?? this.text.length;
+    const caret = nextBoundary(this.paragraphs, start + text.length - (blockBoundary?.keepBlock ? 1 : 0));
     this.selection = { anchor: caret, focus: caret };
     if (controlCaret && inlineControlCaret(this.paragraphs, caret, controlCaret)) this.selection.controlCaret = { ...controlCaret };
     else if (outsideControl) {

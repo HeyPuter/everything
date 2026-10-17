@@ -254,18 +254,25 @@ export function replaceAdvanced(model, matches, template, { wildcards = false, f
   model.checkpoint();
   const checkpoint = model.checkpoint;
   model.checkpoint = () => {};
+  // Matches already fall on grapheme boundaries. Selecting through the model
+  // re-segmented the whole edited document per match, making Replace All quadratic.
+  const select = (anchor, focus) => {
+    if (model.hasMacroButtons || model.hasNoteMarks) return model.select(anchor, focus);
+    model.cellBlock = null; model.selection = { anchor, focus };
+    model.typingFormat = {}; model.typingStyle = null; model.typingDirectCleared = false;
+  };
   let first = null;
   try {
     for (let i = matches.length - 1; i >= 0; i--) {
       const m = matches[i], text = texts[i];
       let start = m.start, end = m.end;
       if (!formatOnly && text !== m.text) {
-        model.select(m.start, m.end);
+        select(m.start, m.end);
         model.replace(text);
         end = model.selection.focus; start = end - text.length;
       }
       if (end > start) {
-        model.select(start, end);
+        select(start, end);
         if (Object.keys(runPatch).length) {
           const { characterStyle, ...direct } = runPatch;
           if (characterStyle !== undefined) model.setCharacterStyle(characterStyle);
