@@ -325,6 +325,12 @@ button.ed-status-item:hover, .ed-status-view:hover, .ed-zoom-step:hover { backgr
     content: ''; position: absolute; top: 50%; left: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%);
   }
 }
+/* Fingertip-high rows of small commands outgrow the card's 72px, which clipped the Paste icon and hid Cut
+   and Format Painter: wider touch screens let the card grow to its rows and line the groups up at the top. */
+@media (pointer: coarse) and (min-width: 701px) {
+  .ribbon-panel { height: auto; min-height: 72px; }
+  .ribbon-group-body { align-items: flex-start; }
+}
 
 /* Sort Text dialog */
 .ed-sort-row { display: grid; grid-template-columns: 90px 1fr; align-items: center; gap: 8px; }

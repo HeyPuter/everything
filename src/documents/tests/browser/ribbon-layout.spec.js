@@ -365,3 +365,25 @@ test('on phones the Reviewing Pane is a sheet above the status bar, not over it'
   expect(pane.y + pane.height).toBeLessThanOrEqual(status.y + 1);
   expect(surface.y + surface.height).toBeLessThanOrEqual(pane.y + 1);
 });
+
+test('on a wide touch screen the ribbon grows to its fingertip-high rows instead of clipping them', async ({ browser }) => {
+  for (const viewport of [{ width: 820, height: 1180 }, { width: 1180, height: 820 }]) {
+    const context = await browser.newContext({ viewport, isMobile: true, hasTouch: true });
+    const page = await context.newPage();
+    try {
+      await page.goto('/mock.html#/new');
+      await expect(page.locator('#ribbon-panel-home button[aria-label="Bold"]')).toBeEnabled();
+      for (const name of ['Home', 'Insert', 'References']) {
+        await tab(page, name).click();
+        // Rows of 44px commands in the 72px card cut off the Paste icon and hid Cut and Format Painter.
+        const clipped = await page.evaluate(() => {
+          const panel = [...document.querySelectorAll('.ribbon-panel')].find(p => !p.hidden), box = panel.getBoundingClientRect();
+          return [...panel.querySelectorAll('button, input')].filter(b => { const r = b.getBoundingClientRect(); return r.width && (r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5); }).map(b => b.getAttribute('aria-label') || b.textContent.trim());
+        });
+        expect(clipped, `${name} at ${viewport.width}px`).toEqual([]);
+      }
+      await tab(page, 'Home').click();
+      for (const name of ['Cut', 'Copy', 'Format Painter']) await expect(page.locator('#ribbon-panel-home').getByRole('button', { name, exact: true })).toBeInViewport({ ratio: 1 });
+    } finally { await context.close(); }
+  }
+});
