@@ -43,9 +43,12 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
   // Structural actions go through the editor's commands, which commit an open cell edit first
   // so the edit is not lost by the undo of the sheet change; without an editor the workbook is called directly.
   const act = (cmd, arg, direct) => (ctx.run ? ctx.run(cmd, arg) : direct());
+  // A mouse or pen click on a tab or the add button hands the keyboard back to the sheet, as in Excel, so
+  // the arrows move around the cells it shows; a key that activates them (detail 0) leaves focus with them.
+  const pointerBackToGrid = (e) => { if (e.detail > 0) ctx.grid?.focus?.(); };
   const addBtn = el('button.icon-btn.tab-add', {
     type: 'button', html: icon('plus', 18, 2), 'aria-label': 'Add sheet', title: 'Add sheet',
-    onclick: () => act('newSheet', null, () => ctx.wb.addSheet()),
+    onclick: (e) => { act('newSheet', null, () => ctx.wb.addSheet()); pointerBackToGrid(e); },
   });
   const openAllSheets = (anchor) => {
       const hidden = ctx.wb.sheets.filter((s) => s.hidden);
@@ -231,7 +234,7 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
         id: `sheet-tab-${s.id}`, role: 'tab', tabindex: isActive ? 0 : -1, 'aria-selected': String(isActive || grouped), 'aria-controls': panel?.id || null,
         className: `tab${isActive ? ' active' : ''}${grouped ? ' grouped' : ''}${s.color ? ' colored' : ''}`,
         style: s.color ? { '--tab-color': s.color } : null,
-        onclick: (e) => { if (Date.now() - draggedAt > 300) clickTab(s, e); },
+        onclick: (e) => { if (Date.now() - draggedAt > 300) clickTab(s, e); pointerBackToGrid(e); },
         ondblclick: () => renameVia(s),
         oncontextmenu: (e) => {
           e.preventDefault();
