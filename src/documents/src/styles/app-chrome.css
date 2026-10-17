@@ -43,6 +43,9 @@ input:disabled + .ed-switch { opacity: .5; }
 .ed-quick .ed-undo-arrow { width: 14px; height: 28px; border: 0; border-radius: 0 6px 6px 0; background: transparent; color: var(--ed-ink-2); }
 .ed-quick .ed-undo-arrow:hover:not(:disabled) { background: var(--ed-hover); }
 .ed-quick .ed-undo-arrow:disabled { color: var(--ed-ink-3); opacity: .5; }
+/* On a touch screen Undo's history arrow reaches a fingertip, as the ribbon's arrows do: 14px wide and pressed
+   against the 44px Undo, a tap meant for the history undid instead. */
+@media (pointer: coarse) { .ed-quick .ed-undo-arrow { width: 28px; height: 44px; } }
 
 /* The classic menu bar, beside quick access. */
 .ed-header .ed-menubar { display: flex; align-items: center; flex-wrap: nowrap; gap: 0; min-height: 0; height: 30px; margin: 0 0 0 6px; padding: 0 0 0 8px; border-left: 1px solid var(--ed-line); overflow: hidden; }

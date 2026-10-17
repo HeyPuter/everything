@@ -49,6 +49,10 @@ test('touch screens fit the title bar to its fingertip-sized commands', async ({
       expect(box.height, name).toBeGreaterThanOrEqual(44);
       expect(box.y + box.height, name).toBeLessThanOrEqual(bar.y + bar.height);
     }
+    // Undo's history arrow, pressed against Undo, is wide enough that a tap meant for it does not undo.
+    const arrow = await page.locator('.ed-quick').getByRole('button', { name: 'Undo history' }).boundingBox();
+    expect(arrow.width).toBeGreaterThanOrEqual(24);
+    expect(arrow.height).toBeGreaterThanOrEqual(44);
     // The save status, Search and account button take taps a fingertip high, though drawn smaller.
     const reach = await page.evaluate(() => ['.ed-titlebar .canvas-save-status', '.ed-search', '.ed-header .user-btn'].filter(s => {
       const el = document.querySelector(s), b = el.getBoundingClientRect(), x = b.left + b.width / 2, y = b.top + b.height / 2;
