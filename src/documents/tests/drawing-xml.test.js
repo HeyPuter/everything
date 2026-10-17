@@ -93,6 +93,16 @@ describe('picture formatting writes DrawingML that reopens editable', () => {
     expect(xml).toMatch(/<wp:docPr id="1" name="Company logo" descr="A logo" title="Logo">/);
     expect(xml).toMatch(/adec:decorative[^>]*val="1"/);
   });
+  it('keeps alt text and names with pasted line breaks or control characters readable', async () => {
+    const { pkg, doc } = await saved();
+    const [picture] = images(doc);
+    // A line break copied from a document is a vertical tab, which XML cannot hold.
+    const next = await edit(pkg, doc, picture, drawing => setDocProperties(drawingParts(drawing).docPr, { description: 'First line\u000bsecond\u0001 line', title: 'Logo\u000c', name: 'Logo\u0007 1' }));
+    expect(next).toMatchObject({ alt: 'First line\nsecond line', name: 'Logo 1' });
+    const { xml, reopened } = await roundTrip(pkg, doc);
+    expect(xml).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/);
+    expect(images(modelOf(reopened))[0]).toMatchObject({ alt: 'First line\nsecond line', name: 'Logo 1' });
+  });
   it('keeps the original picture in its layer and adds the processed copy', async () => {
     const { pkg, doc } = await saved();
     const [picture] = images(doc);

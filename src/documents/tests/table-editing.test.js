@@ -312,6 +312,14 @@ describe('table commands', () => {
     expect(cellAt(doc, 1, 1).borders.tl2br.style).toBe('nil');
   });
 
+  it('saves table alt text pasted with line breaks or control characters as readable XML', async () => {
+    const { pkg, doc } = tableDocument(2, 2, ['Lead']);
+    T.setTableAltText(doc, { title: 'Prices\u0001', description: 'Prices\u000bby item' });
+    const { xml, reopened } = await roundTrip(pkg, doc);
+    expect(xml).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/);
+    expect([reopened.tables[0].caption, reopened.tables[0].description]).toEqual(['Prices', 'Prices\nby item']);
+  });
+
   it('saves alt text, text wrapping and default cell margins', async () => {
     const { pkg, doc } = tableDocument(2, 2, ['Lead']);
     T.setTableAltText(doc, { title: 'Prices', description: 'Prices by item' });

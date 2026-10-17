@@ -1,5 +1,6 @@
 import { el, isComposing } from '../ui/dom.js';
 import { iconEl } from '../ui/icons.js';
+import { xmlAttributeText } from '../engine/text-limits.js';
 
 /**
  * The Alt Text pane: a description for people who cannot see the picture or shape (wp:docPr descr,
@@ -30,7 +31,7 @@ export function createPane(context) {
   async function save(image = owner) {
     if (!image) return;
     const info = describe(image) || {};
-    const next = { description: decorative.checked ? '' : description.value.trim(), title: title.value.trim(), decorative: decorative.checked };
+    const next = { description: decorative.checked ? '' : xmlAttributeText(description.value).trim(), title: xmlAttributeText(title.value).trim(), decorative: decorative.checked };
     if (next.description === (info.description || '') && next.title === (info.title || '') && next.decorative === !!info.decorative) return;
     const key = JSON.stringify([image.id, next]);
     if (key === saved) return;

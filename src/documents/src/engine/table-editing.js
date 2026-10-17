@@ -10,7 +10,7 @@ import { cellBlockPlacements, normalizeCellBlock, blockBetween, ownerPlacements 
 import { resolveStyledParagraph } from './styles.js';
 import { repairStructuralBookmarks, normalizeBlockBookmarkScopes } from './bookmarks.js';
 import { mergeCellControls } from './block-controls.js';
-import { MAX_DOCUMENT_CHARACTERS, DOCUMENT_CHARACTER_LIMIT_MESSAGE } from './text-limits.js';
+import { MAX_DOCUMENT_CHARACTERS, DOCUMENT_CHARACTER_LIMIT_MESSAGE, xmlAttributeText } from './text-limits.js';
 import { checkedCellAlignment } from './cell-alignment.js';
 import { checkedCellBorder, resolveCellBorders } from './cell-borders.js';
 import { resolveCellMargins } from './cell-margins.js';
@@ -784,6 +784,7 @@ export function paintCellEdge(model, { tableId: id, cellId, side, pen }) {
 export function setTableAltText(model, { title = '', description = '' } = {}) {
   const table = requireBlock(model).table;
   if (typeof title !== 'string' || typeof description !== 'string' || title.length > 255 || description.length > 4000) throw new Error('Keep the title under 256 and the description under 4,000 characters.');
+  title = xmlAttributeText(title); description = xmlAttributeText(description);
   if ((table.caption || '') === title && (table.description || '') === description) return false;
   model.checkpoint();
   table.caption = title; table.description = description; table.altTextChanged = true;

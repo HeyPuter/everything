@@ -84,6 +84,16 @@ it('resizes and describes an image without changing its media, relationship, sou
   doc.undo(); doc.undo(); expect(doc.snapshot()).toEqual(before); doc.redo(); expect(doc.selectedImage.alt).toBe('Two color panels revised');
 });
 
+it('saves alt text with a pasted line break or control character as readable XML', async () => {
+  const pkg = await DocxPackage.open(source), doc = model(pkg), at = doc.text.indexOf(OBJECT); doc.select(at, at + 1);
+  // A line break copied from a document arrives as a vertical tab, which XML 1.0 cannot hold.
+  expect(doc.setImageProperties({ alt: 'Two panels\u000bside by side\u0001' })).toBe(true);
+  expect(doc.selectedImage.alt).toBe('Two panels\nside by side');
+  const bytes = await save(pkg, doc);
+  expect(strFromU8(unzipSync(bytes)['word/document.xml'])).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/);
+  expect(pictures(model(await DocxPackage.open(bytes)))[0].alt).toBe('Two panels\nside by side');
+});
+
 it('authors picture runs, allocates unique drawing/media relationships and reuses a source asset without duplicating its binary', async () => {
   const sourcePkg = await DocxPackage.open(source), bytes = Object.values(sourcePkg.assets)[0].bytes;
   const pkg = createDocx([paragraph('New image ')]), doc = model(pkg); doc.assets.new = { bytes, mime: 'image/png' };

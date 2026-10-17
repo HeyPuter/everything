@@ -1,5 +1,6 @@
 import { parseXml } from './docx-xml.js';
 import { relatedPartPath } from './docx-relationships.js';
+import { xmlAttributeText } from './text-limits.js';
 
 /**
  * DrawingML edits for Picture Format, Shape Format and Arrange: small functions that rewrite one part of
@@ -382,8 +383,8 @@ export function readBodyProperties(body) {
 /** Non-visual properties (§20.4.2.5 docPr): name, descr (alt text), title, decorative flag. */
 export function setDocProperties(docPr, { name, description, title, decorative } = {}) {
   const doc = docPr.ownerDocument;
-  if (name !== undefined) docPr.setAttribute('name', name);
-  for (const [key, value] of [['descr', description], ['title', title]]) if (value !== undefined) { if (value) docPr.setAttribute(key, value); else docPr.removeAttribute(key); }
+  if (name !== undefined) docPr.setAttribute('name', xmlAttributeText(name));
+  for (const [key, value] of [['descr', description], ['title', title]]) if (value !== undefined) { const text = xmlAttributeText(value); if (text) docPr.setAttribute(key, text); else docPr.removeAttribute(key); }
   if (decorative !== undefined) {
     let list = child(docPr, A, 'extLst');
     for (const ext of childrenOf(list, A, ['ext'])) if (ext.getAttribute('uri')?.toUpperCase() === DECORATIVE_URI) ext.remove();

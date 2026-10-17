@@ -1,4 +1,4 @@
-import { MAX_DOCUMENT_CHARACTERS, DOCUMENT_CHARACTER_LIMIT_MESSAGE } from './text-limits.js';
+import { MAX_DOCUMENT_CHARACTERS, DOCUMENT_CHARACTER_LIMIT_MESSAGE, xmlAttributeText } from './text-limits.js';
 import { validFontSize } from './font-size.js';
 import { typedScriptRuns } from './script-input.js';
 import {noteMarkRanges,noteMarkSelection} from './note-marks.js';
@@ -1566,6 +1566,7 @@ export class TextDocument {
       if (Object.hasOwn(patch.anchor, 'behind') && typeof patch.anchor.behind !== 'boolean') throw new Error('Invalid image layer.');
     }
     if (Object.hasOwn(patch, 'rotation') && !Number.isInteger(patch.rotation)) throw new Error('Image rotation must use integer 1/60,000 degree units.');
+    if (typeof patch.alt === 'string') patch = { ...patch, alt: xmlAttributeText(patch.alt) };
     if (image.retainedDrawing && Object.entries(patch).some(([k, v]) => k !== 'anchor' && JSON.stringify(v) !== JSON.stringify(image[k] ?? ({ flipH: false, flipV: false, rotation: 0 }[k])))) throw new Error('Grouped and alternate drawings are retained as complete objects. Their internal properties cannot be edited yet.');
     const next = { ...image, ...patch };
     if (patch.anchor) {
