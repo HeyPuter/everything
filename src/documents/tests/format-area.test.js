@@ -48,6 +48,10 @@ it('turns spoken punctuation into text and joins dictation to the text before th
   expect(joinDictation('Done. ', 'next one')).toBe('Next one');
   expect(joinDictation('', 'first')).toBe('First');
   expect(joinDictation('word', '.')).toBe('.');
+  // A phrase that ends with, or is only, a spoken break keeps the break.
+  expect(spokenText('hello world period new paragraph')).toBe('hello world.\n');
+  expect(spokenText(' new line')).toBe('\v');
+  expect(joinDictation('Done.', spokenText('new paragraph'))).toBe('\n');
   const off = createDictation({ editor: () => null, readOnly: () => false, host: () => null });
   expect(off.supported).toBe(false);
   expect(off.start()).toBe(false);

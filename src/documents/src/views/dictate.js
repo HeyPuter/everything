@@ -8,7 +8,8 @@ const SPOKEN = [[/\s*\b(new paragraph)\b\s*/gi, '\n'], [/\s*\b(new line)\b\s*/gi
 export function spokenText(transcript) {
   let text = String(transcript);
   for (const [pattern, value] of SPOKEN) text = text.replace(pattern, value);
-  return text.replace(/[ \t]+/g, ' ').trim();
+  // Only spaces are trimmed: a phrase that ends with (or is) a spoken break keeps it.
+  return text.replace(/[ \t]+/g, ' ').replace(/^ | $/g, '');
 }
 /** Join dictated text to what precedes the caret: a space between words, a capital after a sentence. */
 export function joinDictation(before, text) {
