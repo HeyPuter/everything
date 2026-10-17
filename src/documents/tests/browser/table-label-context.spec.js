@@ -42,7 +42,8 @@ test('table label context retains editing, layout and untouched package parts',a
     await canvas.evaluate(element=>element.scrollIntoView({block:'start'}));
     const bounds=await canvas.boundingBox();
     await page.mouse.click(bounds.x+(g.x+3)*bounds.width/g.width,bounds.y+(g.y-9)*bounds.width/g.width);
-    await page.keyboard.insertText('i');expect(await input.inputValue()).not.toBe(original);
+    // A digit: a letter typed at the start of a paragraph is capitalized as a sentence start, a separate undo step.
+    await page.keyboard.insertText('1');expect(await input.inputValue()).not.toBe(original);
     const bytes=await download(page,info,`edited-${index+1}.docx`),edited=unzipSync(bytes);
     for(const name of Object.keys(parts).filter(n=>n!=='word/document.xml'))expect(edited[name],name).toEqual(parts[name]);
     const reopened=await page.evaluate(async data=>{
