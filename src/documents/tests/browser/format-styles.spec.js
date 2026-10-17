@@ -110,6 +110,27 @@ test('Apply Styles box and the Style dialog', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('Styles pane keeps keyboard focus on a control whose change redraws the pane', async ({ page }) => {
+  const { input, errors } = await blank(page, 'Plain words here');
+  await ribbon(page, 'Styles Pane').click();
+  const pane = page.getByRole('complementary', { name: 'Styles pane' });
+  const preview = pane.getByLabel('Show styles as they look');
+  await preview.focus();
+  await page.keyboard.press('Space');
+  await expect(preview).not.toBeChecked();
+  await expect(preview).toBeFocused();
+  const list = pane.getByLabel('List', { exact: true });
+  await list.focus();
+  await list.selectOption('all');
+  await expect(list).toBeFocused();
+  await pane.getByRole('tab', { name: 'Reveal Formatting' }).click();
+  const distinguish = pane.getByLabel('Distinguish direct formatting from styles');
+  await distinguish.focus();
+  await page.keyboard.press('Space');
+  await expect(distinguish).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
 async function screenshotPane(page, info, name) {
   await page.screenshot({ path: info.outputPath(name) });
 }

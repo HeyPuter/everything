@@ -149,13 +149,19 @@ export function createStylesPane({ editor, readOnly, actions }) {
     const key = JSON.stringify([view, filter, showPreview, distinguish, e.session.revision, e.model.range, e.session.path, readOnly()]);
     if (key === signature) return;
     signature = key;
-    const focusedStyle = document.activeElement?.closest?.('.styles-pane-item')?.dataset.style;
+    // Every render replaces the view's controls. A keyboard user who just changed one (the list
+    // filter, a check box, a Clear button) keeps focus on its replacement, or on the view's tab.
+    const focused = body.contains(document.activeElement) ? controlKey(document.activeElement) : null;
     try {
       if (view === 'styles') renderStyles(e);
       else if (view === 'inspector') renderInspector(e);
       else renderReveal(e);
     } catch (error) { body.replaceChildren(el('p.field-error', {}, error.message)); }
-    if (focusedStyle) node.querySelector(`.styles-pane-item[data-style="${CSS.escape(focusedStyle)}"] .styles-pane-apply`)?.focus();
+    if (focused === null) return;
+    const same = [...body.querySelectorAll('button, input, select')].find(control => !control.disabled && controlKey(control) === focused);
+    (same || tabs.find(tab => tab.dataset.view === view)).focus();
   }
+  /** What identifies a control across renders: its style row and its name. */
+  const controlKey = control => [control.closest('.styles-pane-item')?.dataset.style, control.tagName, control.getAttribute('aria-label') || control.closest('label')?.textContent || control.textContent].join('|');
   return { node, open, close, refresh, get visible() { return !node.hidden; }, get view() { return view; } };
 }
