@@ -32,3 +32,21 @@ test('document commands stay out of the window’s own text fields', async ({ pa
   await text(page).press('F4');
   expect((await engine(page)).italic).toBe(true);
 });
+
+test('the Toggle Drawing shortcut stays out of the window’s own text fields', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const tool = () => page.evaluate(() => window.__docs.current.view.commands.drawState().tool);
+  const chord = process.platform === 'darwin' ? 'Meta+Control+z' : 'Control+Alt+z';
+  await text(page).press('ControlOrMeta+f');
+  const search = page.getByRole('searchbox', { name: 'Search document' }).or(page.getByRole('textbox', { name: 'Search document' }));
+  await expect(search).toBeFocused();
+  await page.keyboard.press(chord);
+  await expect(search).toBeFocused();
+  expect(await tool()).toBe('select');
+  // In the document the shortcut still switches to the pen.
+  await text(page).focus();
+  await page.keyboard.press(chord);
+  await expect.poll(tool).not.toBe('select');
+});

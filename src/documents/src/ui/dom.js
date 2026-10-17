@@ -97,6 +97,15 @@ export function shortcutCode(e) {
   return code;
 }
 
+const TEXT_FIELD = 'textarea, select, [contenteditable]:not([contenteditable="false"]), input:not([type]), input[type="text"], input[type="search"], input[type="number"], input[type="email"], input[type="url"], input[type="tel"], input[type="password"]';
+/**
+ * Whether a key goes to a text field of the window's own (the search box, a comment, a dialog's or a
+ * pane's input) rather than to the document, so document shortcuts leave it to that field.
+ */
+export function typingElsewhere(target) {
+  return !!target?.matches?.(TEXT_FIELD) && !target.matches('.canvas-input') && !target.closest('.outline-view');
+}
+
 /**
  * Whether a keydown types a character rather than making a chord. AltGr reaches the page as Ctrl+Alt
  * on Windows (Polish AltGr+O is ó, French AltGr+0 is @, German AltGr+7 is {), and Option types
