@@ -1568,7 +1568,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (!pkg.readOnly) doc.attach(async () => {
       if (engine.composition) throw new Error('Finish composing text before saving.');
       return engine.export(pkg);
-    });
+    }, { busy: () => !!engine?.composition });
     if (pkg.fieldsRecalculated && !pkg.readOnly) doc.changed();
     const previewIssues = [...(pkg.previewIssues || []), ...engine.storyLayout.unsupported.map(issue =>
       `${issue.path}, page ${issue.page + 1}: ${issue.message}`)];

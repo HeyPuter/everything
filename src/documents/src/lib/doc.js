@@ -103,9 +103,11 @@ export class Doc extends EventTarget {
   }
 
   /** Wire the engine's export function. Fires a pending first save for imports. */
-  attach(exporter, { ready = null } = {}) {
+  attach(exporter, { ready = null, busy = null } = {}) {
     if (this._deleted) return;
     this.exporter = exporter;
+    /** Whether the editor cannot export just now (text still being composed with an IME): autosaves wait for it. */
+    this._busy = busy;
     // The engine holds its own copy of the opened file: this one would only keep megabytes alive for the document's lifetime.
     this.size = this.blob?.size ?? this.size;
     this.blob = null;
@@ -227,6 +229,8 @@ export class Doc extends EventTarget {
     // Nothing to write, a clean template included: saving one again would only make a copy of it.
     if (!this.dirty && this.path) { this._settled(); return true; }
     if (!this.exporter) return false;
+    // A pause inside an IME composition is not a failed save: try again after the usual pause.
+    if (auto && this._busy?.()) { this._schedule(AUTOSAVE_MS); return false; }
     if (session.signedOut) {
       if (auto) return false;
       throw new Error(SIGN_IN_TO_SAVE);

@@ -263,6 +263,21 @@ describe('Doc', () => {
     doc.destroy();
   });
 
+  it('holds an autosave while the editor is composing text, without a failed status', async () => {
+    const doc = track(Doc.blank());
+    let composing = true;
+    doc.attach(async () => { if (composing) throw new Error('Finish composing text before saving.'); return blob('v'); }, { busy: () => composing });
+    doc.changed();
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MS * 4);
+    expect(P.writeFile).not.toHaveBeenCalled();
+    expect(statuses).toEqual(['unsaved']);
+    composing = false;
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MS + 5);
+    expect(statuses).toEqual(['unsaved', 'saving', 'saved']);
+    expect(doc.dirty).toBe(false);
+    doc.destroy();
+  });
+
   it('reports offline instead of error when the browser is offline', async () => {
     vi.stubGlobal('navigator', { onLine: false });
     const doc = Doc.blank();

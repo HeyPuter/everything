@@ -140,3 +140,25 @@ test('File > Save: pressing Save As twice saves one copy and says so', async ({ 
   await expect(view.getByRole('status').filter({ hasText: /Saved|exists|Saving/ })).toHaveText('Saved. You are now editing the copy.');
   expect(await page.evaluate(() => window.__docs.current.view.doc.path)).toBe('Documents/Copy.docx');
 });
+
+test('autosave waits for an open IME composition instead of reporting a failed save', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Kept');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+  await text(page).press('End');
+  await page.keyboard.type(' 안');
+  // The last syllable stays in composition while the writer pauses, as a Korean IME keeps it.
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.imeSetComposition', { text: '녕', selectionStart: 1, selectionEnd: 1 });
+  expect(await page.evaluate(() => !!window.__docs.current.view.engine.composition)).toBe(true);
+  const seen = [];
+  await page.exposeFunction('__status', s => seen.push(s));
+  await page.evaluate(() => window.__docs.current.view.doc.addEventListener('status', e => window.__status(e.detail.status)));
+  await page.waitForTimeout(3000);
+  expect(seen).not.toContain('error');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Unsaved changes');
+  await cdp.send('Input.insertText', { text: '녕' });
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter', { timeout: 10000 });
+  expect(seen).not.toContain('error');
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.text)).toBe('Kept 안녕');
+});
