@@ -1,6 +1,6 @@
 import {test,expect} from '@playwright/test';
 import {readFileSync} from 'node:fs';
-import {unzipSync} from 'fflate';
+import {unzipSync,strFromU8} from 'fflate';
 import {showAllTools,onTab} from './helpers/editor-tools.js';
 import {reopenDocx} from './helpers/reopen-docx.js';
 const source='tests/fixtures/column-bookmarks/collapsed.docx';
@@ -21,7 +21,9 @@ test('navigates and edits a collapsed column-tagged bookmark without expanding i
  const at=await go();expect(at).toBe(original.indexOf('T5R1C1'));
  await page.keyboard.insertText('Added ');const expected=original.slice(0,at)+'Added '+original.slice(at),edited=await save('edited');
  expect(await go()).toBe(at+6);
- const out=unzipSync(readFileSync(edited));for(const n of Object.keys(parts))if(n!=='word/document.xml')expect(out[n],n).toEqual(parts[n]);
+ const out=unzipSync(readFileSync(edited));for(const n of Object.keys(parts))if(n!=='word/document.xml'&&n!=='word/settings.xml')expect(out[n],n).toEqual(parts[n]);
+ // The text changed, so the saved spelling and grammar completion flags no longer hold (§17.15.1.65).
+ expect(strFromU8(out['word/settings.xml'])).toBe(strFromU8(parts['word/settings.xml']).replace('w:spelling="clean" w:grammar="clean"','w:spelling="dirty" w:grammar="dirty"'));
  await input.press('ControlOrMeta+z');await expect(input).toHaveValue(original);expect(unzipSync(readFileSync(await save('undo')))).toEqual(parts);
  await reopenDocx(page,input,edited,expected);expect(await go()).toBe(at+6);expect(errors).toEqual([]);
 });

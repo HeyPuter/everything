@@ -2,7 +2,7 @@ import { showAllTools } from './helpers/editor-tools.js';
 import { reopenDocx } from './helpers/reopen-docx.js';
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { unzipSync } from 'fflate';
+import { unzipSync, strFromU8 } from 'fflate';
 
 test('edits inherited lists, restarts and nests items, and reopens a validated numbering export', async ({ page }, testInfo) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
@@ -59,7 +59,9 @@ test('edits inherited lists, restarts and nests items, and reopens a validated n
   await page.getByRole('button', { name: 'Download .docx', exact: true }).click();
   const saved = testInfo.outputPath('numbering.docx'); await (await downloaded).saveAs(saved);
   const original = unzipSync(readFileSync('public/fixtures/numbering.docx')), exported = unzipSync(readFileSync(saved));
-  for (const [name, data] of Object.entries(original)) if (!['word/document.xml', 'word/numbering.xml'].includes(name)) expect(Buffer.from(exported[name]).equals(Buffer.from(data)), name).toBe(true);
+  for (const [name, data] of Object.entries(original)) if (!['word/document.xml', 'word/numbering.xml', 'word/settings.xml'].includes(name)) expect(Buffer.from(exported[name]).equals(Buffer.from(data)), name).toBe(true);
+  // The text changed, so the saved spelling and grammar completion flags no longer hold (§17.15.1.65).
+  expect(strFromU8(exported['word/settings.xml'])).toBe(strFromU8(original['word/settings.xml']).replace('w:spelling="clean" w:grammar="clean"', 'w:spelling="dirty" w:grammar="dirty"'));
   await reopenDocx(page, input, saved, await input.inputValue());
   await expect(input).toHaveValue(text); await expect(undo).toBeDisabled(); await expect(canvases).toHaveCount(2);
   await choose('Nested continuation'); await expect(numbers).toHaveAttribute('aria-pressed', 'true');
