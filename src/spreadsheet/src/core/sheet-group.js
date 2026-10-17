@@ -24,7 +24,7 @@ import { cellKey, parseKey } from './cell.js';
 
 /** Edits made again, with the same arguments, on every grouped sheet. */
 export const GROUP_REPEATED = [
-  'insertRows', 'insertCols', 'deleteRows', 'deleteCols', 'deleteLines', 'deleteCells',
+  'insertRows', 'insertCols', 'deleteRows', 'deleteCols', 'deleteLines', 'insertCells', 'deleteCells',
   'setColWidth', 'setRowHeight', 'mergeCells', 'unmergeCells', 'setHidden', 'groupLines', 'ungroupLines',
   'applyStyle', 'applyBorders', 'toggleStyle', 'clearRange',
 ];
@@ -256,7 +256,7 @@ export function installSheetGroups(Workbook) {
 
 const LABELS = {
   insertRows: 'Insert rows', insertCols: 'Insert columns', deleteRows: 'Delete rows', deleteCols: 'Delete columns', deleteLines: 'Delete',
-  deleteCells: 'Delete cells', setColWidth: 'Resize columns', setRowHeight: 'Resize rows', mergeCells: 'Merge cells', unmergeCells: 'Unmerge cells',
+  insertCells: 'Insert cells', deleteCells: 'Delete cells', setColWidth: 'Resize columns', setRowHeight: 'Resize rows', mergeCells: 'Merge cells', unmergeCells: 'Unmerge cells',
   setHidden: 'Hide', groupLines: 'Group', ungroupLines: 'Ungroup', applyStyle: 'Format', applyBorders: 'Borders', toggleStyle: 'Format', clearRange: 'Clear',
   setInput: 'Edit cell', pasteCells: 'Paste', pasteValues: 'Paste', pasteLiteralValues: 'Paste', pasteStyles: 'Paste formatting', pasteOperation: 'Paste',
   pasteEntries: 'Paste', fill: 'Fill', fillInput: 'Fill', fillDirection: 'Fill', fillSeries: 'Fill series', formulasToValues: 'Formulas to values', transformText: 'Change text',
