@@ -885,7 +885,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     const sections = [
       { id: 'general', label: 'General', controls: [
         { type: 'choice', label: 'Appearance', options: [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']], get: () => currentTheme(), set: mode => session.setTheme(mode) },
-        { type: 'toggle', label: 'Dark page', hint: 'With the dark appearance, show pages dark too. Printing and saving are unaffected.', get: () => darkPage(), set: on => setDarkPage(on), disabled: !isDark() },
+        { type: 'toggle', label: 'Dark page', hint: 'With the dark appearance, show pages dark too. Printing and saving are unaffected.', get: () => darkPage(), set: on => setDarkPage(on), disabled: () => !isDark() },
         { type: 'choice', label: 'Measurement units', hint: 'Rulers, indents, tabs and page setup.', select: true, options: UNITS.map(u => [u.id, u.label]), get: () => recallUnit(), set: unit => { rememberUnit(unit); rulers?.setUnit(unit); } },
         { type: 'choice', label: 'Open documents at', hint: 'Phones and narrow windows always fit the page width.', select: true, options: [['100', '100%'], ['width', 'Page width'], ['page', 'One page']],
           get: () => { const z = recallZoom(); return z?.fit || (z?.value ? String(z.value) : '100'); }, set: v => rememberZoom(v === '100' ? { value: 100 } : { fit: v }) },

@@ -6,7 +6,7 @@ import { segmented } from '../ui/segmented.js';
  * Preferences: the settings that used to be spread over the account menu, the View tab and the
  * Review tab, in one dialog. Every control applies at once (there is no OK to forget), and each says
  * where it applies. Sections come from the editor: [{ id, label, controls: [control] }], where a control is
- *   { type: 'toggle', label, hint?, get(), set(value) }
+ *   { type: 'toggle', label, hint?, get(), set(value), disabled? (boolean, or a function read again after every change) }
  *   { type: 'choice', label, hint?, options: [[value, label]], get(), set(value) }
  *   { type: 'button', label, hint?, run() }
  */
@@ -23,19 +23,25 @@ export function openPreferences({ sections, section = null, onClose }) {
     const tab = tabs[(next + tabs.length) % tabs.length];
     show(tab.id.slice(9)); tab.focus();
   });
+  // A change can affect other controls (the dark page needs the dark appearance): the shown ones read their state again.
+  let refreshers = [];
+  const changed = () => { for (const refresh of refreshers) refresh(); };
+  const disabledOf = def => (typeof def.disabled === 'function' ? def.disabled() : !!def.disabled);
   function control(def) {
     const hint = def.hint ? el('span.pref-hint', {}, def.hint) : null;
     if (def.type === 'toggle') {
-      const input = el('input', { type: 'checkbox', role: 'switch', checked: !!def.get(), disabled: !!def.disabled, onchange: () => { def.set(input.checked); input.checked = !!def.get(); } });
+      const input = el('input', { type: 'checkbox', role: 'switch', checked: !!def.get(), disabled: disabledOf(def), onchange: () => { def.set(input.checked); changed(); } });
+      refreshers.push(() => { input.checked = !!def.get(); input.disabled = disabledOf(def); });
       return el('label.pref-row.pref-toggle', {}, el('span.pref-text', {}, el('span.pref-label', {}, def.label), hint), input, el('span.ed-switch', { 'aria-hidden': 'true' }));
     }
     if (def.type === 'choice' && def.options.length <= 3 && !def.select) {
       const id = fieldId('pref');
       return el('div.pref-row', {}, el('span.pref-text', { id }, el('span.pref-label', {}, def.label), hint),
-        segmented(def.options, def.get(), value => def.set(value), def.label));
+        segmented(def.options, def.get(), value => { def.set(value); changed(); }, def.label));
     }
     if (def.type === 'choice') {
-      const select = el('select.input', { 'aria-label': def.label, onchange: () => def.set(select.value) }, ...def.options.map(([value, label]) => el('option', { value }, label)));
+      const select = el('select.input', { 'aria-label': def.label, onchange: () => { def.set(select.value); changed(); } }, ...def.options.map(([value, label]) => el('option', { value }, label)));
+      refreshers.push(() => { select.value = def.get(); });
       select.value = def.get();
       return el('label.pref-row', {}, el('span.pref-text', {}, el('span.pref-label', {}, def.label), hint), select);
     }
@@ -49,6 +55,7 @@ export function openPreferences({ sections, section = null, onClose }) {
     const s = sections.find(x => x.id === id) || sections[0];
     tabs.forEach((tab, i) => { const on = sections[i] === s; tab.setAttribute('aria-selected', String(on)); tab.tabIndex = on ? 0 : -1; });
     body.setAttribute('aria-labelledby', `pref-tab-${s.id}`);
+    refreshers = [];
     body.replaceChildren(el('h3.pref-heading', {}, s.label), ...(s.note ? [el('p.pref-note', {}, s.note)] : []), ...s.controls.filter(Boolean).map(control).filter(Boolean));
   }
   const modal = openModal({ title: 'Preferences', wide: true, onClose, content: el('div.pref-dialog', {}, nav, body) });
