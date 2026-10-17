@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { unzipSync } from 'fflate';
 import { matchesNativePalette } from './helpers/native-color-palette.js';
+import { expectBodyEditParts } from './helpers/expect-body-edit-parts.js';
 
 const fixture = 'tests/fixtures/picture-bevel/source.docx';
 const reference = JSON.parse(readFileSync('tests/fixtures/picture-bevel/reference.json', 'utf8'));
@@ -65,7 +66,9 @@ test('renders native bevel controls through editing, exact undo and reopening', 
   };
   const preserved = (path, edited = false) => {
     const saved = unzipSync(readFileSync(path)); expect(Object.keys(saved).sort()).toEqual(Object.keys(source).sort());
-    for (const name of Object.keys(source)) if (!edited || name !== 'word/document.xml') expect(Buffer.from(saved[name]).equals(Buffer.from(source[name])), name).toBe(true);
+    // A body edit also resets saved clean proofing state in settings.xml (§17.15.1.65).
+    if (edited) { expectBodyEditParts(saved, source); return; }
+    for (const name of Object.keys(source)) expect(Buffer.from(saved[name]).equals(Buffer.from(source[name])), name).toBe(true);
   };
   preserved(await download('noedit'));
   await input.press('ControlOrMeta+Home'); await page.keyboard.insertText('Edited ');

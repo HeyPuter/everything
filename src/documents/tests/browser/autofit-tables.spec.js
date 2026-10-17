@@ -2,7 +2,8 @@ import { showAllTools, onTab } from './helpers/editor-tools.js';
 import { reopenDocx } from './helpers/reopen-docx.js';
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { unzipSync, strFromU8 } from 'fflate';
+import { unzipSync } from 'fflate';
+import { expectBodyEditParts } from './helpers/expect-body-edit-parts.js';
 
 test('edits imported AutoFit tables and preferred widths with undo and preservation', async ({ page }, testInfo) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
@@ -40,10 +41,7 @@ test('edits imported AutoFit tables and preferred widths with undo and preservat
   await page.getByRole('button', { name: 'Download .docx', exact: true }).click();
   const saved = testInfo.outputPath('autofit-tables.docx'); await (await download).saveAs(saved);
   const original = unzipSync(readFileSync('public/fixtures/autofit-tables.docx')), exported = unzipSync(readFileSync(saved));
-  // Edited text invalidates the saved clean proofing state (§17.15.1.65); nothing else in settings changes.
-  const proofed = strFromU8(original['word/settings.xml']).replace('w:spelling="clean" w:grammar="clean"', 'w:spelling="dirty" w:grammar="dirty"');
-  expect(proofed).not.toBe(strFromU8(original['word/settings.xml'])); expect(strFromU8(exported['word/settings.xml'])).toBe(proofed);
-  for (const [name, data] of Object.entries(original)) if (!['word/document.xml', 'word/settings.xml'].includes(name)) expect(Buffer.from(exported[name]).equals(Buffer.from(data)), name).toBe(true);
+  expectBodyEditParts(exported, original);
   await reopenDocx(page, input, saved, await input.inputValue()); await expect(input).toHaveValue(text);
   await select('Extraordinary revised'); await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await openProperties(); await expect(page.getByLabel('Preferred table width', { exact: true })).toHaveValue('83.33');
