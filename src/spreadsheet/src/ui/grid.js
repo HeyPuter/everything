@@ -3317,8 +3317,23 @@ export function createGrid(opts) {
     if (arrayRange) {
       // The fixed array was written atomically before closing the editor.
     } else if (filling) {
-      // Ctrl+Enter: every selected range takes the entry, formulas shifting from the typed cell.
-      wb.transaction('Fill', () => { for (const rg of targets) wb.fillInput(sheetId, rg, text, { r, c }); });
+      // Ctrl+Enter: every selected range takes the entry, formulas shifting from the typed cell. Lines
+      // added with Alt+Enter turn wrapping on and the rows are fitted, as for a single cell's entry.
+      const multiline = text.includes('\n') && !text.startsWith('=');
+      const fit = multiline || !!wb.styleAt(sheetId, r, c)?.wrap;
+      const rows = fit ? [...new Set(targets.flatMap((rg) => Array.from({ length: rg.r2 - rg.r1 + 1 }, (_, i) => rg.r1 + i)))].sort((a, b) => a - b) : [];
+      const sized = new Set(rows.filter((rr) => rowSizedByHand(rr)));
+      wb.transaction('Fill', () => {
+        for (const rg of targets) wb.fillInput(sheetId, rg, text, { r, c });
+        if (multiline) for (const rg of targets) wb.applyStyle(sheetId, rg, { wrap: true });
+        // Runs of rows fitted alike are measured together.
+        for (let i = 0; i < rows.length;) {
+          let j = i;
+          while (j + 1 < rows.length && rows[j + 1] === rows[j] + 1 && sized.has(rows[j + 1]) === sized.has(rows[i])) j++;
+          autoFitRows(rows[i], rows[j], { grow: sized.has(rows[i]) });
+          i = j + 1;
+        }
+      });
     } else if (text !== editText(cell)) {
       const wraps = !!wb.styleAt(sheetId, r, c)?.wrap;
       // Lines added with Alt+Enter turn wrapping on, so the row can show them all.
