@@ -531,6 +531,13 @@ export function completionContext(text, caret = text.length) {
       while (i >= 1 && before[i] !== '"') i--;
       continue;
     }
+    // A quoted sheet name ('Sales, 2024'!A1) may hold commas and parentheses: skip back to its
+    // opening quote, passing over the doubled '' that stands for one quote inside it.
+    if (ch === "'" && before[i + 1] === '!') {
+      i--;
+      while (i >= 1 && (before[i] !== "'" || before[i - 1] === "'")) i -= before[i] === "'" ? 2 : 1;
+      continue;
+    }
     if (ch === ')' || ch === '}' || ch === ']') { depth++; continue; }
     if (ch === ',' || ch === ';') { if (depth === 0) argIndex++; continue; }
     // Commas inside an array constant or a structured reference separate its parts, not the call's arguments.
