@@ -12,7 +12,8 @@ test('edits body and shared styles with empty header/footer variants, matching t
  const native=await page.evaluate(async()=>{try{await new FontFace('native control','local("Arial")').load();return true;}catch{return false;}});
  const check=async shaded=>{
   await expect(page.locator('#playground-error')).toBeEmpty();await expect(page.locator('canvas.canvas-page')).toHaveCount(3);
-  const bands=await page.locator('canvas.canvas-page').evaluateAll(cs=>cs.map(c=>{const scale=c.width/612,d=c.getContext('2d').getImageData(Math.round(500*scale),0,1,c.height).data,groups=[];for(let y=0;y<c.height;y++)if(d[y*4]===34&&d[y*4+1]===170&&d[y*4+2]===136){const last=groups.at(-1);if(!last||y>last.end+1)groups.push({start:y,end:y});else last.end=y;}return groups.map(g=>({top:g.start/scale,bottom:(g.end+1)/scale}));}));
+  // While the body is edited, header and footer bands are shown under a 52% white wash.
+  const bands=await page.locator('canvas.canvas-page').evaluateAll(cs=>cs.map(c=>{const fill=(r,g,b)=>r===34&&g===170&&b===136||r===149&&g===214&&b===198;const scale=c.width/612,d=c.getContext('2d').getImageData(Math.round(500*scale),0,1,c.height).data,groups=[];for(let y=0;y<c.height;y++)if(fill(d[y*4],d[y*4+1],d[y*4+2])){const last=groups.at(-1);if(!last||y>last.end+1)groups.push({start:y,end:y});else last.end=y;}return groups.map(g=>({top:g.start/scale,bottom:(g.end+1)/scale}));}));
   for(let i=0;i<3;i++){const expected=reference[shaded?'shaded':'plain'].bands[i];expect(bands[i]).toHaveLength(expected.length);if(native)for(let j=0;j<expected.length;j++)for(const edge of ['top','bottom'])expect(Math.abs(bands[i][j][edge]-expected[j][edge]),`${i} ${j} ${edge}`).toBeLessThan(1);}
  };
  await check(false);await input.press('ControlOrMeta+Home');await page.keyboard.insertText('Edited ');await check(false);
