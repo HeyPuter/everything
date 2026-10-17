@@ -100,7 +100,9 @@ export function* inlineSegments(text) {
   }
 }
 
-export function imageInfo(bytes) {
+export const MAX_IMAGE_SIDE = 8192, MAX_IMAGE_PIXELS = 16000000;
+/** Format and pixel size of PNG, JPEG or TIFF bytes; `checkSize: false` skips the pixel limits for PNG and JPEG. */
+export function imageInfo(bytes, { checkSize = true } = {}) {
   // Embedded PNG/JPEG parts share the session's encoded-byte budget. Their
   // decoded dimensions, rather than compression or metadata size, bound pixels.
   if (!(bytes instanceof Uint8Array) || bytes.length > 50 * 1024 * 1024) throw new Error('Image assets must fit within the 50 MB editing-session budget.');
@@ -131,7 +133,7 @@ export function imageInfo(bytes) {
     }
   }
   if (!width || !height) throw new Error('This image is not a supported PNG, JPEG or TIFF.');
-  if (width > 8192 || height > 8192 || width * height > 16000000) throw new Error('Images must be at most 8,192 pixels per side and 16 megapixels.');
+  if (checkSize && (width > MAX_IMAGE_SIDE || height > MAX_IMAGE_SIDE || width * height > MAX_IMAGE_PIXELS)) throw new Error('Images must be at most 8,192 pixels per side and 16 megapixels.');
   return { mime, width, height };
 }
 

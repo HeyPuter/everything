@@ -334,6 +334,35 @@ test('the Layout dialog keeps an untouched size and free rotation exactly, and s
   expect(errors).toEqual([]);
 });
 
+test('pictures over the session limits are scaled down on insertion and on Change Picture', async ({ page }, info) => {
+  test.setTimeout(120000);
+  const { input, errors } = await start(page);
+  // A 24-megapixel camera JPEG and a large WebP, drawn in the page.
+  const picture = (type, width, height) => page.evaluate(async ([type, width, height]) => {
+    const canvas = Object.assign(document.createElement('canvas'), { width, height }), g = canvas.getContext('2d');
+    for (let i = 0; i < 60; i++) { g.fillStyle = `hsl(${i * 37 % 360} 70% 50%)`; g.fillRect(i * width / 60, (i * 7 % 10) * height / 10, width / 5, height / 5); }
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, type, 0.9));
+    return [...new Uint8Array(await blob.arrayBuffer())];
+  }, [type, width, height]).then(bytes => Buffer.from(bytes));
+  const size = bytes => bytes[0] === 0x89 ? [bytes.readUInt32BE(16), bytes.readUInt32BE(20)] : (() => {
+    for (let at = 2; at < bytes.length;) { const marker = bytes[at + 1], length = bytes.readUInt16BE(at + 2); if (marker >= 0xc0 && marker <= 0xc2) return [bytes.readUInt16BE(at + 7), bytes.readUInt16BE(at + 5)]; at += 2 + length; }
+  })();
+  await onTab(page, 'insert');
+  await page.getByLabel('Insert picture file').setInputFiles({ name: 'camera.jpg', mimeType: 'image/jpeg', buffer: await picture('image/jpeg', 6000, 4000) });
+  await expect.poll(async () => (await input.inputValue()).split(OBJECT).length - 1).toBe(1);
+  await onTab(page, 'insert');
+  await page.getByLabel('Insert picture file').setInputFiles({ name: 'large.webp', mimeType: 'image/webp', buffer: await picture('image/webp', 4500, 4500) });
+  await expect.poll(async () => (await input.inputValue()).split(OBJECT).length - 1).toBe(2);
+  let { parts } = await save(page, info, 'large-pictures');
+  const media = () => Object.entries(parts).filter(([name]) => name.startsWith('word/media/')).map(([name, bytes]) => [name.split('.').pop(), ...size(Buffer.from(bytes))]).sort();
+  expect(media()).toEqual([['jpg', 4096, 2731], ['png', 4000, 4000]]);
+  // Change Picture takes the same route.
+  await onTab(page, 'picture');
+  await page.getByLabel('Change picture file').setInputFiles({ name: 'camera.jpg', mimeType: 'image/jpeg', buffer: await picture('image/jpeg', 4000, 6000) });
+  await expect.poll(async () => { ({ parts } = await save(page, info, 'large-pictures-changed')); return media(); }).toContainEqual(['jpg', 2731, 4096]);
+  expect(errors).toEqual([]);
+});
+
 test('Picture Format at phone width', async ({ page }) => {
   const { input, errors } = await start(page, { width: 390 });
   await insertPicture(page, input);

@@ -25,7 +25,7 @@ import * as presets from './picture-presets.js';
 import { filteredThumb, processedThumb, styleThumb, shapeStyleThumb, positionThumb, pictureSource } from './picture-thumbnails.js';
 import { processedEdit, compressEdit, changePictureEdit, restoreOriginal, readBakedLayer, bakedState, partPixels } from './picture-adjustments.js';
 import { setImageWrap } from '../engine/image-wrap.js';
-import { rasterize } from './insert-tab.js';
+import { rasterize, pictureFile } from './insert-tab.js';
 import { WORDART_STYLES } from '../engine/text-designs.js';
 
 const PT = 12700, IN = 914400;
@@ -346,9 +346,15 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const file = pictureInput.files?.[0]; pictureInput.value = '';
     if (!file) return;
     try {
-      let bytes = new Uint8Array(await file.arrayBuffer()), mime = file.type, width, height;
-      if (!/^image\/(png|jpeg)$/.test(mime)) ({ png: bytes, width, height } = await rasterize(file, 4096)), mime = 'image/png';
-      else { const bitmap = await createImageBitmap(file); width = bitmap.width; height = bitmap.height; bitmap.close(); }
+      let bytes, mime, width, height;
+      if (/^image\/svg\+xml$/.test(file.type)) ({ png: bytes, width, height } = await rasterize(file, 4096)), mime = 'image/png';
+      else {
+        // Other formats, and pictures over the session's limits, are redrawn to fit as PNG or JPEG.
+        const stored = await pictureFile(file);
+        bytes = new Uint8Array(await stored.arrayBuffer()); mime = stored.type;
+        if (!/^image\/(png|jpeg)$/.test(mime)) throw new Error('Choose a PNG, JPEG, GIF, WebP, BMP or SVG picture.');
+        const bitmap = await createImageBitmap(stored); width = bitmap.width; height = bitmap.height; bitmap.close();
+      }
       await apply('Change Picture', changePictureEdit({ bytes, mime, width, height }));
     } catch (e) { fail(e); }
   } });

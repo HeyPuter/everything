@@ -21,6 +21,7 @@ import { TEXT_BOX_DESIGNS, WORDART_STYLES, textBoxParams, wordArtParams, signatu
 import { SHAPE_PRESETS, LINE_PRESETS, UNFILLED_PRESETS, DEFAULT_SHAPE_STYLE, shapeDrawingXml } from '../engine/authored-shapes.js';
 import { readDrawingFragment, placeDrawing, freshDrawingAssetId, nextDrawingId, nextDrawingOrder, EMU_PER_INCH } from '../engine/inserted-drawings.js';
 import { pictureFragment, fittedSize } from '../engine/picture-insert.js';
+import { imageInfo, MAX_IMAGE_SIDE, MAX_IMAGE_PIXELS } from '../engine/images.js';
 import { diagramDrawingXml, parseDiagramDescription, DIAGRAM_LAYOUTS } from '../engine/diagram-builder.js';
 import { insertBodyField, fieldInstruction, evaluateField, documentProperties, setFieldContextProvider, DOCUMENT_PROPERTY_NAMES, formatDatePicture } from '../engine/field-results.js';
 import { linearToOmml, ommlToLinear, EQUATION_GALLERY } from '../engine/math-linear.js';
@@ -33,18 +34,41 @@ const OBJECT = '\uFFFC';
 const TWIP_EMU = 635;
 const AUTOTEXT_KEY = 'documents.insert.autoText';
 
-/** PNG bytes and pixel size for an image blob (raster or SVG), scaled so its longer side is at most `max` pixels. */
-export async function rasterize(blob, max = 1600) {
+/** Draw an image file at most `max` pixels per side (and `pixels` in all) and encode it as PNG, or as `type`: its bytes and pixel size. */
+export async function rasterize(blob, max = 1600, { pixels = Infinity, type = 'image/png', quality } = {}) {
   const url = URL.createObjectURL(blob);
   try {
-    const img = new Image(); img.src = url; await img.decode();
+    const img = new Image(); img.src = url;
+    try { await img.decode(); } catch { throw new Error('The picture could not be read. Choose a PNG, JPEG, GIF, WebP, BMP, TIFF or SVG image.'); }
     let width = img.naturalWidth || 300, height = img.naturalHeight || 150;
-    const scale = Math.min(1, max / Math.max(width, height)); width = Math.max(1, Math.round(width * scale)); height = Math.max(1, Math.round(height * scale));
+    const scale = Math.min(1, max / Math.max(width, height), Math.sqrt(pixels / (width * height))); width = Math.max(1, Math.round(width * scale)); height = Math.max(1, Math.round(height * scale));
+    if (width * height > pixels) { width = Math.max(1, Math.floor(width * scale)); height = Math.max(1, Math.floor(height * scale)); }
     const canvas = Object.assign(document.createElement('canvas'), { width, height });
     canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-    const png = await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('The picture could not be converted.')), 'image/png'));
-    return { png: new Uint8Array(await png.arrayBuffer()), width, height };
+    const encoded = await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('The picture could not be converted.')), type, quality));
+    const bytes = new Uint8Array(await encoded.arrayBuffer());
+    return { png: bytes, bytes, width, height };
   } finally { URL.revokeObjectURL(url); }
+}
+
+// Pictures larger than an editing session holds are scaled down on insertion, as photos straight
+// from a camera often are: at most 4,096 pixels per side, 16 megapixels and 10 MB.
+const PICTURE_SIDE = 4096, PICTURE_BYTES = 10 * 1024 * 1024;
+/**
+ * A picture file the editor can store: a PNG, JPEG or TIFF within the limits as it is, and any other
+ * raster format, or a PNG or JPEG over the limits, redrawn to fit (JPEG stays JPEG, the rest become PNG).
+ */
+export async function pictureFile(file) {
+  const name = file.name || 'picture', type = file.type || P.mimeFor?.(name) || '';
+  const tiff = type === 'image/tiff' || !type && /\.tiff?$/i.test(name), jpeg = type === 'image/jpeg' || !type && /\.jpe?g$/i.test(name);
+  if (tiff) return file;
+  if (jpeg || type === 'image/png' || !type && /\.png$/i.test(name)) {
+    let info;
+    try { info = imageInfo(new Uint8Array(await file.arrayBuffer()), { checkSize: false }); } catch { return file; } // Inserting reports what is wrong with it.
+    if (file.size <= PICTURE_BYTES && info.width <= MAX_IMAGE_SIDE && info.height <= MAX_IMAGE_SIDE && info.width * info.height <= MAX_IMAGE_PIXELS) return file;
+  }
+  const { bytes } = await rasterize(file, PICTURE_SIDE, { pixels: MAX_IMAGE_PIXELS, type: jpeg ? 'image/jpeg' : 'image/png', quality: jpeg ? 0.92 : undefined });
+  return new File([bytes], name.replace(/\.\w+$/, '') + (jpeg ? '.jpg' : '.png'), { type: jpeg ? 'image/jpeg' : 'image/png' });
 }
 
 export function createInsert({ editor, pkg, error, base = {}, docName = () => '', user = () => '', onChange = () => {} }) {
@@ -114,7 +138,6 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     try {
       engine.finishComposition(); afterSelectedDrawing(engine);
       const name = file.name || 'picture', type = file.type || P.mimeFor?.(name) || '';
-      if (/^image\/(png|jpeg|tiff)$/.test(type) || /\.(png|jpe?g|tiff?)$/i.test(name) && !type) { await engine.insertImageFile(file); onChange(); return; }
       if (type === 'image/svg+xml' || /\.svg$/i.test(name)) {
         const svg = await file.text(), { png, width, height } = await rasterize(new Blob([svg], { type: 'image/svg+xml' }));
         const [w, h] = fittedSize(width, height, textWidth(engine) / EMU_PER_INCH);
@@ -122,8 +145,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
         return;
       }
       // Other raster formats (GIF, WebP, BMP, AVIF) are stored as PNG, which every DOCX reader shows.
-      const { png } = await rasterize(file, 4096);
-      await engine.insertImageFile(new File([png], name.replace(/\.\w+$/, '') + '.png', { type: 'image/png' })); onChange();
+      await engine.insertImageFile(await pictureFile(file)); onChange();
     } catch (e) { fail(e); }
   }
   const pictureInput = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/tiff,image/gif,image/webp,image/bmp,image/svg+xml,.svg,.tif,.tiff', hidden: true, 'aria-label': 'Insert picture file',
