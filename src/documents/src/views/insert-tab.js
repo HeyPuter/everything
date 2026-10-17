@@ -5,7 +5,7 @@
  * items from extendMenu and context-menu items from contextMenuItems. Every change to the document
  * is one editor transaction, so it undoes in one step and saves to DOCX.
  */
-import { el, isComposing, MOD_KEY, shortcutCode } from '../ui/dom.js';
+import { el, isComposing, MOD_KEY, shortcutCode, typesCharacter } from '../ui/dom.js';
 import { closeMenu, openMenu } from '../ui/menu.js';
 import { toast } from '../ui/toast.js';
 import { promptDialog, confirmDialog } from '../ui/modal.js';
@@ -700,7 +700,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   /* ---- Keyboard: equation, date, time and page fields ---- */
   const keyAbort = new AbortController();
   window.addEventListener('keydown', e => {
-    if (e.defaultPrevented || isComposing(e) || !e.target?.matches?.('.canvas-input') || !ready()) return;
+    if (e.defaultPrevented || isComposing(e) || typesCharacter(e) || !e.target?.matches?.('.canvas-input') || !ready()) return;
     const equationChord = MOD_KEY === 'Cmd' ? e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey : e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey;
     if (equationChord && e.code === 'Equal') { e.preventDefault(); insertEquation(); return; }
     const code = shortcutCode(e);

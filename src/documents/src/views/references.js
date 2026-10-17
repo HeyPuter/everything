@@ -6,7 +6,7 @@
  * on demand, like the rest of the editor's engine.
  */
 import { openMenu } from '../ui/menu.js';
-import { el, MOD_KEY, shortcutCode } from '../ui/dom.js';
+import { el, MOD_KEY, shortcutCode, typesCharacter } from '../ui/dom.js';
 import { createTocCommands } from './references-toc.js';
 import { createNoteCommands } from './references-notes.js';
 import { createCitationCommands } from './references-citations.js';
@@ -442,7 +442,7 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
   // Cmd+Option+Shift+I / Alt+Shift+I marks a citation for the table of authorities.
   const keyAbort = new AbortController();
   window.addEventListener('keydown', e => {
-    if (e.defaultPrevented || e.isComposing || !e.target?.matches?.('.canvas-input')) return;
+    if (e.defaultPrevented || e.isComposing || typesCharacter(e) || !e.target?.matches?.('.canvas-input')) return;
     const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
     const chord = mac ? e.metaKey && e.altKey && !e.ctrlKey : e.ctrlKey && e.altKey && !e.metaKey;
     const mark = mac ? e.metaKey && e.altKey && e.shiftKey : e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey;

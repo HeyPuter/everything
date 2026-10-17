@@ -1,4 +1,4 @@
-import { el } from '../ui/dom.js';
+import { el, typesCharacter } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { chordOf, bindable, displayChord } from './keymap.js';
 
@@ -51,6 +51,8 @@ export function openCustomizeKeyboard({ entries, keymap, onClose, select = null 
       const chord = chordOf(e);
       if (!chord) return;
       if (!bindable(chord)) { capture.value = displayChord(chord); hint.textContent = 'Use a modifier key (Ctrl, Alt, Cmd or Option), or a function key.'; assign.disabled = true; return; }
+      // AltGr and Option keys that type a character keep typing it, so they cannot be a shortcut.
+      if (typesCharacter(e)) { capture.value = displayChord(chord); hint.textContent = `These keys type ${e.key}. Choose another shortcut.`; pending = null; assign.disabled = true; return; }
       pending = chord; capture.value = displayChord(chord); assign.disabled = false;
       const owner = keymap.commandFor(chord);
       const builtIn = all.find(entry => entry.shortcut && entry.shortcut.toLowerCase() === displayChord(chord).toLowerCase());

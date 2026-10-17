@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
-import { el, append, debounce, clamp, formatBytes, relativeTime, fieldId, scrollBehavior, shortcutCode } from '../src/ui/dom.js';
+import { el, append, debounce, clamp, formatBytes, relativeTime, fieldId, scrollBehavior, shortcutCode, typesCharacter } from '../src/ui/dom.js';
 
 describe('el', () => {
   it('builds elements from a tag.class spec with attributes, listeners, and children', () => {
@@ -95,5 +95,24 @@ describe('shortcutCode', () => {
     expect(shortcutCode({ key: '.', code: 'Period' })).toBe('Period');
     expect(shortcutCode({ key: 'F4', code: 'F4' })).toBe('F4');
     expect(shortcutCode({ key: "'", code: 'KeyQ' })).toBe('');
+  });
+});
+
+describe('typesCharacter', () => {
+  it('knows AltGr characters, reported as Ctrl+Alt, outside a Mac', () => {
+    expect(typesCharacter({ key: 'ó', code: 'KeyO', ctrlKey: true, altKey: true }, false)).toBe(true);
+    expect(typesCharacter({ key: '@', code: 'Digit0', ctrlKey: true, altKey: true }, false)).toBe(true);
+    expect(typesCharacter({ key: 'o', code: 'KeyO', ctrlKey: true, altKey: true }, false)).toBe(false);
+    expect(typesCharacter({ key: 'S', code: 'KeyS', ctrlKey: true, altKey: true, shiftKey: true }, false)).toBe(false);
+    expect(typesCharacter({ key: ' ', code: 'Space', ctrlKey: true, altKey: true }, false)).toBe(false);
+    // Alt alone is a menu key on Windows, not a character key.
+    expect(typesCharacter({ key: '=', code: 'Equal', altKey: true }, false)).toBe(false);
+  });
+  it('knows Option characters on a Mac, but not Cmd+Option chords', () => {
+    expect(typesCharacter({ key: 'Î', code: 'KeyD', altKey: true, shiftKey: true }, true)).toBe(true);
+    expect(typesCharacter({ key: '—', code: 'Minus', altKey: true, shiftKey: true }, true)).toBe(true);
+    expect(typesCharacter({ key: '˚', code: 'KeyK', altKey: true, metaKey: true }, true)).toBe(false);
+    expect(typesCharacter({ key: 'Dead', code: 'KeyE', altKey: true }, true)).toBe(false);
+    expect(typesCharacter({ key: 'ArrowLeft', code: 'ArrowLeft', altKey: true, shiftKey: true }, true)).toBe(false);
   });
 });

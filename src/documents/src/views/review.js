@@ -3,7 +3,7 @@
  * Threads sit level with their anchors; the active thread's text is tinted more strongly. Every
  * change goes through the editor's transactions, so undo, saving and read-only rules apply.
  */
-import { el, isComposing, relativeTime, MOD_KEY, shortcutCode } from '../ui/dom.js';
+import { el, isComposing, relativeTime, MOD_KEY, shortcutCode, typesCharacter } from '../ui/dom.js';
 import { openMenu } from '../ui/menu.js';
 import { initialsFor } from '../engine/comments.js';
 import { revisionView, revisionAuthors, describeFormatChange } from '../engine/revisions.js';
@@ -537,7 +537,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
 
   const keyAbort = new AbortController();
   window.addEventListener('keydown', e => {
-    if (e.defaultPrevented || isComposing(e) || !e.target?.matches?.('.canvas-input')) return;
+    if (e.defaultPrevented || isComposing(e) || typesCharacter(e) || !e.target?.matches?.('.canvas-input')) return;
     // Cmd+Option+A on a Mac, Ctrl+Alt+M elsewhere.
     const mac = MOD_KEY === 'Cmd';
     const code = shortcutCode(e);

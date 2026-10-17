@@ -1,4 +1,4 @@
-import { IS_MAC, isComposing, shortcutCode } from '../ui/dom.js';
+import { IS_MAC, isComposing, shortcutCode, typesCharacter } from '../ui/dom.js';
 import { localStore } from '../lib/storage.js';
 
 /**
@@ -108,7 +108,7 @@ export function createKeymap({ defaults = {}, run, storage = localStore(), mac =
     onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     /** Run the command bound to this keydown; true when one ran. */
     handle(e) {
-      if (e.defaultPrevented || isComposing(e) || e.repeat && !/^F\d/.test(e.key)) return false;
+      if (e.defaultPrevented || isComposing(e) || typesCharacter(e, mac) || e.repeat && !/^F\d/.test(e.key)) return false;
       const chord = chordOf(e, mac);
       if (!chord) return false;
       const id = table().get(chord);

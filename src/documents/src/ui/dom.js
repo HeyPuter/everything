@@ -97,6 +97,18 @@ export function shortcutCode(e) {
   return code;
 }
 
+/**
+ * Whether a keydown types a character rather than making a chord. AltGr reaches the page as Ctrl+Alt
+ * on Windows (Polish AltGr+O is ó, French AltGr+0 is @, German AltGr+7 is {), and Option types
+ * characters on a Mac (Option+Shift+D is Î, Option+Shift+hyphen an em dash). Those keys belong to
+ * the text; a Ctrl+Alt or Option chord on the same key gives way to them.
+ */
+export function typesCharacter(e, mac = IS_MAC) {
+  const key = String(e?.key || '');
+  if (!e?.altKey || [...key].length !== 1 || !/\S/u.test(key) || /^[a-z0-9]$/i.test(key)) return false;
+  return mac ? !e.metaKey && !e.ctrlKey : !!e.ctrlKey && !e.metaKey;
+}
+
 /** IME confirmation/cancellation belongs to text composition, not shortcuts. */
 export function isComposing(e) {
   // Some browsers end composition before the final keydown; 229 still marks

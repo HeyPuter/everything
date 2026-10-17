@@ -35,7 +35,7 @@ import { findReplacePanel } from './find-replace.js';
 import { openParagraphGeometry } from './paragraph-geometry.js';
 import { iconEl } from '../ui/icons.js';
 import { openPageSetup } from './page-setup.js';
-import { el, isComposing, MOD_KEY, shortcutCode } from '../ui/dom.js';
+import { el, isComposing, MOD_KEY, shortcutCode, typesCharacter } from '../ui/dom.js';
 import { createCanvasChrome } from '../ui/canvas-chrome.js';
 import { documentFontAvailable, displayedFont } from '../engine/font-availability.js';
 import { openFontPicker } from './font-picker.js';
@@ -1173,7 +1173,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   // K, J and Cmd+Space). Each goes through the toolbar's control, so a command disabled for this selection stays
   // inert, and only while the keyboard is in the document: the same keys mean other things in a field.
   const formattingShortcut = e => {
-    if (!engine || !(e.ctrlKey || e.metaKey) || !host.contains(e.target)) return null;
+    if (!engine || !(e.ctrlKey || e.metaKey) || typesCharacter(e) || !host.contains(e.target)) return null;
     const code = shortcutCode(e), shift = e.shiftKey, alt = e.altKey;
     if (shift && !alt) {
       const chords = { KeyX: strike, KeyA: caps, KeyK: smallCaps, Equal: superscript, Digit8: bullets, Digit7: numbers,

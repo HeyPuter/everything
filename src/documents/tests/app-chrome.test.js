@@ -60,6 +60,14 @@ describe('keymap', () => {
     expect(keymap.commandFor('Mod+Shift+C')).toBe('copyFormat');
     expect(localStorage.getItem(KEYMAP_STORE)).toBeNull();
   });
+  it('leaves AltGr characters to the text', () => {
+    const ran = [];
+    const keymap = createKeymap({ defaults: { pasteSpecial: ['Mod+Alt+V'] }, run: id => { ran.push(id); }, storage: localStorage, mac: false });
+    // Hungarian types @ with AltGr+V, which Windows reports as Ctrl+Alt+V.
+    expect(keymap.handle(key('KeyV', { ctrlKey: true, altKey: true }, '@'))).toBe(false);
+    expect(keymap.handle(key('KeyV', { ctrlKey: true, altKey: true }))).toBe(true);
+    expect(ran).toEqual(['pasteSpecial']);
+  });
   it('lets an unavailable command fall through to the document', () => {
     const keymap = createKeymap({ defaults: { pasteFormat: ['Mod+Shift+V'] }, run: () => false, storage: localStorage, mac: false });
     const event = key('KeyV', { ctrlKey: true, shiftKey: true });
