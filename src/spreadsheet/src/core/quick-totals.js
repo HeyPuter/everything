@@ -29,10 +29,12 @@ export function quickTotalEntries(wb, sheetId, range, kind, direction) {
     for (let c = c1; c <= c2; c++) {
       const col = span(top, c, r2, c);
       let input;
-      if (kind === 'sum' || kind === 'running') input = `=SUM(${col})`;
+      if (kind === 'sum') input = `=SUM(${col})`;
       else if (kind === 'average') input = `=AVERAGE(${col})`;
       else if (kind === 'count') input = `=COUNT(${col})`;
       else if (kind === 'percent') input = `=SUM(${col})/SUM(${span(top, c1, r2, c2, true)})`;
+      // Everything from the block's first column through this one, so the totals build up left to right.
+      else if (kind === 'running') input = `=SUM(${ref(top, c1, true, true)}:${ref(r2, c)})`;
       else return null;
       out.push({ r, c, input, style: kind === 'percent' ? { ...bold, fmt: 'percent' } : bold });
     }
