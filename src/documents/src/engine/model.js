@@ -1932,8 +1932,10 @@ export class TextDocument {
   insertMathRun(math) {
     if (!math?.xml || typeof math.text !== 'string') throw new Error('An equation needs its Office Math XML.');
     const [start, end] = this.range;
-    if (start !== end) { this.checkpoint(); this.replaceUntracked('', { checkpoint: false }); }
-    else this.checkpoint();
+    this.checkpoint();
+    // A replaced selection is an ordinary deletion: with Track Changes on it
+    // stays as deleted text, and the equation follows it.
+    if (start !== end) { this.selection = { anchor: start, focus: end }; this.replace('', { checkpoint: false }); }
     const at = this.range[0], location = locate(this.paragraphs, at), p = this.paragraphs[location.index];
     const run = { text: OBJECT, math: { xml: math.xml, text: math.text }, styleId: null, directFormat: {}, hasDirectProperties: false, styleManaged: true, properties: '', overrides: {} };
     p.runs = normalize([...sliceRuns(p.runs, 0, location.offset), run, ...sliceRuns(p.runs, location.offset)]);

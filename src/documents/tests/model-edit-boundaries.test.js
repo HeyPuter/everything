@@ -184,3 +184,21 @@ describe('a text-wrapping break', () => {
     expect(doc.selection).toEqual({ anchor: 8, focus: 8 });
   });
 });
+
+describe('inserting an equation over a selection', () => {
+  const equation = { xml: '<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><m:r><m:t>x</m:t></m:r></m:oMath>', text: 'x' };
+  it('tracks the replaced text as a deletion when Track Changes is on', () => {
+    const doc = new TextDocument([paragraph('one abc two')], undefined, undefined, undefined, [], {}, { trackChanges: true });
+    doc.revisionAuthor = 'Me'; doc.select(7, 4);
+    expect(doc.insertMathRun(equation)).toBe(true);
+    expect(doc.paragraphs[0].runs.map(r => [r.text, !!r.math, r.revision?.type ?? null]))
+      .toEqual([['one ', false, null], ['abc', false, 'del'], ['￼', true, null], [' two', false, null]]);
+    expect(doc.selection).toEqual({ anchor: 8, focus: 8 });
+    doc.undo(); expect(doc.text).toBe('one abc two'); expect(doc.selection).toEqual({ anchor: 7, focus: 4 });
+  });
+  it('replaces the selection outright when Track Changes is off', () => {
+    const doc = new TextDocument([paragraph('one abc two')]);
+    doc.select(4, 7); doc.insertMathRun(equation);
+    expect(doc.text).toBe('one ￼ two'); expect(doc.history).toHaveLength(1);
+  });
+});
