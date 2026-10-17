@@ -177,6 +177,13 @@ export class CanvasEditor {
       if (picture) { if (!this.readOnly) this.insertImageFile(picture).catch(error => this.onError(error)); return; }
       this.pasteData(text, e.clipboardData.getData('text/html'));
     });
+    // Moving the window to another display or changing browser zoom changes the device pixel ratio.
+    // Give the page canvases a backing store at the new ratio, so text stays sharp.
+    const watchResolution = () => {
+      const query = typeof matchMedia === 'function' ? matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`) : null;
+      query?.addEventListener('change', () => { if (this.destroyed) return; watchResolution(); this.resizeCanvases(); }, { once: true, signal: this.abort.signal });
+    };
+    watchResolution();
     this.relayout();
   }
   focus() { this.input.focus({ preventScroll: true }); this.syncInput(); this.paint(); }
