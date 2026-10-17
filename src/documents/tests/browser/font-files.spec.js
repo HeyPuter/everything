@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { unzipSync } from 'fflate';
+import { menuBarMenu } from './helpers/editor-tools.js';
 const root = 'tests/fixtures/font-files/';
 const ref = JSON.parse(readFileSync(root + 'reference.json'));
 test.setTimeout(180000);
@@ -13,8 +14,7 @@ async function open(page, name) {
   await expect(page.locator('canvas.canvas-page').first()).toBeVisible();
 }
 async function fonts(page) {
-  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Document fonts…', exact: true }).click();
+  await (await menuBarMenu(page, 'Format')).getByRole('menuitem', { name: 'Document Fonts…', exact: true }).click();
   await page.getByLabel('Font files', { exact: true }).setInputFiles(['Regular', 'Bold', 'Italic', 'BoldItalic'].map(name => root + name + '.ttf'));
   await expect(page.getByRole('status').filter({ hasText: 'Available in this session: Corpus File Font.' })).toBeVisible({ timeout: 90000 });
   await page.keyboard.press('Escape');

@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { unzipSync, zipSync } from 'fflate';
 import { reopenDocx } from './helpers/reopen-docx.js';
+import { menuBarMenu } from './helpers/editor-tools.js';
 
 const source = 'tests/fixtures/emf-text/control.docx';
 const missing = 'Missing EMF Face 48C9';
@@ -55,7 +56,7 @@ test('font-file loading refreshes metafile text and its warning without changing
   const input=page.getByRole('textbox',{name:'Document text'});await expect(input).toHaveValue(/^Shape defaults controls/);
   const notice=page.locator('[data-picture-font-warning]');await expect(notice).toContainText('Corpus File Font');
   const before=await page.locator('canvas.canvas-page').first().evaluate(c=>c.toDataURL());
-  await page.getByRole('menuitem',{name:'View',exact:true}).click();await page.getByRole('menuitem',{name:'Document fonts…',exact:true}).click();
+  await (await menuBarMenu(page,'Format')).getByRole('menuitem',{name:'Document Fonts…',exact:true}).click();
   await page.getByLabel('Font files').setInputFiles('tests/fixtures/font-files/Regular.ttf');
   await expect(page.getByRole('status').filter({hasText:'Available in this session: Corpus File Font.'})).toBeVisible({timeout:90000});
   await expect(notice).toHaveCount(0);await page.keyboard.press('Escape');
