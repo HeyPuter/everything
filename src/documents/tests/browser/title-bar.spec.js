@@ -96,6 +96,22 @@ test('the status bar keeps its zoom controls whole between phone and desktop wid
   }
 });
 
+test('between phone and desktop widths the status bar shows its counts whole instead of clipping them', async ({ page }) => {
+  await openEditor(page, 1440);
+  await text(page).fill('one two three four five six seven eight nine ten eleven twelve');
+  await text(page).evaluate(el => { el.focus(); el.setSelectionRange(0, 7); el.dispatchEvent(new Event('select')); });
+  await expect(page.locator('.ed-word-count')).toHaveText('2 of 12 words');
+  for (const width of [701, 740, 780, 860, 1000]) {
+    await page.setViewportSize({ width, height: 800 });
+    // The view buttons and zoom controls left the word count cut in half and the spelling button clipped out of sight.
+    const cut = await page.evaluate(() => {
+      const left = document.querySelector('.ed-status-left').getBoundingClientRect();
+      return [...document.querySelectorAll('.ed-status-left > *')].filter(n => n.getClientRects().length && n.getBoundingClientRect().right > left.right + 0.5).map(n => n.title || n.textContent.trim());
+    });
+    expect(cut, `${width}px`).toEqual([]);
+  }
+});
+
 test('the document details popover holds its fields and buttons inside its frame', async ({ page }) => {
   for (const width of [820, 1440]) {
     await openEditor(page, width);

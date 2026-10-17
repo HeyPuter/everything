@@ -146,7 +146,9 @@ input:disabled + .ed-switch { opacity: .5; }
 .ed-status-accessibility { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .ed-status-accessibility[data-state='errors'] { color: var(--ed-danger, #b3261e); }
 @media (max-width: 1100px) { .ed-status-accessibility > span { display: none; } }
-@media (max-width: 900px) { .ed-status-accessibility, .ed-statusbar .ed-status-language { display: none; } }
+/* Below 900px the view buttons go too (the View tab and menu keep them): with them, the zoom controls left the
+   word count cut in half and the spelling button clipped out of sight while still taking focus. */
+@media (max-width: 900px) { .ed-status-accessibility, .ed-statusbar .ed-status-language, .ed-statusbar .ed-status-views { display: none; } }
 
 /* ---- File view ---- */
 .backstage {
