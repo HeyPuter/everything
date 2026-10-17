@@ -52,17 +52,31 @@ export function createAccessibilityPane({ editor, pkg, error, onState = () => {}
     if (pane.isOpen || KEEP_RUNNING.get()) timer = setTimeout(() => run(), 600);
   }
 
-  async function fix(issue) {
+  /**
+   * The issue as the document stands now. The list can predate the latest edits (it is rechecked a
+   * moment after typing), so its offsets may be stale: check again and take the same issue nearest
+   * to where it was. null when it is gone.
+   */
+  function current(issue) {
+    const engine = editor(); if (!engine) return null;
+    if (engine.session.body.revision === checkedRevision) return issue;
+    run(true);
+    return issues.filter(i => i.rule === issue.rule && i.fix?.kind === issue.fix.kind && i.detail === issue.detail)
+      .reduce((best, i) => !best || Math.abs(i.start - issue.start) < Math.abs(best.start - issue.start) ? i : best, null);
+  }
+  async function fix(found) {
     const engine = editor(); if (!engine) return;
-    const { kind } = issue.fix;
+    const { kind } = found.fix;
     engine.finishComposition();
     if (engine.session.path !== null) engine.editStory(null);
+    let issue = current(found);
+    if (!issue) { engine.focus(); return; }
     const at = (start, end = start) => engine.model.select(start, end);
     const tableCell = cellId => { const index = engine.model.paragraphs.findIndex(p => p.cellId === cellId); let offset = 0; for (let i = 0; i < index; i++) offset += engine.model.paragraphs[i].runs.reduce((n, r) => n + r.text.length, 0) + 1; return offset; };
     try {
       if (kind === 'altText') {
         const text = await promptDialog({ title: 'Picture description', label: 'Description', multiline: true, confirmLabel: 'Apply', hint: 'Describe what the picture shows and why it matters, in a sentence or two.' });
-        if (!text) return;
+        if (!text || editor() !== engine || !(issue = current(issue))) return;
         engine.execute(() => { at(issue.start, issue.end); engine.model.setImageProperties({ alt: text }); });
       } else if (kind === 'headerRow') engine.execute(() => { at(tableCell(issue.fix.cellId)); engine.model.setTableHeaderRows(1); });
       else if (kind === 'deleteRow') engine.execute(() => { at(tableCell(issue.fix.cellId)); engine.model.deleteTablePart('row'); });

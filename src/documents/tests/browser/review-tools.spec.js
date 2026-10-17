@@ -146,6 +146,23 @@ test('Check Accessibility finds problems and applies quick fixes', async ({ page
   expect(errors).toEqual([]);
 });
 
+test('an accessibility quick fix applies where its issue is now after an edit before it', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const input = await newDocument(page, 'Hello    world and text');
+  await onTab(page, 'review');
+  await (await reviewButton(page, 'Check Accessibility', 'Accessibility')).click();
+  const pane = page.getByRole('complementary', { name: 'Accessibility pane' });
+  const fix = pane.getByRole('button', { name: 'Use a single space' });
+  await expect(fix).toBeVisible();
+  // Typed just before the fix is chosen, before the list is checked again.
+  await input.focus();
+  await select(input, 0);
+  await page.keyboard.type('Big ');
+  await fix.click();
+  await expect(input).toHaveValue('Big Hello world and text');
+  expect(errors).toEqual([]);
+});
+
 test('Language marks text and Set As Default updates the document default', async ({ page }, info) => {
   const input = await newDocument(page, 'Hello and bonjour tout le monde.');
   await select(input, 10, 31);
