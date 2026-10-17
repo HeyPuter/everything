@@ -96,3 +96,12 @@ it('limits a search to the selection', () => {
   const { doc } = documentWith(['one two one two one']);
   expect(find(doc, 'one', { within: [4, 15] }).map(m => m.start)).toEqual([8]);
 });
+
+it('finds many matches in one long paragraph in linear time, still never splitting a grapheme', () => {
+  const doc = new TextDocument([paragraph('ab '.repeat(9000) + 'aé')]);
+  const started = performance.now();
+  expect(find(doc, 'ab')).toHaveLength(9000);
+  expect(performance.now() - started).toBeLessThan(2000);
+  expect(texts(find(doc, 'ae'))).toEqual([]);
+  expect(texts(find(doc, 'ae^?'))).toEqual(['aé']);
+});
