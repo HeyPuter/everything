@@ -265,8 +265,8 @@ test('side-to-side page movement, gridlines and split', async ({ page }) => {
   await expect(page.getByRole('list', { name: 'Page thumbnails' }).getByRole('listitem')).toHaveCount(tops.length);
   await tab.getByRole('button', { name: 'Vertical', exact: true }).click();
   await expect(page.locator('.canvas-pages')).not.toHaveClass(/is-side-to-side/);
-  await tab.getByLabel('Gridlines').check();
-  await expect(tab.getByLabel('Gridlines')).toBeChecked();
+  await tab.getByRole('checkbox', { name: 'Gridlines', exact: true }).check();
+  await expect(tab.getByRole('checkbox', { name: 'Gridlines', exact: true })).toBeChecked();
   await tab.getByRole('button', { name: 'Split', exact: true }).click();
   const pane = page.locator('.view-split-pane');
   await expect(pane.locator('canvas')).toHaveCount(tops.length);
@@ -325,7 +325,7 @@ test('the status bar view buttons and the View and Window menus switch views and
   const view = await menuBarMenu(page, 'View');
   await expect(view.getByRole('menuitemradio', { name: 'Draft' })).toHaveAttribute('aria-checked', 'true');
   await view.getByRole('menuitemcheckbox', { name: 'Gridlines' }).click();
-  await expect((await viewTab(page)).getByLabel('Gridlines')).toBeChecked();
+  await expect((await viewTab(page)).getByRole('checkbox', { name: 'Gridlines', exact: true })).toBeChecked();
   await views.getByRole('button', { name: 'Print Layout' }).click();
   await expect(page.locator('.canvas-host')).not.toHaveClass(/view-draft/);
   const windows = await menuBarMenu(page, 'Window');
