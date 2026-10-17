@@ -107,6 +107,9 @@ export function createEditCommands({ editor, pkg, editLink, searchQuery = () => 
         const current = editor(); if (!current) return;
         const links = hyperlinkRanges(current.model.paragraphs);
         status.textContent = !links.length ? 'This document has no links.' : `${links.length} ${links.length === 1 ? 'link' : 'links'}`;
+        // Removing a link redraws the list: keyboard focus moves to the same button of the row now in its place.
+        const rows = [...list.children], focusedRow = rows.findIndex(row => row.contains(document.activeElement));
+        const focusedButton = focusedRow >= 0 ? [...rows[focusedRow].querySelectorAll('button')].indexOf(document.activeElement) : -1;
         list.replaceChildren(...links.map(range => {
           const text = current.model.text.slice(range.start, range.end).replace(/￼/g, '').trim() || '(picture)';
           const address = internalHyperlink(range.link) ? `Bookmark: ${range.link.anchor || 'Start of document'}` : range.link.target || '';
@@ -117,20 +120,26 @@ export function createEditCommands({ editor, pkg, editLink, searchQuery = () => 
             el('button.btn.btn-sm.btn-ghost', { type: 'button', disabled: !editable() || range.drawing, onclick: () => { modal.close(); select(); editLink(); } }, 'Edit…'),
             el('button.btn.btn-sm.btn-ghost', { type: 'button', disabled: !editable(), onclick: () => { select(); current.execute(() => current.model.removeHyperlink()); onChange(); render(); } }, 'Remove'));
         }));
+        removeAll.disabled = !editable() || !links.length;
+        if (focusedRow >= 0) {
+          const row = list.children[Math.min(focusedRow, list.children.length - 1)];
+          const buttons = row ? [...row.querySelectorAll('button')] : [];
+          (buttons[focusedButton] && !buttons[focusedButton].disabled ? buttons[focusedButton] : buttons[0] || close).focus();
+        }
       };
+      const close = el('button.btn.btn-primary', { type: 'button', onclick: () => modal.close() }, 'Close');
       const removeAll = el('button.btn.btn-ghost', { type: 'button', onclick: () => {
         const current = ready(); if (!current) return;
         const links = hyperlinkRanges(current.model.paragraphs);
         if (!links.length) return;
         const [a, b] = current.model.range;
         current.execute(() => { let changed = false; for (const range of [...links].reverse()) { current.model.select(range.start, range.end); changed = current.model.removeHyperlink() !== false || changed; } current.model.select(Math.min(a, current.model.text.length), Math.min(b, current.model.text.length)); return changed; });
-        onChange(); render();
+        onChange(); render(); close.focus();
       } }, 'Remove All Links');
       const modal = openModal({ title: 'Links', wide: true, onClose: () => queueMicrotask(() => editor()?.focus()),
         content: el('div.ed-dialog-body', {}, status, list,
-          el('div.row.row-end', {}, removeAll, el('button.btn.btn-primary', { type: 'button', onclick: () => modal.close() }, 'Close'))) });
+          el('div.row.row-end', {}, removeAll, close)) });
       render();
-      removeAll.disabled = !editable();
       return modal;
     },
   };

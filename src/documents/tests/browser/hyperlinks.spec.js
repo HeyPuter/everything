@@ -45,6 +45,26 @@ test('the link dialog completes a typed web or email address as typing it in the
   expect(rels).toContain('Target="mailto:joe@example.com"');
 });
 
+test('Edit > Links keeps keyboard focus in its list while links are removed', async ({ page }) => {
+  await page.goto('/playground.html'); await page.getByRole('button', { name: 'New', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' }); await input.fill('First link and second link');
+  for (const [text, address] of [['First', 'https://a.example.com/'], ['second', 'https://b.example.com/']]) {
+    await choose(input, text); await dialog(page, input);
+    await page.getByRole('textbox', { name: 'Link address', exact: true }).fill(address); await apply(page);
+  }
+  await page.getByRole('menubar', { name: 'Menu bar' }).getByRole('menuitem', { name: 'Edit', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Links…', exact: true }).click();
+  const links = page.getByRole('dialog', { name: 'Links' });
+  await links.getByRole('button', { name: 'Remove', exact: true }).first().focus();
+  await page.keyboard.press('Enter');
+  await expect(links.getByRole('listitem')).toHaveCount(1);
+  await expect(links.getByRole('button', { name: 'Remove', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(links.getByRole('listitem')).toHaveCount(0);
+  await expect(links.getByRole('button', { name: 'Close', exact: true }).last()).toBeFocused();
+  await expect(links.getByRole('button', { name: 'Remove All Links' })).toBeDisabled();
+});
+
 test('ordinary clicks select text while modified clicks open wrapped, picture and repeated-header links at zoom', async ({ page }, info) => {
   await stubOpen(page); const errors = []; page.on('pageerror', e => errors.push(e.message)); await page.goto('/playground.html'); await showAllTools(page); await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/hyperlinks.docx'); const input = page.getByRole('textbox', { name: 'Document text' }); await expect(input).toHaveValue(/^External hyperlinks/);
   const targets = await page.evaluate(async () => {
