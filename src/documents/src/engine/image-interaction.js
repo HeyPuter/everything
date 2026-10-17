@@ -430,9 +430,18 @@ export function createImageInteraction(editor) {
       const step = e.shiftKey ? 10 : 1, dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0, dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
       if (handle) {
         if (!resizable(f.image)) return;
-        if (f.image.aspectLocked === false && (!f.image.retainedDrawing || scenePicture(f.image))) {
-          resizeImage(f.image, resizePatch(f, isCorner(handle) ? resizeImageFrame(f, handle, dx, dy) : resizeFromHandle(f, handle, dx, dy)));
-        } else { const scale = Math.max(.01, 1 + (dx || dy) / Math.max(f.width, f.height)), width = Math.max(1, Math.round(f.image.width * scale)); resizeImage(f.image, { width, height: Math.max(1, Math.round(width * f.image.height / f.image.width)) }); }
+        // An arrow moves the handle that way, as dragging it would: outward grows the drawing, inward
+        // shrinks it, and the opposite side stays put.
+        if (!f.image.retainedDrawing || scenePicture(f.image)) {
+          const preserveAspect = isCorner(handle) ? f.image.aspectLocked !== false : !!f.image.aspectLocked;
+          const resized = isCorner(handle) ? resizeImageFrame(f, handle, dx, dy, { preserveAspect }) : resizeFromHandle(f, handle, dx, dy, { preserveAspect });
+          if (resized.width !== f.image.width || resized.height !== f.image.height) resizeImage(f.image, resizePatch(f, resized));
+        } else {
+          const outward = (handle.includes('e') ? dx : handle.includes('w') ? -dx : 0) || (handle.includes('s') ? dy : handle.includes('n') ? -dy : 0);
+          if (!outward) return;
+          const scale = Math.max(.01, 1 + outward / Math.max(f.width, f.height)), width = Math.max(1, Math.round(f.image.width * scale));
+          resizeImage(f.image, { width, height: Math.max(1, Math.round(width * f.image.height / f.image.width)) });
+        }
       }
       else nudge(f, dx, dy);
     });

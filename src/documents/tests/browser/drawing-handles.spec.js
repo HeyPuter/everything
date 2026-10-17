@@ -87,6 +87,36 @@ test('edge handles resize one side; the rotation handle snaps to 15° with Shift
   expect(await page.evaluate(() => window.errors)).toEqual([]);
 });
 
+test('arrow keys on a resize handle move it as dragging would', async ({ page }) => {
+  await open(page);
+  await select(page, 2);
+  const press = async (handle, key, times = 4) => { const button = host(page).getByRole('button', { name: `Resize image ${handle}`, exact: true }); await button.focus(); for (let i = 0; i < times; i++) await button.press(key); };
+  const before = await state(page, 2);
+  // Up on the top handle grows the picture upward; its bottom stays put.
+  await press('n', 'ArrowUp');
+  const taller = await state(page, 2);
+  expect(taller.width).toBe(before.width);
+  expect(taller.height - before.height).toBeCloseTo(4 * 9525, -2);
+  expect(taller.frame.y + taller.frame.height).toBeCloseTo(before.frame.y + before.frame.height, 1);
+  // Left on the left handle grows it leftward; its right edge stays put.
+  await press('w', 'ArrowLeft');
+  const wider = await state(page, 2);
+  expect(wider.width - taller.width).toBeCloseTo(4 * 9525, -2);
+  expect(wider.frame.x + wider.frame.width).toBeCloseTo(taller.frame.x + taller.frame.width, 1);
+  // Inward shrinks; an arrow along an edge handle's side changes nothing.
+  await press('e', 'ArrowLeft', 2);
+  expect((await state(page, 2)).width - wider.width).toBeCloseTo(-2 * 9525, -2);
+  const steady = await state(page, 2);
+  await press('e', 'ArrowUp', 2);
+  expect(await state(page, 2)).toEqual(steady);
+  // A corner keeps the proportions, growing outward.
+  await press('nw', 'ArrowUp', 1);
+  const corner = await state(page, 2);
+  expect(corner.width).toBeGreaterThan(steady.width);
+  expect(corner.width / corner.height).toBeCloseTo(steady.width / steady.height, 3);
+  expect(await page.evaluate(() => window.errors)).toEqual([]);
+});
+
 test('dragging snaps to the page center with a guide; arrows nudge from the document', async ({ page }) => {
   await open(page);
   await select(page, 1);
