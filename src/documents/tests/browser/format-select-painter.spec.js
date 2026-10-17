@@ -76,6 +76,15 @@ test('Dictate inserts recognized speech at the caret and shows that it is listen
   await expect(banner.locator('.dictate-interim')).toHaveText('hello wor');
   await page.evaluate(() => window.__say('hello world period'));
   await expect(input).toHaveValue('Start hello world.');
+  // Escape in an open menu closes the menu and keeps listening.
+  await ribbon(page, 'Select').click();
+  const menu = page.getByRole('menu');
+  await expect(menu).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(banner).toBeVisible();
+  await expect(ribbon(page, 'Dictate')).toHaveAttribute('aria-pressed', 'true');
+  await input.focus();
   await page.keyboard.press('Escape');
   await expect(banner).toBeHidden();
   await expect(ribbon(page, 'Dictate')).toHaveAttribute('aria-pressed', 'false');
