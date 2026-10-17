@@ -63,11 +63,16 @@ test('EMF effects preserve the enlarged vector alpha silhouette and opaque color
  const bytes=unzipSync(readFileSync('public/fixtures/emf-paths.docx'))['word/media/control0.emf'];
  await page.goto('/playground.html');
  const result=await page.evaluate(async bytes=>{
-  const {decodeImage}=await import('/src/engine/images.js');const {paintImage}=await import('/src/engine/paint-image.js');
+  const {decodeImage}=await import('/src/engine/images.js');const {paintImage}=await import('/src/engine/paint-image.js');const {emfInfo}=await import('/src/engine/emf-images.js');
   const asset={bytes:new Uint8Array(bytes),mime:'image/emf'},raw=await decodeImage(asset),effect=await decodeImage({...asset,duotone:[['000000','FFFFFF']]});
+  // Non-neutral EMF effects map the physical frame through the final output pixel (docs/conformance.md,
+  // "EMF pixel effects: inclusive output-device frame correction"); unadjusted metafiles keep their viewport.
+  // Compare the effect with the vector drawn through that same frame at the enlarged size.
+  const frame=emfInfo(asset.bytes,{pixelEffects:true}).rasterFrame;
   try{
    const render=image=>{const c=new OffscreenCanvas(512,256),ctx=c.getContext('2d');paintImage(ctx,image,0,0,512,256);return ctx.getImageData(0,0,512,256).data;};
-   const a=render(raw),b=render(effect);let alpha=0,color=0,opaque=0;
+   const framed=image=>{const c=new OffscreenCanvas(512,256),ctx=c.getContext('2d');ctx.drawImage(image,0,0,511*frame.width,255*frame.height);return ctx.getImageData(0,0,512,256).data;};
+   const a=framed(raw),b=render(effect);let alpha=0,color=0,opaque=0;
    for(let i=0;i<a.length;i+=4){
     if(a[i+3]!==b[i+3])alpha++;
     if(a[i+3]===255){opaque++;const gray=Math.floor((2126*a[i]+7152*a[i+1]+722*a[i+2])/10000);if(b[i]!==gray||b[i+1]!==gray||b[i+2]!==gray)color++;}
