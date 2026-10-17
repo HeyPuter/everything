@@ -14,6 +14,9 @@ export function parseXml(bytes) {
     text = new TextDecoder(encoding, { fatal: true }).decode(bytes);
   } else text = bytes;
   if (/<!DOCTYPE|<!ENTITY/i.test(text)) throw new Error('Documents with XML entity declarations are not supported.');
+  // The text is decoded now. Browser serializers repeat the declared encoding,
+  // and every writer saves UTF-8, so a UTF-16 label would mislabel the output.
+  text = text.replace(/^(﻿?<\?xml\s[^?]*?\bencoding\s*=\s*)(["'])[^"']*\2/, '$1"UTF-8"');
   const doc = new DOMParser().parseFromString(text, 'application/xml');
   if (doc.getElementsByTagName('parsererror').length) throw new Error('The DOCX contains invalid XML.');
   return doc;
