@@ -33,7 +33,8 @@ test('edits a character style above 200 pt and preserves it on export and reopen
  await page.goto('/playground.html');await showAllTools(page);await page.getByLabel('Open DOCX file').setInputFiles('tests/fixtures/large-fonts/body-control.docx');
  const input=page.getByRole('textbox',{name:'Document text'}),size=page.getByRole('spinbutton',{name:'Font size (pt)',exact:true});
  const select=async()=>input.evaluate(el=>{const at=el.value.indexOf('Large font: inherited\n')+'Large font: inherited\n'.length;el.setSelectionRange(at,at+1);el.dispatchEvent(new Event('select',{bubbles:true}));});
- await expect(input).toBeEditable();await select();await page.getByRole('button',{name:'Edit character style',exact:true}).click();
+ // Wait for the fixture itself: the playground's sample document is editable before it is replaced.
+ await expect(input).toHaveValue(/Large font: inherited\n/);await expect(input).toBeEditable();await select();await page.getByRole('button',{name:'Edit character style',exact:true}).click();
  const styleSize=page.getByRole('spinbutton',{name:'Style font size (pt)',exact:true});await expect(styleSize).toHaveAttribute('max','1638');await styleSize.fill('650.5');await page.getByRole('button',{name:'Apply',exact:true}).click();await expect(size).toHaveValue('650.5');
  const pending=page.waitForEvent('download');await page.getByRole('button',{name:'Download .docx',exact:true}).click();const path=info.outputPath('style.docx');await(await pending).saveAs(path);
  const original=await input.inputValue();await page.getByRole('button',{name:'Undo',exact:true}).click();await expect(size).toHaveValue('650');
