@@ -1458,6 +1458,9 @@ export class CanvasEditor {
       insertParagraph: () => this.model.insertParagraph(),
       deleteContentBackward: () => this.model.delete(-1),
       deleteContentForward: () => this.model.delete(1),
+      // Cmd+Backspace and Cmd+Fn+Backspace on a Mac. The native field's line is the whole paragraph.
+      deleteSoftLineBackward: () => this.deleteToLineEdge(-1),
+      deleteSoftLineForward: () => this.deleteToLineEdge(1),
       formatBold: () => this.model.toggleBold(),
       formatStrikeThrough: () => this.model.setRunFormat({ strikethrough: this.model.runFormatting.strikethrough === 'single' ? 'none' : 'single' }),
       formatItalic: () => this.model.toggleItalic(), formatUnderline: () => this.model.toggleUnderline(),
@@ -1466,6 +1469,17 @@ export class CanvasEditor {
     };
     if (e.inputType === 'insertText') { e.preventDefault(); this.typeText(actions.insertText, e.data || ''); return; }
     if (actions[e.inputType]) { e.preventDefault(); this.execute(actions[e.inputType]); }
+  }
+  /** Delete from the caret to the start (or end) of its line as laid out, or the selection. */
+  deleteToLineEdge(direction) {
+    const [start, end] = this.model.range;
+    if (start !== end) return this.model.replace('');
+    const line = lineAtPosition(this.selectionLayout, start, this.caretAffinity, this.caretPage);
+    const edge = direction < 0 ? line.start : line.end;
+    // At the edge already, the key deletes what is across it, as Backspace or Delete would.
+    if (edge === start) return this.model.delete(direction);
+    this.model.select(Math.min(start, edge), Math.max(start, edge));
+    return this.model.replace('');
   }
   // Typing continues one undo step until a new word starts.
   // Any other change, caret move, undo or story switch ends it.

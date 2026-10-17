@@ -55,3 +55,31 @@ test('a run of Backspace or Delete presses undoes in one step', async ({ page })
   await input(page).press('ControlOrMeta+z'); await expect(input(page)).toHaveValue('Hello brave world');
   await input(page).press('ControlOrMeta+Shift+z'); await expect(input(page)).toHaveValue('Hello bra');
 });
+
+test('Cmd+Backspace and Cmd+Delete stop at the edge of the line as laid out, not of the paragraph', async ({ page }) => {
+  await blank(page);
+  const long = 'This paragraph is long enough to wrap onto a second line of the page, so deleting to the start of the line removes only its last visual line.';
+  await input(page).fill(`Intro\n${long}`);
+  const lines = () => page.evaluate(() => window.__docs.current.view.engine.selectionLayout.lines.map(l => [l.start, l.end]));
+  const [, first, second] = await lines();
+  expect(second[0]).toBeGreaterThan(first[0]);
+  // The Mac's soft-line deletions, as the browser reports them.
+  const softLine = (inputType, at) => input(page).evaluate((el, [inputType, at]) => {
+    el.focus(); el.setSelectionRange(at, at); el.dispatchEvent(new Event('select'));
+    const event = new InputEvent('beforeinput', { inputType, bubbles: true, cancelable: true });
+    el.dispatchEvent(event);
+    return event.defaultPrevented;
+  }, [inputType, at]);
+  const value = `Intro\n${long}`;
+  expect(await softLine('deleteSoftLineBackward', value.length)).toBe(true);
+  await expect(input(page)).toHaveValue(value.slice(0, second[0]));
+  await input(page).press('ControlOrMeta+z');
+  await expect(input(page)).toHaveValue(value);
+  // Forward from inside the first wrapped line stops at that line's end.
+  expect(await softLine('deleteSoftLineForward', first[0] + 5)).toBe(true);
+  await expect(input(page)).toHaveValue(value.slice(0, first[0] + 5) + value.slice(first[1]));
+  await input(page).press('ControlOrMeta+z');
+  // At the start of a paragraph it joins the paragraph to the one before, as Backspace does.
+  expect(await softLine('deleteSoftLineBackward', first[0])).toBe(true);
+  await expect(input(page)).toHaveValue(`Intro${long}`);
+});
