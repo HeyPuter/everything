@@ -112,6 +112,25 @@ test('between phone and desktop widths the status bar shows its counts whole ins
   }
 });
 
+test('the zoom slider keeps the keyboard for repeated arrow presses and returns it to the text after a drag', async ({ page }) => {
+  await openEditor(page, 1440);
+  const slider = page.getByRole('slider', { name: 'Zoom slider' });
+  const zoom = () => page.evaluate(() => Math.round(window.__docs.current.view.engine.zoom * 100));
+  await slider.focus();
+  // Each press ends a change; handing focus to the text at the first one sent the next presses into the document.
+  for (const expected of [99, 98, 97]) {
+    await page.keyboard.press('ArrowLeft');
+    await expect.poll(zoom).toBe(expected);
+    await expect(slider).toBeFocused();
+  }
+  const box = await slider.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.3, box.y + box.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await expect(text(page)).toBeFocused();
+});
+
 test('the document details popover holds its fields and buttons inside its frame', async ({ page }) => {
   for (const width of [820, 1440]) {
     await openEditor(page, width);

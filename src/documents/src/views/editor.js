@@ -666,7 +666,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       engine?.setZoom(scale); syncZoom();
     },
   };
-  const zoomSlider = el('input.ed-zoom-slider', { type: 'range', min: 10, max: 200, step: 1, value: 100, 'aria-label': 'Zoom slider', oninput: () => zoomControl.set(Number(zoomSlider.value) / 100), onchange: () => engine?.focus() });
+  // A drag hands the keyboard back to the text when it ends; the arrow keys, which end a change at every press, keep it on the slider.
+  let zoomDragged = false;
+  const zoomSlider = el('input.ed-zoom-slider', { type: 'range', min: 10, max: 200, step: 1, value: 100, 'aria-label': 'Zoom slider', oninput: () => zoomControl.set(Number(zoomSlider.value) / 100),
+    onpointerdown: () => { zoomDragged = true; }, onchange: () => { if (zoomDragged) { zoomDragged = false; engine?.focus(); } } });
   const zoomStep = (label, icon, delta) => el('button.icon-btn.ed-zoom-step', { type: 'button', 'aria-label': label, title: label, onclick: () => {
     const now = Math.round((engine?.zoom ?? 1) * 100), next = delta > 0 ? Math.floor(now / 10) * 10 + 10 : Math.ceil(now / 10) * 10 - 10;
     zoomControl.set(Math.max(10, Math.min(200, next)) / 100);
