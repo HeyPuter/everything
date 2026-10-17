@@ -5805,6 +5805,11 @@ export class Workbook extends EventTarget {
         .filter((m) => m[hi] >= m[lo] && (m.r1 !== m.r2 || m.c1 !== m.c2));
       sheet.protectedRanges = sheet.protectedRanges.map((p) => (insideBand(p.range) ? { ...p, range: adjust(p.range) } : p)).filter((p) => p.range[hi] >= p.range[lo]);
       mapScenarioCells(sheet, (m) => (insideBand(m) ? adjust(m) : m));
+      this._mapWatches(sheetId, (r, c) => {
+        if (!inBand(r, c)) return { r, c };
+        const i = moveIndex(axis === 'row' ? r : c);
+        return i == null ? null : axis === 'row' ? { r: i, c } : { r, c: i };
+      });
       sheet.tables = sheet.tables.map((t) => {
         if (!touchesBand(t.range)) return t;
         const range = adjust(t.range);
@@ -6113,6 +6118,7 @@ export class Workbook extends EventTarget {
       mapPrintAreas(sheet, m => clamp(grow(m)), axis);
       sheet.protectedRanges = sheet.protectedRanges.map((p) => ({ ...p, range: clamp(grow(p.range)) }));
       mapScenarioCells(sheet, (m) => clamp(grow(m)));
+      this._mapWatches(sheetId, (r, c) => (axis === 'row' ? { r: r >= at ? r + n : r, c } : { r, c: c >= at ? c + n : c }));
       sheet.groups[groupKey] = sheet.groups[groupKey].map((g) => {
         const out = { ...g };
         if (g.from >= at) { out.from += n; out.to += n; } else if (g.to >= at) out.to += n;
@@ -6240,6 +6246,10 @@ export class Workbook extends EventTarget {
         return ref && !adjustRefForDeletedLines(ref, axis, refLines);
       }), label || 'Delete lines', true);
       this.nativePivots = mapNativePivotRanges(this.nativePivots, sheetId, ref => adjustRefForDeletedLines(ref, axis, refLines));
+      this._mapWatches(sheetId, (r, c) => {
+        const i = refLines.move(axis === 'row' ? r : c);
+        return i == null ? null : axis === 'row' ? { r: i, c } : { r, c: i };
+      });
       if (everything) {
         // The one surviving line must not keep the last line's contents.
         const last = total - 1;
@@ -6631,6 +6641,7 @@ export class Workbook extends EventTarget {
       sheet.validations = sheet.validations.flatMap((rule) => splitRule(rule, 'source'));
       sheet.protectedRanges = sheet.protectedRanges.map((p) => ({ ...p, range: moveRect(p.range) }));
       mapScenarioCells(sheet, moveRect);
+      this._mapWatches(sheetId, (r, c) => (axis === 'row' ? { r: map(r), c } : { r, c: map(c) }));
       sheet.charts = sheet.charts.map((ch) => ({ ...ch, ...mapCellDrawing(ch, p => ({ ...p, [axis === 'row' ? 'r' : 'c']: map(p[axis === 'row' ? 'r' : 'c']) })), range: moveRect(ch.range), anchor: ch.anchorMode === 'absolute' ? ch.anchor : { r: axis === 'row' ? map(ch.anchor.r) : ch.anchor.r, c: axis === 'col' ? map(ch.anchor.c) : ch.anchor.c } }));
       sheet.tables = sheet.tables.map((t) => {
         const range = mapRange(t.range);
@@ -12363,6 +12374,52 @@ export class Workbook extends EventTarget {
     return this.watches.length - before;
   }
 
+  /**
+   * A watch names a cell, as a reference does: a structural edit on its sheet carries it along, and one whose
+   * cell is deleted (or pushed off the grid) goes. `move(r, c)` gives the cell's new { r, c }, or null.
+   * Adding and removing watches is no undo step, so the structural step does not snapshot the list: the
+   * watches keep their identity and the step logs what it did to each (_structural's `_watchMoves`), and its
+   * undo and redo reverse or repeat just that, leaving watches added or removed since alone.
+   */
+  _mapWatches(sheetId, move) {
+    if (!this.watches.some((w) => w.sheetId === sheetId)) return;
+    const log = this._watchMoves;
+    const kept = [];
+    this.watches.forEach((w, index) => {
+      if (w.sheetId !== sheetId) { kept.push(w); return; }
+      const p = move(w.r, w.c);
+      const to = p && p.r >= 0 && p.c >= 0 && p.r <= MAX_ROW && p.c <= MAX_COL ? { r: p.r, c: p.c } : null;
+      if (to && to.r === w.r && to.c === w.c) { kept.push(w); return; }
+      log?.push({ watch: w, index, from: { r: w.r, c: w.c }, to });
+      if (to) { w.r = to.r; w.c = to.c; kept.push(w); }
+    });
+    this.watches = kept;
+    this._announce('watches', sheetId);
+  }
+
+  /** Reverse (undo) or repeat (redo) a structural step's watch moves, on the watches still where the step left them. */
+  _replayWatchMoves(moves, undo) {
+    if (!moves.length) return;
+    let changed = false;
+    const at = (w, p) => w.r === p.r && w.c === p.c;
+    for (const m of undo ? [...moves].reverse() : moves) {
+      const [was, now] = undo ? [m.to, m.from] : [m.from, m.to];
+      const live = this.watches.includes(m.watch);
+      if (was) {
+        // Moved, or deleted, by the step: only a watch still where the step put it (or left it) goes on.
+        if (!live || !at(m.watch, was)) continue;
+        if (now) { m.watch.r = now.r; m.watch.c = now.c; } else this.watches = this.watches.filter((w) => w !== m.watch);
+      } else {
+        // Deleted by the step: undo brings it back, at its old place in the list, unless that cell is watched again.
+        if (live || this.watches.some((w) => w.sheetId === m.watch.sheetId && at(w, now))) continue;
+        m.watch.r = now.r; m.watch.c = now.c;
+        this.watches = [...this.watches.slice(0, m.index), m.watch, ...this.watches.slice(m.index)];
+      }
+      changed = true;
+    }
+    if (changed) this._announce('watches', null);
+  }
+
   removeWatches(list) {
     const drop = new Set(list.map((w) => `${w.sheetId}|${w.r}|${w.c}`));
     const kept = this.watches.filter((w) => !drop.has(`${w.sheetId}|${w.r}|${w.c}`));
@@ -12645,22 +12702,31 @@ export class Workbook extends EventTarget {
       // it is first undone). A tool that inserts a row per group stays linear this way. The
       // capture stays open to the end of the transaction, so the edits between the steps count.
       if (!this._group.structural) {
-        const snap = { capture: this._capture(), before: null, after: null, entry: null, steps: 0 };
-        snap.entry = { label, undo: () => this._restore(snap.before), redo: () => this._restore(snap.after), snapshotCells: 0 };
+        const snap = { capture: this._capture(), before: null, after: null, entry: null, steps: 0, watchMoves: [] };
+        snap.entry = { label, undo: () => { this._restore(snap.before); this._replayWatchMoves(snap.watchMoves, true); },
+          redo: () => { this._restore(snap.after); this._replayWatchMoves(snap.watchMoves, false); }, snapshotCells: 0 };
         this._group.structural = snap;
         this._group.push(snap.entry);
       }
       this._group.structural.steps++;
-      const result = fn();
-      this._changed('structure');
-      return result;
+      const outer = this._watchMoves;
+      this._watchMoves = this._group.structural.watchMoves;
+      try {
+        const result = fn();
+        this._changed('structure');
+        return result;
+      } finally { this._watchMoves = outer; }
     }
     const capture = this._capture();
     const snap = { before: null, after: null };
+    const watchMoves = [];
+    const outer = this._watchMoves;
+    this._watchMoves = watchMoves;
     let result;
     try {
       result = fn();
     } finally {
+      this._watchMoves = outer;
       snap.before = this._settle(capture);
     }
     this._changed('structure');
@@ -12671,8 +12737,9 @@ export class Workbook extends EventTarget {
       undo: () => {
         if (!snap.after) { snap.after = this._snapshot(snap.before.touched); step.snapshotCells += snap.after.cells; }
         this._restore(snap.before);
+        this._replayWatchMoves(watchMoves, true);
       },
-      redo: () => this._restore(snap.after),
+      redo: () => { this._restore(snap.after); this._replayWatchMoves(watchMoves, false); },
       snapshotCells: snap.before.cells,
     };
     this._push(step);
