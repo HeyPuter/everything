@@ -1890,7 +1890,20 @@ export const FUNCTIONS = {
 
   /* Text */
   CONCAT: { fn: (args) => { let s = ''; for (const { v } of eachValue(args)) { if (isError(v)) return v; const t = toText(v); if (isError(t)) return t; s += t; if (s.length > MAX_TEXT) return err('#VALUE!'); } return s; } },
-  CONCATENATE: { alias: 'CONCAT' },
+  // CONCATENATE joins single values: an array argument is joined element by element (see LIFTED), so
+  // CONCATENATE(A1:A3," ",B1:B3) spills a joined row per row, where CONCAT runs a range's cells together.
+  CONCATENATE: {
+    fn: (args) => {
+      let s = '';
+      for (const a of args) {
+        const v = scalar(a); if (isError(v)) return v;
+        const t = toText(v); if (isError(t)) return t;
+        s += t;
+        if (s.length > MAX_TEXT) return err('#VALUE!');
+      }
+      return s;
+    },
+  },
   TEXTJOIN: {
     fn: ([delim, ignoreEmpty, ...rest]) => {
       // An array of delimiters is used in turn between the texts, starting over when it runs out.
@@ -8531,7 +8544,7 @@ const LIFTED = `
 ABS INT TRUNC ROUND ROUNDUP ROUNDDOWN MOD SQRT SQRTPI POWER EXP LN LOG LOG10 SIGN EVEN ODD QUOTIENT
 CEILING CEILING.MATH CEILING.PRECISE ISO.CEILING FLOOR FLOOR.MATH FLOOR.PRECISE MROUND FACT FACTDOUBLE
 DEGREES RADIANS SIN COS TAN ASIN ACOS ATAN ATAN2 SINH COSH TANH ASINH ACOSH ATANH SEC CSC COT SECH CSCH COTH ACOT ACOTH
-LEN LEFT RIGHT MID UPPER LOWER PROPER TRIM CLEAN TEXT VALUE NUMBERVALUE FIND SEARCH SUBSTITUTE REPLACE REPT EXACT
+LEN LEFT RIGHT MID UPPER LOWER PROPER TRIM CLEAN TEXT VALUE NUMBERVALUE FIND SEARCH SUBSTITUTE REPLACE REPT EXACT CONCATENATE
 CHAR CODE UNICHAR UNICODE T N
 YEAR MONTH DAY HOUR MINUTE SECOND WEEKDAY WEEKNUM ISOWEEKNUM DATE TIME DATEVALUE TIMEVALUE EDATE EOMONTH DAYS DATEDIF
 YEARFRAC DAYS360

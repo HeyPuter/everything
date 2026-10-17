@@ -657,7 +657,7 @@ describe('SPARKLINE', () => {
 
 describe('library shape', () => {
   it('resolves aliases and lists names sorted', () => {
-    expect(FUNCTIONS.CONCATENATE).toBe(FUNCTIONS.CONCAT);
+    expect(FUNCTIONS['STDEV.S']).toBe(FUNCTIONS.STDEV);
     expect(FUNCTION_NAMES).toEqual([...FUNCTION_NAMES].sort());
     expect(FUNCTION_NAMES.length).toBeGreaterThan(90);
   });
