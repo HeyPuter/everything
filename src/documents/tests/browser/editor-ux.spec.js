@@ -1,4 +1,4 @@
-import { downloadDocx } from './helpers/editor-tools.js';
+import { downloadDocx, onTab, showAllTools } from './helpers/editor-tools.js';
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { unzipSync, strFromU8 } from 'fflate';
@@ -18,14 +18,14 @@ async function save(page, info, name) {
 
 test('quick actions preserve selection, apply links, shade and space paragraphs, and export a table', async ({ page }, info) => {
   await blank(page); await input(page).fill('Linked words\nA shaded paragraph'); await select(page, 'Linked words');
-  await button(page, 'Insert or edit link').click();
+  await onTab(page, 'insert'); await button(page, 'Insert or edit link').click();
   const link = page.getByRole('dialog', { name: 'Insert link' });
   await expect(link).toBeVisible(); await expect(page.locator('.modal-root')).toHaveCount(0);
   await page.getByLabel('Link address', { exact: true }).fill('https://example.com/cancelled'); await page.keyboard.press('Escape');
   expect(await input(page).evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual([0, 12]);
   await input(page).press('ControlOrMeta+k'); await page.getByLabel('Link address', { exact: true }).fill('https://example.com/guide');
   await link.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(input(page)).toBeFocused();
-  await select(page, 'A shaded paragraph'); await button(page, 'Line and Paragraph Spacing').click();
+  await select(page, 'A shaded paragraph'); await onTab(page, 'home'); await button(page, 'Line and Paragraph Spacing').click();
   await page.getByRole('menuitemradio', { name: '1.5×', exact: true }).click();
   await inspect(page); await button(page, 'Paragraph shading').click();
   const shade = page.getByRole('menu', { name: 'Paragraph shading' });
@@ -34,7 +34,7 @@ test('quick actions preserve selection, apply links, shade and space paragraphs,
   await expect(button(page, 'Paragraph shading')).toHaveAttribute('title', 'Paragraph shading: #DDEEFF');
   await button(page, 'Undo').click(); await expect(button(page, 'Paragraph shading')).toHaveAttribute('title', 'Paragraph shading: No fill');
   await button(page, 'Redo').click();
-  await input(page).press('ControlOrMeta+End'); await input(page).press('Enter'); await button(page, 'Insert table').click();
+  await input(page).press('ControlOrMeta+End'); await input(page).press('Enter'); await onTab(page, 'insert'); await button(page, 'Insert table').click();
   const grid = page.getByRole('menu', { name: 'Insert table' });
   await grid.getByRole('menuitem', { name: '3 columns, 2 rows' }).focus(); await page.keyboard.press('Enter');
   await expect(grid).toHaveCount(0); await expect(input(page)).toBeFocused();
@@ -75,38 +75,40 @@ test('font picker searches available fonts, preserves script slots and theme par
 });
 
 test('outline stays open after navigation, tracks the current heading and updates as headings change', async ({ page }, info) => {
-  await blank(page); await input(page).fill('First section\nBody text\nSecond section');
+  await blank(page); await showAllTools(page); await input(page).fill('First section\nBody text\nSecond section');
   await select(page, 'First section'); await page.getByRole('combobox', { name: 'Paragraph style' }).selectOption('Heading1');
   await select(page, 'Second section'); await page.getByRole('combobox', { name: 'Paragraph style' }).selectOption('Heading2');
-  await button(page, 'Document outline').click();
-  const outline = page.getByRole('complementary', { name: 'Document outline' });
-  await outline.getByRole('button', { name: /^Level 1: First/ }).click();
-  await expect(outline).toBeVisible(); await expect(outline.getByRole('button', { name: /^Level 1: First/ })).toHaveAttribute('aria-current', 'location');
+  await (await onTab(page, 'view')).locator('.ribbon-card').getByRole('button', { name: 'Navigation Pane', exact: true }).click();
+  const outline = page.getByRole('complementary', { name: 'Navigation' }), headings = outline.getByRole('tree', { name: 'Headings' });
+  await headings.getByRole('treeitem', { name: /^Level 1: First/ }).click();
+  await expect(outline).toBeVisible(); await expect(headings.getByRole('treeitem', { name: /^Level 1: First/ })).toHaveAttribute('aria-current', 'location');
   await input(page).press('ControlOrMeta+Home'); await page.keyboard.insertText('Updated ');
-  await expect(outline.getByRole('button', { name: /Updated First/ })).toBeVisible();
-  await select(page, 'Body text'); await expect(outline.getByRole('button', { name: /Updated First/ })).toHaveAttribute('aria-current', 'location');
+  await expect(headings.getByRole('treeitem', { name: /Updated First/ })).toBeVisible();
+  await select(page, 'Body text'); await expect(headings.getByRole('treeitem', { name: /Updated First/ })).toHaveAttribute('aria-current', 'location');
   await select(page, 'Second section'); await page.getByRole('combobox', { name: 'Paragraph style' }).selectOption('Normal');
-  await expect(outline.getByRole('navigation').getByRole('button')).toHaveCount(1);
+  await expect(headings.getByRole('treeitem')).toHaveCount(1);
   await page.screenshot({ path: info.outputPath('persistent-outline.png'), animations: 'disabled' });
 });
 
 test('inspector follows text, table and image selection without adding toolbar rows', async ({ page }, info) => {
   await blank(page); await input(page).fill('Text before table');
-  const before = await page.locator('.canvas-toolbar-shell').boundingBox(); await inspect(page);
+  const before = await page.locator('.ed-ribbon').boundingBox(); await inspect(page);
   const inspector = page.getByRole('complementary', { name: 'Formatting Pane' });
   await expect(inspector.getByRole('heading', { name: 'Paragraph formatting' })).toBeVisible();
   await expect(inspector.getByRole('heading', { name: 'Table', exact: true })).toBeHidden();
-  await input(page).press('ControlOrMeta+End'); await input(page).press('Enter'); await button(page, 'Insert table').click();
+  await input(page).press('ControlOrMeta+End'); await input(page).press('Enter'); await onTab(page, 'insert'); await button(page, 'Insert table').click();
   await page.getByRole('menuitem', { name: '2 columns, 2 rows' }).click();
   await expect(inspector.getByRole('heading', { name: 'Table formatting' })).toBeVisible();
   await select(page, 'Text before table'); await expect(inspector.getByRole('heading', { name: 'Paragraph formatting' })).toBeVisible();
   const png = await page.evaluate(() => { const c = document.createElement('canvas'); c.width = c.height = 48; const ctx = c.getContext('2d'); ctx.fillStyle = '#1267B0'; ctx.fillRect(0, 0, 48, 48); return c.toDataURL('image/png').split(',')[1]; });
   await input(page).press('ArrowRight');
   await page.getByLabel('Insert image file').setInputFiles({ name: 'blue-square.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
-  await expect(inspector.getByRole('heading', { name: 'Image formatting' })).toBeVisible();
+  // Picture settings live on the Picture Format tab that the selection brings up; the pane keeps the page tools.
+  await expect(inspector.getByRole('heading', { name: 'Formatting', exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Picture Format' })).toHaveAttribute('aria-selected', 'true');
   await expect(button(page, 'Image properties')).toBeEnabled();
   await expect(inspector.getByRole('heading', { name: 'Paragraph', exact: true })).toBeHidden();
-  const after = await page.locator('.canvas-toolbar-shell').boundingBox(); expect(after.height).toBe(before.height);
+  const after = await page.locator('.ed-ribbon').boundingBox(); expect(after.height).toBe(before.height);
   await page.screenshot({ path: info.outputPath('contextual-inspector.png'), animations: 'disabled' });
 });
 
@@ -117,14 +119,15 @@ test('mobile fits the page, keeps core touch targets visible and exposes seconda
     await blank(page); await expect(page.getByRole('combobox', { name: 'Zoom', exact: true })).toHaveValue('fit');
     await expect.poll(() => page.locator('.canvas-host').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
     for (const name of ['Bold', 'Italic', 'Underline', 'Text color', 'Text highlight', 'Formatting Pane']) {
-      const control = button(page, name); await expect(control).toBeInViewport(); const bounds = await control.boundingBox(); expect(bounds.width).toBeGreaterThanOrEqual(44); expect(bounds.height).toBeGreaterThanOrEqual(44);
+      // The ribbon is one row that scrolls sideways at phone width (editor-chrome.spec.js); each target scrolls into view.
+      const control = button(page, name); await control.scrollIntoViewIfNeeded(); await expect(control).toBeInViewport(); const bounds = await control.boundingBox(); expect(bounds.width).toBeGreaterThanOrEqual(44); expect(bounds.height).toBeGreaterThanOrEqual(44);
     }
     await input(page).fill(Array.from({ length: 16 }, (_, i) => `Writing line ${i + 1}`).join('\n'));
     await button(page, 'Formatting Pane').tap(); const inspector = page.getByRole('complementary', { name: 'Formatting Pane' });
     const bounds = await inspector.boundingBox(); expect(bounds.y).toBeGreaterThan(200); expect(bounds.height).toBeLessThanOrEqual(450);
     await expect.poll(() => input(page).evaluate(el => el.getBoundingClientRect().bottom <= el.closest('.canvas-host').getBoundingClientRect().bottom + 1)).toBe(true);
     await expect(button(page, 'Latin font family')).toBeVisible(); await page.screenshot({ path: info.outputPath('mobile-sheet.png'), animations: 'disabled' });
-    await button(page, 'Close formatting inspector').tap(); await page.setViewportSize({ width: 320, height: 680 });
+    await button(page, 'Close Formatting Pane').tap(); await page.setViewportSize({ width: 320, height: 680 });
     await expect.poll(() => page.locator('.canvas-host').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
     await page.getByRole('combobox', { name: 'Zoom', exact: true }).selectOption('1');
     await page.setViewportSize({ width: 390, height: 750 }); await expect(page.getByRole('combobox', { name: 'Zoom', exact: true })).toHaveValue('1');
