@@ -18,7 +18,8 @@ test('edits inherited lists, restarts and nests items, and reopens a validated n
   await expect(input).toHaveValue(/^Numbering starts at three/); await expect(canvases).toHaveCount(2);
   for (const button of [numbers, bullets, restart]) {
     await expect(button.locator('svg')).toHaveAttribute('aria-hidden', 'true');
-    await expect(button).toHaveAttribute('title', await button.getAttribute('aria-label'));
+    const label = await button.getAttribute('aria-label'), shortcut = await button.getAttribute('data-shortcut');
+    await expect(button).toHaveAttribute('title', shortcut ? `${label} (${shortcut})` : label);
   }
   await expect(numbers).toHaveAttribute('aria-pressed', 'true');
   const choose = async (text, endText) => input.evaluate((el, [text, endText]) => {
