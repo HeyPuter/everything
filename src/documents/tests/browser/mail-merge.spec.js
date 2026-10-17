@@ -263,6 +263,34 @@ test('Customize Columns names the chosen column for assistive technology', async
   expect(errors).toEqual([]);
 });
 
+test('Mail Merge Recipients keeps keyboard focus when sorting or including every row', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/playground.html');
+  await expect(page.getByRole('textbox', { name: 'Document text' })).toHaveValue(/^A small beginning/);
+  await page.getByRole('tab', { name: 'Mailings' }).click();
+  await ribbon(page).getByRole('button', { name: 'Select Recipients', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Type a New List…' }).click();
+  const grid = page.getByRole('dialog', { name: 'New Address List' });
+  await grid.getByLabel('Last Name, entry 1').fill('Zed');
+  await grid.getByRole('button', { name: 'New Entry' }).click();
+  await grid.getByLabel('Last Name, entry 2').fill('Young');
+  await grid.getByRole('button', { name: 'OK' }).click();
+  await expect(grid).toHaveCount(0);
+  await ribbon(page).getByRole('button', { name: 'Edit Recipient List', exact: true }).click();
+  const recipients = page.getByRole('dialog', { name: 'Mail Merge Recipients' });
+  const sort = recipients.getByRole('button', { name: 'Last Name' });
+  await sort.focus();
+  await page.keyboard.press('Enter');
+  await expect(recipients.getByRole('columnheader', { name: /Last Name/ })).toHaveAttribute('aria-sort', 'ascending');
+  await expect(sort).toBeFocused();
+  const all = recipients.getByLabel('Include all shown recipients');
+  await all.focus();
+  await page.keyboard.press('Space');
+  await expect(all).not.toBeChecked();
+  await expect(all).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
 test('Labels opens its collapsed measurements to show a value that needs fixing', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto('/playground.html');

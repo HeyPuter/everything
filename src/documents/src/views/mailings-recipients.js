@@ -145,6 +145,8 @@ export function openRecipientList({ state, onApply, onEditEntries }) {
   function render() {
     const list = rows(), pages = Math.max(1, Math.ceil(list.length / PAGE));
     page = Math.min(page, pages - 1);
+    // Sorting or including every row redraws the table: keyboard focus returns to the same control.
+    const focusKey = table.contains(document.activeElement) || pager.contains(document.activeElement) ? document.activeElement.getAttribute('aria-label') || document.activeElement.title || document.activeElement.textContent : null;
     const all = list.length && list.every(({ row }) => row.included !== false);
     const allBox = el('input', { type: 'checkbox', 'aria-label': 'Include all shown recipients', onchange: e => { for (const { row } of list) row.included = e.target.checked; render(); } });
     allBox.checked = !!all; allBox.indeterminate = !all && list.some(({ row }) => row.included !== false);
@@ -158,6 +160,7 @@ export function openRecipientList({ state, onApply, onEditEntries }) {
       })));
     pager.replaceChildren(...(pages > 1 ? [button('Previous', () => { page--; render(); }, 'btn-ghost', { disabled: page === 0 }), el('span', {}, `Page ${page + 1} of ${pages}`), button('Next', () => { page++; render(); }, 'btn-ghost', { disabled: page >= pages - 1 })] : []));
     renderSummary();
+    if (focusKey) [...table.querySelectorAll('button, input'), ...pager.querySelectorAll('button')].find(control => !control.disabled && (control.getAttribute('aria-label') || control.title || control.textContent) === focusKey)?.focus();
   }
   function renderSummary() {
     const included = visibleRows(draft).filter(({ row }) => row.included !== false).length;
