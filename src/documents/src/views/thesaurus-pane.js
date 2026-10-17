@@ -36,7 +36,9 @@ export function createThesaurusPane({ editor, pkg, error }) {
   function captureTarget() {
     const engine = editor(); if (!engine) return null;
     const [a, b] = engine.model.range, text = engine.model.text;
-    const found = a !== b ? { start: a, end: b, word: text.slice(a, b).trim() } : wordAt(text, a);
+    // A selection made word by word (Ctrl+Shift+Right) ends with the space after the word; insert over the word alone.
+    const lead = a !== b ? text.slice(a, b).match(/^\s*/)[0].length : 0, trail = a !== b ? text.slice(a, b).match(/\s*$/)[0].length : 0;
+    const found = a !== b ? { start: a + lead, end: Math.max(a + lead, b - trail), word: text.slice(a, b).trim() } : wordAt(text, a);
     target = found && found.word && !/\s/.test(found.word) ? { ...found, path: engine.session.path } : null;
     return target;
   }

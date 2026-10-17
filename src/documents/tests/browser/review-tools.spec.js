@@ -100,6 +100,23 @@ test('the Thesaurus inserts a synonym with the word\'s capitalization, and Word 
   await dialog.getByRole('button', { name: 'Close', exact: true }).first().click();
 });
 
+test('the Thesaurus replaces a selected word together with the space after it, leaving the space', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const input = await newDocument(page, 'A happy dog runs.');
+  // Ctrl+Shift+Right off the Mac, or a drag, selects the word and the space after it.
+  await select(input, 2, 8);
+  expect(await input.evaluate(el => el.value.slice(el.selectionStart, el.selectionEnd))).toBe('happy ');
+  await input.press('Shift+F7');
+  const pane = page.getByRole('complementary', { name: 'Thesaurus pane' });
+  const chip = pane.locator('.rv-word').first();
+  await expect(chip).toBeVisible({ timeout: 20000 });
+  const word = (await chip.textContent()).trim();
+  await chip.click();
+  await page.getByRole('menuitem', { name: /^Insert “/ }).click();
+  await expect(input).toHaveValue(`A ${word} dog runs.`);
+  expect(errors).toEqual([]);
+});
+
 test('Check Accessibility finds problems and applies quick fixes', async ({ page }, info) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.setViewportSize({ width: 1440, height: 900 });
