@@ -51,10 +51,23 @@ for (const on of [false, true]) test(`edits and reopens style inheritance with d
   expect(await page.locator('canvas.canvas-page').count()).toBeLessThanOrEqual(pages); expect(errors).toEqual([]);
 });
 
-test('previews active complex-script styles as read-only with the original available', async ({ page }) => {
+// Active w:cs (and w:rtl) declarations stopped forcing read-only mode on 2026-09-27 (docs/conformance.md,
+// "Imported run-level RTL/CS editing enabled"): style-inherited ones open for editing and are retained.
+test('opens active complex-script styles for editing and keeps their declarations', async ({ page }, testInfo) => {
   const parts = unzipSync(readFileSync('public/fixtures/style-toggles-off.docx'));
   const xml = strFromU8(parts['word/styles.xml']), modified = xml.replaceAll('<w:i/>', '<w:i/><w:cs/>'); expect(modified).not.toBe(xml); parts['word/styles.xml'] = strToU8(modified);
-  await page.goto('/playground.html'); await showAllTools(page); const input = page.getByRole('textbox', { name: 'Document text' }); await expect(input).toHaveValue(/^A small beginning/); const original = await input.inputValue();
-  await openReadOnlyPreview(page, { name: 'complex-script-styles.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: Buffer.from(zipSync(parts)) });
-
+  await page.goto('/playground.html'); await showAllTools(page); const input = page.getByRole('textbox', { name: 'Document text' }); await expect(input).toHaveValue(/^A small beginning/);
+  const previous = await input.elementHandle();
+  await page.getByLabel('Open DOCX file').setInputFiles({ name: 'complex-script-styles.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: Buffer.from(zipSync(parts)) });
+  await expect.poll(() => previous.evaluate(el => el.isConnected)).toBe(false);
+  await expect(input).toHaveValue(/^Default text/); await expect(input).toHaveJSProperty('readOnly', false);
+  const event = page.waitForEvent('download'); await page.getByRole('button', { name: 'Download .docx', exact: true }).click();
+  const saved = testInfo.outputPath('complex-script-styles.docx'); await (await event).saveAs(saved);
+  expect(unzipSync(readFileSync(saved))).toEqual(parts);
+  await input.focus(); await input.press('ControlOrMeta+Home'); await page.keyboard.insertText('Edited '); const text = await input.inputValue();
+  const edit = page.waitForEvent('download'); await page.getByRole('button', { name: 'Download .docx', exact: true }).click();
+  const edited = testInfo.outputPath('complex-script-styles-edited.docx'); await (await edit).saveAs(edited);
+  expect(strFromU8(unzipSync(readFileSync(edited))['word/styles.xml'])).toBe(modified);
+  await reopenDocx(page, input, edited, text);
+  await expect(input).toHaveJSProperty('readOnly', false);
 });
