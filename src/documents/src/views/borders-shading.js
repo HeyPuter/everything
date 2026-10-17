@@ -81,6 +81,10 @@ export function openBordersAndShading({ values: v, apply, onClose, initialTab = 
   /* ---- Borders ---- */
   const paragraph = borderEditor({ sides: PARAGRAPH_SIDES, initial: v.paragraphBorders || {}, label: 'Border', presets: { none: [], box: ['top', 'bottom', 'left', 'right'], all: ['top', 'bottom', 'left', 'right', 'between'] } });
   const distances = Object.fromEntries(['top', 'bottom', 'left', 'right'].map(side => [side, el('input.input', { type: 'number', min: 0, max: 31, step: 1, value: v.paragraphBorders?.[side]?.space ?? (side === 'left' || side === 'right' ? 4 : 1), 'aria-label': `${SIDE_NAMES[side]} distance from text (pt)` })]));
+  // The fields' starting text: an untouched distance leaves the borders alone. (Their value is set as a
+  // property, so defaultValue is empty and cannot tell.)
+  const startText = inputs => Object.fromEntries(Object.entries(inputs).map(([side, input]) => [side, input.value]));
+  const distanceStart = startText(distances);
   const bordersPanel = el('div', {}, paragraph.node,
     group('Distance from text (pt)', el('div.fmt-grid.is-four', {}, ...Object.entries(distances).map(([side, input]) => field(SIDE_NAMES[side], input)))),
     v.paragraphBorders === null ? el('p.field-hint', {}, 'Borders differ across the selection. Changing them sets every selected paragraph.') : null,
@@ -93,6 +97,7 @@ export function openBordersAndShading({ values: v, apply, onClose, initialTab = 
   const display = select('Apply to', [['allPages', 'Whole document'], ['firstPage', 'First page only'], ['notFirstPage', 'All except first page']], pageBorders?.display || 'allPages');
   const front = checkbox('Always display in front of text', (pageBorders?.zOrder || 'front') === 'front');
   const pageSpace = Object.fromEntries(PAGE_BORDER_SIDES.map(side => [side, el('input.input', { type: 'number', min: 0, max: 31, step: 1, value: pageBorders?.borders?.[side]?.space ?? 24, 'aria-label': `${SIDE_NAMES[side]} page border margin (pt)` })]));
+  const pageSpaceStart = startText(pageSpace);
   const pagePanel = el('div', {}, pageEditor.node,
     group('Options', el('div.fmt-grid', {}, field('Apply to', display), field('Measure from', measure)), front,
       el('div.fmt-grid.is-four', {}, ...PAGE_BORDER_SIDES.map(side => field(`${SIDE_NAMES[side]} (pt)`, pageSpace[side])))),
@@ -132,7 +137,7 @@ export function openBordersAndShading({ values: v, apply, onClose, initialTab = 
     body: [tabs.node, bordersPanel, pagePanel, shadingPanel],
     submit: () => {
       const patch = {};
-      const spacesChanged = Object.entries(distances).some(([side, input]) => String(input.defaultValue) !== input.value);
+      const spacesChanged = Object.entries(distances).some(([side, input]) => distanceStart[side] !== input.value);
       if (paragraph.touched() || spacesChanged) {
         const borders = {};
         for (const side of PARAGRAPH_SIDES) {
@@ -141,7 +146,7 @@ export function openBordersAndShading({ values: v, apply, onClose, initialTab = 
         }
         patch.paragraphBorders = borders;
       }
-      if (v.singleSection && (pageEditor.touched() || [measure, display].some(s => s.value !== (s === measure ? pageBorders?.offsetFrom || 'text' : pageBorders?.display || 'allPages')) || front.box.checked !== ((pageBorders?.zOrder || 'front') === 'front') || PAGE_BORDER_SIDES.some(side => pageSpace[side].value !== pageSpace[side].defaultValue))) {
+      if (v.singleSection && (pageEditor.touched() || [measure, display].some(s => s.value !== (s === measure ? pageBorders?.offsetFrom || 'text' : pageBorders?.display || 'allPages')) || front.box.checked !== ((pageBorders?.zOrder || 'front') === 'front') || PAGE_BORDER_SIDES.some(side => pageSpace[side].value !== pageSpaceStart[side]))) {
         const sides = Object.fromEntries(PAGE_BORDER_SIDES.filter(side => pageEditor.state[side]).map(side => [side, { ...pageEditor.state[side], space: Math.round(Number(pageSpace[side].value) || 0) }]));
         patch.pageBorders = Object.keys(sides).length ? { offsetFrom: measure.value, display: display.value, zOrder: front.box.checked ? 'front' : 'back', borders: sides } : null;
       }

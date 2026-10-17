@@ -73,6 +73,28 @@ test('Borders and Shading: presets, side toggles, page border and patterned shad
   expect(errors).toEqual([]);
 });
 
+test('Borders and Shading: OK with only shading chosen leaves paragraph borders alone', async ({ page }, info) => {
+  const { input, errors } = await blank(page, 'Bordered one\nPlain two');
+  await select(input, 'Bordered one');
+  await page.getByRole('button', { name: 'Border options' }).click();
+  await page.getByRole('menuitem', { name: 'Borders and Shading…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Borders and Shading' });
+  await dialog.getByRole('button', { name: 'Box', exact: true }).click();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toHaveCount(0);
+  // Both paragraphs, borders differing: change nothing about the borders.
+  await select(input, 'Bordered one', 'Plain two');
+  await page.getByRole('button', { name: 'Border options' }).click();
+  await page.getByRole('menuitem', { name: 'Borders and Shading…' }).click();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toHaveCount(0);
+  const { xml } = await save(page, info, 'borders-kept.docx');
+  const document = xml('word/document.xml');
+  expect(document.match(/<w:pBdr>/g)).toHaveLength(1);
+  expect(document).toMatch(/<w:pBdr><w:top w:val="single"[\s\S]*Bordered one/);
+  expect(errors).toEqual([]);
+});
+
 test('Bullets and numbering: define a bullet and a number format, set the value, continue, adjust indents', async ({ page }, info) => {
   const { input, errors } = await blank(page, 'Alpha\nBeta\nGap\nGamma\nDelta');
   await select(input, 'Alpha', 'Beta');
