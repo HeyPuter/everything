@@ -4029,12 +4029,16 @@ export class Workbook extends EventTarget {
     // A 3D span (Sheet1:Two!A1) names the same cells on every sheet between two tabs, so one sheet's
     // moved block cannot take it along; it stays where it is.
     const inSrc = (ref) => !ref.sheetEnd && ref.kind !== 'cols' && ref.kind !== 'rows' && ref.r1 >= src.r1 && ref.r2 <= src.r2 && ref.c1 >= src.c1 && ref.c2 <= src.c2;
+    // The cells the block lands on are gone, as in Excel: a reference wholly inside them that the block does not
+    // carry (it is not wholly inside the block) shows #REF!. One only partly over them still names its cells.
+    const inDst = (ref) => !ref.sheetEnd && ref.kind !== 'cols' && ref.kind !== 'rows' && ref.r1 >= dst.r1 && ref.r2 <= dst.r2 && ref.c1 >= dst.c1 && ref.c2 <= dst.c2;
     // A relative defined name's offsets name different cells from every cell that uses it: only its wholly absolute references follow.
     const follow = (formula, ownerSheet, relativeName = false) => mapFormulaRefs(formula, (ref) => {
       const target = ref.sheet ?? ownerSheet;
-      if (!sameSheetName(target, sheet.name) || !inSrc(ref) || (relativeName && !isAbsoluteRef(ref))) return ref;
+      if (!sameSheetName(target, sheet.name) || (relativeName && !isAbsoluteRef(ref))) return ref;
       // Absolute references move too: the cell they name has moved.
-      return { ...ref, r1: ref.r1 + dr, r2: ref.r2 + dr, c1: ref.c1 + dc, c2: ref.c2 + dc };
+      if (inSrc(ref)) return { ...ref, r1: ref.r1 + dr, r2: ref.r2 + dr, c1: ref.c1 + dc, c2: ref.c2 + dc };
+      return inDst(ref) ? null : ref;
     });
     this.transaction('Move cells', () => {
       this._moveNativePivots(sheetId, src, sheetId, dst);
@@ -4236,11 +4240,16 @@ export class Workbook extends EventTarget {
     if (movingTables.some((t) => sheet.tables.some((o) => (across || !ids.has(o.id)) && overlaps(shifted(t.range), o.range)))) return null;
     // A 3D span stays where it is, as when the block is dragged: it names every sheet between two tabs.
     const inSrc = (ref) => !ref.sheetEnd && ref.kind !== 'cols' && ref.kind !== 'rows' && ref.r1 >= src.r1 && ref.r2 <= src.r2 && ref.c1 >= src.c1 && ref.c2 <= src.c2;
+    // The cells the block lands on are gone, as in Excel: a reference wholly inside them that the block does not
+    // carry shows #REF!; one only partly over them still names its cells (see moveRange).
+    const inDst = (ref, target) => sameSheetName(target, sheet.name) && !ref.sheetEnd && ref.kind !== 'cols' && ref.kind !== 'rows'
+      && ref.r1 >= dst.r1 && ref.r2 <= dst.r2 && ref.c1 >= dst.c1 && ref.c2 <= dst.c2;
     // A reference into the cut block follows it, naming the new sheet when the block changed sheets.
     // A relative defined name's offsets stay put, as they do when the block is dragged.
     const follow = (formula, ownerSheet, relativeName = false) => mapFormulaRefs(formula, (ref) => {
       const target = ref.sheet ?? ownerSheet;
-      if (!sameSheetName(target, source.name) || !inSrc(ref) || (relativeName && !isAbsoluteRef(ref))) return ref;
+      if (relativeName && !isAbsoluteRef(ref)) return ref;
+      if (!sameSheetName(target, source.name) || !inSrc(ref)) return inDst(ref, target) ? null : ref;
       const moved = { ...ref, r1: ref.r1 + dr, r2: ref.r2 + dr, c1: ref.c1 + dc, c2: ref.c2 + dc };
       if (ref.sheet != null || across) moved.sheet = sheet.name;
       return moved;
@@ -4249,8 +4258,9 @@ export class Workbook extends EventTarget {
     // other cells of the old sheet keep naming that sheet from the new one.
     const carry = (formula) => mapFormulaRefs(formula, (ref) => {
       const target = ref.sheet ?? source.name;
-      if (!sameSheetName(target, source.name)) return ref;
+      if (!sameSheetName(target, source.name)) return inDst(ref, target) ? null : ref;
       if (inSrc(ref)) return { ...ref, r1: ref.r1 + dr, r2: ref.r2 + dr, c1: ref.c1 + dc, c2: ref.c2 + dc, ...(ref.sheet != null ? { sheet: sheet.name } : {}) };
+      if (inDst(ref, target)) return null;
       return across && ref.sheet == null ? { ...ref, sheet: source.name } : ref;
     });
     this.transaction('Move cells', () => {
