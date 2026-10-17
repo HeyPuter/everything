@@ -71,7 +71,7 @@ export function openTableProperties(table, displayedWidths, selectedColumn, appl
   /* Row */
   const rows = context.rows || {};
   const heightRule = select('Row height rule', [...(rows.height === null ? [['mixed', 'Mixed — keep']] : []), ['auto', 'Automatic'], ['atLeast', 'At least'], ['exact', 'Exactly']], rows.height === null ? 'mixed' : rows.height?.rule || 'auto');
-  const heightValue = el('input.input', { type: 'number', min: 0, max: 1584, step: 0.5, value: rows.height?.value ? rows.height.value / 20 : '', placeholder: rows.height === null ? 'Mixed' : '', 'aria-label': 'Row height (pt)' });
+  const heightValue = el('input.input', { type: 'number', min: 0, max: 1584, step: 0.05, value: rows.height?.value ? rows.height.value / 20 : '', placeholder: rows.height === null ? 'Mixed' : '', 'aria-label': 'Row height (pt)' });
   const syncHeight = () => { heightValue.disabled = !['atLeast', 'exact'].includes(heightRule.value); heightValue.required = !heightValue.disabled; };
   heightRule.addEventListener('change', syncHeight); syncHeight();
   const allowBreak = check('Allow row to break across pages', rows.allowBreak ?? true);
