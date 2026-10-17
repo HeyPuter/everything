@@ -71,6 +71,15 @@ describe('dialogs at phone width', () => {
     // A flex item is no narrower than its longest word unless the word may break; `anywhere` lets it.
     expect(rule(read('components.css'), '.modal-title')).toMatch(/overflow-wrap:\s*anywhere/);
   });
+
+  it('wraps Cancel and OK under Blank PivotTable in Recommended PivotTables, together at the right', () => {
+    const css = read('chrome.css');
+    expect(rule(css, '.rec-pivot-foot')).toMatch(/flex-wrap:\s*wrap/);
+    expect(rule(css, '.rec-pivot-actions')).toMatch(/margin-left:\s*auto/);
+    const js = readFileSync(new URL('../src/ui/recommended-pivots.js', import.meta.url), 'utf8');
+    expect(js).toContain("el('div.row.rec-pivot-foot'");
+    expect(js).toContain("el('div.row.rec-pivot-actions'");
+  });
 });
 
 describe('dialog lists for the keyboard and the eye', () => {

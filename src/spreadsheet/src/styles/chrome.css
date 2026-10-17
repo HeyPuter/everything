@@ -460,6 +460,9 @@ button.chg-place { text-decoration: underline; text-underline-offset: 2px; text-
 .rec-pivot-table td { padding: 3px 8px; border-bottom: 1px solid var(--hairline); }
 .rec-pivot-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 640px) { .rec-pivot-body { grid-template-columns: 1fr; } }
+/* Cancel and OK keep together at the right; on a phone they wrap under Blank PivotTable. */
+.rec-pivot-foot { flex-wrap: wrap; row-gap: 8px; }
+.rec-pivot-actions { margin-left: auto; }
 
 /* Background error checking: a green triangle in a cell's top-left corner, and the smart tag beside the active cell.
    A value its validation rule refuses is marked the same way. */

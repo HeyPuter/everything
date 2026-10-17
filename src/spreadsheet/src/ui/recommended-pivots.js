@@ -54,11 +54,11 @@ export function openRecommendedPivots(ctx) {
   const content = el('div.rec-pivots', {},
     el('p.small.muted', {}, `Data: ${wb.sheet(sheetId).name}!${rangeName(range)}`),
     el('div.rec-pivot-body', {}, list, preview),
-    el('div.row', {},
+    el('div.row.rec-pivot-foot', {},
       el('button.btn.btn-ghost', { type: 'button', onclick: () => { modal.close(); ctx.run('pivot'); } }, 'Blank PivotTable'),
-      el('span', { style: { flex: '1' } }),
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'button', onclick: insert }, 'OK')));
+      el('div.row.rec-pivot-actions', {},
+        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
+        el('button.btn.btn-primary', { type: 'button', onclick: insert }, 'OK'))));
   const modal = openModal({ title: 'Recommended PivotTables', content, wide: true, initialFocus: list, onClose: () => ctx.grid.focus() });
   show();
   return modal;
