@@ -144,7 +144,14 @@ export function chartDataFromXml(xml) {
   const kids = n => [...(n?.children || [])], one = (n, name, ns = C) => kids(n).find(c => c.namespaceURI === ns && c.localName === name);
   const all = (n, name) => kids(n).filter(c => c.namespaceURI === C && c.localName === name);
   const attr = (n, name) => one(n, name)?.getAttribute('val');
-  const cached = n => { const data = kids(n)[0], out = []; for (const pt of all(data, 'pt')) out[Number(pt.getAttribute('idx'))] = one(pt, 'v')?.textContent ?? ''; return out; };
+  // Only literal data, as this builder writes it, can be edited here; charts that read their data
+  // from a workbook (strRef, numRef) are left as they are.
+  const cached = n => {
+    const data = kids(n)[0], out = [];
+    if (!data || data.namespaceURI !== C || !['strLit', 'numLit'].includes(data.localName)) throw new RangeError('This chart’s data is not stored in the chart.');
+    for (const pt of all(data, 'pt')) out[Number(pt.getAttribute('idx'))] = one(pt, 'v')?.textContent ?? '';
+    return out;
+  };
   const color = props => one(one(props, 'solidFill', A), 'srgbClr', A)?.getAttribute('val') || null;
   const lineColor = props => color(one(props, 'ln', A));
   const chart = one(root, 'chart'), plot = one(chart, 'plotArea');
@@ -160,7 +167,8 @@ export function chartDataFromXml(xml) {
   const categories = cached(one(ser[0], kind === 'scatterChart' ? 'xVal' : 'cat'));
   const series = ser.map(s => {
     const tx = one(s, 'tx'), props = one(s, 'spPr');
-    const name = one(tx, 'v')?.textContent ?? cached(one(tx, 'strRef'))?.[0] ?? '';
+    if (tx && !one(tx, 'v')) throw new RangeError('This chart’s data is not stored in the chart.');
+    const name = one(tx, 'v')?.textContent ?? '';
     const values = cached(one(s, kind === 'scatterChart' ? 'yVal' : 'val')).map(Number);
     if (round(type)) { const colors = all(s, 'dPt').map(p => color(one(p, 'spPr'))); return { name, values, color: colors[0] || null, colors }; }
     const paint = kind === 'lineChart' ? lineColor(props) : kind === 'scatterChart' ? color(one(one(s, 'marker'), 'spPr')) || lineColor(props) : color(props);

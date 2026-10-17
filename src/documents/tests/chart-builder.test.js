@@ -153,3 +153,14 @@ it.each(ids)('paints %s charts with axes, labels, legend and title', async type 
   if (type === 'line-markers' || type.startsWith('scatter')) expect(arcs).toBeGreaterThanOrEqual(data.categories.length);
   if (type === 'line') expect(arcs).toBe(0);
 });
+
+it('refuses to read a chart whose data comes from a workbook, so editing keeps it as it is', async () => {
+  // A chart saved by a word processor: categories, values and series names are workbook references with caches.
+  const xml = strFromU8(unzipSync(new Uint8Array((await import('node:fs')).readFileSync('public/fixtures/chart-metadata-basic.docx')))['word/charts/chart1.xml']);
+  expect(xml).toMatch(/<c:numRef>/);
+  expect(() => chartDataFromXml(xml)).toThrow(/not stored in the chart/);
+  // A series name given by reference is refused as well.
+  const literal = chartSpaceXml(defaultChartData('column-clustered'));
+  expect(() => chartDataFromXml(literal.replace('<c:tx><c:v>Series 1</c:v></c:tx>', '<c:tx><c:strRef><c:f>Sheet1!$B$1</c:f></c:strRef></c:tx>'))).toThrow(/not stored in the chart/);
+  expect(chartDataFromXml(literal).series[0].name).toBe('Series 1');
+});

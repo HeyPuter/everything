@@ -23518,7 +23518,9 @@ claim of full OOXML conformance or of layout fidelity with other consumers.
   (`c:doughnutChart`) and scatter (`c:scatterChart`, `c:crossBetween val="midCat"`) are written,
   read and painted. Charts are inline and in the body only. Data labels, axis titles, secondary axes,
   combined plots and non-Latin labels are not supported (the reader keeps such charts read-only);
-  without an embedded workbook other applications show the chart but cannot edit its data.
+  without an embedded workbook other applications show the chart but cannot edit its data. Edit
+  Chart reads back only literal data; a chart whose categories, values or series names are workbook
+  references (`c:strRef`, `c:numRef`) is kept as it is and not offered for data editing.
 
 ### Header, footer and page numbers (§17.10)
 

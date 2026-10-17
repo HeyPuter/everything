@@ -219,6 +219,22 @@ test('icons, diagrams, charts, drawn shapes and SVG pictures save as drawings an
   expect(errors).toEqual([]);
 });
 
+test('a chart that reads its data from a workbook is not offered for data editing', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/playground.html');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/chart-metadata-basic.docx');
+  await expect.poll(() => input.inputValue()).toContain('\ufffc');
+  const at = (await input.inputValue()).indexOf('\ufffc');
+  await input.evaluate((el, at) => { el.focus(); el.setSelectionRange(at, at + 1); el.dispatchEvent(new Event('select', { bubbles: true })); }, at);
+  // With the chart selected, Chart edits it: its data lives in a workbook, so it is kept as it is.
+  await (await onTab(page, 'insert')).locator('#ribbon-panel-insert').getByRole('button', { name: 'Chart', exact: true }).click();
+  await expect(page.getByText('This chart’s data cannot be edited here. It is kept as it is.').first()).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Edit Chart' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test('equations, symbols and text from a file', async ({ page }, info) => {
   test.setTimeout(120000);
   const { input, errors, ribbon } = await start(page, { text: 'Formula: ' });
