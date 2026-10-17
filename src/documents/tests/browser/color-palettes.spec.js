@@ -36,7 +36,8 @@ test('anchored swatches preserve selection, show current colors, and support und
   await expect(menu.getByRole('menuitemradio', { name: 'Red', exact: true })).toBeFocused();
   await page.screenshot({ path: testInfo.outputPath('text-color-palette.png') });
   await menu.getByLabel('Custom text color hex value').fill('#123456');
-  await page.keyboard.press('Escape'); await expect(color).toBeFocused();
+  // A palette the pointer opened closes back to where the keyboard was: here the document.
+  await page.keyboard.press('Escape'); await expect(input).toBeFocused();
   await expect(color).toHaveAttribute('title', 'Text color: #FF0000');
   await color.click(); await color.click(); await expect(menu).toHaveCount(0);
   await highlight.click(); await page.getByRole('textbox', { name: 'Document name' }).click();
@@ -45,7 +46,7 @@ test('anchored swatches preserve selection, show current colors, and support und
   await expect(highlight).toHaveAttribute('title', 'Text highlight: Yellow');
 });
 
-test('supports keyboard swatches and nested Format palettes without dialogs', async ({ page }) => {
+test('supports keyboard swatches for both palettes without dialogs', async ({ page }) => {
   const input = await setup(page), color = tool(page, 'Text color');
   await color.focus(); await color.press('ArrowDown');
   await expect(page.getByRole('menuitemradio', { name: 'Automatic', exact: true })).toBeFocused();
@@ -55,14 +56,14 @@ test('supports keyboard swatches and nested Format palettes without dialogs', as
   await expect(page.getByRole('menuitemradio', { name: 'Red', exact: true })).toBeFocused();
   await page.keyboard.press('Enter'); await expect(input).toBeFocused();
   await expect(color).toHaveAttribute('title', 'Text color: #FF0000');
-  await page.getByRole('menuitem', { name: 'Format', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Text', exact: true }).press('ArrowRight');
-  const item = page.getByRole('menuitem', { name: 'Text highlight', exact: true });
-  await item.focus(); await item.press('ArrowRight');
+  // The Format menu no longer nests the palettes (it follows the desktop word processor's Format
+  // menu); the highlight palette is reached from its ribbon button with the keyboard instead.
+  const item = tool(page, 'Text highlight');
+  await item.focus(); await item.press('ArrowDown');
   const menu = palette(page, 'Text highlight');
   await expect(menu).toBeVisible(); await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.keyboard.press('Escape'); await expect(item).toBeFocused();
-  await item.press('ArrowRight');
+  await item.press('ArrowDown');
   await menu.getByRole('menuitemradio', { name: 'Dark blue', exact: true }).click();
   await expect(input).toBeFocused(); await expect(page.getByRole('menu')).toHaveCount(0);
   await expect(tool(page, 'Text highlight')).toHaveAttribute('title', 'Text highlight: Dark blue');
