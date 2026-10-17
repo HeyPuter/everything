@@ -16,7 +16,10 @@ import { meanFromSum, sumFromTotal } from '../core/numeric.js';
 import { checkAccessibility, accessibilityStatus } from '../core/accessibility-check.js';
 import { pageLayoutMetrics, pageNumber } from './page-layout.js';
 
-const MAX_SUMMARY_CELLS = 20000;
+// The most cells one summary reads: the stored cells (and spilled values) inside the selection, never
+// its area, so a whole column or the whole sheet costs what the sheet holds. Two hundred thousand
+// plain values read in a few tens of milliseconds, about what a selection change can spend.
+const MAX_SUMMARY_CELLS = 200000;
 // Totals read in the selection's own number format; dates,
 // times, and text formats would only mislead for a sum.
 const NUMERIC_FORMATS = new Set(['number', 'currency', 'percent', 'scientific']);
@@ -30,17 +33,45 @@ function numericStyleAt(wb, sheet, r, c) {
   return numericStyle(line || spill ? { ...line, ...spill?.style, ...cell?.s } : cell?.s);
 }
 
+// A stored value with no formula is the cell's own; only formulas (and fixed arrays) need the workbook.
+const valueOf = (wb, sheetId, r, c, cell) => (cell.f == null && !cell.array ? cell.v : wb.getValue(sheetId, r, c));
+
+/** Visit the stored cells inside a range: cell by cell when the range is smaller than the sheet's cell map, else one pass over the map. */
+function eachStored(sheet, { r1, c1, r2, c2 }, visit) {
+  if ((r2 - r1 + 1) * (c2 - c1 + 1) < sheet.cells.size) {
+    for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) { const cell = sheet.cells.get(cellKey(r, c)); if (cell) visit(r, c, cell); }
+    return;
+  }
+  for (const [key, cell] of sheet.cells) {
+    const i = key.indexOf(',');
+    const r = Number(key.slice(0, i));
+    if (r < r1 || r > r2) continue;
+    const c = Number(key.slice(i + 1));
+    if (c < c1 || c > c2) continue;
+    visit(r, c, cell);
+  }
+}
+
 // Only traversed when a summary sum overflowed. Range sizes were already
 // checked by summarize; overlapping selections retain their usual counts.
-// Rows a filter hides are out of the picture.
-const filteredOut = (wb, sheetId) => wb.sheet(sheetId)?.filterHidden || null;
-
+// Rows a filter hides are out of the picture. Like the summary, it reads the
+// stored cells and spilled values, not every position of a whole-column range.
 function* selectedNumbers(wb, sheetId, ranges) {
-  const hidden = filteredOut(wb, sheetId);
-  for (const { r1, c1, r2, c2 } of ranges) {
-    for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) {
-      if (hidden?.has(r)) continue;
-      const v = wb.getValue(sheetId, r, c);
+  const sheet = wb.sheet(sheetId);
+  if (!sheet) return;
+  const hidden = sheet.filterHidden || null;
+  const spills = wb.spillEntries(sheetId);
+  for (const range of ranges) {
+    const values = [];
+    eachStored(sheet, range, (r, c, cell) => {
+      if (cell.v == null && cell.f == null) return;
+      if (hidden?.has(r)) return;
+      const v = valueOf(wb, sheetId, r, c, cell);
+      if (typeof v === 'number') values.push(v);
+    });
+    yield* values;
+    for (const { r, c, value: v } of spills) {
+      if (r < range.r1 || r > range.r2 || c < range.c1 || c > range.c2 || hidden?.has(r)) continue;
       if (typeof v === 'number') yield v;
     }
   }
@@ -73,28 +104,21 @@ function rawSummary(wb, sheetId, range) {
   const tally = (r, c, cell) => {
     if (cell.v == null && cell.f == null) return;
     if (hidden?.has(r)) return;
-    const v = wb.getValue(sheetId, r, c);
+    const v = valueOf(wb, sheetId, r, c, cell);
     if (v == null || v === '') return;
     count++;
     if (typeof v === 'number' && !isError(v)) {
       sum += v; nums++; if (v < min) min = v; if (v > max) max = v;
-      const st = numericStyle(lines ? wb.styleAt(sheetId, r, c) : cell.s);
-      if (st && (!styleAt || r < styleAt.r || (r === styleAt.r && c < styleAt.c))) { style = st; styleAt = { r, c }; }
+      // Formats are read only where a number could still be the top-left one.
+      if (!styleAt || r < styleAt.r || (r === styleAt.r && c < styleAt.c)) {
+        const st = numericStyle(lines ? wb.styleAt(sheetId, r, c) : cell.s);
+        if (st) { style = st; styleAt = { r, c }; }
+      }
     }
   };
   // Look the selection up cell by cell when it is smaller than the sheet's
   // cell map, so arrowing around a large sheet does not rescan every cell.
-  if (total < sheet.cells.size) {
-    for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) { const cell = sheet.cells.get(cellKey(r, c)); if (cell) tally(r, c, cell); }
-  } else {
-    for (const [key, cell] of sheet.cells) {
-      const i = key.indexOf(',');
-      const r = Number(key.slice(0, i));
-      const c = Number(key.slice(i + 1));
-      if (r < r1 || r > r2 || c < c1 || c > c2) continue;
-      tally(r, c, cell);
-    }
-  }
+  eachStored(sheet, range, tally);
   for (const { r, c, value: v } of spills) {
     if (r < r1 || r > r2 || c < c1 || c > c2 || v == null || v === '' || hidden?.has(r)) continue;
     count++;

@@ -17,8 +17,8 @@ describe('selection summary', () => {
   it('gives up when the range and the sheet are both enormous', () => {
     const wb = new Workbook();
     const id = wb.sheets[0].id;
-    wb.setCells(id, Array.from({ length: 20001 }, (_, i) => ({ r: i % 1000, c: Math.floor(i / 1000), cell: { v: 1 } })));
-    expect(summarize(wb, id, { r1: 0, c1: 0, r2: 19999, c2: 25 })).toBeNull();
+    wb.setCells(id, Array.from({ length: 200001 }, (_, i) => ({ r: i % 10000, c: Math.floor(i / 10000), cell: { v: 1 } })));
+    expect(summarize(wb, id, { r1: 0, c1: 0, r2: 9999, c2: 25 })).toBeNull();
   });
 
   it('summarizes a whole-sheet selection by walking the cells the sheet holds, not its area', () => {
