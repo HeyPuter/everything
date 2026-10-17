@@ -3,15 +3,15 @@ import {chromium} from '@playwright/test';
 import {readFileSync,writeFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 const folder='tests/fixtures/installed-tracking-origins/';
-const output=process.argv[2];
-if(!output)throw Error('Usage: node tools/probe-installed-tracking-origins.mjs <output.json>');
+const [output,baseURL='http://127.0.0.1:5173']=process.argv.slice(2);
+if(!output)throw Error('Usage: node tools/probe-installed-tracking-origins.mjs <output.json> [BASE_URL]');
 const reference=JSON.parse(readFileSync(folder+'reference.json'));
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 if(sha(readFileSync(folder+'control.docx'))!==reference.sourceSha256||sha(readFileSync(folder+'cases.json'))!==reference.casesSha256)throw Error('Control/reference binding changed');
 for(const c of reference.cases)if(sha(readFileSync(folder+`page-${c.page+1}.emf`))!==c.captureSha256)throw Error('Native capture changed');
 const browser=await chromium.launch({channel:'chrome',headless:true});
 try{
- const page=await browser.newPage();await page.goto('http://127.0.0.1:5173/playground.html');
+ const page=await browser.newPage();await page.goto(new URL('/playground.html',baseURL).href);
  await page.getByRole('textbox',{name:'Document text'}).waitFor();
  const actual=await page.evaluate(async encoded=>{
   const{openCanvasDocument,CanvasEditor,setCanvasTextStyle}=await import('/tools/reviewed-family-modules.js');

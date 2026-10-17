@@ -6,7 +6,7 @@ test.setTimeout(180000);
 let comparison;
 test.beforeAll(async({},info)=>{
  const output=info.outputPath('comparison.json');
- execFileSync(process.execPath,['tools/probe-installed-tracking-origins.mjs',output],{timeout:150000,stdio:'pipe'});
+ execFileSync(process.execPath,['tools/probe-installed-tracking-origins.mjs',output,info.project.use.baseURL],{timeout:150000,stdio:'pipe'});
  comparison=JSON.parse(readFileSync(output)).comparison;
 });
 
