@@ -1,5 +1,17 @@
-import { describe, it, expect } from 'vitest';
-import { customTemplateId, customTemplatePath, customTemplatesFrom, customTemplateItems, templatePathFor, TEMPLATE_FOLDER } from '../src/lib/customtemplates.js';
+import { describe, it, expect, vi } from 'vitest';
+
+// An in-memory folder: writing without overwrite fails on a file that exists, as Puter's does.
+const files = vi.hoisted(() => new Map());
+vi.mock('../src/lib/puter.js', async (importOriginal) => ({
+  ...await importOriginal(),
+  fileExists: async (path) => files.has(path),
+  writeFile: async (path, blob, { overwrite = true } = {}) => {
+    if (!overwrite && files.has(path)) throw new Error('A file with this name already exists');
+    files.set(path, blob); return { path };
+  },
+}));
+
+import { customTemplateId, customTemplatePath, customTemplatesFrom, customTemplateItems, templatePathFor, templateExists, saveAsTemplate, TEMPLATE_FOLDER } from '../src/lib/customtemplates.js';
 
 describe('custom templates', () => {
   it('round-trips ids and tells them from built-in ones', () => {
@@ -12,6 +24,19 @@ describe('custom templates', () => {
     expect(TEMPLATE_FOLDER).toBe('Documents/Templates');
     expect(templatePathFor('Invoice')).toBe('Documents/Templates/Invoice.docx');
     expect(templatePathFor('Invoice.docx')).toBe('Documents/Templates/Invoice.docx');
+  });
+
+  it('checks for an existing template under the name it writes, whatever the extension\'s case', async () => {
+    files.clear();
+    await saveAsTemplate(new Blob(['a']), 'Report');
+    for (const name of ['Report', 'Report.docx', 'Report.DOCX', 'Report.Docx']) {
+      expect(await templateExists(name)).toBe(true);
+      expect(templatePathFor(name)).toBe('Documents/Templates/Report.docx');
+    }
+    // Replacing it writes over the same file instead of failing or adding another.
+    expect(await saveAsTemplate(new Blob(['b']), 'Report.DOCX', { overwrite: true })).toEqual({ path: 'Documents/Templates/Report.docx', name: 'Report' });
+    expect([...files.keys()]).toEqual(['Documents/Templates/Report.docx']);
+    expect(await templateExists('Other.DOCX')).toBe(false);
   });
 
   it('keeps the DOCX files of a folder listing, A to Z', () => {

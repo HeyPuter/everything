@@ -49,8 +49,9 @@ export async function listCustomTemplates() {
   return customTemplatesFrom(await P.listFolder(TEMPLATE_FOLDER));
 }
 
+/** Where a template of this name is written: "Report", "Report.docx" and "Report.DOCX" all name Report.docx. */
 export function templatePathFor(name) {
-  return `${TEMPLATE_FOLDER}/${P.ensureDocx(name)}`;
+  return `${TEMPLATE_FOLDER}/${P.documentStem(name)}.docx`;
 }
 
 export async function templateExists(name) {
@@ -61,7 +62,7 @@ export async function templateExists(name) {
 export async function saveAsTemplate(blob, name, { overwrite = false } = {}) {
   const clean = P.documentStem(name);
   if (!clean) throw new Error('Enter a name');
-  const path = templatePathFor(clean);
+  const path = templatePathFor(name);
   await P.writeFile(path, blob, { overwrite });
   return { path, name: clean };
 }
