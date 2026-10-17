@@ -99,6 +99,40 @@ describe('room service', () => {
     await expect(service.call(BOB, { op: 'create', room: 'x', initial: '', base: '' })).rejects.toMatchObject({ status: 403 });
   });
 
+  it('keeps the edit log readable after a commit whose record could not be stored', async () => {
+    const { service } = await sharedRoom();
+    const write = service.fs.write;
+    let failNext = true;
+    service.fs.write = async (path, data, options) => {
+      if (failNext && path.includes('/log/')) { failNext = false; throw new Error('network'); }
+      return write(path, data, options);
+    };
+    // A large change goes to a file of its own; that write fails once, and the client sends the change again.
+    const big = 'x'.repeat(90_000);
+    const synced = await service.call(OWNER, { op: 'sync', room: 'room1' });
+    const local = new Y.Doc(); Y.applyUpdate(local, decode(synced.update));
+    const before = Y.encodeStateVector(local);
+    local.getText('body').insert(0, big);
+    const update = encode(Y.encodeStateAsUpdate(local, before));
+    await expect(service.call(OWNER, { op: 'commit', room: 'room1', update })).rejects.toThrow('network');
+    await service.call(OWNER, { op: 'commit', room: 'room1', update });
+    // Storing a small change's record fails once too.
+    const set = service.kv.set;
+    let failSet = true;
+    service.kv.set = async (key, value, ...rest) => {
+      if (failSet && key.includes(':log:')) { failSet = false; throw new Error('kv down'); }
+      return set(key, value, ...rest);
+    };
+    await expect(editAs(service, OWNER, doc => doc.getText('body').insert(0, 'Lost? '))).rejects.toThrow('kv down');
+    await editAs(service, OWNER, doc => doc.getText('body').insert(0, 'Later. '));
+    // Another worker instance (or this one after a restart) reads the room from the log.
+    const fresh = new RoomService(service.puter, { rooms: new Map() });
+    const doc = new Y.Doc(); Y.applyUpdate(doc, decode((await fresh.call(OWNER, { op: 'sync', room: 'room1' })).update));
+    const body = doc.getText('body').toString();
+    expect(body.startsWith('Later. ')).toBe(true);
+    expect(body).toContain(big);
+  });
+
   it('reads compressed token claims', () => {
     const payload = btoa(JSON.stringify({ t: 't', uu: '3q2-7w', exp: 10 })).replace(/=+$/, '');
     expect(tokenClaims(`x.${payload}.y`).type).toBe('access-token');

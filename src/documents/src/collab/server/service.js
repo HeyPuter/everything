@@ -19,7 +19,7 @@
  *   doc:<room>:presence:<session>   presence entry (expires)
  */
 import * as Y from 'yjs';
-import { canComment, canEdit, canManage, decode, encode, hash, ID, INVITE_ROLES, MAX_UPDATE, MAX_BASE_BYTES, PRESENCE_TTL } from '../protocol.js';
+import { canComment, canEdit, canManage, decode, encode, hash, ID, INVITE_ROLES, MAX_UPDATE, MAX_BASE_BYTES, PRESENCE_TTL, randomId } from '../protocol.js';
 import { checkCommentOnly } from '../transports.js';
 
 export const INVITE_DAYS = 7;
@@ -108,7 +108,7 @@ export class RoomService {
     for (let n = entry.seq + 1; n <= last; n++) {
       const record = await this.kv.get(`doc:${room}:log:${pad(n)}`);
       if (!record) break; // numbered by a commit still being written elsewhere
-      Y.applyUpdate(entry.doc, decode(record.file ? await this.readText(record.file) : record.update), 'log');
+      if (!record.skipped) Y.applyUpdate(entry.doc, decode(record.file ? await this.readText(record.file) : record.update), 'log');
       entry.seq = n;
     }
     return entry;
@@ -209,11 +209,18 @@ export class RoomService {
     if (missing) fail(409, 'This change builds on edits the server has not received. Synchronize and try again.');
     for (const root of roots) if (!ROOTS.has(root)) fail(400, 'Invalid change.');
     if (!canEdit(member.role)) checkCommentOnly(entry.doc, update);
-    const seq = await this.kv.incr(`doc:${room}:seq`);
     const record = { user: member.uuid, at: this.now() };
-    if (input.update.length > INLINE_UPDATE) { record.file = this.path(room, `log/${pad(seq)}.txt`); await this.writeText(record.file, input.update); }
+    // A large change's file is written before the change takes a number: readers of the log stop at a number
+    // without a record (a commit still being written), so a failed write after numbering would hide every later change.
+    if (input.update.length > INLINE_UPDATE) { record.file = this.path(room, `log/${randomId(12)}.txt`); await this.writeText(record.file, input.update); }
     else record.update = input.update;
-    await this.kv.set(`doc:${room}:log:${pad(seq)}`, record);
+    const seq = await this.kv.incr(`doc:${room}:seq`);
+    try { await this.kv.set(`doc:${room}:log:${pad(seq)}`, record); }
+    catch (error) {
+      // The client sends the change again; the number it took is marked as empty so the log reads on past it.
+      await this.kv.set(`doc:${room}:log:${pad(seq)}`, { user: member.uuid, at: this.now(), skipped: true }).catch(() => {});
+      throw error;
+    }
     Y.applyUpdate(entry.doc, update, 'log');
     if (entry.seq === seq - 1) entry.seq = seq;
     if (seq % CHECKPOINT_EVERY === 0 && entry.seq === seq) {
