@@ -951,11 +951,16 @@ function formulaShaped(text, value) {
   return read.f != null || typeof read.v === 'string';
 }
 
-/** One range as delimiter-separated text: fields holding the delimiter, quotes, or line breaks are quoted. */
+/**
+ * One range as delimiter-separated text: fields holding the delimiter, quotes, or line breaks are quoted.
+ * A CSV also quotes a field holding a tab, semicolon or pipe, separators the reader's detection weighs,
+ * so a one-column file whose text holds a "; " reopens as the one column it was. A comma stays bare in
+ * a semicolon CSV, where it is the decimal mark (1,5).
+ */
 export function rangeToDelimited(wb, sheetId, range, delim) {
   const sheet = wb.sheet(sheetId);
   if (!sheet) return '';
-  const quoteRe = new RegExp(`["${delim === '\t' ? '\\t' : delim}\\r\\n]`);
+  const quoteRe = delim === '\t' ? /["\t\r\n]/ : delim === ',' ? /["\t,;|\r\n]/ : new RegExp(`["\\t;|\\r\\n${delim}]`);
   const lines = [];
   // Whole columns or rows end where the sheet's content does, not at row 1,048,576 or column XFD.
   const used = range.r2 >= MAX_ROW || range.c2 >= MAX_COL ? wb.usedRange(sheetId) || { r2: range.r1, c2: range.c1 } : null;
@@ -2067,7 +2072,7 @@ export function detectDelimiter(src, filename = '') {
     }
     return readable.get(d);
   };
-  let best = ',';
+  let best = preferred;
   let bestScore = -1;
   for (const d of ['\t', ',', ';', '|']) {
     // Count separators outside quotes on each line; a good separator appears on every line, the same number of times.
@@ -2077,11 +2082,14 @@ export function detectDelimiter(src, filename = '') {
       for (const ch of line) { if (ch === '"') quoted = !quoted; else if (!quoted && ch === d) n++; }
       return n;
     });
-    const nonZero = counts.filter((n) => n > 0).length;
-    if (!nonZero) continue;
+    // A separator shows on at least half the lines (the median count is not 0): a "; " in one
+    // line of notes is punctuation, and a file none splits that way is one column, read with the
+    // locale's own separator as Excel reads it there.
     const mode = counts.slice().sort((a, b) => a - b)[Math.floor(counts.length / 2)];
+    if (!mode) continue;
+    const nonZero = counts.filter((n) => n > 0).length;
     const consistent = counts.filter((n) => n === mode).length;
-    const score = nonZero * 2 + consistent + (mode > 0 ? 1 : 0);
+    const score = nonZero * 2 + consistent;
     const tie = score === bestScore && (readableShare(d) > readableShare(best) || (readableShare(d) === readableShare(best) && d === preferred));
     if (score > bestScore || tie) { bestScore = score; best = d; }
   }
