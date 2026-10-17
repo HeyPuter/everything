@@ -30,7 +30,7 @@ import { invoke, isLambda, runtime } from './lambda.js';
 import { runQuery } from './query.js';
 import { rowsFromXml } from '../importrange.js';
 import { cachedModel, forecastAt, confidenceAt, statistic } from '../forecast-ets.js';
-import { midpoint, mean as numericMean, sum, product, MIN_NORMAL, flushUnderflow, hasZeroHighWord, squaredDeviations, variance as numericVariance } from '../numeric.js';
+import { maxOf, midpoint, mean as numericMean, sum, product, MIN_NORMAL, flushUnderflow, hasZeroHighWord, squaredDeviations, variance as numericVariance } from '../numeric.js';
 
 /* ---------- Value helpers ---------- */
 
@@ -5995,7 +5995,7 @@ function invertMatrix(A) {
   const m = A.map((row, i) => [...row, ...range0(n).map((j) => (i === j ? 1 : 0))]);
   // Singular means a pivot negligible against the matrix's own scale, not against a fixed 1e-12:
   // a matrix of tiny (or huge) numbers is as invertible as one of ordinary ones.
-  const scale = Math.max(...A.flat().map(Math.abs));
+  const scale = maxOf(A.flat().map(Math.abs));
   if (!(scale > 0) || !Number.isFinite(scale)) return null;
   for (let i = 0; i < n; i++) {
     let pivot = i;

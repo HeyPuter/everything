@@ -7,6 +7,7 @@ import { colName } from './cell.js';
 import { quoteSheet } from './refs.js';
 import { cachedModel, prepareSeries, forecastAt, confidenceAt, statistic } from './forecast-ets.js';
 import { numFmtToStyle } from './format.js';
+import { maxOf } from './numeric.js';
 
 export const AGGREGATIONS = ['Average', 'Count', 'CountA', 'Max', 'Median', 'Min', 'Sum'];
 export const STATISTICS = [['Alpha', 1], ['Beta', 2], ['Gamma', 3], ['MASE', 4], ['SMAPE', 5], ['MAE', 6], ['RMSE', 7]];
@@ -91,7 +92,7 @@ export function timelineStep(points) {
 export function forecastDefaults(source) {
   const steps = timelineStep(source.points);
   if (steps.error) return { error: steps.error };
-  const last = Math.max(...source.points.map((p) => p.x));
+  const last = maxOf(source.points.map((p) => p.x));
   const ahead = Math.max(1, Math.ceil(new Set(source.points.map((p) => p.x)).size / 3));
   return { start: last, end: steps.next(last, ahead), last, steps };
 }

@@ -2,12 +2,14 @@
  * Data ▸ Consolidate: combine several ranges into one table, cell by cell by position, or by the labels in
  * their top row and/or left column (the union of labels, in the order first seen), with one of the summary functions below.
  */
+import { maxOf, minOf } from './numeric.js';
+
 const FUNCS = {
   sum: (xs) => xs.reduce((a, b) => a + b, 0),
   count: (xs, all) => all.length,
   average: (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null),
-  max: (xs) => (xs.length ? Math.max(...xs) : null),
-  min: (xs) => (xs.length ? Math.min(...xs) : null),
+  max: (xs) => (xs.length ? maxOf(xs) : null),
+  min: (xs) => (xs.length ? minOf(xs) : null),
   product: (xs) => (xs.length ? xs.reduce((a, b) => a * b, 1) : null),
   countNums: (xs) => xs.length,
   stdev: (xs) => (xs.length > 1 ? Math.sqrt(variance(xs, 1)) : null),

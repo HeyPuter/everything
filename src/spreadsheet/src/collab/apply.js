@@ -11,6 +11,7 @@
 
 import { makeSheet, sheetShapeJSON, cloneCell } from '../core/workbook.js';
 import { parseCellKey, LINE_PROPS } from './ops.js';
+import { maxOf } from '../core/numeric.js';
 
 const own = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k);
 
@@ -171,7 +172,7 @@ export function applyOps(wb, ops, label = 'Shared edit') {
         break;
       case 'delete':
         if (!sheet) break;
-        reach(wb, sheet, op.axis, Math.max(...op.runs.map((r) => r.to)) + 1);
+        reach(wb, sheet, op.axis, maxOf(op.runs.map((r) => r.to)) + 1);
         wb._deleteLines(op.s, op.axis, op.runs.map((r) => ({ from: r.from, to: r.to })));
         break;
       case 'move':

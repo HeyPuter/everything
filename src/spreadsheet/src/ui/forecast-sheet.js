@@ -10,6 +10,7 @@ import { toast } from './toast.js';
 import { rangeName } from '../core/cell.js';
 import { quoteSheet } from '../core/refs.js';
 import { formatValue, parseInput } from '../core/format.js';
+import { maxOf, minOf } from '../core/numeric.js';
 import { readForecastSource, forecastDefaults, forecastPreview, createForecastSheet, AGGREGATIONS } from '../core/forecast-sheet.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -33,7 +34,7 @@ function drawPreview(host, preview, chartType) {
   }
   const pts = preview.points;
   const ys = pts.flatMap((p) => [p.value, p.forecast, p.lower, p.upper]).filter((v) => typeof v === 'number');
-  let lo = Math.min(...ys), hi = Math.max(...ys);
+  let lo = minOf(ys), hi = maxOf(ys);
   if (lo === hi) { lo -= 1; hi += 1; }
   const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
   const x = (i) => L + ((W - L - R) * (pts.length === 1 ? 0.5 : i / (pts.length - 1)));
@@ -94,8 +95,8 @@ export function openForecastSheet(ctx) {
   const columnText = (part) => {
     const pts = source.points;
     const cells = pts.map((p) => (part === 'timeline' ? p.cell : p.valueCell));
-    const r1 = Math.min(...cells.map((c) => c.r)), r2 = Math.max(...cells.map((c) => c.r));
-    const c1 = Math.min(...cells.map((c) => c.c)), c2 = Math.max(...cells.map((c) => c.c));
+    const r1 = minOf(cells.map((c) => c.r)), r2 = maxOf(cells.map((c) => c.r));
+    const c1 = minOf(cells.map((c) => c.c)), c2 = maxOf(cells.map((c) => c.c));
     return `${sheetName}!${rangeName({ r1, c1, r2, c2 }).replace(/([A-Z]+)(\d+)/g, '$$$1$$$2')}`;
   };
   const timelineInput = el('input.input', { type: 'text', id: id('timeline'), value: columnText('timeline'), autocomplete: 'off', spellcheck: false });

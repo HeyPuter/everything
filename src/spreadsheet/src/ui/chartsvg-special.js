@@ -7,6 +7,7 @@
 import { axisLabel, niceScale, chartPointStyle } from '../core/charts.js';
 import { chartAxisScale } from '../core/chart-axis-scale.js';
 import { formatValue, fontStack } from '../core/format.js';
+import { maxOf, minOf } from '../core/numeric.js';
 import { bandPolygon, boxGroups, boxStats, buildHierarchy, hierarchyDepth, hierarchyNodes, isoSegment, stockSeries, sunburstLayout,
   surfaceBands, surfaceGrid, surfaceTriangles, topAncestor, treemapLayout } from '../core/chart-special.js';
 import { seriesColor, seriesPaint, inkOn, svgEsc as esc, svgNum as f, chartTipText as tipText, layoutLegend, chartAreaRect, elementEffectDefs,
@@ -116,8 +117,15 @@ function hierarchyOf(data) {
   return buildHierarchy(paths, values);
 }
 /** The colour of a node: its level-1 branch's, the chart's own choice for that branch over the palette. */
-const branchColor = (chart, root, node) => seriesColor(chart, Math.max(0, root.children.indexOf(topAncestor(node))));
-const branchPaint = (chart, root, node) => seriesPaint(chart, Math.max(0, root.children.indexOf(topAncestor(node))));
+// A branch's place among the root's children, looked up rather than searched for each of thousands of leaves.
+const branchIndexes = new WeakMap();
+const branchIndex = (root, node) => {
+  let places = branchIndexes.get(root);
+  if (!places) branchIndexes.set(root, places = new Map(root.children.map((child, i) => [child, i])));
+  return places.get(topAncestor(node)) ?? 0;
+};
+const branchColor = (chart, root, node) => seriesColor(chart, branchIndex(root, node));
+const branchPaint = (chart, root, node) => seriesPaint(chart, branchIndex(root, node));
 const pathTip = (node, style) => `${node.path.join(' › ')}: ${valueText(node.value, style)}`;
 
 function renderTreemap(data, chart, width, height) {
@@ -159,7 +167,7 @@ function renderTreemap(data, chart, width, height) {
       names.push(text(fitText(node.name, item.w - 8, big), item.x + 4, item.y + 4 + big.size, big, 'start', 'class="chart-treemap-parent"'));
     }
   });
-  parts.push('<g class="chart-treemap">', ...marks, '</g>', ...names, fr.drawLegend(), '</svg>');
+  parts.push('<g class="chart-treemap">', marks.join(''), '</g>', names.join(''), fr.drawLegend(), '</svg>');
   return parts.join('');
 }
 
@@ -202,7 +210,7 @@ function renderSunburst(data, chart, width, height) {
     const name = fitText(node.name, Math.max(0, room), ink);
     if (name && ring >= st.label.size + 4) labels.push(text(name, cx + rm * Math.sin(mid), cy - rm * Math.cos(mid) + st.label.size * .35, ink, 'middle', 'class="chart-data-label" data-el="dataLabels" data-series="0"'));
   }
-  parts.push('<g class="chart-sunburst">', ...marks, '</g>', ...labels, fr.drawLegend(), '</svg>');
+  parts.push('<g class="chart-sunburst">', marks.join(''), '</g>', labels.join(''), fr.drawLegend(), '</svg>');
   return parts.join('');
 }
 
@@ -232,7 +240,7 @@ function categoryAxis(fr, categories, plot, slot) {
   const { a, st } = fr;
   if (a?.hideXAxis || a?.xLabelPosition === 'none') return '';
   const short = categoryShortener(categories, 18);
-  const widest = Math.max(0, ...categories.map(c => axisTextWidth(short(c), st.axis)));
+  const widest = maxOf(categories.map(c => axisTextWidth(short(c), st.axis)), 0);
   const every = Math.max(1, Math.ceil((widest + 8) / Math.max(1, slot)));
   const axisColor = a?.axisStyles?.x?.color && a.axisStyles.x.color !== 'none' ? a.axisStyles.x.color : a ? '#d9d9d9' : 'var(--grid)';
   const out = [`<line class="chart-axis-line" x1="${f(plot.x)}" y1="${f(plot.y + plot.h)}" x2="${f(plot.x + plot.w)}" y2="${f(plot.y + plot.h)}" stroke="${esc(axisColor)}" stroke-width="1" data-el="xAxis"/>`];
@@ -256,7 +264,7 @@ function renderBoxWhisker(data, chart, width, height) {
     `Box and whisker chart of ${grouped.series.length} ${grouped.series.length === 1 ? 'series' : 'series'} over ${grouped.categories.length} ${grouped.categories.length === 1 ? 'group' : 'groups'}; first median ${valueText(first.median, data.valueStyle)}.`);
   const { parts, plot, st, a } = fr;
   const all = stats.flat().filter(Boolean);
-  const lo = Math.min(...all.map(s => s.min)), hi = Math.max(...all.map(s => s.max));
+  const lo = minOf(all.map(s => s.min)), hi = maxOf(all.map(s => s.max));
   const scale = chartAxisScale(lo, hi, { min: chart.yMin, max: chart.yMax, step: a?.yStep, ticks: 5 });
   const axis = valueAxis(fr, chart, scale, data.valueStyle, { grid: chart.gridlines !== false });
   const named = grouped.categories.some(Boolean);
@@ -293,7 +301,7 @@ function renderBoxWhisker(data, chart, width, height) {
     });
     if (opts.meanLine && means.length > 1) parts.push(`<polyline class="chart-box-mean-line" points="${means.map(p => p.map(f).join(',')).join(' ')}" fill="none" stroke="${esc(shadeColor(seriesColor(chart, j), -.35))}" stroke-width="1.5"/>`);
   });
-  parts.push('</g>', ...labels);
+  parts.push('</g>', labels.join(''));
   if (named) parts.push(categoryAxis(fr, grouped.categories, plot, slot));
   parts.push(fr.drawLegend(), '</svg>');
   return parts.join('');
@@ -311,9 +319,9 @@ function renderFunnel(data, chart, width, height) {
   const { parts, plot, st, a } = fr;
   const short = categoryShortener(points.map(p => p.c), 22);
   const showAxis = !a?.hideXAxis && a?.xLabelPosition !== 'none';
-  const labelW = showAxis ? Math.min(plot.w * .35, Math.max(0, ...points.map(p => axisTextWidth(short(p.c), st.axis))) + 10) : 0;
+  const labelW = showAxis ? Math.min(plot.w * .35, maxOf(points.map(p => axisTextWidth(short(p.c), st.axis)), 0) + 10) : 0;
   plot.x += labelW; plot.w = Math.max(10, plot.w - labelW);
-  const max = Math.max(...points.map(p => Math.abs(p.v))) || 1;
+  const max = maxOf(points.map(p => Math.abs(p.v))) || 1;
   const slot = plot.h / points.length, gapWidth = a ? a.gapWidth : 6, barH = slot / (1 + gapWidth / 100), cx = plot.x + plot.w / 2;
   const colors = new Map((a?.pointColors?.[0] || []).map(p => [p.index, p.color]));
   points.forEach((p, k) => {
@@ -350,11 +358,11 @@ function renderStock(data, chart, width, height) {
   const prices = [stock.high, stock.low, stock.close, ...(open ? [stock.open] : [])].flat().filter(Number.isFinite);
   if (!prices.length) return message(chart, width, height, 'No prices to chart');
   const last = stock.close.findLastIndex(Number.isFinite);
-  const fr = chartFrame(chart, width, height, entries, `Stock chart of ${n} periods; prices from ${valueText(Math.min(...prices), priceStyle)} to ${valueText(Math.max(...prices), priceStyle)}${last >= 0 ? `, last close ${valueText(stock.close[last], priceStyle)}` : ''}.`);
+  const fr = chartFrame(chart, width, height, entries, `Stock chart of ${n} periods; prices from ${valueText(minOf(prices), priceStyle)} to ${valueText(maxOf(prices), priceStyle)}${last >= 0 ? `, last close ${valueText(stock.close[last], priceStyle)}` : ''}.`);
   const { parts, plot, st, a } = fr;
-  const priceScale = chartAxisScale(Math.min(...prices), Math.max(...prices), { min: volume ? a?.y2Min : chart.yMin, max: volume ? a?.y2Max : chart.yMax, ticks: 5 });
+  const priceScale = chartAxisScale(minOf(prices), maxOf(prices), { min: volume ? a?.y2Min : chart.yMin, max: volume ? a?.y2Max : chart.yMax, ticks: 5 });
   const volumes = volume ? stock.volume.filter(Number.isFinite) : [];
-  const volumeScale = volume ? chartAxisScale(0, Math.max(0, ...volumes), { min: chart.yMin ?? 0, max: chart.yMax, step: a?.yStep, ticks: 5 }) : null;
+  const volumeScale = volume ? chartAxisScale(0, maxOf(volumes, 0), { min: chart.yMin ?? 0, max: chart.yMax, step: a?.yStep, ticks: 5 }) : null;
   // Volume reads on the left; prices then take the right-hand axis, as the two scales differ by orders of magnitude.
   const left = valueAxis(fr, chart, volume ? volumeScale : priceScale, volume ? stock.styles.volume : priceStyle, { grid: chart.gridlines !== false });
   const right = volume ? valueAxis(fr, chart, priceScale, priceStyle, { side: 'right', grid: false }) : null;
@@ -385,7 +393,7 @@ function renderStock(data, chart, width, height) {
     parts.push('</g>');
     if (labelsOn(chart) && Number.isFinite(c) && slot >= 18) labels.push(text(valueText(c, priceStyle), x + 3, yp(c) - 3, st.label, 'start', 'class="chart-data-label" data-el="dataLabels" data-series="0"'));
   }
-  parts.push(...labels, categoryAxis(fr, stock.categories, plot, slot), fr.drawLegend(), '</svg>');
+  parts.push(labels.join(''), categoryAxis(fr, stock.categories, plot, slot), fr.drawLegend(), '</svg>');
   return parts.join('');
 }
 
@@ -397,13 +405,13 @@ function renderSurface(data, chart, width, height) {
   const values = grid.z.flat().filter(Number.isFinite);
   if (!values.length) return message(chart, width, height, 'No numbers to chart');
   const a = chart.appearance;
-  const bands = surfaceBands(Math.min(...values), Math.max(...values), { min: chart.yMin, max: chart.yMax, step: a?.yStep, niceScale });
+  const bands = surfaceBands(minOf(values), maxOf(values), { min: chart.yMin, max: chart.yMax, step: a?.yStep, niceScale });
   const style = data.valueStyle;
   const bandLabel = b => `${axisLabel(b.lo, style, bands.step)}–${axisLabel(b.hi, style, bands.step)}`;
   const view = chart.surfaceView || 'surface3d', wire = view === 'wireframe3d' || view === 'wireframeContour';
   const entries = bands.bands.map((b, k) => ({ name: bandLabel(b), i: k, paint: seriesPaint(chart, k), key: wire ? 'line' : 'box' }));
   const fr = chartFrame(chart, width, height, entries,
-    `${view.endsWith('ontour') ? 'Contour' : 'Surface'} chart of ${grid.rows} by ${grid.cols} values from ${valueText(Math.min(...values), style)} to ${valueText(Math.max(...values), style)} in ${bands.bands.length} bands.`);
+    `${view.endsWith('ontour') ? 'Contour' : 'Surface'} chart of ${grid.rows} by ${grid.cols} values from ${valueText(minOf(values), style)} to ${valueText(maxOf(values), style)} in ${bands.bands.length} bands.`);
   const bandOf = z => Math.max(0, Math.min(bands.bands.length - 1, Math.floor((z - bands.min) / bands.step)));
   const tris = surfaceTriangles(grid);
   if (view === 'contour' || view === 'wireframeContour') drawContour(fr, chart, grid, bands, tris, bandOf, wire);
@@ -415,7 +423,7 @@ function renderSurface(data, chart, width, height) {
 function drawContour(fr, chart, grid, bands, tris, bandOf, wire) {
   const { parts, plot, st, a } = fr;
   const short = categoryShortener(grid.colNames, 16);
-  const leftW = Math.min(plot.w * .3, Math.max(0, ...grid.colNames.map(c => axisTextWidth(short(c), st.axis))) + 8);
+  const leftW = Math.min(plot.w * .3, maxOf(grid.colNames.map(c => axisTextWidth(short(c), st.axis)), 0) + 8);
   plot.x += leftW; plot.w = Math.max(10, plot.w - leftW - 4);
   plot.h = Math.max(10, plot.h - st.axis.size * 1.7);
   // Categories run across, series up the plot, as a surface seen from above.
@@ -435,8 +443,8 @@ function drawContour(fr, chart, grid, bands, tris, bandOf, wire) {
     if (polys.length) parts.push(`<g class="chart-contour-band" data-el="series" data-series="${k}" fill="${esc(paint)}" stroke="${esc(paint)}" stroke-width=".6" stroke-linejoin="round">${polys.map(p => `<polygon points="${pts(p)}"/>`).join('')}</g>`);
   });
   const slot = plot.w / Math.max(1, grid.rows - 1);
+  const every = Math.max(1, Math.ceil((maxOf(grid.rowNames.map(c => axisTextWidth(c, st.axis)), 0) + 8) / Math.max(1, slot)));
   grid.rowNames.forEach((name, r) => {
-    const every = Math.max(1, Math.ceil((Math.max(0, ...grid.rowNames.map(c => axisTextWidth(c, st.axis))) + 8) / Math.max(1, slot)));
     if (r % every || a?.hideXAxis) return;
     parts.push(text(name, X(r), plot.y + plot.h + st.axis.size * 1.3, st.axis, 'middle', 'class="chart-axis-label"'));
   });
@@ -454,7 +462,7 @@ function drawSurface3d(fr, chart, grid, bands, tris, bandOf, wire, style) {
   for (const X of [-.5, .5]) for (const Y of [-.5, .5]) for (const Z of [0, height]) corners.push(project([X, Y, Z]));
   const minX = Math.min(...corners.map(c => c.x)), maxX = Math.max(...corners.map(c => c.x)), minY = Math.min(...corners.map(c => c.y)), maxY = Math.max(...corners.map(c => c.y));
   const valueW = Math.max(...[bands.min, ...bands.bands.map(b => b.hi)].map(v => axisTextWidth(axisLabel(v, style, bands.step), st.value))) + 10;
-  const seriesW = Math.min(plot.w * .25, Math.max(...grid.colNames.map(c => axisTextWidth(c, st.axis))) + 10);
+  const seriesW = Math.min(plot.w * .25, maxOf(grid.colNames.map(c => axisTextWidth(c, st.axis))) + 10);
   const room = { x: plot.x + valueW, y: plot.y + 4, w: Math.max(10, plot.w - valueW - seriesW), h: Math.max(10, plot.h - st.axis.size * 2) };
   const k = Math.min(room.w / (maxX - minX || 1), room.h / (maxY - minY || 1));
   const ox = room.x + (room.w - (maxX - minX) * k) / 2 - minX * k, oy = room.y + (room.h - (maxY - minY) * k) / 2 - minY * k;

@@ -6,6 +6,8 @@
  *   breaks: number[] } — `breaks` are the character positions a fixed-width line is cut before (5 cuts "ab cde|fg").
  */
 
+import { maxOf } from './numeric.js';
+
 export const DEFAULT_SPLIT = Object.freeze({ mode: 'delimited', delimiters: [','], consecutive: false, qualifier: '"', breaks: [] });
 
 /** The pieces of `text`, trimmed of the spaces around them as the old one-separator split did. */
@@ -64,7 +66,7 @@ export function detectDelimiter(texts) {
 export function suggestBreaks(texts) {
   const lines = texts.map(String).filter((t) => t.length);
   if (!lines.length) return [];
-  const width = Math.max(...lines.map((t) => t.length));
+  const width = maxOf(lines.map((t) => t.length));
   const breaks = [];
   for (let p = 1; p < width; p++) {
     const blankBefore = lines.every((t) => p > t.length || t[p - 1] === ' ');

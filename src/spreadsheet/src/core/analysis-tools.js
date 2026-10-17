@@ -14,6 +14,7 @@
 import { FUNCTIONS, isError, isRange } from './formula/functions.js';
 import { numFmtToStyle } from './format.js';
 import { colName } from './cell.js';
+import { maxOf, minOf } from './numeric.js';
 import { quoteSheet } from './refs.js';
 import { Workbook } from './workbook.js';
 
@@ -315,8 +316,8 @@ export function descriptiveStatistics(groups, { summary = true, confidence = nul
       const sd = call('STDEV.S', xs);
       rows.push(['Mean', xs.length ? mean(xs) : DIV0], ['Standard Error', isError(sd) ? sd : sd / Math.sqrt(xs.length)],
         ['Median', call('MEDIAN', xs)], ['Mode', call('MODE.SNGL', xs)], ['Standard Deviation', sd], ['Sample Variance', call('VAR.S', xs)],
-        ['Kurtosis', call('KURT', xs)], ['Skewness', call('SKEW', xs)], ['Range', xs.length ? Math.max(...xs) - Math.min(...xs) : 0],
-        ['Minimum', xs.length ? Math.min(...xs) : 0], ['Maximum', xs.length ? Math.max(...xs) : 0], ['Sum', sum(xs)], ['Count', xs.length]);
+        ['Kurtosis', call('KURT', xs)], ['Skewness', call('SKEW', xs)], ['Range', xs.length ? maxOf(xs) - minOf(xs) : 0],
+        ['Minimum', xs.length ? minOf(xs) : 0], ['Maximum', xs.length ? maxOf(xs) : 0], ['Sum', sum(xs)], ['Count', xs.length]);
     }
     if (kthLargest != null) rows.push([`Largest(${kthLargest})`, call('LARGE', xs, kthLargest)]);
     if (kthSmallest != null) rows.push([`Smallest(${kthSmallest})`, call('SMALL', xs, kthSmallest)]);
@@ -584,7 +585,7 @@ export function histogram(group, { bins = null, binLabel = null, pareto = false,
     edges = nums(bins).sort((a, b) => a - b);
     if (!edges.length) return fail('Bin range holds no numbers.');
   } else {
-    const lo = Math.min(...xs), hi = Math.max(...xs);
+    const lo = minOf(xs), hi = maxOf(xs);
     const m = Math.max(1, Math.round(Math.sqrt(xs.length)));
     edges = Array.from({ length: m + 1 }, (_, i) => (i === m ? hi : lo + ((hi - lo) * i) / m));
     if (lo === hi) edges = [lo];
@@ -891,7 +892,7 @@ export const TOOLS = [
 /** The rows and columns a layout covers. */
 export function layoutSize(layout) {
   const rows = layout.cells.length;
-  const cols = Math.max(1, ...layout.cells.map((row) => row.length));
+  const cols = maxOf(layout.cells.map((row) => row.length), 1);
   return { rows: Math.max(1, rows), cols };
 }
 

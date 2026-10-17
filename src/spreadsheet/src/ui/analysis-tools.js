@@ -457,6 +457,10 @@ export function openAnalysisTool(ctx, id) {
   const submit = async (e) => {
     e?.preventDefault();
     if (busy) return;
+    // A tool that throws (data beyond what it can work through) says so in the dialog rather than doing nothing.
+    try { await perform(); } catch (err) { refuse(null, `${toolName(id)} could not be finished: ${err?.message || 'unknown error'}`); }
+  };
+  const perform = async () => {
     const res = tool.run();
     if (failed(res)) return refuse(res.field ? (f[res.field]?.inputs?.[0] || f[res.field]) : null, res.error);
     const { layout } = res;

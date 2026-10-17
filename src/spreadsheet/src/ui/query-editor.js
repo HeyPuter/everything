@@ -16,6 +16,7 @@ import {
   displayValue, keyOf, parseTyped, detectedTypeStep, initialSteps, TYPES, TYPE_LABELS, TYPE_MARKS, FILTER_OPS, AGGREGATIONS, JOIN_KINDS, PREVIEW_ROWS, sourceSummary,
 } from '../core/queries.js';
 import { queryIo, cellNode, loadNew, openImportData, urlProblem, fitQueryTables } from './get-data.js';
+import { maxOf } from '../core/numeric.js';
 
 const newId = () => (globalThis.crypto?.randomUUID?.() || `s${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`);
 const clone = (v) => JSON.parse(JSON.stringify(v));
@@ -327,7 +328,7 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
       if (!delimiter) return { field: custom, message: 'Enter a delimiter' };
       const how = modes.querySelector('input:checked').value;
       const t = table(), i = t.columns.indexOf(column);
-      const parts = how === 'each' ? Math.max(1, ...t.rows.map((r) => (typeof r[i] === 'string' ? r[i].split(delimiter).length : 1))) : 2;
+      const parts = how === 'each' ? maxOf(t.rows.map((r) => (typeof r[i] === 'string' ? r[i].split(delimiter).length : 1)), 1) : 2;
       const step = { type: 'splitColumn', column, delimiter, mode: how, count: parts };
       addStep(step).then(() => {
         // Power Query types the new columns at once, as a Changed Type step after the split.

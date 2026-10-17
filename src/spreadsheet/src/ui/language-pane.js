@@ -13,6 +13,7 @@ import { toast } from './toast.js';
 import { cellName, colName } from '../core/cell.js';
 import { loadPref, savePref } from '../lib/user-prefs.js';
 import { thesaurusPrompt, parseThesaurus, replaceInText, lookupWord } from '../core/thesaurus.js';
+import { minOf } from '../core/numeric.js';
 
 /** The languages the translator offers, by the names the model is asked in. */
 export const TRANSLATE_LANGUAGES = ['Arabic', 'Bengali', 'Bulgarian', 'Catalan', 'Chinese (Simplified)', 'Chinese (Traditional)', 'Croatian', 'Czech', 'Danish',
@@ -152,7 +153,7 @@ export function createLanguagePane(ctx) {
     source.value = cells.map((x) => x.text).join('\n');
     trStatus.textContent = cells.length ? `${cells.length} cell${cells.length === 1 ? '' : 's'} of text from ${rangeLabel(cells)}` : 'The selection holds no text to translate.';
   }
-  const rangeLabel = (cells) => (cells.length === 1 ? cellName(cells[0].r, cells[0].c) : `${colName(Math.min(...cells.map((x) => x.c)))}${Math.min(...cells.map((x) => x.r)) + 1}…`);
+  const rangeLabel = (cells) => (cells.length === 1 ? cellName(cells[0].r, cells[0].c) : `${colName(minOf(cells.map((x) => x.c)))}${minOf(cells.map((x) => x.r)) + 1}…`);
 
   async function translateNow() {
     const text = source.value;

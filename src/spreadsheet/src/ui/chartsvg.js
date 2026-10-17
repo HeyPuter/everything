@@ -8,6 +8,7 @@ import { chartDateAxis } from '../core/chart-date-axis.js';
 
 import { authoredBarGapWidth, chartPointStyle, niceScale, axisLabel, histogramBins, waterfallSteps, dateKindOf, CHART_LINE_DASHES } from '../core/charts.js';
 import { formatValue, formatGeneral, fontStack, numFmtToStyle } from '../core/format.js';
+import { maxOf, minOf } from '../core/numeric.js';
 import { wrapLines } from '../core/textfit.js';
 import { SPECIAL_CHART_TYPES, renderSpecialChart } from './chartsvg-special.js';
 
@@ -135,10 +136,6 @@ function tipText(v, style) {
 const pointValueText = (v, style) => style?.fmt === 'custom' ? formatValue(v, style) : axisLabel(v, style);
 // A series read from cells carries their format (null when they have none); data built without one takes the chart's.
 const seriesStyle = (s, chartStyle) => (s.style === undefined ? chartStyle : s.style);
-// Imported chart ranges can exceed JavaScript's function-argument limit.
-const minOf = (values) => values.reduce((min, value) => Math.min(min, value), Infinity);
-const maxOf = (values) => values.reduce((max, value) => Math.max(max, value), -Infinity);
-
 /** Index ticks so a sub-precision step cannot leave an addition loop stuck. */
 function scaleTicks({ min, max, step }) {
   if (![min, max, step].every(Number.isFinite) || step <= 0 || max < min) return [];
@@ -1133,8 +1130,8 @@ function renderStyledCartesian(data, chart, width, height) {
       const text = categoryTextLayout(c, a.xStyle, labelWidthLimit(a.xRotation, false), a.xWrap);
       return rotatedTextSize(text.width, text.height, a.xRotation);
     });
-    const labelOverhang = categoryLabels && a.xRotation ? Math.max(0, ...rotatedLabels.map(s => s.height)) / 2 : 0;
-    const categorySpace = Math.min(W * .4, Math.max(30, ...rotatedLabels.map(s => s.width + 12)));
+    const labelOverhang = categoryLabels && a.xRotation ? maxOf(rotatedLabels.map(s => s.height), 0) / 2 : 0;
+    const categorySpace = Math.min(W * .4, maxOf(rotatedLabels.map(s => s.width + 12), 30));
     const atLeft = fixedLabelSide(a.xLabelPosition) ? !categoryHigh : !categoryHigh && categoryCrossing === (a.reverseValues ? scale.max : scale.min);
     const left = categoryLabels && atLeft ? categorySpace : Math.max(18, a.yStyle.size * 1.5);
     const right = categoryLabels && categoryHigh ? categorySpace + (chart.legend && chart.legendPos === 'right' ? W * .24 : 0)
@@ -1145,7 +1142,7 @@ function renderStyledCartesian(data, chart, width, height) {
     Object.assign(plot, { x: left, y: top, w: Math.max(10, W - left - right), h: Math.max(8, H - top - bottom) });
   }
   if (chart.pareto && !a.plot) {
-    const labelWidth = Math.max(a.xStyle.size, ...data.categories.map(c => axisTextWidth(c, a.xStyle)));
+    const labelWidth = maxOf(data.categories.map(c => axisTextWidth(c, a.xStyle)), a.xStyle.size);
     const labelHeight = labelWidth > plot.w / Math.max(1, n) ? labelWidth / Math.SQRT2 + a.xStyle.size * 2 : a.xStyle.size * 2.5;
     plot.h = Math.max(20, Math.min(plot.h, H - plot.y - labelHeight));
   }
@@ -1320,14 +1317,14 @@ function renderStyledCartesian(data, chart, width, height) {
     a.xFormat && !a.xSourceLinked && data.categoryValues?.[i] != null ? formatValue(data.categoryValues[i], { fmt: 'custom', code: a.xFormat }) : text);
   let categoryLayouts = categoryTexts.map(c => categoryTextLayout(c, a.xStyle,
     dates || numericX ? Infinity : labelWidthLimit(a.xRotation, !horizontal), a.xWrap));
-  const categoryWidth = Math.max(a.xStyle.size, ...categoryLayouts.map(c => c.width));
+  const categoryWidth = maxOf(categoryLayouts.map(c => c.width), a.xStyle.size);
   const categoryAngle = a.xRotation || (!horizontal && !dates && !numericX && a.xRotationAuto !== false && columnCount > 0
     && categoryWidth > plot.w / Math.max(1, n) ? -45 : 0);
   if (categoryAngle !== a.xRotation) categoryLayouts = categoryTexts.map(c => categoryTextLayout(c, a.xStyle,
     labelWidthLimit(categoryAngle, !horizontal), a.xWrap));
-  const categoryHeight = Math.max(a.xStyle.size, ...categoryLayouts.map(c => c.height));
+  const categoryHeight = maxOf(categoryLayouts.map(c => c.height), a.xStyle.size);
   const categoryMultiline = categoryLayouts.some(c => c.lines.length > 1);
-  const categoryText = rotatedTextSize(Math.max(a.xStyle.size, ...categoryLayouts.map(c => c.width)), categoryHeight, categoryAngle);
+  const categoryText = rotatedTextSize(maxOf(categoryLayouts.map(c => c.width), a.xStyle.size), categoryHeight, categoryAngle);
   if (horizontal && chart.xTitle) {
     // Fit the vertical category title outside its label column. Interior
     // crossings move by only a fraction of a changed plot edge.
@@ -1381,7 +1378,7 @@ function renderStyledCartesian(data, chart, width, height) {
     const furniture = a.plot ? 0 : Math.max(chart.title ? (a.title?.y ?? .035) * H + a.titleStyle.size * 1.2 : 0,
       automaticLegend && chart.legendPos === 'top' ? automaticLegend.y + automaticLegend.h : 0);
     const required = furniture + (categoryAngle ? categoryText.height + 6
-      : Math.max(a.xStyle.size, ...categoryLayouts.map(t => t.height + t.ascent - a.xStyle.size * .5)) + 6);
+      : maxOf(categoryLayouts.map(t => t.height + t.ascent - a.xStyle.size * .5), a.xStyle.size) + 6);
     const extra = Math.min(Math.max(0, plot.h - 10), Math.max(0, required - plot.y));
     plot.y += extra; plot.h -= extra; // Retain the opposite plot edge.
   }
@@ -1719,7 +1716,7 @@ function renderStyledCartesian(data, chart, width, height) {
   });
   parts.push('</g>');
   // Interior tick labels remain readable over bars, areas and other marks.
-  parts.push(...axisLabels, ...outsideLabels);
+  parts.push(axisLabels.join(''), outsideLabels.join(''));
   for (const l of bubbleLabels) {
     const st = l.labels.style, pos = l.labels.position;
     label(l.value, l.x + (pos === 'l' ? -l.r - 4 : pos === 'r' ? l.r + 4 : 0), l.y + (pos === 't' ? -l.r - 4 : pos === 'b' ? l.r + st.size : st.size * .35),
@@ -1980,7 +1977,7 @@ function renderNativeRadar(data, chart, width, height) {
     : { x: 10, y: top, w: Math.max(10, right - 10), h: Math.max(10, bottom - top) };
   const cx = plot.x + plot.w / 2, cy = plot.y + plot.h / 2;
   const categoryLabels = !a.hideXAxis && a.xLabelPosition !== 'none';
-  const categoryRoom = categoryLabels ? Math.min(plot.w * .3, Math.max(a.xStyle.size, ...categories.map(c => axisTextWidth(c, a.xStyle))) + 10) : 0;
+  const categoryRoom = categoryLabels ? Math.min(plot.w * .3, maxOf(categories.map(c => axisTextWidth(c, a.xStyle)), a.xStyle.size) + 10) : 0;
   const radius = Math.max(1, Math.min(plot.w / 2 - (a.plot ? 0 : categoryRoom), plot.h / 2 - (a.plot || !categoryLabels ? 0 : a.xStyle.size * 1.5)));
   const values = series.flatMap(s => s.values).filter(Number.isFinite);
   const scale = chartAxisScale(minOf(values), maxOf(values), { min: chart.yMin, max: chart.yMax, step: a.yStep, ticks: 5 });

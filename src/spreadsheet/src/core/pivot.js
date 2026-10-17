@@ -11,6 +11,7 @@ import { formatValue } from './format.js';
 import { refToText } from './refs.js';
 import { isError, compareStoredValues, criteriaMatcher } from './formula/functions.js';
 import { MAX_ROWS, MAX_COLS } from './workbook.js';
+import { maxOf } from './numeric.js';
 
 export class PivotSizeError extends Error {}
 
@@ -354,7 +355,7 @@ export function buildPivot(wb, sheetId, spec) {
     put(totalRow, totalCol, { v: null, f: grand(totalCol), s: numStyle(bold) });
   }
   // The label column fits the labels as written: a date's text, not its serial.
-  const widths = [Math.max(120, ...rowValues.map((v) => formatValue(rowLabel(v), rowStyles.get(v)).length * 8 + 24), ...filters.map((f) => fields[f.field].label.length * 8 + 24))];
+  const widths = [maxOf([...rowValues.map((v) => formatValue(rowLabel(v), rowStyles.get(v)).length * 8 + 24), ...filters.map((f) => fields[f.field].label.length * 8 + 24)], 120)];
   return { cells, rows, cols, widths, rowCount: rowValues.length, colCount: colValues.length, headerRow: top, filterCells };
 }
 

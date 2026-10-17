@@ -17,6 +17,22 @@ export function product(values) {
   return result;
 }
 
+/** The largest of `values` and `floor`, as Math.max(floor, ...values) gives it (NaN included) without
+ * spreading the values into arguments: a spread of some 125,000 or more overflows the call stack.
+ */
+export function maxOf(values, floor = -Infinity) {
+  let result = floor;
+  for (const v of values) result = Math.max(result, v);
+  return result;
+}
+
+/** The smallest of `values` and `ceiling`, as Math.min(ceiling, ...values) gives it, without the spread. */
+export function minOf(values, ceiling = Infinity) {
+  let result = ceiling;
+  for (const v of values) result = Math.min(result, v);
+  return result;
+}
+
 /** Average two values without overflowing their sum or underflowing tiny halves. */
 export function midpoint(a, b) {
   const total = a + b;

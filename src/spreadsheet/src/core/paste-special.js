@@ -10,6 +10,7 @@ import { NUMBER_FORMAT_KEYS } from './format.js';
 import { BORDER_STYLE_KEYS } from './style-values.js';
 import { mapPastedConditionalFormats, replaceConditionalFormats } from './conditional-paste.js';
 import { mapPastedValidations } from './validation-paste.js';
+import { maxOf } from './numeric.js';
 
 /**
  * The Paste group of the dialog, in its two columns' reading order, with the letter each is chosen by.
@@ -154,7 +155,7 @@ export function composePaste(wb, sheetId, data, r0, c0, target, options, limit) 
   const { cells, values = null, notes = null, origin = null, conditionalFormats = null, validations = null, merges = [] } = data;
   const sheet = wb.sheet(sheetId);
   if (!sheet || !cells?.length || !cells[0]?.length) return null;
-  const h = cells.length, w = Math.max(...cells.map((row) => row.length));
+  const h = cells.length, w = maxOf(cells.map((row) => row.length));
   const { reps, out, block } = pastePositions(wb, h, w, r0, c0, target, o.transpose, limit);
   if (block.r2 < block.r1 || block.c2 < block.c1) return null;
   const what = o.what;
@@ -234,7 +235,7 @@ export function composePaste(wb, sheetId, data, r0, c0, target, options, limit) 
 
 /** Another app's plain text as cells to compose with: each entry read as typed, with no formatting of its own. */
 export function cellsFromText(rows, read) {
-  const w = Math.max(0, ...rows.map((row) => row.length));
+  const w = maxOf(rows.map((row) => row.length), 0);
   const cells = rows.map((row) => Array.from({ length: w }, (_, j) => (row[j] == null || row[j] === '' ? null : read(row[j]))));
   return { cells, values: cells.map((row) => row.map((cell) => (cell && cell.f == null ? cell.v : null))) };
 }

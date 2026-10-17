@@ -20,13 +20,15 @@
  * - Seasonality is detected from the peaks of the autocorrelation of the detrended values.
  */
 
+import { maxOf, minOf } from './numeric.js';
+
 const AGGREGATES = [null,
   (v) => v.reduce((a, b) => a + b, 0) / v.length, // 1 AVERAGE
   (v) => v.length, // 2 COUNT
   (v) => v.length, // 3 COUNTA
-  (v) => Math.max(...v), // 4 MAX
+  (v) => maxOf(v), // 4 MAX
   (v) => { const s = [...v].sort((a, b) => a - b), k = s.length >> 1; return s.length % 2 ? s[k] : (s[k - 1] + s[k]) / 2; }, // 5 MEDIAN
-  (v) => Math.min(...v), // 6 MIN
+  (v) => minOf(v), // 6 MIN
   (v) => v.reduce((a, b) => a + b, 0), // 7 SUM
 ];
 
@@ -106,7 +108,7 @@ export function prepareSeries(points, { completion = 1, aggregation = 1 } = {}) 
     if (!buckets.has(k)) buckets.set(k, []);
     if (y != null) buckets.get(k).push(y);
   }
-  const count = Math.max(...buckets.keys()) + 1;
+  const count = maxOf(buckets.keys()) + 1;
   const raw = new Array(count).fill(null);
   for (const [k, v] of buckets) if (v.length) raw[k] = AGGREGATES[aggregation](v);
   const missing = raw.filter((v) => v == null).length;

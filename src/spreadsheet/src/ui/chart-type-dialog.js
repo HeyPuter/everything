@@ -12,6 +12,7 @@ import { chartData } from '../core/charts.js';
 import { normalizeRange } from '../core/cell.js';
 import { CHART_FAMILIES, DEFAULT_SUBTYPE, changeSubtypePatch, chartSubtype, newExcelChart, subtypeOf } from '../core/chart-subtypes.js';
 import { recommendedSubtypes } from '../core/chart-design.js';
+import { maxOf } from '../core/numeric.js';
 
 const familyOf = id => CHART_FAMILIES.find(f => f.subtypes.includes(id)) || CHART_FAMILIES[0];
 
@@ -26,7 +27,7 @@ export function openChartTypeDialog(ctx, { mode = 'recommended', family = null, 
   const font = themeChartFont(wb);
   const baseData = chartData(wb, sheetId, changing ? chart : newExcelChart(wb, sheetId, range, DEFAULT_SUBTYPE, { font }));
   // A treemap's reading of the range tells whether its label columns nest.
-  const levels = changing ? 0 : Math.max(0, ...(chartData(wb, sheetId, { ...newExcelChart(wb, sheetId, range, 'treemap', { font }) }).levels || []).map(path => path.length));
+  const levels = changing ? 0 : maxOf((chartData(wb, sheetId, { ...newExcelChart(wb, sheetId, range, 'treemap', { font }) }).levels || []).map(path => path.length), 0);
   const recommended = changing ? [] : recommendedSubtypes(baseData, { levels });
   let tab = changing || mode === 'insert' ? 'all' : 'recommended';
   let chosen = changing ? subtypeOf(chart) : family ? CHART_FAMILIES.find(f => f.id === family)?.subtypes[0] || DEFAULT_SUBTYPE : recommended[0] || DEFAULT_SUBTYPE;

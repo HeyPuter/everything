@@ -11,6 +11,7 @@
 import { parseDelimited } from './tsv.js';
 import { parseInput, parseDate, serialToYMD } from './format.js';
 import { tableRows } from './tables.js';
+import { maxOf } from './numeric.js';
 
 export const TYPES = ['any', 'text', 'int', 'decimal', 'date', 'bool'];
 export const TYPE_LABELS = { any: 'Any', text: 'Text', int: 'Whole Number', decimal: 'Decimal Number', date: 'Date', bool: 'True/False' };
@@ -718,7 +719,7 @@ export function applyStep(table, step, refs = {}) {
         if (step.mode === 'right') { const k = s.lastIndexOf(d); return k < 0 ? [s] : [s.slice(0, k), s.slice(k + d.length)]; }
         return s.split(d);
       });
-      const n = step.count || Math.max(1, ...parts.map((p) => p.length));
+      const n = step.count || maxOf(parts.map((p) => p.length), 1);
       const names = Array.from({ length: n }, (_, k) => `${step.column}.${k + 1}`);
       return {
         columns: [...columns.slice(0, i), ...names, ...columns.slice(i + 1)],

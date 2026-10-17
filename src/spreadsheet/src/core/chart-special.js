@@ -5,6 +5,8 @@
  * and contours of a surface. Pure: numbers in, numbers out, so the renderer and tests share them.
  */
 
+import { maxOf } from './numeric.js';
+
 /** Chart types whose categories form a tree of label columns (each a level), sized by one value column. */
 export const HIERARCHY_TYPES = new Set(['treemap', 'sunburst']);
 export const isHierarchyChart = chart => HIERARCHY_TYPES.has(chart?.type);
@@ -36,15 +38,20 @@ export function fillDownLevels(rows) {
  */
 export function buildHierarchy(paths, values) {
   const root = { name: '', value: 0, depth: 0, children: [], rows: [], path: [] };
+  // Each node's children by name, so a level of many thousands of labels is not searched once per row.
+  const named = new Map();
   paths.forEach((path, row) => {
     const v = values[row];
     if (!path.length || !(typeof v === 'number' && Number.isFinite(v) && v > 0)) return;
     let node = root;
     for (const [i, name] of path.entries()) {
-      let next = node.children.find(c => c.name === name && !c.own);
+      let byName = named.get(node);
+      if (!byName) named.set(node, byName = new Map());
+      let next = byName.get(name);
       if (!next) {
         next = { name, value: 0, depth: i + 1, children: [], rows: [], path: path.slice(0, i + 1), parent: node };
         node.children.push(next);
+        byName.set(name, next);
       }
       next.value += v;
       node = next;
@@ -72,7 +79,7 @@ export function hierarchyNodes(root) {
   walk(root);
   return out;
 }
-export const hierarchyDepth = root => Math.max(0, ...hierarchyNodes(root).map(n => n.depth));
+export const hierarchyDepth = root => maxOf(hierarchyNodes(root).map(n => n.depth), 0);
 /** The level-1 ancestor a node takes its colour from. */
 export function topAncestor(node) {
   let n = node;
