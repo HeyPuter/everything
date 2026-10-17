@@ -2606,14 +2606,15 @@ export const FUNCTIONS = {
     }),
   },
   FORECAST: {
-    fn: ([x, ys, xs]) => {
+    liftArgs: [0], // an array of x values forecasts each one
+    fn: overArguments(([x, ys, xs]) => {
       const at = toNumber(x); if (isError(at)) return at;
       return pairStats(xs, ys, (s) => {
         if (!s.sxx) return err('#DIV/0!');
         const slope = flushUnderflow(s.sxy / s.sxx);
         return s.my + flushUnderflow(slope * (at - s.mx));
       });
-    },
+    }, [0]),
   },
   'FORECAST.LINEAR': { alias: 'FORECAST' },
   'FORECAST.ETS': { fn: ([target, values, timeline, seasonality, completion, aggregation]) => etsEach(target, etsModel(values, timeline, seasonality, completion, aggregation), forecastAt) },
@@ -8554,7 +8555,7 @@ T.DIST T.DIST.RT T.DIST.2T T.INV T.INV.2T TDIST CHISQ.DIST CHISQ.DIST.RT CHISQ.I
 GAMMA GAMMALN GAMMA.DIST GAMMA.INV BETA.DIST BETA.INV BETADIST WEIBULL.DIST HYPGEOM.DIST HYPGEOMDIST NEGBINOM.DIST NEGBINOMDIST
 CONFIDENCE.NORM CONFIDENCE.T STANDARDIZE PHI GAUSS FISHER FISHERINV ERF ERF.PRECISE ERFC
 COMBIN COMBINA PERMUT PERMUTATIONA RANDBETWEEN
-FIXED DOLLAR ROMAN ARABIC BASE DECIMAL ENCODEURL REGEXMATCH REGEXTEST REGEXREPLACE
+FIXED DOLLAR ROMAN ARABIC BASE DECIMAL ENCODEURL REGEXMATCH REGEXTEST REGEXREPLACE REGEXEXTRACT VALUETOTEXT
 PMT IPMT PPMT FV PV NPER RATE SLN SYD DDB DB VDB EFFECT NOMINAL DOLLARDE DOLLARFR ISPMT PDURATION RRI CUMIPMT CUMPRINC
 TBILLEQ TBILLPRICE TBILLYIELD DISC INTRATE RECEIVED PRICEDISC YIELDDISC PRICE YIELD DURATION MDURATION ACCRINT ACCRINTM
 PRICEMAT YIELDMAT COUPPCD COUPNCD COUPNUM COUPDAYBS COUPDAYS COUPDAYSNC
