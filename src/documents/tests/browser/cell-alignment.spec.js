@@ -47,7 +47,8 @@ test('edits inherited and merged cell alignment, repeats headers and preserves i
   await expect(input).toHaveValue(text); expect(await page.locator('canvas.canvas-page').count()).toBe(count);
   const saved = await download(page, testInfo, 'cell-alignment.docx'); await reopenDocx(page, input, saved, text);
   for (const [label, alignment] of [['Inherited center', 'Bottom'], ['Direct bottom', 'Center'], ['Vertical center', 'Bottom'], ['Header center', 'Bottom']]) {
-    await select(input, label); await expect(button).toHaveAttribute('title', 'Cell alignment: ' + alignment);
+    // Reopening leaves the contextual Table Layout tab unselected, as entering a table does.
+    await select(input, label); await onTab(page, 'tableLayout'); await expect(button).toHaveAttribute('title', 'Cell alignment: ' + alignment);
   }
   const dialog = await open(page); await page.screenshot({ path: testInfo.outputPath('cell-alignment-dialog.png'), animations: 'disabled' });
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click(); await expect(dialog).toHaveCount(0); await select(input, 'Tail');
