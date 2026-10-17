@@ -26,3 +26,24 @@ test('a click during IME composition commits it, places the caret and keeps the 
   await input(page).press('ControlOrMeta+z');
   await expect(input(page)).toHaveValue('Hello world');
 });
+
+test('a toolbar command during IME composition commits it and applies instead of being dropped', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('Hello world');
+  await input(page).press('End');
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.imeSetComposition', { text: '你', selectionStart: 1, selectionEnd: 1 });
+  await page.getByRole('button', { name: 'Bold', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await cdp.send('Input.insertText', { text: '你' });
+  await page.keyboard.type('x');
+  await expect(input(page)).toHaveValue('Hello world你x');
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].runs.map(r => [r.text, !!r.bold])))
+    .toEqual([['Hello world你', false], ['x', true]]);
+  // Undo from the toolbar during a composition commits it too, then takes back the last step.
+  await cdp.send('Input.imeSetComposition', { text: 'か', selectionStart: 1, selectionEnd: 1 });
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(input(page)).toHaveValue('Hello world你x');
+  expect(await state(page)).toMatchObject({ composing: false, focused: true });
+});

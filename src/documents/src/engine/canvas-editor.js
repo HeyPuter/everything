@@ -325,7 +325,10 @@ export class CanvasEditor {
     return count;
   }
   execute(action, onFailure, options, quiet = false) {
-    if (this.readOnly || this.viewOnly || this.composition) return;
+    if (this.readOnly || this.viewOnly) return;
+    // A command chosen while an input method composes (Bold on the toolbar) commits the composition
+    // and then applies, rather than being dropped.
+    this.finishComposition();
     try {
       const revision = this.session.revision;
       this.session.run(() => action(), () => {
@@ -496,7 +499,8 @@ export class CanvasEditor {
   insertSectionBreak(type) { const ok = this.execute(() => this.model.insertSectionBreak(type)); this.focus(); return ok; }
   insertPageBreak() { this.execute(() => this.model.insertPageBreak()); this.focus(); }
   travelHistory(direction) {
-    if (this.readOnly || this.viewOnly || this.composition) return;
+    if (this.readOnly || this.viewOnly) return;
+    this.finishComposition();
     // The host can keep history beyond this editor's (changes that reopened the package).
     if (!this.session[direction === 'undo' ? 'history' : 'future'].length && this.onHistoryEnd?.(direction)) return;
     try {
