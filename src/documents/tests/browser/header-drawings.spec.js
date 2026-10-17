@@ -3,6 +3,9 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { unzipSync } from 'fflate';
 import { reopenDocx } from './helpers/reopen-docx.js';
 
+// While the body is edited, header and footer content is faded 52% toward the white page.
+const dimmed = value => Math.round(value * .48 + 255 * .52);
+
 for (const [mode, top] of [['text', 980.892], ['blank', 964.464]]) {
   test(`retains ${mode} footer clearance measured by the native reference`, async ({ page }) => {
     await page.goto('/playground.html');
@@ -12,13 +15,13 @@ for (const [mode, top] of [['text', 980.892], ['blank', 964.464]]) {
     });
     await page.getByLabel('Open DOCX file').setInputFiles(`public/fixtures/header-drawings-footer-${mode}.docx`);
     await expect(page.getByRole('textbox', { name: 'Document text' })).toHaveValue('Body page 1\ufffc\nBody page 2\nBody page 3');
-    const blue = await page.locator('canvas.canvas-page').first().evaluate(canvas => {
+    const blue = await page.locator('canvas.canvas-page').first().evaluate((canvas, limit) => {
       const scale = canvas.width / 816, ctx = canvas.getContext('2d');
       const data = ctx.getImageData(Math.floor(110 * scale), 0, 1, canvas.height).data;
       const rows = [];
-      for (let y = 0; y < canvas.height; y++) if (data[y * 4] < 20 && data[y * 4 + 1] < 20 && data[y * 4 + 2] > 230) rows.push(y / scale);
+      for (let y = 0; y < canvas.height; y++) if (data[y * 4] < limit && data[y * 4 + 1] < limit && data[y * 4 + 2] > 230) rows.push(y / scale);
       return { top: rows[0], bottom: rows.at(-1) + 1 / scale };
-    });
+    }, dimmed(20));
     expect(blue.top).toBeGreaterThan(940); expect(blue.top).toBeLessThan(984);
     expect(Math.abs(blue.bottom - blue.top - 48)).toBeLessThan(1.1);
     if (referenceFont) {
@@ -32,6 +35,10 @@ for (const name of ['header-drawings', 'header-drawings-relative-effects', 'head
   test(`renders the native repeated ${name} and preserves the source`, async ({ page }, testInfo) => {
     const errors = []; page.on('pageerror', e => errors.push(e.message));
     await page.goto('/playground.html');
+    await page.evaluate(async () => {
+      const { CanvasEditor } = await import('/tools/reviewed-family-modules.js'), relayout = CanvasEditor.prototype.relayout;
+      CanvasEditor.prototype.relayout = function (...args) { const result = relayout.apply(this, args); window.headerDrawingsEditor = this; return result; };
+    });
     const source = `public/fixtures/${name}.docx`;
     await page.getByLabel('Open DOCX file').setInputFiles(source);
     const input = page.getByRole('textbox', { name: 'Document text' });
@@ -47,7 +54,8 @@ for (const name of ['header-drawings', 'header-drawings-relative-effects', 'head
         for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (purple(data, x + dx, y + dy)) return true;
         return false;
       };
-      return [...document.querySelectorAll('canvas.canvas-page')].map(canvas => {
+      // Compare the printed pages: the screen fades inactive headers, the native reference does not.
+      return window.headerDrawingsEditor.printSheets().map(canvas => {
         ctx.clearRect(0, 0, 816, 420); ctx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, 816, 1056);
         const actual = ctx.getImageData(0, 0, 816, 420).data;
         let missing = 0, extra = 0, expectedInk = 0, actualInk = 0;
@@ -68,7 +76,7 @@ for (const name of ['header-drawings', 'header-drawings-relative-effects', 'head
       const pixel = (x, y) => [...ctx.getImageData(Math.floor(x * scale), Math.floor(y * scale), 1, 1).data].slice(0, 3);
       return { header: pixel(110, 40), footer: pixel(110, 990), beforeFooter: pixel(110, 980), afterFooter: pixel(110, 1035), body: pixel(205, 500) };
     });
-    expect(colors).toEqual({ header: [0, 180, 0], footer: [0, 0, 255], beforeFooter: [255, 255, 255], afterFooter: [255, 255, 255], body: [255, 0, 0] });
+    expect(colors).toEqual({ header: [0, 180, 0].map(dimmed), footer: [0, 0, 255].map(dimmed), beforeFooter: [255, 255, 255], afterFooter: [255, 255, 255], body: [255, 0, 0] });
     const pending = page.waitForEvent('download'); await page.getByRole('button', { name: 'Download .docx', exact: true }).click();
     const saved = testInfo.outputPath(`${name}.docx`); await (await pending).saveAs(saved);
     const originalParts = unzipSync(readFileSync(source));
