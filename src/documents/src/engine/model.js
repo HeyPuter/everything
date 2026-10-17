@@ -2048,12 +2048,17 @@ export class TextDocument {
       if (emptyInlineControl) insertedRuns = [{ ...copy(control.inputRun), text: '', contentControl: control }];
     }
     const first = this.paragraphs[a.index], last = this.paragraphs[b.index];
+    // Removing an empty paragraph's mark removes that paragraph: the following
+    // paragraph keeps its own style and properties, as when Backspace at the
+    // start of a heading deletes the empty line above it.
+    const emptyFirst = !text && !crossesSection && b.index === a.index + 1 && b.offset === 0 && !first.runs.length
+      && !blockBoundary && !persistentBlock && !persistent && sameValue(first.blockControls, last.blockControls);
     const boundaryRuns = controlCaret && start === end ? splitControlCaretRuns(first.runs, a.offset, controlCaret.side === 'inside' ? { ...controlCaret, side: 'before' } : controlCaret) : undefined;
     const lines = text.split('\n');
     const coveredBlockIds = this.hasPersistentBlockControls ? new Set(blockGroups.filter(g => g.control.persistent && start <= g.start && end > g.end).map(g => g.control.id)) : null;
     let replacements = lines.map((line, i) => {
       const retainedLast = blockBoundary?.keepBlock && i === lines.length - 1;
-      const p = { ...copy(crossesSection || retainedLast || replacingPlaceholder && persistentBlock && !persistent ? last : first), id: retainedLast ? last.id : i ? paragraph().id : first.id, runs: normalize([
+      const p = { ...copy(crossesSection || retainedLast || emptyFirst || replacingPlaceholder && persistentBlock && !persistent ? last : first), id: retainedLast ? last.id : i ? paragraph().id : first.id, runs: normalize([
         ...(i === 0 ? boundaryRuns?.before || sliceRuns(first.runs, 0, a.offset, start !== end) : []),
         ...(line || emptyInlineControl ? insertedRuns || typedScriptRuns(line, format, i === 0 && format.cs ? paragraphText(first).slice(0, a.offset) : '') : []),
         ...(i === lines.length - 1 ? boundaryRuns?.after || sliceRuns(last.runs, b.offset) : []),
@@ -2075,7 +2080,7 @@ export class TextDocument {
         if (this.stylesEnabled) { p.markStyleId = format.styleId || null; p.markStyleChanged = true; }
         p.markFormat = runFormat(format);
         p.markOverrides = this.stylesEnabled ? { ...format.directFormat, ...format.overrides } : runFormat(format);
-      } else if (!retainedLast && first !== last) {
+      } else if (!retainedLast && !emptyFirst && first !== last) {
         for (const key of ['markFormat', 'markOverrides', 'markProperties', 'markPropertiesChanged', 'markHasDirectProperties', 'markStyleId', 'markStyleChanged', 'markRevision']) {
           if (Object.hasOwn(last, key)) p[key] = copy(last[key]);
           else delete p[key];
