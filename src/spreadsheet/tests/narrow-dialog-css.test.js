@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-// jsdom lays nothing out, so the rules that keep dialogs inside a phone-width window are checked as text.
+// jsdom lays nothing out or applies a stylesheet, so the rules that keep dialogs inside a phone-width window,
+// and their lists readable and visibly focused, are checked as text.
 const read = (name) => readFileSync(new URL(`../src/styles/${name}`, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** The body of the first `@media` block whose query starts with `query`. */
@@ -16,13 +17,12 @@ const media = (css, query) => {
   return null;
 };
 
+/** The declarations of every rule whose selector list contains `selector`, in order. */
+const rules = (css, selector) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+  .filter(([, selectors]) => selectors.split(',').some((s) => s.trim() === selector))
+  .map(([, , declarations]) => declarations);
 /** The declarations of the first rule whose selector list contains `selector`. */
-const rule = (css, selector) => {
-  for (const [, selectors, declarations] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    if (selectors.split(',').some((s) => s.trim() === selector)) return declarations;
-  }
-  return null;
-};
+const rule = (css, selector) => rules(css, selector)[0] ?? null;
 
 describe('dialogs at phone width', () => {
   it('lets the Options dialog shrink to the window, with the section bar scrolling inside it', () => {
@@ -55,5 +55,12 @@ describe('dialogs at phone width', () => {
   it('lets the Print dialog stack into one column no wider than the window', () => {
     const narrow = media(read('components.css'), '(max-width: 799px)');
     expect(rule(narrow, '.print-layout')).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  });
+});
+
+describe('dialog lists for the keyboard and the eye', () => {
+  it('rings a query row in Queries & Connections when the keyboard focuses it', () => {
+    // The row drops the outline for the mouse; the keyboard needs the accent ring the other lists draw.
+    expect(rules(read('queries.css'), '.qc-item:focus-visible').join(';')).toMatch(/outline:\s*2px solid var\(--accent\)/);
   });
 });

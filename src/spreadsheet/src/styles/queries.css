@@ -142,6 +142,7 @@
 .qc-list { display: flex; flex-direction: column; gap: 2px; }
 .qc-item { display: flex; align-items: center; gap: 8px; padding: 6px; border-radius: 6px; outline: none; }
 .qc-item:hover, .qc-item:focus-visible { background: var(--surface-2); }
+.qc-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .qc-icon { color: var(--accent); flex: none; display: inline-flex; }
 .qc-text { flex: 1; min-width: 0; }
 .qc-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
