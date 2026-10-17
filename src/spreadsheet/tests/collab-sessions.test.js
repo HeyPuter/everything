@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { Workbook } from '../src/core/workbook.js';
 import { RoomClient } from '../src/collab/client.js';
-import { memoryOutbox } from '../src/collab/outbox.js';
+import { memoryOutbox, outboxKey } from '../src/collab/outbox.js';
 import { call } from '../src/collab/api.js';
 import { environment, owner, editor, viewer, stranger, SERVER, until } from './collab-helpers.js';
 
@@ -105,7 +105,7 @@ describe('co-authoring sessions', () => {
     await until(() => !a.replica.pending.length, 4000, 'a delivers');
     // b's tab closes while offline; its changes wait in the outbox.
     b.close();
-    expect((await store.get(b.room)).pending.length).toBeGreaterThan(0);
+    expect((await store.get(outboxKey(editor.uuid, b.room))).pending.length).toBeGreaterThan(0);
     env.offlineUsers.delete(editor.uuid);
     const again = await join(editor, { token, store });
     await until(() => !again.replica.pending.length, 4000, 'queued edits delivered');
@@ -115,7 +115,7 @@ describe('co-authoring sessions', () => {
       expect(value(c, 6, 0)).toBe('offline 1');
       expect(value(c, 4, 3)).toBe('online'); // moved down by b's row
     }
-    expect(await store.get(again.room)).toBe(null);
+    expect(await store.get(outboxKey(editor.uuid, again.room))).toBe(null);
   });
 
   it('writes checkpoints that later joiners start from, and the .xlsx over the owner\'s file', async () => {

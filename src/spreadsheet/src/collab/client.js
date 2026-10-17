@@ -12,6 +12,7 @@ import { call, CollabError } from './api.js';
 import { canEdit, hash, keyPair, MAX_PEER_CHANGE, packState, unpackState, verify } from './protocol.js';
 import { PeerNetwork } from './peers.js';
 import { MAX_BATCH, MAX_CHANGE } from './ops.js';
+import { outboxKey } from './outbox.js';
 import { sanitizeState } from './server/service.js';
 
 /** Revisions between checkpoints written by an editor's browser. */
@@ -90,7 +91,10 @@ export class RoomClient extends EventTarget {
     this.roomKey = res.publicKey;
     this.name = res.name;
     this.file = res.file;
-    const saved = await this.o.store.get(this.room);
+    // This account's unsent changes only: another account's, kept in this browser, are never sent as this one's.
+    this.outboxKey = outboxKey(this.user.uuid, this.room);
+    const kept = await this.o.store.get(this.outboxKey);
+    const saved = kept?.user === this.user.uuid && kept.room === this.room ? kept : null;
     const loaded = await this.request({ op: 'load', ...(saved ? { at: saved.rev } : {}) });
     const state = await unpackState(loaded.state);
     this.wb = new Workbook(state);
@@ -104,7 +108,7 @@ export class RoomClient extends EventTarget {
       this.replica.receive(loaded.records.filter((r) => r.rev > saved.rev));
     } else {
       this.replica.receive(loaded.records);
-      if (saved) await this.o.store.delete(this.room);
+      if (kept) await this.o.store.delete(this.outboxKey);
     }
     this.replica.addEventListener('local', () => { this.persist(); this.flush(); });
     this.replica.addEventListener('remote', (e) => this.dispatchEvent(new CustomEvent('remote', { detail: e.detail })));
@@ -169,8 +173,8 @@ export class RoomClient extends EventTarget {
   async persist() {
     if (!this.replica) return;
     const pending = this.replica.outgoing();
-    if (pending.length) await this.o.store.put(this.room, { room: this.room, rev: this.replica.rev, pending, at: Date.now() });
-    else await this.o.store.delete(this.room);
+    if (pending.length) await this.o.store.put(this.outboxKey, { room: this.room, user: this.user.uuid, rev: this.replica.rev, pending, at: Date.now() });
+    else await this.o.store.delete(this.outboxKey);
     this.setStatus();
   }
 

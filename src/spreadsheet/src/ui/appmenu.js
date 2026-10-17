@@ -16,6 +16,7 @@ import { toast } from './toast.js';
 import * as P from '../lib/puter.js';
 import { LOCALES, getLocale, formatValue, formatGeneral, formatDate, setLocale } from '../core/format.js';
 import { clearAccountStorage } from '../lib/account-storage.js';
+import { clearOutbox } from '../collab/outbox.js';
 // Emit the full licenses as readable files alongside the production assets.
 import sheetjsLicenseUrl from '../vendor/SHEETJS-LICENSE.txt?url&no-inline';
 // Keep this copy of lucide/LICENSE in sync when updating Lucide.
@@ -122,6 +123,8 @@ export async function confirmSignOut() {
   // After the save, so a draft written by it goes too, and before the sign-out, while the account's scope
   // is still the one its records are filed under.
   clearAccountStorage();
+  // And the account's changes to shared workbooks that never reached their rooms (closed while offline).
+  await clearOutbox(session.user?.uuid).catch(() => {});
   await P.signOut();
   location.hash = '';
   location.reload();
