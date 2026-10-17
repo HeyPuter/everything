@@ -6,6 +6,9 @@ import { reopenDocx } from './helpers/reopen-docx.js';
 const word = JSON.parse(readFileSync('tests/fixtures/conditional-table-styles/reference.json', 'utf8'));
 test('renders the independent native conditional styles and preserves them through editing', async ({ page }, info) => {
   test.setTimeout(60000);
+  // Spelling marks appear on screen shortly after opening and after each edit, so the before/after-undo
+  // page images would differ by them alone. This check is about the table styles: turn the marks off.
+  await page.addInitScript(() => { try { localStorage.setItem('documents:spellcheck', 'off'); } catch {} });
   await page.addInitScript(() => {
     window.conditionalText = new Map(); const original = CanvasRenderingContext2D.prototype.fillText;
     CanvasRenderingContext2D.prototype.fillText = function(text, x, y, ...rest) {
