@@ -231,8 +231,9 @@ export class LiveSession extends EventTarget {
     this.engine.setRangeTints?.([], 'collab');
     this.binding.destroy();
     this.client.close(reason).catch(() => {});
-    // A tab that did not write the file keeps the document as a copy of its own from here on.
-    if (!this.saves && !this.local) this.doc.setSaving?.(this.role === 'owner' && !!this.doc.path);
+    // A tab that did not write the file keeps the document as a copy of its own from here on: edits made in it
+    // from now on are its own to save (or to download, between tabs of a browser), and leaving warns about them.
+    if (!this.saves) this.doc.setSaving?.(true);
     this.dispatchEvent(new CustomEvent('ended', { detail: { reason } }));
   }
   destroy() { this.end(null); }

@@ -55,3 +55,70 @@ test('File > Info: a version that cannot be saved says so', async ({ page }) => 
   await expect(view.getByRole('button', { name: 'Save a Version Now' })).toBeEnabled();
   expect(errors).toEqual([]);
 });
+
+/** Share from the owner's page; returns the invitation link for editors. */
+async function shareForEditing(page) {
+  await page.getByRole('button', { name: 'Share', exact: true }).first().click();
+  await page.getByRole('menuitem', { name: 'Invite People…' }).click();
+  const dialog = page.getByRole('dialog', { name: /^Share/ });
+  await dialog.getByRole('button', { name: 'Copy Link' }).click();
+  const field = dialog.getByRole('textbox', { name: 'Invitation link' });
+  await expect(field).toHaveValue(/collab-/, { timeout: 15000 });
+  const link = await field.inputValue();
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  return link;
+}
+async function stopSharing(page) {
+  await page.getByRole('button', { name: 'Share', exact: true }).first().click();
+  await page.getByRole('menuitem', { name: 'Manage Access…' }).click();
+  const dialog = page.getByRole('dialog', { name: /^Share/ });
+  await dialog.getByRole('button', { name: 'Stop Sharing' }).click();
+  await page.getByRole('dialog', { name: 'Stop sharing?' }).getByRole('button', { name: 'Stop Sharing' }).click();
+  await expect(dialog.locator('.sh-status')).toContainText('Sharing stopped');
+  await dialog.getByRole('button', { name: 'Done' }).click();
+}
+const warnsOnUnload = page => page.evaluate(() => { const e = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented; });
+
+test('an editor keeps edits made after sharing stopped (tabs of one browser)', async ({ context }) => {
+  const ann = await context.newPage();
+  await ann.setViewportSize({ width: 1440, height: 900 });
+  await ann.goto('/playground.html?name=Ann');
+  await expect(ann.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await text(ann).fill('Shared draft.');
+  const link = await shareForEditing(ann);
+  const bob = await context.newPage();
+  await bob.setViewportSize({ width: 1440, height: 900 });
+  await bob.goto(link.replace('playground.html', 'playground.html?name=Bob'));
+  await expect.poll(() => text(bob).evaluate(el => el.value)).toBe('Shared draft.');
+  await stopSharing(ann);
+  await expect(bob.locator('.cl-banner')).toContainText('your own copy');
+  await text(bob).evaluate(el => { el.focus(); el.setSelectionRange(el.value.length, el.value.length); el.dispatchEvent(new Event('select')); });
+  await text(bob).pressSequentially(' Mine now.');
+  await expect.poll(() => text(bob).evaluate(el => el.value)).toBe('Shared draft. Mine now.');
+  expect(await warnsOnUnload(bob)).toBe(true);
+});
+
+test('an invited editor keeps edits made after the owner stopped sharing', async ({ browser }) => {
+  test.setTimeout(120000);
+  const ownerContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const owner = await ownerContext.newPage();
+  await owner.goto('/mock.html?user=ada#/new');
+  await expect(owner.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await text(owner).fill('Quarterly plan.');
+  const link = await shareForEditing(owner);
+  const guestContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const guest = await guestContext.newPage();
+  await guest.goto(link.replace('mock.html', 'mock.html?user=bob'));
+  await expect.poll(() => text(guest).evaluate(el => el.value), { timeout: 15000 }).toBe('Quarterly plan.');
+  await stopSharing(owner);
+  await expect(guest.locator('.cl-banner')).toContainText('your own copy', { timeout: 15000 });
+  await text(guest).evaluate(el => { el.focus(); el.setSelectionRange(el.value.length, el.value.length); el.dispatchEvent(new Event('select')); });
+  await text(guest).pressSequentially(' My notes.');
+  // The copy is the guest's own now: its edits are saved like any new document's, and leaving before then is guarded.
+  await expect.poll(() => guest.evaluate(() => { const d = window.__docs.current.view.doc; return d.dirty || !!d.path; })).toBe(true);
+  await expect.poll(() => guest.evaluate(() => window.__docs.current.view.doc.path), { timeout: 15000 }).toMatch(/\.docx$/);
+  await expect(status(guest)).toHaveAttribute('aria-label', 'Saved to Puter');
+  expect(await guest.evaluate(() => window.__docs.current.view.doc.dirty)).toBe(false);
+  expect(Object.keys(await drive(guest)).filter(p => /^Documents\/[^/]+\.docx$/.test(p))).toHaveLength(1);
+  await ownerContext.close(); await guestContext.close();
+});
