@@ -286,13 +286,29 @@ export function pasteFragment(model, fragment) {
   return true;
 }
 
+// Another application's run with only plain values (not bold, black) leaves the destination's formatting.
+const plainForeignRun = run => !run.link && RUN_KEYS.every(key => [undefined, null, false, 'auto'].includes(run.format?.[key]));
+const appliedRuns = (fragment, p) => p.runs.filter(run => run.text && !(fragment.foreign && plainForeignRun(run)));
+
+/**
+ * Whether a paste can carry this fragment's formatting. Every paragraph and formatted run is a command
+ * over the whole document, so formatting megabytes of another application's HTML would hold the page
+ * for minutes; past the limit the text is pasted without it, as a copy of that size here carries none.
+ */
+export function formattedPasteFits(fragment) {
+  let commands = 0;
+  for (const p of fragment?.paragraphs || []) if ((commands += (p.mark ? 1 : 0) + appliedRuns(fragment, p).length) > MAX_RUNS) return false;
+  return true;
+}
+
 function applyFragment(model, fragment, start) {
   const after = start + fragment.paragraphs.reduce((n, p) => n + p.text.length + 1, -1);
   let at = start;
   for (const p of fragment.paragraphs) {
     if (p.mark) { model.select(at); applyParagraph(model, p, !!fragment.foreign); }
     let offset = at;
-    for (const run of p.runs) { if (run.text) applyRun(model, offset, offset + run.text.length, run, !!fragment.foreign); offset += run.text.length; }
+    const applied = new Set(appliedRuns(fragment, p));
+    for (const run of p.runs) { if (applied.has(run)) applyRun(model, offset, offset + run.text.length, run, !!fragment.foreign); offset += run.text.length; }
     at += p.text.length + 1;
   }
   model.select(after);

@@ -337,3 +337,17 @@ it('scales the viewport below 50% without changing layout, selection or edit his
   editor.setZoom(NaN); expect(editor.zoom).toBe(.35);
   editor.setZoom(1); expect(editor.layout).toBe(layout); expect(changed).not.toHaveBeenCalled();
 });
+
+it('pastes a long formatted HTML clipboard as plain text instead of formatting it run by run', () => {
+  const lines = Array.from({ length: 1200 }, (_, i) => `Line ${i} bold`);
+  editor.model.select(0, editor.model.text.length);
+  editor.pasteData(lines.join('\n'), lines.map(line => `<p>${line.replace('bold', '<b>bold</b>')}</p>`).join(''));
+  expect(editor.model.text).toBe(lines.join('\n'));
+  expect(editor.model.paragraphs.some(p => p.runs.some(r => r.bold))).toBe(false);
+  expect(editor.session.history).toHaveLength(1);
+  // A small paste keeps its formatting.
+  editor.model.select(0, editor.model.text.length);
+  editor.pasteData('Short bold', '<p>Short <b>bold</b></p>');
+  expect(editor.model.paragraphs[0].runs.find(r => r.text === 'bold')?.bold).toBe(true);
+  expect(errors).not.toHaveBeenCalled();
+});

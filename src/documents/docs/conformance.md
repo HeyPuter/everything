@@ -21568,6 +21568,15 @@ around paragraphs) into blank paragraphs, nor adds spaces before table-cell tabs
 Unit and browser suites cover selection, navigation and paste behavior; results
 are unchanged apart from speed.
 
+Formatting a paste still costs one command over the whole document per
+paragraph and formatted run, so the time grows with the square of the paste:
+2,000 paragraphs of web-page HTML took over three seconds and much longer
+pages froze the tab. Another application's plain runs (not bold, black) now
+skip the command they never needed, and a paste that would need more than
+2,000 commands, the limit beyond which a copy here carries no formatting either,
+is inserted as its plain text. Opening an HTML or Markdown file is unchanged.
+Unit tests cover the limit and the plain fallback (2026-10-16).
+
 ### Markdown and HTML import (2026-10-05)
 
 Markdown (.md, with GitHub tables, task lists and strikethrough) and HTML files

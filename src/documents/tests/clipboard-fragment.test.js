@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { it, expect } from 'vitest';
-import { htmlFragment, fragmentHtml, FRAGMENT_ATTRIBUTE } from '../src/engine/clipboard-fragment.js';
+import { htmlFragment, fragmentHtml, formattedPasteFits, FRAGMENT_ATTRIBUTE } from '../src/engine/clipboard-fragment.js';
 
 const texts = html => htmlFragment(html)?.paragraphs.map(p => p.text);
 
@@ -24,4 +24,13 @@ it('reads its own embedded fragment and ignores a malformed one', () => {
   expect(htmlFragment(fragmentHtml(fragment))).toEqual(fragment);
   const forged = `<div ${FRAGMENT_ATTRIBUTE}="{&quot;paragraphs&quot;:[{&quot;text&quot;:&quot;A&quot;,&quot;runs&quot;:[{&quot;text&quot;:&quot;B&quot;}]}]}"><p>Visible</p></div>`;
   expect(texts(forged)).toEqual(['Visible']);
+});
+
+it('carries formatting into a paste only while that stays a bounded number of commands', () => {
+  const paragraphs = (n, body) => Array.from({ length: n }, (_, i) => `<p>${body(i)}</p>`).join('');
+  expect(formattedPasteFits(htmlFragment(paragraphs(600, i => `Line ${i} <b>bold</b> <i>tail</i>`)))).toBe(true);
+  // Every paragraph and formatted run is a command over the whole document.
+  expect(formattedPasteFits(htmlFragment(paragraphs(800, i => `Line ${i} <b>bold</b> <i>tail</i>`)))).toBe(false);
+  // Another application's plain runs apply nothing, so they cost nothing.
+  expect(formattedPasteFits(htmlFragment(`<p>${Array.from({ length: 3000 }, (_, i) => `<span>w${i} </span>`).join('')}</p>`))).toBe(true);
 });
