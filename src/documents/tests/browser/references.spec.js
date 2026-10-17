@@ -130,6 +130,29 @@ test('footnotes and endnotes: insert, navigate, settings, convert and save', asy
   expect(strFromU8(parts['word/settings.xml'])).toMatch(/<w:footnotePr>.*<w:numFmt w:val="chicago"\/>/);
 });
 
+test('Footnote and Endnote Apply checks the start number before changing the settings', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await openEditor(page);
+  await page.keyboard.type('Body text.');
+  await onTab(page, 'references');
+  await ribbon(page).getByRole('button', { name: 'Insert Footnote', exact: true }).click();
+  await page.keyboard.type('A footnote.');
+  await ribbon(page).getByRole('button', { name: 'Footnote and Endnote Settings', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Footnote and Endnote' });
+  await dialog.getByLabel('Start at').fill('2.5');
+  await dialog.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(dialog.getByLabel('Start at')).toBeFocused();
+  expect(await dialog.getByLabel('Start at').evaluate(el => el.validity.stepMismatch)).toBe(true);
+  // A fraction typed for one kind and left behind by switching to the other is saved as a whole number.
+  await dialog.getByLabel('Endnotes').check();
+  await dialog.getByLabel('Footnotes').check();
+  await expect(dialog.getByLabel('Start at')).toHaveValue('3');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const parts = await download(page, info, 'note-start.docx');
+  expect(strFromU8(parts['word/settings.xml'])).not.toMatch(/numStart w:val="[^"]*\./);
+  expect(errors).toEqual([]);
+});
+
 test('citations, sources and bibliography follow the chosen style', async ({ page }, info) => {
   await openEditor(page);
   await page.keyboard.type('Engines compute.');

@@ -149,7 +149,7 @@ export function createNoteCommands(ctx) {
     const pending = { footnote: { ...settings.footnote }, endnote: { ...settings.endnote } };
     function remember() {
       if (!restart.options.length) return; // Not filled in yet.
-      pending[kind] = { ...pending[kind], format: format.value, start: Math.max(1, Math.min(32767, Number(start.value) || 1)), restart: restart.value, position: kind === 'footnote' ? footPosition.value : endPosition.value };
+      pending[kind] = { ...pending[kind], format: format.value, start: Math.max(1, Math.min(32767, Math.round(Number(start.value)) || 1)), restart: restart.value, position: kind === 'footnote' ? footPosition.value : endPosition.value };
     }
     function switchKind(next) {
       remember(); kind = next;
@@ -160,7 +160,7 @@ export function createNoteCommands(ctx) {
     }
     switchKind(kind);
     const convert = el('button.btn.btn-outline', { type: 'button', onclick: () => convertDialog() }, 'Convert…');
-    const apply = el('button.btn.btn-outline', { type: 'button', onclick: () => { remember(); try { for (const k of ['footnote', 'endnote']) applySettings(k, pending[k]); dialog.showError(''); } catch (e) { dialog.showError(e.message); } } }, 'Apply');
+    const apply = el('button.btn.btn-outline', { type: 'button', onclick: () => { if (!dialog.form.reportValidity()) return; remember(); try { for (const k of ['footnote', 'endnote']) applySettings(k, pending[k]); dialog.showError(''); } catch (e) { dialog.showError(e.message); } } }, 'Apply');
     const dialog = openDialog({ title: 'Footnote and Endnote', className: 'ref-notes-dialog', submitLabel: 'Insert', actions: [apply], body: [
       el('fieldset.ref-section', {}, el('legend', {}, 'Location'),
         el('div.ref-location-row', {}, el('label.ed-check', {}, footRadio, 'Footnotes'), footPosition),
