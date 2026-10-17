@@ -30,12 +30,12 @@ describe('sorting text', () => {
     expect([0, 1, 2].map((c) => wb.getValue(id, 0, c))).toEqual(['Adam', 'Émile', 'zed']);
   });
 
-  it('keeps numbers before text, then booleans, with errors and blanks last either way', () => {
+  it('keeps numbers before text, then booleans and errors, all reversed descending, with blanks last either way', () => {
     const { wb, id } = book(['b', 2, true, { error: '#N/A' }, null, 'a', 1, false, 'Ä']);
     wb.sortRangeBy(id, parseRange('A1:A9'), [{ col: 0, ascending: true }]);
     expect(column(wb, id, 9)).toEqual([1, 2, 'a', 'Ä', 'b', false, true, { error: '#N/A' }, null]);
     wb.sortRangeBy(id, parseRange('A1:A9'), [{ col: 0, ascending: false }]);
-    expect(column(wb, id, 9)).toEqual([true, false, 'b', 'Ä', 'a', 2, 1, { error: '#N/A' }, null]);
+    expect(column(wb, id, 9)).toEqual([{ error: '#N/A' }, true, false, 'b', 'Ä', 'a', 2, 1, null]);
   });
 
   it('still treats letters differing only in case as equal unless asked, lowercase first when asked', () => {

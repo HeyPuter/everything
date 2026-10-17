@@ -364,7 +364,11 @@ function textCollator(caseSensitive) {
   return collators[key];
 }
 
-/** Sort order for one key: blanks and errors last, text by locale (optionally case-sensitive, lowercase first), other values by compareStoredValues. */
+/**
+ * Sort order for one key, as Excel's: ascending runs numbers, text, logicals, errors (all equal), then blanks;
+ * descending reverses all of it but the blanks, which always come last. Text sorts by locale (optionally
+ * case-sensitive, lowercase first), other values by compareStoredValues.
+ */
 function sortComparator(caseSensitive) {
   const empty = (v) => v == null || v === '';
   const collator = textCollator(caseSensitive);
@@ -372,10 +376,12 @@ function sortComparator(caseSensitive) {
     if (empty(a) && empty(b)) return 0;
     if (empty(a)) return 1;
     if (empty(b)) return -1;
+    const dir = ascending ? 1 : -1;
     if (isError(a) && isError(b)) return 0;
-    if (isError(a)) return 1;
-    if (isError(b)) return -1;
-    // Pictures in cells have no order of their own: they follow the values, before errors and blanks, in either direction.
+    if (isError(a)) return dir;
+    if (isError(b)) return -dir;
+    // Pictures in cells have no order of their own: they follow the values, before the blanks in either
+    // direction (and so before the errors ascending, after them descending).
     const picture = (v) => !!v && typeof v === 'object' && typeof v.image === 'string';
     if (picture(a) || picture(b)) return picture(a) === picture(b) ? 0 : picture(a) ? 1 : -1;
     const cmp = typeof a === 'string' && typeof b === 'string' ? collator.compare(a, b) : compareStoredValues(a, b);
