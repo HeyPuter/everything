@@ -13,13 +13,16 @@ test('restores inline and block glossary bookmarks, preserves undo and replaces 
   const save = async name => { const pending = page.waitForEvent('download'); await page.getByRole('button', { name: 'Download .docx', exact: true }).click(); const path = info.outputPath(name + '.docx'); await (await pending).saveAs(path); return path; };
   const select = async text => input.evaluate((el, text) => { const at = el.value.indexOf(text); if (at < 0) throw new Error('Missing selection: ' + text); el.focus(); el.setSelectionRange(at, at + text.length); el.dispatchEvent(new Event('select', { bubbles: true })); }, text);
   sameParts(unzipSync(readFileSync(await save('noedit'))), parts);
-  for (let i = 0; i < 5; i++) { await select('Existing value'); await input.press('Backspace'); }
+  // Deleting a selected inline value leaves an empty control; its prompt is restored, as a separate
+  // undo step, when the caret leaves it (docs/conformance.md, outside deletion into inline controls).
+  for (let i = 0; i < 4; i++) { await select('Existing value'); await input.press('Backspace'); await input.press('ArrowRight'); }
+  await select('Existing value'); await input.press('Backspace');
   const restoredText = original.replaceAll('Existing value', 'Enter name').replace(/Enter name$/, 'First line\nSecond line');
   await expect(input).toHaveValue(restoredText); await expect(page.locator('canvas.canvas-page')).toHaveCount(1);
   const restored = await save('restored');
   const names = xml => page.evaluate(xml => { const w = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main', d = new DOMParser().parseFromString(xml, 'application/xml'); return [...d.getElementsByTagNameNS(w, 'bookmarkStart')].map(n => n.getAttributeNS(w, 'name')).sort(); }, xml);
   expect(await names(strFromU8(unzipSync(readFileSync(restored))['word/document.xml']))).toEqual(['PromptAcross', 'PromptInner', 'PromptPoint', 'PromptSecond', 'PromptWhole']);
-  for (let i = 0; i < 5; i++) await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  for (let i = 0; i < 9; i++) await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(input).toHaveValue(original); sameParts(unzipSync(readFileSync(await save('undo'))), parts);
   await reopenDocx(page, input, restored, restoredText);
   for (let i = 0; i < 4; i++) { await select('Enter name'); await input.press('X'); }
