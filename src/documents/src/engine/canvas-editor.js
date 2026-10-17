@@ -1269,6 +1269,10 @@ export class CanvasEditor {
     const top = canvas.offsetTop + caret.y * this.zoom;
     if (top < this.host.scrollTop + 12) this.host.scrollTop = Math.max(0, top - 24);
     if (top + caret.height * this.zoom > this.host.scrollTop + this.host.clientHeight - 12) this.host.scrollTop = top + caret.height * this.zoom - this.host.clientHeight + 24;
+    // Zoomed in, or on a narrow screen, the page is wider than the view: keep the caret in sight sideways too.
+    const left = canvas.offsetLeft + caret.x * this.zoom;
+    if (left < this.host.scrollLeft + 12) this.host.scrollLeft = Math.max(0, left - 24);
+    else if (left > this.host.scrollLeft + this.host.clientWidth - 12) this.host.scrollLeft = left - this.host.clientWidth + 24;
   }
   move(key, shift, word, mod) {
     this.typingGroup = null; this.deleteGroup = null;
