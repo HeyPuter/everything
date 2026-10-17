@@ -342,7 +342,14 @@ export function createRibbon({ tabs, fileButton, focusEditor, onSelect }) {
   card.addEventListener('keydown', navigate);
   function navigate(e) {
     if (isComposing(e) || e.defaultPrevented) return;
-    if (e.key === 'Escape') { e.preventDefault(); focusEditor?.(); return; }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      // A drop-down whose commands are all unavailable leaves the keyboard on its button: Escape there closes it.
+      if (flyout && e.target === flyout.button) { closeFlyout({ focus: true }); return; }
+      closeFlyout();
+      focusEditor?.();
+      return;
+    }
     if (e.key === 'Tab' && e.target.matches('input, select') && !e.altKey && !e.ctrlKey && !e.metaKey) {
       const list = controls(), next = list.indexOf(e.target) + (e.shiftKey ? -1 : 1);
       if (next >= 0 && next < list.length) { e.preventDefault(); list[next].focus(); }

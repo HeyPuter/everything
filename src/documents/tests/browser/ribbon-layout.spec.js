@@ -403,3 +403,25 @@ test('on a Mac the Thesaurus tooltip names a chord that opens the Thesaurus, not
   await expect(page.getByRole('complementary', { name: 'Thesaurus pane' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Collapse the ribbon' })).toBeAttached();
 });
+
+test('Escape closes a collapsed group\'s drop-down whose commands are all unavailable', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true });
+  const page = await context.newPage();
+  try {
+    await page.goto('/mock.html#/new');
+    await expect(page.locator('#ribbon-panel-home button[aria-label="Bold"]')).toBeEnabled();
+    await tab(page, 'Review').click();
+    // With nothing tracked, every command under Changes is disabled, so the keyboard stays on the group's button.
+    const changes = page.locator('#ribbon-panel-review .ribbon-collapsed[aria-label="Changes"]');
+    await expect(changes).toBeVisible();
+    await changes.focus();
+    await page.keyboard.press('Enter');
+    const flyout = page.locator('.ribbon-flyout');
+    await expect(flyout).toBeVisible();
+    await expect(changes).toHaveAttribute('aria-expanded', 'true');
+    await page.keyboard.press('Escape');
+    await expect(flyout).toHaveCount(0);
+    await expect(changes).toHaveAttribute('aria-expanded', 'false');
+    await expect(changes).toBeFocused();
+  } finally { await context.close(); }
+});
