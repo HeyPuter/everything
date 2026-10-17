@@ -53,9 +53,17 @@ test('PageDown and PageUp move the caret a screen at a time and keep it in view'
   const down = await line(); expect(down).toBeGreaterThan(8);
   expect(await scroll()).toBeGreaterThan(before);
   await input(page).press('PageDown'); const further = await line(); expect(further).toBeGreaterThan(down);
-  // A screen back up; a page gap crossed on the way down can shift it by a line or two.
+  // A screen back up. A PageDown that lands in the gap between two pages goes on to the next page's
+  // first line, so crossing that gap can shift the return by up to the gap's height in lines.
+  const gapLines = await page.evaluate(() => {
+    const e = window.__docs.current.view.engine, lines = e.layout.lines.filter(l => !l.virtual);
+    const scale = e.canvases[0].getBoundingClientRect().height / e.layout.page.height;
+    const screenY = l => e.canvases[l.page].getBoundingClientRect().top + l.y * scale;
+    const last = lines.findLast(l => l.page === 0), next = lines.find(l => l.page === 1);
+    return Math.ceil((screenY(next) - screenY(last)) / ((lines[1].y - lines[0].y) * scale)) - 1;
+  });
   await input(page).press('PageUp'); const up = await line();
-  expect(up).toBeLessThan(further); expect(Math.abs(up - down)).toBeLessThanOrEqual(3);
+  expect(up).toBeLessThan(further); expect(up).toBeGreaterThanOrEqual(down - 1); expect(up - down).toBeLessThanOrEqual(Math.max(3, gapLines));
   // The caret stays on screen, so typing lands where the user is looking.
   const caret = await page.evaluate(() => { const e = window.__docs.current.view.engine; return e.canvases[e.selectionLayout.lines.find(l => l.start === e.model.selection.focus)?.page ?? 0].getBoundingClientRect().top; });
   expect(caret).toBeLessThan(720);
