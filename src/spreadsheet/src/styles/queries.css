@@ -129,8 +129,10 @@
 .pq-indent { padding-left: 24px; }
 .pq-disabled { opacity: 0.55; }
 @media (max-width: 760px) {
-  .pq-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; }
-  .pq-side, .pq-settings { border: 0; border-bottom: 1px solid var(--hairline); max-height: 120px; }
+  /* Stacked, the preview keeps room for a few rows and the queries and applied steps their full height;
+     on a short window the body scrolls instead of squeezing the preview to nothing or cutting off the steps. */
+  .pq-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(160px, 1fr) auto; overflow-y: auto; }
+  .pq-side, .pq-settings { border: 0; border-bottom: 1px solid var(--hairline); min-height: auto; }
   .pq-nav, .pq-dialog-options, .pq-merge { grid-template-columns: 1fr; }
 }
 

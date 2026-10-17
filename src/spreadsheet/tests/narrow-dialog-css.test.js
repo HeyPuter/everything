@@ -56,6 +56,16 @@ describe('dialogs at phone width', () => {
     const narrow = media(read('components.css'), '(max-width: 799px)');
     expect(rule(narrow, '.print-layout')).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
   });
+
+  it('keeps the Power Query preview open on a short, narrow window and scrolls the stacked editor instead', () => {
+    const narrow = media(read('queries.css'), '(max-width: 760px)');
+    const body = rule(narrow, '.pq-body');
+    expect(body).toMatch(/grid-template-rows:\s*auto minmax\(160px,\s*1fr\) auto/);
+    expect(body).toMatch(/overflow-y:\s*auto/);
+    // The panes above and below the preview hold their content rather than shrinking to nothing.
+    expect(rule(narrow, '.pq-settings')).toMatch(/min-height:\s*auto/);
+    expect(rule(narrow, '.pq-settings')).not.toMatch(/max-height/);
+  });
 });
 
 describe('dialog lists for the keyboard and the eye', () => {
