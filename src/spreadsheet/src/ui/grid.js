@@ -2876,11 +2876,24 @@ export function createGrid(opts) {
     // A selection never cuts through a merged block; the active cell is its anchor. The
     // anchor and focus keep the cells the user meant, so extending again starts from them
     // rather than from a corner of the grown box; the grown box travels as `range`.
+    // Whole rows or columns (a header click, the corner) are taken as they are, as in Excel: a merged
+    // block crossing them neither widens them to its other lines nor takes the active cell out of them.
     if (sheet().merges.length) {
       const range = S.selRange(sel);
-      const grown = wb.expandToMerges(sheetId, range);
+      const whole = ['rows', 'columns', 'sheet'].includes(sel.scope);
+      const grown = whole ? range : wb.expandToMerges(sheetId, range);
       const m = wb.mergeAt(sheetId, sel.active.r, sel.active.c);
-      if (m) sel.active = { r: m.r1, c: m.c1 };
+      if (m && (!whole || (m.r1 >= range.r1 && m.c1 >= range.c1))) sel.active = { r: m.r1, c: m.c1 };
+      else if (m) {
+        // A block merged from outside the lines covers their first cell: the active cell steps along
+        // the line past it, so typing goes into a cell of the selection that shows what it holds.
+        let { r, c } = sel.active, k = m;
+        while (k && (k.r1 < range.r1 || k.c1 < range.c1) && r <= range.r2 && c <= range.c2) {
+          if (sel.scope === 'rows') c = k.c2 + 1; else r = k.r2 + 1;
+          k = wb.mergeAt(sheetId, r, c);
+        }
+        if (r <= range.r2 && c <= range.c2) sel.active = { r, c };
+      }
       if (grown.r1 !== range.r1 || grown.c1 !== range.c1 || grown.r2 !== range.r2 || grown.c2 !== range.c2) sel.range = grown;
     }
     // Selecting the last row or column grows the sheet so there is always somewhere to go, like an
