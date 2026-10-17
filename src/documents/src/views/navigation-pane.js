@@ -98,6 +98,7 @@ export function createNavigationPane(api) {
           oncontextmenu: e => { e.preventDefault(); headingMenu(entry, heading, e); },
           onkeydown: e => {
             if (e.key === 'ContextMenu' || e.shiftKey && e.key === 'F10') { e.preventDefault(); headingMenu(entry, heading, null); }
+            else if (!e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && ['ArrowDown', 'ArrowUp', 'Home', 'End', 'ArrowRight', 'ArrowLeft'].includes(e.key)) { e.preventDefault(); moveInTree(entry, e.key); }
             else if (e.altKey && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && editable()) {
               // Move the section past its neighbour, as dragging would.
               e.preventDefault();
@@ -117,6 +118,26 @@ export function createNavigationPane(api) {
     const here = entries.filter(entry => entry.start <= position).at(-1)?.id;
     for (const button of headingList.querySelectorAll('.nav-heading')) {
       if (here === button.dataset.paragraph) button.setAttribute('aria-current', 'location'); else button.removeAttribute('aria-current');
+    }
+  }
+  /**
+   * The tree's keys: Up and Down (Home, End) move between the headings shown; Right expands a collapsed
+   * heading or goes to its first subheading, Left collapses an expanded one or goes to its parent.
+   */
+  function moveInTree(entry, key) {
+    const shown = [...headingList.querySelectorAll('.nav-heading')], at = shown.findIndex(b => b.dataset.paragraph === entry.id);
+    const focus = button => button?.focus();
+    const index = entries.indexOf(entry), parent = entries[index + 1]?.level > entry.level;
+    if (key === 'ArrowDown') focus(shown[at + 1]);
+    else if (key === 'ArrowUp') focus(shown[at - 1]);
+    else if (key === 'Home') focus(shown[0]);
+    else if (key === 'End') focus(shown.at(-1));
+    else if (key === 'ArrowRight' && parent) {
+      if (collapsed.has(entry.id)) { collapsed.delete(entry.id); renderHeadings(); } else focus(shown[at + 1]);
+    } else if (key === 'ArrowLeft') {
+      if (parent && !collapsed.has(entry.id)) { collapsed.add(entry.id); renderHeadings(); return; }
+      const up = entries.slice(0, index).findLast(e => e.level < entry.level);
+      if (up) focus(headingList.querySelector(`[data-paragraph="${CSS.escape(up.id)}"]`));
     }
   }
   /* ---- Rearranging headings: drag a heading to move its section; its menu changes levels ---- */

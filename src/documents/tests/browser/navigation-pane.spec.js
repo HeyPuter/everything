@@ -81,3 +81,31 @@ test('choosing a search result keeps keyboard focus on it, and the count follows
   await expect(pane.getByRole('status')).toHaveText('Result 2 of 4');
   expect(errors).toEqual([]);
 });
+
+test('the Headings tree moves, expands and collapses with the arrow keys', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await headingsDocument(page);
+  await (await onTab(page, 'view')).locator('.ribbon-card').getByRole('button', { name: 'Navigation Pane' }).click();
+  const tree = page.getByRole('complementary', { name: 'Navigation' }).getByRole('tree', { name: 'Headings' });
+  const item = name => tree.getByRole('treeitem', { name: new RegExp(name) });
+  await item('Introduction').focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(item('Background')).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(item('Results')).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(item('Introduction')).toBeFocused();
+  // Left collapses the heading with subheadings, then Right opens it again and steps into it.
+  await page.keyboard.press('ArrowLeft');
+  await expect(item('Introduction')).toHaveAttribute('aria-expanded', 'false');
+  await expect(tree.getByRole('treeitem')).toHaveText(['Introduction', 'Results']);
+  await expect(item('Introduction')).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(item('Introduction')).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('ArrowRight');
+  await expect(item('Background')).toBeFocused();
+  // Left from a subheading goes to its parent.
+  await page.keyboard.press('ArrowLeft');
+  await expect(item('Introduction')).toBeFocused();
+  expect(errors).toEqual([]);
+});
