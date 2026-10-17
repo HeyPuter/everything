@@ -24,8 +24,8 @@ import { customFormulaProblem } from './validation.js';
 
 // A condition's number, read and shown as the grid reads and shows one: 1,5
 // is one and a half where the decimal mark is a comma, 1,234.5 where it is not.
-const numberOf = (text) => { const { v } = parseInput(text.trim()); return typeof v === 'number' ? v : null; };
-const numberText = (v) => (typeof v === 'number' ? formatGeneral(v) : v);
+export const numberOf = (text) => { const { v } = parseInput(text.trim()); return typeof v === 'number' ? v : null; };
+export const numberText = (v) => (typeof v === 'number' ? formatGeneral(v) : v);
 
 export function openConditionalFormatting(ctx) {
   const sheetId = ctx.sheetId();

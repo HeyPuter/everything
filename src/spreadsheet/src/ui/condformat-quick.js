@@ -12,6 +12,7 @@ import { cellName, rangeName, normalizeRange } from '../core/cell.js';
 import { ICON_SETS, DATE_PERIODS } from '../core/condformat.js';
 import { conditionalRuleGroups } from '../core/conditional-groups.js';
 import { CELL_STYLES } from '../core/cellstyles.js';
+import { numberOf, numberText } from './condformat.js';
 
 const styleOf = key => ({ ...CELL_STYLES.find(s => s.key === key)?.patch });
 /** Formats a quick rule can apply, drawn from the app's own Good, Bad and Neutral cell styles. */
@@ -112,9 +113,10 @@ export function openQuickRuleDialog(ctx, key, range) {
   const nums = numbersIn(wb, sheetId, range);
   const min = nums.length ? Math.min(...nums) : 0, max = nums.length ? Math.max(...nums) : 0;
   const avg = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
-  const first = def.count ? '10' : key === 'between' ? String(round(min)) : def.numeric ? String(round(avg)) : '';
+  // Suggested numbers are written, and typed ones read, in the regional format, as the rules manager does.
+  const first = def.count ? '10' : key === 'between' ? numberText(round(min)) : def.numeric ? numberText(round(avg)) : '';
   const value1 = el('input.input', { type: 'text', 'aria-label': def.title, value: first, autocomplete: 'off', spellcheck: false });
-  const value2 = el('input.input', { type: 'text', 'aria-label': 'and', value: String(round(max)), autocomplete: 'off', spellcheck: false });
+  const value2 = el('input.input', { type: 'text', 'aria-label': 'and', value: numberText(round(max)), autocomplete: 'off', spellcheck: false });
   const period = el('select.select', { 'aria-label': def.title }, ...DATE_PERIODS.map(p => el('option', { value: p.value }, p.label)));
   const choice = el('select.select', { 'aria-label': 'Values' }, ...(def.choice || []).map(([value, label]) => el('option', { value }, label)));
   const format = el('select.select', { 'aria-label': 'with' }, ...QUICK_STYLES.map(([value, label]) => el('option', { value }, label)));
@@ -122,11 +124,13 @@ export function openQuickRuleDialog(ctx, key, range) {
   const submit = e => {
     e?.preventDefault();
     if (def.args >= 1 && !value1.value.trim()) return refuse(value1, 'Enter a value');
-    if (def.numeric && def.args >= 1 && !Number.isFinite(Number(value1.value))) return refuse(value1, 'Enter a number');
-    if (def.count && !(Number.isInteger(Number(value1.value)) && Number(value1.value) >= 1 && Number(value1.value) <= 1000)) return refuse(value1, 'Enter a whole number from 1 to 1000');
-    if (def.args >= 2 && !Number.isFinite(Number(value2.value))) return refuse(value2, 'Enter a number');
+    const n1 = def.numeric && def.args >= 1 ? numberOf(value1.value) : null, n2 = def.args >= 2 ? numberOf(value2.value) : null;
+    if (def.numeric && def.args >= 1 && n1 == null) return refuse(value1, 'Enter a number');
+    if (def.count && !(Number.isInteger(n1) && n1 >= 1 && n1 <= 1000)) return refuse(value1, 'Enter a whole number from 1 to 1000');
+    if (def.args >= 2 && n2 == null) return refuse(value2, 'Enter a number');
     const style = QUICK_STYLES.find(([k]) => k === format.value)[2]();
-    const rule = quickRule(range, key, { value: def.date ? period.value : value1.value.trim(), value2: value2.value.trim(), choice: choice.value, style });
+    const value = def.date ? period.value : def.numeric ? n1 : value1.value.trim();
+    const rule = quickRule(range, key, { value, value2: n2, choice: choice.value, style });
     if (!wb.addRule(sheetId, rule)) return refuse(def.args ? value1 : format, wb.isProtected(sheetId) ? 'This sheet is protected' : 'The rule could not be added');
     modal.close();
   };
