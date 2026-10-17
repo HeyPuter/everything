@@ -500,6 +500,17 @@ export class Doc extends EventTarget {
     });
   }
 
+  /**
+   * The connection came back: what AutoSave holds is saved now, and so is a save that failed while offline (one
+   * asked for with AutoSave off included), rather than when its retry comes round. With AutoSave off, other
+   * edits wait for Save.
+   */
+  reconnected() {
+    const failed = this._timerIsRetry && (this.status === 'offline' || this.status === 'error');
+    if (!autoSaveEnabled() && !failed) return Promise.resolve(false);
+    return this.save({ auto: true });
+  }
+
   /** Saves and path changes share one queue, including operations queued while another waits. */
   _enqueueWrite(action) {
     const operation = this._saving ? this._saving.catch(() => {}).then(action) : Promise.resolve(action());

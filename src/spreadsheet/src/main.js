@@ -490,7 +490,7 @@ function setupOfflineBanner() {
     } else if (navigator.onLine && offlineBanner) {
       offlineBanner.remove();
       offlineBanner = null;
-      current?.view?.doc?.save?.({ auto: true }).catch(() => {});
+      current?.view?.doc?.reconnected?.().catch(() => {});
     }
   };
   window.addEventListener('online', update);
