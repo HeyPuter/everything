@@ -6198,7 +6198,10 @@ export class Workbook extends EventTarget {
     let lines = deleteMap(asked.map(({ from, to }) => ({ from: Math.max(0, from), to: Math.min(to, total - 1) })));
     if (!lines.count) return false;
     if (this.pivotLineEditBlocked(sheetId, axis, 0, 0, lines)) return false;
-    const pivotLines = lines; // Keep the full requested deletion when the grid retains one empty line.
+    // References renumber by the whole deletion asked for, as in a grid of fixed size: a reference past the
+    // sheet's extent moves up by the lines deleted above it, and one to the line the sheet keeps when every
+    // line goes is lost, like the rest. The trimmed map below only says what storage loses.
+    const refLines = deleteMap(asked.map(({ from, to }) => ({ from: Math.max(0, from), to: Math.min(to, axis === 'row' ? MAX_ROW : MAX_COL) })));
     for (const a of this._fixedArrays(sheet).ranges) {
       const first = axis === 'row' ? a.r1 : a.c1, last = axis === 'row' ? a.r2 : a.c2;
       const removed = lines.runs.reduce((count, run) => count + Math.max(0, Math.min(last, run.to) - Math.max(first, run.from) + 1), 0);
@@ -6234,9 +6237,9 @@ export class Workbook extends EventTarget {
     this._structural(label || (axis === 'row' ? 'Delete rows' : 'Delete columns'), () => {
       this._removeNativePivots((this.nativePivots?.tables || []).filter(p => {
         const ref = p.owner === sheetId && parseRefText(p.ref || '');
-        return ref && !adjustRefForDeletedLines(ref, axis, pivotLines);
+        return ref && !adjustRefForDeletedLines(ref, axis, refLines);
       }), label || 'Delete lines', true);
-      this.nativePivots = mapNativePivotRanges(this.nativePivots, sheetId, ref => adjustRefForDeletedLines(ref, axis, pivotLines));
+      this.nativePivots = mapNativePivotRanges(this.nativePivots, sheetId, ref => adjustRefForDeletedLines(ref, axis, refLines));
       if (everything) {
         // The one surviving line must not keep the last line's contents.
         const last = total - 1;
@@ -6256,18 +6259,23 @@ export class Workbook extends EventTarget {
         sheet.merges = sheet.merges.filter((m) => !gone(m));
         sheet.rules = sheet.rules.filter((rule) => !gone(rule.range));
         sheet.validations = sheet.validations.filter((v) => !gone(v.range));
-        sheet.styleResets = shiftStyleResets(sheet.styleResets, axis, last, 1, true);
-        sheet.ignoredErrors = shiftRangeFlags(sheet.ignoredErrors, axis, last, 1, true);
         sheet.protectedRanges = sheet.protectedRanges.filter((p) => !gone(p.range));
         mapSheetFilters(sheet, f => gone(f.range) ? null : f);
         if (!sheetFilters(sheet).length) sheet.filterHidden = new Set();
         const groupKey = axis === 'row' ? 'rows' : 'cols';
         sheet.groups[groupKey] = sheet.groups[groupKey].filter((g) => g.to > last);
       }
-      if (!lines.count) { if (axis === 'row') sheet.rows = DEFAULT_ROWS; else sheet.cols = DEFAULT_COLS; return; }
       // Rules, validations and filters are few: they follow the runs one at a time, from the bottom up so
-      // that the runs above keep their numbering, as they would under one deletion after another.
-      for (let i = runs.length - 1; i >= 0; i--) this._adjustLineRules(sheet.name, axis, runs[i].from, runs[i].to - runs[i].from + 1, true);
+      // that the runs above keep their numbering, as they would under one deletion after another. Their
+      // formulas are references and their ranges may run past the sheet's extent: the whole deletion
+      // applies (cleared reset and ignored-error records of the line the sheet keeps go with it).
+      for (let i = refLines.runs.length - 1; i >= 0; i--) this._adjustLineRules(sheet.name, axis, refLines.runs[i].from, refLines.runs[i].to - refLines.runs[i].from + 1, true);
+      if (!lines.count) {
+        if (axis === 'row') sheet.rows = DEFAULT_ROWS; else sheet.cols = DEFAULT_COLS;
+        this._adjustFormulas(sheet.name, axis, refLines.runs[0].from, refLines.count, true, refLines);
+        this._refreshFilters(this.sheets);
+        return;
+      }
       const moved = new Map();
       for (const [key, cell] of sheet.cells) {
         const { r, c } = parseKey(key);
@@ -6414,7 +6422,7 @@ export class Workbook extends EventTarget {
       // Deleting frozen lines shrinks the frozen area by as many of them as were frozen.
       if (axis === 'row') sheet.frozenRows -= lines.before(sheet.frozenRows);
       else sheet.frozenCols -= lines.before(sheet.frozenCols);
-      this._adjustFormulas(sheet.name, axis, runs[0].from, lines.count, true, lines);
+      this._adjustFormulas(sheet.name, axis, refLines.runs[0].from, refLines.count, true, refLines);
       this._refreshFilters(this.sheets);
     });
     return true;
