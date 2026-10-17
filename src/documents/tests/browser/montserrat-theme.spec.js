@@ -9,6 +9,9 @@ test.use({deviceScaleFactor:4});
 test('explicit, theme and inherited Light bold agree with the native reference and retain declarations',async({page},info)=>{
   test.setTimeout(180000);
   for(const[name,hash]of Object.entries(ref.sha256))expect(createHash('sha256').update(readFileSync(root+name)).digest('hex')).toBe(hash);
+  // Spelling marks (red wavy lines under "Hamburgefontsiv" and the like) are screen-only ink the native
+  // reference does not have; keep them out of the ink ratios.
+  await page.addInitScript(()=>{try{localStorage.setItem('documents:spellcheck','off');}catch{}});
   const requests=[];page.on('request',r=>{if(/\/fonts\/Montserrat-/.test(r.url()))requests.push(r.url());});
   await page.goto('/playground.html');await expect(page.getByRole('textbox',{name:'Document text'})).toBeVisible();expect(requests).toEqual([]);
   await page.getByLabel('Open DOCX file').setInputFiles(source);
