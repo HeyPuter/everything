@@ -268,7 +268,7 @@ export function replaceAdvanced(model, matches, template, { wildcards = false, f
       let start = m.start, end = m.end;
       if (!formatOnly && text !== m.text) {
         select(m.start, m.end);
-        model.replace(text);
+        model.replace(text, { checkpoint: false });
         end = model.selection.focus; start = end - text.length;
       }
       if (end > start) {

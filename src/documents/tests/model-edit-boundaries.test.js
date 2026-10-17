@@ -125,6 +125,15 @@ describe('Replace with Track Changes on', () => {
     expect(doc.selection).toEqual({ anchor: 0, focus: 0 });
     doc.undo(); expect(doc.revisions.map(r => r.type)).toEqual(['del']);
   });
+  it('undoes an advanced Replace All in one step when some matches are already deleted', () => {
+    const doc = tracked('one cat, two cat');
+    doc.select(4, 7); doc.replace('');
+    const before = JSON.stringify(doc.paragraphs);
+    expect(doc.replaceMatches('cat', '', { advanced: true, matchCase: true }, true)).toBe(2);
+    expect(doc.revisions.map(r => [r.type, doc.text.slice(r.start, r.end)])).toEqual([['del', 'cat'], ['del', 'cat']]);
+    doc.undo();
+    expect(JSON.stringify(doc.paragraphs)).toBe(before);
+  });
 });
 
 describe('grapheme boundaries after an edit', () => {
