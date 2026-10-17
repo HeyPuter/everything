@@ -15938,6 +15938,13 @@ function ods_to_csf_formula(f/*:string*/)/*:string*/ {
 				++end;
 				if(replacement == null) { i = end - 1; continue; }
 			} else if(f.slice(i, i + 14) == "COM.MICROSOFT.") { replacement = ""; end = i + 14; }
+			/* Puter Spreadsheet local patch: OpenFormula spells NORMSDIST, CHIDIST, TDIST, FDIST, NORMSINV,
+			 * CHIINV, FINV and CHITEST as LEGACY.* (as LibreOffice writes them), and its intersection operator is
+			 * "!" between two references or parenthesized expressions where Excel's is a space. An error literal
+			 * such as #REF! keeps its "!", as does a sheet name before one ('Data'![.A1]). */
+			else if((i == 0 || !/[\w.]/.test(f.charAt(i - 1))) && (replacement = /^LEGACY\.(?=[A-Za-z]+\s*\()/i.exec(f.slice(i)))) { end = i + replacement[0].length; replacement = ""; }
+			else if(ch == "#" && (replacement = /^#[A-Za-z0-9\/]+[!?]?/.exec(f.slice(i)))) { i += replacement[0].length - 1; continue; }
+			else if(ch == "!" && /[\])]\s*$/.test(f.slice(0, i))) replacement = " ";
 			else if(ch == ";" || ch == "~") replacement = ",";
 			else if(ch == "|") replacement = ";";
 			if(replacement != null) { out.push(f.slice(start, i), replacement); start = end; i = end - 1; }
@@ -15969,11 +15976,17 @@ function csf_to_ods_formula(f/*:string*/)/*:string*/ {
 	// grouping parentheses joins references; calls and arrays use separators.
 	var contexts = f.indexOf(",") == -1 ? null : [];
 	return "of:=" + map_formula_unquoted(f, function(f) {
-		var out = [], start = 0;
+		var out = [], start = 0, operandEnd = -1;
 		for(var i = 0; i < f.length; ++i) {
 			var ch = f.charAt(i), replacement = null, end = i + 1, match;
-			if(/[A-Za-z0-9_$']/.test(ch) && (i == 0 || !/[\w.$\u0080-\uFFFF]/.test(f.charAt(i - 1))) && (match = csf_ods_ref.exec(f.slice(i)))) {
-				replacement = csf_formula_reference(match); end = i + match[0].length;
+			/* Puter Spreadsheet local patch: Excel's intersection operator is the space between two references
+			 * (A1:B3 B1:C3); OpenFormula's is "!". */
+			if(i == operandEnd && /\s/.test(ch)) {
+				while(end < f.length && /\s/.test(f.charAt(end))) ++end;
+				if(f.charAt(end) == "(" || csf_ods_ref.exec(f.slice(end))) replacement = "!";
+				else { i = end - 1; continue; }
+			} else if(/[A-Za-z0-9_$']/.test(ch) && (i == 0 || !/[\w.$\u0080-\uFFFF]/.test(f.charAt(i - 1))) && (match = csf_ods_ref.exec(f.slice(i)))) {
+				replacement = csf_formula_reference(match); end = operandEnd = i + match[0].length;
 			} else if(ch == "'") {
 				match = csf_ods_name.exec(f.slice(i));
 				if(!match) { i = formula_quote_end(f, i) - 1; continue; }
@@ -15990,8 +16003,10 @@ function csf_to_ods_formula(f/*:string*/)/*:string*/ {
 				i = end - 1; continue;
 			} else if(/[A-Za-z_\u0080-\uFFFF]/.test(ch)) {
 				while(end < f.length && /[\w.\u0080-\uFFFF]/.test(f.charAt(end))) ++end;
-				if(f.charAt(end) != "!" || !(match = csf_ods_name.exec(f.slice(i)))) { i = end - 1; continue; }
-				replacement = "'" + match[1] + "'.$$'" + match[2] + "'"; end = i + match[0].length;
+				/* Puter Spreadsheet local patch: the functions OpenFormula spells as LEGACY.* (see ods_to_csf_formula). */
+				if(/^(?:CHIDIST|CHIINV|CHITEST|FDIST|FINV|NORMSDIST|NORMSINV|TDIST)$/i.test(f.slice(i, end)) && /^\s*\(/.test(f.slice(end))) replacement = "LEGACY." + f.slice(i, end);
+				else if(f.charAt(end) != "!" || !(match = csf_ods_name.exec(f.slice(i)))) { i = end - 1; continue; }
+				else { replacement = "'" + match[1] + "'.$$'" + match[2] + "'"; end = i + match[0].length; }
 			} else if((ch >= "0" && ch <= "9") || ch == ".") {
 				match = /^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/.exec(f.slice(i));
 				if(match) { i += match[0].length - 1; continue; }
@@ -16005,6 +16020,7 @@ function csf_to_ods_formula(f/*:string*/)/*:string*/ {
 			else if(ch == ",") replacement = !contexts.length || contexts[contexts.length - 1] == "group" ? "~" : ";";
 			else if(ch == ";") replacement = "|";
 			if(replacement != null) { out.push(f.slice(start, i), replacement); start = end; i = end - 1; }
+			else if(ch == ")") operandEnd = i + 1;
 		}
 		out.push(f.slice(start));
 		return out.join("");
