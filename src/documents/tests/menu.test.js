@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { openMenu, closeMenu, isMenuOpen } from '../src/ui/menu.js';
+import { openMenu, closeMenu, isMenuOpen, ariaKeyshortcuts } from '../src/ui/menu.js';
 import { openColorMenu, TEXT_COLORS } from '../src/ui/colors.js';
 
 const anchorAt = (left, width = 60) => {
@@ -56,6 +56,17 @@ describe('menu notes, groups and shortcuts', () => {
     items[0].focus();
     document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
     expect(document.activeElement.textContent.trim()).toBe('Centimeters');
+  });
+
+  it('spells the comma key and the Option key as aria-keyshortcuts names them', () => {
+    expect(ariaKeyshortcuts('Cmd+,')).toBe('Meta+,');
+    expect(ariaKeyshortcuts('Cmd+Option+M')).toBe('Meta+Alt+M');
+    expect(ariaKeyshortcuts('Option+Cmd+Shift+V')).toBe('Alt+Meta+Shift+V');
+    // Alternatives still split on a comma or "or" between chords.
+    expect(ariaKeyshortcuts('F4, Cmd+Y')).toBe('F4 Meta+Y');
+    expect(ariaKeyshortcuts('Ctrl+, or Ctrl+Shift+,')).toBe('Control+, Control+Shift+,');
+    openMenu({ anchor: anchorAt(100), items: [{ label: 'Preferences…', shortcut: 'Cmd+,', onSelect() {} }] });
+    expect(document.querySelector('.menu-item').getAttribute('aria-keyshortcuts')).toBe('Meta+,');
   });
 });
 

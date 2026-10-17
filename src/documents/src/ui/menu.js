@@ -97,10 +97,13 @@ export function menuTakesArrow(key) {
  */
 let headerId = 0;
 
-/** A shown shortcut ("Cmd+Shift+.", "Ctrl+Alt+O") as aria-keyshortcuts spells it ("Meta+Shift+."). */
+/**
+ * A shown shortcut ("Cmd+Shift+.", "Cmd+Option+M") as aria-keyshortcuts spells it ("Meta+Shift+.",
+ * "Meta+Alt+M"). Alternatives are separated by a comma or "or"; a comma right after a "+" is the key itself ("Cmd+,").
+ */
 export function ariaKeyshortcuts(shortcut) {
-  const names = { Cmd: 'Meta', Ctrl: 'Control', Up: 'ArrowUp', Down: 'ArrowDown', Left: 'ArrowLeft', Right: 'ArrowRight', Esc: 'Escape', Return: 'Enter', Del: 'Delete' };
-  return String(shortcut).split(/\s*(?:,|\bor\b)\s*/).filter(Boolean).map((chord) => chord.split('+').map((key) => names[key] || key).join('+')).join(' ');
+  const names = { Cmd: 'Meta', Ctrl: 'Control', Option: 'Alt', Up: 'ArrowUp', Down: 'ArrowDown', Left: 'ArrowLeft', Right: 'ArrowRight', Esc: 'Escape', Return: 'Enter', Del: 'Delete' };
+  return String(shortcut).split(/(?<!\+)\s*,\s*|\s+or\s+/).filter(Boolean).map((chord) => chord.split('+').map((key) => names[key] || key).join('+')).join(' ');
 }
 
 export function clickClosedMenu(anchor) {
