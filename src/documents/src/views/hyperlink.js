@@ -1,6 +1,7 @@
 import { el } from '../ui/dom.js';
 import { openPopover } from '../ui/popover.js';
 import { checkedHyperlinkTarget, internalHyperlink } from '../engine/hyperlinks.js';
+import { hrefForToken } from '../lib/linkify.js';
 
 export function openHyperlink({ link, bookmarks = [], insert, apply, remove, open, anchor, focusFirst = true }) {
   const kind = el('select.input', { 'aria-label': 'Link destination type' }, el('option', { value: 'address' }, 'Address'), el('option', { value: 'bookmark' }, 'Bookmark'));
@@ -17,9 +18,11 @@ export function openHyperlink({ link, bookmarks = [], insert, apply, remove, ope
   const error = el('p.field-error', { role: 'alert', hidden: true });
   const content = el('form', { onsubmit: e => {
     e.preventDefault();
-    const destination = kind.value === 'bookmark' ? { anchor: JSON.parse(bookmark.value) } : target.value.trim();
+    // A typed "example.com" or "joe@example.com" links as it would when typed in the document.
+    const typed = target.value.trim();
+    const destination = kind.value === 'bookmark' ? { anchor: JSON.parse(bookmark.value) } : hrefForToken(typed) || typed;
     try { if (typeof destination === 'string') checkedHyperlinkTarget(destination); } catch (e) { error.textContent = e.message; error.hidden = false; target.setAttribute('aria-invalid', 'true'); target.focus(); return; }
-    modal.close(); apply(destination, text?.value || (typeof destination === 'string' ? destination : destination.anchor || 'Start of document'));
+    modal.close(); apply(destination, text?.value || (typeof destination === 'string' ? typed : destination.anchor || 'Start of document'));
   } },
   el('label.field', {}, el('span.field-label', {}, 'Destination'), kind), addressField, bookmarkField,
   text ? el('label.field', {}, el('span.field-label', {}, 'Text'), text) : null,

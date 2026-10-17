@@ -31,6 +31,20 @@ test('creates links using the keyboard and at an empty caret, validates addresse
   const text = await input.inputValue(), path = await download(page, info, 'new-hyperlinks.docx'); await reopenDocx(page, input, path, text); await choose(input, 'Mail'); await dialog(page, input); await expect(page.getByRole('textbox', { name: 'Link address', exact: true })).toHaveValue('mailto:new@example.com'); await page.getByRole('dialog').getByRole('button', { name: 'Remove link', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0); await expect(input).toHaveValue(text); await expect((await onTab(page, 'insert')).getByRole('button', { name: 'Insert or edit link', exact: true })).toHaveAttribute('aria-pressed', 'false');
 });
 
+test('the link dialog completes a typed web or email address as typing it in the text would', async ({ page }, info) => {
+  await page.goto('/playground.html'); await page.getByRole('button', { name: 'New', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' }); await input.fill('Visit\n');
+  await choose(input, 'Visit'); await dialog(page, input);
+  await page.getByRole('textbox', { name: 'Link address', exact: true }).fill('example.com/docs'); await apply(page);
+  await input.press('ControlOrMeta+End'); await dialog(page, input);
+  await page.getByRole('textbox', { name: 'Link address', exact: true }).fill('joe@example.com'); await apply(page);
+  // With no selection the link shows the address as it was typed.
+  await expect(input).toHaveValue('Visit\njoe@example.com');
+  const rels = strFromU8(unzipSync(readFileSync(await download(page, info, 'completed-links.docx')))['word/_rels/document.xml.rels']);
+  expect(rels).toContain('Target="https://example.com/docs"');
+  expect(rels).toContain('Target="mailto:joe@example.com"');
+});
+
 test('ordinary clicks select text while modified clicks open wrapped, picture and repeated-header links at zoom', async ({ page }, info) => {
   await stubOpen(page); const errors = []; page.on('pageerror', e => errors.push(e.message)); await page.goto('/playground.html'); await showAllTools(page); await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/hyperlinks.docx'); const input = page.getByRole('textbox', { name: 'Document text' }); await expect(input).toHaveValue(/^External hyperlinks/);
   const targets = await page.evaluate(async () => {
