@@ -1,4 +1,4 @@
-import { el, isComposing, IS_MAC } from './dom.js';
+import { el, isComposing, IS_MAC, shortcutCode } from './dom.js';
 import { openMenu } from './menu.js';
 import { commandIconEl } from './ribbon.js';
 import { iconEl } from './icons.js';
@@ -203,7 +203,7 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
       if (['Alt', 'Shift', 'Control', 'Meta'].includes(e.key)) { if (e.key === 'Alt') { e.preventDefault(); } return; }
       e.preventDefault(); e.stopPropagation();
       if (e.key === 'Escape') { if (level === 'tab') top(); else { hide(); focusEditor(); } return; }
-      const ch = /^Key([A-Z])$/.exec(e.code)?.[1] || /^Digit([0-9])$/.exec(e.code)?.[1] || (e.key.length === 1 ? e.key.toUpperCase() : null);
+      const ch = /^Key([A-Z])$/.exec(shortcutCode(e))?.[1] || /^Digit([0-9])$/.exec(e.code)?.[1] || (e.key.length === 1 ? e.key.toUpperCase() : null);
       if (!ch) { hide(); return; }
       typed += ch;
       const exact = codes.find(t => t.code === typed);

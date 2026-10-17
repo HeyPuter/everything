@@ -1,4 +1,4 @@
-import { el, isComposing, MOD_KEY } from '../ui/dom.js';
+import { el, isComposing, MOD_KEY, shortcutCode } from '../ui/dom.js';
 import { commandIconEl } from '../ui/ribbon.js';
 import { applyMultilevelList } from '../engine/list-library.js';
 import { openMenu } from '../ui/menu.js';
@@ -592,7 +592,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
   const keyAbort = new AbortController();
   window.addEventListener('keydown', e => {
     if (e.defaultPrevented || isComposing(e) || !e.target?.matches?.('.canvas-input') || !editor() || keyClaimed(e)) return;
-    const mod = MAC ? e.metaKey : e.ctrlKey, code = e.code;
+    const mod = MAC ? e.metaKey : e.ctrlKey, code = shortcutCode(e);
     const act = action => { e.preventDefault(); e.stopPropagation(); action(); };
     // Apply Styles: Cmd/Ctrl+Shift+S where Save As does not use it, and Ctrl+Shift+S on a Mac.
     if ((mod || MAC && e.ctrlKey && !e.metaKey) && !e.altKey && e.shiftKey && code === 'KeyS') return act(applyStylesBox);

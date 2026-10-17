@@ -1322,7 +1322,10 @@ export class CanvasEditor {
     }
     const leaveWithTab = e.key === 'Tab' && this.leaveWithTab;
     this.leaveWithTab = false;
-    const mod = e.ctrlKey || e.metaKey, letter = e.code?.replace(/^Key/, '').toLowerCase() || e.key.toLowerCase();
+    // A letter chord follows the letter the layout types (QWERTZ moves Z, AZERTY moves A), and the
+    // physical key only when the layout types another script there.
+    const mod = e.ctrlKey || e.metaKey, typed = e.key || '';
+    const letter = /^[a-z]$/i.test(typed) ? typed.toLowerCase() : [...typed].length === 1 && /\p{L}/u.test(typed) ? /^Key([A-Z])$/.exec(e.code || '')?.[1].toLowerCase() || '' : '';
     if (mod && !e.altKey && !e.shiftKey && (e.code === 'Space' || e.key === ' ')) {
       e.preventDefault(); this.clearDirectTextFormatting(); return;
     }

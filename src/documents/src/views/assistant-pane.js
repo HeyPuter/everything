@@ -9,7 +9,7 @@
  * The pane, its button on the Home tab and the floating button beside the
  * pages are offered only where Puter's AI is available.
  */
-import { el, isComposing, MOD_KEY } from '../ui/dom.js';
+import { el, isComposing, MOD_KEY, shortcutCode } from '../ui/dom.js';
 import { toast } from '../ui/toast.js';
 import * as P from '../lib/puter.js';
 import { aiActionById, askAi, answerParagraphs } from '../lib/ai.js';
@@ -51,7 +51,7 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
   // Mod+Shift+I opens and closes the pane from anywhere in the editor.
   const keys = new AbortController();
   window.addEventListener('keydown', e => {
-    if (e.defaultPrevented || isComposing(e) || !(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey || e.code !== 'KeyI' || !editor()) return;
+    if (e.defaultPrevented || isComposing(e) || !(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey || shortcutCode(e) !== 'KeyI' || !editor()) return;
     e.preventDefault(); toggle();
   }, { signal: keys.signal });
 

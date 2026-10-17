@@ -35,7 +35,7 @@ import { findReplacePanel } from './find-replace.js';
 import { openParagraphGeometry } from './paragraph-geometry.js';
 import { iconEl } from '../ui/icons.js';
 import { openPageSetup } from './page-setup.js';
-import { el, isComposing, MOD_KEY } from '../ui/dom.js';
+import { el, isComposing, MOD_KEY, shortcutCode } from '../ui/dom.js';
 import { createCanvasChrome } from '../ui/canvas-chrome.js';
 import { documentFontAvailable, displayedFont } from '../engine/font-availability.js';
 import { openFontPicker } from './font-picker.js';
@@ -1174,7 +1174,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   // inert, and only while the keyboard is in the document: the same keys mean other things in a field.
   const formattingShortcut = e => {
     if (!engine || !(e.ctrlKey || e.metaKey) || !host.contains(e.target)) return null;
-    const code = e.code || '', shift = e.shiftKey, alt = e.altKey;
+    const code = shortcutCode(e), shift = e.shiftKey, alt = e.altKey;
     if (shift && !alt) {
       const chords = { KeyX: strike, KeyA: caps, KeyK: smallCaps, Equal: superscript, Digit8: bullets, Digit7: numbers,
         KeyL: alignmentButtons[0], KeyR: alignmentButtons[2], KeyJ: alignmentButtons[3] };
@@ -1207,10 +1207,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') { e.preventDefault(); save(); return; }
     if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'f' && engine) { e.preventDefault(); openSearch(); return; }
     // Find and replace: the conventional Ctrl+H; Cmd+H hides the app on a Mac, so there it is Cmd+Shift+H.
-    if (e.code === 'KeyH' && !e.altKey && engine && (MOD_KEY === 'Cmd' ? e.metaKey && e.shiftKey : e.ctrlKey && !e.shiftKey)) { e.preventDefault(); openFind(); return; }
+    if (shortcutCode(e) === 'KeyH' && !e.altKey && engine && (MOD_KEY === 'Cmd' ? e.metaKey && e.shiftKey : e.ctrlKey && !e.shiftKey)) { e.preventDefault(); openFind(); return; }
     if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key === '/') { e.preventDefault(); editorCommands.openShortcuts(); return; }
     if (e.key === 'F7' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && engine) { e.preventDefault(); proofing.openPane(); return; }
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.shiftKey && e.code === 'KeyV' && engine && host.contains(e.target)) { e.preventDefault(); pastePlainText(); return; }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.shiftKey && shortcutCode(e) === 'KeyV' && engine && host.contains(e.target)) { e.preventDefault(); pastePlainText(); return; }
     const action = formattingShortcut(e);
     if (action) { e.preventDefault(); action(); }
   });

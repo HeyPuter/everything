@@ -24,6 +24,16 @@ describe('keymap', () => {
     expect(chordOf(key('ShiftLeft', { shiftKey: true }, 'Shift'), false)).toBeNull();
     expect(chordOf(key('Comma', { metaKey: true }, ','), true)).toBe('Mod+Comma');
   });
+  it('names letters as the layout types them, and the physical key for other scripts and Option', () => {
+    // QWERTZ types Z where QWERTY has Y; AZERTY types A where QWERTY has Q.
+    expect(chordOf(key('KeyY', { ctrlKey: true }, 'z'), false)).toBe('Mod+Z');
+    expect(chordOf(key('KeyQ', { metaKey: true, shiftKey: true }, 'A'), true)).toBe('Mod+Shift+A');
+    // Cyrillic types ы on the S key; Option types ˚ on K.
+    expect(chordOf(key('KeyS', { ctrlKey: true }, 'ы'), false)).toBe('Mod+S');
+    expect(chordOf(key('KeyK', { metaKey: true, altKey: true }, '˚'), true)).toBe('Mod+Alt+K');
+    // Dvorak's apostrophe sits where QWERTY has Q: no letter chord.
+    expect(chordOf(key('KeyQ', { ctrlKey: true }, "'"), false)).toBeNull();
+  });
   it('accepts only chords with a modifier, or function keys', () => {
     expect(bindable('Mod+K')).toBe(true);
     expect(bindable('F7')).toBe(true);

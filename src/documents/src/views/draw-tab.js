@@ -8,7 +8,7 @@
  * Every change to the document goes through draw-commit.js as one editor transaction: each stroke is
  * one undo step, as is each eraser sweep, lasso move or conversion.
  */
-import { el, isComposing, MOD_KEY } from '../ui/dom.js';
+import { el, isComposing, MOD_KEY, shortcutCode } from '../ui/dom.js';
 import { openMenu } from '../ui/menu.js';
 import { toast } from '../ui/toast.js';
 import * as P from '../lib/puter.js';
@@ -450,7 +450,7 @@ export function createDraw({ editor, pkg, error, onChange = () => {}, commands =
   window.addEventListener('keydown', e => {
     if (e.defaultPrevented || isComposing(e) || !editor()) return;
     const chord = MOD_KEY === 'Cmd' ? e.metaKey && e.ctrlKey && !e.altKey : e.ctrlKey && e.altKey && !e.metaKey;
-    if (chord && !e.shiftKey && e.code === 'KeyZ') { e.preventDefault(); e.stopPropagation(); toggleDrawing(); return; }
+    if (chord && !e.shiftKey && shortcutCode(e) === 'KeyZ') { e.preventDefault(); e.stopPropagation(); toggleDrawing(); return; }
     if (replaying && e.key === 'Escape') { e.preventDefault(); stopReplay(); return; }
     if (tool === 'select' || !e.target?.matches?.('.canvas-input, body, .draw-pen, .ribbon-card button')) return;
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (selected) setSelection(null); else { setTool('select'); editor()?.focus(); } }

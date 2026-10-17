@@ -83,6 +83,20 @@ export function isMod(e) {
   return IS_MAC ? e.metaKey : e.ctrlKey;
 }
 
+/**
+ * The key a shortcut chord names, as a KeyboardEvent code. A letter is the letter the layout types,
+ * as everywhere else on the system: Ctrl+Z is on the key labelled Z with QWERTZ, AZERTY or Dvorak,
+ * not on the key where QWERTY has it. The physical key counts when the key types another script
+ * (Cyrillic, Greek) or Option changes the character; punctuation a layout types on a letter key
+ * (Dvorak's ' where QWERTY has Q) names no letter. Digits and punctuation keep their physical code.
+ */
+export function shortcutCode(e) {
+  const key = String(e?.key || ''), code = e?.code || '';
+  if (/^[a-z]$/i.test(key)) return `Key${key.toUpperCase()}`;
+  if (/^Key[A-Z]$/.test(code) && !e.altKey && [...key].length === 1 && !/\p{L}/u.test(key)) return '';
+  return code;
+}
+
 /** IME confirmation/cancellation belongs to text composition, not shortcuts. */
 export function isComposing(e) {
   // Some browsers end composition before the final keydown; 229 still marks

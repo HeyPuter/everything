@@ -3,7 +3,7 @@
  * Threads sit level with their anchors; the active thread's text is tinted more strongly. Every
  * change goes through the editor's transactions, so undo, saving and read-only rules apply.
  */
-import { el, isComposing, relativeTime, MOD_KEY } from '../ui/dom.js';
+import { el, isComposing, relativeTime, MOD_KEY, shortcutCode } from '../ui/dom.js';
 import { openMenu } from '../ui/menu.js';
 import { initialsFor } from '../engine/comments.js';
 import { revisionView, revisionAuthors, describeFormatChange } from '../engine/revisions.js';
@@ -540,8 +540,9 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     if (e.defaultPrevented || isComposing(e) || !e.target?.matches?.('.canvas-input')) return;
     // Cmd+Option+A on a Mac, Ctrl+Alt+M elsewhere.
     const mac = MOD_KEY === 'Cmd';
-    if (mac ? e.metaKey && e.altKey && e.code === 'KeyA' : e.ctrlKey && e.altKey && e.code === 'KeyM') { e.preventDefault(); commands.newComment(); }
-    else if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.code === 'KeyE') { e.preventDefault(); commands.toggleTracking(); }
+    const code = shortcutCode(e);
+    if (mac ? e.metaKey && e.altKey && code === 'KeyA' : e.ctrlKey && e.altKey && code === 'KeyM') { e.preventDefault(); commands.newComment(); }
+    else if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && code === 'KeyE') { e.preventDefault(); commands.toggleTracking(); }
   }, { signal: keyAbort.signal });
   const resize = typeof ResizeObserver === 'undefined' ? { observe() {}, disconnect() {} } : new ResizeObserver(() => { positionsKey = ''; refresh(); });
 

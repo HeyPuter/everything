@@ -5,7 +5,7 @@
  * items from extendMenu and context-menu items from contextMenuItems. Every change to the document
  * is one editor transaction, so it undoes in one step and saves to DOCX.
  */
-import { el, isComposing, MOD_KEY } from '../ui/dom.js';
+import { el, isComposing, MOD_KEY, shortcutCode } from '../ui/dom.js';
 import { closeMenu, openMenu } from '../ui/menu.js';
 import { toast } from '../ui/toast.js';
 import { promptDialog, confirmDialog } from '../ui/modal.js';
@@ -703,12 +703,13 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     if (e.defaultPrevented || isComposing(e) || !e.target?.matches?.('.canvas-input') || !ready()) return;
     const equationChord = MOD_KEY === 'Cmd' ? e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey : e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey;
     if (equationChord && e.code === 'Equal') { e.preventDefault(); insertEquation(); return; }
-    if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && ['KeyD', 'KeyT', 'KeyP'].includes(e.code)) {
+    const code = shortcutCode(e);
+    if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && ['KeyD', 'KeyT', 'KeyP'].includes(code)) {
       e.preventDefault();
-      if (e.code === 'KeyP') { insertPageNumber('current', PAGE_NUMBER_DESIGNS[0], null); return; }
-      const picture = e.code === 'KeyD' ? 'M/d/yyyy' : 'h:mm am/pm', engine = ready();
+      if (code === 'KeyP') { insertPageNumber('current', PAGE_NUMBER_DESIGNS[0], null); return; }
+      const picture = code === 'KeyD' ? 'M/d/yyyy' : 'h:mm am/pm', engine = ready();
       if (engine.session.path !== null) run(engine, () => engine.model.replace(formatDatePicture(new Date(), picture)));
-      else insertFieldInstruction(fieldInstruction({ name: e.code === 'KeyD' ? 'DATE' : 'TIME', picture }));
+      else insertFieldInstruction(fieldInstruction({ name: code === 'KeyD' ? 'DATE' : 'TIME', picture }));
     }
   }, { signal: keyAbort.signal, capture: true });
 

@@ -6,7 +6,7 @@
  * on demand, like the rest of the editor's engine.
  */
 import { openMenu } from '../ui/menu.js';
-import { el, MOD_KEY } from '../ui/dom.js';
+import { el, MOD_KEY, shortcutCode } from '../ui/dom.js';
 import { createTocCommands } from './references-toc.js';
 import { createNoteCommands } from './references-notes.js';
 import { createCitationCommands } from './references-citations.js';
@@ -446,10 +446,11 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
     const chord = mac ? e.metaKey && e.altKey && !e.ctrlKey : e.ctrlKey && e.altKey && !e.metaKey;
     const mark = mac ? e.metaKey && e.altKey && e.shiftKey : e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey;
-    if (chord && !e.shiftKey && e.code === 'KeyF') { e.preventDefault(); notes.insertNote('footnote'); }
-    else if (chord && !e.shiftKey && e.code === (mac ? 'KeyE' : 'KeyD')) { e.preventDefault(); notes.insertNote('endnote'); }
-    else if (mark && e.code === 'KeyX') { e.preventDefault(); indexes.markEntryPanel(); }
-    else if (mark && e.code === 'KeyI') { e.preventDefault(); indexes.markCitationPanel(); }
+    const code = shortcutCode(e);
+    if (chord && !e.shiftKey && code === 'KeyF') { e.preventDefault(); notes.insertNote('footnote'); }
+    else if (chord && !e.shiftKey && code === (mac ? 'KeyE' : 'KeyD')) { e.preventDefault(); notes.insertNote('endnote'); }
+    else if (mark && code === 'KeyX') { e.preventDefault(); indexes.markEntryPanel(); }
+    else if (mark && code === 'KeyI') { e.preventDefault(); indexes.markCitationPanel(); }
     else if (e.key === 'F9' && !e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); updateAllFields(); }
   }, { signal: keyAbort.signal });
   return { commands, contextTabs, extendTab, extendMenu, contextMenuItems, fieldAtCaret, activeStoryKind, updateAllFields, lookupPane: lookup.pane, destroy: () => { keyAbort.abort(); lookup.close(); document.querySelectorAll('.ref-panel').forEach(p => p.closePanel?.()); } };

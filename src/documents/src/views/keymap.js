@@ -1,4 +1,4 @@
-import { IS_MAC, isComposing } from '../ui/dom.js';
+import { IS_MAC, isComposing, shortcutCode } from '../ui/dom.js';
 import { localStore } from '../lib/storage.js';
 
 /**
@@ -12,10 +12,11 @@ export const KEYMAP_STORE = 'documents:keybindings';
 const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'AltGraph', 'CapsLock', 'Fn', 'OS', 'Hyper', 'Super']);
 const NAMED = { Comma: ',', Period: '.', Slash: '/', Backslash: '\\', BracketLeft: '[', BracketRight: ']', Semicolon: ';', Quote: "'", Backquote: '`', Minus: '-', Equal: '=', Space: 'Space' };
 
-/** The key part of a chord: letters and digits by their physical key, so a layout or Option never changes them. */
+/** The key part of a chord: letters as the layout labels them (shortcutCode), digits by their physical key, so Shift or Option never changes them. */
 function keyName(e) {
-  const code = e.code || '';
-  if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+  const code = e.code || '', letter = /^Key([A-Z])$/.exec(shortcutCode(e))?.[1];
+  if (letter) return letter;
+  if (/^Key[A-Z]$/.test(code)) return null;
   if (/^Digit[0-9]$/.test(code)) return code.slice(5);
   if (/^Numpad[0-9]$/.test(code)) return code.slice(6);
   if (NAMED[code]) return code === 'Space' ? 'Space' : code;

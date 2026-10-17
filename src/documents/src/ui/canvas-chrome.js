@@ -1,4 +1,4 @@
-import { el, isComposing, MOD_KEY } from './dom.js';
+import { el, isComposing, MOD_KEY, shortcutCode } from './dom.js';
 import { iconEl } from './icons.js';
 import { openMenu, closeMenu } from './menu.js';
 import { openShortcuts } from './shortcuts.js';
@@ -585,7 +585,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
     if (mod && !e.altKey && !e.shiftKey && e.code === 'Digit8' && w.toggleMarks) { e.preventDefault(); w.toggleMarks(); }
     else if (e.shiftKey && !mod && !e.altKey && e.key === 'F3' && w.changeCase) { e.preventDefault(); w.changeCase('cycle'); }
     else if (mod && !e.altKey && !e.shiftKey && (e.code === 'BracketRight' || e.code === 'BracketLeft')) { e.preventDefault(); w.growFont?.(e.code === 'BracketRight' ? 1 : -1, 1); }
-    else if (mod && !e.altKey && !e.shiftKey && e.code === 'KeyD' && w.fontDialog) { e.preventDefault(); w.fontDialog(); }
+    else if (mod && !e.altKey && !e.shiftKey && shortcutCode(e) === 'KeyD' && w.fontDialog) { e.preventDefault(); w.fontDialog(); }
   }, { signal: keyAbort.signal });
 
   setContext();

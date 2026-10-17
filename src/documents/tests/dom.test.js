@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
-import { el, append, debounce, clamp, formatBytes, relativeTime, fieldId, scrollBehavior } from '../src/ui/dom.js';
+import { el, append, debounce, clamp, formatBytes, relativeTime, fieldId, scrollBehavior, shortcutCode } from '../src/ui/dom.js';
 
 describe('el', () => {
   it('builds elements from a tag.class spec with attributes, listeners, and children', () => {
@@ -79,5 +79,21 @@ describe('scrollBehavior', () => {
     vi.stubGlobal('matchMedia', () => ({ matches: false }));
     expect(scrollBehavior()).toBe('smooth');
     vi.unstubAllGlobals();
+  });
+});
+
+describe('shortcutCode', () => {
+  it('names a letter chord by the letter the layout types', () => {
+    expect(shortcutCode({ key: 'z', code: 'KeyY', ctrlKey: true })).toBe('KeyZ');
+    expect(shortcutCode({ key: 'A', code: 'KeyQ', shiftKey: true })).toBe('KeyA');
+    expect(shortcutCode({ key: 'b', code: 'KeyN' })).toBe('KeyB');
+  });
+  it('keeps the physical key for other scripts, Option and keys that type no letter', () => {
+    expect(shortcutCode({ key: 'ы', code: 'KeyS' })).toBe('KeyS');
+    expect(shortcutCode({ key: 'å', code: 'KeyA', altKey: true })).toBe('KeyA');
+    expect(shortcutCode({ key: '&', code: 'Digit1' })).toBe('Digit1');
+    expect(shortcutCode({ key: '.', code: 'Period' })).toBe('Period');
+    expect(shortcutCode({ key: 'F4', code: 'F4' })).toBe('F4');
+    expect(shortcutCode({ key: "'", code: 'KeyQ' })).toBe('');
   });
 });

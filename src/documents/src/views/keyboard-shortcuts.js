@@ -1,4 +1,4 @@
-import { isComposing, MOD_KEY } from '../ui/dom.js';
+import { isComposing, MOD_KEY, shortcutCode } from '../ui/dom.js';
 import { moveParagraphs } from '../engine/home-editing.js';
 import { openGoTo } from './go-to.js';
 
@@ -18,7 +18,7 @@ export function keyboardShortcuts({ editor, pkg, applyStyleLevel, focusFont, foc
   const setGeometry = patch => paragraph(engine => engine.setParagraphGeometry(patch));
 
   function action(e) {
-    const ctrl = e.ctrlKey && !e.metaKey, mod = e.ctrlKey || e.metaKey, code = e.code || '';
+    const ctrl = e.ctrlKey && !e.metaKey, mod = e.ctrlKey || e.metaKey, code = shortcutCode(e);
     // Chords typed with Control everywhere; on Windows and Linux that is also the modifier.
     const control = MAC ? ctrl : e.ctrlKey;
     if (e.key === 'F5' && !mod && !e.altKey && !e.shiftKey || !MAC && mod && !e.altKey && !e.shiftKey && code === 'KeyG') return () => {
