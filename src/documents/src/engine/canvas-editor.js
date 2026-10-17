@@ -138,6 +138,8 @@ export class CanvasEditor {
     this.measure.paragraphCache = () => { checkFonts(); return measuredParagraphs; };
     const listen = (node, name, fn) => node.addEventListener(name, fn, { signal: this.abort.signal });
     listen(this.pages, 'pointerdown', e => this.pointerDown(e));
+    // A press anywhere else ends a run of quick presses, as it does natively.
+    listen(document, 'pointerdown', e => { if (!this.pages.contains(e.target)) this.lastPress = null; });
     listen(this.pages, 'pointermove', e => this.pointerMove(e));
     listen(this.pages, 'pointerup', e => this.pointerUp(e));
     listen(this.pages, 'pointercancel', () => { this.touch = null; this.dragging = false; this.dragControl = null; this.stopAutoScroll(); this.imageInteraction.cancel(); });
@@ -1017,6 +1019,13 @@ export class CanvasEditor {
     if (!tapped && this.deferTouch(e)) return;
     this.touch = null;
     this.typingGroup = null; this.deleteGroup = null;
+    // Pointer events carry no click count: a quick second or third press in place counts up, unless the
+    // pages moved in between (a scroll or relayout puts other text under the pointer).
+    const last = this.lastPress, { left, top } = this.pages.getBoundingClientRect();
+    const presses = last && e.timeStamp - last.time < 500 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 5
+      && left === last.left && top === last.top ? last.presses % 3 + 1 : 1;
+    this.lastPress = { time: e.timeStamp, x: e.clientX, y: e.clientY, left, top, presses };
+    this.unit = null;
     e.preventDefault();
     // Crop mode and Shift+click drawing selection take the press first (image-interaction.js).
     if (this.imageInteraction.pointerDown(e)) return;
@@ -1068,6 +1077,10 @@ export class CanvasEditor {
         ? selection.controlCaret || (extent && { id: extent.id, side: 'inside' }) : undefined;
       this.model.select(e.shiftKey ? this.model.selection.anchor : position, position,
         anchorCaret || (caret && !restoredOutsideCaret && !sameOffsetCaret ? this.controlPointerCaret(e, position, caret) : caret), extent);
+      // The second press takes the word and the third the paragraph; a drag from there extends by
+      // whole words or paragraphs, as native selection does.
+      const unit = !e.shiftKey && presses > 1 && !this.model.selection.controlCaret && this.textUnit(e, position, presses);
+      if (unit) { this.model.select(unit.start, unit.end); this.unit = { ...unit, presses, model: this.model, path: this.session.path }; }
     }
     const dragSelection = this.model.selection;
     const dragRange = !this.readOnly && !e.shiftKey && dragSelection.anchor === dragSelection.focus &&
@@ -1097,8 +1110,25 @@ export class CanvasEditor {
     this.dragPoint = { clientX: e.clientX, clientY: e.clientY, altKey: e.altKey };
     this.autoScroll();
   }
+  /** The word (two presses) or paragraph (three) at a pointer position. */
+  textUnit(e, position, presses) {
+    if (presses === 3) {
+      const { index, offset } = locate(this.model.paragraphs, position), start = position - offset;
+      return { start, end: start + paragraphText(this.model.paragraphs[index]).length };
+    }
+    const word = new Intl.Segmenter(undefined, { granularity: 'word' }).segment(this.model.text).containing(this.pointCharacter(e, position));
+    return word ? { start: word.index, end: word.index + word.segment.length } : null;
+  }
   /** Extend a pointer selection to a point. */
   dragTo(e) {
+    const unit = this.unit?.model === this.model && this.unit;
+    if (unit) {
+      const position = this.point(e), other = this.textUnit(e, position, unit.presses) || { start: position, end: position };
+      if (other.start < unit.start) this.model.select(unit.end, Math.min(other.start, position));
+      else this.model.select(unit.start, Math.max(other.end, position, unit.end));
+      this.syncInput(); this.paint(); this.onSelection();
+      return;
+    }
     const position = this.point(e), selection = this.model.selection;
     const extent = pointerControlSelection(selection, position);
     this.model.select(selection.anchor, position,
@@ -1178,6 +1208,8 @@ export class CanvasEditor {
       if (storyLine && this.pageStories.stories[storyLine.pageStory].editable) this.editStory(storyLine.pageStory, storyLine.page);
       else if (this.session.path !== null) this.editStory(null);
     }
+    // The second press already took the word, and a drag since extended it word by word.
+    if (this.unit?.presses === 2 && this.unit.model === this.model && this.unit.path === this.session.path) return;
     const pos = this.point(e);
     if (this.pointImage) {
       this.model.select(this.pointImage.start, this.pointImage.end); this.focus(); this.onSelection(); return;
@@ -1204,6 +1236,7 @@ export class CanvasEditor {
     return side && side.offset !== position ? Math.min(position, side.offset) : position;
   }
   selectParagraph(e) {
+    if (this.unit?.presses === 3 && this.unit.model === this.model && this.unit.path === this.session.path) return;
     const pos = this.point(e, false);
     if (this.pointImage) return;
     const { index, offset } = locate(this.model.paragraphs, pos), start = pos - offset;

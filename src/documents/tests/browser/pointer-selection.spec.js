@@ -65,3 +65,61 @@ test('holding a selection drag at the bottom edge keeps scrolling and extending 
   expect((await state()).scroll).toBe(released.scroll);
   expect(await input(page).evaluate(el => el.selectionEnd)).toBe(released.end);
 });
+
+test('a double or triple press then drag extends by whole words or paragraphs', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('hello world again and more\nSecond paragraph here\nThird one');
+  const box = await page.locator('canvas.canvas-page').first().boundingBox();
+  const at = await page.evaluate(() => {
+    const e = window.__docs.current.view.engine, lines = e.selectionLayout.lines;
+    const point = (line, offset) => ({ x: line.stops.find(s => s.offset === offset).x * e.zoom, y: (line.y + line.height / 2) * e.zoom });
+    return { hel: point(lines[0], 2), aga: point(lines[0], 14), sec: point(lines[1], 30) };
+  });
+  const press = async (point, count) => {
+    await page.mouse.move(box.x + point.x, box.y + point.y);
+    for (let n = 1; n <= count; n++) { await page.mouse.down({ clickCount: n }); if (n < count) await page.mouse.up({ clickCount: n }); }
+  };
+  await press(at.hel, 2);
+  expect(await selected(page)).toBe('hello');
+  await page.mouse.move(box.x + at.aga.x, box.y + at.aga.y, { steps: 5 });
+  await page.mouse.up({ clickCount: 2 });
+  expect(await selected(page)).toBe('hello world again');
+  await page.waitForTimeout(600);
+  // Three presses take the paragraph; dragging into the next takes all of it too.
+  await press(at.hel, 3);
+  await page.mouse.move(box.x + at.sec.x, box.y + at.sec.y, { steps: 5 });
+  await page.mouse.up({ clickCount: 3 });
+  expect(await selected(page)).toBe('hello world again and more\nSecond paragraph here');
+});
+
+test('quick presses in one place count as a double press only when nothing came between them', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  const bold = page.getByRole('button', { name: 'Bold', exact: true });
+  await expect(bold).toBeEnabled();
+  await input(page).fill(Array.from({ length: 60 }, (_, n) => `Line number ${n} of the text`).join('\n'));
+  const host = page.locator('.canvas-host');
+  await host.evaluate(el => { el.scrollTop = 0; });
+  const box = await page.locator('canvas.canvas-page').first().boundingBox();
+  const spot = { x: box.x + 100, y: box.y + 200 };
+  const caret = () => input(page).evaluate(el => [el.selectionStart, el.selectionEnd]);
+  // A press on the toolbar between two presses on the page ends the run, as it does natively.
+  await page.mouse.click(spot.x, spot.y);
+  const [at] = await caret();
+  await bold.click();
+  await page.mouse.click(spot.x, spot.y);
+  expect(await caret()).toEqual([at, at]);
+  await page.waitForTimeout(600);
+  // So does a scroll that puts other text under the pointer.
+  await page.mouse.click(spot.x, spot.y);
+  await host.evaluate(el => { el.scrollTop += 120; });
+  await page.mouse.click(spot.x, spot.y);
+  const [moved, end] = await caret();
+  expect(moved).toBe(end);
+  expect(moved).toBeGreaterThan(at);
+  await page.waitForTimeout(600);
+  // Two quick presses in place on the same text still take the word.
+  await page.mouse.click(spot.x, spot.y);
+  await page.mouse.click(spot.x, spot.y);
+  expect(await selected(page)).toMatch(/^\S+$/u);
+});
