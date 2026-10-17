@@ -185,3 +185,24 @@ test('the playground\'s sample links stay readable in the dark theme', async ({ 
   // The brand blue the light theme uses measured 2.8:1 on the dark bar.
   for (const ratio of ratios) expect(ratio).toBeGreaterThanOrEqual(4.5);
 });
+
+test('the File view\'s current section keeps its white name readable in both themes', async ({ page }) => {
+  for (const colorScheme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme });
+    await openEditor(page);
+    await page.getByRole('button', { name: 'File', exact: true }).first().click();
+    const current = page.getByRole('dialog', { name: 'File' }).getByRole('tab', { name: 'Info' });
+    await expect(current).toHaveAttribute('aria-selected', 'true');
+    const ratio = await current.evaluate(tab => {
+      const rgba = value => { const [r, g, b, a = 1] = value.match(/[\d.]+/g).map(Number); return { r, g, b, a }; };
+      const over = (top, bottom) => ({ r: top.r * top.a + bottom.r * (1 - top.a), g: top.g * top.a + bottom.g * (1 - top.a), b: top.b * top.a + bottom.b * (1 - top.a), a: 1 });
+      const lum = c => [c.r, c.g, c.b].map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+      const back = over(rgba(getComputedStyle(tab).backgroundColor), rgba(getComputedStyle(tab.closest('.bs-side')).backgroundColor));
+      const fore = lum(rgba(getComputedStyle(tab).color)), ground = lum(back);
+      return (Math.max(fore, ground) + 0.05) / (Math.min(fore, ground) + 0.05);
+    });
+    // A white wash over the light theme's accent column measured 3.8:1.
+    expect(ratio, colorScheme).toBeGreaterThanOrEqual(4.5);
+    await page.keyboard.press('Escape');
+  }
+});

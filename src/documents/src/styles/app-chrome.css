@@ -155,9 +155,9 @@ input:disabled + .ed-switch { opacity: .5; }
 }
 .backstage[hidden] { display: none; }
 /* The File view's column: the accent in light themes, a deep blue in dark ones so white text keeps its contrast. */
-:root { --bs-side: var(--ed-accent); }
-@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) { --bs-side: #22395a; } }
-:root[data-theme="dark"] { --bs-side: #22395a; }
+:root { --bs-side: var(--ed-accent); --bs-current: rgba(0, 0, 0, .24); }
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) { --bs-side: #22395a; --bs-current: rgba(255, 255, 255, .24); } }
+:root[data-theme="dark"] { --bs-side: #22395a; --bs-current: rgba(255, 255, 255, .24); }
 .bs-side { display: flex; flex-direction: column; gap: 2px; padding: calc(14px + var(--safe-t)) 10px calc(14px + var(--safe-b)) calc(10px + var(--safe-l)); background: var(--bs-side); color: #fff; overflow: auto; }
 .bs-back, .bs-tab {
   display: flex; align-items: center; gap: 10px; width: 100%; min-height: 38px; padding: 0 12px; border: 0; border-radius: 7px;
@@ -165,7 +165,8 @@ input:disabled + .ed-switch { opacity: .5; }
 }
 .bs-back { margin-bottom: 10px; font-weight: 600; }
 .bs-back:hover, .bs-tab:hover { background: rgba(255, 255, 255, .14); }
-.bs-tab[aria-selected='true'] { background: rgba(255, 255, 255, .24); font-weight: 600; }
+/* The current section darkens the accent column: a white wash over it left its white name at 3.8:1. */
+.bs-tab[aria-selected='true'] { background: var(--bs-current); font-weight: 600; }
 .bs-tab:focus-visible, .bs-back:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
 .bs-tab svg.ico { --ico-knock: transparent; }
 .bs-side svg { flex: none; }
