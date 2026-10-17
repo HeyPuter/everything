@@ -95,7 +95,7 @@ it('does the same for Delete columns', async () => {
   expect(selected()).toBe(before);
 });
 
-it('does the same for Insert columns, and leaves the selection alone when another step is undone', async () => {
+it('does the same for Insert columns, and shows the cell when a cell edit is undone', async () => {
   const { wb, id, menu, goTo, selected } = await mount();
   await goTo('B2');
   const before = selected();
@@ -104,10 +104,10 @@ it('does the same for Insert columns, and leaves the selection alone when anothe
   await menu('edit', 'Undo');
   expect(wb.getValue(id, 1, 1)).toBe(2);
   expect(selected()).toBe(before);
-  // A cell edit undone after moving away: the selection stays where the user is.
+  // A cell edit undone after moving away: the cell it changed is selected, as in Excel.
   wb.setInput(id, 4, 3, 'x');
   await goTo('D1');
   await menu('edit', 'Undo');
   expect(wb.getValue(id, 4, 3)).toBeNull();
-  expect(selected()).toBe('D1');
+  expect(selected()).toBe('D5');
 });
