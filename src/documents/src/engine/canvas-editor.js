@@ -715,9 +715,21 @@ export class CanvasEditor {
       const sectionPage = geometry.pageBorders ? index - (this.layout.pageSections?.indexOf(this.layout.pageSections[index]) ?? 0) : 0;
       const pageBorders = pageBorderStrokes(this.storyLayout.borderMargins?.[index] ? { ...geometry, ...this.storyLayout.borderMargins[index] } : geometry, sectionPage);
       if (geometry.pageBorders?.zOrder === 'back') for (const border of pageBorders) paintParagraphBorder(ctx, border);
+      // Screen cues for the story being edited: the inactive header/footer or body is faded.
+      let storyChrome = null;
+      if (!printing && this.pageStories) {
+        const kindOf = path => this.pageStories.stories[path]?.kind;
+        const activeKind = this.session.path === null ? 'body' : kindOf(this.session.path);
+        const storyLines = this.storyLayout.lines.filter(line => line.page === index);
+        if (activeKind === 'body' ? storyLines.some(line => ['header', 'footer'].includes(kindOf(line.pageStory))) : ['header', 'footer'].includes(activeKind))
+          storyChrome = { bounds: storyBoundaries(geometry, storyLines, kindOf), active: activeKind };
+      }
       // Header/footer stories paint beneath the body. Front/behind text
       // and relative drawing order apply within each story, not across them.
       for (const pageStory of [true, false]) {
+        // Fade the header and footer before the body paints, so body text and drawings that reach
+        // into the margins keep their own colours.
+        if (!pageStory && storyChrome?.active === 'body') paintStoryChrome(ctx, geometry, storyChrome.bounds, 'body');
         const floatingObjects = pageStory ? this.storyLayout.floatingObjects : this.layout.floatingObjects || [];
         const paintFloating = behind => {
           // A hidden drawing (§20.4.2.5) keeps its anchor and place but paints nothing; hidden ink likewise.
@@ -903,13 +915,7 @@ export class CanvasEditor {
         paintText(ctx, { ...label.style, text: label.text, x: label.x, width: label.width }, label.baseline); ctx.restore();
       }
       if (geometry.pageBorders?.zOrder !== 'back') for (const border of pageBorders) paintParagraphBorder(ctx, border);
-      if (!printing && this.pageStories) {
-        const kindOf = path => this.pageStories.stories[path]?.kind;
-        const activeKind = this.session.path === null ? 'body' : kindOf(this.session.path);
-        const storyLines = this.storyLayout.lines.filter(line => line.page === index);
-        if (activeKind === 'body' ? storyLines.some(line => ['header', 'footer'].includes(kindOf(line.pageStory))) : ['header', 'footer'].includes(activeKind))
-          paintStoryChrome(ctx, geometry, storyBoundaries(geometry, storyLines, kindOf), activeKind === 'body' ? 'body' : activeKind);
-      }
+      if (storyChrome && storyChrome.active !== 'body') paintStoryChrome(ctx, geometry, storyChrome.bounds, storyChrome.active);
       if (!printing) for (const overlay of this.overlays) overlay(ctx, index, geometry);
       if (!printing && controlRects) paintControlCarets(ctx, controlRects, index, scale);
       if (!printing && start === end && caret.page === index && document.activeElement === this.input && !this.accessible) {
