@@ -18,12 +18,13 @@ export function storyBoundaries(geometry, lines, kindOf) {
 /** Paint the cues for one page. `active` is 'body', 'header' or 'footer'. */
 export function paintStoryChrome(ctx, geometry, { header, footer }, active) {
   ctx.save();
-  ctx.fillStyle = 'rgba(255,255,255,.52)';
+  // Fade the inactive content toward the page colour, so a coloured page keeps one colour.
+  const dim = (y, height) => { ctx.save(); ctx.globalAlpha = .52; ctx.fillStyle = geometry.background || '#FFFFFF'; ctx.fillRect(0, y, geometry.width, height); ctx.restore(); };
   if (active === 'body') {
-    ctx.fillRect(0, 0, geometry.width, header);
-    ctx.fillRect(0, footer, geometry.width, geometry.height - footer);
+    dim(0, header);
+    dim(footer, geometry.height - footer);
   } else {
-    ctx.fillRect(0, header, geometry.width, footer - header);
+    dim(header, footer - header);
     ctx.strokeStyle = ACCENT; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
     for (const y of [header, footer]) { ctx.beginPath(); ctx.moveTo(0, Math.round(y) + .5); ctx.lineTo(geometry.width, Math.round(y) + .5); ctx.stroke(); }
     ctx.setLineDash([]);
