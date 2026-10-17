@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { unzipSync, strFromU8 } from 'fflate';
 import { readFileSync } from 'node:fs';
-import { downloadDocx } from './helpers/editor-tools.js';
+import { downloadDocx, showAllTools, onTab } from './helpers/editor-tools.js';
 import { reopenDocx } from './helpers/reopen-docx.js';
 
 const input = page => page.getByRole('textbox', { name: 'Document text' });
@@ -13,6 +13,8 @@ async function place(page, text) {
 test('new documents offer title, subtitle and six heading levels, with working heading shortcuts', async ({ page }, info) => {
   await page.goto('/mock.html#/new');
   await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  // The Paragraph style list is part of the optional Formatting Pane; the ribbon shows a style gallery.
+  await showAllTools(page);
   await expect(style(page).locator('option:not([disabled])')).toHaveText(['Normal', 'Title', 'Subtitle', 'Heading 1', 'Heading 2', 'Heading 3', 'Heading 4', 'Heading 5', 'Heading 6']);
   const text = 'Report title\nA subtitle\nThird level\nSixth level\nBody text';
   await input(page).fill(text);
@@ -24,9 +26,9 @@ test('new documents offer title, subtitle and six heading levels, with working h
   await expect(page.getByRole('button', { name: 'Bold', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await place(page, 'Sixth level'); await input(page).press('ControlOrMeta+Alt+6');
   await expect(style(page)).toHaveValue('Heading6');
-  await page.getByRole('button', { name: 'Document outline', exact: true }).click();
+  await (await onTab(page, 'view')).getByRole('button', { name: 'Navigation Pane', exact: true }).click();
   await expect(page.locator('.canvas-outline-entry')).toHaveCount(2);
-  await page.getByRole('button', { name: 'Document outline', exact: true }).click();
+  await (await onTab(page, 'view')).getByRole('button', { name: 'Navigation Pane', exact: true }).click();
 
   const download = page.waitForEvent('download'); await downloadDocx(page);
   const path = info.outputPath('writing-styles.docx'); await (await download).saveAs(path);
