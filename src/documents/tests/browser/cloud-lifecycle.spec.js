@@ -179,3 +179,16 @@ test('leaving while a save hangs asks instead of waiting forever', async ({ page
   await expect(page).toHaveURL(/#\/edit\//);
   await expect(text(page)).toHaveValue('Kept more');
 });
+
+test('signing out with a document that cannot be saved says why it did not sign out', async ({ page }) => {
+  await openEditor(page);
+  // An imported file the editor cannot open is kept for download, never saved.
+  await page.locator('input[aria-label="Open DOCX file"]').setInputFiles({ name: 'Broken.docx', mimeType: 'application/octet-stream', buffer: Buffer.from('not a zip file') });
+  await expect(page.locator('.canvas-message')).toContainText(/./);
+  await expect(page.getByRole('button', { name: 'Download original' })).toBeVisible();
+  await page.getByRole('button', { name: 'Account' }).click();
+  await page.getByRole('menuitem', { name: 'Sign out' }).click();
+  await page.getByRole('dialog', { name: 'Sign out?' }).getByRole('button', { name: 'Sign out' }).click();
+  await expect(page.locator('.toast-root')).toContainText('still signed in');
+  expect(await page.evaluate(() => window.__docs.session.signedIn)).toBe(true);
+});

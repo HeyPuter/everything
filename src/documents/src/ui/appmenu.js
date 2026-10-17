@@ -112,7 +112,11 @@ export async function confirmSignOut() {
     detail: { waitUntil: (promise) => pending.push(Promise.resolve(promise)) },
   }));
   try {
-    if ((await Promise.all(pending)).some((saved) => saved === false)) return;
+    // Signing out would lose what the open document could not save: stay, and say why.
+    if ((await Promise.all(pending)).some((saved) => saved === false)) {
+      toast('The open document could not be saved, so you are still signed in. Save or download it first', { icon: 'alert', duration: 8000 });
+      return;
+    }
     await P.signOut();
     location.hash = '';
     location.reload();
