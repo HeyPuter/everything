@@ -1018,7 +1018,10 @@ export class CanvasEditor {
     return true;
   }
   pointerDown(e, tapped = false) {
-    if (e.button !== 0 || this.composition) return;
+    if (e.button !== 0) return;
+    // A press during composition commits it and goes on to place the caret, as in a native field;
+    // returning would let the press take focus from the document, losing what is typed next.
+    if (this.composition) this.finishComposition();
     if (!tapped && this.deferTouch(e)) return;
     this.touch = null;
     this.typingGroup = null; this.deleteGroup = null;
