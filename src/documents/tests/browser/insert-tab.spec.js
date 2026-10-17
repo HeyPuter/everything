@@ -282,3 +282,45 @@ test('equations, symbols and text from a file', async ({ page }, info) => {
   await reopenDocx(page, input, path, await input.inputValue(), { timeout: 20000 });
   expect(errors).toEqual([]);
 });
+
+test('the Date and Time and Special Characters lists are one Tab stop with arrow-key movement', async ({ page }) => {
+  const { input, errors, ribbon } = await start(page, { text: 'Dated ' });
+  await input.press('ControlOrMeta+End');
+  const tabStops = list => list.getByRole('option').evaluateAll(options => options.filter(o => o.tabIndex >= 0).length);
+  // Date and Time: focus starts on the chosen format; Tab leaves the list for the checkbox.
+  await ribbon.getByRole('button', { name: 'Date & Time', exact: true }).click();
+  const date = page.getByRole('dialog', { name: 'Date and Time' }), formats = date.getByRole('listbox', { name: 'Available formats' });
+  await expect(formats.getByRole('option').first()).toBeFocused();
+  expect(await tabStops(formats)).toBe(1);
+  await page.keyboard.press('End');
+  await expect(formats.getByRole('option').last()).toBeFocused();
+  await expect(formats.getByRole('option').last()).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('ArrowUp'); await page.keyboard.press('Home'); await page.keyboard.press('ArrowDown');
+  await expect(formats.getByRole('option').nth(1)).toBeFocused();
+  await expect(formats.getByRole('option').nth(1)).toHaveAttribute('aria-selected', 'true');
+  expect(await tabStops(formats)).toBe(1);
+  await page.keyboard.press('Tab');
+  await expect(date.getByRole('checkbox', { name: 'Update automatically' })).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(formats.getByRole('option').nth(1)).toBeFocused();
+  await date.getByRole('button', { name: 'Cancel' }).click();
+  // Special Characters: one Tab stop; the arrows choose the character Insert puts in.
+  await ribbon.getByRole('button', { name: 'Symbol', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'More Symbols…' }).click();
+  const symbols = page.getByRole('dialog', { name: 'Symbol' });
+  await symbols.getByRole('radio', { name: 'Special Characters' }).click();
+  const special = symbols.getByRole('listbox', { name: 'Special characters' });
+  expect(await tabStops(special)).toBe(1);
+  await special.getByRole('option', { name: /Em Dash/ }).click();
+  await page.keyboard.press('ArrowDown');
+  const next = special.getByRole('option', { name: /En Dash/ });
+  await expect(next).toBeFocused();
+  await expect(next).toHaveAttribute('aria-selected', 'true');
+  expect(await tabStops(special)).toBe(1);
+  await page.keyboard.press('Tab');
+  expect(await special.evaluate(list => list.contains(document.activeElement))).toBe(false);
+  await symbols.getByRole('button', { name: 'Insert' }).click();
+  await symbols.getByRole('button', { name: 'Cancel' }).click();
+  await expect.poll(() => input.inputValue()).toBe('Dated –');
+  expect(errors).toEqual([]);
+});

@@ -3,7 +3,7 @@
  * Diagram, Signature Line, Drop Cap and Generate Picture. Each shows a live preview of what it
  * inserts and hands the result to the caller, which makes the change in one editor transaction.
  */
-import { el, isComposing, fieldId } from '../ui/dom.js';
+import { el, isComposing, fieldId, listboxKeys } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { segmented } from '../ui/segmented.js';
 import { symbolName } from '../ui/symbols.js';
@@ -44,15 +44,11 @@ export function openDateTime({ onInsert, onClose }) {
   let chosen = DATE_PICTURES.includes(preferred) ? preferred : DATE_PICTURES[0];
   const options = DATE_PICTURES.map(picture => {
     const option = el('button.ed-choice', { type: 'button', role: 'option', 'aria-selected': String(picture === chosen), dataset: { picture }, onclick: () => pick(picture),
-      ondblclick: () => { pick(picture); dialog.form.requestSubmit(); },
-      onkeydown: e => {
-        if (isComposing(e)) return;
-        const at = options.indexOf(option), next = e.key === 'ArrowDown' ? at + 1 : e.key === 'ArrowUp' ? at - 1 : null;
-        if (next !== null && options[next]) { e.preventDefault(); options[next].focus(); pick(DATE_PICTURES[next]); }
-      } }, formatDatePicture(now, picture));
+      ondblclick: () => { pick(picture); dialog.form.requestSubmit(); } }, formatDatePicture(now, picture));
     return option;
   });
   list.append(...options);
+  listboxKeys(list, option => pick(option.dataset.picture));
   const pick = picture => { chosen = picture; for (const o of options) o.setAttribute('aria-selected', String(o.dataset.picture === picture)); };
   const update = el('input', { type: 'checkbox', checked: stored(`${PICTURE_KEY}.update`, '0') === '1' });
   const setDefault = el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { store(PICTURE_KEY, chosen); setDefault.textContent = 'Saved as default'; } }, 'Set as Default');
@@ -206,6 +202,7 @@ export function openSymbolDialog({ onInsert, onClose }) {
     el('button.ed-choice.insert-special-row', { type: 'button', role: 'option', 'aria-selected': 'false', onclick: e => { chosen = ch; for (const o of special.children) o.setAttribute('aria-selected', String(o === e.currentTarget)); describe(ch); },
       ondblclick: () => { chosen = ch; dialog.form.requestSubmit(); } },
     el('span.insert-special-char', {}, /[\s\u00AD\u200B\u2060]/.test(ch) ? '\u00B7' : ch), el('span', {}, label), el('span.insert-special-keys', {}, `U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`))));
+  listboxKeys(special, option => option.click());
   const symbolsPane = el('div.insert-symbol-pane', {}, el('div.insert-symbol-filters', {}, field('Font', font), field('Subset', subset)), grid,
     el('div.insert-symbol-footer', {}, preview, el('div', {}, name, field('Character code', code))), el('span.field-label', {}, 'Recently used symbols'), recent);
   const specialPane = el('div.insert-symbol-pane', { hidden: true }, special);

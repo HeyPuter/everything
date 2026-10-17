@@ -125,6 +125,34 @@ export function isComposing(e) {
   return e.isComposing || e.keyCode === 229;
 }
 
+/**
+ * Make a listbox of option buttons one Tab stop: the selected option (the first when none is) takes
+ * Tab, and Up, Down, Home and End move focus to another option and call `select` with it. Returns a
+ * function that puts the Tab stop back on the selected option after the options change.
+ */
+export function listboxKeys(list, select) {
+  const options = () => [...list.querySelectorAll('[role="option"]')].filter(o => !o.disabled && !o.closest('[hidden]'));
+  const settle = (stop = null) => {
+    const all = options();
+    stop ||= all.find(o => o.getAttribute('aria-selected') === 'true') || all[0];
+    for (const o of all) o.tabIndex = o === stop ? 0 : -1;
+    return stop;
+  };
+  list.addEventListener('focusin', e => { const option = e.target.closest?.('[role="option"]'); if (option && list.contains(option)) settle(option); });
+  list.addEventListener('keydown', e => {
+    if (isComposing(e) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const all = options(), at = all.indexOf(e.target.closest?.('[role="option"]'));
+    const next = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: all.length - 1 }[e.key];
+    if (next === undefined || at < 0) return;
+    e.preventDefault();
+    const option = all[Math.max(0, Math.min(all.length - 1, next))];
+    if (option === all[at]) return;
+    select(option); settle(option); option.focus();
+  });
+  settle();
+  return () => settle();
+}
+
 export function formatBytes(n) {
   if (n == null) return '';
   if (n < 1024) return `${n} B`;
