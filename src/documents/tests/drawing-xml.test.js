@@ -192,3 +192,24 @@ it('drops media that Compress released only when nothing uses it', () => {
   expect(new TextDecoder().decode(parts['word/_rels/document.xml.rels'])).not.toMatch(/rA/);
   expect(new TextDecoder().decode(parts['[Content_Types].xml'])).not.toMatch(/a\.png/);
 });
+
+it('keeps released media that another part still uses however that part is written', () => {
+  const enc = s => new TextEncoder().encode(s);
+  const utf16 = s => new Uint8Array(Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(s, 'utf16le')]));
+  const rel = id => `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="${id}" Type="x/image" Target="media/a.png"/></Relationships>`;
+  const parts = {
+    '[Content_Types].xml': enc('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/media/a.png" ContentType="image/png"/></Types>'),
+    'word/_rels/document.xml.rels': enc(rel('rA')), 'word/document.xml': enc('<w:document/>'),
+    // Single-quoted attribute values and UTF-16 parts are ordinary XML.
+    'word/_rels/header1.xml.rels': enc(rel('rH')), 'word/header1.xml': enc("<w:hdr><a:blip r:embed = 'rH'/></w:hdr>"),
+    'word/_rels/footer1.xml.rels': enc(rel('rF')), 'word/footer1.xml': utf16('<w:ftr><a:blip r:embed="rF"/></w:ftr>'),
+    // A relationships part that cannot be read must not stop the save.
+    'customXml/_rels/item1.xml.rels': enc('<Relationships'), 'customXml/item1.xml': enc('<x/>'),
+    'word/media/a.png': png,
+  };
+  pruneReleasedMedia(parts, new Set(['word/media/a.png']));
+  expect(parts['word/media/a.png']).toBeDefined();
+  expect(new TextDecoder().decode(parts['word/_rels/header1.xml.rels'])).toMatch(/rH/);
+  expect(new TextDecoder().decode(parts['word/_rels/footer1.xml.rels'])).toMatch(/rF/);
+  expect(new TextDecoder().decode(parts['[Content_Types].xml'])).toMatch(/a\.png/);
+});
