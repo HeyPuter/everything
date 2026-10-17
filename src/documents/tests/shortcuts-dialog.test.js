@@ -15,3 +15,25 @@ it('lists only chords the canvas editor handles, with alternatives joined by "or
   expect(redo.textContent).toBe(`${MOD_KEY} + Shift + Z or ${MOD_KEY} + Y`);
   expect(redo.querySelectorAll('.kbd')).toHaveLength(5);
 });
+
+const chordsFor = (what) => [...document.querySelectorAll('.modal-panel dd')].filter(dd => dd.textContent === what).map(dd => dd.previousElementSibling.textContent);
+
+it('promises only chords that reach the command: Ctrl+, is Preferences, not Subscript', () => {
+  openShortcuts();
+  expect(chordsFor('Subscript')).toEqual([`${MOD_KEY} + =`]);
+  expect(chordsFor('Preferences')).toEqual([`${MOD_KEY} + ,`]);
+  expect(chordsFor('Go to a page, line, heading, bookmark, table or graphic')).toEqual(['Ctrl + G or F5']);
+});
+
+it('on a Mac lists Go To under Cmd+Option+G, since Cmd+G finds the next match, and names the Option key', async () => {
+  vi.resetModules();
+  vi.stubGlobal('navigator', { ...navigator, platform: 'MacIntel', userAgent: navigator.userAgent });
+  const mac = await import('../src/ui/shortcuts.js');
+  mac.openShortcuts();
+  expect(chordsFor('Go to a page, line, heading, bookmark, table or graphic')).toEqual(['Cmd + Option + G or F5']);
+  expect(chordsFor('Go to')).toEqual([]);
+  expect(chordsFor('Find next or previous')).toEqual(['Cmd + G or Cmd + Shift + G or Shift + F4 or Cmd + Shift + F4']);
+  expect(chordsFor('Heading 1 to 6')).toEqual(['Cmd + Option + 1 … 6']);
+  expect(chordsFor('Move paragraphs up or down')).toEqual(['Option + Shift + Up / Down']);
+  expect(document.querySelector('.modal-panel').textContent).not.toMatch(/\bAlt\b/);
+});
