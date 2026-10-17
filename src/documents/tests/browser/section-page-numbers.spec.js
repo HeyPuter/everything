@@ -11,7 +11,9 @@ for(const [name,ref] of Object.entries(references)) test(`matches native page nu
   await page.addInitScript(()=>{
     window.pageNumberPaint=[];const paint=CanvasRenderingContext2D.prototype.fillText;
     CanvasRenderingContext2D.prototype.fillText=function(text,x,y,...args){
-      window.pageNumberPaint.push({text,x,y,canvas:this.canvas});return paint.call(this,text,x,y,...args);
+      // Fractional sizes paint inside a translated, scaled context: record page CSS pixels.
+      const m=this.getTransform(),scale=this.canvas.width/816;
+      window.pageNumberPaint.push({text,x:(m.a*x+m.c*y+m.e)/scale,y:(m.b*x+m.d*y+m.f)/scale,canvas:this.canvas});return paint.call(this,text,x,y,...args);
     };
   });
   await page.goto('/playground.html');await page.getByLabel('Open DOCX file').setInputFiles(path);
