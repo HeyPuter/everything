@@ -125,7 +125,9 @@ it('adds a washed-out picture watermark and a tiled picture page background', as
   const { setWatermarkParts, readWatermark, setPageFillParts, hasPageFill } = await import('../src/engine/package-design.js');
   const parts = await partsOf(blank());
   setWatermarkParts(parts, { kind: 'picture', bytes: PNG, mime: 'image/png', width: 2, height: 2, scale: 'auto', washout: true });
-  expect(readWatermark(parts)).toMatchObject({ kind: 'picture', washout: true });
+  expect(readWatermark(parts)).toMatchObject({ kind: 'picture', washout: true, mime: 'image/png' });
+  // The picture comes back with it, so changing only the washout or scale can keep it.
+  expect([...readWatermark(parts).bytes]).toEqual([...PNG]);
   setPageFillParts(parts, { bytes: PNG, mime: 'image/png', title: 'Texture', color: 'FFFFFF' });
   expect(hasPageFill(parts)).toBe(true);
   expect(strFromU8(parts['word/settings.xml'])).toContain('<w:displayBackgroundShape/>');

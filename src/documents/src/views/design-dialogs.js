@@ -96,7 +96,9 @@ export function openPageColor({ value, apply }) {
 
 /** Custom Watermark: none, a picture (scale, washout) or text (language, text, font, size, color, transparency, layout). */
 export function openCustomWatermark({ current, apply }) {
-  let kind = current?.kind || 'text', picture = null;
+  let kind = current?.kind || 'text';
+  // The current picture is kept unless another is chosen.
+  let picture = current?.kind === 'picture' && current.bytes ? { bytes: current.bytes, mime: current.mime, width: current.width, height: current.height } : null;
   const text = current?.kind === 'text' ? current : { text: 'DRAFT', font: null, size: 'auto', color: 'C0C0C0', semitransparent: true, layout: 'diagonal', language: 'en-US' };
   const listId = fieldId('watermark-texts');
   const words = el('input.input', { type: 'text', value: text.text, list: listId, maxLength: 120, 'aria-label': 'Text' });
@@ -108,12 +110,12 @@ export function openCustomWatermark({ current, apply }) {
   let layout = text.layout || 'diagonal';
   const layoutGroup = segmented([['diagonal', 'Diagonal'], ['horizontal', 'Horizontal']], layout, value => { layout = value; draw(); }, 'Layout');
   const file = el('input', { type: 'file', accept: 'image/png,image/jpeg', hidden: true });
-  const pictureName = el('span.field-hint', {}, current?.kind === 'picture' ? 'The current picture is kept unless you choose another.' : 'No picture chosen.');
+  const pictureName = el('span.field-hint', {}, picture ? 'The current picture is kept unless you choose another.' : 'No picture chosen.');
   const choose = el('button.btn.btn-outline', { type: 'button', onclick: () => file.click() }, 'Select Picture…');
   const scale = el('select.input', { 'aria-label': 'Scale' }, ...[['auto', 'Auto'], ['0.5', '50%'], ['1', '100%'], ['1.5', '150%'], ['2', '200%'], ['5', '500%']].map(([v, label]) => el('option', { value: v, selected: String(current?.scale ?? 'auto') === v }, label)));
   const washout = el('input', { type: 'checkbox', checked: current?.kind === 'picture' ? !!current.washout : true });
   const preview = el('div.design-watermark-preview', { 'aria-hidden': 'true' });
-  let previewUrl = null;
+  let previewUrl = picture ? URL.createObjectURL(new Blob([picture.bytes], { type: picture.mime })) : null;
   const draw = () => {
     if (kind === 'text') {
       const label = el(`span.design-watermark-text.is-${layout}`, { style: { color: color.value, opacity: transparent.checked ? '0.5' : '1', fontFamily: fontStack(fonts.value || 'Noto Sans') } }, words.value || ' ');

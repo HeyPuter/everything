@@ -134,6 +134,38 @@ test('watermarks are written into headers, shown behind text and removed', async
   expect(errors).toEqual([]);
 });
 
+test('the custom watermark dialog keeps the current picture when only its washout changes', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await open(page);
+  // An 8×6 red PNG.
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAGCAIAAABxZ0isAAAAEUlEQVR4nGM4ISeHFTEMpAQAaYgwwWSFouIAAAAASUVORK5CYII=', 'base64');
+  const custom = async () => {
+    await ribbon(page).getByRole('button', { name: 'Watermark' }).click();
+    await page.getByRole('menuitem', { name: 'Custom Watermark…' }).click();
+    return page.getByRole('dialog', { name: 'Watermark' });
+  };
+  let dialog = await custom();
+  await dialog.getByRole('radio', { name: 'Picture' }).click();
+  await dialog.locator('input[type="file"]').setInputFiles({ name: 'stamp.png', mimeType: 'image/png', buffer: png });
+  await expect(dialog.getByText('stamp.png')).toBeVisible();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeHidden();
+  dialog = await custom();
+  await expect(dialog.getByRole('radio', { name: 'Picture' })).toHaveAttribute('aria-checked', 'true');
+  await expect(dialog.locator('.design-watermark-preview img')).toHaveCount(1);
+  await dialog.getByLabel('Washout').uncheck();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeHidden();
+  const { parts } = await saved(page, info, 'watermark-picture-kept.docx');
+  const header = Object.keys(parts).find(name => /^word\/header\d+\.xml$/.test(name) && strFromU8(parts[name]).includes('Document Watermark'));
+  expect(strFromU8(parts[header])).toContain('&quot;washout&quot;:false');
+  expect(strFromU8(parts[header])).not.toContain('<a:lum');
+  const embed = /r:embed="([^"]+)"/.exec(strFromU8(parts[header]))[1];
+  const target = new RegExp(`Id="${embed}"[^>]*Target="([^"]+)"`).exec(strFromU8(parts[header.replace('word/', 'word/_rels/') + '.rels']))[1];
+  expect(Buffer.from(parts[`word/${target}`]).equals(png)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
 test('fill effects store a picture page background and page borders offer the options dialog', async ({ page }, info) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await open(page);

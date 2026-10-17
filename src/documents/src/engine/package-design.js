@@ -447,14 +447,25 @@ function removeWatermarkRuns(doc) {
   }
   return removed;
 }
-/** The document's watermark as this editor wrote it: { kind: 'text', text, font, size, color, layout, ... } | { kind: 'picture' } | null. */
+/**
+ * The document's watermark as this editor wrote it: { kind: 'text', text, font, size, color, layout, ... } |
+ * { kind: 'picture', ..., bytes?, mime? } | null. A picture watermark carries its image when the header
+ * still holds it, so it can be kept when only its scale or washout changes.
+ */
 export function readWatermark(parts) {
   for (const path of watermarkHeaders({ ...parts }, false)) {
     const doc = readPart(parts, path);
     const drawing = [...doc.getElementsByTagNameNS(W, 'drawing')].find(isWatermark);
     if (!drawing) continue;
     const docPr = drawing.getElementsByTagNameNS(NS.wp, 'docPr')[0];
-    try { return JSON.parse(docPr.getAttribute('descr') || 'null') || { kind: 'text' }; } catch { return { kind: 'text' }; }
+    let watermark;
+    try { watermark = JSON.parse(docPr.getAttribute('descr') || 'null') || { kind: 'text' }; } catch { return { kind: 'text' }; }
+    if (watermark.kind === 'picture') {
+      const embed = drawing.getElementsByTagNameNS(A, 'blip')[0]?.getAttributeNS(NS.r, 'embed');
+      const media = embed ? relationshipTarget(parts, path, embed) : null;
+      if (media && parts[media] instanceof Uint8Array) Object.assign(watermark, { bytes: parts[media], mime: /\.png$/i.test(media) ? 'image/png' : 'image/jpeg' });
+    }
+    return watermark;
   }
   return null;
 }
