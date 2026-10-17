@@ -5810,6 +5810,25 @@ export function createGrid(opts) {
   function selectByName(text) {
     if (sheet()?.kind === 'chart') return false;
     const t = text.trim();
+    // Several areas (A1:A2,C5:C6) are separated as a formula's arguments are: by a comma, or a semicolon
+    // where the regional format writes decimals with a comma. Each is taken as the box takes it alone,
+    // and together they are one selection of several ranges, as Ctrl/Cmd+clicking them makes; the
+    // last holds the active cell. One that is not a place leaves the selection as it was.
+    const list = localeInfo().decimal === ',' ? /[;,]/ : /,/;
+    if (list.test(t)) {
+      const parts = t.split(list).map((p) => p.trim());
+      if (parts.length > 500 || parts.some((p) => !p || list.test(p))) return false;
+      const before = { sel, extras };
+      const areas = [];
+      for (const part of parts) {
+        if (!selectByName(part)) { extras = before.extras; setSelection(before.sel, { add: true, scroll: false, announce: false }); return false; }
+        areas.push(S.selRange(sel, true));
+      }
+      extras = [];
+      for (const area of areas.slice(0, -1)) addRange(area);
+      setSelection(sel, { add: true, scroll: false });
+      return true;
+    }
     // Whole columns (A:C) and whole rows (3:5), as the name box accepts in Excel and Sheets.
     const cols = /^\$?([A-Za-z]{1,3})\$?:\$?([A-Za-z]{1,3})$/.exec(t);
     const lines = /^(\d+):(\d+)$/.exec(t);
