@@ -1,7 +1,7 @@
 import {test,expect} from '@playwright/test';
 import {readFileSync} from 'node:fs';
 import {unzipSync} from 'fflate';
-import {showAllTools} from './helpers/editor-tools.js';
+import {showAllTools,onTab} from './helpers/editor-tools.js';
 import {reopenDocx} from './helpers/reopen-docx.js';
 const source='tests/fixtures/hyperlink-fields/control.docx';
 test('navigates field links and edits one paragraph of a spanning link without losing other targets',async({page},info)=>{
@@ -23,7 +23,7 @@ test('navigates field links and edits one paragraph of a spanning link without l
  await choose('First part');await dialog();await page.getByRole('dialog').getByRole('button',{name:'Remove link',exact:true}).click();
  const changed=await save('removed-first-paragraph');await reopen(changed,original);
  await choose('Second part');await dialog();await page.getByRole('dialog').getByRole('button',{name:'Open link',exact:true}).click();expect(await input.evaluate(el=>el.selectionStart)).toBe(original.indexOf('Destination'));
- await choose('First part');await expect(page.getByRole('button',{name:'Insert or edit link',exact:true})).toHaveAttribute('aria-pressed','false');
+ await choose('First part');await expect((await onTab(page,'insert')).getByRole('button',{name:'Insert or edit link',exact:true})).toHaveAttribute('aria-pressed','false');
  await reopen(source,original);
  const at=original.indexOf('Empty complex: [')+'Empty complex: ['.length;
  await input.evaluate((el,at)=>{el.focus();el.setSelectionRange(at,at);el.dispatchEvent(new Event('select',{bubbles:true}));},at);await page.keyboard.insertText('Filled');

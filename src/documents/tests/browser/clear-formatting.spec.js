@@ -1,4 +1,4 @@
-import { showAllTools } from './helpers/editor-tools.js';
+import { showAllTools, onTab } from './helpers/editor-tools.js';
 import { test, expect } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
 import { reopenDocx } from './helpers/reopen-docx.js';
@@ -27,7 +27,7 @@ test('clears direct formatting with inherited styles, selection and pagination i
   await undo(page).click(); await expect(size(page)).toHaveValue('24'); await redo(page).click(); await undo(page).click(); await expect(undo(page)).toBeDisabled();
   await input.press('ControlOrMeta+a'); await reset(page).click(); await expect(input).toHaveValue(text); expect(await page.locator('canvas.canvas-page').count()).toBeLessThan(pages);
   await undo(page).click(); expect(await page.locator('canvas.canvas-page').count()).toBe(pages); await expect(undo(page)).toBeDisabled(); await redo(page).click();
-  await select(input, 'Linked reset'); await expect(style(page)).toHaveValue('ResetCharacterChild'); await expect(page.getByRole('button', { name: 'Insert or edit link', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await select(input, 'Linked reset'); await expect(style(page)).toHaveValue('ResetCharacterChild'); await expect((await onTab(page, 'insert')).getByRole('button', { name: 'Insert or edit link', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await select(input, 'reset Á😀'); await page.locator('.canvas-host').evaluate(el => { el.scrollTop = 0; }); await page.screenshot({ path: info.outputPath('clear-formatting-toolbar.png') }); await screenshot(page, info, 0, 'clear-formatting-page.png'); await screenshot(page, info, 2, 'clear-formatting-table.png');
   const saved = await download(page, info, 'clear-text-formatting.docx'); await reopenDocx(page, input, saved, text); await select(input, 'reset Á😀'); await expect(size(page)).toHaveValue('14'); await expect(style(page)).toHaveValue('ResetCharacterChild'); await expect(undo(page)).toBeDisabled();
   await page.getByRole('button', { name: 'Edit paragraph style', exact: true }).click(); await page.getByRole('spinbutton', { name: 'Style font size (pt)', exact: true }).fill('18'); await page.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(size(page)).toHaveValue('18'); expect(errors).toEqual([]);
