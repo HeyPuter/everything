@@ -4,6 +4,10 @@ import {unzipSync} from 'fflate';
 import {reopenDocx} from './helpers/reopen-docx.js';
 
 const pixels=page=>page.locator('canvas.canvas-page').evaluateAll(async canvases=>Promise.all(canvases.map(async c=>({width:c.width,height:c.height,hash:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',c.getContext('2d').getImageData(0,0,c.width,c.height).data))).map(b=>b.toString(16).padStart(2,'0')).join('')}))));
+// Spelling as you type marks words on screen shortly after an edit and on opening, so the pixels
+// captured right after an edit and after reopening would differ by those marks alone. These checks
+// compare section repainting, so they turn the screen-only spelling marks off.
+test.beforeEach(async({page})=>{await page.addInitScript(()=>{try{localStorage.setItem('documents:spellcheck','off');}catch{}});});
 const select=async(input,start,end=start)=>input.evaluate((el,[a,b])=>{el.focus();el.setSelectionRange(a,b);el.dispatchEvent(new Event('select',{bubbles:true}));},[start,end]);
 
 test('first-cell Backspace preserves section pages, native caret, export and exact undo',async({page},info)=>{
