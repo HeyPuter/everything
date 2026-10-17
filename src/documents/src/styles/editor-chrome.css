@@ -238,6 +238,10 @@
 .ed-workspace .canvas-ruler-top, .ed-workspace .canvas-ruler-side { background: var(--ed-workspace); }
 .ed-workspace .canvas-message { background: var(--ed-frame); color: var(--ed-ink-2); border-bottom: 1px solid var(--ed-line); }
 .ed-workspace .canvas-message:has(.canvas-message-close) { background: #fff4ce; color: #3b2f00; border-bottom-color: #f0e0a0; }
+/* The bar stays yellow in every theme, so its Dismiss button takes the bar's dark ink rather than the theme's
+   (a dark theme's light grey X measured 1.6:1 on the yellow). */
+.ed-workspace .canvas-message:has(.canvas-message-close) .canvas-message-close { color: inherit; }
+@media (hover: hover) { .ed-workspace .canvas-message .canvas-message-close:not([disabled]):hover { background: rgba(0, 0, 0, .08); color: inherit; } }
 .ed-workspace .canvas-message.canvas-message-error { background: var(--critical-wash); color: var(--ink); }
 
 /* ---- Status bar ---- */
