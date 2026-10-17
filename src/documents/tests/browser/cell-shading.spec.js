@@ -44,14 +44,14 @@ test('edits themed fills, no-fill overrides, merged segments and repeated header
   const input = await fixture(page), text = await input.inputValue(), count = await page.locator('canvas.canvas-page').count();
   await expectTableCommandUnavailable(page, 'Cell shading'); await select(input, 'Inherited theme');
   const button = (await onTab(page, 'tableDesign')).getByRole('button', { name: 'Cell shading', exact: true }); await expect(button.locator('svg')).toHaveAttribute('aria-hidden', 'true');
-  for (const hex of ['C3D69B', 'DDEEFF', '224466', 'CCAAEE', 'FFFF00', '55AA77']) expect(await pixels(page, hex), hex).toBeGreaterThan(100);
+  for (const hex of ['C2D69B', 'DDEEFF', '224466', 'CCAAEE', 'FFFF00', '55AA77']) expect(await pixels(page, hex), hex).toBeGreaterThan(100);
   for (const label of ['Atomic clear', 'Style no fill']) { await select(input, label); await expect(button).toHaveAttribute('title', 'Cell shading: No fill'); }
-  await select(input, 'Nil inherited'); await expect(button).toHaveAttribute('title', 'Cell shading: #C3D69B');
-  await select(input, 'Inherited theme'); await expect(button).toHaveAttribute('title', 'Cell shading: #C3D69B');
+  await select(input, 'Nil inherited'); await expect(button).toHaveAttribute('title', 'Cell shading: #C2D69B');
+  await select(input, 'Inherited theme'); await expect(button).toHaveAttribute('title', 'Cell shading: #C2D69B');
   const before = await input.evaluate(el => [el.style.top, el.style.left]); await shade(page, '224466'); expect(await input.evaluate(el => [el.style.top, el.style.left])).toEqual(before);
-  await page.getByRole('button', { name: 'Undo', exact: true }).click(); await expect(button).toHaveAttribute('title', 'Cell shading: #C3D69B');
+  await page.getByRole('button', { name: 'Undo', exact: true }).click(); await expect(button).toHaveAttribute('title', 'Cell shading: #C2D69B');
   await page.getByRole('button', { name: 'Redo', exact: true }).click(); await expect(button).toHaveAttribute('title', 'Cell shading: #224466');
-  await select(input, 'Direct blue'); await shade(page, 'inherit'); await expect(button).toHaveAttribute('title', 'Cell shading: #C3D69B');
+  await select(input, 'Direct blue'); await shade(page, 'inherit'); await expect(button).toHaveAttribute('title', 'Cell shading: #C2D69B');
   await select(input, 'No fill'); await shade(page, '55AA77');
   await select(input, 'Vertical theme'); await shade(page, 'CCAAEE');
   await select(input, 'Header theme'); await shade(page, '55AA77');
@@ -60,8 +60,8 @@ test('edits themed fills, no-fill overrides, merged segments and repeated header
   expect(repeats).toBeGreaterThan(1); expect(await pixels(page, 'FFFF00')).toBeGreaterThan(100);
   await expect(input).toHaveValue(text); expect(await page.locator('canvas.canvas-page').count()).toBe(count);
   const saved = await download(page, testInfo, 'cell-shading.docx'); await reopenDocx(page, input, saved, text);
-  for (const [label, value] of [['Inherited theme', '224466'], ['Direct blue', 'C3D69B'], ['No fill', '55AA77'], ['Vertical theme', 'CCAAEE'], ['Header theme', '55AA77']]) {
-    await select(input, label); await expect(button).toHaveAttribute('title', 'Cell shading: #' + value);
+  for (const [label, value] of [['Inherited theme', '224466'], ['Direct blue', 'C2D69B'], ['No fill', '55AA77'], ['Vertical theme', 'CCAAEE'], ['Header theme', '55AA77']]) {
+    await select(input, label); await onTab(page, 'tableDesign'); await expect(button).toHaveAttribute('title', 'Cell shading: #' + value);
   }
   const dialog = await open(page); await page.screenshot({ path: testInfo.outputPath('cell-shading-dialog.png'), animations: 'disabled' });
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click(); await expect(dialog).toHaveCount(0); await select(input, 'Tail', 'Tail', true);
