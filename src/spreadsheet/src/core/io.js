@@ -2153,10 +2153,31 @@ function workbookFromText(text, filename) {
  * Parse spreadsheet file bytes (xlsx, xls, csv, ods, ...) into a Workbook.
  * `data` may be an ArrayBuffer, Uint8Array, or Blob.
  */
+// The Windows ANSI code page of each language whose code page is not Windows-1252.
+const LEGACY_ENCODINGS = new Map([
+  ...['pl', 'cs', 'sk', 'hu', 'sl', 'hr', 'ro', 'sq', 'bs'].map((l) => [l, 'windows-1250']),
+  ...['ru', 'uk', 'bg', 'be', 'sr', 'mk', 'kk', 'ky', 'tt', 'mn'].map((l) => [l, 'windows-1251']),
+  ['el', 'windows-1253'], ['tr', 'windows-1254'], ['az', 'windows-1254'], ['he', 'windows-1255'],
+  ...['ar', 'fa', 'ur'].map((l) => [l, 'windows-1256']),
+  ...['lt', 'lv', 'et'].map((l) => [l, 'windows-1257']),
+  ['vi', 'windows-1258'], ['th', 'windows-874'], ['ja', 'shift_jis'], ['ko', 'euc-kr'], ['zh', 'gbk'],
+]);
+
+/** The legacy (ANSI) encoding text files are saved in where a locale is the system's: windows-1252 unless another applies. */
+function legacyEncoding(loc) {
+  const [lang, ...rest] = String(loc || '').toLowerCase().split(/[-_]/);
+  // Traditional Chinese (Taiwan, Hong Kong, Macau) is Big5; Simplified is GBK.
+  if (lang === 'zh' && rest.some((p) => ['tw', 'hk', 'mo', 'hant'].includes(p))) return 'big5';
+  // Serbian in Latin script uses the Central European page.
+  if (lang === 'sr' && rest.includes('latn')) return 'windows-1250';
+  return LEGACY_ENCODINGS.get(lang) || 'windows-1252';
+}
+
 /**
  * Bytes of a text file as a string: UTF-16 by its byte-order mark, otherwise
- * UTF-8, falling back to Windows-1252 when the bytes are not valid UTF-8
- * (the usual case for CSVs saved by older Windows programs).
+ * UTF-8, falling back to the regional format's legacy code page (Windows-1252
+ * in most of the West) when the bytes are not valid UTF-8 (the usual case for
+ * CSVs saved by older Windows programs).
  */
 export function decodeText(bytes) {
   const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
@@ -2172,6 +2193,12 @@ export function decodeText(bytes) {
     let nonAscii = 0;
     for (const ch of lenient) if (ch > '\x7f' && ch !== '\ufffd') nonAscii++;
     if (nonAscii >= 3 && bad <= Math.max(2, nonAscii / 25)) return lenient;
+    // Excel on Windows saves CSV in the system's ANSI code page, which the regional format's
+    // language stands in for: Shift_JIS in Japan, Windows-1251 in Russia, and so on.
+    const legacy = legacyEncoding(getLocale());
+    if (legacy !== 'windows-1252') {
+      try { return new TextDecoder(legacy).decode(b); } catch { /* a decoder without it reads Windows-1252 */ }
+    }
     try {
       // Some ICU-backed decoders treat Windows-1252 as Latin-1. Repair
       // its C1 range using the WHATWG mapping; conforming decoders are unchanged.
