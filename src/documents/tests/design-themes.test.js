@@ -215,3 +215,20 @@ it('restyles the independently authored design fixture and keeps its explicit fo
   expect(header).toContain('REPLACED'); expect(header).not.toContain('PROBE'); expect(header).toContain('Probe header');
   expect((await DocxPackage.open(zipSync(parts))).readOnly).not.toBe(true);
 });
+
+it('applies Design changes to a package whose parts are UTF-16', async () => {
+  const { setWatermarkParts, readWatermark, setPageFillParts, hasPageFill, themePartXml } = await import('../src/engine/package-design.js');
+  const utf16 = text => new Uint8Array(Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('<?xml version="1.0" encoding="UTF-16" standalone="yes"?>' + text.replace(/^<\?xml[^>]*\?>/, ''), 'utf16le')]));
+  const source = await partsOf(blank());
+  applyDesignTheme(source, { theme: resolvedTheme('Ember') });
+  const parts = Object.fromEntries(Object.entries(source).map(([name, bytes]) => [name, utf16(strFromU8(bytes))]));
+  expect(themePartXml(parts)).toBe(strFromU8(source[Object.keys(source).find(name => name.startsWith('word/theme/'))]).replace(/^(<\?xml[^>]*encoding=")[^"]*/, '$1UTF-8'));
+  applyDesignTheme(parts, { theme: resolvedTheme('Paper') });
+  setWatermarkParts(parts, { kind: 'text', text: 'DRAFT', size: 'auto', color: 'C0C0C0', semitransparent: true, layout: 'diagonal' });
+  setPageFillParts(parts, { bytes: PNG, mime: 'image/png', title: 'Texture', color: 'FFFFFF' });
+  const reopened = await DocxPackage.open(zipSync(parts));
+  expect(reopened.readOnly).not.toBe(true);
+  expect(readThemeInfo(parts).name).toBe('Paper');
+  expect(readWatermark(parts)).toMatchObject({ text: 'DRAFT' });
+  expect(hasPageFill(parts)).toBe(true);
+});

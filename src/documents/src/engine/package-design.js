@@ -7,6 +7,7 @@
  */
 import { strFromU8, strToU8, unzipSync } from 'fflate';
 import { relatedPartPath } from './docx-relationships.js';
+import { parseXml } from './docx-xml.js';
 import { relationshipPartPath, relativePartTarget, zipPackage } from './package-part-paths.js';
 import { createPageStoryPart } from './docx-page-story-create.js';
 import { themeColorTransform } from './colors.js';
@@ -35,9 +36,9 @@ const children = (node, ns, name) => [...(node?.children || [])].filter(n => (!n
 const child = (node, ns, name) => children(node, ns, name)[0] || null;
 const escape = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 export function readPart(parts, path) {
-  const doc = new DOMParser().parseFromString(strFromU8(parts[path]), 'application/xml');
-  if (doc.getElementsByTagName('parsererror').length) throw new Error(`The package part ${path} is not well-formed XML.`);
-  return doc;
+  // Decode as the package reader does: UTF-8 or a UTF-16 part with its BOM.
+  try { return parseXml(parts[path]); }
+  catch { throw new Error(`The package part ${path} is not well-formed XML.`); }
 }
 export function writePart(parts, path, doc) {
   parts[path] = strToU8(DECLARATION + new XMLSerializer().serializeToString(doc.documentElement));
@@ -597,7 +598,13 @@ const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingm
 export async function blobParts(blob) { return unzipSync(new Uint8Array(await blob.arrayBuffer())); }
 export function partsBlob(parts) { return new Blob([zipPackage(parts)], { type: DOCX_MIME }); }
 /** A theme part's XML text, or null. */
-export function themePartXml(parts) { const path = themePartPath(parts); return path ? strFromU8(parts[path]) : null; }
+export function themePartXml(parts) {
+  const path = themePartPath(parts), bytes = path && parts[path];
+  if (!bytes) return null;
+  // A UTF-16 part (with its BOM) decodes as such; its text is written back as UTF-8.
+  const encoding = bytes[0] === 0xff && bytes[1] === 0xfe ? 'utf-16le' : bytes[0] === 0xfe && bytes[1] === 0xff ? 'utf-16be' : null;
+  return encoding ? new TextDecoder(encoding).decode(bytes).replace(/^(<\?xml\s[^?]*?\bencoding\s*=\s*)(["'])[^"']*\2/, '$1"UTF-8"') : strFromU8(bytes);
+}
 /** The theme part inside a .thmx theme package (a ZIP), or the text of a .xml theme file. */
 export function themeFileXml(bytes) {
   if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
