@@ -192,3 +192,21 @@ test('signing out with a document that cannot be saved says why it did not sign 
   await expect(page.locator('.toast-root')).toContainText('still signed in');
   expect(await page.evaluate(() => window.__docs.session.signedIn)).toBe(true);
 });
+
+test('a starred document renamed in the editor stays starred', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Starred text');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+  await page.evaluate(() => { location.hash = '#/home'; });
+  const row = page.locator('.file-row', { hasText: 'Untitled document' });
+  await row.getByRole('button', { name: /^Star / }).click();
+  await expect(row).toHaveClass(/is-starred/);
+  await row.locator('.file-main').click();
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const title = page.getByRole('textbox', { name: 'Document name' });
+  await title.fill('Renamed plan');
+  await title.press('Enter');
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.doc.path)).toBe('Documents/Renamed plan.docx');
+  await page.evaluate(() => { location.hash = '#/home'; });
+  await expect(page.locator('.file-row', { hasText: 'Renamed plan' })).toHaveClass(/is-starred/);
+});

@@ -19,6 +19,7 @@ import * as P from './puter.js';
 import { session } from './session.js';
 import { snapshotIfDue, saveVersion, renameVersions, deleteVersions } from './versions.js';
 import { movePublication, unpublishAt } from './publish.js';
+import { moveStar } from './starred.js';
 import { HANWORD_IMPORTABLE, decodeTextFile, importHanword, importKind, toInsertPayload } from './importers.js';
 
 export const AUTOSAVE_MS = 1500;
@@ -448,6 +449,8 @@ export class Doc extends EventTarget {
     } catch (e) {
       return P.isNotFound(e) ? 'That file no longer exists' : (e?.message || 'Could not rename the file');
     }
+    // The star on the home screen follows the file, as a rename there does; left behind, the next listing drops it.
+    moveStar(this.path, target);
     if (versioning.enabled) await renameVersions(this.path, target);
     // A published page stays up under its address; its record follows the
     // file in the background, since the rename itself is already done.

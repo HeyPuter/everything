@@ -34,6 +34,7 @@ vi.mock('../src/lib/puter.js', async (importOriginal) => {
 import { publishing, Doc, AUTOSAVE_MS, MAX_AUTOSAVE_MS, RETRY_MS, UNTITLED, needsUnloadWarning, versioning } from '../src/lib/doc.js';
 import * as P from '../src/lib/puter.js';
 import { hwp, paragraph } from './helpers/hwp-fixtures.js';
+import { isStarred, toggleStar } from '../src/lib/starred.js';
 
 const blob = (s) => new Blob([s], { type: P.DOCX_MIME });
 
@@ -589,6 +590,19 @@ describe('Doc', () => {
     expect(P.__fs.has('Documents/A.docx')).toBe(false);
     expect(await P.__fs.get('Documents/B.docx').text()).toBe('latest');
     expect(doc.path).toBe('Documents/B.docx');
+    doc.destroy();
+  });
+
+  it('keeps the star of a document renamed from the editor', async () => {
+    const store = new Map();
+    vi.stubGlobal('localStorage', { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) });
+    const doc = new Doc({ name: 'A', path: 'Documents/A.docx', blob: blob('original') });
+    P.__fs.set(doc.path, doc.blob);
+    doc.attach(async () => blob('latest'));
+    toggleStar('Documents/A.docx');
+    expect(await doc.rename('B')).toBeNull();
+    expect(isStarred('Documents/B.docx')).toBe(true);
+    expect(isStarred('Documents/A.docx')).toBe(false);
     doc.destroy();
   });
 
