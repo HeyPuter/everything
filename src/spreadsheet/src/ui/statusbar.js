@@ -310,7 +310,7 @@ export function createStatusBar(ctx) {
       mode: cellMode(ctx.grid.editState),
       a11y: a11yEl.querySelector('.status-a11y-text').textContent.replace(/^Accessibility: /, ''),
       address: ranges.length === 1 ? (isSingle(ctx.grid.selection) ? cellName(ctx.grid.selection.active.r, ctx.grid.selection.active.c) : rangeName(ctx.grid.range)) : `${ranges.length} ranges`,
-      size: sheet && sheet.kind !== 'chart' ? `${sheet.rows.toLocaleString()} × ${sheet.cols}` : '',
+      size: sheet && sheet.kind !== 'chart' ? `${sheet.rows.toLocaleString()} × ${sheet.cols.toLocaleString()}` : '',
       zoom: `${Math.round(ctx.grid.zoom * 100)}%`,
     };
     const stats = selectionStats();
@@ -386,7 +386,7 @@ export function createStatusBar(ctx) {
         error && el('span.status-item.status-error', { title: help }, help),
         filterNote,
       ].filter(Boolean));
-      right.replaceChildren(el('span.status-item.muted.status-size', {}, `${sheet.rows.toLocaleString()} rows, ${sheet.cols} columns`));
+      right.replaceChildren(el('span.status-item.muted.status-size', {}, `${sheet.rows.toLocaleString()} rows, ${sheet.cols.toLocaleString()} columns`));
       return;
     }
     const items = [el('span.status-item.status-address', {}, ranges.length === 1 ? rangeName(range) : ranges.length <= 3 ? ranges.map(rangeName).join(', ') : `${ranges.length} ranges`)];
