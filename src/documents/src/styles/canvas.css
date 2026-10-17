@@ -62,7 +62,7 @@
 }
 .playground-shell { height: 100dvh; display: flex; flex-direction: column; }
 .playground-nav { padding: 10px 20px; display: flex; gap: 14px; align-items: center; border-bottom: 1px solid var(--hairline); background: var(--surface); flex-wrap: wrap; }
-.playground-nav a { color: var(--brand); font-size: 13px; }
+.playground-nav a { color: var(--accent); font-size: 13px; }
 .playground-nav strong { margin-right: auto; }
 .playground-editor { flex: 1; min-height: 0; }
 #playground-error:empty { display: none; }

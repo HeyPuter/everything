@@ -170,3 +170,18 @@ test('keeps the sign-in action visible beside a narrow title and saves after sig
   await expect(status).toHaveText('Saved to Puter');
   await expect(text(page)).toHaveValue('Save these local edits');
 });
+
+test('the playground\'s sample links stay readable in the dark theme', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('/playground.html');
+  await page.locator('.playground-samples summary').click();
+  const ratios = await page.locator('.playground-nav').evaluate(nav => {
+    const rgb = value => value.match(/[\d.]+/g).slice(0, 3).map(Number);
+    const lum = c => { const [r, g, b] = c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+    const back = lum(rgb(getComputedStyle(nav).backgroundColor));
+    return [...nav.querySelectorAll('a')].map(a => { const fore = lum(rgb(getComputedStyle(a).color)); return (Math.max(fore, back) + 0.05) / (Math.min(fore, back) + 0.05); });
+  });
+  expect(ratios.length).toBeGreaterThan(1);
+  // The brand blue the light theme uses measured 2.8:1 on the dark bar.
+  for (const ratio of ratios) expect(ratio).toBeGreaterThanOrEqual(4.5);
+});
