@@ -131,6 +131,22 @@ test('Styles pane keeps keyboard focus on a control whose change redraws the pan
   expect(errors).toEqual([]);
 });
 
+test('Modify Style refuses a name another style already has', async ({ page }, info) => {
+  const { errors } = await blank(page, 'Plain words here');
+  await ribbon(page, 'Styles Pane').click();
+  const pane = page.getByRole('complementary', { name: 'Styles pane' });
+  await pane.getByRole('button', { name: 'Heading 2 options' }).click();
+  await page.getByRole('menuitem', { name: 'Modify…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit paragraph style' });
+  await dialog.getByLabel('Style name').fill('heading 1');
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('A style named “heading 1” already exists. Choose another name.');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  const { xml } = await save(page, info, 'unique-style-names.docx');
+  expect(xml('word/styles.xml')).toMatch(/w:styleId="Heading2"><w:name w:val="Heading 2"\/>/);
+  expect(errors).toEqual([]);
+});
+
 async function screenshotPane(page, info, name) {
   await page.screenshot({ path: info.outputPath(name) });
 }

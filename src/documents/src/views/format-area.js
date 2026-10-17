@@ -234,6 +234,8 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     if (!style) return;
     const character = style.type === 'character';
     track(openStyleEditor(style, character ? engine.model.characterStyles : engine.model.paragraphStyles, patch => {
+      // A renamed style must not take another style's name, as a new one may not.
+      if (patch.name && Object.values(engine.model.styles.definitions).some(s => s.id !== id && String(s.name).toLowerCase() === patch.name.trim().toLowerCase())) throw new Error(`A style named “${patch.name.trim()}” already exists. Choose another name.`);
       const ok = character ? engine.editCharacterStyle(id, patch) : engine.editParagraphStyle(id, patch); if (ok) later(); return ok;
     }, character ? engine.model.styles.defaults.run : undefined));
   }
