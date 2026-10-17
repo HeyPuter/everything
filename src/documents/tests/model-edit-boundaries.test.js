@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { TextDocument, paragraph, boundaries } from '../src/engine/model.js';
+import { TextDocument, paragraph, paragraphFormat, boundaries } from '../src/engine/model.js';
 import { emptyStyles } from '../src/engine/styles.js';
 import { JSDOM } from 'jsdom';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
@@ -200,5 +200,17 @@ describe('inserting an equation over a selection', () => {
     const doc = new TextDocument([paragraph('one abc two')]);
     doc.select(4, 7); doc.insertMathRun(equation);
     expect(doc.text).toBe('one ￼ two'); expect(doc.history).toHaveLength(1);
+  });
+});
+
+describe('Decrease Indent', () => {
+  it('stops at the margin instead of indenting text into it', () => {
+    const doc = new TextDocument([paragraph('plain'), paragraph('indented', { format: { indentLeft: 360 } }), paragraph('outdented', { format: { indentLeft: -360 } })]);
+    const indents = () => doc.paragraphs.map(p => paragraphFormat(p, doc.numbering).indentLeft);
+    doc.select(0, doc.text.length);
+    expect(doc.changeListLevel(-1)).toBe(true);
+    expect(indents()).toEqual([0, 0, -360]);
+    expect(doc.changeListLevel(-1)).toBe(false); expect(doc.history).toHaveLength(1);
+    expect(doc.changeListLevel(1)).toBe(true); expect(indents()).toEqual([720, 720, 360]);
   });
 });

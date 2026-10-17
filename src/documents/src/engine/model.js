@@ -457,9 +457,10 @@ export class TextDocument {
     this.pageSettings = settings; this.didChange(); return true;
   }
   adjustIndent(delta) {
-    const targets = this.selectedParagraphs;
-    const values = targets.map(p => validateIndent(paragraphFormat(p, this.numbering).indentLeft + delta));
-    if (!delta) return false;
+    const targets = this.selectedParagraphs, current = targets.map(p => paragraphFormat(p, this.numbering).indentLeft);
+    // Decreasing stops at the margin, as Decrease Indent does; an existing negative indent is left alone.
+    const values = current.map(value => validateIndent(delta < 0 ? Math.max(Math.min(value, 0), value + delta) : value + delta));
+    if (!delta || values.every((value, i) => value === current[i])) return false;
     this.checkpoint();
     targets.forEach((p, i) => {
       p.format = { ...PARAGRAPH_FORMAT, ...p.format, indentLeft: values[i] };
