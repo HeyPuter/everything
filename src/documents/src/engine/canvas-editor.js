@@ -1160,9 +1160,26 @@ export class CanvasEditor {
     if (this.pointImage) {
       this.model.select(this.pointImage.start, this.pointImage.end); this.focus(); this.onSelection(); return;
     }
-    const words = new Intl.Segmenter(undefined, { granularity: 'word' });
-    const word = [...words.segment(this.model.text)].find(s => s.index <= pos && pos < s.index + s.segment.length);
+    const word = new Intl.Segmenter(undefined, { granularity: 'word' }).segment(this.model.text).containing(this.pointCharacter(e, pos));
     if (word) { this.model.select(word.index, word.index + word.segment.length); this.focus(); this.onSelection(); }
+  }
+  /**
+   * The offset of the character under the pointer. A press resolves to the nearest caret stop, which
+   * for the right half of a letter is the stop after it; the letter is the one between that stop and
+   * its neighbour on the pointer's side.
+   */
+  pointCharacter(e, position) {
+    let line;
+    try { line = lineAtPosition(this.selectionLayout, position, this.caretAffinity, this.caretPage); } catch { return position; }
+    const rect = this.canvases[line.page]?.getBoundingClientRect();
+    if (!rect) return position;
+    let x = (e.clientX - rect.left) / this.zoom;
+    if (line.cellText) x = cellTextLocalPoint(line.cellText.matrix, x, (e.clientY - rect.top) / this.zoom).x;
+    const local = line.cellText?.line || line, stop = nearestStop(local, x);
+    if (!stop || stop.offset !== position || x === stop.x) return position;
+    const side = local.stops.filter(s => x < stop.x ? s.x < stop.x : s.x > stop.x)
+      .reduce((best, s) => !best || Math.abs(s.x - stop.x) < Math.abs(best.x - stop.x) ? s : best, null);
+    return side && side.offset !== position ? Math.min(position, side.offset) : position;
   }
   selectParagraph(e) {
     const pos = this.point(e, false);
