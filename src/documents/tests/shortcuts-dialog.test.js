@@ -41,6 +41,6 @@ it('on a Mac lists Go To under Cmd+Option+G, since Cmd+G finds the next match, a
   expect(chordsFor('Go to')).toEqual([]);
   expect(chordsFor('Find next or previous')).toEqual(['Cmd + G or Cmd + Shift + G or Shift + F4 or Cmd + Shift + F4']);
   expect(chordsFor('Heading 1 to 6')).toEqual(['Cmd + Option + 1 … 6']);
-  expect(chordsFor('Move paragraphs up or down')).toEqual(['Option + Shift + Up / Down']);
+  expect(chordsFor('Move paragraphs up or down')).toEqual(['Ctrl + Shift + Up / Down']);
   expect(document.querySelector('.modal-panel').textContent).not.toMatch(/\bAlt\b/);
 });

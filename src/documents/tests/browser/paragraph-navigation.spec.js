@@ -28,9 +28,10 @@ test('vertical arrow chords move by paragraph and to the document ends', async (
   // Ctrl+Up/Down: paragraph starts.
   await at(page, 60); expect(await steps(page, 'Control+ArrowDown', 3)).toEqual([secondStart, secondEnd + 1, text.length]);
   await at(page, secondStart + 40); expect(await steps(page, 'Control+ArrowUp', 2)).toEqual([secondStart, 0]);
-  // Shift extends the selection the same way.
-  await at(page, 60); await input(page).press('Alt+Shift+ArrowDown');
-  expect(await input(page).evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual([60, first.length]);
+  // Shift extends the selection the same way: Option+Shift on a Mac; elsewhere Alt+Shift moves paragraphs and Ctrl+Shift extends.
+  const mac = process.platform === 'darwin';
+  await at(page, 60); await input(page).press(mac ? 'Alt+Shift+ArrowDown' : 'Control+Shift+ArrowDown');
+  expect(await input(page).evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual([60, mac ? first.length : secondStart]);
   await input(page).press('Meta+Shift+ArrowDown');
   expect(await input(page).evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual([60, text.length]);
   // Plain arrows still move by line.

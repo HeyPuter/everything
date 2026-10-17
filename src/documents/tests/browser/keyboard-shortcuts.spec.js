@@ -38,9 +38,11 @@ test('paragraph chords set spacing, indents and styles, and move paragraphs', as
   await expect(page.getByRole('combobox', { name: 'Paragraph style' })).toHaveValue('Heading1');
   await input.press('Control+Shift+n');
   await expect(page.getByRole('combobox', { name: 'Paragraph style' })).toHaveValue('Normal');
-  await input.press('Alt+Shift+ArrowUp');
+  // Control+Shift on a Mac, where Option+Shift+Up/Down extends the selection by paragraph.
+  const move = process.platform === 'darwin' ? 'Control+Shift' : 'Alt+Shift';
+  await input.press(`${move}+ArrowUp`);
   await expect(input).toHaveValue('Bravo\nAlpha\nCharlie');
-  await input.press('Alt+Shift+ArrowDown'); await input.press('Alt+Shift+ArrowDown');
+  await input.press(`${move}+ArrowDown`); await input.press(`${move}+ArrowDown`);
   await expect(input).toHaveValue('Alpha\nCharlie\nBravo');
   await input.press('ControlOrMeta+z');
   await expect(input).toHaveValue('Alpha\nBravo\nCharlie');

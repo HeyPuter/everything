@@ -52,7 +52,7 @@ const GROUPS = [
     [['Ctrl + T', 'Ctrl + Shift + T'], 'Hanging indent, or reduce it'],
     ['Ctrl + Q', 'Clear direct paragraph formatting'],
     ['Ctrl + Shift + N', 'Normal style'],
-    [`${ALT} + Shift + Up / Down`, 'Move paragraphs up or down'],
+    [IS_MAC ? 'Ctrl + Shift + Up / Down' : 'Alt + Shift + Up / Down', 'Move paragraphs up or down'],
     [`${MOD_KEY} + 8`, 'Show or hide formatting marks'],
   ]],
   ['Document', [

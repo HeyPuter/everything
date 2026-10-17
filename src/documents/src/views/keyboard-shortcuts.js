@@ -26,7 +26,10 @@ export function keyboardShortcuts({ editor, pkg, applyStyleLevel, focusFont, foc
       engine.finishComposition();
       goTo = openGoTo(engine, { onClose: () => { goTo = null; queueMicrotask(() => editor()?.focus()); } });
     };
-    if (e.altKey && e.shiftKey && !mod && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+    // Move paragraphs: Alt+Shift+Up/Down, and Control+Shift+Up/Down on a Mac, where Option+Shift+Up/Down
+    // extends the selection by paragraph as in every Mac text field.
+    const moveChord = MAC ? e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey : e.altKey && e.shiftKey && !mod;
+    if (moveChord && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
       return paragraph(engine => engine.execute(() => moveParagraphs(engine.model, e.key === 'ArrowUp' ? -1 : 1)));
     }
     if (mod && !e.altKey && !e.shiftKey && ['Digit1', 'Digit2', 'Digit5'].includes(code)) {
