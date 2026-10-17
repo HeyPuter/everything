@@ -668,9 +668,9 @@ export class TextDocument {
    */
   insertTextWrappingBreak(clear = 'all') {
     if (!['none', 'left', 'right', 'all'].includes(clear)) throw new Error('Invalid text-wrapping break.');
-    const start = this.range[0];
     if (!this.replace('\v')) return false;
-    const at = locate(this.paragraphs, start), p = this.paragraphs[at.index];
+    // The break ends just before the caret: with Track Changes on it follows the struck-out selection.
+    const at = locate(this.paragraphs, this.selection.focus - 1), p = this.paragraphs[at.index];
     let offset = 0;
     const run = p.runs.find(r => { const inside = at.offset >= offset && at.offset < offset + r.text.length; offset += r.text.length; return inside; });
     if (!run || run.text[at.offset - (offset - run.text.length)] !== '\v' || run.image || run.contentControl) return true;

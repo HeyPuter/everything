@@ -174,3 +174,13 @@ describe('grapheme boundaries after an edit', () => {
     expect(cost).toBeLessThan(doc.text.length * 4);
   });
 });
+
+describe('a text-wrapping break', () => {
+  it('keeps its clear setting when it replaces a selection with Track Changes on', () => {
+    const doc = new TextDocument([paragraph('one abc two')], undefined, undefined, undefined, [], {}, { trackChanges: true });
+    doc.select(4, 7); expect(doc.insertTextWrappingBreak('all')).toBe(true);
+    expect(doc.paragraphs[0].runs.map(r => [r.text, r.breakClear ?? null, r.revision?.type ?? null]))
+      .toEqual([['one ', null, null], ['abc', null, 'del'], ['\v', 'all', 'ins'], [' two', null, null]]);
+    expect(doc.selection).toEqual({ anchor: 8, focus: 8 });
+  });
+});
