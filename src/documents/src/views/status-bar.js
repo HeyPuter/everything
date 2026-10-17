@@ -1,4 +1,4 @@
-import { el, MOD_KEY } from '../ui/dom.js';
+import { el, MOD_KEY, isComposing } from '../ui/dom.js';
 import { openMenu } from '../ui/menu.js';
 import { openModal } from '../ui/modal.js';
 import { commandIconEl } from '../ui/ribbon.js';
@@ -91,12 +91,30 @@ export function createStatusBar({ w, a, parts, help }) {
     const noProof = el('input', { type: 'checkbox', checked: !!w.noProofing?.() });
     const tags = [...new Set([current, ...LANGUAGES].filter(Boolean))];
     let chosen = current;
+    // The list is one Tab stop, on the chosen language; Up, Down, Home and End move the choice.
+    const options = () => [...list.querySelectorAll('[role="option"]')];
+    const mark = () => {
+      const all = options(), stop = all.find(o => o.dataset.tag === chosen) || all[0];
+      for (const o of all) { o.setAttribute('aria-selected', String(o.dataset.tag === chosen)); o.tabIndex = o === stop ? 0 : -1; }
+      return stop;
+    };
     const render = () => {
       const q = filter.value.trim().toLowerCase();
-      list.replaceChildren(...tags.filter(tag => !q || languageName(tag).toLowerCase().includes(q) || tag.toLowerCase().includes(q)).map(tag => el('button.ed-choice', { type: 'button', role: 'option', 'aria-selected': String(tag === chosen),
-        onclick: () => { chosen = tag; render(); }, ondblclick: () => apply() }, languageName(tag), el('span.ed-choice-hint', {}, tag))));
+      list.replaceChildren(...tags.filter(tag => !q || languageName(tag).toLowerCase().includes(q) || tag.toLowerCase().includes(q)).map(tag => el('button.ed-choice', { type: 'button', role: 'option', dataset: { tag },
+        onclick: () => { chosen = tag; mark(); }, ondblclick: () => apply() }, languageName(tag), el('span.ed-choice-hint', {}, tag))));
+      mark();
     };
+    list.addEventListener('keydown', e => {
+      if (isComposing(e) || e.altKey || e.ctrlKey || e.metaKey) return;
+      const all = options(), at = all.indexOf(document.activeElement);
+      const next = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: all.length - 1 }[e.key];
+      if (next === undefined || at < 0) return;
+      e.preventDefault();
+      const option = all[Math.max(0, Math.min(all.length - 1, next))];
+      option.click(); option.focus();
+    });
     filter.addEventListener('input', render);
+    filter.addEventListener('keydown', e => { if (e.key === 'ArrowDown' && !isComposing(e)) { e.preventDefault(); mark()?.focus(); } });
     const editable = !!w.setLanguage && !!a.hasDocument?.() && !w.documentReadOnly?.();
     const apply = () => { modal.close(); w.setLanguage?.(chosen, { noProof: noProof.checked }); };
     const modal = openModal({ title: 'Language', onClose: () => queueMicrotask(() => a.focusEditor?.()), content: el('form.ed-dialog-body', { onsubmit: e => { e.preventDefault(); if (editable) apply(); else modal.close(); } },

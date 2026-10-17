@@ -213,6 +213,37 @@ test('the status bar counts the selection, picks a language that saves into the 
   expect(strFromU8(unzipSync(readFileSync(path))['word/document.xml'])).toContain('<w:lang w:val="de-DE"/>');
 });
 
+test('the Language list is one tab stop that the arrow keys move through', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Bonjour');
+  await select(page, 0, 7);
+  await page.locator('.ed-statusbar .ed-status-language').click();
+  const dialog = page.getByRole('dialog', { name: 'Language' });
+  const list = dialog.getByRole('listbox', { name: 'Languages' });
+  await expect(dialog.getByRole('searchbox', { name: 'Search languages' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(list.getByRole('option', { name: /English \(United States\)/ })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  const british = list.getByRole('option', { name: /English \(United Kingdom\)/ });
+  await expect(british).toBeFocused();
+  await expect(british).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('End');
+  await expect(list.getByRole('option').last()).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(list.getByRole('option').first()).toBeFocused();
+  // Every language was its own tab stop, some thirty presses away from OK.
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByRole('checkbox', { name: 'Do not check spelling or grammar' })).toBeFocused();
+  // Down from the search box lands on the chosen language among those it finds.
+  await dialog.getByRole('searchbox', { name: 'Search languages' }).fill('fr');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await expect(list.getByRole('option', { name: /French \(Canada\)/ })).toBeFocused();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await select(page, 1, 2);
+  await expect(page.locator('.ed-statusbar .ed-status-language')).toContainText('French (Canada)');
+});
+
 test('the ribbon collapses to its tabs and shows KeyTips for the keyboard', async ({ page }) => {
   await openEditor(page);
   const card = page.locator('.ed-ribbon');
