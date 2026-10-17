@@ -244,6 +244,25 @@ test('Envelopes keeps the delivery address on the envelope page', async ({ page 
   expect(errors).toEqual([]);
 });
 
+test('Customize Columns names the chosen column for assistive technology', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/playground.html');
+  await expect(page.getByRole('textbox', { name: 'Document text' })).toHaveValue(/^A small beginning/);
+  await page.getByRole('tab', { name: 'Mailings' }).click();
+  await ribbon(page).getByRole('button', { name: 'Select Recipients', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Type a New List…' }).click();
+  await page.getByRole('dialog', { name: 'New Address List' }).getByRole('button', { name: 'Customize Columns…' }).click();
+  const columns = page.getByRole('dialog', { name: 'Customize Columns' }).getByRole('listbox', { name: 'Columns' });
+  await columns.focus();
+  await page.keyboard.press('ArrowDown');
+  const selected = columns.locator('[role="option"][aria-selected="true"]');
+  await expect(selected).toHaveCount(1);
+  const id = await selected.getAttribute('id');
+  expect(id).toBeTruthy();
+  await expect(columns).toHaveAttribute('aria-activedescendant', id);
+  expect(errors).toEqual([]);
+});
+
 test('Labels opens its collapsed measurements to show a value that needs fixing', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto('/playground.html');

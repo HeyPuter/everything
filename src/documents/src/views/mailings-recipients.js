@@ -2,7 +2,7 @@
  * Recipient lists: typing a new list in a grid, customizing its columns, and the Edit Recipient List
  * dialog (include or exclude rows, sort, filter, find duplicates, check addresses).
  */
-import { el } from '../ui/dom.js';
+import { el, fieldId } from '../ui/dom.js';
 import { dialog, field, select, input, checkbox, button } from './mailings-ui.js';
 import { visibleRows, duplicateRows, validateAddresses, FILTER_OPERATORS, DEFAULT_COLUMNS, autoMatchFields } from '../engine/merge-fields.js';
 
@@ -77,9 +77,11 @@ export function openColumns(columns, onDone) {
   let entries = columns.map((name, i) => ({ name, from: i }));
   let selected = 0;
   const listbox = el('div.mm-columns', { role: 'listbox', 'aria-label': 'Columns', tabindex: 0 });
+  const optionId = fieldId('mm-column');
   const render = () => {
-    listbox.replaceChildren(...entries.map((entry, i) => el('div.mm-column-item', { role: 'option', 'aria-selected': String(i === selected), onclick: () => { selected = i; render(); } }, entry.name)));
-    listbox.setAttribute('aria-activedescendant', '');
+    listbox.replaceChildren(...entries.map((entry, i) => el('div.mm-column-item', { role: 'option', id: `${optionId}-${i}`, 'aria-selected': String(i === selected), onclick: () => { selected = i; render(); } }, entry.name)));
+    // Focus stays on the list; the chosen column is its active option for assistive technology.
+    if (entries[selected]) listbox.setAttribute('aria-activedescendant', `${optionId}-${selected}`); else listbox.removeAttribute('aria-activedescendant');
   };
   listbox.addEventListener('keydown', e => {
     if (e.key === 'ArrowDown') { e.preventDefault(); selected = Math.min(entries.length - 1, selected + 1); render(); }
