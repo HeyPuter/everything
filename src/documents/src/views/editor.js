@@ -452,7 +452,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       engine.model.select(target.position); engine.caretAffinity = 'forward'; engine.caretPage = null;
       engine.focus(); engine.revealCaret(); engine.onSelection();
     },
-    pages: () => engine?.canvases || [], currentPage: () => engine?.caretPageIndex ?? 0,
+    pages: () => { engine?.flushPaint?.(); return engine?.canvases || []; }, currentPage: () => engine?.caretPageIndex ?? 0,
     search: text => { try { return engine?.model.findMatches(text, {}) || []; } catch { return []; } },
     text: () => engine?.model.text || '', selectMatch: match => engine?.selectMatch(match), highlight: matches => engine?.setFindHighlights(matches),
     headingActions: () => editorCommands.headingActions || null });

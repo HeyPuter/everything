@@ -52,6 +52,10 @@ import { positionedImageBounds } from './positioned-images.js';
 import { createImageInteraction } from './image-interaction.js';
 import { paintDecodedImage, imageInfo, decodeImage, decodeImages, validateImageAssets, imageCropRect, inlineImagePaintFrame, normalizedRotation, ANGLE_PER_DEGREE, EMU_PER_PX, isPositionedImage } from './images.js';
 let nextAsset = 0;
+// A document longer than this paints only the pages on screen (and a screenful either side) at
+// once; the rest are painted when they scroll into view, when their pixels are read, or while the
+// browser is idle.
+const EAGER_PAGES = 80;
 // Fields layout writes onto the style objects it measures with; measurement never reads them.
 const LAYOUT_OUTPUT = new Set(['text', 'x', 'start', 'end', 'width', 'contentWidth', 'origin', 'ascent', 'descent', 'lineAscent', 'lineDescent', 'textParts', 'textOffsetX', 'textTransform', 'underline', 'strike', 'background', 'group', 'followingSpace', 'fastSpaces', 'lastSpace', 'spaceMetrics', 'trailingStart', 'numberEnd', 'numberDone', 'decimal', 'hasTextShadow', 'discretionaryOnly', 'colors']);
 
@@ -191,6 +195,10 @@ export class CanvasEditor {
       query?.addEventListener('change', () => { if (this.destroyed) return; watchResolution(); this.resizeCanvases(); }, { once: true, signal: this.abort.signal });
     };
     watchResolution();
+    // Pages left unpainted by the last paint are painted before they are shown.
+    this.stalePages = new Set();
+    document.addEventListener('scroll', () => this.paintShownPages(), { capture: true, passive: true, signal: this.abort.signal });
+    window.addEventListener('resize', () => this.paintShownPages(), { signal: this.abort.signal });
     this.relayout();
   }
   focus() { this.input.focus({ preventScroll: true }); this.syncInput(); this.paint(); }
@@ -547,6 +555,12 @@ export class CanvasEditor {
       const canvas = document.createElement('canvas');
       canvas.className = 'canvas-page';
       canvas.setAttribute('aria-hidden', 'true');
+      // A page left for later paints itself before anything reads its pixels.
+      for (const name of ['getContext', 'toDataURL', 'toBlob']) canvas[name] = (...args) => {
+        const index = this.canvases?.indexOf(canvas) ?? -1;
+        if (this.stalePages.has(index)) this.paint({ pages: [index] });
+        return HTMLCanvasElement.prototype[name].apply(canvas, args);
+      };
       this.pages.append(canvas);
     }
     this.canvases = [...this.pages.children];
@@ -582,8 +596,11 @@ export class CanvasEditor {
       canvas.style.width = `${geometry.width * this.zoom}px`;
       canvas.style.height = `${geometry.height * this.zoom}px`;
       const ratio = window.devicePixelRatio || 1;
-      canvas.width = Math.round(geometry.width * this.zoom * ratio);
-      canvas.height = Math.round(geometry.height * this.zoom * ratio);
+      // Assigning a dimension clears and reallocates the canvas even when unchanged, and pages
+      // off screen are repainted only later: keep the backing store of pages that kept their size.
+      const width = Math.round(geometry.width * this.zoom * ratio), height = Math.round(geometry.height * this.zoom * ratio);
+      if (canvas.width !== width) canvas.width = width;
+      if (canvas.height !== height) canvas.height = height;
     });
     this.pages.style.gap = `${this.layout.page.gap * this.zoom}px`;
     this.syncInput(); this.paint(); this.onSelection();
@@ -609,8 +626,55 @@ export class CanvasEditor {
     this.paint({ canvases: sheets, printing: true });
     return sheets;
   }
-  paint({ canvases = this.canvases, printing = false } = {}) {
+  /** Indices of the page canvases on screen, with a screenful of margin; every page in a short document. */
+  shownPages() {
+    const all = this.canvases.map((_, index) => index);
+    if (all.length <= EAGER_PAGES) return all;
+    const host = this.host.getBoundingClientRect();
+    const top = Math.max(host.top, 0), bottom = Math.min(host.bottom, window.innerHeight);
+    const left = Math.max(host.left, 0), right = Math.min(host.right, window.innerWidth);
+    const height = Math.max(0, bottom - top), width = Math.max(0, right - left);
+    return all.filter(index => {
+      const r = this.canvases[index].getBoundingClientRect();
+      return r.bottom > top - height && r.top < bottom + height && r.right > left - width && r.left < right + width;
+    });
+  }
+  paintShownPages() {
+    if (this.destroyed || !this.stalePages.size) return;
+    const pages = this.shownPages().filter(index => this.stalePages.has(index));
+    if (pages.length) this.paint({ pages });
+  }
+  /** Paint every page left for later, for callers that read the page canvases' pixels. */
+  flushPaint() {
+    if (!this.destroyed && this.stalePages.size) this.paint({ pages: [...this.stalePages] });
+  }
+  schedulePaint() {
+    if (this.paintTask || !this.stalePages.size || this.destroyed) return;
+    const idle = typeof requestIdleCallback === 'function';
+    const run = deadline => {
+      this.paintTask = null;
+      if (this.destroyed || !this.stalePages.size) return;
+      // Nearest pages first, a couple at a time while the browser has idle time, so typing and
+      // scrolling stay responsive.
+      const shown = this.shownPages(), anchor = shown.length ? shown[0] : 0;
+      const order = [...this.stalePages].sort((a, b) => Math.abs(a - anchor) - Math.abs(b - anchor));
+      do this.paint({ pages: order.splice(0, 2) });
+      while (order.length && deadline && !deadline.didTimeout && deadline.timeRemaining() > 4);
+      this.schedulePaint();
+    };
+    this.paintTask = idle ? { idle, id: requestIdleCallback(run, { timeout: 250 }) } : { idle, id: setTimeout(run, 16) };
+  }
+  paint({ canvases = this.canvases, printing = false, pages = null } = {}) {
     if (this.destroyed || !this.layout) return;
+    let indices = null;
+    if (canvases === this.canvases && !printing) {
+      if (pages) { indices = pages.filter(index => index < canvases.length); for (const index of indices) this.stalePages.delete(index); }
+      else {
+        indices = this.shownPages();
+        const shown = new Set(indices);
+        this.stalePages = new Set(canvases.map((_, index) => index).filter(index => !shown.has(index)));
+      }
+    }
     const [start, end] = this.model.range;
     // A shape selected on its own shows only its frame handles.
     const shapeOnly = end === start + 1 && this.drawingEditor?.canResize(this.model.selectedImage);
@@ -624,8 +688,10 @@ export class CanvasEditor {
     const caret = caretRect(this.selectionLayout, this.model.selection.focus, this.caretAffinity, this.caretPage);
     const found = printing ? [] : this.findHighlightRects();
     const tinted = printing ? [] : this.rangeTintRects();
-    for (let index = 0; index < canvases.length; index++) {
+    for (const index of indices || canvases.keys()) {
       const canvas = canvases[index], ctx = canvas.getContext('2d'), geometry = this.layout.pages[index] || this.layout.page;
+      // A canvas keeps its pixels and drawing state between paints (resizeCanvases keeps unchanged sizes).
+      ctx.reset?.();
       setCanvasFontAlternatives(ctx, this.model.styles.fontAlternatives);
       const scale = canvas.width / geometry.width;
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
@@ -842,7 +908,7 @@ export class CanvasEditor {
         });
       }
     }
-    if (!printing) { this.positionInput(caret); this.imageInteraction?.update(); }
+    if (!printing) { this.positionInput(caret); this.imageInteraction?.update(); this.schedulePaint(); }
   }
   positionInput(caret) {
     if (this.accessible) return;
@@ -1461,5 +1527,7 @@ export class CanvasEditor {
     if (text) this.execute(() => this.model.replace(text));
   }
   releaseImages(images) { for (const image of images.values()) if (!this.borrowedImages.has(image)) image.close?.(); images.clear(); }
-  destroy() { this.destroyed = true; this.abort.abort(); this.releaseImages(this.images); this.borrowedImages.clear(); this.host.replaceChildren(); }
+  destroy() {
+    if (this.paintTask) (this.paintTask.idle ? cancelIdleCallback : clearTimeout)(this.paintTask.id);
+    this.destroyed = true; this.abort.abort(); this.releaseImages(this.images); this.borrowedImages.clear(); this.host.replaceChildren(); }
 }

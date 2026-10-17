@@ -181,6 +181,7 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
   function paintThumbnails() {
     const engine = editor();
     if (!engine || thumbStrip.hidden) return;
+    engine.flushPaint?.();
     const pages = engine.canvases, current = engine.caretPageIndex ?? 0;
     while (thumbStrip.children.length > pages.length) thumbStrip.lastChild.remove();
     pages.forEach((source, index) => {
@@ -392,6 +393,8 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
   }
   function paintMirror() {
     const engine = editor(); if (!split || !engine) return;
+    // A long document paints pages off screen later; the mirror copies every page now.
+    engine.flushPaint?.();
     const { pages } = split, sources = engine.canvases;
     pages.className = `view-split-pages ${engine.pages.className.replace('canvas-pages', '')}`;
     pages.style.gap = engine.pages.style.gap;
