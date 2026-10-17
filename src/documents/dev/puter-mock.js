@@ -5,6 +5,11 @@
  *
  * Query flags: ?env=app simulates running inside the Puter desktop;
  * ?signedout starts signed out; ?picture gives the signed-in user a photo.
+ *
+ * Tests inject file system failures and latency with window.__puterFaults:
+ * push { op: 'write', path: 'regex source', times: 1, message, delay } and the
+ * next matching call waits `delay` ms, then fails with `message` (or, with a
+ * delay and no message, goes through). Entries without `times` stay.
  */
 (() => {
   const params = new URLSearchParams(location.search);
@@ -35,6 +40,15 @@
   // A 64x40 blue PNG for the image picker.
   const SAMPLE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAEAAAAAoCAIAAADBrGu+AAAAPUlEQVR42u3PQQkAAAgEsMtnMLMawww+hcEKLNXzWgQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQELhbh+DEAtSaHCQAAAABJRU5ErkJggg==';
   const notFound = (p) => Object.assign(new Error(`${p} does not exist`), { code: 'subject_does_not_exist' });
+  const faults = (window.__puterFaults ||= []);
+  async function inject(op, path) {
+    const i = faults.findIndex((f) => f.op === op && (!f.path || new RegExp(f.path).test(norm(path))));
+    if (i < 0) return;
+    const f = faults[i];
+    if (f.times != null && --f.times <= 0) faults.splice(i, 1);
+    if (f.delay) await delay(f.delay);
+    if (f.message || !f.delay) throw Object.assign(new Error(f.message || `${op} failed`), f.code ? { code: f.code } : {});
+  }
   const dirs = new Set(Object.keys(state.fs).map((p) => p.split('/').slice(0, -1).join('/')).filter(Boolean));
 
   window.puter = {
@@ -127,19 +141,19 @@
     fs: {
       async mkdir(path) { await delay(); dirs.add(norm(path)); return item(norm(path)); },
       async readdir(path) {
-        await delay();
+        await delay(); await inject('readdir', path);
         const p = norm(path);
         if (!dirs.has(p) && !Object.keys(state.fs).some((k) => k.startsWith(`${p}/`))) throw notFound(p);
         return Object.entries(state.fs).filter(([k]) => k.startsWith(`${p}/`) && !k.slice(p.length + 1).includes('/')).map(([k, f]) => item(k, f));
       },
       async read(path) {
-        await delay();
+        await delay(); await inject('read', path);
         const f = state.fs[norm(path)];
         if (!f) throw notFound(path);
         return new Blob([fromB64(f.b64)], { type: f.type });
       },
       async write(path, data, opts = {}) {
-        await delay(120);
+        await delay(120); await inject('write', path);
         const blob = data instanceof Blob ? data : new Blob([data ?? '']);
         const buf = await blob.arrayBuffer();
         let p = norm(path);
@@ -158,7 +172,7 @@
         return item(p, state.fs[p]);
       },
       async delete(path, { recursive = false } = {}) {
-        await delay();
+        await delay(); await inject('delete', path);
         const p = norm(path);
         delete state.fs[p];
         if (recursive || dirs.has(p)) for (const k of Object.keys(state.fs)) if (k.startsWith(`${p}/`)) delete state.fs[k];
@@ -166,7 +180,7 @@
         persist();
       },
       async rename(path, newName) {
-        await delay();
+        await delay(); await inject('rename', path);
         const p = norm(path);
         const target = `${p.split('/').slice(0, -1).join('/')}/${newName}`;
         const f = state.fs[p];
@@ -181,7 +195,7 @@
         return item(target, f);
       },
       async stat(path) {
-        await delay(20);
+        await delay(20); await inject('stat', path);
         const p = norm(path);
         if (state.fs[p]) return item(p, state.fs[p]);
         if (dirs.has(p)) return item(p);

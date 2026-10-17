@@ -39,3 +39,19 @@ test('AutoSave off: hiding the page, reconnecting or signing in does not write t
   expect(await writes()).toBe(1);
   await page.locator('label.ed-autosave').click();
 });
+
+test('File > Info: a version that cannot be saved says so', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Versioned');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.evaluate(() => window.__puterFaults.push({ op: 'write', path: '\\.versions/', message: 'The cloud is unreachable', times: 5 }));
+  await page.getByRole('button', { name: 'File', exact: true }).click();
+  const view = page.getByRole('dialog', { name: 'File' });
+  await view.getByRole('tab', { name: 'Info' }).click();
+  await view.getByRole('button', { name: 'Save a Version Now' }).click();
+  await expect(page.locator('.toast-root')).toContainText('The cloud is unreachable');
+  await expect(view.getByRole('button', { name: 'Save a Version Now' })).toBeEnabled();
+  expect(errors).toEqual([]);
+});

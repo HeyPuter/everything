@@ -1037,7 +1037,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     location: () => editorCommands.documentLocation().location, size: () => doc.size,
     versions: cloud && versioning.enabled ? () => (doc.path ? listVersions(doc.path) : Promise.resolve([])) : null,
     versionsAvailable: () => !!doc.path,
-    saveVersionNow: () => doc.saveVersionNow(),
+    // A version that could not be written says so, as the Version History pane does.
+    saveVersionNow: () => doc.saveVersionNow().then(v => { if (!v) throw new Error('The version could not be saved.'); toast('Version saved'); }).catch(e => { if (!destroyed) error(e); }),
     restoreVersion: version => restoreVersionFile(version),
     exportAs: kind => editorCommands.exportAs(kind),
     save: () => save(), download, saveTemplate: cloud ? saveTemplate : null, savePdf: () => savePdf(), rename: cloud ? () => { title.focus(); title.select(); } : null,
