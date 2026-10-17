@@ -5,8 +5,9 @@ import {reopenDocx} from './helpers/reopen-docx.js';
 const refs=JSON.parse(readFileSync('tests/fixtures/paragraph-paint-width/reference.json'));
 test.use({deviceScaleFactor:2});
 async function download(page,info,name){const event=page.waitForEvent('download');await page.getByRole('button',{name:'Download .docx',exact:true}).click();const path=info.outputPath(name);await(await event).saveAs(path);return path;}
+// Fractional sizes paint inside a translated, scaled context; record the baseline in page CSS pixels.
 for(const ref of refs)test('paints native paragraph width: '+ref.file,async({page},info)=>{
- await page.addInitScript(()=>{window.widthPaint={};const fill=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(t,x,y,...rest){window.widthPaint[t]=y;return fill.call(this,t,x,y,...rest);};});
+ await page.addInitScript(()=>{window.widthPaint={};const fill=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(t,x,y,...rest){const m=this.getTransform();window.widthPaint[t]=(m.b*x+m.d*y+m.f)/(this.canvas.width/(612*4/3));return fill.call(this,t,x,y,...rest);};});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('/playground.html');await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/'+ref.file);
  const input=page.getByRole('textbox',{name:'Document text'});await expect(input).toHaveValue(new RegExp('^'+ref.pages[0].labels[0].replace(/Body$/,'')));await expect(input).toBeEditable();await expect(page.locator('canvas.canvas-page')).toHaveCount(ref.pages.length);
  for(const [i,reference]of ref.pages.entries())if(reference.compareFill)for(const [j,label]of reference.labels.entries()){
