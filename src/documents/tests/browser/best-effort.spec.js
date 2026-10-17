@@ -6,7 +6,8 @@ test('opens best-effort content, blocks every input path and downloads the origi
   await page.goto('/playground.html');
   await openReadOnlyPreview(page, 'public/fixtures/best-effort.docx');
   const input = page.getByRole('textbox', { name: 'Document text' });
-  const expected = 'Best-effort opening\nField result: September 17, 2026\nInserted words\nStill readable after unsupported content.';
+  // Tracked deletions keep their document positions until accepted (docs/conformance.md, Tracked changes).
+  const expected = 'Best-effort opening\nField result: September 17, 2026\nDeleted wordsInserted words\nStill readable after unsupported content.';
   await expect(input).toHaveValue(expected);
   await input.press('ControlOrMeta+a'); await page.keyboard.insertText('Overwrite');
   await input.press('Backspace'); await input.press('ControlOrMeta+b');
@@ -18,11 +19,13 @@ test('opens best-effort content, blocks every input path and downloads the origi
     el.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
   });
   await expect(input).toHaveValue(expected);
-  await input.press('ControlOrMeta+f');
-  await page.getByRole('textbox', { name: 'Find text', exact: true }).fill('words');
-  await expect(page.getByRole('button', { name: 'Replace', exact: true })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Replace all', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'Close find and replace', exact: true }).click();
+  // Ctrl/Cmd+F searches from the Navigation pane; the Find and Replace panel opens with Replace's chord.
+  await input.press(process.platform === 'darwin' ? 'Meta+Shift+h' : 'Control+h');
+  const finder = page.getByRole('search', { name: 'Find and replace' });
+  await finder.getByRole('textbox', { name: 'Find text', exact: true }).fill('words');
+  await expect(finder.getByRole('button', { name: 'Replace', exact: true })).toBeDisabled();
+  await expect(finder.getByRole('button', { name: 'Replace all', exact: true })).toBeDisabled();
+  await finder.getByRole('button', { name: 'Close find and replace', exact: true }).click();
   await page.screenshot({ path: info.outputPath('best-effort.png') });
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download .docx', exact: true }).click();
