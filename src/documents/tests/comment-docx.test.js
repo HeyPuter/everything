@@ -119,6 +119,18 @@ describe('DOCX comments', () => {
     expect(reopened.model.commentList[0]).toMatchObject({ author: 'Me', initials: 'ME', text: 'Greeting', start: 0, end: 5 });
   });
 
+  it('regenerates an unreadable commentsExtended companion instead of failing every save', async () => {
+    const parts = unzipSync(commentedDocx());
+    parts['word/commentsExtended.xml'] = strToU8(`<w15:commentsEx xmlns:w15="${W15}"><w15:commentEx`);
+    const { pkg, model } = await open(zipSync(parts));
+    const id = model.commentList[0].id;
+    const reply = model.replyToComment(id, { author: 'Me', text: 'Agreed.' });
+    const saved = unzipSync(await save(pkg, model));
+    expect(new DOMParser().parseFromString(strFromU8(saved['word/commentsExtended.xml']), 'application/xml').getElementsByTagName('parsererror')).toHaveLength(0);
+    const reopened = await open(zipSync(saved));
+    expect(reopened.model.comments.find(c => c.id === reply)).toMatchObject({ text: 'Agreed.', parentId: id });
+  });
+
   it('derives initials from the author name', () => {
     expect(initialsFor('Ada Lovelace')).toBe('AL');
     expect(initialsFor('plato')).toBe('PL');

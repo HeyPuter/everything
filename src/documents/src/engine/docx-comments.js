@@ -183,7 +183,11 @@ function writeCompanions(parts, comments, paraIds) {
   const needed = comments.some(c => c.parentId || c.done);
   if (extPath || needed) {
     extPath ||= 'word/commentsExtended.xml';
-    const doc = parts[extPath] ? parseXml(parts[extPath]) : parseXml(`<w15:commentsEx xmlns:w15="${W15}" xmlns:mc="${MC}" mc:Ignorable="w15"/>`);
+    // The reader ignores an unreadable companion, so the model holds every reply
+    // and resolved state the document has; regenerate the part from it.
+    const fresh = () => parseXml(`<w15:commentsEx xmlns:w15="${W15}" xmlns:mc="${MC}" mc:Ignorable="w15"/>`);
+    let doc;
+    try { doc = parts[extPath] ? parseXml(parts[extPath]) : fresh(); } catch { doc = fresh(); }
     const root = doc.documentElement;
     for (const node of [...root.getElementsByTagNameNS(W15, 'commentEx')]) node.remove();
     for (const comment of comments) {
