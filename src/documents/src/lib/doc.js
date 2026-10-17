@@ -202,6 +202,8 @@ export class Doc extends EventTarget {
     this._timer = null;
     if (this._deleted || this.writes === false) return true;
     if (this._closed) return false;
+    // With AutoSave off only Save writes: not the page going to the background, a reconnection, a sign-in or a retry.
+    if (auto && !this.autosave) return false;
     while (this._saving) {
       try {
         await this._saving;

@@ -232,6 +232,37 @@ describe('Doc', () => {
     expect(P.writeFile).toHaveBeenCalledTimes(2);
   });
 
+  it('with AutoSave off, writes only on Save: no background, reconnect or post-copy autosave', async () => {
+    const store = new Map();
+    vi.stubGlobal('localStorage', { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) });
+    const doc = new Doc({ name: 'A', path: 'Documents/A.docx', blob: blob('original') });
+    P.__fs.set(doc.path, doc.blob);
+    doc.attach(async () => blob('edited'));
+    doc.setAutosave(false);
+    doc.changed();
+    // What the app does when the page is hidden, the connection returns, or the user signs in.
+    expect(await doc.save({ auto: true })).toBe(false);
+    await vi.advanceTimersByTimeAsync(RETRY_MS + AUTOSAVE_MS);
+    expect(P.writeFile).not.toHaveBeenCalled();
+    expect(doc.dirty).toBe(true);
+    // Edits made while a copy is saved wait for Save too.
+    let release;
+    const exporter = vi.fn().mockReturnValueOnce(new Promise((resolve) => { release = resolve; })).mockResolvedValue(blob('later'));
+    doc.attach(exporter);
+    const copying = doc.saveAs('B');
+    await vi.advanceTimersByTimeAsync(0);
+    doc.changed();
+    release(blob('copy'));
+    expect(await copying).toBeNull();
+    await vi.advanceTimersByTimeAsync(RETRY_MS + AUTOSAVE_MS);
+    expect(await P.__fs.get('Documents/B.docx').text()).toBe('copy');
+    expect(doc.dirty).toBe(true);
+    expect(await doc.save()).toBe(true);
+    expect(await P.__fs.get('Documents/B.docx').text()).toBe('later');
+    expect(await P.__fs.get('Documents/A.docx').text()).toBe('original');
+    doc.destroy();
+  });
+
   it('reports offline instead of error when the browser is offline', async () => {
     vi.stubGlobal('navigator', { onLine: false });
     const doc = Doc.blank();
