@@ -122,6 +122,18 @@ function usesExternalContent(wb) {
   }
   return false;
 }
+/**
+ * Did someone else's operations in a shared workbook (see collab/ops.js) bring a formula that could reach out?
+ * Cells are read one by one; a change to any other setting, rarer, has the book scanned (it is applied already).
+ */
+function sharedOpsReachOut(ops, wb) {
+  let settings = false;
+  for (const op of ops) {
+    if (op.t === 'cells') { for (const cell of Object.values(op.v || {})) if (formulaReachesOut(cell?.f)) return true; }
+    else if (op.t === 'props' || op.t === 'book' || op.t === 'put') settings = true;
+  }
+  return settings && usesExternalContent(wb);
+}
 /** Record the decision for a path ('1' allowed, '0' blocked, with the file's id when known); `null` forgets it, for a path that no longer holds this file. */
 function rememberExternal(path, scope, allowed, uid = null) {
   try {
@@ -910,12 +922,21 @@ export class Doc extends EventTarget {
   /**
    * The document of a shared workbook: its changes go to everyone through the room as they are made, and
    * saving writes a checkpoint and the .xlsx file (over the owner's file, so it still opens anywhere).
+   *
+   * Outside content is the owner's to allow, as for their own file. Anyone else holds a workbook written by
+   * others, as a file from elsewhere is: one that reaches out asks first, and so does a formula that reaches out
+   * arriving later from someone else (as one pasted does), even after a yes.
    */
   static forRoom(client, { path = null, uid = null } = {}) {
-    const doc = new Doc({ wb: client.wb, name: client.name || UNTITLED, path: client.file?.path ?? path, uid: client.file?.uid ?? uid });
+    const owner = client.user?.uuid === client.owner;
+    const doc = new Doc({ wb: client.wb, name: client.name || UNTITLED, path: client.file?.path ?? path, uid: client.file?.uid ?? uid, trusted: owner || !usesExternalContent(client.wb) });
     doc.collab = client;
     doc._onRoomStatus = () => doc._sharedChanged('room');
     client.addEventListener('status', doc._onRoomStatus);
+    if (!owner) {
+      doc._onRoomIncoming = (e) => { if (doc.wb.externalAllowed && sharedOpsReachOut(e.detail.ops, doc.wb)) doc.wb.setExternalAllowed(false); };
+      client.replica.addEventListener('incoming', doc._onRoomIncoming);
+    }
     doc._setStatus(client.status.pending ? 'saving' : 'saved');
     return doc;
   }
@@ -971,6 +992,7 @@ export class Doc extends EventTarget {
   _leaveRoom() {
     clearTimeout(this._timer);
     this.collab.removeEventListener('status', this._onRoomStatus);
+    if (this._onRoomIncoming) this.collab.replica.removeEventListener('incoming', this._onRoomIncoming);
     this.wb.removeEventListener('change', this._onChange);
     session.removeEventListener('change', this._onSession);
     // Leaving saves: the file the last changes were waiting a quiet moment to reach is written on the way out.

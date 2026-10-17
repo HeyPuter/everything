@@ -91,6 +91,8 @@ The worker enforces roles on every request, independently of the interface:
 
 Accepted commits return a receipt signed with the room key, binding the room, the revision, the change's digest and its author; peers apply a change sent over a peer link only with a valid receipt and only in the log's order.
 
+Outside content (IMPORT* and WEBSERVICE formulas, the AI, web images) is the owner's to allow in their own workbook. Anyone else holds a workbook others wrote, as with a file from elsewhere: one that reaches out asks before anything is loaded, and a formula that reaches out arriving later from someone else withdraws a yes already given, before the cell is shown.
+
 ## Checkpoints and the file
 
 The worker does not run the spreadsheet, so checkpoints come from browsers: the editor with the lowest session among those present writes one (the whole workbook at a revision, while it has nothing pending, so its state is the room's) after every 50 revisions or a minute after the last one. Joining loads the latest checkpoint and the log after it. Saving (**Ctrl+S**, leaving, or 15 seconds after the last change in the owner's browser) delivers what is pending and writes a checkpoint with the workbook as `.xlsx`; the worker writes it over the owner's file, and the owner's browser writes the file itself when the worker could not. The file is therefore always a recent state of the shared workbook and opens anywhere; version history keeps working for it.
