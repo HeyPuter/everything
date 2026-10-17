@@ -56,3 +56,28 @@ test('Ctrl/Cmd+F searches from the pane, lists results in context and pages show
   await pane.getByRole('searchbox').press('Escape');
   await expect(pane).toBeHidden();
 });
+
+test('choosing a search result keeps keyboard focus on it, and the count follows edits', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const input = await headingsDocument(page);
+  await (await onTab(page, 'view')).locator('.ribbon-card').getByRole('button', { name: 'Navigation Pane' }).click();
+  const pane = page.getByRole('complementary', { name: 'Navigation' });
+  await pane.getByRole('searchbox', { name: 'Search document' }).fill('plan');
+  const results = pane.locator('.nav-result');
+  await expect(results).toHaveCount(3);
+  await results.nth(1).focus();
+  await page.keyboard.press('Enter');
+  expect(await input.evaluate(el => el.selectionStart)).toBe(await input.evaluate(el => el.value.indexOf('plan', el.value.indexOf('plan') + 1)));
+  await expect(results.nth(1)).toBeFocused();
+  await expect(results.nth(1)).toHaveAttribute('aria-current', 'true');
+  await page.keyboard.press('Tab');
+  await expect(results.nth(2)).toBeFocused();
+  await expect(pane.getByRole('status')).toHaveText('Result 2 of 3');
+  // Another match typed into the document updates the count.
+  await input.focus();
+  await input.press('ControlOrMeta+End');
+  await page.keyboard.type(' A plan.');
+  await expect(results).toHaveCount(4);
+  await expect(pane.getByRole('status')).toHaveText('Result 2 of 4');
+  expect(errors).toEqual([]);
+});
