@@ -486,6 +486,10 @@ export function createImageInteraction(editor) {
       if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); endCrop(e.key === 'Enter'); return true; }
       if (['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return false;
       endCrop(true);
+      // A typed character (AltGr ones arrive as Ctrl+Alt) only finishes the crop: carrying on would
+      // type over the selected picture.
+      const character = [...(e.key || '')].length === 1 && !e.metaKey && (!e.ctrlKey || e.altKey && !/^[a-z0-9]$/i.test(e.key));
+      if (character) { e.preventDefault(); return true; }
       return false;
     }
     if (e.key === 'Escape' && extras.length) { setExtras([]); return false; }

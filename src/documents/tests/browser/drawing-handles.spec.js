@@ -225,6 +225,22 @@ test('crop mode trims from a handle, pans, and Escape cancels', async ({ page })
   expect(await page.evaluate(() => window.errors)).toEqual([]);
 });
 
+test('typing while cropping finishes the crop without replacing the picture', async ({ page }) => {
+  await open(page);
+  await select(page, 1);
+  const before = await state(page, 1), text = () => page.evaluate(() => window.e.model.text);
+  const typed = await text();
+  await page.evaluate(() => window.e.startCrop());
+  await drag(page, host(page).getByRole('button', { name: 'Crop e', exact: true }), -40, 0);
+  await host(page).getByRole('textbox', { name: 'Document text' }).press('x');
+  expect(await page.evaluate(() => window.e.cropActive)).toBe(false);
+  expect(await text()).toBe(typed);
+  const cropped = await state(page, 1);
+  expect(cropped.width).toBeLessThan(before.width);
+  expect(cropped.history).toBe(before.history + 1);
+  expect(await page.evaluate(() => window.errors)).toEqual([]);
+});
+
 test('handles at phone width and without a layout-options hook', async ({ page }) => {
   await open(page, { width: 390, layoutOptions: false });
   await page.evaluate(() => window.e.setZoom(0.45));
