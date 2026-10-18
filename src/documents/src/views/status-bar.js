@@ -100,7 +100,10 @@ export function createStatusBar({ w, a, parts, help }) {
     };
     const render = () => {
       const q = filter.value.trim().toLowerCase();
-      list.replaceChildren(...tags.filter(tag => !q || languageName(tag).toLowerCase().includes(q) || tag.toLowerCase().includes(q)).map(tag => el('button.ed-choice', { type: 'button', role: 'option', dataset: { tag },
+      const shown = tags.filter(tag => !q || languageName(tag).toLowerCase().includes(q) || tag.toLowerCase().includes(q));
+      // A filter that hides the chosen language chooses the first it shows: Enter applies what is on screen.
+      if (q && shown.length && !shown.includes(chosen)) chosen = shown[0];
+      list.replaceChildren(...shown.map(tag => el('button.ed-choice', { type: 'button', role: 'option', dataset: { tag },
         onclick: () => { chosen = tag; mark(); }, ondblclick: () => apply() }, languageName(tag), el('span.ed-choice-hint', {}, tag))));
       mark();
     };
