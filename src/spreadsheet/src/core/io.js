@@ -2385,6 +2385,41 @@ function declaredUnpackedSize(bytes) {
   return { largest, total };
 }
 
+// Excel's Save As offers "Strict Open XML Spreadsheet", whose parts name ISO 29500's Strict namespaces
+// (http://purl.oclc.org/ooxml/...) in place of the transitional ones every reader here knows. The package
+// is otherwise the same, so it is read with each Strict name replaced by its transitional twin.
+const STRICT = /http:\/\/purl\.oclc\.org\/ooxml\/(spreadsheetml|drawingml|officeDocument|schemaLibrary)\/(\w+)(\/\w+)?/g;
+const STRICT_DOCUMENT = { relationships: 'relationships', extendedProperties: 'extended-properties', customProperties: 'custom-properties', docPropsVTypes: 'docPropsVTypes', sharedTypes: 'sharedTypes', math: 'math', bibliography: 'bibliography' };
+const STRICT_RELATIONSHIPS = { extendedProperties: 'extended-properties', customProperties: 'custom-properties' };
+const transitionalName = (all, group, name, tail = '') => {
+  if (group === 'officeDocument') {
+    if (!STRICT_DOCUMENT[name]) return all;
+    const type = tail.slice(1);
+    return `http://schemas.openxmlformats.org/officeDocument/2006/${STRICT_DOCUMENT[name]}${tail && name === 'relationships' ? `/${STRICT_RELATIONSHIPS[type] || type}` : tail}`;
+  }
+  return `http://schemas.openxmlformats.org/${group}/2006/${name}${tail}`;
+};
+
+/** Whether a zip is a Strict Open XML package: its package relationships name the Strict main document. */
+function strictPackage(X, bytes, book) {
+  let rels = book?.files?.['_rels/.rels']?.content;
+  if (!book) { try { rels = X.CFB.find(X.CFB.read(bytes, { type: 'array' }), '/_rels/.rels')?.content; } catch { return false; } }
+  return !!rels && new TextDecoder().decode(rels).includes('http://purl.oclc.org/ooxml/officeDocument/relationships/officeDocument');
+}
+
+/** A Strict package's bytes with every Strict namespace and relationship type in its transitional spelling. */
+function transitionalPackage(X, bytes) {
+  const zip = X.CFB.read(bytes, { type: 'array' });
+  for (const entry of zip.FileIndex) {
+    if (!entry.content?.length || !/\.(?:xml|rels|vml)$/i.test(entry.name)) continue;
+    const text = new TextDecoder().decode(entry.content);
+    if (!text.includes('http://purl.oclc.org/ooxml/')) continue;
+    entry.content = new TextEncoder().encode(text.replace(STRICT, transitionalName));
+    entry.size = entry.content.length;
+  }
+  return new Uint8Array(X.CFB.write(zip, { type: 'array', fileType: 'zip' }));
+}
+
 /**
  * The reason a file could not be read, worded for the person opening it. The library names its own
  * internals ("Bad compressed size: 0 != 358" for a download cut short, "Unknown Namespace" for a Word
@@ -2432,9 +2467,18 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
   // cleanup also removes matching text from strings and sheet names.
   // bookFiles keeps the inflated parts, from which the sheet state the reader leaves in the XML is read.
   let book;
+  const readOptions = { type: 'array', cellNF: true, cellDates: false, cellStyles: true, sheetStubs: true, xlfn: true, bookFiles: true };
   try {
-    book = X.read(bytes, { type: 'array', cellNF: true, cellDates: false, cellStyles: true, sheetStubs: true, xlfn: true, bookFiles: true });
-  } catch (e) { throw readFailure(e); }
+    book = X.read(bytes, readOptions);
+  } catch (e) {
+    // A Strict file's parts can stop the reader before it says what the package is.
+    const transitional = strictPackage(X, bytes, null) && transitionalPackage(X, bytes);
+    if (!transitional) throw readFailure(e);
+    try { book = X.read(transitional, readOptions); } catch (again) { throw readFailure(again); }
+  }
+  if (strictPackage(X, bytes, book)) {
+    try { book = X.read(transitionalPackage(X, bytes), readOptions); } catch (e) { throw readFailure(e); }
+  }
   const fileFormat = recoveredFormat(X);
   const partOf = sheetParts(book);
   // The reader keeps quiet about a sheet whose part it could not parse and
