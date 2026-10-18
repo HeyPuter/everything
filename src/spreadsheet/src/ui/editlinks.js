@@ -115,7 +115,6 @@ export function openEditLinks(ctx, host) {
     details,
     working,
     el('div.row.el-foot', {}, startupBtn, el('span.el-spacer'), closeBtn));
-  const modal = openModal({ title: 'Edit Links', content, wide: true, onClose: () => { wb.removeEventListener('change', onChange); ctx.grid?.focus?.(); } });
 
   function onChange() { if (!busy) render(); }
   const entries = () => linkEntries(wb);
@@ -157,7 +156,8 @@ export function openEditLinks(ctx, host) {
     openBtn.disabled = busy || !workbookLink || !host.open || !path;
     breakBtn.disabled = busy || !entry;
     checkBtn.disabled = busy || !all.some((e) => e.kind === 'workbook');
-    if (focus) list.focus({ preventScroll: true });
+    // With no links left the list is hidden: Close takes the focus rather than the page.
+    if (focus) (list.hidden ? closeBtn : list).focus({ preventScroll: true });
     list.querySelector('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' });
   }
 
@@ -265,6 +265,9 @@ export function openEditLinks(ctx, host) {
 
   // An undo or another edit while the dialog is open changes the links it lists.
   wb.addEventListener('change', onChange);
-  render({ focus: true });
+  // The list and buttons are set before the dialog opens: Update Values, focused first and then turned off
+  // for want of a link, dropped the focus to the page.
+  render();
+  const modal = openModal({ title: 'Edit Links', content, wide: true, initialFocus: list.hidden ? closeBtn : list, onClose: () => { wb.removeEventListener('change', onChange); ctx.grid?.focus?.(); } });
   return modal;
 }

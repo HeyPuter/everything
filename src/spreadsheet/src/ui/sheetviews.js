@@ -55,7 +55,8 @@ export function openSheetViewOptions(ctx) {
       if (name != null) ctx.run('sheetView', { action: 'rename', id: v.id, name: name.trim() });
     } else if (action === 'duplicate') ctx.run('sheetView', { action: 'duplicate', id: v.id });
     else if (action === 'delete') ctx.run('sheetView', { action: 'delete', id: v.id });
-    setTimeout(() => { sync(); list.focus(); }, 0);
+    // With the last view gone the list is hidden: the focus goes to Close rather than to the page.
+    setTimeout(() => { sync(); (list.hidden ? closeBtn : list).focus(); }, 0);
   };
   list.addEventListener('keydown', (e) => {
     const all = views(), at = all.findIndex((v) => v.id === current);
@@ -69,13 +70,16 @@ export function openSheetViewOptions(ctx) {
   buttons.rename = el('button.btn', { type: 'button', onclick: () => run('rename') }, 'Rename…');
   buttons.duplicate = el('button.btn', { type: 'button', onclick: () => run('duplicate') }, 'Duplicate');
   buttons.delete = el('button.btn', { type: 'button', onclick: () => run('delete') }, 'Delete');
+  const closeBtn = el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Close');
   const content = el('div.cv-manager', {},
     el('div.cv-top', {},
       el('div.cv-list-wrap', {}, el('label.field-label', { for: list.id }, `Views of ${wb.sheet(sheetId)?.name || 'this sheet'}`), list, empty),
       el('div.cv-buttons', {}, buttons.switch, buttons.rename, buttons.duplicate, buttons.delete)),
     el('p.small.muted.cv-detail', {}, 'Filters set in a view stay in it; the default view others see is left as it is.'),
-    el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Close')));
-  const modal = openModal({ title: 'Sheet View Options', content, initialFocus: views().length ? list : null, onClose: () => ctx.grid?.focus?.() });
+    el('div.row.row-end', {}, closeBtn));
+  // The buttons are set before the dialog opens: Switch To, focused first and then turned off for want of a
+  // view, dropped the focus to the page.
   sync();
+  const modal = openModal({ title: 'Sheet View Options', content, initialFocus: views().length ? list : closeBtn, onClose: () => ctx.grid?.focus?.() });
   return modal;
 }
