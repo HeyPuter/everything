@@ -1032,12 +1032,25 @@ export function createGrid(opts) {
     if (edit || wb.isProtected(sheetId) || !appOption('fillHandle')) return false;
     const { range, vx, vy, hidden } = handlePlace();
     if (hidden) return false;
-    // A press the browser reports on the handle itself has its whole hit area, but only where the
-    // canvas's own handle is the one drawn: inside a frozen band a clone stands for it.
-    if (target === fillHandle && !leftBand(range.c2) && !topBand(range.r2)) return true;
     const vp = viewport.getBoundingClientRect();
-    const reach = coarsePointer ? 12 : 7; // a finger gets the handle's larger drawn target
+    // A press the browser reports on the handle itself has its whole hit area (grid.css: the 9px handle
+    // and 5px around it, 8px under a finger), but only where the canvas's own handle is the one drawn:
+    // inside a frozen band a clone stands for it. Elsewhere a finger gets the larger reach too.
+    const onHandle = target === fillHandle && !leftBand(range.c2) && !topBand(range.r2);
+    const drawn = coarsePointer ? 12.5 : 9.5, cap = handleReachCap(range);
+    if (onHandle && cap >= drawn) return true;
+    const reach = Math.min(onHandle ? drawn : (coarsePointer ? 12 : 7), cap);
     return Math.abs(clientX - vp.left - vx) <= reach && Math.abs(clientY - vp.top - vy) <= reach;
+  }
+
+  /**
+   * How far from the corner a press may land and still take the fill handle: short of the middle of the
+   * cells beside the corner. Zoomed out to a quarter a cell is 16 by 5 pixels, and the handle's 19px hit
+   * area took the middle of the cells above, below and right of the active cell, so clicking them grabbed
+   * the handle and selected nothing. At 100% the cells are far larger than the handle's reach.
+   */
+  function handleReachCap(range) {
+    return Math.max(3, Math.floor(Math.max(colW(range.c2), rowH(range.r2)) / 2) - 1);
   }
 
   /**
@@ -2952,6 +2965,9 @@ export function createGrid(opts) {
     fillHandle.hidden = !!edit || handle.gone || !appOption('fillHandle');
     // Scrolled under a frozen pane the handle is out of sight: it takes no press and shows no cursor through the pane.
     fillHandle.classList.toggle('under-pane', handle.hidden);
+    // Over cells too small for the handle's hit area to stay clear of their neighbours, the area shrinks to
+    // the handle drawn, so the crosshair shows only where a press takes the handle (onFillHandle).
+    fillHandle.classList.toggle('tight', handleReachCap(range) < (coarsePointer ? 12.5 : 9.5));
     if (fillPreview) { fillPreviewEl.hidden = false; place(fillPreviewEl, rangeBox(fillPreview)); }
     else fillPreviewEl.hidden = true;
     if (movePreview) { movePreviewEl.hidden = false; place(movePreviewEl, rangeBox(movePreview)); }

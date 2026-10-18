@@ -461,6 +461,9 @@
 
 /* Scrolled under a frozen pane, which lets pointer events through, the handle must not take the press or show its crosshair. */
 .fill-handle.under-pane { pointer-events: none; }
+/* Zoomed far out the cells are smaller than the handle's hit area: it keeps to the handle drawn, leaving the
+   neighbouring cells to their own clicks. */
+.fill-handle.tight::after { inset: 0; }
 
 .fill-preview {
   border: 1.5px dashed var(--accent-strong);
