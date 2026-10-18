@@ -1,11 +1,11 @@
 /* Window chrome: a light grey frame holding the title row (menus, centred
    name, account), the ribbon tabs and the ribbon as a white card; the sheet, sheet tabs and status
    bar below, styled on the app's tokens. */
-:root { --chrome: #f3f3f3; --chrome-ink: #242424; --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.06); --ribbon-accent: #1f7a45; --chrome-hover: rgba(0, 0, 0, 0.06); --chrome-pressed: rgba(0, 0, 0, 0.09); --chrome-field-line: #c8c8c8; --menu-shadow: 0 8px 24px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.1); }
+:root { --chrome: #f3f3f3; --chrome-ink: #242424; --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.06); --ribbon-accent: #1f7a45; --chrome-hover: rgba(0, 0, 0, 0.06); --chrome-pressed: rgba(0, 0, 0, 0.09); --chrome-field-line: #c8c8c8; --menu-shadow: 0 8px 24px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.1); --dialog-btn-line: #c4c4c4; --seg-track: rgba(0, 0, 0, 0.06); --dialog-shadow: 0 16px 48px rgba(0, 0, 0, 0.24), 0 0 0 1px rgba(0, 0, 0, 0.1); }
 @media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) { --chrome: #1d1d1d; --chrome-ink: #ededed; --card-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08); --ribbon-accent: #6fcf97; --chrome-hover: rgba(255, 255, 255, 0.08); --chrome-pressed: rgba(255, 255, 255, 0.12); --chrome-field-line: #4a4a4a; --menu-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.12); }
+  :root:where(:not([data-theme="light"])) { --chrome: #1d1d1d; --chrome-ink: #ededed; --card-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08); --ribbon-accent: #6fcf97; --chrome-hover: rgba(255, 255, 255, 0.08); --chrome-pressed: rgba(255, 255, 255, 0.12); --chrome-field-line: #4a4a4a; --menu-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.12); --dialog-btn-line: #4a4a4a; --seg-track: rgba(255, 255, 255, 0.08); --dialog-shadow: 0 16px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.12); }
 }
-:root[data-theme="dark"] { --chrome: #1d1d1d; --chrome-ink: #ededed; --card-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08); --ribbon-accent: #6fcf97; --chrome-hover: rgba(255, 255, 255, 0.08); --chrome-pressed: rgba(255, 255, 255, 0.12); --chrome-field-line: #4a4a4a; --menu-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.12); }
+:root[data-theme="dark"] { --chrome: #1d1d1d; --chrome-ink: #ededed; --card-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08); --ribbon-accent: #6fcf97; --chrome-hover: rgba(255, 255, 255, 0.08); --chrome-pressed: rgba(255, 255, 255, 0.12); --chrome-field-line: #4a4a4a; --menu-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.12); --dialog-btn-line: #4a4a4a; --seg-track: rgba(255, 255, 255, 0.08); --dialog-shadow: 0 16px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.12); }
 
 /* Title row */
 .editor-header { background: var(--chrome); border-bottom: 0; }
@@ -168,7 +168,7 @@
   .status-item { font-weight: 400; }
   .status-item .muted { font-weight: 400; color: var(--chrome-ink); }
   .status-right .status-item { font-weight: 400; }
-  .status-view[aria-pressed="true"] { background: rgba(0, 0, 0, 0.09); }
+  .status-view[aria-pressed="true"] { background: var(--chrome-pressed); } /* a black wash vanished on the dark frame */
   .zoom-btn { width: 20px; height: 20px; color: var(--chrome-ink); }
   /* A thin track with a round white thumb. */
   .zoom-slider { -webkit-appearance: none; appearance: none; height: 16px; width: 104px; background: transparent; }
@@ -192,13 +192,13 @@
 /* ---------- Dialogs: compact desktop dialogs ---------- */
 @media (min-width: 640px) and (pointer: fine) {
   .modal-scrim { background: rgba(0, 0, 0, 0.18); }
-  .modal-panel { border: 0; border-radius: 10px; padding: 14px 18px 16px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.24), 0 0 0 1px rgba(0, 0, 0, 0.1); font-size: 13px; }
-  :root[data-theme="dark"] .modal-panel { box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.12); }
+  /* The shadow, button line and segment track are tokens of the frame above, so a dark window, by the
+     system's setting or the app's, draws them dark (a rule on the app's dark stamp alone missed the first). */
+  .modal-panel { border: 0; border-radius: 10px; padding: 14px 18px 16px; box-shadow: var(--dialog-shadow); font-size: 13px; }
   .modal-head { margin-bottom: 10px; }
   .modal-title { font-size: 15px; font-weight: 600; letter-spacing: 0; }
   .modal-text { font-size: 13px; margin-bottom: 12px; }
-  .modal-panel .btn { padding: 5px 16px; min-height: 28px; font-size: 13px; font-weight: 400; border-radius: 6px; border: 1px solid #c4c4c4; background: var(--surface); }
-  :root[data-theme="dark"] .modal-panel .btn { border-color: #4a4a4a; }
+  .modal-panel .btn { padding: 5px 16px; min-height: 28px; font-size: 13px; font-weight: 400; border-radius: 6px; border: 1px solid var(--dialog-btn-line); background: var(--surface); }
   .modal-panel .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 500; }
   .modal-panel .btn-ghost { border-color: transparent; }
   .modal-panel .btn-danger { color: var(--critical); }
@@ -207,8 +207,7 @@
     .modal-panel .btn-primary:hover { background: var(--accent-strong); }
   }
   /* Tabs and choices as a segmented control: the chosen segment raised in white with a bold label. */
-  .segmented, .seg, .fc-tabs { background: rgba(0, 0, 0, 0.06); border: 0; border-radius: 7px; padding: 2px; gap: 2px; }
-  :root[data-theme="dark"] .segmented, :root[data-theme="dark"] .seg, :root[data-theme="dark"] .fc-tabs { background: rgba(255, 255, 255, 0.08); }
+  .segmented, .seg, .fc-tabs { background: var(--seg-track); border: 0; border-radius: 7px; padding: 2px; gap: 2px; }
   .segmented button, .seg-btn { padding: 3px 10px; min-height: 24px; border-radius: 5px; font-size: 13px; font-weight: 400; color: var(--ink); }
   .segmented button[aria-checked="true"], .seg-btn[aria-checked="true"], .fc-tabs .seg-btn[aria-selected="true"], .seg .seg-btn[role="tab"][aria-selected="true"] {
     background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 0 0 1px var(--hairline-strong), 0 1px 2px rgba(0, 0, 0, 0.12);
