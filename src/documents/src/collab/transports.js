@@ -14,7 +14,7 @@
  * WorkerTransport  a room on the owner's Puter worker (server/service.js).
  */
 import * as Y from 'yjs';
-import { canComment, canEdit, PRESENCE_TTL, encode, decode } from './protocol.js';
+import { canComment, canEdit, PRESENCE_TTL, MAX_UPDATE, encode, decode } from './protocol.js';
 
 const refused = (status, message) => Object.assign(new Error(message), { status });
 
@@ -52,6 +52,7 @@ export class MemoryHub {
         hub.presence.set(state.session, state);
         hub.deliver(() => hub.broadcastPresence());
       },
+      state() { return Y.encodeStateAsUpdate(hub.doc); },
       async leave() { hub.peers.delete(me.handlers); if (me.session) hub.presence.delete(me.session); hub.broadcastPresence(); },
       setOnline(online) { me.online = online; me.handlers.online?.(online); if (online) hub.broadcastPresence(); },
       setRole(next) { me.role = next; me.handlers.role(next); },
@@ -162,6 +163,8 @@ export class BroadcastRoom {
     this.post({ type: 'update', update: encode(update) });
   }
   presence(state) { this.lastPresence = state; this.post({ type: 'presence', state }); }
+  /** What the room holds, as far as this tab knows. */
+  state() { return this.doc ? Y.encodeStateAsUpdate(this.doc) : null; }
   /** Sharing stopped: the other tabs keep their copies and stop receiving changes. */
   stop() { this.post({ type: 'closed' }); }
   async leave() {
@@ -181,7 +184,7 @@ export class BroadcastRoom {
  */
 export class WorkerTransport {
   /** call(op, input) performs a signed request (api.js). */
-  constructor({ call, room, token = null }) { this.call = call; this.room = room; this.token = token; this.vector = null; }
+  constructor({ call, room, token = null }) { this.call = call; this.room = room; this.token = token; this.vector = null; this.maxUpdate = MAX_UPDATE; }
   async join(handlers) {
     this.handlers = handlers;
     this.session = handlers.session;
@@ -232,6 +235,8 @@ export class WorkerTransport {
     Y.applyUpdate(this.doc, update);
     this.schedule(50);
   }
+  /** The room's accepted changes this connection has received. */
+  state() { return this.doc ? Y.encodeStateAsUpdate(this.doc) : null; }
   presence(state) {
     this.lastPresence = state;
     // Presence rides on the next synchronization; a moved caret asks for one soon.

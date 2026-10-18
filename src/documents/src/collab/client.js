@@ -63,6 +63,9 @@ export class Outbox {
   get size() { return this.items.length; }
 }
 
+/** Whether a room refused a change for good, rather than failing to receive it for now. */
+const refusedForGood = error => error?.status >= 400 && error.status < 500 && ![408, 409, 425, 429].includes(error.status);
+
 export class CollabClient extends EventTarget {
   /** transport: see transports.js. user: { id, name }. */
   constructor({ transport, user, room, sendDelay = 40 }) {
@@ -79,7 +82,8 @@ export class CollabClient extends EventTarget {
     this.binding = null;
     this.sendDelay = sendDelay;
     this.closed = false;
-    this.ydoc.on('update', (update, origin) => { if (origin !== REMOTE && origin !== 'initial') this.queue(update); });
+    this.onLocalUpdate = (update, origin) => { if (origin !== REMOTE && origin !== 'initial') this.queue(update); };
+    this.ydoc.on('update', this.onLocalUpdate);
   }
 
   setStatus(status) {
@@ -133,17 +137,27 @@ export class CollabClient extends EventTarget {
   async send() {
     if (this.sending || this.closed || !this.outbox.size) return;
     this.sending = true;
-    const items = [...this.outbox.items];
+    // A room that limits the size of a request takes the queue in batches under it, in order.
+    const limit = this.transport.maxUpdate || Infinity, size = item => Math.ceil(item.update.length / 3) * 4;
+    const items = [];
+    for (let total = 0; items.length < this.outbox.size; items.push(this.outbox.items[items.length])) {
+      total += size(this.outbox.items[items.length]);
+      if (items.length && total > limit) break;
+    }
     try {
+      if (items.length === 1 && size(items[0]) > limit) throw Object.assign(new Error('This change is too large to share: pictures over about 5 MB cannot be added to a shared document.'), { status: 413 });
       await this.transport.send(items.length === 1 ? items[0].update : Y.mergeUpdates(items.map(i => i.update)));
       await this.outbox.remove(items);
       this.retry = 0;
       this.setStatus('online');
     } catch (error) {
-      if (error?.status === 403 || error?.status === 410) {
-        // Refused for good: the person's access changed. Their queued changes cannot be delivered.
-        await this.outbox.remove(items);
+      if (refusedForGood(error)) {
+        // The room will never take this change (access changed, or it is too large or invalid). Everything
+        // queued after it builds on it, so the whole queue goes, and this copy starts again from the room's
+        // state: changes of its own the room does not have would make every later one fail too.
+        await this.outbox.remove([...this.outbox.items]);
         this.dispatchEvent(new CustomEvent('refused', { detail: { message: error.message } }));
+        this.reset();
       } else {
         this.setStatus('offline');
         this.retry = Math.min(6, (this.retry || 0) + 1);
@@ -154,6 +168,17 @@ export class CollabClient extends EventTarget {
       if (this.outbox.size && this.status === 'online') this.scheduleSend(this.sendDelay);
       this.dispatchEvent(new CustomEvent('status', { detail: { status: this.status, pending: this.outbox.size } }));
     }
+  }
+
+  /** Start again from the room's accepted state, as a new participant of the shared document. */
+  reset() {
+    const state = this.transport.state?.();
+    if (!state || this.closed) return;
+    this.ydoc.off('update', this.onLocalUpdate);
+    this.ydoc = new Y.Doc();
+    Y.applyUpdate(this.ydoc, state, 'initial');
+    this.ydoc.on('update', this.onLocalUpdate);
+    this.dispatchEvent(new Event('reset'));
   }
 
   /** Publish this person's caret, selection and name. */

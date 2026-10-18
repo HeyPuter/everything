@@ -68,9 +68,13 @@ export class LiveSession extends EventTarget {
     this.commentGuard = commentGuard;
     this.engine = engine; this.doc = doc; this.client = client; this.link = link; this.user = user;
     this.onError = onError;
-    this.binding = new CollabBinding({ engine, ydoc: client.ydoc, session: { id: client.session, name: user.name }, baseAssets,
-      onApplied: () => { if (this.saves) doc.changed(); this.paintPresence(); onApplied(); }, onError });
-    client.attach(this.binding);
+    this.bind = () => {
+      this.binding = new CollabBinding({ engine, ydoc: client.ydoc, session: { id: client.session, name: user.name }, baseAssets,
+        onApplied: () => { if (this.saves) doc.changed(); this.paintPresence(); onApplied(); }, onError });
+      client.attach(this.binding);
+      for (const name of ['mode', 'single', 'conflict']) this.binding.addEventListener(name, e => this.dispatchEvent(new CustomEvent(name, { detail: e.detail })));
+    };
+    this.bind();
     this.invites = new Map();
     this.listen();
   }
@@ -82,7 +86,7 @@ export class LiveSession extends EventTarget {
   get canManage() { return canManage(this.role) || (this.local && this.role === 'owner'); }
 
   listen() {
-    const { client, binding, engine } = this;
+    const { client, engine } = this;
     this.binding.apply();
     this.applyRole();
     client.addEventListener('presence', () => { this.elect(); this.paintPresence(); this.dispatchEvent(new Event('people')); });
@@ -90,7 +94,15 @@ export class LiveSession extends EventTarget {
     client.addEventListener('role', () => { this.applyRole(); this.dispatchEvent(new Event('role')); });
     client.addEventListener('refused', e => this.onError(new Error(`${e.detail.message} Your latest changes could not be shared.`)));
     client.addEventListener('closed', e => { this.end(e.detail.reason); });
-    for (const name of ['mode', 'single', 'conflict']) binding.addEventListener(name, e => this.dispatchEvent(new CustomEvent(name, { detail: e.detail })));
+    // After a refused change the client starts again from the room's state: the editor shows that state.
+    client.addEventListener('reset', () => {
+      if (this.ended) return;
+      this.binding.destroy();
+      this.bind();
+      this.binding.apply();
+      this.applyRole();
+      this.dispatchEvent(new Event('mode'));
+    });
     // Carets and selections: publish ours as it moves, paint others' over the pages.
     const previousSelection = engine.onSelection, previousChange = engine.onChange;
     engine.onSelection = (...args) => { previousSelection?.(...args); this.publishPresence(); };
