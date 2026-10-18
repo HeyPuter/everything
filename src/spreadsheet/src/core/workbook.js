@@ -4222,12 +4222,15 @@ export class Workbook extends EventTarget {
       if (ids.size) {
         const live = new Map(sheet.tables.map((t) => [t.id, t]));
         this._setTables(sheet, order.map((t) => moved.get(t.id) || live.get(t.id)), 'Move cells');
-        // A moving table's filter goes with it, its column criteria re-keyed; the moved cells decide anew what it hides.
-        for (const f of sheetFilters(sheet)) {
-          const owner = movingTables.find(t => t.range.r1 === f.range.r1 && t.range.c1 === f.range.c1 && t.range.c2 === f.range.c2);
-          if (owner) this._setFilter(sheet, { ...f, range: shifted(f.range), criteria: Object.fromEntries(Object.entries(f.criteria).map(([c, crit]) => [Number(c) + dc, crit])),
-            ...(f.hiddenButtons ? { hiddenButtons: f.hiddenButtons.map(c => c + dc) } : {}) }, 'Move cells', { target: f });
-        }
+      }
+      // A moving table's filter goes with it, its column criteria re-keyed; the moved cells decide anew what it hides.
+      // So does a sheet's filter whose whole list the block carries (unless it would land on a table): left behind,
+      // it went on hiding the rows its list had left, emptied, while the list itself lay unfiltered elsewhere.
+      for (const f of sheetFilters(sheet)) {
+        const owner = movingTables.find(t => t.range.r1 === f.range.r1 && t.range.c1 === f.range.c1 && t.range.c2 === f.range.c2);
+        const carried = !owner && !filterTable(sheet, f) && inside(f.range) && !sheet.tables.some((t) => overlaps(t.range, shifted(f.range)));
+        if (owner || carried) this._setFilter(sheet, { ...f, range: shifted(f.range), criteria: Object.fromEntries(Object.entries(f.criteria).map(([c, crit]) => [Number(c) + dc, crit])),
+          ...(f.hiddenButtons ? { hiddenButtons: f.hiddenButtons.map(c => c + dc) } : {}) }, 'Move cells', { target: f });
       }
       // Notes travel with their cells; notes already at the destination go.
       const moving = [];
@@ -4459,15 +4462,19 @@ export class Workbook extends EventTarget {
           const byId = new Map(moved.map((t) => [t.id, t]));
           this._setTables(sheet, order.map((t) => byId.get(t.id) || live.get(t.id)), 'Move cells');
         }
-        // Every moving table carries its filter, including onto a sheet with existing filters.
-        for (const f of sheetFilters(source)) {
-          const owner = movingTables.find(t => t.range.r1 === f.range.r1 && t.range.c1 === f.range.c1 && t.range.c2 === f.range.c2);
-          if (!owner) continue;
-          const next = { ...f, range: shifted(f.range), criteria: Object.fromEntries(Object.entries(f.criteria).map(([c, crit]) => [Number(c) + dc, crit])),
-            ...(f.hiddenButtons ? { hiddenButtons: f.hiddenButtons.map(c => c + dc) } : {}) };
-          if (!across) this._setFilter(sheet, next, 'Move cells', { target: f });
-          else { this._setFilter(source, null, 'Move cells', { target: f }); this._setFilter(sheet, next, 'Move cells', { create: true }); }
-        }
+      }
+      // Every moving table carries its filter, including onto a sheet with existing filters. A sheet's filter whose
+      // whole list the block carries goes with it too, where it can (onto a sheet without a filter of its own, and
+      // over no table): left behind, it went on hiding the rows its list had left while the list lay unfiltered.
+      for (const f of sheetFilters(source)) {
+        const owner = movingTables.find(t => t.range.r1 === f.range.r1 && t.range.c1 === f.range.c1 && t.range.c2 === f.range.c2);
+        const carried = !owner && !filterTable(source, f) && inside(f.range) && !sheet.tables.some((t) => overlaps(t.range, shifted(f.range)))
+          && (!across || !sheetFilters(sheet).some((g) => !filterTable(sheet, g)));
+        if (!owner && !carried) continue;
+        const next = { ...f, range: shifted(f.range), criteria: Object.fromEntries(Object.entries(f.criteria).map(([c, crit]) => [Number(c) + dc, crit])),
+          ...(f.hiddenButtons ? { hiddenButtons: f.hiddenButtons.map(c => c + dc) } : {}) };
+        if (!across) this._setFilter(sheet, next, 'Move cells', { target: f });
+        else { this._setFilter(source, null, 'Move cells', { target: f }); this._setFilter(sheet, next, 'Move cells', { create: true }); }
       }
       // Notes, merges, validation rules and conditional formats inside the cut block travel
       // with it, as they do when the block is dragged; whatever they land on gives way.
