@@ -263,10 +263,20 @@ export function inferParents(
       (ids && !ids.has(i.id))
     )
       continue;
-    const cx = i.x + i.w / 2,
-      cy = i.y + i.h / 2;
-    const parent = frames.find(
-      (f) => cx >= f.x && cx <= f.x + f.w && cy >= f.y && cy <= f.y + f.h,
+    // A line joining two objects belongs to a frame only when both of its
+    // ends are in it: one passing over a frame between objects outside it
+    // would otherwise go with the frame when it is deleted or copied.
+    const points =
+      i.type === "arrow" && i.startId && i.endId
+        ? [
+            [i.x, i.y],
+            [i.x + i.w, i.y + i.h],
+          ]
+        : [[i.x + i.w / 2, i.y + i.h / 2]];
+    const parent = frames.find((f) =>
+      points.every(
+        ([x, y]) => x >= f.x && x <= f.x + f.w && y >= f.y && y <= f.y + f.h,
+      ),
     );
     if (parent) i.parentId = parent.id;
     else delete i.parentId;

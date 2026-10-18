@@ -11,6 +11,7 @@ import {
   updateConnectors,
   duplicateItems,
   inferMovedParents,
+  inferParents,
   attachToFrame,
   removeItems,
   orderedFrames,
@@ -305,6 +306,26 @@ test("a line between moved objects leaves the frame with them", () => {
   moveItems(items, new Set([a.id, b.id]), 0, -600);
   inferMovedParents(items, new Set([a.id, b.id]));
   assert.equal(line.parentId, f.id);
+});
+
+test("a line passing over a frame between objects outside it stays out of the frame", () => {
+  const f = item("frame", 300, 0, { w: 300, h: 300 }),
+    a = item("note", 0, 100, { w: 100, h: 100 }),
+    b = item("note", 800, 100, { w: 100, h: 100 });
+  const items = [f, a, b];
+  const line = connectObjects(items, new Set([a.id, b.id]));
+  inferParents(items, new Set([line.id]));
+  assert.equal(line.parentId, undefined);
+  assert.deepEqual([...descendants(items, new Set([f.id]))], [f.id]);
+  assert.ok(
+    removeItems(items, new Set([f.id])).includes(line),
+    "deleting the empty frame keeps the line",
+  );
+  // A free line still goes by its middle.
+  const free = item("arrow", 200, 150, { w: 300, h: 0 });
+  items.push(free);
+  inferParents(items, new Set([free.id]));
+  assert.equal(free.parentId, f.id);
 });
 
 test("aligning across a frame's edge updates frame membership like a drag does", () => {
