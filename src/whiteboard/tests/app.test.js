@@ -196,6 +196,16 @@ function transferData(formats = {}, files = []) {
   };
 }
 
+// The height of the object a canvas text editor stands for: a text box's
+// editor reaches above it by the lift that puts its lines where the board
+// draws them.
+function editorHeight(input) {
+  const lift = -parseFloat(
+    input.style.transform.match(/translateY\((-?[\d.]+)px\)/)?.[1] ?? 0,
+  );
+  return parseFloat(input.style.height) - lift;
+}
+
 // Sharing a personal board asks first; a shared board opens its dialog.
 async function confirmShare(app) {
   for (let n = 0; n < 5 && !app.doc.querySelector("#confirm-share"); n++)
@@ -1404,7 +1414,7 @@ test("built editors join the same board, show participants, synchronize text and
       "Remote width changes rewrap the active text editor",
     );
     const resizedText = selectedClipboard(b)[0];
-    assert.equal(parseFloat(growing.style.height), resizedText.h);
+    assert.equal(editorHeight(growing), resizedText.h);
     growing.value += "\nOne more shared line.\nAnd another.";
     growing.dispatchEvent(new a.w.Event("input", { bubbles: true }));
     await until(
@@ -12027,7 +12037,7 @@ test("automatic text height grows drafts, follows typography and width, cancels 
     paletteQuery(app, "Text");
     await click('[data-command="add:text"]');
     const input = doc.querySelector("#canvas-text-editor");
-    const initialHeight = parseFloat(input.style.height);
+    const initialHeight = editorHeight(input);
     assert.equal(
       doc.querySelector("#auto-height-text").getAttribute("aria-pressed"),
       "true",
@@ -12038,7 +12048,7 @@ test("automatic text height grows drafts, follows typography and width, cancels 
       );
     input.value = content;
     input.dispatchEvent(new w.Event("input", { bubbles: true }));
-    assert.ok(parseFloat(input.style.height) > initialHeight);
+    assert.ok(editorHeight(input) > initialHeight);
     assert.equal(parseFloat(input.style.fontSize), 28);
     assert.ok(
       parseFloat(input.style.top) < 320,
@@ -12069,7 +12079,7 @@ test("automatic text height grows drafts, follows typography and width, cancels 
     assert.equal(doc.querySelector("#canvas-text-editor"), input);
     assert.equal(input.selectionStart, 3);
     assert.equal(input.selectionEnd, 12);
-    const draftHeight = parseFloat(input.style.height);
+    const draftHeight = editorHeight(input);
     await click('[data-action="finish-text"]');
     const saved = selectedClipboard(app)[0];
     assert.equal(saved.text, content);
@@ -12083,7 +12093,7 @@ test("automatic text height grows drafts, follows typography and width, cancels 
     await click('[data-action="edit"]');
     change("#canvas-text-editor", "Short", "input");
     assert.equal(
-      parseFloat(doc.querySelector("#canvas-text-editor").style.height),
+      editorHeight(doc.querySelector("#canvas-text-editor")),
       initialHeight,
     );
     await click('[data-action="cancel-text"]');
@@ -12233,7 +12243,8 @@ test("automatic height preserves manual layouts, handles mixed selections and po
     const input = doc.querySelector("#canvas-text-editor");
     input.value = "More\nlines\nthan\nbefore\nwhile\nfixed";
     input.dispatchEvent(new w.Event("input", { bubbles: true }));
-    assert.equal(parseFloat(input.style.height), fixed.h);
+    // The editor ends where the fixed text box ends.
+    assert.ok(Math.abs(editorHeight(input) - fixed.h) < 1e-6);
     await click('[data-action="finish-text"]');
     assert.equal(selectedClipboard(app)[0].h, fixed.h);
     await click('[data-action="home"]');
