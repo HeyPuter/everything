@@ -81,9 +81,12 @@ export function checkCommentOnly(doc, update) {
     for (const op of delta) { const a = JSON.stringify(Object.entries(op.attributes).sort()); for (const ch of String(op.insert)) out += `${ch}\u0001${a}\u0002`; }
     return out;
   };
-  const before = flatten(strip(scratch.getText('body'))), parts = JSON.stringify(scratch.getMap('parts').toJSON()), meta = JSON.stringify(scratch.getMap('meta').toJSON()), assets = [...scratch.getMap('assets').keys()].join();
+  const before = flatten(strip(scratch.getText('body'))), parts = JSON.stringify(scratch.getMap('parts').toJSON()), meta = JSON.stringify(scratch.getMap('meta').toJSON());
+  // Pictures are bytes and descriptions under their ids: replacing one keeps its id, so any write counts.
+  let assets = false;
+  scratch.getMap('assets').observe(() => { assets = true; });
   Y.applyUpdate(scratch, update);
-  const ok = before === flatten(strip(scratch.getText('body'))) && parts === JSON.stringify(scratch.getMap('parts').toJSON()) && meta === JSON.stringify(scratch.getMap('meta').toJSON()) && assets === [...scratch.getMap('assets').keys()].join();
+  const ok = !assets && before === flatten(strip(scratch.getText('body'))) && parts === JSON.stringify(scratch.getMap('parts').toJSON()) && meta === JSON.stringify(scratch.getMap('meta').toJSON());
   scratch.destroy();
   if (!ok) throw refused(403, 'You can comment on this shared document but not change it.');
 }

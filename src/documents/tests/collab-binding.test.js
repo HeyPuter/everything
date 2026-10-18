@@ -147,6 +147,23 @@ describe('co-editing binding', () => {
     expect(() => checkCommentOnly(doc, Y.encodeStateAsUpdate(copy, vector))).toThrow(/comment/);
   });
 
+  it('refuses a commenter replacing a shared picture under its existing id', () => {
+    const doc = createSharedDoc(editorState({ session: { body: new TextDocument([paragraph('abc')]), storyEdits: {} } }));
+    doc.getMap('assets').set('img@1', new Uint8Array([1, 2, 3]));
+    doc.getMap('assets').set('img@1#', JSON.stringify({ type: 'image/png', description: 'Logo' }));
+    for (const write of [map => map.set('img@1', new Uint8Array([6, 6, 6])), map => map.set('img@1#', JSON.stringify({ type: 'image/png', description: 'Spoof' }))]) {
+      const copy = new Y.Doc(); Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+      const vector = Y.encodeStateVector(copy);
+      write(copy.getMap('assets'));
+      expect(() => checkCommentOnly(doc, Y.encodeStateAsUpdate(copy, vector))).toThrow(/comment/);
+    }
+    // A comment alone still passes.
+    const copy = new Y.Doc(); Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+    const vector = Y.encodeStateVector(copy);
+    copy.getMap('comments').set('1000', JSON.stringify({ id: '1000', text: 'Nice' }));
+    expect(() => checkCommentOnly(doc, Y.encodeStateAsUpdate(copy, vector))).not.toThrow();
+  });
+
   it('keeps changes made offline and sends them when the connection returns', async () => {
     const { hub, people: [ann, bob] } = await room('base');
     const annTransport = hub.peers.get([...hub.peers.keys()][0]);
