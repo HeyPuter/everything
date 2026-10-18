@@ -129,9 +129,9 @@ export function openTextDialog(ctx, { name, path = null, text }, editor) {
   let delimiter = detectDelimiter(text.replace(/^﻿/, ''), name) || ',';
   let detect = true;
   const custom = el('input.input.pq-custom-delim', { type: 'text', maxlength: 4, 'aria-label': 'Custom delimiter', hidden: true });
-  const delimSel = el('select.input', { 'aria-label': 'Delimiter' }, DELIMITERS.map(([v, label]) => el('option', { value: v }, label)));
+  const delimSel = el('select.select', { 'aria-label': 'Delimiter' }, DELIMITERS.map(([v, label]) => el('option', { value: v }, label)));
   if (!DELIMITERS.some(([v]) => v === delimiter)) { delimSel.value = ''; custom.hidden = false; custom.value = delimiter; } else delimSel.value = delimiter;
-  const detectSel = el('select.input', { 'aria-label': 'Data Type Detection' }, el('option', { value: 'yes' }, 'Based on first 200 rows'), el('option', { value: 'no' }, 'Do not detect data types'));
+  const detectSel = el('select.select', { 'aria-label': 'Data Type Detection' }, el('option', { value: 'yes' }, 'Based on first 200 rows'), el('option', { value: 'no' }, 'Do not detect data types'));
   const preview = el('div.pq-preview');
   const steps = () => {
     const base = csvTable(text, delimiter);
@@ -155,7 +155,7 @@ export function openTextDialog(ctx, { name, path = null, text }, editor) {
   const content = el('div.pq-dialog',
     {},
     el('div.pq-dialog-options', {},
-      el('label.field', {}, el('span.field-label', {}, 'File Origin'), el('select.input', { 'aria-label': 'File Origin' }, el('option', {}, '65001: Unicode (UTF-8)'))),
+      el('label.field', {}, el('span.field-label', {}, 'File Origin'), el('select.select', { 'aria-label': 'File Origin' }, el('option', {}, '65001: Unicode (UTF-8)'))),
       el('label.field', {}, el('span.field-label', {}, 'Delimiter'), delimSel, custom),
       el('label.field', {}, el('span.field-label', {}, 'Data Type Detection'), detectSel)),
     preview,

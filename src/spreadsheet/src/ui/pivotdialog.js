@@ -40,12 +40,12 @@ export function openPivotDialog(ctx) {
   const initial = ctx.dataRange ? ctx.dataRange(ctx.range()) : S.isSingle(ctx.selection()) ? (wb.usedRange(sheetId) || ctx.range()) : ctx.range();
 
   const rangeInput = el('input.input', { type: 'text', value: rangeName(initial), 'aria-label': 'Source range', spellcheck: false, autocomplete: 'off' });
-  const rowsSel = el('select.input', { 'aria-label': 'Rows' });
-  const colsSel = el('select.input', { 'aria-label': 'Columns' });
-  const valuesSel = el('select.input', { 'aria-label': 'Values' });
-  const aggSel = el('select.input', { 'aria-label': 'Summarize by' }, PIVOT_AGGS.map(([key, label]) => el('option', { value: key }, label)));
-  const filterSel = el('select.input', { 'aria-label': 'Filter by' });
-  const filterValueSel = el('select.input', { 'aria-label': 'Showing' });
+  const rowsSel = el('select.select', { 'aria-label': 'Rows' });
+  const colsSel = el('select.select', { 'aria-label': 'Columns' });
+  const valuesSel = el('select.select', { 'aria-label': 'Values' });
+  const aggSel = el('select.select', { 'aria-label': 'Summarize by' }, PIVOT_AGGS.map(([key, label]) => el('option', { value: key }, label)));
+  const filterSel = el('select.select', { 'aria-label': 'Filter by' });
+  const filterValueSel = el('select.select', { 'aria-label': 'Showing' });
   let filterValues = [];
   let filterColumn = null;
   // A refusal names the field it is about; a table too large to write names none.

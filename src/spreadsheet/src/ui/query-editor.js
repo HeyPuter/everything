@@ -40,7 +40,7 @@ function formDialog({ title, fields, submit, okLabel = 'OK', wide = false }) {
   return modal;
 }
 const field = (label, control, extra = null) => el('label.field', {}, el('span.field-label', {}, label), control, extra);
-const select = (label, options, value) => el('select.input', { 'aria-label': label }, options.map(([v, text]) => el('option', { value: v, selected: v === value }, text)));
+const select = (label, options, value) => el('select.select', { 'aria-label': label }, options.map(([v, text]) => el('option', { value: v, selected: v === value }, text)));
 
 export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
   const { wb } = ctx;
@@ -135,7 +135,7 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
     return el('span.pq-rb-split', {}, face, arrow);
   };
   const group = (label, ...controls) => el('div.pq-rgroup', { role: 'group', 'aria-label': label }, el('div.pq-rgroup-controls', {}, ...controls), el('div.pq-rgroup-label', {}, label));
-  const typeSelect = el('select.input.pq-type-select', { 'aria-label': 'Data Type', onchange: () => { if (needCols()) changeType(selected, typeSelect.value); } },
+  const typeSelect = el('select.select.pq-type-select', { 'aria-label': 'Data Type', onchange: () => { if (needCols()) changeType(selected, typeSelect.value); } },
     TYPES.map((t) => el('option', { value: t }, TYPE_LABELS[t])));
   const typeField = el('label.pq-rb-field', {}, el('span', {}, 'Data Type:'), typeSelect);
   const TABS = {
@@ -450,7 +450,7 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
     const cols = table()?.columns || [];
     const leftSel = select('Matching column in this query', cols.map((c) => [c, c]), selected[0] || cols[0]);
     const otherSel = select('Second query', others.map((o) => [o.name, o.name]), others[0].name);
-    const rightSel = el('select.input', { 'aria-label': 'Matching column in the second query' });
+    const rightSel = el('select.select', { 'aria-label': 'Matching column in the second query' });
     const kindSel = select('Join Kind', Object.entries(JOIN_KINDS), 'leftOuter');
     const expandHost = el('div.pq-checklist');
     const note = el('p.field-hint');
