@@ -155,21 +155,23 @@ test("the board list drops columns in a narrower library instead of hiding names
     rule(".board-grid.is-list .board-info {", narrow),
     /minmax\(0, 1fr\) 120px;/,
   );
-  // Header columns line up with the rows' columns.
-  assert.match(
-    rule(".board-list-head:has(+ .board-grid.is-list) {", wide),
-    /56px minmax\(0, 1fr\) 120px 150px 70px/,
+  // Header columns line up with the rows' columns. The narrower rules use
+  // the base rule's selector: a shorter `:has()` lost to it on specificity,
+  // so the header kept all six columns, misaligned with the rows, and "Name"
+  // ran into "Last edited" from 900px down.
+  const head = ".board-list-head:has(+ .board-grid.is-list > .board-card) {";
+  assert.equal(
+    css.includes(".board-list-head:has(+ .board-grid.is-list) {"),
+    false,
   );
-  assert.match(
-    rule(".board-list-head:has(+ .board-grid.is-list) {", narrow),
-    /56px minmax\(0, 1fr\) 120px 70px/,
-  );
+  assert.match(rule(head, wide), /56px minmax\(0, 1fr\) 120px 150px 70px/);
+  assert.match(rule(head, narrow), /56px minmax\(0, 1fr\) 120px 70px/);
   // Phones keep their own layout, which comes later.
-  assert.ok(
-    css.indexOf(
-      "@media (max-width: 760px) {\n  .board-grid.is-list .board-info {",
-    ) > narrow,
+  const phone = css.indexOf(
+    "@media (max-width: 760px) {\n  .board-grid.is-list .board-info {",
   );
+  assert.ok(phone > narrow);
+  assert.match(rule(head, phone), /display:\s*none/);
 });
 
 test("the board list's column names show only above boards, not above an empty state", () => {

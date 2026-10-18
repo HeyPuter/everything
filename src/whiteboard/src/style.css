@@ -7092,7 +7092,7 @@ dialog p[role="alert"]:not(.admin-error, .fac-error, .sr-only):not(:empty) {
   flex-shrink: 0;
 }
 @container (max-width: 880px) {
-  .board-list-head:has(+ .board-grid.is-list) {
+  .board-list-head:has(+ .board-grid.is-list > .board-card) {
     grid-template-columns: 56px minmax(0, 1fr) 120px 150px 70px;
   }
   .board-list-head span:nth-child(4),
@@ -7104,7 +7104,7 @@ dialog p[role="alert"]:not(.admin-error, .fac-error, .sr-only):not(:empty) {
   }
 }
 @container (max-width: 680px) {
-  .board-list-head:has(+ .board-grid.is-list) {
+  .board-list-head:has(+ .board-grid.is-list > .board-card) {
     grid-template-columns: 56px minmax(0, 1fr) 120px 70px;
   }
   .board-list-head span:nth-child(2) {
@@ -7138,7 +7138,7 @@ dialog p[role="alert"]:not(.admin-error, .fac-error, .sr-only):not(:empty) {
   .board-grid.is-list .card-storage {
     display: none;
   }
-  .board-list-head:has(+ .board-grid.is-list) {
+  .board-list-head:has(+ .board-grid.is-list > .board-card) {
     display: none;
   }
 }
