@@ -5204,6 +5204,8 @@ export class Workbook extends EventTarget {
     }[kind];
     if (!fn) return 0;
     const entries = [];
+    // The link a cell carries is no part of its text, and stays with it.
+    const link = (cell) => (cell.hyperlink ? { hyperlink: cell.hyperlink } : {});
     for (const [key, cell] of sheet.cells) {
       if (cell.f != null || typeof cell.v !== 'string') continue;
       const { r, c } = parseKey(key);
@@ -5227,11 +5229,11 @@ export class Workbook extends EventTarget {
           // do: a cell already set to Percent or Time keeps its own.
           refineImpliedFormat(st, parsed.fmt, cell.v);
         }
-        entries.push({ r, c, cell: { v: parsed.v, f: null, s: Object.keys(st).length ? st : undefined } });
+        entries.push({ r, c, cell: { v: parsed.v, f: null, s: Object.keys(st).length ? st : undefined, ...link(cell) } });
         continue;
       }
       const next = fn(cell.v);
-      if (next !== cell.v) entries.push({ r, c, cell: { v: next, f: null, s: cell.s } });
+      if (next !== cell.v) entries.push({ r, c, cell: { v: next, f: null, s: cell.s, ...link(cell) } });
     }
     if (!entries.length) return 0;
     // Every entry changes its cell, so the only write that changes nothing is one a protected cell refused.
