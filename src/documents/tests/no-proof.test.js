@@ -62,3 +62,10 @@ it.each([[' true ',true],['\t1\n',true],[' on ',true],[' false ',false],['\r0\t'
   const doc=model(await DocxPackage.open(zipSync(changed)));
   expect(doc.paragraphs[1].runs[0].noProof).toBe(expected);
 });
+
+it('leaves text tracked as deleted out of spelling', () => {
+  const runs = [{ text: 'Teh cat ' }, { text: 'Teh dog', revision: { type: 'del', author: 'A' } }, { text: ' sat' }];
+  const text = runs.map(r => r.text).join('');
+  const checked = wordsToCheck(proofingText(text, [{ runs }])).map(w => w.word);
+  expect(checked).toEqual(['Teh', 'cat', 'sat']);
+});

@@ -18,8 +18,9 @@ export function proofingText(text, paragraphs) {
   for (const paragraph of paragraphs) {
     for (const run of paragraph.runs) {
       const end = offset + run.text.length;
-      // No-proofing text and text marked in another language (§17.3.2.20) are not checked against English.
-      if ((run.noProof || foreignLanguage(run.fontLanguage)) && end > offset) {
+      // No-proofing text, text marked in another language (§17.3.2.20) and text already tracked as deleted are
+      // not checked: correcting a deleted word would bring it back.
+      if ((run.noProof || foreignLanguage(run.fontLanguage) || run.revision?.type === 'del') && end > offset) {
         pieces.push(text.slice(start, offset), ' '.repeat(end - offset));
         start = end;
       }
