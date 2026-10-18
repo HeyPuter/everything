@@ -441,3 +441,23 @@ test("a guest's access words in the board tag are never cut; on phones they show
   assert.match(rule(".board-tag-place {", phone), /display:\s*none/);
   assert.match(rule(".board-tag-access {", phone), /white-space:\s*normal/);
 });
+
+test("focus rings in the home templates row and the phone category chips are not cut off", () => {
+  // A focus ring reaches 6px outside a control (3px wide, 3px out), but
+  // these scrolling rows kept only 2px and 3px of room, so the ring was cut
+  // on the scrolling sides.
+  const room = (selector, from) => {
+    const body = rule(selector, from);
+    const padding = body.match(/\n\s*padding:\s*([^;]+);/)[1].split(/\s+/);
+    const [top, right = top, , left = right] = padding.map(parseFloat);
+    return Math.min(top, right, left);
+  };
+  const home = css.indexOf("/* Home page.");
+  assert.ok(home >= 0);
+  assert.ok(room(".templates {", home) >= 6);
+  assert.match(rule(".templates {", home), /scroll-padding-inline:\s*6px/);
+  const phone = css.indexOf("On a phone the category chips scroll");
+  assert.ok(phone >= 0);
+  assert.ok(room(".library-chips {", phone) >= 6);
+  assert.match(rule(".library-chips {", phone), /scroll-padding-inline:\s*6px/);
+});

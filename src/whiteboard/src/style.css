@@ -4129,13 +4129,15 @@ dialog.history-dialog[open] {
   }
   /* On a phone the category chips scroll in one row rather than wrapping
      into several, which left room for only one result. The padding keeps
-     focus rings inside the scrolling row. */
+     focus rings (3px out from a chip, 3px wide) inside the scrolling row;
+     the margins keep the chips where they were. */
   .library-chips {
     flex-wrap: nowrap;
     overflow-x: auto;
     scrollbar-width: none;
-    padding: 3px;
-    margin: 9px -3px 0;
+    padding: 6px;
+    margin: 6px -6px -3px;
+    scroll-padding-inline: 6px;
   }
   .library-chip {
     flex: none;
@@ -6888,7 +6890,11 @@ dialog p[role="alert"]:not(.admin-error, .fac-error, .sr-only):not(:empty) {
   grid-auto-columns: 176px;
   gap: 14px;
   overflow-x: auto;
-  padding: 2px 2px 8px;
+  /* Room for a template's focus ring (3px out from it, 3px wide) inside the
+     scrolling row; the margin keeps the row where it was. */
+  padding: 6px 6px 8px;
+  margin: -4px -4px 0;
+  scroll-padding-inline: 6px;
   scrollbar-width: thin;
 }
 .template {
