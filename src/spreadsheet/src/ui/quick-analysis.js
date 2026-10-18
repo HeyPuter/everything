@@ -58,7 +58,9 @@ export function createQuickAnalysis(ctx) {
   let known = { key: null, holds: false }; // whether the range last asked about holds data, while nothing changes
   function target() {
     const g = ctx.grid;
-    if (!g || g.editing || (g.ranges?.length || 1) !== 1) return null;
+    // A selected chart, picture or shape is what the keys act on, not the cells left selected under it (as
+    // after Insert ▸ Chart): the button would only sit over the object.
+    if (!g || g.editing || g.selectedChart || (g.ranges?.length || 1) !== 1) return null;
     const rg = g.range;
     if (!rg || (rg.r1 === rg.r2 && rg.c1 === rg.c2)) return null;
     const sheet = ctx.wb.sheet(g.sheetId);
