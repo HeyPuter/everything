@@ -50,6 +50,9 @@ const hex6 = (css) => {
   return short ? `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}` : null;
 };
 
+/** A stored colour as a key: a string as it is, a theme colour (an object) by its contents. */
+const colorKey = (value) => (value != null && typeof value === 'object' ? JSON.stringify(value) : String(value));
+
 /** Large text (18pt, or 14pt bold) needs only 3:1. Sizes are stored in pixels (a point is 4/3 px). */
 const minimumRatio = (style) => {
   const points = (style?.size || 13) * 3 / 4;
@@ -68,6 +71,7 @@ export function checkAccessibility(wb) {
   const findings = [];
   const add = (rule, sheet, label, target) => findings.push({ rule, severity: ACCESSIBILITY_RULES[rule].severity, sheetId: sheet.id, sheet: sheet.name, label, target });
   const visible = wb.sheets.filter((s) => !s.hidden);
+  const verdicts = new Map(); // "ink|fill|minimum ratio" → too little contrast
   for (const sheet of visible) {
     if (sheet.kind === 'chart') {
       sheet.charts.forEach((obj, i) => { if (!obj.decorative && !obj.description && !obj.title) add('altText', sheet, `${objectName(obj, i)} (${sheet.name})`, { chartId: obj.id }); });
@@ -92,19 +96,32 @@ export function checkAccessibility(wb) {
     }
     for (const m of sheet.merges || []) add('merged', sheet, `${rangeName(m)} (${sheet.name})`, { range: { r1: m.r1, c1: m.c1, r2: m.r2, c2: m.c2 } });
     // Text drawn in a color too close to its fill: only cells that hold something and set a color or a fill.
+    // The status bar runs this after each pause in editing, so the cheap questions come first (the style,
+    // then the value, read without the calculator for a cell that holds no formula), and each pairing of
+    // colours and text size is judged once: a styled sheet repeats a few of them over thousands of cells.
     let scanned = 0;
     for (const [key, cell] of sheet.cells) {
       if (++scanned > MAX_CONTRAST_CELLS) break;
       if (cell.v == null && cell.f == null) continue;
-      const [r, c] = key.split(',').map(Number);
-      const value = wb.getValue(sheet.id, r, c);
-      if (value == null || value === '') continue;
-      const style = wb.styleAt(sheet.id, r, c);
+      const comma = key.indexOf(',');
+      const r = +key.slice(0, comma), c = +key.slice(comma + 1);
+      // As styleAt reads it (the cell's own style over its row's, column's and sheet's), without looking the sheet and cell up again.
+      const line = wb._lineStyle(sheet, r, c);
+      const style = line ? { ...line, ...cell.s } : cell.s;
       if (!style || (style.color == null && style.bg == null)) continue;
-      const ink = hex6(style.color === 'windowtext' ? '#000000' : fontColorCss(style.color)) || '#000000';
-      const paper = hex6(fillColorCss(style.bg)) || '#ffffff';
-      const ratio = contrastRatio(ink, paper);
-      if (ratio != null && ratio < minimumRatio(style)) add('contrast', sheet, `${rangeName({ r1: r, c1: c, r2: r, c2: c })} (${sheet.name})`, { range: { r1: r, c1: c, r2: r, c2: c } });
+      const value = cell.f == null && !cell.array ? cell.v : wb.getValue(sheet.id, r, c);
+      if (value == null || value === '') continue;
+      const minimum = minimumRatio(style);
+      const pairing = `${colorKey(style.color)}|${colorKey(style.bg)}|${minimum}`;
+      let poor = verdicts.get(pairing);
+      if (poor === undefined) {
+        const ink = hex6(style.color === 'windowtext' ? '#000000' : fontColorCss(style.color)) || '#000000';
+        const paper = hex6(fillColorCss(style.bg)) || '#ffffff';
+        const ratio = contrastRatio(ink, paper);
+        poor = ratio != null && ratio < minimum;
+        verdicts.set(pairing, poor);
+      }
+      if (poor) add('contrast', sheet, `${rangeName({ r1: r, c1: c, r2: r, c2: c })} (${sheet.name})`, { range: { r1: r, c1: c, r2: r, c2: c } });
     }
     // A default name is worth changing once the sheet holds something.
     if (DEFAULT_SHEET_NAME.test(sheet.name) && (sheet.cells.size || sheet.charts.length) && visible.length > 1) add('sheetName', sheet, sheet.name, null);
