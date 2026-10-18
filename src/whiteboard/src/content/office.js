@@ -453,7 +453,13 @@ const SYMBOL_UPPER = "ΑΒΧΔΕΦΓΗΙϑΚΛΜΝΟΠΘΡΣΤΥςΩΞΨΖ",
 const SYMBOL = {
   0x22: "∀",
   0x24: "∃",
+  0x27: "∋",
+  0x2a: "∗",
   0x2d: "−",
+  0x40: "≅",
+  0x5c: "∴",
+  0x5e: "⊥",
+  0x7e: "∼",
   0xa3: "≤",
   0xa5: "∞",
   0xab: "↔",
@@ -488,6 +494,10 @@ function wordSymbol(sym) {
     text = SYMBOL[low];
     if (low >= 0x41 && low <= 0x5a) text = SYMBOL_UPPER[low - 0x41];
     else if (low >= 0x61 && low <= 0x7a) text = SYMBOL_LOWER[low - 0x61];
+    // Its other characters in the plain range, digits and most
+    // punctuation, are themselves.
+    else if (!text && low >= 0x20 && low < 0x7f && low !== 0x60)
+      text = String.fromCharCode(low);
   }
   return text || "\ufffd";
 }

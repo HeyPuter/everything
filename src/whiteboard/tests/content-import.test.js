@@ -1276,6 +1276,8 @@ test("Word symbols, such as Wingdings arrows and check marks, import as the char
       sym("Symbol", "F0B3"),
     sym("Segoe UI Symbol", "2713") + text(" plain"),
     sym("Wingdings 3", "F07D") + text(" unknown"),
+    // The Symbol font's digits and plain punctuation are themselves.
+    sym("Symbol", "F028") + sym("Symbol", "F031") + sym("Symbol", "F029"),
   ];
   const model = await extractDocx(
     createZip([
@@ -1287,7 +1289,7 @@ test("Word symbols, such as Wingdings arrows and check marks, import as the char
   );
   assert.deepEqual(
     model.blocks.map((b) => b.text),
-    ["Next → ship", "✓ Done ✗", "α = 2π≥", "✓ plain", "\ufffd unknown"],
+    ["Next → ship", "✓ Done ✗", "α = 2π≥", "✓ plain", "\ufffd unknown", "(1)"],
   );
 });
 
