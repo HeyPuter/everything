@@ -24668,10 +24668,31 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 		 * cell does not cost a table-cell element for every coordinate of the rectangle. */
 		var occupied = {};
 		if(!dense) for(var key in ws) { if(key.charCodeAt(0) === 33) continue; var rc = decode_cell(key); occupied[rc.r] = 1; }
-		var rowInMerge = function(r) { for(var i = 0; i < marr.length; ++i) if(marr[i].s.r <= r && marr[i].e.r >= r) return true; return false; };
+		/* Puter Spreadsheet local patch: merges are indexed by row, so a sheet of thousands of merged blocks
+		 * is not searched through for every row and cell. rowSpans is the union of their rows, sorted; mergesAt
+		 * gives the merges covering a row in their original order, following the writer's rows downward. */
+		var mergeOrder = marr.map(function(m, i) { return i; }).sort(function(a, b) { return marr[a].s.r - marr[b].s.r || a - b; });
+		var rowSpans = [];
+		mergeOrder.forEach(function(i) { var last = rowSpans[rowSpans.length - 1]; if(last && marr[i].s.r <= last[1] + 1) last[1] = Math.max(last[1], marr[i].e.r); else rowSpans.push([marr[i].s.r, marr[i].e.r]); });
+		var rowInMerge = function(r) {
+			var lo = 0, hi = rowSpans.length;
+			while(lo < hi) { var mid = (lo + hi) >> 1; if(rowSpans[mid][0] <= r) lo = mid + 1; else hi = mid; }
+			return lo > 0 && rowSpans[lo - 1][1] >= r;
+		};
+		var mergeRow = -1, mergeNext = 0, rowMerges = [];
+		var mergesAt = function(r) {
+			if(r < mergeRow) { mergeNext = 0; rowMerges = []; }
+			if(r !== mergeRow) {
+				while(mergeNext < mergeOrder.length && marr[mergeOrder[mergeNext]].s.r <= r) rowMerges.push(mergeOrder[mergeNext++]);
+				rowMerges = rowMerges.filter(function(i) { return marr[i].e.r >= r; }).sort(function(a, b) { return a - b; });
+				mergeRow = r;
+			}
+			return rowMerges;
+		};
 		var plainEmpty = function(r, c) {
 			if(ws[encode_cell({r:r, c:c})]) return false;
-			for(var i = 0; i < marr.length; ++i) if(marr[i].s.r <= r && marr[i].e.r >= r && marr[i].s.c <= c && marr[i].e.c >= c) return false;
+			var list = mergesAt(r);
+			for(var i = 0; i < list.length; ++i) if(marr[list[i]].s.c <= c && marr[list[i]].e.c >= c) return false;
 			return true;
 		};
 		for(R = 0; R < range.s.r; ++R) {
@@ -24697,11 +24718,10 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 				var validationCell = validationLayout ? validationLayout.cell(R, C) : null;
 				if(validationCell && validationCell.name) ct['table:content-validation-name'] = validationCell.name;
 				if(validationCell && validationCell.count > 1) ct['table:number-columns-repeated'] = validationCell.count;
-				for(mi = 0; mi != marr.length; ++mi) {
+				for(var mk = 0, here = mergesAt(R); mk != here.length; ++mk) {
+					mi = here[mk];
 					if(marr[mi].s.c > C) continue;
-					if(marr[mi].s.r > R) continue;
 					if(marr[mi].e.c < C) continue;
-					if(marr[mi].e.r < R) continue;
 					if(marr[mi].s.c != C || marr[mi].s.r != R) skip = true;
 					ct['table:number-columns-spanned'] = (marr[mi].e.c - marr[mi].s.c + 1);
 					ct['table:number-rows-spanned'] =    (marr[mi].e.r - marr[mi].s.r + 1);
