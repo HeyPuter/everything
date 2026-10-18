@@ -113,10 +113,11 @@ export function tablePreview(rows, { title = '', leader = 'dot', rightAlign = tr
 
 /**
  * A modeless panel that floats over the document, for dialogs used while editing (Mark Entry,
- * Mark Citation): the document stays usable behind it. Escape closes it.
+ * Mark Citation): the document stays usable behind it. Escape closes it, as does opening another.
  */
 export function openPanel({ title, body, actions = [], onClose = null, className = '' }) {
-  document.querySelector(`.ref-panel[data-title="${CSS.escape(title)}"]`)?.closePanel?.();
+  // One panel at a time: they open in the same place, so another would cover this one.
+  for (const panel of document.querySelectorAll('.ref-panel')) panel.closePanel?.();
   const heading = el('h2.ref-panel-title', { id: nextId('ref-panel-title') }, title);
   const close = () => { node.remove(); onClose?.(); };
   const node = el(`div.ref-panel${className ? `.${className}` : ''}`, { role: 'dialog', 'aria-modal': 'false', 'aria-labelledby': heading.id, dataset: { title },
