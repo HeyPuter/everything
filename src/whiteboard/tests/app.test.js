@@ -25490,6 +25490,79 @@ test("the check for a newer copy in Puter downloads the board only when its file
   }
 });
 
+test("an upload whose answer was lost is not taken for another device's newer copy", async () => {
+  const files = new Map();
+  let failNext = false;
+  const puter = {
+    env: "web",
+    auth: {
+      isSignedIn: () => true,
+      signIn: async () => {},
+      getUser: async () => ({ uuid: "u1", username: "alice" }),
+    },
+    fs: {
+      async read(path) {
+        if (!files.has(path)) throw { code: "subject_does_not_exist" };
+        return new Blob([files.get(path)]);
+      },
+      async readdir() {
+        return [];
+      },
+      async write(path, value) {
+        files.set(path, typeof value === "string" ? value : await value.text());
+        // The file is written, but its answer never arrives.
+        if (failNext && path !== "whiteboard/catalog.json") {
+          failNext = false;
+          throw Error("Network lost");
+        }
+        return { path };
+      },
+    },
+  };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const app = await setup(puter);
+  const { doc, w, tick } = app;
+  const status = () => doc.querySelector("#save-state")?.textContent;
+  const addNote = async () => {
+    const canvas = doc.querySelector("#canvas");
+    canvas.focus();
+    canvas.dispatchEvent(
+      new w.KeyboardEvent("keydown", { key: "n", bubbles: true }),
+    );
+    await tick();
+    doc
+      .querySelector("#canvas-text-editor")
+      .dispatchEvent(
+        new w.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    await tick();
+    await wait(2500);
+  };
+  const cloudBoard = () =>
+    JSON.parse(
+      files.get(
+        [...files.keys()].find(
+          (path) =>
+            path.endsWith(".json") && path !== "whiteboard/catalog.json",
+        ),
+      ),
+    );
+  try {
+    await app.click('[data-action="new"]');
+    await app.click('[data-action="cloud-save"]');
+    for (let n = 0; n < 200 && status() !== "Saved to Puter"; n++) await tick();
+    await addNote();
+    failNext = true;
+    await addNote();
+    assert.equal(status(), "Cloud save failed");
+    await addNote();
+    assert.equal(status(), "Saved to Puter");
+    assert.equal(cloudBoard().items.length, 3, "The next edit is uploaded");
+  } finally {
+    await app.close();
+  }
+});
+
 test("library board counts group their digits", async () => {
   const ids = Array.from(
     { length: 1234 },

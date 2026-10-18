@@ -3322,6 +3322,7 @@ async function upload(snapshot) {
   // A save that finishes after another board was opened says nothing
   // about that board's state.
   const report = (text) => current?.id === snapshot.id && status(text);
+  let writing = false;
   try {
     report("Saving to Puter…");
     if (cloudStamps.has(snapshot.id)) {
@@ -3357,6 +3358,7 @@ async function upload(snapshot) {
         return;
       }
     }
+    writing = true;
     const version = await cloud.save(snapshot);
     cloudStamps.set(snapshot.id, snapshot.updated);
     if (version) cloudVersions.set(snapshot.id, version);
@@ -3366,6 +3368,16 @@ async function upload(snapshot) {
       pendingCloud.delete(snapshot.id);
     report("Saved to Puter");
   } catch {
+    // A write whose answer was lost may still have landed: the copy in
+    // Puter may be this one, which the next check must not take for
+    // another device's.
+    if (writing) {
+      cloudStamps.set(
+        snapshot.id,
+        Math.max(cloudStamps.get(snapshot.id) ?? 0, snapshot.updated),
+      );
+      cloudVersions.delete(snapshot.id);
+    }
     report("Cloud save failed");
     toast(
       "Cloud save failed. Your local copy is safe. Use Save to Puter to retry.",
