@@ -931,6 +931,11 @@ div.notification {
   text-align: left;
   padding: 12px;
 }
+/* Icons and names start at the left, in a column, rather than centred
+   with each name's length as other secondary buttons are. */
+.ai-actions button.secondary {
+  justify-content: flex-start;
+}
 .ai-actions button span {
   display: flex;
   flex-direction: column;

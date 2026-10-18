@@ -501,3 +501,20 @@ test("beside an open discussion the comment list shows a scroll cue, not a card 
     /mask-image:\s*none/,
   );
 });
+
+test("the AI assistant's actions line their icons up at the left", () => {
+  // They took the secondary buttons' centring, so each icon sat where its
+  // name's length put it, in a ragged column. The rule needs a class to
+  // outweigh button.secondary, which loads later.
+  const org = readFileSync(
+    new URL("../src/organization/organization.css", import.meta.url),
+    "utf8",
+  );
+  const at = org.indexOf(".ai-actions button.secondary {");
+  assert.ok(at >= 0);
+  assert.match(
+    org.slice(at, org.indexOf("}", at)),
+    /justify-content:\s*flex-start/,
+  );
+  assert.match(rule("button.secondary {"), /justify-content:\s*center/);
+});
