@@ -54,7 +54,8 @@ import { normalizeFontColor, normalizeColorPalette, sameFontColor, DEFAULT_FONT_
  */
 
 import { cellKey, parseKey, normalizeRange, cellName, MAX_TEXT } from './cell.js';
-import { fontName, parseInput, refineImpliedFormat, formatValue, serialToYMD, ymdToSerial, dateTimeKind, FORMAT_DETAIL_KEYS, getLocale, dateNames } from './format.js';
+import { fontName, parseInput, refineImpliedFormat, formatValue, serialToYMD, ymdToSerial, dateTimeKind, FORMAT_DETAIL_KEYS, getLocale, dateNames, styleToNumFmt } from './format.js';
+import { xlsxLayoutDigitWidth } from './xlsx-styles.js';
 import { MAX_FORMAT_CODE_LENGTH, codeIsFraction, codeScalesPercent } from './numfmt.js';
 import { normalizeCalculationCompatibility } from './calculation-compatibility.js';
 import { normalizeIteration, calculateIteratively } from './iteration.js';
@@ -11060,6 +11061,8 @@ export class Workbook extends EventTarget {
             return node.args.slice(1).some(a => a.type === 'call' && a.name === 'OFFSET' && !a.bare
               && a.args.slice(1, 3).some(offset => walk(offset, false, scope, sink)));
           }
+          // CELL("width") answers the width beside whether it is the default, as Excel 365 does; its other kinds are one value.
+          if (node.name === 'CELL' && !node.bare) return !(node.args[0]?.type === 'str' && node.args[0].value.trim().toLowerCase() !== 'width');
           if (def.array) {
             // ROW(A1:A4) spills; ROW() and ROW(B7) are single numbers.
             if (node.name === 'ROW' || node.name === 'COLUMN') return !!node.args[0] && walk(node.args[0], false, scope, sink);
@@ -12301,6 +12304,23 @@ export class Workbook extends EventTarget {
         if (!target) return null;
         const array = this._fixedArrays(target).at(rr, cc);
         return target.cells.get(array?.key ?? cellKey(rr, cc))?.f ?? null;
+      },
+      // CELL("format"), "prefix", "protect" and "width": what the cell is formatted with, not what it holds. Its
+      // width is in characters of the Normal font's digits, as Excel's Column Width counts them (8.43 is 64 pixels
+      // of an 11-point Calibri's 7-pixel digits).
+      cellFormat: (sheetName, rr, cc) => {
+        const target = byName(sheetName);
+        if (!target || target.kind === 'chart') return null;
+        const style = this.displayStyleAt(target.id, rr, cc);
+        const pixels = this.colWidth(target.id, cc);
+        const digit = xlsxLayoutDigitWidth(this.normalFont || { name: 'Calibri', sz: 12 });
+        return {
+          code: styleToNumFmt(style),
+          align: style?.align || null,
+          locked: style?.locked !== false,
+          width: Math.max(0, Math.trunc((pixels - 5) / digit)),
+          defaultWidth: !target.colWidths.has(cc),
+        };
       },
       isFixedArray: (sheetName, rr, cc) => {
         const target = byName(sheetName);

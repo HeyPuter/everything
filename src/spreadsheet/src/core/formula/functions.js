@@ -970,6 +970,53 @@ function overCriteria(fn, first, repeating = false, { errorCriteria = false } = 
   return lifted;
 }
 
+/**
+ * What CELL("format") says of a number format code, with CELL("color") and CELL("parentheses"): G for General
+ * (and text, fractions and anything else), F for fixed decimals, "," for grouped thousands, C for currency, P for a
+ * percentage and S for scientific, each with its decimal places; D1 to D9 for the date and time layouts. A code
+ * that colours its negative numbers adds "-", and one that puts its positive numbers in parentheses "()".
+ */
+function cellFormatCode(code) {
+  const sections = [];
+  let part = '';
+  for (let i = 0; i < code.length; i++) {
+    const ch = code[i];
+    if (ch === '"') { const end = code.indexOf('"', i + 1); const stop = end < 0 ? code.length : end; part += code.slice(i, stop + 1); i = stop; }
+    else if (ch === '\\' || ch === '_' || ch === '*') { part += code.slice(i, i + 2); i++; }
+    else if (ch === ';') { sections.push(part); part = ''; }
+    else part += ch;
+  }
+  sections.push(part);
+  const first = sections[0];
+  // The section with its literals, padding and bracketed colours and conditions taken out.
+  const bare = (s) => s.replace(/"[^"]*"/g, '').replace(/\\./g, '').replace(/[_*]./g, '').replace(/\[[^\]]*\]/g, '');
+  const body = bare(first);
+  const color = sections.length > 1 && /\[(black|blue|cyan|green|magenta|red|white|yellow|color\s*\d+)\]/i.test(sections[1]) ? 1 : 0;
+  const parentheses = /\(/.test(body) ? 1 : 0;
+  let out;
+  if (/^\s*general\s*$/i.test(body) || !body.trim()) out = 'G';
+  else if (/[ydhs]/i.test(body.replace(/am\/pm|a\/p/gi, '')) || /m/i.test(body) && !/[0#?]/.test(body)) {
+    const clock = /am\/pm|a\/p/i.test(body);
+    const plain = body.replace(/am\/pm|a\/p/gi, '');
+    const date = /[yd]/i.test(plain) || /m/i.test(plain.replace(/h+[^a-z]*m+|m+[^a-z]*s+/gi, ''));
+    if (!date) {
+      const seconds = /s/i.test(plain);
+      out = seconds ? (clock ? 'D6' : 'D8') : (clock ? 'D7' : 'D9');
+    } else {
+      const y = /y/i.test(body), d = /d/i.test(body);
+      if (/mmm/i.test(body)) out = d && y ? 'D1' : d ? 'D2' : y ? 'D3' : 'D1';
+      else out = !y && d ? 'D5' : 'D4';
+    }
+  } else if (!/[0#?]/.test(body) || /\//.test(body)) out = 'G';
+  else {
+    const decimals = (/\.([0#?]*)/.exec(body)?.[1] || '').length;
+    const kind = /%/.test(body) ? 'P' : /e[+-]/i.test(body) ? 'S'
+      : /[$€£¥₹₩₽]|\[\$/.test(first) ? 'C' : /[0#?],[0#?]/.test(body) ? ',' : 'F';
+    out = `${kind}${decimals}`;
+  }
+  return { code: `${out}${color ? '-' : ''}${parentheses ? '()' : ''}`, color, parentheses };
+}
+
 /* ---------- Text helpers ---------- */
 
 function textArg(v) {
@@ -5755,6 +5802,23 @@ export const FUNCTIONS = {
         // "b" is an empty cell alone; a formula's "" is text, "l", as ISBLANK of it is FALSE.
         case 'type': { if (!ref) return err('#VALUE!'); const v = ctx.getValue(target.sheet, r, c); return v == null ? 'b' : typeof v === 'string' ? 'l' : 'v'; }
         case 'filename': return '';
+        case 'format': case 'color': case 'parentheses': case 'protect': case 'width': {
+          const info = ctx.cellFormat?.(target.sheet, r, c);
+          if (!info) return err('#VALUE!');
+          if (kind.trim().toLowerCase() === 'protect') return info.locked ? 1 : 0;
+          // Excel 365 answers the width with whether it is the sheet's default beside it.
+          if (kind.trim().toLowerCase() === 'width') return { range: true, values: [[info.width, info.defaultWidth]] };
+          const format = cellFormatCode(info.code);
+          return kind.trim().toLowerCase() === 'format' ? format.code : format[kind.trim().toLowerCase()];
+        }
+        // The label prefix of text: how it is aligned. Anything else has none.
+        case 'prefix': {
+          if (!ref) return err('#VALUE!');
+          const v = ctx.getValue(target.sheet, r, c);
+          if (typeof v !== 'string') return '';
+          const align = ctx.cellFormat?.(target.sheet, r, c)?.align || 'left';
+          return { left: "'", right: '"', center: '^', centerContinuous: '^', fill: '\\' }[align] ?? '';
+        }
         default: return err('#VALUE!');
       }
     },

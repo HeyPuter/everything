@@ -375,7 +375,7 @@ export const SIGNATURES = {
   ENCODEURL: ['text', 'Escapes text for use in a URL.'],
   ARRAYTOTEXT: ['array, [format]', 'An array as text; format 1 keeps braces and quotes.'],
   VALUETOTEXT: ['value, [format]', 'Any value as text.'],
-  CELL: ['info_type, [reference]', '"address", "row", "col", "contents", or "type" of a cell.'],
+  CELL: ['info_type, [reference]', 'Information about a cell: its "address", "row", "col", "contents", "type", "format", "prefix", "protect" or "width".'],
   ARRAY_CONSTRAIN: ['array, rows, columns', 'The top-left part of an array.'],
   'NETWORKDAYS.INTL': ['start_date, end_date, [weekend], [holidays]', 'Working days with a custom weekend (1-17 or "0000011").'],
   'WORKDAY.INTL': ['start_date, days, [weekend], [holidays]', 'A working-days offset with a custom weekend.'],
