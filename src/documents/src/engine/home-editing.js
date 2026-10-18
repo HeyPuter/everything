@@ -51,7 +51,8 @@ export function convertCase(text, mode, sentenceStart = true) {
       start = false;
     }
     if (mode === 'sentence' && /[.!?\n\f\v]/.test(ch)) start = true;
-    wordStart = !(letter || /[\p{N}'’]/u.test(ch));
+    // A combining mark (a decomposed accent) belongs to the letter before it, as digits and apostrophes stay in a word.
+    wordStart = !(letter || /[\p{N}\p{M}'’]/u.test(ch));
     return out;
   }).join('');
 }

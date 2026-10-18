@@ -255,3 +255,8 @@ describe('Change Case and Sort with Track Changes on', () => {
     expect(d.text).toBe('b\na');
   });
 });
+
+it('keeps a word whole across a decomposed accent in Title Case', () => {
+  expect(convertCase('étude café ok', 'title')).toBe('Étude Café Ok');
+  expect(convertCase('étude café ok', 'title').normalize('NFC')).toBe('Étude Café Ok');
+});
