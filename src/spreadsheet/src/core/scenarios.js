@@ -7,6 +7,7 @@
  * deleted from the sheet leaves the scenario. Workbooks keep them in the worksheet's <scenarios>.
  */
 import { cellName, parseCellRef, colName } from './cell.js';
+import { NUMBER_FORMAT_KEYS } from './format.js';
 
 export const MAX_CHANGING_CELLS = 32;
 
@@ -240,6 +241,12 @@ export function createScenarioSummary(wb, sheetId, resultCells = []) {
   const out = scenarioOutcomes(wb, sheetId, resultCells);
   const entries = [];
   const put = (r, c, v, s) => entries.push({ r, c, cell: { v, ...(s ? { s } : {}) } });
+  // Values read as their cells show them: a price as currency, a rate as a percent.
+  const numberFormat = (p) => {
+    const style = wb.styleAt(sheetId, p.r, p.c) || {};
+    const keys = NUMBER_FORMAT_KEYS.filter((k) => style[k] != null);
+    return keys.length ? Object.fromEntries(keys.map((k) => [k, style[k]])) : null;
+  };
   const bold = { bold: true };
   put(1, 1, 'Scenario Summary', { bold: true, size: 14 });
   put(2, 3, 'Current Values:', bold);
@@ -248,18 +255,20 @@ export function createScenarioSummary(wb, sheetId, resultCells = []) {
   let r = 4;
   put(r++, 1, 'Changing Cells:', bold);
   out.changing.forEach((p, k) => {
+    const fmt = numberFormat(p);
     put(r, 2, cellLabel(wb, sheet, p));
-    put(r, 3, out.current.changing[k] ?? '');
-    out.per.forEach((s, i) => put(r, 4 + i, s.changing[k] ?? ''));
+    put(r, 3, out.current.changing[k] ?? '', fmt);
+    out.per.forEach((s, i) => put(r, 4 + i, s.changing[k] ?? '', fmt));
     r++;
   });
   if (resultCells.length) {
     put(r++, 1, 'Result Cells:', bold);
     resultCells.forEach((p, k) => {
+      const fmt = numberFormat(p);
       put(r, 2, cellLabel(wb, sheet, p));
       const shown = (v) => (v && typeof v === 'object' ? v.error || '' : v ?? '');
-      put(r, 3, shown(out.current.results[k]));
-      out.per.forEach((s, i) => put(r, 4 + i, shown(s.results[k])));
+      put(r, 3, shown(out.current.results[k]), fmt);
+      out.per.forEach((s, i) => put(r, 4 + i, shown(s.results[k]), fmt));
       r++;
     });
   }
