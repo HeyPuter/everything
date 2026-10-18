@@ -36,6 +36,9 @@ export function el(spec, attrs = {}, ...children) {
  * Children written as `condition && el(...)` can yield any falsy value, and
  * all of them are dropped (a bare 0 would otherwise render as text).
  */
+/** A list item holding `node`: a button in a list keeps its button role (role="listitem" on it would replace it). */
+export const listItem = node => el('div', { role: 'listitem' }, node);
+
 export function append(node, children) {
   for (const child of children.flat(Infinity)) {
     if (!child) continue;

@@ -3,7 +3,7 @@
  * data (loaded on first use), with Insert, Copy and look-up-again. Insert replaces the word the pane
  * was opened on, matching its capitalization, as one undo step.
  */
-import { el } from '../ui/dom.js';
+import { el, listItem } from '../ui/dom.js';
 import { openMenu } from '../ui/menu.js';
 import { toast } from '../ui/toast.js';
 import { loadThesaurus, lookupWord, matchCase } from '../lib/thesaurus.js';
@@ -64,14 +64,14 @@ export function createThesaurusPane({ editor, pkg, error }) {
     ].filter(Boolean));
   }
   function chip(word, antonym = false) {
-    const node = el(`button.rv-word${antonym ? '.is-antonym' : ''}`, { type: 'button', role: 'listitem', title: `Insert “${word}”, or open its menu for more`,
+    const node = el(`button.rv-word${antonym ? '.is-antonym' : ''}`, { type: 'button', title: `Insert “${word}”, or open its menu for more`,
       onclick: e => openMenu({ anchor: node, label: word, pointer: !!e.detail, items: [
         { label: `Insert “${insertion(word)}”`, disabled: !canInsert(), onSelect: () => insert(word) },
         { label: 'Copy', onSelect: () => navigator.clipboard?.writeText(word).then(() => toast(`Copied “${word}”`)).catch(error) },
         { label: `Look Up “${word}”`, onSelect: () => show(word) },
       ] }),
       ondblclick: () => insert(word) }, word);
-    return node;
+    return listItem(node);
   }
   const insertion = word => target ? matchCase(target.word, word) : word;
   const canInsert = () => !!target && !pkg()?.readOnly && !!editor();

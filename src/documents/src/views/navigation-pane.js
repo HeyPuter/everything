@@ -194,11 +194,12 @@ export function createNavigationPane(api) {
       const currentPage = api.currentPage();
       while (pageGrid.children.length > canvases.length) pageGrid.lastChild.remove();
       canvases.forEach((source, i) => {
-        let item = pageGrid.children[i];
-        if (!item) {
-          item = el('button.nav-page', { type: 'button', role: 'listitem', onclick: () => api.goToPage(Number(item.dataset.index)) }, el('canvas'), el('span.nav-page-number'));
-          pageGrid.append(item);
+        // Each list item holds a button, so the page is announced as a button in a list of pages.
+        if (!pageGrid.children[i]) {
+          const button = el('button.nav-page', { type: 'button', onclick: () => api.goToPage(Number(button.dataset.index)) }, el('canvas'), el('span.nav-page-number'));
+          pageGrid.append(el('div.nav-page-item', { role: 'listitem' }, button));
         }
+        const item = pageGrid.children[i].firstChild;
         item.dataset.index = i;
         item.setAttribute('aria-label', `Page ${i + 1}`);
         item.lastChild.textContent = String(i + 1);

@@ -3,7 +3,7 @@
  * AI (off until the reader turns it on, and marked as AI), and document statistics with readability
  * scores computed on this device. Corrections are ordinary edits, one undo step each.
  */
-import { el } from '../ui/dom.js';
+import { el, listItem } from '../ui/dom.js';
 import * as P from '../lib/puter.js';
 import { engineApi } from '../lib/engine-api.js';
 import { textStatistics, easeLabel } from '../lib/readability.js';
@@ -29,8 +29,8 @@ export function createEditorPane({ editor, pkg, proofing, error, onState = () =>
   function renderSpelling() {
     const groups = new Map();
     for (const m of spellingIssues) { if (!groups.has(m.word)) groups.set(m.word, []); groups.get(m.word).push(m); }
-    spellingList.replaceChildren(...[...groups].map(([word, list]) => el('button.rv-item', { type: 'button', role: 'listitem', 'aria-current': String(current?.word === word), onclick: () => pick(list[0]) },
-      el('span.rv-item-word.rv-misspelled', {}, word), el('span.rv-item-count', {}, list.length > 1 ? `×${list.length}` : ''))));
+    spellingList.replaceChildren(...[...groups].map(([word, list]) => listItem(el('button.rv-item', { type: 'button', 'aria-current': String(current?.word === word), onclick: () => pick(list[0]) },
+      el('span.rv-item-word.rv-misspelled', {}, word), el('span.rv-item-count', {}, list.length > 1 ? `×${list.length}` : '')))));
     if (!groups.size) spellingList.append(el('p.rv-empty', {}, 'No spelling issues found.'));
     if (current && !spellingIssues.some(m => m.start === current.start && m.word === current.word)) current = null;
     if (!current) detail.hidden = true;

@@ -185,12 +185,13 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     const pages = engine.canvases, current = engine.caretPageIndex ?? 0;
     while (thumbStrip.children.length > pages.length) thumbStrip.lastChild.remove();
     pages.forEach((source, index) => {
-      let item = thumbStrip.children[index];
-      if (!item) {
-        item = el('button.view-thumb', { type: 'button', role: 'listitem', onclick: () => goToPage(Number(item.dataset.index)) }, el('canvas'), el('span'));
-        item.addEventListener('mousedown', e => e.preventDefault());
-        thumbStrip.append(item);
+      // Each list item holds a button, so the page is announced as a button in a list of pages.
+      if (!thumbStrip.children[index]) {
+        const button = el('button.view-thumb', { type: 'button', onclick: () => goToPage(Number(button.dataset.index)) }, el('canvas'), el('span'));
+        button.addEventListener('mousedown', e => e.preventDefault());
+        thumbStrip.append(el('div.view-thumb-item', { role: 'listitem' }, button));
       }
+      const item = thumbStrip.children[index].firstChild;
       item.dataset.index = index; item.setAttribute('aria-label', `Page ${index + 1}`); item.lastChild.textContent = String(index + 1);
       if (index === current) item.setAttribute('aria-current', 'page'); else item.removeAttribute('aria-current');
       const thumb = item.firstChild, height = 84, ratio = source.width / source.height || 0.77, scale = window.devicePixelRatio || 1;

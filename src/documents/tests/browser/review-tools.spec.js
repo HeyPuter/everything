@@ -58,6 +58,7 @@ test('the Editor pane corrects spelling and reports readability computed locally
   const pane = page.getByRole('complementary', { name: 'Editor pane' });
   const issue = pane.getByRole('listitem').filter({ hasText: 'Teh' });
   await expect(issue).toBeVisible();
+  await expect(issue.getByRole('button')).toHaveCount(1);
   await issue.click();
   await pane.getByRole('button', { name: 'Change', exact: true }).click();
   await expect(input).toHaveValue('The report was written by the team. It is clear.');
@@ -325,6 +326,8 @@ test('comments mention reviewers, list in the Comments pane and filter by author
   await page.getByRole('menuitemradio', { name: 'List' }).click();
   const pane = page.getByRole('complementary', { name: 'Comments pane' });
   await expect(pane.getByRole('listitem')).toHaveCount(1);
+  // Each comment is a button within its list item, so screen readers announce it as one.
+  await expect(pane.getByRole('list', { name: 'Comments' }).getByRole('listitem').getByRole('button')).toHaveCount(1);
   await pane.getByRole('combobox', { name: 'Show comments by or mentioning' }).selectOption('Grace');
   await expect(pane.getByRole('listitem')).toHaveCount(1); // Mentions count as involvement.
   await page.screenshot({ path: info.outputPath('comments-pane.png') });

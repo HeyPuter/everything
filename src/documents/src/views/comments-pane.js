@@ -2,7 +2,7 @@
  * The Comments pane: every comment thread as a list, filtered by author, by resolved state or by
  * text, with @mentions highlighted. Choosing a thread selects its text and its card.
  */
-import { el, relativeTime } from '../ui/dom.js';
+import { el, listItem, relativeTime } from '../ui/dom.js';
 import { sidePane, preference } from './review-ui.js';
 import { commentThreads, avatarColor } from './review.js';
 import { initialsFor } from '../engine/comments.js';
@@ -42,11 +42,11 @@ export function createCommentsPane({ editor, review, people }) {
     newComment.disabled = !review.commands.canComment();
     list.replaceChildren(...shown.map(t => {
       const when = Date.parse(t.root.date);
-      return el(`button.rv-comment${t.root.done ? '.is-resolved' : ''}`, { type: 'button', role: 'listitem', 'aria-current': String(t.id === active), onclick: () => review.commands.selectThreadById(t.id) },
+      return listItem(el(`button.rv-comment${t.root.done ? '.is-resolved' : ''}`, { type: 'button', 'aria-current': String(t.id === active), onclick: () => review.commands.selectThreadById(t.id) },
         el('span.rv-comment-head', {}, el('span.wcc-avatar', { 'aria-hidden': 'true', style: { background: avatarColor(t.root.author) } }, (t.root.initials || initialsFor(t.root.author) || '?').slice(0, 2)),
           el('strong', {}, t.root.author || 'Unknown author'), el('span.rv-comment-date', {}, Number.isFinite(when) ? relativeTime(when) : ''), t.root.done ? el('span.rv-badge', {}, 'Resolved') : null),
         el('span.rv-comment-text', {}, ...renderMentions(t.root.text, names)),
-        t.replies.length ? el('span.rv-comment-replies', {}, `${t.replies.length} ${t.replies.length === 1 ? 'reply' : 'replies'}`) : null);
+        t.replies.length ? el('span.rv-comment-replies', {}, `${t.replies.length} ${t.replies.length === 1 ? 'reply' : 'replies'}`) : null));
     }));
   }
   return { pane, open() { pane.open(); render(); }, refresh() { render(false); }, get filterAuthor() { return author; }, destroy() { pane.destroy(); } };

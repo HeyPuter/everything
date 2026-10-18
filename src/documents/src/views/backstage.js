@@ -1,4 +1,4 @@
-import { el, isComposing, relativeTime, formatBytes, MOD_KEY } from '../ui/dom.js';
+import { el, listItem, isComposing, relativeTime, formatBytes, MOD_KEY } from '../ui/dom.js';
 import { commandIconEl } from '../ui/ribbon.js';
 import { iconEl } from '../ui/icons.js';
 import { TEMPLATES } from '../lib/templates.js';
@@ -105,8 +105,8 @@ export function createBackstage(api) {
     const list = el('div.bs-list', { role: 'list' }, el('p.bs-muted', {}, 'Loading recent documents…'));
     if (api.recentDocuments) api.recentDocuments().then(docs => {
       if (!stillShowing(request)) return;
-      list.replaceChildren(...(docs.length ? docs.map(doc => el('button.bs-row', { type: 'button', role: 'listitem', onclick: act(() => api.openPath(doc.path)) },
-        commandIconEl('filePlus', 20), el('span.bs-row-main', {}, el('strong', {}, doc.name), el('span', {}, doc.when || '')))) : [el('p.bs-muted', {}, 'No other documents yet.')]));
+      list.replaceChildren(...(docs.length ? docs.map(doc => listItem(el('button.bs-row', { type: 'button', onclick: act(() => api.openPath(doc.path)) },
+        commandIconEl('filePlus', 20), el('span.bs-row-main', {}, el('strong', {}, doc.name), el('span', {}, doc.when || ''))))) : [el('p.bs-muted', {}, 'No other documents yet.')]));
     }).catch(() => { if (stillShowing(request)) list.replaceChildren(el('p.bs-muted', {}, 'Could not load recent documents.')); });
     return [...heading('Open'),
       el('section.bs-section', {}, el('div.bs-tiles', {},

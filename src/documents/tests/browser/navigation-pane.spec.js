@@ -49,8 +49,8 @@ test('Ctrl/Cmd+F searches from the pane, lists results in context and pages show
   await search.fill('nothing like this');
   await expect(pane.getByRole('status')).toHaveText('No matches');
   await pane.getByRole('tab', { name: 'Pages' }).click();
-  await expect(pane.getByRole('listitem', { name: 'Page 1' })).toBeVisible();
-  await pane.getByRole('listitem', { name: 'Page 1' }).click();
+  await expect(pane.getByRole('listitem').getByRole('button', { name: 'Page 1' })).toBeVisible();
+  await pane.getByRole('listitem').getByRole('button', { name: 'Page 1' }).click();
   await expect(input).toBeFocused();
   await pane.getByRole('searchbox').press('Escape');
   await pane.getByRole('searchbox').press('Escape');
