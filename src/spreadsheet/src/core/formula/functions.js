@@ -1554,7 +1554,8 @@ export const FUNCTIONS = {
     fn: ([a, b]) => {
       const n = toNumber(a); if (isError(n)) return n;
       const base = b === undefined ? 10 : toNumber(b); if (isError(base)) return base;
-      if (n <= 0 || base <= 0 || base === 1) return err('#NUM!');
+      if (n <= 0 || base <= 0) return err('#NUM!');
+      if (base === 1) return err('#DIV/0!'); // the logarithm of the base is zero, as in Excel
       const v = base === 10 ? Math.log10(n) : base === 2 ? Math.log2(n) : Math.log(n) / Math.log(base);
       // An exact power reads as a whole number, so INT(LOG(1000)) is 3.
       const k = Math.round(v);

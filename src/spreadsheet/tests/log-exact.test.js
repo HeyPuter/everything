@@ -17,6 +17,6 @@ it('keeps ordinary values and domain errors', () => {
   expect(calc('LOG(2)')).toBeCloseTo(0.30103, 5);
   expect(calc('LOG(7,3)')).toBeCloseTo(1.77124, 5);
   expect(calc('LOG(0)')).toEqual({ error: '#NUM!' });
-  expect(calc('LOG(5,1)')).toEqual({ error: '#NUM!' });
+  expect(calc('LOG(5,1)')).toEqual({ error: '#DIV/0!' }); // the logarithm of the base is zero
   expect(calc('LOG(-1)')).toEqual({ error: '#NUM!' });
 });
