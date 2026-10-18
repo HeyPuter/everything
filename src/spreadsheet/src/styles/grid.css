@@ -512,8 +512,10 @@
   user-select: none;
   will-change: transform;
   outline: none;
-  touch-action: none; /* a finger moves the box; the browser must not scroll the sheet with it instead */
 }
+/* A finger moves a selected box; the browser must not scroll the sheet with it instead. One not selected
+   lets the finger scroll the sheet, and a tap selects it (see chartPointerDown). */
+.chart-box.selected { touch-action: none; }
 .chart-body { position: absolute; inset: 0; overflow: hidden; border-radius: var(--r-sm); }
 .chart-body svg { display: block; width: 100%; height: 100%; font-family: var(--font); }
 .image-box { background: transparent; }

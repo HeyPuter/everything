@@ -29,6 +29,9 @@ async function setup() {
   const grid = createGrid({ wb, sheetId: id, announce() {} });
   document.body.replaceChildren(grid.el);
   await flush();
+  // A finger moves only a selected chart (one not selected lets the finger scroll the sheet).
+  grid.selectChart(chartId);
+  await flush();
   const steps = wb.undoLabels().length;
   return { wb, id, chartId, grid, steps, box: grid.el.querySelector(`.chart-box[data-chart="${chartId}"]`) };
 }
@@ -62,8 +65,8 @@ describe('a chart drag ended by pointercancel', () => {
     grid.destroy();
   });
 
-  it('is not started by the browser for a finger on a chart, its corner or a table corner', () => {
+  it('is not started by the browser for a finger on a selected chart, its corner or a table corner', () => {
     const css = stylesheet('grid.css');
-    for (const selector of ['.chart-box', '.chart-resize', '.table-handle']) expect(declared(css, selector, false)['touch-action'], selector).toBe('none');
+    for (const selector of ['.chart-box.selected', '.chart-resize', '.table-handle']) expect(declared(css, selector, false)['touch-action'], selector).toBe('none');
   });
 });

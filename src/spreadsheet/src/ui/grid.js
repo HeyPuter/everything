@@ -2465,6 +2465,10 @@ export function createGrid(opts) {
   function chartPointerDown(e, id, onHandle) {
     if (e.button !== 0 || e.target.closest('.chart-tool')) return;
     if (underFrozenPane(e.currentTarget, e.clientX, e.clientY)) return; // the press goes on to the cells
+    // A finger on an object not selected is the sheet's, as on the cells: a swipe scrolls (the box lets
+    // the browser pan; see grid.css) and a tap selects the object. Only a selected object moves under a
+    // finger, so a chart wider than a phone's screen no longer grabs every swipe and slides over the data.
+    if (e.pointerType === 'touch' && !onHandle && !objectSelected(id)) { e.preventDefault(); e.stopPropagation(); tapObject(e, id); return; }
     e.preventDefault();
     e.stopPropagation();
     const ch = wb.chartById(sheetId, id);
@@ -2573,6 +2577,20 @@ export function createGrid(opts) {
     node.addEventListener('pointermove', move);
     node.addEventListener('pointerup', up);
     node.addEventListener('pointercancel', cancel);
+  }
+
+  /** A finger's press on an object not selected: lifted where it came down, it selects the object (and opens its link). */
+  function tapObject(e, id) {
+    const node = e.currentTarget, x = e.clientX, y = e.clientY;
+    const off = () => { node.removeEventListener('pointerup', up); node.removeEventListener('pointercancel', off); };
+    const up = (ev) => {
+      off();
+      if (Math.abs(ev.clientX - x) + Math.abs(ev.clientY - y) > 10 || !wb.chartById(sheetId, id)) return;
+      selectChart(id);
+      if (safeLinkUrl(wb.chartById(sheetId, id)?.hyperlink)) opts.onCommand?.('openDrawingLink', id);
+    };
+    node.addEventListener('pointerup', up);
+    node.addEventListener('pointercancel', off);
   }
 
   /** Anchor a chart at a canvas position: the cell under its top-left corner, plus the offset into it. */
