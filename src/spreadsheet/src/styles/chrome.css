@@ -480,14 +480,11 @@ button.chg-place { text-decoration: underline; text-underline-offset: 2px; text-
 @media (hover: hover) { .error-smarttag:hover { background: var(--surface-2); } }
 
 /* AutoFilter buttons: a small square drop-down with a down arrow; once the column is
-   filtered, a funnel beside a smaller arrow. */
+   filtered, a funnel beside a smaller arrow. The button is part of the sheet, which stays paper in every
+   theme, so its glyph keeps the paper's dark grey: a light one for dark mode was all but invisible on it. */
 :root {
   --xl-filter-arrow: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4 6.5h8L8 11z' fill='%23505050'/></svg>");
   --xl-filter-on: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M2 3h7.5L6.6 6.6v4L5 11.6V6.6z' fill='%23505050'/><path d='M9.5 9h5l-2.5 3z' fill='%23505050'/></svg>");
-}
-:root[data-theme="dark"] {
-  --xl-filter-arrow: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4 6.5h8L8 11z' fill='%23d0d0d0'/></svg>");
-  --xl-filter-on: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M2 3h7.5L6.6 6.6v4L5 11.6V6.6z' fill='%23d0d0d0'/><path d='M9.5 9h5l-2.5 3z' fill='%23d0d0d0'/></svg>");
 }
 .cell.filter-head::after {
   width: 15px; height: 15px; margin-top: -7.5px; right: 3px; border-radius: 2px;
