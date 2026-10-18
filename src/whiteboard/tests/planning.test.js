@@ -1178,30 +1178,23 @@ test("Kanban status sync gives a card made a task inside a status column that co
   assert.deepEqual(applyStatusSync(b, before), []);
 });
 
-test("Kanban status sync keeps the status of a pasted, duplicated or inserted card", () => {
+test("Kanban status sync moves a pasted card to its column's status and keeps a card that came with its column", () => {
   const { b, done } = plan();
   b.planning = { statusSync: true };
   const before = taskParents(b.items);
-  // A blocked card pasted into Done, as a duplicate or a second copy of the
-  // Kanban template's blocked card, stays blocked; a new card still to do
-  // takes the column's status.
-  const blocked = item("note", 760, 300, {
+  // A card pasted into Done, as one cut from In progress, is done.
+  const moved = item("note", 760, 300, {
     text: "Waiting on legal",
     parentId: done.id,
-    task: newTask({ status: "blocked" }),
+    task: newTask({ status: "in-progress" }),
   });
-  const fresh = item("note", 760, 400, {
-    text: "New card",
-    parentId: done.id,
-    task: newTask(),
-  });
-  b.items.push(blocked, fresh);
+  b.items.push(moved);
   assert.deepEqual(
     applyStatusSync(b, before).map((c) => [c.item.id, c.status]),
-    [[fresh.id, "done"]],
+    [[moved.id, "done"]],
   );
-  assert.equal(blocked.task.status, "blocked");
-  // Inserting the Kanban template twice keeps both copies' blocked cards.
+  // Inserting the Kanban template twice keeps both copies' blocked cards,
+  // which come with their columns.
   const kanban = fromTemplate("kanban");
   const copy = fromTemplate("kanban");
   const parents = taskParents(kanban.items);
