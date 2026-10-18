@@ -141,6 +141,7 @@ import { createResizePlan, resizeLimits, applyResize } from "./resize.js";
 import {
   rotationOf,
   worldPoint,
+  localPoint,
   rotatePoint,
   setObjectHeight,
   objectBounds,
@@ -7855,6 +7856,24 @@ function revealQuickObject(i, { minimal = false } = {}) {
       : (top + bottom - h) / 2 - y;
   draw();
 }
+// A new line from an object whose loose end was let go inside that same
+// object connects nothing, and would only leave a stub on top of it.
+function endsInsideStart(line) {
+  const source =
+    line.startId &&
+    !line.endId &&
+    current.items.find((i) => i.id === line.startId);
+  if (!source || source.type === "arrow") return false;
+  const end = localPoint(source, { x: line.x + line.w, y: line.y + line.h }),
+    left = Math.min(source.x, source.x + source.w),
+    top = Math.min(source.y, source.y + source.h);
+  return (
+    end.x >= left &&
+    end.x <= left + Math.abs(source.w) &&
+    end.y >= top &&
+    end.y <= top + Math.abs(source.h)
+  );
+}
 function startQuickConnection(id, event) {
   const source = current?.items.find((i) => i.id === id);
   if (!canQuickConnect(source) || !canEditSelection(new Set([id])))
@@ -9219,7 +9238,8 @@ function pointerUp(event) {
     drag.kind === "arrow" &&
     (!createdLine ||
       !drag.changed ||
-      Math.hypot(createdLine.w, createdLine.h) * view.z < 3)
+      Math.hypot(createdLine.w, createdLine.h) * view.z < 3 ||
+      endsInsideStart(createdLine))
   ) {
     cancelTransform();
     return;

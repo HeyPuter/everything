@@ -47713,6 +47713,33 @@ test("menu Paste after this tab's menu Copy works when reading the clipboard is 
   }
 });
 
+test("an arrow drawn from an object and let go inside it is not added", async () => {
+  const app = await setup();
+  try {
+    const { selected, pointer } = await rotationFixture(app, [
+      item("rect", 0, 0, { w: 200, h: 120 }),
+    ]);
+    const [shape] = selected;
+    const arrows = () =>
+      allClipboard(app).filter((i) => i.type === "arrow").length;
+    await app.click('[data-action="tool-arrow"]');
+    const from = { x: shape.x + 100, y: shape.y + 60 };
+    pointer("pointerdown", from);
+    pointer("pointermove", { x: from.x + 40, y: from.y + 10 });
+    pointer("pointerup", { x: from.x + 40, y: from.y + 10 });
+    await app.tick();
+    assert.equal(arrows(), 0, "A stub inside the shape is not kept");
+    await app.click('[data-action="tool-arrow"]');
+    pointer("pointerdown", from);
+    pointer("pointermove", { x: from.x + 300, y: from.y });
+    pointer("pointerup", { x: from.x + 300, y: from.y });
+    await app.tick();
+    assert.equal(arrows(), 1, "A line leaving the shape is kept");
+  } finally {
+    await app.close();
+  }
+});
+
 test("the hover outline follows what comes under a resting pointer as the wheel pans", async () => {
   const app = await setup();
   const { doc, w, tick } = app;
