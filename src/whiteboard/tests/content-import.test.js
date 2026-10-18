@@ -1263,6 +1263,34 @@ test("GIF and BMP pictures in a Word document import as PNG copies, as dropped o
   assert.equal(unconverted.skipped[0].count, 3);
 });
 
+test("Word symbols, such as Wingdings arrows and check marks, import as the characters they show", async () => {
+  const sym = (font, char) =>
+    `<w:r><w:sym w:font="${font}" w:char="${char}"/></w:r>`;
+  const text = (t) => `<w:r><w:t xml:space="preserve">${t}</w:t></w:r>`;
+  const paragraphs = [
+    text("Next ") + sym("Wingdings", "F0E0") + text(" ship"),
+    sym("Wingdings", "F0FC") + text(" Done ") + sym("Wingdings", "F0FB"),
+    sym("Symbol", "F061") +
+      text(" = 2") +
+      sym("Symbol", "F070") +
+      sym("Symbol", "F0B3"),
+    sym("Segoe UI Symbol", "2713") + text(" plain"),
+    sym("Wingdings 3", "F07D") + text(" unknown"),
+  ];
+  const model = await extractDocx(
+    createZip([
+      {
+        name: "word/document.xml",
+        data: `<w:document ${W}><w:body>${paragraphs.map((p) => `<w:p>${p}</w:p>`).join("")}</w:body></w:document>`,
+      },
+    ]),
+  );
+  assert.deepEqual(
+    model.blocks.map((b) => b.text),
+    ["Next → ship", "✓ Done ✗", "α = 2π≥", "✓ plain", "\ufffd unknown"],
+  );
+});
+
 test("a Word picture damaged beyond its header is skipped rather than imported as an image that shows nothing", async () => {
   const broken = new Uint8Array(createCanvas(40, 20).toBuffer("image/png"));
   // The signature and size header stay; the picture data after them is lost.
