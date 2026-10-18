@@ -21217,7 +21217,22 @@ test("the floating toolbar goes with a selection panned out of view and comes ba
     assert.ok(renderedView(app).x < -1000, "The board moved left");
     assert.equal(panel.hidden, false, "The object is still selected");
     assert.ok(panel.classList.contains("is-away"), "Its toolbar is not shown");
-    await pan(-200);
+    // Alt+F10 still goes to the toolbar, which shows while it has the keys.
+    canvas.focus();
+    canvas.dispatchEvent(
+      new app.w.KeyboardEvent("keydown", {
+        key: "F10",
+        altKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    assert.ok(panel.contains(app.doc.activeElement));
+    assert.ok(!panel.classList.contains("is-away"), "Shown for the keyboard");
+    await pan(10);
+    assert.ok(!panel.classList.contains("is-away"));
+    canvas.focus();
+    await pan(-210);
     assert.ok(!panel.classList.contains("is-away"));
   } finally {
     await app.close();

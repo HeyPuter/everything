@@ -2332,9 +2332,13 @@ const contextMenu = createContextMenu({
 // opens. A press on an object selects it first, as a left click would; a
 // press on the empty board drops the selection.
 // The first control the selection toolbar offers, where Alt+F10 goes.
+// The toolbar control the keyboard goes to. A toolbar hidden while its
+// selection is out of view shows again for it, and stays while it holds
+// the keyboard.
 function selectionToolbarControl() {
   const tools = document.querySelector("#selection-tools");
   if (!tools || tools.hidden) return null;
+  tools.classList.remove("is-away");
   return (
     [...tools.querySelectorAll("button, select, input")].find(
       (c) => !c.disabled && !c.closest("[hidden]"),
