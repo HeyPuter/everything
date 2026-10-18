@@ -133,7 +133,15 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
   const zip = X.CFB.read(new Uint8Array(bytes), { type: 'array' });
   const decoder = new TextDecoder(), encoder = new TextEncoder();
   const get = path => { const file = X.CFB.find(zip, path); return file ? decoder.decode(file.content) : ''; };
-  const set = (path, text) => X.CFB.utils.cfb_add(zip, path, encoder.encode(text));
+  // A new part goes in without rebuilding the package's directory, which the writer does once at the end:
+  // a rebuild per part made saving a workbook of many sheets or tables slow with the square of their number.
+  const put = (path, data) => {
+    const file = X.CFB.find(zip, path);
+    if (!file) return X.CFB.utils.cfb_add(zip, path, data, { unsafe: true });
+    file.content = data; file.size = data.length;
+    return file;
+  };
+  const set = (path, text) => put(path, encoder.encode(text));
   // Theme references are workbook-wide. Preserve the imported palette rather
   // than resolving font colors against the writer's unrelated default theme.
   if (wb.colorPalette?.theme) {
@@ -183,13 +191,13 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
   const recordGroup = (name, key) => { if (!groupRecords.has(name)) groupRecords.set(name, []); groupRecords.get(name).push(key); };
   let types = get('/[Content_Types].xml'), tableId = 0;
   const contentType = (path, type) => { types = types.replace('</Types>', xmlTag('Override', { PartName: path, ContentType: type }) + '</Types>'); };
-  const richValues = richValueWriter({ get, set, binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType });
+  const richValues = richValueWriter({ get, set, binary: put, contentType });
   const persons = createPersonList();
   for (const [i, sheet] of wb.sheets.entries()) {
     const ws = book.Sheets[sheet.name], path = `/xl/worksheets/sheet${i + 1}.xml`;
     if (sheet.kind === 'chart') {
       const chartPath = `/xl/chartsheets/sheet${i + 1}.xml`;
-      const drawing = await exportDrawings(X, wb, sheet, i + 1, { set, binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType, recordDrawing, recordGroup, slicers });
+      const drawing = await exportDrawings(X, wb, sheet, i + 1, { set, binary: put, contentType, recordDrawing, recordGroup, slicers });
       const views = xmlTag('sheetViews', {}, xmlTag('sheetView', {
         workbookViewId: 0, tabSelected: Number(wb.activeSheetId === sheet.id), zoomToFit: Number(!!sheet.zoomToFit),
         zoomScale: sheet.viewZoom != null ? Math.round(sheet.viewZoom * 100) : null,
@@ -288,7 +296,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
       const relPath = `/xl/worksheets/_rels/sheet${i + 1}.xml.rels`;
       let rels = get(relPath) || HEADER + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
       const parts = [];
-      const drawing = await exportDrawings(X, wb, sheet, i + 1, { set, binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType, recordDrawing, recordGroup, slicers });
+      const drawing = await exportDrawings(X, wb, sheet, i + 1, { set, binary: put, contentType, recordDrawing, recordGroup, slicers });
       if (drawing) {
         rels = rels.replace('</Relationships>', xmlTag('Relationship', { Id: 'puterDrawing', Type: `${REL}drawing`, Target: drawing }) + '</Relationships>');
         // A DrawingML drawing precedes the VML drawing used by cell comments.
@@ -326,7 +334,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
       // Page Layout ▸ Background: the tiled picture, kept as the worksheet's <picture>.
       const relPath = `/xl/worksheets/_rels/sheet${i + 1}.xml.rels`;
       let rels = get(relPath) || HEADER + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
-      ({ xml, rels } = writeXlsxBackground(xml, rels, sheet.background, i + 1, { binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType }));
+      ({ xml, rels } = writeXlsxBackground(xml, rels, sheet.background, i + 1, { binary: put, contentType }));
       set(relPath, rels);
     }
     const imageValues = new Map();
@@ -391,7 +399,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
   workbook = workbook.includes('</extLst>') ? workbook.replace('</extLst>', `${extension}</extLst>`)
     : workbook.replace('</workbook>', `${xmlTag('extLst', {}, extension)}</workbook>`);
   if (wb.dataModel) workbook = (await import('./xlsx-data-model.js')).writeXlsxDataModel(wb.dataModel, workbook,
-    { get, set, binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType });
+    { get, set, binary: put, contentType });
   if (wb.nativePivots) workbook = (await import('./xlsx-pivots.js')).writeXlsxPivots(wb, workbook, { get, set, contentType, styles, pivotRulePriorities });
   if (wb.externalWorkbooks) workbook = writeXlsxExternalWorkbooks(rebaseExternalWorkbooks(wb.externalWorkbooks, sourceWorkbook), workbook, { get, set, contentType });
   workbook = writeXlsxWorkbookCustomViews(workbook, wb.customViews || [], wb);

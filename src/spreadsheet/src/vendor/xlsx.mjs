@@ -2250,6 +2250,12 @@ function _write(cfb/*:CFBContainer*/, options/*:CFBWriteOpts*/)/*:RawBytes|strin
 }
 /* [MS-CFB] 2.6.4 (Unicode 3.0.1 case conversion) */
 function find(cfb/*:CFBContainer*/, path/*:string*/)/*:?CFBEntry*/ {
+	/* Puter Spreadsheet local patch: a full path spelled as stored is found without upper-casing every
+	 * path of the container, which made each look-up cost a pass over a package of many parts. */
+	if(path.charCodeAt(0) === 47 /* "/" */ && cfb.FullPaths.length) {
+		var exact = cfb.FullPaths.indexOf(cfb.FullPaths[0].slice(0, -1) + path);
+		if(exact !== -1) return cfb.FileIndex[exact];
+	}
 	var UCFullPaths/*:Array<string>*/ = cfb.FullPaths.map(function(x) { return x.toUpperCase(); });
 	var UCPaths/*:Array<string>*/ = UCFullPaths.map(function(x) { var y = x.split("/"); return y[y.length - (x.slice(-1) == "/" ? 2 : 1)]; });
 	var k/*:boolean*/ = false;
