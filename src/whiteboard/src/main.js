@@ -6700,6 +6700,22 @@ document.addEventListener("visibilitychange", () => {
   )
     warmText.later = requestIdleCallback(warmTextNow);
 });
+// The board draws each line's text from the top of its line, and the
+// editor's lines put half the extra line height above the text, so the
+// editor is lifted by the difference to keep the text where it was.
+function editorLift(ctx, { font, size }) {
+  ctx.save();
+  ctx.font = font;
+  ctx.textBaseline = "alphabetic";
+  const { fontBoundingBoxAscent: ascent, fontBoundingBoxDescent: descent } =
+    ctx.measureText("Hg");
+  // How far the font reaches above the top the board draws text from.
+  ctx.textBaseline = "top";
+  const above = ctx.measureText("Hg").fontBoundingBoxAscent;
+  ctx.restore();
+  const lift = (size * 1.35 - ascent - descent) / 2 + above;
+  return Number.isFinite(lift) ? lift : 0;
+}
 function positionTextEditor() {
   if (!editing) return;
   const { item: i, input } = editing;
@@ -6754,7 +6770,7 @@ function positionTextEditor() {
     width: `${box.w}px`,
     height: `${box.h}px`,
     background: i.type === "arrow" ? "#ffffff" : "transparent",
-    transform: `scale(${view.z}) rotate(${rotationOf(i)}deg)`,
+    transform: `scale(${view.z}) rotate(${rotationOf(i)}deg) translateY(${-editorLift(ctx, style)}px)`,
     padding: `${style.padding}px`,
     paddingTop: `${layout?.top ?? style.padding}px`,
     font: style.font,

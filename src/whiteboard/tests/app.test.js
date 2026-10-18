@@ -16159,6 +16159,27 @@ test("object links pick canvas targets, navigate and return, copy addresses, rej
   }
 });
 
+test("the text editor lifts its lines to where the board draws the text", async () => {
+  const app = await setup(),
+    { doc, click } = app;
+  try {
+    await click('[data-action="new"]');
+    await click('[data-action="add-note"]');
+    const input = doc.querySelector("#canvas-text-editor");
+    const lift = -parseFloat(
+      input.style.transform.match(/translateY\((-?[\d.]+)px\)/)?.[1],
+    );
+    // Half the extra line height, less how far the font reaches above the
+    // top of the text the board draws: about a quarter of the font size.
+    const size = parseFloat(
+      input.style.fontSize || input.style.font.match(/(\d+)px/)[1],
+    );
+    assert.ok(lift > size * 0.1 && lift < size * 0.4, `${lift} for ${size}px`);
+  } finally {
+    await app.close();
+  }
+});
+
 test("undo and redo shortcuts work from a table's cells", async () => {
   const app = await setup(),
     { doc, w, click } = app;
