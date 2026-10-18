@@ -6483,6 +6483,51 @@ test("taking a name out of a comment and putting it back notifies them once", as
   );
 });
 
+test("a mention added to a reply reaches someone already told of the reply", async () => {
+  const { env, boards, call } = setup();
+  await call(owner, { op: "org.setup", name: "Fabrikam" });
+  const { input, room } = createInput("Sprint retro");
+  await boards.call(owner, input);
+  const { token } = await boards.call(owner, {
+    op: "invite",
+    room,
+    role: "editor",
+  });
+  await join({ service: boards }, editor, { room, token });
+  const first = {
+    id: "m0",
+    authorId: owner.uuid,
+    authorName: owner.username,
+    text: "first",
+    createdAt: 0,
+  };
+  await commit(boards, owner, room, (b) => {
+    b.comments = [{ id: "t1", x: 0, y: 0, resolved: false, messages: [first] }];
+  });
+  const reply = (text) =>
+    commit(boards, editor, room, (b) => {
+      b.comments[0].messages = [
+        first,
+        {
+          id: "m1",
+          authorId: editor.uuid,
+          authorName: editor.username,
+          text,
+          createdAt: 1,
+        },
+      ];
+    });
+  env.now += 1000;
+  await reply("looks good");
+  env.now += 1000;
+  await reply("@alice can you check the numbers?");
+  const types = (await call(owner, { op: "notifications.list" })).items
+    .map((n) => n.type)
+    .filter((type) => ["mention", "reply"].includes(type))
+    .sort();
+  assert.deepEqual(types, ["mention", "reply"]);
+});
+
 test("notification mail and board channel posts link to the board in the app", async () => {
   const { boards, call, org, sent, fetched } = setup();
   const from = (origin) => {
