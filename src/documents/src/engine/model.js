@@ -154,6 +154,9 @@ function removeOrphanedTables(doc) {
 }
 function applyTableContent(doc, table, state) {
   doc.paragraphs.splice(state.start, state.count, ...editableCells(table).flatMap(c => state.byCell.get(c.id) || []));
+  // A table nested in a cell whose content was cleared or deleted went with it.
+  const owned = new Set(doc.paragraphs.map(p => p.cellId).filter(Boolean));
+  doc.tables = doc.tables.filter(t => !t.parentCellId || tableCells(t).some(cell => owned.has(cell.id)));
   removeOrphanedTables(doc);
   refreshTableStyles(doc, table);
   if (doc.hasBlockControls) rehomeMovedBlockControls(doc.paragraphs);

@@ -353,3 +353,29 @@ describe('table commands', () => {
     valid(doc);
   });
 });
+
+describe('cells holding a nested table', () => {
+  const withNested = () => {
+    const { pkg, doc } = tableDocument(2, 2);
+    const outer = doc.tables[0];
+    doc.selectCell(outer.rows[0].cells[0].id); doc.select(doc.selection.focus);
+    doc.insertTable(2, 2, 3000);
+    return { pkg, doc, outer };
+  };
+  it('clears them, nested table included, with the Delete key', () => {
+    const { doc, outer } = withNested();
+    doc.setCellBlock({ tableId: outer.id, top: 0, bottom: 0, left: 0, right: 2 });
+    expect(T.clearCells(doc)).toBe(true);
+    expect(doc.tables).toHaveLength(1);
+    expect(() => documentBlocks(doc.paragraphs, doc.tables)).not.toThrow();
+    expect(doc.paragraphs.filter(p => p.cellId).map(paragraphText)).toEqual(['', '', 'b0', 'b1']);
+  });
+  it('deletes them, shifting the cells below up', () => {
+    const { pkg, doc, outer } = withNested();
+    doc.setCellBlock({ tableId: outer.id, top: 0, bottom: 0, left: 0, right: 2 });
+    expect(T.deleteCells(doc, { shift: 'up' })).toBe(true);
+    expect(doc.tables).toHaveLength(1);
+    expect(doc.paragraphs.filter(p => p.cellId).map(paragraphText)).toEqual(['b0', 'b1', '', '']);
+    expect(() => pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering, doc.styles, doc.tables)).not.toThrow();
+  });
+});
