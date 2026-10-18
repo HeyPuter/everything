@@ -1,6 +1,7 @@
 /* ---------- File ▸ Options: the dialog ---------- */
 
-.modal-panel.options-modal { max-width: min(940px, calc(100vw - 32px)); padding-bottom: 14px; }
+.modal-panel.options-modal { padding-bottom: 14px; }
+@media (min-width: 640px) { .modal-panel.options-modal { max-width: min(940px, calc(100vw - 32px)); } }
 .opt-dialog {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);

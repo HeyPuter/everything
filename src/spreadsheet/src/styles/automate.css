@@ -250,7 +250,7 @@ mark.ce-find-current { background: var(--code-find-current); }
 @media (prefers-reduced-motion: reduce) { .rec-dot { animation: none; } }
 
 /* ---------- All Scripts ---------- */
-.modal-panel.sg-modal { max-width: min(860px, calc(100vw - 32px)); }
+@media (min-width: 640px) { .modal-panel.sg-modal { max-width: min(860px, calc(100vw - 32px)); } }
 .sg { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 .sg-top { display: flex; }
 .sg-search { flex: 1; }
@@ -271,7 +271,7 @@ mark.ce-find-current { background: var(--code-find-current); }
 .sg-empty { margin: 0; padding: 14px; border: 1px dashed var(--hairline-strong); border-radius: 10px; color: var(--ink-3); font-size: 12.5px; text-align: center; }
 
 /* ---------- Script Reference ---------- */
-.modal-panel.sr-modal { max-width: min(920px, calc(100vw - 32px)); }
+@media (min-width: 640px) { .modal-panel.sr-modal { max-width: min(920px, calc(100vw - 32px)); } }
 .sr { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 16px; max-height: min(70vh, 720px); min-height: 0; }
 .sr-toc { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; }
 .sr-toc-link { padding: 4px 8px; border-radius: 5px; color: var(--ink-2); text-decoration: none; font-size: 13px; }

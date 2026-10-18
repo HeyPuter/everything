@@ -1351,7 +1351,7 @@ body[data-view="editor"] .toast-root { bottom: calc(var(--statusbar-h) + var(--t
 .cell-style-grid .cell-style-sample { min-width: 0; width: 100%; box-sizing: border-box; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 4px 8px; }
 
 /* Data ▸ Text to Columns: the choices on top, the preview (with a character ruler for fixed widths) below. */
-.modal-panel.ttc-dialog { max-width: min(720px, calc(100vw - 32px)); }
+@media (min-width: 640px) { .modal-panel.ttc-dialog { max-width: min(720px, calc(100vw - 32px)); } }
 .ttc-form .modal-text { margin-bottom: 10px; }
 .ttc-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 16px; align-items: start; margin-bottom: 12px; }
 .ttc-top > [hidden] { display: none; }
@@ -1379,7 +1379,7 @@ body[data-view="editor"] .toast-root { bottom: calc(var(--statusbar-h) + var(--t
 @media (max-width: 639px) { .ttc-top { grid-template-columns: 1fr; } }
 
 /* Print: the choices on the left, the pages as they will print on the right. */
-.modal-panel.print-dialog { max-width: min(980px, calc(100vw - 32px)); }
+@media (min-width: 640px) { .modal-panel.print-dialog { max-width: min(980px, calc(100vw - 32px)); } }
 .print-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 22px; align-items: start; }
 .print-settings { min-width: 0; }
 .print-preview { position: sticky; top: 0; display: flex; flex-direction: column; gap: 8px; }

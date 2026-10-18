@@ -1,6 +1,6 @@
 /* ---------- Paste Special dialog, Paste Options and Auto Fill Options ---------- */
 
-.paste-special-panel { width: min(620px, calc(100vw - 32px)); max-width: none; }
+@media (min-width: 640px) { .paste-special-panel { width: min(620px, calc(100vw - 32px)); max-width: none; } }
 .paste-special { display: flex; flex-direction: column; gap: 12px; }
 .paste-special-group { margin: 0; padding: 8px 12px 10px; border: 1px solid var(--hairline); border-radius: var(--r-sm, 6px); min-width: 0; }
 .paste-special-group legend { padding: 0 4px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }

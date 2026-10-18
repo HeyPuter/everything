@@ -7,7 +7,7 @@
 .equation-math .eq-placeholder { color: var(--ink-3, #8a8883); font-style: normal; }
 .equation-probe { position: absolute; left: -10000px; top: 0; visibility: hidden; white-space: nowrap; display: inline-block; }
 
-.modal-panel.wide.equation-modal { width: min(760px, calc(100vw - 32px)); max-width: none; }
+@media (min-width: 640px) { .modal-panel.wide.equation-modal { width: min(760px, calc(100vw - 32px)); max-width: none; } }
 .equation-dialog { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .equation-templates { display: flex; flex-wrap: wrap; gap: 4px; min-height: 48px; }
 .equation-template-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 48px; height: 48px; padding: 2px 8px; border: 1px solid var(--line, #e4e3dd); border-radius: var(--r-sm, 4px); background: var(--surface, #fff); color: var(--ink); cursor: pointer; font-size: 15px; }

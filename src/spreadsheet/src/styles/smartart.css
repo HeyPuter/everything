@@ -7,7 +7,7 @@
 .smartart-fallback, .print-object img.smartart-fallback { display: block; max-width: none; object-fit: fill; pointer-events: none; }
 
 /* Insert ▸ SmartArt and More Layouts: categories, layouts, and the one picked shown large. */
-.modal-panel.wide.sa-gallery-modal { width: min(960px, calc(100vw - 32px)); max-width: none; }
+@media (min-width: 640px) { .modal-panel.wide.sa-gallery-modal { width: min(960px, calc(100vw - 32px)); max-width: none; } }
 .sa-gallery-body { display: grid; grid-template-columns: 148px minmax(0, 1fr) 272px; gap: 14px; height: min(470px, calc(100vh - 210px)); min-height: 280px; }
 .sa-gallery-cats { display: flex; flex-direction: column; gap: 2px; overflow: auto; padding-right: 10px; border-right: 1px solid var(--hairline); }
 .sa-gallery-cat { padding: 7px 10px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
