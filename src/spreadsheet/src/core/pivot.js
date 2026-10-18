@@ -33,6 +33,16 @@ function sourceRange(wb, sheetId, range) {
   return table ? { ...n, r2: n.r2 - 1 } : n;
 }
 
+/**
+ * The last row of a source range that can hold data: a range reaching past the sheet's data (A:D, or A1:D100000 kept
+ * roomy for rows to come) is read only as far as the data goes, while its formulas still name the whole range, so
+ * rows added to it later count in their categories. The empty rows past the data make no "(blank)" category.
+ */
+function lastDataRow(wb, sheetId, n) {
+  const used = wb.usedRange?.(sheetId);
+  return Math.max(n.r1, Math.min(n.r2, used ? used.r2 : n.r2));
+}
+
 /** The header labels of a source range (its first row), one per column. */
 export function pivotFields(wb, sheetId, range) {
   const n = normalizeRange(range);
@@ -98,7 +108,7 @@ function labelStyle(st) {
 function distinct(wb, sheetId, range, col, styles = null) {
   const n = normalizeRange(range);
   const seen = new Map();
-  for (let r = n.r1 + 1; r <= n.r2; r++) {
+  for (let r = n.r1 + 1, last = lastDataRow(wb, sheetId, n); r <= last; r++) {
     const v = wb.getValue(sheetId, r, col);
     if (v == null || v === '' || isError(v)) continue;
     // Match the generated IFS criteria: case-insensitive, with spaces intact.
@@ -126,7 +136,7 @@ function fieldStyle(styles) {
 /** Does any row of the field show nothing (an empty cell or "")? Errors are neither a value nor a blank. */
 function hasBlank(wb, sheetId, range, col) {
   const n = normalizeRange(range);
-  for (let r = n.r1 + 1; r <= n.r2; r++) {
+  for (let r = n.r1 + 1, last = lastDataRow(wb, sheetId, n); r <= last; r++) {
     const v = wb.getValue(sheetId, r, col);
     if (v == null || v === '') return true;
   }
@@ -137,7 +147,7 @@ function hasBlank(wb, sheetId, range, col) {
 function errorCodes(wb, sheetId, range, col) {
   const n = normalizeRange(range);
   const seen = new Map();
-  for (let r = n.r1 + 1; r <= n.r2; r++) {
+  for (let r = n.r1 + 1, last = lastDataRow(wb, sheetId, n); r <= last; r++) {
     const v = wb.getValue(sheetId, r, col);
     if (isError(v) && !seen.has(v.error)) seen.set(v.error, v);
   }
@@ -261,7 +271,7 @@ export function buildPivot(wb, sheetId, spec) {
     return refToText({ sheet: src.name, kind: 'range', r1: data.r1, c1: c, r2: data.r2, c2: c, absR1: true, absC1: true, absR2: true, absC2: true });
   };
   const valueStyle = (() => {
-    for (let r = data.r1; r <= data.r2; r++) {
+    for (let r = data.r1, last = lastDataRow(wb, sheetId, n); r <= last; r++) {
       const s = wb.getCell(sheetId, r, valCol)?.s;
       if (s?.fmt && spec.agg !== 'count') return { fmt: s.fmt, dec: s.dec, cur: s.cur, dateStyle: s.dateStyle, code: s.code };
     }
@@ -359,12 +369,16 @@ export function buildPivot(wb, sheetId, spec) {
   return { cells, rows, cols, widths, rowCount: rowValues.length, colCount: colValues.length, headerRow: top, filterCells };
 }
 
-/** Does the range look like a table with a header row and at least one data row? */
+/** The most rows of data a pivot table summarizes: each category is a live formula over them all. */
+export const PIVOT_MAX_ROWS = 50000;
+
+/** Does the range look like a table with a header row and at least one data row? Rows past the sheet's data do not count. */
 export function pivotRangeProblem(wb, sheetId, range) {
   if (!range) return 'Choose the data to summarize';
   const n = normalizeRange(range);
-  if (n.r2 - n.r1 < 1) return 'The range needs a header row and at least one row of data';
   if (n.c2 - n.c1 < 1) return 'The range needs at least two columns';
-  if (n.r2 - n.r1 > 50000) return 'That range is too large to summarize';
+  const rows = lastDataRow(wb, sheetId, n) - n.r1;
+  if (rows < 1) return 'The range needs a header row and at least one row of data';
+  if (rows > PIVOT_MAX_ROWS) return `That range holds ${rows.toLocaleString('en-US')} rows of data; a pivot table summarizes up to ${PIVOT_MAX_ROWS.toLocaleString('en-US')}`;
   return null;
 }
