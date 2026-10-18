@@ -31,3 +31,21 @@ it.each(['en-US', 'de-DE'])('lists and edits a date condition as a date in %s', 
   panel.querySelector('form').requestSubmit();
   expect(wb.sheet(id).rules.find(r => r.type === 'gt' && r.range.c1 === 0).value).toBe(45366);
 });
+
+it('suggests dates, not serial numbers, in a quick rule over dates', async () => {
+  const { openQuickRuleDialog } = await import('../src/ui/condformat-quick.js');
+  const wb = new Workbook(), id = wb.activeSheetId;
+  ['2024-03-14', '2024-03-15', '2024-03-17'].forEach((t, r) => wb.setInput(id, r, 0, t));
+  openQuickRuleDialog({ wb, sheetId: () => id }, 'between', { r1: 0, c1: 0, r2: 2, c2: 0 });
+  let inputs = [...document.querySelectorAll('form.cfq')].at(-1).querySelectorAll('input');
+  expect([inputs[0].value, inputs[1].value]).toEqual(['2024-03-14', '2024-03-17']);
+  openQuickRuleDialog({ wb, sheetId: () => id }, 'gt', { r1: 0, c1: 0, r2: 2, c2: 0 });
+  const form = [...document.querySelectorAll('form.cfq')].at(-1);
+  inputs = form.querySelectorAll('input');
+  expect(inputs[0].value).toBe('2024-03-15');
+  form.requestSubmit();
+  expect(wb.sheet(id).rules.at(-1)).toMatchObject({ type: 'gt', value: 45366 });
+  wb.setInput(id, 0, 2, '1.5'); wb.setInput(id, 1, 2, '2.25');
+  openQuickRuleDialog({ wb, sheetId: () => id }, 'gt', { r1: 0, c1: 2, r2: 1, c2: 2 });
+  expect([...document.querySelectorAll('form.cfq')].at(-1).querySelector('input').value).toBe('1.88');
+});

@@ -12,7 +12,8 @@ import { cellName, rangeName, normalizeRange } from '../core/cell.js';
 import { ICON_SETS, DATE_PERIODS } from '../core/condformat.js';
 import { conditionalRuleGroups } from '../core/conditional-groups.js';
 import { CELL_STYLES } from '../core/cellstyles.js';
-import { numberOf, numberText, equalValueOf } from './condformat.js';
+import { numberOf, equalValueOf, ruleValueText } from './condformat.js';
+import { dateTimeKind } from '../core/format.js';
 
 const styleOf = key => ({ ...CELL_STYLES.find(s => s.key === key)?.patch });
 /** Formats a quick rule can apply, drawn from the app's own Good, Bad and Neutral cell styles. */
@@ -115,10 +116,13 @@ export function openQuickRuleDialog(ctx, key, range) {
   const nums = numbersIn(wb, sheetId, range);
   const min = nums.length ? Math.min(...nums) : 0, max = nums.length ? Math.max(...nums) : 0;
   const avg = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
-  // Suggested numbers are written, and typed ones read, in the regional format, as the rules manager does.
-  const first = def.count ? '10' : key === 'between' ? numberText(round(min)) : def.numeric ? numberText(round(avg)) : '';
+  // Suggested numbers are written, and typed ones read, in the regional format, as the rules manager does; over
+  // dates they are whole days, written as dates as the rules manager lists them.
+  const dated = ['date', 'datetime'].includes(dateTimeKind(wb.displayStyleAt?.(sheetId, range.r1, range.c1), avg));
+  const suggest = (n) => ruleValueText(dated ? Math.round(n) : round(n), wb, sheetId, { type: def.type, range });
+  const first = def.count ? '10' : key === 'between' ? suggest(min) : def.numeric ? suggest(avg) : '';
   const value1 = el('input.input', { type: 'text', 'aria-label': def.title, value: first, autocomplete: 'off', spellcheck: false });
-  const value2 = el('input.input', { type: 'text', 'aria-label': 'and', value: numberText(round(max)), autocomplete: 'off', spellcheck: false });
+  const value2 = el('input.input', { type: 'text', 'aria-label': 'and', value: suggest(max), autocomplete: 'off', spellcheck: false });
   const period = el('select.select', { 'aria-label': def.title }, ...DATE_PERIODS.map(p => el('option', { value: p.value }, p.label)));
   const choice = el('select.select', { 'aria-label': 'Values' }, ...(def.choice || []).map(([value, label]) => el('option', { value }, label)));
   const format = el('select.select', { 'aria-label': 'with' }, ...QUICK_STYLES.map(([value, label]) => el('option', { value }, label)));
