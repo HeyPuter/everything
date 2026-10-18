@@ -2,7 +2,7 @@ import { readXlsxValidations, writeXlsxValidations } from '../core/xlsx-validati
 import { writeOdsSettings, readOdsSettings, readOdsViewSettings } from '../core/ods-settings.js';
 import { odsFilterReader, writeOdsFilter } from '../core/ods-filter.js';
 import { writeOdsValidations, readOdsValidations, odsValidationLayout, addOdsValidation, odsFormulaReader } from '../core/ods-validation.js';
-import { odsCellStyleProperties } from '../core/ods-cell-styles.js';
+import { odsCellStyleProperties, odsTextStyleProperties } from '../core/ods-cell-styles.js';
 /*! xlsx.js (C) 2013-present SheetJS -- http://sheetjs.com */
 /* vim: set ts=2: */
 /*exported XLSX */
@@ -23355,6 +23355,48 @@ function get_get_computed_style_function(element/*:HTMLElement*/)/*:?function*/ 
 	return null;
 }
 /* OpenDocument */
+/* Puter Spreadsheet: a paragraph's text as runs [{t, p}], p the properties of the text style a run's
+ * text:span names, read with parse_text_p's whitespace rules; null when they do not spell `expected`. */
+function parse_text_p_runs(text, textStyles, expected) {
+	if(/[\uE000-\uF8FF]/.test(text)) return null;
+	/* A span inside another takes the outer one's properties under its own: each entry lists the names in force. */
+	var names = [], stack = [[]], overflow = false;
+	var marked = text.replace(/<text:span\b([^>]*?)(\/?)>|<\/text:span\s*>/g, function(m, attrs, selfClosing) {
+		if(selfClosing) return "";
+		if(m.charAt(1) === '/') { if(stack.length > 1) stack.pop(); }
+		else {
+			var named = /\btext:style-name\s*=\s*(?:"([^"]*)"|'([^']*)')/.exec(attrs || "");
+			stack.push(stack[stack.length - 1].concat(named ? [unescapexml_entities(named[1] != null ? named[1] : named[2])] : []));
+		}
+		if(names.length >= 6400) { overflow = true; return ""; }
+		names.push(stack[stack.length - 1]);
+		return String.fromCharCode(0xE000 + names.length - 1);
+	});
+	if(overflow) return null;
+	var fixed = marked
+		.replace(/[\t\r\n]/g, " ").replace(/ +/g, " ")
+		/* Spaces on either side of a span's edge collapse into one, and the paragraph is trimmed, as parse_text_p does. */
+		.replace(/ ([\uE000-\uF8FF]+) /g, " $1").replace(/^([\uE000-\uF8FF]*) /, "$1").replace(/ ([\uE000-\uF8FF]*)$/, "$1")
+		.replace(/<text:s\s*\/>/g," ")
+		.replace(/<text:s text:c="(\d+)"\s*\/>/g, function($$,$1) { return Array(parseInt($1,10)+1).join(" "); })
+		.replace(/<text:tab[^<>]*\/>/g,"\t")
+		.replace(/<text:line-break\s*\/>|<text:line-break>\s*<\/text:line-break>/g,"\n");
+	var v = unescapexml_entities(fixed.replace(/<[^<>]*>/g,""));
+	var runs = [], style = [], buf = "", all = "";
+	for(var i = 0; i < v.length; ++i) {
+		var code = v.charCodeAt(i);
+		if(code >= 0xE000 && code <= 0xF8FF) { if(buf) runs.push({t: buf, s: style}); buf = ""; style = names[code - 0xE000]; }
+		else { buf += v.charAt(i); all += v.charAt(i); }
+	}
+	if(buf) runs.push({t: buf, s: style});
+	if(all !== expected) return null;
+	return runs.map(function(run) {
+		var props = null;
+		run.s.forEach(function(name) { var st = textStyles[name]; if(st && st.odsProps) props = Object.assign(props || {}, st.odsProps); });
+		return props ? {t: run.t, p: props} : {t: run.t};
+	});
+}
+
 function parse_text_p(text/*:string*//*::, tag*/)/*:Array<any>*/ {
 	/* 6.1.2 White Space Characters */
 	var fixed = text
@@ -23695,7 +23737,7 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 		/* Puter Spreadsheet: a cell style's font, fill, border and alignment properties (odsProps), its parents'
 		 * under its own; the app reads them into its cell style (ods-cell-styles.js). The common style named
 		 * Default is every cell's base, the workbook's normal look, and not a format of the cell's own. */
-		var columnStyleNames = [], rowStyleName = null, styleProps = new WeakMap();
+		var columnStyleNames = [], rowStyleName = null, styleProps = new WeakMap(), textStyles = Object.create(null);
 		function ods_cell_props(name) {
 			var style = name && (styles[name] || commonStyles[name]);
 			if(!style) return null;
@@ -23917,7 +23959,7 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 					}
 					if(q.t === 's') {
 						q.v = textp || '';
-						if(textR.length) q.R = textR;
+						if(textR.some(function(run) { return run.p; })) q.odsRuns = textR;
 						isstub = textpidx == 0 && ctag['string-value'] == null && !q.f;
 					}
 					if(atag.Target) q.l = atag;
@@ -23973,7 +24015,7 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 				if(Rn[1]==='/'){
 					if((tmp=state.pop())[0]!==Rn[3]) throw "Bad state: "+tmp;
 					comment.t = textp;
-					if(textR.length) /*::(*/comment/*:: :any)*/.R = textR;
+					/* Puter Spreadsheet: a note's text keeps no runs. */
 					comment.a = creator;
 					comments.push(comment);
 					textp = oldtextp; textpidx = oldtextpidx; textR = oldtextR;
@@ -24056,12 +24098,14 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 				curStyle = Rn[1] === '/' || Rn[0].charAt(Rn[0].length-2) === '/' ? null : styletag;
 				/* Local fix: number formats can be declared after the cell styles that use them. */
 				if(styletag["family"] == "table-cell" && styletag["name"]) (inCommonStyles ? commonStyles : styles)[styletag["name"]] = styletag;
+				/* Puter Spreadsheet: text styles, which a rich-text cell's spans name. */
+				if(styletag["family"] == "text" && styletag["name"] && !inCommonStyles) textStyles[styletag["name"]] = styletag;
 			} break;
 			case 'map': break; // 16.3 <style:map>
 			case 'font-face': break; // 16.21 <style:font-face>
 
 			case 'paragraph-properties': // 17.6 <style:paragraph-properties>
-				if(curStyle && curStyle["family"] == "table-cell" && Rn[1] !== '/') {
+				if(curStyle && (curStyle["family"] == "table-cell" || curStyle["family"] == "text") && Rn[1] !== '/') {
 					var cellStyleAttrs = parsexmltag(Rn[0], true, true);
 					curStyle.odsProps = curStyle.odsProps || {};
 					for(var cellStyleKey in cellStyleAttrs) curStyle.odsProps[cellStyleKey] = unescapexml_entities(cellStyleAttrs[cellStyleKey]);
@@ -24084,7 +24128,7 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 				}
 			} break;
 			case 'table-cell-properties': // 17.18 <style:table-cell-properties>
-				if(curStyle && curStyle["family"] == "table-cell" && Rn[1] !== '/') {
+				if(curStyle && (curStyle["family"] == "table-cell" || curStyle["family"] == "text") && Rn[1] !== '/') {
 					var cellStyleAttrs = parsexmltag(Rn[0], true, true);
 					curStyle.odsProps = curStyle.odsProps || {};
 					for(var cellStyleKey in cellStyleAttrs) curStyle.odsProps[cellStyleKey] = unescapexml_entities(cellStyleAttrs[cellStyleKey]);
@@ -24137,7 +24181,7 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 
 			case 'text-content': break; // 16.27.27 <number:text-content>
 			case 'text-properties': // 16.27.27 <style:text-properties>
-				if(curStyle && curStyle["family"] == "table-cell" && Rn[1] !== '/') {
+				if(curStyle && (curStyle["family"] == "table-cell" || curStyle["family"] == "text") && Rn[1] !== '/') {
 					var cellStyleAttrs = parsexmltag(Rn[0], true, true);
 					curStyle.odsProps = curStyle.odsProps || {};
 					for(var cellStyleKey in cellStyleAttrs) curStyle.odsProps[cellStyleKey] = unescapexml_entities(cellStyleAttrs[cellStyleKey]);
@@ -24205,11 +24249,15 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 				 * line break) keeps that break; a self-closing paragraph is such an empty paragraph, not a break of its own. */
 				var ptext = !ctag || !ctag['string-value'] || state.some(function(entry) { return entry[0] === 'annotation'; });
 				if(Rn[1]==='/' && ptext) {
-					var ptp = parse_text_p(str.slice(textpidx,Rn.index), textptag);
+					var pxml = str.slice(textpidx,Rn.index), ptp = parse_text_p(pxml, textptag);
+					/* Puter Spreadsheet: the paragraph's runs (textR), each with its text style's properties. */
+					var pruns = pxml.indexOf("span") > -1 ? parse_text_p_runs(pxml, textStyles, ptp[0]) : null;
+					if(textpn > 0) textR.push({t: "\n"});
+					if(pruns) Array.prototype.push.apply(textR, pruns); else if(ptp[0]) textR.push({t: ptp[0]});
 					textp = (textpn++ > 0 ? textp + "\n" : "") + ptp[0];
 				} else if(Rn[0].slice(-2) == "/>") {
 					/* TODO: is self-closing 文本串 valid? */
-					if(ptext) textp = (textpn++ > 0 ? textp + "\n" : "");
+					if(ptext) { if(textpn > 0) textR.push({t: "\n"}); textp = (textpn++ > 0 ? textp + "\n" : ""); }
 				} else { textptag = parsexmltag(Rn[0], false); textpidx = Rn.index + Rn[0].length; }
 				break; // <text:p>
 			case 's': break; // <text:s>
@@ -24716,6 +24764,14 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 	/* Puter Spreadsheet: a cell's font, fill, borders and alignment (cell.odsStyle, an app style) are written
 	 * as a table-cell style of their own, with the cell's number format; equal cells share one. */
 	var ods_cell_styles = null, ods_cell_props = new WeakMap();
+	/* Puter Spreadsheet: a rich-text cell's runs (cell.odsRuns, app runs) are text:spans naming text styles. */
+	var ods_text_styles = null, ods_run_props = new WeakMap();
+	var ods_run_style_name = function(run) {
+		if(!run || !run.s || typeof run.s !== "object" || !ods_text_styles) return null;
+		var props = ods_run_props.get(run.s);
+		if(props == null) { props = odsTextStyleProperties(run.s); ods_run_props.set(run.s, props); }
+		return props ? ods_text_styles.get(props) || null : null;
+	};
 	var ods_cell_style_key = function(cell, nfs) {
 		if(!cell || !cell.odsStyle || typeof cell.odsStyle !== "object") return null;
 		var props = ods_cell_props.get(cell.odsStyle);
@@ -24907,6 +24963,13 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 						o.push(validationLayout || Object.keys(ct).length ? '          ' + writextag('table:table-cell', null, ct) + '\n' : null_cell_xml); continue;
 				}
 				var text_p = write_text_p(textp);
+				/* Puter Spreadsheet: a rich-text cell is one paragraph of runs, its line breaks text:line-break. */
+				if(Array.isArray(cell.odsRuns) && (cell.t === 's' || cell.t === 'str') && cell.odsRuns.map(function(run) { return run.text; }).join("") === textp) {
+					text_p = cell.odsRuns.map(function(run) {
+						var body = write_text_p(run.text, true), styleName = ods_run_style_name(run);
+						return styleName ? '<text:span text:style-name="' + styleName + '">' + body + '</text:span>' : body;
+					}).join("");
+				}
 				if(cell.l && cell.l.Target) {
 					var _tgt = cell.l.Target;
 					_tgt = _tgt.charAt(0) == "#" ? "#" + csf_to_ods_3D(_tgt.slice(1)) : _tgt;
@@ -25008,6 +25071,7 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 		/* number formats, table cells, text */
 		var nfs = {};
 		ods_cell_styles = new Map();
+		ods_text_styles = new Map();
 		var nfi = 69;
 		wb.SheetNames.map(function(n) { return wb.Sheets[n]; }).forEach(function(ws) {
 			if(!ws) return;
@@ -25021,6 +25085,19 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 					if(out) { nfs[c.z] = "N" + nfi; ++nfi; o.push(out + "\n"); }
 				}
 			};
+			var noteRunStyles = function(c) {
+				if(!c || !Array.isArray(c.odsRuns)) return;
+				for(var ri = 0; ri < c.odsRuns.length; ++ri) {
+					var run = c.odsRuns[ri];
+					if(!run || !run.s || typeof run.s !== "object") continue;
+					var props = ods_run_props.get(run.s);
+					if(props == null) { props = odsTextStyleProperties(run.s); ods_run_props.set(run.s, props); }
+					if(!props || ods_text_styles.has(props)) continue;
+					var textStyleName = "T" + (ods_text_styles.size + 1);
+					ods_text_styles.set(props, textStyleName);
+					o.push('  <style:style style:name="' + textStyleName + '" style:family="text">' + props + '</style:style>\n');
+				}
+			};
 			var noteCellStyle = function(c) {
 				var key = ods_cell_style_key(c, nfs);
 				if(!key || ods_cell_styles.has(key)) return;
@@ -25030,14 +25107,14 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 			};
 			if(dense) {
 				for(var R = 0; R <= range.e.r; ++R) for(var C = 0; C <= range.e.c; ++C) noteFormat((ws["!data"][R]||[])[C]);
-				for(R = 0; R <= range.e.r; ++R) for(C = 0; C <= range.e.c; ++C) noteCellStyle((ws["!data"][R]||[])[C]);
+				for(R = 0; R <= range.e.r; ++R) for(C = 0; C <= range.e.c; ++C) { noteCellStyle((ws["!data"][R]||[])[C]); noteRunStyles((ws["!data"][R]||[])[C]); }
 			} else {
 				/* Puter Spreadsheet: visit the stored cells in row-major order instead of every coordinate of the rectangle. */
 				var addrs = [];
 				for(var key in ws) if(key.charCodeAt(0) !== 33) addrs.push(decode_cell(key));
 				addrs.sort(function(a, b) { return a.r - b.r || a.c - b.c; });
 				for(var ai = 0; ai < addrs.length; ++ai) noteFormat(ws[encode_cell(addrs[ai])]);
-				for(ai = 0; ai < addrs.length; ++ai) noteCellStyle(ws[encode_cell(addrs[ai])]);
+				for(ai = 0; ai < addrs.length; ++ai) { noteCellStyle(ws[encode_cell(addrs[ai])]); noteRunStyles(ws[encode_cell(addrs[ai])]); }
 			}
 		});
 		o.push('  <style:style style:name="ce1" style:family="table-cell" style:parent-style-name="Default" style:data-style-name="N37"/>\n');

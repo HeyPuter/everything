@@ -52,6 +52,15 @@ export function odsCellStyleProperties(style) {
     cell['style:text-align-source'] = 'fix';
     paragraph['fo:text-align'] = { left: 'start', center: 'center', right: 'end' }[style.align];
   }
+  Object.assign(text, textAttributes(style));
+  return element('table-cell-properties', cell) + element('paragraph-properties', paragraph) + element('text-properties', text);
+}
+
+const element = (name, map) => (Object.keys(map).length ? `<style:${name}${attrs(map)}/>` : '');
+
+/** The text-properties attributes for a style's font: family, size, colour, weight, slant, lines and position. */
+function textAttributes(style) {
+  const text = {};
   const family = fontName(style.font);
   if (family) text['fo:font-family'] = /[\s,'"]/.test(family) ? `'${family.replace(/'/g, "\\'")}'` : family;
   if (Number.isFinite(style.size) && style.size > 0) for (const key of ['fo:font-size', 'style:font-size-asian', 'style:font-size-complex']) text[key] = pt(style.size);
@@ -64,8 +73,26 @@ export function odsCellStyleProperties(style) {
     if (/^double/.test(style.underline)) text['style:text-underline-type'] = 'double';
   }
   if (style.strike) text['style:text-line-through-style'] = 'solid';
-  const element = (name, map) => (Object.keys(map).length ? `<style:${name}${attrs(map)}/>` : '');
-  return element('table-cell-properties', cell) + element('paragraph-properties', paragraph) + element('text-properties', text);
+  if (style.vertAlign === 'superscript') text['style:text-position'] = 'super 58%';
+  else if (style.vertAlign === 'subscript') text['style:text-position'] = 'sub 58%';
+  return text;
+}
+
+/** The text-properties element of a text style for a rich-text run's character format, or ''. */
+export function odsTextStyleProperties(style) {
+  return style && typeof style === 'object' ? element('text-properties', textAttributes(style)) : '';
+}
+
+/** A rich-text run's character format from a text style's text-properties attributes (as odsCellStyle reads them). */
+export function odsRunStyle(props) {
+  const s = odsCellStyle(props) || {};
+  const out = {};
+  for (const key of ['font', 'size', 'bold', 'italic', 'underline', 'strike', 'color']) if (s[key] != null) out[key] = s[key];
+  const position = String(props?.['text-position'] ?? '').trim().toLowerCase();
+  const shift = /^(super|sub|-?[\d.]+%)/.exec(position)?.[1];
+  if (shift === 'super' || (shift && !/^(sub|0)/.test(shift) && parseFloat(shift) > 0)) out.vertAlign = 'superscript';
+  else if (shift === 'sub' || (shift && parseFloat(shift) < 0)) out.vertAlign = 'subscript';
+  return out;
 }
 
 /** An ODF length in points ("10pt", "0.35cm", "2px"), or NaN. */

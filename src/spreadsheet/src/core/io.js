@@ -57,7 +57,7 @@ import { err, isError } from './formula/functions.js';
 import { parseDelimited } from './tsv.js';
 import { parseInput, refineImpliedFormat, localeInfo, getLocale } from './format.js';
 import { cellsToHtml, copyMergeLayout, parseHtmlClipboard, cellsFromHtmlRows } from './clipboard.js';
-import { odsCellStyle, odsCellPaints } from './ods-cell-styles.js';
+import { odsCellStyle, odsCellPaints, odsRunStyle } from './ods-cell-styles.js';
 import { htmlTableRows } from './html-table.js';
 import { reconcileConditionalFormats } from './xlsx-condformat-reconcile.js';
 import { prepareXlsxValidationLists } from './xlsx-validation.js';
@@ -364,6 +364,11 @@ function buildSheet(X, wb, sheet, { ods = false } = {}) {
     else { out.t = 's'; out.v = fitText(text(value)); }
     if (!ods && out.t === 's' && cell.richText && typeof value === 'string' && !unparsed) {
       out.richText = normalizeRichText(cell.richText, value, out.v.length);
+    }
+    // An .ods spells a rich-text cell's runs as text:spans; text the writer had to change (a control character) keeps none.
+    if (ods && out.t === 's' && cell.richText && typeof value === 'string' && !unparsed && out.v === value) {
+      const runs = normalizeRichText(cell.richText, value);
+      if (runs) out.odsRuns = runs;
     }
     if (cell.f != null && !unparsed && !deferredForOds) {
       // Native XLSX tables own these references: keeping them live preserves
@@ -1770,7 +1775,8 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     // distinguish it from a missing/stub cell. Preserve its type on import.
     else if (src.v != null && (src.v !== '' || ['s', 'str', 'inlineStr'].includes(src.t))) cell.v = String(src.v);
     if (cell.f == null && typeof cell.v === 'string') {
-      const rich = readXlsxRichText(src.r, cell.v, nativeStyles?.colors, baseFont);
+      const rich = src.odsRuns ? normalizeRichText(src.odsRuns.map((run) => ({ text: run.t, s: run.p ? odsRunStyle(run.p) : {} })), cell.v)
+        : readXlsxRichText(src.r, cell.v, nativeStyles?.colors, baseFont);
       if (rich) cell.richText = rich;
     }
     if (fromZ && !reconcileStyle) cell.s = { ...(cell.s || {}), ...fromZ };
