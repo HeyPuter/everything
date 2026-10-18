@@ -2529,8 +2529,11 @@ export function createGrid(opts) {
     hlLayer.replaceChildren();
     if (!highlights.cells.length) return;
     const frag = document.createDocumentFragment();
+    // A cell in view, or in a frozen band or a split window's top or left pane, which show wherever the sheet is scrolled.
+    const rowShown = (r) => (r >= vr.r0 && r <= vr.r1) || (r >= (frozen.r0 || 0) && r < frozen.rows) || (frozen.split && frozen.top && r >= paneRows[0] && r <= paneRows[1]);
+    const colShown = (c) => (c >= vr.c0 && c <= vr.c1) || (c >= (frozen.c0 || 0) && c < frozen.cols) || (frozen.split && frozen.left && c >= paneCols[0] && c <= paneCols[1]);
     highlights.cells.forEach((m, i) => {
-      if (m.r < vr.r0 || m.r > vr.r1 || m.c < vr.c0 || m.c > vr.c1) return;
+      if (!rowShown(m.r) || !colShown(m.c)) return;
       const node = el('div.find-hl', { className: `find-hl${i === highlights.current ? ' current' : ''}${m.kind === 'invalid' ? ' invalid-circle' : ''}` });
       place(node, rangeBox({ r1: m.r, c1: m.c, r2: m.r, c2: m.c }));
       frag.append(node);
