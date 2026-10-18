@@ -15,6 +15,7 @@
  */
 
 import { optionState } from './option-state.js';
+import { IMPORT_EXTENSIONS } from '../core/filetypes.js';
 import { trackEvent, trackExport } from './analytics.js';
 
 export const FOLDER = 'Spreadsheets';
@@ -418,8 +419,8 @@ export function canSaveFiles() {
   return typeof sdk()?.ui?.showSaveFilePicker === 'function';
 }
 
-/** Puter's Open dialog → { path, name } or null when cancelled. */
-export async function pickFile({ accept = ['.xlsx', '.xls', '.xlsm', '.csv', '.tsv', '.ods'] } = {}) {
+/** Puter's Open dialog → { path, name } or null when cancelled. By default it offers every kind of file the app opens. */
+export async function pickFile({ accept = IMPORT_EXTENSIONS } = {}) {
   if (!canPickFiles()) return null;
   let result;
   try {

@@ -117,12 +117,14 @@ describe('the desktop window', () => {
 
 describe('the Open picker', () => {
   afterEach(() => { vi.unstubAllGlobals(); });
-  it('keeps spreadsheet filters by default and accepts other file types when requested', async () => {
+  // The Open dialog offered only six kinds of file, though the app opens Numbers, .xlsb, flat .ods,
+  // text files and Excel templates as well (dropping one opened it): it now offers every kind it opens.
+  it('offers every kind of file the app opens by default and accepts other file types when requested', async () => {
     const item = { path: '/drive/Pictures/Company logo.png', size: 512 };
     const showOpenFilePicker = vi.fn().mockResolvedValue(item);
     vi.stubGlobal('puter', { ui: { showOpenFilePicker } });
     expect(await P.pickFile()).toEqual({ path: item.path, name: 'Company logo.png', item });
-    expect(showOpenFilePicker).toHaveBeenLastCalledWith({ multiple: false, accept: ['.xlsx', '.xls', '.xlsm', '.csv', '.tsv', '.ods'] });
+    expect(showOpenFilePicker).toHaveBeenLastCalledWith({ multiple: false, accept: ['.xlsx', '.xlsm', '.xls', '.xltx', '.xltm', '.csv', '.tsv', '.txt', '.ods', '.numbers', '.xlsb', '.fods'] });
     showOpenFilePicker.mockResolvedValue([item]);
     expect(await P.pickFile({ accept: ['.png', '.svg'] })).toEqual({ path: item.path, name: 'Company logo.png', item });
     expect(showOpenFilePicker).toHaveBeenLastCalledWith({ multiple: false, accept: ['.png', '.svg'] });
