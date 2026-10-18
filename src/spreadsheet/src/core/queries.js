@@ -27,9 +27,11 @@ export const STEP_NAMES = {
   removeDuplicates: 'Removed Duplicates', replaceValues: 'Replaced Value', splitColumn: 'Split Column by Delimiter', addIndex: 'Added Index',
   groupBy: 'Grouped Rows', keepFirst: 'Kept First Rows', keepLast: 'Kept Last Rows', removeFirst: 'Removed Top Rows', removeLast: 'Removed Bottom Rows',
   removeBlankRows: 'Removed Blank Rows', merge: 'Merged Queries', fillDown: 'Filled Down', fillUp: 'Filled Up', transformText: 'Transformed Text',
-  duplicateColumn: 'Duplicated Column', reorderColumns: 'Reordered Columns', removeErrors: 'Removed Errors',
+  duplicateColumn: 'Duplicated Column', reorderColumns: 'Reordered Columns', removeErrors: 'Removed Errors', addTextColumn: 'Inserted Text',
 };
 const TEXT_OP_NAMES = { lower: 'Lowercased Text', upper: 'Uppercased Text', proper: 'Capitalized Each Word', trim: 'Trimmed Text', clean: 'Cleaned Text' };
+/** The column Add Column ▸ Format adds is named after the format, as Power Query names it. */
+export const TEXT_COLUMN_NAMES = { lower: 'lowercase', upper: 'UPPERCASE', proper: 'Capitalize Each Word', trim: 'Trim', clean: 'Clean' };
 export const FILTER_OPS = {
   equals: 'equals', notEquals: 'does not equal', beginsWith: 'begins with', notBeginsWith: 'does not begin with', endsWith: 'ends with',
   notEndsWith: 'does not end with', contains: 'contains', notContains: 'does not contain', gt: 'is greater than', gte: 'is greater than or equal to',
@@ -138,6 +140,10 @@ function normalizeStep(raw) {
       break;
     case 'fillDown': case 'fillUp': step.columns = names(raw.columns); break;
     case 'transformText': step.columns = names(raw.columns); step.op = TEXT_OP_NAMES[raw.op] ? raw.op : 'trim'; break;
+    case 'addTextColumn':
+      step.column = str(raw.column, 1024); step.op = TEXT_OP_NAMES[raw.op] ? raw.op : 'trim';
+      step.as = str(raw.as, 1024) || TEXT_COLUMN_NAMES[step.op];
+      break;
     case 'duplicateColumn': step.column = str(raw.column, 1024); step.as = str(raw.as, 1024); break;
     default: break;
   }
@@ -777,6 +783,13 @@ export function applyStep(table, step, refs = {}) {
       const idx = step.columns.map((n) => colIndex(table, n)), fn = TEXT_OPS[step.op];
       return { columns, types, rows: rows.map((r) => { const out = r.slice(); for (const i of idx) if (typeof r[i] === 'string') out[i] = fn(r[i]); return out; }) };
     }
+    case 'addTextColumn': {
+      // Add Column ▸ Format: a new text column holding the column's text in that format; the column itself stays.
+      const i = colIndex(table, step.column), fn = TEXT_OPS[step.op];
+      const name = uniqueNames([...columns, step.as]).at(-1);
+      const shown = (v) => (v == null || isErr(v) ? v ?? null : fn(typeof v === 'string' ? v : displayValue(v, types[i])));
+      return { columns: [...columns, name], types: [...types, 'text'], rows: rows.map((r) => [...r, shown(r[i])]) };
+    }
     case 'duplicateColumn': {
       const i = colIndex(table, step.column);
       const name = uniqueNames([...columns, step.as || `${step.column} - Copy`]).at(-1);
@@ -861,7 +874,7 @@ export function stepNames(query) {
   const counts = new Map();
   return ['Source', ...query.steps.map((s) => {
     if (s.name) return s.name;
-    const base = s.type === 'transformText' ? TEXT_OP_NAMES[s.op] : STEP_NAMES[s.type];
+    const base = s.type === 'transformText' ? TEXT_OP_NAMES[s.op] : s.type === 'addTextColumn' ? `Inserted ${TEXT_OP_NAMES[s.op]}` : STEP_NAMES[s.type];
     const n = counts.get(base) || 0;
     counts.set(base, n + 1);
     return n ? `${base}${n}` : base;
@@ -929,6 +942,10 @@ export function stepFormula(query, index) {
     case 'transformText': {
       const fn = { lower: 'Text.Lower', upper: 'Text.Upper', proper: 'Text.Proper', trim: 'Text.Trim', clean: 'Text.Clean' }[step.op];
       return `= Table.TransformColumns(${prev},{${step.columns.map((c) => `{${q(c)}, ${fn}, type text}`).join(', ')}})`;
+    }
+    case 'addTextColumn': {
+      const fn = { lower: 'Text.Lower', upper: 'Text.Upper', proper: 'Text.Proper', trim: 'Text.Trim', clean: 'Text.Clean' }[step.op];
+      return `= Table.AddColumn(${prev}, ${q(step.as)}, each ${fn}([${step.column}]), type text)`;
     }
     case 'duplicateColumn': return `= Table.DuplicateColumn(${prev}, ${q(step.column)}, ${q(step.as || `${step.column} - Copy`)})`;
     case 'merge': {

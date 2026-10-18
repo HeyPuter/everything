@@ -13,7 +13,7 @@ import { toast } from './toast.js';
 import { icon } from './icons.js';
 import {
   evaluateQuery, sourceTable, stepNames, stepFormula, saveQuery, loadedTable, refreshQuery, queryNameProblem, uniqueQueryName,
-  displayValue, keyOf, parseTyped, detectedTypeStep, initialSteps, TYPES, TYPE_LABELS, TYPE_MARKS, FILTER_OPS, AGGREGATIONS, JOIN_KINDS, PREVIEW_ROWS, sourceSummary,
+  displayValue, keyOf, parseTyped, detectedTypeStep, initialSteps, TYPES, TYPE_LABELS, TYPE_MARKS, FILTER_OPS, AGGREGATIONS, JOIN_KINDS, PREVIEW_ROWS, sourceSummary, TEXT_COLUMN_NAMES,
 } from '../core/queries.js';
 import { queryIo, cellNode, loadNew, openImportData, urlProblem, fitQueryTables } from './get-data.js';
 import { maxOf } from '../core/numeric.js';
@@ -183,7 +183,7 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
         btn('Index Column', 'indexColumn', null, { large: true, menu: () => [
           { label: 'From 0', onSelect: () => addIndex(0, 1) }, { label: 'From 1', onSelect: () => addIndex(1, 1) },
           { label: 'Custom…', onSelect: () => customIndex() }] })),
-      group('From Text', btn('Format', 'text', null, { large: true, menu: () => textMenu() })),
+      group('From Text', btn('Format', 'text', null, { large: true, menu: () => textMenu(true) })),
     ],
   };
   const drawRibbon = () => {
@@ -196,8 +196,9 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
     typeSelect.value = selected.length ? typeOf(selected[0]) : 'any';
     typeSelect.disabled = !selected.length;
   };
-  const textMenu = () => [['lower', 'lowercase'], ['upper', 'UPPERCASE'], ['proper', 'Capitalize Each Word'], ['trim', 'Trim'], ['clean', 'Clean']]
-    .map(([op, label]) => ({ label, onSelect: () => needCols() && addStep({ type: 'transformText', columns: selected.slice(), op }) }));
+  // Transform ▸ Format changes the selected columns; Add Column ▸ Format adds a formatted copy of the first beside them.
+  const textMenu = (adding = false) => [['lower', 'lowercase'], ['upper', 'UPPERCASE'], ['proper', 'Capitalize Each Word'], ['trim', 'Trim'], ['clean', 'Clean']]
+    .map(([op, label]) => ({ label, onSelect: () => needCols() && addStep(adding ? { type: 'addTextColumn', column: selected[0], op, as: TEXT_COLUMN_NAMES[op] } : { type: 'transformText', columns: selected.slice(), op }) }));
 
   /* ---------- Steps ---------- */
   async function addStep(step, { replacePrevious = false } = {}) {
