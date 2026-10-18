@@ -417,7 +417,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   ctx.refused = (what) => refusedByProtection(what);
   ctx.smartArt = createSmartArtUi(ctx);
   // The Paste Options and Auto Fill Options button, at the corner of what was just pasted or filled.
-  const optionButton = createOptionButton({ grid, host: grid.el });
+  // The Quick Analysis button stands at the same corner: it gives way while this one shows.
+  const optionButton = ctx.optionButton = createOptionButton({ grid, host: grid.el, onToggle: () => ctx.quickAnalysis?.place() });
   let lastPaste = null; // { text, html, paste, from, mark, external }: what the Paste Options button pastes again
   let lastFill = null; // { sheetId, source, target, mark, kind }: what the Auto Fill Options button fills again
   ctx.subscribe(() => optionButton.place());
@@ -5922,7 +5923,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   const findBar = createFindBar(ctx);
   // Background error checking's smart tag beside the active cell (Convert to Number, Ignore Error…).
   // Quick Analysis: the button at the corner of a selected block of data, and Ctrl+Q.
-  const quickAnalysis = createQuickAnalysis({ ...ctx, run });
+  const quickAnalysis = ctx.quickAnalysis = createQuickAnalysis({ ...ctx, run });
   const errorTag = createErrorSmartTag({ ...ctx, run, focusFormulaBar: () => formulaBar.focusInput(), refreshErrorTag: () => errorTag.sync() });
   // Threaded comments: the card beside a cell and the Comments pane (Review ▸ Comments).
   // @mentions: the people a comment can name, telling them when it is posted, and telling the user when a

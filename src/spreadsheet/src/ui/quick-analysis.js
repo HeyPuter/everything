@@ -87,6 +87,8 @@ export function createQuickAnalysis(ctx) {
   function place() {
     const rg = target();
     if (!rg) { button.hidden = true; if (panel) close(); return; }
+    // The Paste Options or Auto Fill Options button at the same corner is the one shown, as in Excel.
+    if (ctx.optionButton?.visible && !panel) { button.hidden = true; return; }
     const g = ctx.grid;
     const rect = g.cellRect(Math.min(rg.r2, g.lastVisibleRow?.() ?? rg.r2), Math.min(rg.c2, g.lastVisibleCol?.() ?? rg.c2));
     const vp = g.viewport.getBoundingClientRect();

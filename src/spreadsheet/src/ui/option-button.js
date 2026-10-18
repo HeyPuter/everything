@@ -8,7 +8,7 @@ import { el } from './dom.js';
 import { icon } from './icons.js';
 import { openMenu, closeMenu } from './menu.js';
 
-export function createOptionButton({ grid, host }) {
+export function createOptionButton({ grid, host, onToggle = null }) {
   let current = null; // { kind, sheetId, range, items, checked, onPick }
   let menu = null;
   let ctrlAlone = false;
@@ -46,13 +46,14 @@ export function createOptionButton({ grid, host }) {
     button.dataset.kind = next.kind;
     button.hidden = false;
     place();
+    onToggle?.();
   }
 
   function hide() {
     if (!current) return;
     current = null;
     button.hidden = true;
-    if (menu) { const m = menu; menu = null; m.close?.(); }
+    if (menu) { const m = menu; menu = null; m.close?.(); }  onToggle?.();
   }
 
   function open() {
