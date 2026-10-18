@@ -9668,7 +9668,28 @@ export class Workbook extends EventTarget {
     }
     if (sheet.validations.some((v) => inside(v.range))) this._setValidations(sheet, sheet.validations.map((v) => (inside(v.range) ? { ...v, range: grown(v.range) } : v)), label);
     const reads = (ch) => ch.type !== 'image' && ch.type !== 'smartart' && inside(ch.range);
-    if (sheet.charts.some(reads)) this._setCharts(sheet, sheet.charts.map((ch) => (reads(ch) ? { ...ch, range: grown(ch.range) } : ch)), label);
+    // A chart with series of its own (one from an Excel file, or edited in Select Data) reads its references, not
+    // its range: a series, category or label reference ending at the old last data row grows with the table too,
+    // on whichever sheet the chart sits, as Excel's does.
+    // Titles and series names are single cells that stay where they are.
+    const growRefs = (owner, formula) => mapFormulaRefs(formula, (ref) => (ref.kind === 'range' || ref.kind === 'cell')
+      && sameSheetName(ref.sheet ?? owner.name, sheet.name) && inside(ref) ? { ...ref, kind: 'range', r2: newEnd } : ref);
+    const growSeries = (owner, ch) => {
+      let changed = false;
+      const sourceRefs = ch.sourceRefs.map((s) => {
+        const next = { ...s };
+        for (const key of ['categories', 'values', 'sizes', 'labels']) if (s[key]) { next[key] = growRefs(owner, s[key]); changed ||= next[key] !== s[key]; }
+        return next;
+      });
+      return changed ? { ...ch, sourceRefs } : ch;
+    };
+    for (const s of this.sheets) {
+      const next = s.charts.map((ch) => {
+        const own = s === sheet && reads(ch) ? { ...ch, range: grown(ch.range) } : ch;
+        return own.sourceRefs ? growSeries(s, own) : own;
+      });
+      if (next.some((ch, i) => ch !== s.charts[i])) this._setCharts(s, next, label);
+    }
   }
 
   /**
