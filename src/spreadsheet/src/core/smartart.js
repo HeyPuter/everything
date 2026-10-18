@@ -338,8 +338,14 @@ function wrap(text, width, size) {
     if (cur) { lines.push(cur); cur = ''; }
     while (textWidth(word, size) > width && word.length > 1) {
       broke = true;
-      let k = word.length - 1;
-      while (k > 1 && textWidth(word.slice(0, k), size) > width) k--;
+      // The longest start of the word that fits, one character at least, found in one pass: shortening
+      // it a character at a time took seconds for a long unspaced text (Chinese, a URL) in a small shape.
+      let k = 0, units = 0;
+      for (const ch of word) {
+        units += charWidth(ch);
+        if (k && units * size > width) break;
+        k += ch.length;
+      }
       lines.push(word.slice(0, k));
       word = word.slice(k);
     }
