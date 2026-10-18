@@ -4079,7 +4079,7 @@ export function createGrid(opts) {
       return;
     }
     if (drag.kind === 'colresize' || drag.kind === 'rowresize') { resizeMove(e); return; }
-    if (drag.kind === 'colmove' || drag.kind === 'rowmove') { reorderMove(e); return; }
+    if (drag.kind === 'colmove' || drag.kind === 'rowmove') { reorderMove(e); edgeAutoScroll(e); return; }
     const { r, c } = dragCellAt(e.clientX, e.clientY);
     dragTo(r, c, e);
     edgeAutoScroll(e);
@@ -4139,8 +4139,8 @@ export function createGrid(opts) {
     // headers to its left: only the axis being selected scrolls.
     let dx = e.clientX < left ? -1 : e.clientX > rect.right ? 1 : 0;
     let dy = e.clientY < top ? -1 : e.clientY > rect.bottom ? 1 : 0;
-    if (drag?.kind === 'colsel' || drag?.lines === 'col') dy = 0;
-    if (drag?.kind === 'rowsel' || drag?.lines === 'row') dx = 0;
+    if (drag?.kind === 'colsel' || drag?.kind === 'colmove' || drag?.lines === 'col') dy = 0;
+    if (drag?.kind === 'rowsel' || drag?.kind === 'rowmove' || drag?.lines === 'row') dx = 0;
     // The pointer moving on outside the view keeps the scroll going: restarting the timer on every
     // move held it off for as long as the pointer moved, so the sheet scrolled only once it stood still.
     const next = { e, rect, left, top, dx, dy };
@@ -4152,8 +4152,11 @@ export function createGrid(opts) {
         const at = autoScrollAt;
         viewport.scrollBy(at.dx * 24, at.dy * 24);
         if (!drag) return;
+        const x = clamp(at.e.clientX, at.left + 1, at.rect.right - 1), y = clamp(at.e.clientY, at.top + 1, at.rect.bottom - 1);
+        // Rows or columns dragged by their headers land beside the line now at the edge.
+        if (drag.kind === 'colmove' || drag.kind === 'rowmove') { reorderMove({ clientX: x, clientY: y }); return; }
         // The selection, and a move, fill or table preview, follow the cell now under the pointer.
-        const { r, c } = dragCellAt(clamp(at.e.clientX, at.left + 1, at.rect.right - 1), clamp(at.e.clientY, at.top + 1, at.rect.bottom - 1));
+        const { r, c } = dragCellAt(x, y);
         dragTo(r, c, at.e);
       }, 50);
     }
