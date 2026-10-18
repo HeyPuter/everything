@@ -3077,7 +3077,7 @@ export const FUNCTIONS = {
       const b = basis === undefined ? 0 : toNumber(basis); if (isError(b)) return b;
       const fromIssue = calcMethod === undefined ? true : toBool(calcMethod); if (isError(fromIssue)) return fromIssue;
       const freq = Math.trunc(f);
-      if (![1, 2, 4].includes(freq) || Math.trunc(b) < 0 || Math.trunc(b) > 4 || i < 0 || fi < 0 || !(i < s)) return err('#NUM!');
+      if (![1, 2, 4].includes(freq) || Math.trunc(b) < 0 || Math.trunc(b) > 4 || i < 0 || fi < 0 || !(Math.trunc(i) < Math.trunc(s))) return err('#NUM!');
       // calc_method FALSE counts from the first interest date once the settlement is past it; TRUE, the default, from the issue.
       const from = Math.trunc(!fromIssue && s > fi ? fi : i);
       const to = Math.trunc(s);
@@ -3103,7 +3103,7 @@ export const FUNCTIONS = {
       const i = toNumber(issue); if (isError(i)) return i;
       const s = toNumber(settlement); if (isError(s)) return s;
       const nums = bondNumbers([[rate, true], [par === undefined ? 1000 : par, true]]); if (isError(nums)) return nums;
-      if (!(i < s)) return err('#NUM!');
+      if (!(Math.trunc(i) < Math.trunc(s))) return err('#NUM!');
       const yf = FUNCTIONS.YEARFRAC.fn([i, s, basis === undefined ? 0 : basis]); if (isError(yf)) return yf;
       return checkNum(nums[1] * nums[0] * yf);
     },
@@ -3114,7 +3114,7 @@ export const FUNCTIONS = {
       const m = toNumber(maturity); if (isError(m)) return m;
       const i = toNumber(issue); if (isError(i)) return i;
       const nums = bondNumbers([[rate, false], [yld, false]]); if (isError(nums)) return nums;
-      if (!(s < m) || !(i < s)) return err('#NUM!');
+      if (!(Math.trunc(s) < Math.trunc(m)) || !(Math.trunc(i) < Math.trunc(s))) return err('#NUM!');
       const b = basis === undefined ? 0 : basis;
       const im = FUNCTIONS.YEARFRAC.fn([i, m, b]); if (isError(im)) return im;
       const sm = FUNCTIONS.YEARFRAC.fn([s, m, b]); if (isError(sm)) return sm;
@@ -3128,7 +3128,7 @@ export const FUNCTIONS = {
       const m = toNumber(maturity); if (isError(m)) return m;
       const i = toNumber(issue); if (isError(i)) return i;
       const nums = bondNumbers([[rate, false], [pr, true]]); if (isError(nums)) return nums;
-      if (!(s < m) || !(i < s)) return err('#NUM!');
+      if (!(Math.trunc(s) < Math.trunc(m)) || !(Math.trunc(i) < Math.trunc(s))) return err('#NUM!');
       const b = basis === undefined ? 0 : basis;
       const im = FUNCTIONS.YEARFRAC.fn([i, m, b]); if (isError(im)) return im;
       const sm = FUNCTIONS.YEARFRAC.fn([s, m, b]); if (isError(sm)) return sm;
@@ -7285,7 +7285,7 @@ function cPow(z, n) {
 function discountArgs(settlement, maturity, basis) {
   const s = toNumber(settlement); if (isError(s)) return s;
   const m = toNumber(maturity); if (isError(m)) return m;
-  if (!(s < m)) return err('#NUM!');
+  if (!(Math.trunc(s) < Math.trunc(m))) return err('#NUM!'); // whole days: two times of one day are one date
   const yf = FUNCTIONS.YEARFRAC.fn([s, m, basis === undefined ? 0 : basis]);
   if (isError(yf)) return yf;
   return { s, m, yf, days: Math.trunc(m) - Math.trunc(s) };
