@@ -1443,6 +1443,7 @@ export const FUNCTIONS = {
     },
   },
   COUNTBLANK: {
+    tolerant: true, // a cell holding an error is not blank, given alone as in a range, rather than the answer
     fn: (args) => {
       let n = 0;
       for (const v of args) {
