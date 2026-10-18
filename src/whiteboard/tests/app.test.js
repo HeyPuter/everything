@@ -20723,6 +20723,58 @@ test("Ctrl- or Cmd-click adds an object to the selection or takes it out", async
   }
 });
 
+test("Ctrl or Cmd keeps the selection on empty board and adds what a marquee takes, as Shift does", async () => {
+  const app = await setup();
+  try {
+    const { selected, pointer } = await rotationFixture(app, [
+      item("rect", 0, 0, { w: 200, h: 100 }),
+      item("rect", 400, 0, { w: 200, h: 100 }),
+      item("rect", 800, 0, { w: 200, h: 100 }),
+    ]);
+    const [a, b, c] = selected;
+    const chosen = () =>
+      selectedClipboard(app)
+        .map((i) => i.id)
+        .sort();
+    for (const extra of [
+      { shiftKey: true },
+      { ctrlKey: true },
+      { metaKey: true },
+    ]) {
+      const click = (o, keys = {}) => {
+        pointer("pointerdown", o, keys);
+        pointer("pointerup", o, keys);
+      };
+      click({ x: a.x + 100, y: a.y + 50 });
+      click({ x: b.x + 100, y: b.y + 50 }, extra);
+      await app.tick();
+      assert.deepEqual(chosen(), [a.id, b.id].sort());
+      click({ x: b.x + 100, y: b.y + 400 }, extra);
+      await app.tick();
+      assert.deepEqual(chosen(), [a.id, b.id].sort(), JSON.stringify(extra));
+      const from = { x: c.x - 20, y: c.y - 20 },
+        to = { x: c.x + 220, y: c.y + 120 };
+      pointer("pointerdown", from, extra);
+      pointer("pointermove", to, extra);
+      pointer("pointerup", to, extra);
+      await app.tick();
+      assert.deepEqual(
+        chosen(),
+        [a.id, b.id, c.id].sort(),
+        JSON.stringify(extra),
+      );
+      click({ x: b.x + 100, y: b.y + 400 });
+      await app.tick();
+      assert.ok(
+        app.doc.querySelector("#selection-tools").hidden,
+        "A plain click on empty board clears it",
+      );
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test("Ctrl or Cmd held during a move keeps the object off other objects' edges", async () => {
   const app = await setup();
   try {

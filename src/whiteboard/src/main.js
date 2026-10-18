@@ -7903,11 +7903,16 @@ function cancelTransform() {
   lastTap = null;
   draw();
 }
+const addsToSelection = (e) => !!(e?.shiftKey || e?.ctrlKey || e?.metaKey);
 function startMarquee(p, e, precise = preciseSelection) {
   const previousSelection = new Set(selection),
     previousAnchor = selectionAnchor,
     previousGroup = focusedGroup;
-  selection = e.shiftKey ? descendants(current.items, selection) : new Set();
+  // Shift, Ctrl or Cmd adds what the marquee takes to the selection, as
+  // they add a clicked object.
+  selection = addsToSelection(e)
+    ? descendants(current.items, selection)
+    : new Set();
   focusedGroup = null;
   selectionAnchor = null;
   drag = {
@@ -8873,7 +8878,7 @@ function pointerMove(e) {
       // A press that wobbles a pixel or two is a click, not a marquee: it
       // must not take the frame whose interior it happens to be in.
       if (Math.max(a.w, a.h) * view.z > 3)
-        updateMarqueeSelection(a, e.shiftKey);
+        updateMarqueeSelection(a, addsToSelection(e));
       a.precise = drag.precise;
     }
     drag.marquee = a;
@@ -10868,7 +10873,7 @@ async function startCollaboration(target, token, localTimer) {
             [...drag.baseSelection].filter((id) => present.has(id)),
           );
           if (drag.marquee)
-            updateMarqueeSelection(drag.marquee, drag.pointer?.shiftKey);
+            updateMarqueeSelection(drag.marquee, addsToSelection(drag.pointer));
         }
         const title = document.querySelector("#board-title");
         if (title && document.activeElement !== title)
@@ -13726,7 +13731,10 @@ document.addEventListener("keydown", (e) => {
   if (!drag && mindMap.keydown(e)) return;
   if (
     ["Control", "Meta"].includes(e.key) &&
-    (drag?.mind || drag?.gridStep || drag?.kind === "move") &&
+    (drag?.mind ||
+      drag?.gridStep ||
+      drag?.kind === "move" ||
+      drag?.kind === "marquee") &&
     drag.pointer
   ) {
     e.preventDefault();
@@ -14124,7 +14132,10 @@ document.addEventListener("keyup", (e) => {
   flushNudgeSave();
   if (
     ["Control", "Meta"].includes(e.key) &&
-    (drag?.mind || drag?.gridStep || drag?.kind === "move") &&
+    (drag?.mind ||
+      drag?.gridStep ||
+      drag?.kind === "move" ||
+      drag?.kind === "marquee") &&
     drag.pointer
   )
     pointerMove({ ...drag.pointer, ctrlKey: e.ctrlKey, metaKey: e.metaKey });
