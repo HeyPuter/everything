@@ -28,11 +28,14 @@ export function openTabsDialog({ tabs: initial, defaultTabStop, unit = 'in', app
   const clearedNote = el('p.field-hint', { 'aria-live': 'polite' });
   const mixedNote = el('p.field-hint', { hidden: initial !== null }, 'Tab stops differ across the selection. Setting or clearing stops replaces them for every selected paragraph.');
 
+  // A typed unit counts ("2.54 cm" in an inch dialog is one inch); without one, the dialog's unit applies.
+  const UNIT_TWIPS = { in: 1440, '″': 1440, '"': 1440, cm: 1440 / 2.54, mm: 144 / 2.54, pt: 20 };
   const readPosition = () => {
-    const raw = position.value.trim().replace(/\s*(in|cm|″|")$/i, '').replace(',', '.');
+    const typed = /\s*(in|cm|mm|pt|″|")$/i.exec(position.value.trim());
+    const raw = position.value.trim().slice(0, typed ? -typed[0].length : undefined).replace(',', '.');
     const number = Number(raw);
     if (!raw || !Number.isFinite(number)) throw new Error('Enter a tab stop position.');
-    const twips = Math.round(number * u.twips);
+    const twips = Math.round(number * (typed ? UNIT_TWIPS[typed[1].toLowerCase()] : u.twips));
     if (Math.abs(twips) > 31680) throw new Error('Tab positions must be within 22 inches of the margin.');
     return twips;
   };
