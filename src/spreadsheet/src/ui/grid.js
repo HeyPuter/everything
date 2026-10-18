@@ -2495,13 +2495,20 @@ export function createGrid(opts) {
     // The others selected move with the one pressed.
     const others = onHandle ? [] : selectedObjects().filter((other) => other !== id).map((other) => wb.chartById(sheetId, other))
       .filter((o) => o && !o.lockedPosition).map((o) => ({ id: o.id, from: chartBoxRect(o) }));
-    drag = { kind: onHandle ? 'chartresize' : 'chartmove', id, startX: e.clientX, startY: e.clientY, from: rect, rect, moved: false, others };
+    // A protected sheet's objects can be selected (to copy one, follow its link, read it) but not moved or
+    // resized: a drag says why, rather than carrying the object off and dropping it back where it was.
+    const fixed = wb.isProtected(sheetId) || !!sheet().externalCache;
+    drag = { kind: onHandle ? 'chartresize' : 'chartmove', id, startX: e.clientX, startY: e.clientY, from: rect, rect, moved: false, others, fixed };
     try { node.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
     const move = (ev) => {
       if (!drag || drag.id !== id) return;
       const dx = ev.clientX - drag.startX;
       const dy = ev.clientY - drag.startY;
       if (Math.abs(dx) + Math.abs(dy) > 2) drag.moved = true;
+      if (drag.fixed) {
+        if (drag.moved && !drag.told) { drag.told = true; wb._locked(sheet()); }
+        return;
+      }
       if (drag.kind === 'chartmove') {
         // The boxes stay within the sheet, so none can be dragged out of reach past its edge; the others
         // selected stop with the one at the edge rather than being pushed out of their places around it.
@@ -2567,6 +2574,7 @@ export function createGrid(opts) {
     };
     const up = () => {
       const d = end();
+      if (d?.fixed && d.moved) { schedule(); return; }
       if (!d || !d.moved) {
         if (d && pickedPart) opts.onCommand?.('smartArt', { action: 'pick', id, item: pickedShape ? Number(pickedShape.dataset.item) : null, add: adding });
         if (d && !onHandle && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && safeLinkUrl(ch.hyperlink)) opts.onCommand?.('openDrawingLink', id);

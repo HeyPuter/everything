@@ -566,6 +566,9 @@
   touch-action: none;
 }
 .chart-box.selected .chart-resize { display: block; }
+/* A protected sheet's objects do not move or resize (see chartPointerDown): no corner to drag, no move cursor. */
+.grid.protected .chart-box.selected .chart-resize { display: none; }
+.grid.protected .chart-box { cursor: default; }
 
 .ref-layer,
 .hl-layer {
