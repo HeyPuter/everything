@@ -54,7 +54,7 @@ test("the frame in view keeps its number and object count readable on its tint",
   // The muted text on the current row's --soft tint was 4.41:1 in the
   // light theme.
   const at = css.indexOf(
-    ".frame-row:has(.frame-go[aria-current]) :is(.frame-go > span, .frame-go small) {",
+    ".frame-go[aria-current] > span,\n.frame-go[aria-current] small {",
   );
   assert.ok(at >= 0);
   assert.match(
