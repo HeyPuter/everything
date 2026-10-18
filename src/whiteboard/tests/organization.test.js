@@ -5696,6 +5696,30 @@ test("shared images and files are capped per board and per person each minute", 
   await assert.rejects(put(60), (error) => error.status === 429);
 });
 
+test("large edits kept as files count toward the board's file limit", async () => {
+  const { env, boards } = setup();
+  const { input, room } = createInput("Media");
+  await boards.call(owner, input);
+  const text = "x".repeat(19_000);
+  const add = (n) =>
+    commit(boards, owner, room, (b) => {
+      for (let k = 0; k < 20; k++)
+        b.items.push(item("note", k * 300, n * 300, { text: text + n }));
+    });
+  const files = () =>
+    [...env.files.keys()].filter((p) => p.includes(`/${room}/updates/`)).length;
+  await add(0);
+  assert.equal(files(), 1);
+  const used = env.data.get(`wb:${room}:assetbytes`);
+  assert.ok(used > 240_000);
+  // A board at its limit keeps no more of them, and counts nothing for one.
+  env.data.set(`wb:${room}:assetbytes`, 1024 ** 3 - 10);
+  await assert.rejects(add(1), (error) => error.status === 413);
+  assert.equal(env.data.get(`wb:${room}:assetbytes`), 1024 ** 3 - 10);
+  assert.equal(files(), 1);
+  assert.equal((await boards.load(room)).doc.snapshot().items.length, 21);
+});
+
 test("moving someone's boards to a new owner goes a batch per request", async () => {
   const { call, org, boards } = setup();
   await call(owner, { op: "org.setup", name: "Fabrikam" });

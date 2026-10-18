@@ -2770,8 +2770,26 @@ export class BoardService {
               if (input.update.length <= MAX_UPDATE)
                 record.update = input.update;
               else {
+                // A large edit is kept as a file for good, so it counts
+                // toward the board's file limit like an upload: otherwise
+                // anyone who can edit could fill its owner's storage by
+                // adding and removing a lot of content.
+                const used = `wb:${room}:assetbytes`,
+                  size = input.update.length;
+                if ((await this.kv.incr(used, size)) > ASSET_BYTES) {
+                  await this.kv.incr(used, -size).catch(() => {});
+                  fail(
+                    413,
+                    "This board has reached its 1 GB limit for images and files.",
+                  );
+                }
                 record.path = `whiteboard/shared/${room}/updates/${digest}.txt`;
-                await this.writeFile(record.path, input.update);
+                await this.writeFile(record.path, input.update).catch(
+                  async (error) => {
+                    await this.kv.incr(used, -size).catch(() => {});
+                    throw error;
+                  },
+                );
               }
               // The record's time is when it becomes visible, not when the
               // commit arrived: a slow file write must not leave it older
