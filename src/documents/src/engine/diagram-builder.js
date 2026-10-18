@@ -224,5 +224,8 @@ export function parseDiagramDescription(text) {
 
 /** The whole `w:drawing` of a diagram, inline, at the given drawing id. Size in EMU. */
 export function diagramDrawingXml({ layout, items, colors = 'blue', id, width = toEmu(6), height = toEmu(3.25), anchor = null }) {
-  return drawingFrame({ id, name: `Diagram ${id}`, descr: diagramDescription(layout, items, colors), width, height, anchor, graphic: diagramGraphic(layout, items, { width, height, colors }) });
+  // The outline is kept as the diagram's alt text, which is how Edit Diagram reads it back; alt text holds 2,000 characters.
+  const descr = diagramDescription(layout, items, colors);
+  if (descr.length > 2000) throw new Error(`This diagram has too much text: it can hold about ${2000 - descr.length + outlineText(items).length} characters of items. Shorten or remove some items.`);
+  return drawingFrame({ id, name: `Diagram ${id}`, descr, width, height, anchor, graphic: diagramGraphic(layout, items, { width, height, colors }) });
 }

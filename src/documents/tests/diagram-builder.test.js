@@ -60,3 +60,8 @@ it('writes diagram text pasted with line breaks or control characters as readabl
   expect(items.map(i => i.text)).toEqual(['Plan', 'ahead']);
   expect(parseDiagramDescription(fragment.image.alt).items).toEqual(parseOutline('Plan\nahead\n  Goals'));
 });
+
+it('says how much text a diagram can hold when an outline is too long for it', () => {
+  const items = parseOutline(Array.from({ length: 40 }, (_, i) => `Milestone ${i}: a fairly long description of what happens in this phase`).join('\n'));
+  expect(() => diagramDrawingXml({ layout: DIAGRAM_LAYOUTS[0].id, items, id: 1 })).toThrow(/too much text: it can hold about \d+ characters/);
+});
