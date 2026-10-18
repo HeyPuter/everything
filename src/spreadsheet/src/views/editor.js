@@ -5377,7 +5377,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       // failing must not keep the user in the editor for ever.
       if (abandoned) return true;
       const kept = !wb.dirty || doc.writeDraft();
-      const choice = await saveFailedDialog(e?.message, kept);
+      const choice = await saveFailedDialog(!P.unreachable(e) ? e?.message : navigator.onLine === false ? 'you are offline' : 'Puter could not be reached', kept);
       if (destroyed) return false;
       if (choice === 'retry') return runFlush({ leaving });
       if (choice === 'leave') { abandoned = true; return true; }
@@ -5448,7 +5448,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       const saved = await doc.save();
       if (saved && !wb.dirty) toast('Saved', { icon: 'cloud', duration: 1200 });
     } catch (e) {
-      toast(`Could not save: ${e?.message || 'unknown error'}`, { icon: 'alert', duration: 5000 });
+      toast(P.unreachable(e) ? P.failureText(e, 'Could not save') : `Could not save: ${e?.message || 'unknown error'}`, { icon: 'alert', duration: 5000 });
     }
   }
 

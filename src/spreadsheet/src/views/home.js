@@ -288,7 +288,7 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
       renderShared();
       toast('Removed from shared with you', { icon: 'check' });
     } catch (e) {
-      toast(e?.message || 'Could not leave the share', { icon: 'alert' });
+      toast(P.failureText(e, 'Could not leave the share'), { icon: 'alert' });
     }
   }
   // Files opened from elsewhere on the drive (not in the app folder) are remembered on this device.
@@ -464,7 +464,7 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
       toast('Renamed');
       load();
     } catch (e) {
-      toast(e?.message || 'Could not rename', { icon: 'alert' });
+      toast(P.failureText(e, 'Could not rename'), { icon: 'alert' });
     }
   }
 
@@ -487,7 +487,7 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
       toast('Duplicated');
       load();
     } catch (e) {
-      toast(e?.message || 'Could not duplicate', { icon: 'alert' });
+      toast(P.failureText(e, 'Could not duplicate'), { icon: 'alert' });
     }
   }
 
@@ -498,7 +498,7 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
       if (P.isApp() && P.canSaveFiles()) P.saveFileAs(blob, file.name).catch(() => {});
       else P.downloadBlob(blob, file.name);
     } catch (e) {
-      toast(e?.message || 'Could not download', { icon: 'alert' });
+      toast(P.failureText(e, 'Could not download'), { icon: 'alert' });
     }
   }
 
@@ -516,7 +516,7 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
       renderList();
       toast('Deleted', { icon: 'trash' });
     } catch (e) {
-      toast(e?.message || 'Could not delete', { icon: 'alert' });
+      toast(P.failureText(e, 'Could not delete'), { icon: 'alert' });
     }
   }
 

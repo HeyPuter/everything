@@ -164,6 +164,26 @@ export function isNotFound(err) {
   return code === 'subject_does_not_exist' || code === 'ENOENT' || msg.includes('not found') || msg.includes('does not exist') || msg.includes('no such');
 }
 
+/**
+ * Did a request fail for want of a connection: the browser offline, or Puter out of reach, which the browser
+ * reports in words of its own ("Failed to fetch" in Chrome, "Load failed" in Safari, "NetworkError…" in Firefox)?
+ */
+export function unreachable(err) {
+  if (globalThis.navigator?.onLine === false) return true;
+  const message = String(err?.message || err?.error?.message || (typeof err === 'string' ? err : '')).trim();
+  return /^(failed to fetch|load failed|networkerror\b|network ?error$|network request failed)/i.test(message);
+}
+
+/**
+ * A failed request in words for the user: the service's own message (a name taken, a full drive) as it is, and a
+ * failure to connect as `what` ("Could not rename the file") with what to do, not the browser's "Failed to fetch".
+ */
+export function failureText(err, what) {
+  if (globalThis.navigator?.onLine === false) return `${what}: you are offline. Connect to the internet, then try again`;
+  if (unreachable(err)) return `${what}: Puter could not be reached. Check your connection, then try again`;
+  return String(err?.message || err?.error?.message || (typeof err === 'string' ? err : '')).trim() || what;
+}
+
 export function displayName(path) {
   return String(path || '').split('/').pop();
 }

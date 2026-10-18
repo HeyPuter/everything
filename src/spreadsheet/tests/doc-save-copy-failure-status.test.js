@@ -11,7 +11,7 @@ afterEach(() => { delete globalThis.puter; });
 it('leaves a clean document saved when saving a copy fails', async () => {
   const doc = new Doc({ name: 'Budget', path: 'Spreadsheets/Budget.xlsx' });
   puter.fs.write = async () => { throw new Error('Network request failed'); };
-  expect(await doc.saveAs('Copy')).toBe('Network request failed');
+  expect(await doc.saveAs('Copy')).toBe('Could not save a copy: Puter could not be reached. Check your connection, then try again');
   expect(doc.status).toBe('saved');
   expect(doc.error).toBeNull();
   expect(doc.path).toBe('Spreadsheets/Budget.xlsx');
@@ -22,7 +22,7 @@ it('keeps an edited document unsaved, not in error, when saving a copy fails', a
   const doc = new Doc({ name: 'Budget', path: 'Spreadsheets/Budget.xlsx' });
   doc.wb.setInput(doc.wb.activeSheetId, 0, 0, 'edit');
   puter.fs.write = async () => { throw new Error('Network request failed'); };
-  expect(await doc.saveAs('Copy')).toBe('Network request failed');
+  expect(await doc.saveAs('Copy')).toBe('Could not save a copy: Puter could not be reached. Check your connection, then try again');
   expect(doc.status).toBe('unsaved');
   expect(doc.wb.dirty).toBe(true);
   doc.destroy();

@@ -769,7 +769,7 @@ export class Doc extends EventTarget {
       const renamed = await P.renameFile(this.path, `${clean}${ext}`);
       this._adoptMovedTime(renamed, before);
     } catch (e) {
-      return e?.message || 'Could not rename the file';
+      return P.failureText(e, 'Could not rename the file');
     }
     await this._adoptPath(target, clean);
     return null;
@@ -852,7 +852,7 @@ export class Doc extends EventTarget {
     try {
       if (await P.fileExists(target)) return 'A file with that name already exists';
     } catch (e) {
-      return e?.message || 'Could not save';
+      return P.failureText(e, 'Could not save a copy');
     }
     clearTimeout(this._timer);
     const version = this.wb.version;
@@ -868,7 +868,7 @@ export class Doc extends EventTarget {
       // The copy failed; the original is as it was. Its own edits, if any, keep saving as usual.
       this._setStatus(this.wb.dirty ? 'unsaved' : 'saved');
       if (this.wb.dirty) this._changed('cells');
-      return e?.message || 'Could not save';
+      return P.failureText(e, 'Could not save a copy');
     }
     clearTimeout(this._draftTimer);
     // A shared workbook's copy is a file of the user's own, where work continues: the room is left.
