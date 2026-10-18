@@ -235,6 +235,22 @@ test('a chart that reads its data from a workbook is not offered for data editin
   expect(errors).toEqual([]);
 });
 
+test('the equation preview hint stays readable on its paper in the dark theme', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  const { input } = await start(page, { text: 'Formula: ' });
+  await input.press('ControlOrMeta+End');
+  await page.keyboard.press(process.platform === 'darwin' ? 'Control+Equal' : 'Alt+Equal');
+  const hint = page.getByRole('dialog', { name: 'Equation' }).locator('.insert-equation-preview .field-hint');
+  await expect(hint).toHaveText('Type an equation to see it here.');
+  const ratio = await hint.evaluate(node => {
+    const rgb = color => { const c = document.createElement('canvas').getContext('2d'); c.fillStyle = color; c.fillRect(0, 0, 1, 1); return [...c.getImageData(0, 0, 1, 1).data].slice(0, 3); };
+    const luminance = color => rgb(color).map(v => v / 255).map(v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+    const [a, b] = [luminance(getComputedStyle(node).color), luminance(getComputedStyle(node.closest('.insert-equation-preview')).backgroundColor)];
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  });
+  expect(ratio).toBeGreaterThanOrEqual(4.5);
+});
+
 test('equations, symbols and text from a file', async ({ page }, info) => {
   test.setTimeout(120000);
   const { input, errors, ribbon } = await start(page, { text: 'Formula: ' });

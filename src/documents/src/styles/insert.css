@@ -75,6 +75,8 @@
 .insert-equation-symbols { display: flex; flex-wrap: wrap; gap: 4px; }
 .insert-equation-symbols .insert-symbol { min-width: 30px; height: 30px; border: 1px solid var(--hairline); border-radius: 4px; font-size: 15px; }
 .insert-equation-preview { min-height: 72px; display: flex; align-items: center; justify-content: center; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-sm); background: var(--paper, #fff); color: var(--paper-ink, #111); font-size: 20px; overflow-x: auto; }
+/* The preview is paper in both themes: its hint takes the paper's ink, not the theme's muted text. */
+.insert-equation-preview .field-hint { color: color-mix(in srgb, var(--paper-ink, #111) 62%, var(--paper, #fff)); }
 .insert-equation-gallery { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 
 /* Icons */
