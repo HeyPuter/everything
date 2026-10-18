@@ -5817,6 +5817,28 @@ test("a slide button that disables under the keyboard hands focus on, so the arr
   }
 });
 
+test("live reactions float over the presentation while it is open, and over the board after", async () => {
+  const app = await setup();
+  const { doc, click } = app;
+  try {
+    await rotationFixture(app, [
+      item("frame", 0, 0, { w: 500, h: 400, text: "One" }),
+    ]);
+    const layer = doc.querySelector(".live-reactions");
+    assert.ok(layer.closest(".canvas-wrap"));
+    await click('[data-action="present"]');
+    await click("#start-presentation");
+    const dialog = doc.querySelector("dialog.presentation-dialog");
+    assert.equal(doc.querySelector(".live-reactions"), layer);
+    assert.ok(dialog.contains(layer), "The presenter sees reactions");
+    await click("#slide-exit");
+    assert.ok(layer.isConnected && layer.closest(".canvas-wrap"));
+    assert.equal(doc.querySelectorAll(".live-reactions").length, 1);
+  } finally {
+    await app.close();
+  }
+});
+
 test("presentation names and slide outlines preserve authored language tags", async () => {
   const app = await setup();
   const { doc, w, click } = app;

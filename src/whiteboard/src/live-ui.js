@@ -344,6 +344,20 @@ export function createLiveUI(api) {
     host.append(layer);
     render();
   }
+  // A presentation covers the board, so reactions float up over it while it
+  // is open, and over the board again once it closes.
+  function present(dialog) {
+    if (!layer) return;
+    const moved = layer;
+    dialog.append(moved);
+    dialog.addEventListener(
+      "close",
+      () => {
+        if (layer === moved && host) host.append(moved);
+      },
+      { once: true },
+    );
+  }
   function detach() {
     close(false);
     for (const timer of timers) clearTimeout(timer);
@@ -366,6 +380,7 @@ export function createLiveUI(api) {
     hands,
     loweredBy,
     place,
+    present,
     isOpen: () => !!popover,
   };
 }

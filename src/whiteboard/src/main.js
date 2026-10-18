@@ -957,6 +957,7 @@ const features = createFeatures({
   concealedIn: (b) => facilitation.concealedIn(b),
   hiddenFromParticipants: (id) => facilitation.hiddenFromParticipants(id),
   presentTimer: (dialog) => workshopTimer.present(dialog),
+  presentReactions: (dialog) => liveUI.present(dialog),
   presentAttention: (dialog, rect, slide) =>
     attention.present(dialog, rect, slide),
   navigation: () => navigationSettings(),

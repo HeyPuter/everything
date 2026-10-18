@@ -1117,6 +1117,7 @@ export function createFeatures(api) {
       (d) => {
         d.classList.add("presentation-dialog");
         api.presentTimer?.(d);
+        api.presentReactions?.(d);
         const canvas = d.querySelector("canvas");
         const render = () => {
           const region = regions[index],
