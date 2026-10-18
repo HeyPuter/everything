@@ -17,6 +17,7 @@ const canUseKv = () => {
 const storage = () => { try { return globalThis.localStorage || null; } catch { return null; } };
 const localKey = (name) => `${accountStorageKey(`spreadsheet:pref-${name}`)}value`;
 const kvKey = (name) => `spreadsheet:pref:${name}`;
+const UNREACHABLE = Symbol('unreachable');
 
 /** The stored value ({ at, value } on disk), or `fallback`. */
 export function loadPref(name, fallback = null) {
@@ -37,13 +38,19 @@ export function savePref(name, value) {
 /** Take the account's copy when it is newer than this browser's; resolves to the value in force. */
 export async function syncPref(name, fallback = null) {
   if (!canUseKv()) return loadPref(name, fallback);
-  let remote = null;
-  try { const raw = await kvGet(kvKey(name)); remote = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { remote = null; }
+  let remote = null, reached = true;
+  try {
+    const raw = await kvGet(kvKey(name), UNREACHABLE);
+    if (raw === UNREACHABLE) reached = false;
+    else remote = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch { remote = null; }
   let local = null;
   try { local = JSON.parse(storage()?.getItem(localKey(name)) || 'null'); } catch { local = null; }
   if (remote && typeof remote === 'object' && 'value' in remote && (!local || (remote.at || 0) > (local.at || 0))) {
     try { storage()?.setItem(localKey(name), JSON.stringify(remote)); } catch { /* storage unavailable */ }
     return remote.value;
   }
+  // This browser's is the newer (changed while the store could not be reached, or before signing in): the account gets it.
+  if (reached && local && typeof local === 'object' && 'value' in local && JSON.stringify(local) !== JSON.stringify(remote)) kvSet(kvKey(name), JSON.stringify(local));
   return local && 'value' in local ? local.value : fallback;
 }
