@@ -2,6 +2,7 @@ import { readXlsxValidations, writeXlsxValidations } from '../core/xlsx-validati
 import { writeOdsSettings, readOdsSettings } from '../core/ods-settings.js';
 import { odsFilterReader, writeOdsFilter } from '../core/ods-filter.js';
 import { writeOdsValidations, readOdsValidations, odsValidationLayout, addOdsValidation, odsFormulaReader } from '../core/ods-validation.js';
+import { odsCellStyleProperties } from '../core/ods-cell-styles.js';
 /*! xlsx.js (C) 2013-present SheetJS -- http://sheetjs.com */
 /* vim: set ts=2: */
 /*exported XLSX */
@@ -23691,6 +23692,36 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 		function ods_number_format(name) {
 			return resolve_ods_style_number_format(name && (styles[name] || commonStyles[name]), commonStyles, styleNumberFormats);
 		}
+		/* Puter Spreadsheet: a cell style's font, fill, border and alignment properties (odsProps), its parents'
+		 * under its own; the app reads them into its cell style (ods-cell-styles.js). The common style named
+		 * Default is every cell's base, the workbook's normal look, and not a format of the cell's own. */
+		var columnStyleNames = [], rowStyleName = null, styleProps = new WeakMap();
+		function ods_cell_props(name) {
+			var style = name && (styles[name] || commonStyles[name]);
+			if(!style) return null;
+			/* Walk up to a resolved ancestor (or the top), then down: a chain can be thousands of styles long. */
+			var pending = [], current = style;
+			while(current && !styleProps.has(current)) {
+				styleProps.set(current, null); /* a cyclic parent link ends here */
+				pending.push(current);
+				var parentName = current["parent-style-name"];
+				current = parentName && parentName !== "Default" ? commonStyles[parentName] : null;
+			}
+			var props = current ? styleProps.get(current) : null;
+			for(var i = pending.length - 1; i >= 0; --i) {
+				var own = pending[i].name === "Default" ? null : pending[i].odsProps;
+				if(own) props = Object.assign({}, props, own);
+				styleProps.set(pending[i], props);
+			}
+			return styleProps.get(style);
+		}
+		/* An empty cell whose style paints it (a fill or a border) is a cell to keep. */
+		function ods_paints(name) {
+			var props = ods_cell_props(name);
+			if(!props) return false;
+			if(props["background-color"] && props["background-color"] !== "transparent") return true;
+			return ["border", "border-top", "border-bottom", "border-left", "border-right"].some(function(k) { return props[k] && !/^\s*none\b/i.test(props[k]); });
+		}
 		var merges/*:Array<Range>*/ = [], mrange = {}, mR = 0, mC = 0;
 		var rowinfo/*:Array<RowInfo>*/ = [], rowpeat = 1, colpeat = 1;
 		/* Puter Spreadsheet local patch: a file of a few hundred bytes can repeat one cell across the whole grid,
@@ -23740,7 +23771,7 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 					range.s.r = range.s.c = 10000000; range.e.r = range.e.c = 0;
 					ws = ({}/*:any*/); if(opts.dense) ws["!data"] = []; merges = [];
 					rowinfo = []; colinfo = [];
-					columnNumberFormats = []; columnCount = 0; rowNumberFormatName = null;
+					columnNumberFormats = []; columnCount = 0; rowNumberFormatName = null; columnStyleNames = []; rowStyleName = null;
 					intable = true;
 				}
 				break;
@@ -23752,6 +23783,7 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 				if(Rn[1] === '/') { R+=rowpeat; rowpeat = 1; break; }
 				rowtag = parsexmltag(Rn[0], false);
 				rowNumberFormatName = ods_number_format(rowtag['default-cell-style-name']);
+				rowStyleName = rowtag['default-cell-style-name'] || null;
 				if(rowtag['行号']) R = rowtag['行号'] - 1; else if(R == -1) R = 0;
 				rowpeat = parse_ods_repeat(rowtag['number-rows-repeated'], 1048576 - R, "row");
 				/* Local fix: a row's height and hidden state. A long run of repeated rows is filler, not layout. */
@@ -23802,7 +23834,9 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 					/* Empty runs can span entire sheets; keep skipping them without allocation. */
 					var cellValueType = ctag['数据类型'] || ctag['value-type'];
 					/* Puter Spreadsheet: an empty cell that anchors a merge must still record its span. */
-					if(!ctag.formula && (!cellValueType || cellValueType === 'void') && !ctag['number-columns-spanned'] && !ctag['number-rows-spanned']) {
+					/* Puter Spreadsheet: so does one whose style paints it, unless it repeats over a large area. */
+					var paintedEmpty = opts.sheetStubs && ods_paints(ctag['style-name']) && (rowpeat || 1) * parse_ods_repeat(ctag['number-columns-repeated'], 16384 - (C + 1), "column") <= 4096;
+					if(!ctag.formula && (!cellValueType || cellValueType === 'void') && !ctag['number-columns-spanned'] && !ctag['number-rows-spanned'] && !paintedEmpty) {
 						C += parse_ods_repeat(ctag['number-columns-repeated'], 16383 - C, "column");
 						atag = ({}/*:any*/);
 						break;
@@ -23901,6 +23935,8 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 									var targetCell = rpt == rowpeat - 1 && repeatedColumn == cellColumnRepeat - 1 ? q : dup(q);
 									var targetFormatName = cellNumberFormatName || columnNumberFormats[C + repeatedColumn];
 									if(targetFormatName && number_format_map[targetFormatName]) targetCell.z = number_format_map[targetFormatName];
+									var targetProps = ods_cell_props(ctag["style-name"] || rowStyleName || columnStyleNames[C + repeatedColumn]);
+									if(targetProps) targetCell.odsProps = targetProps;
 									if(opts.cellDates && targetCell.t === 'n' && (ctag['数据类型'] || ctag['value-type']) === 'float' && targetCell.z && fmt_is_date(targetCell.z)) {
 										targetCell.v = numdate(targetCell.v + (WB.WBProps.date1904 ? 1462 : 0));
 										targetCell.t = typeof targetCell.v == "number" ? 'n' : 'd';
@@ -24013,17 +24049,24 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 			case 'automatic-styles': break; // 3.15.3 <office:automatic-styles>
 
 			case 'default-style': // TODO: <style:default-style>
-			case 'page-layout': break; // TODO: <style:page-layout>
+			case 'page-layout': curStyle = null; break; // TODO: <style:page-layout>
 			case 'style': { // 16.2 <style:style>
 				var styletag = parsexmltag(Rn[0], false);
-				curStyle = Rn[1] === '/' ? null : styletag;
+				/* Puter Spreadsheet: a self-closing style has no properties; the ones that follow are another element's. */
+				curStyle = Rn[1] === '/' || Rn[0].charAt(Rn[0].length-2) === '/' ? null : styletag;
 				/* Local fix: number formats can be declared after the cell styles that use them. */
 				if(styletag["family"] == "table-cell" && styletag["name"]) (inCommonStyles ? commonStyles : styles)[styletag["name"]] = styletag;
 			} break;
 			case 'map': break; // 16.3 <style:map>
 			case 'font-face': break; // 16.21 <style:font-face>
 
-			case 'paragraph-properties': break; // 17.6 <style:paragraph-properties>
+			case 'paragraph-properties': // 17.6 <style:paragraph-properties>
+				if(curStyle && curStyle["family"] == "table-cell" && Rn[1] !== '/') {
+					var cellStyleAttrs = parsexmltag(Rn[0], true, true);
+					curStyle.odsProps = curStyle.odsProps || {};
+					for(var cellStyleKey in cellStyleAttrs) curStyle.odsProps[cellStyleKey] = unescapexml_entities(cellStyleAttrs[cellStyleKey]);
+				}
+				break;
 			case 'table-properties': { // 17.15 <style:table-properties>
 				/* Puter Spreadsheet local patch: remember the table styles that hide their sheet. */
 				if(curStyle && curStyle['family'] == 'table' && curStyle['name'] && parsexmltag(Rn[0], false)['display'] == 'false') tableStyleHidden[curStyle['name']] = true;
@@ -24040,7 +24083,13 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 					if(rowprops['row-height'] && rowprops['use-optimal-row-height'] !== 'true') rowStyleHeights[curStyle['name']] = ods_length_px(rowprops['row-height']);
 				}
 			} break;
-			case 'table-cell-properties': break; // 17.18 <style:table-cell-properties>
+			case 'table-cell-properties': // 17.18 <style:table-cell-properties>
+				if(curStyle && curStyle["family"] == "table-cell" && Rn[1] !== '/') {
+					var cellStyleAttrs = parsexmltag(Rn[0], true, true);
+					curStyle.odsProps = curStyle.odsProps || {};
+					for(var cellStyleKey in cellStyleAttrs) curStyle.odsProps[cellStyleKey] = unescapexml_entities(cellStyleAttrs[cellStyleKey]);
+				}
+				break;
 
 			case 'number': // 16.27.3 <number:number>
 				break;
@@ -24087,7 +24136,13 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 				break;
 
 			case 'text-content': break; // 16.27.27 <number:text-content>
-			case 'text-properties': break; // 16.27.27 <style:text-properties>
+			case 'text-properties': // 16.27.27 <style:text-properties>
+				if(curStyle && curStyle["family"] == "table-cell" && Rn[1] !== '/') {
+					var cellStyleAttrs = parsexmltag(Rn[0], true, true);
+					curStyle.odsProps = curStyle.odsProps || {};
+					for(var cellStyleKey in cellStyleAttrs) curStyle.odsProps[cellStyleKey] = unescapexml_entities(cellStyleAttrs[cellStyleKey]);
+				}
+				break;
 			case 'embedded-text': break; // 16.27.4 <number:embedded-text>
 
 			case 'body': case '电子表格': break; // 3.3 16.9.6 19.726.3
@@ -24099,6 +24154,7 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 					var columnRepeat = parse_ods_repeat(columnTag['number-columns-repeated'], 16384 - columnCount, "column");
 					var columnFormatName = ods_number_format(columnTag['default-cell-style-name']);
 					if(columnFormatName) for(i = 0; i < columnRepeat; ++i) columnNumberFormats[columnCount + i] = columnFormatName;
+					if(columnTag['default-cell-style-name'] && ods_cell_props(columnTag['default-cell-style-name'])) for(i = 0; i < columnRepeat; ++i) columnStyleNames[columnCount + i] = columnTag['default-cell-style-name'];
 					var colWidthPx = colStyleWidths[columnTag['style-name']];
 					var colHidden = columnTag['visibility'] == 'collapse';
 					if((colWidthPx || colHidden) && columnRepeat <= 1024) for(i = 0; i < columnRepeat; ++i) {
@@ -24657,6 +24713,20 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 	};
 
 	var null_cell_xml = '          <table:table-cell />\n';
+	/* Puter Spreadsheet: a cell's font, fill, borders and alignment (cell.odsStyle, an app style) are written
+	 * as a table-cell style of their own, with the cell's number format; equal cells share one. */
+	var ods_cell_styles = null, ods_cell_props = new WeakMap();
+	var ods_cell_style_key = function(cell, nfs) {
+		if(!cell || !cell.odsStyle || typeof cell.odsStyle !== "object") return null;
+		var props = ods_cell_props.get(cell.odsStyle);
+		if(props == null) { props = odsCellStyleProperties(cell.odsStyle); ods_cell_props.set(cell.odsStyle, props); }
+		if(!props) return null;
+		return (cell.z && nfs[cell.z] ? nfs[cell.z] : "") + "|" + props;
+	};
+	var ods_cell_style_name = function(cell, nfs) {
+		var key = ods_cell_styles && ods_cell_style_key(cell, nfs);
+		return key ? ods_cell_styles.get(key) : null;
+	};
 	var write_ws = function(ws, wb/*:Workbook*/, i/*:number*/, opts, nfs, date1904)/*:string*/ {
 		/* Section 9 Tables */
 		var o/*:Array<string>*/ = [];
@@ -24831,7 +24901,10 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 						// Puter Spreadsheet: an annotation does not give a blank cell a string value.
 						if(cell.c) { textp = ""; break; }
 						// fall through
-					default: o.push(validationLayout || Object.keys(ct).length ? '          ' + writextag('table:table-cell', null, ct) + '\n' : null_cell_xml); continue;
+					default:
+						var blankCellStyle = ods_cell_style_name(cell, nfs);
+						if(blankCellStyle) ct["table:style-name"] = blankCellStyle;
+						o.push(validationLayout || Object.keys(ct).length ? '          ' + writextag('table:table-cell', null, ct) + '\n' : null_cell_xml); continue;
 				}
 				var text_p = write_text_p(textp);
 				if(cell.l && cell.l.Target) {
@@ -24842,6 +24915,8 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 					text_p = writextag('text:a', text_p, {'xlink:href': escapexml(_tgt)});
 				}
 				if(nfs[cell.z]) ct["table:style-name"] = "ce" + nfs[cell.z].slice(1);
+				var ownCellStyle = ods_cell_style_name(cell, nfs);
+				if(ownCellStyle) ct["table:style-name"] = ownCellStyle;
 				var payload = cell.t === "z" ? "" : writextag('text:p', text_p, {});
 				if(cell.c) {
 					var acreator = "", apayload = "", aprops = {};
@@ -24932,6 +25007,7 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 
 		/* number formats, table cells, text */
 		var nfs = {};
+		ods_cell_styles = new Map();
 		var nfi = 69;
 		wb.SheetNames.map(function(n) { return wb.Sheets[n]; }).forEach(function(ws) {
 			if(!ws) return;
@@ -24945,14 +25021,23 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 					if(out) { nfs[c.z] = "N" + nfi; ++nfi; o.push(out + "\n"); }
 				}
 			};
+			var noteCellStyle = function(c) {
+				var key = ods_cell_style_key(c, nfs);
+				if(!key || ods_cell_styles.has(key)) return;
+				var name = "cs" + (ods_cell_styles.size + 1), bar = key.indexOf("|");
+				ods_cell_styles.set(key, name);
+				o.push('  <style:style style:name="' + name + '" style:family="table-cell" style:parent-style-name="Default"' + (bar > 0 ? ' style:data-style-name="' + key.slice(0, bar) + '"' : '') + '>' + key.slice(bar + 1) + '</style:style>\n');
+			};
 			if(dense) {
 				for(var R = 0; R <= range.e.r; ++R) for(var C = 0; C <= range.e.c; ++C) noteFormat((ws["!data"][R]||[])[C]);
+				for(R = 0; R <= range.e.r; ++R) for(C = 0; C <= range.e.c; ++C) noteCellStyle((ws["!data"][R]||[])[C]);
 			} else {
 				/* Puter Spreadsheet: visit the stored cells in row-major order instead of every coordinate of the rectangle. */
 				var addrs = [];
 				for(var key in ws) if(key.charCodeAt(0) !== 33) addrs.push(decode_cell(key));
 				addrs.sort(function(a, b) { return a.r - b.r || a.c - b.c; });
 				for(var ai = 0; ai < addrs.length; ++ai) noteFormat(ws[encode_cell(addrs[ai])]);
+				for(ai = 0; ai < addrs.length; ++ai) noteCellStyle(ws[encode_cell(addrs[ai])]);
 			}
 		});
 		o.push('  <style:style style:name="ce1" style:family="table-cell" style:parent-style-name="Default" style:data-style-name="N37"/>\n');

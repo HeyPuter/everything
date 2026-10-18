@@ -57,6 +57,7 @@ import { err, isError } from './formula/functions.js';
 import { parseDelimited } from './tsv.js';
 import { parseInput, refineImpliedFormat, localeInfo, getLocale } from './format.js';
 import { cellsToHtml, copyMergeLayout, parseHtmlClipboard, cellsFromHtmlRows } from './clipboard.js';
+import { odsCellStyle, odsCellPaints } from './ods-cell-styles.js';
 import { htmlTableRows } from './html-table.js';
 import { reconcileConditionalFormats } from './xlsx-condformat-reconcile.js';
 import { prepareXlsxValidationLists } from './xlsx-validation.js';
@@ -343,7 +344,8 @@ function buildSheet(X, wb, sheet, { ods = false } = {}) {
     // from rows/columns. The sidecar separately preserves which fields actually belong to the cell.
     const style = lineFormats ? wb.styleAt(sheet.id, r, c) : cell.s;
     const numFmt = style?.fmt && style.fmt !== 'general' ? numFmtOf(style) : null;
-    if (empty && !cell.hyperlink && !numFmt && (ods || !cell.s)) continue;
+    // An .ods carries a blank cell only for what shows on it: a fill or a border.
+    if (empty && !cell.hyperlink && !numFmt && (ods ? !odsCellPaints(style) : !cell.s)) continue;
     // A formatted empty cell can also be occupied by a spilled result. A
     // formula too deep to parse has no value to cache and travels as typed.
     const value = unlessTooDeep(() => (cell.f != null || empty ? wb.getValue(sheet.id, r, c) : cell.v), null);
@@ -382,6 +384,7 @@ function buildSheet(X, wb, sheet, { ods = false } = {}) {
     }
     if (numFmt) out.z = numFmt;
     if (!ods) { out.s = style; if (empty) out.z ||= 'General'; }
+    else if (style) out.odsStyle = style;
     const link = unlessTooDeep(() => wb.linkAt(sheet.id, r, c), null);
     if (cell.hyperlink) out.l = { Target: cell.hyperlink };
     else if (link) out.l = { Target: link.url };
@@ -393,7 +396,7 @@ function buildSheet(X, wb, sheet, { ods = false } = {}) {
     const addr = X.utils.encode_cell({ r, c });
     const style = { ...(lineFormats ? wb._lineStyle(sheet, r, c) : null), ...wb.spillAt(sheet.id, r, c)?.style, ...wb.getCell(sheet.id, r, c)?.s };
     const numFmt = numFmtOf(style);
-    if (ws[addr]) { ws[addr].z = numFmt; if (!ods) ws[addr].s = style; continue; }
+    if (ws[addr]) { ws[addr].z = numFmt; if (!ods) ws[addr].s = style; else ws[addr].odsStyle = style; continue; }
     const out = {};
     if (isError(value)) { out.t = 'e'; out.v = fileErrorCode(value); }
     else if (value == null) { out.t = 's'; out.v = ''; }
@@ -402,6 +405,7 @@ function buildSheet(X, wb, sheet, { ods = false } = {}) {
     else { out.t = 's'; out.v = fitText(text(value)); }
     out.z = numFmt;
     if (!ods) out.s = style;
+    else out.odsStyle = style;
     ws[addr] = out;
     if (r > maxR) maxR = r;
     if (c > maxC) maxC = c;
@@ -1760,6 +1764,9 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     }
     if (fromZ && !reconcileStyle) cell.s = { ...(cell.s || {}), ...fromZ };
     if (bg) cell.s = { ...(cell.s || {}), bg };
+    // An .ods cell style's font, fill, borders and alignment; this app's own files carry their styles in the sidecar.
+    const odsLook = !own && !partXml && src.odsProps ? odsCellStyle(src.odsProps) : null;
+    if (odsLook) cell.s = { ...(cell.s || {}), ...odsLook };
     // Normal text formatting alone must not create a cell for a missing
     // shared string, an uncached external formula, or a blank spill result.
     if (font && (reconcileStyle || cell.v != null || cell.f != null || fontIndex || src.l?.Target || font.nativeFill)) cell.s = { ...(cell.s || {}), ...font };
