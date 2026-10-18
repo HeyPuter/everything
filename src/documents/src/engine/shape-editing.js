@@ -80,6 +80,25 @@ export function selectedShape(editor) {
   return params ? { image, params } : null;
 }
 
+const WP = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing', A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+/**
+ * The shape's own frame with the rewritten shape in it: the extent and graphic come from `rebuilt`, while
+ * the frame keeps what the shape is rewritten without (alignment, alt text and title, the decorative mark,
+ * locks, wrapping distances and flags). A position axis the edit moved takes the rebuilt one.
+ */
+export function carriedFrame(original, rebuilt, moved) {
+  const parse = text => new DOMParser().parseFromString(text, 'application/xml');
+  const before = parse(original), after = parse(rebuilt);
+  const frame = doc => [...doc.documentElement.children].find(n => n.namespaceURI === WP);
+  const keep = frame(before), next = frame(after);
+  if (!keep || !next || keep.localName !== next.localName) return rebuilt;
+  const own = (parent, ns, name) => [...parent.children].find(n => n.namespaceURI === ns && n.localName === name);
+  const replace = (ns, name) => { const old = own(keep, ns, name), fresh = own(next, ns, name); if (old && fresh) old.replaceWith(before.importNode(fresh, true)); return !!(old && fresh); };
+  if (!replace(WP, 'extent') || !replace(A, 'graphic')) return rebuilt;
+  for (const [axis, name] of [['x', 'positionH'], ['y', 'positionV']]) if (moved.has(axis)) replace(WP, name);
+  return new XMLSerializer().serializeToString(before);
+}
+
 /** Rewrite the selected shape with new fill, outline, size or position. patch: { fill, line, lineWidth, width, height, anchor }. */
 export async function updateShape(editor, patch) {
   const selected = selectedShape(editor);
@@ -87,13 +106,18 @@ export async function updateShape(editor, patch) {
   const { image, params } = selected, model = editor.model, revision = editor.session.revision;
   const width = patch.width ?? image.width, height = LINE_PRESETS.has(params.preset) ? 0 : patch.height ?? image.height;
   if (!(width > 0) || !(height > 0 || LINE_PRESETS.has(params.preset)) || width > 22 * EMU_PER_INCH || height > 22 * EMU_PER_INCH) throw new Error('Shape sizes must be greater than 0 and at most 22 inches.');
+  // An axis the edit places at an offset no longer follows the alignment or percentage it had.
+  const moved = new Set(['x', 'y'].filter(axis => patch.anchor?.[axis] !== undefined));
   const anchor = image.anchor ? { ...image.anchor, ...(patch.anchor || {}) } : undefined;
+  if (anchor) for (const axis of moved) { delete anchor[`${axis}Align`]; delete anchor[`${axis}Percentage`]; }
   const next = { ...params, ...Object.fromEntries(['fill', 'line', 'lineWidth'].filter(key => key in patch).map(key => [key, patch[key]])),
     id: image.id, name: image.name, width: Math.round(width), height: Math.round(height), anchor, assetId: freshAssetId(model) };
   const { image: built, asset, bitmap } = await prepare(editor, next);
   if (editor.destroyed || revision !== editor.session.revision || editor.model.selectedImage !== image) { bitmap.close?.(); throw new Error('The shape changed before the edit could be applied. Try again.'); }
   register(editor, next.assetId, asset, bitmap);
-  const replacement = { ...built, alt: image.alt };
+  // The drawing keeps everything about it but its shape: alt text, title, flags and alignment, in the model and in its XML.
+  const replacement = { ...image, assetId: built.assetId, width: built.width, height: built.height, ...(built.flatLine ? { flatLine: built.flatLine } : {}),
+    ...(anchor ? { anchor } : {}), shell: carriedFrame(image.shell, built.shell, moved) };
   const ok = editor.execute(() => {
     const model = editor.model;
     model.checkpoint();
