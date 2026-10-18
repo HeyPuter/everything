@@ -96,10 +96,12 @@ export function createRestrictEditing({ editor, pkg, error, author, onChange = (
     const signature = JSON.stringify([enforced(), protection(), settings().lockedStyles, regions(), engine?.model.range, engine?.session.path, editorsList(), !!pkg()?.readOnly, HIGHLIGHT.get()]);
     if (!force && signature === renderedSignature) return;
     renderedSignature = signature;
-    const focused = pane.body.contains(document.activeElement) ? document.activeElement.getAttribute('aria-label') || document.activeElement.textContent : null;
+    // A control is known by its label: its own, the <label> around it (a checkbox has no text of its own), or its text.
+    const nameOf = n => n.getAttribute('aria-label') || n.closest('label')?.textContent || n.textContent;
+    const focused = pane.body.contains(document.activeElement) ? nameOf(document.activeElement) : null;
     pane.body.replaceChildren(enforced() ? enforcedView() : setupView(engine));
     // Keep keyboard focus on the control that was focused before the rebuild.
-    if (focused) [...pane.body.querySelectorAll('button, input, select')].find(n => (n.getAttribute('aria-label') || n.textContent) === focused || n.closest('label')?.textContent === focused)?.focus({ preventScroll: true });
+    if (focused) [...pane.body.querySelectorAll('button, input, select')].find(n => nameOf(n) === focused)?.focus({ preventScroll: true });
   }
 
   function setupView(engine) {
