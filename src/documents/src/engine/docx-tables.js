@@ -389,6 +389,17 @@ export function readTable(node, readParagraph, stylesRoot, readColor, readCellBl
   return { table, paragraphs };
 }
 
+// The row identifiers (w14:paraId) written into each part so far. A row inserted in the editor is a copy of
+// its neighbour, identifier included, and identifiers must be unique: a repeat is dropped (Word assigns one).
+const rowIdentifiers = new WeakMap();
+function uniqueRowIdentifier(doc, tr) {
+  if (!rowIdentifiers.has(doc)) rowIdentifiers.set(doc, new Set());
+  const seen = rowIdentifiers.get(doc), paraId = [...tr.attributes].find(a => a.localName === 'paraId');
+  if (!paraId) return;
+  if (!seen.has(paraId.value)) { seen.add(paraId.value); return; }
+  for (const attr of [...tr.attributes]) if (attr.localName === 'paraId' || attr.localName === 'textId') tr.removeAttributeNode(attr);
+}
+
 export function writeTable(block, doc, writeParagraph) {
   const make = name => doc.createElementNS(W, `w:${name}`);
   const from = (value, name) => value ? doc.importNode(parseXml(value).documentElement, true) : make(name);
@@ -469,6 +480,7 @@ export function writeTable(block, doc, writeParagraph) {
   for (const row of block.rows) {
     appendBoundary(node, row.id, undefined, 'before');
     const tr = from(row.shell, 'tr');
+    uniqueRowIdentifier(doc, tr);
     if (row.styleLookCleared) {
       // The table's Style Options replaced this row's own look exception.
       const exceptions = child(tr, 'tblPrEx');

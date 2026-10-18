@@ -1,6 +1,7 @@
 import { beforeAll, afterAll, it, expect, describe } from 'vitest';
 import { JSDOM } from 'jsdom';
-import { unzipSync, strFromU8 } from 'fflate';
+import { unzipSync, zipSync, strToU8, strFromU8 } from 'fflate';
+import { readFileSync } from 'node:fs';
 import { DocxPackage, createDocx, WRITING_STYLES } from '../src/engine/docx.js';
 import { TextDocument, paragraph, paragraphText } from '../src/engine/model.js';
 import { tableCells, verticalMerges, rowGrid, documentBlocks } from '../src/engine/tables.js';
@@ -378,4 +379,18 @@ describe('cells holding a nested table', () => {
     expect(doc.paragraphs.filter(p => p.cellId).map(paragraphText)).toEqual(['b0', 'b1', '', '']);
     expect(() => pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering, doc.styles, doc.tables)).not.toThrow();
   });
+});
+
+it('gives an inserted row no copy of its neighbour\'s paragraph identifier', async () => {
+  // Word writes w14:paraId on rows; an inserted row copies the row it was inserted from.
+  const parts = unzipSync(readFileSync('public/fixtures/table-headers.docx'));
+  let n = 0x100;
+  parts['word/document.xml'] = strToU8(strFromU8(parts['word/document.xml']).replace(/<w:tr>/g, () => `<w:tr w14:paraId="${(n++).toString(16).toUpperCase().padStart(8, '0')}" w14:textId="77777777">`));
+  const pkg = await DocxPackage.open(zipSync(parts)), doc = open(pkg);
+  doc.setCellBlock({ tableId: doc.tables[0].id, top: 0, bottom: 0, left: 1, right: 3 });
+  expect(T.insertRows(doc)).toBe(true);
+  const xml = strFromU8(unzipSync(new Uint8Array(await pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering, doc.styles, doc.tables).arrayBuffer()))['word/document.xml']);
+  const ids = [...xml.matchAll(/<w:tr [^>]*w14:paraId="([0-9A-F]+)"/g)].map(m => m[1]);
+  expect(ids.length).toBe(n - 0x100);
+  expect(new Set(ids).size).toBe(ids.length);
 });
