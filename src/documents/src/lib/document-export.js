@@ -5,7 +5,7 @@
  * fields, headers and footers, notes and comments do not.
  */
 import { documentBlocks } from '../engine/tables.js';
-import { listKind } from '../engine/numbering.js';
+import { listKind, listMarkers } from '../engine/numbering.js';
 
 const OBJECT = '￼';
 const escapeHtml = text => String(text).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -30,6 +30,18 @@ function blocksOf(model) {
   catch { return model.paragraphs.filter(p => !p.cellId).map(paragraph => ({ type: 'paragraph', paragraph })); }
 }
 const paragraphOf = block => block.paragraph;
+/** Each numbered item's number at its level, as the document shows it (continued lists and start values included). */
+function itemNumbers(model) {
+  const numbers = new Map();
+  try {
+    listMarkers(model.paragraphs, model.numbering).forEach((marker, i) => {
+      const p = model.paragraphs[i], value = marker?.counters[p.list.level];
+      if (Number.isSafeInteger(value) && value >= 0) numbers.set(p, value);
+    });
+  } catch { /* Items count from 1 within each list instead. */ }
+  return numbers;
+}
+const listLevel = p => Math.max(0, Math.min(8, p.list?.level || 0));
 /**
  * A table's rows as lists of cell texts, one per grid column: a merged cell's text stands in its first
  * column and row, and the columns and rows it also covers (and cells a row leaves out) are empty, so
@@ -63,28 +75,42 @@ function runHtml(run, heading = false) {
   if (link) html = `<a href="${escapeHtml(link)}">${html}</a>`;
   return html;
 }
-function blocksHtml(blocks, model) {
-  let html = '', list = null;
-  const closeList = () => { if (list) { html += `</${list}>`; list = null; } };
+function blocksHtml(blocks, model, numbers = itemNumbers(model)) {
+  // The open lists, outermost first; each holds an open item a deeper list nests in.
+  let html = '';
+  const lists = [];
+  const closeList = () => { const { tag } = lists.pop(); html += `</li></${tag}>`; };
+  const closeLists = () => { while (lists.length) closeList(); };
   for (const block of blocks) {
     if (block.type === 'table') {
-      closeList();
+      closeLists();
       html += '<table>' + block.rows.map(row => '<tr>' + row.cells.filter(cell => cell.rowSpan !== 0).map(cell => {
         const span = (cell.span || 1) > 1 ? ` colspan="${cell.span}"` : '';
         const rows = cell.rowSpan > 1 ? ` rowspan="${cell.rowSpan}"` : '';
-        return `<td${span}${rows}>${blocksHtml(cell.content.map(c => c.type ? c : { type: 'paragraph', ...c }), model)}</td>`;
+        return `<td${span}${rows}>${blocksHtml(cell.content.map(c => c.type ? c : { type: 'paragraph', ...c }), model, numbers)}</td>`;
       }).join('') + '</tr>').join('') + '</table>';
       continue;
     }
     const p = paragraphOf(block);
     const kind = kindOf(p, model.numbering), tag = kind === 'bullet' ? 'ul' : kind ? 'ol' : null;
-    if (tag !== list) { closeList(); if (tag) { html += `<${tag}>`; list = tag; } }
+    if (!tag) closeLists();
+    else {
+      const depth = listLevel(p);
+      while (lists.length && lists.at(-1).depth > depth) closeList();
+      if (lists.at(-1)?.depth === depth && lists.at(-1).tag !== tag) closeList();
+      if (lists.at(-1)?.depth === depth) html += '</li>';
+      else {
+        const start = tag === 'ol' ? numbers.get(p) ?? 1 : 1;
+        html += `<${tag}${start !== 1 ? ` start="${start}"` : ''}>`;
+        lists.push({ tag, depth });
+      }
+    }
     const level = headingLevel(p, model.styles);
     const inner = p.runs.map(run => runHtml(run, !!level)).join('') || '<br>';
     const align = ['center', 'right', 'both'].includes(p.alignment) ? ` style="text-align:${p.alignment === 'both' ? 'justify' : p.alignment}"` : '';
-    html += tag ? `<li${align}>${inner}</li>` : level ? `<h${level}${align}>${inner}</h${level}>` : `<p${align}>${inner}</p>`;
+    html += tag ? `<li${align}>${inner}` : level ? `<h${level}${align}>${inner}</h${level}>` : `<p${align}>${inner}</p>`;
   }
-  closeList();
+  closeLists();
   return html;
 }
 
@@ -138,7 +164,9 @@ function runMarkdown(run, heading = false) {
 const paragraphMarkdown = (p, heading = false, lineBreak = '\\\n') => p.runs.map(run => runMarkdown(run, heading)).join('').replace(/^\0+|\0+$/g, '')
   .split(BREAK).map(escapeLineStart).join(heading ? ' ' : lineBreak);
 function blocksMarkdown(blocks, model) {
-  const out = []; let counter = 0, previousList = null;
+  const out = [], numbers = itemNumbers(model);
+  // The open list levels, outermost first: where each level's markers start and its items' text begins.
+  let lists = [], previousList = null;
   for (const block of blocks) {
     if (block.type === 'table') {
       // Text already escapes its pipes (and link targets encode theirs), so none ends a cell early.
@@ -148,22 +176,28 @@ function blocksMarkdown(blocks, model) {
         const pad = r => [...r, ...Array(width - r.length).fill(' ')];
         out.push(['| ' + pad(rows[0]).join(' | ') + ' |', '|' + ' --- |'.repeat(width), ...rows.slice(1).map(r => '| ' + pad(r).join(' | ') + ' |')].join('\n'));
       }
-      previousList = null;
+      previousList = null; lists = [];
       continue;
     }
     const p = block.paragraph, kind = kindOf(p, model.numbering), level = headingLevel(p, model.styles);
     const text = paragraphMarkdown(p, !!level);
     if (kind) {
-      counter = previousList === kind ? counter + 1 : 1;
-      const indent = '  '.repeat(Math.max(0, Math.min(8, p.list?.level || 0)));
-      const marker = kind === 'bullet' ? '-' : `${counter}.`;
+      // A deeper item is indented to its parent item's text, which nests it under that item.
+      const depth = listLevel(p);
+      while (lists.length && lists.at(-1).depth > depth) lists.pop();
+      let list = lists.at(-1);
+      if (list?.depth !== depth) { list = { depth, indent: list ? list.content : 0, kind: null, number: 0 }; lists.push(list); }
+      const number = numbers.get(p) ?? (list.kind === kind ? list.number + 1 : 1);
+      Object.assign(list, { kind, number });
+      const marker = kind === 'bullet' ? '-' : `${number}.`, indent = ' '.repeat(list.indent);
+      list.content = list.indent + marker.length + 1;
       // A line after a break is indented to the item's text, so it stays in the item.
-      const line = `${indent}${marker} ${text.replace(/\n/g, `\n${indent}${' '.repeat(marker.length + 1)}`)}`;
+      const line = `${indent}${marker} ${text.replace(/\n/g, `\n${' '.repeat(list.content)}`)}`;
       if (previousList) out[out.length - 1] += `\n${line}`; else out.push(line);
       previousList = kind;
       continue;
     }
-    previousList = null;
+    previousList = null; lists = [];
     if (level) out.push(`${'#'.repeat(level)} ${text.trim()}`);
     else if (text.trim()) out.push(text);
   }

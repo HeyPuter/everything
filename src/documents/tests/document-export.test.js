@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import { TextDocument, paragraph } from '../src/engine/model.js';
+import { listKind } from '../src/engine/numbering.js';
 import { documentHtml, documentMarkdown, documentPlainText } from '../src/lib/document-export.js';
 import { markdownHtml } from '../src/lib/markdown-html.js';
 import { htmlFragment, pasteFragment } from '../src/engine/clipboard-fragment.js';
@@ -101,6 +102,48 @@ describe('Markdown text that looks like markup', () => {
     const doc = blankDoc();
     doc.replace('Intro\v- dash\v===\v3. three');
     expect(reopen(documentMarkdown(doc))).toEqual(['Intro\v- dash\v===\v3. three']);
+  });
+});
+
+describe('exported lists', () => {
+  // Levels 0/1/1/0/1/0, the second inner list bulleted.
+  const nested = () => {
+    const doc = blankDoc();
+    doc.replace('a'); doc.toggleList('number');
+    doc.insertParagraph(); doc.replace('a1'); doc.changeListLevel(1);
+    doc.insertParagraph(); doc.replace('a2');
+    doc.insertParagraph(); doc.replace('b'); doc.changeListLevel(-1);
+    doc.insertParagraph(); doc.replace('b1'); doc.toggleList('bullet'); doc.changeListLevel(1);
+    doc.insertParagraph(); doc.replace('c');
+    // The last item continues the first list at its top level.
+    doc.paragraphs.at(-1).list = { ...doc.paragraphs[0].list };
+    return doc;
+  };
+  const shape = doc => doc.paragraphs.map(p => `${p.runs.map(r => r.text).join('')}:${p.list ? `${listKind(doc.numbering, p.list)}@${p.list.level}` : '-'}`);
+  const reopen = (markdownOrHtml, html = false) => {
+    const doc = blankDoc(), fragment = htmlFragment(html ? markdownOrHtml : markdownHtml(markdownOrHtml));
+    for (const p of fragment.paragraphs) p.mark = true;
+    pasteFragment(doc, fragment);
+    return doc;
+  };
+  it('nest each level under its parent item and number each level on its own', () => {
+    const doc = nested();
+    expect(shape(doc)).toEqual(['a:number@0', 'a1:number@1', 'a2:number@1', 'b:number@0', 'b1:bullet@1', 'c:number@0']);
+    expect(documentMarkdown(doc)).toBe('1. a\n   1. a1\n   2. a2\n2. b\n   - b1\n3. c\n');
+    expect(shape(reopen(documentMarkdown(doc)))).toEqual(shape(doc));
+    expect(body(documentHtml(doc))).toBe('<ol><li>a<ol><li>a1</li><li>a2</li></ol></li><li>b<ul><li>b1</li></ul></li><li>c</li></ol>');
+    expect(shape(reopen(documentHtml(doc), true))).toEqual(shape(doc));
+  });
+  it('keep the number a list continues from after a paragraph between its items', () => {
+    const doc = blankDoc();
+    doc.replace('one'); doc.toggleList('number');
+    doc.insertParagraph(); doc.replace('two');
+    doc.insertParagraph(); doc.toggleList('number'); doc.replace('Between');
+    doc.insertParagraph(); doc.replace('three');
+    // "three" continues the list "Between" interrupted, as a list continued in Word does.
+    doc.paragraphs.at(-1).list = { ...doc.paragraphs[0].list };
+    expect(documentMarkdown(doc)).toBe('1. one\n2. two\n\nBetween\n\n3. three\n');
+    expect(body(documentHtml(doc))).toBe('<ol><li>one</li><li>two</li></ol><p>Between</p><ol start="3"><li>three</li></ol>');
   });
 });
 
