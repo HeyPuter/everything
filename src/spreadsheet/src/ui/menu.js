@@ -385,7 +385,8 @@ export function openMenu({ anchor, items, x = null, y = null, altRight = null, a
       next.click();
       return;
     }
-    // Swatches sit in a grid whose width `data-cols` gives. In a menu holding one, Right and Left move a swatch
+    // Swatches sit in a grid whose width `data-cols` gives (or the stylesheet, where it draws fewer columns on a
+    // narrow screen). In a menu holding one, Right and Left move a swatch
     // at a time throughout, crossing out of the grid at its ends; Down and Up move a row inside the grid, and
     // past its last or first row go on to the item after or before it. So the recent colours, the Custom
     // swatch and the rest of the menu are all on the arrow path.
@@ -394,7 +395,8 @@ export function openMenu({ anchor, items, x = null, y = null, altRight = null, a
     if (grid && menu.contains(grid) && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
       e.preventDefault();
       const cells = enabled.filter((node) => grid.contains(node));
-      const cols = Number(grid.dataset.cols) || cells.length;
+      const drawn = getComputedStyle(grid).gridTemplateColumns;
+      const cols = (drawn && drawn !== 'none' ? drawn.trim().split(/\s+/).length : 0) || Number(grid.dataset.cols) || cells.length;
       const gi = cells.indexOf(enabled[at]);
       if (e.key === 'ArrowDown') focusIndex(gi + cols < cells.length ? at + cols : enabled.indexOf(cells.at(-1)) + 1);
       else focusIndex(gi - cols >= 0 ? at - cols : enabled.indexOf(cells[0]) - 1);

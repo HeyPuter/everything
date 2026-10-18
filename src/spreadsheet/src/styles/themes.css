@@ -10,10 +10,11 @@
 .swatches-theme .swatch { width: 18px; height: 18px; border-radius: 0; border-color: var(--hairline); align-self: start; }
 .swatches-theme .swatch[aria-checked="true"] { box-shadow: inset 0 0 0 1px var(--surface), inset 0 0 0 2px var(--ink); }
 
-/* The gallery: a tile per theme, its heading face over its accents. */
+/* The gallery: a tile per theme, its heading face over its accents. The tiles give a little of their 80px
+   where the menu is narrower than the four of them (a phone), rather than push the last column out of view. */
 .theme-gallery {
   display: grid;
-  grid-template-columns: repeat(4, 80px);
+  grid-template-columns: repeat(4, minmax(0, 80px));
   gap: 6px;
   padding: 6px 8px 8px;
 }
@@ -59,8 +60,10 @@
 .theme-font-name { font-size: 11px; color: var(--ink-2, inherit); }
 .theme-font-face { font-size: 13px; white-space: nowrap; }
 
-/* Cell Styles ▸ Themed Cell Styles. */
+/* Cell Styles ▸ Themed Cell Styles. Six accents to a row need about 600px: a narrower window (a phone) has them
+   three to a row, and the menu's arrow keys follow the columns drawn. */
 .themed-cell-styles { display: grid; grid-template-columns: repeat(6, auto); gap: 2px; padding: 4px 6px 6px; }
+@media (max-width: 680px) { .themed-cell-styles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .themed-cell-styles .themed-cell-style { padding: 2px; }
 .themed-cell-styles .cell-style-sample { min-width: 0; font-size: 11px; padding: 3px 6px; white-space: nowrap; }
 

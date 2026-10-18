@@ -31,7 +31,7 @@
 .menu .equation-builtin { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding-top: 6px; padding-bottom: 6px; }
 .menu .equation-builtin-name { font-size: 12px; color: var(--ink-2, #4f4e4b); }
 
-.effects-gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 4px 8px 8px; }
+.effects-gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 4px 8px 8px; }
 .effects-tile { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 6px 6px; border: 1px solid transparent; border-radius: var(--r-sm, 4px); background: none; color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
 .effects-tile:hover, .effects-tile:focus-visible { background: var(--hover, #f0efea); }
 .effects-tile[aria-checked="true"] { border-color: var(--accent, #217346); background: var(--selected, #e6f2ea); }
