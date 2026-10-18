@@ -66,7 +66,7 @@ export function normalizeSmartArt(raw) {
   if (raw?.rtl === true) out.rtl = true;
   // A diagram another program made, drawn as that program left it until someone changes it here.
   const fb = raw?.fallback;
-  if (fb && typeof fb === 'object' && typeof fb.src === 'string' && fb.src.startsWith('data:image/svg+xml;base64,') && fb.src.length <= 8_000_000) {
+  if (fb && typeof fb === 'object' && typeof fb.src === 'string' && fb.src.length <= 8_000_000 && /^data:image\/svg\+xml;base64,[A-Za-z\d+/=]*$/.test(fb.src)) {
     const native = normalizeNativeDrawing(fb.nativeDrawing);
     const pad = Array.isArray(fb.pad) && fb.pad.length === 2 && fb.pad.every((n) => Number.isFinite(n) && n >= 0 && n < 1) ? { pad: [...fb.pad] } : {};
     out.fallback = { src: fb.src, ...pad, ...(native ? { nativeDrawing: native } : {}) };

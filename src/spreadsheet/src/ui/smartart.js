@@ -37,7 +37,9 @@ export function smartArtLook(wb) {
 export function fallbackPicture(fallback) {
   const [px, py] = fallback.pad || [0, 0];
   const pct = (n) => `${Math.round(n * 10000) / 100}%`;
-  return `<img class="smartart-fallback" alt="" draggable="false" src="${fallback.src}" style="position:absolute;left:${pct(-px)};top:${pct(-py)};width:${pct(1 + 2 * px)};height:${pct(1 + 2 * py)}">`;
+  // The address comes from the file: escaped, it cannot close its attribute and add others (an onerror script).
+  const src = String(fallback.src).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<img class="smartart-fallback" alt="" draggable="false" src="${src}" style="position:absolute;left:${pct(-px)};top:${pct(-py)};width:${pct(1 + 2 * px)};height:${pct(1 + 2 * py)}">`;
 }
 
 /* ---------- The gallery (Insert ▸ SmartArt, and More Layouts) ---------- */
