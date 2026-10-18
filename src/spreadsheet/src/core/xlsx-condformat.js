@@ -83,6 +83,19 @@ export function readXlsxConditionalFormats(xml, styles, themes, definedNames, { 
           : `${type === 'beginsWith' ? 'LEFT' : 'RIGHT'}(${cell},LEN(${literal}))=${literal}`;
         rule = { type: 'formula', value };
       }
+      else if (type === 'top10' && !['1', 'true'].includes(attr(source, 'percent'))) {
+        // Top/Bottom N items rank the numbers of the whole sqref, ties included, as the app's own rules do.
+        const rank = Number(attr(source, 'rank') ?? 10);
+        if (Number.isInteger(rank) && rank >= 1) rule = { type: ['1', 'true'].includes(attr(source, 'bottom')) ? 'bottom' : 'top', value: rank,
+          ...(ranges.length > 1 ? { statisticsRange: duplicateSourceFormula(ranges) } : {}) };
+      }
+      else if (type === 'aboveAverage' && attr(source, 'stdDev') == null) {
+        // Above or below the average of the sqref's numbers; text and blank cells are never painted.
+        const cell = cellName(base.r1, base.c1), op = `${['0', 'false'].includes(attr(source, 'aboveAverage')) ? '<' : '>'}${['1', 'true'].includes(attr(source, 'equalAverage')) ? '=' : ''}`;
+        rule = { type: 'formula', value: `AND(ISNUMBER(${cell}),${cell}${op}AVERAGE(${duplicateSourceFormula(ranges)}))` };
+      }
+      // A date-occurring rule carries the formula Excel evaluates for its period.
+      else if (type === 'timePeriod' && formulas[0]) rule = { type: 'formula', value: formulas[0] };
       else if (['containsBlanks', 'notContainsBlanks', 'containsErrors', 'notContainsErrors'].includes(type) && formulas[0]) {
         // These predicates use their saved formula, including custom references.
         // Unlike ordinary expression rules, Excel's notContainsBlanks treats a
