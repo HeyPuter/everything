@@ -3804,20 +3804,25 @@ export class Workbook extends EventTarget {
    * Paste with arithmetic: add, subtract, multiply, or divide each target
    * number by the copied number in the same position (the Paste Special
    * operations). Formulas and text at the target are left alone; a blank
-   * target counts as 0. `values` is a 2D array of numbers (null to skip).
+   * target counts as 0. `values` is a 2D array of numbers (null to skip),
+   * tiled across `target` the way pasteCells tiles a block: one copied
+   * number multiplies every selected cell.
    * Returns the number of cells actually changed, or zero when refused.
    */
-  pasteOperation(sheetId, values, r0, c0, op) {
+  pasteOperation(sheetId, values, r0, c0, op, target = null) {
     const apply = { add: (a, b) => a + b, sub: (a, b) => a - b, mul: (a, b) => a * b, div: (a, b) => (b === 0 ? err('#DIV/0!') : a / b) }[op];
     if (!apply) return 0;
     const sheet = this.sheet(sheetId);
     if (!sheet) return 0;
     const limit = gridLimits(sheet);
+    const h = values.length;
+    const w = values.reduce((width, row) => Math.max(width, row.length), 0);
+    const reps = this.pasteReps(h, w, target);
     const entries = [];
-    values.forEach((row, i) => row.forEach((v, j) => {
+    for (let ry = 0; ry < reps.rows; ry++) for (let rx = 0; rx < reps.cols; rx++) values.forEach((row, i) => row.forEach((v, j) => {
       if (typeof v !== 'number' || !Number.isFinite(v)) return;
-      const r = r0 + i;
-      const c = c0 + j;
+      const r = r0 + ry * h + i;
+      const c = c0 + rx * w + j;
       if (!inGrid(r, c, limit) || this._coveredByMerge(sheetId, r, c)) return;
       const prev = this.getCell(sheetId, r, c);
       if (prev && (prev.f != null || (prev.v != null && typeof prev.v !== 'number'))) return;
