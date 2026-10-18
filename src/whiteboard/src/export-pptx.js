@@ -205,7 +205,8 @@ async function pngBytes(canvas) {
   const blob =
     typeof canvas.toBlob === "function" &&
     (await new Promise((resolve) => canvas.toBlob(resolve, "image/png")));
-  return blob
+  // A browser whose files cannot be read as bytes writes it out as text.
+  return typeof blob?.arrayBuffer === "function"
     ? new Uint8Array(await blob.arrayBuffer())
     : base64Bytes(canvas.toDataURL("image/png"));
 }
