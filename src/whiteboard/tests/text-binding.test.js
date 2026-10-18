@@ -304,6 +304,49 @@ test("an editor bound again after a refused save shows the shared text and leave
   dom.window.close();
 });
 
+test("keys pressed while a refused save replaces the document are made again on the new one", () => {
+  const dom = new JSDOM("<textarea></textarea>");
+  const input = dom.window.document.querySelector("textarea");
+  const b = board("Refused"),
+    t = item("text", 0, 0, { text: "Agreed" });
+  b.items = [t];
+  const server = new SharedDocument();
+  server.commit(b);
+  const session = {
+    shared: new SharedDocument(server.update()),
+    readOnly: false,
+    closed: false,
+    publish: async () => {},
+  };
+  const type = (value) => {
+    input.value = value;
+    input.setSelectionRange(value.length, value.length);
+    input.dispatchEvent(new dom.window.Event("input"));
+  };
+  input.value = "Agreed";
+  let unbind = bindText(session, t.id, input, () => {});
+  type("Agreed, refused words");
+  // The worker refused the save: the session replaces its document, and
+  // the editor is bound to it only once the recovery has finished.
+  const previous = session.shared;
+  session.shared = new SharedDocument(server.update());
+  previous.destroy();
+  type("Agreed, refused words!");
+  type("Agreed, refused words!!");
+  const stranded = unbind();
+  unbind = bindText(session, t.id, input, () => {}, {
+    reload: true,
+    stranded,
+  });
+  assert.equal(input.value, "Agreed!!");
+  assert.equal(session.shared.snapshot().items[0].text, "Agreed!!");
+  assert.equal(input.selectionStart, "Agreed!!".length);
+  assert.equal(unbind(), undefined, "Nothing typed is left over");
+  session.shared.destroy();
+  server.destroy();
+  dom.window.close();
+});
+
 test("typing in a shared text already over 20,000 characters keeps its end", () => {
   const app = fixture();
   try {

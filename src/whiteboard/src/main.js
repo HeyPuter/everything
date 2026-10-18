@@ -11026,15 +11026,16 @@ async function startCollaboration(target, token, localTimer) {
         if (collaboration !== session || current !== target) return;
         // Recovery replaced the shared document; bind the open editor to it.
         if (editing?.unbind) {
-          editing.unbind();
+          const stranded = editing.unbind();
           // The editor shows the shared text again, without the refused
-          // words, rather than saving them once more.
+          // words, rather than saving them once more; what was typed while
+          // the document was replaced is made again on it.
           editing.unbind = bindText(
             session,
             editing.item.id,
             editing.input,
             editing.sharedChange,
-            { reload: true },
+            { reload: true, stranded },
           );
         }
         // A change made again without the names anonymous input leaves

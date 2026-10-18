@@ -88,7 +88,10 @@ export function bindText(session, id, input, onChange, pending = {}) {
   };
   let composing = !!pending.composing,
     compositionBase = pending.compositionBase || "",
-    changes = [];
+    changes = [],
+    // The text typed on, once recovering from a refused save has replaced
+    // the document and the keys pressed since have nowhere to go.
+    stranded;
   const read = () => {
     const value = text.toString(),
       delta = text.toDelta(),
@@ -116,6 +119,11 @@ export function bindText(session, id, input, onChange, pending = {}) {
   };
   const update = () => {
     if (composing || session.readOnly || session.contentReadOnly) return;
+    // Kept for the binding to the new document, which makes them again.
+    if (session.shared !== shared) {
+      stranded ??= text.toString();
+      return;
+    }
     shared.text(id, input.value, input.textRuns, input.textBlocks);
     const delta = text.toDelta();
     onChange(
@@ -217,6 +225,24 @@ export function bindText(session, id, input, onChange, pending = {}) {
       blocksFromDelta(delta, entry.get("textTail")),
     );
     session.publish().catch(() => {});
+  } else if (
+    pending.stranded !== undefined &&
+    !composing &&
+    !(session.readOnly || session.contentReadOnly)
+  ) {
+    // Typed while the document was being replaced: the change from the text
+    // typed on is made again on this one, as a composition is through the
+    // changes that arrived during it.
+    const change = textDifference(pending.stranded, text.toString());
+    compositionBase = pending.stranded;
+    changes = [
+      [
+        { retain: change.start },
+        { delete: change.end - change.start },
+        { insert: change.insert },
+      ],
+    ];
+    compositionEnd();
   } else if (pending.reload && !composing) {
     const { selectionStart, selectionEnd, selectionDirection } = input;
     read();
@@ -234,9 +260,12 @@ export function bindText(session, id, input, onChange, pending = {}) {
     shared.undo.stopCapturing();
     shared.undo.captureTimeout = 0;
   }
+  // Returns the text typed on when keys were pressed after the document was
+  // replaced, for the next binding to make them again.
   return () => {
     if (replacement) return replacement();
     if (composing) compositionEnd();
     detach();
+    return stranded;
   };
 }
