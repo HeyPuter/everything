@@ -35512,6 +35512,35 @@ for (const [created, later, text] of [
     }
   });
 
+test("the AI assistant opens on its heading, not on an action that sends the board", async () => {
+  // It opened on Summarize, so a second Enter sent the whole board to the
+  // AI model.
+  const asked = [];
+  const app = await setup({
+    ai: {
+      chat: async (prompt) => {
+        asked.push(prompt);
+        return "Summary";
+      },
+    },
+  });
+  const { doc, click } = app;
+  try {
+    await click('[data-action="new"]');
+    await click('[data-action="add-note"]');
+    await click('[data-action="finish-text"]');
+    await click('[data-action="ai"]');
+    const d = doc.querySelector("dialog.ai-dialog[open]");
+    assert.ok(d);
+    assert.equal(d.querySelector('[data-ai="summarize"]').disabled, false);
+    assert.equal(doc.activeElement, d.querySelector(".dialog-header h2"));
+    assert.equal(doc.activeElement.textContent, "AI assistant");
+    assert.equal(asked.length, 0);
+  } finally {
+    await app.close();
+  }
+});
+
 test("AI summary authoring preserves explicit mixed languages, literal text and edited ranges through saving", async () => {
   const text =
     'Veuillez lire cette étape. Read first. <img id="ai-summary-injection">';

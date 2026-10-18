@@ -465,6 +465,14 @@ export function createAI({
           // remove the selection while this dialog remains open.
           summaryScopes.set(d, selectedCount ? selected : null);
           d.classList.add("ai-dialog");
+          // Each action sends board content to the AI model, so the keyboard
+          // starts on the heading rather than on Summarize, where a second
+          // Enter would send the whole board.
+          const heading = d.querySelector(".dialog-header h2");
+          if (heading) {
+            heading.tabIndex = -1;
+            heading.focus({ preventScroll: true });
+          }
           d.querySelector("#ai-enabled")?.addEventListener("change", (e) => {
             try {
               localStorage.setItem(AI_KEY, String(e.target.checked));
