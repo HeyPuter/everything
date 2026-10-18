@@ -740,6 +740,9 @@ export function parseInput(text, loc = locale) {
     // 1.234,50 €, USD 1,234.50), so that the Currency format's own display reads back in every regional format.
     const labelled = stripCurrencyLabel(body, loc);
     if (labelled) ({ body, currency } = labelled);
+    // The Accounting format writes the currency outside the parentheses ("$ (1,234.50)", "(1.234,50) €"),
+    // which reads as the negative amount, as VALUE reads it.
+    if (labelled && !negative && /^\(.*\)$/.test(body)) { negative = true; body = body.slice(1, -1).trim(); }
     const n = localeNumber(body, info);
     // Typed thousands separators ask for the grouped Number format, so a typed 1,000 takes #,##0.
     const grouped = info.decimal === ',' ? /\d[.\s  ']\d/.test(body) : /\d,\d/.test(body);
