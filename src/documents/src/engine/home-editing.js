@@ -187,6 +187,17 @@ function sortKey(text, type) {
   return value;
 }
 
+/** Where each range (bookmark, comment or editing permission) starting or ending in these paragraphs has its edges. */
+function rangeEdges(paragraphs) {
+  const edges = new Map();
+  for (const p of paragraphs) for (const marker of p.bookmarks || []) {
+    if (marker.edge !== 'start' && marker.edge !== 'end') continue;
+    if (!edges.has(marker.id)) edges.set(marker.id, {});
+    edges.get(marker.id)[marker.edge] = p;
+  }
+  return [...edges.values()];
+}
+
 /**
  * Sort the selected paragraphs by their text. Paragraphs
  * without a key (empty, or no number/date for those types) go first when ascending.
@@ -200,6 +211,8 @@ export function sortParagraphs(model, { type = 'text', descending = false, caseS
   if (targets.some(p => p.sectionEnd || p.blockControls?.length || p.frame || p.fieldMarkers?.length)) throw new Error('These paragraphs contain a section break, content control, frame or field and cannot be reordered.');
   const first = model.paragraphs.indexOf(targets[0]);
   if (targets.some((p, i) => model.paragraphs[first + i] !== p)) throw new Error('Select adjacent paragraphs to sort.');
+  // Reordered, a range from one of them to another could end before it starts: the document could not be saved.
+  if (rangeEdges(targets).some(({ start, end }) => start && end && start !== end)) throw new Error('A bookmark or comment runs from one of these paragraphs into another, so they cannot be sorted.');
   // The final paragraph of a document sorts like any other; a trailing empty paragraph stays last.
   const collator = new Intl.Collator(undefined, { sensitivity: caseSensitive ? 'case' : 'base', numeric: true });
   const keyed = targets.map((p, index) => ({ p, index, key: sortKey(paragraphText(p), type) }));
@@ -231,6 +244,8 @@ export function moveParagraphs(model, direction) {
   if (!neighbour || !targets.every(movable) || !movable(neighbour)) return false;
   // The document's final paragraph mark stays last: moving into the last place keeps it.
   if (direction > 0 && last + 1 === model.paragraphs.length - 1 && !paragraphText(neighbour).length) return false;
+  // A range between the moved paragraphs and the one they pass would end before it starts once they swap.
+  if (rangeEdges([...targets, neighbour]).some(({ start, end }) => start && end && (start === neighbour) !== (end === neighbour))) return false;
   const [anchor, focus] = [model.selection.anchor, model.selection.focus];
   const shift = (paragraphText(neighbour).length + 1) * (direction < 0 ? -1 : 1);
   model.checkpoint();
