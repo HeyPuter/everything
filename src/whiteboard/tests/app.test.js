@@ -28254,6 +28254,19 @@ test("a selected frame's context menu presents from it or exports it", async () 
         ?.dispatchEvent(
           new app.w.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
         );
+    // With other objects selected too, it exports only the frames.
+    key("F10", { shiftKey: true, cancelable: true });
+    await tick();
+    doc.querySelector('#context-menu [data-command="frames:export"]').click();
+    await tick();
+    assert.equal(doc.querySelector("#export-scope").value, "frames");
+    assert.deepEqual(
+      [...doc.querySelectorAll("#export-frames input:checked")].map(
+        (i) => i.value,
+      ),
+      [byText("Intro").id, byText("Ideas").id],
+    );
+    doc.querySelector("dialog[open]").close();
     assert.ok(!(await menu(byText("Loose").id)).includes("frames:export"));
     close();
     const commands = await menu(byText("Ideas").id);

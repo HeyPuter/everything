@@ -2324,7 +2324,8 @@ const contextMenu = createContextMenu({
       );
     if (entry.id === "select-all") return selectAll();
     if (entry.id === "frames:present") return features.actions.present();
-    if (entry.id === "frames:export") return features.actions.export();
+    if (entry.id === "frames:export")
+      return features.actions.export({ frames: true });
     return runCommand(entry);
   },
 });

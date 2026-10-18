@@ -3186,7 +3186,9 @@ export function createFeatures(api) {
       },
     );
   }
-  function exports() {
+  // `frames`, as from the context menu's Export selected frames, opens on
+  // the selected frames whatever else is selected with them.
+  function exports({ frames: framesOnly = false } = {}) {
     const board = api.board(),
       shown = (api.visualBoard?.() || board).items,
       frames = orderedFrames(shown),
@@ -3203,7 +3205,7 @@ export function createFeatures(api) {
     };
     const framesChosen =
       selectedFrames.length > 0 &&
-      [...chosen].every((id) => inChosenFrame(byId.get(id)));
+      (framesOnly || [...chosen].every((id) => inChosenFrame(byId.get(id))));
     // Letter is the default in North America; elsewhere A4.
     const letter = /-(US|CA|MX|PH|CL|CO|VE|GT|PR)$/i.test(
       globalThis.navigator?.language || "",
