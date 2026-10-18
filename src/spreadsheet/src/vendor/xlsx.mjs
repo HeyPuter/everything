@@ -4148,19 +4148,18 @@ var htmldecode/*:{(s:string):string}*/ = /*#__PURE__*/(function() {
 		return String.fromCodePoint(code);
 	}
 	return function htmldecode(str/*:string*/)/*:string*/ {
+		/* Puter Spreadsheet: whitespace collapses to one space as a browser renders it, also where
+		   it meets a tag, so "<b>Total</b> due" reads "Total due" rather than "Totaldue". Spaces
+		   beside a line break and at either end are dropped, as indentation of the markup is. */
 		var o = str
-				// Remove new lines and spaces from start of content
-				.replace(/^[\t\n\r ]+/, "")
-				// Remove new lines and spaces from end of content
-				.replace(/(^|[^\t\n\r ])[\t\n\r ]+$/,"$1")
-				// Added line which removes any white space characters after and before html tags
-				.replace(/>\s+/g,">").replace(/\b\s+</g,"<")
-				// Replace remaining new lines and spaces with space
+				// Replace runs of new lines and spaces with one space
 				.replace(/[\t\n\r ]+/g, " ")
 				// Replace <br> tags with new lines
 				.replace(/<\s*[bB][rR]\s*\/?>/g,"\n")
 				// Strip HTML elements
-				.replace(/<[^<>]*>/g,"");
+				.replace(/<[^<>]*>/g,"")
+				// Drop the spaces beside a line break and at either end
+				.replace(/ *\n */g, "\n").replace(/^ +| +$/g, "");
 		return o.replace(/&(#[xX][0-9a-fA-F]+|#\d+|[A-Za-z][A-Za-z0-9]*);/g, reference);
 	};
 })();
