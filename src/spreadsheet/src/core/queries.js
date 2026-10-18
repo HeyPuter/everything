@@ -606,7 +606,8 @@ function matches(cond, v, type) {
 
 function aggregate(op, values, type) {
   if (op === 'count') return values.length;
-  if (op === 'countDistinct') return new Set(values.map(keyOf)).size;
+  // Count Distinct Rows counts the group's distinct rows, every column compared (Table.RowCount(Table.Distinct(_))).
+  if (op === 'countDistinct') return new Set(values.map((row) => row.map(keyOf).join('\u0001'))).size;
   const nums = values.filter((v) => typeof v === 'number');
   if (op === 'min' || op === 'max') {
     const present = values.filter((v) => v != null && !isErr(v));
@@ -739,7 +740,8 @@ export function applyStep(table, step, refs = {}) {
     }
     case 'groupBy': {
       const keys = step.keys.map((n) => colIndex(table, n));
-      const aggs = step.aggregations.map((a) => ({ ...a, i: a.op === 'count' ? -1 : colIndex(table, a.column) }));
+      // Count Rows and Count Distinct Rows read the group's whole rows, not one column.
+      const aggs = step.aggregations.map((a) => ({ ...a, i: a.op === 'count' || a.op === 'countDistinct' ? -1 : colIndex(table, a.column) }));
       const groups = new Map();
       for (const r of rows) {
         const k = keys.map((i) => keyOf(r[i])).join('\u0001');

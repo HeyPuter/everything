@@ -350,7 +350,8 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
     const addAgg = (name = 'Count', op = 'count', column = cols[0]) => {
       const opSel = select('Operation', Object.entries(AGGREGATIONS), op);
       const colSel = colSelect(column, 'Column');
-      const sync = () => { colSel.disabled = opSel.value === 'count'; };
+      // Count Rows and Count Distinct Rows take the whole group's rows, so they have no column, as in Power Query.
+      const sync = () => { colSel.disabled = opSel.value === 'count' || opSel.value === 'countDistinct'; };
       opSel.addEventListener('change', sync); sync();
       aggsHost.append(el('div.pq-group-row', {}, el('input.input', { type: 'text', value: name, 'aria-label': 'New column name' }), opSel, colSel,
         el('button.icon-btn', { type: 'button', 'aria-label': 'Remove aggregation', html: icon('x', 14), onclick: (e) => { if (aggsHost.children.length > 1) e.currentTarget.parentElement.remove(); } })));
@@ -365,7 +366,7 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
       const keys = [...keysHost.querySelectorAll('select')].map((s) => s.value);
       const aggregations = [...aggsHost.children].map((row) => {
         const [name, op, column] = row.querySelectorAll('input, select');
-        return { name: name.value.trim() || AGGREGATIONS[op.value], op: op.value, column: column.value };
+        return { name: name.value.trim() || AGGREGATIONS[op.value], op: op.value, column: column.disabled ? '' : column.value };
       });
       addStep({ type: 'groupBy', keys: [...new Set(keys)], aggregations });
       return null;
