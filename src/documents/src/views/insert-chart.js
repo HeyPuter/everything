@@ -48,19 +48,23 @@ export function openChartDialog({ initial = null, onInsert, onClose }) {
     if (single() && data.series.length > 1) data.series = data.series.slice(0, 1);
     drawGrid(); render();
   }
-  const cellInput = (value, label, onInput, numeric = false) => el('input.input', { type: 'text', inputMode: numeric ? 'decimal' : 'text', value: String(value ?? ''), 'aria-label': label, oninput: e => { onInput(e.target.value); render(); } });
+  // A value cell holds what was typed; one that is not a number ("1,200", "12%", "$5") is marked, and Insert
+  // says which, rather than saving it as 0.
+  const numberOf = value => { const text = String(value ?? '').trim(); return text === '' ? 0 : Number(text); };
+  const cellInput = (value, label, onInput, numeric = false) => el('input.input', { type: 'text', inputMode: numeric ? 'decimal' : 'text', value: String(value ?? ''), 'aria-label': label,
+    oninput: e => { onInput(e.target.value); if (numeric) { if (Number.isFinite(numberOf(e.target.value))) e.target.removeAttribute('aria-invalid'); else e.target.setAttribute('aria-invalid', 'true'); } render(); } });
   function drawGrid() {
     const head = el('tr', {}, el('th', {}, ''), ...data.series.map((s, j) => el('th', {}, cellInput(s.name, `Series ${j + 1} name`, v => { s.name = v; }))),
       el('th', {}, el('button.btn.btn-ghost.btn-sm', { type: 'button', disabled: single() || data.series.length >= 20, title: 'Add a series', onclick: () => { data.series.push({ name: `Series ${data.series.length + 1}`, values: data.categories.map(() => 0), color: CHART_PALETTE[data.series.length % CHART_PALETTE.length] }); drawGrid(); render(); } }, '+ Series')));
     const body = data.categories.map((category, i) => el('tr', {}, el('th', {}, cellInput(category, `Category ${i + 1}`, v => { data.categories[i] = v; })),
-      ...data.series.map((s, j) => el('td', {}, cellInput(s.values[i], `${s.name || `Series ${j + 1}`}, ${category}`, v => { s.values[i] = v.trim() === '' ? 0 : Number(v); }, true))),
+      ...data.series.map((s, j) => el('td', {}, cellInput(s.values[i], `${s.name || `Series ${j + 1}`}, ${category}`, v => { s.values[i] = v; }, true))),
       el('td', {}, el('button.icon-btn.insert-chart-remove', { type: 'button', 'aria-label': `Remove ${category || `row ${i + 1}`}`, title: 'Remove row', disabled: data.categories.length <= 1, onclick: () => { data.categories.splice(i, 1); for (const s of data.series) s.values.splice(i, 1); drawGrid(); render(); } }, '×'))));
     const foot = el('tr', {}, el('td', { colSpan: data.series.length + 2 },
       el('button.btn.btn-ghost.btn-sm', { type: 'button', disabled: data.categories.length >= 100, onclick: () => { data.categories.push(type.startsWith('scatter') ? String(data.categories.length + 1) : `Category ${data.categories.length + 1}`); for (const s of data.series) s.values.push(0); drawGrid(); render(); } }, '+ Row'),
       data.series.length > 1 ? el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { data.series.pop(); drawGrid(); render(); } }, '− Series') : null));
     grid.replaceChildren(el('thead', {}, head), el('tbody', {}, ...body, foot));
   }
-  const current = () => ({ type, title: title.value.trim(), legend: legend.value || null, categories: data.categories.map(c => String(c)), series: data.series.map((s, j) => ({ name: s.name || `Series ${j + 1}`, values: s.values.map(v => Number.isFinite(Number(v)) ? Number(v) : 0), color: s.color || CHART_PALETTE[j % CHART_PALETTE.length], ...(s.colors ? { colors: s.colors } : {}) })) });
+  const current = () => ({ type, title: title.value.trim(), legend: legend.value || null, categories: data.categories.map(c => String(c)), series: data.series.map((s, j) => ({ name: s.name || `Series ${j + 1}`, values: s.values.map(v => Number.isFinite(numberOf(v)) ? numberOf(v) : 0), color: s.color || CHART_PALETTE[j % CHART_PALETTE.length], ...(s.colors ? { colors: s.colors } : {}) })) });
   let pending = 0;
   async function render() {
     const ticket = ++pending;
@@ -79,7 +83,12 @@ export function openChartDialog({ initial = null, onInsert, onClose }) {
   const dialog = formDialog({ title: initial ? 'Edit Chart' : 'Insert Chart', submit: initial ? 'Update' : 'Insert', wide: true, className: 'insert-chart', onClose, content: [
     el('div.insert-chart-layout', {}, typeList, el('div.insert-chart-editor', {}, el('div.insert-chart-meta', {}, el('label.field', {}, el('span.field-label', {}, 'Title'), title), el('label.field', {}, el('span.field-label', {}, 'Legend'), legend)),
       preview, status, el('div.insert-chart-data', {}, grid)))],
-  onSubmit: () => onInsert(current()) });
+  onSubmit: () => {
+    for (const [j, s] of data.series.entries()) for (const [i, v] of s.values.entries()) {
+      if (!Number.isFinite(numberOf(v))) throw new Error(`“${String(v).trim()}” (${s.name || `Series ${j + 1}`}, ${data.categories[i]}) is not a number. Enter numbers such as 1200 or 1.5, without separators, signs or units.`);
+    }
+    return onInsert(current());
+  } });
   drawGrid(); render(); options.find(o => o.dataset.type === type)?.focus();
   return dialog.modal;
 }
