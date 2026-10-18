@@ -9,7 +9,7 @@
 import { el } from './dom.js';
 import { icon } from './icons.js';
 import { printPaperBox, expandPrintText, splitPrintSections, printPageText } from './print.js';
-import { printBands } from './print-pagination.js';
+import { printBands, printTitleBands } from './print-pagination.js';
 import { fillColorCss } from '../core/fill-color.js';
 import { fontColorCss } from '../core/font-color.js';
 import { fontStack, borderCss } from '../core/format.js';
@@ -26,8 +26,9 @@ function printedArea(wb, sheetId, prefs, range) {
 }
 
 /**
- * How the printed area falls on pages for these choices: { pages: [{ rows: [r1, r2], cols: [c1, c2] }],
- * scale, box, area, sizes } (sizes in unscaled CSS pixels). A sheet with nothing to print has one blank page.
+ * How the printed area falls on pages for these choices: { pages: [{ rows: [r1, r2], cols: [c1, c2], repeatRows?,
+ * repeatCols? }], scale, box, area, sizes } (sizes in unscaled CSS pixels), where repeatRows and repeatCols list the
+ * lines a page repeats before its own. A sheet with nothing to print has one blank page.
  */
 export function printPreviewLayout(wb, sheetId, prefs, range = null) {
   const sheet = wb.sheet(sheetId);
@@ -50,13 +51,53 @@ export function printPreviewLayout(wb, sheetId, prefs, range = null) {
   }
   scale = Math.max(0.1, Math.min(4, scale));
   const forced = (breaks, from, to) => new Set((breaks || []).filter((b) => b > from && b <= to).map((b) => b - from));
-  const bands = (sizes, capacity, breaks, from, to) => (printBands(sizes, capacity, 0, forced(breaks, from, to))?.bands || [{ start: 0, end: sizes.length }])
-    .filter((b) => b.end > b.start).map((b) => [from + b.start, from + b.end - 1]);
-  const colBands = bands(colSizes, contentW / scale - headW, prefs.colBreaks, area.c1, area.c2);
-  const rowBands = bands(rowSizes, contentH / scale - headH, prefs.rowBreaks, area.r1, area.r2);
+  /**
+   * The lines each page takes: [first, last] of the block, and the lines repeated above (or beside) them on
+   * that page, as the print repeats them: rows (or columns) to repeat, from wherever they are on the sheet, or
+   * else the frozen rows the block starts with, when they repeat.
+   */
+  const bands = (sizes, capacity, breaks, from, to, titles, hidden, size, frozen) => {
+    const plain = (list) => list.filter((b) => b.end > b.start).map((b) => ({ lines: [from + b.start, from + b.end - 1] }));
+    const whole = [{ lines: [from, to] }];
+    if (titles) {
+      // As the print lays them out: the title lines above the block, then the block, hidden lines left out.
+      const lines = [];
+      for (let i = titles[0]; i <= Math.min(titles[1], from - 1); i++) if (!hidden(i)) lines.push(i);
+      const bodyStart = lines.length;
+      for (let i = from; i <= to; i++) if (!hidden(i)) lines.push(i);
+      const repeat = lines.map((n, i) => (n >= titles[0] && n <= titles[1] ? i : -1)).filter((i) => i >= 0);
+      if (!repeat.length || bodyStart >= lines.length) return plain(printBands(sizes, capacity, 0, forced(breaks, from, to))?.bands || [{ start: 0, end: sizes.length }]);
+      const offsets = [0];
+      for (const line of lines) offsets.push(offsets.at(-1) + size(line));
+      // A band's pieces are runs of lines, by offset: each run's lines are those that start inside it.
+      const linesIn = ({ offset, size: extent }) => lines.filter((_, i) => offsets[i] >= offset && offsets[i] < offset + extent);
+      const breakAt = new Set([...forced(breaks, from, to)].map((b) => lines.findIndex((n) => n >= from + b)).filter((i) => i > bodyStart));
+      const list = printTitleBands(lines.map(size), capacity, { bodyStart, repeat: [repeat[0], repeat.at(-1) + 1] }, breakAt) || [];
+      const out = list.map(({ segments }) => {
+        const body = linesIn(segments.at(-1)), repeated = segments.slice(0, -1).flatMap(linesIn);
+        return body.length ? { lines: [body[0], body.at(-1)], ...(repeated.length ? { repeat: repeated } : {}) } : null;
+      }).filter(Boolean);
+      return out.length ? out : whole;
+    }
+    const result = printBands(sizes, capacity, frozen, forced(breaks, from, to));
+    const list = (result?.bands || []).filter((b) => b.end > b.start);
+    if (!list.length) return frozen ? plain(printBands(sizes, capacity, 0, forced(breaks, from, to))?.bands || [{ start: 0, end: sizes.length }]) : whole;
+    // The frozen rows that fit stay at the top of every page; their first page is the block's own first page.
+    const head = list[0].start;
+    const repeated = [];
+    for (let i = from; i < from + head; i++) if (!hidden(i)) repeated.push(i);
+    return list.map((b, i) => (i === 0 ? { lines: [from, from + b.end - 1] } : { lines: [from + b.start, from + b.end - 1], ...(repeated.length ? { repeat: repeated } : {}) }));
+  };
+  const hiddenCol = (c) => !!sheet.hiddenCols?.has(c), hiddenRow = (r) => !!(sheet.hiddenRows?.has(r) || sheet.filterHidden?.has(r));
+  const titleRows = Array.isArray(prefs.titleRows) ? prefs.titleRows : null, titleCols = Array.isArray(prefs.titleCols) ? prefs.titleCols : null;
+  // The sheet's frozen rows the block starts with repeat on every page, unless rows to repeat are named.
+  const frozen = !titleRows && prefs.repeatFrozen ? Math.max(0, Math.min(sheet.frozenRows || 0, area.r2 + 1) - area.r1) : 0;
+  const colBands = bands(colSizes, contentW / scale - headW, prefs.colBreaks, area.c1, area.c2, titleCols, hiddenCol, (c) => wb.colWidth(sheetId, c), 0);
+  const rowBands = bands(rowSizes, contentH / scale - headH, prefs.rowBreaks, area.r1, area.r2, titleRows, hiddenRow, (r) => wb.rowHeight(sheetId, r), frozen);
+  const page = (r, c) => ({ rows: r.lines, cols: c.lines, ...(r.repeat ? { repeatRows: r.repeat } : {}), ...(c.repeat ? { repeatCols: c.repeat } : {}) });
   const pages = [];
-  if (prefs.pageOrder === 'overThenDown') for (const rows of rowBands) for (const cols of colBands) pages.push({ rows, cols });
-  else for (const cols of colBands) for (const rows of rowBands) pages.push({ rows, cols });
+  if (prefs.pageOrder === 'overThenDown') for (const rows of rowBands) for (const cols of colBands) pages.push(page(rows, cols));
+  else for (const cols of colBands) for (const rows of rowBands) pages.push(page(rows, cols));
   return { pages: pages.length ? pages : [null], scale, box, area, headW, headH, titleH };
 }
 
@@ -133,7 +174,9 @@ export function createPrintPreview({ wb, sheetId, docName, getPrefs, getRange })
     }
     if (!current) return;
     const s = scale * k; // canvas pixels per unscaled sheet pixel
-    const cols = [], rows = [];
+    // The repeated lines (rows to repeat, frozen rows) first, then the page's own.
+    const cols = (current.repeatCols || []).map((c) => [c, wb.colWidth(sheetId, c)]);
+    const rows = (current.repeatRows || []).map((r) => [r, wb.rowHeight(sheetId, r)]);
     for (let c = current.cols[0]; c <= current.cols[1]; c++) if (!sheet.hiddenCols?.has(c)) cols.push([c, wb.colWidth(sheetId, c)]);
     for (let r = current.rows[0]; r <= current.rows[1]; r++) if (!sheet.hiddenRows?.has(r) && !sheet.filterHidden?.has(r)) rows.push([r, wb.rowHeight(sheetId, r)]);
     const usedW = cols.reduce((a, [, size]) => a + size, 0) + headW, usedH = rows.reduce((a, [, size]) => a + size, 0) + headH;

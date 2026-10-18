@@ -98,7 +98,14 @@ export function openPrintDialog(ctx) {
   const titleInputs = ['titleRows', 'titleCols'].map((key, i) => el('input.input', {
     type: 'text', value: prefs[key]?.map(n => i ? colName(n) : n + 1).join(':') || '',
     'aria-label': i ? 'Columns to repeat at left' : 'Rows to repeat at top', placeholder: i ? 'A:C' : '1:3',
-    oninput: () => { titleError.clear(); sync(); },
+    oninput: (e) => {
+      titleError.clear();
+      // The preview repeats the lines as they are typed; one that does not read yet changes nothing until Print says why.
+      const text = e.target.value.trim(), ref = text ? parseRefText(text) : null;
+      if (!text) prefs[key] = null;
+      else if (ref && !ref.sheet && !ref.sheetEnd && ref.kind === (i ? 'cols' : 'rows')) prefs[key] = i ? [ref.c1, ref.c2] : [ref.r1, ref.r2];
+      sync();
+    },
   }));
   const titleFields = el('div.field', {}, el('div.row.row-2', {}, titleInputs.map((input, i) =>
     el('label.field', {}, el('span.field-label', {}, i ? 'Columns to repeat at left' : 'Rows to repeat at top'), input))), titleError.alert);
