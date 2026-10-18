@@ -6154,6 +6154,15 @@ const headerKey = (v) => String(v ?? '').trim().toLowerCase();
  * match (OR down the rows). A cell like ">100", "Ap*", or "West" uses the
  * same matching as COUNTIF; an empty cell matches anything.
  */
+/**
+ * A database criterion as COUNTIF would read it. Plain text finds the values beginning with it, as the
+ * advanced filter's criteria do ("Apple" finds Apple Pie too); ="=Apple" asks for the whole value.
+ */
+function databaseCriterion(v) {
+  if (typeof v !== 'string' || /^[<>=#]/.test(v) || criteriaNumber(v) != null || /^(?:TRUE|FALSE)$/i.test(v)) return v;
+  return `${v}*`;
+}
+
 function dbSelect(db, field, crit, { allowAnyField = false } = {}) {
   const table = asRange(db).values;
   if (table.length < 1) return err('#VALUE!');
@@ -6177,7 +6186,7 @@ function dbSelect(db, field, crit, { allowAnyField = false } = {}) {
       if (v == null || v === '') continue;
       const at = headers.indexOf(headerKey(c[0][j]));
       if (at < 0) return err('#VALUE!');
-      row.push({ at, match: criteriaMatcher(v) });
+      row.push({ at, match: criteriaMatcher(databaseCriterion(v)) });
     }
     tests.push(row);
   }
