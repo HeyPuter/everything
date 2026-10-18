@@ -6,7 +6,9 @@ export const PDF_BYTES = 50 * 1024 * 1024;
 export const MAX_PAGES = 50;
 const LONG_SIDE = 1600,
   IMAGE_CHARACTERS = Math.floor((5 * 1024 * 1024 * 4) / 3),
-  PARAGRAPH = 20000;
+  PARAGRAPH = 20000,
+  // Notes beside a page's picture; more would run far below it.
+  PAGE_NOTES = 40;
 
 // Lines of a paragraph, joined with spaces. A word broken with a hyphen at
 // the end of a line is joined back: without the hyphen before a lowercase
@@ -27,7 +29,7 @@ function joinLines(lines) {
   return out;
 }
 // Groups text items into lines, and lines into paragraphs at larger gaps.
-export function pdfParagraphs(items, limit = 40) {
+export function pdfParagraphs(items) {
   const lines = [];
   let line = null;
   for (const item of items) {
@@ -57,10 +59,7 @@ export function pdfParagraphs(items, limit = 40) {
     previous = text ? l : previous;
   }
   if (current.length) paragraphs.push(joinLines(current));
-  return paragraphs
-    .map((p) => truncate(p, PARAGRAPH))
-    .filter(Boolean)
-    .slice(0, limit);
+  return paragraphs.map((p) => truncate(p, PARAGRAPH)).filter(Boolean);
 }
 
 export async function extractPdf(bytes, options) {
@@ -120,14 +119,16 @@ export async function extractPdf(bytes, options) {
       await page.render({ canvasContext: context, canvas, viewport }).promise;
       let src = encode(canvas, 0.85);
       if (src.length > IMAGE_CHARACTERS) src = encode(canvas, 0.6);
-      const texts = text
+      const found = text
         ? pdfParagraphs((await page.getTextContent()).items)
         : [];
+      const texts = found.slice(0, PAGE_NOTES),
+        omittedTexts = found.length - texts.length;
       page.cleanup?.();
       canvas.width = canvas.height = 0;
       if (src.length > IMAGE_CHARACTERS || !src.startsWith("data:image/jpeg"))
-        pages.push({ index: n, skipped: true, texts });
-      else pages.push({ index: n, src, width, height, texts });
+        pages.push({ index: n, skipped: true, texts, omittedTexts });
+      else pages.push({ index: n, src, width, height, texts, omittedTexts });
     }
     return { kind: "pdf", pageCount: doc.numPages, pages };
   } catch (error) {

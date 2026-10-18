@@ -174,6 +174,7 @@ addTranslations({
     "Lignes ou colonnes au-delà de 5 000 lignes et 500 colonnes",
   "Empty sheets": "Feuilles vides",
   "Pages beyond the imported range": "Pages hors de la plage importée",
+  "Paragraphs beyond 40 on a page": "Paragraphes au-delà de 40 par page",
   "Pages too detailed to import as images":
     "Pages trop détaillées pour être importées en images",
   // Errors

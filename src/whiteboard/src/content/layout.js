@@ -447,6 +447,8 @@ export async function layoutDocument(model, options) {
     const units = attach ? [unit(attach, true)] : [];
     for (const page of model.pages) {
       check(signal);
+      if (page.omittedTexts)
+        b.skip("Paragraphs beyond 40 on a page", page.omittedTexts);
       const image = page.skipped
         ? (b.skip("Pages too detailed to import as images"), null)
         : await b.image(page, 480);

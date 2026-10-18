@@ -5435,6 +5435,54 @@ test("PDF text joins words broken at a line end and keeps other hyphens", () => 
   assert.ok(paragraph.startsWith("hyphenlorem ipsum 1 lorem ipsum 2"));
 });
 
+test("PDF paragraphs past forty on a page are reported as skipped", async () => {
+  // Sixty paragraphs, each far enough below the last to stand alone.
+  const items = Array.from({ length: 60 }, (_, n) => ({
+    str: `Paragraph ${n + 1}`,
+    transform: [1, 0, 0, 10, 0, 800 - n * 30],
+    height: 10,
+    hasEOL: true,
+  }));
+  const model = await extractPdf(new Uint8Array(10), {
+    loadPdfjs: async () => ({
+      getDocument: () => ({
+        promise: Promise.resolve({
+          numPages: 1,
+          getPage: async () => ({
+            getViewport: ({ scale }) => ({
+              width: 200 * scale,
+              height: 100 * scale,
+            }),
+            render: () => ({ promise: Promise.resolve() }),
+            getTextContent: async () => ({ items }),
+          }),
+          destroy() {},
+        }),
+        destroy() {},
+      }),
+    }),
+    createCanvas: () => ({
+      width: 0,
+      height: 0,
+      getContext: () => ({ fillRect() {} }),
+    }),
+    encode: () => createCanvas(960, 480).toDataURL("image/jpeg", 0.8),
+    text: true,
+  });
+  assert.equal(model.pages[0].texts.length, 40);
+  assert.equal(model.pages[0].texts.at(-1), "Paragraph 40");
+  const result = await layoutDocument(model, {
+    ctx: measure,
+    point: { x: 0, y: 0 },
+    file: { name: "Long.pdf" },
+    attach: false,
+  });
+  assert.equal(result.counts.note, 40);
+  assert.deepEqual(result.skipped, [
+    { reason: "Paragraphs beyond 40 on a page", count: 20, detail: "" },
+  ]);
+});
+
 test("refreshing a tagged source table retains unchanged declarations and removes ranges from replaced values", async () => {
   const { createContentTools } = await import("../src/content/content.js"),
     dom = new JSDOM(""),
