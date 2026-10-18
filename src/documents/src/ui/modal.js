@@ -67,7 +67,8 @@ export function openModal({ title, content, onClose, wide = false }) {
     if (e.target.closest?.('[role="menu"]')) return;
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); return; }
     if (e.key !== 'Tab') return;
-    const controls = [...panel.querySelectorAll('a[href], button, input, select, textarea, [tabindex]')]
+    // A collapsible section's <summary> takes focus too; left out, Tab from it jumped back to the first control.
+    const controls = [...panel.querySelectorAll('a[href], button, input, select, textarea, summary, [contenteditable="true"], [tabindex]')]
       .filter((node) => node.tabIndex >= 0 && !node.matches(':disabled') && !node.closest('[hidden], [inert]')
         && node.getClientRects().length > 0 && getComputedStyle(node).visibility !== 'hidden');
     const first = controls[0];

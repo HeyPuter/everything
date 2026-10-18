@@ -28,6 +28,17 @@ describe('modal keyboard focus', () => {
     return event;
   }
 
+  it('lets Tab move on from a collapsible section\'s summary, as from any other control', () => {
+    const summary = el('summary', {}, 'More options'), ok = el('button', { type: 'button' }, 'Insert');
+    openModal({ title: 'Equation', content: el('div', {}, el('input', { 'aria-label': 'Equation' }), el('details', {}, summary, el('p', {}, 'Choices')), el('button', { type: 'button' }, 'Cancel'), ok) });
+    summary.focus();
+    // The browser moves focus to Cancel; the dialog must not pull it back to its first control.
+    expect(tab().defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(summary);
+    ok.focus();
+    expect(tab().defaultPrevented).toBe(true);
+  });
+
   it('opens a dialog on the chosen option of a group of choices, not the first one', async () => {
     const { segmented } = await import('../src/ui/segmented.js');
     const choices = segmented([['header', 'Header'], ['footer', 'Footer']], 'footer', () => {}, 'Position');
