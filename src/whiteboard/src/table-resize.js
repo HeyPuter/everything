@@ -123,7 +123,9 @@ export function createTableResize(api) {
     else api.draw();
     return true;
   }
-  function apply(axis, indices, mode) {
+  // A key held on a handle passes its event on, so its repeats make one
+  // undo step.
+  function apply(axis, indices, mode, key) {
     if (!api.finish()) return;
     const i = api.current();
     if (!i || !api.writable(i)) return;
@@ -147,7 +149,7 @@ export function createTableResize(api) {
         )
       )
         return;
-      api.commit(i, patch);
+      api.commit(i, patch, key);
     } catch (error) {
       api.error(error.message);
     }
@@ -247,6 +249,7 @@ export function createTableResize(api) {
               tableTracks(api.current(), axis)[index] +
                 delta * (e.shiftKey ? 10 : 1),
             ),
+            e,
           );
         }
       };

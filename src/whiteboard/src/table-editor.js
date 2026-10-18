@@ -38,7 +38,7 @@ export function createTableEditor(api) {
     range: () => range(),
     editing: () => !!input,
     finish: () => finish(),
-    commit: (i, patch) => api.resize?.(i, patch),
+    commit: (i, patch, key) => api.resize?.(i, patch, key),
     error: (message) => error(message),
   });
   const current = () =>

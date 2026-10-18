@@ -16180,6 +16180,60 @@ test("the text editor lifts its lines to where the board draws the text", async 
   }
 });
 
+test("a key held on a table's resize handle is one undo step", async () => {
+  const app = await setup(),
+    { doc, w, click } = app;
+  try {
+    await click('[data-action="new"]');
+    dispatchTransfer(
+      app,
+      "paste",
+      transferData(
+        clipboardFormats([
+          item("table", 200, 200, {
+            w: 340,
+            h: 150,
+            cells: [
+              ["a", "b"],
+              ["c", "d"],
+            ],
+          }),
+        ]),
+      ),
+    );
+    const before = selectedClipboard(app)[0];
+    await click('[data-action="edit"]');
+    const handle = doc.querySelector(".table-size-column");
+    handle.focus();
+    for (let n = 0; n < 6; n++)
+      handle.dispatchEvent(
+        new w.KeyboardEvent("keydown", {
+          key: "ArrowRight",
+          repeat: n > 0,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    handle.dispatchEvent(
+      new w.KeyboardEvent("keyup", { key: "ArrowRight", bubbles: true }),
+    );
+    const widths = async () => {
+      await app.tick();
+      await app.tick();
+      const i = (await storedBoards(app))[0].items.find(
+        (i) => i.type === "table",
+      );
+      return i.columnWidths || [i.w / 2, i.w / 2];
+    };
+    const original = before.columnWidths || [before.w / 2, before.w / 2];
+    assert.deepEqual(await widths(), [original[0] + 6, original[1]]);
+    await click('[data-action="undo"]');
+    assert.deepEqual(await widths(), original);
+  } finally {
+    await app.close();
+  }
+});
+
 test("undo and redo shortcuts work from a table's cells", async () => {
   const app = await setup(),
     { doc, w, click } = app;

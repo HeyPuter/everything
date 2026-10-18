@@ -1748,9 +1748,11 @@ const tableEditor = createTableEditor({
     imageCrop.close(false);
     imageReplacement.close();
   },
-  resize: (i, patch) => {
-    if (current.items.includes(i) && canEditSelection(new Set([i.id])))
-      mutate(() => Object.assign(i, patch));
+  resize: (i, patch, key) => {
+    if (!current.items.includes(i) || !canEditSelection(new Set([i.id])))
+      return;
+    if (key) heldKeyChange(key, "table-size", () => Object.assign(i, patch));
+    else mutate(() => Object.assign(i, patch));
   },
   change: (i, cells, structure, languages) => {
     if (!current.items.includes(i) || !canEditSelection(new Set([i.id])))
