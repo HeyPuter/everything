@@ -98,3 +98,12 @@ it('lets fitting override manual page breaks, as the print does', () => {
   // Fitted to the width, the breaks across give way and those down stand.
   expect(printPreviewLayout(wb, first, { ...prefs, ...breaks, fit: 'width' }).pages.map((p) => p.rows[0])).toEqual([0, 40, 80]);
 });
+
+it('names the sheet beside the title, as the print does in a workbook of several sheets', async () => {
+  const { wb, first } = book();
+  const ctx = { wb, sheetId: () => first, selection: () => S.single(0, 0), range: () => ({ r1: 0, c1: 0, r2: 0, c2: 0 }), grid: { focus() {} }, doc: { name: 'Stock' } };
+  openPrintDialog(ctx);
+  await vi.advanceTimersByTimeAsync(5);
+  expect(drawn).toContain('Stock');
+  expect(drawn).toContain(wb.sheet(first).name);
+});

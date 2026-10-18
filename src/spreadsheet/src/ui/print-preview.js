@@ -228,6 +228,13 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
       g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillStyle = '#111111';
       g.font = `600 ${Math.max(5, 15 * k)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
       g.fillText(info.file, x0 * k, (y0 + 18) * k);
+      // The sheet's name beside it, as the print writes it when the workbook has more than one.
+      if (wb.sheets.length > 1 && sheet) {
+        const after = (g.measureText?.(info.file)?.width || 0) + 12 * k;
+        g.fillStyle = '#555555';
+        g.font = `${Math.max(4, 13 * k)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        g.fillText(sheet.name, x0 * k + after, (y0 + 18) * k);
+      }
       y0 += titleH;
     }
     if (!current) return;
