@@ -18,7 +18,7 @@ import { describeDrawing, setFill, setOutline, setEffects, set3d, setGeometry, s
   child, childrenOf, A, WP, R } from '../engine/drawing-xml.js';
 import { frameOf, offsetsFor, moveDrawings, alignmentMoves, POSITION_PRESETS, presetPosition } from '../engine/drawing-arrange.js';
 import { groupDrawings, ungroupDrawing, groupUnavailable } from '../engine/drawing-groups.js';
-import { EMU_PER_PX, isPositionedImage } from '../engine/images.js';
+import { EMU_PER_PX, isPositionedImage, normalizedRotation, ANGLE_PER_DEGREE } from '../engine/images.js';
 import { SHAPE_PRESETS, LINE_PRESETS } from '../engine/authored-shapes.js';
 import { ARTISTIC_EFFECTS } from '../engine/picture-processing.js';
 import * as presets from './picture-presets.js';
@@ -30,6 +30,19 @@ import { WORDART_STYLES } from '../engine/text-designs.js';
 
 const PT = 12700, IN = 914400;
 const runImages = model => model?.paragraphs.flatMap(p => p.runs.filter(r => r.image).map(r => r.image)) || [];
+
+/**
+ * Where a click falls on a picture, as fractions of its unrotated width and height (0..1 from the top
+ * left), or null outside it. `box` is the screen rectangle around the picture as rotated on the page.
+ */
+export function pictureFraction(box, image, x, y) {
+  const angle = normalizedRotation(image.rotation) / ANGLE_PER_DEGREE * Math.PI / 180, cos = Math.cos(angle), sin = Math.sin(angle);
+  // The picture's sides on screen: the box is its rotated bounds.
+  const scale = box.width / (image.width * Math.abs(cos) + image.height * Math.abs(sin) || 1);
+  const dx = x - (box.left + box.width / 2), dy = y - (box.top + box.height / 2);
+  const u = (dx * cos + dy * sin) / (image.width * scale) + 0.5, v = (-dx * sin + dy * cos) / (image.height * scale) + 0.5;
+  return u >= 0 && u <= 1 && v >= 0 && v <= 1 ? { u, v } : null;
+}
 
 export function createPictures({ editor, pkg, error, onChange = () => {}, base = {} }) {
   const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && !engine.readOnly ? engine : null; };
@@ -372,11 +385,11 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const onPick = e => {
       const frame = host.querySelector('.canvas-image-frame');
       if (!frame || frame.hidden) { done(); return; }
-      const box = frame.getBoundingClientRect();
-      if (e.clientX < box.left || e.clientX > box.right || e.clientY < box.top || e.clientY > box.bottom) { done(); return; }
+      const point = pictureFraction(frame.getBoundingClientRect(), image, e.clientX, e.clientY);
+      if (!point) { done(); return; }
       e.preventDefault(); e.stopPropagation();
       const crop = image.crop || {};
-      const u = (e.clientX - box.left) / box.width, v = (e.clientY - box.top) / box.height;
+      const { u, v } = point;
       const sx = ((crop.left || 0) + u * (100000 - (crop.left || 0) - (crop.right || 0))) / 100000, sy = ((crop.top || 0) + v * (100000 - (crop.top || 0) - (crop.bottom || 0))) / 100000;
       const probe = new OffscreenCanvas(1, 1).getContext('2d');
       probe.drawImage(source, Math.floor((image.flipH ? 1 - sx : sx) * source.width), Math.floor((image.flipV ? 1 - sy : sy) * source.height), 1, 1, 0, 0, 1, 1);
