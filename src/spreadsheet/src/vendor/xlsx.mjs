@@ -24707,6 +24707,8 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 			while(lo < hi) { var mid = (lo + hi) >> 1; if(rowSpans[mid][0] <= r) lo = mid + 1; else hi = mid; }
 			return lo > 0 && rowSpans[lo - 1][1] >= r;
 		};
+		var mergeEdges = {};
+		marr.forEach(function(m) { mergeEdges[m.s.r] = mergeEdges[m.e.r + 1] = 1; });
 		var mergeRow = -1, mergeNext = 0, rowMerges = [];
 		var mergesAt = function(r) {
 			if(r < mergeRow) { mergeNext = 0; rowMerges = []; }
@@ -24737,6 +24739,10 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 				continue;
 			}
 			var validationRows = validationLayout ? validationLayout.rows(R) : 1;
+			/* Puter Spreadsheet: one row element repeated for a run of validated rows stops at a row with a
+			 * height or visibility of its own, or where a merged block starts or ends, which the repeat would
+			 * otherwise give to every row of the run or to none. */
+			for(var runRow = 1; runRow < validationRows; ++runRow) if(rowAttrs(R + runRow) !== rowAttrs(R) || mergeEdges[R + runRow]) { validationRows = runRow; break; }
 			H = rowAttrs(R);
 			if(validationRows > 1) H += ' table:number-rows-repeated="' + validationRows + '"';
 			o.push('        <table:table-row' + H + '>\n');
