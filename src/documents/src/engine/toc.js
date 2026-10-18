@@ -81,9 +81,13 @@ export function contentsOptions({ levels = 3, hyperlinks = true, pageNumbers = t
     omitPageNumbers: pageNumbers ? null : [1, 9], separator: rightAlign || !pageNumbers ? null : ' ', caption: null, captionNoLabel: null, tcIdentifier: null, tcLevels: null, bookmark: null, extra: [] };
 }
 
-/** Options for a table of figures listing the captions labelled `label`. */
+// A caption label's SEQ identifier: Insert Caption numbers "My Chart" as SEQ My_Chart (see captions.js).
+const sequenceIdentifier = label => String(label).trim().replace(/\s+/g, '_');
+
+/** Options for a table of figures listing the captions labelled `label` (\c and \a name the SEQ identifier). */
 export function figuresOptions({ label = 'Figure', includeLabel = true, hyperlinks = true, pageNumbers = true, rightAlign = true } = {}) {
-  return { ...contentsOptions({ hyperlinks, pageNumbers, rightAlign, headingStyles: false, outline: false }), caption: includeLabel ? label : null, captionNoLabel: includeLabel ? null : label };
+  const id = sequenceIdentifier(label);
+  return { ...contentsOptions({ hyperlinks, pageNumbers, rightAlign, headingStyles: false, outline: false }), caption: includeLabel ? id : null, captionNoLabel: includeLabel ? null : id };
 }
 
 /** Every TOC field in the document with its span and parsed options; `figures` tells tables of figures apart. */
@@ -114,7 +118,7 @@ export function tocEntries(doc, options) {
   const entries = [];
   let at = 0;
   const captionLabel = options.caption || options.captionNoLabel;
-  const sequences = captionLabel ? new Map(ranges.filter(r => r.field.type === 'SEQ' && sequenceInstruction(r.field.instruction)?.id.toLowerCase() === captionLabel.toLowerCase()).map(r => [r.startParagraph, r])) : null;
+  const sequences = captionLabel ? new Map(ranges.filter(r => r.field.type === 'SEQ' && sequenceInstruction(r.field.instruction)?.id.toLowerCase() === sequenceIdentifier(captionLabel).toLowerCase()).map(r => [r.startParagraph, r])) : null;
   for (const p of paragraphs) {
     const size = length(p), text = clean(p.runs.map(r => r.image ? '' : r.text).join(''));
     if (text && !inside(at) && inScope(at)) {

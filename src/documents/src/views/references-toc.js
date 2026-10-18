@@ -185,7 +185,9 @@ export function createTocCommands(ctx) {
     const labels = captions.captionLabels(body);
     const options = existing?.options;
     const look = existing ? toc.tocAppearance(body, existing) : { leader: 'dot', rightAlign: true };
-    const label = select('Caption label', labels.map(l => [l, l]), options?.caption || options?.captionNoLabel || labels[0], sync);
+    // A table of figures names its captions' SEQ identifier ("My_Chart"); show the label it stands for.
+    const current = options?.caption || options?.captionNoLabel;
+    const label = select('Caption label', labels.map(l => [l, l]), (current && labels.find(l => captions.sequenceId(l).toLowerCase() === captions.sequenceId(current).toLowerCase())) || current || labels[0], sync);
     const includeLabel = check('Include label and number', !options?.captionNoLabel, sync);
     const pageNumbers = check('Show page numbers', !options?.omitPageNumbers, sync);
     const rightAlign = check('Right align page numbers', look.rightAlign, sync);

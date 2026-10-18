@@ -76,3 +76,17 @@ describe('sequence fields Update Fields cannot reproduce', () => {
     expect(issues).toHaveLength(3);
   });
 });
+
+it('lists captions whose label has a space in a table of figures', async () => {
+  const { createDocx: create, DocxPackage: Package, WRITING_STYLES: writing } = await import('../src/engine/docx.js');
+  const { TextDocument: Doc, paragraph: para } = await import('../src/engine/model.js');
+  const { insertCaption } = await import('../src/engine/captions.js');
+  const { insertTableOfContents, figuresOptions } = await import('../src/engine/toc.js');
+  const blank = create([para()], undefined, undefined, undefined, [], {}, writing);
+  const pkg = await Package.open(new Uint8Array(await blank.export().arrayBuffer()));
+  const d = new Doc(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+  d.replace('Chart\nEnd');
+  d.select(1); insertCaption(d, { label: 'My Chart', text: 'Revenue' });
+  d.select(d.text.length);
+  expect(insertTableOfContents(d, { title: null, options: figuresOptions({ label: 'My Chart' }) }).entries).toBe(1);
+});
