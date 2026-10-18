@@ -56,7 +56,8 @@ import { exportNamedTableReferences } from './export-named-formulas.js';
 import { err, isError } from './formula/functions.js';
 import { parseDelimited } from './tsv.js';
 import { parseInput, refineImpliedFormat, localeInfo, getLocale } from './format.js';
-import { cellsToHtml, copyMergeLayout } from './clipboard.js';
+import { cellsToHtml, copyMergeLayout, parseHtmlClipboard, cellsFromHtmlRows } from './clipboard.js';
+import { htmlTableRows } from './html-table.js';
 import { reconcileConditionalFormats } from './xlsx-condformat-reconcile.js';
 import { prepareXlsxValidationLists } from './xlsx-validation.js';
 import { sheetFilters, sameFilterRange, filterRangeKey, mapSheetFilters } from './sheet-filters.js';
@@ -2183,6 +2184,57 @@ function workbookFromText(text, filename) {
 }
 
 /**
+ * A web page's table (an .html file, or an .xls that is a saved web page, as bank statements and
+ * report exports often are) read as a paste of it is, where the browser can parse HTML: its
+ * character references, number formats (mso-number-format, "@" keeping 00123 as text, the percent
+ * in 50%), links, fonts, fills and merged cells come through. Text shaped like a formula stays
+ * text, as the library's reader leaves it. Null for a page of several tables, which the library
+ * reads as one sheet each, and for a table larger than a paste may be, which it reads as before.
+ */
+/** The table a one-cell table wraps (its cell's text being that table's), or null. */
+function wrappedHtmlTable(table) {
+  const rows = htmlTableRows(table);
+  if (rows.length !== 1) return null;
+  const cells = [...rows[0].children].filter((child) => child.tagName === 'TD' || child.tagName === 'TH');
+  const inner = cells.length === 1 ? cells[0].querySelector('table') : null;
+  const squeeze = (t) => String(t || '').replace(/\s+/g, ' ').trim();
+  return inner && squeeze(cells[0].textContent) === squeeze(inner.textContent) ? inner : null;
+}
+
+function workbookFromHtml(text) {
+  if (typeof DOMParser === 'undefined') return null;
+  const opening = text.slice(0, 2048).replace(/<!--[\s\S]*?(?:-->|$)/g, '').trimStart().toLowerCase();
+  // An XML spreadsheet (SpreadsheetML, a flat .ods), SYLK and DIF are markup of other kinds.
+  if (opening.startsWith('<?mso-application') || (opening.startsWith('<?xml') && !/<html[\s>]/.test(opening)) || !opening.startsWith('<')) return null;
+  let doc;
+  try { doc = new DOMParser().parseFromString(text, 'text/html'); } catch { return null; }
+  const tables = [...doc.querySelectorAll('table')].filter((t) => !t.parentElement?.closest('table'));
+  if (tables.length !== 1) return null;
+  // A table whose one cell only wraps another is read as that inner table, as a paste reads it; one that lays
+  // out tables in its cells is several tables, which the library reads one sheet each.
+  let table = tables[0];
+  for (let inner = wrappedHtmlTable(table); inner; inner = wrappedHtmlTable(inner)) table = inner;
+  if (table.querySelector('table')) return null;
+  const parsed = parseHtmlClipboard(text, '');
+  if (!parsed?.rows) return null;
+  const { rows, merges = [] } = parsed;
+  const cells = {};
+  let width = 0;
+  for (const { i, j, cell } of cellsFromHtmlRows(rows)) {
+    if (!cell) continue;
+    cells[cellKey(i, j)] = cell.f != null ? { ...cell, v: rows[i][j].text, f: null } : cell;
+    width = Math.max(width, j + 1);
+  }
+  const wb = new Workbook({
+    sheets: [{ name: 'Sheet1', rows: Math.min(MAX_ROW + 1, Math.max(100, rows.length + 20)), cols: Math.min(MAX_COL + 1, Math.max(26, width + 6)), cells, merges }],
+  });
+  // The page's column widths are not read: fit them to the data on open, as for delimited text.
+  wb.fitColumnsOnOpen = wb.sheets.map((s) => s.id);
+  wb.dirty = false;
+  return wb;
+}
+
+/**
  * Parse spreadsheet file bytes (xlsx, xls, csv, ods, ...) into a Workbook.
  * `data` may be an ArrayBuffer, Uint8Array, or Blob.
  */
@@ -2356,6 +2408,10 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
     // Delimited text carries no column widths: fit them to the data on open.
     text.fitColumnsOnOpen = text.sheets.map((s) => s.id);
     return text;
+  }
+  if (kind === 'markup') {
+    const page = workbookFromHtml(decodeText(bytes));
+    if (page) return page;
   }
   const unpacked = declaredUnpackedSize(bytes);
   if (unpacked && (unpacked.largest > MAX_PART_BYTES || unpacked.total > MAX_UNPACKED_BYTES)) {
