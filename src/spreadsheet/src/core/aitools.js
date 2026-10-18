@@ -29,6 +29,7 @@ import { formulaReachesOut } from './reaches-out.js';
 import { upperName } from './formula/tokenizer.js';
 import { dataBounds } from './aiformula.js';
 import { cellFromInput } from './workbook.js';
+import { getThread } from './comments.js';
 
 /** A request the workbook refused, in words the model can act on. */
 export class ToolError extends Error {}
@@ -1062,6 +1063,11 @@ function addNote(wb, args, env) {
   // Blank text removes the note, as the workbook takes it; a longer note is kept to its limit, and said to be.
   const given = String(args.text ?? '');
   const text = given.trim() ? cutText(given, MAX_NOTE) : '';
+  // A cell holds a note or a comment thread, not both, as in Excel: a note put beside a thread was reported as
+  // added, then lost when the file was saved, where the thread's own note takes the cell's one place.
+  if (text && getThread(wb, sheetId, range.r1, range.c1)) {
+    throw new ToolError(`${qualified(wb, sheetId, { r1: range.r1, c1: range.c1, r2: range.r1, c2: range.c1 })} holds a comment thread, and a cell holds a note or a comment, not both. Put the note on another cell, or leave it to the user to reply to the thread.`);
+  }
   wb.transaction('AI edit', () => wb.setNote(sheetId, range.r1, range.c1, text));
   return {
     [text ? 'note_added' : 'note_removed']: qualified(wb, sheetId, { r1: range.r1, c1: range.c1, r2: range.r1, c2: range.c1 }),
