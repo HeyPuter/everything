@@ -173,11 +173,15 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
       else if (Date.now() - longPressAt < LONG_PRESS_MS * 2) return;
       historyMenu(b, kind);
     });
+    let held = false; // the touch still down opened the history: its release is not a press of the button
     b.addEventListener('pointerdown', (e) => {
       if (e.pointerType !== 'touch') return;
-      press = setTimeout(() => { press = null; longPressAt = Date.now(); historyMenu(b, kind); }, LONG_PRESS_MS);
+      held = false;
+      press = setTimeout(() => { press = null; longPressAt = Date.now(); held = true; historyMenu(b, kind); }, LONG_PRESS_MS);
     });
     for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(ev, () => { clearTimeout(press); press = null; });
+    // Lifting the finger would send the click a tap does, and undo (or redo) a step behind the list just opened.
+    b.addEventListener('touchend', (e) => { if (held) { held = false; e.preventDefault(); } }, { passive: false });
   }
 
   const boldBtn = btn('bold', 'Bold', 'bold', null, { toggle: true, shortcut: `${MOD_KEY}+B` });
