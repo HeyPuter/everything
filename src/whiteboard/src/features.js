@@ -613,6 +613,12 @@ export function createFeatures(api) {
           { once: true },
         );
         render();
+        // The cells are what the dialog is for; the keyboard starts in the
+        // first rather than on Close. A new table's sample heading is
+        // selected, so typing replaces it.
+        const first = fields[0];
+        first?.focus({ preventScroll: true });
+        if (first && !i) first.setSelectionRange(0, first.value.length);
         d.querySelectorAll("[data-table]").forEach(
           (btn) =>
             (btn.onclick = () => {

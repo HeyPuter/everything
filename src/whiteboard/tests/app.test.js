@@ -11642,6 +11642,11 @@ test("the tool rail's Add content button offers tables, links, files and other c
       doc.querySelector("dialog[open] [type=submit]").textContent,
       "Add table",
     );
+    // The keyboard starts in the first cell, its sample heading selected,
+    // not on Close.
+    const cell = doc.querySelector("#table-dialog-cell-0-0");
+    assert.equal(doc.activeElement, cell);
+    assert.equal(doc.getSelection().toString(), "Label");
     doc.querySelector("dialog[open]").close();
     await click('.left-rail [data-action="add-content"]');
     await click('[data-add="task-card"]');
