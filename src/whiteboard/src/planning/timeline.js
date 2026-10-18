@@ -280,14 +280,22 @@ export function timelineItems(board, rows, options = {}) {
       ),
       // It sits on the canvas, so the red keeps a white band behind it to
       // stay readable in the dark theme too. It goes below the lanes, at
-      // the foot of its line, where no date label is.
-      text(x + 4, origin.y + header + lanesH + 4, 90, 22, t("Today"), {
-        fontSize: 12,
-        textColor: "#8c1d18",
-        highlight: "#ffffff",
-        bold: true,
-        lang: language,
-      }),
+      // the foot of its line, where no date label is, and inside the
+      // frame when today is the timeline's last day.
+      text(
+        Math.min(x + 4, right - 90),
+        origin.y + header + lanesH + 4,
+        90,
+        22,
+        t("Today"),
+        {
+          fontSize: 12,
+          textColor: "#8c1d18",
+          highlight: "#ffffff",
+          bold: true,
+          lang: language,
+        },
+      ),
     );
   }
   const bars = new Map();

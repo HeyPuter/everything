@@ -713,6 +713,16 @@ test("timeline models and generated timeline frames are valid, linked, and acces
   assert.ok(dates.length > 1);
   assert.ok(dates.every((d) => !overlaps(d, today)));
   assert.ok(today.y + today.h <= frame.y + frame.h);
+  // On the timeline's last day, "Today" still ends inside the frame.
+  for (const day of ["2026-10-11", "2026-10-24"]) {
+    const late = timelineItems(b, collectTasks(b, { today: day }), {
+      today: day,
+    });
+    const label = late.items.find(
+      (i) => i.type === "text" && i.text === "Today",
+    );
+    assert.ok(label.x + label.w <= late.frame.x + late.frame.w, day);
+  }
   assert.ok(items.some((i) => i.type === "text" && i.text === "Bob Smith"));
   assert.throws(
     () => timelineItems(b, [rows.find((r) => r.id === retro.id)]),
