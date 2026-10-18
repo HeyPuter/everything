@@ -16,6 +16,14 @@
 .topbar .menubar { height: 32px; min-height: 0; padding: 0; gap: 0; flex-wrap: nowrap; overflow: hidden; }
 .topbar .menubar-btn { height: 28px; padding: 0 8px; border-radius: 5px; font-size: 13px; font-weight: 400; color: var(--chrome-ink); }
 .topbar-title-wrap { justify-content: center; }
+/* The name is centred by itself, with the save status hanging at its right: centred as a pair, the name moved
+   each time the status changed width, which autosave does at every edit (Saved, Unsaved changes, Saving…). */
+@media (min-width: 901px) {
+  .topbar-title-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto auto minmax(max-content, 1fr); align-items: center; column-gap: 0; }
+  .topbar-title-wrap > .doc-title { grid-column: 2; }
+  .topbar-title-wrap > .doc-group-badge { grid-column: 3; margin-left: 8px; }
+  .topbar-title-wrap > .save-status { grid-column: 4; justify-self: start; margin-left: 8px; }
+}
 .topbar .doc-title { font-size: 13px; font-weight: 600; color: var(--chrome-ink); padding: 4px 8px; }
 @media (hover: hover) {
   .topbar .menubar-btn:hover, .topbar .doc-title:hover { background: var(--chrome-hover); }
