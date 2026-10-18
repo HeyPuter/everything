@@ -31,7 +31,9 @@ export function createOptionButton({ grid, host, onToggle = null }) {
     const x = rect.right + 2, y = rect.bottom + 2;
     // (A viewport with no size has not been laid out: the button stays rather than vanish.)
     const laidOut = vp.width > 0 || vp.height > 0;
-    const shown = !laidOut || (rect.right > vp.left && rect.bottom > vp.top && rect.right < vp.right + 1 && rect.bottom < vp.bottom + 1);
+    // Under frozen rows or columns the corner is hidden by them as much as past the window's edge.
+    const pane = grid.paneRect?.(r2, c2) || vp;
+    const shown = !laidOut || (rect.right > pane.left && rect.bottom > pane.top && rect.right < vp.right + 1 && rect.bottom < vp.bottom + 1);
     button.hidden = !shown;
     button.style.left = `${(laidOut ? Math.min(x, vp.right - 34) : x) - hostRect.left}px`;
     button.style.top = `${(laidOut ? Math.min(y, vp.bottom - 24) : y) - hostRect.top}px`;
