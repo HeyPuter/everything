@@ -1046,7 +1046,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     versionsAvailable: () => !!doc.path,
     // A version that could not be written says so, as the Version History pane does.
     saveVersionNow: () => doc.saveVersionNow().then(v => { if (!v) throw new Error('The version could not be saved.'); toast('Version saved'); }).catch(e => { if (!destroyed) error(e); }),
-    restoreVersion: version => restoreVersionFile(version),
+    // Replacing the file of a shared document would be undone by the room when it reopens; the room restores it instead.
+    restoreVersion: async version => { if (!collab.live) return restoreVersionFile(version); if (await versionHistory.restore(version)) backstage.close({ focus: true }); },
     exportAs: kind => editorCommands.exportAs(kind),
     save: () => save(), download, saveTemplate: cloud ? saveTemplate : null, savePdf: () => savePdf(), rename: cloud ? () => { title.focus(); title.select(); } : null,
     saveStatus: () => status.getAttribute('aria-label'),

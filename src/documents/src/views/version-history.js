@@ -151,7 +151,7 @@ export function createVersionHistory({ editor, pkg, doc, error, author, live = (
     const shared = !!live();
     const ok = await confirmDialog({ title: 'Restore this version?', danger: false, confirmLabel: 'Restore',
       message: shared ? `The document goes back to “${versionName(v)}” for everyone editing it. You can undo this.` : `The document goes back to “${versionName(v)}”. The current version is kept in the history.` });
-    if (!ok) return;
+    if (!ok) return false;
     try {
       if (!shared) { closePreview(); pane.close({ quiet: true }); await restoreFile(v); return; }
       const api = engineApi();
@@ -172,13 +172,17 @@ export function createVersionHistory({ editor, pkg, doc, error, author, live = (
       engine.relayout(); engine.paint();
       toast(`Restored “${versionName(v)}”`, { action: { label: 'Undo', onClick: () => engine.undo() } });
       closePreview();
+      return true;
     } catch (e) { error(e); }
+    return false;
   }
 
   return {
     pane, previewNode,
     open() { pane.open(); },
     toggle() { pane.toggle(); },
+    /** Restore a version: through the room while the document is shared, else by replacing the file. */
+    restore,
     get isOpen() { return pane.isOpen; },
     refresh() { if (preview?.engine) fit(preview.engine); },
     destroy() { closePreview(); pane.destroy(); },
