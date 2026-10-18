@@ -1,5 +1,5 @@
 import { zipSync, strToU8 } from 'fflate';
-import { decodeImages, validateImage, validateImageAssets } from './images.js';
+import { decodeImages, validateImage, validateImageAssets, nextDrawingId as nextStoryDrawingId } from './images.js';
 import { xmlAttributeText } from './text-limits.js';
 
 /**
@@ -43,7 +43,7 @@ export function freshPart(model, packageParts, folder, stem, extension) {
 }
 const images = model => model.paragraphs.flatMap(p => p.runs.filter(r => r.image).map(r => r.image));
 /** The next drawing id (wp:docPr id) for this story, as the model assigns it on insertion. */
-export const nextDrawingId = model => Math.max(0, ...images(model).map(image => image.id)) + 1;
+export const nextDrawingId = model => nextStoryDrawingId(model.paragraphs);
 export const nextDrawingOrder = model => Math.max(0, ...images(model).map(image => image.anchor?.order || 0)) + 1;
 
 /** The `wp:anchor` or `wp:inline` frame around a graphic. anchor: the editor's floating anchor object. */

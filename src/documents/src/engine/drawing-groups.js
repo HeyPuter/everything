@@ -1,7 +1,7 @@
 import { materializeDrawing, readFormattedDrawing, applyDrawingFragments, drawingKind } from './drawing-format.js';
 import { A, WP, PIC, WPS, WPG, child, make, writeFrame } from './drawing-xml.js';
 import { frameOf, offsetsFor } from './drawing-arrange.js';
-import { EMU_PER_PX, OBJECT, isPositionedImage } from './images.js';
+import { EMU_PER_PX, OBJECT, isPositionedImage, nextDrawingId } from './images.js';
 
 /**
  * Group, Ungroup and Regroup (§20.4 wpg group drawings, ECMA-376 Part 1 §20.1.2.2.20 grpSpPr / §20.1.7.5
@@ -10,8 +10,7 @@ import { EMU_PER_PX, OBJECT, isPositionedImage } from './images.js';
  * child coordinate space at its current page position. Ungrouping writes each child back out as its own
  * floating drawing at the place the group showed it, folding the group's rotation and flips into it.
  */
-const runImages = model => model.paragraphs.flatMap(p => p.runs.filter(r => r.image).map(r => r.image));
-const nextId = model => Math.max(0, ...runImages(model).map(image => image.id)) + 1;
+const nextId = model => nextDrawingId(model.paragraphs);
 /** Text offsets of each drawing's object character in the current story. */
 function positions(model) {
   const result = new Map(); let offset = 0;

@@ -1,7 +1,7 @@
 import { buildShape, buildTextShape, shapeParams, SHAPE_PRESETS, EMU_PER_INCH, DEFAULT_SHAPE_STYLE, LINE_PRESETS } from './authored-shapes.js';
 import { decodeShape } from './canvas-shapes.js';
 import { canResizeRetainedPicture } from './picture-resize.js';
-import { validateImage } from './images.js';
+import { validateImage, nextDrawingId } from './images.js';
 
 /**
  * Inserting and editing preset shapes on a canvas editor. A shape is a drawing whose DrawingML this
@@ -11,7 +11,7 @@ import { validateImage } from './images.js';
 let counter = 0;
 const freshAssetId = model => { let id; do id = `drawing:canvas-shape-${++counter}`; while (model.assets[id]); return id; };
 const images = model => model.paragraphs.flatMap(p => p.runs.filter(r => r.image).map(r => r.image));
-const nextImageId = model => Math.max(0, ...images(model).map(image => image.id)) + 1;
+const nextImageId = model => nextDrawingId(model.paragraphs);
 const nextOrder = model => Math.max(0, ...images(model).map(image => image.anchor?.order || 0)) + 1;
 
 async function prepare(editor, params) {

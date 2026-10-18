@@ -569,6 +569,10 @@ export function imageWriter(parts, paragraphs, assets, doc, sourcePart = 'word/d
   const writeDrawingLink = drawingHyperlinkWriter(parts, images, sourcePart);
   return image => {
     const drawing = image.shell ? doc.importNode(parseXml(image.shell).documentElement, true) : doc.createElementNS(W, 'w:drawing');
+    // The frame's id is the one the model holds: drawing XML built before insertion (ink, a group) can carry
+    // another, which could repeat an id in use, and a part with repeated ids no longer opens for editing.
+    const frameProperties = image.shell && drawing.getElementsByTagNameNS(WP, 'docPr')[0];
+    if (frameProperties && Number.isInteger(image.id) && frameProperties.getAttribute('id') !== String(image.id)) frameProperties.setAttribute('id', String(image.id));
     // A changed wrapping rewrites the whole frame, including the position and layer it records.
     if (image.wrapChanged && image.shell) reframeDrawing(doc, drawing, image);
     else if (image.anchorChanged && image.shell) {

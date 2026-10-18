@@ -44,7 +44,7 @@ import { emptyStyles, resolveStyledParagraph, effectiveStyleId, editedStyle, res
 import { emptyNumbering, levelFor, listKind, listGeometry, listMarkers, newList, restartList } from './numbering.js';
 import { INDENT_KEYS, validateIndent, normalizeTabStops, sameValue } from './paragraph-geometry.js';
 import { validatePageSettings, DOCUMENT_PAGE_KEYS, SECTION_TYPES } from './page-settings.js';
-import { OBJECT, inlineSegments, validateImage, normalizeCrop, normalizedRotation, rotationOutsets, imageExtents, CROP_SIDES, isPositionedImage } from './images.js';
+import { OBJECT, inlineSegments, validateImage, normalizeCrop, normalizedRotation, rotationOutsets, imageExtents, CROP_SIDES, isPositionedImage, nextDrawingId } from './images.js';
 import { outlineEntries, builtinOutlineLevel } from './outline.js';
 import { refreshConditionalTable } from './conditional-table-formatting.js';
 import { eachRevisionTarget, revisionRanges, hasRevisions, runFormatChange, paragraphFormatChange, acceptFormatChange, rejectFormatChange } from './revisions.js';
@@ -1578,8 +1578,7 @@ export class TextDocument {
     if (!this.assets[assetId]) throw new Error('The image asset is missing.');
     const typing = this.typingRun(this.range[0], this.range[0] === this.range[1] ? 'backward' : 'forward');
     if (typing.textScale !== 100) throw new Error('Set text width to 100% before inserting an inline picture.');
-    const ids = this.paragraphs.flatMap(p => p.runs.filter(r => r.image).map(r => r.image.id));
-    const id = Math.max(0, ...ids) + 1; if (id > 4294967295) throw new Error('This document has exhausted its drawing IDs.');
+    const id = nextDrawingId(this.paragraphs); if (id > 4294967295) throw new Error('This document has exhausted its drawing IDs.');
     const image = validateImage({ assetId, id, name: `Picture ${id}`, alt: '', ...properties });
     this.replace(OBJECT, { insertedImage: image });
     // A placeholder expands replacement to its entire prompt. Use the actual

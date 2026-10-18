@@ -137,6 +137,20 @@ export function imageInfo(bytes, { checkSize = true } = {}) {
   return { mime, width, height };
 }
 
+/**
+ * The next drawing id (wp:docPr id) for a story: past every id it uses, including those of drawings kept
+ * inside another drawing's retained XML (a picture in a text box), since ids must be unique in the part.
+ */
+export function nextDrawingId(paragraphs) {
+  let max = 0;
+  for (const p of paragraphs) for (const run of p.runs) {
+    const image = run.image; if (!image) continue;
+    if (image.id > max) max = image.id;
+    if (typeof image.shell === 'string') for (const match of image.shell.matchAll(/<wp:docPr\b[^>]*?\sid="(\d+)"/g)) max = Math.max(max, Number(match[1]));
+  }
+  return max + 1;
+}
+
 export function validateImage(image) {
   if (image.frameRotation !== undefined && (image.kind !== 'drawing' || !image.retainedDrawing || image.anchor || image.flatLine || image.flatGroup || !Number.isInteger(image.frameRotation) || image.frameRotation < 0 || image.frameRotation >= FULL_TURN)) throw new Error('Invalid retained drawing frame rotation.');
   if (image.kind === 'chart' && (Object.values(normalizeCrop(image.crop)).some(Boolean) || image.flipH || image.flipV || normalizedRotation(image.rotation))) throw new Error('Chart cropping, flipping and rotation are not supported.');
