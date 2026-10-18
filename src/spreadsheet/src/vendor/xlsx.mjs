@@ -24743,7 +24743,7 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 			for(C=0; C < range.s.c; ++C) o.push(null_cell_xml);
 			for(; C <= lastCol; ++C) {
 				var skip = false, ct = {}, textp = "";
-				var validationCell = validationLayout ? validationLayout.cell(R, C) : null;
+				var validationCell = validationLayout ? validationLayout.cell(R, C, lastCol) : null;
 				if(validationCell && validationCell.name) ct['table:content-validation-name'] = validationCell.name;
 				if(validationCell && validationCell.count > 1) ct['table:number-columns-repeated'] = validationCell.count;
 				for(var mk = 0, here = mergesAt(R); mk != here.length; ++mk) {

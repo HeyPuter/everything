@@ -88,11 +88,13 @@ export function odsValidationLayout(rules, used, sheetIndex) {
   return {
     lastRow, lastCol,
     rows: (r) => r <= used.e.r ? 1 : nextBoundary(r, rowEdges, lastRow) - r,
-    cell: (r, c) => {
+    // `end` is the last column the writer declares, which a column's width or hidden state can put past
+    // every rule and cell: a run there reaches it, rather than counting no cells and never advancing.
+    cell: (r, c, end = lastCol) => {
       // The last rule covering the cell wins, as in the app.
       const index = covering(r).find(i => c >= rules[i].range.c1 && c <= rules[i].range.c2) ?? -1;
       return { name: index < 0 ? null : `dv_${sheetIndex}_${index}`,
-        count: c <= used.e.c ? 1 : nextBoundary(c, colEdges, lastCol) - c };
+        count: c <= used.e.c ? 1 : Math.max(1, nextBoundary(c, colEdges, Math.max(end, lastCol)) - c) };
     },
   };
 }
