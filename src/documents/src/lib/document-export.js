@@ -30,6 +30,16 @@ function blocksOf(model) {
   catch { return model.paragraphs.filter(p => !p.cellId).map(paragraph => ({ type: 'paragraph', paragraph })); }
 }
 const paragraphOf = block => block.paragraph;
+/**
+ * A table's rows as lists of cell texts, one per grid column: a merged cell's text stands in its first
+ * column and row, and the columns and rows it also covers (and cells a row leaves out) are empty, so
+ * every later cell stays under its own heading.
+ */
+const tableRows = (block, cellText) => block.rows.map(row => {
+  const cells = Array(row.gridBefore || 0).fill('');
+  for (const cell of row.cells) cells.push(cell.rowSpan === 0 ? '' : cellText(cell), ...Array(Math.max(0, (cell.span || 1) - 1)).fill(''));
+  return cells.concat(Array(row.gridAfter || 0).fill(''));
+});
 
 /* ---- HTML ---- */
 function runHtml(run, heading = false) {
@@ -111,8 +121,7 @@ function blocksMarkdown(blocks, model) {
   const out = []; let counter = 0, previousList = null;
   for (const block of blocks) {
     if (block.type === 'table') {
-      const rows = block.rows.map(row => row.cells.filter(cell => cell.rowSpan !== 0).map(cell =>
-        cell.content.filter(c => !c.type).map(c => paragraphMarkdown(c.paragraph)).join('<br>').replace(/\|/g, '\\|') || ' '));
+      const rows = tableRows(block, cell => cell.content.filter(c => !c.type).map(c => paragraphMarkdown(c.paragraph)).join('<br>').replace(/\|/g, '\\|')).map(row => row.map(text => text || ' '));
       if (rows.length) {
         const width = Math.max(...rows.map(r => r.length));
         const pad = r => [...r, ...Array(width - r.length).fill(' ')];
@@ -147,7 +156,7 @@ export function documentPlainText(model) {
   const lines = [];
   const walk = blocks => {
     for (const block of blocks) {
-      if (block.type === 'table') { for (const row of block.rows) lines.push(row.cells.filter(c => c.rowSpan !== 0).map(cell => cell.content.filter(c => !c.type).map(c => c.paragraph.runs.map(runText).join('')).join(' ')).join('\t')); continue; }
+      if (block.type === 'table') { for (const row of tableRows(block, cell => cell.content.filter(c => !c.type).map(c => c.paragraph.runs.map(runText).join('')).join(' '))) lines.push(row.join('\t')); continue; }
       lines.push(block.paragraph.runs.map(runText).join('').replace(/\v/g, '\n').replace(/\f/g, ''));
     }
   };
