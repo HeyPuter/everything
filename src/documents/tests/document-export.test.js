@@ -52,3 +52,31 @@ describe('Markdown and plain-text tables', () => {
     expect(body(documentHtml(doc))).toContain('Inner secret');
   });
 });
+
+describe('line, page and column breaks', () => {
+  const doc = () => {
+    const d = blankDoc();
+    d.replace('End of chapter one.'); d.insertPageBreak(); d.replace('Chapter two begins.');
+    d.insertParagraph(); d.replace('Left column.'); d.insertColumnBreak(); d.replace('Right column.');
+    d.insertParagraph(); d.replace('one\vtwo'); d.select(d.text.length - 7, d.text.length); d.toggleBold();
+    return d;
+  };
+  it('start a new line in every format', () => {
+    const d = doc();
+    expect(documentPlainText(d)).toBe('End of chapter one.\nChapter two begins.\nLeft column.\nRight column.\none\ntwo\n');
+    expect(documentMarkdown(d)).toBe('End of chapter one.\\\nChapter two begins.\n\nLeft column.\\\nRight column.\n\n**one\\\ntwo**\n');
+    expect(body(documentHtml(d))).toBe('<p>End of chapter one.<br>Chapter two begins.</p><p>Left column.<br>Right column.</p><p><strong>one<br>two</strong></p>');
+    expect(documentMarkdown(d) + documentPlainText(d) + documentHtml(d)).not.toMatch(/[\f\v\u000e\0]/);
+  });
+  it('keep a list item and a table cell whole, and are left out at a paragraph\'s ends', () => {
+    const d = blankDoc();
+    d.replace('first\vsecond'); d.toggleList('bullet');
+    d.insertParagraph(); d.replace('\vtrailing\v');
+    expect(documentMarkdown(d)).toBe('- first\\\n  second\n- trailing\n');
+    d.insertParagraph(); d.toggleList('bullet');
+    d.insertTable(1, 1); d.replace('cell\vline');
+    expect(documentMarkdown(d)).toContain('| cell<br>line |');
+    expect(documentPlainText(d)).toContain('cell line');
+  });
+});
+

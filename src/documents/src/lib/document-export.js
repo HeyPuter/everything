@@ -50,7 +50,8 @@ const cellText = (cell, paragraphText, cellBreak, lineBreak) => cell.content.map
 
 /* ---- HTML ---- */
 function runHtml(run, heading = false) {
-  let html = escapeHtml(runText(run)).replace(/\v/g, '<br>').replace(/\f/g, '');
+  // Line, page and column breaks all start a new line: a web page has no pages or columns to break.
+  let html = escapeHtml(runText(run)).replace(/[\v\f\u000e]/g, '<br>');
   if (!html) return '';
   if (run.verticalAlign === 'superscript') html = `<sup>${html}</sup>`;
   if (run.verticalAlign === 'subscript') html = `<sub>${html}</sub>`;
@@ -109,10 +110,13 @@ ${body}
 
 /* ---- Markdown ---- */
 const mdEscape = text => text.replace(/([\\`*_[\]#<>|])/g, '\\$1');
+// Breaks stand as NUL (which document text cannot hold) until the paragraph knows how its lines break.
+const BREAK = '\0';
 function runMarkdown(run, heading = false) {
-  let text = mdEscape(runText(run)).replace(/\v/g, '  \n').replace(/\f/g, '');
+  let text = mdEscape(runText(run)).replace(/[\v\f\u000e]/g, BREAK);
   if (!text.trim()) return text;
-  const [, lead, core, trail] = /^(\s*)([\s\S]*?)(\s*)$/.exec(text);
+  // Breaks at a run's edges stay outside its emphasis markers, as spaces do.
+  const [, lead, core, trail] = /^([\s\0]*)([\s\S]*?)([\s\0]*)$/.exec(text);
   let out = core;
   if (run.strikethrough && run.strikethrough !== 'none') out = `~~${out}~~`;
   if (run.italic) out = `*${out}*`;
@@ -123,13 +127,15 @@ function runMarkdown(run, heading = false) {
   if (link) out = `[${out}](${link.replace(/[()\s|]/g, encodeURIComponent)})`;
   return lead + out + trail;
 }
-const paragraphMarkdown = (p, heading = false) => p.runs.map(run => runMarkdown(run, heading)).join('').replace(/\n/g, ' ');
+/** A paragraph's Markdown, its line, page and column breaks written as `lineBreak`. */
+// A break at either end of a paragraph has no line to start: Markdown would show a backslash there.
+const paragraphMarkdown = (p, heading = false, lineBreak = '\\\n') => p.runs.map(run => runMarkdown(run, heading)).join('').replace(/^\0+|\0+$/g, '').replaceAll(BREAK, heading ? ' ' : lineBreak);
 function blocksMarkdown(blocks, model) {
   const out = []; let counter = 0, previousList = null;
   for (const block of blocks) {
     if (block.type === 'table') {
       // Text already escapes its pipes (and link targets encode theirs), so none ends a cell early.
-      const rows = tableRows(block, cell => cellText(cell, p => paragraphMarkdown(p), ' \\| ', '<br>')).map(row => row.map(text => text || ' '));
+      const rows = tableRows(block, cell => cellText(cell, p => paragraphMarkdown(p, false, '<br>'), ' \\| ', '<br>')).map(row => row.map(text => text || ' '));
       if (rows.length) {
         const width = Math.max(...rows.map(r => r.length));
         const pad = r => [...r, ...Array(width - r.length).fill(' ')];
@@ -143,7 +149,9 @@ function blocksMarkdown(blocks, model) {
     if (kind) {
       counter = previousList === kind ? counter + 1 : 1;
       const indent = '  '.repeat(Math.max(0, Math.min(8, p.list?.level || 0)));
-      const line = `${indent}${kind === 'bullet' ? '-' : `${counter}.`} ${text}`;
+      const marker = kind === 'bullet' ? '-' : `${counter}.`;
+      // A line after a break is indented to the item's text, so it stays in the item.
+      const line = `${indent}${marker} ${text.replace(/\n/g, `\n${indent}${' '.repeat(marker.length + 1)}`)}`;
       if (previousList) out[out.length - 1] += `\n${line}`; else out.push(line);
       previousList = kind;
       continue;
@@ -164,8 +172,8 @@ export function documentPlainText(model) {
   const lines = [];
   const walk = blocks => {
     for (const block of blocks) {
-      if (block.type === 'table') { for (const row of tableRows(block, cell => cellText(cell, p => p.runs.map(runText).join(''), ' ', ' '))) lines.push(row.join('\t')); continue; }
-      lines.push(block.paragraph.runs.map(runText).join('').replace(/\v/g, '\n').replace(/\f/g, ''));
+      if (block.type === 'table') { for (const row of tableRows(block, cell => cellText(cell, p => p.runs.map(runText).join('').replace(/[\v\f\u000e]/g, ' '), ' ', ' '))) lines.push(row.join('\t')); continue; }
+      lines.push(block.paragraph.runs.map(runText).join('').replace(/[\v\f\u000e]/g, '\n'));
     }
   };
   walk(blocksOf(model));
