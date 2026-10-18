@@ -162,10 +162,15 @@ export function changePictureEdit({ bytes, mime, width, height }) {
   return async (drawing, context) => {
     const { blip, blipFill, frame } = drawingParts(drawing);
     if (!blip) throw new Error('Select a picture to change it.');
+    // The replaced picture, its kept original and its SVG companion are released: saving drops whichever
+    // nothing else still uses, instead of keeping them in the file for good.
+    const replaced = [blip.getAttributeNS(R, 'embed'), readPictureLayer(blip)?.relId,
+      ...[...blip.getElementsByTagNameNS('*', 'svgBlip')].map(svg => svg.getAttributeNS(R, 'embed'))].filter(Boolean);
     const rel = context.addPart(bytes, mime, 'canvas-picture');
     dropVectorCompanion(blip);
     setPictureLayer(blip, null);
     blip.setAttributeNS(R, 'r:embed', rel);
+    for (const old of replaced) context.release?.(old);
     const extent = frame.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing', 'extent')[0];
     const frameRatio = Number(extent.getAttribute('cx')) / Number(extent.getAttribute('cy')), pictureRatio = width / height;
     const crop = {};
