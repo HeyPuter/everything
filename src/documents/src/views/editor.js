@@ -1244,7 +1244,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     editingAreaLabel.hidden = pkg.readOnly || !areas.length;
     const selectedArea = engine.session.path === null ? '' : JSON.stringify([engine.session.path, engine.storyPage]);
     if (editingArea.value !== selectedArea) editingArea.value = selectedArea;
-    outline.disabled = false; outlinePanel.refresh(engine.outline, engine.model.range[0]);
+    // The headings (each placed on its page) are worked out only while the pane shows them; opening it refreshes them.
+    outline.disabled = false; if (!outlinePanel.node.hidden) outlinePanel.refresh(engine.outline, engine.model.range[0]);
     chrome.setContext(pictures.drawingContext(engine) || (engineApi()?.selectedShape(engine) ? 'shape' : engine.model.selectedImage ? 'image' : engine.model.tableContext ? 'table' : 'paragraph'), [...(['header', 'footer'].includes(references.activeStoryKind()) ? ['headerFooter'] : []), ...(editorCommands.extraContexts?.() || [])]);
     mailings.refresh(); pictures.refresh();
     views.refresh();
