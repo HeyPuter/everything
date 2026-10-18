@@ -6961,7 +6961,7 @@ export class Workbook extends EventTarget {
       this._changed('structure', live.id);
     };
     apply(next);
-    this._push({ label: 'Protect sheet', undo: () => apply(prev), redo: () => apply(next) });
+    this._push({ label: next ? 'Protect sheet' : 'Unprotect sheet', undo: () => apply(prev), redo: () => apply(next) });
   }
 
   /** True (and announced) when the sheet is protected, so a mutation should stop. */
@@ -7700,7 +7700,7 @@ export class Workbook extends EventTarget {
       this._changed('layout', live.id);
     };
     apply(next);
-    this._push({ label: 'Freeze panes', undo: () => apply(prev), redo: () => apply(next) });
+    this._push({ label: next.rows || next.cols ? 'Freeze panes' : 'Unfreeze panes', undo: () => apply(prev), redo: () => apply(next) });
   }
 
   /**

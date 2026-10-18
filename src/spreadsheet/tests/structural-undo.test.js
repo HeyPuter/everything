@@ -24,7 +24,7 @@ describe('undoing a structural edit', () => {
     expect(wb.sheets[0].gridlines).toBe(false);
     // Each of the three is a step of its own, so undoing one flips that one back and nothing else.
     wb.setSheetProtected(b, false);
-    expect(wb.undoLabel()).toBe('Protect sheet');
+    expect(wb.undoLabel()).toBe('Unprotect sheet');
     wb.undo();
     expect(wb.isProtected(b)).toBe(true);
     expect(wb.getValue(a, 1, 0)).toBe('top');
