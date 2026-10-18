@@ -8,6 +8,7 @@ import { el, fieldId, isComposing } from './dom.js';
 import { openModal, fieldAlert, confirmDialog, promptDialog } from './modal.js';
 import { toast } from './toast.js';
 import { cellName } from '../core/cell.js';
+import { parseInput, editText } from '../core/format.js';
 import { saveScenario } from '../core/scenarios.js';
 import { RELATIONS, ENGINES, DEFAULT_OPTIONS, emptyModel, readSolverModel, saveSolverModel, prepareSolver, runSolver, applySolverResult,
   availableReports, modelToCells, modelFromCells, saveModelToCells, parseRanges } from '../core/solver.js';
@@ -21,7 +22,24 @@ const REPORTS = [['answer', 'Answer'], ['sensitivity', 'Sensitivity'], ['limits'
 const RELATION_LABEL = { '<=': '<=', '=': '=', '>=': '>=', int: 'int', bin: 'bin', dif: 'dif' };
 const WORD = { int: 'integer', bin: 'binary', dif: 'AllDifferent' };
 
-const constraintText = (k) => `${k.lhs} ${k.rel === 'int' || k.rel === 'bin' || k.rel === 'dif' ? '= ' + WORD[k.rel] : `${RELATION_LABEL[k.rel]} ${k.rhs}`}`;
+/**
+ * A number typed into a Solver field: in the regional format, as a cell reads one (1,5 where the decimal mark is a
+ * comma), or written with a full stop as the model stores it; null when the text is no number (or reads as a date).
+ */
+function typedNumber(text) {
+  const t = String(text ?? '').trim();
+  if (!t) return null;
+  const { v, fmt } = parseInput(t);
+  if (typeof v === 'number' && !['date', 'time', 'datetime'].includes(fmt)) return v;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+/** A number as a Solver field shows it: in the regional format, every digit kept. */
+const numberShown = (v) => editText({ v, f: null });
+/** A constraint's right side as the dialogs show it: a number in the regional format, a reference or formula as stored. */
+const rhsShown = (rhs) => (/^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(String(rhs ?? '').trim()) ? numberShown(Number(rhs)) : rhs);
+
+const constraintText = (k) => `${k.lhs} ${k.rel === 'int' || k.rel === 'bin' || k.rel === 'dif' ? '= ' + WORD[k.rel] : `${RELATION_LABEL[k.rel]} ${rhsShown(k.rhs)}`}`;
 const clone = (m) => JSON.parse(JSON.stringify(m));
 const count = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
 
@@ -40,7 +58,7 @@ function openConstraintEditor(ctx, existing, onDone) {
   const lhs = el('input.input', { type: 'text', id: fieldId('sv-lhs'), value: existing?.lhs || selectionText(ctx), autocomplete: 'off', spellcheck: false });
   const rel = el('select.select.sv-rel', { id: fieldId('sv-rel'), 'aria-label': 'Relation' }, ...RELATIONS.map(([key, label]) => el('option', { value: key }, label)));
   rel.value = existing?.rel || '<=';
-  const rhs = el('input.input', { type: 'text', id: fieldId('sv-rhs'), value: existing && !WORD[existing.rel] ? existing.rhs : '', autocomplete: 'off', spellcheck: false });
+  const rhs = el('input.input', { type: 'text', id: fieldId('sv-rhs'), value: existing && !WORD[existing.rel] ? rhsShown(existing.rhs) : '', autocomplete: 'off', spellcheck: false });
   const { alert, refuse } = fieldAlert('solver-constraint');
   const sync = () => {
     const word = WORD[rel.value];
@@ -55,9 +73,12 @@ function openConstraintEditor(ctx, existing, onDone) {
     const ranges = parseRanges(ctx.wb, sheetId, left);
     if (!ranges || ranges.length !== 1) { refuse(lhs, 'Enter one range on this sheet, like $B$4 or $B$4:$B$6'); return null; }
     const word = WORD[rel.value];
-    const right = word || rhs.value.trim().replace(/^=/, '');
+    let right = word || rhs.value.trim().replace(/^=/, '');
     if (!right) { refuse(rhs, 'Enter a number, a cell reference or a formula'); return null; }
-    if (!word && !Number.isFinite(Number(right))) {
+    // A number is stored as the model's formulas write one (2.5), whatever the regional format it was typed in.
+    const constant = word || /^=/.test(rhs.value.trim()) ? null : typedNumber(right);
+    if (constant != null) right = String(constant);
+    else if (!word) {
       const ref = parseRanges(ctx.wb, sheetId, right);
       if (ref && ref.length === 1) {
         const R = ref[0], L = ranges[0];
@@ -95,7 +116,7 @@ function openConstraintEditor(ctx, existing, onDone) {
 function openOptions(options, onDone) {
   const o = { ...DEFAULT_OPTIONS, ...options };
   const id = (name) => fieldId(`sv-opt-${name}`);
-  const num = (name, value, attrs = {}) => el('input.input.sv-num', { type: 'text', inputmode: 'decimal', id: id(name), value: value == null ? '' : String(value), autocomplete: 'off', ...attrs });
+  const num = (name, value, attrs = {}) => el('input.input.sv-num', { type: 'text', inputmode: 'decimal', id: id(name), value: value == null ? '' : numberShown(value), autocomplete: 'off', ...attrs });
   const check = (name, on) => el('input', { type: 'checkbox', id: id(name), checked: !!on });
   const f = {
     precision: num('precision', o.precision), scaling: check('scaling', o.scaling), ignoreInteger: check('ignore', o.ignoreInteger),
@@ -151,8 +172,8 @@ function openOptions(options, onDone) {
   const read = (input, { min = -Infinity, max = Infinity, open = false, blank = false, integer = false } = {}) => {
     const t = input.value.trim();
     if (!t) return blank ? { ok: true, v: null } : { ok: false };
-    const v = Number(t);
-    if (!Number.isFinite(v) || (open ? v <= min : v < min) || v > max || (integer && !Number.isInteger(v))) return { ok: false };
+    const v = typedNumber(t);
+    if (v == null || (open ? v <= min : v < min) || v > max || (integer && !Number.isInteger(v))) return { ok: false };
     return { ok: true, v };
   };
   const submit = (e) => {
@@ -321,7 +342,7 @@ export function openSolver(ctx, start = null) {
   const objective = el('input.input', { type: 'text', id: fieldId('sv-obj'), value: model.objective, autocomplete: 'off', spellcheck: false });
   const goalName = fieldId('sv-goal');
   const goals = Object.fromEntries([['max', 'Max'], ['min', 'Min'], ['value', 'Value Of:']].map(([key]) => [key, el('input', { type: 'radio', name: goalName, id: fieldId(`sv-goal-${key}`), value: key, checked: model.goal === key })]));
-  const value = el('input.input.sv-value', { type: 'text', inputmode: 'decimal', id: fieldId('sv-val'), value: String(model.value ?? 0), 'aria-label': 'Value of', autocomplete: 'off', disabled: model.goal !== 'value' });
+  const value = el('input.input.sv-value', { type: 'text', inputmode: 'decimal', id: fieldId('sv-val'), value: numberShown(Number(model.value ?? 0)), 'aria-label': 'Value of', autocomplete: 'off', disabled: model.goal !== 'value' });
   for (const radio of Object.values(goals)) radio.addEventListener('change', () => { value.disabled = !goals.value.checked; });
   const variables = el('input.input', { type: 'text', id: fieldId('sv-adj'), value: model.variables, autocomplete: 'off', spellcheck: false, placeholder: 'e.g. $B$2:$B$5' });
   const list = el('select.select.sm-list.sv-list', { size: 7, id: fieldId('sv-list'), 'aria-label': 'Constraints' });
@@ -344,7 +365,7 @@ export function openSolver(ctx, start = null) {
     buttons.reset.disabled = false;
   };
   const current = () => ({
-    objective: objective.value.trim(), goal: Object.entries(goals).find(([, r]) => r.checked)?.[0] || 'max', value: value.value.trim() === '' ? 0 : Number(value.value),
+    objective: objective.value.trim(), goal: Object.entries(goals).find(([, r]) => r.checked)?.[0] || 'max', value: value.value.trim() === '' ? 0 : typedNumber(value.value) ?? NaN,
     variables: variables.value.trim(), constraints: constraints.map((k) => ({ ...k })), nonNegative: nonNegative.checked, engine: engine.value, options: { ...options },
   });
   const add = () => openConstraintEditor(ctx, null, (k, again) => { constraints.push(k); sync(constraints.length - 1); if (again) add(); else list.focus(); });
@@ -359,14 +380,14 @@ export function openSolver(ctx, start = null) {
     const ok = await confirmDialog({ title: 'Reset All', message: 'Clear the objective, variable cells, constraints and options?', confirmLabel: 'Reset', danger: true });
     if (!ok) return;
     const blank = emptyModel();
-    objective.value = ''; variables.value = ''; goals.max.checked = true; value.value = '0'; value.disabled = true;
+    objective.value = ''; variables.value = ''; goals.max.checked = true; value.value = numberShown(0); value.disabled = true;
     nonNegative.checked = true; engine.value = blank.engine; note.textContent = ENGINE_NOTES[blank.engine];
     options = { ...DEFAULT_OPTIONS }; constraints = [];
     sync();
     objective.focus();
   } }, 'Reset All');
   buttons.loadSave = el('button.btn', { type: 'button', onclick: () => openLoadSave(ctx, current(), (m) => {
-    objective.value = m.objective; variables.value = m.variables; goals[m.goal].checked = true; value.value = String(m.value ?? 0); value.disabled = m.goal !== 'value';
+    objective.value = m.objective; variables.value = m.variables; goals[m.goal].checked = true; value.value = numberShown(Number(m.value ?? 0)); value.disabled = m.goal !== 'value';
     nonNegative.checked = m.nonNegative !== false; engine.value = m.engine; note.textContent = ENGINE_NOTES[m.engine];
     options = { ...DEFAULT_OPTIONS, ...m.options }; constraints = m.constraints.map((k) => ({ ...k }));
     sync(0);
