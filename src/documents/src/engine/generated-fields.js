@@ -197,7 +197,12 @@ export function insertEntryField(doc, instruction, position = doc.range[1]) {
   if (!ENTRY_FIELDS.has(field.type)) throw new Error('Only index, authority and contents entries have no visible result.');
   const index = paragraphIndexAt(doc, position), base = paragraphOffset(doc, index), p = doc.paragraphs[index];
   doc.checkpoint();
-  (p.fieldMarkers ||= []).push({ type: 'start', field, offset: position - base, order: nextMarkerOrder() }, { type: 'end', field, offset: position - base, order: nextMarkerOrder() });
+  // An entry marked where another field starts goes before that field, not into its result (Word marks the
+  // entry beside the text); fields that end here still close before it.
+  const offset = position - base, here = [...(p.fieldMarkers || [])].filter(m => m.offset === offset).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const next = here.findIndex(m => m.type === 'start'), high = here[next]?.order ?? 0, low = next > 0 ? here[next - 1].order ?? 0 : high - 1;
+  const [startOrder, endOrder] = next < 0 ? [nextMarkerOrder(), nextMarkerOrder()] : [low + (high - low) / 3, low + (high - low) * 2 / 3];
+  (p.fieldMarkers ||= []).push({ type: 'start', field, offset, order: startOrder }, { type: 'end', field, offset, order: endOrder });
   doc.hasBodyFields = true;
   bodyFieldRanges(doc.paragraphs);
   doc.select(position);
