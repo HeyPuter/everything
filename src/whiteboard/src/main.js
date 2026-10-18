@@ -8677,7 +8677,7 @@ function pointerMove(e) {
           dx,
           dy,
           view.z,
-          !snapping || e.altKey,
+          !snapping || e.altKey || e.ctrlKey || e.metaKey,
         ),
         e.altKey || e.ctrlKey || e.metaKey ? 0 : drag.gridStep,
       );
@@ -13726,7 +13726,7 @@ document.addEventListener("keydown", (e) => {
   if (!drag && mindMap.keydown(e)) return;
   if (
     ["Control", "Meta"].includes(e.key) &&
-    (drag?.mind || drag?.gridStep) &&
+    (drag?.mind || drag?.gridStep || drag?.kind === "move") &&
     drag.pointer
   ) {
     e.preventDefault();
@@ -14124,7 +14124,7 @@ document.addEventListener("keyup", (e) => {
   flushNudgeSave();
   if (
     ["Control", "Meta"].includes(e.key) &&
-    (drag?.mind || drag?.gridStep) &&
+    (drag?.mind || drag?.gridStep || drag?.kind === "move") &&
     drag.pointer
   )
     pointerMove({ ...drag.pointer, ctrlKey: e.ctrlKey, metaKey: e.metaKey });

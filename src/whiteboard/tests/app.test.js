@@ -20723,6 +20723,43 @@ test("Ctrl- or Cmd-click adds an object to the selection or takes it out", async
   }
 });
 
+test("Ctrl or Cmd held during a move keeps the object off other objects' edges", async () => {
+  const app = await setup();
+  try {
+    const { selected, pointer } = await rotationFixture(app, [
+      item("rect", 0, 0, { w: 200, h: 100 }),
+      item("rect", 400, 300, { w: 200, h: 100 }),
+    ]);
+    const [a, b] = selected;
+    // Drags the second rectangle from where it started to 3 units right of
+    // the first one's left edge, then puts it back.
+    const drag = async (extra) => {
+      const at = { x: b.x + 100, y: b.y + 50 },
+        to = { x: a.x + 103, y: at.y };
+      pointer("pointerdown", at);
+      pointer("pointerup", at);
+      pointer("pointerdown", at, extra);
+      pointer("pointermove", { x: at.x - 200, y: at.y }, extra);
+      pointer("pointermove", to, extra);
+      pointer("pointerup", to, extra);
+      await app.tick();
+      const left = selectedClipboard(app).find((i) => i.id === b.id).x;
+      const back = { x: left + 100, y: at.y };
+      pointer("pointerdown", back);
+      pointer("pointermove", { x: back.x + 100, y: at.y }, { altKey: true });
+      pointer("pointermove", at, { altKey: true });
+      pointer("pointerup", at, { altKey: true });
+      await app.tick();
+      return left - a.x;
+    };
+    assert.equal(await drag({}), 0, "It snaps to the other's left edge");
+    assert.equal(await drag({ ctrlKey: true }), 3);
+    assert.equal(await drag({ metaKey: true }), 3);
+  } finally {
+    await app.close();
+  }
+});
+
 test("pressing an object keeps its toolbar where it settles once released", async () => {
   const app = await setup();
   try {
