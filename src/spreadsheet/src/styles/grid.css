@@ -636,6 +636,9 @@
   .grid-editor { font-size: 16px; }
   /* 25px under a finger (WCAG 2.5.8): on a touch screen the handle is the only way to drag a range out. */
   .fill-handle::after { inset: -8px; }
+  /* A fingertip lands a few pixels either side of a column's edge; the heading keeps most of its width for the
+     tap that selects the column. Rows are too short to give their strip more without taking that tap. */
+  .col-resizer { right: -8px; width: 17px; }
 }
 
 /* Formula hints under the cell editor */
