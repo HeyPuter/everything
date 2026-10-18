@@ -5817,6 +5817,40 @@ test("a slide button that disables under the keyboard hands focus on, so the arr
   }
 });
 
+test("the presenter's slide is cut off at its frame's edge, as followers see it", async () => {
+  const app = await setup();
+  const { doc, click } = app;
+  try {
+    // A tall frame on a wide stage, and a note reaching past its edge.
+    const frame = item("frame", 0, 0, { w: 400, h: 800, text: "Tall" });
+    await rotationFixture(app, [
+      frame,
+      item("note", 300, 100, {
+        w: 400,
+        h: 200,
+        color: "#ff0000",
+        parentId: frame.id,
+      }),
+    ]);
+    await click('[data-action="present"]');
+    await click("#start-presentation");
+    const canvas = doc.querySelector("#slide-canvas");
+    const pixel = (x, y) => [
+      ...canvas._native.getContext("2d").getImageData(x, y, 1, 1).data,
+    ];
+    // Stage 900 by 500: the slide spans 250 wide in the middle.
+    assert.deepEqual(pixel(10, 250), [0x3a, 0x3d, 0x42, 255]);
+    assert.deepEqual(
+      pixel(660, 120),
+      [0x3a, 0x3d, 0x42, 255],
+      "The note past the edge is cut off",
+    );
+    assert.deepEqual(pixel(450, 400), [255, 255, 255, 255]);
+  } finally {
+    await app.close();
+  }
+});
+
 test("live reactions float over the presentation while it is open, and over the board after", async () => {
   const app = await setup();
   const { doc, click } = app;

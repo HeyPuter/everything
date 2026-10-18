@@ -129,9 +129,25 @@ const loadWriter = (pending) =>
       "This feature could not load. Check your connection and try again.",
     );
   });
-// The plain space around a followed slide that a different screen shape
-// leaves, like the presenter's own surround.
+// The plain space around a slide that a different screen shape leaves,
+// for the presenter and those following alike.
 const SLIDE_SURROUND = "#3a3d42";
+// Objects reaching past the slide's edge are cut off there.
+function paintSlideSurround(canvas, view, rect, { width, height, dpr }) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = SLIDE_SURROUND;
+  ctx.beginPath();
+  ctx.rect(0, 0, width, height);
+  ctx.rect(
+    view.x + rect.x * view.z,
+    view.y + rect.y * view.z,
+    rect.w * view.z,
+    rect.h * view.z,
+  );
+  ctx.fill("evenodd");
+}
 const frameTitleHTML = (frame, fallback = "Frame") =>
   frame?.text ? authoredTextHTML(frame) : escape(t(fallback));
 function frameChoicesHTML(frames, id, legend, allowNone = false) {
@@ -1122,28 +1138,36 @@ export function createFeatures(api) {
         const render = () => {
           const region = regions[index],
             r = canvas.getBoundingClientRect(),
+            size = {
+              width: r.width || 900,
+              height: r.height || 500,
+              dpr: Math.min(window.devicePixelRatio || 1, 2),
+            },
             z = Math.min(
-              (r.width || 900) / region.rect.w,
-              (r.height || 500) / region.rect.h,
-            );
+              size.width / region.rect.w,
+              size.height / region.rect.h,
+            ),
+            view = {
+              x: size.width / 2 - (region.rect.x + region.rect.w / 2) * z,
+              y: size.height / 2 - (region.rect.y + region.rect.h / 2) * z,
+              z,
+            };
           // The frame is the slide, as in Miro: its editing outline and
-          // its title are left out, and only what it holds is shown.
+          // its title are left out, and only what it holds is shown, cut
+          // off at its edge as those following see it.
           paint(
             canvas,
             region.items.filter((i) => i.id !== region.frameId),
-            {
-              x: (r.width || 900) / 2 - (region.rect.x + region.rect.w / 2) * z,
-              y:
-                (r.height || 500) / 2 - (region.rect.y + region.rect.h / 2) * z,
-              z,
-            },
+            view,
             {
               background: "#ffffff",
               textColor: "#30342f",
               mindCounts: region.mindCounts,
               tags: api.board().tags,
+              ...size,
             },
           );
+          paintSlideSurround(canvas, view, region.rect, size);
           api.presentAttention?.(d, region.rect, {
             ...(region.frameId ? { frame: region.frameId } : {}),
             at: index + 1,
@@ -1370,21 +1394,7 @@ export function createFeatures(api) {
         dpr,
       },
     );
-    // Objects reaching past the slide's edge are cut off there.
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = SLIDE_SURROUND;
-      ctx.beginPath();
-      ctx.rect(0, 0, width, height);
-      ctx.rect(
-        view.x + rect.x * z,
-        view.y + rect.y * z,
-        rect.w * z,
-        rect.h * z,
-      );
-      ctx.fill("evenodd");
-    }
+    paintSlideSurround(canvas, view, rect, { width, height, dpr });
     const frame = region.items.find((i) => i.id === region.frameId);
     const shown = {
       name: frame?.text
