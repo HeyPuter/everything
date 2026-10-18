@@ -204,8 +204,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       if (engine.session.path !== null) engine.editStory(null);
       const body = engine.session.body, [a, b] = body.range;
       // "All shown" leaves the changes of reviewers and kinds hidden by Show Markup alone.
-      const shown = scope === 'shown' ? shownChanges(body.revisions) : null;
-      const ok = run(() => shown ? shown.reverse().reduce((done, r) => body.resolveRevisions(accept, r.start, Math.min(r.end, body.text.length + 1)) || done, false) : scope === 'all' ? body.resolveRevisions(accept) : body.resolveRevisions(accept, a, b));
+      const ok = run(() => scope === 'shown' ? body.resolveRevisions(accept, undefined, undefined, { only: change => shownChanges([change]).length > 0 })
+        : scope === 'all' ? body.resolveRevisions(accept) : body.resolveRevisions(accept, a, b));
       if (!accept && body.formatRejectSkipped) error(new Error('Formatting changes cannot be rejected here yet, so they were kept. Accept them, or change the formatting back by hand.'));
       if (stopTracking) commands.toggleTracking(false);
       if (ok && moveNext) commands.goChange(1, { from: body.range[0] });

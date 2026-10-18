@@ -2002,11 +2002,12 @@ export class TextDocument {
   }
   get revisions() { return hasRevisions(this.paragraphs) ? revisionRanges(this.paragraphs) : []; }
   /** Accept or reject the changes overlapping [start, end] (the whole document by default). */
-  resolveRevisions(accept, start = 0, end = documentLength(this.paragraphs) + 1) {
+  /** `only(change)` limits it to some changes (those Show Markup shows): the others in the range are left. */
+  resolveRevisions(accept, start = 0, end = documentLength(this.paragraphs) + 1, { only = () => true } = {}) {
     this.formatRejectSkipped = false;
     // Resolving changes is not itself a tracked formatting change.
     this.formatTrackingSuppressed = true;
-    const targets = (start === end ? this.revisionsAt(start, end) : revisionRanges(this.paragraphs).filter(r => r.start < end && r.end > start))
+    const targets = (start === end ? this.revisionsAt(start, end) : revisionRanges(this.paragraphs).filter(r => r.start < end && r.end > start)).filter(r => only(r))
       .map(r => ({ ...r, start: start === end ? r.start : Math.max(start, r.start), end: start === end ? r.end : Math.min(end, r.end) }));
     if (!targets.length) return false;
     this.checkpoint();
@@ -2026,8 +2027,9 @@ export class TextDocument {
             const size = p.runs.reduce((n, run) => n + run.text.length, 0);
             if (at + size + 1 > r.start && at < r.end) {
               let touched = false;
-              if (paragraphFormatChange(p) && at >= r.start && at + size + 1 <= r.end + 1) { resolve(p, 'paragraph'); touched = true; }
-              eachRevisionTarget(this.paragraphs, Math.max(r.start, at), Math.min(r.end, at + size), ({ run, mark }) => { if (!mark && runFormatChange(run)) { resolve(run, 'run'); touched = true; } });
+              const change = paragraphFormatChange(p);
+              if (change && only(change) && at >= r.start && at + size + 1 <= r.end + 1) { resolve(p, 'paragraph'); touched = true; }
+              eachRevisionTarget(this.paragraphs, Math.max(r.start, at), Math.min(r.end, at + size), ({ run, mark }) => { const runChange = !mark && runFormatChange(run); if (runChange && only(runChange)) { resolve(run, 'run'); touched = true; } });
               if (touched && !accept && this.stylesEnabled) resolveStyledParagraph(p, this.styles, this.numbering);
             }
             at += size + 1;

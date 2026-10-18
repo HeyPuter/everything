@@ -327,3 +327,16 @@ describe('resolving the changes of one paragraph', () => {
     expect(others(model)).toEqual([['format', 'Hi']]);
   });
 });
+
+it.each([true, false])('resolves only the changes Show Markup shows (accept=%s), leaving a hidden reviewer\'s', async accept => {
+  const { StorySession } = await import('../src/engine/story-session.js');
+  const pkg = createDocx([paragraph('Hello world'), paragraph('Second')]);
+  const body = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets, { trackChanges: true });
+  const session = new StorySession(body, null);
+  body.revisionAuthor = 'Bea';
+  session.run(m => { m.select(5); m.replace(' big'); });
+  body.revisionAuthor = 'Al';
+  session.run(m => { m.select(2); m.setParagraphFormat({ alignment: 'center' }); });
+  session.run(m => m.resolveRevisions(accept, undefined, undefined, { only: change => change.author !== 'Bea' }));
+  expect(body.revisions.map(r => [r.type, r.author, body.text.slice(r.start, r.end)])).toEqual([['ins', 'Bea', ' big']]);
+});
