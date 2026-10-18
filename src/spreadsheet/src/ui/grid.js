@@ -4331,9 +4331,12 @@ export function createGrid(opts) {
     const leftInset = 2 + (parseFloat(editor.style.paddingLeft) || CELL_TEXT_INSET * zoom);
     const rightInset = 2 + (parseFloat(editor.style.paddingRight) || CELL_TEXT_INSET * zoom);
     const inner = rect.width - leftInset - rightInset;
-    const align = editor.style.textAlign;
+    // Hebrew or Arabic text starts at the right (dir=auto takes 'start' there) and its first letter is the
+    // rightmost, so the distance into it is counted from its right end.
+    const rtl = RTL_LEAD.test(text);
+    const align = editor.style.textAlign === 'start' ? (rtl ? 'right' : 'left') : editor.style.textAlign;
     const start = rect.left + leftInset + (align === 'right' ? Math.max(0, inner - total) : align === 'center' ? Math.max(0, (inner - total) / 2) : 0);
-    const x = clientX - start;
+    const x = rtl ? start + total - clientX : clientX - start;
     let end = 0;
     let before = 0;
     for (const unit of graphemes(text)) {
