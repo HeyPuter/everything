@@ -1225,7 +1225,7 @@ test("the tour and AI settings work where the browser blocks storage", () => {
   }
 });
 
-async function feedbackFixture(request, lang = "en") {
+async function feedbackFixture(request, lang = "en", feedback = null) {
   const dom = new JSDOM('<!doctype html><html lang="en"><body></body></html>', {
     url: "https://whiteboard.test",
   });
@@ -1248,6 +1248,7 @@ async function feedbackFixture(request, lang = "en") {
   let dialog;
   createHelpCenter({
     org: { info: { role: "member" }, request },
+    feedback,
     icon: () => "",
     tour() {},
     shortcuts() {},
@@ -1279,6 +1280,28 @@ async function feedbackFixture(request, lang = "en") {
     },
   };
 }
+
+test("help's buttons for the organization's rating and for feedback through Puter have different names", async () => {
+  const app = await feedbackFixture(async () => {}, "en", {
+    available: () => true,
+    send() {},
+  });
+  try {
+    const names = [...app.dialog.querySelectorAll("button")]
+      .map((b) => b.textContent.trim())
+      .filter(Boolean);
+    assert.deepEqual(
+      names.filter((name, n) => names.indexOf(name) !== n),
+      [],
+    );
+    assert.equal(
+      app.dialog.querySelector("#help-feedback .primary").textContent,
+      "Send rating",
+    );
+  } finally {
+    app.close();
+  }
+});
 
 test("feedback language authoring preserves a mixed draft through a failed send and suppresses duplicate sends", async () => {
   const requests = [];
