@@ -910,6 +910,9 @@ function lookupVector(range) {
  * so a lookup index built on it serves every call of one calculation.
  */
 const alignedWindows = new WeakMap(); // values array → Map("rows,cols" → the values padded to that window)
+/** The most cells VSTACK and HSTACK assemble: the evaluator's array budget for a formula (ARRAY_BUDGET). */
+const STACK_LIMIT = 4_000_000;
+
 function alignWindows(ranges, axis) {
   let rows = 0;
   let cols = 0;
@@ -4416,8 +4419,10 @@ export const FUNCTIONS = {
       if (!args.length) return err('#VALUE!');
       const parts = alignWindows(args.map(asRange), 'cols');
       const width = Math.max(...parts.map((p) => p.values[0]?.length || 0));
-      // The same cap as SEQUENCE and MAKEARRAY: a stack cannot assemble what they may not.
-      if (parts.reduce((n, p) => n + p.values.length, 0) * width > 100000) return err('#NUM!');
+      // Stacking only rearranges cells that exist, so the cap is a formula's whole array budget, not the
+      // smaller one of SEQUENCE and MAKEARRAY, which make cells up: two 60,000-row tables stack. It is
+      // checked before building, as padding a narrow part out to a wide one's width can multiply cells.
+      if (parts.reduce((n, p) => n + p.values.length, 0) * width > STACK_LIMIT) return err('#NUM!');
       const out = [];
       for (const p of parts) for (const row of p.values) out.push(padRow(row, width));
       return { range: true, values: out };
@@ -4430,7 +4435,7 @@ export const FUNCTIONS = {
       if (!args.length) return err('#VALUE!');
       const parts = alignWindows(args.map(asRange), 'rows');
       const height = Math.max(...parts.map((p) => p.values.length));
-      if (parts.reduce((n, p) => n + (p.values[0]?.length || 0), 0) * height > 100000) return err('#NUM!');
+      if (parts.reduce((n, p) => n + (p.values[0]?.length || 0), 0) * height > STACK_LIMIT) return err('#NUM!');
       const out = [];
       for (let r = 0; r < height; r++) {
         const row = [];
