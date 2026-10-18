@@ -632,7 +632,10 @@ export function parseDate(text, now = new Date(), loc = locale) {
     const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
     return typedDate(y, mo, d, CJK_DATE_RE.test(t) ? 'long' : null);
   }
-  m = (info.decimal === ',' ? DOTTED_DATE_RE : SLASH_DATE_RE).exec(t);
+  // A day and month written with the full stop that ends each ("15.3.", Czech "15. 3."), the quick way to
+  // type a date of this year where dates are dotted, is the same as 15.3.
+  const dotted = info.decimal === ',' && /^\d{1,2}\. ?\d{1,2}\.$/.test(t) ? t.slice(0, -1) : t;
+  m = (info.decimal === ',' ? DOTTED_DATE_RE : SLASH_DATE_RE).exec(dotted);
   if (m) {
     let y, mo, d;
     // Year-first locales (ja-JP, zh-CN, ko-KR) read 24/1/1 as 2024-01-01 when that is a date; otherwise the usual order below applies.
