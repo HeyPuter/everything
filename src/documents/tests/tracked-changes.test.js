@@ -283,3 +283,18 @@ describe('fields inserted over a selection with Track Changes on', () => {
   });
 });
 
+
+describe('Replace over tracked text with Track Changes off', () => {
+  it('writes the new text as plain text, not as part of the found text\'s insertion or deletion', async () => {
+    const { pkg, model } = await open(trackedDocx({ track: false }));
+    expect(model.trackChanges).toBe(false);
+    expect(model.replaceMatches('removed', 'gone', {}, true)).toBe(1);
+    expect(model.replaceMatches('added', 'joined', {}, true)).toBe(1);
+    // The rest of the original changes stay (the deleted space before "removed", the inserted paragraph mark).
+    expect(summary(model).map(([, , text]) => text).join('|')).not.toMatch(/gone|joined/);
+    const xml = strFromU8(unzipSync(await save(pkg, model))['word/document.xml']);
+    const parsed = new DOMParser().parseFromString(xml, 'application/xml');
+    expect(['ins', 'del'].flatMap(tag => [...parsed.getElementsByTagNameNS(W, tag)]).map(e => e.textContent).join('|')).not.toMatch(/gone|joined/);
+    expect(model.text).toContain('Keep joined gone end.');
+  });
+});

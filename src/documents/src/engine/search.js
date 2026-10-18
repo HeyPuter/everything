@@ -86,6 +86,8 @@ export function replacedRuns(runs, matches, replacement) {
     else if (replacement) {
       const run = { ...(removed[0].contentControl?.placeholder ? removed[0].contentControl.inputRun : removed[0]), text: replacement };
       delete run.noteMark; delete run.bodySymbol; delete run.noBreakHyphen;
+      // New text is nobody's tracked insertion, deletion or formatting change, whatever the found text was.
+      delete run.revision; delete run.formatRevision;
       if (match.control) run.contentControl = match.control;
       else if (run.contentControl?.persistent) delete run.contentControl;
       if (!run.link || removed.some(r => r.link?.id !== run.link.id)) delete run.link;
