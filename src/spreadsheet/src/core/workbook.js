@@ -1368,6 +1368,16 @@ export class Workbook extends EventTarget {
     return this.sheets.slice(Math.min(i, j), Math.max(i, j) + 1).map((s) => s.name);
   }
 
+  /**
+   * The sheets a 3D span covers, as a structural edit sees them. A grouped edit (sheet-group.js) is made sheet by sheet:
+   * a span over a sheet the edit was already made on has followed it once, and covers nothing more for it.
+   */
+  _editedSpan(a, b) {
+    const names = this.sheetsBetween(a, b);
+    const done = this._groupEditedSheets;
+    return names && done?.length && names.some((name) => done.some((d) => sameSheetName(d, name))) ? [] : names;
+  }
+
   uniqueSheetName(base = 'Sheet') {
     let n = this.sheets.length + 1;
     let name = `${base}${n}`;
@@ -5828,7 +5838,7 @@ export class Workbook extends EventTarget {
       sheet.ignoredErrors = shiftRangeFlags(sheet.ignoredErrors, axis, at, n, remove, band);
       for (const s of this.sheets) {
         const options = { ownerSheet: s.name, sheetName: sheet.name, axis, at, count: n, remove, bandStart: b1, bandEnd: b2,
-          sheetsBetween: (a, b) => this.sheetsBetween(a, b), newId };
+          sheetsBetween: (a, b) => this._editedSpan(a, b), newId };
         s.rules = adjustBlockRules(s.rules, 'value', options);
         s.validations = adjustBlockRules(s.validations, 'source', options);
         mapSheetFilters(s, f => adjustFilterForEdit(f, options));
@@ -6770,7 +6780,7 @@ export class Workbook extends EventTarget {
   _adjustLineRules(sheetName, axis, at, count, remove) {
     for (const sheet of this.sheets) {
       const options = { ownerSheet: sheet.name, sheetName, axis, at, count, remove,
-        sheetsBetween: (a, b) => this.sheetsBetween(a, b), newId };
+        sheetsBetween: (a, b) => this._editedSpan(a, b), newId };
       if (sameSheetName(sheet.name, sheetName)) {
         sheet.styleResets = shiftStyleResets(sheet.styleResets, axis, at, count, remove);
         sheet.ignoredErrors = shiftRangeFlags(sheet.ignoredErrors, axis, at, count, remove);
@@ -6785,7 +6795,7 @@ export class Workbook extends EventTarget {
   /** `lines`: the deleteMap of a deletion over several runs, so every formula is rewritten once for all of them. */
   _adjustFormulas(sheetName, axis, at, count, remove, lines = null) {
     for (const s of this.sheets) {
-      const adjust = (f) => adjustFormula(f, { ownerSheet: s.name, sheetName, axis, at, count, remove, lines, sheetsBetween: (a, b) => this.sheetsBetween(a, b) });
+      const adjust = (f) => adjustFormula(f, { ownerSheet: s.name, sheetName, axis, at, count, remove, lines, sheetsBetween: (a, b) => this._editedSpan(a, b) });
       s.charts = s.charts.map(chart => mapChartReferences(chart, adjust));
       s.sparklineGroups = mapNativeSparklineReferences(s.sparklineGroups, adjust);
       if (sameSheetName(s.name, sheetName)) s.sparklineGroups = mapNativeSparklineDestinations(s.sparklineGroups, ref =>
@@ -6797,7 +6807,7 @@ export class Workbook extends EventTarget {
       s.tables = s.tables.map((t) => ({ ...t, calc: Object.fromEntries(Object.entries(t.calc || {}).map(([c, f]) => [c, adjust(f)])) }));
     }
     // A name without a sheet reads its unqualified references relative to whichever sheet calls it, so no single edit can move them.
-    this.names = this.names.map((n) => ({ ...n, ref: adjustFormula(n.ref, { ownerSheet: n.sheet || null, sheetName, axis, at, count, remove, relativeName: n.relative === true, sheetsBetween: (a, b) => this.sheetsBetween(a, b) }) }));
+    this.names = this.names.map((n) => ({ ...n, ref: adjustFormula(n.ref, { ownerSheet: n.sheet || null, sheetName, axis, at, count, remove, relativeName: n.relative === true, sheetsBetween: (a, b) => this._editedSpan(a, b) }) }));
   }
 
   setColWidth(sheetId, c, width) {

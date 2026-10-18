@@ -163,7 +163,13 @@ export function installSheetGroups(Workbook) {
       return this.transaction(groupLabel(name), () => this._withoutGroup(() => {
         const result = original.call(this, sheetId, ...rest);
         if (result === false) return result;
-        for (const id of others) original.call(this, id, ...rest);
+        // A 3D reference over several of the grouped sheets follows the edit once, not once for each of them.
+        const edited = [this.sheet(sheetId)?.name];
+        for (const id of others) {
+          this._groupEditedSheets = edited;
+          try { original.call(this, id, ...rest); } finally { this._groupEditedSheets = null; }
+          edited.push(this.sheet(id)?.name);
+        }
         return result;
       }));
     };
