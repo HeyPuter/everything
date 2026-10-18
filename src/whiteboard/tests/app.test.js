@@ -5965,6 +5965,31 @@ test("authored language tags distinguish a French phrase from the English interf
   }
 });
 
+test("a posted comment's Add a reaction button shows its icon", async () => {
+  // Posting rebuilt the discussion after the board's redraw had drawn its
+  // icons, so the button was an empty circle until the next redraw.
+  const app = await setup();
+  const { doc, click } = app;
+  try {
+    await click('[data-action="new"]');
+    await click('[data-action="add-note"]');
+    await click('[data-action="finish-text"]');
+    await click('[data-action="add-comment"]');
+    doc.querySelector("#comment-text").value = "Hello there";
+    await click('#comment-form [type="submit"]');
+    const add = () => doc.querySelectorAll("#comment-messages .fac-react-add");
+    assert.equal(add().length, 1);
+    assert.ok(add()[0].querySelector("svg"));
+    assert.equal(doc.querySelector("#comment-messages i[data-lucide]"), null);
+    doc.querySelector("#comment-text").value = "A reply";
+    await click('#comment-form [type="submit"]');
+    assert.equal(add().length, 2);
+    for (const button of add()) assert.ok(button.querySelector("svg"));
+  } finally {
+    await app.close();
+  }
+});
+
 test("comment passage languages are accessible, survive reopening and keep the UI language", async () => {
   const app = await setup();
   const { doc, w, click } = app;

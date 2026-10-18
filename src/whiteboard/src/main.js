@@ -1283,6 +1283,7 @@ const comments = createCommentsUI({
     ].filter((p) => p.id !== collaboration?.user?.uuid),
   reactions: (thread, message) =>
     facilitation.commentReactions(thread, message),
+  refreshIcons: () => iconsRefresh(),
   anchor: (p) => hitTest(visibleItems(), p, 8 / view.z),
   reveal: (id) => mindView.reveal(id),
   focus: (p, panel) => {

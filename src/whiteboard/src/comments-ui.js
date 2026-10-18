@@ -1064,6 +1064,10 @@ export function createCommentsUI(api) {
           )
           .join("")
       : "";
+    // The reaction buttons' icons are placeholders until drawn; a render
+    // outside the board's redraw, as after posting, draws them here.
+    if (panel.querySelector("#comment-messages i[data-lucide]"))
+      api.refreshIcons?.();
     for (const b of panel.querySelectorAll("[data-edit-comment]"))
       b.onclick = () => editMessage(b.dataset.editComment);
     for (const b of panel.querySelectorAll("[data-delete-comment]"))
