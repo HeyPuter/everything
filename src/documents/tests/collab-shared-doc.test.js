@@ -67,6 +67,25 @@ describe('text diff', () => {
       expect(out).toBe(b);
     }
   });
+  it('never splits a surrogate pair', () => {
+    // 😀 and 😃 share their high surrogate; a code-unit script would cut between the halves.
+    expect(diffText('A\u{1F603}', 'A\u{1F600}\u{1F603}')).toEqual([{ type: 'equal', length: 1 }, { type: 'insert', length: 2 }, { type: 'equal', length: 2 }]);
+    expect(diffText('x\u{1F600}y', 'x\u{1F603}y')).toEqual([{ type: 'equal', length: 1 }, { type: 'delete', length: 2 }, { type: 'insert', length: 2 }, { type: 'equal', length: 1 }]);
+    const rnd = random(11), chars = ['a', '\u{1F600}', '\u{1F603}', '\u{1F4A9}', '\n'];
+    for (let n = 0; n < 200; n++) {
+      const make = () => Array.from({ length: Math.floor(rnd() * 10) }, () => chars[Math.floor(rnd() * chars.length)]).join('');
+      const a = make(), b = make();
+      let ai = 0, bi = 0, out = '';
+      const whole = (text, i) => !/[\udc00-\udfff]/.test(text[i] || '');
+      for (const s of diffText(a, b)) {
+        expect(whole(a, ai) && whole(b, bi)).toBe(true);
+        if (s.type === 'equal') { out += a.slice(ai, ai + s.length); ai += s.length; bi += s.length; }
+        else if (s.type === 'insert') { out += b.slice(bi, bi + s.length); bi += s.length; }
+        else ai += s.length;
+      }
+      expect(out).toBe(b);
+    }
+  });
 });
 
 describe('shared document mapping', () => {
