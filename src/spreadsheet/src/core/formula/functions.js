@@ -3875,13 +3875,14 @@ export const FUNCTIONS = {
   },
   // A column of text answers with a column of pieces; the delimiter is lifted over by neither, an array there
   // naming alternatives.
+  // Lifted over the text and the instance, match mode and match end; an array of delimiters lists alternatives.
   TEXTBEFORE: {
-    liftArgs: [0],
-    fn: overArguments((args) => textAround(args, true), [0]),
+    liftArgs: [0, 2, 3, 4],
+    fn: overArguments((args) => textAround(args, true), [0, 2, 3, 4]),
   },
   TEXTAFTER: {
-    liftArgs: [0],
-    fn: overArguments((args) => textAround(args, false), [0]),
+    liftArgs: [0, 2, 3, 4],
+    fn: overArguments((args) => textAround(args, false), [0, 2, 3, 4]),
   },
   NUMBERVALUE: {
     fn: ([text, dec, group]) => {
