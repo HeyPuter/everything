@@ -5302,6 +5302,8 @@ export function createGrid(opts) {
     if (destroyed) return; // a viewport left in the page must not keep growing the workbook
     syncHeaders();
     schedule();
+    // The function list or argument hint under a formula typed in the cell moves with the cell, rather than staying where it was.
+    if (edit && hints.isOpen && editInput() === editor) updateHints();
     if (sheet()?.kind === 'chart') return;
     followWindows();
     rememberViewOrigin();
