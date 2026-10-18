@@ -24,3 +24,16 @@ describe('columns', () => {
     expect(await setColumns(api, sections, 1)).toBe(2);
   });
 });
+
+it('lays out unequal columns whose wrapping never settles instead of refusing the layout', async () => {
+  const { TextDocument: Doc, paragraph: para } = await import('../src/engine/model.js');
+  const { pageGeometry: geometry } = await import('../src/engine/page-settings.js');
+  const { layoutDocument: lay } = await import('../src/engine/layout.js');
+  const { presetColumns } = await import('../src/views/columns-dialog.js');
+  const measure = (text, style) => ({ width: text.length * 6, ascent: 15 * style.fontSize / 12, descent: 5 * style.fontSize / 12 });
+  const doc = new Doc(Array.from({ length: 25 }, () => para(Array.from({ length: 40 }, (_, i) => `word${i}`).join(' '))));
+  expect(doc.setPageSettings({ columns: presetColumns('left', 9360) })).toBe(true);
+  const layout = lay(doc.paragraphs, measure, geometry(doc.pageSettings));
+  expect(layout.pageCount).toBeGreaterThan(1);
+  expect(layout.lines.filter(line => !line.cellId).length).toBeGreaterThan(25);
+});
