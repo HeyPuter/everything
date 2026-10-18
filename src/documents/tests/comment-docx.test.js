@@ -40,6 +40,25 @@ const open = async bytes => { const pkg = await DocxPackage.open(bytes); return 
 const save = async (pkg, d) => new Uint8Array(await pkg.export(d.paragraphs, d.pageSettings, d.numbering, d.styles, d.tables, d.assets, undefined, d.comments).arrayBuffer());
 
 describe('DOCX comments', () => {
+  it('removes a deleted comment\'s reference from the paragraph after its range', async () => {
+    // Some producers put the reference run at the start of the next paragraph, which is saved as it was read.
+    const body = `<w:p><w:commentRangeStart w:id="3"/><w:r><w:t>brown</w:t></w:r><w:commentRangeEnd w:id="3"/></w:p>`
+      + `<w:p><w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:commentReference w:id="3"/></w:r><w:r><w:t>fox</w:t><w:commentReference w:id="7"/></w:r></w:p>`;
+    const parts = unzipSync(commentedDocx());
+    parts['word/document.xml'] = strToU8(`<w:document xmlns:w="${W}"><w:body>${body}<w:sectPr/></w:body></w:document>`);
+    const { pkg, model } = await open(zipSync(parts));
+    // Untouched, the reference stays where it was.
+    expect(strFromU8(unzipSync(await save(pkg, model))['word/document.xml'])).toContain('<w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:commentReference w:id="3"/></w:r>');
+    model.deleteComment('3');
+    let xml = strFromU8(unzipSync(await save(pkg, model))['word/document.xml']);
+    expect(xml).not.toMatch(/w:id="3"/);
+    expect(xml).toContain('<w:p><w:r><w:t>fox</w:t><w:commentReference w:id="7"/></w:r></w:p>');
+    model.deleteComment('7');
+    xml = strFromU8(unzipSync(await save(pkg, model))['word/document.xml']);
+    expect(xml).not.toMatch(/comment(Reference|RangeStart|RangeEnd)/);
+    expect(xml).toMatch(/<w:p><w:r><w:t[^>]*>fox<\/w:t><\/w:r><\/w:p>/);
+  });
+
   it('opens a commented document for editing with anchors, replies, resolved state and text', async () => {
     const { pkg, model } = await open(commentedDocx());
     expect(pkg.readOnly).toBeFalsy();
