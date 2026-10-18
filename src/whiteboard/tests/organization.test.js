@@ -5720,6 +5720,21 @@ test("large edits kept as files count toward the board's file limit", async () =
   assert.equal((await boards.load(room)).doc.snapshot().items.length, 21);
 });
 
+test("uploading the same file again counts it toward the board's limit once", async () => {
+  const { env, boards } = setup();
+  const { input, room } = createInput("Media");
+  await boards.call(owner, input);
+  const data = "data:image/png;base64," + btoa("image ".repeat(500));
+  const asset = await hash(data);
+  for (let n = 0; n < 3; n++)
+    await boards.call(owner, { op: "asset.put", room, asset, data });
+  assert.equal(env.data.get(`wb:${room}:assetbytes`), data.length);
+  assert.equal(
+    (await boards.call(owner, { op: "asset.get", room, asset })).data,
+    data,
+  );
+});
+
 test("moving someone's boards to a new owner goes a batch per request", async () => {
   const { call, org, boards } = setup();
   await call(owner, { op: "org.setup", name: "Fabrikam" });

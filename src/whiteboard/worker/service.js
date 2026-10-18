@@ -2588,6 +2588,21 @@ export class BoardService {
         (await hash(input.data)) !== input.asset
       )
         fail(400, "Invalid shared asset.");
+      // Assets are content-addressed, so one already saved, as when an
+      // upload's answer was lost or the same image is pasted again, is
+      // neither written nor counted again.
+      try {
+        await this.puter.fs.stat(path);
+        return { ok: true };
+      } catch (error) {
+        if (
+          error?.code &&
+          !["subject_does_not_exist", "ENOENT", "not_found"].includes(
+            error.code,
+          )
+        )
+          throw error;
+      }
       // A board's shared files are capped in all, so one participant, such
       // as a guest, cannot fill its owner's storage.
       const used = `wb:${room}:assetbytes`,
