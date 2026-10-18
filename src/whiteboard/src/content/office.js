@@ -845,6 +845,11 @@ const BUILTIN_NUMBERS = new Map([
   [38, "#,##0_);(#,##0)"],
   [39, "#,##0.00_);(#,##0.00)"],
   [40, "#,##0.00_);(#,##0.00)"],
+  // Accounting, as Excel shows them in an English (United States) locale.
+  [41, '_(* #,##0_);_(* \\(#,##0\\);_(* "-"_);_(@_)'],
+  [42, '_("$"* #,##0_);_("$"* \\(#,##0\\);_("$"* "-"_);_(@_)'],
+  [43, '_(* #,##0.00_);_(* \\(#,##0.00\\);_(* "-"??_);_(@_)'],
+  [44, '_("$"* #,##0.00_);_("$"* \\(#,##0.00\\);_("$"* "-"??_);_(@_)'],
 ]);
 // A format's sections (positive;negative;zero;text), split outside quotes,
 // brackets and escapes.
@@ -869,11 +874,12 @@ function sections(code) {
 // and ?), thousands separators and scaling commas, percentages, literal text
 // and currency symbols, with sections for negative numbers and zero.
 // Formats it does not cover (scientific, fractions, conditions, text) give
-// null, and the number is shown as General shows it.
+// null, and the number is shown as General shows it. A fourth section shows
+// text, which a number never uses, as in Excel's Accounting formats.
 function numberFormat(code) {
   const parts = sections(code);
   if (
-    parts.some((part) => {
+    parts.slice(0, 3).some((part) => {
       const plain = part.replace(/"[^"]*"|\\.|_.|\*./g, "");
       return /\[[<>=]|[eE][+-]|\/|@|general/i.test(plain);
     })

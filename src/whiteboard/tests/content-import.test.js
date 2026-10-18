@@ -4951,6 +4951,10 @@ test("Excel number formats import as they are shown", async () => {
     [171, "0.00E+00"],
     [172, "#.##"],
     [173, "@"],
+    [
+      174,
+      "_-* #,##0.00\\ &quot;€&quot;_-;\\-* #,##0.00\\ &quot;€&quot;_-;_-* &quot;-&quot;??\\ &quot;€&quot;_-;_-@_-",
+    ],
   ];
   const cells = [
     ["1234.5", 164],
@@ -4972,6 +4976,11 @@ test("Excel number formats import as they are shown", async () => {
     // Floating point leftovers such as =0.1+0.2-0.3 round like any value.
     ["5.551115123125783e-17", 4],
     ["1e-9", 9],
+    // Accounting formats end in a text section, which numbers never use.
+    ["1234.5", 44],
+    ["-1234.5", 44],
+    ["0", 44],
+    ["-1234.5", 174],
   ];
   const workbook = await openXlsx(cellsWorkbook(cells, formats));
   assert.deepEqual((await workbook.read(0)).rows[0], [
@@ -4995,6 +5004,10 @@ test("Excel number formats import as they are shown", async () => {
     "-0",
     "0.00",
     "0%",
+    "$1,234.50",
+    "$(1,234.50)",
+    "$-",
+    "-1,234.50 €",
   ]);
 });
 
