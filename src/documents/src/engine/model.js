@@ -2013,7 +2013,11 @@ export class TextDocument {
     this.trackingInternal = true;
     const caret = targets[0].start;
     try {
-      for (const r of targets.reverse()) {
+      // Changes that keep their text (formatting, and the side of a change being kept) first, while every
+      // range still holds; then the removals, from the last, so each earlier range stays where it was.
+      // Removing first left a paragraph's formatting change reaching into the next paragraph.
+      const removes = r => r.type !== 'format' && (r.type === 'ins' ? !accept : accept);
+      for (const r of [...targets.filter(r => !removes(r)), ...targets.filter(removes).reverse()]) {
         if (r.type === 'format') {
           // Rejecting re-applies the recorded former formatting; a change recorded without it is kept.
           const resolve = (target, kind) => { if (accept) acceptFormatChange(target, kind); else if (!rejectFormatChange(target)) this.formatRejectSkipped = true; else if (kind === 'run') acceptFormatChange(target, 'run'); };

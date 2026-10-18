@@ -298,3 +298,32 @@ describe('Replace over tracked text with Track Changes off', () => {
     expect(model.text).toContain('Keep joined gone end.');
   });
 });
+
+describe('resolving the changes of one paragraph', () => {
+  const setup = async () => {
+    const { StorySession } = await import('../src/engine/story-session.js');
+    const pkg = createDocx([paragraph('Hello world'), paragraph('Hi')]);
+    const model = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets, { trackChanges: true });
+    const session = new StorySession(model, null);
+    model.revisionAuthor = 'Other';
+    session.run(m => { m.select(12, 14); m.setRunFormat({ bold: true }); });
+    model.revisionAuthor = 'Me';
+    session.run(m => { m.select(2); m.setParagraphFormat({ alignment: 'center' }); });
+    session.run(m => { m.select(5); m.replace(' big'); });
+    return { model, session };
+  };
+  const others = model => model.revisions.filter(r => r.author === 'Other').map(r => [r.type, model.text.slice(r.start, r.end)]);
+  it('leaves another reviewer\'s change in the next paragraph when its paragraph is rejected', async () => {
+    const { model, session } = await setup();
+    session.run(m => m.resolveRevisions(false, 0, model.text.indexOf('\n') + 1));
+    expect(model.text).toBe('Hello world\nHi');
+    expect(others(model)).toEqual([['format', 'Hi']]);
+    expect(model.paragraphs[1].runs.some(r => r.bold)).toBe(true);
+  });
+  it('leaves it when Reject is pressed with the caret inside an insertion', async () => {
+    const { model, session } = await setup();
+    session.run(m => m.resolveRevisions(false, 7, 7));
+    expect(model.paragraphs[1].runs.some(r => r.bold)).toBe(true);
+    expect(others(model)).toEqual([['format', 'Hi']]);
+  });
+});
