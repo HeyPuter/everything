@@ -5822,6 +5822,11 @@ function groupInputs(rowFields, values, fieldHeaders, filterArray, colFields) {
   if (!keys.length || keys.length !== vals.length || (cols && cols.length !== keys.length)) return err('#VALUE!');
   let mode = fieldHeaders === undefined ? 0 : toNumber(fieldHeaders); if (isError(mode)) return mode;
   mode = Math.trunc(mode); // 1.5 is checked as 1 and read as 1, not checked as 1 and read as neither
+  // Left out, field_headers is automatic: values whose first entry is text above a number have a header
+  // row, shown when there is more than one level of row or column fields.
+  if (fieldHeaders === undefined && typeof vals[0]?.[0] === 'string' && typeof vals[1]?.[0] === 'number') {
+    mode = keys[0].length > 1 || (colFields !== undefined && (more[0].values[0]?.length || 0) > 1) ? 3 : 1;
+  }
   if (![0, 1, 2, 3].includes(mode)) return err('#VALUE!');
   const hasHeaders = mode === 1 || mode === 3;
   const showHeaders = mode === 2 || mode === 3;
