@@ -55,7 +55,7 @@ import { normalizeFontColor, normalizeColorPalette, sameFontColor, DEFAULT_FONT_
 
 import { cellKey, parseKey, normalizeRange, cellName, MAX_TEXT } from './cell.js';
 import { fontName, parseInput, refineImpliedFormat, formatValue, serialToYMD, ymdToSerial, dateTimeKind, FORMAT_DETAIL_KEYS, getLocale, dateNames } from './format.js';
-import { MAX_FORMAT_CODE_LENGTH, codeIsFraction } from './numfmt.js';
+import { MAX_FORMAT_CODE_LENGTH, codeIsFraction, codeScalesPercent } from './numfmt.js';
 import { normalizeCalculationCompatibility } from './calculation-compatibility.js';
 import { normalizeIteration, calculateIteratively } from './iteration.js';
 import { normalizeNativeSparklineGroups, mapNativeSparklineReferences, mapNativeSparklineDestinations, nativeSparklineSize, nativeSparklineFlags, nativeSparklineColors, nativeSparklineChoices } from './native-sparklines.js';
@@ -287,8 +287,10 @@ export function cellFromInput(text, prevStyle) {
   if (f != null && (f.length > MAX_FORMULA_LENGTH || formulaNesting(f) > MAX_FORMULA_NESTING)) return { v: raw, f: null, s: prevStyle ? { ...prevStyle } : undefined };
   // A number of one or more typed into a percent cell is that many percent
   // (5 is 5%); a number under one is the share it already is (0.5 is 50%). A typed "5%",
-  // currency, date or time is what it says.
-  const v = prevStyle?.fmt === 'percent' && typeof parsed === 'number' && (!fmt || fmt === 'number' || fmt === 'scientific') && Math.abs(parsed) >= 1 ? parsed / 100 : parsed;
+  // currency, date or time is what it says. A custom code that shows the number as a percentage (0.0%;[Red]-0.0%)
+  // is a percent cell too, as Excel's automatic percent entry treats every percentage format.
+  const percentCell = prevStyle?.fmt === 'percent' || (prevStyle?.fmt === 'custom' && typeof parsed === 'number' && codeScalesPercent(parsed, prevStyle.code));
+  const v = percentCell && typeof parsed === 'number' && (!fmt || fmt === 'number' || fmt === 'scientific') && Math.abs(parsed) >= 1 ? parsed / 100 : parsed;
   let s = prevStyle ? { ...prevStyle } : undefined;
   // A leading apostrophe keeps this one entry as text; it does not make the cell
   // Plain text, so a number typed into it later is a number. The editor shows the apostrophe again itself.
