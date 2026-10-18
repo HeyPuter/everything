@@ -56,6 +56,26 @@ export function drawingFrame({ id, name, descr = '', width, height, anchor = nul
     + `<wp:simplePos x="0" y="0"/>${position('H', anchor.horizontal || 'column', anchor.x, anchor.xAlign)}${position('V', anchor.vertical || 'paragraph', anchor.y, anchor.yAlign)}${extent}<wp:effectExtent l="0" t="0" r="0" b="0"/>${wrap}${docPr}<wp:cNvGraphicFramePr/>${graphic}</wp:anchor></w:drawing>`;
 }
 
+const FRAME_WP = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing', FRAME_A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+/**
+ * The shape's own frame with the rewritten shape in it: the extent and graphic come from `rebuilt`, while
+ * the frame keeps what the shape is rewritten without (alignment, alt text and title, the decorative mark,
+ * locks, wrapping distances and flags). A position axis the edit moved takes the rebuilt one.
+ */
+export function carriedFrame(original, rebuilt, moved) {
+  const parse = text => new DOMParser().parseFromString(text, 'application/xml');
+  const before = parse(original), after = parse(rebuilt);
+  const frame = doc => [...doc.documentElement.children].find(n => n.namespaceURI === FRAME_WP);
+  const keep = frame(before), next = frame(after);
+  // The original frame stays inline or floating as it was, whichever kind the rebuilt one is.
+  if (!keep || !next) return rebuilt;
+  const own = (parent, ns, name) => [...parent.children].find(n => n.namespaceURI === ns && n.localName === name);
+  const replace = (ns, name) => { const old = own(keep, ns, name), fresh = own(next, ns, name); if (old && fresh) old.replaceWith(before.importNode(fresh, true)); return !!(old && fresh); };
+  if (!replace(FRAME_WP, 'extent') || !replace(FRAME_A, 'graphic')) return rebuilt;
+  for (const [axis, name] of [['x', 'positionH'], ['y', 'positionV']]) if (moved.has(axis)) replace(FRAME_WP, name);
+  return new XMLSerializer().serializeToString(before);
+}
+
 /** Parts that give drawing text the document's styles and theme: its styles part and theme, when present. */
 function documentTextParts(sourceParts = {}) {
   const decode = bytes => typeof bytes === 'string' ? bytes : new TextDecoder().decode(bytes);

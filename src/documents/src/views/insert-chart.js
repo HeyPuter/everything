@@ -6,7 +6,7 @@
 import { el } from '../ui/dom.js';
 import { formDialog } from './insert-dialogs.js';
 import { CHART_TYPES, CHART_PALETTE, CHART_CONTENT_TYPE, CHART_RELATIONSHIP_TYPE, chartSpaceXml, defaultChartData, chartDataFromXml } from '../engine/chart-builder.js';
-import { drawingFrame, freshPart, readDrawingFragment, EMU_PER_INCH } from '../engine/inserted-drawings.js';
+import { drawingFrame, freshPart, readDrawingFragment, carriedFrame, EMU_PER_INCH } from '../engine/inserted-drawings.js';
 
 /** A chart drawing fragment: the chart part and the inline frame that references it. */
 export async function chartFragment(model, packageParts, data, { id, width = 5.5 * EMU_PER_INCH, height = 3.2 * EMU_PER_INCH }) {
@@ -111,9 +111,17 @@ export function chartCommands({ hub, pkg, editor }) {
       try { initial = xml ? chartDataFromXml(xml) : null; } catch { initial = null; }
       if (!initial) { hub.fail(new Error('This chart’s data cannot be edited here. It is kept as it is.')); return; }
     }
-    openChartDialog({ initial, onClose: () => queueMicrotask(() => editor()?.focus()), onInsert: data => hub.insertDrawing((engine, id) => {
+    openChartDialog({ initial, onClose: () => queueMicrotask(() => editor()?.focus()), onInsert: data => hub.insertDrawing(async (engine, id) => {
       const width = image ? image.width : Math.min(hub.textWidth(engine), 5.5 * EMU_PER_INCH), height = image ? image.height : Math.round(width * 0.58);
-      return chartFragment(engine.model, pkg().parts, data, { id, width, height });
+      const fragment = await chartFragment(engine.model, pkg().parts, data, { id, width, height });
+      if (!image) return fragment;
+      // An edited chart keeps its frame (position, wrapping, title, decorative mark) and the alt text the
+      // reader wrote; alt text made from the old title follows the new one.
+      const generated = image.alt === (initial.title ? `Chart: ${initial.title}` : '');
+      const alt = generated ? fragment.image.alt : image.alt;
+      let shell = carriedFrame(image.shell, fragment.image.shell, new Set());
+      if (generated) shell = shell.replace(/(<wp:docPr\b[^>]*?)\sdescr="[^"]*"/, '$1').replace(/<wp:docPr\b/, alt ? `$& descr="${alt.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;')}"` : '$&');
+      return { ...fragment, image: { ...fragment.image, ...(image.anchor ? { anchor: image.anchor } : {}), ...(image.title !== undefined ? { title: image.title } : {}), ...(image.decorative !== undefined ? { decorative: image.decorative } : {}), name: image.name, alt, shell } };
     }, { replace: image }) });
   }
   return { insertChart: () => open(!!selectedChart()), editChart: () => open(true), selectedChart };

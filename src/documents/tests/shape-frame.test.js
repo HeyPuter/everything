@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { it, expect } from 'vitest';
-import { carriedFrame } from '../src/engine/shape-editing.js';
+import { carriedFrame } from '../src/engine/inserted-drawings.js';
 import { shapeDrawingXml } from '../src/engine/authored-shapes.js';
 
 const anchor = { horizontal: 'margin', vertical: 'paragraph', x: 0, y: 0, wrap: 'none', behind: false, order: 2 };
@@ -27,4 +27,13 @@ it('takes the new position of an axis the edit moved', () => {
   expect(xml).not.toContain('<wp:align>center</wp:align>');
   expect(xml).toContain('<wp:posOffset>457200</wp:posOffset>');
   expect(xml).toContain('descr="Company logo"');
+});
+
+it('keeps a floating frame floating when the rebuilt drawing is inline (an edited chart)', () => {
+  const inline = shapeDrawingXml({ id: 3, name: 'Logo', preset: 'rect', width: 1828800, height: 914400, fill: 'FF0000', line: '2F528F', lineWidth: 12700 });
+  const xml = carriedFrame(original, inline, new Set());
+  expect(xml).toContain('<wp:anchor');
+  expect(xml).not.toContain('<wp:inline');
+  expect(xml).toContain('<wp:align>center</wp:align>');
+  expect(xml).toContain('<wp:extent cx="1828800" cy="914400"/>');
 });

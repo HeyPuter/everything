@@ -2,6 +2,7 @@ import { buildShape, buildTextShape, shapeParams, SHAPE_PRESETS, EMU_PER_INCH, D
 import { decodeShape } from './canvas-shapes.js';
 import { canResizeRetainedPicture } from './picture-resize.js';
 import { validateImage, nextDrawingId } from './images.js';
+import { carriedFrame } from './inserted-drawings.js';
 
 /**
  * Inserting and editing preset shapes on a canvas editor. A shape is a drawing whose DrawingML this
@@ -78,25 +79,6 @@ export function selectedShape(editor) {
   const image = editor?.model.selectedImage;
   const params = image && !editor.readOnly ? shapeParams(image) : null;
   return params ? { image, params } : null;
-}
-
-const WP = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing', A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
-/**
- * The shape's own frame with the rewritten shape in it: the extent and graphic come from `rebuilt`, while
- * the frame keeps what the shape is rewritten without (alignment, alt text and title, the decorative mark,
- * locks, wrapping distances and flags). A position axis the edit moved takes the rebuilt one.
- */
-export function carriedFrame(original, rebuilt, moved) {
-  const parse = text => new DOMParser().parseFromString(text, 'application/xml');
-  const before = parse(original), after = parse(rebuilt);
-  const frame = doc => [...doc.documentElement.children].find(n => n.namespaceURI === WP);
-  const keep = frame(before), next = frame(after);
-  if (!keep || !next || keep.localName !== next.localName) return rebuilt;
-  const own = (parent, ns, name) => [...parent.children].find(n => n.namespaceURI === ns && n.localName === name);
-  const replace = (ns, name) => { const old = own(keep, ns, name), fresh = own(next, ns, name); if (old && fresh) old.replaceWith(before.importNode(fresh, true)); return !!(old && fresh); };
-  if (!replace(WP, 'extent') || !replace(A, 'graphic')) return rebuilt;
-  for (const [axis, name] of [['x', 'positionH'], ['y', 'positionV']]) if (moved.has(axis)) replace(WP, name);
-  return new XMLSerializer().serializeToString(before);
 }
 
 /** Rewrite the selected shape with new fill, outline, size or position. patch: { fill, line, lineWidth, width, height, anchor }. */
