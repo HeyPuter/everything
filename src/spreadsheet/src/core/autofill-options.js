@@ -66,7 +66,13 @@ function addWeekdays(serial, n) {
   while (left > 0) {
     d += sign;
     const wd = serialToYMD(d).weekday;
-    if (wd !== 0 && wd !== 6) left--;
+    if (wd !== 0 && wd !== 6) {
+      left--;
+      // From a weekday, five working days always span seven calendar days: whole weeks are skipped at once,
+      // so a long fill does not walk every day to each of its cells.
+      d += sign * Math.floor(left / 5) * 7;
+      left %= 5;
+    }
   }
   return d + (serial - Math.floor(serial));
 }
