@@ -1069,11 +1069,16 @@ export function createGrid(opts) {
     // move — a selection scrolled out of sight.
     if (!frozen.split && vx < frozen.w && box.left >= frozen.w && box.left - viewport.scrollLeft < frozen.w) return false;
     if (!frozen.split && vy < frozen.h && box.top >= frozen.h && box.top - viewport.scrollTop < frozen.h) return false;
-    const edge = 4;
-    const inside = x >= box.left - edge && x <= box.left + box.width + edge && y >= box.top - edge && y <= box.top + box.height + edge;
+    // 4px either side of the border, or a quarter of the cell under the pointer when that is less: zoomed
+    // out to a third a row is 7px tall, and a 4px band took the middle of the rows above and below the
+    // selection, so clicking either grabbed the selection's border instead of selecting it.
+    const under = cellAtPoint(clientX, clientY);
+    const edgeX = Math.max(1, Math.min(4, Math.floor(colW(under.c) / 4)));
+    const edgeY = Math.max(1, Math.min(4, Math.floor(rowH(under.r) / 4)));
+    const inside = x >= box.left - edgeX && x <= box.left + box.width + edgeX && y >= box.top - edgeY && y <= box.top + box.height + edgeY;
     if (!inside) return false;
-    const nearX = Math.abs(x - box.left) <= edge || Math.abs(x - (box.left + box.width)) <= edge;
-    const nearY = Math.abs(y - box.top) <= edge || Math.abs(y - (box.top + box.height)) <= edge;
+    const nearX = Math.abs(x - box.left) <= edgeX || Math.abs(x - (box.left + box.width)) <= edgeX;
+    const nearY = Math.abs(y - box.top) <= edgeY || Math.abs(y - (box.top + box.height)) <= edgeY;
     if (!nearX && !nearY) return false;
     // Which edge: the one nearest the pointer (a double-click on it jumps that way, as in Excel).
     const gaps = [['top', Math.abs(y - box.top)], ['bottom', Math.abs(y - (box.top + box.height))], ['left', Math.abs(x - box.left)], ['right', Math.abs(x - (box.left + box.width))]];
