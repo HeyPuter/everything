@@ -3887,12 +3887,14 @@ export class Workbook extends EventTarget {
       if (prev && (prev.f != null || (prev.v != null && typeof prev.v !== 'number'))) return;
       const result = apply(prev?.v ?? 0, v);
       // Dividing by zero writes #DIV/0!, as the formula would, rather than leaving the cell as it was.
-      if (isError(result)) { entries.push({ r, c, cell: { v: result, f: null, s: prev?.s } }); return; }
+      // The cell keeps its format and its link: only the number changes.
+      const kept = { s: prev?.s, ...(prev?.hyperlink ? { hyperlink: prev.hyperlink } : {}) };
+      if (isError(result)) { entries.push({ r, c, cell: { v: result, f: null, ...kept } }); return; }
       if (result == null || !Number.isFinite(result)) return;
       // Remove floating-point noise using significant digits. Scaling by
       // 1e12 overflows large values and rounds small nonzero values to zero.
       const value = Number.isInteger(result) ? result : Number(result.toPrecision(15));
-      entries.push({ r, c, cell: { v: value, f: null, s: prev?.s } });
+      entries.push({ r, c, cell: { v: value, f: null, ...kept } });
     }));
     return this.setCellsWithTableHeaders(sheetId, entries, 'Paste operation');
   }
