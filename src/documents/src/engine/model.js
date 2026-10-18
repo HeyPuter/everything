@@ -1290,7 +1290,7 @@ export class TextDocument {
   }
   addComment({ author = '', initials, text = '', date = new Date().toISOString().replace(/\.\d+Z$/, 'Z'), range } = {}) {
     this.comments ||= [];
-    const body = checkedCommentText(text), id = nextCommentId(this.comments);
+    const body = checkedCommentText(text), id = nextCommentId(this.comments, this.commentIdFloor);
     const [start, end] = range || this.commentRange();
     this.checkpoint();
     addCommentMarkers(this.paragraphs, id, start, end);
@@ -1302,7 +1302,7 @@ export class TextDocument {
     if (!parent) throw new Error('That comment no longer exists.');
     const root = parent.parentId && this.comments.some(c => c.id === parent.parentId) ? parent.parentId : parent.id;
     const anchor = commentAnchors(this.paragraphs).find(a => a.id === root);
-    const body = checkedCommentText(text), id = nextCommentId(this.comments);
+    const body = checkedCommentText(text), id = nextCommentId(this.comments, this.commentIdFloor);
     this.checkpoint();
     // Each reply is anchored on its parent's range.
     if (anchor) addCommentMarkers(this.paragraphs, id, anchor.start, anchor.end);

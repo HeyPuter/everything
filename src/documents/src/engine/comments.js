@@ -31,9 +31,9 @@ export function commentAnchors(paragraphs) {
   return anchors.sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
-/** The next unused numeric comment identifier. */
-export function nextCommentId(comments) {
-  const used = new Set(comments.map(c => c.id)); let id = 0;
+/** The next unused numeric comment identifier, from `floor` up. */
+export function nextCommentId(comments, floor = 0) {
+  const used = new Set(comments.map(c => c.id)); let id = floor;
   while (used.has(String(id))) id++;
   return String(id);
 }

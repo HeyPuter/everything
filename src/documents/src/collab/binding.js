@@ -72,6 +72,9 @@ export class CollabBinding extends EventTarget {
     this.conflict = null;
     this.undoManager = new Y.UndoManager([this.body, ydoc.getMap('parts'), ydoc.getMap('comments')], { trackedOrigins: new Set([this]), captureTimeout: 600 });
     this.undoManager.on('stack-item-added', e => { e.stackItem.meta.set('selection', this.captureSelection()); });
+    // Comments are shared by id, so two people commenting at once must not both take the lowest free one:
+    // each takes its ids from a range of its own, still a whole number below 2^31 as DOCX expects.
+    engine.session.body.commentIdFloor = 1000 + (ydoc.clientID % 1000000) * 1000;
     this.install();
   }
 
@@ -409,6 +412,7 @@ export class CollabBinding extends EventTarget {
     this.ydoc.off('afterTransaction', this.observer);
     this.undoManager.destroy();
     const engine = this.engine;
+    delete engine.session.body.commentIdFloor;
     delete engine.session.run;
     delete engine.travelHistory;
     delete engine.undo; delete engine.redo;
