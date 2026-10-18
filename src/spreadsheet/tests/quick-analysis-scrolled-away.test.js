@@ -20,6 +20,8 @@ function setup({ frozenRows = 0 } = {}) {
     frozen: { rows: frozenRows, cols: 0 },
     viewport: Object.assign(document.createElement('div'), { getBoundingClientRect: () => VP }),
     // Rows 20px tall, columns 100px wide; frozen rows do not scroll.
+    // The scrolling pane, below the frozen rows.
+    paneRect: (r) => ({ left: VP.left, right: VP.right, top: r < frozenRows ? VP.top : VP.top + frozenRows * 20, bottom: VP.bottom }),
     cellRect: (r, c) => {
       const top = VP.top + r * 20 - (r < frozenRows ? 0 : view.scrollTop), left = VP.left + c * 100;
       return { left, top, right: left + 100, bottom: top + 20, width: 100, height: 20 };

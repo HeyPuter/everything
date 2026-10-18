@@ -95,11 +95,8 @@ export function createQuickAnalysis(ctx) {
     // A block scrolled up or left out of sight, past the window's edge or under its frozen panes, takes the
     // button with it: held at the edge it stood over the formula bar and the ribbon, or over the frozen cells.
     if (vp.width > 0 || vp.height > 0) {
-      const s = ctx.wb.sheet(g.sheetId), fr = g.frozen || { rows: 0, cols: 0 };
-      const lastR = fr.rows ? (s.frozenOrigin?.r || 0) + fr.rows - 1 : -1, lastC = fr.cols ? (s.frozenOrigin?.c || 0) + fr.cols - 1 : -1;
-      const top = rg.r2 > lastR && lastR >= 0 ? g.cellRect(lastR, rg.c2).bottom : vp.top;
-      const leftEdge = rg.c2 > lastC && lastC >= 0 ? g.cellRect(rg.r2, lastC).right : vp.left;
-      if (rect.bottom <= top || rect.right <= leftEdge) { button.hidden = true; if (panel) close(); return; }
+      const pane = g.paneRect?.(rg.r2, rg.c2) || vp;
+      if (rect.bottom <= pane.top || rect.right <= pane.left) { button.hidden = true; if (panel) close(); return; }
     }
     const left = Math.min(rect.right + 2, (vp.right || rect.right + 2) - 24), top = Math.min(rect.bottom + 2, (vp.bottom || rect.bottom + 2) - 24);
     button.style.left = `${Math.round(left)}px`;

@@ -91,15 +91,19 @@ export function createErrorSmartTag(ctx) {
     found = { sheetId: g.sheetId, r, c, check };
     const rect = g.cellRect(r, c);
     const vp = g.viewport.getBoundingClientRect();
-    // A cell scrolled out of the sheet's view takes its tag with it (a viewport not laid out yet has no size to judge by).
-    if (vp.width && vp.height && (rect.bottom < vp.top || rect.top > vp.bottom || rect.right < vp.left || rect.left > vp.right)) { hide(); return; }
+    // The part of the view the cell scrolls in: frozen rows and columns are drawn over the rest of it.
+    const pane = g.paneRect?.(r, c) || vp;
+    // A cell scrolled out of the sheet's view, or under its frozen panes, takes its tag with it (a viewport not
+    // laid out yet has no size to judge by).
+    if (vp.width && vp.height && (rect.bottom <= pane.top || rect.top >= pane.bottom || rect.right <= pane.left || rect.left >= pane.right)) { hide(); return; }
     button.hidden = false;
     button.title = check.title;
     button.setAttribute('aria-label', `Error: ${check.title}`);
-    // It sits just left of the cell, or right of it when there is no room.
-    const left = rect.left - 22 >= vp.left ? rect.left - 22 : rect.right + 2;
+    // It sits just left of the cell, or right of it when there is no room; beside a cell partly under a
+    // frozen pane, at the pane's edge.
+    const left = rect.left - 22 >= pane.left ? rect.left - 22 : rect.right + 2;
     button.style.left = `${Math.round(left)}px`;
-    button.style.top = `${Math.round(rect.top + 1)}px`;
+    button.style.top = `${Math.round(vp.width && vp.height ? Math.max(rect.top + 1, pane.top) : rect.top + 1)}px`;
   }
   function hide() { found = null; button.hidden = true; }
 

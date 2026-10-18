@@ -6125,6 +6125,17 @@ export function createGrid(opts) {
     },
     consumePlainPaste() { const v = plainPaste; plainPaste = false; return v; },
     cellRect,
+    /**
+     * The part of the screen in which cell (r, c) can show: the scrolling pane, clear of the frozen bands
+     * drawn over it, or the frozen band (a split window's top or left pane) the cell belongs to.
+     */
+    paneRect(r, c) {
+      ensureOffsets();
+      const vp = viewport.getBoundingClientRect(), view = viewMetrics();
+      const left = vp.left + (leftBand(c) ? 0 : frozen.w), top = vp.top + (topBand(r) ? 0 : frozen.h);
+      const right = vp.left + (leftBand(c) && frozen.split ? frozen.w : view.vw), bottom = vp.top + (topBand(r) && frozen.split ? frozen.h : view.vh);
+      return { left, top, right, bottom, width: right - left, height: bottom - top };
+    },
     cellAtPoint,
     isHidden(axis, i) { const s = sheet(); return axis === 'row' ? s.hiddenRows.has(i) : s.hiddenCols.has(i); },
     scrollToActive({ avoid } = {}) { scrollIntoView(sel.active); return avoid ? revealBeside(avoid) : true; },
