@@ -2261,6 +2261,35 @@ test("an image PDF page holds its picture's pixels, see-through ones laid on whi
   }
 });
 
+test("PowerPoint slide pictures are encoded by the browser where it can", async () => {
+  const b = board("Slides");
+  b.items = [item("note", 0, 0, { text: "Hello" })];
+  let blobs = 0;
+  // A canvas whose picture can only be had as a Blob, as the browser
+  // encodes it away from the page.
+  const rasterizer = async () => {
+    const canvas = createCanvas(4, 4),
+      png = canvas.toBuffer("image/png");
+    return {
+      width: 4,
+      height: 4,
+      toDataURL() {
+        throw Error("Encoded on the page");
+      },
+      toBlob(done, type) {
+        blobs++;
+        done(new Blob([png], { type }));
+      },
+    };
+  };
+  const entries = readZip(
+    await blobBytes(await exportPPTX(b, exportRegions(b), { rasterizer })),
+  );
+  assert.ok(blobs > 0);
+  const image = entries.get("ppt/media/image1.png");
+  assert.deepEqual([...image.slice(1, 4)], [0x50, 0x4e, 0x47]);
+});
+
 test("UML, BPMN and ERD connector ends validate and export as drawn", () => {
   const b = board("Ends");
   b.items = [

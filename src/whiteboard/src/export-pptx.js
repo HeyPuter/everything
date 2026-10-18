@@ -198,6 +198,17 @@ function base64Bytes(dataURL) {
   for (let n = 0; n < binary.length; n++) bytes[n] = binary.charCodeAt(n);
   return bytes;
 }
+// A slide's picture as PNG bytes, encoded by the browser away from the
+// page where it can: written out as text at once, it took four fifths of a
+// large board's export, a frozen page for seconds.
+async function pngBytes(canvas) {
+  const blob =
+    typeof canvas.toBlob === "function" &&
+    (await new Promise((resolve) => canvas.toBlob(resolve, "image/png")));
+  return blob
+    ? new Uint8Array(await blob.arrayBuffer())
+    : base64Bytes(canvas.toDataURL("image/png"));
+}
 
 // The slides for a region. A frame is one slide, as slides are drawn. A
 // whole board or selection more than twice as large as a slide shows
@@ -279,7 +290,7 @@ export async function exportPPTX(
             .replace("{row}", tile.row)
             .replace("{column}", tile.col)
         : region.name || t("Frame"),
-      png: base64Bytes(canvas.toDataURL("image/png")),
+      png: await pngBytes(canvas),
       notes: regionNoteContent(
         tile
           ? {
