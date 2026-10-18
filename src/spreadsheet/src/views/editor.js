@@ -5493,7 +5493,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const err = await doc.saveAs(name);
     if (destroyed) return;
     if (err) toast(err, { icon: 'alert' });
-    else { toast('Copy saved', { icon: 'cloud' }); refreshTitle(); }
+    else {
+      toast('Copy saved', { icon: 'cloud' });
+      // A shared workbook's copy is no longer shared: it opens again as the file it is.
+      if (room) openPath(doc.path, { reload: true });
+      else refreshTitle();
+    }
   }
 
   async function exportFile(kind) {

@@ -55,9 +55,10 @@ async function sharedEditor(user = owner, role = 'editor') {
   };
   const mine = await join(user);
   const doc = Doc.forRoom(mine);
-  view = editorView({ doc, goHome: vi.fn(), openPath: vi.fn(), newDoc: vi.fn(), templateDoc: vi.fn(), importFile: vi.fn(), openLive: vi.fn() });
+  const openPath = vi.fn();
+  view = editorView({ doc, goHome: vi.fn(), openPath, newDoc: vi.fn(), templateDoc: vi.fn(), importFile: vi.fn(), openLive: vi.fn() });
   document.getElementById('app').append(view.el);
-  return { env, room, mine, doc, join };
+  return { env, room, mine, doc, join, openPath };
 }
 
 it('shows who is here beside Share, their selections on the grid and their sheet on the tabs', async () => {
@@ -110,4 +111,15 @@ it('keeps this person\'s selection on its cells when someone inserts rows above 
   // The name box shows the selection, two rows further down now.
   await until(() => document.querySelector('input.name-box')?.value === 'B7:C8', 4000, 'selection to follow');
   expect(mine.wb.getValue(s, 0, 0)).toBe('Task');
+});
+
+it('opens the copy once Save a copy is done, so work goes on in it rather than in the shared workbook', async () => {
+  const { doc, openPath } = await sharedEditor();
+  vi.spyOn(doc, 'saveAs').mockImplementation(async () => { doc.path = 'Spreadsheets/Plan copy.xlsx'; return null; });
+  view.run('saveAs');
+  await until(() => document.querySelector('.modal-panel[aria-label="Save a copy"] input'), 2000, 'the dialog');
+  const input = document.querySelector('.modal-panel[aria-label="Save a copy"] input');
+  input.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  await until(() => openPath.mock.calls.length, 2000, 'the copy to open');
+  expect(openPath).toHaveBeenCalledWith('Spreadsheets/Plan copy.xlsx', { reload: true });
 });

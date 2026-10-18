@@ -871,6 +871,8 @@ export class Doc extends EventTarget {
       return e?.message || 'Could not save';
     }
     clearTimeout(this._draftTimer);
+    // A shared workbook's copy is a file of the user's own, where work continues: the room is left.
+    if (this.collab) this._leaveRoomForCopy();
     const oldKey = this.draftKey;
     this.path = P.canonicalPath(target, written);
     this.uid = written?.uid || written?.id || null; // another file, with its own decision
@@ -1000,6 +1002,22 @@ export class Doc extends EventTarget {
     // Leaving saves: the file the last changes were waiting a quiet moment to reach is written on the way out.
     const written = this._sharedFileDue ? this.save({ auto: true }).catch(() => {}) : this._saving?.catch(() => {});
     Promise.resolve(written).then(() => this.collab.leave()).catch(() => {});
+  }
+
+  /**
+   * Saved as a copy, the shared workbook is this document no longer: it stops sharing edits (they would reach the
+   * room, and never the copy), and saves to the copy as any file does. Changes the room has not confirmed stay in
+   * this browser's outbox, sent when the shared workbook is next opened.
+   */
+  _leaveRoomForCopy() {
+    const client = this.collab;
+    clearTimeout(this._timer);
+    this._sharedFileDue = false;
+    client.removeEventListener('status', this._onRoomStatus);
+    if (this._onRoomIncoming) client.replica.removeEventListener('incoming', this._onRoomIncoming);
+    this.collab = null;
+    client.close();
+    client.request({ op: 'leave', session: client.session }).catch(() => {});
   }
 
   static fromDraft(key) {
