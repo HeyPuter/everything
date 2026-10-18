@@ -5,12 +5,14 @@
 import { el, fieldId } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
 import { toast } from './toast.js';
-import { parseInput } from '../core/format.js';
+import { parseInput, editText } from '../core/format.js';
 import { cellsText, parseChangingCells, saveScenario, deleteScenario, showScenario, mergeScenarios, createScenarioSummary,
   currentValues, scenarioProblem, MAX_CHANGING_CELLS } from '../core/scenarios.js';
 
 const today = () => new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'numeric', day: 'numeric' });
-const valueText = (v) => (typeof v === 'boolean' ? (v ? 'TRUE' : 'FALSE') : v == null ? '' : String(v));
+/** A stored value as the Values step shows it: as a cell opened for editing would, so it reads back as itself in
+ * the regional format (1,5 where the decimal mark is a comma, text that looks like a number with its apostrophe). */
+const valueText = (v) => editText(v == null || v === '' ? null : { v, f: null });
 
 /** Selected cells as the changing cells a new scenario starts with. */
 function selectionCells(ctx) {
