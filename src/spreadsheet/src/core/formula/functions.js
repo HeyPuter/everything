@@ -2109,6 +2109,7 @@ export const FUNCTIONS = {
   VLOOKUP: {
     liftArgs: [0, 2], // an array of lookup values, or of column indexes, answers with an array
     fn: overArguments(([needle, table, colIdx, approx]) => {
+      const key = scalar(needle); if (isError(key)) return key; // a reference to an error cell is that error, as the cell named directly is
       const t = asRange(table);
       const ci = toNumber(colIdx); if (isError(ci)) return ci;
       const k = Math.trunc(ci);
@@ -2124,6 +2125,7 @@ export const FUNCTIONS = {
   HLOOKUP: {
     liftArgs: [0, 2],
     fn: overArguments(([needle, table, rowIdx, approx]) => {
+      const key = scalar(needle); if (isError(key)) return key;
       const t = asRange(table);
       const ri = toNumber(rowIdx); if (isError(ri)) return ri;
       const k = Math.trunc(ri);
@@ -2185,6 +2187,7 @@ export const FUNCTIONS = {
   MATCH: {
     liftArgs: [0],
     fn: overArguments(([needle, lookup, mode]) => {
+      const key = scalar(needle); if (isError(key)) return key;
       const l = asRange(lookup);
       const m = mode === undefined ? 1 : toNumber(mode); if (isError(m)) return m;
       if (!isVector(l)) return err('#N/A');

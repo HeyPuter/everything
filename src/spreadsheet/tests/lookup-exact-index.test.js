@@ -84,10 +84,10 @@ describe('indexed exact lookups', () => {
     expect(both('LOOKUP', (t) => [10, t], sorted)).toBe(9);
   });
 
-  it('match an error value only by identity, as a scan does', () => {
+  it('answer an error lookup value with that error, as a scan does', () => {
     const e = err('#N/A');
     const withErrors = () => range([['a'], [e], [err('#N/A')]]);
-    expect(both('MATCH', (t) => [e, t, 0], withErrors)).toBe(2);
+    expect(both('MATCH', (t) => [e, t, 0], withErrors)).toEqual(err('#N/A')); // MATCH(#N/A,...) is #N/A, never a position
     expect(both('MATCH', (t) => [err('#N/A'), t, 0], withErrors)).toEqual(err('#N/A'));
   });
 
