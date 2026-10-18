@@ -202,13 +202,15 @@ const textW = (text, size = 12) => {
 };
 
 let axisTextContext;
+const UI_FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 function axisTextWidth(text, style) {
   // Imported charts often fit a dozen small category labels on one line.
   // Measure their actual font instead of rotating them on a fixed-width estimate.
   if (typeof OffscreenCanvas === 'undefined') return textW(text, style.size);
   axisTextContext ||= new OffscreenCanvas(1, 1).getContext('2d');
   if (!axisTextContext) return textW(text, style.size);
-  axisTextContext.font = `${style.italic ? 'italic ' : ''}${style.bold ? '700 ' : ''}${style.size}px ${fontStack(style.font)}`;
+  // Text without a font of its own is drawn in the interface's (tokens.css --font), not the canvas's fallback.
+  axisTextContext.font = `${style.italic ? 'italic ' : ''}${style.bold ? '700 ' : ''}${style.size}px ${fontStack(style.font) || UI_FONT}`;
   return axisTextContext.measureText(String(text)).width;
 }
 
