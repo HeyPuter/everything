@@ -49,12 +49,30 @@ export function attachKeyTips({ ribbon, fileButton = () => null, openFile = () =
   const commands = () => [...(activePanel()?.querySelectorAll('.tb-btn, .ribbon-control') || [])]
     .filter(b => !b.closest('[hidden]') && b.getClientRects().length && !b.disabled);
 
+  /**
+   * Whether the middle of `rect` shows: inside the window and every box that clips `target`. A narrow ribbon (the
+   * assistant beside the sheet, a small window) scrolls its commands sideways, and a tip drawn for one scrolled out
+   * of sight floated over the assistant or past the window's edge. Its tip still runs it when typed.
+   */
+  function inView(target, rect) {
+    const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+    if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return false;
+    for (let node = target.parentElement; node && node !== document.body; node = node.parentElement) {
+      const { overflow, overflowX, overflowY } = getComputedStyle(node);
+      if (![overflow, overflowX, overflowY].some((value) => value && value.split(' ').some((part) => part !== 'visible'))) continue;
+      const box = node.getBoundingClientRect();
+      if (x < box.left || x > box.right || y < box.top || y > box.bottom) return false;
+    }
+    return true;
+  }
+
   function render() {
     layer.replaceChildren();
     if (!state) return;
     for (const tip of state.tips) {
       if (!tip.tip.startsWith(state.typed)) continue;
       const rect = tip.target.getBoundingClientRect();
+      if (!inView(tip.target, rect)) continue;
       const badge = el('span.keytip', { dataset: { tip: tip.tip } }, tip.tip);
       const x = tip.kind === 'tab' || tip.target.classList.contains('ribbon-large') ? rect.left + rect.width / 2 : rect.left + 12;
       const y = tip.kind === 'tab' ? rect.bottom - 4 : tip.target.classList.contains('ribbon-large') ? rect.bottom - 8 : rect.bottom - 6;
@@ -108,6 +126,8 @@ export function attachKeyTips({ ribbon, fileButton = () => null, openFile = () =
     const target = tip.target;
     const opensMenu = target.getAttribute('aria-haspopup') === 'menu';
     exit({ focusGrid: !opensMenu && !target.matches('input, select') });
+    // A command scrolled out of the ribbon's sight comes into it, so the menu it opens drops from where it is.
+    target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     if (target.matches('input, select')) { target.focus(); return; }
     target.click();
   }
