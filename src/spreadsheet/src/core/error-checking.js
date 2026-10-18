@@ -48,7 +48,8 @@ const TITLES = {
   emptyCellReference: 'Formula Refers to Empty Cells', listDataValidation: 'Data Validation Error',
 };
 
-const NUMBER_TEXT = /^\s*[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)?(?:\.\d+)?(?:e[-+]?\d+)?%?\s*$/i;
+// The digits before an exponent are required: E49 alone is a label, not a number.
+const NUMBER_TEXT = /^\s*[-+]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+)(?:e[-+]?\d+)?%?\s*$/i;
 const TWO_DIGIT_DATE = /^\s*\d{1,2}[/-]\d{1,2}[/-]\d{2}\s*$|^\s*\d{1,2}[/-][a-z]{3}[/-]\d{2}\s*$/i;
 
 const ignored = (sheet, r, c, key) => (sheet.ignoredErrors || []).some((rec) => rec.keys.includes(key)
