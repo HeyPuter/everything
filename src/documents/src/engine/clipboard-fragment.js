@@ -136,7 +136,9 @@ function wordListItem(el) {
   const level = /^l\d+\s+level(\d+)/i.exec(msoList(el))?.[1];
   if (!level) return null;
   const marker = [...el.querySelectorAll('[style]')].find(child => /^ignore$/i.test(msoList(child)))?.textContent.replace(/[\s\u00a0]/g, '') || '';
-  return { kind: /^\(?[0-9a-z]{1,6}[.)]$/i.test(marker) ? 'number' : 'bullet', level: Math.max(0, Math.min(8, Number(level) - 1)) };
+  // A number is "1.", "a)", "(iv)" or a multilevel "1.2" / "1.2.1." (or digits alone); anything else ("o", "§", "•") is a bullet.
+  const numbered = /^\(?[0-9a-z]{1,6}[.)]$/i.test(marker) || /^\d{1,6}(?:\.\d{1,6})*\.?$/.test(marker);
+  return { kind: numbered ? 'number' : 'bullet', level: Math.max(0, Math.min(8, Number(level) - 1)) };
 }
 
 function fromForeignHtml(body) {

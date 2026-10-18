@@ -47,3 +47,11 @@ it('turns Word’s list paragraphs into list items without their typed-out marke
     ['First item', { kind: 'bullet', level: 0 }], ['Nested item', { kind: 'bullet', level: 1 }],
     ['Numbered item', { kind: 'number', level: 0 }], ['After the list', null]]);
 });
+
+it('reads Word’s multilevel numbers (1.1., 1.2, 1.2.1) as numbered items', () => {
+  const item = (list, marker, text) => `<p class=MsoListParagraph style='mso-list:${list}'><![if !supportLists]><span><span style='mso-list:Ignore'>${marker}<span style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp; </span></span></span><![endif]>${text}</p>`;
+  const html = `<html><body><!--StartFragment-->${item('l0 level1 lfo1', '1.', 'Scope')}${item('l0 level2 lfo1', '1.1.', 'Definitions')}${item('l0 level2 lfo1', '1.2', 'Terms')}${item('l0 level3 lfo1', '1.2.1', 'Detail')}${item('l0 level1 lfo1', '2', 'Plain')}${item('l1 level1 lfo2', '§', 'Section mark')}<!--EndFragment--></body></html>`;
+  expect(htmlFragment(html).paragraphs.map(p => [p.text, p.list])).toEqual([
+    ['Scope', { kind: 'number', level: 0 }], ['Definitions', { kind: 'number', level: 1 }], ['Terms', { kind: 'number', level: 1 }],
+    ['Detail', { kind: 'number', level: 2 }], ['Plain', { kind: 'number', level: 0 }], ['Section mark', { kind: 'bullet', level: 0 }]]);
+});
