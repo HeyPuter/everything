@@ -1,5 +1,5 @@
 import { it, expect } from 'vitest';
-import { TextDocument, paragraph, documentText, paragraphLength, paragraphText } from '../src/engine/model.js';
+import { TextDocument, paragraph, documentText, documentLength, paragraphLength, paragraphText } from '../src/engine/model.js';
 
 it('keeps the joined text in step with every kind of edit, and reuses it while nothing changed', () => {
   const doc = new TextDocument([paragraph('Alpha beta'), paragraph('Gamma 😀 delta'), paragraph('')]);
@@ -18,4 +18,6 @@ it('keeps the joined text in step with every kind of edit, and reuses it while n
   doc.select(0, doc.text.length); doc.replace(''); check();
   doc.undo(); check();
   for (const p of doc.paragraphs) expect(paragraphLength(p)).toBe(paragraphText(p).length);
+  expect(documentLength(doc.paragraphs)).toBe(doc.text.length);
+  expect(documentLength([paragraph('')])).toBe(0);
 });

@@ -74,6 +74,8 @@ export const paragraph = (text = '', extra = {}) => ({
 export const paragraphText = p => p.runs.map(r => r.text).join('');
 /** A paragraph's text length, without joining its runs. */
 export const paragraphLength = p => { let n = 0; for (const r of p.runs) n += r.text.length; return n; };
+/** The document's text length (paragraphs and the marks between them), without joining any text. */
+export const documentLength = paragraphs => paragraphs.reduce((n, p) => n + paragraphLength(p), paragraphs.length - 1);
 export const documentText = paragraphs => paragraphs.map(paragraphText).join('\n');
 // A model's text is asked for by every selection and command; joining a long document each time made
 // batches of commands (a formatted paste or import) quadratic. Each paragraph's text is kept with the run
@@ -243,12 +245,13 @@ export function locate(paragraphs, position) {
 function nextBoundary(paragraphs, position) {
   let at = 0;
   for (let index = 0; index < paragraphs.length; index++) {
-    const text = paragraphText(paragraphs[index]);
-    if (position <= at + text.length || index === paragraphs.length - 1) {
+    const size = paragraphLength(paragraphs[index]);
+    if (position <= at + size || index === paragraphs.length - 1) {
+      const text = paragraphText(paragraphs[index]);
       for (const segment of inlineSegments(text)) if (at + segment.index >= position) return at + segment.index;
       return at + text.length;
     }
-    at += text.length + 1;
+    at += size + 1;
   }
 }
 
@@ -661,7 +664,7 @@ export class TextDocument {
       at += length + 1;
       if (p.sectionEnd) { section++; if (section === index) start = at; }
     }
-    return { start, end: this.text.length };
+    return { start, end: documentLength(this.paragraphs) };
   }
   /**
    * Insert a section break (§17.6.17) at the caret, or replacing the selection: the text before it ends a
@@ -949,7 +952,7 @@ export class TextDocument {
     if (owner.cells.length > 1) {
       const state = tableContent(this, table), template = state.byCell.get(cell.id).at(-1);
       const addedCount = owner.cells.length * span - 1;
-      if (this.text.length + addedCount > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
+      if (documentLength(this.paragraphs) + addedCount > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
       const widths = table.layout === 'fixed' ? fixedColumnWidths(table, this.sectionWritingWidth) : null;
       this.checkpoint();
       for (const physical of owner.cells) {
@@ -964,7 +967,7 @@ export class TextDocument {
       }
       applyTableContent(this, table, state); this.didChange(); return true;
     }
-    if (this.text.length + span - 1 > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
+    if (documentLength(this.paragraphs) + span - 1 > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
     const widths = table.layout === 'fixed' ? fixedColumnWidths(table, this.sectionWritingWidth) : null;
     const last = this.paragraphs.findLastIndex(p => p.cellId === cell.id), template = this.paragraphs[last];
     const bookmarks = this.hasColumnBookmarks ? bookmarkStructureState(this.paragraphs, this.tables) : null;
@@ -1046,7 +1049,7 @@ export class TextDocument {
     if (this.hasPersistentBlockControls && blockControlGroups(this.paragraphs).some(g => g.control.persistent && g.start <= this.range[0] && this.range[0] <= g.end)) throw new Error('Tables inside persistent content controls are not supported yet.');
     const parent = this.tableContext;
     if (!Number.isInteger(rows) || rows < 1 || rows > 500 || !Number.isInteger(columns) || columns < 1 || columns > 32) throw new Error('Choose 1–500 rows and 1–32 columns.');
-    if (this.text.length + rows * columns + 1 > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
+    if (documentLength(this.paragraphs) + rows * columns + 1 > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
     const borderSize = 4; // Eighth-points; the generated table uses single borders.
     const page = this.sectionPageSettings;
     const borderSpace = parent || page.compatibilityMode >= 15 ? borderSize * 2.5 : 0;
@@ -1079,7 +1082,7 @@ export class TextDocument {
   insertTableRow() {
     const context = this.tableContext; if (!context) return false;
     const { table } = context, owners = verticalMerges(table), rowIndex = owners.get(context.cell.id).endRow, row = table.rows[rowIndex];
-    if (this.text.length + row.cells.length > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
+    if (documentLength(this.paragraphs) + row.cells.length > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
     if (table.rows.length >= 1000) throw new Error('This table already has 1,000 rows.');
     const next = { ...copy(row), id: tableId('row'), header: rowIndex + 1 < headerRowCount(table), headerChanged: true, cells: row.cells.map(c => ({ ...copy(c), id: tableId('cell'), generated: true })) };
     const state = tableContent(this, table);
@@ -1096,7 +1099,7 @@ export class TextDocument {
     const context = this.tableContext; if (!context) return false;
     const { table, end: position } = context;
     if (table.rows.some(row => row.gridBefore || row.gridAfter)) throw new Error('Column insertion in tables with omitted grid cells is not supported yet.');
-    if (this.text.length + table.rows.length > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
+    if (documentLength(this.paragraphs) + table.rows.length > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
     if (table.grid.length >= 32) throw new Error('This table already has 32 columns.');
     const automatic = table.layout === 'autofit'; let grid = [...table.grid], total;
     if (automatic) grid.splice(position, 0, 0);
@@ -1165,7 +1168,7 @@ export class TextDocument {
   }
   insertTableParagraph(after = true) {
     const context = this.tableContext; if (!context) return false;
-    if (this.text.length >= MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
+    if (documentLength(this.paragraphs) >= MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
     const content = tableContent(this, context.table);
     const index = content.start + (after ? content.count : 0);
     const parent = cellContext(this.tables, context.table.parentCellId);
@@ -1544,7 +1547,7 @@ export class TextDocument {
   moveImage(target) {
     const image = this.selectedImage, [start, end] = this.range;
     if (!image || image.anchor) throw new Error('Select an inline image to move through text.');
-    if (!Number.isInteger(target) || target < 0 || target > this.text.length || !boundaries(this.text).includes(target)) throw new Error('Invalid image insertion position.');
+    if (!Number.isInteger(target) || target < 0 || target > documentLength(this.paragraphs) || !boundaries(this.text).includes(target)) throw new Error('Invalid image insertion position.');
     if (target >= start && target <= end) return false;
     this.checkpoint();
     this.replace('', { checkpoint: false });
@@ -1805,7 +1808,7 @@ export class TextDocument {
         edits[0].insertedLength = blockPrompt(control).map(runs => runs.map(r => r.text).join('')).join('\n').length;
       }
     }
-    if (this.text.length + matches.reduce((n, m) => n + (m.insertedLength ?? text.length) - m.text.length, 0) > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
+    if (documentLength(this.paragraphs) + matches.reduce((n, m) => n + (m.insertedLength ?? text.length) - m.text.length, 0) > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
     const byParagraph = new Map();
     for (const m of matches) { if (!byParagraph.has(m.paragraph)) byParagraph.set(m.paragraph, []); byParagraph.get(m.paragraph).push(m); }
     let paragraphs = this.paragraphs.flatMap((p, index) => {
@@ -1860,7 +1863,7 @@ export class TextDocument {
     const caret = this.selection.controlCaret;
     const range = caret?.side === 'inside' && inlineControlCaret(this.paragraphs, this.selection.focus, caret);
     if (!['before', 'after'].includes(side) || this.selection.anchor !== this.selection.focus || !range || range.start !== range.end) throw new Error('The caret is not inside an empty inline control.');
-    if (destination !== undefined && (!Number.isInteger(destination) || destination < 0 || destination > this.text.length ||
+    if (destination !== undefined && (!Number.isInteger(destination) || destination < 0 || destination > documentLength(this.paragraphs) ||
       (side === 'before' ? destination > range.start : destination < range.end))) throw new Error('Invalid empty-control exit destination.');
     this.replace('', { restoreEmptyControl: true });
     const position = destination === undefined ? (side === 'before' ? range.start : this.selection.focus)
@@ -1871,11 +1874,11 @@ export class TextDocument {
   /** Replace the selection; with Track Changes on, deletions are marked and insertions recorded. */
   replace(text, options = {}) {
     if (this.trackChanges && !this.trackingInternal) return this.trackedReplace(text, options);
-    const [start, end] = this.range, length = this.text.length;
+    const [start, end] = this.range, length = documentLength(this.paragraphs);
     const result = this.replaceUntracked(text, options);
     // Untracked text never inherits a neighbour's revision. Measure what was actually
     // inserted: line endings are normalized and placeholders can change the span.
-    const inserted = this.text.length - length + (end - start);
+    const inserted = documentLength(this.paragraphs) - length + (end - start);
     if (result && inserted > 0) clearRevisions(this.paragraphs, start, start + inserted);
     return result;
   }
@@ -1918,9 +1921,9 @@ export class TextDocument {
         // typing is one change even when it crosses a clock second.
         const me = this.revisionAuthor || 'Author', now = Date.now();
         const continued = revisionRanges(this.paragraphs).find(r => r.type === 'ins' && !r.move && r.author === me && r.end === insertAt && now - Date.parse(r.date) < 60000);
-        const length = this.text.length;
+        const length = documentLength(this.paragraphs);
         this.replaceUntracked(text, { ...rest, checkpoint: false });
-        const inserted = this.text.length - length, insertion = this.newRevision('ins');
+        const inserted = documentLength(this.paragraphs) - length, insertion = this.newRevision('ins');
         // Text deleted by this author and put back elsewhere is a move (§17.13.5.21/.25).
         const moved = this.trackMoves !== false && this.lastTrackedDeletion?.text === text && /\p{L}/u.test(text) && text.trim().length >= 3 ? this.lastTrackedDeletion : null;
         if (moved) {
@@ -1998,7 +2001,7 @@ export class TextDocument {
   }
   get revisions() { return revisionRanges(this.paragraphs); }
   /** Accept or reject the changes overlapping [start, end] (the whole document by default). */
-  resolveRevisions(accept, start = 0, end = this.text.length + 1) {
+  resolveRevisions(accept, start = 0, end = documentLength(this.paragraphs) + 1) {
     this.formatRejectSkipped = false;
     // Resolving changes is not itself a tracked formatting change.
     this.formatTrackingSuppressed = true;
@@ -2036,7 +2039,7 @@ export class TextDocument {
         });
         else {
           // A removed paragraph mark merges its paragraph with the next one.
-          const limit = this.text.length;
+          const limit = documentLength(this.paragraphs);
           this.selection = { anchor: r.start, focus: Math.min(r.end, limit) };
           if (r.end > limit) for (const p of this.paragraphs.slice(-1)) delete p.markRevision;
           if (r.start < Math.min(r.end, limit)) this.replaceUntracked('', { checkpoint: false });
@@ -2045,7 +2048,7 @@ export class TextDocument {
     } finally { this.trackingInternal = false; }
     for (const p of this.paragraphs) p.runs = normalize(p.runs);
     // Removing a change can join the characters on either side of the caret into one.
-    const at = nextBoundary(this.paragraphs, Math.min(caret, this.text.length));
+    const at = nextBoundary(this.paragraphs, Math.min(caret, documentLength(this.paragraphs)));
     this.selection = { anchor: at, focus: at };
     this.didChange(); return true;
   }
@@ -2103,7 +2106,7 @@ export class TextDocument {
     const boundaryPromptText = boundaryPrompt?.map(r => r.text).join('') || '';
     text += boundaryPromptText;
 
-    if (this.text.length - (end - start) + text.length > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
+    if (documentLength(this.paragraphs) - (end - start) + text.length > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
     const a = locate(this.paragraphs, start), b = locate(this.paragraphs, end);
     const crossesSection = this.paragraphs.slice(a.index, b.index).some(p => p.sectionEnd);
     // A section mark owns the preceding section, whereas a surviving paragraph
