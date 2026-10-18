@@ -1078,6 +1078,7 @@ export class Workbook extends EventTarget {
     this._statsCache = new Map();
     this._volatile = null; // whether any formula in the book is volatile, until the book next changes
     this._spills = new Map(); // sheetId → { anchors, cover, building }
+    this._keptSpills = null; // sheetId → the anchors array formulas keep under manual calculation (see _invalidateCells)
     this._spillBuilds = [];
     this._grown = new Set(); // sheets a spill grew during a calculation, announced once it has finished
     this._settlingSpills = false;
@@ -11409,7 +11410,7 @@ export class Workbook extends EventTarget {
         const from = this._spillComputed.length;
         // What the cells calculated in this pass could have read, judged as each spill lands (see _noteLanding).
         st.reads = { checked: from, box: null, open: false, stale: false };
-        for (const { r, c } of candidates) this._compute(sheet, r, c);
+        for (const { r, c } of candidates) if (!this._placeKept(sheet, st, r, c)) this._compute(sheet, r, c);
         const next = [...st.anchors.values()].map((a) => `${a.r},${a.c}:${a.rows}x${a.cols}`).join('|');
         // A pass whose spills covered nothing that a formula calculated in it could have read while blank
         // left nothing stale behind: its values stand, and the second pass, which evaluated every candidate
@@ -11441,6 +11442,30 @@ export class Workbook extends EventTarget {
     this._settleDeferredSpills();
     this._announceGrown();
     return st;
+  }
+
+  /**
+   * Under manual calculation an array formula keeps its answer, as every other formula does, while the cells
+   * around it are edited: the answer it kept is spilled again where the sheet's spills are worked out afresh
+   * (the edit may have blocked it), rather than its cached anchor value standing alone with the cells it
+   * spilled over gone blank. True when the formula at (r, c) had such an answer to place.
+   */
+  _placeKept(sheet, st, r, c) {
+    const key = cellKey(r, c);
+    const kept = this._keptSpills?.get(sheet.id)?.get(key);
+    const cached = `${sheet.id}|${r},${c}`;
+    if (!kept || !this._cache.has(cached)) return false;
+    if (kept.fixed) {
+      const range = st.fixed.at(r, c);
+      if (!range || range.key !== key || range.rows !== kept.rows || range.cols !== kept.cols) return false;
+      st.anchors.set(key, kept);
+      if (kept.rows > 1 || kept.cols > 1) st.spread.set(key, kept);
+      this._forgetRanges(sheet, range.r1, range.c1, range.r2, range.c2);
+      this._usedCache.delete(sheet.id);
+      return true;
+    }
+    this._cache.set(cached, this._spillResult(sheet, r, c, { range: true, values: kept.values }, true));
+    return true;
   }
 
   /** Retry discovery that encountered a calculation already in progress. */
@@ -11825,7 +11850,8 @@ export class Workbook extends EventTarget {
     if (this.iteration && !this._iterationReady && !this._iteration && !this._evaluating.size && !this._spillBuilds.length) calculateIteratively(this);
     const cell = sheet.cells.get(cellKey(r, c));
     const fixed = cell?.array && this._fixedArrays(sheet).at(r, c);
-    if (fixed && !this._spills.has(sheet.id)) {
+    // An array formula keeping its answer under manual calculation shows it as the sheet's spills settle it (see _placeKept).
+    if ((fixed || this._keptSpills?.get(sheet.id)?.has(cellKey(r, c))) && !this._spills.has(sheet.id)) {
       this._ensureSpills(sheet);
       const cached = `${sheet.id}|${r},${c}`;
       if (this._cache.has(cached)) return this._cache.get(cached);
@@ -12562,6 +12588,10 @@ export class Workbook extends EventTarget {
 
   /** Manual calculation: forget the results of the cells written (and everything read from ranges), keep the rest. */
   _invalidateCells(sheetId, box) {
+    // The array formulas keep their answers too, spilled again as each sheet's spills are worked out (see _placeKept).
+    const kept = this._keptSpills ?? new Map();
+    for (const [id, st] of this._spills) if (!st.building) kept.set(id, st.anchors);
+    this._keptSpills = kept;
     const area = (box.r2 - box.r1 + 1) * (box.c2 - box.c1 + 1);
     if (area <= 4096) {
       for (let r = box.r1; r <= box.r2; r++) for (let c = box.c1; c <= box.c2; c++) this._cache.delete(`${sheetId}|${r},${c}`);
@@ -12774,6 +12804,7 @@ export class Workbook extends EventTarget {
 
   _invalidate() {
     this._iterationReady = false;
+    this._keptSpills = null;
     this._nameIndex = null;
     this._cache.clear();
     this._rangeCache.clear();
