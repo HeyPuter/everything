@@ -718,12 +718,16 @@ export function parseInput(text, loc = locale) {
   if (TYPED_ERRORS.has(upper)) return { v: { error: upper }, f: null, fmt: null };
 
   // The sign may lead, as Turkish writes %12,5 (and -%12,5), and a typed %50 reads in any regional format.
-  if (t.endsWith('%') || /^[-+]?%/.test(t)) {
-    const body = (t.endsWith('%') ? t.slice(0, -1) : t.replace('%', '')).trim();
+  // In parentheses it is negative, as an amount is: (5%) is -5%.
+  const bracketed = /^\(.*\)$/.test(t) ? t.slice(1, -1).trim() : null;
+  const pct = bracketed ?? t;
+  if (pct.endsWith('%') || /^[-+]?%/.test(pct)) {
+    const body = (pct.endsWith('%') ? pct.slice(0, -1) : pct.replace('%', '')).trim();
     // The percent moves the decimal point of the digits as typed, as VALUE reads it, so 12.3% is
     // 0.123 exactly as Excel stores it and not 12.3 / 100 (0.12300000000000001).
-    const n = body !== '' && /\d/.test(body) ? localeNumber(body, info, (digits) => parseDecimalText(digits, -2)) : null;
-    if (n != null) return { v: n, f: null, fmt: 'percent' };
+    const n = body !== '' && /\d/.test(body) && !(bracketed != null && /^[-+]/.test(body))
+      ? localeNumber(body, info, (digits) => parseDecimalText(digits, -2)) : null;
+    if (n != null) return { v: bracketed != null && n !== 0 ? -n : n, f: null, fmt: 'percent' };
   }
 
   if (/\d/.test(t)) {
