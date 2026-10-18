@@ -1,7 +1,7 @@
 /** Live Excel expressions for predicate rules authored by the app. */
 import { cellName, colName } from './cell.js';
 import { MAX_ROW, MAX_COL, quoteSheet } from './refs.js';
-import { numberOfText, NUMBER_TEXT_PATTERN, NUMBER_TEXT_SPACE } from './condformat.js';
+import { numberOfText, typedMoment, NUMBER_TEXT_PATTERN, NUMBER_TEXT_SPACE } from './condformat.js';
 import { ruleFormulaBody } from './validation.js';
 import { duplicateSourceAreas, nativeDuplicateFormula } from './conditional-duplicates.js';
 
@@ -40,7 +40,10 @@ export function conditionalRuleFormula(rule) {
   if (type === 'eq' || type === 'neq') {
     const sameText = `AND(NOT(ISBLANK(${cell})),EXACT(LOWER(${text(cell)}),${literal(String(rule.value ?? '').toLowerCase())}))`;
     const value = number(rule.value);
-    const same = value === null ? sameText : `IFERROR(${numeric(cell)}=${value},${sameText})`;
+    // Text that reads as a date or a time also matches the cell holding that moment.
+    const moment = value === null ? typedMoment(rule.value) : null;
+    const same = value !== null ? `IFERROR(${numeric(cell)}=${value},${sameText})`
+      : moment !== null ? `OR(AND(ISNUMBER(${cell}),${cell}=${moment}),${sameText})` : sameText;
     return type === 'eq' ? same : `NOT(${same})`;
   }
   const operators = { gt: '>', gte: '>=', lt: '<', lte: '<=' };

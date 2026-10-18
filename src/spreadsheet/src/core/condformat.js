@@ -13,7 +13,7 @@ import { MIN_NORMAL } from './numeric.js';
  * formulas need context the workbook supplies: see matchesRule's `ctx`.
  */
 
-import { formatNumberText } from './format.js';
+import { formatNumberText, parseInput, dateTimeKind } from './format.js';
 import { extendedDataBar, nativeDataBarFraction } from './data-bar.js';
 
 export const RULE_TYPES = [
@@ -182,6 +182,22 @@ function num(v) {
   return numberOfText(v);
 }
 
+const momentCache = new Map();
+/**
+ * The serial a condition's text names when it reads as a date or a time ("3/15/2024", "Jan 2024", "25:30"), as
+ * the grid reads it typed into a cell; null for any other text. An Equal to rule keeps such an entry as typed, so
+ * it still matches the same text in a cell, and through this it matches the date or time a cell holds too.
+ */
+export function typedMoment(text) {
+  if (typeof text !== 'string' || !/\d/.test(text)) return null;
+  if (!momentCache.has(text)) {
+    if (momentCache.size > 500) momentCache.clear();
+    const { v, f, fmt, code } = parseInput(text.trim());
+    momentCache.set(text, f == null && typeof v === 'number' && dateTimeKind({ fmt, code }, v) ? v : null);
+  }
+  return momentCache.get(text);
+}
+
 const isErr = (v) => v != null && typeof v === 'object';
 
 /**
@@ -257,6 +273,7 @@ export function matchesRule(rule, value, ctx = {}) {
     let same;
     if (a !== null && b !== null) same = a === b;
     else same = shownText(value).toLowerCase() === String(rule.value ?? '').toLowerCase() && value != null;
+    if (!same && typeof value === 'number' && b === null) same = typedMoment(rule.value) === value;
     return t === 'eq' ? same : !same;
   }
   const v = num(value);
