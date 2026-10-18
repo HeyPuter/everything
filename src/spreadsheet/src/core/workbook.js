@@ -54,7 +54,7 @@ import { normalizeFontColor, normalizeColorPalette, sameFontColor, DEFAULT_FONT_
  */
 
 import { cellKey, parseKey, normalizeRange, cellName, MAX_TEXT } from './cell.js';
-import { fontName, parseInput, refineImpliedFormat, formatValue, serialToYMD, ymdToSerial, dateTimeKind, FORMAT_DETAIL_KEYS, getLocale } from './format.js';
+import { fontName, parseInput, refineImpliedFormat, formatValue, serialToYMD, ymdToSerial, dateTimeKind, FORMAT_DETAIL_KEYS, getLocale, dateNames } from './format.js';
 import { MAX_FORMAT_CODE_LENGTH, codeIsFraction } from './numfmt.js';
 import { normalizeCalculationCompatibility } from './calculation-compatibility.js';
 import { normalizeIteration, calculateIteratively } from './iteration.js';
@@ -800,6 +800,21 @@ const SERIES = [
   quarters('q'), quarters('qtr'), quarters('qtr '), quarters('quarter'), quarters('quarter '),
 ];
 
+// The regional format's own month and weekday names, whole and short, go round as the English ones do
+// (Januar → Februar, lundi → mardi), after them, so an English name keeps its English series.
+const localSeriesCache = new Map();
+function nameSeries(loc) {
+  let list = localSeriesCache.get(loc);
+  if (!list) {
+    const { months, days } = dateNames(loc);
+    const own = [months.long, months.short, days.long, days.short].map((names) => names.map((n) => n.toLowerCase()))
+      .filter((names) => new Set(names).size === names.length && !SERIES.some((seq) => seq.join() === names.join()));
+    list = [...SERIES, ...own];
+    localSeriesCache.set(loc, list);
+  }
+  return list;
+}
+
 function applyCase(word, like) {
   if (like === like.toUpperCase() && like !== like.toLowerCase()) return word.toUpperCase();
   if (like[0] === like[0].toUpperCase()) return word[0].toUpperCase() + word.slice(1);
@@ -810,10 +825,10 @@ function applyCase(word, like) {
  * Recognize a run of names from one calendar sequence. Returns
  * { seq, start, step, like } or null. A single name counts, with step 1.
  */
-export function textSeriesFor(values) {
+export function textSeriesFor(values, loc = getLocale()) {
   if (!values.length || !values.every((v) => typeof v === 'string' && v.trim())) return null;
   const lower = values.map((v) => v.trim().toLowerCase());
-  for (const seq of SERIES) {
+  for (const seq of nameSeries(loc)) {
     const idx = lower.map((v) => seq.indexOf(v));
     if (idx.some((i) => i < 0)) continue;
     // "may" is in both month lists; prefer the one that fits every value.
