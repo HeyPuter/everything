@@ -290,7 +290,12 @@ export function createComments(ctx, host) {
   function placeCard() {
     if (!card) return;
     const g = grid();
-    if (!g || g.sheetId !== card.sheetId) { hideCard(); return; }
+    if (!g || g.sheetId !== card.sheetId) {
+      // A comment being written waits out of sight while another sheet is shown, as it does for a cell scrolled away.
+      if (g && card.mode === 'compose' && wb.sheet(card.sheetId)) card.node.classList.add('offscreen');
+      else hideCard();
+      return;
+    }
     const m = wb.mergeAt?.(card.sheetId, card.r, card.c);
     const rect = g.cellRect(card.r, card.c), end = m ? g.cellRect(m.r2, m.c2) : rect;
     const vp = g.viewport.getBoundingClientRect();
@@ -488,7 +493,7 @@ export function createComments(ctx, host) {
     /** Selection or sheet moved: the pane marks the active thread; a card on a cell left behind goes. */
     sync() {
       const g = grid();
-      if (card && g && (g.sheetId !== card.sheetId || (card.mode === 'hover' ? false : (g.active.r !== card.r || g.active.c !== card.c) && card.mode !== 'compose'))) hideCard();
+      if (card && g && card.mode !== 'compose' && (g.sheetId !== card.sheetId || (card.mode !== 'hover' && (g.active.r !== card.r || g.active.c !== card.c)))) hideCard();
       else placeCard();
       renderPane();
     },
