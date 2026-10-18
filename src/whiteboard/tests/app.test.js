@@ -2934,6 +2934,41 @@ test("dropping multiple real images and attachments inserts one undoable batch; 
   }
 });
 
+test("drops on the note being edited put text in it and files on the board, and never leave the drop target up", async () => {
+  const app = await setup();
+  const { w, doc, click, tick } = app;
+  const png = createCanvas(8, 4).toBuffer("image/png");
+  const target = () =>
+    doc.querySelector(".canvas-wrap").classList.contains("drop-target");
+  try {
+    await click('[data-action="new"]');
+    await click('[data-action="add-note"]');
+    const editor = doc.querySelector("#canvas-text-editor");
+    editor.value = "Editing";
+    editor.dispatchEvent(new w.Event("input", { bubbles: true }));
+    const words = transferData({ "text/plain": " dropped" });
+    dispatchTransfer(app, "dragenter", words, editor);
+    dispatchTransfer(app, "dragover", words, editor);
+    assert.ok(!target(), "Text dragged over the editor shows no drop target");
+    dispatchTransfer(app, "drop", words, editor);
+    await tick();
+    assert.match(editor.value, /dropped/);
+    assert.ok(!target());
+    const file = transferData({}, [
+      new w.File([png], "pic.png", { type: "image/png" }),
+    ]);
+    dispatchTransfer(app, "dragenter", file, editor);
+    assert.ok(target(), "A file dragged over the editor goes on the board");
+    dispatchTransfer(app, "drop", file, editor, { clientX: 300, clientY: 260 });
+    await tick();
+    await tick();
+    assert.ok(!target(), "The drop takes the drop target down");
+    assert.match(doc.querySelector("#board-outline").textContent, /Image/);
+  } finally {
+    await app.close();
+  }
+});
+
 test("files dropped into a frame become part of its editable clipboard fragment", async () => {
   const app = await setup();
   try {

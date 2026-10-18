@@ -887,8 +887,10 @@ export function createTextEditor(
     e.stopPropagation();
   });
   input.addEventListener("drop", (e) => {
+    // Files go on the board, as they do when dropped beside the text; the
+    // board also takes down its drop target as the drop passes it.
+    if (Array.from(e.dataTransfer?.types || []).includes("Files")) return;
     e.preventDefault();
-    e.stopPropagation();
     if (!e.dataTransfer || readOnly()) return;
     const { text, formatting, paragraphs } = readTransfer(e.dataTransfer);
     if (!text) return;
