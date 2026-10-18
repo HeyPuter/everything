@@ -63,7 +63,7 @@ import { createStatusBar } from '../ui/statusbar.js';
 import { createFindBar } from '../ui/findbar.js';
 import { openPrintDialog, currentPrintPrefs } from '../ui/printdialog.js';
 import { installSheetFontLoading } from '../ui/sheet-fonts.js';
-import { installPrintFallback } from '../ui/print.js';
+import { installPrintFallback, printFolder } from '../ui/print.js';
 import { openNamesManager } from '../ui/names.js';
 import { openCreateNamesDialog } from '../ui/createnames.js';
 import { conditionalFormattingItems, openQuickRuleDialog, presetRule, clearRules } from '../ui/condformat-quick.js';
@@ -6099,7 +6099,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   // Page Layout view lays the sheet out as its printed pages; the view is the sheet's own (sheet.viewMode).
   const sheetViewMode = () => wb.sheet(grid.sheetId)?.viewMode || 'normal';
   const pageLayout = createPageLayout({
-    wb, fileName: () => doc.name, redraw: () => grid.redraw(), focusGrid: () => grid.focus(),
+    wb, fileName: () => doc.name, filePath: () => printFolder(P.resolvedAbsolutePath(doc.path)), redraw: () => grid.redraw(), focusGrid: () => grid.focus(),
     commit: (id, patch) => { wb.setPrintSettings(id, { ...(wb.sheet(id).printSettings || normalizePrintSettings({})), ...patch }); notify(); },
   });
   let pageViewKey = null;
@@ -6316,7 +6316,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   // The browser's own Print command (File > Print) prints the sheet the way Ctrl+P does, not the app chrome.
   const uninstallPrint = installPrintFallback(() => {
     if (grid.editing) grid.commitEdit();
-    return { wb, sheetId: grid.sheetId, docName: doc.name, opts: currentPrintPrefs(wb.sheet(grid.sheetId)) };
+    return { wb, sheetId: grid.sheetId, docName: doc.name, opts: { ...currentPrintPrefs(wb.sheet(grid.sheetId)), filePath: printFolder(P.resolvedAbsolutePath(doc.path)) } };
   });
   const stopSheetFonts = installSheetFontLoading(wb, () => grid.sheetId);
   // Signing out with edits that cannot be saved is refused by the account menu; no leave dialog here.

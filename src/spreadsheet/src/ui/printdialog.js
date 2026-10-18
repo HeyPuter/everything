@@ -5,7 +5,7 @@
 
 import { el, fieldId, isComposing } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
-import { printSheet, PRINT_DEFAULTS, PAPER_SIZES, MARGINS, supportsPageMarginBoxes, sheetPrintPrefs, printSettingsFromPrefs, printableWidth, printableHeight } from './print.js';
+import { printSheet, printFolder, PRINT_DEFAULTS, PAPER_SIZES, MARGINS, supportsPageMarginBoxes, sheetPrintPrefs, printSettingsFromPrefs, printableWidth, printableHeight } from './print.js';
 import { toast } from './toast.js';
 import { rangeName, colName } from '../core/cell.js';
 import { parseRefText } from '../core/refs.js';
@@ -13,6 +13,7 @@ import { getLocale } from '../core/format.js';
 import * as S from '../core/selection.js';
 import { accountStorageKey } from '../lib/account-storage.js';
 import { createPrintPreview } from './print-preview.js';
+import { resolvedAbsolutePath } from '../lib/puter.js';
 
 const STORAGE_KEY = 'spreadsheet:print';
 
@@ -181,7 +182,9 @@ export function openPrintDialog(ctx) {
     preview?.refresh();
   }
   // Beside the choices, the pages as they will print, following each change (not for a chart sheet, which is one page).
-  const preview = chartSheet ? null : createPrintPreview({ wb: ctx.wb, sheetId, docName: ctx.doc?.name, getPrefs: () => prefs, getRange: () => range });
+  // The folder the file is in, for &[Path] in the header or footer.
+  const filePath = printFolder(resolvedAbsolutePath(ctx.doc?.path));
+  const preview = chartSheet ? null : createPrintPreview({ wb: ctx.wb, sheetId, docName: ctx.doc?.name, filePath, getPrefs: () => prefs, getRange: () => range });
 
   const controller = new AbortController();
   let preparing = false;
@@ -228,7 +231,7 @@ export function openPrintDialog(ctx) {
     button.disabled = true;
     button.textContent = 'Preparing…';
     content.setAttribute('aria-busy', 'true');
-    const ok = await printSheet(ctx.wb, sheetId, ctx.doc?.name, { ...prefs, range: area === 'selection' ? range : null, signal: controller.signal });
+    const ok = await printSheet(ctx.wb, sheetId, ctx.doc?.name, { ...prefs, range: area === 'selection' ? range : null, filePath, signal: controller.signal });
     preparing = false;
     button.disabled = false;
     button.textContent = 'Print';

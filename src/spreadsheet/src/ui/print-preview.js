@@ -102,7 +102,7 @@ export function printPreviewLayout(wb, sheetId, prefs, range = null) {
 }
 
 /** The pane: a page drawn to scale, with Previous and Next under it. `getPrefs()` reads the dialog's choices. */
-export function createPrintPreview({ wb, sheetId, docName, getPrefs, getRange }) {
+export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPrefs, getRange }) {
   let page = 0, layout = null, frame = 0;
   const canvas = el('canvas.print-preview-page');
   const count = el('span.print-preview-count', { 'aria-live': 'polite' });
@@ -148,7 +148,7 @@ export function createPrintPreview({ wb, sheetId, docName, getPrefs, getRange })
     g.fillRect(0, 0, w, h);
     const m = box.margins;
     const sheet = wb.sheet(sheetId);
-    const info = { file: docName || 'Spreadsheet', tab: sheet?.name || '', page: page + 1, pages: total };
+    const info = { file: docName || 'Spreadsheet', path: filePath, tab: sheet?.name || '', page: page + 1, pages: total };
     // Header and footer, each in its left, centre and right parts, in the middle of the margin.
     const regular = { ...prefs, header: String(prefs.header || '').trim(), footer: String(prefs.footer || '').trim() || (prefs.native ? '' : 'Page &[Page] of &[Pages]') };
     const texts = printPageText(regular, page);

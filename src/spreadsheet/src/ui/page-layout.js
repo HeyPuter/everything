@@ -154,15 +154,15 @@ const KIND_LABEL = { header: 'Header', footer: 'Footer', firstHeader: 'First Pag
 
 /**
  * The provider grid.setPageLayout takes. `commit(sheetId, patch)` saves page setup fields (a header or
- * footer); `redraw()` asks the grid for a fresh frame; `fileName()` names the document for &F; `focusGrid()`
+ * footer); `redraw()` asks the grid for a fresh frame; `fileName()` names the document for &F and `filePath()` its folder for &Z; `focusGrid()`
  * hands the keyboard back to the cells.
  */
-export function createPageLayout({ wb, commit, redraw = () => {}, fileName = () => '', focusGrid = () => {} }) {
+export function createPageLayout({ wb, commit, redraw = () => {}, fileName = () => '', filePath = () => '', focusGrid = () => {} }) {
   let editing = null; // { node (the page), section, raw, sheetId, key, side }
   const pageNodes = new Map(); // page key → node, with its signature in dataset.sig
 
   function info(sheet, page) {
-    return { file: fileName() || 'Spreadsheet', tab: sheet.name, palette: wb.colorPalette, normalFont: wb.normalFont, page: page.number, pages: page.pages };
+    return { file: fileName() || 'Spreadsheet', path: filePath(), tab: sheet.name, palette: wb.colorPalette, normalFont: wb.normalFont, page: page.number, pages: page.pages };
   }
 
   /** A section's drawn text, as print draws it, put back in the flow of its own box. */
@@ -291,7 +291,7 @@ export function createPageLayout({ wb, commit, redraw = () => {}, fileName = () 
     const number = pageNumber(metrics, p.across, p.down);
     const s = metrics.settings;
     const texts = printPageText(s, number.index);
-    const sig = JSON.stringify([p.x, p.y, p.width, p.height, unit, metrics.scale, texts.header, texts.footer, number, sheet.name, fileName(), s.margins, s.alignWithMargins, s.scaleWithDoc, !!wb.isProtected?.(sheet.id), new Date().toDateString()]);
+    const sig = JSON.stringify([p.x, p.y, p.width, p.height, unit, metrics.scale, texts.header, texts.footer, number, sheet.name, fileName(), filePath(), s.margins, s.alignWithMargins, s.scaleWithDoc, !!wb.isProtected?.(sheet.id), new Date().toDateString()]);
     const key = `${sheet.id}|${p.across}.${p.down}`;
     let node = pageNodes.get(key);
     if (node && node.dataset.sig === sig) return node;
