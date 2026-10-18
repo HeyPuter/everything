@@ -2,6 +2,7 @@ import { fold } from "./libraries.js";
 import { item, validateBoard, bounds, MAX_OBJECTS } from "./model.js";
 import { language, t } from "./i18n.js";
 import { planMindReparent } from "./mind-map-drag.js";
+import { inferMovedParents } from "./scene.js";
 import { mindAncestors, visibleMindItems } from "./mind-visibility.js";
 import {
   mindIndex,
@@ -30,7 +31,7 @@ export function createMindMapUI(api) {
       const old = before.get(i.id);
       return (
         !old ||
-        ["x", "y", "order", "mindMap", "mindCollapsed"].some(
+        ["x", "y", "order", "mindMap", "mindCollapsed", "parentId"].some(
           (k) => JSON.stringify(i[k]) !== JSON.stringify(old[k]),
         )
       );
@@ -49,9 +50,11 @@ export function createMindMapUI(api) {
           old.x = i.x;
           old.y = i.y;
           if (i.order !== undefined) old.order = i.order;
-          old.mindMap = { ...i.mindMap };
+          if (i.mindMap) old.mindMap = { ...i.mindMap };
           if (i.mindCollapsed !== undefined)
             old.mindCollapsed = i.mindCollapsed;
+          if (i.parentId) old.parentId = i.parentId;
+          else delete old.parentId;
         } else board.items.push(i);
       }
       api.select(new Set([selected]));
@@ -215,12 +218,15 @@ export function createMindMapUI(api) {
   }
   function reparent(id, target) {
     if (!api.canEdit(new Set([id, ...(target ? [target] : [])]))) return false;
-    return commit(
-      planMindReparent(api.board(), id, target).items,
-      id,
-      false,
-      true,
-    );
+    // The branch belongs to the frame it now lies in, as when it is dragged
+    // to its new parent; one left in its old frame would go with that frame.
+    const next = planMindReparent(api.board(), id, target).items.map((i) => ({
+      ...i,
+    }));
+    inferMovedParents(next, mindBranch(mindIndex(next), id), {
+      skip: api.concealed?.(),
+    });
+    return commit(next, id, false, true);
   }
   function moveDialog() {
     const id = source()?.id;

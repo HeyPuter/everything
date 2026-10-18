@@ -132,6 +132,67 @@ test("mind-map parent choices preserve whole-node and passage languages while mo
   }
 });
 
+test("a branch moved to a mind map in another frame joins that frame", () => {
+  const dom = new JSDOM("<body></body>", { url: "https://whiteboard.test" });
+  const previous = globalThis.document;
+  globalThis.document = dom.window.document;
+  try {
+    const b = board("Mind map frames");
+    const node = (text, x, parent, extra = {}) =>
+      item("rect", x, 250, {
+        text,
+        w: 200,
+        h: 76,
+        mindMap: { parent, direction: "right", auto: true, line: "curved" },
+        ...extra,
+      });
+    const one = item("frame", 0, 0, { w: 900, h: 600, text: "One" }),
+      two = item("frame", 1200, 0, { w: 900, h: 600, text: "Two" }),
+      rootOne = node("Root one", 100, null, { parentId: one.id }),
+      rootTwo = node("Root two", 1300, null, { parentId: two.id }),
+      child = node("Child", 380, rootOne.id, { parentId: one.id, order: 1 }),
+      grandchild = node("Grandchild", 660, child.id, {
+        parentId: one.id,
+        order: 1,
+      });
+    b.items = [one, two, rootOne, rootTwo, child, grandchild];
+    const ui = createMindMapUI({
+      board: () => b,
+      source: () => child,
+      finish() {},
+      canEdit: () => true,
+      mutate: (fn) => fn(),
+      select() {},
+      focus() {},
+      reveal() {},
+      toast(message) {
+        throw Error(message);
+      },
+      modal(title, html, configure) {
+        const d = dom.window.document.createElement("dialog");
+        d.innerHTML = html;
+        d.close = () => d.remove();
+        dom.window.document.body.append(d);
+        configure(d);
+        return d;
+      },
+    });
+    ui.moveDialog();
+    dom.window.document
+      .querySelector(`[data-mind-parent="${rootTwo.id}"]`)
+      .click();
+    assert.equal(child.mindMap.parent, rootTwo.id);
+    assert.ok(child.x > two.x);
+    assert.equal(child.parentId, two.id);
+    assert.equal(grandchild.parentId, two.id);
+    assert.equal(rootOne.parentId, one.id);
+  } finally {
+    dom.window.close();
+    if (previous === undefined) delete globalThis.document;
+    else globalThis.document = previous;
+  }
+});
+
 test("French parent controls keep tagged English text and translated empty-node names", () => {
   const a = setup();
   try {
