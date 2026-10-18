@@ -4849,6 +4849,9 @@ export function createGrid(opts) {
     }
   }
 
+  // The width each column widened for an entry was given: still at it, the column was sized by no one,
+  // so a later, longer entry widens it again, as Excel's best-fit columns do. Keyed by sheet and column.
+  const entryWidths = new Map();
   /**
    * Excel widens a column nobody has sized when a typed date or formatted number would
    * otherwise show ###. Text spills over its neighbours and General numbers shorten, so
@@ -4856,7 +4859,9 @@ export function createGrid(opts) {
    */
   function widenForEntry(r, c) {
     const s = sheet();
-    if (s.colWidths.has(c) || s.hiddenCols.has(c) || mergeAt(r, c)) return false;
+    const key = `${sheetId}:${c}`;
+    const fitted = s.colWidths.has(c) && entryWidths.get(key) === s.colWidths.get(c);
+    if ((s.colWidths.has(c) && !fitted) || s.hiddenCols.has(c) || mergeAt(r, c)) return false;
     const cell = wb.getCell(sheetId, r, c);
     const st = styleAt(s, r, c);
     if (!cell || (cell.v == null && cell.f == null) || st?.wrap || st?.shrink) return false;
@@ -4871,8 +4876,11 @@ export function createGrid(opts) {
     const indent = cellIndent(value, st);
     const parts = numberFormatParts(value, st);
     const width = parts ? measureFormatParts(parts, line => textWidth(line, font)) : maxLineWidth(text, (line) => textWidth(line, font));
-    if (width + cellHorizontalPadding(indent) + 1 <= s.defaultColWidth) return false;
-    wb.setColWidth(sheetId, c, Math.min(500, Math.ceil(width + (14 + indent))));
+    const current = fitted ? s.colWidths.get(c) : s.defaultColWidth;
+    const next = Math.min(500, Math.ceil(width + (14 + indent)));
+    if (width + cellHorizontalPadding(indent) + 1 <= current || next <= current) return false;
+    wb.setColWidth(sheetId, c, next);
+    entryWidths.set(key, s.colWidths.get(c));
     return true;
   }
 
