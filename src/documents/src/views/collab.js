@@ -31,7 +31,7 @@ export function localGuest() {
 const MODE_REASONS = { 'content controls without text': 'form fields that are still empty', 'line feeds inside a run': 'text this editor keeps as a single run' };
 
 export function createCollaboration({ editor, pkg, doc, local, error, onChange = () => {}, documentName, user, saveFirst, exportDocx, exportPdf, signIn = async () => true, readOnly = () => false }) {
-  let live = null, starting = null, liveModule = null, dialog = null;
+  let live = null, starting = null, liveModule = null, dialog = null, destroyed = false;
   const loadLive = () => (liveModule ||= import('../collab/live.js'));
 
   /* ---- Title bar: who is here ---- */
@@ -93,6 +93,8 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
   async function begin(client, link) {
     const engine = editor(); if (!engine) return null;
     const { LiveSession } = await loadLive();
+    // The editor closed while the room was being joined: leave it rather than run a session no one sees.
+    if (destroyed) { client.close().catch(() => {}); return null; }
     const api = engineApi();
     const me = user();
     const commentGuard = api?.protectionGuard({ edit: 'comments', enforcement: true }, { name: me.name, email: me.name });
@@ -118,7 +120,7 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
     try {
       if (doc.collab) {
         const { client, link } = doc.collab;
-        await begin(client, link);
+        if (!await begin(client, link)) return;
         toast(roleSentence(client.role) || 'You joined the shared document.', { icon: 'info' });
         return;
       }
@@ -147,7 +149,7 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
       const p = pkg();
       const baseBytes = p?.parts ? zipSync(p.parts) : new Uint8Array(await exportDocx().arrayBuffer());
       const { client, link, reason } = await shareDocument({ engine, doc, user: user(), name: documentName() || 'Untitled document', baseBytes, local, progress });
-      await begin(client, link);
+      if (!await begin(client, link)) throw new Error('The document was closed.');
       if (reason) toast('Others will see this document read-only while you edit it: it has content only one person can change at a time.', { icon: 'info', duration: 8000 });
       progress('');
       return live;
@@ -204,6 +206,6 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
       coauthoringStatus: () => (live ? { status: live.status, pending: live.pending, role: live.role, saves: !!live.saves } : null),
     },
     refresh() { renderChip(); },
-    destroy() { dialog?.close(); live?.destroy(); live = null; },
+    destroy() { destroyed = true; dialog?.close(); live?.destroy(); live = null; },
   };
 }
