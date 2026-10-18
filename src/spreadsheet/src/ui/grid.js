@@ -3305,9 +3305,10 @@ export function createGrid(opts) {
     editor.style.paddingLeft = indent && !indentRight ? `${inset}px` : '';
     editor.style.paddingRight = indent && indentRight ? `${inset}px` : '';
     // A wrapped cell's text wraps in the editor too, at the cell's width; any
-    // other text runs on to the right, as far as the viewport allows.
-    const wrap = !!st?.wrap && !formula;
-    editor.classList.toggle('wrap', wrap);
+    // other text runs on to the right, as far as the viewport allows, and wraps
+    // there, the box growing downward as Excel's does: kept on one line, the
+    // start of a long entry scrolled out of sight at the box's left edge.
+    let wrap = !!st?.wrap && !formula;
     const text = editor.value || '';
     const lines = text.split('\n');
     editor.style.minWidth = `${w}px`;
@@ -3320,8 +3321,10 @@ export function createGrid(opts) {
       // As far as the viewport's right edge from where the cell is on the screen; a frozen column has not scrolled.
       const screenLeft = colX(c) - bandSL(c, view);
       const maxW = Math.max(w, view.vw - screenLeft - 2);
-      editor.style.width = `${clamp(needed, w, Math.max(w, maxW))}px`;
+      editor.style.width = `${clamp(needed, w, maxW)}px`;
+      wrap = needed > maxW;
     }
+    editor.classList.toggle('wrap', wrap);
     // One line sits where the cell draws its text (centered, or at the top or
     // bottom when the cell says so); several lines start at the top and the
     // box grows downward to show them all, as far as the viewport goes.
