@@ -193,6 +193,10 @@ export function createGrid(opts) {
   let baseColHeaderH = COL_HEADER_H;
   const OUTLINE_STEP = 12; // px per outline level in the group gutter
   let rendered = { r0: -1, r1: -1, c0: -1, c1: -1, version: -1, sheet: null };
+  // The rows drawn in the last frame that the next one may reuse as they are (see render), and the
+  // count of layouts made, which tells when the lines may have moved under them.
+  let rowCache = { key: null, rows: new Map() };
+  let layoutGeneration = 0;
   let mergeMap = new Map(); // cellKey → merge, only for coordinates actually queried
   let mergeMapVersion = -1;
   let mergeMapSheet = null;
@@ -396,6 +400,7 @@ export function createGrid(opts) {
 
   function rebuildOffsets() {
     offsetsStale = false;
+    layoutGeneration++; // every line may have moved: rows kept from an earlier frame are built afresh
     const s = sheet();
     if (!s) return;
     refreshAutomaticRowHeights();
@@ -1691,7 +1696,10 @@ export function createGrid(opts) {
     return out;
   }
 
-  function buildLayerCells(layer, s, r0, r1, c0, c1) {
+  function buildLayerCells(layer, s, r0, r1, c0, c1, key = null) {
+    // A layer drawn for the same lines of an unchanged sheet is kept, unless a merged block in it
+    // drew only the part of its border then in view.
+    if (key && layer.key === key) return;
     const frag = document.createDocumentFragment();
     const rowEls = new Map();
     const rowEl = (r) => {
@@ -1723,6 +1731,7 @@ export function createGrid(opts) {
     // A merge anchor or spilling label outside the layer's window still reaches into it; the
     // canvas draws it too, but underneath this opaque layer.
     for (const p of cellsReachingInto(s, r0, r1, c0, c1)) appendCell(rowEl(p.r), copy(p.r, p.c));
+    layer.key = key && !frag.querySelector('.merged') ? key : null;
     layer.cells.replaceChildren(frag);
   }
 
@@ -1879,7 +1888,17 @@ export function createGrid(opts) {
     const panes = frozen.split ? `${frozen.top ? paneRows : ''}/${frozen.left ? paneCols : ''}` : `${frozen.rows},${frozen.cols}`;
     const key = `${vr.r0},${vr.r1},${vr.c0},${vr.c1}|${panes}|${editingCell}|${windowKey()}${pageGeo ? `|${visiblePages(view).map((p) => `${p.across}.${p.down}`).join()}` : ''}`;
     if (rendered.sheet !== s.id || rendered.version !== wb.version || rendered.key !== key) {
-      const frag = document.createDocumentFragment();
+      // A scroll that changes only the rows in view keeps the rows still in view as they were drawn and
+      // builds the rows scrolling in: a frame used to build every cell in view again for a scroll of one
+      // row, a hundred milliseconds a frame zoomed out. Anything else — an edit, the columns in view, the
+      // panes, the cell being edited, the layout, a redraw asked for — builds every row afresh.
+      const rowsKey = `${s.id}|${wb.version}|${vr.c0},${vr.c1}|${panes}|${editingCell}|${windowKey()}|${layoutGeneration}${pageGeo ? `|${visiblePages(view).map((p) => `${p.across}.${p.down}`).join()}` : ''}`;
+      if (rendered.key == null || rendered.version !== wb.version || rowCache.key !== rowsKey) {
+        rowCache = { key: rowsKey, rows: new Map() };
+        for (const layer of [frzRows, frzCols, frzCorner]) layer.key = null;
+      }
+      const kept = rowCache.rows;
+      const keep = new Map(); // the rows the next frame may reuse
       const rowEls = new Map();
       const rowEl = (r) => {
         let row = rowEls.get(r);
@@ -1891,13 +1910,22 @@ export function createGrid(opts) {
         row.style.transform = `translateY(${rowY(r)}px)`;
         row.style.height = `${rowH(r)}px`;
         rowEls.set(r, row);
-        frag.append(row);
         return row;
       };
       for (let r = vr.r0; r <= vr.r1; r++) {
         if (rowHidden(s, r)) continue;
+        const was = kept.get(r);
+        if (was) { rowEls.set(r, was); keep.set(r, was); continue; }
         const row = rowEl(r);
-        for (let c = vr.c0; c <= vr.c1; c++) if (!s.hiddenCols.has(c) && !coveredByMerge(r, c)) appendCell(row, buildCell(s, r, c));
+        // A merged block draws the part of its border in view only: its row is built again next frame.
+        let stable = true;
+        for (let c = vr.c0; c <= vr.c1; c++) {
+          if (s.hiddenCols.has(c) || coveredByMerge(r, c)) continue;
+          const node = buildCell(s, r, c);
+          if (node.classList.contains('merged')) stable = false;
+          appendCell(row, node);
+        }
+        if (stable) keep.set(r, row);
       }
       // Cells outside the view that must still exist: merge anchors and spilling labels that
       // reach into it, and the active cell (for aria-activedescendant). Cells sit in their own
@@ -1914,17 +1942,37 @@ export function createGrid(opts) {
         if (node.style.width === '0px' || node.style.height === '0px') node.classList.add('sizeless');
         appendCell(rowEl(r), node);
       };
-      for (const p of cellsReachingInto(s, vr.r0, vr.r1, vr.c0, vr.c1)) addOutside(p.r, p.c);
+      for (const p of cellsReachingInto(s, vr.r0, vr.r1, vr.c0, vr.c1)) {
+        // A label running in from beside the view is the same while the columns in view are: a row
+        // reused holds it already. A merged block reaching in is built afresh, and its row with it.
+        const merged = !!mergeAt(p.r, p.c);
+        if (!merged && kept.has(p.r) && kept.get(p.r) === rowEls.get(p.r)) continue;
+        addOutside(p.r, p.c);
+        if (merged) keep.delete(p.r);
+      }
       // The active cell is always in the DOM, so aria-activedescendant names a node that exists and
       // a screen reader following the grid's cursor does not lose it: outside the rendered window,
       // and inside it on a hidden row or column, which the loop above passes over. A range made of
       // hidden lines alone keeps its active cell (so Unhide still knows which lines are meant).
+      // The row it is added to follows the selection, so it is not reused.
       const activeHidden = rowHidden(s, active.r) || s.hiddenCols.has(active.c);
-      if (activeHidden || active.r < vr.r0 || active.r > vr.r1 || active.c < vr.c0 || active.c > vr.c1) addOutside(active.r, active.c);
-      cellsLayer.replaceChildren(frag);
-      if (frozen.top) buildLayerCells(frzRows, s, paneRows[0], paneRows[1], vr.c0, vr.c1);
-      if (frozen.left) buildLayerCells(frzCols, s, vr.r0, vr.r1, paneCols[0], paneCols[1]);
-      if (frozen.top && frozen.left) buildLayerCells(frzCorner, s, paneRows[0], paneRows[1], paneCols[0], paneCols[1]);
+      if (activeHidden || active.r < vr.r0 || active.r > vr.r1 || active.c < vr.c0 || active.c > vr.c1) { addOutside(active.r, active.c); keep.delete(active.r); }
+      rowCache.rows = keep;
+      // The rows in order down the sheet. Rows kept stay where they are in the layer; the others come and go.
+      const rows = [...rowEls.entries()].sort((a, b) => a[0] - b[0]).map((e) => e[1]);
+      if (!kept.size) cellsLayer.replaceChildren(...rows);
+      else {
+        const wanted = new Set(rows);
+        for (const child of [...cellsLayer.children]) if (!wanted.has(child)) child.remove();
+        let at = cellsLayer.firstChild;
+        for (const row of rows) {
+          if (row === at) at = at.nextSibling;
+          else cellsLayer.insertBefore(row, at);
+        }
+      }
+      if (frozen.top) buildLayerCells(frzRows, s, paneRows[0], paneRows[1], vr.c0, vr.c1, `${rowsKey}|${paneRows}`);
+      if (frozen.left) buildLayerCells(frzCols, s, vr.r0, vr.r1, paneCols[0], paneCols[1], `${rowsKey}|${vr.r0},${vr.r1}|${paneCols}`);
+      if (frozen.top && frozen.left) buildLayerCells(frzCorner, s, paneRows[0], paneRows[1], paneCols[0], paneCols[1], `${rowsKey}|${paneRows}|${paneCols}`);
       renderHeaders(vr, view);
       renderPaper(view);
       rendered = { ...vr, key, version: wb.version, sheet: s.id, frozen: `${frozen.rows},${frozen.cols}` };
