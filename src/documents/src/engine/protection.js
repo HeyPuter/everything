@@ -185,13 +185,13 @@ export function protectionGuard(protection, user = {}, { contentControlRanges } 
   const edit = protection.edit || 'none', formatting = !!protection.formatting;
   if (edit === 'none' && !formatting) return null;
   return function check(before, model, path = null) {
-    if (path !== null) {
-      // Headers, footers and notes carry no permission ranges of their own here.
-      if (edit === 'trackedChanges' || edit === 'none') return;
-      throw new ProtectionError(edit === 'comments' ? 'This document is protected: only comments can be added.' : 'This part of the document is protected.');
-    }
     const after = model.paragraphs;
-    if (edit === 'trackedChanges') {
+    if (path !== null) {
+      // Headers, footers and notes carry no permission ranges of their own here, and cannot hold tracked
+      // changes: where every change must be tracked, they cannot be changed at all.
+      if (edit === 'trackedChanges') throw new ProtectionError('Changes to this document are tracked, and headers, footers and notes cannot be changed with tracking here.');
+      if (edit !== 'none') throw new ProtectionError(edit === 'comments' ? 'This document is protected: only comments can be added.' : 'This part of the document is protected.');
+    } else if (edit === 'trackedChanges') {
       if (originalText(before.paragraphs) !== originalText(after) || JSON.stringify(before.tables) !== JSON.stringify(model.tables)) throw new ProtectionError('Changes to this document are tracked. Turn tracking back on to edit.');
     } else if (edit !== 'none') {
       const regions = state => [...permissionRanges(state).filter(r => permissionApplies(r, user)), ...(edit === 'forms' && contentControlRanges ? contentControlRanges(state) : [])];
