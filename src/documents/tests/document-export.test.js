@@ -2,6 +2,8 @@
 import { describe, it, expect } from 'vitest';
 import { TextDocument, paragraph } from '../src/engine/model.js';
 import { documentHtml, documentMarkdown, documentPlainText } from '../src/lib/document-export.js';
+import { markdownHtml } from '../src/lib/markdown-html.js';
+import { htmlFragment, pasteFragment } from '../src/engine/clipboard-fragment.js';
 
 const blankDoc = () => new TextDocument([paragraph()]);
 const fill = (doc, table, row, cell, text) => { doc.selectCell(table.rows[row].cells[cell].id); doc.replace(text); };
@@ -77,6 +79,28 @@ describe('line, page and column breaks', () => {
     d.insertTable(1, 1); d.replace('cell\vline');
     expect(documentMarkdown(d)).toContain('| cell<br>line |');
     expect(documentPlainText(d)).toContain('cell line');
+  });
+});
+
+describe('Markdown text that looks like markup', () => {
+  // Opening the exported file again: the app's own Markdown import.
+  const reopen = markdown => {
+    const doc = blankDoc(), fragment = htmlFragment(markdownHtml(markdown));
+    for (const p of fragment.paragraphs) p.mark = true;
+    pasteFragment(doc, fragment);
+    return doc.paragraphs.map(p => p.runs.map(r => r.text).join(''));
+  };
+  it('comes back as the same text', () => {
+    const lines = ['AT&amp;T and &copy; sign, R&D', '~~not struck~~ and ~one~', '- not a list', '+ plus', '1) paren', '2024. A year', '---', '***', '===', '    four spaces', '\ttab', '# not a heading', '> not a quote'];
+    const doc = blankDoc();
+    lines.forEach((line, i) => { if (i) doc.insertParagraph(); doc.replace(line); });
+    const back = reopen(documentMarkdown(doc));
+    expect(back.map(t => t.trim())).toEqual(lines.map(t => t.trim()));
+  });
+  it('after a line break too', () => {
+    const doc = blankDoc();
+    doc.replace('Intro\v- dash\v===\v3. three');
+    expect(reopen(documentMarkdown(doc))).toEqual(['Intro\v- dash\v===\v3. three']);
   });
 });
 

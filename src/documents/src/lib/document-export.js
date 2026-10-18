@@ -109,7 +109,13 @@ ${body}
 }
 
 /* ---- Markdown ---- */
-const mdEscape = text => text.replace(/([\\`*_[\]#<>|])/g, '\\$1');
+// Text keeps its characters on reading back: emphasis, code, link, heading, HTML and table punctuation, a
+// strikethrough tilde, and an ampersand that would start a character reference are escaped.
+const mdEscape = text => text.replace(/([\\`*_[\]#<>|~])/g, '\\$1').replace(/&(?=#\d+;|#x[\da-f]+;|[a-z][a-z\d]*;)/gi, '\\&');
+// A line of text that starts like a block (a list item, a thematic break, a setext underline or indented
+// code) would become one; the punctuation is escaped and indentation's first space written as a reference.
+const escapeLineStart = line => line.replace(/^(?: {4,}|\t)/, space => `&#${space.charCodeAt(0)};${space.slice(1)}`)
+  .replace(/^( {0,3})([-+=])/, '$1\\$2').replace(/^( {0,3}\d{1,9})([.)])/, '$1\\$2');
 // Breaks stand as NUL (which document text cannot hold) until the paragraph knows how its lines break.
 const BREAK = '\0';
 function runMarkdown(run, heading = false) {
@@ -129,7 +135,8 @@ function runMarkdown(run, heading = false) {
 }
 /** A paragraph's Markdown, its line, page and column breaks written as `lineBreak`. */
 // A break at either end of a paragraph has no line to start: Markdown would show a backslash there.
-const paragraphMarkdown = (p, heading = false, lineBreak = '\\\n') => p.runs.map(run => runMarkdown(run, heading)).join('').replace(/^\0+|\0+$/g, '').replaceAll(BREAK, heading ? ' ' : lineBreak);
+const paragraphMarkdown = (p, heading = false, lineBreak = '\\\n') => p.runs.map(run => runMarkdown(run, heading)).join('').replace(/^\0+|\0+$/g, '')
+  .split(BREAK).map(escapeLineStart).join(heading ? ' ' : lineBreak);
 function blocksMarkdown(blocks, model) {
   const out = []; let counter = 0, previousList = null;
   for (const block of blocks) {
