@@ -19285,22 +19285,10 @@ function parse_xlml_xml(d, _opts)/*:Workbook*/ {
 					rr = r + (parseInt(cell.MergeDown,10)|0);
 					if(cc > c || rr > r) merges.push({s:{c:c,r:r},e:{c:cc,r:rr}});
 				}
-				if(!opts.sheetStubs) { if(cell.MergeAcross) c = cc + 1; else ++c; }
-				else if(cell.MergeAcross || cell.MergeDown) {
-					/*:: if(!cc) cc = 0; if(!rr) rr = 0; */
-					for(var cma = c; cma <= cc; ++cma) {
-						for(var cmd = r; cmd <= rr; ++cmd) {
-							if(cma > c || cmd > r) {
-								if(opts.dense) {
-									if(!cursheet["!data"][cmd]) cursheet["!data"][cmd] = [];
-									cursheet["!data"][cmd][cma] = {t:'z'};
-								} else cursheet[encode_col(cma) + encode_row(cmd)] = {t:'z'};
-							}
-						}
-					}
-					c = cc + 1;
-				}
-				else ++c;
+				/* A merged block's covered cells get no stubs: they hold nothing, and one stub per
+				   covered cell made a block of whole columns (ss:MergeDown="1048575") cost millions
+				   of objects, and a whole-sheet block hang the read. */
+				if(cell.MergeAcross) c = cc + 1; else ++c;
 			} else {
 				cell = xlml_parsexmltagobj(Rn[0]);
 				if(cell.Index) c = +cell.Index - 1;
