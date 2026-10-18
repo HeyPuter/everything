@@ -3189,6 +3189,11 @@ dialog.rail-flyout.add-content-flyout {
   border-color: var(--accent);
   background: var(--soft);
 }
+/* Its number and object count on the tint need the darker muted text
+   (5.3:1 rather than 4.4:1). */
+.frame-row:has(.frame-go[aria-current]) :is(.frame-go > span, .frame-go small) {
+  color: color-mix(in srgb, var(--muted) 80%, var(--text));
+}
 .frames-footer {
   display: flex;
   justify-content: flex-end;

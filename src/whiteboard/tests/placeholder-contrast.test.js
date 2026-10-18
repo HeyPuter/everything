@@ -49,3 +49,41 @@ test("placeholder hints use the muted text color, readable on every field backgr
         `${name} ${background}: ${contrast(colors["--muted"], colors[background])}`,
       );
 });
+
+test("the frame in view keeps its number and object count readable on its tint", () => {
+  // The muted text on the current row's --soft tint was 4.41:1 in the
+  // light theme.
+  const at = css.indexOf(
+    ".frame-row:has(.frame-go[aria-current]) :is(.frame-go > span, .frame-go small) {",
+  );
+  assert.ok(at >= 0);
+  assert.match(
+    css.slice(at, css.indexOf("}", at)),
+    /color:\s*color-mix\(in srgb, var\(--muted\) 80%, var\(--text\)\)/,
+  );
+  // color-mix in srgb mixes the encoded channels.
+  const mix = (a, b, share) =>
+    "#" +
+    [0, 2, 4]
+      .map((n) =>
+        Math.round(
+          parseInt(a.slice(1 + n, 3 + n), 16) * share +
+            parseInt(b.slice(1 + n, 3 + n), 16) * (1 - share),
+        )
+          .toString(16)
+          .padStart(2, "0"),
+      )
+      .join("");
+  const light = theme(":root"),
+    dark = { ...light, ...theme(':root[data-theme="dark"]') };
+  for (const [name, colors] of [
+    ["light", light],
+    ["dark", dark],
+  ]) {
+    const ratio = contrast(
+      mix(colors["--muted"], colors["--text"], 0.8),
+      colors["--soft"],
+    );
+    assert.ok(ratio >= 4.5, `${name}: ${ratio}`);
+  }
+});
