@@ -5764,6 +5764,57 @@ test("moving someone's boards to a new owner goes a batch per request", async ()
   assert.equal(owned.length, 59);
 });
 
+test("joining or verifying an address during a deactivation keeps the account deactivated", async () => {
+  const { call, org, sent } = setup();
+  await call(owner, { op: "org.setup", name: "Fabrikam" });
+  const { token: guestLink } = await call(owner, {
+    op: "org.invite",
+    role: "guest",
+  });
+  await call(guest, { op: "org.join", token: guestLink });
+  const { token } = await call(owner, { op: "org.invite", role: "member" });
+  // An administrator deactivates the guest just after the guest's own
+  // request has read their record, and before it saves.
+  const fresh = org.freshUser.bind(org);
+  const during = (step) => {
+    let armed = true;
+    org.freshUser = async (uuid) => {
+      const user = await fresh(uuid);
+      if (armed && new Error().stack.includes(step)) {
+        armed = false;
+        await call(owner, {
+          op: "org.users.update",
+          uuid: guest.uuid,
+          status: "deactivated",
+        });
+      }
+      return user;
+    };
+  };
+  during("joinOrganization");
+  await assert.rejects(
+    call(guest, { op: "org.join", token }),
+    (error) => error.status === 403,
+  );
+  assert.equal((await fresh(guest.uuid)).status, "deactivated");
+  assert.equal((await fresh(guest.uuid)).role, "guest");
+
+  await call(owner, {
+    op: "org.users.update",
+    uuid: guest.uuid,
+    status: "active",
+  });
+  org.freshUser = fresh;
+  await call(guest, { op: "email.start", email: "dee@example.test" });
+  const code = /code is (\d{6})/.exec(sent.at(-1).text)[1];
+  during("linkEmail");
+  await call(guest, { op: "email.confirm", code });
+  org.freshUser = fresh;
+  const saved = await fresh(guest.uuid);
+  assert.equal(saved.status, "deactivated");
+  assert.equal(saved.email, "dee@example.test");
+});
+
 test("a team change or preference save during a deactivation keeps the account deactivated", async () => {
   const { call, org } = setup();
   await call(owner, { op: "org.setup", name: "Fabrikam" });

@@ -195,11 +195,13 @@ export async function linkEmail(org, identity, email, { onDeactivated } = {}) {
   let user = await org.freshUser(identity.uuid);
   managedAddress(user, email);
   const wasActive = !user || user.status === "active";
+  let merged = false;
   if (linked && linked !== identity.uuid) {
     const other = await org.freshUser(linked);
     if (other && other.status !== "pending")
       fail(409, "This email address is already linked to another account.");
     if (other) {
+      merged = true;
       const isOwner = identity.uuid === (await org.accountOwner()).uuid;
       // Linking never lifts a deactivation or lowers an existing role.
       const rank = ["guest", "member", "admin"];
@@ -262,15 +264,30 @@ export async function linkEmail(org, identity, email, { onDeactivated } = {}) {
   }
   if (user) {
     const previous = user.email?.toLowerCase();
-    user.email = email;
-    user.emailVerified = true;
-    await org.saveUser(user);
+    if (merged) {
+      // An administrator may have deactivated the account since it was
+      // read above; the merged record keeps that.
+      if ((await org.freshUser(identity.uuid))?.status === "deactivated")
+        user.status = "deactivated";
+      user.email = email;
+      user.emailVerified = true;
+      await org.saveUser(user);
+    } else {
+      // Only the address is written, so a change saved meanwhile, such as
+      // a deactivation, is not written over with the copy read above.
+      user = await org.updateUser(
+        identity.uuid,
+        { email, emailVerified: true },
+        { access: true },
+      );
+      await org.kv.set("org:email:" + (await hash(email)), user.uuid);
+    }
     // The address this account used before is free for its next owner.
     if (previous && previous !== email) {
       const key = "org:email:" + (await hash(previous));
       if ((await org.kv.get(key)) === user.uuid) await org.kv.del(key);
     }
-    if (wasActive && user.status === "deactivated")
+    if (merged && wasActive && user.status === "deactivated")
       await onDeactivated?.(user.uuid);
   }
   return user;
@@ -616,8 +633,7 @@ async function joinOrganization(org, identity, input) {
     else if ((await org.kv.get(claim + ":by")) !== identity.uuid)
       fail(403, "This administrator invitation was already used.");
   }
-  const user = {
-    ...(existing || {}),
+  const fields = {
     uuid: identity.uuid,
     username: identity.username,
     role,
@@ -627,7 +643,28 @@ async function joinOrganization(org, identity, input) {
     source,
     teams: existing?.teams || [],
   };
-  await org.saveUser(user);
+  let user;
+  if (!existing) {
+    user = fields;
+    await org.saveUser(user);
+  } else {
+    // An administrator may have deactivated the person, or changed their
+    // record otherwise, since it was read above: only the fields joining
+    // sets are written, and someone deactivated meanwhile stays so.
+    if ((await org.freshUser(identity.uuid))?.status === "deactivated")
+      fail(403, "Your organization account is deactivated.");
+    const { teams, created, ...patch } = fields;
+    if (existing.status === "active") delete patch.status;
+    user = await org.updateUser(
+      identity.uuid,
+      {
+        ...patch,
+        ...(existing.created ? {} : { created }),
+        ...(existing.teams ? {} : { teams }),
+      },
+      { access: true },
+    );
+  }
   if (invite?.role === "admin" && source === "invite" && !invite.usedBy)
     await org.kv.set("org:invite:" + (await hash(String(input.token))), {
       ...invite,
