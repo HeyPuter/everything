@@ -1064,6 +1064,24 @@ export function loadResult(wb, query, table, { at = null } = {}) {
         if (next.c2 < old.c2) wb.clearRange(sheet.id, { r1, c1: next.c2 + 1, r2: r1, c2: old.c2 });
       }
       const { entries, errors } = resultCells(table, r1, c1, at);
+      // The cells keep the formatting given to them (a currency, bold, a date format), as Excel's refresh preserves
+      // cell formatting; a row the table gains takes its column's formatting from the last row it had.
+      // The formatted cells are gathered in one pass over the sheet's cells, by column, rather than looked up one by
+      // one: a refresh of 100,000 rows writes 600,000 cells, few of them formatted, or whole columns alike.
+      const formatted = new Map();
+      for (const [key, cell] of sheet.cells) {
+        if (!cell?.s) continue;
+        const comma = key.indexOf(','), r = Number(key.slice(0, comma)), c = Number(key.slice(comma + 1));
+        if (r < r1 || r > old.r2 || c < c1 || c > next.c2) continue;
+        if (!formatted.has(c)) formatted.set(c, []);
+        formatted.get(c)[r - r1] = cell.s;
+      }
+      const lastRow = old.r2 > r1 ? old.r2 - r1 : null;
+      if (formatted.size) for (const e of entries) {
+        const column = formatted.get(e.c);
+        const kept = column && (column[e.r - r1] || (e.r > old.r2 && lastRow != null ? column[lastRow] : null));
+        if (kept) e.cell.s = e.cell.s && !kept.fmt ? { ...kept, ...e.cell.s } : kept;
+      }
       wb.setCells(sheet.id, entries, label);
       query.load = { kind: 'table', table: t.name, sheet: sheet.name, tableId: t.id, columns: [...table.columns] };
       result = { sheetId: sheet.id, tableId: t.id, rows: height, errors };
