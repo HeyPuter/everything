@@ -122,7 +122,7 @@ import { openTextToColumnsDialog } from '../ui/textcolumnsdialog.js';
 import { openProtectedRanges } from '../ui/protect.js';
 import { openColumnStats } from '../ui/colstats.js';
 import { cellStyle } from '../core/cellstyles.js';
-import { definitionFor, stylePatch, customStyleNamed, builtinOverride } from '../core/custom-cell-styles.js';
+import { definitionFor, stylePatch, styleFromPreset, customStyleNamed, builtinOverride } from '../core/custom-cell-styles.js';
 import { openCellStylesGallery, openStyleDialog, openMergeStylesDialog, saveCellStyle, deleteCellStyle } from '../ui/cellstyles-ui.js';
 import { autoOutline, clearOutline, applyOutlineStyles } from '../core/auto-outline.js';
 import { openOutlineSettings } from '../ui/outline-settings.js';
@@ -1820,13 +1820,29 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // it comes applies its preset. Either way the cells keep the style's name, to follow it when it changes.
         const own = definitionFor(wb, arg);
         const builtIn = own ? null : themedPreset(cellStyle(arg), wb) || themedCellStylePatch(arg, wb);
-        const preset = own ? { label: own.name, ...stylePatch(own) } : builtIn && { ...builtIn, patch: { ...builtIn.patch, cellStyle: arg === 'normal' ? null : builtIn.label } };
+        // Normal resets every part (number, alignment, font, border, fill, protection), as Excel's does and as a
+        // modified Normal already did: the preset's own patch named only some keys, leaving a cell's font family,
+        // number format and alignment behind.
+        const preset = own ? { label: own.name, ...stylePatch(own) }
+          : arg === 'normal' && builtIn ? (({ patch, borders }) => ({ ...builtIn, patch: { ...patch, cellStyle: null }, borders }))(stylePatch(styleFromPreset(builtIn)))
+            : builtIn && { ...builtIn, patch: { ...builtIn.patch, cellStyle: builtIn.label } };
         if (!preset) return;
+        // What Normal resets takes the sheet's default look (its font, size and vertical alignment) rather than
+        // none: a bare null masks the default, so the cell drew in the grid's fallback font, vertically centred.
+        const normal = own ? own.builtin === 'normal' : arg === 'normal';
+        const patchFor = (sid) => {
+          if (!normal) return preset.patch;
+          const base = wb.defaultStyle(wb.sheet(sid)) || {};
+          return Object.fromEntries(Object.entries(preset.patch).map(([k, v]) => [k, v == null && k !== 'cellStyle' && base[k] != null ? base[k] : v]));
+        };
         const borders = (preset.borders || []).map(b => ({ ...b, color: b.color ?? null, style: b.style ?? 'thin' }));
-        if (!nativeFormatRanges((sid, ranges) => formatNativePivotStyleAndBorders(wb, new Map([[sid, ranges]]), preset.patch, borders,
+        // A pivot table's cells keep the preset's own reset, which its report formats can carry.
+        const pivotPatch = !own && arg === 'normal' && builtIn ? { ...builtIn.patch, cellStyle: null } : preset.patch;
+        const pivotBorders = !own && arg === 'normal' && builtIn ? (builtIn.borders || []).map(b => ({ ...b, color: b.color ?? null, style: b.style ?? 'thin' })) : borders;
+        if (!nativeFormatRanges((sid, ranges) => formatNativePivotStyleAndBorders(wb, new Map([[sid, ranges]]), pivotPatch, pivotBorders,
           { maxCells: MAX_FORMAT_CELLS, defaultSize: 13 }), { cap: false })) {
           wb.transaction(`Cell style: ${preset.label}`, () => eachRange('Cell style', (rg, _, sid) => {
-            wb.applyStyle(sid, rg, preset.patch);
+            wb.applyStyle(sid, rg, patchFor(sid));
             for (const b of borders) wb.applyBorders(sid, rg, b.kind, b);
           }, { cap: false, nativeScope: true }));
         }
