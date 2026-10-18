@@ -1397,6 +1397,24 @@ function renderStyledCartesian(data, chart, width, height) {
     : H - (bottomTitle ? bottomTitleStyle.size * 1.6 : a.dataTable?.style.size / 2 || 0);
   const table = layoutChartDataTable(data, chart, plot, tableLimit, !a.plot, horizontal ? a.yStyle.size * 2 : numericX ? a.xStyle.size * 2 : 0);
   if (table) bottom = plot.y + plot.h;
+  if (!horizontal && !(secondary && a.hideYAxis !== a.hideY2Axis)) {
+    // An automatic major unit leaves room between the labels up a short value axis: a small chart widens
+    // its unit, as Excel's does, rather than writing its labels over each other (the horizontal axis fits
+    // its labels the same way above). Authored units, and bounds shared with a deleted axis, stay.
+    const fit = (domain, options, list, style, shown) => {
+      if (!shown || options.step > 0) return;
+      for (let i = 0; i < 8; i++) {
+        const gap = plot.h * (domain.step / (domain.max - domain.min));
+        if (!(gap < style.size * 1.25)) return;
+        const step = niceScale(0, domain.step * 2, 1).step;
+        if (!Number.isFinite(step) || step <= domain.step || step > domain.max - domain.min) return;
+        Object.assign(domain, axisScale(list, { ...options, step }));
+      }
+    };
+    fit(scale, primaryOptions, values, a.yStyle, valueLabels);
+    if (secondary) fit(scale2, secondaryOptions, secondValues, a.y2Style, secondaryLabels);
+    categoryCrossing = crossingValue(crossings.x, scale.min, scale.max);
+  }
   // The plot area answers a click even when it has no fill of its own, so it can be selected and formatted.
   parts.push(`<rect data-el="plotArea" x="${f(plot.x)}" y="${f(plot.y)}" width="${f(plot.w)}" height="${f(plot.h)}" fill="${a.plotFill && a.plotFill !== 'none' ? esc(a.plotFill) : 'transparent'}"${effectAttr(a, 'plotArea')}/>`);
   // Plot-area formatting sits behind its gridlines, axes and data.

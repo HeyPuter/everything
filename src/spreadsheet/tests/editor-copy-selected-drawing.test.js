@@ -163,7 +163,11 @@ it('copies the same automatic range and headroom used by the visible chart', asy
   expect(write).toHaveBeenCalledTimes(1); expect(sources).toHaveLength(1);
   const root=new DOMParser().parseFromString(sources[0],'image/svg+xml');
   const ticks=[...root.querySelectorAll('text[fill="#123456"]')].map(n=>Number(n.textContent));
-  expect(Math.max(...ticks)).toBe(180);
+  // The axis the sheet shows: its top tick clears the data with Excel's headroom (its major unit widened
+  // to keep the labels apart up this short plot), and the copied picture has the same.
+  const shown=[...view.el.querySelectorAll('.chart-box svg text[fill="#123456"]')].map(n=>Number(n.textContent));
+  expect(Math.max(...ticks)).toBe(Math.max(...shown));
+  expect(Math.max(...ticks)).toBeGreaterThanOrEqual(160);
   expect(wb.activeSheet.charts[0].yMax).toBeNull();
 });
 
