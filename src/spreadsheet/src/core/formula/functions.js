@@ -4298,16 +4298,23 @@ export const FUNCTIONS = {
       const fn = args[args.length - 1];
       if (!isLambda(fn)) return err('#VALUE!');
       const arrays = alignWindows(args.slice(0, -1).map(asRange));
+      // A cell of a range is handed over as a reference to it, so MAP(B2:B9,LAMBDA(x,SUM(B2:x))) totals as it goes;
+      // a parameter only operators read (x*2, x>50) takes the value, which is all they see, without building one.
+      const byRef = arrays.map((a, i) => !!a.ref && !a.ref.sheetEnd && !readsValueOnly(fn, fn.params?.[i]));
       const rows = Math.max(...arrays.map((a) => a.values.length));
       const cols = Math.max(...arrays.map((a) => a.values[0]?.length || 0));
       const out = [];
       for (let r = 0; r < rows; r++) {
         const row = [];
         for (let c = 0; c < cols; c++) {
-          const xs = arrays.map((a) => {
+          const xs = arrays.map((a, i) => {
             const rr = a.values.length === 1 ? 0 : r;
             const cc = (a.values[0]?.length || 0) === 1 ? 0 : c;
-            return rr < a.values.length && cc < (a.values[rr]?.length || 0) ? a.values[rr][cc] ?? null : err('#N/A');
+            if (!(rr < a.values.length && cc < (a.values[rr]?.length || 0))) return err('#N/A');
+            const value = a.values[rr][cc] ?? null;
+            if (!byRef[i]) return value;
+            const r1 = a.ref.r1 + rr, c1 = a.ref.c1 + cc;
+            return { range: true, values: [[value]], ref: { ...a.ref, kind: 'cell', r1, r2: r1, c1, c2: c1 } };
           });
           row.push(lambdaScalar(fn, xs));
         }
@@ -5888,6 +5895,30 @@ function summarize(fn, vals, idx, j) {
   return lambdaScalar(fn, [part, all]);
 }
 const wholeColumns = new WeakMap(); // a GROUPBY's value rows → Map(column → that column as a range), built once per call rather than per group
+
+/**
+ * Whether a LAMBDA's body reads parameter `name` only as an operand of arithmetic, comparison or concatenation
+ * (or as the whole body), where a one-cell reference and its value give the same answer. Anywhere else, a
+ * function's argument, either side of ":", "@" or a nested LET or LAMBDA, the reference itself may matter.
+ */
+function readsValueOnly(fn, name) {
+  if (!fn?.body || typeof name !== 'string') return false;
+  const target = name.toUpperCase();
+  const stack = [[fn.body, null]];
+  while (stack.length) {
+    const [node, parent] = stack.pop();
+    if (node.type === 'call' && node.bare && !node.sheet && node.name.toUpperCase() === target) {
+      const operand = parent == null || parent.type === 'binary' || parent.type === 'percent' || (parent.type === 'unary' && parent.op !== '@');
+      if (!operand) return false;
+      continue;
+    }
+    for (const value of Object.values(node)) {
+      const kids = Array.isArray(value) ? value.flat() : [value];
+      for (const kid of kids) if (kid && typeof kid === 'object' && typeof kid.type === 'string') stack.push([kid, node]);
+    }
+  }
+  return true;
+}
 
 function lambdaScalar(fn, args) {
   const v = invoke(fn, args);
