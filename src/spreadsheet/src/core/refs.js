@@ -154,12 +154,14 @@ export function refToText(ref) {
     prefix = `${sheets}!`;
   }
   const $ = (b) => (b ? '$' : '');
-  if (ref.kind === 'cols') return `${prefix}${$(ref.absC1)}${colName(ref.c1)}:${$(ref.absC2)}${colName(ref.c2)}`;
-  if (ref.kind === 'rows') return `${prefix}${$(ref.absR1)}${ref.r1 + 1}:${$(ref.absR2)}${ref.r2 + 1}`;
+  // A trim reference keeps its periods: A1.:B9, A1:.B9, A:.A.
+  const colon = `${ref.trim & 1 ? '.' : ''}:${ref.trim & 2 ? '.' : ''}`;
+  if (ref.kind === 'cols') return `${prefix}${$(ref.absC1)}${colName(ref.c1)}${colon}${$(ref.absC2)}${colName(ref.c2)}`;
+  if (ref.kind === 'rows') return `${prefix}${$(ref.absR1)}${ref.r1 + 1}${colon}${$(ref.absR2)}${ref.r2 + 1}`;
   const a = `${$(ref.absC1)}${colName(ref.c1)}${$(ref.absR1)}${ref.r1 + 1}`;
   if (ref.kind === 'cell') return `${prefix}${a}${ref.spill ? '#' : ''}`;
   const b = `${$(ref.absC2)}${colName(ref.c2)}${$(ref.absR2)}${ref.r2 + 1}`;
-  return `${prefix}${a}:${b}`;
+  return `${prefix}${a}${colon}${b}`;
 }
 
 /**
@@ -301,6 +303,7 @@ export function mapFormulaRefs(formula, fn, nameFn) {
     const ref = parseRefText(t.text, t.sheet, t.sheetEnd);
     if (!ref) continue;
     if (t.spill) ref.spill = true;
+    if (t.trim) ref.trim = t.trim;
     const next = fn(ref, t);
     out += formula.slice(last, t.start);
     out += Array.isArray(next) ? `(${next.map(refToText).join(',')})` : next ? refToText(next) : '#REF!';

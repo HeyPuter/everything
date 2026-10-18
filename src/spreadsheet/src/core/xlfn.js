@@ -70,6 +70,45 @@ function singleCallsToFile(formula) {
   return out + formula.slice(last);
 }
 
+const TRIM_FUNCTIONS = { _TRO_LEADING: 1, _TRO_TRAILING: 2, _TRO_ALL: 3 };
+
+/** A trim reference's text with its periods taken off (or, given `trim`, put on) the colon that joins its ends. */
+const trimColon = (text, trim = 0) => text.replace(/\.?:\.?(?=[^:]*$)/, `${trim & 1 ? '.' : ''}:${trim & 2 ? '.' : ''}`);
+
+/**
+ * A trim reference (A1:.B9) is written as the TRIMRANGE call it stands for, which every Excel
+ * that reads trim references knows; Excel's own _xlfn._TRO_ALL, _TRO_LEADING and _TRO_TRAILING
+ * calls on one reference read back as the reference.
+ */
+function trimRefsToFile(formula) {
+  if (!formula.includes('.')) return formula;
+  let tokens;
+  try { tokens = tokenize(formula); } catch { return formula; }
+  let out = '', last = 0;
+  for (const t of tokens) {
+    if (t.type !== 'ref' || !t.trim) continue;
+    out += `${formula.slice(last, t.start)}_xlfn.TRIMRANGE(${trimColon(formula.slice(t.start, t.end))},${t.trim},${t.trim})`;
+    last = t.end;
+  }
+  return out + formula.slice(last);
+}
+
+function trimRefsFromFile(formula) {
+  if (!/_TRO_/i.test(formula)) return formula;
+  let tokens;
+  try { tokens = tokenize(formula); } catch { return formula; }
+  let out = '', last = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    const [t, open, ref, close] = tokens.slice(i, i + 4);
+    const trim = t.type === 'name' && !t.sheet ? TRIM_FUNCTIONS[t.value.replace(/^(?:_XLFN\.)+/, '')] : 0;
+    if (!trim || open?.type !== 'lparen' || ref?.type !== 'ref' || ref.spill || ref.trim || !ref.text.includes(':') || close?.type !== 'rparen') continue;
+    out += `${formula.slice(last, t.start)}${trimColon(formula.slice(ref.start, ref.end), trim)}`;
+    last = close.end;
+    i += 3;
+  }
+  return out + formula.slice(last);
+}
+
 /** Our formula text → what goes into the file. */
 export function toFileFormula(ours) {
   const formula = singleCallsToFile(ours);
@@ -117,7 +156,7 @@ export function toFileFormula(ours) {
     });
     out = text + formula.slice(last);
   }
-  return spillRefsToFile(out);
+  return spillRefsToFile(trimRefsToFile(out));
 }
 
 // Characters that keep a column name in its own brackets after @ (Excel's structured-reference rules).
@@ -182,5 +221,5 @@ export function fromFileFormula(formula, definedNames) {
     out += source.slice(last, t.start) + plain;
     last = t.end;
   }
-  return spillRefsFromFile(out + source.slice(last), definedNames);
+  return trimRefsFromFile(spillRefsFromFile(out + source.slice(last), definedNames));
 }

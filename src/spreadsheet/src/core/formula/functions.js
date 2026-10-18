@@ -3347,26 +3347,20 @@ export const FUNCTIONS = {
   },
   TRIMRANGE: {
     fn: ([array, trimRows, trimCols]) => {
-      const v = asRange(array).values;
+      const a = asRange(array), v = a.values;
       const tr = trimRows === undefined ? 3 : toNumber(trimRows); if (isError(tr)) return tr;
       const tc = trimCols === undefined ? 3 : toNumber(trimCols); if (isError(tc)) return tc;
       if (![0, 1, 2, 3].includes(Math.trunc(tr)) || ![0, 1, 2, 3].includes(Math.trunc(tc))) return err('#VALUE!');
-      // Empty text is a value, including a formula returning "". Only truly
-      // blank cells trim away; downstream COUNTA and wildcard counts need it.
-      const blank = (x) => x == null;
-      let r1 = 0;
-      let r2 = v.length - 1;
-      let c1 = 0;
-      let c2 = (v[0]?.length || 0) - 1;
-      const rowBlank = (r) => v[r].every(blank);
-      const colBlank = (c) => v.every((row) => blank(row[c]));
-      if (tr & 1) while (r1 <= r2 && rowBlank(r1)) r1++;
-      if (tr & 2) while (r2 >= r1 && rowBlank(r2)) r2--;
-      if (r1 > r2) return err('#CALC!');
-      if (tc & 1) while (c1 <= c2 && colBlank(c1)) c1++;
-      if (tc & 2) while (c2 >= c1 && colBlank(c2)) c2--;
-      if (c1 > c2) return err('#CALC!');
-      return { range: true, values: v.slice(r1, r2 + 1).map((row) => row.slice(c1, c2 + 1).map((x) => x ?? null)) };
+      // A reference stays one, over the cells it keeps: its values are read only to the
+      // data, and a side left untrimmed keeps the reference's own extent past them.
+      const ref = a.ref && !a.ref.sheetEnd && !a.areas ? a.ref : null;
+      const block = ref ? trimmedBlock(v, ref.r2 - ref.r1 + 1, ref.c2 - ref.c1 + 1, Math.trunc(tr), Math.trunc(tc))
+        : trimmedBlock(v, v.length, v[0]?.length || 0, Math.trunc(tr), Math.trunc(tc));
+      if (!block) return err('#CALC!');
+      const { r1, r2, c1, c2 } = block;
+      const values = v.slice(r1, r2 + 1).map((row) => (row || []).slice(c1, c2 + 1).map((x) => x ?? null));
+      if (!ref) return { range: true, values };
+      return { range: true, values, ref: { ...ref, kind: r1 === r2 && c1 === c2 ? 'cell' : 'range', r1: ref.r1 + r1, r2: ref.r1 + r2, c1: ref.c1 + c1, c2: ref.c1 + c2 } };
     },
     array: true,
   },
@@ -7217,6 +7211,30 @@ function regex(pattern, flags = '', subject = '') {
   // Match by character, so "." takes a whole emoji; a pattern the stricter unicode mode rejects falls back.
   try { return new RegExp(p, `${flags}u`); } catch { /* not valid with u */ }
   try { return new RegExp(p, flags); } catch { return err('#VALUE!'); }
+}
+
+/**
+ * The block TRIMRANGE and a trim reference (A1:.B9) keep of values read from the top-left of a
+ * height × width area: `rows` and `cols` each 0 to keep, 1 to drop blank leading lines, 2 trailing,
+ * 3 both. Empty text is a value, including a formula returning "": only truly blank cells trim away.
+ * Values may stop short of the area (a reference is read only to its data); what lies past them is
+ * blank. Offsets are from the top-left; null when trimming leaves nothing.
+ */
+export function trimmedBlock(values, height, width, rows, cols) {
+  let r1 = -1, r2 = -1, c1 = Infinity, c2 = -1;
+  for (let r = 0; r < values.length && r < height; r++) {
+    const row = values[r];
+    if (!row) continue;
+    for (let c = 0; c < row.length && c < width; c++) {
+      if (row[c] == null) continue;
+      if (r1 < 0) r1 = r;
+      r2 = r;
+      if (c < c1) c1 = c;
+      if (c > c2) c2 = c;
+    }
+  }
+  if (r1 < 0) return rows || cols || !height || !width ? null : { r1: 0, r2: height - 1, c1: 0, c2: width - 1 };
+  return { r1: rows & 1 ? r1 : 0, r2: rows & 2 ? r2 : height - 1, c1: cols & 1 ? c1 : 0, c2: cols & 2 ? c2 : width - 1 };
 }
 
 /**

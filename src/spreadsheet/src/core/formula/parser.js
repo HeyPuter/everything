@@ -181,7 +181,7 @@ export function parseFormula(src, { namePositions = false, tablePositions = fals
         if (!ref) throw new FormulaSyntaxError('Bad reference', t.start);
         if (ref.sheetEnd && t.spill) throw new FormulaSyntaxError('A 3D span cannot carry #', t.start);
         if (t.spill && ref.kind !== 'cell') throw new FormulaSyntaxError('Only a single cell can carry # for its spill', t.start);
-        return { type: 'ref', ref: t.spill ? { ...ref, spill: true } : ref };
+        return { type: 'ref', ref: t.spill ? { ...ref, spill: true } : t.trim ? { ...ref, trim: t.trim } : ref };
       }
       case 'tref': next(); return { type: 'tref', table: t.table, spec: t.spec, ...(tablePositions ? { start: t.start, end: t.end } : {}) };
       case 'name': {

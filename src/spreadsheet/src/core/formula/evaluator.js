@@ -11,7 +11,7 @@
  * }
  */
 
-import { FUNCTIONS, EMPTY, err, isError, isRange, scalar, toNumber, toText, toBool, compareValues, realPower } from './functions.js';
+import { FUNCTIONS, EMPTY, err, isError, isRange, scalar, toNumber, toText, toBool, compareValues, realPower, trimmedBlock } from './functions.js';
 import { runtime, isLambda, invoke } from './lambda.js';
 import { upperName } from './tokenizer.js';
 import { MAX_TEXT } from '../cell.js';
@@ -342,11 +342,21 @@ function callNative(def, args, ctx) {
  */
 function resolveRef(ref, ctx) {
   if (ref.sheet && !ctx.sheetExists(ref.sheet)) return err('#REF!');
+  if (ref.trim && !ref.sheetEnd) return trimRef(ref, ctx);
   if (!ref.spill) return ref;
   const range = ctx.getSpillRange ? ctx.getSpillRange(ref) : null;
   if (!range) return err('#REF!');
   const single = range.r1 === range.r2 && range.c1 === range.c2;
   return { ...ref, spill: false, kind: single ? 'cell' : 'range', r1: range.r1, c1: range.c1, r2: range.r2, c2: range.c2 };
+}
+
+/** A1:.B9, A1.:B9, A:.A: the cells of the reference left once its blank outer rows and columns are dropped, as TRIMRANGE keeps. */
+function trimRef(ref, ctx) {
+  const { trim, ...plain } = ref;
+  const block = trimmedBlock(ctx.getRangeValues(plain), ref.r2 - ref.r1 + 1, ref.c2 - ref.c1 + 1, trim, trim);
+  if (!block) return err('#CALC!');
+  const r1 = ref.r1 + block.r1, r2 = ref.r1 + block.r2, c1 = ref.c1 + block.c1, c2 = ref.c1 + block.c2;
+  return { ...plain, kind: r1 === r2 && c1 === c2 ? 'cell' : 'range', r1, r2, c1, c2 };
 }
 
 /** Named and structured references retain their address even for one cell. */
