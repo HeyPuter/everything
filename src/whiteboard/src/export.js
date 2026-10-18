@@ -5,7 +5,7 @@ import { orderedFrames, framesItems, isConnector } from "./scene.js";
 import { rasterRegion } from "./render.js";
 import { measureContext, breathe } from "./export-layout.js";
 import { exportLinks, linkCorners } from "./export-links.js";
-import { addTranslations, t } from "./i18n.js";
+import { addTranslations, t, untitledFrame } from "./i18n.js";
 
 export function exportRegions(b, options = {}) {
   const scene = mindVisibility(b.items, b.comments);
@@ -103,9 +103,9 @@ function regionPlans(
     ];
   }
   if (scope === "frames") {
-    const frames = orderedFrames(b.items).filter(
-      (f) => !frameIds.length || frameIds.includes(f.id),
-    );
+    const every = orderedFrames(b.items),
+      rank = new Map(every.map((f, n) => [f, n])),
+      frames = every.filter((f) => !frameIds.length || frameIds.includes(f.id));
     if (!frames.length) throw Error("Add a frame before exporting sections.");
     // A frame drawn wholly inside an exported frame belongs to it and shows
     // in it on the board, with what it holds; and a line leading from the
@@ -157,7 +157,7 @@ function regionPlans(
       for (const id of [...chosen])
         for (const line of linesAt.get(id) || []) chosen.add(line);
       return {
-        name: f.text || t("Frame"),
+        name: f.text || untitledFrame(rank.get(f)),
         frameId: f.id,
         rect,
         // Board order is kept, so what is drawn on top stays on top.

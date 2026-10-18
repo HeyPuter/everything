@@ -2040,6 +2040,9 @@ export function objectNameContent(i) {
     end--;
   return text.slice(0, end);
 }
+// An untitled frame is named by its place in the frame order, "Frame 3",
+// as new frames are, so that it can be told apart and searched for.
+export const untitledFrame = (n) => `${t("Frame")} ${n + 1}`;
 // "Sticky note: Idea", or in French "note adhésive : Idée", with the space
 // French sets before a colon. The kind stays as written, since the name is
 // also used within sentences.

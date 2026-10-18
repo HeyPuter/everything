@@ -504,7 +504,8 @@ test("facilitation preserves frame languages in staging, voting and agenda navig
         "Bonjour à tous.",
       );
       assert.equal(labels[1].querySelector("img"), null);
-      assert.equal(labels[2].textContent, t("Frame"));
+      // An untitled frame is named by its place, as in the Frames panel.
+      assert.equal(labels[2].textContent, `${t("Frame")} 3`);
       assert.equal(labels[2].querySelector("[lang]"), null);
     };
     try {

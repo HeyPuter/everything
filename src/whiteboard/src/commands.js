@@ -13,7 +13,7 @@ import { canEditText, canAutoFitText, formatsText } from "./text.js";
 import { canCopyStyle, canPasteStyle } from "./object-style.js";
 import { FONT_FAMILIES } from "./fonts.js";
 import { duplicateSourceIds } from "./duplication.js";
-import { t } from "./i18n.js";
+import { t, untitledFrame } from "./i18n.js";
 import { fold } from "./search-fold.js";
 
 // Feature modules contribute board commands: provider({ board, selection,
@@ -961,7 +961,7 @@ export function commandEntries({
     entry.boardId = b.id;
   }
   frames.forEach((f, n) => {
-    const name = f.text || `${t("Frame")} ${n + 1}`;
+    const name = f.text || untitledFrame(n);
     add(`frame:${f.id}`, "Go to frame", "Frames", "frame cadre go aller");
     const entry = entries.at(-1);
     // Authored titles are literal, as board names are.

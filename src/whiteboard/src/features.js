@@ -92,6 +92,7 @@ import {
   addTranslations,
   plural,
   labelled,
+  untitledFrame,
 } from "./i18n.js";
 import { paint, exportImage } from "./render.js";
 import { reflowTextItems, clearTextLayoutCache } from "./text.js";
@@ -1051,7 +1052,7 @@ export function createFeatures(api) {
     const frames = orderedFrames((api.visualBoard?.() || api.board()).items);
     api.modal(
       "Presentation",
-      `<p class="dialog-copy">${frames.length ? "Choose frames in presentation order." : "This board has no frames, so it presents as one slide. Add frames to make slides."}</p>${frames.length > 1 ? `<div class="slide-choice-actions"><button type="button" class="text-btn" id="slides-all">${t("Select all")}</button><button type="button" class="text-btn" id="slides-none">${t("Select none")}</button></div>` : ""}<div class="slide-choices" role="group" aria-label="${t("Frames")}" ${frames.length ? "" : "hidden"}>${frames.map((f) => `<label><input type="checkbox" value="${escape(f.id)}" aria-describedby="presentation-error" checked><span>${frameTitleHTML(f)}</span></label>`).join("")}</div><p id="presentation-error" class="dialog-copy" role="alert" hidden></p><div class="dialog-footer">${api.selection().size ? '<button class="secondary" id="present-selection">Present selection</button>' : ""}<button class="primary" id="start-presentation">${frames.length ? "Start presentation" : "Present board"}</button></div>`,
+      `<p class="dialog-copy">${frames.length ? "Choose frames in presentation order." : "This board has no frames, so it presents as one slide. Add frames to make slides."}</p>${frames.length > 1 ? `<div class="slide-choice-actions"><button type="button" class="text-btn" id="slides-all">${t("Select all")}</button><button type="button" class="text-btn" id="slides-none">${t("Select none")}</button></div>` : ""}<div class="slide-choices" role="group" aria-label="${t("Frames")}" ${frames.length ? "" : "hidden"}>${frames.map((f, n) => `<label><input type="checkbox" value="${escape(f.id)}" aria-describedby="presentation-error" checked><span>${f.text ? frameTitleHTML(f) : escape(untitledFrame(n))}</span></label>`).join("")}</div><p id="presentation-error" class="dialog-copy" role="alert" hidden></p><div class="dialog-footer">${api.selection().size ? '<button class="secondary" id="present-selection">Present selection</button>' : ""}<button class="primary" id="start-presentation">${frames.length ? "Start presentation" : "Present board"}</button></div>`,
       (d) => {
         const choices = d.querySelector(".slide-choices"),
           error = d.querySelector("#presentation-error");

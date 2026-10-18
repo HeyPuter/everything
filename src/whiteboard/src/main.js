@@ -544,6 +544,7 @@ import {
   editTitle,
   plural,
   labelled,
+  untitledFrame,
 } from "./i18n.js";
 import { createFeatures } from "./features.js";
 import {
@@ -2432,7 +2433,7 @@ function goToFrame(id) {
       t("Showing frame {number} of {count}")
         .replace("{number}", n + 1)
         .replace("{count}", shown.length),
-      shown[n].text || `${t("Frame")} ${n + 1}`,
+      shown[n].text || untitledFrame(n),
     ),
   );
 }

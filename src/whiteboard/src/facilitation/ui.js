@@ -18,6 +18,7 @@ import {
   language,
   objectName,
   objectNameContent,
+  untitledFrame,
 } from "../i18n.js";
 import {
   authoredTextHTML,
@@ -1078,10 +1079,16 @@ export function createFacilitationUI(api) {
       timeStyle: "short",
     });
   const user = (value) => `<span data-user-content>${escape(value)}</span>`;
-  const frameTitle = (frame) =>
-    frame.text ? authoredTextHTML(frame) : escape(t("Frame"));
-  const stepTitle = (step) =>
-    step.titleHidden ? user(step.title) : frameTitle(step.frame);
+  // An untitled frame is named by its place in the frame order, "Frame 3",
+  // as the Frames panel names it. A list finds them once.
+  const frameRanks = (frames = orderedFrames(board().items)) =>
+    new Map(frames.map((f, n) => [f.id, n]));
+  const frameName = (frame, ranks) =>
+    frame.text || untitledFrame((ranks || frameRanks()).get(frame.id) ?? 0);
+  const frameTitle = (frame, ranks) =>
+    frame.text ? authoredTextHTML(frame) : escape(frameName(frame, ranks));
+  const stepTitle = (step, ranks) =>
+    step.titleHidden ? user(step.title) : frameTitle(step.frame, ranks);
   const agendaFieldId = (id) =>
     "fac-agenda-text-" +
     [...id].map((c) => c.codePointAt(0).toString(16).padStart(6, "0")).join("");
@@ -1119,6 +1126,7 @@ export function createFacilitationUI(api) {
       s = settings(),
       m = manage(),
       frames = orderedFrames(b.items),
+      ranks = frameRanks(frames),
       stage = s.stage && stageProgress(s.stage, b.items);
     const statuses = [
       s.private &&
@@ -1173,9 +1181,9 @@ export function createFacilitationUI(api) {
       .join("")}</fieldset>
     <h3>${t("Stage frames")}</h3>${
       stage
-        ? `<p class="dialog-copy">${fill("{shown} of {total} staged frames are visible to participants.", stage)}</p><div class="fac-actions">${stage.next ? `<button type="button" class="primary" data-fac="stage-next"><span>${fill("Reveal next frame: {title}", { title: frameTitle(byId().get(stage.next)) })}</span></button>` : ""}<button type="button" class="secondary" data-fac="stage-all">${t("Reveal all frames")}</button></div>`
+        ? `<p class="dialog-copy">${fill("{shown} of {total} staged frames are visible to participants.", stage)}</p><div class="fac-actions">${stage.next ? `<button type="button" class="primary" data-fac="stage-next"><span>${fill("Reveal next frame: {title}", { title: frameTitle(byId().get(stage.next), ranks) })}</span></button>` : ""}<button type="button" class="secondary" data-fac="stage-all">${t("Reveal all frames")}</button></div>`
         : frames.length
-          ? `<p class="dialog-copy">${t("Hide frames from participants, then reveal them one at a time.")}</p><div class="fac-choices" id="fac-stage-frames" role="group" aria-label="${t("Frames to stage")}">${frames.map((f) => `<label><input type="checkbox" value="${escape(f.id)}" checked>${frameTitle(f)}</label>`).join("")}</div><div class="fac-actions"><button type="button" class="secondary" data-fac="stage-start">${t("Hide selected frames")}</button></div>`
+          ? `<p class="dialog-copy">${t("Hide frames from participants, then reveal them one at a time.")}</p><div class="fac-choices" id="fac-stage-frames" role="group" aria-label="${t("Frames to stage")}">${frames.map((f) => `<label><input type="checkbox" value="${escape(f.id)}" checked>${frameTitle(f, ranks)}</label>`).join("")}</div><div class="fac-actions"><button type="button" class="secondary" data-fac="stage-start">${t("Hide selected frames")}</button></div>`
           : `<p class="dialog-copy">${t("Add frames to the board to stage them.")}</p>`
     }`;
   }
@@ -1191,7 +1199,8 @@ export function createFacilitationUI(api) {
     const b = board(),
       v = b.workshop?.vote,
       m = manage(),
-      frames = orderedFrames(b.items);
+      frames = orderedFrames(b.items),
+      ranks = frameRanks(frames);
     const form = `<form id="fac-vote-form"><div class="field"><span id="fac-vote-title-label">${t("Title")}</span><div id="fac-vote-title" data-fac-authored></div></div><div class="field-row"><label class="field">${t("Votes per person")}<input id="fac-vote-count" type="number" min="1" max="20" value="3" required></label><label class="field">${t("Time limit in minutes (0 for none)")}<input id="fac-vote-minutes" type="number" min="0" max="600" value="0" required></label></div><fieldset class="fac-fieldset"><legend>${t("Votable objects")}</legend>${[
       ["notes", "All sticky notes"],
       ["selection", "The current selection"],
@@ -1203,7 +1212,7 @@ export function createFacilitationUI(api) {
       )
       .join(
         "",
-      )}<div class="fac-choices" id="fac-vote-frames" role="group" aria-label="${t("Frames")}">${frames.map((f) => `<label><input type="checkbox" value="${escape(f.id)}">${frameTitle(f)}</label>`).join("")}</div></fieldset>${check("fac-vote-multiple", "Allow several votes on one object")}${check("fac-vote-anonymous", "Anonymous: results do not show who voted", true)}${check("fac-vote-hidden", "Hide results until I reveal them", true)}${check("fac-vote-timer", "Show the time limit in the board timer", !timerBusy(), timerBusy() ? 'aria-describedby="fac-vote-timer-busy"' : "")}${timerBusy() ? `<p class="dialog-copy" id="fac-vote-timer-busy">${t("The board timer is counting down, so the time limit shows in the voting banner instead. Choose this to replace it.")}</p>` : ""}<p class="dialog-copy">${t("Anonymous and hidden results are hidden in this app, not encrypted: anyone with access to the board data could see who voted and the tally.")}</p><div class="dialog-footer"><button class="primary" type="submit">${t("Start voting")}</button></div></form>`;
+      )}<div class="fac-choices" id="fac-vote-frames" role="group" aria-label="${t("Frames")}">${frames.map((f) => `<label><input type="checkbox" value="${escape(f.id)}">${frameTitle(f, ranks)}</label>`).join("")}</div></fieldset>${check("fac-vote-multiple", "Allow several votes on one object")}${check("fac-vote-anonymous", "Anonymous: results do not show who voted", true)}${check("fac-vote-hidden", "Hide results until I reveal them", true)}${check("fac-vote-timer", "Show the time limit in the board timer", !timerBusy(), timerBusy() ? 'aria-describedby="fac-vote-timer-busy"' : "")}${timerBusy() ? `<p class="dialog-copy" id="fac-vote-timer-busy">${t("The board timer is counting down, so the time limit shows in the voting banner instead. Choose this to replace it.")}</p>` : ""}<p class="dialog-copy">${t("Anonymous and hidden results are hidden in this app, not encrypted: anyone with access to the board data could see who voted and the tally.")}</p><div class="dialog-footer"><button class="primary" type="submit">${t("Start voting")}</button></div></form>`;
     if (!v)
       return m
         ? `<h3>${t("Start a dot vote")}</h3>${form}`
@@ -1359,6 +1368,7 @@ export function createFacilitationUI(api) {
       run = b.workshop?.run,
       steps = visibleSteps(b),
       frames = orderedFrames(b.items),
+      ranks = frameRanks(frames),
       config = new Map(
         (b.workshop?.agenda?.steps || []).map((s) => [s.frame, s]),
       );
@@ -1367,7 +1377,7 @@ export function createFacilitationUI(api) {
     const list = `<ol class="fac-agenda">${steps
       .map(
         (s, n) =>
-          `<li ${n === current ? 'aria-current="step" class="current"' : ""}><strong id="fac-agenda-title-${n}">${stepTitle(s)}</strong>${s.minutes && s.minutes !== titleMinutes(s.title) ? ` · ${fill("{count} min", { count: s.minutes })}` : ""}${s.text ? `<p>${authoredTextHTML(s, s.text)}</p>` : ""}${m ? `<button type="button" class="text-btn" data-fac="agenda-go" data-step="${n}" aria-labelledby="fac-agenda-action-${n} fac-agenda-title-${n}"><span id="fac-agenda-action-${n}">${t("Go to step")}<span class="sr-only">:</span></span></button>` : ""}</li>`,
+          `<li ${n === current ? 'aria-current="step" class="current"' : ""}><strong id="fac-agenda-title-${n}">${stepTitle(s, ranks)}</strong>${s.minutes && s.minutes !== titleMinutes(s.title) ? ` · ${fill("{count} min", { count: s.minutes })}` : ""}${s.text ? `<p>${authoredTextHTML(s, s.text)}</p>` : ""}${m ? `<button type="button" class="text-btn" data-fac="agenda-go" data-step="${n}" aria-labelledby="fac-agenda-action-${n} fac-agenda-title-${n}"><span id="fac-agenda-action-${n}">${t("Go to step")}<span class="sr-only">:</span></span></button>` : ""}</li>`,
       )
       .join("")}</ol>`;
     if (!frames.length)
@@ -1386,14 +1396,14 @@ export function createFacilitationUI(api) {
     // A run whose frames were all left out has no step to name.
     const status =
       current >= 0
-        ? `<p class="fac-remaining">${fill("Step {n} of {total}: {title}", { n: current + 1, total: steps.length, title: stepTitle(steps[current]) })}</p>`
+        ? `<p class="fac-remaining">${fill("Step {n} of {total}: {title}", { n: current + 1, total: steps.length, title: stepTitle(steps[current], ranks) })}</p>`
         : "";
     const editor = m
       ? `<details class="fac-details"><summary>${t("Edit agenda steps")}</summary><form id="fac-agenda-form"><p class="dialog-copy">${t("Steps follow the frame order. Change the order in Frames and navigation.")}</p>${frames
           .map((f) => {
             const c = config.get(f.id) || {},
               id = agendaFieldId(f.id);
-            return `<fieldset class="fac-step" data-step="${escape(f.id)}"><legend>${frameTitle(f)}</legend><label class="check-field"><input type="checkbox" class="fac-step-include" ${c.skip ? "" : "checked"}><span>${t("Include in agenda")}</span></label><label class="field">${t("Duration in minutes (optional)")}<input type="number" class="fac-step-minutes" min="0" max="600" value="${c.minutes ?? titleMinutes(f.text)}"></label><div class="field"><span id="${id}-label">${t("Instructions")}</span><div id="${id}" data-fac-agenda-text></div></div></fieldset>`;
+            return `<fieldset class="fac-step" data-step="${escape(f.id)}"><legend>${frameTitle(f, ranks)}</legend><label class="check-field"><input type="checkbox" class="fac-step-include" ${c.skip ? "" : "checked"}><span>${t("Include in agenda")}</span></label><label class="field">${t("Duration in minutes (optional)")}<input type="number" class="fac-step-minutes" min="0" max="600" value="${c.minutes ?? titleMinutes(f.text)}"></label><div class="field"><span id="${id}-label">${t("Instructions")}</span><div id="${id}" data-fac-agenda-text></div></div></fieldset>`;
           })
           .join(
             "",
@@ -2218,7 +2228,7 @@ export function createFacilitationUI(api) {
         fill("Step {n} of {total}: {title}", {
           n: n + 1,
           total: steps.length,
-          title: steps[n].title || t("Frame"),
+          title: steps[n].title || frameName(steps[n].frame),
         }),
         steps[n].text,
         fill("Step {n} of {total}: {title}", {
@@ -2439,7 +2449,7 @@ export function createFacilitationUI(api) {
         fill("Step {n} of {total}: {title}", {
           n: n + 1,
           total: steps.length,
-          title: steps[n].title || t("Frame"),
+          title: steps[n].title || frameName(steps[n].frame),
         }),
       );
       stepHTML = fill("Step {n} of {total}: {title}", {

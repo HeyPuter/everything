@@ -29871,6 +29871,30 @@ test("library content inserted inside a frame joins the frame", async () => {
   }
 });
 
+test("untitled frames present by their place in the frame order, as the Frames panel names them", async () => {
+  const app = await setup();
+  const { click, doc } = app;
+  try {
+    await rotationFixture(app, [
+      item("frame", 0, 0, { w: 400, h: 300, text: "", order: 0 }),
+      item("frame", 500, 0, { w: 400, h: 300, text: "Plan", order: 1 }),
+      item("frame", 1000, 0, { w: 400, h: 300, text: "", order: 2 }),
+    ]);
+    await click('[data-action="present"]');
+    assert.deepEqual(
+      [...doc.querySelectorAll(".slide-choices label")].map(
+        (l) => l.textContent,
+      ),
+      ["Frame 1", "Plan", "Frame 3"],
+    );
+    await click("#start-presentation");
+    assert.match(doc.querySelector("#slide-count").textContent, /· Frame 1$/);
+    await click("#slide-exit");
+  } finally {
+    await app.close();
+  }
+});
+
 test("the export dialog counts no pages without a frame", async () => {
   const app = await setup();
   const { click, doc, w } = app;

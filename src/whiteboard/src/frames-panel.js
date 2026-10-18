@@ -1,15 +1,12 @@
 import { escape } from "./model.js";
-import { t, plural, labelled, language } from "./i18n.js";
+import { t, plural, labelled, language, untitledFrame } from "./i18n.js";
 import { authoredTextHTML } from "./accessibility/object-content.js";
 import { opener, returnFocus } from "./accessibility/focus-return.js";
 import { orderedFrames, framesItems, frameParents } from "./scene.js";
 import { searchIndex, searchWords, matchesWord } from "./libraries.js";
 
-// An untitled frame is named by its place in the order, "Frame 3", as new
-// frames are, so that it can be told apart and searched for.
-const untitled = (n) => `${t("Frame")} ${n + 1}`;
 const frameTitleHTML = (frame, n) =>
-  frame.text ? authoredTextHTML(frame) : escape(untitled(n));
+  frame.text ? authoredTextHTML(frame) : escape(untitledFrame(n));
 // The frame a row's button acts on, and which of its buttons it is.
 const KINDS = ["frame", "link", "order"];
 const kind = (b) => KINDS.find((k) => b.dataset[k]);
@@ -108,7 +105,7 @@ export function createFramesPanel(api) {
     field.closest("label").hidden = every.length <= 7 && !field.value;
     const all = query.length
       ? every.filter((f) => {
-          const title = searchIndex(f.text || untitled(place.get(f)));
+          const title = searchIndex(f.text || untitledFrame(place.get(f)));
           return query.every((word) => matchesWord(title, word));
         })
       : every;
@@ -160,7 +157,7 @@ export function createFramesPanel(api) {
         stop = f.id === active ? "0" : "-1",
         depth = level(f),
         holder = byId.get(parents.get(f.id));
-      return `<div class="frame-row" role="listitem" aria-level="${depth}" data-level="${Math.min(depth, 4)}"><button class="frame-go" data-frame="${escape(f.id)}" tabindex="${stop}"><span class="sr-only">${labelled(t("Go to frame"), "")}</span><span>${n + 1}</span> <strong data-user-content title="${escape(f.text || untitled(n))}">${frameTitleHTML(f, n)}</strong>${holder ? `<span class="sr-only">, ${labelled(t("In frame"), frameTitleHTML(holder, place.get(holder)))}</span>` : ""} <small>${plural(contents.get(f.id).size - 1, "{count} object", "{count} objects")}</small></button><button class="icon-btn frame-link" data-link="${escape(f.id)}" tabindex="${stop}" aria-label="${t("Copy link to frame")}" title="${t("Copy link to frame")}"><i data-lucide="link" aria-hidden="true"></i></button>${arrows(f, n, stop)}</div>`;
+      return `<div class="frame-row" role="listitem" aria-level="${depth}" data-level="${Math.min(depth, 4)}"><button class="frame-go" data-frame="${escape(f.id)}" tabindex="${stop}"><span class="sr-only">${labelled(t("Go to frame"), "")}</span><span>${n + 1}</span> <strong data-user-content title="${escape(f.text || untitledFrame(n))}">${frameTitleHTML(f, n)}</strong>${holder ? `<span class="sr-only">, ${labelled(t("In frame"), frameTitleHTML(holder, place.get(holder)))}</span>` : ""} <small>${plural(contents.get(f.id).size - 1, "{count} object", "{count} objects")}</small></button><button class="icon-btn frame-link" data-link="${escape(f.id)}" tabindex="${stop}" aria-label="${t("Copy link to frame")}" title="${t("Copy link to frame")}"><i data-lucide="link" aria-hidden="true"></i></button>${arrows(f, n, stop)}</div>`;
     });
     write(
       all.length
@@ -293,7 +290,7 @@ export function createFramesPanel(api) {
         t("Showing frame {number} of {count}")
           .replace("{number}", n + 1)
           .replace("{count}", every.length),
-        shown.text || untitled(n),
+        shown.text || untitledFrame(n),
       ),
     );
   }

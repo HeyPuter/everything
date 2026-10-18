@@ -528,6 +528,28 @@ test("selected mind map nodes export as data without the nodes drawn to show the
   assert.deepEqual(regionNotes(region), ["Idea X"]);
 });
 
+test("untitled frames export and present by their place in the frame order", () => {
+  const b = board("Untitled");
+  b.items = [0, 1, 2].map((n) =>
+    item("frame", n * 500, 0, {
+      w: 400,
+      h: 300,
+      text: n === 1 ? "Named" : "",
+      order: n,
+    }),
+  );
+  assert.deepEqual(
+    exportRegions(b, { scope: "frames" }).map((r) => r.name),
+    ["Frame 1", "Named", "Frame 3"],
+  );
+  assert.deepEqual(
+    exportRegions(b, { scope: "frames", frameIds: [b.items[2].id] }).map(
+      (r) => r.name,
+    ),
+    ["Frame 3"],
+  );
+});
+
 test("CSV exports a single table and rejects tables outside the scope", async () => {
   const b = fixture(),
     table = b.items.find((i) => i.type === "table");
