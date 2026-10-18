@@ -121,7 +121,8 @@ export function advancedFilter(wb, sheetId, { list, criteria = null, copyTo = nu
   const copyCell = (fromRow, c, toRow, toCol) => {
     const cell = wb.getCell(sheetId, fromRow, c);
     const v = wb.getValue(sheetId, fromRow, c);
-    entries.push({ r: toRow, c: toCol, cell: v == null && !cell?.s ? null : { v: v && typeof v === 'object' ? (v.error ?? null) : v, f: null, ...(cell?.s ? { s: cell.s } : {}) } });
+    // An error stays an error (a cell holds one as { error }), not the text it shows.
+    entries.push({ r: toRow, c: toCol, cell: v == null && !cell?.s ? null : { v: isError(v) ? { error: v.error } : v && typeof v === 'object' ? null : v, f: null, ...(cell?.s ? { s: cell.s } : {}) } });
   };
   columns.forEach((c, k) => copyCell(list.r1, c, copyTo.range.r1, copyTo.range.c1 + k));
   rows.forEach((r, i) => columns.forEach((c, k) => copyCell(r, c, copyTo.range.r1 + 1 + i, copyTo.range.c1 + k)));
