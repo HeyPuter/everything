@@ -820,6 +820,36 @@ test("typing saves drafts shortly after, and a full list lets go of the least re
     a.close();
   }
 });
+test("storing a draft keeps the drafts another tab stored meanwhile", async () => {
+  const a = setup();
+  try {
+    const thread = commentThread({ x: 0, y: 0 }, a.s.author, "Agenda");
+    a.s.board.comments = [thread];
+    const storage = a.dom.window.localStorage;
+    // Another tab, open since before this one read the list, stores its own.
+    const theirs = ["other-board|t1|reply", { text: "From the other tab" }];
+    storage.setItem("whiteboard-comment-drafts", JSON.stringify([theirs]));
+    a.ui.show(thread.id);
+    const box = a.doc.querySelector("textarea");
+    box.value = "Mine";
+    box.dispatchEvent(new a.dom.window.Event("input"));
+    await new Promise((r) => setTimeout(r, 600));
+    const stored = () =>
+      new Map(JSON.parse(storage.getItem("whiteboard-comment-drafts")));
+    assert.deepEqual(
+      [...stored().values()].map((d) => d.text),
+      ["From the other tab", "Mine"],
+    );
+    // Sending this tab's draft takes away only this tab's.
+    a.submit();
+    assert.deepEqual(
+      [...stored().values()].map((d) => d.text),
+      ["From the other tab"],
+    );
+  } finally {
+    a.close();
+  }
+});
 test("deleting and restoring a comment does not mark it edited", () => {
   const a = setup();
   try {

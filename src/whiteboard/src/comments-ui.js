@@ -41,7 +41,9 @@ export function createCommentsUI(api) {
     suppressClick = 0;
   let visible = true;
   const pins = new Map(),
-    drafts = new Map();
+    drafts = new Map(),
+    // Drafts this tab wrote or removed since it last stored them.
+    touched = new Set();
   let indexedItems,
     indexedLength = -1,
     itemIndex = new Map();
@@ -301,13 +303,18 @@ export function createCommentsUI(api) {
     // The draft just written is the most recent, so the oldest untouched
     // one goes first when there are too many.
     drafts.delete(key());
+    touched.add(key());
     if (draft.text) drafts.set(key(), structuredClone({ ...draft, editing }));
-    while (drafts.size > 20) drafts.delete(drafts.keys().next().value);
+    while (drafts.size > 20) {
+      touched.add(drafts.keys().next().value);
+      drafts.delete(drafts.keys().next().value);
+    }
     if (!soon) rememberStorage();
     else if (!storeTimer) storeTimer = setTimeout(rememberStorage, 500);
   }
   function clearDraft() {
     drafts.delete(key());
+    touched.add(key());
     draft = null;
     rememberStorage();
   }
@@ -315,9 +322,23 @@ export function createCommentsUI(api) {
     clearTimeout(storeTimer);
     storeTimer = null;
     try {
+      // Other tabs keep their drafts in the same list: only what this tab
+      // changed is written over, so theirs stay.
+      let stored = new Map();
+      try {
+        stored = new Map(
+          JSON.parse(localStorage.getItem("whiteboard-comment-drafts")),
+        );
+      } catch {}
+      for (const key of touched) {
+        stored.delete(key);
+        if (drafts.has(key)) stored.set(key, drafts.get(key));
+      }
+      touched.clear();
+      while (stored.size > 20) stored.delete(stored.keys().next().value);
       localStorage.setItem(
         "whiteboard-comment-drafts",
-        JSON.stringify([...drafts]),
+        JSON.stringify([...stored]),
       );
     } catch {}
   }
