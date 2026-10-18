@@ -3781,6 +3781,7 @@ export function createGrid(opts) {
   let handlePresses = 0; // presses in a row that landed on the fill handle (a double-click on it needs two)
   let tap = null;  // touch: { r, c, x, y, t, timer }
   let longPressAt = 0; // when a long press last opened the cell menu
+  let pressMenu = false; // the touch still down opened the cell menu: its release is not a tap
   let autoScroll = 0;
 
   function stopAutoScroll() {
@@ -3950,6 +3951,7 @@ export function createGrid(opts) {
       // Touch scrolls; a tap selects, a second tap edits, a long press opens
       // the context menu. Dragging to select is done from the fill handle.
       tap = { r, c, x: e.clientX, y: e.clientY, t: Date.now(), moved: false };
+      pressMenu = false;
       tap.timer = setTimeout(() => {
         if (tap && !tap.moved) {
           tap = null;
@@ -3959,6 +3961,7 @@ export function createGrid(opts) {
           if (!selectedAt(r, c)) setSelection(S.single(r, c), { scroll: false });
           if (navigator.vibrate) navigator.vibrate(10);
           longPressAt = Date.now();
+          pressMenu = true;
           opts.onContextMenu?.({ x: e.clientX, y: e.clientY, kind: 'cell' });
         }
       }, LONG_PRESS_MS);
@@ -5318,6 +5321,9 @@ export function createGrid(opts) {
   viewport.addEventListener('pointermove', pointerMove);
   viewport.addEventListener('pointerup', pointerUp);
   viewport.addEventListener('pointercancel', cancelDrag);
+  // The menu a long press opened lies under the finger: lifting it must not send the click a tap
+  // does, or that click lands on the menu item under the finger and runs it.
+  viewport.addEventListener('touchend', (e) => { if (pressMenu) { pressMenu = false; e.preventDefault(); } }, { passive: false });
   viewport.addEventListener('pointerleave', () => viewport.classList.remove('can-move'));
   viewport.addEventListener('dblclick', onDoubleClick);
   viewport.addEventListener('contextmenu', onContextMenu);
