@@ -784,13 +784,14 @@ export function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, r
   return sheet;
 }
 
-/* Fill-handle series for names: Jan → Feb, Monday → Tuesday, Q1 → Q2. */
+/* Fill-handle series for names: Jan → Feb, Monday → Tuesday, Q1 → Q2. Quarters go round in Excel's three spellings, Q3, Qtr3 and Quarter3. */
+const quarters = (word) => [1, 2, 3, 4].map((n) => `${word}${n}`);
 const SERIES = [
   ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'],
   ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'],
   ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'],
   ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'],
-  ['q1', 'q2', 'q3', 'q4'],
+  quarters('q'), quarters('qtr'), quarters('qtr '), quarters('quarter'), quarters('quarter '),
 ];
 
 function applyCase(word, like) {
