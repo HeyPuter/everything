@@ -8,7 +8,7 @@ import { el } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
 import { toast } from './toast.js';
 import { buildPivot, previewPivot, pivotFields, pivotFieldValues, pivotAllLabel, pivotRangeProblem, PivotSizeError, PIVOT_AGGS } from '../core/pivot.js';
-import { formatValue } from '../core/format.js';
+import { formatValue, dateTimeKind } from '../core/format.js';
 import { rangeName } from '../core/cell.js';
 import * as S from '../core/selection.js';
 
@@ -89,7 +89,11 @@ export function openPivotDialog(ctx) {
     if (!hadValueField) {
       // Guess only initially or when the old field no longer exists.
       // A user may intentionally summarize the field that also groups rows.
-      const numeric = fields.find((f) => f.index !== Number(rowsSel.value) && typeof wb.getValue(sheetId, range.r1 + 1, f.col) === 'number');
+      // A date is a number underneath, but one to group by, not to total.
+      const numeric = fields.find((f) => {
+        const v = wb.getValue(sheetId, range.r1 + 1, f.col);
+        return f.index !== Number(rowsSel.value) && typeof v === 'number' && !dateTimeKind(wb.styleAt(sheetId, range.r1 + 1, f.col), v);
+      });
       valuesSel.value = String((numeric || fields[fields.length - 1]).index);
     }
     return range;
