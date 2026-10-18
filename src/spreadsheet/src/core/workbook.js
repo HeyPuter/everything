@@ -1029,7 +1029,7 @@ function sameRule(stored, next, defaults) {
 
 /** The calculation's working state, set aside while a data table calculates with substituted inputs. */
 const SUBSTITUTE_STATE = ['_iterationReady', '_cache', '_rangeCache', '_rangeCacheCells', '_rangeRuns', '_usedCache', '_cellBoundsCache', '_statsCache',
-  '_volatile', '_spills', '_spillBuilds', '_hasDeferredSpills', '_spillComputed', '_evaluating', '_cyclic', '_provisional', '_blankProvisional',
+  '_volatile', '_spills', '_spillBuilds', '_hasDeferredSpills', '_spillComputed', '_evaluating', '_evalOrder', '_evalLast', '_cyclic', '_provisional', '_blankProvisional',
   '_blankKeys', '_unsettled', '_tentative', '_grown'];
 
 /** The workbook's settings beside its sheets and their active one (see bookState): what a file holds of the book itself. */
@@ -1059,9 +1059,12 @@ export class Workbook extends EventTarget {
     this._rangeCacheCells = 0; // cells held by those arrays in all
     this._rangeRuns = new Map(); // "sheet|r1,c1,c2" → the furthest r2 read of that family, per calculation
     this._astCache = new Map();
-    this._evaluating = new Set();
+    this._evaluating = new Set(); // the cells being calculated, innermost last
+    this._evalOrder = new Map(); // each of them → a number rising in the order they were reached (see _compute)
+    this._evalSeq = 0;
+    this._evalLast = null; // the innermost of them, the reader of any cell it finds still being calculated
     this._cyclic = new Set(); // cells found on a circle of references while they were being calculated
-    this._provisional = new Map(); // reader cell → the circle whose provisional value it read, settled once it has its answer
+    this._provisional = new Map(); // reader cell → where the circle whose provisional value it read starts (its _evalOrder), settled once it has its answer
     this._blankProvisional = 0; // while a reader is calculated again with provisional cells read as blank
     this._blankKeys = null; // the cells read as blank while the outermost cell of a circle is calculated again (see _judgeCircles)
     this._astByCell = new WeakMap(); // cell → { f, ast }: filled-down formulas are all distinct strings, so the text cache alone thrashes
@@ -11875,12 +11878,12 @@ export class Workbook extends EventTarget {
           return key === this._iteration.current ? this._iteration.prior : cell.v ?? 0;
         }
         if (this._blankProvisional) return null;
-        const circle = [];
-        let inside = false;
-        for (const k of this._evaluating) { if (k === key) inside = true; if (inside) circle.push(k); }
-        const reader = circle[circle.length - 1];
-        const pending = this._provisional.get(reader);
-        if (pending) for (const k of circle) pending.add(k); else this._provisional.set(reader, new Set(circle));
+        // The circle runs from this cell to the innermost, the reader. Every circle the reader closes ends at it,
+        // so together they are the one that starts furthest out: only where that starts is kept.
+        const reader = this._evalLast;
+        const from = this._evalOrder.get(key);
+        const earliest = this._provisional.get(reader);
+        if (earliest === undefined || from < earliest) this._provisional.set(reader, from);
       }
       return err('#CYCLE!');
     }
@@ -11908,12 +11911,16 @@ export class Workbook extends EventTarget {
       this._ensureSpills(sheet);
       if (this._cache.has(key)) return this._cache.get(key);
     }
-    this._evaluating.add(key);
     this._depth++;
+    const outerLast = this._evalLast;
     let value;
     let raw;
     let deep = false;
     try {
+      // Within the try, so that a stack running out even here leaves nothing marked as being calculated.
+      this._evaluating.add(key);
+      this._evalOrder.set(key, ++this._evalSeq);
+      this._evalLast = key;
       // Each cell's own calculation gets a fresh array budget, whatever depth it is read at.
       const ctx = this._formulaContext(sheet, r, c);
       value = withArrayBudget(() => evaluateFormula(ast, ctx));
@@ -11947,7 +11954,9 @@ export class Workbook extends EventTarget {
       }
     } finally {
       this._depth--;
+      this._evalLast = outerLast;
       this._evaluating.delete(key);
+      this._evalOrder.delete(key);
       this._provisional.delete(key);
     }
     if (deep) return this._computeDeep(sheet, r, c);
@@ -11970,7 +11979,9 @@ export class Workbook extends EventTarget {
    * the same way. Every cell on the circle of a cycle ends as #CYCLE!.
    */
   _settleProvisional(sheet, r, c, key, ast, raw, value) {
-    const circle = this._provisional.get(key);
+    const from = this._provisional.get(key);
+    const circle = new Set();
+    for (const k of this._evaluating) if (this._evalOrder.get(k) >= from) circle.add(k);
     this._provisional.delete(key);
     let told = isError(value) && value.error === '#CYCLE!';
     if (!told) {
@@ -12071,6 +12082,13 @@ export class Workbook extends EventTarget {
    * allows (a running total over thousands of rows, read from the bottom):
    * walk the chain with an explicit stack and compute the deepest cells
    * first, so every evaluation finds its precedents already cached.
+   *
+   * The cells expanded on the walk and not yet calculated wait for the one being calculated, as
+   * they would on the call stack: they are marked as being calculated, in the order they were
+   * reached. A cell reading one of them (a column of SUM(B:B), each on a circle with all the
+   * others) then meets the circle at once and settles it by the rules of _compute, instead of
+   * calculating the whole circle again inside its own calculation, which ran out of stack once
+   * more and, retried from cell after cell, took minutes for a few hundred rows.
    */
   _computeDeep(sheet, r, c) {
     const rootKey = `${sheet.id}|${r},${c}`;
@@ -12083,20 +12101,29 @@ export class Workbook extends EventTarget {
       return e;
     }
     this._deepening.add(rootKey);
+    const outerLast = this._evalLast;
+    const waiting = []; // the cells expanded and not yet calculated, outermost first
     try {
       const stack = [{ sheet, r, c, key: rootKey }];
       const expanded = new Set();
       while (stack.length) {
         const top = stack[stack.length - 1];
         if (this._cache.has(top.key)) { stack.pop(); continue; }
+        // A cell already being calculated, further out than this walk, reads as such.
+        if (this._evaluating.has(top.key) && !expanded.has(top.key)) { stack.pop(); continue; }
         if (!expanded.has(top.key)) {
           expanded.add(top.key);
+          waiting.push(top.key);
+          this._evaluating.add(top.key);
+          this._evalOrder.set(top.key, ++this._evalSeq);
+          this._evalLast = top.key;
           let pushed = false;
           for (const p of this._formulaPrecedents(top.sheet, top.r, top.c)) {
             const key = `${p.sheet.id}|${p.r},${p.c}`;
             // An expanded cell still on the stack is on the path to this one: the reference closes
-            // a circle, which _compute settles with its own rules for what makes a cycle.
-            if (this._cache.has(key) || expanded.has(key)) continue;
+            // a circle, which _compute settles with its own rules for what makes a cycle. So is
+            // a cell being calculated further out.
+            if (this._cache.has(key) || expanded.has(key) || this._evaluating.has(key)) continue;
             // A cell waiting on the stack but not yet expanded was pushed by another cell, often a
             // sibling (E = SUM(C:D) beside D = IPMT(…,C)): it is no circle, only needed sooner.
             // Pushed again on top, it is calculated first and the waiting entry is then skipped.
@@ -12105,11 +12132,18 @@ export class Workbook extends EventTarget {
           }
           if (pushed) continue;
         }
+        // Everything expanded after this cell has been calculated: it is the last one waiting.
+        waiting.pop();
+        this._evalLast = waiting.length ? waiting[waiting.length - 1] : outerLast;
+        this._evaluating.delete(top.key);
+        this._evalOrder.delete(top.key);
         this._compute(top.sheet, top.r, top.c);
         stack.pop();
       }
       return this._cache.has(rootKey) ? this._cache.get(rootKey) : this._compute(sheet, r, c);
     } finally {
+      this._evalLast = outerLast;
+      for (const key of waiting) { this._evaluating.delete(key); this._evalOrder.delete(key); }
       this._deepening.delete(rootKey);
     }
   }
@@ -12539,7 +12573,8 @@ export class Workbook extends EventTarget {
         if (r >= box.r1 && r <= box.r2 && c >= box.c1 && c <= box.c2) this._cache.delete(key);
       }
     }
-    for (const store of [this._rangeCache, this._rangeRuns, this._usedCache, this._cellBoundsCache, this._statsCache, this._spills, this._evaluating, this._cyclic, this._provisional]) store.clear();
+    for (const store of [this._rangeCache, this._rangeRuns, this._usedCache, this._cellBoundsCache, this._statsCache, this._spills, this._evaluating, this._evalOrder, this._cyclic, this._provisional]) store.clear();
+    this._evalLast = null;
     this._hasDeferredSpills = false;
     this._spillComputed = [];
     this._blankKeys = null;
@@ -12726,7 +12761,7 @@ export class Workbook extends EventTarget {
       Object.assign(this, {
         _iterationReady: false, _cache: new Map(), _rangeCache: new Map(), _rangeCacheCells: 0, _rangeRuns: new Map(), _usedCache: new Map(),
         _cellBoundsCache: new Map(), _statsCache: new Map(), _volatile: null, _spills: new Map(), _spillBuilds: [], _hasDeferredSpills: false,
-        _spillComputed: [], _evaluating: new Set(), _cyclic: new Set(), _provisional: new Map(), _blankProvisional: 0, _blankKeys: null,
+        _spillComputed: [], _evaluating: new Set(), _evalOrder: new Map(), _evalLast: null, _cyclic: new Set(), _provisional: new Map(), _blankProvisional: 0, _blankKeys: null,
         _unsettled: [], _tentative: [], _grown: new Set(),
       });
       read();
@@ -12751,6 +12786,8 @@ export class Workbook extends EventTarget {
     this._hasDeferredSpills = false;
     this._spillComputed = []; // cells calculated while spills were being worked out, dropped when the picture changes
     this._evaluating.clear();
+    this._evalOrder.clear();
+    this._evalLast = null;
     this._cyclic.clear();
     this._provisional.clear();
     this._blankProvisional = 0;
