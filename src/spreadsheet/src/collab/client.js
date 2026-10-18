@@ -19,6 +19,8 @@ import { sanitizeState } from './server/service.js';
 const CHECKPOINT_EVERY = 50;
 /** And the longest a revision waits for one while people keep editing. */
 const CHECKPOINT_IDLE = 60_000;
+/** A checkpoint that could not be written (offline, say) is tried again after this long, not at every tick. */
+const CHECKPOINT_RETRY = 30_000;
 /** People not heard from for this long are taken off the list. */
 const PEOPLE_TTL = 20_000;
 
@@ -260,13 +262,14 @@ export class RoomClient extends EventTarget {
    * that one browser does it), only while this one has nothing pending (its state is then the room's).
    */
   maybeCheckpoint() {
-    if (!this.canEdit || this.replica.pending.length || this.checkpointing) return;
+    if (!this.canEdit || this.replica.pending.length || this.checkpointing || Date.now() < (this.checkpointAfter ?? 0)) return;
     const due = this.replica.rev - this.lastCheckpoint >= CHECKPOINT_EVERY
       || (this.replica.rev > this.lastCheckpoint && Date.now() - this.lastCheckpointAt > CHECKPOINT_IDLE);
     if (!due) return;
     const editors = [...this.people.values()].filter((p) => canEdit(p.role)).map((p) => p.session);
     if (editors.some((s) => s < this.session)) return;
-    this.checkpoint().catch(() => {});
+    // Packing the whole workbook is not repeated every tick for a room that cannot be reached.
+    this.checkpoint().catch(() => { this.checkpointAfter = Date.now() + CHECKPOINT_RETRY; });
   }
 
   /**
