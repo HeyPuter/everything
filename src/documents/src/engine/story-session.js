@@ -57,6 +57,15 @@ export class StorySession {
   run(action, validate = () => {}, { record = true } = {}) {
     const before = this.capture(), model = this.model;
     model.formatTrackingSuppressed = false;
+    // The session keeps `before` for undo, and the model's own undo entries are dropped when the command
+    // ends. Commands still push one (some mark or remove their own), but it need not copy the document:
+    // that copy, of the whole document, was made and thrown away on every keystroke.
+    const ownCheckpoint = Object.hasOwn(model, 'checkpoint') ? model.checkpoint : null;
+    model.checkpoint = function () {
+      this.history.push({ selection: { ...this.selection } });
+      if (this.history.length > 100) this.history.shift();
+      this.future = [];
+    };
     try {
       const result = action(model);
       if (this.path !== before.path) throw new Error('A text command cannot switch page stories.');
@@ -77,6 +86,8 @@ export class StorySession {
     } catch (error) {
       this.restore(before); this.model.revision = before.revision;
       throw error;
+    } finally {
+      if (ownCheckpoint) model.checkpoint = ownCheckpoint; else delete model.checkpoint;
     }
   }
   travel(from, to, validate) {

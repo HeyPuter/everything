@@ -1,9 +1,9 @@
-import { beforeAll, afterAll, it, expect } from 'vitest';
+import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
 import { unzipSync } from 'fflate';
 import { DocxPackage } from '../src/engine/docx.js';
-import { TextDocument } from '../src/engine/model.js';
+import { TextDocument, paragraph } from '../src/engine/model.js';
 import { StorySession } from '../src/engine/story-session.js';
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -67,4 +67,27 @@ it('types beside an atomic page field without copying its field metadata', async
   const reopened = await DocxPackage.open(new Uint8Array(await s.export(pkg).arrayBuffer()));
   expect(reopened.pageStories.stories[first].paragraphs[0].runs.map(r => r.text).join('')).toBe(original + ' after');
   s.undo(); expect(await parts(s, pkg)).toEqual(pkg.parts);
+});
+
+describe('the cost of one command', () => {
+  it('copies the document once per keystroke, and still undoes each command exactly', () => {
+    const doc = new TextDocument(Array.from({ length: 50 }, (_, i) => paragraph(`Paragraph ${i}`)));
+    const session = new StorySession(doc, null);
+    let copies = 0;
+    const snapshot = doc.snapshot.bind(doc);
+    doc.snapshot = () => { copies++; return snapshot(); };
+    doc.select(3);
+    for (let k = 0; k < 5; k++) session.run(() => doc.replace('x'), undefined, { record: k === 0 });
+    expect(copies).toBe(5);
+    expect(doc.text.startsWith('Parxxxxxagraph 0')).toBe(true);
+    session.run(() => { doc.select(0, 4); return doc.delete(1); });
+    session.undo();
+    expect(doc.text.startsWith('Parxxxxxagraph 0')).toBe(true);
+    session.undo();
+    expect(doc.text.startsWith('Paragraph 0')).toBe(true);
+    // Outside a session the model keeps full copies for its own undo.
+    expect(Object.hasOwn(doc, 'checkpoint')).toBe(false);
+    doc.select(0); doc.replace('y'); doc.undo();
+    expect(doc.text.startsWith('Paragraph 0')).toBe(true);
+  });
 });

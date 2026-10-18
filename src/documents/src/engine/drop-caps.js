@@ -47,11 +47,13 @@ export function setDropCap(model, { mode, lines = 3, distance = 0, fontFamily = 
 }
 
 function transaction(model, change) {
+  // Its own copy to roll back to: inside an editor command the history entry holds no copy of the document.
+  const before = model.snapshot();
   model.checkpoint();
   const mine = model.history.at(-1);
   try { change(); }
   catch (error) {
-    model.restore(mine);
+    model.restore(before);
     const at = model.history.lastIndexOf(mine);
     if (at >= 0) model.history.length = at;
     throw error;
