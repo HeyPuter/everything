@@ -238,7 +238,8 @@ export function openMenu({ anchor, items, x = null, y = null, align = 'start', l
   // it back to whatever had it.
   const opener = parent >= 0 ? anchor : (document.activeElement instanceof HTMLElement ? document.activeElement : anchor);
   document.body.append(menu);
-  position(menu, anchor, x, y, align, parent >= 0 ? chain[parent].panel : null);
+  const parentPanel = parent >= 0 ? chain[parent].panel : null;
+  position(menu, anchor, x, y, align, parentPanel);
 
   function dispose({ focus = true } = {}) {
     const at = depth();
@@ -260,7 +261,11 @@ export function openMenu({ anchor, items, x = null, y = null, align = 'start', l
   if (pointer) menu.focus();
   else if (focusFirst && focusables(menu).length) focusIn(menu, 0);
   else if (focusFirst) menu.focus();
-  return { close: () => { const at = depth(); if (at !== -1) closeFrom(at); }, menu };
+  return {
+    close: () => { const at = depth(); if (at !== -1) closeFrom(at); }, menu,
+    /** Place the menu again for content that changed size after it opened (a list filled in later). */
+    reposition: () => { if (depth() === -1) return; menu.style.maxHeight = ''; menu.style.overflowY = ''; position(menu, anchor, x, y, align, parentPanel); },
+  };
 }
 
 function focusables(menu) {

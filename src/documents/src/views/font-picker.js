@@ -92,6 +92,8 @@ export function openFontPicker({ anchor, value, alternatives, apply, onFontsAvai
     // Keep the result of that newer action while still refreshing the choices.
     if (notice.textContent === initialNotice && value && documentFontAvailable(value, alternatives) === false) notice.textContent = `${value} is unavailable. Displaying ${displayedFont({ fontFamily: value }, alternatives)}; its original name stays in the file until you choose a font.`;
     render();
+    // The list grew with the fonts found on this device: keep the popover inside the window.
+    popup.reposition?.();
   });
   return popup;
 }
