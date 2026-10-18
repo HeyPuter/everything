@@ -1315,7 +1315,7 @@ export class Workbook extends EventTarget {
       sheets.set(s.id, json);
       cells += s.cells.size + s.styleResets.length + s.ignoredErrors.length + nativeSparklineSize(s.sparklineGroups);
     }
-    return { externalWorkbooks: this.externalWorkbooks, dataModel: this.dataModel, nativePivots: this.nativePivots, order: this.sheets.map(sheetListEntry), activeSheetId: this.activeSheetId, names: this.names.map((n) => ({ ...n })), sheets, touched, cells };
+    return { externalWorkbooks: this.externalWorkbooks, dataModel: this.dataModel, nativePivots: this.nativePivots, order: this.sheets.map(sheetListEntry), activeSheetId: this.activeSheetId, names: this.names.map((n) => ({ ...n })), customViews: this.customViews, sheets, touched, cells };
   }
 
   /**
@@ -1328,7 +1328,8 @@ export class Workbook extends EventTarget {
    * announced for while the capture is open (a cell edit later in the same transaction) counts as changed too.
    */
   _capture() {
-    const capture = { externalWorkbooks: this.externalWorkbooks, dataModel: this.dataModel, nativePivots: this.nativePivots, order: this.sheets.map(sheetListEntry), activeSheetId: this.activeSheetId, names: this.names.map((n) => ({ ...n })), sheets: new Map(), announced: new Set() };
+    // Custom views are replaced, never changed in place (see _mapCustomViews), so the list itself is the record.
+    const capture = { externalWorkbooks: this.externalWorkbooks, dataModel: this.dataModel, nativePivots: this.nativePivots, order: this.sheets.map(sheetListEntry), activeSheetId: this.activeSheetId, names: this.names.map((n) => ({ ...n })), customViews: this.customViews, sheets: new Map(), announced: new Set() };
     for (const s of this.sheets) {
       const cells = Array.from(s.cells.values());
       const fAt = [];
@@ -1384,7 +1385,7 @@ export class Workbook extends EventTarget {
       sheets.set(id, { ...cap.shape, cells: cellsJSON });
       cells += cap.cells.length + (cap.shape.styleResets?.length || 0) + (cap.shape.ignoredErrors?.length || 0) + nativeSparklineSize(cap.shape.sparklineGroups);
     }
-    return { externalWorkbooks: capture.externalWorkbooks, dataModel: capture.dataModel, nativePivots: capture.nativePivots, order: capture.order, activeSheetId: capture.activeSheetId, names: capture.names, sheets, touched, cells };
+    return { externalWorkbooks: capture.externalWorkbooks, dataModel: capture.dataModel, nativePivots: capture.nativePivots, order: capture.order, activeSheetId: capture.activeSheetId, names: capture.names, customViews: capture.customViews, sheets, touched, cells };
   }
 
   /* ---------- Sheets ---------- */
@@ -6050,6 +6051,8 @@ export class Workbook extends EventTarget {
       const band = axis === 'row' ? { ...GRID_RANGE, c1: b1, c2: b2 } : { ...GRID_RANGE, r1: b1, r2: b2 };
       sheet.styleResets = shiftStyleResets(sheet.styleResets, axis, at, n, remove, band);
       sheet.ignoredErrors = shiftRangeFlags(sheet.ignoredErrors, axis, at, n, remove, band);
+      this._mapCustomViews(sheet.id, axis, { filter: (f) => adjustFilterForEdit(f, { ownerSheet: sheet.name, sheetName: sheet.name, axis, at, count: n, remove,
+        bandStart: b1, bandEnd: b2, sheetsBetween: (a, b) => this._editedSpan(a, b), newId }) });
       for (const s of this.sheets) {
         const options = { ownerSheet: s.name, sheetName: sheet.name, axis, at, count: n, remove, bandStart: b1, bandEnd: b2,
           sheetsBetween: (a, b) => this._editedSpan(a, b), newId };
@@ -6408,6 +6411,8 @@ export class Workbook extends EventTarget {
       sheet.protectedRanges = sheet.protectedRanges.map((p) => ({ ...p, range: clamp(grow(p.range)) }));
       mapScenarioCells(sheet, (m) => clamp(grow(m)));
       this._mapAdvancedFilters(sheet.id, (m) => clamp(grow(m)));
+      this._mapCustomViews(sheet.id, axis, { line: (i) => (i < at ? i : i + n <= limit ? i + n : null), area: (m) => clamp(grow(m)),
+        filter: (f) => adjustFilterForEdit(f, { ownerSheet: sheet.name, sheetName: sheet.name, axis, at, count: n, remove: false, sheetsBetween: (a, b) => this._editedSpan(a, b), newId }) });
       this._mapWatches(sheetId, (r, c) => (axis === 'row' ? { r: r >= at ? r + n : r, c } : { r, c: c >= at ? c + n : c }));
       sheet.groups[groupKey] = sheet.groups[groupKey].map((g) => {
         const out = { ...g };
@@ -6635,6 +6640,9 @@ export class Workbook extends EventTarget {
       sheet.protectedRanges = sheet.protectedRanges.map((p) => ({ ...p, range: shrink(p.range) })).filter((p) => p.range[hi] >= p.range[lo]);
       mapScenarioCells(sheet, shrink);
       this._mapAdvancedFilters(sheet.id, shrink);
+      this._mapCustomViews(sheet.id, axis, { line: (i) => lines.move(i), area: shrink,
+        filter: (f) => refLines.runs.reduceRight((g, run) => g && adjustFilterForEdit(g, { ownerSheet: sheet.name, sheetName: sheet.name, axis, at: run.from,
+          count: run.to - run.from + 1, remove: true, sheetsBetween: (a, b) => this._editedSpan(a, b), newId }), f) });
       // A table survives while its header row and at least one column remain.
       sheet.tables = sheet.tables.map((t) => {
         const origin = t.calcRow ?? tableRows(t).dataStart;
@@ -6964,7 +6972,7 @@ export class Workbook extends EventTarget {
           ...(axis === 'col' && t.calcArray ? { calcArray: Object.fromEntries(Object.entries(t.calcArray).map(([c, v]) => [map(t.range.c1 + Number(c)) - range.c1, v])) } : {}),
           ...(axis === 'row' ? { calcRow: map(t.calcRow ?? tableRows(t).dataStart) } : {}) };
       });
-      mapSheetFilters(sheet, old => {
+      const moveFilter = (old) => {
         const range = moveRect(old.range);
         if (range.r1 >= range.r2) return null;
         else {
@@ -6985,7 +6993,9 @@ export class Workbook extends EventTarget {
           }
           return { ...old, range, criteria, ...(old.hiddenButtons ? { hiddenButtons: old.hiddenButtons.map(c => axis === 'col' ? map(c) : c).filter(c => c >= range.c1 && c <= range.c2) } : {}) };
         }
-      });
+      };
+      mapSheetFilters(sheet, moveFilter);
+      this._mapCustomViews(sheet.id, axis, { line: map, area: moveRect, filter: moveFilter });
       for (const s of this.sheets) {
         s.sparklineGroups = mapNativeSparklineReferences(s.sparklineGroups, f => renumber(f, s.name));
         // The moved sheet's own charts read its lines as its cell formulas do; charts elsewhere follow below.
@@ -10976,6 +10986,33 @@ export class Workbook extends EventTarget {
    * on it follow the edit through `move` (a range in, where it went out; inverted or null when deleted). A list whose
    * records are all deleted is forgotten; a criteria range deleted leaves its filter to be cleared, not reapplied.
    */
+  /**
+   * Inside a structural step on `sheetId`: the custom views' hidden lines, filters and print areas on that sheet follow
+   * the edit, as Excel's do (it keeps them as names). `line` maps a row (or column, per `axis`) to where it went, or
+   * null when deleted; `filter` maps a filter (null when it goes); `area` maps a print area or title range. The list
+   * is replaced, never changed in place, so an undo snapshot can hold it as it is.
+   */
+  _mapCustomViews(sheetId, axis, { line = null, filter = null, area = null }) {
+    if (!this.customViews?.length) return;
+    let changed = false;
+    const next = this.customViews.map((view) => {
+      const was = view.sheets?.[sheetId];
+      if (!was) return view;
+      const state = JSON.parse(JSON.stringify(was));
+      const key = axis === 'row' ? 'hiddenRows' : 'hiddenCols';
+      if (line && Array.isArray(state[key])) state[key] = [...new Set(state[key].map(line).filter((i) => i != null))].sort((a, b) => a - b);
+      if (filter && 'filter' in state) {
+        state.filter = state.filter ? filter(state.filter) || null : null;
+        state.otherFilters = (state.otherFilters || []).map(filter).filter(Boolean);
+      }
+      if (area && state.printSettings) { const probe = { printSettings: state.printSettings }; mapPrintAreas(probe, area, axis); state.printSettings = probe.printSettings; }
+      if (sameJSON(state, was)) return view;
+      changed = true;
+      return { ...view, sheets: { ...view.sheets, [sheetId]: state } };
+    });
+    if (changed) this.customViews = next;
+  }
+
   _mapAdvancedFilters(sheetId, move) {
     const moved = (range) => { const m = range && move({ ...range }); return m && m.r2 >= m.r1 && m.c2 >= m.c1 ? normalizeRange(m) : null; };
     for (const s of this.sheets) {
@@ -13363,6 +13400,7 @@ export class Workbook extends EventTarget {
     this.dataModel = snap.dataModel;
     this.externalWorkbooks = snap.externalWorkbooks;
     this.names = snap.names.map((n) => ({ ...n }));
+    if (snap.customViews) this.customViews = snap.customViews;
     // Never every sheet hidden, and never a hidden sheet in front (as _load keeps a file).
     if (this.sheets.every((s) => s.hidden)) this.sheets[0].hidden = false;
     this.activeSheetId = this.sheets.some((s) => s.id === snap.activeSheetId && !s.hidden) ? snap.activeSheetId : this.sheets.find((s) => !s.hidden).id;
