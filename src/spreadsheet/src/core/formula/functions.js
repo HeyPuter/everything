@@ -492,7 +492,7 @@ export function criteriaMatcher(criteria) {
     if (op === '=' && rhsIsNum) eq.numberKey = numberKey(rhsNum);
     return op === '=' ? eq : (v) => !eq(v);
   }
-  return (v) => {
+  const compare = (v) => {
     if (rhsIsNum) {
       if (typeof v !== 'number') return false;
       const c = compareValues(v, rhsNum); // equal at 15 significant digits is neither above nor below
@@ -502,6 +502,9 @@ export function criteriaMatcher(criteria) {
     const c = compareValues(v, rhsText);
     return op === '<' ? c < 0 : op === '>' ? c > 0 : op === '<=' ? c <= 0 : c >= 0;
   };
+  // A number to compare with matches only numbers, a run of them in ascending order (see orderIndex).
+  if (rhsIsNum) compare.order = { below: op === '<' || op === '<=', rhs: rhsNum };
+  return compare;
 }
 
 function asRange(v) {
@@ -583,6 +586,62 @@ function numberIndex(values) {
   return index;
 }
 
+/**
+ * The numbers of a range in ascending order, beside where each sits (r*cols+c), for the criteria that compare with a
+ * number: ">="&A2 down a column of ten thousand rows otherwise tested every cell of the range for every row, a
+ * hundred million tests, where in order the matching cells are one run found by two binary searches. Indexed the
+ * second time such a criterion meets the values, as criteriaIndex indexes text, and kept no longer than they are.
+ */
+const orderIndexes = new WeakMap();
+function orderIndex(values) {
+  const known = orderIndexes.get(values);
+  if (known) return known;
+  if (known === undefined) { orderIndexes.set(values, false); return null; }
+  let cols = 0;
+  let n = 0;
+  for (const row of values) {
+    cols = Math.max(cols, row.length);
+    for (const v of row) if (typeof v === 'number') n++;
+  }
+  const at = new Float64Array(n);
+  const keys = new Float64Array(n);
+  let k = 0;
+  for (let r = 0; r < values.length; r++) {
+    const row = values[r];
+    for (let c = 0; c < row.length; c++) if (typeof row[c] === 'number') { keys[k] = row[c]; at[k++] = r * cols + c; }
+  }
+  const order = new Uint32Array(n);
+  for (let i = 0; i < n; i++) order[i] = i;
+  order.sort((a, b) => keys[a] - keys[b] || a - b);
+  const numbers = new Float64Array(n);
+  const positions = new Float64Array(n);
+  for (let i = 0; i < n; i++) { numbers[i] = keys[order[i]]; positions[i] = at[order[i]]; }
+  const index = { cols, numbers, positions };
+  orderIndexes.set(values, index);
+  return index;
+}
+
+/**
+ * The run [lo, hi) of an order index whose numbers a comparison with a number matches. The binary searches
+ * stop a little short of the number, and the criterion itself settles the cells equal to it at 15 significant
+ * digits, which it counts as neither above nor below; it is monotonic along the ascending numbers.
+ */
+function orderRun(index, match, lo = 0, hi = index.numbers.length) {
+  const { numbers } = index;
+  const { below, rhs } = match.order;
+  const bound = below ? rhs + Math.abs(rhs) * 1e-13 : rhs - Math.abs(rhs) * 1e-13;
+  // The first number past the bound (above it for a criterion of numbers below; at or above it otherwise).
+  let a = lo, b = hi;
+  while (a < b) {
+    const mid = (a + b) >>> 1;
+    if (below ? numbers[mid] <= bound : numbers[mid] < bound) a = mid + 1; else b = mid;
+  }
+  if (below) hi = a; else lo = a;
+  while (lo < hi && !match(numbers[lo])) lo++;
+  while (hi > lo && !match(numbers[hi - 1])) hi--;
+  return [lo, hi];
+}
+
 /** Points a criterion at the index of its range, when there is one: match.positions lists the cells that can match, as r*match.cols+c. */
 function indexCriterion(match, range) {
   if (match.numberKey !== undefined) {
@@ -598,6 +657,13 @@ function indexCriterion(match, range) {
     }
     match.cols = index.cols;
     match.positions = positions;
+    return;
+  }
+  if (match.order) {
+    const index = orderIndex(range.values);
+    if (!index) return;
+    const [lo, hi] = orderRun(index, match);
+    match.run = { index, lo, hi, count: hi - lo };
     return;
   }
   if (match.key === undefined) return;
@@ -728,8 +794,15 @@ function pairedNumbers(a, b) {
  * The cells a criteria predicate may match: its indexed candidates as positions, or (cells null)
  * every one of `count` cells in `window`, the rows and columns read of `range` unless given.
  */
-function candidates(pred, range, [rows, cols] = readWindow(range)) {
+function candidates(pred, range, [rows, cols] = readWindow(range), ordered = true) {
   if (pred.positions) return { cells: pred.positions, cols: pred.cols, count: pred.positions.length };
+  // A run of an order index (see multiCriteria): in source order for a sum, whose rounding depends on it, unless the
+  // caller only counts. Sorting a long run costs more than testing every cell, so only a short one is taken.
+  if (pred.run && (!ordered || pred.run.count * 4 <= rows * cols)) {
+    const { index, lo, hi } = pred.run;
+    const cells = ordered ? index.positions.slice(lo, hi).sort() : index.positions.subarray(lo, hi);
+    return { cells, cols: index.cols, count: hi - lo };
+  }
   return { cells: null, cols, count: rows * cols };
 }
 
@@ -818,6 +891,26 @@ function multiCriteria(pairs, baseRange) {
   for (const t of tests) {
     indexCriterion(t.match, t.range);
     if (t.match.positions) { ok.positions = t.match.positions; ok.cols = t.match.cols; break; }
+  }
+  if (ok.positions) return ok;
+  // Criteria comparing one range with numbers (">="&A2, "<"&A2+7: a window of dates) match one run of its numbers in
+  // order; the shortest run of any range names the candidates instead.
+  const runs = new Map();
+  for (const t of tests) {
+    if (!t.match.order) continue;
+    let run = runs.get(t.range.values);
+    if (run === null) continue;
+    if (!run) {
+      const index = orderIndex(t.range.values);
+      runs.set(t.range.values, run = index && { index, lo: 0, hi: index.numbers.length });
+      if (!run) continue;
+    }
+    [run.lo, run.hi] = orderRun(run.index, t.match, run.lo, run.hi);
+  }
+  for (const run of runs.values()) {
+    if (!run) continue;
+    run.count = run.hi - run.lo;
+    if (!ok.run || run.count < ok.run.count) ok.run = run;
   }
   return ok;
 }
@@ -1710,6 +1803,7 @@ export const FUNCTIONS = {
       indexCriterion(match, rg);
       let n = 0;
       if (match.positions) n = match.positions.length;
+      else if (match.run) n = match.run.count;
       else for (const row of rg.values) for (const v of row) if (match(v)) n++;
       if (match(null)) n += unreadBlanks(rg);
       return n;
@@ -1725,7 +1819,7 @@ export const FUNCTIONS = {
       if (isError(ok)) return ok;
       let n = 0;
       // Every cell any of the ranges was read to is visited, not only those of the first range.
-      const { cells, cols, count } = candidates(ok, first, ok.read);
+      const { cells, cols, count } = candidates(ok, first, ok.read, false);
       for (let k = 0; k < count; k++) {
         const p = cells ? cells[k] : k;
         const r = Math.floor(p / cols);
