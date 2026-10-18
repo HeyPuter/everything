@@ -394,3 +394,16 @@ it('gives an inserted row no copy of its neighbour\'s paragraph identifier', asy
   expect(ids.length).toBe(n - 0x100);
   expect(new Set(ids).size).toBe(ids.length);
 });
+
+it.each(['row', 'column', 'table'])('deletes a comment anchored in a deleted %s, keeping the others', kind => {
+  const { doc } = tableDocument(2, 2, ['Before']);
+  const keep = doc.text.indexOf('Before');
+  doc.select(keep, keep + 6); doc.addComment({ author: 'C', text: 'about before' });
+  const at = doc.text.indexOf('b1');
+  doc.select(at, at + 2); const id = doc.addComment({ author: 'C', text: 'about b1' });
+  doc.replyToComment(id, { author: 'D', text: 'reply' });
+  doc.select(at + 1);
+  expect(doc.deleteTablePart(kind)).toBe(true);
+  expect(doc.comments.map(c => c.text)).toEqual(['about before']);
+  expect(doc.commentList.every(c => c.start !== null)).toBe(true);
+});

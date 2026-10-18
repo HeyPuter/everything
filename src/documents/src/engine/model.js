@@ -1140,6 +1140,7 @@ export class TextDocument {
     const widths = kind === 'column' ? table.layout === 'autofit' ? [...table.grid] : fixedColumnWidths(table, this.sectionWritingWidth) : null;
     const state = tableContent(this, table), owners = verticalMerges(table);
     if (kind === 'column') state.bookmarks.gridEdit = { tableId: table.id, position: column, removed: span, inserted: 0 };
+    const anchored = this.comments?.length ? new Set(commentAnchors(this.paragraphs).map(a => a.id)) : null;
     this.checkpoint();
     if (kind === 'table') { this.tables = this.tables.filter(t => t.id !== table.id); this.paragraphs.splice(state.start, state.count); removeOrphanedTables(this); }
     else if (kind === 'row') {
@@ -1164,6 +1165,12 @@ export class TextDocument {
     if (kind !== 'table') applyTableContent(this, table, state);
     if (!this.paragraphs.length) this.paragraphs.push(paragraph());
     if (kind === 'table') { repairStructuralBookmarks(this.paragraphs, state.bookmarks, this.tables, table.id); normalizeBlockBookmarkScopes(this.paragraphs, this.tables); }
+    if (anchored) {
+      // A comment anchored in the deleted cells goes with them (and its replies), as in Word: left without
+      // an anchor it could not be reached and was written to the file again on every save.
+      const kept = new Set(commentAnchors(this.paragraphs).map(a => a.id)), gone = new Set([...anchored].filter(id => !kept.has(id)));
+      if (gone.size) this.comments = this.comments.filter(c => !gone.has(c.id) && !gone.has(c.parentId));
+    }
     this.select(this.paragraphOffset(Math.max(0, Math.min(first, this.paragraphs.length - 1)))); this.didChange(); return true;
   }
   insertTableParagraph(after = true) {
