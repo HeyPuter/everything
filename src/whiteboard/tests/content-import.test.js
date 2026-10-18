@@ -1560,6 +1560,42 @@ test("plain text and Markdown become sticky notes, with headings as frames", asy
   );
 });
 
+test("a Markdown file's lone # title is its title, and its ## sections become frames", async () => {
+  const layout = async (text) => {
+    const result = await layoutDocument(parseText(text, { markdown: true }), {
+      ctx: measure,
+      point: { x: 0, y: 0 },
+      file: { name: "README.md" },
+      attach: false,
+    });
+    const frames = result.items.filter((i) => i.type === "frame");
+    return {
+      frames: frames.map((f) => f.text),
+      headings: result.items
+        .filter((i) => i.type === "text")
+        .map((i) => [frames.find((f) => f.id === i.parentId).text, i.text]),
+    };
+  };
+  assert.deepEqual(
+    await layout(
+      "# Project Atlas\n\nShort intro.\n\n## Goals\n\n- Ship v1\n\n## Risks\n\n### Hiring\n\n- Slow\n\n## Timeline\n",
+    ),
+    {
+      frames: ["README", "Goals", "Risks", "Timeline"],
+      headings: [
+        ["README", "Project Atlas"],
+        ["Risks", "Hiring"],
+      ],
+    },
+  );
+  // A lone heading with nothing deeper, or below other text, is a frame.
+  assert.deepEqual((await layout("# Atlas\n\nIntro")).frames, ["Atlas"]);
+  assert.deepEqual(
+    (await layout("Intro\n\n# Atlas\n\n## Goals\n\nShip")).frames,
+    ["README", "Atlas"],
+  );
+});
+
 test("an attached document's long name is cut between characters, not inside an emoji", async () => {
   const model = parseText("One idea");
   const name = `${"n".repeat(254)}😀 tail`;

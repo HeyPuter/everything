@@ -388,14 +388,32 @@ export async function layoutDocument(model, options) {
   } else if (model.kind === "document") {
     // The highest heading level present starts frames; deeper headings stay
     // inside as bold text. A document title (level 0) above its sections
-    // stays as text, so the sections still become frames.
+    // stays as text, so the sections still become frames. A heading that
+    // opens the document and is the only one at its level, as a Markdown
+    // file's # title is, is a title too, so the level below forms frames.
     // A loop, not a spread: a long document can hold more headings than a
     // call can take arguments.
     let top = Infinity,
+      next = Infinity,
+      tops = 0,
       titled = false;
     for (const x of model.blocks)
-      if (x.type === "heading" && x.level === 0) titled = true;
-      else if (x.type === "heading" && x.level < top) top = x.level;
+      if (x.type !== "heading") continue;
+      else if (x.level === 0) titled = true;
+      else if (x.level < top) {
+        next = top;
+        top = x.level;
+        tops = 1;
+      } else if (x.level === top) tops++;
+      else if (x.level < next) next = x.level;
+    const [lead] = model.blocks;
+    if (
+      tops === 1 &&
+      next < Infinity &&
+      lead?.type === "heading" &&
+      lead.level === top
+    )
+      top = next;
     if (top === Infinity && titled) top = 0;
     let section = { title, units: attach ? [unit(attach, true)] : [] };
     const sections = [section];
