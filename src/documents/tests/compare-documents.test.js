@@ -113,6 +113,26 @@ describe('compare documents', () => {
     expect(changes(model)).toEqual([['del', 'C\nD\n']]);
   });
 
+  it('accepts to the revised text and rejects to the original when the last paragraphs change', async () => {
+    const cases = [[['Intro', 'Middle part', 'Old ending'], ['Intro text']], [['Intro', 'First old', 'Second old'], ['Intro', 'Brand new closing words']],
+      [['Intro'], ['Intro', 'New one', 'New two']], [['Intro', 'Old one', 'Old two'], ['Intro']], [['Intro', 'Old'], ['Intro', 'New one', 'New two']]];
+    // Seeded random documents whose paragraphs, the last ones included, are kept, rewritten, added or removed.
+    let seed = 7;
+    const random = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32;
+    const words = ['alpha', 'beta', 'gamma', 'delta', 'kept line', 'Intro'];
+    const make = () => Array.from({ length: 1 + Math.floor(random() * 4) }, () => words[Math.floor(random() * words.length)] + (random() < 0.5 ? '' : ' end'));
+    for (let n = 0; n < 40; n++) cases.push([make(), make()]);
+    for (const [original, revised] of cases) {
+      const { result, revised: pkg } = await compare(original.map(t => p(t)).join(''), revised.map(t => p(t)).join(''));
+      const bytes = new Uint8Array(await pkg.export(result.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, result.tables, pkg.assets).arrayBuffer());
+      for (const accept of [true, false]) {
+        const reopened = await open(bytes), model = new TextDocument(reopened.paragraphs, reopened.pageSettings, reopened.numbering, reopened.styles, reopened.tables, reopened.assets);
+        model.resolveRevisions(accept);
+        expect(model.text, `${accept ? 'accept' : 'reject'} ${JSON.stringify([original, revised])}`).toBe((accept ? revised : original).join('\n'));
+      }
+    }
+  });
+
   it('round-trips the comparison through DOCX with valid revision markup', async () => {
     const { result, revised } = await compare(p('Keep this line.') + p('Old ending.'), p('Keep this line!') + p('New ending.') + p('Added.'));
     const blob = revised.export(result.paragraphs, revised.pageSettings, revised.numbering, revised.styles, result.tables, revised.assets);
@@ -140,8 +160,12 @@ describe('combine documents', () => {
     const result = mergeDocuments({ paragraphs: original.paragraphs, tables: original.tables }, { paragraphs: copy.paragraphs, tables: copy.tables }, { mode: 'combine', author: 'Copy author' });
     const model = new TextDocument(result.paragraphs, original.pageSettings, original.numbering, original.styles, result.tables, original.assets);
     expect(finalText(model.paragraphs[0])).toBe('Shared start, extended.');
-    expect(changes(model)).toEqual([['ins', ', extended'], ['del', 'Removed later.\n'], ['ins', 'Tracked by Bea.']]);
+    // The removed last paragraph and Bea's added one share the final mark, which is never a change.
+    expect(changes(model)).toEqual([['ins', ', extended'], ['del', 'Removed later.'], ['ins', 'Tracked by Bea.']]);
     expect(model.revisions.map(r => r.author)).toEqual(['Copy author', 'Copy author', 'Bea']);
+    const resolved = accept => { const m = new TextDocument(structuredClone(result.paragraphs), original.pageSettings, original.numbering, original.styles, result.tables, original.assets); m.resolveRevisions(accept); return m.text; };
+    expect(resolved(true)).toBe('Shared start, extended.\nTracked by Bea.');
+    expect(resolved(false)).toBe('Shared start.\nRemoved later.');
   });
 });
 

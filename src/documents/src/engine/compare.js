@@ -385,15 +385,28 @@ export function mergeDocuments(base, other, { mode = 'compare', author = 'Author
   };
   const baseTree = documentBlocks(base.paragraphs, base.tables), otherTree = documentBlocks(other.paragraphs, other.tables);
   walkScope(baseTree, otherTree, null);
-  // The mark that ends a cell or the document is never a tracked change: a whole paragraph
-  // added or removed at the end of its region carries its change on the mark before it.
+  // The mark that ends a cell or the document is never a tracked change. Whole paragraphs added or
+  // removed at the end of their region carry the change on the mark before them instead: the mark of the
+  // paragraph before the run, or, when that paragraph is itself wholly removed (added), the run's first
+  // paragraph joins it so that one mark ends both versions.
+  const sameRegion = (a, b) => (a.cellId || null) === (b.cellId || null);
   for (let i = 0; i < out.length; i++) {
     const p = out[i], next = out[i + 1];
-    if (next && (next.cellId || null) === (p.cellId || null)) continue;
-    if (p.markRevision) {
-      const previous = out[i - 1];
-      if (p.whole && previous && (previous.cellId || null) === (p.cellId || null) && !previous.markRevision) previous.markRevision = { ...p.markRevision };
-      delete p.markRevision;
+    if (next && sameRegion(next, p)) continue;
+    if (!p.markRevision) continue;
+    const change = p.markRevision;
+    delete p.markRevision;
+    if (!p.whole) continue;
+    let first = i;
+    while (first > 0 && sameRegion(out[first - 1], p) && out[first - 1].whole && out[first - 1].markRevision?.type === change.type) first--;
+    const before = first > 0 && sameRegion(out[first - 1], p) ? out[first - 1] : null;
+    if (!before) continue;
+    if (!before.markRevision) before.markRevision = { ...change };
+    else if (before.whole && before.markRevision.type !== change.type) {
+      const joined = out[first];
+      before.runs = [...before.runs, ...joined.runs];
+      if (first === i) delete before.markRevision; else before.markRevision = joined.markRevision;
+      out.splice(first, 1); i--;
     }
   }
   for (const p of out) delete p.whole;
