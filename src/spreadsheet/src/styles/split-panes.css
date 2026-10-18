@@ -31,6 +31,8 @@
 .grid.split-panes .freeze-bar,
 .grid.split-panes .frz-rows::after,
 .grid.split-panes .frz-cols::after,
+.grid.split-panes .frz-corner::after,
+.grid.split-panes .frz-corner::before,
 .grid.split-panes .grid-rowhead-frozen::after,
 .grid.split-panes .grid-colhead-frozen::after { display: none; }
 

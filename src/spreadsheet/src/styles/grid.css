@@ -695,8 +695,9 @@
 /* A frozen cell's editor is hosted by the grid, outside the pane's clip, at the cell's place on the screen; it paints over the panes, as the popovers do. */
 .grid > .grid-editor { z-index: 6; }
 
-/* The boundary between frozen and scrolling content, visible at 3:1 or better in both themes */
-.frz-rows::after, .grid-rowhead-frozen::after {
+/* The boundary between frozen and scrolling content, visible at 3:1 or better in both themes. The frozen
+   corner lies over both bands' ends, so it draws their two lines along its own edges. */
+.frz-rows::after, .frz-corner::after, .grid-rowhead-frozen::after {
   content: "";
   position: absolute;
   left: 0;
@@ -707,7 +708,7 @@
   opacity: 0.8;
 }
 
-.frz-cols::after, .grid-colhead-frozen::after {
+.frz-cols::after, .frz-corner::before, .grid-colhead-frozen::after {
   content: "";
   position: absolute;
   top: 0;
@@ -717,6 +718,7 @@
   background: var(--ink-3);
   opacity: 0.8;
 }
+.frz-corner::before { z-index: 1; } /* over the cells, which the corner's ::before would otherwise lie under */
 
 .grid-colhead-frozen,
 .grid-rowhead-frozen {
@@ -985,7 +987,7 @@
   .find-hl.current { border-width: 3px; }
   .hcell.sel { background: Highlight; color: HighlightText; border-color: Highlight; }
   .hcell.hl { outline: 2px solid Highlight; outline-offset: -3px; }
-  .freeze-bar, .outline-line, .frz-rows::after, .frz-cols::after, .grid-rowhead-frozen::after, .grid-colhead-frozen::after { background: CanvasText; opacity: 1; }
+  .freeze-bar, .outline-line, .frz-rows::after, .frz-cols::after, .frz-corner::after, .frz-corner::before, .grid-rowhead-frozen::after, .grid-colhead-frozen::after { background: CanvasText; opacity: 1; }
   .freeze-bar.dragging { background: Highlight; }
   .resize-guide { background: Highlight; }
   .resize-guide.move-no { background: GrayText; opacity: 1; }
