@@ -72,7 +72,33 @@ export const paragraph = (text = '', extra = {}) => ({
   id: `p${++nextId}`, runs: text ? [{ text, ...RUN_FORMAT, properties: '', overrides: {} }] : [], ...extra,
 });
 export const paragraphText = p => p.runs.map(r => r.text).join('');
+/** A paragraph's text length, without joining its runs. */
+export const paragraphLength = p => { let n = 0; for (const r of p.runs) n += r.text.length; return n; };
 export const documentText = paragraphs => paragraphs.map(paragraphText).join('\n');
+// A model's text is asked for by every selection and command; joining a long document each time made
+// batches of commands (a formatted paste or import) quadratic. Each paragraph's text is kept with the run
+// texts it was joined from, and the document's with its paragraphs' texts; comparing them confirms the
+// cached text without joining, and only paragraphs whose runs changed are joined again.
+const paragraphTexts = new WeakMap(), documentTexts = new WeakMap();
+function cachedParagraphText(p) {
+  const cache = paragraphTexts.get(p), runs = p.runs;
+  if (cache && cache.runs.length === runs.length) {
+    let same = true;
+    for (let i = 0; i < runs.length && same; i++) same = runs[i].text === cache.runs[i];
+    if (same) return cache.text;
+  }
+  const text = paragraphText(p);
+  paragraphTexts.set(p, { runs: runs.map(r => r.text), text });
+  return text;
+}
+function cachedDocumentText(model) {
+  const paragraphs = model.paragraphs, cache = documentTexts.get(model);
+  const texts = paragraphs.map(cachedParagraphText);
+  if (cache && cache.texts.length === texts.length && texts.every((text, i) => text === cache.texts[i])) return cache.text;
+  const text = texts.join('\n');
+  documentTexts.set(model, { texts, text });
+  return text;
+}
 const copy = value => structuredClone(value);
 const blockPrompt = control => control.placeholderParagraphs || [control.placeholderRuns || [{ ...copy(control.inputRun), text: '     ' }]];
 // Paragraph separators and prompt runs are restored, with the surviving final
@@ -203,7 +229,7 @@ export function locate(paragraphs, position) {
   // Clamp within the walk; joining the whole document text made every lookup allocate it.
   let offset = Math.max(0, position);
   for (let index = 0; index < paragraphs.length; index++) {
-    const length = paragraphText(paragraphs[index]).length;
+    const length = paragraphLength(paragraphs[index]);
     if (offset <= length || index === paragraphs.length - 1) return { index, offset: Math.min(offset, length) };
     offset -= length + 1;
   }
@@ -308,7 +334,7 @@ export class TextDocument {
     const block = this.hasBlockControls ? blockControlGroups(this.paragraphs).filter(r => r.control.placeholder && position >= r.start && (position < r.end || r.start === r.end && position === r.start)).at(-1) : undefined;
     return block ? { ...block, paragraph: block.paragraphs[0], localStart: 0, runs: block.paragraphs.flatMap(p => p.runs) } : undefined;
   }
-  get text() { return documentText(this.paragraphs); }
+  get text() { return cachedDocumentText(this); }
   get sectionPageSettings() {
     for (let i = locate(this.paragraphs, this.range[0]).index; i < this.paragraphs.length; i++) {
       if (this.paragraphs[i].sectionEnd) return this.paragraphs[i].sectionEnd;
@@ -556,7 +582,7 @@ export class TextDocument {
     if (this.range[0] === this.range[1] && p.list && !paragraphText(p)) {
       this.checkpoint(); p.list = null; p.listChanged = true; this.didChange(); return true;
     }
-    const at = locate(this.paragraphs, this.range[0]), atEnd = this.range[0] === this.range[1] && at.offset === paragraphText(p).length;
+    const at = locate(this.paragraphs, this.range[0]), atEnd = this.range[0] === this.range[1] && at.offset === paragraphLength(p);
     const next = this.styles.definitions[effectiveStyleId(p, this.styles)]?.next;
     const changed = this.replace('\n');
     if (changed && atEnd && this.styles.definitions[next]?.type === 'paragraph') {
@@ -627,7 +653,7 @@ export class TextDocument {
   sectionRange(index) {
     let start = 0, at = 0, section = 0;
     for (const p of this.paragraphs) {
-      const length = paragraphText(p).length;
+      const length = paragraphLength(p);
       if (section === index && p.sectionEnd) return { start, end: at + length + 1 };
       at += length + 1;
       if (p.sectionEnd) { section++; if (section === index) start = at; }
@@ -697,7 +723,7 @@ export class TextDocument {
     const whole = normalized.left === 0 && normalized.right === table.grid.length, lastCell = whole ? placements.at(-1).cell : first.cell;
     const index = this.paragraphs.findIndex(p => p.cellId === first.cell.id);
     const last = this.paragraphs.findLastIndex(p => p.cellId === lastCell.id);
-    this.select(this.paragraphOffset(index), this.paragraphOffset(last) + paragraphText(this.paragraphs[last]).length);
+    this.select(this.paragraphOffset(index), this.paragraphOffset(last) + paragraphLength(this.paragraphs[last]));
     this.cellBlock = { tableId: table.id, top: normalized.top, bottom: normalized.bottom, left: normalized.left, right: normalized.right };
     return true;
   }
@@ -716,7 +742,7 @@ export class TextDocument {
       for (const { cell } of cellBlockPlacements(block.table, block)) {
         const first = this.paragraphs.findIndex(p => p.cellId === cell.id), last = this.paragraphs.findLastIndex(p => p.cellId === cell.id);
         if (first < 0) continue;
-        this.select(this.paragraphOffset(first), this.paragraphOffset(last) + paragraphText(this.paragraphs[last]).length);
+        this.select(this.paragraphOffset(first), this.paragraphOffset(last) + paragraphLength(this.paragraphs[last]));
         if (fn()) changed = true;
       }
     } finally { this.inBlockCellPass = false; this.selection = selection; this.cellBlock = saved; }
@@ -997,7 +1023,7 @@ export class TextDocument {
     this.checkpoint(); for (const row of changed) { row.header = table.rows.indexOf(row) < count; row.headerChanged = true; }
     refreshTableStyles(this, table); this.didChange(); return true;
   }
-  paragraphOffset(index) { return this.paragraphs.slice(0, index).reduce((n, p) => n + paragraphText(p).length + 1, 0); }
+  paragraphOffset(index) { return this.paragraphs.slice(0, index).reduce((n, p) => n + paragraphLength(p) + 1, 0); }
   selectCell(id) {
     const index = this.paragraphs.findIndex(p => p.cellId === id);
     if (index < 0) return false;
@@ -1151,7 +1177,7 @@ export class TextDocument {
     const removedPictureControls = this.hasPictureControls ? new Set(contentControlRanges(this.paragraphs).filter(r => r.control.picture && start <= r.start && end >= r.end && (start < r.start || end > r.end)).map(r => r.control.id)) : undefined;
     for (let i = 0; i < this.paragraphs.length;) {
       const cell = this.paragraphs[i].cellId || '', from = at;
-      do { at += paragraphText(this.paragraphs[i]).length + 1; i++; } while (i < this.paragraphs.length && (this.paragraphs[i].cellId || '') === cell);
+      do { at += paragraphLength(this.paragraphs[i]) + 1; i++; } while (i < this.paragraphs.length && (this.paragraphs[i].cellId || '') === cell);
       if (end >= from && start <= at - 1) groups.push([Math.max(start, from), Math.min(end, at - 1)]);
     }
     if (!text && !groups.some(([a,b]) => b > a)) return false;
@@ -1410,7 +1436,7 @@ export class TextDocument {
     if(this.hasHyperlinkFields)unwrapEditedFieldHyperlinks(this.paragraphs,bodyFieldRanges(this.paragraphs),start,end);
     let at = 0;
     for (const p of this.paragraphs) {
-      const length = paragraphText(p).length, a = Math.max(0, start - at), b = Math.min(length, end - at);
+      const length = paragraphLength(p), a = Math.max(0, start - at), b = Math.min(length, end - at);
       if (b > a) p.runs = normalize([...sliceRuns(p.runs, 0, a), ...sliceRuns(p.runs, a, b).map(r => {
         const next = { ...r };
         if (r.image?.hyperlink || r.image?.hyperlinkChanged) {
@@ -1458,7 +1484,7 @@ export class TextDocument {
     }
     const paragraphs = copy(this.paragraphs); let at = 0;
     for (const p of paragraphs) {
-      const length = paragraphText(p).length, a = Math.max(0, start - at), b = Math.min(length, end - at);
+      const length = paragraphLength(p), a = Math.max(0, start - at), b = Math.min(length, end - at);
       const mark = at + length >= start && at + length < end || start === end && at === start && !length;
       if (a < b) p.runs = normalize([
         ...sliceRuns(p.runs, 0, a),
@@ -1615,7 +1641,7 @@ export class TextDocument {
     }
     let at = 0, changed = false;
     const paragraphs = this.paragraphs.map(p => {
-      const length = paragraphText(p).length, a = Math.max(0, start - at), b = Math.min(length, end - at);
+      const length = paragraphLength(p), a = Math.max(0, start - at), b = Math.min(length, end - at);
       const mark = at + length >= start && at + length < end || start === end && at === start && !length;
       at += length + 1;
       const runs = a < b ? sliceRuns(p.runs, a, b) : [];
@@ -1693,7 +1719,7 @@ export class TextDocument {
     this.checkpoint();
     let at = 0;
     for (const p of this.paragraphs) {
-      const length = paragraphText(p).length;
+      const length = paragraphLength(p);
       const a = Math.max(0, start - at), b = Math.min(length, end - at);
       if (a < b) p.runs = normalize([
         ...sliceRuns(p.runs, 0, a),
@@ -1783,7 +1809,7 @@ export class TextDocument {
       const edits = byParagraph.get(index); if (!edits) return p;
       if (edits[0].blockPrompt) {
         const restored = restoredBlockParagraphs(p, edits[0].blockPrompt);
-        replaceBookmarkMarkers([p], restored, 0, paragraphText(p).length, edits[0].insertedLength);
+        replaceBookmarkMarkers([p], restored, 0, paragraphLength(p), edits[0].insertedLength);
         if (this.stylesEnabled) for (const item of restored) resolveStyledParagraph(item, this.styles, this.numbering);
         return restored;
       }
@@ -2161,8 +2187,8 @@ export class TextDocument {
       if (blockBoundary.side === 'start' ? end > blockBoundary.start : start < blockBoundary.end || text) control.placeholder = false;
       if (boundaryPrompt) control.placeholder = true;
       const p = blockBoundary.side === 'start' ? replacements.at(-1) : replacements[0];
-      const from = blockBoundary.side === 'start' ? paragraphText(p).length - (paragraphText(last).length - b.offset) - boundaryPromptText.length : 0;
-      const to = blockBoundary.side === 'start' ? paragraphText(p).length : a.offset + lines[0].length;
+      const from = blockBoundary.side === 'start' ? paragraphLength(p) - (paragraphLength(last) - b.offset) - boundaryPromptText.length : 0;
+      const to = blockBoundary.side === 'start' ? paragraphLength(p) : a.offset + lines[0].length;
       const contents = boundaryPrompt ? boundaryPrompt.map(r => ({ ...copy(r), contentControl: control })) : from === to ? [{ ...copy(control.inputRun), text: '', contentControl: control }] : sliceRuns(p.runs, from, to).map(r => ({ ...r, contentControl: control }));
       p.runs = normalize([...sliceRuns(p.runs, 0, from), ...contents, ...sliceRuns(p.runs, to)]);
       for (const replacement of replacements) {
@@ -2258,7 +2284,7 @@ export class TextDocument {
     const target = points[at + direction];
     if (target === undefined) return false;
     const other = this.paragraphs[locate(this.paragraphs, target).index];
-    if (direction < 0 && location.offset === 0 && p.cellId && !other.cellId && other.sectionEnd && paragraphText(other).length) {
+    if (direction < 0 && location.offset === 0 && p.cellId && !other.cellId && other.sectionEnd && paragraphLength(other)) {
       // Backspace skips the section mark before the first table cell,
       // consuming the preceding body's last grapheme while retaining the break.
       // Validate the body replacement before committing history, so fields and
