@@ -1446,7 +1446,8 @@ nav + .workspace-label {
   max-width: calc(100% - 24px);
   box-shadow: 0 6px 22px #0002;
 }
-.selection-tools.is-interacting {
+.selection-tools.is-interacting,
+.selection-tools.is-floating.is-away {
   visibility: hidden;
 }
 /* 24 px, the smallest target a pointer finds reliably (WCAG 2.5.8). */

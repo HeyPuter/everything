@@ -20895,6 +20895,33 @@ test("pressing an object keeps its toolbar where it settles once released", asyn
   }
 });
 
+test("the floating toolbar goes with a selection panned out of view and comes back with it", async () => {
+  const app = await setup();
+  try {
+    const { canvas } = await rotationFixture(app, [
+      item("rect", 0, 0, { w: 200, h: 100 }),
+    ]);
+    const panel = app.doc.querySelector("#selection-tools");
+    const pan = async (deltaX) => {
+      for (let n = 0; n < 10; n++)
+        canvas.dispatchEvent(
+          new app.w.WheelEvent("wheel", { deltaX, bubbles: true }),
+        );
+      await app.tick();
+    };
+    assert.ok(panel.classList.contains("is-floating"));
+    assert.ok(!panel.classList.contains("is-away"));
+    await pan(200);
+    assert.ok(renderedView(app).x < -1000, "The board moved left");
+    assert.equal(panel.hidden, false, "The object is still selected");
+    assert.ok(panel.classList.contains("is-away"), "Its toolbar is not shown");
+    await pan(-200);
+    assert.ok(!panel.classList.contains("is-away"));
+  } finally {
+    await app.close();
+  }
+});
+
 test("a picked fill applies when the picker closes on a press elsewhere on the board", async () => {
   const app = await setup();
   const { doc, w } = app;

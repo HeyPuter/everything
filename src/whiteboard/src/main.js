@@ -6151,6 +6151,7 @@ function placeSelectionTools(panel, box) {
   panel.classList.toggle("is-floating", floating);
   panel._anchor = floating ? box : null;
   if (!floating) {
+    panel.classList.remove("is-away");
     panel.style.transform = "";
     panel.style.maxWidth = "";
     return;
@@ -6171,6 +6172,13 @@ function placeSelectionTools(panel, box) {
   let top = view.y + visual.y * view.z;
   for (const label of shownFrameLabels())
     if (selection.has(label.id)) top = Math.min(top, label.y);
+  // A selection panned out of view takes its toolbar with it, unless the
+  // keyboard is in the toolbar.
+  panel.classList.toggle(
+    "is-away",
+    (right < 0 || left > rect.width || bottom < 0 || top > rect.height) &&
+      !panel.contains(document.activeElement),
+  );
   const margin = 12;
   const rail = document.querySelector(".canvas-wrap .left-rail");
   const railRect = rail?.getBoundingClientRect();
