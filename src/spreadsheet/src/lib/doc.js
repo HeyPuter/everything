@@ -969,6 +969,8 @@ export class Doc extends EventTarget {
     clearTimeout(this._timer);
     this._sharedFileDue = false;
     await client.flush();
+    // What others sent since this browser last asked goes in too: the file is the room's latest, not this copy's.
+    await client.sync().catch(() => {});
     await client.settled();
     if (client.replica.pending.length) {
       this._sharedChanged('room');
