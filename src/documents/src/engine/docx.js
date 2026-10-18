@@ -2197,7 +2197,10 @@ export class DocxPackage {
       });
     }
     if (this.hasPlainTextControls) blocks = documentBlocks(paragraphs, tables);
-    if (!section && (!this.originals.size || JSON.stringify(withoutHyphenation(pageSettings)) !== JSON.stringify(withoutHyphenation(this.initialPageSettings)))) { section = make('sectPr'); body.append(section); }
+    // A body without its final section properties gets them when there is something to record there: changed
+    // page settings, or a header, footer, different first page or page numbering added since it was opened.
+    if (!section && (!this.originals.size || JSON.stringify(withoutHyphenation(pageSettings)) !== JSON.stringify(withoutHyphenation(this.initialPageSettings))
+      || this.createdStories.length || this.titlePages.size || this.pageNumberings.size)) { section = make('sectPr'); body.append(section); }
     // Sections keep their source properties; a new section break copies those of the section it splits.
     const sourceSections = new Map(this.paragraphs.filter(p => p.sectionEnd).map(p => [p.sectionProperties, p.sectionEnd]));
     const finalSource = { xml: section && this.originals.size ? serializeFragment(section) : null, settings: this.initialPageSettings };
