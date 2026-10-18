@@ -3805,8 +3805,10 @@ export function createGrid(opts) {
   let pressMenu = false; // the touch still down opened the cell menu: its release is not a tap
   let autoScroll = 0;
 
+  let autoScrollAt = null; // { e, rect, left, top, dx, dy }: the pointer the running autoscroll follows
   function stopAutoScroll() {
     if (autoScroll) { clearInterval(autoScroll); autoScroll = 0; }
+    autoScrollAt = null;
   }
 
   let captured = null; // { el, id }: the pointer a drag holds, let go when the drag is cancelled
@@ -4139,14 +4141,20 @@ export function createGrid(opts) {
     let dy = e.clientY < top ? -1 : e.clientY > rect.bottom ? 1 : 0;
     if (drag?.kind === 'colsel' || drag?.lines === 'col') dy = 0;
     if (drag?.kind === 'rowsel' || drag?.lines === 'row') dx = 0;
+    // The pointer moving on outside the view keeps the scroll going: restarting the timer on every
+    // move held it off for as long as the pointer moved, so the sheet scrolled only once it stood still.
+    const next = { e, rect, left, top, dx, dy };
+    if (autoScroll && autoScrollAt?.dx === dx && autoScrollAt?.dy === dy) { autoScrollAt = next; return; }
     stopAutoScroll();
     if (dx || dy) {
+      autoScrollAt = next;
       autoScroll = setInterval(() => {
-        viewport.scrollBy(dx * 24, dy * 24);
+        const at = autoScrollAt;
+        viewport.scrollBy(at.dx * 24, at.dy * 24);
         if (!drag) return;
         // The selection, and a move, fill or table preview, follow the cell now under the pointer.
-        const { r, c } = dragCellAt(clamp(e.clientX, left + 1, rect.right - 1), clamp(e.clientY, top + 1, rect.bottom - 1));
-        dragTo(r, c, e);
+        const { r, c } = dragCellAt(clamp(at.e.clientX, at.left + 1, at.rect.right - 1), clamp(at.e.clientY, at.top + 1, at.rect.bottom - 1));
+        dragTo(r, c, at.e);
       }, 50);
     }
   }
