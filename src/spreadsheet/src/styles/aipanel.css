@@ -2,7 +2,9 @@
 
 /* The sheet's column (menu bar to status bar) and the assistant beside it, from under the title row down. */
 .editor-body { flex: 1; min-height: 0; display: flex; }
-.editor-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+/* The column is a size container: the status bar lays itself out by the column's width, which the assistant or a
+   pane beside it can make phone-narrow on a tablet-wide window (see editor.css). */
+.editor-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; container: sheet-column / inline-size; }
 
 .ai-panel {
   --ai-w: 380px;

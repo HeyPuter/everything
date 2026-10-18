@@ -602,11 +602,13 @@
   .tab-menu-btn::after, .zoom-btn::after { width: max(100%, 32px); }
 }
 
-@media (max-width: 900px) {
+/* By the sheet's column, not the window: with the assistant open beside the sheet on a 768px tablet the column
+   is about 390px wide, and the bar laid out for the window pushed the zoom controls out past its edge. */
+@container sheet-column (max-width: 900px) {
   .status-extra { display: none; }
 }
 
-@media (max-width: 640px) {
+@container sheet-column (max-width: 640px) {
   .status-right { display: none; }
 }
 
@@ -1013,7 +1015,7 @@
 .status-views { display: flex; align-items: center; gap: 2px; flex: none; }
 .status-view[aria-pressed="true"] { background: var(--surface-2); color: var(--ink); }
 .status-view:disabled { opacity: 0.35; cursor: default; }
-@media (max-width: 640px) { .status-views, .status-mode { display: none; } }
+@container sheet-column (max-width: 640px) { .status-views, .status-mode { display: none; } }
 
 /* Dragging a sheet tab: a bar marks where it will land; the pointer shows a copy while Ctrl or Option is held. */
 .sheet-tabs .tab-list { position: relative; }

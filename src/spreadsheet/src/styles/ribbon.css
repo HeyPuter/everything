@@ -69,7 +69,7 @@
 @media (hover: hover) { .ribbon-scroll:hover:not([aria-disabled="true"]) { background: var(--surface-3); } }
 @media (pointer: coarse) { .ribbon-scroll { width: 44px; height: 44px; } }
 
-@media (max-width: 640px) { .status-right-wrap { flex: none; } }
+@container sheet-column (max-width: 640px) { .status-right-wrap { flex: none; } }
 @media (pointer: coarse) { .zoom-slider { min-height: 40px; } }
 
 /* Contextual table controls use the app's table palettes and drawn samples. */
