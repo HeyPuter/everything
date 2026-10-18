@@ -11201,7 +11201,15 @@ async function shareBoard() {
         seed.commit(prepared);
         await staging.request("create", { update: encode(seed.update()) });
         try {
-          await staging.uploadAssets();
+          // A board with more pictures than a person may add in a minute
+          // waits for the rest to go up.
+          await staging.uploadEveryAsset((count) =>
+            progress.step(
+              t(
+                "Uploading images · {count} left, waiting for the board's server…",
+              ).replace("{count}", count),
+            ),
+          );
         } catch (error) {
           // Without its files the shared copy cannot be used, and trying
           // again creates another, so this one goes to the trash.
@@ -11211,6 +11219,10 @@ async function shareBoard() {
         if (prepared.comments) target.comments = prepared.comments;
         if (prepared.workshop) target.workshop = prepared.workshop;
         target.tags = prepared.tags;
+      } catch (error) {
+        // The images kept on this device for that copy belong to no board.
+        await local.collaborationClear(staging.scope).catch(() => {});
+        throw error;
       } finally {
         seed.destroy();
         staging.shared.destroy();

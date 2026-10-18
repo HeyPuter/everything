@@ -66,7 +66,9 @@ export function createMigrationHost({
         update: encode(seed.update()),
         source: "miro",
       });
-      await staging.uploadAssets();
+      // A board with more pictures than a person may add in a minute waits
+      // for the rest to go up.
+      await staging.uploadEveryAsset();
     } finally {
       seed.destroy();
       staging.shared.destroy();

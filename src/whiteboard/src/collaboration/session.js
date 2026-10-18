@@ -134,6 +134,8 @@ export class CollaborationSession {
     this.assetDownloads = new Map();
     this.assetIds = new Map();
     this.pendingAssets = new Set();
+    // How long to wait once the worker refuses more files this minute.
+    this.assetWait = 61_000;
     this.pending = new Map();
     this.people = new Map();
     this.views = new Map();
@@ -720,6 +722,24 @@ export class CollaborationSession {
       // wrong with the connection; the rest go up when the worker allows.
       failed.uploadsWait = true;
     if (failed) throw failed;
+  }
+  // Every waiting file, however many, as when a board is first shared with
+  // all its pictures: past what a person may add to a board in a minute
+  // (see uploadAssets), the rest go up once the worker's minute is over.
+  // `waiting` is told how many are left each time.
+  async uploadEveryAsset(waiting = () => {}) {
+    for (let stalled = 0; ;) {
+      const left = this.pendingAssets.size;
+      try {
+        return await this.uploadAssets();
+      } catch (error) {
+        // Refused again with nothing gone up, the wait is not the reason.
+        stalled = this.pendingAssets.size < left ? 0 : stalled + 1;
+        if (!error.uploadsWait || this.closed || stalled > 1) throw error;
+        waiting(this.pendingAssets.size);
+        await new Promise((resolve) => setTimeout(resolve, this.assetWait));
+      }
+    }
   }
   async uploadAsset(asset) {
     try {

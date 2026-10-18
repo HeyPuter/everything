@@ -970,6 +970,8 @@ const pairs = {
     "Tableau partagé injoignable. Il reste en lecture seule jusqu’à la reconnexion.",
   "Setting up sharing…": "Configuration du partage…",
   "Uploading the board…": "Envoi du tableau…",
+  "Uploading images · {count} left, waiting for the board's server…":
+    "Envoi des images · encore {count}, en attente du serveur du tableau…",
   "This can take a few seconds. You can close this and look around; editing resumes once sharing is ready.":
     "Cela peut prendre quelques secondes. Vous pouvez fermer cette fenêtre et explorer le tableau ; la modification reprendra une fois le partage prêt.",
   "Sharing is ready. Select Share board to invite people.":

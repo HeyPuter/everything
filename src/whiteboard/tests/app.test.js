@@ -48287,6 +48287,116 @@ test("sharing a personal board asks first, and cancelling leaves it personal", a
   }
 });
 
+test("sharing a board with more images than a person may add a minute waits for the rest, and a failed share leaves nothing staged", async () => {
+  const env = environment(),
+    puter = env.sdk(owner),
+    build = "faceb00cfaceb00c";
+  await puter.fs.write("whiteboard/catalog.json", "[]");
+  await puter.kv.set("whiteboard-collaboration-worker-v1", {
+    name: "whiteboard-test",
+    server: "https://whiteboard-test.puter.work",
+    path: "whiteboard/whiteboard-worker.js",
+    build,
+    builtAt: 200,
+  });
+  let failUploads = true;
+  const exec = puter.workers.exec;
+  puter.workers.exec = (url, options) =>
+    url.endsWith("/health")
+      ? Promise.resolve(Response.json({ build }))
+      : failUploads &&
+          options?.body &&
+          JSON.parse(options.body).op === "asset.put"
+        ? Promise.resolve(
+            Response.json({ message: "Worker unavailable" }, { status: 500 }),
+          )
+        : exec(url, options);
+  // The minute the worker asks to wait passes at once.
+  let waits = 0,
+    shown = "";
+  const app = await setup(puter, {
+    prepare(w) {
+      const setTimeout = w.setTimeout;
+      w.setTimeout = (fn, ms, ...rest) => {
+        if (ms !== 61_000) return setTimeout(fn, ms, ...rest);
+        waits++;
+        shown = w.document.querySelector("#share-progress-text").textContent;
+        env.now += 60_000;
+        return setTimeout(fn, 0, ...rest);
+      };
+    },
+  });
+  const { doc, w, click, tick } = app;
+  w.fetch = async () =>
+    new Response(`/* whiteboard-worker build=${build} at=200 */`);
+  const stagedRows = async () => {
+    const database = await new Promise((resolve, reject) => {
+      const request = w.indexedDB.open("whiteboard-v1", 3);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      return await new Promise((resolve, reject) => {
+        const transaction = database.transaction("collaboration", "readonly");
+        const request = transaction.objectStore("collaboration").getAll();
+        transaction.oncomplete = () => resolve(request.result);
+        transaction.onerror = () => reject(transaction.error);
+      });
+    } finally {
+      database.close();
+    }
+  };
+  const images = Array.from({ length: 62 }, (_, n) => {
+    const c = createCanvas(2, 2),
+      ctx = c.getContext("2d");
+    ctx.fillStyle = `rgb(${n}, ${n * 2}, 9)`;
+    ctx.fillRect(0, 0, 2, 2);
+    return item("image", (n % 10) * 50, Math.floor(n / 10) * 50, {
+      w: 40,
+      h: 40,
+      src: c.toDataURL(),
+    });
+  });
+  try {
+    await rotationFixture(app, images);
+    // The worker cannot take the files: the share fails, and the images
+    // kept on this device for it go too.
+    await click('[data-action="share"]');
+    await confirmShare(app);
+    const failed = () =>
+      doc.querySelector("#save-state").textContent ===
+      "Sharing failed · try again";
+    for (let n = 0; n < 200 && !failed(); n++) await tick();
+    assert.ok(failed(), doc.querySelector("#toast").textContent);
+    assert.match(doc.querySelector(".board-tag").textContent, /Personal/);
+    assert.deepEqual(await stagedRows(), [], "Nothing is left staged");
+    failUploads = false;
+    await click('[data-action="share"]');
+    await confirmShare(app);
+    for (let n = 0; n < 400 && !doc.querySelector("#share-link"); n++)
+      await tick();
+    assert.ok(
+      doc.querySelector("#share-link"),
+      doc.querySelector("#toast").textContent,
+    );
+    assert.equal(waits, 1, "It waited once for the worker's minute");
+    assert.equal(
+      shown,
+      "Uploading images · 2 left, waiting for the board's server…",
+    );
+    const room = env.calls.findLast((call) => call.op === "create").room;
+    assert.equal(
+      [...env.files.keys()].filter((path) =>
+        path.startsWith(`whiteboard/shared/${room}/assets/`),
+      ).length,
+      62,
+      "Every image reached the shared board",
+    );
+  } finally {
+    await app.close();
+  }
+});
+
 test("Fit shows a board of any size, zooming out past 15% without drawing unreadable text", async () => {
   const app = await setup();
   const { doc, click } = app;
