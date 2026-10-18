@@ -6572,7 +6572,7 @@ export class Workbook extends EventTarget {
       // that the runs above keep their numbering, as they would under one deletion after another. Their
       // formulas are references and their ranges may run past the sheet's extent: the whole deletion
       // applies (cleared reset and ignored-error records of the line the sheet keeps go with it).
-      for (let i = refLines.runs.length - 1; i >= 0; i--) this._adjustLineRules(sheet.name, axis, refLines.runs[i].from, refLines.runs[i].to - refLines.runs[i].from + 1, true);
+      this._adjustLineRules(sheet.name, axis, null, null, true, refLines);
       if (!lines.count) {
         if (axis === 'row') sheet.rows = DEFAULT_ROWS; else sheet.cols = DEFAULT_COLS;
         this._adjustFormulas(sheet.name, axis, refLines.runs[0].from, refLines.count, true, refLines);
@@ -7010,17 +7010,25 @@ export class Workbook extends EventTarget {
     return landing;
   }
 
-  _adjustLineRules(sheetName, axis, at, count, remove) {
+  /**
+   * `lines`, for a deletion of several runs at once: its deleteMap. Conditional formats and validation rules, which a
+   * file can hold thousands of, are rewritten once for the whole deletion; the rest follows the runs one at a time,
+   * from the bottom up so that the runs above keep their numbering.
+   */
+  _adjustLineRules(sheetName, axis, at, count, remove, lines = null) {
+    const steps = lines ? [...lines.runs].reverse().map((run) => ({ at: run.from, count: run.to - run.from + 1 })) : [{ at, count }];
     for (const sheet of this.sheets) {
-      const options = { ownerSheet: sheet.name, sheetName, axis, at, count, remove,
-        sheetsBetween: (a, b) => this._editedSpan(a, b), newId };
-      if (sameSheetName(sheet.name, sheetName)) {
-        sheet.styleResets = shiftStyleResets(sheet.styleResets, axis, at, count, remove);
-        sheet.ignoredErrors = shiftRangeFlags(sheet.ignoredErrors, axis, at, count, remove);
+      const options = { ownerSheet: sheet.name, sheetName, axis, remove, sheetsBetween: (a, b) => this._editedSpan(a, b), newId };
+      for (const step of steps) {
+        if (sameSheetName(sheet.name, sheetName)) {
+          sheet.styleResets = shiftStyleResets(sheet.styleResets, axis, step.at, step.count, remove);
+          sheet.ignoredErrors = shiftRangeFlags(sheet.ignoredErrors, axis, step.at, step.count, remove);
+        }
+        mapSheetFilters(sheet, f => adjustFilterForEdit(f, { ...options, ...step }));
       }
-      sheet.rules = adjustLineRules(sheet.rules, 'value', options);
-      sheet.validations = adjustLineRules(sheet.validations, 'source', options);
-      mapSheetFilters(sheet, f => adjustFilterForEdit(f, options));
+      const once = lines ? { ...options, lines } : { ...options, at, count };
+      sheet.rules = adjustLineRules(sheet.rules, 'value', once);
+      sheet.validations = adjustLineRules(sheet.validations, 'source', once);
       if (!sheetFilters(sheet).length) sheet.filterHidden = new Set();
     }
   }
