@@ -90,6 +90,7 @@ test('table of contents: gallery, custom options, add text, update and remove', 
 test('footnotes and endnotes: insert, navigate, settings, convert and save', async ({ page }, info) => {
   await openEditor(page);
   await page.keyboard.type('First claim. Second claim.');
+  await expect.poll(() => engineText(page)).toBe('First claim. Second claim.');
   await page.evaluate(() => { const m = window.__docs.current.view.engine.model; m.select(m.text.indexOf('.')); });
   await onTab(page, 'references');
   await ribbon(page).getByRole('button', { name: 'Insert Footnote', exact: true }).click();
@@ -191,6 +192,7 @@ test('Header from Top accepts a distance between the arrow steps', async ({ page
 test('citations, sources and bibliography follow the chosen style', async ({ page }, info) => {
   await openEditor(page);
   await page.keyboard.type('Engines compute.');
+  await expect.poll(() => engineText(page)).toBe('Engines compute.');
   await page.evaluate(() => { const m = window.__docs.current.view.engine.model; m.select(m.text.indexOf('.')); });
   await onTab(page, 'references');
   await ribbon(page).getByRole('button', { name: 'Insert Citation', exact: true }).click();
@@ -307,6 +309,8 @@ test('captions, cross-references and a table of figures', async ({ page }, info)
 test('index entries, the index and a table of authorities', async ({ page }, info) => {
   await openEditor(page);
   await page.keyboard.type('Mercury is hot. Venus is cloudy. Mercury is small. Smith v. Jones, 1 U.S. 1 (1999), decided it.');
+  // Typing settles after the keys are sent; a selection set before then is replaced by the caret.
+  await expect.poll(() => engineText(page)).toBe('Mercury is hot. Venus is cloudy. Mercury is small. Smith v. Jones, 1 U.S. 1 (1999), decided it.');
   await page.evaluate(() => { const m = window.__docs.current.view.engine.model; m.select(0, 7); });
   await onTab(page, 'references');
   await ribbon(page).getByRole('button', { name: 'Mark Entry', exact: true }).click();
@@ -384,6 +388,7 @@ test('a table of authorities for all categories lists them in category order', a
 test('Smart Lookup explains the selection, and the menus offer References commands', async ({ page }) => {
   await openEditor(page);
   await page.keyboard.type('The aphelion of an orbit is far.');
+  await expect.poll(() => engineText(page)).toBe('The aphelion of an orbit is far.');
   await page.evaluate(() => { const m = window.__docs.current.view.engine.model, at = m.text.indexOf('aphelion'); m.select(at + 2); });
   await onTab(page, 'references');
   await ribbon(page).getByRole('button', { name: 'Smart Lookup', exact: true }).click();
