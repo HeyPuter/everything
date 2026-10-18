@@ -166,6 +166,8 @@ addTranslations({
     "Objets au-delà de la limite de 5 000 par tableau",
   "Cells shortened to 2,000 characters":
     "Cellules raccourcies à 2 000 caractères",
+  "Sticky notes shortened to 20,000 characters":
+    "Notes adhésives raccourcies à 20 000 caractères",
   "Rows beyond the imported range": "Lignes hors de la plage importée",
   "Columns beyond the imported range": "Colonnes hors de la plage importée",
   "Rows or columns beyond 1,000 rows and 120 columns":

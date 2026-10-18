@@ -293,7 +293,12 @@ export function createBuilder({
     attachment: (file, bytes) => budget(() => attachment(file, bytes)),
     finish,
     skip,
-    note: (t, c) => budget(() => note(t, ctx, c)),
+    note: (t, c) =>
+      budget(() => {
+        if (String(t ?? "").length > NOTE_TEXT)
+          skip("Sticky notes shortened to 20,000 characters");
+        return note(t, ctx, c);
+      }),
     heading: (t) => budget(() => heading(t, ctx)),
     table: (c) => budget(() => table(c, ctx)),
   };

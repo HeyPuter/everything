@@ -5454,16 +5454,39 @@ test("PDF text joins words broken at a line end and keeps other hyphens", () => 
     ]),
     ["Both pre- and post-war housing is hyphenated here, as is COVID-19 data."],
   );
-  // A dense page of 60,000 lines is joined in one pass, kept to the first
-  // 20,000 characters of the paragraph.
+  // A dense page of 60,000 lines is joined in one pass, and only until the
+  // paragraph passes the 20,000 characters a note keeps.
   const dense = Array.from({ length: 60000 }, (_, n) =>
     line(n % 7 ? `lorem ipsum ${n}` : "hyphen-", 1000 - n / 100),
   );
   const started = performance.now();
   const [paragraph] = pdfParagraphs(dense);
   assert.ok(performance.now() - started < 1000);
-  assert.equal(paragraph.length, 20000);
+  assert.ok(paragraph.length > 20000 && paragraph.length < 20100);
   assert.ok(paragraph.startsWith("hyphenlorem ipsum 1 lorem ipsum 2"));
+});
+
+test("imported text too long for a sticky note is shortened and reported", async () => {
+  const result = await layoutDocument(
+    parseText(`Short\n\n${"x".repeat(30000)}\n\n${"y".repeat(25000)}`),
+    {
+      ctx: measure,
+      point: { x: 0, y: 0 },
+      file: { name: "a.txt" },
+      attach: false,
+    },
+  );
+  assert.deepEqual(
+    result.items.filter((i) => i.type === "note").map((i) => i.text.length),
+    [5, 20000, 20000],
+  );
+  assert.deepEqual(result.skipped, [
+    {
+      reason: "Sticky notes shortened to 20,000 characters",
+      count: 2,
+      detail: "",
+    },
+  ]);
 });
 
 test("PDF paragraphs past forty on a page are reported as skipped", async () => {

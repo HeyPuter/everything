@@ -1,7 +1,6 @@
 // PDF pages to images, with optional text extraction, through an injected
 // pdf.js loader. In the browser the loader is src/content/pdf-loader.js,
 // which loads pdf.js lazily; tests inject the Node build.
-import { truncate } from "../model.js";
 export const PDF_BYTES = 50 * 1024 * 1024;
 export const MAX_PAGES = 50;
 const LONG_SIDE = 1600,
@@ -15,7 +14,8 @@ const LONG_SIDE = 1600,
 // letter, as in "hyphen-" "ation", and with it otherwise, as in "COVID-"
 // "19". Hyphens within a line, as in "pre- and post-war", stay.
 // The paragraph always ends with the line before, so only that line is
-// checked, and joining stops past the 20,000 characters a paragraph keeps.
+// checked, and joining stops past the 20,000 characters a note keeps; the
+// import shortens the note and says so.
 function joinLines(lines) {
   let out = lines[0];
   for (let n = 1; n < lines.length && out.length <= PARAGRAPH; n++) {
@@ -59,7 +59,7 @@ export function pdfParagraphs(items) {
     previous = text ? l : previous;
   }
   if (current.length) paragraphs.push(joinLines(current));
-  return paragraphs.map((p) => truncate(p, PARAGRAPH)).filter(Boolean);
+  return paragraphs;
 }
 
 export async function extractPdf(bytes, options) {
