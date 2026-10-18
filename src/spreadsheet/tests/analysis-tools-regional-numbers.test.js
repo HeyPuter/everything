@@ -87,3 +87,15 @@ it('takes a forecast confidence interval written with a decimal comma', async ()
   expect(sheet.id).not.toBe(id);
   expect(wb.getCell(sheet.id, 13, 3)?.f).toContain(',0.975,');
 });
+
+it('seeks a goal typed with a decimal comma', async () => {
+  const { openGoalSeek } = await import('../src/ui/goalseek.js');
+  const wb = new Workbook();
+  const id = wb.activeSheetId;
+  wb.setCells(id, [{ r: 0, c: 0, cell: { v: 1 } }, { r: 0, c: 1, cell: { v: null, f: 'A1*2' } }]);
+  openGoalSeek({ wb, sheetId: () => id, active: () => ({ r: 0, c: 1 }), grid: { focus: vi.fn(), setSelection: vi.fn() } });
+  field('To value').value = '7,5';
+  submit();
+  expect(error()).toBe('');
+  expect(wb.getValue(id, 0, 0)).toBeCloseTo(3.75, 9);
+});

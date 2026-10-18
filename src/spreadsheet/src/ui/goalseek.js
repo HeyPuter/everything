@@ -7,6 +7,7 @@ import { openModal, fieldAlert } from './modal.js';
 import { toast } from './toast.js';
 import { cellName, parseCellRef } from '../core/cell.js';
 import * as S from '../core/selection.js';
+import { typedNumber } from './typed-number.js';
 
 export function openGoalSeek(ctx) {
   const sheetId = ctx.sheetId();
@@ -19,7 +20,8 @@ export function openGoalSeek(ctx) {
     return cell && cell.f == null && typeof cell.v === 'number';
   });
   const setInput = el('input.input', { type: 'text', 'aria-label': 'Set cell', value: cellName(a.r, a.c), spellcheck: false, autocomplete: 'off' });
-  const toInput = el('input.input', { type: 'number', step: 'any', 'aria-label': 'To value', placeholder: 'Wanted result' });
+  // Typed as a cell takes a number in the regional format (1,5 where the decimal mark is a comma), not as the browser's language reads one.
+  const toInput = el('input.input', { type: 'text', inputmode: 'decimal', 'aria-label': 'To value', placeholder: 'Wanted result', autocomplete: 'off', spellcheck: false });
   const byInput = el('input.input', { type: 'text', 'aria-label': 'By changing cell', value: guess ? cellName(guess.r, guess.c) : '', placeholder: 'e.g. B2', spellcheck: false, autocomplete: 'off' });
   const { alert: error, refuse } = fieldAlert('goal'); // the workbook's own reason for refusing names no field
   const submit = (e) => {
@@ -27,9 +29,10 @@ export function openGoalSeek(ctx) {
     const target = parseCellRef(setInput.value.trim());
     const variable = parseCellRef(byInput.value.trim());
     if (!target) return refuse(setInput, 'Enter the cell to set, like C12');
-    if (toInput.value.trim() === '' || Number.isNaN(Number(toInput.value))) return refuse(toInput, 'Enter the value to reach');
+    const goal = typedNumber(toInput.value);
+    if (goal == null) return refuse(toInput, 'Enter the value to reach');
     if (!variable) return refuse(byInput, 'Enter the cell to change, like B2');
-    const res = wb.goalSeek(sheetId, target, Number(toInput.value), variable);
+    const res = wb.goalSeek(sheetId, target, goal, variable);
     if (!res.ok) return refuse(null, res.reason);
     modal.close();
     ctx.grid.setSelection(S.single(variable.r, variable.c), { scroll: true });
