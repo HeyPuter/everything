@@ -124,3 +124,7 @@ it('never matches across a table boundary, and adds no undo step when nothing is
   expect(cells()).toEqual(before);
 });
 
+it('does not take a paragraph mark for white space to ignore', () => {
+  const { doc } = documentWith(['foo', 'bar', 'foo  bar', 'foo\tbar']);
+  expect(texts(find(doc, 'foo bar', { ignoreWhitespace: true }))).toEqual(['foo  bar', 'foo\tbar']);
+});

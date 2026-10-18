@@ -87,7 +87,8 @@ function wildcardSource(query) {
 
 /** The regular-expression source for an ordinary (non-wildcard) search. */
 function literalSource(query, { ignorePunctuation, ignoreWhitespace }) {
-  const filler = [ignorePunctuation && '\\p{P}', ignoreWhitespace && '\\s'].filter(Boolean);
+  // White space is what \s matches except the paragraph mark, which the option does not ignore in Word either.
+  const filler = [ignorePunctuation && '\\p{P}', ignoreWhitespace && '\\t\\v\\f\\r\\p{Zs}\\u2028\\u2029\\ufeff'].filter(Boolean);
   const gap = filler.length ? `[${filler.join('')}]*` : '';
   const parts = tokens(query).filter(t => t.pattern || !(ignorePunctuation && /^\p{P}$/u.test(t.literal)) && !(ignoreWhitespace && /^\s$/u.test(t.literal)));
   if (!parts.length) throw new Error('Enter text to find. Punctuation and spaces alone are ignored with these options.');
