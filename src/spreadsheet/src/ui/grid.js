@@ -5105,7 +5105,12 @@ export function createGrid(opts) {
         }
         // Ctrl+Home goes to the first cell below and right of frozen panes, Home to the row's first unfrozen column, as in Excel.
         // Shift+Home extends along the row the selection's moving end is on, so a multi-row selection keeps its rows.
-        const fr = sheet().frozenRows || 0, fc = sheet().frozenCols || 0;
+        // Frozen panes can start at a row or column other than the first (a sheet frozen while scrolled, as
+        // Excel saves it): the first unfrozen line is the pane's first one plus its count, as rebuildOffsets lays
+        // them out. Counting from the sheet's first line put the cell off the screen, above and left of the panes.
+        const s = sheet();
+        const fr = s.frozenRows ? Math.min(s.frozenOrigin?.r || 0, s.rows - 1) + s.frozenRows : 0;
+        const fc = s.frozenCols ? Math.min(s.frozenOrigin?.c || 0, s.cols - 1) + s.frozenCols : 0;
         const row = (e.shiftKey ? sel.focus : sel.active).r;
         const target = visibleTarget(mod ? { r: fr, c: fc } : { r: row, c: fc }, mod ? 1 : 0, 1);
         setSelection(e.shiftKey ? S.extendTo(sel, target.r, target.c) : S.single(target.r, target.c));
