@@ -13,7 +13,7 @@ const flags = [['bold', 'b'], ['italic', 'i'], ['strike', 'strike'], ['condense'
 // escape across a run boundary. XML line-ending normalization happens first.
 const decodeText = text => xlsxText(text.replace(/\r\n?/g, '\n')).replace(/_x([\da-f]{4})_/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 const encodeText = text => xmlText(text.replace(/_x[\da-f]{4}_/gi, value => '_x005F_' + value.slice(1))
-  .replace(/[\u0000-\u0008\u000b-\u001f\ud800-\udfff\ufffe\uffff]/g, ch => `_x${ch.charCodeAt(0).toString(16).padStart(4, '0').toUpperCase()}_`));
+  .replace(/[\u0000-\u0008\u000b-\u001f\ud800-\udfff\ufffe\uffff]/gu, ch => `_x${ch.charCodeAt(0).toString(16).padStart(4, '0').toUpperCase()}_`));
 
 /** The vendor retains each shared/inline string's original rich XML in r. */
 export function readXlsxRichText(xml, value, colors, normalFont = null) {
