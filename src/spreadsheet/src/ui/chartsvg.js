@@ -1003,7 +1003,9 @@ function renderStyledCartesian(data, chart, width, height) {
   // A bubble chart read from a range shares its x and size columns across its series; file series carry their own.
   const series = data.series.slice(0, MAX_SERIES).map(s => chart.type === 'bubble' && (!s.x || !s.sizes)
     ? { ...s, x: s.x || data.x, sizes: s.sizes || data.sizes, ...(!s.sizePointStyles && data.sizePointStyles ? { sizePointStyles: data.sizePointStyles } : {}),
-      ...(s.sizeStyle === undefined && data.sizeStyle ? { sizeStyle: data.sizeStyle } : {}) } : s), n = data.categories.length;
+      ...(s.sizeStyle === undefined && data.sizeStyle ? { sizeStyle: data.sizeStyle } : {}) } : s)
+    // A scatter series without x values (text beside its numbers, or none) plots at 1, 2, 3…, as Excel's does.
+    .map(s => chart.type === 'scatter' && !(s.x || data.x)?.some(Number.isFinite) ? { ...s, x: s.values.map((_, i) => i + 1) } : s), n = data.categories.length;
   const layered = chart.type === 'combo' && a.seriesTypes?.length === series.length;
   const pureArea = chart.type === 'area';
   // Stacked lines accumulate as stacked areas do; only the fill is missing.
