@@ -12,7 +12,8 @@ import { printPaperBox, expandPrintText, splitPrintSections, printPageText, shee
 import { printBands, printTitleBands } from './print-pagination.js';
 import { fillColorCss } from '../core/fill-color.js';
 import { fontColorCss } from '../core/font-color.js';
-import { fontStack, borderCss } from '../core/format.js';
+import { fontStack, fontKeyFor, borderCss, getLocale } from '../core/format.js';
+import { hasHeaderFormatting, parsePrintHeader } from '../core/print-header.js';
 import { colName } from '../core/cell.js';
 
 const HEAD_W = 36, HEAD_H = 18, TITLE_H = 28;
@@ -123,6 +124,32 @@ export function printPreviewJob(wb, sheetId, prefs, range = null) {
   return job.length ? job : [{ sheetId, prefs, layout: printPreviewLayout(wb, sheetId, prefs, range), page: null }];
 }
 
+/**
+ * A header or footer written with Excel's formatting codes, its left, centre and right parts each drawn run by run
+ * in the font, size, weight and colour the codes give, as the print sets them. `places` are [side, x, align].
+ */
+function drawRichText(g, text, info, wb, k, y, places) {
+  const sections = parsePrintHeader(text, wb.colorPalette);
+  const now = info.now || new Date();
+  const values = { Page: info.page, Pages: info.pages, Tab: info.tab, File: info.file, Path: info.path || '',
+    Date: now.toLocaleDateString(getLocale()), Time: now.toLocaleTimeString(getLocale(), { hour: '2-digit', minute: '2-digit' }) };
+  const fontOf = (s) => `${s.italic ? 'italic ' : ''}${s.bold ? '700' : '400'} ${Math.max(4, (s.size || wb.normalFont?.sz || 11) * 4 / 3 * k * (s.super || s.sub ? 0.75 : 1))}px ${fontStack(fontKeyFor(s.font || wb.normalFont?.name || 'Arial', { literal: true }))}`;
+  g.textAlign = 'left';
+  for (const [side, x, align] of places) {
+    const runs = sections[side].map((run) => ({ text: run.token ? String(values[run.token] ?? '') : run.text, style: run.style || {} })).filter((run) => run.text);
+    if (!runs.length) continue;
+    const widths = runs.map((run) => { g.font = fontOf(run.style); return g.measureText?.(run.text)?.width || 0; });
+    const total = widths.reduce((a, b) => a + b, 0);
+    let at = align === 'left' ? x : align === 'center' ? x - total / 2 : x - total;
+    runs.forEach((run, i) => {
+      g.font = fontOf(run.style);
+      g.fillStyle = run.style.color || '#000000';
+      g.fillText(run.text, at, y);
+      at += widths[i];
+    });
+  }
+}
+
 /** The pane: a page drawn to scale, with Previous and Next under it. `getPrefs()` reads the dialog's choices. */
 export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPrefs, getRange }) {
   let page = 0, job = null, frame = 0;
@@ -179,9 +206,17 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
     g.fillStyle = '#555555';
     g.font = `${Math.max(5, 12 * k)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
     g.textBaseline = 'middle';
+    const places = [['left', m.left, 'left'], ['center', box.width / 2, 'center'], ['right', box.width - m.right, 'right']];
     for (const [kind, y] of [['header', m.top / 2], ['footer', box.height - m.bottom / 2]]) {
+      // Excel's formatting codes (&B, &"Arial,Bold", &14, &K…) are drawn as the styles they name, not as text.
+      if (hasHeaderFormatting(texts[kind])) {
+        drawRichText(g, texts[kind], info, wb, k, y * k, places.map(([side, x, align]) => [side, x * k, align]));
+        g.fillStyle = '#555555';
+        g.font = `${Math.max(5, 12 * k)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        continue;
+      }
       const parts = splitPrintSections(texts[kind]);
-      for (const [side, x, align] of [['left', m.left, 'left'], ['center', box.width / 2, 'center'], ['right', box.width - m.right, 'right']]) {
+      for (const [side, x, align] of places) {
         const text = expandPrintText(parts[side], info);
         if (!text) continue;
         g.textAlign = align;
