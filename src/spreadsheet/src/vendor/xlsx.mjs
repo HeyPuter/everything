@@ -1,5 +1,5 @@
 import { readXlsxValidations, writeXlsxValidations } from '../core/xlsx-validation.js';
-import { writeOdsSettings, readOdsSettings } from '../core/ods-settings.js';
+import { writeOdsSettings, readOdsSettings, readOdsViewSettings } from '../core/ods-settings.js';
 import { odsFilterReader, writeOdsFilter } from '../core/ods-filter.js';
 import { writeOdsValidations, readOdsValidations, odsValidationLayout, addOdsValidation, odsFormulaReader } from '../core/ods-validation.js';
 import { odsCellStyleProperties } from '../core/ods-cell-styles.js';
@@ -24385,7 +24385,7 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 			SheetNames: SheetNames,
 			Workbook: WB
 		}/*:any*/);
-		if(has_ods_settings) out.PuterSettings = readOdsSettings(str, unescapexml_entities);
+		if(has_ods_settings) { out.PuterSettings = readOdsSettings(str, unescapexml_entities); out.OdsView = readOdsViewSettings(str, unescapexml_entities); }
 		if(opts.bookSheets) delete /*::(*/out/*:: :any)*/.Sheets;
 		return out;
 }
@@ -24402,7 +24402,7 @@ function parse_ods(zip/*:ZIPFile*/, opts/*:?ParseOpts*/)/*:Workbook*/ {
 	var wb = parse_content_xml(utf8read(content), opts, Styles, cellStyles);
 	if(safegetzipfile(zip, 'meta.xml')) wb.Props = parse_core_props(getzipdata(zip, 'meta.xml'));
 	var settings = safegetzipfile(zip, "settings.xml") && getzipstr(zip, "settings.xml");
-	if(settings) wb.PuterSettings = readOdsSettings(utf8read(settings), unescapexml_entities);
+	if(settings) { wb.PuterSettings = readOdsSettings(utf8read(settings), unescapexml_entities); wb.OdsView = readOdsViewSettings(utf8read(settings), unescapexml_entities); }
 	wb.bookType = "ods";
 	return wb;
 }
@@ -25105,7 +25105,7 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 			// TODO: settings (equiv of settings.xml for ODS)
 		} else o.push('<office:document-content' + attr  + '>\n');
 		// o.push('  <office:scripts/>\n');
-		if(opts.bookType == "fods" && wb.PuterSettings) o.push(writeOdsSettings(wb.PuterSettings, escapexml));
+		if(opts.bookType == "fods" && (wb.PuterSettings || wb.OdsView)) o.push(writeOdsSettings(wb.PuterSettings, escapexml, wb.OdsView));
 		var nfs = write_automatic_styles_ods(o, wb);
 		o.push('  <office:body>\n');
 		o.push('    <office:spreadsheet>\n');
@@ -25153,9 +25153,9 @@ function write_ods(wb/*:any*/, opts/*:any*/) {
 	manifest.push([f, "text/xml"]);
 	rdf.push([f, "MetadataFile"]);
 
-	if(wb.PuterSettings) {
+	if(wb.PuterSettings || wb.OdsView) {
 		f = "settings.xml";
-		zip_add_file(zip, f, XML_HEADER + '<office:document-settings xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" office:version="1.2">' + writeOdsSettings(wb.PuterSettings, escapexml) + '</office:document-settings>');
+		zip_add_file(zip, f, XML_HEADER + '<office:document-settings xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" office:version="1.2">' + writeOdsSettings(wb.PuterSettings, escapexml, wb.OdsView) + '</office:document-settings>');
 		manifest.push([f, "text/xml"]);
 	}
 

@@ -824,6 +824,17 @@ function buildBook(X, wb, { meta = true, odsSettings = false, ods = false, histo
   }
   const extra = meta || odsSettings ? collectMeta(wb, structuredNames, { ods: odsSettings, fileSheets: book.Sheets, history }) : null;
   if (extra && odsSettings) book.PuterSettings = extra;
+  // LibreOffice reads frozen panes, tab colours and the open sheet from its own view settings.
+  if (ods) {
+    const sheets = {};
+    for (const sheet of wb.sheets) {
+      const color = typeof sheet.color === 'string' && /^#[\da-f]{6}$/i.test(sheet.color) ? sheet.color : null;
+      if (sheet.frozenRows || sheet.frozenCols || color) sheets[sheet.name] = { frozenRows: sheet.frozenRows, frozenCols: sheet.frozenCols, ...(color ? { tabColor: color } : {}) };
+    }
+    // A book that opens on its first sheet, with nothing frozen or coloured, needs no view settings.
+    const active = wb.sheets.indexOf(wb.activeSheet) > 0 ? wb.activeSheet.name : null;
+    if (active || Object.keys(sheets).length) book.OdsView = { active, sheets };
+  }
   if (extra && meta) {
     // A user worksheet may have the usual sidecar name. Keep its name and
     // references intact, and choose an unused name for our own sheet.
@@ -2583,6 +2594,13 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
         if (chartSheet) sheet.gridlines = false;
       }
       if (!chartSheet && partOf(n)) sheet.background = readXlsxBackground(book, n, partOf(n));
+      // Another program's .ods says its frozen panes and tab colour in LibreOffice's view settings.
+      const odsView = !meta?.sheets?.[n] && book.OdsView?.sheets?.[n];
+      if (odsView) {
+        if (odsView.frozenRows) sheet.frozenRows = odsView.frozenRows;
+        if (odsView.frozenCols) sheet.frozenCols = odsView.frozenCols;
+        if (odsView.tabColor && !sheet.color) sheet.color = odsView.tabColor;
+      }
       return { ...sheet, hidden: hidden.has(n) || isVeryHidden || visibility === 'hidden', veryHidden: isVeryHidden };
     });
   // What each sheet held past the grid, counted as for a delimited file: rows added up, columns at their widest.
@@ -2774,7 +2792,8 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
     });
   }
   const tab = Number(xlsxAttr(view, 'activeTab'));
-  const activeName = typeof meta?.active === 'string' ? meta.active : Number.isInteger(tab) && tab >= 0 ? book.SheetNames[tab] : null;
+  const activeName = typeof meta?.active === 'string' ? meta.active : Number.isInteger(tab) && tab >= 0 ? book.SheetNames[tab]
+    : typeof book.OdsView?.active === 'string' ? book.OdsView.active : null;
   const active = activeName ? wb.sheetByName(renamed.get(activeName) || activeName) : null;
   if (active && !active.hidden) wb.activeSheetId = active.id;
   if (beyond.rows || beyond.cols) wb.importTruncated = beyond;
