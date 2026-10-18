@@ -2085,7 +2085,8 @@ export const FUNCTIONS = {
       return x === y;
     },
   },
-  VALUE: { fn: ([a]) => { const v = scalar(a); return typeof v === 'number' ? v : toNumber(v); } },
+  // Text that reads as a number becomes it; a logical value is not such text (N and -- convert it).
+  VALUE: { fn: ([a]) => { const v = scalar(a); return typeof v === 'number' ? v : typeof v === 'boolean' ? err('#VALUE!') : toNumber(v); } },
   CHAR: { fn: ([a]) => { const n = toNumber(a); if (isError(n)) return n; const k = Math.trunc(n); return k < 1 || k > 255 ? err('#VALUE!') : String.fromCharCode(k); } }, // truncated before the range check, as UNICHAR is
   // The code point of the first character, as UNICODE gives it and as LEN and MID count characters (Google Sheets; Excel answers 63 outside its code page), not the first UTF-16 half of an emoji.
   CODE: { fn: ([a]) => { const t = textArg(a); return isError(t) ? t : t === '' ? err('#VALUE!') : t.codePointAt(0); } },
