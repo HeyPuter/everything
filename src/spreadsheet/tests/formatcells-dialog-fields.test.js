@@ -56,6 +56,9 @@ it('asks for a format code before applying a custom format that has none', () =>
   const { modal, runs, field, apply } = open({}, 'align');
   field('Category').value = 'custom';
   field('Category').dispatchEvent(new Event('change'));
+  // Custom starts from the previous format's code; emptied, it has none.
+  field('Format code').value = '';
+  field('Format code').dispatchEvent(new Event('input'));
   apply();
   expect(runs).toEqual([]);
   expect(modal.panel.closest('.modal-root').classList.contains('closing')).toBe(false);

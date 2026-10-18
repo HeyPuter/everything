@@ -10,7 +10,7 @@ import { fillColorCss } from '../core/fill-color.js';
 import { el, fieldId, isComposing } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
 import { FORMATS, formatEntry, POINT_SIZES, ptToPx, pxToPt, FILL_COLORS } from './toolbar.js';
-import { formatValue, currencyFormatLabel, currencyAffixes, currencyDecimals, FONTS, fontName, fontStack, fontKeyFor, borderCss, CURRENCIES, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT } from '../core/format.js';
+import { formatValue, currencyFormatLabel, currencyAffixes, currencyDecimals, FONTS, fontName, fontStack, fontKeyFor, borderCss, CURRENCIES, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, styleToNumFmt } from '../core/format.js';
 import { formatWithCode, formatCodeError, codeColor } from '../core/numfmt.js';
 import { BORDER_EDGES, readBorderEdges, penSignature } from './border-draft.js';
 import { orientationControl } from './orientation.js';
@@ -187,7 +187,19 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
     refreshNumber();
   } });
   const codeField = el('label.field.fc-code', {}, el('span.field-label', {}, 'Format code'), codeInput, codeError, el('span.field-hint', {}, 'Sections positive;negative;zero, digits 0 # ?, %, dates like d mmm yyyy'));
-  const categorySel = select('Category', CATEGORIES.map((f) => [f.value, f.label]), state.category, (v) => { state.category = v; refreshNumber({ syncDec: true }); }, CATEGORIES.length);
+  // Custom starts from the code of the format chosen before it, as Excel's does, so a Number with two places
+  // becomes #,##0.00 to add to rather than an empty field to write from nothing. Left as it is, that code is
+  // the same format: Apply keeps the category it came from (`seeded`), so nothing changes.
+  let seeded = null;
+  const categorySel = select('Category', CATEGORIES.map((f) => [f.value, f.label]), state.category, (v) => {
+    if (v === 'custom' && !state.code.trim()) {
+      const patch = numberPatch(state);
+      state.code = codeInput.value = styleToNumFmt({ ...style, ...patch });
+      seeded = { code: state.code, patch };
+    }
+    state.category = v;
+    refreshNumber({ syncDec: true });
+  }, CATEGORIES.length);
   categorySel.classList.add('fc-category');
   // `syncDec` after a Category or Currency change: a cell with no count of its own follows the new
   // category's default, so the field is rewritten to keep reading what the preview and Apply use.
@@ -530,7 +542,7 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
   /** What changed, as a style patch (null clears a field) plus an optional border action. */
   function collect() {
     const patch = {};
-    const numberNow = numberPatch(state);
+    const numberNow = state.category === 'custom' && seeded?.code === state.code ? seeded.patch : numberPatch(state);
     const numberBefore = numberPatch({ category: negative ? negative.category : current.value === 'date-medium' ? 'date' : current.value, dec: negative ? negative.dec : style.dec ?? null, group: negative ? negative.group : style.group !== false, cur: negative ? negative.cur : style.cur || 'USD', dateStyle: style.dateStyle || 'iso', code: style.fmt === 'custom' ? style.code || '' : '', neg: negative ? negative.neg : 'minus' });
     if (JSON.stringify(numberNow) !== JSON.stringify(numberBefore)) Object.assign(patch, numberNow);
     if ((align.align || null) !== (style.align || null)) patch.align = align.align || null;
