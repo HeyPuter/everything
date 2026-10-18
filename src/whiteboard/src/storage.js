@@ -821,6 +821,10 @@ function nestedLength(v, key, found, path) {
 const missing = (e) =>
   ["subject_does_not_exist", "ENOENT", "not_found"].includes(e.code);
 const uuidPattern = /^[a-f\d-]{36}$/;
+const fileVersion = (file) =>
+  file?.modified != null && file.size != null
+    ? `${file.modified}:${file.size}`
+    : null;
 export class CloudStore {
   constructor(puter) {
     this.puter = puter;
@@ -898,6 +902,16 @@ export class CloudStore {
       JSON.parse(await (await this.puter.fs.read(path)).text()),
     );
   }
+  // What Puter tells of a file without reading it, which changes whenever
+  // it is written: its time and size, or null where it does not say.
+  async version(path) {
+    try {
+      return fileVersion(await this.puter.fs.stat(path));
+    } catch {
+      return null;
+    }
+  }
+  // Resolves with the version of the file written, where Puter tells it.
   save(b) {
     const snapshot = JSON.stringify(b);
     const id = b.id,
@@ -909,16 +923,18 @@ export class CloudStore {
         // The board is written before its index entry: an index that cannot
         // be read or written leaves the board saved, and a later save adds
         // the entry.
-        await this.puter.fs.write(`whiteboard/${id}.json`, snapshot, {
-          createMissingParents: true,
-          overwrite: true,
-        });
+        const version = fileVersion(
+          await this.puter.fs.write(`whiteboard/${id}.json`, snapshot, {
+            createMissingParents: true,
+            overwrite: true,
+          }),
+        );
         try {
           const catalog = await this.loadCatalog().catch(() => null);
           if (
             catalog?.some((entry) => entry.id === id && entry.title === title)
           )
-            return;
+            return version;
           // Other devices and tabs add and rename boards too. The index is
           // read again just before it is rewritten so their entries stay,
           // instead of the copy read when this session began replacing them.
@@ -926,7 +942,7 @@ export class CloudStore {
           const stored = await this.readCatalog().catch((e) =>
             e.rows ? this.recoverCatalog(e.rows) : catalog,
           );
-          if (!stored) return;
+          if (!stored) return version;
           const next = [
             ...stored.filter((entry) => entry.id !== id),
             { id, title },
@@ -938,6 +954,7 @@ export class CloudStore {
           );
           this.catalog = next;
         } catch {}
+        return version;
       });
     this.queue = task;
     return task;

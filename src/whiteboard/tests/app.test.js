@@ -25202,6 +25202,91 @@ test("a board kept in Puter checks for a newer copy before every upload, and lea
   }
 });
 
+test("the check for a newer copy in Puter downloads the board only when its file changed", async () => {
+  const files = new Map(),
+    versions = new Map();
+  let clock = 0,
+    reads = 0;
+  const written = (path) => ({
+    path,
+    modified: versions.get(path),
+    size: files.get(path).length,
+  });
+  const puter = {
+    env: "web",
+    auth: {
+      isSignedIn: () => true,
+      signIn: async () => {},
+      getUser: async () => ({ uuid: "u1", username: "alice" }),
+    },
+    fs: {
+      async read(path) {
+        if (!files.has(path)) throw { code: "subject_does_not_exist" };
+        if (path !== "whiteboard/catalog.json") reads++;
+        return new Blob([files.get(path)]);
+      },
+      async readdir() {
+        return [];
+      },
+      async stat(path) {
+        if (!files.has(path)) throw { code: "subject_does_not_exist" };
+        return written(path);
+      },
+      async write(path, value) {
+        files.set(path, typeof value === "string" ? value : await value.text());
+        versions.set(path, ++clock);
+        return written(path);
+      },
+    },
+  };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const app = await setup(puter);
+  const { doc, w, tick } = app;
+  const status = () => doc.querySelector("#save-state")?.textContent;
+  const addNote = async () => {
+    const canvas = doc.querySelector("#canvas");
+    canvas.focus();
+    canvas.dispatchEvent(
+      new w.KeyboardEvent("keydown", { key: "n", bubbles: true }),
+    );
+    await tick();
+    doc
+      .querySelector("#canvas-text-editor")
+      .dispatchEvent(
+        new w.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    await tick();
+    await wait(2500);
+  };
+  const boardFile = () =>
+    [...files.keys()].find(
+      (path) => path.endsWith(".json") && path !== "whiteboard/catalog.json",
+    );
+  const cloudBoard = () => JSON.parse(files.get(boardFile()));
+  try {
+    await app.click('[data-action="new"]');
+    await app.click('[data-action="cloud-save"]');
+    for (let n = 0; n < 200 && status() !== "Saved to Puter"; n++) await tick();
+    await addNote();
+    const before = reads;
+    await addNote();
+    await addNote();
+    assert.equal(cloudBoard().items.length, 3, "The edits reached Puter");
+    assert.equal(reads, before, "Unchanged since this page wrote it");
+    // Another device saves a newer copy: the next edit reads it and keeps it.
+    const newer = { ...cloudBoard(), updated: Date.now() + 1000 };
+    newer.items = [...newer.items, { ...newer.items[0], id: "other-device" }];
+    files.set(boardFile(), JSON.stringify(newer));
+    versions.set(boardFile(), ++clock);
+    await addNote();
+    assert.equal(reads, before + 1);
+    assert.ok(cloudBoard().items.some((item) => item.id === "other-device"));
+    assert.equal(status(), "Newer copy in Puter");
+  } finally {
+    await app.close();
+  }
+});
+
 test("library board counts group their digits", async () => {
   const ids = Array.from(
     { length: 1234 },

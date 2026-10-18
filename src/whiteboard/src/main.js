@@ -589,6 +589,10 @@ let boards = [],
   // Boards in Puter by the time of the copy Puter last held as far as this
   // page knows: every upload first checks that Puter holds nothing newer.
   cloudStamps = new Map(),
+  // The version of each board's file in Puter that this page last read or
+  // wrote, where Puter tells it: while it is unchanged, no one else has
+  // saved the board, and the check needs no download.
+  cloudVersions = new Map(),
   // Cloud boards with edits awaiting upload, by the time of the latest.
   pendingCloud = new Map(),
   // Personal boards whose latest edits could not be saved on this device,
@@ -3307,13 +3311,17 @@ async function upload(snapshot) {
     if (cloudStamps.has(snapshot.id)) {
       // Another device may have saved this board since this page last
       // read or wrote it; that copy is kept rather than written over.
-      const held = cloudStamps.get(snapshot.id);
-      const remote = await cloud
-        .read(`whiteboard/${snapshot.id}.json`)
-        .catch(() => null);
+      const held = cloudStamps.get(snapshot.id),
+        path = `whiteboard/${snapshot.id}.json`,
+        seen = cloudVersions.get(snapshot.id);
+      const remote =
+        seen && (await cloud.version(path)) === seen
+          ? null
+          : await cloud.read(path).catch(() => null);
       if (remote && remote.updated > held) {
         // This device's copy is not the one in Puter now.
         cloudStamps.delete(snapshot.id);
+        cloudVersions.delete(snapshot.id);
         cloudIds.delete(snapshot.id);
         cloudIndex.delete(snapshot.id);
         pendingCloud.delete(snapshot.id);
@@ -3333,8 +3341,10 @@ async function upload(snapshot) {
         return;
       }
     }
-    await cloud.save(snapshot);
+    const version = await cloud.save(snapshot);
     cloudStamps.set(snapshot.id, snapshot.updated);
+    if (version) cloudVersions.set(snapshot.id, version);
+    else cloudVersions.delete(snapshot.id);
     cloudIndex.add(snapshot.id);
     if (pendingCloud.get(snapshot.id) <= snapshot.updated)
       pendingCloud.delete(snapshot.id);
@@ -4050,6 +4060,7 @@ async function openBoard(b, { keepAddress = false } = {}) {
   ) {
     cloudIds.add(b.id);
     cloudStamps.set(b.id, b.updated);
+    cloudVersions.delete(b.id);
   }
   if (!keepAddress) address();
   commandPalette.recordBoard(b.id);
@@ -12190,6 +12201,7 @@ async function signOutAccount() {
   cloudIndex.clear();
   cloudTitles.clear();
   cloudStamps.clear();
+  cloudVersions.clear();
   pendingCloud.clear();
   // The organization belonged to that account; the next person to sign in
   // finds their own.
@@ -12228,6 +12240,7 @@ async function openCloudBoard(f, { replace = false } = {}) {
     toast("A newer local copy was kept.");
     cloudIds.add(existing.id);
     cloudStamps.set(existing.id, b.updated);
+    cloudVersions.delete(existing.id);
     // Opening a copy that is in the trash takes it out again.
     if (existing.deletedAt) {
       delete existing.deletedAt;
@@ -12252,6 +12265,7 @@ async function openCloudBoard(f, { replace = false } = {}) {
     toast("A newer local copy was kept.");
     cloudIds.add(stored.id);
     cloudStamps.set(stored.id, b.updated);
+    cloudVersions.delete(stored.id);
     if (stored.deletedAt) {
       delete stored.deletedAt;
       await saveLibrary(stored, "deletedAt").catch(() => {});
@@ -12267,6 +12281,7 @@ async function openCloudBoard(f, { replace = false } = {}) {
   cloudIds.add(b.id);
   cloudIndex.add(b.id);
   cloudStamps.set(b.id, b.updated);
+  cloudVersions.delete(b.id);
   return openBoard(b);
 }
 // After the library is drawn again, the keyboard goes back to the card it
@@ -12504,6 +12519,7 @@ function boardOptions(b) {
             if (!cloudIds.has(id)) {
               cloudIds.add(id);
               cloudStamps.set(id, updated);
+              cloudVersions.delete(id);
             }
             pendingCloud.set(id, b.updated);
             sync(clone(b));
