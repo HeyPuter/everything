@@ -586,15 +586,16 @@ let boards = [],
   // read at sign-in; the library marks them.
   cloudIndex = new Set(),
   cloudTitles = new Map(),
-  // Boards in Puter opened from this device's copy, by the copy's time: the
-  // first upload of the visit checks that Puter holds nothing newer.
-  cloudUnverified = new Map(),
+  // Boards in Puter by the time of the copy Puter last held as far as this
+  // page knows: every upload first checks that Puter holds nothing newer.
+  cloudStamps = new Map(),
   // Cloud boards with edits awaiting upload, by the time of the latest.
   pendingCloud = new Map(),
   // Personal boards whose latest edits could not be saved on this device,
   // as when storage is full; closing the tab then asks first.
   unsavedLocal = new Set(),
   cloudTimer,
+  cloudChain = Promise.resolve(),
   saveChain = Promise.resolve(),
   // Recovery versions are written apart from boards: a board write queued
   // behind a version write would only start after it, which a closing tab
@@ -1926,7 +1927,7 @@ async function followBoardAddress(value) {
     pointerUp();
     finishTextEdit();
     clearTimeout(cloudTimer);
-    if (cloudIds.has(origin.id)) await sync(clone(origin));
+    if (pendingCloud.has(origin.id)) await sync(clone(origin));
     flushNudgeSave();
     await saveChain;
     if (current !== origin || location.href !== value) return;
@@ -2428,7 +2429,7 @@ async function runCommand(entry) {
     const origin = current;
     if (origin) {
       clearTimeout(cloudTimer);
-      if (cloudIds.has(origin.id)) await sync(clone(origin));
+      if (pendingCloud.has(origin.id)) await sync(clone(origin));
       flushNudgeSave();
       await saveChain;
       if (current !== origin) return;
@@ -3254,23 +3255,30 @@ function save({ outlined = false } = {}) {
     cloudTimer = setTimeout(() => sync(snapshot), 1500);
   }
 }
-async function sync(snapshot) {
-  if (!cloud) return;
+// Uploads go one at a time, so each one checks Puter's copy after the one
+// before it has landed and recorded its time.
+function sync(snapshot) {
+  return (cloudChain = cloudChain.then(() => upload(snapshot)));
+}
+async function upload(snapshot) {
+  // One that waited behind an upload that found a newer copy goes no
+  // further.
+  if (!cloud || !cloudIds.has(snapshot.id)) return;
   // A save that finishes after another board was opened says nothing
   // about that board's state.
   const report = (text) => current?.id === snapshot.id && status(text);
   try {
     report("Saving to Puter…");
-    if (cloudUnverified.has(snapshot.id)) {
-      // Another device may have saved this board since this copy was
-      // made; that copy is kept rather than written over.
-      const opened = cloudUnverified.get(snapshot.id);
+    if (cloudStamps.has(snapshot.id)) {
+      // Another device may have saved this board since this page last
+      // read or wrote it; that copy is kept rather than written over.
+      const held = cloudStamps.get(snapshot.id);
       const remote = await cloud
         .read(`whiteboard/${snapshot.id}.json`)
         .catch(() => null);
-      cloudUnverified.delete(snapshot.id);
-      if (remote && remote.updated > opened) {
+      if (remote && remote.updated > held) {
         // This device's copy is not the one in Puter now.
+        cloudStamps.delete(snapshot.id);
         cloudIds.delete(snapshot.id);
         cloudIndex.delete(snapshot.id);
         pendingCloud.delete(snapshot.id);
@@ -3291,6 +3299,7 @@ async function sync(snapshot) {
       }
     }
     await cloud.save(snapshot);
+    cloudStamps.set(snapshot.id, snapshot.updated);
     cloudIndex.add(snapshot.id);
     if (pendingCloud.get(snapshot.id) <= snapshot.updated)
       pendingCloud.delete(snapshot.id);
@@ -4005,7 +4014,7 @@ async function openBoard(b, { keepAddress = false } = {}) {
     window.puter?.auth?.isSignedIn?.()
   ) {
     cloudIds.add(b.id);
-    cloudUnverified.set(b.id, b.updated);
+    cloudStamps.set(b.id, b.updated);
   }
   if (!keepAddress) address();
   commandPalette.recordBoard(b.id);
@@ -12089,7 +12098,7 @@ async function signOutAccount() {
   cloudIds.clear();
   cloudIndex.clear();
   cloudTitles.clear();
-  cloudUnverified.clear();
+  cloudStamps.clear();
   pendingCloud.clear();
   // The organization belonged to that account; the next person to sign in
   // finds their own.
@@ -12127,7 +12136,7 @@ async function openCloudBoard(f, { replace = false } = {}) {
   } else if (existing && existing.updated > b.updated) {
     toast("A newer local copy was kept.");
     cloudIds.add(existing.id);
-    cloudUnverified.delete(existing.id);
+    cloudStamps.set(existing.id, b.updated);
     // Opening a copy that is in the trash takes it out again.
     if (existing.deletedAt) {
       delete existing.deletedAt;
@@ -12151,7 +12160,7 @@ async function openCloudBoard(f, { replace = false } = {}) {
     boards[boards.indexOf(b)] = stored;
     toast("A newer local copy was kept.");
     cloudIds.add(stored.id);
-    cloudUnverified.delete(stored.id);
+    cloudStamps.set(stored.id, b.updated);
     if (stored.deletedAt) {
       delete stored.deletedAt;
       await saveLibrary(stored, "deletedAt").catch(() => {});
@@ -12166,7 +12175,7 @@ async function openCloudBoard(f, { replace = false } = {}) {
   }
   cloudIds.add(b.id);
   cloudIndex.add(b.id);
-  cloudUnverified.delete(b.id);
+  cloudStamps.set(b.id, b.updated);
   return openBoard(b);
 }
 // After the library is drawn again, the keyboard goes back to the card it
@@ -12403,7 +12412,7 @@ function boardOptions(b) {
           ) {
             if (!cloudIds.has(id)) {
               cloudIds.add(id);
-              cloudUnverified.set(id, updated);
+              cloudStamps.set(id, updated);
             }
             pendingCloud.set(id, b.updated);
             sync(clone(b));
@@ -13327,7 +13336,7 @@ async function action(a) {
     case "home":
       if (current) {
         clearTimeout(cloudTimer);
-        if (cloudIds.has(current.id)) await sync(clone(current));
+        if (pendingCloud.has(current.id)) await sync(clone(current));
         flushNudgeSave();
         await saveChain;
       }

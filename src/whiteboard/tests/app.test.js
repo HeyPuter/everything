@@ -24953,6 +24953,88 @@ test("a board kept in Puter goes on uploading after a reload, unless Puter holds
   }
 });
 
+test("a board kept in Puter checks for a newer copy before every upload, and leaving it unedited uploads nothing", async () => {
+  const files = new Map();
+  let writes = 0;
+  const puter = {
+    env: "web",
+    auth: {
+      isSignedIn: () => true,
+      signIn: async () => {},
+      getUser: async () => ({ uuid: "u1", username: "alice" }),
+    },
+    fs: {
+      async read(path) {
+        if (!files.has(path)) throw { code: "subject_does_not_exist" };
+        return new Blob([files.get(path)]);
+      },
+      async readdir() {
+        return [];
+      },
+      async write(path, value) {
+        if (path !== "whiteboard/catalog.json") writes++;
+        files.set(path, typeof value === "string" ? value : await value.text());
+        return { path };
+      },
+    },
+  };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const app = await setup(puter);
+  const { doc, w, tick } = app;
+  const status = () => doc.querySelector("#save-state")?.textContent;
+  const addNote = async () => {
+    const canvas = doc.querySelector("#canvas");
+    canvas.focus();
+    canvas.dispatchEvent(
+      new w.KeyboardEvent("keydown", { key: "n", bubbles: true }),
+    );
+    await tick();
+    doc
+      .querySelector("#canvas-text-editor")
+      .dispatchEvent(
+        new w.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    await tick();
+  };
+  const boardFile = () =>
+    [...files.keys()].find(
+      (path) => path.endsWith(".json") && path !== "whiteboard/catalog.json",
+    );
+  const cloudBoard = () => JSON.parse(files.get(boardFile()));
+  try {
+    await app.click('[data-action="new"]');
+    await app.click('[data-action="cloud-save"]');
+    for (let n = 0; n < 200 && status() !== "Saved to Puter"; n++) await tick();
+    await addNote();
+    await wait(2500);
+    assert.equal(cloudBoard().items.length, 1, "The edit reached Puter");
+    // Opening the board again and leaving it without an edit writes nothing.
+    const uploaded = writes;
+    for (let n = 0; n < 2; n++) {
+      await app.click('[data-action="home"]');
+      await app.click("[data-open]");
+    }
+    await app.click('[data-action="home"]');
+    assert.equal(writes, uploaded, "Leaving an unedited board uploads nothing");
+    await app.click("[data-open]");
+    // Another device saves a newer copy while this tab stays open; the next
+    // edit here does not write over it.
+    const newer = { ...cloudBoard(), updated: Date.now() + 1000 };
+    newer.items = [...newer.items, { ...newer.items[0], id: "other-device" }];
+    files.set(boardFile(), JSON.stringify(newer));
+    await addNote();
+    await wait(2500);
+    assert.ok(
+      cloudBoard().items.some((item) => item.id === "other-device"),
+      "Puter's newer copy is kept",
+    );
+    assert.equal(status(), "Newer copy in Puter");
+    assert.match(doc.querySelector("#toast").textContent, /newer copy/);
+  } finally {
+    await app.close();
+  }
+});
+
 test("library board counts group their digits", async () => {
   const ids = Array.from(
     { length: 1234 },
