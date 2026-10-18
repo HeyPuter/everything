@@ -34582,6 +34582,14 @@ test("an organization template inserts into the open board beside its content", 
 });
 
 test("an organization Kanban template turns status sync on in the board it is inserted into", async () => {
+  // A board without status columns brings no status sync along.
+  for (const [title, synced] of [
+    ["Done", true],
+    ["Ideas", false],
+  ])
+    await orgTemplateSync(title, synced);
+});
+async function orgTemplateSync(title, synced) {
   const env = environment();
   const { adminCall } = await import("../worker/admin.js");
   const org = env.service.org;
@@ -34631,7 +34639,7 @@ test("an organization Kanban template turns status sync on in the board it is in
       await app.tick();
     // Share a Kanban column with status sync on as a template.
     const column = item("frame", 0, 0, {
-      text: "Done",
+      text: title,
       w: 400,
       h: 300,
       order: 0,
@@ -34668,16 +34676,17 @@ test("an organization Kanban template turns status sync on in the board it is in
     await click("[data-library-insert]");
     for (let n = 0; n < 200 && doc.querySelector("dialog[open]"); n++)
       await app.tick();
-    assert.match(
-      doc.querySelector("#toast").textContent,
-      /Kanban status sync is on for this board/,
-    );
-    assert.equal((await syncShown()).checked, true);
+    if (synced)
+      assert.match(
+        doc.querySelector("#toast").textContent,
+        /Kanban status sync is on for this board/,
+      );
+    assert.equal((await syncShown()).checked, synced);
     await closeTasks();
   } finally {
     await app.close();
   }
-});
+}
 
 test("a notification without a usable time is listed without one instead of failing the list", async () => {
   const env = environment(),

@@ -3906,9 +3906,17 @@ export function createFeatures(api) {
     actions,
     followSlide,
     // Inserts a whole template's objects into the open board, as the
-    // template library does, with a Kanban board's status sync.
+    // template library does, with a Kanban board's status sync when it
+    // brings status columns, as saved content does.
     insertTemplate: (items, tags, planning) =>
-      insertContent(items, tags, { template: true, planning }),
+      insertContent(items, tags, {
+        template: true,
+        planning:
+          statusSyncEnabled({ planning }) &&
+          items.some((i) => i.type === "frame" && statusFromTitle(i.text || ""))
+            ? planning
+            : undefined,
+      }),
     organizeSelection,
     edit(i) {
       if (i.type === "link") linkDialog(i);
