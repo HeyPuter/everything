@@ -115,13 +115,17 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null } = {}
 export function updateSequenceFields(model, options) {
   const changes = fieldUpdatePlan(model, options);
   const tracking = model.trackChanges; model.trackChanges = false;
+  let applied = 0;
   try {
     for (const { range, text } of [...changes].reverse()) {
+      // A result never spans a paragraph mark: replacing one that does would merge paragraphs.
+      if (model.text.slice(range.start, range.end).includes('\n')) continue;
       model.select(range.start, range.end);
       model.typingFormat = {}; model.typingStyle = null; model.typingDirectCleared = false;
       model.replace(text, { checkpoint: false });
+      applied++;
     }
   } finally { model.trackChanges = tracking; }
-  if (changes.length) model.didChange();
-  return changes.length;
+  if (applied) model.didChange();
+  return applied;
 }

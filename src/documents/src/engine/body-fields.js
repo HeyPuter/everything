@@ -46,6 +46,10 @@ export function bodyFieldRanges(paragraphs) {
   return ranges;
 }
 
+// A hidden sequence field (SEQ … \h, a chapter's numbering reset) never shows a result: text typed where it
+// stands is the reader's own, and taking it as the field's result let Update Fields delete it.
+const hiddenResult = r => /^\s*SEQ\b/i.test(r.field.instruction || '') && /\\h\b/i.test(r.field.instruction || '');
+
 export function replacedBodyFields(ranges, start, end, inserted, discardContained = false) {
   const delta = inserted-(end-start), result = [];
   // Refilling an empty nested result also grows its enclosing results, even
@@ -55,13 +59,13 @@ export function replacedBodyFields(ranges, start, end, inserted, discardContaine
   // every field against every empty result on each keystroke.
   if(start===end)for(let i=ranges.length-1;i>=0;i--){
     const r=ranges[i];
-    if(!emptyEntry(r)&&(r.start===start&&r.end===start||growing.has(r.field.id))){
+    if(!emptyEntry(r)&&!hiddenResult(r)&&(r.start===start&&r.end===start||growing.has(r.field.id))){
       growing.add(r.field.id);if(r.parentId)growing.add(r.parentId);
     }
   }
   for (const r of ranges) {
     if (start === end) {
-      if(emptyEntry(r)&&r.start===start)result.push(r);
+      if((emptyEntry(r)||hiddenResult(r)&&r.start===r.end)&&r.start===start)result.push(r);
       else if (growing.has(r.field.id)) result.push({ ...r, end: r.end+inserted });
       else if (start <= r.start) result.push({ ...r, start:r.start+inserted, end:r.end+inserted });
       else result.push(start < r.end ? { ...r, end:r.end+inserted } : r);

@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, it, expect } from 'vitest';
+import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { zipSync, strToU8 } from 'fflate';
 import { DocxPackage } from '../src/engine/docx.js';
@@ -36,4 +36,23 @@ it.each(['\\* roman', '\\* MERGEFORMAT'])('a general switch %s overrides SEQ hid
   const { model } = await sequenceDocument(['', `\\h ${switches}`, '']);
   updateSequenceFields(model);
   expect(model.text).toBe(`1\n${switches.includes('roman') ? 'ii' : '2'}\n3`);
+});
+
+describe('text typed where a hidden sequence field stands', () => {
+  it('stays the reader\'s text through saving, reopening and Update Fields', async () => {
+    const { createDocx: create, DocxPackage: Package, WRITING_STYLES: writing } = await import('../src/engine/docx.js');
+    const { TextDocument: Doc, paragraph: para } = await import('../src/engine/model.js');
+    const { insertBodyField } = await import('../src/engine/field-results.js');
+    const { updateSequenceFields } = await import('../src/engine/field-update.js');
+    const open = async bytes => { const p = await Package.open(bytes); return new Doc(p.paragraphs, p.pageSettings, p.numbering, p.styles, p.tables, p.assets); };
+    const blank = create([para()], undefined, undefined, undefined, [], {}, writing);
+    const pkg = await Package.open(new Uint8Array(await blank.export().arrayBuffer()));
+    const d = new Doc(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+    d.replace('Chapter 2\nPic2');
+    d.select(9); insertBodyField(d, ' SEQ Figure \\r 0 \\h ', '');
+    const e = await open(new Uint8Array(await pkg.export(d.paragraphs, d.pageSettings, d.numbering, d.styles, d.tables, d.assets).arrayBuffer()));
+    e.select(9); e.replace(' and more');
+    updateSequenceFields(e);
+    expect(e.text).toBe('Chapter 2 and more\nPic2');
+  });
 });
