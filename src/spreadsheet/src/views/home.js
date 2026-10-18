@@ -19,6 +19,7 @@ import { TEMPLATES } from '../core/templates.js';
 import { session } from '../lib/session.js';
 import * as P from '../lib/puter.js';
 import { stripExtension } from '../core/io.js';
+import { IMPORT_EXTENSIONS } from '../core/filetypes.js';
 import { recentFiles, forgetRecent, refreshRecent } from '../lib/recent.js';
 import { listDrafts, clearDraft, draftKey, liveDraftKey, moveDraft, parkDraft } from '../lib/drafts.js';
 import { removeVersions, moveVersions, parkVersions } from '../lib/versions.js';
@@ -41,7 +42,7 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
   try { sortBy = ['modified', 'name', 'size'].includes(localStorage.getItem('spreadsheet:homeSort')) ? localStorage.getItem('spreadsheet:homeSort') : 'modified'; } catch { /* no storage */ }
 
   const fileInput = el('input', {
-    type: 'file', accept: '.xlsx,.xlsm,.xls,.csv,.tsv,.ods,.txt', hidden: true, 'aria-hidden': 'true', tabindex: -1,
+    type: 'file', accept: IMPORT_EXTENSIONS.join(), hidden: true, 'aria-hidden': 'true', tabindex: -1,
     onchange: () => { const f = fileInput.files?.[0]; if (f) importFile(f); fileInput.value = ''; },
   });
   const pickDevice = () => fileInput.click();

@@ -165,7 +165,7 @@ import { detectDelimiter, workbookFromFile, rangeToCsv, CSV_MIME } from '../core
 import { cellsToHtml, copyMergeLayout, parseHtmlClipboard, cellsFromHtmlRows, isOwnHtmlClipboard } from '../core/clipboard.js';
 import { eachStoredCell, lineSpan } from '../core/sparse-range.js';
 import { MAX_ROWS, MAX_COLS, MIN_COL_WIDTH, MAX_COL_WIDTH, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT, cellFromInput, safeLinkUrl } from '../core/workbook.js';
-import { isSpreadsheetFile } from '../core/filetypes.js';
+import { isSpreadsheetFile, IMPORT_EXTENSIONS } from '../core/filetypes.js';
 import { FUNCTION_NAMES } from '../core/formula/functions.js';
 import { RULE_TYPES } from '../core/condformat.js';
 // Formulas that reach outside the spreadsheet: pasted from a web page they could send the sheet's
@@ -5575,7 +5575,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   }
 
   const fileInput = el('input', {
-    type: 'file', accept: '.xlsx,.xlsm,.xls,.csv,.tsv,.ods,.txt', hidden: true, 'aria-hidden': 'true', tabindex: -1,
+    type: 'file', accept: IMPORT_EXTENSIONS.join(), hidden: true, 'aria-hidden': 'true', tabindex: -1,
     onchange: async () => { const f = fileInput.files?.[0]; fileInput.value = ''; if (f && await flush() && !destroyed) importFile(f); },
   });
   // Images float over the sheet like charts and travel in the file as data URLs.
@@ -5706,7 +5706,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   }
   // Import into this spreadsheet: a dialog places the file's sheets (new sheets, the current sheet, appended rows, or at the selected cell).
   const sheetsInput = el('input', {
-    type: 'file', accept: '.xlsx,.xlsm,.xls,.csv,.tsv,.ods,.txt', hidden: true, 'aria-hidden': 'true', tabindex: -1,
+    type: 'file', accept: IMPORT_EXTENSIONS.join(), hidden: true, 'aria-hidden': 'true', tabindex: -1,
     onchange: async () => {
       const f = sheetsInput.files?.[0];
       sheetsInput.value = '';
