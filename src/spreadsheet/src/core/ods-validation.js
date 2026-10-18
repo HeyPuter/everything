@@ -64,22 +64,35 @@ export function writeOdsValidations(wb, { convert, address, escape, text }) {
 export function odsValidationLayout(rules, used, sheetIndex) {
   let lastRow = used.e.r, lastCol = used.e.c;
   for (const rule of rules) { lastRow = Math.max(lastRow, rule.range.r2); lastCol = Math.max(lastCol, rule.range.c2); }
-  const nextBoundary = (position, axis, end) => {
-    let next = end + 1;
-    for (const { range } of rules) for (const n of [range[axis + '1'], range[axis + '2'] + 1]) if (n > position) next = Math.min(next, n);
-    return next;
+  // A file from Excel can hold one rule per cell of a scattered list (thousands of them), and the
+  // writer asks about every cell and every run: the edges of the rules are sorted once and found by
+  // halving, and a row is matched only against the rules that cover it.
+  const edges = (axis) => [...new Set(rules.flatMap(({ range }) => [range[axis + '1'], range[axis + '2'] + 1]))].sort((a, b) => a - b);
+  const rowEdges = edges('r'), colEdges = edges('c');
+  const nextBoundary = (position, list, end) => {
+    let lo = 0, hi = list.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid] > position) hi = mid; else lo = mid + 1; }
+    return Math.min(end + 1, lo < list.length ? list[lo] : Infinity);
+  };
+  const byTop = rules.map((_, i) => i).sort((a, b) => rules[a].range.r1 - rules[b].range.r1);
+  let row = -1, next = 0, active = [];
+  const covering = (r) => {
+    if (r < row) { next = 0; active = []; }
+    if (r !== row) {
+      while (next < byTop.length && rules[byTop[next]].range.r1 <= r) active.push(byTop[next++]);
+      active = active.filter(i => rules[i].range.r2 >= r).sort((a, b) => b - a);
+      row = r;
+    }
+    return active;
   };
   return {
     lastRow, lastCol,
-    rows: (r) => r <= used.e.r ? 1 : nextBoundary(r, 'r', lastRow) - r,
+    rows: (r) => r <= used.e.r ? 1 : nextBoundary(r, rowEdges, lastRow) - r,
     cell: (r, c) => {
-      let index = -1;
-      for (let i = rules.length - 1; i >= 0; i--) {
-        const a = rules[i].range;
-        if (r >= a.r1 && r <= a.r2 && c >= a.c1 && c <= a.c2) { index = i; break; }
-      }
+      // The last rule covering the cell wins, as in the app.
+      const index = covering(r).find(i => c >= rules[i].range.c1 && c <= rules[i].range.c2) ?? -1;
       return { name: index < 0 ? null : `dv_${sheetIndex}_${index}`,
-        count: c <= used.e.c ? 1 : nextBoundary(c, 'c', lastCol) - c };
+        count: c <= used.e.c ? 1 : nextBoundary(c, colEdges, lastCol) - c };
     },
   };
 }
