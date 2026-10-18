@@ -47,7 +47,7 @@ import { createComments, COMMENT_COMMANDS } from '../ui/comments.js';
 import { copyThreads, pasteThreads } from '../core/comments.js';
 import { pageBreaks, pagesOf, insertBreaks, removeBreaks, hasBreakAt, moveBreak, moveAreaEdge } from '../ui/pagebreaks.js';
 import { createPageLayout } from '../ui/page-layout.js';
-import { consolidate } from '../core/consolidate.js';
+import { consolidate, consolidationSource } from '../core/consolidate.js';
 import { openConsolidateDialog } from '../ui/consolidatedialog.js';
 import { attachKeyTips } from '../ui/keytips.js';
 import { createFormulaBar } from '../ui/formulabar.js';
@@ -3102,14 +3102,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!arg?.refs) { openConsolidateDialog(ctx); return; }
         const sources = arg.refs.map((text) => {
           const at = resolveRangeText(text);
-          if (!at) return null;
-          const rows = [];
-          for (let r = at.range.r1; r <= Math.min(at.range.r2, at.range.r1 + 5000); r++) {
-            const row = [];
-            for (let c = at.range.c1; c <= Math.min(at.range.c2, at.range.c1 + 500); c++) { const v = wb.getValue(at.sheetId, r, c); row.push(v && typeof v === 'object' ? null : v); }
-            rows.push(row);
-          }
-          return rows;
+          return at ? consolidationSource(wb, at.sheetId, at.range) : null;
         }).filter(Boolean);
         const table = consolidate(sources, arg);
         if (!table) { toast('There was nothing to consolidate in those references', { icon: 'info', duration: 3000 }); return; }

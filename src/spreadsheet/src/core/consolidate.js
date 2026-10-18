@@ -27,6 +27,24 @@ export const CONSOLIDATE_FUNCTIONS = [['sum', 'Sum'], ['count', 'Count'], ['aver
 const key = (v) => (typeof v === 'string' ? `s:${v.trim().toLowerCase()}` : `v:${v}`);
 
 /**
+ * The values of one reference, as consolidate takes them: every row and column of it the sheet has data in (a whole
+ * column reads down to the sheet's last row, not a million blank ones), errors as blanks. Null for an unknown sheet.
+ */
+export function consolidationSource(wb, sheetId, range) {
+  if (!wb.sheet(sheetId)) return null;
+  const used = wb.usedRange(sheetId);
+  if (!used) return [];
+  const r2 = Math.min(range.r2, used.r2), c2 = Math.min(range.c2, used.c2);
+  const rows = [];
+  for (let r = range.r1; r <= r2; r++) {
+    const row = [];
+    for (let c = range.c1; c <= c2; c++) { const v = wb.getValue(sheetId, r, c); row.push(v && typeof v === 'object' ? null : v); }
+    rows.push(row);
+  }
+  return rows;
+}
+
+/**
  * sources: arrays of rows of values. Returns rows of values for the result, labels included where asked for
  * (the top-left corner blank when both are used), or null when there is nothing to combine.
  */
