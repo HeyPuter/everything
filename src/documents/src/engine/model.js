@@ -43,7 +43,7 @@ import { normalizeCellBlock, cellBlockPlacements } from './table-selection.js';
 import { emptyStyles, resolveStyledParagraph, effectiveStyleId, editedStyle, resolveCharacterRun, paragraphRunStyle } from './styles.js';
 import { emptyNumbering, levelFor, listKind, listGeometry, listMarkers, newList, restartList } from './numbering.js';
 import { INDENT_KEYS, validateIndent, normalizeTabStops, sameValue } from './paragraph-geometry.js';
-import { validatePageSettings, DOCUMENT_PAGE_KEYS, SECTION_TYPES } from './page-settings.js';
+import { validatePageSettings, readingPageSize, DOCUMENT_PAGE_KEYS, SECTION_TYPES } from './page-settings.js';
 import { OBJECT, inlineSegments, validateImage, normalizeCrop, normalizedRotation, rotationOutsets, imageExtents, CROP_SIDES, isPositionedImage, nextDrawingId } from './images.js';
 import { outlineEntries, builtinOutlineLevel } from './outline.js';
 import { refreshConditionalTable } from './conditional-table-formatting.js';
@@ -623,7 +623,17 @@ export class TextDocument {
     const documentPatch = Object.fromEntries(Object.entries(patch).filter(([key]) => DOCUMENT_PAGE_KEYS.includes(key)));
     if ('background' in patch && patch.background !== this.pageSettings.background) documentPatch.backgroundPicture = null;
     const sectionPatch = Object.fromEntries(Object.entries(patch).filter(([key]) => !DOCUMENT_PAGE_KEYS.includes(key)));
-    const plan = (first, last) => this.sectionSettings.map((settings, i) => validatePageSettings({ ...settings, ...documentPatch, ...(i >= first && i <= last ? sectionPatch : {}) }));
+    // Columns of their own widths keep their proportions when the writing width changes (another paper size,
+    // orientation or margins), as in Word; kept as they were, they ran past the page's edge.
+    const writingWidth = s => readingPageSize(s)[0] - s.left - s.right - (s.gutterAtTop ? 0 : s.gutter || 0);
+    const fitted = (before, after) => {
+      if (!after.columns || after.columns.equalWidth || 'columns' in patch) return after;
+      const from = writingWidth(before), to = writingWidth(after);
+      if (!(from > 0) || !(to > 0) || from === to) return after;
+      const entries = after.columns.entries.map(e => ({ ...e, width: Math.max(1, Math.round(e.width * to / from)), ...(e.space !== undefined ? { space: Math.round(e.space * to / from) } : {}) }));
+      return { ...after, columns: { ...after.columns, entries } };
+    };
+    const plan = (first, last) => this.sectionSettings.map((settings, i) => validatePageSettings(fitted(settings, { ...settings, ...documentPatch, ...(i >= first && i <= last ? sectionPatch : {}) })));
     const apply = next => {
       const ends = this.paragraphs.filter(p => p.sectionEnd);
       next.forEach((settings, i) => { if (i < ends.length) ends[i].sectionEnd = settings; else this.pageSettings = settings; });

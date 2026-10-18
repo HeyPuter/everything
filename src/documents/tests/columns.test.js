@@ -37,3 +37,16 @@ it('lays out unequal columns whose wrapping never settles instead of refusing th
   expect(layout.pageCount).toBeGreaterThan(1);
   expect(layout.lines.filter(line => !line.cellId).length).toBeGreaterThan(25);
 });
+
+it('scales columns of their own widths to a new page size, keeping their proportions', async () => {
+  const { TextDocument: Doc, paragraph: para } = await import('../src/engine/model.js');
+  const { presetColumns } = await import('../src/views/columns-dialog.js');
+  const doc = new Doc([para('word '.repeat(50))]);
+  expect(doc.setPageSettings({ columns: presetColumns('left', 9360) })).toBe(true);
+  const before = doc.pageSettings.columns.entries;
+  expect(doc.setPageSettings({ width: 5953, height: 8391 })).toBe(true);
+  const after = doc.pageSettings.columns.entries, writing = 5953 - doc.pageSettings.left - doc.pageSettings.right;
+  const total = after.reduce((n, e, i) => n + e.width + (i < after.length - 1 ? e.space || 0 : 0), 0);
+  expect(Math.abs(total - writing)).toBeLessThanOrEqual(after.length);
+  expect(after[0].width / after[1].width).toBeCloseTo(before[0].width / before[1].width, 1);
+});
