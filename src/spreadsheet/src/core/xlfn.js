@@ -10,7 +10,7 @@
 import { tokenize } from './formula/tokenizer.js';
 import { freeNameTokens, tableReferenceTokens } from './formula/names.js';
 import { FUNCTIONS } from './formula/functions.js';
-import { spillRefsToFile, spillRefsFromFile } from './refs.js';
+import { spillRefsToFile, spillRefsFromFile, quoteSheet } from './refs.js';
 
 const XLWS = new Set(['SORT', 'FILTER']);
 /** The functions that bind names; Excel writes every name they bind with an _xlpm. prefix. */
@@ -109,6 +109,21 @@ function trimRefsFromFile(formula) {
   return out + formula.slice(last);
 }
 
+/**
+ * A reference's sheet prefix as the file must spell it: quoted when the name would read as something
+ * else unquoted (a cell such as FY2024 or Q1, an R1C1 reference, TRUE), as Excel itself always writes
+ * it. A formula typed here as =FY2024!B2 reads fine in this app, but unquoted Excel cannot parse it.
+ */
+function quotedSheetPrefix(formula, t) {
+  if (!t.sheet || t.sheet === '#REF!') return null;
+  const bang = formula.indexOf('!', t.start);
+  const raw = bang > t.start && bang < t.end ? formula.slice(t.start, bang) : null;
+  if (!raw || /^['[#]/.test(raw)) return null;
+  const first = quoteSheet(t.sheet), last = t.sheetEnd ? quoteSheet(t.sheetEnd) : null;
+  const wanted = !t.sheetEnd ? first : first === t.sheet && last === t.sheetEnd ? `${first}:${last}` : quoteSheet(`${t.sheet}:${t.sheetEnd}`);
+  return wanted !== raw ? { end: bang, text: wanted } : null;
+}
+
 /** Our formula text → what goes into the file. */
 export function toFileFormula(ours) {
   const formula = singleCallsToFile(ours);
@@ -144,6 +159,12 @@ export function toFileFormula(ours) {
         const spec = column ? `[[#This Row],${column.startsWith('[') ? column : `[${column}]`}]` : '[#This Row]';
         text += `${formula.slice(last, t.start)}${t.table || ''}${spec}`;
         last = t.end;
+        return;
+      }
+      const quoted = (t.type === 'ref' || t.type === 'name') && t.sheet ? quotedSheetPrefix(formula, t) : null;
+      if (quoted) {
+        text += `${formula.slice(last, t.start)}${quoted.text}`;
+        last = quoted.end;
         return;
       }
       if (t.type !== 'name' || t.sheet) return;
