@@ -2222,8 +2222,14 @@ export function createGrid(opts) {
       if (ch.sourceRefs?.length || ch.titleRef || ch.xTitleRef || ch.yTitleRef || ch.y2TitleRef) {
         // A native chart can read formulas on several other sheets. Its local placeholder
         // range cannot tell us whether an edit changed the plotted values.
+        // Cell writes away from every range it reads leave its picture as it is: a keystroke beside a
+        // dashboard of imported charts no longer reads each of their thousands of points again.
+        const changes = box.sig != null && box.reads && !overdue && box.version !== wb.version ? wb.changesSince(box.version) : null;
+        if (changes?.length && changes.every((e) => e.type === 'cells' && !e.formula && e.box && e.sheetId != null
+          && !box.reads.some(({ sheetId: id, range: g }) => id === e.sheetId && e.box.r1 <= g.r2 && e.box.r2 >= g.r1 && e.box.c1 <= g.c2 && e.box.c2 >= g.c1))) box.version = wb.version;
         if (box.version !== wb.version || overdue) {
           box.version = wb.version;
+          box.reads = chartReads(ch);
           const data = chartData(wb, sheetId, ch), sig = `${chartDefinition(ch)}|${themeSeriesKey()}|${JSON.stringify(data)}`;
           if (box.sig !== sig) {
             box.sig = sig;
@@ -2284,6 +2290,38 @@ export function createGrid(opts) {
         if (selectedChart === id) selectedChart = selectedSet.size ? [...selectedSet][0] : null;
       }
     }
+  }
+
+  /**
+   * The ranges a chart with references of its own reads (its series, their names, linked titles), each on
+   * its sheet; null when one is not a plain range (a union, a named formula) or holds a formula or a
+   * spilled value, whose inputs lie anywhere: such a chart reads them again after every change.
+   */
+  function chartReads(ch) {
+    const refs = [ch.titleRef, ch.xTitleRef, ch.yTitleRef, ch.y2TitleRef,
+      ...(ch.sourceRefs || []).flatMap((src) => [src.nameRef, src.categories, src.values, src.sizes, src.labels])].filter(Boolean);
+    const places = refs.map((ref) => wb.rangeFromText(sheetId, ref));
+    // A chart over a range of the sheet with only a linked title reads that range too.
+    if (!ch.sourceRefs?.length) places.push({ sheetId, range: normalizeRange(ch.range) });
+    const reads = [];
+    for (const at of places) {
+      const s = at && wb.sheet(at.sheetId);
+      if (!s) return null;
+      const g = { r1: at.range.r1, c1: at.range.c1, r2: Math.min(at.range.r2, s.rows - 1), c2: Math.min(at.range.c2, s.cols - 1) };
+      if (g.r2 >= g.r1 && g.c2 >= g.c1) {
+        const area = (g.r2 - g.r1 + 1) * (g.c2 - g.c1 + 1);
+        if (area > 100000 || wb.spillEntries(at.sheetId, g).length) return null;
+        if (s.cells.size < area) {
+          for (const [key, cell] of s.cells) {
+            if (cell.f == null) continue;
+            const i = key.indexOf(','), r = +key.slice(0, i), c = +key.slice(i + 1);
+            if (r >= g.r1 && r <= g.r2 && c >= g.c1 && c <= g.c2) return null;
+          }
+        } else for (let r = g.r1; r <= g.r2; r++) for (let c = g.c1; c <= g.c2; c++) if (s.cells.get(cellKey(r, c))?.f != null) return null;
+      }
+      reads.push({ sheetId: at.sheetId, range: at.range });
+    }
+    return reads;
   }
 
   /**
