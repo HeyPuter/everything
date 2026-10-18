@@ -6,6 +6,7 @@ import { createSharedDoc, readState } from '../src/collab/shared-doc.js';
 import { editorState } from '../src/collab/binding.js';
 import { encode, decode } from '../src/collab/protocol.js';
 import { tokenClaims } from '../src/collab/auth.js';
+import { WorkerTransport } from '../src/collab/transports.js';
 
 /** An in-memory Puter for the service: KV and files. */
 function fakePuter(owner) {
@@ -131,6 +132,24 @@ describe('room service', () => {
     const body = doc.getText('body').toString();
     expect(body.startsWith('Later. ')).toBe(true);
     expect(body).toContain(big);
+  });
+
+  it('passes on a deletion that arrives without any insertion over the worker transport', async () => {
+    const { service } = await sharedRoom();
+    await service.call(OWNER, { op: 'invite-user', room: 'room1', username: 'bob', role: 'editor' });
+    const transport = new WorkerTransport({ call: (op, input) => service.call(BOB, { op, ...input }), room: 'room1' });
+    const updates = [];
+    await transport.join({ session: 'bob-tab', update: u => updates.push(u), presence() {}, role() {}, closed() {} });
+    clearTimeout(transport.timer);
+    await editAs(service, OWNER, doc => doc.getText('body').delete(6, 5));
+    await transport.poll(); clearTimeout(transport.timer);
+    expect(updates).toHaveLength(1);
+    expect(transport.doc.getText('body').toString().startsWith('Shared')).toBe(true);
+    expect(transport.doc.getText('body').toString()).not.toContain('text');
+    // Later answers repeat the deletion; nothing new is passed on.
+    await transport.poll(); clearTimeout(transport.timer);
+    expect(updates).toHaveLength(1);
+    await transport.leave();
   });
 
   it('reads compressed token claims', () => {

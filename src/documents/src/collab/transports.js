@@ -204,9 +204,13 @@ export class WorkerTransport {
       if (res.role && res.role !== this.role) { this.role = res.role; this.handlers.role(res.role); }
       const update = decode(res.update || '');
       if (update.length > 2) {
-        const before = Y.encodeStateVector(this.doc);
-        Y.applyUpdate(this.doc, update);
-        if (JSON.stringify([...before]) !== JSON.stringify([...Y.encodeStateVector(this.doc)])) this.handlers.update(update);
+        // Every answer repeats the room's deletions, which a state vector does not record: pass the update on
+        // only when it inserted or deleted something this copy did not have, deletions alone included.
+        let changed = false;
+        const onUpdate = () => { changed = true; };
+        this.doc.on('update', onUpdate);
+        try { Y.applyUpdate(this.doc, update); } finally { this.doc.off('update', onUpdate); }
+        if (changed) this.handlers.update(update);
       }
       if (res.roster) this.handlers.presence(res.roster);
       this.schedule(res.roster?.some(p => p.session !== this.session) ? 1000 : 3000);
