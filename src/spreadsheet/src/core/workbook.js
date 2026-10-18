@@ -701,7 +701,19 @@ function normalizeSheetViews(raw) {
 /** The views a worksheet can be shown in (CT_SheetView's view: normal, pageLayout, pageBreakPreview). */
 export const SHEET_VIEW_MODES = ['normal', 'pageLayout', 'pageBreak'];
 
-export function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, rowHeightModes, defaultColWidth, defaultRowHeight, nativeWidths, nativeDefaultHeight, colStyles, rowStyles, styleResets, ignoredErrors, cells, frozenRows, frozenCols, hiddenRows, hiddenCols, merges, notes, rules, validations, color, filter, otherFilters, filterHidden, hidden, veryHidden, charts, sparklineGroups, protected: locked, groups, gridlines, headers, rightToLeft, defaultVAlign, zeros, viewZoom, viewSelection, viewOrigin, frozenOrigin, split, viewMode, zoomToFit, printSettings, protectedRanges, tables, scenarios, outlineSettings, showPageBreaks, background, sheetViews, personalView, freshIds = false }) {
+/**
+ * The advanced filter run in place on a sheet, for Data ▸ Clear and Reapply: the list (header row first), its
+ * criteria range ({ sheetId, range }, sheetId null for the list's own sheet; false once deleted) and whether only
+ * unique records were kept. Its ranges follow inserted, deleted and moved lines as references do.
+ */
+function normalizeAdvancedFilter(raw) {
+  if (!raw || typeof raw !== 'object' || !validStoredRange(raw.list)) return null;
+  const criteria = raw.criteria === false ? false : raw.criteria && validStoredRange(raw.criteria.range)
+    ? { sheetId: typeof raw.criteria.sheetId === 'string' ? raw.criteria.sheetId : null, range: normalizeRange(raw.criteria.range) } : null;
+  return { list: normalizeRange(raw.list), criteria, unique: raw.unique === true };
+}
+
+export function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, rowHeightModes, defaultColWidth, defaultRowHeight, nativeWidths, nativeDefaultHeight, colStyles, rowStyles, styleResets, ignoredErrors, cells, frozenRows, frozenCols, hiddenRows, hiddenCols, merges, notes, rules, validations, color, filter, otherFilters, filterHidden, hidden, veryHidden, charts, sparklineGroups, protected: locked, groups, gridlines, headers, rightToLeft, defaultVAlign, zeros, viewZoom, viewSelection, viewOrigin, frozenOrigin, split, viewMode, zoomToFit, printSettings, protectedRanges, tables, scenarios, advancedFilter, outlineSettings, showPageBreaks, background, sheetViews, personalView, freshIds = false }) {
   // Optional metadata from a file may be malformed. An invalid collection
   // must not prevent the workbook's actual cell data from opening.
   const arrayOrEmpty = (value) => Array.isArray(value) ? value : [];
@@ -779,6 +791,7 @@ export function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, r
       ...(r.barColor != null ? { barColor: barColorOf(r) } : {}) })),
     protectedRanges: arrayOrEmpty(protectedRanges).filter((p) => p && validStoredRange(p.range)).map((p) => ({ id: idOf(p.id), range: normalizeRange(p.range), description: p.description || '' })),
     scenarios: normalizeScenarios(scenarios),
+    ...(normalizeAdvancedFilter(advancedFilter) ? { advancedFilter: normalizeAdvancedFilter(advancedFilter) } : {}),
     validations: arrayOrEmpty(validations).filter((v) => v && validStoredRange(v.range) && v.type).map((v) => ({ ...v, id: idOf(v.id), range: normalizeRange(v.range) })),
     sparklineGroups: normalizeNativeSparklineGroups(sparklineGroups || []).map(group => ({
       ...group, uid: freshIds || !group.uid ? `{${crypto.randomUUID().toUpperCase()}}` : group.uid,
@@ -971,6 +984,7 @@ export function sheetShapeJSON(s, { live = false, defaultHidden = null } = {}) {
     rules: s.rules.map((r) => ({ ...r, range: { ...r.range }, style: { ...r.style } })),
     protectedRanges: s.protectedRanges.length ? s.protectedRanges.map((p) => ({ ...p, range: { ...p.range } })) : undefined,
     ...(s.scenarios ? { scenarios: copyScenarios(s.scenarios) } : {}),
+    ...(s.advancedFilter ? { advancedFilter: normalizeAdvancedFilter(s.advancedFilter) } : {}),
     validations: s.validations.map((v) => ({ ...v, range: { ...v.range } })),
     ...(s.sparklineGroups.length ? { sparklineGroups: normalizeNativeSparklineGroups(s.sparklineGroups) } : {}),
     charts: s.charts.map((ch) => ({ ...ch, ...(ch.cellAnchor ? { cellAnchor: normalizeCellAnchor(ch.cellAnchor) } : {}), range: { ...ch.range }, anchor: { ...ch.anchor } })),
@@ -1634,6 +1648,8 @@ export class Workbook extends EventTarget {
       // Names scoped to the sheet go with it. One that pointed at it alone stays, reading #REF!, so its
       // dependents show #REF! rather than #NAME? and no later sheet of the same name takes it over; the rest are rewritten.
       this.names = this.names.filter((n) => !isGone(n.sheet)).map((n) => ({ ...n, ref: isGone(this.parseNamedRef(n.ref)?.sheet) ? '#REF!' : rewrite(n.ref) }));
+      // An advanced filter whose criteria were on the deleted sheet can still be cleared, but no longer reapplied.
+      for (const s of this.sheets) if (s.advancedFilter?.criteria?.sheetId === id) s.advancedFilter = { ...s.advancedFilter, criteria: false };
       this.sheets.splice(i, 1);
       if (this.activeSheetId === id) {
         const after = this.sheets.slice(i).find((s) => !s.hidden) || this.sheets.slice(0, i).reverse().find((s) => !s.hidden);
@@ -6070,6 +6086,7 @@ export class Workbook extends EventTarget {
         .filter((m) => m[hi] >= m[lo] && (m.r1 !== m.r2 || m.c1 !== m.c2));
       sheet.protectedRanges = sheet.protectedRanges.map((p) => (insideBand(p.range) ? { ...p, range: adjust(p.range) } : p)).filter((p) => p.range[hi] >= p.range[lo]);
       mapScenarioCells(sheet, (m) => (insideBand(m) ? adjust(m) : m));
+      this._mapAdvancedFilters(sheet.id, (m) => (insideBand(m) ? adjust(m) : m));
       this._mapWatches(sheetId, (r, c) => {
         if (!inBand(r, c)) return { r, c };
         const i = moveIndex(axis === 'row' ? r : c);
@@ -6383,6 +6400,7 @@ export class Workbook extends EventTarget {
       mapPrintAreas(sheet, m => clamp(grow(m)), axis);
       sheet.protectedRanges = sheet.protectedRanges.map((p) => ({ ...p, range: clamp(grow(p.range)) }));
       mapScenarioCells(sheet, (m) => clamp(grow(m)));
+      this._mapAdvancedFilters(sheet.id, (m) => clamp(grow(m)));
       this._mapWatches(sheetId, (r, c) => (axis === 'row' ? { r: r >= at ? r + n : r, c } : { r, c: c >= at ? c + n : c }));
       sheet.groups[groupKey] = sheet.groups[groupKey].map((g) => {
         const out = { ...g };
@@ -6609,6 +6627,7 @@ export class Workbook extends EventTarget {
         .filter((g) => g.to >= g.from);
       sheet.protectedRanges = sheet.protectedRanges.map((p) => ({ ...p, range: shrink(p.range) })).filter((p) => p.range[hi] >= p.range[lo]);
       mapScenarioCells(sheet, shrink);
+      this._mapAdvancedFilters(sheet.id, shrink);
       // A table survives while its header row and at least one column remain.
       sheet.tables = sheet.tables.map((t) => {
         const origin = t.calcRow ?? tableRows(t).dataStart;
@@ -6928,6 +6947,7 @@ export class Workbook extends EventTarget {
       sheet.validations = sheet.validations.flatMap((rule) => splitRule(rule, 'source'));
       sheet.protectedRanges = sheet.protectedRanges.map((p) => ({ ...p, range: moveRect(p.range) }));
       mapScenarioCells(sheet, moveRect);
+      this._mapAdvancedFilters(sheet.id, moveRect);
       this._mapWatches(sheetId, (r, c) => (axis === 'row' ? { r: map(r), c } : { r, c: map(c) }));
       sheet.charts = sheet.charts.map((ch) => ({ ...ch, ...mapCellDrawing(ch, p => ({ ...p, [axis === 'row' ? 'r' : 'c']: map(p[axis === 'row' ? 'r' : 'c']) })), range: moveRect(ch.range), anchor: ch.anchorMode === 'absolute' ? ch.anchor : { r: axis === 'row' ? map(ch.anchor.r) : ch.anchor.r, c: axis === 'col' ? map(ch.anchor.c) : ch.anchor.c } }));
       sheet.tables = sheet.tables.map((t) => {
@@ -10936,6 +10956,47 @@ export class Workbook extends EventTarget {
    * their cells and their stored size; they only stop taking up space.
    */
   /** Hide or show lines. False when nothing changed: a protected sheet, lines already so, or every line would be hidden. */
+  /**
+   * Inside a structural step on `sheetId`: the lists and criteria ranges of the advanced filters run in place that lie
+   * on it follow the edit through `move` (a range in, where it went out; inverted or null when deleted). A list whose
+   * records are all deleted is forgotten; a criteria range deleted leaves its filter to be cleared, not reapplied.
+   */
+  _mapAdvancedFilters(sheetId, move) {
+    const moved = (range) => { const m = range && move({ ...range }); return m && m.r2 >= m.r1 && m.c2 >= m.c1 ? normalizeRange(m) : null; };
+    for (const s of this.sheets) {
+      const state = s.advancedFilter;
+      if (!state) continue;
+      let next = state;
+      if (s.id === sheetId) {
+        const list = moved(state.list);
+        next = list && list.r2 > list.r1 ? { ...next, list } : null;
+      }
+      if (next?.criteria && (next.criteria.sheetId ?? s.id) === sheetId) {
+        const range = moved(next.criteria.range);
+        next = { ...next, criteria: range ? { ...next.criteria, range } : false };
+      }
+      if (next === state) continue;
+      if (next) s.advancedFilter = next; else delete s.advancedFilter;
+    }
+  }
+
+  /** Record (or, with null, forget) the advanced filter run in place on a sheet: one undo step, see normalizeAdvancedFilter. */
+  setAdvancedFilterState(sheetId, state, label = 'Advanced filter') {
+    const sheet = this.sheet(sheetId);
+    if (!sheet) return;
+    const next = normalizeAdvancedFilter(state);
+    const prev = sheet.advancedFilter || null;
+    if (sameJSON(prev, next)) return;
+    const apply = (value) => {
+      const live = this.sheet(sheetId);
+      if (!live) return;
+      if (value) live.advancedFilter = normalizeAdvancedFilter(value); else delete live.advancedFilter;
+      this._changed('layout', live.id);
+    };
+    apply(next);
+    this._push({ label, undo: () => apply(prev), redo: () => apply(next) });
+  }
+
   setHidden(sheetId, axis, indices, hidden) {
     const sheet = this.sheet(sheetId);
     if (!sheet) return false;

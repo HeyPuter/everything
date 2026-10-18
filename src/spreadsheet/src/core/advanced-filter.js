@@ -80,9 +80,6 @@ function uniqueRows(wb, sheetId, rows, columns) {
   });
 }
 
-/** The last advanced filter run in place on each sheet, for Reapply. */
-const lastInPlace = new Map();
-
 /**
  * Run an advanced filter. options: { list, criteria: { sheetId, range } | null, copyTo: { sheetId, range } | null, unique }.
  * In place it hides the records that do not match (one undo step); copying writes the header and the
@@ -102,8 +99,10 @@ export function advancedFilter(wb, sheetId, { list, criteria = null, copyTo = nu
     wb.transaction('Advanced filter', () => {
       wb.setHidden(sheetId, 'row', show, false);
       if (hide.length) wb.setHidden(sheetId, 'row', hide, true);
+      // Kept on the sheet, where its ranges follow inserted, deleted and moved rows, for Clear and Reapply.
+      const own = !criteria || (criteria.sheetId ?? sheetId) === sheetId;
+      wb.setAdvancedFilterState(sheetId, { list, criteria: criteria && { sheetId: own ? null : criteria.sheetId, range: criteria.range }, unique });
     });
-    lastInPlace.set(sheetId, { list: { ...list }, criteria, unique, hidden: hide });
     return { shown: show.length, hidden: hide.length };
   }
   const dest = copyTo.sheetId ?? sheetId;
@@ -147,10 +146,12 @@ export function clearSheetFilters(wb, sheetId) {
       wb._setFilter(sheet, { ...f, criteria: {} }, 'Clear filter', { target: f });
       changed = true;
     }
-    const last = lastInPlace.get(sheetId);
-    if (last?.hidden?.length) {
-      wb.setHidden(sheetId, 'row', last.hidden, false);
-      lastInPlace.delete(sheetId);
+    // The advanced filter run in place shows every record of its list again, wherever the list has moved to.
+    const last = sheet.advancedFilter;
+    if (last) {
+      const hidden = [...sheet.hiddenRows].filter((r) => r > last.list.r1 && r <= last.list.r2);
+      if (hidden.length) wb.setHidden(sheetId, 'row', hidden, false);
+      wb.setAdvancedFilterState(sheetId, null, 'Clear filter');
       changed = true;
     }
   });
@@ -161,15 +162,18 @@ export function clearSheetFilters(wb, sheetId) {
 export function sheetHasFiltering(wb, sheetId) {
   const sheet = wb.sheet(sheetId);
   if (!sheet) return false;
-  return sheetFilters(sheet).some((f) => Object.keys(f.criteria || {}).length) || !!lastInPlace.get(sheetId)?.hidden?.length;
+  return sheetFilters(sheet).some((f) => Object.keys(f.criteria || {}).length) || !!sheet.advancedFilter;
 }
 
 /** Data ▸ Reapply: the filters judge the rows again (after edits), and so does the last advanced filter in place. */
 export function reapplySheetFilters(wb, sheetId) {
   const sheet = wb.sheet(sheetId);
   if (!sheet) return false;
-  const last = lastInPlace.get(sheetId);
+  const last = sheet.advancedFilter;
   if (sheetFilters(sheet).length) wb.reapplyFilter(sheetId);
-  if (last) advancedFilter(wb, sheetId, { list: last.list, criteria: last.criteria, unique: last.unique });
-  return !!(sheetFilters(sheet).length || last);
+  // Criteria on a sheet since deleted, or in rows since deleted, can no longer be read: that filter is left as it is.
+  const criteria = last?.criteria && { sheetId: last.criteria.sheetId ?? sheetId, range: last.criteria.range };
+  const readable = last && last.criteria !== false && (!criteria || wb.sheet(criteria.sheetId));
+  if (readable) advancedFilter(wb, sheetId, { list: last.list, criteria, unique: last.unique });
+  return !!(sheetFilters(sheet).length || readable);
 }
