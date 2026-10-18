@@ -146,7 +146,9 @@ function normalizeStep(raw) {
 
 function normalizeLoad(raw) {
   if (!isObj(raw) || raw.kind !== 'table') return { kind: 'connection' };
-  return { kind: 'table', table: str(raw.table, 255), ...(typeof raw.sheet === 'string' ? { sheet: str(raw.sheet, 31) } : {}) };
+  // `columns`: the query's own columns as last loaded, which tells them from columns added to the table by hand.
+  return { kind: 'table', table: str(raw.table, 255), ...(typeof raw.sheet === 'string' ? { sheet: str(raw.sheet, 31) } : {}),
+    ...(Array.isArray(raw.columns) ? { columns: names(raw.columns).slice(0, 16384) } : {}) };
 }
 
 export function normalizeQuery(raw) {
@@ -967,16 +969,18 @@ export function sheetNameFor(wb, queryName) {
 }
 
 /** The cells for a result: the header row, then each row (an error becomes an empty cell). */
-export function resultCells(table, r0, c0) {
+export function resultCells(table, r0, c0, at = null) {
   const entries = [];
   let errors = 0;
-  table.columns.forEach((name, j) => entries.push({ r: r0, c: c0 + j, cell: { v: name, f: null } }));
+  // `at` places each of the result's columns at an offset of its own (columns of the table's between them).
+  const col = (j) => c0 + (at ? at[j] : j);
+  table.columns.forEach((name, j) => entries.push({ r: r0, c: col(j), cell: { v: name, f: null } }));
   table.rows.forEach((row, i) => row.forEach((v, j) => {
     if (isErr(v)) errors++;
     if (v == null || isErr(v)) return;
     const cell = { v, f: null };
     if (table.types[j] === 'date' && typeof v === 'number') cell.s = { fmt: 'date' };
-    entries.push({ r: r0 + 1 + i, c: c0 + j, cell });
+    entries.push({ r: r0 + 1 + i, c: col(j), cell });
   }));
   return { entries, errors };
 }
@@ -995,7 +999,9 @@ function occupied(wb, sheetId, range) {
   return false;
 }
 
-const blockedMessage = (direction) => `The refreshed data needs more ${direction === 'down' ? 'rows' : 'columns'}, but the cells ${direction === 'down' ? 'below' : 'beside'} the table could not be moved (a PivotTable, a protected sheet, merged cells or an array formula is in the way).`;
+const blockedMessage = (direction) => (direction === 'left'
+  ? 'A column the query no longer gives could not be taken out of the table (a PivotTable, a protected sheet, merged cells or an array formula is in the way).'
+  : `The refreshed data needs more ${direction === 'down' ? 'rows' : 'columns'}, but the cells ${direction === 'down' ? 'below' : 'beside'} the table could not be moved (a PivotTable, a protected sheet, merged cells or an array formula is in the way).`);
 
 /**
  * Write a query's result into the workbook as a table:a new sheet named after the query, or at `at`
@@ -1010,10 +1016,32 @@ export function loadResult(wb, query, table, { at = null } = {}) {
   const label = existing ? 'Refresh' : 'Load query';
   wb.transaction(label, () => {
     if (existing) {
-      const { sheet, table: t } = existing;
+      const { sheet } = existing;
+      let t = existing.table;
       const { r1, c1 } = t.range;
+      // Columns added to the table by hand (a calculated Total beside the query's columns) are the table's own, as in
+      // Excel: a refresh keeps them, their formulas and values, and lays the query's columns out around them. They are
+      // told apart by the columns the query loaded last time; a table loaded before that was recorded keeps its
+      // calculated columns. Columns the query no longer gives are taken out of the table, so the rest close up.
+      const resultNames = new Set(table.columns);
+      const loaded = query.load?.columns;
+      const handmade = (names, tt) => names.map((n, i) => !resultNames.has(n) && (loaded ? !loaded.includes(n) : tt.calc?.[i] != null));
+      let names = wb.tableColumns(sheet.id, t);
+      let own = handmade(names, t);
+      const keep = own.some(Boolean);
+      if (keep) {
+        for (let i = names.length - 1; i >= 0; i--) {
+          if (own[i] || resultNames.has(names[i])) continue;
+          if (!wb.deleteCells(sheet.id, { r1: t.range.r1, c1: t.range.c1 + i, r2: t.range.r2, c2: t.range.c1 + i }, 'left')) { result = { error: blockedMessage('left') }; return; }
+          t = wb.tableById(sheet.id, t.id);
+        }
+        names = wb.tableColumns(sheet.id, t);
+        own = handmade(names, t);
+      }
+      const layout = keep ? [...names, ...table.columns.filter((n) => !names.includes(n))] : table.columns;
+      const at = keep ? table.columns.map((n) => layout.indexOf(n)) : null;
       const old = { ...t.range };
-      const next = { r1, c1, r2: r1 + Math.max(1, height), c2: c1 + table.columns.length - 1 };
+      const next = { r1, c1, r2: r1 + Math.max(1, height), c2: c1 + layout.length - 1 };
       // A table that grows makes room for its new rows and columns, as Excel's refresh inserts cells for new
       // data: what stands beside or below it (a note, a total, another table) moves along instead of being
       // written over. Nothing has changed yet when the cells cannot move, so the refresh stops there.
@@ -1025,11 +1053,19 @@ export function loadResult(wb, query, table, { at = null } = {}) {
         let problem = null;
         if (!wb.resizeTable(sheet.id, t.id, next, { onInvalid: (m) => { problem = m; } })) { result = { error: problem || 'The table could not be resized for the new data.' }; return; }
       }
-      wb.clearRange(sheet.id, { r1: r1 + 1, c1: old.c1, r2: old.r2, c2: old.c2 });
-      if (next.c2 < old.c2) wb.clearRange(sheet.id, { r1, c1: next.c2 + 1, r2: r1, c2: old.c2 });
-      const { entries, errors } = resultCells(table, r1, c1);
+      if (keep) {
+        // The query's columns are written afresh; the table's own keep their cells, but for the rows it no longer has.
+        for (const p of at) if (p < names.length) wb.clearRange(sheet.id, { r1: r1 + 1, c1: c1 + p, r2: old.r2, c2: c1 + p });
+        if (old.r2 > next.r2) own.forEach((mine, p) => { if (mine) wb.clearRange(sheet.id, { r1: next.r2 + 1, c1: c1 + p, r2: old.r2, c2: c1 + p }); });
+        // Rows the table gained take its calculated columns' formulas, as rows typed under a table do.
+        for (let r = old.r2 + 1; r <= next.r2; r++) wb._fillCalculatedRow(sheet, wb.tableById(sheet.id, t.id), r);
+      } else {
+        wb.clearRange(sheet.id, { r1: r1 + 1, c1: old.c1, r2: old.r2, c2: old.c2 });
+        if (next.c2 < old.c2) wb.clearRange(sheet.id, { r1, c1: next.c2 + 1, r2: r1, c2: old.c2 });
+      }
+      const { entries, errors } = resultCells(table, r1, c1, at);
       wb.setCells(sheet.id, entries, label);
-      query.load = { kind: 'table', table: t.name, sheet: sheet.name, tableId: t.id };
+      query.load = { kind: 'table', table: t.name, sheet: sheet.name, tableId: t.id, columns: [...table.columns] };
       result = { sheetId: sheet.id, tableId: t.id, rows: height, errors };
       return;
     }
@@ -1051,7 +1087,7 @@ export function loadResult(wb, query, table, { at = null } = {}) {
     const name = tableNameFor(wb, query.name);
     const tableId = wb.addTable(sheetId, range, { name });
     if (!tableId) { result = { error: 'A table could not be created there.' }; return; }
-    query.load = { kind: 'table', table: name, sheet: wb.sheet(sheetId).name, tableId };
+    query.load = { kind: 'table', table: name, sheet: wb.sheet(sheetId).name, tableId, columns: [...table.columns] };
     result = { sheetId, tableId, rows: height, errors };
   });
   if (result && !result.error) {
