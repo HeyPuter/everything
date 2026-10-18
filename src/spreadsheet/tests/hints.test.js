@@ -62,7 +62,7 @@ describe('matchFunctions / signatureFor', () => {
 
   it('has a fallback signature for every function', () => {
     expect(signatureFor('SUMIF').params).toContain('criteria');
-    expect(signatureFor('CODE')).toEqual({ name: 'CODE', params: '...', description: '' });
+    expect(signatureFor('NOSUCHFUNCTION')).toEqual({ name: 'NOSUCHFUNCTION', params: '...', description: '' });
   });
 });
 
