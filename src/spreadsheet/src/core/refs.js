@@ -393,7 +393,9 @@ export function spillRefsToFile(formula) {
   let last = 0;
   for (const t of tokens) {
     if (t.type !== 'ref' || !t.spill) continue;
-    out += `${formula.slice(last, t.start)}_xlfn.ANCHORARRAY(${formula.slice(t.start, t.end - 1)})`;
+    // The spill ending Sheet2!B1:A1# is spelled without its sheet, which it shares with B1.
+    const text = formula.slice(t.start, t.end - 1), sheet = t.sheet && !text.includes('!') ? `${quoteSheet(t.sheet)}!` : '';
+    out += `${formula.slice(last, t.start)}_xlfn.ANCHORARRAY(${sheet}${text})`;
     last = t.end;
   }
   return out + formula.slice(last);

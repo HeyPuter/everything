@@ -26,6 +26,7 @@ const ERRORS = ['#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#N/A', '#NUM!', '#NULL
 const CELL = String.raw`\$?[A-Za-z]{1,3}\$?\d{1,7}`;
 const COL_ONLY = String.raw`\$?[A-Za-z]{1,3}`;
 const ROW_ONLY = String.raw`\$?\d{1,7}`;
+const CELL_RE = new RegExp(`^${CELL}$`);
 const REF_BODY = String.raw`(?:${CELL}(?::${CELL})?|${COL_ONLY}:${COL_ONLY}|${ROW_ONLY}:${ROW_ONLY})`;
 // An unquoted sheet or defined name: a letter in any script, an underscore or a backslash, then
 // letters, combining marks (the vowel signs of हिन्दी, the accents of a decomposed Ünïcode), digits,
@@ -177,6 +178,17 @@ export function tokenize(src) {
       // A trailing # names the whole spill of an array formula (A1#).
       let len = (external?.length || 0) + ref[0].length;
       const spill = rest[len] === '#' && !/^#[A-Z]/.test(rest.slice(len));
+      // B1:A1# is the range operator between B1 and the spill A1#, not a block carrying #:
+      // the start cell is its own reference, and the colon then joins it to the spill.
+      const colon = spill && !sheetEnd ? text.indexOf(':') : -1;
+      if (colon > 0 && CELL_RE.test(text.slice(0, colon))) {
+        const startEnd = i + len - text.length + colon;
+        tokens.push({ type: 'ref', text: text.slice(0, colon), sheet, sheetEnd, spill: false, start: i, end: startEnd });
+        tokens.push({ type: 'colon', start: startEnd, end: startEnd + 1 });
+        tokens.push({ type: 'ref', text: text.slice(colon + 1), sheet, sheetEnd, spill: true, start: startEnd + 1, end: i + len + 1 });
+        i += len + 1;
+        continue;
+      }
       if (spill) len++;
       tokens.push({ type: 'ref', text, sheet, sheetEnd, spill, start: i, end: i + len });
       i += len;

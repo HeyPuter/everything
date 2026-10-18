@@ -66,12 +66,22 @@ it.each(['Sheet1:Sheet3!B2', 'Sheet1:Sheet3!$B$2:$C$3', "'Sheet1':'Sheet3'!B2"])
     expect(calc('SUM(Across)')).toBe(14);
   });
 
-it.each(['Sheet1!A1:B2#', 'Sheet1:Sheet3!A1#', 'Sheet1!A:A#'])
+it.each(['Sheet1:Sheet3!A1#', 'Sheet1!A:A#'])
   ('rejects the same malformed named spill as the formula parser: %s', (ref) => {
     const { wb } = setup();
     expect(wb.defineName('Invalid', ref)).toBeTypeOf('string');
     expect(wb.names).toHaveLength(0);
   });
+
+it('reads Sheet1!A1:B2# as the range from A1 to the spill of B2, as the formula parser does', () => {
+  const { wb, id, calc } = setup();
+  wb.setInput(id, 1, 1, '=SEQUENCE(3,2)');
+  wb.setInput(id, 0, 0, '100');
+  expect(wb.defineName('Block', 'Sheet1!A1:B2#')).toBeNull();
+  expect(calc('SUM(Block)')).toBe(121);
+  expect(calc('ROWS(Block)')).toBe(4);
+  expect(calc('COLUMNS(Block)')).toBe(3);
+});
 
 it('retains spill and sheet-span names after XLSX reopening', async () => {
   let { wb, id, calc } = setup();

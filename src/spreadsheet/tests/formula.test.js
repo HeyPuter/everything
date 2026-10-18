@@ -218,7 +218,9 @@ describe('spill reference tokens', () => {
     const t = tokenize('SUM(A1#)+B2');
     expect(t[2]).toMatchObject({ type: 'ref', text: 'A1', spill: true, start: 4, end: 7 });
     expect(t[5]).toMatchObject({ type: 'ref', text: 'B2', spill: false });
-    expect(() => parseFormula('A1:B2#')).toThrow(FormulaSyntaxError);
+    // A1:B2# is the range from A1 to the spill of B2; # still never follows a block.
+    expect(tokenize('A1:B2#').map((x) => x.type)).toEqual(['ref', 'colon', 'ref']);
+    expect(() => parseFormula('A:B#')).toThrow(FormulaSyntaxError);
     // Error literals right after a reference are still errors, not spills.
     expect(tokenize('A1#REF!').map((x) => x.type)).toEqual(['ref', 'error']);
   });
