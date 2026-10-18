@@ -13633,10 +13633,17 @@ document.addEventListener("keydown", (e) => {
   // left the focus on a toolbar button, edit nothing there: a letter must
   // not run a tool shortcut and Backspace must not delete the object being
   // edited. Escape still leaves the edit.
+  // Undo and redo still work from a table's cells, as from the board.
   if (
     e.key !== "Escape" &&
     (editing || tableEditor.isOpen()) &&
-    e.target.closest("#selection-tools,#table-editor")
+    e.target.closest("#selection-tools,#table-editor") &&
+    !(
+      (e.ctrlKey || e.metaKey) &&
+      !e.altKey &&
+      e.target.closest("#table-cell-grid") &&
+      (shortcutLetter(e) === "z" || (shortcutLetter(e) === "y" && !e.shiftKey))
+    )
   )
     return;
   if (e.key === "Escape" && drag?.kind === "table-cells") {
@@ -13933,15 +13940,17 @@ document.addEventListener("keydown", (e) => {
     );
     return;
   }
-  if (mod && shortcutLetter(e) === "z") {
+  if (
+    (mod && shortcutLetter(e) === "z") ||
+    // Ctrl+Y redoes too, as on Windows and Linux and in the text editor.
+    (mod && !e.shiftKey && !e.altKey && shortcutLetter(e) === "y")
+  ) {
     e.preventDefault();
-    action(e.shiftKey ? "redo" : "undo");
-    return;
-  }
-  // Ctrl+Y redoes too, as on Windows and Linux and in the text editor.
-  if (mod && !e.shiftKey && !e.altKey && shortcutLetter(e) === "y") {
-    e.preventDefault();
-    action("redo");
+    action(e.shiftKey || shortcutLetter(e) === "y" ? "redo" : "undo");
+    // A step taken from a table's cells closes the table editor; the keys
+    // that follow go to the board.
+    if (!e.target.isConnected)
+      document.querySelector("#canvas")?.focus({ preventScroll: true });
     return;
   }
   if (mod && shortcutLetter(e) === "a") {

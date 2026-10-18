@@ -16159,6 +16159,69 @@ test("object links pick canvas targets, navigate and return, copy addresses, rej
   }
 });
 
+test("undo and redo shortcuts work from a table's cells", async () => {
+  const app = await setup(),
+    { doc, w, click } = app;
+  const key = (key, options = {}) =>
+    doc.activeElement.dispatchEvent(
+      new w.KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+        ...options,
+      }),
+    );
+  try {
+    await click('[data-action="new"]');
+    dispatchTransfer(
+      app,
+      "paste",
+      transferData(
+        clipboardFormats([
+          item("table", 200, 200, {
+            w: 340,
+            h: 150,
+            cells: [
+              ["a", "b", "c"],
+              ["d", "e", "f"],
+            ],
+          }),
+        ]),
+      ),
+    );
+    await click('[data-action="edit"]');
+    assert.equal(doc.activeElement.id, "table-cell-grid");
+    key("ArrowRight");
+    const column = doc.querySelector("#table-column-action");
+    column.value = "delete";
+    column.dispatchEvent(new w.Event("change"));
+    const cells = async () => {
+      await app.tick();
+      await app.tick();
+      return (await storedBoards(app))[0].items.find((i) => i.type === "table")
+        .cells;
+    };
+    assert.deepEqual(await cells(), [
+      ["a", "c"],
+      ["d", "f"],
+    ]);
+    assert.equal(doc.activeElement.id, "table-cell-grid");
+    key("z", { metaKey: true });
+    assert.deepEqual(await cells(), [
+      ["a", "b", "c"],
+      ["d", "e", "f"],
+    ]);
+    assert.equal(doc.activeElement.id, "canvas", "The board keeps the keys");
+    key("y", { ctrlKey: true });
+    assert.deepEqual(await cells(), [
+      ["a", "c"],
+      ["d", "f"],
+    ]);
+  } finally {
+    await app.close();
+  }
+});
+
 test("canvas table cells support keyboard editing, range clipboard, structural changes, undo, persistence and protected copying", async () => {
   const app = await setup(),
     { doc, w, click } = app;
