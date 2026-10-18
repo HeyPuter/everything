@@ -3932,6 +3932,16 @@ export function createGrid(opts) {
 
   function insertRef(range, kind = null) {
     if (!edit) return;
+    // Where the pointing began and where it has got to, which the next Shift+arrow stretches from.
+    const point = { anchor: { r: range.r1, c: range.c1 }, focus: { r: range.r2, c: range.c2 } };
+    // A merged block is one cell, named by its top-left corner, as Excel and Sheets point at it: a click
+    // (or an arrow) anywhere on a merged title put in the address of an empty cell under the block. A
+    // range is grown to take in the blocks it cuts through, as the selection is.
+    if (!kind && sheet().merges.length) {
+      const n = normalizeRange(range);
+      const m = n.r1 === n.r2 && n.c1 === n.c2 ? mergeAt(n.r1, n.c1) : null;
+      range = m ? { r1: m.r1, c1: m.c1, r2: m.r1, c2: m.c1 } : n.r1 === n.r2 && n.c1 === n.c2 ? n : wb.expandToMerges(sheetId, n);
+    }
     // A reference picked on another sheet carries that sheet's name; whole lines read B:B or 2:2.
     const refText = `${edit.sheetId !== sheetId ? `${quoteSheet(sheet().name)}!` : ''}${kind ? refToText({ kind, ...normalizeRange(range) }) : rangeName(range)}`;
     const input = editInput();
@@ -3941,7 +3951,7 @@ export function createGrid(opts) {
     edit.text = next;
     editor.value = next;
     edit.refInsert = { start: caret, end: caret + refText.length };
-    edit.point = { anchor: { r: range.r1, c: range.c1 }, focus: { r: range.r2, c: range.c2 } };
+    edit.point = point;
     input.value = next;
     input.focus({ preventScroll: true });
     input.setSelectionRange(edit.refInsert.end, edit.refInsert.end);
@@ -3992,7 +4002,10 @@ export function createGrid(opts) {
       const at = `${ref.r1},${ref.c1},${ref.r2},${ref.c2}`;
       if (drawn.has(at)) return;
       drawn.add(at);
-      const box = rangeBox({ r1: ref.r1, c1: ref.c1, r2: Math.min(ref.r2, s.rows - 1), c2: Math.min(ref.c2, s.cols - 1) });
+      // A merged block's corner stands for the block, and is outlined whole.
+      const m = ref.r1 === ref.r2 && ref.c1 === ref.c2 && s.merges.length ? mergeAt(ref.r1, ref.c1) : null;
+      const area = m && m.r1 === ref.r1 && m.c1 === ref.c1 ? m : ref;
+      const box = rangeBox({ r1: area.r1, c1: area.c1, r2: Math.min(area.r2, s.rows - 1), c2: Math.min(area.c2, s.cols - 1) });
       const node = el('div.ref-hl', { dataset: { color: (i % REF_COLORS) + 1 } });
       place(node, box);
       refLayer.append(node);
