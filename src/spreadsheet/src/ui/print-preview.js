@@ -8,7 +8,7 @@
 
 import { el } from './dom.js';
 import { icon } from './icons.js';
-import { printPaperBox, expandPrintText, splitPrintSections, printPageText } from './print.js';
+import { printPaperBox, expandPrintText, splitPrintSections, printPageText, sheetPrintPrefs } from './print.js';
 import { printBands, printTitleBands } from './print-pagination.js';
 import { fillColorCss } from '../core/fill-color.js';
 import { fontColorCss } from '../core/font-color.js';
@@ -18,8 +18,9 @@ import { colName } from '../core/cell.js';
 const HEAD_W = 36, HEAD_H = 18, TITLE_H = 28;
 
 /** The block the print takes from the sheet: the selection, the print area, or the cells in use. */
-function printedArea(wb, sheetId, prefs, range) {
+function printedArea(wb, sheetId, prefs, range, only) {
   const sheet = wb.sheet(sheetId);
+  if (only) return only;
   if (prefs.area === 'selection' && range) return range;
   if (prefs.area === 'printArea' && sheet.printSettings?.areas?.length) return sheet.printSettings.areas[0];
   return wb.usedRange(sheetId);
@@ -30,10 +31,10 @@ function printedArea(wb, sheetId, prefs, range) {
  * repeatCols? }], scale, box, area, sizes } (sizes in unscaled CSS pixels), where repeatRows and repeatCols list the
  * lines a page repeats before its own. A sheet with nothing to print has one blank page.
  */
-export function printPreviewLayout(wb, sheetId, prefs, range = null) {
+export function printPreviewLayout(wb, sheetId, prefs, range = null, only = null) {
   const sheet = wb.sheet(sheetId);
   const box = printPaperBox(prefs);
-  const area = printedArea(wb, sheetId, prefs, range);
+  const area = printedArea(wb, sheetId, prefs, range, only);
   if (!sheet || !area) return { pages: [null], scale: 1, box, area: null };
   const colSizes = [], rowSizes = [];
   for (let c = area.c1; c <= area.c2; c++) colSizes.push(sheet.hiddenCols?.has(c) ? 0 : wb.colWidth(sheetId, c));
@@ -101,9 +102,28 @@ export function printPreviewLayout(wb, sheetId, prefs, range = null) {
   return { pages: pages.length ? pages : [null], scale, box, area, headW, headH, titleH };
 }
 
+/**
+ * Every page the print makes, in order, as [{ sheetId, prefs, layout, page }]: for All sheets each visible sheet's
+ * pages in turn, each with its own page setup, and with a print area of several blocks each block's pages, as the
+ * print lays them out one after the other.
+ */
+export function printPreviewJob(wb, sheetId, prefs, range = null) {
+  const sheets = prefs.area === 'workbook' ? wb.sheets.filter((sh) => !sh.hidden) : [wb.sheet(sheetId)].filter(Boolean);
+  const job = [];
+  for (const sh of sheets) {
+    const own = sh.id === sheetId ? prefs : { ...prefs, ...sheetPrintPrefs(sh), area: prefs.area };
+    const areas = (prefs.area === 'printArea' || prefs.area === 'workbook') && sh.printSettings?.areas?.length ? sh.printSettings.areas : [null];
+    for (const only of areas) {
+      const layout = printPreviewLayout(wb, sh.id, own, range, only);
+      for (const page of layout.pages) job.push({ sheetId: sh.id, prefs: own, layout, page });
+    }
+  }
+  return job.length ? job : [{ sheetId, prefs, layout: printPreviewLayout(wb, sheetId, prefs, range), page: null }];
+}
+
 /** The pane: a page drawn to scale, with Previous and Next under it. `getPrefs()` reads the dialog's choices. */
 export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPrefs, getRange }) {
-  let page = 0, layout = null, frame = 0;
+  let page = 0, job = null, frame = 0;
   const canvas = el('canvas.print-preview-page');
   const count = el('span.print-preview-count', { 'aria-live': 'polite' });
   const prev = el('button.icon-btn.print-preview-step', { type: 'button', 'aria-label': 'Previous page', title: 'Previous page', html: icon('chevL', 16, 2), onclick: () => go(-1) });
@@ -112,24 +132,24 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
   const root = el('div.print-preview', { role: 'group', 'aria-label': 'Print preview' }, stage, el('div.print-preview-nav', {}, prev, count, next));
 
   function go(step) {
-    if (!layout) return;
-    page = Math.max(0, Math.min(layout.pages.length - 1, page + step));
+    if (!job) return;
+    page = Math.max(0, Math.min(job.length - 1, page + step));
     draw();
   }
 
   function refresh() {
     cancelAnimationFrame(frame);
     frame = requestAnimationFrame(() => {
-      layout = printPreviewLayout(wb, sheetId, getPrefs(), getRange?.());
-      page = Math.min(page, layout.pages.length - 1);
+      job = printPreviewJob(wb, sheetId, getPrefs(), getRange?.());
+      page = Math.min(page, job.length - 1);
       draw();
     });
   }
 
   function draw() {
-    const prefs = getPrefs();
-    const { box, pages, scale, headW = 0, headH = 0, titleH = 0 } = layout;
-    const total = pages.length;
+    const { sheetId: shown, prefs, layout, page: current } = job[page];
+    const { box, scale, headW = 0, headH = 0, titleH = 0 } = layout;
+    const total = job.length;
     count.textContent = `Page ${page + 1} of ${total}`;
     prev.disabled = page === 0;
     next.disabled = page >= total - 1;
@@ -147,8 +167,10 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
     g.fillStyle = '#ffffff';
     g.fillRect(0, 0, w, h);
     const m = box.margins;
-    const sheet = wb.sheet(sheetId);
-    const info = { file: docName || 'Spreadsheet', path: filePath, tab: sheet?.name || '', page: page + 1, pages: total };
+    const sheet = wb.sheet(shown);
+    // Numbered as the print numbers them: from the first sheet's starting number, on through the later sheets.
+    const first = job[0].prefs.useFirstPageNumber && Number.isFinite(job[0].prefs.firstPageNumber) ? job[0].prefs.firstPageNumber : 1;
+    const info = { file: docName || 'Spreadsheet', path: filePath, tab: sheet?.name || '', page: first + page, pages: total };
     // Header and footer, each in its left, centre and right parts, in the middle of the margin.
     const regular = { ...prefs, header: String(prefs.header || '').trim(), footer: String(prefs.footer || '').trim() || (prefs.native ? '' : 'Page &[Page] of &[Pages]') };
     const texts = printPageText(regular, page);
@@ -164,7 +186,6 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
         g.fillText(text, x * k, y * k);
       }
     }
-    const current = pages[page];
     let x0 = m.left, y0 = m.top;
     if (prefs.title) {
       g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillStyle = '#111111';
@@ -175,10 +196,10 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
     if (!current) return;
     const s = scale * k; // canvas pixels per unscaled sheet pixel
     // The repeated lines (rows to repeat, frozen rows) first, then the page's own.
-    const cols = (current.repeatCols || []).map((c) => [c, wb.colWidth(sheetId, c)]);
-    const rows = (current.repeatRows || []).map((r) => [r, wb.rowHeight(sheetId, r)]);
-    for (let c = current.cols[0]; c <= current.cols[1]; c++) if (!sheet.hiddenCols?.has(c)) cols.push([c, wb.colWidth(sheetId, c)]);
-    for (let r = current.rows[0]; r <= current.rows[1]; r++) if (!sheet.hiddenRows?.has(r) && !sheet.filterHidden?.has(r)) rows.push([r, wb.rowHeight(sheetId, r)]);
+    const cols = (current.repeatCols || []).map((c) => [c, wb.colWidth(shown, c)]);
+    const rows = (current.repeatRows || []).map((r) => [r, wb.rowHeight(shown, r)]);
+    for (let c = current.cols[0]; c <= current.cols[1]; c++) if (!sheet.hiddenCols?.has(c)) cols.push([c, wb.colWidth(shown, c)]);
+    for (let r = current.rows[0]; r <= current.rows[1]; r++) if (!sheet.hiddenRows?.has(r) && !sheet.filterHidden?.has(r)) rows.push([r, wb.rowHeight(shown, r)]);
     const usedW = cols.reduce((a, [, size]) => a + size, 0) + headW, usedH = rows.reduce((a, [, size]) => a + size, 0) + headH;
     const contentW = box.width - m.left - m.right, contentH = box.height - y0 - m.bottom;
     if (prefs.horizontalCentered) x0 += Math.max(0, (contentW - usedW * scale) / 2);
@@ -201,7 +222,7 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
     }
     // Fills first, then the gridlines, then the text and borders over them.
     rows.forEach(([r], i) => cols.forEach(([c], j) => {
-      const bg = fillColorCss(wb.styleAt(sheetId, r, c)?.bg);
+      const bg = fillColorCss(wb.styleAt(shown, r, c)?.bg);
       if (bg && bg !== 'transparent') { g.fillStyle = bg; g.fillRect(xs[j], ys[i], xs[j + 1] - xs[j], ys[i + 1] - ys[i]); }
     }));
     if (prefs.gridlines) {
@@ -212,11 +233,11 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
       g.stroke();
     }
     rows.forEach(([r], i) => cols.forEach(([c], j) => {
-      const st = wb.styleAt(sheetId, r, c) || {};
+      const st = wb.styleAt(shown, r, c) || {};
       const cx = xs[j], cy = ys[i], cw = xs[j + 1] - xs[j], ch = ys[i + 1] - ys[i];
-      const text = wb.getDisplay(sheetId, r, c);
+      const text = wb.getDisplay(shown, r, c);
       if (text) {
-        const value = wb.getValue(sheetId, r, c);
+        const value = wb.getValue(shown, r, c);
         const align = st.align || (typeof value === 'number' ? 'right' : 'left');
         g.save();
         g.beginPath(); g.rect(cx, cy, cw, ch); g.clip();
