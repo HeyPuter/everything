@@ -10,6 +10,7 @@ import { toast } from './toast.js';
 import { rangeName } from '../core/cell.js';
 import { quoteSheet } from '../core/refs.js';
 import { formatValue, parseInput } from '../core/format.js';
+import { typedNumber, numberShown } from './typed-number.js';
 import { maxOf, minOf } from '../core/numeric.js';
 import { readForecastSource, forecastDefaults, forecastPreview, createForecastSheet, AGGREGATIONS } from '../core/forecast-sheet.js';
 
@@ -87,7 +88,7 @@ export function openForecastSheet(ctx) {
   const endInput = el('input.input', { type: 'text', id: id('end'), value: show(defaults.end), autocomplete: 'off', spellcheck: false });
   const startInput = el('input.input', { type: 'text', id: id('start'), value: show(defaults.start), autocomplete: 'off', spellcheck: false });
   const confOn = el('input', { type: 'checkbox', id: id('conf-on'), checked: true });
-  const confInput = el('input.input.fs-narrow', { type: 'text', id: id('conf'), value: '95%', 'aria-label': 'Confidence Interval', autocomplete: 'off' });
+  const confInput = el('input.input.fs-narrow', { type: 'text', id: id('conf'), value: `${numberShown(95)}%`, 'aria-label': 'Confidence Interval', autocomplete: 'off' });
   const seasonAuto = el('input', { type: 'radio', name: id('season'), id: id('season-auto'), checked: true });
   const seasonManual = el('input', { type: 'radio', name: id('season'), id: id('season-manual') });
   const seasonInput = el('input.input.fs-narrow', { type: 'number', min: 2, max: 8760, step: 1, 'aria-label': 'Seasonality length', disabled: true });
@@ -107,9 +108,8 @@ export function openForecastSheet(ctx) {
   const { alert, refuse, clear } = fieldAlert('forecast-sheet');
 
   const confidence = () => {
-    const t = confInput.value.trim().replace('%', '');
-    const n = Number(t);
-    return Number.isFinite(n) && n > 0 && n < 100 ? n / 100 : null;
+    const n = typedNumber(confInput.value.trim().replace(/\s*%$/, ''));
+    return n != null && n > 0 && n < 100 ? n / 100 : null;
   };
   const options = () => ({
     end: read(endInput.value), start: read(startInput.value),

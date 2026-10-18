@@ -8,7 +8,7 @@ import { el, fieldId, isComposing } from './dom.js';
 import { openModal, fieldAlert, confirmDialog, promptDialog } from './modal.js';
 import { toast } from './toast.js';
 import { cellName } from '../core/cell.js';
-import { parseInput, editText } from '../core/format.js';
+import { typedNumber, numberShown } from './typed-number.js';
 import { saveScenario } from '../core/scenarios.js';
 import { RELATIONS, ENGINES, DEFAULT_OPTIONS, emptyModel, readSolverModel, saveSolverModel, prepareSolver, runSolver, applySolverResult,
   availableReports, modelToCells, modelFromCells, saveModelToCells, parseRanges } from '../core/solver.js';
@@ -22,20 +22,6 @@ const REPORTS = [['answer', 'Answer'], ['sensitivity', 'Sensitivity'], ['limits'
 const RELATION_LABEL = { '<=': '<=', '=': '=', '>=': '>=', int: 'int', bin: 'bin', dif: 'dif' };
 const WORD = { int: 'integer', bin: 'binary', dif: 'AllDifferent' };
 
-/**
- * A number typed into a Solver field: in the regional format, as a cell reads one (1,5 where the decimal mark is a
- * comma), or written with a full stop as the model stores it; null when the text is no number (or reads as a date).
- */
-function typedNumber(text) {
-  const t = String(text ?? '').trim();
-  if (!t) return null;
-  const { v, fmt } = parseInput(t);
-  if (typeof v === 'number' && !['date', 'time', 'datetime'].includes(fmt)) return v;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
-}
-/** A number as a Solver field shows it: in the regional format, every digit kept. */
-const numberShown = (v) => editText({ v, f: null });
 /** A constraint's right side as the dialogs show it: a number in the regional format, a reference or formula as stored. */
 const rhsShown = (rhs) => (/^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(String(rhs ?? '').trim()) ? numberShown(Number(rhs)) : rhs);
 

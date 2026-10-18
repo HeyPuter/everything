@@ -9,6 +9,7 @@ import { toast } from './toast.js';
 import * as P from '../lib/puter.js';
 import * as S from '../core/selection.js';
 import { colName } from '../core/cell.js';
+import { typedNumber, numberShown } from './typed-number.js';
 import { quoteSheet } from '../core/refs.js';
 import { workbookToXlsx, stripExtension } from '../core/io.js';
 import {
@@ -101,7 +102,7 @@ export function openAnalysisTool(ctx, id) {
     return el('label.field.da-field', {}, el('span.field-label', {}, label), input);
   };
   const range = (key, label, value = '') => text(key, label, value, { placeholder: 'e.g. $A$1:$A$20' });
-  const number = (key, label, value) => text(key, label, value == null ? '' : String(value), { inputmode: 'decimal' });
+  const number = (key, label, value) => text(key, label, value == null || value === '' ? '' : numberShown(value), { inputmode: 'decimal' });
   const check = (key, label, checked = false) => {
     const box = el('input', { type: 'checkbox', checked });
     f[key] = box;
@@ -110,7 +111,7 @@ export function openAnalysisTool(ctx, id) {
   /** A checkbox that switches a number field on, as Confidence Level and Kth Largest do. */
   const checkedNumber = (key, label, value, checked = false) => {
     const box = el('input', { type: 'checkbox', checked, 'aria-label': label });
-    const input = el('input.input.da-narrow', { type: 'text', inputmode: 'decimal', value: String(value), 'aria-label': `${label} value`, disabled: !checked, autocomplete: 'off' });
+    const input = el('input.input.da-narrow', { type: 'text', inputmode: 'decimal', value: numberShown(value), 'aria-label': `${label} value`, disabled: !checked, autocomplete: 'off' });
     box.addEventListener('change', () => { input.disabled = !box.checked; });
     f[key] = box; f[`${key}Value`] = input;
     return el('div.da-inline', {}, el('label.check', {}, box, el('span', {}, label)), input);
@@ -150,10 +151,11 @@ export function openAnalysisTool(ctx, id) {
     return found;
   };
   const num = (key, label, { optional = false } = {}) => {
-    const t = f[key].value.trim().replace(/%$/, '');
+    // A trailing % names the unit a percentage field already asks in (95% is 95); numbers read in the regional format.
+    const t = f[key].value.trim().replace(/\s*%$/, '');
     if (t === '') return optional ? null : problem(`Enter ${label}.`, key);
-    const n = Number(t);
-    return Number.isFinite(n) ? n : problem(`${label[0].toUpperCase()}${label.slice(1)} must be a number.`, key);
+    const n = typedNumber(t);
+    return n != null ? n : problem(`${label[0].toUpperCase()}${label.slice(1)} must be a number.`, key);
   };
   const failed = (v) => v && typeof v === 'object' && 'error' in v && !Array.isArray(v);
   const groupsOf = (key, label, options = {}) => {
