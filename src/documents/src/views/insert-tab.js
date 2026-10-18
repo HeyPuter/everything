@@ -141,7 +141,10 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
       if (type === 'image/svg+xml' || /\.svg$/i.test(name)) {
         const svg = await file.text(), { png, width, height } = await rasterize(new Blob([svg], { type: 'image/svg+xml' }));
         const [w, h] = fittedSize(width, height, textWidth(engine) / EMU_PER_INCH);
-        await insertDrawing((engine, id) => pictureFragment(engine.model, pkg().parts, { png, svg, width: w, height: h, id, name: `Picture ${id}` }), { body: false });
+        // The SVG goes in beside its PNG rendering when the document's reader can keep it; an SVG it cannot read
+        // (editor metadata, CSS it does not support) is inserted as the PNG alone, as other readers show it anyway.
+        const fragment = (engine, id, withSvg) => pictureFragment(engine.model, pkg().parts, { png, ...(withSvg ? { svg } : {}), width: w, height: h, id, name: `Picture ${id}` });
+        await insertDrawing((engine, id) => fragment(engine, id, true).catch(() => fragment(engine, id, false)), { body: false });
         return;
       }
       // Other raster formats (GIF, WebP, BMP, AVIF) are stored as PNG, which every DOCX reader shows.
