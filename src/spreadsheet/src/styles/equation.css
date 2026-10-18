@@ -10,21 +10,21 @@
 @media (min-width: 640px) { .modal-panel.wide.equation-modal { width: min(760px, calc(100vw - 32px)); max-width: none; } }
 .equation-dialog { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .equation-templates { display: flex; flex-wrap: wrap; gap: 4px; min-height: 48px; }
-.equation-template-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 48px; height: 48px; padding: 2px 8px; border: 1px solid var(--line, #e4e3dd); border-radius: var(--r-sm, 4px); background: var(--surface, #fff); color: var(--ink); cursor: pointer; font-size: 15px; }
-.equation-template-btn:hover, .equation-template-btn:focus-visible { background: var(--hover, #f0efea); }
+.equation-template-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 48px; height: 48px; padding: 2px 8px; border: 1px solid var(--hairline-strong); border-radius: var(--r-sm, 4px); background: var(--surface, #fff); color: var(--ink); cursor: pointer; font-size: 15px; }
+.equation-template-btn:hover, .equation-template-btn:focus-visible { background: var(--surface-2); }
 .equation-template-btn .equation-math { pointer-events: none; }
-.equation-structure[aria-pressed="true"] { background: var(--selected, #e6f2ea); border-color: var(--accent, #217346); }
+.equation-structure[aria-pressed="true"] { background: var(--accent-wash); border-color: var(--accent, #217346); }
 .equation-dialog .equation-size { flex-direction: row; align-items: center; gap: 6px; margin-right: auto; }
-.equation-structures { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line, #e4e3dd); padding-bottom: 8px; }
+.equation-structures { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--hairline-strong); padding-bottom: 8px; }
 .equation-structure { display: inline-flex; flex: 1 1 0; flex-direction: column; align-items: center; gap: 2px; min-width: 58px; padding: 4px 6px; border: 1px solid transparent; border-radius: var(--r-sm, 4px); background: none; color: var(--ink); font: inherit; font-size: 11px; cursor: pointer; }
-.equation-structure:hover, .equation-structure:focus-visible { background: var(--hover, #f0efea); border-color: var(--line, #e4e3dd); }
+.equation-structure:hover, .equation-structure:focus-visible { background: var(--surface-2); border-color: var(--hairline-strong); }
 .equation-structure .equation-structure-glyph { font-family: 'Cambria Math', 'STIX Two Math', math, serif; font-size: 18px; line-height: 22px; height: 22px; }
 .equation-symbols-head { display: flex; align-items: center; gap: 8px; }
 .equation-symbols { display: grid; grid-template-columns: repeat(auto-fill, minmax(28px, 1fr)); gap: 2px; max-height: 92px; overflow: auto; }
-.equation-symbol { height: 28px; border: 1px solid var(--line, #e4e3dd); border-radius: 3px; background: var(--surface, #fff); color: var(--ink); font-family: 'Cambria Math', 'STIX Two Math', math, serif; font-size: 15px; cursor: pointer; padding: 0; }
-.equation-symbol:hover, .equation-symbol:focus-visible { background: var(--hover, #f0efea); }
+.equation-symbol { height: 28px; border: 1px solid var(--hairline-strong); border-radius: 3px; background: var(--surface, #fff); color: var(--ink); font-family: 'Cambria Math', 'STIX Two Math', math, serif; font-size: 15px; cursor: pointer; padding: 0; }
+.equation-symbol:hover, .equation-symbol:focus-visible { background: var(--surface-2); }
 .equation-source { font-family: var(--mono, ui-monospace, Menlo, monospace); font-size: 13px; min-height: 64px; resize: vertical; }
-.equation-preview { min-height: 72px; max-height: 220px; overflow: auto; display: flex; align-items: center; justify-content: safe center; border: 1px dashed var(--line, #d8d6cf); border-radius: var(--r-sm, 4px); background: var(--surface, #fff); color: var(--ink); padding: 8px; font-size: 20px; }
+.equation-preview { min-height: 72px; max-height: 220px; overflow: auto; display: flex; align-items: center; justify-content: safe center; border: 1px dashed var(--hairline-strong); border-radius: var(--r-sm, 4px); background: var(--surface, #fff); color: var(--ink); padding: 8px; font-size: 20px; }
 .menu .equation-template { display: flex; align-items: center; gap: 10px; }
 .menu .equation-template .equation-math { font-size: 15px; min-width: 64px; display: inline-flex; justify-content: center; }
 .menu .equation-builtin .equation-math { font-size: 14px; }
@@ -33,7 +33,7 @@
 
 .effects-gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 4px 8px 8px; }
 .effects-tile { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 6px 6px; border: 1px solid transparent; border-radius: var(--r-sm, 4px); background: none; color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
-.effects-tile:hover, .effects-tile:focus-visible { background: var(--hover, #f0efea); }
-.effects-tile[aria-checked="true"] { border-color: var(--accent, #217346); background: var(--selected, #e6f2ea); }
+.effects-tile:hover, .effects-tile:focus-visible { background: var(--surface-2); }
+.effects-tile[aria-checked="true"] { border-color: var(--accent, #217346); background: var(--accent-wash); }
 .effects-sample { display: flex; gap: 6px; padding: 6px; background: #fff; border-radius: 3px; }
 .effects-sample span { width: 18px; height: 18px; border-radius: 3px; }

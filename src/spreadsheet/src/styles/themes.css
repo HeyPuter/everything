@@ -31,7 +31,7 @@
   font: inherit;
   cursor: pointer;
 }
-.theme-tile:hover, .theme-tile:focus-visible { border-color: var(--hairline); background: var(--hover, rgba(0, 0, 0, 0.04)); }
+.theme-tile:hover, .theme-tile:focus-visible { border-color: var(--hairline); background: var(--surface-2); }
 .theme-tile[aria-checked="true"] { border-color: var(--accent, #0a63f0); }
 .theme-tile-sample {
   display: flex;

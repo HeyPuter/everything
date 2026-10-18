@@ -3,10 +3,10 @@
 .fs-types { display: flex; gap: 6px; justify-content: flex-end; }
 .fs-type { padding: 4px 6px; min-width: 0; }
 .fs-type[aria-pressed="true"] { background: var(--accent-soft, rgba(33, 115, 70, 0.14)); border-color: var(--accent, #217346); }
-.fs-preview { border: 1px solid var(--border, #d0d0d0); border-radius: 6px; background: var(--surface, #fff); padding: 4px; }
+.fs-preview { border: 1px solid var(--hairline-strong); border-radius: 6px; background: var(--surface, #fff); padding: 4px; }
 .fs-preview svg { display: block; }
-.fs-preview .fs-grid { stroke: var(--border, #e3e3e3); stroke-width: 1; }
-.fs-preview .fs-axis, .fs-preview .fs-preview-note { fill: var(--muted, #6b6b6b); font-size: 11px; }
+.fs-preview .fs-grid { stroke: var(--hairline-strong); stroke-width: 1; }
+.fs-preview .fs-axis, .fs-preview .fs-preview-note { fill: var(--ink-3); font-size: 11px; }
 .fs-preview .fs-history { fill: none; stroke: #4472c4; stroke-width: 2; }
 .fs-preview .fs-forecast { fill: none; stroke: #ed7d31; stroke-width: 2; }
 .fs-preview .fs-bound { fill: none; stroke: #a5a5a5; stroke-width: 1.25; }
@@ -24,14 +24,14 @@
 .sm-top { display: flex; gap: 12px; align-items: stretch; }
 .sm-list-wrap { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .sm-list { width: 100%; min-height: 150px; }
-.sm-empty { border: 1px solid var(--border, #d0d0d0); border-radius: 4px; padding: 12px; min-height: 126px; margin: 0; }
+.sm-empty { border: 1px solid var(--hairline-strong); border-radius: 4px; padding: 12px; min-height: 126px; margin: 0; }
 .sm-buttons { display: flex; flex-direction: column; gap: 6px; padding-top: 20px; min-width: 96px; }
 .sm-details { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: start; }
 .sm-detail { min-height: 1.4em; white-space: pre-wrap; word-break: break-word; }
 .sm-comment { resize: vertical; min-height: 60px; width: 100%; }
 .sm-values-list { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow: auto; }
 .sm-value-row { display: grid; grid-template-columns: 2em 5.5em 1fr; align-items: center; gap: 6px; }
-.sm-value-index { color: var(--muted, #6b6b6b); text-align: right; }
+.sm-value-index { color: var(--ink-3); text-align: right; }
 
 /* Advanced Filter */
 .af-dialog { display: flex; flex-direction: column; gap: 8px; }
@@ -55,7 +55,7 @@ select.da-list { width: 100%; min-height: 240px; background-image: none; padding
 .da-options { display: flex; flex-direction: column; gap: 6px; }
 .da-inline { display: flex; align-items: center; gap: 8px; }
 .da-narrow { width: 84px; flex: none; }
-.da-output { border: 1px solid var(--border, #d0d0d0); border-radius: 6px; padding: 8px 12px 10px; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.da-output { border: 1px solid var(--hairline-strong); border-radius: 6px; padding: 8px 12px 10px; margin: 0; display: flex; flex-direction: column; gap: 6px; }
 .da-output > legend { padding: 0 4px; }
 .da-output-row { display: grid; grid-template-columns: 9.5em 1fr; align-items: center; gap: 8px; }
 @media (max-width: 640px) {
@@ -84,8 +84,8 @@ select.sv-list { width: 100%; min-height: 150px; font-family: var(--mono, ui-mon
 .sv-opt-panel { display: flex; flex-direction: column; gap: 8px; }
 .sv-opt-panel[hidden] { display: none; }
 .sv-opt-row { display: grid; grid-template-columns: 1fr 128px; align-items: center; gap: 10px; }
-.sv-opt-group { border: 1px solid var(--border, #d0d0d0); border-radius: 6px; padding: 6px 12px 10px; margin: 0; display: flex; flex-direction: column; gap: 6px; }
-.sv-opt-group > legend { padding: 0 4px; color: var(--muted, #6b6b6b); font-size: 12px; }
+.sv-opt-group { border: 1px solid var(--hairline-strong); border-radius: 6px; padding: 6px 12px 10px; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.sv-opt-group > legend { padding: 0 4px; color: var(--ink-3); font-size: 12px; }
 .sv-num { width: 100%; }
 .sv-progress { display: flex; flex-direction: column; gap: 12px; min-width: min(360px, 100%); }
 .sv-progress-status { margin: 0; font-variant-numeric: tabular-nums; min-height: 1.4em; }
