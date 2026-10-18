@@ -11,6 +11,12 @@ function overlap(a, b) {
     a.x <= b.x + b.w && b.x <= a.x + a.w && a.y <= b.y + b.h && b.y <= a.y + a.h
   );
 }
+// Whether a lies inside b without touching its edges.
+function within(a, b) {
+  return (
+    a.x > b.x && a.y > b.y && a.x + a.w < b.x + b.w && a.y + a.h < b.y + b.h
+  );
+}
 function coverage(a, b) {
   if (!overlap(a, b)) return 0;
   const width = Math.max(
@@ -98,6 +104,7 @@ export function createMarqueeIndex(items, visible = items) {
       id: i.id,
       box: bounds([i]),
       precise: i.type === "table" || !!i.mindMap,
+      frame: i.type === "frame",
       polygon: rotationOf(i) && i.type !== "pen" ? boxCorners(i) : null,
       path:
         i.type === "arrow"
@@ -130,6 +137,10 @@ export function marqueeSelection(index, rect, precise = false) {
       hit = strict
         ? path >= 0.9 - 1e-9 && (!entry.label || label >= 0.9 - 1e-9)
         : path > 0 || label > 0;
+    } else if (entry.frame && !strict && within(rect, entry.box)) {
+      // A box drawn inside a frame picks the content there, not the frame
+      // around it (which would bring all its content along).
+      hit = false;
     } else {
       if (entry.polygon) ratio = polygonCoverage(entry.polygon, rect);
       hit = strict ? ratio >= 0.9 - 1e-9 : ratio > 0;

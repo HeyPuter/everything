@@ -162,3 +162,18 @@ test("fully enclosed or distant complex strokes need no point traversal; partial
   assert.deepEqual(ids(index, 45, 45, 10, 10), ["stroke"]);
   assert.equal(reads, prepared);
 });
+
+test("a box drawn inside a frame selects the content there, not the frame", () => {
+  const frame = item("frame", 0, 0, { w: 900, h: 600 }),
+    a = item("note", 50, 200, { w: 180, h: 180, parentId: frame.id }),
+    b = item("note", 260, 200, { w: 180, h: 180, parentId: frame.id }),
+    index = createMarqueeIndex([frame, a, b]);
+  assert.deepEqual(ids(index, 30, 150, 420, 270), [a.id, b.id]);
+  assert.deepEqual(ids(index, 30, 420, 270, 140), []);
+  // Crossing or touching the frame's edge still picks the frame.
+  assert.deepEqual(ids(index, -10, 150, 100, 100), [frame.id, a.id]);
+  assert.deepEqual(ids(index, 0, 420, 100, 100), [frame.id]);
+  assert.deepEqual(ids(index, -10, -10, 920, 620).length, 3);
+  // Precise selection is unchanged: the frame needs 90% coverage.
+  assert.deepEqual(ids(index, 30, 150, 420, 270, true), [a.id, b.id]);
+});
