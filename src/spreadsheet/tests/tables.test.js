@@ -264,7 +264,8 @@ describe('calculated columns', () => {
     expect(val('A3')).toBe('Ink');
     // Deleting a column keeps the calculated-column bookkeeping straight.
     wb.deleteCols(id, 1, 1);
-    expect(wb.tableById(id, tid).calc).toEqual({ 2: '[@Qty]*[@Price]', 3: '#REF!*2' });
+    expect(wb.tableById(id, tid).calc).toEqual({ 2: '#REF!*[@Price]', 3: '#REF!*2' });
+    expect(f('C2')).toBe('#REF!*[@Price]'); // the column's cells and its template both lose the deleted column
     expect(f('D2')).toBe('#REF!*2'); // the referenced Qty column was deleted
     const nextRow = wb.addTableRow(id, tid);
     expect(wb.getValue(id, nextRow, 3)).toEqual({ error: '#REF!' });

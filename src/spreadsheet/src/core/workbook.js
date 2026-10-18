@@ -84,7 +84,7 @@ import { parseDelimited } from './tsv.js';
 import { splitPieces, detectDelimiter, DEFAULT_SPLIT } from './text-split.js';
 import { adjustFormula, adjustRefForInsert, adjustRefForDelete, adjustRefForDeletedLines, deleteMap, renameSheetInFormula, shiftFormula, resolveRelativeName, mapRelativeNameRef, isAbsoluteRef, mapFormulaRefs, parseRefText, refToText, MAX_ROW, MAX_COL, quoteSheet, sheetKey, sameSheetName } from './refs.js';
 import { headerlessTableColumns, normalizeTableHeaderState, headerlessInsertColumns, headerlessDeleteColumns, headerlessJoinColumns, headerlessResizeNames } from './table-header-row.js';
-import { tableStyle, tableRows, normalizeCustomTableStyle, customTableStyleAt, validateTableName, MAX_TABLE_NAME_LENGTH, parseTableSpec, resolveTableSpec, renderTableSpec, renameTableInFormula, tableColumnRenames, renameColumnsInFormula, tableRefsToA1, hasTableRefs } from './tables.js';
+import { tableStyle, tableRows, normalizeCustomTableStyle, customTableStyleAt, validateTableName, MAX_TABLE_NAME_LENGTH, parseTableSpec, resolveTableSpec, renderTableSpec, renameTableInFormula, tableColumnRenames, renameColumnsInFormula, tableRefsToA1, hasTableRefs, mapTableRefs } from './tables.js';
 import { tokenize, upperName, isWorkbookNameScope, isExternalFormulaToken } from './formula/tokenizer.js';
 import { adjustLineRules, adjustBlockRules } from './rule-refs.js';
 import { adjustFilterForEdit, filterFormulaReader, filterFormulaRules, compileFilterFormula, mapFilterFormula } from './filter-formulas.js';
@@ -6009,7 +6009,17 @@ export class Workbook extends EventTarget {
       if (extent > limit) return false;
     }
     const label = remove ? 'Delete cells' : 'Insert cells';
+    // Tables the deletion takes away whole, and table columns it takes away: references to them become #REF!.
+    const lostTables = remove && this._lostTableColumns(sheet, (t) => {
+      if (!touchesBand(t.range) || !insideBand(t.range)) return null;
+      if (t.range[lo] >= at && t.range[hi] < at + n) return true;
+      if (axis === 'row') return null;
+      const cols = [];
+      for (let c = Math.max(at, t.range.c1); c <= Math.min(at + n - 1, t.range.c2); c++) cols.push(c - t.range.c1);
+      return cols;
+    });
     this._structural(label, () => {
+      if (lostTables) this._dropLostTableReferences(lostTables);
       if (remove) this._removeNativePivots((this.nativePivots?.tables || []).filter(p => {
         const ref = p.owner === sheetId && parseRefText(p.ref || '');
         return ref && insideBand(ref) && !adjustRefForDelete(ref, axis, at, n);
@@ -6478,6 +6488,15 @@ export class Workbook extends EventTarget {
     }
     if (everything) lines = deleteMap([{ from: 0, to: total - 2 }]);
     const { runs } = lines;
+    // Tables deleted whole, and table columns deleted: the structured references to them become #REF!.
+    const lostTables = this._lostTableColumns(sheet, (t) => {
+      const [first, last] = axis === 'row' ? [t.range.r1, t.range.r2] : [t.range.c1, t.range.c2];
+      if (lines.before(last + 1) - lines.before(first) === last - first + 1) return true;
+      if (axis === 'row') return null;
+      const cols = [];
+      for (let c = first; c <= last; c++) if (lines.deleted(c)) cols.push(c - first);
+      return cols;
+    });
     // A table's filter belongs to the table and stays when every data row goes; a plain filter would be dropped.
     const filteredTables = axis === 'row' ? sheetFilters(sheet).map(f => filterTable(sheet, f)).filter(Boolean) : [];
     // Formulas, numbers and dates in the row that becomes a table's header turn into the text they showed: header names are text.
@@ -6496,6 +6515,7 @@ export class Workbook extends EventTarget {
       }
     }
     this._structural(label || (axis === 'row' ? 'Delete rows' : 'Delete columns'), () => {
+      if (lostTables) this._dropLostTableReferences(lostTables);
       this._removeNativePivots((this.nativePivots?.tables || []).filter(p => {
         const ref = p.owner === sheetId && parseRefText(p.ref || '');
         return ref && !adjustRefForDeletedLines(ref, axis, refLines);
@@ -9762,6 +9782,58 @@ export class Workbook extends EventTarget {
       extended = true;
     });
     return extended;
+  }
+
+  /**
+   * The tables of `sheet` an edit is about to delete, whole or some of their columns: `lost(t)` is true for a table
+   * that goes, or the indexes (from its first column) of the columns that go. Null when it touches none.
+   */
+  _lostTableColumns(sheet, lost) {
+    const gone = new Map();
+    for (const t of sheet.tables) {
+      const out = lost(t);
+      if (out === true) { gone.set(t.name.toLowerCase(), true); continue; }
+      if (!out?.length) continue;
+      const names = this.tableColumns(sheet.id, t);
+      gone.set(t.name.toLowerCase(), new Set(out.map((i) => names[i]?.toLowerCase()).filter(Boolean)));
+    }
+    return gone.size ? gone : null;
+  }
+
+  /**
+   * Structured references to deleted tables, or to deleted columns of a table, read #REF!, as Excel writes them,
+   * in every formula, rule, validation, filter condition, calculated column and defined name. Kept as text they
+   * showed #REF! only until a column of that name came back: renaming another column to it, or adding one, would
+   * have handed it every formula that had read the deleted column. Runs before the cells move, so a bare [Col]
+   * finds its table where the formula sits. `gone` comes from _lostTableColumns.
+   */
+  _dropLostTableReferences(gone) {
+    const whole = [...gone].filter(([, cols]) => cols === true).map(([name]) => name);
+    const drop = (formula, ownerTable) => {
+      const text = String(formula ?? '');
+      if (!text.includes('[') && !whole.some((name) => text.toLowerCase().includes(name))) return formula;
+      return mapTableRefs(text, (table, spec, token) => {
+        const name = (table || ownerTable || '').toLowerCase();
+        const cols = gone.get(name);
+        if (!cols) return null;
+        // A bare table name is the table's data (VLOOKUP(x,Sales,2)), unless a defined name of the same spelling is meant.
+        if (token.type === 'name') return cols === true && !this.namedEntry(table) ? '#REF!' : null;
+        if (cols === true) return '#REF!';
+        return parseTableSpec(spec)?.cols?.some((c) => cols.has(c.toLowerCase())) ? '#REF!' : null;
+      }, whole.length > 0);
+    };
+    for (const s of this.sheets) {
+      for (const [key, cell] of s.cells) {
+        if (cell.f == null) continue;
+        const { r, c } = parseKey(key);
+        const next = drop(cell.f, this.tableAt(s.id, r, c)?.name || null);
+        if (next !== cell.f) cell.f = next;
+      }
+      s.tables = s.tables.map((t) => (t.calc ? { ...t, calc: Object.fromEntries(Object.entries(t.calc).map(([k, f]) => [k, drop(f, t.name)])) } : t));
+      const owner = (rule) => (rule?.range ? this.tableAt(s.id, rule.type === 'list' && rule.relativeSource !== true ? 0 : rule.range.r1, rule.type === 'list' && rule.relativeSource !== true ? 0 : rule.range.c1)?.name : null) || null;
+      Object.assign(s, this._ruleFormulaUpdates(s, (f, rule) => drop(f, owner(rule))));
+    }
+    this.names = this.names.map((n) => ({ ...n, ref: drop(n.ref, null) }));
   }
 
   /** Column selectors without a table name resolve at each rule candidate cell. */

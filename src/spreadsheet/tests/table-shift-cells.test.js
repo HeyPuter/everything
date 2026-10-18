@@ -72,7 +72,9 @@ it('removes a table when every cell is deleted and restores it on undo', () => {
   expect(wb.deleteCells(id, { r1: 2, c1: 2, r2: 4, c2: 4 }, 'up')).toBe(true);
   expect(wb.tableById(id, tid)).toBeNull();
   expect(wb.sheet(id).filter).toBeNull();
-  expect(wb.getValue(summary, 0, 0)).toEqual({ error: '#NAME?' });
+  // The reference to the deleted table reads #REF!, as Excel writes it, and undo brings it back.
+  expect(wb.getCell(summary, 0, 0).f).toBe('SUM(#REF!)');
+  expect(wb.getValue(summary, 0, 0)).toEqual({ error: '#REF!' });
   wb.undo();
   expect(wb.toJSON()).toEqual(before);
   expect(wb.getValue(summary, 0, 0)).toBe(23);
