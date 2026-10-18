@@ -6,13 +6,17 @@
 import { el, fieldId } from './dom.js';
 import { openModal } from './modal.js';
 import { formatWithCode, formatCodeError, CUSTOM_FORMAT_PRESETS } from '../core/numfmt.js';
+import { styleToNumFmt } from '../core/format.js';
 
 export function openCustomFormatDialog(ctx) {
   const style = ctx.style();
   const value = ctx.wb.getValue(ctx.sheetId(), ctx.active().r, ctx.active().c);
   const sample = typeof value === 'number' ? value : 1234.5678;
   const errorId = fieldId('numfmt');
-  const input = el('input.input', { type: 'text', value: style.fmt === 'custom' ? style.code || '' : '', placeholder: '#,##0.00', 'aria-label': 'Format code', spellcheck: false, autocomplete: 'off', 'aria-describedby': errorId });
+  // The cell's format as a code to start from (#,##0.00 for a Number with two places), as Excel's Custom
+  // category shows it; a cell in no format starts empty.
+  const start = style.fmt === 'custom' ? style.code || '' : style.fmt && style.fmt !== 'general' ? styleToNumFmt(style) : '';
+  const input = el('input.input', { type: 'text', value: start, placeholder: '#,##0.00', 'aria-label': 'Format code', spellcheck: false, autocomplete: 'off', 'aria-describedby': errorId });
   const preview = el('div.numfmt-preview', { 'aria-live': 'polite' });
   const error = el('p.field-error', { id: errorId, hidden: true, role: 'alert' });
   const refresh = () => {
