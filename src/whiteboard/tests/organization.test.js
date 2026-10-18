@@ -5844,6 +5844,40 @@ test("a large edit sent again after a failure counts toward the board's limit on
   await assert.rejects(boards.call(owner, edit));
   await boards.call(owner, edit);
   assert.equal(env.data.get(`wb:${room}:assetbytes`), edit.update.length);
+  boards.puter.kv.set = set;
+  // A file write that lands although its answer is lost stays counted.
+  const { doc: again } = await boards.load(room);
+  const from = again.vector(),
+    more = again.snapshot();
+  for (let k = 0; k < 20; k++)
+    more.items.push(
+      item("note", k * 300, 600, { text: "y".repeat(19_000) + k }),
+    );
+  again.commit(more);
+  const second = again.update(from);
+  again.destroy();
+  const landed = {
+    op: "commit",
+    room,
+    id: await hash(second),
+    update: encode(second),
+  };
+  const write = boards.puter.fs.write;
+  let lost = false;
+  boards.puter.fs.write = async function (path, ...rest) {
+    const result = await write.call(this, path, ...rest);
+    if (!lost && path.includes("/updates/")) {
+      lost = true;
+      throw Error("Connection reset");
+    }
+    return result;
+  };
+  await assert.rejects(boards.call(owner, landed));
+  await boards.call(owner, landed);
+  assert.equal(
+    env.data.get(`wb:${room}:assetbytes`),
+    edit.update.length + landed.update.length,
+  );
 });
 
 test("uploading the same file again counts it toward the board's limit once", async () => {

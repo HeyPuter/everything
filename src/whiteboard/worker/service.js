@@ -2802,26 +2802,32 @@ export class BoardService {
                 // toward the board's file limit like an upload: otherwise
                 // anyone who can edit could fill its owner's storage by
                 // adding and removing a lot of content.
-                // The file is named by the edit, so one already written, as
-                // when a retry follows a lost answer, is neither written
-                // nor counted again.
+                // The file is named by the edit, so one already written
+                // whole, as when a retry follows a lost answer, is neither
+                // written nor counted again; a write whose answer was lost
+                // but which landed whole stays counted.
                 const used = `wb:${room}:assetbytes`,
                   size = input.update.length;
                 record.path = `whiteboard/shared/${room}/updates/${digest}.txt`;
-                let stored = false;
-                try {
-                  await this.puter.fs.stat(record.path);
-                  stored = true;
-                } catch (error) {
-                  if (
-                    error?.code &&
-                    !["subject_does_not_exist", "ENOENT", "not_found"].includes(
-                      error.code,
+                const whole = async () => {
+                  try {
+                    return (
+                      (await this.puter.fs.stat(record.path))?.size === size
+                    );
+                  } catch (error) {
+                    if (
+                      error?.code &&
+                      ![
+                        "subject_does_not_exist",
+                        "ENOENT",
+                        "not_found",
+                      ].includes(error.code)
                     )
-                  )
-                    throw error;
-                }
-                if (!stored) {
+                      throw error;
+                    return false;
+                  }
+                };
+                if (!(await whole())) {
                   if ((await this.kv.incr(used, size)) > ASSET_BYTES) {
                     await this.kv.incr(used, -size).catch(() => {});
                     fail(
@@ -2831,7 +2837,8 @@ export class BoardService {
                   }
                   await this.writeFile(record.path, input.update).catch(
                     async (error) => {
-                      await this.kv.incr(used, -size).catch(() => {});
+                      if (!(await whole().catch(() => false)))
+                        await this.kv.incr(used, -size).catch(() => {});
                       throw error;
                     },
                   );
