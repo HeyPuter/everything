@@ -4802,7 +4802,10 @@ export class Workbook extends EventTarget {
     const total = (r2 - r1 + 1) * (c2 - c1 + 1);
     if (total > 50000) return;
     const entries = [];
+    // Rows a filter hides take nothing, as a fill skips them: the entry goes to the list's rows on show.
+    const hidden = this.sheet(sheetId)?.filterHidden;
     for (let r = r1; r <= r2; r++) {
+      if (hidden?.has(r)) continue;
       for (let c = c1; c <= c2; c++) {
         if (this._coveredByMerge(sheetId, r, c)) continue; // Ctrl+Enter over a merged cell writes its top-left only
         const cell = cellFromInput(text, this.styleAt(sheetId, r, c));
