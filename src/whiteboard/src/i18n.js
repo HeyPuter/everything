@@ -1023,6 +1023,8 @@ const pairs = {
     "Ce contenu du presse-papiers n’est pas pris en charge.",
   "Paste up to 20,000 characters at a time.":
     "Collez jusqu’à 20 000 caractères à la fois.",
+  "This text is at its length limit, so the end of what was added was left out.":
+    "Ce texte a atteint sa longueur maximale : la fin de ce qui a été ajouté a été omise.",
   "Could not read this file.": "Impossible de lire ce fichier.",
   "This image could not be read.": "Cette image n’a pas pu être lue.",
   "Add up to 20 files and 50 MB at a time.":

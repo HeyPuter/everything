@@ -6928,6 +6928,10 @@ function beginTextEdit(i, { inheritLanguage = true, point } = {}) {
     maxLength,
     inheritLanguage,
     onSelection: updateTextRangeControls,
+    onLimit: () =>
+      toast(
+        "This text is at its length limit, so the end of what was added was left out.",
+      ),
     history: collaboration
       ? (redo) => sharedStep(redo ? "redo" : "undo")
       : undefined,

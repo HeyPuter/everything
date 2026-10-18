@@ -2934,6 +2934,30 @@ test("dropping multiple real images and attachments inserts one undoable batch; 
   }
 });
 
+test("text pasted into a note past its length limit says the end was left out", async () => {
+  const app = await setup();
+  const { doc, w, click } = app;
+  try {
+    await click('[data-action="new"]');
+    await click('[data-action="add-note"]');
+    const editor = doc.querySelector("#canvas-text-editor");
+    const paste = (text) => {
+      const event = new w.Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "clipboardData", {
+        value: transferData({ "text/plain": text }),
+      });
+      editor.dispatchEvent(event);
+    };
+    paste("Short words");
+    assert.doesNotMatch(doc.querySelector("#toast").textContent, /limit/);
+    paste("x".repeat(20100));
+    assert.equal(editor.value.length, 20000);
+    assert.match(doc.querySelector("#toast").textContent, /length limit/);
+  } finally {
+    await app.close();
+  }
+});
+
 test("pasted text and links land in the middle of the view, as pasted objects do", async () => {
   const app = await setup();
   const { doc, click } = app;

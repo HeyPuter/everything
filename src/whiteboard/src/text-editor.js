@@ -50,6 +50,8 @@ export function createTextEditor(
   item,
   {
     onSelection = () => {},
+    // Told when what was pasted or dropped did not all fit.
+    onLimit = () => {},
     history,
     plainTextOnly = false,
     maxLength = LIMIT,
@@ -389,6 +391,7 @@ export function createTextEditor(
       start: shift(b.start),
     }));
     insert = limit(normalized, maxLength - value.length + end - start);
+    if (insert.length < normalized.length) onLimit();
     if (!insert && start === end) return;
     if (record) remember(group);
     runs = spliceTextRuns(
