@@ -4228,7 +4228,8 @@ export const FUNCTIONS = {
       const vs = asRange(values).values.flat();
       const ds = asRange(dates).values.flat();
       const g = guess === undefined ? 0.1 : toNumber(guess); if (isError(g)) return g;
-      if (vs.length !== ds.length || vs.some((v) => typeof v !== 'number') || ds.some((d) => typeof d !== 'number')) return err('#VALUE!');
+      if (vs.length !== ds.length) return err('#NUM!'); // as XNPV
+      if (vs.some((v) => typeof v !== 'number') || ds.some((d) => typeof d !== 'number')) return err('#VALUE!');
       if (!vs.some((v) => v > 0) || !vs.some((v) => v < 0)) return err('#NUM!');
       const days = ds.map(Math.trunc); // whole days, the dates truncated as XNPV does here
       const d0 = days[0];
