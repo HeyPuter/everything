@@ -76,7 +76,7 @@ it('steps the displayed decimals of each selected spill without losing currency 
 
 it.each([
   [{ fmt: 'date' }, 'Short Date'],
-  [{ fmt: 'custom', code: '0.00" kg"' }, '0.00" kg"'],
+  [{ fmt: 'custom', code: '[h]:mm' }, '[h]:mm'],
 ])('disables decimal controls for an inherited %s format', async (style, text) => {
   const { wb, id, button, click, label } = await mount(style);
   const before = wb.getDisplay(id, 1, 0);

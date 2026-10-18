@@ -121,13 +121,13 @@ it('steps heterogeneous native and ordinary decimal formats together with undo a
 });
 it('skips fixed formats and filtered rows without adding native decimal rules for them', async () => {
   const { wb, id, go, click, paint } = await mount();
-  wb.applyStyle(id, { r1: 7, r2: 7, c1: 4, c2: 4 }, { fmt: 'custom', code: '0.00' });
+  wb.applyStyle(id, { r1: 7, r2: 7, c1: 4, c2: 4 }, { fmt: 'custom', code: '[h]:mm' });
   wb.sheet(id).filterHidden.add(6); wb.clearHistory(); go('E6:E8');
   await click('[aria-label="More decimal places"]');
   expect(wb.styleAt(id, 5, 4)).toMatchObject({ fmt: 'number', dec: 1 });
   expect(paint(5, 4)).toEqual({ fmt: 'custom', code: styleToNumFmt(wb.styleAt(id, 5, 4)) });
   expect(paint(6, 4)).toEqual({}); expect(paint(7, 4)).toEqual({});
-  expect(wb.styleAt(id, 7, 4)).toMatchObject({ fmt: 'custom', code: '0.00' });
+  expect(wb.styleAt(id, 7, 4)).toMatchObject({ fmt: 'custom', code: '[h]:mm' });
 });
 it('rejects decimal edits atomically when a changed total cannot be represented', async () => {
   const { wb, go, click } = await mount(); go('E6:F8'); const before = wb.toJSON();

@@ -157,7 +157,8 @@ import { trackEvent } from '../lib/analytics.js';
 import { VIEW_ONLY, autoSaveEnabled } from '../lib/doc.js';
 import { cellName, colName, normalizeRange, rangeName, parseRange, parseCellRef, parseKey } from '../core/cell.js';
 import { parseRefText, MAX_ROW, MAX_COL } from '../core/refs.js';
-import { formatValue, todaySerial, formatDate, fontStack, indentWidth, parseInput, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, cellCurrency, currencyDecimals, localeInfo, editText } from '../core/format.js';
+import { formatValue, todaySerial, formatDate, fontStack, indentWidth, parseInput, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, cellCurrency, currencyDecimals, localeInfo, editText, hasDecimalPlaces } from '../core/format.js';
+import { stepCodeDecimals } from '../core/numfmt.js';
 import { maxLineWidth, cellLayoutText } from '../core/textfit.js';
 import { toDelimited, parseClipboard, parseDelimited } from '../core/tsv.js';
 import { detectDelimiter, workbookFromFile, rangeToCsv, CSV_MIME } from '../core/io.js';
@@ -1580,17 +1581,18 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       }
       case 'dec': {
         // Each cell steps its own decimal places and keeps its own format: a General
-        // cell becomes Number, and a date, time, text or custom code has none to step and is left alone,
+        // cell becomes Number, a custom code (Accounting, #,##0.00_);(#,##0.00)) gains or loses a place in each
+        // section that shows a number, and a date, time or text has none to step and is left alone,
         // rather than every cell taking the active cell's format. The active cell says whether there is
         // anything to step at all, as the menus and toolbar grey the command out by it.
-        const fixed = ['time', 'datetime', 'date', 'text', 'custom'];
         const step = Number(arg) || 0;
-        if (!step || fixed.includes(ctx.style().fmt)) return;
+        if (!step || !hasDecimalPlaces(ctx.style())) return;
         const decimalPatch = (sid, r, c) => {
           // Use displayed formatting, including inherited spill formats. General
           // starts at the places shown; currencies start at their currency's count.
           const s = wb.displayStyleAt(sid, r, c) || {};
-          if (fixed.includes(s.fmt)) return null;
+          if (!hasDecimalPlaces(s)) return null;
+          if (s.fmt === 'custom') { const code = stepCodeDecimals(s.code, step); return code ? { fmt: 'custom', code } : null; }
           const fmt = s.fmt && s.fmt !== 'general' ? s.fmt : 'number';
           const shown = s.dec ?? (s.fmt === 'currency' ? currencyDecimals(s.cur)
             : !s.fmt || s.fmt === 'general' ? generalDecimals(sid, r, c) : 2);

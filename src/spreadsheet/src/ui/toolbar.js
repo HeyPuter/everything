@@ -14,7 +14,7 @@ import { effectiveShortcut } from './custom-shortcuts.js';
 import { MOD_KEY } from './dom.js';
 import { cellName } from '../core/cell.js';
 import { RTL_LEAD } from '../core/bidi.js';
-import { CURRENCIES, FONTS, fontName, fontStack, formatValue, currencyDecimals, BORDER_STYLES, borderCss, ELAPSED_TIME_CODE, defaultAlign, AUTOMATIC_FORMAT, cellCurrency, currencyFormatLabel } from '../core/format.js';
+import { CURRENCIES, FONTS, fontName, fontStack, formatValue, currencyDecimals, BORDER_STYLES, borderCss, ELAPSED_TIME_CODE, defaultAlign, AUTOMATIC_FORMAT, cellCurrency, currencyFormatLabel, hasDecimalPlaces } from '../core/format.js';
 import { openCustomFormatDialog } from './numfmtdialog.js';
 import { customColorRows } from './colorpicker.js';
 import { themeColorBlock } from './themes.js';
@@ -739,8 +739,8 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
       if (grouped) b.disabled = true; else if (b !== sortBtn) b.disabled = false;
       b.title = grouped ? `${b.dataset.title}: ${GROUP_BLOCKED_REASON}` : b.dataset.title;
     }
-    // Dates, times, text and custom codes have no decimal places to step, so the buttons are greyed as the menus grey them.
-    decLess.disabled = decMore.disabled = editing || ['date', 'time', 'datetime', 'text', 'custom'].includes(s.fmt);
+    // Dates, times, text and custom codes without a number have no decimal places to step, so the buttons are greyed as the menus grey them.
+    decLess.disabled = decMore.disabled = editing || !hasDecimalPlaces(s);
     // Indenting and clearing formatting style the cell being edited, as Bold and the number formats do since
     // 212cec6, and the Format menu offers all three mid-edit: greying these out here said otherwise.
     indentLess.disabled = !(s.indent > 0);

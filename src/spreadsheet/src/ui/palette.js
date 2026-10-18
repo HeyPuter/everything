@@ -8,6 +8,7 @@ import { isComposing, el, MOD_KEY, IS_MAC } from './dom.js';
 import { icon } from './icons.js';
 import { ariaKeyShortcuts } from './menu.js';
 import { GROUP_BLOCKED_COMMANDS } from '../core/sheet-group.js';
+import { hasDecimalPlaces } from '../core/format.js';
 
 /**
  * The actions the palette offers. `flags` gates the context-dependent ones
@@ -22,7 +23,7 @@ export function paletteCommands(flags = {}) {
   const c = (label, section, ic, cmd, arg = null, extra = {}) => ({ label, section, icon: ic, cmd, arg, ...extra });
   // What the menus grey out is left out here, on the same flags: the palette has no greyed row, and an enabled
   // row whose command does nothing would run in silence.
-  const noDecimals = ['date', 'time', 'datetime', 'text', 'custom'].includes(flags.style?.fmt);
+  const noDecimals = !hasDecimalPlaces(flags.style);
   const list = [
     c('New spreadsheet', 'File', 'filePlus', 'new'),
     flags.templates && c('New from template…', 'File', 'sparkle', 'newFromTemplate'),

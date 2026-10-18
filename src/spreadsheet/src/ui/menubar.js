@@ -18,6 +18,7 @@ import { CELL_STYLES } from '../core/cellstyles.js';
 import { TABLE_STYLES } from '../core/tables.js';
 import { GROUP_BLOCKED_COMMANDS, GROUP_BLOCKED_HINT } from '../core/sheet-group.js';
 import { withCustomShortcuts } from './custom-shortcuts.js';
+import { hasDecimalPlaces } from '../core/format.js';
 
 export const MENU_TITLES = [
   ['file', 'File'], ['edit', 'Edit'], ['view', 'View'], ['insert', 'Insert'],
@@ -324,7 +325,7 @@ export function menubarMenus(f = {}) {
 
   // One choice of several is a radio item, so a screen reader does not call a number format or an alignment a checkbox.
   const fmtItem = (label, icon, value, shortcut) => i(label, icon, 'fmt', value, { checked: fmt === value, radio: true, shortcut });
-  const noDecimals = ['date', 'time', 'datetime', 'text', 'custom'].includes(fmt);
+  const noDecimals = !hasDecimalPlaces(st);
   // The sparkline commands lead the menu only on a sheet that holds sparklines: elsewhere they could only
   // answer that there is none, and they pushed Number and Text down on every sheet.
   const sparklines = f.sparklines ? [

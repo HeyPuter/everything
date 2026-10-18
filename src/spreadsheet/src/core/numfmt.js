@@ -1698,6 +1698,72 @@ function sectionColor(section) {
   return null;
 }
 
+/**
+ * A custom code with one decimal place more (`step` 1) or fewer (-1) in each section that shows a number, as
+ * Excel's Increase and Decrease Decimal buttons change it: #,##0.00_);(#,##0.00) → #,##0.000_);(#,##0.000),
+ * 0% → 0.0%, 0.00E+00 → 0.000E+00. Quoted text, escapes, padding and [directives] are kept as written; a
+ * section of a date, a time, a fraction, text or General is left alone, and one whose digits are all ? and
+ * have no decimal point (the "-"?? an Accounting zero is padded with) widens or narrows by one ? to keep in
+ * line. Null when no section changes, including fewer places on a code that already shows none.
+ */
+export function stepCodeDecimals(code, step) {
+  if (typeof code !== 'string' || !code || code.length > MAX_FORMAT_CODE_LENGTH || !step || parseCode(code).syntaxError) return null;
+  const up = step > 0;
+  const sections = [];
+  let current = '', quoted = false, bracket = false;
+  for (let i = 0; i < code.length; i++) {
+    const ch = code[i];
+    if (quoted) { current += ch; if (ch === '"') quoted = false; continue; }
+    if (bracket) { current += ch; if (ch === ']') bracket = false; continue; }
+    if (ch === '\\' || ch === '_' || ch === '*') { current += ch + (code[i + 1] ?? ''); i++; continue; }
+    if (ch === '"') quoted = true;
+    else if (ch === '[') bracket = true;
+    else if (ch === ';') { sections.push(current); current = ''; continue; }
+    current += ch;
+  }
+  sections.push(current);
+  let changed = false;
+  const out = sections.map((section) => {
+    // The characters that are code, not literal text: their positions in the section.
+    const live = [];
+    for (let i = 0; i < section.length; i++) {
+      const ch = section[i];
+      if (ch === '"') { const end = section.indexOf('"', i + 1); i = end < 0 ? section.length : end; continue; }
+      if (ch === '[') { const end = section.indexOf(']', i + 1); i = end < 0 ? section.length : end; continue; }
+      if (ch === '\\' || ch === '_' || ch === '*') { i++; continue; }
+      live.push(i);
+    }
+    const text = live.map((i) => section[i]).join('');
+    if (/general|[ymdhsgb@/]|a\/p|am\/pm/i.test(text)) return section;
+    const exponent = live.findIndex((i, k) => /e/i.test(section[i]) && /[+-]/.test(section[live[k + 1]] ?? ''));
+    const mantissa = exponent < 0 ? live : live.slice(0, exponent);
+    const digits = mantissa.filter((i) => '0#?'.includes(section[i]));
+    if (!digits.length) return section;
+    const point = mantissa.find((i) => section[i] === '.');
+    const last = digits[digits.length - 1];
+    let next = null;
+    if (point == null) {
+      if (digits.every((i) => section[i] === '?')) next = up ? `${section.slice(0, last + 1)}?${section.slice(last + 1)}` : `${section.slice(0, last)}${section.slice(last + 1)}`;
+      else if (up) next = `${section.slice(0, last + 1)}.0${section.slice(last + 1)}`;
+    } else if (up) {
+      // Excel shows at most thirty decimal places.
+      if (digits.filter((i) => i > point).length >= 30) return section;
+      const at = Math.max(point, last);
+      next = `${section.slice(0, at + 1)}0${section.slice(at + 1)}`;
+    } else {
+      const places = digits.filter((i) => i > point);
+      const cut = places.length ? places[places.length - 1] : point;
+      next = section.slice(0, cut) + section.slice(cut + 1);
+      if (places.length === 1) next = next.slice(0, point) + next.slice(point + 1);
+    }
+    if (next == null || next === section) return section;
+    changed = true;
+    return next;
+  });
+  const stepped = out.join(';');
+  return changed && stepped.length <= MAX_FORMAT_CODE_LENGTH ? stepped : null;
+}
+
 /** A short list of codes to offer in the custom-format dialog. */
 export const CUSTOM_FORMAT_PRESETS = [
   ['#,##0.00', 'Number with separators'],

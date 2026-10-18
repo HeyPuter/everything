@@ -12,7 +12,7 @@
 export const NUM_FORMATS = ['general', 'number', 'currency', 'percent', 'date', 'time', 'datetime', 'scientific', 'text', 'custom'];
 export const MAX_DECIMAL_PLACES = 20;
 
-import { formatWithCode, codeDateKind, codeScalesPercent, codeLocale, localeTag, MAX_FORMAT_CODE_LENGTH } from './numfmt.js';
+import { formatWithCode, codeDateKind, codeScalesPercent, codeLocale, localeTag, MAX_FORMAT_CODE_LENGTH, stepCodeDecimals } from './numfmt.js';
 import { normalizeNumberDigits } from './number-shape.js';
 import { parseDecimalText } from './formula/number-text.js';
 
@@ -1187,6 +1187,16 @@ export function editText(cell) {
     if (typeof back === 'number' && Math.abs(back - v) < 1e-9) return text;
   }
   return formatInputNumber(v);
+}
+
+/**
+ * Whether More and Fewer decimal places have places to step in a style: not in a date, a time or text, and in
+ * a custom code only where a section shows a number (#,##0.00_);(#,##0.00), the Accounting preset, 0.0%).
+ */
+export function hasDecimalPlaces(style) {
+  const fmt = style?.fmt;
+  if (['date', 'time', 'datetime', 'text'].includes(fmt)) return false;
+  return fmt !== 'custom' || stepCodeDecimals(style.code, 1) != null;
 }
 
 /** Alignment a value gets when the style does not force one. */
