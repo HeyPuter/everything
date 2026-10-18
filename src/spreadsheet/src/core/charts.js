@@ -1329,14 +1329,16 @@ export function axisLabel(v, style = null, step = null) {
   if (abs >= 1e15) return formatValue(v, { fmt: 'scientific', dec: 1 }).replace(/\.0E/, 'E');
   // Compact thousands, millions, billions and trillions, each rolling over on the rounded figure of
   // the unit below, so 999,999 reads 1M rather than 1,000K and 999,999,999 reads 1B rather than 1,000M.
-  const inUnit = (unit) => Math.round(v / (unit / 10)) / 10;
-  const compact = (n, suffix) => `${show(n, 1).replace(/\.0(?=\D*$)/, '')}${suffix}`;
+  // One decimal in the unit, or as many as the step takes there, so ticks 50K apart read 1.05M, not 1.1M twice.
+  const unitDec = (unit) => Math.max(1, stepDec != null ? exactDecimals(step / unit, 6) : 1);
+  const inUnit = (unit) => { const p = 10 ** unitDec(unit); return Math.round((v / unit) * p) / p; };
+  const compact = (n, suffix, unit) => `${show(n, exactDecimals(n, unitDec(unit)))}${suffix}`;
   const UNITS = [[1e12, 'T'], [1e9, 'B'], [1e6, 'M']];
   for (const [i, [unit, suffix]] of UNITS.entries()) {
     const below = UNITS[i + 1]?.[0] ?? 1e3;
-    if (abs >= unit || Math.abs(inUnit(below)) >= 1000) return compact(inUnit(unit), suffix);
+    if (abs >= unit || Math.abs(inUnit(below)) >= 1000) return compact(inUnit(unit), suffix, unit);
   }
-  if (abs >= 1e4) return compact(inUnit(1e3), 'K');
+  if (abs >= 1e4) return compact(inUnit(1e3), 'K', 1e3);
   const dec = stepDec != null ? Math.max(stepDec, exactDecimals(v, 6)) : abs >= 100 || Number.isInteger(v) ? 0 : abs >= 1 ? 1 : 2;
   return show(Math.round(v * 10 ** dec) / 10 ** dec, dec);
 }
