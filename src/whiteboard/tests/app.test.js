@@ -2934,6 +2934,36 @@ test("dropping multiple real images and attachments inserts one undoable batch; 
   }
 });
 
+test("pasted text and links land in the middle of the view, as pasted objects do", async () => {
+  const app = await setup();
+  const { doc, click } = app;
+  try {
+    await click('[data-action="new"]');
+    doc.querySelector("#canvas").getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 1200,
+      bottom: 900,
+      width: 1200,
+      height: 900,
+    });
+    const v = renderedView(app),
+      middle = { x: (600 - v.x) / v.z, y: (450 - v.y) / v.z };
+    for (const text of ["A pasted sentence", "https://example.com/guide"]) {
+      dispatchTransfer(app, "paste", transferData({ "text/plain": text }));
+      await app.tick();
+      const [pasted] = selectedClipboard(app);
+      assert.ok(
+        Math.abs(pasted.x + pasted.w / 2 - middle.x) < 30 &&
+          Math.abs(pasted.y + pasted.h / 2 - middle.y) < 30,
+        `${text}: ${JSON.stringify(pasted)} around ${JSON.stringify(middle)}`,
+      );
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test("drops on the note being edited put text in it and files on the board, and never leave the drop target up", async () => {
   const app = await setup();
   const { w, doc, click, tick } = app;

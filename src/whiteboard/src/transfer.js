@@ -619,6 +619,12 @@ export function createTransfer(api) {
         point,
         document.createElement("canvas").getContext("2d"),
       );
+      // A paste places the text or link as it does copied objects, in the
+      // middle of the view; a drop leaves it where it was dropped.
+      if (object && pasted) {
+        Object.assign(object, pasteAt(object, point, pasted));
+        keepOnBoard([object]);
+      }
       if (object) insert([object], target);
     }
   }
