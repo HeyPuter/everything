@@ -1786,8 +1786,12 @@ function renderStyledCartesian(data, chart, width, height) {
     const entries = legendEntries;
     const layout = automaticLegend || (sameLegend && a.legend ? layoutLegend(entries, style, W, H, chart.legendPos, 0,
       { x: l.x * W, y: l.y * H, w: (l.w ?? .94) * W, h: l.h == null ? null : l.h * H }, vertical) : null);
+    // A legend down the right wraps each name within the room left to the chart's edge, and shortens a word
+    // too long for it, rather than running the name off the chart.
+    const indent = bubble ? 14 : 29, room = Math.max(20, W - l.x * W - indent - 4);
+    const wrapped = vertical && !layout ? entries.map(({ s }) => legendLines(s.name, room, style)) : null;
     const box = layout ? { x: layout.x, y: layout.y, w: layout.w, h: layout.h }
-      : { x: l.x * W, y: l.y * H, w: (l.w ?? .94) * W, h: vertical ? entries.length * style.size * 1.7 : (l.h ?? .06) * H };
+      : { x: l.x * W, y: l.y * H, w: (l.w ?? .94) * W, h: vertical ? wrapped.reduce((sum, lines) => sum + style.size * (1.7 + (lines.length - 1) * 1.2), 0) : (l.h ?? .06) * H };
     parts.push(`<g data-el="legend"${effectAttr(a, 'legend')}>`, legendBoxRect(a.legendBox, box, style.size));
     const widths = entries.map(({ s }) => 30 + textW(s.name, style.size));
     const gap = Math.max(8, ((l.w ?? .94) * W - widths.reduce((sum, w) => sum + w, 0)) / (widths.length + 1));
@@ -1804,11 +1808,11 @@ function renderStyledCartesian(data, chart, width, height) {
         if (line.marker) parts.push(chartMarker(line.markerSymbol, x + key / 2, y, Math.min(markerPixels(line), style.size), line.markerFill || color, line.markerStroke || color, '', 'chart-legend-marker'));
       }
       if (placed) placed.lines.forEach((text, k) => label(text, placed.textX, placed.baseline + k * layout.lineH, style, 'start', 'class="chart-legend-label"'));
-      else if (bubble && vertical) {
-        const lines = wrapChartText(s.name, Math.max(20, (l.w ?? .21) * W - 14), style);
-        lines.forEach((text, k) => label(text, x + 14, y + style.size * (.3 + k * 1.2), style));
+      else if (wrapped) {
+        const lines = wrapped[entry];
+        lines.forEach((text, k) => label(text, x + indent, y + style.size * (.3 + k * 1.2), style));
         y += Math.max(0, lines.length - 1) * style.size * 1.2;
-      } else label(s.name, x + (bubble ? 14 : 29), y + style.size * .3, style);
+      } else label(s.name, x + indent, y + style.size * .3, style);
       if (vertical) y += style.size * 1.7; else x += widths[entry] + gap;
     });
     parts.push('</g>');
@@ -1925,6 +1929,17 @@ function renderChartDataTable(data, chart, box) {
   if (border) parts.push(`<path class="chart-table-borders" d="${border.trim()}" fill="none" stroke="${esc(table.stroke)}" stroke-width="${table.width}"/>`);
   parts.push('</g>');
   return parts.join('');
+}
+
+/** A legend down the right: a name wrapped within the room left to the chart's edge, a word too long for it shortened with "…". */
+function legendLines(name, room, style) {
+  return wrapChartText(String(name ?? ''), room, style).map((line) => {
+    const width = axisTextWidth(line, style);
+    if (width <= room) return line;
+    let n = Math.max(1, Math.floor(line.length * room / width));
+    while (n > 1 && axisTextWidth(`${line.slice(0, n)}…`, style) > room) n--;
+    return `${line.slice(0, n)}…`;
+  });
 }
 
 function wrapChartText(text, width, style) {
@@ -2253,16 +2268,24 @@ function renderStyledPie(data, chart, width, height) {
         rows.at(-1).push({ ...e, width: widths[i] }); used += widths[i] + 12;
       });
       const legendY = !a.legend && chart.legendPos === 'bottom' ? H - rows.length * lineH - 8 : l.y * H;
+      // Down the right, each name wraps within the room left to the chart's edge, as a cartesian legend's does.
+      const room = Math.max(20, W - l.x * W - st.size - 8);
+      let next = legendY + st.size;
       rows.forEach((row, ri) => {
         const gap = vertical ? 0 : Math.max(8, (legendW - row.reduce((n, e) => n + e.width, 0)) / Math.max(1, row.length - 1));
         let x = l.x * W;
-        const y = legendY + ri * lineH + st.size;
+        const y = vertical ? next : legendY + ri * lineH + st.size;
         for (const { name, i, width } of row) {
           out.push(`<rect x="${f(x)}" y="${f(y - st.size * .7)}" width="${f(st.size * .65)}" height="${f(st.size * .65)}" fill="${esc(piePaint(chart, i, colors))}"/>`);
-          out.push(label(name, x + st.size + 4, y, st)); x += width + gap;
+          if (vertical) {
+            const lines = legendLines(name, room, st);
+            lines.forEach((text, k) => out.push(label(text, x + st.size + 4, y + k * st.size * 1.2, st)));
+            next = y + lineH + (lines.length - 1) * st.size * 1.2;
+          } else out.push(label(name, x + st.size + 4, y, st));
+          x += width + gap;
         }
       });
-      out.splice(legendStart, 0, legendBoxRect(a.legendBox, { x: l.x * W, y: legendY, w: legendW, h: rows.length * lineH }, st.size));
+      out.splice(legendStart, 0, legendBoxRect(a.legendBox, { x: l.x * W, y: legendY, w: legendW, h: vertical ? next - legendY - st.size : rows.length * lineH }, st.size));
       if (vertical) right = l.x * W - 10;
       else if (chart.legendPos === 'top') top = legendY + rows.length * lineH + 8;
       else bottom = legendY - 8;
