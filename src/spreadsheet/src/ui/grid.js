@@ -2483,14 +2483,26 @@ export function createGrid(opts) {
       } else {
         const minW = (ch.type === 'scroll' ? 12 : ch.type === 'image' ? IMAGE_MIN : ch.type === 'text' ? TEXT_MIN : ch.type === 'smartart' ? SMARTART_MIN : CHART_MIN_W) * objectScale;
         const minH = (ch.type === 'scroll' ? 12 : ch.type === 'image' ? IMAGE_MIN : ch.type === 'text' ? TEXT_MIN : ch.type === 'smartart' ? SMARTART_MIN : CHART_MIN_H) * objectScale;
-        let width = Math.max(minW, drag.from.width + dx);
-        let height = Math.max(minH, drag.from.height + dy);
+        // A turned or flipped text box grows along its own sides, the pointer's move read in its frame,
+        // and its opposite corner stays where it is on screen (the box turns about its centre).
+        const turned = ch.type === 'text' && (ch.rotation || ch.flipH || ch.flipV);
+        const angle = turned ? (ch.rotation || 0) * Math.PI / 180 : 0, cos = Math.cos(angle), sin = Math.sin(angle);
+        const sx = turned && ch.flipH ? -1 : 1, sy = turned && ch.flipV ? -1 : 1;
+        const ldx = turned ? (dx * cos + dy * sin) * sx : dx, ldy = turned ? (dy * cos - dx * sin) * sy : dy;
+        let width = Math.max(minW, drag.from.width + ldx);
+        let height = Math.max(minH, drag.from.height + ldy);
         // Images keep their proportions unless Shift is held; one unlocked (Picture Format ▸ Size) the other way round.
         if (ch.type === 'image' && (ch.lockAspect !== false) !== ev.shiftKey) {
           const ratio = drag.from.width / drag.from.height;
           if (Math.abs(dx) >= Math.abs(dy)) height = Math.max(minH, width / ratio); else width = Math.max(minW, height * ratio);
         }
-        drag.rect = { ...drag.from, width, height };
+        let { left, top } = drag.from;
+        if (turned) {
+          const gx = (width - drag.from.width) / 2 * sx, gy = (height - drag.from.height) / 2 * sy;
+          left += drag.from.width / 2 + gx * cos - gy * sin - width / 2;
+          top += drag.from.height / 2 + gx * sin + gy * cos - height / 2;
+        }
+        drag.rect = { ...drag.from, left, top, width, height, turned };
       }
       schedule();
     };
@@ -2515,7 +2527,7 @@ export function createGrid(opts) {
         wb.placeObjects(sheetId, [id, ...d.others.map((m) => m.id)].map((m) => wb.objectRect(sheetId, m)).filter(Boolean)
           .map((r) => ({ id: r.id, x: r.x + shift.x, y: r.y + shift.y })), 'Move objects');
       } else if (d.kind === 'chartmove') placeChart(id, d.rect.left, d.rect.top);
-      else wb.updateChart(sheetId, id, { w: Math.round(d.rect.width / objectScale), h: Math.round(d.rect.height / objectScale) }, 'Resize chart');
+      else wb.updateChart(sheetId, id, { ...(d.rect.turned ? anchorAt(d.rect.left, d.rect.top) : {}), w: Math.round(d.rect.width / objectScale), h: Math.round(d.rect.height / objectScale) }, 'Resize chart');
     };
     // A drag the browser gives up (a touch it decided to scroll with, a lost capture) acts on
     // nothing, as the grid's own drags rule: the box goes back to its stored place.
@@ -2527,15 +2539,19 @@ export function createGrid(opts) {
 
   /** Anchor a chart at a canvas position: the cell under its top-left corner, plus the offset into it. */
   function placeChart(id, left, top) {
+    wb.updateChart(sheetId, id, anchorAt(left, top), 'Move chart');
+  }
+
+  /** The anchor of a canvas position: the cell under it and the offset into that cell (a chart sheet's own origin). */
+  function anchorAt(left, top) {
     if (sheet()?.kind === 'chart') {
       const scale = chartView?.scale ?? zoom;
-      wb.updateChart(sheetId, id, { anchor: { r: 0, c: 0 }, dx: left / scale, dy: top / scale }, 'Move chart');
-      return;
+      return { anchor: { r: 0, c: 0 }, dx: left / scale, dy: top / scale };
     }
     ensureOffsets();
     const c = clamp(colOffsets.indexAt(left), 0, sheet().cols - 1);
     const r = clamp(rowOffsets.indexAt(top), 0, sheet().rows - 1);
-    wb.updateChart(sheetId, id, { anchor: { r, c }, dx: Math.round((left - colX(c)) / zoom), dy: Math.round((top - rowY(r)) / zoom) }, 'Move chart');
+    return { anchor: { r, c }, dx: Math.round((left - colX(c)) / zoom), dy: Math.round((top - rowY(r)) / zoom) };
   }
 
   /** Arrow keys on a selected chart: a nudge of a few pixels, or with Shift a whole cell of the anchor's size, kept inside the sheet. */
