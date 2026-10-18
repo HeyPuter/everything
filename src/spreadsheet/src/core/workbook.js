@@ -4903,8 +4903,12 @@ export class Workbook extends EventTarget {
     const r2 = Math.min(trimmed.r2, bounds.r2);
     const c2 = Math.min(trimmed.c2, bounds.c2);
     if (r2 < r1 || c2 < c1) return true;
+    // A row hidden by hand or under a collapsed outline stays where it is, as Excel leaves it: the shown rows are
+    // sorted among themselves into the shown places. Rows a filter hides are sorted with the rest and hidden again.
+    const places = [];
+    for (let r = r1; r <= r2; r++) if (!sheet.hiddenRows.has(r)) places.push(r);
     const rows = [];
-    for (let r = r1; r <= r2; r++) {
+    for (const r of places) {
       const cells = [];
       for (let c = c1; c <= c2; c++) cells.push(cloneCell(sheet.cells.get(cellKey(r, c))));
       // A color key sorts rows with that fill first (0) and the rest after (1); a value key sorts by the cell's value.
@@ -4921,7 +4925,7 @@ export class Workbook extends EventTarget {
     const entries = [];
     const notes = [];
     rows.forEach((row, i) => {
-      const r = r1 + i;
+      const r = places[i];
       row.cells.forEach((cell, j) => {
         const c = c1 + j;
         let next = cell;
@@ -4934,12 +4938,13 @@ export class Workbook extends EventTarget {
     });
     this.transaction('Sort', () => {
       if (sheet.styleResets.length) {
-        const movedRows = new Map(rows.map((row, i) => [row.r, r1 + i]));
-        this._setStyleResets(sheet, permuteStyleResets(sheet.styleResets, { r1, r2, c1, c2: trimmed.c2 }, 'row', (r) => movedRows.get(r)), 'Sort');
+        const movedRows = new Map(rows.map((row, i) => [row.r, places[i]]));
+        this._setStyleResets(sheet, permuteStyleResets(sheet.styleResets, { r1, r2, c1, c2: trimmed.c2 }, 'row', (r) => movedRows.get(r) ?? r), 'Sort');
       }
       this.setCells(sheetId, entries, 'Sort');
       this._moveNotes(sheetId, notes);
-      permuteComments(this, sheetId, { r1, r2, c1, c2 }, 'row', new Map(rows.map((row, i) => [row.r, r1 + i])));
+      const sortedRows = new Map(rows.map((row, i) => [row.r, places[i]]));
+      permuteComments(this, sheetId, { r1, r2, c1, c2 }, 'row', (r) => sortedRows.get(r) ?? r);
       this._refilterRearranged(sheet, { r1, r2 }, 'Sort');
     });
     return true;
@@ -4990,8 +4995,11 @@ export class Workbook extends EventTarget {
     // range moves only what is there.
     const r2 = Math.min(n.r2, this._contentBounds(sheet, n).r2);
     if (r2 < r1) return true;
+    // A hidden column stays where it is, as a hidden row does when rows are sorted.
+    const places = [];
+    for (let c = c1; c <= c2; c++) if (!sheet.hiddenCols.has(c)) places.push(c);
     const cols = [];
-    for (let c = c1; c <= c2; c++) {
+    for (const c of places) {
       const cells = [];
       for (let r = r1; r <= r2; r++) cells.push(cloneCell(sheet.cells.get(cellKey(r, c))));
       cols.push({ c, cells, keys: keys.map((k) => this.getValue(sheetId, k.row, c)) });
@@ -5007,7 +5015,7 @@ export class Workbook extends EventTarget {
     const entries = [];
     const notes = [];
     cols.forEach((col, j) => {
-      const c = c1 + j;
+      const c = places[j];
       col.cells.forEach((cell, i) => {
         const r = r1 + i;
         const next = cell?.f != null && col.c !== c ? { ...cell, f: shiftFormula(cell.f, 0, c - col.c) } : cell;
@@ -5018,12 +5026,13 @@ export class Workbook extends EventTarget {
     });
     this.transaction('Sort', () => {
       if (sheet.styleResets.length) {
-        const movedCols = new Map(cols.map((col, i) => [col.c, c1 + i]));
-        this._setStyleResets(sheet, permuteStyleResets(sheet.styleResets, { r1, r2: n.r2, c1, c2 }, 'col', (c) => movedCols.get(c)), 'Sort');
+        const movedCols = new Map(cols.map((col, i) => [col.c, places[i]]));
+        this._setStyleResets(sheet, permuteStyleResets(sheet.styleResets, { r1, r2: n.r2, c1, c2 }, 'col', (c) => movedCols.get(c) ?? c), 'Sort');
       }
       this.setCells(sheetId, entries, 'Sort');
       this._moveNotes(sheetId, notes);
-      permuteComments(this, sheetId, { r1, r2, c1, c2 }, 'col', new Map(cols.map((col, j) => [col.c, c1 + j])));
+      const sortedCols = new Map(cols.map((col, j) => [col.c, places[j]]));
+      permuteComments(this, sheetId, { r1, r2, c1, c2 }, 'col', (c) => sortedCols.get(c) ?? c);
       this._refilterRearranged(sheet, { r1, r2 }, 'Sort');
     });
     return true;
