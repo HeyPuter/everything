@@ -2718,6 +2718,21 @@ export function createGrid(opts) {
       return (c + 1) % colStrides.get(label.length) === 0 ? label : '';
     };
     const rowLabel = (r) => (rowH(r) >= headFont || (r + 1) % rowStride === 0 ? String(r + 1) : '');
+    // The strip across a line's end that resizes it (9px, a finger's 17px across a column; grid.css) leaves
+    // a short line the middle of its heading: zoomed to 50% a 10px row was all resize strip, its own and the
+    // one above's, so pressing its number resized the row instead of selecting it. A line shorter than the
+    // strip needs gets one about a third of its size, half on each side of its edge.
+    const coarse = typeof matchMedia === 'function' && !!matchMedia('(pointer: coarse)')?.matches;
+    const resizer = (axis, i, size) => {
+      const node = el(`div.${axis}-resizer`, { dataset: { [axis === 'col' ? 'c' : 'r']: i } });
+      const base = axis === 'col' && coarse ? 17 : 9;
+      if (size < base / 0.45) {
+        const grip = Math.max(1, Math.floor(size * 0.35));
+        node.style[axis === 'col' ? 'width' : 'height'] = `${grip}px`;
+        node.style[axis === 'col' ? 'right' : 'bottom'] = `${-Math.ceil(grip / 2)}px`;
+      }
+      return node;
+    };
     const colHeader = (c) => {
       const h = el('div.hcell', { 'aria-hidden': 'true', dataset: { c } }, colLabel(c));
       h.style.left = `${colX(c)}px`;
@@ -2726,7 +2741,7 @@ export function createGrid(opts) {
       else if (extras.some((x) => c >= x.c1 && c <= x.c2)) h.classList.add('hl');
       if (c > 0 && s.hiddenCols.has(c - 1)) h.classList.add('after-hidden');
       if (s.hiddenCols.has(c + 1)) h.classList.add('before-hidden');
-      h.append(el('div.col-resizer', { dataset: { c } }));
+      h.append(resizer('col', c, colW(c)));
       return h;
     };
     const rowHeader = (r) => {
@@ -2738,7 +2753,7 @@ export function createGrid(opts) {
       if (r > 0 && s.hiddenRows.has(r - 1)) h.classList.add('after-hidden');
       if (s.hiddenRows.has(r + 1)) h.classList.add('before-hidden');
       if (wb.filtersForSheet(s.id).some(f => r > f.range.r1 && r <= f.range.r2 && Object.keys(f.criteria).length)) h.classList.add('filtered');
-      h.append(el('div.row-resizer', { dataset: { r } }));
+      h.append(resizer('row', r, rowH(r)));
       return h;
     };
     const cf = document.createDocumentFragment();
