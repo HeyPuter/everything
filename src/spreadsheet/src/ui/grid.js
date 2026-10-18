@@ -5395,7 +5395,16 @@ export function createGrid(opts) {
   rowClip.addEventListener('contextmenu', (e) => headerContextMenu(e, 'row'));
   corner.addEventListener('click', () => { if (edit && !commitEdit()) return; setSelection(S.selectAll(bounds()), { scroll: false }); viewport.focus({ preventScroll: true }); });
 
-  const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => { measureChrome(); rendered.key = null; schedule(); }) : null;
+  // The on-screen keyboard that opens as a cell is typed into shrinks the viewport from below, often over
+  // that very cell: a viewport that got smaller during an edit brings the cell back into view.
+  let viewSize = { w: 0, h: 0 };
+  const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => {
+    measureChrome(); rendered.key = null; schedule();
+    const size = { w: viewport.clientWidth, h: viewport.clientHeight };
+    const shrank = size.w < viewSize.w || size.h < viewSize.h;
+    viewSize = size;
+    if (shrank && edit && edit.sheetId === sheetId) scrollIntoView({ r: edit.r, c: edit.c });
+  }) : null;
   ro?.observe(viewport);
 
   // A workbook can introduce a bundled font after the first render. Discard
