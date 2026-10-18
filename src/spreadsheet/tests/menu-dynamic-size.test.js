@@ -34,7 +34,11 @@ it('keeps controls visible as anchored custom content grows and shrinks without 
   expect(menu.style.top).toBe('334px');
   menu.dataset.height = '400';
   observers[0].deliver();
-  expect(menu.style.top).toBe('192px');
+  // Too tall for either side of its anchor, it opens on the roomier side (above: 288px against 258px
+  // below) and scrolls there, rather than being pushed up over the anchor itself.
+  expect(menu.style.top).toBe('8px');
+  expect(menu.style.maxHeight).toBe('288px');
+  expect(menu.style.overflowY).toBe('auto');
   expect(document.activeElement).toBe(input);
   expect(isMenuOpen()).toBe(true);
   menu.dataset.height = '160';

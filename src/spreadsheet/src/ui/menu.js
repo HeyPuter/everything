@@ -480,6 +480,7 @@ function position(menu, anchor, x, y, align, altRight = null) {
   const rect = { width: menu.offsetWidth, height: menu.offsetHeight };
   let left;
   let top;
+  let room = null; // the height an anchored menu has on the side of its anchor it opens on
   if (x != null && y != null) {
     left = x;
     top = y;
@@ -488,18 +489,29 @@ function position(menu, anchor, x, y, align, altRight = null) {
     const a = anchor.getBoundingClientRect();
     left = align === 'end' ? a.right - rect.width : a.left;
     top = a.bottom + 4;
-    if (top + rect.height > vh - padB && a.top - rect.height - 4 > padT) top = a.top - rect.height - 4;
+    const below = vh - padB - top, above = a.top - 4 - padT;
+    if (rect.height > below && rect.height <= above) top = a.top - rect.height - 4;
+    else if (rect.height > below) {
+      // Too tall for either side (a long dropdown list on a cell near the top of the sheet): it opens on the
+      // side with more room and scrolls there. Pushed up to fit whole instead, it covered its own cell and
+      // ran up over the menu bar and the ribbon.
+      room = Math.max(below, above);
+      top = below >= above ? a.bottom + 4 : a.top - 4 - room;
+    }
   } else {
     left = (vw - rect.width) / 2;
     top = (vh - rect.height) / 2;
   }
   if (left + rect.width > vw - padR) left = Math.max(padL, vw - padR - rect.width);
   if (left < padL) left = padL;
-  if (top + rect.height > vh - padB) top = Math.max(padT, vh - padB - rect.height);
+  if (room == null && top + rect.height > vh - padB) top = Math.max(padT, vh - padB - rect.height);
   if (top < padT) top = padT;
   menu.style.left = `${Math.round(left)}px`;
   menu.style.top = `${Math.round(top)}px`;
-  if (rect.height > vh - padT - padB) {
+  if (room != null) {
+    menu.style.maxHeight = `${Math.floor(room)}px`;
+    menu.style.overflowY = 'auto';
+  } else if (rect.height > vh - padT - padB) {
     menu.style.maxHeight = `${vh - padT - padB}px`;
     menu.style.overflowY = 'auto';
   }
