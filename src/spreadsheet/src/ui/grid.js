@@ -3169,13 +3169,29 @@ export function createGrid(opts) {
     else padTop = (h - lineH) / 2 - 2;
     editor.style.paddingTop = `${Math.max(0, padTop).toFixed(2)}px`;
     editor.style.height = `${h}px`;
+    edit.overflowBelow = 0;
     if (!single) {
       const screenTop = rowY(r) - bandST(r, view);
       const avail = Math.max(h, view.vh - screenTop - 2);
       let needH = lines.length * lineH + padTop + 6;
       if (wrap) needH = Math.max(needH, editor.scrollHeight + 4); // the browser's own wrapping decides
       editor.style.height = `${Math.round(clamp(needH, h, avail))}px`;
+      edit.overflowBelow = needH - avail;
     }
+  }
+
+  /**
+   * Lines typed into a cell low on the screen need more room than there is below it: the sheet scrolls
+   * the cell up (as far as the top of its pane) so they show, as Excel keeps them in view. Only as the
+   * text changes, so scrolling away from the cell mid-edit is not undone.
+   */
+  function revealEditorLines() {
+    if (!edit || edit.sheetId !== sheetId || !(edit.overflowBelow > 0) || topBand(edit.r)) return;
+    const view = viewMetrics();
+    const by = Math.min(edit.overflowBelow, rowY(edit.r) - view.st - frozen.h);
+    if (by < 1) return;
+    scrollViewportTo(view.sl, view.st + by);
+    positionEditor();
   }
 
   function beginEdit({ text = null, mode = 'inplace', focusEditor = true, preserveRichText = text == null } = {}) {
@@ -3205,6 +3221,7 @@ export function createGrid(opts) {
     editor.hidden = false;
     positionEditor();
     if (focusEditor) {
+      revealEditorLines();
       editor.focus({ preventScroll: true });
       editor.setSelectionRange(initial.length, initial.length);
     }
@@ -3226,6 +3243,7 @@ export function createGrid(opts) {
     const spell = spellcheck && !text.startsWith('=');
     if (editor.spellcheck !== spell) editor.spellcheck = spell;
     positionEditor();
+    revealEditorLines();
     renderRefHighlights();
     opts.onEdit?.({ editing: true, text, r: edit.r, c: edit.c });
     updateHints();
