@@ -6368,6 +6368,15 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       if (e.key === 'Escape') { e.preventDefault(); grid.cancelEdit(); return; }
       if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Tab') grid.focusEditor();
     }
+    // Escape on a title of the menu bar or the ribbon, a sheet tab or the status bar, with nothing open there to
+    // close, hands the keyboard back to the sheet, as Escape leaves the ribbon in Excel; a ribbon command's
+    // Escape goes up to its tab first, and a menu's back to its title.
+    if (e.key === 'Escape' && !e.defaultPrevented && !isComposing(e) && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey
+      && e.target.closest?.('.menubar-btn, .ribbon-tab, .ribbon-collapse, .ribbon-scroll, .sheet-tabs button, .sheet-tabs [role="tab"], .status-bar button, .status-bar input')) {
+      e.preventDefault();
+      keepFocus();
+      return;
+    }
     if (e.key === 'F6' && !e.ctrlKey && !e.metaKey && !e.altKey && !isComposing(e)) {
       e.preventDefault();
       const visible = (node) => {
