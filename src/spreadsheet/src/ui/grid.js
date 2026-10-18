@@ -6080,7 +6080,13 @@ export function createGrid(opts) {
     setSelection: (next, o) => setSelection(next, o),
     /** Select all as Ctrl+A does: the block of data around the active cell, then the whole sheet. */
     selectAll: selectAllStep,
-    selectByName,
+    // Going to cells by name (the Name Box, Go To, a link) selects them instead of an object selected
+    // before: Delete would otherwise remove the chart rather than clear the cells gone to.
+    selectByName(text) {
+      const done = selectByName(text);
+      if (done && selectedChart) { selectedChart = null; selectedSet = new Set(); schedule(); }
+      return done;
+    },
     beginEdit,
     setEditText,
     setFormulaInput(input) { formulaInput = input; },
