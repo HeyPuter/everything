@@ -24361,10 +24361,11 @@ async function sharedEditors(
   items,
   count = 2,
   assets = [],
-  { peers = true, hub = createPeerHub() } = {},
+  { peers = true, hub = createPeerHub(), prepare = () => {} } = {},
 ) {
   const env = environment(),
     seed = new SharedDocument();
+  prepare(env);
   env.service.now = () => Date.now();
   seed.commit({ version: 1, id: room, title: "Shared", items });
   await env.service.call(owner, {
@@ -29640,6 +29641,58 @@ test("a version of a shared board opened as a copy waits for images not download
     assert.equal(boards.filter((b) => !b.shared).length, 0);
     assert.match(app.doc.querySelector(".board-tag").textContent, /Shared/);
   } finally {
+    await shared.close();
+  }
+});
+
+test("a version opened as a copy is not opened once version history was closed meanwhile", async () => {
+  const room = crypto.randomUUID();
+  const data =
+    "data:image/png;base64," +
+    createCanvas(8, 4).toBuffer("image/png").toString("base64");
+  const image = item("image", 0, 0, {
+    w: 100,
+    h: 100,
+    src: `asset:${await hash(data)}`,
+  });
+  let release;
+  const gate = new Promise((r) => (release = r));
+  // The image does not download until the copy is asked for.
+  const shared = await sharedEditors(room, [image], 1, [data], {
+    peers: false,
+    prepare(env) {
+      const call = env.service.call.bind(env.service);
+      env.service.call = async (user, input) => {
+        if (input.op === "asset.get") await gate;
+        return call(user, input);
+      };
+    },
+  });
+  const [app] = shared.apps;
+  try {
+    await app.click('[data-action="more-tools"]');
+    await app.click('[data-feature="history"]');
+    await app.click("#checkpoint-create");
+    for (
+      let n = 0;
+      n < 80 &&
+      !app.doc.querySelector("#local-revisions [data-revision-options]");
+      n++
+    )
+      await app.tick();
+    await app.click("#local-revisions [data-revision-options]");
+    for (let n = 0; n < 80 && !app.doc.querySelector('[data-part="copy"]'); n++)
+      await app.tick();
+    await app.click('[data-part="copy"]');
+    // The person closes version history while the images download.
+    for (const d of app.doc.querySelectorAll("dialog[open]")) d.close();
+    release();
+    for (let n = 0; n < 40; n++) await app.tick();
+    const boards = await storedBoards(app);
+    assert.equal(boards.filter((b) => !b.shared).length, 0);
+    assert.match(app.doc.querySelector(".board-tag").textContent, /Shared/);
+  } finally {
+    release();
     await shared.close();
   }
 });

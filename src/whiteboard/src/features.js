@@ -1927,6 +1927,9 @@ export function createFeatures(api) {
               } finally {
                 el.disabled = false;
               }
+              // Version history closed meanwhile: the person has moved on,
+              // and the copy would take them away from where they went.
+              if (!d.open || !d.isConnected) return;
             }
             d.close();
             await api.addBoard(copy);
