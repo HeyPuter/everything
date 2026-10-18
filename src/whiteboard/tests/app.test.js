@@ -47713,6 +47713,50 @@ test("menu Paste after this tab's menu Copy works when reading the clipboard is 
   }
 });
 
+test("the hover outline follows what comes under a resting pointer as the wheel pans", async () => {
+  const app = await setup();
+  const { doc, w, tick } = app;
+  try {
+    const { canvas, selected } = await rotationFixture(app, [
+      item("rect", 0, 0, { w: 200, h: 100 }),
+      item("ellipse", 300, 0, { w: 200, h: 100 }),
+    ]);
+    canvasPointer(app, "pointerdown", 3, 1150, 880, { pointerType: "mouse" });
+    canvasPointer(app, "pointerup", 3, 1150, 880, { pointerType: "mouse" });
+    await tick();
+    const outline = doc.querySelector("#hover-outline");
+    const [left, right] = selected;
+    let v = renderedView(app);
+    const at = { x: v.x + (left.x + 100) * v.z, y: v.y + (left.y + 50) * v.z };
+    canvasPointer(app, "pointermove", 3, at.x, at.y, {
+      pointerType: "mouse",
+      buttons: 0,
+    });
+    const shown = () =>
+      parseFloat(outline.style.transform.match(/translate\(([-\d.]+)px/)[1]);
+    assert.equal(outline.hidden, false);
+    const before = shown();
+    // The wheel moves the view by the distance between the two shapes.
+    const event = new w.WheelEvent("wheel", {
+      deltaX: (right.x - left.x) * v.z,
+      clientX: at.x,
+      clientY: at.y,
+      bubbles: true,
+      cancelable: true,
+    });
+    canvas.dispatchEvent(event);
+    await tick();
+    v = renderedView(app);
+    assert.equal(outline.hidden, false);
+    assert.ok(
+      Math.abs(shown() - before) < 2,
+      "The outline is on the shape now under the pointer",
+    );
+  } finally {
+    await app.close();
+  }
+});
+
 test("a resting pointer outlines the object a click would select", async () => {
   const app = await setup();
   const { doc, w, tick } = app;

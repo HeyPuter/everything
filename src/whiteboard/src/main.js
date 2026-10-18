@@ -629,7 +629,9 @@ let boards = [],
 let lastPointerType = "mouse";
 let hoveredMind = null,
   // The object a click would select under a resting pointer, outlined.
-  hovered = null;
+  hovered = null,
+  // Where that pointer rests, so a view change looks again under it.
+  hoverPointer = null;
 // The last arrow-key move or resize, which a held key continues.
 let nudge = null;
 // A held key makes the same change to the same objects as one undo step, so
@@ -2147,6 +2149,7 @@ const canvasNavigation = createCanvasNavigation({
     attention.stop();
     view = next;
     if (drag?.pointer) pointerMove(drag.pointer);
+    else if (hoverPointer && !drag) pointerMove(hoverPointer);
     draw();
   },
 });
@@ -4333,6 +4336,7 @@ function editor() {
   );
   canvas.addEventListener("pointerleave", () => {
     collaborationCursor = null;
+    hoverPointer = null;
     hovered = null;
     renderHover();
     sendPresence();
@@ -8684,6 +8688,14 @@ function pointerMove(e) {
     return;
   }
   if (!drag) {
+    hoverPointer =
+      e.pointerType === "touch"
+        ? null
+        : {
+            clientX: e.clientX,
+            clientY: e.clientY,
+            pointerType: e.pointerType,
+          };
     if (tool === "select")
       document.querySelector("#canvas").style.cursor = idleCursor();
     const hit =
