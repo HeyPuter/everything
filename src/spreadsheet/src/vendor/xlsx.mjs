@@ -23111,7 +23111,10 @@ function html_to_sheet(str/*:string*/, _opts)/*:Workbook*/ {
 			else if(m === 'FALSE') o = {t:'b', v:false};
 			else if(!isNaN(fuzzynum(m))) o = {t:'n', v:fuzzynum(m)};
 			else if(!isNaN(fuzzydate(m).getDate())) {
-				o = ({t:'d', v:parseDate(m)}/*:any*/);
+				/* Puter Spreadsheet: the date the text names, read as fuzzydate reads it (in UTC, as
+				   datenum counts). parseDate read "05/01/2024" at local midnight, so east of UTC the
+				   cell opened as the day before and west of it with hours added. */
+				o = ({t:'d', v:fuzzydate(m)}/*:any*/);
 				if(opts.UTC === false) o.v = utc_to_local(o.v);
 				if(!opts.cellDates) o = ({t:'n', v:datenum(o.v)}/*:any*/);
 				o.z = opts.dateNF || table_fmt[14];
@@ -23263,7 +23266,7 @@ function sheet_add_dom(ws/*:Worksheet*/, table/*:HTMLElement*/, _opts/*:?any*/)/
 				else if(v === 'FALSE') o = {t:'b', v:false};
 				else if(!isNaN(fuzzynum(v))) o = {t:'n', v:fuzzynum(v)};
 				else if(!isNaN(fuzzydate(v).getDate())) {
-					o = ({t:'d', v:parseDate(v)}/*:any*/);
+					o = ({t:'d', v:fuzzydate(v)}/*:any*/);
 					if(opts.UTC) o.v = local_to_utc(o.v);
 					if(!opts.cellDates) o = ({t:'n', v:datenum(o.v)}/*:any*/);
 					o.z = opts.dateNF || table_fmt[14];
