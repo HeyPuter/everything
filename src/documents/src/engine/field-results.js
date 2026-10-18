@@ -55,7 +55,7 @@ export function applyGeneralFormat(text, format) {
   const f = String(format || '');
   if (/^upper$/i.test(f)) return text.toLocaleUpperCase();
   if (/^lower$/i.test(f)) return text.toLocaleLowerCase();
-  if (/^firstcap$/i.test(f)) return text.charAt(0).toLocaleUpperCase() + text.slice(1);
+  if (/^firstcap$/i.test(f)) return text.replace(/\p{L}/u, ch => ch.toLocaleUpperCase());
   if (/^caps$/i.test(f)) return text.replace(/(^|\s)(\p{L})/gu, (_, gap, ch) => gap + ch.toLocaleUpperCase());
   const n = Number(text);
   if (!/^\d+$/.test(text.trim()) || !Number.isSafeInteger(n)) return text;
@@ -82,7 +82,7 @@ export function documentProperties(parts = {}) {
 
 /**
  * The fields the Field dialog offers: name, category, a short description in this app's words, the
- * switches it supports, and the property a DOCPROPERTY/INFO field reads. Order is the dialog's order.
+ * switches it supports (`formats: 'page'` for the page number formats only), and the property a DOCPROPERTY/INFO field reads. Order is the dialog's order.
  */
 export const FIELD_CATALOG = Object.freeze([
   { name: 'DATE', category: 'Date and Time', description: 'Today\u2019s date, updated when fields update', picture: true },
@@ -97,10 +97,10 @@ export const FIELD_CATALOG = Object.freeze([
   { name: 'LASTSAVEDBY', category: 'Document Information', description: 'Who saved the document last', format: true },
   { name: 'FILENAME', category: 'Document Information', description: 'The document\u2019s file name', format: true, options: [['\\p', 'Add path to file name']] },
   { name: 'DOCPROPERTY', category: 'Document Information', description: 'A document property you choose', format: true, argument: 'property' },
-  { name: 'NUMPAGES', category: 'Document Information', description: 'The number of pages', number: true },
+  { name: 'NUMPAGES', category: 'Document Information', description: 'The number of pages', number: true, formats: 'page' },
   { name: 'NUMWORDS', category: 'Document Information', description: 'The number of words', number: true },
   { name: 'NUMCHARS', category: 'Document Information', description: 'The number of characters', number: true },
-  { name: 'PAGE', category: 'Numbering', description: 'The number of the page it is on', number: true },
+  { name: 'PAGE', category: 'Numbering', description: 'The number of the page it is on', number: true, formats: 'page' },
   { name: 'SEQ', category: 'Numbering', description: 'A numbered sequence, such as figure numbers', number: true, argument: 'identifier' },
   { name: 'REF', category: 'Links and References', description: 'The text of a bookmark', format: true, argument: 'bookmark' },
   { name: 'USERNAME', category: 'User Information', description: 'Your name', format: true },
@@ -109,6 +109,8 @@ export const FIELD_CATALOG = Object.freeze([
 export const DOCUMENT_PROPERTY_NAMES = Object.freeze([['Title', 'title'], ['Subject', 'subject'], ['Author', 'author'], ['Keywords', 'keywords'], ['Comments', 'comments'], ['Category', 'category'], ['Status', 'status'], ['Company', 'company'], ['Manager', 'manager'], ['LastSavedBy', 'lastModifiedBy']]);
 export const GENERAL_FORMATS = Object.freeze([['Upper', 'UPPERCASE'], ['Lower', 'lowercase'], ['FirstCap', 'First capital'], ['Caps', 'Title Case']]);
 export const NUMBER_FORMATS = Object.freeze([['Arabic', '1, 2, 3'], ['roman', 'i, ii, iii'], ['ROMAN', 'I, II, III'], ['alphabetic', 'a, b, c'], ['ALPHABETIC', 'A, B, C'], ['Ordinal', '1st, 2nd, 3rd'], ['CardText', 'One, Two, Three'], ['OrdText', 'First, Second, Third']]);
+/** The number formats page fields show (PAGE and NUMPAGES lay out page numbers, not words). */
+export const PAGE_NUMBER_FORMATS = Object.freeze(NUMBER_FORMATS.filter(([format]) => !/^(Ordinal|CardText|OrdText)$/.test(format)));
 
 /** An instruction from the dialog's choices: ` NAME [argument] [\@ "picture"] [\* format] [options] \* MERGEFORMAT `. */
 export function fieldInstruction({ name, argument = '', picture = '', format = '', options = [], preserve = true }) {

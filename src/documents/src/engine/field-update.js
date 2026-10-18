@@ -6,7 +6,7 @@ import { bookmarkEntries } from './bookmarks.js';
 import { fieldInstructionTokens } from './docx-page-fields.js';
 import { formatPageNumber } from './page-numbering.js';
 import { formulaResult } from './table-formula.js';
-import { fieldResultPlan } from './field-results.js';
+import { fieldResultPlan, applyGeneralFormat } from './field-results.js';
 import { noteKindOf } from './footnotes.js';
 
 /** The first note reference mark within [start, end]: { kind, id }. */
@@ -25,6 +25,9 @@ function noteMarkIn(paragraphs, start, end) {
 }
 
 const FORMATS = { ARABIC: 'decimal', ROMAN: 'upperRoman', roman: 'lowerRoman', ALPHABETIC: 'upperLetter', alphabetic: 'lowerLetter' };
+// Case conversions of the general formatting switch (§17.16.4.3), applied to the result's text in order.
+const CASES = /^(Upper|Lower|Caps|FirstCap)$/i;
+const withCases = (text, cases) => cases.reduce(applyGeneralFormat, text);
 
 /** Parse a SEQ instruction; a general formatting switch overrides result hiding. */
 export function sequenceInstruction(instruction) {
@@ -34,14 +37,17 @@ export function sequenceInstruction(instruction) {
   if (!id || id.startsWith('\\')) return null;
   // `supported` is false for what this evaluator cannot reproduce (chapter numbering, number pictures, number
   // formats such as CardText or Ordinal): such a field keeps its cached result, though it still counts.
-  const result = { id, format: 'decimal', repeat: false, next: true, reset: null, hidden: false, supported: true };
+  const result = { id, format: 'decimal', words: null, cases: [], repeat: false, next: true, reset: null, hidden: false, supported: true };
   let generalFormatting = false;
   for (let i = 1; i < tokens.length; i++) {
     const t = tokens[i];
     if (t === '\\*' && tokens[i + 1]) {
       generalFormatting = true;
       const name = tokens[i + 1], f = FORMATS[name] ?? FORMATS[name.toUpperCase()];
-      if (f) result.format = f; else if (!/^(MERGEFORMAT|CHARFORMAT|Upper|Lower|Caps|FirstCap)$/i.test(name)) result.supported = false;
+      if (f) { result.format = f; result.words = null; }
+      else if (/^(Ordinal|CardText|OrdText)$/i.test(name)) result.words = name;
+      else if (CASES.test(name)) result.cases.push(name);
+      else if (!/^(MERGEFORMAT|CHARFORMAT)$/i.test(name)) result.supported = false;
       i++;
     }
     else if (t === '\\c') { result.repeat = true; result.next = false; }
@@ -76,14 +82,16 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null } = {}
       if (seq.reset !== null) n = seq.reset; else if (seq.next) n += 1;
       counters.set(seq.id, n);
       if (!seq.supported) { onIssue({ id: range.field.id, message: 'A SEQ field with chapter numbering, a number picture or this number format keeps its cached result.' }); continue; }
-      value = seq.hidden ? '' : formatPageNumber(Math.max(0, n), seq.format);
+      value = seq.hidden ? '' : withCases(seq.words ? applyGeneralFormat(String(Math.max(0, n)), seq.words) : formatPageNumber(Math.max(0, n), seq.format), seq.cases);
     } else if (type === 'REF') {
       let tokens; try { tokens = fieldInstructionTokens(range.field.instruction).slice(1); } catch { continue; }
       let relative = false, supported = true;
+      const cases = [];
       for (let i = 1; i < tokens.length; i++) {
         if (tokens[i] === '\\p') relative = true;
         else if (tokens[i] === '\\h') continue; // Existing hyperlink envelopes remain intact.
         else if (tokens[i] === '\\*' && tokens[i + 1]?.toUpperCase() === 'MERGEFORMAT') i++;
+        else if (tokens[i] === '\\*' && CASES.test(tokens[i + 1] || '')) cases.push(tokens[++i]);
         else { supported = false; break; }
       }
       const retain = reason => onIssue({ id: range.field.id, message: `${reason}; its cached result is retained.` });
@@ -93,10 +101,11 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null } = {}
       if (!bookmark) value = 'Error! Reference source not found.';
       else if (bookmark.start <= range.start && range.start < bookmark.end || range.start < bookmark.start && bookmark.start < range.end) {
         retain('A REF within its source bookmark cannot be refreshed yet'); continue;
-      } else if (relative) value = range.end <= bookmark.start ? 'below' : 'above';
+      } else if (relative) value = withCases(range.end <= bookmark.start ? 'below' : 'above', cases);
       else {
         value = text.slice(bookmark.start, Math.min(bookmark.end, text.length));
         if (bookmark.columnRange || /[\n￼]/.test(value)) { retain('A REF with structural or object content cannot be refreshed yet'); continue; }
+        value = withCases(value, cases);
       }
     } else if (type === '=') value = formulaResult(model, range.field.instruction, range.cellId || null);
     else if (type === 'NOTEREF' && notes) {

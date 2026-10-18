@@ -67,7 +67,7 @@ describe('sequence fields Update Fields cannot reproduce', () => {
     const d = new Doc(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
     d.replace('a ');
     insertBodyField(d, ' SEQ Figure \\s 1 ', '2-1'); d.replace(' b ');
-    insertBodyField(d, ' SEQ Item \\* CardText ', 'one'); d.replace(' c ');
+    insertBodyField(d, ' SEQ Item \\* DollarText ', 'one'); d.replace(' c ');
     insertBodyField(d, ' SEQ Item \\# "00" ', '02'); d.replace(' d ');
     insertBodyField(d, ' SEQ Item ', '9');
     const issues = [];
@@ -75,6 +75,31 @@ describe('sequence fields Update Fields cannot reproduce', () => {
     expect(d.text).toBe('a 2-1 b one c 02 d 3');
     expect(issues).toHaveLength(3);
   });
+});
+
+it.each([['\\* Ordinal', '1st\n2nd\n3rd'], ['\\* CardText', 'one\ntwo\nthree'], ['\\* OrdText \\* FirstCap', 'First\nSecond\nThird'], ['\\* ROMAN \\* Lower', 'i\nii\niii'], ['\\* CardText \\* Upper', 'ONE\nTWO\nTHREE']])('numbers SEQ fields with %s', async (switches, text) => {
+  const { model } = await sequenceDocument([switches, switches, switches]);
+  const issues = [];
+  expect(updateSequenceFields(model, { onIssue: issue => issues.push(issue) })).toBe(3);
+  expect(model.text).toBe(text);
+  expect(issues).toEqual([]);
+});
+
+it('applies a case format to a cross-reference to a bookmark', async () => {
+  const { createDocx: create, DocxPackage: Package, WRITING_STYLES: writing } = await import('../src/engine/docx.js');
+  const { TextDocument: Doc, paragraph: para } = await import('../src/engine/model.js');
+  const { insertBodyField, fieldInstruction } = await import('../src/engine/field-results.js');
+  const blank = create([para()], undefined, undefined, undefined, [], {}, writing);
+  const pkg = await Package.open(new Uint8Array(await blank.export().arrayBuffer()));
+  const d = new Doc(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+  d.replace('hello world. ');
+  d.select(0, 5); d.addBookmark('Greeting');
+  for (const format of ['Upper', 'Caps']) { d.select(d.text.length); insertBodyField(d, fieldInstruction({ name: 'REF', argument: 'Greeting', format }), 'hello'); d.replace(' '); }
+  d.select(d.text.length); insertBodyField(d, ' REF Greeting \\p \\* Upper ', 'above');
+  const issues = [];
+  updateSequenceFields(d, { onIssue: issue => issues.push(issue) });
+  expect(d.text).toBe('hello world. HELLO Hello ABOVE');
+  expect(issues).toEqual([]);
 });
 
 it('lists captions whose label has a space in a table of figures', async () => {

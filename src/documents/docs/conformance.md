@@ -22032,9 +22032,14 @@ Clauses: §17.16.5.56 SEQ, §17.16.5.51 REF, §17.16.5.45 PAGEREF. References �
 caret, or the current paragraph (Caption style when the document defines it, otherwise 9 pt italic).
 Cross-reference inserts a hyperlinked REF (label and number, heading or bookmark text) or PAGEREF
 (page number) to a hidden `_Ref` bookmark it creates on the target. Update Fields (F9) recomputes
-SEQ results per identifier (`\c`, `\r n`, `\*` ARABIC/ROMAN/ALPHABETIC; `\h` hidden results are
-left alone), REF results from their bookmark text, and PAGEREF page numbers. Gaps: chapter
-numbering (`\s`), Table of Figures, and REF switches other than `\h` are not evaluated.
+SEQ results per identifier (`\c`, `\r n`, `\*` ARABIC/ROMAN/ALPHABETIC and Ordinal/CardText/OrdText,
+then the case formats Upper/Lower/FirstCap/Caps in order, §17.16.4.3; `\h` hidden results are
+left alone), REF results from their bookmark text (`\p`, and the same case formats), and PAGEREF
+page numbers. The Field dialog offers PAGE and NUMPAGES only the formats a page number shows
+(Arabic, roman, ROMAN, alphabetic, ALPHABETIC). Gaps: chapter numbering (`\s`), number pictures
+(`\#`) on SEQ, and REF switches other than `\h`, `\p` and the case formats keep their cached
+results. Tests: `tests/sequence-fields.test.js`, `tests/reference-fields.test.js`,
+`tests/field-dialog-formats.test.js`.
 Tests: `tests/captions.test.js`.
 
 ## Hidden text (2026-10-09)

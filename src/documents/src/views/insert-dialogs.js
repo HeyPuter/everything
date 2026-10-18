@@ -7,7 +7,7 @@ import { el, isComposing, fieldId, listboxKeys } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { segmented } from '../ui/segmented.js';
 import { symbolName } from '../ui/symbols.js';
-import { formatDatePicture, DATE_PICTURES, FIELD_CATALOG, DOCUMENT_PROPERTY_NAMES, GENERAL_FORMATS, NUMBER_FORMATS, fieldInstruction, evaluateField } from '../engine/field-results.js';
+import { formatDatePicture, DATE_PICTURES, FIELD_CATALOG, DOCUMENT_PROPERTY_NAMES, GENERAL_FORMATS, NUMBER_FORMATS, PAGE_NUMBER_FORMATS, fieldInstruction, evaluateField } from '../engine/field-results.js';
 import { linearToOmml, ommlToLinear, EQUATION_GALLERY } from '../engine/math-linear.js';
 import { ommlToMathml } from '../engine/omml-mathml.js';
 import { ICONS, ICON_CATEGORIES, iconSvg, searchIcons } from '../lib/icon-library.js';
@@ -94,10 +94,13 @@ export function openFieldDialog({ context, bookmarks = [], onInsert, onClose }) 
     argumentField.hidden = !entry.argument || ['property', 'bookmark'].includes(entry.argument);
     argument.placeholder = entry.argument === 'identifier' ? 'Figure' : '';
     propertyField.hidden = entry.argument !== 'property'; bookmarkField.hidden = entry.argument !== 'bookmark'; pictureField.hidden = !entry.picture;
-    const formats = entry.number ? NUMBER_FORMATS : entry.format ? GENERAL_FORMATS : [];
-    if (format.dataset.kind !== String(!!entry.number) + formats.length) {
+    const formats = entry.formats === 'page' ? PAGE_NUMBER_FORMATS : entry.number ? NUMBER_FORMATS : entry.format ? GENERAL_FORMATS : [];
+    const kind = formats.map(([v]) => v).join();
+    if (format.dataset.kind !== kind) {
+      const chosen = format.value;
       format.replaceChildren(el('option', { value: '' }, '(none)'), ...formats.map(([v, label]) => el('option', { value: v }, label)));
-      format.dataset.kind = String(!!entry.number) + formats.length;
+      format.value = formats.some(([v]) => v === chosen) ? chosen : '';
+      format.dataset.kind = kind;
     }
     formatField.hidden = !formats.length;
     const text = instruction();

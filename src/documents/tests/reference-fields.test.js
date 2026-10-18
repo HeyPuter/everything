@@ -37,7 +37,15 @@ it('relative REF uses source order, not bookmark text', async () => {
   expect(model.text).toBe('below\n  source text  \nabove');
 });
 
-it.each(['\\n', '\\r', '\\w', '\\f', '\\* Upper'])('retains unsupported REF switch %s caches', async switches => {
+it.each([['\\* Upper', '  SOURCE TEXT  '], ['\\* Upper \\* Lower \\* FirstCap \\* MERGEFORMAT', '  Source text  '], ['\\* Caps', '  Source Text  ']])('applies the REF case format %s', async (switches, text) => {
+  const { model } = await open(source + field(`REF Target ${switches}`, 'original result'));
+  const issues = [];
+  updateSequenceFields(model, { onIssue: issue => issues.push(issue) });
+  expect(model.text).toBe(`  source text  \n${text}`);
+  expect(issues).toEqual([]);
+});
+
+it.each(['\\n', '\\r', '\\w', '\\f', '\\* Ordinal'])('retains unsupported REF switch %s caches', async switches => {
   const { model } = await open(source + field(`REF Target ${switches}`, 'original result'));
   const issues = [];
   updateSequenceFields(model, { onIssue: issue => issues.push(issue) });
