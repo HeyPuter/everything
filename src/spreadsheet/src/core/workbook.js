@@ -8121,7 +8121,9 @@ export class Workbook extends EventTarget {
     if (!sheet || !sheetFilters(sheet).length) return;
     const before = [...sheet.filterHidden].join(',');
     this._applyFilter(sheet);
-    if ([...sheet.filterHidden].join(',') !== before) this._emit('layout', sheet.id);
+    // The rows shown are saved with the sheet, and SUBTOTAL and AGGREGATE leave out the rows a filter hides: a
+    // change of them is a change to the book, worked out again, saved and shared, though not an undo step.
+    if ([...sheet.filterHidden].join(',') !== before) this._changed('layout', sheet.id);
   }
 
   /**
