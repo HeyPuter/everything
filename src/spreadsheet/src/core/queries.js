@@ -979,8 +979,24 @@ export function resultCells(table, r0, c0) {
   return { entries, errors };
 }
 
+/** Does any cell of a range hold something: a value, a formula, or part of a spilled result? */
+function occupied(wb, sheetId, range) {
+  const sheet = wb.sheet(sheetId);
+  for (const [key, cell] of sheet.cells) {
+    if (!cell || ((cell.v == null || cell.v === '') && cell.f == null)) continue;
+    const [r, c] = key.split(',').map(Number);
+    if (r >= range.r1 && r <= range.r2 && c >= range.c1 && c <= range.c2) return true;
+  }
+  for (const a of wb._ensureSpills(sheet).anchors.values()) {
+    if (a.r <= range.r2 && a.r + a.rows - 1 >= range.r1 && a.c <= range.c2 && a.c + a.cols - 1 >= range.c1) return true;
+  }
+  return false;
+}
+
+const blockedMessage = (direction) => `The refreshed data needs more ${direction === 'down' ? 'rows' : 'columns'}, but the cells ${direction === 'down' ? 'below' : 'beside'} the table could not be moved (a PivotTable, a protected sheet, merged cells or an array formula is in the way).`;
+
 /**
- * Write a query's result into the workbook as a table: a new sheet named after the query, or at `at`
+ * Write a query's result into the workbook as a table:a new sheet named after the query, or at `at`
  * ({ sheetId, r, c }), or over the table it loaded before (a refresh), resized to the new rows and columns.
  * Returns { sheetId, tableId, rows, errors } or { error }.
  */
@@ -994,13 +1010,21 @@ export function loadResult(wb, query, table, { at = null } = {}) {
     if (existing) {
       const { sheet, table: t } = existing;
       const { r1, c1 } = t.range;
+      const old = { ...t.range };
       const next = { r1, c1, r2: r1 + Math.max(1, height), c2: c1 + table.columns.length - 1 };
-      wb.clearRange(sheet.id, { r1: r1 + 1, c1: t.range.c1, r2: t.range.r2, c2: t.range.c2 });
-      if (next.c2 < t.range.c2) wb.clearRange(sheet.id, { r1, c1: next.c2 + 1, r2: r1, c2: t.range.c2 });
-      if (next.r2 !== t.range.r2 || next.c2 !== t.range.c2) {
+      // A table that grows makes room for its new rows and columns, as Excel's refresh inserts cells for new
+      // data: what stands beside or below it (a note, a total, another table) moves along instead of being
+      // written over. Nothing has changed yet when the cells cannot move, so the refresh stops there.
+      const right = { r1, c1: old.c2 + 1, r2: Math.max(old.r2, next.r2), c2: next.c2 };
+      if (next.c2 > old.c2 && occupied(wb, sheet.id, right) && !wb.insertCells(sheet.id, right, 'right')) { result = { error: blockedMessage('right') }; return; }
+      const below = { r1: old.r2 + 1, c1, r2: next.r2, c2: Math.max(old.c2, next.c2) };
+      if (next.r2 > old.r2 && occupied(wb, sheet.id, below) && !wb.insertCells(sheet.id, below, 'down')) { result = { error: blockedMessage('down') }; return; }
+      if (next.r2 !== old.r2 || next.c2 !== old.c2) {
         let problem = null;
         if (!wb.resizeTable(sheet.id, t.id, next, { onInvalid: (m) => { problem = m; } })) { result = { error: problem || 'The table could not be resized for the new data.' }; return; }
       }
+      wb.clearRange(sheet.id, { r1: r1 + 1, c1: old.c1, r2: old.r2, c2: old.c2 });
+      if (next.c2 < old.c2) wb.clearRange(sheet.id, { r1, c1: next.c2 + 1, r2: r1, c2: old.c2 });
       const { entries, errors } = resultCells(table, r1, c1);
       wb.setCells(sheet.id, entries, label);
       query.load = { kind: 'table', table: t.name, sheet: sheet.name, tableId: t.id };
