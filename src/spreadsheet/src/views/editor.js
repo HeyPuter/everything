@@ -1985,7 +1985,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const range = grid.range;
         if (wb.pivotBlockEditBlocked(sheetId, range, arg === 'left' ? 'col' : 'row', true)) { keepFocus(); return; }
         if (!wb.deleteCells(sheetId, range, arg === 'left' ? 'left' : 'up')) {
-          if (!wb.isProtected(sheetId)) toast('That shift would split a table or remove its header', { icon: 'info' });
+          // Name what stood in the way, as Insert cells does; a protected cell or an array formula among those
+          // deleted has said so already.
+          const problem = wb.isProtected(sheetId) ? null : shiftProblem(sheetId, range, arg === 'left' ? 'col' : 'row', true);
+          if (problem) toast(problem, { icon: 'info', duration: 4000 });
           return;
         }
         grid.setSelection(S.fromRange(range, grid.active), { scroll: false });
