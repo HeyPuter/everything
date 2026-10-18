@@ -7115,6 +7115,32 @@ export class Workbook extends EventTarget {
   /* ---------- Outline groups ---------- */
 
   /**
+   * One outline step: grouping, ungrouping, collapsing or expanding changes a sheet's groups and the lines they
+   * hide (and, with a filter on, the rows it hides among them), nothing else, so the step keeps those alone for
+   * its undo. A structural step's snapshot of the whole sheet cost a large sheet a third of a second a click and,
+   * weighed against the history's budget, pushed every older step out of the history.
+   */
+  _outlineStep(sheet, label, change) {
+    recordStep(this, 'structure', label);
+    const state = (s) => ({ groups: normalizeGroups(s.groups), hiddenRows: [...s.hiddenRows], hiddenCols: [...s.hiddenCols], filterHidden: [...s.filterHidden] });
+    const before = state(sheet);
+    change();
+    const after = state(sheet);
+    const apply = (v) => {
+      const live = this.sheet(sheet.id);
+      if (!live) return;
+      live.groups = normalizeGroups(v.groups);
+      live.hiddenRows = new Set(v.hiddenRows);
+      live.hiddenCols = new Set(v.hiddenCols);
+      live.filterHidden = new Set(v.filterHidden);
+      this._changed('layout', live.id);
+    };
+    this._changed('layout', sheet.id);
+    const lines = (v) => v.hiddenRows.length + v.hiddenCols.length + v.filterHidden.length;
+    this._push({ label, undo: () => apply(before), redo: () => apply(after), snapshotCells: lines(before) + lines(after) });
+  }
+
+  /**
    * Group lines from..to (rows when axis is 'row'). Groups nest when one
    * lies inside another; a group that only partly overlaps an existing one
    * is refused. Returns true when a group was added.
@@ -7134,7 +7160,7 @@ export class Workbook extends EventTarget {
     const partial = list.some((g) => (g.from < lo && g.to >= lo && g.to < hi) || (g.from > lo && g.from <= hi && g.to > hi));
     if (partial) return false;
     if (list.filter((g) => g.from <= lo && g.to >= hi).length >= 7) return false; // eight levels, the .xlsx outline limit
-    this._structural(axis === 'row' ? 'Group rows' : 'Group columns', () => {
+    this._outlineStep(sheet, axis === 'row' ? 'Group rows' : 'Group columns', () => {
       sheet.groups = normalizeGroups({ ...sheet.groups, [key]: [...list, { from: lo, to: hi, collapsed: false }] });
     });
     return true;
@@ -7159,7 +7185,7 @@ export class Workbook extends EventTarget {
       if (around.length) gone = [around[0]];
     }
     if (!gone.length) return 0;
-    this._structural(axis === 'row' ? 'Ungroup rows' : 'Ungroup columns', () => {
+    this._outlineStep(sheet, axis === 'row' ? 'Ungroup rows' : 'Ungroup columns', () => {
       sheet.groups = normalizeGroups({ ...sheet.groups, [key]: list.filter((g) => !gone.includes(g)) });
       const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
       for (const g of gone) if (g.collapsed) for (let i = g.from; i <= g.to; i++) if (!this._insideCollapsed(sheet, key, i)) hidden.delete(i);
@@ -7176,7 +7202,7 @@ export class Workbook extends EventTarget {
     const group = sheet.groups[key].find((g) => g.from === from && g.to === to);
     if (!group) return;
     const collapse = !group.collapsed;
-    this._structural(collapse ? (axis === 'row' ? 'Collapse rows' : 'Collapse columns') : (axis === 'row' ? 'Expand rows' : 'Expand columns'), () => {
+    this._outlineStep(sheet, collapse ? (axis === 'row' ? 'Collapse rows' : 'Collapse columns') : (axis === 'row' ? 'Expand rows' : 'Expand columns'), () => {
       group.collapsed = collapse;
       const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
       for (let i = group.from; i <= group.to; i++) {
@@ -7195,7 +7221,7 @@ export class Workbook extends EventTarget {
     const key = axis === 'row' ? 'rows' : 'cols';
     const list = sheet.groups[key];
     if (!list.length || list.every((g) => g.collapsed === !!collapsed)) return;
-    this._structural(collapsed ? (axis === 'row' ? 'Collapse all rows' : 'Collapse all columns') : (axis === 'row' ? 'Expand all rows' : 'Expand all columns'), () => {
+    this._outlineStep(sheet, collapsed ? (axis === 'row' ? 'Collapse all rows' : 'Collapse all columns') : (axis === 'row' ? 'Expand all rows' : 'Expand all columns'), () => {
       const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
       for (const g of list) {
         g.collapsed = !!collapsed;
@@ -7232,7 +7258,7 @@ export class Workbook extends EventTarget {
     if (!sheet || this._gridLocked(sheet)) return false;
     const wanted = normalizeGroups({ rows: next.rows ?? sheet.groups.rows, cols: next.cols ?? sheet.groups.cols });
     if (JSON.stringify(wanted) === JSON.stringify(normalizeGroups(sheet.groups))) return false;
-    this._structural(label, () => {
+    this._outlineStep(sheet, label, () => {
       for (const [key, hidden] of [['rows', sheet.hiddenRows], ['cols', sheet.hiddenCols]]) {
         if (!next[key]) continue;
         for (const g of sheet.groups[key]) if (g.collapsed) for (let i = g.from; i <= g.to; i++) hidden.delete(i);
