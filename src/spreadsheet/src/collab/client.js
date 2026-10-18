@@ -140,7 +140,7 @@ export class RoomClient extends EventTarget {
   /* ---------- Synchronizing ---------- */
 
   scheduleSync(delay = 150) {
-    if (this.closed || this.syncTimer) return;
+    if (this.closed || this.halted || this.syncTimer) return;
     this.syncTimer = setTimeout(() => { this.syncTimer = null; this.sync().catch((e) => this.failed(e)); }, delay);
   }
 
@@ -186,7 +186,7 @@ export class RoomClient extends EventTarget {
    * one sent alone: the ones before it still arrive.
    */
   flush() {
-    if (this.closed) return Promise.resolve();
+    if (this.closed || this.halted) return Promise.resolve();
     if (this.flushing) { this.flushAgain = true; return this.flushing; }
     clearTimeout(this.retryTimer);
     this.flushing = this.serial(async () => {
@@ -298,13 +298,13 @@ export class RoomClient extends EventTarget {
   /* ---------- People ---------- */
 
   soonCheckIn() {
-    if (this.closed || this.checkInTimer) return;
+    if (this.closed || this.halted || this.checkInTimer) return;
     this.checkInTimer = setTimeout(() => { this.checkInTimer = null; this.checkIn().catch(() => {}); }, Math.max(100, 1500 - (Date.now() - (this.lastCheckIn || 0))));
   }
 
   /** Renew this session's ticket (with where this person is) and learn who is here. */
   checkIn() {
-    if (this.closed) return Promise.resolve();
+    if (this.closed || this.halted) return Promise.resolve();
     if (this.checkingIn) return this.checkingIn;
     this.checkingIn = (async () => {
       this.keys ??= await keyPair();
@@ -393,11 +393,15 @@ export class RoomClient extends EventTarget {
   /* ---------- Status ---------- */
 
   failed(error) {
-    if (this.closed) return;
+    if (this.closed || this.halted) return;
     if (error instanceof CollabError && !error.network && [401, 403, 404, 410].includes(error.status)) {
       this.status = { state: 'error', pending: this.replica?.pending.length ?? 0, message: error.message, code: error.status };
       this.dispatchEvent(new CustomEvent('status'));
-      if (error.status === 410 || error.status === 404 || error.status === 403) this.dispatchEvent(new CustomEvent('closed', { detail: { message: error.message } }));
+      if (error.status === 410 || error.status === 404 || error.status === 403) {
+        // The room is gone for this person: it is said once, and the room is not asked again.
+        this.halt();
+        this.dispatchEvent(new CustomEvent('closed', { detail: { message: error.message } }));
+      }
       return;
     }
     this.status = { state: 'offline', pending: this.replica?.pending.length ?? 0, message: error?.message || 'Offline' };
@@ -416,7 +420,7 @@ export class RoomClient extends EventTarget {
 
   /** The connection came back (or the tab became visible): catch up and send. */
   resume() {
-    if (this.closed) return;
+    if (this.closed || this.halted) return;
     this.sync().then(() => this.flush()).catch((e) => this.failed(e));
     this.checkIn().catch(() => {});
   }
@@ -430,6 +434,21 @@ export class RoomClient extends EventTarget {
     this.peers?.broadcast('leave', {});
     this.close();
     await this.request({ op: 'leave', session: this.session }).catch(() => {});
+  }
+
+  /**
+   * Stop asking the room (it was closed, or this person's access ended): no more polling, check-ins or links. The
+   * workbook stays as it is on screen, and the status says why.
+   */
+  halt() {
+    this.halted = true;
+    for (const t of this.timers) clearInterval(t);
+    clearTimeout(this.syncTimer);
+    clearTimeout(this.retryTimer);
+    clearTimeout(this.presenceTimer);
+    clearTimeout(this.checkInTimer);
+    this.subscription?.off();
+    this.peers?.close();
   }
 
   close() {
