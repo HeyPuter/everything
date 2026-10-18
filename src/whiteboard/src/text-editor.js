@@ -618,9 +618,10 @@ export function createTextEditor(
           maxLength
       ) {
         e.preventDefault();
-        // Keys typed at the limit add nothing, as in any text field; only
-        // pasted or dropped text that does not all fit is reported.
-        typedAtLimit = true;
+        // A key typed at the limit adds nothing, as in any text field;
+        // pasted, dropped, dictated or predicted words that do not all fit
+        // are reported.
+        typedAtLimit = Array.from(e.data).length === 1;
         try {
           replace(e.data);
         } finally {

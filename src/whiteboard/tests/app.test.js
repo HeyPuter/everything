@@ -2976,6 +2976,16 @@ test("text pasted into a note past its length limit says the end was left out", 
     );
     assert.equal(editor.value.length, 20000);
     assert.doesNotMatch(doc.querySelector("#toast").textContent, /limit/);
+    // Dictated or predicted words that do not fit are reported.
+    editor.dispatchEvent(
+      new w.InputEvent("beforeinput", {
+        inputType: "insertText",
+        data: "several dictated words",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    assert.match(doc.querySelector("#toast").textContent, /length limit/);
   } finally {
     await app.close();
   }
