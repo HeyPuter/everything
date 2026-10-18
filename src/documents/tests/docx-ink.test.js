@@ -133,3 +133,11 @@ describe('ink to shape output', () => {
     expect(triangleGeometry([{ x: 100, y: 0 }, { x: 100, y: 80 }, { x: 0, y: 80 }])).toEqual({ preset: 'rtTriangle', flipH: true, flipV: false });
   });
 });
+
+it('refuses ink whose points lie far off the page, or are too many to draw', async () => {
+  const { readInkExtension } = await import('../src/engine/docx-ink-extension.js');
+  const extension = points => new DOMParser().parseFromString(`<a:ext xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" uri="{3582A2A6-0F3C-4AC8-9E1A-D2DA59872D4E}"><ink:stroke xmlns:ink="http://schemas.puter.com/documents/2026/ink" tool="pen" color="000000" width="2" points="${points}"/></a:ext>`, 'application/xml').documentElement;
+  expect(readInkExtension(extension('95250 476250 50 3810000 476250 50')).stroke.points).toHaveLength(2);
+  expect(() => readInkExtension(extension('95250 476250 50 95250000000000 476250 50'))).toThrow(/off the page/);
+  expect(() => readInkExtension(extension(Array.from({ length: 50001 }, (_, i) => `${i} 0 50`).join(' ')))).toThrow(/invalid ink points/);
+});

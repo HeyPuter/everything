@@ -11,9 +11,13 @@ const EMU_PER_PX = 9525;
 const TOOLS = ['pen', 'pencil', 'highlighter'];
 const fail = why => { throw new UnsupportedDocumentError(`ink extensions with ${why}`); };
 
+// Strokes stay on a page (22 inches is 2,112 px) and within what a hand draws: a far point or a flood of
+// them made erasing and redrawing a stroke allocate without bound and crash the tab.
+const MAX_POINTS = 50000, MAX_COORDINATE = 10000;
 function decodePoints(text) {
   const values = String(text || '').trim().split(/\s+/).filter(Boolean).map(Number);
-  if (!values.length || values.length % 3 || values.some(v => !Number.isFinite(v))) fail('invalid ink points');
+  if (!values.length || values.length % 3 || values.length > MAX_POINTS * 3 || values.some(v => !Number.isFinite(v))) fail('invalid ink points');
+  for (let i = 0; i < values.length; i += 3) if (Math.abs(values[i]) > MAX_COORDINATE * EMU_PER_PX || Math.abs(values[i + 1]) > MAX_COORDINATE * EMU_PER_PX) fail('ink points off the page');
   const points = [];
   for (let i = 0; i < values.length; i += 3) points.push({ x: values[i] / EMU_PER_PX, y: values[i + 1] / EMU_PER_PX, p: values[i + 2] / 100 });
   return points;
