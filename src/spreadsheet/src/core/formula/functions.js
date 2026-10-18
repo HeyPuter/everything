@@ -3951,12 +3951,12 @@ export const FUNCTIONS = {
         case 'Y': return Math.floor(months / 12);
         case 'YM': return months % 12;
         case 'MD': {
-          // Days past the most recent monthly anniversary of the start date.
+          // Days past the most recent monthly anniversary of the start date. A start day the month
+          // before lacks rolls over into the next month, as Excel's does: 31 Jan to 1 Mar 2015 is -2.
           let y = b.y;
           let m = b.d < a.d ? b.m - 1 : b.m;
           if (m < 1) { m = 12; y--; }
-          const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
-          return Math.trunc(e) - ymdToSerial(y, m, Math.min(a.d, last));
+          return Math.trunc(e) - ymdToSerial(y, m, a.d);
         }
         case 'YD': {
           const years = Math.floor(months / 12);
