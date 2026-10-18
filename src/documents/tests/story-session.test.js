@@ -91,3 +91,18 @@ describe('the cost of one command', () => {
     expect(doc.text.startsWith('Paragraph 0')).toBe(true);
   });
 });
+
+describe('a section break in a one-section document with a footer', () => {
+  it('gives the new section the file\'s headers and footers', async () => {
+    const { pageStoryPath } = await import('../src/engine/page-stories.js');
+    const pkg = await DocxPackage.open(readFileSync('public/fixtures/default-paragraph-spacing-after.docx'));
+    const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+    const session = new StorySession(doc, pkg.pageStories);
+    expect(pkg.pageStories.sections).toHaveLength(1);
+    const kind = Object.values(pkg.pageStories.stories).find(s => ['header', 'footer'].includes(s.kind))?.kind;
+    expect(kind).toBeTruthy();
+    doc.select(0); doc.insertSectionBreak('nextPage');
+    expect(session.pageStories.sections).toHaveLength(2);
+    expect(pageStoryPath(session.pageStories, 1, kind, 2, true)).toBe(pageStoryPath(session.pageStories, 0, kind, 1, true));
+  });
+});
