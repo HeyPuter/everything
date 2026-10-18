@@ -1843,6 +1843,53 @@ test("a legacy table resize concurrent with a structural change remains valid", 
   assert.equal(c.snapshot().items[0].cells[0].length, 4);
   for (const d of [base, a, c]) d.destroy();
 });
+test("an edit refused for the board's file limit says so rather than a conflict", async () => {
+  const env = environment(),
+    initial = board("Full");
+  initial.items = [item("note", 0, 0, { text: "Hello" })];
+  const seedDoc = new SharedDocument();
+  seedDoc.commit(initial);
+  await env.service.call(owner, {
+    op: "create",
+    room: initial.id,
+    update: encode(seedDoc.update()),
+  });
+  seedDoc.destroy();
+  let state;
+  const reasons = [];
+  const session = new CollaborationSession({
+    puter: env.sdk(owner),
+    server: "https://whiteboard-test.puter.work",
+    room: initial.id,
+    user: owner,
+    store: memoryStore(),
+    changed: (next) => {
+      state = next;
+    },
+    activity() {},
+    status() {},
+    rejected: ({ reason } = {}) => reasons.push(reason),
+  });
+  try {
+    await session.start();
+    session.scheduleFlush = () => {};
+    // The board can hold almost nothing more, and a large edit is kept as
+    // a file that counts toward that.
+    env.data.set(`wb:${initial.id}:assetbytes`, 1024 ** 3 - 10);
+    const next = structuredClone(state);
+    for (let k = 0; k < 20; k++)
+      next.items.push(
+        item("note", k * 300, 300, { text: "x".repeat(19_000) + k }),
+      );
+    await session.commit(next, state);
+    await session.flush();
+    assert.equal(reasons.length, 1);
+    assert.match(reasons[0], /1 GB limit/);
+  } finally {
+    session.close?.();
+  }
+});
+
 test("a refused edit is isolated and dropped, and the edits queued after it are made again on the shared state", async () => {
   const env = environment(),
     initial = board("Limits");

@@ -1146,11 +1146,14 @@ export class CollaborationSession {
     this.shared.undo.clear();
     await this.keepCopy();
     await this.publish();
-    // A file the worker refused is what the edit lacked.
+    // A file the worker refused is what the edit lacked; an edit too large
+    // for what the board may still hold says so.
     const reason =
       why?.status === 422 && /file that was not uploaded/.test(why.message)
         ? this.refusedFile
-        : undefined;
+        : why?.status === 413 && why.message
+          ? why.message
+          : undefined;
     this.refusedFile = null;
     if (!this.closed) this.rejected({ remade, reason });
   }
