@@ -8486,6 +8486,10 @@ function pointerDown(
       kind: tool,
       id: i.id,
       start: p,
+      // Where a free line from here would start, on the grid, should it
+      // end inside the object it starts on.
+      freeStart:
+        tool === "arrow" && target ? snapGridPoint(p, activeGridStep(e)) : p,
       original,
       previousSelection,
       previousAnchor: selectionAnchor,
@@ -9293,12 +9297,13 @@ function pointerUp(event) {
       x: createdLine.x + createdLine.w,
       y: createdLine.y + createdLine.h,
     };
+    const start = drag.freeStart || drag.start;
     delete createdLine.startId;
     Object.assign(createdLine, {
-      x: drag.start.x,
-      y: drag.start.y,
-      w: end.x - drag.start.x,
-      h: end.y - drag.start.y,
+      x: start.x,
+      y: start.y,
+      w: end.x - start.x,
+      h: end.y - start.y,
     });
   }
   if (

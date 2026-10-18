@@ -48345,6 +48345,21 @@ test("an arrow drawn from an object and let go inside it is kept as drawn, free 
     await app.tick();
     assert.equal(arrows().length, 2);
     assert.equal(arrows().filter((i) => i.startId === shape.id).length, 1);
+    // With grid snapping, such a line starts on the grid, as free lines do.
+    await openGrid(app, "dots", true);
+    app.doc.querySelector("dialog").close();
+    await app.click('[data-action="tool-arrow"]');
+    const off = { x: from.x + 7, y: from.y + 5 };
+    pointer("pointerdown", off);
+    pointer("pointermove", to);
+    pointer("pointerup", to);
+    await app.tick();
+    const snapped = arrows().find(
+      (i) => !i.startId && i.id !== line.id && Math.round(i.x) !== off.x,
+    );
+    assert.ok(snapped, "The line's start went to the grid");
+    assert.equal(Math.abs(snapped.x % 24), 0);
+    assert.equal(Math.abs(snapped.y % 24), 0);
   } finally {
     await app.close();
   }
