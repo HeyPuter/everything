@@ -904,7 +904,7 @@ describe('text rotation', () => {
     await flush();
     const a1 = grid.el.querySelector('#gc-0-0');
     expect(a1.classList.contains('rot')).toBe(true);
-    expect(a1.querySelector('.rot-text').style.transform).toBe('rotate(-45deg)');
+    expect(a1.querySelector('.rot-text').style.transform).toContain('rotate(-45deg)');
     expect(a1.textContent).toBe('Name');
     const b1 = grid.el.querySelector('#gc-0-1');
     expect(b1.classList.contains('vert')).toBe(true);

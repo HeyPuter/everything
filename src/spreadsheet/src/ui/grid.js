@@ -1548,15 +1548,33 @@ export function createGrid(opts) {
       // are laid out vertically so they stack cleanly instead of overflowing.
       const rot = st.rot;
       const span = el('span.rot-text', {}, text);
+      const fontSize = Number(/([\d.]+)px/.exec(formatFont)?.[1] || 13 * zoom);
+      let layout = null;
       if (formatParts) {
-        const fontSize = Number(/([\d.]+)px/.exec(formatFont)?.[1] || 13 * zoom);
-        const layout = layoutFormatParts(formatParts, rotatedFormatWidth(h - 1, largestRichTextSize(formatParts, fontSize / zoom) * zoom * 1.2, rot), measurePart);
+        layout = layoutFormatParts(formatParts, rotatedFormatWidth(h - 1, largestRichTextSize(formatParts, fontSize / zoom) * zoom * 1.2, rot), measurePart);
         span.replaceChildren(formatLayoutNode(layout, text, align, false, !st?.align, richOptions));
       }
       node.classList.add('rot');
-      if (Math.abs(rot) >= 90) node.classList.add('vert', rot > 0 ? 'up' : 'down');
-      else span.style.transform = `rotate(${-rot}deg)`;
-      node.append(span);
+      if (Math.abs(rot) >= 90) {
+        node.classList.add('vert', rot > 0 ? 'up' : 'down');
+        node.append(span);
+      } else {
+        // The text turns about its centre inside a box the size of its turned bounds, and it is that box
+        // the cell aligns (left, right or centred; top, middle or bottom), as Excel lines up angled text.
+        // Turned in place, the text's unturned box was aligned instead: text tilted at 45° stuck out of
+        // the bottom and the side of its cell, and its start was cut off, though the row was fitted to it.
+        const rad = (Math.abs(rot) * Math.PI) / 180;
+        // A format's fill (as in * ) spreads the text over the room it was laid out for (formatLayoutNode).
+        const filled = layout?.runs.some((run) => run.type === 'fill' && run.text);
+        const width = layout ? (filled ? layout.availableWidth : layout.width) : maxLineWidth(text, (line) => textWidth(line, formatFont));
+        const height = (layout ? layout.runs.filter((run) => run.type === 'break').length + 1 : text.split('\n').length) * fontSize * 1.2;
+        const bounds = el('span.rot-bounds', { style: {
+          width: `${(width * Math.cos(rad) + height * Math.sin(rad)).toFixed(2)}px`,
+          height: `${(width * Math.sin(rad) + height * Math.cos(rad)).toFixed(2)}px`,
+        } }, span);
+        span.style.transform = `translate(-50%, -50%) rotate(${-rot}deg)`;
+        node.append(bounds);
+      }
     } else if (text || formatParts) {
       node.textContent = text;
       // Text that does not fit spills over empty neighbours to the right,

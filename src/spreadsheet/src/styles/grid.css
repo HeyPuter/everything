@@ -309,6 +309,9 @@
 }
 
 .cell.rot .rot-text { display: inline-block; white-space: pre; line-height: 1.2; transform-origin: center; }
+/* Angled text: the box of its turned bounds is what the cell aligns; the text turns about its centre inside it. */
+.cell.rot .rot-bounds { position: relative; flex: none; }
+.cell.rot .rot-bounds > .rot-text { position: absolute; left: 50%; top: 50%; }
 .cell.rot.vert .rot-text { writing-mode: vertical-rl; }
 .cell.rot.vert.up .rot-text { transform: rotate(180deg); }
 .cell .cf-icon { display: inline-block; flex: none; margin-right: 5px; font-size: 0.8em; line-height: 1; letter-spacing: -1px; }
