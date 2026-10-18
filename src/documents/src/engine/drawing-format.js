@@ -3,7 +3,7 @@ import { parseXml } from './docx-xml.js';
 import { readAnchor } from './docx-anchors.js';
 import { relationshipPartPath } from './package-part-paths.js';
 import { readDrawingFragment, placeDrawing, freshPart, freshDrawingAssetId, NS, REL_TYPES } from './inserted-drawings.js';
-import { validateImage } from './images.js';
+import { validateImage, rotationOutsets, imageExtents, normalizedRotation, CROP_SIDES } from './images.js';
 
 /**
  * Formatting an existing picture, shape or group (Picture Format, Shape Format, Arrange). Every edit
@@ -157,8 +157,29 @@ export async function formatDrawing(editor, image, edit, { label = 'drawing' } =
   const before = new XMLSerializer().serializeToString(drawing);
   const result = await edit(drawing, context);
   if (result === false || new XMLSerializer().serializeToString(drawing) === before) return false;
+  reserveRotatedBounds(drawing, image);
   const fragment = await readFormattedDrawing(pkg, model, image, drawing, parts, added);
   return placeDrawing(editor, fragment, { replace: image, revision });
+}
+
+/**
+ * A picture's frame reserves room for its rotated bounds (wp:effectExtent), which the reader takes as saved.
+ * An edit that turns or resizes the picture through its XML (the rotation handle, Rotate, Reset Picture,
+ * Size and Position, a tilted picture style) reserves them anew, as the model does for its own edits:
+ * what the new rotation needs plus whatever room the frame reserved beyond the old one's (a shadow, say).
+ */
+export function reserveRotatedBounds(drawing, image) {
+  const { frame, picture, properties } = drawingParts(drawing);
+  if (!picture || !frame) return;
+  const extent = xml.child(frame, WP, 'extent'), transform = xml.child(properties, A, 'xfrm');
+  const next = { ...image, width: Number(extent?.getAttribute('cx')), height: Number(extent?.getAttribute('cy')), rotation: normalizedRotation(Number(transform?.getAttribute('rot') || 0)) };
+  delete next.effectExtent;
+  if (!(next.width > 0 && next.height > 0)) return;
+  if (next.width === image.width && next.height === image.height && next.rotation === normalizedRotation(image.rotation)) return;
+  const oldRequired = rotationOutsets(image), nextRequired = rotationOutsets(next), oldExtent = imageExtents(image);
+  let effect = xml.child(frame, WP, 'effectExtent');
+  if (!effect) { effect = xml.make(frame.ownerDocument, WP, 'effectExtent'); extent.after(effect); }
+  for (const [side, key] of CROP_SIDES.map((side, i) => [side, 'ltrb'[i]])) effect.setAttribute(key, String(nextRequired[side] + Math.max(0, oldExtent[side] - oldRequired[side])));
 }
 
 /** XML helpers for edits: children by namespace and name, and creating elements with a frame's prefixes. */
