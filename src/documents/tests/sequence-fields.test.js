@@ -90,3 +90,22 @@ it('lists captions whose label has a space in a table of figures', async () => {
   d.select(d.text.length);
   expect(insertTableOfContents(d, { title: null, options: figuresOptions({ label: 'My Chart' }) }).entries).toBe(1);
 });
+
+it('brings a cross-reference up to date in the same Update Fields as its caption', async () => {
+  const { createDocx: create, DocxPackage: Package, WRITING_STYLES: writing } = await import('../src/engine/docx.js');
+  const { TextDocument: Doc, paragraph: para } = await import('../src/engine/model.js');
+  const { insertCaption, insertCrossReference, referenceTargets } = await import('../src/engine/captions.js');
+  const blank = create([para()], undefined, undefined, undefined, [], {}, writing);
+  const pkg = await Package.open(new Uint8Array(await blank.export().arrayBuffer()));
+  const d = new Doc(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+  d.replace('A\nB\nSee ');
+  d.select(0); insertCaption(d, { label: 'Figure', text: 'Alpha' });
+  d.select(d.text.indexOf('B')); insertCaption(d, { label: 'Figure', text: 'Beta' });
+  d.select(d.text.length); insertCrossReference(d, referenceTargets(d).captions.find(c => c.label.includes('Beta')), { show: 'label' });
+  expect(d.text).toContain('See Figure 2');
+  const at = d.text.indexOf('Figure 1: Alpha');
+  d.select(at, at + 'Figure 1: Alpha'.length + 1); d.replace('');
+  updateSequenceFields(d);
+  expect(d.text).toContain('Figure 1: Beta');
+  expect(d.text).toContain('See Figure 1');
+});

@@ -121,19 +121,24 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null } = {}
 
 /** Apply the plan inside one editor transaction; returns the number of fields updated. */
 export function updateSequenceFields(model, options) {
-  const changes = fieldUpdatePlan(model, options);
   const tracking = model.trackChanges; model.trackChanges = false;
-  let applied = 0;
+  const updated = new Set();
   try {
-    for (const { range, text } of [...changes].reverse()) {
-      // A result never spans a paragraph mark: replacing one that does would merge paragraphs.
-      if (model.text.slice(range.start, range.end).includes('\n')) continue;
-      model.select(range.start, range.end);
-      model.typingFormat = {}; model.typingStyle = null; model.typingDirectCleared = false;
-      model.replace(text, { checkpoint: false });
-      applied++;
+    // A cross-reference shows the text of what it refers to, which a SEQ field in this same pass may change:
+    // plan again after applying, until nothing changes (a few passes; references do not refer to references).
+    for (let pass = 0; pass < 3; pass++) {
+      let applied = 0;
+      for (const { range, text } of [...fieldUpdatePlan(model, pass ? { ...options, onIssue: () => {} } : options)].reverse()) {
+        // A result never spans a paragraph mark: replacing one that does would merge paragraphs.
+        if (model.text.slice(range.start, range.end).includes('\n')) continue;
+        model.select(range.start, range.end);
+        model.typingFormat = {}; model.typingStyle = null; model.typingDirectCleared = false;
+        model.replace(text, { checkpoint: false });
+        updated.add(range.field.id); applied++;
+      }
+      if (!applied) break;
     }
   } finally { model.trackChanges = tracking; }
-  if (applied) model.didChange();
-  return applied;
+  if (updated.size) model.didChange();
+  return updated.size;
 }
