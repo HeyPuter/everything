@@ -466,7 +466,8 @@ button.chg-place { text-decoration: underline; text-underline-offset: 2px; text-
 .rec-pivot-table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
 .rec-pivot-table th { text-align: left; background: var(--accent-wash); padding: 3px 8px; border-bottom: 1px solid var(--hairline-strong); }
 .rec-pivot-table td { padding: 3px 8px; border-bottom: 1px solid var(--hairline); }
-.rec-pivot-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.rec-pivot-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rec-pivot-table th.num { text-align: right; white-space: nowrap; }
 @media (max-width: 640px) { .rec-pivot-body { grid-template-columns: 1fr; } }
 /* Cancel and OK keep together at the right; on a phone they wrap under Blank PivotTable. */
 .rec-pivot-foot { flex-wrap: wrap; row-gap: 8px; }

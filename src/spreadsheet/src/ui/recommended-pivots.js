@@ -8,10 +8,13 @@ import { openModal } from './modal.js';
 import { toast } from './toast.js';
 import { recommendPivots } from '../core/pivot-recommend.js';
 import { buildPivot, pivotRangeProblem, PivotSizeError } from '../core/pivot.js';
-import { formatGeneral } from '../core/format.js';
+import { formatValue } from '../core/format.js';
 import { rangeName } from '../core/cell.js';
 import * as S from '../core/selection.js';
 import { insertPivotSheet } from './pivotdialog.js';
+
+/** A preview value as the pivot shows it, in the value column's number format (a count in General). */
+const shownValue = (pick, v) => formatValue(v, pick.format);
 
 export function openRecommendedPivots(ctx) {
   if (ctx.grid.editing && !ctx.grid.commitEdit()) return null;
@@ -31,8 +34,8 @@ export function openRecommendedPivots(ctx) {
   const show = () => {
     const pick = picks[chosen];
     preview.replaceChildren(el('div.rec-pivot-title', {}, pick.title),
-      el('table.rec-pivot-table', {}, el('thead', {}, el('tr', {}, ...pick.headers.map((h) => el('th', { scope: 'col' }, h)))),
-        el('tbody', {}, ...pick.preview.map(([label, value]) => el('tr', {}, el('td', {}, String(label)), el('td.num', {}, formatGeneral(value)))))));
+      el('table.rec-pivot-table', {}, el('thead', {}, el('tr', {}, ...pick.headers.map((h, i) => el(i ? 'th.num' : 'th', { scope: 'col' }, h)))),
+        el('tbody', {}, ...pick.preview.map(([label, ...values]) => el('tr', {}, el('td', {}, String(label)), ...values.map((v) => el('td.num', {}, shownValue(pick, v))))))));
     for (const [i, node] of list.querySelectorAll('[role="option"]').entries()) node.setAttribute('aria-selected', String(i === chosen));
   };
   const list = el('div.rec-pivot-list', { role: 'listbox', 'aria-label': 'Recommended PivotTables', tabindex: 0,
@@ -42,7 +45,7 @@ export function openRecommendedPivots(ctx) {
     } },
   ...picks.map((pick, i) => el('div.rec-pivot-item', { role: 'option', 'aria-selected': 'false', onclick: () => { chosen = i; show(); }, ondblclick: () => { chosen = i; insert(); } },
     el('span.rec-pivot-item-title', {}, pick.title),
-    el('span.rec-pivot-item-sample', { 'aria-hidden': 'true' }, pick.preview.slice(0, 3).map(([l, v]) => `${l} ${formatGeneral(v)}`).join(' · ')))));
+    el('span.rec-pivot-item-sample', { 'aria-hidden': 'true' }, pick.preview.slice(0, 3).map((row) => `${row[0]} ${shownValue(pick, row.at(-1))}`).join(' · ')))));
   const insert = () => {
     let built;
     try { built = buildPivot(wb, sheetId, picks[chosen].spec); }
