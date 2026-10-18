@@ -92,5 +92,11 @@ export function footnoteOpeningRuns(base, referenceStyle = null, kind = 'footnot
 /** A note story's paragraphs converted to the other kind: its own marks change kind. */
 export function convertedNoteParagraphs(paragraphs, to) {
   const own = NOTE_KINDS[to].own, from = NOTE_KINDS[to === 'footnote' ? 'endnote' : 'footnote'].own;
-  return paragraphs.map(p => ({ ...structuredClone(p), runs: p.runs.map(r => r.noteMark?.kind === from && r.noteMark.display !== undefined ? { ...structuredClone(r), noteMark: { ...r.noteMark, kind: own } } : structuredClone(r)) }));
+  return paragraphs.map(p => {
+    const copy = { ...structuredClone(p), runs: p.runs.map(r => r.noteMark?.kind === from && r.noteMark.display !== undefined ? { ...structuredClone(r), noteMark: { ...r.noteMark, kind: own } } : structuredClone(r)) };
+    // The copy belongs to the new note: not to the part it was read from (whose scope saving checks), nor to its XML.
+    delete copy.pageStory; delete copy.storySource;
+    if (copy.noteStory) copy.noteStory = to;
+    return copy;
+  });
 }

@@ -204,6 +204,8 @@ export function createNoteCommands(ctx) {
       for (const id of new Set(notes.noteReferences(body.paragraphs, kind).map(r => r.id))) {
         const story = part && definition.stories[notes.footnoteStoryPath(part, id)];
         if (!story) continue;
+        // A note shown read-only (a table, a bookmark, a field the editor keeps as it is) cannot be copied into a new one.
+        if (!story.editable || story.tables?.length || story.paragraphs.some(p => p.bookmarks?.length)) { error(new Error(`A ${kind} in this document holds content that cannot be converted (a table, bookmark or field). Nothing was changed.`)); return false; }
         plans.push({ kind, to, id, paragraphs: story.paragraphs });
       }
     }
