@@ -257,7 +257,7 @@ export const SIGNATURES = {
   UMINUS: ['value', 'The value negated.'],
   UPLUS: ['value', 'The value as is.'],
   UNARY_PERCENT: ['value', 'The value divided by 100 (the % operator).'],
-  REGEXEXTRACT: ['text, regular_expression', 'The first match, its capture group, or several groups as a row; spills.'],
+  REGEXEXTRACT: ['text, regular_expression, [return_mode], [case_sensitivity]', 'The first match (0), every match as a column (1) or the first match\'s groups as a row (2); left out, the capture group or groups if any. 1 ignores case.'],
   REGEXREPLACE: ['text, regular_expression, replacement, [occurrence], [case_sensitivity]', 'Replaces every match, or only the nth (counting from the end when negative).'],
   JOIN: ['delimiter, value1, [value2], ...', 'Joins values with a separator.'],
   TEXTBEFORE: ['text, delimiter, [instance_num], [match_mode], [match_end], [if_not_found]', 'Text before a delimiter; a negative instance counts from the end.'],

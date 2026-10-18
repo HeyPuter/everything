@@ -3802,12 +3802,24 @@ export const FUNCTIONS = {
     },
   },
   REGEXEXTRACT: {
-    fn: ([text, pattern]) => {
+    fn: ([text, pattern, returnMode, caseSensitivity]) => {
       const t = textArg(text); if (isError(t)) return t;
-      const re = regex(pattern, '', t); if (isError(re)) return re;
+      // Excel's return_mode: 0 the first match, 1 every match as a column, 2 the first match's groups as a row;
+      // case_sensitivity 1 ignores case.
+      const mode = returnMode === undefined ? null : toNumber(returnMode); if (isError(mode)) return mode;
+      if (mode !== null && mode !== 0 && mode !== 1 && mode !== 2) return err('#VALUE!');
+      const cs = caseSensitivity === undefined ? 0 : toNumber(caseSensitivity); if (isError(cs)) return cs;
+      if (cs !== 0 && cs !== 1) return err('#VALUE!');
+      const re = regex(pattern, mode === 1 ? (cs ? 'gi' : 'g') : cs ? 'i' : '', t); if (isError(re)) return re;
+      if (mode === 1) {
+        const all = [...t.matchAll(re)].map((m) => [m[0]]);
+        return all.length ? { range: true, values: all } : err('#N/A');
+      }
       const m = re.exec(t);
       if (!m) return err('#N/A');
-      // Several capture groups come back as a row, one as its text and none as the whole match, as in Sheets.
+      if (mode === 0) return m[0];
+      if (mode === 2) return m.length > 1 ? { range: true, values: [m.slice(1).map((g) => g ?? '')] } : m[0];
+      // Left out, several capture groups come back as a row, one as its text and none as the whole match, as in Sheets.
       if (m.length > 2) return { range: true, values: [m.slice(1).map((g) => g ?? '')] };
       return m.length > 1 ? (m[1] ?? '') : m[0];
     },
