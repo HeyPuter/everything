@@ -106,6 +106,13 @@ export class RoomClient extends EventTarget {
     // Changes this browser made before and never delivered go back on top of the revision they were made on.
     if (saved?.pending?.length && saved.rev >= loaded.rev && this.canEdit) {
       this.replica.receive(loaded.records.filter((r) => r.rev <= saved.rev));
+      // The log after the checkpoint can be longer than one answer carries: the rest up to that revision is fetched
+      // first, or the changes would be put back too early and moved again by records they were made after.
+      while (this.replica.rev < saved.rev) {
+        const more = (await this.request({ op: 'sync', since: this.replica.rev })).records.filter((r) => r.rev <= saved.rev);
+        if (!more.length) break;
+        this.replica.receive(more);
+      }
       this.replica.restorePending(saved.pending);
       this.replica.receive(loaded.records.filter((r) => r.rev > saved.rev));
     } else {
