@@ -850,6 +850,39 @@ test("storing a draft keeps the drafts another tab stored meanwhile", async () =
     a.close();
   }
 });
+test("letting go of an old draft keeps another tab's newer one", async () => {
+  const a = setup();
+  try {
+    const threads = Array.from({ length: 21 }, (_, n) =>
+      commentThread({ x: n * 400, y: 0 }, a.s.author, `Topic ${n}`),
+    );
+    a.s.board.comments = threads;
+    const storage = a.dom.window.localStorage;
+    const read = () =>
+      new Map(JSON.parse(storage.getItem("whiteboard-comment-drafts")));
+    const type = async (thread, text) => {
+      a.ui.show(thread.id);
+      const box = a.doc.querySelector("textarea");
+      box.value = text;
+      box.dispatchEvent(new a.dom.window.Event("input"));
+      await new Promise((r) => setTimeout(r, 600));
+    };
+    for (let n = 0; n < 20; n++) await type(threads[n], `Draft ${n}`);
+    // Another tab changes the oldest draft, which is now its most recent.
+    const stored = read();
+    const [key, draft] = [...stored][0];
+    stored.delete(key);
+    stored.set(key, { ...draft, text: "Changed in another tab" });
+    storage.setItem("whiteboard-comment-drafts", JSON.stringify([...stored]));
+    await type(threads[20], "Draft 20");
+    const texts = [...read().values()].map((d) => d.text);
+    assert.equal(texts.length, 20);
+    assert.ok(texts.includes("Changed in another tab"), texts.join(", "));
+    assert.ok(texts.includes("Draft 20"));
+  } finally {
+    a.close();
+  }
+});
 test("deleting and restoring a comment does not mark it edited", () => {
   const a = setup();
   try {

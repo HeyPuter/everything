@@ -305,10 +305,10 @@ export function createCommentsUI(api) {
     drafts.delete(key());
     touched.add(key());
     if (draft.text) drafts.set(key(), structuredClone({ ...draft, editing }));
-    while (drafts.size > 20) {
-      touched.add(drafts.keys().next().value);
-      drafts.delete(drafts.keys().next().value);
-    }
+    // The stored list keeps the twenty most recent of every tab's drafts;
+    // one this tab lets go is not taken out of it for that, as another tab
+    // may have just written it.
+    while (drafts.size > 20) drafts.delete(drafts.keys().next().value);
     if (!soon) rememberStorage();
     else if (!storeTimer) storeTimer = setTimeout(rememberStorage, 500);
   }
@@ -334,12 +334,14 @@ export function createCommentsUI(api) {
         stored.delete(key);
         if (drafts.has(key)) stored.set(key, drafts.get(key));
       }
-      touched.clear();
       while (stored.size > 20) stored.delete(stored.keys().next().value);
       localStorage.setItem(
         "whiteboard-comment-drafts",
         JSON.stringify([...stored]),
       );
+      // Only once written: a write refused, as when storage is full, is
+      // tried again with the next change.
+      touched.clear();
     } catch {}
   }
   globalThis.addEventListener?.("pagehide", () => {
