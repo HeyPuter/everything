@@ -101,7 +101,9 @@ export function addSubtotals(wb, sheetId, range, { groupCol, code = 9, totalCols
   // Subtotals already in the range are replaced: totals added over totals would
   // take the old total rows for data and count them again.
   if (n.r2 - new Set(subtotalRows(wb, sheetId, n)).size < r0) return null;
-  return wb.transaction('Add subtotals', () => {
+  const top = wb.historyTop;
+  let refused = false;
+  const out = wb.transaction('Add subtotals', () => {
     const end = n.r2 - removeSubtotals(wb, sheetId, n);
     if (sort) wb.sortRangeBy(sheetId, { ...n, r1: r0, r2: end }, [{ col: groupCol, ascending: true }]);
     const groups = [];
@@ -123,11 +125,11 @@ export function addSubtotals(wb, sheetId, range, { groupCol, code = 9, totalCols
     };
     // Group rows go in bottom-up so the indices above stay valid; the grand total row comes last,
     // spanning everything above it (SUBTOTAL skips the group totals, so nothing is counted twice).
-    wb.insertRows(sheetId, end + 1, 1);
+    if (!wb.insertRows(sheetId, end + 1, 1)) { refused = true; return null; }
     for (let i = groups.length - 1; i >= 0; i--) {
       const g = groups[i];
       const label = wb.getDisplay(sheetId, g.from, groupCol) || '(blank)';
-      wb.insertRows(sheetId, g.to + 1, 1);
+      if (!wb.insertRows(sheetId, g.to + 1, 1)) { refused = true; return null; }
       totalRow(g.to + 1, `${label} Total`, g.from, g.to, {});
     }
     const last = end + groups.length + 1;
@@ -143,6 +145,10 @@ export function addSubtotals(wb, sheetId, range, { groupCol, code = 9, totalCols
     wb.extendFilterOverRows(sheetId, n.r1, last, [...groups.map((g, i) => g.to + i + 1), last], n);
     return { ...n, r2: last };
   });
+  // A row refused (a protected range or an array formula across the rows) would have had its total written over
+  // the next group's first row: what the step did up to there, the sort and the old totals' removal, is taken back.
+  if (refused && wb.historyTop !== top) wb.discardSteps(new Set([wb.historyTop]));
+  return out;
 }
 
 /** Delete every row of the range that holds a SUBTOTAL formula and drop the row groups inside it. */
