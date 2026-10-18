@@ -6,3 +6,6 @@ export function isSpreadsheetFile(name) {
   const lower = String(name || '').toLowerCase();
   return IMPORT_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
+
+/** Why a file could not be opened, when the reader could say (damaged, password-protected, too large); null otherwise. */
+export const fileProblem = (e) => (e?.code === 'unreadable' || e?.code === 'too-large') && e.message ? e.message : null;

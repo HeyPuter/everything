@@ -165,7 +165,7 @@ import { detectDelimiter, workbookFromFile, rangeToCsv, CSV_MIME } from '../core
 import { cellsToHtml, copyMergeLayout, parseHtmlClipboard, cellsFromHtmlRows, isOwnHtmlClipboard } from '../core/clipboard.js';
 import { eachStoredCell, lineSpan } from '../core/sparse-range.js';
 import { MAX_ROWS, MAX_COLS, MIN_COL_WIDTH, MAX_COL_WIDTH, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT, cellFromInput, safeLinkUrl } from '../core/workbook.js';
-import { isSpreadsheetFile, IMPORT_EXTENSIONS } from '../core/filetypes.js';
+import { isSpreadsheetFile, IMPORT_EXTENSIONS, fileProblem } from '../core/filetypes.js';
 import { FUNCTION_NAMES } from '../core/formula/functions.js';
 import { RULE_TYPES } from '../core/condformat.js';
 // Formulas that reach outside the spreadsheet: pasted from a web page they could send the sheet's
@@ -5723,7 +5723,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       } catch (e) {
         if (destroyed) return;
         console.error(e);
-        toast(`Could not read ${f.name}`, { icon: 'alert', duration: 5000 });
+        toast(fileProblem(e) || `Could not read ${f.name}`, { icon: 'alert', duration: 6000 });
       }
       keepFocus();
     },

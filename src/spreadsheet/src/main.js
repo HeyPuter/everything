@@ -18,6 +18,7 @@ import { parseAppHash, editHash } from './lib/links.js';
 import { roomForFile, openRoom } from './collab/session.js';
 import { appOptions, appOption, syncAppOptions } from './lib/app-options.js';
 import { installAppOptions } from './lib/apply-options.js';
+import { fileProblem } from './core/filetypes.js';
 
 const appRoot = document.getElementById('app');
 let current = null; // { kind: 'home' | 'editor' | 'gate', view }
@@ -113,9 +114,6 @@ function showLoading(label = 'Opening…') {
       message)));
   message.textContent = label;
 }
-
-/** Why a file could not be opened, when the reader could say (damaged, password-protected, too large); null otherwise. */
-const fileProblem = (e) => (e?.code === 'unreadable' || e?.code === 'too-large') && e.message ? e.message : null;
 
 const nav = {
   goHome: () => go(HOME),
