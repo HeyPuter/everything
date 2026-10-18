@@ -69,7 +69,9 @@ export function conditionalFormattingItems(run) {
 /** A rule for a one-click choice (data bar, color scale, icon set) over a range. */
 export function presetRule(range, preset) {
   if (preset.kind === 'databar') return { range, type: 'databar', style: {}, barColor: preset.barColor };
-  if (preset.kind === 'scale') return { range, type: 'scale', style: {}, from: preset.from, to: preset.to, ...(preset.mid ? { mid: preset.mid } : {}) };
+  // As Excel's presets, a three-color scale's middle color marks the 50th percentile (the median), not the
+  // halfway point between the extremes.
+  if (preset.kind === 'scale') return { range, type: 'scale', style: {}, from: preset.from, to: preset.to, ...(preset.mid ? { mid: preset.mid, scaleMidType: 'percentile', scaleMid: '50' } : {}) };
   if (preset.kind === 'icons') return { range, type: 'icons', style: {}, set: preset.set, lo: 33, hi: 67 };
   return null;
 }
