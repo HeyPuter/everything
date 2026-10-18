@@ -5,6 +5,9 @@ import { DocxPackage, createDocx } from '../src/engine/docx.js';
 import { TextDocument, paragraph, boundaries } from '../src/engine/model.js';
 import { revisionRanges, revisionDisplay } from '../src/engine/revisions.js';
 import { pasteFragment } from '../src/engine/clipboard-fragment.js';
+import { insertBodyField } from '../src/engine/field-results.js';
+import { bodyFieldRanges } from '../src/engine/body-fields.js';
+import { insertCrossReference, referenceTargets } from '../src/engine/captions.js';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -256,3 +259,27 @@ describe('a tracked edit that joins two characters into one', () => {
     expect(doc.text).toBe('Keep this.\nab');
   });
 });
+
+describe('fields inserted over a selection with Track Changes on', () => {
+  it('Insert Field wraps exactly the new result, after the struck-out selection', () => {
+    const pkg = createDocx([paragraph('Due OLD today')]);
+    const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables);
+    doc.trackChanges = true; doc.revisionAuthor = 'Me';
+    doc.select(4, 7); insertBodyField(doc, ' DATE \\@ "yyyy" ', '2026');
+    const range = bodyFieldRanges(doc.paragraphs)[0];
+    expect(doc.text.slice(range.start, range.end)).toBe('2026');
+    expect(revisionRanges(doc.paragraphs).map(r => [r.type, doc.text.slice(r.start, r.end)])).toEqual([['del', 'OLD'], ['ins', '2026']]);
+  });
+  it('a cross-reference marks the text it replaces as deleted', () => {
+    const pkg = createDocx([paragraph('Heading target'), paragraph('See OLD here')]);
+    const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables);
+    doc.select(0, 14); doc.addBookmark('Target');
+    doc.trackChanges = true; doc.revisionAuthor = 'Me';
+    doc.select(19, 22);
+    insertCrossReference(doc, referenceTargets(doc).bookmarks[0], { show: 'text' });
+    expect(revisionRanges(doc.paragraphs).map(r => [r.type, doc.text.slice(r.start, r.end)])).toEqual([['del', 'OLD'], ['ins', 'Heading target']]);
+    const range = bodyFieldRanges(doc.paragraphs)[0];
+    expect(doc.text.slice(range.start, range.end)).toBe('Heading target');
+  });
+});
+

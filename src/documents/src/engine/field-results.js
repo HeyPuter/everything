@@ -175,8 +175,9 @@ export function insertBodyField(model, instruction, result) {
   const text = String(result ?? '').replace(/[\n\f\v]/g, ' ');
   const field = newBodyField(instruction);
   if (field.type === 'HYPERLINK' || field.type === 'TOC') throw new Error('Insert that field from its own command.');
-  const start = model.range[0];
   model.replace(text);
+  // With Track Changes on, the result follows the struck-out selection: it ends at the caret.
+  const start = model.selection.focus - text.length;
   let at = 0, index = 0;
   while (index < model.paragraphs.length - 1 && at + model.paragraphs[index].runs.reduce((n, r) => n + r.text.length, 0) < start) at += model.paragraphs[index++].runs.reduce((n, r) => n + r.text.length, 0) + 1;
   const p = model.paragraphs[index], order = Math.max(0, ...model.paragraphs.flatMap(q => (q.fieldMarkers || []).map(m => m.order ?? 0))) + 1;

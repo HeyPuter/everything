@@ -128,8 +128,9 @@ function refBookmark(doc, target, start = target.start, end = target.end) {
 
 /** Insert one field with `placeholder` as its result at the caret. */
 function insertReferenceField(doc, instruction, placeholder, name, hyperlink) {
-  const at = doc.range[0];
-  doc.replaceUntracked(placeholder, { checkpoint: false });
+  // With Track Changes on, the selection it replaces is marked deleted and the result follows it.
+  doc.replace(placeholder, { checkpoint: false });
+  const at = doc.selection.focus - placeholder.length;
   const i = paragraphAt(doc, at), pos = offsetOf(doc, i);
   const link = hyperlink ? { anchor: name, id: hyperlinkId() } : null;
   if (link) doc.changeHyperlink(at, at + placeholder.length, link);
@@ -161,7 +162,7 @@ export function insertCrossReference(doc, target, { show = 'text', hyperlink = t
     insertReferenceField(doc, ` REF ${name}${h} `, placeholder.replace(/\n/g, ' '), name, hyperlink);
   }
   if (aboveBelow && show !== 'position') {
-    doc.replaceUntracked(' ', { checkpoint: false });
+    doc.replace(' ', { checkpoint: false });
     insertReferenceField(doc, ` REF ${name} \\p${h} `, relativeAt(), name, hyperlink);
   }
   doc.didChange();
