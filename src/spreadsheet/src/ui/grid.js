@@ -951,13 +951,15 @@ export function createGrid(opts) {
   function placeEditor(view = viewMetrics()) {
     if (!edit || edit.sheetId !== sheetId) return;
     const { r, c } = edit;
+    // A box growing left of its cell (positionEditor) starts that much before it.
+    const grow = edit.growLeft || 0;
     if (editor.parentNode !== root) {
-      editor.style.left = `${colX(c)}px`;
+      editor.style.left = `${colX(c) - grow}px`;
       editor.style.top = `${rowY(r)}px`;
       editor.style.clipPath = '';
       return;
     }
-    const left = rowHeaderW + colX(c) - bandSL(c, view);
+    const left = rowHeaderW + colX(c) - grow - bandSL(c, view);
     const top = colHeaderH + rowY(r) - bandST(r, view);
     editor.style.left = `${left}px`;
     editor.style.top = `${top}px`;
@@ -3320,7 +3322,6 @@ export function createGrid(opts) {
     const m = mergeAt(r, c);
     const w = m ? colEnd(m.c2) - colX(c) : colW(c);
     const h = m ? rowEnd(m.r2) - rowY(r) : rowH(r);
-    placeEditor(view);
     const cell = wb.getCell(sheetId, r, c);
     const st = wb.styleAt(sheetId, r, c);
     const formula = edit.text.startsWith('=');
@@ -3351,17 +3352,29 @@ export function createGrid(opts) {
     const lines = text.split('\n');
     editor.style.minWidth = `${w}px`;
     edit.font = `${st?.italic ? 'italic ' : ''}${st?.bold ? '600 ' : ''}${size.toFixed(2)}px ${family || cellFont.replace(/^[\d.]+px\s*/, '')}`;
+    edit.growLeft = 0;
     if (wrap) editor.style.width = `${w}px`;
     else {
       // Imported cell text can contain more lines than a function call can
       // accept as arguments. Scan widths without allocating an argument list.
       const needed = lines.reduce((width, line) => Math.max(width, textWidth(line, edit.font)), 0) + 16 + indent;
-      // As far as the viewport's right edge from where the cell is on the screen; a frozen column has not scrolled.
+      // As far as the viewport's edge from where the cell is on the screen; a frozen column has not scrolled.
+      // The box grows the way the cell's text will run once entered, as Excel's does: from a cell aligned
+      // right (or Hebrew or Arabic text given no alignment) to the left, from a centred one both ways.
+      // Grown to the right, a right-aligned entry was typed over the cells beyond its own and then
+      // drawn, once entered, over the ones before it.
       const screenLeft = colX(c) - bandSL(c, view);
-      const maxW = Math.max(w, view.vw - screenLeft - 2);
-      editor.style.width = `${clamp(needed, w, maxW)}px`;
+      const roomLeft = Math.max(0, screenLeft - (leftBand(c) ? 0 : frozen.w) - 1);
+      const roomRight = Math.max(0, view.vw - screenLeft - w - 2);
+      const toLeft = !formula && (st?.align === 'right' || (!st?.align && RTL_LEAD.test(text)));
+      const centred = !formula && st?.align === 'center';
+      const maxW = w + (toLeft ? roomLeft : centred ? 2 * Math.min(roomLeft, roomRight) : roomRight);
+      const width = clamp(needed, w, maxW);
+      editor.style.width = `${width}px`;
+      edit.growLeft = toLeft ? width - w : centred ? (width - w) / 2 : 0;
       wrap = needed > maxW;
     }
+    placeEditor(view);
     editor.classList.toggle('wrap', wrap);
     // One line sits where the cell draws its text (centered, or at the top or
     // bottom when the cell says so); several lines start at the top and the
