@@ -81,7 +81,8 @@ describe('resize dimensions at different zoom levels', () => {
     pe(clip.querySelector('.col-resizer[data-c="0"]'), 'pointerdown', 248, 10);
     pe(clip, 'pointermove', -200, 10);
     expect(grid.el.querySelector('.resize-feedback').textContent).toBe('Width: 24 px');
-    expect(guide.style.transform).toBe(`translateX(${48 + 24 * zoom}px)`);
+    // The row headings (48px at 100%) grow with a zoom above 100%.
+    expect(guide.style.transform).toBe(`translateX(${48 * Math.max(1, zoom) + 24 * zoom}px)`);
     pe(clip, 'pointerup', -200, 10);
     expect(wb.colWidth(id, 0)).toBe(24);
     expect(grid.el.querySelector('.resize-feedback').hidden).toBe(true);

@@ -5617,8 +5617,12 @@ export function createGrid(opts) {
     const gw = rowDepth ? rowDepth * OUTLINE_STEP + 8 : 0;
     const gh = colDepth ? colDepth * OUTLINE_STEP + 8 : 0;
     const ruler = pageLayout ? PAGE_RULER : 0;
-    rowHeaderW = (baseRowHeaderW && Math.max(baseRowHeaderW, rowDigitsW)) + gw + ruler;
-    colHeaderH = baseColHeaderH + gh + ruler;
+    // The headings' letters and numbers grow with the zoom (chrome.css), and so do the headings above
+    // 100%, as Excel's do: at 400% a 20px heading cut its letters in half and a row number to its last
+    // digit. Zoomed out they keep their size, so they can still be pressed.
+    const k = Math.max(1, zoom);
+    rowHeaderW = (baseRowHeaderW && Math.max(Math.round(baseRowHeaderW * k), rowDigitsW)) + gw + ruler;
+    colHeaderH = Math.round(baseColHeaderH * k) + gh + ruler;
     root.style.setProperty('--ruler-size', `${ruler}px`);
     root.style.setProperty('--row-header-w', `${rowHeaderW}px`);
     root.style.setProperty('--col-header-h', `${colHeaderH}px`);
@@ -5675,6 +5679,7 @@ export function createGrid(opts) {
     cellFont = `${(baseFontSize * zoom).toFixed(2)}px ${fam}`;
     root.style.setProperty('--zoom', String(zoom));
     root.style.setProperty('--cell-text-inset', `${CELL_TEXT_INSET * zoom}px`);
+    applyOutlineGutter(); // the headings' size follows the zoom
   }
 
   /** Zoom the sheet over Excel's 10–400% range. Sizes stay stored unzoomed. */
