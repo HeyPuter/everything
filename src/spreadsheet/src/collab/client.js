@@ -358,8 +358,11 @@ export class RoomClient extends EventTarget {
       if (!record || !Number.isInteger(record.rev) || !Array.isArray(record.changes) || record.user !== ticket.user || !this.roomKey) return false;
       const ok = await verify(this.roomKey, { room: this.room, rev: record.rev, digest: await hash(JSON.stringify(record.changes)), user: ticket.user }, receipt);
       if (!ok) return false;
+      // The receipt covers who made it (by account) and what it changes, not the name sent with it: that is the
+      // room-signed ticket's, so a sender cannot put their change under someone else's name in Show Changes.
+      const signed = { ...record, username: ticket.username };
       this.serial(async () => {
-        if (record.rev === this.replica.rev + 1) { this.replica.receive([record]); await this.persist(); if (this.replica.pending.length) this.flush(); }
+        if (record.rev === this.replica.rev + 1) { this.replica.receive([signed]); await this.persist(); if (this.replica.pending.length) this.flush(); }
         else if (record.rev > this.replica.rev) this.scheduleSync(0);
       }).catch(() => this.scheduleSync(0));
     }
