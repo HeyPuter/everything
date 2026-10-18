@@ -82,14 +82,17 @@ it('keeps rich shape text in the document layout in the grid and print, includin
     expect(art().querySelector('foreignObject').textContent).toContain('Two lines of overflowing text');
     expect(art().style.overflow).toBe('visible');
     expect(art().parentElement.style.overflow).toBe('visible');
-    expect(art().style.transform).toBe('rotate(23deg)');
+    // The whole box turns about its centre (frame and handles with it); the art inside is drawn upright.
+    const turn = () => art().closest('.chart-box').style.transform.replace(/^translate\([^)]*\) ?/, '');
+    expect(turn()).toBe('rotate(23deg) scale(1, 1)');
+    expect(art().style.transform).toBe('');
     const paper = buildPrintSheet(wb, sheet.id).querySelector('.print-object > svg');
     expect(paper.textContent).toBe(art().textContent);
     expect(paper.style.overflow).toBe('visible');
     expect(paper.parentElement.style.overflow).toBe('visible');
     wb.updateChart(sheet.id, object.id, { w: 250, h: 70, rotation: 310 });
     await flush();
-    expect(art().style.transform).toBe('rotate(310deg)');
+    expect(turn()).toBe('rotate(310deg) scale(1, 1)');
     expect(art().closest('.chart-box').style.width).toBe('250px');
     wb.undo();
     await flush();
@@ -300,18 +303,20 @@ it('draws the imported Pareto bars and mirrored artwork in the grid and print vi
     expect(grid.el.querySelectorAll('.chart-column')).toHaveLength(3);
     expect(grid.el.querySelector('.chart-box').classList.contains('borderless')).toBe(true);
     const img = () => grid.el.querySelector('.image-box img');
-    expect(img().style.transform).toBe('scale(-1, 1)');
+    const turn = () => img().closest('.chart-box').style.transform.replace(/^translate\([^)]*\) ?/, '');
+    expect(turn()).toBe('rotate(0deg) scale(-1, 1)');
+    expect(img().style.transform).toBe('');
     expect(img().alt).toBe('Cost analysis illustration');
     expect(grid.el.querySelector('#gc-0-0').style.fontFamily).toContain('Aharoni');
     const printed = buildPrintSheet(wb, sheet.id);
     expect(printed.querySelectorAll('.chart-column')).toHaveLength(3);
-    expect(printed.querySelector('.print-object img').style.transform).toBe('scale(-1, 1)');
+    expect(printed.querySelector('.print-object img').closest('.print-object').style.transform).toBe('rotate(0deg) scale(-1, 1)');
     wb.updateChart(sheet.id, picture.id, { flipH: false });
     await flush();
-    expect(img().style.transform).toBe('');
+    expect(turn()).toBe('');
     wb.undo();
     await flush();
-    expect(img().style.transform).toBe('scale(-1, 1)');
+    expect(turn()).toBe('rotate(0deg) scale(-1, 1)');
   } finally { grid.destroy(); }
 });
 
@@ -322,7 +327,8 @@ it('renders transparent ChartEx charts, rotated pictures and sidebar shapes in t
   try {
     await flush();
     expect(grid.el.querySelector('.chart-box').classList.contains('transparent')).toBe(true);
-    expect(grid.el.querySelector('.image-box img').style.transform).toBe('rotate(180deg)');
+    expect(grid.el.querySelector('.image-box').style.transform).toMatch(/ rotate\(180deg\) scale\(1, 1\)$/);
+    expect(grid.el.querySelector('.image-box img').style.transform).toBe('');
     expect(grid.el.querySelector('.image-box .chart-body').style.overflow).toBe('visible');
     expect(grid.el.querySelector('.text-body').style.backgroundColor).toBe('rgb(60, 159, 224)');
     const line = () => grid.el.querySelector('path.chart-series').getAttribute('d');
@@ -336,7 +342,7 @@ it('renders transparent ChartEx charts, rotated pictures and sidebar shapes in t
     expect(line()).toBe(original);
     const printed = buildPrintSheet(wb, sheet.id);
     expect(printed.querySelector('.print-object').style.backgroundColor).toBe('transparent');
-    expect(printed.querySelector('.print-object img').style.transform).toBe('rotate(180deg)');
+    expect(printed.querySelector('.print-object img').closest('.print-object').style.transform).toBe('rotate(180deg) scale(1, 1)');
     expect(printed.querySelector('.print-object img').parentElement.style.overflow).toBe('visible');
     expect(printed.querySelector('.print-text .text-body').style.backgroundColor).toBe('rgb(60, 159, 224)');
     for (const [rotation, w, h] of [[43, 160, 90], [-27, 301, 75]]) {
@@ -345,17 +351,19 @@ it('renders transparent ChartEx charts, rotated pictures and sidebar shapes in t
       const picture = grid.el.querySelector('.image-box .chart-body > svg');
       expect(picture.parentElement.style.overflow).toBe('visible');
       expect(picture.style.overflow).toBe('hidden'); // clip in picture coordinates, before rotation
-      expect(picture.style.transform).toBe(`rotate(${(rotation + 360) % 360}deg) scale(-1, 1)`);
+      expect(picture.closest('.chart-box').style.transform).toMatch(new RegExp(` rotate\\(${(rotation + 360) % 360}deg\\) scale\\(-1, 1\\)$`));
+      expect(picture.style.transform).toBe('');
       expect(picture.querySelector('svg').getAttribute('viewBox')).toBe('0.2 0 0.8 1');
       const paper = [...buildPrintSheet(wb, sheet.id).querySelectorAll('.print-object > svg[role="img"]')]
         .find(n => n.querySelector('image'));
       expect(paper.parentElement.style.overflow).toBe('visible');
       expect(paper.style.overflow).toBe('hidden');
-      expect(paper.style.transform).toBe(picture.style.transform);
+      expect(paper.style.transform).toBe('');
+      expect(paper.closest('.print-object').style.transform).toBe(`rotate(${(rotation + 360) % 360}deg) scale(-1, 1)`);
     }
     wb.updateChart(sheet.id, sheet.charts[1].id, { rotation: 0, flipH: false, srcRect: null, fillRect: null });
     await flush();
-    expect(grid.el.querySelector('.image-box img').style.transform).toBe('');
+    expect(grid.el.querySelector('.image-box').style.transform).toMatch(/^translate\([^)]*\)$/);
   } finally { grid.destroy(); }
 });
 

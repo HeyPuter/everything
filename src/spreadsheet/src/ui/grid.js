@@ -2000,6 +2000,9 @@ export function createGrid(opts) {
     return { left: colX(c) + ch.dx * zoom, top: rowY(r) + ch.dy * zoom, width: ch.w * zoom, height: ch.h * zoom };
   }
 
+  /** A picture's content as drawn inside its box, which itself carries the turn and flips (see renderObjects). */
+  const upright = (ch) => ({ ...ch, rotation: 0, flipH: false, flipV: false });
+
   /** A chart's own definition, its place on the sheet left out: what it draws, not where it sits. */
   const chartDefinition = (ch) => JSON.stringify({ ...ch, anchor: 0, dx: 0, dy: 0 });
 
@@ -2076,8 +2079,9 @@ export function createGrid(opts) {
       box.el.style.zIndex = String(s.charts.indexOf(ch) + 1);
       // A hidden object (the Selection Pane's eye) is not drawn and takes no presses.
       box.el.style.display = ch.hidden ? 'none' : '';
-      // A text box turns and flips about its centre (Arrange ▸ Rotate); a picture turns its own content.
-      if (ch.type === 'text' && (ch.rotation || ch.flipH || ch.flipV)) box.el.style.transform += ` rotate(${ch.rotation || 0}deg) scale(${ch.flipH ? -1 : 1}, ${ch.flipV ? -1 : 1})`;
+      // A text box, picture or shape turns and flips about its centre (Arrange ▸ Rotate), its frame, outline
+      // and handles with it, as it is saved and printed.
+      if ((ch.type === 'text' || ch.type === 'image') && (ch.rotation || ch.flipH || ch.flipV)) box.el.style.transform += ` rotate(${ch.rotation || 0}deg) scale(${ch.flipH ? -1 : 1}, ${ch.flipV ? -1 : 1})`;
       // A chart in Excel's style draws its own outline (or none); the frame's border would double it.
       if (ch.type !== 'text') box.el.classList.toggle('borderless', ch.border === false || ch.appearance?.border === false || !!ch.appearance?.borderColor);
       box.el.classList.toggle('chart-shadow', !!ch.appearance?.effects?.chartArea?.shadow);
@@ -2191,8 +2195,7 @@ export function createGrid(opts) {
                 svg.setAttribute('role', ch.decorative ? 'presentation' : 'img');
                 if (!ch.decorative) svg.setAttribute('aria-label', `Picture of ${ch.pictureRef}`);
                 svg.style.opacity = ch.transparency ? String(1 - ch.transparency) : '';
-                svg.style.transform = imageTransform(ch);
-              } else box.body.replaceChildren(pictureNode({ ...ch, src: picture ? svgDataUrl(picture.svg) : ch.src, srcRect: null, fillRect: null }));
+              } else box.body.replaceChildren(pictureNode({ ...upright(ch), src: picture ? svgDataUrl(picture.svg) : ch.src, srcRect: null, fillRect: null }));
             }
             box.el.setAttribute('aria-label', ch.decorative ? 'Decorative linked picture' : `Linked picture of ${ch.pictureRef}${target ? '' : ' (the cells it showed are gone)'}`);
           }
@@ -2206,7 +2209,7 @@ export function createGrid(opts) {
           box.imageTitle = ch.title;
           box.imageTransform = transform;
           box.sig = null;
-          box.body.replaceChildren(pictureNode(ch));
+          box.body.replaceChildren(pictureNode(upright(ch)));
           box.el.setAttribute('aria-label', ch.decorative ? 'Decorative image' : ch.description ? `Image: ${ch.description}` : ch.title ? `Image: ${ch.title}` : 'Image');
         }
         continue;
@@ -2531,9 +2534,9 @@ export function createGrid(opts) {
       } else {
         const minW = (ch.type === 'scroll' ? 12 : ch.type === 'image' ? IMAGE_MIN : ch.type === 'text' ? TEXT_MIN : ch.type === 'smartart' ? SMARTART_MIN : CHART_MIN_W) * objectScale;
         const minH = (ch.type === 'scroll' ? 12 : ch.type === 'image' ? IMAGE_MIN : ch.type === 'text' ? TEXT_MIN : ch.type === 'smartart' ? SMARTART_MIN : CHART_MIN_H) * objectScale;
-        // A turned or flipped text box grows along its own sides, the pointer's move read in its frame,
-        // and its opposite corner stays where it is on screen (the box turns about its centre).
-        const turned = ch.type === 'text' && (ch.rotation || ch.flipH || ch.flipV);
+        // A turned or flipped text box or picture grows along its own sides, the pointer's move read in its
+        // frame, and its opposite corner stays where it is on screen (the box turns about its centre).
+        const turned = (ch.type === 'text' || ch.type === 'image') && (ch.rotation || ch.flipH || ch.flipV);
         const angle = turned ? (ch.rotation || 0) * Math.PI / 180 : 0, cos = Math.cos(angle), sin = Math.sin(angle);
         const sx = turned && ch.flipH ? -1 : 1, sy = turned && ch.flipV ? -1 : 1;
         const ldx = turned ? (dx * cos + dy * sin) * sx : dx, ldy = turned ? (dy * cos - dx * sin) * sy : dy;
@@ -2542,7 +2545,7 @@ export function createGrid(opts) {
         // Images keep their proportions unless Shift is held; one unlocked (Picture Format ▸ Size) the other way round.
         if (ch.type === 'image' && (ch.lockAspect !== false) !== ev.shiftKey) {
           const ratio = drag.from.width / drag.from.height;
-          if (Math.abs(dx) >= Math.abs(dy)) height = Math.max(minH, width / ratio); else width = Math.max(minW, height * ratio);
+          if (Math.abs(ldx) >= Math.abs(ldy)) height = Math.max(minH, width / ratio); else width = Math.max(minW, height * ratio);
         }
         let { left, top } = drag.from;
         if (turned) {

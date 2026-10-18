@@ -1134,7 +1134,9 @@ function printObjectContent(node, wb, sheetId, obj, w, h) {
     // A linked picture prints the cells it shows now; a styled picture prints its frame and shadow.
     const target = obj.pictureRef && linkedPictureTarget(wb, sheetId, obj.pictureRef);
     const live = target && rangePicture(wb, target.sheetId, target.range);
-    const shown = live ? { ...obj, src: svgDataUrl(live.svg), srcRect: null, fillRect: null } : obj;
+    // The picture turns and flips with its frame, about its centre, as on the sheet.
+    const shown = { ...obj, ...(live ? { src: svgDataUrl(live.svg), srcRect: null, fillRect: null } : {}), rotation: 0, flipH: false, flipV: false };
+    if (obj.rotation || obj.flipH || obj.flipV) node.style.transform = `rotate(${obj.rotation || 0}deg) scale(${obj.flipH ? -1 : 1}, ${obj.flipV ? -1 : 1})`;
     if (pictureStyled(obj)) {
       const frame = el('div', { style: { position: 'absolute', inset: '0', boxSizing: 'border-box', ...pictureFrameCss(obj) } });
       if (obj.shape) frame.style.overflow = 'hidden';
