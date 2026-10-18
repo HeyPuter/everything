@@ -3590,7 +3590,7 @@ export function createGrid(opts) {
       const rows = fit ? [...new Set(targets.flatMap((rg) => Array.from({ length: rg.r2 - rg.r1 + 1 }, (_, i) => rg.r1 + i)))].sort((a, b) => a - b) : [];
       const sized = new Set(rows.filter((rr) => rowSizedByHand(rr)));
       wb.transaction('Fill', () => {
-        for (const rg of targets) wb.fillInput(sheetId, rg, text, { r, c });
+        for (const rg of targets) wb.fillInput(sheetId, rg, text, { r, c }, { typed: true });
         if (multiline) for (const rg of targets) wb.applyStyle(sheetId, rg, { wrap: true });
         // Runs of rows fitted alike are measured together.
         for (let i = 0; i < rows.length;) {
@@ -3610,14 +3610,14 @@ export function createGrid(opts) {
         // entry changes what the row's text needs.
         const sized = rowSizedByHand(r);
         wb.transaction('Edit cell', () => {
-          wb.setInput(sheetId, r, c, text, { preserveRichText });
+          wb.setInput(sheetId, r, c, text, { preserveRichText, typed: true });
           opts.extendEntry?.({ sheetId, r, c, text });
           if (multiline && !wraps) wb.applyStyle(sheetId, { r1: r, c1: c, r2: r, c2: c }, { wrap: true });
           autoFitRows(r, r, { grow: sized });
         });
       } else {
         wb.transaction('Edit cell', () => {
-          wb.setInput(sheetId, r, c, text, { preserveRichText });
+          wb.setInput(sheetId, r, c, text, { preserveRichText, typed: true });
           // A list's formatting and formulas carried on to the new row join the entry's step (the options).
           opts.extendEntry?.({ sheetId, r, c, text });
           // A column widened for the entry has its rows of wrapped text fitted within the same step, as

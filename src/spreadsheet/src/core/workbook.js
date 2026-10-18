@@ -54,6 +54,7 @@ import { normalizeFontColor, normalizeColorPalette, sameFontColor, DEFAULT_FONT_
  */
 
 import { cellKey, parseKey, normalizeRange, cellName, MAX_TEXT } from './cell.js';
+import { parseDecimal } from './formula/number-text.js';
 import { fontName, parseInput, refineImpliedFormat, formatValue, serialToYMD, ymdToSerial, dateTimeKind, FORMAT_DETAIL_KEYS, getLocale, dateNames, styleToNumFmt } from './format.js';
 import { xlsxLayoutDigitWidth } from './xlsx-styles.js';
 import { MAX_FORMAT_CODE_LENGTH, codeIsFraction, codeScalesPercent } from './numfmt.js';
@@ -269,6 +270,18 @@ function typedFraction(text) {
  * percent or date sets the number format unless one is already chosen, so
  * "12%" reads back as 12% and "0.5" typed into that cell shows 50%.
  */
+/**
+ * A number typed with more than fifteen digits, as Excel keeps one: its first fifteen significant digits, the rest
+ * dropped (12345678901234567890 is 12345678901234500000), as the same digits read inside a formula. Only typed
+ * entry is cut so: a value a file, a paste or a script writes keeps the precision it carries.
+ */
+export function typedDigits(cell, text) {
+  if (cell?.f != null || typeof cell?.v !== 'number' || !Number.isFinite(cell.v) || cell.v === 0) return cell;
+  if ((String(text ?? '').replace(/[eE][-+]?\d+\s*%?\s*$/, '').match(/\d/g) || []).length <= 15) return cell;
+  const kept = parseDecimal(String(cell.v));
+  return kept == null || kept === 0 || kept === cell.v ? cell : { ...cell, v: kept };
+}
+
 export function cellFromInput(text, prevStyle) {
   const raw = text == null ? '' : String(text);
   // A new entry may be a link again: the mark a removed link left on the cell (see removeLink) goes with what is typed over it.
@@ -2255,7 +2268,7 @@ export class Workbook extends EventTarget {
   }
 
   /** Type a value into a cell, optionally patching its style; literal values bypass input parsing. */
-  setInput(sheetId, r, c, text, { literal = false, style = null, label = 'Edit cell', preserveRichText = false } = {}) {
+  setInput(sheetId, r, c, text, { literal = false, style = null, label = 'Edit cell', preserveRichText = false, typed = false } = {}) {
     const sheet = this.sheet(sheetId);
     // A refused edit must not trigger table expansion or calculated columns.
     if (!sheet || !inGrid(r, c, gridLimits(sheet)) || this.lockedAt(sheetId, r, c)) return;
@@ -2266,6 +2279,7 @@ export class Workbook extends EventTarget {
     // A new entry drops the mark a removed link left (cellFromInput does the same for typed text).
     const nextStyle = style || base?.nolink ? patchedStyle(base, { ...(style || {}), nolink: null }) : base;
     let cell = literal ? { v: text == null || text === '' ? null : text, f: null, s: nextStyle } : cellFromInput(text, nextStyle);
+    if (typed && !literal) cell = typedDigits(cell, text);
     if (!literal && cell?.f != null) {
       cell.f = this._closeParentheses(cell.f);
       // Closed, the formula may be longer than a formula may be; then it stays the text typed, as it would have typed whole.
@@ -4797,7 +4811,7 @@ export class Workbook extends EventTarget {
    * Ctrl+Enter: put one typed entry into every cell of a range, formulas
    * shifting relative to `origin` (the cell it was typed in).
    */
-  fillInput(sheetId, range, text, origin) {
+  fillInput(sheetId, range, text, origin, { typed = false } = {}) {
     const { r1, c1, r2, c2 } = normalizeRange(range);
     const total = (r2 - r1 + 1) * (c2 - c1 + 1);
     if (total > 50000) return;
@@ -4808,7 +4822,8 @@ export class Workbook extends EventTarget {
       if (hidden?.has(r)) continue;
       for (let c = c1; c <= c2; c++) {
         if (this._coveredByMerge(sheetId, r, c)) continue; // Ctrl+Enter over a merged cell writes its top-left only
-        const cell = cellFromInput(text, this.styleAt(sheetId, r, c));
+        const read = cellFromInput(text, this.styleAt(sheetId, r, c));
+        const cell = typed ? typedDigits(read, text) : read;
         if (cell?.f != null && (r !== origin.r || c !== origin.c)) cell.f = shiftFormula(cell.f, r - origin.r, c - origin.c);
         this._applyImpliedStyle(sheetId, cell, r, c);
         entries.push({ r, c, cell });
