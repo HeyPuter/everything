@@ -63,6 +63,7 @@ export function createTextEditor(
   } = {},
 ) {
   const input = doc.createElement("div");
+  let typedAtLimit = false;
   input.dataset.userContent = "";
   input.contentEditable = "true";
   input.setAttribute("contenteditable", "true");
@@ -391,7 +392,7 @@ export function createTextEditor(
       start: shift(b.start),
     }));
     insert = limit(normalized, maxLength - value.length + end - start);
-    if (insert.length < normalized.length) onLimit();
+    if (insert.length < normalized.length && !typedAtLimit) onLimit();
     if (!insert && start === end) return;
     if (record) remember(group);
     runs = spliceTextRuns(
@@ -617,7 +618,14 @@ export function createTextEditor(
           maxLength
       ) {
         e.preventDefault();
-        replace(e.data);
+        // Keys typed at the limit add nothing, as in any text field; only
+        // pasted or dropped text that does not all fit is reported.
+        typedAtLimit = true;
+        try {
+          replace(e.data);
+        } finally {
+          typedAtLimit = false;
+        }
       }
     }
   });

@@ -2963,6 +2963,19 @@ test("text pasted into a note past its length limit says the end was left out", 
     paste("x".repeat(20100));
     assert.equal(editor.value.length, 20000);
     assert.match(doc.querySelector("#toast").textContent, /length limit/);
+    // A key typed at the limit adds nothing and says nothing, as in any
+    // text field.
+    doc.querySelector("#toast").textContent = "";
+    editor.dispatchEvent(
+      new w.InputEvent("beforeinput", {
+        inputType: "insertText",
+        data: "y",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    assert.equal(editor.value.length, 20000);
+    assert.doesNotMatch(doc.querySelector("#toast").textContent, /limit/);
   } finally {
     await app.close();
   }
