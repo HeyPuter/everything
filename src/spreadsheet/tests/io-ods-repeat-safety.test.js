@@ -13,6 +13,8 @@ function file(rows) {
 </office:document>`;
 }
 const read = (rows) => workbookFromFile(new TextEncoder().encode(file(rows)), 'repeats.fods');
+// The reader's own reason for the refusal, which the message shown to the person keeps as its cause.
+const reason = (promise) => promise.then(() => 'accepted', (error) => error.cause?.message || error.message);
 
 it.each(['row', 'column', 'covered column'])(
   'rejects an overflowing %s repeat without hanging', (axis) => {
@@ -24,7 +26,7 @@ it.each(['row', 'column', 'covered column'])(
     const result = spawnSync(process.execPath, ['--max-old-space-size=128', '--input-type=module', '-e', `
       import { workbookFromFile } from './src/core/io.js';
       try { await workbookFromFile(new TextEncoder().encode(${JSON.stringify(file(rows))}), 'repeats.fods'); console.log('accepted'); }
-      catch (error) { console.log(error.message); }
+      catch (error) { console.log(error.cause?.message || error.message); }
     `], { cwd: new URL('../', import.meta.url), timeout: 2000, encoding: 'utf8' });
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(0);
@@ -38,7 +40,7 @@ it.each(['row', 'column'].flatMap((axis) =>
   const rows = axis === 'row'
     ? `<table:table-row table:number-rows-repeated="${count}"><table:table-cell/></table:table-row>`
     : `<table:table-row><table:table-cell table:number-columns-repeated="${count}"/></table:table-row>`;
-  await expect(read(rows)).rejects.toThrow(/ODS (row|column) repeat/);
+  expect(await reason(read(rows))).toMatch(/ODS (row|column) repeat/);
 });
 
 it.each([
@@ -49,7 +51,7 @@ it.each([
   '<table:table-row><table:table-cell table:number-columns-repeated="16383"/><table:table-cell office:value-type="float" office:value="7" table:number-columns-repeated="2"/></table:table-row>',
   '<table:table-row><table:table-cell table:number-columns-repeated="16383"/><table:covered-table-cell table:number-columns-repeated="2"/></table:table-row>',
 ])('rejects repeat counts extending beyond the supported grid: %s', async (rows) => {
-  await expect(read(rows)).rejects.toThrow(/ODS (row|column) repeat/);
+  expect(await reason(read(rows))).toMatch(/ODS (row|column) repeat/);
 });
 
 it.each(['2', '0002', '+2', ' 2 ', '&#50;'])('accepts the valid integer spelling %s for repeat counts', async (count) => {

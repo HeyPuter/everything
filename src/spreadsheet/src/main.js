@@ -114,6 +114,9 @@ function showLoading(label = 'Opening…') {
   message.textContent = label;
 }
 
+/** Why a file could not be opened, when the reader could say (damaged, password-protected, too large); null otherwise. */
+const fileProblem = (e) => (e?.code === 'unreadable' || e?.code === 'too-large') && e.message ? e.message : null;
+
 const nav = {
   goHome: () => go(HOME),
   openPath: (path, { reload = false } = {}) => {
@@ -191,7 +194,7 @@ async function route({ reload = false, file = null, draftKey = null } = {}) {
         openEditor(imported);
       } catch (e) {
         console.error(e);
-        toast(`Could not read ${file.name}`, { icon: 'alert', duration: 5000 });
+        toast(fileProblem(e) || `Could not read ${file.name}`, { icon: 'alert', duration: 6000 });
         go(HOME);
       }
       return;
@@ -295,7 +298,7 @@ async function route({ reload = false, file = null, draftKey = null } = {}) {
       openEditor(doc, range);
     } catch (e) {
       console.error(e);
-      toast(P.isNotFound(e) ? 'That file no longer exists' : 'Could not open the file', { icon: 'alert', duration: 5000 });
+      toast(P.isNotFound(e) ? 'That file no longer exists' : fileProblem(e) || 'Could not open the file', { icon: 'alert', duration: fileProblem(e) ? 6000 : 5000 });
       if (P.isNotFound(e)) forgetRecent(path);
       go(HOME);
     }

@@ -2302,6 +2302,21 @@ function declaredUnpackedSize(bytes) {
   return { largest, total };
 }
 
+/**
+ * The reason a file could not be read, worded for the person opening it. The library names its own
+ * internals ("Bad compressed size: 0 != 358" for a download cut short, "Unknown Namespace" for a Word
+ * document): its error stays the cause. Coded errors (`unreadable`, `too-large`) are the ones whose
+ * message the app shows as it is.
+ */
+function readFailure(e) {
+  const text = String(e?.message || '');
+  const tooLarge = /repeat exceeds supported worksheet/.test(text);
+  const message = /password-protected/i.test(text) ? 'This workbook is protected with a password. Remove the password in the program that set it, then open the file here'
+    : tooLarge ? 'This file is too large to open here: it holds more cells than a sheet can'
+    : 'This file could not be read. It may be damaged or incomplete, or not a spreadsheet';
+  return Object.assign(new Error(message, { cause: e }), { code: tooLarge ? 'too-large' : 'unreadable' });
+}
+
 export async function workbookFromFile(data, filename = '', { sourceWorkbook = null } = {}) {
   let bytes = data;
   if (typeof Blob !== 'undefined' && data instanceof Blob) bytes = await data.arrayBuffer();
@@ -2329,19 +2344,22 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
   // Keep prefixes intact for our token-aware decoder; the vendor's default
   // cleanup also removes matching text from strings and sheet names.
   // bookFiles keeps the inflated parts, from which the sheet state the reader leaves in the XML is read.
-  const book = X.read(bytes, { type: 'array', cellNF: true, cellDates: false, cellStyles: true, sheetStubs: true, xlfn: true, bookFiles: true });
+  let book;
+  try {
+    book = X.read(bytes, { type: 'array', cellNF: true, cellDates: false, cellStyles: true, sheetStubs: true, xlfn: true, bookFiles: true });
+  } catch (e) { throw readFailure(e); }
   const fileFormat = recoveredFormat(X);
   const partOf = sheetParts(book);
   // The reader keeps quiet about a sheet whose part it could not parse and
   // leaves it out of the book. Importing that sheet as empty would let the
   // next save overwrite the file without it; refuse the file instead.
   const unreadable = book.Workbook?.UnreadableSheets?.[0];
-  if (unreadable != null) throw new Error(`Sheet "${unreadable}" could not be read; the file may be damaged`);
+  if (unreadable != null) throw Object.assign(new Error(`Sheet "${unreadable}" could not be read; the file may be damaged`), { code: 'unreadable' });
   // The reader keys sheets by name, so the second of two same-named sheets lands on top of
   // the first: one sheet's data would be gone and the other's shown twice, and a save would
   // write the file that way. Excel refuses such a file with a repair prompt; so do we.
   const twice = book.SheetNames.find((name, i) => book.SheetNames.indexOf(name) !== i);
-  if (twice != null) throw new Error(`Two sheets are named "${twice}"; the file may be damaged`);
+  if (twice != null) throw Object.assign(new Error(`Two sheets are named "${twice}"; the file may be damaged`), { code: 'unreadable' });
   const candidates = book.SheetNames.filter((n) => /^_puter_meta\d*$/i.test(n))
     .map((name) => ({ name, data: readMeta(X, book.Sheets[name]) })).filter((m) => m.data);
   // Prefer marked sidecars; older files used the fixed name without a marker.

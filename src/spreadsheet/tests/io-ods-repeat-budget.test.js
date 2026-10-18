@@ -17,13 +17,13 @@ const block = (rows, cols) => `<table:table-row table:number-rows-repeated="${ro
 // own grid (20000 rows by 702 columns), and the file is refused past it, as an oversized
 // repeat count is; a correct budget refuses before materialising, so this test is fast.
 it('refuses a small file whose repeats would materialise more cells than the grid holds', async () => {
-  await expect(workbookFromFile(file(block(4000, 4000)), 'hostile.fods')).rejects.toThrow(/ODS repeat/);
-  await expect(workbookFromFile(file(block(1048576, 16384)), 'hostile.fods')).rejects.toThrow(/ODS repeat/);
+  await expect(workbookFromFile(file(block(4000, 4000)), 'hostile.fods')).rejects.toMatchObject({ code: 'too-large', message: expect.stringMatching(/too large to open here/) });
+  await expect(workbookFromFile(file(block(1048576, 16384)), 'hostile.fods')).rejects.toMatchObject({ code: 'too-large', message: expect.stringMatching(/too large to open here/) });
 });
 
 it('counts the cells of every repeated block of the file against the one budget', async () => {
   // Each block fits the budget on its own; together they do not.
-  await expect(workbookFromFile(file(block(1, 16384) + block(856, 16384)), 'hostile.fods')).rejects.toThrow(/ODS repeat/);
+  await expect(workbookFromFile(file(block(1, 16384) + block(856, 16384)), 'hostile.fods')).rejects.toMatchObject({ code: 'too-large', message: expect.stringMatching(/too large to open here/) });
 });
 
 it('still opens a file whose repeats stay within the budget', async () => {
