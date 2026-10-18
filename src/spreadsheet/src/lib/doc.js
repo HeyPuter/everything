@@ -341,6 +341,8 @@ export class Doc extends EventTarget {
 
   destroy() {
     if (this.collab) { this._leaveRoom(); return; }
+    // A save still under way (left behind on the way out, see the editor's flush) may finish, but schedules nothing more.
+    this._destroyed = true;
     clearTimeout(this._timer);
     clearTimeout(this._draftTimer);
     if (!this.wb.dirty) clearDraft(this._ownDraftKey, this._draftRevision);
@@ -459,7 +461,7 @@ export class Doc extends EventTarget {
   }
 
   _changed(type) {
-    if (type === 'active-sheet') return;
+    if (type === 'active-sheet' || this._destroyed) return;
     if (this.collab) { this._sharedChanged(type); return; }
     if (type === 'clean') {
       // The book was declared clean without a save (columns fitted on open, say): nothing is pending.
@@ -654,7 +656,7 @@ export class Doc extends EventTarget {
       // hands as well: it cleared the retry a failed autosave had scheduled, so without one of its own
       // nothing tried again until the next edit. The retry is an ordinary save, which checks the file
       // again and asks again if it is still changed or missing, never one forced over what landed since.
-      if (this.wb.dirty && !session.signedOut && !refused) {
+      if (this.wb.dirty && !session.signedOut && !refused && !this._destroyed) {
         this._retryDelay = Math.min(this._retryDelay ? this._retryDelay * 2 : RETRY_MS, RETRY_MAX_MS);
         this._timer = setTimeout(() => this.save({ auto: true, retry: true }).catch(() => {}), this._retryDelay);
         this._timerIsRetry = true;

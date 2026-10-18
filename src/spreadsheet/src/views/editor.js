@@ -5344,9 +5344,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     // one of its own, and this one must leave that in place on the way out — cleared, the conflict that
     // flush's save raises lands in the dialog that cannot leave, after the navigation was already refused.
     const mine = leaving ? { kind: null } : null;
+    // Leaving was chosen while a save hung: the router's flush on the way out neither waits for it again nor
+    // queues another behind it, which would run in the closed document once the first one settled.
+    if (leaving && abandoned && doc.hasPendingWrites) return true;
     try {
       if (leaving) leavingSave = mine;
-      let saved = await doc.save();
+      let saved = await (leaving ? whileSaving(doc.save()) : doc.save());
+      if (saved === LEAVE_NOW) { abandoned = true; return true; }
+      if (saved === STAY) { keepFocus(); return false; }
       while (saved) {
         // A save can finish while a new entry is still in the cell editor.
         // Commit and validate that entry before deciding navigation is safe.
@@ -5384,6 +5389,46 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       keepFocus();
       return false;
     } finally { if (leavingSave === mine) leavingSave = null; }
+  }
+
+  // A save on the way out still going after this long (a slow or stalled connection) offers to leave anyway: left
+  // alone, the editor sat there with nothing said for as long as the request hung, Back pressed again doing nothing.
+  const SLOW_LEAVE_MS = 10_000;
+  const LEAVE_NOW = Symbol('leave');
+  const STAY = Symbol('stay');
+  /** The save on the way out (`saving`), or LEAVE_NOW or STAY when it takes so long that the user is asked and answers. */
+  async function whileSaving(saving) {
+    const settled = saving.then(() => true, () => true);
+    for (;;) {
+      let timer;
+      const done = await Promise.race([settled, new Promise((resolve) => { timer = setTimeout(resolve, SLOW_LEAVE_MS, false); })]);
+      clearTimeout(timer);
+      if (done || destroyed) return saving;
+      // The draft follows the edits made while it waited: leaving now leaves them on this device.
+      const ask = stillSavingDialog(!wb.dirty || doc.writeDraft());
+      const choice = await Promise.race([ask.answer, settled.then(() => 'saved')]);
+      ask.close();
+      if (destroyed || choice === 'saved') return saving;
+      if (choice === 'leave') return LEAVE_NOW;
+      if (choice === 'stay') return STAY;
+      // 'wait': asked again if it still has not finished a while later.
+    }
+  }
+
+  /** The save on the way out is taking long: wait for it, keep editing (it goes on), or leave (the local draft keeps the edits). */
+  function stillSavingDialog(kept) {
+    let resolve;
+    const answer = new Promise((done) => { resolve = done; });
+    const content = el('div', {},
+      el('p.modal-text', {}, kept
+        ? `"${doc.name}" is still being saved: the connection may be slow. Wait, and it closes once saved; or leave now, and your changes stay in this browser, offered again when you open it here.`
+        : `"${doc.name}" is still being saved: the connection may be slow. Wait, and it closes once saved. This browser could not keep a copy of your changes, so leaving now may lose them.`),
+      el('div.row.row-end', { style: { flexWrap: 'wrap' } },
+        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Keep editing'),
+        el(`button.btn${kept ? '' : '.btn-danger'}`, { type: 'button', onclick: () => { resolve('leave'); modal.close(); } }, kept ? 'Leave' : 'Leave without saving'),
+        el('button.btn.btn-primary', { type: 'button', onclick: () => { resolve('wait'); modal.close(); } }, 'Wait')));
+    const modal = openModal({ title: 'Still saving', content, onClose: () => resolve('stay') });
+    return { answer, close: () => modal.close() };
   }
 
   /**
