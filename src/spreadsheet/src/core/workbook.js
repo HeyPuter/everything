@@ -3224,17 +3224,18 @@ export class Workbook extends EventTarget {
    * that looks formatted on screen is pasted formatted, and a blank cell of a formatted column carries
    * that column's format rather than arriving plain (see styleAt).
    */
-  _copiedCell(sheet, r, c, cell = sheet.cells.get(cellKey(r, c))) {
+  _copiedCell(sheet, r, c, cell = sheet.cells.get(cellKey(r, c)), { sameBook = false } = {}) {
     const line = this._lineStyle(sheet, r, c);
     if (!line) return cloneCell(cell);
     // A copied imported font is a complete appearance. Omitted regular flags
-    // must not inherit bold/italic or colored ink from another workbook.
-    const defaults = this.normalStyle ? { bold: false, italic: false, underline: false, strike: false, color: '#000000' } : null;
+    // must not inherit bold/italic or colored ink from another workbook. Within
+    // the book (the fill handle) they would only pin the defaults on every cell.
+    const defaults = this.normalStyle && !sameBook ? { bold: false, italic: false, underline: false, strike: false, color: '#000000' } : null;
     return cloneCell({ ...cell, v: cell?.v ?? null, f: cell?.f ?? null, s: { ...defaults, ...line, ...(cell?.s || {}) } });
   }
 
   /** Copy a cell, materializing a spill only when its formula is not copied. */
-  _copyCellReader(sheet, includes, selection) {
+  _copyCellReader(sheet, includes, selection, { sameBook = false } = {}) {
     let spills;
     const complete = new Map();
     return (r, c) => {
@@ -3248,7 +3249,7 @@ export class Workbook extends EventTarget {
           // A packed copy with omitted interior lines cannot carry one
           // rectangular array. Preserve the selected cells' displayed values.
           const value = this.getValue(sheet.id, r, c);
-          return this._copiedCell(sheet, r, c, { v: value?.error ? { error: value.error } : value, f: null, s: cell?.s });
+          return this._copiedCell(sheet, r, c, { v: value?.error ? { error: value.error } : value, f: null, s: cell?.s }, { sameBook });
         }
         if (r === block.r1 && c === block.c1) {
           // Even a partial CSE array is copied as a smaller fixed array.
@@ -3257,23 +3258,23 @@ export class Workbook extends EventTarget {
           const anchor = sheet.cells.get(fixed.key);
           return this._copiedCell(sheet, r, c, { v: null,
             f: shiftFormula(anchor.f, r - fixed.r, c - fixed.c),
-            array: { rows: block.rows, cols: block.cols }, externalResult: anchor.externalResult, s: cell?.s });
+            array: { rows: block.rows, cols: block.cols }, externalResult: anchor.externalResult, s: cell?.s }, { sameBook });
         }
-        return this._copiedCell(sheet, r, c, cell);
+        return this._copiedCell(sheet, r, c, cell, { sameBook });
       }
-      if (cell?.v != null || cell?.f != null) return this._copiedCell(sheet, r, c, cell);
+      if (cell?.v != null || cell?.f != null) return this._copiedCell(sheet, r, c, cell, { sameBook });
       // Resolve spill metadata once, only if the selection contains blanks.
       spills ??= this._ensureSpills(sheet);
-      if (!spills.cover.has(key) && !spills.fixed.at(r, c)) return this._copiedCell(sheet, r, c, cell);
+      if (!spills.cover.has(key) && !spills.fixed.at(r, c)) return this._copiedCell(sheet, r, c, cell, { sameBook });
       const spill = this.spillAt(sheet.id, r, c);
-      if (!spill || includes(spill.anchor.r, spill.anchor.c)) return this._copiedCell(sheet, r, c, cell);
+      if (!spill || includes(spill.anchor.r, spill.anchor.c)) return this._copiedCell(sheet, r, c, cell, { sameBook });
       const v = spill.value?.error ? { error: spill.value.error } : spill.value;
-      return this._copiedCell(sheet, r, c, { v, f: null, s: { ...spill.style, ...cell?.s } });
+      return this._copiedCell(sheet, r, c, { v, f: null, s: { ...spill.style, ...cell?.s } }, { sameBook });
     };
   }
 
   /** Cells of a range as clones; unanchored spill results copy as literal values. */
-  copyRange(sheetId, range) {
+  copyRange(sheetId, range, { sameBook = false } = {}) {
     const sheet = this.sheet(sheetId);
     const { r1, c1, r2, c2 } = normalizeRange(range);
     // Keep the ordinary copy loop when evaluated metadata confirms there
@@ -3282,7 +3283,7 @@ export class Workbook extends EventTarget {
       const out = [];
       for (let r = r1; r <= r2; r++) {
         const row = [];
-        for (let c = c1; c <= c2; c++) row.push(sheet ? this._copiedCell(sheet, r, c) : null);
+        for (let c = c1; c <= c2; c++) row.push(sheet ? this._copiedCell(sheet, r, c, undefined, { sameBook }) : null);
         out.push(row);
       }
       return out;
@@ -3292,7 +3293,7 @@ export class Workbook extends EventTarget {
       r1: Math.max(r1, a.r1), c1: Math.max(c1, a.c1),
       rows: Math.min(r2, a.r2) - Math.max(r1, a.r1) + 1,
       cols: Math.min(c2, a.c2) - Math.max(c1, a.c1) + 1, contiguous: true,
-    }));
+    }), { sameBook });
     const out = [];
     for (let r = r1; r <= r2; r++) {
       const row = [];
@@ -4515,7 +4516,10 @@ export class Workbook extends EventTarget {
     const src = normalizeRange(source);
     const tgt = normalizeRange(target);
     const sheet = this.sheet(sheetId);
-    const cells = this.copyRange(sheetId, src);
+    // The source as it looks here, without the complete font a copy to another workbook pins on (bold off, black
+    // ink): written into every filled cell, it outlived a later change of the book's look and showed a filled
+    // error in black beside its red source.
+    const cells = this.copyRange(sheetId, src, { sameBook: true });
     const h = cells.length;
     const w = cells[0].length;
     const entries = [];
