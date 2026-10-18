@@ -3327,7 +3327,12 @@ export class Workbook extends EventTarget {
     const occupied = new Set(sheet.sparklineGroups.flatMap(g => g.sparklines.map(s => s.ref)));
     if (sparklines.some(s => occupied.has(s.ref))) return bad('location', 'A destination already contains a sparkline. Clear it or choose another cell.');
     if (this._gridLocked(sheet) || this.lockedIn(sheetId, dest)) return bad('location', 'A destination is protected.');
-    const group = normalizeNativeSparklineGroups([{ type, colorSeries: { theme: 4 }, uid: `{${crypto.randomUUID().toUpperCase()}}`, sparklines }])[0];
+    // Excel's defaults for a new group: an empty cell is a gap in the line (not a drop to zero), and the
+    // negative, high, low, first and last points and markers take accent colours once turned on, not black.
+    const shade = (tint) => ({ theme: 4, ...(tint ? { tint } : {}) });
+    const group = normalizeNativeSparklineGroups([{ type, displayEmptyCellsAs: 'gap', colorSeries: shade(), colorNegative: { theme: 5 },
+      colorMarkers: shade(-0.499984740745262), colorFirst: shade(0.39997558519241921), colorLast: shade(0.39997558519241921),
+      colorHigh: shade(), colorLow: shade(), uid: `{${crypto.randomUUID().toUpperCase()}}`, sparklines }])[0];
     this._growTo(sheet, dest.r2 + 1, dest.c2 + 1);
     this._writeRuleFormulaUpdates(sheet, { sparklineGroups: [...sheet.sparklineGroups, group] }, 'Insert sparklines');
     return null;
