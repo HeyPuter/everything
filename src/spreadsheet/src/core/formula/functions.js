@@ -3813,9 +3813,13 @@ export const FUNCTIONS = {
     array: true,
   },
   REGEXREPLACE: {
-    fn: ([text, pattern, replacement]) => {
+    fn: ([text, pattern, replacement, occurrence, caseSensitivity]) => {
       const t = textArg(text); if (isError(t)) return t;
-      const re = regex(pattern, 'g', t); if (isError(re)) return re;
+      // Excel's occurrence: 0 replaces every match, n only the nth, -n the nth from the end; case_sensitivity 1 ignores case.
+      const k = occurrence === undefined ? 0 : toNumber(occurrence); if (isError(k)) return k;
+      const mode = caseSensitivity === undefined ? 0 : toNumber(caseSensitivity); if (isError(mode)) return mode;
+      if (mode !== 0 && mode !== 1) return err('#VALUE!');
+      const re = regex(pattern, mode === 1 ? 'gi' : 'g', t); if (isError(re)) return re;
       const r = textArg(replacement); if (isError(r)) return r;
       // Sheets' replacement syntax: $1 is a group and $0 the whole match; nothing else is special.
       const js = r.replace(/\$(\d+|&|`|'|<|\$)/g, (m, what) => (what === '0' ? '$&' : /^\d+$/.test(what) ? m : `$$${what}`));
@@ -3829,8 +3833,15 @@ export const FUNCTIONS = {
         refs.push(what);
         return '';
       }).length;
+      const nth = Math.trunc(k);
+      let matches = [...t.matchAll(re)];
+      if (nth) {
+        const at = nth > 0 ? nth - 1 : matches.length + nth;
+        if (at < 0 || at >= matches.length) return t; // no such occurrence: the text is unchanged
+        matches = [matches[at]];
+      }
       let length = t.length;
-      for (const m of t.matchAll(re)) {
+      for (const m of matches) {
         length += literal - m[0].length;
         for (const ref of refs) {
           const group = ref === '&' ? m[0] : m[Number(ref)];
@@ -3840,7 +3851,10 @@ export const FUNCTIONS = {
         }
         if (length > MAX_TEXT) return err('#VALUE!');
       }
-      const out = t.replace(re, js);
+      // One occurrence is replaced in place, its lookarounds still seeing the text around it.
+      const one = nth ? new RegExp(re.source, re.flags.replace('g', '') + 'y') : null;
+      if (one) one.lastIndex = matches[0].index;
+      const out = t.replace(one || re, js);
       return out.length > MAX_TEXT ? err('#VALUE!') : out;
     },
   },

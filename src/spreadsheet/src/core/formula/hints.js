@@ -258,7 +258,7 @@ export const SIGNATURES = {
   UPLUS: ['value', 'The value as is.'],
   UNARY_PERCENT: ['value', 'The value divided by 100 (the % operator).'],
   REGEXEXTRACT: ['text, regular_expression', 'The first match, its capture group, or several groups as a row; spills.'],
-  REGEXREPLACE: ['text, regular_expression, replacement', 'Replaces every match.'],
+  REGEXREPLACE: ['text, regular_expression, replacement, [occurrence], [case_sensitivity]', 'Replaces every match, or only the nth (counting from the end when negative).'],
   JOIN: ['delimiter, value1, [value2], ...', 'Joins values with a separator.'],
   TEXTBEFORE: ['text, delimiter, [instance_num], [match_mode], [match_end], [if_not_found]', 'Text before a delimiter; a negative instance counts from the end.'],
   TEXTAFTER: ['text, delimiter, [instance_num], [match_mode], [match_end], [if_not_found]', 'Text after a delimiter; a negative instance counts from the end.'],
