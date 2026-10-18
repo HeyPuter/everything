@@ -4570,6 +4570,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     return own(html);
   }
 
+  /** Is the clipboard one cell: a copy of one cell here, or another app's text with no tab or line between values? */
+  function pastesOneCell(text, html, internal) {
+    if (internal) return clip.cells.length === 1 && clip.cells[0]?.length === 1;
+    if (html && /<t[dh][\s>][\s\S]*<t[dh][\s>]/i.test(html)) return false;
+    const body = text.replace(/\r?\n$/, '');
+    return body !== '' && !/[\t\r\n]/.test(body);
+  }
+
   function applyPaste(text, options = {}) {
     if (wb.sheet(grid.sheetId)?.kind === 'chart') { statusBar?.announce('Choose a worksheet to paste cells'); return; }
     if (!oneRange('paste into')) return; // a paste lands in one range; several selected would take it in the last alone
@@ -4595,7 +4603,21 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     // clipped bounds, and skipped blanks, rather than guessing from a range.
     wb.addEventListener('change', onProtection);
     pasting = true;
+    // One copied cell pasted over a filtered list goes into the rows on show, as Fill Down does and as in Excel,
+    // rather than into the rows the filter hides: each run of shown rows takes it in turn, as one step.
+    const runs = !(internal && clip.cut) && !special.transpose && !special.insert && pastesOneCell(text, html, internal) ? shownRuns(grid.range, sheetId) : null;
     try {
+      if (runs && (runs.length !== 1 || runs[0].r1 !== grid.range.r1 || runs[0].r2 !== grid.range.r2)) {
+        const whole = { ...grid.range }, active = { ...grid.active };
+        return wb.transaction(label, () => {
+          for (const run of runs) {
+            grid.setSelection(S.fromRange(run, { r: run.r1, c: run.c1 }), { scroll: false });
+            applyPasteContents(text, { html, special }, () => refused, internal);
+            if (refused) break;
+          }
+          grid.setSelection(S.fromRange(whole, active), { scroll: false });
+        });
+      }
       return wb.transaction(label, () => applyPasteContents(text, { html, special }, () => refused, internal));
     } finally {
       pasting = false;
