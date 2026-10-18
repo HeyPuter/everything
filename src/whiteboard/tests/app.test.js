@@ -16357,6 +16357,64 @@ test("a key held on a table's resize handle is one undo step", async () => {
   }
 });
 
+test("a table's column resize handle stays clear of the table's toolbar", async () => {
+  const app = await setup(),
+    { doc, w, click } = app;
+  try {
+    await click('[data-action="new"]');
+    doc.querySelector("#canvas").getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 1200,
+      bottom: 800,
+      width: 1200,
+      height: 800,
+    });
+    dispatchTransfer(
+      app,
+      "paste",
+      transferData(
+        clipboardFormats([
+          item("table", 200, 200, {
+            w: 340,
+            h: 150,
+            cells: [
+              ["a", "b"],
+              ["c", "d"],
+            ],
+          }),
+        ]),
+      ),
+    );
+    const [table] = selectedClipboard(app);
+    await click('[data-action="edit"]');
+    const handle = doc.querySelector(".table-size-column");
+    const v = renderedView(app),
+      top = v.y + table.y * v.z;
+    // A toolbar reaching down to just below the table's top.
+    doc.querySelector(".table-cell-tools").getBoundingClientRect = () => ({
+      left: 0,
+      top: 16,
+      right: 1200,
+      bottom: top + 10,
+      width: 1200,
+      height: top - 6,
+    });
+    const grid = doc.querySelector("#table-cell-grid");
+    grid.focus();
+    grid.dispatchEvent(
+      new w.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+    );
+    assert.equal(handle.hidden, false);
+    assert.ok(
+      parseFloat(handle.style.top) - 22 >= top + 10,
+      `${handle.style.top} below ${top + 10}`,
+    );
+  } finally {
+    await app.close();
+  }
+});
+
 test("undo and redo shortcuts work from a table's cells", async () => {
   const app = await setup(),
     { doc, w, click } = app;

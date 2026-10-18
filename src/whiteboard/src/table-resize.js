@@ -268,7 +268,8 @@ export function createTableResize(api) {
       v = api.state().view,
       size = api.canvas().getBoundingClientRect(),
       layout = tableLayout(i),
-      writable = api.writable(api.current());
+      writable = api.writable(api.current()),
+      tools = root.querySelector(".table-cell-tools")?.getBoundingClientRect();
     for (const axis of ["column", "row"]) {
       const indices = selected(axis),
         values = tableTracks(i, axis),
@@ -286,11 +287,20 @@ export function createTableResize(api) {
         .querySelectorAll(`[data-table-size^="${axis}:"]`)
         .forEach((b) => (b.disabled = !writable));
       const x =
-          v.x +
-          i.x * v.z +
-          (axis === "column" ? layout.x[index + 1] * v.z : -24),
-        y =
-          v.y + i.y * v.z + (axis === "row" ? layout.y[index + 1] * v.z : -24);
+        v.x + i.x * v.z + (axis === "column" ? layout.x[index + 1] * v.z : -24);
+      let y =
+        v.y + i.y * v.z + (axis === "row" ? layout.y[index + 1] * v.z : -24);
+      // Above a table whose top is under the table's toolbar, the column
+      // handle sits just below the toolbar, where it can be reached.
+      if (axis === "column" && tools?.width) {
+        const below = tools.bottom - size.top + 26;
+        if (
+          y < below &&
+          x + 22 > tools.left - size.left &&
+          x - 22 < tools.right - size.left
+        )
+          y = Math.min(below, v.y + (i.y + i.h) * v.z);
+      }
       handle.hidden =
         !writable ||
         api.editing() ||
