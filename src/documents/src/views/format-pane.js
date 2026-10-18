@@ -18,7 +18,8 @@ export function createPane(context) {
   const heading = el('h2', {}, 'Format');
   const tabs = el('div.pic-pane-tabs', { role: 'tablist', 'aria-label': 'Format sections' });
   const body = el('div.canvas-panel-scroll.pic-pane-body');
-  const node = el('aside.pic-pane', { 'aria-label': 'Format pane' },
+  // Formatting from the pane keeps the keyboard in the pane (see placeDrawing).
+  const node = el('aside.pic-pane', { 'aria-label': 'Format pane', 'data-keeps-focus': '' },
     el('div.canvas-panel-heading', {}, heading, el('button.icon-btn', { type: 'button', 'aria-label': 'Close Format pane', onclick: () => close() }, iconEl('x', 18))),
     tabs, body);
   node.addEventListener('keydown', e => { if (e.key === 'Escape' && !isComposing(e) && !e.defaultPrevented) { e.preventDefault(); close(); } });
@@ -63,7 +64,8 @@ export function createPane(context) {
     return button;
   };
   const group = (title, ...children) => el('details.pic-group', { open: true }, el('summary', {}, title), el('div.pic-group-body', {}, ...children.filter(Boolean)));
-  const radios = (name, options, value, onChange) => el('div.pic-radios', { role: 'radiogroup', 'aria-label': name }, ...options.map(([label, v]) => { const id = `pic-field-${++ids}`; return el('label.pic-radio', { htmlFor: id }, el('input', { type: 'radio', id, name: `${name}-${ids}`, checked: v === value, onchange: () => onChange(v) }), label); }));
+  // One name for the whole group, so its options are one tab stop with arrow keys between them.
+  const radios = (name, options, value, onChange) => { const groupName = `${name}-${++ids}`; return el('div.pic-radios', { role: 'radiogroup', 'aria-label': name }, ...options.map(([label, v]) => { const id = `pic-field-${++ids}`; return el('label.pic-radio', { htmlFor: id }, el('input', { type: 'radio', id, name: groupName, checked: v === value, onchange: () => onChange(v) }), label); })); };
 
   /* ---- Sections ---- */
   function fillSection(image, info) {
@@ -203,12 +205,15 @@ export function createPane(context) {
     tabButtons.find(b => b.dataset.section === 'picture').hidden = !picture;
     if (section === 'picture' && !picture) section = 'fill';
     for (const button of tabButtons) { const on = button.dataset.section === section; button.setAttribute('aria-selected', String(on)); button.tabIndex = on ? 0 : -1; }
-    const focusedLabel = document.activeElement && body.contains(document.activeElement) ? document.activeElement.id : null;
+    // Controls get new ids on each render: the focused one is found again by its section, group and label.
+    const keyOf = n => [n.closest('details')?.querySelector('summary')?.textContent, n.closest('[role="radiogroup"]')?.getAttribute('aria-label'),
+      n.getAttribute('aria-label') || n.labels?.[0]?.textContent || n.closest('label')?.textContent || n.textContent, n.tagName, n.type].join('\u0000');
+    const focusedKey = document.activeElement && body.contains(document.activeElement) ? keyOf(document.activeElement) : null;
     if (!image || !info) { body.replaceChildren(el('p.pic-empty', {}, 'Select a picture or shape to format it.')); return; }
     if (kind(image) === 'chart' || kind(image) === 'diagram' || kind(image) === 'other') { body.replaceChildren(el('p.pic-empty', {}, 'This object keeps its own formatting. Use Layout & Properties to change its size and position.'), ...layoutSection(image, info)); return; }
     const content = section === 'fill' ? fillSection(image, info) : section === 'effects' ? effectsSection(image, info) : section === 'layout' ? layoutSection(image, info) : pictureSection(image, info);
     body.replaceChildren(...content);
-    if (focusedLabel) document.getElementById(focusedLabel)?.focus();
+    if (focusedKey) [...body.querySelectorAll('button, input, select, textarea, summary')].find(n => keyOf(n) === focusedKey)?.focus();
   }
   function show(id) { if (id) section = id === 'line' ? 'fill' : id; drawn = null; refresh(); }
   function refresh() {

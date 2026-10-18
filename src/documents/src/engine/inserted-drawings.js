@@ -135,6 +135,8 @@ export async function placeDrawing(editor, fragment, { replace = null, revision 
     return true;
   });
   if (!ok) for (const id of Object.keys(assets)) { delete model.assets[id]; editor.images.get(id)?.close?.(); editor.images.delete(id); }
-  editor.focus(); editor.onSelection?.();
+  // A change made from a pane that keeps the keyboard (Format Picture) leaves focus there; otherwise the document has it.
+  if (!globalThis.document?.activeElement?.closest?.('[data-keeps-focus]')) editor.focus();
+  editor.onSelection?.();
   return ok;
 }
