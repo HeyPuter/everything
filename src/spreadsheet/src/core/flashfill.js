@@ -1,9 +1,11 @@
 /**
  * Flash Fill: learn, from the example cells typed into a column, how each is built from the cells beside it,
  * and fill the rest of the column the same way. A program is a list of parts, each literal text or a piece of
- * a neighbouring cell: the whole cell, or its nth word (counted from either end, words split at spaces and
- * punctuation), in its own case, upper, lower or proper case, or just its first letter. It is read off the
- * first example greedily, longest piece first, and kept only when it rebuilds every example exactly.
+ * a neighbouring cell: the whole cell, its nth word (counted from either end, words split at spaces and
+ * punctuation) or its nth run of letters or of digits (ABC and 123 in ABC123, 1 and 234 in $1,234), in its own
+ * case, upper, lower or proper case, or just a word's first letter. It is read off the first example greedily,
+ * longest piece first, and kept only when it rebuilds every example exactly; of the programs that do, the one
+ * that copies the fewest letters and digits from the example as fixed text is taken.
  */
 
 const SPLIT = /[\s,;@._\-/\\|()]+/;
@@ -13,6 +15,12 @@ const recase = (text, mode) => mode === 'upper' ? text.toUpperCase() : mode === 
 
 function words(text) {
   return String(text).split(SPLIT).filter(Boolean);
+}
+
+// Runs of letters (an apostrophe inside a name, as in O'Brien, belongs to it) and runs of digits.
+const RUN = /[\p{L}\p{M}]+(?:['’][\p{L}\p{M}]+)*|\p{N}+/gu;
+function runs(text) {
+  return String(text).match(RUN) || [];
 }
 
 /** Every piece a source row offers, with how to get it again from another row. */
@@ -33,6 +41,11 @@ function pieces(sources) {
       add(w[0], { col, kind: 'initial', index: i });
       add(w[0], { col, kind: 'initial', index: i - list.length });
     });
+    const parts = runs(text);
+    parts.forEach((w, i) => {
+      add(w, { col, kind: 'run', index: i });
+      add(w, { col, kind: 'run', index: i - parts.length });
+    });
   });
   return out;
 }
@@ -44,7 +57,7 @@ function resolve(ref, sources) {
   let piece;
   if (ref.kind === 'whole') piece = text;
   else {
-    const list = words(text);
+    const list = ref.kind === 'run' ? runs(text) : words(text);
     const word = list[ref.index < 0 ? list.length + ref.index : ref.index];
     if (word == null) return null;
     piece = ref.kind === 'initial' ? word[0] : word;
@@ -82,7 +95,7 @@ function explain(sources, target, preferEnd) {
         // Whole cells before words, the cell's own case first, and a first or last word named as such (index 0 or -1),
         // so "Smith" from "John Smith" is the last word, and "Watson" from "Mary Jane Watson".
         const place = (x) => { const i = x.ref.index; if (i == null) return 0; if (i === 0 || i === -1) return 0; return (i < 0) === (preferEnd || variant === 1) ? 1 : 2; };
-        const rank = (x) => (x.ref.kind === 'whole' ? 0 : 1) * 10 + (x.ref.mode === 'same' ? 0 : 1) + place(x) * 2;
+        const rank = (x) => (x.ref.kind === 'whole' ? 0 : x.ref.kind === 'run' ? 2 : 1) * 10 + (x.ref.mode === 'same' ? 0 : 1) + place(x) * 2;
         if (rank(p) < rank(best)) best = p;
       }
       // A single character piece is taken only for an initial-like spot; otherwise the character is literal text.
@@ -108,13 +121,17 @@ function explain(sources, target, preferEnd) {
 export function flashFill(rows) {
   const examples = rows.filter((row) => row.target != null && row.target !== '');
   if (!examples.length) return null;
+  // Letters and digits written into a program as fixed text are copied to every row: of the programs that
+  // rebuild the examples, the one with the fewest is the pattern (ABC123 → ABC is the letters, not A and "BC").
+  const fixed = (program) => program.reduce((n, part) => n + (part.literal?.match(/[\p{L}\p{N}]/gu)?.length || 0), 0);
+  let best = null;
   for (const preferEnd of [false, true]) {
     for (const program of explain(examples[0].sources, String(examples[0].target), preferEnd)) {
       // A program of literal text alone copies the example everywhere; that is not a pattern.
       if (!program.some((part) => part.ref)) continue;
       if (!examples.every((row) => runProgram(program, row.sources) === String(row.target))) continue;
-      return rows.map((row) => (row.target != null && row.target !== '' ? undefined : runProgram(program, row.sources)));
+      if (!best || fixed(program) < fixed(best)) best = program;
     }
   }
-  return null;
+  return best && rows.map((row) => (row.target != null && row.target !== '' ? undefined : runProgram(best, row.sources)));
 }
