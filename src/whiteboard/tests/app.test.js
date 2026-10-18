@@ -34199,6 +34199,104 @@ test("an organization template inserts into the open board beside its content", 
   }
 });
 
+test("an organization Kanban template turns status sync on in the board it is inserted into", async () => {
+  const env = environment();
+  const { adminCall } = await import("../worker/admin.js");
+  const org = env.service.org;
+  await adminCall(org, env.service, owner, { op: "org.setup", name: "CDS" });
+  const sdk = env.sdk(owner);
+  await sdk.kv.set("whiteboard-organization-v1", {
+    server: "https://whiteboard-test.puter.work",
+  });
+  const exec = sdk.workers.exec;
+  sdk.workers.exec = async (url, options) => {
+    const input = JSON.parse(options.body);
+    if (
+      /^(org|email|notifications|prefs|library|spaces|teams)\./.test(input.op)
+    )
+      return adminCall(org, env.service, owner, input).then(
+        (result) => Response.json(result),
+        (error) =>
+          Response.json({ message: error.message }, { status: error.status }),
+      );
+    return exec(url, options);
+  };
+  const read = sdk.fs.read;
+  sdk.fs.read = async (path, ...rest) => {
+    if (String(path).endsWith("catalog.json"))
+      throw { code: "subject_does_not_exist" };
+    return read(path, ...rest);
+  };
+  sdk.fs.readdir = async () => [];
+  const app = await setup(sdk);
+  const { doc, w, click } = app;
+  const syncShown = async () => {
+    await click("#task-access");
+    const sync = doc.querySelector("#tasks-sync");
+    const checked = sync.checked;
+    return { sync, checked };
+  };
+  const closeTasks = async () => {
+    doc.querySelector("dialog.tasks-modal .dialog-header button").click();
+    await app.tick();
+  };
+  try {
+    for (
+      let n = 0;
+      n < 200 && !doc.querySelector('[data-org-action="admin"]');
+      n++
+    )
+      await app.tick();
+    // Share a Kanban column with status sync on as a template.
+    const column = item("frame", 0, 0, {
+      text: "Done",
+      w: 400,
+      h: 300,
+      order: 0,
+    });
+    await rotationFixture(app, [
+      column,
+      item("note", 50, 80, {
+        text: "Shipped",
+        parentId: column.id,
+        task: { assignee: null, start: null, due: null, status: "done" },
+      }),
+    ]);
+    const { sync } = await syncShown();
+    sync.checked = true;
+    sync.dispatchEvent(new w.Event("change", { bubbles: true }));
+    await closeTasks();
+    await click('[data-action="commands"]');
+    paletteQuery(app, "share template");
+    await click('[data-command="org-library-share"]');
+    doc.querySelector("#org-library-name").value = "Team Kanban";
+    await click("#org-library-share .primary");
+    for (let n = 0; n < 200 && doc.querySelector("#org-library-share"); n++)
+      await app.tick();
+    // Inserted into another board, its cards keep following the columns.
+    await click('[data-action="home"]');
+    await rotationFixture(app, [item("note", 0, 0, { text: "Already here" })]);
+    assert.equal((await syncShown()).checked, false);
+    await closeTasks();
+    await click('[data-action="commands"]');
+    paletteQuery(app, "Organization library");
+    await click('[data-command="org-library"]');
+    for (let n = 0; n < 200 && !doc.querySelector("[data-library-insert]"); n++)
+      await app.tick();
+    await click("[data-library-insert]");
+    for (let n = 0; n < 200 && doc.querySelector("dialog[open]"); n++)
+      await app.tick();
+    assert.match(
+      doc.querySelector("#toast").textContent,
+      /Kanban status sync is on for this board/,
+    );
+    assert.equal((await syncShown()).checked, true);
+    await closeTasks();
+  } finally {
+    await app.close();
+  }
+});
+
 test("a notification without a usable time is listed without one instead of failing the list", async () => {
   const env = environment(),
     service = env.service,

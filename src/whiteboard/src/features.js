@@ -117,8 +117,8 @@ import { keptRevision } from "./storage.js";
 import { readTableContent, pasteTable, tableHeight } from "./bulk-content.js";
 import { canSwitchShape, shapeKey, switchShape } from "./shapes.js";
 import { portableWorkshop, WORKSHOP_LIMITS } from "./facilitation/model.js";
-import { unlinkCopiedJira, hasTask } from "./planning/task.js";
-import { alignColumnStatuses } from "./planning/kanban.js";
+import { unlinkCopiedJira, hasTask, statusFromTitle } from "./planning/task.js";
+import { alignColumnStatuses, statusSyncEnabled } from "./planning/kanban.js";
 import { protectedIds } from "./locking.js";
 import { collectTasks, taskSheet } from "./planning/tasks.js";
 // A writer that fails to download reports it plainly instead of with the
@@ -2431,11 +2431,19 @@ export function createFeatures(api) {
               (step) =>
                 keep.some((i) => i.id === step.frame && i.type === "frame"),
             );
+            // Kanban columns saved from a board with status sync turn it on
+            // where they are inserted, as the Kanban template does.
+            const columns =
+              statusSyncEnabled(openedBoard) &&
+              keep.some(
+                (i) => i.type === "frame" && statusFromTitle(i.text || ""),
+              );
             content = {
               id: uid(),
               items: keep,
               tags: referencedTags(keep, openedBoard.tags),
               ...(steps.length ? { agenda: { steps: clone(steps) } } : {}),
+              ...(columns ? { planning: { statusSync: true } } : {}),
               version: 1,
             };
           }
@@ -2832,7 +2840,7 @@ export function createFeatures(api) {
               b.items,
               b.tags,
               saved
-                ? { fit: true, agenda: b.agenda }
+                ? { fit: true, agenda: b.agenda, planning: b.planning }
                 : { template: true, planning: b.planning },
             );
           else {
@@ -3883,9 +3891,9 @@ export function createFeatures(api) {
     actions,
     followSlide,
     // Inserts a whole template's objects into the open board, as the
-    // template library does.
-    insertTemplate: (items, tags) =>
-      insertContent(items, tags, { template: true }),
+    // template library does, with a Kanban board's status sync.
+    insertTemplate: (items, tags, planning) =>
+      insertContent(items, tags, { template: true, planning }),
     organizeSelection,
     edit(i) {
       if (i.type === "link") linkDialog(i);

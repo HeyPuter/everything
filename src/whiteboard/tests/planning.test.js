@@ -2478,6 +2478,75 @@ test("inserting the Kanban template turns status sync on, says so, and lines up 
   }
 });
 
+test("Kanban columns saved as reusable content turn status sync on where they are inserted", async () => {
+  const app = await setup(),
+    { doc, w, click } = app;
+  const syncShown = async () => {
+    await click("#task-access");
+    const checked = doc.querySelector("#tasks-sync").checked;
+    doc.querySelector("dialog.tasks-modal .dialog-header button").click();
+    await app.tick();
+    return checked;
+  };
+  const save = async (name) => {
+    await click('[data-action="organize"]');
+    await click('[data-organize="snippet"]');
+    doc.querySelector("#snippet-name").value = name;
+    doc
+      .querySelector("dialog form")
+      .dispatchEvent(new w.Event("submit", { cancelable: true }));
+    for (let n = 0; n < 50 && doc.querySelector("dialog[open]"); n++)
+      await app.tick();
+  };
+  try {
+    await click('[data-action="new"]');
+    await click("#task-access");
+    const sync = doc.querySelector("#tasks-sync");
+    sync.checked = true;
+    sync.dispatchEvent(new w.Event("change", { bubbles: true }));
+    doc.querySelector("dialog.tasks-modal .dialog-header button").click();
+    await app.tick();
+    // A column and its card, then a plain note, are saved for reuse.
+    const { done } = plan();
+    const card = item("note", 760, 100, {
+      text: "Shipped",
+      parentId: done.id,
+      task: newTask({ status: "done" }),
+    });
+    dispatch(app, "paste", transfer(clipboardFormats([done, card])));
+    await app.tick();
+    await save("Done column");
+    dispatch(
+      app,
+      "paste",
+      transfer(clipboardFormats([item("note", 0, 600, { text: "Plain" })])),
+    );
+    await app.tick();
+    await save("Plain note");
+    // Inserted on another board, the column turns its status sync on.
+    await click('[data-action="home"]');
+    await click('[data-action="new"]');
+    await click('[data-action="templates"]');
+    const custom = (title) =>
+      [...doc.querySelectorAll("[data-custom]")].find(
+        (b) => b.querySelector("strong").textContent === title,
+      );
+    custom("Plain note").click();
+    await app.tick();
+    assert.equal(await syncShown(), false, "A plain note leaves it off");
+    await click('[data-action="templates"]');
+    custom("Done column").click();
+    await app.tick();
+    assert.match(
+      doc.querySelector("#toast").textContent,
+      /Kanban status sync is on for this board/,
+    );
+    assert.equal(await syncShown(), true);
+  } finally {
+    app.close();
+  }
+});
+
 test("undo and redo turn Kanban status sync off and on again on a personal board", async () => {
   const app = await setup(),
     { doc, w, click } = app;

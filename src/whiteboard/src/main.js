@@ -1439,7 +1439,7 @@ const organizationLibrary = createOrganizationLibrary({
   insertBoard: (json) => {
     const b = validateBoard(JSON.parse(json));
     assertImagePixels(b.items);
-    return features.insertTemplate(b.items, b.tags);
+    return features.insertTemplate(b.items, b.tags, b.planning);
   },
   // The open board as this person may see it, without its discussion.
   shareable: () => {
