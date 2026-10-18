@@ -88,3 +88,13 @@ it('counts, numbers and draws the pages of every sheet in the dialog', async () 
   expect(drawn.some((t) => t.startsWith('Hidden'))).toBe(false);
   expect(drawn).toContain(`Page ${6 + all} of ${all}`);
 });
+
+it('lets fitting override manual page breaks, as the print does', () => {
+  const { wb, first } = book();
+  const breaks = { rowBreaks: [40, 80], colBreaks: [2] };
+  expect(printPreviewLayout(wb, first, { ...prefs, ...breaks }).pages.length).toBe(6);
+  // One page wide and tall: every break gives way.
+  expect(printPreviewLayout(wb, first, { ...prefs, ...breaks, fit: 'pages', fitWidth: 1, fitHeight: 1 }).pages).toHaveLength(1);
+  // Fitted to the width, the breaks across give way and those down stand.
+  expect(printPreviewLayout(wb, first, { ...prefs, ...breaks, fit: 'width' }).pages.map((p) => p.rows[0])).toEqual([0, 40, 80]);
+});

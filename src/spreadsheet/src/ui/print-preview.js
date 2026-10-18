@@ -8,7 +8,7 @@
 
 import { el } from './dom.js';
 import { icon } from './icons.js';
-import { printPaperBox, expandPrintText, splitPrintSections, printPageText, sheetPrintPrefs } from './print.js';
+import { printPaperBox, expandPrintText, splitPrintSections, printPageText, sheetPrintPrefs, manualBreaksApply } from './print.js';
 import { printBands, printTitleBands } from './print-pagination.js';
 import { fillColorCss } from '../core/fill-color.js';
 import { fontColorCss } from '../core/font-color.js';
@@ -93,8 +93,10 @@ export function printPreviewLayout(wb, sheetId, prefs, range = null, only = null
   const titleRows = Array.isArray(prefs.titleRows) ? prefs.titleRows : null, titleCols = Array.isArray(prefs.titleCols) ? prefs.titleCols : null;
   // The sheet's frozen rows the block starts with repeat on every page, unless rows to repeat are named.
   const frozen = !titleRows && prefs.repeatFrozen ? Math.max(0, Math.min(sheet.frozenRows || 0, area.r2 + 1) - area.r1) : 0;
-  const colBands = bands(colSizes, contentW / scale - headW, prefs.colBreaks, area.c1, area.c2, titleCols, hiddenCol, (c) => wb.colWidth(sheetId, c), 0);
-  const rowBands = bands(rowSizes, contentH / scale - headH, prefs.rowBreaks, area.r1, area.r2, titleRows, hiddenRow, (r) => wb.rowHeight(sheetId, r), frozen);
+  // Manual breaks give way to fitting, as in the print: across when fitted to the page's width, or to a number of pages wide; down when fitted to a number of pages tall.
+  const breaks = manualBreaksApply(prefs);
+  const colBands = bands(colSizes, contentW / scale - headW, breaks.cols ? prefs.colBreaks : null, area.c1, area.c2, titleCols, hiddenCol, (c) => wb.colWidth(sheetId, c), 0);
+  const rowBands = bands(rowSizes, contentH / scale - headH, breaks.rows ? prefs.rowBreaks : null, area.r1, area.r2, titleRows, hiddenRow, (r) => wb.rowHeight(sheetId, r), frozen);
   const page = (r, c) => ({ rows: r.lines, cols: c.lines, ...(r.repeat ? { repeatRows: r.repeat } : {}), ...(c.repeat ? { repeatCols: c.repeat } : {}) });
   const pages = [];
   if (prefs.pageOrder === 'overThenDown') for (const rows of rowBands) for (const cols of colBands) pages.push(page(rows, cols));
