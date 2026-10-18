@@ -1042,6 +1042,8 @@ export function loadResult(wb, query, table, { at = null } = {}) {
     if (wb.sheet(sheetId).tables.some((t) => !(range.r2 < t.range.r1 || range.r1 > t.range.r2 || range.c2 < t.range.c1 || range.c1 > t.range.c2))) {
       result = { error: 'The data would overlap another table. Choose another location.' }; return;
     }
+    // Loading over cells that hold something would write over them without a word: the location must be empty.
+    if (at && occupied(wb, sheetId, range)) { result = { error: 'There is data where the table would go. Choose an empty location, or a new worksheet.' }; return; }
     const { entries, errors } = resultCells(table, r0, c0);
     wb.setCells(sheetId, entries, label);
     const name = tableNameFor(wb, query.name);
