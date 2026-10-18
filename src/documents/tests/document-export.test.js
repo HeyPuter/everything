@@ -28,4 +28,14 @@ describe('Markdown and plain-text tables', () => {
     expect(documentMarkdown(doc)).toBe('| A | B | C |\n| --- | --- | --- |\n| x<br>y |   | z |\n');
     expect(documentPlainText(doc)).toBe('A\tB\tC\nx y\t\tz\n');
   });
+  it('keeps a pipe in a cell, or in a link in one, inside that cell', () => {
+    const doc = blankDoc();
+    doc.insertTable(1, 2);
+    const t = doc.tables[0];
+    fill(doc, t, 0, 0, 'a|b');
+    fill(doc, t, 0, 1, 'site');
+    const at = doc.text.indexOf('site'); doc.select(at, at + 4);
+    doc.setHyperlink('https://example.com/?q=a|b');
+    expect(documentMarkdown(doc)).toBe('| a\\|b | [site](https://example.com/?q=a%7Cb) |\n| --- | --- |\n');
+  });
 });

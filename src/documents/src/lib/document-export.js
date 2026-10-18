@@ -113,7 +113,7 @@ function runMarkdown(run, heading = false) {
   if (run.verticalAlign === 'superscript') out = `<sup>${out}</sup>`;
   if (run.verticalAlign === 'subscript') out = `<sub>${out}</sub>`;
   const link = safeLink(run);
-  if (link) out = `[${out}](${link.replace(/[()\s]/g, encodeURIComponent)})`;
+  if (link) out = `[${out}](${link.replace(/[()\s|]/g, encodeURIComponent)})`;
   return lead + out + trail;
 }
 const paragraphMarkdown = (p, heading = false) => p.runs.map(run => runMarkdown(run, heading)).join('').replace(/\n/g, ' ');
@@ -121,7 +121,8 @@ function blocksMarkdown(blocks, model) {
   const out = []; let counter = 0, previousList = null;
   for (const block of blocks) {
     if (block.type === 'table') {
-      const rows = tableRows(block, cell => cell.content.filter(c => !c.type).map(c => paragraphMarkdown(c.paragraph)).join('<br>').replace(/\|/g, '\\|')).map(row => row.map(text => text || ' '));
+      // Text already escapes its pipes (and link targets encode theirs), so none ends a cell early.
+      const rows = tableRows(block, cell => cell.content.filter(c => !c.type).map(c => paragraphMarkdown(c.paragraph)).join('<br>')).map(row => row.map(text => text || ' '));
       if (rows.length) {
         const width = Math.max(...rows.map(r => r.length));
         const pad = r => [...r, ...Array(width - r.length).fill(' ')];
