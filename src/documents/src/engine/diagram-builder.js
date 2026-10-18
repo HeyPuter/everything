@@ -37,7 +37,8 @@ export function parseOutline(text) {
   for (const raw of String(text || '').split(/\r\n|[\n\r\v\f]/)) {
     if (!raw.trim()) continue;
     const indent = raw.match(/^[ \t]*/)[0].replace(/\t/g, '  ').length;
-    const bullet = raw.trim().match(/^[-*•]\s*/)?.[0].length || 0;
+    // A typed bullet is "•", or "-" or "*" followed by a space: "-5% churn" is text, not a bullet.
+    const bullet = raw.trim().match(/^(?:•\s*|[-*]\s+)/)?.[0].length || 0;
     const depth = Math.floor(indent / 2) + (bullet && !indent ? 0 : 0);
     const node = { text: raw.trim().slice(bullet).trim(), children: [] };
     if (!node.text) continue;

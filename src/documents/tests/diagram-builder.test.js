@@ -15,6 +15,8 @@ it('parses an indented outline and writes it back', () => {
   expect(items.map(i => i.text)).toEqual(['Plan', 'Build', 'Ship']);
   expect(items[0].children.map(i => i.text)).toEqual(['Goals', 'Budget']);
   expect(parseOutline(outlineText(items))).toEqual(items);
+  // A minus sign or an asterisk that starts the text is kept: only one followed by a space is a bullet.
+  expect(parseOutline('-5% churn\n*Note*\n- Item').map(i => i.text)).toEqual(['-5% churn', '*Note*', 'Item']);
 });
 
 it('lays out every diagram inside its frame', () => {
