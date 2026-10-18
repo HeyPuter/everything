@@ -1624,8 +1624,21 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
   const deferredArrays = new Map();
   let usedR = -1;
   let usedC = -1;
+  // A cell past the grid's last row or column (a SpreadsheetML, SYLK or web-page table can place one
+  // anywhere) has nowhere to be shown, and saved it would make a file that neither Excel nor this app
+  // opens again. It is counted, as a delimited file's are, so the import can say what did not fit.
+  let beyondRows = 0;
+  let beyondCols = 0;
+  let countedRow = -1;
   for (const { r, c, addr, cell: src } of storedCells(X, ws)) {
     if (!src) continue;
+    if (r > MAX_ROW || c > MAX_COL) {
+      if (src.v != null || src.f != null) {
+        if (r > MAX_ROW && r !== countedRow) { countedRow = r; beyondRows++; }
+        if (c > MAX_COL) beyondCols = Math.max(beyondCols, c - MAX_COL);
+      }
+      continue;
+    }
     // Inside an array formula's block only the top-left cell holds the
     // formula; keep the other cells' formats, but recompute their values.
     const spillResult = src.F && !src.f;
@@ -1995,6 +2008,7 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
   const merges = fileMerges((ws?.['!merges'] || []).filter((m) => m?.s && m?.e).map((m) => ({ r1: m.s.r, c1: m.s.c, r2: m.e.r, c2: m.e.c })));
   return {
     name,
+    ...(beyondRows || beyondCols ? { beyond: { rows: beyondRows, cols: beyondCols } } : {}),
     merges,
     notes,
     ignoredErrors: readXlsxIgnoredErrors(partXml),
@@ -2460,6 +2474,11 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
       if (!chartSheet && partOf(n)) sheet.background = readXlsxBackground(book, n, partOf(n));
       return { ...sheet, hidden: hidden.has(n) || isVeryHidden || visibility === 'hidden', veryHidden: isVeryHidden };
     });
+  // What each sheet held past the grid, counted as for a delimited file: rows added up, columns at their widest.
+  const beyond = sheets.reduce((sum, sheet) => {
+    if (sheet.beyond) { sum.rows += sheet.beyond.rows; sum.cols = Math.max(sum.cols, sheet.beyond.cols); delete sheet.beyond; }
+    return sum;
+  }, { rows: 0, cols: 0 });
   const pivotRulePriorities = new Map();
   for (const sheet of sheets) {
     const nativeRules = sheet.rules;
@@ -2647,6 +2666,7 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
   const activeName = typeof meta?.active === 'string' ? meta.active : Number.isInteger(tab) && tab >= 0 ? book.SheetNames[tab] : null;
   const active = activeName ? wb.sheetByName(renamed.get(activeName) || activeName) : null;
   if (active && !active.hidden) wb.activeSheetId = active.id;
+  if (beyond.rows || beyond.cols) wb.importTruncated = beyond;
   wb.dirty = false;
   return wb;
 }
