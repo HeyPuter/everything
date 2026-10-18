@@ -19,6 +19,7 @@ import { toast } from './toast.js';
 import { RULE_TYPES, ICON_SETS, DATE_PERIODS, describeRule, barColorOf } from '../core/condformat.js';
 import { rangeName } from '../core/cell.js';
 import { parseInput, formatGeneral } from '../core/format.js';
+import { codeDateKind } from '../core/numfmt.js';
 import { FILL_COLORS, TEXT_COLORS, swatchColor } from './toolbar.js';
 import { customFormulaProblem } from './validation.js';
 
@@ -26,6 +27,16 @@ import { customFormulaProblem } from './validation.js';
 // is one and a half where the decimal mark is a comma, 1,234.5 where it is not.
 export const numberOf = (text) => { const { v } = parseInput(text.trim()); return typeof v === 'number' ? v : null; };
 export const numberText = (v) => (typeof v === 'number' ? formatGeneral(v) : v);
+/**
+ * The value an Equal to or Not equal to condition compares with: a number typed as the grid reads one (1,5
+ * where the decimal mark is a comma, 50%, $1,200) is that number, so it matches the cells that hold it; other
+ * text, a date or a time among it, is kept as typed and compared as text.
+ */
+export const equalValueOf = (text) => {
+  const typed = text.trim();
+  const { v, fmt, code } = parseInput(typed);
+  return typeof v === 'number' && !['date', 'time', 'datetime'].includes(fmt) && !(fmt === 'custom' && codeDateKind(v, code)) ? v : text;
+};
 
 export function openConditionalFormatting(ctx) {
   const sheetId = ctx.sheetId();
@@ -479,7 +490,7 @@ export function openConditionalFormatting(ctx) {
       ...(nativeBar && !t.databar ? { barMode: undefined, barActiveFormula: undefined, barMinFormula: undefined, barMaxFormula: undefined, barMinFormulaType: undefined, barMaxFormulaType: undefined,
         barMinLength: undefined, barMaxLength: undefined, barFullHeight: undefined, barOnly: undefined,
         ...Object.fromEntries(Object.keys(barControls).map(key => [key, undefined])) } : {}),
-      value: t.date ? dateSelect.value : t.args >= 1 ? (t.numeric ? n1 : value1.value) : undefined,
+      value: t.date ? dateSelect.value : t.args >= 1 ? (t.numeric ? n1 : ['eq', 'neq'].includes(t.value) ? equalValueOf(value1.value) : value1.value) : undefined,
       value2: t.args >= 2 ? n2 : undefined,
       style: t.scale || t.bands || t.databar || t.icons ? {} : { ...(fill ? { bg: fill } : {}), ...(color ? { color } : {}), ...(boldInput.checked ? { bold: true } : {}) },
       ...(t.icons ? { ...(nativeIcons ? { iconSet: nativeIconSelect.value, ...thresholds,

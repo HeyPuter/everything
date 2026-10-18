@@ -12,7 +12,7 @@ import { cellName, rangeName, normalizeRange } from '../core/cell.js';
 import { ICON_SETS, DATE_PERIODS } from '../core/condformat.js';
 import { conditionalRuleGroups } from '../core/conditional-groups.js';
 import { CELL_STYLES } from '../core/cellstyles.js';
-import { numberOf, numberText } from './condformat.js';
+import { numberOf, numberText, equalValueOf } from './condformat.js';
 
 const styleOf = key => ({ ...CELL_STYLES.find(s => s.key === key)?.patch });
 /** Formats a quick rule can apply, drawn from the app's own Good, Bad and Neutral cell styles. */
@@ -131,7 +131,7 @@ export function openQuickRuleDialog(ctx, key, range) {
     if (def.count && !(Number.isInteger(n1) && n1 >= 1 && n1 <= 1000)) return refuse(value1, 'Enter a whole number from 1 to 1000');
     if (def.args >= 2 && n2 == null) return refuse(value2, 'Enter a number');
     const style = QUICK_STYLES.find(([k]) => k === format.value)[2]();
-    const value = def.date ? period.value : def.numeric ? n1 : value1.value.trim();
+    const value = def.date ? period.value : def.numeric ? n1 : def.type === 'eq' ? equalValueOf(value1.value) : value1.value.trim();
     const rule = quickRule(range, key, { value, value2: n2, choice: choice.value, style });
     if (!wb.addRule(sheetId, rule)) return refuse(def.args ? value1 : format, wb.isProtected(sheetId) ? 'This sheet is protected' : 'The rule could not be added');
     modal.close();
