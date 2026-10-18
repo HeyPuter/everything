@@ -508,6 +508,42 @@ function staticReads(ast) {
   return ast._reads;
 }
 
+/**
+ * The items of a list of rectangles (a sheet's merges, its conditional formatting rules or its validation rules)
+ * whose rectangle may hold (r, c), in list order. The grid asks for every cell it draws, and a file can bring
+ * thousands of each: a long list is filed by bands of rows once, kept while the list is the same array (the
+ * workbook replaces these lists rather than changing them), and only the items filed under the cell's band are
+ * returned, which the caller still tests. A short list comes back whole.
+ */
+const RECT_BAND = 64;
+const rectIndexes = new WeakMap();
+function rectCandidates(list, r, rectOf) {
+  if (list.length < 32) return list;
+  let index = rectIndexes.get(list);
+  if (!index || index.length !== list.length) {
+    const bands = new Map();
+    const tall = []; // items over many bands, a whole column's rule, are checked for every cell instead
+    list.forEach((item, i) => {
+      const g = rectOf(item);
+      if (!g) { tall.push(i); return; }
+      const b1 = Math.floor(g.r1 / RECT_BAND), b2 = Math.floor(g.r2 / RECT_BAND);
+      if (!(b2 >= b1) || b2 - b1 > 64) { tall.push(i); return; }
+      for (let b = b1; b <= b2; b++) { const at = bands.get(b); if (at) at.push(i); else bands.set(b, [i]); }
+    });
+    index = { length: list.length, bands, tall };
+    rectIndexes.set(list, index);
+  }
+  const near = index.bands.get(Math.floor(r / RECT_BAND));
+  const tall = index.tall;
+  if (!tall.length) return near ? near.map((i) => list[i]) : [];
+  if (!near) return tall.map((i) => list[i]);
+  const out = [];
+  for (let i = 0, j = 0; i < near.length || j < tall.length;) out.push(list[j >= tall.length || (i < near.length && near[i] < tall[j]) ? near[i++] : tall[j++]]);
+  return out;
+}
+const ownRect = (item) => item;
+const itemRange = (item) => item.range;
+
 /** The rows and columns a sheet's cells may occupy: the grid's limits, or the sheet's own size when a file brought a larger one. */
 function gridLimits(sheet) {
   return { rows: Math.max(sheet.rows, MAX_ROWS), cols: Math.max(sheet.cols, MAX_COLS) };
@@ -8788,7 +8824,7 @@ export class Workbook extends EventTarget {
     // rules in conflict the earlier one wins (see moveRule), while the table coat gives way to any rule.
     const painted = new Set();
     const paint = (patch) => { out = { ...(out || {}), ...patch }; for (const key of Object.keys(patch)) painted.add(key); };
-    for (const rule of sheet.rules) {
+    for (const rule of rectCandidates(sheet.rules, r, itemRange)) {
       const g = rule.range;
       if (r < g.r1 || r > g.r2 || c < g.c1 || c > g.c2) continue;
       if (rule.type === 'scale') {
@@ -9912,8 +9948,9 @@ export class Workbook extends EventTarget {
   validationAt(sheetId, r, c) {
     const sheet = this.sheet(sheetId);
     if (!sheet || !sheet.validations.length) return null;
-    for (let i = sheet.validations.length - 1; i >= 0; i--) {
-      const v = sheet.validations[i];
+    const list = rectCandidates(sheet.validations, r, itemRange);
+    for (let i = list.length - 1; i >= 0; i--) {
+      const v = list[i];
       if (r >= v.range.r1 && r <= v.range.r2 && c >= v.range.c1 && c <= v.range.c2) return v;
     }
     return null;
@@ -10606,7 +10643,7 @@ export class Workbook extends EventTarget {
   mergeAt(sheetId, r, c) {
     const sheet = this.sheet(sheetId);
     if (!sheet || !sheet.merges.length) return null;
-    return sheet.merges.find((m) => r >= m.r1 && r <= m.r2 && c >= m.c1 && c <= m.c2) || null;
+    return rectCandidates(sheet.merges, r, ownRect).find((m) => r >= m.r1 && r <= m.r2 && c >= m.c1 && c <= m.c2) || null;
   }
 
   /** Merges that overlap a range. */
