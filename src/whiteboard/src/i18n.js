@@ -367,6 +367,8 @@ const pairs = {
   "Central idea": "Idée centrale",
   "New idea": "Nouvelle idée",
   "Untitled node": "Nœud sans titre",
+  "Unlock “{name}” first: the mind map’s layout moves it.":
+    "Déverrouillez d’abord « {name} » : la disposition de la carte mentale le déplace.",
   "Mind map controls": "Options de la carte mentale",
   "Move mind map branch": "Déplacer une branche de carte mentale",
   "Move branch earlier": "Avancer la branche",

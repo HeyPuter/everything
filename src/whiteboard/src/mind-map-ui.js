@@ -1,5 +1,5 @@
 import { fold } from "./libraries.js";
-import { item, validateBoard, bounds, MAX_OBJECTS } from "./model.js";
+import { item, validateBoard, bounds, truncate, MAX_OBJECTS } from "./model.js";
 import { language, t } from "./i18n.js";
 import { planMindReparent } from "./mind-map-drag.js";
 import { inferMovedParents } from "./scene.js";
@@ -21,13 +21,9 @@ export function createMindMapUI(api) {
     api
       .board()
       .items.map((i) => (i.mindMap ? { ...i, mindMap: { ...i.mindMap } } : i));
-  function commit(next, selected, edit = false, overview = false) {
-    const board = api.board(),
-      before = new Map(board.items.map((i) => [i.id, i]));
-    if (next.length > MAX_OBJECTS)
-      throw Error("A board can contain at most 5,000 objects.");
-    validateBoard({ ...board, items: next });
-    const patch = next.filter((i) => {
+  // The objects `next` changes or adds.
+  function changes(next, before) {
+    return next.filter((i) => {
       const old = before.get(i.id);
       return (
         !old ||
@@ -36,7 +32,31 @@ export function createMindMapUI(api) {
         )
       );
     });
+  }
+  // Laying a map out again moves its other nodes too, so a locked one there
+  // refuses the change. The refusal names it: the lock also protects the
+  // nodes above it, so a selection holding no locked object is refused too.
+  function refusePinned(patch, before) {
+    const pinned = patch.map((i) => before.get(i.id)).find((i) => i?.locked);
+    if (pinned)
+      throw Error(
+        t("Unlock “{name}” first: the mind map’s layout moves it.").replace(
+          "{name}",
+          () =>
+            truncate(pinned.text?.replace(/\s+/g, " ").trim(), 60) ||
+            t("Untitled node"),
+        ),
+      );
+  }
+  function commit(next, selected, edit = false, overview = false) {
+    const board = api.board(),
+      before = new Map(board.items.map((i) => [i.id, i]));
+    if (next.length > MAX_OBJECTS)
+      throw Error("A board can contain at most 5,000 objects.");
+    validateBoard({ ...board, items: next });
+    const patch = changes(next, before);
     if (!patch.length) return true;
+    refusePinned(patch, before);
     if (
       !api.canEdit(
         new Set(patch.filter((i) => before.has(i.id)).map((i) => i.id)),
@@ -95,11 +115,10 @@ export function createMindMapUI(api) {
       const next = working(),
         index = mindIndex(next),
         selected = index.nodes.get(id);
-      if (!selected || !api.canEdit(new Set([id]))) return;
+      if (!selected || !api.canEdit(new Set())) return;
       const parent = sibling
         ? index.nodes.get(selected.mindMap.parent) || selected
         : selected;
-      if (!api.canEdit(new Set([parent.id]))) return;
       for (const node of [parent, ...mindAncestors(next, parent.id)])
         if (node.mindCollapsed) node.mindCollapsed = false;
       const root = mindRoot(index, parent.id),
@@ -144,6 +163,12 @@ export function createMindMapUI(api) {
           if (i.mindMap.direction === node.mindMap.direction)
             node[axis] = Math.max(node[axis], i[axis] + i[size] + 28);
       }
+      // A locked node the new one would move is named before the nodes it
+      // protects are refused.
+      const before = new Map(api.board().items.map((i) => [i.id, i]));
+      refusePinned(changes(next, before), before);
+      if (!api.canEdit(new Set([id])) || !api.canEdit(new Set([parent.id])))
+        return;
       commit(next, node.id, true);
     });
   }

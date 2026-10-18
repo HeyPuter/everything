@@ -193,6 +193,44 @@ test("a branch moved to a mind map in another frame joins that frame", () => {
   }
 });
 
+test("a sibling refused because the layout would move a locked node names that node", () => {
+  const b = board("Locked node");
+  const node = (text, parent, extra = {}) =>
+    item("rect", 0, 0, {
+      text,
+      w: 200,
+      h: 76,
+      mindMap: { parent, direction: "right", auto: true, line: "curved" },
+      ...extra,
+    });
+  const root = node("Root", null),
+    locked = node("Keep\nhere", root.id, { order: 1, locked: true }),
+    open = node("Open", root.id, { order: 2 });
+  b.items = [root, locked, open];
+  const toasts = [];
+  let writes = 0;
+  const ui = createMindMapUI({
+    board: () => b,
+    source: () => open,
+    finish() {},
+    // The lock protects the root above the locked node too.
+    canEdit: (ids) =>
+      ![...ids].some((id) => id === locked.id || id === root.id),
+    mutate: () => writes++,
+    select() {},
+    focus() {},
+    reveal() {},
+    edit() {},
+    toast: (message) => toasts.push(message),
+  });
+  ui.add(true);
+  assert.equal(writes, 0);
+  assert.deepEqual(toasts, [
+    "Unlock “Keep here” first: the mind map’s layout moves it.",
+  ]);
+  assert.equal(b.items.length, 3);
+});
+
 test("French parent controls keep tagged English text and translated empty-node names", () => {
   const a = setup();
   try {
