@@ -160,6 +160,8 @@ addTranslations({
     "Masquer les résultats jusqu’à ce que je les dévoile",
   "Show the time limit in the board timer":
     "Afficher la durée dans la minuterie du tableau",
+  "The step's time limit replaced the board timer that was counting down.":
+    "La durée de l’étape a remplacé le minuteur du tableau qui était en cours.",
   "The board timer is counting down, so the time limit shows in the voting banner instead. Choose this to replace it.":
     "La minuterie du tableau est en marche : la durée s’affiche plutôt dans la bannière du vote. Cochez cette case pour la remplacer.",
   "Start voting": "Commencer le vote",

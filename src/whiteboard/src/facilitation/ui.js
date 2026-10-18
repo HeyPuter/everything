@@ -1008,7 +1008,10 @@ export function createFacilitationUI(api) {
       run = board().workshop?.run;
     api.focusFrame(s.frame);
     api.bring();
-    if (s.minutes && run && api.canEdit())
+    if (s.minutes && run && api.canEdit()) {
+      // A step's time limit takes the board timer, as it always has; one
+      // someone else started is not replaced without a word.
+      const replaced = timerBusy() && !agendaTimer(board().timer);
       api.setTimer(
         changeTimer(board().timer, "start", {
           now: stamp,
@@ -1016,7 +1019,11 @@ export function createFacilitationUI(api) {
           id: () => agendaTimerId(run),
         }),
       );
-    else stopAgendaTimer(stamp);
+      if (replaced)
+        api.toast(
+          "The step's time limit replaced the board timer that was counting down.",
+        );
+    } else stopAgendaTimer(stamp);
   }
   // The last step's timebox ends with it, rather than ringing in the next.
   function stopAgendaTimer(stamp = now()) {

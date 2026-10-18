@@ -4190,6 +4190,8 @@ test("a timer started by hand keeps running through agenda steps without a durat
     host.click('[data-fac="agenda-next"]');
     assert.equal(host.calls.timer[0].duration, 600000);
     assert.equal(host.calls.timer[0].state, "running");
+    // A step's time limit takes the board timer, and says so.
+    assert.match(host.calls.toasts.at(-1), /replaced the board timer/);
     host.click('[data-fac="agenda-end"]');
     assert.equal(b.workshop.run.state, "ended");
     assert.equal(host.calls.timer[1].state, "idle");
