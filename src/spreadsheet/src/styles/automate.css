@@ -255,7 +255,8 @@ mark.ce-find-current { background: var(--code-find-current); }
 .sg-top { display: flex; }
 .sg-search { flex: 1; }
 .sg-body { display: flex; flex-direction: column; gap: 18px; max-height: min(62vh, 640px); overflow: auto; padding-right: 2px; }
-.sg-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+/* The workbook section's New Script and Record Actions go under its title where the two do not fit beside it (a phone). */
+.sg-section-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; margin-bottom: 8px; }
 .sg-section-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.03em; }
 .sg-section-actions { display: flex; gap: 4px; }
 .sg-section-actions .btn { display: inline-flex; align-items: center; gap: 5px; }
