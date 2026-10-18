@@ -335,6 +335,9 @@
   padding: 4px 8px 4px 4px;
   border-bottom: 1px solid var(--hairline);
   transition: background 0.12s;
+  /* A list of thousands of spreadsheets lays out only the rows in view, as a search narrows it keystroke by keystroke. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 61px;
 }
 
 .file-row:last-child { border-bottom: 0; }

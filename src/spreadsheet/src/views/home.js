@@ -82,11 +82,16 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
     clocks.add({ node, text });
     return node;
   };
-  /** A row's time is a column of its own on a wide screen: only that part is rewritten, the size beside it stays. */
+  /**
+   * Each file's row is built once and kept for as long as the listing it came from: a search or another order puts
+   * the same rows back rather than building every one again, which on a list of a few thousand spreadsheets took a
+   * fifth of a second a keystroke. A row's time is a column of its own on a wide screen, rewritten in place by the
+   * clock below whether the row is on show or not, so a row a search brings back says the time it is now.
+   */
+  let rowCache = new Map(); // file → { row, time }
   const rowMeta = (ts, size) => {
     const time = el('span.file-when', {}, relativeTime(ts));
-    clocks.add({ node: time, text: () => relativeTime(ts) });
-    return el('span.file-meta', {}, time, el('span.file-sep', { 'aria-hidden': 'true' }, ' · '), el('span.file-size', {}, formatBytes(size)));
+    return { time, meta: el('span.file-meta', {}, time, el('span.file-sep', { 'aria-hidden': 'true' }, ' · '), el('span.file-size', {}, formatBytes(size))) };
   };
   /**
    * A long list in order of change reads in stretches of time, as a file browser's does: Today,
@@ -108,6 +113,7 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
   let shownGroups = null; // the labels drawn, joined, or null when the list is drawn without them
   const tick = () => {
     for (const c of clocks) { if (c.node.isConnected) c.node.textContent = c.text(); else clocks.delete(c); }
+    for (const [file, { time }] of rowCache) { const text = relativeTime(file.modified); if (time.textContent !== text) time.textContent = text; }
     // Past midnight, yesterday's "Today" is wrong: the list is drawn again when its date groups would change.
     if (shownGroups !== null && groupsOf(shownFiles).join() !== shownGroups) renderList();
   };
@@ -410,6 +416,7 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
       const nextFiles = await P.listFiles();
       if (destroyed || requestId !== loadId) return;
       files = nextFiles;
+      rowCache = new Map(); // the rows of the listing before
     } catch (e) {
       if (destroyed || requestId !== loadId) return;
       console.error(e);
@@ -514,6 +521,7 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
       for (const spelling of [file.path, P.legacyAppPath(file.path)].filter(Boolean)) { clearDraft(draftKey(spelling)); clearDraft(liveDraftKey(draftKey(spelling))); }
       forgetExternalDecision({ path: file.path, uid: file.uid });
       files = files.filter((f) => f.path !== file.path);
+      rowCache.delete(file);
       renderList();
       toast('Deleted', { icon: 'trash' });
     } catch (e) {
@@ -590,24 +598,34 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
     let group = null;
     list.append(...shown.flatMap((file) => {
       const label = grouped && groupOf(file.modified) !== group ? (group = groupOf(file.modified)) : null;
-      const row = el('div.file-row', { role: 'listitem', dataset: { focusKey: file.path } },
-        el('a.file-main', {
-          href: `#/edit/${encodeURIComponent(file.path)}`,
-          title: file.name, // a long name is cut short on screen; the whole of it on hover
-          // A modifier click asks for a new tab or window: leave it to the browser.
-          onclick: (e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); openPath(file.path); },
-        },
-          el('span.file-icon', { html: icon('sheet', 20) }),
-          el('span.file-text', {},
-            // A file named in a right-to-left script is laid out that way, its digits and punctuation at its own end.
-            el('span.file-name', { dir: 'auto' }, stripExtension(file.name)),
-            rowMeta(file.modified, file.size))),
-        el('button.icon-btn.file-menu-btn', {
-          type: 'button', html: icon('moreV', 18), 'aria-label': `Options for ${stripExtension(file.name)}`, 'aria-haspopup': 'menu',
-          onclick: (e) => fileMenu(file, e.currentTarget),
-        }));
+      const row = fileRow(file);
       return label ? [el('div.file-group', { 'aria-hidden': 'true' }, label), row] : [row];
     }));
+  }
+
+  /** The row of a file in the list, built the first time it is shown (see rowCache). */
+  function fileRow(file) {
+    const kept = rowCache.get(file);
+    if (kept) return kept.row;
+    const { time, meta } = rowMeta(file.modified, file.size);
+    const row = el('div.file-row', { role: 'listitem', dataset: { focusKey: file.path } },
+      el('a.file-main', {
+        href: `#/edit/${encodeURIComponent(file.path)}`,
+        title: file.name, // a long name is cut short on screen; the whole of it on hover
+        // A modifier click asks for a new tab or window: leave it to the browser.
+        onclick: (e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); openPath(file.path); },
+      },
+        el('span.file-icon', { html: icon('sheet', 20) }),
+        el('span.file-text', {},
+          // A file named in a right-to-left script is laid out that way, its digits and punctuation at its own end.
+          el('span.file-name', { dir: 'auto' }, stripExtension(file.name)),
+          meta)),
+      el('button.icon-btn.file-menu-btn', {
+        type: 'button', html: icon('moreV', 18), 'aria-label': `Options for ${stripExtension(file.name)}`, 'aria-haspopup': 'menu',
+        onclick: (e) => fileMenu(file, e.currentTarget),
+      }));
+    rowCache.set(file, { row, time });
+    return row;
   }
 
   renderDrafts();
