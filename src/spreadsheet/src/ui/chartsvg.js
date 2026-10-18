@@ -977,7 +977,10 @@ function excelPlotLayout(chart, a, W, H, legend, categoryLabels) {
   const legendTop = legend && chart.legendPos === 'top' ? legend.y + legend.h + a.legendStyle.size / 2 : 0;
   const y = Math.max(top, legendTop);
   const right = chart.legend && chart.legendPos === 'right' ? W * .77 - 8 : W - 12;
-  const bottom = H - 8 - (categoryLabels && chart.type !== 'bar' ? a.xStyle.size * 1.6 : 0);
+  // The horizontal axis title sits under the category labels (a bar chart's, under its value labels, is
+  // fitted with them later); with a legend below, the legend's band already leaves it room.
+  const title = chart.type !== 'bar' && chart.xTitle ? a.xStyle.size * 1.6 : 0;
+  const bottom = H - 8 - (categoryLabels && chart.type !== 'bar' ? a.xStyle.size * 1.6 : 0) - title;
   return { x: 10 / W, y: y / H, w: Math.max(10, right - 10) / W, h: Math.max(10, bottom - y) / H };
 }
 
