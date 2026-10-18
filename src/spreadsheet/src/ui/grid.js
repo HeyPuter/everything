@@ -3916,8 +3916,9 @@ export function createGrid(opts) {
     let focus = edit.point?.focus || home;
     if (extend && edit.point) focus = step(focus);
     else { focus = step(focus); anchor = focus; }
-    edit.point = { anchor, focus };
-    insertRef(normalizeRange({ r1: anchor.r, c1: anchor.c, r2: focus.r, c2: focus.c }));
+    // The range goes in as anchor and focus, not its corners: insertRef keeps them as the point the next
+    // Shift+arrow stretches from, so stretching up or left kept going rather than shrinking back.
+    insertRef({ r1: anchor.r, c1: anchor.c, r2: focus.r, c2: focus.c });
     scrollIntoView(focus);
   }
 
@@ -4200,7 +4201,7 @@ export function createGrid(opts) {
       const anchor = e.shiftKey && edit.point ? edit.point.anchor : { r, c };
       // The formula may be typed in the formula bar: the release gives the focus back to that box.
       drag = { kind: 'ref', start: anchor, input: editInput() };
-      insertRef(normalizeRange({ r1: anchor.r, c1: anchor.c, r2: r, c2: c }));
+      insertRef({ r1: anchor.r, c1: anchor.c, r2: r, c2: c });
       grab(viewport, e);
       return;
     }
