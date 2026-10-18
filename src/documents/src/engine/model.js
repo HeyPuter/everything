@@ -47,7 +47,7 @@ import { validatePageSettings, DOCUMENT_PAGE_KEYS, SECTION_TYPES } from './page-
 import { OBJECT, inlineSegments, validateImage, normalizeCrop, normalizedRotation, rotationOutsets, imageExtents, CROP_SIDES, isPositionedImage } from './images.js';
 import { outlineEntries, builtinOutlineLevel } from './outline.js';
 import { refreshConditionalTable } from './conditional-table-formatting.js';
-import { eachRevisionTarget, revisionRanges, runFormatChange, paragraphFormatChange, acceptFormatChange, rejectFormatChange } from './revisions.js';
+import { eachRevisionTarget, revisionRanges, hasRevisions, runFormatChange, paragraphFormatChange, acceptFormatChange, rejectFormatChange } from './revisions.js';
 import { footnoteReferenceRun } from './footnotes.js';
 import { commentAnchors, nextCommentId, addCommentMarkers, removeCommentMarkers, commentThread, checkedCommentText, initialsFor } from './comments.js';
 /** Original canvas engine. Positions are UTF-16 offsets in paragraphs joined by '\n'. */
@@ -1997,9 +1997,11 @@ export class TextDocument {
   }
   /** Tracked changes overlapping [start, end]; a caret finds the change around it. */
   revisionsAt(start = this.range[0], end = this.range[1]) {
+    // The Review tab asks on every keystroke; a document without changes answers without listing them.
+    if (!hasRevisions(this.paragraphs)) return [];
     return revisionRanges(this.paragraphs).filter(r => start === end ? r.start <= start && start <= r.end : r.start < end && r.end > start);
   }
-  get revisions() { return revisionRanges(this.paragraphs); }
+  get revisions() { return hasRevisions(this.paragraphs) ? revisionRanges(this.paragraphs) : []; }
   /** Accept or reject the changes overlapping [start, end] (the whole document by default). */
   resolveRevisions(accept, start = 0, end = documentLength(this.paragraphs) + 1) {
     this.formatRejectSkipped = false;
