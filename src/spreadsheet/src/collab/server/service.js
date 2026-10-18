@@ -404,15 +404,24 @@ export class RoomService {
       saved = true;
     }
     let wrote = false;
+    // The owner's file, renamed or moved since sharing started: its owner says where it is now, and it is written there.
+    const moved = member.role === 'owner' && input.file && typeof input.file.path === 'string' && input.file.path && input.file.path.length <= 1024 && input.file.path !== meta.file?.path;
+    if (moved && typeof input.xlsx === 'string') {
+      const latest = await this.kv.get(`ss:${room}:meta`);
+      if (latest && !latest.closed) {
+        meta = { ...latest, file: { path: input.file.path, uid: typeof input.file.uid === 'string' ? input.file.uid.slice(0, 200) : null } };
+        await this.kv.set(`ss:${room}:meta`, meta);
+      }
+    }
     if (typeof input.xlsx === 'string' && meta.file?.path) {
       if (input.xlsx.length > MAX_XLSX) fail(413, 'This workbook is too large to save.');
       const bytes = decode(input.xlsx, MAX_XLSX);
       if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) fail(400, 'Invalid workbook file.');
       const written = await this.kv.get(`ss:${room}:file`);
-      if (!written || rev > written.rev) {
+      if (!written || rev > written.rev || (written.path && written.path !== meta.file.path)) {
         try {
           await this.fs.write(meta.file.path, new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), { overwrite: true, dedupeName: false });
-          await this.kv.set(`ss:${room}:file`, { rev, at: this.now() });
+          await this.kv.set(`ss:${room}:file`, { rev, at: this.now(), path: meta.file.path });
           wrote = true;
         } catch { /* The owner's browser writes the file when it next opens the workbook. */ }
       }

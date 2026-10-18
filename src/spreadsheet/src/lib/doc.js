@@ -929,7 +929,8 @@ export class Doc extends EventTarget {
    */
   static forRoom(client, { path = null, uid = null } = {}) {
     const owner = client.user?.uuid === client.owner;
-    const doc = new Doc({ wb: client.wb, name: client.name || UNTITLED, path: client.file?.path ?? path, uid: client.file?.uid ?? uid, trusted: owner || !usesExternalContent(client.wb) });
+    // The file as it was opened: the room names it as it was when sharing started, before any rename or move.
+    const doc = new Doc({ wb: client.wb, name: client.name || UNTITLED, path: path ?? client.file?.path ?? null, uid: uid ?? client.file?.uid ?? null, trusted: owner || !usesExternalContent(client.wb) });
     doc.collab = client;
     doc._onRoomStatus = () => doc._sharedChanged('room');
     client.addEventListener('status', doc._onRoomStatus);
@@ -975,7 +976,8 @@ export class Doc extends EventTarget {
     if (!client.canEdit) { this.wb.markClean(); return true; }
     this._setStatus('saving');
     try {
-      const res = await client.checkpoint({ file: true });
+      // The owner's browser tells the room where the file is now, so that it writes there, not where the file was when sharing started.
+      const res = await client.checkpoint({ file: true, ...(this.isOwner && this.path && this.isXlsxPath ? { at: this.file } : {}) });
       // The worker writes the owner's file when Puter lets it; the owner's own browser can always.
       if (this.isOwner && this.path && this.isXlsxPath && !res?.wrote) await P.writeFile(this.path, await workbookToXlsx(this.wb), { overwrite: true });
       this.lastSaved = Date.now();

@@ -268,8 +268,11 @@ export class RoomClient extends EventTarget {
     this.checkpoint().catch(() => {});
   }
 
-  /** Write a checkpoint now; with `file`, the .xlsx goes with it, for the worker to write over the owner's file. */
-  async checkpoint({ file = false } = {}) {
+  /**
+   * Write a checkpoint now; with `file`, the .xlsx goes with it, for the worker to write over the owner's file. The owner
+   * passes `at`, the file as it is now ({ path, uid }), which the worker writes from then on (it may have been renamed or moved).
+   */
+  async checkpoint({ file = false, at = null } = {}) {
     if (!this.canEdit || this.replica.pending.length) return { ok: false };
     this.checkpointing = true;
     try {
@@ -282,7 +285,7 @@ export class RoomClient extends EventTarget {
         for (let n = 0; n < bytes.length; n += 8192) text += String.fromCharCode(...bytes.subarray(n, n + 8192));
         xlsx = btoa(text);
       }
-      const res = await this.request({ op: 'checkpoint', rev, state, ...(xlsx ? { xlsx } : {}) });
+      const res = await this.request({ op: 'checkpoint', rev, state, ...(xlsx ? { xlsx } : {}), ...(xlsx && at?.path ? { file: { path: at.path, uid: at.uid ?? null } } : {}) });
       this.lastCheckpoint = Math.max(this.lastCheckpoint, rev);
       this.lastCheckpointAt = Date.now();
       return res;
