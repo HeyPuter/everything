@@ -38,7 +38,8 @@ const PAINT_BUDGET_MS = 8; // half a frame: a paint of the reply that takes long
 // A drag or a key stops there, so there is no stretch of the drag that moves nothing on the way back.
 const widest = () => Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, Math.floor((globalThis.innerWidth || Infinity) * 0.6)));
 
-const phoneWidth = () => { try { return !!globalThis.matchMedia?.('(max-width: 640px)').matches; } catch { return false; } };
+/** The sheet keeps less than 640px beside the panel at its usual width: a phone, or a tablet held upright (768px). */
+const tooNarrowBeside = () => { try { return !!globalThis.matchMedia?.(`(max-width: ${DEFAULT_WIDTH + 639}px)`).matches; } catch { return false; } };
 
 export function loadAiSettings() {
   let raw = null;
@@ -47,9 +48,10 @@ export function loadAiSettings() {
   return {
     approval: APPROVAL_MODES.some((m) => m.id === s.approval) ? s.approval : DEFAULT_APPROVAL,
     width: Number.isFinite(s.width) ? Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, s.width)) : DEFAULT_WIDTH,
-    // Open unless the user closed it: beside the sheet it takes no cells from view. On a phone it would
-    // cover most of the grid, so there it waits to be asked for, until it has been left open there.
-    open: typeof s.open === 'boolean' ? s.open : !phoneWidth(),
+    // Open unless the user closed it: beside a wide sheet it takes no cells from view. On a phone it would cover
+    // most of the grid, and on an upright tablet half of it, leaving the sheet a phone's width, so there it waits
+    // to be asked for, until it has been left open there.
+    open: typeof s.open === 'boolean' ? s.open : !tooNarrowBeside(),
   };
 }
 
