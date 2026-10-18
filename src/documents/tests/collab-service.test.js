@@ -152,6 +152,21 @@ describe('room service', () => {
     await transport.leave();
   });
 
+  it('ages worker presence by the worker\'s clock, whatever this computer\'s clock says', async () => {
+    const service = new RoomService(fakePuter(OWNER), { rooms: new Map(), now: () => Date.now() - 90_000 });
+    const doc = createSharedDoc(editorState({ session: { body: new TextDocument([paragraph('Shared text')]), storyEdits: {} } }));
+    await service.call(OWNER, { op: 'create', room: 'room1', name: 'Plan', initial: encode(Y.encodeStateAsUpdate(doc)), base: encode(new Uint8Array([80, 75, 3, 4])) });
+    await service.call(OWNER, { op: 'invite-user', room: 'room1', username: 'bob', role: 'editor' });
+    await service.call(OWNER, { op: 'sync', room: 'room1', presence: { session: 'ann-tab', name: 'ada' } });
+    const transport = new WorkerTransport({ call: (op, input) => service.call(BOB, { op, ...input }), room: 'room1' });
+    const rosters = [];
+    await transport.join({ session: 'bob-tab', update() {}, presence: r => rosters.push(r), role() {}, closed() {} });
+    await transport.poll(); clearTimeout(transport.timer);
+    const ann = rosters.at(-1).find(p => p.session === 'ann-tab');
+    expect(Math.abs(Date.now() - ann.at)).toBeLessThan(10_000);
+    await transport.leave();
+  });
+
   it('reads compressed token claims', () => {
     const payload = btoa(JSON.stringify({ t: 't', uu: '3q2-7w', exp: 10 })).replace(/=+$/, '');
     expect(tokenClaims(`x.${payload}.y`).type).toBe('access-token');

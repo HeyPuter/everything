@@ -215,7 +215,11 @@ export class WorkerTransport {
         try { Y.applyUpdate(this.doc, update); } finally { this.doc.off('update', onUpdate); }
         if (changed) this.handlers.update(update);
       }
-      if (res.roster) this.handlers.presence(res.roster);
+      if (res.roster) {
+        // The worker stamps presence with its own clock; the client ages it by this computer's.
+        const skew = Number.isFinite(res.serverTime) ? Date.now() - res.serverTime : 0;
+        this.handlers.presence(res.roster.map(p => (Number.isFinite(p.at) ? { ...p, at: p.at + skew } : p)));
+      }
       this.schedule(res.roster?.some(p => p.session !== this.session) ? 1000 : 3000);
     } catch (error) {
       if (error.status === 403 || error.status === 404 || error.status === 410) { this.left = true; this.handlers.closed(error.message); return; }
