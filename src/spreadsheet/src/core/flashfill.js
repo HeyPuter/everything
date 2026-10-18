@@ -56,7 +56,12 @@ function resolve(ref, sources) {
   const text = String(value);
   let piece;
   if (ref.kind === 'whole') piece = text;
-  else {
+  else if (ref.kind === 'slice') {
+    const list = words(text);
+    const word = list[ref.index < 0 ? list.length + ref.index : ref.index];
+    if (word == null || ref.start + ref.length > word.length) return null;
+    piece = word.slice(ref.start, ref.start + ref.length);
+  } else {
     const list = ref.kind === 'run' ? runs(text) : words(text);
     const word = list[ref.index < 0 ? list.length + ref.index : ref.index];
     if (word == null) return null;
@@ -77,9 +82,44 @@ export function runProgram(program, sources) {
   return out;
 }
 
+// Places are looked for in words up to this long (codes, numbers, names), which keeps learning quick on long text.
+const MAX_SLICED_WORD = 64;
+
+/**
+ * Each source's words in every case, for `slice`; a case mapping that changes a word's length (ß → SS) is
+ * left out, its places being out of line, and so is a word too long to look through.
+ */
+function casedWords(sources) {
+  return sources.map((value) => (value == null || value === '' ? [] : words(value).map((word) => (word.length > MAX_SLICED_WORD ? []
+    : CASES.map((mode) => ({ mode, text: recase(word, mode) })).filter((c) => c.text.length === word.length)))));
+}
+
+/**
+ * The longest run of two or more characters at the start of `rest` that sits inside one word of a source
+ * at a fixed place, as the 555, 123 and 4567 of 5551234567 in (555) 123-4567, or null. Words are counted
+ * as `fromEnd` says, the place within one from its start.
+ */
+function slice(cased, rest, fromEnd) {
+  let best = null;
+  cased.forEach((list, col) => list.forEach((forms, i) => {
+    for (const { mode, text } of forms) {
+      for (let start = 0; start + 1 < text.length; start++) {
+        if (text[start] !== rest[0]) continue;
+        let n = 1;
+        while (n < rest.length && start + n < text.length && text[start + n] === rest[n]) n++;
+        if (n >= 2 && (!best || n > best.text.length)) {
+          best = { text: rest.slice(0, n), ref: { col, kind: 'slice', index: fromEnd ? i - list.length : i, start, length: n, mode } };
+        }
+      }
+    }
+  }));
+  return best;
+}
+
 /** Programs that explain one example, best first: greedy, each step trying its longest pieces. */
 function explain(sources, target, preferEnd) {
   const options = pieces(sources).filter((p) => p.text.length);
+  const cased = casedWords(sources);
   const programs = [];
   // A few greedy variants: prefer the longest piece; among equals, words counted from the start or from the end.
   for (const variant of [0, 1, 2]) {
@@ -98,6 +138,10 @@ function explain(sources, target, preferEnd) {
         const rank = (x) => (x.ref.kind === 'whole' ? 0 : x.ref.kind === 'run' ? 2 : 1) * 10 + (x.ref.mode === 'same' ? 0 : 1) + place(x) * 2;
         if (rank(p) < rank(best)) best = p;
       }
+      // Part of a word at a fixed place, when no whole word, run or cell is as long: digits run together
+      // (5551234567 → (555) 123-4567) or the first letters of a word (Watson → Wat).
+      const part = slice(cased, rest, preferEnd || variant === 1);
+      if (part && (!best || part.text.length > best.text.length)) best = part;
       // A single character piece is taken only for an initial-like spot; otherwise the character is literal text.
       if (best && (best.text.length > 1 || best.ref.kind === 'initial' || variant === 2)) {
         program.push({ ref: best.ref });
