@@ -2,7 +2,7 @@ import { IGNORED_ERROR_KEYS, normalizeIgnoredErrors } from './ignored-errors.js'
 import { parseRefText } from './refs.js';
 import { rangeName } from './cell.js';
 import { xlsxText } from './xlsx-styles.js';
-import { xmlTag } from './xlsx-export-styles.js';
+import { xmlTag, WORKSHEET_EXTLST } from './xlsx-export-styles.js';
 
 const attr = (tag, name) => {
   const m = tag.match(new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`));
@@ -36,6 +36,6 @@ export function writeXlsxIgnoredErrors(xml, records) {
   const body = normalizeIgnoredErrors(records).map(record => xmlTag('ignoredError', {
     sqref: rangeName(record.range), ...Object.fromEntries(record.keys.map(key => [key, 1])),
   })).join('');
-  return body ? xml.replace(/<(?:smartTags|drawing|legacyDrawing|legacyDrawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)\b|<\/worksheet>/,
+  return body ? xml.replace(new RegExp(`<(?:smartTags|drawing|legacyDrawing|legacyDrawingHF|picture|oleObjects|controls|webPublishItems|tableParts)\\b|${WORKSHEET_EXTLST}|<\\/worksheet>`),
     match => xmlTag('ignoredErrors', {}, body) + match) : xml;
 }

@@ -1,4 +1,4 @@
-import { xmlTag, xmlText } from './xlsx-export-styles.js';
+import { xmlTag, xmlText, WORKSHEET_EXTLST } from './xlsx-export-styles.js';
 import { normalizePrintSettings } from './print-settings.js';
 import { MAX_ROW, MAX_COL } from './refs.js';
 
@@ -35,5 +35,5 @@ export function writeXlsxPrint(xml, settings) {
     gridLines: Number(p.gridlines), headings: Number(p.headings) }) + xmlTag('pageMargins', p.margins)
     + xmlTag('pageSetup', { paperSize: p.paperSize, orientation: p.orientation, pageOrder: p.pageOrder, scale: p.scale, fitToWidth: p.fitWidth, fitToHeight: p.fitHeight, ...numbering })
     + headerFooter + breaks('rowBreaks', p.rowBreaks, MAX_COL) + breaks('colBreaks', p.colBreaks, MAX_ROW);
-  return xml.replace(/<headerFooter\b|<rowBreaks\b|<colBreaks\b|<customProperties\b|<cellWatches\b|<ignoredErrors\b|<smartTags\b|<drawing\b|<legacyDrawing\b|<picture\b|<oleObjects\b|<controls\b|<webPublishItems\b|<tableParts\b|<extLst\b|<\/worksheet>/, match => body + match);
+  return xml.replace(new RegExp(`<(?:headerFooter|rowBreaks|colBreaks|customProperties|cellWatches|ignoredErrors|smartTags|drawing|legacyDrawing|picture|oleObjects|controls|webPublishItems|tableParts)\\b|${WORKSHEET_EXTLST}|<\\/worksheet>`), match => body + match);
 }

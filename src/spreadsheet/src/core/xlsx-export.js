@@ -11,7 +11,7 @@ import { fontThemeXml, effectiveFontTheme } from './font-theme.js';
 import { writeXlsxRichText } from './xlsx-rich-text.js';
 import { effectiveColorPalette } from './font-color.js';
 /** Complete the XLSX parts that the vendored Community Edition does not write. */
-import { exportStyles, xmlTag, xmlText } from './xlsx-export-styles.js';
+import { exportStyles, xmlTag, xmlText, worksheetExtension } from './xlsx-export-styles.js';
 import { exportDrawings, updateDrawingMetadata } from './xlsx-export-drawings.js';
 import { xlsxAttr, xlsxWidthFromPixels, readXlsxStyles } from './xlsx-styles.js';
 import { normalizeNativeDefaultHeight } from './xlsx-sheet-format.js';
@@ -351,8 +351,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
     });
     if (sheet.rules.length) conditionalRecords.set(sheet.name, { xml, entries: ruleRecords });
     const sparklineExtension = nativeSparklineExtension(sheet.sparklineGroups);
-    if (sparklineExtension) xml = xml.includes('</extLst>') ? xml.replace('</extLst>', `${sparklineExtension}</extLst>`)
-      : xml.replace('</worksheet>', `<extLst>${sparklineExtension}</extLst></worksheet>`);
+    if (sparklineExtension) xml = worksheetExtension(xml, sparklineExtension);
     xml = writeXlsxIgnoredErrors(xml, sheet.ignoredErrors);
     xml = writeXlsxRichText(xml, ws, wb.colorPalette, normalFont, wb.fontTheme);
     writeXlsxThreadedComments(sheet, i + 1, persons, { get, set, contentType });

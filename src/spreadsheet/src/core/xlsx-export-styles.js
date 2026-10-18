@@ -21,6 +21,16 @@ export const xmlTag = (name, attrs = {}, body = null) => {
   const head = `<${name}${Object.entries(attrs).filter(([, v]) => v != null).map(([k, v]) => ` ${k}="${xmlText(v).replace(/[\t\n\r]/g, ch => `&#${ch.charCodeAt(0)};`)}"`).join('')}`;
   return body == null ? `${head}/>` : `${head}>${body}</${name}>`;
 };
+/**
+ * The worksheet's own extension list, its last child, as a regular-expression source. A conditional
+ * format's rule can hold one of its own (a data bar's x14 id), and a worksheet child written before
+ * that one would land inside the rule.
+ */
+export const WORKSHEET_EXTLST = String.raw`<extLst\b(?=(?:(?!<extLst\b)[^])*<\/extLst>\s*<\/worksheet>)`;
+/** Append an ext to the worksheet's own extension list, starting one when it has none. */
+export const worksheetExtension = (xml, ext) => (/<\/extLst>\s*<\/worksheet>/.test(xml)
+  ? xml.replace(/<\/extLst>(\s*<\/worksheet>)/, (_, end) => `${ext}</extLst>${end}`)
+  : xml.replace('</worksheet>', () => `<extLst>${ext}</extLst></worksheet>`));
 const rgb = value => xlsxSolidColor(value) ? `FF${value.slice(1).toUpperCase()}` : null;
 const color = value => rgb(value) ? xmlTag('color', { rgb: rgb(value) }) : '';
 const table = (name, entries) => xmlTag(name, { count: entries.length }, entries.join(''));
