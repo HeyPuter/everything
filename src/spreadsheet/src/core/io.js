@@ -1095,24 +1095,25 @@ const TABLE_STYLE_COLORS = ['gray', 'blue', 'orange', 'gray', 'orange', 'blue', 
 function nativeTables(X, ws, definedNames, customStyles) {
   const tables = [];
   for (const xml of ws?.['!tableXml'] || []) {
-    const open = xml.match(/<table\s[^>]*>/)?.[0];
+    // Tags may carry a namespace prefix (<x:table>, as files written with the Open XML SDK spell them).
+    const open = xml.match(/<(?:\w+:)?table\s[^>]*>/)?.[0];
     const name = decodeXlsxString(xmlAttr(open, 'displayName') || xmlAttr(open, 'name'));
     const ref = xmlAttr(open, 'ref')?.replace(/\$/g, '');
     if (!name?.trim() || !ref || !/^[A-Z]{1,3}\d+:[A-Z]{1,3}\d+$/i.test(ref)) continue;
     // headerRowCount="0": the Header Row is turned off, and the column names live in tableColumn alone.
     const headerless = xmlAttr(open, 'headerRowCount') === '0', columnNames = [];
     const range = X.utils.decode_range(ref.toUpperCase());
-    const styleInfo = xml.match(/<tableStyleInfo\s[^>]*>/)?.[0];
+    const styleInfo = xml.match(/<(?:\w+:)?tableStyleInfo\s[^>]*>/)?.[0];
     const styleName = xmlAttr(styleInfo, 'name');
     const customStyle = customStyles?.get(styleName);
     const styleIndex = Number(styleName?.match(/(\d+)$/)?.[1] || 0);
     const calc = {}, calcArray = {}, scalarColumns = new Set();
     let column = 0;
-    for (const m of xml.matchAll(/<tableColumn\s[^>]*?(?:\/>|>([\s\S]*?)<\/tableColumn>)/g)) {
-      if (headerless) columnNames.push(decodeXlsxString(xmlAttr(m[0].match(/<tableColumn\s[^>]*?\/?>/)?.[0], 'name') || '') || null);
-      const formula = m[1]?.match(/(<calculatedColumnFormula(?:\s[^>]*)?>)([\s\S]*?)<\/calculatedColumnFormula>/);
+    for (const m of xml.matchAll(/<(\w+:)?tableColumn\s[^>]*?(?:\/>|>([\s\S]*?)<\/\1tableColumn>)/g)) {
+      if (headerless) columnNames.push(decodeXlsxString(xmlAttr(m[0].match(/<(?:\w+:)?tableColumn\s[^>]*?\/?>/)?.[0], 'name') || '') || null);
+      const formula = m[2]?.match(/(<(\w+:)?calculatedColumnFormula(?:\s[^>]*)?>)([\s\S]*?)<\/\2calculatedColumnFormula>/);
       if (formula) {
-        const f = fromFileFormula(unescapeXml(formula[2]), definedNames);
+        const f = fromFileFormula(unescapeXml(formula[3]), definedNames);
         const array = ['1', 'true'].includes(xmlAttr(formula[1], 'array'));
         calc[column] = array ? f : intersectTableFormula(f);
         if (array) calcArray[column] = true;
@@ -1120,8 +1121,8 @@ function nativeTables(X, ws, definedNames, customStyles) {
       }
       column++;
     }
-    const autoFilter = xml.match(/<autoFilter\b[^<>]*(?:\/>|>[\s\S]*?<\/autoFilter>)/)?.[0];
-    const filter = xmlAttr(autoFilter?.match(/<autoFilter\b[^<>]*>/)?.[0], 'ref')?.replace(/\$/g, '');
+    const autoFilter = xml.match(/<(\w+:)?autoFilter\b[^<>]*(?:\/>|>[\s\S]*?<\/\1autoFilter>)/)?.[0];
+    const filter = xmlAttr(autoFilter?.match(/<(?:\w+:)?autoFilter\b[^<>]*>/)?.[0], 'ref')?.replace(/\$/g, '');
     tables.push({
       name: name.trim(),
       range: { r1: range.s.r, c1: range.s.c, r2: range.e.r, c2: range.e.c },
@@ -2017,7 +2018,7 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     protectedRanges: meta?.sheets?.[name]?.protectedRanges || [],
     scenarios: parseScenariosXml(partXml),
     validations: meta?.sheets?.[name]?.validations || (ws?.['!validations'] || []).map(({ _odsName, ...rule }) => rule),
-    color: own?.color || part?.color || (!own && partXml ? xlsxColor(partXml.match(/<tabColor\b[^>]*>/)?.[0], nativeStyles?.colors || themes) : null),
+    color: own?.color || part?.color || (!own && partXml ? xlsxColor(partXml.match(/<(?:\w+:)?tabColor\b[^>]*>/)?.[0], nativeStyles?.colors || themes) : null),
     protected: own ? !!own.protected : !!part?.protected,
     groups: own ? own.groups || null : fileGroups(ws, filtered),
     outlineSettings: readXlsxOutlineSettings(partXml),
