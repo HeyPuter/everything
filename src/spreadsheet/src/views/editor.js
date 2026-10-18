@@ -2999,7 +2999,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           if (allowedByRule(wb.validateValue(sheetId, r, c, spilled))) wb.setCells(sheetId, [{ r, c, cell: { v: spilled, f: null, s: wb.getCell(sheetId, r, c)?.s ?? aboveStyle } }], 'Copy value above');
         } else if (allowedByRule(wb.validateValue(sheetId, r, c, above.v))) {
           // A value comes down with its formatting, as a copy would bring it.
-          wb.pasteCells(sheetId, wb.copyRange(sheetId, { r1: r - 1, c1: c, r2: r - 1, c2: c }), r, c, { r: r - 1, c });
+          wb.pasteCells(sheetId, wb.copyRange(sheetId, { r1: r - 1, c1: c, r2: r - 1, c2: c }, { sameBook: true }), r, c, { r: r - 1, c });
         }
         keepFocus();
         return;
@@ -4310,7 +4310,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       values[i].push(copied);
       return wb.getDisplay(grid.sheetId, r, c, value);
     }));
-    const cells = all ? wb.copyRange(grid.sheetId, range) : wb.copyCells(grid.sheetId, rows, cols);
+    // Pasted here, the cells carry what they show in this workbook; the HTML for another workbook or app also pins
+    // the complete font a book with its own Normal font implies (bold off, black ink), which pasted here would
+    // turn an error's red ink black and outlive a later change of the book's look.
+    const cells = all ? wb.copyRange(grid.sheetId, range, { sameBook: true }) : wb.copyCells(grid.sheetId, rows, cols, { sameBook: true });
+    const outward = !wb.normalStyle ? cells : all ? wb.copyRange(grid.sheetId, range) : wb.copyCells(grid.sheetId, rows, cols);
     // When the anchor is copied, spill slots stay empty in the embedded cells so the formula can
     // spill again. The HTML's number-format hints still need the format those results display.
     let styles = null;
@@ -4346,7 +4350,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const conditionalFormats = wb.copyConditionalFormats(grid.sheetId, rows, cols);
     const nativeSparklines = wb.copyNativeSparklines(grid.sheetId, rows, cols);
     const validations = wb.copyValidations(grid.sheetId, rows, cols);
-    const html = cellsToHtml(texts, cells, looks, values, all ? origin : null, { styles, mergeLayout, conditionalFormats, validations, nativeSparklines, externalWorkbooks: wb.externalWorkbooks, sourceWorkbook: workbookPathUri(P.resolvedAbsolutePath?.(doc.path)), colorPalette: wb.colorPalette, normalFill: wb.nativeNormalFill, indentUnit: grid.indentUnit })
+    const html = cellsToHtml(texts, outward, looks, values, all ? origin : null, { styles, mergeLayout, conditionalFormats, validations, nativeSparklines, externalWorkbooks: wb.externalWorkbooks, sourceWorkbook: workbookPathUri(P.resolvedAbsolutePath?.(doc.path)), colorPalette: wb.colorPalette, normalFill: wb.nativeNormalFill, indentUnit: grid.indentUnit })
       .replace('<table', `<table data-spreadsheet-copy="${copyId}"`);
     clip = { cells, values, notes, nativeSparklines, nativePivots: wb.copyNativePivots(grid.sheetId, rows, cols), conditionalFormats, validations, merges: mergeLayout.ranges, sourceMerges: mergeLayout.sources, partialMerge: mergeLayout.partial, origin, sheetId: grid.sheetId, text: toDelimited(texts, '\t'), html, copyId, range, rows, cols, visibleOnly: !all && !multi, multi: !!multi,
       // A cut moves its cells when it is pasted, once: until then
@@ -4403,7 +4407,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   function finishCut(sheetId, r, c, cells) {
     const from = clip.cut;
     if (!wb.sheet(from.sheetId)) return undefined;
-    const now = from.all ? wb.copyRange(from.sheetId, from.range) : wb.copyCells(from.sheetId, from.rows, from.cols);
+    const now = from.all ? wb.copyRange(from.sheetId, from.range, { sameBook: true }) : wb.copyCells(from.sheetId, from.rows, from.cols, { sameBook: true });
     if (!sameCells(now, cells)) return undefined;
     if (from.all) return wb.placeMoved(sheetId, r, c, cells, from);
     if (clip.partialMerge) {

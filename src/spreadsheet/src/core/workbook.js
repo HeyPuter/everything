@@ -3332,10 +3332,10 @@ export class Workbook extends EventTarget {
   }
 
   /** The cells at the given rows and columns, as copyRange gives them for a block. */
-  copyCells(sheetId, rows, cols) {
+  copyCells(sheetId, rows, cols, { sameBook = false } = {}) {
     const sheet = this.sheet(sheetId);
     if (!sheet || (this._spills.get(sheet.id)?.cover.size === 0 && !this._fixedArrays(sheet).size)) {
-      return rows.map((r) => cols.map((c) => (sheet ? this._copiedCell(sheet, r, c) : null)));
+      return rows.map((r) => cols.map((c) => (sheet ? this._copiedCell(sheet, r, c, undefined, { sameBook }) : null)));
     }
     const selectedRows = new Set(rows), selectedCols = new Set(cols);
     const includes = (r, c) => selectedRows.has(r) && selectedCols.has(c);
@@ -3343,7 +3343,7 @@ export class Workbook extends EventTarget {
       const rr = rows.filter(r => r >= a.r1 && r <= a.r2), cc = cols.filter(c => c >= a.c1 && c <= a.c2);
       return { r1: rr[0], c1: cc[0], rows: rr.length, cols: cc.length,
         contiguous: rr.every((r, i) => r === rr[0] + i) && cc.every((c, i) => c === cc[0] + i) };
-    });
+    }, { sameBook });
     return rows.map((r) => cols.map((c) => copyCell(r, c)));
   }
 
