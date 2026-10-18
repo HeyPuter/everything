@@ -4450,16 +4450,25 @@ export class Workbook extends EventTarget {
     };
 
     // "Item 1", "Item 2", ...: the shared prefix, the first number, its width and the step, or null.
+    // Text whose number ends it, or is an ordinal inside it ("1st Period", counted on as Excel does: "2nd Period").
+    const numbered = (text) => /^(.*?)(\d+)$/.exec(text) || /^(.*?)(\d+)(st|nd|rd|th)(?![\p{L}\p{N}])(.*)$/iu.exec(text);
     const textNumberRun = (list) => {
-      const parts = list.map((cell) => (cell?.f == null && typeof cell?.v === 'string' ? /^(.*?)(\d+)$/.exec(cell.v) : null));
+      const parts = list.map((cell) => (cell?.f == null && typeof cell?.v === 'string' ? numbered(cell.v) : null));
       if (parts.some((m) => !m) || !parts.length) return null;
-      if (!parts.every((m) => m[1] === parts[0][1])) return null;
+      if (!parts.every((m) => m[1] === parts[0][1] && (m[3] == null) === (parts[0][3] == null) && m[4] === parts[0][4])) return null;
       const numbers = parts.map((m) => parseInt(m[2], 10));
       // A number too long to count exactly would repeat the same rounded value; such text is repeated as it is.
       if (numbers.some((v) => v > Number.MAX_SAFE_INTEGER)) return null;
       const step = parts.length > 1 ? numbers[1] - numbers[0] : 1;
       if (parts.length > 1 && (step === 0 || numbers.some((v, i) => i && v - numbers[i - 1] !== step))) return null;
-      return { prefix: parts[0][1], startNum: numbers[0], width: parts[0][2].length, step, count: parts.length };
+      return { prefix: parts[0][1], startNum: numbers[0], width: parts[0][2].length, step, count: parts.length,
+        ordinal: parts[0][3] ?? null, suffix: parts[0][4] ?? '' };
+    };
+    // The ordinal suffix a number takes (1st, 2nd, 3rd, 4th, 11th, 21st), in the case the source's was written in.
+    const ordinalOf = (num, like) => {
+      const n = Math.abs(num), tens = n % 100;
+      const suffix = tens >= 11 && tens <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th';
+      return like === like.toUpperCase() ? suffix.toUpperCase() : suffix;
     };
     const line = (k) => (vertical ? cells.map((row) => row[k]) : cells[k]);
     const lines = vertical ? w : h;
@@ -4539,7 +4548,7 @@ export class Workbook extends EventTarget {
             const at = p < srcStart ? -run.count + offset + run.count : run.count - 1 + steps;
             const num = run.startNum + run.step * (p < srcStart ? offset : run.count - 1 + steps);
             // Filled upward the count runs on past zero (Item1, Item0, Item-1); a padded width keeps its digits.
-            cell = { v: `${run.prefix}${num < 0 ? '-' : ''}${String(Math.abs(num)).padStart(run.width, '0')}`, f: null, s: base.s };
+            cell = { v: `${run.prefix}${num < 0 ? '-' : ''}${String(Math.abs(num)).padStart(run.width, '0')}${run.ordinal ? ordinalOf(num, run.ordinal) : ''}${run.suffix}`, f: null, s: base.s };
             void at;
           } else {
             // A block mixing such text with other cells: each one whose text before the number is its own in the
