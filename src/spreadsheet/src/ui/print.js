@@ -1428,9 +1428,17 @@ export function preparePrintRoot(root) {
       // Header variants continue across sheets and print areas,
       // independently of an explicit starting value for the printed number.
       // Count every preceding page, including sheets without variant text.
-      const pages = chart ? [sheet] : paginatePrintColumns(sheet, { width, height, overflowRight: margins.right,
-        overflowBottom: margins.bottom, headers: opts.headers, pageOrder: opts.pageOrder,
-        force: numberPages || !!sheet.querySelector('.has-print-borders') });
+      // Laid out on screen the section is as wide as the window, not the paper: a sheet narrower than the
+      // page, whose table fills the page's width, stretched to the window's and was cut into pages of a few
+      // widened columns each. It is measured at the width it prints at, as the fitting above measures it.
+      const flowWidth = section.style.width;
+      section.style.width = `${width}px`;
+      let pages;
+      try {
+        pages = chart ? [sheet] : paginatePrintColumns(sheet, { width, height, overflowRight: margins.right,
+          overflowBottom: margins.bottom, headers: opts.headers, pageOrder: opts.pageOrder,
+          force: numberPages || !!sheet.querySelector('.has-print-borders') });
+      } finally { section.style.width = flowWidth; }
       if (!pages) continue;
       // These fragments already own their page breaks. Let oversized paint
       // reach the physical edge: Chromium otherwise clips it at the CSS page
