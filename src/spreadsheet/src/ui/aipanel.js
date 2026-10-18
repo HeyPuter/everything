@@ -747,6 +747,9 @@ export function createAiPanel(ctx, env, { onToggle, onBusy } = {}) {
           const foot = failure.parentElement;
           removeKeepingFocus(failure);
           foot.hidden = !foot.childElementCount;
+          // A reply that failed before it said or did anything leaves nothing behind: kept, it was an empty message
+          // in the chat, a gap on screen and a lone "The assistant said:" to a screen reader, above the reply tried again.
+          if (foot.hidden && !reply.msg.querySelector('.ai-parts').childElementCount) reply.msg.remove();
           retry();
         } }, 'Try again')
         : !firstMessage ? el('button.btn.btn-sm.ai-new-chat', { type: 'button', onclick: () => newChat() }, 'New chat') : null;
