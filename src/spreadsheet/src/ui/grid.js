@@ -2541,7 +2541,8 @@ export function createGrid(opts) {
   /** Arrow keys on a selected chart: a nudge of a few pixels, or with Shift a whole cell of the anchor's size, kept inside the sheet. */
   function nudgeChart(id, dr, dc, wholeCell) {
     const ch = wb.chartById(sheetId, id);
-    if (!ch) return;
+    // A slicer or timeline set not to move (Disable resizing and moving) stays put, as under the pointer.
+    if (!ch || ch.lockedPosition) return;
     ensureOffsets();
     const s = sheet();
     const rect = chartBoxRect(ch);
@@ -2556,7 +2557,7 @@ export function createGrid(opts) {
 
   /** Arrow keys with several objects selected: all of them move a few pixels together. */
   function nudgeObjects(dr, dc) {
-    wb.placeObjects(sheetId, selectedObjects().map((id) => wb.objectRect(sheetId, id)).filter(Boolean)
+    wb.placeObjects(sheetId, selectedObjects().filter((id) => !wb.chartById(sheetId, id)?.lockedPosition).map((id) => wb.objectRect(sheetId, id)).filter(Boolean)
       .map((r) => ({ id: r.id, x: Math.max(0, r.x + dc * 8), y: Math.max(0, r.y + dr * 8) })), 'Move objects');
   }
 
