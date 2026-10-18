@@ -3955,7 +3955,8 @@ export function createGrid(opts) {
           tap = null;
           if (edit && !commitEdit()) return;
           // Inside the selection the menu is for the whole of it, as for a right-click: there is no other way to reach it with a finger.
-          if (!selectedAt(r, c)) setSelection(S.single(r, c));
+          // The sheet stays put: the menu opens at the finger and closes when the sheet scrolls under it.
+          if (!selectedAt(r, c)) setSelection(S.single(r, c), { scroll: false });
           if (navigator.vibrate) navigator.vibrate(10);
           longPressAt = Date.now();
           opts.onContextMenu?.({ x: e.clientX, y: e.clientY, kind: 'cell' });
@@ -4363,7 +4364,8 @@ export function createGrid(opts) {
     if (edit && !commitEdit()) return;
     const { r, c } = cellAtPoint(e.clientX, e.clientY);
     // Inside any selected range (one added with Ctrl/Cmd+click too) the menu is for the whole selection.
-    if (!selectedAt(r, c)) setSelection(S.single(r, c));
+    // A partly visible cell is not scrolled into view: the menu opens at the pointer and a scroll under it closes it.
+    if (!selectedAt(r, c)) setSelection(S.single(r, c), { scroll: false });
     opts.onContextMenu?.({ x: e.clientX, y: e.clientY, kind: 'cell' });
   }
 
