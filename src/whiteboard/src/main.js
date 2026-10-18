@@ -596,6 +596,9 @@ let boards = [],
   // wrote, where Puter tells it: while it is unchanged, no one else has
   // saved the board, and the check needs no download.
   cloudVersions = new Map(),
+  // The copy each board's last upload tried to write when its answer was
+  // lost: it may be the one in Puter, and is this page's own.
+  cloudAttempts = new Map(),
   // Cloud boards with edits awaiting upload, by the time of the latest.
   pendingCloud = new Map(),
   // Personal boards whose latest edits could not be saved on this device,
@@ -3341,7 +3344,11 @@ async function upload(snapshot) {
         seen && (await cloud.version(path)) === seen
           ? null
           : await cloud.read(path).catch(() => null);
-      if (remote && remote.updated > held) {
+      if (
+        remote &&
+        remote.updated > held &&
+        remote.updated !== cloudAttempts.get(snapshot.id)
+      ) {
         // This device's copy is not the one in Puter now.
         cloudStamps.delete(snapshot.id);
         cloudVersions.delete(snapshot.id);
@@ -3367,6 +3374,7 @@ async function upload(snapshot) {
     writing = true;
     const version = await cloud.save(snapshot);
     cloudStamps.set(snapshot.id, snapshot.updated);
+    cloudAttempts.delete(snapshot.id);
     if (version) cloudVersions.set(snapshot.id, version);
     else cloudVersions.delete(snapshot.id);
     cloudIndex.add(snapshot.id);
@@ -3378,10 +3386,7 @@ async function upload(snapshot) {
     // Puter may be this one, which the next check must not take for
     // another device's.
     if (writing) {
-      cloudStamps.set(
-        snapshot.id,
-        Math.max(cloudStamps.get(snapshot.id) ?? 0, snapshot.updated),
-      );
+      cloudAttempts.set(snapshot.id, snapshot.updated);
       cloudVersions.delete(snapshot.id);
     }
     report("Cloud save failed");

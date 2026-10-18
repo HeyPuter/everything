@@ -25603,6 +25603,86 @@ test("an upload whose answer was lost is not taken for another device's newer co
   }
 });
 
+test("an edit made offline does not write over another device's newer copy in Puter", async () => {
+  const files = new Map();
+  let offline = false;
+  const down = () => {
+    if (offline) throw Error("Network down");
+  };
+  const puter = {
+    env: "web",
+    auth: {
+      isSignedIn: () => true,
+      signIn: async () => {},
+      getUser: async () => ({ uuid: "u1", username: "alice" }),
+    },
+    fs: {
+      async read(path) {
+        down();
+        if (!files.has(path)) throw { code: "subject_does_not_exist" };
+        return new Blob([files.get(path)]);
+      },
+      async stat(path) {
+        down();
+        if (!files.has(path)) throw { code: "subject_does_not_exist" };
+        return { modified: files.get(path).length, size: 1 };
+      },
+      async readdir() {
+        return [];
+      },
+      async write(path, value) {
+        down();
+        files.set(path, typeof value === "string" ? value : await value.text());
+        return { path };
+      },
+    },
+  };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const app = await setup(puter);
+  const { doc, w, tick } = app;
+  const status = () => doc.querySelector("#save-state")?.textContent;
+  const addNote = async () => {
+    const canvas = doc.querySelector("#canvas");
+    canvas.focus();
+    canvas.dispatchEvent(
+      new w.KeyboardEvent("keydown", { key: "n", bubbles: true }),
+    );
+    await tick();
+    doc
+      .querySelector("#canvas-text-editor")
+      .dispatchEvent(
+        new w.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    await tick();
+    await wait(2500);
+  };
+  const path = () =>
+    [...files.keys()].find(
+      (p) => p.endsWith(".json") && p !== "whiteboard/catalog.json",
+    );
+  try {
+    await app.click('[data-action="new"]');
+    await app.click('[data-action="cloud-save"]');
+    for (let n = 0; n < 200 && status() !== "Saved to Puter"; n++) await tick();
+    await addNote();
+    // Another device saves its edit, then this one edits offline.
+    const other = JSON.parse(files.get(path()));
+    other.title = "Edited on the phone";
+    other.updated = Date.now();
+    files.set(path(), JSON.stringify(other));
+    await wait(5);
+    offline = true;
+    await addNote();
+    assert.equal(status(), "Cloud save failed");
+    offline = false;
+    await addNote();
+    assert.equal(status(), "Newer copy in Puter");
+    assert.equal(JSON.parse(files.get(path())).title, "Edited on the phone");
+  } finally {
+    await app.close();
+  }
+});
+
 test("library board counts group their digits", async () => {
   const ids = Array.from(
     { length: 1234 },
