@@ -52,10 +52,13 @@ const borderXml = (b, tag, offsets, keepNil = true) => {
 const shadeXml = (b) => b?.fill ? `<w:shd w:val="clear" w:fill="${xml(b.fill)}"/>` : '';
 const marginXml = (m, tag) => !m ? '' : `<w:${tag}>${['top', 'left', 'bottom', 'right'].map((s) => `<w:${s} w:w="${Math.max(0, twips(m[s]))}" w:type="dxa"/>`).join('')}</w:${tag}>`;
 // Runs inherit the language from the document defaults and styles, which state it; only those two carry it.
-function runProperties(c = {}, { withLang = false } = {}) {
+// Styles and defaults leave strikethrough to the runs: a property set may hold only one of strike and dstrike,
+// so a run could not turn off an inherited one of the other kind.
+function runProperties(c = {}, { withLang = false, style = false } = {}) {
   let out = '';
   if (c.font || c.eastAsia) out += `<w:rFonts w:ascii="${xml(c.font || c.eastAsia)}" w:hAnsi="${xml(c.font || c.eastAsia)}" w:eastAsia="${xml(c.eastAsia || c.font)}"/>`;
-  out += val('b', c.bold ? 1 : 0) + val('i', c.italic ? 1 : 0) + val('strike', c.strike && !c.doubleStrike ? 1 : 0) + val('dstrike', c.doubleStrike ? 1 : 0);
+  out += val('b', c.bold ? 1 : 0) + val('i', c.italic ? 1 : 0);
+  if (!style) out += c.doubleStrike ? val('dstrike', 1) : val('strike', c.strike ? 1 : 0);
   for (const key of ['outline', 'shadow', 'emboss', 'imprint']) out += val(key, c[key] ? 1 : 0);
   // Hanword character shapes are resolved formatting. Neutral values must
   // override the DOCX paragraph style and document defaults as well.
@@ -75,7 +78,8 @@ function runProperties(c = {}, { withLang = false } = {}) {
   const edge = c.border && ['left', 'top', 'right', 'bottom'].map((side) => c.border[side]).find((line) => line && line.style !== 'nil');
   if (edge) out += `<w:bdr w:val="${xml(edge.style)}" w:sz="${borderSize(edge.size)}" w:space="0" w:color="${xml(edge.color || 'auto')}"/>`;
   const shade = c.highlight && !highlightName ? c.highlight : c.shade || c.border?.fill;
-  out += `<w:shd w:val="${shade ? 'clear' : 'nil'}" w:fill="${xml(shade || 'auto')}"/>`;
+  // Clear with an automatic fill is no shading, and still overrides a style's.
+  out += `<w:shd w:val="clear" w:color="auto" w:fill="${xml(shade || 'auto')}"/>`;
   out += val('vertAlign', c.vert || 'baseline');
   if (c.emphasis) out += val('em', c.emphasis);
   return `<w:rPr>${out}${withLang ? '<w:lang w:val="en-US" w:eastAsia="ko-KR"/>' : ''}</w:rPr>`;
@@ -814,7 +818,7 @@ export function modelToDocx(model) {
     } else body.append(withSectionProperties(blocks, sect));
   }
   addPart('document', 'document.main', `<w:body>${body.finish()}</w:body>`, 'document');
-  const styles = `<w:docDefaults><w:rPrDefault>${runProperties(model.chars[0], { withLang: true })}</w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="0"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>` + joinXml(model.styles, (s, i) => s ? `<w:style w:type="${s.type || 'paragraph'}" w:styleId="HwpStyle${i}"><w:name w:val="${xml(s.name?.replaceAll(',', ' '))}"/>${s.type !== 'character' ? val('basedOn', 'Normal') : ''}${s.type !== 'character' ? `<w:pPr>${paragraphProperties(model.paras[s.para])}</w:pPr>` : ''}${runProperties(model.chars[s.char], { withLang: true })}</w:style>` : '');
+  const styles = `<w:docDefaults><w:rPrDefault>${runProperties(model.chars[0], { withLang: true, style: true })}</w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="0"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>` + joinXml(model.styles, (s, i) => s ? `<w:style w:type="${s.type || 'paragraph'}" w:styleId="HwpStyle${i}"><w:name w:val="${xml(s.name?.replaceAll(',', ' '))}"/>${s.type !== 'character' ? val('basedOn', 'Normal') : ''}${s.type !== 'character' ? `<w:pPr>${paragraphProperties(model.paras[s.para])}</w:pPr>` : ''}${runProperties(model.chars[s.char], { withLang: true, style: true })}</w:style>` : '');
   addPart('styles', 'styles', styles, 'styles'); rel('document', 'styles', 'styles.xml');
   if (lists.size) {
     const numbering = new XmlBuffer();

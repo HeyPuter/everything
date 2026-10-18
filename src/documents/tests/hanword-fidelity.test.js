@@ -195,7 +195,10 @@ describe('Hanword section and table fidelity', () => {
     const source = '<hp:p><hp:run charPrIDRef="0"><hp:t>decorated</hp:t></hp:run><hp:run charPrIDRef="1"><hp:t>plain</hp:t></hp:run></hp:p>';
     const runs = elements(parse(xmlFiles(parseHwpx(hwpx({ header, sections: [source] })))['word/document.xml']), 'rPr');
     expect(['sz', 'position', 'u', 'dstrike', 'outline', 'shadow'].map((n) => attr(elements(runs[0], n)[0], 'val'))).toEqual(['16', '-2', 'dash', '1', '1', '1']);
-    expect(['sz', 'position', 'u', 'dstrike', 'outline', 'shadow'].map((n) => attr(elements(runs[1], n)[0], 'val'))).toEqual(['20', '0', 'none', '0', '0', '0']);
+    // Styles leave strikethrough to the runs (a property set holds only one of strike and dstrike), so the plain run turns off a single strike.
+    expect(['sz', 'position', 'u', 'strike', 'outline', 'shadow'].map((n) => attr(elements(runs[1], n)[0], 'val'))).toEqual(['20', '0', 'none', '0', '0', '0']);
+    expect(runs.map((props) => elements(props, 'strike').length + elements(props, 'dstrike').length)).toEqual([1, 1]);
+    expect(xmlFiles(parseHwpx(hwpx({ header, sections: [source] })))['word/styles.xml']).not.toMatch(/<w:d?strike /);
   });
   it.each(['SimpleEquation', 'PageFunctions', 'SimpleComboBox', 'ChangeTrack', 'SimpleCompose'])('converts the real %s HWPX fixture into well-formed related parts', (name) => {
     const model = parseHwpx(readFileSync(new URL(`./fixtures/hwpx/${name}.hwpx`, import.meta.url))), files = xmlFiles(model), doc = parse(files['word/document.xml']);

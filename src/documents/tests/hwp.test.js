@@ -406,7 +406,7 @@ describe('HWPX', () => {
     expect(value(normal, 'w')).toBe('100');
     expect(value(normal, 'spacing')).toBe('0');
     expect(value(normal, 'color')).toBe('auto');
-    expect(value(normal, 'shd')).toBe('nil');
+    expect(value(normal, 'shd')).toBe('clear');
     expect(normal.getElementsByTagNameNS('*', 'shd')[0].getAttribute('w:fill')).toBe('auto');
   });
   it('rejects encrypted packages, missing sections, entity declarations, malformed XML, CRC errors, and wrong MIME types', () => {
@@ -426,5 +426,21 @@ describe('table cell budgets', () => {
     const many = parseHwpx(hwpx({ sections: [Array.from({ length: 6 }, () => table(60, 60)).join('')] }));
     expect(JSON.stringify(many.sections).match(/"kind":"table"/g)).toHaveLength(6);
     expect(() => parseHwpx(hwpx({ sections: [table(700, 30)] }))).toThrow('more table cells than can be imported');
+  });
+});
+
+describe('opening converted Hanword documents', () => {
+  it.each(['ChangeTrack', 'PageFunctions', 'SimpleCompose', 'SimpleEquation'])('opens %s.hwpx for editing, not as a read-only preview', async (name) => {
+    globalThis.XMLSerializer ??= new JSDOM('').window.XMLSerializer;
+    const { DocxPackage } = await import('../src/engine/docx.js');
+    const { blob } = await convertHanword(file(readFileSync(`tests/fixtures/hwpx/${name}.hwpx`), `${name}.hwpx`));
+    const pkg = await DocxPackage.open(new Uint8Array(await blob.arrayBuffer()), { bestEffort: true });
+    expect(pkg.previewIssues || []).toEqual([]);
+    expect(pkg.readOnly).toBeFalsy();
+  });
+  it('writes one strikethrough property per run and leaves strikethrough out of styles', () => {
+    const xml = docXml(parseHwpx(hwpx({ sections: ['<hp:p><hp:run><hp:t>Plain</hp:t></hp:run></hp:p>'] })));
+    expect(xml).not.toMatch(/<w:strike [^>]*\/><w:dstrike/);
+    expect(xml).not.toContain('w:val="nil" w:fill');
   });
 });
