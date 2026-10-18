@@ -484,3 +484,20 @@ test("the timer's minutes and seconds fields share a row", () => {
   assert.match(rule(".workshop-timer.panel {"), /width:\s*280px/);
   assert.match(rule(".workshop-timer .field-row > * {"), /flex-basis:\s*0/);
 });
+
+test("beside an open discussion the comment list shows a scroll cue, not a card cut through a line", () => {
+  // At 120px it showed one discussion and the first line of the next, cut
+  // through mid-line.
+  const list = rule(".comments-panel.has-discussion #comment-list {");
+  assert.match(list, /max-height:\s*min\(184px, 30dvh\)/);
+  assert.match(list, /scroll-snap-type:\s*y proximity/);
+  const at = css.indexOf("@supports (animation-timeline: scroll())");
+  assert.ok(at >= 0);
+  const faded = rule(".comments-panel.has-discussion #comment-list {", at);
+  assert.match(faded, /mask-image:\s*linear-gradient/);
+  assert.match(faded, /animation-timeline:\s*scroll\(self\)/);
+  assert.match(
+    rule(".comments-panel.has-discussion #comment-list:has(:focus-visible) {"),
+    /mask-image:\s*none/,
+  );
+});

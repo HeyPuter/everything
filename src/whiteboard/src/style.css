@@ -5301,8 +5301,44 @@ dialog.history-dialog[open] {
 .comment-pages[hidden] {
   display: none;
 }
+/* Beside an open discussion the list keeps room for about two discussions.
+   Scrolling stops at a discussion's top, and while more lies below, the
+   last visible one fades out rather than being cut through a line. */
 .comments-panel.has-discussion #comment-list {
-  max-height: 120px;
+  max-height: min(184px, 30dvh);
+  scroll-snap-type: y proximity;
+}
+.comments-panel.has-discussion #comment-list > * {
+  scroll-snap-align: start;
+}
+@property --comment-list-fade {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes comment-list-more {
+  0%,
+  90% {
+    --comment-list-fade: 36px;
+  }
+  100% {
+    --comment-list-fade: 0px;
+  }
+}
+@supports (animation-timeline: scroll()) {
+  .comments-panel.has-discussion #comment-list {
+    mask-image: linear-gradient(
+      to bottom,
+      #000 calc(100% - var(--comment-list-fade)),
+      transparent
+    );
+    animation: comment-list-more linear both;
+    animation-timeline: scroll(self);
+  }
+  /* Nor does it dim the keyboard's focus ring. */
+  .comments-panel.has-discussion #comment-list:has(:focus-visible) {
+    mask-image: none;
+  }
 }
 .comments-panel header,
 .comment-list-actions,
