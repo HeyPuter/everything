@@ -5,7 +5,7 @@
 // authorities cited on five or more pages when asked.
 import { bodyFieldRanges } from './body-fields.js';
 import { fieldInstructionTokens } from './docx-page-fields.js';
-import { fieldsOfType, insertEntryField, newBodyField, writeBlockField } from './generated-fields.js';
+import { fieldsOfType, insertEntryField, insertEntryFields, newBodyField, writeBlockField } from './generated-fields.js';
 
 /** Default category names, numbered 1–7; 8–16 are free for the document to name. */
 export const TOA_CATEGORIES = ['Cases', 'Statutes', 'Other Authorities', 'Rules', 'Treatises', 'Regulations', 'Constitutional Provisions', '8', '9', '10', '11', '12', '13', '14', '15', '16'];
@@ -136,17 +136,14 @@ export function markAuthority(doc, options) {
 
 /** Mark every occurrence of the short and long forms; returns the count. */
 export function markAllAuthorities(doc, options) {
-  let count = 0;
   const forms = [...new Set([options.short, options.long].filter(Boolean))];
   const existing = new Set(authorityMarks(doc.paragraphs).map(r => r.start));
   const positions = new Set();
   for (const form of forms) for (const match of doc.findMatches(form, { matchCase: true })) positions.add(match.end);
   const first = !authorities(doc.paragraphs).some(a => a.long === options.long);
   const sorted = [...positions].sort((a, b) => a - b).filter(at => !existing.has(at));
-  // The first mark (document order) gets the long form; insert from the end so positions stay valid.
-  for (let i = sorted.length - 1; i >= 0; i--) {
-    const instruction = authorityInstruction(i === 0 && first ? options : { short: options.short || options.long, bold: options.bold, italic: options.italic });
-    insertEntryField(doc, instruction, sorted[i]); count++;
-  }
-  return count;
+  // The first mark (document order) gets the long form. One change marks them all, from the last as
+  // before, so the caret ends at the first.
+  const entries = sorted.map((position, i) => ({ position, instruction: authorityInstruction(i === 0 && first ? options : { short: options.short || options.long, bold: options.bold, italic: options.italic }) }));
+  return insertEntryFields(doc, entries.reverse()).length;
 }

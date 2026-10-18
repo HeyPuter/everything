@@ -5,7 +5,7 @@
 import { bodyFieldRanges } from './body-fields.js';
 import { bookmarkEntries } from './bookmarks.js';
 import { fieldInstructionTokens } from './docx-page-fields.js';
-import { fieldsOfType, insertEntryField, newBodyField, writeBlockField } from './generated-fields.js';
+import { fieldsOfType, insertEntryField, insertEntryFields, newBodyField, writeBlockField } from './generated-fields.js';
 
 const quote = value => `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 const escapeLevel = text => text.replace(/:/g, '\\:');
@@ -197,10 +197,6 @@ export function markAllEntries(doc, text, options) {
   const instruction = entryInstruction(options);
   const found = doc.findMatches(needle, { matchCase: true, wholeWord: true });
   const marked = new Set(indexEntries(doc.paragraphs).filter(r => r.field.instruction === instruction).map(r => r.start));
-  let count = 0;
-  for (const match of [...found].reverse()) {
-    if (marked.has(match.end)) continue;
-    insertEntryField(doc, instruction, match.end); count++;
-  }
-  return count;
+  // One change for all of them (from the last, as before, so the caret ends at the first).
+  return insertEntryFields(doc, [...found].reverse().filter(match => !marked.has(match.end)).map(match => ({ instruction, position: match.end }))).length;
 }

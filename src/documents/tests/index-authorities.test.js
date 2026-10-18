@@ -27,6 +27,24 @@ async function setup(text) {
 }
 
 describe('index entries and generated indexes', () => {
+  it('marks all matches as one change, with the caret at the first', async () => {
+    const { d } = await setup(Array.from({ length: 300 }, (_, i) => `Paragraph ${i} mentions alpha and Roe v. Wade here.`).join('\n'));
+    let checkpoints = 0, changes = 0;
+    const checkpoint = d.checkpoint.bind(d), didChange = d.didChange.bind(d);
+    d.checkpoint = (...args) => { checkpoints++; return checkpoint(...args); };
+    d.didChange = (...args) => { changes++; return didChange(...args); };
+    expect(markAllEntries(d, 'alpha', { main: 'alpha' })).toBe(300);
+    expect([checkpoints, changes]).toEqual([1, 1]);
+    expect(d.range).toEqual([d.text.indexOf('alpha') + 5, d.text.indexOf('alpha') + 5]);
+    expect(markAllAuthorities(d, { long: 'Roe v. Wade, 410 U.S. 113 (1973)', short: 'Roe v. Wade', category: 1 })).toBe(300);
+    expect([checkpoints, changes]).toEqual([2, 2]);
+    const marks = bodyFieldRanges(d.paragraphs).filter(r => r.field.type === 'TA');
+    expect(marks.filter(r => / \\l /.test(r.field.instruction)).map(r => r.start)).toEqual([d.text.indexOf('Roe v. Wade') + 'Roe v. Wade'.length]);
+    // Marking again finds every match already marked.
+    expect(markAllEntries(d, 'alpha', { main: 'alpha' })).toBe(0);
+    expect(checkpoints).toBe(2);
+  });
+
   it('marks an entry at the start of a field beside that field, so its numbering still updates', async () => {
     const { pkg, d } = await setup('A\nB\nC');
     for (const [at, text] of [['A', 'One'], ['B', 'Two'], ['C', 'Three']]) { d.select(d.text.indexOf(at)); insertCaption(d, { label: 'Figure', text }); }
