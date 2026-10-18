@@ -156,7 +156,8 @@ export class RoomClient extends EventTarget {
         if (res.records.length) { this.replica.receive(res.records); await this.persist(); }
         if (this.replica.rev >= res.head || !res.records.length) break;
       }
-      if (this.status.state !== 'error') this.setStatus('connected');
+      // A request the room could not verify (401) is no lasting refusal: one that goes through again ends it.
+      if (this.status.state !== 'error' || this.status.code === 401) this.setStatus('connected');
       this.maybeCheckpoint();
     }).finally(() => { this.syncing = null; });
     return this.syncing;
@@ -227,7 +228,7 @@ export class RoomClient extends EventTarget {
       this.maybeCheckpoint();
     }).catch((error) => {
       this.failed(error);
-      if (!this.closed && !(error instanceof CollabError && [401, 403, 404, 410].includes(error.status))) {
+      if (!this.closed && !(error instanceof CollabError && [403, 404, 410].includes(error.status))) {
         this.retryTimer = setTimeout(() => this.flush(), this.retryDelay);
         this.retryDelay = Math.min(30_000, this.retryDelay * 2);
       }
@@ -394,7 +395,7 @@ export class RoomClient extends EventTarget {
   failed(error) {
     if (this.closed) return;
     if (error instanceof CollabError && !error.network && [401, 403, 404, 410].includes(error.status)) {
-      this.status = { state: 'error', pending: this.replica?.pending.length ?? 0, message: error.message };
+      this.status = { state: 'error', pending: this.replica?.pending.length ?? 0, message: error.message, code: error.status };
       this.dispatchEvent(new CustomEvent('status'));
       if (error.status === 410 || error.status === 404 || error.status === 403) this.dispatchEvent(new CustomEvent('closed', { detail: { message: error.message } }));
       return;
