@@ -43,7 +43,9 @@ export function openCustomizeKeyboard({ entries, keymap, onClose, select = null 
     let pending = null;
     const capture = el('input.input.kb-capture', { readOnly: true, placeholder: 'Press the new shortcut', 'aria-label': 'New shortcut', 'aria-describedby': 'kb-capture-hint' });
     const hint = el('p.field-hint', { id: 'kb-capture-hint' }, 'Click here and press the keys, for example Ctrl+Alt+K. Function keys work on their own.');
-    const assign = el('button.btn.btn-primary', { type: 'button', disabled: true, onclick: () => { if (pending && keymap.assign(chosen.id, pending)) { renderList(); renderDetail(); } } }, 'Assign');
+    // The pressed button is rebuilt with the details: focus goes on to the shortcut field, not to the page.
+    const changed = () => { renderList(); renderDetail(); detail.querySelector('.kb-capture')?.focus(); };
+    const assign = el('button.btn.btn-primary', { type: 'button', disabled: true, onclick: () => { if (pending && keymap.assign(chosen.id, pending)) changed(); } }, 'Assign');
     capture.addEventListener('keydown', e => {
       if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) return;
       if (e.key === 'Escape' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) return;
@@ -66,10 +68,10 @@ export function openCustomizeKeyboard({ entries, keymap, onClose, select = null 
         !custom.length && !(chosen.shortcut && !keymap.isCustom(chosen.id)) ? el('p.field-hint', {}, 'None') : null,
         ...(chosen.shortcut && !keymap.isCustom(chosen.id) && !custom.map(c => displayChord(c)).includes(chosen.shortcut) ? [el('div.kb-chord', {}, el('span.kbd', {}, chosen.shortcut), el('span.field-hint', {}, 'built in'))] : []),
         ...custom.map(chord => el('div.kb-chord', {}, el('span.kbd', {}, displayChord(chord)),
-          el('button.btn.btn-sm.btn-ghost', { type: 'button', onclick: () => { keymap.remove(chosen.id, chord); renderList(); renderDetail(); } }, 'Remove')))),
+          el('button.btn.btn-sm.btn-ghost', { type: 'button', onclick: () => { keymap.remove(chosen.id, chord); changed(); } }, 'Remove')))),
       el('label.field', {}, el('span.field-label', {}, 'New shortcut'), capture), hint,
       el('div.row', {}, assign,
-        el('button.btn.btn-ghost', { type: 'button', disabled: !keymap.isCustom(chosen.id), onclick: () => { keymap.reset(chosen.id); renderList(); renderDetail(); } }, 'Reset')));
+        el('button.btn.btn-ghost', { type: 'button', disabled: !keymap.isCustom(chosen.id), onclick: () => { keymap.reset(chosen.id); changed(); } }, 'Reset')));
   }
   const resetAll = el('button.btn.btn-ghost', { type: 'button', onclick: () => { keymap.reset(); renderList(); renderDetail(); } }, 'Reset All');
   const modal = openModal({ title: 'Customize Keyboard', wide: true, onClose, content: el('div.kb-dialog', {},
