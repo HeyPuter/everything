@@ -36,11 +36,17 @@ export function pageRestartedNumbers(plan, paragraphs, placed) {
 /** The page of each reference: Map(page -> [ids]) in reference order. */
 export function assignFootnotes(placed, refs) {
   const pages = new Map(), seen = new Set();
-  const lines = placed.lines.filter(line => !line.virtual && !line.pageStory);
+  // Each paragraph's lines, in layout order: a long document has many references and many lines.
+  const byParagraph = new Map();
+  for (const line of placed.lines) {
+    if (line.virtual || line.pageStory) continue;
+    const list = byParagraph.get(line.paragraphId);
+    if (list) list.push(line); else byParagraph.set(line.paragraphId, [line]);
+  }
   for (const ref of refs) {
     if (seen.has(ref.id)) continue;
-    const line = lines.find(l => l.paragraphId === ref.paragraphId && l.start <= ref.position && ref.position < l.end)
-      || lines.find(l => l.paragraphId === ref.paragraphId && l.start <= ref.position && ref.position <= l.end);
+    const lines = byParagraph.get(ref.paragraphId) || [];
+    const line = lines.find(l => l.start <= ref.position && ref.position < l.end) || lines.find(l => l.start <= ref.position && ref.position <= l.end);
     if (!line) continue;
     seen.add(ref.id);
     if (!pages.has(line.page)) pages.set(line.page, []);
