@@ -2802,22 +2802,40 @@ export class BoardService {
                 // toward the board's file limit like an upload: otherwise
                 // anyone who can edit could fill its owner's storage by
                 // adding and removing a lot of content.
+                // The file is named by the edit, so one already written, as
+                // when a retry follows a lost answer, is neither written
+                // nor counted again.
                 const used = `wb:${room}:assetbytes`,
                   size = input.update.length;
-                if ((await this.kv.incr(used, size)) > ASSET_BYTES) {
-                  await this.kv.incr(used, -size).catch(() => {});
-                  fail(
-                    413,
-                    "This board has reached its 1 GB limit for images and files.",
+                record.path = `whiteboard/shared/${room}/updates/${digest}.txt`;
+                let stored = false;
+                try {
+                  await this.puter.fs.stat(record.path);
+                  stored = true;
+                } catch (error) {
+                  if (
+                    error?.code &&
+                    !["subject_does_not_exist", "ENOENT", "not_found"].includes(
+                      error.code,
+                    )
+                  )
+                    throw error;
+                }
+                if (!stored) {
+                  if ((await this.kv.incr(used, size)) > ASSET_BYTES) {
+                    await this.kv.incr(used, -size).catch(() => {});
+                    fail(
+                      413,
+                      "This board has reached its 1 GB limit for images and files.",
+                    );
+                  }
+                  await this.writeFile(record.path, input.update).catch(
+                    async (error) => {
+                      await this.kv.incr(used, -size).catch(() => {});
+                      throw error;
+                    },
                   );
                 }
-                record.path = `whiteboard/shared/${room}/updates/${digest}.txt`;
-                await this.writeFile(record.path, input.update).catch(
-                  async (error) => {
-                    await this.kv.incr(used, -size).catch(() => {});
-                    throw error;
-                  },
-                );
               }
               // The record's time is when it becomes visible, not when the
               // commit arrived: a slow file write must not leave it older

@@ -5816,6 +5816,39 @@ test("large edits kept as files count toward the board's file limit", async () =
   assert.equal((await boards.load(room)).doc.snapshot().items.length, 21);
 });
 
+test("a large edit sent again after a failure counts toward the board's limit once", async () => {
+  const { env, boards } = setup();
+  const { input, room } = createInput("Media");
+  await boards.call(owner, input);
+  const { doc } = await boards.load(room);
+  const before = doc.vector(),
+    next = doc.snapshot();
+  for (let k = 0; k < 20; k++)
+    next.items.push(item("note", k * 300, 0, { text: "x".repeat(19_000) + k }));
+  doc.commit(next);
+  const update = doc.update(before);
+  doc.destroy();
+  const edit = {
+    op: "commit",
+    room,
+    id: await hash(update),
+    update: encode(update),
+  };
+  // The edit's file is written, then its record is not.
+  const set = boards.puter.kv.set;
+  let failed = false;
+  boards.puter.kv.set = async function (key, ...rest) {
+    if (!failed && key.includes(":log:")) {
+      failed = true;
+      throw Object.assign(Error("Busy"), { code: "too_many_requests" });
+    }
+    return set.call(this, key, ...rest);
+  };
+  await assert.rejects(boards.call(owner, edit));
+  await boards.call(owner, edit);
+  assert.equal(env.data.get(`wb:${room}:assetbytes`), edit.update.length);
+});
+
 test("uploading the same file again counts it toward the board's limit once", async () => {
   const { env, boards } = setup();
   const { input, room } = createInput("Media");
