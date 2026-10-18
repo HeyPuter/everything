@@ -48,6 +48,11 @@ function placement(at, i) {
   return { anchor: { r: at.r, c: at.c }, dx: 24 * i, dy: 24 * i };
 }
 
+/** How many slicers and timelines already stand at a cell, so new ones cascade on from them instead of covering them. */
+function standingAt(sheet, at) {
+  return sheet.charts.filter(c => (c.type === 'slicer' || c.type === 'timeline') && c.anchor?.r === at.r && c.anchor?.c === at.c).length;
+}
+
 /** Why slicers cannot be inserted for this table now, or null. */
 export function tableSlicerProblem(wb, sheetId, table) {
   if (!table) return 'Select a cell in a table or PivotTable to insert slicers.';
@@ -69,6 +74,7 @@ export function insertTableSlicers(wb, sheetId, tableId, columns, { at = null } 
   if (!chosen.length) return [];
   const paint = defaultSlicerPaint(wb), ids = [];
   const start = at || { r: table.range.r1, c: table.range.c2 + 2 };
+  const before = standingAt(sheet, start);
   wb.transaction('Insert slicer', () => {
     // The slicer filters through the table's AutoFilter; a table without one gets one, its buttons hidden.
     if (!sheetFilters(sheet).some(f => filterTable(sheet, f)?.id === table.id)) {
@@ -77,7 +83,7 @@ export function insertTableSlicers(wb, sheetId, tableId, columns, { at = null } 
     }
     chosen.forEach((name, i) => {
       const control = normalizeSlicer({ type: 'slicer', tableRef: slicerTableReference(table.name, name), title: name,
-        ...placement(start, i), w: SLICER_DEFAULTS.w, h: SLICER_DEFAULTS.h, rowHeight: SLICER_DEFAULTS.rowHeight, paint });
+        ...placement(start, before + i), w: SLICER_DEFAULTS.w, h: SLICER_DEFAULTS.h, rowHeight: SLICER_DEFAULTS.rowHeight, paint });
       const id = wb.addChart(sheetId, control);
       if (id) ids.push(id);
     });
@@ -200,7 +206,7 @@ export function insertPivotSlicers(wb, sheetId, pivot, fieldIndexes, { at = null
   const indexed = pivotSlicerFields({ nativePivots: pivots }, pivot);
   const range = parseRefText(pivot.ref || '');
   const start = at || { r: range ? range.r1 : 0, c: range ? range.c2 + 2 : 0 };
-  const paint = defaultSlicerPaint(wb), taken = [], created = [];
+  const paint = defaultSlicerPaint(wb), taken = [], created = [], standing = standingAt(wb.sheet(sheetId), start);
   for (const field of chosen) {
     const name = freeSlicerCacheName(wb, field.name, taken);
     taken.push(name);
@@ -217,7 +223,7 @@ export function insertPivotSlicers(wb, sheetId, pivot, fieldIndexes, { at = null
     wb._push({ label: 'Insert slicer', undo: () => apply(before), redo: () => apply(pivots) });
     created.forEach((slicer, i) => {
       const control = normalizeSlicer({ type: 'slicer', pivotCache: slicer.name, title: chosen[i].name,
-        ...placement(start, i), w: SLICER_DEFAULTS.w, h: SLICER_DEFAULTS.h, rowHeight: SLICER_DEFAULTS.rowHeight, paint });
+        ...placement(start, standing + i), w: SLICER_DEFAULTS.w, h: SLICER_DEFAULTS.h, rowHeight: SLICER_DEFAULTS.rowHeight, paint });
       const id = wb.addChart(sheetId, control);
       if (id) ids.push(id);
     });
