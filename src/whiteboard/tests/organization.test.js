@@ -3499,6 +3499,53 @@ test("a library item's creator removes it only while still a member", async () =
   );
 });
 
+test("members have a limited amount of library content awaiting approval", async () => {
+  const { call, org } = setup();
+  await call(owner, { op: "org.setup", name: "Fabrikam" });
+  for (const user of [editor, viewer]) {
+    const { token } = await call(owner, { op: "org.invite", role: "member" });
+    await call(user, { op: "org.join", token });
+  }
+  const json = JSON.stringify(board("Retro template"));
+  const submit = async (user, name) =>
+    (await call(user, { op: "library.submit", name, board: json })).item;
+  const waiting = (key, createdBy, size) =>
+    org.kv.set("org:lib:" + key, {
+      id: key,
+      status: "pending",
+      createdBy,
+      ...(size === undefined ? {} : { size }),
+    });
+  // Many small items, as a migration of boards as templates shares, wait
+  // together; each records its size.
+  const shared = [];
+  for (let n = 0; n < 15; n++) shared.push(await submit(editor, "Retro " + n));
+  assert.equal(shared[0].size, json.length);
+  // Items saved before sizes were recorded count as the largest an item
+  // can be: twenty of them and Bob's own fill all but a little of his 250 MB.
+  for (let n = 0; n < 20; n++) await waiting("old" + n, editor.uuid);
+  await waiting(
+    "big",
+    editor.uuid,
+    250 * 1024 ** 2 - 20 * 12_000_000 - 16 * json.length,
+  );
+  await submit(editor, "Fits");
+  await assert.rejects(submit(editor, "One more"), {
+    status: 429,
+    message: /awaiting approval have reached 250 MB/,
+  });
+  // Reviewing makes room for more; administrators share freely.
+  await call(owner, { op: "library.approve", id: shared[0].id });
+  await submit(editor, "One more");
+  for (let n = 0; n < 3; n++) await submit(owner, "Approved " + n);
+  // The whole organization's waiting content is limited too.
+  await waiting("others", "someone", 1024 ** 3 - 250 * 1024 ** 2);
+  await assert.rejects(submit(viewer, "Mine"), {
+    status: 429,
+    message: /organization's 1 GB limit/,
+  });
+});
+
 test("duplicate discovery tells boards without text apart by their objects", async () => {
   const { boards, call } = setup();
   await call(owner, { op: "org.setup", name: "Fabrikam" });

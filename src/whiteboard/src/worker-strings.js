@@ -242,6 +242,10 @@ addTranslations({
   "This item is awaiting approval.": "Cet élément attend une approbation.",
   "This content is too large for the library.":
     "Ce contenu est trop volumineux pour la bibliothèque.",
+  "Your library items awaiting approval have reached 250 MB. Share more once an administrator has reviewed them.":
+    "Vos éléments de bibliothèque en attente d’approbation ont atteint 250 Mo. Partagez-en d’autres une fois qu’un administrateur les aura examinés.",
+  "Library items awaiting approval have reached the organization's 1 GB limit. Share this once an administrator has reviewed them.":
+    "Les éléments de bibliothèque en attente d’approbation ont atteint la limite de 1 Go de l’organisation. Partagez celui-ci une fois qu’un administrateur les aura examinés.",
   "Choose a rating from 1 to 5.": "Choisissez une note de 1 à 5.",
   "Only people in the organization can send feedback.":
     "Seules les personnes de l’organisation peuvent envoyer des commentaires.",
