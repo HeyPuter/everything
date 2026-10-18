@@ -103,6 +103,7 @@ export function createBuilder({
   baseOrder = 0,
   signal,
   decode,
+  convert,
 }) {
   if (room <= 0) throw Error("A board can contain up to 5,000 objects.");
   const frames = [],
@@ -123,10 +124,29 @@ export function createBuilder({
     if (!src) {
       if (source.bytes.length > IMAGE_BYTES)
         return (skip("Images larger than 5 MB"), null);
-      if (!encoded.has(source.bytes))
-        encoded.set(source.bytes, dataURL(source.bytes, source.mime));
-      src = encoded.get(source.bytes);
-    } else if (src.length > (IMAGE_BYTES * 4) / 3 + 64)
+      // A GIF or BMP picture is added as a PNG copy, as when dropped on the
+      // board; without the browser to draw one, it is not supported.
+      const copied = ["image/gif", "image/bmp"].includes(source.mime);
+      if (copied && !convert)
+        return (
+          skip(
+            "Images in unsupported formats",
+            1,
+            source.mime.slice(6).toUpperCase(),
+          ),
+          null
+        );
+      if (!encoded.has(source.bytes)) {
+        const url = dataURL(source.bytes, source.mime);
+        encoded.set(
+          source.bytes,
+          copied ? convert(url).catch(() => null) : url,
+        );
+      }
+      src = await encoded.get(source.bytes);
+      if (!src) return (skip("Images that could not be read"), null);
+    }
+    if (src.length > (IMAGE_BYTES * 4) / 3 + 64)
       return (skip("Images larger than 5 MB"), null);
     if (added + src.length > IMPORT_IMAGES)
       return (skip("Images beyond the 100 MB one import can add"), null);

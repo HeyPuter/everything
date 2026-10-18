@@ -18,6 +18,10 @@ export function sniffImage(bytes) {
     String.fromCharCode(...bytes.subarray(8, 12)) === "WEBP"
   )
     return "image/webp";
+  // Boards store these as a PNG copy, which the import makes.
+  const start = String.fromCharCode(...bytes.subarray(0, 6));
+  if (/^GIF8[79]a/.test(start)) return "image/gif";
+  if (start.startsWith("BM")) return "image/bmp";
   return null;
 }
 

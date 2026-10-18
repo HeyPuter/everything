@@ -1209,6 +1209,60 @@ const W =
 const para = (text, style, extra = "") =>
   `<w:p><w:pPr>${style ? `<w:pStyle w:val="${style}"/>` : ""}${extra}</w:pPr><w:r><w:t xml:space="preserve">${text}</w:t></w:r></w:p>`;
 
+test("GIF and BMP pictures in a Word document import as PNG copies, as dropped ones do", async () => {
+  const gif = encoder.encode("GIF89a\x02\x00\x01\x00 rest of a GIF");
+  const bmp = encoder.encode("BM a bitmap's header and pixels");
+  const png = createCanvas(20, 10).toDataURL("image/png");
+  const zip = () =>
+    createZip([
+      {
+        name: "word/document.xml",
+        data: `<w:document ${W}><w:body>${["rId1", "rId2", "rId1"].map((id) => `<w:p><w:r><w:drawing><a:blip r:embed="${id}"/></w:drawing></w:r></w:p>`).join("")}</w:body></w:document>`,
+      },
+      {
+        name: "word/_rels/document.xml.rels",
+        data: `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="x/image" Target="media/image1.gif"/><Relationship Id="rId2" Type="x/image" Target="media/image2.bmp"/></Relationships>`,
+      },
+      { name: "word/media/image1.gif", data: gif },
+      { name: "word/media/image2.bmp", data: bmp },
+    ]);
+  const model = await extractDocx(zip());
+  assert.equal(model.skipped.images, 0);
+  const converted = [];
+  const result = await layoutDocument(model, {
+    ctx: measure,
+    point: { x: 0, y: 0 },
+    attach: false,
+    convert: async (src) => (converted.push(src.slice(0, 15)), png),
+  });
+  // A picture used twice is copied once.
+  assert.deepEqual(converted, ["data:image/gif;", "data:image/bmp;"]);
+  const images = result.items.filter((i) => i.type === "image");
+  assert.equal(images.length, 3);
+  assert.ok(images.every((i) => i.src === png && i.w === 20 && i.h === 10));
+  assert.deepEqual(result.skipped, []);
+  // A copy that cannot be made is reported, as is a picture without a way
+  // to copy it.
+  const failed = await layoutDocument(await extractDocx(zip()), {
+    ctx: measure,
+    point: { x: 0, y: 0 },
+    attach: false,
+    convert: async () => {
+      throw Error("This image could not be read.");
+    },
+  });
+  assert.deepEqual(failed.skipped, [
+    { reason: "Images that could not be read", count: 3, detail: "" },
+  ]);
+  const unconverted = await layoutDocument(await extractDocx(zip()), {
+    ctx: measure,
+    point: { x: 0, y: 0 },
+    attach: false,
+  });
+  assert.equal(unconverted.skipped[0].reason, "Images in unsupported formats");
+  assert.equal(unconverted.skipped[0].count, 3);
+});
+
 test("a Word picture damaged beyond its header is skipped rather than imported as an image that shows nothing", async () => {
   const broken = new Uint8Array(createCanvas(40, 20).toBuffer("image/png"));
   // The signature and size header stay; the picture data after them is lost.

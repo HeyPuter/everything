@@ -550,6 +550,7 @@ import {
   createTransfer,
   textObject,
   decodeImage,
+  convertImage,
   IMAGE_ACCEPT,
 } from "./transfer.js";
 import { createBulkContent } from "./bulk-content.js";
@@ -1109,8 +1110,9 @@ const contentTools = createContentTools({
   action: (name) => action(name),
   loadPdfjs,
   // Images whose size is not in their first bytes are measured by the
-  // browser.
+  // browser, which also makes the PNG copy of a GIF or BMP picture.
   decodeImage,
+  convertImage,
   mutate,
   toast,
   modal,

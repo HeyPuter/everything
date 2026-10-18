@@ -490,6 +490,7 @@ export function createContentTools(api) {
     // would repeat an order once one was deleted.
     baseOrder: nextFrameOrder(target.items),
     decode: api.decodeImage,
+    convert: api.convertImage,
     labels: { notes: t("Speaker notes"), slide: t("Slide") },
     ...extra,
   });
