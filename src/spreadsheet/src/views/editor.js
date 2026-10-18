@@ -1118,7 +1118,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   /** Merge a style patch into every selected range, the rows a filter hides left out. */
   function styleRanges(label, patch) {
     if (nativeStyleRanges(patch)) return;
-    return eachRange(label, (rg, skipRow, sheetId) => wb.applyStyle(sheetId, rg, patch, { skipRow }), { skipRows: true });
+    // Uncapped, as Format Cells applies a patch: the workbook formats whole columns and rows as their default
+    // and visits only the cells it stores, so a column chosen by its header is formatted all the way down.
+    return eachRange(label, (rg, skipRow, sheetId) => wb.applyStyle(sheetId, rg, patch, { skipRow }), { skipRows: true, cap: false });
   }
 
   function fittedStyleRanges(label, patch, fit = true) {
@@ -1130,7 +1132,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       eachRange(label, (rg, _, sid) => {
         wb.applyStyle(sid, rg, patch);
         fitRanges(sid, [rg]);
-      });
+      }, { cap: false });
     });
   }
 
