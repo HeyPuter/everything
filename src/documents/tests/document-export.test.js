@@ -38,4 +38,17 @@ describe('Markdown and plain-text tables', () => {
     doc.setHyperlink('https://example.com/?q=a|b');
     expect(documentMarkdown(doc)).toBe('| a\\|b | [site](https://example.com/?q=a%7Cb) |\n| --- | --- |\n');
   });
+  it('keeps the text of a table nested in a cell', () => {
+    const doc = blankDoc();
+    doc.replace('Before');
+    doc.insertTable(1, 2);
+    doc.replace('Outer A');
+    doc.insertTable(1, 2, 3000);
+    doc.replace('Inner secret');
+    const inner = doc.tables.find(t => t.parentCellId);
+    fill(doc, inner, 0, 1, 'Inner two');
+    expect(documentMarkdown(doc)).toContain('Inner secret \\| Inner two');
+    expect(documentPlainText(doc)).toContain('Inner secret Inner two');
+    expect(body(documentHtml(doc))).toContain('Inner secret');
+  });
 });

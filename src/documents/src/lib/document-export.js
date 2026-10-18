@@ -40,6 +40,13 @@ const tableRows = (block, cellText) => block.rows.map(row => {
   for (const cell of row.cells) cells.push(cell.rowSpan === 0 ? '' : cellText(cell), ...Array(Math.max(0, (cell.span || 1) - 1)).fill(''));
   return cells.concat(Array(row.gridAfter || 0).fill(''));
 });
+/**
+ * A cell's text: its paragraphs joined by `lineBreak`, and a table nested in it flattened in place, its
+ * cells joined by `cellBreak` and its rows by `lineBreak`, since neither format can nest one table in another.
+ */
+const cellText = (cell, paragraphText, cellBreak, lineBreak) => cell.content.map(c => c.type === 'table'
+  ? tableRows(c, inner => cellText(inner, paragraphText, cellBreak, lineBreak)).map(row => row.filter(Boolean).join(cellBreak)).filter(Boolean).join(lineBreak)
+  : paragraphText(c.paragraph)).join(lineBreak);
 
 /* ---- HTML ---- */
 function runHtml(run, heading = false) {
@@ -122,7 +129,7 @@ function blocksMarkdown(blocks, model) {
   for (const block of blocks) {
     if (block.type === 'table') {
       // Text already escapes its pipes (and link targets encode theirs), so none ends a cell early.
-      const rows = tableRows(block, cell => cell.content.filter(c => !c.type).map(c => paragraphMarkdown(c.paragraph)).join('<br>')).map(row => row.map(text => text || ' '));
+      const rows = tableRows(block, cell => cellText(cell, p => paragraphMarkdown(p), ' \\| ', '<br>')).map(row => row.map(text => text || ' '));
       if (rows.length) {
         const width = Math.max(...rows.map(r => r.length));
         const pad = r => [...r, ...Array(width - r.length).fill(' ')];
@@ -157,7 +164,7 @@ export function documentPlainText(model) {
   const lines = [];
   const walk = blocks => {
     for (const block of blocks) {
-      if (block.type === 'table') { for (const row of tableRows(block, cell => cell.content.filter(c => !c.type).map(c => c.paragraph.runs.map(runText).join('')).join(' '))) lines.push(row.join('\t')); continue; }
+      if (block.type === 'table') { for (const row of tableRows(block, cell => cellText(cell, p => p.runs.map(runText).join(''), ' ', ' '))) lines.push(row.join('\t')); continue; }
       lines.push(block.paragraph.runs.map(runText).join('').replace(/\v/g, '\n').replace(/\f/g, ''));
     }
   };
