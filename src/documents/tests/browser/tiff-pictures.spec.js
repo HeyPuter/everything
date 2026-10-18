@@ -81,3 +81,20 @@ test('inserts a TIFF without transcoding its bytes and reopens it',async({page},
   await reopenDocx(page,input,path,'\ufffc');await expect(input).toHaveJSProperty('readOnly',false);
   await expect(page.locator('#playground-error')).toBeEmpty();
 });
+
+test('changes the pixels of a TIFF picture from its own decoded pixels',async({page},info)=>{
+  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('/playground.html');await page.getByRole('button',{name:'New',exact:true}).click();
+  const input=page.getByRole('textbox',{name:'Document text'});
+  await page.getByLabel('Insert image file').setInputFiles(`${folder}/image1.tiff`);
+  await expect(input).toHaveValue('￼');
+  await page.locator('.ribbon-card').getByRole('button',{name:'Color',exact:true}).click();
+  await page.getByRole('menuitem',{name:/Saturation: 0%/}).first().click();
+  const save=async()=>{const pending=page.waitForEvent('download');await page.getByRole('button',{name:'Download .docx',exact:true}).click();const path=info.outputPath('saturation.docx');await(await pending).saveAs(path);return unzipSync(readFileSync(path));};
+  // The shown picture is the processed PNG; the TIFF stays as the original layer, byte for byte.
+  await expect.poll(async()=>new TextDecoder().decode((await save())['word/document.xml']),{timeout:30000}).toMatch(/<a:blip r:embed="[^"]+"[\s\S]*a14:imgLayer r:embed="[^"]+"[\s\S]*a14:saturation sat="0"/);
+  const parts=await save(),media=Object.keys(parts).filter(p=>p.startsWith('word/media/')).sort();
+  expect(media.map(p=>p.slice(p.lastIndexOf('.')))).toEqual(['.png','.tiff']);
+  expect(parts[media.find(p=>p.endsWith('.tiff'))]).toEqual(new Uint8Array(readFileSync(`${folder}/image1.tiff`)));
+  await expect(page.getByRole('alert')).toHaveCount(0);expect(errors).toEqual([]);
+});
