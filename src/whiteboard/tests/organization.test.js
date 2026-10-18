@@ -5434,6 +5434,55 @@ test("a failing webhook is tried six times in all", async () => {
   assert.equal((await org.list("org:hookq:")).length, 0);
 });
 
+test("a webhook that stays down keeps about a day of events, and requests read only a little of them", async () => {
+  const { call, org } = setup();
+  org.fetcher = async (url) =>
+    new Response("", {
+      status: String(url) === "https://down.example.ca/" ? 503 : 200,
+    });
+  await call(owner, { op: "org.setup", name: "Fabrikam" });
+  await call(owner, {
+    op: "org.policy.set",
+    policy: { integrations: { webhooks: { enabled: true } } },
+  });
+  await org.kv.set("org:hooksecret:0000000000000000", "whsec_test");
+  await org.kv.set("org:webhook:0000000000000000", {
+    id: "0000000000000000",
+    url: "https://down.example.ca/",
+    events: ["team"],
+    enabled: true,
+  });
+  org.instance.hooks = null;
+  let at = Date.now(),
+    read = 0;
+  org.now = () => at;
+  const page = org.page.bind(org);
+  org.page = async (options) => {
+    const rows = await page(options);
+    if (options.pattern.startsWith("org:hookq:"))
+      read += (Array.isArray(rows) ? rows : rows.items).length;
+    return rows;
+  };
+  // An event every five minutes for two days, the receiver down throughout.
+  for (let n = 0; n < 576; n++) {
+    at += 5 * 60_000;
+    read = 0;
+    await org.audit(owner, "team.updated", { type: "team", id: "t" + n });
+    await org.flush();
+  }
+  const last = read;
+  const queued = await org.list("org:hookq:");
+  const oldest = queued[0].value.entry.at;
+  assert.ok(
+    at - oldest < 86_400_000 + 15 * 60_000,
+    `${(at - oldest) / 3600_000} h`,
+  );
+  assert.ok(queued.length < 300, `${queued.length}`);
+  // The last request read the start of the queue and the events that had
+  // just turned a day old, not all of it.
+  assert.ok(last < 250, `${last}`);
+});
+
 test("changing a team rewrites only the people who joined or left it", async () => {
   const { call, org } = setup();
   await call(owner, { op: "org.setup", name: "Fabrikam" });

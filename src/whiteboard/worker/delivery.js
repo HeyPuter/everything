@@ -529,10 +529,12 @@ async function webhooks(org, policy, events) {
   );
   // Retry earlier failures with exponential backoff, a few per webhook so an
   // unreachable receiver never holds up the others. A receiver that has been
-  // failing for a day loses the queued events it has had a retry for; an
-  // event not tried again since it failed, as when nothing ran for a day,
-  // gets that retry first. Retries run alongside the new sends, so a
-  // receiver that does not answer delays a request once.
+  // failing for a day loses the queued events it has had a retry for, and
+  // those it failed to take after they were a day old; an event not tried
+  // again since it failed, as when nothing ran for a day, gets that retry
+  // first. Only the queue's events older than a day are read for this, not
+  // all of it. Retries run alongside the new sends, so a receiver that does
+  // not answer delays a request once.
   const stale = new Date(now - DAY).toISOString();
   let backlog = false;
   const retrying = Promise.all(
@@ -548,12 +550,24 @@ async function webhooks(org, policy, events) {
         // them finds ones that are due, such as those a burst left waiting.
         let queued = await org.list(prefix, { limit: 100 });
         if (queued[0] && queued[0].key.slice(prefix.length) < stale) {
+          const failedAt = down.get(hook.id),
+            missed =
+              failedAt === undefined
+                ? ""
+                : new Date(failedAt - DAY).toISOString(),
+            old = [];
+          await org.scan(prefix, {}, (row) => {
+            if (row.key.slice(prefix.length) >= stale) return true;
+            old.push(row);
+          });
           let untried = false;
-          for (const row of await org.list(prefix)) {
-            if (row.key.slice(prefix.length) >= stale) continue;
-            if (row.value?.attempts >= 2) await org.kv.del(row.key);
+          for (const row of old)
+            if (
+              row.value?.attempts >= 2 ||
+              row.key.slice(prefix.length) < missed
+            )
+              await org.kv.del(row.key);
             else untried = true;
-          }
           if (!untried) return;
           queued = await org.list(prefix, { limit: 100 });
         }
