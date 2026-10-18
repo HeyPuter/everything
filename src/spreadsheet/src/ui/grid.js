@@ -2500,10 +2500,16 @@ export function createGrid(opts) {
       const dy = ev.clientY - drag.startY;
       if (Math.abs(dx) + Math.abs(dy) > 2) drag.moved = true;
       if (drag.kind === 'chartmove') {
-        // The box stays within the sheet, so it cannot be dragged out of reach past its edge.
+        // The boxes stay within the sheet, so none can be dragged out of reach past its edge; the others
+        // selected stop with the one at the edge rather than being pushed out of their places around it.
         ensureOffsets();
-        let left = clamp(drag.from.left + dx, 0, Math.max(0, (chartView?.width ?? colOffsets.total()) - drag.from.width));
-        let top = clamp(drag.from.top + dy, 0, Math.max(0, (chartView?.height ?? rowOffsets.total()) - drag.from.height));
+        const boxes = [drag.from, ...drag.others.map((m) => m.from)];
+        const x1 = Math.min(...boxes.map((b) => b.left)), x2 = Math.max(...boxes.map((b) => b.left + b.width));
+        const y1 = Math.min(...boxes.map((b) => b.top)), y2 = Math.max(...boxes.map((b) => b.top + b.height));
+        const shiftX = (x) => clamp(x, -x1, Math.max(-x1, (chartView?.width ?? colOffsets.total()) - x2));
+        const shiftY = (y) => clamp(y, -y1, Math.max(-y1, (chartView?.height ?? rowOffsets.total()) - y2));
+        let left = drag.from.left + shiftX(dx);
+        let top = drag.from.top + shiftY(dy);
         // Snap to Grid and Snap to Shape (Arrange ▸ Align); Alt held while dragging lets the box go free.
         const snap = sheet().kind === 'chart' || ev.altKey ? null : opts.snap?.();
         if (snap?.grid || snap?.shape) {
@@ -2518,7 +2524,7 @@ export function createGrid(opts) {
             xs.push(r.left, r.left + r.width); ys.push(r.top, r.top + r.height);
           }
           const at = snapRect(box, xs, ys, 8);
-          left = at.x; top = at.y;
+          left = drag.from.left + shiftX(at.x - drag.from.left); top = drag.from.top + shiftY(at.y - drag.from.top);
         }
         drag.rect = { ...drag.from, left, top };
         drag.shift = { x: left - drag.from.left, y: top - drag.from.top };
@@ -2629,8 +2635,11 @@ export function createGrid(opts) {
 
   /** Arrow keys with several objects selected: all of them move a few pixels together. */
   function nudgeObjects(dr, dc) {
-    wb.placeObjects(sheetId, selectedObjects().filter((id) => !wb.chartById(sheetId, id)?.lockedPosition).map((id) => wb.objectRect(sheetId, id)).filter(Boolean)
-      .map((r) => ({ id: r.id, x: Math.max(0, r.x + dc * 8), y: Math.max(0, r.y + dr * 8) })), 'Move objects');
+    const rects = selectedObjects().filter((id) => !wb.chartById(sheetId, id)?.lockedPosition).map((id) => wb.objectRect(sheetId, id)).filter(Boolean);
+    // They move as one: the one at the sheet's edge stops them all, rather than staying while the others close in on it.
+    const step = (d, at) => Math.max(d * 8, Math.min(0, -Math.min(...rects.map(at))));
+    const x = step(dc, (r) => r.x), y = step(dr, (r) => r.y);
+    wb.placeObjects(sheetId, rects.map((r) => ({ id: r.id, x: r.x + x, y: r.y + y })), 'Move objects');
   }
 
   /** Ctrl+Alt+O: select the next floating object (Shift: the previous) in the sheet's order, bringing its anchor into view. */
