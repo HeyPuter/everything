@@ -4482,6 +4482,7 @@ export class Workbook extends EventTarget {
         (p < srcStart ? before : after).push(p);
       }
       const positions = [...before.map((p, i) => [p, i - before.length]), ...after.map((p, i) => [p, i])];
+      let ownCounts; // per source cell, its text and number when it counts on by itself in a mixed block (read once, when needed)
       for (const [p, offset] of positions) {
         const r = vertical ? p : src.r1 + k;
         const c = vertical ? src.c1 + k : p;
@@ -4540,6 +4541,18 @@ export class Workbook extends EventTarget {
             // Filled upward the count runs on past zero (Item1, Item0, Item-1); a padded width keeps its digits.
             cell = { v: `${run.prefix}${num < 0 ? '-' : ''}${String(Math.abs(num)).padStart(run.width, '0')}`, f: null, s: base.s };
             void at;
+          } else {
+            // A block mixing such text with other cells: each one whose text before the number is its own in the
+            // block counts on by one with every repeat of the block ("text1, textA" → "text2, textA"), as Excel's does.
+            ownCounts ??= (() => {
+              const parts = list.map((one) => (one?.f == null && typeof one?.v === 'string' ? /^(.*?)(\d+)$/.exec(one.v) : null));
+              return parts.map((m) => (m && parts.filter((o) => o?.[1] === m[1]).length === 1 && Number(m[2]) <= Number.MAX_SAFE_INTEGER ? m : null));
+            })();
+            const own = ownCounts[idx];
+            if (own) {
+              const num = parseInt(own[2], 10) + Math.floor(offset / n) + (p < srcStart ? 0 : 1);
+              cell = { v: `${own[1]}${num < 0 ? '-' : ''}${String(Math.abs(num)).padStart(own[2].length, '0')}`, f: null, s: base.s };
+            }
           }
         }
         entries.push({ r, c, cell: this._replaceCellStyle(sheet, base ? cell : null, r, c) });
