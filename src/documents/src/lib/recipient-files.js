@@ -169,8 +169,23 @@ export async function readRecipientFile(file, { sheet } = {}) {
     return { ...rowsToList(chosen.rows), sheets: sheets.map(s => s.name), sheet: sheets.indexOf(chosen) };
   }
   if (/\.(xls|xlsm|xlsb|ods|numbers)$/i.test(name)) throw new Error('Save this spreadsheet as .xlsx or .csv to use it as a recipient list.');
-  const text = await file.text();
+  const text = listText(new Uint8Array(await file.arrayBuffer()));
   return rowsToList(parseDelimited(text, /\.tsv$/i.test(name) ? '\t' : detectDelimiter(text)));
+}
+
+const NOT_A_LIST = 'This file is not a recipient list. Use a .csv, .tsv, .txt or .xlsx file.';
+/**
+ * The text of a delimited list. Excel writes "Unicode Text" as UTF-16 with a
+ * byte order mark and its plain CSV in the system's ANSI code page, so text
+ * that is not valid UTF-8 is read as Windows-1252. Binary files (documents,
+ * archives, pictures) are refused rather than read as rows of garbage.
+ */
+function listText(bytes) {
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder('utf-16le').decode(bytes);
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder('utf-16be').decode(bytes);
+  if (bytes[0] === 0x50 && bytes[1] === 0x4b || bytes.subarray(0, 8192).includes(0)) throw new Error(NOT_A_LIST);
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+  catch { return new TextDecoder('windows-1252').decode(bytes); }
 }
 
 /** A recipient list as comma-separated text, for exporting. */

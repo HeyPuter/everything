@@ -32,6 +32,18 @@ describe('delimited text', () => {
     const list = { columns: ['Name', 'Note'], rows: [{ values: ['A, B', 'say "hi"'], included: true }] };
     expect(parseDelimited(listToCsv(list))).toEqual([['Name', 'Note'], ['A, B', 'say "hi"']]);
   });
+  it('reads Excel ANSI CSV and Unicode Text, and refuses binary files', async () => {
+    const ansi = new Uint8Array([...strToU8('Name,City\r\nJos'), 0xe9, ...strToU8(',M'), 0xfc, ...strToU8('nchen\r\n')]);
+    expect((await readRecipientFile(file('list.csv', ansi))).rows[0].values).toEqual(['José', 'München']);
+    const text = '﻿Name\tCity\r\nJosé\tMünchen\r\n', utf16 = new Uint8Array(text.length * 2);
+    for (let i = 0; i < text.length; i++) { utf16[2 * i] = text.charCodeAt(i) & 255; utf16[2 * i + 1] = text.charCodeAt(i) >> 8; }
+    const unicode = await readRecipientFile(file('list.txt', utf16));
+    expect(unicode.columns).toEqual(['Name', 'City']);
+    expect(unicode.rows[0].values).toEqual(['José', 'München']);
+    const docx = zipSync({ 'word/document.xml': strToU8('<w:document/>') });
+    await expect(readRecipientFile(file('letter.docx', docx))).rejects.toThrow('not a recipient list');
+    await expect(readRecipientFile(file('photo.csv', new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 13])))).rejects.toThrow('not a recipient list');
+  });
 });
 
 describe('workbooks', () => {
