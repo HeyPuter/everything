@@ -114,12 +114,21 @@ export function findReplacePanel(api) {
   el('label.canvas-find-field', {}, el('span', {}, 'Replace with'), replacement),
   el('div.canvas-find-row.canvas-find-actions', {}, el('span.field-hint', {}, 'Enter: next · Shift+Enter: previous'), replace, all),
   moreButton, more, notice, error);
+  // The last search, kept while the document and the search are the same: a caret move only changes which
+  // match is current, and searching a long document again on every move or keystroke elsewhere cost more
+  // than the rest of the update.
+  let searched = null;
   function refresh() {
-    if (node.hidden) { api.highlight?.([]); return { matches: [], current: -1 }; }
+    if (node.hidden) { searched = null; api.highlight?.([]); return { matches: [], current: -1 }; }
     let matches = [];
     const searching = !!query.value || Object.keys(findFormat).length > 0;
-    try { matches = searching ? api.matches(query.value, options()) : []; error.hidden = true; }
-    catch (e) { error.textContent = e.message; error.hidden = false; }
+    const version = api.version?.() || null, key = JSON.stringify([query.value, options()]);
+    if (searching && version && searched?.key === key && searched.version.length === version.length && searched.version.every((v, i) => v === version[i])) matches = searched.matches;
+    else {
+      searched = null;
+      try { matches = searching ? api.matches(query.value, options()) : []; error.hidden = true; if (searching && version) searched = { key, version, matches }; }
+      catch (e) { error.textContent = e.message; error.hidden = false; }
+    }
     api.highlight?.(matches);
     const [start, end] = api.range(), current = matches.findIndex(m => m.start === start && m.end === end && (!m.story || api.isCurrentStory?.(m.story)));
     count.textContent = !searching ? 'Enter text to find' : !matches.length ? 'No matches' : current < 0 ? `${matches.length} ${matches.length === 1 ? 'match' : 'matches'}` : `${current + 1} of ${matches.length}`;
