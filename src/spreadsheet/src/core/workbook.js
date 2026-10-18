@@ -5670,7 +5670,8 @@ export class Workbook extends EventTarget {
     let tokens;
     try { tokens = tokenize(formula); } catch { return []; }
     const out = [];
-    for (const t of tokens) {
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
       if (t.type === 'ref') {
         const ref = parseRefText(t.text, t.sheet);
         if (!ref) continue;
@@ -5684,6 +5685,12 @@ export class Workbook extends EventTarget {
       } else if (t.type === 'name') {
         const named = this.namedRef(t.value, t.sheet ?? ownerSheet, owner || { r: 0, c: 0 }); // as the formula's own sheet resolves it
         if (named) out.push({ ref: { kind: 'range', ...named }, name: t.value });
+        else if (!t.sheet && tokens[i + 1]?.type !== 'lparen') {
+          // A table named on its own, as in VLOOKUP(x,Sales,2,FALSE), reads its data rows, as the evaluator reads it.
+          const sheet = this.sheetByName(ownerSheet);
+          const ref = sheet ? this._resolveTableRef(sheet, owner || { r: -1, c: -1 }, t.value, '') : null;
+          if (ref && !isError(ref)) out.push({ ref, name: t.value });
+        }
       } else if (t.type === 'tref') {
         // Table1[Column] reads the column's cells, [@Column] the one on the formula's own row; a table or
         // column that is not there reads nothing, as a [@Column] outside any table does.
