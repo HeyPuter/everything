@@ -435,7 +435,11 @@ export function criteriaMatcher(criteria) {
     // A reference to an empty cell as the criterion is the value 0.
     const target = criteria == null ? 0 : criteria;
     // Numbers are equal at 15 significant digits, as they are to the = operator: 1.1*3 is 3.3.
-    if (typeof target === 'number') return (v) => { const n = criteriaNumber(v); return n != null && compareValues(n, target) === 0; };
+    if (typeof target === 'number') {
+      const eq = (v) => { const n = criteriaNumber(v); return n != null && compareValues(n, target) === 0; };
+      eq.numberKey = numberKey(target); // looked up in an index of the range's numbers (numberIndex)
+      return eq;
+    }
     return (v) => typeof v === typeof target && v === target;
   }
   const m = /^(<>|<=|>=|<|>|=)?(.*)$/s.exec(criteria);
@@ -485,6 +489,7 @@ export function criteriaMatcher(criteria) {
     };
     // A plain text key can be looked up in an index of the range (criteriaIndex) instead of tested cell by cell.
     if (op === '=' && !wildcard && !rhsIsNum && rhsBool == null && rhsText !== '') eq.key = rhsLower;
+    if (op === '=' && rhsIsNum) eq.numberKey = numberKey(rhsNum);
     return op === '=' ? eq : (v) => !eq(v);
   }
   return (v) => {
@@ -543,8 +548,58 @@ function criteriaIndex(values) {
   return index;
 }
 
-/** Points a text criterion at the index of its range, when there is one: match.positions lists the cells that can match, as r*match.cols+c. */
+/**
+ * Two numbers the = criterion finds equal have the same 15-digit rounding (see compareValues), so it groups the
+ * candidates for one; a group may still hold a pair across a rounding boundary, which the criterion itself tells apart.
+ */
+const numberKey = (n) => n.toPrecision(15);
+
+/**
+ * Where each number of a range sits, by its numberKey: the cells holding a number, and those holding text that
+ * reads as one, which a numeric criterion counts too. A column of numbers met by COUNTIF(B:B,B2) in every row
+ * was otherwise scanned whole by each of them. Indexed the second time a numeric criterion meets the values, as
+ * criteriaIndex indexes text, and kept no longer than they are.
+ */
+const numberIndexes = new WeakMap();
+function numberIndex(values) {
+  const known = numberIndexes.get(values);
+  if (known) return known;
+  if (known === undefined) { numberIndexes.set(values, false); return null; }
+  let cols = 0;
+  for (const row of values) cols = Math.max(cols, row.length);
+  const groups = new Map();
+  for (let r = 0; r < values.length; r++) {
+    const row = values[r];
+    for (let c = 0; c < row.length; c++) {
+      const n = criteriaNumber(row[c]);
+      if (n == null) continue;
+      const key = numberKey(n);
+      const group = groups.get(key);
+      if (group) group.push(r * cols + c); else groups.set(key, [r * cols + c]);
+    }
+  }
+  const index = { cols, groups, queries: new Map() };
+  numberIndexes.set(values, index);
+  return index;
+}
+
+/** Points a criterion at the index of its range, when there is one: match.positions lists the cells that can match, as r*match.cols+c. */
 function indexCriterion(match, range) {
+  if (match.numberKey !== undefined) {
+    const index = numberIndex(range.values);
+    if (!index) return;
+    let positions = index.queries.get(match.numberKey);
+    if (!positions) {
+      const group = index.groups.get(match.numberKey) || [];
+      const at = (p) => { const r = Math.floor(p / index.cols); return range.values[r][p - r * index.cols]; };
+      positions = group.every((p) => match(at(p))) ? group : group.filter((p) => match(at(p)));
+      // Every position lies in one group, so the answers kept never outgrow the index.
+      index.queries.set(match.numberKey, positions);
+    }
+    match.cols = index.cols;
+    match.positions = positions;
+    return;
+  }
   if (match.key === undefined) return;
   const index = criteriaIndex(range.values);
   if (!index) return;
