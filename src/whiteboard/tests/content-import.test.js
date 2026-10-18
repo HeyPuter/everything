@@ -763,6 +763,37 @@ test("embed preview cards render on canvas and in SVG exports", () => {
   assert.doesNotMatch(svg, /<iframe|<foreignObject/);
 });
 
+test("a sheet whose data starts below and right of A1 imports from its first value", () => {
+  // Data at C4: a header, then 25 rows, so a second table repeats the header.
+  const rows = [
+    [],
+    [""],
+    ["", "", ""],
+    ["", "", "Name", "Owner"],
+    ...Array.from({ length: 25 }, (_, r) => ["", "", `Item ${r}`, `P${r}`]),
+  ];
+  const split = splitTable(rows);
+  assert.equal(split.columns, 2);
+  assert.deepEqual(
+    split.tables.map((t) => t.cells[0]),
+    [
+      ["Name", "Owner"],
+      ["Name", "Owner"],
+    ],
+  );
+  assert.deepEqual(split.tables[0].cells[1], ["Item 0", "P0"]);
+  // Ranges still name the sheet's own cells.
+  assert.deepEqual(
+    split.tables.map((t) => t.range),
+    ["C4:D23", "C24:D29"],
+  );
+  // Refreshing the second table repeats the same header.
+  const refreshed = rangeCells(rows, parseRange("C24:D29"));
+  assert.deepEqual(refreshed.cells[0], ["Name", "Owner"]);
+  assert.deepEqual(refreshed.cells[1], ["Item 19", "P19"]);
+  assert.equal(refreshed.cells.length, 7);
+});
+
 test("CSV rows split into tables within board limits, with refreshable ranges", () => {
   const header = Array.from({ length: 30 }, (_, c) => `Col ${c + 1}`);
   const rows = [

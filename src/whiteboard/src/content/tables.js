@@ -144,11 +144,28 @@ export function trimRows(rows) {
   );
 }
 
+// Where a sheet's data starts: its first row and column with a value.
+function dataStart(rows) {
+  let top = -1,
+    left = Infinity;
+  rows.forEach((row, r) => {
+    const n = row.findIndex((v) => v.trim());
+    if (n < 0) return;
+    if (top < 0) top = r;
+    left = Math.min(left, n);
+  });
+  return { top: Math.max(0, top), left: top < 0 ? 0 : left };
+}
+
 // Splits rows into table-sized chunks. In "split" mode the first row is a
 // header repeated on every vertical chunk; "first" keeps one table.
+// Data that starts below or right of A1 starts the table, and its header
+// is the first row with a value.
 // Each chunk carries its A1 source range for refreshing from Google Sheets.
 export function splitTable(input, { mode = "split", header = true } = {}) {
-  const rows = trimRows(input);
+  const trimmed = trimRows(input),
+    offset = dataStart(trimmed),
+    rows = trimmed.slice(offset.top).map((row) => row.slice(offset.left));
   const result = {
     tables: [],
     truncatedCells: 0,
@@ -184,12 +201,15 @@ export function splitTable(input, { mode = "split", header = true } = {}) {
         row.slice(left, right).map(cut),
       );
       // Source rows are 1-based and include the header row when present.
-      const top = (hasHeader ? 2 : 1) + start,
-        bottom = top + chunk.length - 1;
+      const first = offset.top + 1,
+        top = first + (hasHeader ? 1 : 0) + start,
+        bottom = top + chunk.length - 1,
+        from = columnName(offset.left + left),
+        to = columnName(offset.left + right - 1);
       const range =
         v === 0 && hasHeader
-          ? `${columnName(left)}1:${columnName(right - 1)}${Math.max(1, bottom)}`
-          : `${columnName(left)}${top}:${columnName(right - 1)}${Math.max(top, bottom)}`;
+          ? `${from}${first}:${to}${Math.max(first, bottom)}`
+          : `${from}${top}:${to}${Math.max(top, bottom)}`;
       result.tables.push({
         cells,
         row: v,
@@ -230,7 +250,9 @@ export function rangeCells(input, range, header = true) {
         ? truncate(value, CELL_CHARACTERS - 1) + "…"
         : value;
     });
-  const out = header && top > 0 ? [pick(rows[0])] : [];
+  // The header is the first row with a value, as the table was imported.
+  const first = dataStart(rows).top;
+  const out = header && top > first ? [pick(rows[first])] : [];
   const capacity = TABLE_ROWS - out.length;
   const bottom = Math.max(top, Math.min(rows.length - 1, top + capacity - 1));
   for (let r = top; r <= bottom; r++) out.push(pick(rows[r]));
