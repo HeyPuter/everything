@@ -75,10 +75,12 @@ export function createWizard(mm) {
     if (!shown) return;
     progress.replaceChildren(...STEPS.map((name, i) => el('li', { class: i === step ? 'is-current' : i < step ? 'is-done' : '', 'aria-current': i === step ? 'step' : null },
       el('button', { type: 'button', onclick: () => go(i) }, el('span.mm-step-number', {}, String(i + 1)), el('span', {}, name)))));
-    const focused = pane.contains(document.activeElement) ? document.activeElement?.textContent : null;
+    // A control is known by its text, or a radio button (which has none) by its group's label and its value.
+    const keyOf = n => (n.type === 'radio' ? `radio:${n.closest('[role="radiogroup"]')?.getAttribute('aria-label')}:${n.value}` : n.getAttribute('aria-label') || n.closest('label')?.textContent || n.textContent);
+    const focused = pane.contains(document.activeElement) ? keyOf(document.activeElement) : null;
     content.replaceChildren(el('p.mm-step-count', {}, `Step ${step + 1} of ${STEPS.length}`), ...body().flat().filter(Boolean));
     back.disabled = step === 0; next.textContent = step === STEPS.length - 1 ? 'Done' : 'Next';
-    if (focused) [...content.querySelectorAll('button')].find(b => b.textContent === focused)?.focus();
+    if (focused) [...content.querySelectorAll('button, input, select')].find(n => keyOf(n) === focused)?.focus();
   }
   function go(to) {
     if (to >= STEPS.length) { hide(); return; }
