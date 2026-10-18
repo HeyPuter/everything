@@ -1897,6 +1897,20 @@ export function createFeatures(api) {
             copy.title = versionCopyTitle(version.title, when(at));
             copy.updated = Date.now();
             copy.favorite = false;
+            // A personal board holds its images itself, as a duplicate
+            // does; one not downloaded yet is fetched, or the copy waits.
+            const media = api.includeSharedMedia?.(copy);
+            if (media) {
+              // One copy per press, while the images download.
+              el.disabled = true;
+              try {
+                await media;
+              } catch (error) {
+                return api.toast(error.message);
+              } finally {
+                el.disabled = false;
+              }
+            }
             d.close();
             await api.addBoard(copy);
             if (covered)

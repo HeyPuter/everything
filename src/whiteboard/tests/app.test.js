@@ -29152,6 +29152,53 @@ async function joinLink(app, id, token) {
     await app.tick();
 }
 
+test("a version of a shared board opened as a copy waits for images not downloaded yet", async () => {
+  const room = crypto.randomUUID();
+  const missing = "a".repeat(64);
+  const note = item("note", 300, 0, { text: "Still here" });
+  const image = item("image", 0, 0, {
+    w: 100,
+    h: 100,
+    src: `asset:${missing}`,
+  });
+  const shared = await sharedEditors(room, [image, note], 1);
+  const [app] = shared.apps;
+  try {
+    await app.click('[data-action="more-tools"]');
+    await app.click('[data-feature="history"]');
+    await app.click("#checkpoint-create");
+    for (
+      let n = 0;
+      n < 80 &&
+      !app.doc.querySelector("#local-revisions [data-revision-options]");
+      n++
+    )
+      await app.tick();
+    await app.click("#local-revisions [data-revision-options]");
+    for (let n = 0; n < 80 && !app.doc.querySelector('[data-part="copy"]'); n++)
+      await app.tick();
+    await app.click('[data-part="copy"]');
+    for (
+      let n = 0;
+      n < 80 &&
+      !/not downloaded/.test(app.doc.querySelector("#toast").textContent);
+      n++
+    )
+      await app.tick();
+    assert.match(
+      app.doc.querySelector("#toast").textContent,
+      /have not downloaded from the shared board yet/,
+    );
+    // No personal board was made that would hold the image's reference
+    // to the shared board rather than the image.
+    const boards = await storedBoards(app);
+    assert.equal(boards.filter((b) => !b.shared).length, 0);
+    assert.match(app.doc.querySelector(".board-tag").textContent, /Shared/);
+  } finally {
+    await shared.close();
+  }
+});
+
 test("restoring a version never changes content hidden from a participant", async () => {
   const env = environment();
   const boards = env.service;
