@@ -7069,7 +7069,20 @@ function nextNote(id, direction = 1) {
 // Until then it is kept on the device as a draft, a moment after each
 // change, so a crash or a killed tab does not lose it; opening the board
 // again puts it back. Shared boards save as people type.
-const TEXT_DRAFT_KEY = "whiteboard-text-draft";
+// Each tab keeps its draft under a key of its own and holds a lock named
+// after it while open, so a board opened in another tab puts back only the
+// drafts of tabs that are gone, never one still being typed.
+const TEXT_DRAFT_KEY = "whiteboard-text-draft",
+  textDraftTab = uid(),
+  ownTextDraft = `${TEXT_DRAFT_KEY}:${textDraftTab}`,
+  textDraftLock = (tab) => `whiteboard-tab:${tab}`;
+try {
+  navigator.locks
+    ?.request(textDraftLock(textDraftTab), () => new Promise(() => {}))
+    .catch(() => {});
+} catch {
+  /* Without locks, every other tab's draft counts as left behind. */
+}
 let textDraftTimer = null;
 function keepTextDraft() {
   if (collaboration || textDraftTimer) return;
@@ -7079,7 +7092,7 @@ function keepTextDraft() {
     const { item: i, input } = editing;
     try {
       localStorage.setItem(
-        TEXT_DRAFT_KEY,
+        ownTextDraft,
         JSON.stringify({
           board: current.id,
           item: i.id,
@@ -7098,20 +7111,45 @@ function dropTextDraft() {
   clearTimeout(textDraftTimer);
   textDraftTimer = null;
   try {
-    localStorage.removeItem(TEXT_DRAFT_KEY);
+    localStorage.removeItem(ownTextDraft);
   } catch {
     /* Nothing was kept. */
   }
 }
-function restoreTextDraft(b) {
+async function restoreTextDraft(b) {
+  let open = [];
+  try {
+    open = (await navigator.locks?.query())?.held || [];
+  } catch {
+    /* Locks unavailable: no other tab is known to be open. */
+  }
+  if (current !== b) return;
+  const live = new Set(open.map((lock) => lock.name));
   let draft;
   try {
-    draft = JSON.parse(localStorage.getItem(TEXT_DRAFT_KEY) || "null");
+    for (let n = 0; n < localStorage.length && !draft; n++) {
+      const key = localStorage.key(n);
+      // An older version's draft has no tab in its key.
+      const tab =
+        key === TEXT_DRAFT_KEY
+          ? ""
+          : key?.startsWith(`${TEXT_DRAFT_KEY}:`)
+            ? key.slice(TEXT_DRAFT_KEY.length + 1)
+            : null;
+      if (tab === null || tab === textDraftTab || live.has(textDraftLock(tab)))
+        continue;
+      let kept = null;
+      try {
+        kept = JSON.parse(localStorage.getItem(key));
+      } catch {}
+      if (kept?.board !== b.id) continue;
+      draft = kept;
+      localStorage.removeItem(key);
+    }
   } catch {
-    draft = null;
+    /* Storage unavailable: nothing was kept. */
   }
-  if (draft?.board !== b.id) return;
-  dropTextDraft();
+  if (!draft) return;
   const i = b.items.find((o) => o.id === draft.item);
   // Only onto the text it was typed over, so a later change is never undone.
   if (

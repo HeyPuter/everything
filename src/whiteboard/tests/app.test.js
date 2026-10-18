@@ -23277,8 +23277,44 @@ test("undo on a shared board waits for an edit still on its way in", async () =>
   }
 });
 
+// Web Locks shared by the tabs of one test, as a browser's are by the tabs
+// of one origin. `release` lets go of a tab's locks, as closing it does.
+function tabLocks() {
+  const held = new Map();
+  return {
+    prepare(w) {
+      Object.defineProperty(w.navigator, "locks", {
+        configurable: true,
+        value: {
+          async request(name, callback) {
+            held.set(name, w);
+            return callback();
+          },
+          async query() {
+            return { held: [...held.keys()].map((name) => ({ name })) };
+          },
+        },
+      });
+    },
+    release(w) {
+      for (const [name, owner] of held) if (owner === w) held.delete(name);
+    },
+  };
+}
+// The text drafts kept in a tab's storage, by key.
+function textDrafts(w) {
+  const drafts = {};
+  for (let n = 0; n < w.localStorage.length; n++) {
+    const key = w.localStorage.key(n);
+    if (key.startsWith("whiteboard-text-draft"))
+      drafts[key] = w.localStorage.getItem(key);
+  }
+  return drafts;
+}
+
 test("text being typed when the page is killed is put back when the board opens again", async () => {
-  const app = await setup();
+  const locks = tabLocks();
+  const app = await setup(undefined, { prepare: locks.prepare });
   let reopened;
   try {
     const { doc, w } = app;
@@ -23298,12 +23334,18 @@ test("text being typed when the page is killed is put back when the board opens 
     await app.tick();
     // The tab is killed while typing: nothing ends the edit, so the board
     // in storage still holds the note without its text.
-    const draft = w.localStorage.getItem("whiteboard-text-draft");
-    assert.ok(draft, "the text is kept on the device as it is typed");
+    const drafts = textDrafts(w);
+    assert.equal(
+      Object.keys(drafts).length,
+      1,
+      "the text is kept on the device as it is typed",
+    );
+    locks.release(w);
     reopened = await setup(undefined, {
       url: w.location.href,
       indexedDB: w.indexedDB,
-      preferences: { "whiteboard-text-draft": draft },
+      preferences: drafts,
+      prepare: locks.prepare,
     });
     for (
       let n = 0;
@@ -23316,17 +23358,73 @@ test("text being typed when the page is killed is put back when the board opens 
       /Minutes of the meeting/,
     );
     assert.match(reopened.doc.querySelector("#toast").textContent, /put back/);
-    assert.equal(
-      reopened.w.localStorage.getItem("whiteboard-text-draft"),
-      null,
-    );
+    assert.deepEqual(textDrafts(reopened.w), {});
     // Ending an edit leaves no draft behind.
     input.dispatchEvent(
       new w.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
     );
-    assert.equal(w.localStorage.getItem("whiteboard-text-draft"), null);
+    assert.deepEqual(textDrafts(w), {});
   } finally {
     await reopened?.close();
+    await app.close();
+  }
+});
+
+test("a board opened in a second tab leaves alone the text still being typed in the first", async () => {
+  const locks = tabLocks();
+  const app = await setup(undefined, { prepare: locks.prepare });
+  let other;
+  try {
+    const { doc, w } = app;
+    await app.click('[data-action="new"]');
+    doc
+      .querySelector("#canvas")
+      .dispatchEvent(
+        new w.KeyboardEvent("keydown", { key: "n", bubbles: true }),
+      );
+    for (let n = 0; n < 20 && !doc.querySelector("#canvas-text-editor"); n++)
+      await app.tick();
+    const input = doc.querySelector("#canvas-text-editor");
+    input.value = "Minutes of the";
+    input.dispatchEvent(new w.Event("input", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await app.tick();
+    // The second tab shares the first one's storage, draft included.
+    other = await setup(undefined, {
+      url: w.location.href,
+      indexedDB: w.indexedDB,
+      preferences: textDrafts(w),
+      prepare: locks.prepare,
+    });
+    for (
+      let n = 0;
+      n < 50 && !other.doc.querySelector("#board-outline [data-id]");
+      n++
+    )
+      await other.tick();
+    for (let n = 0; n < 10; n++) await other.tick();
+    assert.doesNotMatch(
+      other.doc.querySelector("#toast").textContent,
+      /put back/,
+    );
+    assert.equal(
+      Object.keys(textDrafts(other.w)).length,
+      1,
+      "The first tab's draft stays",
+    );
+    // The first tab finishes its note and saves it.
+    input.value = "Minutes of the meeting";
+    input.dispatchEvent(new w.Event("input", { bubbles: true }));
+    input.dispatchEvent(
+      new w.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    for (let n = 0; n < 40; n++) await app.tick();
+    assert.equal(
+      doc.querySelector("#save-state").textContent,
+      "Saved on this device",
+    );
+  } finally {
+    await other?.close();
     await app.close();
   }
 });
