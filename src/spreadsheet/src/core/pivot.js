@@ -100,17 +100,20 @@ function labelStyle(st) {
 }
 
 /**
- * The distinct values of a column, sorted, blanks and errors left out. When
- * `styles` is given, each number's format is recorded there from the first
- * cell holding it, so a label can read the way its source does (a date as a
- * date, a plain number as a plain number).
+ * One pass over a column: its distinct values, sorted (blanks and errors left out), the distinct error codes it
+ * holds, in code order, each as the error value it stands for, and whether any row shows nothing (an empty cell
+ * or ""; an error is neither a value nor a blank). When `styles` is given, each number's format is recorded there
+ * from the first cell holding it, so a label can read the way its source does (a date as a date, a plain number
+ * as a plain number). The column is read once: a pivot over a long source read each of its cells three times.
  */
-function distinct(wb, sheetId, range, col, styles = null) {
+function scanField(wb, sheetId, range, col, styles = null) {
   const n = normalizeRange(range);
-  const seen = new Map();
+  const seen = new Map(), codes = new Map();
+  let blank = false;
   for (let r = n.r1 + 1, last = lastDataRow(wb, sheetId, n); r <= last; r++) {
     const v = wb.getValue(sheetId, r, col);
-    if (v == null || v === '' || isError(v)) continue;
+    if (v == null || v === '') { blank = true; continue; }
+    if (isError(v)) { if (!codes.has(v.error)) codes.set(v.error, v); continue; }
     // Match the generated IFS criteria: case-insensitive, with spaces intact.
     const key = typeof v === 'string' ? `s:${v.toLowerCase()}` : `${typeof v}:${v}`;
     if (seen.has(key)) continue;
@@ -120,7 +123,12 @@ function distinct(wb, sheetId, range, col, styles = null) {
       if (s) styles.set(v, s);
     }
   }
-  return [...seen.values()].sort(compareStoredValues);
+  return { values: [...seen.values()].sort(compareStoredValues), errors: [...codes.keys()].sort().map((code) => codes.get(code)), blank };
+}
+
+/** The distinct values of a column, sorted, blanks and errors left out (see scanField). */
+function distinct(wb, sheetId, range, col, styles = null) {
+  return scanField(wb, sheetId, range, col, styles).values;
 }
 
 /** The number format a field's numbers share (as collected by distinct), or null when they differ or none has one. */
@@ -133,27 +141,6 @@ function fieldStyle(styles) {
   return shared;
 }
 
-/** Does any row of the field show nothing (an empty cell or "")? Errors are neither a value nor a blank. */
-function hasBlank(wb, sheetId, range, col) {
-  const n = normalizeRange(range);
-  for (let r = n.r1 + 1, last = lastDataRow(wb, sheetId, n); r <= last; r++) {
-    const v = wb.getValue(sheetId, r, col);
-    if (v == null || v === '') return true;
-  }
-  return false;
-}
-
-/** The distinct error codes a field holds, in code order, each as the error value it stands for. */
-function errorCodes(wb, sheetId, range, col) {
-  const n = normalizeRange(range);
-  const seen = new Map();
-  for (let r = n.r1 + 1, last = lastDataRow(wb, sheetId, n); r <= last; r++) {
-    const v = wb.getValue(sheetId, r, col);
-    if (isError(v) && !seen.has(v.error)) seen.set(v.error, v);
-  }
-  return [...seen.keys()].sort().map((code) => seen.get(code));
-}
-
 /**
  * A field's categories in output order: its distinct values, then a row for
  * each error code among them (#DIV/0! is a label of its own),
@@ -161,8 +148,8 @@ function errorCodes(wb, sheetId, range, col) {
  * the total.
  */
 function categories(wb, sheetId, range, col, styles = null) {
-  const values = [...distinct(wb, sheetId, range, col, styles), ...errorCodes(wb, sheetId, range, col)];
-  return hasBlank(wb, sheetId, range, col) ? [...values, BLANK] : values;
+  const { values, errors, blank } = scanField(wb, sheetId, range, col, styles);
+  return blank ? [...values, ...errors, BLANK] : [...values, ...errors];
 }
 
 /**
