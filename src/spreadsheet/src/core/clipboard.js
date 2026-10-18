@@ -320,6 +320,8 @@ export function cellsToHtml(texts, cells, looks = null, values = null, origin = 
       const corner = paintedAppearance(i + span.rowSpan - 1, j + span.colSpan - 1);
       style = { ...style };
       for (const key of ['bb', 'br']) {
+        // A side neither corner states stays unstated, as an unmerged cell's does.
+        if (corner?.[key] == null && !style[key]) continue;
         style[key] = !!corner?.[key];
         style[`${key}Border`] = corner?.[key] ? corner[`${key}Border`] || { bs: corner.bs, bc: corner.bc } : null;
       }

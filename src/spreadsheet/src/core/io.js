@@ -56,7 +56,7 @@ import { exportNamedTableReferences } from './export-named-formulas.js';
 import { err, isError } from './formula/functions.js';
 import { parseDelimited } from './tsv.js';
 import { parseInput, refineImpliedFormat, localeInfo, getLocale } from './format.js';
-import { cellsToHtml } from './clipboard.js';
+import { cellsToHtml, copyMergeLayout } from './clipboard.js';
 import { reconcileConditionalFormats } from './xlsx-condformat-reconcile.js';
 import { prepareXlsxValidationLists } from './xlsx-validation.js';
 import { sheetFilters, sameFilterRange, filterRangeKey, mapSheetFilters } from './sheet-filters.js';
@@ -1012,18 +1012,24 @@ export function sheetToHtml(wb, sheetId, { title = '' } = {}) {
   if (!sheet || !used) return `${head}<p>This sheet is empty.</p></body></html>`;
   const rows = [];
   const cols = [];
-  for (let r = 0; r <= used.r2; r++) if (!wb.isRowHidden(sheetId, r)) rows.push(r);
-  for (let c = 0; c <= used.c2; c++) if (!sheet.hiddenCols.has(c)) cols.push(c);
-  // A row without any cell is an empty table row; only rows with content are read cell by cell.
+  // A merged block that starts among the cells is written whole, however far past the last cell it reaches.
+  let lastRow = used.r2, lastColumn = used.c2;
+  for (const m of sheet.merges) if (m.r1 <= used.r2 && m.c1 <= used.c2) { lastRow = Math.max(lastRow, m.r2); lastColumn = Math.max(lastColumn, m.c2); }
+  for (let r = 0; r <= lastRow; r++) if (!wb.isRowHidden(sheetId, r)) rows.push(r);
+  for (let c = 0; c <= lastColumn; c++) if (!sheet.hiddenCols.has(c)) cols.push(c);
+  // Merged blocks span their shown rows and columns, as on screen; a hidden line drops out of the span.
+  const mergeLayout = copyMergeLayout(sheet.merges, rows, cols);
+  const spanRows = new Set([...mergeLayout.spans].filter(([, span]) => span).map(([key]) => Number(key.split(',')[0])));
+  // A row without any cell is an empty table row; only rows with content, or where a merged block starts, are read cell by cell.
   const lastCol = lastContentColumns(wb, sheet);
-  const filled = (r) => lastCol.has(r);
-  const texts = rows.map((r) => (filled(r) ? cols.map((c) => wb.getDisplay(sheetId, r, c)) : []));
-  const cells = rows.map((r) => (filled(r) ? cols.map((c) => wb.getCell(sheetId, r, c) || null) : []));
-  const values = rows.map((r) => (filled(r) ? cols.map((c) => wb.getValue(sheetId, r, c)) : []));
-  const styles = rows.map((r) => (filled(r) ? cols.map((c) => wb.displayStyleAt(sheetId, r, c)) : []));
+  const filled = (r, i) => lastCol.has(r) || spanRows.has(i);
+  const texts = rows.map((r, i) => (filled(r, i) ? cols.map((c) => wb.getDisplay(sheetId, r, c)) : []));
+  const cells = rows.map((r, i) => (filled(r, i) ? cols.map((c) => wb.getCell(sheetId, r, c) || null) : []));
+  const values = rows.map((r, i) => (filled(r, i) ? cols.map((c) => wb.getValue(sheetId, r, c)) : []));
+  const styles = rows.map((r, i) => (filled(r, i) ? cols.map((c) => wb.displayStyleAt(sheetId, r, c)) : []));
   const decorated = sheet.rules.length || sheet.tables?.length;
-  const looks = decorated ? rows.map((r) => (filled(r) ? cols.map((c) => wb.conditionalStyle(sheetId, r, c, wb.getValue(sheetId, r, c)) || null) : [])) : null;
-  const table = cellsToHtml(texts, cells, looks, values, null, { clipboard: false, styles, colorPalette: wb.colorPalette, normalFill: wb.nativeNormalFill, indentUnit: normalIndentUnit(wb.normalFont) })
+  const looks = decorated ? rows.map((r, i) => (filled(r, i) ? cols.map((c) => wb.conditionalStyle(sheetId, r, c, wb.getValue(sheetId, r, c)) || null) : [])) : null;
+  const table = cellsToHtml(texts, cells, looks, values, null, { clipboard: false, styles, mergeLayout, colorPalette: wb.colorPalette, normalFill: wb.nativeNormalFill, indentUnit: normalIndentUnit(wb.normalFont) })
     .replace(/ data-spreadsheet-[\w-]+="[^"]*"/g, '');
   const colgroup = `<colgroup>${cols.map((c) => `<col style="width:${wb.colWidth(sheetId, c)}px">`).join('')}</colgroup>`;
   return `${head}${table.replace(/^(<table[^>]*>)/, `$1${colgroup}`)}</body></html>`;
