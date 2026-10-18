@@ -1056,6 +1056,8 @@ export function paint(canvas, items, view, options = {}) {
     for (const i of items) {
       if (!options.selection.has(i.id)) continue;
       if (lineHandles && i.type === "arrow") continue;
+      // The text editor's own outline frames the object being edited.
+      if (options.editingId === i.id) continue;
       // An outline outside the view is not drawn: with everything on a
       // large board selected, each pan would otherwise stroke thousands.
       const angle = rotationOf(i);

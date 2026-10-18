@@ -6834,15 +6834,21 @@ function positionTextEditor() {
             }
           : { ...i, h: i.h - tagFooter(i) };
   const origin = worldPoint(i, box);
+  // The editor's lines are lifted to where the board draws them: inside
+  // its top padding where there is room, so it keeps the object's box;
+  // otherwise, as for a text box, its top reaches above the object.
+  const lift = editorLift(ctx, style),
+    padTop = layout?.top ?? style.padding,
+    above = Math.max(0, lift - Math.max(0, padTop));
   Object.assign(input.style, {
     left: `${view.x + origin.x * view.z}px`,
     top: `${view.y + origin.y * view.z}px`,
     width: `${box.w}px`,
-    height: `${box.h}px`,
+    height: `${box.h + above}px`,
     background: i.type === "arrow" ? "#ffffff" : "transparent",
-    transform: `scale(${view.z}) rotate(${rotationOf(i)}deg) translateY(${-editorLift(ctx, style)}px)`,
+    transform: `scale(${view.z}) rotate(${rotationOf(i)}deg)${above ? ` translateY(${-above}px)` : ""}`,
     padding: `${style.padding}px`,
-    paddingTop: `${layout?.top ?? style.padding}px`,
+    paddingTop: `${padTop - lift + above}px`,
     font: style.font,
     lineHeight: "1.35",
     color: style.color,
