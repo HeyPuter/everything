@@ -19,15 +19,16 @@ beforeEach(() => {
 });
 afterEach(() => { vi.useRealTimers(); document.body.replaceChildren(); });
 
-function mount() {
+function mount(opts = {}) {
   const wb = new Workbook();
-  const grid = createGrid({ wb, sheetId: wb.sheets[0].id });
+  const grid = createGrid({ wb, sheetId: wb.sheets[0].id, ...opts });
   document.body.replaceChildren(grid.el);
   const viewport = grid.el.querySelector('.grid-viewport');
   viewport.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 400, width: 800, height: 400 });
   vi.runOnlyPendingTimers();
   return { grid, viewport };
 }
+const menuAt = (target, init) => target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, ...init }));
 const pointer = (target, type, init) => target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, button: 0, pointerType: 'mouse', ...init }));
 
 describe('a press on the grid\'s scrollbars', () => {
@@ -51,6 +52,20 @@ describe('a press on the grid\'s scrollbars', () => {
     const { grid, viewport } = mount();
     pointer(viewport, 'pointerdown', { clientX: 300, clientY: 380 });
     pointer(viewport, 'pointerup', { clientX: 300, clientY: 380 });
+    expect(grid.range.r1).toBeGreaterThan(0);
+    grid.destroy();
+  });
+
+  // A right-click on a scrollbar selected the cell under it and opened the cell menu for it.
+  it('opens no cell menu and selects nothing for a right-click on a scrollbar', () => {
+    const onContextMenu = vi.fn();
+    const { grid, viewport } = mount({ onContextMenu });
+    menuAt(viewport, { clientX: 792, clientY: 100 });
+    menuAt(viewport, { clientX: 300, clientY: 392 });
+    expect(onContextMenu).not.toHaveBeenCalled();
+    expect(grid.range).toEqual({ r1: 0, c1: 0, r2: 0, c2: 0 });
+    menuAt(viewport, { clientX: 300, clientY: 100 });
+    expect(onContextMenu).toHaveBeenCalledTimes(1);
     expect(grid.range.r1).toBeGreaterThan(0);
     grid.destroy();
   });

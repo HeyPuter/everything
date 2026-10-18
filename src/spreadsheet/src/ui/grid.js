@@ -4380,6 +4380,8 @@ export function createGrid(opts) {
     // Inside the editor the browser's own menu (cut, copy, paste, spelling) applies.
     if (e.target === editor) return;
     e.preventDefault();
+    // A right-click on the viewport's own scrollbars is not on a cell: it selects nothing and opens no cell menu.
+    if (onScrollbar(e)) return;
     // A long press on a touch screen arrives twice: from the press timer above and as the browser's
     // own contextmenu for the same press. Whichever comes first opens the menu; the other is dropped.
     if (tap) { clearTimeout(tap.timer); tap = null; longPressAt = Date.now(); }
