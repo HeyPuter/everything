@@ -92,6 +92,8 @@ addTranslations({
     "Seuls le propriétaire du tableau ou un administrateur peuvent le faire.",
   "Only the board owner or an administrator can transfer ownership.":
     "Seuls le propriétaire du tableau ou un administrateur peuvent en transférer la propriété.",
+  "Only the account owner can transfer boards owned by the account owner or an administrator.":
+    "Seul le propriétaire du compte peut transférer les tableaux appartenant au propriétaire du compte ou à un administrateur.",
   "Only the board owner or an administrator can connect Slack.":
     "Seuls le propriétaire du tableau ou un administrateur peuvent connecter Slack.",
   "Your organization has turned off Slack.":

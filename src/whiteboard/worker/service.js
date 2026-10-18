@@ -1624,6 +1624,19 @@ export class BoardService {
         (!orgUser && (next?.guest || configured)))
     )
       fail(400, "Choose an active member of your organization.");
+    // As when moving someone's boards all at once, only the account owner
+    // takes a board from the account owner or an administrator; another
+    // administrator could otherwise take them one by one.
+    if (
+      actor.uuid !== meta.owner &&
+      (await this.org.role(actor)) !== "owner" &&
+      (meta.owner === owner.uuid ||
+        (await this.org.freshUser(meta.owner))?.role === "admin")
+    )
+      fail(
+        403,
+        "Only the account owner can transfer boards owned by the account owner or an administrator.",
+      );
     if (previous)
       await this.setMember(room, { ...previous, role: "facilitator" });
     // An owner's access never expires, whatever they had as a guest, and

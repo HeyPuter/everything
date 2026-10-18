@@ -8623,11 +8623,46 @@ test("only the account owner moves the boards of an administrator or of the owne
       call(editor, { op: "org.users.transfer", from, to: editor.uuid }),
       { status: 403 },
     );
+  // Nor one board at a time.
+  for (const room of [mine.room, theirs.room])
+    await assert.rejects(
+      boards.call(editor, { op: "transfer", room, uuid: editor.uuid }),
+      { status: 403, message: /Only the account owner/ },
+    );
+  // Nor an administrator's API key.
+  const { key } = await call(editor, {
+    op: "apikeys.create",
+    name: "Admin",
+    scopes: ["boards:write"],
+  });
+  await assert.rejects(
+    restRoute(
+      org,
+      boards,
+      new Request("https://w.puter.work/v1/boards/" + mine.room, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${key}` },
+      }),
+      "PATCH",
+      "boards/" + mine.room,
+      { owner: editor.uuid },
+    ),
+    { status: 403 },
+  );
   assert.equal((await org.kv.get("org:board:" + mine.room)).owner, owner.uuid);
   assert.equal(
     (await org.kv.get("org:board:" + theirs.room)).owner,
     viewer.uuid,
   );
+  // An administrator still hands on their own board.
+  const own = createInput("First admin's board");
+  await boards.call(editor, own.input);
+  await boards.call(editor, {
+    op: "transfer",
+    room: own.room,
+    uuid: owner.uuid,
+  });
+  assert.equal((await org.kv.get("org:board:" + own.room)).owner, owner.uuid);
   // The account owner still can.
   const moved = await call(owner, {
     op: "org.users.transfer",
