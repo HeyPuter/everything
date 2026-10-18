@@ -6371,6 +6371,45 @@ test("moving a board to the trash can be undone from the notification", async ()
   }
 });
 
+test("a notification with an action waits while it holds the keyboard", async () => {
+  // "Moved to the trash. Undo" went after 10 seconds even with the keyboard
+  // on Undo, dropping the focus to the page.
+  const app = await setup();
+  const { doc, w, click, tick } = app;
+  const realTimeout = w.setTimeout;
+  try {
+    await click('[data-action="new"]');
+    await click('[data-action="home"]');
+    await click('[data-action="new"]');
+    await click('[data-action="home"]');
+    // Notifications' times run 50 times faster.
+    w.setTimeout = (fn, ms, ...rest) =>
+      realTimeout(fn, ms >= 4000 ? ms / 50 : ms, ...rest);
+    await click(
+      `[data-more="${doc.querySelector("[data-more]").dataset.more}"]`,
+    );
+    await click("#remove-board");
+    await click("#confirm-delete");
+    const toast = doc.querySelector("#toast");
+    const undo = toast.querySelector(".toast-action");
+    doc.querySelector("#search").focus();
+    undo.focus();
+    await new Promise((r) => realTimeout(r, 400));
+    assert.ok(toast.classList.contains("visible"));
+    assert.equal(doc.activeElement, undo);
+    // Its time runs again once the keyboard leaves it.
+    doc.querySelector("#search").focus();
+    await tick();
+    assert.ok(toast.classList.contains("visible"));
+    await new Promise((r) => realTimeout(r, 400));
+    assert.equal(toast.classList.contains("visible"), false);
+    assert.equal(doc.activeElement, doc.querySelector("#search"));
+  } finally {
+    w.setTimeout = realTimeout;
+    await app.close();
+  }
+});
+
 test("checkpoints restore content and trash preserves boards for recovery", async () => {
   const app = await setup();
   const { doc, click, tick } = app;

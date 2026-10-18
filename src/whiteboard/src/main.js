@@ -2995,10 +2995,46 @@ document.addEventListener(
 function dropEditToast() {
   if (!toast.untilEdit) return;
   toast.untilEdit = false;
-  toastElement.classList.remove("visible");
+  hideToast();
 }
+// The keyboard on a notification's action goes back where it came from
+// when the notification goes, rather than to the page.
+function hideToast() {
+  clearTimeout(toast.timer);
+  toastElement.classList.remove("visible");
+  if (!toastElement.contains(document.activeElement)) return;
+  const back = toast.cameFrom;
+  (back?.isConnected && back.getClientRects().length
+    ? back
+    : document.querySelector("#canvas")
+  )?.focus({ preventScroll: true });
+}
+// A notification's time runs only while it is neither pointed at nor
+// holding the keyboard, so its action can be read and reached.
+function holdToast() {
+  if (!toastElement.classList.contains("visible") || !toast.until) return;
+  const held =
+    toastElement.matches(":hover") ||
+    toastElement.contains(document.activeElement);
+  clearTimeout(toast.timer);
+  if (held) toast.left ??= Math.max(0, toast.until - Date.now());
+  else {
+    toast.until = Date.now() + (toast.left ?? toast.until - Date.now());
+    toast.left = null;
+    toast.timer = setTimeout(hideToast, toast.until - Date.now());
+  }
+}
+toastElement.addEventListener("pointerenter", holdToast);
+toastElement.addEventListener("pointerleave", () => setTimeout(holdToast));
+toastElement.addEventListener("focusin", (e) => {
+  if (!toastElement.contains(e.relatedTarget)) toast.cameFrom = e.relatedTarget;
+  holdToast();
+});
+toastElement.addEventListener("focusout", () => setTimeout(holdToast));
 function toast(message, action) {
   const el = toastElement;
+  // A new notification takes the place of the one holding the keyboard.
+  if (el.contains(document.activeElement)) hideToast();
   toast.untilEdit = !!action?.untilEdit;
   const host =
     [...document.querySelectorAll("dialog[open]")].at(-1) || document.body;
@@ -3012,18 +3048,16 @@ function toast(message, action) {
     button.className = "toast-action";
     button.textContent = action.label;
     button.onclick = () => {
-      el.classList.remove("visible");
+      hideToast();
       action.run();
     };
     el.append(button);
   }
   translateUI(el);
   el.classList.add("visible");
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(
-    () => el.classList.remove("visible"),
-    action ? 10000 : 4500,
-  );
+  toast.until = Date.now() + (action ? 10000 : 4500);
+  toast.left = null;
+  holdToast();
 }
 // A message inside a dialog: what happened, marked as success or an error
 // so the two are told apart at a glance and not only by their wording.
