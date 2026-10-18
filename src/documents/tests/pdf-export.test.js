@@ -34,3 +34,25 @@ it('collects page text from body and story lines, skipping pictures and rotated 
   ];
   expect(pageFragments(lines, 0).map(f => f.text)).toEqual(['Body', 'Footer']);
 });
+
+it('gives emoji and characters beyond the BMP back when text is copied, and keeps a non-ASCII title', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { writeFileSync, mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const page = { widthPx: 816, heightPx: 1056, jpeg: JPEG, imageWidth: 1, imageHeight: 1, fragments: [{ text: 'Smile 😀 and 𠀋 here', x: 96, baseline: 120, width: 200, fontSize: 12 }] };
+  const bytes = buildPdf([page], { title: 'Café Q3 – 報告' });
+  const text = new TextDecoder('latin1').decode(bytes);
+  // Each character beyond the BMP has its own code, mapped back by the ToUnicode map.
+  expect(text).toContain('<D800> <D83DDE00>');
+  expect(text).toContain('<D801> <D840DC0B>');
+  expect(text).not.toContain('<0000> <FFFF> <0000>');
+  expect(text).toContain(`/Title <FEFF${utf16Hex('Café Q3 – 報告')}>`);
+  let tools = true;
+  try { execFileSync('pdftotext', ['-v'], { stdio: 'ignore' }); } catch { tools = false; }
+  if (!tools) return;
+  const file = join(mkdtempSync(join(tmpdir(), 'pdf-')), 'out.pdf');
+  writeFileSync(file, bytes);
+  expect(execFileSync('pdftotext', [file, '-'], { encoding: 'utf8' })).toContain('Smile 😀 and 𠀋 here');
+  expect(execFileSync('pdfinfo', [file], { encoding: 'utf8' })).toContain('Café Q3 – 報告');
+});
