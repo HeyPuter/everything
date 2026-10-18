@@ -1973,15 +1973,16 @@ export async function adminCall(org, boards, identity, input) {
     const isAdmin = role === "owner" || role === "admin";
     // What members share waits for an administrator, and so does a limited
     // amount of it, so no one can fill the organization's storage with it.
-    // Each item records its size; one saved before that counts as the
-    // largest an item can be.
+    // Each item records its size. One saved before items did was allowed
+    // without a limit and counts for nothing, so items already waiting
+    // never stop anyone from sharing.
     if (!isAdmin) {
       const size = input.board.length;
       let mine = size,
         all = size;
       for (const { value: i } of await org.list("org:lib:")) {
         if (i?.status !== "pending") continue;
-        const bytes = Number.isFinite(i.size) ? i.size : LIBRARY_ITEM;
+        const bytes = Number.isFinite(i.size) ? i.size : 0;
         all += bytes;
         if (i.createdBy === identity.uuid) mine += bytes;
       }

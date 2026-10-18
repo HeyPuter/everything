@@ -3521,14 +3521,11 @@ test("members have a limited amount of library content awaiting approval", async
   const shared = [];
   for (let n = 0; n < 15; n++) shared.push(await submit(editor, "Retro " + n));
   assert.equal(shared[0].size, json.length);
-  // Items saved before sizes were recorded count as the largest an item
-  // can be: twenty of them and Bob's own fill all but a little of his 250 MB.
-  for (let n = 0; n < 20; n++) await waiting("old" + n, editor.uuid);
-  await waiting(
-    "big",
-    editor.uuid,
-    250 * 1024 ** 2 - 20 * 12_000_000 - 16 * json.length,
-  );
+  // Items saved before sizes were recorded were allowed without a limit
+  // and count for nothing, however many wait; Bob's own sized ones fill
+  // all but a little of his 250 MB.
+  for (let n = 0; n < 100; n++) await waiting("old" + n, editor.uuid);
+  await waiting("big", editor.uuid, 250 * 1024 ** 2 - 16 * json.length);
   await submit(editor, "Fits");
   await assert.rejects(submit(editor, "One more"), {
     status: 429,
