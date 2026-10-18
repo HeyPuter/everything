@@ -125,11 +125,13 @@ export function advancedFilter(wb, sheetId, { list, criteria = null, copyTo = nu
   };
   columns.forEach((c, k) => copyCell(list.r1, c, copyTo.range.r1, copyTo.range.c1 + k));
   rows.forEach((r, i) => columns.forEach((c, k) => copyCell(r, c, copyTo.range.r1 + 1 + i, copyTo.range.c1 + k)));
-  // Earlier results below (from a previous run) are cleared, as far as the old block went.
-  const prev = wb.rangeValues(dest, { r1: copyTo.range.r1 + 1 + rows.length, c1: copyTo.range.c1, r2: Math.min(copyTo.range.r1 + 1 + rows.length + 2000, wb.sheet(dest).rows - 1), c2: copyTo.range.c1 + columns.length - 1 });
-  for (let i = 0; i < prev.length; i++) {
-    if (!prev[i].some((v) => v != null && v !== '')) break;
-    for (let k = 0; k < columns.length; k++) entries.push({ r: copyTo.range.r1 + 1 + rows.length + i, c: copyTo.range.c1 + k, cell: null });
+  // Earlier results below (from a previous run) are cleared, as far as the old block went: down to its first blank
+  // row, however long it was (it stopped 2,000 rows on, leaving the rest of a longer earlier result under the new one).
+  const lastRow = Math.min(wb.usedRange(dest)?.r2 ?? -1, wb.sheet(dest).rows - 1);
+  for (let r = copyTo.range.r1 + 1 + rows.length; r <= lastRow; r++) {
+    const row = wb.rangeValues(dest, { r1: r, c1: copyTo.range.c1, r2: r, c2: copyTo.range.c1 + columns.length - 1 })[0];
+    if (!row.some((v) => v != null && v !== '')) break;
+    for (let k = 0; k < columns.length; k++) entries.push({ r, c: copyTo.range.c1 + k, cell: null });
   }
   wb.setCells(dest, entries, 'Advanced filter');
   return { copied: rows.length, columns: columns.length };
