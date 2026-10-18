@@ -7486,6 +7486,40 @@ test("the organization's AI is for its members, not guests", async () => {
   );
 });
 
+test("AI use is recorded only on boards the person can open, and limited each minute", async () => {
+  const { env, boards, call, org } = setup();
+  org.puter.ai = { chat: async () => ({ message: { content: "ok" } }) };
+  await call(owner, { op: "org.setup", name: "Fabrikam" });
+  const { token } = await call(owner, { op: "org.invite", role: "member" });
+  await call(editor, { op: "org.join", token });
+  const { input, room } = createInput("Confidential");
+  await boards.call(owner, input);
+  const ask = (room) =>
+    call(editor, { op: "org.ai", task: "summarize", prompt: "x", room });
+  const used = async () =>
+    (await call(owner, { op: "org.board.activity", room })).entries.filter(
+      (e) => e.action === "ai.used",
+    ).length;
+  // Bob cannot open the private board, so his request writes nothing there.
+  assert.equal((await ask(room)).text, "ok");
+  assert.equal(await used(), 0);
+  // Once invited, his use shows on it.
+  const { token: link } = await boards.call(owner, {
+    op: "invite",
+    room,
+    role: "editor",
+  });
+  await boards.call(editor, { op: "join", room, token: link });
+  await ask(room);
+  assert.equal(await used(), 1);
+  // Twenty a minute, counted in a minute no other test uses.
+  env.now = (Math.floor(env.now / 60_000) + 7) * 60_000;
+  for (let n = 0; n < 20; n++) await ask(room);
+  await assert.rejects(ask(room), { status: 429 });
+  env.now += 60_000;
+  await ask(room);
+});
+
 test("an invitation that fails to join keeps the organization already in use", async () => {
   const { JSDOM } = await import("jsdom");
   const dom = new JSDOM("<!doctype html><body></body>", {

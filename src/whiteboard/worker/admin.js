@@ -564,6 +564,8 @@ async function capture(org, boards, user) {
 // How many such guests a policy change brings in at once; anyone beyond
 // joins the next time they open the organization.
 const CAPTURE_BATCH = 200;
+// AI requests one person can make each minute.
+const AI_REQUESTS = 20;
 async function joinOrganization(org, identity, input) {
   const existing = await org.freshUser(identity.uuid);
   const invite = input.token
@@ -1003,7 +1005,7 @@ export async function apiKey(org, bearer, scope) {
     createdBy: record.createdBy,
   };
 }
-async function aiRequest(org, identity, input) {
+async function aiRequest(org, identity, input, boards) {
   const policy = await org.policy();
   const task = input.task;
   const feature = {
@@ -1021,6 +1023,8 @@ async function aiRequest(org, identity, input) {
   const role = await org.role(identity);
   if (!role || role === "guest")
     fail(403, "AI features are available to organization members.");
+  // Each request costs the organization, and is recorded.
+  boards.perMinute(`ai|${identity.uuid}`, AI_REQUESTS);
   const prompt = text(input.prompt, 60_000);
   if (!prompt) fail(400, "Nothing to send to AI.");
   const options = {
@@ -1080,16 +1084,21 @@ async function aiRequest(org, identity, input) {
       : Array.isArray(content)
         ? content.map((c) => c.text || "").join("")
         : String(response?.text || response || "");
+  // The use is recorded in the board's activity only when the person can
+  // open it, so no one writes into a board they have no access to.
+  const room =
+    typeof input.room === "string" &&
+    ID.test(input.room) &&
+    (await boards.member(input.room, identity).then(
+      () => true,
+      () => false,
+    ))
+      ? input.room
+      : null;
   await org.audit(
     identity,
     "ai.used",
-    {
-      type: "board",
-      id:
-        typeof input.room === "string" && ID.test(input.room)
-          ? input.room
-          : null,
-    },
+    { type: "board", id: room },
     {
       task,
     },
@@ -2096,7 +2105,7 @@ export async function adminCall(org, boards, identity, input) {
     await member();
     return { teams: (await org.list("org:team:")).map((r) => r.value) };
   }
-  if (op === "org.ai") return aiRequest(org, identity, input);
+  if (op === "org.ai") return aiRequest(org, identity, input, boards);
   if (op === "org.jira.create" || op === "org.jira.status")
     return jira(org, identity, input, boards);
 
