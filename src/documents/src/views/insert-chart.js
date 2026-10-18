@@ -16,7 +16,10 @@ export async function chartFragment(model, packageParts, data, { id, width = 5.5
     return await readDrawingFragment(drawingFrame({ id, name: `Chart ${id}`, descr: data.title ? `Chart: ${data.title}` : '', width, height, graphic }),
       { parts: [{ ...part, bytes: xml, contentType: CHART_CONTENT_TYPE, relType: CHART_RELATIONSHIP_TYPE }] });
   } catch (e) {
-    throw new Error(/mixed-script/.test(e.message) ? 'Chart labels must use Latin script in this version. Rename the categories or series and try again.' : e.message);
+    // The chart reader keeps Latin text only; its own message ("…the original file…") describes opening a file.
+    if (/mixed-script/.test(e.message)) throw new Error('Chart labels must use Latin script in this version. Rename the categories or series and try again.');
+    if (/title script|line breaks/.test(e.message)) throw new Error('Chart titles must use Latin script on one line in this version, without emoji. Change the title and try again.');
+    throw e;
   }
 }
 

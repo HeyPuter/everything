@@ -43,3 +43,9 @@ it('explains labels the chart reader cannot keep', async () => {
   const data = { ...defaultChartData('column-clustered'), categories: ['東京', 'B', 'C', 'D'] };
   await expect(chartFragment({ assets: {} }, pkg.parts, data, { id: 1 })).rejects.toThrow(/Latin script/);
 });
+
+it('explains a chart title the chart reader cannot keep', async () => {
+  const pkg = createDocx([paragraph()], undefined, undefined, undefined, [], {}, WRITING_STYLES);
+  const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+  await expect(chartFragment(doc, pkg.parts, { ...defaultChartData('line-markers'), title: 'Sales 📈' }, { id: 1 })).rejects.toThrow(/Chart titles must use Latin script/);
+});
