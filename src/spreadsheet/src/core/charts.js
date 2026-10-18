@@ -1298,7 +1298,8 @@ export function dateKindOf(style) {
   return style?.fmt === 'custom' ? style.dateKind ?? dateTimeKind(style) : null;
 }
 
-export function axisLabel(v, style = null, step = null) {
+/** `compact: false` keeps whole numbers (an axis in display units already names its scale). */
+export function axisLabel(v, style = null, step = null, { compact: compactUnits = true } = {}) {
   if (!Number.isFinite(v)) return '';
   // Dates and times read as such, not as compact serial numbers, in the cells' own code.
   if (dateKindOf(style)) return formatValue(v, style.fmt === 'custom' ? { fmt: 'custom', code: style.code } : { fmt: style.fmt, dateStyle: style.dateStyle || undefined, sec: !!style.sec });
@@ -1333,12 +1334,12 @@ export function axisLabel(v, style = null, step = null) {
   const unitDec = (unit) => Math.max(1, stepDec != null ? exactDecimals(step / unit, 6) : 1);
   const inUnit = (unit) => { const p = 10 ** unitDec(unit); return Math.round((v / unit) * p) / p; };
   const compact = (n, suffix, unit) => `${show(n, exactDecimals(n, unitDec(unit)))}${suffix}`;
-  const UNITS = [[1e12, 'T'], [1e9, 'B'], [1e6, 'M']];
+  const UNITS = compactUnits ? [[1e12, 'T'], [1e9, 'B'], [1e6, 'M']] : [];
   for (const [i, [unit, suffix]] of UNITS.entries()) {
     const below = UNITS[i + 1]?.[0] ?? 1e3;
     if (abs >= unit || Math.abs(inUnit(below)) >= 1000) return compact(inUnit(unit), suffix, unit);
   }
-  if (abs >= 1e4) return compact(inUnit(1e3), 'K', 1e3);
+  if (compactUnits && abs >= 1e4) return compact(inUnit(1e3), 'K', 1e3);
   const dec = stepDec != null ? Math.max(stepDec, exactDecimals(v, 6)) : abs >= 100 || Number.isInteger(v) ? 0 : abs >= 1 ? 1 : 2;
   return show(Math.round(v * 10 ** dec) / 10 ** dec, dec);
 }

@@ -1214,7 +1214,8 @@ function renderStyledCartesian(data, chart, width, height) {
   };
   const formatted = (v, code, step, units) => {
     const divisor = units?.divisor || 1;
-    return code ? formatValue(v / divisor, { fmt: 'custom', code }) : axisLabel(v / divisor, null, step / divisor);
+    // Display units already name the scale: 20,000 thousands, not 20K thousands.
+    return code ? formatValue(v / divisor, { fmt: 'custom', code }) : axisLabel(v / divisor, null, step / divisor, { compact: divisor === 1 });
   };
   if (horizontal && valueLabels) {
     // An automatic major unit must fit the formatted labels along the physical
@@ -2012,7 +2013,7 @@ function renderNativeRadar(data, chart, width, height) {
     parts.push(`<line class="chart-axis-line chart-axis-y" x1="${f(cx)}" y1="${f(cy)}" x2="${f(outer[0])}" y2="${f(outer[1])}" ${strokeAttrs(a.axisStyles?.y, a.yStyle.color)}/>`);
     if (a.yLabelPosition !== 'none') for (const value of scaleTicks(scale)) {
       const p = point(0, value), divisor = a.yUnits?.divisor || 1;
-      label(a.yFormat ? formatValue(value / divisor, { fmt: 'custom', code: a.yFormat }) : axisLabel(value / divisor, data.valueStyle, scale.step / divisor), p[0] - a.yStyle.size * .5, p[1] + a.yStyle.size * .35, a.yStyle, 'end', 'class="chart-radar-value"');
+      label(a.yFormat ? formatValue(value / divisor, { fmt: 'custom', code: a.yFormat }) : axisLabel(value / divisor, data.valueStyle, scale.step / divisor, { compact: divisor === 1 }), p[0] - a.yStyle.size * .5, p[1] + a.yStyle.size * .35, a.yStyle, 'end', 'class="chart-radar-value"');
     }
   }
   const id = `radar-${Math.random().toString(36).slice(2, 10)}`;
