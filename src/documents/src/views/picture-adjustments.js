@@ -78,6 +78,27 @@ export async function partPixels(bytes, mime) {
   return scale < 1 ? downsample(image, scale) : image;
 }
 
+/**
+ * The background removal mask a processed picture already shows, recovered from its transparency against
+ * the original's. The saved marks do not record the sensitivity or brush sizes they were made with, so
+ * recomputing from them would change which pixels are removed. Null when the shown picture is not a
+ * removal of this original (another size, or nothing transparent that the original keeps).
+ */
+async function shownMask(part, original) {
+  if (!part?.bytes) return null;
+  let shown;
+  try { shown = await partPixels(part.bytes, part.contentType); } catch { return null; }
+  if (shown.width !== original.width || shown.height !== original.height) return null;
+  const mask = new Uint8ClampedArray(shown.width * shown.height);
+  let removes = false;
+  for (let i = 0; i < mask.length; i++) {
+    const before = original.data[i * 4 + 3], after = shown.data[i * 4 + 3];
+    mask[i] = before ? Math.round(Math.min(255, after * 255 / before)) : 255;
+    if (mask[i] < 255) removes = true;
+  }
+  return removes ? mask : null;
+}
+
 function dropVectorCompanion(blip) {
   // A processed picture is a bitmap; an SVG companion would show the unprocessed vector instead.
   for (const ext of childrenOf(child(blip, A, 'extLst'), A, ['ext'])) if (ext.getAttribute('uri')?.toUpperCase() === SVG_URI) ext.remove();
@@ -106,6 +127,11 @@ export function processedEdit(change) {
     if (!part?.bytes) throw new Error('The picture\'s data is not available.');
     if (!/^image\/(png|jpeg|gif|bmp|webp|tiff)$/.test(part.contentType)) throw new Error('This kind of picture cannot be processed. Pictures in PNG, JPEG, GIF, BMP or TIFF can.');
     const pixels = await partPixels(part.bytes, part.contentType);
+    const shownRel = blip.getAttributeNS(R, 'embed');
+    if (state.background && !('background' in change) && shownRel !== originalRel) {
+      const mask = await shownMask(context.parts.get(shownRel), pixels);
+      if (mask) state.background = { ...state.background, mask };
+    }
     const processed = processPixels(pixels, state);
     const keepsOpaque = !state.background && part.contentType === 'image/jpeg';
     const bytes = await encodeImageData(processed, keepsOpaque ? 'image/jpeg' : 'image/png', 0.92);
