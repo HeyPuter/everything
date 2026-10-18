@@ -106,7 +106,7 @@ function normalizeStep(raw) {
       step.join = raw.join === 'or' ? 'or' : 'and';
       step.conditions = (Array.isArray(raw.conditions) ? raw.conditions : []).slice(0, 50).map((c) => {
         if (!isObj(c)) return null;
-        if (c.op === 'in') return { op: 'in', values: (Array.isArray(c.values) ? c.values : []).slice(0, 100000).map(normalizeValue) };
+        if (c.op === 'in' || c.op === 'notIn') return { op: c.op, values: (Array.isArray(c.values) ? c.values : []).slice(0, 100000).map(normalizeValue) };
         if (!FILTER_OPS[c.op]) return null;
         return { op: c.op, value: normalizeValue(c.value) };
       }).filter(Boolean);
@@ -594,7 +594,9 @@ const keysOf = (cond) => {
 
 function matches(cond, v, type) {
   const { op } = cond;
+  // The values ticked in a column's filter list (in), or those cleared when the list did not hold them all (notIn).
   if (op === 'in') return keysOf(cond).has(keyOf(v));
+  if (op === 'notIn') return !keysOf(cond).has(keyOf(v));
   if (op === 'isNull') return v == null;
   if (op === 'notNull') return v != null;
   if (op === 'isBlank') return v == null || v === '';
@@ -925,7 +927,8 @@ export function stepFormula(query, index) {
         contains: (v) => `Text.Contains([${step.column}], ${val(v)})`, notContains: (v) => `not Text.Contains([${step.column}], ${val(v)})`,
         isNull: () => `[${step.column}] = null`, notNull: () => `[${step.column}] <> null`, isBlank: () => `[${step.column}] = null or [${step.column}] = ""`,
         notBlank: () => `[${step.column}] <> null and [${step.column}] <> ""` };
-      const parts = step.conditions.map((c) => (c.op === 'in' ? `List.Contains(${`{${c.values.map(val).join(', ')}}`}, [${step.column}])` : fn[c.op](c.value)));
+      const list = (c) => `List.Contains({${c.values.map(val).join(', ')}}, [${step.column}])`;
+      const parts = step.conditions.map((c) => (c.op === 'in' ? list(c) : c.op === 'notIn' ? `not ${list(c)}` : fn[c.op](c.value)));
       return `= Table.SelectRows(${prev}, each ${parts.join(` ${step.join} `) || 'true'})`;
     }
     case 'sortRows': return `= Table.Sort(${prev},{${step.keys.map((k) => `{${q(k.column)}, Order.${k.desc ? 'Descending' : 'Ascending'}}`).join(', ')}})`;

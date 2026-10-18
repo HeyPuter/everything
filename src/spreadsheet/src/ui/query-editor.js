@@ -418,7 +418,7 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
   function filterDialog(column, op = null) {
     const type = typeOf(column);
     const prev = previous();
-    const existing = prev?.type === 'filterRows' && prev.column === column && prev.conditions.every((c) => c.op !== 'in') ? prev : null;
+    const existing = prev?.type === 'filterRows' && prev.column === column && prev.conditions.every((c) => c.op !== 'in' && c.op !== 'notIn') ? prev : null;
     const ops = [...filtersFor(type), 'isNull', 'notNull'].map((o) => [o, FILTER_OPS[o]]);
     const values = [...new Set((table()?.rows || []).map((r) => r[table().columns.indexOf(column)]).filter((v) => v != null).map((v) => displayValue(v, type)))].slice(0, 200);
     const listId = `pq-values-${Math.random().toString(36).slice(2)}`;
@@ -582,8 +582,10 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
     for (const r of t.rows) { const k = keyOf(r[i]); if (!counts.has(k)) counts.set(k, r[i]); }
     const values = [...counts.values()].slice(0, 1000);
     const prev = previous();
-    const kept = prev?.type === 'filterRows' && prev.column === column && prev.conditions.length === 1 && prev.conditions[0].op === 'in' ? new Set(prev.conditions[0].values.map(keyOf)) : null;
-    const boxes = values.map((v) => el('input', { type: 'checkbox', checked: kept ? kept.has(keyOf(v)) : true }));
+    const list = prev?.type === 'filterRows' && prev.column === column && prev.conditions.length === 1 && ['in', 'notIn'].includes(prev.conditions[0].op) ? prev.conditions[0] : null;
+    const listed = list && new Set(list.values.map(keyOf));
+    const ticked = (v) => (!list ? true : list.op === 'in' ? listed.has(keyOf(v)) : !listed.has(keyOf(v)));
+    const boxes = values.map((v) => el('input', { type: 'checkbox', checked: ticked(v) }));
     boxes.forEach((b, n) => { b._value = values[n]; });
     const all = el('input', { type: 'checkbox', checked: boxes.every((b) => b.checked), onchange: () => { for (const b of boxes) if (!b.closest('label').hidden) b.checked = all.checked; } });
     const search = el('input.input', { type: 'search', placeholder: 'Search', 'aria-label': 'Search values', oninput: () => {
@@ -615,8 +617,14 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
         el('button.btn.btn-primary', { type: 'button', onclick: () => {
           const keep = boxes.filter((b) => b.checked).map((b) => b._value);
           closePopup();
-          if (keep.length === boxes.length && !truncated) return;
-          filterBy(column, [{ op: 'in', values: keep }]);
+          if (keep.length === boxes.length) return;
+          // The list is read after this column's filter, so what that filter left out stays out. A list cut short at
+          // 1,000 values names the ones cleared rather than the ones kept, so the values it did not show stay, as in
+          // Power Query.
+          const cleared = boxes.filter((b) => !b.checked).map((b) => b._value), gone = new Set(cleared.map(keyOf));
+          if (list?.op === 'in') filterBy(column, [{ op: 'in', values: list.values.filter((v) => !gone.has(keyOf(v))) }]);
+          else if (truncated || list?.op === 'notIn') filterBy(column, [{ op: 'notIn', values: [...(list?.values || []), ...cleared] }]);
+          else filterBy(column, [{ op: 'in', values: keep }]);
         } }, 'OK'),
         el('button.btn', { type: 'button', onclick: () => closePopup() }, 'Cancel')));
     root.append(popup);
