@@ -367,11 +367,17 @@ function textCollator(caseSensitive) {
 /**
  * Sort order for one key, as Excel's: ascending runs numbers, text, logicals, errors (all equal), then blanks;
  * descending reverses all of it but the blanks, which always come last. Text sorts by locale (optionally
- * case-sensitive, lowercase first), other values by compareStoredValues.
+ * case-sensitive, lowercase first) without its apostrophes and hyphens, other values by compareStoredValues.
  */
 function sortComparator(caseSensitive) {
   const empty = (v) => v == null || v === '';
   const collator = textCollator(caseSensitive);
+  // Excel's text order ignores apostrophes and hyphens, save that of two texts the same but for a hyphen, the one with it comes last.
+  const bare = (t) => (t.includes('-') || t.includes("'") ? t.replace(/['-]/g, '') : t);
+  const compareText = (a, b) => {
+    const x = bare(a), y = bare(b);
+    return collator.compare(x, y) || (a.length - x.length) - (b.length - y.length);
+  };
   return (a, b, ascending) => {
     if (empty(a) && empty(b)) return 0;
     if (empty(a)) return 1;
@@ -384,7 +390,7 @@ function sortComparator(caseSensitive) {
     // direction (and so before the errors ascending, after them descending).
     const picture = (v) => !!v && typeof v === 'object' && typeof v.image === 'string';
     if (picture(a) || picture(b)) return picture(a) === picture(b) ? 0 : picture(a) ? 1 : -1;
-    const cmp = typeof a === 'string' && typeof b === 'string' ? collator.compare(a, b) : compareStoredValues(a, b);
+    const cmp = typeof a === 'string' && typeof b === 'string' ? compareText(a, b) : compareStoredValues(a, b);
     return ascending ? cmp : -cmp;
   };
 }
