@@ -2700,8 +2700,26 @@ export function createGrid(opts) {
     const s = sheet();
     const wholeCols = range.r1 === 0 && range.r2 >= s.rows - 1;
     const wholeRows = range.c1 === 0 && range.c2 >= s.cols - 1;
+    // Zoomed far out the lines are narrower than their letters and numbers (drawn no smaller than 6px,
+    // chrome.css), which ran together into a smear: a label that does not fit its line shows on every
+    // k-th line only, k the first of 1, 2, 5, 10, 20, 50… lines of the sheet's size that holds it.
+    const headFont = Math.max(6, 12 * zoom);
+    const stride = (need, line) => {
+      for (let decade = 1; decade < 1e6; decade *= 10) for (const k of [decade, 2 * decade, 5 * decade]) if (k * line >= need) return k;
+      return 1e6;
+    };
+    const rowStride = stride(headFont, Math.round(s.defaultRowHeight * zoom));
+    const colStrides = new Map(); // label length → stride
+    const colLabel = (c) => {
+      const label = cellName(0, c).replace(/\d+$/, '');
+      const need = label.length * headFont * 0.7 + 2;
+      if (colW(c) >= need) return label;
+      if (!colStrides.has(label.length)) colStrides.set(label.length, stride(need, Math.round(s.defaultColWidth * zoom)));
+      return (c + 1) % colStrides.get(label.length) === 0 ? label : '';
+    };
+    const rowLabel = (r) => (rowH(r) >= headFont || (r + 1) % rowStride === 0 ? String(r + 1) : '');
     const colHeader = (c) => {
-      const h = el('div.hcell', { 'aria-hidden': 'true', dataset: { c } }, cellName(0, c).replace(/\d+$/, ''));
+      const h = el('div.hcell', { 'aria-hidden': 'true', dataset: { c } }, colLabel(c));
       h.style.left = `${colX(c)}px`;
       h.style.width = `${colW(c)}px`;
       if (c >= range.c1 && c <= range.c2) h.classList.add(wholeCols ? 'sel' : 'hl');
@@ -2712,7 +2730,7 @@ export function createGrid(opts) {
       return h;
     };
     const rowHeader = (r) => {
-      const h = el('div.hcell', { 'aria-hidden': 'true', dataset: { r } }, String(r + 1));
+      const h = el('div.hcell', { 'aria-hidden': 'true', dataset: { r } }, rowLabel(r));
       h.style.top = `${rowY(r)}px`;
       h.style.height = `${rowH(r)}px`;
       if (r >= range.r1 && r <= range.r2) h.classList.add(wholeRows ? 'sel' : 'hl');
