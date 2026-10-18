@@ -1,4 +1,4 @@
-import { orderedFrames, framesItems } from "./scene.js";
+import { orderedFrames, framesItems, lockedPlaces } from "./scene.js";
 import { SHAPES } from "./shapes.js";
 import { createZip, xml } from "./zip.js";
 import { textOf } from "./export-layout.js";
@@ -122,7 +122,9 @@ export function spreadsheetModel(b, regions, added = []) {
     ...new Map(regions.flatMap((r) => r.items).map((i) => [i.id, i])).values(),
   ];
   const frames = orderedFrames(all),
-    frameRank = new Map(frames.map((f, n) => [f.id, n]));
+    frameRank = new Map(frames.map((f, n) => [f.id, n])),
+    placed = lockedPlaces(all),
+    frameOf = (i) => i.parentId || placed.get(i.id);
   const tagNames = new Map((b.tags || []).map((tag) => [tag.id, tag.name]));
   // Images and drawings are listed by their descriptions.
   const described = (i) => ["image", "pen"].includes(i.type) && i.alt;
@@ -134,8 +136,8 @@ export function spreadsheetModel(b, regions, added = []) {
     )
     .sort(
       (a, c) =>
-        (frameRank.get(a.parentId) ?? Infinity) -
-          (frameRank.get(c.parentId) ?? Infinity) ||
+        (frameRank.get(frameOf(a)) ?? Infinity) -
+          (frameRank.get(frameOf(c)) ?? Infinity) ||
         a.y - c.y ||
         a.x - c.x,
     );
@@ -169,7 +171,7 @@ export function spreadsheetModel(b, regions, added = []) {
       ...objects.map((i) => [
         typeName(i),
         described(i) ? i.alt : textOf(i),
-        byId.get(i.parentId)?.text || "",
+        byId.get(frameOf(i))?.text || "",
         (i.tagIds || [])
           .map((id) => tagNames.get(id))
           .filter(Boolean)

@@ -5,7 +5,12 @@
 // their key, so concurrent votes and reactions from different people merge,
 // and the worker can check that each person only changes their own entries.
 import { ROLES, canEditContent, canManage } from "../collaboration/protocol.js";
-import { isConnector, orderedFrames, updateConnectors } from "../scene.js";
+import {
+  isConnector,
+  lockedPlaces,
+  orderedFrames,
+  updateConnectors,
+} from "../scene.js";
 import { setObjectHeight } from "../geometry.js";
 import { timerPhase } from "../timer.js";
 import { canonicalLanguage } from "../accessibility/language-tag.js";
@@ -813,26 +818,6 @@ export function hiddenObjects(board) {
     if (hide.has(i.id) || hide.has(i.parentId || placed.get(i.id)))
       hidden.add(i.id);
   return hidden;
-}
-// Locked objects never join a frame, since one would pin the frame in
-// place, so each lies in the smallest frame holding its middle, as it
-// would have joined it. They are hidden and staged with that frame.
-function lockedPlaces(items) {
-  const places = new Map(),
-    loose = items.filter((i) => i.locked && !i.parentId && i.type !== "frame");
-  if (!loose.length) return places;
-  const frames = items
-    .filter((i) => i.type === "frame")
-    .sort((a, b) => a.w * a.h - b.w * b.h);
-  for (const i of loose) {
-    const cx = i.x + i.w / 2,
-      cy = i.y + i.h / 2;
-    const frame = frames.find(
-      (f) => cx >= f.x && cx <= f.x + f.w && cy >= f.y && cy <= f.y + f.h,
-    );
-    if (frame) places.set(i.id, frame.id);
-  }
-  return places;
 }
 export function concealment(board, me, manager = false) {
   const notes = new Set(),

@@ -129,6 +129,27 @@ export function unlockedSelection(items, ids, { expand = true } = {}) {
     [...descendants(items, candidates)].filter((id) => !blocked.has(id)),
   );
 }
+// Locked objects never join a frame, since one would pin the frame in
+// place, so each lies in the smallest frame holding its middle, as it
+// would have joined it. They are hidden, staged, presented, exported and
+// counted with that frame.
+export function lockedPlaces(items) {
+  const places = new Map(),
+    loose = items.filter((i) => i.locked && !i.parentId && i.type !== "frame");
+  if (!loose.length) return places;
+  const frames = items
+    .filter((i) => i.type === "frame")
+    .sort((a, b) => a.w * a.h - b.w * b.h);
+  for (const i of loose) {
+    const cx = i.x + i.w / 2,
+      cy = i.y + i.h / 2;
+    const frame = frames.find(
+      (f) => cx >= f.x && cx <= f.x + f.w && cy >= f.y && cy <= f.y + f.h,
+    );
+    if (frame) places.set(i.id, frame.id);
+  }
+  return places;
+}
 export function frameItems(items, id) {
   return descendants(items, new Set([id]), { groups: false });
 }
@@ -141,11 +162,15 @@ export function framesItems(items, ids, { nested = false } = {}) {
   const children = new Map(),
     order = new Map(),
     byId = new Map(),
-    inside = nested ? nestedFrames(items) : null;
+    inside = nested ? nestedFrames(items) : null,
+    placed = lockedPlaces(items);
   items.forEach((i, n) => {
     order.set(i.id, n);
     byId.set(i.id, i);
-    for (const parent of [i.parentId, i.mindMap?.parent].filter(Boolean)) {
+    for (const parent of [
+      i.parentId || placed.get(i.id),
+      i.mindMap?.parent,
+    ].filter(Boolean)) {
       if (!children.has(parent)) children.set(parent, []);
       children.get(parent).push(i.id);
     }

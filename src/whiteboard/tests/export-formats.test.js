@@ -6,7 +6,7 @@ import { PDFDocument, PDFRawStream, PDFName } from "pdf-lib";
 import { Image } from "@napi-rs/canvas";
 import { createCanvas } from "./canvas.js";
 import { board, item, validateBoard } from "../src/model.js";
-import { updateConnectors } from "../src/scene.js";
+import { updateConnectors, framesItems } from "../src/scene.js";
 import { drawObject } from "../src/render.js";
 import { fromTemplate } from "../src/templates.js";
 import {
@@ -475,6 +475,25 @@ test("spreadsheet exports list described pictures and refuse an area with nothin
   assert.match(text, /\r\nDrawing,Red and blue arrows,/);
   assert.match(text, /\r\nImage,"Team photo, =1\+1",/);
   assert.ok(exportXLSX(b, exportRegions(b)).size > 0);
+});
+
+test("a locked object inside a frame is exported, listed and counted with it", () => {
+  const b = board("Locked");
+  const frame = item("frame", 0, 0, { w: 600, h: 400, text: "Slide A" }),
+    loose = item("note", 100, 100, { text: "Locked heading", locked: true }),
+    member = item("note", 300, 100, { text: "Member", parentId: frame.id });
+  b.items = [frame, loose, member];
+  // Locked objects never take a parentId; they lie in the frame by place.
+  assert.equal(loose.parentId, undefined);
+  const [region] = exportRegions(b, { scope: "frames" });
+  assert.deepEqual(
+    region.items.map((i) => i.id),
+    [frame.id, loose.id, member.id],
+  );
+  assert.equal(framesItems(b.items, [frame.id]).get(frame.id).size - 1, 2);
+  const rows = spreadsheetModel(b, exportRegions(b))[0].rows,
+    locked = rows.find((row) => row[1] === "Locked heading");
+  assert.equal(locked[2], "Slide A");
 });
 
 test("CSV exports a single table and rejects tables outside the scope", async () => {
