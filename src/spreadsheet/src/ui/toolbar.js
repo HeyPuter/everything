@@ -14,7 +14,7 @@ import { effectiveShortcut } from './custom-shortcuts.js';
 import { MOD_KEY } from './dom.js';
 import { cellName } from '../core/cell.js';
 import { RTL_LEAD } from '../core/bidi.js';
-import { CURRENCIES, FONTS, fontName, fontStack, formatValue, currencyDecimals, BORDER_STYLES, borderCss, ELAPSED_TIME_CODE, defaultAlign, AUTOMATIC_FORMAT, cellCurrency, currencyFormatLabel, hasDecimalPlaces } from '../core/format.js';
+import { CURRENCIES, FONTS, fontName, fontStack, formatValue, currencyDecimals, BORDER_STYLES, borderCss, ELAPSED_TIME_CODE, defaultAlign, AUTOMATIC_FORMAT, cellCurrency, currencyFormatLabel, hasDecimalPlaces, MAX_DECIMAL_PLACES } from '../core/format.js';
 import { openCustomFormatDialog } from './numfmtdialog.js';
 import { customColorRows } from './colorpicker.js';
 import { themeColorBlock } from './themes.js';
@@ -34,11 +34,14 @@ export function accountingCode(cur = 'USD', dec = currencyDecimals(cur)) {
   return `_(${label}* ${digits}_);_(${label}* (${digits});_(${label}* "-"${'?'.repeat(dec)}_);_(@_)`;
 }
 export const ACCOUNTING_CODE = accountingCode('USD');
-// A currency without a minor unit, the yen or the won, was given two decimals before it took its own; such a
-// code is still the Accounting preset, so a cell saved with one is still shown as Accounting.
-const ACCOUNTING_CODES = new Set(CURRENCIES.flatMap(([cur]) => [accountingCode(cur), accountingCode(cur, 2)]));
+// The preset with any count of decimals (More and Fewer decimal places step it, Format Cells sets it), each
+// with the currency and places it shows. A currency without a minor unit, the yen or the won, was given two
+// decimals before it took its own; such a code is still the Accounting preset, shown as Accounting.
+const ACCOUNTING_CODES = new Map(CURRENCIES.flatMap(([cur]) => Array.from({ length: MAX_DECIMAL_PLACES + 1 }, (_, dec) => [accountingCode(cur, dec), { cur, dec }])));
 /** Whether a code is the Accounting preset's, in any currency on offer. */
 export const isAccountingCode = (code) => ACCOUNTING_CODES.has(code);
+/** The currency and decimal places of an Accounting preset's code, or null for any other code. */
+export const accountingOptions = (code) => ACCOUNTING_CODES.get(code) || null;
 export const FRACTION_CODE = '# ?/?';
 // The Duration preset is the code a typed elapsed time takes on, so both read the same way.
 export const DURATION_CODE = ELAPSED_TIME_CODE;

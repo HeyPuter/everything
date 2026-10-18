@@ -26,5 +26,7 @@ it('agrees with the Currency preset and the exported code on a yen cell', () => 
 it('still knows a code saved with the two decimals every currency used to take', () => {
   for (const [cur] of CURRENCIES) expect(isAccountingCode(accountingCode(cur, 2)), cur).toBe(true);
   expect(isAccountingCode('_("¥"* #,##0.00_);_("¥"* (#,##0.00);_("¥"* "-"??_);_(@_)')).toBe(true);
-  expect(isAccountingCode('_("¥"* #,##0.0_);_("¥"* (#,##0.0);_("¥"* "-"?_);_(@_)')).toBe(false);
+  // Any count of places is the preset, as More and Fewer decimal places and Format Cells now set it.
+  expect(isAccountingCode('_("¥"* #,##0.0_);_("¥"* (#,##0.0);_("¥"* "-"?_);_(@_)')).toBe(true);
+  expect(isAccountingCode('_("¥"* #,##0.0_);_("¥"* (#,##0.0);_("¥"* "-"??_);_(@_)')).toBe(false);
 });

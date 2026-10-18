@@ -9,8 +9,8 @@ import { fillColorCss } from '../core/fill-color.js';
 
 import { el, fieldId, isComposing } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
-import { FORMATS, formatEntry, POINT_SIZES, ptToPx, pxToPt, FILL_COLORS } from './toolbar.js';
-import { formatValue, currencyFormatLabel, currencyAffixes, currencyDecimals, FONTS, fontName, fontStack, fontKeyFor, borderCss, CURRENCIES, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, styleToNumFmt } from '../core/format.js';
+import { FORMATS, formatEntry, POINT_SIZES, ptToPx, pxToPt, FILL_COLORS, accountingCode, accountingOptions } from './toolbar.js';
+import { formatValue, currencyFormatLabel, currencyAffixes, currencyDecimals, FONTS, fontName, fontStack, fontKeyFor, borderCss, CURRENCIES, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, styleToNumFmt, cellCurrency } from '../core/format.js';
 import { formatWithCode, formatCodeError, codeColor } from '../core/numfmt.js';
 import { BORDER_EDGES, readBorderEdges, penSignature } from './border-draft.js';
 import { orientationControl } from './orientation.js';
@@ -56,7 +56,7 @@ const isHex = (s) => /^#[0-9a-f]{6}$/i.test(s || '');
 export const NEGATIVE_STYLES = [['minus', '-1,234.50'], ['red', '-1,234.50 in red'], ['paren', '(1,234.50)'], ['redparen', '(1,234.50) in red']];
 
 /** The decimals a category shows when the style names none: the currency's own count, else two. */
-const defaultDecimals = (category, cur) => (category === 'currency' ? currencyDecimals(cur) : 2);
+const defaultDecimals = (category, cur) => (category === 'currency' || category === 'accounting' ? currencyDecimals(cur) : 2);
 
 /**
  * The format code for a number or currency shown with a negative style other than a plain minus. The
@@ -111,6 +111,12 @@ export function numberPatch({ category, dec, group, cur, dateStyle, code, neg = 
   if (entry.value === 'general' || entry.value === 'text') return { ...base, ...entry.patch };
   if ((entry.value === 'number' || entry.value === 'currency') && neg && neg !== 'minus') return { ...base, fmt: 'custom', code: negativeCode({ category: entry.value, dec, group, cur, neg }) };
   if (entry.value === 'custom') return { ...base, fmt: 'custom', code: code || '0' };
+  // Accounting is its preset code in the chosen currency and places; a currency other than dollars stays in the
+  // style too, as the ribbon's Accounting button keeps it.
+  if (entry.value === 'accounting') {
+    const currency = cur || 'USD';
+    return { ...base, fmt: 'custom', code: accountingCode(currency, dec == null ? currencyDecimals(currency) : Math.max(0, Math.min(MAX_DECIMAL_PLACES, dec))), cur: currency === 'USD' ? null : currency };
+  }
   if (entry.patch?.fmt === 'custom') return { ...base, ...entry.patch };
   const out = { ...base, ...entry.patch };
   if (['number', 'currency', 'percent', 'scientific'].includes(entry.value)) {
@@ -136,16 +142,21 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
   const value = draftStyle ? null : ctx.wb.getValue(ctx.sheetId(), ctx.active().r, ctx.active().c);
   const current = formatEntry(style);
   const negative = style.fmt === 'custom' ? negativeStyleFor(style.code) : null;
+  const accounting = style.fmt === 'custom' ? accountingOptions(style.code) : null;
   const state = {
     category: negative ? negative.category : current.value === 'date-medium' ? 'date' : current.value,
-    dec: negative ? negative.dec : style.dec ?? null,
+    dec: negative ? negative.dec : accounting ? accounting.dec : style.dec ?? null,
     group: negative ? negative.group : style.group !== false,
-    cur: negative ? negative.cur : style.cur || 'USD',
+    // A cell in no currency offers the regional format's own (euros in German), as the ribbon's Currency and
+    // Accounting buttons apply it; an Accounting code names its own.
+    cur: negative ? negative.cur : accounting ? accounting.cur : cellCurrency(style),
     dateStyle: style.dateStyle || 'iso',
     // The cell's own code, kept when the Number category can also show it, so Custom shows it too.
     code: style.fmt === 'custom' ? style.code || '' : '',
     neg: negative ? negative.neg : 'minus',
   };
+  // What the Number tab stood at when the dialog opened: Apply changes the number format only when it differs.
+  const numberBefore = numberPatch(state);
   const select = (label, options, value, onchange, listSize = null) => {
     const sel = el('select.select', { 'aria-label': label, size: listSize, onchange: () => onchange(sel.value) }, options.map(([v, text]) => el('option', { value: v, selected: String(v) === String(value) }, text)));
     return el(`label.field${listSize ? '.fc-list' : ''}`, {}, el('span.field-label', {}, label), el('div.select-wrap', {}, sel));
@@ -207,9 +218,9 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
   function refreshNumber({ syncDec = false } = {}) {
     const c = state.category;
     if (syncDec && state.dec == null) decInput.value = String(defaultDecimals(c, state.cur));
-    decField.hidden = !['number', 'currency', 'percent', 'scientific'].includes(c);
+    decField.hidden = !['number', 'currency', 'accounting', 'percent', 'scientific'].includes(c);
     groupField.hidden = !['number', 'currency', 'percent'].includes(c);
-    curField.hidden = c !== 'currency';
+    curField.hidden = c !== 'currency' && c !== 'accounting';
     negField.hidden = !['number', 'currency'].includes(c);
     dateField.hidden = c !== 'date' && c !== 'datetime';
     codeField.hidden = c !== 'custom';
@@ -543,7 +554,6 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
   function collect() {
     const patch = {};
     const numberNow = state.category === 'custom' && seeded?.code === state.code ? seeded.patch : numberPatch(state);
-    const numberBefore = numberPatch({ category: negative ? negative.category : current.value === 'date-medium' ? 'date' : current.value, dec: negative ? negative.dec : style.dec ?? null, group: negative ? negative.group : style.group !== false, cur: negative ? negative.cur : style.cur || 'USD', dateStyle: style.dateStyle || 'iso', code: style.fmt === 'custom' ? style.code || '' : '', neg: negative ? negative.neg : 'minus' });
     if (JSON.stringify(numberNow) !== JSON.stringify(numberBefore)) Object.assign(patch, numberNow);
     if ((align.align || null) !== (style.align || null)) patch.align = align.align || null;
     // A style may store a default outright (valign middle, the default font, size 13): the same look, so not a change.
