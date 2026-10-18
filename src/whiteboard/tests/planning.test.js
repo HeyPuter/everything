@@ -959,6 +959,54 @@ test("a refreshed timeline keeps the lanes it was placed with", () => {
   }
 });
 
+test("a refreshed timeline takes in the objects its grown frame covers", () => {
+  const b = board("Timeline");
+  const task = (n, who) =>
+    item("note", n * 220, 0, {
+      text: `Task ${n}`,
+      task: {
+        assignee: { id: who, name: who },
+        start: "2026-10-01",
+        due: "2026-10-09",
+        status: "todo",
+      },
+    });
+  b.items = [task(0, "Ana"), task(1, "Ana")];
+  const placed = timelineItems(b, collectTasks(b, { today: TODAY }), {
+    today: TODAY,
+    origin: { x: 0, y: 400 },
+  });
+  b.items.push(...placed.items);
+  const f = placed.frame;
+  const below = item("note", f.x, f.y + f.h + 40, { text: "Below" }),
+    hidden = item("note", f.x + 240, f.y + f.h + 40, { text: "Hidden" }),
+    far = item("note", f.x, f.y + 5000, { text: "Far" });
+  b.items.push(below, hidden, far);
+  // More people's tasks, later, need more lanes and a wider frame.
+  for (let n = 2; n < 8; n++) {
+    const more = task(n, `P${n}`);
+    more.task.due = "2026-12-20";
+    b.items.push(more);
+  }
+  const before = structuredClone(b.items);
+  const items = refreshedTimeline(
+    b,
+    placedTimeline(b.items, f.id),
+    collectTasks(b, { today: TODAY }),
+    { today: TODAY, skip: new Set([hidden.id]) },
+  );
+  assert.deepEqual(b.items, before, "The board itself is left unchanged");
+  validateBoard({ ...b, items });
+  const frame = items.find((i) => i.id === f.id),
+    find = (id) => items.find((i) => i.id === id);
+  assert.ok(frame.y + frame.h > below.y + below.h, "The frame grew over it");
+  assert.equal(find(below.id).parentId, f.id);
+  // An object hidden from this person, or one the frame does not reach,
+  // stays out.
+  assert.equal(find(hidden.id).parentId, undefined);
+  assert.equal(find(far.id).parentId, undefined);
+});
+
 test("Kanban status sync updates tasks moved into status frames only when enabled", () => {
   assert.equal(statusFromTitle("To do"), "todo");
   assert.equal(statusFromTitle("À faire"), "todo");

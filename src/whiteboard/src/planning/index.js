@@ -423,11 +423,15 @@ export function createPlanning(api) {
       const shown = participantRows(target, rows);
       const items = refreshedTimeline(target, found, shown, {
         today: localDate(api.now()),
+        skip: concealed(),
       });
-      // What is replaced or removed, with connectors to bars that went.
-      const kept = new Set(items.map((i) => i.id)),
+      // What is replaced or removed, with connectors to bars that went,
+      // and what the grown frame takes in.
+      const kept = new Map(items.map((i) => [i.id, i])),
         changed = new Set(found.generated.map((i) => i.id));
-      for (const i of target.items) if (!kept.has(i.id)) changed.add(i.id);
+      for (const i of target.items)
+        if (!kept.has(i.id) || kept.get(i.id).parentId !== i.parentId)
+          changed.add(i.id);
       if (found.frame.locked || !writable(changed)) return api.toast(refusal());
       if (items.length > MAX_OBJECTS)
         throw Error("A board can contain at most 5,000 objects.");

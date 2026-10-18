@@ -1,6 +1,6 @@
 import "./i18n.js";
 import { bounds, item, uid } from "../model.js";
-import { nextFrameOrder } from "../scene.js";
+import { inferParents, nextFrameOrder } from "../scene.js";
 import { language, t } from "../i18n.js";
 import {
   STATUS_LABELS,
@@ -499,6 +499,8 @@ export function timelineGrouping(found, rows) {
 // place: the frame keeps its id, title, order, and lock, and bars of
 // tasks still shown keep theirs, so connectors and comments on them stay.
 // What people added inside stays too, and the frame grows to hold it.
+// Objects its new size covers are taken in, as when resizing a frame,
+// except those in `options.skip`, such as objects hidden from this person.
 // Returns the board's new item list and leaves the board unchanged.
 export function refreshedTimeline(board, found, rows, options = {}) {
   const old = found.frame;
@@ -544,9 +546,28 @@ export function refreshedTimeline(board, found, rows, options = {}) {
     const { groupId: _, ...rest } = i;
     return rest;
   };
+  const frame = { ...old, w, h };
+  const covers = (box, i) =>
+    i.x + i.w / 2 >= box.x &&
+    i.x + i.w / 2 <= box.x + box.w &&
+    i.y + i.h / 2 >= box.y &&
+    i.y + i.h / 2 <= box.y + box.h;
+  const taken = new Set(
+    kept
+      .filter(
+        (i) =>
+          i.type !== "frame" &&
+          i.parentId !== old.id &&
+          !options.skip?.has(i.id) &&
+          (covers(old, i) || covers(frame, i)),
+      )
+      .map((i) => i.id),
+  );
   const out = [];
   for (const i of board.items)
-    if (i.id === old.id) out.push({ ...old, w, h }, ...fresh.map(single));
+    if (i.id === old.id) out.push(frame, ...fresh.map(single));
+    else if (taken.has(i.id)) out.push({ ...single(i) });
     else if (!dropped(i)) out.push(single(i));
+  if (taken.size) inferParents(out, taken, { skip: options.skip });
   return out;
 }
