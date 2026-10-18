@@ -2563,8 +2563,9 @@ export function createGrid(opts) {
   /** Ctrl+Alt+O: select the next floating object (Shift: the previous) in the sheet's order, bringing its anchor into view. */
   function selectNextChart(step) {
     const s = sheet();
-    // Objects hidden in the options cannot be picked from the keyboard either.
-    const charts = appOption('showObjects') ? s.charts : [];
+    // Objects hidden in the options cannot be picked from the keyboard either, nor one hidden in the
+    // Selection Pane: it is not drawn, and Delete would remove an object nobody can see.
+    const charts = appOption('showObjects') ? s.charts.filter((ch) => !ch.hidden || ch.id === selectedChart) : [];
     if (!charts.length) { opts.announce?.('No charts, images or text boxes on this sheet'); return; }
     const at = charts.findIndex((ch) => ch.id === selectedChart);
     const next = charts[at < 0 ? (step > 0 ? 0 : charts.length - 1) : (at + step + charts.length) % charts.length];
