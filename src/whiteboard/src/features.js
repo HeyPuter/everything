@@ -97,7 +97,7 @@ import { paint, exportImage } from "./render.js";
 import { reflowTextItems, clearTextLayoutCache } from "./text.js";
 import { loadItemFonts, itemFontFamilies, FONT_FAMILIES } from "./fonts.js";
 import { clearConnectorLabelCache } from "./connectors.js";
-import { exportPDF, exportRegions, pdfPlan } from "./export.js";
+import { exportPDF, exportRegions, pdfPlan, regionData } from "./export.js";
 import { exportCSV, exportXLSX } from "./export-sheet.js";
 import { createZip } from "./zip.js";
 import { fileBytes } from "./content/binary.js";
@@ -189,7 +189,7 @@ const RENDERING_HELP = {
 // The exported tasks as the Tasks view lists them, with assignees,
 // dependencies and Jira links, as a spreadsheet sheet of their own.
 function taskSheets(snapshot, regions) {
-  const ids = new Set(regions.flatMap((r) => r.items).map((i) => i.id));
+  const ids = new Set(regions.flatMap(regionData).map((i) => i.id));
   const rows = collectTasks(snapshot).filter((r) => ids.has(r.id));
   return rows.length ? [taskSheet(rows)] : [];
 }
@@ -3461,9 +3461,7 @@ export function createFeatures(api) {
             else if (format === "json") {
               const items = [
                   ...new Map(
-                    regions
-                      .flatMap((r) => r.items)
-                      .map((i) => [i.id, clone(i)]),
+                    regions.flatMap(regionData).map((i) => [i.id, clone(i)]),
                   ).values(),
                 ],
                 kept = new Set(items.map((i) => i.id));

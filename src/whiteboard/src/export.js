@@ -16,31 +16,42 @@ export function exportRegions(b, options = {}) {
 }
 // A mind map line is drawn from both of its nodes, so the far node of a
 // line that reaches an exported area, or joins an exported node, comes
-// along: the area then shows the line as the canvas does.
+// along: the area then shows the line as the canvas does. Only lines from
+// what was exported count, so partners never bring in theirs. Partners are
+// listed as such, since they are drawn but not exported as data.
 // The lines are found once per export, since a board can hold thousands
 // of frames.
 function mindPartners(b) {
   const lines = mindLines(b.items);
-  if (!lines.length) return (items) => items;
+  if (!lines.length) return (items) => ({ items });
   const byId = new Map(b.items.map((i) => [i.id, i])),
     joins = lines.map((line) => {
       const child = byId.get(line.id.slice("mind-line:".length));
       return { box: bounds([line]), ids: [child.id, child.mindMap.parent] };
     });
   return (items, rect) => {
-    const chosen = new Set(items.map((i) => i.id));
-    let added = false;
+    const chosen = new Set(items.map((i) => i.id)),
+      partners = new Set();
     for (const { box, ids } of joins) {
       const reaches = rect
         ? touches(box, rect)
         : ids.some((id) => chosen.has(id));
-      if (!reaches || ids.every((id) => chosen.has(id))) continue;
-      ids.forEach((id) => chosen.add(id));
-      added = true;
+      if (reaches) for (const id of ids) if (!chosen.has(id)) partners.add(id);
     }
-    return added ? b.items.filter((i) => chosen.has(i.id)) : items;
+    return partners.size
+      ? {
+          items: b.items.filter((i) => chosen.has(i.id) || partners.has(i.id)),
+          partners,
+        }
+      : { items };
   };
 }
+// What an exported area holds as data, for spreadsheets, whiteboard files
+// and speaker notes: its objects without the mind map partners drawn there.
+export const regionData = (region) =>
+  region.partners
+    ? region.items.filter((i) => !region.partners.has(i.id))
+    : region.items;
 const touches = (box, rect) =>
   box.x <= rect.x + rect.w &&
   box.x + box.w >= rect.x &&
@@ -60,7 +71,7 @@ function regionPlans(
         {
           name: t("Selected region"),
           rect: region,
-          items: withMindPartners(
+          ...withMindPartners(
             b.items.filter((i) => touches(bounds([i]), region)),
             region,
           ),
@@ -87,7 +98,7 @@ function regionPlans(
       {
         name: t("Selected objects"),
         rect: { x: a.x - 20, y: a.y - 20, w: a.w + 40, h: a.h + 40 },
-        items: withMindPartners(items),
+        ...withMindPartners(items),
       },
     ];
   }
@@ -150,7 +161,7 @@ function regionPlans(
         frameId: f.id,
         rect,
         // Board order is kept, so what is drawn on top stays on top.
-        items: withMindPartners(
+        ...withMindPartners(
           [...chosen]
             .sort((p, q) => order.get(p) - order.get(q))
             .map((id) => byId.get(id)),

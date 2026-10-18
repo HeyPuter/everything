@@ -496,6 +496,38 @@ test("a locked object inside a frame is exported, listed and counted with it", (
   assert.equal(locked[2], "Slide A");
 });
 
+test("selected mind map nodes export as data without the nodes drawn to show their lines", async () => {
+  const { regionNotes } = await import("../src/export-pptx.js");
+  const b = board("Mind");
+  const node = (text, x, y, parent) =>
+    item("note", x, y, {
+      w: 100,
+      h: 60,
+      text,
+      mindMap: { parent, direction: "right", auto: false, line: "straight" },
+    });
+  const root = node("Root", 0, 100, null);
+  const [x, y, z] = ["Idea X", "Idea Y", "Idea Z"].map((text, n) =>
+    node(text, 300, n * 100, root.id),
+  );
+  b.items = [root, x, y, z];
+  const [region] = exportRegions(b, {
+    scope: "selection",
+    selection: new Set([x.id]),
+  });
+  // The root is drawn, for the line to it; its other branches are not.
+  assert.deepEqual(
+    region.items.map((i) => i.id),
+    [root.id, x.id],
+  );
+  const rows = spreadsheetModel(b, [region])[0].rows;
+  assert.deepEqual(
+    rows.slice(1).map((row) => row[1]),
+    ["Idea X"],
+  );
+  assert.deepEqual(regionNotes(region), ["Idea X"]);
+});
+
 test("CSV exports a single table and rejects tables outside the scope", async () => {
   const b = fixture(),
     table = b.items.find((i) => i.type === "table");

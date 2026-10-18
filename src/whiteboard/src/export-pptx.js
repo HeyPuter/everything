@@ -8,7 +8,12 @@ import { canonicalLanguage } from "./accessibility/language-tag.js";
 import { appendRun, sliceTextRuns, textSegments } from "./rich-text.js";
 import { tableCellContent } from "./table-language.js";
 import { addTranslations, t } from "./i18n.js";
-import { contentBoxes, readableTiles, pageItems } from "./export.js";
+import {
+  contentBoxes,
+  readableTiles,
+  pageItems,
+  regionData,
+} from "./export.js";
 
 addTranslations({
   "Board image": "Image du tableau",
@@ -177,7 +182,7 @@ function noteLines(content) {
   return lines;
 }
 function regionNoteContent(region) {
-  return region.items
+  return regionData(region)
     .filter((i) => !["image", "pen"].includes(i.type) || i.alt)
     .filter((i) => i.type !== "frame" || i.text !== region.name)
     .sort((a, b) => a.y - b.y || a.x - b.x)

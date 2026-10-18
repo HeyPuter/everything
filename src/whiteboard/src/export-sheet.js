@@ -1,4 +1,5 @@
 import { orderedFrames, framesItems, lockedPlaces } from "./scene.js";
+import { regionData } from "./export.js";
 import { SHAPES } from "./shapes.js";
 import { createZip, xml } from "./zip.js";
 import { textOf } from "./export-layout.js";
@@ -119,7 +120,7 @@ export function spreadsheetModel(b, regions, added = []) {
   const all = b.items,
     byId = new Map(all.map((i) => [i.id, i]));
   const items = [
-    ...new Map(regions.flatMap((r) => r.items).map((i) => [i.id, i])).values(),
+    ...new Map(regions.flatMap(regionData).map((i) => [i.id, i])).values(),
   ];
   const frames = orderedFrames(all),
     frameRank = new Map(frames.map((f, n) => [f.id, n])),
