@@ -875,10 +875,17 @@ export function variableLimits(p, result) {
     }
     return out;
   }
-  // Nonlinear: bisect between the solution and each bound (or a far point) for the edge of feasibility.
+  // Nonlinear: bisect between the solution and each bound (or a far point) for the edge of feasibility. The
+  // edge is where a constraint is met no worse than at the solution itself: the solving precision's slack
+  // would put it past the constraint, so that the limit of a variable at a binding constraint (and the
+  // objective there) went beyond the optimum just found.
+  const at0 = p.evaluateAt(x);
+  const rowViolation = (at, i) => violations([{ rel: p.rows[i].rel }], [at.lhs[i] - at.rhs[i]])[0];
+  const allowed = p.rows.map((row, i) => (row.rhs.kind === 'word' ? Infinity : rowViolation(at0, i) + 1e-12 * Math.max(1, Math.abs(at0.rhs[i]))));
   const meets = (xx) => {
     const at = p.evaluateAt(xx);
-    return { ok: Number.isFinite(at.f) && feasibleRows(p, at, xx), f: at.f };
+    const ok = Number.isFinite(at.f) && p.rows.every((row, i) => row.rhs.kind === 'word' || rowViolation(at, i) <= allowed[i]);
+    return { ok, f: at.f };
   };
   for (let j = 0; j < n; j++) {
     const ends = [];
