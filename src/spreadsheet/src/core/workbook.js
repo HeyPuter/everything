@@ -7169,22 +7169,34 @@ export class Workbook extends EventTarget {
    */
   _outlineStep(sheet, label, change) {
     recordStep(this, 'structure', label);
-    const state = (s) => ({ groups: normalizeGroups(s.groups), hiddenRows: [...s.hiddenRows], hiddenCols: [...s.hiddenCols], filterHidden: [...s.filterHidden] });
-    const before = state(sheet);
+    // The step keeps the lines it hid and showed, not every hidden line: a sheet whose filter hides most of its
+    // rows would otherwise hold them all twice over for each group opened.
+    const sets = ['hiddenRows', 'hiddenCols', 'filterHidden'];
+    const before = normalizeGroups(sheet.groups);
+    const was = sets.map((key) => [...sheet[key]]);
     change();
-    const after = state(sheet);
-    const apply = (v) => {
+    const after = normalizeGroups(sheet.groups);
+    const deltas = sets.map((key, i) => {
+      const now = sheet[key];
+      // Most steps leave most of these sets as they were (grouping hides nothing): told without building one.
+      if (now.size === was[i].length && was[i].every((x) => now.has(x))) return { hid: [], showed: [] };
+      const old = new Set(was[i]);
+      return { hid: [...now].filter((x) => !old.has(x)), showed: was[i].filter((x) => !now.has(x)) };
+    });
+    const apply = (undo) => {
       const live = this.sheet(sheet.id);
       if (!live) return;
-      live.groups = normalizeGroups(v.groups);
-      live.hiddenRows = new Set(v.hiddenRows);
-      live.hiddenCols = new Set(v.hiddenCols);
-      live.filterHidden = new Set(v.filterHidden);
+      live.groups = normalizeGroups(undo ? before : after);
+      sets.forEach((key, i) => {
+        const set = new Set(live[key]);
+        for (const x of undo ? deltas[i].hid : deltas[i].showed) set.delete(x);
+        for (const x of undo ? deltas[i].showed : deltas[i].hid) set.add(x);
+        live[key] = set;
+      });
       this._changed('layout', live.id);
     };
     this._changed('layout', sheet.id);
-    const lines = (v) => v.hiddenRows.length + v.hiddenCols.length + v.filterHidden.length;
-    this._push({ label, undo: () => apply(before), redo: () => apply(after), snapshotCells: lines(before) + lines(after) });
+    this._push({ label, undo: () => apply(true), redo: () => apply(false), snapshotCells: deltas.reduce((n, d) => n + d.hid.length + d.showed.length, 0) });
   }
 
   /**

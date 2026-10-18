@@ -81,3 +81,13 @@ it('shares an outline change with the others in a shared workbook, and its undo'
   expect(bob.wb.sheet(b).groups.rows).toEqual([{ from: 2, to: 5, collapsed: false }]);
   expect(bob.wb.sheet(b).hiddenRows.size).toBe(0);
 });
+
+it('weighs an outline step by the lines it hid or showed, not by every hidden line', () => {
+  const { wb, id } = bigBook(1000, 2);
+  wb._snapshotBudget = 5000;
+  wb.setHidden(id, 'row', Array.from({ length: 900 }, (_, i) => i + 100), true);
+  wb.setInput(id, 0, 0, 'Edited');
+  for (let i = 0; i < 4; i++) { wb.groupLines(id, 'row', i * 20, i * 20 + 5); wb.toggleGroup(id, 'row', i * 20, i * 20 + 5); }
+  expect(wb.undoLabels(20)).toContain('Edit cell');
+  expect(wb._history.at(-1).snapshotCells).toBe(6);
+});
