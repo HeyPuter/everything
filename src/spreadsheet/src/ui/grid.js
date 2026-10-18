@@ -3202,10 +3202,12 @@ export function createGrid(opts) {
     const vw = viewport.clientWidth;
     const vh = viewport.clientHeight;
     // A split window's left or top pane, when it is the active one, scrolls itself.
+    // A cell wider or taller than its pane is brought in by its top-left corner, where its text begins, as
+    // in Excel: lined up by its far edge instead, a wide column showed only the end of its text.
     if (frozen.split && ((cols && leftBand(c)) || (rows && topBand(r)))) {
       let psl = frozen.sl, pst = frozen.st;
-      if (cols && leftBand(c)) { if (left < psl) psl = left; else if (right > psl + frozen.w) psl = right - frozen.w; }
-      if (rows && topBand(r)) { if (top < pst) pst = top; else if (bottom > pst + frozen.h) pst = bottom - frozen.h; }
+      if (cols && leftBand(c)) { if (left < psl) psl = left; else if (right > psl + frozen.w) psl = Math.min(left, right - frozen.w); }
+      if (rows && topBand(r)) { if (top < pst) pst = top; else if (bottom > pst + frozen.h) pst = Math.min(top, bottom - frozen.h); }
       scrollSplitPanes(psl, pst);
     }
     const sl0 = viewport.scrollLeft - shift.x;
@@ -3215,11 +3217,11 @@ export function createGrid(opts) {
     // Frozen cells are always in view; others must clear the frozen band.
     if (cols && c >= frozen.cols && !leftBand(c)) {
       if (left - frozen.w < sl) sl = Math.max(-shift.x, left - frozen.w);
-      else if (right > sl + vw) sl = right - vw;
+      else if (right > sl + vw) sl = Math.max(-shift.x, Math.min(left - frozen.w, right - vw));
     }
     if (rows && r >= frozen.rows && !topBand(r)) {
       if (top - frozen.h < st) st = Math.max(-shift.y, top - frozen.h);
-      else if (bottom > st + vh) st = bottom - vh;
+      else if (bottom > st + vh) st = Math.max(-shift.y, Math.min(top - frozen.h, bottom - vh));
     }
     if (sl !== sl0 || st !== st0) scrollViewportTo(sl, st);
   }
