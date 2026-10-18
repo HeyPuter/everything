@@ -584,9 +584,17 @@ function textOf(v) {
   return typeof v === 'string' ? v : null;
 }
 
+/** The keys of a list condition's values, worked out once per condition rather than once per row. */
+const listKeys = new WeakMap();
+const keysOf = (cond) => {
+  let keys = listKeys.get(cond);
+  if (!keys) listKeys.set(cond, keys = new Set(cond.values.map(keyOf)));
+  return keys;
+};
+
 function matches(cond, v, type) {
   const { op } = cond;
-  if (op === 'in') return cond.values.some((x) => keyOf(x) === keyOf(v));
+  if (op === 'in') return keysOf(cond).has(keyOf(v));
   if (op === 'isNull') return v == null;
   if (op === 'notNull') return v != null;
   if (op === 'isBlank') return v == null || v === '';
