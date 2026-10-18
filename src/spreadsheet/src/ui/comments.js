@@ -186,12 +186,12 @@ export function createComments(ctx, host) {
       const assign = assignOption(reply, pick);
       const send = () => {
         if (!reply.value.trim()) return;
-        const text = reply.value, assignTo = assign.person();
-        if (postComment(sheetId, r, c, text, pick.picked, assignTo, true)) {
-          reply.value = '';
-          pick.picked.length = 0;
-          told(sheetId, r, c, lastThreadItem(wb, sheetId, r, c), [], assignTo);
-        }
+        const text = reply.value, assignTo = assign.person(), picked = pick.picked.splice(0);
+        // Emptied before the post: the post redraws the thread, carrying the text of a box being typed in over
+        // to the new one, where the reply just posted stayed, ready to be posted twice.
+        reply.value = '';
+        if (postComment(sheetId, r, c, text, picked, assignTo, true)) told(sheetId, r, c, lastThreadItem(wb, sheetId, r, c), [], assignTo);
+        else { reply.value = text; pick.picked.push(...picked); }
       };
       reply.addEventListener('input', () => { post.disabled = !reply.value.trim(); reply.rows = Math.min(6, Math.max(1, reply.value.split('\n').length)); });
       reply.addEventListener('keydown', (e) => {
