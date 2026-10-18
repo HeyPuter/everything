@@ -40,7 +40,7 @@ export function openSymbolDialog(ctx) {
   let chosen = recentSymbols()[0] || '©';
   const subset = el('select.select', { 'aria-label': 'Subset' }, ...SYMBOL_SUBSETS.map(([name], i) => el('option', { value: String(i) }, name)));
   const search = el('input.input', { type: 'search', placeholder: 'Search by name or code', 'aria-label': 'Search symbols', autocomplete: 'off' });
-  const grid = el('div.symbol-grid', { role: 'listbox', 'aria-label': 'Symbols' });
+  const grid = el('div.symbol-grid', { role: 'listbox', 'aria-label': 'Symbols', 'data-cols': 16 });
   const info = el('div.symbol-info', { 'aria-live': 'polite' });
   const recent = el('div.symbol-recent', { role: 'listbox', 'aria-label': 'Recently used symbols' });
   const cell = (ch) => el('button.symbol-cell', {
@@ -62,6 +62,13 @@ export function openSymbolDialog(ctx) {
   function select(ch) {
     chosen = ch;
     for (const b of content.querySelectorAll('.symbol-cell')) b.setAttribute('aria-selected', String(b.dataset.ch === ch));
+    // Each list is one Tab stop, on its chosen symbol (else its first), and the arrow keys walk it: every
+    // symbol was a Tab stop of its own, so reaching Insert from the search took a hundred presses.
+    for (const box of [grid, recent]) {
+      const cells = [...box.children];
+      const on = cells.find((b) => b.dataset.ch === ch) || cells[0];
+      for (const b of cells) b.tabIndex = b === on ? 0 : -1;
+    }
     info.textContent = `${NAMES[ch] ? `${NAMES[ch][0].toUpperCase()}${NAMES[ch].slice(1)} · ` : ''}${codeOf(ch)}`;
   }
   function insert() {
@@ -69,8 +76,30 @@ export function openSymbolDialog(ctx) {
     modal.close();
     ctx.run('insertSymbol', chosen);
   }
-  subset.addEventListener('change', () => { search.value = ''; show(); });
-  search.addEventListener('input', show);
+  subset.addEventListener('change', () => { search.value = ''; show(); select(chosen); });
+  search.addEventListener('input', () => { show(); select(chosen); });
+  // Arrows move by one symbol or by the row the stylesheet draws (fewer columns on a phone), Home and End go
+  // to the ends of the list, and Enter inserts the symbol, as a double-click does.
+  const walk = (e) => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const box = e.currentTarget;
+    const cells = [...box.children];
+    const at = cells.indexOf(document.activeElement);
+    if (at < 0) return;
+    if (e.key === 'Enter') { e.preventDefault(); select(cells[at].dataset.ch); insert(); return; }
+    const drawn = getComputedStyle(box).gridTemplateColumns;
+    const tracks = drawn && drawn !== 'none' && !drawn.includes('(') ? drawn.trim().split(/\s+/).length : 0;
+    const cols = tracks || Number(box.dataset.cols) || cells.length;
+    const to = { ArrowRight: at + 1, ArrowLeft: at - 1, ArrowDown: at + cols, ArrowUp: at - cols, Home: 0, End: cells.length - 1 }[e.key];
+    if (to == null) return;
+    e.preventDefault();
+    if (to < 0 || to >= cells.length) return;
+    select(cells[to].dataset.ch);
+    cells[to].focus();
+    cells[to].scrollIntoView?.({ block: 'nearest' });
+  };
+  grid.addEventListener('keydown', walk);
+  recent.addEventListener('keydown', walk);
   const content = el('form.symbol-dialog', { onsubmit: (e) => { e.preventDefault(); insert(); } },
     el('div.row', {}, el('label.field', {}, el('span.field-label', {}, 'Subset'), el('div.select-wrap', {}, subset)), el('label.field', {}, el('span.field-label', {}, 'Search'), search)),
     grid,

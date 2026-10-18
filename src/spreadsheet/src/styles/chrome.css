@@ -221,8 +221,10 @@
 .check-group.vertical { flex-direction: column; gap: 8px; border: 0; padding: 4px 0 0; margin: 0; }
 
 /* Insert ▸ Symbol */
-.symbol-grid { display: grid; grid-template-columns: repeat(16, 1fr); gap: 2px; max-height: 260px; overflow-y: auto; margin: 10px 0; padding: 2px; border: 1px solid var(--hairline-strong); border-radius: 6px; background: var(--surface); }
+.symbol-grid { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 2px; max-height: 260px; overflow-y: auto; margin: 10px 0; padding: 2px; border: 1px solid var(--hairline-strong); border-radius: 6px; background: var(--surface); }
 .symbol-recent { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 4px; }
+/* Sixteen 30px symbols to a row ran past a phone's edge, the last columns reached only by scrolling sideways. */
+@media (max-width: 639px) { .symbol-grid { grid-template-columns: repeat(auto-fill, minmax(30px, 1fr)); } }
 .symbol-cell { height: 30px; min-width: 30px; display: grid; place-items: center; font-size: 17px; border-radius: 4px; color: var(--ink); }
 .symbol-cell[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
 @media (hover: hover) { .symbol-cell:hover:not([aria-selected="true"]) { background: var(--surface-2); } }
