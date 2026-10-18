@@ -217,3 +217,41 @@ describe('reordering paragraphs that a bookmark or comment spans', () => {
     expect(d.text).toBe('apple\nbanana\ncherry');
   });
 });
+
+describe('Change Case and Sort with Track Changes on', () => {
+  const tracked = text => { const d = new TextDocument([paragraph(text)]); d.trackChanges = true; d.revisionAuthor = 'Me'; return d; };
+  const changes = d => {
+    const out = []; let at = 0;
+    for (const p of d.paragraphs) for (const r of p.runs) { if (r.revision) out.push([r.revision.type, r.text]); at += r.text.length; }
+    return out;
+  };
+  it('marks the old text deleted and the new text inserted, keeping each run\'s formatting', () => {
+    const d = new TextDocument([paragraph('hello world')]);
+    d.select(0, 5); d.toggleBold();
+    d.trackChanges = true; d.revisionAuthor = 'Me';
+    d.select(3, 8);
+    expect(changeCase(d, 'upper')).toBe(true);
+    expect(changes(d)).toEqual([['del', 'lo'], ['ins', 'LO'], ['del', ' wo'], ['ins', ' WO']]);
+    expect(d.paragraphs[0].runs.filter(r => r.revision?.type === 'ins').map(r => !!r.bold)).toEqual([true, false]);
+    expect(d.text).toBe('helloLO wo WOrld');
+    // The selection covers the changed text, deletions and insertions.
+    expect(d.range).toEqual([3, 13]);
+    d.undo();
+    expect(d.text).toBe('hello world');
+    expect(changes(d)).toEqual([]);
+  });
+  it('changes the word at the caret and leaves the caret after it', () => {
+    const d = tracked('one two');
+    d.select(5);
+    expect(changeCase(d, 'upper')).toBe(true);
+    expect(changes(d)).toEqual([['del', 'two'], ['ins', 'TWO']]);
+    expect(d.range).toEqual([10, 10]);
+  });
+  it('refuses Sort, which it could not show as a tracked change', () => {
+    const d = new TextDocument([paragraph('b'), paragraph('a')]);
+    d.trackChanges = true;
+    d.select(0, d.text.length);
+    expect(() => sortParagraphs(d)).toThrow(/Track Changes/);
+    expect(d.text).toBe('b\na');
+  });
+});

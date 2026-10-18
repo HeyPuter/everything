@@ -68,7 +68,7 @@ function sentenceStartsAt(text, position) {
  */
 export function changeCase(model, mode) {
   let [start, end] = model.range;
-  const text = model.text;
+  const text = model.text, caretOnly = start === end;
   if (start === end) {
     const word = wordAt(text, start);
     if (!word) return false;
@@ -84,7 +84,7 @@ export function changeCase(model, mode) {
       const a = Math.max(start, at), b = Math.min(end, at + run.text.length);
       if (a < b && !objectRun(run)) {
         const next = run.text.slice(0, a - at) + converted.slice(a - start, b - start) + run.text.slice(b - at);
-        if (next !== run.text) changes.push([p, index, next]);
+        if (next !== run.text) changes.push([p, index, next, a, b]);
       }
       at += run.text.length;
     });
@@ -92,6 +92,18 @@ export function changeCase(model, mode) {
   }
   if (!changes.length) return false;
   model.checkpoint();
+  if (model.trackChanges) {
+    // A tracked case change is the old text deleted and the new inserted, run by run with each run's own
+    // formatting; from the last, so the positions of those before it still hold.
+    let added = 0;
+    for (const [, , , a, b] of changes.reverse()) {
+      model.select(a, b);
+      model.replace(converted.slice(a - start, b - start), { checkpoint: false });
+      added += b - a;
+    }
+    model.select(caretOnly ? end + added : start, end + added);
+    return true;
+  }
   for (const [p, index, next] of changes) p.runs[index] = { ...p.runs[index], text: next };
   const { anchor, focus } = model.selection;
   model.didChange();
@@ -207,6 +219,8 @@ export function sortParagraphs(model, { type = 'text', descending = false, caseS
   if (!SORT_TYPES.includes(type)) throw new Error('Choose Text, Number or Date.');
   const targets = model.selectedParagraphs;
   if (targets.length < 2) throw new Error('Select two or more paragraphs to sort.');
+  // A reorder is not a change Track Changes can show here; done untracked, reviewers would never see it.
+  if (model.trackChanges) throw new Error('Sorting cannot be tracked. Turn off Track Changes to sort these paragraphs.');
   if (targets.some(p => p.cellId)) throw new Error('Sorting table rows is not supported yet. Select paragraphs outside a table.');
   if (targets.some(p => p.sectionEnd || p.blockControls?.length || p.frame || p.fieldMarkers?.length)) throw new Error('These paragraphs contain a section break, content control, frame or field and cannot be reordered.');
   const first = model.paragraphs.indexOf(targets[0]);
