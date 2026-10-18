@@ -40,6 +40,10 @@ const EDITOR_CHROME = '.ed-workspace, .ribbon-flyout';
 const HOVER_OPEN_MS = 90;
 const HOVER_CLOSE_MS = 220;
 
+/** An item is unavailable when disabled, or when it opens a written-out submenu none of whose commands can run. */
+const unavailable = (item) => !!item.disabled || (!!item.items?.length
+  && item.items.every((child) => !child || child.separator || child.header || child.note || unavailable(child)));
+
 let chain = []; // the open menus, the outermost first
 let noteSequence = 0;
 let reclosed = null; // { anchor, until }: a menu the pointer just closed by pressing its own anchor
@@ -155,7 +159,7 @@ export function openMenu({ anchor, items, x = null, y = null, align = 'start', l
   /** Open the submenu on `item`, or leave the one already showing alone. */
   function openChild(button, item, { focus }) {
     const at = depth();
-    if (at === -1 || item.disabled) return;
+    if (at === -1 || unavailable(item)) return;
     // Right or Enter on an item whose submenu the mouse already opened moves into it.
     if (chain[at + 1]?.anchor === button) { if (focus) focusIn(chain[at + 1].panel, 0); return; }
     closeFrom(at + 1, { focus: false });
@@ -194,11 +198,11 @@ export function openMenu({ anchor, items, x = null, y = null, align = 'start', l
       'aria-keyshortcuts': item.shortcut ? ariaKeyshortcuts(item.shortcut) : null,
       'aria-haspopup': opensChild ? item.popupRole || 'menu' : null,
       'aria-expanded': opensChild ? 'false' : null,
-      disabled: !!item.disabled,
+      disabled: unavailable(item),
       tabindex: -1,
       className: `menu-item${item.danger ? ' danger' : ''}${item.checked ? ' checked' : ''}`,
       onclick: () => {
-        if (item.disabled) return;
+        if (unavailable(item)) return;
         if (opensChild) { openChild(btn, item, { focus: true }); return; }
         closeFrom(0);
         item.onSelect?.();

@@ -292,6 +292,25 @@ describe('submenus and the keyboard', () => {
       expect(alpha.getAttribute('aria-expanded')).not.toBe('true');
     } finally { vi.useRealTimers(); }
   });
+  it('disables an item whose written-out submenu has no command that can run', () => {
+    vi.useFakeTimers();
+    try {
+      const items = [
+        { label: 'Delete', items: [{ label: 'Rows', disabled: true, onSelect() {} }, { separator: true }, { label: 'Nested', items: [{ label: 'Cells', disabled: true, onSelect() {} }] }] },
+        { label: 'Insert', items: [{ label: 'Table', onSelect() {} }, { label: 'Rows', disabled: true, onSelect() {} }] },
+      ];
+      const { menu } = openMenu({ anchor: anchorAt(100), items, label: 'Table' });
+      const [remove, insert] = menu.querySelectorAll('.menu-item');
+      expect(remove.disabled).toBe(true);
+      expect(insert.disabled).toBe(false);
+      remove.dispatchEvent(new Event('pointerenter'));
+      vi.advanceTimersByTime(500);
+      remove.click();
+      expect(document.querySelectorAll('.menu')).toHaveLength(1);
+      insert.click();
+      expect(document.querySelectorAll('.menu')).toHaveLength(2);
+    } finally { vi.useRealTimers(); }
+  });
 });
 
 describe('late openers', () => {
