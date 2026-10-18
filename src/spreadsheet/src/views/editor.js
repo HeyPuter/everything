@@ -3257,7 +3257,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         let dx = 4, id = null;
         wb.transaction(cmd === 'insertShape' ? 'Insert shape' : 'Insert icons', () => {
           for (const p of pictures.filter(Boolean)) {
-            id = wb.addChart(sheetId, { type: 'image', src: svgDataUrl(p.svg), title: p.label || 'Icon', anchor: { ...grid.active }, dx, dy: 4, w: p.w, h: p.h }) || id;
+            // A shape stretches to any proportions as it is resized, as Excel's do; an icon keeps its own.
+            id = wb.addChart(sheetId, { type: 'image', src: svgDataUrl(p.svg), title: p.label || 'Icon', anchor: { ...grid.active }, dx, dy: 4, w: p.w, h: p.h,
+              ...(cmd === 'insertShape' ? { lockAspect: false } : {}) }) || id;
             dx += p.w + 8;
           }
         });
