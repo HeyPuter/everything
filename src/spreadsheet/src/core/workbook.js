@@ -93,6 +93,7 @@ import { freeNameTokens } from './formula/names.js';
 import { matchesRule, scaleColor, scaleMidpoint, valueIdentity, bandColor, dataBar, iconFor, barColorOf, DEFAULT_BAR_COLOR } from './condformat.js';
 import { checkValue, listOptions, listOptionIndex, chipFor, isRangeSource, ruleFormulaBody } from './validation.js';
 import { normalizeChart, placeAlong, mapChartReferences, snapshotChartData, preserveCopiedChartFormats, OBJECT_NAME_MAX } from './charts.js';
+import { chartSeriesSources } from './chart-design.js';
 import { orderObjects, moveObjectTo, groupObjects, ungroupObjects, alignRects, distributeRects, boundsOf, withGroups, canRotate, rotatePatch } from './arrange.js';
 import { explainError } from './errhelp.js';
 import { impliedFormulaStyle } from './implied-format.js';
@@ -109,6 +110,8 @@ function objectNoun(obj) {
   return obj?.type === 'slicer' ? 'slicer' : obj?.type === 'scroll' ? 'scroll bar' : obj?.type === 'image' ? 'image' : obj?.type === 'smartart' ? 'SmartArt' : obj?.type === 'text' ? obj.equation ? 'equation' : 'text box' : 'chart';
 }
 
+// Charts whose series Select Data lists one by one (see chartSeriesSources): a range they read can be turned into references.
+const SERIES_CHART_TYPES = new Set(['column', 'bar', 'line', 'area', 'pie', 'donut', 'scatter', 'bubble', 'combo', 'radar']);
 export const DEFAULT_ROWS = 100;
 export const DEFAULT_COLS = 26;
 // A sheet is the full .xlsx grid, A1:XFD1048576. The grid shows only as much as has been reached and
@@ -4134,6 +4137,7 @@ export class Workbook extends EventTarget {
       return inDst(ref) ? null : ref;
     });
     this.transaction('Move cells', () => {
+      this._detachChartsFromMove(sheet, src, inside);
       this._moveNativePivots(sheetId, src, sheetId, dst);
       this._moveConditionalFormats(sheetId, sheetId, [{ source: src, target: dst }]);
       this._setStyleResets(sheet, moveStyleResets(sheet.styleResets, src, dst), 'Move cells');
@@ -4297,6 +4301,23 @@ export class Workbook extends EventTarget {
    * its anchor, whose values clearing the source cannot remove, so the
    * caller pastes a copy instead of moving.
    */
+  /**
+   * Charts that read a range of `sheet` straight from the cells, when a block moved out of it carries only part
+   * of that range (a column of values dragged away from its labels) or carries it to another sheet: each is
+   * given its series as references first, read while the cells are still in place, so every series follows its
+   * own cells as the move rewrites references, as Excel's do. A range the block leaves alone, or carries whole
+   * within the sheet (`whole`), needs none.
+   */
+  _detachChartsFromMove(sheet, src, whole) {
+    const touches = (g) => g && g.r1 <= src.r2 && g.r2 >= src.r1 && g.c1 <= src.c2 && g.c2 >= src.c1;
+    const next = sheet.charts.map((ch) => {
+      if (!SERIES_CHART_TYPES.has(ch.type) || ch.sourceRefs?.length || !touches(ch.range) || whole(ch.range)) return ch;
+      const sourceRefs = chartSeriesSources(this, sheet.id, ch);
+      return sourceRefs.length ? { ...ch, sourceRefs } : ch;
+    });
+    if (next.some((ch, i) => ch !== sheet.charts[i])) this._setCharts(sheet, next, 'Move cells');
+  }
+
   placeMoved(sheetId, r0, c0, cells, from) {
     const sheet = this.sheet(sheetId);
     const source = this.sheet(from?.sheetId);
@@ -4357,6 +4378,7 @@ export class Workbook extends EventTarget {
       return across && ref.sheet == null ? { ...ref, sheet: source.name } : ref;
     });
     this.transaction('Move cells', () => {
+      this._detachChartsFromMove(source, src, across ? () => false : inside);
       this._moveNativePivots(source.id, src, sheetId, dst);
       this._moveConditionalFormats(source.id, sheetId, [{ source: src, target: dst }]);
       this._rewriteFormulas((formula, owner, r, c, template) => {
