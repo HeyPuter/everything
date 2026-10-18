@@ -188,6 +188,10 @@ export function advancedFind(paragraphs, query, options = {}, context = {}) {
       if (!paragraphMatches(s.p, paragraphConditions, context)) return;
       if (!rangeHasFormat(s.p, Math.max(start, s.start) - s.start, Math.min(end, s.end) - s.start, runConditions)) return;
     }
+    // A paragraph mark between two cells, or between a cell and the body, is a table boundary: Word
+    // never matches across one, and replacing such a match edited the wrong cells.
+    const crossed = end === spans[last].end + 1 ? last + 1 : last;
+    for (let i = first; i < crossed; i++) if ((spans[i].p.cellId || null) !== (spans[i + 1]?.p.cellId || null)) return;
     // Never match half a grapheme or half a picture.
     const s = spans[first], e = spans[last];
     if (!startsAt(first).has(start)) return;
@@ -261,14 +265,16 @@ export function replaceAdvanced(model, matches, template, { wildcards = false, f
     model.cellBlock = null; model.selection = { anchor, focus };
     model.typingFormat = {}; model.typingStyle = null; model.typingDirectCleared = false;
   };
-  let first = null;
+  const selection = { ...model.selection };
+  let first = null, count = 0;
   try {
     for (let i = matches.length - 1; i >= 0; i--) {
       const m = matches[i], text = texts[i];
       let start = m.start, end = m.end;
       if (!formatOnly && text !== m.text) {
         select(m.start, m.end);
-        model.replace(text, { checkpoint: false });
+        // A replacement the document refuses changes nothing, and its formatting is not applied.
+        if (!model.replace(text, { checkpoint: false })) continue;
         end = model.selection.focus; start = end - text.length;
       }
       if (end > start) {
@@ -281,9 +287,11 @@ export function replaceAdvanced(model, matches, template, { wildcards = false, f
         if (paragraphStyle !== undefined) model.setParagraphStyle(paragraphStyle);
         if (Object.keys(paragraphFormatPatch).length) model.setParagraphFormat(paragraphFormatPatch);
       }
-      first = [start, end];
+      first = [start, end]; count++;
     }
   } finally { model.checkpoint = checkpoint; }
+  // Nothing changed (every match already deleted, say): no replacement and no undo step.
+  if (!count) { model.history.pop(); model.selection = selection; return 0; }
   model.select(first[1]);
   model.didChange();
   return matches.length;

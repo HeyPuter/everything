@@ -105,3 +105,22 @@ it('finds many matches in one long paragraph in linear time, still never splitti
   expect(texts(find(doc, 'ae'))).toEqual([]);
   expect(texts(find(doc, 'ae^?'))).toEqual(['aé']);
 });
+
+it('never matches across a table boundary, and adds no undo step when nothing is replaced', () => {
+  const doc = new TextDocument([paragraph('before')]);
+  doc.select(6); doc.insertTable(1, 2);
+  const t = doc.tables[0];
+  doc.selectCell(t.rows[0].cells[0].id); doc.replace('c1');
+  doc.selectCell(t.rows[0].cells[1].id); doc.replace('c2');
+  const cells = () => doc.paragraphs.map(p => [p.cellId ? 'cell' : 'body', p.runs.map(r => r.text).join('')]);
+  const before = cells();
+  // The marks at the end of a cell and between the body and the table are not paragraph marks to search.
+  expect(texts(find(doc, '1^pc'))).toEqual([]);
+  expect(find(doc, '^p').every(m => doc.paragraphs[m.paragraph].cellId === null)).toBe(true);
+  expect(replaceAdvanced(doc, find(doc, '1^pc'), 'X')).toBe(0);
+  const history = doc.history.length;
+  expect(replaceAdvanced(doc, find(doc, 'c^p'), '')).toBe(0);
+  expect(doc.history.length).toBe(history);
+  expect(cells()).toEqual(before);
+});
+
