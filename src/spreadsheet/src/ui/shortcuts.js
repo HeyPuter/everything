@@ -7,7 +7,7 @@ const FMT_KEY = IS_MAC ? '⌃' : MOD_KEY;
 
 const GROUPS = [
   ['Navigate', [
-    ['F6 / Shift + F6', 'Next / previous area: menus, toolbar, formula bar, grid, sheets, status'],
+    ['F6 / Shift + F6', 'Next / previous area: menus, toolbar, formula bar, grid, find bar and open panes, sheets, status, assistant'],
     ['Alt or F10', 'Show key tips on the ribbon: type a tab’s letter, then a command’s (Escape steps back)'],
     [`${MOD_KEY} + F1`, 'Show or hide the ribbon’s commands'],
     [`${MOD_KEY} + Shift + U`, 'Expand or collapse the formula bar'],

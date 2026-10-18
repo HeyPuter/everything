@@ -6385,14 +6385,19 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         }
         return true;
       };
-      const regions = [menubar.el, toolbar.el, formulaBar.el, grid.el, sheetTabs.el, statusBar.el, automate?.paneOpen && automate.pane, aiPanel && (aiPanel.isOpen ? aiPanel.el : aiPanel.rail)].filter(Boolean).filter(visible);
+      // The find bar and any task pane open over the grid's right edge, the Watch Window, and the columns beside the
+      // sheet (Format pane, Comments, Code Editor, assistant) are areas too: a pane left by a click on the sheet
+      // could not be reached again from the keyboard.
+      const regions = [menubar.el, toolbar.el, formulaBar.el, grid.el, findBar.el, accessibilityPane.el, languagePane.el, changesPane.el, selectionPane.el, queriesPane.el, smartArtPane.el,
+        sheetTabs.el, statusBar.el, watchWindow.el, chartUi.pane, comments.el, automate?.paneOpen && automate.pane, aiPanel && (aiPanel.isOpen ? aiPanel.el : aiPanel.rail)].filter(Boolean).filter(visible);
       const at = regions.findIndex((region) => region.contains(e.target));
       if (grid.editing && !grid.commitEdit()) return;
       for (let step = 1; step <= regions.length; step++) {
         const region = regions[(at + (e.shiftKey ? -step : step) + regions.length) % regions.length];
-        // The assistant is entered at its message box, not at the resize handle that comes first in it.
-        const target = region === grid.el ? grid.viewport : region === sheetTabs.el ? sheetTabs.el.querySelector('[role="tab"][aria-selected="true"]') : region === aiPanel?.el ? aiPanel.el.querySelector('.ai-input') : region === aiPanel?.rail ? aiPanel.rail : [...region.querySelectorAll('button, input, textarea, [tabindex]')]
-          .find((node) => node.tabIndex >= 0 && !node.matches(':disabled') && visible(node));
+        // The assistant is entered at its message box and the find bar at its search field; a pane at its first
+        // control, not at the resize handle that comes first in it.
+        const target = region === grid.el ? grid.viewport : region === sheetTabs.el ? sheetTabs.el.querySelector('[role="tab"][aria-selected="true"]') : region === aiPanel?.el ? aiPanel.el.querySelector('.ai-input') : region === findBar.el ? findBar.el.querySelector('.find-input') : region === aiPanel?.rail ? aiPanel.rail : [...region.querySelectorAll('button, input, select, textarea, [tabindex]')]
+          .find((node) => node.tabIndex >= 0 && !node.matches(':disabled, [role="separator"]') && visible(node));
         if (target) { target.focus({ preventScroll: true }); break; }
       }
       return;
