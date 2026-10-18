@@ -6811,13 +6811,32 @@ export class Workbook extends EventTarget {
       const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
       const shiftedHidden = new Set([...hidden].map(map));
       if (axis === 'row') sheet.hiddenRows = shiftedHidden; else sheet.hiddenCols = shiftedHidden;
+      // A chart, filter, protected range, print area or outline group the block partly overlaps is treated like a
+      // reference: it loses the lines that leave it and gains those that land inside it, rather than spreading
+      // over every line between where the block was and where it went.
+      const moveRect = (m) => {
+        if (!straddles(m)) return mapRange(m);
+        const cut = adjustRefForDelete(m, axis, from, count);
+        return (cut && adjustRefForInsert(cut, axis, landing, count)) || mapRange(m);
+      };
       // No merge is cut by the move (refused above): each follows its lines.
       sheet.merges = sheet.merges.map(mapRange);
-      mapPrintAreas(sheet, mapRange, axis);
+      mapPrintAreas(sheet, moveRect, axis);
+      // A group a line is taken out of shrinks, and one lines land inside grows, as when they are deleted and
+      // inserted; the rest of the outline stays. (Two nested groups made the same by the move are one.)
       const groupKey = axis === 'row' ? 'rows' : 'cols';
+      const lineLo = axis === 'row' ? 'r1' : 'c1', lineHi = axis === 'row' ? 'r2' : 'c2';
+      const keptGroups = new Set();
       sheet.groups[groupKey] = sheet.groups[groupKey]
-        .map((g) => { const span = mapSpan(g.from, g.to); return span.contiguous ? { ...g, from: span.lo, to: span.hi } : null; })
-        .filter(Boolean);
+        .map((g) => {
+          const span = mapSpan(g.from, g.to);
+          if (span.contiguous) return { ...g, from: span.lo, to: span.hi };
+          const cut = adjustRefForDelete({ r1: g.from, r2: g.to, c1: g.from, c2: g.to }, axis, from, count);
+          const moved = cut && adjustRefForInsert(cut, axis, landing, count);
+          return moved ? { ...g, from: moved[lineLo], to: moved[lineHi] } : null;
+        })
+        .filter((g) => g && g.to >= g.from && !keptGroups.has(`${g.from}:${g.to}`) && keptGroups.add(`${g.from}:${g.to}`))
+        .sort((a, b) => a.from - b.from || b.to - a.to); // in sheet order, as a file and grouping keep them
       const renumber = (formula, ownerSheet, relativeName = false) => mapFormulaRefs(formula, (ref) => {
         const target = ref.sheet ?? ownerSheet;
         if (!sameSheetName(target, sheet.name)) return ref;
@@ -6833,13 +6852,6 @@ export class Workbook extends EventTarget {
         // A relative defined name's offsets are not addresses: only its absolute coordinates follow the lines.
         return relativeName ? mapRelativeNameRef(ref, axis, edit) : edit(ref);
       });
-      // A chart, filter, or protected range the block partly overlaps is treated like such a
-      // reference: it loses the lines that leave it and gains those that land inside it.
-      const moveRect = (m) => {
-        if (!straddles(m)) return mapRange(m);
-        const cut = adjustRefForDelete(m, axis, from, count);
-        return (cut && adjustRefForInsert(cut, axis, landing, count)) || mapRange(m);
-      };
       // A rule the block partly overlaps is split where lines leave it and where they land, so each
       // piece keeps covering its own cells; a piece's formula follows those cells as cell formulas do.
       const lo = axis === 'row' ? 'r1' : 'c1';

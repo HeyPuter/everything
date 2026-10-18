@@ -1396,8 +1396,8 @@ describe('row and column groups', () => {
     expect(b.wb.outlineGroups(b.id, 'row')[0]).toMatchObject({ from: 4, to: 6 });
     b.wb.moveRows(b.id, 4, 3, 12); // move the whole group down
     expect(b.wb.outlineGroups(b.id, 'row')[0]).toMatchObject({ from: 9, to: 11 });
-    b.wb.moveRows(b.id, 10, 1, 0); // tear a line out of the group: the group is gone
-    expect(b.wb.outlineGroups(b.id, 'row')).toEqual([]);
+    b.wb.moveRows(b.id, 10, 1, 0); // tear a line out of the group: the group loses it, and moves down a line
+    expect(b.wb.outlineGroups(b.id, 'row')).toEqual([{ from: 10, to: 11, collapsed: false, level: 1 }]);
     b.wb.groupLines(b.id, 'col', 2, 4);
     b.wb.toggleGroup(b.id, 'col', 2, 4);
     const copy = new Workbook(b.wb.toJSON());
