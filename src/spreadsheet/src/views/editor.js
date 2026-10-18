@@ -4608,6 +4608,15 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       return;
     }
     const internal = isInternal(text, html);
+    // Whole columns, rows or the whole sheet take a copied block tiled as far as the sheet reaches, not to the
+    // grid's last row and column: one cell tiled over every cell of a selected sheet (17 billion) froze the tab.
+    const whole = grid.range;
+    if (whole.r2 >= MAX_ROW || whole.c2 >= MAX_COL) {
+      const extent = wb.sheet(grid.sheetId), used = wb.usedRange(grid.sheetId);
+      const reach = (lo, hi, max, size, usedEnd) => (hi >= max ? Math.max(lo, size - 1, usedEnd ?? lo) : hi);
+      const clipped = { ...whole, r2: reach(whole.r1, whole.r2, MAX_ROW, extent.rows, used?.r2), c2: reach(whole.c1, whole.c2, MAX_COL, extent.cols, used?.c2) };
+      grid.setSelection(S.fromRange(clipped, { ...grid.active }), { scroll: false });
+    }
     const label = internal && clip.cut && mode === 'all' ? 'Move cells' : pasteLabel(special);
     // The pasted block and any table expansion it triggers are one action.
     const sheetId = grid.sheetId;
