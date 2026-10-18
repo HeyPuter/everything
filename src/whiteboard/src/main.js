@@ -7894,8 +7894,8 @@ function revealQuickObject(i, { minimal = false } = {}) {
       : (top + bottom - h) / 2 - y;
   draw();
 }
-// A new line from an object whose loose end was let go inside that same
-// object connects nothing, and would only leave a stub on top of it.
+// Whether a new line from an object had its loose end let go inside that
+// same object, where it would connect nothing.
 function endsInsideStart(line) {
   const source =
     line.startId &&
@@ -7934,6 +7934,7 @@ function startQuickConnection(id, event) {
   selection = new Set([line.id]);
   drag = {
     kind: "arrow",
+    quick: true,
     id: line.id,
     start: canvasPoint(event),
     original,
@@ -9272,6 +9273,27 @@ function pointerUp(event) {
   }
   const createdLine =
     drag.kind === "arrow" && current.items.find((i) => i.id === drag.id);
+  // A line drawn with the Arrow tool from inside an object to elsewhere in
+  // it, as over a picture or a background shape, is kept as drawn, free of
+  // the object; one from a quick-connect handle connects nothing there.
+  if (
+    createdLine &&
+    drag.changed &&
+    !drag.quick &&
+    endsInsideStart(createdLine)
+  ) {
+    const end = {
+      x: createdLine.x + createdLine.w,
+      y: createdLine.y + createdLine.h,
+    };
+    delete createdLine.startId;
+    Object.assign(createdLine, {
+      x: drag.start.x,
+      y: drag.start.y,
+      w: end.x - drag.start.x,
+      h: end.y - drag.start.y,
+    });
+  }
   if (
     drag.kind === "arrow" &&
     (!createdLine ||

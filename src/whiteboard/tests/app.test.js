@@ -48155,28 +48155,36 @@ test("menu Paste after this tab's menu Copy works when reading the clipboard is 
   }
 });
 
-test("an arrow drawn from an object and let go inside it is not added", async () => {
+test("an arrow drawn from an object and let go inside it is kept as drawn, free of the object", async () => {
   const app = await setup();
   try {
     const { selected, pointer } = await rotationFixture(app, [
-      item("rect", 0, 0, { w: 200, h: 120 }),
+      item("rect", 0, 0, { w: 600, h: 400 }),
     ]);
     const [shape] = selected;
-    const arrows = () =>
-      allClipboard(app).filter((i) => i.type === "arrow").length;
+    const arrows = () => allClipboard(app).filter((i) => i.type === "arrow");
     await app.click('[data-action="tool-arrow"]');
-    const from = { x: shape.x + 100, y: shape.y + 60 };
+    const from = { x: shape.x + 100, y: shape.y + 100 },
+      to = { x: shape.x + 450, y: shape.y + 300 };
     pointer("pointerdown", from);
-    pointer("pointermove", { x: from.x + 40, y: from.y + 10 });
-    pointer("pointerup", { x: from.x + 40, y: from.y + 10 });
+    pointer("pointermove", to);
+    pointer("pointerup", to);
     await app.tick();
-    assert.equal(arrows(), 0, "A stub inside the shape is not kept");
+    const [line] = arrows();
+    assert.ok(line, "The arrow drawn over the shape is kept");
+    assert.equal(line.startId, undefined);
+    assert.deepEqual(
+      [line.x, line.y, line.x + line.w, line.y + line.h].map(Math.round),
+      [from.x, from.y, to.x, to.y].map(Math.round),
+    );
+    // One leaving the shape still starts from it.
     await app.click('[data-action="tool-arrow"]');
     pointer("pointerdown", from);
-    pointer("pointermove", { x: from.x + 300, y: from.y });
-    pointer("pointerup", { x: from.x + 300, y: from.y });
+    pointer("pointermove", { x: from.x + 900, y: from.y });
+    pointer("pointerup", { x: from.x + 900, y: from.y });
     await app.tick();
-    assert.equal(arrows(), 1, "A line leaving the shape is kept");
+    assert.equal(arrows().length, 2);
+    assert.equal(arrows().filter((i) => i.startId === shape.id).length, 1);
   } finally {
     await app.close();
   }
