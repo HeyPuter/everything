@@ -2,7 +2,7 @@ import { beforeAll, afterAll, it, expect, describe, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { DocxPackage, createDocx } from '../src/engine/docx.js';
-import { TextDocument, paragraph } from '../src/engine/model.js';
+import { TextDocument, paragraph, boundaries } from '../src/engine/model.js';
 import { revisionRanges, revisionDisplay } from '../src/engine/revisions.js';
 import { pasteFragment } from '../src/engine/clipboard-fragment.js';
 
@@ -224,5 +224,35 @@ describe('tracked change edge cases', () => {
     expect(pkg.trackRevisions).toBe(false);
     model.trackChanges = true;
     expect((await open(await save(pkg, model))).pkg.trackRevisions).toBe(true);
+  });
+});
+
+describe('a tracked edit that joins two characters into one', () => {
+  it('leaves the caret after the whole character, so Delete removes only the next one', () => {
+    const doc = new TextDocument([paragraph('Intro paragraph.'), paragraph('Second \u{1F1F8}tail')]);
+    doc.trackChanges = true; doc.revisionAuthor = 'Me';
+    const at = doc.text.indexOf('\u{1F1F8}');
+    doc.select(at); doc.replace('\u{1F1FA}'); // completes the flag 🇺🇸
+    expect(doc.selection.focus).toBe(at + 4);
+    expect(boundaries(doc.text)).toContain(doc.selection.focus);
+    doc.delete(1);
+    expect(revisionRanges(doc.paragraphs).filter(r => r.type === 'del').map(r => doc.text.slice(r.start, r.end))).toEqual(['t']);
+  });
+  it('after Accept joins two halves, Delete does not reach back to the document start', () => {
+    const doc = new TextDocument([paragraph('First paragraph.'), paragraph('Flag \u{1F1FA}X\u{1F1F8} end')]);
+    doc.trackChanges = true; doc.revisionAuthor = 'Reviewer';
+    const x = doc.text.indexOf('X'); doc.select(x, x + 1); doc.replace('');
+    doc.trackChanges = false; doc.select(x);
+    doc.resolveRevisions(true, x, x + 1);
+    expect(boundaries(doc.text)).toContain(doc.selection.focus);
+    doc.delete(1);
+    expect(doc.text).toBe('First paragraph.\nFlag \u{1F1FA}\u{1F1F8}end');
+  });
+  it('a caret left inside a character moves after it before Delete', () => {
+    const doc = new TextDocument([paragraph('Keep this.'), paragraph('a\u{1F1FA}\u{1F1F8}b')]);
+    const at = doc.text.indexOf('\u{1F1FA}') + 2;
+    doc.selection = { anchor: at, focus: at };
+    doc.delete(-1);
+    expect(doc.text).toBe('Keep this.\nab');
   });
 });

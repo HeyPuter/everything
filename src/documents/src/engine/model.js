@@ -1942,6 +1942,9 @@ export class TextDocument {
       this.selection = { anchor: caret, focus: caret };
       return false;
     }
+    // Inserted text can join the character after it (a regional indicator completing a flag): the caret
+    // goes after the whole character, as an untracked insertion leaves it, never inside it.
+    caret = nextBoundary(this.paragraphs, caret);
     this.selection = { anchor: caret, focus: caret };
     this.didChange();
     return true;
@@ -2038,7 +2041,9 @@ export class TextDocument {
       }
     } finally { this.trackingInternal = false; }
     for (const p of this.paragraphs) p.runs = normalize(p.runs);
-    this.selection = { anchor: Math.min(caret, this.text.length), focus: Math.min(caret, this.text.length) };
+    // Removing a change can join the characters on either side of the caret into one.
+    const at = nextBoundary(this.paragraphs, Math.min(caret, this.text.length));
+    this.selection = { anchor: at, focus: at };
     this.didChange(); return true;
   }
   replaceUntracked(text, { checkpoint = true, insertedImage, removedPictureControls, removedBodyFields, restoreEmptyControl = false, emptyInlineControl = false } = {}) {
@@ -2281,6 +2286,13 @@ export class TextDocument {
     }
     const points = boundaries(this.text);
     const at = points.indexOf(start);
+    if (at < 0) {
+      // A caret inside a character (left there by an edit that joined two) moves after it first;
+      // read as no position at all, it made Delete reach back to the document's start.
+      const after = points.find(point => point > start) ?? points.at(-1);
+      this.selection = { anchor: after, focus: after };
+      return this.delete(direction);
+    }
     const target = points[at + direction];
     if (target === undefined) return false;
     const other = this.paragraphs[locate(this.paragraphs, target).index];
