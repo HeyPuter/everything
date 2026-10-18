@@ -5902,6 +5902,11 @@ dialog.history-dialog[open] {
 .workshop-timer button {
   min-height: 40px;
 }
+/* Minutes and seconds share a row; at the panel's width the usual 160px
+   per field put them on two rows, far apart. */
+.workshop-timer .field-row > * {
+  flex-basis: 0;
+}
 .timer-presets,
 .timer-extensions {
   margin: 8px 0;

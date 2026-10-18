@@ -477,3 +477,10 @@ test("on a short screen the template, shape and icon lists scroll with their dia
   assert.match(body, /max-height:\s*none/);
   assert.match(body, /overflow:\s*visible/);
 });
+
+test("the timer's minutes and seconds fields share a row", () => {
+  // The panel leaves 248px for them, under the 336px two 160px fields and
+  // their gap need, so Seconds wrapped 46px below Minutes.
+  assert.match(rule(".workshop-timer.panel {"), /width:\s*280px/);
+  assert.match(rule(".workshop-timer .field-row > * {"), /flex-basis:\s*0/);
+});
