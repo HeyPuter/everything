@@ -359,6 +359,28 @@ test('index entries, the index and a table of authorities', async ({ page }, inf
   expect(xml).toMatch(/ TOA \\h \\c "1" \\p <\/w:instrText>/);
 });
 
+test('a table of authorities for all categories lists them in category order', async ({ page }) => {
+  await openEditor(page);
+  await page.keyboard.type('Smith v. Jones decided it under the Clean Air Act.');
+  await expect.poll(() => engineText(page)).toBe('Smith v. Jones decided it under the Clean Air Act.');
+  for (const [text, category] of [['Clean Air Act', 'Statutes'], ['Smith v. Jones', 'Cases']]) {
+    await page.evaluate(t => { const m = window.__docs.current.view.engine.model, at = m.text.indexOf(t); m.select(at, at + t.length); }, text);
+    await onTab(page, 'references');
+    await openGroup(page, 'authorities');
+    await page.getByRole('button', { name: 'Mark Citation', exact: true }).click();
+    const cite = page.getByRole('dialog', { name: 'Mark Citation' });
+    await cite.getByLabel('Category').selectOption({ label: category });
+    await cite.getByRole('button', { name: 'Mark', exact: true }).click();
+    await expect(cite.getByText('1 citation marked.')).toBeVisible();
+    await cite.getByRole('button', { name: 'Close Mark Citation' }).click();
+  }
+  await input(page).press('ControlOrMeta+End'); await page.keyboard.press('Enter');
+  await openGroup(page, 'authorities');
+  await page.getByRole('button', { name: 'Insert Table of Authorities', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Table of Authorities' }).getByRole('button', { name: 'Insert', exact: true }).click();
+  await expect.poll(() => engineText(page)).toMatch(/\nCases\nSmith v\. Jones\t1\nStatutes\nClean Air Act\t1\n?$/);
+});
+
 test('Smart Lookup explains the selection, and the menus offer References commands', async ({ page }) => {
   await openEditor(page);
   await page.keyboard.type('The aphelion of an orbit is far.');

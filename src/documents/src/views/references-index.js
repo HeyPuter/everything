@@ -201,7 +201,11 @@ export function createIndexCommands(ctx) {
         }
         return true;
       }
-      for (const c of categories) m.writeTableOfAuthorities(doc, { options: { ...base, category: c }, pageOf: pages, leader: leader.value });
+      categories.forEach((c, i) => {
+        const span = m.writeTableOfAuthorities(doc, { options: { ...base, category: c }, pageOf: pages, leader: leader.value });
+        // The next category's table follows this one (writing leaves the caret at a table's start).
+        if (i < categories.length - 1) doc.select(span.paragraphEnd + 1);
+      });
       return true;
     }, (doc, m) => m.tableFields(doc.paragraphs).map(r => resultText(doc, r)).join('\n')), { modules: ['authorities'], refresh: false }) });
   }
