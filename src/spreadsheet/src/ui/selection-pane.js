@@ -11,6 +11,8 @@ import { objectNames } from '../core/arrange.js';
 export function createSelectionPane(ctx) {
   const { wb } = ctx;
   let lastKey = null, renaming = null, dragId = null;
+  // The row the arrow keys move from: the one last picked, from the keyboard or with a click.
+  let cursor = null;
   const list = el('div.selpane-list', { role: 'listbox', 'aria-label': 'Objects on this sheet', 'aria-multiselectable': 'true', tabindex: 0 });
   const empty = el('p.selpane-empty', {}, 'There are no charts, pictures, shapes or text boxes on this sheet.');
   const close = el('button.icon-btn', { type: 'button', 'aria-label': 'Close Selection Pane', html: icon('x', 16), onclick: () => api.hide() });
@@ -43,7 +45,7 @@ export function createSelectionPane(ctx) {
       : el('span.selpane-name', {}, name);
     const node = el(`div.selpane-row${member ? '.member' : ''}${groupId ? '.group' : ''}${hidden ? '.is-hidden' : ''}`, {
       role: 'option', id: `selpane-${id}`, 'aria-selected': String(picked), dataset: { id, ids: ids.join(' ') }, draggable: renaming !== id,
-      onclick: (e) => pick(ids, e.shiftKey || e.metaKey || e.ctrlKey),
+      onclick: (e) => { cursor = id; pick(ids, e.shiftKey || e.metaKey || e.ctrlKey); },
       ondblclick: () => { if (!groupId) startRename(id); },
       ondragstart: (e) => { dragId = ids[0]; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', name); } catch { /* old engines */ } },
       ondragend: () => { dragId = null; list.querySelector('.drop-before, .drop-after')?.classList.remove('drop-before', 'drop-after'); },
@@ -76,7 +78,8 @@ export function createSelectionPane(ctx) {
     const sel = ctx.grid.selectedCharts || [];
     showAll.disabled = hideAll.disabled = !objects.length;
     forward.disabled = backward.disabled = !sel.length;
-    const active = list.querySelector(`[data-id="${CSS.escape(sel[0] || '')}"]`);
+    const at = (key) => list.querySelector(`[data-id="${CSS.escape(key || '')}"][aria-selected="true"]`);
+    const active = at(cursor) || at(sel[0]);
     if (active) list.setAttribute('aria-activedescendant', active.id); else list.removeAttribute('aria-activedescendant');
     if (renaming) { const input = list.querySelector('.selpane-rename'); input?.focus(); input?.select(); }
   }
@@ -135,14 +138,20 @@ export function createSelectionPane(ctx) {
 
   list.addEventListener('keydown', (e) => {
     if (e.target !== list) return;
-    const rows = [...list.querySelectorAll('.selpane-row')];
-    const at = rows.findIndex((r) => r.getAttribute('aria-selected') === 'true');
+    // A group's members are picked with the group, so the arrows step over them from one group or object to
+    // the next, from the row last picked; Shift adds the next one to those selected.
+    const rows = [...list.querySelectorAll('.selpane-row:not(.member)')];
+    const isPicked = (r) => r.getAttribute('aria-selected') === 'true';
+    let at = rows.findIndex((r) => r.dataset.id === cursor && isPicked(r));
+    if (at < 0) at = rows.findIndex(isPicked);
     const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
     if (step && rows.length) {
       e.preventDefault();
       const next = rows[Math.max(0, Math.min(rows.length - 1, at < 0 ? 0 : at + step))];
-      pick(next.dataset.ids.split(' '), e.shiftKey);
-      next.scrollIntoView?.({ block: 'nearest' });
+      cursor = next.dataset.id;
+      if (!e.shiftKey || !isPicked(next)) pick(next.dataset.ids.split(' '), e.shiftKey);
+      else render(true);
+      list.querySelector(`[data-id="${CSS.escape(cursor)}"]`)?.scrollIntoView?.({ block: 'nearest' });
     } else if ((e.key === ' ' || e.key === 'Enter') && at >= 0) {
       e.preventDefault();
       rows[at].querySelector('.selpane-eye')?.click();
