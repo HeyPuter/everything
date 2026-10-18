@@ -3655,6 +3655,19 @@ test("long runs of # in a Markdown heading parse in linear time", () => {
   );
 });
 
+test("a # line indented four spaces or a tab in Markdown is code, not a heading", () => {
+  const blocks = (text) =>
+    parseText(text, { markdown: true }).blocks.map((b) => [b.type, b.text]);
+  assert.deepEqual(blocks("Setup:\n\n    # install deps\n    npm ci"), [
+    ["paragraph", "Setup:"],
+    ["paragraph", "# install deps"],
+    ["paragraph", "npm ci"],
+  ]);
+  assert.deepEqual(blocks("\t# comment"), [["paragraph", "# comment"]]);
+  // Up to three spaces still start a heading.
+  assert.deepEqual(blocks("   ## Goals"), [["heading", "Goals"]]);
+});
+
 // A one-sheet workbook with the given cells: [value, numFmtId] pairs, and
 // custom number formats as [id, code] pairs.
 function cellsWorkbook(cells, formats = []) {

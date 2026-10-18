@@ -356,7 +356,9 @@ export function parseText(text, { markdown = false } = {}) {
       continue;
     }
     let m;
-    if ((m = /^(#{1,6})\s+(.*)$/.exec(line))) {
+    // Indented four spaces or a tab, a # line is code, such as a shell
+    // comment, not a heading.
+    if (/^ {0,3}#/.test(raw) && (m = /^(#{1,6})\s+(.*)$/.exec(line))) {
       flush();
       // An optional closing run of # after a space ends the heading.
       // Trimmed with a loop: /#+$/ backtracks quadratically on long runs.
