@@ -123,11 +123,17 @@ export function openInsertFunctionDialog(ctx, { onPick } = {}) {
     modal.close();
     onPick?.(name);
   };
-  go.addEventListener('click', () => { query = search.value.trim(); selected = 0; render(); });
+  const runSearch = () => { query = search.value.trim(); selected = 0; render(); };
+  go.addEventListener('click', runSearch);
+  // The list follows the search as it is typed: it kept the functions listed before, so Down and Enter
+  // after typing "vlookup" inserted whatever function headed the old list.
+  const follow = (e) => { if (!e.isComposing && search.value.trim() !== query) runSearch(); };
+  search.addEventListener('input', follow);
+  search.addEventListener('compositionend', follow);
   search.addEventListener('keydown', e => {
     if (isComposing(e)) return;
-    if (e.key === 'Enter') { e.preventDefault(); query = search.value.trim(); selected = 0; render(); }
-    if (e.key === 'ArrowDown') { e.preventDefault(); list.focus(); }
+    if (e.key === 'Enter') { e.preventDefault(); runSearch(); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (search.value.trim() !== query) runSearch(); list.focus(); }
   });
   category.addEventListener('change', () => { query = ''; search.value = ''; selected = 0; render(); });
   list.addEventListener('keydown', e => {
