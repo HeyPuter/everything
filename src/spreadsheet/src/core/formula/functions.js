@@ -3219,7 +3219,7 @@ export const FUNCTIONS = {
   },
   SEQUENCE: {
     fn: ([rows, cols, start, step]) => {
-      const r = toNumber(rows); if (isError(r)) return r;
+      const r = rows === undefined ? 1 : toNumber(rows); if (isError(r)) return r; // SEQUENCE(,3) is one row
       const c = cols === undefined ? 1 : toNumber(cols); if (isError(c)) return c;
       const s = start === undefined ? 1 : toNumber(start); if (isError(s)) return s;
       const d = step === undefined ? 1 : toNumber(step); if (isError(d)) return d;
