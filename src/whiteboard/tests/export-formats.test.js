@@ -2218,6 +2218,49 @@ test("image PDF pages hold no more pixels than print needs", async () => {
   }
 });
 
+test("an image PDF page holds its picture's pixels, see-through ones laid on white", async () => {
+  const b = board("Picture");
+  b.items = [item("note", 0, 0, { text: "Hello" })];
+  // Red on the left, see-through on the right, half see-through below.
+  const picture = async (board, rect, options) => {
+    if (options.transparent) return createCanvas(1, 1);
+    const canvas = createCanvas(2, 2),
+      ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ff0000";
+    ctx.fillRect(0, 0, 1, 1);
+    ctx.fillStyle = "rgba(0, 0, 255, 0.5)";
+    ctx.fillRect(0, 1, 2, 1);
+    return canvas;
+  };
+  const blob = await exportPDF(b, exportRegions(b), "en", picture, {
+    pageSize: "a4",
+  });
+  const pdf = await PDFDocument.load(await blobBytes(blob));
+  const images = [];
+  for (const [, object] of pdf.context.enumerateIndirectObjects())
+    if (
+      object instanceof PDFRawStream &&
+      object.dict.get(PDFName.of("Subtype"))?.toString() === "/Image" &&
+      object.dict.get(PDFName.of("Width"))?.toString() === "2"
+    )
+      images.push(object);
+  assert.equal(images.length, 1);
+  const [image] = images;
+  assert.equal(
+    image.dict.get(PDFName.of("ColorSpace")).toString(),
+    "/DeviceRGB",
+  );
+  assert.equal(image.dict.get(PDFName.of("SMask")), undefined);
+  const pixels = [...inflateSync(image.contents)];
+  assert.deepEqual(pixels.slice(0, 6), [255, 0, 0, 255, 255, 255]);
+  // Half see-through blue on white.
+  for (const n of [6, 9]) {
+    assert.ok(Math.abs(pixels[n] - 128) <= 2, `${pixels.slice(6)}`);
+    assert.ok(Math.abs(pixels[n + 1] - 128) <= 2);
+    assert.equal(pixels[n + 2], 255);
+  }
+});
+
 test("UML, BPMN and ERD connector ends validate and export as drawn", () => {
   const b = board("Ends");
   b.items = [

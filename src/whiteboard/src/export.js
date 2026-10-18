@@ -537,6 +537,57 @@ export function pageItems(region, rect, cache) {
 // exactly. Vector mode draws text and shapes as PDF content so they stay
 // sharp and selectable, using standard PDF fonts. Large regions are tiled at
 // a constant scale; an overview page shows the page grid.
+// A page's picture goes into the PDF as its pixels, compressed by the
+// browser off the page's thread: a PNG made of it would be encoded, then
+// decoded, split and compressed again in script, which took most of half a
+// second a page and held up the page for a minute on a large board. A page
+// is opaque, so any see-through pixel is laid on white, as the page is.
+// It resolves with what draws it on a page.
+async function pagePicture(pdf, canvas, operators) {
+  if (typeof CompressionStream !== "function") {
+    const png = await pdf.embedPng(canvas.toDataURL("image/png"));
+    // Compressed now, between pages, rather than all at once when the file
+    // is written, which would hold up the page for seconds.
+    await png.embed();
+    return (page, box) => page.drawImage(png, box);
+  }
+  const { width, height } = canvas,
+    rgba = canvas.getContext("2d").getImageData(0, 0, width, height).data,
+    pixels = new Uint8Array(width * height * 3);
+  for (let p = 0, q = 0; p < rgba.length; p += 4, q += 3) {
+    const a = rgba[p + 3];
+    if (a === 255) {
+      pixels[q] = rgba[p];
+      pixels[q + 1] = rgba[p + 1];
+      pixels[q + 2] = rgba[p + 2];
+    } else
+      for (let c = 0; c < 3; c++)
+        pixels[q + c] = Math.round((rgba[p + c] * a + 255 * (255 - a)) / 255);
+  }
+  const bytes = new Uint8Array(
+    await new Response(
+      new Blob([pixels]).stream().pipeThrough(new CompressionStream("deflate")),
+    ).arrayBuffer(),
+  );
+  const ref = pdf.context.register(
+    pdf.context.stream(bytes, {
+      Type: "XObject",
+      Subtype: "Image",
+      Width: width,
+      Height: height,
+      ColorSpace: "DeviceRGB",
+      BitsPerComponent: 8,
+      Filter: "FlateDecode",
+    }),
+  );
+  return (page, { x, y, width, height }) =>
+    page.pushOperators(
+      operators.pushGraphicsState(),
+      operators.concatTransformationMatrix(width, 0, 0, height, x, y),
+      operators.drawObject(page.node.newXObject("Image", ref)),
+      operators.popGraphicsState(),
+    );
+}
 export async function exportPDF(
   b,
   regions,
@@ -549,7 +600,18 @@ export async function exportPDF(
   // The PDF writer and its fonts load when a PDF is first exported, as the
   // PowerPoint and SVG writers do, rather than with every visit.
   const [
-    { PDFDocument, PDFHexString, PDFName, StandardFonts, degrees, rgb },
+    {
+      PDFDocument,
+      PDFHexString,
+      concatTransformationMatrix,
+      drawObject,
+      popGraphicsState,
+      pushGraphicsState,
+      PDFName,
+      StandardFonts,
+      degrees,
+      rgb,
+    },
     { createVectorContext, drawVectorRegion },
   ] = await Promise.all([
     import("pdf-lib"),
@@ -805,13 +867,15 @@ export async function exportPDF(
             maxSize,
             mindCounts: entry.region.mindCounts,
           });
-          const png = await pdf.embedPng(canvas.toDataURL("image/png"));
+          const picture = await pagePicture(pdf, canvas, {
+            concatTransformationMatrix,
+            drawObject,
+            popGraphicsState,
+            pushGraphicsState,
+          });
           // The canvas memory goes before the next part is drawn.
           canvas.width = canvas.height = 0;
-          // Compressed now, between pages, rather than all at once when
-          // the file is written, which would hold up the page for seconds.
-          await png.embed();
-          page.drawImage(png, {
+          picture(page, {
             x: drawn.x + (part.x - rect.x) * scale,
             y: placement.y - (part.y - rect.y + part.h) * scale,
             width: part.w * scale,
