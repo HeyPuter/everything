@@ -16,7 +16,7 @@ import { cellName } from '../core/cell.js';
 import { RTL_LEAD } from '../core/bidi.js';
 import { CURRENCIES, FONTS, fontName, fontStack, formatValue, currencyDecimals, BORDER_STYLES, borderCss, ELAPSED_TIME_CODE, defaultAlign, AUTOMATIC_FORMAT, cellCurrency, currencyFormatLabel, hasDecimalPlaces, MAX_DECIMAL_PLACES } from '../core/format.js';
 import { openCustomFormatDialog } from './numfmtdialog.js';
-import { customColorRows } from './colorpicker.js';
+import { customColorRows, colorLabel } from './colorpicker.js';
 import { themeColorBlock } from './themes.js';
 import { GROUP_BLOCKED_REASON } from '../core/sheet-group.js';
 
@@ -212,7 +212,7 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
     }, el('span', { html: icon(kind === 'bg' ? 'fill' : 'textColor', 18) }), el('span.tb-pen-bar'));
     b.sync = () => {
       const c = lastColor[kind], css = typeof c === 'object' ? c.rgb : c;
-      const name = `${kind === 'bg' ? 'Fill color' : 'Font color'} ${typeof c === 'object' ? lastName[kind] || css : c}`;
+      const name = `${kind === 'bg' ? 'Fill color' : 'Font color'} ${typeof c === 'object' ? lastName[kind] || css : colorLabel(c)}`;
       b.setAttribute('aria-label', `Apply ${name.toLowerCase()}`); b.title = name;
       b.querySelector('.tb-pen-bar').style.backgroundColor = css;
     };
@@ -232,7 +232,7 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
         onclick: () => { menu.close(); pen.color = null; ctx.run('borders', borderArg('restyle')); },
       }),
       ...TEXT_COLORS.map((hex) => el('button.swatch', {
-        type: 'button', role: 'menuitemradio', 'aria-checked': String(pen.color === hex), 'aria-label': hex, title: hex,
+        type: 'button', role: 'menuitemradio', 'aria-checked': String(pen.color === hex), 'aria-label': colorLabel(hex), title: colorLabel(hex),
         style: { background: hex }, onclick: () => { menu.close(); pen.color = hex; ctx.run('borders', borderArg('restyle')); },
       })));
     const extra = customColorRows({ current: pen.color, label: 'border color', onPick: (hex) => { menu.close(); pen.color = hex; ctx.run('borders', borderArg('restyle')); } });
@@ -662,7 +662,7 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
         title: kind === 'bg' ? 'No fill' : 'Default', onclick: () => { menu.close(); ctx.run(kind, null); },
       }),
       ...palette.map((hex) => el('button.swatch', {
-        type: 'button', role: 'menuitemradio', 'aria-checked': String(current === hex), 'aria-label': hex, title: hex,
+        type: 'button', role: 'menuitemradio', 'aria-checked': String(current === hex), 'aria-label': colorLabel(hex), title: colorLabel(hex),
         style: { background: hex }, onclick: () => pick(hex),
       })));
     const extra = customColorRows({ current, label: kind === 'bg' ? 'fill color' : 'text color', onPick: pick });

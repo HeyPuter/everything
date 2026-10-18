@@ -7,6 +7,8 @@ import { Doc } from '../src/lib/doc.js';
 import { closeAllModals } from '../src/ui/modal.js';
 import { COMMAND_ICONS, commandIcon } from '../src/ui/command-icons.js';
 import { icon } from '../src/ui/icons.js';
+import { colorLabel } from '../src/ui/colorpicker.js';
+import { FILL_COLORS } from '../src/ui/toolbar.js';
 
 let view;
 beforeEach(() => {
@@ -293,7 +295,7 @@ it('applies the last colour picked with one click of Fill Color or Font Color, y
   const { wb, id } = await mount();
   view.goTo('A1'); await flush();
   const apply = label => view.el.querySelector(`.ribbon-home [aria-label^="Apply ${label}"]`);
-  expect(apply('fill color').getAttribute('aria-label')).toBe('Apply fill color #ffff00');
+  expect(apply('fill color').getAttribute('aria-label')).toBe('Apply fill color yellow'); // named, not read out as a hex code
   apply('fill color').click(); await flush();
   expect(wb.styleAt(id, 0, 0).bg).toBe('#ffff00');
   apply('font color').click(); await flush();
@@ -301,9 +303,11 @@ it('applies the last colour picked with one click of Fill Color or Font Color, y
   // A colour from the arrow's palette is applied and becomes the button's colour.
   view.el.querySelector('.ribbon-home [aria-label="Fill color"]').click(); await flush();
   const swatch = document.querySelector('.menu .swatches:not(.swatches-theme) .swatch:not(.none)');
-  const hex = swatch.getAttribute('aria-label');
+  const name = swatch.getAttribute('aria-label');
+  const hex = FILL_COLORS[0];
+  expect(name).toBe(colorLabel(hex));
   swatch.click(); await flush();
-  expect(apply('fill color').getAttribute('aria-label')).toBe(`Apply fill color ${hex}`);
+  expect(apply('fill color').getAttribute('aria-label')).toBe(`Apply fill color ${name.toLowerCase()}`);
   view.goTo('B2'); await flush();
   apply('fill color').click(); await flush();
   expect(wb.styleAt(id, 1, 1).bg).toBe(hex);

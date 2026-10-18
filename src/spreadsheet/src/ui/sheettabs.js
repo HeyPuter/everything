@@ -9,7 +9,7 @@
 import { el } from './dom.js';
 import { icon } from './icons.js';
 import { openMenu } from './menu.js';
-import { customColorRows } from './colorpicker.js';
+import { customColorRows, colorLabel } from './colorpicker.js';
 import { confirmDialog, promptDialog } from './modal.js';
 import { openMoveSheetDialog } from './movesheet.js';
 import { placeSheet } from '../core/sheet-placement.js';
@@ -182,7 +182,7 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
     const swatches = el('div.swatches', { role: 'group', 'aria-label': 'Tab colors', 'data-cols': 6 },
       el('button.swatch.none', { type: 'button', role: 'menuitemradio', 'aria-checked': String(!current), 'aria-label': 'No color', title: 'No color', onclick: () => { menu.close(); ctx.wb.setSheetColor(sheet.id, null); } }),
       ...TAB_COLORS.map((hex) => el('button.swatch', {
-        type: 'button', role: 'menuitemradio', 'aria-checked': String(current === hex), 'aria-label': hex, title: hex, style: { background: hex },
+        type: 'button', role: 'menuitemradio', 'aria-checked': String(current === hex), 'aria-label': colorLabel(hex), title: colorLabel(hex), style: { background: hex },
         onclick: () => { menu.close(); ctx.wb.setSheetColor(sheet.id, hex); },
       })));
     const extra = customColorRows({ current, label: 'tab color', onPick: (hex) => { menu.close(); ctx.wb.setSheetColor(sheet.id, hex); } });

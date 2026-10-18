@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createToolbar, swatchColor } from '../src/ui/toolbar.js';
 import { createSheetTabs } from '../src/ui/sheettabs.js';
 import { closeMenu } from '../src/ui/menu.js';
-import { rememberColor } from '../src/ui/colorpicker.js';
+import { rememberColor, colorLabel } from '../src/ui/colorpicker.js';
 import { Workbook } from '../src/core/workbook.js';
 import { memoryStorage } from './helpers/memory-storage.js';
 
@@ -23,6 +23,7 @@ function toolbarShowing(style) {
   const bars = toolbar.el.querySelectorAll('.color-bar');
   return { toolbar, text: bars[0], fill: bars[1] };
 }
+// Swatches are named for a screen reader ("Red", "Dark blue, #123456"): the checked one is told by that name.
 const checkedSwatch = () => document.querySelector('.menu .swatch[aria-checked="true"]')?.getAttribute('aria-label') ?? null;
 
 // The swatch bars accepted any 3-to-8-digit hex string, 5 and 7 digits included, which the CSSOM
@@ -55,15 +56,15 @@ describe('the checked swatch of a colour menu', () => {
     rememberColor('#123456');
     const { toolbar } = toolbarShowing({ color: '#C22A2A', bg: '#FDE8E8' });
     toolbar.el.querySelector('[aria-label="Text color"]').click();
-    expect(checkedSwatch()).toBe('#c22a2a');
+    expect(checkedSwatch()).toBe(colorLabel('#c22a2a'));
     closeMenu();
     toolbar.el.querySelector('[aria-label="Fill color"]').click();
-    expect(checkedSwatch()).toBe('#fde8e8');
+    expect(checkedSwatch()).toBe(colorLabel('#fde8e8'));
     closeMenu();
     document.body.replaceChildren();
     const recent = toolbarShowing({ color: '#123456'.toUpperCase() });
     recent.toolbar.el.querySelector('[aria-label="Text color"]').click();
-    expect(checkedSwatch()).toBe('#123456');
+    expect(checkedSwatch()).toBe(colorLabel('#123456'));
     expect(document.querySelector('.menu .color-hex').value).toBe('#123456');
   });
 
@@ -71,14 +72,14 @@ describe('the checked swatch of a colour menu', () => {
     const { toolbar } = toolbarShowing({ bt: true, bc: '#0A63F0' });
     toolbar.el.querySelector('[aria-label="Borders"]').click();
     [...document.querySelectorAll('.menu-item')].find((b) => b.textContent.includes('Border color')).click();
-    expect(checkedSwatch()).toBe('#0a63f0');
+    expect(checkedSwatch()).toBe(colorLabel('#0a63f0'));
     closeMenu();
     const wb = new Workbook({ sheets: [{ name: 'Data' }] });
     wb.setSheetColor(wb.sheets[0].id, '#C22A2A');
     const tabs = createSheetTabs({ wb });
     document.body.append(tabs.el);
     tabs.colorMenu(wb.sheets[0], tabs.el.querySelector('.tab-menu-btn'));
-    expect(checkedSwatch()).toBe('#c22a2a');
+    expect(checkedSwatch()).toBe(colorLabel('#c22a2a'));
     tabs.destroy();
   });
 });

@@ -16,6 +16,7 @@ import { BORDER_EDGES, readBorderEdges, penSignature } from './border-draft.js';
 import { orientationControl } from './orientation.js';
 import { lineStylePicker, edgeGlyph, presetGlyph } from './border-picker.js';
 import { swatchGrid } from './swatch-grid.js';
+import { colorLabel } from './colorpicker.js';
 import { themeColorGrid, workbookTheme } from '../core/workbook-theme.js';
 
 const PANELS = [['number', 'Number'], ['align', 'Alignment'], ['font', 'Font'], ['border', 'Border'], ['fill', 'Fill'], ['protect', 'Protection']];
@@ -408,7 +409,7 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
   const themeFills = swatchGrid({ label: 'Theme fill colors', cols: 10, isChosen: fillChosen, onPick: pickFill,
     colors: themeColorGrid(workbookTheme(ctx.wb).colors).flat().map(cell => ({ value: cell.color, css: cell.color.rgb, label: cell.label })) });
   const standardFills = swatchGrid({ label: 'Standard fill colors', cols: 12, isChosen: fillChosen, onPick: pickFill,
-    colors: FILL_COLORS.map(hex => ({ value: hex, css: hex, label: hex })) });
+    colors: FILL_COLORS.map(hex => ({ value: hex, css: hex, label: colorLabel(hex) })) });
   const syncFillSwatches = () => { themeFills.sync(); standardFills.sync(); };
   const fillPanel = el('div.fc-panel.fc-fill', {},
     el('div.fc-fill-colors', {},

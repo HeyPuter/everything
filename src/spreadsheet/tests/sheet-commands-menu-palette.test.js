@@ -111,7 +111,7 @@ describe('the editor', () => {
     closeMenu();
 
     await menu('insert', 'Sheet', 'Sheet color…');
-    const swatch = document.querySelector('[role="menu"][aria-label="Tab color"] .swatch[title="#c22a2a"]');
+    const swatch = document.querySelector('[role="menu"][aria-label="Tab color"] .swatch[title="Red"]');
     expect(swatch).toBeTruthy();
     swatch.click();
     await vi.advanceTimersByTimeAsync(1);

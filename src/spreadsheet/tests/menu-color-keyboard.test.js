@@ -79,7 +79,7 @@ describe('keyboard in a colour menu', () => {
     document.querySelector('[aria-label="Text color"]').click();
     swatches().at(-1).focus();
     key('ArrowDown');
-    expect(document.activeElement.getAttribute('aria-label')).toBe('#123456');
+    expect(document.activeElement.getAttribute('aria-label')).toBe('Dark blue, #123456');
     key('ArrowDown');
     expect(document.activeElement).toBe(menuEl().querySelector('.swatch.custom'));
   });

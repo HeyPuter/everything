@@ -30,7 +30,7 @@ it('offers the theme colours with their tints and the standard fills as palettes
 
 it('applies a picked standard fill, shows it in the sample and unticks No fill', () => {
   const { field, apply, run, modal } = open();
-  const swatch = field('Standard fill colors').querySelector('[aria-label="#e0ecff"]');
+  const swatch = field('Standard fill colors').querySelector('[aria-label="Light Blue"]');
   swatch.click();
   expect(swatch.getAttribute('aria-checked')).toBe('true');
   expect(field('Fill preview').style.backgroundColor).toBe('rgb(224, 236, 255)');
