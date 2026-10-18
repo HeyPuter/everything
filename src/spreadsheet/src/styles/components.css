@@ -1309,7 +1309,10 @@ body[data-view="editor"] .toast-root { bottom: calc(var(--statusbar-h) + var(--t
 .spell-lang { margin: 0; min-width: 220px; }
 .spell-options { font-size: 13px; }
 .spell-options > summary { cursor: pointer; color: var(--ink-2); padding: 4px 0; }
-.spell-options[open] { display: flex; flex-direction: column; gap: 6px; }
+/* One option to a line. Chrome lays a <details> out as a block whatever its display, so a flex column on it
+   left the checkboxes running on in one line ("…UPPERCASE ☑ Ignore words with numbers"): each row is set apart. */
+.spell-options > label.check { display: flex; width: fit-content; margin-top: 6px; }
+.spell-options > .btn { display: flex; margin-top: 6px; }
 .spell-status { min-height: 1em; margin: 0; color: var(--ink-2); }
 .spell-custom { width: 100%; font: inherit; }
 @media (max-width: 600px) { .spell-main { grid-template-columns: 1fr; } .spell-actions { padding-top: 0; } }
