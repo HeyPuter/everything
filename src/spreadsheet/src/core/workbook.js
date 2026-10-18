@@ -1041,6 +1041,39 @@ export const BOOK_STATE_KEYS = ['dataModel', 'nativePivots', 'externalWorkbooks'
   'calculationCompatibility', 'colorPalette', 'fontTheme', 'themeInfo', 'normalFont', 'nativeNormalStyle', 'nativeNormalFill', 'nativeDefaultCellFormat', 'names',
   'scripts', 'cellStyles', 'linkStartup', 'customViews'];
 
+/**
+ * Goal Seek's search once the goal is bracketed (f(a) and f(b) of opposite signs): Brent's method, inverse
+ * quadratic and secant steps kept inside the bracket, a bisection whenever they would leave it or slow down,
+ * so it always closes in. Stops when `close(f)` holds, the bracket can shrink no further, a trial fails to
+ * compute (the last good point is kept), or after `maxIter` trials. Returns { x, fx, iterations }.
+ */
+function goalBracket(f, a, fa, b, fb, maxIter, close) {
+  let c = b, fc = fb, d = b - a, e = d, iterations = 0;
+  while (iterations < maxIter) {
+    if (Math.sign(fb) === Math.sign(fc)) { c = a; fc = fa; d = e = b - a; }
+    if (Math.abs(fc) < Math.abs(fb)) { a = b; b = c; c = a; fa = fb; fb = fc; fc = fa; }
+    const tol1 = 2 * Number.EPSILON * Math.abs(b) + 1e-300;
+    const xm = 0.5 * (c - b);
+    if (fb === 0 || close(fb) || Math.abs(xm) <= tol1) break;
+    if (Math.abs(e) >= tol1 && Math.abs(fa) > Math.abs(fb)) {
+      const s = fb / fa;
+      let p, q;
+      if (a === c) { p = 2 * xm * s; q = 1 - s; }
+      else { const qa = fa / fc, r = fb / fc; p = s * (2 * xm * qa * (qa - r) - (b - a) * (r - 1)); q = (qa - 1) * (r - 1) * (s - 1); }
+      if (p > 0) q = -q;
+      p = Math.abs(p);
+      if (2 * p < Math.min(3 * xm * q - Math.abs(tol1 * q), Math.abs(e * q))) { e = d; d = p / q; } else { d = xm; e = d; }
+    } else { d = xm; e = d; }
+    const lastB = b, lastFb = fb;
+    a = b; fa = fb;
+    b += Math.abs(d) > tol1 ? d : xm >= 0 ? tol1 : -tol1;
+    fb = f(b);
+    iterations++;
+    if (Number.isNaN(fb)) return { x: lastB, fx: lastFb, iterations };
+  }
+  return { x: b, fx: fb, iterations };
+}
+
 export class Workbook extends EventTarget {
   /** Async sources for functions like AI(): name → (text) => Promise<string>. Answers are cached per prompt. */
   _asyncProviders = new Map();
@@ -5642,6 +5675,15 @@ export class Workbook extends EventTarget {
       for (; iterations < maxIter; iterations++) {
         if (Number.isNaN(f1)) { x1 = (x0 + x1) / 2; f1 = f(x1); continue; }
         if (close(f1)) { result = x1; break; }
+        // The goal lies between the last two trials: close in on it there (Brent's method). Secant steps from
+        // a far, steep point (EXP(A1) = 100 tried at 58) crawl back one unit a step and ran out of iterations.
+        if (Math.sign(f0) !== Math.sign(f1)) {
+          const found = goalBracket(f, x0, f0, x1, f1, maxIter - iterations, close);
+          iterations += found.iterations;
+          x1 = found.x; f1 = found.fx;
+          if (close(f1)) result = x1;
+          break;
+        }
         const d = f1 - f0;
         if (d === 0) {
           const step = (x1 - x0) * 2 || 1;
