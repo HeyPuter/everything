@@ -346,11 +346,20 @@ export class CanvasEditor {
   layoutModel(model) {
     return layoutDocument(model.paragraphs, this.measure, pageGeometry(model.pageSettings), model.numbering, model.tables, this.pageStories, { styles: model.styles, drawingLayouts: this.drawingLayouts });
   }
+  /**
+   * The file's section a section on screen takes its headers and footers from: section breaks inserted since
+   * opening the file make sections of its own list (see StorySession.pageStories), so the two numberings differ.
+   */
+  sourceSection(shown, count) {
+    const ends = this.session.body.paragraphs.filter(p => p.sectionEnd);
+    return Math.max(0, Math.min(count - 1, shown < ends.length ? ends[shown].sectionSourceIndex ?? shown : count - 1));
+  }
   /** Show a header, footer or footnote story the package just created; headers and footers apply to every section without one. */
   attachPageStory(path, kind, paragraphs, extra = {}) {
     const sections = this.session.body.paragraphs.filter(p => p.sectionEnd).length + 1;
     const current = this.session.definition || { sections: Array.from({ length: sections }, () => ({ header: {}, footer: {}, firstPageDifferent: false })), stories: {}, evenAndOdd: false };
-    const { variant = 'default', section: first = 0, story = {}, ...settings } = extra;
+    const { variant = 'default', section: shown = 0, story = {}, ...settings } = extra;
+    const first = this.sourceSection(shown, current.sections.length);
     this.session.definition = { ...current, ...settings, stories: { ...current.stories, [path]: { kind, paragraphs, tables: [], editable: true, ...story } },
       sections: isNoteStoryKind(kind) ? current.sections : current.sections.map((section, i) => i < first || section[kind][variant] ? section : { ...section, [kind]: { ...section[kind], [variant]: path } }) };
     this.session.sectionRevision = undefined;
@@ -359,9 +368,10 @@ export class CanvasEditor {
   /** Different first page for a section, and different odd and even pages for the document (display only; the package writes them). */
   setStoryOptions({ section, firstPageDifferent, evenAndOdd, pageNumbering } = {}) {
     const current = this.session.definition || { sections: Array.from({ length: this.session.body.paragraphs.filter(p => p.sectionEnd).length + 1 }, () => ({ header: {}, footer: {}, firstPageDifferent: false })), stories: {}, evenAndOdd: false };
+    const source = section === undefined ? undefined : this.sourceSection(section, current.sections.length);
     this.session.definition = { ...current, ...(evenAndOdd !== undefined ? { evenAndOdd: !!evenAndOdd } : {}),
       sections: current.sections.map((s, i) => {
-        if (i !== section) return s;
+        if (i !== source) return s;
         const next = firstPageDifferent !== undefined ? { ...s, firstPageDifferent: !!firstPageDifferent } : { ...s };
         // Page numbering (format and restart) applies to this section's PAGE fields and page count.
         if (pageNumbering !== undefined) { if (pageNumbering) next.pageNumbering = pageNumbering; else delete next.pageNumbering; }
