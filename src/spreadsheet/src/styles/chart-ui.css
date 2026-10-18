@@ -52,7 +52,7 @@
 .chart-pane-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .chart-pane-field > span { color: var(--ink-2); }
 .chart-pane-field .input { width: 140px; height: 26px; font-size: 12px; }
-.chart-pane-field select.input, select.chart-element-picker { padding-top: 0; padding-bottom: 0; line-height: 24px; }
+.chart-pane-field select.select, select.chart-element-picker { padding-top: 0; padding-bottom: 0; line-height: 24px; }
 .chart-pane-number { width: 90px !important; }
 .chart-pane-color { width: 44px; height: 24px; padding: 0; border: 1px solid var(--hairline-strong); background: none; }
 .chart-pane-note { padding: 10px 14px; color: var(--ink-2); font-size: 12.5px; }

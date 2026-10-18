@@ -123,7 +123,7 @@ export function openMoveChartDialog(ctx, chart) {
   const objRadio = el('input', { type: 'radio', name: 'move-chart', value: 'object', checked: true });
   const nameInput = el('input.input', { type: 'text', value: chartSheetName(wb), 'aria-label': 'New sheet name', maxlength: 31 });
   const sheets = wb.sheets.filter(s => !s.hidden && !s.veryHidden);
-  const select = el('select.input', { 'aria-label': 'Object in' }, ...sheets.map(s => el('option', { value: s.id, selected: s.id === ctx.sheetId() }, s.name)));
+  const select = el('select.select', { 'aria-label': 'Object in' }, ...sheets.map(s => el('option', { value: s.id, selected: s.id === ctx.sheetId() }, s.name)));
   const error = el('p.field-error', { role: 'alert', hidden: true });
   const sync = () => { nameInput.disabled = !newRadio.checked; select.disabled = newRadio.checked; };
   newRadio.addEventListener('change', sync); objRadio.addEventListener('change', sync);

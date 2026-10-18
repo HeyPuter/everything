@@ -528,7 +528,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const summary = el('div.filter-summary');
     // Filter by condition: any comparison the conditional-formatting rules know.
     const CONDITIONS = RULE_TYPES.filter((t) => !t.scale && !t.rangeWide && !t.date && !t.databar && !t.bands && !t.icons);
-    const condSelect = el('select.input.filter-cond', { 'aria-label': 'Condition' },
+    const condSelect = el('select.select.filter-cond', { 'aria-label': 'Condition' },
       el('option', { value: '' }, 'No condition'),
       ...CONDITIONS.map((t) => el('option', { value: t.value }, t.label)));
     const condValue = el('input.input', { type: 'text', 'aria-label': 'Condition value', placeholder: 'Value', autocomplete: 'off' });

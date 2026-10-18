@@ -110,7 +110,7 @@ export function openPrintDialog(ctx) {
   }));
   const titleFields = el('div.field', {}, el('div.row.row-2', {}, titleInputs.map((input, i) =>
     el('label.field', {}, el('span.field-label', {}, i ? 'Columns to repeat at left' : 'Rows to repeat at top'), input))), titleError.alert);
-  const paperSel = el('select.input', { 'aria-label': 'Paper size', onchange: () => { prefs.paper = paperSel.value; } },
+  const paperSel = el('select.select', { 'aria-label': 'Paper size', onchange: () => { prefs.paper = paperSel.value; } },
     ...PAPER_SIZES.map(([k, label]) => el('option', { value: k }, label)));
   paperSel.value = PAPER_SIZES.some(([k]) => k === prefs.paper) ? prefs.paper : 'letter';
   const marginBoxes = supportsPageMarginBoxes();

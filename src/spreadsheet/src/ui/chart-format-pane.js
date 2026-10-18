@@ -242,7 +242,7 @@ export function createChartUi(ctx) {
     return el('label.check', {}, input, el('span', {}, label));
   };
   const choice = (label, value, options, onSet) => {
-    const select = el('select.input', { 'aria-label': label }, ...options.map(([v, text]) => el('option', { value: v }, text)));
+    const select = el('select.select', { 'aria-label': label }, ...options.map(([v, text]) => el('option', { value: v }, text)));
     select.value = value;
     select.addEventListener('change', () => onSet(select.value));
     return field(label, select);

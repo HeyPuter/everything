@@ -21,17 +21,17 @@ export function openTextBoxDialog(ctx, { textbox = null } = {}) {
   const initialText = textbox ? textBoxText(wb, sheetId, textbox) : '';
   const textArea = el('textarea.input.textbox-text', { rows: 4, placeholder: 'Type the text…', 'aria-label': 'Text', value: initialText });
   const sizes = [...new Set([...TEXT_SIZES, st.size])].sort((a, b) => a - b);
-  const sizeSel = el('select.input', { 'aria-label': 'Font size' }, sizes.map((n) => el('option', { value: String(n), selected: n === st.size }, `${n}`)));
+  const sizeSel = el('select.select', { 'aria-label': 'Font size' }, sizes.map((n) => el('option', { value: String(n), selected: n === st.size }, `${n}`)));
   const colorSelect = (label, palette, current) => {
     const options = current && !palette.some(([value]) => value === current)
       ? [...palette, [current, `Custom (${current})`]] : palette;
-    return el('select.input', { 'aria-label': label }, options.map(([value, name]) =>
+    return el('select.select', { 'aria-label': label }, options.map(([value, name]) =>
       el('option', { value, selected: (current || '') === value }, name)));
   };
   const colorSel = colorSelect('Text color', COLORS, st.color);
   const fillSel = colorSelect('Fill color', FILLS, st.bg);
   // A theme effect (Page Layout ▸ Effects decides how it looks).
-  const effectSel = el('select.input', { 'aria-label': 'Theme effect' }, [['0', 'None'], ...EFFECT_LEVELS.map((label, i) => [String(i + 1), label])]
+  const effectSel = el('select.select', { 'aria-label': 'Theme effect' }, [['0', 'None'], ...EFFECT_LEVELS.map((label, i) => [String(i + 1), label])]
     .map(([value, label]) => el('option', { value, selected: String(st.effectRef || 0) === value }, label)));
   const check = (key, label) => {
     const input = el('input', { type: 'checkbox', checked: !!st[key], onchange: () => { st[key] = input.checked; } });

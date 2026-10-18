@@ -29,7 +29,7 @@ export function openCopySheetDialog(ctx, sheetId) {
 
   let mode = 'new';
   const nameInput = el('input.input', { type: 'text', value: sheet.name, 'aria-label': 'Name of the new spreadsheet', maxlength: 120, autocomplete: 'off' });
-  const fileSel = el('select.input', { 'aria-label': 'Spreadsheet to copy into', disabled: true }, el('option', { value: '' }, 'Loading…'));
+  const fileSel = el('select.select', { 'aria-label': 'Spreadsheet to copy into', disabled: true }, el('option', { value: '' }, 'Loading…'));
   const { alert: error, refuse, clear: clearError } = fieldAlert('copy'); // a failed copy is about no field
   const radios = {};
   const labels = {};

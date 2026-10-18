@@ -177,7 +177,7 @@ export function openCustomizeFontsDialog(ctx) {
   if (editing(ctx)) return;
   const current = workbookTheme(ctx.wb);
   const names = [...new Set([current.major, current.minor, ...FONTS.filter(f => f[2]).map(f => f[1])])];
-  const select = (label, value) => el('select.input', { 'aria-label': label }, ...names.map(n => el('option', { value: n, selected: n === value }, n)));
+  const select = (label, value) => el('select.select', { 'aria-label': label }, ...names.map(n => el('option', { value: n, selected: n === value }, n)));
   const heading = select('Heading font', current.major), body = select('Body font', current.minor);
   const sample = el('div.theme-fonts-sample', { 'aria-hidden': 'true' });
   const paint = () => sample.replaceChildren(

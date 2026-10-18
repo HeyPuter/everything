@@ -235,7 +235,8 @@
 .tb-fmt { width: 144px; padding: 0 6px 0 10px; }
 .tb-fmt > span:last-child { flex: none; }
 .filter-cond-row { display: flex; flex-direction: column; gap: 6px; padding: 4px 10px 8px; }
-.filter-cond-row .input { font-size: 13px; padding: 6px 8px; }
+.filter-cond-row .input, .filter-cond-row .select { font-size: 13px; padding: 6px 8px; }
+.filter-cond-row .select { padding-right: 30px; background-position: right 8px center; }
 .filter-cond-row [hidden] { display: none; }
 .filter-values.dimmed { opacity: 0.45; }
 

@@ -150,13 +150,13 @@ export function openEquationDialog(ctx, { equation = null, source = '' } = {}) {
     const set = SYMBOL_SETS.find(x => x.name === name) || SYMBOL_SETS[0];
     symbolGrid.replaceChildren(...set.symbols.map(ch => el('button.equation-symbol', { type: 'button', title: ch, 'aria-label': `Insert ${ch}`, onclick: () => place(ch) }, ch)));
   };
-  const symbolSet = el('select.input', { 'aria-label': 'Symbol set', onchange: () => showSymbols(symbolSet.value) },
+  const symbolSet = el('select.select', { 'aria-label': 'Symbol set', onchange: () => showSymbols(symbolSet.value) },
     SYMBOL_SETS.map(s => el('option', { value: s.name }, s.name)));
   showSymbols(SYMBOL_SETS[0].name);
 
   const size = sizeOf(equation);
   const sizes = [...new Set([...TEXT_SIZES, EQUATION_DEFAULT_SIZE, size])].sort((a, b) => a - b);
-  const sizeSel = el('select.input', { 'aria-label': 'Font size' }, sizes.map(n => el('option', { value: String(n), selected: n === size }, `${Math.round(n * 0.75 * 2) / 2} pt`)));
+  const sizeSel = el('select.select', { 'aria-label': 'Font size' }, sizes.map(n => el('option', { value: String(n), selected: n === size }, `${Math.round(n * 0.75 * 2) / 2} pt`)));
 
   const { alert: error, refuse } = fieldAlert('equation');
   const submit = (e) => {

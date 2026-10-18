@@ -85,12 +85,12 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
   }));
   const titleInput = el('input.input', { type: 'text', value: draft.title || '', 'aria-label': 'Title', placeholder: 'Optional', maxlength: 200 });
   const descriptionInput = el('textarea.input', { value: draft.description || '', 'aria-label': 'Alternative text', rows: 2, maxlength: CHART_DESCRIPTION_MAX_LENGTH, placeholder: 'Describe what the chart communicates' });
-  const seriesSel = el('select.input', { 'aria-label': 'Series in' },
+  const seriesSel = el('select.select', { 'aria-label': 'Series in' },
     el('option', { value: 'auto' }, 'Detect automatically'),
     el('option', { value: 'cols' }, 'Columns'),
     el('option', { value: 'rows' }, 'Rows'));
   seriesSel.value = draft.seriesIn;
-  const headersSel = el('select.input', { 'aria-label': 'Headers' },
+  const headersSel = el('select.select', { 'aria-label': 'Headers' },
     el('option', { value: 'auto' }, 'Detect automatically'),
     el('option', { value: 'true' }, 'First row is labels'),
     el('option', { value: 'false' }, 'No labels'));
@@ -100,7 +100,7 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
   const trendBox = el('input', { type: 'checkbox', checked: !!draft.trendline });
   const axis2Box = el('input', { type: 'checkbox', checked: !!draft.secondaryAxis });
   const axis2Field = el('label.check', {}, axis2Box, el('span', {}, 'Line on its own axis (right)'));
-  const legendSel = el('select.input', { 'aria-label': 'Legend' },
+  const legendSel = el('select.select', { 'aria-label': 'Legend' },
     el('option', { value: 'bottom' }, 'Legend below'),
     el('option', { value: 'top' }, 'Legend above'),
     el('option', { value: 'right' }, 'Legend on the right'),

@@ -8,7 +8,7 @@ export function openMoveSheetDialog(ctx, id) {
   if (!source || source.hidden || source.externalCache) return null;
   if (ctx.grid?.editing && !ctx.grid.commitEdit()) return null;
 
-  const book = el('select.input', { 'aria-label': 'To workbook' }, el('option', { value: 'current' }, ctx.doc?.name || 'This spreadsheet'));
+  const book = el('select.select', { 'aria-label': 'To workbook' }, el('option', { value: 'current' }, ctx.doc?.name || 'This spreadsheet'));
   const destinations = el('select.input.sheet-destinations', { 'aria-label': 'Before sheet', size: 8 });
   const copy = el('input', { type: 'checkbox' });
   const name = el('span', { dir: 'auto' }, source.name);

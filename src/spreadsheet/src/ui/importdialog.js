@@ -218,7 +218,7 @@ export function openImportPlacementDialog(ctx, other, fileName) {
   let mode = 'sheets';
   let otherSheetId = sheets[0]?.id;
 
-  const sheetSel = el('select.input', { 'aria-label': 'Sheet to import' },
+  const sheetSel = el('select.select', { 'aria-label': 'Sheet to import' },
     sheets.map((sh) => el('option', { value: sh.id }, sh.name)));
   sheetSel.addEventListener('change', () => { otherSheetId = sheetSel.value; sync(); });
   const sheetField = el('label.field', {}, el('span.field-label', {}, 'Sheet to place'), sheetSel);
