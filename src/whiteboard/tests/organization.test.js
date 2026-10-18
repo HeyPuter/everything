@@ -6248,6 +6248,55 @@ test("editing a comment to name someone new notifies only them", async () => {
   assert.equal(await mentions(owner), 1);
 });
 
+test("taking a name out of a comment and putting it back notifies them once", async () => {
+  const { env, boards, call, sent } = setup();
+  await call(owner, { op: "org.setup", name: "Fabrikam" });
+  await env.service.org.updateUser(owner.uuid, {
+    uuid: owner.uuid,
+    email: "alice@fabrikam.test",
+    emailVerified: true,
+  });
+  const { input, room } = createInput("Sprint retro");
+  await boards.call(owner, input);
+  const { token } = await boards.call(owner, {
+    op: "invite",
+    room,
+    role: "editor",
+  });
+  await join({ service: boards }, editor, { room, token });
+  const write = (text) =>
+    commit(boards, editor, room, (b) => {
+      b.comments = [
+        {
+          id: "t1",
+          x: 0,
+          y: 0,
+          resolved: false,
+          messages: [
+            {
+              id: "m1",
+              authorId: editor.uuid,
+              authorName: editor.username,
+              text,
+              createdAt: 1,
+            },
+          ],
+        },
+      ];
+    });
+  await write("can you check this?");
+  for (let n = 0; n < 6; n++) {
+    env.now += 1000;
+    await write(n % 2 ? `check ${n}` : `@alice check ${n}`);
+  }
+  const notes = (await call(owner, { op: "notifications.list" })).items;
+  assert.equal(notes.filter((n) => n.type === "mention").length, 1);
+  assert.equal(
+    sent.filter((m) => m.subject.includes("mentioned you")).length,
+    1,
+  );
+});
+
 test("notification mail and board channel posts link to the board in the app", async () => {
   const { boards, call, org, sent, fetched } = setup();
   const from = (origin) => {

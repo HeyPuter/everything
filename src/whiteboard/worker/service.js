@@ -3842,7 +3842,8 @@ export class BoardService {
     }
   }
   // Mentions and replies become notifications for the people involved. An
-  // edited message notifies only the names the edit added.
+  // edited message notifies only the names the edit added that it has not
+  // told before.
   async commentNotifications(room, user, before, after) {
     const known = new Map(
       (before.comments || []).flatMap((t) =>
@@ -3969,12 +3970,23 @@ export class BoardService {
       // Their access is checked and their notifications written twenty at a
       // time, as one at a time a hundred-person discussion kept each reply's
       // save waiting seconds; who is told, and of what, is unchanged.
+      // Each message tells each person about it once: names taken out of
+      // a message and put back, however often, notify no one again.
+      const told = `wb:${room}:told:${message.id}`,
+        heard =
+          only && index < 20 ? new Set((await this.kv.get(told)) || []) : null;
       const chosen = [];
       for (const [uuid, type] of recipients) {
-        if (index >= 20 || notified.has(uuid)) continue;
+        if (index >= 20 || notified.has(uuid) || heard?.has(uuid)) continue;
         notified.add(uuid);
         chosen.push([uuid, type]);
       }
+      if (chosen.length)
+        await this.kv.set(
+          told,
+          [...(heard || []), ...chosen.map(([uuid]) => uuid)].slice(-200),
+          Math.floor((this.now() + 30 * DAY) / 1000),
+        );
       const reach = [];
       for (let n = 0; n < chosen.length; n += 20)
         reach.push(
