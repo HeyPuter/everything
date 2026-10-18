@@ -18,7 +18,7 @@ import { pickCustomColor } from './colorpicker.js';
 import { toast } from './toast.js';
 import { RULE_TYPES, ICON_SETS, DATE_PERIODS, describeRule, barColorOf } from '../core/condformat.js';
 import { rangeName } from '../core/cell.js';
-import { parseInput, formatGeneral } from '../core/format.js';
+import { parseInput, formatGeneral, formatValue, dateTimeKind } from '../core/format.js';
 import { codeDateKind } from '../core/numfmt.js';
 import { FILL_COLORS, TEXT_COLORS, swatchColor } from './toolbar.js';
 import { customFormulaProblem } from './validation.js';
@@ -27,6 +27,19 @@ import { customFormulaProblem } from './validation.js';
 // is one and a half where the decimal mark is a comma, 1,234.5 where it is not.
 export const numberOf = (text) => { const { v } = parseInput(text.trim()); return typeof v === 'number' ? v : null; };
 export const numberText = (v) => (typeof v === 'number' ? formatGeneral(v) : v);
+/**
+ * A condition's number as the rule's cells show it: a date or a time where the first cell holds one (written
+ * 2024-03-15, or 15:30:00, which read back as the same number in every regional format), so Greater than a date
+ * typed as 3/15/2024 is listed and edited as that date rather than the serial 45366. Anything else as numberText.
+ */
+export function ruleValueText(v, wb, sheetId, rule) {
+  if (typeof v !== 'number' || !['gt', 'gte', 'lt', 'lte', 'between', 'eq', 'neq'].includes(rule?.type) || !rule.range) return numberText(v);
+  const kind = dateTimeKind(wb.displayStyleAt?.(sheetId, rule.range.r1, rule.range.c1), v);
+  if (!kind || v < 0) return numberText(v);
+  const code = kind === 'time' && v < 1 ? 'hh:mm:ss' : Number.isInteger(v) ? 'yyyy-mm-dd' : 'yyyy-mm-dd hh:mm:ss';
+  const text = formatValue(v, { fmt: 'custom', code });
+  return parseInput(text).v === v ? text : numberText(v);
+}
 /**
  * The value an Equal to or Not equal to condition compares with: a number typed as the grid reads one (1,5
  * where the decimal mark is a comma, 50%, $1,200) is that number, so it matches the cells that hold it; other
@@ -363,8 +376,8 @@ export function openConditionalFormatting(ctx) {
     duplicateSource.value = nativeDuplicates ? rule.duplicateRange : '';
     rangeInput.value = areas.map(rangeName).join(', ');
     typeSelect.value = rule.type;
-    value1.value = rule.type === 'date' ? '' : rule.type === 'formula' ? `=${String(rule.value ?? '').trim().replace(/^=/, '')}` : (numberText(rule.value) ?? '');
-    value2.value = numberText(rule.value2) ?? '';
+    value1.value = rule.type === 'date' ? '' : rule.type === 'formula' ? `=${String(rule.value ?? '').trim().replace(/^=/, '')}` : (ruleValueText(rule.value, ctx.wb, sheetId, rule) ?? '');
+    value2.value = ruleValueText(rule.value2, ctx.wb, sheetId, rule) ?? '';
     if (rule.type === 'date') dateSelect.value = rule.value || 'today';
     fill = rule.style?.bg ?? null;
     color = rule.style?.color ?? null;
@@ -551,7 +564,7 @@ export function openConditionalFormatting(ctx) {
         el('button.names-main', { type: 'button', disabled: !known, onclick: () => loadRule(rule, areas) },
           preview,
           el('span.names-name', {}, label),
-          el('span.names-ref', {}, known ? describeRule({ ...rule, value: numberText(rule.value), value2: numberText(rule.value2) }) : `A rule of the kind "${rule.type}", which this version cannot edit`)),
+          el('span.names-ref', {}, known ? describeRule({ ...rule, value: ruleValueText(rule.value, ctx.wb, sheetId, rule), value2: ruleValueText(rule.value2, ctx.wb, sheetId, rule) }) : `A rule of the kind "${rule.type}", which this version cannot edit`)),
         // Each action rebuilds the rows; the focus follows the moved rule, or goes to the row that took a deleted one's place, or to the range field.
         el('button.icon-btn', { type: 'button', html: icon('chevU', 16), 'aria-label': `Move the rule for ${label} up`, title: 'Move up (earlier rules win where they overlap)', disabled: idx === 0, dataset: { action: 'up' }, onclick: () => { if (!changed(ctx.wb.moveRuleGroup(sheetId, rule.id, -1))) return; render(); focusListRow(list, idx - 1, 'up', rangeInput); } }),
         el('button.icon-btn', { type: 'button', html: icon('chevD', 16), 'aria-label': `Move the rule for ${label} down`, title: 'Move down (later rules give way to earlier ones)', disabled: idx === rules.length - 1, dataset: { action: 'down' }, onclick: () => { if (!changed(ctx.wb.moveRuleGroup(sheetId, rule.id, 1))) return; render(); focusListRow(list, idx + 1, 'down', rangeInput); } }),
