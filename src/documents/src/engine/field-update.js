@@ -32,16 +32,23 @@ export function sequenceInstruction(instruction) {
   try { tokens = fieldInstructionTokens(instruction).slice(1); } catch { return null; }
   const id = tokens[0];
   if (!id || id.startsWith('\\')) return null;
-  const result = { id, format: 'decimal', repeat: false, next: true, reset: null, hidden: false };
+  // `supported` is false for what this evaluator cannot reproduce (chapter numbering, number pictures, number
+  // formats such as CardText or Ordinal): such a field keeps its cached result, though it still counts.
+  const result = { id, format: 'decimal', repeat: false, next: true, reset: null, hidden: false, supported: true };
   let generalFormatting = false;
   for (let i = 1; i < tokens.length; i++) {
     const t = tokens[i];
-    if (t === '\\*' && tokens[i + 1]) { generalFormatting = true; const f = FORMATS[tokens[i + 1]] ?? FORMATS[tokens[i + 1].toUpperCase()]; if (f) result.format = f; i++; }
+    if (t === '\\*' && tokens[i + 1]) {
+      generalFormatting = true;
+      const name = tokens[i + 1], f = FORMATS[name] ?? FORMATS[name.toUpperCase()];
+      if (f) result.format = f; else if (!/^(MERGEFORMAT|CHARFORMAT|Upper|Lower|Caps|FirstCap)$/i.test(name)) result.supported = false;
+      i++;
+    }
     else if (t === '\\c') { result.repeat = true; result.next = false; }
     else if (t === '\\n') result.next = true;
     else if (t === '\\h') result.hidden = true;
     else if (t === '\\r' && /^\d+$/.test(tokens[i + 1] || '')) { result.reset = Number(tokens[i + 1]); i++; }
-    else if (t === '\\s') i++; // Chapter numbering is not evaluated.
+    else { result.supported = false; if (/^\\[s#]$/.test(t)) i++; }
   }
   result.hidden &&= !generalFormatting;
   return result;
@@ -68,6 +75,7 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null } = {}
       let n = counters.get(seq.id) ?? 0;
       if (seq.reset !== null) n = seq.reset; else if (seq.next) n += 1;
       counters.set(seq.id, n);
+      if (!seq.supported) { onIssue({ id: range.field.id, message: 'A SEQ field with chapter numbering, a number picture or this number format keeps its cached result.' }); continue; }
       value = seq.hidden ? '' : formatPageNumber(Math.max(0, n), seq.format);
     } else if (type === 'REF') {
       let tokens; try { tokens = fieldInstructionTokens(range.field.instruction).slice(1); } catch { continue; }

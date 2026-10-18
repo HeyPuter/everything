@@ -56,3 +56,23 @@ describe('text typed where a hidden sequence field stands', () => {
     expect(e.text).toBe('Chapter 2 and more\nPic2');
   });
 });
+
+describe('sequence fields Update Fields cannot reproduce', () => {
+  it('keep their cached results, and still count', async () => {
+    const { createDocx: create, DocxPackage: Package, WRITING_STYLES: writing } = await import('../src/engine/docx.js');
+    const { TextDocument: Doc, paragraph: para } = await import('../src/engine/model.js');
+    const { insertBodyField } = await import('../src/engine/field-results.js');
+    const blank = create([para()], undefined, undefined, undefined, [], {}, writing);
+    const pkg = await Package.open(new Uint8Array(await blank.export().arrayBuffer()));
+    const d = new Doc(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+    d.replace('a ');
+    insertBodyField(d, ' SEQ Figure \\s 1 ', '2-1'); d.replace(' b ');
+    insertBodyField(d, ' SEQ Item \\* CardText ', 'one'); d.replace(' c ');
+    insertBodyField(d, ' SEQ Item \\# "00" ', '02'); d.replace(' d ');
+    insertBodyField(d, ' SEQ Item ', '9');
+    const issues = [];
+    updateSequenceFields(d, { onIssue: issue => issues.push(issue) });
+    expect(d.text).toBe('a 2-1 b one c 02 d 3');
+    expect(issues).toHaveLength(3);
+  });
+});
