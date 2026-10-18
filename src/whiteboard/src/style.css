@@ -3995,6 +3995,17 @@ dialog.history-dialog[open] {
 .icon-grid .icon-choice:focus-visible {
   outline-offset: -3px;
 }
+/* On a short screen, as a phone on its side, a list scrolling inside the
+   scrolling dialog showed a strip of 30 to 40px under the search and
+   filters; there the dialog alone scrolls, through the whole list. */
+@media (max-height: 500px) {
+  .template-library-list,
+  .shape-families,
+  .icon-grid {
+    max-height: none;
+    overflow: visible;
+  }
+}
 /* Tiles stay light in the dark theme, so they keep the light theme's accent
    for their focus ring and border (4.5:1 rather than 1.7:1). */
 :root[data-theme="dark"] .icon-choice:hover,

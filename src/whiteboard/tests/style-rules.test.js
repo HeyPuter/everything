@@ -461,3 +461,19 @@ test("focus rings in the home templates row and the phone category chips are not
   assert.ok(room(".library-chips {", phone) >= 6);
   assert.match(rule(".library-chips {", phone), /scroll-padding-inline:\s*6px/);
 });
+
+test("on a short screen the template, shape and icon lists scroll with their dialog", () => {
+  // At 844x390 each list scrolled inside the scrolling dialog, showing a
+  // strip of 30 to 40px under the search and filters.
+  const at = css.indexOf(
+    "@media (max-height: 500px) {\n  .template-library-list,",
+  );
+  assert.ok(at >= 0);
+  const body = rule(".template-library-list,", at);
+  assert.match(
+    css.slice(at, css.indexOf("{", at + 30)),
+    /\.shape-families,\s*\.icon-grid/,
+  );
+  assert.match(body, /max-height:\s*none/);
+  assert.match(body, /overflow:\s*visible/);
+});
