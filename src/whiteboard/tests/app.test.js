@@ -30008,6 +30008,91 @@ test("losing edit access closes the text being typed and the creation tool", asy
   }
 });
 
+test("a drag held while a shared board finishes connecting is saved when it is let go", async () => {
+  const env = environment();
+  env.service.now = () => Date.now();
+  const room = crypto.randomUUID();
+  const note = item("note", 200, 160, { text: "Drag me" });
+  const seed = new SharedDocument();
+  seed.commit({ version: 1, id: room, title: "Race", items: [note] });
+  await env.service.call(owner, {
+    op: "create",
+    room,
+    update: encode(seed.update()),
+  });
+  seed.destroy();
+  const invite = await env.service.call(owner, {
+    op: "invite",
+    room,
+    role: "editor",
+  });
+  // The board takes edits once synchronized; the check-in that follows
+  // is held until the drag below has begun.
+  const call = env.service.call.bind(env.service);
+  let gated = false,
+    reached,
+    release;
+  const joining = new Promise((resolve) => (reached = resolve));
+  env.service.call = async (user, input) => {
+    if (input.op === "presence" && gated) {
+      gated = false;
+      reached();
+      await new Promise((resolve) => (release = resolve));
+    }
+    return call(user, input);
+  };
+  const app = await setup(env.sdk(collaborator));
+  const { doc } = app;
+  const until = async (fn) => {
+    for (let n = 0; n < 300 && !fn(); n++) await app.tick();
+    return fn();
+  };
+  const saved = () => doc.querySelector("#save-state")?.textContent || "";
+  try {
+    await joinLink(app, room, invite.token);
+    assert.ok(await until(() => /Saved/.test(saved())), saved());
+    await app.click('[data-action="home"]');
+    gated = true;
+    await app.click(".library [data-open]");
+    await joining;
+    const canvas = doc.querySelector("#canvas");
+    canvas.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 800,
+      width: 1000,
+      height: 800,
+    });
+    const pointer = (type, x, y) => {
+      const v = renderedView(app);
+      canvasPointer(app, type, 1, v.x + x * v.z, v.y + y * v.z, {
+        pointerType: "mouse",
+      });
+    };
+    pointer("pointerdown", 295, 240);
+    pointer("pointermove", 345, 240);
+    pointer("pointermove", 395, 240);
+    // Connecting finishes while the pointer is still held there.
+    release();
+    assert.ok(await until(() => saved() === "Saved · live"), saved());
+    for (let n = 0; n < 10; n++) await app.tick();
+    pointer("pointerup", 395, 240);
+    const uploaded = async () => {
+      const { doc: shared } = await env.service.load(room);
+      const x = shared.snapshot().items[0].x;
+      shared.destroy();
+      return Math.round(x);
+    };
+    for (let n = 0; n < 200 && (await uploaded()) !== 300; n++)
+      await app.tick();
+    assert.equal(await uploaded(), 300, "The move reached the shared board");
+  } finally {
+    env.service.call = call;
+    await app.close();
+  }
+});
+
 test("sharing while a shared board is still connecting says so", async () => {
   const env = environment();
   const initial = {

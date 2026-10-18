@@ -11045,7 +11045,12 @@ async function startCollaboration(target, token, localTimer) {
     // what it was last rendered from agree.
     await session.publish();
     if (collaboration !== session || current !== target) return;
+    // The next save is measured from what was saved: a nudge still waiting
+    // is saved now, and a drag still held from where it began, so its
+    // release is saved too rather than taken as no change.
+    flushNudgeSave();
     collaborationLastSaved = clone(target);
+    if (drag?.original) collaborationLastSaved.items = clone(drag.original);
     renderParticipants();
     draw();
     return session;
