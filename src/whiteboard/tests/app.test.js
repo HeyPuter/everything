@@ -6490,6 +6490,50 @@ test("a notification with an action waits while it holds the keyboard", async ()
   }
 });
 
+test("a notification with an action waits while a mouse points at it, not after a tap", async () => {
+  const app = await setup();
+  const { doc, w, click } = app;
+  const realTimeout = w.setTimeout;
+  try {
+    for (let n = 0; n < 2; n++) {
+      await click('[data-action="new"]');
+      await click('[data-action="home"]');
+    }
+    // Notifications' times run 50 times faster.
+    w.setTimeout = (fn, ms, ...rest) =>
+      realTimeout(fn, ms >= 4000 ? ms / 50 : ms, ...rest);
+    const toast = doc.querySelector("#toast");
+    const point = (type, pointerType) => {
+      const event = new w.MouseEvent(type);
+      Object.defineProperty(event, "pointerType", { value: pointerType });
+      toast.dispatchEvent(event);
+    };
+    const trash = async () => {
+      await click(
+        `[data-more="${doc.querySelector("[data-more]").dataset.more}"]`,
+      );
+      await click("#remove-board");
+      await click("#confirm-delete");
+      assert.ok(toast.querySelector(".toast-action"));
+    };
+    await trash();
+    point("pointerenter", "mouse");
+    await new Promise((r) => realTimeout(r, 400));
+    assert.ok(toast.classList.contains("visible"), "Held while pointed at");
+    point("pointerleave", "mouse");
+    await new Promise((r) => realTimeout(r, 400));
+    assert.equal(toast.classList.contains("visible"), false);
+    // A tap leaves nothing pointing at it: its time runs on.
+    await trash();
+    point("pointerenter", "touch");
+    await new Promise((r) => realTimeout(r, 400));
+    assert.equal(toast.classList.contains("visible"), false, "Gone in time");
+  } finally {
+    w.setTimeout = realTimeout;
+    await app.close();
+  }
+});
+
 test("checkpoints restore content and trash preserves boards for recovery", async () => {
   const app = await setup();
   const { doc, click, tick } = app;

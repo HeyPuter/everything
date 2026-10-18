@@ -3020,13 +3020,15 @@ function hideToast() {
     : document.querySelector("#canvas")
   )?.focus({ preventScroll: true });
 }
-// A notification's time runs only while it is neither pointed at nor
-// holding the keyboard, so its action can be read and reached.
+// A notification with an action keeps its time while a mouse or pen points
+// at it or it holds the keyboard, so the action can be read and reached. A
+// tap leaves no pointer resting on it, and one without an action, which
+// clicks pass through, goes in its time.
 function holdToast() {
   if (!toastElement.classList.contains("visible") || !toast.until) return;
   const held =
-    toastElement.matches(":hover") ||
-    toastElement.contains(document.activeElement);
+    toast.acting &&
+    (toast.pointed || toastElement.contains(document.activeElement));
   clearTimeout(toast.timer);
   if (held) toast.left ??= Math.max(0, toast.until - Date.now());
   else {
@@ -3035,8 +3037,14 @@ function holdToast() {
     toast.timer = setTimeout(hideToast, toast.until - Date.now());
   }
 }
-toastElement.addEventListener("pointerenter", holdToast);
-toastElement.addEventListener("pointerleave", () => setTimeout(holdToast));
+toastElement.addEventListener("pointerenter", (e) => {
+  toast.pointed = e.pointerType !== "touch";
+  holdToast();
+});
+toastElement.addEventListener("pointerleave", () => {
+  toast.pointed = false;
+  setTimeout(holdToast);
+});
 toastElement.addEventListener("focusin", (e) => {
   if (!toastElement.contains(e.relatedTarget)) toast.cameFrom = e.relatedTarget;
   holdToast();
@@ -3068,6 +3076,7 @@ function toast(message, action) {
   el.classList.add("visible");
   toast.until = Date.now() + (action ? 10000 : 4500);
   toast.left = null;
+  toast.acting = !!action;
   holdToast();
 }
 // A message inside a dialog: what happened, marked as success or an error
