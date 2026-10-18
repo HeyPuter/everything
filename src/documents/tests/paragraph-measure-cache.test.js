@@ -81,10 +81,27 @@ it('bounds its memory: replaced paragraphs are forgotten, and the least recently
   expect([...generations.entries.keys()]).toEqual(['kept']);
   const cache = new ParagraphMeasureCache(2);
   cache.measure('a', 0, () => measured(0)); cache.measure('b', 0, () => measured(0));
+  cache.nextGeneration();
   cache.measure('a', 5, () => { throw new Error('a is remembered'); });
   cache.measure('c', 0, () => measured(0));
   expect([...cache.entries.keys()]).toEqual(['a', 'c']);
   expect(cache.measure('a', 7, () => null)).toEqual(measured(7));
+});
+
+it('keeps every paragraph of the current layout, even past its limit', () => {
+  // A document with more paragraphs than the limit: evicting within a layout would leave nothing to reuse.
+  const doc = new TextDocument(Array.from({ length: 30 }, (_, i) => paragraph(`Line ${i}`)));
+  const calls = [], cache = new ParagraphMeasureCache(10);
+  const measure = (text, style) => { calls.push(text); return metrics(text, style); };
+  measure.paragraphCache = () => cache;
+  cache.nextGeneration(); lay(doc, measure);
+  doc.select(2); doc.replace('x');
+  calls.length = 0;
+  cache.nextGeneration(); lay(doc, measure);
+  // Only the edited paragraph is measured again.
+  const edited = doc.paragraphs[0].runs.map(r => r.text).join('');
+  expect(calls.length).toBeGreaterThan(0);
+  expect(calls.every(text => edited.startsWith(text))).toBe(true);
 });
 
 afterEach(() => { vi.restoreAllMocks(); document.body.replaceChildren(); });

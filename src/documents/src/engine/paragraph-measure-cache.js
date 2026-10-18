@@ -44,7 +44,13 @@ export class ParagraphMeasureCache {
     }
     const measured = measure();
     this.entries.set(key, { offset, measured: shifted(measured, 0), used: this.generation });
-    if (this.entries.size > this.limit) this.entries.delete(this.entries.keys().next().value);
+    // Past the limit the least recently used entry goes, unless this layout used it too: a document with
+    // more paragraphs than the limit would otherwise evict each before its next use, and every keystroke
+    // would measure the whole document again. nextGeneration() still forgets what layouts stop using.
+    if (this.entries.size > this.limit) {
+      const [oldest, entry] = this.entries.entries().next().value;
+      if (entry.used < this.generation) this.entries.delete(oldest);
+    }
     return measured;
   }
   clear() { this.entries.clear(); }
