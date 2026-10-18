@@ -143,6 +143,13 @@ export function createMindMapUI(api) {
         },
       });
       next.push(node);
+      // In a map laid out automatically, a sibling goes right after the
+      // node it is added beside, and the later siblings move along a place.
+      if (sibling && parent !== selected && root.mindMap.auto) {
+        const rows = [...children];
+        rows.splice(rows.indexOf(selected) + 1, 0, node);
+        rows.forEach((i, k) => (i.order = k + 1));
+      }
       if (root.mindMap.auto) applyMindLayout(next, root.id);
       else {
         // Lay out a temporary branch to choose a non-overlapping insertion point

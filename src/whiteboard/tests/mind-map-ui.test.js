@@ -231,6 +231,53 @@ test("a sibling refused because the layout would move a locked node names that n
   assert.equal(b.items.length, 3);
 });
 
+test("a sibling added beside a node comes right after it", () => {
+  const b = board("Siblings");
+  const node = (text, parent, order) =>
+    item("rect", 0, 0, {
+      text,
+      w: 200,
+      h: 76,
+      order,
+      mindMap: { parent, direction: "right", auto: true, line: "curved" },
+    });
+  const root = node("Root", null),
+    a = node("A", root.id, 1),
+    bee = node("B", root.id, 2),
+    c = node("C", root.id, 3);
+  b.items = [root, a, bee, c];
+  let writes = 0;
+  const ui = createMindMapUI({
+    board: () => b,
+    source: () => a,
+    finish() {},
+    canEdit: () => true,
+    mutate: (fn) => (fn(), writes++),
+    select() {},
+    focus() {},
+    reveal() {},
+    edit() {},
+    toast(message) {
+      throw Error(message);
+    },
+  });
+  ui.add(true);
+  assert.equal(writes, 1, "One undo step");
+  const rows = b.items
+    .filter((i) => i.mindMap.parent === root.id)
+    .sort((p, q) => p.order - q.order);
+  assert.deepEqual(
+    rows.map((i) => i.text),
+    ["A", "New idea", "B", "C"],
+  );
+  assert.deepEqual(
+    rows.map((i) => i.order),
+    [1, 2, 3, 4],
+  );
+  // The layout follows the order.
+  assert.ok(rows.every((i, n) => !n || rows[n - 1].y < i.y));
+});
+
 test("French parent controls keep tagged English text and translated empty-node names", () => {
   const a = setup();
   try {
