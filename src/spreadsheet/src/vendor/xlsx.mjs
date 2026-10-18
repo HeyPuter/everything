@@ -19238,9 +19238,12 @@ function parse_xlml_xml(d, _opts)/*:Workbook*/ {
 		else str = utf8read(str);
 	}
 	var opening = str.slice(0, 1024).toLowerCase(), ishtml = false;
-	opening = opening.replace(/".*?"/g, "");
+	/* Puter Spreadsheet: a comment before the markup ("<!-- saved from url=(0040)https://...;id=1 -->",
+	   which browsers write into a saved page) is not delimited text, and an XHTML page, which starts
+	   with an XML declaration, is a web page rather than an XML spreadsheet. */
+	opening = opening.replace(/<!--[\s\S]*?-->/g, "").replace(/".*?"/g, "");
 	if((opening.indexOf(">") & 1023) > Math.min((opening.indexOf(",") & 1023), (opening.indexOf(";")&1023))) { var _o = dup(opts); _o.type = "string"; return PRN.to_workbook(str, _o); }
-	if(opening.indexOf("<?xml") == -1) ["html", "table", "head", "meta", "script", "style", "div"].forEach(function(tag) { if(opening.indexOf("<" + tag) >= 0) ishtml = true; });
+	if(opening.indexOf("<?xml") == -1 || /<html[\s>]/.test(opening)) ["html", "table", "head", "meta", "script", "style", "div"].forEach(function(tag) { if(opening.indexOf("<" + tag) >= 0) ishtml = true; });
 	if(ishtml) return html_to_workbook(str, opts);
 
 	XLMLFormatMap = ({

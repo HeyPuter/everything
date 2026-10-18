@@ -2256,7 +2256,10 @@ function sniffFileKind(b) {
   const head = b.subarray(0, 1024);
   for (const byte of head) if (byte < 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d && byte !== 0x0c) return 'binary';
   const text = new TextDecoder().decode(head).replace(/^﻿/, '').trimStart();
-  return /^(?:<\?xml\b|<\?mso-application\b|<!doctype\s+html\b|<html\b|<head\b|<body\b|<meta\b|<table\b|ID;P|TABLE\r?\n0,1)/i.test(text) ? 'markup' : 'text';
+  if (/^(?:<\?xml\b|<\?mso-application\b|<!doctype\s+html\b|<html\b|<head\b|<body\b|<meta\b|<table\b|ID;P|TABLE\r?\n0,1)/i.test(text)) return 'markup';
+  // A saved web page can open with a comment (browsers write "<!-- saved from url=... -->" first), a
+  // stylesheet or a <div> before its table: markup from its first character that names a page's element.
+  return text.startsWith('<') && /<(?:html|head|body|table|meta|style|script|div)\b/i.test(text) ? 'markup' : 'text';
 }
 
 // A zip's central directory says what each part unpacks to before any of it is unpacked. A
