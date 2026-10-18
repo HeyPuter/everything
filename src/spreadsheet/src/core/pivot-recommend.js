@@ -5,6 +5,8 @@
  */
 import { pivotFields } from './pivot.js';
 import { normalizeRange } from './cell.js';
+import { dateTimeKind } from './format.js';
+import { compareStoredValues } from './formula/functions.js';
 
 const MAX_RECOMMENDATIONS = 10;
 const PREVIEW_ROWS = 8;
@@ -16,7 +18,8 @@ function columnProfile(wb, sheetId, range, col) {
     const v = wb.getValue(sheetId, r, col);
     if (v == null || v === '') continue;
     filled++;
-    if (typeof v === 'number') numbers++;
+    // A date or time is a number underneath, but a value to group by, never one to total.
+    if (typeof v === 'number' && !dateTimeKind(wb.styleAt(sheetId, r, col), v)) numbers++;
     const key = typeof v === 'string' ? v.trim().toLowerCase() : String(v);
     if (!labels.has(key)) labels.set(key, typeof v === 'string' ? v.trim() : v);
   }
@@ -30,12 +33,14 @@ function previewRows(wb, sheetId, range, rowCol, valueCol, agg) {
     const label = wb.getValue(sheetId, r, rowCol);
     if (label == null || label === '') continue;
     const key = typeof label === 'string' ? label.trim().toLowerCase() : String(label);
-    const group = groups.get(key) || { label: typeof label === 'string' ? label.trim() : label, sum: 0, count: 0 };
+    // A number label reads as its cell shows it (a date as a date), and sorts by its value, as the pivot's rows do.
+    const group = groups.get(key) || { label: typeof label === 'string' ? label.trim() : wb.getDisplay(sheetId, r, rowCol), value: label, sum: 0, count: 0 };
     const v = wb.getValue(sheetId, r, valueCol);
     if (agg === 'count') { if (v != null && v !== '') group.count++; } else if (typeof v === 'number') group.sum += v;
     groups.set(key, group);
   }
-  const rows = [...groups.values()].sort((a, b) => String(a.label).localeCompare(String(b.label), undefined, { numeric: true }));
+  const rows = [...groups.values()].sort((a, b) => (typeof a.value === 'string' && typeof b.value === 'string'
+    ? String(a.label).localeCompare(String(b.label), undefined, { numeric: true }) : compareStoredValues(a.value, b.value)));
   return rows.slice(0, PREVIEW_ROWS).map((g) => [g.label, agg === 'count' ? g.count : g.sum]);
 }
 
