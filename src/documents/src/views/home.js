@@ -25,6 +25,7 @@ import { openModal } from '../ui/modal.js';
 import { HANWORD_IMPORTABLE } from '../lib/importers.js';
 import { importFiles, nothingImportable } from '../lib/importfiles.js';
 import { documentPathKey } from '../lib/document-paths.js';
+import { forgetRoom, moveRoom } from '../collab/room-memory.js';
 
 export const SORTS = [
   { id: 'modified', label: 'Last modified' },
@@ -307,6 +308,7 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
         moveStar(file.path, target);
         moveGoal(file.path, target);
         movePosition(file.path, target);
+        await moveRoom(file.path, target);
         await renameVersions(file.path, target);
         // Best effort, like the version history: a published page follows the file.
         movePublication(file.path, target).catch((e) => console.warn('[documents] the published page could not follow the rename', e));
@@ -373,6 +375,7 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
       forgetStar(file.path);
       rememberGoal(file.path, null);
       forgetPosition(file.path);
+      forgetRoom(file.path);
       files = files.filter((f) => f.path !== file.path);
       // A listing started before deletion can still contain this file. Fetch
       // a fresh snapshot and invalidate that request (or its stale error).

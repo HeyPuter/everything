@@ -17,26 +17,15 @@ import { CollabClient } from './client.js';
 import { createSharedDoc, unsupportedReason } from './shared-doc.js';
 import { BroadcastRoom, WorkerTransport } from './transports.js';
 import { call, deploy } from './api.js';
-import { canEdit, canManage, decode, encode, hash, randomId, shareLink, INVITE_ROLES } from './protocol.js';
+import { rememberedRoom, rememberRoom } from './room-memory.js';
+import { canEdit, canManage, decode, encode, randomId, shareLink, INVITE_ROLES } from './protocol.js';
 
-const ROOM_KEY = 'documents-collab-room:';
 const hexToRgba = (hex, alpha) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`; };
 
 /** The SDK, when there is one (the mock SDK in development). */
 const sdk = () => (typeof puter !== 'undefined' ? puter : null);
 
-/** The room remembered for a document file this account shared, or null. */
-export async function rememberedRoom(path) {
-  const owner = sdk();
-  if (!owner?.kv || !path) return null;
-  try { return await owner.kv.get(ROOM_KEY + await hash(path)); } catch { return null; }
-}
-async function rememberRoom(path, value) {
-  const owner = sdk();
-  if (!owner?.kv || !path) return;
-  try { if (value) await owner.kv.set(ROOM_KEY + await hash(path), value); else await owner.kv.del(ROOM_KEY + await hash(path)); }
-  catch { /* the owner can share again */ }
-}
+export { rememberedRoom };
 
 function workerTransport(server, room, token) {
   const owner = sdk();

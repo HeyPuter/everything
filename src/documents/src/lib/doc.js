@@ -20,6 +20,7 @@ import { session } from './session.js';
 import { snapshotIfDue, saveVersion, renameVersions, deleteVersions } from './versions.js';
 import { movePublication, unpublishAt } from './publish.js';
 import { moveStar } from './starred.js';
+import { forgetRoom, moveRoom } from '../collab/room-memory.js';
 import { HANWORD_IMPORTABLE, decodeTextFile, importHanword, importKind, toInsertPayload } from './importers.js';
 
 export const AUTOSAVE_MS = 1500;
@@ -264,6 +265,8 @@ export class Doc extends EventTarget {
         const created = await P.createFileWithMetadata(target, blob);
         target = created.path;
         this._remoteModified = created.modified;
+        // A new file under the name of one that was shared and deleted is not that document: it must not rejoin its room.
+        await forgetRoom(target);
       }
       else this._remoteModified = (await P.writeFile(target, blob))?.modified ?? null;
       // A failed export or write must not advertise a file that does not exist,
@@ -451,6 +454,7 @@ export class Doc extends EventTarget {
     }
     // The star on the home screen follows the file, as a rename there does; left behind, the next listing drops it.
     moveStar(this.path, target);
+    await moveRoom(this.path, target);
     if (versioning.enabled) await renameVersions(this.path, target);
     // A published page stays up under its address; its record follows the
     // file in the background, since the rename itself is already done.
@@ -489,6 +493,7 @@ export class Doc extends EventTarget {
         return 'Saving a copy cancelled';
       }
       this._remoteModified = (await P.writeFile(target, blob, { overwrite: false }))?.modified ?? null;
+      await forgetRoom(target);
       this.size = blob?.size ?? this.size;
       this.path = target;
       this.name = clean;
@@ -535,6 +540,7 @@ export class Doc extends EventTarget {
         this.savedVersion = this.version;
         this._setStatus('saved');
         if (versioning.enabled) await deleteVersions(path);
+        await forgetRoom(path);
         // Nothing is left to update the page from; a page nobody can take down must not stay online.
         if (publishing.enabled) unpublishAt(path).catch((e) => console.warn('[documents] the published page could not be taken down', e));
       } finally {
