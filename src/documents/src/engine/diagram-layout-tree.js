@@ -135,11 +135,16 @@ function variablesFor(xml,point,inherited){
 // Expand selection and conditional markup into a layout tree. Constraints and
 // style XML stay attached to the correct instantiated node for the next stage;
 // this function does not invent positions or use the saved drawing geometry.
+const MAX_LAYOUT_NODES=10000,MAX_LAYOUT_STEPS=500000;
 export function buildDiagramLayoutTree(definition,model){
  if(definition?.namespaceURI!==DGM||definition.localName!=='layoutDef')fail('an invalid definition');
  const roots=direct(definition,'layoutNode');if(roots.length!==1)fail('missing or duplicate layout roots');
  const output={children:[]},stack=[{xml:roots[0],point:model.root,parent:output,variables:{dir:'norm'}}];
+ // Nested iterators multiply: a few hundred bytes of layout over a modest data model can expand into
+ // millions of nodes. Real diagrams stay far below these bounds; past them the drawing is not editable.
+ let nodes=0,steps=0;
  while(stack.length){
+  if(++steps>MAX_LAYOUT_STEPS)fail('a layout that expands too far');
   const task=stack.pop(),{xml,point,parent}=task;
   if(xml.namespaceURI!==DGM)fail('an unsupported layout namespace');
   const kind=xml.localName;
@@ -147,6 +152,7 @@ export function buildDiagramLayoutTree(definition,model){
   if(kind==='layoutNode'){
    if(xml.getAttribute('moveWith')||(xml.getAttribute('chOrder')||'b')!=='b')fail('unsupported child ordering or moveWith');
    const variables=variablesFor(xml,point,task.variables);
+   if(++nodes>MAX_LAYOUT_NODES)fail('a layout with too many nodes');
    const node={name:xml.getAttribute('name')||'',styleLabel:xml.getAttribute('styleLbl')||'',point,variables,children:[],constraints:[],rules:[],shape:null,algorithm:null,presentation:[]};
    parent.children.push(node);schedule(elements(xml),{point,parent:node,variables});
   }else if(kind==='forEach'){

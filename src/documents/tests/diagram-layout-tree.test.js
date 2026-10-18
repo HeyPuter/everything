@@ -64,3 +64,13 @@ it('honors per-point variable overrides and equivalent boolean spellings',()=>{
  const layout=root(`<d:layoutDef xmlns:d="${D}"><d:layoutNode name="root"><d:varLst><d:dir/></d:varLst><d:choose><d:if func="var" arg="bulletEnabled" op="equ" val="1"><d:alg type="lin"/></d:if><d:else><d:alg type="sp"/></d:else></d:choose></d:layoutNode></d:layoutDef>`);
  const tree=buildDiagramLayoutTree(layout,model);expect(tree.variables.dir).toBe('rev');expect(tree.algorithm.type).toBe('lin');
 });
+
+it('refuses a layout whose nested iterators would expand into millions of nodes, quickly',()=>{
+ const id=i=>`{00000000-0000-0000-0000-${String(i).padStart(12,'0')}}`,doc='{10000000-0000-0000-0000-000000000000}',n=40;
+ const model=readDiagramDataModel(root(`<dgm:dataModel xmlns:dgm="${D}" xmlns:a="${A}"><dgm:ptLst><dgm:pt modelId="${doc}" type="doc"/>${Array.from({length:n},(_,i)=>`<dgm:pt modelId="${id(i+1)}" type="node"/>`).join('')}</dgm:ptLst><dgm:cxnLst>${Array.from({length:n},(_,i)=>`<dgm:cxn modelId="${id(1000+i)}" srcId="${doc}" destId="${id(i+1)}" srcOrd="${i}" destOrd="0"/>`).join('')}</dgm:cxnLst></dgm:dataModel>`));
+ const layout=levels=>root(`<dgm:layoutDef xmlns:dgm="${D}"><dgm:layoutNode name="root"><dgm:alg type="lin"/><dgm:forEach axis="ch" ptType="node">${'<dgm:forEach axis="root ch" ptType="all node">'.repeat(levels-1)}<dgm:layoutNode name="n"><dgm:alg type="tx"/><dgm:shape type="rect"/></dgm:layoutNode>${'</dgm:forEach>'.repeat(levels-1)}</dgm:forEach></dgm:layoutNode></dgm:layoutDef>`);
+ expect(buildDiagramLayoutTree(layout(2),model).children.length).toBeGreaterThan(n);
+ const started=performance.now();
+ expect(()=>buildDiagramLayoutTree(layout(5),model)).toThrow(/too many nodes|expands too far/);
+ expect(performance.now()-started).toBeLessThan(10000);
+});
