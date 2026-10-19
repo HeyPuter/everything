@@ -276,11 +276,28 @@ function renderBoxWhisker(data, chart, width, height) {
   const gap = Math.max(0, opts.gapWidth ?? 100) / 100, boxW = slot / (count + gap), clip = `box-${Math.random().toString(36).slice(2, 8)}`;
   parts.push(`<clipPath id="${clip}"><rect x="${f(plot.x)}" y="${f(plot.y - 2)}" width="${f(plot.w)}" height="${f(plot.h + 4)}"/></clipPath><g clip-path="url(#${clip})">`);
   const labels = [];
+  // Past a box a pixel across, neighbouring groups share their pixels: each run of them draws the one that
+  // reaches furthest, as the cartesian charts thin their points, so thousands of named rows (a box each)
+  // draw a picture the width of the plot rather than hundreds of thousands of nodes that stall the page.
+  const per = Math.max(1, Math.ceil(n * count / Math.max(1, plot.w)));
+  const drawn = stats.map(list => {
+    if (per === 1) return list.map(Boolean);
+    const keep = list.map(() => false);
+    for (let start = 0; start < list.length; start += per) {
+      let best = -1;
+      for (let k = start; k < Math.min(list.length, start + per); k++) if (list[k] && (best < 0 || list[k].max - list[k].min > list[best].max - list[best].min)) best = k;
+      if (best >= 0) keep[best] = true;
+    }
+    return keep;
+  });
+  // The points inside each box and beyond its whiskers: up to 400, fewer when there are many boxes to share them.
+  const boxes = drawn.reduce((sum, keep) => sum + keep.filter(Boolean).length, 0);
+  const pointsPerBox = Math.min(400, Math.max(20, Math.floor(MARK_BUDGET * 4 / Math.max(1, boxes))));
   grouped.series.forEach((series, j) => {
     const style = series.style ?? data.valueStyle, pointColors = new Map((a?.pointColors?.[j] || []).map(p => [p.index, p.color]));
     const means = [];
     stats[j].forEach((s, i) => {
-      if (!s) return;
+      if (!s || !drawn[j][i]) return;
       // A box coloured on its own (Format Data Point) keeps that colour; the rest take the series'.
       const own = pointColors.get(i), color = own && own !== 'none' ? own : seriesColor(chart, j), paint = own || seriesPaint(chart, j), dark = shadeColor(color, -.35);
       const x0 = plot.x + slot * i + boxW * gap / 2 + boxW * j, cxm = x0 + boxW / 2, w = boxW * .8, left = cxm - w / 2;
@@ -290,8 +307,8 @@ function renderBoxWhisker(data, chart, width, height) {
         `<rect class="chart-box-body" x="${f(left)}" y="${f(y(s.q3))}" width="${f(w)}" height="${f(Math.max(.75, y(s.q1) - y(s.q3)))}" fill="${esc(paint)}" stroke="${esc(dark)}" stroke-width="1"/>`,
         `<line class="chart-box-median" x1="${f(left)}" y1="${f(y(s.median))}" x2="${f(left + w)}" y2="${f(y(s.median))}" stroke="${esc(inkOn(color))}" stroke-width="1.5"/>`);
       if (opts.meanMarkers) parts.push(chartMarker('x', cxm, y(s.mean), Math.min(8, w / 2), 'none', inkOn(color), '', 'chart-box-mean'));
-      if (opts.innerPoints) for (const v of s.inner.slice(0, 400)) parts.push(`<circle class="chart-box-point" cx="${f(cxm)}" cy="${f(y(v))}" r="1.8" fill="${esc(dark)}"/>`);
-      if (opts.outliers) for (const v of s.outliers.slice(0, 400)) parts.push(`<circle class="chart-box-outlier" cx="${f(cxm)}" cy="${f(y(v))}" r="2.5" fill="none" stroke="${esc(dark)}" stroke-width="1"><title>${esc(`${series.name}: outlier ${valueText(v, style)}`)}</title></circle>`);
+      if (opts.innerPoints) for (const v of s.inner.slice(0, pointsPerBox)) parts.push(`<circle class="chart-box-point" cx="${f(cxm)}" cy="${f(y(v))}" r="1.8" fill="${esc(dark)}"/>`);
+      if (opts.outliers) for (const v of s.outliers.slice(0, pointsPerBox)) parts.push(`<circle class="chart-box-outlier" cx="${f(cxm)}" cy="${f(y(v))}" r="2.5" fill="none" stroke="${esc(dark)}" stroke-width="1"><title>${esc(`${series.name}: outlier ${valueText(v, style)}`)}</title></circle>`);
       parts.push('</g>');
       means.push([cxm, y(s.mean)]);
       if (labelsOn(chart) && w >= 4) {
