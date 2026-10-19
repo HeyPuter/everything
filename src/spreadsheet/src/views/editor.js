@@ -1902,7 +1902,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         }
         const range = grid.range;
         if ((range.r2 - range.r1 + 1) * (range.c2 - range.c1 + 1) > 10000) { toast('Select a smaller area to copy formatting from', { icon: 'info' }); return; }
-        painter = { cells: wb.copyRange(sheetId, range), range, sheetId, sticky };
+        // Merged blocks and conditional formatting are formatting too, and come along as Excel's painter brings them.
+        const lines = (a, b) => Array.from({ length: b - a + 1 }, (_, k) => a + k);
+        const rows = lines(range.r1, range.r2), cols = lines(range.c1, range.c2);
+        painter = { cells: wb.copyRange(sheetId, range), range, sheetId, sticky,
+          merges: copyMergeLayout(wb.sheet(sheetId).merges, rows, cols).ranges, conditionalFormats: wb.copyConditionalFormats(sheetId, rows, cols) };
         grid.el.classList.add('painting');
         toast(sticky ? 'Formatting copied. Select each range to paint; Escape stops' : 'Formatting copied. Select the cells to paint (Escape cancels)', { icon: 'paint', duration: 3000 });
         notify();
@@ -4155,7 +4159,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         toast('This formatting cannot be applied to the selected part of the pivot table', { icon: 'info', duration: 5000 });
         stopPainting(); return;
       }
-    } else wb.pasteStyles(grid.sheetId, painter.cells, target.r1, target.c1, target);
+    } else if (wb.pasteStyles(grid.sheetId, painter.cells, target.r1, target.c1, target,
+      { merges: painter.merges, conditionalFormats: painter.conditionalFormats }) === false) { stopPainting(); return; }
     grid.setSelection(S.fromRange(target, { r: target.r1, c: target.c1 }), { scroll: false });
     if (painter.sticky) { toast('Formatting painted. Select more cells, or press Escape to stop', { icon: 'paint', duration: 1600 }); return; }
     stopPainting();
