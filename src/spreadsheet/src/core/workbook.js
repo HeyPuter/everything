@@ -1550,9 +1550,10 @@ export class Workbook extends EventTarget {
     // A bare name is one quoteSheet leaves unquoted: letters of any script, marks, digits, _ and . (#Données!A1).
     const linkRe = /(HYPERLINK\(\s*")#(?:'((?:[^']|'')+)'|([\p{L}_][\p{L}\p{M}\p{N}_.]*))!/giu;
     const fromKey = sheetKey(from);
+    // The link is text inside a string, where a double quote in the sheet's name is written twice ("#'a""b'!A1").
     const renameLinks = (f) => (/HYPERLINK/i.test(f) ? f.replace(linkRe, (m, head, quoted, bare) => {
-      const name = quoted ? quoted.replace(/''/g, "'") : bare;
-      return sheetKey(name) === fromKey ? `${head}#${quoteSheet(to)}!` : m;
+      const name = quoted ? quoted.replace(/''/g, "'").replace(/""/g, '"') : bare;
+      return sheetKey(name) === fromKey ? `${head}#${quoteSheet(to).replace(/"/g, '""')}!` : m;
     }) : f);
     const rename = (f) => renameLinks(renameSheetInFormula(f, from, to, options));
     let contextualCells;
