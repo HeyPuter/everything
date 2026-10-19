@@ -3,6 +3,7 @@ import { writeOdsSettings, readOdsSettings, readOdsViewSettings } from '../core/
 import { odsFilterReader, writeOdsFilter } from '../core/ods-filter.js';
 import { writeOdsValidations, readOdsValidations, odsValidationLayout, addOdsValidation, odsFormulaReader } from '../core/ods-validation.js';
 import { odsCellStyleProperties, odsTextStyleProperties } from '../core/ods-cell-styles.js';
+import { xlmlCellProps } from '../core/xlml-styles.js';
 /*! xlsx.js (C) 2013-present SheetJS -- http://sheetjs.com */
 /* vim: set ts=2: */
 /*exported XLSX */
@@ -19158,8 +19159,12 @@ function parse_xlml_data(xml, ss, data, cell/*:any*/, base, styles, csty, row, a
 	var i = 0;
 	if(sid === undefined && row) sid = row.StyleID;
 	if(sid === undefined && csty) sid = csty.StyleID;
+	var chain = [];
 	while(styles[sid] !== undefined) {
 		var ssid = styles[sid];
+		/* Puter Spreadsheet local patch: the style chain's font, fill, alignment and borders (see xlml-styles.js). */
+		if(chain.indexOf(ssid) > -1) break;
+		chain.push(ssid);
 		if(ssid.nf) nf = ssid.nf;
 		if(ssid.Interior) interiors.push(ssid.Interior);
 		if(!ssid.Parent) break;
@@ -19215,6 +19220,8 @@ function parse_xlml_data(xml, ss, data, cell/*:any*/, base, styles, csty, row, a
 			if(!S.patternType && x.patternType) S.patternType = x.patternType;
 		});
 		cell.s = S;
+		var props = chain.length ? xlmlCellProps(chain, styles.Default) : null;
+		if(props) cell.odsProps = props;
 	}
 	if(cell.StyleID !== undefined) cell.ixfe = cell.StyleID;
 }
@@ -19267,7 +19274,7 @@ function parse_xlml_xml(d, _opts)/*:Workbook*/ {
 	}/*:any*/);
 
 
-	var Rn;
+	var Rn, instyle = false;
 	var state = [], tmp;
 	if(DENSE != null && opts.dense == null) opts.dense = DENSE;
 	var sheets = {}, sheetnames/*:Array<string>*/ = [], cursheet/*:Worksheet*/ = ({}), sheetname = ""; if(opts.dense) cursheet["!data"] = [];
@@ -19390,8 +19397,8 @@ function parse_xlml_xml(d, _opts)/*:Workbook*/ {
 			break;
 
 		case 'style' /*case 'Style'*/:
-			if(Rn[1]==='/') process_style_xlml(styles, stag, opts);
-			else stag = xlml_parsexmltag(Rn[0]);
+			if(Rn[1]==='/') { process_style_xlml(styles, stag, opts); instyle = false; }
+			else { stag = xlml_parsexmltag(Rn[0]); instyle = Rn[0].slice(-2) !== "/>"; if(!instyle) process_style_xlml(styles, stag, opts); }
 			break;
 
 		case 'numberformat' /*case 'NumberFormat'*/:
@@ -19439,11 +19446,18 @@ function parse_xlml_xml(d, _opts)/*:Workbook*/ {
 		case 'sub' /*case 'Sub'*/: break;
 		case 'sup' /*case 'Sup'*/: break;
 		case 'span' /*case 'Span'*/: break;
+		/* Puter Spreadsheet local patch: a style's alignment, borders and font are kept for its cells. */
 		case 'alignment' /*case 'Alignment'*/:
+			if(instyle && Rn[1]!=='/') stag.Alignment = xlml_parsexmltag(Rn[0]);
 			break;
-		case 'borders' /*case 'Borders'*/: break;
-		case 'border' /*case 'Border'*/: break;
+		case 'borders' /*case 'Borders'*/:
+			if(instyle && Rn[1]!=='/' && !stag.Borders) stag.Borders = [];
+			break;
+		case 'border' /*case 'Border'*/:
+			if(instyle && Rn[1]!=='/') (stag.Borders || (stag.Borders = [])).push(xlml_parsexmltag(Rn[0]));
+			break;
 		case 'font' /*case 'Font'*/:
+			if(instyle) { if(Rn[1]!=='/') stag.Font = xlml_parsexmltag(Rn[0]); break; }
 			if(Rn[0].slice(-2) === "/>") break;
 			else if(Rn[1]==="/") ss += str.slice(fidx, Rn.index);
 			else fidx = Rn.index + Rn[0].length;
