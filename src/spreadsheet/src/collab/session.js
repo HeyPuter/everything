@@ -55,10 +55,14 @@ export async function invitationLink(client, role = null) {
   return shareLink(location.href, { server: client.o.server, room: client.room, token });
 }
 
-/** Stop editing together: the room closes for everyone, and the file is the owner's alone again. */
+/**
+ * Stop editing together: the room closes for everyone, and the file is the owner's alone again. Only once the file
+ * holds every change that reached the room: a save that fails (a full drive, changes not yet delivered) leaves the
+ * room open and says why, since nothing opens a closed room's changes again.
+ */
 export async function stopSharing(doc) {
   const client = doc.collab;
-  await doc.save().catch(() => {});
+  await doc.save();
   await client.request({ op: 'stop' });
   if (doc.path) await globalThis.puter?.kv?.del?.(fileKey({ path: doc.path, uid: doc.uid })).catch?.(() => {});
 }

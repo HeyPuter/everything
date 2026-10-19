@@ -55,3 +55,19 @@ it("saves the shared workbook as the room has it, not as this browser last heard
   await doc.save();
   expect(await fileA1()).toBe('from bob');
 });
+
+it("keeps the workbook shared when the owner's file cannot take its last changes, rather than closing the room on them", async () => {
+  const { env, mine, theirs, doc, fileA1 } = await setup();
+  theirs.wb.setInput(theirs.wb.sheets[0].id, 0, 0, 'from bob');
+  await until(() => !theirs.replica.pending.length, 4000, 'delivery');
+  // Neither the room's worker nor the owner's browser can write the file (the owner's drive is full).
+  const full = () => Promise.reject(Object.assign(new Error('Your storage is full.'), { code: 'storage_limit_reached' }));
+  env.workerPuter.fs.write = full;
+  globalThis.puter.fs.write = full;
+  await expect(stopSharing(doc)).rejects.toThrow(/storage is full/);
+  expect(await fileA1()).toBe(null);
+  // Nobody was shut out: the changes are still in the room, for the next try.
+  expect((await mine.request({ op: 'sync', since: 0 })).head).toBeGreaterThan(0);
+  theirs.wb.setInput(theirs.wb.sheets[0].id, 1, 0, 'still here');
+  await until(() => !theirs.replica.pending.length, 4000, 'a later change');
+});

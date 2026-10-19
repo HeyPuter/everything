@@ -179,7 +179,7 @@ export function coauthorSection({ doc, onStarted }) {
     onclick: async () => {
       if (!await confirmDialog({ title: 'Stop editing together?', message: 'Everyone else loses access to the live workbook. The file keeps every change made so far and is yours alone again.', confirmLabel: 'Stop editing together' })) return;
       try { await stopSharing(doc); toast('Editing together stopped', { icon: 'check' }); onStarted?.(null); }
-      catch (e) { toast(e?.message || 'Could not stop editing together', { icon: 'alert' }); }
+      catch (e) { toast(e?.message ? `Could not stop editing together: ${e.message.replace(/\.$/, '')}. The workbook is still shared` : 'Could not stop editing together', { icon: 'alert', duration: 6000 }); }
     },
   }, 'Stop editing together');
   box.append(...[heading,
