@@ -1966,7 +1966,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           keepFocus();
           return;
         }
-        grid.setSelection(S.selectRows(at, at + n - 1, { rows: wb.sheet(sheetId).rows, cols: wb.sheet(sheetId).cols }), { scroll: false });
+        // The lines inserted are selected whole, as the grid selects a row or column (to the grid's edge, not the sheet's
+        // filled size): cut at column Z, Ctrl+- then asked how to shift cells instead of deleting the row.
+        grid.setSelection(S.selectRows(at, at + n - 1, sheetLimits(sheetId)), { scroll: false });
         rememberStepSelection(before);
         keepFocus();
         return;
@@ -1986,7 +1988,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           keepFocus();
           return;
         }
-        grid.setSelection(S.selectCols(at, at + n - 1, { rows: wb.sheet(sheetId).rows, cols: wb.sheet(sheetId).cols }), { scroll: false });
+        grid.setSelection(S.selectCols(at, at + n - 1, sheetLimits(sheetId)), { scroll: false });
         rememberStepSelection(before);
         keepFocus();
         return;
