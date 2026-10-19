@@ -4762,6 +4762,19 @@ export class Workbook extends EventTarget {
       // A fill over a table header renames its column and keeps the headers distinct, as a paste does.
       const changed = this.setCellsWithTableHeaders(sheetId, entries, 'Fill');
       if (mergePlan?.ranges.length) this._setMerges(sheet, mergePlan.next, 'Fill');
+      // Data validation goes with the fill, as Excel's fill handle and Fill Down carry it (the usual way to take a
+      // dropdown down a column, an empty one included): each copy of the source block lays down the rules of the
+      // cells it repeats, a custom formula's relative references following each cell, in place of the filled
+      // cells' own. Copies sit on the source's grid, as the merges' do.
+      if (entries.length && sheet.validations.length && !this._gridLocked(sheet) && !entries.some(({ r, c }) => this._protectedAt(sheet, r, c))) {
+        const lines = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+        const copied = copyValidations(sheet.validations, lines(src.r1, src.r2), lines(src.c1, src.c2));
+        const tile = (start, size, lo, hi) => { const first = start + Math.floor((lo - start) / size) * size; return [first, Math.ceil((hi - first + 1) / size)]; };
+        const [r0, rows] = vertical ? tile(src.r1, h, tgt.r1, tgt.r2) : [src.r1, 1];
+        const [c0, cols] = vertical ? [src.c1, 1] : tile(src.c1, w, tgt.c1, tgt.c2);
+        const next = replaceValidations(sheet.validations, mapPastedValidations(copied, h, w, r0, c0, { rows, cols }), entries, newId);
+        if (next !== sheet.validations) this._setValidations(sheet, next, 'Fill');
+      }
       // Rows filled under a table join it, whether the fill handle was dragged or double-clicked or Ctrl+D
       // pressed; the drag's own extendTableToCover call afterwards finds the table already grown. A fill
       // that wrote nothing (one a protected cell refused) grows no table. The whole target goes over, not
