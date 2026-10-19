@@ -15,6 +15,8 @@ import { fontColorCss } from '../core/font-color.js';
 import { fontStack, fontKeyFor, borderCss, getLocale } from '../core/format.js';
 import { hasHeaderFormatting, parsePrintHeader } from '../core/print-header.js';
 import { colName } from '../core/cell.js';
+import { conditionalFontStyle } from '../core/style-values.js';
+import { nativeFillOverridesNormal } from '../core/native-fill.js';
 
 const HEAD_W = 36, HEAD_H = 18, TITLE_H = 28;
 
@@ -290,9 +292,19 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
       cols.forEach(([c], i) => g.fillText(colName(c), (xs[i] + xs[i + 1]) / 2, y0 * k + headH * s / 2));
       rows.forEach(([r], i) => g.fillText(String(r + 1), x0 * k + headW * sx / 2, (ys[i] + ys[i + 1]) / 2));
     }
+    // Each cell as it prints: its own style, under its table's colours (header, banded rows) and its conditional
+    // formatting, which paint over it as they do on screen and on paper; a cell's own fill shows through a table's coat.
+    const looked = !!(sheet.rules?.length || sheet.tables?.length);
+    const looks = rows.map(([r]) => cols.map(([c]) => {
+      const own = wb.styleAt(shown, r, c) || {};
+      const value = wb.getValue(shown, r, c);
+      const cf = looked ? wb.conditionalStyle(shown, r, c, value) : null;
+      const bg = cf?.bg && !(nativeFillOverridesNormal(own, wb.nativeNormalFill) && cf.coat) ? cf.bg : own.bg;
+      return { st: conditionalFontStyle(own, cf), cf, bg, value };
+    }));
     // Fills first, then the gridlines, then the text and borders over them.
-    rows.forEach(([r], i) => cols.forEach(([c], j) => {
-      const bg = fillColorCss(wb.styleAt(shown, r, c)?.bg);
+    rows.forEach((_, i) => cols.forEach((__, j) => {
+      const bg = fillColorCss(looks[i][j].bg);
       if (bg && bg !== 'transparent') { g.fillStyle = bg; g.fillRect(xs[j], ys[i], xs[j + 1] - xs[j], ys[i + 1] - ys[i]); }
     }));
     if (prefs.gridlines) {
@@ -302,16 +314,42 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
       for (const y of ys) { g.moveTo(left, y); g.lineTo(xs.at(-1), y); }
       g.stroke();
     }
+    // A cell under a checkbox rule prints a tick box in place of its TRUE or FALSE, blank or not, as the grid shows it.
+    const ruleAt = sheet.validations?.length ? (r, c) => wb.validationAt(shown, r, c) : () => null;
+    const tickBox = (rule, on, cx, cy, cw, ch) => {
+      const excel = rule.checkboxStyle === 'excel', size = (excel ? 12 : 13) * s;
+      const x = excel && Number.isFinite(rule.checkboxOffset) ? cx + Math.max(0, Math.min(rule.checkboxOffset * sx, cw - size)) : cx + (cw - size) / 2;
+      const y = cy + (ch - size) / 2;
+      g.save();
+      g.beginPath(); g.rect(cx, cy, cw, ch); g.clip();
+      g.beginPath();
+      if (excel || !g.roundRect) g.rect(x, y, size, size); else g.roundRect(x, y, size, size, 3.5 * s);
+      g.fillStyle = excel ? '#ffffff' : on ? '#356d49' : '#ffffff';
+      g.fill();
+      g.strokeStyle = excel ? '#000000' : on ? '#356d49' : '#6b6964';
+      g.lineWidth = Math.max(0.5, (excel ? 1 : 1.5) * s);
+      g.stroke();
+      if (on) {
+        g.beginPath();
+        g.moveTo(x + size * 0.23, y + size * 0.52); g.lineTo(x + size * 0.44, y + size * 0.72); g.lineTo(x + size * 0.79, y + size * 0.3);
+        g.strokeStyle = excel ? '#000000' : '#ffffff';
+        g.lineWidth = Math.max(0.5, (excel ? 1.5 : 2) * s);
+        g.stroke();
+      }
+      g.restore();
+    };
     rows.forEach(([r], i) => cols.forEach(([c], j) => {
-      const st = wb.styleAt(shown, r, c) || {};
+      const { st, cf, value } = looks[i][j];
       const cx = xs[j], cy = ys[i], cw = xs[j + 1] - xs[j], ch = ys[i + 1] - ys[i];
-      const text = wb.getDisplay(shown, r, c);
+      const rule = ruleAt(r, c);
+      const checkbox = rule?.type === 'checkbox';
+      if (checkbox) tickBox(rule, value === true, cx, cy, cw, ch);
+      const text = checkbox || cf?.barOnly || cf?.iconOnly ? '' : wb.getDisplay(shown, r, c);
       if (text) {
-        const value = wb.getValue(shown, r, c);
         const align = st.align || (typeof value === 'number' ? 'right' : 'left');
         g.save();
         g.beginPath(); g.rect(cx, cy, cw, ch); g.clip();
-        g.fillStyle = fontColorCss(st.color) || '#000000';
+        g.fillStyle = fontColorCss(cf?.color || st.color) || '#000000';
         g.font = `${st.italic ? 'italic ' : ''}${st.bold ? '700' : '400'} ${Math.max(2, (st.size || 13) * s)}px ${fontStack(st.font) || 'sans-serif'}`;
         g.textAlign = align;
         g.textBaseline = st.valign === 'top' ? 'top' : st.valign === 'middle' ? 'middle' : 'bottom';
