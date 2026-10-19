@@ -10860,9 +10860,12 @@ export class Workbook extends EventTarget {
     const variable = upperName(to);
     let out = '';
     let last = 0;
+    const positions = new Map(tokens.map((t, i) => [t.start, i]));
     // A LET or LAMBDA variable spelled like the name is not a use of it.
     for (const t of freeNameTokens(formula, tokens, { includeCalls: true, includeQualified: true })) {
       if (t.value.toLowerCase() !== key || isExternalFormulaToken(t)) continue;
+      // Nor is a call to the built-in of that spelling: RATE(…) is the function, whatever a name "rate" holds.
+      if (!t.sheet && FUNCTIONS[t.value] && tokens[positions.get(t.start) + 1]?.type === 'lparen') continue;
       // A name reaches the definition on its own sheet first, then the workbook's.
       const on = String(t.sheet ?? ownerSheet ?? '').toLowerCase();
       const local = this.names.some((n) => n.sheet && n.sheet.toLowerCase() === on && n.name.toLowerCase() === key);
