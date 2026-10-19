@@ -13,7 +13,7 @@ import { toast } from './toast.js';
 import { icon } from './icons.js';
 import {
   evaluateQuery, sourceTable, stepNames, stepFormula, saveQuery, loadedTable, refreshQuery, queryNameProblem, uniqueQueryName,
-  displayValue, keyOf, parseTyped, detectedTypeStep, initialSteps, TYPES, TYPE_LABELS, TYPE_MARKS, FILTER_OPS, AGGREGATIONS, JOIN_KINDS, PREVIEW_ROWS, sourceSummary, TEXT_COLUMN_NAMES,
+  displayValue, keyOf, parseTyped, detectedTypeStep, initialSteps, TYPES, TYPE_LABELS, TYPE_MARKS, DATE_TYPES, FILTER_OPS, AGGREGATIONS, JOIN_KINDS, PREVIEW_ROWS, sourceSummary, TEXT_COLUMN_NAMES,
 } from '../core/queries.js';
 import { queryIo, cellNode, loadNew, openImportData, urlProblem, fitQueryTables } from './get-data.js';
 import { maxOf } from '../core/numeric.js';
@@ -23,8 +23,8 @@ const clone = (v) => JSON.parse(JSON.stringify(v));
 const TEXT_FILTERS = ['equals', 'notEquals', 'beginsWith', 'notBeginsWith', 'endsWith', 'notEndsWith', 'contains', 'notContains'];
 const NUMBER_FILTERS = ['equals', 'notEquals', 'gt', 'gte', 'lt', 'lte'];
 const DATE_FILTERS = ['equals', 'notEquals', 'before', 'onOrBefore', 'after', 'onOrAfter'];
-const filtersFor = (type) => (type === 'int' || type === 'decimal' ? NUMBER_FILTERS : type === 'date' ? DATE_FILTERS : TEXT_FILTERS);
-const filterMenuName = (type) => (type === 'int' || type === 'decimal' ? 'Number Filters' : type === 'date' ? 'Date Filters' : 'Text Filters');
+const filtersFor = (type) => (type === 'int' || type === 'decimal' ? NUMBER_FILTERS : DATE_TYPES.has(type) ? DATE_FILTERS : TEXT_FILTERS);
+const filterMenuName = (type) => (type === 'int' || type === 'decimal' ? 'Number Filters' : type === 'time' ? 'Time Filters' : DATE_TYPES.has(type) ? 'Date Filters' : 'Text Filters');
 
 /** A small dialog with a form: fields, an error line, OK and Cancel. `submit` returns an error message to refuse. */
 function formDialog({ title, fields, submit, okLabel = 'OK', wide = false }) {

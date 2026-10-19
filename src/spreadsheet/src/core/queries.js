@@ -13,11 +13,13 @@ import { parseInput, parseDate, serialToYMD, typedDateKind } from './format.js';
 import { tableRows } from './tables.js';
 import { maxOf } from './numeric.js';
 
-export const TYPES = ['any', 'text', 'int', 'decimal', 'date', 'bool'];
-export const TYPE_LABELS = { any: 'Any', text: 'Text', int: 'Whole Number', decimal: 'Decimal Number', date: 'Date', bool: 'True/False' };
+export const TYPES = ['any', 'text', 'int', 'decimal', 'datetime', 'date', 'time', 'bool'];
+export const TYPE_LABELS = { any: 'Any', text: 'Text', int: 'Whole Number', decimal: 'Decimal Number', datetime: 'Date/Time', date: 'Date', time: 'Time', bool: 'True/False' };
 /** The marks the editor puts before a column name, as Power Query's header icons read. */
-export const TYPE_MARKS = { any: 'ABC\n123', text: 'ABC', int: '123', decimal: '1.2', date: '▦', bool: '✓✗' };
-const M_TYPES = { any: 'type any', text: 'type text', int: 'Int64.Type', decimal: 'type number', date: 'type date', bool: 'type logical' };
+export const TYPE_MARKS = { any: 'ABC\n123', text: 'ABC', int: '123', decimal: '1.2', datetime: '▦◷', date: '▦', time: '◷', bool: '✓✗' };
+const M_TYPES = { any: 'type any', text: 'type text', int: 'Int64.Type', decimal: 'type number', datetime: 'type datetime', date: 'type date', time: 'type time', bool: 'type logical' };
+/** The types whose values are date serials: a date, a date with its time of day, or a time of day alone. */
+export const DATE_TYPES = new Set(['date', 'datetime', 'time']);
 
 export const SOURCE_KINDS = ['csv', 'web', 'workbook', 'table', 'query', 'blank'];
 /** Step types and the name Power Query gives a step of each kind. */
@@ -296,11 +298,48 @@ function dateFromText(text) {
   return undefined;
 }
 
+/** Text as a date-time serial (a date alone is its midnight): null for blank text, undefined for text that is neither. */
+function dateTimeFromText(text) {
+  const t = String(text).trim();
+  if (t === '') return null;
+  const hit = parseDate(t, new Date(), 'en-US');
+  if (hit && Number.isFinite(hit.serial)) return hit.serial;
+  const parsed = parseInput(t, 'en-US');
+  if (typeof parsed.v === 'number' && ['date', 'datetime'].includes(parsed.fmt)) return parsed.v;
+  return undefined;
+}
+
+/** Text as a time of day (a fraction of a day; a date-time gives its time): null for blank text, undefined for text that is neither. */
+function timeFromText(text) {
+  const t = String(text).trim();
+  if (t === '') return null;
+  const parsed = parseInput(t, 'en-US');
+  if (typeof parsed.v === 'number' && ['time', 'datetime'].includes(parsed.fmt)) return parsed.v - Math.floor(parsed.v);
+  return undefined;
+}
+
 /** A date serial as Power Query writes a date in text (en-US): m/d/yyyy. */
 export function dateText(serial) {
   const { y, m, d } = serialToYMD(Math.floor(serial));
   return `${m}/${d}/${y}`;
 }
+
+/** The time of day of a serial as Power Query writes it (en-US): h:mm:ss AM. */
+export function timeText(serial) {
+  const seconds = Math.round((serial - Math.floor(serial)) * 86400) % 86400;
+  const h = Math.floor(seconds / 3600), m = Math.floor(seconds / 60) % 60, sec = seconds % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${h % 12 || 12}:${pad(m)}:${pad(sec)} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+/** A serial as Power Query writes a date-time in text (en-US): m/d/yyyy h:mm:ss AM, the date taking a second that rounds to midnight. */
+export function dateTimeText(serial) {
+  const day = Math.floor(serial) + (Math.round((serial - Math.floor(serial)) * 86400) >= 86400 ? 1 : 0);
+  return `${dateText(day)} ${timeText(serial)}`;
+}
+
+/** A value of one of the date types as text. */
+const serialText = (v, type) => (type === 'datetime' ? dateTimeText(v) : type === 'time' ? timeText(v) : dateText(v));
 
 /** Convert a value of type `from` to type `to`, or a DataFormat.Error, as Table.TransformColumnTypes does. */
 export function convertValue(v, from, to) {
@@ -309,7 +348,7 @@ export function convertValue(v, from, to) {
   switch (to) {
     case 'text':
       if (typeof v === 'boolean') return v ? 'true' : 'false';
-      if (typeof v === 'number') return from === 'date' ? dateText(v) : String(v);
+      if (typeof v === 'number') return DATE_TYPES.has(from) ? serialText(v, from) : String(v);
       return v;
     case 'int': case 'decimal': {
       let n;
@@ -328,6 +367,16 @@ export function convertValue(v, from, to) {
       }
       return dataError(`We cannot convert the value ${v} to type Date.`);
     }
+    // A date-time keeps its time of day; a time keeps only that (a date alone is midnight, 12:00:00 AM).
+    case 'datetime': case 'time': {
+      if (typeof v === 'number') return to === 'time' ? v - Math.floor(v) : v;
+      if (text) {
+        const d = to === 'time' ? timeFromText(v) : dateTimeFromText(v);
+        if (d === null) return null;
+        return d === undefined ? dataError(`We couldn't parse the input provided as a ${to === 'time' ? 'Time' : 'DateTime'} value.`) : d;
+      }
+      return dataError(`We cannot convert the value ${v} to type ${to === 'time' ? 'Time' : 'DateTime'}.`);
+    }
     case 'bool': {
       if (typeof v === 'boolean') return v;
       if (typeof v === 'number') return v !== 0;
@@ -345,14 +394,18 @@ export function convertValue(v, from, to) {
 export function detectType(values, hint = null) {
   const sample = values.slice(0, PREVIEW_ROWS).filter((v) => v != null && v !== '' && !isErr(v));
   if (!sample.length) return hint || 'any';
-  if (hint === 'date' && sample.every((v) => typeof v === 'number')) return 'date';
+  if (DATE_TYPES.has(hint) && sample.every((v) => typeof v === 'number')) return hint;
   if (sample.every((v) => typeof v === 'boolean')) return 'bool';
   if (sample.every((v) => typeof v === 'number')) return sample.every(Number.isInteger) ? 'int' : 'decimal';
   if (sample.every((v) => typeof v === 'string')) {
     if (sample.every((v) => /^\s*(true|false)\s*$/i.test(v))) return 'bool';
     const nums = sample.map(numberFromText);
     if (nums.every((n) => typeof n === 'number')) return nums.every(Number.isInteger) && sample.every((v) => !/[.eE%]/.test(v)) ? 'int' : 'decimal';
-    if (sample.every((v) => /\d/.test(v) && /[/\-.]|[A-Za-z]{3}/.test(v)) && sample.map(dateFromText).every((d) => typeof d === 'number')) return 'date';
+    // A time of day on every row is a time; dates are dates, or date-times where any of them gives a time.
+    if (sample.every((v) => typeof timeFromText(v) === 'number' && parseInput(v.trim(), 'en-US').fmt === 'time')) return 'time';
+    if (sample.every((v) => /\d/.test(v) && /[/\-.]|[A-Za-z]{3}/.test(v)) && sample.map(dateTimeFromText).every((d) => typeof d === 'number')) {
+      return sample.some((v) => typeof timeFromText(v) === 'number') ? 'datetime' : 'date';
+    }
     return 'text';
   }
   return 'any';
@@ -363,7 +416,7 @@ export function detectedTypeStep(table, onlyColumns = null) {
   const columns = {};
   table.columns.forEach((name, i) => {
     if (onlyColumns && !onlyColumns.includes(name)) return;
-    const t = detectType(table.rows.map((r) => r[i]), table.types[i] === 'date' ? 'date' : null);
+    const t = detectType(table.rows.map((r) => r[i]), DATE_TYPES.has(table.types[i]) ? table.types[i] : null);
     if (t !== 'any') columns[name] = t;
   });
   return Object.keys(columns).length ? { id: newId(), type: 'changeType', columns } : null;
@@ -385,7 +438,7 @@ function compareValues(a, b) {
 export function displayValue(v, type) {
   if (v == null) return 'null';
   if (isErr(v)) return 'Error';
-  if (type === 'date' && typeof v === 'number') return dateText(v);
+  if (DATE_TYPES.has(type) && typeof v === 'number') return serialText(v, type);
   if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
   return String(v);
 }
@@ -396,6 +449,7 @@ export function parseTyped(text, type) {
   const t = String(text);
   if (type === 'int' || type === 'decimal') { const n = numberFromText(t); return typeof n === 'number' ? n : t; }
   if (type === 'date') { const d = dateFromText(t); return typeof d === 'number' ? d : t; }
+  if (type === 'datetime' || type === 'time') { const d = type === 'time' ? timeFromText(t) : dateTimeFromText(t); return typeof d === 'number' ? d : t; }
   if (type === 'bool') { const l = t.trim().toLowerCase(); return l === 'true' ? true : l === 'false' ? false : t; }
   return t;
 }
@@ -447,7 +501,7 @@ export function workbookTable(wb, name) {
   const types = columns.map((_, i) => {
     const c = table.range.c1 + i;
     const fmt = dataStart <= dataEnd ? wb.styleAt?.(sheet.id, dataStart, c)?.fmt : null;
-    return fmt === 'date' || fmt === 'datetime' ? 'date' : 'any';
+    return DATE_TYPES.has(fmt) ? fmt : 'any';
   });
   return { columns, types, rows };
 }
@@ -1007,7 +1061,7 @@ export function resultCells(table, r0, c0, at = null) {
     if (isErr(v)) errors++;
     if (v == null || isErr(v)) return;
     const cell = { v, f: null };
-    if (table.types[j] === 'date' && typeof v === 'number') cell.s = { fmt: 'date' };
+    if (DATE_TYPES.has(table.types[j]) && typeof v === 'number') cell.s = { fmt: table.types[j] };
     entries.push({ r: r0 + 1 + i, c: col(j), cell });
   }));
   return { entries, errors };

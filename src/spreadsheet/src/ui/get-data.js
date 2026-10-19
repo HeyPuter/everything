@@ -13,7 +13,7 @@ import { workbookFromFile, detectDelimiter, decodeText } from '../core/io.js';
 import { parseCellRef, colName } from '../core/cell.js';
 import {
   csvTable, initialSteps, applyStep, uniqueQueryName, saveQuery, evaluateQuery, loadResult, unloadQuery, webItems, sheetRows,
-  displayValue, TYPE_MARKS, TYPE_LABELS, queryById, loadedTable,
+  displayValue, TYPE_MARKS, TYPE_LABELS, DATE_TYPES, queryById, loadedTable,
 } from '../core/queries.js';
 
 /** What a query may reach outside the workbook through: the web (through Puter), the drive, and the file readers. */
@@ -51,7 +51,7 @@ export function cellNode(v, type) {
   const td = el('td', {}, text);
   if (v == null) td.classList.add('pq-null');
   else if (typeof v === 'object' && v.error) { td.classList.add('pq-error'); td.title = v.message || v.error; }
-  else if (typeof v === 'number' || type === 'date') td.classList.add('pq-num');
+  else if (typeof v === 'number' || DATE_TYPES.has(type)) td.classList.add('pq-num');
   return td;
 }
 
