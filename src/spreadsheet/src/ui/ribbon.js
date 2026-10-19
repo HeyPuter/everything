@@ -447,6 +447,15 @@ export function createRibbon(ctx) {
   // A double-click's first click already expands a collapsed ribbon; the double-click then leaves it expanded.
   let clickExpanded = false;
   const menus = () => menubarMenus(ctx.flags?.() || {});
+  /**
+   * A command run from the ribbon hands the keyboard back to the sheet once it is done, as Excel's ribbon does,
+   * unless it put the focus somewhere itself (a pane, a dialog, a menu): Show Formulas, Error Checking with
+   * nothing to report or a Paste with nothing to paste left it on the button, and the next arrow key roamed the
+   * ribbon instead of moving the active cell.
+   */
+  const backToSheet = (button, result) => {
+    Promise.resolve(result).finally(() => { if (document.activeElement === button && button.isConnected) ctx.grid?.focus?.(); });
+  };
   const makeButton = descriptor => {
     if (descriptor.split) {
       const face = makeButton({ ...descriptor, split: null });
@@ -468,7 +477,7 @@ export function createRibbon(ctx) {
         if (item.submenu) openMenu({ anchor: button, label: descriptor.label, minWidth: 230,
           items: toMenuItems(item.submenu, ctx.run), onClose: reason => { if (reason === 'select') ctx.grid.focus(); } });
         else if (item.fn) item.fn();
-        else if (item.cmd) ctx.run(item.cmd, MENU_COMMANDS.has(item.cmd) ? button : item.arg);
+        else if (item.cmd) backToSheet(button, ctx.run(item.cmd, MENU_COMMANDS.has(item.cmd) ? button : item.arg));
       },
     }, descriptor.arrow ? null : el('span.ribbon-button-label', {}, descriptor.label));
     if (descriptor.large) button.classList.add('ribbon-large');

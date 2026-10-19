@@ -125,7 +125,8 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
       'aria-pressed': extra.toggle ? 'false' : null, 'aria-haspopup': extra.menu ? 'menu' : null, tabindex: -1,
       // An object argument (the Percent and Currency buttons' { fmt, toggle }) is named by its text values, so data-arg reads "percent", not "[object Object]".
       dataset: { cmd, arg: arg != null && typeof arg === 'object' ? Object.values(arg).filter((v) => typeof v === 'string').join(' ') : arg ?? '' },
-      onclick: () => ctx.run(cmd, arg),
+      // Done, the keyboard goes back to the sheet, unless the command put it somewhere itself (see the ribbon's backToSheet).
+      onclick: () => Promise.resolve(ctx.run(cmd, arg)).finally(() => { if (document.activeElement === b && b.isConnected) ctx.grid?.focus?.(); }),
     });
     // What the button runs, for the Quick Access Toolbar and the ribbon's own tabs (see command-catalog.js).
     b._command = { cmd, arg: extra.menu ? null : arg ?? null, label, glyph: name };
