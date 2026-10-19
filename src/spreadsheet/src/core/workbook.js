@@ -3268,7 +3268,9 @@ export class Workbook extends EventTarget {
       if (fixed) {
         if (!complete.has(fixed.key)) complete.set(fixed.key, selection(fixed));
         const block = complete.get(fixed.key);
-        if (!block.contiguous) {
+        // A What-If data table's results copy as the values they show, as Excel pastes them: TABLE() names fixed
+        // input cells, and laid down anywhere else it would read other cells (or, copied in part, another input).
+        if (!block.contiguous || /^\s*TABLE\s*\(/i.test(sheet.cells.get(fixed.key)?.f || '')) {
           // A packed copy with omitted interior lines cannot carry one
           // rectangular array. Preserve the selected cells' displayed values.
           const value = this.getValue(sheet.id, r, c);
