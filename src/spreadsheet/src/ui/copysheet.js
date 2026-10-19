@@ -153,13 +153,19 @@ export function openCopySheetDialog(ctx, sheetId) {
     const other = await workbookFromFile(await P.readFile(path), path);
     const one = await oneForPath(path);
     const added = other.importSheets(one)[0];
+    // A file whose workbook structure is protected takes no new sheet. Writing it back unchanged and saying the
+    // copy was made would be wrong twice over: nothing was copied, and the file was rewritten for nothing.
+    if (!added) {
+      refuse(fileSel, other.structureProtected ? `${stripExtension(P.displayName(path))} has its workbook structure protected, so no sheet can be added to it` : 'The sheet could not be added to that spreadsheet');
+      return null;
+    }
     const blob = await workbookToXlsx(other);
     const after = await P.statFile(path);
     if (!after || ['uid', 'id', 'modified', 'created', 'size'].some((key) => before[key] !== after[key])) {
       throw new Error('The destination changed while copying. Try again to include its latest changes.');
     }
     await P.writeFile(path, blob);
-    return { path, name: stripExtension(P.displayName(path)), sheetName: added?.name || sheet.name };
+    return { path, name: stripExtension(P.displayName(path)), sheetName: added.name };
   }
 
   const submit = async (e) => {
