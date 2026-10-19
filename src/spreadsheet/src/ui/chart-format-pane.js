@@ -11,7 +11,7 @@ import { el, isComposing } from './dom.js';
 import { icon } from './icons.js';
 import { activeChart, isChartObject } from './chart-actions.js';
 import { elementLabel } from './chart-ribbon.js';
-import { chartData, CHART_DISPLAY_UNITS } from '../core/charts.js';
+import { chartData, chartTitles, CHART_DISPLAY_UNITS } from '../core/charts.js';
 import { chartElementPatch, dataLabelPositions, elementFormatPatch, isPieChart } from '../core/chart-design.js';
 import { barSpacing } from '../core/chart-subtypes.js';
 
@@ -138,7 +138,9 @@ export function createChartUi(ctx) {
     cancelTitleEdit();
     const svg = box.querySelector('.chart-body svg'), node = svg?.querySelector('[data-el="title"]');
     const base = box.getBoundingClientRect(), rect = node?.getBoundingClientRect();
-    const input = el('input.chart-title-editor', { type: 'text', value: initial ?? chart.title ?? '', 'aria-label': 'Chart title', maxlength: 200, spellcheck: false });
+    // A title linked to a cell shows that cell's text, not the text saved with the chart: that is what is edited.
+    const shown = chartTitles(ctx.wb, ctx.sheetId(), chart).title ?? chart.title ?? '';
+    const input = el('input.chart-title-editor', { type: 'text', value: initial ?? shown, 'aria-label': 'Chart title', maxlength: 200, spellcheck: false });
     if (rect) Object.assign(input.style, { top: `${rect.top - base.top - 4}px`, left: `${Math.max(4, rect.left - base.left - 20)}px`, width: `${Math.max(160, rect.width + 40)}px` });
     let done = false;
     const finish = commit => {
@@ -146,7 +148,7 @@ export function createChartUi(ctx) {
       done = true;
       const text = input.value.trim();
       cancelTitleEdit();
-      if (commit && text !== (chart.title || '')) ctx.run('chart', { action: 'patch', patch: { title: text, titleRef: undefined }, label: 'Edit chart title' });
+      if (commit && text !== shown.trim()) ctx.run('chart', { action: 'patch', patch: { title: text, titleRef: undefined }, label: 'Edit chart title' });
       ctx.grid.selectChart(chart.id);
       setElement(text ? 'title' : 'chartArea', { announce: false });
     };
@@ -316,12 +318,12 @@ export function createChartUi(ctx) {
     const a = chart.appearance;
     const out = [];
     if (key === 'title') {
-      out.push(section('Title Options', text('Text', chart.title, v => apply({ title: v.trim(), titleRef: undefined }, 'Edit chart title'))), textOptions(chart, 'titleStyle'));
+      out.push(section('Title Options', text('Text', chartTitles(ctx.wb, ctx.sheetId(), chart).title ?? chart.title, v => apply({ title: v.trim(), titleRef: undefined }, 'Edit chart title'))), textOptions(chart, 'titleStyle'));
     } else if (key === 'legend') {
       out.push(section('Legend Options', choice('Legend Position', chart.legend === false ? 'none' : chart.legendPos, [['top', 'Top'], ['bottom', 'Bottom'], ['right', 'Right'], ['none', 'None']],
         v => apply(chartElementPatch(chart, 'legend', v)))), textOptions(chart, 'legendStyle'));
     } else if (key === 'xTitle' || key === 'yTitle') {
-      out.push(section('Title Options', text('Text', chart[key], v => apply({ [key]: v.trim(), [`${key}Ref`]: undefined }))));
+      out.push(section('Title Options', text('Text', chartTitles(ctx.wb, ctx.sheetId(), chart)[key] ?? chart[key], v => apply({ [key]: v.trim(), [`${key}Ref`]: undefined }))));
     } else if (key === 'yAxis' || (key === 'xAxis' && a && (chart.type === 'scatter' || chart.type === 'bubble'))) {
       // A scatter chart in the app's own style has no x bounds: one set would hand it an empty Excel style.
       const value = key === 'yAxis';
