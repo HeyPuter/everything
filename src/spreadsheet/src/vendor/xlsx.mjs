@@ -23646,11 +23646,13 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 			if(Rn[1]==='/') break;
 			y = parsexmltag(Rn[0], false);
 			tNF = "";
-			tNF += fill("0", +y["min-integer-digits"] || 1);
+			/* Puter Spreadsheet local patch: optional digits are #, as LibreOffice writes "#.##": no required integer
+			 * digit (min-integer-digits="0"), and decimals past min-decimal-places where that is given (ODF 1.3). */
+			tNF += y["min-integer-digits"] != null && +y["min-integer-digits"] === 0 ? "#" : fill("0", +y["min-integer-digits"] || 1);
 			if(parsexmlbool(y["grouping"])) tNF = commaify(fill("#", Math.max(0, 4 - tNF.length)) + tNF);
 			if(+y["min-decimal-places"] || +y["decimal-places"]) tNF += ".";
 			if(+y["min-decimal-places"]) tNF += fill("0", +y["min-decimal-places"] || 1);
-			if(+y["decimal-places"] - (+y["min-decimal-places"]||0)) tNF += fill("0", +y["decimal-places"] - (+y["min-decimal-places"]||0)); // TODO: should this be "#" ?
+			if(+y["decimal-places"] - (+y["min-decimal-places"]||0)) tNF += fill(y["min-decimal-places"] != null ? "#" : "0", +y["decimal-places"] - (+y["min-decimal-places"]||0));
 			/* Puter Spreadsheet local patch: a display factor of a thousand per comma scales the number shown. */
 			for(var factor = +y["display-factor"] || 1; factor >= 1000; factor /= 1000) tNF += ",";
 			NF += tNF;
@@ -24688,6 +24690,8 @@ function write_number_format_ods(nf/*:string*/, nfidx/*:string*/)/*:string*/ {
 				' number:min-integer-digits="' + (base.indexOf("0") == -1 ? "0" : base.length - base.indexOf("0")) + '"' +
 				(/[#0],[#0]/.test(np[1]) ? ' number:grouping="true"' : "") +
 				(np[2] && ' number:decimal-places="' + (np[2].length - 1) + '"' || ' number:decimal-places="0"') +
+				/* Puter Spreadsheet local patch: optional decimals (0.## shows 1.5) need the count of required ones. */
+				(!np[3] && np[2].indexOf("#") > -1 ? ' number:min-decimal-places="' + (np[2].match(/0/g) || []).length + '"' : "") +
 				(scaling ? ' number:display-factor="' + Math.pow(1000, scaling) + '"' : "") +
 				(np[3] ? ' number:forced-exponent-sign="' + (np[3].indexOf("-") > -1 ? "false" : "true") + '"' : "" ) +
 				(np[3] ? ' number:min-exponent-digits="' + ((np[3].match(/0+/) || ["0"])[0].length) + '"' : "" ) +
