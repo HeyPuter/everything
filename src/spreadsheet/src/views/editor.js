@@ -72,7 +72,7 @@ import { rememberFunction } from '../ui/recent-functions.js';
 import { openInsertFunctionDialog, openFunctionArgumentsDialog } from '../ui/insertfunction.js';
 import { openConditionalFormatting } from '../ui/condformat.js';
 import { openValidationManager } from '../ui/validation.js';
-import { openSortDialog, looksLikeHeader, sortHeaderDefault, rearrangeProblem } from '../ui/sortdialog.js';
+import { openSortDialog, looksLikeHeader, sortHeaderDefault, rearrangeProblem, sortExpansion, confirmSortExpansion } from '../ui/sortdialog.js';
 import { openChartDialog } from '../ui/chartdialog.js';
 import { runChartAction, insertChart as insertExcelChart, insertChartSheet } from '../ui/chart-actions.js';
 import { createChartUi } from '../ui/chart-format-pane.js';
@@ -2071,14 +2071,23 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // over typed values, so a plain list of names sorts whole.
         const wholeCols = range.r1 === 0 && range.r2 >= sheet.rows - 1;
         // A toolbar click leaves the focus on its button: the grid takes it back once the command is done.
+        let widened = false;
         if (single || wholeCols) {
           range = single ? dataRange() : wb.usedRange(sheetId);
           if (!range) { toast('Nothing to sort', { icon: 'info' }); keepFocus(); return; }
+        } else {
+          // Data right beside the selection would stay put while the selection's rows moved: offer the whole block.
+          const block = sortExpansion(wb, sheetId, range);
+          if (block) {
+            const expand = await confirmSortExpansion();
+            if (expand == null) { keepFocus(); return; }
+            if (expand) { range = block; widened = true; }
+          }
         }
         const col = grid.active.c;
         let { r1 } = range;
         // The sort dialog's default header rule, shared so a quick sort and the dialog keep the same first row.
-        if (r1 < range.r2 && sortHeaderDefault(wb, sheetId, range, { expanded: single || wholeCols })) r1++;
+        if (r1 < range.r2 && sortHeaderDefault(wb, sheetId, range, { expanded: single || wholeCols || widened })) r1++;
         const rows = { ...range, r1, r2: Math.min(range.r2, sheet.rows - 1) };
         if (!wb.sortRange(sheetId, rows, col, arg !== 'desc')) { toast(rearrangeProblem(wb, sheetId, rows, 'row') || 'Nothing to sort', { icon: 'info' }); keepFocus(); return; }
         toast(arg === 'desc' ? 'Sorted Z to A' : 'Sorted A to Z');
@@ -2201,9 +2210,17 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'sortDialog': {
         if (!committed()) return;
         if (!oneRange('sort')) return;
-        const range = dataRange();
+        let range = dataRange();
         if (!range) { toast('Nothing to sort', { icon: 'info' }); return; }
-        openSortDialog(ctx, range);
+        // An explicit selection with data beside it is offered the whole block, as the quick sort offers it.
+        const block = !S.isSingle(grid.selection) && sortExpansion(wb, sheetId, range);
+        let widened = false;
+        if (block) {
+          const expand = await confirmSortExpansion();
+          if (expand == null) return;
+          if (expand) { range = block; widened = true; }
+        }
+        openSortDialog(ctx, range, { expanded: widened });
         return;
       }
       case 'evaluateFormula': if (!committed()) return; openEvaluateDialog(ctx); return;

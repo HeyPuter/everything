@@ -68,11 +68,65 @@ export function rearrangeProblem(wb, sheetId, range, axis = 'row', verb = 'sort'
   return `Can't ${verb}: the range ${what}`;
 }
 
-export function openSortDialog(ctx, range) {
+/**
+ * The block a sort of an explicit selection would tear apart: when data sits right beside the selection, in
+ * the rows it covers, sorting only the selection moves its values away from the rest of their rows (scores
+ * leave their names). That block, joined with the selection, is returned, so the sort can be offered over it
+ * as Excel's Sort Warning offers; null when nothing lies beside it. A table needs no offer: its rows always
+ * move whole.
+ */
+export function sortExpansion(wb, sheetId, range) {
+  const sheet = wb.sheet(sheetId);
+  const used = wb.usedRange(sheetId);
+  if (!sheet || !used) return null;
+  if (sheet.tables.some(({ range: t }) => t.r1 <= range.r2 && t.r2 >= range.r1 && t.c1 <= range.c2 && t.c2 >= range.c1)) return null;
+  const filled = (r, c) => { const v = wb.getValue(sheetId, r, c); return v != null && v !== ''; };
+  for (const c of [range.c1 - 1, range.c2 + 1]) {
+    if (c < 0 || c > used.c2) continue;
+    for (let r = Math.max(range.r1, used.r1), last = Math.min(range.r2, used.r2); r <= last; r++) {
+      if (!filled(r, c)) continue;
+      const block = wb.dataRegion(sheetId, r, c);
+      if (!block) continue;
+      return { r1: Math.min(block.r1, range.r1), c1: Math.min(block.c1, range.c1), r2: Math.max(block.r2, range.r2), c2: Math.max(block.c2, range.c2) };
+    }
+  }
+  return null;
+}
+
+/**
+ * Excel's Sort Warning, for a selection with data beside it: resolves true to sort the whole block (the
+ * default, as rows then stay together), false to sort only the selection, null when cancelled.
+ */
+export function confirmSortExpansion() {
+  return new Promise((resolve) => {
+    let answer = null;
+    const name = fieldId('sort-expand');
+    const radio = (value, label, checked) => {
+      const id = fieldId('sort-expand');
+      return el('label.find-option', { for: id }, el('input', { type: 'radio', name, id, value, checked }), el('span', {}, label));
+    };
+    const expand = radio('expand', 'Expand the selection', true);
+    const content = el('form.sort-expand', { onsubmit: (e) => {
+      e.preventDefault();
+      answer = expand.querySelector('input').checked;
+      modal.close();
+    } },
+    el('p.modal-text', {}, 'There is data next to your selection that will not be sorted with it, so its rows would come apart.'),
+    el('div', { role: 'radiogroup', 'aria-label': 'What to sort', style: { display: 'grid', gap: '8px' } },
+      expand, radio('selection', 'Continue with the current selection', false)),
+    el('div.row.row-end', { style: { marginTop: '16px' } },
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
+      el('button.btn.btn-primary', { type: 'submit' }, 'Sort')));
+    const modal = openModal({ title: 'Sort warning', content, initialFocus: expand.querySelector('input'), onClose: () => resolve(answer) });
+  });
+}
+
+/** `expanded`: the range was widened from the selection (see sortExpansion), and reads its header as a block around a cell does. */
+export function openSortDialog(ctx, range, { expanded: widened = false } = {}) {
   const sheetId = ctx.sheetId();
   const headerId = fieldId('sort');
   // The range came expanded from one selected cell, or covers whole columns: read as the quick sort reads them.
-  const expanded = (!!ctx.selection && S.isSingle(ctx.selection())) || (range.r1 === 0 && range.r2 >= ctx.wb.sheet(sheetId).rows - 1);
+  const expanded = widened || (!!ctx.selection && S.isSingle(ctx.selection())) || (range.r1 === 0 && range.r2 >= ctx.wb.sheet(sheetId).rows - 1);
   const headerInput = el('input', { type: 'checkbox', id: headerId, checked: sortHeaderDefault(ctx.wb, sheetId, range, { expanded }) });
   const headerText = el('span', {}, 'Data has a header row');
   const caseId = fieldId('sort');
