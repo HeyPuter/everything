@@ -5337,7 +5337,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     rememberFunction(name);
     const aggregate = ['SUM', 'AVERAGE', 'COUNT', 'MIN', 'MAX', 'MEDIAN', 'PRODUCT'].includes(name);
     if (grid.editing) {
-      grid.insertText(`${name}(`);
+      // An entry with nothing typed yet (F2 or a double-click on an empty cell, the formula bar clicked) starts a
+      // formula with it, as Excel's does: "SUM(" alone went in as text.
+      grid.insertText(`${grid.editState?.text ? '' : '='}${name}(`);
       return;
     }
     // An aggregate over a Ctrl/Cmd+click selection of several ranges has no one range to add up and no one
