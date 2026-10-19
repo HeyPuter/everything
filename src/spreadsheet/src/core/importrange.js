@@ -7,7 +7,7 @@
 import { parseRefText } from './refs.js';
 import { htmlTableRows } from './html-table.js';
 import { isSpreadsheetFile } from './filetypes.js';
-import { getLocale } from './format.js';
+import { getLocale, typedDateKind } from './format.js';
 
 /** "Budget" → "Spreadsheets/Budget.xlsx"; a path with a slash is used as given (an extension is added when missing). */
 export function resolveImportPath(name, folder, ensureXlsx) {
@@ -65,7 +65,6 @@ export function readImportRange(wb, spec) {
 }
 
 /** Formats whose serials would read as bare numbers in a spill, which carries no number format of its own. */
-const DATE_FORMATS = new Set(['date', 'time', 'datetime']);
 
 /**
  * `text` read the way typed input is, in the user's locale (as a file import
@@ -73,8 +72,9 @@ const DATE_FORMATS = new Set(['date', 'time', 'datetime']);
  * 46027 it would mean nothing, while "2026-01-05" reads (and DATEVALUE converts).
  */
 function typedValue(text, parseInput) {
-  const { v, f, fmt } = parseInput(text, getLocale());
-  return f != null || DATE_FORMATS.has(fmt) ? text : v;
+  const parsed = parseInput(text, getLocale());
+  // A month and year or a duration (Feb 2024, 25:30) is a date or time too, read with a custom code of its own.
+  return parsed.f != null || typedDateKind(parsed) ? text : parsed.v;
 }
 
 /**
