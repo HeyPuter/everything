@@ -458,7 +458,9 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
         return null;
       },
     });
-    if (name == null) return;
+    // Pressed through with the name as it was, there is nothing to do: renamed onto itself, the file would be refused
+    // by the drive, and what is kept for it moved from its address to the same one, which takes it away.
+    if (name == null || `${stem(name)}${ext}` === file.name) return;
     const target = `${file.path.slice(0, file.path.lastIndexOf('/') + 1)}${stem(name)}${ext}`;
     try {
       await P.renameFile(file.path, `${stem(name)}${ext}`);
