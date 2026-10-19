@@ -2154,23 +2154,27 @@ function renderRadar(data, chart, right, top, bottom) {
   const marks = n * series.length <= MARK_BUDGET;
   // Labels a line of text apart around the ring, with a spoke for each, so neither piles into a blur.
   const labelEvery = Math.max(1, Math.ceil((n * 14) / (2 * Math.PI * (R + 10))));
-  let hi = 0;
-  for (const s of series) for (const v of s.values) if (v != null && v > hi) hi = v;
+  let hi = 0, lo = 0;
+  for (const s of series) for (const v of s.values) if (Number.isFinite(v)) { if (v > hi) hi = v; if (v < lo) lo = v; }
   // A fixed maximum of zero (or below) would divide the radius by zero; only a positive one applies.
   const yMax = chart.yMax > 0 ? chart.yMax : null;
-  const scale = niceScale(0, yMax ?? (hi || 1), 4);
-  const max = yMax ?? scale.max;
+  // Negative values move the centre below zero, as in Excel, rather than all sitting on it as if zero.
+  const scale = niceScale(lo, yMax ?? (hi || (lo < 0 ? 0 : 1)), 4);
+  const max = yMax ?? scale.max, min = Math.min(0, scale.min);
   const vs = data.valueStyle || null;
   const angle = (i) => -Math.PI / 2 + (i / n) * Math.PI * 2;
-  const point = (i, v) => [cx + (R * Math.max(0, v) / max) * Math.cos(angle(i)), cy + (R * Math.max(0, v) / max) * Math.sin(angle(i))];
+  const radius = (v) => R * Math.max(0, Math.min(v, max) - min) / (max - min);
+  const point = (i, v) => [cx + radius(v) * Math.cos(angle(i)), cy + radius(v) * Math.sin(angle(i))];
   const out = [];
   // Rings and spokes.
-  for (const v of scaleTicks({ min: scale.step, max, step: scale.step })) {
+  for (const v of scaleTicks({ min: min + scale.step, max, step: scale.step })) {
     const ring = categories.map((_, i) => point(i, v).map(f).join(',')).join(' ');
     out.push(`<polygon points="${ring}" fill="none" stroke="var(--grid)" stroke-width="1"/>`);
     // Ring values sit just right of the top spoke; the outer ring's value would collide with the top label.
-    if (v < max - scale.step / 2) out.push(`<text x="${f(cx + 4)}" y="${f(cy - (R * v) / max - 2)}" font-size="10" fill="var(--ink-3)">${esc(axisLabel(v, vs))}</text>`);
+    if (v < max - scale.step / 2) out.push(`<text x="${f(cx + 4)}" y="${f(cy - radius(v) - 2)}" font-size="10" fill="var(--ink-3)">${esc(axisLabel(v, vs, scale.step))}</text>`);
   }
+  // The centre names the axis's floor when it is not zero.
+  if (min < 0) out.push(`<text x="${f(cx + 4)}" y="${f(cy - 2)}" font-size="10" fill="var(--ink-3)">${esc(axisLabel(min, vs, scale.step))}</text>`);
   categories.forEach((c, i) => {
     if (i % labelEvery) return;
     const [x, y] = point(i, max);
