@@ -14,7 +14,9 @@ const KEY_STEPS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], Ar
 
 export function openCropDialog({ picture, onApply, onClose }) {
   const full = uncroppedSize(picture);
-  const scale = Math.min(560 / full.w, 340 / full.h, 3);
+  // The stage fits the dialog on a phone too (its padding and the stage's margin set aside), so every handle is in reach.
+  const room = Math.max(120, Math.min(560, (globalThis.innerWidth || 640) - 64));
+  const scale = Math.min(room / full.w, 340 / full.h, 3);
   const W = Math.max(40, Math.round(full.w * scale)), H = Math.max(40, Math.round(full.h * scale));
   let crop = clampCrop(cropOf(picture));
   let ratio = null;
