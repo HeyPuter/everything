@@ -3160,6 +3160,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const table = consolidate(sources, arg);
         if (!table) { toast('There was nothing to consolidate in those references', { icon: 'info', duration: 3000 }); return; }
         const { r: r0, c: c0 } = grid.active;
+        // The result written over a source would destroy the data it was worked out from: refused, as Excel refuses it.
+        const box = { r1: r0, c1: c0, r2: r0 + table.length - 1, c2: c0 + table[0].length - 1 };
+        const overlaps = arg.refs.some((text) => {
+          const at = resolveRangeText(text);
+          return at?.sheetId === sheetId && at.range.r1 <= box.r2 && at.range.r2 >= box.r1 && at.range.c1 <= box.c2 && at.range.c2 >= box.c1;
+        });
+        if (overlaps) { toast('The source references overlap the destination. Select a cell outside them, then consolidate again', { icon: 'info', duration: 4000 }); keepFocus(); return; }
         const entries = [];
         table.forEach((row, i) => row.forEach((v, j) => entries.push({ r: r0 + i, c: c0 + j, cell: v == null ? null : { v, f: null, s: wb.getCell(sheetId, r0 + i, c0 + j)?.s } })));
         if (wb.setCells(sheetId, entries, 'Consolidate')) grid.setSelection(S.fromRange({ r1: r0, c1: c0, r2: r0 + table.length - 1, c2: c0 + table[0].length - 1 }, { r: r0, c: c0 }));

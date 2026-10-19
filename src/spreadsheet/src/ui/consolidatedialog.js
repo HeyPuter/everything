@@ -30,6 +30,13 @@ export function openConsolidateDialog(ctx) {
     e.preventDefault();
     if (reference.value.trim()) add();
     if (!refs.length) { refuse(reference, 'Add at least one reference to consolidate'); return; }
+    // The result goes at the active cell: inside a source it would be written over the data it is made from.
+    const at = ctx.active?.();
+    const inside = at && refs.find((text) => {
+      const hit = ctx.resolveRange(text);
+      return hit?.sheetId === ctx.sheetId() && at.r >= hit.range.r1 && at.r <= hit.range.r2 && at.c >= hit.range.c1 && at.c <= hit.range.c2;
+    });
+    if (inside) { refuse(list, `The result would be written at the selected cell, inside ${inside}. Select a cell outside the references first`); return; }
     modal.close();
     ctx.run('consolidate', { fn: fn.value, refs: [...refs], topRow: top.checked, leftColumn: left.checked });
   };
