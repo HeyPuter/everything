@@ -1957,8 +1957,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const at = wholeCols ? grid.active.r + (arg === 'above' ? 0 : 1) : arg === 'above' ? r.r1 : r.r2 + 1;
         const before = selectionSnapshot();
         if (wb.pivotLineEditBlocked(sheetId, 'row', at, n)) { keepFocus(); return; }
-        if (!wb.insertRows(sheetId, at, n)) {
-          if (!wb.isProtected(sheetId)) toast(`${n === 1 ? 'The row' : 'The rows'} cannot be inserted here: cells would be pushed off the sheet`, { icon: 'alert', duration: 3500 });
+        const [inserted, said] = refusalSaid(sheetId, () => wb.insertRows(sheetId, at, n));
+        if (!inserted) {
+          // A protected range or an array formula in the way has said so already; anything else is the sheet's edge.
+          if (!said && !wb.isProtected(sheetId)) toast(`${n === 1 ? 'The row' : 'The rows'} cannot be inserted here: cells would be pushed off the sheet`, { icon: 'alert', duration: 3500 });
           keepFocus();
           return;
         }
@@ -1976,8 +1978,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const at = wholeRows ? grid.active.c + (arg === 'left' ? 0 : 1) : arg === 'left' ? r.c1 : r.c2 + 1;
         const before = selectionSnapshot();
         if (wb.pivotLineEditBlocked(sheetId, 'col', at, n)) { keepFocus(); return; }
-        if (!wb.insertCols(sheetId, at, n)) {
-          if (!wb.isProtected(sheetId)) toast(`${n === 1 ? 'The column' : 'The columns'} cannot be inserted here: cells would be pushed off the sheet`, { icon: 'alert', duration: 3500 });
+        const [inserted, said] = refusalSaid(sheetId, () => wb.insertCols(sheetId, at, n));
+        if (!inserted) {
+          if (!said && !wb.isProtected(sheetId)) toast(`${n === 1 ? 'The column' : 'The columns'} cannot be inserted here: cells would be pushed off the sheet`, { icon: 'alert', duration: 3500 });
           keepFocus();
           return;
         }
@@ -1993,9 +1996,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const range = grid.range;
         const sideways = arg === 'right';
         if (wb.pivotBlockEditBlocked(sheetId, range, sideways ? 'col' : 'row', false)) { keepFocus(); return; }
-        const ok = wb.insertCells(sheetId, range, sideways ? 'right' : 'down');
+        const [ok, said] = refusalSaid(sheetId, () => wb.insertCells(sheetId, range, sideways ? 'right' : 'down'));
         if (!ok) {
-          if (!wb.isProtected(sheetId)) toast(shiftProblem(sheetId, range, sideways ? 'col' : 'row', false)
+          if (!said && !wb.isProtected(sheetId)) toast(shiftProblem(sheetId, range, sideways ? 'col' : 'row', false)
             || `The cells cannot be shifted: what is ${sideways ? 'to their right' : 'below them'} would be pushed past the edge of the sheet`, { icon: 'info', duration: 4000 });
           return;
         }
@@ -5199,6 +5202,17 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     }
     if (wb.historyTop && wb.historyTop !== last.mark) offerAutoFill({ source, target }, kind);
     grid.focus();
+  }
+
+  /**
+   * Run a workbook edit, noting whether the workbook explained a refusal itself (a protected range, an array formula
+   * or a pivot table in the way), so the caller does not follow that notice with a guess of its own. [result, said].
+   */
+  function refusalSaid(sheetId, edit) {
+    let said = false;
+    const onRefusal = ({ detail }) => { if (['protected', 'array-edit', 'pivot-edit'].includes(detail?.type) && detail.sheetId === sheetId) said = true; };
+    wb.addEventListener('change', onRefusal);
+    try { return [edit(), said]; } finally { wb.removeEventListener('change', onRefusal); }
   }
 
   /**
