@@ -106,7 +106,7 @@ Each person shares their sheet, their selection, their active cell and whether t
 - Concurrent edits of the same register keep one value: two people typing in one cell keep the later entry; two people changing the same sheet setting at once (for example both adding a conditional format to one sheet) keep the later list.
 - A structural operation's transform can lose intent in rare combinations: a move whose block someone else broke up is dropped; a pending change whose formulas refer to tables that exist only in the shared state is rewritten without them.
 - The workbook's engine must behave identically in every browser; an engine update while people are in a room should reach everyone (they share one app build). A browser whose copy diverged recovers by reopening the workbook.
-- Comments are shared per sheet as one register (concurrent new threads on one sheet keep one side's list).
+- Comments are shared per sheet as one register; where two people change a sheet's comments at once, the two are merged thread by thread and reply by reply (new threads and replies from both are kept, a deleted one stays deleted), except across a concurrent insertion, deletion or move of rows, columns or sheets, where the later list stands.
 - Presence positions are each sender's; during a concurrent structural change a selection may be shown one row off until the sender moves.
 - Puter Workers may not allow writing to the owner's absolute file path; then the owner's browser writes the file when it next saves.
 - Room size is not load-tested against the hosted Puter service; the peer topology (full mesh up to eight, relays beyond) is the Whiteboard app's.
