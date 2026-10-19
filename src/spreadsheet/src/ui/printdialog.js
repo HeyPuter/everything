@@ -114,8 +114,8 @@ export function openPrintDialog(ctx) {
     ...PAPER_SIZES.map(([k, label]) => el('option', { value: k }, label)));
   paperSel.value = PAPER_SIZES.some(([k]) => k === prefs.paper) ? prefs.paper : 'letter';
   const marginBoxes = supportsPageMarginBoxes();
-  const headerInput = el('input.input', { type: 'text', value: prefs.header || '', placeholder: prefs.native ? 'None' : marginBoxes ? 'Nothing (the title prints above the cells)' : (ctx.doc?.name || 'Document title'), 'aria-label': 'Header text', maxlength: 120, oninput: () => { prefs.header = headerInput.value; } });
-  const footerInput = el('input.input', { type: 'text', value: prefs.footer || '', placeholder: prefs.native ? 'None' : marginBoxes ? 'Page &[Page] of &[Pages]' : `Today’s date (${new Date().toLocaleDateString(getLocale())})`, 'aria-label': 'Footer text', maxlength: 120, oninput: () => { prefs.footer = footerInput.value; } });
+  const headerInput = el('input.input', { type: 'text', value: prefs.header || '', placeholder: prefs.native ? 'None' : marginBoxes ? 'Nothing (the title prints above the cells)' : (ctx.doc?.name || 'Document title'), 'aria-label': 'Header text', maxlength: 255, oninput: () => { prefs.header = headerInput.value; } });
+  const footerInput = el('input.input', { type: 'text', value: prefs.footer || '', placeholder: prefs.native ? 'None' : marginBoxes ? 'Page &[Page] of &[Pages]' : `Today’s date (${new Date().toLocaleDateString(getLocale())})`, 'aria-label': 'Footer text', maxlength: 255, oninput: () => { prefs.footer = footerInput.value; } });
   // Token chips type into whichever of the two fields was used last.
   let tokenTarget = footerInput;
   headerInput.addEventListener('focus', () => { tokenTarget = headerInput; });
