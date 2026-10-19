@@ -808,6 +808,8 @@ export async function readXlsxCharts(book, sheets = [], inventory = new Map(), {
             ...chartStroke(child(p, 'spPr'), fill), gradient: gradient(child(p, 'spPr'), true) })),
         } : null) } : {}),
         dateAxis: cat?.name === 'dateAx', xStep: number(cat, 'majorUnit'), yStep: number(axis, 'majorUnit'),
+        ...(number(child(axis, 'scaling'), 'logBase') ? { yLogBase: number(child(axis, 'scaling'), 'logBase') } : {}),
+        ...(numeric && number(child(cat, 'scaling'), 'logBase') ? { xLogBase: number(child(cat, 'scaling'), 'logBase') } : {}),
         categoryBetween: val(axis, 'crossBetween') !== 'midCat',
         xTimeUnit: val(cat, 'majorTimeUnit'), xBaseTimeUnit: val(cat, 'baseTimeUnit'),
         // Excel treats these non-angle values as automatic axis-label rotation,

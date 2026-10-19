@@ -343,6 +343,8 @@ export function createChartUi(ctx) {
         a ? number('Major', a[stepKey], v => { if (v == null || v > 0) apply({ appearance: { ...a, [stepKey]: v } }); }) : null,
         a ? choice('Display units', units, [['none', 'None'], ...Object.keys(CHART_DISPLAY_UNITS).map(u => [u, u.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase())])],
           v => { const next = { ...a }; const k = value ? 'yUnits' : 'xUnits'; if (v === 'none') delete next[k]; else next[k] = { builtIn: v, divisor: CHART_DISPLAY_UNITS[v], label: '', style: a.yStyle, layout: null, rotation: 0 }; apply({ appearance: next }); }) : null,
+        a && !chart.stack100 ? checkbox('Logarithmic scale', (value ? a.yLogBase : a.xLogBase) > 1, on => { const next = { ...a }; const k = value ? 'yLogBase' : 'xLogBase'; if (on) next[k] = 10; else delete next[k]; apply({ appearance: next }); }) : null,
+        a && (value ? a.yLogBase : a.xLogBase) > 1 ? number('Base', value ? a.yLogBase : a.xLogBase, v => { if (v >= 2 && v <= 1000) apply({ appearance: { ...a, [value ? 'yLogBase' : 'xLogBase']: v } }); }, { min: 2, max: 1000, step: 1, placeholder: '10' }) : null,
         a ? checkbox('Values in reverse order', value ? a.reverseValues : a.reverseCategories, on => apply({ appearance: { ...a, [value ? 'reverseValues' : 'reverseCategories']: on } })) : null,
         a ? choice('Label Position', (value ? a.yLabelPosition : a.xLabelPosition) || 'nextTo', [['nextTo', 'Next to Axis'], ['high', 'High'], ['low', 'Low'], ['none', 'None']],
           v => apply({ appearance: { ...a, [value ? 'yLabelPosition' : 'xLabelPosition']: v } })) : null),

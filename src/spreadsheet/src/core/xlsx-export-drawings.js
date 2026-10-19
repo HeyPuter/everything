@@ -360,7 +360,8 @@ function chartXml(X, wb, sheet, ch) {
     const kind = numeric ? 'valAx' : date ? 'dateAx' : 'catAx';
     const min = horizontal ? ap.xMin : secondary ? ap.y2Min : ch.yMin, max = horizontal ? ap.xMax : secondary ? ap.y2Max : ch.yMax;
     const reversed = horizontal ? ap.reverseCategories : secondary ? ap.reverseSecondaryValues : ap.reverseValues;
-    let body = val('axId', id) + tag('c:scaling', {}, val('orientation', reversed ? 'maxMin' : 'minMax') + (max != null ? val('max', max) : '') + (min != null ? val('min', min) : ''));
+    const logBase = horizontal ? (numeric ? ap.xLogBase : null) : secondary ? null : ap.yLogBase;
+    let body = val('axId', id) + tag('c:scaling', {}, (logBase ? val('logBase', logBase) : '') + val('orientation', reversed ? 'maxMin' : 'minMax') + (max != null ? val('max', max) : '') + (min != null ? val('min', min) : ''));
     const position = horizontal ? (ch.type === 'bar' ? 'l' : 'b') : secondary ? 'r' : ap.yPosition || (ch.type === 'bar' ? 'b' : 'l');
     body += val('delete', Number(!!(horizontal ? ap.hideXAxis : secondary ? ap.hideY2Axis : ap.hideYAxis))) + val('axPos', position);
     const gridKey = horizontal ? 'x' : secondary ? 'y2' : 'y';

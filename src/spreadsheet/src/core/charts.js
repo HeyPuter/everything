@@ -589,6 +589,9 @@ function normalizeAppearance(raw) {
     xWrap: raw.xWrap === 'none' ? 'none' : 'square',
     ...(Number.isInteger(raw.xLabelSkip) && raw.xLabelSkip >= 1 && raw.xLabelSkip <= 4294967295 ? { xLabelSkip: raw.xLabelSkip } : {}),
     xMin: n(raw.xMin, -1e100, 1e100, null), xMax: n(raw.xMax, -1e100, 1e100, null),
+    // A logarithmic value axis (and a scatter chart's x axis): its base, 2 to 1000 as DrawingML allows.
+    ...(Number.isFinite(raw.yLogBase) && raw.yLogBase >= 2 && raw.yLogBase <= 1000 ? { yLogBase: raw.yLogBase } : {}),
+    ...(Number.isFinite(raw.xLogBase) && raw.xLogBase >= 2 && raw.xLogBase <= 1000 ? { xLogBase: raw.xLogBase } : {}),
     ...(raw.xSourceLinked === true ? { xSourceLinked: true } : {}),
     xFormat: typeof raw.xFormat === 'string' ? raw.xFormat.slice(0, 512) : '', yFormat: typeof raw.yFormat === 'string' ? raw.yFormat.slice(0, 512) : '',
     gapWidth: n(raw.gapWidth, 0, 500, 150),
