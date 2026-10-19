@@ -2788,6 +2788,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'importSheets': sheetsInput.click(); return;
       case 'versions': {
         if (!committed()) return;
+        // A shared workbook's snapshots are kept with its owner's file, which someone it was shared with has none of.
+        if (room && !doc.path) { toast('Version history is kept with the owner’s file. Ask the owner to restore an earlier version', { icon: 'info', duration: 4500 }); return; }
         if (session.signedOut && (!await session.signIn() || destroyed)) return;
         if (!doc.path) await flush({ leaving: false });
         if (destroyed) return;

@@ -76,3 +76,11 @@ it('opens Share for someone a shared workbook was shared with: who is in it, and
   expect(dialog.querySelector('.collab-share').textContent).not.toMatch(/false/);
   expect(toast).not.toHaveBeenCalledWith(expect.stringMatching(/Save the spreadsheet first/), expect.anything());
 });
+
+it('says where a shared workbook\'s version history is kept, for someone it was shared with', async () => {
+  await sharedEditor(editor);
+  view.run('versions');
+  await until(() => toast.mock.calls.length, 2000, 'the notice');
+  expect(toast.mock.calls.map(([text]) => text)).toEqual(['Version history is kept with the owner’s file. Ask the owner to restore an earlier version']);
+  expect(document.querySelector('.modal-panel')).toBe(null);
+});
