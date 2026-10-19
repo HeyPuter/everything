@@ -3943,12 +3943,18 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!committed()) return;
         // The kinds that start from the active cell look at the whole sheet; the others at the selection, or the sheet when one cell is selected.
         const whole = ['currentRegion', 'lastCell', 'precedents', 'dependents'].includes(arg);
-        const scopes = whole || (grid.ranges.length === 1 && S.isSingle(grid.selection)) ? [wb.usedRange(sheetId)].filter(Boolean) : grid.ranges;
+        const single = grid.ranges.length === 1 && S.isSingle(grid.selection);
+        // Notes, dropdowns and conditional formats often lie on empty cells (a form to fill in), past the typed
+        // values: from one cell those are looked for over the whole sheet, as Excel does.
+        const sheet = wb.sheet(sheetId);
+        const anywhere = single && !whole && ['notes', 'validation', 'conditionalFormats'].includes(arg) && sheet;
+        const scopes = anywhere ? [{ r1: 0, c1: 0, r2: sheet.rows - 1, c2: sheet.cols - 1 }]
+          : whole || single ? [wb.usedRange(sheetId)].filter(Boolean) : grid.ranges;
         if (!scopes.length) { toast('Nothing on this sheet yet', { icon: 'info' }); return; }
         let truncated = false;
         const ranges = scopes.flatMap((scope) => { const found = wb.specialCells(sheetId, scope, arg, 500, grid.active); truncated ||= !!found.truncated; return found; });
         const label = (SPECIAL_KINDS[arg] || arg).toLowerCase();
-        if (!ranges.length) { toast(`No ${label} in ${scopes.length === 1 ? rangeName(scopes[0]) : 'the selection'}`, { icon: 'info' }); return; }
+        if (!ranges.length) { toast(`No ${label} ${anywhere ? 'on this sheet' : `in ${scopes.length === 1 ? rangeName(scopes[0]) : 'the selection'}`}`, { icon: 'info' }); return; }
         grid.setRanges(ranges);
         const n = ranges.reduce((sum, rg) => sum + (rg.r2 - rg.r1 + 1) * (rg.c2 - rg.c1 + 1), 0);
         // The workbook stops after a few hundred blocks and marks the list; the count is then a first helping, not the whole.
