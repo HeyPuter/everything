@@ -210,7 +210,9 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
     const { sheetId: shown, prefs, layout, page: current } = job[page];
     const { box, scale, stretch = 1, headW = 0, headH = 0, titleH = 0 } = layout;
     const total = job.length;
-    count.textContent = `Page ${page + 1} of ${total}`;
+    // A live region: written only when it changes, or a screen reader reads it out again on every key typed in the dialog.
+    const counted = `Page ${page + 1} of ${total}`;
+    if (count.textContent !== counted) count.textContent = counted;
     prev.disabled = page === 0;
     next.disabled = page >= total - 1;
     // The page fits the stage: as wide as it allows, no taller than it allows.
