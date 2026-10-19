@@ -23459,7 +23459,12 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 	xlmlregex.lastIndex = 0;
 	str = remove_doctype(str_remove_ng(str, "<!--", "-->"));
 	var Rn, NFtag, NFmaps = {}, NF = "", tNF = "", y, etpos = 0, tidx = -1, infmt = false, payload = "";
-	var inCommonStyles = false;
+	var inCommonStyles = false, commonStyle = null;
+	var ods_common_props = function(style, tag) {
+		var attrs = parsexmltag(tag, true, true);
+		style.odsProps = style.odsProps || {};
+		for(var key in attrs) style.odsProps[key] = unescapexml_entities(attrs[key]);
+	};
 	while((Rn = xlmlregex.exec(str))) {
 		switch((Rn[3]=Rn[3].replace(/_[\s\S]*$/,""))) {
 		case 'styles':
@@ -23467,10 +23472,19 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 			break;
 		case 'style':
 			/* Local fix: common cell styles in styles.xml also apply to content.xml. */
-			if(_styles && inCommonStyles && Rn[1] !== '/') {
+			if(Rn[1] === '/') commonStyle = null;
+			else if(_styles && inCommonStyles) {
 				y = parsexmltag(Rn[0], false);
 				if(y["family"] == "table-cell" && y["name"]) _styles[y["name"]] = y;
+				commonStyle = y["family"] == "table-cell" && y["name"] && Rn[0].slice(-2) !== "/>" ? y : null;
 			}
+			break;
+		/* Puter Spreadsheet local patch: a common cell style's font, fill, borders and alignment (odsProps, as the
+		 * content reader keeps an automatic style's): LibreOffice's Heading, Accent, Good and Bad styles, applied to
+		 * cells or by conditional formats, carry their look here. */
+		case 'table-cell-properties':
+		case 'paragraph-properties':
+			if(commonStyle && Rn[1] !== '/') ods_common_props(commonStyle, Rn[0]);
 			break;
 		/* Number Format Definitions */
 		case 'number-style': // <number:number-style> 16.29.2
@@ -23654,6 +23668,7 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 			break;
 
 		case 'text-properties': // <style:text-properties> 16.29.29
+			if(commonStyle && !infmt && Rn[1] !== '/') { ods_common_props(commonStyle, Rn[0]); break; }
 			y = parsexmltag(Rn[0], false);
 			/* Puter Spreadsheet local patch: each colour Excel names, not only red ([Blue]0;[Red]0). */
 			var inkName = { "000000": "Black", "0000ff": "Blue", "00ffff": "Cyan", "00ff00": "Green", "ff00ff": "Magenta", "ff0000": "Red", "red": "Red", "ffffff": "White", "ffff00": "Yellow" }[(y["color"]||"").toLowerCase().replace("#", "")];
