@@ -2048,10 +2048,18 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         }
         const r = grid.range;
         const before = selectionSnapshot();
+        // Whole rows (or columns) selected stay selected, as in Excel: the lines that moved up into their place, so
+        // Ctrl+- again takes the next ones. Lines deleted from a selection of cells leave the active cell selected.
+        const limits = sheetLimits(sheetId);
+        const whole = grid.ranges.length === 1 && (isRow ? r.c1 === 0 && r.c2 >= limits.cols - 1 : r.r1 === 0 && r.r2 >= limits.rows - 1);
         // One deletion for every run: the workbook renumbers cells and formulas once, however many runs a filter made.
         if (!wb.deleteLines(sheetId, isRow ? 'row' : 'col', runs)) { keepFocus(); return; }
         const sheet = wb.sheet(sheetId);
-        grid.setSelection(isRow ? S.single(Math.min(r.r1, sheet.rows - 1), grid.active.c) : S.single(grid.active.r, Math.min(r.c1, sheet.cols - 1)));
+        if (whole) {
+          const last = (isRow ? sheet.rows : sheet.cols) - 1;
+          const from = Math.min(isRow ? r.r1 : r.c1, last), to = Math.min(from + (isRow ? r.r2 - r.r1 : r.c2 - r.c1), last);
+          grid.setSelection(isRow ? S.selectRows(from, to, sheetLimits(sheetId)) : S.selectCols(from, to, sheetLimits(sheetId)), { scroll: false });
+        } else grid.setSelection(isRow ? S.single(Math.min(r.r1, sheet.rows - 1), grid.active.c) : S.single(grid.active.r, Math.min(r.c1, sheet.cols - 1)));
         // Undoing brings the lines back: the selection goes back to the lines the user had, as it does for an
         // insert, rather than staying on the single cell the deletion left behind.
         rememberStepSelection(before);
