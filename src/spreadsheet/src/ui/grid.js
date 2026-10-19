@@ -5166,7 +5166,11 @@ export function createGrid(opts) {
         if (key === 'F10' && !e.shiftKey) return;
         e.preventDefault();
         const rect = cellRect(sel.active.r, sel.active.c);
-        opts.onContextMenu?.({ x: rect.left, y: rect.bottom, kind: 'cell' });
+        // Whole columns or rows selected get their header's menu (Insert, Delete, Hide, Column Width…), as in Excel.
+        const rg = S.selRange(sel, true);
+        const cols = rg.scope === 'columns' || (rg.scope !== 'sheet' && rg.r1 === 0 && rg.r2 >= b.rows - 1 && !(rg.c1 === 0 && rg.c2 >= b.cols - 1));
+        const rows = rg.scope === 'rows' || (rg.scope !== 'sheet' && rg.c1 === 0 && rg.c2 >= b.cols - 1 && !(rg.r1 === 0 && rg.r2 >= b.rows - 1));
+        opts.onContextMenu?.({ x: rect.left, y: rect.bottom, kind: cols ? 'col' : rows ? 'row' : 'cell' });
         return;
       }
       case 'Enter':

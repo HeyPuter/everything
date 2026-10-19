@@ -61,3 +61,21 @@ it('keeps whole columns already selected, and every range of a Ctrl/Cmd+click se
   expect(grid.range.c2).toBeGreaterThan(20);
   grid.destroy();
 });
+
+it('opens the header menu from the keyboard (Shift+F10, the Menu key) when whole columns or rows are selected', async () => {
+  const { grid, menus } = await setup();
+  const press = (key, init = {}) => grid.viewport.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }));
+  grid.selectByName('B:C');
+  press('F10', { shiftKey: true });
+  expect(menus.at(-1)).toMatchObject({ kind: 'col' });
+  grid.selectByName('2:4');
+  press('ContextMenu');
+  expect(menus.at(-1)).toMatchObject({ kind: 'row' });
+  grid.selectByName('B2:C4');
+  press('F10', { shiftKey: true });
+  expect(menus.at(-1)).toMatchObject({ kind: 'cell' });
+  grid.selectAll(); grid.selectAll();
+  press('ContextMenu');
+  expect(menus.at(-1)).toMatchObject({ kind: 'cell' });
+  grid.destroy();
+});
