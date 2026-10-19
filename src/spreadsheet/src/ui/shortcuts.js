@@ -45,7 +45,7 @@ const GROUPS = [
   ]],
   ['Edit', [
     ['Type', 'Replace the cell contents (matching text from the column is suggested)'],
-    ['F2 or double-click', 'Edit in place'],
+    [IS_MAC ? 'F2 or ⌃ + U' : 'F2', 'Edit in place (double-click a cell too)'],
     ['F2 while typing', 'Switch between Enter mode (arrows leave the cell) and Edit mode (arrows move the caret); the status bar shows which'],
     ['Shift + F2', 'Add or edit a note'],
     [`${MOD_KEY} + K`, 'Insert or edit a link'],

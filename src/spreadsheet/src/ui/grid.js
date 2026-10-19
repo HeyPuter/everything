@@ -5343,6 +5343,13 @@ export function createGrid(opts) {
     }
     // ⌘+` switches windows on a Mac, so Control+` shows formulas there too.
     if (IS_MAC && e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && (key === '`' || e.code === 'Backquote')) { e.preventDefault(); opts.onCommand?.('showFormulas'); return; }
+    // Control+U edits the active cell on a Mac, as F2 does (Excel for Mac's own chord: many Mac keyboards need Fn for F2).
+    if (IS_MAC && e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && (key.toLowerCase() === 'u' || e.code === 'KeyU')) {
+      e.preventDefault();
+      if (!appOption('editInCell') && opts.onEditInBar?.() === true) return;
+      beginEdit({ mode: 'inplace' });
+      return;
+    }
 
     if (mod) {
       const k = key.toLowerCase();
