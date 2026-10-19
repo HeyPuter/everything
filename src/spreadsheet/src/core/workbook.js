@@ -5654,10 +5654,18 @@ export class Workbook extends EventTarget {
       if (!used) return [];
       rg = { r1: Math.max(rg.r1, used.r1), c1: Math.max(rg.c1, used.c1), r2: Math.min(rg.r2, used.r2), c2: Math.min(rg.c2, used.c2) };
       if (rg.r1 > rg.r2 || rg.c1 > rg.c2 || (rg.r2 - rg.r1 + 1) * (rg.c2 - rg.c1 + 1) > 400000) return [];
+      // A merged block is one cell, its top-left: the cells it covers are no blanks of their own, or filling the
+      // blanks (Ctrl+Enter) would write values nobody can see under the merge.
+      const covered = new Set();
+      for (const m of sheet.merges) {
+        const cut = intersection(m, rg);
+        if (cut) for (let r = cut.r1; r <= cut.r2; r++) for (let c = cut.c1; c <= cut.c2; c++) if (r !== m.r1 || c !== m.c1) covered.add(cellKey(r, c));
+      }
       for (let c = rg.c1; c <= rg.c2; c++) {
         for (let r = rg.r1; r <= rg.r2; r++) {
-          const cell = sheet.cells.get(cellKey(r, c));
-          if ((!cell || (cell.v == null && cell.f == null)) && !this.spillAt(sheetId, r, c)) found.push({ r, c });
+          const key = cellKey(r, c);
+          const cell = sheet.cells.get(key);
+          if ((!cell || (cell.v == null && cell.f == null)) && !this.spillAt(sheetId, r, c) && !covered.has(key)) found.push({ r, c });
         }
       }
     } else if (kind === 'notes') {
