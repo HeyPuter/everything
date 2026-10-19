@@ -548,7 +548,7 @@ export function* solverSteps(p) {
         yield progress({ phase: 'branch' });
         return r;
       };
-      const r = yield* branchAndBound(relax, p.lb, p.ub, { integer: p.integer, groups: p.groups, intTol, gap, maxNodes: lim(o.maxSubproblems), maxFeasible: lim(o.maxFeasible), stop });
+      const r = yield* branchAndBound(relax, p.lb, p.ub, { integer: p.integer, groups: p.groups, intTol, gap, offset: fConst, maxNodes: lim(o.maxSubproblems), maxFeasible: lim(o.maxFeasible), stop });
       result = { status: r.status === 'optimal' ? (gap > 0 && r.subproblems > 1 ? 'optimalInteger' : 'optimal') : r.status, x: r.x, subproblems: r.subproblems, iterations, linear };
     } else {
       const r = solveLP({ ...lp, lb: p.lb, ub: p.ub }, { maxIter });

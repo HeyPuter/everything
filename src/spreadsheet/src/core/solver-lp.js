@@ -256,9 +256,11 @@ export function sensitivity(result) {
  * Branch and bound over a relaxation for integer variables and all-different groups. `relax(lb, ub)` is a
  * generator returning { status, x, objective } for the minimization within those bounds. Yields
  * { subproblems, incumbent } between subproblems. Returns { status, x, objective, subproblems, feasibleFound }.
- * options: { integer: bool[], groups: [[j...]], intTol, gap (relative), maxNodes, maxFeasible, stop() }
+ * options: { integer: bool[], groups: [[j...]], intTol, gap (relative), offset, maxNodes, maxFeasible, stop() }
+ * `offset` is a constant the relaxation's objectives leave out (a linear model's c·x lacks the formula's constant
+ * term): the gap is relative to the objective with it, as the model reads, not to c·x.
  */
-export function* branchAndBound(relax, lb0, ub0, { integer, groups = [], intTol = 1e-6, gap = 0, maxNodes = Infinity, maxFeasible = Infinity, stop = () => null } = {}) {
+export function* branchAndBound(relax, lb0, ub0, { integer, groups = [], intTol = 1e-6, gap = 0, offset = 0, maxNodes = Infinity, maxFeasible = Infinity, stop = () => null } = {}) {
   const n = lb0.length;
   const isInt = integer || new Array(n).fill(false);
   const stack = [{ lb: lb0.slice(), ub: ub0.slice() }];
@@ -280,7 +282,7 @@ export function* branchAndBound(relax, lb0, ub0, { integer, groups = [], intTol 
       if (res.status === 'stopped' || res.status === 'timeLimit') { limit = res.status; break; }
       continue;
     }
-    if (best && res.objective >= bestObj - Math.max(1e-9, gap * Math.abs(bestObj))) continue;
+    if (best && res.objective >= bestObj - Math.max(1e-9, gap * Math.abs(bestObj + offset))) continue;
     // Branch on the most fractional integer variable.
     let j = -1, frac = intTol;
     for (let k = 0; k < n; k++) {
