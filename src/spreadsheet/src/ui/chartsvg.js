@@ -115,9 +115,16 @@ const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').
 const MAX_LEGEND = 12;
 /** Past MAX_LEGEND entries a legend names the first eleven and counts the rest (a key-less `more` entry),
  * rather than leaving the others' slices or series unnamed with no sign that any are missing. */
-function cappedLegend(entries) {
-  if (entries.length <= MAX_LEGEND) return entries;
-  return [...entries.slice(0, MAX_LEGEND - 1), { name: `…and ${entries.length - (MAX_LEGEND - 1)} more`, i: -1, more: true, keyWidth: 0 }];
+function cappedLegend(entries, most = MAX_LEGEND) {
+  if (entries.length <= most) return entries;
+  const named = Math.max(0, most - 1);
+  return [...entries.slice(0, named), { name: `…and ${entries.length - named} more`, i: -1, more: true, keyWidth: 0 }];
+}
+/** A legend down the right keeps to the entries whose rows (`height(entry)` each) fit in `room`, counting the rest. */
+function legendColumn(entries, room, height) {
+  let shown = cappedLegend(entries);
+  while (shown.length > 1 && shown.reduce((sum, e) => sum + height(e), 0) > room) shown = cappedLegend(entries, shown.length - 1);
+  return shown;
 }
 // Past this many marks a chart drops per-mark tooltips (a 5000-row range would otherwise put tens of
 // megabytes of <title> into the page) and thins its marks to what the plot can show anyway.
@@ -1790,12 +1797,15 @@ function renderStyledCartesian(data, chart, width, height) {
     const style = a.legendStyle;
     let vertical = chart.legendPos === 'right';
     const l = sameLegend && a.legend ? a.legend : { x: vertical ? .77 : .03, y: chart.legendPos === 'top' ? .12 : vertical ? .25 : .91, w: vertical ? .21 : .94, h: .06 };
-    const entries = legendEntries;
-    const layout = automaticLegend || (sameLegend && a.legend ? layoutLegend(entries, style, W, H, chart.legendPos, 0,
-      { x: l.x * W, y: l.y * H, w: (l.w ?? .94) * W, h: l.h == null ? null : l.h * H }, vertical) : null);
+    const manual = !automaticLegend && sameLegend && a.legend;
     // A legend down the right wraps each name within the room left to the chart's edge, and shortens a word
-    // too long for it, rather than running the name off the chart.
+    // too long for it, rather than running the name off the chart; it keeps to the rows that fit above its foot.
     const indent = bubble ? 14 : 29, room = Math.max(20, W - l.x * W - indent - 4);
+    const entries = vertical && !automaticLegend && !manual
+      ? legendColumn(seriesLegend, H - 4 - l.y * H - style.size * .75 - style.size * .5 + style.size * 1.7, e => style.size * (1.7 + (legendLines(e.name, room, style).length - 1) * 1.2))
+      : legendEntries;
+    const layout = automaticLegend || (manual ? layoutLegend(entries, style, W, H, chart.legendPos, 0,
+      { x: l.x * W, y: l.y * H, w: (l.w ?? .94) * W, h: l.h == null ? null : l.h * H }, vertical) : null);
     const wrapped = vertical && !layout ? entries.map(({ name }) => legendLines(name, room, style)) : null;
     const box = layout ? { x: layout.x, y: layout.y, w: layout.w, h: layout.h }
       : { x: l.x * W, y: l.y * H, w: (l.w ?? .94) * W, h: vertical ? wrapped.reduce((sum, lines) => sum + style.size * (1.7 + (lines.length - 1) * 1.2), 0) : (l.h ?? .06) * H };
@@ -2250,8 +2260,13 @@ function renderStyledPie(data, chart, width, height) {
   // Legend entries are retained for blank/zero points even though they have
   // no visible slice. Only an explicit legendEntry/delete removes an entry.
   const entries = data.categories.map((name, i) => ({ name, i })).filter(({ i }) => !a.legendHidden.includes(i));
-  const shown = cappedLegend(entries);
+  let shown = cappedLegend(entries);
   let top = chart.title ? a.titleStyle.size + 24 : 10, bottom = H - 10, right = W - 10;
+  if (chart.legend && vertical && !(sameLegend && a.legend)) {
+    // Down the right, the rows that fit above the chart's foot (see the row layout below).
+    const st = a.legendStyle, lineH = st.size * 1.7, room = Math.max(20, W - .77 * W - st.size - 8);
+    shown = legendColumn(entries, H - 4 - .2 * H - st.size * 1.3 + lineH, e => lineH + (legendLines(e.name, room, st).length - 1) * st.size * 1.2);
+  }
   if (chart.legend && shown.length) {
     out.push(`<g data-el="legend"${effectAttr(a, 'legend')}>`);
     const legendStart = out.length;
