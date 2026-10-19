@@ -102,6 +102,23 @@ function reach(wb, sheet, axis, need) {
 }
 
 /**
+ * Never every sheet hidden, nor a hidden sheet in front, as when a file is read: two people hiding the last two
+ * sheets on show at once would leave none (and the next sheet deleted nowhere to go). The first sheet is shown
+ * again, as one step to take back with the rest, the same in every browser; this person moves off a sheet hidden.
+ */
+function keepOneShown(wb, label) {
+  if (!wb.sheets.length) return;
+  if (wb.sheets.every((s) => s.hidden)) {
+    const id = wb.sheets[0].id;
+    const show = (hidden) => { const live = wb.sheet(id); if (!live) return; live.hidden = hidden; wb._changed('structure', id); };
+    show(false);
+    wb._push({ label, undo: () => show(true), redo: () => show(false) });
+  }
+  const active = wb.sheets.findIndex((s) => s.id === wb.activeSheetId);
+  if (active < 0 || wb.sheets[active].hidden) wb.activeSheetId = (wb.sheets.slice(active + 1).find((s) => !s.hidden) || wb.sheets.find((s) => !s.hidden)).id;
+}
+
+/**
  * Apply operations to `wb` in order. Call it inside a transaction: each write hands the workbook an undo step.
  * Operations on a sheet that is gone are skipped, as are structural ones the workbook refuses (a protected
  * sheet, say): the same in every browser, which hold the same state.
@@ -138,6 +155,7 @@ export function applyOps(wb, ops, label = 'Shared edit') {
         const set = (values) => { const live = wb.sheet(id); if (!live) return; writeProps(live, values); wb._changed('structure', id); };
         set(op.v);
         wb._push({ label, undo: () => set(prev), redo: () => set(op.v) });
+        if (own(op.v, 'hidden')) keepOneShown(wb, label);
         break;
       }
       case 'lines': {
