@@ -114,7 +114,10 @@ export function printPreviewLayout(wb, sheetId, prefs, range = null, only = null
   const pages = [];
   if (prefs.pageOrder === 'overThenDown') for (const rows of rowBands) for (const cols of colBands) pages.push(page(rows, cols));
   else for (const cols of colBands) for (const rows of rowBands) pages.push(page(rows, cols));
-  return { pages: pages.length ? pages : [null], scale, box, area, headW, headH, titleH };
+  // Fitted to the page's width, a block narrower than the page is stretched across it, its columns (and the row numbers'
+  // column) widened in proportion and its rows and text left as they are, as the print lays it out.
+  const stretch = prefs.fit === 'width' && totalW < contentW ? contentW / Math.max(1, totalW) : 1;
+  return { pages: pages.length ? pages : [null], scale, stretch, box, area, headW, headH, titleH };
 }
 
 /**
@@ -199,7 +202,7 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
   function draw() {
     drawnFor = roomNow();
     const { sheetId: shown, prefs, layout, page: current } = job[page];
-    const { box, scale, headW = 0, headH = 0, titleH = 0 } = layout;
+    const { box, scale, stretch = 1, headW = 0, headH = 0, titleH = 0 } = layout;
     const total = job.length;
     count.textContent = `Page ${page + 1} of ${total}`;
     prev.disabled = page === 0;
@@ -268,11 +271,12 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
     for (let r = current.rows[0]; r <= current.rows[1]; r++) if (!sheet.hiddenRows?.has(r) && !sheet.filterHidden?.has(r)) rows.push([r, wb.rowHeight(shown, r)]);
     const usedW = cols.reduce((a, [, size]) => a + size, 0) + headW, usedH = rows.reduce((a, [, size]) => a + size, 0) + headH;
     const contentW = box.width - m.left - m.right, contentH = box.height - y0 - m.bottom;
-    if (prefs.horizontalCentered) x0 += Math.max(0, (contentW - usedW * scale) / 2);
+    if (prefs.horizontalCentered) x0 += Math.max(0, (contentW - usedW * scale * stretch) / 2);
     if (prefs.verticalCentered) y0 += Math.max(0, (contentH - usedH * scale) / 2);
-    const left = x0 * k + headW * s, top = y0 * k + headH * s;
+    const sx = s * stretch; // across, the stretch of a block fitted to the page's width
+    const left = x0 * k + headW * sx, top = y0 * k + headH * s;
     const xs = [left], ys = [top];
-    for (const [, size] of cols) xs.push(xs.at(-1) + size * s);
+    for (const [, size] of cols) xs.push(xs.at(-1) + size * sx);
     for (const [, size] of rows) ys.push(ys.at(-1) + size * s);
     g.save();
     g.beginPath(); g.rect(m.left * k, m.top * k, contentW * k, (box.height - m.top - m.bottom) * k); g.clip();
@@ -280,11 +284,11 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
     if (headW) {
       g.fillStyle = '#f1f1f1';
       g.fillRect(x0 * k, y0 * k, xs.at(-1) - x0 * k, headH * s);
-      g.fillRect(x0 * k, y0 * k, headW * s, ys.at(-1) - y0 * k);
+      g.fillRect(x0 * k, y0 * k, headW * sx, ys.at(-1) - y0 * k);
       g.fillStyle = '#666666'; g.textAlign = 'center'; g.textBaseline = 'middle';
       g.font = `${Math.max(3, 11 * s)}px -apple-system, BlinkMacSystemFont, sans-serif`;
       cols.forEach(([c], i) => g.fillText(colName(c), (xs[i] + xs[i + 1]) / 2, y0 * k + headH * s / 2));
-      rows.forEach(([r], i) => g.fillText(String(r + 1), x0 * k + headW * s / 2, (ys[i] + ys[i + 1]) / 2));
+      rows.forEach(([r], i) => g.fillText(String(r + 1), x0 * k + headW * sx / 2, (ys[i] + ys[i + 1]) / 2));
     }
     // Fills first, then the gridlines, then the text and borders over them.
     rows.forEach(([r], i) => cols.forEach(([c], j) => {
