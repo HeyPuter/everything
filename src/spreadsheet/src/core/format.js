@@ -671,8 +671,14 @@ export function parseDate(text, now = new Date(), loc = locale) {
 const MONTH_YEAR_RE = /^(\d{0,2}\p{L}+)\.?(?:[ \u00a0\u202f]+|-)(\d{2}|\d{4})$/u;
 const MONTH_YEAR_CODE = 'mmm-yy';
 
-/** "Feb 2024" → the serial of 2024-02-01, or null. */
+// The same written with the month's number and a four-digit year ("12/2023", "9-2010"; "3.2024" where dates are dotted).
+const NUMERIC_MONTH_YEAR_RE = /^(\d{1,2})[\/-](\d{4})$/;
+const DOTTED_MONTH_YEAR_RE = /^(\d{1,2})[\/.-](\d{4})$/;
+
+/** "Feb 2024" or "2/2024" → the serial of 2024-02-01, or null. */
 function parseMonthYear(t, loc = locale) {
+  const numeric = (localeInfo(loc).decimal === ',' ? DOTTED_MONTH_YEAR_RE : NUMERIC_MONTH_YEAR_RE).exec(t);
+  if (numeric) return typedDate(Number(numeric[2]), Number(numeric[1]), 1)?.serial ?? null;
   const m = MONTH_YEAR_RE.exec(t);
   if (!m) return null;
   // A two-digit number after a month name is the day wherever it could be one, so Feb 24 is the
