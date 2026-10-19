@@ -4049,6 +4049,7 @@ export function createGrid(opts) {
   let tap = null;  // touch: { r, c, x, y, t, timer }
   let longPressAt = 0; // when a long press last opened the cell menu
   let pressMenu = false; // the touch still down opened the cell menu: its release is not a tap
+  let headerPress = null; // touch on a row or column heading: { x, y, timer } until it moves, lifts or opens the menu
   let autoScroll = 0;
 
   let autoScrollAt = null; // { e, rect, left, top, dx, dy }: the pointer the running autoscroll follows
@@ -4097,6 +4098,7 @@ export function createGrid(opts) {
    */
   function cancelDrag() {
     if (tap) { clearTimeout(tap.timer); tap = null; }
+    if (headerPress) { clearTimeout(headerPress.timer); headerPress = null; }
     drag = null;
     if (captured) {
       const { el, id } = captured;
@@ -4315,6 +4317,7 @@ export function createGrid(opts) {
   }
 
   function pointerMove(e) {
+    if (headerPress && (Math.abs(e.clientX - headerPress.x) > TAP_SLOP || Math.abs(e.clientY - headerPress.y) > TAP_SLOP)) { clearTimeout(headerPress.timer); headerPress = null; }
     if (tap) {
       if (Math.abs(e.clientX - tap.x) > TAP_SLOP || Math.abs(e.clientY - tap.y) > TAP_SLOP) { tap.moved = true; clearTimeout(tap.timer); }
       return;
@@ -4410,6 +4413,7 @@ export function createGrid(opts) {
 
   function pointerUp(e) {
     stopAutoScroll();
+    if (headerPress) { clearTimeout(headerPress.timer); headerPress = null; }
     if (tap) {
       clearTimeout(tap.timer);
       const t = tap;
@@ -4713,11 +4717,28 @@ export function createGrid(opts) {
     // Ctrl/Cmd+click on a header adds that row or column to the selection.
     const add = isMod(e) && !e.shiftKey && e.pointerType !== 'touch';
     if (add) addRange(S.selRange(sel, true));
+    const was = { sel, extras: [...extras] };
     if (axis === 'col') setSelection(e.shiftKey ? S.selectCols(sel.anchor.c, idx, b) : S.selectCols(idx, idx, b), { scroll: false, add });
     else setSelection(e.shiftKey ? S.selectRows(sel.anchor.r, idx, b) : S.selectRows(idx, idx, b), { scroll: false, add });
     drag = { kind: axis === 'col' ? 'colsel' : 'rowsel', start: e.shiftKey ? (axis === 'col' ? sel.anchor.c : sel.anchor.r) : idx };
     grab(axis === 'col' ? colClip : rowClip, e);
     viewport.focus({ preventScroll: true });
+    // A finger held still on a heading opens the row or column menu, as a long press on a cell opens the
+    // cell menu: a touch screen has no right-click, and iOS sends no contextmenu for a long press. Held on
+    // a line of whole lines already selected, the menu is for all of them, as a right-click there is.
+    if (e.pointerType === 'touch' && !e.shiftKey) {
+      const x = e.clientX, y = e.clientY;
+      headerPress = { x, y, timer: setTimeout(() => {
+        headerPress = null;
+        if (destroyed) return;
+        cancelDrag();
+        if (insideSel) { extras = was.extras; setSelection(was.sel, { scroll: false, announce: false, add: true }); }
+        if (navigator.vibrate) navigator.vibrate(10);
+        longPressAt = Date.now();
+        pressMenu = true;
+        opts.onContextMenu?.({ x, y, kind: axis });
+      }, LONG_PRESS_MS) };
+    }
   }
 
   /** While dragging headers: where the block would land, shown as a line. */
@@ -4980,6 +5001,10 @@ export function createGrid(opts) {
 
   function headerContextMenu(e, kind) {
     e.preventDefault();
+    // A long press on a touch screen may arrive twice, from the press timer and as the browser's own
+    // contextmenu (Android): whichever comes first opens the menu.
+    if (headerPress) { clearTimeout(headerPress.timer); headerPress = null; longPressAt = Date.now(); }
+    else if (Date.now() - longPressAt < LONG_PRESS_MS * 2) return;
     // A header menu offers structural edits; the open entry lands first, where it was typed.
     if (edit && !commitEdit()) return;
     const hcell = e.target.closest('.hcell');
@@ -5756,6 +5781,8 @@ export function createGrid(opts) {
   }
   colClip.addEventListener('contextmenu', (e) => headerContextMenu(e, 'col'));
   rowClip.addEventListener('contextmenu', (e) => headerContextMenu(e, 'row'));
+  // The finger that held a heading until its menu opened lifts over the menu: its click must not run the item there.
+  for (const clip of [colClip, rowClip]) clip.addEventListener('touchend', (e) => { if (pressMenu) { pressMenu = false; e.preventDefault(); } }, { passive: false });
   corner.addEventListener('click', () => { if (edit && !commitEdit()) return; setSelection(S.selectAll(bounds()), { scroll: false }); viewport.focus({ preventScroll: true }); });
 
   // The on-screen keyboard that opens as a cell is typed into shrinks the viewport from below, often over
