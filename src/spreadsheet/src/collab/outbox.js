@@ -16,6 +16,7 @@ export const outboxKey = (user, room) => `${user}:${room}`;
 export function memoryOutbox() {
   const rows = new Map();
   return {
+    durable: false, // gone with the page
     async put(key, value) { rows.set(key, structuredClone(value)); },
     async get(key) { return rows.has(key) ? structuredClone(rows.get(key)) : null; },
     async delete(key) { rows.delete(key); },
@@ -51,8 +52,12 @@ export function browserOutbox() {
     });
   };
   const fallback = memoryOutbox();
-  const guard = (fn, alt) => async (...args) => { try { return await fn(...args); } catch { return alt(...args); } };
+  // Once IndexedDB refuses (a full disk, a private window of some browsers), what is kept goes with the page.
+  let durable = true;
+  const guard = (fn, alt) => async (...args) => { try { return await fn(...args); } catch { durable = false; return alt(...args); } };
   return {
+    /** Whether what is kept here survives the page: a reload or a closed tab. */
+    get durable() { return durable; },
     put: guard((key, value) => run('readwrite', (s) => s.put(value, key)), fallback.put),
     get: guard(async (key) => (await run('readonly', (s) => s.get(key))) ?? null, fallback.get),
     delete: guard((key) => run('readwrite', (s) => s.delete(key)), fallback.delete),

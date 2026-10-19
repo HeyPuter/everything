@@ -378,8 +378,9 @@ export class Doc extends EventTarget {
 
   /** Copy the unsaved book to local storage (no-op once it is clean). */
   writeDraft() {
-    // A shared workbook keeps unsent changes in its own outbox (see collab/outbox.js), not in a draft.
-    if (this.collab) return false;
+    // A shared workbook keeps unsent changes in its own outbox (see collab/outbox.js), not in a draft: they are
+    // kept when it outlasts the page and the room will still take them.
+    if (this.collab) return this.collab.keepsChanges;
     clearTimeout(this._draftTimer);
     if (!this.wb.dirty) { clearDraft(this._ownDraftKey, this._draftRevision); return false; }
     // Timestamps and workbook versions can coincide across tabs. Each write

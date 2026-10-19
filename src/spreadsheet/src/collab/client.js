@@ -74,6 +74,9 @@ export class RoomClient extends EventTarget {
 
   get canEdit() { return canEdit(this.role); }
 
+  /** Whether changes not yet sent outlast this page, to be sent when the workbook is opened here again. */
+  get keepsChanges() { return !this.halted && !this.closed && this.canEdit && this.o.store?.durable !== false; }
+
   /* ---------- Creating, joining and opening ---------- */
 
   /** Create the room for a workbook (its owner, on their own worker). Returns the room ID. */

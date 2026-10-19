@@ -5550,7 +5550,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const answer = new Promise((done) => { resolve = done; });
     const content = el('div', {},
       el('p.modal-text', {}, kept
-        ? `"${doc.name}" is still being saved: the connection may be slow. Wait, and it closes once saved; or leave now, and your changes stay in this browser, offered again when you open it here.`
+        ? `"${doc.name}" is still being saved: the connection may be slow. Wait, and it closes once saved; or leave now, and your changes stay in this browser, ${room ? 'sent when you open it here again' : 'offered again when you open it here'}.`
         : `"${doc.name}" is still being saved: the connection may be slow. Wait, and it closes once saved. This browser could not keep a copy of your changes, so leaving now may lose them.`),
       el('div.row.row-end', { style: { flexWrap: 'wrap' } },
         el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Keep editing'),
@@ -5591,7 +5591,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       const why = reason ? ` (${String(reason).replace(/\.$/, '')})` : '';
       const content = el('div', {},
         el('p.modal-text', {}, kept
-          ? `Puter could not save this spreadsheet${why}. Your changes are kept in this browser, and saving is offered again when you open it here.`
+          ? `Puter could not save this spreadsheet${why}. Your changes are kept in this browser, ${room ? 'and sent to the shared workbook when you open it here again' : 'and saving is offered again when you open it here'}.`
           : `Puter could not save this spreadsheet${why}, and this browser could not keep a copy of your changes either. Leaving now discards them.`),
         el('div.row.row-end', { style: { flexWrap: 'wrap' } },
           el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Keep editing'),
