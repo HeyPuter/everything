@@ -706,6 +706,13 @@ function typedValue(td, styles, spreadsheet = false, text = '', emptyStrings) {
       }
     } catch { /* not Sheets' JSON: the text speaks for itself */ }
   }
+  // LibreOffice Calc writes a number's own value as sdval beside the text it shows. A logical value is a 1 or 0
+  // to Calc, shown TRUE or FALSE, which stays the logical value it reads as.
+  const sdval = td.getAttribute('sdval');
+  if (sdval != null && sdval.trim() !== '' && Number.isFinite(Number(sdval))) {
+    const n = Number(sdval), shown = text.trim().toUpperCase();
+    return (shown === 'TRUE' && n === 1) || (shown === 'FALSE' && n === 0) ? n === 1 : n;
+  }
   // Office HTML distinguishes General alignment from explicit alignment.
   // With General, the HTML align attribute describes the value's automatic
   // placement: left is text, right is numeric, center is Boolean/error. Some
