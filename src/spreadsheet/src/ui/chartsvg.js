@@ -507,7 +507,14 @@ function renderChartContent(data, chart, width, height) {
       used += widths[i];
     });
     if (row.length) rowsOfItems.push(row);
-    const lines = rowsOfItems.slice(0, 3);
+    let lines = rowsOfItems.slice(0, 3);
+    if (rowsOfItems.length > 3) {
+      // Past three rows the third ends with the count of the entries not shown, as the legend at the right does.
+      const before = lines[0].length + lines[1].length, last = lines[2].slice();
+      const more = () => { const label = `…and ${allItems.length - before - last.length} more`; return { color: null, label, w: 14 + textW(label, 12) + 14 }; };
+      while (last.length && last.reduce((sum, it) => sum + it.w, 0) + more().w > W - 20) last.pop();
+      lines = [lines[0], lines[1], [...last, more()]];
+    }
     const atTop = chart.legendPos === 'top';
     let y0;
     if (atTop) { y0 = top + 6; top += lines.length * 18 + 4; } else { bottom = H - 8 - lines.length * 18; y0 = bottom + 12; }
