@@ -205,6 +205,50 @@ export function adjustRefForInsert(ref, axis, at, count) {
 }
 
 /**
+ * The renumbering that inserting lines at several places at once brings about: points = [{ at, n }], n lines
+ * inserted before line `at`, every `at` in the numbering before any of them went in. `move(i)` is the new
+ * index of line i: it moves down by every line inserted at or above it, as under one insertion after
+ * another from the bottom up. A lookup is a binary search over the points.
+ */
+export function insertMap(points) {
+  const sorted = points.map((p) => ({ at: p.at, n: p.n })).sort((a, b) => a.at - b.at);
+  const above = []; // lines inserted at the points before each one
+  let count = 0;
+  for (const p of sorted) { above.push(count); count += p.n; }
+  // One place (every ordinary insert) needs no search: keep its per-line lookup as cheap as a comparison.
+  const one = sorted.length === 1 ? sorted[0] : null;
+  return {
+    points: sorted,
+    count,
+    // Where the lines inserted at the k-th point (in sorted order) begin.
+    start: (k) => sorted[k].at + above[k],
+    move: one ? (i) => (typeof i === 'number' && i >= one.at ? i + one.n : i) : (i) => {
+      if (typeof i !== 'number') return i;
+      let lo = 0, hi = sorted.length - 1, found = -1;
+      while (lo <= hi) { const mid = (lo + hi) >> 1; if (sorted[mid].at <= i) { found = mid; lo = mid + 1; } else hi = mid - 1; }
+      return found < 0 ? i : i + above[found] + sorted[found].n;
+    },
+  };
+}
+
+/** adjustRefForInsert for the lines of an insertMap, inserted all at once. */
+export function adjustRefForInsertedLines(ref, axis, lines) {
+  const out = { ...ref };
+  if (axis === 'row' && ref.kind !== 'cols') {
+    out.r1 = lines.move(ref.r1);
+    out.r2 = lines.move(ref.r2);
+    if (out.r1 > MAX_ROW) return null;
+    if (out.r2 > MAX_ROW) out.r2 = MAX_ROW;
+  } else if (axis === 'col' && ref.kind !== 'rows') {
+    out.c1 = lines.move(ref.c1);
+    out.c2 = lines.move(ref.c2);
+    if (out.c1 > MAX_COL) return null;
+    if (out.c2 > MAX_COL) out.c2 = MAX_COL;
+  }
+  return out;
+}
+
+/**
  * The renumbering that deleting several stretches of lines brings about, worked
  * out once for all of them: runs = [{ from, to }] in any order, touching or
  * overlapping ones taken together. `before(i)` counts the deleted lines under
@@ -335,7 +379,8 @@ export function resolveRelativeName(formula, r, c) {
  * Structural edit on sheet `sheetName`, seen from a formula that lives on
  * `ownerSheet`. Unqualified refs point at the owner's sheet, so they only
  * change when the edited sheet is the owner. A deletion of several stretches
- * at once passes their deleteMap as `lines`, built once for every formula.
+ * at once passes their deleteMap as `lines`, built once for every formula; an
+ * insertion at several places at once passes its insertMap.
  */
 export function adjustFormula(formula, { ownerSheet, sheetName, axis, at, count, remove, sheetsBetween, lines = null, relativeName = false }) {
   // Nothing in a formula on another sheet can move unless it names a sheet, and naming one needs a "!"
@@ -351,7 +396,7 @@ export function adjustFormula(formula, { ownerSheet, sheetName, axis, at, count,
       const covered = sheetsBetween?.(ref.sheet, ref.sheetEnd) || [ref.sheet, ref.sheetEnd];
       if (!covered.some(same)) return ref;
     } else if (!same(ref.sheet ?? ownerSheet)) return ref;
-    const edit = (r) => (remove ? adjustRefForDeletedLines(r, axis, deleted) : adjustRefForInsert(r, axis, at, count));
+    const edit = (r) => (remove ? adjustRefForDeletedLines(r, axis, deleted) : lines ? adjustRefForInsertedLines(r, axis, lines) : adjustRefForInsert(r, axis, at, count));
     return relativeName ? mapRelativeNameRef(ref, axis, edit) : edit(ref);
   });
 }

@@ -114,26 +114,25 @@ export function addSubtotals(wb, sheetId, range, { groupCol, code = 9, totalCols
       if (k !== key) { groups.push({ from: start, to: r - 1 }); start = r; key = k; }
     }
     groups.push({ from: start, to: end });
-    const totalRow = (r, label, from, to, extra) => {
-      const entries = [{ r, c: groupCol, cell: { v: label, f: null, s: { bold: true, ...extra } } }];
+    // Each total row reads its group's label and the format of its last row (rows from, to as they are now)
+    // and goes in at row r of the sheet with every total row in.
+    const entries = [];
+    const totalRow = (r, label, from, to, last, extra) => {
+      entries.push({ r, c: groupCol, cell: { v: label, f: null, s: { bold: true, ...extra } } });
       for (const c of cols) {
         if (c === groupCol) continue;
-        const fmt = formatOf(wb.getCell(sheetId, to, c)?.s);
+        const fmt = formatOf(wb.getCell(sheetId, last, c)?.s);
         entries.push({ r, c, cell: { v: null, f: `SUBTOTAL(${code},${colName(c)}${from + 1}:${colName(c)}${to + 1})`, s: { ...fmt, bold: true, ...extra } } });
       }
-      wb.setCells(sheetId, entries, 'Add subtotals');
     };
-    // Group rows go in bottom-up so the indices above stay valid; the grand total row comes last,
-    // spanning everything above it (SUBTOTAL skips the group totals, so nothing is counted twice).
-    if (!wb.insertRows(sheetId, end + 1, 1)) { refused = true; return null; }
-    for (let i = groups.length - 1; i >= 0; i--) {
-      const g = groups[i];
-      const label = wb.getDisplay(sheetId, g.from, groupCol) || '(blank)';
-      if (!wb.insertRows(sheetId, g.to + 1, 1)) { refused = true; return null; }
-      totalRow(g.to + 1, `${label} Total`, g.from, g.to, {});
-    }
+    // A row under each group, the i-th group's rows moving down by the i total rows above them, and the grand
+    // total under everything, spanning it all (SUBTOTAL skips the group totals, so nothing is counted twice).
+    // The rows go in at once: one at a time, each renumbered the whole sheet, and thousands of groups took minutes.
     const last = end + groups.length + 1;
-    totalRow(last, 'Grand Total', r0, last - 1, { bt: true, bs: 'thin' });
+    groups.forEach((g, i) => totalRow(g.to + i + 1, `${wb.getDisplay(sheetId, g.from, groupCol) || '(blank)'} Total`, g.from + i, g.to + i, g.to, {}));
+    totalRow(last, 'Grand Total', r0, last - 1, end, { bt: true, bs: 'thin' });
+    if (!wb.insertRowsAt(sheetId, [...groups.map((g) => g.to + 1), end + 1])) { refused = true; return null; }
+    wb.setCells(sheetId, entries, 'Add subtotals');
     if (group) {
       wb.groupLines(sheetId, 'row', r0, last - 1);
       groups.forEach((g, i) => wb.groupLines(sheetId, 'row', g.from + i, g.to + i));
