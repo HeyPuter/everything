@@ -157,11 +157,15 @@ export function refill(wb, sheetId, source, target, kind) {
       const values = dates.map((e) => e.cell.v);
       const step = unitStep(values, kind);
       const first = values[0], last = values.at(-1);
+      // A regular run of months or years counts on from its first date, so a day a short month cut short
+      // (January 31, February 29) comes back (March 31), as one date's fill already did.
+      const fromFirst = (kind === 'months' || kind === 'years') && values.every((v, i) => v === stepDate(first, kind, step * i));
       positions.forEach(({ p, offset }) => {
         const { r, c } = at(k, p);
         if (wb._coveredByMerge?.(sheetId, r, c)) return;
         const n = line.length, base = line[((offset < 0 ? offset : offset - 1) % n + n) % n];
-        const v = offset > 0 ? stepDate(last, kind, step * offset) : stepDate(first, kind, step * offset);
+        const v = offset > 0 ? fromFirst ? stepDate(first, kind, step * (values.length - 1 + offset)) : stepDate(last, kind, step * offset)
+          : stepDate(first, kind, step * offset);
         const style = wb.replacedCellStyle(sheetId, r, c, base.cell?.s);
         entries.push({ r, c, cell: { v, f: null, ...(style ? { s: style } : {}) } });
       });
