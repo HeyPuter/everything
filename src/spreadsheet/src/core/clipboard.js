@@ -1122,6 +1122,15 @@ export function parseHtmlClipboard(html, plainText) {
   const merges = [];
   const displaySpans = [];
   const styles = embeddedResult ? null : readClipboardStyles(doc);
+  // Google Sheets draws its gridlines with a page rule (td {border: 1px solid #cccccc}) and writes a border a cell
+  // really has on the cell itself, so a cell copied from it takes only the border declarations of its own.
+  const sheetsGridlines = !snapshot && !!(doc.querySelector('google-sheets-html-origin') || table.hasAttribute('data-sheets-root'));
+  const cellStyles = !styles || !sheetsGridlines ? styles : (el) => {
+    const all = styles(el);
+    if (![...all.keys()].some((name) => name.startsWith('border'))) return all;
+    const own = new Set([...(el.getAttribute('style') || '').matchAll(/(?:^|;)\s*(border[a-z-]*)\s*:/gi)].map((m) => m[1].toLowerCase()));
+    return new Map([...all].filter(([name]) => !name.startsWith('border') || own.has(name)));
+  };
   const tableRows = [];
   // Excel's saved HTML can represent a run of rows with one TR. These are
   // separate worksheet rows, with repeated formatting but only one value.
@@ -1173,7 +1182,7 @@ export function parseHtmlClipboard(html, plainText) {
       // which writes their originally bare markers as x:str="". Their captured
       // values still take precedence, as they did before syntax preservation.
       const typed = embeddedResult || blank ? undefined : typedValue(td, styles, spreadsheet, text, snapshot ? undefined : emptyStrings);
-      row[c] = { text, style: embeddedResult ? undefined : styleFromElement(td, styles, spreadsheet) };
+      row[c] = { text, style: embeddedResult ? undefined : styleFromElement(td, cellStyles, spreadsheet) };
       // Uniform inline formatting is a cell format. Only differences need a
       // character-run list, preserving the existing plain-cell representation.
       if (content.runs.length) {
