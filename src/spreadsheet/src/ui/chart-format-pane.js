@@ -221,7 +221,11 @@ export function createChartUi(ctx) {
     ctx.grid.focus();
   }
 
-  const apply = (patch, label = 'Format chart') => { if (patch) ctx.run('chart', { action: 'patch', patch, label }); };
+  // A change made in the pane redraws it at once (a Solid fill shows its colour, a logarithmic scale its base), the
+  // control in use keeping the focus; a change from elsewhere waits until the pane is left, not to upset typing.
+  let ownChange = false;
+  const apply = (patch, label = 'Format chart') => { if (patch) { ownChange = true; ctx.run('chart', { action: 'patch', patch, label }); } };
+  const controlKey = n => n?.getAttribute?.('aria-label') || (n?.closest?.('label') ? `label:${n.closest('label').textContent}` : n?.tagName === 'SUMMARY' ? `summary:${n.textContent}` : null);
   const format = opts => { const chart = activeChart(ctx); if (chart) apply(elementFormatPatch(chart, paneKey, opts)); };
 
   function section(title, ...content) {
@@ -441,7 +445,10 @@ export function createChartUi(ctx) {
     if (!chart) { hidePane(); return; }
     const key = paneKey || 'chartArea';
     const sig = `${chart.id}|${key}|${ctx.wb.version}`;
-    if (sig === paneSig || pane.contains(document.activeElement) && paneSig?.startsWith(`${chart.id}|${key}|`)) return;
+    const own = ownChange, inside = pane.contains(document.activeElement);
+    ownChange = false;
+    if (sig === paneSig || inside && !own && paneSig?.startsWith(`${chart.id}|${key}|`)) return;
+    const focused = inside && paneBody.contains(document.activeElement) ? controlKey(document.activeElement) : null;
     paneSig = sig;
     paneTitleEl.textContent = paneTitle(key);
     const open = new Set([...paneBody.querySelectorAll('details.chart-pane-section:not([open]) > summary')].map(s => s.textContent));
@@ -449,6 +456,7 @@ export function createChartUi(ctx) {
     if (!chart.appearance && !sections.length) sections.push(el('p.chart-pane-note', {}, 'This chart keeps the app’s own style. Change Chart Type gives it the full formatting options.'));
     for (const s of sections) if (open.has(s.querySelector('summary')?.textContent)) s.open = false;
     paneBody.replaceChildren(...sections);
+    if (focused) [...paneBody.querySelectorAll('input, select, button, summary')].find(n => controlKey(n) === focused)?.focus({ preventScroll: true });
   }
   pane.addEventListener('focusout', () => requestAnimationFrame(() => { if (!pane.contains(document.activeElement)) { paneSig = null; renderPane(); } }));
   pane.addEventListener('keydown', e => { if (e.key === 'Escape' && !isComposing(e)) { e.preventDefault(); hidePane(); } });
