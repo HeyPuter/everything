@@ -651,6 +651,30 @@ function poissonDraw(rand, lambda) {
   return k;
 }
 
+/**
+ * A binomial count of successes in n trials. A few trials are flipped one by one; many are drawn by inverse
+ * transform, walking the distribution outward from its mode, so a draw costs about the spread of the
+ * distribution (its standard deviation) rather than n: a million trials no longer flip a million coins.
+ */
+function binomialDrawer(rand, n, p) {
+  if (n <= 64 || p === 0 || p === 1) return () => { let k = 0; for (let i = 0; i < n; i++) if (rand() < p) k++; return k; };
+  const q = 1 - p, mode = Math.min(n, Math.floor((n + 1) * p));
+  const atMode = call('BINOM.DIST', mode, n, p, false);
+  return () => binomialFromMode(rand, n, p, q, mode, atMode);
+}
+
+function binomialFromMode(rand, n, p, q, mode, atMode) {
+  let u = rand() - atMode;
+  if (u <= 0) return mode;
+  let lo = mode, hi = mode, below = atMode, above = atMode;
+  while (lo > 0 || hi < n) {
+    if (hi < n) { above *= ((n - hi) / (hi + 1)) * (p / q); hi++; u -= above; if (u <= 0) return hi; }
+    if (lo > 0) { below *= (lo / (n - lo + 1)) * (q / p); lo--; u -= below; if (u <= 0) return lo; }
+    if (above < 1e-300 && below < 1e-300) break;
+  }
+  return mode;
+}
+
 export const DISTRIBUTIONS = ['uniform', 'normal', 'bernoulli', 'binomial', 'poisson', 'patterned', 'discrete'];
 
 /**
@@ -682,7 +706,7 @@ export function randomNumbers({ variables = 1, count = 1, distribution = 'unifor
       const n = Math.trunc(P.trials);
       if (!(isNum(P.p) && P.p >= 0 && P.p <= 1)) return fail('The p value must be between 0 and 1.');
       if (!(n >= 1 && n <= 1e6)) return fail('The number of trials must be a whole number of 1 or more.');
-      draw = () => { let k = 0; for (let i = 0; i < n; i++) if (rand() < P.p) k++; return k; };
+      draw = binomialDrawer(rand, n, P.p);
       break;
     }
     case 'poisson':
