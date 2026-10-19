@@ -12472,7 +12472,11 @@ export class Workbook extends EventTarget {
       this._evalLast = key;
       // Each cell's own calculation gets a fresh array budget, whatever depth it is read at.
       const ctx = this._formulaContext(sheet, r, c);
-      value = withArrayBudget(() => evaluateFormula(ast, ctx));
+      // A cell left waiting on the walk of a chain too deep for the stack can be known to lie on a circle before it
+      // is calculated, found by a cell it reads (see _computeDeep): it ends as #CYCLE! whatever it evaluates to, and
+      // evaluating it anyway read the whole circle again, cell after cell, for a column of SUM(B:B).
+      const circled = !this._iteration && this._cyclic.has(key);
+      value = circled ? err('#CYCLE!') : withArrayBudget(() => evaluateFormula(ast, ctx));
       raw = value;
       if (fixed) value = this._fixedResult(sheet, r, c, value, ctx.fixedArray.randomized);
       else if (isRange(value)) value = this._spillResult(sheet, r, c, value, arrayCandidate);
@@ -12653,35 +12657,39 @@ export class Workbook extends EventTarget {
     const outerLast = this._evalLast;
     const waiting = []; // the cells expanded and not yet calculated, outermost first
     try {
-      const stack = [{ sheet, r, c, key: rootKey }];
+      // Each cell on the walk reads its precedents one at a time, going down into the first one still to be
+      // calculated: the walk holds the path to the cell being calculated, never every precedent of every cell
+      // on it, which for a column of SUM(B:B) is the whole column again for each of its cells (thousands of
+      // rows took seconds and gigabytes, and ten thousand ran the tab out of memory).
+      const stack = [{ sheet, r, c, key: rootKey, reads: null }];
       const expanded = new Set();
+      const cursors = new Map();
       while (stack.length) {
         const top = stack[stack.length - 1];
-        if (this._cache.has(top.key)) { stack.pop(); continue; }
-        // A cell already being calculated, further out than this walk, reads as such.
-        if (this._evaluating.has(top.key) && !expanded.has(top.key)) { stack.pop(); continue; }
-        if (!expanded.has(top.key)) {
+        if (!top.reads) {
+          if (this._cache.has(top.key)) { stack.pop(); continue; }
+          // A cell already being calculated, further out than this walk, reads as such.
+          if (this._evaluating.has(top.key) || expanded.has(top.key)) { stack.pop(); continue; }
           expanded.add(top.key);
           waiting.push(top.key);
           this._evaluating.add(top.key);
           this._evalOrder.set(top.key, ++this._evalSeq);
           this._evalLast = top.key;
-          let pushed = false;
-          for (const p of this._formulaPrecedents(top.sheet, top.r, top.c)) {
-            const key = `${p.sheet.id}|${p.r},${p.c}`;
-            // An expanded cell still on the stack is on the path to this one: the reference closes
-            // a circle, which _compute settles with its own rules for what makes a cycle. So is
-            // a cell being calculated further out.
-            if (this._cache.has(key) || expanded.has(key) || this._evaluating.has(key)) continue;
-            // A cell waiting on the stack but not yet expanded was pushed by another cell, often a
-            // sibling (E = SUM(C:D) beside D = IPMT(…,C)): it is no circle, only needed sooner.
-            // Pushed again on top, it is calculated first and the waiting entry is then skipped.
-            stack.push({ ...p, key });
-            pushed = true;
-          }
-          if (pushed) continue;
+          top.reads = this._formulaPrecedents(top.sheet, top.r, top.c, cursors);
         }
-        // Everything expanded after this cell has been calculated: it is the last one waiting.
+        let next = null;
+        for (let step = top.reads.next(); !step.done; step = top.reads.next()) {
+          const p = step.value;
+          const key = `${p.sheet.id}|${p.r},${p.c}`;
+          // A cell expanded and still waiting is on the path to this one: the reference closes a circle,
+          // which _compute settles with its own rules for what makes a cycle. So is a cell being
+          // calculated further out. One expanded and calculated already has its answer.
+          if (this._cache.has(key) || expanded.has(key) || this._evaluating.has(key)) continue;
+          next = { ...p, key, reads: null };
+          break;
+        }
+        if (next) { stack.push(next); continue; }
+        // Everything this cell reads has been calculated: it is the last one waiting.
         waiting.pop();
         this._evalLast = waiting.length ? waiting[waiting.length - 1] : outerLast;
         this._evaluating.delete(top.key);
@@ -12725,8 +12733,11 @@ export class Workbook extends EventTarget {
     return this._cache.has(rootKey);
   }
 
-  /** The formula cells a formula reads directly, within the used area of each sheet it names. */
-  *_formulaPrecedents(sheet, r, c) {
+  /**
+   * The formula cells a formula reads directly, within the used area of each sheet it names. `cursors`, kept by the
+   * walk of a deep chain, skips the part of each area every cell yielded from which the walk has already dealt with.
+   */
+  *_formulaPrecedents(sheet, r, c, cursors = null) {
     const cell = sheet.cells.get(cellKey(r, c));
     if (!cell || cell.f == null) return;
     for (const { ref } of this._formulaRefs(cell.f, sheet.name, { r, c })) {
@@ -12746,9 +12757,17 @@ export class Workbook extends EventTarget {
           if (rr >= r1 && rr <= r2 && cc >= c1 && cc <= c2) yield { sheet: target, r: rr, c: cc };
         }
       } else {
-        for (let rr = r1; rr <= r2; rr++) for (let cc = c1; cc <= c2; cc++) {
-          if (target.cells.get(cellKey(rr, cc))?.f != null) yield { sheet: target, r: rr, c: cc };
+        // The walk of a deep chain shares how far into each area every cell read so far is calculated or waiting, which
+        // stays so for the walk: a cell reading an area again starts there (see _computeDeep).
+        const id = `${target.id}|${r1},${c1},${r2},${c2}`;
+        const width = c2 - c1 + 1, size = width * (r2 - r1 + 1);
+        for (let pos = cursors?.get(id) ?? 0; pos < size; pos = Math.max(pos + 1, cursors?.get(id) ?? 0)) {
+          const rr = r1 + Math.floor(pos / width), cc = c1 + pos % width;
+          if (target.cells.get(cellKey(rr, cc))?.f == null) continue;
+          cursors?.set(id, pos);
+          yield { sheet: target, r: rr, c: cc };
         }
+        cursors?.set(id, size);
       }
     }
   }

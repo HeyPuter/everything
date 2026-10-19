@@ -42,3 +42,20 @@ it('breaking the circle gives every cell its value again', () => {
   expect(wb.getValue(id, rows - 1, 1)).toBe(2 ** (rows - 2));
   expect(wb.getValue(id, 10, 1)).toBe(2 ** 9);
 }, 30000);
+
+it.each([
+  ['SUM(B:B)', () => 'SUM(B:B)'],
+  ['COUNTA(B:B)+A2', (r) => `COUNTA(B:B)+A${r}`],
+])('a column of %s thousands of rows long settles as a cycle without running out of memory', (_, formula) => {
+  // Each cell of the walk put the whole column on its stack again, and then calculated the whole circle once more:
+  // four thousand rows took eight seconds and gigabytes, and ten thousand ran the tab out of memory.
+  const rows = 4000;
+  const { wb, id } = column(rows, formula);
+  const start = performance.now();
+  expect(wb.getValue(id, rows - 1, 1)).toEqual({ error: '#CYCLE!' });
+  expect(wb.getValue(id, 1, 1)).toEqual({ error: '#CYCLE!' });
+  expect(wb.getValue(id, rows >> 1, 1)).toEqual({ error: '#CYCLE!' });
+  expect(performance.now() - start).toBeLessThan(3000);
+  wb.setInput(id, 0, 3, '=A2+A3');
+  expect(wb.getValue(id, 0, 3)).toBe(3);
+}, 60000);
