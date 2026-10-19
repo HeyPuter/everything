@@ -51,8 +51,11 @@ function convert(record, decodeString, date1904) {
   // Literal whole/time criteria can retain their native editor controls. Formula bounds keep
   // the existing candidate-scoped predicate so relative and cross-sheet references stay live.
   const numericBound = value => /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value) && Number.isFinite(Number(value));
-  if (['whole', 'time'].includes(kind) && numericBound(first) && (!['between', 'notBetween'].includes(op) || numericBound(second))) {
-    rule = { type: kind, min: Number(first), ...(['between', 'notBetween'].includes(op) ? { max: Number(second) } : {}), ...(op === 'between' ? {} : { operator: op }) };
+  // Date and text-length rules come in as the app's Date and Text length rules too, which the writer saves as
+  // native ones again, rather than as a formula Excel then shows as Custom.
+  const native = { whole: 'whole', time: 'time', date: 'date', textLength: 'text' }[kind];
+  if (native && numericBound(first) && (!['between', 'notBetween'].includes(op) || numericBound(second))) {
+    rule = { type: native, min: Number(first), ...(['between', 'notBetween'].includes(op) ? { max: Number(second) } : {}), ...(op === 'between' ? {} : { operator: op }) };
     formula = null;
   }
   if (formula != null) rule = { type: 'formula', source: '=' + formula };
@@ -146,6 +149,17 @@ export function finiteBound(value) {
   if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+/**
+ * Whether a Text length or Date comparison (other than between) means the same as Excel's native rule: any text
+ * length comparison, and a date one that only accepts numbers at or above a bound of zero or more, where the
+ * app's refusal of negative numbers changes nothing.
+ */
+function nativeComparison(rule) {
+  const op = rule.operator, min = finiteBound(rule.min);
+  if (!op || op === 'between' || (!Object.hasOwn(VALIDATION_COMPARISONS, op) && op !== 'notBetween') || min == null) return false;
+  if (rule.type === 'text') return op !== 'notBetween' || finiteBound(rule.max) != null;
+  return rule.type === 'date' && ['equal', 'greaterThan', 'greaterThanOrEqual'].includes(op) && min >= 0;
 }
 const quoted = value => '"' + String(value).replaceAll('"', '""') + '"';
 function inlineList(rule) {
@@ -276,6 +290,11 @@ export function writeXlsxValidations(rules = [], { escape, attribute }) {
           const comparison = validationComparisonFormula(rule, cell);
           formula = `IF(ISNUMBER(${cell}),${rule.type === 'whole' ? `AND(${cell}=TRUNC(${cell}),${comparison})` : comparison},FALSE())`;
         }
+      } else if (nativeComparison(rule)) {
+        // A text-length comparison, and a date one no negative number could pass either way, are Excel's own rules.
+        const op = rule.operator;
+        attrs.type = rule.type === 'date' ? 'date' : 'textLength'; attrs.operator = op; formula = String(finiteBound(rule.min));
+        if (op === 'notBetween') second = String(finiteBound(rule.max));
       } else if (['number', 'date', 'text'].includes(rule.type) && rule.operator && rule.operator !== 'between') {
         const value = rule.type === 'number' ? `VALUE(${cell})` : rule.type === 'text' ? `LEN(${cell})` : cell;
         const comparison = validationComparisonFormula(rule, value);
