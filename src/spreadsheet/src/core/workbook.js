@@ -5625,10 +5625,27 @@ export class Workbook extends EventTarget {
       if (!used) return [];
       const r2 = Math.min(rg.r2, used.r2), c2 = Math.min(rg.c2, used.c2);
       if ((r2 - rg.r1 + 1) * (c2 - rg.c1 + 1) > 400000) return [];
-      const content = (r, c) => { const cell = sheet.cells.get(cellKey(r, c)); return cell?.f != null ? `=${cell.f}` : this.getDisplay(sheetId, r, c); };
+      // A formula is compared by what it does from where it sits (its R1C1 form), as Excel compares it, so a formula
+      // filled across a row (=A1*2, =B1*2, …) is one formula, and the cell that breaks the pattern is the difference.
+      const rows = MAX_ROW + 1, cols = MAX_COL + 1;
+      const relative = (f, r, c) => mapFormulaRefs(f, (ref) => {
+        const out = { ...ref };
+        if (ref.kind !== 'cols') {
+          if (!ref.absR1) out.r1 = (ref.r1 - r + rows) % rows;
+          if (!ref.absR2) out.r2 = (ref.r2 - r + rows) % rows;
+        }
+        if (ref.kind !== 'rows') {
+          if (!ref.absC1) out.c1 = (ref.c1 - c + cols) % cols;
+          if (!ref.absC2) out.c2 = (ref.c2 - c + cols) % cols;
+        }
+        return out;
+      });
+      const content = (r, c) => { const cell = sheet.cells.get(cellKey(r, c)); return cell?.f != null ? `=${relative(cell.f, r, c)}` : this.getDisplay(sheetId, r, c); };
+      const refs = new Map();
+      const refAt = (r, c) => { const key = cellKey(r, c); if (!refs.has(key)) refs.set(key, content(r, c)); return refs.get(key); };
       for (let c = rg.c1; c <= c2; c++) {
         for (let r = rg.r1; r <= r2; r++) {
-          const ref = kind === 'rowDiff' ? content(r, at.c) : content(at.r, c);
+          const ref = kind === 'rowDiff' ? refAt(r, at.c) : refAt(at.r, c);
           if ((kind === 'rowDiff' ? c !== at.c : r !== at.r) && content(r, c) !== ref) found.push({ r, c });
         }
       }
