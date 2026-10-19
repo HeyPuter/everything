@@ -215,3 +215,47 @@ export function nativePivotModelContext(layout, context, schema) {
   return { table: table.id, measure: measure.name, expression: measure.expression, filters, rowType: context.rowType,
     columnType: context.columnType, subtotal: context.measure.subtotal, showDataAs: context.measure.showDataAs };
 }
+
+/**
+ * GETPIVOTDATA over a saved report: the value cell of the measure named `dataField` (its caption, "Sum of Trips",
+ * or its source field's name, "Trips") whose row and column items are the `pairs` given, [field name, item] each,
+ * every other row and column field at its total, as Excel reads them. The field names say which axis an item is
+ * looked for on, so a city that is both a row and a column item is found where it was asked for. { r, c }, or null
+ * when the report has no such cell.
+ */
+export function nativePivotDataCell(layout, dataField, pairs) {
+  const key = v => String(v ?? '').trim().toLowerCase();
+  const name = key(dataField);
+  const names = i => [layout.cacheFields[i]?.name, layout.fields[i]?.caption].filter(n => n != null).map(key);
+  const wanted = [];
+  for (const [field, item] of pairs) {
+    const index = layout.cacheFields.findIndex((_, i) => names(i).includes(key(field)));
+    if (index < 0 || wanted.some(w => w.index === index)) return null;
+    wanted.push({ index, item });
+  }
+  const serial = iso => Date.parse(`${iso}${/Z|[+-]\d\d:?\d\d$/.test(iso) ? '' : 'Z'}`) / 86400000 + 25569;
+  const matches = (member, item) => {
+    if (member.value == null) return item == null || key(item) === '' || key(item) === '(blank)';
+    if (typeof item === 'number') {
+      const value = member.type === 'date' ? serial(member.value) : member.value;
+      return typeof value === 'number' && Number(value.toPrecision(15)) === Number(item.toPrecision(15));
+    }
+    return key(member.caption ?? member.value) === key(item) || key(member.value) === key(item);
+  };
+  const measureNamed = m => !!m && (key(m.caption) === name || names(m.field).includes(name));
+  const pick = (axis, onMeasures) => {
+    const own = wanted.filter(w => axis.fields.includes(w.index));
+    const index = axis.items.findIndex(item => {
+      if (item.type === 'blank' || item.members.some(m => m.type === 'subtotal')) return false;
+      if (onMeasures && !measureNamed(layout.measures[item.measure])) return false;
+      return item.members.length === own.length && own.every(w => item.members.some(m => m.field === w.index && matches(m, w.item)));
+    });
+    return { index, used: own.length };
+  };
+  const onRows = layout.rows.fields.includes(-2), onColumns = layout.columns.fields.includes(-2);
+  if (!onRows && !onColumns && !measureNamed(layout.measures[0])) return null;
+  const row = pick(layout.rows, onRows), column = pick(layout.columns, onColumns);
+  // An item of a field on neither axis (a report filter) is not a cell of the report.
+  if (row.index < 0 || column.index < 0 || row.used + column.used !== wanted.length) return null;
+  return { r: layout.range.r1 + layout.firstDataRow + row.index, c: layout.range.c1 + layout.firstDataCol + column.index };
+}

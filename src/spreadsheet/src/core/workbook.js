@@ -29,6 +29,7 @@ import { cloneStyle, replaceInheritedStyle } from './style-values.js';
 import { normalizeNativeNormalStyle } from './native-normal-style.js';
 import { normalizeNativeDefaultCellFormat } from './native-default-cell-format.js';
 import { nativePivotDisplayStyle, hasNativePivotDisplay, nativePivotDisplayIssues } from './native-pivot-display.js';
+import { readNativePivotLayout, nativePivotDataCell } from './native-pivot-layout.js';
 import { borderSnapshot, restyledBorderRegions, changedBorderRegions, paintedBorder, borderPaintSides, borderPaintPatch, borderPaintState } from './border-regions.js';
 import { normalizeIgnoredErrors } from './ignored-errors.js';
 import { normalizeFontTheme, exportFontScheme } from './font-theme.js';
@@ -6238,6 +6239,19 @@ export class Workbook extends EventTarget {
       this._refreshFilters(this.sheets);
     });
     return true;
+  }
+
+  /** A native report's saved layout, read once per version of the report and its cache; null when it cannot be read. */
+  _nativePivotLayout(pivot) {
+    const cache = this.nativePivots?.caches?.find(c => c.key === pivot.cache);
+    if (!cache) return null;
+    this._pivotLayouts ??= new WeakMap();
+    const kept = this._pivotLayouts.get(pivot);
+    if (kept && kept.cache === cache && kept.xml === pivot.xml && kept.ref === pivot.ref && kept.cacheXml === cache.xml) return kept.layout;
+    let layout = null;
+    try { layout = readNativePivotLayout(pivot, cache); } catch { layout = null; }
+    this._pivotLayouts.set(pivot, { cache, xml: pivot.xml, ref: pivot.ref, cacheXml: cache.xml, layout });
+    return layout;
   }
 
   /** Inspect the persisted native report layout; this does not refresh it. */
@@ -12714,6 +12728,20 @@ export class Workbook extends EventTarget {
           if (area && rr >= area.r1 && rr <= area.r2 && cc >= area.c1 && cc <= area.c2) return { r1: area.r1, c1: area.c1, r2: area.r2, c2: area.c2 };
         }
         return this.dataRegion(target.id, rr, cc);
+      },
+      // GETPIVOTDATA over a report read from a file: the value cell its saved layout gives for the data field and
+      // items asked for ({ r, c }, or null when it has none); undefined for a pivot this app built, read off its cells.
+      pivotCell: (sheetName, rr, cc, dataField, pairs) => {
+        const target = byName(sheetName);
+        if (!target || target.kind === 'chart') return undefined;
+        for (const pivot of this.nativePivots?.tables || []) {
+          if (pivot.owner !== target.id) continue;
+          const area = parseRefText(pivot.ref || '');
+          if (!area || rr < area.r1 || rr > area.r2 || cc < area.c1 || cc > area.c2) continue;
+          const layout = this._nativePivotLayout(pivot);
+          return layout ? nativePivotDataCell(layout, dataField, pairs) : undefined;
+        }
+        return undefined;
       },
       // AI() and other slow sources: the answer when it has arrived, #BUSY! until then.
       asyncValue: (name, text) => this._asyncValue(name, text),

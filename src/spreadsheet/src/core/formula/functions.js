@@ -8845,6 +8845,14 @@ Object.assign(FUNCTIONS, {
       const pairs = [];
       for (let i = 0; i < rest.length; i += 2) pairs.push([scalar(rest[i]), scalar(rest[i + 1])]);
       const read = (r, c) => scalar(ctx.getValue(ref.sheet, r, c));
+      for (const pair of pairs) for (const v of pair) if (isError(v)) return v;
+      // A report from a file knows its fields: its saved layout says which cell holds the value asked for.
+      const cell = ctx.pivotCell?.(ref.sheet, ref.r1, ref.c1, field, pairs);
+      if (cell !== undefined) {
+        if (!cell) return err('#REF!');
+        const v = read(cell.r, cell.c);
+        return v == null || v === '' ? err('#REF!') : v;
+      }
       return getPivotData(field, area, read, pairs);
     },
   },
