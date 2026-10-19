@@ -27,6 +27,7 @@ beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 400 });
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ font: '', measureText: (t) => ({ width: t.length * 7 }) });
   vi.spyOn(P, 'canAI').mockReturnValue(true);
+  vi.spyOn(P, 'hasAI').mockReturnValue(true);
   document.body.innerHTML = '<div id="app"></div>';
 });
 afterEach(() => {

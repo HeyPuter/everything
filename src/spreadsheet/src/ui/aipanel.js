@@ -899,7 +899,25 @@ export function createAiPanel(ctx, env, { onToggle, onBusy } = {}) {
 
   /* ---------- Open and close ---------- */
 
+  // Whether the assistant is offered (Options ▸ Privacy ▸ Offer AI features): while it is not, neither the panel nor
+  // its strip shows, and nothing opens it.
+  let available = true;
+  let reopen = false; // open when AI features were turned off: it opens again when they are turned back on
+  function setAvailable(on) {
+    if (!!on === available) return;
+    available = !!on;
+    if (!available) {
+      reopen = isOpen;
+      if (agent.busy) stop();
+      if (isOpen) close({ focusGrid: root.contains(document.activeElement) });
+    }
+    root.hidden = !available || !isOpen;
+    rail.hidden = !available || isOpen;
+    if (available && reopen) { reopen = false; open({ focus: false }); }
+  }
+
   function open({ focus = true, prompt = null } = {}) {
+    if (!available) return;
     if (!isOpen) {
       isOpen = true;
       root.hidden = false;
@@ -925,9 +943,9 @@ export function createAiPanel(ctx, env, { onToggle, onBusy } = {}) {
     if (pendingApproval) stop();
     isOpen = false;
     root.hidden = true;
-    rail.hidden = false;
-    settings.open = false;
-    saveAiSettings(settings);
+    rail.hidden = !available;
+    // Put away because AI features were turned off, it is left as the user had it, to come back that way.
+    if (available) { settings.open = false; saveAiSettings(settings); }
     onToggle?.(false);
     if (focusGrid) ctx.grid?.focus?.();
   }
@@ -944,6 +962,7 @@ export function createAiPanel(ctx, env, { onToggle, onBusy } = {}) {
     get busy() { return agent.busy; },
     open,
     close,
+    setAvailable,
     toggle(force) { if (force ?? !isOpen) open(); else close(); },
     focus() { input.focus(); },
     /** The transcript as the model has it (for tests). */

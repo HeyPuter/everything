@@ -593,7 +593,12 @@ function shareError(e) {
 
 /** Is Puter's AI available here (an AI() formula can be answered), and wanted (the options' Privacy page)? */
 export function canAI() {
-  return optionState.aiFeatures !== false && !!window.puter?.ai?.chat;
+  return optionState.aiFeatures !== false && hasAI();
+}
+
+/** Whether Puter's AI is there at all, whether or not the AI features are turned on in Options. */
+export function hasAI() {
+  return !!window.puter?.ai?.chat;
 }
 
 /** How much a web address may serve to a formula or a picture: plenty for any sheet the cell budgets allow, not enough to fill memory. */

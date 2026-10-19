@@ -5799,7 +5799,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   }
   // Where the assistant is on screen, open or collapsed to its strip: a file dropped there goes with the next message.
   function overAssistant(x, y) {
-    if (!aiPanel || x == null) return false;
+    if (!aiPanel || !P.canAI() || x == null) return false;
     const target = aiPanel.isOpen ? aiPanel.el : aiPanel.rail;
     if (!target?.isConnected || target.hidden) return false;
     const r = target.getBoundingClientRect();
@@ -6115,7 +6115,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   ctx.subscribe(() => comments.sync());
   // The AI assistant, beside the sheet. Its tools act on the workbook directly; what only the editor knows
   // (the selection, how wide a column's text is, the document's trust in outside content) comes through here.
-  aiPanel = P.canAI() ? createAiPanel(ctx, {
+  // Made wherever Puter's AI is, and shown only while AI features are turned on (Options ▸ Privacy), so that turning
+  // them on brings it without opening the workbook again.
+  aiPanel = P.hasAI() ? createAiPanel(ctx, {
     sheetId: () => grid.sheetId,
     selection: () => ({ sheetId: grid.sheetId, range: { ...grid.range } }),
     select: (sheetId, range) => { const ok = selectLocation(sheetId, range); return ok !== false && ok !== null; },
@@ -6197,6 +6199,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     blocked: () => destroyed || grid.editing || !root.isConnected || !!document.querySelector('.modal-root, .menu'), onExit: () => keepFocus(),
   });
   applyView();
+  aiPanel?.setAvailable(P.canAI());
   if (aiPanel && loadAiSettings().open) aiPanel.open({ focus: false });
 
   // The assistant's heading stands level with the ribbon's tab row beside it, whatever height that row has.
@@ -6565,8 +6568,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     syncChangeAuthor();
     if (keys.includes('aiFeatures')) {
       setAiProviders();
-      if (!options.aiFeatures && aiPanel?.isOpen) aiPanel.close();
-      if (aiPanel) { aiPanel.el.hidden = !options.aiFeatures; if (aiPanel.rail) aiPanel.rail.hidden = !options.aiFeatures; }
+      aiPanel?.setAvailable(P.canAI());
     }
     if (keys.some((k) => ['commentIndicators', 'fillHandle', 'showObjects'].includes(k))) grid.refresh();
     notify();
