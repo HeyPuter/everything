@@ -273,6 +273,8 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
     setTimeout(() => {
       const a = document.activeElement;
       if (!ctx.grid.editing) return;
+      // The bar was hidden under the entry (View ▸ Formula Bar, Focus mode): the entry carries on in the cell.
+      if ((!a || a === document.body) && (root.closest('[hidden]') || getComputedStyle(root).display === 'none')) { ctx.grid.focusEditor(); return; }
       if (a && a.closest?.('.grid, .formula-bar, .toolbar, .ribbon, .menubar, .topbar, .menu, .modal-root, .sheet-tabs')) return;
       ctx.grid.commitEdit();
     }, 0);

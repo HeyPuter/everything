@@ -213,5 +213,6 @@ it('changes the font size of a pending entry without committing or losing its te
   expect(wb.getValue(id, 0, 0)).toBe('x');
   expect(view.el.querySelector('.grid').classList.contains('editing')).toBe(true);
   expect(view.el.querySelector('.grid-editor').value).toBe('Still being typed');
-  expect(document.activeElement).toBe(view.el.querySelector('.grid-editor'));
+  // The keyboard goes back to the formula bar, where the entry was being typed.
+  expect(document.activeElement).toBe(formula);
 });

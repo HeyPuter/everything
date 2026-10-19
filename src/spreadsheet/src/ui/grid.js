@@ -227,7 +227,23 @@ export function createGrid(opts) {
   }
   let rafId = 0;
   let formulaInput = null;
-  const editInput = () => formulaInput && document.activeElement === formulaInput ? formulaInput : editor;
+  // The field the entry was last typed in. While neither has the focus (a menu, the fx list or a ribbon button
+  // took it mid-entry) a name, a function or a reference still goes in at the formula bar's caret when that is
+  // where the typing was, and the focus goes back there: the cell's editor keeps its caret at the end.
+  let lastEditInput = null;
+  const formulaInputShown = () => !!formulaInput?.isConnected && !formulaInput.closest('[hidden]') && formulaInput.checkVisibility?.() !== false;
+  const editInput = () => {
+    const active = document.activeElement;
+    if (formulaInput && active === formulaInput) return formulaInput;
+    if (active !== editor && lastEditInput === formulaInput && formulaInputShown()) return formulaInput;
+    return editor;
+  };
+  /** The keyboard to the field the entry is typed in, or the cell's own editor when that field cannot take it (the formula bar was hidden). */
+  const focusEntry = () => {
+    const input = editInput();
+    input.focus({ preventScroll: true });
+    if (input !== editor && document.activeElement !== input) { lastEditInput = editor; editor.focus({ preventScroll: true }); }
+  };
   let edit = null; // { r, c, text, mode: 'type' | 'inplace', refInsert: {start,end} | null }
   let fillPreview = null;
   let movePreview = null; // range the selection would move to while dragging its border
@@ -3824,6 +3840,7 @@ export function createGrid(opts) {
 
   function endEdit() {
     edit = null;
+    lastEditInput = null;
     if (linkPop.parentNode !== canvas) canvas.append(linkPop);
     hints.close();
     editor.hidden = true;
@@ -5745,6 +5762,7 @@ export function createGrid(opts) {
     updateHints();
   }
   editor.addEventListener('keyup', (e) => { if (!isComposing(e) && /^Arrow|^Home$|^End$/.test(e.key)) caretMoved(); });
+  editor.addEventListener('focus', () => { lastEditInput = editor; });
   // Clicking into the text being typed puts the caret there to edit it, as in Excel: Edit mode.
   editor.addEventListener('pointerdown', () => setEditMode('inplace'));
   editor.addEventListener('click', caretMoved);
@@ -6430,7 +6448,11 @@ export function createGrid(opts) {
     },
     beginEdit,
     setEditText,
-    setFormulaInput(input) { formulaInput = input; },
+    setFormulaInput(input) {
+      formulaInput = input;
+      lastEditInput = null;
+      input?.addEventListener('focus', () => { if (formulaInput === input) lastEditInput = input; });
+    },
     handleEditKey: editorKeyDown,
     /** The formula bar's caret moved: the same bookkeeping as for the cell editor's own caret. */
     updateEditHints: caretMoved,
@@ -6449,11 +6471,11 @@ export function createGrid(opts) {
       input.value = next;
       input.setSelectionRange(a + text.length, a + text.length);
       setEditText(next, { fromEditor: input === editor });
-      input.focus({ preventScroll: true });
+      focusEntry();
     },
     /** Focus the grid: the cell being edited while an edit is open, otherwise the cells. */
-    focus() { if (!validationPending) (edit ? editor : viewport).focus({ preventScroll: true }); },
-    focusEditor() { if (edit && !validationPending) editor.focus({ preventScroll: true }); },
+    focus() { if (!validationPending) { if (edit) focusEntry(); else viewport.focus({ preventScroll: true }); } },
+    focusEditor() { if (edit && !validationPending) focusEntry(); },
     refresh() { rebuildOffsets(); rendered.key = null; schedule(); },
     /** Show where the other people in a shared workbook are: [{ id, name, color, sheet, sel, active, editing }]. */
     setPeers(list) { peers = Array.isArray(list) ? list : []; renderPeers(); },
