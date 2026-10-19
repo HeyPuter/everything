@@ -9,7 +9,8 @@
 import { el } from './dom.js';
 import { normalizePrintSettings } from '../core/print-settings.js';
 import { printBands, quantizePrintScale } from './print-pagination.js';
-import { printPageText, splitPrintSections } from './print.js';
+import { printPageText, splitPrintSections, printRange } from './print.js';
+import { MAX_ROW, MAX_COL } from '../core/refs.js';
 import { richHeaderSections } from './print-header.js';
 
 export const PX_PER_INCH = 96;
@@ -59,7 +60,9 @@ export function pageLayoutMetrics(wb, sheetId) {
   const paperWidth = w * PX_PER_INCH, paperHeight = h * PX_PER_INCH;
   const width = Math.max(1, paperWidth - margins.left - margins.right);
   const height = Math.max(1, paperHeight - margins.top - margins.bottom);
-  const area = p.areas[0] || wb.usedRange(sheetId);
+  // A print area of whole columns (or rows) prints as far as the sheet's print reaches (see printRange).
+  const given = p.areas[0];
+  const area = given && (given.r2 >= MAX_ROW || given.c2 >= MAX_COL) ? printRange(wb, sheetId, { range: given }) : given || wb.usedRange(sheetId);
   // The print scale: Fit to pages shrinks the print area (never enlarges it), else the Adjust to percentage.
   let scale = (Number(p.scale) || 100) / 100;
   if (p.fitToPage) {

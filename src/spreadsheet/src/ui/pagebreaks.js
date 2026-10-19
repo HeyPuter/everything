@@ -3,7 +3,8 @@
  * (paper, orientation, margins, scale or fit to pages), its print area or used range, its manual page
  * breaks and the sizes of its rows and columns, laid out as the print path lays them out (printBands).
  */
-import { PRINT_DEFAULTS, sheetPrintPrefs, printableWidth, printableHeight, manualBreaksApply } from './print.js';
+import { PRINT_DEFAULTS, sheetPrintPrefs, printableWidth, printableHeight, manualBreaksApply, printRange } from './print.js';
+import { MAX_ROW, MAX_COL } from '../core/refs.js';
 import { printBands } from './print-pagination.js';
 
 /**
@@ -15,7 +16,10 @@ export function pageBreaks(wb, sheetId) {
   const sheet = wb.sheet(sheetId);
   if (!sheet || sheet.kind === 'chart') return null;
   const prefs = { ...PRINT_DEFAULTS, ...sheetPrintPrefs(sheet) };
-  const area = sheet.printSettings?.areas?.[0] || wb.usedRange(sheetId);
+  const given = sheet.printSettings?.areas?.[0];
+  // A print area of whole columns (or rows) prints as far as the sheet's print reaches, not to the grid's end: taken
+  // whole, it laid out some twenty thousand pages down to row 1,048,576 on every edit, half a second a keystroke.
+  const area = given && (given.r2 >= MAX_ROW || given.c2 >= MAX_COL) ? printRange(wb, sheetId, { range: given }) : given || wb.usedRange(sheetId);
   if (!area) return null;
   const rowSizes = [], colSizes = [];
   for (let r = area.r1; r <= area.r2; r++) rowSizes.push(sheet.hiddenRows.has(r) || sheet.filterHidden.has(r) ? 0 : wb.rowHeight(sheetId, r));
