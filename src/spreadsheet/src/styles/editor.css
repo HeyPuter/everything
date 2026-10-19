@@ -641,9 +641,10 @@
 .find-panel {
   position: absolute;
   top: 8px;
-  right: 24px;
+  /* --find-right moves the panel aside for an open task pane (chrome.css); the width keeps it inside the grid. */
+  right: var(--find-right, 24px);
   z-index: 20;
-  width: min(440px, calc(100% - 16px));
+  width: min(440px, calc(100% - var(--find-right, 24px) - 8px));
   max-height: calc(100% - 24px);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -660,7 +661,7 @@
 
 .find-panel[hidden] { display: none; }
 .find-panel.find-bottom { top: auto; bottom: 16px; }
-.find-panel.find-expanded { width: min(640px, calc(100% - 16px)); max-height: calc(100% - 64px); }
+.find-panel.find-expanded { width: min(640px, calc(100% - var(--find-right, 24px) - 8px)); max-height: calc(100% - 64px); }
 .find-panel > * { flex-shrink: 0; }
 .find-query { position: sticky; top: 0; z-index: 1; background: var(--surface); }
 
