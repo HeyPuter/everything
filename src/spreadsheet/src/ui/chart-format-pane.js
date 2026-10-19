@@ -258,6 +258,8 @@ export function createChartUi(ctx) {
     const a = chart.appearance || {};
     const seriesIndex = /^(?:series|point):(\d+)/.exec(key)?.[1];
     const lineOnly = /^(xAxis|yAxis|y2Axis|gridlines-)/.test(key) || (seriesIndex != null && ['line', 'scatter', 'radar'].includes(chart.type) && !/^point/.test(key));
+    // A chart in the app's own style takes a series' colour and nothing else here (see elementFormatPatch).
+    if (!chart.appearance && (!/^series:\d+$/.test(key) || lineOnly)) return null;
     const fills = {
       chartArea: a.background, plotArea: a.plotFill, title: a.titleBox?.fill, legend: a.legendBox?.fill,
     };
@@ -276,7 +278,7 @@ export function createChartUi(ctx) {
         choice('Fill', kind, [['auto', 'Automatic'], ['none', 'No fill'], ['solid', 'Solid fill']], v => format({ fill: v === 'none' ? 'none' : v === 'solid' ? (fill && fill !== 'none' ? fill : '#4472c4') : null })),
         kind === 'solid' ? color('Fill Color', fill, v => format({ fill: v })) : null);
     }
-    if (!/^(xTitle|yTitle|dataLabels|point)/.test(key)) {
+    if (chart.appearance && !/^(xTitle|yTitle|dataLabels|point)/.test(key)) {
       const kind = line === 'none' ? 'none' : line ? 'solid' : 'auto';
       parts.push(el('h3.chart-pane-sub', {}, lineOnly && seriesIndex != null ? 'Line' : 'Border'),
         choice(lineOnly && seriesIndex != null ? 'Line' : 'Border', kind, [['auto', 'Automatic'], ['none', lineOnly ? 'No line' : 'No line'], ['solid', 'Solid line']],
@@ -320,7 +322,8 @@ export function createChartUi(ctx) {
         v => apply(chartElementPatch(chart, 'legend', v)))), textOptions(chart, 'legendStyle'));
     } else if (key === 'xTitle' || key === 'yTitle') {
       out.push(section('Title Options', text('Text', chart[key], v => apply({ [key]: v.trim(), [`${key}Ref`]: undefined }))));
-    } else if (key === 'yAxis' || (key === 'xAxis' && (chart.type === 'scatter' || chart.type === 'bubble'))) {
+    } else if (key === 'yAxis' || (key === 'xAxis' && a && (chart.type === 'scatter' || chart.type === 'bubble'))) {
+      // A scatter chart in the app's own style has no x bounds: one set would hand it an empty Excel style.
       const value = key === 'yAxis';
       const minKey = value ? 'yMin' : 'xMin', maxKey = value ? 'yMax' : 'xMax', stepKey = value ? 'yStep' : 'xStep';
       const get = k => (k === 'yMin' || k === 'yMax' ? chart[k] : a?.[k]);
