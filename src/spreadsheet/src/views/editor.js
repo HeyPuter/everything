@@ -1460,8 +1460,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     // While a script runs the workbook is its alone; one Undo takes back everything it did once it ends.
     if (automate?.running && !AUTOMATE_COMMANDS.has(cmd)) { toast('A script is running. Wait for it to finish, or stop it in the Code Editor', { icon: 'info' }); return; }
     // F4 (and Ctrl+Y with nothing to redo) repeats the last formatting or structural command on the selection now.
+    // Ctrl/Cmd+Shift+Z and the Redo buttons only redo: pressed once more than there are steps to redo, they
+    // deleted another row or cleared other cells.
     if (cmd === 'repeat') { if (lastRepeatable && !grid.editing) return run(lastRepeatable.cmd, lastRepeatable.arg); return; }
-    if (cmd === 'redo' && !grid.editing && !wb.canRedo() && lastRepeatable) return run('repeat');
+    if (cmd === 'redo' && arg === 'orRepeat' && !grid.editing && !wb.canRedo() && lastRepeatable) return run('repeat');
     if (REPEATABLE.has(cmd) && !(arg instanceof Event) && !(arg instanceof HTMLElement)) lastRepeatable = { cmd, arg };
     const chartSheet = wb.sheet(grid.sheetId)?.kind === 'chart';
     if (chartSheet && !chartSheetCommand(cmd) && !AUTOMATE_COMMANDS.has(cmd)) return;

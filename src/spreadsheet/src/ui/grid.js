@@ -5342,6 +5342,8 @@ export function createGrid(opts) {
       if (map[k]) {
         e.preventDefault();
         if (map[k] === 'selectAll') selectAllStep();
+        // Ctrl+Y repeats the last action once there is nothing left to redo, as Excel's does; Ctrl+Shift+Z only redoes.
+        else if (map[k] === 'redo' && k === 'y') opts.onCommand?.('redo', 'orRepeat');
         else opts.onCommand?.(map[k]);
         return;
       }
