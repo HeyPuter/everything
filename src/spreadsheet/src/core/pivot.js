@@ -114,13 +114,15 @@ function scanField(wb, sheetId, range, col, styles = null) {
     const v = wb.getValue(sheetId, r, col);
     if (v == null || v === '') { blank = true; continue; }
     if (isError(v)) { if (!codes.has(v.error)) codes.set(v.error, v); continue; }
-    // Match the generated IFS criteria: case-insensitive, with spaces intact.
-    const key = typeof v === 'string' ? `s:${v.toLowerCase()}` : `${typeof v}:${v}`;
+    // Match the generated IFS criteria: case-insensitive, with spaces intact, and numbers at the 15 significant
+    // digits they compare at, so 0.3 and =0.1+0.2 are one category rather than two that each count both.
+    const value = typeof v === 'number' && Number.isFinite(v) ? Number(v.toPrecision(15)) : v;
+    const key = typeof value === 'string' ? `s:${value.toLowerCase()}` : `${typeof value}:${value}`;
     if (seen.has(key)) continue;
-    seen.set(key, v);
-    if (styles && typeof v === 'number') {
+    seen.set(key, value);
+    if (styles && typeof value === 'number') {
       const s = labelStyle(wb.getCell(sheetId, r, col)?.s) || labelStyle(wb.spillAt(sheetId, r, col)?.style);
-      if (s) styles.set(v, s);
+      if (s) styles.set(value, s);
     }
   }
   return { values: [...seen.values()].sort(compareStoredValues), errors: [...codes.keys()].sort().map((code) => codes.get(code)), blank };
