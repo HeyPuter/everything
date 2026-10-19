@@ -1111,8 +1111,29 @@ const blockedMessage = (direction) => (direction === 'left'
  * ({ sheetId, r, c }), or over the table it loaded before (a refresh), resized to the new rows and columns.
  * Returns { sheetId, tableId, rows, errors } or { error }.
  */
+/**
+ * The header names a result's columns take in a table: a table's names differ without regard to case (M's need only
+ * differ), so a later "name" beside "Name" reads "name2", and a blank one is ColumnN, as a table names them.
+ */
+function tableHeaderNames(columns) {
+  const present = new Set(columns.map((n) => String(n ?? '').toLowerCase()).filter(Boolean));
+  const seen = new Set();
+  return columns.map((name, i) => {
+    let text = String(name ?? '');
+    const free = (n) => !seen.has(n.toLowerCase()) && !present.has(n.toLowerCase());
+    if (!text) { let k = i + 1; while (!free(`Column${k}`)) k++; text = `Column${k}`; }
+    else if (seen.has(text.toLowerCase())) { let k = 2; while (!free(`${text}${k}`)) k++; text = `${text}${k}`; }
+    seen.add(text.toLowerCase());
+    return text;
+  });
+}
+
 export function loadResult(wb, query, table, { at = null } = {}) {
   if (!table.columns.length) return { error: 'The query returned no columns to load.' };
+  // The result is laid out under the names its columns take in the table, so a refresh finds each column again
+  // (a "name2" the table gave the query's second "name" is the query's, not a column added by hand).
+  const headers = tableHeaderNames(table.columns);
+  if (headers.some((n, i) => n !== table.columns[i])) table = { ...table, columns: headers };
   const height = table.rows.length;
   const existing = loadedTable(wb, query);
   let result = null;
