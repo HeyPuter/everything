@@ -26,8 +26,11 @@ describe('Tabloid paper', () => {
     expect(printableWidth({ paper: 'tabloid', orientation: 'portrait' })).toBeCloseTo(11 * 96 - 2 * 12 * (96 / 25.4), 1);
   });
 
-  it('gives every paper a keyword an orientation can follow', () => {
-    for (const [, , css] of PAPER_SIZES) expect(css, css).toMatch(/^[A-Za-z0-9-]+$/);
+  it('gives every paper a keyword an orientation can follow, or two lengths with no orientation after them', () => {
+    for (const [key, , css] of PAPER_SIZES) {
+      if (css) expect(css, css).toMatch(/^[A-Za-z0-9-]+$/);
+      else expect(pageRule({ paper: key, orientation: 'landscape' }), key).toMatch(/^@page \{ size: [\d.]+in [\d.]+in; /);
+    }
     expect(pageRule({ paper: 'a3', orientation: 'landscape' })).toBe('@page { size: A3 landscape; margin: 12mm; }');
   });
 });
