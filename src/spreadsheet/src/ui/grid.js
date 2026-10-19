@@ -5453,6 +5453,9 @@ export function createGrid(opts) {
     // The ready-mode chords a browser also owns (Ctrl+R reloads, Ctrl+D bookmarks, Ctrl+9, 0, [, ], \ and `
     // switch or zoom its tabs) do nothing while an entry is typed, as in Excel, rather than reaching the browser.
     if (isMod(e) && !e.altKey && (/^[rd[\]\\`90]$/i.test(key) || e.code === 'Digit9' || e.code === 'Digit0')) { e.preventDefault(); return; }
+    // So do F5 (Go To and Find on the sheet, a reload of the page in the browser, Ctrl or Shift with it a hard one)
+    // and F7 (Spelling; the browser's caret browsing): pressed mid-entry they left the app or put up a prompt.
+    if ((key === 'F5' || key === 'F7') && !e.altKey) { e.preventDefault(); return; }
     if (isMod(e) && (key === 'PageDown' || key === 'PageUp')) {
       e.preventDefault();
       opts.onCommand?.('sheet', key === 'PageDown' ? 'next' : 'prev');
