@@ -78,7 +78,7 @@ export function evaluateDax(expression, context = {}, { maxValues = 4 * 1048576 
     const values = context.column?.(ref.table ?? context.table, ref.name);
     if (!values || typeof values[Symbol.iterator] !== 'function') throw new DaxError(`Unresolved DAX column ${ref.name}`);
     const integer = context.columnType?.(ref.table ?? context.table, ref.name) === 'integer';
-    let count = 0, sum = 0, min = Infinity, max = -Infinity, text = false, integerSum = 0n, integerMin = null, integerMax = null;
+    let count = 0, sum = 0, min = Infinity, max = -Infinity, text = false, integerSum = 0n, integerMin = null, integerMax = null, word = null;
     for (const value of values) {
       if (--remaining < 0) throw new DaxError('DAX evaluation exceeds value limit');
       if (value == null) continue;
@@ -93,6 +93,12 @@ export function evaluateDax(expression, context = {}, { maxValues = 4 * 1048576 
       }
       if (node.name === 'AVERAGE' && typeof value === 'boolean') continue;
       if (node.name === 'AVERAGE' && typeof value === 'string') { text = true; continue; }
+      // MIN and MAX take text too, compared without regard to case, as DAX compares it: MIN of pear, apple, fig is apple.
+      if ((node.name === 'MIN' || node.name === 'MAX') && typeof value === 'string') {
+        const k = value.toLowerCase();
+        if (!word || (node.name === 'MIN' ? k < word.k : k > word.k)) word = { k, value };
+        continue;
+      }
       if (!storedInteger) numeric(value);
       count++;
       if (integer) {
@@ -104,6 +110,7 @@ export function evaluateDax(expression, context = {}, { maxValues = 4 * 1048576 
         if (integerMax == null || exact > integerMax) integerMax = exact;
       } else { sum += value; min = Math.min(min, value); max = Math.max(max, value); }
     }
+    if (!count && word) return word.value;
     if (!count || node.name === 'AVERAGE' && text) return null;
     if (node.name === 'COUNT' || node.name === 'COUNTA') return count;
     if (integer) {
