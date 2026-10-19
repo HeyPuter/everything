@@ -1693,7 +1693,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         } else if (blocks.length) {
           let cleared = 0;
           for (const range of blocks) eachStoredCell(wb.sheet(sheetId), range, (r, c, cell) => {
-            if ((r !== range.r1 || c !== range.c1) && cell.v != null) cleared++;
+            if ((r !== range.r1 || c !== range.c1) && (cell.v != null || cell.f != null)) cleared++;
           });
           const refused = [];
           wb.transaction('Merge cells', () => {
@@ -1729,7 +1729,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         let cleared = 0;
         eachStoredCell(wb.sheet(sheetId), range, (r, c, cell) => {
           const first = cmd === 'mergeAcross' ? c === range.c1 : r === range.r1;
-          if (!first && cell.v != null) cleared++;
+          if (!first && (cell.v != null || cell.f != null)) cleared++;
         });
         let refused = 0;
         wb.transaction(cmd === 'mergeAcross' ? 'Merge horizontally' : 'Merge vertically', () => {
