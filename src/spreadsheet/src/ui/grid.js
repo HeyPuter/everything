@@ -5588,7 +5588,7 @@ export function createGrid(opts) {
   // events, so those add up and step once every 40px, while a mouse notch is one step.
   let wheelAcc = 0;
   let wheelAt = 0;
-  viewport.addEventListener('wheel', (e) => {
+  function zoomWheel(e) {
     if (destroyed || (!isMod(e) && !e.ctrlKey)) return;
     e.preventDefault();
     const px = e.deltaMode === 1 ? e.deltaY * 20 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
@@ -5599,7 +5599,8 @@ export function createGrid(opts) {
     if (Math.abs(wheelAcc) < 40) return;
     setZoom(userZoom + (wheelAcc < 0 ? 0.1 : -0.1));
     wheelAcc = 0;
-  }, { passive: false });
+  }
+  viewport.addEventListener('wheel', zoomWheel, { passive: false });
   // Two fingers pinched on a touch screen zoom the sheet, keeping the spot between them under them, as Excel's
   // and Sheets' apps do. The browser would zoom the whole page instead, toolbar and tabs and all, leaving the
   // sheet at its own zoom (grid.css keeps its pinch off the grid; one finger still scrolls natively).
@@ -5660,6 +5661,25 @@ export function createGrid(opts) {
     scrollSplitPanes(frozen.sl + (inLeft ? dx : 0), frozen.st + (inTop ? dy : 0));
     if ((!inLeft && dx) || (!inTop && dy)) viewport.scrollBy(inLeft ? 0 : dx, inTop ? 0 : dy);
   }, { passive: false });
+  // The wheel over the row numbers or the column letters scrolls the sheet, and with Ctrl or ⌘ (a trackpad's
+  // pinch) zooms it, as over the cells and as in Excel and Sheets: the headings do not scroll themselves, so the
+  // wheel did nothing there, and a pinch zoomed the whole page. In a split window the heading of the top or
+  // left pane scrolls that pane along its own axis.
+  for (const [clip, axis] of [[colClip, 'col'], [rowClip, 'row']]) {
+    clip.addEventListener('wheel', (e) => {
+      if (destroyed || sheet()?.kind === 'chart') return;
+      if (isMod(e) || e.ctrlKey) { zoomWheel(e); return; }
+      e.preventDefault();
+      const k = e.deltaMode === 1 ? 20 : e.deltaMode === 2 ? viewport.clientHeight : 1;
+      let dx = e.deltaX * k, dy = e.deltaY * k;
+      if (e.shiftKey && !dx) { dx = dy; dy = 0; }
+      const vp = viewport.getBoundingClientRect();
+      const inLeft = frozen.split && frozen.left && axis === 'col' && e.clientX - vp.left < frozen.w;
+      const inTop = frozen.split && frozen.top && axis === 'row' && e.clientY - vp.top < frozen.h;
+      if (inLeft || inTop) scrollSplitPanes(frozen.sl + (inLeft ? dx : 0), frozen.st + (inTop ? dy : 0));
+      if ((!inLeft && dx) || (!inTop && dy)) viewport.scrollBy(inLeft ? 0 : dx, inTop ? 0 : dy);
+    }, { passive: false });
+  }
   viewport.addEventListener('pointerdown', cellsPointerDown);
   viewport.addEventListener('pointermove', pointerMove);
   viewport.addEventListener('pointerup', pointerUp);
