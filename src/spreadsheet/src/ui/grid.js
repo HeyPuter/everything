@@ -3860,6 +3860,20 @@ export function createGrid(opts) {
     opts.onEdit?.({ editing: true, text: edit.text, r: edit.r, c: edit.c });
   }
 
+  /**
+   * Ctrl/Cmd+click while pointing adds another reference after the one just picked, a comma between them, as in
+   * Excel (=SUM(A1,C3)), rather than putting the new cell or line in its place.
+   */
+  function pointAnother() {
+    if (!edit?.refInsert) return;
+    const input = editInput();
+    const at = edit.refInsert.end;
+    const next = `${edit.text.slice(0, at)},${edit.text.slice(at)}`;
+    input.value = next;
+    input.setSelectionRange(at + 1, at + 1);
+    setEditText(next, { fromEditor: input === editor });
+  }
+
   /** While typing a formula, can a click insert a reference here? */
   function acceptsRef() {
     if (!edit || !edit.text.startsWith('=')) return false;
@@ -4258,6 +4272,7 @@ export function createGrid(opts) {
 
     e.preventDefault();
     if (edit && acceptsRef()) {
+      if (isMod(e) && !e.shiftKey) pointAnother();
       // Shift+click stretches the reference just picked into a range.
       const anchor = e.shiftKey && edit.point ? edit.point.anchor : { r, c };
       // The formula may be typed in the formula bar: the release gives the focus back to that box.
@@ -4696,6 +4711,7 @@ export function createGrid(opts) {
     if (frozen.split) splitPane[axis === 'col' ? 'left' : 'top'] = !!hcell.closest(axis === 'col' ? '.grid-colhead-frozen' : '.grid-rowhead-frozen');
     const idx = Number(axis === 'col' ? hcell.dataset.c : hcell.dataset.r);
     if (edit && !resizer && acceptsRef()) {
+      if (isMod(e) && !e.shiftKey) pointAnother();
       // While a formula wants a reference, a header gives it the whole column or row (B:B, 2:2),
       // stretched over the headers dragged across; Shift stretches the reference just picked.
       const start = e.shiftKey && edit.point ? (axis === 'col' ? edit.point.anchor.c : edit.point.anchor.r) : idx;
