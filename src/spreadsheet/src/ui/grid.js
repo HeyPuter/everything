@@ -6429,6 +6429,23 @@ export function createGrid(opts) {
     get active() { return sel.active; },
     get editing() { return !!edit; },
     get editState() { return edit ? { ...edit } : null; },
+    /**
+     * The cell being typed in moved to (r, c): someone else inserted or moved rows or columns of a shared
+     * workbook meanwhile. The entry goes with it, so it lands in the cell it was started in.
+     */
+    moveEdit(r, c) {
+      if (!edit || (edit.r === r && edit.c === c)) return;
+      const dr = r - edit.r, dc = c - edit.c;
+      edit.r = r;
+      edit.c = c;
+      const a = edit.arrayRange;
+      if (a) edit.arrayRange = { r1: a.r1 + dr, c1: a.c1 + dc, r2: a.r2 + dr, c2: a.c2 + dc };
+      edit.point = null;
+      edit.refInsert = null;
+      positionEditor();
+      renderRefHighlights();
+      schedule();
+    },
     get keyMode() { return keyMode; },
     /**
      * Take each sheet's saved selection and scroll position afresh (a custom view was shown): what the grid

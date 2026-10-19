@@ -5904,8 +5904,21 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   const onRoomClosed = (e) => toast(`${e.detail?.message || 'This shared workbook is no longer available'} What you see stays open; use File > Save a copy to keep it.`, { icon: 'alert', duration: 8000 });
   // Rows or columns someone else inserted, deleted or moved carry this person's selection along with the cells.
   const onRoomRemote = (e) => {
-    const ops = (e.detail?.ops || []).filter((op) => op.s === grid.sheetId && op.axis);
-    if (!ops.length || grid.editing) return;
+    const lines = (e.detail?.ops || []).filter((op) => op.axis);
+    // The cell being typed in goes with its row and column, or the entry would land in whatever moved under it.
+    const editing = grid.editState;
+    if (editing) {
+      const at = { r: editing.r, c: editing.c };
+      for (const op of lines) {
+        if (op.s !== editing.sheetId) continue;
+        const k = op.axis === 'row' ? 'r' : 'c';
+        const i = mapLine(op, op.s, op.axis, at[k]);
+        if (i >= 0) at[k] = i;
+      }
+      grid.moveEdit(at.r, at.c);
+    }
+    const ops = lines.filter((op) => op.s === grid.sheetId);
+    if (!ops.length) return;
     const map = (range) => {
       let { r1, c1, r2, c2 } = range;
       for (const op of ops) {
