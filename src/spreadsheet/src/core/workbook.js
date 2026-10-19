@@ -3698,6 +3698,10 @@ export class Workbook extends EventTarget {
     }
     const srcRow = (i) => srcOrigin.rows?.[i] ?? srcOrigin.r + i;
     const srcCol = (j) => srcOrigin.cols?.[j] ?? srcOrigin.c + j;
+    // A formula copied out of a table names it (_leaveTable): the copy's origin says which sheet it came from.
+    const leaving = srcOrigin?.sheetId != null && this.sheet(srcOrigin.sheetId)?.tables.length
+      ? (cell, i, j, r, c) => { if (cell.f?.includes('[')) cell.f = this._leaveTable(cell.f, this.tableAt(srcOrigin.sheetId, srcRow(i), srcCol(j))?.name, this.tableAt(sheetId, r, c)?.name); }
+      : () => {};
     const noteWrites = [];
     const contentsOnly = (cell, r, c) => {
       if (!keepStyles) return cell;
@@ -3727,6 +3731,7 @@ export class Workbook extends EventTarget {
         const cell = cloneCell(src);
         // References transpose with the block (see transpose-formula.js).
         if (cell.f != null && srcOrigin) cell.f = transposeFormula(cell.f, { r: srcRow(j), c: srcCol(i) }, { r, c }, srcOrigin, cells.length, cells[0].length, { r: r0, c: c0 });
+        leaving(cell, j, i, r, c);
         // Paste Special swaps the CSE extent, not the expression or its
         // result matrix (which is then truncated or padded to the new rectangle).
         if (cell.array) cell.array = { rows: cell.array.cols, cols: cell.array.rows };
@@ -3757,6 +3762,7 @@ export class Workbook extends EventTarget {
             if (!src) { entries.push({ r, c, cell: keepStyles ? contentsOnly(null, r, c) : this._replaceCellStyle(sheet, null, r, c) }); continue; }
             const cell = cloneCell(src);
             if (cell.f != null && srcOrigin) cell.f = shiftFormula(cell.f, r - srcRow(i), c - srcCol(j));
+            leaving(cell, i, j, r, c);
             contentsOnly(cell, r, c);
             entries.push({ r, c, cell: keepStyles ? cell : this._replaceCellStyle(sheet, cell, r, c) });
           }
@@ -4159,9 +4165,9 @@ export class Workbook extends EventTarget {
       }
       return result;
     };
-    const carried = cells.map(row => row.map(original => {
+    const carried = cells.map((row, i) => row.map((original, j) => {
       const cell = cloneCell(original);
-      if (cell?.f != null) cell.f = move.carry(bindNames(cell.f));
+      if (cell?.f != null) cell.f = this._leaveTable(move.carry(bindNames(cell.f)), this.tableAt(sourceId, rows[i], cols[j])?.name, this.tableAt(targetId, r + i, c + j)?.name);
       return cell;
     }));
     this._rewriteFormulas((formula, owner, r, c, template) => {
@@ -4236,6 +4242,8 @@ export class Workbook extends EventTarget {
       if (inSrc(ref)) return { ...ref, r1: ref.r1 + dr, r2: ref.r2 + dr, c1: ref.c1 + dc, c2: ref.c2 + dc };
       return inDst(ref) ? null : ref;
     });
+    // The table a cell is in that the block does not carry: a formula moved out of one names it (_leaveTable).
+    const staying = (r, c) => sheet.tables.find((t) => !movingTables.includes(t) && r >= t.range.r1 && r <= t.range.r2 && c >= t.range.c1 && c <= t.range.c2)?.name;
     this.transaction('Move cells', () => {
       this._detachChartsFromMove(sheet, src, inside);
       this._moveNativePivots(sheetId, src, sheetId, dst);
@@ -4247,7 +4255,7 @@ export class Workbook extends EventTarget {
       for (let r = src.r1; r <= src.r2; r++) {
         for (let c = src.c1; c <= src.c2; c++) {
           const cell = cloneCell(sheet.cells.get(cellKey(r, c)));
-          if (cell?.f != null) cell.f = follow(cell.f, sheet.name);
+          if (cell?.f != null) cell.f = this._leaveTable(follow(cell.f, sheet.name), staying(r, c), staying(r + dr, c + dc));
           put(r + dr, c + dc, cell);
         }
       }
@@ -4504,7 +4512,8 @@ export class Workbook extends EventTarget {
       const entries = [];
       cells.forEach((row, i) => row.forEach((srcCell, j) => {
         const cell = srcCell ? cloneCell(srcCell) : null;
-        if (cell?.f != null) cell.f = carry(cell.f);
+        // A formula moved out of a table the block does not carry names it (_leaveTable); the carried ones have stepped aside.
+        if (cell?.f != null) cell.f = this._leaveTable(carry(cell.f), this.tableAt(source.id, src.r1 + i, src.c1 + j)?.name, this.tableAt(sheetId, r0 + i, c0 + j)?.name);
         entries.push({ r: r0 + i, c: c0 + j, cell });
       }));
       this.setCellsWithTableHeaders(sheetId, entries, 'Move cells');
@@ -4740,10 +4749,12 @@ export class Workbook extends EventTarget {
           const dr = r - (src.r1 + (vertical ? idx : k));
           const dc = c - (src.c1 + (vertical ? k : idx));
           cell.f = shiftFormula(base.f, dr, dc);
-          // Filled across, a one-column structured reference moves along its table's columns, as Excel moves it.
-          if (dc && cell.f.includes('[')) {
+          if (cell.f.includes('[')) {
             const owner = this.tableAt(sheetId, src.r1 + (vertical ? idx : k), src.c1 + (vertical ? k : idx))?.name ?? null;
-            cell.f = shiftTableColumns(cell.f, dc, (name) => { const hit = this.tableByName(name); return hit ? this.tableColumns(hit.sheet.id, hit.table) : null; }, owner);
+            // Filled across, a one-column structured reference moves along its table's columns, as Excel moves it.
+            if (dc) cell.f = shiftTableColumns(cell.f, dc, (name) => { const hit = this.tableByName(name); return hit ? this.tableColumns(hit.sheet.id, hit.table) : null; }, owner);
+            // Filled out of its table it names the table; rows the table then grows over take the bare form back.
+            cell.f = this._leaveTable(cell.f, owner, this.tableAt(sheetId, r, c)?.name);
           }
         } else if (series && !invert && base && typeof base.v === 'string') {
           // Text ending in a number counts on: one cell steps by 1, a run with a constant step keeps it ("Item 1, Item 3" → "Item 5").
@@ -9454,6 +9465,36 @@ export class Workbook extends EventTarget {
   }
 
   /**
+   * A formula carried out of table `from` (its name) into a cell of table `to` (or of none): its bare structured
+   * references ([@Qty], [Qty]) read the table the formula sits in, so out of `from` they name it (Sales[@Qty]), as
+   * Excel writes them. Left bare they read #REF!, or the like-named columns of whatever table they landed in.
+   */
+  _leaveTable(formula, from, to) {
+    if (!from || formula == null || !formula.includes('[') || from.toLowerCase() === (to || '').toLowerCase()) return formula;
+    return mapTableRefs(formula, (table, spec) => (table ? null : `${from}[${spec}]`));
+  }
+
+  /**
+   * Cells of `area` that a table has just grown over (a paste or fill beside it): their references to the table by
+   * name take the bare form its own cells use ([@Qty] for Sales[@Qty]). A formula pasted or filled from the table
+   * named it while it lay outside (_leaveTable); once inside it reads the same as its neighbours again. True.
+   */
+  _joinTable(sheet, table, area) {
+    const name = table.name.toLowerCase();
+    const entries = [];
+    for (let r = Math.max(area.r1, table.range.r1); r <= Math.min(area.r2, table.range.r2); r++) {
+      for (let c = Math.max(area.c1, table.range.c1); c <= Math.min(area.c2, table.range.c2); c++) {
+        const cell = sheet.cells.get(cellKey(r, c));
+        if (!cell?.f?.includes('[')) continue;
+        const f = mapTableRefs(cell.f, (t, spec) => (t && spec && t.toLowerCase() === name ? `[${spec}]` : null));
+        if (f !== cell.f) entries.push({ r, c, cell: { ...cell, f } });
+      }
+    }
+    if (entries.length) this.setCells(sheet.id, entries, 'Resize table');
+    return true;
+  }
+
+  /**
    * Structured references as A1 text, optionally limited to a single table being converted.
    * `relativeRows`: a [@Column] reference keeps its row relative ($A2), for a rule or validation
    * formula that is read from each row of its range in turn.
@@ -9994,7 +10035,11 @@ export class Workbook extends EventTarget {
     const n = normalizeRange(range);
     const beside = sheet.tables.find(x => n.c1 === x.range.c2 + 1 && n.r1 >= x.range.r1
       && n.r1 <= tableRows(x).dataEnd);
-    if (beside) return this.resizeTable(sheetId, beside.id, { ...beside.range, c2: n.c2 });
+    if (beside) {
+      let widened = false;
+      this.transaction('Resize table', () => { widened = this.resizeTable(sheetId, beside.id, { ...beside.range, c2: n.c2 }) && this._joinTable(sheet, this.tableById(sheetId, beside.id), n); });
+      return widened;
+    }
     const t = sheet.tables.find((x) => !x.totalsRow && n.r2 > x.range.r2 && n.r1 >= x.range.r1 + 1 && n.r1 <= x.range.r2 + 1
       && n.c1 >= x.range.c1 && n.c1 <= x.range.c2);
     if (!t) return false;
@@ -10006,6 +10051,7 @@ export class Workbook extends EventTarget {
     this.transaction('Extend table', () => {
       if (!this.resizeTable(sheetId, t.id, grown)) return;
       const live = this.tableById(sheetId, t.id);
+      this._joinTable(sheet, live, { ...n, r1: Math.max(n.r1, oldEnd + 1) });
       // Only the rows that just joined: a row already in the table keeps whatever the block wrote over it.
       for (let r = Math.max(n.r1, oldEnd + 1); r <= n.r2; r++) this._fillCalculatedRow(sheet, live, r);
       extended = true;

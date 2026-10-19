@@ -162,7 +162,9 @@ export function composePaste(wb, sheetId, data, r0, c0, target, options, limit) 
   const sourceCells = what === 'noBorders' ? withoutBorders(cells) : cells;
   const srcRow = (i) => origin?.rows?.[i] ?? (origin ? origin.r + i : null);
   const srcCol = (j) => origin?.cols?.[j] ?? (origin ? origin.c + j : null);
-  const shifted = (f, i, j, r, c) => (f != null && origin ? shiftFormula(f, r - srcRow(i), c - srcCol(j)) : f);
+  // A formula copied out of a table names it (see Workbook._leaveTable).
+  const leaving = (f, i, j, r, c) => (origin?.sheetId != null ? wb._leaveTable(f, wb.tableAt(origin.sheetId, srcRow(i), srcCol(j))?.name, wb.tableAt(sheetId, r, c)?.name) : f);
+  const shifted = (f, i, j, r, c) => (f != null && origin ? leaving(shiftFormula(f, r - srcRow(i), c - srcCol(j)), i, j, r, c) : f);
 
   // Everything except an arithmetic paste of whole cells keeps the cells' own machinery (arrays, merges, sparklines).
   if (o.operation === 'none' && ['all', 'allSourceTheme', 'allMergeCF', 'allWidths', 'noBorders', 'formulas'].includes(what)) {

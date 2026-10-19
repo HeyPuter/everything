@@ -4399,8 +4399,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     // Where each copied line came from: with hidden lines skipped, a pasted
     // formula shifts by its own cell's move, not by its place in the compacted
     // block. Another tab cannot be told the lines, so its paste leaves such
-    // formulas as they are rather than shifting them wrongly.
-    const origin = { r: range.r1, c: range.c1, ...(all ? {} : { rows, cols }) };
+    // formulas as they are rather than shifting them wrongly. The sheet says
+    // which table a pasted formula leaves, to name it (Workbook._leaveTable).
+    const origin = { r: range.r1, c: range.c1, sheetId: grid.sheetId, ...(all ? {} : { rows, cols }) };
     // Notes travel with their cells (a paste of values or formatting alone leaves them behind).
     let notes = sheet.notes.size ? rows.map((r) => cols.map((c) => wb.getNote(grid.sheetId, r, c))) : null;
     if (notes && !notes.some((row) => row.some(Boolean))) notes = null;
