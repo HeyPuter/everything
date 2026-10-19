@@ -1916,7 +1916,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       // The Clear menu: everything, notes, or links in the selection, each one undo step.
       case 'calcMode':
         wb.setCalcMode(arg);
-        toast(arg === 'manual' ? 'Manual calculation: press F9 to calculate' : 'Automatic calculation', { icon: 'calculator', duration: 2200 });
+        toast(arg === 'manual' ? 'Manual calculation: press F9 to calculate' : arg === 'autoNoTable' ? 'Automatic calculation, but for data tables: press F9 to update them' : 'Automatic calculation', { icon: 'calculator', duration: 2200 });
         notify(); keepFocus();
         return;
       case 'insertDialog': case 'deleteDialog':

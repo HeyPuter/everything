@@ -389,8 +389,8 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
       ? workbook.replace(/<workbookPr\b/, `<workbookPr updateLinks="${updateLinks}"`)
       : workbook.replace(/<(workbookProtection|bookViews)\b/, (m) => `${xmlTag('workbookPr', { updateLinks })}${m}`);
   }
-  if (wb.iteration || wb.calcMode === 'manual') {
-    const calc = xmlTag('calcPr', { calcMode: wb.calcMode === 'manual' ? 'manual' : null, ...(wb.iteration ? { iterate: 1, iterateCount: wb.iteration.iterateCount, iterateDelta: wb.iteration.iterateDelta } : {}) });
+  if (wb.iteration || wb.calcMode === 'manual' || wb.calcMode === 'autoNoTable') {
+    const calc = xmlTag('calcPr', { calcMode: wb.calcMode === 'manual' || wb.calcMode === 'autoNoTable' ? wb.calcMode : null, ...(wb.iteration ? { iterate: 1, iterateCount: wb.iteration.iterateCount, iterateDelta: wb.iteration.iterateDelta } : {}) });
     workbook = /<calcPr\b/.test(workbook) ? workbook.replace(/<calcPr\b[^>]*\/>/, calc) : workbook.replace('</workbook>', `${calc}</workbook>`);
   }
   const compatibility = wb.calculationCompatibility;

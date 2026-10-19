@@ -1219,8 +1219,9 @@ export class Workbook extends EventTarget {
     this.nativePivots = normalizeNativePivots(json.nativePivots);
     this.externalWorkbooks = normalizeExternalWorkbooks(json.externalWorkbooks);
     this.iteration = normalizeIteration(json.iteration);
-    // Calculation Options: 'automatic' recalculates after every change; 'manual' keeps results until F9 (see _changed).
-    this.calcMode = json.calcMode === 'manual' ? 'manual' : 'automatic';
+    // Calculation Options: 'automatic' recalculates after every change; 'manual' keeps results until F9 (see _changed);
+    // 'autoNoTable' is automatic but for What-If data tables, which keep their results until F9 (see _dataTableValues).
+    this.calcMode = ['manual', 'autoNoTable'].includes(json.calcMode) ? json.calcMode : 'automatic';
     // Protect Workbook (structure): sheets cannot be added, deleted, renamed, moved, copied, hidden, shown or recoloured.
     this.structureProtected = json.structureProtected === true;
     // Watch Window: cells whose values are kept in view, by sheet id and position.
@@ -1315,7 +1316,7 @@ export class Workbook extends EventTarget {
       ...(this.customViews?.length ? { customViews: normalizeCustomViews(this.customViews, this.sheets.map((s) => s.id), normalizeFilter) } : {}),
       names: this.names.map((n) => ({ ...n })),
       ...(this.iteration ? { iteration: { ...this.iteration } } : {}),
-      ...(this.calcMode === 'manual' ? { calcMode: 'manual' } : {}),
+      ...(this.calcMode !== 'automatic' ? { calcMode: this.calcMode } : {}),
       ...(this.structureProtected ? { structureProtected: true } : {}),
       ...(this.linkStartup !== 'ask' ? { linkStartup: this.linkStartup } : {}),
       ...(this.queries.length ? { queries: serializeQueries(this) } : {}),
@@ -13020,7 +13021,7 @@ export class Workbook extends EventTarget {
   refreshVolatile() {
     // Manual calculation leaves NOW() and RAND() where they were until F9.
     if (this.calcMode === 'manual' || !this.hasVolatileFormulas()) return false;
-    this.recalculate();
+    this.recalculate({ dataTables: false });
     this._volatile = true; // recalculating changes no formula, so the answer still stands
     return true;
   }
@@ -13030,7 +13031,8 @@ export class Workbook extends EventTarget {
    * that alters results while no cell changed, such as the regional format that TEXT, DOLLAR and FIXED
    * write their answers in. Not an edit, so nothing is saved.
    */
-  recalculate() {
+  recalculate({ dataTables = true } = {}) {
+    if (dataTables) this._dataTablesKept = null; // F9 works out the data tables again, also when they are left out
     this._invalidate();
     this.calcPending = false;
     this._emit('recalc');
@@ -13182,9 +13184,10 @@ export class Workbook extends EventTarget {
   }
 
   setCalcMode(mode) {
-    const next = mode === 'manual' ? 'manual' : 'automatic';
+    const next = ['manual', 'autoNoTable'].includes(mode) ? mode : 'automatic';
     if (next === this.calcMode) return;
     this.calcMode = next;
+    this._dataTablesKept = null;
     this.dirty = true;
     this.version++;
     if (next === 'automatic') { this._invalidate(); this.calcPending = false; }
@@ -13199,6 +13202,20 @@ export class Workbook extends EventTarget {
   _dataTableValues(sheet, r0, c0, rowInput, colInput) {
     if (this._dataTableDepth) return err('#CALC!'); // a table's formula may not lean on a table's results
     const size = sheet.cells.get(cellKey(r0, c0))?.array || { rows: 1, cols: 1 };
+    // Automatic Except for Data Tables: a table keeps the results it was last worked out to until F9, so an edit
+    // elsewhere does not run its formula once for every row and column of it again.
+    if (this.calcMode === 'autoNoTable') {
+      const key = JSON.stringify([sheet.id, r0, c0, sheet.cells.get(cellKey(r0, c0))?.f ?? null, size.rows, size.cols]);
+      this._dataTablesKept ??= new Map();
+      if (this._dataTablesKept.has(key)) return this._dataTablesKept.get(key);
+      const out = this._computeDataTable(sheet, r0, c0, rowInput, colInput, size);
+      this._dataTablesKept.set(key, out);
+      return out;
+    }
+    return this._computeDataTable(sheet, r0, c0, rowInput, colInput, size);
+  }
+
+  _computeDataTable(sheet, r0, c0, rowInput, colInput, size) {
     const top = r0 - 1, left = c0 - 1;
     const local = (ref) => !ref || !ref.sheet || sameSheetName(ref.sheet, sheet.name);
     if (top < 0 || left < 0 || !local(rowInput) || !local(colInput)) return err('#REF!');

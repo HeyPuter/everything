@@ -203,7 +203,7 @@ export function openOptionsDialog(ctx, { section = 'general' } = {}) {
         wb && group('Calculation in this workbook',
           note(`Saved with “${name}”, and the same for everyone who opens it.`),
           radios('calcMode', 'Calculate formulas', {
-            choices: [['automatic', 'Automatically, after every change'], ['manual', 'Only when asked (F9)']],
+            choices: [['automatic', 'Automatically, after every change'], ['autoNoTable', 'Automatically, but for data tables (F9 updates them)'], ['manual', 'Only when asked (F9)']],
             value: () => wb.calcMode || 'automatic', onPick: (v) => { ctx.run('calcMode', v); syncAll(); },
           }),
           button('Calculate now', () => ctx.run('recalc'), ['recalculate f9']),

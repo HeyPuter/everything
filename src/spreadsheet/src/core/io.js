@@ -2704,7 +2704,7 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
     const key = JSON.stringify([sheet.name, chart.id]);
     importedChartTexts.set(key, importedChartTexts.has(key) ? null : { categories: texts, labels, linked });
   }
-  const calcMode = String(book.Workbook?.CalcPr?.calcMode || '').toLowerCase() === 'manual' ? 'manual' : undefined;
+  const calcMode = { manual: 'manual', autonotable: 'autoNoTable' }[String(book.Workbook?.CalcPr?.calcMode || '').toLowerCase()];
   const workbookXml = (() => { const path = book.Directory?.workbooks?.[0]?.replace(/^\//, '') || 'xl/workbook.xml'; const part = book.files?.[path]?.content; return part ? new TextDecoder().decode(part) : ''; })();
   const structureProtected = ['1', 'true'].includes(xmlAttr(workbookXml.match(/<(?:\w+:)?workbookProtection\b[^>]*>/)?.[0], 'lockStructure') || '') || undefined;
   // Edit Links ▸ Startup Prompt, from workbookPr's updateLinks (userSet, the default, is to ask).

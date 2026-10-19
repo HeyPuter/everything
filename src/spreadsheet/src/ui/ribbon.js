@@ -319,7 +319,7 @@ const groupsFor = name => ({
       const mode = ctx.wb.calcMode || 'automatic', editing = !!ctx.flags?.()?.editing;
       return [
         { label: 'Automatic', cmd: 'calcMode', arg: 'automatic', radio: true, checked: mode === 'automatic', disabled: editing },
-        { label: 'Automatic Except for Data Tables', cmd: 'calcMode', arg: 'automatic', radio: true, checked: false, disabled: editing, hint: 'There are no data tables to leave out, so this calculates as Automatic does' },
+        { label: 'Automatic Except for Data Tables', cmd: 'calcMode', arg: 'autoNoTable', radio: true, checked: mode === 'autoNoTable', disabled: editing, hint: 'What-If data tables keep their results until you calculate (F9)' },
         { label: 'Manual', cmd: 'calcMode', arg: 'manual', radio: true, checked: mode === 'manual', disabled: editing },
       ];
     }, { ariaLabel: 'Calculation Options' })),
