@@ -44,6 +44,7 @@ export function openMoveSheetDialog(ctx, id) {
     e.preventDefault();
     if (busy) return;
     if (destinations.selectedIndex < 0) { refuse(destinations, 'Choose a destination'); return; }
+    if (wb.structureProtected) { refuse(null, 'The workbook’s structure is protected. Unprotect it under Review ▸ Protect Workbook to move or copy sheets.'); return; }
     if (ctx.grid?.editing && !ctx.grid.commitEdit()) return;
     busy = true;
     sync();
