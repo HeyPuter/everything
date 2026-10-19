@@ -8562,11 +8562,15 @@ export class Workbook extends EventTarget {
       if (!rect) continue;
       const key = ch.group || id;
       if (!units.has(key)) units.set(key, []);
-      units.get(key).push(rect);
+      // A turned object lines up by the box it takes on the sheet (it turns about its centre), as it looks.
+      const turn = (ch.type === 'image' || ch.type === 'text') && ch.rotation ? ch.rotation * Math.PI / 180 : 0;
+      const cos = Math.abs(Math.cos(turn)), sin = Math.abs(Math.sin(turn));
+      const w = rect.w * cos + rect.h * sin, h = rect.w * sin + rect.h * cos;
+      units.get(key).push({ rect, shown: { x: rect.x + (rect.w - w) / 2, y: rect.y + (rect.h - h) / 2, w, h } });
     }
-    const boxes = [...units].map(([id, rects]) => ({ id, ...boundsOf(rects) }));
+    const boxes = [...units].map(([id, members]) => ({ id, ...boundsOf(members.map((m) => m.shown)) }));
     const moved = new Map((['horizontal', 'vertical'].includes(how) ? distributeRects(boxes, how) : alignRects(boxes, how)).map((p) => [p.id, p]));
-    const places = boxes.flatMap((box) => units.get(box.id).map((r) => ({ id: r.id, x: r.x + moved.get(box.id).x - box.x, y: r.y + moved.get(box.id).y - box.y })));
+    const places = boxes.flatMap((box) => units.get(box.id).map(({ rect: r }) => ({ id: r.id, x: r.x + moved.get(box.id).x - box.x, y: r.y + moved.get(box.id).y - box.y })));
     const labels = { left: 'Align left', center: 'Align center', right: 'Align right', top: 'Align top', middle: 'Align middle', bottom: 'Align bottom', horizontal: 'Distribute horizontally', vertical: 'Distribute vertically' };
     return this.placeObjects(sheetId, places, labels[how] || 'Align');
   }
