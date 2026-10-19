@@ -76,12 +76,16 @@ export function openScriptGallery(wb, actions) {
   return modal;
 }
 
+/** Reduced motion, asked for by the system or in Options: a script's smooth scroll overrides the stylesheet's, so it is checked here. */
+const lessMotion = () => document.documentElement.classList.contains('reduce-motion')
+  || !!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
 /** The script reference: an introduction, then each object's methods. */
 export function openScriptReference() {
   const toc = el('nav.sr-toc', { 'aria-label': 'Objects' });
   const sections = Object.entries(SCRIPT_API).map(([owner, methods]) => {
     const id = fieldId(`sr-${owner}`);
-    toc.append(el('a.sr-toc-link', { href: `#${id}`, onclick: (e) => { e.preventDefault(); document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' }); } }, owner));
+    toc.append(el('a.sr-toc-link', { href: `#${id}`, onclick: (e) => { e.preventDefault(); document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: lessMotion() ? 'auto' : 'smooth' }); } }, owner));
     return el('section.sr-section', { id, 'aria-label': owner },
       el('h3.sr-owner', {}, owner),
       el('dl.sr-list', {}, ...methods.flatMap(([name, sig, doc, flags]) => [
