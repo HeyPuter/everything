@@ -6,7 +6,7 @@
  * { type: 'timeline', report: { owner, name }, field, level, start, end } kept in the workbook's
  * own data; in an .xlsx it travels in the app's sidecar, not as an Excel timeline part.
  */
-import { readNativePivotCache } from './native-pivot-cache.js';
+import { readNativePivotCache, pivotDateSerial } from './native-pivot-cache.js';
 import { planNativePivotReport } from './native-pivot-report.js';
 import { prepareNativePivotReportUpdates } from './native-pivot-refresh-plan.js';
 import { commitNativePivotReports } from './native-pivot-commit.js';
@@ -23,17 +23,7 @@ export const TIMELINE_LEVELS = [['years', 'YEARS'], ['quarters', 'QUARTERS'], ['
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export const TIMELINE_DEFAULTS = { w: 336, h: 140 };
 
-/** A PivotCache date (an ISO date-time such as 2024-03-05T00:00:00) as a 1900-system serial, or null. */
-export function pivotDateSerial(iso) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?)?Z?$/.exec(String(iso ?? '').trim());
-  if (!m) return null;
-  const [y, mo, d, h, mi, s] = m.slice(1).map(v => Number(v ?? 0));
-  const ms = Date.UTC(y, mo - 1, d, h, mi, s);
-  if (!Number.isFinite(ms)) return null;
-  const serial = ms / 86400000 + 25569;
-  // Excel's serials count a 29 February 1900 that never was: dates before March 1900 are one less.
-  return serial < 61 ? serial - 1 : serial;
-}
+export { pivotDateSerial };
 
 const toUtc = serial => new Date(((serial < 61 ? serial + 1 : serial) - 25569) * 86400000);
 const fromUtc = (y, m, d) => pivotDateSerial(`${String(y).padStart(4, '0')}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`);

@@ -1,5 +1,6 @@
 import { FUNCTIONS } from './formula/functions.js';
 import { sheetKey } from './refs.js';
+import { pivotDateSerial } from './native-pivot-cache.js';
 
 const summaries = { sum: 'SUM', count: 'COUNTA', countNums: 'COUNT', average: 'AVERAGE', min: 'MIN', max: 'MAX',
   product: 'PRODUCT', stdDev: 'STDEV', stdDevp: 'STDEV.P', var: 'VAR', varp: 'VAR.P' };
@@ -129,7 +130,8 @@ export class NativePivotQuery {
       if (!Number.isInteger(row) || row < 0 || row >= this.cache.records.length) fail('record index');
       const item = this.cache.records[row][column];
       if (item.type !== 'blank') nonEmpty++;
-      return [item.type === 'error' ? { error: item.value } : item.value];
+      // A cached date is its ISO text: as its serial it is the number a Max, Min, Average or Count Numbers reads.
+      return [item.type === 'error' ? { error: item.value } : item.type === 'date' ? pivotDateSerial(item.value) : item.value];
     });
     const result = FUNCTIONS[functionName].fn([{ range: true, values }]);
     return { value: typeof result === 'number' && !Number.isFinite(result) ? { error: '#NUM!' } : result, records: rows.length, ...(withPresence ? { nonEmpty } : {}) };
