@@ -282,7 +282,7 @@ export function typedDigits(cell, text) {
   return kept == null || kept === 0 || kept === cell.v ? cell : { ...cell, v: kept };
 }
 
-export function cellFromInput(text, prevStyle) {
+export function cellFromInput(text, prevStyle, { typed = true } = {}) {
   const raw = text == null ? '' : String(text);
   // A new entry may be a link again: the mark a removed link left on the cell (see removeLink) goes with what is typed over it.
   if (prevStyle?.nolink) { const { nolink, ...rest } = prevStyle; prevStyle = Object.keys(rest).length ? rest : undefined; }
@@ -305,8 +305,9 @@ export function cellFromInput(text, prevStyle) {
   // A number of one or more typed into a percent cell is that many percent
   // (5 is 5%); a number under one is the share it already is (0.5 is 50%). A typed "5%",
   // currency, date or time is what it says. A custom code that shows the number as a percentage (0.0%;[Red]-0.0%)
-  // is a percent cell too, as Excel's automatic percent entry treats every percentage format.
-  const percentCell = prevStyle?.fmt === 'percent' || (prevStyle?.fmt === 'custom' && typeof parsed === 'number' && codeScalesPercent(parsed, prevStyle.code));
+  // is a percent cell too, as Excel's automatic percent entry treats every percentage format. Only typing
+  // does this (`typed`): text pasted in keeps its numbers, so a pasted 5, 10 and 0.5 are not scaled by size.
+  const percentCell = typed && (prevStyle?.fmt === 'percent' || (prevStyle?.fmt === 'custom' && typeof parsed === 'number' && codeScalesPercent(parsed, prevStyle.code)));
   const v = percentCell && typeof parsed === 'number' && (!fmt || fmt === 'number' || fmt === 'scientific') && Math.abs(parsed) >= 1 ? parsed / 100 : parsed;
   let s = prevStyle ? { ...prevStyle } : undefined;
   // A leading apostrophe keeps this one entry as text; it does not make the cell
@@ -4066,7 +4067,7 @@ export class Workbook extends EventTarget {
           const c = c0 + rx * w + j;
           if (r >= limit.rows || c >= limit.cols || this._coveredByMerge(sheetId, r, c)) return;
           // A value pasted as text takes the format of the cell, or of its column or row, it lands in.
-          entries.push({ r, c, cell: cellFromInput(text, this.styleAt(sheetId, r, c)) });
+          entries.push({ r, c, cell: cellFromInput(text, this.styleAt(sheetId, r, c), { typed: false }) });
         }));
       }
     }

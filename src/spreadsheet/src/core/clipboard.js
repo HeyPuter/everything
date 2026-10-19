@@ -1346,7 +1346,7 @@ export function cellsFromHtmlRows(rows, existingStyleAt, { values = false } = {}
     const prev = existingStyleAt?.(i, j);
     const base = style ? { ...(prev || {}), ...style } : prev;
     let cell = link && !values ? { v: text, f: null, s: base ? { ...base } : undefined }
-      : cellFromInput(text, base);
+      : cellFromInput(text, base, { typed: false });
     if (value === undefined && !link && text !== '' && style && (style.fmt === 'custom' || style.fmt === 'time')) {
       // External clock displays are expressed in the source format's units.
       // An explicit raw value (including literal text) always takes priority.

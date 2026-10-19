@@ -4965,7 +4965,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (mode === 'skipBlanks') {
       // Plain text: write only the non-empty cells.
       const entries = [];
-      rows.forEach((row, i) => row.forEach((t, j) => { if (t !== '' && r + i < limit.rows && c + j < limit.cols && !coveredByMerge(sheetId, r + i, c + j)) entries.push({ r: r + i, c: c + j, cell: cellFromInput(t, wb.styleAt(sheetId, r + i, c + j)) }); }));
+      rows.forEach((row, i) => row.forEach((t, j) => { if (t !== '' && r + i < limit.rows && c + j < limit.cols && !coveredByMerge(sheetId, r + i, c + j)) entries.push({ r: r + i, c: c + j, cell: cellFromInput(t, wb.styleAt(sheetId, r + i, c + j), { typed: false }) }); }));
       wb.setCellsWithTableHeaders(sheetId, entries, 'Paste');
       wrapMultiline(rows);
       selectBlock(rows.length, clipboardWidth(rows), false, true, (i, j) => (rows[i]?.[j] ?? '') !== '');
