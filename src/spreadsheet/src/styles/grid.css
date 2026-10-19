@@ -336,6 +336,9 @@
 /* Retain the compact vertical metrics of existing Calibri workbooks.
    Horizontal text margins are independent of the font. */
 .cell.calibri { padding-top: 0; padding-bottom: 0; line-height: 1.2; }
+/* Wrapped lines keep the pitch their rows are fitted for (heightForLines: 1.3 lines), in Calibri as in any
+   font, so the text fills its fitted row as Excel's does rather than leaving a line's worth of it empty. */
+.cell.wrap.calibri { line-height: 1.3; }
 .cell.bt { border-top: 1px solid var(--ink); }
 .cell.bl { border-left: 1px solid var(--ink); }
 .cell.bb { border-bottom-color: var(--ink); }
@@ -641,6 +644,7 @@
 
 .grid-editor.wrap { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.3; }
 .grid-editor.calibri { line-height: 1.2; }
+.grid-editor.wrap.calibri { line-height: 1.3; }
 .grid-editor[hidden] { display: none; }
 .grid-editor.offsheet { opacity: 0; pointer-events: none; left: 0 !important; top: 0 !important; width: 1px !important; height: 1px !important; min-width: 0 !important; }
 

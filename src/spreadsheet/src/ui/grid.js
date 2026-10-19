@@ -3395,7 +3395,7 @@ export function createGrid(opts) {
     // One line sits where the cell draws its text (centered, or at the top or
     // bottom when the cell says so); several lines start at the top and the
     // box grows downward to show them all, as far as the viewport goes.
-    const lineH = size * (wrap && st?.font !== 'calibri' ? 1.3 : 1.2);
+    const lineH = size * (wrap ? 1.3 : 1.2);
     const single = !wrap && lines.length === 1;
     let padTop;
     if (!single) padTop = 2;
