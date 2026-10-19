@@ -25,7 +25,7 @@
 
 import { Workbook, sheetShapeJSON, sameJSON, cloneCell } from '../core/workbook.js';
 import { cellKey, parseKey, cutText } from '../core/cell.js';
-import { LINE_PROPS, SHEET_PROPS, BOOK_PROPS, MAX_LABEL, mapCellKey, mapLineKey, mergeRuns, transformStructure, isStructure } from './ops.js';
+import { LINE_PROPS, SHEET_PROPS, BOOK_PROPS, MAX_LABEL, MAX_CHANGE, mapCellKey, mapLineKey, mergeRuns, transformStructure, isStructure } from './ops.js';
 import { applyOps, contentOf, sheetJSON, lineValues } from './apply.js';
 
 const UNDO_LIMIT = 100;
@@ -446,7 +446,8 @@ export class Replica extends EventTarget {
   _flushStep(label, { rollback = null, undoable = true } = {}) {
     this._diff();
     const ops = this.building;
-    const inverse = this.buildingInv.slice().reverse().flat();
+    const inverses = this.buildingInv;
+    const inverse = inverses.slice().reverse().flat();
     this.building = [];
     this.buildingInv = [];
     if (!ops.length) return null;
@@ -458,8 +459,15 @@ export class Replica extends EventTarget {
       this.dispatchEvent(new CustomEvent('refused', { detail: { label } }));
       return null;
     }
-    const change = { id: changeId(), label, ops, rollback: [rollback || (() => this._withMode('rollback', () => applyOps(this.wb, inverse)))] };
-    this.pending.push(change);
+    // A step larger than the room takes in one change (a paste of a long list, say) travels in several.
+    const parts = splitChange(ops, inverses);
+    const change = { id: changeId(), label, ops: parts ? parts[0].ops : ops, rollback: [rollback || (() => this._withMode('rollback', () => applyOps(this.wb, inverse)))] };
+    if (parts) {
+      // Each part is taken back by its own inverse: a room's change can arrive between them.
+      const undoPart = (inv) => () => this._withMode('rollback', () => applyOps(this.wb, inv));
+      change.rollback = [undoPart(parts[0].inverse)];
+      this.pending.push(change, ...parts.slice(1).map((p) => ({ id: changeId(), label, ops: p.ops, rollback: [undoPart(p.inverse)] })));
+    } else this.pending.push(change);
     if (undoable) {
       const entry = { id: change.id, label, ops: inverse };
       if (this.undoing === 'undo') this.redoStack.push(entry);
@@ -759,6 +767,71 @@ export class Replica extends EventTarget {
     for (const s of state.sheets) for (const k of ['viewZoom', 'viewMode', 'viewSelection', 'viewOrigin', 'split']) delete s[k];
     return state;
   }
+}
+
+/** A step whose operations take more characters than this travels in parts (the room takes MAX_CHANGE in one change). */
+const SPLIT_AT = MAX_CHANGE * 0.8;
+/** About the most characters of operations one part carries. */
+const PART = MAX_CHANGE / 4;
+const REGISTERS = new Set(['cells', 'lines', 'props', 'book']);
+
+/**
+ * A step too large for one change, as parts that each fit, to apply in order: [{ ops, inverse }]. Null when it
+ * fits, or when it is not register writes alone (rows, columns or sheets that move are taken back by the
+ * workbook's own undo step, whole). A write to many cells or lines is cut into runs of its keys; each part's
+ * inverse puts back what its own registers held, so a part the room has not confirmed is taken back alone.
+ */
+export function splitChange(ops, inverses, limit = PART) {
+  if (!ops.every((op, i) => REGISTERS.has(op.t) && inverses[i]?.length === 1 && inverses[i][0].t === op.t)) return null;
+  const keysOf = (op) => (op.t === 'cells' ? (op.st ? [...new Set([...Object.keys(op.v || {}), ...Object.keys(op.st)])] : Object.keys(op.v || {})) : op.t === 'lines' ? Object.keys(op.v) : null);
+  // Fewer cells or lines than this cannot make a change too large (a cell holds 32,767 characters at most).
+  let count = 0;
+  for (const op of ops) if (op.t === 'cells' || op.t === 'lines') count += Object.keys(op.v || {}).length + Object.keys(op.st || {}).length;
+  if (count < 64) return null;
+  // What each operation, and each key of a write to cells or lines, takes when sent.
+  let total = 0;
+  const sized = ops.map((op) => {
+    const keys = keysOf(op);
+    if (!keys) { const size = JSON.stringify(op).length; total += size; return { size }; }
+    const sizes = keys.map((k) => k.length + 8 + JSON.stringify(op.v?.[k] ?? null).length + (op.st ? JSON.stringify(op.st[k] ?? null).length : 0));
+    const size = sizes.reduce((a, b) => a + b, 0) + 40;
+    total += size;
+    return { size, keys, sizes };
+  });
+  if (total <= SPLIT_AT) return null;
+  const parts = [];
+  let cur = null;
+  const add = (op, inv, size) => {
+    if (!cur || (cur.size && cur.size + size > limit)) parts.push((cur = { ops: [], inverse: [], size: 0 }));
+    cur.ops.push(op);
+    cur.inverse.unshift(inv);
+    cur.size += size;
+  };
+  const piece = (op, keys) => {
+    const out = { ...op };
+    for (const field of ['v', 'st']) {
+      if (!op[field]) continue;
+      const kept = {};
+      let any = false;
+      for (const k of keys) if (own(op[field], k)) { kept[k] = op[field][k]; any = true; }
+      if (any) out[field] = kept; else delete out[field];
+    }
+    return out;
+  };
+  ops.forEach((op, i) => {
+    const inv = inverses[i][0];
+    const { size, keys, sizes } = sized[i];
+    if (!keys || size <= limit) { add(op, inv, size); return; }
+    let run = [], runSize = 0;
+    const flush = () => { if (run.length) add(piece(op, run), piece(inv, run), runSize); run = []; runSize = 0; };
+    keys.forEach((k, j) => {
+      if (runSize && runSize + sizes[j] > limit) flush();
+      run.push(k);
+      runSize += sizes[j];
+    });
+    flush();
+  });
+  return parts.length > 1 ? parts.map(({ ops: o, inverse }) => ({ ops: o, inverse })) : null;
 }
 
 /** Two register writes made at once: where both write one register, the winner's value stands. */
