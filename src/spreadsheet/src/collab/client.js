@@ -55,6 +55,8 @@ export class RoomClient extends EventTarget {
     this.session = crypto.randomUUID().replaceAll('-', '');
     this.timers = [];
     this.closed = false;
+    /** Changes this browser kept from an earlier visit that could not be sent: this person may only view the workbook now. */
+    this.dropped = 0;
     this.queue = Promise.resolve();
     this.lastCheckpoint = 0;
     this.lastCheckpointAt = Date.now();
@@ -120,6 +122,8 @@ export class RoomClient extends EventTarget {
       this.replica.receive(loaded.records.filter((r) => r.rev > saved.rev));
     } else {
       this.replica.receive(loaded.records);
+      // Changes kept for an account that may no longer edit cannot be sent: the editor says so (see `dropped`).
+      if (saved?.pending?.length && !this.canEdit) this.dropped = saved.pending.length;
       if (kept) await this.o.store.delete(this.outboxKey);
     }
     this.replica.addEventListener('local', () => { this.persist(); this.flush(); });

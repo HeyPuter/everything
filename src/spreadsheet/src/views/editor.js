@@ -6431,6 +6431,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     document.addEventListener('visibilitychange', onRoomVisible);
     ctx.subscribe(sharePresence);
     setTimeout(() => { sharePresence(); showPeople(); }, 0);
+    // Changes made here on an earlier visit, never delivered, that this person may no longer make: not in silence.
+    if (room.dropped) toast(`${room.dropped === 1 ? 'A change' : `${room.dropped} changes`} you made here earlier could not be shared: you can only view this workbook now. Ask its owner for edit access`, { icon: 'alert', duration: 8000 });
   }
   doc.addEventListener('status', refreshStatus);
   doc.addEventListener('draft', refreshStatus); // whether this browser holds a copy of the edits changed
