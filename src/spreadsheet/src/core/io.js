@@ -1044,14 +1044,39 @@ export function sheetToHtml(wb, sheetId, { title = '' } = {}) {
   // A row without any cell is an empty table row; only rows with content, or where a merged block starts, are read cell by cell.
   const lastCol = lastContentColumns(wb, sheet);
   const filled = (r, i) => lastCol.has(r) || spanRows.has(i);
-  const texts = rows.map((r, i) => (filled(r, i) ? cols.map((c) => wb.getDisplay(sheetId, r, c)) : []));
-  const cells = rows.map((r, i) => (filled(r, i) ? cols.map((c) => wb.getCell(sheetId, r, c) || null) : []));
-  const values = rows.map((r, i) => (filled(r, i) ? cols.map((c) => wb.getValue(sheetId, r, c)) : []));
-  const styles = rows.map((r, i) => (filled(r, i) ? cols.map((c) => wb.displayStyleAt(sheetId, r, c)) : []));
+  // A filled row is read as far as anything can show in it: its last cell, a merged block, a row or column
+  // style, a rule or a table. The empty cells past that are written bare, and a long run of them as one spanning
+  // cell, so a far-off cell does not make every row of a long sheet thousands of styled cells wide (hundreds of
+  // megabytes of markup, and gigabytes and tens of seconds to make them, for 10,000 rows).
+  let styledTo = -1;
+  for (const c of sheet.colStyles.keys()) styledTo = Math.max(styledTo, c);
+  const areas = [...sheet.merges, ...sheet.rules.map((rule) => rule.range), ...(sheet.tables || []).map((t) => t.range)].filter(Boolean);
+  const widths = rows.map((r, i) => {
+    if (!filled(r, i)) return 0;
+    let end = sheet.rowStyles.has(r) ? lastColumn : Math.max(lastCol.get(r) ?? -1, styledTo);
+    for (const a of areas) if (a.r1 <= r && a.r2 >= r && a.c2 > end) end = a.c2;
+    let n = 0;
+    while (n < cols.length && cols[n] <= end) n++;
+    return n;
+  });
+  const shown = (i) => cols.slice(0, widths[i]);
+  const texts = rows.map((r, i) => shown(i).map((c) => wb.getDisplay(sheetId, r, c)));
+  const cells = rows.map((r, i) => shown(i).map((c) => wb.getCell(sheetId, r, c) || null));
+  const values = rows.map((r, i) => shown(i).map((c) => wb.getValue(sheetId, r, c)));
+  const styles = rows.map((r, i) => shown(i).map((c) => wb.displayStyleAt(sheetId, r, c)));
   const decorated = sheet.rules.length || sheet.tables?.length;
-  const looks = decorated ? rows.map((r, i) => (filled(r, i) ? cols.map((c) => wb.conditionalStyle(sheetId, r, c, wb.getValue(sheetId, r, c)) || null) : [])) : null;
+  const looks = decorated ? rows.map((r, i) => shown(i).map((c) => wb.conditionalStyle(sheetId, r, c, wb.getValue(sheetId, r, c)) || null)) : null;
+  let row = 0;
   const table = cellsToHtml(texts, cells, looks, values, null, { clipboard: false, styles, mergeLayout, colorPalette: wb.colorPalette, normalFill: wb.nativeNormalFill, indentUnit: normalIndentUnit(wb.normalFont) })
-    .replace(/ data-spreadsheet-[\w-]+="[^"]*"/g, '');
+    .replace(/ data-spreadsheet-[\w-]+="[^"]*"/g, '')
+    .replace(/<\/tr>/g, () => {
+      const i = row++, rest = filled(rows[i], i) ? cols.length - widths[i] : 0;
+      // A short run keeps a cell per column, and so its gridlines; browsers read a span of at most 1,000 columns.
+      if (rest <= 64) return `${'<td></td>'.repeat(rest)}</tr>`;
+      let pad = '';
+      for (let left = rest; left > 0; left -= 1000) pad += `<td${left > 1 ? ` colspan="${Math.min(left, 1000)}"` : ''}></td>`;
+      return `${pad}</tr>`;
+    });
   const colgroup = `<colgroup>${cols.map((c) => `<col style="width:${wb.colWidth(sheetId, c)}px">`).join('')}</colgroup>`;
   return `${head}${table.replace(/^(<table[^>]*>)/, `$1${colgroup}`)}</body></html>`;
 }
