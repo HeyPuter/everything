@@ -516,6 +516,7 @@ export class Replica extends EventTarget {
     const wb = this.wb;
     let rolled = false, applied = false, structural = false;
     const touched = []; // what was applied, when nothing structural was: the shadow is brought up to date for it alone
+    const reshapes = (ops) => ops.some((o) => isStructure(o) || o.t === 'put');
     const moved = []; // structural operations as they landed here (past the pending changes), for the view to follow
     const incoming = []; // everything someone else's changes did
     wb._coalesce(() => {
@@ -525,10 +526,15 @@ export class Replica extends EventTarget {
           if (this.pending[0]?.id === ch.id) {
             this.pending.shift();
             // Taken back for an earlier change: the room's copy is the one to apply.
-            if (rolled) this._applyRemote(ch.ops, null, null, { quiet: true });
+            if (rolled) { this._applyRemote(ch.ops, null, null, { quiet: true }); touched.push(...ch.ops); }
             continue;
           }
-          if (!rolled && this.pending.length) { this._rollback(); rolled = true; }
+          if (!rolled && this.pending.length) {
+            // What the pending changes wrote is what taking them back and putting them on again touches.
+            for (const p of this.pending) touched.push(...p.ops);
+            this._rollback();
+            rolled = true;
+          }
           let theirs = ch.ops;
           const bases = new Map(); // sheet and list → the list as the pending change being transformed found it
           for (const p of this.pending) {
@@ -550,7 +556,10 @@ export class Replica extends EventTarget {
       if (rolled) this._replay();
       if (incoming.length) this.dispatchEvent(new CustomEvent('incoming', { detail: { ops: incoming } }));
     });
-    if (rolled || structural) this.shadow = this._fullShadow();
+    // Read again in full only when rows, columns or sheets moved: a long workbook's shadow takes a while to build,
+    // and someone else's edit arriving while this person's own is on its way is the usual case while both type.
+    if (rolled) for (const p of this.pending) touched.push(...p.ops);
+    if (structural || reshapes(touched)) this.shadow = this._fullShadow();
     else this._refreshShadow(touched);
     this._resetDirty();
     if (applied) this.dispatchEvent(new CustomEvent('remote', { detail: { structural, ops: moved } }));
