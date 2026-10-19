@@ -1545,7 +1545,7 @@ export class Workbook extends EventTarget {
   }
 
   /** Rewrite every stored sheet reference during a structural operation. */
-  _renameSheetReferences(sheet, from, to) {
+  _renameSheetReferences(sheet, from, to, options = undefined) {
     // Internal links are HYPERLINK("#Sheet!A1", ...) strings, which the reference rewrite does not see.
     // A bare name is one quoteSheet leaves unquoted: letters of any script, marks, digits, _ and . (#Données!A1).
     const linkRe = /(HYPERLINK\(\s*")#(?:'((?:[^']|'')+)'|([\p{L}_][\p{L}\p{M}\p{N}_.]*))!/giu;
@@ -1554,7 +1554,7 @@ export class Workbook extends EventTarget {
       const name = quoted ? quoted.replace(/''/g, "'") : bare;
       return sheetKey(name) === fromKey ? `${head}#${quoteSheet(to)}!` : m;
     }) : f);
-    const rename = (f) => renameLinks(renameSheetInFormula(f, from, to));
+    const rename = (f) => renameLinks(renameSheetInFormula(f, from, to, options));
     let contextualCells;
     for (const [key, cell] of sheet.cells) if (cell.externalResult?.context?.sheetName === from) {
       contextualCells ||= new Map(sheet.cells);
@@ -1699,14 +1699,15 @@ export class Workbook extends EventTarget {
       let n = 2;
       while (this.sheetByName(name)) name = suffixedSheetName(src.name, ` (copy ${n++})`);
       const copy = makeSheet({ ...json, id: null, name, hidden: false, freshIds: true });
-      // References to the original sheet inside the copy now point at itself.
-      this._renameSheetReferences(copy, src.name, name);
+      // References to the original sheet inside the copy now point at itself; a 3D span ending at it still
+      // runs between the sheets it named, as in Excel, or the copy's totals would take in other sheets.
+      this._renameSheetReferences(copy, src.name, name, { spans: false });
       // Table names are unique across the workbook: the copies get fresh ones, and the copy's formulas follow.
       const tableRenames = this._renameTablesUniquely([copy], this.names.map((n) => n.name), (name) => !!this.namedEntry(name, src.name));
       const native = duplicateNativePivots(this.nativePivots, src, copy, copy.charts);
       copy.charts = native.charts;
       for (const n of this.names.filter((n) => n.sheet === src.name)) {
-        let ref = renameSheetInFormula(n.ref, src.name, name);
+        let ref = renameSheetInFormula(n.ref, src.name, name, { spans: false });
         for (const [from, to] of tableRenames) ref = renameTableInFormula(ref, from, to, !this.namedEntry(from, src.name));
         this.names.push({ ...n, sheet: name, ref });
       }

@@ -426,8 +426,12 @@ export function spillRefsFromFile(formula, definedNames) {
   return out + formula.slice(last);
 }
 
-/** Rename sheet mentions in a formula (Sheet1!A1 → Budget!A1). */
-export function renameSheetInFormula(formula, oldName, newName) {
+/**
+ * Rename sheet mentions in a formula (Sheet1!A1 → Budget!A1). `spans: false` leaves the ends of 3D spans
+ * (Sheet1:Sheet3!A1) alone: a copy of a sheet takes its own references along, but a span still runs between
+ * the sheets it named.
+ */
+export function renameSheetInFormula(formula, oldName, newName, { spans = true } = {}) {
   // Only a sheet-qualified reference or name mentions the sheet, and both spell it before a "!".
   if (!formula.includes('!')) return formula;
   // Names match as the workbook matches them: without regard to case, and whichever way their
@@ -438,6 +442,7 @@ export function renameSheetInFormula(formula, oldName, newName) {
     // A name holding a colon, as a sheet from another program may until the import renames it,
     // reads as a span of two sheets ('A:B'!A2); renamed as a whole, it is one sheet again.
     if (ref.sheetEnd && same(`${ref.sheet}:${ref.sheetEnd}`)) { const { sheetEnd, ...one } = ref; return { ...one, sheet: newName }; }
+    if (ref.sheetEnd && !spans) return ref;
     let out = ref;
     if (same(ref.sheet)) out = { ...out, sheet: newName };
     if (same(ref.sheetEnd)) out = { ...out, sheetEnd: newName };
