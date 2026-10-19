@@ -273,7 +273,7 @@ export function openPrintDialog(ctx) {
   // dialog would open on an unchecked radio the Tab trap then bounces to the Close button.
   sync();
   if (preview) { content.addEventListener('input', preview.refresh); content.addEventListener('change', preview.refresh); }
-  const modal = openModal({ title: 'Print', content, wide: true, className: preview ? 'print-dialog' : '', onClose: () => { controller.abort(); ctx.grid.focus(); } });
+  const modal = openModal({ title: 'Print', content, wide: true, className: preview ? 'print-dialog' : '', onClose: () => { controller.abort(); preview?.destroy(); ctx.grid.focus(); } });
   preview?.refresh();
   return modal;
 }

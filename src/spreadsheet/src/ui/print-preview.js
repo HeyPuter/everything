@@ -187,7 +187,17 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
     });
   }
 
+  // The page is fitted to the room the pane gives it, which a turned tablet or a resized window changes as the dialog
+  // is laid out again (beside the choices, or under them): drawn for the old room, it was cut off or left small.
+  let drawnFor = '';
+  const roomNow = () => `${stage.clientWidth}x${stage.clientHeight}`;
+  const resized = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
+    if (job && roomNow() !== drawnFor) refresh();
+  }) : null;
+  resized?.observe(stage);
+
   function draw() {
+    drawnFor = roomNow();
     const { sheetId: shown, prefs, layout, page: current } = job[page];
     const { box, scale, headW = 0, headH = 0, titleH = 0 } = layout;
     const total = job.length;
@@ -320,5 +330,6 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
     g.restore();
   }
 
-  return { el: root, refresh, get page() { return page; }, get pages() { return layout?.pages.length ?? 0; }, go };
+  return { el: root, refresh, get page() { return page; }, get pages() { return layout?.pages.length ?? 0; }, go,
+    destroy() { resized?.disconnect(); cancelAnimationFrame(frame); } };
 }
