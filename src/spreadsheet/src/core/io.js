@@ -2063,7 +2063,9 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     merges,
     notes,
     ignoredErrors: readXlsxIgnoredErrors(partXml),
-    rules: readXlsxConditionalFormats(partXml, nativeStyles, nativeStyles?.colors || themes, definedNames, { priorities: pivotPriorities, dateTargets }),
+    // LibreOffice's conditional formats come as the SpreadsheetML Excel would write for them (ods-condformat.js).
+    rules: !partXml && !own && ws?.['!odsConditionalFormats'] ? readXlsxConditionalFormats(ws['!odsConditionalFormats'].xml, { dxfs: ws['!odsConditionalFormats'].dxfs }, null, definedNames, { dateTargets })
+      : readXlsxConditionalFormats(partXml, nativeStyles, nativeStyles?.colors || themes, definedNames, { priorities: pivotPriorities, dateTargets }),
     protectedRanges: meta?.sheets?.[name]?.protectedRanges || [],
     scenarios: parseScenariosXml(partXml),
     validations: meta?.sheets?.[name]?.validations || (ws?.['!validations'] || []).map(({ _odsName, ...rule }) => rule),

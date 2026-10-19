@@ -4,6 +4,7 @@ import { odsFilterReader, writeOdsFilter } from '../core/ods-filter.js';
 import { writeOdsValidations, readOdsValidations, odsValidationLayout, addOdsValidation, odsFormulaReader } from '../core/ods-validation.js';
 import { odsCellStyleProperties, odsTextStyleProperties } from '../core/ods-cell-styles.js';
 import { xlmlCellProps } from '../core/xlml-styles.js';
+import { odsConditionalFormatsXml } from '../core/ods-condformat.js';
 /*! xlsx.js (C) 2013-present SheetJS -- http://sheetjs.com */
 /* vim: set ts=2: */
 /*exported XLSX */
@@ -23846,6 +23847,7 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 						ws['!ref'] = encode_range(range);
 					}
 					if(merges.length) ws['!merges'] = merges;
+					if(ws['!odsConditionalFormats']) ws['!odsConditionalFormats'] = odsConditionalFormatsXml(ws['!odsConditionalFormats'], { convert: ods_to_csf_formula, address: ods_to_csf_3D });
 					if(rowinfo.length) ws["!rows"] = rowinfo;
 					if(colinfo.length) ws["!cols"] = colinfo;
 					sheetag.name = sheetag['名称'] || sheetag.name;
@@ -24461,8 +24463,30 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 			case 'data-pilot-grand-total': break; // <table:
 			case 'office-document-common-attrs': break; // bare
 			default: switch(Rn[2]) {
+				/* Puter Spreadsheet local patch: LibreOffice's conditional formats, gathered for ods-condformat.js. */
+				case 'calcext:':
+					if(intable && Rn[1] !== '/') {
+						var cfTag = parsexmltag(Rn[0], false), cfList = ws['!odsConditionalFormats'], cfLast = cfList && cfList[cfList.length - 1];
+						var cfEntry = cfLast && cfLast.entries[cfLast.entries.length - 1];
+						var cfText = function(key) { return cfTag[key] == null ? null : unescapexml_entities(cfTag[key]); };
+						switch(Rn[3]) {
+							case 'conditional-format':
+								(ws['!odsConditionalFormats'] || (ws['!odsConditionalFormats'] = [])).push({ targets: cfText('target-range-address'), entries: [] });
+								break;
+							case 'condition':
+								if(cfLast) cfLast.entries.push({ kind: 'condition', value: cfText('value'), base: cfText('base-cell-address'), props: ods_cell_props(cfText('apply-style-name')) });
+								break;
+							case 'color-scale': if(cfLast) cfLast.entries.push({ kind: 'scale', stops: [] }); break;
+							case 'data-bar': if(cfLast) cfLast.entries.push({ kind: 'bar', color: cfText('positive-color'), stops: [] }); break;
+							case 'icon-set': if(cfLast) cfLast.entries.push({ kind: 'icons', set: cfText('icon-set-type'), stops: [] }); break;
+							case 'color-scale-entry':
+							case 'formatting-entry':
+								if(cfEntry && cfEntry.stops) cfEntry.stops.push({ type: cfText('type'), value: cfText('value'), color: cfText('color') });
+								break;
+						}
+					}
+					break;
 				case 'dc:':       // TODO: properties
-				case 'calcext:':  // ignore undocumented extensions
 				case 'loext:':    // ignore undocumented extensions
 				case 'ooo:':      // ignore undocumented extensions
 				case 'chartooo:': // ignore undocumented extensions
