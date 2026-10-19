@@ -317,10 +317,18 @@ export function openImportData(ctx, { query, fresh = false, onDone = null }) {
     const live = queryById(wb, query.id) || saveQuery(wb, query);
     if (view === 'connection') { if (loaded) unloadQuery(wb, live); else saveQuery(wb, { ...live, load: { kind: 'connection' } }); ctx.onQueriesChanged?.(); onDone?.(live); return; }
     if (loaded && where === 'new' && !at) { onDone?.(live); return; }
-    if (loaded) unloadQuery(wb, live);
+    // The data is read before the loaded table is taken away, and a move the new place refuses puts the table
+    // back where it was, still the query's: a failed Load To… must not cost the table it was moving.
     const res = await evaluateQuery(wb, live, queryIo(ctx));
     if (res.error) { toast(res.error.message, { icon: 'alert', duration: 5000 }); return; }
+    const mark = wb.historyTop;
+    const previous = live.load;
+    if (loaded) unloadQuery(wb, live);
     const out = loadResult(wb, live, res.table, { at });
+    if (out.error && loaded) {
+      wb.discardSteps(new Set(wb.historySince(mark) || []));
+      saveQuery(wb, { ...(queryById(wb, live.id) || live), load: previous });
+    }
     if (out.error) toast(out.error, { icon: 'alert', duration: 5000 });
     else { fitQueryTables(ctx, [live]); toast(`${out.rows.toLocaleString()} rows loaded`, { icon: 'table' }); }
     ctx.onQueriesChanged?.();
