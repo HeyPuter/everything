@@ -416,8 +416,25 @@ function renderStock(data, chart, width, height) {
 
 /* ---------- Surface ---------- */
 
+/**
+ * A grid of more cells than a surface can draw is sampled down evenly, its first and last rows and columns kept,
+ * so a large range draws whole at a lower resolution rather than as a part of itself.
+ */
+function sampledGrid(grid, budget) {
+  const cells = grid.rows * grid.cols;
+  if (cells <= budget) return grid;
+  const k = Math.sqrt(cells / budget);
+  const pick = (n) => {
+    const m = Math.max(2, Math.min(n, Math.floor(n / k)));
+    return Array.from({ length: m }, (_, i) => Math.round(i * (n - 1) / (m - 1)));
+  };
+  const rows = pick(grid.rows), cols = pick(grid.cols);
+  return { rows: rows.length, cols: cols.length, z: rows.map(r => cols.map(c => grid.z[r][c])),
+    rowNames: rows.map(r => grid.rowNames[r]), colNames: cols.map(c => grid.colNames[c]) };
+}
+
 function renderSurface(data, chart, width, height) {
-  const grid = surfaceGrid(data);
+  const grid = sampledGrid(surfaceGrid(data), MARK_BUDGET * 2);
   if (grid.rows < 2 || grid.cols < 2) return message(chart, width, height, 'A surface needs at least two rows and two columns of numbers');
   const values = grid.z.flat().filter(Number.isFinite);
   if (!values.length) return message(chart, width, height, 'No numbers to chart');
@@ -527,7 +544,8 @@ function drawSurface3d(fr, chart, grid, bands, tris, bandOf, wire, style) {
       });
     }
     pieces.sort((x, y) => y.depth - x.depth || x.b - y.b);
-    const shown = pieces.slice(0, MARK_BUDGET * 4);
+    // Past the budget the farthest pieces go, which the nearer ones cover, never the front of the surface.
+    const shown = pieces.slice(-MARK_BUDGET * 4);
     parts.push('<g class="chart-surface" stroke-linejoin="round">');
     for (const { b, poly } of shown) {
       const paint = seriesPaint(chart, b);
