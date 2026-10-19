@@ -495,7 +495,7 @@ function printTextBounds(wb, sheetId, sheet, bounds) {
   const widths = new Map();
   const textWidth = (text, font) => {
     const key = `${font}\0${text}`;
-    if (!widths.has(key)) { ctx.font = font; widths.set(key, ctx.measureText(text).width); }
+    if (!widths.has(key)) { ctx.font = font; widths.set(key, ctx.measureText(text)?.width || 0); }
     return widths.get(key);
   };
   let indentUnit;
@@ -560,7 +560,7 @@ function objectExtent(wb, sheetId, sheet, obj) {
  * over merged titles and over every chart, image and text box so an object
  * beside or below the data prints where it sits. Kept inside the sheet.
  */
-function printRange(wb, sheetId, opts) {
+export function printRange(wb, sheetId, opts) {
   const sheet = wb.sheet(sheetId);
   if (!sheet) return null;
   let range = null;

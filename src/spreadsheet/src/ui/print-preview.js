@@ -8,7 +8,7 @@
 
 import { el } from './dom.js';
 import { icon } from './icons.js';
-import { printPaperBox, expandPrintText, splitPrintSections, printPageText, sheetPrintPrefs, manualBreaksApply } from './print.js';
+import { printPaperBox, expandPrintText, splitPrintSections, printPageText, sheetPrintPrefs, manualBreaksApply, printRange } from './print.js';
 import { printBands, printTitleBands } from './print-pagination.js';
 import { fillColorCss } from '../core/fill-color.js';
 import { fontColorCss } from '../core/font-color.js';
@@ -18,13 +18,22 @@ import { colName } from '../core/cell.js';
 
 const HEAD_W = 36, HEAD_H = 18, TITLE_H = 28;
 
-/** The block the print takes from the sheet: the selection, the print area, or the cells in use. */
+/**
+ * The block the print takes from the sheet: the selection, the print area, or the whole sheet as the print bounds it,
+ * which reaches past the cells in use to the fills and borders, the charts and pictures, the merges and the text
+ * running on from the last column, so the preview counts the pages the print makes. Worked out once for each change
+ * of the workbook: the dialog lays the preview out again on every key typed in it.
+ */
+const wholeSheets = new WeakMap(); // workbook → sheet id → { version, range }
 function printedArea(wb, sheetId, prefs, range, only) {
   const sheet = wb.sheet(sheetId);
   if (only) return only;
   if (prefs.area === 'selection' && range) return range;
   if (prefs.area === 'printArea' && sheet.printSettings?.areas?.length) return sheet.printSettings.areas[0];
-  return wb.usedRange(sheetId);
+  let kept = wholeSheets.get(wb);
+  if (!kept) wholeSheets.set(wb, kept = new Map());
+  if (kept.get(sheetId)?.version !== wb.version) kept.set(sheetId, { version: wb.version, range: printRange(wb, sheetId, {}) });
+  return kept.get(sheetId).range;
 }
 
 /**
