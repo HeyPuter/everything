@@ -23502,7 +23502,7 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 			switch(y["style"]) {
 				case "short": NF += "d"; break;
 				case "long": NF += "dd"; break;
-				default: NF += "dd"; break; // TODO: error condition
+				default: NF += "d"; break; /* Puter Spreadsheet local patch: number:style defaults to short (ODF 19.474.1) */
 			}
 		} break;
 
@@ -23529,7 +23529,7 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 			switch(y["style"]) {
 				case "short": NF += "h"; break;
 				case "long": NF += "hh"; break;
-				default: NF += "hh"; break; // TODO: error condition
+				default: NF += "h"; break; /* Puter Spreadsheet local patch: LibreOffice writes a short element without the attribute */
 			}
 		} break;
 
@@ -23538,7 +23538,7 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 			switch(y["style"]) {
 				case "short": NF += "m"; break;
 				case "long": NF += "mm"; break;
-				default: NF += "mm"; break; // TODO: error condition
+				default: NF += "m"; break; /* Puter Spreadsheet local patch: number:style defaults to short */
 			}
 		} break;
 
@@ -23558,7 +23558,7 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 			switch(y["style"]) {
 				case "short": NF += "s"; break;
 				case "long": NF += "ss"; break;
-				default: NF += "ss"; break; // TODO: error condition
+				default: NF += "s"; break; /* Puter Spreadsheet local patch: number:style defaults to short */
 			}
 			if(y["decimal-places"]) NF += "." + fill("0", +y["decimal-places"]);
 		} break;
