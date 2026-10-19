@@ -24,7 +24,7 @@ async function exported(wb) {
 }
 const look = (wb, r, c) => wb.conditionalStyle(wb.activeSheetId, r, c, wb.getValue(wb.activeSheetId, r, c));
 
-it.each(['C3:C7', 'F9:H12'])('exports imported text comparisons on %s as live native expressions', async ref => {
+it.each(['C3:C7', 'F9:H12'])('exports imported text comparisons on %s as live native rules', async ref => {
   const wb = await workbookFromFile(otherProgramsXlsx({
     sheetXml: { Data: { tail: `<conditionalFormatting sqref="${ref}"><cfRule type="cellIs" dxfId="0" priority="4" operator="equal" stopIfTrue="1"><formula>"A &amp; B 🛒"</formula></cfRule></conditionalFormatting>` } },
     patch: { '/xl/styles.xml': xml => xml.replace(/<dxfs[^>]*(?:\/>|>[\s\S]*?<\/dxfs>)/, '<dxfs count="1"><dxf><font><color rgb="FF123456"/></font><fill><patternFill><bgColor rgb="FFFEDCBA"/></patternFill></fill></dxf></dxfs>') },
@@ -33,7 +33,9 @@ it.each(['C3:C7', 'F9:H12'])('exports imported text comparisons on %s as live na
   wb.setInput(wb.activeSheetId, g.r1, g.c1, 'A & B 🛒');
   const { back, sheet } = await exported(wb);
   expect(sheet.querySelector('conditionalFormatting').getAttribute('sqref')).toBe(ref);
-  expect(sheet.querySelector('cfRule').getAttribute('type')).toBe('expression');
+  // Excel's own Cell Value rule again (see io-xlsx-condformat-cell-value.test.js), live as before.
+  expect(sheet.querySelector('cfRule').getAttribute('type')).toBe('cellIs');
+  expect(sheet.querySelector('cfRule').getAttribute('operator')).toBe('equal');
   expect(back.activeSheet.rules).toHaveLength(1);
   expect(look(back, g.r1, g.c1)).toMatchObject({ bg: '#fedcba', color: '#123456' });
   back.setInput(back.activeSheetId, g.r2, g.c2, 'A & B 🛒');

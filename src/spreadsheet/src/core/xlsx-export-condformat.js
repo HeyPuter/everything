@@ -16,6 +16,42 @@ const address = g => `${cellName(g.r1, g.c1)}:${cellName(g.r2, g.c2)}`;
 const covered = (ranges, cover) => ranges.every(range => cover.some(g => g.r1 <= range.r1 && g.c1 <= range.c1 && g.r2 >= range.r2 && g.c2 >= range.c2)
   || cover.reduce((pieces, g) => removeRangeRecords(pieces, g), [{ range }]).length === 0);
 
+/** Whether a formula's parentheses balance from start to end, never closing one more than opened (quotes skipped). */
+function balanced(text) {
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"' || ch === "'") { const end = text.indexOf(ch, i + 1); if (end < 0) return false; i = end; }
+    else if (ch === '(') depth++;
+    else if (ch === ')' && --depth < 0) return false;
+  }
+  return depth === 0;
+}
+/** `prefix(inner)` exactly, with `inner` a whole expression: the inner text, else null. */
+const wrapped = (text, prefix) => text.startsWith(`${prefix}(`) && text.endsWith(')') && balanced(text.slice(prefix.length + 1, -1)) ? text.slice(prefix.length + 1, -1) : null;
+const CELL_IS = { '=': 'equal', '<>': 'notEqual', '<=': 'lessThanOrEqual', '>=': 'greaterThanOrEqual', '<': 'lessThan', '>': 'greaterThan' };
+/**
+ * Excel's "Cell Value" rule (cellIs) for a formula rule spelled the way one reads in: A1>(10), or
+ * AND(A1>=(1),A1<=(9)) and its NOT for between and not between, where A1 is the rule's top-left cell. Excel
+ * defines cellIs as exactly that comparison, so the rule means the same and shows in Excel as it was made.
+ */
+function cellIsRule(formula, cell) {
+  for (const [op, operator] of Object.entries(CELL_IS)) {
+    const value = wrapped(formula, `${cell}${op}`);
+    if (value != null && value.trim()) return { operator, formulas: [value] };
+  }
+  for (const [outer, operator] of [['', 'between'], ['NOT', 'notBetween']]) {
+    const and = wrapped(outer ? wrapped(formula, outer) ?? '' : formula, 'AND');
+    if (and == null) continue;
+    // The comma between the two comparisons: the first at which the low bound's parentheses close.
+    for (let i = and.indexOf(','); i > 0; i = and.indexOf(',', i + 1)) {
+      const low = wrapped(and.slice(0, i), `${cell}>=`), high = wrapped(and.slice(i + 1), `${cell}<=`);
+      if (low != null && high != null && low.trim() && high.trim()) return { operator, formulas: [low, high] };
+    }
+  }
+  return null;
+}
+
 /** Rejoin native sqref paint pieces only when their coverage still equals the
  * statistical source. A partial copy keeps its independent source via a live
  * expression instead. Never cross an intervening rule's priority.
@@ -200,9 +236,12 @@ export function writeXlsxConditionalFormats(xml, wb, originalSheet, styles, defi
     recordNative(index, predicateGroup?.end ?? index);
     // ISO 29500 §18.3.1.10: lower priority numbers win, and expressions
     // are relative to the top-left cell of sqref. App rules default to stop.
+    const corner = predicateGroup ? predicateGroup.ranges.reduce((a, range) => ({ r1: Math.min(a.r1, range.r1), c1: Math.min(a.c1, range.c1) })) : g;
+    const cellIs = rule.type === 'formula' ? cellIsRule(exportedFormula, cellName(corner.r1, corner.c1)) : null;
     blocks.push(xmlTag('conditionalFormatting', { sqref: (predicateGroup?.ranges || [g]).map(address).join(' '), ...(rule.pivot || rule.pivotRuleIds?.length ? { pivot: 1 } : {}) },
-      xmlTag('cfRule', { type: 'expression', dxfId: styles.differential(rule.style), priority: index + 1,
-        stopIfTrue: Number(rule.stopIfTrue !== false) }, xmlTag('formula', {}, xmlText(toFileFormula(exportedFormula))))));
+      xmlTag('cfRule', { type: cellIs ? 'cellIs' : 'expression', dxfId: styles.differential(rule.style), priority: index + 1,
+        stopIfTrue: Number(rule.stopIfTrue !== false), ...(cellIs ? { operator: cellIs.operator } : {}) },
+      (cellIs ? cellIs.formulas : [exportedFormula]).map(f => xmlTag('formula', {}, xmlText(toFileFormula(f)))).join(''))));
     if (predicateGroup) index = predicateGroup.end;
   }
   if (extensions.length) {
