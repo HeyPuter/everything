@@ -932,7 +932,8 @@ export function outputOccupied(wb, sheetId, layout, r, c) {
       if (cell && (cell.v != null && cell.v !== '' || cell.f != null)) return true;
     }
   }
-  return false;
+  // An array's results are data too, though only its first cell is stored: written over, a spill turns to #SPILL!.
+  return wb.spillEntries(sheetId, { r1: r, c1: c, r2: r + rows - 1, c2: c + cols - 1 }).length > 0;
 }
 
 const absRef = (sheetName, { r1, c1, r2, c2 }) => {
@@ -996,6 +997,12 @@ export function writeAnalysisOutput(wb, layout, target, { label = layout.title |
       sheetId = sheet.id; fresh = true;
     } else {
       sheetId = target.sheetId; r0 = target.r; c0 = target.c;
+      // Part of an array ({=A1:A3*2} entered over several cells) cannot be changed; the whole write would be refused.
+      const box = { r1: r0, c1: c0, r2: r0 + rows - 1, c2: c0 + cols - 1 };
+      const sheet = wb.sheet(sheetId);
+      const cut = sheet && wb._fixedArrays(sheet).ranges.some((a) => a.r1 <= box.r2 && a.r2 >= box.r1 && a.c1 <= box.c2 && a.c2 >= box.c1
+        && !(a.r1 >= box.r1 && a.r2 <= box.r2 && a.c1 >= box.c1 && a.c2 <= box.c2));
+      if (cut) { problem = 'The output range would change part of an array. Choose another place for the output.'; return; }
     }
     const entries = [];
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
