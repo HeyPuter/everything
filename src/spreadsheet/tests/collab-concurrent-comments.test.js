@@ -93,3 +93,52 @@ describe('comments made at once in a shared workbook', () => {
     }
   });
 });
+
+describe('objects, rules and merges added at once to one sheet of a shared workbook', () => {
+  it('keeps both people\'s text boxes, pictures and charts, and an object deleted meanwhile stays deleted', () => {
+    const { join, fresh } = room();
+    const ana = join('ana'), ben = join('ben');
+    const old = ana.wb.addChart(ana.sheet, { type: 'text', text: 'Old', anchor: { r: 1, c: 1 }, w: 120, h: 40 });
+    ana.push();
+    ben.pull();
+    ana.wb.addChart(ana.sheet, { type: 'text', text: 'From Ana', anchor: { r: 5, c: 5 }, w: 120, h: 40 });
+    ben.wb.addChart(ben.sheet, { type: 'text', text: 'From Ben', anchor: { r: 9, c: 1 }, w: 120, h: 40 });
+    ben.wb.deleteChart(ben.sheet, old);
+    ben.push();
+    ana.push();
+    ben.pull();
+    for (const x of [ana, ben, fresh()]) expect(x.wb.sheets[0].charts.map((c) => c.text).sort()).toEqual(['From Ana', 'From Ben']);
+  });
+
+  it('keeps both people\'s conditional formats and validation', () => {
+    const { join, fresh } = room();
+    const ana = join('ana'), ben = join('ben');
+    ana.wb.addRule(ana.sheet, { type: 'gt', range: { r1: 0, c1: 0, r2: 9, c2: 0 }, value: 5, style: { bold: true } });
+    ben.wb.addRule(ben.sheet, { type: 'lt', range: { r1: 0, c1: 2, r2: 9, c2: 2 }, value: 0, style: { italic: true } });
+    ana.wb.addValidation(ana.sheet, { type: 'whole', operator: 'between', min: '1', max: '10', range: { r1: 0, c1: 0, r2: 4, c2: 0 } });
+    ben.wb.addValidation(ben.sheet, { type: 'list', source: 'Yes,No', range: { r1: 0, c1: 3, r2: 4, c2: 3 } });
+    ana.push();
+    ben.push();
+    ana.pull();
+    for (const x of [ana, ben, fresh()]) {
+      expect(x.wb.sheets[0].rules.map((r) => r.type)).toEqual(['gt', 'lt']);
+      expect(x.wb.sheets[0].validations.map((v) => v.type)).toEqual(['whole', 'list']);
+    }
+  });
+
+  it('keeps cells both people merged, but not two merges over the same cells', () => {
+    const { join, fresh } = room();
+    const ana = join('ana'), ben = join('ben');
+    ana.wb.mergeCells(ana.sheet, { r1: 0, c1: 0, r2: 0, c2: 3 });
+    ana.wb.mergeCells(ana.sheet, { r1: 4, c1: 0, r2: 4, c2: 1 });
+    ben.wb.mergeCells(ben.sheet, { r1: 2, c1: 0, r2: 2, c2: 3 });
+    ben.wb.mergeCells(ben.sheet, { r1: 0, c1: 2, r2: 1, c2: 4 }); // overlaps Ana's
+    ana.push();
+    ben.push(); // lands later: its merge over Ana's cells stands, Ana's gives way
+    ana.pull();
+    for (const x of [ana, ben, fresh()]) {
+      expect(x.wb.sheets[0].merges.map(({ r1, c1, r2, c2 }) => `${r1},${c1}:${r2},${c2}`).sort()).toEqual(['0,2:1,4', '2,0:2,3', '4,0:4,1']);
+    }
+  });
+});
+

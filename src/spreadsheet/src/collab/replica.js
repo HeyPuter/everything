@@ -530,9 +530,9 @@ export class Replica extends EventTarget {
           }
           if (!rolled && this.pending.length) { this._rollback(); rolled = true; }
           let theirs = ch.ops;
-          const bases = new Map(); // sheet → its comments as the pending change being transformed found them
+          const bases = new Map(); // sheet and list → the list as the pending change being transformed found it
           for (const p of this.pending) {
-            const merged = mergeComments(p.ops, theirs, bases, this.wb);
+            const merged = mergeLists(p.ops, theirs, bases, this.wb);
             const [mine, past] = this._xform(merged.mine, merged.theirs, true);
             p.ops = mine;
             theirs = [...past, ...merged.after];
@@ -772,33 +772,74 @@ export class Replica extends EventTarget {
 }
 
 /**
- * A sheet's comments are one register, but people comment on different cells (and reply to one thread) at
- * the same time: where a pending change and someone else's change made at once both write a sheet's comments,
- * each writes the two merged instead, thread by thread and comment by comment, so that neither person's
- * comments are lost and a thread or reply someone deleted stays deleted. `bases` keeps what each sheet's
- * comments were before the pending change in hand (the state the room's change was made on, for the first);
- * `after` is what the room's change does once the pending one is in, for the pending changes after it.
- * Nothing is merged across rows, columns or sheets that move: the later list stands, as before.
+ * A sheet's comments, objects (charts, pictures, shapes, text boxes), conditional formats, validation and merged
+ * cells are one register each, but people add them in different places at the same time: where a pending change
+ * and someone else's change made at once both write one of these lists, each writes the two merged instead (item
+ * by item, and a thread reply by reply), so that neither person's additions are lost and what someone deleted
+ * stays deleted. `bases` keeps what each list was before the pending change in hand (the state the room's change
+ * was made on, for the first); `after` is what the room's change does once the pending one is in, for the
+ * pending changes after it. Nothing is merged across rows, columns or sheets that move: the later list stands.
  */
-function mergeComments(mine, theirs, bases, wb) {
+const MERGED_LISTS = { comments: (b, x, y) => mergeThreads(b, x, y), charts: (b, x, y) => mergeItems(b, x, y, (i) => i?.id),
+  rules: (b, x, y) => mergeItems(b, x, y, (i) => i?.id), validations: (b, x, y) => mergeItems(b, x, y, (i) => i?.id), merges: (b, x, y) => mergeMerges(b, x, y) };
+
+function mergeLists(mine, theirs, bases, wb) {
   const none = { mine, theirs, after: [] };
-  const writes = (ops) => ops.filter((op) => op.t === 'props' && own(op.v, 'comments'));
+  const listsOf = (op) => (op.t === 'props' ? Object.keys(op.v).filter((k) => own(MERGED_LISTS, k)) : []);
   if (bases.blocked) return none;
   if (mine.some(isStructure) || theirs.some(isStructure) || theirs.some((op) => op.t === 'put')) { bases.blocked = true; return none; }
-  if (!writes(mine).length) return none;
-  const baseOf = (s) => (bases.has(s) ? bases.get(s) : wb.sheet(s) ? sheetProps(wb.sheet(s), ['comments']).comments : null);
+  if (!mine.some((op) => listsOf(op).length)) return none;
   const after = [];
   const next = mine.map((op) => {
-    if (op.t !== 'props' || !own(op.v, 'comments')) return op;
-    const base = baseOf(op.s);
-    bases.set(op.s, op.v.comments);
-    const other = writes(theirs).filter((t) => t.s === op.s).at(-1);
-    if (!other) return op;
-    const comments = mergeThreads(base, op.v.comments, other.v.comments);
-    if (!sameJSON(comments, op.v.comments)) after.push({ t: 'props', s: op.s, v: { comments } });
-    return { ...op, v: { ...op.v, comments } };
+    const keys = listsOf(op);
+    if (!keys.length) return op;
+    const v = { ...op.v };
+    for (const k of keys) {
+      const at = `${op.s}\u0000${k}`;
+      const base = bases.has(at) ? bases.get(at) : wb.sheet(op.s) ? sheetProps(wb.sheet(op.s), [k])[k] : null;
+      bases.set(at, op.v[k]);
+      const other = theirs.filter((t) => t.t === 'props' && t.s === op.s && own(t.v, k)).at(-1);
+      if (!other) continue;
+      const ours = op.v[k], their = other.v[k];
+      // Unchanged on one side, the other's list stands (an emptied list is merged like any other).
+      v[k] = sameJSON(ours, base) ? their : sameJSON(their, base) || sameJSON(ours, their) ? ours : MERGED_LISTS[k](base, ours, their);
+      if (!sameJSON(v[k], op.v[k])) after.push({ t: 'props', s: op.s, v: { [k]: v[k] } });
+    }
+    return { ...op, v };
   });
   return { mine: next, theirs, after };
+}
+
+/**
+ * Two edits of a list of items (each known by `idOf`) made at once on `base`, `b` the earlier in the room's order:
+ * the items either kept or added, in the order of `a`, with those `b` added before the first that `a` added.
+ */
+function mergeItems(base, a, b, idOf) {
+  const lists = [base, a, b].map((l) => (Array.isArray(l) ? l : []));
+  // Items not told apart by an id cannot be merged: the later list stands.
+  if (lists.some((l) => l.some((i) => idOf(i) == null)) || lists.some((l) => new Set(l.map(idOf)).size !== l.length)) return a;
+  const [was, mine, theirs] = lists.map((l) => new Map(l.map((i) => [idOf(i), i])));
+  const added = [];
+  for (const [id, item] of theirs) { if (mine.has(id)) continue; const kept = merge3(was.get(id) ?? null, null, item, (x) => x); if (kept) added.push(kept); }
+  const out = [];
+  for (const [id, item] of mine) {
+    if (!was.has(id)) out.push(...added.splice(0));
+    const kept = merge3(was.get(id) ?? null, item, theirs.get(id) ?? null, (x) => x);
+    if (kept) out.push(kept);
+  }
+  return [...out, ...added];
+}
+
+/** Merged cells from two edits: as items, but one of `b`'s that overlaps a block kept from `a` gives way to it (a cell is in one merge). */
+function mergeMerges(base, a, b) {
+  const key = (m) => (m ? `${m.r1},${m.c1},${m.r2},${m.c2}` : null);
+  const all = mergeItems(base, a, b, key);
+  if (all === a) return a;
+  const mine = new Set((Array.isArray(a) ? a : []).map(key));
+  const kept = all.filter((m) => mine.has(key(m)));
+  const overlaps = (m, n) => m.r1 <= n.r2 && n.r1 <= m.r2 && m.c1 <= n.c2 && n.c1 <= m.c2;
+  for (const m of all) if (!mine.has(key(m)) && !kept.some((n) => overlaps(m, n))) kept.push(m);
+  return kept;
 }
 
 /** Three versions of one record: the base, and two edits of it made at once. Unchanged on one side, the other's stands. */
