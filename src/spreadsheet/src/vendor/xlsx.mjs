@@ -23595,7 +23595,9 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 			if(Rn[1]==='/') break;
 			// TODO: find a mapping for all parameters
 			y = parsexmltag(Rn[0], false);
-			NF += "0." + fill("0", +y["min-decimal-places"] || +y["decimal-places"] || 2) + fill("?", +y["decimal-places"] - +y["min-decimal-places"] || 0) + "E" + (parsexmlbool(y["forced-exponent-sign"]) ? "+" : "") + fill("0", +y["min-exponent-digits"] || 2);
+			/* Puter Spreadsheet local patch: forced-exponent-sign defaults to true (ODF 1.3 19.343), as every
+			 * LibreOffice shows E+ for a file without it; false is Excel's E-. A bare E is no Excel code at all. */
+			NF += "0." + fill("0", +y["min-decimal-places"] || +y["decimal-places"] || 2) + fill("?", +y["decimal-places"] - +y["min-decimal-places"] || 0) + "E" + (y["forced-exponent-sign"] != null && !parsexmlbool(y["forced-exponent-sign"]) ? "-" : "+") + fill("0", +y["min-exponent-digits"] || 2);
 			break;
 
 		case 'fraction': // <number:fraction> 16.29.7
@@ -24663,7 +24665,9 @@ function write_number_format_ods(nf/*:string*/, nfidx/*:string*/)/*:string*/ {
 		}
 
 		/* number TODO: interstitial text e.g. 000)000-0000 */
-		var np = nf.match(/([#0][0#,]*)(\.[0#]*|)(E[+]?0*|)/i);
+		/* Puter Spreadsheet local patch: E- (a sign on negative exponents only) is a scientific code too, written with
+		 * forced-exponent-sign="false"; it used to stop the whole export on its missing exponent digits. */
+		var np = nf.match(/([#0][0#,]*)(\.[0#]*|)(E[+-]?0*|)/i);
 		if(!np || !np[0]) console.error("Could not find numeric part of " + nf);
 		else {
 			var base = np[1].replace(/,/g, "");
@@ -24676,8 +24680,8 @@ function write_number_format_ods(nf/*:string*/, nfidx/*:string*/)/*:string*/ {
 				(/[#0],[#0]/.test(np[1]) ? ' number:grouping="true"' : "") +
 				(np[2] && ' number:decimal-places="' + (np[2].length - 1) + '"' || ' number:decimal-places="0"') +
 				(scaling ? ' number:display-factor="' + Math.pow(1000, scaling) + '"' : "") +
-				(np[3] && np[3].indexOf("+") > -1 ? ' number:forced-exponent-sign="true"' : "" ) +
-				(np[3] ? ' number:min-exponent-digits="' + np[3].match(/0+/)[0].length + '"' : "" ) +
+				(np[3] ? ' number:forced-exponent-sign="' + (np[3].indexOf("-") > -1 ? "false" : "true") + '"' : "" ) +
+				(np[3] ? ' number:min-exponent-digits="' + ((np[3].match(/0+/) || ["0"])[0].length) + '"' : "" ) +
 				'>' +
 				/* TODO: interstitial text placeholders */
 				'</number:' + (np[3] ? "scientific-" : "") + 'number>';
