@@ -157,6 +157,7 @@ const RANGE_CACHE_CELLS = 2_000_000;
 // Families of ranges (one start and one span of columns, ending lower and lower) whose longest read
 // so far is remembered, so that a longer one of the family carries on from it (see getRangeValues).
 const RANGE_CACHE_RUNS = 4000;
+const SMALL_RANGE_CELLS = 16;
 function rangeCost(values) { return values.length * ((values[0]?.length || 0) + 8); }
 // Formatting a range formats its empty cells too, so what is typed there later takes the format. Over a range
 // of more cells than this (a whole sheet of 20,000 rows) that would store a cell per empty coordinate, 320,000
@@ -13030,6 +13031,9 @@ export class Workbook extends EventTarget {
    * memory. The arrays read longest ago go first.
    */
   _keepRange(key, values) {
+    // A few cells are read again as quickly as found in the cache, and every spill landing looks over all the
+    // ranges held: a column of spills reading one another's (=SUM(B1#) beside =SEQUENCE(1,3,A2)) held one per row.
+    if (values.length * (values[0]?.length || 0) <= SMALL_RANGE_CELLS) return;
     const cost = rangeCost(values);
     if (cost > RANGE_CACHE_CELLS) return;
     if (!this._rangeCache.size) this._rangeCacheCells = 0; // the cache is only ever emptied whole elsewhere
