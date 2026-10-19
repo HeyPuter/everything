@@ -89,6 +89,11 @@ export function moveChart(ctx, chart, { newSheet = null, toSheetId = null }) {
   const detached = detachedChart(wb, fromId, chart);
   const { id, ...model } = detached;
   let moved = false;
+  // A chart sheet whose only chart leaves goes with it, which Protect Workbook forbids: the chart would land on
+  // the other sheet and stay on its own as well. Refused instead, with the workbook's structure notice.
+  const source = wb.sheet(fromId);
+  const emptiesSheet = source?.kind === 'chart' && source.charts.filter(isChartObject).length === 1;
+  if (newSheet == null && emptiesSheet && wb.structureProtected) { wb._structureLocked(); return false; }
   wb.transaction('Move chart', () => {
     if (newSheet != null) {
       const name = String(newSheet).trim() || chartSheetName(wb);
