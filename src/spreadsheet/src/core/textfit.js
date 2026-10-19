@@ -59,14 +59,27 @@ function fittingPrefix(text, start, width, measure, offsets) {
   return lo;
 }
 
+// Where else a line may break inside a word, as the browser breaks the cell's text (CSS line breaking, after
+// Unicode's line-break rules) and Excel breaks it too: after a hyphen or dash inside a word or a date
+// (2024-01-05, never after the minus of -5), on either side of an em dash, and between the characters of
+// Chinese, Japanese and Korean, which put no spaces between words, except before closing punctuation (、。」)
+// and after opening punctuation (「). Measured without these, a row fitted to its wrapped text was a line
+// too tall for most CJK text, and for hyphenated text sometimes a line too short, hiding its last line.
+const CJK = '\\u1100-\\u11ff\\u2e80-\\u2fdf\\u3005-\\u3007\\u3021-\\u3029\\u3040-\\u30ff\\u3105-\\u312f\\u3131-\\u318e\\u31f0-\\u31ff\\u3400-\\u4dbf\\u4e00-\\u9fff\\ua960-\\ua97f\\uac00-\\ud7af\\uf900-\\ufaff\\uff66-\\uff9f\\u{20000}-\\u{3fffd}';
+const CLOSING = '、。，．,.!?！？)）」』】〕〉》｝］〗〙〛・：；:;ー々ゝゞヽヾ\\u3099-\\u309c';
+const OPENING = '(（「『【〔〈《｛［〖〘〚';
+const WORD_BREAKS = new RegExp(`(?<=\\S[-\\u2010\\u2013])(?=[^\\s\\-\\u2010\\u2013])|(?<=\\u2014)|(?=\\u2014)|(?<=[${CJK}])(?![${CLOSING}])|(?<![${OPENING}])(?=[${CJK}])(?![${CLOSING}])`, 'u');
+
 /** Break text into the lines a wrapped cell of `width` px would show. */
 export function wrapLines(text, width, measure, onLine = null) {
   const out = [];
   const append = (text, start) => { out.push(text); onLine?.(text, start); };
   let paragraphOffset = 0;
   for (const paragraph of String(text ?? '').split('\n')) {
-    // Lines break at spaces, never at the no-break spaces a formatted number groups its digits with (1 234 567).
-    const words = paragraph.split(/((?:(?![  ])\s)+)/).filter((w) => w !== '');
+    // Lines break at spaces, never at the no-break spaces a formatted number groups its digits with (1 234 567),
+    // and inside words where WORD_BREAKS lets them.
+    const words = paragraph.split(/((?:(?![  ])\s)+)/).filter((w) => w !== '')
+      .flatMap((w) => (w.trim() ? w.split(WORD_BREAKS).filter((piece) => piece !== '') : [w]));
     let line = '';
     let lineOffset = paragraphOffset, wordOffset = paragraphOffset;
     for (const word of words) {
