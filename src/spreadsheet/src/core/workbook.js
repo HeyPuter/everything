@@ -5918,7 +5918,7 @@ export class Workbook extends EventTarget {
    * resolved and sheet names filled in. `owner` is the formula's own cell,
    * which a [@Column] reference is read from.
    */
-  _formulaRefs(formula, ownerSheet, owner = null) {
+  _formulaRefs(formula, ownerSheet, owner = null, { spillAnchors = false } = {}) {
     let tokens;
     try { tokens = tokenize(formula); } catch { return []; }
     const out = [];
@@ -5930,7 +5930,9 @@ export class Workbook extends EventTarget {
         // A 3D span reads the cells on every sheet it covers.
         const sheetNames = t.sheetEnd ? this.sheetsBetween(t.sheet, t.sheetEnd) || [] : [ref.sheet ?? ownerSheet];
         for (const sheetName of sheetNames) {
-          // A1# reads the whole spill of A1.
+          // A1# reads the whole spill of A1. Asked only which formulas it reads, as the walk of a deep chain asks,
+          // that is the anchor: finding its spill calculates it, and down a chain of spills that ran out of stack.
+          if (t.spill && spillAnchors) { out.push({ ref: { ...ref, kind: 'range', r2: ref.r1, c2: ref.c1, sheet: sheetName } }); continue; }
           const spill = t.spill ? this.spillRangeAt(this.sheetByName(sheetName)?.id, ref.r1, ref.c1) : null;
           out.push({ ref: spill ? { ...ref, kind: 'range', ...spill, sheet: sheetName } : { ...ref, sheet: sheetName } });
         }
@@ -12740,7 +12742,7 @@ export class Workbook extends EventTarget {
   *_formulaPrecedents(sheet, r, c, cursors = null) {
     const cell = sheet.cells.get(cellKey(r, c));
     if (!cell || cell.f == null) return;
-    for (const { ref } of this._formulaRefs(cell.f, sheet.name, { r, c })) {
+    for (const { ref } of this._formulaRefs(cell.f, sheet.name, { r, c }, { spillAnchors: true })) {
       const target = this.sheetByName(ref.sheet);
       if (!target) continue;
       const used = this.usedRange(target.id);
@@ -13001,9 +13003,11 @@ export class Workbook extends EventTarget {
             out.push(row);
           }
         }
-        // A cell still being calculated reads as a provisional #CYCLE!; an array holding one is not kept.
-        let provisional = false;
-        for (const key of this._evaluating) {
+        // A cell still being calculated reads as a provisional #CYCLE!; an array holding one is not kept. One too
+        // small to keep need not be looked over, against every cell waiting on the walk of a deep chain.
+        const keepable = !repeats && rows * cols > SMALL_RANGE_CELLS;
+        let provisional = !keepable;
+        if (keepable) for (const key of this._evaluating) {
           const bar = key.indexOf('|');
           if (key.slice(0, bar) !== target.id) continue;
           const comma = key.indexOf(',', bar);
@@ -13012,7 +13016,7 @@ export class Workbook extends EventTarget {
           if (rr >= ref.r1 && rr <= Math.max(r2, ref.r1) && cc >= ref.c1 && cc <= Math.max(c2, ref.c1)) { provisional = true; break; }
         }
         // Nor is one read while a circle is unsettled, since it may hold an answer that is withdrawn.
-        if (!repeats && !provisional && !this._hasDeferredSpills && !this._unsettled.length) {
+        if (!provisional && !this._hasDeferredSpills && !this._unsettled.length) {
           this._keepRange(cacheKey, out);
           // The longest of a family is the one a longer range carries on from; only its number is
           // held, so an array the budget has evicted simply leaves the next range to read afresh.
