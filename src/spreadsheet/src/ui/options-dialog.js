@@ -186,14 +186,14 @@ export function openOptionsDialog(ctx, { section = 'general' } = {}) {
       delta.addEventListener('change', commitIter);
       syncs.push(syncIter);
       syncIter();
-      const checks = { ...errorCheckingOptions() };
       const errBox = (key, label) => {
         const id = fieldId('opt');
         const input = el('input', { type: 'checkbox', id });
-        input.checked = !!checks[key];
-        input.addEventListener('change', () => { checks[key] = input.checked; saveErrorChecking({ [key]: input.checked }); ctx.afterErrorChecking?.(); syncAll(); });
-        if (key !== 'enabled') syncs.push(() => { input.disabled = !errorCheckingOptions().enabled; });
+        input.checked = !!errorCheckingOptions()[key];
+        input.addEventListener('change', () => { saveErrorChecking({ [key]: input.checked }); ctx.afterErrorChecking?.(); syncAll(); });
+        syncs.push(() => { input.checked = !!errorCheckingOptions()[key]; if (key !== 'enabled') input.disabled = !errorCheckingOptions().enabled; });
         const node = row([label, 'error checking rule'], el('div.opt-check', {}, input, el('label.opt-check-text', { for: id }, el('span.opt-label', {}, label))));
+        node.dataset.errorRule = key; // Restore Defaults puts the rules back too
         if (key !== 'enabled') node.classList.add('opt-dependent');
         return node;
       };
@@ -584,6 +584,11 @@ export function openOptionsDialog(ctx, { section = 'general' } = {}) {
     if (resetCurrent) { resetCurrent(); return; }
     const keys = [...page.querySelectorAll('.opt-row[data-key]')].map((r) => r.dataset.key).filter((k) => Object.hasOwn(OPTION_DEFAULTS, k));
     if (keys.length) resetAppOptions([...new Set(keys)]);
+    // The error checking rules are kept apart from the other options, but are as much this page's to put back.
+    if (page.querySelector('.opt-row[data-error-rule]')) {
+      saveErrorChecking({ enabled: true, ...Object.fromEntries(ERROR_RULES.map(([key, , on]) => [key, on])) });
+      ctx.afterErrorChecking?.();
+    }
     syncAll();
   } }, 'Restore Defaults');
 

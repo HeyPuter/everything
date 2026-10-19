@@ -142,6 +142,24 @@ describe('the Options dialog', () => {
     rule.checked = true;
     rule.dispatchEvent(new Event('change'));
   });
+
+  it('Restore Defaults on Formulas turns the error checking rules back to how they come', async () => {
+    await mount();
+    view.run('options', 'formulas');
+    await vi.advanceTimersByTimeAsync(1);
+    const { errorCheckingOptions } = await import('../src/core/error-checking.js');
+    const untick = (label, on) => { const box = checkbox(label); box.checked = on; box.dispatchEvent(new Event('change')); };
+    untick('Numbers formatted as text or preceded by an apostrophe', false);
+    untick('Formulas referring to empty cells', true); // off until asked for
+    untick('Check for errors in the background', false);
+    [...dialog().querySelectorAll('.opt-foot button')].find((b) => b.textContent === 'Restore Defaults').click();
+    expect(errorCheckingOptions()).toMatchObject({ enabled: true, numberStoredAsText: true, emptyCellReference: false });
+    // The page shows what is restored: the boxes ticked again, and the rules no longer greyed out.
+    expect(checkbox('Check for errors in the background').checked).toBe(true);
+    expect(checkbox('Numbers formatted as text or preceded by an apostrophe').checked).toBe(true);
+    expect(checkbox('Numbers formatted as text or preceded by an apostrophe').disabled).toBe(false);
+    expect(checkbox('Formulas referring to empty cells').checked).toBe(false);
+  });
 });
 
 describe('what the options change in the editor', () => {
