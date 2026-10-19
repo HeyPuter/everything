@@ -8,11 +8,18 @@ import { el, fieldId, isComposing } from './dom.js';
 import { icon } from './icons.js';
 import { openModal } from './modal.js';
 import { renderChartSvg, seriesColor } from './chartsvg.js';
-import { CHART_DESCRIPTION_MAX_LENGTH, CHART_TYPES, chartData, chartTitles, defaultChart } from '../core/charts.js';
+import { CHART_DESCRIPTION_MAX_LENGTH, CHART_TYPES, chartData, chartTitles, defaultChart, normalizeChart } from '../core/charts.js';
 import { parseRange, rangeName } from '../core/cell.js';
+import { changeSubtypePatch } from '../core/chart-subtypes.js';
 
 const TYPE_ICONS = { column: 'chartColumn', bar: 'chartBar', line: 'chartLine', area: 'chartArea', pie: 'chartPie', donut: 'chartPie', scatter: 'chartScatter', combo: 'chartCombo', histogram: 'chartHistogram', waterfall: 'chartWaterfall', radar: 'chartRadar', bubble: 'chartBubble',
   treemap: 'chartTreemap', sunburst: 'chartSunburst', boxWhisker: 'chartBoxWhisker', funnel: 'chartFunnel', stock: 'chartStockOhlc', surface: 'chartSurface' };
+// The subtype a chart in Excel's style becomes when the dialog gives it another type: each family's first.
+const TYPE_SUBTYPES = { column: 'columnClustered', bar: 'barClustered', line: 'line', area: 'area', pie: 'pie', donut: 'doughnut', scatter: 'scatter',
+  combo: 'comboColumnLine', histogram: 'histogram', waterfall: 'waterfall', radar: 'radar', bubble: 'bubble', treemap: 'treemap', sunburst: 'sunburst',
+  boxWhisker: 'boxWhisker', funnel: 'funnel', stock: 'stockHlc', surface: 'surface3d' };
+// What a change of subtype sets that the dialog has no field for.
+const SUBTYPE_KEYS = ['appearance', 'explosion', 'ofPie', 'stock', 'surfaceView'];
 
 /** openChartDialog(ctx, { chart }) edits; openChartDialog(ctx, { range }) inserts. */
 export function openChartDialog(ctx, { chart = null, range = null, type = null } = {}) {
@@ -37,8 +44,17 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
 
   const typeBtns = CHART_TYPES.map(([key, label]) => el('button.chart-type', {
     type: 'button', role: 'radio', 'aria-checked': String(draft.type === key), title: label, dataset: { type: key },
-    onclick: () => { draft.type = key; syncTypes(); refresh(); },
+    onclick: () => { draft.type = key; restyle(); syncTypes(); refresh(); },
   }, el('span', { html: icon(TYPE_ICONS[key], 20) }), el('span.chart-type-label', {}, label)));
+  // A chart in Excel's style draws from its appearance, which belongs to its type: another type takes that type's
+  // own (as Change Chart Type gives it), or a scatter chart would come out as lines and a bubble chart as a line.
+  let restyled = null;
+  function restyle() {
+    if (!chart?.appearance) return;
+    const patch = draft.type === chart.type ? null : changeSubtypePatch(chart, TYPE_SUBTYPES[draft.type]);
+    restyled = patch && normalizeChart({ ...chart, ...patch });
+    for (const k of SUBTYPE_KEYS) draft[k] = (restyled || chart)[k];
+  }
   const typeRow = el('div.chart-types', { role: 'radiogroup', 'aria-label': 'Chart type' }, ...typeBtns);
   typeRow.addEventListener('keydown', (e) => {
     if (isComposing(e)) return;
@@ -285,6 +301,7 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
         colors: draft.colors, yMin: draft.yMin, yMax: draft.yMax, bins: draft.bins, secondaryAxis: draft.secondaryAxis, includeHidden: draft.includeHidden,
         ...(draft.sourceRefs ? { sourceRefs: draft.sourceRefs } : {}),
         titleRef: draft.titleRef, xTitleRef: draft.xTitleRef, yTitleRef: draft.yTitleRef, y2TitleRef: draft.y2TitleRef,
+        ...(restyled ? Object.fromEntries(SUBTYPE_KEYS.map(k => [k, draft[k]])) : {}),
       });
       modal.close();
       ctx.grid.selectChart(chart.id);
