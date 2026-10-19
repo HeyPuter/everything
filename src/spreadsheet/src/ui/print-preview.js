@@ -130,10 +130,13 @@ export function printPreviewLayout(wb, sheetId, prefs, range = null, only = null
  */
 export function printPreviewJob(wb, sheetId, prefs, range = null) {
   const sheets = prefs.area === 'workbook' ? wb.sheets.filter((sh) => !sh.hidden) : [wb.sheet(sheetId)].filter(Boolean);
+  // The selection may be several ranges (a list): each prints on pages of its own, as a print area's blocks do.
+  const selected = prefs.area === 'selection' && Array.isArray(range) && range.length ? range : null;
+  if (Array.isArray(range)) range = range[0] || null;
   const job = [];
   for (const sh of sheets) {
     const own = sh.id === sheetId ? prefs : { ...prefs, ...sheetPrintPrefs(sh), area: prefs.area };
-    const areas = (prefs.area === 'printArea' || prefs.area === 'workbook') && sh.printSettings?.areas?.length ? sh.printSettings.areas : [null];
+    const areas = selected || ((prefs.area === 'printArea' || prefs.area === 'workbook') && sh.printSettings?.areas?.length ? sh.printSettings.areas : [null]);
     for (const only of areas) {
       const layout = printPreviewLayout(wb, sh.id, own, range, only);
       for (const page of layout.pages) job.push({ sheetId: sh.id, prefs: own, layout, page });

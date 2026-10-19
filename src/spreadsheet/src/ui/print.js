@@ -1260,7 +1260,8 @@ export function buildPrintRoot(wb, sheetId, docName, opts = {}) {
   const sections = sheets.flatMap(sh => {
     const p = sh === sheet ? o : { ...o, ...sheetPrintPrefs(sh) };
     p.richHeaderText = !!p.native && ['header', 'footer', 'firstHeader', 'firstFooter', 'evenHeader', 'evenFooter'].some(k => hasHeaderFormatting(p[k]));
-    const areas = o.area === 'selection' && o.range ? [o.range]
+    // A selection of several ranges prints each on pages of its own, in the order they were selected, as in Excel.
+    const areas = o.area === 'selection' && (o.ranges?.length || o.range) ? (o.ranges?.length ? o.ranges : [o.range])
       : (o.area === 'printArea' || o.area === 'workbook') && sh.printSettings?.areas.length ? sh.printSettings.areas : [null];
     return areas.map(range => {
       const tableOpts = { ...p, range,

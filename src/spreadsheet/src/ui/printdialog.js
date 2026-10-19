@@ -38,7 +38,10 @@ export function openPrintDialog(ctx) {
   const sheet = ctx.wb.sheet(sheetId);
   const chartSheet = sheet.kind === 'chart';
   const range = ctx.range();
-  const hasSelection = !chartSheet && !S.isSingle(ctx.selection());
+  // Every range of the selection (Ctrl+click adds them), the one selected last among them; each prints on pages of its own.
+  const ranges = (ctx.ranges?.() || [range]).map((rg) => ({ ...rg }));
+  const hasSelection = !chartSheet && (ranges.length > 1 || !S.isSingle(ctx.selection()));
+  const selectionName = ranges.length > 3 ? `${ranges.length} ranges` : ranges.map(rangeName).join(', ');
   const storageKey = accountStorageKey(STORAGE_KEY);
   const prefs = { ...loadPrefs(storageKey), ...sheetPrintPrefs(sheet) };
   const visibleSheets = ctx.wb.sheets.filter((sh) => !sh.hidden).length;
@@ -70,7 +73,7 @@ export function openPrintDialog(ctx) {
   const areaSeg = radios('area', 'Print', [
     ...(!chartSheet && sheet.printSettings?.areas.length ? [['printArea', 'Print area']] : []),
     ['sheet', 'This sheet'],
-    ...(!chartSheet ? [['selection', hasSelection ? `Selection (${rangeName(range)})` : 'Selection', !hasSelection]] : []),
+    ...(!chartSheet ? [['selection', hasSelection ? `Selection (${selectionName})` : 'Selection', !hasSelection]] : []),
     ['workbook', `All sheets (${visibleSheets})`, visibleSheets < 2],
   ], () => prefs.area);
   const orientSeg = radios('orientation', 'Orientation', [['portrait', 'Portrait'], ['landscape', 'Landscape']], () => prefs.orientation);
@@ -184,7 +187,7 @@ export function openPrintDialog(ctx) {
   // Beside the choices, the pages as they will print, following each change (not for a chart sheet, which is one page).
   // The folder the file is in, for &[Path] in the header or footer.
   const filePath = printFolder(resolvedAbsolutePath(ctx.doc?.path));
-  const preview = chartSheet ? null : createPrintPreview({ wb: ctx.wb, sheetId, docName: ctx.doc?.name, filePath, getPrefs: () => prefs, getRange: () => range });
+  const preview = chartSheet ? null : createPrintPreview({ wb: ctx.wb, sheetId, docName: ctx.doc?.name, filePath, getPrefs: () => prefs, getRange: () => ranges });
 
   const controller = new AbortController();
   let preparing = false;
@@ -231,7 +234,7 @@ export function openPrintDialog(ctx) {
     button.disabled = true;
     button.textContent = 'Preparing…';
     content.setAttribute('aria-busy', 'true');
-    const ok = await printSheet(ctx.wb, sheetId, ctx.doc?.name, { ...prefs, range: area === 'selection' ? range : null, filePath, signal: controller.signal });
+    const ok = await printSheet(ctx.wb, sheetId, ctx.doc?.name, { ...prefs, range: area === 'selection' ? range : null, ranges: area === 'selection' ? ranges : null, filePath, signal: controller.signal });
     preparing = false;
     button.disabled = false;
     button.textContent = 'Print';
