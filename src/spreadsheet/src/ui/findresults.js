@@ -51,7 +51,7 @@ export function createFindResults({ wb, onSelect, focusQuery }) {
         const sheet = wb.sheet(match.sheetId);
         const cell = wb.getCell(match.sheetId, match.r, match.c);
         const value = excerpt(wb.getDisplay(match.sheetId, match.r, match.c));
-        const formula = cell?.f == null ? '' : `=${excerpt(cell.f)}`;
+        const formula = cell?.f == null || wb.formulaHiddenAt(match.sheetId, match.r, match.c) ? '' : `=${excerpt(cell.f)}`;
         const button = el('button.find-result-cell', { type: 'button', 'data-find-index': index,
           'aria-label': `${sheet?.name || 'Sheet'} ${address}`, onclick: () => activate(index) }, address);
         const row = el('tr', { onclick: e => { if (!e.target.closest('button')) activate(index); } },
