@@ -181,7 +181,7 @@ export function createChartUi(ctx) {
         title: ['chartTitle', 'none'], legend: ['legend', 'none'],
         xTitle: ['axisTitles', { axis: chart.type === 'bar' ? 'vertical' : 'horizontal', on: false }],
         yTitle: ['axisTitles', { axis: chart.type === 'bar' ? 'horizontal' : 'vertical', on: false }],
-        xAxis: ['axes', { axis: 'horizontal', on: false }], yAxis: ['axes', { axis: 'vertical', on: false }],
+        xAxis: ['axes', { axis: 'category', on: false }], yAxis: ['axes', { axis: 'value', on: false }],
         'gridlines-y': ['gridlines', { axis: chart.type === 'bar' ? 'vertical' : 'horizontal', on: false }],
         'gridlines-x': ['gridlines', { axis: chart.type === 'bar' ? 'horizontal' : 'vertical', on: false }],
       }[element] || (/^dataLabels:/.test(element) ? ['dataLabels', 'none'] : null);

@@ -28,7 +28,8 @@ export function chartElementState(chart) {
   const horizontal = chart.type === 'bar';
   const valueLabels = a.valueLabels?.find(l => l?.show);
   return {
-    axes: { horizontal: !a.hideXAxis, vertical: !a.hideYAxis },
+    // A bar chart's categories run down its left side: its horizontal axis is the value one.
+    axes: { horizontal: !(horizontal ? a.hideYAxis : a.hideXAxis), vertical: !(horizontal ? a.hideXAxis : a.hideYAxis) },
     axisTitles: { horizontal: !!(horizontal ? chart.yTitle : chart.xTitle), vertical: !!(horizontal ? chart.xTitle : chart.yTitle) },
     chartTitle: chart.title || chart.titleRef ? 'above' : 'none',
     dataLabels: PIE.has(chart.type)
@@ -62,7 +63,10 @@ export function chartElementPatch(chart, element, value, { seriesCount = 1 } = {
   switch (element) {
     case 'axes': {
       if (!AXES(chart.type) || !styled) return null;
-      const key = value.axis === 'horizontal' ? 'hideXAxis' : 'hideYAxis';
+      // The axis is named by the way it is drawn (Horizontal, Vertical) or by what it reads ('category',
+      // 'value'): a bar chart's horizontal axis is its value axis.
+      const category = value.axis === 'category' || value.axis !== 'value' && (value.axis === 'horizontal') !== horizontal;
+      const key = category ? 'hideXAxis' : 'hideYAxis';
       return done({ appearance: { [key]: !value.on } });
     }
     case 'axisTitles': {
@@ -125,8 +129,8 @@ function combine(chart, steps, options) {
 /** Quick Layout: preset arrangements of the title, legend, axis titles, labels, gridlines and a data table. */
 export const QUICK_LAYOUTS = Object.freeze([
   { id: 1, label: 'Layout 1', steps: [['chartTitle', 'above'], ['legend', 'right'], ['dataLabels', 'none'], ['dataTable', 'none'], ['gridlines', { axis: 'horizontal', on: true }]] },
-  { id: 2, label: 'Layout 2', steps: [['chartTitle', 'above'], ['legend', 'top'], ['dataLabels', 'outEnd'], ['axes', { axis: 'vertical', on: false }], ['gridlines', { axis: 'horizontal', on: false }], ['dataTable', 'none']] },
-  { id: 3, label: 'Layout 3', steps: [['chartTitle', 'above'], ['legend', 'bottom'], ['dataLabels', 'none'], ['dataTable', 'none'], ['axes', { axis: 'vertical', on: true }], ['gridlines', { axis: 'horizontal', on: true }]] },
+  { id: 2, label: 'Layout 2', steps: [['chartTitle', 'above'], ['legend', 'top'], ['dataLabels', 'outEnd'], ['axes', { axis: 'value', on: false }], ['gridlines', { axis: 'horizontal', on: false }], ['dataTable', 'none']] },
+  { id: 3, label: 'Layout 3', steps: [['chartTitle', 'above'], ['legend', 'bottom'], ['dataLabels', 'none'], ['dataTable', 'none'], ['axes', { axis: 'value', on: true }], ['gridlines', { axis: 'horizontal', on: true }]] },
   { id: 4, label: 'Layout 4', steps: [['chartTitle', 'none'], ['legend', 'bottom'], ['dataLabels', 'outEnd'], ['dataTable', 'none'], ['gridlines', { axis: 'horizontal', on: false }]] },
   { id: 5, label: 'Layout 5', steps: [['chartTitle', 'above'], ['legend', 'none'], ['dataTable', 'keys'], ['axisTitles', { axis: 'vertical', on: true }], ['dataLabels', 'none']] },
   { id: 6, label: 'Layout 6', steps: [['chartTitle', 'above'], ['legend', 'right'], ['axisTitles', { axis: 'vertical', on: true }], ['axisTitles', { axis: 'horizontal', on: true }], ['dataLabels', 'none'], ['dataTable', 'none']] },
