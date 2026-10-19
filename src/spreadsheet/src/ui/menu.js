@@ -370,6 +370,10 @@ export function openMenu({ anchor, items, x = null, y = null, altRight = null, a
       const next = stops.some((node) => node.matches('input, select, textarea')) ? stops[stops.indexOf(document.activeElement) + (e.shiftKey ? -1 : 1)] : null;
       if (next) { e.preventDefault(); closeChild(); next.focus(); return; }
       closeAll('tab');
+      // A menu over the cells (a cell's or a header's menu, a drop-down list) gives the keyboard back to the sheet,
+      // whose own Tab moves between cells: carried on past it, the focus landed on the sheet tabs' scroll button and
+      // the arrow keys no longer moved the active cell.
+      if (document.activeElement?.matches?.('.grid-viewport, .grid-editor')) e.preventDefault();
       return;
     }
     // A field inside any menu owns its caret and selection keys.
