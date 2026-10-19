@@ -24830,8 +24830,9 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 		var rowAttrs = function(r) { return ROWS[r] ? ' table:style-name="ro' + ROWS[r].ods + '"' + (ROWS[r].hidden ? ' table:visibility="collapse"' : ROWS[r].filtered ? ' table:visibility="filter"' : '') : ""; };
 		/* Puter Spreadsheet: rows and cells that hold nothing collapse into ODF repeats, so one far-off
 		 * cell does not cost a table-cell element for every coordinate of the rectangle. */
-		var occupied = {};
-		if(!dense) for(var key in ws) { if(key.charCodeAt(0) === 33) continue; var rc = decode_cell(key); occupied[rc.r] = 1; }
+		var occupied = {}, occupiedCols = {};
+		if(!dense) for(var key in ws) { if(key.charCodeAt(0) === 33) continue; var rc = decode_cell(key); occupied[rc.r] = 1; (occupiedCols[rc.r] || (occupiedCols[rc.r] = [])).push(rc.c); }
+		for(var occupiedRow in occupiedCols) occupiedCols[occupiedRow].sort(function(a, b) { return a - b; });
 		/* Puter Spreadsheet local patch: merges are indexed by row, so a sheet of thousands of merged blocks
 		 * is not searched through for every row and cell. rowSpans is the union of their rows, sorted; mergesAt
 		 * gives the merges covering a row in their original order, following the writer's rows downward. */
@@ -24855,11 +24856,19 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 			}
 			return rowMerges;
 		};
-		var plainEmpty = function(r, c) {
-			if(ws[encode_cell({r:r, c:c})]) return false;
+		/* Puter Spreadsheet local patch: the last column of the run of plain empty cells from c, a cell outside every
+		 * merge, found from the row's own cells and merges: probing each column made a row as costly as the sheet
+		 * was wide, so a far-off cell took a 4,000-row sheet half a minute to save. */
+		var plainEmptyEnd = function(r, c) {
+			var stop = lastCol + 1, cols = occupiedCols[r];
+			if(cols) {
+				var lo = 0, hi = cols.length;
+				while(lo < hi) { var mid = (lo + hi) >> 1; if(cols[mid] <= c) lo = mid + 1; else hi = mid; }
+				if(lo < cols.length && cols[lo] < stop) stop = cols[lo];
+			}
 			var list = mergesAt(r);
-			for(var i = 0; i < list.length; ++i) if(marr[list[i]].s.c <= c && marr[list[i]].e.c >= c) return false;
-			return true;
+			for(var i = 0; i < list.length; ++i) if(marr[list[i]].s.c > c && marr[list[i]].s.c < stop) stop = marr[list[i]].s.c;
+			return stop - 1;
 		};
 		for(R = 0; R < range.s.r; ++R) {
 			H = rowAttrs(R);
@@ -24913,8 +24922,7 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 				if(!cell) {
 					if(!dense && !validationLayout && !Object.keys(ct).length) {
 						/* A run of empty cells outside every merge is one repeated cell. */
-						var runC = C;
-						while(runC + 1 <= lastCol && plainEmpty(R, runC + 1)) ++runC;
+						var runC = plainEmptyEnd(R, C);
 						o.push(runC > C ? '          <table:table-cell table:number-columns-repeated="' + (runC - C + 1) + '"/>\n' : null_cell_xml);
 						C = runC;
 						continue;
