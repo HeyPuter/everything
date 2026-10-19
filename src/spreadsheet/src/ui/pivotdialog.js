@@ -12,15 +12,21 @@ import { formatValue, dateTimeKind } from '../core/format.js';
 import { rangeName } from '../core/cell.js';
 import * as S from '../core/selection.js';
 
-/** Write a built pivot table to a new sheet named after its source, as one undo step; returns the new sheet's name. */
+/**
+ * Write a built pivot table to a new sheet named after its source, as one undo step; returns the new sheet's name,
+ * or null when no sheet could be added (Protect Workbook locks the structure, and the workbook says so itself).
+ */
 export function insertPivotSheet(wb, sheetId, built) {
   const base = `Pivot of ${wb.sheet(sheetId).name}`;
   const withSuffix = (suffix) => base.slice(0, 31 - suffix.length).replace(/[\uD800-\uDBFF]$/, '') + suffix;
   let name = withSuffix('');
   let k = 2;
   while (wb.sheetByName(name)) name = withSuffix(` ${k++}`);
+  let added = false;
   wb.transaction('Insert pivot table', () => {
     const sheet = wb.addSheet(name);
+    if (!sheet) return;
+    added = true;
     wb.setCells(sheet.id, built.cells, 'Insert pivot table');
     built.widths.forEach((w, c) => wb.setColWidth(sheet.id, c, w));
     for (let c = 1; c < built.cols; c++) wb.setColWidth(sheet.id, c, 110);
@@ -29,6 +35,7 @@ export function insertPivotSheet(wb, sheetId, built) {
     }
     wb.setFrozen(sheet.id, built.headerRow + 1, 0);
   });
+  if (!added) return null;
   toast(`Pivot table added on ${name}`, { icon: 'check' });
   return name;
 }
@@ -142,7 +149,7 @@ export function openPivotDialog(ctx) {
     const built = build(spec);
     if (!built) return;
     if (!built.rowCount) return refuse(rowsSel, 'The rows field has no values to group by');
-    insertPivotSheet(wb, sheetId, built);
+    if (!insertPivotSheet(wb, sheetId, built)) return;
     modal.close();
     ctx.grid.focus();
   };

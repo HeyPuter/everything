@@ -50,7 +50,7 @@ export function openRecommendedPivots(ctx) {
     let built;
     try { built = buildPivot(wb, sheetId, picks[chosen].spec); }
     catch (cause) { if (cause instanceof PivotSizeError) { toast(cause.message, { icon: 'alert' }); return; } throw cause; }
-    insertPivotSheet(wb, sheetId, built);
+    if (!insertPivotSheet(wb, sheetId, built)) return;
     modal.close();
     ctx.grid.focus();
   };
