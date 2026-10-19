@@ -5027,7 +5027,13 @@ export function createGrid(opts) {
     const hcell = e.target.closest('.hcell');
     if (!hcell) return;
     const idx = Number(kind === 'col' ? hcell.dataset.c : hcell.dataset.r);
-    const inside = [...extras, S.selRange(sel)].some((rg) => (kind === 'col' ? idx >= rg.c1 && idx <= rg.c2 : idx >= rg.r1 && idx <= rg.r2));
+    // The menu is for whole lines, as in Excel and Sheets: lines already selected whole keep their selection (several
+    // columns, Ctrl/Cmd+clicked ones too), while cells selected in the line give way to it. Kept, B3:B5 had column B's
+    // Clear Contents, Copy and Sort act on those three cells alone.
+    const b = bounds();
+    const whole = (rg) => rg.scope === 'sheet' || rg.scope === (kind === 'col' ? 'columns' : 'rows')
+      || (kind === 'col' ? rg.r1 === 0 && rg.r2 >= b.rows - 1 : rg.c1 === 0 && rg.c2 >= b.cols - 1);
+    const inside = [...extras, S.selRange(sel, true)].some((rg) => whole(rg) && (kind === 'col' ? idx >= rg.c1 && idx <= rg.c2 : idx >= rg.r1 && idx <= rg.r2));
     if (!inside) setSelection(kind === 'col' ? S.selectCols(idx, idx, bounds()) : S.selectRows(idx, idx, bounds()), { scroll: false });
     opts.onContextMenu?.({ x: e.clientX, y: e.clientY, kind });
   }

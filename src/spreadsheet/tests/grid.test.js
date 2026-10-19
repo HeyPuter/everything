@@ -884,8 +884,10 @@ describe('multi-range selection', () => {
     menu(grid.viewport, 50, 13); // A1, inside the first range
     expect(grid.ranges.length).toBe(2);
     expect(menus.at(-1)).toMatchObject({ kind: 'cell' });
+    // A header over cells only partly selected in its line takes the whole line, as Excel's does (header-menu-whole-lines).
     menu(grid.el.querySelector('.grid-rowhead .hcell[data-r="0"]'), 20, 40);
-    expect(grid.ranges.length).toBe(2);
+    expect(grid.ranges.length).toBe(1);
+    expect(grid.range).toMatchObject({ r1: 0, r2: 0, c1: 0 });
     expect(menus.at(-1)).toMatchObject({ kind: 'row' });
     // Outside every range the right-click selects the cell under the pointer, as before.
     menu(grid.viewport, 350, 7.5 * Math.round(DEFAULT_ROW_HEIGHT));
