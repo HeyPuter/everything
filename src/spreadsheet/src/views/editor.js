@@ -2578,10 +2578,19 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!committed()) return;
         if (refusedByProtection('remove duplicates')) return;
         if (!oneRange('remove duplicates')) return;
-        const range = dataRange();
+        let range = dataRange();
         if (!range) { toast('Nothing to check', { icon: 'info' }); return; }
+        // Data beside an explicit selection would stay put while the selection's duplicates went and the rows
+        // below them moved up: the whole block is offered first, as for a sort.
+        const block = !S.isSingle(grid.selection) && sortExpansion(wb, sheetId, range);
+        let widened = false;
+        if (block) {
+          const expand = await confirmSortExpansion({ title: 'Remove duplicates warning', verb: 'removed', action: 'Continue' });
+          if (expand == null) return;
+          if (expand) { range = block; widened = true; }
+        }
         if (range.r1 >= range.r2) { toast('Select at least two rows', { icon: 'info' }); return; }
-        openDedupeDialog(ctx, range);
+        openDedupeDialog(ctx, range, { expanded: widened });
         return;
       }
       /* ---------- Show Changes (Review ▸ Show Changes, the cell menu) ---------- */

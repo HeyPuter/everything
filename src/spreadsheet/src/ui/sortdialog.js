@@ -94,10 +94,11 @@ export function sortExpansion(wb, sheetId, range) {
 }
 
 /**
- * Excel's Sort Warning, for a selection with data beside it: resolves true to sort the whole block (the
- * default, as rows then stay together), false to sort only the selection, null when cancelled.
+ * Excel's Sort Warning, for a selection with data beside it: resolves true to take in the whole block (the
+ * default, as rows then stay together), false to work on the selection alone, null when cancelled. `verb`
+ * says what would happen to the selection ("sorted"), `action` names the button, `title` the dialog.
  */
-export function confirmSortExpansion() {
+export function confirmSortExpansion({ title = 'Sort warning', verb = 'sorted', action = 'Sort' } = {}) {
   return new Promise((resolve) => {
     let answer = null;
     const name = fieldId('sort-expand');
@@ -111,13 +112,13 @@ export function confirmSortExpansion() {
       answer = expand.querySelector('input').checked;
       modal.close();
     } },
-    el('p.modal-text', {}, 'There is data next to your selection that will not be sorted with it, so its rows would come apart.'),
+    el('p.modal-text', {}, `There is data next to your selection that will not be ${verb} with it, so its rows would come apart.`),
     el('div', { role: 'radiogroup', 'aria-label': 'What to sort', style: { display: 'grid', gap: '8px' } },
       expand, radio('selection', 'Continue with the current selection', false)),
     el('div.row.row-end', { style: { marginTop: '16px' } },
       el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'Sort')));
-    const modal = openModal({ title: 'Sort warning', content, initialFocus: expand.querySelector('input'), onClose: () => resolve(answer) });
+      el('button.btn.btn-primary', { type: 'submit' }, action)));
+    const modal = openModal({ title, content, initialFocus: expand.querySelector('input'), onClose: () => resolve(answer) });
   });
 }
 

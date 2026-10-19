@@ -10,13 +10,14 @@ import { rangeName, colName } from '../core/cell.js';
 import { sortHeaderDefault, rearrangeProblem } from './sortdialog.js';
 import * as S from '../core/selection.js';
 
-export function openDedupeDialog(ctx, range) {
+/** `expanded`: the range was widened from the selection to the block around it, and reads its header as such a block does. */
+export function openDedupeDialog(ctx, range, { expanded: widened = false } = {}) {
   const sheetId = ctx.sheetId();
   const wb = ctx.wb;
   const headerId = fieldId('dd');
   // The first row is a header by the Sort dialog's rule: an explicitly selected list of names is
   // compared whole, its first entry included, while the block read around one cell keeps its title row.
-  const expanded = (!!ctx.selection && S.isSingle(ctx.selection())) || (range.r1 === 0 && range.r2 >= wb.sheet(sheetId).rows - 1);
+  const expanded = widened || (!!ctx.selection && S.isSingle(ctx.selection())) || (range.r1 === 0 && range.r2 >= wb.sheet(sheetId).rows - 1);
   const headerInput = el('input', { type: 'checkbox', id: headerId, checked: sortHeaderDefault(wb, sheetId, range, { expanded }) });
   const cols = [];
   for (let c = range.c1; c <= range.c2; c++) cols.push(c);
