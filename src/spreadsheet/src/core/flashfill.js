@@ -23,6 +23,13 @@ function runs(text) {
   return String(text).match(RUN) || [];
 }
 
+// Numbers, with any thousands separators and decimal point ($1,234.50, 3.75 kg, 56): one piece each, taken
+// without the separators, so 1234.50 is learnt as the amount rather than the digit runs 1 and 234 put together.
+const NUMBER = /\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?/g;
+function numbers(text) {
+  return String(text).match(NUMBER) || [];
+}
+
 /** Every piece a source row offers, with how to get it again from another row. */
 function pieces(sources) {
   const out = [];
@@ -46,6 +53,11 @@ function pieces(sources) {
       add(w, { col, kind: 'run', index: i });
       add(w, { col, kind: 'run', index: i - parts.length });
     });
+    const amounts = numbers(text);
+    amounts.forEach((w, i) => {
+      add(w.replace(/,/g, ''), { col, kind: 'number', index: i });
+      add(w.replace(/,/g, ''), { col, kind: 'number', index: i - amounts.length });
+    });
   });
   return out;
 }
@@ -62,10 +74,10 @@ function resolve(ref, sources) {
     if (word == null || ref.start + ref.length > word.length) return null;
     piece = word.slice(ref.start, ref.start + ref.length);
   } else {
-    const list = ref.kind === 'run' ? runs(text) : words(text);
+    const list = ref.kind === 'run' ? runs(text) : ref.kind === 'number' ? numbers(text) : words(text);
     const word = list[ref.index < 0 ? list.length + ref.index : ref.index];
     if (word == null) return null;
-    piece = ref.kind === 'initial' ? word[0] : word;
+    piece = ref.kind === 'initial' ? word[0] : ref.kind === 'number' ? word.replace(/,/g, '') : word;
   }
   return recase(piece, ref.mode);
 }
@@ -135,7 +147,7 @@ function explain(sources, target, preferEnd) {
         // Whole cells before words, the cell's own case first, and a first or last word named as such (index 0 or -1),
         // so "Smith" from "John Smith" is the last word, and "Watson" from "Mary Jane Watson".
         const place = (x) => { const i = x.ref.index; if (i == null) return 0; if (i === 0 || i === -1) return 0; return (i < 0) === (preferEnd || variant === 1) ? 1 : 2; };
-        const rank = (x) => (x.ref.kind === 'whole' ? 0 : x.ref.kind === 'run' ? 2 : 1) * 10 + (x.ref.mode === 'same' ? 0 : 1) + place(x) * 2;
+        const rank = (x) => (x.ref.kind === 'whole' ? 0 : x.ref.kind === 'run' || x.ref.kind === 'number' ? 2 : 1) * 10 + (x.ref.mode === 'same' ? 0 : 1) + place(x) * 2;
         if (rank(p) < rank(best)) best = p;
       }
       // Part of a word at a fixed place, when no whole word, run or cell is as long: digits run together
