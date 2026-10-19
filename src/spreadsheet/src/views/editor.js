@@ -1599,7 +1599,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           const shown = s.dec ?? (s.fmt === 'currency' ? currencyDecimals(s.cur)
             : !s.fmt || s.fmt === 'general' ? generalDecimals(sid, r, c) : 2);
           const dec = Math.max(0, Math.min(MAX_DECIMAL_PLACES, shown + step));
-          return fmt === s.fmt && dec === s.dec ? null : { fmt, dec };
+          if (fmt === s.fmt && dec === s.dec) return null;
+          // An Automatic cell takes plain places (1234 → 1234.0, as Excel's 0.0), not the grouped Number format.
+          return fmt === s.fmt ? { fmt, dec } : { fmt, dec, group: false };
         };
         if (!nativeStyleRanges(decimalPatch)) eachRange('Decimals', (rg, skipRow, sid) => {
           const entries = [];
