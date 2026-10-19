@@ -41,6 +41,7 @@ import { shrinkCellText } from '../core/shrink-text.js';
 import { cellLayoutText, cellHorizontalPadding, CELL_TEXT_INSET } from '../core/textfit.js';
 import { el } from './dom.js';
 import { cellKey, parseKey, colName, normalizeRange } from '../core/cell.js';
+import { MAX_ROW, MAX_COL } from '../core/refs.js';
 import { formatValue, defaultAlign, fontStack, borderCss, getLocale } from '../core/format.js';
 import { readsRightToLeft } from '../core/bidi.js';
 import { isError } from '../core/formula/functions.js';
@@ -571,8 +572,17 @@ export function printRange(wb, sheetId, opts) {
   const sheet = wb.sheet(sheetId);
   if (!sheet) return null;
   let range = null;
-  if (opts.range) range = normalizeRange(opts.range);
-  else {
+  if (opts.range) {
+    range = normalizeRange(opts.range);
+    // A block reaching the sheet's last row or column (whole columns set as the print area, as $A:$C; a selected
+    // column) prints as far as the sheet's own print reaches, as Excel prints it: taken to the grid's end, it
+    // printed page after page of empty gridlines, as many as the rows the sheet had been scrolled through.
+    if (range.r2 >= MAX_ROW || range.c2 >= MAX_COL) {
+      const whole = printRange(wb, sheetId, { ...opts, range: null });
+      if (range.r2 >= MAX_ROW) range.r2 = Math.max(range.r1, whole?.r2 ?? range.r1);
+      if (range.c2 >= MAX_COL) range.c2 = Math.max(range.c1, whole?.c2 ?? range.c1);
+    }
+  } else {
     range = printBounds(wb, sheetId, sheet);
     for (const obj of sheet.charts || []) {
       if (!obj.anchor || obj.print === false || obj.hidden) continue;

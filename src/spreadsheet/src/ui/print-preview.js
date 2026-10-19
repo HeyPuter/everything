@@ -26,16 +26,17 @@ const HEAD_W = 36, HEAD_H = 18, TITLE_H = 28;
  * running on from the last column, so the preview counts the pages the print makes. Worked out once for each change
  * of the workbook: the dialog lays the preview out again on every key typed in it.
  */
-const wholeSheets = new WeakMap(); // workbook → sheet id → { version, range }
+const wholeSheets = new WeakMap(); // workbook → "sheet id:block" → { version, range }
 function printedArea(wb, sheetId, prefs, range, only) {
   const sheet = wb.sheet(sheetId);
-  if (only) return only;
-  if (prefs.area === 'selection' && range) return range;
-  if (prefs.area === 'printArea' && sheet.printSettings?.areas?.length) return sheet.printSettings.areas[0];
+  // A block given whole (a print area, the selection) is taken as the print takes it, a whole column as far down as the
+  // sheet's print reaches: the preview counted pages down to row 1,048,576, some twenty thousand of them.
+  const given = only || (prefs.area === 'selection' && range) || (prefs.area === 'printArea' && sheet.printSettings?.areas?.[0]) || null;
   let kept = wholeSheets.get(wb);
   if (!kept) wholeSheets.set(wb, kept = new Map());
-  if (kept.get(sheetId)?.version !== wb.version) kept.set(sheetId, { version: wb.version, range: printRange(wb, sheetId, {}) });
-  return kept.get(sheetId).range;
+  const key = `${sheetId}:${given ? `${given.r1},${given.c1},${given.r2},${given.c2}` : ''}`;
+  if (kept.get(key)?.version !== wb.version) kept.set(key, { version: wb.version, range: printRange(wb, sheetId, { range: given }) });
+  return kept.get(key).range;
 }
 
 /**
