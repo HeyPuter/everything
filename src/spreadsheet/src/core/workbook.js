@@ -8198,6 +8198,10 @@ export class Workbook extends EventTarget {
    */
   _filterKey(sheet, r, c, v) {
     const s = sheet.cells.get(cellKey(r, c))?.s;
+    // A date or time is the moment it names, however it is shown: Excel keeps a chosen date chosen when the
+    // column takes another date format, where a key carrying the format then matched no row and hid them all.
+    const moment = dateTimeKind(s, v);
+    if (moment) return `${moment}:${v}`;
     const format = s ? ['fmt', 'dec', 'cur', 'group', 'code', 'dateStyle', 'sec'].flatMap((k) => (s[k] != null ? [`${k}=${s[k]}`] : [])).join(',') : '';
     return format ? `${v}|${format}` : String(v);
   }

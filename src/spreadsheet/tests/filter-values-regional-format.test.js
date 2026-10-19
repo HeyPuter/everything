@@ -42,8 +42,8 @@ it('keeps the rows a value filter chose when the regional format changes how the
 it('keeps a date filter through a regional format change, and a text filter as it was', () => {
   const { wb, id, hidden } = book();
   wb.setFilterCriteria(id, 1, { values: ['Jan 15, 2024'] });
-  // A formatted number's key carries its format, so 2 and 2.00 stay the two entries the menu listed.
-  expect(wb.sheet(id).filter.criteria[1]).toEqual({ values: ['Jan 15, 2024'], keys: ['45306|fmt=date,dateStyle=medium'] });
+  // A date's key is the day it names, whatever format shows it (a formatted number's carries its format instead).
+  expect(wb.sheet(id).filter.criteria[1]).toEqual({ values: ['Jan 15, 2024'], keys: ['date:45306'] });
   expect(hidden()).toEqual([2]);
   regional(wb, id, 'de-DE');
   expect(wb.filterValues(id, 1).map((v) => v.value)).toEqual(['15.01.2024', '20.02.2024']);
