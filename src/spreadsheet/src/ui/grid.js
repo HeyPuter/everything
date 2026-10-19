@@ -5600,6 +5600,51 @@ export function createGrid(opts) {
     setZoom(userZoom + (wheelAcc < 0 ? 0.1 : -0.1));
     wheelAcc = 0;
   }, { passive: false });
+  // Two fingers pinched on a touch screen zoom the sheet, keeping the spot between them under them, as Excel's
+  // and Sheets' apps do. The browser would zoom the whole page instead, toolbar and tabs and all, leaving the
+  // sheet at its own zoom (grid.css keeps its pinch off the grid; one finger still scrolls natively).
+  let pinch = null; // { gap, zoom, want, at, frame, targets }: the fingers' spread and the zoom when the pinch began, and now
+  const touchGap = (t) => Math.max(1, Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY));
+  const touchMid = (t) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
+  function pinchMove(e) {
+    if (!pinch || e.touches.length !== 2) return;
+    if (e.cancelable) e.preventDefault();
+    pinch.want = pinch.zoom * touchGap(e.touches) / pinch.gap;
+    pinch.at = touchMid(e.touches);
+    // One zoom a frame, and only a change of a whole percent re-lays the sheet out.
+    pinch.frame ||= requestAnimationFrame(pinchZoom);
+  }
+  function pinchZoom() {
+    if (!pinch || destroyed) return;
+    pinch.frame = 0;
+    const next = Math.max(.1, Math.min(4, Math.round(pinch.want * 100) / 100));
+    // The sheet's saved view takes the zoom once, when the fingers lift (pinchEnd), not at every step.
+    if (next !== userZoom) { setZoom(next, true, pinch.at); pinch.moved = true; }
+  }
+  function pinchEnd(e) {
+    if (!pinch || e.touches.length >= 2) return;
+    // The fingers' last spread counts, though the frame that would have shown it has not come yet.
+    if (pinch.frame) { cancelAnimationFrame(pinch.frame); pinchZoom(); }
+    if (pinch.moved) setZoom(userZoom);
+    for (const t of pinch.targets) { t.removeEventListener('touchmove', pinchMove); t.removeEventListener('touchend', pinchEnd); t.removeEventListener('touchcancel', pinchEnd); }
+    pinch = null;
+  }
+  root.addEventListener('touchstart', (e) => {
+    if (destroyed || e.touches.length !== 2) return;
+    // The first finger's tap, long press or drag from the handle gives way to the pinch.
+    cancelDrag();
+    if (pinch) pinchEnd({ touches: [] });
+    pinch = { gap: touchGap(e.touches), zoom: userZoom, want: userZoom, at: touchMid(e.touches), frame: 0, targets: new Set() };
+    // A touch's events go to the node it began on, and the zoom draws the cells afresh: a cell taken out
+    // of the page no longer passes them up to the grid, so the pinch hears them where they land.
+    for (const t of e.touches) {
+      if (!(t.target instanceof EventTarget) || pinch.targets.has(t.target)) continue;
+      pinch.targets.add(t.target);
+      t.target.addEventListener('touchmove', pinchMove, { passive: false });
+      t.target.addEventListener('touchend', pinchEnd);
+      t.target.addEventListener('touchcancel', pinchEnd);
+    }
+  }, { passive: true });
   // A split window's left and top panes scroll on their own: the wheel over one scrolls it along its own
   // axis, and along the other with the pane it shares that axis with.
   viewport.addEventListener('wheel', (e) => {
@@ -5799,8 +5844,11 @@ export function createGrid(opts) {
     applyOutlineGutter(); // the headings' size follows the zoom
   }
 
-  /** Zoom the sheet over Excel's 10–400% range. Sizes stay stored unzoomed. */
-  function setZoom(z, initializing = false) {
+  /**
+   * Zoom the sheet over Excel's 10–400% range. Sizes stay stored unzoomed. The top-left cell stays in place
+   * while the scale changes, or, given `at` (a point on the screen over the scrolling cells), the spot under it.
+   */
+  function setZoom(z, initializing = false, at = null) {
     if (!Number.isFinite(z)) return;
     const chartSheet = sheet()?.kind === 'chart';
     // Custom percentages and imported views use the same precision. Stepping or pinching from
@@ -5808,17 +5856,23 @@ export function createGrid(opts) {
     const next = Math.max(.1, Math.min(4, Math.round(z * 100) / 100));
     if (!initializing) { wb.setSheetView(sheetId, { ...(chartSheet ? { zoomToFit: false } : {}), viewZoom: next }); schedule(); }
     if (next === userZoom) return;
-    // Keep the top-left cell in place while the scale changes.
     ensureOffsets();
     const s = sheet();
-    const topRow = rowOffsets.indexAt(viewport.scrollTop - shift.y + frozen.h);
-    const leftCol = colOffsets.indexAt(viewport.scrollLeft - shift.x + frozen.w);
+    // The point kept still, in the viewport, and the line and the part of it found there on each axis.
+    const vp = viewport.getBoundingClientRect();
+    const free = !!at && !frozen.split && !chartSheet;
+    const px = free && at.x - vp.left > frozen.w && at.x < vp.left + viewport.clientWidth ? at.x - vp.left : null;
+    const py = free && at.y - vp.top > frozen.h && at.y < vp.top + viewport.clientHeight ? at.y - vp.top : null;
+    const keep = (offsets, pos, exact) => { const i = offsets.indexAt(pos); return { i, part: exact ? (pos - offsets.at(i)) / Math.max(1, offsets.size(i)) : 0 }; };
+    const row = keep(rowOffsets, viewport.scrollTop - shift.y + (py ?? frozen.h), py != null);
+    const col = keep(colOffsets, viewport.scrollLeft - shift.x + (px ?? frozen.w), px != null);
+    const topRow = row.i, leftCol = col.i;
     zoom = next * (zoom / userZoom || 1);
     userZoom = next;
     applyZoomFont();
     rebuildOffsets();
     windowsFor(topRow, leftCol);
-    if (s) scrollViewportTo(Math.max(-shift.x, colOffsets.at(leftCol) - frozen.w), Math.max(-shift.y, rowOffsets.at(topRow) - frozen.h));
+    if (s) scrollViewportTo(Math.max(-shift.x, Math.round(colOffsets.at(leftCol) + col.part * colOffsets.size(leftCol)) - (px ?? frozen.w)), Math.max(-shift.y, Math.round(rowOffsets.at(topRow) + row.part * rowOffsets.size(topRow)) - (py ?? frozen.h)));
     rendered.key = null;
     schedule();
     opts.onZoom?.(userZoom);

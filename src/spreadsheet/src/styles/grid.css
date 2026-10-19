@@ -254,6 +254,8 @@
   outline: none;
   scrollbar-gutter: auto;
   -webkit-overflow-scrolling: touch;
+  /* A finger scrolls the sheet; two pinched zoom the sheet (grid.js), not the whole page. */
+  touch-action: pan-x pan-y;
   cursor: cell;
   /* Grid lines are drawn on the viewport background so blank cells cost
      nothing; cells then only paint their own content. */
