@@ -84,8 +84,15 @@ export function createDataModelEvaluation(wb, { maxValues = 4 * 1048576, source:
     if (acceptRow != null && typeof acceptRow !== 'function' || selectRows != null && (typeof selectRows !== 'function' || sourceKind !== 'stored')) throw new DaxError('Invalid Data Model evaluation options');
     const active = new Set();
     const evaluate = (tableName, name) => {
-      const table = tableFor(tableName);
-      const definition = one(measures.filter(m => (key(m.table) === key(table.id) || key(m.table) === key(table.name)) && key(m.name) === key(name)), `model measure ${name}`);
+      let table = tableFor(tableName);
+      const home = m => key(m.table) === key(table.id) || key(m.table) === key(table.name);
+      // Measure names are the model's, not a table's: [Total] from a measure on Products finds Orders[Total].
+      let found = measures.filter(m => home(m) && key(m.name) === key(name));
+      if (!found.length) {
+        found = measures.filter(m => key(m.name) === key(name));
+        if (found.length === 1) table = tableFor(found[0].table);
+      }
+      const definition = one(found, `model measure ${name}`);
       const identity = `${key(table.id)}\0${key(name)}`;
       if (active.has(identity) || active.size >= 64) throw new DaxError('Circular or excessively nested Data Model measure');
       active.add(identity);
