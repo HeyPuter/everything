@@ -71,8 +71,11 @@ export function printPreviewLayout(wb, sheetId, prefs, range = null, only = null
       if (!repeat.length || bodyStart >= lines.length) return plain(printBands(sizes, capacity, 0, forced(breaks, from, to))?.bands || [{ start: 0, end: sizes.length }]);
       const offsets = [0];
       for (const line of lines) offsets.push(offsets.at(-1) + size(line));
-      // A band's pieces are runs of lines, by offset: each run's lines are those that start inside it.
-      const linesIn = ({ offset, size: extent }) => lines.filter((_, i) => offsets[i] >= offset && offsets[i] < offset + extent);
+      // A band's pieces are runs of lines, by offset: each run's lines are those that start inside it. The offsets
+      // only grow, so each run is found by halving rather than by reading every line for every page (a sheet of
+      // 50,000 rows took over a second a keystroke).
+      const firstAt = (at) => { let lo = 0, hi = lines.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (offsets[mid] < at) lo = mid + 1; else hi = mid; } return lo; };
+      const linesIn = ({ offset, size: extent }) => lines.slice(firstAt(offset), firstAt(offset + extent));
       const breakAt = new Set([...forced(breaks, from, to)].map((b) => lines.findIndex((n) => n >= from + b)).filter((i) => i > bodyStart));
       const list = printTitleBands(lines.map(size), capacity, { bodyStart, repeat: [repeat[0], repeat.at(-1) + 1] }, breakAt) || [];
       const out = list.map(({ segments }) => {
