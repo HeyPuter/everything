@@ -236,9 +236,14 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
       addStep({ keys: [...keys, { column, desc }] }, { replacePrevious: true });
     } else addStep({ type: 'sortRows', keys: [{ column, desc }] });
   }
-  function filterBy(column, conditions, join = 'and') {
+  /**
+   * `replace`: the conditions were read from the column's filter step just before (the dialog it filled in, the
+   * list it ticked) and take its place; other conditions are a filter of their own on what that step left, so the
+   * rows it took out stay out.
+   */
+  function filterBy(column, conditions, join = 'and', { replace = false } = {}) {
     const prev = previous();
-    if (prev?.type === 'filterRows' && prev.column === column) addStep({ conditions, join }, { replacePrevious: true });
+    if (replace && prev?.type === 'filterRows' && prev.column === column) addStep({ conditions, join }, { replacePrevious: true });
     else addStep({ type: 'filterRows', column, join, conditions });
   }
   const removeColumns = () => needCols() && addStep({ type: 'removeColumns', columns: selected.slice() });
@@ -439,7 +444,7 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
     submit: () => {
       const conds = [first, second].filter((r) => r.o.value).map((r) => ({ op: r.o.value, value: ['isNull', 'notNull'].includes(r.o.value) ? null : parseTyped(r.v.value, type) }));
       if (!conds.length) return { field: first.o, message: 'Choose a condition' };
-      filterBy(column, conds, joinGroup.querySelector('input:checked').value);
+      filterBy(column, conds, joinGroup.querySelector('input:checked').value, { replace: !!existing });
       return null;
     } });
   }
@@ -622,8 +627,8 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
           // 1,000 values names the ones cleared rather than the ones kept, so the values it did not show stay, as in
           // Power Query.
           const cleared = boxes.filter((b) => !b.checked).map((b) => b._value), gone = new Set(cleared.map(keyOf));
-          if (list?.op === 'in') filterBy(column, [{ op: 'in', values: list.values.filter((v) => !gone.has(keyOf(v))) }]);
-          else if (truncated || list?.op === 'notIn') filterBy(column, [{ op: 'notIn', values: [...(list?.values || []), ...cleared] }]);
+          if (list?.op === 'in') filterBy(column, [{ op: 'in', values: list.values.filter((v) => !gone.has(keyOf(v))) }], 'and', { replace: true });
+          else if (truncated || list?.op === 'notIn') filterBy(column, [{ op: 'notIn', values: [...(list?.values || []), ...cleared] }], 'and', { replace: !!list });
           else filterBy(column, [{ op: 'in', values: keep }]);
         } }, 'OK'),
         el('button.btn', { type: 'button', onclick: () => closePopup() }, 'Cancel')));
