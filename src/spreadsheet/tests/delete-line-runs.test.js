@@ -72,6 +72,22 @@ describe('deleting several runs of lines at once', () => {
     expect(wb.canUndo()).toBe(false);
   });
 
+  it('renumbers a defined name between two runs as the cells around it are renumbered', () => {
+    // Names were renumbered as if the runs were one band from the first: a name on the row between two
+    // deleted rows moved up by both and pointed one row too high (Remove All subtotals did this).
+    const { wb, id } = rich();
+    wb.defineName('Mid', 'Sheet1!$B$8');
+    wb.defineName('Span', 'Sheet1!$B$3:$B$8');
+    wb.setInput(id, 0, 9, '=Mid');
+    const oneByOne = new Workbook(wb.toJSON());
+    oneByOne.transaction('Delete rows', () => { for (const { from, to } of [...runs].reverse()) oneByOne.deleteRows(oneByOne.sheets[0].id, from, to - from + 1); });
+    expect(wb.deleteLines(id, 'row', runs)).toBe(true);
+    expect(wb.names.find((n) => n.name === 'Mid').ref).toBe('Sheet1!$B$5');
+    expect(wb.names.find((n) => n.name === 'Span').ref).toBe('Sheet1!$B$2:$B$5');
+    expect(wb.names).toEqual(oneByOne.names);
+    expect(wb.getValue(id, 0, 9)).toBe(70);
+  });
+
   it('does the same for columns', () => {
     const { wb, id } = rich();
     const oneByOne = new Workbook(wb.toJSON());

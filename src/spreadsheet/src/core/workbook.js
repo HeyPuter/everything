@@ -7184,7 +7184,7 @@ export class Workbook extends EventTarget {
       s.tables = s.tables.map((t) => ({ ...t, calc: Object.fromEntries(Object.entries(t.calc || {}).map(([c, f]) => [c, adjust(f)])) }));
     }
     // A name without a sheet reads its unqualified references relative to whichever sheet calls it, so no single edit can move them.
-    this.names = this.names.map((n) => ({ ...n, ref: adjustFormula(n.ref, { ownerSheet: n.sheet || null, sheetName, axis, at, count, remove, relativeName: n.relative === true, sheetsBetween: (a, b) => this._editedSpan(a, b) }) }));
+    this.names = this.names.map((n) => ({ ...n, ref: adjustFormula(n.ref, { ownerSheet: n.sheet || null, sheetName, axis, at, count, remove, lines, relativeName: n.relative === true, sheetsBetween: (a, b) => this._editedSpan(a, b) }) }));
   }
 
   setColWidth(sheetId, c, width) {
