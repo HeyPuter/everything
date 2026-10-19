@@ -86,7 +86,7 @@ import { parseDelimited } from './tsv.js';
 import { splitPieces, detectDelimiter, DEFAULT_SPLIT } from './text-split.js';
 import { adjustFormula, adjustRefForInsert, adjustRefForDelete, adjustRefForDeletedLines, deleteMap, renameSheetInFormula, shiftFormula, resolveRelativeName, mapRelativeNameRef, isAbsoluteRef, mapFormulaRefs, parseRefText, refToText, MAX_ROW, MAX_COL, quoteSheet, sheetKey, sameSheetName } from './refs.js';
 import { headerlessTableColumns, normalizeTableHeaderState, headerlessInsertColumns, headerlessDeleteColumns, headerlessJoinColumns, headerlessResizeNames } from './table-header-row.js';
-import { tableStyle, tableRows, normalizeCustomTableStyle, customTableStyleAt, validateTableName, MAX_TABLE_NAME_LENGTH, parseTableSpec, resolveTableSpec, renderTableSpec, renameTableInFormula, tableColumnRenames, renameColumnsInFormula, tableRefsToA1, hasTableRefs, mapTableRefs } from './tables.js';
+import { tableStyle, tableRows, normalizeCustomTableStyle, customTableStyleAt, validateTableName, MAX_TABLE_NAME_LENGTH, parseTableSpec, resolveTableSpec, renderTableSpec, renameTableInFormula, tableColumnRenames, renameColumnsInFormula, tableRefsToA1, hasTableRefs, mapTableRefs, shiftTableColumns } from './tables.js';
 import { tokenize, upperName, isWorkbookNameScope, isExternalFormulaToken } from './formula/tokenizer.js';
 import { adjustLineRules, adjustBlockRules } from './rule-refs.js';
 import { adjustFilterForEdit, filterFormulaReader, filterFormulaRules, compileFilterFormula, mapFilterFormula } from './filter-formulas.js';
@@ -4734,6 +4734,11 @@ export class Workbook extends EventTarget {
           const dr = r - (src.r1 + (vertical ? idx : k));
           const dc = c - (src.c1 + (vertical ? k : idx));
           cell.f = shiftFormula(base.f, dr, dc);
+          // Filled across, a one-column structured reference moves along its table's columns, as Excel moves it.
+          if (dc && cell.f.includes('[')) {
+            const owner = this.tableAt(sheetId, src.r1 + (vertical ? idx : k), src.c1 + (vertical ? k : idx))?.name ?? null;
+            cell.f = shiftTableColumns(cell.f, dc, (name) => { const hit = this.tableByName(name); return hit ? this.tableColumns(hit.sheet.id, hit.table) : null; }, owner);
+          }
         } else if (series && !invert && base && typeof base.v === 'string') {
           // Text ending in a number counts on: one cell steps by 1, a run with a constant step keeps it ("Item 1, Item 3" → "Item 5").
           const run = textNumberRun(list);

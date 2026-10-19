@@ -371,6 +371,28 @@ export function renameColumnsInFormula(formula, tableName, names, ownerTable = n
   });
 }
 
+/**
+ * A formula filled across (`dc` columns, the fill handle or Ctrl+R) moves its one-column structured references
+ * along their table's columns, as Excel moves them, the way a relative reference moves: Table1[Qty] filled right
+ * reads Table1[Price], and [@Qty]*2 reads [@Price]*2. A span written as such ([[Qty]:[Qty]]) stays put, as in
+ * Excel, and so do a reference to no column and one that would move past the table's last column. `columnsOf(name)`
+ * gives a table's column names (null for no such table); `ownerTable` names the table a bare [@Qty] belongs to.
+ */
+export function shiftTableColumns(formula, dc, columnsOf, ownerTable = null) {
+  if (!dc || !formula || !formula.includes('[')) return formula;
+  return mapTableRefs(formula, (table, spec) => {
+    const target = table || ownerTable;
+    const parsed = target && !/\]\s*:\s*\[/.test(spec) ? parseTableSpec(spec) : null;
+    if (!parsed?.cols || parsed.cols[0] !== parsed.cols[1]) return null;
+    const columns = columnsOf(target);
+    const i = columns ? columnIndex(columns, parsed.cols[0]) : -1;
+    if (i < 0) return null;
+    const next = columns[i + dc];
+    if (next == null) return null;
+    return `${table || ''}[${renderTableSpec({ rows: parsed.rows, cols: [next, next] })}]`;
+  });
+}
+
 /** Structured references → absolute A1 text ($A2 rows when the resolver marks a ref `relativeRows`); an optional include predicate leaves other tokens intact. */
 export function tableRefsToA1(formula, resolve, include = null, tableNames = []) {
   const names = new Set(tableNames.map((name) => name.toUpperCase()));
