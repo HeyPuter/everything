@@ -271,6 +271,37 @@ function numbers(args) {
 // Worksheet sums retain intermediate overflow, including before AVERAGE's
 // division. Keep the exact-recovery helpers for non-worksheet calculations.
 const worksheetSum = (values) => values.reduce((total, value) => total + value, 0);
+
+/**
+ * Running totals down a column, =SUM($A$1:A1) filled down 20,000 rows, add up 200 million numbers: each range
+ * repeats the rows of the one above it. The workbook notes an array built from the first rows of another (see
+ * noteRangeRows), and SUM of a reference keeps, for its rows in turn, the total so far (and the first error),
+ * shared by every array repeating those rows: each answer is one lookup, and the same sum, added in the same
+ * order, as adding its numbers afresh.
+ */
+const RANGE_PARENTS = new WeakMap(); // values array → the array whose leading rows it repeats
+const RANGE_TOTALS = new WeakMap(); // values array → { sums, errorRow, error }: sums[k] is the total of rows 0..k-1
+export function noteRangeRows(values, parent) { RANGE_PARENTS.set(values, parent); }
+function rangeTotal(values) {
+  let run = RANGE_TOTALS.get(values);
+  if (!run) {
+    const parent = RANGE_PARENTS.get(values);
+    run = (parent && RANGE_TOTALS.get(parent)) || { sums: [0], errorRow: Infinity, error: null };
+    RANGE_TOTALS.set(values, run);
+  }
+  const { sums } = run;
+  for (let r = sums.length - 1; r < values.length && run.errorRow >= values.length; r++) {
+    const row = values[r];
+    let total = sums[r];
+    for (let c = 0; c < row.length; c++) {
+      const v = row[c];
+      if (typeof v === 'number') total += v;
+      else if (isError(v) && run.errorRow === Infinity) { run.errorRow = r; run.error = v; }
+    }
+    sums.push(total);
+  }
+  return run.errorRow < values.length ? run.error : sums[values.length];
+}
 const worksheetMean = (values) => worksheetSum(values) / values.length;
 
 const num = (f) => (args) => {
@@ -1575,7 +1606,7 @@ export const FUNCTIONS = {
   GTE: { localeContext: false, fn: relation((c) => c >= 0) },
   LT: { localeContext: false, fn: relation((c) => c < 0) },
   LTE: { localeContext: false, fn: relation((c) => c <= 0) },
-  SUM: { refArgs: true, fn: num(worksheetSum) },
+  SUM: { refArgs: true, fn: (args) => (args.length === 1 && isRange(args[0]) && args[0].ref && !args[0].areas ? rangeTotal(args[0].values) : num(worksheetSum)(args)) },
   AVERAGE: { refArgs: true, fn: num((l) => (l.length ? worksheetMean(l) : err('#DIV/0!'))) },
   MIN: { refArgs: true, fn: num((l) => (l.length ? minimum(l) : 0)) },
   MAX: { refArgs: true, fn: num((l) => (l.length ? maximum(l) : 0)) },

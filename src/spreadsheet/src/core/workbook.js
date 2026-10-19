@@ -81,7 +81,7 @@ import { normalizeBackground } from './sheet-background.js';
 import { normalizeCustomViews, captureCustomView, MAX_CUSTOM_VIEWS, CUSTOM_VIEW_NAME_MAX } from './custom-views.js';
 import { parseFormula } from './formula/parser.js';
 import { ARRAY_BUDGET, evaluate, evaluateFormula, isVolatile, paramSpec, resetArrayBudget, withArrayBudget } from './formula/evaluator.js';
-import { FUNCTIONS, err, isError, isRange, scalar, compareStoredValues, toText } from './formula/functions.js';
+import { FUNCTIONS, err, isError, isRange, scalar, compareStoredValues, toText, noteRangeRows } from './formula/functions.js';
 import { parseDelimited } from './tsv.js';
 import { splitPieces, detectDelimiter, DEFAULT_SPLIT } from './text-split.js';
 import { adjustFormula, adjustRefForInsert, adjustRefForInsertedLines, insertMap, adjustRefForDelete, adjustRefForDeletedLines, deleteMap, renameSheetInFormula, shiftFormula, resolveRelativeName, mapRelativeNameRef, isAbsoluteRef, mapFormulaRefs, parseRefText, refToText, MAX_ROW, MAX_COL, quoteSheet, sheetKey, sameSheetName } from './refs.js';
@@ -12952,10 +12952,19 @@ export class Workbook extends EventTarget {
         const prefix = shorter !== undefined && shorter < ref.r2
           ? this._rangeCache.get(`${target.id}|${ref.r1},${ref.c1},${shorter},${ref.c2}`) : undefined;
         const kept = prefix && prefix.length < rows && prefix.length && prefix[0].length === cols ? prefix : null;
-        // Worth it only while appending the missing rows costs no more than reading the range afresh.
-        if (kept && (rows - kept.length) * cols <= Math.min(rows * cols, target.cells.size + spills.cover.size)) {
+        // Read from the bottom up, each range is the first rows of the longer one read before it.
+        const longer = !kept && shorter !== undefined && shorter > ref.r2
+          ? this._rangeCache.get(`${target.id}|${ref.r1},${ref.c1},${shorter},${ref.c2}`) : undefined;
+        const repeats = !!longer && longer.length >= rows && longer[0]?.length === cols;
+        if (repeats) {
+          // Not kept itself: the next one up is read from the longer one too, which kept too many shorter copies would evict.
+          out = longer.slice(0, rows);
+          noteRangeRows(out, longer);
+        } else if (kept && (rows - kept.length) * cols <= Math.min(rows * cols, target.cells.size + spills.cover.size)) {
+          // Worth it only while appending the missing rows costs no more than reading the range afresh.
           const blank = Object.freeze(new Array(cols).fill(null));
           out = kept.slice(); // the rows already read are shared, never written to
+          noteRangeRows(out, kept);
           for (let rr = ref.r1 + kept.length; rr < ref.r1 + rows; rr++) {
             let row = blank;
             for (let cc = ref.c1; cc < ref.c1 + cols; cc++) {
@@ -13003,7 +13012,7 @@ export class Workbook extends EventTarget {
           if (rr >= ref.r1 && rr <= Math.max(r2, ref.r1) && cc >= ref.c1 && cc <= Math.max(c2, ref.c1)) { provisional = true; break; }
         }
         // Nor is one read while a circle is unsettled, since it may hold an answer that is withdrawn.
-        if (!provisional && !this._hasDeferredSpills && !this._unsettled.length) {
+        if (!repeats && !provisional && !this._hasDeferredSpills && !this._unsettled.length) {
           this._keepRange(cacheKey, out);
           // The longest of a family is the one a longer range carries on from; only its number is
           // held, so an array the budget has evicted simply leaves the next range to read afresh.
