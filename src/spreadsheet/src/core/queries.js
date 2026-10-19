@@ -696,6 +696,27 @@ function aggregate(op, values, type) {
   return null;
 }
 
+/**
+ * Text cut at each delimiter as Splitter.SplitTextByDelimiter(d, QuoteStyle.Csv) cuts it: a part that opens with a
+ * double quote runs to its closing quote, delimiters inside it included, a doubled quote standing for one.
+ */
+function csvSplit(text, d) {
+  const out = [];
+  let field = '', quoted = false, fresh = true;
+  for (let i = 0; i < text.length;) {
+    if (quoted) {
+      if (text[i] !== '"') { field += text[i++]; continue; }
+      if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
+      quoted = false; i++; continue;
+    }
+    if (fresh && text[i] === '"') { quoted = true; fresh = false; i++; continue; }
+    if (text.startsWith(d, i)) { out.push(field); field = ''; fresh = true; i += d.length; continue; }
+    field += text[i++]; fresh = false;
+  }
+  out.push(field);
+  return out;
+}
+
 const TEXT_OPS = {
   lower: (s) => s.toLowerCase(), upper: (s) => s.toUpperCase(), trim: (s) => s.trim(),
   clean: (s) => s.replace(/[\u0000-\u001f\u007f]/g, ''),
@@ -790,7 +811,7 @@ export function applyStep(table, step, refs = {}) {
         if (!d) return [s];
         if (step.mode === 'left') { const k = s.indexOf(d); return k < 0 ? [s] : [s.slice(0, k), s.slice(k + d.length)]; }
         if (step.mode === 'right') { const k = s.lastIndexOf(d); return k < 0 ? [s] : [s.slice(0, k), s.slice(k + d.length)]; }
-        return s.split(d);
+        return csvSplit(s, d);
       });
       const n = step.count || maxOf(parts.map((p) => p.length), 1);
       const names = Array.from({ length: n }, (_, k) => `${step.column}.${k + 1}`);
@@ -799,8 +820,8 @@ export function applyStep(table, step, refs = {}) {
         types: [...types.slice(0, i), ...names.map(() => 'text'), ...types.slice(i + 1)],
         rows: rows.map((r, k) => {
           const p = parts[k];
+          // Parts past the columns asked for are dropped, as Table.SplitColumn drops them.
           const cells = Array.from({ length: n }, (_, j) => (j < p.length ? p[j] : null));
-          if (n < p.length) cells[n - 1] = p.slice(n - 1).join(d);
           return [...r.slice(0, i), ...cells, ...r.slice(i + 1)];
         }),
       };
