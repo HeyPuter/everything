@@ -692,6 +692,9 @@ function lineStyle(raw) {
   return Object.keys(s).length ? (cloneCell({ v: null, f: null, s }).s ?? null) : null;
 }
 
+/** Objects whose range is just the cell they sit on (see normalizeChart), not data they plot. */
+const PLACED_DRAWING_TYPES = new Set(['image', 'text', 'smartart']);
+
 /** Keep fixed drawings in sheet coordinates, including after a drag supplied a cell anchor. */
 function absoluteDrawingAnchor(sheet, chart) {
   if (chart && sheet.kind === 'chart') { chart = { ...chart, anchorMode: 'absolute' }; delete chart.cellAnchor; }
@@ -4297,10 +4300,12 @@ export class Workbook extends EventTarget {
         if (kept.length + moved.length !== sheet.merges.length || moved.length) this._setMerges(sheet, [...kept, ...moved], 'Move cells');
       }
       // Validation goes with the cells it covers, replacing the destination's as a paste does; chart
-      // sources that lie wholly inside the block travel with it.
+      // sources that lie wholly inside the block travel with it. A picture's, text box's or SmartArt's range is
+      // only the cell it sits on, and the object stays where it is, so its range stays too.
       const validations = moveValidations(sheet.validations, null, src, dst, newId).target;
       if (validations !== sheet.validations) this._setValidations(sheet, validations, 'Move cells');
-      if (sheet.charts.some((ch) => inside(ch.range))) this._setCharts(sheet, sheet.charts.map((ch) => (inside(ch.range) ? { ...ch, range: shifted(ch.range) } : ch)), 'Move cells');
+      const follows = (ch) => !PLACED_DRAWING_TYPES.has(ch.type) && inside(ch.range);
+      if (sheet.charts.some(follows)) this._setCharts(sheet, sheet.charts.map((ch) => (follows(ch) ? { ...ch, range: shifted(ch.range) } : ch)), 'Move cells');
       this._moveScenarioCells(sheet, inside, shifted);
       this._rewriteRuleFormulas((formula, owner) => follow(formula, owner.name), 'Move cells', { conditional: false });
       this._moveNativeSparklines(sheet, sheet, src, dst);
