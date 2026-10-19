@@ -90,3 +90,13 @@ it('leaving a shared workbook its owner stopped sharing says the changes made si
   document.querySelector('.modal-panel[aria-label="Could not save"] .btn-ghost').click();
   expect(await leaving).toBe(false);
 });
+
+it('leaves a shared workbook untouched since it was opened without asking, though the connection dropped', async () => {
+  const { env, mine } = await sharedEditor();
+  env.offline = true;
+  await mine.checkIn().catch(() => {});
+  await until(() => mine.status.state === 'offline', 4000, 'offline');
+  const asked = until(() => document.querySelector('.modal-panel'), 4000, 'a question').then(() => document.querySelector('.modal-panel').textContent, () => 'quiet');
+  expect(await Promise.race([view.flush(), asked])).toBe(true);
+  expect(document.querySelector('.modal-panel')).toBe(null);
+});
