@@ -16,7 +16,13 @@ import { fillColorCss } from './fill-color.js';
 import { normalizePrintSettings } from './print-settings.js';
 import { MAX_ROW, MAX_COL } from './refs.js';
 
-const PAPER = { 1: [612, 792], 3: [792, 1224], 5: [612, 1008], 8: [842, 1191], 9: [595, 842], 10: [595, 842] };
+// The papers by SpreadsheetML paperSize code, in points, as the Page Layout view and the print size them
+// (ui/page-layout.js): Letter (and Letter Small, Note), Tabloid and Ledger, Legal, Statement, Executive, A3,
+// A4 (and A4 Small), A5, B4, B5 and Folio.
+const MM = 72 / 25.4;
+const PAPER = { 1: [612, 792], 2: [612, 792], 3: [792, 1224], 4: [1224, 792], 5: [612, 1008], 6: [396, 612], 7: [522, 756],
+  8: [297 * MM, 420 * MM], 9: [210 * MM, 297 * MM], 10: [210 * MM, 297 * MM], 11: [148 * MM, 210 * MM], 12: [250 * MM, 354 * MM],
+  13: [182 * MM, 257 * MM], 14: [612, 936], 18: [612, 792] };
 const MARGIN = 36; // points
 const FOOTER = 18;
 const PX = 0.75; // a CSS pixel in points
