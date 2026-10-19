@@ -65,7 +65,7 @@
 .themed-cell-styles { display: grid; grid-template-columns: repeat(6, auto); gap: 2px; padding: 4px 6px 6px; }
 @media (max-width: 680px) { .themed-cell-styles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .themed-cell-styles .themed-cell-style { padding: 2px; }
-.themed-cell-styles .cell-style-sample { min-width: 0; font-size: 11px; padding: 3px 6px; white-space: nowrap; }
+.themed-cell-styles .cell-style-sample { min-width: 0; width: 100%; box-sizing: border-box; font-size: 11px; padding: 3px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Create New Theme Colors. */
 .theme-colors-body { display: flex; gap: 20px; flex-wrap: wrap; }
