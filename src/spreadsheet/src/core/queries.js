@@ -1165,6 +1165,9 @@ export function loadResult(wb, query, table, { at = null } = {}) {
         if (kept) e.cell.s = e.cell.s && !kept.fmt ? { ...kept, ...e.cell.s } : kept;
       }
       wb.setCells(sheet.id, entries, label);
+      // A filter on the table judges the fresh rows, as Excel's refresh applies it again (Preserve column
+      // sort/filter/layout): the rows it hid were picked by position, and now hold other records.
+      wb._refilterRearranged(sheet, { r1, r2: Math.max(old.r2, next.r2) }, label);
       query.load = { kind: 'table', table: t.name, sheet: sheet.name, tableId: t.id, columns: [...table.columns] };
       result = { sheetId: sheet.id, tableId: t.id, rows: height, errors };
       return;
