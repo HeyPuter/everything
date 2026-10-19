@@ -193,6 +193,9 @@
 .md .md-table-wrap:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .md .md-table { border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .md .md-table th, .md .md-table td { border: 1px solid var(--hairline-strong); padding: 4px 8px; text-align: left; vertical-align: top; }
+/* A cell breaks between words only, never inside a number or a name: the reply's own breaking anywhere let a wide
+   table squeeze into the panel one or two characters a line, where it is meant to scroll. */
+.md .md-table th, .md .md-table td { overflow-wrap: normal; }
 .md .md-table th { background: var(--surface-2); font-weight: 600; }
 .md .md-link { color: var(--accent-strong); text-decoration: underline; text-underline-offset: 2px; }
 .md .md-image { color: var(--ink-3); font-style: italic; }
