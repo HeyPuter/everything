@@ -880,6 +880,22 @@ function cellText(td, styles) {
  * nothing else: mail clients and web pages frame content in such tables,
  * and the framed table is the one meant.
  */
+/**
+ * Google Sheets copies a single cell as a span carrying the cell's value and format (data-sheets-value), not as a
+ * table: that span as a one-cell table, or null when the markup is anything else.
+ */
+function sheetsCellTable(doc) {
+  const span = doc.querySelector('[data-sheets-root]');
+  if (!span || span.tagName === 'TABLE' || !span.hasAttribute('data-sheets-value') || span.querySelector('table')) return null;
+  const table = doc.createElement('table'), td = doc.createElement('td');
+  for (const { name, value } of span.attributes) td.setAttribute(name, value);
+  td.append(...span.childNodes);
+  table.append(doc.createElement('tr'));
+  table.firstChild.append(td);
+  span.replaceWith(table);
+  return table;
+}
+
 function wrappedTable(table) {
   const rows = htmlTableRows(table);
   if (rows.length !== 1) return null;
@@ -1048,7 +1064,7 @@ export function parseHtmlClipboard(html, plainText) {
   };
   let doc;
   try { doc = parseDocument(html); } catch { return null; }
-  let table = doc.querySelector('table');
+  let table = doc.querySelector('table') || sheetsCellTable(doc);
   if (!table) return null;
   for (let inner = wrappedTable(table); inner; inner = wrappedTable(inner)) table = inner;
   // Unsigned older copies and metadata left behind by another application
@@ -1064,7 +1080,7 @@ export function parseHtmlClipboard(html, plainText) {
   // The source tokenizer checks the complete numeric value before changing it.
   if (!snapshot && /[\0\r]|&#(?:0|1[2-5]|x[089])/i.test(html)) {
     doc = parseDocument(html, true, doc);
-    table = doc.querySelector('table');
+    table = doc.querySelector('table') || sheetsCellTable(doc);
     if (!table) return null;
     for (let inner = wrappedTable(table); inner; inner = wrappedTable(inner)) table = inner;
   }
