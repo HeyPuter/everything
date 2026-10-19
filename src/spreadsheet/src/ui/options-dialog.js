@@ -627,6 +627,8 @@ export function openOptionsDialog(ctx, { section = 'general' } = {}) {
     resetCurrent = null;
     current = s.id;
     for (const [key, tab] of tabs) { tab.setAttribute('aria-selected', String(key === s.id)); tab.tabIndex = key === s.id ? 0 : -1; }
+    // On a phone the sections are a row that scrolls sideways: the open one is brought into it, not left out of sight.
+    tabs.get(s.id).scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     page.setAttribute('aria-labelledby', tabs.get(s.id).id);
     heading.textContent = s.title;
     about.textContent = s.about;

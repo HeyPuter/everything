@@ -94,6 +94,21 @@ describe('the Options dialog', () => {
     expect(wb.dirty).toBeFalsy();
   });
 
+  // On a phone the sections are a row that scrolls sideways: opened on (or moved to) one past the first few, such as
+  // Keyboard Shortcuts from Customize Keyboard, the row stayed at its start and no section showed as the one open.
+  it('brings the open section\'s tab into view', async () => {
+    await mount();
+    const seen = [];
+    const spy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function () { seen.push(this); });
+    view.run('options', 'keyboard');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(seen).toContain(section('Keyboard Shortcuts'));
+    seen.length = 0;
+    section('Save').click();
+    expect(seen).toContain(section('Save'));
+    spy.mockRestore();
+  });
+
   it('greys an option that depends on another until that one is on', async () => {
     await mount();
     view.run('options', 'edit');
