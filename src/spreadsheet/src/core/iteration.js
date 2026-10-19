@@ -17,6 +17,40 @@ const equal = (a, b, delta) => typeof a === 'number' && typeof b === 'number'
   : a === b || (a?.error != null && a.error === b?.error);
 
 /**
+ * Iteration notes each range a formula reads as a whole, as `reader` reads it, instead of each of its cells: a
+ * running total down twenty thousand rows reads two hundred million cells but only twenty thousand ranges, and
+ * its ranges can then be shared between the formulas as they are when nothing iterates.
+ */
+export function noteRangeRead(state, sheetId, key, ref, reader) {
+  let range = state.ranges.get(key);
+  if (!range) state.ranges.set(key, range = { sheetId, r1: ref.r1, c1: ref.c1, r2: ref.r2, c2: ref.c2, readers: new Set() });
+  if (!range.readers.has(reader)) { range.readers.add(reader); state.edges++; }
+}
+
+/** The cells `members` and everything reading them, directly or through a range, settle on. */
+function dependentsOf(state, members) {
+  const keys = new Set(members);
+  const queue = [...members];
+  // A range whose readers are in already need not be looked at again.
+  let ranges = [...state.ranges.values()];
+  while (queue.length) {
+    const key = queue.pop();
+    for (const dependent of state.dependents.get(key) || []) if (!keys.has(dependent)) { keys.add(dependent); queue.push(dependent); }
+    if (!ranges.length) continue;
+    const bar = key.indexOf('|'), comma = key.indexOf(',', bar);
+    const sheetId = key.slice(0, bar), r = Number(key.slice(bar + 1, comma)), c = Number(key.slice(comma + 1));
+    let kept = 0;
+    for (const range of ranges) {
+      if (range.sheetId === sheetId && r >= range.r1 && r <= range.r2 && c >= range.c1 && c <= range.c2) {
+        for (const reader of range.readers) if (!keys.has(reader)) { keys.add(reader); queue.push(reader); }
+      } else ranges[kept++] = range;
+    }
+    ranges.length = kept;
+  }
+  return keys;
+}
+
+/**
  * Circular references are discovered first, then iterated sheet by sheet.
  * Read order in the grid must not choose the initial guesses or iteration order.
  * https://learn.microsoft.com/en-us/office/vba/excel/concepts/excel-performance/excel-tips-for-optimizing-performance-obstructions
@@ -33,7 +67,9 @@ export function calculateIteratively(wb) {
     cells.sort((a, b) => a.r - b.r || a.c - b.c);
     for (const cell of cells) entries.push(cell);
   }
-  const state = { members: new Set(), dependents: new Map(), discovery: true, entries: new Map(entries.map(e => [e.key, e])) };
+  // dependents: cell → the formulas that read it on its own; ranges: each range read → its bounds and readers.
+  // edges counts both, so that the cells a pass must invalidate are worked out again only when they grew.
+  const state = { members: new Set(), dependents: new Map(), ranges: new Map(), edges: 0, discovery: true, entries: new Map(entries.map(e => [e.key, e])) };
   wb._iteration = state;
   const clearRanges = () => {
     wb._rangeCache.clear();
@@ -52,10 +88,13 @@ export function calculateIteratively(wb) {
     // Ordinary formulas independent of a cycle keep their discovery result.
     // Volatile expressions and dynamic spills require a workbook-wide pass.
     const all = wb.hasVolatileFormulas() || [...wb._spills.values()].some(s => s.anchors.size);
+    let known = null, knownEdges = -1, knownMembers = -1;
     const affected = () => {
-      const keys = all ? new Set(entries.map(e => e.key)) : new Set(state.members);
-      for (const key of keys) for (const dependent of state.dependents.get(key) || []) keys.add(dependent);
-      return keys;
+      if (all) return new Set(entries.map(e => e.key));
+      if (known && knownEdges === state.edges && knownMembers === state.members.size) return known;
+      knownEdges = state.edges;
+      knownMembers = state.members.size;
+      return (known = dependentsOf(state, state.members));
     };
     for (let pass = 0; pass < wb.iteration.iterateCount; pass++) {
       const previous = new Map([...state.members].map(key => [key, wb._cache.get(key)]));

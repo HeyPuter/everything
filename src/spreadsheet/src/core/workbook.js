@@ -60,7 +60,7 @@ import { fontName, parseInput, refineImpliedFormat, formatValue, serialToYMD, ym
 import { xlsxLayoutDigitWidth } from './xlsx-styles.js';
 import { MAX_FORMAT_CODE_LENGTH, codeIsFraction, codeScalesPercent } from './numfmt.js';
 import { normalizeCalculationCompatibility } from './calculation-compatibility.js';
-import { normalizeIteration, calculateIteratively } from './iteration.js';
+import { normalizeIteration, calculateIteratively, noteRangeRead } from './iteration.js';
 import { normalizeNativeSparklineGroups, mapNativeSparklineReferences, mapNativeSparklineDestinations, nativeSparklineSize, nativeSparklineFlags, nativeSparklineColors, nativeSparklineChoices } from './native-sparklines.js';
 import { normalizeSheetSelection, normalizeSheetOrigin } from './sheet-selection.js';
 import { normalizeSplit } from './split-panes.js';
@@ -12385,11 +12385,10 @@ export class Workbook extends EventTarget {
     }
     const key = `${sheet.id}|${r},${c}`;
     if (this._iteration && this._evaluating.size) {
-      let reader;
-      for (const k of this._evaluating) reader = k;
+      const reader = this._evalLast; // the innermost cell being calculated, without walking all of them on every read
       let dependents = this._iteration.dependents.get(key);
       if (!dependents) this._iteration.dependents.set(key, dependents = new Set());
-      dependents.add(reader);
+      if (!dependents.has(reader)) { dependents.add(reader); this._iteration.edges++; }
     }
     if (this._blankKeys !== null && this._blankKeys.has(key)) return null;
     if (this._cache.has(key)) return this._cache.get(key);
@@ -12930,9 +12929,10 @@ export class Workbook extends EventTarget {
         // The same range is read by every formula that names it (SUM(A:A) down a column, say):
         // its array is built once per calculation and shared, since every change empties the cache.
         const cacheKey = `${target.id}|${ref.r1},${ref.c1},${ref.r2},${ref.c2}`;
-        // Iteration records each formula's reads, including ranges another
-        // formula already visited, to invalidate only circular dependents.
-        const cached = !this._iteration && this._rangeCache.get(cacheKey);
+        // Iteration records which formula reads the range, to invalidate only circular dependents: the
+        // range as a whole, so that its array can be shared like any other (see noteRangeRead).
+        if (this._iteration && this._evaluating.size) noteRangeRead(this._iteration, target.id, cacheKey, ref, this._evalLast);
+        const cached = this._rangeCache.get(cacheKey);
         if (cached) return cached;
         const extent = this._readExtent(target, ref);
         const r2 = ref.r2 >= MAX_ROW ? (this.usedRange(target.id)?.r2 ?? -1) : extent.r2;
@@ -12948,7 +12948,7 @@ export class Workbook extends EventTarget {
         // rows it adds, which reads each row once.
         const family = `${target.id}|${ref.r1},${ref.c1},${ref.c2}`;
         const shorter = this._rangeRuns.get(family);
-        const prefix = !this._iteration && shorter !== undefined && shorter < ref.r2
+        const prefix = shorter !== undefined && shorter < ref.r2
           ? this._rangeCache.get(`${target.id}|${ref.r1},${ref.c1},${shorter},${ref.c2}`) : undefined;
         const kept = prefix && prefix.length < rows && prefix.length && prefix[0].length === cols ? prefix : null;
         // Worth it only while appending the missing rows costs no more than reading the range afresh.
