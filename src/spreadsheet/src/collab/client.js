@@ -468,6 +468,8 @@ export class RoomClient extends EventTarget {
     clearTimeout(this.checkInTimer);
     this.subscription?.off();
     this.peers?.close();
+    // Nobody can be told apart as here any more: their selections leave the grid rather than stay frozen on it.
+    if (this.people.size) { this.people.clear(); this.dispatchEvent(new CustomEvent('people')); }
   }
 
   close() {
