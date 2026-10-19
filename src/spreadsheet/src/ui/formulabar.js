@@ -144,6 +144,7 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
     const named = nameOf(range) || table?.name;
     if (document.activeElement !== nameBox) nameBox.value = named || (isSingle(sel) ? cellName(sel.active.r, sel.active.c) : rangeName(range));
     const state = ctx.grid.editState;
+    input.classList.remove('spilled');
     editActions.hidden = !fixedActions && !state;
     cancelBtn.disabled = applyBtn.disabled = !state;
     root.classList.toggle('editing', !!state);
@@ -152,7 +153,16 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
       return;
     }
     const { array, text } = activeFormula();
-    if (document.activeElement !== input) input.value = array ? `{${text}}` : text;
+    if (document.activeElement !== input) {
+      input.value = array ? `{${text}}` : text;
+      // A cell a dynamic array spills into shows the formula that fills it, greyed, as Excel's bar does: it can
+      // only be changed at the array's first cell. An entry typed here still begins empty (and blocks the spill).
+      const spill = !array && !text && ctx.wb.spillAt?.(ctx.sheetId(), sel.active.r, sel.active.c);
+      if (spill && !ctx.wb.formulaHiddenAt?.(ctx.sheetId(), spill.anchor.r, spill.anchor.c)) {
+        const source = ctx.wb.getCell(ctx.sheetId(), spill.anchor.r, spill.anchor.c);
+        if (source?.f != null) { input.value = editText(source); input.classList.add('spilled'); }
+      }
+    }
   }
 
   nameBox.addEventListener('keydown', (e) => {

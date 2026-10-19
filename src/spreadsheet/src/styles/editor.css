@@ -320,6 +320,8 @@
 }
 
 .formula-input:focus { box-shadow: inset 0 -2px 0 var(--accent); }
+/* A spilled cell's formula, which only the array's first cell can change. */
+.formula-input.spilled { color: var(--ink-3); }
 .fx-actions {
   display: flex;
   align-items: center;
