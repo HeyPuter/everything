@@ -203,6 +203,7 @@ export class RoomClient extends EventTarget {
     clearTimeout(this.retryTimer);
     this.flushing = this.serial(async () => {
       let limit = MAX_BATCH;
+      let answered = false; // the room was reached: only then does this say anything of the connection
       for (let round = 0; round < 50 && !this.closed;) {
         this.flushAgain = false;
         const changes = batch(this.replica.outgoing(), limit);
@@ -212,6 +213,7 @@ export class RoomClient extends EventTarget {
         let res;
         try {
           res = await this.request({ op: 'commit', base: this.replica.rev, changes, session: this.session });
+          answered = true;
         } catch (error) {
           if (error instanceof CollabError && [400, 413, 422].includes(error.status) && changes.length > 1) {
             limit = Math.ceil(changes.length / 2);
@@ -220,6 +222,7 @@ export class RoomClient extends EventTarget {
           }
           if (error instanceof CollabError && [400, 403, 413, 422].includes(error.status)) {
             // Refused for good: later changes may build on it, so they go too, and the workbook shows the room's state.
+            answered = true;
             this.replica.discardPending();
             await this.persist();
             this.dispatchEvent(new CustomEvent('refused', { detail: { message: error.message } }));
@@ -235,8 +238,8 @@ export class RoomClient extends EventTarget {
           if (!this.flushAgain && !this.replica.pending.length) break;
         } else round++;
       }
-      this.retryDelay = 1000;
-      this.setStatus('connected');
+      // Nothing to send says nothing of the connection: an offline status stands until the room answers.
+      if (answered) { this.retryDelay = 1000; this.setStatus('connected'); } else this.setStatus();
       this.maybeCheckpoint();
     }).catch((error) => {
       this.failed(error);
