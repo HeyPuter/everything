@@ -6092,19 +6092,41 @@ export function createGrid(opts) {
     const changes = previous ? wb.changesSince(previous.version) : null;
     if (changes?.every(ch => ch.type === 'view')) { previous.version = wb.version; return false; }
     const rows = new Set([...s.rowHeightModes].filter(([r, mode]) => mode === 'auto' && r < s.rows).map(([r]) => r));
-    if (!rows.size) { automaticHeightState.set(s, { version: wb.version, formulas: new Set() }); return false; }
-    const all = !changes || changes.some(ch => ch.type !== 'view' && (ch.type !== 'cells' || !ch.box || ch.formula));
-    let formulas = previous?.formulas || new Set();
+    if (!rows.size) { automaticHeightState.set(s, { version: wb.version, formulas: new Map() }); return false; }
+    // What changed on another sheet can move what a formula here shows, but nothing else about this sheet.
+    const own = (ch) => ch.sheetId == null || ch.sheetId === s.id;
+    const area = (b) => (b.r2 - b.r1 + 1) * (b.c2 - b.c1 + 1);
+    const all = !changes || changes.some(ch => ch.type !== 'view' && own(ch) && (ch.type !== 'cells' || !ch.box || (ch.formula && area(ch.box) > s.cells.size)));
+    let formulas = previous?.formulas || new Map(); // automatic row → the columns of its formulas
     if (all) {
-      formulas = new Set();
+      formulas = new Map();
       for (const [key, cell] of s.cells) if (cell.f != null) {
-        const r = Number(key.slice(0, key.indexOf(',')));
-        if (rows.has(r)) formulas.add(r);
+        const comma = key.indexOf(',');
+        const r = Number(key.slice(0, comma));
+        if (rows.has(r)) { if (!formulas.has(r)) formulas.set(r, []); formulas.get(r).push(Number(key.slice(comma + 1))); }
       }
     }
-    const affected = all ? rows : new Set(changes.some(ch => ch.type === 'cells') ? formulas : []);
-    if (!all) for (const ch of changes) if (ch.type === 'cells' && ch.sheetId === sheetId) {
-      for (const r of rows) if (r >= ch.box.r1 && r <= ch.box.r2) affected.add(r);
+    const affected = all ? rows : new Set();
+    if (!all) {
+      let results = false;
+      for (const ch of changes) {
+        if (ch.type === 'view') continue;
+        results = true;
+        if (ch.type !== 'cells' || !own(ch)) continue;
+        const { r1, c1, r2, c2 } = ch.box;
+        for (const r of rows) if (r >= r1 && r <= r2) affected.add(r);
+        // Formulas written or replaced: those rows' formula columns are read again, within the cells written.
+        if (ch.formula) for (let r = r1; r <= r2; r++) {
+          if (!rows.has(r)) continue;
+          const cols = (formulas.get(r) || []).filter((c) => c < c1 || c > c2);
+          for (let c = c1; c <= c2; c++) if (s.cells.get(cellKey(r, c))?.f != null) cols.push(c);
+          if (cols.length) formulas.set(r, cols); else formulas.delete(r);
+        }
+      }
+      // Any edit may change what a formula shows, but only a result that is wrapped (its lines) or turned (its
+      // length) can change its row's height: any other takes one line of its own font, whatever it reads.
+      // Measuring every row holding a formula after every entry made each one on a long sheet wait on all of them.
+      if (results) for (const [r, cols] of formulas) if (cols.some((c) => { const st = styleAt(s, r, c); return st?.wrap || st?.rot; })) affected.add(r);
     }
     // Measurements are batched before changing any cache. Sparse distant rows
     // use a single scan, never one whole-sheet scan per automatic row.
