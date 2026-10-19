@@ -5528,6 +5528,8 @@ export function createGrid(opts) {
     if (key === 'F4' && edit.text.startsWith('=')) { e.preventDefault(); cycleRefAnchors(); return; }
     // F3 offers the workbook's names to paste at the caret, as Paste Name does.
     if (key === 'F3' && !e.shiftKey && !isMod(e) && !e.altKey) { e.preventDefault(); opts.onCommand?.('pasteNameMenu'); return; }
+    // Shift+F3 offers the functions, the one picked going in at the caret, as in Excel (the browser would find the previous match).
+    if (key === 'F3' && e.shiftKey && !isMod(e) && !e.altKey) { e.preventDefault(); opts.onCommand?.('functionMenu'); return; }
     // The insertion chords work mid-edit too: the date, time, the cell above, or a SUM go in at the caret.
     if (isMod(e) && (key === ';' || key === ':')) { e.preventDefault(); opts.onCommand?.(e.shiftKey || key === ':' ? 'insertTime' : 'insertDate'); return; }
     if (isMod(e) && (key === "'" || key === '"')) { e.preventDefault(); opts.onCommand?.('copyAbove', key === '"' || e.shiftKey ? 'value' : 'formula'); return; }
