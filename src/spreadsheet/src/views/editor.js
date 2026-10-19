@@ -2808,9 +2808,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'share': {
-        if (!await savedForSharing()) return;
+        // Someone a shared workbook was shared with has no file to save first: the dialog shows the live workbook's part.
+        const member = room && !doc.path;
+        if (member ? grid.editing && !grid.commitEdit() : !await savedForSharing()) return;
         openShareDialog({
-          path: doc.path, name: doc.name, uid: doc.uid, doc: openLive ? doc : null,
+          path: doc.path, name: doc.name, uid: doc.uid, doc: openLive || member ? doc : null,
           onEmailLink: mailer.available() ? () => run('sendLink') : null,
           // Editing together started (or stopped): the workbook opens again as the room's (or as the file).
           onLive: async (room) => {

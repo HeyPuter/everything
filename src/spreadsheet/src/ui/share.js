@@ -225,7 +225,9 @@ export function openShareDialog({ path, name, uid = null, onChange = null, doc =
   const doneBtn = el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Done');
   // Editing together (see coauthor.js) comes first: it is what most people sharing a spreadsheet want.
   const live = doc && coauthorSection({ doc, onStarted: (room) => { modal.close(); onLive?.(room); } });
-  const content = el('div.share-dialog', {},
+  // A shared workbook opened by someone it was shared with has no file of theirs: only the live part applies.
+  const fileless = !path && !!live;
+  const content = fileless ? el('div.share-dialog', {}, live, el('div.row.share-foot', {}, el('div.grow'), doneBtn)) : el('div.share-dialog', {},
     live,
     live && el('h3.share-h3', {}, 'Share the file'),
     addForm,
@@ -239,8 +241,8 @@ export function openShareDialog({ path, name, uid = null, onChange = null, doc =
       onEmailLink && el('button.btn.btn-outline', { type: 'button', html: icon('sendLink', 16), onclick: () => { modal.close(); onEmailLink(); } }, el('span', {}, 'Email a link…')),
       el('div.grow'),
       doneBtn));
-  const modal = openModal({ title: `Share "${name}"`, content, initialFocus: who, onClose: () => { closed = true; } });
+  const modal = openModal({ title: `Share "${name}"`, content, initialFocus: fileless ? null : who, onClose: () => { closed = true; } });
   modal.panel.classList.add('share-panel');
-  refresh();
+  if (!fileless) refresh();
   return modal;
 }

@@ -182,7 +182,7 @@ export function coauthorSection({ doc, onStarted }) {
       catch (e) { toast(e?.message || 'Could not stop editing together', { icon: 'alert' }); }
     },
   }, 'Stop editing together');
-  box.append(heading,
+  box.append(...[heading,
     el('p.collab-share-text', {}, owner
       ? 'This spreadsheet is live: everyone in it sees changes as they happen. Send an invitation link, or invite people by their Puter username.'
       : 'This spreadsheet is live: everyone in it sees changes as they happen. Its owner decides who has access.'),
@@ -190,7 +190,7 @@ export function coauthorSection({ doc, onStarted }) {
     owner && inviteForm,
     el('h3.share-h3', {}, 'In this workbook'),
     members,
-    owner && el('div.row.collab-stop-row', {}, stop));
+    owner && el('div.row.collab-stop-row', {}, stop)].filter(Boolean));
   loadMembers();
   return box;
 }
