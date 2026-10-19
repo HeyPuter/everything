@@ -373,6 +373,26 @@ function normalizeGroups(raw) {
 }
 
 /**
+ * A text condition of a filter (equals, contains, begins or ends with, and their negations) whose value holds
+ * Excel's wildcards, as a case-blind pattern over the text a cell shows: ? is any one character, * any run of
+ * them, and ~ before either (or before itself) stands for that character. Null for a value without wildcards,
+ * which is compared as it is.
+ */
+function filterWildcard(crit) {
+  const where = { eq: ['^', '$'], neq: ['^', '$'], contains: ['', ''], notContains: ['', ''], beginsWith: ['^', ''], endsWith: ['', '$'] }[crit?.op];
+  const value = typeof crit?.value === 'string' ? crit.value : null;
+  if (!where || !value || !/[*?~]/.test(value)) return null;
+  const literal = (ch) => ch.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  let body = '';
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (ch === '~' && /[*?~]/.test(value[i + 1] ?? '')) { body += literal(value[++i]); continue; }
+    body += ch === '*' ? '[\\s\\S]*' : ch === '?' ? '[\\s\\S]' : literal(ch);
+  }
+  return new RegExp(`${where[0]}${body}${where[1]}`, 'iu');
+}
+
+/**
  * Text is sorted the way a dictionary orders it, accented letters beside their base letters, rather
  * than by code point, which would put every "É" after "z". The collators are kept: building one is
  * far costlier than a comparison, and a sort makes thousands.
@@ -8317,6 +8337,9 @@ export class Workbook extends EventTarget {
     // A condition's bounds are read once per column, not once per row.
     const conditions = new Map();
     for (const c of cols) if (f.criteria[c].op) conditions.set(c, this._filterCondition(f.criteria[c]));
+    // Text conditions take Excel's wildcards: ? any one character, * any run of them, ~ before either for itself.
+    const wildcards = new Map();
+    for (const c of cols) { const pattern = filterWildcard(f.criteria[c]); if (pattern) wildcards.set(c, pattern); }
     return r => {
       for (const c of cols) {
         const crit = f.criteria[c];
@@ -8333,7 +8356,9 @@ export class Workbook extends EventTarget {
           // value list does; equality takes either spelling; number and date conditions compare the raw
           // value with the bound as typed (see _filterCondition).
           const rule = conditions.get(c);
-          if (crit.op === 'contains' || crit.op === 'notContains' || crit.op === 'beginsWith' || crit.op === 'endsWith') keep = matchesRule(rule, text);
+          const pattern = wildcards.get(c);
+          if (pattern) keep = pattern.test(text) === (crit.op !== 'notContains' && crit.op !== 'neq');
+          else if (crit.op === 'contains' || crit.op === 'notContains' || crit.op === 'beginsWith' || crit.op === 'endsWith') keep = matchesRule(rule, text);
           else if (crit.op === 'eq' || crit.op === 'neq') {
             const same = matchesRule({ ...rule, type: 'eq' }, this._compute(sheet, r, c)) || matchesRule({ type: 'eq', value: crit.value }, text);
             keep = crit.op === 'eq' ? same : !same;
