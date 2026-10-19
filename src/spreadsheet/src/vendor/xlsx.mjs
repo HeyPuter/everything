@@ -24506,6 +24506,20 @@ function read_ods_format_literal(nf, start) {
 	throw new Error("Cannot export ODS number format: unterminated quoted literal");
 }
 
+/* Puter Spreadsheet local patch: a run of text a number format shows as it is, from `start`: quoted literals,
+ * backslash escapes (Excel writes #,##0.00\ "€" and 0.00\ \k\g), and the characters Excel shows unquoted. */
+function read_ods_format_text_run(nf, start) {
+	var text = "", end = start;
+	while(end < nf.length) {
+		var ch = nf[end];
+		if(ch === '"') { var literal = read_ods_format_literal(nf, end); text += literal.text; end = literal.end + 1; }
+		else if(ch === '\\' && end + 1 < nf.length) { text += nf[end + 1]; end += 2; }
+		else if(/[ \-+()\/:!^&'~{}<>=]/.test(ch) || ch > '\x7f') { text += ch; ++end; }
+		else break;
+	}
+	return { text: text, end: end };
+}
+
 // TODO: find out if anyone actually read the spec.  LO has some wild errors
 function write_number_format_ods(nf/*:string*/, nfidx/*:string*/)/*:string*/ {
 	var type = "number", payload = "", nopts = { "style:name": nfidx }, c = "", i = 0;
@@ -24545,16 +24559,11 @@ function write_number_format_ods(nf/*:string*/, nfidx/*:string*/)/*:string*/ {
 		if(nf[0] == "$") { type = "currency"; }
 
 		/* opening string literal */
-		if(nf[i] == '"') {
-			c = "";
-			var literal = read_ods_format_literal(nf, i); c += literal.text; i = literal.end;
-			if(nf[i+1] == "*") {
-				i++;
-				payload += '<number:fill-character>' + escapexml(c.replace(/""/g, '"')) + '</number:fill-character>';
-			} else {
-				payload += '<number:text>' + escapexml(c.replace(/""/g, '"')) + '</number:text>';
-			}
-			nf = nf.slice(i+1); i = 0;
+		/* Puter Spreadsheet local patch: the whole leading run, with the space between "€" and the digits. */
+		if(nf[i] == '"' || nf[i] == '\\') {
+			var lead = read_ods_format_text_run(nf, i);
+			if(lead.text) payload += '<number:text>' + escapexml(lead.text) + '</number:text>';
+			nf = nf.slice(lead.end); i = 0;
 		}
 
 		/* fractions */
@@ -24689,13 +24698,10 @@ function write_number_format_ods(nf/*:string*/, nfidx/*:string*/)/*:string*/ {
 		}
 
 		/* residual text */
-		/* Puter Spreadsheet local patch: the spaces before a trailing literal (#,##0.00 "€") are part of it. */
-		var spaces = ""; while(nf[i] == ' ') { spaces += ' '; ++i; }
-		if(nf[i] == '"') {
-			c = "";
-			var literal = read_ods_format_literal(nf, i); c += literal.text; i = literal.end;
-			payload += '<number:text>' + escapexml(spaces + c.replace(/""/g, '"')) + '</number:text>';
-		}
+		/* Puter Spreadsheet local patch: the text after the digits is one run: the spaces before a trailing literal
+		 * (#,##0.00 "€"), an escaped one (#,##0.00\ "€", Excel's own euro format), several literals, a bare unit. */
+		var tail = read_ods_format_text_run(nf, i);
+		if(/\S/.test(tail.text)) payload += '<number:text>' + escapexml(tail.text) + '</number:text>';
 	}
 
 	if(!payload) { console.error("Could not generate ODS number format for |" + nf + "|"); return ""; }
