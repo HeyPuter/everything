@@ -2353,11 +2353,16 @@ export class Workbook extends EventTarget {
     const offset = c - table.range.c1;
     if (cell?.f == null) return;
     const entries = [];
+    // A new formula typed into a calculated column replaces the column's formula in every row, as Excel overwrites
+    // the column; a column that holds anything else (a value, another formula typed over a row) is left alone.
+    const template = table.calc?.[offset];
+    const origin = table.calcRow ?? rows.dataStart;
     for (let rr = rows.dataStart; rr <= rows.dataEnd; rr++) {
       if (rr === r) continue;
       const other = sheet.cells.get(cellKey(rr, c));
       const expected = shiftFormula(cell.f, rr - r, 0);
-      if (other && (other.v != null || other.f != null) && other.f !== expected) return; // the column holds other content: leave it alone
+      const calculated = template != null && other?.f != null && other.f === shiftFormula(template, rr - origin, 0);
+      if (other && (other.v != null || other.f != null) && other.f !== expected && !calculated) return; // the column holds other content: leave it alone
       if (!other || other.f !== expected) entries.push({ r: rr, c, cell: { v: null, f: expected, s: other?.s ?? cell.s } });
     }
     // One protected cell among the rows to fill refuses the fill whole, as it refuses a paste, and is

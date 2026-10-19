@@ -36,7 +36,8 @@ it('still translates structured references and follows a formula too deep to par
   wb.setInput(id, 0, 1, 'Double');
   wb.addTable(id, { r1: 0, c1: 0, r2: 2, c2: 1 }, { name: 'Sales' });
   wb.setInput(id, 1, 1, '=[@Amount]*2');
-  wb.setInput(id, 2, 1, '=SUM(Sales[Amount])');
+  // An exception in the calculated column, as a paste makes one (a formula typed there would rewrite the column).
+  wb.setCells(id, [{ r: 2, c: 1, cell: { v: null, f: 'SUM(Sales[Amount])' } }]);
   wb.setInput(id, 4, 0, `=${'('.repeat(3000)}1${')'.repeat(3000)}`);
   const blob = await workbookToXlsx(wb);
   expect(blob.size).toBeGreaterThan(1000);

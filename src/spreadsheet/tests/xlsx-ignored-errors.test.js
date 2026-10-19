@@ -140,7 +140,8 @@ it('retains intentional calculated-column exceptions without altering templates 
   }));
   wb.addTable(id, parseRange('A1:B3'), { name: 'Samples' });
   wb.setInput(id, 1, 1, '=Samples[@Input]*2');
-  wb.setInput(id, 2, 1, '=1/0');
+  // An exception in the calculated column, as a paste makes one (a formula typed there would rewrite the column).
+  wb.setCells(id, [{ r: 2, c: 1, cell: { v: null, f: '1/0' } }]);
   wb.activeSheet.ignoredErrors = [flag('B3', 'calculatedColumn', 'evalError')];
   const out = await saved(wb);
   expect(out.native.activeSheet.tables[0].calc['1']).toBe('Samples[@Input]*2');
