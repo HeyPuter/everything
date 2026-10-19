@@ -6412,10 +6412,14 @@ export class Workbook extends EventTarget {
       const sizes = axis === 'row' ? sheet.rowHeights : sheet.colWidths;
       const shifted = new Map();
       for (const [i, size] of sizes) shifted.set(i >= at ? i + n : i, size);
-      // A whole line's own format follows it, as its size does; the new lines start without one.
+      // A whole line's own format follows it, as its size does. The new lines take the format of the line
+      // before them, as its cells lend theirs above, so a currency column's new neighbour shows currency
+      // past the rows the sheet has reached too.
       const lineStyles = axis === 'row' ? sheet.rowStyles : sheet.colStyles;
       const shiftedStyles = new Map();
       for (const [i, st] of lineStyles) if (i + (i >= at ? n : 0) <= limit) shiftedStyles.set(i >= at ? i + n : i, st);
+      const lentLine = at > 0 ? lineStyles.get(at - 1) : null;
+      if (lentLine) for (let i = at; i < at + n && i <= limit; i++) shiftedStyles.set(i, cloneStyle(lentLine));
       if (axis === 'row') sheet.rowStyles = shiftedStyles; else sheet.colStyles = shiftedStyles;
       const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
       const lastLine = axis === 'row' ? MAX_ROW : MAX_COL;
