@@ -113,6 +113,12 @@ export function smoothPath(pts, open = false) {
 const PLOT_STYLE = 'forced-color-adjust: none';
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const MAX_LEGEND = 12;
+/** Past MAX_LEGEND entries a legend names the first eleven and counts the rest (a key-less `more` entry),
+ * rather than leaving the others' slices or series unnamed with no sign that any are missing. */
+function cappedLegend(entries) {
+  if (entries.length <= MAX_LEGEND) return entries;
+  return [...entries.slice(0, MAX_LEGEND - 1), { name: `…and ${entries.length - (MAX_LEGEND - 1)} more`, i: -1, more: true, keyWidth: 0 }];
+}
 // Past this many marks a chart drops per-mark tooltips (a 5000-row range would otherwise put tens of
 // megabytes of <title> into the page) and thins its marks to what the plot can show anyway.
 const MARK_BUDGET = 2000;
@@ -1110,9 +1116,10 @@ function renderStyledCartesian(data, chart, width, height) {
   }
   let categoryCrossing = crossingValue(crossings.x, scale.min, scale.max);
   const sameLegend = chart.legendPos === a.legendPos;
-  const legendEntries = series.map((s, i) => ({ s, i, name: s.name,
+  const seriesLegend = series.map((s, i) => ({ s, i, name: s.name,
     keyWidth: a.legendStyle.size * (bubble || pureArea || (layered ? ['area', 'column'].includes(a.seriesTypes[i]) : i < columnCount) ? .65 : 2) }))
-    .filter(({ i }) => !a.legendHidden?.includes(i)).slice(0, MAX_LEGEND);
+    .filter(({ i }) => !a.legendHidden?.includes(i));
+  const legendEntries = cappedLegend(seriesLegend);
   const automaticLegend = chart.legend && chart.legendPos !== 'right' && !(sameLegend && a.legend)
     ? layoutLegend(legendEntries, a.legendStyle, W, H, chart.legendPos,
       chart.title ? (a.title?.y ?? .035) * H + a.titleStyle.size : 0) : null;
@@ -1789,19 +1796,19 @@ function renderStyledCartesian(data, chart, width, height) {
     // A legend down the right wraps each name within the room left to the chart's edge, and shortens a word
     // too long for it, rather than running the name off the chart.
     const indent = bubble ? 14 : 29, room = Math.max(20, W - l.x * W - indent - 4);
-    const wrapped = vertical && !layout ? entries.map(({ s }) => legendLines(s.name, room, style)) : null;
+    const wrapped = vertical && !layout ? entries.map(({ name }) => legendLines(name, room, style)) : null;
     const box = layout ? { x: layout.x, y: layout.y, w: layout.w, h: layout.h }
       : { x: l.x * W, y: l.y * H, w: (l.w ?? .94) * W, h: vertical ? wrapped.reduce((sum, lines) => sum + style.size * (1.7 + (lines.length - 1) * 1.2), 0) : (l.h ?? .06) * H };
     parts.push(`<g data-el="legend"${effectAttr(a, 'legend')}>`, legendBoxRect(a.legendBox, box, style.size));
-    const widths = entries.map(({ s }) => 30 + textW(s.name, style.size));
+    const widths = entries.map(({ name }) => 30 + textW(name, style.size));
     const gap = Math.max(8, ((l.w ?? .94) * W - widths.reduce((sum, w) => sum + w, 0)) / (widths.length + 1));
     let x = l.x * W + (vertical ? 0 : gap), y = l.y * H + (vertical ? style.size * .75 : (l.h ?? .06) * H / 2);
-    entries.forEach(({ s, i, keyWidth }, entry) => {
+    entries.forEach(({ name, i, keyWidth, more }, entry) => {
       const placed = layout?.entries[entry];
       if (placed) { x = placed.x; y = placed.y; }
       const key = placed ? keyWidth : 26, keyH = placed ? style.size * .65 : 10;
       const color = seriesColor(chart, i), line = lineStyle(i);
-      if (bubble) parts.push(`<circle cx="${f(x + (placed ? key / 2 : 4))}" cy="${f(y)}" r="${placed ? key / 2 : 4}" fill="${bubblePaint[i]}"/>`);
+      if (more) { /* the count of the series not named has no key */ } else if (bubble) parts.push(`<circle cx="${f(x + (placed ? key / 2 : 4))}" cy="${f(y)}" r="${placed ? key / 2 : 4}" fill="${bubblePaint[i]}"/>`);
       else if (pureArea || (layered ? ['area', 'column'].includes(a.seriesTypes[i]) : i < columnCount)) parts.push(`<rect x="${f(x)}" y="${f(y - keyH / 2)}" width="${f(key)}" height="${f(keyH)}" fill="${color}"/>`);
       else {
         if (line.visible !== false) parts.push(`<line x1="${f(x)}" y1="${f(y)}" x2="${f(x + key)}" y2="${f(y)}" stroke="${color}" stroke-width="${line.width}" stroke-linecap="round"/>`);
@@ -1812,7 +1819,7 @@ function renderStyledCartesian(data, chart, width, height) {
         const lines = wrapped[entry];
         lines.forEach((text, k) => label(text, x + indent, y + style.size * (.3 + k * 1.2), style));
         y += Math.max(0, lines.length - 1) * style.size * 1.2;
-      } else label(s.name, x + indent, y + style.size * .3, style);
+      } else label(name, x + indent, y + style.size * .3, style);
       if (vertical) y += style.size * 1.7; else x += widths[entry] + gap;
     });
     parts.push('</g>');
@@ -2011,7 +2018,7 @@ function renderNativeRadar(data, chart, width, height) {
   const label = (text, x, y, style, anchor = 'middle', extra = '') => parts.push(`<text x="${f(x)}" y="${f(y)}" text-anchor="${anchor}" font-family="${esc(fontStack(style.font))}" font-size="${style.size}" fill="${esc(style.color)}"${style.bold ? ' font-weight="700"' : ''}${style.italic ? ' font-style="italic"' : ''} ${extra}>${esc(text)}</text>`);
   const titleBottom = chart.title ? (a.title?.y ?? .035) * H + a.titleStyle.size : 0;
   if (chart.title) label(chart.title, a.title ? a.title.x * W : W / 2, titleBottom, a.titleStyle, a.title ? 'start' : 'middle');
-  const entries = series.map((s, i) => ({ name: s.name, i, keyWidth: a.legendStyle.size * 1.5 })).filter(e => !a.legendHidden.includes(e.i)).slice(0, MAX_LEGEND);
+  const entries = cappedLegend(series.map((s, i) => ({ name: s.name, i, keyWidth: a.legendStyle.size * 1.5 })).filter(e => !a.legendHidden.includes(e.i)));
   const manualLegend = a.legend && a.legendPos === chart.legendPos ? a.legend : null;
   const legendBox = manualLegend ? { x: manualLegend.x * W, y: manualLegend.y * H, w: (manualLegend.w ?? .25) * W, h: (manualLegend.h ?? .1) * H }
     : chart.legendPos === 'right' ? { x: W * .76, y: Math.max(titleBottom + 12, H * .15), w: W * .23 } : null;
@@ -2112,6 +2119,7 @@ function renderNativeRadar(data, chart, width, height) {
   });
   if (n && a.plotStroke && a.plotStroke !== 'none') parts.push(`<polygon points="${polygon(1)}" fill="none" ${strokeAttrs({color:a.plotStroke,width:a.plotStrokeWidth,dash:a.plotStrokeDash})}/>`);
   if (legend) for (const item of legend.entries) {
+    if (item.more) { label(item.lines[0], item.textX, item.baseline, a.legendStyle, 'start'); continue; }
     const { appearance, line, color, fill, attrs } = paints[item.i], y = item.y;
     parts.push(`<g class="chart-radar-legend-key" data-series="${item.i}">`);
     if (radar.style === 'filled') parts.push(`<rect x="${f(item.x)}" y="${f(y-a.legendStyle.size*.25)}" width="${f(item.keyWidth)}" height="${f(a.legendStyle.size*.5)}" fill="${esc(fill)}" ${attrs}/>`);
@@ -2242,7 +2250,7 @@ function renderStyledPie(data, chart, width, height) {
   // Legend entries are retained for blank/zero points even though they have
   // no visible slice. Only an explicit legendEntry/delete removes an entry.
   const entries = data.categories.map((name, i) => ({ name, i })).filter(({ i }) => !a.legendHidden.includes(i));
-  const shown = entries.slice(0, MAX_LEGEND);
+  const shown = cappedLegend(entries);
   let top = chart.title ? a.titleStyle.size + 24 : 10, bottom = H - 10, right = W - 10;
   if (chart.legend && shown.length) {
     out.push(`<g data-el="legend"${effectAttr(a, 'legend')}>`);
@@ -2250,12 +2258,12 @@ function renderStyledPie(data, chart, width, height) {
     const st = a.legendStyle, lineH = st.size * 1.7;
     const manual = sameLegend && a.legend;
     const layout = manual || !vertical
-      ? layoutLegend(shown.map(e => ({ ...e, keyWidth: st.size * .65 })), st, W, H, chart.legendPos,
+      ? layoutLegend(shown.map(e => ({ ...e, keyWidth: e.more ? 0 : st.size * .65 })), st, W, H, chart.legendPos,
         chart.title ? (a.title?.y ?? .025) * H + a.titleStyle.size : 0,
         manual ? { x: manual.x * W, y: manual.y * H, w: (manual.w ?? .95) * W, h: manual.h == null ? null : manual.h * H } : null, vertical) : null;
     if (layout) {
       for (const e of layout.entries) {
-        out.push(`<rect x="${f(e.x)}" y="${f(e.y - e.keyWidth / 2)}" width="${f(e.keyWidth)}" height="${f(e.keyWidth)}" fill="${esc(piePaint(chart, e.i, colors))}"/>`);
+        if (!e.more) out.push(`<rect x="${f(e.x)}" y="${f(e.y - e.keyWidth / 2)}" width="${f(e.keyWidth)}" height="${f(e.keyWidth)}" fill="${esc(piePaint(chart, e.i, colors))}"/>`);
         e.lines.forEach((text, k) => out.push(label(text, e.textX, e.baseline + k * layout.lineH, st, 'start', 'class="chart-legend-label"')));
       }
       out.splice(legendStart, 0, legendBoxRect(a.legendBox, layout, st.size));
@@ -2279,8 +2287,8 @@ function renderStyledPie(data, chart, width, height) {
         const gap = vertical ? 0 : Math.max(8, (legendW - row.reduce((n, e) => n + e.width, 0)) / Math.max(1, row.length - 1));
         let x = l.x * W;
         const y = vertical ? next : legendY + ri * lineH + st.size;
-        for (const { name, i, width } of row) {
-          out.push(`<rect x="${f(x)}" y="${f(y - st.size * .7)}" width="${f(st.size * .65)}" height="${f(st.size * .65)}" fill="${esc(piePaint(chart, i, colors))}"/>`);
+        for (const { name, i, width, more } of row) {
+          if (!more) out.push(`<rect x="${f(x)}" y="${f(y - st.size * .7)}" width="${f(st.size * .65)}" height="${f(st.size * .65)}" fill="${esc(piePaint(chart, i, colors))}"/>`);
           if (vertical) {
             const lines = legendLines(name, room, st);
             lines.forEach((text, k) => out.push(label(text, x + st.size + 4, y + k * st.size * 1.2, st)));
@@ -2446,4 +2454,4 @@ function renderPie(data, chart, right, top, bottom, bounds = null, opts = {}) {
 
 // The pieces of the chart frame the newer chart types (chartsvg-special.js) draw with too.
 export { esc as svgEsc, f as svgNum, tipText as chartTipText, layoutLegend, chartAreaRect, elementEffectDefs, effectAttr, textBox as chartTextBox,
-  legendBoxRect, axisTextWidth, wrapChartText, scaleTicks, chartMarker, categoryShortener, shade as shadeColor, PLOT_STYLE, MAX_LEGEND, MARK_BUDGET };
+  legendBoxRect, axisTextWidth, wrapChartText, scaleTicks, chartMarker, categoryShortener, shade as shadeColor, PLOT_STYLE, MAX_LEGEND, MARK_BUDGET, cappedLegend };

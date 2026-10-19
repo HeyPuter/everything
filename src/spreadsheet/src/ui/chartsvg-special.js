@@ -11,7 +11,7 @@ import { maxOf, minOf } from '../core/numeric.js';
 import { bandPolygon, boxGroups, boxStats, buildHierarchy, hierarchyDepth, hierarchyNodes, isoSegment, stockSeries, sunburstLayout,
   surfaceBands, surfaceGrid, surfaceTriangles, topAncestor, treemapLayout } from '../core/chart-special.js';
 import { seriesColor, seriesPaint, inkOn, svgEsc as esc, svgNum as f, chartTipText as tipText, layoutLegend, chartAreaRect, elementEffectDefs,
-  effectAttr, chartTextBox, legendBoxRect, axisTextWidth, scaleTicks, chartMarker, categoryShortener, shadeColor, PLOT_STYLE, MAX_LEGEND, MARK_BUDGET } from './chartsvg.js';
+  effectAttr, chartTextBox, legendBoxRect, axisTextWidth, scaleTicks, chartMarker, categoryShortener, shadeColor, PLOT_STYLE, MARK_BUDGET, cappedLegend } from './chartsvg.js';
 
 export const SPECIAL_CHART_TYPES = new Set(['treemap', 'sunburst', 'boxWhisker', 'funnel', 'stock', 'surface']);
 
@@ -59,7 +59,7 @@ function chartFrame(chart, width, height, entries, describe) {
     parts.push(text(fitText(chart.title, W - 16, st.title), x, y, st.title, a?.title ? 'start' : 'middle', 'data-el="title"'));
     titleBottom = y + st.title.size * .35;
   }
-  const shown = entries.filter(e => !a?.legendHidden?.includes(e.i)).slice(0, MAX_LEGEND).map(e => ({ ...e, keyWidth: e.key === 'line' ? st.legend.size * 1.6 : st.legend.size * .7 }));
+  const shown = cappedLegend(entries.filter(e => !a?.legendHidden?.includes(e.i))).map(e => ({ ...e, keyWidth: e.more ? 0 : e.key === 'line' ? st.legend.size * 1.6 : st.legend.size * .7 }));
   const manual = a?.legend && a.legendPos === chart.legendPos ? a.legend : null;
   const box = manual ? { x: manual.x * W, y: manual.y * H, w: (manual.w ?? .25) * W, h: (manual.h ?? .1) * H }
     : chart.legendPos === 'right' ? { x: W * .78, y: Math.max(titleBottom + 12, H * .15), w: W * .21 } : null;
@@ -74,7 +74,7 @@ function chartFrame(chart, width, height, entries, describe) {
     const out = [`<g data-el="legend"${a ? effectAttr(a, 'legend') : ''}>`, a ? legendBoxRect(a.legendBox, legend, st.legend.size) : ''];
     for (const e of legend.entries) {
       const k = e.keyWidth;
-      if (e.key === 'line') out.push(`<line x1="${f(e.x)}" y1="${f(e.y)}" x2="${f(e.x + k)}" y2="${f(e.y)}" stroke="${esc(e.paint)}" stroke-width="2"/>`);
+      if (e.more) { /* the count of the entries not named has no key */ } else if (e.key === 'line') out.push(`<line x1="${f(e.x)}" y1="${f(e.y)}" x2="${f(e.x + k)}" y2="${f(e.y)}" stroke="${esc(e.paint)}" stroke-width="2"/>`);
       else if (e.key === 'marker') out.push(chartMarker(e.symbol || 'circle', e.x + k / 2, e.y, Math.min(k, 7), e.paint, e.stroke || e.paint, '', 'chart-legend-marker'));
       else out.push(`<rect x="${f(e.x)}" y="${f(e.y - k / 2)}" width="${f(k)}" height="${f(k)}" fill="${esc(e.paint)}"${e.stroke ? ` stroke="${esc(e.stroke)}"` : ''}/>`);
       e.lines.forEach((line, i) => out.push(text(line, e.textX, e.baseline + i * legend.lineH, st.legend, 'start', 'class="chart-legend-label"')));
