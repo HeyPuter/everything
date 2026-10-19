@@ -773,6 +773,11 @@ function normalizeCellText(raw) {
  * become trailing cell data. The walk is iterative because pasted markup may
  * nest deeper than the call stack allows.
  */
+// A line break stays a line break: Office (and this app's export) writes one a browser hides, display:none with
+// mso-data-placement:same-cell, for a new line within a cell that does not wrap.
+const hiddenContent = (node, styles) => node.tagName !== 'BR'
+  && (node.hasAttribute('hidden') || styles(node).get('display')?.trim().toLowerCase() === 'none');
+
 function cellText(td, styles) {
   const out = [];
   const runs = [], fonts = new WeakMap();
@@ -841,7 +846,8 @@ function cellText(td, styles) {
   while (node) {
     let descend = false;
     if (node.nodeType === 3) text(node);
-    else if (node.nodeType === 1 && !SKIP_TAGS.has(node.tagName)) {
+    // Content the page hides inside a cell (a sort key, a screen-reader label) is not its text.
+    else if (node.nodeType === 1 && !SKIP_TAGS.has(node.tagName) && !hiddenContent(node, styles)) {
       if (node.tagName === 'BR') {
         if (rich) font = fontAt(node);
         newline();
