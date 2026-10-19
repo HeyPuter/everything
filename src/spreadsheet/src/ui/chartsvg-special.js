@@ -482,7 +482,9 @@ function drawContour(fr, chart, grid, bands, tris, bandOf, wire) {
     if (r % every || a?.hideXAxis) return;
     parts.push(text(name, X(r), plot.y + plot.h + st.axis.size * 1.3, st.axis, 'middle', 'class="chart-axis-label"'));
   });
-  grid.colNames.forEach((name, c) => parts.push(text(short(name), plot.x - 6, Y(c) + st.axis.size * .35, st.axis, 'end', 'class="chart-axis-label"')));
+  // Series names up the side, every k-th where a line of text each would run them together.
+  const colEvery = Math.max(1, Math.ceil(grid.cols * st.axis.size * 1.2 / Math.max(1, plot.h)));
+  grid.colNames.forEach((name, c) => { if (!(c % colEvery)) parts.push(text(short(name), plot.x - 6, Y(c) + st.axis.size * .35, st.axis, 'end', 'class="chart-axis-label"')); });
 }
 
 function drawSurface3d(fr, chart, grid, bands, tris, bandOf, wire, style) {

@@ -27,3 +27,12 @@ it('keeps a surface of thousands of rows to a picture the page can draw', () => 
     expect(svg).toContain('>r0<');
   }
 });
+
+it('names every k-th series up the side of a contour chart rather than running the names together', () => {
+  const labels = svg => [...svg.matchAll(/class="chart-axis-label"[^>]*>(c\d+)</g)].map(m => m[1]);
+  const many = labels(renderChartSvg(grid(30, 40), chart('contour'), 480, 288));
+  expect(many[0]).toBe('c0');
+  expect(many.length).toBeGreaterThan(4);
+  expect(many.length).toBeLessThan(20);
+  expect(labels(renderChartSvg(grid(30, 6), chart('contour'), 480, 288))).toEqual(['c0', 'c1', 'c2', 'c3', 'c4', 'c5']);
+});
