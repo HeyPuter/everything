@@ -40,7 +40,8 @@ it('writes an accounting code with its currency symbol, without logging about it
   const { content, errors, after, codes } = await exported([[1234.5, ACCOUNTING], [-1234.5, '#,##0.00;[Red]-#,##0.00'], [1234.5, '_(* #,##0_);_(* (#,##0);_(* "-"_);_(@_)']]);
   expect(errors).not.toHaveBeenCalled();
   expect(after).toEqual(['$1,234.50', '-1,234.50', '1,235']);
-  expect(codes[0]).toBe('"$"#,##0.00');
+  // Its sections are styles of their own, mapped by the value's sign (see io-ods-format-sections.test.js).
+  expect(codes[0]).toBe('"$"#,##0.00;"$""("#,##0.00")";"$""-"');
   expect(content).toMatch(/<number:currency-style[^>]*><number:currency-symbol[^>]*>\$<\/number:currency-symbol><number:number[^>]*number:grouping="true"[^>]*number:decimal-places="2"/);
   expect(content).not.toMatch(/<number:text>[^<]*_/);
 });

@@ -23433,7 +23433,7 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 	var str = xlml_normalize(d);
 	xlmlregex.lastIndex = 0;
 	str = remove_doctype(str_remove_ng(str, "<!--", "-->"));
-	var Rn, NFtag, NF = "", tNF = "", y, etpos = 0, tidx = -1, infmt = false, payload = "";
+	var Rn, NFtag, NFmaps = {}, NF = "", tNF = "", y, etpos = 0, tidx = -1, infmt = false, payload = "";
 	var inCommonStyles = false;
 	while((Rn = xlmlregex.exec(str))) {
 		switch((Rn[3]=Rn[3].replace(/_[\s\S]*$/,""))) {
@@ -23461,11 +23461,18 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 					else if(NF.match(/m/)) NF = NF.replace(/m+/, "[$&]");
 					else if(NF.match(/s/)) NF = NF.replace(/s+/, "[$&]");
 				}
+				/* Puter Spreadsheet local patch: the sections a style's maps name come before its own, in Excel's order:
+				 * >=0 then the rest, or >0, <0 and the rest (zero), as LibreOffice writes positive;negative;zero. */
+				var section = function(name) { return typeof number_format_map[name] == "string" ? number_format_map[name] : null; };
+				var ge = section(NFmaps["value()>=0"]), gt = section(NFmaps["value()>0"]), lt = section(NFmaps["value()<0"]);
+				if(gt != null && lt != null) NF = gt + ";" + lt + ";" + NF;
+				else if(ge != null) NF = ge + ";" + NF;
+				else if(gt != null) NF = gt + ";" + NF;
 				number_format_map[NFtag.name] = NF;
-				NF = "";
+				NF = ""; NFmaps = {};
 			} else if(Rn[0].charAt(Rn[0].length-2) !== '/') {
 				infmt = true;
-				NF = "";
+				NF = ""; NFmaps = {};
 				NFtag = parsexmltag(Rn[0], false);
 			} break;
 
@@ -23623,9 +23630,9 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 
 		case 'text-properties': // <style:text-properties> 16.29.29
 			y = parsexmltag(Rn[0], false);
-			switch((y["color"]||"").toLowerCase().replace("#", "")) {
-				case "ff0000": case "red": NF = "[Red]" + NF; break;
-			}
+			/* Puter Spreadsheet local patch: each colour Excel names, not only red ([Blue]0;[Red]0). */
+			var inkName = { "000000": "Black", "0000ff": "Blue", "00ffff": "Cyan", "00ff00": "Green", "ff00ff": "Magenta", "ff0000": "Red", "red": "Red", "ffffff": "White", "ffff00": "Yellow" }[(y["color"]||"").toLowerCase().replace("#", "")];
+			if(infmt && inkName) NF = "[" + inkName + "]" + NF;
 			break;
 
 		case 'text-content': // <number:text-content> 16.29.28
@@ -23635,10 +23642,9 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 		case 'map': // <style:map> 16.3
 			// TODO: handle more complex maps
 			y = parsexmltag(Rn[0], false);
-			if(unescapexml(y["condition"]) == "value()>=0") {
-				if(y["apply-style-name"] && typeof number_format_map[y["apply-style-name"]] == "string") NF = number_format_map[y["apply-style-name"]] + ";" + NF;
-			}
-			else console.error("ODS number format may be incorrect: " + y["condition"]);
+			/* Puter Spreadsheet local patch: kept until the style closes, where the sections are put in order. */
+			var condition = unescapexml(y["condition"] || "").replace(/\s+/g, "");
+			if(["value()>=0", "value()>0", "value()<0"].indexOf(condition) > -1 && y["apply-style-name"]) NFmaps[condition] = y["apply-style-name"];
 			break;
 
 		case 'number': // <number:number> 16.29.3
@@ -24523,9 +24529,56 @@ function read_ods_format_text_run(nf, start) {
 }
 
 // TODO: find out if anyone actually read the spec.  LO has some wild errors
+/* Puter Spreadsheet local patch: a format's sections, split at the semicolons outside quotes, escapes and brackets. */
+function split_ods_format_sections(nf) {
+	var sections = [], start = 0, inLiteral = false;
+	for(var at = 0; at < nf.length; ++at) {
+		var ch = nf[at];
+		if(ch === '"') inLiteral = !inLiteral;
+		else if(!inLiteral) {
+			if(ch === '\\' || ch === '_' || ch === '*') ++at;
+			else if(ch === ';') { sections.push(nf.slice(start, at)); start = at + 1; }
+			else if(ch === '[') { var close = nf.indexOf(']', at + 1); if(close !== -1) at = close; }
+		}
+	}
+	if(inLiteral) throw new Error("Cannot export ODS number format: unterminated quoted literal");
+	sections.push(nf.slice(start));
+	return sections;
+}
+
+/* Puter Spreadsheet local patch: Excel's sections (positive;negative;zero) as ODF writes them, as LibreOffice
+ * does: one style per section, the last section's style naming the others in style:map conditions. A negative
+ * section shows its number without a sign there as in Excel, so "-" and the red ink of #,##0.00;[Red]-#,##0.00
+ * are its own. A code whose sections test their own conditions ([>100]) or are of different kinds keeps its first. */
 function write_number_format_ods(nf/*:string*/, nfidx/*:string*/)/*:string*/ {
+	var sections = split_ods_format_sections(nf);
+	if(sections.length < 2 || sections.slice(0, 3).some(function(section) { return /\[[<>=]/.test(section.replace(/"(?:[^"]|"")*"/g, "")); }))
+		return write_number_format_ods_section(sections[0], nfidx);
+	var parts = sections.slice(0, 3).map(function(section, k) {
+		var name = k == Math.min(sections.length, 3) - 1 ? nfidx : nfidx + "P" + k;
+		return { name: name, xml: section === "" ? "" : write_number_format_ods_section(section, name) };
+	});
+	var kind = function(xml) { var m = /^<number:(\w+)-style/.exec(xml); return m && m[1]; };
+	var main = parts[parts.length - 1], first = parts.filter(function(part) { return part.xml; })[0];
+	if(!first || parts.some(function(part) { return part.xml && kind(part.xml) !== kind(first.xml); })) return write_number_format_ods_section(sections[0], nfidx);
+	/* An empty section shows nothing, as in Excel. */
+	parts.forEach(function(part) { if(!part.xml) part.xml = writextag("number:" + kind(first.xml) + "-style", "<number:text></number:text>", { "style:name": part.name }); });
+	var maps = parts.length == 2 ? [["value()>=0", parts[0].name]] : [["value()>0", parts[0].name], ["value()<0", parts[1].name]];
+	var mapped = main.xml.replace(/<\/number:\w+-style>$/, function(close) {
+		return maps.map(function(m) { return writextag("style:map", null, { "style:condition": escapexml(m[0]), "style:apply-style-name": m[1] }); }).join("") + close;
+	});
+	return parts.slice(0, -1).map(function(part) { return part.xml; }).join("\n") + "\n" + mapped;
+}
+
+function write_number_format_ods_section(nf/*:string*/, nfidx/*:string*/)/*:string*/ {
 	var type = "number", payload = "", nopts = { "style:name": nfidx }, c = "", i = 0;
 	nf = nf.replace(/"[$]"/g, "$");
+	/* Puter Spreadsheet local patch: a section's colour ([Red]) is the style's text colour. */
+	var ink = /^\[(black|blue|cyan|green|magenta|red|white|yellow)\]/i.exec(nf);
+	var inks = { black: "#000000", blue: "#0000ff", cyan: "#00ffff", green: "#00ff00", magenta: "#ff00ff", red: "#ff0000", white: "#ffffff", yellow: "#ffff00" };
+	if(ink) { nf = nf.slice(ink[0].length); payload += '<style:text-properties fo:color="' + inks[ink[1].toLowerCase()] + '"/>'; }
+	/* A condition of its own ([>100]) has no place in a single style. */
+	nf = nf.replace(/^\[[<>=][^\]]*\]/, "");
 	/* TODO: replace with an actual parser based on a real grammar */
 	j: {
 		// TODO: support style maps
@@ -24556,17 +24609,18 @@ function write_number_format_ods(nf/*:string*/, nfidx/*:string*/)/*:string*/ {
 
 		if(nf == "@") { type = "text"; payload = "<number:text-content/>"; break j; }
 
-		/* currency flag */
-		/* Puter Spreadsheet local patch: a leading $ is written as a currency symbol below, which belongs in a currency style. */
-		if(nf[0] == "$") { type = "currency"; }
-
 		/* opening string literal */
-		/* Puter Spreadsheet local patch: the whole leading run, with the space between "€" and the digits. */
-		if(nf[i] == '"' || nf[i] == '\\') {
+		/* Puter Spreadsheet local patch: the whole leading run, with the space between "€" and the digits, and the
+		 * sign or parenthesis a negative section starts with. */
+		if(/^["\\ \-+(]/.test(nf)) {
 			var lead = read_ods_format_text_run(nf, i);
 			if(lead.text) payload += '<number:text>' + escapexml(lead.text) + '</number:text>';
 			nf = nf.slice(lead.end); i = 0;
 		}
+
+		/* currency flag */
+		/* Puter Spreadsheet local patch: a leading $ is written as a currency symbol below, which belongs in a currency style. */
+		if(nf[0] == "$") { type = "currency"; }
 
 		/* fractions */
 		var t = nf.match(/# (\?+)\/(\?+)/);
@@ -24664,22 +24718,19 @@ function write_number_format_ods(nf/*:string*/, nfidx/*:string*/)/*:string*/ {
 
 		/* should be in a char loop */
 		if(nf[0] == "$") { payload += '<number:currency-symbol number:language="en" number:country="US">$</number:currency-symbol>'; nf = nf.slice(1); i = 0; }
-		i = 0; if(nf[i] == '"') {
-			var literal = read_ods_format_literal(nf, i); c += literal.text; i = literal.end;
-			if(nf[i+1] == "*") {
-				i++;
-				payload += '<number:fill-character>' + escapexml(c.replace(/""/g, '"')) + '</number:fill-character>';
-			} else {
-				payload += '<number:text>' + escapexml(c.replace(/""/g, '"')) + '</number:text>';
-			}
-			nf = nf.slice(i+1); i = 0;
+		/* Puter Spreadsheet local patch: the text between the currency symbol and the digits, as the leading run. */
+		i = 0; if(/^["\\ \-+(]/.test(nf)) {
+			var between = read_ods_format_text_run(nf, i);
+			if(between.text) payload += '<number:text>' + escapexml(between.text) + '</number:text>';
+			nf = nf.slice(between.end); i = 0;
 		}
 
 		/* number TODO: interstitial text e.g. 000)000-0000 */
 		/* Puter Spreadsheet local patch: E- (a sign on negative exponents only) is a scientific code too, written with
 		 * forced-exponent-sign="false"; it used to stop the whole export on its missing exponent digits. */
 		var np = nf.match(/([#0][0#,]*)(\.[0#]*|)(E[+-]?0*|)/i);
-		if(!np || !np[0]) console.error("Could not find numeric part of " + nf);
+		/* Puter Spreadsheet local patch: a section of text alone (an accounting zero, "$" "-") has no digits to find. */
+		if(!np || !np[0]) { if(!payload) console.error("Could not find numeric part of " + nf); }
 		else {
 			var base = np[1].replace(/,/g, "");
 			/* Puter Spreadsheet local patch: a comma after the digits scales by a thousand (#,##0,"K" shows 1,235K for
