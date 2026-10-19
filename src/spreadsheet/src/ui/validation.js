@@ -7,7 +7,7 @@ import { el, clear, fieldId, isComposing } from './dom.js';
 import { icon } from './icons.js';
 import { openModal, focusListRow, fieldAlert } from './modal.js';
 import { toast } from './toast.js';
-import { VALIDATION_TYPES, VALIDATION_OPERATORS, describeValidation, CHIP_PALETTE, chipFor, isRangeSource, splitList, joinList, ruleFormulaBody } from '../core/validation.js';
+import { VALIDATION_TYPES, VALIDATION_OPERATORS, describeValidation, CHIP_PALETTE, chipFor, isRangeSource, splitList, joinList, ruleFormulaBody, relativeListSource } from '../core/validation.js';
 import { cellName, rangeName } from '../core/cell.js';
 import { formatDate, formatTime, parseTime, ymdToSerial, ERROR_HELP } from '../core/format.js';
 import { parseFormula } from '../core/formula/parser.js';
@@ -338,6 +338,8 @@ export function openValidationManager(ctx, { type = null } = {}) {
       prompt: promptInput.value.trim() || undefined,
     };
     const previous = ctx.wb.sheet(sheetId)?.validations.find(v => v.id === editingId);
+    // A dependent dropdown (=INDIRECT(A2)) reads each cell's own row; a rule that already did (one from Excel) keeps doing so.
+    if (type === 'list' && previous?.relativeSource !== true && relativeListSource(rule.source)) rule.relativeSource = true;
     rule.operator = ranged ? previous && comparison.value === (previous.operator || 'between') ? previous.operator : comparison.value === 'between' ? undefined : comparison.value : undefined;
     // Untouched imported titles and explicit visibility flags retain their exact spelling/presence.
     for (const [key, input] of [['promptTitle', promptTitle], ['errorTitle', errorTitle]]) {

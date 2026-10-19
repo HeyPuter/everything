@@ -23,6 +23,8 @@
 
 import { formatDate } from './format.js';
 import { numberOfText } from './condformat.js';
+import { tokenize } from './formula/tokenizer.js';
+import { parseRefText, isAbsoluteRef } from './refs.js';
 
 export const VALIDATION_TYPES = [
   { value: 'any', label: 'Any value' },
@@ -161,6 +163,25 @@ export function isRangeSource(source) {
   const t = String(source ?? '').trim();
   return t.startsWith('=') || RANGE_SOURCE.test(t)
     || /^[A-Za-z_][\w.]*\[.*\]$/.test(t); // a table column: Sales[Item]
+}
+
+/**
+ * Whether a list source typed as a formula reads its cells relative to each cell of the rule, as Excel reads a list
+ * source: a function over a relative reference, the dependent dropdown =INDIRECT(A2) above all, whose second row
+ * reads A3. A bare range typed for the options stays fixed, as the app has always read one (and as Excel's range
+ * picker writes one, with $ signs).
+ */
+export function relativeListSource(source) {
+  const text = typeof source === 'string' ? source.trim() : '';
+  if (!text.startsWith('=')) return false;
+  let tokens;
+  try { tokens = tokenize(text.slice(1)); } catch { return false; }
+  if (!tokens.some((t, i) => t.type === 'name' && tokens[i + 1]?.type === 'lparen')) return false;
+  return tokens.some((t) => {
+    if (t.type !== 'ref' || t.sheetEnd) return false;
+    const ref = parseRefText(t.text, t.sheet);
+    return !!ref && !isAbsoluteRef(ref);
+  });
 }
 
 /**
