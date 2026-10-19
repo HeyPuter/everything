@@ -19691,14 +19691,25 @@ function parse_xlml_xml(d, _opts)/*:Workbook*/ {
 						Workbook.Views[0].RTL = true;
 						break;
 
-					case 'freezepanes' /*case 'FreezePanes'*/: break;
+					/* Puter Spreadsheet local patch: frozen panes (FreezePanes with the rows above and the columns left of
+					 * the split) and hidden gridlines, as the sheet's '!xlmlView' for the importer. */
+					case 'freezepanes' /*case 'FreezePanes'*/:
+						if(Rn[1]!=='/') (cursheet['!xlmlView'] || (cursheet['!xlmlView'] = {})).frozen = true;
+						break;
 					case 'frozennosplit' /*case 'FrozenNoSplit'*/: break;
 
 					case 'splithorizontal' /*case 'SplitHorizontal'*/:
 					case 'splitvertical' /*case 'SplitVertical'*/:
+						if(Rn[0].slice(-2) === "/>") {/* empty */}
+						else if(Rn[1]==="/") {
+							var split = parseInt(str.slice(pidx, Rn.index), 10);
+							if(split > 0) (cursheet['!xlmlView'] || (cursheet['!xlmlView'] = {}))[Rn[3] == 'splithorizontal' ? 'rows' : 'cols'] = split;
+						}
+						else pidx = Rn.index + Rn[0].length;
 						break;
 
 					case 'donotdisplaygridlines' /*case 'DoNotDisplayGridlines'*/:
+						if(Rn[1]!=='/') (cursheet['!xlmlView'] || (cursheet['!xlmlView'] = {})).gridlines = false;
 						break;
 
 					case 'activerow' /*case 'ActiveRow'*/: break;

@@ -2626,6 +2626,13 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
       }
       if (!chartSheet && partOf(n)) sheet.background = readXlsxBackground(book, n, partOf(n));
       // Another program's .ods says its frozen panes and tab colour in LibreOffice's view settings.
+      // An Excel 2003 XML sheet says them in its WorksheetOptions: FreezePanes with the split's rows and columns.
+      const xlmlView = !meta?.sheets?.[n] && book.Sheets[n]?.['!xlmlView'];
+      if (xlmlView) {
+        if (xlmlView.frozen && xlmlView.rows) sheet.frozenRows = Math.min(xlmlView.rows, MAX_ROW);
+        if (xlmlView.frozen && xlmlView.cols) sheet.frozenCols = Math.min(xlmlView.cols, MAX_COL);
+        if (xlmlView.gridlines === false) sheet.gridlines = false;
+      }
       const odsView = !meta?.sheets?.[n] && book.OdsView?.sheets?.[n];
       if (odsView) {
         if (odsView.frozenRows) sheet.frozenRows = odsView.frozenRows;
