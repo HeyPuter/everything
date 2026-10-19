@@ -26,6 +26,7 @@ import nobleHashesLicenseUrl from '../vendor/NOBLE-HASHES-LICENSE.txt?url&no-inl
 import dotnetLicenseUrl from '../vendor/DOTNET-LICENSE.txt?url&no-inline';
 import unicodeLicenseUrl from '../vendor/UNICODE-LICENSE.txt?url&no-inline';
 import xmldomLicenseUrl from '../vendor/XMLDOM-LICENSE.txt?url&no-inline';
+import scowlLicenseUrl from '../vendor/SCOWL-LICENSE.txt?url&no-inline';
 import { version as APP_VERSION } from '../../package.json';
 
 /** `onOptions` opens File ▸ Options from the editor, which knows the workbook; elsewhere the options open on their own. */
@@ -176,6 +177,7 @@ const ACKNOWLEDGEMENTS = [
   { name: '.NET Runtime', use: 'Calendar calculations', license: 'MIT', url: dotnetLicenseUrl },
   { name: 'Unicode Character Database', use: 'Case-insensitive text matching', license: 'Unicode-3.0', url: unicodeLicenseUrl },
   { name: 'noble-hashes', use: 'SHA-256 hashing', license: 'MIT', url: nobleHashesLicenseUrl },
+  { name: 'SCOWL and the Hunspell English dictionaries', use: 'Spelling word lists', license: 'MIT, BSD', url: scowlLicenseUrl },
   { name: 'Lucide and Feather', use: 'Interface icons', license: 'ISC, MIT', url: lucideLicenseUrl },
   { name: 'Open Sans', use: 'Bundled font', license: 'Apache-2.0', url: './fonts/opensans/LICENSE.txt' },
   { name: 'Carlito', use: 'Bundled stand-in for Calibri', license: 'OFL-1.1', url: './fonts/carlito/OFL.txt' },

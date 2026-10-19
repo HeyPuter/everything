@@ -24,13 +24,16 @@ it('links Puter\'s pages and every bundled license, each in a new tab', () => {
   const credits = [...document.querySelectorAll('.about-credit')];
   expect(credits.map((a) => a.querySelector('.about-credit-name').textContent)).toEqual([
     'SheetJS Community Edition', 'xmldom', 'Apache POI', '.NET Runtime', 'Unicode Character Database',
-    'noble-hashes', 'Lucide and Feather', 'Open Sans', 'Carlito', 'Caladea',
+    'noble-hashes', 'SCOWL and the Hunspell English dictionaries', 'Lucide and Feather', 'Open Sans', 'Carlito', 'Caladea',
   ]);
   for (const a of [...links, ...credits]) {
     expect(a.target).toBe('_blank');
     expect(a.rel).toBe('noopener');
     expect(a.getAttribute('href')).toBeTruthy();
   }
+  // The spelling checker's word lists ship with the app (src/vendor/words-en.js): their license is credited, and its
+  // file is emitted beside the app with the others, which nothing did while nothing linked it.
+  expect(credits.find((a) => /SCOWL/.test(a.textContent)).getAttribute('href')).toMatch(/SCOWL-LICENSE/);
   // Folded away until asked for.
   expect(document.querySelector('.about-credits').open).toBe(false);
 });
