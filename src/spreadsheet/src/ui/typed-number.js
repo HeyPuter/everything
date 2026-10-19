@@ -2,7 +2,7 @@
  * Numbers typed into the fields of the what-if and analysis dialogs (Solver, Data Analysis, Forecast Sheet): read
  * as a cell reads them in the regional format, and shown in it.
  */
-import { parseInput, editText } from '../core/format.js';
+import { parseInput, editText, typedDateKind } from '../core/format.js';
 
 /**
  * A number typed into a field: in the regional format, as a cell reads one (1,5 where the decimal mark is a comma,
@@ -12,8 +12,8 @@ import { parseInput, editText } from '../core/format.js';
 export function typedNumber(text) {
   const t = String(text ?? '').trim();
   if (!t) return null;
-  const { v, fmt } = parseInput(t);
-  if (typeof v === 'number' && !['date', 'time', 'datetime'].includes(fmt)) return v;
+  const parsed = parseInput(t);
+  if (typeof parsed.v === 'number' && !typedDateKind(parsed)) return parsed.v;
   const n = Number(t);
   return Number.isFinite(n) ? n : null;
 }

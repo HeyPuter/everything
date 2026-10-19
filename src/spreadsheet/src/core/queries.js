@@ -9,7 +9,7 @@
  * (a date is its serial, the column's type says it is a date), a boolean, or a cell error { error, message }.
  */
 import { parseDelimited } from './tsv.js';
-import { parseInput, parseDate, serialToYMD } from './format.js';
+import { parseInput, parseDate, serialToYMD, typedDateKind } from './format.js';
 import { tableRows } from './tables.js';
 import { maxOf } from './numeric.js';
 
@@ -282,7 +282,7 @@ function numberFromText(text) {
   const t = String(text).trim();
   if (t === '') return null;
   const parsed = parseInput(t, 'en-US');
-  if (typeof parsed.v === 'number' && !['date', 'time', 'datetime'].includes(parsed.fmt)) return parsed.v;
+  if (typeof parsed.v === 'number' && !typedDateKind(parsed)) return parsed.v;
   return undefined;
 }
 
@@ -292,7 +292,7 @@ function dateFromText(text) {
   const hit = parseDate(t, new Date(), 'en-US');
   if (hit && Number.isFinite(hit.serial)) return Math.floor(hit.serial);
   const parsed = parseInput(t, 'en-US');
-  if (typeof parsed.v === 'number' && ['date', 'datetime'].includes(parsed.fmt)) return Math.floor(parsed.v);
+  if (['date', 'datetime'].includes(typedDateKind(parsed))) return Math.floor(parsed.v);
   return undefined;
 }
 

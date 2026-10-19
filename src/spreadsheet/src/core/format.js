@@ -782,6 +782,16 @@ export function parseInput(text, loc = locale) {
 }
 
 /**
+ * Whether what parseInput read is a date, a time or both ('date', 'time', 'datetime'), or null: a month and year
+ * or an elapsed time reads with a custom code of its own (mmm-yy, [h]:mm:ss) rather than a named date format.
+ */
+export function typedDateKind(parsed) {
+  if (typeof parsed?.v !== 'number') return null;
+  if (parsed.fmt === 'custom') return codeDateKind(parsed.v, parsed.code);
+  return ['date', 'time', 'datetime'].includes(parsed.fmt) ? parsed.fmt : null;
+}
+
+/**
  * Decimal places a typed number implies for its format: none when none were
  * typed, otherwise two: 0% or 0.00% on a typed percent,
  * #,##0 or #,##0.00 on a number typed with separators and $#,##0 or
