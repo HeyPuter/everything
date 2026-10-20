@@ -1157,6 +1157,12 @@
   gap: 8px;
   max-width: calc(100% - 32px);
 }
+/* A minimized draft sits over the foot of the window, and on a phone over the
+   whole width of it. The scrollers under it leave room at their end, so the
+   last row of the list -- its star, its tick box -- can be scrolled out from
+   under the dock instead of staying covered by it. */
+.has-compose-dock .msglist,
+.has-compose-dock .msg-scroll { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
 .compose-dock-item {
   display: flex;
   align-items: center;

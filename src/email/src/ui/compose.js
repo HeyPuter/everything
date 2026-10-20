@@ -250,7 +250,10 @@ export function openCompose({
     const dock = dockItem?.parentElement;
     dockItem?.remove();
     dockItem = null;
-    if (dock && !dock.children.length) dock.remove();
+    if (dock && !dock.children.length) {
+      dock.remove();
+      document.documentElement.classList.remove('has-compose-dock');
+    }
   };
 
   /**
@@ -1396,6 +1399,9 @@ export function openCompose({
       }),
     );
     dock.append(dockItem);
+    // The list and the reader leave room for the dock at their end, so their
+    // last row can be scrolled out from under it.
+    document.documentElement.classList.add('has-compose-dock');
     modal.suspend();
     if (document.activeElement === document.body) dockItem.querySelector('button').focus();
   };

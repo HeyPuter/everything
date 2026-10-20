@@ -54,6 +54,19 @@ describe('composer lifecycle', () => {
     expect(drafts.list()[0].subject).toBe('Report');
   });
 
+  it('marks the page while the dock is showing, so the list leaves room for it', () => {
+    const docked = () => document.documentElement.classList.contains('has-compose-dock');
+    const first = ready();
+    const second = ready();
+    first.minimize();
+    second.minimize();
+    expect(docked()).toBe(true);
+    first.restore();
+    expect(docked()).toBe(true);
+    second.restore();
+    expect(docked()).toBe(false);
+  });
+
   it('restores a minimized composer and blocks sign-out if closing would lose unsaved work', () => {
     drafts.save = () => false;
     const modal = ready();
