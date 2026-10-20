@@ -10666,12 +10666,14 @@ export function createEditor({
     const generation = Symbol('reading');
     reading = { generation, toEnd };
     const lang = document.documentElement.lang || 'en';
+    let spoken = false;
     for (let index = pageIndex; index < pageCount; index++) {
       const text = await pageWords(index);
       if (reading?.generation !== generation || destroyed) return;
       if (index !== pageIndex) await navigate(index);
       for (const chunk of speechChunks(text, { lang })) {
         if (reading?.generation !== generation || destroyed) return;
+        spoken = true;
         const utterance = new SpeechSynthesisUtterance(chunk);
         utterance.lang = lang;
         await new Promise((resolve) => {
@@ -10681,7 +10683,13 @@ export function createEditor({
       }
       if (!toEnd || reading?.generation !== generation) break;
     }
-    if (reading?.generation === generation) reading = null;
+    if (reading?.generation !== generation) return;
+    reading = null;
+    // Scanned pages are pictures of text; there is nothing to read until it is recognized.
+    if (!spoken)
+      toast(
+        `${toEnd ? 'The pages from here to the end have' : 'This page has'} no text to read. Scanned pages need Scan & OCR first.`,
+      );
   }
   function stopReading() {
     reading = null;
