@@ -269,7 +269,10 @@ export const cleanHtml = (html) => {
     // are not markup any more. Unwrapping them is what keeps an editor that
     // has been formatted and unformatted a few times from filling up with
     // empty nesting.
-    if ((tag === 'span' && !style) || (tag === 'a' && !href)) {
+    // A styled span with no words in it is what Undo leaves of a font, a
+    // size or a colour: it styles nothing, and must not make a message that
+    // has no formatting left go out as HTML mail.
+    if ((tag === 'span' && (!style || !element.textContent.trim())) || (tag === 'a' && !href)) {
       element.replaceWith(...element.childNodes);
     }
   }

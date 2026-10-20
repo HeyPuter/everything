@@ -40,8 +40,6 @@ import {
  * arriving as three screens of table nesting.
  */
 
-// The size the sentinel below stands in for while it is being rewritten.
-const SENTINEL_SIZE = '7';
 
 /**
  * Whether a computed colour is the one a swatch stands for. A computed style
@@ -276,24 +274,38 @@ export function createEditor({ label = 'Message', placeholder = '', onInput, onF
   };
 
   /**
-   * The `<font>` tags execCommand just made, as `<span style>` instead.
+   * The `<font>` tags execCommand made, as `<span style>` instead -- whenever
+   * they turn up. A command over a selection makes them at once; one at a
+   * collapsed caret makes them around the first character typed after it;
+   * and Redo puts back the ones a command made. Left as `<font>`, which
+   * cleanHtml does not keep, words coloured on screen went out plain.
    *
-   * `size` is the only one that cannot be carried across as written -- the
-   * attribute is a step on a 1-7 scale, not a length -- so the command applies
-   * step 7 as a sentinel and the real length is substituted here. No `<font>`
-   * outlives this pass, so nothing else can be wearing the sentinel.
+   * `size` is a step on a 1-7 scale rather than a length, so each size is
+   * applied as the step of its place in SIZES and read back from it here --
+   * at any time, Redo included, not only straight after the command.
+   *
+   * The text moves out of the `<font>` and into the `<span>`, which to the
+   * platform is a removal that collapses a selection inside it: typing after
+   * a colour put the caret back before the coloured words, so the next thing
+   * typed landed in front of them. The text nodes themselves survive the
+   * move, so a selection held in them is put back on the same nodes.
    */
-  let pendingSize = null;
   const normalizeFonts = () => {
     const fonts = [...body.querySelectorAll('font')];
+    if (!fonts.length) return false;
+    const selection = document.getSelection?.();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    const held = range && body.contains(range.commonAncestorContainer)
+      ? [range.startContainer, range.startOffset, range.endContainer, range.endOffset]
+      : null;
     for (const font of fonts) {
       const span = document.createElement('span');
       const face = font.getAttribute('face');
       const color = font.getAttribute('color');
-      const sized = font.getAttribute('size') === SENTINEL_SIZE && pendingSize;
+      const sized = SIZES[Number(font.getAttribute('size')) - 1]?.css;
       if (face) span.style.fontFamily = face;
       if (color) span.style.color = color;
-      if (sized) span.style.fontSize = pendingSize;
+      if (sized) span.style.fontSize = sized;
 
       if (span.getAttribute('style')) {
         span.append(...font.childNodes);
@@ -302,17 +314,24 @@ export function createEditor({ label = 'Message', placeholder = '', onInput, onF
         font.replaceWith(...font.childNodes);
       }
     }
-    pendingSize = null;
+    if (held && body.contains(held[0]) && body.contains(held[2])) {
+      try {
+        const kept = document.createRange();
+        kept.setStart(held[0], held[1]);
+        kept.setEnd(held[2], held[3]);
+        selection.removeAllRanges();
+        selection.addRange(kept);
+      } catch { /* the nodes no longer hold those offsets */ }
+    }
     // Whether anything was moved, which is what decides whether the selection
     // has to be put back.
-    return fonts.length > 0;
+    return true;
   };
 
   const setFont = (stack) => command(() => exec('fontName', stack));
 
   const setSize = (css) => command(() => {
-    pendingSize = css;
-    exec('fontSize', SENTINEL_SIZE);
+    exec('fontSize', String(SIZES.findIndex((size) => size.css === css) + 1));
   });
 
   const setColor = (value) => command(() => exec('foreColor', value));
@@ -549,7 +568,12 @@ export function createEditor({ label = 'Message', placeholder = '', onInput, onF
 
   // -- typing, pasting, dropping ----------------------------------------------
 
-  body.addEventListener('input', changed);
+  // Typing after a command at a collapsed caret, and Undo and Redo, which
+  // replay execCommand's own steps, are where a `<font>` turns up now.
+  body.addEventListener('input', () => {
+    if (body.querySelector('font')) normalizeFonts();
+    changed();
+  });
   body.addEventListener('keydown', (event) => {
     if (event.isComposing || event.keyCode === 229) return;
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
