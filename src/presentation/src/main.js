@@ -2478,6 +2478,9 @@ async function saveCloud(
         if (firstSave) showDocumentName(target.name);
         target.owner = owner();
         savedRevision = rev;
+        // Autosave skipped edits made during a first save, the document
+        // having no file to save them to yet.
+        if (firstSave && revision !== rev) scheduleSave();
         const recovered = await persistDraft().then(
           () => true,
           () => false,

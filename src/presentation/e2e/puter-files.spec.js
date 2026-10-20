@@ -409,6 +409,36 @@ test("a draft left during a first save notices the file changing later", async (
   expect(await writes(page)).toHaveLength(1);
 });
 
+test("an edit made during a first save is autosaved after it", async ({
+  page,
+}) => {
+  await mockDrive(page, { path: "/" });
+  await expect(title(page)).toHaveText("Untitled presentation");
+  await addText(page);
+  await page.evaluate(() => {
+    const write = puter.fs.write;
+    let gate = new Promise((resolve) => (window.__release = resolve));
+    puter.fs.write = async (...args) => {
+      await gate;
+      gate = null;
+      return write(...args);
+    };
+  });
+  await page.keyboard.press("Control+s");
+  await expect(status(page)).toHaveText("Saving…");
+  await addText(page);
+  // The edit's autosave comes due while the save is still running.
+  await page.waitForTimeout(2500);
+  await page.evaluate(() => window.__release());
+  await expect(status(page)).toHaveText("Saved to Puter");
+  const saved = await writes(page);
+  expect(saved).toHaveLength(2);
+  expect(saved[1]).toMatchObject({
+    path: `${APP_FOLDER}/Untitled presentation.pptx`,
+    options: { overwrite: true },
+  });
+});
+
 test("a failing autosave says so in the status, and leaving asks first", async ({
   page,
 }) => {
