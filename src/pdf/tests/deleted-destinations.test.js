@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { PDFDocument, PDFHexString, PDFName } from 'pdf-lib';
+import { describe, expect, it, vi } from 'vitest';
+import { PDFDict, PDFDocument, PDFHexString, PDFName } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { PdfSession, deletePage } from '../src/core/document.js';
 import { addBookmark } from '../src/core/outline-edit.js';
@@ -231,5 +231,31 @@ describe('destinations after deleting a page', () => {
     deletePage(doc, 1);
     expect(targetOf(action, 'D')).toBe(replacement);
     expect(tree.lookup(n('Names')).lookup(1).get(0)).toBe(replacement);
+  });
+  it('finds the jumps to a deleted page without reading the pages’ content', async () => {
+    // Fonts, pictures, and drawings are most of a long document; walking them for every page
+    // edit made deleting, moving, and inserting pages slow down with the document's length.
+    const doc = await fixture();
+    const font = doc.context.obj({ Type: 'Font', Subtype: 'Type1', BaseFont: 'Helvetica' });
+    const appearance = doc.context.obj({ Type: 'XObject', Subtype: 'Form', BBox: [0, 0, 1, 1] });
+    for (const page of doc.getPages())
+      page.node.set(
+        n('Resources'),
+        doc.context.obj({ Font: { F1: doc.context.register(font) }, XObject: { X: appearance } }),
+      );
+    addBookmark(doc, { title: 'Last', pageIndex: 2 });
+    const original = PDFDict.prototype.entries;
+    const read = new Set();
+    const entries = vi.spyOn(PDFDict.prototype, 'entries').mockImplementation(function () {
+      read.add(this);
+      return original.call(this);
+    });
+    try {
+      deletePage(doc, 2);
+    } finally {
+      entries.mockRestore();
+    }
+    expect(read.has(font) || read.has(appearance)).toBe(false);
+    expect(targetOf(firstOf(doc))).toBe(doc.getPage(1).ref);
   });
 });

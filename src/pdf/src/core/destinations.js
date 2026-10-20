@@ -1,6 +1,18 @@
 import { PDFArray, PDFDict, PDFName, PDFNumber, PDFRef, PDFStream } from 'pdf-lib';
 
 const name = PDFName.of;
+const DEST = name('Dest'),
+  S = name('S'),
+  GOTO = name('GoTo'),
+  D = name('D');
+/**
+ * Page content, appearances, metadata, and the tag tree hold no destinations, and in a long
+ * document they are most of its objects. Walking them made every page edit slow down with the
+ * length of the document.
+ */
+const INERT = new Set(
+  ['Resources', 'Contents', 'AP', 'Metadata', 'Thumb', 'StructTreeRoot'].map(name),
+);
 
 /**
  * Keep navigation useful when a page is deleted: jumps to it fit the next page, or the
@@ -126,9 +138,9 @@ function visitLocalDestinations(doc, visit) {
     if (value instanceof PDFStream) pending.push(value.dict);
     else if (value instanceof PDFArray) for (const entry of value.asArray()) pending.push(entry);
     else {
-      repair(value, name('Dest'));
-      if (value.lookup(name('S')) === name('GoTo')) repair(value, name('D'));
-      for (const [, entry] of value.entries()) pending.push(entry);
+      repair(value, DEST);
+      if (value.lookup(S) === GOTO) repair(value, D);
+      for (const [key, entry] of value.entries()) if (!INERT.has(key)) pending.push(entry);
     }
   }
 }
