@@ -5588,9 +5588,11 @@ export function createEditor({
       }
     });
     textarea.addEventListener('input', updateStatus);
+    // A new icon hangs right and down from the click as the page is shown, turned or not.
+    const corner = entry ? null : readerRect(point, NOTE_SIZE, NOTE_SIZE);
     noteEdit = {
       entry,
-      point: entry ? { x: entry.x, y: entry.y } : pdfPoint(point),
+      point: entry ? { x: entry.x, y: entry.y } : { x: corner.x, y: corner.y + corner.height },
       panel,
       textarea,
       color: colorPick,
