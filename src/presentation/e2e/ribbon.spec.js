@@ -443,3 +443,36 @@ test("a menu bar command while text is edited leaves the editing going", async (
   await page.keyboard.type(" there");
   await expect(editor).toHaveText("Hello there");
 });
+
+test("the Symbol dialog is one tab stop that the arrow keys move through", async ({
+  page,
+}) => {
+  await start(page);
+  await page.getByRole("menuitem", { name: "Insert", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Text box", exact: true }).click();
+  await page.locator(".object-hit").first().dblclick();
+  await page.keyboard.type("A");
+  await page.getByRole("menuitem", { name: "Insert", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Symbol…", exact: true }).click();
+  const symbols = page.getByRole("group", { name: "Symbols" });
+  await expect(symbols.locator('[tabindex="0"]')).toHaveCount(1);
+  await symbols.getByRole("button").first().focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(symbols.getByRole("button", { name: "®" })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(symbols.getByRole("button").nth(13)).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(symbols.getByRole("button").last()).toBeFocused();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Tab");
+  await expect(symbols.getByRole("button").first()).not.toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(symbols.getByRole("button").first()).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog", { name: "Symbol" })).toHaveCount(0);
+  await expect(page.locator(".object-hit").first()).toHaveAttribute(
+    "aria-label",
+    /^A®/,
+  );
+});

@@ -5606,12 +5606,35 @@ async function insertSymbol() {
   const obj = currentShape();
   if (!obj || !canEditText(obj)) return;
   let chosen = null;
+  // One tab stop: the arrow keys move between the symbols (twelve a row, as
+  // drawn), Home and End go to the first and the last.
+  const COLUMNS = 12;
   const grid = el("div", {
     class: "symbol-grid",
-    role: "grid",
+    role: "group",
     "aria-label": "Symbols",
+    onkeydown: (e) => {
+      const cells = [...grid.children];
+      const at = cells.indexOf(document.activeElement);
+      if (at < 0) return;
+      const step = {
+        ArrowLeft: -1,
+        ArrowRight: 1,
+        ArrowUp: -COLUMNS,
+        ArrowDown: COLUMNS,
+      }[e.key];
+      let next = null;
+      if (step) next = at + step;
+      else if (e.key === "Home") next = 0;
+      else if (e.key === "End") next = cells.length - 1;
+      if (next == null) return;
+      e.preventDefault();
+      const cell = cells[Math.max(0, Math.min(cells.length - 1, next))];
+      for (const c of cells) c.tabIndex = c === cell ? 0 : -1;
+      cell.focus();
+    },
   });
-  for (const ch of SYMBOLS)
+  for (const [i, ch] of [...SYMBOLS].entries())
     grid.append(
       el(
         "button",
@@ -5619,6 +5642,7 @@ async function insertSymbol() {
           type: "button",
           class: "symbol-cell",
           "aria-label": ch,
+          tabindex: i === 0 ? 0 : -1,
           onclick: (e) => {
             chosen = ch;
             e.currentTarget
