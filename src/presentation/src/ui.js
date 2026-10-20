@@ -656,8 +656,15 @@ export function openMenu({
         ? document.activeElement
         : anchor;
   // Inside an open modal dialog (the Reading View), the menu joins it; the
-  // rest of the page is inert there.
-  (anchor?.closest?.("dialog[open]") || document.body).append(panel);
+  // rest of the page is inert there. In fullscreen (a slide show) only the
+  // fullscreen element shows, so a menu opened from it joins that.
+  const full = document.fullscreenElement;
+  (
+    (full?.contains(anchor) && full) ||
+    anchor?.closest?.("dialog[open]") ||
+    full ||
+    document.body
+  ).append(panel);
   const parentPanel = parent >= 0 ? chain[parent].panel : null;
   let anchorRect = anchor?.getBoundingClientRect();
   const reposition = () => {

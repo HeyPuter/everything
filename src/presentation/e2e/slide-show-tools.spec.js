@@ -208,6 +208,26 @@ test("the show's menu, tools and shortcuts; ink is kept after the show", async (
   expect(ink).toHaveLength(1);
 });
 
+test("menus opened in a fullscreen show appear inside it", async ({ page }) => {
+  await story(page);
+  await tab(page, "Slide Show");
+  await (await command(page, "Play from Start", "Start Slide Show")).click();
+  const d = show(page);
+  await d.getByRole("button", { name: "Toggle fullscreen" }).click();
+  await page.waitForFunction(() => !!document.fullscreenElement);
+  const box = await d.locator(".presenter-frame").boundingBox();
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, {
+    button: "right",
+  });
+  const menu = page.getByRole("menu", { name: "Slide show" });
+  await expect(menu).toBeVisible();
+  expect(
+    await menu.evaluate((m) => document.fullscreenElement.contains(m)),
+  ).toBe(true);
+  await menu.getByRole("menuitem", { name: "Next" }).click();
+  await expect(d.locator(".presenter-counter")).toHaveText("2 / 5");
+});
+
 test("presenter view shows notes, the next slide and a timer, with an audience window", async ({
   page,
 }) => {
