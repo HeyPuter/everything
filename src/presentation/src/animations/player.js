@@ -1204,7 +1204,7 @@ export function createAnimationPlayer({
     get playing() {
       return running.some((e) => !e.endless);
     },
-    /** Settles when the step last started by next() ends. */
+    /** Settles when the step last started by next() (or start()) ends. */
     get played() {
       return played;
     },
@@ -1231,7 +1231,7 @@ export function createAnimationPlayer({
       finishRunning();
       reset();
       step = 0;
-      if (autoStart) return playGroup(groups[0]);
+      if (autoStart) return (played = playGroup(groups[0]));
       return Promise.resolve();
     },
     next() {

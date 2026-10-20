@@ -165,6 +165,27 @@ test("presenter view counts a slide's clicks after jumping back to it", async ({
   await expect(next).toHaveText(/^Next click: animation 1 of 3/);
 });
 
+test("with an audience window the presenter's copy follows the builds", async ({
+  page,
+  context,
+}) => {
+  await load(page, animatedDeck());
+  await page.keyboard.press("Alt+F5");
+  const opened = context.waitForEvent("page");
+  await page.getByRole("button", { name: "Audience window" }).click();
+  const audience = await opened;
+  const slide = audience.locator(".presenter-slide");
+  await expect(slide).toHaveAttribute("src", /./);
+  // The slide as it opens, its click effects not yet played.
+  const opening = await slide.getAttribute("src");
+  const copy = page.locator(".show-mirror img");
+  await expect(copy).toHaveAttribute("src", opening);
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => copy.getAttribute("src")).not.toBe(opening);
+  await page.keyboard.press("ArrowLeft");
+  await expect(copy).toHaveAttribute("src", opening);
+});
+
 test("reduced motion still steps through effects", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await load(page, animatedDeck());

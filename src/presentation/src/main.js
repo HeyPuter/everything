@@ -15378,7 +15378,9 @@ async function present(options = {}) {
     else {
       const playing = animator;
       Promise.resolve(readiness).then(() => {
-        if (animator === playing) playing.start();
+        if (animator !== playing) return;
+        playing.start();
+        session?.stepped(0);
       });
     }
     placeLinks(all[n]);
@@ -15560,6 +15562,10 @@ async function present(options = {}) {
     toggleLaser: () => toggleLaser(),
     laserEnabled: () => laser.enabled,
     picture: (s) => cachedPreview(previews, pres, s),
+    // The current slide as its animations have built it so far.
+    currentPicture: () =>
+      animator?.snapshot() ?? cachedPreview(previews, pres, all[n]),
+    animationPlayed: () => animator?.played,
     title: (s) => slideTitle(s, pres),
     // Click steps of the slide's animations, and whether it opened on its
     // last one (reached by going back, or shown without animation).
