@@ -488,7 +488,8 @@ export function buildTabs(api) {
   }
   const insertShapesGroup = (largeLabels = true) => ({
     id: "drawing-insert",
-    label: "Drawing",
+    // As on PowerPoint for Mac's Home tab: Insert, then Drawing beside it.
+    label: "Insert",
     icon: "shapes",
     items: [
       {

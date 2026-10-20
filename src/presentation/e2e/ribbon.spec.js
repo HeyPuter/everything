@@ -507,3 +507,18 @@ test("every group of a tab too wide for the screen can be scrolled into reach", 
     await page.mouse.wheel(0, 200);
   expect(await inside()).toBe(true);
 });
+
+test("no tab has two groups of the same name", async ({ page }) => {
+  await start(page);
+  const repeated = await page.evaluate(() =>
+    [...document.querySelectorAll(".ribbon-panel")].flatMap((panel) => {
+      const names = [...panel.querySelectorAll(":scope > .ribbon-group")].map(
+        (g) => g.getAttribute("aria-label"),
+      );
+      return names
+        .filter((n, i) => names.indexOf(n) !== i)
+        .map((n) => `${panel.dataset.tab}: ${n}`);
+    }),
+  );
+  expect(repeated).toEqual([]);
+});
