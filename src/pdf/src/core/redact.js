@@ -328,11 +328,12 @@ export function removeStructReferences(doc, removed, keys) {
   const root = get(doc.catalog, 'StructTreeRoot');
   if (!(root instanceof PDFDict) || (!removed.size && !keys.size)) return;
   const seen = new Set();
-  const pending = [root];
+  const pending = [{ node: root, chain: [] }];
   while (pending.length) {
-    const node = pending.pop();
+    const { node, chain } = pending.pop();
     if (!(node instanceof PDFDict) || seen.has(node)) continue;
     seen.add(node);
+    const lineage = node === root ? chain : [...chain, node];
     const kids = node.lookup(name('K'));
     const list = kids instanceof PDFArray ? kids.asArray() : kids ? [node.get(name('K'))] : [];
     const kept = list.filter((kid) => {
@@ -341,12 +342,16 @@ export function removeStructReferences(doc, removed, keys) {
         const target = value.get(name('Obj'));
         return !(removed.has(target) || removed.has(doc.context.lookup(target)));
       }
-      if (value instanceof PDFDict) pending.push(value);
+      if (value instanceof PDFDict) pending.push({ node: value, chain: lineage });
       return true;
     });
     if (kept.length !== list.length) {
       if (!kept.length) node.delete(name('K'));
       else node.set(name('K'), doc.context.obj(kept));
+      // Alternate and replacement text described the removed annotation (a link's target, a
+      // field's value); it must not stay behind to be read out instead.
+      for (const element of lineage)
+        for (const key of ['ActualText', 'Alt', 'E']) element.delete(name(key));
     }
   }
   pruneParentTree(doc, root, keys);

@@ -722,8 +722,16 @@ describe('vector graphics, annotations, and fields', () => {
     page.node.lookup(n('Annots')).push(link);
     page.node.lookup(n('Annots')).push(note);
     const objr = doc.context.obj({ Type: 'OBJR', Obj: link, Pg: page.ref });
+    // Its alternate text describes the link, and would be read out in its place.
     const element = doc.context.register(
-      doc.context.obj({ Type: 'StructElem', S: 'Link', K: [objr], Pg: page.ref }),
+      doc.context.obj({
+        Type: 'StructElem',
+        S: 'Link',
+        K: [objr],
+        Pg: page.ref,
+        Alt: PDFString.of('Link to the private page'),
+        ActualText: PDFString.of('example.com/private'),
+      }),
     );
     doc.catalog.set(
       n('StructTreeRoot'),
@@ -753,6 +761,7 @@ describe('vector graphics, annotations, and fields', () => {
     expectGone(corpus, '123-45-6789');
     expectGone(corpus, 'Private remark');
     expectGone(corpus, 'example.com/private');
+    expectGone(corpus, 'Link to the private page');
     expect(contains(corpus, 'Visible Person')).toBe(true);
   });
 
