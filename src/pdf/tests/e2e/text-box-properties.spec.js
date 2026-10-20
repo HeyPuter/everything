@@ -59,3 +59,12 @@ test('a text box takes any font size its field allows and refuses others in the 
   await settled(page);
   expect(await savedSizes(page)).toEqual([10.5, 12]);
 });
+
+test('Width is offered for a framed text box only', async ({ page }) => {
+  const props = await open(page);
+  await page.getByRole('button', { name: 'Text box: Framed', exact: true }).click();
+  await expect(props.getByLabel('Line width', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Text box: Plain', exact: true }).click();
+  await expect(props.getByLabel('Font size', { exact: true })).toBeVisible();
+  await expect(props.getByLabel('Line width', { exact: true })).toHaveCount(0);
+});

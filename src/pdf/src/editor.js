@@ -9742,7 +9742,9 @@ export function createEditor({
         { class: 'annotation-style' },
         el('label', {}, el('span', {}, 'Color'), color),
         fillable && el('label', {}, el('span', {}, 'Fill'), fill, noFill),
+        // A text box without a frame has no line for a width to change.
         annotationAccepts(entry.subtype, 'width') &&
+          (entry.subtype !== 'FreeText' || entry.borderColor) &&
           el('label', {}, el('span', {}, 'Width'), width),
         el('label', {}, el('span', {}, 'Opacity'), opacity),
         fontSize && el('label', {}, el('span', {}, 'Font size'), fontSize),
