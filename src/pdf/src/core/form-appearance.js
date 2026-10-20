@@ -11,6 +11,7 @@ import {
   PDFString,
   PDFStream,
   PDFTextField,
+  TextAlignment,
 } from 'pdf-lib';
 import {
   defaultTextFieldAppearanceProvider,
@@ -54,7 +55,21 @@ export function choiceAppearanceProvider(field, options = choiceOptions(field), 
 function textAppearanceProvider(source, widget, font) {
   const display = Object.create(source);
   const value = textValue(source);
-  display.getText = () => (source.isPassword() ? '*'.repeat(Array.from(value).length) : value);
+  let text = source.isPassword() ? '*'.repeat(Array.from(value).length) : value;
+  if (source.isCombed()) {
+    // pdf-lib fills comb cells from the first one. Centered and right-aligned combs start
+    // further along by whole cells, as Acrobat and PDF.js draw them; blank cells stay empty.
+    const free = (source.getMaxLength() ?? 0) - text.length;
+    const alignment = source.getAlignment();
+    const skip =
+      alignment === TextAlignment.Right
+        ? free
+        : alignment === TextAlignment.Center
+          ? Math.floor(free / 2)
+          : 0;
+    if (skip > 0) text = ' '.repeat(skip) + text;
+  }
+  display.getText = () => text;
   return defaultTextFieldAppearanceProvider(display, widget, font);
 }
 
