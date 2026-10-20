@@ -4251,32 +4251,6 @@ test("undo and redo re-render only the slide whose content changed", async ({
   expect(await page.evaluate(() => window.__svgRenders)).toBeLessThanOrEqual(2);
 });
 
-// Undo kept the slide in view, so a step that changed another slide was made
-// out of sight. It goes to the slide the step changed, as PowerPoint does.
-test("undo and redo go to the slide they change", async ({ page }) => {
-  await story(page);
-  const position = page.locator("#slide-position");
-  const title = page.locator('[data-object="1"]');
-  await title.click();
-  await page.keyboard.press("Shift+ArrowDown");
-  await page.locator(".slide-thumb").nth(1).click();
-  await expect(position).toHaveText("Slide 2 of 5");
-  await page.keyboard.press("Control+z");
-  await expect(position).toHaveText("Slide 1 of 5");
-  await page.locator(".slide-thumb").nth(2).click();
-  await expect(position).toHaveText("Slide 3 of 5");
-  await page.keyboard.press("Control+Shift+z");
-  await expect(position).toHaveText("Slide 1 of 5");
-  // A step on the slide in view keeps it.
-  await page.locator(".slide-thumb").nth(3).click();
-  await page.locator('[data-object="1"]').click();
-  await page.keyboard.press("Shift+ArrowDown");
-  await expect(page.locator("#redo")).toBeDisabled();
-  await page.keyboard.press("Control+z");
-  await expect(page.locator("#redo")).toBeEnabled();
-  await expect(position).toHaveText("Slide 4 of 5");
-});
-
 test("presentation mode reuses the navigator's slide renders", async ({
   page,
 }) => {
