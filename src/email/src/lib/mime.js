@@ -569,6 +569,10 @@ const hasText = (part) => part.text.trim() !== '';
 
 // A named file without a disposition is still an attachment. Explicitly
 // inline text may be a body, but an attached multipart must be skipped whole.
+const isNamed = (headers) => Boolean(
+  paramValue(parseContentType(headers.get('content-disposition') || '').attrs, 'filename')
+  || paramValue(parseContentType(headers.get('content-type') || '').attrs, 'name'));
+
 const isBodyAttachment = (headers) => {
   const disposition = parseContentType(headers.get('content-disposition') || '');
   const contentType = parseContentType(headers.get('content-type') || '');
@@ -596,14 +600,15 @@ export const extractBodyText = (body, headers, depth = 0) => {
   const { type, attrs } = parseContentType(headers.get('content-type') || 'text/plain');
 
   if (type.startsWith('multipart/') && attrs.boundary && depth < MAX_MULTIPART_DEPTH) {
-    const decoded = splitParts(body, attrs.boundary)
-      .map((part) => extractBodyText(part.body, part.headers, depth + 1));
+    const parts = splitParts(body, attrs.boundary);
+    const decoded = parts.map((part) => extractBodyText(part.body, part.headers, depth + 1));
     // The parts of a mixed are all the message, in order: Apple Mail sends a
     // photo placed mid-message as text, the photo, then the rest of the text.
     // Reading only the first left everything after the photo unseen, and out
-    // of the quote in a reply.
+    // of the quote in a reply. A part with a file name is a file, even shown
+    // inline -- a vCard, a log -- and is listed with the attachments instead.
     if (type === 'multipart/mixed') {
-      const pieces = decoded.filter((p) => hasText(p) && !p.flattened);
+      const pieces = decoded.filter((p, i) => hasText(p) && !p.flattened && !isNamed(parts[i].headers));
       if (pieces.length > 1) return { text: pieces.map((p) => p.text.trimEnd()).join('\n\n'), flattened: false };
     }
     const written = decoded.find((p) => hasText(p) && !p.flattened);
@@ -639,6 +644,8 @@ export const extractHtml = (body, headers, depth = 0) => {
     const mixed = type === 'multipart/mixed';
     const found = [];
     for (const part of splitParts(body, attrs.boundary)) {
+      // After the first, a named part is a file shown inline, not more body.
+      if (mixed && found.length && isNamed(part.headers)) continue;
       const html = extractHtml(part.body, part.headers, depth + 1);
       if (html) found.push(html);
       if (html && !mixed) break;

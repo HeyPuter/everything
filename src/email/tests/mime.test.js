@@ -239,6 +239,17 @@ describe('extractBodyText', () => {
     const html = [...part('text/html; charset=utf-8', '<p>Here is the photo:</p>'), ...photo,
       ...part('text/html; charset=utf-8', '<p>And the address is 12 Main St.</p>'), '--b--', ''].join(CRLF);
     expect(extractHtml(html, headers)).toContain('12 Main St.');
+    // A file shown inline is still a file: listed with the attachments, not
+    // read into the message.
+    const card = [...part('text/plain; charset=us-ascii', 'Hi, the card is attached.'),
+      ...part('text/vcard; charset=utf-8; name="Jane.vcf"', 'BEGIN:VCARD\r\nFN:Jane\r\nEND:VCARD',
+        ['Content-Disposition: inline; filename="Jane.vcf"']),
+      ...part('text/plain; charset=us-ascii', 'Talk soon.'), '--b--', ''].join(CRLF);
+    expect(extractText(card, headers)).toBe('Hi, the card is attached.\n\nTalk soon.');
+    const page = [...part('text/html; charset=utf-8', '<p>See the page.</p>'),
+      ...part('text/html; charset=utf-8; name="page.html"', '<p>SAVED PAGE</p>',
+        ['Content-Disposition: inline; filename="page.html"']), '--b--', ''].join(CRLF);
+    expect(extractHtml(page, headers)).not.toContain('SAVED PAGE');
     // An alternative is still one choice among its parts, not all of them.
     expect(extractText(multipartAlternative().body, multipartAlternative().headers)).toBe('plain version');
   });
