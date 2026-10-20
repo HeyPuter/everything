@@ -57,6 +57,8 @@ export async function runBatch(files, steps, { signal, onProgress, codec, recogn
       });
       const session = new PdfSession(file.bytes);
       let bytes = null;
+      // Numbers are taken only by a file that is produced; a file that fails leaves them free.
+      let batesUsed = 0;
       for (const step of steps) {
         signal?.throwIfAborted();
         onProgress?.({ file: file.name, step: BATCH_STEPS[step.type], files: files.length, index });
@@ -99,9 +101,9 @@ export async function runBatch(files, steps, { signal, onProgress, codec, recogn
               await addHeaderFooter(doc, pages, {
                 slots: { [slot]: '{bates}' },
                 size: step.size || 10,
-                bates: { ...step, start: batesNext },
+                bates: { ...step, start: batesNext + batesUsed },
               });
-              batesNext += pages.length;
+              batesUsed += pages.length;
               break;
             }
             case 'flatten':
@@ -124,9 +126,13 @@ export async function runBatch(files, steps, { signal, onProgress, codec, recogn
           allow: protect.allow || {},
         });
       results.push({ name: file.name, bytes });
+      batesNext += batesUsed;
     } catch (error) {
       if (error?.name === 'AbortError') throw error;
-      results.push({ name: file.name, error: error?.message || 'This file could not be processed.' });
+      results.push({
+        name: file.name,
+        error: error?.message || 'This file could not be processed.',
+      });
     }
   }
   return results;
