@@ -314,7 +314,7 @@ export function deletePages(doc, indices) {
   if (!list.length) return;
   if (list.length >= doc.getPageCount()) throw new Error('Keep at least one page in the PDF.');
   // A page that does not exist stops the deletion before anything changes.
-  for (const index of list) doc.getPage(index);
+  const pages = list.map((index) => doc.getPage(index));
   retargetDeletedPages(doc, list);
   // A field tree that cannot be walked leaves its widgets alone; the pages still go. The fields
   // are read once for all the pages: a field whose last widget goes is emptied and left with
@@ -329,6 +329,7 @@ export function deletePages(doc, indices) {
       refs = new Map(doc.context.enumerateIndirectObjects().map(([ref, value]) => [value, ref]));
     return refs.get(object);
   };
+  removePageStructure(doc, pages);
   // From the last page back, so the indices still to go stay where they were.
   for (const index of list) removeOnePage(doc, index, fields, refOf);
 }
@@ -428,7 +429,6 @@ function removeOnePage(doc, index, fields, refOf) {
         clearButtonSelection(field, remaining);
     }
   }
-  removePageStructure(doc, page);
   removePageBeads(doc, page);
   shiftPageLabels(doc, index, -1);
   doc.removePage(index);

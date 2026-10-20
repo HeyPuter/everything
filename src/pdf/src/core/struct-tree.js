@@ -4,18 +4,20 @@ import { annotationsOf } from './structure.js';
 const name = (value) => PDFName.of(value);
 
 /**
- * Take a page that is being deleted out of the document's logical structure (tagged PDFs, as
+ * Take pages that are being deleted out of the document's logical structure (tagged PDFs, as
  * word processors export them). Structure elements name their page with /Pg, which kept the
  * deleted page, its content, and its annotations in the saved file; screen readers following
  * the tags could also still meet content that is no longer in the document.
  *
- * Marked content and object references on the page are dropped, as are elements left with
- * nothing, and the page's entries in the parent tree. Elements spanning other pages stay.
+ * Marked content and object references on the pages are dropped, as are elements left with
+ * nothing, and the pages' entries in the parent tree. Elements spanning other pages stay.
+ * All the pages go in one walk of the tree, however many there are.
  */
-export function removePageStructure(doc, page) {
+export function removePageStructure(doc, pages) {
   const root = doc.catalog.lookup(name('StructTreeRoot'));
   if (!(root instanceof PDFDict)) return;
-  const pageRef = page.ref;
+  const deleted = new Set(pages.map((page) => page.ref));
+  const onDeleted = (pg) => deleted.has(pg);
   const PG = name('Pg'),
     K = name('K'),
     TYPE = name('Type');
@@ -24,16 +26,16 @@ export function removePageStructure(doc, page) {
   // Whether a kid stays; a structure element is pruned in place on the way.
   const keep = (kid, inherited) => {
     const value = doc.context.lookup(kid);
-    if (value instanceof PDFNumber) return inherited !== pageRef;
+    if (value instanceof PDFNumber) return !onDeleted(inherited);
     if (!(value instanceof PDFDict)) return true;
     const type = value.lookup(TYPE);
     if (type === name('MCR') || type === name('OBJR'))
-      return (value.get(PG) ?? inherited) !== pageRef;
+      return !onDeleted(value.get(PG) ?? inherited);
     if (seen.has(value)) return true;
     seen.add(value);
     const own = value.get(PG);
     const left = prune(value, own ?? inherited);
-    if ((own ?? inherited) !== pageRef) return true;
+    if (!onDeleted(own ?? inherited)) return true;
     if (!left) {
       removed.add(value);
       return false;
@@ -58,14 +60,16 @@ export function removePageStructure(doc, page) {
   for (const element of removed) element.delete(PG);
   pruneNameTree(doc, root.lookup(name('IDTree')), (value) => removed.has(value));
 
-  // The parent tree maps the page's and its annotations' keys to their elements.
+  // The parent tree maps the pages' and their annotations' keys to their elements.
   const keys = new Set();
-  const own = page.node.lookup(name('StructParents'));
-  if (own instanceof PDFNumber) keys.add(own.asNumber());
-  for (const ref of annotationsOf(page)?.asArray() || []) {
-    const annotation = doc.context.lookup(ref);
-    const key = annotation instanceof PDFDict && annotation.lookup(name('StructParent'));
-    if (key instanceof PDFNumber) keys.add(key.asNumber());
+  for (const page of pages) {
+    const own = page.node.lookup(name('StructParents'));
+    if (own instanceof PDFNumber) keys.add(own.asNumber());
+    for (const ref of annotationsOf(page)?.asArray() || []) {
+      const annotation = doc.context.lookup(ref);
+      const key = annotation instanceof PDFDict && annotation.lookup(name('StructParent'));
+      if (key instanceof PDFNumber) keys.add(key.asNumber());
+    }
   }
   const parents = root.lookup(name('ParentTree'));
   if (!keys.size || !(parents instanceof PDFDict)) return;
