@@ -9673,12 +9673,17 @@ export function createEditor({
       entry.subtype === 'FreeText' &&
       el('input', {
         type: 'number',
-        min: 4,
-        max: 144,
+        // The sizes a text box takes; the field reports any other value itself.
+        min: 1,
+        max: 288,
+        step: 'any',
+        required: true,
         value: entry.fontSize || 12,
         'aria-label': 'Font size',
         disabled: !accepts('fontSize'),
-        onchange: () => apply({ fontSize: Number(fontSize.value) }),
+        onchange: () => {
+          if (fontSize.reportValidity()) apply({ fontSize: Number(fontSize.value) });
+        },
       });
     const status = el(
       'select',
