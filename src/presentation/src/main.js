@@ -7016,11 +7016,14 @@ async function newSlideFromPrompt() {
     `Add one new slide right after slide ${after} about the following, with its title, content and speaker notes, matching the palette and style of the slides around it:\n${text}`,
   );
 }
-// Text typed on the slide is committed when its editor closes; the
-// assistant's edits wait for that rather than cut the typing short.
+// Text typed on the slide is committed when its editor closes, and text
+// typed in the notes or the outline when it loses the focus; the assistant's
+// edits wait for that rather than cut the typing short or be typed over.
 const assistantTyping = () =>
   !!richEditor ||
-  !!document.activeElement?.matches("#speaker-notes, .inline-editor");
+  !!document.activeElement?.matches(
+    "#speaker-notes, .inline-editor, .outline-text, .notes-page-text",
+  );
 function assistantIdle() {
   if (!assistantTyping()) return null;
   return new Promise((resolve) => {

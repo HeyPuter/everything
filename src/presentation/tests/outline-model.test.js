@@ -130,6 +130,20 @@ describe("outline model", () => {
     ).toBe(false);
   });
 
+  it("writes only the rows changed since its base", () => {
+    const pres = deck();
+    const base = readOutline(pres);
+    const rows = rowsFromOutline(base);
+    rows[3].text = "Second, edited";
+    // Meanwhile the first slide's title changes elsewhere.
+    P.setSlideTitle(P.getSlides(pres)[0], "Renamed");
+    applyOutline(pres, structureFromRows(rows), { base });
+    expect(P.getSlides(pres).map(P.getSlideTitle)).toEqual([
+      "Renamed",
+      "Second, edited",
+    ]);
+  });
+
   it("adds a title placeholder to a slide that had none", async () => {
     const pres = P.createPresentation();
     P.addBlankSlide(pres);

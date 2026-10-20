@@ -224,17 +224,25 @@ export function createSlide(pres, after) {
 // Applies an outline (from structureFromRows) to the deck. Slides whose
 // title rows are gone are removed (their paragraphs now belong to the slide
 // before them), new title rows become new slides, and every slide's title
-// and body take the outline's text. Returns whether anything changed.
-export function applyOutline(pres, structure, { maxSlides = 300 } = {}) {
-  const current = readOutline(pres);
+// and body take the outline's text. `base` is the outline as it was read
+// before the edits (the deck now, by default): only what differs from it is
+// written, so a change made to the deck since then is not undone. Returns
+// whether anything changed.
+export function applyOutline(
+  pres,
+  structure,
+  { maxSlides = 300, base = null } = {},
+) {
+  const current = base ?? readOutline(pres);
   const byPart = new Map(current.map((s) => [s.part, s]));
   const kept = new Set(structure.map((s) => s.part).filter(Boolean));
   let changed = false;
   if (structure.length > maxSlides)
     throw new Error(`The slide limit is ${maxSlides}.`);
-  const gone = P.getSlides(pres).filter(
-    (slide) => !kept.has(P.getSlidePartName(slide)),
-  );
+  const gone = P.getSlides(pres).filter((slide) => {
+    const part = P.getSlidePartName(slide);
+    return byPart.has(part) && !kept.has(part);
+  });
   // At least one slide stays.
   if (gone.length >= P.getSlides(pres).length) gone.pop();
   if (gone.length) {

@@ -318,6 +318,48 @@ test("the assistant waits for typing on the slide before showing another", async
   ).toHaveCount(1);
 });
 
+test("the assistant waits for typing in the outline and keeps both edits", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== "desktop", "one layout covers the flow");
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+Shift+KeyN" : "Control+KeyM",
+  );
+  await page.getByRole("menuitem", { name: "View", exact: true }).click();
+  await page.getByRole("menuitemcheckbox", { name: /^Outline View/ }).click();
+  const title = (n) => page.getByRole("textbox", { name: `Slide ${n} title` });
+  await title(1).click();
+  await page.keyboard.type("Old one");
+  await title(2).click();
+  await page.keyboard.type("Second");
+  await page.getByRole("button", { name: "Ask AI" }).click();
+  const box = page.getByRole("textbox", { name: "Message the assistant" });
+  await reply(
+    page,
+    [
+      { type: "gate" },
+      toolCall("replace_text", { find: "Old", replace: "New" }),
+    ],
+    [{ type: "text", text: "Renamed slide 1." }],
+  );
+  await box.fill("Rename slide 1");
+  await box.press("Enter");
+  await page.waitForFunction(() => !!window.__gate);
+  // The user goes on writing the outline while the change arrives.
+  await title(2).click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" draft");
+  await page.evaluate(() => window.__gate());
+  await expect(
+    page.locator("#ai-panel").getByText("Waiting for you to finish typing"),
+  ).toBeVisible();
+  await page.keyboard.type(" more");
+  await box.click();
+  await expect(page.getByText("Renamed slide 1.")).toBeVisible();
+  await expect(title(1)).toHaveText("New one");
+  await expect(title(2)).toHaveText("Second draft more");
+});
+
 test("the resize edge stops where the panel stops being drawn wider", async ({
   page,
 }, info) => {
