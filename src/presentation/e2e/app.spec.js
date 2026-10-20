@@ -7101,7 +7101,8 @@ test("sign-in transfers recovery ownership after older guest saves finish", asyn
       }
       export const listDrafts=async owner=>[...records.values()].filter(d=>d.owner===owner&&!d.cloudSaved);
       export const getDraft=async id=>records.get(id);
-      export const deleteDraft=async id=>records.delete(id);`,
+      export const deleteDraft=async id=>records.delete(id);
+      export const pruneSavedDrafts=async()=>{};`,
     }),
   );
   await start(page);

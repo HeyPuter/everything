@@ -227,6 +227,49 @@ test("linking a first cloud save keeps the file's baseline", async ({
   expect([...Object.values(result.bytes)]).toEqual([7, 8, 9]);
 });
 
+test("pruning removes only drafts that hold a saved Puter revision", async ({
+  page,
+}) => {
+  await page.route("https://js.puter.com/v2/", (route) =>
+    route.fulfill({ body: "" }),
+  );
+  await page.route("**/src/main.js*", (route) =>
+    route.fulfill({ contentType: "application/javascript", body: "" }),
+  );
+  await page.goto("/#/home");
+  const remaining = await page.evaluate(async () => {
+    const drafts = await import("/src/drafts.js");
+    const records = [
+      { id: "saved", owner: "one", path: "/a.pptx", cloudSaved: true },
+      { id: "unsaved", owner: "one", path: "/a.pptx", cloudSaved: false },
+      { id: "local", owner: "one", path: null, cloudSaved: false },
+      // The file was deleted: the draft is all that is left of it.
+      { id: "detached", owner: "one", path: null, cloudSaved: true },
+      { id: "open", owner: "one", path: "/b.pptx", cloudSaved: true },
+      { id: "other-owner", owner: "two", path: "/a.pptx", cloudSaved: true },
+    ];
+    for (const record of records)
+      await drafts.saveDraft({
+        ...record,
+        name: record.id,
+        theme: "clay",
+        bytes: new Uint8Array([1]),
+      });
+    await drafts.pruneSavedDrafts("one", "open");
+    const left = [];
+    for (const { id } of records) if (await drafts.getDraft(id)) left.push(id);
+    for (const id of left) await drafts.deleteDraft(id);
+    return left;
+  });
+  expect(remaining).toEqual([
+    "unsaved",
+    "local",
+    "detached",
+    "open",
+    "other-owner",
+  ]);
+});
+
 for (const operation of ["detach", "rename"]) {
   test(`${operation} cloud metadata preserves drafts and isolates accounts and paths`, async ({
     page,

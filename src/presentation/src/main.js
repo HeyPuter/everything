@@ -895,6 +895,8 @@ async function loadLibrary(req = ++homeRequest, requestOwner = owner()) {
     account ? cloud.listFiles() : [],
     drafts.listDrafts(requestOwner),
   ]);
+  if (draftResult.status === "fulfilled")
+    drafts.pruneSavedDrafts(requestOwner, doc?.id).catch(() => {});
   if (req !== homeRequest || view !== "home" || owner() !== requestOwner)
     return;
   files = cloudResult.status === "fulfilled" ? cloudResult.value : [];
@@ -1746,6 +1748,8 @@ async function leaveEditor() {
       });
       return leave && doc === target;
     }
+    // A draft that holds only what is in Puter is not kept on the device.
+    drafts.pruneSavedDrafts(target.owner).catch(() => {});
     return true;
   }
 }

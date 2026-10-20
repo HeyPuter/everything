@@ -439,6 +439,47 @@ test("an edit made during a first save is autosaved after it", async ({
   });
 });
 
+test("a Puter file's saved edits leave no draft on the device", async ({
+  page,
+}) => {
+  const story = await base64(createDeck("story"));
+  await mockDrive(page, {
+    seed: { "Presentations/Kept.pptx": story },
+    path: "/#/home",
+  });
+  // The library lists no saved draft; count what is stored.
+  const storedDrafts = () =>
+    page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const r = indexedDB.open("presentation-drafts-v1");
+          r.onsuccess = () => {
+            const count = r.result
+              .transaction("drafts")
+              .objectStore("drafts")
+              .count();
+            count.onsuccess = () => {
+              r.result.close();
+              resolve(count.result);
+            };
+          };
+        }),
+    );
+  for (let round = 0; round < 2; round++) {
+    await page
+      .getByRole("button", { name: "Kept PowerPoint presentation" })
+      .click();
+    await expect(title(page)).toHaveText("Kept");
+    await addText(page);
+    await expect(status(page)).toHaveText("Saved to Puter");
+    await page.getByRole("button", { name: "Back to presentations" }).click();
+    await expect(
+      page.getByRole("button", { name: "Kept PowerPoint presentation" }),
+    ).toBeVisible();
+    await expect.poll(storedDrafts).toBe(0);
+  }
+});
+
 test("a failing autosave says so in the status, and leaving asks first", async ({
   page,
 }) => {
