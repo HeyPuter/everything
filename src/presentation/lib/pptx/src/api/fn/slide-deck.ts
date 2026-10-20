@@ -49,8 +49,10 @@ import {
   SLD_ID_MAX,
   SLD_ID_MIN,
   SLIDE_CONTENT_TYPE,
+  commitSlideData,
   decode,
   encode,
+  refreshSlideData,
 } from "./_helpers.ts";
 import {
   findSlideLayoutByType,
@@ -361,8 +363,56 @@ export const addSlide = (
 };
 
 /**
+ * Drops the other slides' links to the slide part `target`: their slide
+ * relationships to it and the `a:hlinkClick` / `a:hlinkHover` elements using
+ * them (on shapes, pictures, text runs and table cells), so no link is left
+ * pointing at a part that is gone, or at a later slide reusing its name.
+ */
+const pruneLinksToSlide = (pres: PresentationData, target: PartName): void => {
+  const pkg = pres[INTERNAL_PACKAGE];
+  const removed = target.toLowerCase();
+  for (const slide of getSlides(pres)) {
+    const name = slide[SLIDE_PART_NAME];
+    if (name.toLowerCase() === removed) continue;
+    const rels = pkg.getRels(name);
+    if (!rels) continue;
+    const ids = new Set<string>();
+    for (const r of rels.items) {
+      if (r.type !== REL_TYPES.slide || r.targetMode === "External") continue;
+      try {
+        if (resolveTarget(name, r.target).toLowerCase() === removed)
+          ids.add(r.id);
+      } catch {
+        // A malformed target names no slide.
+      }
+    }
+    if (ids.size === 0) continue;
+    const strip = (el: XmlElement): void => {
+      el.children = el.children.filter(
+        (c) =>
+          !(
+            c.kind === "element" &&
+            c.name.namespaceURI === NS.dml &&
+            (c.name.localName === "hlinkClick" ||
+              c.name.localName === "hlinkHover") &&
+            ids.has(getAttrValue(c, ATTR_R_ID) ?? "")
+          ),
+      );
+      for (const c of el.children) if (c.kind === "element") strip(c);
+    };
+    strip(slide[SLIDE_DOCUMENT].root);
+    commitSlideData(slide);
+    refreshSlideData(slide);
+    rels.items = rels.items.filter((r) => !ids.has(r.id));
+    pkg.setRels(name, rels);
+  }
+};
+
+/**
  * Removes the given slide from the deck. Removes the `<p:sldId>`, the
  * `presentation.xml.rels` entry, and the slide part + its `.rels` part.
+ * Links to it from other slides (click and hover actions, text links)
+ * go with it.
  *
  * Media parts are intentionally NOT cleaned up — they may be shared
  * with other slides. The freed `sldId` is NOT reused on subsequent
@@ -373,6 +423,7 @@ export const removeSlide = (pres: PresentationData, slide: SlideData): void => {
   const { pkg, presPart, presRels, presDoc, list } = context;
   const { element, rel, part } = entryForSlide(context, slide);
   // Validate everything above before changing either relationship or slide data.
+  pruneLinksToSlide(pres, part.name);
   list!.children = list!.children.filter((c) => c !== element);
   const removedRels = new Set<string>();
   presRels.items = presRels.items.filter((r) => {
