@@ -105,6 +105,18 @@ export function createRibbon({
       "aria-labelledby": id,
       hidden: true,
       "data-tab": tab.id,
+      onscroll: () => markOverflow(panel),
+      // A wheel turned over a panel that scrolls sideways moves it along.
+      onwheel: (e) => {
+        if (
+          panel.scrollWidth <= panel.clientWidth + 1 ||
+          e.ctrlKey ||
+          Math.abs(e.deltaX) >= Math.abs(e.deltaY)
+        )
+          return;
+        e.preventDefault();
+        panel.scrollLeft += e.deltaY;
+      },
     });
     buildingTab = tab.id;
     for (const group of tab.groups) panel.append(renderGroup(group));
@@ -1020,6 +1032,10 @@ export function createRibbon({
   function fit() {
     const panel = panels.get(active);
     if (!panel || panel.hidden || !panel.isConnected) return;
+    fitGroups(panel);
+    markOverflow(panel);
+  }
+  function fitGroups(panel) {
     const groups = [...panel.querySelectorAll(":scope > .ribbon-group")];
     for (const group of groups) setFolded(group, false);
     const galleries = [...panel.querySelectorAll(".ribbon-gallery")]
@@ -1061,6 +1077,12 @@ export function createRibbon({
         }
       }
     }
+  }
+  // Which edges of a panel that scrolls sideways have more beyond them.
+  function markOverflow(panel) {
+    const end = panel.scrollWidth - panel.clientWidth;
+    panel.classList.toggle("more-before", end > 1 && panel.scrollLeft > 1);
+    panel.classList.toggle("more-after", end > 1 && panel.scrollLeft < end - 1);
   }
   function setFolded(group, on) {
     group._folded = on;

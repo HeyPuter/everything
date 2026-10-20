@@ -489,3 +489,21 @@ test("the Symbol dialog is one tab stop that the arrow keys move through", async
     /^A®/,
   );
 });
+
+test("every group of a tab too wide for the screen can be scrolled into reach", async ({
+  page,
+}) => {
+  await start(page);
+  await tab(page, "Insert");
+  const panel = page.locator(".ribbon-panel:not([hidden])");
+  const last = panel.locator(":scope > .ribbon-group").last();
+  const inside = async () => {
+    const [p, g] = await Promise.all([panel.boundingBox(), last.boundingBox()]);
+    return g.x + g.width <= p.x + p.width + 1;
+  };
+  const box = await panel.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  for (let i = 0; i < 10 && !(await inside()); i++)
+    await page.mouse.wheel(0, 200);
+  expect(await inside()).toBe(true);
+});

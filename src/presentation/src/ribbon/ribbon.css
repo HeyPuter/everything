@@ -136,7 +136,31 @@
   align-items: stretch;
   height: 82px;
   padding: 4px 3px;
-  overflow: hidden;
+  /* What still does not fit once every group has folded (a phone) scrolls
+     sideways: by swiping, the wheel, or the keyboard focus. An edge with
+     more beyond it fades out. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.ribbon-panel::-webkit-scrollbar {
+  display: none;
+}
+.ribbon-panel.more-after {
+  mask-image: linear-gradient(to left, transparent, #000 28px);
+}
+.ribbon-panel.more-before {
+  mask-image: linear-gradient(to right, transparent, #000 28px);
+}
+.ribbon-panel.more-before.more-after {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 28px,
+    #000 calc(100% - 28px),
+    transparent
+  );
 }
 .ribbon-panel[hidden] {
   display: none;
