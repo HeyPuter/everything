@@ -214,6 +214,27 @@ test('Space-drag panning ends when the window loses focus with Space held', asyn
   await page.keyboard.up('Space');
 });
 
+for (const display of ['Two-page', 'Two-page scrolling'])
+  test(`${display} at fit width fits both pages without sideways scrolling`, async ({ page }) => {
+    await openPdf(page, await numberedPdf(4));
+    await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Page display' }).click();
+    await page.getByRole('menuitemcheckbox', { name: display, exact: true }).click();
+    await expect(page.locator('.page-stack')).toHaveClass(/two-up/);
+    await settled(page);
+    await expect(page.getByLabel('Zoom', { exact: true })).toHaveValue('fit');
+    const workspace = page.locator('.workspace');
+    const [first, second] = await Promise.all(
+      [0, 1].map((i) => page.locator(`.page-slot[data-page="${i}"]`).boundingBox()),
+    );
+    expect(Math.abs(first.y - second.y)).toBeLessThan(1);
+    expect(await workspace.evaluate((node) => node.scrollWidth - node.clientWidth)).toBe(0);
+    // The pair still fills the width the quick tools leave free.
+    const room = (await workspace.evaluate((node) => node.clientWidth)) - 120;
+    expect(second.x + second.width - first.x).toBeGreaterThan(room - 3);
+    await page.evaluate(() => localStorage.removeItem('pdf-editor:page-display'));
+  });
+
 test('Organize pages selects, turns, moves, and deletes several pages', async ({ page }) => {
   await openPdf(page, await numberedPdf(4));
   await page.getByRole('button', { name: 'Tools', exact: true }).click();

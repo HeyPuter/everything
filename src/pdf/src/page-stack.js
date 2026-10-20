@@ -301,14 +301,14 @@ export function createPageStack({
     slot: (i) => slots[i] || null,
     /**
      * Fit-width zoom follows the widest page, so scrolling never changes the zoom; side by
-     * side, two of them and the gap between have to fit.
+     * side, two of them have to fit, beside the gap between them that the zoom leaves alone.
      */
     widest(natural) {
       const width = Math.max(
         natural.width,
         sizes.reduce((max, size) => Math.max(max, size?.width || 0), 0),
       );
-      return { width: twoUp ? width * 2 + GAP : width, height: natural.height };
+      return { width: twoUp ? width * 2 : width, height: natural.height };
     },
     /** Fit-page zoom fits every page, widest and tallest, for the same reason. */
     largest(natural) {

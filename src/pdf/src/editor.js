@@ -538,19 +538,22 @@ export function createEditor({
     if (mode === 'fit' && (stack.continuous || stack.twoUp)) natural = stack.widest(natural);
     else if (mode === 'page' && stack.continuous) natural = stack.largest(natural);
     else if (mode === 'page' && stack.twoUp)
-      natural = { width: natural.width * 2 + 12, height: natural.height };
+      natural = { width: natural.width * 2, height: natural.height };
     const width = workspace.clientWidth,
       height = workspace.clientHeight;
     // Room on both sides for the floating quick tools, so they never cover a fitted page; on
     // phones the tools sit in a row above the page instead.
     const gutter = window.matchMedia('(max-width: 760px)').matches || width < 400 ? 28 : 120;
-    if (mode === 'fit') return Math.min(1.5, Math.max(0.15, (width - gutter) / natural.width));
+    // Side by side, the 12px gap between the pages is not zoomed, and each page is sized in
+    // whole pixels: an even width keeps two rounded halves from overflowing it.
+    const room = stack.twoUp ? 2 * Math.floor((width - gutter - 12) / 2) : width - gutter;
+    if (mode === 'fit') return Math.min(1.5, Math.max(0.15, room / natural.width));
     if (mode === 'page') {
       // The sheet shares the workspace height with its padding and the caption beneath it.
       const vertical = width < 600 ? 70 : 92;
       return Math.max(
         0.15,
-        Math.min(3, (width - gutter) / natural.width, (height - vertical) / natural.height),
+        Math.min(3, room / natural.width, (height - vertical) / natural.height),
       );
     }
     return Number(mode);
