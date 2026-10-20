@@ -442,7 +442,13 @@ export function openCompose({
         const text = event.clipboardData?.getData('text') ?? '';
         if (!/[,;\n]/.test(text)) return;
         event.preventDefault();
-        commit(input.value + text);
+        // Where the paste goes, over whatever was selected -- as a paste
+        // anywhere else does. Added to the end of the field instead, a list
+        // pasted over a half-typed address was joined onto it.
+        const { value } = input;
+        const from = input.selectionStart ?? value.length;
+        const to = input.selectionEnd ?? value.length;
+        commit(value.slice(0, from) + text + value.slice(to));
       },
       // Moving on ends the address too: clicking Send with a name still in
       // the field is sending to that name, not abandoning it.
