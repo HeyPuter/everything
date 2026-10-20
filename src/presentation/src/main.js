@@ -13394,7 +13394,6 @@ function editTableCell(target, row, col) {
   });
   const fields = tableTextFields(doc.pres, cell);
   const fieldEdits = fields.length ? trackTextFields(input, fields) : null;
-  let cancelled = false;
   let move = null;
   input.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && ["s", "p"].includes(e.key.toLowerCase()))
@@ -13407,9 +13406,10 @@ function editTableCell(target, row, col) {
       input.blur();
       return;
     }
+    // Escape leaves the cell keeping what was typed, as in a text box; undo
+    // takes the typing back.
     if (e.key === "Escape" || ((e.ctrlKey || e.metaKey) && e.key === "Enter")) {
       e.preventDefault();
-      cancelled = e.key === "Escape";
       input.blur();
       [...canvas.querySelectorAll(".object-hit")]
         .find((hit) => hit.dataset.shapeId === String(P.getShapeId(obj)))
@@ -13421,7 +13421,7 @@ function editTableCell(target, row, col) {
     () => {
       const next = input.value;
       input.remove();
-      if (!cancelled && next !== value)
+      if (next !== value)
         mutateShape(obj, (obj) =>
           P.setTableCellText(P.getTableCell(obj, row, col), next, {
             fields: fieldEdits?.fields || [],

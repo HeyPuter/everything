@@ -16499,6 +16499,48 @@ test("Tab steps past the cells a merge covers", async ({ page }) => {
   await expect(cell).toHaveCount(0);
 });
 
+// Escape in a table cell threw away what had been typed there, though in a
+// text box it keeps the typing and the shortcut list calls it finishing.
+test("Escape in a table cell keeps what was typed", async ({ page }) => {
+  await start(page);
+  const pres = createDeck("blank");
+  P.addSlideTable(P.getSlides(pres)[0], {
+    x: P.inches(1),
+    y: P.inches(1),
+    w: P.inches(6),
+    h: P.inches(1),
+    rows: [
+      ["a", "b"],
+      ["c", "d"],
+    ],
+  });
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Cells.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  const hit = page.locator(".object-hit");
+  const cell = page.getByRole("textbox", { name: /^Edit cell/ });
+  await hit.dblclick({ position: { x: 20, y: 10 } });
+  await expect(cell).toHaveAccessibleName("Edit cell, row 1, column 1");
+  await page.keyboard.type("Quarterly revenue");
+  await page.keyboard.press("Escape");
+  await expect(cell).toHaveCount(0);
+  await expect(hit).toBeFocused();
+  await hit.dblclick({ position: { x: 20, y: 10 } });
+  await expect(cell).toHaveValue("Quarterly revenue");
+  await page.keyboard.press("Escape");
+  // Undo takes the typing back.
+  await page.keyboard.press("ControlOrMeta+z");
+  await hit.dblclick({ position: { x: 20, y: 10 } });
+  await expect(cell).toHaveValue("a");
+});
+
 // The panel's Apply to all slides passed the placeholder the panel shows for
 // an imported transition to the library, which reported an unknown effect
 // and left every slide as it was.
