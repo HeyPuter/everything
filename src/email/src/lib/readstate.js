@@ -160,7 +160,31 @@ function createFlagStore({ key, storage, remote = null, onChange = null }) {
     queueMicrotask(persist);
   };
 
-  const reconcile = async ({ write }) => {
+  /**
+   * One at a time. Two at once could land in either order, and a pull whose
+   * write-back was slow on the wire landed after a push that already held a
+   * newer change, and wrote over it: the change never reached the account
+   * store, and nothing pushed it again. A call made while one is waiting to
+   * start joins that one rather than queueing another round trip.
+   */
+  let tail = Promise.resolve();
+  let waiting = null;
+  const reconcile = ({ write }) => {
+    if (waiting) {
+      waiting.write ||= write;
+      return waiting.run;
+    }
+    const next = { write };
+    next.run = tail.then(() => {
+      if (waiting === next) waiting = null;
+      return reconcileOnce(next);
+    });
+    waiting = next;
+    tail = next.run;
+    return next.run;
+  };
+
+  const reconcileOnce = async ({ write }) => {
     if (!remote) return false;
     try {
       const incoming = clean(JSON.parse((await remote.get(key)) || '{}'));

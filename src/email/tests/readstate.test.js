@@ -350,6 +350,53 @@ describe('flags against an account store', () => {
     };
   };
 
+  it('does not let a slow write-back land over a newer change', async () => {
+    vi.useFakeTimers();
+    try {
+      const values = { 'puter-mail:read:user': JSON.stringify({ other: 100 }) };
+      let slow = null;
+      const remote = {
+        get: async (key) => values[key] ?? null,
+        set: (key, value) => {
+          if (!slow) {
+            // The pull's write-back is slow on the wire.
+            slow = new Promise((resolve) => setTimeout(() => {
+              values[key] = value;
+              resolve();
+            }, 5000));
+            return slow;
+          }
+          values[key] = value;
+          return Promise.resolve();
+        },
+      };
+      const storage = memoryStorage();
+      storage.setItem('puter-mail:read:user', JSON.stringify({ local: 50 }));
+      const state = createReadState('user', storage, { remote });
+      state.pull();
+      await vi.advanceTimersByTimeAsync(10);
+      // A message read while the pull is still writing back.
+      state.markRead('m1');
+      await vi.advanceTimersByTimeAsync(12000);
+      expect(JSON.parse(values['puter-mail:read:user']).m1).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('joins calls made while one is waiting, rather than queueing each', async () => {
+    const remote = fakeKv({ 'puter-mail:read:user': JSON.stringify({ m1: 500 }) });
+    const state = createReadState('user', memoryStorage(), { remote });
+    await Promise.all([state.pull(), state.pull(), state.pull(), state.pull()]);
+    // None had started when the others were asked for, so they are one.
+    expect(remote.calls.get).toHaveLength(1);
+    // One asked for while another is on the wire waits for it, once.
+    const first = state.pull();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Promise.all([state.pull(), state.pull(), first]);
+    expect(remote.calls.get).toHaveLength(3);
+  });
+
   it('lets a later change on another device win over an earlier bulk mark', async () => {
     vi.useFakeTimers();
     try {
