@@ -211,7 +211,9 @@ export function openMenu({
       : document.activeElement instanceof HTMLElement
         ? document.activeElement
         : anchor;
-  document.body.append(menu);
+  // Full screen shows only its own element, so a menu opened there (a link's or a page's)
+  // goes inside it; on the body it would take the focus while staying out of sight.
+  (document.fullscreenElement || document.body).append(menu);
   position(menu, anchor, x, y, align, parent >= 0 ? chain[parent].panel : null);
   function dispose({ focus = true } = {}) {
     const at = depth();

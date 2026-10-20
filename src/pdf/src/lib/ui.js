@@ -303,6 +303,17 @@ export function toast(message, { error = false } = {}) {
       return;
     }
   }
+  // Full screen shows only its own element, so the message moves in there while it lasts.
+  const host = document.fullscreenElement;
+  if (host && node.parentElement !== host) {
+    host.append(node);
+    const back = () => {
+      if (document.fullscreenElement === host) return;
+      document.removeEventListener('fullscreenchange', back);
+      document.body.append(node);
+    };
+    document.addEventListener('fullscreenchange', back);
+  }
   // A live region is announced only for changes made while it is rendered, so the box shows
   // first (empty, hence transparent) and gets its text on the next frame.
   node.textContent = '';
