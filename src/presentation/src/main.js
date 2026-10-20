@@ -13077,6 +13077,11 @@ function collectMatches() {
               matches.push({ part, id, cell: { row: r, col: c }, k });
           }),
         );
+      } else if (P.isDiagramShape(shape)) {
+        // SmartArt text lives in its items, as the Text Pane shows it.
+        let n = 0;
+        for (const item of smartArtItems(shape)) n += countIn(item.text || "");
+        for (let k = 0; k < n; k++) matches.push({ part, id, k });
       } else if (hasTextBody(shape)) {
         // Matches are counted the way Replace reaches them: within one run.
         let n = 0;
@@ -13203,6 +13208,34 @@ function replaceInShape(shape, regex, replacement, only = null) {
   }
   return changed;
 }
+function smartArtItems(shape) {
+  try {
+    return P.getShapeSmartArt(shape)?.items || [];
+  } catch {
+    return [];
+  }
+}
+// Replaces in a SmartArt graphic's items, written back the way the Text
+// Pane writes them.
+function replaceInSmartArt(shape, regex, replacement, only = null) {
+  const model = P.getShapeSmartArt(shape);
+  if (!model) return false;
+  let seen = 0;
+  let changed = false;
+  const items = model.items.map((item) => {
+    const text = item.text || "";
+    const next = text.replace(regex, (hit) => {
+      const mine = only == null || seen === only;
+      seen++;
+      return mine ? replacement : hit;
+    });
+    if (next === text) return item;
+    changed = true;
+    return { ...item, text: next };
+  });
+  if (changed) P.setShapeSmartArt(shape, { ...model, items });
+  return changed;
+}
 function replaceInCell(cell, regex, replacement, only = null) {
   const text = displayTableCellText(doc.pres, cell);
   const edits = new TextFieldEdits(
@@ -13251,6 +13284,10 @@ function replaceMatch(all) {
             replacement,
             all ? null : match.k,
           ) || changed;
+      else if (P.isDiagramShape(shape))
+        changed =
+          replaceInSmartArt(shape, regex, replacement, all ? null : match.k) ||
+          changed;
       else
         changed =
           replaceInShape(shape, regex, replacement, all ? null : match.k) ||

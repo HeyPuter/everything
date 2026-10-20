@@ -183,3 +183,40 @@ test("bulleted text converts to a graphic, and a graphic back to text", async ({
   expect(result.model.items.length).toBeGreaterThan(1);
   expect(result.shapes).toHaveLength(1);
 });
+
+// Find & Replace looked only through text boxes and tables, so it reported no
+// match for text that a SmartArt graphic showed on the slide.
+test("Find and Replace reach a graphic's text, Replace All in one step", async ({
+  page,
+}) => {
+  await start(page);
+  await insertGraphic(page, "Process", "Chevron Flow");
+  const inputs = page.locator(".smartart-outline-input");
+  await inputs.nth(0).fill("Budget review");
+  await inputs.nth(1).fill("Budget sign-off");
+  await inputs.nth(2).fill("Launch");
+  await page.waitForTimeout(600);
+  await page.getByRole("button", { name: "Close Text Pane" }).click();
+  await page.keyboard.press("ControlOrMeta+f");
+  const query = page.getByRole("searchbox", { name: "Find", exact: true });
+  await query.fill("Budget");
+  await expect(page.locator(".find-count")).toHaveText("1 of 2");
+  await page
+    .getByRole("textbox", { name: "Replace with", exact: true })
+    .fill("Cost");
+  await page.getByRole("button", { name: "Replace", exact: true }).click();
+  await expect(page.locator(".find-count")).toHaveText("1 of 1");
+  await page.getByRole("button", { name: "Replace all", exact: true }).click();
+  await expect(page.locator(".find-count")).toHaveText("No matches");
+  let { model } = await download(page);
+  expect(model.items.slice(0, 3).map((i) => i.text)).toEqual([
+    "Cost review",
+    "Cost sign-off",
+    "Launch",
+  ]);
+  // Replace All is one step to undo.
+  await page.locator("#slide-canvas").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("ControlOrMeta+z");
+  ({ model } = await download(page));
+  expect(model.items[1].text).toBe("Budget sign-off");
+});
