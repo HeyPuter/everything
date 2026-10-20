@@ -808,3 +808,14 @@ test('PDF standards checks PDF/A and converts to it', async ({ page }) => {
   const saved = await PDFDocument.load(bytes);
   expect(preflightPdfA(saved, { part: 2, conformance: 'b', bytes }).compliant).toBe(true);
 });
+
+test('View more and View less keep the keyboard focus in the tools pane', async ({ page }) => {
+  await openPdf(page, await numberedPdf(1));
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(pane.getByRole('button', { name: 'Export a PDF', exact: true })).toBeFocused();
+  await pane.getByRole('button', { name: 'View less' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(pane.getByRole('button', { name: 'View more' })).toBeFocused();
+});

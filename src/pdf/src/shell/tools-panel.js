@@ -106,6 +106,8 @@ export function createToolsPanel({ catalog, can = () => true, onClose, onChange,
           onclick: () => {
             expanded = false;
             renderList();
+            // The pressed button was replaced; its successor, View more, keeps the focus.
+            body.querySelector('.tools-more')?.focus();
           },
         },
         'View less',
