@@ -233,6 +233,31 @@ describe('createOriginState', () => {
     expect(createOriginState('you', storage).get('a--x')).toBe('inbox');
   });
 
+  it('writes a burst of moves once, not once per message', async () => {
+    const storage = memoryStorage();
+    const setItem = vi.spyOn(storage, 'setItem');
+    const state = createOriginState('me', storage);
+    for (let i = 0; i < 2000; i++) state.set(`m${i}--x`, 'inbox');
+    expect(setItem).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(setItem).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(storage.getItem('puter-mail:origin:me'))['m1999--x']).toBe('inbox');
+  });
+
+  it('writes on flush, and never lets an old store write over a newer one', () => {
+    const storage = memoryStorage();
+    const old = createOriginState('me', storage);
+    old.set('a--x', 'archive');
+    // A store opened before the timer fires reads what is waiting...
+    const fresh = createOriginState('me', storage);
+    expect(fresh.get('a--x')).toBe('archive');
+    fresh.set('b--x', 'sent');
+    fresh.flush();
+    // ...and the old store has nothing left to write over it.
+    old.flush();
+    expect(createOriginState('me', storage).get('b--x')).toBe('sent');
+  });
+
   it('ignores stored junk rather than throwing', () => {
     const storage = memoryStorage();
     storage.setItem('puter-mail:origin:me', '["not", "an", "object"]');

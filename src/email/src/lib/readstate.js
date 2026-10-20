@@ -242,8 +242,15 @@ export function createStarState(scope, storage = window.localStorage, options = 
  * describes a move this device made a moment ago, and it is cleared as soon
  * as the message is restored.
  */
+// Origin writes waiting for their timer, by storage and key, so a store opened
+// over the same storage before the timer fires reads them -- and a write left
+// behind by an old store cannot later land over a newer one's.
+const pendingOrigins = new WeakMap();
+const ORIGIN_WRITE_MS = 250;
+
 export function createOriginState(scope, storage = window.localStorage) {
   const key = `puter-mail:origin:${scope}`;
+  pendingOrigins.get(storage)?.get(key)?.();
   const load = () => {
     try {
       const value = JSON.parse(storage.getItem(key) || '{}');
@@ -254,8 +261,12 @@ export function createOriginState(scope, storage = window.localStorage) {
   };
 
   let origins = load();
+  let timer = null;
 
-  const persist = () => {
+  const write = () => {
+    clearTimeout(timer);
+    timer = null;
+    pendingOrigins.get(storage)?.delete(key);
     // Entries only matter until the message is restored or purged, so the cap
     // drops the oldest rather than growing without bound.
     const names = Object.keys(origins);
@@ -265,6 +276,17 @@ export function createOriginState(scope, storage = window.localStorage) {
     try {
       storage.setItem(key, JSON.stringify(origins));
     } catch {}
+  };
+
+  // A bulk move records one origin per message as each move lands, each in a
+  // task of its own, and serialising the whole set every time was most of the
+  // CPU of archiving a folder: 17 of 21 seconds for ten thousand messages.
+  // One write per burst instead.
+  const persist = () => {
+    if (timer) return;
+    timer = setTimeout(write, ORIGIN_WRITE_MS);
+    if (!pendingOrigins.has(storage)) pendingOrigins.set(storage, new Map());
+    pendingOrigins.get(storage).set(key, write);
   };
 
   return {
@@ -279,6 +301,10 @@ export function createOriginState(scope, storage = window.localStorage) {
       if (!(id in origins)) return;
       delete origins[id];
       persist();
+    },
+    /** Write anything still waiting for its timer. */
+    flush() {
+      if (timer) write();
     },
   };
 }

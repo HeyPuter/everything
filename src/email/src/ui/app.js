@@ -5158,6 +5158,7 @@ export function renderApp(root, ctx) {
   new MutationObserver((records, observer) => {
     if (frame.isConnected) return;
     observer.disconnect();
+    originState.flush();
     searchController?.abort();
     historyController?.abort();
     indexQueue.length = 0;
@@ -5191,6 +5192,7 @@ export function renderApp(root, ctx) {
         // A tab put away may not come back, and what it has read is worth
         // keeping.
         searchIndex.flush();
+        originState.flush();
         return;
       }
       startWatching();
