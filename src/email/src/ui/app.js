@@ -4481,9 +4481,12 @@ export function renderApp(root, ctx) {
    */
 
   // Where a keypress is a character being typed rather than a command.
+  // A tick box or a button takes no characters, and treating it as a field
+  // left every shortcut dead from the moment a row's tick box was clicked.
+  const NOT_TYPED = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'image', 'color', 'range', 'file']);
   const typingIn = (target) => target instanceof HTMLElement
     && (target.isContentEditable
-      || target.tagName === 'INPUT'
+      || (target.tagName === 'INPUT' && !NOT_TYPED.has(target.type))
       || target.tagName === 'TEXTAREA'
       || target.tagName === 'SELECT');
 

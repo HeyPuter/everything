@@ -173,6 +173,21 @@ describe('shortcuts that work anywhere in the app', () => {
     expect(currentFolder()).toContain('Inbox');
   });
 
+  it('still answers with a tick box focused', async () => {
+    mount();
+    await settle();
+    const check = rows()[2].querySelector('.row-check');
+    check.focus();
+    check.click();
+    expect(document.activeElement).toBe(check);
+    press('j', check);
+    expect(document.activeElement).toBe(rows()[3]);
+    const all = root.querySelector('.select-all');
+    all.focus();
+    press('c', all);
+    expect(composed).toHaveLength(1);
+  });
+
   it('opens and closes the sheet on ?', async () => {
     mount();
     await settle();
