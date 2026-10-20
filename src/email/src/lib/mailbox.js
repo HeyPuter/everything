@@ -863,16 +863,33 @@ export const mailFilename = (subject = '', date = new Date(), random) => {
  * `move` would otherwise do to work it out, so this costs no more requests
  * than it did before.
  */
-export async function moveMessage({ fs, mailPath, message, to }) {
+export async function moveMessage({ fs, mailPath, message, to, dirs = null }) {
   const dir = `${boxPath(mailPath, to)}/${message.day}`;
+  // `dirs` remembers the day folders this session has already asked for, so a
+  // bulk move of a busy day asks once rather than once per message: archiving
+  // a folder was one mkdir for every move, twice the requests it needed.
+  const remembered = Boolean(dirs?.has(dir));
+  const ensure = () => {
+    let made = dirs?.get(dir);
+    if (!made) {
+      // Already there, which is every message after the first one filed on
+      // that day. A folder that genuinely cannot be made is the move's to
+      // report: it is the operation that has to succeed.
+      made = fs.mkdir(dir, { createMissingParents: true }).then(() => {}, () => {});
+      dirs?.set(dir, made);
+    }
+    return made;
+  };
+  await ensure();
   try {
-    await fs.mkdir(dir, { createMissingParents: true });
-  } catch {
-    // Already there, which is every message after the first one filed on that
-    // day. A folder that genuinely cannot be made is the move's to report:
-    // it is the operation that has to succeed.
+    await fs.move(message.path, dir, { newName: message.name });
+  } catch (error) {
+    // A remembered folder may have been removed since; ask for it again, once.
+    if (!remembered) throw error;
+    dirs.delete(dir);
+    await ensure();
+    await fs.move(message.path, dir, { newName: message.name });
   }
-  await fs.move(message.path, dir, { newName: message.name });
   return `${dir}/${message.name}`;
 }
 

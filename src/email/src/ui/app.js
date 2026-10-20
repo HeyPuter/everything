@@ -1880,6 +1880,8 @@ export function renderApp(root, ctx) {
    * seconds, and asks no more of the server than the header reads do.
    */
   const WRITE_CONCURRENCY = 4;
+  // Day folders this shell has asked for, shared by every move it makes.
+  const madeDirs = new Map();
 
   /** `work` over each of `items`, a few at a time, taken in the order given. */
   const eachInFlight = async (items, work) => {
@@ -2022,7 +2024,7 @@ export function renderApp(root, ctx) {
         // reach a shell that has not yet heard of the write.
         own(was, `${boxPath(ctx.mailPath, to)}/${message.day}/${message.name}`);
         const path = await mailWrite(() =>
-          moveMessage({ fs: ctx.fs, mailPath: ctx.mailPath, message, to }));
+          moveMessage({ fs: ctx.fs, mailPath: ctx.mailPath, message, to, dirs: madeDirs }));
         boxes[from].remove(message);
         moved.push({ unit, message, from, was, restoring });
         gone.get(unit).push(message);
@@ -2062,7 +2064,7 @@ export function renderApp(root, ctx) {
       try {
         own(message.path, was);
         await mailWrite(() =>
-          moveMessage({ fs: ctx.fs, mailPath: ctx.mailPath, message, to: from }));
+          moveMessage({ fs: ctx.fs, mailPath: ctx.mailPath, message, to: from, dirs: madeDirs }));
         // The folder the move had filed it in may have been opened since, and
         // listed the file under an entry of its own. The file has left it, so
         // the entry and its row go too: they stayed, over a file that was no

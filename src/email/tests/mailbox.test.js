@@ -671,6 +671,38 @@ describe('moveMessage', () => {
       .rejects.toThrow('subject_does_not_exist');
   });
 
+  it('asks for a day folder once across a bulk move', async () => {
+    const fs = spyFs();
+    const dirs = new Map();
+    await Promise.all(Array.from({ length: 50 }, (unused, i) => moveMessage({
+      fs, mailPath: MAIL, to: 'archive', dirs,
+      message: { ...message, name: `a${i}--x`, path: `${OBJECTS}/2026-08-17/a${i}--x` },
+    })));
+    expect(fs.calls.mkdirs).toHaveLength(1);
+    expect(fs.calls.moves).toHaveLength(50);
+  });
+
+  it('makes a remembered folder again when it has gone, or could not be made', async () => {
+    const fs = spyFs();
+    const dirs = new Map();
+    await moveMessage({ fs, mailPath: MAIL, message, to: 'archive', dirs });
+    fs.folders.delete(`${MAIL}/archive/2026-08-17`);
+    const second = { ...message, name: 'a2--x', path: `${OBJECTS}/2026-08-17/a2--x` };
+    expect(await moveMessage({ fs, mailPath: MAIL, message: second, to: 'archive', dirs }))
+      .toBe(`${MAIL}/archive/2026-08-17/a2--x`);
+    expect(fs.calls.mkdirs).toHaveLength(2);
+    // A folder refused once (no write permission yet) is asked for again on
+    // the retry that follows the grant.
+    const refused = spyFs();
+    const mkdir = refused.mkdir;
+    refused.mkdir = async () => { throw new Error('permission denied'); };
+    const later = new Map();
+    await expect(moveMessage({ fs: refused, mailPath: MAIL, message, to: 'trash', dirs: later })).rejects.toThrow();
+    refused.mkdir = mkdir;
+    expect(await moveMessage({ fs: refused, mailPath: MAIL, message, to: 'trash', dirs: later }))
+      .toBe(`${MAIL}/trash/2026-08-17/a1--x`);
+  });
+
   it('is exactly reversible, which is what undo relies on', async () => {
     const fs = spyFs();
     const moved = { ...message, path: await moveMessage({ fs, mailPath: MAIL, message, to: 'archive' }) };
