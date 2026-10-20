@@ -6919,6 +6919,11 @@ function toggleInspector() {
 const sidePanelsExclusive = () => matchMedia("(max-width: 1150px)").matches;
 // Size the slide to the space available in both directions so short windows
 // show the whole slide instead of a scrollbar.
+// The canvas text editors show text at its size on the slide, and never
+// smaller than can be read.
+function editorFontSize(points, canvas) {
+  return `${Math.max(14, (points * canvas.clientWidth) / (currentSize().cx / 914400) / 72)}px`;
+}
 function fitCanvas() {
   const area = document.querySelector("#canvas-area");
   const canvas = document.querySelector("#slide-canvas");
@@ -6952,6 +6957,9 @@ function fitCanvas() {
   if (!(width > 0)) return;
   canvas.style.width = `${width}px`;
   layoutCurrentSelection(canvas, width);
+  // Text being edited keeps its size on the slide.
+  for (const input of canvas.querySelectorAll(".inline-editor[data-points]"))
+    input.style.fontSize = editorFontSize(Number(input.dataset.points), canvas);
   label.style.width = `${width}px`;
   area.classList.toggle("zoomed", zoom !== "fit");
   updateZoomUi();
@@ -10467,6 +10475,7 @@ function editText(target, event = null, { inserted = null } = {}) {
     contrast(luminance(color), luminance(surface)) >= 3;
   const readable = legible(format.color);
   const baseSize = format.size || 24;
+  input.dataset.points = baseSize * groupScale;
   const resolveFont = slideFontResolver(slide(), doc.pres);
   const decoration = (f) =>
     [
@@ -10482,7 +10491,7 @@ function editText(target, event = null, { inserted = null } = {}) {
     top: `${(editorRect.y / size.cy) * 100}%`,
     width: `${(editorRect.w / size.cx) * 100}%`,
     height: `${(editorRect.h / size.cy) * 100}%`,
-    fontSize: `${Math.max(14, (baseSize * groupScale * canvas.clientWidth) / (size.cx / 914400) / 72)}px`,
+    fontSize: editorFontSize(baseSize * groupScale, canvas),
     fontFamily: format.font ? resolveFont(format.font) : "",
     fontWeight: format.bold ? "700" : "400",
     fontStyle: format.italic ? "italic" : "normal",
@@ -13661,6 +13670,7 @@ function editTableCell(target, row, col) {
   const input = el("textarea", {
     class: "inline-editor",
     "aria-label": `Edit cell, row ${row + 1}, column ${col + 1}`,
+    "data-points": format.size || 18,
     value,
   });
   Object.assign(input.style, {
@@ -13668,7 +13678,7 @@ function editTableCell(target, row, col) {
     top: `${(rect.y / size.cy) * 100}%`,
     width: `${(rect.w / size.cx) * 100}%`,
     height: `${(rect.h / size.cy) * 100}%`,
-    fontSize: `${Math.max(14, ((format.size || 18) * canvas.clientWidth) / (size.cx / 914400) / 72)}px`,
+    fontSize: editorFontSize(format.size || 18, canvas),
     fontWeight: format.bold ? "700" : "400",
     fontStyle: format.italic ? "italic" : "normal",
     minHeight: "0",

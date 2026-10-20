@@ -15085,9 +15085,16 @@ test("shortcuts that leave the object alone work while its text is edited", asyn
   const canvas = page.locator("#slide-canvas");
   const width = async () => Math.round((await canvas.boundingBox()).width);
   const fitWidth = await width();
+  const fontSize = () =>
+    editor.evaluate((node) => parseFloat(node.style.fontSize));
+  const fitSize = await fontSize();
   await page.keyboard.press("ControlOrMeta+=");
   await expect.poll(width).toBeGreaterThan(fitWidth);
+  // The text being edited grows with the slide.
+  const zoomed = (fitSize * (await width())) / fitWidth;
+  await expect.poll(fontSize).toBeCloseTo(zoomed, 0);
   await page.keyboard.press("ControlOrMeta+0");
+  await expect.poll(fontSize).toBeCloseTo(fitSize, 1);
   await expect.poll(width).toBe(fitWidth);
   await expect(editor).toBeFocused();
   // Find leaves the text, keeping what was done to it.
