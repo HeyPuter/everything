@@ -500,8 +500,46 @@ it('tells apart radio buttons that share an export value, unless they are in uni
   await fillFields(loaded, { Size: ['Small'] });
   expect(states()).toEqual(['0', '1', 'Off']);
 });
+
 it('leaves a radio group whose widgets cannot be read to its export values', async () => {
   // A damaged widget entry must not stop the page's form controls from being drawn.
   const doc = await PDFDocument.load(await damagedWidgetsPdf('radio'), { updateMetadata: false });
   expect(() => radioButtonChoices(doc)).not.toThrow();
+});
+
+it('records and highlights the list option chosen among options sharing an export value', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(await readFile(new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url))),
+  );
+  const source = await PDFDocument.create();
+  const list = source.getForm().createOptionList('Fruit');
+  list.addToPage(source.addPage(), { x: 40, y: 500, width: 200, height: 90 });
+  list.acroField.dict.set(
+    PDFName.of('Opt'),
+    source.context.obj(
+      [
+        ['A', 'Apple'],
+        ['A', 'Avocado'],
+        ['B', 'Banana'],
+      ].map(([value, label]) => [PDFString.of(value), PDFString.of(label)]),
+    ),
+  );
+  const doc = await PDFDocument.load(await source.save());
+  const [listed] = listFields(doc);
+  expect(listed.choices.map(({ label }) => label)).toEqual(['Apple', 'Avocado', 'Banana']);
+  const avocado = listed.choices[1].value;
+  expect(new Set(listed.options).size).toBe(3);
+  await fillFields(doc, { Fruit: [avocado] });
+  const dict = doc.getForm().getOptionList('Fruit').acroField.dict;
+  expect(dict.lookup(PDFName.of('V')).decodeText()).toBe('A');
+  expect(dict.lookup(PDFName.of('I')).toString()).toBe('[ 1 ]');
+  expect(listFields(doc)[0].value).toEqual([avocado]);
+  // One highlighted row, the chosen one.
+  const widget = doc.getForm().getOptionList('Fruit').acroField.getWidgets()[0];
+  const ap = doc.context.lookup(widget.dict.lookup(PDFName.of('AP')).get(PDFName.of('N')));
+  const drawing = new TextDecoder().decode(ap.getUnencodedContents());
+  expect(drawing.match(/0\.6 0\.75\d* 0\.85\d* rg/g)).toHaveLength(1);
+  // A plain export value still picks its first option.
+  await fillFields(doc, { Fruit: ['B'] });
+  expect(dict.has(PDFName.of('I'))).toBe(false);
 });

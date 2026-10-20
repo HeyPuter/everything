@@ -230,6 +230,7 @@ export function createFormLayer({ onChange, onCommit }) {
     buttonSelections,
     tooltips,
     radioChoices,
+    listSelections,
   ) {
     rememberFocus();
     if (key !== pageKey) {
@@ -237,7 +238,14 @@ export function createFormLayer({ onChange, onCommit }) {
       key = pageKey;
       clearError();
     }
-    widgets = formWidgets(annotations, layers, buttonSelections, tooltips, radioChoices);
+    widgets = formWidgets(
+      annotations,
+      layers,
+      buttonSelections,
+      tooltips,
+      radioChoices,
+      listSelections,
+    );
     draft.register(widgets);
     controls = new Map();
     const fragment = document.createDocumentFragment();

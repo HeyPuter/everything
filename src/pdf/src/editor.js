@@ -141,6 +141,7 @@ import {
   formButtonSelections,
   formFieldTooltips,
   radioButtonChoices,
+  sharedChoiceSelections,
   fillFields,
   MAX_FILE_SIZE,
   MAX_IMAGE_SIZE,
@@ -2571,6 +2572,21 @@ export function createEditor({
         editDocument = doc;
         radioChoices = radioButtonChoices(doc);
       }
+      // Likewise lists whose options share an export value: /I tells which one is chosen.
+      let listSelections;
+      if (
+        annotations.some(
+          (a) =>
+            a.fieldType === 'Ch' &&
+            new Set(a.options?.map((o) => o.exportValue)).size < (a.options?.length ?? 0),
+        )
+      ) {
+        const doc =
+          editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+        if (token !== pageRenderGeneration || destroyed) return;
+        editDocument = doc;
+        listSelections = sharedChoiceSelections(doc);
+      }
       pageForms.render(
         annotations,
         viewport,
@@ -2579,6 +2595,7 @@ export function createEditor({
         buttonSelections,
         tooltips,
         radioChoices,
+        listSelections,
       );
       pageForms.setBusy(busy || !pageReady || !access().fill);
       pageForms.setEnabled(tool === 'select' && !preparing);

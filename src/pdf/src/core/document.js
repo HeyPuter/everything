@@ -65,7 +65,14 @@ import {
   textMaxLength,
   updateFieldAppearance,
 } from './form-appearance.js';
-import { choiceOptions, defaultFieldValue, textValue } from './form-values.js';
+import {
+  choiceKeys,
+  choiceOptions,
+  defaultFieldValue,
+  readChoiceKeys,
+  selectedChoices,
+  textValue,
+} from './form-values.js';
 export { choiceOptions } from './form-values.js';
 import { COPY_INDEX, copyPageStandIns, inlineNamedDests, relinkCopiedPages } from './pages.js';
 import { copyPagesWithLayers } from './optional-content.js';
@@ -1331,10 +1338,36 @@ function fieldTooltip(field) {
     ? tooltip.decodeText().trim()
     : '';
 }
+/**
+ * The selections of lists whose options share export values, by field name, as keys
+ * (choiceKeys): PDF.js reports the values, while /I tells which of those options is chosen.
+ */
+export function sharedChoiceSelections(doc) {
+  const result = new Map();
+  for (const field of formFields(doc) || []) {
+    if (!(field instanceof PDFDropdown || field instanceof PDFOptionList)) continue;
+    // A list whose options cannot be read keeps being chosen by export value.
+    try {
+      const options = choiceOptions(field);
+      if (new Set(options.map(({ value }) => value)).size === options.length) continue;
+      result.set(
+        formFieldName(field),
+        selectedChoices(field, options).map(({ key }) => key),
+      );
+    } catch {
+      continue;
+    }
+  }
+  return result;
+}
+/** A list's options keyed for selection (choiceKeys), and typed values that are not options. */
 function choiceSelections(field) {
-  const choices = choiceOptions(field);
-  for (const value of fieldValue(field))
-    if (!choices.some((option) => option.value === value)) choices.push({ value, label: value });
+  const options = choiceOptions(field);
+  const keys = choiceKeys(options);
+  const choices = options.map(({ label }, index) => ({ value: keys[index], label }));
+  for (const { key, index } of selectedChoices(field, options))
+    if (index < 0 && !choices.some((option) => option.value === key))
+      choices.push({ value: key, label: key });
   return choices;
 }
 /** Match viewer names: an unnamed ancestor contributes no part, while an empty name does. */
@@ -1402,7 +1435,10 @@ export function listFields(doc) {
               [...new Set(radioFieldOptions(field))]
             : choices.map((option) => option.value),
         choices,
-        value: fieldValue(field),
+        value:
+          field instanceof PDFRadioGroup
+            ? fieldValue(field)
+            : selectedChoices(field).map(({ key }) => key),
         multiple,
         editableChoice: field instanceof PDFDropdown && !multiple && field.isEditable(),
         spellcheck: field instanceof PDFDropdown && field.isSpellChecked(),
@@ -1467,7 +1503,10 @@ export async function fillFields(doc, values) {
       field instanceof PDFOptionList ||
       field instanceof PDFRadioGroup
     ) {
-      const selected = fieldValue(field);
+      const selected =
+        field instanceof PDFRadioGroup
+          ? fieldValue(field)
+          : selectedChoices(field).map(({ key }) => key);
       const previous = Array.isArray(selected) ? selected : selected == null ? [] : [selected];
       const next = Array.isArray(value) ? value : value ? [value] : [];
       if (previous.length === next.length && previous.every((option) => next.includes(option)))
@@ -1500,18 +1539,24 @@ export async function fillFields(doc, values) {
         } else field.clear();
       } else {
         const options = choiceOptions(field);
-        const custom = next.filter((value) => !options.some((option) => option.value === value));
+        // Options sharing an export value are chosen by position (choiceKeys).
+        const chosen = readChoiceKeys(next, options);
+        const custom = chosen.filter(({ index }) => index < 0);
         if (custom.length && (!(field instanceof PDFDropdown) || !field.isEditable()))
           throw new Error('Choose one of the available form options.');
         if (next.length > 1 && !field.isMultiselect())
           throw new Error('This form field accepts one selection.');
         // pdf-lib's select()/index helpers compare display labels, but PDF /V contains exports.
-        const values = next.map((value) => PDFHexString.fromText(value));
+        const values = chosen.map(({ value }) => PDFHexString.fromText(value));
         const dict = field.acroField.dict;
         if (!values.length) dict.set(PDFName.of('V'), doc.context.obj([]));
         else dict.set(PDFName.of('V'), values.length === 1 ? values[0] : doc.context.obj(values));
-        const indices = next.map((value) => options.findIndex((option) => option.value === value));
-        if (indices.length > 1 && indices.every((index) => index >= 0))
+        const indices = chosen.map(({ index }) => index);
+        // /I is needed for several selections, and to tell apart options that share a value.
+        const shared = chosen.some(
+          ({ value }) => options.filter((option) => option.value === value).length > 1,
+        );
+        if ((indices.length > 1 || shared) && indices.every((index) => index >= 0))
           dict.set(PDFName.of('I'), doc.context.obj(indices.sort((a, b) => a - b)));
         else dict.delete(PDFName.of('I'));
         // The previous list scroll position may hide the newly chosen option.
@@ -1521,7 +1566,7 @@ export async function fillFields(doc, values) {
         const labels =
           field instanceof PDFOptionList
             ? options.map((option) => option.label)
-            : next.map((value) => options.find((option) => option.value === value)?.label ?? value);
+            : chosen.map(({ value, index }) => options[index]?.label ?? value);
         changedText.push(...labels);
         changedChoices.push({ field, labels, options });
       }

@@ -1,5 +1,6 @@
 import { matrix } from './text-edit.js';
 import { annotationLayerVisible } from './optional-content.js';
+import { choiceKeys } from './form-values.js';
 
 const clone = (value) => (Array.isArray(value) ? [...value] : value);
 export const equalFieldValue = (a, b) => {
@@ -116,7 +117,14 @@ function checkBoxGroups(annotations) {
 }
 
 /** Only actual, visible form widgets are interactive. No document actions are executed. */
-export function formWidgets(annotations, layers, buttonSelections, tooltips, radioChoices) {
+export function formWidgets(
+  annotations,
+  layers,
+  buttonSelections,
+  tooltips,
+  radioChoices,
+  listSelections,
+) {
   const groups = checkBoxGroups(annotations);
   return annotations.flatMap((a) => {
     if (
@@ -166,6 +174,14 @@ export function formWidgets(annotations, layers, buttonSelections, tooltips, rad
       value: option.exportValue,
       label: option.displayValue,
     }));
+    // Options sharing an export value are told apart by position, as the PDF's /I does.
+    const keys = choiceKeys(options);
+    if (type === 'choice' && keys.some((key, i) => key !== options[i].value)) {
+      value =
+        listSelections?.get(a.fieldName) ??
+        value.map((selected) => keys[options.findIndex((o) => o.value === selected)] ?? selected);
+      options.forEach((option, i) => (option.value = keys[i]));
+    }
     if (type === 'choice')
       for (const selected of value)
         if (!options.some((o) => o.value === selected))

@@ -16,7 +16,10 @@ import {
 } from 'pdf-lib';
 import { readAppearanceDefaults as defaults } from './form-style.js';
 
-/** Retain option identity through sorting and wrapping; equal labels need not be equal values. */
+/**
+ * Retain option identity through sorting and wrapping; equal labels need not be equal values,
+ * and equal values need not be the same option. `selected` holds positions in `options`.
+ */
 export function listAppearance(source, widget, font, options, selected) {
   const rows = options.slice();
   if (source.isSorted()) rows.sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
@@ -40,7 +43,7 @@ export function listAppearance(source, widget, font, options, selected) {
       height: height - 2 * (borderWidth + padding),
     },
   });
-  const selectedValues = new Set(selected),
+  const selectedRows = new Set([...selected].map((index) => options[index])),
     selectedLines = [],
     rowStarts = [];
   let index = 0;
@@ -51,7 +54,7 @@ export function listAppearance(source, widget, font, options, selected) {
       // Consume its returned text to map lines without laying out or encoding them again.
       while (index < layout.lines.length) {
         const line = layout.lines[index];
-        if (selectedValues.has(row.value)) selectedLines.push(index);
+        if (selectedRows.has(row)) selectedLines.push(index);
         index++;
         if (line.text.length >= remainder.length) break;
         remainder = remainder.slice(line.text.length).trim();

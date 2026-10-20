@@ -20,7 +20,7 @@ import {
   defaultRadioGroupAppearanceProvider,
   defaultButtonAppearanceProvider,
 } from './appearance-providers.js';
-import { choiceOptions, choiceValues, textValue } from './form-values.js';
+import { choiceOptions, selectedChoices, textValue } from './form-values.js';
 import { listAppearance } from './list-appearance.js';
 import { retainCryptFilter, withoutCryptFilter } from './stream-filters.js';
 
@@ -37,13 +37,13 @@ export function preserveFieldAppearance(field, form) {
 
 /** Appearance text uses display labels; the PDF's stored values remain export codes. */
 export function choiceAppearanceProvider(field, options = choiceOptions(field), labels) {
+  // Options sharing an export value are highlighted or shown by the one /I names.
+  const selected = selectedChoices(field, options);
   if (field instanceof PDFOptionList) {
-    const selected = choiceValues(field);
-    return (source, widget, font) => listAppearance(source, widget, font, options, selected);
+    const rows = new Set(selected.map(({ index }) => index));
+    return (source, widget, font) => listAppearance(source, widget, font, options, rows);
   }
-  labels ??= choiceValues(field).map(
-    (value) => options.find((option) => option.value === value)?.label ?? value,
-  );
+  labels ??= selected.map(({ key, index }) => options[index]?.label ?? key);
   return (source, widget, font) => {
     const display = Object.create(source);
     display.getSelected = () => labels;
