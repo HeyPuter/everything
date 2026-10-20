@@ -14,6 +14,7 @@ import {
   isXYKind,
   sampleSpec,
   switchRowColumn,
+  canSwitchRowColumn,
   cleanSpec,
 } from "./chart-data.js";
 import {
@@ -251,7 +252,7 @@ export function createChartTools(h) {
       );
       cats.value = spec.categories.join("\n");
       cats.disabled = xy;
-      swap.disabled = xy;
+      swap.disabled = !canSwitchRowColumn(spec.kind);
       up.disabled = chosen <= 0;
       down.disabled = chosen >= spec.series.length - 1;
       remove.disabled = spec.series.length <= 1;
@@ -857,7 +858,7 @@ export function createChartTools(h) {
               title: "Switch Row/Column",
               description: "Swap what is plotted as series and as categories.",
               enabled: () =>
-                enabled() && !isXYKind(specOf(selectedChart())?.kind),
+                enabled() && canSwitchRowColumn(specOf(selectedChart())?.kind),
               run: () => updateSelected((s) => switchRowColumn(s)),
             },
             {

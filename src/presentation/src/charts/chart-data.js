@@ -935,10 +935,13 @@ function trimEmptyTail(names, rows) {
   return count;
 }
 
+// X/Y charts plot their columns as series, and a pie plots one series only:
+// its categories turned into series would leave it one value to show.
+export const canSwitchRowColumn = (kind) => !isXYKind(kind) && kind !== "pie";
 // Swap what the rows and the columns plot: categories become series and
-// series categories. X/Y charts have no such choice.
+// series categories.
 export function switchRowColumn(spec) {
-  if (isXYKind(spec.kind)) return spec;
+  if (!canSwitchRowColumn(spec.kind)) return spec;
   const count = Math.max(
     spec.categories.length,
     ...spec.series.map((s) => s.values.length),
@@ -962,7 +965,6 @@ export function switchRowColumn(spec) {
   });
   const out = { ...spec, categories, series };
   delete out.categoryNumberFormat;
-  if (spec.kind === "pie") out.series = out.series.slice(0, 1);
   return cleanSpec(withBarDefaults(spec, out));
 }
 

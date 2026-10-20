@@ -15,6 +15,7 @@ import {
   pasteBlock,
   specToGrid,
   switchRowColumn,
+  canSwitchRowColumn,
   isXYKind,
   toTsv,
 } from "./chart-data.js";
@@ -97,6 +98,12 @@ export function openChartSheet({ title, target, read, write, seriesColor }) {
         if (isXYKind(spec.kind)) {
           toast(
             "X Y charts plot their columns as series; there is nothing to switch.",
+          );
+          return;
+        }
+        if (!canSwitchRowColumn(spec.kind)) {
+          toast(
+            "A pie chart plots a single series; there is nothing to switch.",
           );
           return;
         }

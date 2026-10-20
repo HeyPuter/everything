@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { P, createDeck, parseDeck } from "../src/model.js";
 import {
   CHART_TYPES,
+  canSwitchRowColumn,
   comboSpec,
   convertChart,
   deleteColumn,
@@ -166,6 +167,16 @@ describe("data sheet grid", () => {
     expect(switched.series[0].values).toEqual([4.1, 2.2, 1.8]);
     expect(switchRowColumn(switched).series[0].values).toEqual(
       spec.series[0].values,
+    );
+  });
+
+  it("leaves a pie's data alone instead of switching it away", () => {
+    const pie = sampleSpec("pie");
+    expect(canSwitchRowColumn("pie")).toBe(false);
+    expect(canSwitchRowColumn("doughnut")).toBe(true);
+    expect(switchRowColumn(pie)).toEqual(pie);
+    expect(switchRowColumn(switchRowColumn(pie)).series[0].values).toEqual(
+      pie.series[0].values,
     );
   });
 });
