@@ -9,6 +9,8 @@ import {
   displayShapeText,
   slideDescription,
   setRichText,
+  slideNumberRun,
+  splitFieldEdges,
 } from "../src/model.js";
 import { renderSlideToSvg } from "../lib/pptx-preview/src/index.ts";
 import { slideNumberStamp } from "../src/slide-fields.js";
@@ -188,5 +190,48 @@ describe("live slide-number fields", () => {
     );
     const unknown = await parseDeck(await P.savePresentation(source));
     expect(text(svg(unknown))).toContain("Number: 999 / literal 999");
+  });
+
+  it("inserts a slide number as a live field that follows the slide", async () => {
+    const p = createDeck("blank");
+    P.addBlankSlide(p);
+    const second = P.getSlides(p)[1];
+    const box = P.addSlideTextBox(second, {
+      x: P.inches(1),
+      y: P.inches(1),
+      w: P.inches(4),
+      h: P.inches(1),
+      text: "Page ",
+    });
+    const paragraphs = textRuns(p, box);
+    const last = paragraphs.at(-1);
+    last.runs.push(slideNumberRun(last.runs.at(-1), "2"));
+    setRichText(box, paragraphs);
+    expect(P.getShapeXmlString(box)).toMatch(/<a:fld [^>]*type="slidenum"/);
+    expect(displayShapeText(p, box)).toBe("Page 2");
+    P.moveSlide(p, second, 0);
+    const back = await parseDeck(await P.savePresentation(p));
+    const moved = P.getSlideShapes(P.getSlides(back)[0]).at(-1);
+    expect(displayShapeText(back, moved)).toBe("Page 1");
+  });
+
+  it("splits text typed at a field's edges off the field", () => {
+    const field = slideNumberRun(null, "3");
+    const runs = splitFieldEdges([
+      { ...field, text: "Page 3!\n" },
+      { text: "rest", format: {}, changes: {} },
+    ]);
+    expect(runs.map((r) => [r.text, !!r.fld])).toEqual([
+      ["Page ", false],
+      ["3", true],
+      ["!\n", false],
+      ["rest", false],
+    ]);
+    // Line breaks after the value stay with the field, and a replaced value
+    // is literal text.
+    expect(splitFieldEdges([{ ...field, text: "3\n" }])).toHaveLength(1);
+    expect(splitFieldEdges([{ ...field, text: "7" }])[0].text).toBe("7");
+    runs[0].format.bold = true;
+    expect(runs[1].format.bold).toBeUndefined();
   });
 });

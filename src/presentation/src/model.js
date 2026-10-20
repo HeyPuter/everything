@@ -1133,6 +1133,54 @@ const unchangedField = (run) => {
     run.text.startsWith(value) && /^\u000b*$/.test(run.text.slice(value.length))
   );
 };
+// Text typed at either edge of a field lands in the field's run in the
+// editor; it is split off into a run of its own, so the field stays whole
+// while its value is left alone. Line breaks after the value stay with it.
+export function splitFieldEdges(runs) {
+  return runs.flatMap((run) => {
+    if (!run.fld) return [run];
+    const value = nodeText(fieldText(run.fld));
+    const at = value ? run.text.indexOf(value) : -1;
+    if (at < 0) return [run];
+    const { fld, ...rest } = run;
+    const plain = (text) => ({
+      ...rest,
+      format: { ...run.format },
+      changes: { ...run.changes },
+      text,
+    });
+    let end = at + value.length;
+    while (end < run.text.length && /[\n\u000b]/.test(run.text[end])) end++;
+    const before = run.text.slice(0, at),
+      after = run.text.slice(end);
+    if (!before && !after) return [run];
+    return [
+      ...(before ? [plain(before)] : []),
+      { ...run, text: run.text.slice(at, end) },
+      ...(after ? [plain(after)] : []),
+    ];
+  });
+}
+// A run holding a live slide number (<a:fld type="slidenum">) that shows
+// `value` now, formatted as the run `source` beside it.
+export function slideNumberRun(source, value) {
+  const rpr = source?.rpr ? structuredClone(source.rpr) : null;
+  const fld = xmlNode(
+    xmlName("a", "fld", NS_A),
+    [xmlAttr("id", P.newCommentGuid()), xmlAttr("type", "slidenum")],
+    [
+      ...(rpr ? [rpr] : []),
+      xmlNode(xmlName("a", "t", NS_A), [], [{ kind: "text", data: value }]),
+    ],
+  );
+  return {
+    text: value,
+    format: { ...(source?.format || {}) },
+    rpr: source?.rpr ?? null,
+    changes: { ...(source?.changes || {}) },
+    fld,
+  };
+}
 // A field is formatted as one character atom. Expand formatting
 // selections that touch its displayed value, without including the soft or
 // paragraph breaks the canvas editor appends to a run. Edited field values

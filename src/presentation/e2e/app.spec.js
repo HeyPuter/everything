@@ -15554,6 +15554,54 @@ test("editing text beside a slide number field keeps the field", async ({
   expect(P.getShapeXmlString(shape)).toMatch(/<a:fld [^>]*type="slidenum"/);
 });
 
+// Insert > Slide Number typed the current number in as plain text, which
+// went stale as soon as the slide moved.
+test("Insert > Slide Number puts in a live field, while editing or not", async ({
+  page,
+}) => {
+  await start(page);
+  const pres = createDeck("blank");
+  P.addBlankSlide(pres);
+  const second = P.getSlides(pres)[1];
+  text(second, "Page ", 1, 1, 4, 1);
+  text(second, "Slide  of 2", 1, 3, 4, 1);
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Numbers.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  await page.locator(".slide-thumb").nth(1).click();
+  await expect(page.locator("#slide-position")).toHaveText("Slide 2 of 2");
+  const hits = page.locator(".object-hit");
+  // Not editing: the number goes at the end of the selected box.
+  await hits.nth(0).click();
+  await (await ribbonButton(page, "Insert", "slide-number")).click();
+  await expect(hits.nth(0)).toHaveAccessibleName(/^Page 2/);
+  // Editing: at the caret, and typing on after it leaves the field whole.
+  await hits.nth(1).dblclick();
+  const editor = page.getByRole("textbox", { name: "Edit text", exact: true });
+  await editor.press("Home");
+  for (let i = 0; i < 6; i++) await editor.press("ArrowRight");
+  await (await ribbonButton(page, "Insert", "slide-number")).click();
+  await expect(editor).toBeFocused();
+  await page.keyboard.type("!");
+  await editor.press("Escape");
+  await expect(hits.nth(1)).toHaveAccessibleName(/^Slide 2! of 2/);
+  // Moved to the front, both numbers follow the slide.
+  await page
+    .getByRole("button", { name: "Options for slide 2", exact: true })
+    .click();
+  await page.getByRole("menuitem", { name: "Move up", exact: true }).click();
+  await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 2");
+  await expect(hits.nth(0)).toHaveAccessibleName(/^Page 1/);
+  await expect(hits.nth(1)).toHaveAccessibleName(/^Slide 1! of 2/);
+});
+
 // A paragraph spaced by a fixed number of points showed as a "NaN" choice in
 // the panel's line spacing list.
 test("fixed line spacing reads as its points in the panel", async ({

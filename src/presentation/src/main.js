@@ -66,6 +66,8 @@ import {
   fieldFormattingRange,
   firstTextElement,
   setRichText,
+  slideNumberRun,
+  splitFieldEdges,
   SOFT_BREAK,
   setParagraphIndentLevel,
   LEVEL_INDENTS,
@@ -5695,10 +5697,22 @@ function dateTimeMenu() {
     };
   });
 }
+// The number goes in as a live field, so it follows the slide when slides
+// are added, removed, or moved.
 function insertSlideNumber() {
   const obj = currentShape();
   if (!obj) return;
-  insertTextAtCursor(obj, String(index + 1));
+  const value = String(index + 1);
+  const field = (source) => slideNumberRun(source, value);
+  const editor = editorFor(obj);
+  if (editor) return editor.insertField(value, field);
+  if (isTable(obj)) return;
+  mutateShape(obj, (obj) => {
+    const paragraphs = textRuns(doc.pres, obj);
+    const last = paragraphs.at(-1);
+    if (last) last.runs.push(field(last.runs.at(-1)));
+    setRichText(withTextBody(obj), paragraphs);
+  });
 }
 // WordArt: a text box styled as one of a few decorative presets.
 const WORDART = [
@@ -10527,7 +10541,9 @@ function editText(target, event = null) {
     walk(input, fallback());
     if (!started) paragraph(fallback());
     return {
-      runs: next.filter((run) => run.text).map(({ source, ...run }) => run),
+      runs: splitFieldEdges(
+        next.filter((run) => run.text).map(({ source, ...run }) => run),
+      ),
       paras: blocks,
     };
   }
@@ -10637,8 +10653,9 @@ function editText(target, event = null) {
     }
     return runs.length;
   }
-  // Typed or pasted text continues the run before it.
-  function replaceRange(start, end, value) {
+  // Typed or pasted text continues the run before it; `field` makes the run
+  // for a field shown as `value` from that run instead.
+  function replaceRange(start, end, value, field = null) {
     remember();
     runs = readRuns();
     // Paragraphs removed with the text go; new ones take after the one split.
@@ -10653,7 +10670,11 @@ function editText(target, event = null) {
     const from = splitAt(start),
       to = splitAt(end);
     const source = runs[from - 1] || runs[from] || base;
-    runs.splice(from, to - from, copyRun(source, value));
+    runs.splice(
+      from,
+      to - from,
+      field ? field(source) : copyRun(source, value),
+    );
     runs = runs.filter((run) => run.text);
     render();
     setSelection(start + value.length, start + value.length);
@@ -11101,6 +11122,14 @@ function editText(target, event = null) {
             .join("")
             .slice(sel[0], sel[1])
         : "";
+    },
+    // A field put in at the caret, or over the selection.
+    insertField: (value, field) => {
+      const sel = selection();
+      if (!sel) return false;
+      replaceRange(sel[0], sel[1], value, field);
+      refocusSoon([sel[0] + value.length, sel[0] + value.length]);
+      return true;
     },
     replaceSelection: (value) => {
       const sel = selection();
