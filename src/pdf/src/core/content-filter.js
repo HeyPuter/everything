@@ -300,6 +300,7 @@ export const contentReport = () => ({
  *  - hidden(ocDict) → whether optional content is off (its content then has ctx.hidden)
  *  - untagHidden: also drop the layer reference from hidden marked-content sections
  *  - conservative: remove every glyph of a show whose widths are estimates when one is hit
+ *  - softMasks: also filter the groups of soft masks that `gs` sets (ExtGState /SMask /G)
  *  - memoKey(form, graphics, hidden) → a key when the result does not depend on position
  * Resolves to `{ source, resources, changed, mcids, open, underflow }`: `mcids` are the marked
  * content ids that lost content, `open` the q states left open and `underflow` the unmatched Q
@@ -335,7 +336,7 @@ export async function filterContent(doc, options) {
   const owned = () => {
     if (!own) {
       own = resources?.clone(context) || context.obj({});
-      for (const key of ['XObject', 'Properties']) {
+      for (const key of ['XObject', 'Properties', 'ExtGState']) {
         const dict = get(resources, key);
         if (dict instanceof PDFDict) own.set(PDFName.of(key), dict.clone(context));
       }
@@ -343,15 +344,17 @@ export async function filterContent(doc, options) {
     return own;
   };
   // Uses per resource name, so a name whose last use was replaced can leave the resources.
-  const uses = { XObject: new Map(), Properties: new Map() };
+  const uses = { XObject: new Map(), Properties: new Map(), ExtGState: new Map() };
   for (const command of commands) {
     const [first, second] = command.args;
     if (command.op === 'Do' && first?.type === 'name')
       uses.XObject.set(first.value, (uses.XObject.get(first.value) || 0) + 1);
+    if (command.op === 'gs' && first?.type === 'name')
+      uses.ExtGState.set(first.value, (uses.ExtGState.get(first.value) || 0) + 1);
     if ((command.op === 'BDC' || command.op === 'DP') && second?.type === 'name')
       uses.Properties.set(second.value, (uses.Properties.get(second.value) || 0) + 1);
   }
-  const released = { XObject: new Set(), Properties: new Set() };
+  const released = { XObject: new Set(), Properties: new Set(), ExtGState: new Set() };
   const release = (name, category = 'XObject') => {
     const left = (uses[category].get(name) || 1) - 1;
     uses[category].set(name, left);
@@ -454,6 +457,7 @@ export async function filterContent(doc, options) {
           gs.size = font.lookup(1)?.asNumber?.() ?? gs.size;
           gs.fontName = null;
         }
+        if (policy.softMasks) await softMask(command, state);
         break;
       }
       case 'BT':
@@ -552,7 +556,7 @@ export async function filterContent(doc, options) {
   let out = source;
   for (const edit of edits) out = out.slice(0, edit.start) + edit.text + out.slice(edit.end);
   if (own)
-    for (const category of ['XObject', 'Properties']) {
+    for (const category of ['XObject', 'Properties', 'ExtGState']) {
       const dict = get(own, category);
       if (dict instanceof PDFDict)
         for (const name of released[category]) dict.delete(PDFName.of(name));
@@ -737,6 +741,46 @@ export async function filterContent(doc, options) {
     }
   }
 
+  /**
+   * A soft mask's group (ExtGState /SMask /G) is drawn too, shaping what it masks; text in it
+   * survives in the file. Filter it like a form, in the coordinates in force at `gs`, and
+   * point this `gs` at a copy of the graphics state holding the filtered group.
+   */
+  async function softMask(command, state) {
+    const mask = get(state, 'SMask');
+    const group = mask instanceof PDFDict ? get(mask, 'G') : null;
+    if (!(group instanceof PDFStream)) return;
+    const ctm = matrix(gs.ctm, numbers(get(group.dict, 'Matrix')) || identity);
+    let result;
+    try {
+      if (ancestors.has(group) || depth >= MAX_DEPTH) throw unsafeContent();
+      const groupResources = get(group.dict, 'Resources');
+      result = await filterContent(doc, {
+        source: decode(group),
+        resources: groupResources instanceof PDFDict ? groupResources : resources,
+        policy,
+        report,
+        graphics: { ...freshGraphics(), ctm },
+        hidden: isHidden(),
+        depth: depth + 1,
+        ancestors: new Set([...ancestors, group]),
+        memo,
+      });
+    } catch {
+      report.warnings.add('A soft mask could not be read and was left unchanged.');
+      return;
+    }
+    if (!result.changed) return;
+    const maskCopy = mask.clone(context);
+    maskCopy.set(PDFName.of('G'), context.register(filteredForm(context, group, result)));
+    const stateCopy = state.clone(context);
+    stateCopy.set(PDFName.of('SMask'), maskCopy);
+    taint();
+    release(command.args[0].value, 'ExtGState');
+    const fresh = addResource('ExtGState', 'RedactedState', context.register(stateCopy));
+    edits.push({ start: command.start, end: command.end, text: `${fresh} gs` });
+  }
+
   async function place(command) {
     const name = command.args[0]?.value;
     const object = get(get(resources, 'XObject'), name);
@@ -810,23 +854,26 @@ export async function filterContent(doc, options) {
       return;
     }
     let ref = null;
-    if (result.changed) {
-      const copy = object.dict.clone(context);
-      for (const k of ['Filter', 'DecodeParms', 'Length', 'PieceInfo', 'LastModified', 'Metadata'])
-        copy.delete(PDFName.of(k));
-      if (result.resources !== get(object.dict, 'Resources') || copy.has(PDFName.of('Resources')))
-        copy.set(PDFName.of('Resources'), result.resources);
-      const stream = context.flateStream(Uint8Array.from(result.source, (c) => c.charCodeAt(0)));
-      for (const [k, v] of copy.entries())
-        if (k !== PDFName.of('Length') && k !== PDFName.of('Filter')) stream.dict.set(k, v);
-      retainCryptFilter(stream.dict, [object.dict]);
-      ref = replaceCall(stream, 'RedactedForm');
-    }
+    if (result.changed) ref = replaceCall(filteredForm(context, object, result), 'RedactedForm');
     if (key != null) {
       if (!memo.has(object)) memo.set(object, new Map());
       memo.get(object).set(key, ref);
     }
   }
+}
+
+/** A new Form XObject holding a filtered form's content, without data describing the original. */
+function filteredForm(context, object, result) {
+  const copy = object.dict.clone(context);
+  for (const k of ['Filter', 'DecodeParms', 'Length', 'PieceInfo', 'LastModified', 'Metadata'])
+    copy.delete(PDFName.of(k));
+  if (result.resources !== get(object.dict, 'Resources') || copy.has(PDFName.of('Resources')))
+    copy.set(PDFName.of('Resources'), result.resources);
+  const stream = context.flateStream(Uint8Array.from(result.source, (c) => c.charCodeAt(0)));
+  for (const [k, v] of copy.entries())
+    if (k !== PDFName.of('Length') && k !== PDFName.of('Filter')) stream.dict.set(k, v);
+  retainCryptFilter(stream.dict, [object.dict]);
+  return stream;
 }
 
 /** Unit-square placement quad of an image under `ctm`. */

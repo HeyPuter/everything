@@ -482,6 +482,7 @@ function redactionPolicy(doc, areas, { codec } = {}) {
   };
   return {
     conservative: true,
+    softMasks: true,
     glyph: (quad) => hits(quad),
     path: (bounds) => areas.some(({ rect }) => rectInside(bounds, rect)),
     async image({ object, ctm, resources }) {

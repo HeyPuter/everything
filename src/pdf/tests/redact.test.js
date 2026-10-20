@@ -943,3 +943,43 @@ it('finds hyphenated patterns in text drawn with a standard font', async () => {
   const [match] = await findTextRects(reopened, 0, REDACTION_PATTERNS.ssn);
   expect(match.text).toBe('123-45-6789');
 });
+
+it('removes text that shapes a soft mask under the area', async () => {
+  // Design tools draw effects such as knocked-out or faded lettering as a soft mask whose group
+  // holds the text; it shows on the page and is as readable from the file as page text.
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 400]);
+  const font = doc.embedStandardFont(StandardFonts.Helvetica);
+  const group = doc.context.register(
+    doc.context.stream('BT /F1 24 Tf 1 g 60 300 Td (MASKSECRET) Tj ET', {
+      Type: 'XObject',
+      Subtype: 'Form',
+      BBox: [0, 0, 400, 400],
+      Group: { S: 'Transparency', CS: 'DeviceGray' },
+      Resources: { Font: { F1: font.ref } },
+    }),
+  );
+  const state = doc.context.obj({ Type: 'ExtGState', SMask: { S: 'Luminosity', G: group } });
+  page.node.set(
+    n('Resources'),
+    doc.context.obj({ ExtGState: { GS1: state }, Font: { F1: font.ref } }),
+  );
+  page.node.set(
+    n('Contents'),
+    doc.context.register(
+      doc.context.stream('q /GS1 gs 0 0 400 400 re f Q BT /F1 12 Tf 60 100 Td (Public) Tj ET'),
+    ),
+  );
+  const { bytes: out, report } = await redact(await doc.save(), [[0, [[50, 290, 300, 330]]]]);
+  expect(report.text).toBe(10);
+  const corpus = await recoverable(out);
+  expectGone(corpus, 'MASKSECRET');
+  expect(await pageText(out)).toContain('Public');
+  // The masked fill keeps a soft mask, now without the lettering.
+  const saved = await PDFDocument.load(out);
+  const states = saved.getPage(0).node.Resources().lookup(n('ExtGState'));
+  expect(states.keys().map(String)).toEqual(['/RedactedState1']);
+  expect(states.lookup(n('RedactedState1')).lookup(n('SMask')).lookup(n('S'))).toBe(
+    n('Luminosity'),
+  );
+});
