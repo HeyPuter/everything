@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Puter Mail boot harness</title>
+  <script type="module">
+    // The real start-up path (src/main.js) over a fake Puter SDK and the
+    // sample mailbox. `?mode=` picks how the SDK answers:
+    //   ok        everything works
+    //   statnet   the access check gets no answer until __netUp() is called
+    //   noperm    the access check is refused with a coded API error
+    //   whoamifail the account lookup fails
+    import { createSampleMailbox } from '/src/lib/sample.js';
+    const mode = new URLSearchParams(location.search).get('mode') || 'ok';
+    const mailbox = createSampleMailbox();
+    const fs = { ...mailbox.fs };
+    let netDown = mode === 'statnet';
+    window.__netUp = () => { netDown = false; };
+    window.__log = [];
+    const stat = fs.stat.bind(fs);
+    fs.stat = async (path) => {
+      // What the SDK rejects with when a request never got an answer.
+      if (netDown) throw { message: 'Network request failed.', code: 'network_error' };
+      if (mode === 'noperm') throw { message: 'Permission denied.', code: 'forbidden' };
+      return stat(path);
+    };
+    window.puter = {
+      env: 'web',
+      APIOrigin: `${location.origin}/test-api`,
+      authToken: 'fixture',
+      auth: {
+        isSignedIn: () => true,
+        signIn: async () => {},
+        signOut: async () => {},
+        whoami: async () => {
+          if (mode === 'whoamifail') throw new Error('Failed to fetch');
+          return { username: 'sample' };
+        },
+      },
+      fs,
+      ui: {},
+      perms: { request: async (permission) => { window.__log.push(`perm:${permission}`); return false; } },
+    };
+    localStorage.setItem('puter-mail:onboarded', '1');
+    await import('/src/main.js');
+  </script>
+</head>
+<body>
+  <div id="app" class="app"></div>
+</body>
+</html>
