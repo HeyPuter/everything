@@ -554,6 +554,13 @@ describe('parseAddressList', () => {
 
 
 describe('flattening HTML without losing the links', () => {
+  it('stays linear on a long run of spaces that no line break follows', () => {
+    const headers = parseHeaders('Content-Type: text/html; charset=utf-8');
+    const start = performance.now();
+    expect(extractText(`<pre>a   \n${' '.repeat(16000)}x</pre>`, headers)).toBe(`a\n${' '.repeat(16000)}x`);
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
   const flatten = (html) => {
     const raw = `Content-Type: text/html; charset=utf-8${CRLF}${CRLF}${html}`;
     const { head, body } = splitMessage(raw);

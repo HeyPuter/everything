@@ -402,6 +402,15 @@ export const showsTarget = (label, href) => {
  * see where it pointed. Where the text of a link is not the URL itself, the
  * URL is kept beside it in angle brackets.
  */
+// Spaces and tabs off the end of every line, walked back rather than matched:
+// `/[ \t]+\n/g` is quadratic on a run of spaces that no line break follows,
+// and 16,000 of them inside a <pre> took seconds to flatten.
+const trimLineEnds = (text) => text.split('\n').map((line) => {
+  let end = line.length;
+  while (end && (line[end - 1] === ' ' || line[end - 1] === '\t')) end--;
+  return end === line.length ? line : line.slice(0, end);
+}).join('\n');
+
 const htmlToText = (html) => {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const parts = [];
@@ -465,8 +474,7 @@ const htmlToText = (html) => {
   };
 
   walk(doc.body ?? doc);
-  return parts.join('')
-    .replace(/[ \t]+\n/g, '\n')
+  return trimLineEnds(parts.join(''))
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 };
