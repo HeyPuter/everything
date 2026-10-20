@@ -53,6 +53,21 @@ describe('linkify: plain URLs', () => {
   });
 });
 
+describe('linkify: hostile input', () => {
+  const elapsed = (fn) => {
+    const start = performance.now();
+    fn();
+    return performance.now() - start;
+  };
+
+  it('stays linear on a URL followed by a long run of closers or punctuation', () => {
+    // Each took seconds when every trimmed character re-ran a regex and two counts.
+    expect(elapsed(() => linkify(`https://x.co/${')'.repeat(16000)}`))).toBeLessThan(1000);
+    expect(elapsed(() => linkify(`https://x.co/${'.'.repeat(16000)}a`))).toBeLessThan(1000);
+    expect(links(`(see https://x.co/a)).`)[0].url).toBe('https://x.co/a');
+  });
+});
+
 describe('linkify: addresses', () => {
   it('turns an address into a mail link', () => {
     expect(shape('write to ana@meridianlabs.example please'))

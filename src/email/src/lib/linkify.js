@@ -40,32 +40,33 @@ const ADDRESS_ONLY = new RegExp(`^${ADDRESS}$`, 'i');
 
 const CLOSERS = { ')': '(', ']': '[', '}': '{', '>': '<' };
 
-const count = (text, character) => {
-  let total = 0;
-  for (const char of text) if (char === character) total++;
-  return total;
-};
-
 /**
  * "See https://example.com/page." ends a sentence; the full stop is not part
  * of the URL. Neither is the closing bracket of "(see https://example.com)" --
  * but the one in ".../Foo_(bar)" is.
+ *
+ * One walk back from the end, with the bracket counts kept as it goes: a regex
+ * and two counts for every character trimmed made a URL followed by a long run
+ * of ")" quadratic, and sixteen thousand of them froze the reader for seconds.
  */
+const TRAILING = new Set(['.', ',', ';', ':', '!', '?', "'", '"', '\u201d', '\u2019']);
+
 const trimTrailing = (match) => {
-  let value = match;
-  for (;;) {
-    const stripped = value.replace(/[.,;:!?'"”’]+$/, '');
-    if (stripped !== value) {
-      value = stripped;
-      continue;
+  const tally = {};
+  for (const char of match) if ('()[]{}<>'.includes(char)) tally[char] = (tally[char] || 0) + 1;
+  let end = match.length;
+  while (end > 0) {
+    const last = match[end - 1];
+    if (TRAILING.has(last)) {
+      end -= 1;
+    } else if (last in CLOSERS && (tally[last] || 0) > (tally[CLOSERS[last]] || 0)) {
+      tally[last] -= 1;
+      end -= 1;
+    } else {
+      break;
     }
-    const last = value.slice(-1);
-    if (last in CLOSERS && count(value, last) > count(value, CLOSERS[last])) {
-      value = value.slice(0, -1);
-      continue;
-    }
-    return value;
   }
+  return match.slice(0, end);
 };
 
 // Whether the host as written differs from `url.host`, the one the browser
