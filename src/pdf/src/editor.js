@@ -536,6 +536,7 @@ export function createEditor({
   /** The zoom for the current scale mode, from the page's natural size and the workspace. */
   function computeZoom(natural, mode = scaleMode) {
     if (mode === 'fit' && (stack.continuous || stack.twoUp)) natural = stack.widest(natural);
+    else if (mode === 'page' && stack.continuous) natural = stack.largest(natural);
     else if (mode === 'page' && stack.twoUp)
       natural = { width: natural.width * 2 + 12, height: natural.height };
     const width = workspace.clientWidth,

@@ -1514,6 +1514,46 @@ test('fit page shows the whole page inside the workspace and follows its height'
   await expect(zoom).toHaveValue('page');
 });
 
+test('fit page keeps one zoom while scrolling through pages of different sizes', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  for (const size of [
+    [400, 500],
+    [400, 500],
+    [900, 450],
+    [900, 450],
+    [400, 500],
+  ])
+    doc.addPage(size);
+  await openPdf(page, doc);
+  const workspace = page.locator('.workspace'),
+    third = page.locator('.page-slot[data-page="2"]');
+  await page.getByLabel('Zoom', { exact: true }).selectOption('page');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  // Every page fits the view, the wide ones as well as the tall ones.
+  const view = await workspace.boundingBox();
+  for (const slot of await page.locator('.page-slot').all()) {
+    const box = await slot.boundingBox();
+    expect(box.width).toBeLessThanOrEqual(view.width);
+    expect(box.height).toBeLessThanOrEqual(view.height);
+  }
+  const width = (await third.boundingBox()).width;
+  // Scrolling the third page to the top makes it the current page without a new zoom
+  // moving it, or the pages after it, out from under the reader.
+  await workspace.evaluate((node) => {
+    const slot = node.querySelector('.page-slot[data-page="2"]');
+    node.scrollTop += slot.getBoundingClientRect().top - node.getBoundingClientRect().top - 12;
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 3 of 5');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  expect((await third.boundingBox()).width).toBeCloseTo(width, 0);
+  expect((await third.boundingBox()).y - view.y).toBeCloseTo(12, 0);
+  await expect(page.getByLabel('Zoom', { exact: true })).toHaveValue('page');
+});
+
 /** Choose a menu item by name from the menu bar, or from the folded phone menu. */
 async function menu(page, name) {
   const bar = page.getByRole('menubar', { name: 'PDF menus' });

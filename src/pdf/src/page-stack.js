@@ -304,6 +304,14 @@ export function createPageStack({
       );
       return { width: twoUp ? width * 2 + GAP : width, height: natural.height };
     },
+    /** Fit-page zoom fits every page, widest and tallest, for the same reason. */
+    largest(natural) {
+      const height = Math.max(
+        natural.height,
+        sizes.reduce((max, size) => Math.max(max, size?.height || 0), 0),
+      );
+      return { width: this.widest(natural).width, height };
+    },
     get twoUp() {
       return twoUp;
     },
