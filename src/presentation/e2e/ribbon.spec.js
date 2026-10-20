@@ -200,6 +200,32 @@ test("a text box left without text goes, and a fresh one leaves no undo step", a
   ).toBe(true);
 });
 
+// Escape put the tool down but the drag still drew its shape on release.
+test("Escape during a drag with a shape tool draws nothing", async ({
+  page,
+}) => {
+  await start(page);
+  const hits = page.locator(".object-hit");
+  const before = await hits.count();
+  await tab(page, "Insert");
+  await command(page, "insert-shapes");
+  await page.getByRole("menuitem", { name: "Rectangle", exact: true }).click();
+  const box = await slideBox(page);
+  const k = await scale(page);
+  await page.mouse.move(box.x + 100 * k, box.y + 40 * k);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 300 * k, box.y + 190 * k, { steps: 4 });
+  await expect(page.locator(".draw-preview")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".draw-preview")).toHaveCount(0);
+  await page.mouse.up();
+  await expect(page.locator(".editor.drawing")).toHaveCount(0);
+  // The download waits for any edit still on its way.
+  const { p } = await download(page);
+  expect(P.getSlideShapes(P.getSlides(p)[0])).toHaveLength(before);
+  await expect(hits).toHaveCount(before);
+});
+
 test("font, size, styles, case and spacing apply to the selected text box", async ({
   page,
 }) => {

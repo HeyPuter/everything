@@ -6012,6 +6012,8 @@ function drawOnCanvas(e) {
     // The click that ends the drag is the drawing's, not a click on the
     // empty slide that would clear the selection.
     marqueeEnded = performance.now();
+    // Escape during the drag put the tool down: nothing is drawn.
+    if (drawingTool !== tool) return;
     end = { x: ev.clientX, y: ev.clientY };
     const b = box(ev.shiftKey);
     const dragged = b.w > 4 || b.h > 4;
