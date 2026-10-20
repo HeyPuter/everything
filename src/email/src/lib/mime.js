@@ -570,6 +570,14 @@ export const extractBodyText = (body, headers, depth = 0) => {
   if (type.startsWith('multipart/') && attrs.boundary && depth < MAX_MULTIPART_DEPTH) {
     const decoded = splitParts(body, attrs.boundary)
       .map((part) => extractBodyText(part.body, part.headers, depth + 1));
+    // The parts of a mixed are all the message, in order: Apple Mail sends a
+    // photo placed mid-message as text, the photo, then the rest of the text.
+    // Reading only the first left everything after the photo unseen, and out
+    // of the quote in a reply.
+    if (type === 'multipart/mixed') {
+      const pieces = decoded.filter((p) => hasText(p) && !p.flattened);
+      if (pieces.length > 1) return { text: pieces.map((p) => p.text.trimEnd()).join('\n\n'), flattened: false };
+    }
     const written = decoded.find((p) => hasText(p) && !p.flattened);
     return written ?? decoded.find(hasText) ?? NO_TEXT;
   }
@@ -587,7 +595,7 @@ export const extractText = (body, headers, depth = 0) =>
   extractBodyText(body, headers, depth).text;
 
 /**
- * The first `text/html` part of a message, decoded but not sanitized -- that
+ * The `text/html` body of a message, decoded but not sanitized -- that
  * is sanitize.js's job, and it happens on the way into the sandboxed frame.
  * Parts marked as attachments are skipped: an attached .html file is a file,
  * not the body of the message.
@@ -597,11 +605,17 @@ export const extractHtml = (body, headers, depth = 0) => {
   const { type, attrs } = parseContentType(headers.get('content-type') || 'text/plain');
 
   if (type.startsWith('multipart/') && attrs.boundary && depth < MAX_MULTIPART_DEPTH) {
+    // In a mixed every HTML part is a piece of the body, in order -- a file
+    // attached mid-message splits the HTML around it -- so all of them are
+    // kept. The HTML parser reads the joined documents as one body.
+    const mixed = type === 'multipart/mixed';
+    const found = [];
     for (const part of splitParts(body, attrs.boundary)) {
-      const found = extractHtml(part.body, part.headers, depth + 1);
-      if (found) return found;
+      const html = extractHtml(part.body, part.headers, depth + 1);
+      if (html) found.push(html);
+      if (html && !mixed) break;
     }
-    return '';
+    return found.join('\n');
   }
 
   return type === 'text/html' ? decodeBody(body, headers) : '';

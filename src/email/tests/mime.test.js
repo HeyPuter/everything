@@ -214,6 +214,21 @@ describe('extractText', () => {
 });
 
 describe('extractBodyText', () => {
+  it('keeps the text after a photo placed mid-message, in text and in HTML', () => {
+    const part = (type, content, extra = []) => ['--b', `Content-Type: ${type}`, ...extra, '', content];
+    const photo = part('image/jpeg; name="IMG_1.jpeg"', '/9j/4AAQ',
+      ['Content-Disposition: inline; filename="IMG_1.jpeg"', 'Content-Transfer-Encoding: base64']);
+    const headers = parseHeaders('Content-Type: multipart/mixed; boundary="b"');
+    const text = [...part('text/plain; charset=us-ascii', 'Here is the photo:'), ...photo,
+      ...part('text/plain; charset=us-ascii', 'And the address is 12 Main St.'), '--b--', ''].join(CRLF);
+    expect(extractText(text, headers)).toBe('Here is the photo:\n\nAnd the address is 12 Main St.');
+    const html = [...part('text/html; charset=utf-8', '<p>Here is the photo:</p>'), ...photo,
+      ...part('text/html; charset=utf-8', '<p>And the address is 12 Main St.</p>'), '--b--', ''].join(CRLF);
+    expect(extractHtml(html, headers)).toContain('12 Main St.');
+    // An alternative is still one choice among its parts, not all of them.
+    expect(extractText(multipartAlternative().body, multipartAlternative().headers)).toBe('plain version');
+  });
+
   it('does not call text the sender wrote as text flattened html', () => {
     const { headers, body } = multipartAlternative();
     expect(extractBodyText(body, headers)).toEqual({ text: 'plain version', flattened: false });
