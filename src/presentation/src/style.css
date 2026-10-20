@@ -1624,6 +1624,9 @@ select {
   padding: 4px 0;
   color: var(--muted);
   min-height: 25px;
+  /* A plain text button, without the browser's button face. */
+  border: 1px solid transparent;
+  background: transparent;
 }
 .object-list {
   display: flex;
