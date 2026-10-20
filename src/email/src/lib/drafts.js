@@ -130,7 +130,13 @@ export function createDraftStore(scope, storage = window.localStorage, now = () 
     remove(id) {
       drafts = load();
       const at = drafts.findIndex((draft) => draft.id === id);
-      if (at === -1) return false;
+      if (at === -1) {
+        // Attachment bytes are written as soon as a file is read, before the
+        // debounced text save has made a row for them: with no row, they
+        // still go.
+        files.remove(id).catch(() => {});
+        return false;
+      }
       const [removed] = drafts.splice(at, 1);
       if (!persist()) { drafts.splice(at, 0, removed); return false; }
       files.remove(id).catch(() => {});

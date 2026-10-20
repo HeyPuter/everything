@@ -1366,6 +1366,10 @@ export function openCompose({
       removeDockItem();
       flushSave();
       clearTimeout(saveTimer);
+      // Nothing was kept -- a forward closed untouched -- but its files may
+      // have been written already, and there is no row left in Drafts to
+      // discard them from: they stayed on the device for good.
+      if (drafts && !sent && !discarded && !holding && !sending && !drafts.get(draftId)) drafts.remove(draftId);
       window.removeEventListener('pagehide', flushSave);
       document.removeEventListener('visibilitychange', saveWhenHidden);
       // A message on its way is not a draft that was put down, even though
