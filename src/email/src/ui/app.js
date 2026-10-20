@@ -1955,6 +1955,10 @@ export function renderApp(root, ctx) {
     unit.messages = left;
     if (!left.length) {
       if (at !== -1) units.splice(at, 1);
+      // A row that never scrolled into view is still observed, and the
+      // observer held it -- and its conversation -- after it had gone. An
+      // undo that puts the row back observes it again if it still needs to.
+      if (unit.row) observer.unobserve(unit.row);
       unit.row?.remove();
       selected.delete(unit);
       if (opened === unit) closeReader({ focusRow: false });
