@@ -3670,7 +3670,7 @@ export function createEditor({
   }
   overlay.addEventListener('pointermove', updateDrawingGesture);
   function updateDrawingModifier(e) {
-    if (e.key !== 'Shift' || gesture?.type !== 'shape' || e.isComposing) return;
+    if (e.key !== 'Shift' || !['shape', 'cshape'].includes(gesture?.type) || e.isComposing) return;
     const { pointerId, clientX, clientY } = gesture.event;
     updateDrawingGesture({ pointerId, clientX, clientY, shiftKey: e.shiftKey });
   }
@@ -3696,7 +3696,12 @@ export function createEditor({
       gesture = null;
       if (COMMENT_TOOLS.includes(g.type)) {
         clearOverlay();
-        await placeComment(g, screenPoint(e));
+        // A comment shape keeps the Shift constraint its preview showed.
+        const end =
+          g.type === 'cshape'
+            ? constrainShape(g.start, screenPoint(e), g.shape, e.shiftKey)
+            : screenPoint(e);
+        await placeComment(g, end);
       } else if (g.type === 'field') {
         clearOverlay();
         const end = screenPoint(e);
