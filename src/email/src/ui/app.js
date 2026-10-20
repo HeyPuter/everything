@@ -4435,6 +4435,11 @@ export function renderApp(root, ctx) {
     // A bare keypress, like the list's own. Shift is not a modifier here:
     // `?` and `#` are typed with it.
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    // A key that only changes what the next key types is not a key of its
+    // own. Shift arrives as a keydown before the `#` it shifts, and ended a
+    // `g` chord before it: `g #` deleted the open conversation instead of
+    // going to Trash.
+    if (e.key === 'Shift' || e.key === 'CapsLock' || e.key === 'AltGraph') return;
     if (typingIn(e.target) || overlayOpen()) return;
 
     // Mid-chord, the key means a folder and nothing else -- including when it

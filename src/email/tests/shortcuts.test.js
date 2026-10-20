@@ -145,6 +145,23 @@ describe('shortcuts that work anywhere in the app', () => {
     expect(rows()).toHaveLength(count);
   });
 
+  it('goes to Trash on g then a shifted #, rather than deleting the open message', async () => {
+    mount();
+    await settle();
+    const count = rows().length;
+    await openFirstMessage();
+    press('g');
+    // A real keyboard sends a keydown for Shift before the `#` it shifts.
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', shiftKey: true, bubbles: true }));
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '#', shiftKey: true, bubbles: true, cancelable: true }));
+    await settle(400);
+    expect(currentFolder()).toContain('Trash');
+    press('g');
+    press('i');
+    await settle(400);
+    expect(rows()).toHaveLength(count);
+  });
+
   it('forgets a chord whose second key names no folder', async () => {
     mount();
     await settle();
