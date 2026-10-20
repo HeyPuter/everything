@@ -4941,8 +4941,18 @@ export function renderApp(root, ctx) {
   const ownWrites = new Map();
   const own = (...paths) => {
     const now = Date.now();
-    for (const [path, at] of ownWrites) if (now - at > OWN_WRITE_MS) ownWrites.delete(path);
-    for (const path of paths) if (path) ownWrites.set(path, now);
+    // Kept in the order they were marked, so the expired marks are the ones
+    // at the front: a bulk move marking thousands of paths no longer walks
+    // every live mark again for each one.
+    for (const [path, at] of ownWrites) {
+      if (now - at <= OWN_WRITE_MS) break;
+      ownWrites.delete(path);
+    }
+    for (const path of paths) {
+      if (!path) continue;
+      ownWrites.delete(path);
+      ownWrites.set(path, now);
+    }
   };
   const heardOwn = (path) => {
     const at = ownWrites.get(path);
