@@ -421,3 +421,29 @@ it('deletes many pages of a form at once as one by one, reading the fields once'
   sizeOne.mockRestore();
   expect(walks).toBeLessThan(2 * one);
 });
+
+it('keeps naming the field’s own font after filling, for viewers that redraw it', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(await readFile(new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url))),
+  );
+  const source = await PDFDocument.create();
+  const page = source.addPage();
+  const form = source.getForm();
+  const courier = source.context.register(
+    source.context.obj({ Type: 'Font', Subtype: 'Type1', BaseFont: 'Courier' }),
+  );
+  form.acroForm.dict.set(PDFName.of('DR'), source.context.obj({ Font: { Cour: courier } }));
+  const text = form.createTextField('Code');
+  text.addToPage(page, { x: 50, y: 600, width: 200, height: 24 });
+  text.acroField.setDefaultAppearance('/Cour 10 Tf 0 0 1 rg');
+  const choice = form.createDropdown('Pick');
+  choice.addOptions(['One', 'Two']);
+  choice.addToPage(page, { x: 50, y: 500, width: 200, height: 24 });
+  choice.acroField.setDefaultAppearance('/Cour 0 Tf 0 g');
+  const doc = await PDFDocument.load(await source.save());
+  await fillFields(doc, { Code: 'ABC-123', Pick: ['Two'] });
+  const saved = (await PDFDocument.load(await doc.save())).getForm();
+  expect(saved.getTextField('Code').acroField.getDefaultAppearance()).toBe('/Cour 10 Tf 0 0 1 rg');
+  expect(saved.getDropdown('Pick').acroField.getDefaultAppearance()).toBe('/Cour 0 Tf 0 g');
+  expect(saved.getTextField('Code').getText()).toBe('ABC-123');
+});

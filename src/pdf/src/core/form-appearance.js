@@ -145,6 +145,13 @@ function appearanceStreams(widget) {
 /** All regeneration paths, including pdf-lib's implicit save, use the same form semantics. */
 export function updateFieldAppearance(field, form, font, provider) {
   preservedAppearances.get(form)?.delete(field.ref);
+  // pdf-lib's drawing code renames the default appearance's font after the font it drew with
+  // (an embedded face, or a placeholder for check boxes), which the form's resources do not
+  // list. Other viewers redraw edits from DA, so it keeps naming the field's own font.
+  const DA = PDFName.of('DA');
+  const defaults = [field.acroField.dict, ...field.acroField.getWidgets().map((w) => w.dict)].map(
+    (dict) => [dict, dict.get(DA)],
+  );
   prepareFieldAppearance(field, form);
   const protectedWidgets = field.acroField.getWidgets().flatMap((widget) => {
     const sources = appearanceStreams(widget);
@@ -162,6 +169,7 @@ export function updateFieldAppearance(field, form, font, provider) {
   else if (field instanceof PDFButton)
     field.updateAppearances(font, defaultButtonAppearanceProvider);
   else field.defaultUpdateAppearances(font);
+  for (const [dict, value] of defaults) value ? dict.set(DA, value) : dict.delete(DA);
   for (const { widget, sources } of protectedWidgets) {
     for (const { kind, state, stream } of appearanceStreams(widget)) {
       // Retained rollover/down drawings may still share the old stream with another field.
