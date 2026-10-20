@@ -557,6 +557,31 @@ test("opening a Puter file offers its unsaved recovery draft", async ({
   await expect(page.locator("#toast")).toContainText("Draft recovered");
 });
 
+test("a recovery draft open in one tab does not open in another", async ({
+  page,
+  context,
+}) => {
+  await mockDrive(page);
+  await expect(title(page)).toHaveText("Untitled presentation");
+  await addText(page);
+  await page.getByRole("button", { name: "Back to presentations" }).click();
+  const draft = (p) =>
+    p.getByRole("button", { name: "Untitled presentation Recovery draft" });
+  await draft(page).click();
+  await expect(page.locator(".object-hit")).toHaveCount(1);
+  const other = await context.newPage();
+  await mockDrive(other, { path: "/#/home" });
+  await draft(other).click();
+  await expect(other.locator("#toast")).toHaveText(
+    "This draft is open in another tab.",
+  );
+  await expect(other.locator(".document-title")).toHaveCount(0);
+  await page.getByRole("button", { name: "Back to presentations" }).click();
+  await expect(draft(page)).toBeVisible();
+  await draft(other).click();
+  await expect(other.locator(".object-hit")).toHaveCount(1);
+});
+
 test("closing the Puter window asks about a presentation never saved", async ({
   page,
 }) => {

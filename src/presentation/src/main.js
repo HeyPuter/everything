@@ -876,6 +876,7 @@ async function home(cancelOpen = true, { focus = true } = {}) {
   assistant?.destroy();
   assistant = null;
   doc = null;
+  releaseDraftLocks();
   clearSelection();
   clearTimeout(autosaveTimer);
   clearThumbnailQueue();
@@ -1878,6 +1879,8 @@ async function openDocument(load, { pristine = false } = {}) {
       saveError: null,
     };
     if (path) noteRemote(doc, remote, bytes);
+    releaseDraftLocks();
+    lockDraft(doc.id).then(releaseDraftLocks);
     index = 0;
     slideExtras = new Set();
     clearSelection();
@@ -1906,10 +1909,39 @@ async function openDocument(load, { pristine = false } = {}) {
     pendingFontCandidates.delete(candidate);
   }
 }
+// The open presentation holds a lock named for its draft, so that another
+// tab cannot open the same draft and replace its edits with its own. Without
+// Web Locks every draft opens, as before.
+const draftLocks = new Map();
+function lockDraft(id) {
+  if (draftLocks.has(id) || !navigator.locks?.request)
+    return Promise.resolve(true);
+  return new Promise((resolve) => {
+    navigator.locks
+      .request(`presentation-draft:${id}`, { ifAvailable: true }, (lock) => {
+        if (!lock) return resolve(false);
+        resolve(true);
+        return new Promise((release) => draftLocks.set(id, release));
+      })
+      .catch(() => resolve(true));
+  });
+}
+// Releases every draft lock but the open presentation's.
+function releaseDraftLocks() {
+  for (const [id, release] of draftLocks)
+    if (id !== doc?.id) {
+      draftLocks.delete(id);
+      release();
+    }
+}
 async function recover(draft) {
   if (signingOut) return;
   if (deletingDrafts.has(draft.id)) {
     toast("This draft is being deleted.");
+    return;
+  }
+  if (!(await lockDraft(draft.id))) {
+    toast("This draft is open in another tab.");
     return;
   }
   const pending = { id: draft.id, request: ++documentRequest };
@@ -1943,6 +1975,7 @@ async function recover(draft) {
       toast("Draft recovered from this device.");
   } finally {
     if (pendingRecovery === pending) pendingRecovery = null;
+    releaseDraftLocks();
   }
 }
 // Resolves to whether the file became the open presentation. A recovery
