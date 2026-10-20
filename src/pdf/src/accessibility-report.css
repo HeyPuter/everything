@@ -156,10 +156,10 @@
   align-items: baseline;
   min-width: 0;
 }
+/* A detail is the problem itself, so it wraps rather than being cut off in a narrow panel. */
 .a11y-details li > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .a11y-page {
   flex: none;

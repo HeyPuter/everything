@@ -120,3 +120,27 @@ test('a message over the selection dock lets taps through to its controls', asyn
   await expect(page.getByLabel(covered.label, { exact: true })).toBeFocused();
   await expect(page.locator('#toast')).toHaveText(/^Stamp added/);
 });
+
+test('the accessibility report shows each problem in full in the narrow panel', async ({
+  page,
+}) => {
+  await openPdf(page, await pages(2));
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Prepare for accessibility', exact: true }).click();
+  const check = pane.getByRole('button', { name: 'Accessibility check', exact: true });
+  if (!(await check.isVisible()))
+    await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await check.click();
+  const report = page.getByRole('tabpanel', { name: 'Accessibility check' });
+  const detail = report.getByText('MarkInfo does not mark the file as tagged', { exact: true });
+  await expect(detail).toBeVisible();
+  // The details wrap: none of them is cut short with an ellipsis.
+  const cut = await report
+    .locator('.a11y-details li > span')
+    .evaluateAll((spans) =>
+      spans.filter((span) => span.scrollWidth > span.clientWidth + 1).map((s) => s.textContent),
+    );
+  expect(cut).toEqual([]);
+});
