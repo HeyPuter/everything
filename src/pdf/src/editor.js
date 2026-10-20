@@ -2660,6 +2660,9 @@ export function createEditor({
         .forEach((node, i) =>
           node.setAttribute('aria-current', i === pageIndex ? 'page' : 'false'),
         );
+      // Tabbing into the pages lands on the current one, unless the list has the focus.
+      if (!thumbnails.contains(document.activeElement))
+        setThumbnailStop(thumbnails.children[pageIndex]?.querySelector('.thumbnail'));
       if (revealedThumbnail !== pageIndex) revealThumbnail();
       // Re-renders of the same page (zoom, edits) must not repeat the announcement.
       const announcer = document.querySelector('#announcer');
@@ -2754,6 +2757,9 @@ export function createEditor({
       : null;
     const canvases = [...thumbnails.querySelectorAll('.thumb-paper canvas')];
     thumbnails.replaceChildren();
+    const stop = Number.isInteger(restore?.index)
+      ? Math.min(restore.index, pdf.numPages - 1)
+      : pageIndex;
     const thisPdf = pdf;
     // Crisp previews on dense screens, within roughly the same memory budget as the page canvas.
     const ratio = Math.max(
@@ -2813,6 +2819,7 @@ export function createEditor({
           'data-index': i,
           'aria-label': `Go to page ${i + 1}`,
           'aria-current': i === pageIndex ? 'page' : 'false',
+          tabindex: i === stop && !restore?.menu ? 0 : -1,
           onclick: () => {
             // On narrow screens the panel overlays the page, so choosing a page dismisses it.
             if (window.matchMedia('(max-width: 760px)').matches) hideSidebar();
@@ -2838,7 +2845,12 @@ export function createEditor({
             minWidth: 230,
           });
         },
-        { class: 'icon-btn thumb-menu', 'aria-haspopup': 'menu', 'aria-expanded': 'false' },
+        {
+          class: 'icon-btn thumb-menu',
+          'aria-haspopup': 'menu',
+          'aria-expanded': 'false',
+          tabindex: i === stop && restore?.menu ? 0 : -1,
+        },
       );
       const item = el(
         'div',
@@ -2870,6 +2882,38 @@ export function createEditor({
         ?.focus({ preventScroll: true });
     }
   }
+  /**
+   * The pages are one tab stop, however many there are: Up and Down move between them, Home
+   * and End to the first and last, and Right and Left between a page and its menu button.
+   */
+  function setThumbnailStop(target) {
+    if (!target || target.tabIndex === 0) return;
+    for (const node of thumbnails.querySelectorAll('[tabindex="0"]')) node.tabIndex = -1;
+    target.tabIndex = 0;
+  }
+  thumbnails.addEventListener('focusin', (e) =>
+    setThumbnailStop(e.target.closest?.('.thumbnail, .thumb-menu')),
+  );
+  thumbnails.addEventListener('keydown', (e) => {
+    const target = e.target.closest?.('.thumbnail, .thumb-menu');
+    if (!target || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const item = target.closest('.thumb-item'),
+      items = thumbnails.children,
+      index = Number(item.dataset.index),
+      menu = target.classList.contains('thumb-menu');
+    let next;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp')
+      next = items[index + (e.key === 'ArrowDown' ? 1 : -1)]?.querySelector(
+        menu ? '.thumb-menu' : '.thumbnail',
+      );
+    else if (e.key === 'Home' || e.key === 'End')
+      next = items[e.key === 'Home' ? 0 : items.length - 1]?.querySelector('.thumbnail');
+    else if (e.key === 'ArrowRight' && !menu) next = item.querySelector('.thumb-menu');
+    else if (e.key === 'ArrowLeft' && menu) next = item.querySelector('.thumbnail');
+    else return;
+    e.preventDefault();
+    next?.focus();
+  });
   // Pages can be dragged into a new order with a mouse or pen.
   const reorder = enableThumbnailReorder(thumbnails, {
     canDrag: () => !busy && pageReady && access().assemble,

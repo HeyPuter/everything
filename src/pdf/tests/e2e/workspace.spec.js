@@ -1076,6 +1076,57 @@ test('the pages panel keeps the current page thumbnail in view', async ({ page }
   expect(await inView('Go to page 1')).toBe(true);
 });
 
+test('the pages panel is one tab stop that the arrow keys move through', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'a phone closes the panel whenever a page is chosen');
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await multiPagePdf(20));
+  const panel = page.locator('#page-sidebar');
+  await expect(panel).toBeVisible();
+  const list = page.locator('.thumbnails');
+  const stops = () =>
+    list.evaluate(
+      (node) =>
+        [...node.querySelectorAll('button')].filter((button) => button.tabIndex >= 0).length,
+    );
+  await expect(page.locator('.thumbnail')).toHaveCount(20);
+  expect(await stops()).toBe(1);
+  const named = (name) => page.getByRole('button', { name, exact: true });
+  // Tab enters at the current page and leaves after it in one step.
+  await panel.getByRole('button', { name: 'Close pages panel', exact: true }).focus();
+  await page.keyboard.press('Tab');
+  await expect(named('Go to page 1')).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(named('Go to page 2')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.page-caption')).toHaveText('Page 2 of 20');
+  await page.keyboard.press('End');
+  await expect(named('Go to page 20')).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(named('Page 20 actions')).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(named('Page 19 actions')).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(named('Go to page 19')).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(named('Go to page 1')).toBeFocused();
+  expect(await stops()).toBe(1);
+  await page.keyboard.press('Tab');
+  expect(await list.evaluate((node) => node.contains(document.activeElement))).toBe(false);
+  await page.keyboard.press('Shift+Tab');
+  await expect(named('Go to page 1')).toBeFocused();
+  // Away from the list, the tab stop follows the page on view.
+  const pageInput = page.getByLabel('Page number', { exact: true });
+  await pageInput.fill('7');
+  await pageInput.press('Enter');
+  await expect(page.locator('.page-caption')).toHaveText('Page 7 of 20');
+  await expect(named('Go to page 7')).toHaveAttribute('tabindex', '0');
+  expect(await stops()).toBe(1);
+});
+
 test('dropping text into a draft keeps its native insertion while file drops open PDFs', async ({
   page,
 }) => {
