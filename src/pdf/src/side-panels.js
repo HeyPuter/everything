@@ -105,6 +105,7 @@ export function createLayersPanel({ onToggle }) {
     if (!group) return null;
     const input = el('input', {
       type: 'checkbox',
+      'data-id': id,
       checked: group.visible !== false,
       onchange: () => onToggle(id, input.checked),
     });
@@ -130,6 +131,11 @@ export function createLayersPanel({ onToggle }) {
     el: root,
     /** Show the layers of a configuration; resolves with whether there are any. */
     show(next) {
+      // The list is drawn again after every change to the PDF (an Undo pressed on a switch,
+      // say); the focused switch is drawn again with the focus.
+      const focusedId = tree.contains(document.activeElement)
+        ? document.activeElement.dataset.id
+        : null;
       config = next;
       const groups = config ? [...config] : [];
       if (!groups.length) {
@@ -139,6 +145,10 @@ export function createLayersPanel({ onToggle }) {
       const order = config.getOrder?.();
       const rows = order?.length ? walk(order) : groups.map(([id]) => row(id, 0));
       tree.replaceChildren(...rows);
+      if (focusedId != null && document.activeElement === document.body)
+        [...tree.querySelectorAll('input')]
+          .find((input) => input.dataset.id === focusedId)
+          ?.focus({ preventScroll: true });
       return true;
     },
   };

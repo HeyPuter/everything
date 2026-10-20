@@ -194,3 +194,43 @@ test('a layer hidden in the Layers panel stays hidden after an edit', async ({ p
   await expect(layer).not.toBeChecked();
   await expect(page.locator('.link-target')).toHaveCount(0);
 });
+
+test('a layer switch keeps the focus when an Undo redraws the Layers panel', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({
+      contentType: 'application/javascript',
+      body: `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username: 'test-user'}) }, fs: { readdir: async () => [] }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`,
+    }),
+  );
+  await page.goto('/#library');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'layers.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await annotatedLayers(false)),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await page.getByRole('region', { name: 'PDF page view' }).focus();
+  await page.keyboard.press('ControlOrMeta+Shift+R');
+  const undo = page.getByRole('button', { name: 'Undo', exact: true });
+  await expect(undo).toBeEnabled();
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  const tabs = page.getByRole('tablist', { name: 'Side panel' });
+  if (!(await tabs.isVisible()))
+    await page.getByRole('button', { name: 'Toggle pages panel', exact: true }).click();
+  await tabs.getByRole('tab', { name: 'Layers' }).click();
+  const layer = page.getByRole('checkbox', { name: 'Visible', exact: true });
+  await layer.focus();
+  await page.keyboard.press('Space');
+  await expect(layer).not.toBeChecked();
+  // Undo belongs to the app on a switch; the reload it causes draws the list again.
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(undo).toBeDisabled();
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect(layer).toBeFocused();
+  await expect(layer).not.toBeChecked();
+});
