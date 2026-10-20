@@ -630,7 +630,13 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
   // listing made while a move or an undo was in flight builds entries of its
   // own for the files it finds, and matched by identity the old entry missed
   // them -- an archived message stayed listed, an undone one was listed twice.
-  const sameFile = (message) => (entry) => entry === message || entry.name === message.name;
+  //
+  // Identity is asked first and natively; the filename only when that misses,
+  // because a bulk move or undo asks this once per message of the folder.
+  const indexOfFile = (list, message, mayHold = true) => {
+    const at = list.indexOf(message);
+    return at !== -1 || !mayHold ? at : list.findIndex((entry) => entry.name === message.name);
+  };
 
   // A message leaving the folder is a splice, not a re-list: `pendingDays` is
   // untouched, so "Load older messages" carries on from where it was.
@@ -639,11 +645,11 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
     known.delete(message.name);
     const buffered = dayFiles.get(message.day);
     if (buffered) dayFiles.set(message.day, buffered.filter((item) => item.name !== message.name));
-    const index = messages.findIndex(sameFile(message));
+    const index = indexOfFile(messages, message, loaded.has(message.name));
     if (index !== -1) messages.splice(index, 1);
     loaded.delete(message.name);
     if (catalog) {
-      const at = catalog.findIndex(sameFile(message));
+      const at = indexOfFile(catalog, message);
       if (at !== -1) {
         catalog.splice(at, 1);
         if (at < catalogNext) catalogNext--;
@@ -658,8 +664,8 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
   const insert = (message) => {
     removed.delete(message.name);
     // Already listed again under an entry of its own: that one stands.
-    const held = messages.findIndex(sameFile(message));
-    if (held !== -1) return held;
+    if (loaded.has(message.name)) return indexOfFile(messages, message);
+    const listedAgain = known.get(message.name);
     known.set(message.name, message);
     const key = (m) => `${m.day}/${m.name}`;
     const place = (list) => {
@@ -671,7 +677,7 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
     const index = place(messages);
     loaded.add(message.name);
     noteNewest();
-    if (catalog && !catalog.some(sameFile(message))) {
+    if (catalog && !catalog.includes(message) && !(listedAgain && catalog.includes(listedAgain))) {
       if (place(catalog) < catalogNext) catalogNext++;
     }
     return index;

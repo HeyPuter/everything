@@ -1962,15 +1962,19 @@ export function renderApp(root, ctx) {
    * newest-first as text, so the position is found rather than remembered --
    * correct even if other mail arrived in between.
    */
-  const grow = (unit, back) => {
+  const grow = (unit, back, owners) => {
     if (view().box === back[0]?.box && !searching()) {
       // A listing made while the undo was in flight may already show these
       // files, as rows of its own; putting this one back as well listed the
-      // conversation twice.
-      const shown = new Set(units.filter((other) => other !== unit)
-        .flatMap((other) => other.messages.map((message) => message.name)));
-      back = back.filter((message) => !shown.has(message.name));
+      // conversation twice. `owners` -- which conversation on screen holds
+      // each file -- is built once per undo by the caller: built here, an undo
+      // of a whole folder rebuilt it for every conversation it put back.
+      back = back.filter((message) => {
+        const owner = owners.get(message.name);
+        return !owner || owner === unit;
+      });
       if (!back.length) return;
+      for (const message of back) owners.set(message.name, unit);
     }
     Object.assign(unit, makeThread([...unit.messages, ...back]));
     track(unit);
@@ -2093,7 +2097,8 @@ export function renderApp(root, ctx) {
       }
       onProgress?.();
     });
-    for (const [unit, messages] of back) grow(unit, messages);
+    const owners = new Map(units.flatMap((other) => other.messages.map((message) => [message.name, other])));
+    for (const [unit, messages] of back) grow(unit, messages, owners);
     renderAfterChange();
     toast(
       failed ? `Could not restore ${describe(failed)}.` : `Restored ${describe(moved.length - failed)}.`,
