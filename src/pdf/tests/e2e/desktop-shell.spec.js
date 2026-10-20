@@ -300,6 +300,48 @@ for (const display of ['Two-page', 'Two-page scrolling'])
     await page.evaluate(() => localStorage.removeItem('pdf-editor:page-display'));
   });
 
+test('Read out loud speaks a long page in short pieces', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const sheet = doc.addPage([600, 800]);
+  const lines = Array.from(
+    { length: 30 },
+    (_, i) => `Line ${i + 1} of the long page is read aloud.`,
+  );
+  lines.forEach((line, i) => sheet.drawText(line, { x: 40, y: 760 - i * 22, size: 14, font }));
+  await openPdf(page, doc);
+  // A recorder stands in for the browser's voices and finishes each utterance at once.
+  await page.evaluate(() => {
+    window.spoken = [];
+    window.SpeechSynthesisUtterance = class {
+      constructor(text) {
+        this.text = text;
+      }
+    };
+    Object.defineProperty(window, 'speechSynthesis', {
+      configurable: true,
+      value: {
+        paused: false,
+        speak(utterance) {
+          window.spoken.push(utterance.text);
+          setTimeout(() => utterance.onend?.(), 0);
+        },
+        cancel() {},
+      },
+    });
+  });
+  const read = async () => {
+    await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Read out loud' }).click();
+    await page.getByRole('menuitem', { name: 'Read this page', exact: true }).click();
+  };
+  await read();
+  await expect.poll(() => page.evaluate(() => window.spoken.length)).toBeGreaterThan(3);
+  const spoken = await page.evaluate(() => window.spoken);
+  expect(spoken.every((text) => text.length <= 200)).toBe(true);
+  expect(spoken.join(' ')).toBe(lines.join(' '));
+});
+
 test('Organize pages selects, turns, moves, and deletes several pages', async ({ page }) => {
   await openPdf(page, await numberedPdf(4));
   await page.getByRole('button', { name: 'Tools', exact: true }).click();

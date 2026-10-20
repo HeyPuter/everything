@@ -29,6 +29,7 @@ import { signatureDialog } from './signature-dialog.js';
 import { drawSignature } from './core/signature.js';
 import { enableThumbnailReorder } from './page-organizer.js';
 import { addNote, listNotes, editNote, NOTE_SIZE } from './core/notes.js';
+import { speechChunks } from './core/speech.js';
 import { createOutlinePanel, destinationPage, destinationTarget } from './outline.js';
 import { createCommentsPanel } from './comments.js';
 import { createAttachmentsPanel, createLayersPanel } from './side-panels.js';
@@ -10664,13 +10665,15 @@ export function createEditor({
     stopReading();
     const generation = Symbol('reading');
     reading = { generation, toEnd };
+    const lang = document.documentElement.lang || 'en';
     for (let index = pageIndex; index < pageCount; index++) {
       const text = await pageWords(index);
       if (reading?.generation !== generation || destroyed) return;
       if (index !== pageIndex) await navigate(index);
-      if (text) {
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = document.documentElement.lang || 'en';
+      for (const chunk of speechChunks(text, { lang })) {
+        if (reading?.generation !== generation || destroyed) return;
+        const utterance = new SpeechSynthesisUtterance(chunk);
+        utterance.lang = lang;
         await new Promise((resolve) => {
           utterance.onend = utterance.onerror = resolve;
           speechSynthesis.speak(utterance);
