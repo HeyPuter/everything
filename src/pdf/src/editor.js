@@ -11824,7 +11824,12 @@ export function createEditor({
       if (editorRoot.classList.contains('hide-pages')) await toggleSidebar(true);
     }
     if (view.page > 0 && view.page < pageCount) await navigate(view.page);
-    if (view.zoom !== 'default') await setZoom(String(view.zoom === 'fit' ? 'fit' : view.zoom));
+    // A magnification beyond the zoom controls' 25–400% opens at the nearest end of it.
+    const asked =
+      typeof view.zoom === 'number'
+        ? Math.min(ZOOM_LEVELS.at(-1), Math.max(ZOOM_LEVELS[0], view.zoom))
+        : view.zoom;
+    if (asked !== 'default') await setZoom(String(asked));
     updateStatus();
   }
   return {

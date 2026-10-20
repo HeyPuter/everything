@@ -761,6 +761,22 @@ test('Document details keeps a magnification it does not list', async ({ page })
   expect(readInitialView(saved).zoom).toBe(1.1);
 });
 
+for (const [asked, shown] of [
+  [20, '4'],
+  [0.05, '0.25'],
+])
+  test(`a PDF that asks to open at ${asked * 100}% opens within the zoom range`, async ({
+    page,
+  }) => {
+    const doc = await numberedPdf(2);
+    const { writeInitialView } = await import('../../src/core/initial-view.js');
+    writeInitialView(doc, { zoom: asked });
+    await openPdf(page, doc);
+    const zoom = page.getByLabel('Zoom', { exact: true });
+    await expect(zoom).toHaveValue(shown);
+    await expect(page.locator('.paper')).toHaveCSS('width', `${400 * Number(shown)}px`);
+  });
+
 test('the accessibility check finds problems and its fixes clear them', async ({ page }) => {
   await openPdf(page, await numberedPdf(2));
   await page.getByRole('button', { name: 'Tools', exact: true }).click();
