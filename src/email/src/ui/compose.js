@@ -56,6 +56,12 @@ import { MOD } from './shortcuts.js';
  * out.
  */
 
+// A minimized composer stays in the document, so one opened beside it must
+// not reuse its ids: a label, aria-describedby and aria-activedescendant all
+// resolve to the first element in the document with the id -- the hidden one.
+let idSeq = 0;
+const idFor = (base) => (document.getElementById(base) ? `${base}-${++idSeq}` : base);
+
 const readBlob = async (blob) => new Uint8Array(await blob.arrayBuffer());
 const pendingDrafts = new Map();
 const openDrafts = new Map();
@@ -787,12 +793,12 @@ export function openCompose({
     };
   };
 
-  const to = recipientField('compose-to', 'To', start.to, 'someone@example.com');
-  const cc = recipientField('compose-cc', 'Cc', start.cc, 'optional');
+  const to = recipientField(idFor('compose-to'), 'To', start.to, 'someone@example.com');
+  const cc = recipientField(idFor('compose-cc'), 'Cc', start.cc, 'optional');
   // Enter in the subject goes to the message, the way it does in every other
   // mail client -- rather than submitting the form, which on a message with a
   // recipient and a subject and nothing written yet is a send.
-  const subject = field('compose-subject', 'Subject', start.subject, '',
+  const subject = field(idFor('compose-subject'), 'Subject', start.subject, '',
     () => focusMessage());
   const editor = createEditor({
     label: 'Message body',
@@ -1121,7 +1127,7 @@ export function openCompose({
     },
   });
 
-  const status = el('p.compose-status', { id: 'compose-status', role: 'status' });
+  const status = el('p.compose-status', { id: idFor('compose-status'), role: 'status' });
   // Whether the reader has already been told what closing would cost. Said
   // once per dialog: the second close is the answer.
   const setStatus = (text, kind = '') => {
