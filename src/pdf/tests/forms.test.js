@@ -340,3 +340,19 @@ it('accepts an inline checkbox export value without creating redundant edits', a
   expect(field.isChecked()).toBe(false);
   expect(await fillFields(doc, { Agree: false })).toBe(false);
 });
+
+it('lists a radio choice once when several buttons share its export value', async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([600, 400]);
+  const size = doc.getForm().createRadioGroup('Size');
+  for (const [value, x] of [
+    ['Small', 40],
+    ['Small', 80],
+    ['Large', 120],
+  ])
+    size.addOptionToPage(value, page, { x, y: 340, width: 16, height: 16 });
+  const loaded = await PDFDocument.load(await doc.save());
+  expect(listFields(loaded)[0].options).toEqual(['Small', 'Large']);
+  await fillFields(loaded, { Size: ['Small'] });
+  expect(listFields(loaded)[0].value).toBe('Small');
+});

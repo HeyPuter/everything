@@ -1240,7 +1240,8 @@ export function listFields(doc) {
         type: 'select',
         options:
           field instanceof PDFRadioGroup
-            ? radioFieldOptions(field)
+            ? // Buttons that share an export value are one choice.
+              [...new Set(radioFieldOptions(field))]
             : choices.map((option) => option.value),
         choices,
         value: fieldValue(field),
