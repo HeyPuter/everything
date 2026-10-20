@@ -1000,6 +1000,15 @@ function applyFieldProps(doc, field, props) {
       for (const key of ['V', 'DV'])
         text ? dict.set(name(key), textObject(text)) : dict.delete(name(key));
       dict.delete(name('RV'));
+    } else if (props.maxLength) {
+      // A limit below what the field holds would leave a value nobody could save again.
+      const longest = Math.max(
+        ...['V', 'DV'].map((key) => Array.from(textOf(inherited(dict, key)) ?? '').length),
+      );
+      if (longest > props.maxLength)
+        throw new Error(
+          `The field holds ${longest} characters. Choose a limit of at least ${longest}, or shorten its value first.`,
+        );
     }
   }
   if (field instanceof PDFDropdown || field instanceof PDFOptionList) {

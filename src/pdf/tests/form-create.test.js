@@ -464,6 +464,21 @@ it('updates properties and redraws the fields', async () => {
   );
 });
 
+it('refuses a character limit shorter than the value the field holds', async () => {
+  await mockTextFont();
+  const doc = await blank();
+  await addFormField(doc, 0, { type: 'text', name: 'Code', rect: rect(50, 700, 120, 22) });
+  await fillFields(doc, { Code: 'ABCDEFG' });
+  for (const props of [{ maxLength: 3 }, { maxLength: 3, comb: true }])
+    await expect(updateFormField(doc, 'Code', props)).rejects.toThrow(
+      'The field holds 7 characters. Choose a limit of at least 7, or shorten its value first.',
+    );
+  await updateFormField(doc, 'Code', { maxLength: 7, comb: true });
+  // A new default value replaces the old one, so it is checked on its own.
+  await updateFormField(doc, 'Code', { maxLength: 3, defaultValue: 'XYZ' });
+  expect(listFormFields(doc)[0].props).toMatchObject({ maxLength: 3, value: 'XYZ' });
+});
+
 it('moves widgets and deletes one widget or the whole field', async () => {
   const doc = await blank();
   for (const [i, value] of ['A', 'B', 'C'].entries())
