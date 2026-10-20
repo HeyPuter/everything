@@ -18,6 +18,8 @@ import {
   runTool,
   describeCall,
   changesDeck,
+  pinCall,
+  pinnedSlidesMoved,
   TOOLS,
   NO_CHANGE,
 } from "../src/assistant-tools.js";
@@ -392,6 +394,30 @@ describe("assistant tools", () => {
     ).toBeFalsy();
     await runTool("delete_slides", { slides: [4, 2] }, env);
     expect(P.getSlides(pres)).toHaveLength(4);
+  });
+  it("pins a call to the slides it was described on", () => {
+    const pres = createDeck("story");
+    let index = 0;
+    const env = { ...envFor(pres), slideIndex: () => index };
+    // A slide left to "the current one" is fixed when the call is described,
+    // so moving to another slide while it waits for approval changes nothing.
+    const args = { ids: [2] };
+    const order = pinCall("delete_objects", args, env);
+    expect(args).toEqual({ ids: [2], slide: 1 });
+    index = 1;
+    expect(pinnedSlidesMoved("delete_objects", order, env)).toBe(false);
+    const props = {};
+    pinCall("set_slide_properties", props, env);
+    expect(props.slides).toEqual([2]);
+    const all = { all: true };
+    pinCall("set_slide_properties", all, env);
+    expect(all.slides).toBeUndefined();
+    // Slides moved, added or deleted meanwhile make the numbers stale.
+    const numbers = { slides: [3] };
+    const before = pinCall("delete_slides", numbers, env);
+    P.moveSlide(pres, P.getSlides(pres)[0], 2);
+    expect(pinnedSlidesMoved("delete_slides", before, env)).toBe(true);
+    expect(pinnedSlidesMoved("find_text", before, env)).toBe(false);
   });
 });
 

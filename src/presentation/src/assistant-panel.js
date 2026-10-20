@@ -23,7 +23,13 @@ import {
   APPROVAL_MODES,
   DEFAULT_APPROVAL,
 } from "./assistant.js";
-import { runTool, describeCall, changesDeck } from "./assistant-tools.js";
+import {
+  runTool,
+  describeCall,
+  changesDeck,
+  pinCall,
+  pinnedSlidesMoved,
+} from "./assistant-tools.js";
 
 const SETTINGS_KEY = "presentation:assistant";
 export const MIN_WIDTH = 300;
@@ -117,6 +123,8 @@ export function createAssistantPanel(env) {
   let isOpen = false;
   let destroyed = false;
 
+  // Each call's slides, pinned when it is described (see pinCall).
+  const pinned = new WeakMap();
   const agent = createAgent({
     chat: (messages, options) =>
       cloud.aiChatStream(messages, { ...options, maxTokens: 8192 }),
@@ -131,9 +139,22 @@ export function createAssistantPanel(env) {
         await Promise.race([idle, control?.whenStopped].filter(Boolean));
         if (control?.stopped?.()) return { skipped: true };
       }
+      if (pinnedSlidesMoved(name, pinned.get(args), env))
+        return {
+          ok: false,
+          changed: false,
+          target: null,
+          history: [],
+          content:
+            "Error: slides were added, deleted, or moved while this waited, so its slide numbers no longer name the slides described. Nothing was changed. Read the presentation again before retrying.",
+        };
       return runTool(name, args, env);
     },
-    describe: (name, args) => describeCall(name, args, env),
+    describe: (name, args) => {
+      if (args && typeof args === "object")
+        pinned.set(args, pinCall(name, args, env));
+      return describeCall(name, args, env);
+    },
     approve: (step) => askApproval(step),
     snapshot: () =>
       deckSnapshot(env.pres(), {
