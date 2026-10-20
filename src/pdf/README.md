@@ -145,7 +145,9 @@ regenerate the favicons, Apple touch icon, and 192/512 px app icons in `public/`
 | Find next / previous | Ctrl / Command G, with Shift; F3  |
 | Print                | Ctrl / Command P                  |
 | Zoom in / out        | Ctrl / Command + / -              |
-| Fit width            | Ctrl / Command 0                  |
+| Fit page             | Ctrl / Command 0                  |
+| Actual size          | Ctrl / Command 1                  |
+| Fit width            | Ctrl / Command 2                  |
 | Previous / next page | Alt Left / Right                  |
 
 The text/highlight/shape tools also offer a keyboard-accessible placement action. Freehand drawing requires a pointer. Use Tab to move through form fields on the page, or open Fill forms. Enter applies a single-line field; Ctrl / Command Enter applies multiline fields. Escape restores the current field’s value before the draft. Saving and navigation apply all pending field changes.
