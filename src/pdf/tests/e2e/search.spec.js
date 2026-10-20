@@ -233,3 +233,13 @@ test('a word hyphenated at the end of a line is found whole', async ({ page }) =
   // Both halves are marked on the page, and the hyphen between them is not.
   await expect(page.locator('.search-hit-current')).toHaveText(['exam', 'ple']);
 });
+
+test('accents are ignored, as PDF readers ignore them', async ({ page }) => {
+  const input = await openSearchDocument(page, ['Le Café Crème', 'cafe creme']);
+  await input.fill('cafe');
+  await expect(page.locator('.search-count')).toHaveText('1 of 2');
+  await expect(page.locator('.search-hit-current')).toHaveText('Café');
+  await input.fill('crème');
+  await expect(page.locator('.search-count')).toHaveText('1 of 2');
+  await expect(page.locator('.search-hit-current')).toHaveText('Crème');
+});

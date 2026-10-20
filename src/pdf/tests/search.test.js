@@ -31,9 +31,10 @@ it('normalizes PDF spaces and line breaks without merging separate words', () =>
   expect(index.text.includes(searchQuery('onetwo'))).toBe(false);
 });
 
-it('keeps offsets aligned when case conversion changes character lengths', () => {
-  expect(indexPageText([{ str: 'İ' }, { str: 'TEST' }])).toMatchObject({
-    text: 'i\u0307test',
+it('keeps offsets aligned when folding changes character lengths', () => {
+  // The Devanagari letter qa decomposes into ka and a nukta, which stays: two units from one.
+  expect(indexPageText([{ str: '\u0958' }, { str: 'TEST' }])).toMatchObject({
+    text: '\u0915\u093ctest',
     ranges: [
       { start: 0, end: 2 },
       { start: 2, end: 6 },
@@ -58,16 +59,16 @@ it('matches Greek prefixes regardless of final-sigma casing', () => {
 
 it('maps folded offsets back to the characters of each text item', () => {
   const index = indexPageText([{ str: 'One', hasEOL: true }, { str: '  two\t ' }, { str: 'İx' }]);
-  expect(index.text).toBe('one two i\u0307x');
+  expect(index.text).toBe('one two ix');
   expect(index.ranges).toEqual([
     { start: 0, end: 3 },
     { start: 4, end: 8 },
-    { start: 8, end: 11 },
+    { start: 8, end: 10 },
   ]);
   expect(index.origins).toEqual([
     [0, 1, 2],
     [2, 3, 4, 5],
-    [0, 0, 1],
+    [0, 1],
   ]);
 });
 
@@ -75,15 +76,15 @@ it('folds supplementary-plane letters and maps their full UTF-16 spans', () => {
   const upper = '\u{10400}\u{10401}';
   const lower = upper.toLowerCase();
   const index = indexPageText([{ str: `${upper} İ` }, { str: `${lower} end` }]);
-  expect(index.text).toBe(`${lower} i\u0307${lower} end`);
+  expect(index.text).toBe(`${lower} i${lower} end`);
   expect(index.text.includes(searchQuery(upper))).toBe(true);
   expect(index.text.includes(searchQuery(lower))).toBe(true);
   expect(index.ranges).toEqual([
-    { start: 0, end: 7 },
-    { start: 7, end: 15 },
+    { start: 0, end: 6 },
+    { start: 6, end: 14 },
   ]);
   expect(index.origins).toEqual([
-    [0, 1, 2, 3, 4, 5, 5],
+    [0, 1, 2, 3, 4, 5],
     [0, 1, 2, 3, 4, 5, 6, 7],
   ]);
 });
@@ -108,4 +109,20 @@ it('finds a word hyphenated across a line break whole, and keeps real dashes', (
   ]);
   // The match maps back onto the characters on each line, without the hyphen.
   expect(index.origins[0].slice(3)).toEqual([3, 4, 5, 6]);
+});
+
+it('ignores accents, as PDF readers do by default, and keeps highlights on the accented letters', () => {
+  const index = indexPageText([
+    { str: 'Le CAFÉ ' },
+    { str: 'İstanbul, cafe\u0301 ' },
+    { str: 'Ἀθῆναι' },
+  ]);
+  expect(index.text).toBe('le cafe istanbul, cafe αθηναι');
+  for (const query of ['café', 'cafe', 'CAFE\u0301', 'istanbul', 'Αθήναι'])
+    expect(index.text.includes(searchQuery(query))).toBe(true);
+  // "é" maps back to the one character on the page; a separate accent is left beside its letter.
+  expect(index.origins[0].slice(3)).toEqual([3, 4, 5, 6, 7]);
+  expect(index.origins[1].slice(-5)).toEqual([10, 11, 12, 13, 15]);
+  // Marks that make another letter are not accents: ka and ga stay apart.
+  expect(searchQuery('が')).not.toBe(searchQuery('か'));
 });

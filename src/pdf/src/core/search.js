@@ -1,6 +1,16 @@
 const normalize = (value) => value.replace(/\s+/g, ' ');
+// The combining accents of Latin, Greek, and Cyrillic letters. Marks that change a letter
+// elsewhere (kana voicing, Indic viramas) are kept.
+const DIACRITICS = /[\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe20-\ufe2f]/g;
 // Lowercasing is context-sensitive for Greek sigma, so fold the final form to match prefixes.
-const fold = (value) => value.toLowerCase().replace(/\u03c2/g, '\u03c3');
+// Accents are ignored, as PDF readers ignore them by default: "cafe" finds "café".
+const fold = (value) =>
+  value
+    .toLowerCase()
+    .replace(/\u03c2/g, '\u03c3')
+    .normalize('NFD')
+    .replace(DIACRITICS, '')
+    .normalize('NFC');
 
 export const searchQuery = (value) => fold(normalize(value).trim());
 
