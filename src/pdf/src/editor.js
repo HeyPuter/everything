@@ -5,7 +5,7 @@ import { savePdf } from './core/version.js';
 import { indexPageText, searchQuery } from './core/search.js';
 import { inspectText, matrix, textColor } from './core/text-edit.js';
 import { groupTextRuns, replaceTextGroup } from './core/text-group.js';
-import { textLineInput } from './text-line-input.js';
+import { draftText, textLineInput } from './text-line-input.js';
 import { groupTextParagraphs } from './core/text-paragraph.js';
 import { textPositionControls } from './text-position.js';
 import { placeTextCaret } from './text-caret.js';
@@ -4730,7 +4730,16 @@ export function createEditor({
           spellcheck: true,
           wrap: 'off',
         });
-    if (!run?.parts) input.value = run?.text || '';
+    if (!run?.parts) {
+      input.value = run?.text || '';
+      // Tabs from a copied table have no glyph in the text fonts; they paste as spaces.
+      input.addEventListener('paste', (e) => {
+        const text = e.clipboardData?.getData('text/plain') ?? '';
+        if (!text.includes('\t')) return;
+        e.preventDefault();
+        document.execCommand('insertText', false, draftText(text));
+      });
+    }
     Object.assign(input.style, {
       left: `${box.x}px`,
       top: `${box.y}px`,

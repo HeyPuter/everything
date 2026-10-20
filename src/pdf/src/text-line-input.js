@@ -2,6 +2,12 @@ import { paragraphLayout } from './paragraph-layout.js';
 import { groupLineHeight } from './core/text-group.js';
 import { koreanDraftFace } from './text-fonts.js';
 
+/**
+ * Pasted or dropped text as a draft takes it: one kind of line break, and tabs (copied tables
+ * have them, the text fonts do not) as spaces, as text box comments draw them.
+ */
+export const draftText = (text) => text.replace(/\r\n?/g, '\n').replace(/\t/g, '    ');
+
 /** A native editing surface whose spans retain the source font of each text fragment. */
 export function textLineInput(group) {
   const input = document.createElement('div');
@@ -233,8 +239,7 @@ export function textLineInput(group) {
   });
   input.addEventListener('paste', (e) => {
     e.preventDefault();
-    const text = e.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
-    document.execCommand('insertText', false, text);
+    document.execCommand('insertText', false, draftText(e.clipboardData.getData('text/plain')));
   });
   let dragging = false;
   input.addEventListener('dragstart', (e) => {
@@ -281,8 +286,7 @@ export function textLineInput(group) {
     selection.removeAllRanges();
     selection.addRange(caret);
     // Match paste: Firefox and WebKit otherwise retain CR characters in the draft.
-    const text = e.dataTransfer.getData('text/plain').replace(/\r\n?/g, '\n');
-    document.execCommand('insertText', false, text);
+    document.execCommand('insertText', false, draftText(e.dataTransfer.getData('text/plain')));
   });
   return input;
 }
