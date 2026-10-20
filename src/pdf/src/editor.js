@@ -756,8 +756,12 @@ export function createEditor({
   }
   // The PDF's layers; switching one changes the view of every page, not the file.
   let documentLayers = null;
+  // The reader's own switches, by layer, carried over to the configuration each reload
+  // of the PDF (after every edit) starts afresh from the file's defaults.
+  const layerChoices = new Map();
   const layers = createLayersPanel({
     onToggle: safe(async (id, visible) => {
+      layerChoices.set(id, visible);
       const config = await documentLayers;
       config?.setVisibility(id, visible);
       if (destroyed) return;
@@ -2287,7 +2291,11 @@ export function createEditor({
       pdf = next;
       // One layer configuration per document, shared by every picture of its pages, so the
       // Layers panel's switches apply everywhere.
-      documentLayers = next.getOptionalContentConfig({ intent: 'display' });
+      documentLayers = next.getOptionalContentConfig({ intent: 'display' }).then((config) => {
+        for (const [id, visible] of layerChoices)
+          if (config.getGroup(id)) config.setVisibility(id, visible);
+        return config;
+      });
       // Keep the count available while the renderer is replaced after an edit, so
       // navigation requests can still be bounded against the displayed document.
       pageCount = pdf.numPages;

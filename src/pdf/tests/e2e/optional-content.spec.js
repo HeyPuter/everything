@@ -157,3 +157,40 @@ for (const membership of [false, true]) {
     ).toHaveCount(0);
   });
 }
+
+test('a layer hidden in the Layers panel stays hidden after an edit', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({
+      contentType: 'application/javascript',
+      body: `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username: 'test-user'}) }, fs: { readdir: async () => [] }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`,
+    }),
+  );
+  await page.goto('/#library');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'layers.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await annotatedLayers(false)),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  const link = page.getByRole('button', { name: 'Link to example.com/visible', exact: true });
+  await expect(link).toBeVisible();
+  const tabs = page.getByRole('tablist', { name: 'Side panel' });
+  if (!(await tabs.isVisible()))
+    await page.getByRole('button', { name: 'Toggle pages panel', exact: true }).click();
+  await tabs.getByRole('tab', { name: 'Layers' }).click();
+  const layer = page.getByRole('checkbox', { name: 'Visible', exact: true });
+  await layer.uncheck();
+  await expect(link).toHaveCount(0);
+  // Every edit reloads the PDF; the reader's choice outlives it.
+  await page.getByRole('region', { name: 'PDF page view' }).focus();
+  await page.keyboard.press('ControlOrMeta+Shift+R');
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect(layer).not.toBeChecked();
+  await expect(page.locator('.link-target')).toHaveCount(0);
+});
