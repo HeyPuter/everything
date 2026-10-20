@@ -119,17 +119,21 @@ export function addAnnotationVisibilityLayer(doc, { view, print }) {
   return group;
 }
 
-/** Copy pages and their catalog layer settings through one object-identity map. */
-export async function copyPagesWithLayers(target, source, indices) {
+/**
+ * Copy pages and their catalog layer settings through one object-identity map. `prepare`
+ * can adjust the copier before anything is copied.
+ */
+export async function copyPagesWithLayers(target, source, indices, prepare) {
   const key = n('OCProperties');
-  if (!(source.catalog.lookup(key) instanceof PDFDict)) return target.copyPages(source, indices);
   await source.flush();
   const copier = PDFObjectCopier.for(source.context, target.context);
+  prepare?.(copier);
   const sourcePages = source.getPages();
   const pages = indices.map((index) => {
     const node = copier.copy(sourcePages[index].node);
     return PDFPage.of(node, target.context.register(node), target);
   });
+  if (!(source.catalog.lookup(key) instanceof PDFDict)) return pages;
   const incoming = copier.copy(source.catalog.get(key));
   const existing = target.catalog.lookup(key);
   target.catalog.set(

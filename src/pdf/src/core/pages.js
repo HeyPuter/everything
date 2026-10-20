@@ -198,6 +198,26 @@ function sweepOrphans(context) {
 /** A key marking each source page with its index, copied into every copy the copier makes. */
 export const COPY_INDEX = PDFName.of('PuterCopyPageIndex');
 /**
+ * Make `copier` copy a small stand-in wherever a copied object names a page of `source` (a
+ * link's target, an annotation's page). Following the reference would copy that page with all
+ * its content, and every page it links to in turn (a contents page reaches the whole document),
+ * only for relinkCopiedPages to sweep the copies away again. A stand-in carries the page's
+ * COPY_INDEX just as such a copy would, and is made only for pages actually named.
+ */
+export function copyPageStandIns(copier, source, target) {
+  const indices = new Map(source.getPages().map((page, index) => [page.ref, index]));
+  const copyReference = copier.copyPDFIndirectObject;
+  copier.copyPDFIndirectObject = (ref) => {
+    const index = indices.get(ref);
+    if (index !== undefined && !copier.traversedObjects.has(ref))
+      copier.traversedObjects.set(
+        ref,
+        target.context.register(target.context.obj({ [COPY_INDEX.decodeText()]: index })),
+      );
+    return copyReference(ref);
+  };
+}
+/**
  * The copier shares annotation objects when the same source page is selected more than once.
  * Each page must own its annotation dictionaries (ISO 32000-1, 12.5.2), including the popup
  * and reply relationships between them. Keep subsidiary resources shared, as the standard
@@ -318,7 +338,9 @@ export async function copyPagesFrom(source, indices, details) {
   const sourcePages = source.getPages();
   sourcePages.forEach((page, index) => page.node.set(COPY_INDEX, PDFNumber.of(index)));
   try {
-    const pages = await copyPagesWithLayers(out, source, indices);
+    const pages = await copyPagesWithLayers(out, source, indices, (copier) =>
+      copyPageStandIns(copier, source, out),
+    );
     pages.forEach((page) => out.addPage(page));
     const indexToRef = new Map(indices.map((index, position) => [index, pages[position].ref]));
     relinkCopiedPages(out, pages, indexToRef);

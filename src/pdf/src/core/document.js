@@ -66,7 +66,7 @@ import {
 } from './form-appearance.js';
 import { choiceOptions, defaultFieldValue, textValue } from './form-values.js';
 export { choiceOptions } from './form-values.js';
-import { COPY_INDEX, inlineNamedDests, relinkCopiedPages } from './pages.js';
+import { COPY_INDEX, copyPageStandIns, inlineNamedDests, relinkCopiedPages } from './pages.js';
 import { copyPagesWithLayers } from './optional-content.js';
 import {
   DAMAGED_FORM,
@@ -548,7 +548,9 @@ export async function insertPdfPages(doc, bytes, { pages, after = doc.getPageCou
   inlineNamedDests(source, indices);
   const sourcePages = source.getPages();
   sourcePages.forEach((page, index) => page.node.set(COPY_INDEX, PDFNumber.of(index)));
-  const copied = await copyPagesWithLayers(doc, source, indices);
+  const copied = await copyPagesWithLayers(doc, source, indices, (copier) =>
+    copyPageStandIns(copier, source, doc),
+  );
   const position = Math.min(Math.max(after + 1, 0), doc.getPageCount());
   copied.forEach((page, k) => ownGeometry(doc.insertPage(position + k, page)));
   shiftPageLabels(doc, position, copied.length);
@@ -585,14 +587,14 @@ export async function duplicatePage(doc, index) {
   sourcePages.forEach((page, i) => page.node.set(COPY_INDEX, PDFNumber.of(i)));
   const existing = doc.getPages().map((page) => page.ref);
   try {
-    let copy;
     const layerKey = PDFName.of('OCProperties');
     const groupKey = PDFName.of('OCGs');
     const layers = source.catalog.lookup(layerKey);
     const groups = layers instanceof PDFDict && layers.lookup(groupKey);
+    await source.flush();
+    const copier = PDFObjectCopier.for(source.context, doc.context);
+    copyPageStandIns(copier, source, doc);
     if (groups instanceof PDFArray) {
-      await source.flush();
-      const copier = PDFObjectCopier.for(source.context, doc.context);
       const originals = doc.catalog.lookup(layerKey).lookup(groupKey);
       // A duplicate belongs to the same layers as its original. Seed the copier's identity
       // map so nested OCMDs, appearances and resources all reuse those groups. A flattened
@@ -606,9 +608,9 @@ export async function duplicatePage(doc, index) {
         copier.traversedObjects.set(group, original);
         copier.traversedObjects.set(dict, originalDict);
       }
-      const node = copier.copy(sourcePages[index].node);
-      copy = PDFPage.of(node, doc.context.register(node), doc);
-    } else [copy] = await doc.copyPages(source, [index]);
+    }
+    const node = copier.copy(sourcePages[index].node);
+    const copy = PDFPage.of(node, doc.context.register(node), doc);
     ownGeometry(doc.insertPage(index + 1, copy));
     shiftPageLabels(doc, index + 1, 1);
     relinkCopiedPages(doc, [copy], new Map(existing.map((ref, i) => [i, ref])));

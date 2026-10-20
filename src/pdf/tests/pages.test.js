@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
+import { describe, it, expect, vi } from 'vitest';
+import { PDFDocument, PDFName, PDFRawStream, StandardFonts } from 'pdf-lib';
 import { parsePageRange, formatPageRange, extractPages } from '../src/core/pages.js';
 import { addLink, listLinks } from '../src/core/links.js';
+import { duplicatePage } from '../src/core/document.js';
 import { PDFNumber } from 'pdf-lib';
 
 describe('page ranges', () => {
@@ -174,5 +175,53 @@ describe('page extraction', () => {
       .map((r) => aloneDoc.context.lookup(r))
       .find((a) => a.get(PDFName.of('Subtype')) === PDFName.of('Link') && !a.has(PDFName.of('A')));
     expect(pageLink.has(PDFName.of('Dest'))).toBe(false);
+  });
+  it('copies the chosen pages without copying the pages their links lead to', async () => {
+    // A contents page links to every page, and every page back to it; copying a linked page
+    // once meant copying the whole document's content, only to throw it away again.
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 6; i++) {
+      const page = doc.addPage([300, 300]);
+      const content = doc.context.flateStream(`0 0 ${10 + i} 10 re f`, { PuterTestPage: i });
+      page.node.set(PDFName.of('Contents'), doc.context.register(content));
+    }
+    for (let i = 1; i < 6; i++) {
+      addLink(doc, 0, { rect: { x: 10, y: 20 * i, width: 40, height: 10 }, page: i });
+      addLink(doc, i, { rect: { x: 10, y: 10, width: 40, height: 10 }, page: 0 });
+    }
+    const source = await doc.save();
+    const copied = new Set();
+    const clone = PDFRawStream.prototype.clone;
+    const spy = vi.spyOn(PDFRawStream.prototype, 'clone').mockImplementation(function (context) {
+      const page = this.dict.lookup(PDFName.of('PuterTestPage'));
+      if (page) copied.add(page.asNumber());
+      return clone.call(this, context);
+    });
+    try {
+      const extracted = await PDFDocument.load(await extractPages(source, [0, 3]));
+      expect([...copied].sort()).toEqual([0, 3]);
+      const targets = (pdf, index) =>
+        pdf
+          .getPage(index)
+          .node.Annots()
+          .asArray()
+          .map((ref) => {
+            const link = pdf.context.lookup(ref);
+            const dest =
+              link.lookup(PDFName.of('Dest')) ??
+              link.lookup(PDFName.of('A'))?.lookup(PDFName.of('D'));
+            const at = pdf.getPages().findIndex((page) => page.ref === dest?.get(0));
+            return at < 0 ? null : at;
+          });
+      expect(targets(extracted, 0)).toEqual([null, null, 1, null, null]);
+      expect(targets(extracted, 1)).toEqual([0]);
+      copied.clear();
+      const reopened = await PDFDocument.load(source);
+      await duplicatePage(reopened, 0);
+      expect([...copied]).toEqual([0]);
+      expect(targets(reopened, 1)).toEqual([2, 3, 4, 5, 6]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
