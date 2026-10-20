@@ -26,6 +26,8 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
   let fields = [];
   let selected = null; // `${name}#${widgetIndex}`
   let drag = null;
+  // The field a keyboard nudge moved: its box is redrawn after the edit and keeps the focus.
+  let refocus = null;
   const keyOf = (field) => `${field.name}#${field.widgetIndex}`;
 
   /** The field's box on screen, from its PDF rectangle. */
@@ -144,6 +146,7 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
                 const length = Math.hypot(px - ox, py - oy) || 1;
                 const dx = Math.round(((px - ox) / length) * step * 1000) / 1000,
                   dy = Math.round(((py - oy) / length) * step * 1000) / 1000;
+                refocus = keyOf(field);
                 onMove(field, { x: x + dx, y: y + dy, width, height });
               }
             },
@@ -161,6 +164,11 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
         return node;
       }),
     );
+    const active = document.activeElement;
+    if (refocus && (active === document.body || !active || root.contains(active))) {
+      root.querySelector(`[data-key="${CSS.escape(refocus)}"]`)?.focus({ preventScroll: true });
+      refocus = null;
+    }
   }
 
   return {

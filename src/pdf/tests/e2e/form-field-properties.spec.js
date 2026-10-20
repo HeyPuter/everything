@@ -155,3 +155,20 @@ test('arrow keys move a field the way they point on a turned page', async ({ pag
   // Turned a quarter clockwise: screen right is +y on the page, screen up is -x.
   expect(rect).toEqual({ ...start, x: start.x - 10, y: start.y + 10 });
 });
+
+test('a field nudged with the arrow keys keeps the keyboard focus', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const note = doc.getForm().createTextField('Note');
+  note.addToPage(doc.addPage([600, 400]), { x: 100, y: 100, width: 120, height: 24 });
+  const start = note.acroField.getWidgets()[0].getRectangle();
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await designer(page, 'Note#0').focus();
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press('Shift+ArrowRight');
+    await settled(page);
+    await expect(designer(page, 'Note#0')).toBeFocused();
+  }
+  const saved = (await PDFDocument.load(await downloaded(page))).getForm().getTextField('Note');
+  expect(saved.acroField.getWidgets()[0].getRectangle()).toEqual({ ...start, x: start.x + 30 });
+});
