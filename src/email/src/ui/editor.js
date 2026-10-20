@@ -612,12 +612,21 @@ export function createEditor({ label = 'Message', placeholder = '', onInput, onF
   const receive = (transfer, { atCaret = true } = {}) => {
     if (!transfer) return false;
     const files = [...(transfer.files ?? [])];
-    if (files.length) {
+    const html = transfer.getData?.('text/html') ?? '';
+    const text = transfer.getData?.('text/plain') ?? '';
+    // Word, Excel, Keynote and Pages put a picture of what was copied on the
+    // clipboard beside the markup of it, and the picture used to win: a pasted
+    // table arrived as image.png and no text. Markup with words in it means
+    // words were copied; a copied image or a screenshot carries none.
+    const words = () => {
+      const probe = document.createElement('template');
+      probe.innerHTML = cleanHtml(html);
+      return probe.content.textContent.trim() !== '';
+    };
+    if (files.length && !(html && words())) {
       onFiles?.(files);
       return true;
     }
-    const html = transfer.getData?.('text/html') ?? '';
-    const text = transfer.getData?.('text/plain') ?? '';
     if (!html && !text) return false;
     // A paste goes where the caret is. A drop goes where it was dropped, and
     // the browser has already moved the caret there -- putting the remembered
