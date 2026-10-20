@@ -1858,7 +1858,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar { transition: none; }
+  /* The open drawer's own rule is the more specific one, and went on sliding
+     it in with reduced motion asked for. */
+  .sidebar, .nav-open .sidebar { transition: none; }
 }
 
 /* -- touch targets -------------------------------------------------------------- */
