@@ -832,3 +832,32 @@ test('an edit made by shortcut leaves the focus on View more', async ({ page }) 
   await settled(page);
   await expect(more).toBeFocused();
 });
+
+test('removing an attachment hands the focus to the file that takes its place', async ({
+  page,
+}) => {
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('tab', { name: 'Attachments' }).click();
+  const panel = page.getByRole('tabpanel', { name: 'Attachments' });
+  for (const name of ['first.txt', 'second.txt']) {
+    const chooser = page.waitForEvent('filechooser');
+    await panel.getByRole('button', { name: 'Attach a file…' }).click();
+    await (await chooser).setFiles({ name, mimeType: 'text/plain', buffer: Buffer.from(name) });
+    await expect(panel.getByText(name)).toBeVisible();
+    await settled(page);
+  }
+  await panel.getByRole('button', { name: 'Remove first.txt' }).focus();
+  await page.keyboard.press('Enter');
+  await page
+    .getByRole('dialog', { name: 'Remove attachment?' })
+    .getByRole('button', { name: 'Remove', exact: true })
+    .press('Enter');
+  await expect(panel.getByText('first.txt')).toBeHidden();
+  await expect(panel.getByRole('button', { name: 'Remove second.txt' })).toBeFocused();
+  // Any later change redraws the list too, and the focused button is drawn again.
+  await panel.getByRole('button', { name: 'Save second.txt' }).focus();
+  await page.keyboard.press('ControlOrMeta+Shift+R');
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
+  await settled(page);
+  await expect(panel.getByRole('button', { name: 'Save second.txt' })).toBeFocused();
+});
