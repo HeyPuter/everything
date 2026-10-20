@@ -59,6 +59,11 @@ test('the Comments tab lists notes and highlights by page and jumps to each', as
   await expect(items).toHaveCount(2);
   await expect(items.nth(0)).toHaveAccessibleName(/Highlight on page 1/);
   await expect(items.nth(1)).toHaveAccessibleName('Note on page 2: Please double-check the totals');
+  // The author and date shown under the text are read as the item's description.
+  await expect(items.nth(1)).toHaveAccessibleDescription(
+    await items.nth(1).locator('.comment-meta').innerText(),
+  );
+  await expect(items.nth(1)).toHaveAccessibleDescription(/^Ada · /);
   await expect(items.nth(1)).toContainText('Ada');
   // The note opens on its page.
   await items.nth(1).click();

@@ -5,6 +5,7 @@ import { MAX_COMMENTS, collectComments } from './core/comments.js';
  * The Comments tab of the side panel: every note and markup in the PDF, by page, each a
  * button that goes to its page and opens or selects it.
  */
+let metaIds = 0;
 export function createCommentsPanel({ onSelect }) {
   const list = el('div', { class: 'comments', role: 'group', 'aria-label': 'Comments' });
   const root = el('div', { class: 'comments-panel', tabindex: -1 }, list);
@@ -52,6 +53,8 @@ export function createCommentsPanel({ onSelect }) {
         swatch.style.setProperty('--comment-ink', contrastInk(comment.hex));
       }
       const meta = [comment.author, when(comment.date)].filter(Boolean).join(' · ');
+      // The name says what and where; the author and date shown beneath it describe it.
+      const metaId = meta ? `comment-meta-${++metaIds}` : null;
       pageList.append(
         el(
           'li',
@@ -64,6 +67,7 @@ export function createCommentsPanel({ onSelect }) {
               'data-comment-id': comment.id,
               'data-comment-page': comment.page,
               'aria-label': `${comment.kind} on page ${comment.page + 1}${comment.text ? ': ' + comment.text.slice(0, 80) : ''}`,
+              'aria-describedby': metaId,
               onclick: () => onSelect(comment),
             },
             swatch,
@@ -71,7 +75,7 @@ export function createCommentsPanel({ onSelect }) {
               'span',
               { class: 'comment-body' },
               el('span', { class: 'comment-text' }, comment.text || comment.kind),
-              meta && el('span', { class: 'comment-meta' }, meta),
+              meta && el('span', { class: 'comment-meta', id: metaId }, meta),
             ),
           ),
         ),
