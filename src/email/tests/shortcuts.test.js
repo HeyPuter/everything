@@ -117,12 +117,32 @@ describe('shortcuts that work anywhere in the app', () => {
   it('does not let the second key of a chord also mean what it means alone', async () => {
     mount();
     await settle();
-    // `s` on its own stars; after `g` it is Starred, and nothing else.
-    press('g');
-    press('s');
+    // `s` on its own stars the focused row; after `g` it is Starred, and
+    // nothing else. Pressed on a focused row, which answers `s` itself.
+    const starred = () => root.querySelectorAll('.star-btn[aria-pressed="true"]').length;
+    const before = starred();
+    const row = rows()[0];
+    row.focus();
+    press('g', row);
+    press('s', row);
     await settle();
     expect(currentFolder()).toContain('Starred');
-    expect(root.querySelectorAll('.row-star[aria-pressed="true"]')).toHaveLength(0);
+    press('g');
+    press('i');
+    await settle();
+    expect(starred()).toBe(before);
+  });
+
+  it('does not archive the focused row on g then e', async () => {
+    mount();
+    await settle();
+    const count = rows().length;
+    rows()[0].focus();
+    press('g', rows()[0]);
+    press('e', rows()[0]);
+    await settle(400);
+    expect(currentFolder()).toContain('Inbox');
+    expect(rows()).toHaveLength(count);
   });
 
   it('forgets a chord whose second key names no folder', async () => {

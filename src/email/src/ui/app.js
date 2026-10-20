@@ -1631,6 +1631,10 @@ export function renderApp(root, ctx) {
     // the browser and the OS: Cmd+S has to save the page rather than star the
     // focused row, and Cmd+Down has to scroll to the end of the list.
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    // The second key of a `g` chord names a folder and nothing else; the
+    // document's handler answers it after this one. Answered here too, `g s`
+    // starred the focused row on its way to Starred and `g e` archived it.
+    if (chording) return;
     const rows = visibleRows();
     if (!rows.length) return;
     const focused = document.activeElement?.closest?.('.row');
