@@ -627,7 +627,9 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
 
     // Only register arrivals after the whole check succeeds. The watch uses
     // known entries to decide whether a delivery has already been handled.
-    const added = arrivals.filter(({ item }) => !removed.has(item.name))
+    // "Load older messages" may have paged an arrival in from the catalog
+    // while this check was on the wire, and it is held already.
+    const added = arrivals.filter(({ item }) => !removed.has(item.name) && !loaded.has(item.name))
       .map(({ item, day }) => entryFor(item, day));
     added.sort((a, b) => `${b.day}/${b.name}`.localeCompare(`${a.day}/${a.name}`));
     // Everything here sorts above the newest message held, so none of it can
