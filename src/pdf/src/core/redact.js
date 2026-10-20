@@ -712,7 +712,7 @@ export async function applyRedactions(doc, { pages, codec } = {}) {
   report.warnings = [...filtered.warnings];
   if (filtered.forms)
     report.warnings.push(
-      `${filtered.forms} unreadable drawing group(s) under the marks were removed.`,
+      `${filtered.forms} drawing group(s) under the marks could not be read and were removed entirely.`,
     );
   if (filtered.images.removed)
     report.warnings.push(

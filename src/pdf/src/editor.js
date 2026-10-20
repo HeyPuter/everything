@@ -8130,14 +8130,15 @@ export function createEditor({
     const { sanitizeDocument, SANITIZE_DEFAULTS } = await loadSanitize();
     const sanitize = el('input', { type: 'checkbox', id: 'redact-sanitize', checked: true });
     const apply = safe(async () => {
-      let report = null;
-      await mutateDialog(
+      let report = null,
+        sanitized = null;
+      const committed = await mutateDialog(
         d,
         async (doc) => {
           report = await applyRedactions(doc, { codec: createImageCodec(loadPdf) });
           if (report === false) throw new Error('There are no redaction marks to apply.');
           if (sanitize.checked)
-            await sanitizeDocument(doc, {
+            sanitized = await sanitizeDocument(doc, {
               ...SANITIZE_DEFAULTS,
               comments: false,
               formFields: false,
@@ -8145,7 +8146,7 @@ export function createEditor({
         },
         null,
       );
-      if (!report || destroyed) return;
+      if (!committed || !report || destroyed) return;
       const removed = [
         report.text && `${report.text} characters`,
         report.images.redacted + report.images.removed &&
@@ -8153,8 +8154,21 @@ export function createEditor({
         report.paths && `${report.paths} drawings`,
         report.annotations && `${report.annotations} annotations`,
       ].filter(Boolean);
-      toast(
-        `Redactions applied${removed.length ? `: removed ${removed.join(', ')}` : ''}. Save or download to keep the redacted file.`,
+      const summary = `Redactions applied${removed.length ? `: removed ${removed.join(', ')}` : ''}. Save or download to keep the redacted file.`;
+      const warnings = [...new Set([...report.warnings, ...(sanitized?.warnings || [])])];
+      if (!warnings.length) return toast(summary);
+      // What could not be handled as usual must not pass by in a brief message: someone could
+      // share the file believing everything under the marks is gone.
+      const notice = modal(
+        'Check the redacted PDF',
+        el(
+          'div',
+          { class: 'stack' },
+          el('p', {}, summary),
+          el('p', {}, 'Not everything went as usual. Check these before you share the file:'),
+          el('ul', {}, ...warnings.map((warning) => el('li', {}, warning))),
+        ),
+        [button('OK', null, () => notice.close(), 'btn primary')],
       );
     });
     const d = modal(

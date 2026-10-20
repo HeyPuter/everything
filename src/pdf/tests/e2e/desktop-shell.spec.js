@@ -585,11 +585,12 @@ test('Find text and redact removes the matched words from the saved file', async
   await settled(page);
   await expect(pane.getByText('1 mark to apply')).toBeVisible();
   await pane.getByRole('button', { name: 'Apply redactions…' }).click();
-  await page
-    .getByRole('dialog', { name: 'Apply redactions' })
-    .getByRole('button', { name: 'Apply', exact: true })
-    .click();
+  const confirm = page.getByRole('dialog', { name: 'Apply redactions' });
+  await confirm.getByRole('button', { name: 'Apply', exact: true }).click();
   await settled(page);
+  // Nothing unusual happened, so a brief message is enough.
+  await expect(page.locator('#toast')).toContainText('Redactions applied');
+  await expect(page.getByRole('dialog', { name: 'Check the redacted PDF' })).toHaveCount(0);
   const bytes = await downloaded(page);
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const pdf = await pdfjs.getDocument({ data: bytes.slice() }).promise;
@@ -599,6 +600,62 @@ test('Find text and redact removes the matched words from the saved file', async
   expect(text).not.toContain('6789');
   expect(text).toContain('Employee SSN');
   expect(text).toContain('Keep this line');
+});
+
+test('redaction lists what it could not handle before the file is shared', async ({ page }) => {
+  // A transparency effect under the mark whose drawing cannot be read stays as it was.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const sheet = doc.addPage([500, 300]);
+  const group = doc.context.register(
+    doc.context.stream(new Uint8Array([1, 2, 3, 4]), {
+      Type: 'XObject',
+      Subtype: 'Form',
+      BBox: [0, 0, 500, 300],
+      Group: { S: 'Transparency', CS: 'DeviceGray' },
+      Filter: 'JBIG2Decode',
+    }),
+  );
+  sheet.node.set(
+    PDFName.of('Resources'),
+    doc.context.obj({
+      ExtGState: { Faded: { Type: 'ExtGState', SMask: { S: 'Luminosity', G: group } } },
+    }),
+  );
+  sheet.node.set(
+    PDFName.of('Contents'),
+    doc.context.register(doc.context.stream('q /Faded gs 30 180 400 50 re f Q')),
+  );
+  sheet.drawText('Employee SSN 123-45-6789 on file', { x: 40, y: 200, size: 16, font });
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Redact a PDF', exact: true }).click();
+  await pane.getByRole('button', { name: 'Find text and redact…' }).click();
+  const finder = page.getByRole('dialog', { name: 'Find text and redact' });
+  await finder.getByLabel('US Social Security numbers').check();
+  await finder.getByRole('button', { name: 'Search' }).click();
+  await expect(finder.getByText('Page 1: 123-45-6789')).toBeVisible();
+  await finder.getByRole('button', { name: 'Mark selected' }).click();
+  await settled(page);
+  await pane.getByRole('button', { name: 'Apply redactions…' }).click();
+  await page
+    .getByRole('dialog', { name: 'Apply redactions' })
+    .getByRole('button', { name: 'Apply', exact: true })
+    .click();
+  // The notice stays until it is read and dismissed.
+  const notice = page.getByRole('dialog', { name: 'Check the redacted PDF' });
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText('Redactions applied');
+  await expect(notice.getByRole('listitem')).toHaveText([
+    /A transparency effect under a mark could not be read/,
+  ]);
+  await page.waitForTimeout(6000);
+  await expect(notice).toBeVisible();
+  await expect(notice.getByRole('button', { name: 'OK' })).toBeFocused();
+  await notice.getByRole('button', { name: 'OK' }).click();
+  await expect(notice).toHaveCount(0);
+  await settled(page);
 });
 
 test('Scan & OCR makes a scanned page searchable', async ({ page }) => {

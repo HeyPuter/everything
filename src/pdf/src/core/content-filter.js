@@ -296,6 +296,7 @@ export const contentReport = () => ({
  *  - inlineImage({ header, data, ctm, resources, hidden }) → { remove } | { source } | null
  *  - form({ object, ctm, hidden }) → 'descend' | 'remove' | 'keep'
  *  - formFailed({ object, ctm }) → 'remove' | 'keep' for forms whose content cannot be read
+ *    (and whether an unreadable soft mask matters); kept forms are then not reported
  *  - shading(ctx) → remove?
  *  - hidden(ocDict) → whether optional content is off (its content then has ctx.hidden)
  *  - untagHidden: also drop the layer reference from hidden marked-content sections
@@ -767,7 +768,11 @@ export async function filterContent(doc, options) {
         memo,
       });
     } catch {
-      report.warnings.add('A soft mask could not be read and was left unchanged.');
+      // A policy that can tell says whether the mask reaches what it filters (a redaction mark).
+      if (policy.formFailed?.({ object: group, ctm }) !== 'keep')
+        report.warnings.add(
+          'A transparency effect under a mark could not be read and was left as it was. It may still hold content from under the mark.',
+        );
       return;
     }
     if (!result.changed) return;
@@ -844,13 +849,12 @@ export async function filterContent(doc, options) {
         memo,
       });
     } catch {
-      if (policy.formFailed?.({ object, ctm }) === 'remove') {
+      const decision = policy.formFailed?.({ object, ctm });
+      if (decision === 'remove') {
         report.forms++;
-        report.warnings.add(
-          'A drawing group that could not be read was removed from a redacted area.',
-        );
         removeCall();
-      } else report.warnings.add('A drawing group could not be read and was left unchanged.');
+      } else if (!decision)
+        report.warnings.add('A drawing group could not be read and was left unchanged.');
       return;
     }
     let ref = null;
