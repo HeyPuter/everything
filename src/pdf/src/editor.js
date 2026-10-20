@@ -304,6 +304,8 @@ export function createEditor({
   };
   // Comments drawn as annotations: text boxes, callouts, shapes, and the pencil.
   const COMMENT_TOOLS = ['textbox', 'callout', 'cshape', 'pencil', 'measure'];
+  // Freehand strokes, crops, and measurements have nothing to place at the page center.
+  const UNPLACEABLE = ['ink', 'crop', 'pencil', 'measure'];
   let commentSize = 12;
   const colorGroup = () =>
     tool === 'highlight'
@@ -1410,7 +1412,7 @@ export function createEditor({
         !textOptions;
     widthInput.hidden = !['shape', 'ink'].includes(tool);
     toolOptions.hidden = (tool === 'select' || tool === 'hand') && !edit;
-    centerButton.hidden = !!edit || tool === 'ink' || tool === 'crop';
+    centerButton.hidden = !!edit || UNPLACEABLE.includes(tool);
     if (tool === 'select') colorInput.hidden = !edit;
   }
   function toggleTextStyle(key) {
@@ -3152,7 +3154,7 @@ export function createEditor({
     sizeInput.value = String(['textbox', 'callout'].includes(tool) ? commentSize : textSize);
     boldButton.hidden = italicButton.hidden = tool !== 'text';
     syncStyleButtons();
-    centerButton.hidden = tool === 'ink' || tool === 'crop';
+    centerButton.hidden = UNPLACEABLE.includes(tool);
     colorInput.hidden = ['crop', 'link', 'certsign', 'field'].includes(tool);
     cropMarginsButton.hidden = cropDoneButton.hidden = tool !== 'crop';
     color = toolColors[colorGroup()];
@@ -5088,6 +5090,27 @@ export function createEditor({
     if (tool === 'text') return textDialog({ x: viewport.width * 0.25, y: viewport.height / 2 });
     if (tool === 'note')
       return openNoteEditor({ point: { x: viewport.width * 0.45, y: viewport.height * 0.45 } });
+    if (['textbox', 'callout', 'cshape'].includes(tool)) {
+      // As if clicked (a text box or callout) or dragged (a shape) about the page's middle.
+      const unit = screenUnit();
+      const start =
+        tool === 'textbox'
+          ? { x: viewport.width / 2 - 90 * unit, y: viewport.height / 2 - 25 * unit }
+          : { x: viewport.width * (tool === 'callout' ? 0.3 : 0.35), y: viewport.height * 0.5 };
+      const end =
+        tool === 'cshape' ? { x: viewport.width * 0.65, y: viewport.height * 0.6 } : start;
+      return placeComment(
+        {
+          type: tool,
+          start,
+          page: pageIndex,
+          hex: color,
+          width: stroke / viewport.userUnit,
+          commentKind: commentShape.value,
+        },
+        end,
+      );
+    }
     if (['highlight', 'shape'].includes(tool)) {
       const a = pdfPoint({ x: viewport.width * 0.25, y: viewport.height * 0.48 });
       const b = pdfPoint({
