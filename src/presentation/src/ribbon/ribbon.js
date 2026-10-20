@@ -191,10 +191,11 @@ export function createRibbon({
     if (changed) onTabChange?.(id);
     if (collapsed) flyout(true);
   }
-  function setCollapsed(on) {
+  // `remember: false` folds it for the screen, not as the person's choice.
+  function setCollapsed(on, { remember = true } = {}) {
     const changed = collapsed !== on;
     collapsed = on;
-    if (changed) onCollapse?.(on);
+    if (changed && remember) onCollapse?.(on);
     root.classList.toggle("collapsed", on);
     root.classList.remove("flyout");
     collapse.setAttribute("aria-expanded", String(!on));

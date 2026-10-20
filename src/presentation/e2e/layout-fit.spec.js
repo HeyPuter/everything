@@ -113,3 +113,33 @@ test("the library fits the screen", async ({ page }) => {
   ).toBeVisible();
   await expectFits(page, "the library");
 });
+
+test("a short screen keeps its height for the slide", async ({ page }) => {
+  // A laptop window zoomed to 200%, and then made tall again.
+  await page.setViewportSize({ width: 640, height: 400 });
+  await stub(page);
+  await page.goto("/");
+  await expect(page.locator(".editor")).toBeVisible();
+  // The ribbon starts folded away, without that becoming the saved choice.
+  await expect(page.locator(".ribbon")).toHaveClass(/collapsed/);
+  const slide = page.locator("#slide-canvas");
+  const area = page.locator(".workspace");
+  await expect
+    .poll(async () => {
+      const [s, a] = await Promise.all([
+        slide.boundingBox(),
+        area.boundingBox(),
+      ]);
+      return s.y >= a.y && s.y + s.height <= a.y + a.height + 1;
+    })
+    .toBe(true);
+  expect(
+    await page.evaluate(
+      () =>
+        JSON.parse(localStorage.getItem("presentation:chrome") || "{}")
+          .ribbonCollapsed ?? false,
+    ),
+  ).toBe(false);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(page.locator(".ribbon")).not.toHaveClass(/collapsed/);
+});

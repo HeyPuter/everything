@@ -4116,8 +4116,22 @@ const animationTools = createAnimationTools({
     new Promise((resolve) => pickLocalFile(accept, (file) => resolve(file))),
 });
 
+// On a short screen the ribbon starts folded away, leaving the height to the
+// slide, without changing the collapse the person chose; it opens again when
+// the screen grows tall (a phone turned upright), unless they folded it.
+const SHORT_SCREEN = matchMedia("(max-height: 500px)");
+let ribbonAutoCollapsed = false;
+function fitRibbonToScreen() {
+  if (!ribbon || chrome.ribbonCollapsed) return;
+  if (SHORT_SCREEN.matches === ribbon.collapsed) return;
+  if (!SHORT_SCREEN.matches && !ribbonAutoCollapsed) return;
+  ribbonAutoCollapsed = SHORT_SCREEN.matches;
+  ribbon.setCollapsed(SHORT_SCREEN.matches, { remember: false });
+}
+SHORT_SCREEN.addEventListener("change", fitRibbonToScreen);
 function editorRibbon() {
   ribbon?.destroy();
+  ribbonAutoCollapsed = false;
   ribbon = createRibbon({
     tabs: buildTabs(ribbonApi()),
     initial: ribbonTab,
@@ -4135,6 +4149,7 @@ function editorRibbon() {
   ribbon.onError(fail);
   animationTools.setTabActive(ribbonTab === "animations");
   if (chrome.ribbonCollapsed) ribbon.setCollapsed(true);
+  else fitRibbonToScreen();
   return ribbon.el;
 }
 /* ---------- Window chrome ----------

@@ -2542,6 +2542,17 @@ body:has(.presenter[open]) #toast {
     --resize-handle-size: 18px;
   }
 }
+/* A short screen (a phone on its side, a window zoomed to 200%) keeps its
+   height for the slide: the ribbon starts folded away (see main.js), and the
+   slide's area gives up its minimum height and most of its padding. */
+@media (max-height: 500px) {
+  .canvas-area {
+    min-height: 0;
+  }
+  .editor .canvas-area {
+    padding: 8px 16px;
+  }
+}
 @media (max-width: 420px) {
   .document-title {
     max-width: 150px;
