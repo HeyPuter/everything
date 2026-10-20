@@ -1150,7 +1150,10 @@
   position: fixed;
   right: max(16px, env(safe-area-inset-right));
   bottom: max(0px, env(safe-area-inset-bottom));
-  z-index: 90;
+  /* Under the phone's folder drawer (80) and its scrim (70): above them, the
+     dock sat over the bottom of the open drawer and took taps through the
+     scrim meant to close it. */
+  z-index: 65;
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
