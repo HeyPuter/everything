@@ -1314,6 +1314,80 @@ const tableColumnCount = (tbl: XmlElement): number => {
   return allChildElements(grid, NAME_A_GRID_COL).length;
 };
 
+interface MergeBlock {
+  readonly row: number;
+  readonly col: number;
+  readonly rowSpan: number;
+  readonly colSpan: number;
+  /** Every `<a:tc>` in the block, the anchor first. */
+  readonly cells: ReadonlyArray<XmlElement>;
+}
+
+const mergeFlag = (tc: XmlElement, name: ReturnType<typeof qname>): boolean => {
+  const v = getAttrValue(tc, name);
+  return v === "1" || v === "true";
+};
+
+const spanValue = (tc: XmlElement, name: ReturnType<typeof qname>): number => {
+  const n = Number.parseInt(getAttrValue(tc, name) ?? "", 10);
+  return Number.isFinite(n) && n > 1 ? n : 1;
+};
+
+/** The table's merged blocks: each anchor (a span > 1 on a cell that isn't
+ * itself covered) with its span clamped to the grid. */
+const tableMerges = (tbl: XmlElement): MergeBlock[] => {
+  const grid = tableRows(tbl).map(rowCells);
+  const out: MergeBlock[] = [];
+  grid.forEach((tcs, row) =>
+    tcs.forEach((tc, col) => {
+      if (mergeFlag(tc, ATTR_H_MERGE) || mergeFlag(tc, ATTR_V_MERGE)) return;
+      const rowSpan = Math.min(spanValue(tc, ATTR_ROW_SPAN), grid.length - row);
+      const colSpan = Math.min(spanValue(tc, ATTR_GRID_SPAN), tcs.length - col);
+      if (rowSpan < 2 && colSpan < 2) return;
+      const cells: XmlElement[] = [];
+      for (let r = row; r < row + rowSpan; r++)
+        for (let c = col; c < col + colSpan; c++) {
+          const cell = grid[r]![c];
+          if (cell) cells.push(cell);
+        }
+      out.push({ row, col, rowSpan, colSpan, cells });
+    }),
+  );
+  return out;
+};
+
+/** Grows or shrinks a merge's span on every cell of the block that states it
+ * (PowerPoint repeats spans on some covered cells); a span of 1 is dropped. */
+const resizeMerge = (
+  block: MergeBlock,
+  name: ReturnType<typeof qname>,
+  delta: number,
+): void => {
+  for (const tc of block.cells) {
+    if (getAttrValue(tc, name) === null) continue;
+    const next = spanValue(tc, name) + delta;
+    if (next > 1) setSpanAttr(tc, name, String(next));
+    else
+      tc.attrs = tc.attrs.filter(
+        (a) =>
+          !(a.name.namespaceURI === "" && a.name.localName === name.localName),
+      );
+  }
+};
+
+/** Swaps two `<a:tc>` elements, which may sit in different rows. */
+const swapCells = (
+  trA: XmlElement,
+  a: XmlElement,
+  trB: XmlElement,
+  b: XmlElement,
+): void => {
+  const ia = trA.children.indexOf(a);
+  const ib = trB.children.indexOf(b);
+  trA.children[ia] = b;
+  trB.children[ib] = a;
+};
+
 const rowDefaultHeight = (tbl: XmlElement): number => {
   // Use the average height of existing rows, or 370000 (≈ 0.4in) as a
   // sane default when the table has no rows yet.
@@ -1356,6 +1430,19 @@ export const insertTableRow = (
     atIndex !== undefined
       ? Math.max(0, Math.min(atIndex, rows.length))
       : rows.length;
+  // A row inserted inside a vertical merge joins it: the merge grows and
+  // the new cells under it are covered.
+  const newCells = rowCells(row);
+  for (const m of tableMerges(tbl)) {
+    if (insertAt <= m.row || insertAt >= m.row + m.rowSpan) continue;
+    resizeMerge(m, ATTR_ROW_SPAN, 1);
+    for (let c = m.col; c < m.col + m.colSpan; c++) {
+      const tc = newCells[c];
+      if (!tc) continue;
+      if (c > m.col) setSpanAttr(tc, ATTR_H_MERGE, "1");
+      setSpanAttr(tc, ATTR_V_MERGE, "1");
+    }
+  }
   if (insertAt === rows.length) {
     tbl.children.push(row);
   } else {
@@ -1378,6 +1465,20 @@ export const removeTableRow = (
     throw new RangeError(
       `removeTableRow: index ${atIndex} out of range (have ${rows.length})`,
     );
+  }
+  // Merges crossing the row shrink; when the row holds a merge's anchor,
+  // the anchor (text and formatting) moves down into the row below first.
+  for (const m of tableMerges(tbl)) {
+    if (m.rowSpan < 2 || atIndex < m.row || atIndex >= m.row + m.rowSpan)
+      continue;
+    if (atIndex === m.row) {
+      const top = rowCells(rows[atIndex]!);
+      const next = rowCells(rows[atIndex + 1]!);
+      for (let c = m.col; c < m.col + m.colSpan; c++)
+        if (top[c] && next[c])
+          swapCells(rows[atIndex]!, top[c]!, rows[atIndex + 1]!, next[c]!);
+    }
+    resizeMerge(m, ATTR_ROW_SPAN, -1);
   }
   const target = rows[atIndex]!;
   tbl.children = tbl.children.filter((c) => c !== target);
@@ -1433,10 +1534,19 @@ export const insertTableColumn = (
     grid.children.splice(idx, 0, newCol);
   }
 
+  // A column inserted inside a horizontal merge joins it: the merge grows
+  // and the new cells under it are covered.
+  const merges = tableMerges(tbl);
   // Add a blank <a:tc> at the same column index in every row.
-  for (const tr of tableRows(tbl)) {
+  tableRows(tbl).forEach((tr, rowIdx) => {
     const tcs = rowCells(tr);
     const newCell = buildTableCell("");
+    for (const m of merges) {
+      if (insertAt <= m.col || insertAt >= m.col + m.colSpan) continue;
+      if (rowIdx < m.row || rowIdx >= m.row + m.rowSpan) continue;
+      setSpanAttr(newCell, ATTR_H_MERGE, "1");
+      if (rowIdx > m.row) setSpanAttr(newCell, ATTR_V_MERGE, "1");
+    }
     if (insertAt >= tcs.length) {
       tr.children.push(newCell);
     } else {
@@ -1444,7 +1554,10 @@ export const insertTableColumn = (
       const idx = tr.children.indexOf(target);
       tr.children.splice(idx, 0, newCell);
     }
-  }
+  });
+  for (const m of merges)
+    if (insertAt > m.col && insertAt < m.col + m.colSpan)
+      resizeMerge(m, ATTR_GRID_SPAN, 1);
 
   commitSlideData(table[SHAPE_SLIDE]);
   refreshSlideData(table[SHAPE_SLIDE]);
@@ -1463,6 +1576,21 @@ export const removeTableColumn = (
     throw new RangeError(
       `removeTableColumn: index ${atIndex} out of range (have ${cols.length})`,
     );
+  }
+  // Merges crossing the column shrink; when the column holds a merge's
+  // anchor, the anchor (text and formatting) moves right into the next
+  // column first.
+  const rows = tableRows(tbl);
+  for (const m of tableMerges(tbl)) {
+    if (m.colSpan < 2 || atIndex < m.col || atIndex >= m.col + m.colSpan)
+      continue;
+    if (atIndex === m.col)
+      for (let r = m.row; r < m.row + m.rowSpan; r++) {
+        const tcs = rowCells(rows[r]!);
+        if (tcs[atIndex] && tcs[atIndex + 1])
+          swapCells(rows[r]!, tcs[atIndex]!, rows[r]!, tcs[atIndex + 1]!);
+      }
+    resizeMerge(m, ATTR_GRID_SPAN, -1);
   }
   const targetCol = cols[atIndex]!;
   grid.children = grid.children.filter((c) => c !== targetCol);
