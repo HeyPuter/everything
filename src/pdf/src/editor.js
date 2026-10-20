@@ -9702,7 +9702,16 @@ export function createEditor({
             key === 'widgetIndex' || JSON.stringify(value) !== JSON.stringify(initial[key]),
         ),
       );
-      await mutateDialog(d, (doc) => updateFormField(doc, field.name, next), null, 'edit');
+      await mutateDialog(
+        d,
+        async (doc) => {
+          const renamed = await updateFormField(doc, field.name, next);
+          if (renamed !== field.name) designer.renamed(field.name, renamed);
+          return renamed;
+        },
+        null,
+        'edit',
+      );
     });
     const remove = safe(async () => {
       d.close();

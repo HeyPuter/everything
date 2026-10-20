@@ -246,3 +246,22 @@ test('the keyboard focus stays on the fields after editing or deleting one', asy
   await expect(designer(page, 'Note#0')).toHaveCount(0);
   await expect(designer(page, 'Other#0')).toBeFocused();
 });
+
+test('a field renamed from the keyboard keeps the focus', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc
+    .getForm()
+    .createTextField('Note')
+    .addToPage(doc.addPage([600, 400]), { x: 100, y: 100, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await designer(page, 'Note#0').focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  await dialog.getByLabel('Name', { exact: true }).fill('Remark');
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  await expect(designer(page, 'Remark#0')).toBeFocused();
+  await expect(designer(page, 'Remark#0')).toHaveAttribute('aria-pressed', 'true');
+});
