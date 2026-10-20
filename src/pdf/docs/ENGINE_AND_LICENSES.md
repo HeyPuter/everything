@@ -28,7 +28,7 @@ There is no single universally best open-source PDF engine. MuPDF is a stronger 
 
 PDF.js substitutes the standard 14 PDF fonts with font files shipped under `dist/pdfjs/standard_fonts/`. Two licenses apply there:
 
-- **Liberation Sans 1.07.4** (`LiberationSans-Regular/Bold/Italic/BoldItalic.ttf`) is Copyright © 2007–2011 Red Hat, Inc., original design by Steve Matteson (Ascender Corp.), licensed under the **GNU General Public License, version 2, with a font exception**. The font exception means embedding the font in a document does not make that document GPL; it does not exempt distribution of the font files themselves, which stays under the GPL v2. These are the only GPL-licensed materials the build distributes.
+- **Liberation Sans 1.07.4** (`LiberationSans-Regular/Bold/Italic/BoldItalic.ttf`) is Copyright © 2007–2011 Red Hat, Inc., original design by Steve Matteson (Ascender Corp.), licensed under the **GNU General Public License, version 2, with a font exception**. The font exception means embedding the font in a document does not make that document GPL; it does not exempt distribution of the font files themselves, which stays under the GPL v2. These are the only GPL-licensed third-party materials the build distributes.
 - **Foxit fonts** (`Foxit*.pfb`) are under a permissive BSD-3-Clause-style license (the PDFium/Foxit notice) and carry no source-redistribution obligation.
 
 **How we meet the GPL v2 redistribution requirement (section 3).** GPL v2 requires the complete corresponding source to accompany the distributed font object code. The build satisfies this by option 3(a), shipping the source with the binaries:
