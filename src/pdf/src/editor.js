@@ -9647,11 +9647,16 @@ export function createEditor({
         field.type === 'dropdown' ? editable.row : multi.row,
       );
       Object.assign(read, {
+        // A listed label keeps its own export value; a new line exports its label.
         options: () =>
           options.value
             .split('\n')
             .map((line) => line.trim())
-            .filter(Boolean),
+            .filter(Boolean)
+            .map(
+              (line) =>
+                (props.options || []).find((option) => (option.label ?? option) === line) ?? line,
+            ),
         ...(field.type === 'dropdown'
           ? { editable: () => editable.box.checked }
           : { multiSelect: () => multi.box.checked }),

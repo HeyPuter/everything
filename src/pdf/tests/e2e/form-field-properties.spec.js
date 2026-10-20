@@ -93,3 +93,39 @@ test('saving a field’s properties keeps what was filled in and its export valu
     'Country of residence',
   );
 });
+
+test('adding a dropdown option keeps the export values of the others', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([600, 500]);
+  const country = doc.getForm().createDropdown('Country');
+  country.addToPage(sheet, { x: 40, y: 290, width: 200, height: 24 });
+  country.acroField.dict.set(
+    PDFName.of('Opt'),
+    doc.context.obj([
+      [PDFString.of('US'), PDFString.of('United States')],
+      [PDFString.of('FR'), PDFString.of('France')],
+    ]),
+  );
+  country.acroField.dict.set(PDFName.of('V'), PDFString.of('FR'));
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await designer(page, 'Country#0').dblclick();
+  const dialog = page.getByRole('dialog', { name: 'Dropdown properties' });
+  const options = dialog.getByLabel('Options, one per line');
+  await expect(options).toHaveValue('United States\nFrance');
+  await options.fill('United States\nFrance\nGermany');
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  const saved = (await PDFDocument.load(await downloaded(page))).getForm().getDropdown('Country');
+  expect(
+    saved.acroField
+      .getOptions()
+      .map(({ value, display }) => [value.decodeText(), (display ?? value).decodeText()]),
+  ).toEqual([
+    ['US', 'United States'],
+    ['FR', 'France'],
+    ['Germany', 'Germany'],
+  ]);
+  expect(saved.acroField.dict.lookup(PDFName.of('V')).decodeText()).toBe('FR');
+});
