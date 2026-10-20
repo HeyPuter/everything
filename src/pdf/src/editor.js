@@ -2913,8 +2913,14 @@ export function createEditor({
       editorRoot.classList.remove('space-pan');
     }
   };
+  // A Space released while another window has the focus never comes back as a keyup here.
+  const releaseSpace = () => {
+    spaceHeld = false;
+    editorRoot.classList.remove('space-pan');
+  };
   window.addEventListener('keydown', onSpace);
   window.addEventListener('keyup', onSpace);
+  window.addEventListener('blur', releaseSpace);
   workspace.addEventListener(
     'pointerdown',
     (e) => {
@@ -11563,6 +11569,7 @@ export function createEditor({
     document.removeEventListener('fullscreenchange', onFullscreen);
     window.removeEventListener('keydown', onSpace);
     window.removeEventListener('keyup', onSpace);
+    window.removeEventListener('blur', releaseSpace);
     saveController?.abort();
     cancelTextSelection();
     dialogController.abort();

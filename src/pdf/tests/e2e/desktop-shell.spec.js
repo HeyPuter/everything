@@ -168,6 +168,26 @@ test('single page display shows one page at a time', async ({ page }) => {
   await page.evaluate(() => localStorage.removeItem('pdf-editor:page-display'));
 });
 
+test('Space-drag panning ends when the window loses focus with Space held', async ({ page }) => {
+  await openPdf(page, await numberedPdf(3));
+  const workspace = page.locator('.workspace');
+  await workspace.focus();
+  await page.keyboard.down('Space');
+  await expect(page.locator('.editor')).toHaveClass(/space-pan/);
+  // Space comes up in another window, so this one only sees the blur.
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await expect(page.locator('.editor')).not.toHaveClass(/space-pan/);
+  // A drag on the page is the Select tool's again, not a pan.
+  await workspace.evaluate((node) => (node.scrollTop = 200));
+  const box = await page.locator('.page-slot[data-page="1"]').boundingBox();
+  await page.mouse.move(box.x + 100, box.y + 100);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 100, box.y + 20, { steps: 4 });
+  await page.mouse.up();
+  expect(await workspace.evaluate((node) => node.scrollTop)).toBe(200);
+  await page.keyboard.up('Space');
+});
+
 test('Organize pages selects, turns, moves, and deletes several pages', async ({ page }) => {
   await openPdf(page, await numberedPdf(4));
   await page.getByRole('button', { name: 'Tools', exact: true }).click();
