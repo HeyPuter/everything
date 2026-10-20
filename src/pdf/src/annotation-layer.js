@@ -6,7 +6,8 @@ import { el } from './lib/ui.js';
  * The editor shows the selected one's settings in the properties panel and turns the
  * gestures into edits.
  *
- * callbacks: { onSelect(entry | null), onMove(entry, rect), onDelete(entry) }
+ * callbacks: { onSelect(entry | null, { refresh }), onMove(entry, rect), onDelete(entry) }; a
+ * refresh is the selected comment redrawn after an edit rather than a new choice.
  */
 export const ANNOTATION_KINDS = new Set([
   'FreeText',
@@ -69,7 +70,7 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
     const kept = selected && entries.find((entry) => entry.id === selected);
     if (selected && !kept) select(null);
     // An edited comment is redrawn: its settings follow the new version.
-    else if (kept) onSelect(kept);
+    else if (kept) onSelect(kept, { refresh: true });
     // Redrawing replaces the targets; the selected one keeps the keyboard focus it had, so
     // arrow keys and Delete go on working after a nudge or a move.
     const refocus = kept && root.contains(document.activeElement);

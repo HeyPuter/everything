@@ -1012,6 +1012,7 @@ export function createEditor({
       await openNoteEditor({ entry, canFocus });
     } else {
       pageImages.close();
+      annotationLayer.clear();
       selectedHighlight = entry;
       renderHighlightTargets();
       if (canFocus())
@@ -1060,7 +1061,29 @@ export function createEditor({
   const properties = createPropertiesPanel();
   // Comments drawn as annotations, selectable in Select.
   const annotationLayer = createAnnotationLayer({
-    onSelect: (entry) => showAnnotationProperties(entry),
+    onSelect: (entry, { refresh = false } = {}) => {
+      if (!entry || refresh) return showAnnotationProperties(entry);
+      // Choosing a comment finishes drafts and lets go of a picture, shape, or markup, as
+      // choosing any other object does. A draft that cannot be saved keeps the selection.
+      safe(() =>
+        selectionProperties(async () => {
+          cancelTextSelection();
+          try {
+            await finishDrafts();
+          } catch (error) {
+            annotationLayer.clear();
+            throw error;
+          }
+          pageImages.close();
+          if (selectedHighlight) {
+            selectedHighlight = null;
+            renderHighlightTargets();
+          }
+          const chosen = annotationLayer.selected;
+          if (chosen) showAnnotationProperties(chosen);
+        }),
+      )();
+    },
     onMove: (entry, rect) =>
       safe(() =>
         mutate((doc) => editAnnotation(doc, pageIndex, entry.id, { rect }), null, 'annotate', {
@@ -1116,6 +1139,8 @@ export function createEditor({
       panel ? properties.show('object', title, panel) : properties.clear('object'),
     beforeSelect: async () => {
       cancelTextSelection();
+      // A chosen picture or shape lets go of a selected comment, as other objects do.
+      annotationLayer.clear();
       await finishDrafts(true);
       selectedHighlight = null;
       renderHighlightTargets();
@@ -3352,6 +3377,7 @@ export function createEditor({
               const ordinal = highlights.indexOf(entry);
               await finishDrafts();
               pageImages.close();
+              annotationLayer.clear();
               // Finishing a related note may detach this reply and assign it a new ID.
               selectedHighlight = highlights.find((h) => h.id === entry.id) || highlights[ordinal];
               renderHighlightTargets();
@@ -4698,6 +4724,7 @@ export function createEditor({
     await finishDrafts();
     if (destroyed || version !== textSelectionVersion || !['select', 'text'].includes(tool)) return;
     pageImages.close();
+    annotationLayer.clear();
     selectedHighlight = null;
     renderHighlightTargets();
     // A preceding edit reloads the PDF, so use the freshly indexed target.
@@ -5358,6 +5385,7 @@ export function createEditor({
     await finishDrafts();
     if (busy || !pageReady || destroyed || (!point && !entry)) return;
     pageImages.close();
+    annotationLayer.clear();
     selectedHighlight = null;
     renderHighlightTargets();
     const textarea = el('textarea', {
