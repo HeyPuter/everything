@@ -1093,6 +1093,16 @@ async function revisionChanges(data, finalDoc, end) {
   return promise;
 }
 
+/** What filling in a field (or signing a signature field) may change in its dictionaries. */
+const FILL_KEYS = new Set(['V', 'AS', 'AP', 'RV', 'I', 'TI', 'DA', 'M', 'Kids']);
+function fieldTypeOf(context, dict) {
+  for (let node = dict, depth = 0; node instanceof PDFDict && depth < 32; depth++) {
+    const type = nameOf(node.get(name('FT')));
+    if (type) return type;
+    node = context.lookup(node.get(name('Parent')));
+  }
+  return null;
+}
 const annotRefs = (context, page) => {
   const annots = context.lookup(page?.get?.(name('Annots')));
   return annots instanceof PDFArray
@@ -1201,6 +1211,23 @@ function classifyChanges(
       }
       if (fieldLocked(change.fieldName)) {
         note(false, `The locked field "${change.fieldName}" was changed.`);
+        continue;
+      }
+      // Filling in changes a field's value and its drawing. Moving, hiding, or redefining a
+      // field changes what the signer saw, which only annotation rights cover.
+      const keys =
+        before instanceof PDFDict && after instanceof PDFDict
+          ? changedKeys(before, after)
+          : new Set(['?']);
+      const signatureField = fieldTypeOf(finalDoc.context, dict) === 'Sig';
+      const other = [...keys].filter(
+        (key) => !FILL_KEYS.has(key) && !(signatureField && key === 'MK'),
+      );
+      if (other.length) {
+        note(
+          annotsOk,
+          `${change.fieldName ? `The form field "${change.fieldName}"` : 'A form field'} was changed (${other.join(', ')}).`,
+        );
         continue;
       }
       note(

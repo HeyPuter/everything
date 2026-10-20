@@ -479,6 +479,52 @@ describe('signing and validating', () => {
     await expect(signPdf(approved, rsa, { certify: 2 })).rejects.toThrow(/certified only before/);
   });
 
+  it('tells filling a certified form from moving or hiding its fields', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([612, 792]);
+    for (const [fieldName, y] of [
+      ['Name', 600],
+      ['Amount', 500],
+    ])
+      doc
+        .getForm()
+        .createTextField(fieldName)
+        .addToPage(page, { x: 72, y, width: 200, height: 24 });
+    const certified = await signPdf(await doc.save({ useObjectStreams: false }), rsa, {
+      page: 0,
+      rect: RECT,
+      certify: 2,
+    });
+    const editWidget = (edit) =>
+      appendUpdate(certified, (doc, mark) => {
+        const widget = doc.getForm().getTextField('Amount').acroField.getWidgets()[0];
+        edit(widget.dict, doc);
+        mark(doc.context.getObjectRef(widget.dict), widget.dict);
+      });
+    const filled = await appendUpdate(certified, (doc, mark) => {
+      const field = doc.getForm().getTextField('Name');
+      field.acroField.dict.set(PDFName.of('V'), PDFString.of('Ada'));
+      mark(field.ref, field.acroField.dict);
+    });
+    const [fill] = await verifySignatures(filled);
+    expect(fill.status).toBe('valid-unknown-identity');
+    expect(fill.modifications.allowed).toEqual(['The form field "Name" was filled in.']);
+    // Hiding a field or moving it elsewhere changes what the signer saw.
+    for (const [edit, key] of [
+      [(widget) => widget.set(PDFName.of('F'), PDFNumber.of(2)), 'F'],
+      [
+        (widget, doc) => widget.set(PDFName.of('Rect'), doc.context.obj([300, 300, 500, 324])),
+        'Rect',
+      ],
+    ]) {
+      const [changed] = await verifySignatures(await editWidget(edit));
+      expect(changed.status).toBe('modified');
+      expect(changed.modifications.disallowed).toEqual([
+        `The form field "Amount" was changed (${key}).`,
+      ]);
+    }
+  });
+
   it('refuses password-protected files', async () => {
     const locked = await protectPdf(await makePdf(), {
       open: 'user',
