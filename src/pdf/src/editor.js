@@ -163,6 +163,14 @@ const pdfWorker = () => {
   }
   return sharedWorker;
 };
+/**
+ * A PDF.js page's visible area in its own user units, which its text is measured in. Viewports
+ * are in points, a page's UserUnit times larger along each side.
+ */
+const userArea = (pdfPage) => {
+  const [x0, y0, x1, y1] = pdfPage.view;
+  return Math.abs((x1 - x0) * (y1 - y0));
+};
 const loadPdf = (bytes) =>
   pdfjs.getDocument({
     data: bytes,
@@ -10564,9 +10572,8 @@ export function createEditor({
           }
           const doc = await task.promise;
           const pdfPage = await doc.getPage(page + 1);
-          const view = pdfPage.getViewport({ scale: 1 });
           const content = await pdfPage.getTextContent({ includeMarkedContent: true });
-          if (!pageNeedsOcr(content, view.width * view.height)) return null;
+          if (!pageNeedsOcr(content, userArea(pdfPage))) return null;
           const { createOcrEngine } = await import('./ocr-engine.js');
           ocrEngine ??= createOcrEngine();
           const picture = await pageImage(doc, page, {
@@ -10748,9 +10755,8 @@ export function createEditor({
         controller.signal.throwIfAborted();
         const page = await thisPdf.getPage(index + 1);
         if (skipText) {
-          const view = page.getViewport({ scale: 1 });
           const content = await page.getTextContent({ includeMarkedContent: true });
-          if (!pageNeedsOcr(content, view.width * view.height)) {
+          if (!pageNeedsOcr(content, userArea(page))) {
             skipped++;
             continue;
           }

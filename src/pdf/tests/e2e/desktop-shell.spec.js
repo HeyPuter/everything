@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFNumber, StandardFonts } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
 
 const PUTER_MOCK = `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username:'test-user'}), signIn: async () => {}, signOut: async () => {} }, fs: { readdir: async () => [], write: async () => ({}) }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`;
@@ -554,6 +554,29 @@ test('Scan & OCR makes a scanned page searchable', async ({ page }) => {
     .join(' ');
   expect(text).toContain('Invoice');
   expect(text).toContain('4217');
+});
+
+test('Scan & OCR skips a page with text whatever its unit size', async ({ page }) => {
+  test.setTimeout(180000);
+  // A large-format page written in two-point units: a short heading still covers enough of
+  // the page to count as text, measured in the units the text is measured in.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.HelveticaBold);
+  const sheet = doc.addPage([306, 396]);
+  sheet.node.set(PDFName.of('UserUnit'), PDFNumber.of(2));
+  sheet.drawText('PLAN', { x: 40, y: 200, size: 40, font });
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Scan & OCR', exact: true }).click();
+  await pane.getByRole('button', { name: 'In this file…' }).click();
+  await page
+    .getByRole('dialog', { name: 'Recognize text' })
+    .getByRole('button', { name: 'Recognize text' })
+    .click();
+  await expect(page.getByText('These pages already have text', { exact: false })).toBeVisible({
+    timeout: 120000,
+  });
 });
 
 test('Batch process applies the same steps to several PDFs', async ({ page }) => {
