@@ -819,3 +819,16 @@ test('View more and View less keep the keyboard focus in the tools pane', async 
   await page.keyboard.press('Enter');
   await expect(pane.getByRole('button', { name: 'View more' })).toBeFocused();
 });
+
+test('an edit made by shortcut leaves the focus on View more', async ({ page }) => {
+  await openPdf(page, await numberedPdf(1));
+  const more = page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'View more' });
+  await more.focus();
+  // The pane redraws for the edit; the button it held the focus on is drawn again too.
+  await page.keyboard.press('ControlOrMeta+Shift+R');
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
+  await settled(page);
+  await expect(more).toBeFocused();
+});
