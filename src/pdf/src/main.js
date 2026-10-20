@@ -421,7 +421,7 @@ async function canLeave(signal) {
       el(
         'p',
         {},
-        'This PDF is not saved anywhere yet. Sign in to Puter to save it to your own cloud, download it first, or leave and discard the changes.',
+        'This PDF is not saved anywhere yet. Sign in to Puter to save it to your own cloud, or leave and discard the changes. To download it instead, keep editing and choose Download.',
       ),
       [
         button('Keep editing', null, () => dialog.close()),

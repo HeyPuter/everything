@@ -4471,6 +4471,8 @@ test('leaving unsaved edits without an account offers to sign in and save', asyn
   await expect(dialog).toBeVisible();
   for (const name of ['Keep editing', 'Leave without saving', 'Sign in and save'])
     await expect(dialog.getByRole('button', { name, exact: true })).toBeVisible();
+  // Downloading is not one of its answers, so the question says where to find it.
+  await expect(dialog).toContainText('To download it instead, keep editing and choose Download.');
   await dialog.getByRole('button', { name: 'Keep editing', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.locator('.save-status')).toHaveText('Unsaved changes');
