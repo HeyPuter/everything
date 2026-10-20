@@ -20,6 +20,7 @@ import {
   PDFArray,
   PDFDict,
   PDFRawStream,
+  PDFRef,
   NoSuchFieldError,
   PDFObjectCopier,
   PDFPage,
@@ -426,11 +427,47 @@ function removeOnePage(doc, index) {
     }
   }
   removePageStructure(doc, page);
+  removePageBeads(doc, page);
   shiftPageLabels(doc, index, -1);
   doc.removePage(index);
   // pdf-lib leaves its page list cached after removal; a second deletion in the same
   // transaction must resolve destinations and widgets against the new page order.
   doc.pageCache.invalidate();
+}
+/**
+ * Take a deleted page's article beads out of their threads (ISO 32000-1, 12.4.3). Each bead
+ * names its page, so a thread that ran across the page kept the page, with all its content,
+ * in the saved file. A thread left without beads goes as well.
+ */
+function removePageBeads(doc, page) {
+  const threads = doc.catalog.lookup(PDFName.of('Threads'));
+  if (!(threads instanceof PDFArray)) return;
+  const [F, N, V, P] = ['F', 'N', 'V', 'P'].map((key) => PDFName.of(key));
+  for (let t = threads.size() - 1; t >= 0; t--) {
+    const thread = threads.lookup(t);
+    if (!(thread instanceof PDFDict)) continue;
+    // The beads in reading order, once round the circle; a broken chain ends the list.
+    const beads = [];
+    const seen = new Set();
+    for (let ref = thread.get(F); ref instanceof PDFRef && !seen.has(ref);) {
+      seen.add(ref);
+      const bead = doc.context.lookup(ref);
+      if (!(bead instanceof PDFDict)) break;
+      beads.push({ ref, bead });
+      ref = bead.get(N);
+    }
+    const kept = beads.filter(({ bead }) => bead.get(P) !== page.ref);
+    if (kept.length === beads.length) continue;
+    if (!kept.length) {
+      threads.remove(t);
+      continue;
+    }
+    kept.forEach(({ bead }, i) => {
+      bead.set(N, kept[(i + 1) % kept.length].ref);
+      bead.set(V, kept[(i + kept.length - 1) % kept.length].ref);
+    });
+    thread.set(F, kept[0].ref);
+  }
 }
 /**
  * Write what a page inherits from the page tree (size, crop, rotation, resources) onto the page
