@@ -45,6 +45,13 @@ describe('withSignature', () => {
 });
 
 describe('isSignatureOnly', () => {
+  it('stays linear on a long run of spaces', () => {
+    const start = performance.now();
+    expect(isSignatureOnly(`a${' '.repeat(16000)}x`, 'sig')).toBe(false);
+    expect(isSignatureOnly('-- \nAna   \n', 'Ana')).toBe(true);
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
   it('recognises a body that is nothing but the signature', () => {
     expect(isSignatureOnly('\n\n-- \nAna', 'Ana')).toBe(true);
     // A draft saved before the editor kept the separator's space holds `--`.

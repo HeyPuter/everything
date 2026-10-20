@@ -141,6 +141,13 @@ describe('hasFormatting', () => {
 });
 
 describe('htmlToText', () => {
+  it('stays linear on a quoted run of spaces, as a reply to a hostile message carries', () => {
+    const start = performance.now();
+    expect(htmlToText(`<div>&gt; a${'&nbsp;'.repeat(16000)} x</div><div>-- </div><div>Ana   </div>`))
+      .toBe(`> a${' '.repeat(16001)}x\n-- \nAna`);
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
   it('gives one line per block', () => {
     expect(htmlToText('<div>one</div><div>two</div>')).toBe('one\ntwo');
   });

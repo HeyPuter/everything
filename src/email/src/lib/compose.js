@@ -480,6 +480,12 @@ export const withSignature = (body = '', signature = '') => {
 export const isSignatureOnly = (body = '', signature = '') => {
   const block = signatureBlock(signature);
   if (!block) return false;
-  const squash = (text) => String(text ?? '').replace(/\r\n?/g, '\n').replace(/[ \t]+\n/g, '\n').trim();
+  // Line by line and walked back: `/[ \t]+\n/g` is quadratic on a long run
+  // of spaces with no line break after it.
+  const squash = (text) => String(text ?? '').replace(/\r\n?/g, '\n').split('\n').map((line) => {
+    let end = line.length;
+    while (end && (line[end - 1] === ' ' || line[end - 1] === '\t')) end--;
+    return line.slice(0, end);
+  }).join('\n').trim();
   return squash(body) === squash(block);
 };
