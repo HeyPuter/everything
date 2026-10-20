@@ -568,6 +568,29 @@ it('sets the tab order of a page', async () => {
   expect(() => setFieldTabOrder(doc, 0, 'diagonal')).toThrow();
 });
 
+it('puts the widgets in row or column order, which viewers without /Tabs follow', async () => {
+  const doc = await blank();
+  // Added out of order: a two-by-two grid, bottom right first.
+  for (const [fieldName, x, y] of [
+    ['D', 300, 600],
+    ['B', 300, 700],
+    ['C', 50, 602],
+    ['A', 50, 698],
+  ])
+    await addFormField(doc, 0, { type: 'text', name: fieldName, rect: rect(x, y, 100, 20) });
+  const order = async () => (await annotations(await doc.save())).map((a) => a.fieldName);
+  setFieldTabOrder(doc, 0, 'row');
+  expect(await order()).toEqual(['A', 'B', 'C', 'D']);
+  expect(setFieldTabOrder(doc, 0, 'row')).toBe(false);
+  setFieldTabOrder(doc, 0, 'column');
+  expect(doc.getPage(0).node.lookup(name('Tabs'))).toBe(name('C'));
+  expect(await order()).toEqual(['A', 'C', 'B', 'D']);
+  // Rows run across the page as it is shown: turned a quarter, the left edge is the top.
+  doc.getPage(0).setRotation(degrees(90));
+  setFieldTabOrder(doc, 0, 'row');
+  expect(await order()).toEqual(['C', 'A', 'D', 'B']);
+});
+
 /** A printed form: underscore blanks, ruled lines, boxes, check squares and a table. */
 async function flatForm() {
   const doc = await PDFDocument.create();

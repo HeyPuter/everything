@@ -172,3 +172,37 @@ test('a field nudged with the arrow keys keeps the keyboard focus', async ({ pag
   const saved = (await PDFDocument.load(await downloaded(page))).getForm().getTextField('Note');
   expect(saved.acroField.getWidgets()[0].getRectangle()).toEqual({ ...start, x: start.x + 30 });
 });
+
+test('Tab order by rows or by columns is the order Tab follows on the page', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([600, 500]);
+  // Added bottom right first: a two-by-two grid.
+  for (const [name, x, y] of [
+    ['D', 300, 300],
+    ['B', 300, 400],
+    ['C', 40, 302],
+    ['A', 40, 398],
+  ])
+    doc.getForm().createTextField(name).addToPage(sheet, { x, y, width: 150, height: 24 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  const visited = async () => {
+    await pane.getByRole('button', { name: 'Back to all tools' }).click();
+    await settled(page);
+    const order = [];
+    await page.getByRole('textbox', { name: 'A (on page)' }).focus();
+    for (let i = 0; i < 4; i++) {
+      order.push(await page.evaluate(() => document.activeElement.getAttribute('aria-label')));
+      await page.keyboard.press('Tab');
+    }
+    return order.map((label) => label.replace(' (on page)', ''));
+  };
+  await pane.getByRole('button', { name: 'Tab order: by rows' }).click();
+  await settled(page);
+  expect(await visited()).toEqual(['A', 'B', 'C', 'D']);
+  await prepareForm(page);
+  await pane.getByRole('button', { name: 'Tab order: by columns' }).click();
+  await settled(page);
+  expect(await visited()).toEqual(['A', 'C', 'B', 'D']);
+});

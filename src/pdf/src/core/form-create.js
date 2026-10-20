@@ -1503,18 +1503,83 @@ export function deleteFormField(doc, fieldName, widgetIndex) {
   }
 }
 
+/** A rectangle as shown on a page turned by `rotation`: right and down from the top left. */
+function shownBox(rect, rotation) {
+  const { x, y, width: w, height: h } = rect;
+  return {
+    0: { left: x, top: -(y + h), width: w, height: h },
+    90: { left: y, top: x, width: h, height: w },
+    180: { left: -(x + w), top: y, width: w, height: h },
+    270: { left: -(y + h), top: -(x + w), width: h, height: w },
+  }[rotation];
+}
+/**
+ * The page's widgets in reading rows (left to right, rows top to bottom) or columns (top to
+ * bottom, columns left to right) as the page is shown; boxes whose middles fall within the
+ * first box of a row or column share it.
+ */
+function spatialOrder(doc, page, order) {
+  const rotation = pageRotation(page);
+  const across = order === 'row' ? 'left' : 'top',
+    along = order === 'row' ? 'top' : 'left';
+  const extent = { left: 'width', top: 'height' };
+  const boxes = (annotationsOf(page)?.asArray() ?? [])
+    .map((ref) => doc.context.lookup(ref))
+    .filter((dict) => dict instanceof PDFDict && dict.lookup(name('Subtype')) === name('Widget'))
+    .map((dict) => ({ dict, rect: rectOf(dict) }))
+    .filter(({ rect }) => rect)
+    .map(({ dict, rect }) => ({ dict, box: shownBox(rect, rotation) }))
+    .sort((a, b) => a.box[along] - b.box[along] || a.box[across] - b.box[across]);
+  const lines = [];
+  for (const entry of boxes) {
+    const middle = entry.box[along] + entry.box[extent[along]] / 2;
+    const line = lines.find(
+      ([first]) =>
+        middle >= first.box[along] && middle <= first.box[along] + first.box[extent[along]],
+    );
+    if (line) line.push(entry);
+    else lines.push([entry]);
+  }
+  return lines.flatMap((line) =>
+    line.sort((a, b) => a.box[across] - b.box[across]).map(({ dict }) => dict),
+  );
+}
+/** Rearrange a page's widget annotations: `wanted` first, in order, the others after them. */
+function reorderWidgets(doc, page, wanted) {
+  const entries = (annotationsOf(page)?.asArray() ?? []).map((ref) => ({
+    ref,
+    dict: doc.context.lookup(ref),
+  }));
+  const isWidget = ({ dict }) =>
+    dict instanceof PDFDict && dict.lookup(name('Subtype')) === name('Widget');
+  const slots = entries.filter(isWidget);
+  const ordered = [
+    ...wanted.flatMap((dict) => slots.filter((slot) => slot.dict === dict)),
+    ...slots.filter((slot) => !wanted.includes(slot.dict)),
+  ].filter((slot, i, all) => all.indexOf(slot) === i);
+  let next = 0;
+  const result = entries.map((entry) => (isWidget(entry) ? ordered[next++] : entry));
+  if (!result.some((entry, i) => entry !== entries[i])) return false;
+  // Pages sharing one array get their own before it changes.
+  const annots = annotationList(page);
+  result.forEach((entry, i) => annots.set(i, entry.ref));
+  return true;
+}
+
 /**
  * Set a page's tab order: 'row' (/Tabs /R), 'column' (/C), 'structure' (/S), or an explicit
  * list of field names (or `{ name, widgetIndex }`). An explicit order rearranges the page's
  * widget annotations in that order (others keep their slots, unlisted widgets follow in their
  * current order) and removes /Tabs, so readers use the annotation order, as Acrobat's
- * "Order Tabs Manually" does.
+ * "Order Tabs Manually" does. Rows and columns also put the widgets in that order, for
+ * viewers that follow the annotation order and not /Tabs.
  */
 export function setFieldTabOrder(doc, pageIndex, order) {
   const page = doc.getPage(pageIndex);
   const tabs = { row: 'R', column: 'C', structure: 'S' }[order];
   if (tabs) {
-    if (page.node.lookup(name('Tabs')) === name(tabs)) return false;
+    const reordered = tabs !== 'S' && reorderWidgets(doc, page, spatialOrder(doc, page, order));
+    if (page.node.lookup(name('Tabs')) === name(tabs)) return reordered ? undefined : false;
     page.node.set(name('Tabs'), name(tabs));
     return;
   }
@@ -1531,19 +1596,7 @@ export function setFieldTabOrder(doc, pageIndex, order) {
       wanted.push(widgets[item.widgetIndex]);
     } else wanted.push(...widgets);
   }
-  const annots = annotationList(page);
-  const entries = annots.asArray().map((ref) => ({ ref, dict: doc.context.lookup(ref) }));
-  const isWidget = ({ dict }) =>
-    dict instanceof PDFDict && dict.lookup(name('Subtype')) === name('Widget');
-  const slots = entries.filter(isWidget);
-  const ordered = [
-    ...wanted.flatMap((dict) => slots.filter((slot) => slot.dict === dict)),
-    ...slots.filter((slot) => !wanted.includes(slot.dict)),
-  ].filter((slot, i, all) => all.indexOf(slot) === i);
-  let next = 0;
-  const result = entries.map((entry) => (isWidget(entry) ? ordered[next++] : entry));
-  const changed = result.some((entry, i) => entry !== entries[i]) || page.node.has(name('Tabs'));
+  const changed = reorderWidgets(doc, page, wanted) || page.node.has(name('Tabs'));
   if (!changed) return false;
-  result.forEach((entry, i) => annots.set(i, entry.ref));
   page.node.delete(name('Tabs'));
 }
