@@ -983,3 +983,36 @@ it('removes text that shapes a soft mask under the area', async () => {
     n('Luminosity'),
   );
 });
+
+it('removes a field everywhere it shows when one of its widgets is under the area', async () => {
+  // A field repeated on another page (or kept in a hidden widget) holds one value; removing
+  // only the widget under the mark left the value in the file and on the other page.
+  for (const hidden of [false, true]) {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([400, 400]);
+    const other = doc.addPage([400, 400]);
+    const form = doc.getForm();
+    const secret = form.createTextField('ssn');
+    secret.setText('123-45-6789');
+    secret.addToPage(page, { x: 50, y: 300, width: 120, height: 20 });
+    secret.addToPage(other, { x: 50, y: 300, width: 120, height: 20, hidden });
+    secret.addToPage(page, { x: 50, y: 50, width: 120, height: 20 });
+    const kept = form.createTextField('name');
+    kept.setText('Visible Person');
+    kept.addToPage(other, { x: 50, y: 100, width: 120, height: 20 });
+    const { bytes: out, report } = await redact(await doc.save(), [[0, [[40, 290, 200, 330]]]]);
+    expect(report).toMatchObject({ annotations: 3, fields: 1 });
+    const saved = await PDFDocument.load(out);
+    expect(
+      saved
+        .getForm()
+        .getFields()
+        .map((field) => field.getName()),
+    ).toEqual(['name']);
+    expect(saved.getPage(0).node.Annots()?.size() ?? 0).toBe(0);
+    expect(saved.getPage(1).node.Annots().size()).toBe(1);
+    const corpus = await recoverable(out);
+    expectGone(corpus, '123-45-6789');
+    expect(contains(corpus, 'Visible Person')).toBe(true);
+  }
+});

@@ -312,6 +312,17 @@ function removeWidgetFromForm(doc, widget, widgetRef) {
   return fields;
 }
 
+/** The other widgets of the field a widget belongs to, as [ref, dict] pairs. */
+function otherWidgets(doc, widget) {
+  const field = widget.has(name('T')) ? widget : get(widget, 'Parent');
+  const kids = field instanceof PDFDict && field !== widget ? get(field, 'Kids') : null;
+  if (!(kids instanceof PDFArray)) return [];
+  return kids
+    .asArray()
+    .map((ref) => [ref, doc.context.lookup(ref)])
+    .filter(([, kid]) => kid instanceof PDFDict && kid !== widget && !kid.has(name('T')));
+}
+
 /** Drop structure references (OBJR) to removed annotations and their parent-tree entries. */
 export function removeStructReferences(doc, removed, keys) {
   const root = get(doc.catalog, 'StructTreeRoot');
@@ -597,7 +608,7 @@ export async function applyRedactions(doc, { pages, codec } = {}) {
     // 2. Annotations under the areas, with their popups, replies, and form fields.
     const markRefs = new Set(marks.map((m) => m.ref));
     for (const ref of [...(annotationsOf(page)?.asArray() || [])]) {
-      if (markRefs.has(ref)) continue;
+      if (markRefs.has(ref) || removedAnnotations.has(ref)) continue;
       const dict = doc.context.lookup(ref);
       if (!(dict instanceof PDFDict)) continue;
       const subtype = get(dict, 'Subtype');
@@ -612,6 +623,19 @@ export async function applyRedactions(doc, { pages, codec } = {}) {
       ];
       if (!rects.some((area) => rectsOverlap(bounds, area))) continue;
       if (subtype === name('Widget')) {
+        // The field's value is what the widget showed, and the field keeps it (and shows it in
+        // its other widgets, hidden ones included). The whole field goes, wherever it shows.
+        for (const [otherRef, other] of otherWidgets(doc, dict)) {
+          for (const owner of doc.getPages())
+            if (annotationsOf(owner)?.asArray().includes(otherRef))
+              removeAnnotationThread(owner, otherRef.toString());
+          removeWidgetFromForm(doc, other, otherRef);
+          const otherKey = get(other, 'StructParent')?.asNumber?.();
+          if (Number.isInteger(otherKey)) structKeys.add(otherKey);
+          removedAnnotations.add(otherRef);
+          removedAnnotations.add(other);
+          report.annotations++;
+        }
         const fields = removeWidgetFromForm(doc, dict, ref);
         report.fields += fields;
         formRemoved = true;
