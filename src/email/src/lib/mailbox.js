@@ -749,6 +749,11 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
     get total() { return catalog ? catalog.length : null; },
     /** The error from the last listing that could not read, else null. */
     get listError() { return listError; },
+    /**
+     * Whether a listing was started and none has answered yet -- the folder
+     * has never been read, as against a later check that failed.
+     */
+    get unread() { return attempted && !answered; },
   };
 }
 

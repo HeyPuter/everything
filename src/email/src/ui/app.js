@@ -4959,19 +4959,24 @@ export function renderApp(root, ctx) {
       syncAgain = true;
       return;
     }
-    // The inbox could not be read at all. A check now is the next try at
-    // reading it, and what it finds is the folder, not new mail.
-    if (boxes.inbox.listError && !boxes.inbox.messages.length) {
-      if (view().box === 'inbox' && !searching()) loadFolder();
-      else outdate('inbox');
+    // The inbox on screen has never been read: its first listing failed. A
+    // check now is the next try at reading it, and what it finds is the
+    // folder, not new mail -- listed the way opening it would. Elsewhere the
+    // mailbox lists it again quietly itself, and an inbox that was read once
+    // and failed a check since is checked as usual.
+    if (boxes.inbox.unread && view().box === 'inbox' && !searching()) {
+      loadFolder();
       return;
     }
     syncing = true;
     try {
       do {
         syncAgain = false;
+        const unread = boxes.inbox.unread;
         const added = await boxes.inbox.sync();
         if (added.length && frame.isConnected) await receive(added);
+        // Read for the first time, quietly: its count is news to the folders.
+        else if (unread && !boxes.inbox.unread) updateNavCounts();
       } while (syncAgain && frame.isConnected);
     } catch {
       // A failed check is not worth reporting; the next one may succeed, and
