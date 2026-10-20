@@ -14,7 +14,7 @@
  * default rather than passed through.
  */
 
-import { misleadingLink, linkHost } from './linkify.js';
+import { misleadingLink, linkHost, disguisedHost } from './linkify.js';
 
 
 // Layout and text elements real mail is built out of. Tables are in there
@@ -134,8 +134,10 @@ const sanitizeLink = (element) => {
 
   // A link whose text claims one host and whose href points at another is the
   // shape of every phishing link there has ever been. The real host goes next
-  // to it, as text, so the reader can see the difference.
-  if (misleadingLink(element.textContent ?? '', href)) {
+  // to it, as text, so the reader can see the difference. So is an href that
+  // names its host in a form other than the one the browser connects to -- a
+  // homograph, or userinfo in front of the real host -- whatever its text says.
+  if (misleadingLink(element.textContent ?? '', href) || disguisedHost(href)) {
     element.after(element.ownerDocument.createTextNode(` (${linkHost(href)})`));
   }
 };
