@@ -7924,9 +7924,10 @@ function restoreHistory(direction, steps = 1) {
         lastCoalesce = null;
         doc.pres = pres;
         disposeDocumentFonts(previous);
-        const position = P.getSlides(pres).findIndex(
-          (s) => P.getSlidePartName(s) === part,
-        );
+        // A step that changed only other slides goes to the first of them,
+        // so the change is never made out of sight.
+        const shown = changedSlide(previous, pres, part);
+        const position = P.getSlides(pres).indexOf(shown);
         if (position >= 0) index = position;
         theme = history.state;
         await afterHistory();
@@ -7936,6 +7937,22 @@ function restoreHistory(direction, steps = 1) {
     .finally(() => pendingMutations--);
   mutationTail = action;
   return action;
+}
+// The slide to show after a history step from `before` to `after`: the one
+// shown, by part name, unless only other slides changed, then the first of
+// those, or a slide the step brought back.
+function changedSlide(before, after, part) {
+  const old = new Map(
+    P.getSlides(before).map((s) => [P.getSlidePartName(s), s]),
+  );
+  const differs = (s) => {
+    const was = old.get(P.getSlidePartName(s));
+    return !was || P.getSlideXmlString(was) !== P.getSlideXmlString(s);
+  };
+  const slides = P.getSlides(after);
+  const shown = slides.find((s) => P.getSlidePartName(s) === part);
+  if (shown && differs(shown)) return shown;
+  return slides.find(differs) || shown;
 }
 // The assistant's Undo for one reply: its steps back through the history
 // when the history still holds them all, or else the deck from before the
