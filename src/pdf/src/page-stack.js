@@ -246,11 +246,15 @@ export function createPageStack({
     if (!continuous || !slots.length) return currentIndex();
     const view = workspace.getBoundingClientRect();
     const middle = view.top + Math.min(view.height / 2, 160);
+    const under = (box) => box.top <= middle && box.bottom + GAP >= middle;
+    // Side by side, both pages of a row are under the middle; the current one stays current.
+    if (slots[currentIndex()] && under(slots[currentIndex()].getBoundingClientRect()))
+      return currentIndex();
     let best = currentIndex(),
       distance = Infinity;
     for (let i = 0; i < slots.length; i++) {
       const box = slots[i].getBoundingClientRect();
-      if (box.top <= middle && box.bottom + GAP >= middle) return i;
+      if (under(box)) return i;
       const d = Math.min(Math.abs(box.top - middle), Math.abs(box.bottom - middle));
       if (d < distance) {
         distance = d;

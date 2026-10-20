@@ -235,6 +235,35 @@ for (const display of ['Two-page', 'Two-page scrolling'])
     await page.evaluate(() => localStorage.removeItem('pdf-editor:page-display'));
   });
 
+test('in two-page scrolling, the right-hand page stays current while its row is in view', async ({
+  page,
+}) => {
+  await openPdf(page, await numberedPdf(6));
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Page display' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'Two-page scrolling', exact: true }).click();
+  await expect(page.locator('.page-stack')).toHaveClass(/two-up/);
+  await settled(page);
+  const right = await page.locator('.page-slot[data-page="1"]').boundingBox();
+  await page.mouse.click(right.x + 50, right.y + 50);
+  await expect(page.locator('.page-caption')).toHaveText('Page 2 of 6');
+  await settled(page);
+  // A little scrolling to read on leaves the chosen page current.
+  await page.mouse.wheel(0, 40);
+  await expect
+    .poll(() => page.locator('.workspace').evaluate((node) => node.scrollTop))
+    .toBeGreaterThan(0);
+  await page.waitForTimeout(600);
+  await expect(page.locator('.page-caption')).toHaveText('Page 2 of 6');
+  // The next row's left page becomes current once that row is reached.
+  await page.locator('.workspace').evaluate((node) => {
+    const slot = node.querySelector('.page-slot[data-page="2"]');
+    node.scrollTop += slot.getBoundingClientRect().top - node.getBoundingClientRect().top;
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 3 of 6');
+  await page.evaluate(() => localStorage.removeItem('pdf-editor:page-display'));
+});
+
 test('Organize pages selects, turns, moves, and deletes several pages', async ({ page }) => {
   await openPdf(page, await numberedPdf(4));
   await page.getByRole('button', { name: 'Tools', exact: true }).click();
