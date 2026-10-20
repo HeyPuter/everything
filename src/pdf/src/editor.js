@@ -58,6 +58,7 @@ import {
   exportXfdf,
   importXfdf,
   exportCommentSummary,
+  annotationAccepts,
   REVIEW_STATES,
 } from './core/annotations.js';
 import { ensureStyledFontFaces, ensureKoreanFontFaces, koreanDraftFace } from './text-fonts.js';
@@ -9340,7 +9341,9 @@ export function createEditor({
   /** The selected comment's text, look, replies, and review status in the properties panel. */
   function showAnnotationProperties(entry) {
     if (!entry) return properties.clear('annotation');
-    const editable = entry.editable && !entry.locked && access().annotate;
+    // A stamp keeps its own art and a read-only comment takes no change: offer only what applies.
+    const editable = entry.editable && !entry.locked && !entry.readOnly && access().annotate;
+    const accepts = (key) => editable && annotationAccepts(entry.subtype, key);
     const apply = (changes, message = null) =>
       safe(() =>
         mutate((doc) => editAnnotation(doc, pageIndex, entry.id, changes), message, 'annotate', {
@@ -9352,7 +9355,7 @@ export function createEditor({
       rows: 3,
       maxlength: 20000,
       'aria-label': entry.subtype === 'FreeText' ? 'Text' : 'Comment',
-      readOnly: !!entry.lockedContents || !access().annotate,
+      readOnly: !!entry.lockedContents || !!entry.readOnly || !access().annotate,
     });
     text.value = entry.contents || '';
     text.addEventListener('change', () => apply({ contents: text.value }));
@@ -9360,7 +9363,7 @@ export function createEditor({
       type: 'color',
       value: entry.color || '#e5322d',
       'aria-label': entry.subtype === 'FreeText' ? 'Text color' : 'Color',
-      disabled: !editable,
+      disabled: !accepts('color'),
       onchange: () => apply({ color: color.value }),
     });
     const fillable = ['Square', 'Circle', 'Polygon', 'FreeText'].includes(entry.subtype);
@@ -9368,21 +9371,21 @@ export function createEditor({
       type: 'color',
       value: entry.fill || '#ffffff',
       'aria-label': 'Fill color',
-      disabled: !editable,
+      disabled: !accepts('fill'),
       onchange: () => apply({ fill: fill.value }),
     });
     const noFill = el('input', {
       type: 'checkbox',
       checked: !entry.fill,
       'aria-label': 'No fill',
-      disabled: !editable,
+      disabled: !accepts('fill'),
       onchange: () => apply({ fill: noFill.checked ? null : fill.value }),
     });
     const width = el(
       'select',
       {
         'aria-label': 'Line width',
-        disabled: !editable,
+        disabled: !accepts('width'),
         onchange: () => apply({ width: Number(width.value) }),
       },
       ...[0.5, 1, 2, 3, 4, 6, 8].map((n) =>
@@ -9396,7 +9399,7 @@ export function createEditor({
       step: 5,
       value: Math.round((entry.opacity ?? 1) * 100),
       'aria-label': 'Opacity',
-      disabled: !editable,
+      disabled: !accepts('opacity'),
       onchange: () => apply({ opacity: Number(opacity.value) / 100 }),
     });
     const fontSize =
@@ -9407,7 +9410,7 @@ export function createEditor({
         max: 144,
         value: entry.fontSize || 12,
         'aria-label': 'Font size',
-        disabled: !editable,
+        disabled: !accepts('fontSize'),
         onchange: () => apply({ fontSize: Number(fontSize.value) }),
       });
     const status = el(
@@ -9467,7 +9470,8 @@ export function createEditor({
         { class: 'annotation-style' },
         el('label', {}, el('span', {}, 'Color'), color),
         fillable && el('label', {}, el('span', {}, 'Fill'), fill, noFill),
-        entry.subtype !== 'Stamp' && el('label', {}, el('span', {}, 'Width'), width),
+        annotationAccepts(entry.subtype, 'width') &&
+          el('label', {}, el('span', {}, 'Width'), width),
         el('label', {}, el('span', {}, 'Opacity'), opacity),
         fontSize && el('label', {}, el('span', {}, 'Font size'), fontSize),
       ),
@@ -9498,7 +9502,7 @@ export function createEditor({
           { disabled: !access().annotate },
         ),
         button('Delete', 'Trash2', () => safe(() => removeAnnotation(entry))(), 'btn danger', {
-          disabled: entry.locked || !access().annotate,
+          disabled: entry.locked || entry.readOnly || !access().annotate,
         }),
       ),
     );

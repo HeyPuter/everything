@@ -637,6 +637,8 @@ const EDITS = {
   FileAttachment: ['rect'],
   Text: ['rect', 'color'],
 };
+/** Whether a comment of this kind takes a change of `key` (color, width, opacity, …). */
+export const annotationAccepts = (subtype, key) => !!EDITS[subtype]?.includes(key);
 /** Map points from one rectangle onto another, as moving or resizing a selection does. */
 function rectMap(from, to) {
   const sx = from[2] > from[0] ? (to[2] - to[0]) / (from[2] - from[0]) : 1,

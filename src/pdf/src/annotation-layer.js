@@ -90,7 +90,7 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
             // Preventing the default also prevents focus; the selected comment takes it, as
             // a desktop editor's does, for the arrow keys, Delete, and Escape.
             node.focus({ preventScroll: true });
-            if (entry.locked) return;
+            if (entry.locked || entry.readOnly) return;
             drag = { entry, node, id: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
             node.setPointerCapture(e.pointerId);
           },
@@ -124,7 +124,7 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
             } else if (e.key === 'Escape') {
               e.preventDefault();
               select(null);
-            } else if (e.key.startsWith('Arrow') && !entry.locked) {
+            } else if (e.key.startsWith('Arrow') && !entry.locked && !entry.readOnly) {
               e.preventDefault();
               const step = e.shiftKey ? 10 : 1;
               const dx = { ArrowLeft: -step, ArrowRight: step }[e.key] || 0,
