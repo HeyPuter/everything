@@ -14035,9 +14035,14 @@ function alignSelection(edge) {
   const ids = items.map(P.getShapeId);
   mutateSlide(slide(), (target) => {
     const size = currentSize();
+    const parents = groupParents(target);
     const list = ids.map((id) => P.findShapeById(target, id)).filter(Boolean);
-    const bounds = list.map((s) => slideBounds(doc.pres, s));
-    const known = bounds.filter(Boolean);
+    const bounds = list.map((s) => slideBounds(doc.pres, s, parents));
+    // A turned object lines up where the slide shows it.
+    const shown = bounds.map(
+      (b, i) => b && turnedBounds(b, slideRotation(list[i], parents)),
+    );
+    const known = shown.filter(Boolean);
     if (!known.length) return SKIP_MUTATION;
     const ref =
       list.length > 1 && !formatTools.alignToSlide()
@@ -14045,21 +14050,23 @@ function alignSelection(edge) {
         : { x: 0, y: 0, w: size.cx, h: size.cy };
     let changed = false;
     list.forEach((s, i) => {
-      const b = bounds[i];
+      const b = bounds[i],
+        v = shown[i];
       if (!b) return;
-      const next = { ...b };
-      if (edge === "left") next.x = ref.x;
-      if (edge === "hcenter") next.x = ref.x + ref.w / 2 - b.w / 2;
-      if (edge === "right") next.x = ref.x + ref.w - b.w;
-      if (edge === "top") next.y = ref.y;
-      if (edge === "vcenter") next.y = ref.y + ref.h / 2 - b.h / 2;
-      if (edge === "bottom") next.y = ref.y + ref.h - b.h;
+      let x = v.x,
+        y = v.y;
+      if (edge === "left") x = ref.x;
+      if (edge === "hcenter") x = ref.x + ref.w / 2 - v.w / 2;
+      if (edge === "right") x = ref.x + ref.w - v.w;
+      if (edge === "top") y = ref.y;
+      if (edge === "vcenter") y = ref.y + ref.h / 2 - v.h / 2;
+      if (edge === "bottom") y = ref.y + ref.h - v.h;
       if (
-        Math.round(next.x) === Math.round(b.x) &&
-        Math.round(next.y) === Math.round(b.y)
+        Math.round(x) === Math.round(v.x) &&
+        Math.round(y) === Math.round(v.y)
       )
         return;
-      setSlideBounds(doc.pres, s, next);
+      setSlideBounds(doc.pres, s, { ...b, x: b.x + x - v.x, y: b.y + y - v.y });
       changed = true;
     });
     if (!changed) return SKIP_MUTATION;
@@ -14072,28 +14079,37 @@ function distributeSelection(axis) {
   if (items.length < 3) return;
   const ids = items.map(P.getShapeId);
   mutateSlide(slide(), (target) => {
+    const parents = groupParents(target);
+    // A turned object takes the room the slide shows it in.
     const list = ids
       .map((id) => P.findShapeById(target, id))
       .filter(Boolean)
-      .map((s) => ({ s, b: slideBounds(doc.pres, s) }))
-      .filter((item) => item.b);
+      .map((s) => ({ s, b: slideBounds(doc.pres, s, parents) }))
+      .filter((item) => item.b)
+      .map((item) => ({
+        ...item,
+        v: turnedBounds(item.b, slideRotation(item.s, parents)),
+      }));
     if (list.length < 3) return SKIP_MUTATION;
     const pos = axis === "x" ? "x" : "y",
       len = axis === "x" ? "w" : "h";
-    list.sort((a, b) => a.b[pos] - b.b[pos]);
-    const first = list[0].b,
-      last = list.at(-1).b;
+    list.sort((a, b) => a.v[pos] - b.v[pos]);
+    const first = list[0].v,
+      last = list.at(-1).v;
     const span = last[pos] + last[len] - first[pos];
     const gap =
-      (span - list.reduce((n, item) => n + item.b[len], 0)) / (list.length - 1);
+      (span - list.reduce((n, item) => n + item.v[len], 0)) / (list.length - 1);
     let cursor = first[pos];
     let changed = false;
     for (const item of list) {
-      if (Math.round(cursor) !== Math.round(item.b[pos])) {
-        setSlideBounds(doc.pres, item.s, { ...item.b, [pos]: cursor });
+      if (Math.round(cursor) !== Math.round(item.v[pos])) {
+        setSlideBounds(doc.pres, item.s, {
+          ...item.b,
+          [pos]: item.b[pos] + cursor - item.v[pos],
+        });
         changed = true;
       }
-      cursor += item.b[len] + gap;
+      cursor += item.v[len] + gap;
     }
     if (!changed) return SKIP_MUTATION;
   });
