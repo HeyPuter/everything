@@ -2368,6 +2368,16 @@ export function renderApp(root, ctx) {
   const targets = (unit) => (selected.size ? selection() : [unit]);
 
   /**
+   * Flags changed in one go share a stamp, and the flag store keeps the later
+   * of them when it is full, so they are changed oldest first. Changed in the
+   * order a listing returns them -- newest first -- marking more than the
+   * store holds as read left the *newest* messages unread again.
+   */
+  const oldestFirst = (messages) => messages.map((message) => [`${message.day}/${message.name}`, message])
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([, message]) => message);
+
+  /**
    * Mark as read, or back to unread -- which is how people queue mail for
    * later, and until now the app could only go one way.
    */
@@ -2378,7 +2388,7 @@ export function renderApp(root, ctx) {
     const at = Math.max(0, visibleRows().indexOf(list[0]?.row));
     const changed = messagesOf(list).filter((message) =>
       !OUTGOING.has(message.box) && isUnread(message) === read);
-    for (const message of changed) {
+    for (const message of oldestFirst(changed)) {
       if (read) readState.markRead(message.name);
       else readState.markUnread(message.name);
     }
@@ -2439,7 +2449,7 @@ export function renderApp(root, ctx) {
     }
     const at = Math.max(0, visibleRows().indexOf(document.activeElement?.closest?.('.row')));
     const apply = (read) => {
-      for (const message of changed) {
+      for (const message of oldestFirst(changed)) {
         if (read) readState.markRead(message.name);
         else readState.markUnread(message.name);
       }
