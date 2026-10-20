@@ -52,7 +52,8 @@ describe('attachment bytes outlive their draft', () => {
     modal.close();
     await settle();
     expect(drafts.count).toBe(0); // no row in Drafts...
-    expect(await storedIds()).toEqual([]); // ...and no bytes nobody can reach
+    // Writes are queued in order; the removal lands after any save before it.
+    await vi.waitFor(async () => expect(await storedIds()).toEqual([]), { timeout: 5000 }); // ...and no bytes nobody can reach
   });
 
   it('discarding a new message right after attaching a file removes the file bytes', async () => {
@@ -63,6 +64,7 @@ describe('attachment bytes outlive their draft', () => {
     modal.panel.querySelector('[aria-label="Discard draft"]').click();
     await settle();
     expect(drafts.count).toBe(0);
-    expect(await storedIds()).toEqual([]);
+    // Writes are queued in order; the removal lands after any save before it.
+    await vi.waitFor(async () => expect(await storedIds()).toEqual([]), { timeout: 5000 });
   });
 });
