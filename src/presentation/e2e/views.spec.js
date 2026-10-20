@@ -191,6 +191,56 @@ test("Slide Sorter reorders slides across sections and opens a slide", async ({
   ]);
 });
 
+test("sections follow slides moved, deleted and added outside a drag", async ({
+  page,
+}) => {
+  await start(page);
+  await addSlides(page, 3);
+  await expect(page.locator(".slide-item")).toHaveCount(4);
+  await view(page, "sorter");
+  const cards = page.locator(".sorter-card");
+  const parts = await cards.evaluateAll((list) =>
+    list.map((c) => c.dataset.part),
+  );
+  await cards.nth(2).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Add Section" }).click();
+  await page.getByRole("dialog").getByRole("textbox").fill("Later");
+  await page.getByRole("dialog").getByRole("button", { name: "Add" }).click();
+  await expect(page.locator(".sorter-section")).toHaveCount(2);
+  // The second slide moves past the third, into "Later".
+  await cards.nth(1).click();
+  await page.keyboard.press("Alt+ArrowRight");
+  await expect
+    .poll(() => cards.evaluateAll((list) => list.map((c) => c.dataset.part)))
+    .toEqual([parts[0], parts[2], parts[1], parts[3]]);
+  // The last slide goes; a new slide after the first stays in its section,
+  // although it may take the deleted slide's id.
+  await cards.nth(3).click();
+  await page.keyboard.press("Delete");
+  await expect(cards).toHaveCount(3);
+  await cards.nth(0).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "New Slide" }).click();
+  await expect(cards).toHaveCount(4);
+  const { p, files } = await download(page);
+  const added = P.getSlidePartName(P.getSlides(p)[1]);
+  expect(
+    P.getSlideSections(p).map((s) => [
+      s.name,
+      s.slides.map(P.getSlidePartName),
+    ]),
+  ).toEqual([
+    ["Default Section", [parts[0], added]],
+    ["Later", [parts[2], parts[1]]],
+  ]);
+  // Every section entry names a slide still in the deck.
+  const xml = strFromU8(files["ppt/presentation.xml"]);
+  const ids = (s) => [...s.matchAll(/sldId id="(\d+)"/g)].map((m) => m[1]);
+  const deck = ids(xml.match(/<p:sldIdLst>.*?<\/p:sldIdLst>/s)[0]);
+  expect(ids(xml.match(/<p14:sectionLst.*?<\/p14:sectionLst>/s)[0])).toEqual(
+    deck,
+  );
+});
+
 test("Notes Page edits the notes on a page of the notes size", async ({
   page,
 }) => {

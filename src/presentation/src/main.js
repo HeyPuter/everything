@@ -8444,10 +8444,16 @@ function startSlideDrag(e, target) {
       const byPart = new Map(slides.map((s) => [P.getSlidePartName(s), s]));
       if (order.length !== slides.length || !order.every((p) => byPart.has(p)))
         return SKIP_MUTATION;
-      order.forEach((p, i) => {
-        if (P.getSlidePartName(P.getSlides(doc.pres)[i]) !== p)
-          P.moveSlide(doc.pres, byPart.get(p), i);
-      });
+      // Each moving slide goes in front of the slide after the slot, so only
+      // the moving slides change place (and join the section they land in).
+      const anchor = order[before + moving.length];
+      for (const p of order.slice(before, before + moving.length)) {
+        const names = P.getSlides(doc.pres).map(P.getSlidePartName);
+        const from = names.indexOf(p);
+        let to = anchor ? names.indexOf(anchor) : names.length;
+        if (to > from) to--;
+        if (to !== from) P.moveSlide(doc.pres, byPart.get(p), to);
+      }
       settleIndex(focus);
       clearSelection();
     });

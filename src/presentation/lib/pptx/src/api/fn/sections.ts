@@ -18,7 +18,14 @@ import {
   SLIDE_PART_NAME,
   type SlideData,
 } from "../_internal-symbols.ts";
-import { PRES_PART_NAME, decode, encode } from "./_helpers.ts";
+import {
+  ATTR_ID,
+  NAME_SLD_ID,
+  NAME_SLD_ID_LST,
+  PRES_PART_NAME,
+  decode,
+  encode,
+} from "./_helpers.ts";
 import { readPresentationPart } from "../../internal/presentationml/index.ts";
 import { getSlides } from "./slide-query.ts";
 
@@ -88,6 +95,90 @@ const ensureSectionLst = (presDocRoot: XmlElement): XmlElement => {
   return sectionLst;
 };
 
+// Slides just appended by addSlide / duplicateSlide / importSlide, by sldId.
+// Their first move places them like a new slide, into the section of the
+// slide before them, rather than keeping the last section they were added to.
+const newSlideIds = new WeakMap<object, Set<string>>();
+
+/**
+ * Keeps `<p14:sectionLst>` in step with `<p:sldIdLst>` after a deck edit, on
+ * the parsed presentation root the caller is about to serialize. Ids no
+ * longer in the deck are dropped, a slide no section lists joins the section
+ * of the slide before it, and every section lists its slides in deck order.
+ * `moved` is the slide that moved from deck index `from`: it stays in its
+ * section when it landed next to it, and otherwise joins the section it
+ * landed in (the one below it when it moved up, above it when it moved down).
+ * @internal
+ */
+export const syncSlideSections = (
+  pres: PresentationData,
+  root: XmlElement,
+  change: { added?: string; moved?: { id: string; from: number } } = {},
+): void => {
+  const pkg = pres[INTERNAL_PACKAGE];
+  const sectionLst = findSectionLstElement(root);
+  const sections = sectionLst
+    ? allChildElements(sectionLst, NAME_P14_SECTION)
+    : [];
+  if (!sections.length) {
+    newSlideIds.delete(pkg);
+    return;
+  }
+  const list = firstChildElement(root, NAME_SLD_ID_LST);
+  const order: string[] = [];
+  for (const el of list ? allChildElements(list, NAME_SLD_ID) : []) {
+    const id = getAttrValue(el, ATTR_ID);
+    if (id !== null) order.push(id);
+  }
+  const inDeck = new Set(order);
+  const fresh = newSlideIds.get(pkg) ?? new Set<string>();
+  for (const id of fresh) if (!inDeck.has(id)) fresh.delete(id);
+  const sectionOf = new Map<string, number>();
+  sections.forEach((sec, i) => {
+    const ids = firstChildElement(sec, NAME_P14_SLD_ID_LST);
+    for (const el of ids ? allChildElements(ids, NAME_P14_SLD_ID) : []) {
+      const id = getAttrValue(el, ATTR_SLD_ID_REF);
+      if (id !== null && inDeck.has(id) && !sectionOf.has(id))
+        sectionOf.set(id, i);
+    }
+  });
+  const moved = change.moved;
+  let own: number | undefined;
+  if (moved) {
+    own = fresh.delete(moved.id) ? undefined : sectionOf.get(moved.id);
+    sectionOf.delete(moved.id);
+  }
+  let previous = 0;
+  for (const id of order) {
+    if (id === moved?.id) continue;
+    if (!sectionOf.has(id)) sectionOf.set(id, previous);
+    previous = sectionOf.get(id)!;
+  }
+  if (moved) {
+    const at = order.indexOf(moved.id);
+    const above = at > 0 ? sectionOf.get(order[at - 1]!) : undefined;
+    const below = sectionOf.get(order[at + 1] ?? "");
+    const up = own !== undefined && at < moved.from;
+    sectionOf.set(
+      moved.id,
+      own !== undefined && (own === above || own === below)
+        ? own
+        : ((up ? (below ?? above) : (above ?? below)) ?? 0),
+    );
+  }
+  sections.forEach((sec, i) => {
+    let ids = firstChildElement(sec, NAME_P14_SLD_ID_LST);
+    if (!ids) sec.children.push((ids = elem(NAME_P14_SLD_ID_LST)));
+    ids.children = order
+      .filter((id) => sectionOf.get(id) === i)
+      .map((id) =>
+        elem(NAME_P14_SLD_ID, { attrs: [attr(ATTR_SLD_ID_REF, id)] }),
+      );
+  });
+  if (change.added !== undefined) fresh.add(change.added);
+  newSlideIds.set(pkg, fresh);
+};
+
 /**
  * Returns every section defined in `<p14:sectionLst>`, with each
  * section's slides resolved to `SlideData` handles via the
@@ -154,6 +245,7 @@ export const setSlideSections = (
   const presPart = pkg.getPart(PRES_PART_NAME);
   if (!presPart) throw new Error("presentation.xml is missing");
   const doc = parseXml(decode(presPart.data));
+  newSlideIds.delete(pkg);
 
   // Build a reverse map from SlideData identity → sldId.
   const idBySlide = new Map<SlideData, string>();

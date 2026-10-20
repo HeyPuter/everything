@@ -59,6 +59,7 @@ import {
   getSlideLayoutPlaceholders,
 } from "./layouts.ts";
 import { pruneCustomShowReferences } from "./slide-show-setup.ts";
+import { syncSlideSections } from "./sections.ts";
 import { getSlides } from "./slide-query.ts";
 import { readSlideEntries, requireUniqueSlideEntries } from "./slide-list.ts";
 import { setSlideBody, setSlideTitle } from "./embedded.ts";
@@ -348,6 +349,7 @@ export const addSlide = (
       attrs: [attr(ATTR_ID, String(newSldId)), attr(ATTR_R_ID, newRId)],
     }),
   );
+  syncSlideSections(pres, presDoc.root, { added: String(newSldId) });
   presPart.data = encode(serializeXml(presDoc));
 
   pres._slidesCache = null;
@@ -390,6 +392,7 @@ export const removeSlide = (pres: PresentationData, slide: SlideData): void => {
   });
   // Custom shows name slides by these relationships too.
   pruneCustomShowReferences(presDoc.root, removedRels);
+  syncSlideSections(pres, presDoc.root);
   presPart.data = encode(serializeXml(presDoc));
   pkg.setRels(PRES_PART_NAME, presRels);
   pkg.removePart(relsPartNameFor(part.name));
@@ -428,6 +431,7 @@ export const sortSlides = (
   list.children = list.children.map((c) =>
     c.kind === "element" && elements.has(c) ? ordered[i++]! : c,
   );
+  syncSlideSections(pres, presDoc.root);
   presPart.data = encode(serializeXml(presDoc));
   pres._slidesCache = null;
 };
@@ -487,6 +491,7 @@ export const moveSlide = (
   const { element: target } = entryForSlide(context, slide);
   if (!sldIdLst) throw new Error("presentation.xml has no <p:sldIdLst>");
 
+  const from = context.entries.findIndex((e) => e.element === target);
   const remaining = sldIdLst.children.filter((c) => c !== target);
   const remainingSldIds = remaining.filter(
     (c): c is XmlElement =>
@@ -504,6 +509,13 @@ export const moveSlide = (
     remaining.splice(insertAt, 0, target);
   }
   sldIdLst.children = remaining;
+  const id = getAttrValue(target, ATTR_ID);
+  // The slide joins the section it lands in, as in PowerPoint.
+  syncSlideSections(
+    pres,
+    presDoc.root,
+    id === null ? {} : { moved: { id, from } },
+  );
   presPart.data = encode(serializeXml(presDoc));
   pres._slidesCache = null;
 };
@@ -602,6 +614,7 @@ const duplicateSlideUnchecked = (
       attrs: [attr(ATTR_ID, String(newSldId)), attr(ATTR_R_ID, newRId)],
     }),
   );
+  syncSlideSections(pres, presDoc.root, { added: String(newSldId) });
   presPart.data = encode(serializeXml(presDoc));
 
   pres._slidesCache = null;
@@ -944,6 +957,7 @@ const importSlideUnchecked = (
       attrs: [attr(ATTR_ID, String(newSldId)), attr(ATTR_R_ID, newRId)],
     }),
   );
+  syncSlideSections(targetPres, presDoc.root, { added: String(newSldId) });
   presPart.data = encode(serializeXml(presDoc));
 
   targetPres._slidesCache = null;
