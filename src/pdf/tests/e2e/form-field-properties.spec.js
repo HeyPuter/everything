@@ -206,3 +206,19 @@ test('Tab order by rows or by columns is the order Tab follows on the page', asy
   await settled(page);
   expect(await visited()).toEqual(['A', 'C', 'B', 'D']);
 });
+
+test('the buttons of a radio group are told apart by their export values', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([600, 500]);
+  const size = doc.getForm().createRadioGroup('Size');
+  size.addOptionToPage('Small', sheet, { x: 40, y: 340, width: 16, height: 16 });
+  size.addOptionToPage('Large', sheet, { x: 80, y: 340, width: 16, height: 16 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await expect(
+    page.getByRole('button', { name: 'Radio button Size: Small', exact: true }),
+  ).toHaveAttribute('data-key', 'Size#0');
+  await expect(
+    page.getByRole('button', { name: 'Radio button Size: Large', exact: true }),
+  ).toHaveAttribute('data-key', 'Size#1');
+});

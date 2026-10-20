@@ -112,15 +112,18 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
     viewport = nextViewport;
     root.replaceChildren(
       ...fields.map((field) => {
+        // The buttons of a radio group share its name; their export values tell them apart.
+        const option =
+          field.type === 'radio' && field.props?.exportValue ? `: ${field.props.exportValue}` : '';
         const node = el(
           'button',
           {
             type: 'button',
             class: `designer-field type-${field.type}`,
             'data-key': keyOf(field),
-            'aria-label': `${fieldTypeLabel(field.type)} ${field.name}`,
+            'aria-label': `${fieldTypeLabel(field.type)} ${field.name}${option}`,
             'aria-pressed': String(keyOf(field) === selected),
-            title: `${field.name} (${fieldTypeLabel(field.type)}). Double-click for properties.`,
+            title: `${field.name}${option} (${fieldTypeLabel(field.type)}). Double-click for properties.`,
             onpointerdown: (e) => startDrag(e, field, node, 'move'),
             onpointermove: moveDrag,
             onpointerup: endDrag,
