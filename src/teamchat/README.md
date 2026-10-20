@@ -747,7 +747,7 @@ actually waiting on, so presence heartbeats are never signalled. With a
 healthy subscription everything else got faster, some of it by a wide
 margin; presence alone did not, since it still rides the same poll it
 always has — someone going active or away, a do-not-disturb toggle, a
-member's tab arriving now takes up to 20 seconds to show up in someone
+member's tab arriving now take up to 20 seconds to show up in someone
 else's tab rather than the old 4, the same floor-of-last-resort every other
 change gets as its worst case. The degradation detector has nothing to say
 about it: it watches for changes of a kind the worker always signals
