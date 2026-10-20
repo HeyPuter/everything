@@ -1,6 +1,6 @@
 import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'virtual:pdf-worker-url';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFString } from 'pdf-lib';
 import { savePdf } from './core/version.js';
 import { indexPageText, searchQuery } from './core/search.js';
 import { inspectText, matrix, textColor } from './core/text-edit.js';
@@ -8313,9 +8313,13 @@ export function createEditor({
       d.setAttribute('aria-busy', 'true');
       try {
         const doc = await PDFDocument.create();
+        // The language screen readers read the text in, when every PDF combined names the same.
+        const languages = new Set();
+        const languageOf = (source) =>
+          languages.add(source.catalog.lookup(PDFName.of('Lang'))?.decodeText?.() || null);
         for (const part of parts) {
           if (!d.open) return;
-          if (part.kind === 'pdf') await insertPdfPages(doc, part.bytes);
+          if (part.kind === 'pdf') await insertPdfPages(doc, part.bytes, { onSource: languageOf });
           else {
             const images = await normalizeImageFiles([part.file], {
               maxPages: MAX_PAGES - doc.getPageCount(),
@@ -8325,6 +8329,9 @@ export function createEditor({
             await addImagePages(doc, images, { paper: defaultPaper() });
           }
         }
+        const [language] = languages;
+        if (languages.size === 1 && language)
+          doc.catalog.set(PDFName.of('Lang'), PDFString.of(language));
         const bytes = await savePdf(doc);
         if (!d.open || destroyed) return;
         d.close();

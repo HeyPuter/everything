@@ -563,10 +563,15 @@ export function visibleBox(page) {
 /**
  * Insert pages of another PDF (`pages`: zero-based indices in the order wanted, all by
  * default) after page `after` of `doc` (-1 for the front, the last page by default).
- * Returns the indices the new pages took.
+ * `onSource` is shown the parsed source PDF. Returns the indices the new pages took.
  */
-export async function insertPdfPages(doc, bytes, { pages, after = doc.getPageCount() - 1 } = {}) {
+export async function insertPdfPages(
+  doc,
+  bytes,
+  { pages, after = doc.getPageCount() - 1, onSource } = {},
+) {
   const source = await validatePdf(bytes);
+  onSource?.(source);
   const indices = pages ?? source.getPageIndices();
   if (!indices.length) throw new Error('Choose at least one page to insert.');
   if (indices.some((i) => !Number.isInteger(i) || i < 0 || i >= source.getPageCount()))

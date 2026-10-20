@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { PDFDocument, PDFName, PDFNumber, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFNumber, PDFString, StandardFonts } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
 
 const PUTER_MOCK = `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username:'test-user'}), signIn: async () => {}, signOut: async () => {} }, fs: { readdir: async () => [], write: async () => ({}) }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`;
@@ -389,6 +389,41 @@ test('batch text recognition lets each PDF go before reading the next', async ({
   expect(docs.most - before).toBeLessThanOrEqual(1);
   await expect.poll(() => page.evaluate(() => window.__pdfDocs.open)).toBe(before);
 });
+
+for (const [languages, expected] of [
+  [['de-DE', 'de-DE'], 'de-DE'],
+  [['de-DE', 'fr-FR'], null],
+])
+  test(`Combine files keeps a language all the files share (${languages})`, async ({ page }) => {
+    const pdfIn = async (lang, count) => {
+      const doc = await numberedPdf(count);
+      doc.catalog.set(PDFName.of('Lang'), PDFString.of(lang));
+      return doc;
+    };
+    await openPdf(page, await pdfIn(languages[0], 1));
+    await page.getByRole('button', { name: 'Tools', exact: true }).click();
+    await page
+      .getByRole('complementary', { name: 'Tools' })
+      .getByRole('button', { name: 'Combine files', exact: true })
+      .click();
+    const dialog = page.getByRole('dialog', { name: 'Combine files' });
+    const chooser = page.waitForEvent('filechooser');
+    await dialog.getByRole('button', { name: /Add files/ }).click();
+    const other = await pdfIn(languages[1], 2);
+    await (
+      await chooser
+    ).setFiles({
+      name: 'other.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from(await other.save()),
+    });
+    await expect(dialog.getByText('other.pdf')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Combine', exact: true }).click();
+    await expect(page.locator('.page-caption')).toHaveText('Page 1 of 3');
+    await settled(page);
+    const combined = await PDFDocument.load(await downloaded(page));
+    expect(combined.catalog.lookup(PDFName.of('Lang'))?.decodeText() ?? null).toBe(expected);
+  });
 
 test('Bates numbering stamps padded numbers across the chosen pages', async ({ page }) => {
   await openPdf(page, await numberedPdf(3));
