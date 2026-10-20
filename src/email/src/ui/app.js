@@ -1892,6 +1892,13 @@ export function renderApp(root, ctx) {
 
   const describe = (count) => `${count} message${count === 1 ? '' : 's'}`;
 
+  // Messages with a move or a delete in flight. A second press of Archive --
+  // a double click, `e` twice -- arrives before the first move has taken the
+  // row away, and moving the same file twice failed the second time: it said
+  // "Could not archive" under "Archived", and asked for write permission.
+  const writing = new Set();
+  const idle = (list) => list.filter((unit) => !unit.messages.some((message) => writing.has(message)));
+
   /**
    * The meta line counting a bulk operation down: "Archiving 40 of 300…".
    * Every move is one request, and a whole folder is hundreds of them in a
@@ -1974,6 +1981,7 @@ export function renderApp(root, ctx) {
    * back into Trash -- and said "Restored to Trash" while doing it.
    */
   const move = async (list, to, { restoring = false, onProgress } = {}) => {
+    list = idle(list);
     const moved = [];
     let failed = 0;
     // A conversation moves whole: filing half of one would leave the rest of
@@ -1982,6 +1990,7 @@ export function renderApp(root, ctx) {
     const gone = new Map(list.map((unit) => [unit, []]));
     const waiting = new Map(list.map((unit) => [unit, unit.messages.length]));
     const jobs = list.flatMap((unit) => unit.messages.map((message) => ({ unit, message })));
+    for (const { message } of jobs) writing.add(message);
     await eachInFlight(jobs, async ({ unit, message }) => {
       const from = message.box;
       const was = message.path;
@@ -2009,6 +2018,7 @@ export function renderApp(root, ctx) {
       } catch {
         failed++;
       }
+      writing.delete(message);
       onProgress?.();
       const left = waiting.get(unit) - 1;
       waiting.set(unit, left);
@@ -2076,11 +2086,13 @@ export function renderApp(root, ctx) {
    * and the list has to say something while that happens.
    */
   const deleteForever = async (list, { onProgress } = {}) => {
+    list = idle(list);
     let failed = 0;
     let done = 0;
     const gone = new Map(list.map((unit) => [unit, []]));
     const waiting = new Map(list.map((unit) => [unit, unit.messages.length]));
     const jobs = list.flatMap((unit) => unit.messages.map((message) => ({ unit, message })));
+    for (const { message } of jobs) writing.add(message);
     await eachInFlight(jobs, async ({ unit, message }) => {
       try {
         own(message.path);
@@ -2091,6 +2103,7 @@ export function renderApp(root, ctx) {
       } catch {
         failed++;
       }
+      writing.delete(message);
       onProgress?.(++done);
       const left = waiting.get(unit) - 1;
       waiting.set(unit, left);
@@ -2237,6 +2250,8 @@ export function renderApp(root, ctx) {
   };
 
   const runAction = async (id, list) => {
+    // What is already on its way somewhere is not sent again.
+    if (id !== 'discard') list = idle(list);
     if (!list.length) return;
     // Where the keyboard is, so it can be handed on if this takes the control
     // that has it off the page.
