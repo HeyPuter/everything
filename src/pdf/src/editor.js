@@ -3499,6 +3499,20 @@ export function createEditor({
     const [x, y] = viewport.convertToPdfPoint(p.x, p.y);
     return { x, y };
   };
+  /** Screen units per PDF unit on the page as shown. */
+  const screenUnit = () => {
+    const [ax, ay] = viewport.convertToViewportPoint(0, 0),
+      [bx, by] = viewport.convertToViewportPoint(1, 0);
+    return Math.hypot(bx - ax, by - ay);
+  };
+  /**
+   * The PDF rectangle `width` by `height` units that runs right and down from screen point `p`
+   * as the page is shown, so a box keeps its shape on a turned page.
+   */
+  const readerRect = (p, width, height) => {
+    const unit = screenUnit();
+    return normalizeRect(pdfPoint(p), pdfPoint({ x: p.x + width * unit, y: p.y + height * unit }));
+  };
   overlay.addEventListener('pointerdown', (e) => {
     if (busy || !pageReady || gesture || !e.isPrimary || tool === 'select' || e.button !== 0)
       return;
@@ -9237,7 +9251,16 @@ export function createEditor({
             y: (Math.min(...ys) + Math.max(...ys)) / 2,
           };
     const fontSize = 9 / viewport.userUnit;
-    const labelWidth = label.length * fontSize * 0.6 + 8;
+    const labelWidth = label.length * fontSize * 0.6 + 8,
+      labelHeight = fontSize * 1.6;
+    // The label sits centered just above the middle, as the page reads, turned or not.
+    const [cx, cy] = viewport.convertToViewportPoint(center.x, center.y);
+    const unit = screenUnit();
+    const labelRect = readerRect(
+      { x: cx - (labelWidth / 2) * unit, y: cy - (2 + labelHeight) * unit },
+      labelWidth,
+      labelHeight,
+    );
     await mutate(
       async (doc) => {
         addShapeAnnotation(doc, page, {
@@ -9249,12 +9272,7 @@ export function createEditor({
           text: label,
         });
         await addTextBox(doc, page, {
-          rect: {
-            x: center.x - labelWidth / 2,
-            y: center.y + 2,
-            width: labelWidth,
-            height: fontSize * 1.6,
-          },
+          rect: labelRect,
           text: label,
           fontSize,
           color: toolColors.comment,
@@ -9310,10 +9328,7 @@ export function createEditor({
     if (g.type === 'textbox') {
       const rect = moved
         ? normalizeRect(pdfPoint(g.start), pdfPoint(end))
-        : (() => {
-            const p = pdfPoint(g.start);
-            return { x: p.x, y: p.y - 50, width: 180, height: 50 };
-          })();
+        : readerRect(g.start, 180, 50);
       const text = await commentTextDialog('Text box');
       if (text == null || destroyed) return;
       return mutate(
@@ -9324,8 +9339,7 @@ export function createEditor({
     }
     if (g.type === 'callout') {
       const anchor = pdfPoint(g.start);
-      const corner = pdfPoint(moved ? end : { x: g.start.x + 60, y: g.start.y - 60 });
-      const rect = { x: corner.x, y: corner.y - 50, width: 180, height: 50 };
+      const rect = readerRect(moved ? end : { x: g.start.x + 60, y: g.start.y - 60 }, 180, 50);
       const text = await commentTextDialog('Callout');
       if (text == null || destroyed) return;
       return mutate(
