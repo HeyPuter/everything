@@ -85,3 +85,22 @@ test('a colour chosen and undone sends plain text, and Redo of a size keeps the 
   await expect.poll(() => raw).not.toBe('');
   expect(raw).not.toContain('text/html');
 });
+
+test('a word composed with an input method after a colour is kept whole, and coloured', async ({ page }) => {
+  await page.goto('/tests/browser/composer.html');
+  await page.getByRole('button', { name: 'Compose', exact: true }).click();
+  const body = page.getByRole('textbox', { name: 'Message body' });
+  await body.click();
+  await page.keyboard.type('Hello ');
+  await page.getByRole('button', { name: 'Text colour' }).click();
+  await page.getByRole('menuitemradio', { name: 'Red' }).click();
+  const cdp = await page.context().newCDPSession(page);
+  for (const text of ['n', 'に', 'にh', 'にほ', 'にほn', 'にほん']) {
+    await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+  }
+  await cdp.send('Input.insertText', { text: '日本' });
+  await page.keyboard.type('!');
+  await expect(body).toHaveText('Hello 日本!');
+  await expect(body.locator('span[style*="color"]')).toHaveText('日本!');
+  await expect(body.locator('font')).toHaveCount(0);
+});

@@ -570,9 +570,15 @@ export function createEditor({ label = 'Message', placeholder = '', onInput, onF
 
   // Typing after a command at a collapsed caret, and Undo and Redo, which
   // replay execCommand's own steps, are where a `<font>` turns up now.
-  body.addEventListener('input', () => {
-    if (body.querySelector('font')) normalizeFonts();
+  // Not while a word is being composed with an input method: the browser is
+  // still editing the text it put in the <font>, and taking it out from under
+  // it left the first keystroke of the word behind ("n日本"). Once it is done.
+  body.addEventListener('input', (event) => {
+    if (!event.isComposing && body.querySelector('font')) normalizeFonts();
     changed();
+  });
+  body.addEventListener('compositionend', () => {
+    if (body.querySelector('font')) normalizeFonts();
   });
   body.addEventListener('keydown', (event) => {
     if (event.isComposing || event.keyCode === 229) return;
