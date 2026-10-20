@@ -134,11 +134,21 @@ async function attachUnderKids(doc, kids, bytes, key, options) {
 export function removeAttachment(doc, key) {
   const tree = embeddedFiles(doc);
   if (!tree) return false;
-  for (const [entryKey, , entries, index] of leaves(doc, tree)) {
+  for (const [entryKey, value, entries, index] of leaves(doc, tree)) {
     if (entryKey !== key) continue;
     // The leaf's Limits still bound the remaining keys, so they stay valid as they are.
     entries.remove(index + 1);
     entries.remove(index);
+    // Attaching also lists the file among the document's associated files (see pdf-lib's
+    // attach). Left there, the removed file's contents stayed in the saved PDF.
+    const spec = doc.context.lookup(value);
+    const associated = doc.catalog.lookup(name('AF'));
+    if (associated instanceof PDFArray) {
+      for (let i = associated.size() - 1; i >= 0; i--)
+        if (associated.get(i) === value || (spec && doc.context.lookup(associated.get(i)) === spec))
+          associated.remove(i);
+      if (!associated.size()) doc.catalog.delete(name('AF'));
+    }
     return true;
   }
   return false;

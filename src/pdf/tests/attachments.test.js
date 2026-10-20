@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import { PDFDocument, PDFHexString, PDFName } from 'pdf-lib';
+import { PdfSession } from '../src/core/document.js';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
   addAttachment,
@@ -66,4 +67,25 @@ it('files a new attachment where readers look when the list branches into kids',
   } finally {
     await task.destroy();
   }
+});
+
+it('leaves nothing of a removed attachment in the saved file', async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage();
+  const session = new PdfSession(await doc.save());
+  for (const name of ['secret.txt', 'kept.txt'])
+    await session.change((pdf) => addAttachment(pdf, { name, bytes: bytesOf(`${name} data`) }));
+  await session.change((pdf) => removeAttachment(pdf, 'secret.txt'));
+  const saved = await PDFDocument.load(session.bytes);
+  const files = [...saved.context.enumerateIndirectObjects()]
+    .filter(([, object]) => object.dict?.get(PDFName.of('Type')) === PDFName.of('EmbeddedFile'))
+    .map(([ref]) => ref);
+  expect(files).toHaveLength(1);
+  expect(listAttachments(saved).map((entry) => entry.key)).toEqual(['kept.txt']);
+  expect(new TextDecoder().decode(attachmentBytes(saved, 'kept.txt'))).toBe('kept.txt data');
+  // The document's list of associated files names only the attachment that is left.
+  const associated = saved.catalog.lookup(PDFName.of('AF'));
+  expect(associated.size()).toBe(1);
+  const spec = saved.context.lookup(associated.get(0));
+  expect(spec.lookup(PDFName.of('EF')).get(PDFName.of('F'))).toBe(files[0]);
 });
