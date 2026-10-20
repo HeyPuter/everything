@@ -164,6 +164,33 @@ test("an empty content placeholder's table button puts a table in its place", as
   );
 });
 
+// A chart from a placeholder's button took two undo steps: one to move it
+// out of the placeholder, another to remove it.
+test("one undo takes back a chart inserted from a placeholder's button", async ({
+  page,
+}) => {
+  await start(page);
+  await tab(page, "home");
+  await command(page, "new-slide");
+  const inserts = page.locator(".placeholder-inserts");
+  await expect(inserts).toHaveCount(1);
+  const before = await hits(page).count();
+  await inserts.getByRole("button", { name: "Insert Chart" }).click();
+  await page
+    .getByRole("dialog", { name: "Insert Chart" })
+    .getByRole("button", { name: "Insert", exact: true })
+    .click();
+  await expect(page.locator(".placeholder-inserts")).toHaveCount(0);
+  await expect(hits(page)).toHaveCount(before);
+  await expect(page.locator(".object-hit.selected")).toHaveAccessibleName(
+    /^Chart/,
+  );
+  await page.locator("#undo").click();
+  await expect(page.locator(".placeholder-inserts")).toHaveCount(1);
+  await expect(page.locator('.object-hit[aria-label^="Chart"]')).toHaveCount(0);
+  await expect(hits(page)).toHaveCount(before);
+});
+
 test("Slide Master view edits the master, adds a layout and placeholders, and slides follow", async ({
   page,
 }) => {

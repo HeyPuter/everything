@@ -2279,10 +2279,18 @@ function scheduleSave(delay) {
 // `onError` hears an edit that failed, in place of the error toast;
 // `onApplied(before, after)` hears the history's snapshots on either side of
 // an edit that was recorded. `takesBack` is the snapshot of an edit this one
-// undoes: while it is still the latest, both leave the history.
+// undoes: while it is still the latest, both leave the history. `amends` is
+// the snapshot of an edit this one finishes: while it is still the latest,
+// the two are one undo step.
 function mutate(
   fn,
-  { coalesce = null, onError = fail, onApplied = null, takesBack = null } = {},
+  {
+    coalesce = null,
+    onError = fail,
+    onApplied = null,
+    takesBack = null,
+    amends = null,
+  } = {},
 ) {
   if (!doc || readOnlyDocument()) return Promise.resolve(false);
   if (review.blocksEdits()) {
@@ -2322,9 +2330,10 @@ function mutate(
         // Color pickers fire a change per adjustment; merge a burst of edits
         // to the same property into one undo step.
         const merge =
-          coalesce &&
-          lastCoalesce?.key === coalesce &&
-          Date.now() - lastCoalesce.time < COALESCE_WINDOW;
+          (amends && history.bytes === amends) ||
+          (coalesce &&
+            lastCoalesce?.key === coalesce &&
+            Date.now() - lastCoalesce.time < COALESCE_WINDOW);
         const before = history.bytes;
         if (takesBack && history.bytes === takesBack && history.past.length)
           history.drop(doc.pres);
@@ -8872,15 +8881,22 @@ async function fillAfter(command, place) {
     : [];
   if (added.length !== 1) return;
   const id = P.getShapeId(added[0]);
-  mutateSlide(after, (s) => {
-    const obj = P.findShapeById(s, id);
-    const holder = P.findShapeById(s, place.id);
-    if (!obj || !holder || !P.isPlaceholderEmpty(holder)) return SKIP_MUTATION;
-    const b = P.getShapeBoundsResolved(doc.pres, obj);
-    P.setShapeBounds(obj, fitInto(place.bounds, b && b.h ? b.w / b.h : null));
-    fillSlot(s, place, id);
-    selectIds([id]);
-  });
+  // The move into the placeholder is part of the insert's undo step.
+  const inserted = history.bytes;
+  mutateSlide(
+    after,
+    (s) => {
+      const obj = P.findShapeById(s, id);
+      const holder = P.findShapeById(s, place.id);
+      if (!obj || !holder || !P.isPlaceholderEmpty(holder))
+        return SKIP_MUTATION;
+      const b = P.getShapeBoundsResolved(doc.pres, obj);
+      P.setShapeBounds(obj, fitInto(place.bounds, b && b.h ? b.w / b.h : null));
+      fillSlot(s, place, id);
+      selectIds([id]);
+    },
+    { amends: inserted },
+  );
 }
 // What an insert put where an empty placeholder was takes the
 // placeholder's slot, and the empty placeholder goes.
