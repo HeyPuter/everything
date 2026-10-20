@@ -2059,6 +2059,19 @@ export function renderApp(root, ctx) {
         own(message.path, was);
         await mailWrite(() =>
           moveMessage({ fs: ctx.fs, mailPath: ctx.mailPath, message, to: from }));
+        // The folder the move had filed it in may have been opened since, and
+        // listed the file under an entry of its own. The file has left it, so
+        // the entry and its row go too: they stayed, over a file that was no
+        // longer there, after an Undo pressed from that folder.
+        const there = boxes[landed]?.find?.(message.name);
+        if (there) {
+          boxes[landed].remove(there);
+          if (view().box === landed && !searching()) {
+            for (const other of units.filter((candidate) => candidate.messages.includes(there))) {
+              shrink(other, [there]);
+            }
+          }
+        }
         message.path = was;
         message.box = from;
         boxes[from].insert(message);
