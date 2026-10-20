@@ -224,4 +224,37 @@ describe('page extraction', () => {
       spy.mockRestore();
     }
   });
+  it('leaves article threads behind with the pages they run on to', async () => {
+    const doc = await PDFDocument.create();
+    const ctx = doc.context;
+    const pages = [0, 1, 2].map((i) => {
+      const page = doc.addPage([200, 200]);
+      page.node.set(PDFName.of('Contents'), ctx.register(ctx.stream(`0 0 ${10 + i} 10 re f`)));
+      return page;
+    });
+    const thread = ctx.obj({ Type: 'Thread' });
+    const threadRef = ctx.register(thread);
+    const beads = pages.map((page) =>
+      ctx.obj({ Type: 'Bead', T: threadRef, P: page.ref, R: [0, 0, 100, 100] }),
+    );
+    const refs = beads.map((bead) => ctx.register(bead));
+    beads.forEach((bead, i) => {
+      bead.set(PDFName.of('N'), refs[(i + 1) % 3]);
+      bead.set(PDFName.of('V'), refs[(i + 2) % 3]);
+      pages[i].node.set(PDFName.of('B'), ctx.obj([refs[i]]));
+    });
+    thread.set(PDFName.of('F'), refs[0]);
+    doc.catalog.set(PDFName.of('Threads'), ctx.obj([threadRef]));
+    const source = await doc.save();
+    const extracted = await PDFDocument.load(await extractPages(source, [1]));
+    const objects = [...extracted.context.enumerateIndirectObjects()].map(([, object]) =>
+      String(object),
+    );
+    expect(objects.filter((text) => /Bead|Thread|PuterCopyPageIndex/.test(text))).toEqual([]);
+    expect(extracted.getPage(0).node.has(PDFName.of('B'))).toBe(false);
+    const reopened = await PDFDocument.load(source);
+    await duplicatePage(reopened, 0);
+    expect(reopened.getPage(1).node.has(PDFName.of('B'))).toBe(false);
+    expect(reopened.getPage(0).node.has(PDFName.of('B'))).toBe(true);
+  });
 });

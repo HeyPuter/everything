@@ -292,6 +292,9 @@ export function relinkCopiedPages(doc, pages, indexToRef) {
     // of this document's tree (alternate text read out for the wrong content). The copied
     // page reads as untagged instead.
     page.node.delete(PDFName.of('StructParents'));
+    // Article threads (ISO 32000-1, 12.4.3) stay behind too. The copy's beads would run on
+    // to pages that were not copied, keeping the copier's stand-ins for them in the file.
+    page.node.delete(PDFName.of('B'));
     const annots = doc.context.lookup(page.node.get(PDFName.of('Annots')));
     if (!(annots instanceof PDFArray)) continue;
     for (const ref of annots.asArray()) {
