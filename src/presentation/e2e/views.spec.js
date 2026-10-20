@@ -329,7 +329,9 @@ test("Reading View plays in the window and returns with Escape", async ({
   await expect(reading.locator(".reading-counter")).toHaveText("Slide 3 of 3");
   await page.keyboard.press("Escape");
   await expect(reading).toHaveCount(0);
-  // The bar's view buttons leave for another view on the slide reached.
+  // Escape leaves on the slide reached, and so do the bar's view buttons.
+  await expect(page.locator("#slide-position")).toHaveText("Slide 3 of 3");
+  await page.locator(".slide-item .slide-thumb").first().click();
   await view(page, "reading");
   await page
     .getByRole("dialog", { name: "Reading View" })

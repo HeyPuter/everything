@@ -15263,7 +15263,19 @@ async function present(options = {}) {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     d.close();
     d.remove();
-    if (refreshDates && doc?.pres === pres) renderSlideArea();
+    // Reading View ends on the slide it reached, as its view buttons do.
+    let reached = false;
+    if (reading && all[n] && doc?.pres === pres) {
+      const part = P.getSlidePartName(all[n]);
+      const at = P.getSlides(pres).findIndex(
+        (s) => P.getSlidePartName(s) === part,
+      );
+      if (at >= 0 && at !== index) {
+        index = at;
+        reached = true;
+      }
+    }
+    if ((refreshDates || reached) && doc?.pres === pres) renderSlideArea();
     if (before?.isConnected) before.focus();
     else if (before?.matches(".object-hit"))
       document
