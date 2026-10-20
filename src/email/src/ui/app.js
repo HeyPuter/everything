@@ -891,6 +891,9 @@ export function renderApp(root, ctx) {
     indexNext = 0;
     folder = id;
     folderOffset = 0;
+    // A new folder's results start at their first page, whichever way the
+    // search over it is started.
+    resultOffset = 0;
     clearNewMail();
     clearSelection();
     renderActionBar();
