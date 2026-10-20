@@ -275,6 +275,9 @@ export function createOutlineView(ctx) {
     if (extra.length) extra.at(-1).text += tail;
     else next[at.row].text += tail;
     next.splice(at.row + 1, 0, ...extra);
+    // Lines pasted into a folded slide show, as typing would.
+    if (extra.length && isFolded(at.row + 1))
+      toggle(rows[titleRowOf(at.row + 1)].part);
     const last = at.row + extra.length;
     structural(next, {
       row: last,
@@ -362,6 +365,7 @@ export function createOutlineView(ctx) {
     ) {
       e.preventDefault();
       const result = mergeWithPrevious(rows, at.row + 1);
+      if (isFolded(at.row + 1)) toggle(rows[titleRowOf(at.row + 1)].part);
       structural(result.rows, result.focus);
       return;
     }

@@ -121,6 +121,51 @@ test("Outline View writes titles and paragraphs, levels and new slides", async (
   await expect(page.locator("#slide-list")).toBeVisible();
 });
 
+test("Outline View unfolds a slide before Delete or a paste changes its body", async ({
+  page,
+}) => {
+  await start(page);
+  await view(page, "outline");
+  const title = page.getByRole("textbox", { name: "Slide 1 title" });
+  await title.click();
+  await page.keyboard.type("Plan");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await page.keyboard.type("One");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("Two");
+  const rows = page.locator(".outline-text");
+  await expect(rows).toHaveText(["Plan", "One", "Two"]);
+  const fold = () =>
+    page.getByRole("button", { name: "Slide 1", exact: true }).dblclick();
+  await fold();
+  await expect(rows).toHaveText(["Plan"]);
+  // Delete at the end of a folded title joins the first paragraph to it,
+  // in view.
+  await title.click();
+  await page.keyboard.press("End");
+  await page.keyboard.press("Delete");
+  await expect(rows).toHaveText(["PlanOne", "Two"]);
+  // Lines pasted into a folded title show too, with the caret after them.
+  await fold();
+  await expect(rows).toHaveText(["PlanOne"]);
+  await title.click();
+  await page.keyboard.press("End");
+  await page.evaluate(() => {
+    const data = new DataTransfer();
+    data.setData("text/plain", "X\nY");
+    document.activeElement.dispatchEvent(
+      new ClipboardEvent("paste", {
+        clipboardData: data,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  await expect(rows).toHaveText(["PlanOneX", "Y", "Two"]);
+  await expect(rows.nth(1)).toBeFocused();
+});
+
 test("Slide Sorter reorders slides across sections and opens a slide", async ({
   page,
 }) => {
