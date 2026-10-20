@@ -543,6 +543,26 @@ test('a PDF opens the way it asks to: page, zoom, and panel', async ({ page }) =
   await expect(page.getByLabel('Zoom', { exact: true })).toHaveValue('page');
 });
 
+test('Document details keeps a magnification it does not list', async ({ page }) => {
+  const doc = await numberedPdf(2);
+  const { readInitialView, writeInitialView } = await import('../../src/core/initial-view.js');
+  writeInitialView(doc, { zoom: 1.1 });
+  await openPdf(page, doc);
+  await page.keyboard.press('ControlOrMeta+d');
+  const dialog = page.getByRole('dialog', { name: 'Document details' });
+  await dialog.getByText('Initial view', { exact: true }).click();
+  const magnification = dialog.getByLabel('Magnification', { exact: true });
+  await expect(magnification).toHaveValue('1.1');
+  await expect(magnification.locator('option:checked')).toHaveText('110%');
+  // Changing only the title leaves how the PDF opens as it was.
+  await dialog.getByLabel('Title', { exact: true }).fill('Renamed');
+  await dialog.getByRole('button', { name: 'Save details' }).click();
+  await expect(dialog).toBeHidden();
+  const saved = await PDFDocument.load(await downloaded(page));
+  expect(saved.getTitle()).toBe('Renamed');
+  expect(readInitialView(saved).zoom).toBe(1.1);
+});
+
 test('the accessibility check finds problems and its fixes clear them', async ({ page }) => {
   await openPdf(page, await numberedPdf(2));
   await page.getByRole('button', { name: 'Tools', exact: true }).click();

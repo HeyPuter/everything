@@ -8890,7 +8890,11 @@ export function createEditor({
         ['default', 'Default'],
         ['fit', 'Fit width'],
         ['page', 'Fit page'],
-        ...[0.5, 0.75, 1, 1.25, 1.5, 2].map((value) => [String(value), `${value * 100}%`]),
+        // A magnification the list lacks is offered as the file has it, so it is kept.
+        ...[0.5, 0.75, 1, 1.25, 1.5, 2, view.zoom]
+          .filter((value, i, all) => typeof value === 'number' && all.indexOf(value) === i)
+          .sort((a, b) => a - b)
+          .map((value) => [String(value), `${Math.round(value * 1000) / 10}%`]),
       ],
       String(view.zoom),
     );
