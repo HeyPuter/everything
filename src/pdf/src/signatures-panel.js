@@ -40,7 +40,10 @@ export function signatureSummary(reports) {
   if (reports.some((r) => r.status === 'unsupported'))
     return { tone: 'unknown', text: 'At least one signature could not be checked.' };
   if (reports.every((r) => r.status === 'valid'))
-    return { tone: 'good', text: `Signed, and ${count.toLowerCase()} are valid.` };
+    return {
+      tone: 'good',
+      text: `Signed, and ${count.toLowerCase()} ${reports.length === 1 ? 'is' : 'are'} valid.`,
+    };
   return {
     tone: 'unknown',
     text: `Signed. ${count} ${reports.length === 1 ? 'is' : 'are'} valid, but the signer’s identity is not trusted on this device.`,
