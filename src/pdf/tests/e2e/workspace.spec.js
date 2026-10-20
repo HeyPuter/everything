@@ -2256,3 +2256,20 @@ test('choosing several PDFs opens the first and says what became of the others',
     'Opened first.pdf. One PDF opens at a time; to put several files into one PDF, use Combine files in Tools.',
   );
 });
+
+test('an error message stays until the reader carries on', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('not a PDF') });
+  const toast = page.locator('#toast');
+  await expect(toast).toHaveText('Choose a PDF, or PNG and JPEG pictures.');
+  // Longer than an ordinary message lasts: an error waits to be read.
+  await page.waitForTimeout(7000);
+  await expect(toast).toBeVisible();
+  await page.getByRole('searchbox', { name: 'Search PDFs' }).click();
+  await expect(toast).toBeHidden();
+});

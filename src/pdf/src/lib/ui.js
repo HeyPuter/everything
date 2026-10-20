@@ -287,10 +287,12 @@ export function iconButton(label, glyph, onClick, attrs = {}) {
   );
 }
 let toastTimer,
+  toastDismiss,
   toastSequence = 0;
 export function toast(message, { error = false } = {}) {
   const node = document.querySelector('#toast');
   clearTimeout(toastTimer);
+  toastDismiss?.abort();
   const sequence = ++toastSequence;
   if (error) {
     const dialog = [...document.querySelectorAll('dialog[open]')].at(-1);
@@ -322,7 +324,19 @@ export function toast(message, { error = false } = {}) {
     if (sequence === toastSequence && !node.hidden) node.textContent = message;
   });
   toastTimer = setTimeout(() => {
-    node.hidden = true;
+    if (!error) {
+      node.hidden = true;
+      return;
+    }
+    // An error is not timed out from under a slow reader: after the usual time it stays until
+    // the next press or key, the sign that the reader has moved on.
+    const dismiss = (toastDismiss = new AbortController());
+    const hide = () => {
+      dismiss.abort();
+      if (sequence === toastSequence) node.hidden = true;
+    };
+    for (const type of ['pointerdown', 'keydown'])
+      window.addEventListener(type, hide, { capture: true, signal: dismiss.signal });
   }, 5500);
 }
 let dialogSequence = 0,
