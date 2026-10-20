@@ -5733,12 +5733,25 @@ const WORDART = [
   ],
   [
     "Fill: White; Outline: Blue, Accent color 1",
-    { color: "scheme:bg1", bold: true },
+    {
+      color: "scheme:bg1",
+      bold: true,
+      outline: { color: "scheme:accent1", widthEmu: P.pt(0.75) },
+    },
     true,
   ],
   [
     "Gradient Fill: Gold, Accent color 4",
-    { color: "scheme:accent4", bold: true },
+    {
+      bold: true,
+      gradient: {
+        stops: [
+          { offset: 0, color: "scheme:accent4/lumMod=60000/lumOff=40000" },
+          { offset: 1, color: "scheme:accent4/lumMod=75000" },
+        ],
+        angleDeg: 90,
+      },
+    },
     false,
   ],
   [
@@ -5755,6 +5768,13 @@ function wordArtMenu() {
   });
   WORDART.forEach(([label, format, shadow]) => {
     const hex = themeHex(format.color) || "#000";
+    // Each choice shows the text as it goes in: its fill, gradient, outline.
+    const fill = format.gradient
+      ? `background:linear-gradient(${format.gradient.stops.map((s) => `${themeHex(s.color) || "#000"} ${s.offset * 100}%`).join(", ")});-webkit-background-clip:text;background-clip:text;color:transparent;`
+      : `color:${hex};`;
+    const stroke = format.outline
+      ? `-webkit-text-stroke:1px ${themeHex(format.outline.color) || "#000"};`
+      : "";
     grid.append(
       el(
         "button",
@@ -5773,7 +5793,7 @@ function wordArtMenu() {
         el(
           "span",
           {
-            style: `color:${hex};${shadow ? "text-shadow:1px 1px 2px rgb(0 0 0 / .35);" : ""}${hex.toUpperCase() === "#FFFFFF" ? "-webkit-text-stroke:1px #4472c4;" : ""}font-weight:${format.bold ? 700 : 400}`,
+            style: `${fill}${stroke}${shadow ? "text-shadow:1px 1px 2px rgb(0 0 0 / .35);" : ""}font-weight:${format.bold ? 700 : 400}`,
           },
           "A",
         ),

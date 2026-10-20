@@ -348,6 +348,43 @@ test("header and footer apply to every slide", async ({ page }) => {
   }
 });
 
+// WordArt presets went in with their fill color only, so white text meant to
+// carry a blue outline was invisible on a light slide.
+test("WordArt goes in with its preset's outline and gradient", async ({
+  page,
+}) => {
+  await start(page);
+  for (const name of [
+    "Fill: White; Outline: Blue, Accent color 1",
+    "Gradient Fill: Gold, Accent color 4",
+  ]) {
+    await command(page, "wordart");
+    await page.getByRole("menuitem", { name, exact: true }).click();
+    await expect(
+      page.getByRole("textbox", { name: "Edit text", exact: true }),
+    ).toBeFocused();
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+  }
+  const runs = [
+    ...saved(await download(page)).matchAll(/<a:rPr[^>]*>.*?<\/a:rPr>/g),
+  ].map(([run]) => run);
+  expect(runs[0]).toMatch(
+    /<a:ln w="9525"><a:solidFill><a:schemeClr val="accent1"\/>/,
+  );
+  expect(runs[0]).toContain('<a:schemeClr val="bg1"/>');
+  expect(runs[1]).toMatch(
+    /<a:gradFill[^>]*><a:gsLst><a:gs pos="0"><a:schemeClr val="accent4">/,
+  );
+  expect(runs[1]).not.toContain("<a:solidFill>");
+});
+const saved = (file) =>
+  file
+    .slide(1)
+    .split("<p:sp>")
+    .filter((sp) => sp.includes("Your text here"))
+    .join("");
+
 test("a summary zoom jumps to its slide and returns", async ({ page }) => {
   await start(page);
   await command(page, "insert-new-slide");
