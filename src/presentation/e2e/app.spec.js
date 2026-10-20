@@ -7554,6 +7554,26 @@ test("an invalid number restores the latest value committed with Enter", async (
   );
 });
 
+test("undo right after a number is committed takes back the change", async ({
+  page,
+}) => {
+  await story(page);
+  const shape = page.locator('[data-object="1"]');
+  await shape.click();
+  await paneTab(page, "Size & Properties");
+  const width = page.getByRole("spinbutton", {
+    name: "Width (in)",
+    exact: true,
+  });
+  const before = await shape.getAttribute("style");
+  await width.fill("3");
+  await width.press("Enter");
+  await expect(shape).toHaveAttribute("style", /width: 22.5%;/);
+  await expect(width).toBeFocused();
+  await width.press("ControlOrMeta+z");
+  await expect(shape).toHaveAttribute("style", before);
+});
+
 for (const [key, label, value, direction, increment] of [
   ["x", "X (in)", -0.2, "Up", 0.01],
   ["y", "Y (in)", -0.2, "Up", 0.01],

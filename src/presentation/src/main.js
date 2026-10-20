@@ -15728,11 +15728,17 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (mod && ["z", "y"].includes(e.key.toLowerCase())) {
-    // A ribbon box holding the value it applied has nothing of its own to
-    // undo: the shortcut takes back the change it made.
+    // A box holding the value it applied (a ribbon box, or a number field
+    // in the Format pane) has nothing of its own to undo: the shortcut takes
+    // back the change it made. Typing not yet applied is the box's to undo.
+    const box = e.target;
     const applied =
-      e.target.matches(".ribbon-combo-input") &&
-      e.target.value === (e.target.dataset.value ?? "");
+      box instanceof HTMLInputElement &&
+      (box.matches(".ribbon-combo-input, .ribbon-spin-input")
+        ? box.value === (box.dataset.value ?? "")
+        : box.type === "number" &&
+          (box.value === box.defaultValue ||
+            box.value === box.dataset.committed));
     if (typing && !applied) return;
     e.preventDefault();
     // With nothing to redo, Ctrl/⌘+Y repeats the last format command.
