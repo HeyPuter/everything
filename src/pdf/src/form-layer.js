@@ -12,6 +12,8 @@ export function createFormLayer({ onChange, onCommit }) {
     role: 'alert',
     hidden: true,
   });
+  // Comb controls realign their boxes when their value changes.
+  const combs = new WeakMap();
   let widgets = [],
     controls = new Map(),
     key,
@@ -79,7 +81,10 @@ export function createFormLayer({ onChange, onCommit }) {
                 '(Empty option)'
               : ''
             : value;
-        if (control.value !== text) control.value = text;
+        if (control.value !== text) {
+          control.value = text;
+          combs.get(control)?.();
+        }
       }
       control.closest('.form-widget').classList.toggle('has-draft', draft.changes.has(widget.name));
       control.setAttribute('aria-invalid', String(!error.hidden && draft.changes.has(widget.name)));
@@ -246,8 +251,28 @@ export function createFormLayer({ onChange, onCommit }) {
       if (widget.comb && widget.maxLength) {
         control.style.fontFamily = 'monospace';
         const cell = layout.width / widget.maxLength;
-        control.style.letterSpacing = `${Math.max(0, cell - size * 0.6)}px`;
-        control.style.paddingLeft = `${Math.max(0, (cell - size * 0.6) / 2)}px`;
+        const inset = Math.max(0, (cell - size * 0.6) / 2);
+        control.style.letterSpacing = `${2 * inset}px`;
+        // The spacing after the last character must not scroll a full field sideways: the
+        // control reaches past the box by that much, and the box clips it without scrolling.
+        control.style.width = `calc(100% + ${inset + 2}px)`;
+        control.style.paddingRight = '0';
+        control.style.textAlign = 'left';
+        container.style.overflow = 'clip';
+        // Centered and right-aligned combs start whole boxes in, as their saved drawing does.
+        const align = () => {
+          const free = widget.maxLength - control.value.length;
+          const skip =
+            widget.alignment === 'right'
+              ? free
+              : widget.alignment === 'center'
+                ? Math.floor(free / 2)
+                : 0;
+          control.style.paddingLeft = `${inset + Math.max(0, skip) * cell}px`;
+        };
+        align();
+        control.addEventListener('input', align);
+        combs.set(control, align);
       }
       if (widget.type === 'choice' && widget.editableChoice) {
         const id = `form-options-${widget.id}`;
