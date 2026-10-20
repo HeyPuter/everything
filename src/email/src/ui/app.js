@@ -1940,10 +1940,13 @@ export function renderApp(root, ctx) {
    *
    * Returns where the row was, so the keyboard can carry on from there.
    */
-  const shrink = (unit, gone) => {
+  const shrink = (unit, gone, from = null) => {
     const at = units.indexOf(unit);
     if (!gone.length) return at === -1 ? 0 : at;
-    if (at === -1 && !searching()) {
+    // Only in the folder the messages left: by now the list on screen may be
+    // the folder they went to, where the same names are the messages that
+    // have just arrived.
+    if (at === -1 && !searching() && from && view().box === from) {
       // A listing made while the move was in flight rebuilt this conversation
       // over entries of its own for the same files, and those are the rows on
       // screen: left alone, an archived message stayed in the inbox.
@@ -2032,6 +2035,7 @@ export function renderApp(root, ctx) {
     const gone = new Map(list.map((unit) => [unit, []]));
     const waiting = new Map(list.map((unit) => [unit, unit.messages.length]));
     const jobs = list.flatMap((unit) => unit.messages.map((message) => ({ unit, message })));
+    const fromOf = new Map(list.map((unit) => [unit, unit.messages[0]?.box]));
     for (const { message } of jobs) writing.add(message);
     await eachInFlight(jobs, async ({ unit, message }) => {
       const from = message.box;
@@ -2064,7 +2068,7 @@ export function renderApp(root, ctx) {
       onProgress?.();
       const left = waiting.get(unit) - 1;
       waiting.set(unit, left);
-      if (left === 0) shrink(unit, gone.get(unit));
+      if (left === 0) shrink(unit, gone.get(unit), fromOf.get(unit));
     });
     return { moved, failed };
   };
@@ -2146,6 +2150,7 @@ export function renderApp(root, ctx) {
    */
   const deleteForever = async (list, { onProgress } = {}) => {
     list = idle(list);
+    const fromOf = new Map(list.map((unit) => [unit, unit.messages[0]?.box]));
     let failed = 0;
     let done = 0;
     const gone = new Map(list.map((unit) => [unit, []]));
@@ -2166,7 +2171,7 @@ export function renderApp(root, ctx) {
       onProgress?.(++done);
       const left = waiting.get(unit) - 1;
       waiting.set(unit, left);
-      if (left === 0) shrink(unit, gone.get(unit));
+      if (left === 0) shrink(unit, gone.get(unit), fromOf.get(unit));
     });
     return failed;
   };

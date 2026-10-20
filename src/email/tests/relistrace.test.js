@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { renderApp } from '../src/ui/app.js';
 import { createSampleMailbox } from '../src/lib/sample.js';
 import { createMailbox } from '../src/lib/mailbox.js';
+import { subjectFromFilename } from '../src/lib/mime.js';
 
 /**
  * A folder listed again while a move or an undo is in flight -- Refresh, a
@@ -107,5 +108,28 @@ describe('refresh racing an undo', () => {
     await settle();
     expect(subjects().filter((s) => s === subject)).toHaveLength(1);
     expect(subjects()).toHaveLength(before);
+  });
+});
+
+describe('opening the folder a conversation is being moved into', () => {
+  it('keeps the conversation listed there once the move lands', async () => {
+    const { fs, mailPath, objectsPath } = createSampleMailbox();
+    const move = fs.move.bind(fs);
+    // The replies in the conversation take a while to move.
+    fs.move = async (path, ...rest) => {
+      if (subjectFromFilename(path.split('/').pop()).startsWith('Re: Thursday')) await settle(1500);
+      return move(path, ...rest);
+    };
+    renderApp(root, { fs, mailPath, objectsPath, sample: true, account: { username: 'sample' } });
+    await settle();
+    const row = [...root.querySelectorAll('.row')]
+      .find((candidate) => candidate.querySelector('.row-subject').textContent.includes('Thursday walkthrough'));
+    row.querySelector('.row-check').click();
+    await settle(50);
+    root.querySelector('.list-actions [aria-label="Archive"]').click();
+    await settle(200);
+    [...root.querySelectorAll('.nav-item')].find((item) => item.textContent.includes('Archive')).click();
+    await settle(2200);
+    expect(subjects().some((subject) => subject.includes('Thursday walkthrough'))).toBe(true);
   });
 });
