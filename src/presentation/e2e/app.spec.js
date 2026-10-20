@@ -14928,6 +14928,75 @@ test("undo and redo inside the canvas text editor step through the typing", asyn
   await expect(box).toHaveAccessibleName("Your text here. Select to edit");
 });
 
+// The text editor kept every key to itself, so alignment, Find, and zoom did
+// nothing while text was edited, and the browser took Ctrl+D, Ctrl+F, and
+// Ctrl+= for a bookmark, its own find, and a page zoom.
+test("shortcuts that leave the object alone work while its text is edited", async ({
+  page,
+}) => {
+  await start(page);
+  await page
+    .getByRole("button", { name: "New presentation", exact: true })
+    .click();
+  await addText(page);
+  const box = page.locator(".object-hit");
+  await expect(box).toHaveCount(1);
+  await box.dblclick();
+  const editor = page.getByRole("textbox", { name: "Edit text" });
+  await expect(editor).toBeFocused();
+  const align = () =>
+    editor.evaluate(
+      (node) => getComputedStyle(node.firstElementChild).textAlign,
+    );
+  const size = () =>
+    editor.evaluate((node) => node.querySelector("span").style.fontSize);
+  await page.keyboard.press("ControlOrMeta+e");
+  await expect.poll(align).toBe("center");
+  await page.keyboard.press("ControlOrMeta+a");
+  const before = await size();
+  await page.keyboard.press("ControlOrMeta+Shift+Period");
+  await expect.poll(size).not.toBe(before);
+  // Undo inside the editor still takes back the editor's own steps.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(size).toBe(before);
+  await expect.poll(align).toBe("center");
+  // Duplicate waits for the text to be left, and the browser does not
+  // bookmark the page instead.
+  const prevented = await editor.evaluate((node) => {
+    const event = new KeyboardEvent("keydown", {
+      key: "d",
+      code: "KeyD",
+      ctrlKey: true,
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    node.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+  expect(prevented).toBe(true);
+  await expect(box).toHaveCount(1);
+  await expect(editor).toBeFocused();
+  const canvas = page.locator("#slide-canvas");
+  const width = async () => Math.round((await canvas.boundingBox()).width);
+  const fitWidth = await width();
+  await page.keyboard.press("ControlOrMeta+=");
+  await expect.poll(width).toBeGreaterThan(fitWidth);
+  await page.keyboard.press("ControlOrMeta+0");
+  await expect.poll(width).toBe(fitWidth);
+  await expect(editor).toBeFocused();
+  // Find leaves the text, keeping what was done to it.
+  await page.keyboard.press("ControlOrMeta+f");
+  await expect(
+    page.getByRole("searchbox", { name: "Find", exact: true }),
+  ).toBeFocused();
+  await expect(editor).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await box.dblclick();
+  await expect(editor).toBeFocused();
+  await expect.poll(align).toBe("center");
+});
+
 // Dragging the rotate handle of an object inside a turned group set the
 // object's own turn to the angle the slide showed, so it jumped by the
 // group's turn on top of the drag.

@@ -2399,6 +2399,8 @@ const coalesceKey = (property, target, shape = null) =>
 // would carry the text from before the typing.
 function commitText() {
   richEditor?.close();
+  // A table cell's editor keeps its text as it loses the focus.
+  document.querySelector("#slide-canvas textarea.inline-editor")?.blur();
 }
 async function settled() {
   commitText();
@@ -9901,6 +9903,12 @@ function toggleTextFormat(obj, key) {
   });
 }
 function stepTextSize(obj, direction) {
+  const editor = editorFor(obj);
+  if (editor) {
+    const current = editor.selectionFormat().size || textFormat(obj).size;
+    editor.apply({ size: stepFontSize(current, direction) });
+    return;
+  }
   return textMutation(obj, (obj) => {
     const current = Number(textFormat(obj).size) || 18;
     const next = stepFontSize(current, direction);
@@ -10963,16 +10971,35 @@ function editText(target, event = null) {
       ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "KeyM")
     )
       return;
-    e.stopPropagation();
     // Keys pressed while an input method composes text belong to the
     // composition: Escape there drops a candidate, not the whole edit.
-    if (e.isComposing) return;
+    if (e.isComposing) {
+      e.stopPropagation();
+      return;
+    }
+    // Shortcuts that leave the object alone reach the presentation from the
+    // text too: alignment, find, zoom, the views, presenting. The editor
+    // keeps its own, the keys that move through or change the text, and on a
+    // Mac the Control+letter keys that move through it there.
+    if (!sharedEditorKey(e)) e.stopPropagation();
     if ((e.ctrlKey || e.metaKey) && !e.altKey) {
       const key = e.key.toLowerCase();
       if (key === "z" || key === "y") {
         e.preventDefault();
         if (key === "y" || e.shiftKey) redoWithin();
         else undoWithin();
+        return;
+      }
+      // Larger or smaller text, on the selected text.
+      if (e.shiftKey && [">", "<", ".", ","].includes(e.key)) {
+        e.preventDefault();
+        stepTextSize(obj, [">", "."].includes(e.key) ? 1 : -1);
+        return;
+      }
+      // Duplicating the object waits until the text is left; the browser's
+      // bookmark does not take the key meanwhile.
+      if (key === "d" && (IS_MAC ? e.metaKey : e.ctrlKey)) {
+        e.preventDefault();
         return;
       }
     }
@@ -11185,6 +11212,19 @@ function editText(target, event = null) {
 // The text editor open on the canvas, if any: the toolbar's bold, italic,
 // underline, and strikethrough act on its selection while it is.
 let richEditor = null;
+// Whether a key pressed in a canvas text editor goes on to the app's own
+// shortcuts: a Ctrl or ⌘ shortcut other than the editor's own and the ones
+// that move through or change the text, or F5. On a Mac, Control with some
+// letters moves through the text, as it does in every text field there.
+function sharedEditorKey(e) {
+  if (e.key === "F5") return true;
+  if (!e.ctrlKey && !e.metaKey) return false;
+  if (IS_MAC && !e.metaKey && /^Key[ABDEFHKLNOPTVY]$/.test(e.code))
+    return false;
+  return !/^([abcdiuvxyz]|Arrow.*|Page.*|Home|End|Enter|Escape|Backspace|Delete)$/i.test(
+    e.key,
+  );
+}
 const editorFor = (obj) =>
   richEditor &&
   obj &&
@@ -13045,6 +13085,8 @@ function openFind({ replace = false } = {}) {
 function findAgain(step) {
   const bar = document.querySelector(".findbar");
   if (!bar || bar.hidden || !find.query) return openFind();
+  // Text still being typed on the canvas is kept before the match moves on.
+  commitText();
   moveMatch(step).catch(fail);
 }
 // View > Ribbon: shows or hides the ribbon's commands (its tabs stay).
@@ -13540,8 +13582,13 @@ function editTableCell(target, row, col) {
   input.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && ["s", "p"].includes(e.key.toLowerCase()))
       return;
-    e.stopPropagation();
+    if (e.isComposing || !sharedEditorKey(e)) e.stopPropagation();
     if (e.isComposing) return;
+    // The browser's bookmark does not take Duplicate's key.
+    if (e.key.toLowerCase() === "d" && (IS_MAC ? e.metaKey : e.ctrlKey)) {
+      e.preventDefault();
+      return;
+    }
     if (e.key === "Tab") {
       e.preventDefault();
       move = nextCell(obj, { row, col }, e.shiftKey ? -1 : 1);
