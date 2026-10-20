@@ -283,3 +283,28 @@ test.describe('touch', () => {
     expect((await exportedHeights(page)).map(([h]) => h)).toEqual([300, 400, 350]);
   });
 });
+
+test('pages keep a visible edge in forced colors, in the view and in the page grid', async ({
+  page,
+}) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await tallPdf());
+  await settled(page);
+  // Forced colors drop box shadows, so the page's edge has to come from an outline.
+  const edge = (locator) =>
+    locator.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) >= 1;
+    });
+  expect(await edge(page.locator('.page-slot').first())).toBe(true);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const tile = page.getByRole('listbox', { name: 'Pages' }).getByRole('option').nth(1);
+  await expect(tile.locator('canvas')).toBeVisible();
+  expect(await edge(tile.locator('canvas'))).toBe(true);
+});

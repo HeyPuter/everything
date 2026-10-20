@@ -804,6 +804,12 @@
   .tool-command[aria-pressed='true'] {
     border: 2px solid Highlight;
   }
+  /* Forced colors drop the shadow that marks a page's edge, and a white page on a light
+     high-contrast background would have none. */
+  .page-slot,
+  .organize-thumb canvas {
+    outline: 1px solid CanvasText;
+  }
 }
 @media print {
   .tools-pane,
