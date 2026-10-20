@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { PDFDocument, PDFName, PDFRawStream, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFRawStream, PDFString, StandardFonts } from 'pdf-lib';
 import { parsePageRange, formatPageRange, extractPages } from '../src/core/pages.js';
 import { addLink, listLinks } from '../src/core/links.js';
 import { duplicatePage } from '../src/core/document.js';
@@ -256,5 +256,30 @@ describe('page extraction', () => {
     await duplicatePage(reopened, 0);
     expect(reopened.getPage(1).node.has(PDFName.of('B'))).toBe(false);
     expect(reopened.getPage(0).node.has(PDFName.of('B'))).toBe(true);
+  });
+});
+
+describe('document settings of extracted pages', () => {
+  it('keep the language, the title in the window, and the reading direction', async () => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 3; i++) doc.addPage([200, 200]);
+    doc.setTitle('Annual report');
+    doc.catalog.set(PDFName.of('Lang'), PDFString.of('ar-EG'));
+    doc.catalog.set(
+      PDFName.of('ViewerPreferences'),
+      doc.context.obj({ DisplayDocTitle: true, Direction: 'R2L', PrintPageRange: [0, 2] }),
+    );
+    const extracted = await PDFDocument.load(await extractPages(await doc.save(), [1, 2]));
+    expect(extracted.catalog.lookup(PDFName.of('Lang')).decodeText()).toBe('ar-EG');
+    const preferences = extracted.catalog.lookup(PDFName.of('ViewerPreferences'));
+    expect(String(preferences.get(PDFName.of('DisplayDocTitle')))).toBe('true');
+    expect(preferences.get(PDFName.of('Direction'))).toBe(PDFName.of('R2L'));
+    // Page numbers of the source mean other pages here.
+    expect(preferences.has(PDFName.of('PrintPageRange'))).toBe(false);
+    const plain = await PDFDocument.create();
+    plain.addPage();
+    const copy = await PDFDocument.load(await extractPages(await plain.save(), [0]));
+    expect(copy.catalog.has(PDFName.of('Lang'))).toBe(false);
+    expect(copy.catalog.has(PDFName.of('ViewerPreferences'))).toBe(false);
   });
 });

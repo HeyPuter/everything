@@ -1,5 +1,6 @@
 import {
   PDFArray,
+  PDFBool,
   PDFDict,
   PDFDocument,
   PDFHexString,
@@ -333,6 +334,20 @@ export async function copyPagesFrom(source, indices, details) {
       continue;
     }
     if (value) out.getInfoDict().set(PDFName.of(key), PDFHexString.fromText(String(value)));
+  }
+  // The language of the text, and how readers should present it, still hold for its pages:
+  // screen readers pick their voice by /Lang, and a right-to-left book keeps its page order.
+  const lang = source.catalog.lookup(PDFName.of('Lang'));
+  if (isString(lang)) out.catalog.set(PDFName.of('Lang'), lang.clone());
+  const preferences = source.catalog.lookup(PDFName.of('ViewerPreferences'));
+  if (preferences instanceof PDFDict) {
+    const kept = out.context.obj({});
+    // Settings naming page numbers (PrintPageRange) would mean other pages here.
+    for (const key of ['DisplayDocTitle', 'Direction']) {
+      const value = preferences.lookup(PDFName.of(key));
+      if (value instanceof PDFBool || value instanceof PDFName) kept.set(PDFName.of(key), value);
+    }
+    if (kept.keys().length) out.catalog.set(PDFName.of('ViewerPreferences'), kept);
   }
   // Make named destinations explicit before copying, then fix up the copied links and drop the
   // orphan page copies the copier pulls in for their targets. Each source page is marked with
