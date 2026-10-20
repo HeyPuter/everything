@@ -5625,6 +5625,26 @@ export function createEditor({
         entry.ordinal,
         document.activeElement === document.body || document.activeElement === priorFocus,
       );
+    revealPlaced();
+  }
+  /**
+   * A signature or stamp lands in the middle of the page, which on a phone can be below what
+   * is in view once the selection's properties dock opens; the view follows it there.
+   */
+  function revealPlaced() {
+    const frame = editorRoot.querySelector('.image-move');
+    if (!frame) return;
+    // Only the page view scrolls, and the corner handles that stand out past the edges show too.
+    const box = frame.getBoundingClientRect(),
+      margin = 16;
+    revealBox({
+      top: box.top - margin,
+      bottom: box.bottom + margin,
+      left: box.left - margin,
+      right: box.right + margin,
+      width: box.width + 2 * margin,
+      height: box.height + 2 * margin,
+    });
   }
   /** A stamp lands centered like a signature and is selected for moving and resizing. */
   async function insertStamp() {
@@ -5657,6 +5677,7 @@ export function createEditor({
         entry.ordinal,
         document.activeElement === document.body || document.activeElement === priorFocus,
       );
+    revealPlaced();
   }
   /**
    * The working copy for a dialog to read, or null when the editor closed or the document

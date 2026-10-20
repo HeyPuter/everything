@@ -158,3 +158,29 @@ test('the hints speak of taps on a touch screen, and a double tap edits text', a
   await page.touchscreen.tap(x, y);
   await expect(page.locator('.page-text-input, .text-line-input').first()).toBeVisible();
 });
+
+test('a stamp placed on a phone is brought into view above the selection dock', async ({
+  page,
+}) => {
+  // A Letter page: at the phone's width its middle is near the foot of the view.
+  const doc = await PDFDocument.create();
+  doc.addPage([612, 792]);
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Menu', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Insert', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Stamp…', exact: true }).click();
+  await page.getByRole('button', { name: 'Place stamp', exact: true }).click();
+  await expect(page.locator('#toast')).toHaveText(/^Stamp added/);
+  await expect(page.getByRole('complementary', { name: 'Selection properties' })).toBeVisible();
+  // The middle of the page sits under the dock once it opens; the view follows the stamp,
+  // its corner handles included.
+  const view = await page.getByRole('region', { name: 'PDF page view' }).boundingBox();
+  const handles = page.locator('.image-move, .image-resize');
+  await expect(handles).toHaveCount(5);
+  for (const box of await Promise.all(
+    (await handles.all()).map((handle) => handle.boundingBox()),
+  )) {
+    expect(box.y).toBeGreaterThanOrEqual(view.y);
+    expect(box.y + box.height).toBeLessThanOrEqual(view.y + view.height);
+  }
+});
