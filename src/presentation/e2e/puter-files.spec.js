@@ -518,6 +518,45 @@ test("a failing autosave says so in the status, and leaving asks first", async (
   ).toBeVisible();
 });
 
+test("opening a Puter file offers its unsaved recovery draft", async ({
+  page,
+}) => {
+  const story = await base64(createDeck("story"));
+  await mockDrive(page, {
+    seed: { "Presentations/Flaky.pptx": story },
+    path: "/#/home",
+  });
+  const file = page.getByRole("button", {
+    name: "Flaky PowerPoint presentation",
+  });
+  await file.click();
+  await expect(title(page)).toHaveText("Flaky");
+  const saved = await page.locator(".object-hit").count();
+  await page.evaluate(() => {
+    window.__write = puter.fs.write;
+    puter.fs.write = async () => {
+      throw Error("Puter is out of space.");
+    };
+  });
+  await addText(page);
+  await page.getByRole("button", { name: "Back to presentations" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Leave", exact: true })
+    .click();
+  await page.evaluate(() => (puter.fs.write = window.__write));
+  const prompt = page.getByRole("dialog", { name: "Recover unsaved changes?" });
+  await file.click();
+  await prompt.getByRole("button", { name: "Open the Puter version" }).click();
+  await expect(title(page)).toHaveText("Flaky");
+  await expect(page.locator(".object-hit")).toHaveCount(saved);
+  await page.getByRole("button", { name: "Back to presentations" }).click();
+  await file.click();
+  await prompt.getByRole("button", { name: "Recover changes" }).click();
+  await expect(page.locator(".object-hit")).toHaveCount(saved + 1);
+  await expect(page.locator("#toast")).toContainText("Draft recovered");
+});
+
 test("closing the Puter window asks about a presentation never saved", async ({
   page,
 }) => {

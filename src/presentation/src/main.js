@@ -1945,8 +1945,37 @@ async function recover(draft) {
     if (pendingRecovery === pending) pendingRecovery = null;
   }
 }
-// Resolves to whether the file became the open presentation.
-async function openCloud(file) {
+// Resolves to whether the file became the open presentation. A recovery
+// draft holding unsaved changes to the file is offered first, unless
+// `offerDraft` is false.
+async function openCloud(file, { offerDraft = true } = {}) {
+  if (offerDraft) {
+    const request = documentRequest;
+    const draft = await unsavedDraftOf(file);
+    if (request !== documentRequest) return false;
+    if (draft) {
+      const name = cleanName(draft.name, { maxLength: Infinity });
+      const choice = await dialog({
+        title: "Recover unsaved changes?",
+        body: el(
+          "p",
+          { class: "dialog-body" },
+          `“${name}” has changes on this device that were not saved to Puter.`,
+        ),
+        actions: [
+          { label: "Cancel", value: null },
+          { label: "Open the Puter version", value: "file" },
+          { label: "Recover changes", value: "draft", kind: "primary" },
+        ],
+      });
+      if (request !== documentRequest) return false;
+      if (choice === "draft") {
+        await recover(draft);
+        return doc?.id === draft.id;
+      }
+      if (choice !== "file") return false;
+    }
+  }
   const pending = { name: file.name, path: file.path, owner: owner() };
   pendingCloudOpens.add(pending);
   try {
@@ -1976,6 +2005,17 @@ async function openCloud(file) {
   } finally {
     pendingCloudOpens.delete(pending);
   }
+}
+// The newest recovery draft, other than the open presentation's, with
+// changes to `file` not saved to Puter.
+async function unsavedDraftOf(file) {
+  const list = await drafts.listDrafts(owner()).catch(() => []);
+  return list.find(
+    (d) =>
+      d.id !== doc?.id &&
+      d.path &&
+      (d.path === file.path || (file.uid && d.uid === file.uid)),
+  );
 }
 // The file `pending` names, as the drive describes it; its address becomes
 // the one the drive reports. A file gone from its address but known by its id
@@ -2678,7 +2718,12 @@ async function reloadFromCloud(target) {
   const { id, owner: draftOwner, path, name, uid } = target;
   target.leaveUnsaved = true;
   try {
-    if (await openCloud({ path, name: `${name}.pptx`, uid })) {
+    if (
+      await openCloud(
+        { path, name: `${name}.pptx`, uid },
+        { offerDraft: false },
+      )
+    ) {
       if (draftOwner === owner())
         await drafts.deleteDraft(id).catch(warnStorage);
       toast(`Opened the latest version of “${name}”.`);

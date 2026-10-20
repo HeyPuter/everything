@@ -6302,6 +6302,10 @@ for (const location of ["library", "editor"]) {
       await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
     } else {
       await cloudFile.click();
+      await page
+        .getByRole("dialog", { name: "Recover unsaved changes?" })
+        .getByRole("button", { name: "Open the Puter version" })
+        .click();
       await expect(page.locator(".object-hit")).toHaveCount(0);
       await page.locator(".document-title").click();
     }
