@@ -44,6 +44,20 @@ describe('decodeWords (RFC 2047)', () => {
     expect(decodeWords('=?utf-8?X?bogus?=')).toBe('=?utf-8?X?bogus?=');
   });
 
+  it('decodes a character split across two adjacent words as that character', () => {
+    expect(decodeWords('=?UTF-8?Q?caf=C3?= =?UTF-8?Q?=A9?=')).toBe('café');
+    expect(decodeWords(`=?utf-8?B?${Buffer.from([0xe9, 0xa0]).toString('base64')}?==?utf-8?B?${Buffer.from([0x98]).toString('base64')}?= x`)).toBe('領 x');
+    // Words in different charsets, or with text between them, stay apart.
+    expect(decodeWords('=?iso-8859-1?Q?caf=E9?= =?utf-8?Q?=C3=A9?=')).toBe('caféé');
+    expect(decodeWords('=?utf-8?Q?a?= b =?utf-8?Q?c?=')).toBe('a b c');
+    // A word too long to spread into an argument list is still decoded.
+    expect(decodeWords(`=?utf-8?Q?a?==?utf-8?B?${Buffer.from('x'.repeat(300000)).toString('base64')}?=`)).toHaveLength(300001);
+  });
+
+  it('reads a charset that names its language (RFC 2231)', () => {
+    expect(decodeWords('=?iso-8859-1*fr?Q?caf=E9?=')).toBe('café');
+  });
+
   it('falls back to utf-8 for unknown charsets', () => {
     expect(decodeWords(`=?not-a-charset?B?${b64utf8('ok')}?=`)).toBe('ok');
   });

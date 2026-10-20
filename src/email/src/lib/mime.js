@@ -54,7 +54,8 @@ export const subjectFromFilename = (name) => {
 
 // -- RFC 2047 encoded words (=?utf-8?B?...?=) ---------------------------------
 
-export const decodeQuotedPrintable = (text, charset) => {
+// The bytes a quoted-printable run stands for.
+const quotedPrintableBytes = (text) => {
   const bytes = [];
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
@@ -67,23 +68,50 @@ export const decodeQuotedPrintable = (text, charset) => {
       bytes.push(ch.charCodeAt(0) & 0xff);
     }
   }
-  return decodeBytes(Uint8Array.from(bytes), charset);
+  return bytes;
 };
+
+export const decodeQuotedPrintable = (text, charset) =>
+  decodeBytes(Uint8Array.from(quotedPrintableBytes(text)), charset);
+
+const ENCODED_WORD = /=\?([^?]+)\?([BQbq])\?([^?]*)\?=/g;
 
 export const decodeWords = (value) => {
   if (!value.includes('=?')) return value;
   // Whitespace *between* two encoded words is separator, not content.
-  return value
-    .replace(/\?=\s+=\?/g, '?==?')
-    .replace(/=\?([^?]+)\?([BQbq])\?([^?]*)\?=/g, (whole, charset, enc, text) => {
-      try {
-        return enc.toUpperCase() === 'B'
-          ? decodeBytes(base64ToBytes(text), charset)
-          : decodeQuotedPrintable(text.replace(/_/g, ' '), charset);
-      } catch {
-        return whole;
-      }
-    });
+  const joined = value.replace(/\?=\s+=\?/g, '?==?');
+  // Adjacent words in one charset are decoded as one run of bytes: a sender
+  // that splits a multi-byte character across two words is read as that
+  // character, not as two replacement characters.
+  let out = '';
+  let at = 0;
+  let run = null;
+  const flush = () => {
+    if (run) out += decodeBytes(Uint8Array.from(run.bytes), run.charset);
+    run = null;
+  };
+  for (const match of joined.matchAll(ENCODED_WORD)) {
+    const [whole, label, encoding, text] = match;
+    // RFC 2231 section 5 lets a word name its language: `charset*language`.
+    const charset = label.split('*')[0];
+    let bytes = null;
+    try {
+      bytes = encoding.toUpperCase() === 'B'
+        ? [...base64ToBytes(text)]
+        : quotedPrintableBytes(text.replace(/_/g, ' '));
+    } catch {
+      bytes = null;
+    }
+    if (match.index > at || !bytes || (run && run.charset.toLowerCase() !== charset.toLowerCase())) flush();
+    out += joined.slice(at, match.index);
+    if (!bytes) out += whole;
+    // A loop, not push(...bytes): one hostile word can be megabytes long.
+    else if (run) for (const byte of bytes) run.bytes.push(byte);
+    else run = { charset, bytes };
+    at = match.index + whole.length;
+  }
+  flush();
+  return out + joined.slice(at);
 };
 
 // -- RFC 822 structure --------------------------------------------------------
