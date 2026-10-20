@@ -240,6 +240,60 @@ test("comments stay out of the slide show", async ({ page }) => {
   await expect(page.getByText("Hidden in the show")).toHaveCount(0);
 });
 
+// A comment on a deleted object kept the object's id, which the next object
+// added to the slide was given, so the comment jumped onto that one.
+test("a comment on a deleted object stays put, off any new object", async ({
+  page,
+}) => {
+  await stub(page);
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const shape = P.addSlideShape(slide, {
+    preset: "rect",
+    x: 914400,
+    y: 914400,
+    w: 914400 * 2,
+    h: 914400,
+  });
+  P.setSlideCommentThreads(slide, [
+    {
+      author: { name: "Grace" },
+      text: "Make this bigger",
+      shapeId: String(P.getShapeId(shape)),
+    },
+  ]);
+  await open(page, pres);
+  await page.getByRole("button", { name: "Comments" }).first().click();
+  const anchor = page.locator("#review-pane .comment-anchor");
+  await expect(anchor).toContainText("Rectangle");
+  const marker = page.locator(".comment-marker");
+  const before = await marker.boundingBox();
+  await page.locator(".object-hit").first().click();
+  await page.keyboard.press("Delete");
+  await expect(page.locator(".object-hit")).toHaveCount(0);
+  await expect(anchor).toHaveCount(0);
+  const after = await marker.boundingBox();
+  expect(Math.abs(after.x - before.x)).toBeLessThan(2);
+  expect(Math.abs(after.y - before.y)).toBeLessThan(2);
+  // The next object added takes the deleted one's id, not its comment.
+  await page
+    .getByRole("menubar")
+    .getByRole("menuitem", { name: "Insert", exact: true })
+    .click();
+  await page.getByRole("menuitem", { name: "Text box", exact: true }).click();
+  await expect(page.locator(".object-hit")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(anchor).toHaveCount(0);
+  const { pres: saved } = await download(page);
+  const [thread] = P.getSlideCommentThreads(P.getSlides(saved)[0]);
+  expect(thread.shapeId).toBeNull();
+  expect(thread.pos).not.toBeNull();
+  // Undo puts the object back with its comment.
+  await page.keyboard.press(`${MOD}+z`);
+  await page.keyboard.press(`${MOD}+z`);
+  await expect(anchor).toContainText("Rectangle");
+});
+
 test("accessibility: issues with fixes, reading order, and the status bar", async ({
   page,
 }) => {

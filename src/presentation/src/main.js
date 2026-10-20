@@ -12811,16 +12811,57 @@ function deleteObject() {
   const ids = items.map(P.getShapeId);
   mutateSlide(slide(), (target) => {
     const keep = [...selectionIds()].filter((id) => !ids.includes(id));
+    const detach = detachComments(target, ids);
     let removed = false;
     for (const id of ids) {
       const shape = P.findShapeById(target, id);
       if (shape && removeAnyShape(target, shape)) removed = true;
     }
     if (!removed) return SKIP_MUTATION;
+    detach();
     pruneUnusedMedia(doc.pres, target);
     if (P.getSlidePartName(slide()) === P.getSlidePartName(target))
       selectIds(keep);
   });
+}
+// Comments on objects being deleted stay where their markers were, on the
+// slide itself: the next object added could be given a deleted one's id.
+// Read before the objects go; the returned step writes the comments after.
+function detachComments(target, ids) {
+  let threads;
+  try {
+    threads = P.getSlideCommentThreads(target);
+  } catch {
+    return () => {};
+  }
+  const gone = new Map();
+  const visit = (shape) => {
+    gone.set(String(P.getShapeId(shape)), shape);
+    if (P.getShapeKind(shape) === "group")
+      P.getGroupChildren(shape).forEach(visit);
+  };
+  for (const id of ids) {
+    const shape = P.findShapeById(target, id);
+    if (shape) visit(shape);
+  }
+  if (!threads.some((t) => t.shapeId && gone.has(String(t.shapeId))))
+    return () => {};
+  const next = threads.map((t) => {
+    const shape = t.shapeId && gone.get(String(t.shapeId));
+    if (!shape) return t;
+    const b = !t.pos && slideBounds(doc.pres, shape);
+    return {
+      ...t,
+      shapeId: null,
+      pos:
+        t.pos || (b ? { x: Math.round(b.x + b.w), y: Math.round(b.y) } : null),
+    };
+  });
+  return () => {
+    P.setSlideCommentThreads(target, next);
+    // The slide redraws before this edit is counted; comments read afresh.
+    review.comments.invalidate();
+  };
 }
 /* ---------- Find and replace ----------
  * A bar under the toolbar looks through every slide's text, including table
