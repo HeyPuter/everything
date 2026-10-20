@@ -2083,7 +2083,10 @@ export function renderApp(root, ctx) {
         // next Restore.
         if (restoring) originState.set(message.name, landed);
         else originState.clear(message.name);
-        outdate(from);
+        // Not outdate(from): insert() has put the message back into the
+        // listing and its catalog in place, and dropping the catalog detached
+        // it from a search running over it, which then went on listing
+        // whatever was archived after the undo.
         back.set(unit, [...(back.get(unit) ?? []), message]);
       } catch {
         failed++;
