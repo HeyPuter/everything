@@ -2219,3 +2219,16 @@
   /* Reserve the preview line while unthreaded rows receive their headers. */
   .row-snippet { min-height: 1.5em; }
 }
+
+/* -- right-to-left mail ---------------------------------------------------------- */
+
+/* Mail is in whatever script its sender wrote it in. Each run of it takes its
+   direction from its own first strong character -- per paragraph in a body --
+   rather than from the page's: a Hebrew subject's "?" and "10:00" jumped to
+   the wrong ends, and a body of Arabic read left-aligned with its brackets
+   reversed. The preview is isolated so an RTL subject and an RTL preview
+   beside it are not reordered into one run. */
+.row-people, .row-subject, .msg-subject, .msg-from-name,
+.msg-item-snippet, .msg-body:not(.msg-source) { unicode-bidi: plaintext; }
+.row-snippet { unicode-bidi: isolate; }
+.msg-subject, .msg-body { text-align: start; }
