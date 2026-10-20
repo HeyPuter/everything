@@ -86,3 +86,37 @@ test('selecting text keeps the page and its controls where they were', async ({ 
   expect(await target.boundingBox()).toEqual(before.text);
   expect(await zoom.boundingBox()).toEqual(before.zoom);
 });
+
+test('a message over the selection dock lets taps through to its controls', async ({ page }) => {
+  await openPdf(page, await pages(1));
+  await page.getByRole('button', { name: 'Menu', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Insert', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Stamp…', exact: true }).click();
+  await page.getByRole('button', { name: 'Place stamp', exact: true }).click();
+  await expect(page.locator('#toast')).toHaveText(/^Stamp added/);
+  // The message shows over the dock for a few seconds; a field under it still takes a tap.
+  const covered = await page.evaluate(() => {
+    const box = document.querySelector('#toast').getBoundingClientRect();
+    const field = [...document.querySelectorAll('.properties-sidebar input[type="number"]')]
+      .map((input) => ({ input, r: input.getBoundingClientRect() }))
+      .find(
+        ({ r }) =>
+          r.width &&
+          r.x + r.width / 2 > box.left &&
+          r.x + r.width / 2 < box.right &&
+          r.y + r.height / 2 > box.top &&
+          r.y + r.height / 2 < box.bottom,
+      );
+    return (
+      field && {
+        label: field.input.getAttribute('aria-label'),
+        x: field.r.x + field.r.width / 2,
+        y: field.r.y + field.r.height / 2,
+      }
+    );
+  });
+  expect(covered).toBeTruthy();
+  await page.touchscreen.tap(covered.x, covered.y);
+  await expect(page.getByLabel(covered.label, { exact: true })).toBeFocused();
+  await expect(page.locator('#toast')).toHaveText(/^Stamp added/);
+});

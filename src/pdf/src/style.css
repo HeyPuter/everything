@@ -2196,6 +2196,9 @@ kbd {
   font-size: 13px;
   text-align: center;
   line-height: 1.5;
+  /* It holds no controls, and on a phone it can sit over the selection dock for a few
+     seconds: taps go through to whatever it covers. */
+  pointer-events: none;
 }
 @media (min-width: 1450px) {
   .home-main {
