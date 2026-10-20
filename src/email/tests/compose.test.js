@@ -103,6 +103,22 @@ describe('buildMessage', () => {
   });
 });
 
+describe('buildMessage: a long subject', () => {
+  const headLines = (subject) => build({ subject }).split(`${CRLF}${CRLF}`)[0];
+
+  it('folds so that no header line passes 998 characters, and reads back the same', () => {
+    for (const subject of ['word '.repeat(250).trim(), `two  spaces ${'w'.repeat(1200)}`, 'é'.repeat(600)]) {
+      const head = headLines(subject);
+      expect(Math.max(...head.split(CRLF).map((line) => line.length))).toBeLessThanOrEqual(998);
+      expect(decodeWords(parseHeaders(head).get('subject'))).toBe(subject);
+    }
+  });
+
+  it('keeps a short subject on one line', () => {
+    expect(headLines('Lunch on Friday?')).toContain(`${CRLF}Subject: Lunch on Friday?${CRLF}`);
+  });
+});
+
 describe('rfc2822Date', () => {
   it('zero-pads time fields', () => {
     expect(rfc2822Date(new Date(Date.UTC(2026, 0, 5, 1, 2, 3)))).toBe('Mon, 5 Jan 2026 01:02:03 +0000');
@@ -132,6 +148,16 @@ describe('foldHeader', () => {
     const lines = folded.split(CRLF);
     expect(lines.length).toBeGreaterThan(1);
     expect(lines.slice(1).every((line) => line.startsWith(' '))).toBe(true);
+  });
+
+  it('folds with one space, so unfolding by removing the line break restores the value', () => {
+    const addresses = Array.from({ length: 12 }, (unused, i) => `recipient-${i}@example.com`);
+    expect(foldHeader('To', addresses, ', ').replace(/\r\n/g, '')).toBe(`To: ${addresses.join(', ')}`);
+  });
+
+  it('never leaves a header line that is only whitespace', () => {
+    const folded = foldHeader('Subject', ['x'.repeat(69), '', 'y'.repeat(77)], ' ');
+    expect(folded.split(CRLF).every((line) => line.trim())).toBe(true);
   });
 });
 

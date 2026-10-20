@@ -84,9 +84,14 @@ export const foldHeader = (name, parts, separator) => {
   const lines = [];
   parts.forEach((part, index) => {
     const piece = index < parts.length - 1 ? `${part}${separator.trim()}` : part;
-    if (line.length + 1 + piece.length > 78 && line !== `${name}:`) {
+    // A line of nothing but the fold's space is not one to end: RFC 5322
+    // does not allow a header line that is only whitespace.
+    if (line.length + 1 + piece.length > 78 && line !== `${name}:` && line.trim()) {
       lines.push(line);
-      line = ' ';
+      // The space added below is the fold's one whitespace character. A
+      // second one here was content to a parser that unfolds the way RFC 5322
+      // says, by removing the line break only.
+      line = '';
     }
     line += ` ${piece}`;
   });
@@ -311,7 +316,11 @@ export const buildMessage = ({
     // servers reject outright, so it is left out instead.
     ...(to.length ? [foldHeader('To', to, ', ')] : []),
     ...(cc.length ? [foldHeader('Cc', cc, ', ')] : []),
-    foldHeader('Subject', isAscii(subject) ? [subject] : encodeWords(subject), ' '),
+    // An ASCII subject folds between its words. One with a word too long to
+    // fold at goes as encoded words, which fold anywhere, like one that is not
+    // ASCII. Unfolded, a long subject was one header line of any length, past
+    // the 998 characters RFC 5322 allows.
+    foldHeader('Subject', isAscii(subject) && !/[^ ]{900}/.test(subject) ? subject.split(' ') : encodeWords(subject), ' '),
     `Date: ${rfc2822Date(date)}`,
     `Message-ID: ${messageId}`,
     // What makes a reply hold together as a conversation in Gmail, Apple
