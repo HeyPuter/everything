@@ -3357,7 +3357,12 @@ function editorTopbar() {
     ].map(([label, open]) => ({ label, open })),
     {
       label: "Presentation menus",
-      returnFocus: () => workspace()?.focus({ preventScroll: true }),
+      // Text being edited takes the keyboard back, where it was.
+      returnFocus: () =>
+        (richEditor?.input?.isConnected
+          ? richEditor.input
+          : workspace()
+        )?.focus({ preventScroll: true }),
     },
   );
   menubar.el.classList.add("desktop-only");

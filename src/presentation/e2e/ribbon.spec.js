@@ -426,3 +426,20 @@ test("a command from the menu bar hands the keyboard back to the slide", async (
   await expect(shape).not.toHaveAttribute("style", before);
   await expect(page.getByRole("menu")).toHaveCount(0);
 });
+
+test("a menu bar command while text is edited leaves the editing going", async ({
+  page,
+}) => {
+  await start(page);
+  await page.getByRole("menuitem", { name: "Insert", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Text box", exact: true }).click();
+  await page.locator(".object-hit").first().dblclick();
+  const editor = page.locator(".inline-editor");
+  await page.keyboard.type("Hello");
+  await page.getByRole("menuitem", { name: "Format", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Align", exact: true }).click();
+  await page.getByRole("menuitemcheckbox", { name: "Align center" }).click();
+  await expect(editor).toBeFocused();
+  await page.keyboard.type(" there");
+  await expect(editor).toHaveText("Hello there");
+});
