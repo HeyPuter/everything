@@ -222,3 +222,27 @@ test('the buttons of a radio group are told apart by their export values', async
     page.getByRole('button', { name: 'Radio button Size: Large', exact: true }),
   ).toHaveAttribute('data-key', 'Size#1');
 });
+
+test('the keyboard focus stays on the fields after editing or deleting one', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([600, 400]);
+  for (const [name, y] of [
+    ['Note', 100],
+    ['Other', 200],
+  ])
+    doc.getForm().createTextField(name).addToPage(sheet, { x: 100, y, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await designer(page, 'Note#0').focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  await dialog.getByLabel('Tooltip (read to screen reader users)').fill('A short note');
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  await expect(designer(page, 'Note#0')).toBeFocused();
+  await page.keyboard.press('Delete');
+  await settled(page);
+  await expect(designer(page, 'Note#0')).toHaveCount(0);
+  await expect(designer(page, 'Other#0')).toBeFocused();
+});

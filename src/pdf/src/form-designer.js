@@ -26,7 +26,8 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
   let fields = [];
   let selected = null; // `${name}#${widgetIndex}`
   let drag = null;
-  // The field a keyboard nudge moved: its box is redrawn after the edit and keeps the focus.
+  // The box to focus once the fields are redrawn after a keyboard action: the field nudged or
+  // edited, or after a deletion its neighbor, so the focus does not fall back to the page.
   let refocus = null;
   const keyOf = (field) => `${field.name}#${field.widgetIndex}`;
 
@@ -78,6 +79,7 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
+    refocus = null;
     select(field);
     const box = screenBox(field);
     drag = { field, node, mode, x: e.clientX, y: e.clientY, box, moved: false, id: e.pointerId };
@@ -132,9 +134,13 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
             onkeydown: (e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
+                refocus = keyOf(field);
                 onOpen(field);
               } else if (e.key === 'Delete' || e.key === 'Backspace') {
                 e.preventDefault();
+                const index = fields.indexOf(field);
+                const neighbor = fields[index + 1] ?? fields[index - 1];
+                refocus = neighbor ? keyOf(neighbor) : null;
                 onDelete(field);
               } else if (e.key.startsWith('Arrow')) {
                 // Arrow keys nudge a point at a time in the direction they point on screen,
@@ -153,7 +159,11 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
                 onMove(field, { x: x + dx, y: y + dy, width, height });
               }
             },
-            onfocus: () => select(field),
+            onfocus: () => {
+              // Moving on to another field drops a pending return of the focus elsewhere.
+              if (refocus && refocus !== keyOf(field)) refocus = null;
+              select(field);
+            },
           },
           el('span', { class: 'designer-name' }, field.name),
           el('span', {
