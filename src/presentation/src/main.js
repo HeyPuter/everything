@@ -1845,6 +1845,11 @@ async function openDocument(load, { pristine = false } = {}) {
     const loaded = await load();
     if (request !== documentRequest) return false;
     const { pres, draft = null, color = "studio" } = loaded;
+    // A template or slide show opens to be edited, and saved, as a
+    // presentation (.pptx).
+    const kind = P.getPresentationKind(pres);
+    if (kind && kind !== "presentation")
+      P.setPresentationKind(pres, "presentation");
     candidate = pres;
     pendingFontCandidates.add(pres);
     await prepareDeckFonts(pres);
@@ -2182,7 +2187,7 @@ function pickLocalFile(accept, handle) {
   }
 }
 function pickLocal() {
-  pickLocalFile(".pptx", importFile);
+  pickLocalFile(".pptx,.potx,.ppsx", importFile);
 }
 function pickFont() {
   const target = doc;
@@ -2282,15 +2287,17 @@ async function embedLocalFont(file, target, request) {
   }
 }
 async function importFile(file) {
-  if (!/\.pptx$/i.test(file.name))
-    throw new Error("Choose a PowerPoint (.pptx) file.");
+  const extension = /\.(pptx|potx|ppsx)$/i.exec(file.name)?.[1].toLowerCase();
+  if (!extension) throw new Error("Choose a PowerPoint (.pptx) file.");
   validateImportSize(file.size);
   if (
     await openDocument(async () => ({
       pres: await parseDeck(new Uint8Array(await file.arrayBuffer()), {
         prepareFonts: false,
       }),
-      name: file.name,
+      // A template starts a new, untitled presentation, as in PowerPoint; a
+      // slide show keeps its name.
+      name: extension === "potx" ? null : file.name.replace(/\.ppsx$/i, ""),
     }))
   )
     toast(

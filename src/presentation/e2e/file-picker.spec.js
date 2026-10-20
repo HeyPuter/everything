@@ -70,3 +70,52 @@ for (const kind of ["presentation", "image"]) {
       ).toBeVisible();
   });
 }
+
+test("a template or slide show opens as a presentation", async ({ page }) => {
+  const imported = async (name, kind) => {
+    const pres = createDeck("story");
+    if (kind) P.setPresentationKind(pres, kind);
+    const pending = page.waitForEvent("filechooser");
+    await page
+      .getByRole("button", { name: "Import PPTX", exact: true })
+      .click();
+    const chooser = await pending;
+    expect(await chooser.element().getAttribute("accept")).toBe(
+      ".pptx,.potx,.ppsx",
+    );
+    await chooser.setFiles({
+      name,
+      mimeType: "application/octet-stream",
+      buffer: Buffer.from(await P.savePresentation(pres)),
+    });
+    await expect(page.locator("#slide-position")).toBeVisible();
+    // What a save would write: the recovery draft holds the open revision.
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const drafts = await import("/src/drafts.js");
+          const { P } = await import("/src/model.js");
+          const [summary] = await drafts.listDrafts("guest");
+          const stored = summary && (await drafts.getDraft(summary.id));
+          return stored
+            ? P.getPresentationKind(await P.loadPresentation(stored.bytes))
+            : null;
+        }),
+      )
+      .toBe("presentation");
+    const title = await page.locator(".document-title").textContent();
+    await page.getByRole("button", { name: "Back to presentations" }).click();
+    await page.evaluate(async () => {
+      const drafts = await import("/src/drafts.js");
+      for (const d of await drafts.listDrafts("guest"))
+        await drafts.deleteDraft(d.id);
+    });
+    return title;
+  };
+  expect(await imported("Brand.potx", "template")).toBe(
+    "Untitled presentation",
+  );
+  expect(await imported("Keynote.ppsx", "slideshow")).toBe("Keynote");
+  // A template renamed .pptx is saved as a presentation under that name.
+  expect(await imported("Renamed.pptx", "template")).toBe("Renamed");
+});
