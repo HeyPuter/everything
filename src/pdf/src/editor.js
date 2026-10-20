@@ -10556,7 +10556,13 @@ export function createEditor({
         },
         recognize: async (bytes, page, { pageNeedsOcr }) => {
           let task = opened.get(bytes);
-          if (!task) opened.set(bytes, (task = loadPdf(bytes.slice())));
+          if (!task) {
+            // Files are recognized one after another; let the last one go before reading the
+            // next, so a long batch does not hold every PDF in memory until it ends.
+            for (const old of opened.values()) old.destroy().catch(() => {});
+            opened.clear();
+            opened.set(bytes, (task = loadPdf(bytes.slice())));
+          }
           const doc = await task.promise;
           const pdfPage = await doc.getPage(page + 1);
           const view = pdfPage.getViewport({ scale: 1 });

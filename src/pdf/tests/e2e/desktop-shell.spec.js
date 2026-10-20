@@ -336,6 +336,60 @@ test('Organize pages selects, turns, moves, and deletes several pages', async ({
   await expect(page.locator('.page-caption')).toHaveText(/of 2$/);
 });
 
+test('batch text recognition lets each PDF go before reading the next', async ({ page }) => {
+  // Count the documents PDF.js holds open: each GetDocRequest opens one, Terminate closes it.
+  await page.evaluate(() => {
+    const post = Worker.prototype.postMessage;
+    window.__pdfDocs = { open: 0, most: 0 };
+    Worker.prototype.postMessage = function (message, ...rest) {
+      const docs = window.__pdfDocs;
+      if (message?.action === 'GetDocRequest') docs.most = Math.max(docs.most, ++docs.open);
+      if (message?.action === 'Terminate') docs.open--;
+      return post.call(this, message, ...rest);
+    };
+  });
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Batch process', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Batch process' });
+  const files = [];
+  for (let i = 0; i < 4; i++) {
+    // Pages that already have text, so recognition reads them and skips them.
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    doc.addPage([400, 500]).drawText(`File ${i} has plenty of words on its page already`, {
+      x: 20,
+      y: 200,
+      size: 12,
+      font,
+    });
+    files.push({
+      name: `file ${i}.pdf`,
+      mimeType: 'application/pdf',
+      buffer: Buffer.from(await doc.save()),
+    });
+  }
+  const chooser = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: 'Add PDFs…' }).click();
+  await (await chooser).setFiles(files);
+  await expect(dialog.getByText('file 3.pdf')).toBeVisible();
+  await page.evaluate(() => {
+    window.__pdfDocs.most = window.__pdfDocs.open;
+  });
+  const before = await page.evaluate(() => window.__pdfDocs.open);
+  await dialog.getByLabel('Recognize text (OCR)').check();
+  const pending = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'Run', exact: true }).click();
+  await pending;
+  await expect(dialog).toBeHidden();
+  const docs = await page.evaluate(() => window.__pdfDocs);
+  // At most one batch file is open beside what the editor already had open.
+  expect(docs.most - before).toBeLessThanOrEqual(1);
+  await expect.poll(() => page.evaluate(() => window.__pdfDocs.open)).toBe(before);
+});
+
 test('Bates numbering stamps padded numbers across the chosen pages', async ({ page }) => {
   await openPdf(page, await numberedPdf(3));
   await page.getByRole('button', { name: 'Tools', exact: true }).click();
