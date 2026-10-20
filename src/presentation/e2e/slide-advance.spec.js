@@ -409,6 +409,28 @@ test("timers and slide-number jumps move past click-sequence media", async ({
   await expect(counter(page)).toHaveText("3 / 3");
 });
 
+test("a stroke drawn as the slide advances stays on its own slide", async ({
+  page,
+}) => {
+  await load(
+    page,
+    deck([{ effect: "none", advanceAfterMs: 400 }, { effect: "none" }]),
+  );
+  await page.keyboard.press("Control+p");
+  const box = await page.locator(".presenter-frame").boundingBox();
+  await page.mouse.move(box.x + 100, box.y + 100);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 200, box.y + 140, { steps: 4 });
+  await page.clock.runFor(400);
+  await expect(counter(page)).toHaveText("2 / 2");
+  await page.mouse.move(box.x + 300, box.y + 160, { steps: 4 });
+  await page.mouse.up();
+  await expect(page.locator(".show-ink path")).toHaveCount(0);
+  await page.keyboard.press("ArrowLeft");
+  await expect(counter(page)).toHaveText("1 / 2");
+  await expect(page.locator(".show-ink path")).toHaveCount(1);
+});
+
 test("white blank screens retain keyboard focus and a click restores without advancing", async ({
   page,
 }) => {

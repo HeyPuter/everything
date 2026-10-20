@@ -104,6 +104,9 @@ export function createShowInk({ size, penColor = "#E81224", onChange } = {}) {
         capture.setPointerCapture(e.pointerId);
       } catch {}
       if (tool === "eraser") return erase(e, capture, toSlide);
+      // The stroke belongs to the slide it began on, even if the show moves
+      // on while it is drawn.
+      const slide = key;
       // When each point was drawn travels with the stroke, for replay.
       const t0 = performance.now();
       const stroke = {
@@ -127,7 +130,7 @@ export function createShowInk({ size, penColor = "#E81224", onChange } = {}) {
         capture.removeEventListener("pointermove", move);
         capture.removeEventListener("pointerup", up);
         capture.removeEventListener("pointercancel", up);
-        list().push(stroke);
+        list(slide).push(stroke);
         renderAll();
         onChange?.();
       };
