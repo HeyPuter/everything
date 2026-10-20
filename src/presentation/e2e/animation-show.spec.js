@@ -133,6 +133,24 @@ test("a timed advance plays the slide's remaining click steps first", async ({
   await expect(counter).toHaveText("2 / 2");
 });
 
+test("going to an earlier slide from See All Slides starts it over", async ({
+  page,
+}) => {
+  await load(page, animatedDeck());
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const counter = page.locator(".presenter-counter");
+  await page.keyboard.press("End");
+  await expect(counter).toHaveText("2 / 2");
+  await page.keyboard.press("g");
+  await page
+    .getByRole("region", { name: "All slides" })
+    .getByRole("button", { name: /^Slide 1/ })
+    .click();
+  await expect(counter).toHaveText("1 / 2");
+  // Unlike going back a slide, the jump shows the slide as it opens.
+  await expect.poll(() => visibleLayers(page)).toEqual([false, false, false]);
+});
+
 test("reduced motion still steps through effects", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await load(page, animatedDeck());

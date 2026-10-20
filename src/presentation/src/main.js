@@ -15545,7 +15545,7 @@ async function present(options = {}) {
     size,
     current: () => n,
     isEnded: () => ended,
-    go: (i) => show(i, { backward: i < n }),
+    go: (i) => show(i),
     next: () => next.click(),
     previous: () => previous.click(),
     close: () => close(),
