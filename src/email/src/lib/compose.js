@@ -223,7 +223,10 @@ const nameParams = (key, filename) => {
   if (isAscii(safe)) return [`${key}="${safe}"`];
   return [
     `${key}="${encodeWords(safe).join(' ')}"`,
-    `${key}*=UTF-8''${encodeURIComponent(safe)}`,
+    // encodeURIComponent leaves ' ( ) * as they are, and RFC 2231 does not
+    // allow them unencoded: a strict parser reads "(" as the start of a
+    // comment, and "Résumé (final).pdf" arrived as "résumé".
+    `${key}*=UTF-8''${encodeURIComponent(safe).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)}`,
   ];
 };
 

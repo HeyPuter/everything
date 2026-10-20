@@ -324,6 +324,14 @@ describe('buildMessage with attachments', () => {
     expect(attachments[0].filename).toBe(name);
   });
 
+  it("writes filename* with only the characters RFC 2231 allows unencoded", () => {
+    const name = "Résumé (final) Bob's*.pdf";
+    const message = withFiles([{ filename: name, type: 'application/pdf', bytes: csv }]);
+    const extended = message.match(/filename\*=UTF-8''([^\r\n;]*)/)[1];
+    expect(extended).toMatch(/^[A-Za-z0-9!#$&+.^_`|~%-]+$/);
+    expect(roundTrip(message).attachments[0].filename).toBe(name);
+  });
+
   it('cannot be used to inject a header through a filename', () => {
     const message = withFiles([
       { filename: 'ok.txt\r\nBcc: victim@example.com', type: 'text/plain', bytes: csv },
