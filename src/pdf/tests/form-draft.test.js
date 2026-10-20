@@ -238,3 +238,25 @@ for (const selected of [false, true])
       draft.redo();
       expect(draft.value(widget.name)).toEqual(selected ? [] : [exportValue]);
     });
+
+it('describes widgets by their own tooltip, or by their field’s', () => {
+  const text = (fieldName, alternativeText) => ({
+    id: fieldName,
+    fieldName,
+    fieldType: 'Tx',
+    rect: [0, 0, 100, 20],
+    fieldValue: '',
+    alternativeText,
+  });
+  const tooltips = new Map([
+    ['Above', 'From the field'],
+    ['Own', 'Not used'],
+  ]);
+  const widgets = formWidgets(
+    [text('Own', ' Your name '), text('Above', ''), text('None', '')],
+    undefined,
+    undefined,
+    tooltips,
+  );
+  expect(widgets.map((w) => w.tooltip)).toEqual(['Your name', 'From the field', '']);
+});

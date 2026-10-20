@@ -116,7 +116,7 @@ function checkBoxGroups(annotations) {
 }
 
 /** Only actual, visible form widgets are interactive. No document actions are executed. */
-export function formWidgets(annotations, layers, buttonSelections) {
+export function formWidgets(annotations, layers, buttonSelections, tooltips) {
   const groups = checkBoxGroups(annotations);
   return annotations.flatMap((a) => {
     if (
@@ -170,6 +170,11 @@ export function formWidgets(annotations, layers, buttonSelections) {
       {
         id: a.id,
         name: a.fieldName,
+        // The tooltip (TU) is the field's description for people and assistive technology.
+        tooltip:
+          (typeof a.alternativeText === 'string' && a.alternativeText.trim()) ||
+          tooltips?.get(a.fieldName) ||
+          '',
         type,
         value,
         rect: a.rect,

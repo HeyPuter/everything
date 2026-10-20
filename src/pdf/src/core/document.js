@@ -1167,6 +1167,17 @@ export function formButtonSelections(doc, names) {
   }
   return selections;
 }
+/** Field tooltips (TU) by name. PDF.js reads a tooltip from a widget, not from its field. */
+export function formFieldTooltips(doc) {
+  const tooltips = new Map();
+  for (const field of formFields(doc) || []) {
+    const name = formFieldName(field);
+    const tooltip = field.acroField.dict.lookup(PDFName.of('TU'));
+    if (!tooltips.has(name) && (tooltip instanceof PDFString || tooltip instanceof PDFHexString))
+      tooltips.set(name, tooltip.decodeText().trim());
+  }
+  return tooltips;
+}
 function choiceSelections(field) {
   const choices = choiceOptions(field);
   for (const value of fieldValue(field))

@@ -108,12 +108,15 @@ export function createFormLayer({ onChange, onCommit }) {
     }
   }
   function makeControl(widget) {
+    // A tooltip names the field the way the form's author wrote it for readers; field names
+    // are often internal identifiers.
+    const label = widget.tooltip || widget.name;
     const attrs = {
       class: 'form-control',
       'data-widget-id': widget.id,
-      'aria-label': `${widget.name}${widget.buttonValue != null ? `: ${widget.buttonValue}` : ''} (on page)${widget.readOnly ? ' (read only)' : ''}`,
+      'aria-label': `${label}${widget.buttonValue != null ? `: ${widget.buttonValue}` : ''} (on page)${widget.readOnly ? ' (read only)' : ''}`,
       'aria-required': widget.required,
-      title: `${widget.name}${widget.readOnly ? ' (read only)' : ''}`,
+      title: `${label}${widget.readOnly ? ' (read only)' : ''}`,
       disabled: widget.readOnly,
     };
     let control;
@@ -214,14 +217,14 @@ export function createFormLayer({ onChange, onCommit }) {
     });
     return control;
   }
-  function render(annotations, viewport, pageKey, layers, buttonSelections) {
+  function render(annotations, viewport, pageKey, layers, buttonSelections, tooltips) {
     rememberFocus();
     if (key !== pageKey) {
       draft.reset();
       key = pageKey;
       clearError();
     }
-    widgets = formWidgets(annotations, layers, buttonSelections);
+    widgets = formWidgets(annotations, layers, buttonSelections, tooltips);
     draft.register(widgets);
     controls = new Map();
     const fragment = document.createDocumentFragment();

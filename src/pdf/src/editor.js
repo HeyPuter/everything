@@ -134,6 +134,7 @@ import {
   normalizeRect,
   listFields,
   formButtonSelections,
+  formFieldTooltips,
   fillFields,
   MAX_FILE_SIZE,
   MAX_IMAGE_SIZE,
@@ -2465,12 +2466,18 @@ export function createEditor({
         editDocument = doc;
         buttonSelections = formButtonSelections(doc, ambiguousButtons);
       }
+      // A tooltip kept on a field above its widgets needs the document, when it is loaded.
+      const tooltips =
+        editDocument && annotations.some((a) => a.fieldName && !a.alternativeText)
+          ? formFieldTooltips(editDocument)
+          : undefined;
       pageForms.render(
         annotations,
         viewport,
         `${session.revision}:${pageIndex}`,
         layerConfig,
         buttonSelections,
+        tooltips,
       );
       pageForms.setBusy(busy || !pageReady || !access().fill);
       pageForms.setEnabled(tool === 'select' && !preparing);
