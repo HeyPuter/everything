@@ -354,11 +354,21 @@ export function createSearchIndex(scope, storage = window.localStorage, { cap = 
       entries[message.name] = entry;
       dirty = true;
       if (count > cap) {
-        // Oldest insertion first, which is also roughly least recently
-        // searched.
-        const keep = Object.keys(entries).slice(-trimTo);
-        entries = Object.fromEntries(keep.map((name) => [name, entries[name]]));
-        count = keep.length;
+        // The newest messages are kept: what each folder shows first after a
+        // reload. Filenames start with a uuid v7, so they sort by when the
+        // message was filed. Trimming by insertion order dropped exactly
+        // those, because a search reads a folder newest first -- one search
+        // over a big inbox evicted its first page and every Sent entry.
+        // Mail this account sent is what the address book ranks on, so it
+        // is kept first, up to half of what is kept.
+        const newest = Object.keys(entries).sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+        const keep = new Set(newest.filter((name) => entries[name][8] === 1).slice(0, Math.floor(trimTo / 2)));
+        for (const name of newest) {
+          if (keep.size >= trimTo) break;
+          keep.add(name);
+        }
+        entries = Object.fromEntries(newest.filter((name) => keep.has(name)).map((name) => [name, entries[name]]));
+        count = keep.size;
       }
     },
 
