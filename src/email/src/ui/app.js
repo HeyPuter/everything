@@ -928,7 +928,10 @@ export function renderApp(root, ctx) {
   // may only contain options, and the empty-state panel and the "Load older
   // messages" button both have to live inside the scroll area.
   const listEl = el('div.msglist');
-  const optionsEl = el('div.msglist-options', { role: 'listbox', 'aria-label': 'Messages' });
+  // Several rows can be ticked at once, and a screen reader is told so.
+  const optionsEl = el('div.msglist-options', {
+    role: 'listbox', 'aria-label': 'Messages', 'aria-multiselectable': 'true',
+  });
   const listRefreshBtn = el('button.icon-btn', {
     type: 'button', html: icon('refresh', 18), 'aria-label': 'Refresh this folder', title: 'Refresh',
   });
@@ -1444,6 +1447,7 @@ export function renderApp(root, ctx) {
         `${unread ? 'Mark as read' : 'Mark as unread'}: ${subject || what}`);
     }
     row.classList.toggle('is-selected', selected.has(unit));
+    row.setAttribute('aria-selected', String(selected.has(unit) || unit === opened));
     row.querySelector('.row-check').checked = selected.has(unit);
     row.querySelector('.row-check').setAttribute('aria-label', `Select ${subject || what}`);
     syncStarBtn(row.querySelector('.star-btn'), unitStarred(unit), subject || what);
@@ -1750,6 +1754,9 @@ export function renderApp(root, ctx) {
       wholeFolder = false;
     }
     unit.row?.classList.toggle('is-selected', on);
+    // What is ticked is what is selected, to a screen reader as on screen:
+    // ticked rows went on saying "not selected". The open row is selected too.
+    unit.row?.setAttribute('aria-selected', String(on || unit === opened));
     const box = unit.row?.querySelector('.row-check');
     if (box) box.checked = on;
   };
@@ -3252,7 +3259,7 @@ export function renderApp(root, ctx) {
     clear(msgActions);
     clear(msgScroll);
     if (opened?.row) {
-      opened.row.setAttribute('aria-selected', 'false');
+      opened.row.setAttribute('aria-selected', String(selected.has(opened)));
       if (focusRow) opened.row.focus();
     }
     opened = null;
@@ -4307,7 +4314,7 @@ export function renderApp(root, ctx) {
     const kept = refresh && opened === unit && stackEl?.isConnected
       ? new Map([...new Set([...cards, latestCard])].filter(Boolean).map((card) => [card.message.path, card]))
       : null;
-    if (opened?.row && opened !== unit) opened.row.setAttribute('aria-selected', 'false');
+    if (opened?.row && opened !== unit) opened.row.setAttribute('aria-selected', String(selected.has(opened)));
     opened = unit;
     unit.row?.setAttribute('aria-selected', 'true');
     frame.classList.add('reading');
