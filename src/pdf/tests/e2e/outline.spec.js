@@ -490,6 +490,24 @@ test('the side panel tabs name their panels and answer Home and End', async ({ p
   await expect(tabs.getByRole('tab', { name: 'Pages', exact: true })).toBeFocused();
 });
 
+test("the side panel's close button names the panel that is open", async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await outlinedPdf());
+  await showPanel(page);
+  const panel = page.locator('#page-sidebar');
+  await expect(panel.getByRole('button', { name: 'Close pages panel', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Outline' }).click();
+  await expect(
+    panel.getByRole('button', { name: 'Close outline panel', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('tab', { name: /Comments/ }).click();
+  const close = panel.getByRole('button', { name: 'Close comments panel', exact: true });
+  await expect(close).toHaveAttribute('title', 'Close comments panel');
+  await close.click();
+  await expect(panel).toBeHidden();
+});
+
 test('a PDF with more bookmarks than the tree holds says so', async ({ page }) => {
   await mockPuter(page);
   await page.goto('/#library');

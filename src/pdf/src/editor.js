@@ -959,6 +959,9 @@ export function createEditor({
     sidebarTitle.textContent = title;
     // One landmark holds all three panels, so its name follows the tab that is open.
     sidebar.setAttribute('aria-label', `${title} panel`);
+    const close = `Close ${title.toLowerCase()} panel`;
+    sidebarClose.setAttribute('aria-label', close);
+    sidebarClose.title = close;
     sidebarTabs.querySelectorAll('[role="tab"]').forEach((tab) => {
       const on = tab.dataset.tab === id;
       tab.setAttribute('aria-selected', String(on));
@@ -1032,15 +1035,11 @@ export function createEditor({
     }
   }
   // The navigation panels open beside the right-hand rail, as in desktop PDF editors.
+  const sidebarClose = iconButton('Close pages panel', 'X', () => toggleSidebar(false));
   const sidebar = el(
     'aside',
     { id: 'page-sidebar', class: 'page-sidebar', 'aria-label': 'Pages panel' },
-    el(
-      'div',
-      { class: 'sidebar-head' },
-      sidebarTitle,
-      iconButton('Close pages panel', 'X', () => toggleSidebar(false)),
-    ),
+    el('div', { class: 'sidebar-head' }, sidebarTitle, sidebarClose),
     thumbnails,
     outline.el,
     comments.el,
