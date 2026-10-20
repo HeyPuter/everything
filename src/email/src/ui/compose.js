@@ -1378,7 +1378,9 @@ export function openCompose({
       document.removeEventListener('visibilitychange', saveWhenHidden);
       // A message on its way is not a draft that was put down, even though
       // the store still holds it until the send has gone through.
-      if (wrote && !sent && !holding && !sending) toast('Draft saved.', { iconName: 'pencil' });
+      // Only a draft the store still holds: one emptied before closing has
+      // just been removed, and one past a failed save was never kept.
+      if (wrote && stored && !sent && !holding && !sending) toast('Draft saved.', { iconName: 'pencil' });
     },
   });
   modal.panel.classList.add('compose-panel');
