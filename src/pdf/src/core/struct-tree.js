@@ -20,6 +20,7 @@ export function removePageStructure(doc, page) {
     K = name('K'),
     TYPE = name('Type');
   const seen = new Set();
+  const removed = new Set();
   // Whether a kid stays; a structure element is pruned in place on the way.
   const keep = (kid, inherited) => {
     const value = doc.context.lookup(kid);
@@ -33,7 +34,10 @@ export function removePageStructure(doc, page) {
     const own = value.get(PG);
     const left = prune(value, own ?? inherited);
     if ((own ?? inherited) !== pageRef) return true;
-    if (!left) return false;
+    if (!left) {
+      removed.add(value);
+      return false;
+    }
     // Its remaining content is on other pages, which those kids name themselves.
     if (own) value.delete(PG);
     return true;
@@ -49,6 +53,10 @@ export function removePageStructure(doc, page) {
     return kept.length;
   };
   prune(root, undefined);
+  // The ID tree (and anything else that names an element by reference) could still reach a
+  // removed element, and through its /Pg the deleted page with all its content.
+  for (const element of removed) element.delete(PG);
+  pruneNameTree(doc, root.lookup(name('IDTree')), (value) => removed.has(value));
 
   // The parent tree maps the page's and its annotations' keys to their elements.
   const keys = new Set();
@@ -78,6 +86,28 @@ export function removePageStructure(doc, page) {
       }
       if (kept.length !== entries.length - (entries.length % 2) || entries.length % 2)
         node.set(name('Nums'), doc.context.obj(kept));
+    }
+    const kids = node.lookup(name('Kids'));
+    if (kids instanceof PDFArray)
+      for (const kid of kids.asArray()) pending.push(doc.context.lookup(kid));
+  }
+}
+
+/** Drop the entries of a name tree whose values `drop` picks; Limits are left as they are. */
+function pruneNameTree(doc, tree, drop) {
+  const visited = new Set();
+  const pending = [tree];
+  while (pending.length) {
+    const node = pending.pop();
+    if (!(node instanceof PDFDict) || visited.has(node)) continue;
+    visited.add(node);
+    const names = node.lookup(name('Names'));
+    if (names instanceof PDFArray) {
+      const entries = names.asArray();
+      const kept = [];
+      for (let i = 0; i + 1 < entries.length; i += 2)
+        if (!drop(doc.context.lookup(entries[i + 1]))) kept.push(entries[i], entries[i + 1]);
+      if (kept.length !== entries.length) node.set(name('Names'), doc.context.obj(kept));
     }
     const kids = node.lookup(name('Kids'));
     if (kids instanceof PDFArray)

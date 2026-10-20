@@ -1,5 +1,12 @@
 import { expect, it } from 'vitest';
-import { PDFDocument, PDFName, PDFRawStream, StandardFonts, decodePDFRawStream } from 'pdf-lib';
+import {
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  PDFString,
+  StandardFonts,
+  decodePDFRawStream,
+} from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { PdfSession, deletePage } from '../src/core/document.js';
 
@@ -90,4 +97,30 @@ it('takes a deleted page out of the structure tree so nothing of it stays in the
   } finally {
     await task.destroy();
   }
+});
+
+it('leaves nothing of a deleted page that the tags name by ID', async () => {
+  // Some tagging tools give every element an ID and list them in the ID tree.
+  const source = await PDFDocument.load(await tagged());
+  const root = source.catalog.lookup(PDFName.of('StructTreeRoot'));
+  const elements = root.lookup(PDFName.of('K')).asArray();
+  const names = elements.flatMap((ref, i) => [PDFString.of(`id${i}`), ref]);
+  root.set(PDFName.of('IDTree'), source.context.obj({ Kids: [{ Names: names }] }));
+  const session = new PdfSession(await source.save({ useObjectStreams: false }));
+  await session.change((doc) => deletePage(doc, 1));
+  expect(await streamsContain(session.bytes, 'TOPSECRET')).toBe(false);
+  expect(await streamsContain(session.bytes, 'CLOSING')).toBe(true);
+  const doc = await PDFDocument.load(session.bytes);
+  const leaf = doc.catalog
+    .lookup(PDFName.of('StructTreeRoot'))
+    .lookup(PDFName.of('IDTree'))
+    .lookup(PDFName.of('Kids'))
+    .lookup(0);
+  const ids = leaf
+    .lookup(PDFName.of('Names'))
+    .asArray()
+    .filter((_, i) => i % 2 === 0)
+    .map((id) => id.decodeText());
+  // The deleted page's paragraph goes; the list it shared with the next page stays.
+  expect(ids).toEqual(['id0', 'id2', 'id3']);
 });
