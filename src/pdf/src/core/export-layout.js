@@ -323,12 +323,32 @@ function walkOperators(list, view) {
           w: Math.max(...xs) - Math.min(...xs),
           h: Math.max(...ys) - Math.min(...ys),
           rotated: Math.abs(m[1]) > 1e-3 * Math.abs(m[0]) || Math.abs(m[2]) > 1e-3 * Math.abs(m[3]),
+          orientation: pictureOrientation(m),
         });
         break;
       }
     }
   }
   return { runs, rules, fills, images, vectors };
+}
+
+/**
+ * How a picture is turned or mirrored where the page shows it, from its placement matrix (the
+ * image's unit square onto the displayed page, y down): the directions on the page of its pixel
+ * columns (`across`) and rows (`down`), or null when it is upright or turned by another angle.
+ * Pages turned with /Rotate turn their pictures this way too.
+ */
+export function pictureOrientation(m) {
+  const scale = Math.max(...m.slice(0, 4).map(Math.abs));
+  const tiny = (v) => Math.abs(v) <= 1e-3 * scale;
+  const straight = tiny(m[1]) && tiny(m[2]),
+    sideways = tiny(m[0]) && tiny(m[3]);
+  if (!scale || (!straight && !sideways)) return null;
+  const sign = (v) => (v > 0 ? 1 : -1);
+  // Rows run from the image's top (v = 1) down, against its v axis.
+  const across = straight ? [sign(m[0]), 0] : [0, sign(m[1])];
+  const down = straight ? [0, -sign(m[3])] : [-sign(m[2]), 0];
+  return across[0] === 1 && down[1] === 1 ? null : { across, down };
 }
 
 /** Classify one constructed path into straight rules, filled boxes, or other vector art. */
@@ -573,8 +593,8 @@ export async function readPage(pdf, page, { images, signal } = {}) {
     if (images) {
       try {
         picture = image.inline
-          ? await images.inline(image.inline)
-          : await images.resolve(page, image.id);
+          ? await images.inline(image.inline, image.orientation)
+          : await images.resolve(page, image.id, image.orientation);
       } catch {
         picture = null;
       }

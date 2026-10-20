@@ -73,17 +73,18 @@ export async function analyzeDocument(
   if (!indices.length) throw new Error('Choose at least one page to export.');
   const source = await createImageSource(pdf, bytes);
   const images = {
-    resolve: (page, id) => source.resolve(page, id),
-    inline: async (data) => {
-      const png = await pictureBytes(data);
+    resolve: (page, id, orientation) => source.resolve(page, id, orientation),
+    inline: async (data, orientation) => {
+      const png = await pictureBytes(data, orientation);
       if (!png) return null;
+      const sideways = orientation?.across[0] === 0;
       return {
         key: `inline:${inlineCount++}`,
         mime: 'image/png',
         extension: 'png',
         bytes: png,
-        width: data.width,
-        height: data.height,
+        width: sideways ? data.height : data.width,
+        height: sideways ? data.width : data.height,
       };
     },
   };

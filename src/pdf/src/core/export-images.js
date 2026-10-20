@@ -123,20 +123,76 @@ export async function encodePng({ width, height, data, kind }) {
   return out;
 }
 
+/**
+ * The affine map of a `pictureOrientation` (export-layout.js) from a width × height picture's
+ * pixel grid to the turned picture's, as canvas transform terms, and the turned size.
+ */
+function turn({ across, down }, width, height) {
+  const sideways = across[0] === 0;
+  return {
+    width: sideways ? height : width,
+    height: sideways ? width : height,
+    matrix: [
+      across[0],
+      across[1],
+      down[0],
+      down[1],
+      (across[0] < 0 ? width : 0) + (down[0] < 0 ? height : 0),
+      (across[1] < 0 ? width : 0) + (down[1] < 0 ? height : 0),
+    ],
+  };
+}
+
+/** Decoded PDF.js pixels turned as the page shows them, as RGBA. */
+function turnedPixels({ width, height, data, kind }, orientation) {
+  const { matrix: t, ...size } = turn(orientation, width, height);
+  const out = new Uint8ClampedArray(size.width * size.height * 4);
+  const stride = (width + 7) >> 3;
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      // The pixel's centre lands on the turned pixel's centre.
+      const X = Math.floor(t[0] * (x + 0.5) + t[2] * (y + 0.5) + t[4]),
+        Y = Math.floor(t[1] * (x + 0.5) + t[3] * (y + 0.5) + t[5]);
+      const at = (Y * size.width + X) * 4;
+      if (kind === IMAGE_KIND.GRAYSCALE_1BPP) {
+        const value = (data[y * stride + (x >> 3)] >> (7 - (x & 7))) & 1 ? 255 : 0;
+        out[at] = out[at + 1] = out[at + 2] = value;
+        out[at + 3] = 255;
+      } else if (kind === IMAGE_KIND.RGB_24BPP) {
+        const from = (y * width + x) * 3;
+        out.set(data.subarray(from, from + 3), at);
+        out[at + 3] = 255;
+      } else {
+        const from = (y * width + x) * 4;
+        out.set(data.subarray(from, from + 4), at);
+      }
+    }
+  return { ...size, data: out, kind: IMAGE_KIND.RGBA_32BPP };
+}
+
 /** PNG bytes of a browser ImageBitmap, through an OffscreenCanvas. */
-async function bitmapPng(bitmap) {
+async function bitmapPng(bitmap, orientation) {
   if (typeof OffscreenCanvas !== 'function') return null;
-  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-  canvas.getContext('2d').drawImage(bitmap, 0, 0);
+  const { matrix, width, height } = orientation
+    ? turn(orientation, bitmap.width, bitmap.height)
+    : { matrix: [1, 0, 0, 1, 0, 0], width: bitmap.width, height: bitmap.height };
+  const canvas = new OffscreenCanvas(width, height);
+  const context = canvas.getContext('2d');
+  context.setTransform(...matrix);
+  context.drawImage(bitmap, 0, 0);
   const blob = await canvas.convertToBlob({ type: 'image/png' });
   return new Uint8Array(await blob.arrayBuffer());
 }
 
-/** PNG bytes of decoded PDF.js image data, whether pixels (Node) or an ImageBitmap (browsers). */
-export async function pictureBytes(object) {
+/**
+ * PNG bytes of decoded PDF.js image data, whether pixels (Node) or an ImageBitmap (browsers),
+ * turned or mirrored as the page shows the picture when an orientation is given.
+ */
+export async function pictureBytes(object, orientation = null) {
   try {
-    if (object?.data) return await encodePng(object);
-    if (object?.bitmap) return await bitmapPng(object.bitmap);
+    if (object?.data)
+      return await encodePng(orientation ? turnedPixels(object, orientation) : object);
+    if (object?.bitmap) return await bitmapPng(object.bitmap, orientation);
   } catch {
     /* undecodable picture */
   }
@@ -217,13 +273,29 @@ export async function createImageSource(pdf, bytes) {
   }
   const cache = new Map();
   return {
-    async resolve(page, id) {
+    /** `orientation` (see export-layout.js) turns the picture as the page shows it. */
+    async resolve(page, id, orientation = null) {
       const store = id.startsWith('g_') ? page.commonObjs : page.objs;
       const object = await pdfjsObject(store, id);
       if (!object) return null;
-      const key = object.ref || `${page._pageIndex ?? ''}:${id}`;
+      const base = object.ref || `${page._pageIndex ?? ''}:${id}`;
+      const key = orientation ? `${base}~${orientation.across},${orientation.down}` : base;
       if (cache.has(key)) return cache.get(key);
+      const sideways = orientation?.across[0] === 0;
       const result = (async () => {
+        if (orientation) {
+          const png = await pictureBytes(object, orientation);
+          return png
+            ? {
+                key,
+                mime: 'image/png',
+                extension: 'png',
+                bytes: png,
+                width: sideways ? object.height : object.width,
+                height: sideways ? object.width : object.height,
+              }
+            : null;
+        }
         const jpeg = passthroughJpeg(doc, object.ref);
         if (jpeg)
           return {

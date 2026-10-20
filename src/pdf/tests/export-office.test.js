@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument, StandardFonts, rgb, degrees } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { createCanvas } from '@napi-rs/canvas';
+import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { DOMParser } from '@xmldom/xmldom';
 import { exportDocument, analyzeDocument, EXPORT_FORMATS } from '../src/core/export-office.js';
 import { OPS, describeFont, listMarker } from '../src/core/export-layout.js';
@@ -922,6 +922,51 @@ it('lays out rotated pages in their displayed orientation', async () => {
         .map((t) => t.textContent)
         .join(' '),
     ).toContain('Sideways heading');
+  } finally {
+    await loading.destroy();
+  }
+});
+
+it('turns pictures the way their page shows them', async () => {
+  // A landscape scan stored sideways and shown upright with /Rotate, the usual way scanners
+  // write such pages: red on the picture's left, blue on its right.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([612, 792]);
+  page.setRotation(degrees(90));
+  const canvas = createCanvas(200, 100),
+    ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ff0000';
+  ctx.fillRect(0, 0, 100, 100);
+  ctx.fillStyle = '#0000ff';
+  ctx.fillRect(100, 0, 100, 100);
+  page.drawImage(await doc.embedJpg(canvas.toBuffer('image/jpeg')), {
+    x: 100,
+    y: 300,
+    width: 400,
+    height: 200,
+  });
+  page.drawText('Caption text under the picture here.', { x: 100, y: 250, size: 11, font });
+  const bytes = await doc.save();
+  const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  try {
+    const pdf = await loading.promise;
+    const out = await exportDocument(pdf, bytes, 'docx');
+    const files = await unzip(out.bytes);
+    const docs = checkPackage(files);
+    const extent = elements(docs['word/document.xml'], 'wp:extent')[0];
+    // Turned a quarter clockwise with its page: 200 by 400 points, red above blue.
+    expect(Number(attr(extent, 'cx')) / Number(attr(extent, 'cy'))).toBeCloseTo(0.5, 2);
+    const [name] = Object.keys(files).filter((file) => file.startsWith('word/media/'));
+    const picture = await loadImage(Buffer.from(files[name]));
+    expect([picture.width, picture.height]).toEqual([100, 200]);
+    const view = createCanvas(100, 200).getContext('2d');
+    view.drawImage(picture, 0, 0);
+    const [top, bottom] = [50, 150].map((y) => [...view.getImageData(50, y, 1, 1).data]);
+    expect(top[0]).toBeGreaterThan(200);
+    expect(top[2]).toBeLessThan(60);
+    expect(bottom[2]).toBeGreaterThan(200);
+    expect(bottom[0]).toBeLessThan(60);
   } finally {
     await loading.destroy();
   }
