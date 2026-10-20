@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { PDFDocument, PDFName, PDFString } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFString, degrees } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
 
 const PUTER_MOCK = `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username:'test-user'}), signIn: async () => {}, signOut: async () => {} }, fs: { readdir: async () => [], write: async () => ({}) }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`;
@@ -128,4 +128,30 @@ test('adding a dropdown option keeps the export values of the others', async ({ 
     ['Germany', 'Germany'],
   ]);
   expect(saved.acroField.dict.lookup(PDFName.of('V')).decodeText()).toBe('FR');
+});
+
+test('arrow keys move a field the way they point on a turned page', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([600, 400]);
+  sheet.setRotation(degrees(90));
+  const note = doc.getForm().createTextField('Note');
+  note.addToPage(sheet, { x: 100, y: 100, width: 120, height: 24 });
+  const start = note.acroField.getWidgets()[0].getRectangle();
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const field = designer(page, 'Note#0');
+  const before = await field.boundingBox();
+  await field.focus();
+  await page.keyboard.press('Shift+ArrowRight');
+  await settled(page);
+  await designer(page, 'Note#0').focus();
+  await page.keyboard.press('Shift+ArrowUp');
+  await settled(page);
+  const after = await designer(page, 'Note#0').boundingBox();
+  expect(after.x).toBeGreaterThan(before.x + 5);
+  expect(after.y).toBeLessThan(before.y - 5);
+  const saved = (await PDFDocument.load(await downloaded(page))).getForm().getTextField('Note');
+  const rect = saved.acroField.getWidgets()[0].getRectangle();
+  // Turned a quarter clockwise: screen right is +y on the page, screen up is -x.
+  expect(rect).toEqual({ ...start, x: start.x - 10, y: start.y + 10 });
 });

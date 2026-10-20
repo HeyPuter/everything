@@ -132,12 +132,18 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
                 e.preventDefault();
                 onDelete(field);
               } else if (e.key.startsWith('Arrow')) {
-                // Arrow keys nudge a point at a time; Shift moves ten.
+                // Arrow keys nudge a point at a time in the direction they point on screen,
+                // also on turned pages; Shift moves ten.
                 e.preventDefault();
                 const step = e.shiftKey ? 10 : 1;
                 const { x, y, width, height } = field.rect;
-                const dx = { ArrowLeft: -step, ArrowRight: step }[e.key] || 0,
-                  dy = { ArrowDown: -step, ArrowUp: step }[e.key] || 0;
+                const sx = { ArrowLeft: -1, ArrowRight: 1 }[e.key] || 0,
+                  sy = { ArrowUp: -1, ArrowDown: 1 }[e.key] || 0;
+                const [ox, oy] = viewport.convertToPdfPoint(0, 0);
+                const [px, py] = viewport.convertToPdfPoint(sx, sy);
+                const length = Math.hypot(px - ox, py - oy) || 1;
+                const dx = Math.round(((px - ox) / length) * step * 1000) / 1000,
+                  dy = Math.round(((py - oy) / length) * step * 1000) / 1000;
                 onMove(field, { x: x + dx, y: y + dy, width, height });
               }
             },
