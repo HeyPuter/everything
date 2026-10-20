@@ -4604,6 +4604,9 @@ export function renderApp(root, ctx) {
         return;
       case '/':
         e.preventDefault();
+        // The open drawer makes the top bar inert, and focusing an inert
+        // field does nothing at all.
+        if (frame.classList.contains('nav-open')) setNavOpen(false);
         searchInput.focus();
         searchInput.select();
         return;
@@ -4614,6 +4617,9 @@ export function renderApp(root, ctx) {
       case 'c':
         if (!ctx.onCompose) return;
         e.preventDefault();
+        // As the Compose pill does: left open, the drawer was still covering
+        // the list when the message was sent.
+        if (frame.classList.contains('nav-open')) setNavOpen(false);
         compose();
         return;
       case 'j':
