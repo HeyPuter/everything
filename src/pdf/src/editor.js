@@ -9661,17 +9661,26 @@ export function createEditor({
       specific.push(labeled('field-label', 'Label', label));
       read.label = () => label.value;
     }
+    const collect = () => ({
+      name: nameInput.value.trim() || field.name,
+      tooltip: tooltip.value,
+      required: required.box.checked,
+      readOnly: readOnly.box.checked,
+      borderColor: noBorder.box.checked ? null : border.value,
+      backgroundColor: noFill.box.checked ? null : fill.value,
+      fontSize: Number(fontSize.value) || 0,
+      ...Object.fromEntries(Object.entries(read).map(([key, value]) => [key, value()])),
+    });
+    // Only what was changed is written: an unchanged default value or "Checked by default"
+    // would otherwise reset what was filled in, and a widget is a target, not a change.
+    const initial = collect();
     const save = safe(async () => {
-      const next = {
-        name: nameInput.value.trim() || field.name,
-        tooltip: tooltip.value,
-        required: required.box.checked,
-        readOnly: readOnly.box.checked,
-        borderColor: noBorder.box.checked ? null : border.value,
-        backgroundColor: noFill.box.checked ? null : fill.value,
-        fontSize: Number(fontSize.value) || 0,
-        ...Object.fromEntries(Object.entries(read).map(([key, value]) => [key, value()])),
-      };
+      const next = Object.fromEntries(
+        Object.entries(collect()).filter(
+          ([key, value]) =>
+            key === 'widgetIndex' || JSON.stringify(value) !== JSON.stringify(initial[key]),
+        ),
+      );
       await mutateDialog(d, (doc) => updateFormField(doc, field.name, next), null, 'edit');
     });
     const remove = safe(async () => {
