@@ -119,7 +119,7 @@ export function createFormLayer({ onChange, onCommit }) {
     const attrs = {
       class: 'form-control',
       'data-widget-id': widget.id,
-      'aria-label': `${label}${widget.buttonValue != null ? `: ${widget.buttonValue}` : ''} (on page)${widget.readOnly ? ' (read only)' : ''}`,
+      'aria-label': `${label}${widget.buttonValue != null ? `: ${widget.buttonLabel ?? widget.buttonValue}` : ''} (on page)${widget.readOnly ? ' (read only)' : ''}`,
       'aria-required': widget.required,
       title: `${label}${widget.readOnly ? ' (read only)' : ''}`,
       disabled: widget.readOnly,
@@ -222,14 +222,22 @@ export function createFormLayer({ onChange, onCommit }) {
     });
     return control;
   }
-  function render(annotations, viewport, pageKey, layers, buttonSelections, tooltips) {
+  function render(
+    annotations,
+    viewport,
+    pageKey,
+    layers,
+    buttonSelections,
+    tooltips,
+    radioChoices,
+  ) {
     rememberFocus();
     if (key !== pageKey) {
       draft.reset();
       key = pageKey;
       clearError();
     }
-    widgets = formWidgets(annotations, layers, buttonSelections, tooltips);
+    widgets = formWidgets(annotations, layers, buttonSelections, tooltips, radioChoices);
     draft.register(widgets);
     controls = new Map();
     const fragment = document.createDocumentFragment();

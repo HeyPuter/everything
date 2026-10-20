@@ -8,8 +8,10 @@ import {
   deletePages,
   fillFields,
   listFields,
+  radioButtonChoices,
 } from '../src/core/document.js';
 import { flattenCounts, flattenFields } from '../src/core/flatten.js';
+import { damagedWidgetsPdf } from './fixtures/damaged-widgets.js';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -446,4 +448,60 @@ it('keeps naming the field’s own font after filling, for viewers that redraw i
   expect(saved.getTextField('Code').acroField.getDefaultAppearance()).toBe('/Cour 10 Tf 0 0 1 rg');
   expect(saved.getDropdown('Pick').acroField.getDefaultAppearance()).toBe('/Cour 0 Tf 0 g');
   expect(saved.getTextField('Code').getText()).toBe('ABC-123');
+});
+
+it('tells apart radio buttons that share an export value, unless they are in unison', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(await readFile(new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url))),
+  );
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([600, 400]);
+  const form = doc.getForm();
+  const size = form.createRadioGroup('Size');
+  for (const [value, x] of [
+    ['Small', 40],
+    ['Small', 80],
+    ['Large', 120],
+  ])
+    size.addOptionToPage(value, page, { x, y: 340, width: 16, height: 16 });
+  const plain = form.createRadioGroup('Plain');
+  for (const [value, x] of [
+    ['Yes', 40],
+    ['No', 80],
+  ])
+    plain.addOptionToPage(value, page, { x, y: 300, width: 16, height: 16 });
+  const loaded = await PDFDocument.load(await doc.save());
+  const choices = radioButtonChoices(loaded);
+  // Only the field with a shared value needs choices; "Large" stays its export value.
+  expect([...choices.keys()]).toEqual(['Size']);
+  const { choices: byWidget, selected } = choices.get('Size');
+  const [first, second, large] = [...byWidget.values()];
+  expect(large).toBe('Large');
+  expect(first).not.toBe(second);
+  expect(selected).toBeNull();
+  await fillFields(loaded, { Size: [first] });
+  const states = () =>
+    loaded
+      .getForm()
+      .getRadioGroup('Size')
+      .acroField.getWidgets()
+      .map((widget) => widget.dict.lookup(PDFName.of('AS')).decodeText());
+  expect(states()).toEqual(['0', 'Off', 'Off']);
+  expect(radioButtonChoices(loaded).get('Size').selected).toBe(first);
+  // The export value alone still works, as the Fill forms dialog gives it.
+  await fillFields(loaded, { Size: ['Large'] });
+  expect(states()).toEqual(['Off', 'Off', '2']);
+  expect(listFields(loaded)[0].value).toBe('Large');
+  loaded
+    .getForm()
+    .getRadioGroup('Size')
+    .acroField.setFlagTo(1 << 25, true);
+  expect(radioButtonChoices(loaded).has('Size')).toBe(false);
+  await fillFields(loaded, { Size: ['Small'] });
+  expect(states()).toEqual(['0', '1', 'Off']);
+});
+it('leaves a radio group whose widgets cannot be read to its export values', async () => {
+  // A damaged widget entry must not stop the page's form controls from being drawn.
+  const doc = await PDFDocument.load(await damagedWidgetsPdf('radio'), { updateMetadata: false });
+  expect(() => radioButtonChoices(doc)).not.toThrow();
 });

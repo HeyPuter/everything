@@ -140,6 +140,7 @@ import {
   listFields,
   formButtonSelections,
   formFieldTooltips,
+  radioButtonChoices,
   fillFields,
   MAX_FILE_SIZE,
   MAX_IMAGE_SIZE,
@@ -2554,6 +2555,22 @@ export function createEditor({
         editDocument && annotations.some((a) => a.fieldName && !a.alternativeText)
           ? formFieldTooltips(editDocument)
           : undefined;
+      // Radio buttons that share an export value: PDF.js reports which value is on, not which
+      // button, so the document tells them apart. It is read for them, or when already loaded.
+      const radios = annotations.filter((a) => a.radioButton && a.fieldName);
+      const sharedRadio = radios.some((a, i) =>
+        radios.some(
+          (b, j) => j > i && b.fieldName === a.fieldName && b.buttonValue === a.buttonValue,
+        ),
+      );
+      let radioChoices;
+      if (radios.length && (editDocument || sharedRadio)) {
+        const doc =
+          editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+        if (token !== pageRenderGeneration || destroyed) return;
+        editDocument = doc;
+        radioChoices = radioButtonChoices(doc);
+      }
       pageForms.render(
         annotations,
         viewport,
@@ -2561,6 +2578,7 @@ export function createEditor({
         layerConfig,
         buttonSelections,
         tooltips,
+        radioChoices,
       );
       pageForms.setBusy(busy || !pageReady || !access().fill);
       pageForms.setEnabled(tool === 'select' && !preparing);

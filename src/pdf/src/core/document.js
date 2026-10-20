@@ -1203,6 +1203,50 @@ function radioWidgetOptions(field) {
     return { on, value };
   });
 }
+const RADIOS_IN_UNISON = 1 << 25;
+/** Separates a shared export value from the appearance state that tells its buttons apart. */
+const CHOICE_STATE = '\uE000';
+const pdfjsId = (ref) =>
+  ref.generationNumber ? `${ref.objectNumber}R${ref.generationNumber}` : `${ref.objectNumber}R`;
+/**
+ * Radio buttons that share an export value but switch on one at a time (no RadiosInUnison,
+ * each with its own appearance state). Viewers report such a choice by its export value
+ * alone, so each of these buttons gets a choice naming its state too, which fillFields
+ * accepts. Returns, by field name: each widget's choice by PDF.js annotation id, and the
+ * choice that is on.
+ */
+export function radioButtonChoices(doc) {
+  const result = new Map();
+  for (const field of formFields(doc) || []) {
+    if (!(field instanceof PDFRadioGroup) || field.acroField.getFlags() & RADIOS_IN_UNISON)
+      continue;
+    // A group whose widgets cannot be read keeps being chosen by export value.
+    try {
+      const options = radioWidgetOptions(field);
+      const states = new Map();
+      for (const { on, value } of options)
+        if (on) states.set(value, new Set(states.get(value)).add(on));
+      if (![...states.values()].some((set) => set.size > 1)) continue;
+      const choiceOf = ({ on, value }) =>
+        states.get(value).size > 1 ? `${value}${CHOICE_STATE}${on.decodeText()}` : value;
+      const acro = field.acroField;
+      const kids = acro.dict.lookup(PDFName.of('Kids'));
+      const refs = kids instanceof PDFArray ? kids.asArray() : [];
+      const choices = new Map();
+      acro.getWidgets().forEach((widget, index) => {
+        if (!options[index].on) return;
+        const ref = refs.find((kid) => acro.dict.context.lookup(kid) === widget.dict) ?? field.ref;
+        if (ref instanceof PDFRef) choices.set(pdfjsId(ref), choiceOf(options[index]));
+      });
+      const state = buttonFieldValue(field);
+      const selected = options.find(({ on }) => on && on === state);
+      result.set(formFieldName(field), { choices, selected: selected ? choiceOf(selected) : null });
+    } catch {
+      continue;
+    }
+  }
+  return result;
+}
 function radioFieldOptions(field, widgets = field.acroField.getWidgets()) {
   const opt = radioExports(field);
   return widgets
@@ -1431,14 +1475,27 @@ export async function fillFields(doc, values) {
       if (field instanceof PDFRadioGroup) {
         if (next.length) {
           const options = radioWidgetOptions(field);
-          const option = options.findLast((option) => option.on && option.value === next[0]);
+          // A button sharing its export value with others is chosen by its state as well.
+          const [wanted, state] = String(next[0]).split(CHOICE_STATE);
+          const option = options.findLast(
+            (option) =>
+              option.on &&
+              option.value === wanted &&
+              (state === undefined || option.on.decodeText() === state),
+          );
           if (!option) {
-            if (options.some((option) => option.value === next[0]))
+            if (options.some((option) => option.value === wanted))
               throw new Error('This option is unavailable in this PDF. Choose another option.');
             throw new Error('Choose one of the available form options.');
           }
           ownRadioOptions(field);
           field.acroField.setValue(option.on);
+          // Buttons in unison that share the export value switch on together, whatever their states.
+          if (field.acroField.getFlags() & RADIOS_IN_UNISON)
+            field.acroField.getWidgets().forEach((widget, index) => {
+              const { on, value } = options[index];
+              if (on && value === wanted) widget.setAppearanceState(on);
+            });
           field.markAsDirty();
         } else field.clear();
       } else {
