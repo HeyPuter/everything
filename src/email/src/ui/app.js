@@ -1989,13 +1989,11 @@ export function renderApp(root, ctx) {
     const found = units.findIndex((other) => key(other) < key(unit));
     const at = found === -1 ? units.length : found;
     units.splice(at, 0, unit);
-    const row = unit.row ?? buildRow(unit);
-    updateRow(unit);
-    if (optionsEl.isConnected) {
-      optionsEl.insertBefore(row, optionsEl.children[at] ?? null);
-      // The row may have been built for a filter it no longer passes.
-      row.hidden = !matches(unit);
-    }
+    // The row is left to the render that follows every undo, which builds
+    // rows for the loaded window only. Built here, an undo of a whole folder
+    // made one per conversation put back -- ten thousand rows, nearly all of
+    // them removed again by that render.
+    if (unit.row) updateRow(unit);
   };
 
   /**
