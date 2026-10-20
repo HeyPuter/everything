@@ -1025,3 +1025,26 @@ it('removes a field everywhere it shows when one of its widgets is under the are
     expect(contains(corpus, 'Visible Person')).toBe(true);
   }
 });
+
+it("removes the page's private application data, which holds a copy of what was redacted", async () => {
+  // Illustrator keeps its own copy of the artwork in the page's PieceInfo when saving PDFs
+  // that stay editable there.
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 400]);
+  const font = doc.embedStandardFont(StandardFonts.Helvetica);
+  page.node.set(n('Resources'), doc.context.obj({ Font: { F1: font.ref } }));
+  page.node.set(
+    n('Contents'),
+    doc.context.register(doc.context.stream('BT /F1 12 Tf 60 300 Td (PAGESECRET) Tj ET')),
+  );
+  const copy = doc.context.register(doc.context.flateStream('%AI12 artwork: (PAGESECRET) Tx'));
+  page.node.set(
+    n('PieceInfo'),
+    doc.context.obj({
+      Illustrator: { LastModified: PDFString.of('D:20200101'), Private: { AIPrivateData1: copy } },
+    }),
+  );
+  const { bytes: out } = await redact(await doc.save(), [[0, [[50, 290, 300, 330]]]]);
+  expectGone(await recoverable(out), 'PAGESECRET');
+  expect((await PDFDocument.load(out)).getPage(0).node.has(n('PieceInfo'))).toBe(false);
+});

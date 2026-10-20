@@ -697,6 +697,9 @@ export async function applyRedactions(doc, { pages, codec } = {}) {
       removeAnnotationThread(page, mark.ref.toString());
     }
     page.node.delete(name('Thumb'));
+    // Application data (an Illustrator or other editor's own copy of the page) still holds what
+    // was redacted.
+    page.node.delete(name('PieceInfo'));
     clearStructText(doc, page.ref, result.mcids);
   }
   if (!report.pages.length) return false;
