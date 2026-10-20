@@ -2254,6 +2254,7 @@ async function persistDraft() {
       bytes: history.bytes,
     });
     if (doc === snapshot) draftRevision = rev;
+    snapshot.draftedRevision = rev;
     snapshot.storageWarned = false;
   } finally {
     if (doc === snapshot) updateSaveStatus();
@@ -2488,8 +2489,16 @@ async function saveCloud(
               : "Saved to your Puter cloud. Local recovery is unavailable.",
           );
       } else if (firstSave)
+        // The draft left behind takes the file's baseline, so a later save
+        // from it notices a change made since; it is the saved version only
+        // when it holds the revision just written.
         await drafts
-          .linkCloudFile(target.id, target.owner, target.path, target.name)
+          .linkCloudFile(target.id, target.owner, target.path, target.name, {
+            uid: target.uid,
+            remoteModified: target.remoteModified,
+            remoteSize: target.remoteSize,
+            cloudSaved: target.draftedRevision === rev,
+          })
           .catch(warnStorage);
       return true;
     } catch (error) {

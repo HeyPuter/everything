@@ -4643,6 +4643,8 @@ test("a library refresh closes an outdated file menu and preserves its keyboard 
     .click();
   await page.getByRole("button", { name: /^(Save|Sign in to save)$/ }).click();
   await page.waitForFunction(() => window.__releaseWrite);
+  // An edit the save does not carry keeps the draft listed after it.
+  await addText(page);
   await page.getByRole("button", { name: "Back to presentations" }).click();
   const draft = page.locator(".file-row").filter({
     has: page.getByRole("button", {

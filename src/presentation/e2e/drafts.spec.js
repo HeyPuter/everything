@@ -182,6 +182,51 @@ test("linking a first cloud save preserves local data and does not recreate or r
   expect(result.summaries.some((record) => "bytes" in record)).toBe(false);
 });
 
+test("linking a first cloud save keeps the file's baseline", async ({
+  page,
+}) => {
+  await page.route("https://js.puter.com/v2/", (route) =>
+    route.fulfill({ body: "" }),
+  );
+  await page.route("**/src/main.js*", (route) =>
+    route.fulfill({ contentType: "application/javascript", body: "" }),
+  );
+  await page.goto("/#/home");
+  const result = await page.evaluate(async () => {
+    const drafts = await import("/src/drafts.js");
+    await drafts.saveDraft({
+      id: "linked",
+      owner: "one",
+      name: "Untitled",
+      path: null,
+      cloudSaved: false,
+      uid: null,
+      remoteModified: null,
+      remoteSize: null,
+      theme: "clay",
+      bytes: new Uint8Array([7, 8, 9]),
+    });
+    await drafts.linkCloudFile("linked", "one", "/Deck.pptx", "Deck", {
+      uid: "uid-1",
+      remoteModified: 1000,
+      remoteSize: 3,
+      cloudSaved: true,
+    });
+    const stored = await drafts.getDraft("linked");
+    await drafts.deleteDraft("linked");
+    return stored;
+  });
+  expect(result).toMatchObject({
+    path: "/Deck.pptx",
+    name: "Deck",
+    uid: "uid-1",
+    remoteModified: 1000,
+    remoteSize: 3,
+    cloudSaved: true,
+  });
+  expect([...Object.values(result.bytes)]).toEqual([7, 8, 9]);
+});
+
 for (const operation of ["detach", "rename"]) {
   test(`${operation} cloud metadata preserves drafts and isolates accounts and paths`, async ({
     page,

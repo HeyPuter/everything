@@ -78,13 +78,13 @@ export const deleteDraft = (id) =>
     return s.delete(id);
   });
 export const getDraft = (id) => transact("readonly", (s) => s.get(id));
-export const linkCloudFile = (id, owner, path, name) =>
+export const linkCloudFile = (id, owner, path, name, baseline = {}) =>
   transact("readwrite", (s, summaries) => {
     const request = s.get(id);
     request.onsuccess = () => {
       const record = request.result;
       if (!record || record.owner !== owner || record.path) return;
-      Object.assign(record, { path, name });
+      Object.assign(record, baseline, { path, name });
       s.put(record);
       summaries.put(metadata(record));
     };

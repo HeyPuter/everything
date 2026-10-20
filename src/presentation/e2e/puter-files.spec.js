@@ -366,6 +366,49 @@ test("leaving the editor saves edits that autosave has not sent yet", async ({
   ).toHaveCount(0);
 });
 
+test("a draft left during a first save notices the file changing later", async ({
+  page,
+}) => {
+  const story = await base64(createDeck("story"));
+  await mockDrive(page, { path: "/" });
+  await expect(title(page)).toHaveText("Untitled presentation");
+  await addText(page);
+  await page.evaluate(() => {
+    const write = puter.fs.write;
+    let gate = new Promise((resolve) => (window.__release = resolve));
+    puter.fs.write = async (...args) => {
+      await gate;
+      gate = null;
+      return write(...args);
+    };
+  });
+  await page.keyboard.press("Control+s");
+  await expect(status(page)).toHaveText("Saving…");
+  // An edit the first save does not carry stays in the draft.
+  await addText(page);
+  await page.getByRole("button", { name: "Back to presentations" }).click();
+  await page.evaluate(() => window.__release());
+  await expect(
+    page.getByRole("button", {
+      name: "Untitled presentation PowerPoint presentation",
+    }),
+  ).toBeVisible();
+  const path = `${APP_FOLDER}/Untitled presentation.pptx`;
+  await page.evaluate(
+    ([path, b64]) => window.__fs.change(path, b64),
+    [path, story],
+  );
+  await page
+    .getByRole("button", { name: "Untitled presentation Recovery draft" })
+    .click();
+  await expect(page.locator(".object-hit")).toHaveCount(2);
+  await addText(page);
+  await expect(
+    page.getByRole("dialog", { name: "This presentation changed elsewhere" }),
+  ).toBeVisible();
+  expect(await writes(page)).toHaveLength(1);
+});
+
 test("a failing autosave says so in the status, and leaving asks first", async ({
   page,
 }) => {
