@@ -4102,6 +4102,32 @@ test("Enter selects the focused canvas object before editing it", async ({
   ).toHaveText("Make room for\nbig ideas.", { useInnerText: true });
 });
 
+// Delete and the arrows acted on the selected object while another one had
+// the focus, so the object the keyboard was on stayed and an unseen one went.
+test("Delete and the arrows leave the selection alone from an unselected object", async ({
+  page,
+}) => {
+  await story(page);
+  const objects = page.locator(".object-hit");
+  const count = await objects.count();
+  const first = page.locator('[data-object="0"]');
+  const title = page.locator('[data-object="1"]');
+  await first.click();
+  const before = await first.boundingBox();
+  await title.focus();
+  await page.keyboard.press("Shift+ArrowRight");
+  await page.keyboard.press("Delete");
+  await expect(page.locator("#undo")).toBeDisabled();
+  await expect(objects).toHaveCount(count);
+  expect(await first.boundingBox()).toEqual(before);
+  // Once chosen with Enter, the focused object is the one they act on.
+  await page.keyboard.press("Enter");
+  await expect(title).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Delete");
+  await expect(objects).toHaveCount(count - 1);
+  await expect(first).toHaveAttribute("aria-pressed", "false");
+});
+
 test("queued arrow keys accumulate every movement step", async ({ page }) => {
   await story(page);
   await page.locator('[data-object="1"]').click();

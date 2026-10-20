@@ -16387,7 +16387,20 @@ document.addEventListener("keydown", (e) => {
     else groupSelection();
     return;
   }
-  if (["Delete", "Backspace"].includes(e.key) && currentShape()) {
+  // Delete and the arrows act on the selection only from the canvas or an
+  // object in it: an object that has the focus without being selected is
+  // chosen first, with Enter.
+  const focusedHit = e.target.closest?.(".object-hit");
+  const offSelection =
+    focusedHit &&
+    ![...selectionIds()].some(
+      (id) => String(id) === focusedHit.dataset.shapeId,
+    );
+  if (
+    ["Delete", "Backspace"].includes(e.key) &&
+    currentShape() &&
+    !offSelection
+  ) {
     e.preventDefault();
     deleteObject();
     return;
@@ -16406,6 +16419,7 @@ document.addEventListener("keydown", (e) => {
   if (
     ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key) &&
     currentShape() &&
+    !offSelection &&
     // The arrows move the object from the canvas or the page; on a control
     // elsewhere they have work of their own.
     (e.target === document.body || e.target.closest("#main"))
