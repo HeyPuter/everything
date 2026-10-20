@@ -581,8 +581,10 @@ export function openMenu({
             openChild(node, item, { focus: true });
             return;
           }
+          const anchor = chain[0]?.anchor;
           closeFrom(0);
           select?.();
+          handBackFromMenubar(anchor);
         },
         // Follow actual mouse movement. Boundary events also fire when a menu
         // appears or scrolls underneath a stationary pointer and must not take
@@ -931,12 +933,26 @@ export function menu(
  * the mouse along the bar.
  */
 let menubarKeys = null;
-export function createMenubar(entries, { label = "Menu bar" } = {}) {
+// Where each menu bar hands the keyboard after a command (see createMenubar).
+const menubarReturns = new WeakMap();
+// A command chosen from a menu bar's menu hands the keyboard back to the
+// document, as an editor's menu bar does, unless the command moved it (to a
+// dialog, say): left on the bar, arrow keys would walk the menus instead of
+// moving what the command made.
+function handBackFromMenubar(anchor) {
+  const bar = anchor?.closest?.('[role="menubar"]');
+  if (bar && document.activeElement === anchor) menubarReturns.get(bar)?.();
+}
+export function createMenubar(
+  entries,
+  { label = "Menu bar", returnFocus = null } = {},
+) {
   const bar = el("nav", {
     class: "menubar",
     role: "menubar",
     "aria-label": label,
   });
+  if (returnFocus) menubarReturns.set(bar, returnFocus);
   const buttons = [];
   const wrap = (i) => ((i % buttons.length) + buttons.length) % buttons.length;
   const openIndex = () => buttons.indexOf(menuAnchor());

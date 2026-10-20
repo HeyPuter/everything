@@ -408,3 +408,21 @@ test("a font size the box turns down gives way to the current size", async ({
   await size.press("Enter");
   await expect(size).toHaveValue("40");
 });
+
+test("a command from the menu bar hands the keyboard back to the slide", async ({
+  page,
+}) => {
+  await start(page);
+  await page.getByRole("menuitem", { name: "Insert", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Shape", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Rectangle", exact: true }).click();
+  const shape = page.locator(".object-hit").first();
+  await expect(shape).toHaveCount(1);
+  await expect(
+    page.getByRole("menuitem", { name: "Insert", exact: true }),
+  ).not.toBeFocused();
+  const before = await shape.getAttribute("style");
+  await page.keyboard.press("ArrowRight");
+  await expect(shape).not.toHaveAttribute("style", before);
+  await expect(page.getByRole("menu")).toHaveCount(0);
+});

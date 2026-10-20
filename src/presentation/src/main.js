@@ -3354,7 +3354,10 @@ function editorTopbar() {
       ["Slide Show", slideShowMenuBar],
       ["Help", helpMenu],
     ].map(([label, open]) => ({ label, open })),
-    { label: "Presentation menus" },
+    {
+      label: "Presentation menus",
+      returnFocus: () => workspace()?.focus({ preventScroll: true }),
+    },
   );
   menubar.el.classList.add("desktop-only");
   const quick = (label, name, handler, attrs = {}) =>
