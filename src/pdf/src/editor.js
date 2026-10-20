@@ -5532,7 +5532,11 @@ export function createEditor({
     fields.forEach((field, i) => {
       if (field.type === 'unsupported') {
         form.append(
-          el('p', { class: 'muted' }, `${field.name}: this field type is not editable here.`),
+          el(
+            'p',
+            { class: 'muted' },
+            `${field.tooltip || field.name}: this field type is not editable here.`,
+          ),
         );
         return;
       }
@@ -5610,7 +5614,12 @@ export function createEditor({
         el(
           'div',
           { class: field.type === 'checkbox' ? 'checkbox-row' : 'field' },
-          el('label', { for: id }, field.name + (field.readOnly ? ' (read only)' : '')),
+          // A tooltip is the form author's label for people; field names are often codes.
+          el(
+            'label',
+            { for: id, title: field.tooltip ? field.name : null },
+            (field.tooltip || field.name) + (field.readOnly ? ' (read only)' : ''),
+          ),
           control,
         ),
       );

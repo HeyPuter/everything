@@ -1172,11 +1172,16 @@ export function formFieldTooltips(doc) {
   const tooltips = new Map();
   for (const field of formFields(doc) || []) {
     const name = formFieldName(field);
-    const tooltip = field.acroField.dict.lookup(PDFName.of('TU'));
-    if (!tooltips.has(name) && (tooltip instanceof PDFString || tooltip instanceof PDFHexString))
-      tooltips.set(name, tooltip.decodeText().trim());
+    const tooltip = fieldTooltip(field);
+    if (!tooltips.has(name) && tooltip) tooltips.set(name, tooltip);
   }
   return tooltips;
+}
+function fieldTooltip(field) {
+  const tooltip = field.acroField.dict.lookup(PDFName.of('TU'));
+  return tooltip instanceof PDFString || tooltip instanceof PDFHexString
+    ? tooltip.decodeText().trim()
+    : '';
 }
 function choiceSelections(field) {
   const choices = choiceOptions(field);
@@ -1199,7 +1204,12 @@ export function listFields(doc) {
   const fields = formFields(doc);
   if (!fields) throw new Error(DAMAGED_FORM);
   return fields.map((field) => {
-    const base = { name: formFieldName(field), readOnly: field.isReadOnly() };
+    const tooltip = fieldTooltip(field);
+    const base = {
+      name: formFieldName(field),
+      readOnly: field.isReadOnly(),
+      ...(tooltip ? { tooltip } : {}),
+    };
     if (field instanceof PDFTextField) {
       const flags = field.acroField.getFlags();
       return {
