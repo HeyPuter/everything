@@ -2229,3 +2229,30 @@ test.describe('at the narrow layout breakpoint', () => {
     );
   });
 });
+
+test('choosing several PDFs opens the first and says what became of the others', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles([
+    {
+      name: 'first.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from(await (await multiPagePdf(2)).save()),
+    },
+    {
+      name: 'second.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from(await (await multiPagePdf(5)).save()),
+    },
+  ]);
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 2');
+  await expect(page.locator('#toast')).toHaveText(
+    'Opened first.pdf. One PDF opens at a time; to put several files into one PDF, use Combine files in Tools.',
+  );
+});

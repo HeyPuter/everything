@@ -473,10 +473,20 @@ function pickFiles(accept) {
 }
 const pickDevice = () => pickFiles(`.pdf,application/pdf,${PICTURE_TYPES}`);
 const pickPictures = () => pickFiles(PICTURE_TYPES);
+/**
+ * Only one PDF is open at a time. When several files arrive together and one of them is a PDF,
+ * it opens and the reader learns what became of the others, and where they can be combined.
+ */
+function oneOfSeveral(opened, name, count) {
+  if (opened && count > 1)
+    toast(
+      `Opened ${name}. One PDF opens at a time; to put several files into one PDF, use Combine files in Tools.`,
+    );
+}
 /** A PDF opens as it is; pictures become the pages of a new PDF, one each, in the given order. */
 async function openFiles(files) {
   const pdf = files.find(isPdfFile);
-  if (pdf) return openDevice(pdf);
+  if (pdf) return oneOfSeveral(await openDevice(pdf), pdf.name, files.length);
   const pictures = files.filter(isPictureFile);
   if (!pictures.length) throw new Error('Choose a PDF, or PNG and JPEG pictures.');
   const name = pictures[0].name.replace(/\.[^.]+$/, '') || 'Pictures';
@@ -494,14 +504,14 @@ async function openFiles(files) {
 }
 async function openDevice(file) {
   if (file.size > MAX_FILE_SIZE) throw new Error('Choose a PDF smaller than 100 MB.');
-  await openDocument(async () => new Uint8Array(await file.arrayBuffer()), file.name);
+  return openDocument(async () => new Uint8Array(await file.arrayBuffer()), file.name);
 }
 async function openCloudItem(item) {
   if (Array.isArray(item)) item = item[0];
   if (item?.path) {
     if (item.size > MAX_FILE_SIZE) throw new Error('Choose a PDF smaller than 100 MB.');
     const source = { remote: null };
-    await openDocument(
+    return openDocument(
       (signal) =>
         waitFor(async () => {
           await settleAccount(signal);
@@ -532,7 +542,7 @@ async function openDesktopItems(items) {
   }
   const name = (item) => item.name || item.path.split('/').pop();
   const pdf = files.find((item) => isPdfName(name(item)));
-  if (pdf) return openCloudItem(pdf);
+  if (pdf) return oneOfSeveral(await openCloudItem(pdf), name(pdf), files.length);
   const pictures = files.filter((item) => isPictureName(name(item)));
   if (!pictures.length)
     throw new Error(`${name(files[0])} is not a PDF. Open a PDF, or PNG and JPEG pictures.`);
@@ -658,6 +668,8 @@ async function openDocument(
     if (location.hash === LIBRARY_HASH)
       history.replaceState(null, '', location.pathname + location.search);
     await nextEditor.ready;
+    // Whether this PDF is the one now open (a newer choice may have replaced it meanwhile).
+    return token === openGeneration && editor === nextEditor;
   } catch (error) {
     if (token !== openGeneration) return;
     if (nextEditor && editor === nextEditor) showHome();
