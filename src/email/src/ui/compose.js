@@ -1062,7 +1062,11 @@ export function openCompose({
   const attach = ({ filename, type, read, size }) => {
     if (closed || sending || sent || discarded) return;
     if (restoringFiles) { setStatus('Wait for draft attachments to load.', 'error'); return; }
-    const reserved = attachments.reduce((sum, item) => sum + (item.bytes?.length ?? item.size ?? 0), 0);
+    // What the files already accepted take up. A file refused for its size
+    // is not going anywhere, and counting it refused every file after it --
+    // still, after it had been removed, since they kept the mark.
+    const reserved = attachments.filter((item) => !item.error)
+      .reduce((sum, item) => sum + (item.bytes?.length ?? item.size ?? 0), 0);
     const item = {
       id: ++nextId,
       filename: filename || 'attachment',
