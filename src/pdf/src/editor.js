@@ -5220,29 +5220,32 @@ export function createEditor({
       edit.handles.style[key] = edit.input.style[key];
   }
   async function placeCentered() {
+    // A box of this size in the middle of the page as it is shown, turned or not.
+    const centered = (width, height) => {
+      const unit = screenUnit();
+      return readerRect(
+        {
+          x: viewport.width / 2 - (width / 2) * unit,
+          y: viewport.height / 2 - (height / 2) * unit,
+        },
+        width,
+        height,
+      );
+    };
     if (tool === 'field') {
       if (busy || !pageReady) return;
-      const center = pdfPoint({ x: viewport.width / 2, y: viewport.height / 2 });
       const size = ['checkbox', 'radio'].includes(fieldType) ? [14, 14] : [160, 22];
-      await createField(
-        { x: center.x - size[0] / 2, y: center.y - size[1] / 2, width: size[0], height: size[1] },
-        pageIndex,
-      );
+      await createField(centered(...size), pageIndex);
       return;
     }
     if (tool === 'certsign') {
       if (busy || !pageReady) return;
-      const center = pdfPoint({ x: viewport.width / 2, y: viewport.height / 2 });
-      await signWithCertificate({
-        rect: { x: center.x - 100, y: center.y - 30, width: 200, height: 60 },
-        page: pageIndex,
-      });
+      await signWithCertificate({ rect: centered(200, 60), page: pageIndex });
       return;
     }
     if (tool === 'link') {
       if (busy || !pageReady) return;
-      const center = pdfPoint({ x: viewport.width / 2, y: viewport.height / 2 });
-      await placeLink({ x: center.x - 80, y: center.y - 14, width: 160, height: 28 }, pageIndex);
+      await placeLink(centered(160, 28), pageIndex);
       return;
     }
     if (!pageReady || busy) return;
