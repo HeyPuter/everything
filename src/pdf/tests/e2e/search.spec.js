@@ -6,7 +6,7 @@ async function openSearchDocument(page, pages = ['apple apple', 'banana banana',
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   for (const words of pages)
-    doc.addPage([400, 400]).drawText(words, { font, x: 40, y: 300, size: 18 });
+    doc.addPage([400, 400]).drawText(words, { font, x: 40, y: 300, size: 18, lineHeight: 24 });
   await page.goto('/#library');
   const chooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: /^Open a PDF/ }).click();
@@ -225,3 +225,11 @@ for (const replacement of ['', 'app']) {
     await expect(page.locator('.search-hit')).toHaveText('banana');
   });
 }
+
+test('a word hyphenated at the end of a line is found whole', async ({ page }) => {
+  const input = await openSearchDocument(page, ['Here is an exam-\nple of a hyphenated word']);
+  await input.fill('example');
+  await expect(page.locator('.search-count')).toHaveText('1 of 1');
+  // Both halves are marked on the page, and the hyphen between them is not.
+  await expect(page.locator('.search-hit-current')).toHaveText(['exam', 'ple']);
+});

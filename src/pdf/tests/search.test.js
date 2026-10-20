@@ -87,3 +87,25 @@ it('folds supplementary-plane letters and maps their full UTF-16 spans', () => {
     [0, 1, 2, 3, 4, 5, 6, 7],
   ]);
 });
+
+it('finds a word hyphenated across a line break whole, and keeps real dashes', () => {
+  const index = indexPageText([
+    { str: 'An exam-', hasEOL: true },
+    { str: 'ple of hy' },
+    { str: '-', hasEOL: true },
+    { str: 'phenation, pages 1-', hasEOL: true },
+    { str: '2 and A-', hasEOL: true },
+    { str: 'Z.' },
+  ]);
+  expect(index.text).toBe('an example of hyphenation, pages 1- 2 and a- z.');
+  expect(index.ranges).toEqual([
+    { start: 0, end: 7 },
+    { start: 7, end: 16 },
+    { start: 16, end: 16 },
+    { start: 16, end: 35 },
+    { start: 36, end: 44 },
+    { start: 45, end: 47 },
+  ]);
+  // The match maps back onto the characters on each line, without the hyphen.
+  expect(index.origins[0].slice(3)).toEqual([3, 4, 5, 6]);
+});

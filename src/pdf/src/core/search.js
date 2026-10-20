@@ -14,9 +14,10 @@ export function indexPageText(items) {
   const ranges = [];
   const origins = [];
   let length = 0;
-  let trailingSpace = false;
-  for (const item of items) {
-    if (typeof item.str !== 'string') continue;
+  let trailingSpace = false,
+    last = '';
+  const strings = items.filter((item) => typeof item.str === 'string');
+  strings.forEach((item, i) => {
     let chunk = '';
     const origin = [];
     let offset = 0;
@@ -35,17 +36,30 @@ export function indexPageText(items) {
         for (let k = 0; k < folded.length; k++) origin.push(start + Math.min(k, char.length - 1));
       }
     }
+    // A word hyphenated at the end of a line is found whole, as PDF readers find it.
+    const hyphenated =
+      item.hasEOL &&
+      /\p{L}[-\u00ad\u2010]$/u.test(last + chunk) &&
+      /^\p{Ll}/u.test(strings[i + 1]?.str || '');
+    if (hyphenated) {
+      chunk = chunk.slice(0, -1);
+      origin.pop();
+    }
     const start = length;
     chunks.push(chunk);
     origins.push(origin);
     length += chunk.length;
     ranges.push({ start, end: length });
-    if (chunk) trailingSpace = chunk.endsWith(' ');
-    if (item.hasEOL && !trailingSpace) {
+    if (chunk) {
+      trailingSpace = chunk.endsWith(' ');
+      last = chunk.at(-1);
+    }
+    if (item.hasEOL && !trailingSpace && !hyphenated) {
       chunks.push(' ');
       length++;
       trailingSpace = true;
+      last = ' ';
     }
-  }
+  });
   return { text: chunks.join(''), ranges, origins };
 }
