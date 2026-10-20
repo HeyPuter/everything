@@ -11,6 +11,7 @@ import {
   visibleSlideShapes,
   slideTitle,
   shapeLabel,
+  removeSlides,
 } from "../model.js";
 
 // ---- Matching ---------------------------------------------------------------
@@ -293,7 +294,7 @@ export function acceptChange(mine, theirs, item) {
   switch (item.type) {
     case "slideDeleted":
       if (!a) return false;
-      P.removeSlide(mine, a);
+      removeSlides(mine, [a]);
       return true;
     case "slideInserted": {
       if (!b) return false;

@@ -1626,6 +1626,48 @@ export function pruneUnusedMedia(pres, slide = null) {
   }
   return P.compactPackage(pres).removed;
 }
+// Removes slides from the deck. Links to them on the slides that stay would
+// point at parts no longer in the file, so they go first; media only the
+// removed slides showed goes after.
+export function removeSlides(pres, slides) {
+  const parts = new Set(slides.map(P.getSlidePartName));
+  for (const s of P.getSlides(pres))
+    if (!parts.has(P.getSlidePartName(s)))
+      for (const shape of P.getSlideShapes(s)) {
+        let action = null;
+        try {
+          action = P.getShapeClickAction(shape);
+        } catch {}
+        if (
+          action?.kind === "slide" &&
+          parts.has(P.getSlidePartName(action.slide))
+        ) {
+          if (hasTextBody(shape) && P.hasShapeText(shape))
+            P.setShapeHyperlink(shape, null);
+          P.setShapeClickAction(shape, null);
+        }
+      }
+  for (const s of slides) P.removeSlide(pres, s);
+  // The relationships those links used stay behind; drop the ones nothing
+  // refers to any more.
+  const pkg = P._internalPackageOf(pres);
+  for (const s of P.getSlides(pres)) {
+    const part = P.getSlidePartName(s);
+    const rels = pkg.getRels(part);
+    if (!rels) continue;
+    const xml = P.getSlideXmlString(s);
+    const kept = rels.items.filter(
+      (rel) =>
+        rel.targetMode === "External" ||
+        !rel.type.endsWith("/slide") ||
+        !parts.has(new URL(rel.target, `file://${part}`).pathname) ||
+        xml.includes(`="${rel.id}"`),
+    );
+    if (kept.length !== rels.items.length)
+      pkg.setRels(part, { ...rels, items: kept });
+  }
+  pruneUnusedMedia(pres);
+}
 // Pasting an object imported from another package brings its picture along as
 // a new media part even when the deck already holds the same bytes. Point
 // the slide's relationships at the earliest identical part and drop the

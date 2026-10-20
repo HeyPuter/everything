@@ -51,6 +51,7 @@ import {
   slideTitle,
   slideDescription,
   pruneUnusedMedia,
+  removeSlides,
   dedupeSlideMedia,
   canHoldText,
   hasTextBody,
@@ -8626,20 +8627,7 @@ function deleteSlides(targets) {
     }
     const activePart = P.getSlidePartName(slide());
     const first = positionOf(P.getSlidePartName(chosen[0]));
-    // Links to the slides going away would point at parts no longer in the
-    // file; they go first.
-    for (const s of P.getSlides(doc.pres))
-      if (!parts.has(P.getSlidePartName(s)))
-        for (const shape of P.getSlideShapes(s)) {
-          const link = linkOf(shape);
-          if (
-            link?.kind === "slide" &&
-            parts.has(P.getSlidePartName(link.slide))
-          )
-            setLink(shape, null);
-        }
-    for (const s of chosen) P.removeSlide(doc.pres, s);
-    pruneUnusedMedia(doc.pres);
+    removeSlides(doc.pres, chosen);
     const activeIndex = positionOf(activePart);
     if (activeIndex >= 0) index = activeIndex;
     else {

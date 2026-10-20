@@ -6,7 +6,13 @@
 // they stand for, or null for a slide the outline has just made. The body
 // rows after a title belong to its slide. A line break inside a paragraph
 // reads as "\n" in a row.
-import { P, textRuns, setRichText, SOFT_BREAK } from "../model.js";
+import {
+  P,
+  textRuns,
+  setRichText,
+  SOFT_BREAK,
+  removeSlides,
+} from "../model.js";
 
 export const MAX_LEVEL = 9;
 
@@ -226,12 +232,15 @@ export function applyOutline(pres, structure, { maxSlides = 300 } = {}) {
   let changed = false;
   if (structure.length > maxSlides)
     throw new Error(`The slide limit is ${maxSlides}.`);
-  for (const slide of P.getSlides(pres))
-    if (!kept.has(P.getSlidePartName(slide))) {
-      if (P.getSlides(pres).length <= 1) break;
-      P.removeSlide(pres, slide);
-      changed = true;
-    }
+  const gone = P.getSlides(pres).filter(
+    (slide) => !kept.has(P.getSlidePartName(slide)),
+  );
+  // At least one slide stays.
+  if (gone.length >= P.getSlides(pres).length) gone.pop();
+  if (gone.length) {
+    removeSlides(pres, gone);
+    changed = true;
+  }
   const parts = [];
   structure.forEach((entry, i) => {
     let slide =

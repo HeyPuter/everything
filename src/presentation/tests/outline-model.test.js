@@ -105,6 +105,31 @@ describe("outline model", () => {
     );
   });
 
+  it("drops links to a slide it removes", async () => {
+    const pres = deck();
+    const [first, second] = P.getSlides(pres);
+    const button = P.addSlideShape(first, {
+      preset: "rect",
+      x: 0,
+      y: 0,
+      w: P.inches(2),
+      h: P.inches(1),
+      text: "Go",
+    });
+    P.setShapeClickAction(button, { kind: "slide", slide: second });
+    const rows = demoteRow(rowsFromOutline(readOutline(pres)), 3).rows;
+    applyOutline(pres, structureFromRows(rows));
+    const back = await roundTrip(pres);
+    const [only] = P.getSlides(back);
+    expect(P.getSlides(back)).toHaveLength(1);
+    expect(P.getSlideXmlString(only)).not.toContain("hlinksldjump");
+    expect(
+      P._internalPackageOf(back)
+        .getRels(P.getSlidePartName(only))
+        .items.some((r) => r.type.endsWith("/slide")),
+    ).toBe(false);
+  });
+
   it("adds a title placeholder to a slide that had none", async () => {
     const pres = P.createPresentation();
     P.addBlankSlide(pres);

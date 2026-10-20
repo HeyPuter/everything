@@ -5,6 +5,7 @@
 // or Enter. Sections fold away under their headers, and their menu renames,
 // moves and removes them.
 import { el, icon, openMenu, promptName } from "../ui.js";
+import { removeSlides } from "../model.js";
 import {
   groupSlides,
   moveSlidesTo,
@@ -450,10 +451,11 @@ export function createSlideSorter(ctx) {
     const current = P.getSlidePartName(ctx.currentSlide());
     return ctx.mutate(() => {
       const p = pres();
-      for (const part of remove) {
-        const s = P.getSlides(p).find((x) => P.getSlidePartName(x) === part);
-        if (s && P.getSlides(p).length > 1) P.removeSlide(p, s);
-      }
+      const gone = P.getSlides(p).filter((x) =>
+        remove.includes(P.getSlidePartName(x)),
+      );
+      if (gone.length >= P.getSlides(p).length) gone.pop();
+      if (gone.length) removeSlides(p, gone);
       plan.order.forEach((part, i) => {
         const list = P.getSlides(p);
         const s = list.find((x) => P.getSlidePartName(x) === part);

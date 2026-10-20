@@ -42,6 +42,7 @@ import {
   slideRotation,
   removeAnyShape,
   pruneUnusedMedia,
+  removeSlides,
   canHoldText,
   hasTextBody,
   firstTextElement,
@@ -1073,22 +1074,7 @@ async function deleteSlides(pres, args, env) {
       throw new ToolError(
         "At least one slide must remain in the presentation.",
       );
-    // Links to the slides going away would point at parts no longer there.
-    for (const s of slides(pres))
-      if (!parts.has(P.getSlidePartName(s)))
-        for (const shape of P.getSlideShapes(s)) {
-          const action = safe(() => P.getShapeClickAction(shape));
-          if (
-            action?.kind === "slide" &&
-            parts.has(P.getSlidePartName(action.slide))
-          ) {
-            if (hasTextBody(shape) && P.hasShapeText(shape))
-              P.setShapeHyperlink(shape, null);
-            P.setShapeClickAction(shape, null);
-          }
-        }
-    for (const s of targets) P.removeSlide(pres, s);
-    pruneUnusedMedia(pres);
+    removeSlides(pres, targets);
   });
   return {
     content: `Deleted ${numbers.length === 1 ? `slide ${numbers[0]}` : `slides ${numbers.join(", ")}`}. The slides after them have moved up; their numbers have changed.`,
