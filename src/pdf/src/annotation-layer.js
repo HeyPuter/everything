@@ -70,6 +70,9 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
     if (selected && !kept) select(null);
     // An edited comment is redrawn: its settings follow the new version.
     else if (kept) onSelect(kept);
+    // Redrawing replaces the targets; the selected one keeps the keyboard focus it had, so
+    // arrow keys and Delete go on working after a nudge or a move.
+    const refocus = kept && root.contains(document.activeElement);
     root.replaceChildren(
       ...entries.map((entry) => {
         const node = el('button', {
@@ -84,6 +87,9 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
             e.preventDefault();
             e.stopPropagation();
             if (selected !== entry.id) select(entry);
+            // Preventing the default also prevents focus; the selected comment takes it, as
+            // a desktop editor's does, for the arrow keys, Delete, and Escape.
+            node.focus({ preventScroll: true });
             if (entry.locked) return;
             drag = { entry, node, id: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
             node.setPointerCapture(e.pointerId);
@@ -137,6 +143,10 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
         return node;
       }),
     );
+    if (refocus)
+      [...root.children]
+        .find((node) => node.dataset.id === selected)
+        ?.focus({ preventScroll: true });
   }
 
   return {
