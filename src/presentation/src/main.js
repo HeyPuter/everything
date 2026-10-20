@@ -3281,6 +3281,17 @@ function renderEditor() {
                 class: "canvas-area",
                 id: "canvas-area",
                 onwheel: (e) => wheelZoom(e),
+                onpointerdown: (e) => {
+                  if (!drawingTool && besideSlide(e))
+                    startMarquee(e, document.querySelector("#slide-canvas"));
+                },
+                onclick: (e) => {
+                  if (!besideSlide(e) || performance.now() - marqueeEnded < 400)
+                    return;
+                  clearSelection();
+                  renderSelection();
+                  renderInspector();
+                },
               },
               el(
                 "div",
@@ -8978,10 +8989,23 @@ function placeHit(hit, b, size, rotation, minimum = hitMinimum(size)) {
 // A drag across empty canvas draws a marquee and selects what it touches;
 // with Shift the objects join the selection. Touch keeps its scrolling.
 let marqueeEnded = 0;
-function startMarquee(e) {
-  const canvas = e.currentTarget;
+// The grey area around the slide, but not its scrollbars, is empty slide
+// too: a click there lets the selection go and a drag starts a marquee.
+function besideSlide(e) {
+  const area = e.currentTarget;
+  if (e.target === area)
+    return e.offsetX <= area.clientWidth && e.offsetY <= area.clientHeight;
+  return (
+    !!e.target.closest?.(".canvas-stage") && !e.target.closest(".slide-canvas")
+  );
+}
+function startMarquee(e, canvas = e.currentTarget) {
   if (e.button !== 0 || activeDrag || e.pointerType === "touch") return;
-  if (e.target !== canvas && !e.target.classList.contains("slide-image"))
+  if (
+    canvas === e.currentTarget &&
+    e.target !== canvas &&
+    !e.target.classList.contains("slide-image")
+  )
     return;
   const rect = canvas.getBoundingClientRect();
   const size = currentSize();

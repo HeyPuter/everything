@@ -10967,6 +10967,34 @@ test("several objects are selected together, moved, aligned, grouped, and delete
   await expect(objects).toHaveCount(7);
 });
 
+// The grey area around the slide took no clicks: a click there kept the
+// selection, and a marquee could not start there.
+test("the area around the slide clears the selection and starts a marquee", async ({
+  page,
+}) => {
+  await story(page);
+  const chosen = page.locator(".object-hit.selected");
+  const canvas = await page.locator("#slide-canvas").boundingBox();
+  const area = await page.locator("#canvas-area").boundingBox();
+  const gap = area.x + area.width - (canvas.x + canvas.width);
+  test.skip(gap < 8, "no room beside the slide");
+  const beside = canvas.x + canvas.width + Math.min(12, gap / 2);
+  await page.locator('[data-object="1"]').click();
+  await expect(chosen).toHaveCount(1);
+  await page.mouse.click(beside, canvas.y + canvas.height / 2);
+  await expect(chosen).toHaveCount(0);
+  await page.mouse.move(beside, canvas.y + canvas.height * 0.8);
+  await page.mouse.down();
+  await page.mouse.move(
+    canvas.x + canvas.width * 0.78,
+    canvas.y + canvas.height * 0.2,
+    { steps: 5 },
+  );
+  await expect(page.locator(".marquee")).toHaveCount(1);
+  await page.mouse.up();
+  await expect(chosen).toHaveCount(2);
+});
+
 test("a copied multi-selection pastes as one and the saved file keeps the alignment", async ({
   page,
 }) => {
