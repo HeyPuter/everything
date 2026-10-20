@@ -1,4 +1,5 @@
 import {
+  FileEmbedder,
   PDFArray,
   PDFDict,
   PDFName,
@@ -83,13 +84,50 @@ export async function addAttachment(doc, { name: fileName, bytes, mimeType, desc
   // pdf-lib keys attachments by name; a second file of the same name gets a numbered key.
   let key = fileName;
   for (let n = 2; taken.has(key); n++) key = fileName.replace(/(\.[^.]*)?$/, ` (${n})$1`);
-  await doc.attach(bytes, key, {
+  const options = {
     mimeType: mimeType || 'application/octet-stream',
     description,
     creationDate: new Date(),
     modificationDate: new Date(),
-  });
+  };
+  const kids = embeddedFiles(doc)?.lookupMaybe(name('Kids'), PDFArray);
+  if (kids) await attachUnderKids(doc, kids, bytes, key, options);
+  else await doc.attach(bytes, key, options);
   return key;
+}
+
+const keyBytes = (value) =>
+  value instanceof PDFString || value instanceof PDFHexString
+    ? String.fromCharCode(...value.asBytes())
+    : null;
+/**
+ * pdf-lib files a new attachment in the root's own Names array. A root that branches into Kids,
+ * as longer lists are written, must not hold entries itself: readers follow only its Kids, so
+ * the file never appeared. Give it a leaf of its own among the Kids, in key order.
+ */
+async function attachUnderKids(doc, kids, bytes, key, options) {
+  const ref = await FileEmbedder.for(bytes, key, options).embedIntoContext(doc.context);
+  const entry = PDFHexString.fromText(key);
+  const leaf = doc.context.obj({ Names: [entry, ref], Limits: [entry, entry] });
+  const sortKey = keyBytes(entry);
+  let at = kids.size();
+  for (let i = 0; i < kids.size(); i++) {
+    const kid = kids.lookup(i);
+    const limits = kid instanceof PDFDict ? kid.lookupMaybe(name('Limits'), PDFArray) : null;
+    const low = limits ? keyBytes(limits.lookup(0)) : null;
+    if (low != null && low > sortKey) {
+      at = i;
+      break;
+    }
+  }
+  kids.insert(at, doc.context.register(leaf));
+  // As pdf-lib does, list the file among the document's associated files (PDF/A-3).
+  let associated = doc.catalog.lookup(name('AF'));
+  if (!associated) {
+    associated = doc.context.obj([]);
+    doc.catalog.set(name('AF'), associated);
+  }
+  if (associated instanceof PDFArray) associated.push(ref);
 }
 
 /** Remove a document-level attachment by its name tree key. False when it was not found. */
