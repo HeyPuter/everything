@@ -9523,6 +9523,9 @@ export function createEditor({
     const hex = g.hex;
     const width = Math.max(0.5, g.width);
     const moved = Math.hypot(end.x - g.start.x, end.y - g.start.y) >= 4;
+    // A drag along a line holds no box: a text box then takes its clicked size, and a box
+    // shape is not drawn, as for a click, instead of hiding its words or failing.
+    const boxed = Math.min(Math.abs(end.x - g.start.x), Math.abs(end.y - g.start.y)) >= 8;
     if (g.type === 'measure') {
       if (!moved) return;
       return addMeasurement(g.page, 'distance', [pdfPoint(g.start), pdfPoint(end)]);
@@ -9536,10 +9539,10 @@ export function createEditor({
       );
     }
     if (g.type === 'cshape') {
-      if (!moved) return;
+      const kind = g.commentKind;
+      if (!moved || (!boxed && kind !== 'line' && kind !== 'arrow')) return;
       const from = pdfPoint(g.start),
         to = pdfPoint(end);
-      const kind = g.commentKind;
       return commitDrawing(
         (doc) =>
           addShapeAnnotation(doc, g.page, {
@@ -9556,7 +9559,7 @@ export function createEditor({
     }
     const fontSize = commentSize / viewport.userUnit;
     if (g.type === 'textbox') {
-      const rect = moved
+      const rect = boxed
         ? normalizeRect(pdfPoint(g.start), pdfPoint(end))
         : readerRect(g.start, 180, 50);
       const text = await commentTextDialog('Text box');
