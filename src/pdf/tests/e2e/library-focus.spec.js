@@ -61,3 +61,28 @@ for (const action of ['Rename', 'Duplicate', 'Delete'])
       await expect(page.locator('dialog')).toHaveCount(0);
       await expect(movedFocus ? sort : search).toBeFocused();
     });
+
+test('a question dialog gives screen readers its message as well as its title', async ({
+  page,
+}) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({
+      contentType: 'application/javascript',
+      body: `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username: 'test-user'}) }, fs: { readdir: async () => [{ name: 'report.pdf', path: 'PDF Editor/report.pdf' }] } };`,
+    }),
+  );
+  await page.goto('/#library');
+  await page.getByRole('button', { name: 'Options for report.pdf', exact: true }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  // The focus lands on a button, so the question itself is read only as the description.
+  const confirm = page.getByRole('dialog', { name: 'Delete PDF?', exact: true });
+  await expect(confirm).toHaveAccessibleDescription(
+    'Delete report.pdf from your Puter cloud? This cannot be undone.',
+  );
+  // A dialog of fields and choices has no single message to read out.
+  await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Options for report.pdf', exact: true }).click();
+  await expect(
+    page.getByRole('dialog', { name: 'report.pdf', exact: true }),
+  ).toHaveAccessibleDescription('');
+});

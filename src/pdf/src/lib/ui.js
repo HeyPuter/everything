@@ -360,9 +360,13 @@ export function modal(title, content, actions = [], { signal } = {}) {
   closeMenu();
   const previous = document.activeElement;
   const titleId = `dialog-title-${++dialogSequence}`;
+  // A question (Delete PDF?, Leave this PDF?) is one paragraph and its answers, and the focus
+  // lands on an answer: the paragraph is the dialog's description, so it is read out too.
+  const question = content instanceof HTMLParagraphElement;
+  if (question) content.id ||= `dialog-message-${dialogSequence}`;
   const dialog = el(
     'dialog',
-    { 'aria-labelledby': titleId },
+    { 'aria-labelledby': titleId, 'aria-describedby': question ? content.id : null },
     el(
       'div',
       { class: 'dialog-head' },
