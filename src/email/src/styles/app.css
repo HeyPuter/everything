@@ -1665,6 +1665,7 @@
   cursor: pointer;
   pointer-events: auto;
   text-decoration: underline;
+  white-space: nowrap;
 }
 /* The toast is the page's ink colour with the page's background as its text,
    so its hover wash has to come from the same pair: a fixed white one was

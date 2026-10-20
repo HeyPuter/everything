@@ -427,8 +427,11 @@ body {
 .toast-region {
   position: fixed;
   bottom: max(18px, env(safe-area-inset-bottom));
-  left: 50%;
-  transform: translateX(-50%);
+  /* Both edges rather than left: 50% and a transform: a box placed from the
+     middle shrinks to fit the half of the window right of it, so on a phone
+     every toast longer than ~190px wrapped, "Archived 3 messages." included. */
+  left: max(16px, env(safe-area-inset-left));
+  right: max(16px, env(safe-area-inset-right));
   z-index: 200;
   display: flex;
   flex-direction: column;
@@ -446,6 +449,8 @@ body {
   background: var(--ink);
   color: var(--bg);
   font-size: 13px;
+  max-width: min(100%, 720px);
+  overflow-wrap: anywhere;
   transition: opacity 0.25s;
 }
 .toast-icon { display: flex; }
