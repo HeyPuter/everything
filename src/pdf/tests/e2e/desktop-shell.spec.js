@@ -586,6 +586,9 @@ test('Find text and redact removes the matched words from the saved file', async
   await expect(pane.getByText('1 mark to apply')).toBeVisible();
   await pane.getByRole('button', { name: 'Apply redactions…' }).click();
   const confirm = page.getByRole('dialog', { name: 'Apply redactions' });
+  await expect(confirm).toContainText(
+    'A form field under a mark is removed everywhere it appears.',
+  );
   await confirm.getByRole('button', { name: 'Apply', exact: true }).click();
   await settled(page);
   // Nothing unusual happened, so a brief message is enough.

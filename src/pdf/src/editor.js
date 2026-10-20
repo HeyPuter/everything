@@ -8179,7 +8179,7 @@ export function createEditor({
         el(
           'p',
           {},
-          `${redactionMarks.length ? `${redactionMarks.length} ${redactionMarks.length === 1 ? 'mark' : 'marks'} will be applied. ` : ''}Text, pictures, drawings, links, comments, and form fields under each mark are removed from the PDF, not just covered.`,
+          `${redactionMarks.length ? `${redactionMarks.length} ${redactionMarks.length === 1 ? 'mark' : 'marks'} will be applied. ` : ''}Text, pictures, drawings, links, and comments under each mark are removed from the PDF, not just covered. A form field under a mark is removed everywhere it appears.`,
         ),
         el(
           'label',
