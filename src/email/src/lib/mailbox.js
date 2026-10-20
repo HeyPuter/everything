@@ -626,6 +626,12 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
     return added;
   };
 
+  // The entry for the same file, which is not always the same object: a
+  // listing made while a move or an undo was in flight builds entries of its
+  // own for the files it finds, and matched by identity the old entry missed
+  // them -- an archived message stayed listed, an undone one was listed twice.
+  const sameFile = (message) => (entry) => entry === message || entry.name === message.name;
+
   // A message leaving the folder is a splice, not a re-list: `pendingDays` is
   // untouched, so "Load older messages" carries on from where it was.
   const remove = (message) => {
@@ -633,11 +639,11 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
     known.delete(message.name);
     const buffered = dayFiles.get(message.day);
     if (buffered) dayFiles.set(message.day, buffered.filter((item) => item.name !== message.name));
-    const index = messages.indexOf(message);
+    const index = messages.findIndex(sameFile(message));
     if (index !== -1) messages.splice(index, 1);
     loaded.delete(message.name);
     if (catalog) {
-      const at = catalog.indexOf(message);
+      const at = catalog.findIndex(sameFile(message));
       if (at !== -1) {
         catalog.splice(at, 1);
         if (at < catalogNext) catalogNext--;

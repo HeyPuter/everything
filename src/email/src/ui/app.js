@@ -1926,6 +1926,16 @@ export function renderApp(root, ctx) {
   const shrink = (unit, gone) => {
     const at = units.indexOf(unit);
     if (!gone.length) return at === -1 ? 0 : at;
+    if (at === -1 && !searching()) {
+      // A listing made while the move was in flight rebuilt this conversation
+      // over entries of its own for the same files, and those are the rows on
+      // screen: left alone, an archived message stayed in the inbox.
+      const names = new Set(gone.map((message) => message.name));
+      for (const other of units.filter((candidate) => candidate !== unit
+        && candidate.messages.some((message) => names.has(message.name)))) {
+        shrink(other, other.messages.filter((message) => names.has(message.name)));
+      }
+    }
     const left = unit.messages.filter((message) => !gone.includes(message));
     for (const message of gone) message.units?.delete(unit);
     // Assigned before the branch below, not after it: an emptied conversation
