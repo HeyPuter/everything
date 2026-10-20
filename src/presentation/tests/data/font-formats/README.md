@@ -1,7 +1,7 @@
 # Original font-format regression faces
 
 These small TrueType and CFF OpenType faces contain three original polygon glyphs
-(`.notdef`, `A`, `V`). They use the repository's MIT license and contain no
+(`.notdef`, `A`, `V`). They use the MIT license and contain no
 third-party font data. Their only purpose is to test font-container metadata,
 all four DrawingML styles, EOT round trips and browser font loading.
 `CFF.ttf` uses cubic outlines; `PreviewPrint.ttf` has native preview/print

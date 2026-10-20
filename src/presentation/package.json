@@ -2,6 +2,7 @@
   "name": "presentation",
   "version": "1.0.0",
   "private": true,
+  "license": "AGPL-3.0-only",
   "type": "module",
   "description": "A clean, accessible presentation editor with real PPTX files and Puter cloud storage.",
   "scripts": {

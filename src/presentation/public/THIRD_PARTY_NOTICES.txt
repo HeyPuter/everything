@@ -11,7 +11,8 @@ sample; the sample C source is not bundled in this application. Monotype's
 June 5, 2014 licensing statement grants worldwide, royalty-free patent rights
 and perpetual, sublicensable copyright rights to use, modify and distribute
 the disclosed MTX software and format in products and services. This project
-implementation and synthetic test data are distributed under the MIT license.
+implementation is distributed under the AGPL-3.0-only license; its synthetic
+test data is distributed under the MIT license.
 
 
 PPTX engine and preview: code absorbed from OfficeKit PPTX 0.12.0 / Preview 0.9.1

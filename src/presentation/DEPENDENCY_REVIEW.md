@@ -72,7 +72,7 @@ apply to those resources independently of the application's license.
 
 The internal OpenType/EOT metadata and container layer introduces no runtime
 dependency or bundled font. Its four regression TTF faces use original polygon
-glyphs under the repository's MIT license. The fixture generator uses FontTools
+glyphs under the MIT license. The fixture generator uses FontTools
 4.65.0 (MIT) as a build tool only; no external font data is used. It requires
 separate caller authorization before creating document embedding containers.
 
