@@ -250,12 +250,13 @@ test("the Selection Pane lists and selects objects; sections reach the file", as
   await page.getByRole("tab", { name: "Shape Format" }).click();
   await command(page, "selection-pane");
   const pane = page.getByRole("complementary", { name: "Selection" });
-  await expect(pane.getByRole("option")).toHaveCount(2);
-  await pane.getByRole("option").first().getByRole("button").first().click();
-  await expect(pane.getByRole("option").first()).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
+  const rows = pane
+    .getByRole("list", { name: "Objects on this slide" })
+    .getByRole("listitem");
+  await expect(rows).toHaveCount(2);
+  const name = rows.first().getByRole("button").first();
+  await name.click();
+  await expect(name).toHaveAttribute("aria-pressed", "true");
   await tab(page, "Home");
   await command(page, "section");
   await page.getByRole("menuitem", { name: "Add Section" }).click();
@@ -393,9 +394,9 @@ test("a font size the box turns down gives way to the current size", async ({
   page,
 }) => {
   await start(page);
-  await page.getByRole("menuitem", { name: "Insert", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Text box", exact: true }).click();
-  const size = page.getByRole("combobox", { name: "Font Size" });
+  await textBox(page, "Size");
+  await tab(page, "Home");
+  const size = await reveal(page, "font-size");
   await expect(size).toBeEnabled();
   const current = await size.inputValue();
   expect(current).not.toBe("");
@@ -413,6 +414,10 @@ test("a command from the menu bar hands the keyboard back to the slide", async (
   page,
 }) => {
   await start(page);
+  test.skip(
+    !(await page.getByRole("menubar").isVisible()),
+    "A phone folds the menu bar into the File options menu.",
+  );
   await page.getByRole("menuitem", { name: "Insert", exact: true }).click();
   await page.getByRole("menuitem", { name: "Shape", exact: true }).click();
   await page.getByRole("menuitem", { name: "Rectangle", exact: true }).click();
@@ -431,6 +436,10 @@ test("a menu bar command while text is edited leaves the editing going", async (
   page,
 }) => {
   await start(page);
+  test.skip(
+    !(await page.getByRole("menubar").isVisible()),
+    "A phone folds the menu bar into the File options menu.",
+  );
   await page.getByRole("menuitem", { name: "Insert", exact: true }).click();
   await page.getByRole("menuitem", { name: "Text box", exact: true }).click();
   await page.locator(".object-hit").first().dblclick();
@@ -448,6 +457,10 @@ test("the Symbol dialog is one tab stop that the arrow keys move through", async
   page,
 }) => {
   await start(page);
+  test.skip(
+    !(await page.getByRole("menubar").isVisible()),
+    "A phone folds the menu bar into the File options menu.",
+  );
   await page.getByRole("menuitem", { name: "Insert", exact: true }).click();
   await page.getByRole("menuitem", { name: "Text box", exact: true }).click();
   await page.locator(".object-hit").first().dblclick();
