@@ -456,6 +456,14 @@ describe("file validation", () => {
     expect(P.getSlides(await P.loadPresentation(bytes))).toHaveLength(1);
     expect(() => validateZip(bytes)).toThrow();
   });
+  it("explains a password-protected or old binary presentation", () => {
+    const bytes = new Uint8Array(1024);
+    bytes.set([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+    expect(() => validateZip(bytes)).toThrow("password-protected");
+    expect(() => validateZip(new Uint8Array(1024))).toThrow(
+      "This is not a valid PPTX file.",
+    );
+  });
   it("rejects a ZIP64 locator instead of validating the legacy directory", async () => {
     const original = await P.savePresentation(createDeck());
     const end = original.length - 22;

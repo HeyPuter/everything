@@ -2060,7 +2060,16 @@ export function validateZip(input) {
       end = i;
       break;
     }
-  if (end < 0) throw new Error("This is not a valid PPTX file.");
+  if (end < 0) {
+    // An OLE compound file: PowerPoint's encrypted package or its old binary
+    // format, neither of which is a ZIP.
+    const ole = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+    if (bytes.length >= 8 && ole.every((b, i) => bytes[i] === b))
+      throw new Error(
+        "This presentation is password-protected or in the old .ppt format. Open it in PowerPoint, remove the password or save it as .pptx, and try again.",
+      );
+    throw new Error("This is not a valid PPTX file.");
+  }
   if (
     (end >= 20 && view.getUint32(end - 20, true) === 0x07064b50) ||
     view.getUint32(end + 12, true) === 0xffffffff ||
