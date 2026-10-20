@@ -3237,7 +3237,7 @@ function renderEditor() {
                     {
                       label: "New Slide",
                       icon: "o:newSlide",
-                      shortcut: `${MOD_KEY}+M`,
+                      shortcut: IS_MAC ? "⌘+Shift+N" : "Ctrl+M",
                       onSelect: () => addSlideAfter(slide()),
                     },
                   ],
