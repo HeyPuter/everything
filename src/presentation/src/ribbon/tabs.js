@@ -156,8 +156,8 @@ export function buildTabs(api) {
                 options: () => api.fontSizes(),
                 commit: (value) => {
                   const n = parseFloat(value);
-                  if (Number.isFinite(n) && n >= 1 && n <= 4000)
-                    return api.applyText({ size: n });
+                  if (!Number.isFinite(n) || n < 1 || n > 4000) return false;
+                  return api.applyText({ size: n });
                 },
               },
               {

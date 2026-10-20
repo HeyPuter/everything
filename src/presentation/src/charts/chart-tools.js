@@ -933,11 +933,10 @@ export function createChartTools(h) {
                     const found = chartElements(specOf(selectedChart())).find(
                       (e) => e.label === label,
                     );
-                    if (found) {
-                      element = found.id;
-                      elementOwner = keyOf(selectedChart());
-                      h.refresh();
-                    }
+                    if (!found) return false;
+                    element = found.id;
+                    elementOwner = keyOf(selectedChart());
+                    h.refresh();
                   },
                 },
                 {

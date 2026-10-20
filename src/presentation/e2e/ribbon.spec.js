@@ -388,3 +388,23 @@ test("opening presentation after presentation leaves no old ribbon listening", a
   for (let i = 0; i < 3; i++) await reopen();
   expect(await documentListeners()).toBe(first);
 });
+
+test("a font size the box turns down gives way to the current size", async ({
+  page,
+}) => {
+  await start(page);
+  await page.getByRole("menuitem", { name: "Insert", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Text box", exact: true }).click();
+  const size = page.getByRole("combobox", { name: "Font Size" });
+  await expect(size).toBeEnabled();
+  const current = await size.inputValue();
+  expect(current).not.toBe("");
+  for (const value of ["abc", "-5"]) {
+    await size.fill(value);
+    await size.press("Enter");
+    await expect(size).toHaveValue(current);
+  }
+  await size.fill("40");
+  await size.press("Enter");
+  await expect(size).toHaveValue("40");
+});

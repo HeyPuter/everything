@@ -14,7 +14,7 @@
 //   { type: "stack", items, rows? }      controls stacked in rows
 //   { type: "row", items }               controls side by side
 //   { type: "divider" }                  a thin rule between clusters
-//   { type: "combo", value(), options(), commit(value), width }
+//   { type: "combo", value(), options(), commit(value) (false: turned down), width }
 //   { type: "spin", value(), commit(number), min, max, step, format(), parse() }
 //   { type: "check", checked(), commit(boolean) }
 //   { type: "color", color(), run(), menu() }   split button with a colour bar
@@ -527,6 +527,12 @@ export function createRibbon({
       input.dataset.value = value;
       try {
         const result = item.commit(value);
+        // A value the command turns down (false) gives way to the current
+        // one, rather than staying in the box as if it applied.
+        if (result === false) {
+          input.value = input.dataset.value = String(item.value() ?? "");
+          input.select();
+        }
         result?.catch?.((error) => reportError(error));
       } catch (error) {
         reportError(error);

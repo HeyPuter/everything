@@ -922,7 +922,8 @@ export function createMediaFeatures(ctx) {
                 options: () => START_LABELS.map(([, l]) => l),
                 commit: (label) => {
                   const value = START_LABELS.find(([, l]) => l === label)?.[0];
-                  if (value) setOptions({ start: value });
+                  if (!value) return false;
+                  setOptions({ start: value });
                 },
               },
               {

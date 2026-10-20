@@ -984,7 +984,8 @@ export function createAnimationTools(ctx) {
                             START_LABELS[k].toLowerCase() ===
                             value.toLowerCase(),
                         );
-                        if (start) return update(() => ({ start }));
+                        if (!start) return false;
+                        return update(() => ({ start }));
                       },
                     },
                   ],
