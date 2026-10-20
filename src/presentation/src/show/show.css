@@ -222,7 +222,8 @@
 }
 
 /* Presenter view: the slide, a timer above it, the next slide and notes
-   beside it, and tools below. */
+   beside it, and tools below. The view's own timer and notes stand in for
+   the control bar's. */
 .presenter-stage.show-presenting {
   padding-top: 58px;
   padding-bottom: calc(var(--presenter-controls, 48px) + 76px);
@@ -230,6 +231,7 @@
   align-items: stretch;
 }
 .presenter-stage.show-presenting .presenter-notes,
+.presenter-stage.show-presenting .presenter-controls .presenter-timer,
 .presenter-stage.show-presenting .presenter-controls .show-extra {
   display: none;
 }

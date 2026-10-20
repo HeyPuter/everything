@@ -248,6 +248,9 @@ test("presenter view shows notes, the next slide and a timer, with an audience w
   );
   await expect(side.locator(".show-console-next-label")).toHaveText(/^Slide 2/);
   await expect(d.locator(".show-console-counter")).toHaveText("Slide 1 of 5");
+  // One elapsed-time clock: the view's, not the control bar's as well.
+  await expect(d.getByRole("timer", { name: "Time elapsed" })).toBeVisible();
+  await expect(d.getByRole("button", { name: /^Time elapsed/ })).toBeHidden();
   const size = await side
     .locator(".show-console-notes-text")
     .evaluate((n) => parseFloat(getComputedStyle(n).fontSize));
