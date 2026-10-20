@@ -600,8 +600,19 @@ export async function insertPdfPages(doc, bytes, { pages, after = doc.getPageCou
 }
 /** Insert an independent copy of page `index` right after it. Returns the copy's index. */
 export async function duplicatePage(doc, index) {
-  if (doc.getPageCount() + 1 > MAX_PAGES)
+  await duplicatePages(doc, [index]);
+  return index + 1;
+}
+/**
+ * Insert an independent copy of each page in `indices` right after it. The pages share one
+ * flattened snapshot of the form and one search for links, however many there are.
+ */
+export async function duplicatePages(doc, indices) {
+  const list = [...new Set(indices)].sort((a, b) => b - a);
+  if (!list.length) return;
+  if (doc.getPageCount() + list.length > MAX_PAGES)
     throw new Error('Keep between 1 and 1,000 pages in the PDF.');
+  for (const index of list) doc.getPage(index);
   stabilizeLocalDestinations(doc);
   // Copy a page that has a form field through a flattened copy of the document. Copying such a
   // page directly leaves the copy's widgets owned by no field (pdf-lib does not carry the form
@@ -617,11 +628,11 @@ export async function duplicatePage(doc, index) {
       /* The check below rejects a page whose widgets remain. */
     }
   }
-  requireFlattenedPages(source, [index]);
+  requireFlattenedPages(source, list);
   // An internal link on the copied page should point at the existing page it targets, not at a
   // hidden copy the copier would otherwise drag in (see relinkCopiedPages). The links resolve
   // against the pages already in the document.
-  inlineNamedDests(source, [index]);
+  inlineNamedDests(source, list);
   const sourcePages = source.getPages();
   sourcePages.forEach((page, i) => page.node.set(COPY_INDEX, PDFNumber.of(i)));
   const existing = doc.getPages().map((page) => page.ref);
@@ -631,29 +642,34 @@ export async function duplicatePage(doc, index) {
     const layers = source.catalog.lookup(layerKey);
     const groups = layers instanceof PDFDict && layers.lookup(groupKey);
     await source.flush();
-    const copier = PDFObjectCopier.for(source.context, doc.context);
-    copyPageStandIns(copier, source, doc);
-    if (groups instanceof PDFArray) {
-      const originals = doc.catalog.lookup(layerKey).lookup(groupKey);
-      // A duplicate belongs to the same layers as its original. Seed the copier's identity
-      // map so nested OCMDs, appearances and resources all reuse those groups. A flattened
-      // snapshot retains the catalog's group ordering even when its field objects change.
-      for (let i = 0; i < groups.size(); i++) {
-        const group = groups.get(i),
-          original = originals.get(i);
-        const dict = source.context.lookup(group),
-          originalDict = doc.context.lookup(original);
-        if (!(dict instanceof PDFDict) || !(originalDict instanceof PDFDict)) continue;
-        copier.traversedObjects.set(group, original);
-        copier.traversedObjects.set(dict, originalDict);
+    const copies = [];
+    // From the last page back, so the pages still to copy keep their places.
+    for (const index of list) {
+      // Each copy gets a copier of its own, so copies share nothing with each other.
+      const copier = PDFObjectCopier.for(source.context, doc.context);
+      copyPageStandIns(copier, source, doc, sourcePages);
+      if (groups instanceof PDFArray) {
+        const originals = doc.catalog.lookup(layerKey).lookup(groupKey);
+        // A duplicate belongs to the same layers as its original. Seed the copier's identity
+        // map so nested OCMDs, appearances and resources all reuse those groups. A flattened
+        // snapshot retains the catalog's group ordering even when its field objects change.
+        for (let i = 0; i < groups.size(); i++) {
+          const group = groups.get(i),
+            original = originals.get(i);
+          const dict = source.context.lookup(group),
+            originalDict = doc.context.lookup(original);
+          if (!(dict instanceof PDFDict) || !(originalDict instanceof PDFDict)) continue;
+          copier.traversedObjects.set(group, original);
+          copier.traversedObjects.set(dict, originalDict);
+        }
       }
+      const node = copier.copy(sourcePages[index].node);
+      const copy = PDFPage.of(node, doc.context.register(node), doc);
+      ownGeometry(doc.insertPage(index + 1, copy));
+      shiftPageLabels(doc, index + 1, 1);
+      copies.push(copy);
     }
-    const node = copier.copy(sourcePages[index].node);
-    const copy = PDFPage.of(node, doc.context.register(node), doc);
-    ownGeometry(doc.insertPage(index + 1, copy));
-    shiftPageLabels(doc, index + 1, 1);
-    relinkCopiedPages(doc, [copy], new Map(existing.map((ref, i) => [i, ref])));
-    return index + 1;
+    relinkCopiedPages(doc, copies, new Map(existing.map((ref, i) => [i, ref])));
   } finally {
     if (source === doc) sourcePages.forEach((page) => page.node.delete(COPY_INDEX));
   }

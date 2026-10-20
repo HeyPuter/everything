@@ -25,6 +25,7 @@ import {
   mergePdf,
   insertPdfPages,
   duplicatePage,
+  duplicatePages,
   drawMark,
   fillFields,
   addImage,
@@ -685,3 +686,60 @@ for (const phase of ['operation', 'serialization'])
         saveSpy?.mockRestore();
       }
     });
+
+it('duplicates several pages of a form at once as one by one, flattening the form once', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(
+    async () =>
+      new Response(
+        await readFile(new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url)),
+      ),
+  );
+  try {
+    const build = async () => {
+      const doc = await PDFDocument.create();
+      const form = doc.getForm();
+      for (let i = 0; i < 5; i++) {
+        const page = doc.addPage([300 + i, 300]);
+        const field = form.createTextField(`f${i}`);
+        field.setText(`Value ${i}`);
+        field.addToPage(page, { x: 20, y: 200, width: 150, height: 24 });
+      }
+      addLink(doc, 3, { rect: { x: 20, y: 20, width: 50, height: 20 }, page: 0 });
+      doc.catalog.set(
+        PDFName.of('PageLabels'),
+        doc.context.obj({ Nums: [0, { S: 'r' }, 2, { S: 'D' }] }),
+      );
+      return PDFDocument.load(await doc.save());
+    };
+    const describe = async (doc) => {
+      const saved = await PDFDocument.load(await doc.save());
+      return {
+        widths: saved.getPages().map((page) => page.getWidth()),
+        fields: listFields(saved).map((field) => field.name),
+        labels: String(saved.catalog.lookup(PDFName.of('PageLabels'))),
+        link: saved.getPages().map((page) => {
+          const annots = page.node.Annots();
+          const link = annots && saved.context.lookup(annots.get(annots.size() - 1));
+          const dest =
+            link?.lookup(PDFName.of('Dest')) ??
+            link?.lookup(PDFName.of('A'))?.lookup(PDFName.of('D'));
+          return dest ? saved.getPages().findIndex((p) => p.ref === dest.get(0)) : null;
+        }),
+      };
+    };
+    const oneByOne = await build();
+    for (const index of [3, 1]) await duplicatePage(oneByOne, index);
+    const together = await build();
+    // Each copy of a page with a form went through a saved, reloaded, flattened snapshot.
+    const load = vi.spyOn(PDFDocument, 'load');
+    await duplicatePages(together, [1, 3]);
+    expect(load).toHaveBeenCalledTimes(1);
+    load.mockRestore();
+    const result = await describe(together);
+    expect(result).toEqual(await describe(oneByOne));
+    expect(result.widths).toEqual([300, 301, 301, 302, 303, 303, 304]);
+    expect(result.link.slice(4, 6)).toEqual([0, 0]);
+  } finally {
+    vi.restoreAllMocks();
+  }
+});

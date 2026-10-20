@@ -204,8 +204,8 @@ export const COPY_INDEX = PDFName.of('PuterCopyPageIndex');
  * only for relinkCopiedPages to sweep the copies away again. A stand-in carries the page's
  * COPY_INDEX just as such a copy would, and is made only for pages actually named.
  */
-export function copyPageStandIns(copier, source, target) {
-  const indices = new Map(source.getPages().map((page, index) => [page.ref, index]));
+export function copyPageStandIns(copier, source, target, pages = source.getPages()) {
+  const indices = new Map(pages.map((page, index) => [page.ref, index]));
   const copyReference = copier.copyPDFIndirectObject;
   copier.copyPDFIndirectObject = (ref) => {
     const index = indices.get(ref);

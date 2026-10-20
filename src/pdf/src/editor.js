@@ -128,6 +128,7 @@ import {
   insertBlankPage,
   insertPdfPages,
   duplicatePage,
+  duplicatePages,
   addText,
   textVariant,
   hasKoreanText,
@@ -1225,10 +1226,8 @@ export function createEditor({
     duplicate: (indices) =>
       mutate(
         async (doc) => {
-          for (const i of [...indices].sort((a, b) => b - a)) {
-            await duplicatePage(doc, i);
-            if (i < pageIndex) pageIndex++;
-          }
+          await duplicatePages(doc, indices);
+          for (const i of new Set(indices)) if (i < pageIndex) pageIndex++;
         },
         indices.length === 1 ? 'Page duplicated.' : `${indices.length} pages duplicated.`,
         'assemble',
