@@ -9,12 +9,30 @@ import { unpackOutline } from './core/outline-transport.js';
  */
 /** The zero-based page a PDF.js destination (named or explicit) points to, or null. */
 export async function destinationPage(pdf, dest) {
+  return (await destinationTarget(pdf, dest))?.page ?? null;
+}
+/**
+ * Where a destination points: its page, and the PDF coordinates that belong at the top left
+ * of the view (`left` or `top` is null where the destination leaves it to the reader).
+ */
+export async function destinationTarget(pdf, dest) {
   try {
     const explicit = typeof dest === 'string' ? await pdf.getDestination(dest) : dest;
     const ref = explicit?.[0];
     if (ref == null) return null;
     const index = typeof ref === 'object' ? await pdf.getPageIndex(ref) : ref;
-    return Number.isInteger(index) && index >= 0 && index < pdf.numPages ? index : null;
+    if (!(Number.isInteger(index) && index >= 0 && index < pdf.numPages)) return null;
+    const at = (i) => (Number.isFinite(explicit[i]) ? explicit[i] : null);
+    const [left, top] =
+      {
+        XYZ: [at(2), at(3)],
+        FitH: [null, at(2)],
+        FitBH: [null, at(2)],
+        FitV: [at(2), null],
+        FitBV: [at(2), null],
+        FitR: [at(2), at(5)],
+      }[explicit[1]?.name] || [];
+    return { page: index, left: left ?? null, top: top ?? null };
   } catch {
     return null;
   }
@@ -60,8 +78,10 @@ export function createOutlinePanel({ onNavigate, onMenu }) {
       flat.push(item);
       if (item.items?.length) pending.push({ list: item.items, next: 0 });
     }
-    const pages = await Promise.all(
-      flat.slice(0, MAX_ITEMS).map((item) => (item.dest ? destinationPage(pdf, item.dest) : null)),
+    const targets = await Promise.all(
+      flat
+        .slice(0, MAX_ITEMS)
+        .map((item) => (item.dest ? destinationTarget(pdf, item.dest) : null)),
     );
     if (token !== generation || !isCurrent()) return false;
     // Include resolved destinations: reordering pages can change navigation even when
@@ -76,7 +96,9 @@ export function createOutlinePanel({ onNavigate, onMenu }) {
           item.italic,
           item.url,
           item.items?.length || 0,
-          pages[i],
+          targets[i]?.page,
+          targets[i]?.left,
+          targets[i]?.top,
         ]),
     ]);
     if (nextSnapshot === snapshot) return entries.length > 0;
@@ -119,7 +141,7 @@ export function createOutlinePanel({ onNavigate, onMenu }) {
             // Items without a destination stay focusable so arrow keys pass through them
             // and their menu stays reachable.
             'aria-disabled':
-              pages[nextEntries.length] == null && !item.items?.length ? 'true' : null,
+              targets[nextEntries.length] == null && !item.items?.length ? 'true' : null,
             title,
           },
           el('span', { class: 'outline-label' }, title),
@@ -127,7 +149,8 @@ export function createOutlinePanel({ onNavigate, onMenu }) {
         label.style.paddingLeft = `${18 + depth * 14}px`;
         const entry = {
           button: label,
-          page: pages[nextEntries.length],
+          page: targets[nextEntries.length]?.page ?? null,
+          target: targets[nextEntries.length],
           depth,
           group: null,
           parent,
@@ -176,7 +199,7 @@ export function createOutlinePanel({ onNavigate, onMenu }) {
           if (expanded.has(JSON.stringify(entry.path))) setExpanded(entry, true);
         }
         label.addEventListener('click', () => {
-          if (entry.page != null) onNavigate(entry.page);
+          if (entry.page != null) onNavigate(entry.page, entry.target);
           else if (entry.group) setExpanded(entry, entry.group.hidden);
         });
         label.addEventListener('keydown', (e) => onKey(e, entry));

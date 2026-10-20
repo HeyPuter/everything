@@ -42,3 +42,35 @@ it.each([false, true])(
 it.each([-1, 3, 999, 1.5, NaN, '2', undefined])('rejects invalid page index %s', async (index) => {
   expect(await destinationPage({ numPages: 3 }, [index, { name: 'Fit' }])).toBeNull();
 });
+
+it('reads the place on the page that a destination puts at the top left of the view', async () => {
+  const { destinationTarget } = await import('../src/outline.js');
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 2; i++) doc.addPage([200, 300]);
+  const ref = doc.getPage(1).ref;
+  doc.catalog.set(
+    PDFName.of('Dests'),
+    doc.context.obj({
+      xyz: [ref, 'XYZ', 20, 150, 2],
+      xyzTop: [ref, 'XYZ', null, 120, null],
+      fitH: [ref, 'FitH', 80],
+      fitV: [ref, 'FitV', 30],
+      fitR: [ref, 'FitR', 10, 20, 90, 140],
+      fit: [ref, 'Fit'],
+    }),
+  );
+  const task = pdfjs.getDocument({ data: await doc.save() });
+  try {
+    const pdf = await task.promise;
+    const target = (name) => destinationTarget(pdf, name);
+    expect(await target('xyz')).toEqual({ page: 1, left: 20, top: 150 });
+    expect(await target('xyzTop')).toEqual({ page: 1, left: null, top: 120 });
+    expect(await target('fitH')).toEqual({ page: 1, left: null, top: 80 });
+    expect(await target('fitV')).toEqual({ page: 1, left: 30, top: null });
+    expect(await target('fitR')).toEqual({ page: 1, left: 10, top: 140 });
+    expect(await target('fit')).toEqual({ page: 1, left: null, top: null });
+    expect(await target('missing')).toBeNull();
+  } finally {
+    await task.destroy();
+  }
+});

@@ -16,7 +16,7 @@ async function openPdf(page, doc, name = 'test.pdf') {
   ).setFiles({ name, mimeType: 'application/pdf', buffer: Buffer.from(await doc.save()) });
   await expect(page.locator('.page-caption')).toHaveText(`Page 1 of ${doc.getPageCount()}`);
 }
-/** Give a document an outline: [{ title, page, bold?, children: [...] }]. */
+/** Give a document an outline: [{ title, page, top?, bold?, children: [...] }]. */
 function addOutline(doc, tree) {
   const context = doc.context;
   const root = context.nextRef();
@@ -28,7 +28,7 @@ function addOutline(doc, tree) {
         Parent: parent,
         ...(item.url
           ? { A: { S: 'URI', URI: PDFHexString.fromText(item.url) } }
-          : { Dest: [doc.getPage(item.page).ref, 'XYZ', PDFNull, PDFNull, PDFNull] }),
+          : { Dest: [doc.getPage(item.page).ref, 'XYZ', PDFNull, item.top ?? PDFNull, PDFNull] }),
       });
       if (item.bold) dict.set(PDFName.of('F'), context.obj(2));
       if (i > 0) dict.set(PDFName.of('Prev'), refs[i - 1]);
@@ -129,6 +129,58 @@ test('an outlined PDF gets an Outline tab whose items jump to their pages', asyn
   await expect(tree.getByRole('treeitem', { name: 'Sampling' })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.locator('.page-caption')).toHaveText('Page 3 of 4');
+});
+
+test('bookmarks and links bring the place they point to to the top of the view', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 3; i++) doc.addPage([400, 1400]);
+  addOutline(doc, [
+    { title: 'Start', page: 0 },
+    { title: 'Results', page: 1, top: 300 },
+  ]);
+  // A link at the top of the first page to a place lower down the same page.
+  doc.getPage(0).node.addAnnot(
+    doc.context.register(
+      doc.context.obj({
+        Type: 'Annot',
+        Subtype: 'Link',
+        Rect: [40, 1340, 160, 1370],
+        Dest: [doc.getPage(0).ref, 'FitH', 500],
+      }),
+    ),
+  );
+  await openPdf(page, doc);
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  /** Where PDF height `y` on a page is, measured from the top of the view (scrolling rounds). */
+  const fromTop = (index, y) =>
+    page.evaluate(
+      ({ index, y }) => {
+        const slot = document
+          .querySelector(`.page-slot[data-page="${index}"]`)
+          .getBoundingClientRect();
+        const view = document.querySelector('.workspace').getBoundingClientRect();
+        return slot.top + ((1400 - y) * slot.height) / 1400 - view.top;
+      },
+      { index, y },
+    );
+  await page.getByRole('button', { name: /Link to/ }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Go to linked page', exact: true }).click();
+  await expect.poll(async () => Math.abs(await fromTop(0, 500))).toBeLessThan(2);
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 3');
+  await showPanel(page);
+  await page.getByRole('tab', { name: 'Outline' }).click();
+  await page.getByRole('treeitem', { name: 'Results' }).click();
+  await expect(page.locator('.page-caption')).toHaveText('Page 2 of 3');
+  await expect.poll(async () => Math.abs(await fromTop(1, 300))).toBeLessThan(2);
+  // A bookmark to the page alone still opens it at its top.
+  await showPanel(page);
+  await page.getByRole('treeitem', { name: 'Start' }).click();
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 3');
+  await expect.poll(async () => Math.abs((await fromTop(0, 1400)) - 12)).toBeLessThan(2);
 });
 
 test('collapsing the focused outline branch keeps a visible keyboard entry point', async ({

@@ -29,7 +29,7 @@ import { signatureDialog } from './signature-dialog.js';
 import { drawSignature } from './core/signature.js';
 import { enableThumbnailReorder } from './page-organizer.js';
 import { addNote, listNotes, editNote, NOTE_SIZE } from './core/notes.js';
-import { createOutlinePanel, destinationPage } from './outline.js';
+import { createOutlinePanel, destinationPage, destinationTarget } from './outline.js';
 import { createCommentsPanel } from './comments.js';
 import { createAttachmentsPanel, createLayersPanel } from './side-panels.js';
 import { createSignaturesPanel, createSignatureBar } from './signatures-panel.js';
@@ -651,9 +651,9 @@ export function createEditor({
   });
   // The outline (bookmarks) shares the panel with the pages when the PDF has one.
   const outline = createOutlinePanel({
-    onNavigate: (index) => {
+    onNavigate: (index, target) => {
       if (window.matchMedia('(max-width: 760px)').matches) hideSidebar();
-      navigate(index);
+      showDestination(target || { page: index, left: null, top: null });
     },
     onMenu: (entry, e) =>
       openMenu({
@@ -2877,6 +2877,26 @@ export function createEditor({
       }
     }
   }
+  /**
+   * Go to a destination's page and, when it names a place there, bring that place to the top
+   * left of the view, as PDF readers do for bookmarks and links.
+   */
+  async function showDestination(target) {
+    const placed = target.left != null || target.top != null;
+    if ((target.page !== pageIndex || !placed) && !(await navigate(target.page))) return;
+    if (!placed || destroyed || pageIndex !== target.page || !viewport) return;
+    const [x0, , , y1] = viewport.viewBox;
+    const [x, y] = viewport.convertToViewportPoint(target.left ?? x0, target.top ?? y1);
+    const sheet = paper.getBoundingClientRect(),
+      view = workspace.getBoundingClientRect();
+    // On a page turned a quarter, the PDF's left and top run down and across the view.
+    const turned = viewport.rotation % 180 !== 0;
+    if ((turned ? target.left : target.top) != null)
+      workspace.scrollTop += sheet.top + y - view.top;
+    if ((turned ? target.top : target.left) != null)
+      workspace.scrollLeft += sheet.left + x - view.left;
+    stack.quiet();
+  }
   async function toggleSidebar(show = editorRoot.classList.contains('hide-pages')) {
     // A docked panel changes the page's width, so open drafts are finished first; on narrow
     // screens it overlays the page and a draft carries on underneath.
@@ -3854,10 +3874,12 @@ export function createEditor({
     revealComment = null;
     updateStatus();
     try {
-      const index = await destinationPage(thisPdf, link.dest);
+      const target = await destinationTarget(thisPdf, link.dest);
       if (destroyed || pdf !== thisPdf || pendingNavigation !== request) return;
-      if (index == null) toast('This link points nowhere in the PDF.');
-      else if (index !== pageIndex) await navigate(index);
+      if (!target) toast('This link points nowhere in the PDF.');
+      // A link to a place on this page scrolls there; one to the page itself has arrived.
+      else if (target.page !== pageIndex || target.left != null || target.top != null)
+        await showDestination(target);
     } finally {
       if (pendingNavigation === request) {
         pendingNavigation = null;
