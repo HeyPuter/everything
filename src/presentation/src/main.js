@@ -15213,14 +15213,21 @@ async function present(options = {}) {
   // The current slide's animations: an advance plays its next click step
   // before the show moves on.
   let animator = null;
+  // Once a timed slide's time is up, its remaining click steps play one
+  // after another before the show moves on.
+  let timeUp = false;
   function advance() {
     if (!ended && animator?.next()) {
       session?.stepped(1);
+      if (timeUp) advanceClock.select(0, animator.played);
       return;
     }
     show(n + 1);
   }
-  const advanceClock = createSlideAdvanceClock(() => show(n + 1));
+  const advanceClock = createSlideAdvanceClock(() => {
+    timeUp = true;
+    advance();
+  });
   const pauseButton = iconButton(
     "Pause automatic advance",
     "Pause",
@@ -15261,6 +15268,13 @@ async function present(options = {}) {
   function showPrevious() {
     if (!ended && animator?.previous()) {
       session?.stepped(-1);
+      // Stepping back starts the slide's time over.
+      if (timeUp) {
+        timeUp = false;
+        advanceClock.select(
+          showTiming.useTimings ? currentTransition?.advanceAfterMs : undefined,
+        );
+      }
       return;
     }
     show(ended ? n : n - 1, { backward: true });
@@ -15275,6 +15289,7 @@ async function present(options = {}) {
     const redirected = ended ? i : showInserted.navigate(i, n, { backward });
     if (redirected === null) return;
     i = redirected;
+    timeUp = false;
     laser.hide();
     clearTyped();
     const wrapped = showTiming.loop && (i < 0 || i >= all.length);

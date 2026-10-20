@@ -103,6 +103,36 @@ test("the slide show plays click steps before moving to the next slide", async (
   await expect.poll(() => visibleLayers(page)).toEqual([false, true, true]);
 });
 
+test("a timed advance plays the slide's remaining click steps first", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const boxes = [1, 4].map((x) => shape(slide, x, 1, 2, 1.5, "#2266cc"));
+  P.setSlideAnimations(
+    slide,
+    boxes.map((box) => ({
+      shapeId: String(P.getShapeId(box)),
+      presetClass: "entr",
+      presetId: 10,
+      presetSubtype: 0,
+      start: "click",
+      delayMs: 0,
+      durationMs: 1500,
+    })),
+  );
+  P.setSlideTransition(slide, { effect: "none", advanceAfterMs: 500 });
+  P.addBlankSlide(pres);
+  await load(page, pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const counter = page.locator(".presenter-counter");
+  await expect.poll(() => visibleLayers(page)).toEqual([true, false]);
+  await expect(counter).toHaveText("1 / 2");
+  await expect.poll(() => visibleLayers(page)).toEqual([true, true]);
+  await expect(counter).toHaveText("1 / 2");
+  await expect(counter).toHaveText("2 / 2");
+});
+
 test("reduced motion still steps through effects", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await load(page, animatedDeck());

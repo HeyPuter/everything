@@ -1194,6 +1194,7 @@ export function createAnimationPlayer({
   };
 
   const autoStart = groups[0]?.auto ? 1 : 0;
+  let played = Promise.resolve();
   const api = {
     /** Click steps (the main sequence's groups after any automatic one). */
     steps: groups.length - autoStart,
@@ -1202,6 +1203,10 @@ export function createAnimationPlayer({
     },
     get playing() {
       return running.some((e) => !e.endless);
+    },
+    /** Settles when the step last started by next() ends. */
+    get played() {
+      return played;
     },
     effects,
     groups,
@@ -1235,7 +1240,7 @@ export function createAnimationPlayer({
       if (index >= groups.length) return false;
       step++;
       hideAfter(groups[index - 1]);
-      playGroup(groups[index]);
+      played = playGroup(groups[index]);
       return true;
     },
     previous() {
