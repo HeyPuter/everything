@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PDFDict, PDFDocument, PDFHexString, PDFName } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { PdfSession, deletePage } from '../src/core/document.js';
+import { PdfSession, deletePage, deletePages } from '../src/core/document.js';
 import { addBookmark } from '../src/core/outline-edit.js';
 
 const n = PDFName.of;
@@ -257,5 +257,50 @@ describe('destinations after deleting a page', () => {
     }
     expect(read.has(font) || read.has(appearance)).toBe(false);
     expect(targetOf(firstOf(doc))).toBe(doc.getPage(1).ref);
+  });
+  it('retargets several deleted pages at once as deleting them one by one would', async () => {
+    const build = async () => {
+      const doc = await PDFDocument.create();
+      for (let i = 0; i < 6; i++) doc.addPage([200 + i, 300]);
+      for (let pageIndex = 0; pageIndex < 6; pageIndex++)
+        addBookmark(doc, { title: `Page ${pageIndex}`, pageIndex });
+      return doc;
+    };
+    const targets = (doc) => {
+      const widths = [];
+      for (let item = firstOf(doc); item; item = item.lookup(n('Next')))
+        widths.push(doc.context.lookup(targetOf(item)).lookup(n('MediaBox')).lookup(2).asNumber());
+      return widths;
+    };
+    const oneByOne = await build();
+    for (const index of [5, 2, 1]) deletePage(oneByOne, index);
+    const together = await build();
+    deletePages(together, [1, 5, 2]);
+    expect(together.getPages().map((page) => page.getWidth())).toEqual([200, 203, 204]);
+    // Pages 2 and 3 go to the next page that stays; the last page to the previous one.
+    expect(targets(together)).toEqual([200, 203, 203, 203, 204, 204]);
+    expect(targets(together)).toEqual(targets(oneByOne));
+    expect(() => deletePages(together, [0, 1, 2])).toThrow('Keep at least one page');
+  });
+  it('searches for the jumps to many deleted pages once, not once per page', async () => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 40; i++) doc.addPage([200, 300]);
+    for (let pageIndex = 0; pageIndex < 40; pageIndex++)
+      addBookmark(doc, { title: `Page ${pageIndex}`, pageIndex });
+    const entries = vi.spyOn(PDFDict.prototype, 'entries');
+    try {
+      deletePages(doc, [39]);
+      const one = entries.mock.calls.length;
+      entries.mockClear();
+      deletePages(
+        doc,
+        Array.from({ length: 30 }, (_, i) => i),
+      );
+      expect(entries.mock.calls.length).toBeLessThan(3 * one);
+    } finally {
+      entries.mockRestore();
+    }
+    expect(doc.getPageCount()).toBe(9);
+    expect(targetOf(firstOf(doc))).toBe(doc.getPage(0).ref);
   });
 });

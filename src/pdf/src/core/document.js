@@ -46,7 +46,7 @@ import { inheritPdfVersion, savePdf } from './version.js';
 import { sweepUnreferenced } from './compress.js';
 import { removePageStructure } from './struct-tree.js';
 import { shiftPageLabels } from './page-labels.js';
-import { retargetDeletedPage, stabilizeLocalDestinations } from './destinations.js';
+import { retargetDeletedPages, stabilizeLocalDestinations } from './destinations.js';
 import { addHighlight, rectQuad } from './highlight.js';
 import { checkedFontData } from './font-data.js';
 import { normalizeJpegPadding } from './jpeg.js';
@@ -302,7 +302,23 @@ function clearButtonSelection(field, widgets) {
   for (const widget of widgets) widget.setAppearanceState(PDFName.of('Off'));
 }
 export function deletePage(doc, index) {
-  if (doc.getPageCount() === 1) throw new Error('Keep at least one page in the PDF.');
+  deletePages(doc, [index]);
+}
+/**
+ * Delete several pages (zero-based indices, in any order) in one step. Bookmarks and links to
+ * them are found once for all of them, so deleting many pages of a long PDF stays quick.
+ */
+export function deletePages(doc, indices) {
+  const list = [...new Set(indices)].sort((a, b) => b - a);
+  if (!list.length) return;
+  if (list.length >= doc.getPageCount()) throw new Error('Keep at least one page in the PDF.');
+  // A page that does not exist stops the deletion before anything changes.
+  for (const index of list) doc.getPage(index);
+  retargetDeletedPages(doc, list);
+  // From the last page back, so the indices still to go stay where they were.
+  for (const index of list) removeOnePage(doc, index);
+}
+function removeOnePage(doc, index) {
   const page = doc.getPage(index);
   const annotations = new Set(annotationsOf(page)?.asArray() || []);
   const form = doc.getForm();
@@ -409,7 +425,6 @@ export function deletePage(doc, index) {
         clearButtonSelection(field, remaining);
     }
   }
-  retargetDeletedPage(doc, index);
   removePageStructure(doc, page);
   shiftPageLabels(doc, index, -1);
   doc.removePage(index);
@@ -445,11 +460,38 @@ export function ownGeometry(page) {
 }
 export function movePage(doc, index, target) {
   if (target < 0 || target >= doc.getPageCount()) return;
-  const page = doc.getPage(index);
+  doc.getPage(index);
   stabilizeLocalDestinations(doc);
+  placePage(doc, index, target);
+}
+function placePage(doc, index, target) {
+  const page = doc.getPage(index);
   settleInheritance(page);
   doc.removePage(index);
   doc.insertPage(target, page);
+}
+/**
+ * Put the pages in a new order: `order` lists every current page index once, in the order
+ * wanted. Bookmarks and links are prepared once for the whole move, not once per page.
+ */
+export function reorderPages(doc, order) {
+  const count = doc.getPageCount();
+  if (
+    order.length !== count ||
+    new Set(order).size !== count ||
+    order.some((i) => !Number.isInteger(i) || i < 0 || i >= count)
+  )
+    throw new Error('Choose a new order for every page.');
+  if (order.every((page, position) => page === position)) return;
+  stabilizeLocalDestinations(doc);
+  // Bring each page to its place in turn; earlier places are already settled.
+  const current = [...Array(count).keys()];
+  order.forEach((page, target) => {
+    const from = current.indexOf(page);
+    if (from === target) return;
+    placePage(doc, from, target);
+    current.splice(target, 0, ...current.splice(from, 1));
+  });
 }
 /** Insert an empty page after the given one with the same visible size, rotation, and unit. */
 export function insertBlankPage(doc, index) {

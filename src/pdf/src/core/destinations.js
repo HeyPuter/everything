@@ -15,15 +15,29 @@ const INERT = new Set(
 );
 
 /**
- * Keep navigation useful when a page is deleted: jumps to it fit the next page, or the
- * previous page when deleting the last one. Surviving destinations keep their view settings.
+ * Keep navigation useful when pages are deleted: jumps to one fit the next page that stays, or
+ * the previous one when no page after it stays. Surviving destinations keep their view settings.
  * Run before removal, while numeric destinations still refer to the original page order.
+ * Several pages are handled in one search, so deleting many pages does not repeat it per page.
  */
-export function retargetDeletedPage(doc, index) {
+export function retargetDeletedPages(doc, indices) {
   const pages = doc.getPages();
-  const removed = pages[index];
-  const replacement = pages[index + 1] ?? pages[index - 1];
-  if (!removed || !replacement) return;
+  const removed = new Set(indices);
+  const replacements = new Map();
+  let kept = null;
+  for (let i = pages.length - 1; i >= 0; i--)
+    if (!removed.has(i)) kept = pages[i];
+    else if (kept) replacements.set(pages[i], kept);
+  kept = null;
+  for (let i = 0; i < pages.length; i++)
+    if (!removed.has(i)) kept = pages[i];
+    else if (kept && !replacements.has(pages[i])) replacements.set(pages[i], kept);
+  if (!replacements.size) return;
+  const replacementOf = new Map();
+  for (const [page, replacement] of replacements) {
+    replacementOf.set(page.ref, replacement);
+    replacementOf.set(page.node, replacement);
+  }
   const repaired = new Map();
   visitLocalDestinations(doc, (dest, replace) => {
     if (repaired.has(dest)) {
@@ -45,7 +59,8 @@ export function retargetDeletedPage(doc, index) {
       repaired.set(original, copy);
       replace(copy);
     } else repaired.set(dest, null);
-    if (target === removed.ref || target === removed.node) {
+    const replacement = replacementOf.get(target);
+    if (replacement) {
       while (dest.size()) dest.remove(dest.size() - 1);
       dest.push(replacement.ref);
       dest.push(name('Fit'));

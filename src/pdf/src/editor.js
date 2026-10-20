@@ -121,7 +121,9 @@ import {
   rotatePage,
   rotateAllPages,
   deletePage,
+  deletePages as deleteDocumentPages,
   movePage,
+  reorderPages,
   insertBlankPage,
   insertPdfPages,
   duplicatePage,
@@ -7699,10 +7701,8 @@ export function createEditor({
       return false;
     await mutate(
       (doc) => {
-        for (const index of list) {
-          deletePage(doc, index);
-          if (index < pageIndex) pageIndex--;
-        }
+        deleteDocumentPages(doc, list);
+        for (const index of list) if (index < pageIndex) pageIndex--;
         pageIndex = Math.min(pageIndex, doc.getPageCount() - 1);
       },
       `${list.length} pages deleted.`,
@@ -7718,14 +7718,7 @@ export function createEditor({
     if (order.every((i, k) => i === k)) return;
     return mutate(
       (doc) => {
-        // Bring each page to its place in turn; earlier places are already settled.
-        const current = [...Array(count).keys()];
-        order.forEach((page, target) => {
-          const from = current.indexOf(page);
-          if (from === target) return;
-          movePage(doc, from, target);
-          current.splice(target, 0, ...current.splice(from, 1));
-        });
+        reorderPages(doc, order);
         pageIndex = order.indexOf(pageIndex);
       },
       moving.length === 1 ? 'Page moved.' : `${moving.length} pages moved.`,

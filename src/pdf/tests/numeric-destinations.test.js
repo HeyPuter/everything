@@ -7,6 +7,7 @@ import {
   insertPdfPages,
   movePage,
   PdfSession,
+  reorderPages,
 } from '../src/core/document.js';
 import { extractPages } from '../src/core/pages.js';
 import { addBookmark } from '../src/core/outline-edit.js';
@@ -109,6 +110,19 @@ describe('legacy numeric destinations', () => {
     expect(remote.lookup(n('D')).get(0).asNumber()).toBe(2);
     expect(invalid.lookup(n('D')).get(0).asNumber()).toBe(-1.5);
     await expectLinks(await doc.save(), 1, 0);
+  });
+  it('keeps local page identity when several pages are reordered at once', async () => {
+    const doc = await linkedPdf();
+    const target = doc.getPage(2).ref;
+    reorderPages(doc, [1, 2, 0]);
+    const bytes = await doc.save();
+    await expectLinks(bytes, 2, 1);
+    const saved = await PDFDocument.load(bytes);
+    expect(saved.getPages().map((page) => page.getWidth())).toEqual([210, 220, 200]);
+    expect(saved.catalog.lookup(n('OpenAction')).get(0)).toBe(target);
+    const action = saved.context.lookup(saved.getPage(2).node.Annots().get(4)).lookup(n('A'));
+    expect(action.lookup(n('D')).get(0).asNumber()).toBe(2);
+    expect(() => reorderPages(doc, [0, 0, 1])).toThrow('every page');
   });
   it.each(['move', 'blank', 'duplicate', 'insert', 'picture'])(
     'keeps local page identity after %s',
