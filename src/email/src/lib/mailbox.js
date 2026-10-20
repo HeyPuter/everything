@@ -115,6 +115,11 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
    * mail that had been there all along. Null until something has been listed.
    */
   let newest = null;
+  // Whether a listing has been started, and whether one has answered -- with
+  // the folder, or with the news that there is no folder yet -- rather than
+  // being cancelled or failing.
+  let attempted = false;
+  let answered = false;
   const keyOf = (message) => `${message.day}/${message.name}`;
   const noteNewest = () => {
     if (messages.length && (!newest || keyOf(messages[0]) > newest)) newest = keyOf(messages[0]);
@@ -456,12 +461,14 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
 
   const relist = async () => {
     const gen = ++generation;
+    attempted = true;
     paging = null;
     let page;
     try {
       page = await readDays(null, CATALOG_PAGE_SIZE);
     } catch (e) {
       if (gen !== generation) return [];
+      if (isMissingDirectory(e)) answered = true;
       // Two different situations arrive as the same error, and the error
       // shape cannot tell them apart: there is no `objects` folder yet (a
       // mailbox nothing has been delivered to), or the read itself failed.
@@ -492,7 +499,10 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
     recursiveListing = paginated && !page.cursor;
     recursiveDirectories = pendingDays.length;
     recursivePage = { cursor: null, items: null, nextCursor: null, more: pendingDays.length > 0 };
-    return startPage();
+    const added = await startPage();
+    // A page whose every day failed to read has not answered either.
+    if (gen === generation && (messages.length || !listError)) answered = true;
+    return added;
   };
 
   // A second open() while the first is still listing gets the same listing:
@@ -540,6 +550,15 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
     // so there is no boundary to check above; the listing is the check. An
     // emptied page is neither: what it held is remembered, and only what
     // sorts above it has arrived.
+    //
+    // A first listing that was cancelled (the reader went to another folder
+    // before it finished) or failed is not that: what it would have shown
+    // was there before anything was ever shown, and announcing it said "14
+    // new messages" about mail that had been read last week.
+    if (attempted && !answered) {
+      await open();
+      return [];
+    }
     if (!newest) return open();
 
     const gen = generation;
