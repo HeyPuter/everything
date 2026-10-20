@@ -23,9 +23,12 @@ const root = document.getElementById('app');
 // slow network still fetching it.
 const waitForPuter = () => new Promise((resolve) => {
   if (window.puter) return resolve(true);
+  // A script that failed to load has already said so (index.html marks it):
+  // waiting out the poll only kept a skeleton up for ten more seconds.
+  if (window.puterSdkFailed) return resolve(false);
   let tries = 0;
   const timer = setInterval(() => {
-    if (window.puter || ++tries > 100) {
+    if (window.puter || window.puterSdkFailed || ++tries > 100) {
       clearInterval(timer);
       resolve(Boolean(window.puter));
     }

@@ -23,8 +23,9 @@
     })();
   </script>
   <!-- defer keeps the SDK ahead of the module script below (same in-order
-       queue) without parser-blocking the first paint. -->
-  <script src="https://js.puter.com/v2/" defer></script>
+       queue) without parser-blocking the first paint. A script that could not
+       load says so, so start-up can report it at once. -->
+  <script src="https://js.puter.com/v2/" defer onerror="window.puterSdkFailed = true"></script>
   <script type="module" src="/src/main.js"></script>
 </head>
 <body>

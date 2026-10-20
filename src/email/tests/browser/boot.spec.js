@@ -16,3 +16,11 @@ test('a refused access check still asks for permission', async ({ page }) => {
   await page.locator('.gate .btn-primary').click();
   await expect.poll(() => page.evaluate(() => window.__log)).toEqual(['perm:fs:/sample/.mail:read']);
 });
+
+test('an SDK that failed to load is reported at once, not after the poll', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.abort('internetdisconnected'));
+  const start = Date.now();
+  await page.goto('/');
+  await expect(page.locator('.gate-title')).toHaveText('Something went wrong', { timeout: 20000 });
+  expect(Date.now() - start).toBeLessThan(5000);
+});
