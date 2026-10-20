@@ -151,6 +151,20 @@ test("going to an earlier slide from See All Slides starts it over", async ({
   await expect.poll(() => visibleLayers(page)).toEqual([false, false, false]);
 });
 
+test("presenter view counts a slide's clicks after jumping back to it", async ({
+  page,
+}) => {
+  await load(page, animatedDeck());
+  await page.keyboard.press("Alt+F5");
+  const next = page.locator(".show-console-next-label");
+  await expect(next).toHaveText(/^Next click: animation 1 of 3/);
+  await page.keyboard.press("End");
+  await expect(next).toHaveText("End of slide show");
+  await page.keyboard.press("1");
+  await page.keyboard.press("Enter");
+  await expect(next).toHaveText(/^Next click: animation 1 of 3/);
+});
+
 test("reduced motion still steps through effects", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await load(page, animatedDeck());

@@ -15415,7 +15415,7 @@ async function present(options = {}) {
       readiness,
     );
     syncPause();
-    session?.shown(n);
+    session?.shown(n, { finished: backward || !plan.setup.showAnimation });
   }
   function close() {
     if (!d.isConnected) return;

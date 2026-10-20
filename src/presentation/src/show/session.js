@@ -1202,13 +1202,11 @@ export function createShowSession(ctx, show) {
   let disposed = false;
   return {
     keydown: handleKey,
-    /** After the show draws slide `i`. */
-    shown(i) {
+    /** After the show draws slide `i`; `finished` when it opens with its
+     * animations done (reached by going back, or shown without animation). */
+    shown(i, { finished = false } = {}) {
       const changed = i !== index;
-      // A slide reached by going back, or shown without animation, opens
-      // with its animations done.
-      step =
-        i < index || !setup.showAnimation ? (show.animationSteps?.() ?? 0) : 0;
+      step = finished ? (show.animationSteps?.() ?? 0) : 0;
       index = i;
       if (history[history.length - 1] !== i) history.push(i);
       if (changed) resetZoom();
