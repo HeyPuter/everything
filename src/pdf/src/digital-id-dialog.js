@@ -133,16 +133,18 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
       sections.create,
     );
     const choose = async () => {
+      // Enter submits the form even while Continue is disabled; one ID at a time.
+      if (submit.disabled) return;
+      submit.disabled = true;
       const choice = form.querySelector('input[name="digital-id"]:checked')?.value;
       const fail = (message) => {
         const feedback = dialog.querySelector('.dialog-error');
         feedback.textContent = message;
         feedback.hidden = false;
       };
-      const { importPkcs12, exportPkcs12, createSelfSignedId, describeIdentity } =
-        await import('./core/digital-signature.js');
       try {
-        submit.disabled = true;
+        const { importPkcs12, exportPkcs12, createSelfSignedId, describeIdentity } =
+          await import('./core/digital-signature.js');
         if (choice?.startsWith('open-')) {
           result = identities[Number(choice.slice(5))];
         } else if (choice === 'file') {
