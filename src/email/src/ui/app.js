@@ -2896,11 +2896,17 @@ export function renderApp(root, ctx) {
     indexMore(entries);
   };
 
-  const runSearch = async (value) => {
+  /**
+   * `relist` is the same query asked again because the folder under it was
+   * listed again -- a gap in the watch, mail restored from another device. It
+   * is not the reader searching, so the open message, the ticks and the page
+   * of results stay where they are.
+   */
+  const runSearch = async (value, { relist = false } = {}) => {
     searchController?.abort();
     searchController = new AbortController();
     const { signal } = searchController;
-    resultOffset = 0;
+    if (!relist) resultOffset = 0;
     queryText = (value ?? '').trim();
     query = parseQuery(queryText);
     const token = ++searchToken;
@@ -2914,8 +2920,10 @@ export function renderApp(root, ctx) {
     results = [];
     indexedCount = 0;
     unreadableCount = 0;
-    if (frame.classList.contains('reading')) closeReader({ focusRow: false });
-    clearSelection();
+    if (!relist) {
+      if (frame.classList.contains('reading')) closeReader({ focusRow: false });
+      clearSelection();
+    }
 
     if (!searching()) {
       searchStatus = '';
@@ -2967,6 +2975,30 @@ export function renderApp(root, ctx) {
     searchEntries = entries;
     searchCandidates = candidates;
     searchStatus = '';
+    if (relist) {
+      // The listing built new entries for the same files. What was open or
+      // ticked follows its file to the entry that replaced it, and goes if
+      // the file has left the folder.
+      const byName = new Map(entries.map((entry) => [entry.name, entry]));
+      const follow = (unit) => {
+        const now = byName.get(unit.latest.name);
+        return !now ? null : now === unit.latest ? unit : resultUnit(now);
+      };
+      for (const unit of [...selected]) {
+        const now = follow(unit);
+        if (now === unit) continue;
+        selected.delete(unit);
+        if (now) selected.add(now);
+      }
+      if (opened && frame.classList.contains('reading')) {
+        const now = follow(opened);
+        if (!now) closeReader({ focusRow: false });
+        else if (now !== opened) {
+          opened = now;
+          renderMsgActions(now);
+        }
+      }
+    }
     renderResults({ force: true, rescan: false });
 
     // Subjects come from the filenames, so a subject-only query is already
@@ -4650,7 +4682,7 @@ export function renderApp(root, ctx) {
     // otherwise be an object the folder no longer holds -- and the action bar
     // went on offering to act on messages whose rows had been replaced under
     // it.
-    if (searching()) runSearch(searchInput.value);
+    if (searching()) runSearch(searchInput.value, { relist: true });
     else renderList();
     return !box.listError;
   };
