@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
 import { listFonts, readInitialView, writeInitialView } from '../src/core/initial-view.js';
 
 it('reads the defaults of a PDF that does not say how to open', async () => {
@@ -36,6 +36,17 @@ it('writes the layout, panel, open page, zoom, and title display and reads them 
   });
   writeInitialView(reopened, { zoom: 1.5 });
   expect(readInitialView(reopened)).toMatchObject({ page: 2, zoom: 1.5 });
+});
+
+it('names the two-page layouts as this app shows them, page 1 beside page 2', async () => {
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 3; i++) doc.addPage();
+  const layout = () => doc.catalog.lookup(PDFName.of('PageLayout'))?.decodeText();
+  writeInitialView(doc, { layout: 'two' });
+  expect(layout()).toBe('TwoPageLeft');
+  writeInitialView(doc, { layout: 'two-continuous' });
+  expect(layout()).toBe('TwoColumnLeft');
+  expect(readInitialView(doc).layout).toBe('two-continuous');
 });
 
 it('lists the fonts the pages use, with whether each is embedded', async () => {

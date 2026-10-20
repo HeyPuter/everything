@@ -27,11 +27,13 @@ const LAYOUTS = {
   TwoColumnLeft: 'two-continuous',
   TwoColumnRight: 'two-continuous',
 };
+// The two-page views pair pages 1 and 2, 3 and 4: odd pages on the left. The Right
+// layouts would put page 1 alone, as a cover, in other readers.
 const LAYOUT_NAMES = {
   single: 'SinglePage',
   continuous: 'OneColumn',
-  two: 'TwoPageRight',
-  'two-continuous': 'TwoColumnRight',
+  two: 'TwoPageLeft',
+  'two-continuous': 'TwoColumnLeft',
 };
 const MODES = {
   UseNone: 'none',
