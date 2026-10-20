@@ -24,3 +24,9 @@ test('an SDK that failed to load is reported at once, not after the poll', async
   await expect(page.locator('.gate-title')).toHaveText('Something went wrong', { timeout: 20000 });
   expect(Date.now() - start).toBeLessThan(5000);
 });
+
+test('a start-up failure is announced, not only shown', async ({ page }) => {
+  await page.goto('/tests/browser/boot.html?mode=whoamifail');
+  await expect(page.locator('.gate-title')).toHaveText('Something went wrong');
+  await expect(page.getByRole('alert')).toContainText('Could not look up your account');
+});

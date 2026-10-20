@@ -73,7 +73,9 @@ export function renderError(root, message, onRetry) {
   screen(root,
     el('div.brand-mark.danger', { html: icon('alert', 30, 1.6) }),
     el('h1.gate-title', {}, 'Something went wrong'),
-    el('p.gate-tagline', {}, message),
+    // Said as well as shown: the loading status this replaces was the only
+    // live region on the page, and the failure arrived in silence.
+    el('p.gate-tagline', { role: 'alert' }, message),
     onRetry && el('button.btn.btn-primary', { type: 'button', onclick: onRetry }, 'Try again'),
   );
 }
