@@ -206,14 +206,21 @@ export function createRibbon({
       fit();
     }
   }
-  document.addEventListener("pointerdown", (e) => {
-    if (
-      root.classList.contains("flyout") &&
-      !root.contains(e.target) &&
-      !e.target.closest?.(".menu")
-    )
-      flyout(false);
-  });
+  // Listeners on the document end with the ribbon (see destroy), or every
+  // presentation opened would keep the previous editor alive.
+  const lifetime = new AbortController();
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (
+        root.classList.contains("flyout") &&
+        !root.contains(e.target) &&
+        !e.target.closest?.(".menu")
+      )
+        flyout(false);
+    },
+    { signal: lifetime.signal },
+  );
 
   // ---- Controls ----
   function renderGroup(group) {
@@ -1106,6 +1113,10 @@ export function createRibbon({
     },
     onError(fn) {
       reportError = fn;
+    },
+    destroy() {
+      lifetime.abort();
+      observer.disconnect();
     },
     // Every command, for searching: label, the tab it is on, and a way to
     // run it or open its menu.

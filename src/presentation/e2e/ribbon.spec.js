@@ -361,3 +361,30 @@ test("keyboard: new slide, paragraph alignment and F5", async ({ page }) => {
   const shape = P.getSlideShapes(P.getSlides(p)[0])[0];
   expect(P.getParagraphAlignment(shape, 0)).toBe("ctr");
 });
+
+test("opening presentation after presentation leaves no old ribbon listening", async ({
+  page,
+}) => {
+  await start(page);
+  const cdp = await page.context().newCDPSession(page);
+  const documentListeners = async () => {
+    const { result } = await cdp.send("Runtime.evaluate", {
+      expression: "document",
+    });
+    const { listeners } = await cdp.send("DOMDebugger.getEventListeners", {
+      objectId: result.objectId,
+    });
+    return listeners.filter((l) => l.type === "pointerdown").length;
+  };
+  const reopen = async () => {
+    await page.getByRole("button", { name: "Back to presentations" }).click();
+    await page
+      .getByRole("button", { name: "New presentation", exact: true })
+      .click();
+    await expect(page.getByRole("tab", { name: "Home" })).toBeVisible();
+  };
+  await reopen();
+  const first = await documentListeners();
+  for (let i = 0; i < 3; i++) await reopen();
+  expect(await documentListeners()).toBe(first);
+});

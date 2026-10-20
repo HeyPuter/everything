@@ -4103,6 +4103,7 @@ const animationTools = createAnimationTools({
 });
 
 function editorRibbon() {
+  ribbon?.destroy();
   ribbon = createRibbon({
     tabs: buildTabs(ribbonApi()),
     initial: ribbonTab,
