@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   createReadState, createStarState, createOriginState, createImageState, mergeFlags, flagId,
   memoryStorage,
@@ -324,6 +324,34 @@ describe('flags against an account store', () => {
       set: async (key, value) => { calls.set.push(key); values[key] = value; },
     };
   };
+
+  it('lets a later change on another device win over an earlier bulk mark', async () => {
+    vi.useFakeTimers();
+    try {
+      const start = Date.UTC(2026, 9, 20, 12, 0, 0);
+      vi.setSystemTime(start);
+      const remote = fakeKv();
+      const a = createReadState('user', memoryStorage(), { remote });
+      const b = createReadState('user', memoryStorage(), { remote });
+      // Device A marks 3,000 messages read in one go, and pushes.
+      const ids = Array.from({ length: 3000 }, (unused, i) => `0199${String(i).padStart(8, '0')}--x`);
+      for (const id of ids) a.markRead(id);
+      await vi.advanceTimersByTimeAsync(2000);
+      // Ten minutes later device B, which has not pulled since, reads the
+      // newest of them and then marks it unread.
+      const target = ids.at(-1);
+      vi.setSystemTime(start + 10 * 60_000);
+      b.markRead(target);
+      vi.setSystemTime(start + 10 * 60_000 + 5000);
+      b.markUnread(target);
+      await vi.advanceTimersByTimeAsync(2000);
+      await a.pull();
+      expect(b.isRead(target)).toBe(false);
+      expect(a.isRead(target)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('pulls the account state into the local cache and reports the change', async () => {
     const remote = fakeKv({ 'puter-mail:read:user': JSON.stringify({ m1: 500 }) });

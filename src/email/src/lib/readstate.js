@@ -48,11 +48,16 @@ const capped = (entries) => {
   const ids = Object.keys(entries);
   if (ids.length <= CAP) return entries;
   // Oldest change first out. Sorting by when it changed keeps what the user
-  // touched most recently, which is a better guess than insertion order.
-  return Object.fromEntries(ids
-    .sort((a, b) => Math.abs(entries[b]) - Math.abs(entries[a]))
-    .slice(0, CAP)
-    .map((id) => [id, entries[id]]));
+  // touched most recently, which is a better guess than insertion order. A
+  // burst of changes shares one stamp, and among those the later change -- the
+  // later key, since a change moves its id to the end -- is the one kept.
+  const order = new Map(ids.map((id, at) => [id, at]));
+  const kept = new Set([...ids]
+    .sort((a, b) => Math.abs(entries[b]) - Math.abs(entries[a]) || order.get(b) - order.get(a))
+    .slice(0, CAP));
+  // Written back in the order the changes were made, which is what the next
+  // trim reads as the order they were made in.
+  return Object.fromEntries(ids.filter((id) => kept.has(id)).map((id) => [id, entries[id]]));
 };
 
 /**
@@ -98,13 +103,19 @@ function createFlagStore({ key, storage, remote = null, onChange = null }) {
   let writeQueued = false;
 
   /**
-   * Strictly monotonic stamps: two changes to the same id in the same second
-   * must still be ordered, or a merge could resurrect the older one. The
-   * clock never falls behind a stamp already held, either: a folder marked
-   * read in one burst stamps its flags seconds ahead of the wall clock, and a
-   * store reopened after that must not stamp the next change *behind* them --
+   * Monotonic stamps: two changes to the same id in the same second must
+   * still be ordered, or a merge could resurrect the older one. The clock
+   * never falls behind a stamp already held, either: a store reopened after a
+   * change stamped ahead of the wall clock (another device's, or a flag
+   * toggled twice in a second) must not stamp the next change *behind* it --
    * at the cap that made the message just opened the oldest change in the
    * set, and the one dropped from it.
+   *
+   * Only the id changed again moves the clock past a stamp: a burst over many
+   * ids shares one. Advancing it once per flag put "mark all as read" over
+   * 3,000 messages fifty minutes into the future, and every change another
+   * device made in those fifty minutes lost the merge to it -- a message
+   * marked unread there ten minutes later came back read.
    */
   let clock = 0;
   const catchUp = () => {
@@ -114,8 +125,8 @@ function createFlagStore({ key, storage, remote = null, onChange = null }) {
     }
   };
   catchUp();
-  const stamp = () => {
-    clock = Math.max(Math.floor(Date.now() / 1000), clock + 1);
+  const stamp = (id) => {
+    clock = Math.max(Math.floor(Date.now() / 1000), clock, Math.abs(entries[id] ?? 0) + 1);
     return clock;
   };
 
@@ -182,8 +193,11 @@ function createFlagStore({ key, storage, remote = null, onChange = null }) {
     set(name, on) {
       const id = flagId(name);
       if (!id) return;
-      if (!(id in entries)) size++;
-      entries[id] = on ? stamp() : -stamp();
+      const at = stamp(id);
+      // To the end of the key order, which is the order changes were made in.
+      if (id in entries) delete entries[id];
+      else size++;
+      entries[id] = on ? at : -at;
       scheduleWrite();
       schedulePush();
     },
