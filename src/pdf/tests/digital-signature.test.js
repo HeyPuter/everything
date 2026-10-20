@@ -31,6 +31,8 @@ import {
   objectBytes,
 } from '../src/core/pdf-incremental.js';
 import { protectPdf } from '../src/core/security.js';
+import { createSignedData } from '../src/core/cms.js';
+import { digest, signingHash } from '../src/core/pki-crypto.js';
 import { decodeDer, toPem } from '../src/core/asn1.js';
 
 const hasOpenssl = spawnSync('openssl', ['version']).status === 0;
@@ -523,6 +525,44 @@ describe('signing and validating', () => {
         `The form field "Amount" was changed (${key}).`,
       ]);
     }
+  });
+
+  it('rejects a byte range that leaves more than the signature value unsigned', async () => {
+    // A signature over three ranges: its value, and also the certification level, left out.
+    const prepared = await preparePdfSignature(await makePdf(), {
+      certificate: rsa.certificate,
+      page: 0,
+      rect: RECT,
+      certify: 1,
+    });
+    const { bytes } = prepared;
+    const text = new TextDecoder('latin1').decode(bytes);
+    const level = text.indexOf('/P 1 ') + 3;
+    const [, before, after] = prepared.byteRange;
+    const ranges = [0, before, after, level - after, level + 1, bytes.length - level - 1];
+    const at = text.indexOf('/ByteRange [') + 11;
+    const width = text.indexOf(']', at) + 1 - at;
+    const written = `[${ranges.join(' ')}`;
+    bytes.set(new TextEncoder().encode(`${written.padEnd(width - 1)}]`), at);
+    const parts = [
+      bytes.subarray(0, before),
+      bytes.subarray(after, level),
+      bytes.subarray(level + 1),
+    ];
+    const cms = await createSignedData({
+      privateKey: rsa.privateKey,
+      certificate: rsa.certificate,
+      chain: [],
+      contentDigest: await digest(signingHash(rsa.privateKey), parts),
+      signingTime: new Date('2026-06-01T00:00:00Z'),
+      cades: true,
+    });
+    const signed = embedPdfSignature(prepared, cms);
+    // "No changes" becomes "annotations allowed" without touching a signed byte.
+    signed.set(new TextEncoder().encode('3'), level);
+    const [result] = await verifySignatures(signed);
+    expect(result.status).toBe('invalid');
+    expect(result.errors).toEqual(['The signature byte range leaves part of the file unsigned.']);
   });
 
   it('refuses password-protected files', async () => {

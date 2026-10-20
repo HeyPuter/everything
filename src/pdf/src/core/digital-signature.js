@@ -856,6 +856,9 @@ function readByteRange(data, sig, context) {
     const end = start + values[i + 1];
     if (start < previousEnd || end > data.length)
       return { error: 'The signature byte range is outside the file.' };
+    // Only the signature value may be left out; bytes in any other gap could change unseen.
+    if (i > 2 && start !== previousEnd)
+      return { error: 'The signature byte range leaves part of the file unsigned.' };
     parts.push(data.subarray(start, end));
     previousEnd = end;
   }
