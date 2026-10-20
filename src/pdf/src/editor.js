@@ -9362,7 +9362,18 @@ export function createEditor({
     }
     if (g.type === 'callout') {
       const anchor = pdfPoint(g.start);
-      const rect = readerRect(moved ? end : { x: g.start.x + 60, y: g.start.y - 60 }, 180, 50);
+      const corner = moved ? end : { x: g.start.x + 60, y: g.start.y - 60 };
+      // The box grows from the dragged-to corner away from its point, which it must not cover:
+      // leftwards when dragged to the left, upwards when dragged straight up.
+      const unit = screenUnit();
+      const rect = readerRect(
+        {
+          x: corner.x < g.start.x ? corner.x - 180 * unit : corner.x,
+          y: corner.x === g.start.x && corner.y < g.start.y ? corner.y - 50 * unit : corner.y,
+        },
+        180,
+        50,
+      );
       const text = await commentTextDialog('Callout');
       if (text == null || destroyed) return;
       return mutate(
