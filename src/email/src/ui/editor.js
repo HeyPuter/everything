@@ -609,7 +609,7 @@ export function createEditor({ label = 'Message', placeholder = '', onInput, onF
    * inline images, and silently dropping a pasted screenshot would be worse
    * than attaching it.
    */
-  const receive = (transfer, { atCaret = true } = {}) => {
+  const receive = (transfer, { atCaret = true, at = null } = {}) => {
     if (!transfer) return false;
     const files = [...(transfer.files ?? [])];
     const html = transfer.getData?.('text/html') ?? '';
@@ -628,10 +628,16 @@ export function createEditor({ label = 'Message', placeholder = '', onInput, onF
       return true;
     }
     if (!html && !text) return false;
-    // A paste goes where the caret is. A drop goes where it was dropped, and
-    // the browser has already moved the caret there -- putting the remembered
-    // selection back would drag the text somewhere else entirely.
+    // A paste goes where the caret is. A drop goes where it was dropped --
+    // which the selection does not say yet while the drop event runs, so the
+    // point is turned into a caret by the caller. Without one, a drop went
+    // wherever the caret had last been.
     if (atCaret) restore();
+    else if (at) {
+      const selection = document.getSelection?.();
+      selection?.removeAllRanges();
+      selection?.addRange(at);
+    }
     if (html) exec('insertHTML', cleanHtml(html));
     else exec('insertText', text);
     remember();
@@ -646,9 +652,34 @@ export function createEditor({ label = 'Message', placeholder = '', onInput, onF
   // The compose dialog takes a file drag anywhere on it; text dragged into the
   // message is this editor's business, and would otherwise land as whatever
   // markup the source felt like handing over.
+  //
+  // Text dragged from one place in the message to another is the browser's
+  // own move, and its markup is already the editor's: answered here as a
+  // drop from outside, the selection was put back over itself and nothing
+  // moved at all.
+  let draggingOwn = false;
+  body.addEventListener('dragstart', () => { draggingOwn = true; });
+  body.addEventListener('dragend', () => { draggingOwn = false; });
+  const caretAtPoint = (x, y) => {
+    let range = null;
+    try {
+      const position = document.caretPositionFromPoint?.(x, y);
+      if (position) {
+        range = document.createRange();
+        range.setStart(position.offsetNode, position.offset);
+      } else {
+        range = document.caretRangeFromPoint?.(x, y) ?? null;
+      }
+    } catch {
+      range = null;
+    }
+    return range && body.contains(range.startContainer) ? range : null;
+  };
   body.addEventListener('drop', (event) => {
     if ([...(event.dataTransfer?.types ?? [])].includes('Files')) return;
-    if (receive(event.dataTransfer, { atCaret: false })) event.preventDefault();
+    if (draggingOwn) return;
+    const at = caretAtPoint(event.clientX, event.clientY);
+    if (receive(event.dataTransfer, { atCaret: false, at })) event.preventDefault();
   });
 
   // Firefox leaves a bare text node per line unless it is told otherwise, and
