@@ -65,6 +65,28 @@ export function createDraftStore(scope, storage = window.localStorage, now = () 
   };
 
   let drafts = load();
+  // Another window of the app writes the same entry, and saving already
+  // merges against it -- but reads answered from memory, so Drafts (Refresh
+  // included) never showed a draft written there, and opening one it had
+  // changed loaded the old text, which the next autosave then wrote back over
+  // the new. Reads follow the stored entry, parsing it again only when it has
+  // changed.
+  const readRaw = () => {
+    try {
+      return storage.getItem(key);
+    } catch {
+      return seen;
+    }
+  };
+  let seen = readRaw();
+  const current = () => {
+    const raw = readRaw();
+    if (raw !== seen) {
+      seen = raw;
+      drafts = load();
+    }
+    return drafts;
+  };
 
   // Returns whether the write went through: a quota error means the draft is
   // only in the dialog, and the dialog has to say so before it closes.
@@ -83,9 +105,9 @@ export function createDraftStore(scope, storage = window.localStorage, now = () 
     loadAttachments: files.load,
     saveAttachments: files.save,
     /** Newest first, which is the order the folder lists them in. */
-    list: () => [...drafts].sort(newestFirst),
-    get: (id) => drafts.find((draft) => draft.id === id) ?? null,
-    get count() { return drafts.length; },
+    list: () => [...current()].sort(newestFirst),
+    get: (id) => current().find((draft) => draft.id === id) ?? null,
+    get count() { return current().length; },
 
     /** Upsert by id, stamping the time. Returns whether it was stored. */
     save(draft) {
