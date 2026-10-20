@@ -207,14 +207,22 @@ const stripComments = (text) => {
 
 // "Jane Doe <jane@example.com>" -> { name: 'Jane Doe', email: 'jane@example.com' }
 export const parseAddress = (value = '') => {
-  const decoded = stripComments(decodeWords(value)).replace(/\s+/g, ' ').trim();
-  const match = decoded.match(/^(.*?)\s*<([^<>]+)>$/);
+  // The structure -- comments, the angle-address -- is read off the header as
+  // it was sent, and only the display name is decoded. Decoded first, an
+  // encoded word could open a comment around the real address, or supply an
+  // address of its own, and this app would show a sender that no other
+  // parser of the same header -- the receiving server's included -- sees.
+  const raw = stripComments(String(value ?? '')).replace(/\s+/g, ' ').trim();
+  // Text after the angle-address is neither name nor address.
+  const match = raw.match(/^(.*?)\s*<([^<>]+)>[^<>]*$/);
   if (match) {
-    const name = match[1].replace(/^"(.*)"$/, '$1').trim();
+    const name = decodeWords(match[1].replace(/^"(.*)"$/, '$1')).trim();
     const email = match[2].trim();
     return { name: name || email, email };
   }
-  return { name: decoded, email: decoded.includes('@') ? decoded : '' };
+  // A bare address is only an address as written, never as decoded.
+  const decoded = decodeWords(raw);
+  return { name: decoded, email: decoded === raw && raw.includes('@') ? raw : '' };
 };
 
 /**

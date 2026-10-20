@@ -93,6 +93,17 @@ describe('parseContentType', () => {
 });
 
 describe('parseAddress', () => {
+  it('reads the address off the header as sent, not out of an encoded word', () => {
+    const b64 = (text) => Buffer.from(text, 'utf8').toString('base64');
+    // Every other parser (the receiving server's included) sees
+    // attacker@evil.example: the brackets and parentheses are inside words.
+    const from = `=?utf-8?B?${b64('Boss <boss@bank.example> (')}?= <attacker@evil.example> =?utf-8?B?${b64(')')}?=`;
+    expect(parseAddress(from).email).toBe('attacker@evil.example');
+    expect(parseAddressList(from).map((a) => a.email)).toEqual(['attacker@evil.example']);
+    expect(parseAddress(`=?utf-8?B?${b64('boss@bank.example')}?=`).email).toBe('');
+    expect(parseAddress('jane@example.com (Jane)')).toEqual({ name: 'jane@example.com', email: 'jane@example.com' });
+  });
+
   it('splits display name and address', () => {
     expect(parseAddress('Jane Doe <jane@example.com>'))
       .toEqual({ name: 'Jane Doe', email: 'jane@example.com' });
