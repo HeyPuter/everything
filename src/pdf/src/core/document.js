@@ -316,14 +316,9 @@ export function deletePages(doc, indices) {
   // A page that does not exist stops the deletion before anything changes.
   for (const index of list) doc.getPage(index);
   retargetDeletedPages(doc, list);
-  // From the last page back, so the indices still to go stay where they were.
-  for (const index of list) removeOnePage(doc, index);
-}
-function removeOnePage(doc, index) {
-  const page = doc.getPage(index);
-  const annotations = new Set(annotationsOf(page)?.asArray() || []);
-  const form = doc.getForm();
-  // A field tree that cannot be walked leaves its widgets alone; the page still goes.
+  // A field tree that cannot be walked leaves its widgets alone; the pages still go. The fields
+  // are read once for all the pages: a field whose last widget goes is emptied and left with
+  // nothing to match on later pages.
   const fields = formFields(doc) || [];
   // Widgets that name no page are matched to the page's annotation references by identity.
   // pdf-lib's getObjectRef scans every object of the document per call, so one reverse
@@ -334,6 +329,13 @@ function removeOnePage(doc, index) {
       refs = new Map(doc.context.enumerateIndirectObjects().map(([ref, value]) => [value, ref]));
     return refs.get(object);
   };
+  // From the last page back, so the indices still to go stay where they were.
+  for (const index of list) removeOnePage(doc, index, fields, refOf);
+}
+function removeOnePage(doc, index, fields, refOf) {
+  const page = doc.getPage(index);
+  const annotations = new Set(annotationsOf(page)?.asArray() || []);
+  const form = doc.getForm();
   for (const field of fields) {
     const { widgets, damaged } = deletionWidgets(field);
     if (damaged && !form.fieldIsDirty(field.ref)) preserveFieldAppearance(field, form);

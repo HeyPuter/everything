@@ -1,8 +1,14 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
-import { PDFName, PDFString } from 'pdf-lib';
-import { PdfSession, deletePage, fillFields, listFields } from '../src/core/document.js';
+import { PDFArray, PDFName, PDFString } from 'pdf-lib';
+import {
+  PdfSession,
+  deletePage,
+  deletePages,
+  fillFields,
+  listFields,
+} from '../src/core/document.js';
 import { flattenCounts, flattenFields } from '../src/core/flatten.js';
 
 afterEach(() => vi.restoreAllMocks());
@@ -355,4 +361,63 @@ it('lists a radio choice once when several buttons share its export value', asyn
   expect(listFields(loaded)[0].options).toEqual(['Small', 'Large']);
   await fillFields(loaded, { Size: ['Small'] });
   expect(listFields(loaded)[0].value).toBe('Small');
+});
+
+it('deletes many pages of a form at once as one by one, reading the fields once', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(await readFile(new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url))),
+  );
+  const build = async () => {
+    const doc = await PDFDocument.create();
+    const pages = Array.from({ length: 6 }, () => doc.addPage([300, 300]));
+    const form = doc.getForm();
+    pages.forEach((page, i) => {
+      const field = form.createTextField(`name${i}`);
+      field.setText(`Name ${i}`);
+      field.addToPage(page, { x: 20, y: 20, width: 150, height: 24 });
+    });
+    // Fields with widgets on several pages, some of them deleted.
+    const shared = form.createTextField('shared');
+    shared.setText('Shared');
+    for (const i of [1, 2, 4]) shared.addToPage(pages[i], { x: 20, y: 60, width: 150, height: 24 });
+    const radio = form.createRadioGroup('choice');
+    ['A', 'B', 'C'].forEach((option, i) =>
+      radio.addOptionToPage(option, pages[i * 2], { x: 20, y: 100, width: 20, height: 20 }),
+    );
+    radio.select('C');
+    const box = form.createCheckBox('agree');
+    box.addToPage(pages[3], { x: 20, y: 140, width: 20, height: 20 });
+    box.check();
+    // Writers often leave out a widget's page, which deletion then matches by reference.
+    for (const field of form.getFields())
+      for (const widget of field.acroField.getWidgets()) widget.dict.delete(PDFName.of('P'));
+    return PDFDocument.load(await doc.save());
+  };
+  const summary = async (doc) => {
+    const saved = await PDFDocument.load(await doc.save());
+    return { pages: saved.getPageCount(), fields: listFields(saved) };
+  };
+  const oneByOne = await build();
+  for (const index of [5, 4, 2, 1]) deletePage(oneByOne, index);
+  const together = await build();
+  const fields = together.catalog.lookup(PDFName.of('AcroForm')).lookup(PDFName.of('Fields'));
+  const size = vi.spyOn(PDFArray.prototype, 'size');
+  deletePages(together, [1, 2, 4, 5]);
+  const walks = size.mock.contexts.filter((array) => array === fields).length;
+  size.mockRestore();
+  expect(await summary(together)).toEqual(await summary(oneByOne));
+  expect((await summary(together)).fields.map((field) => field.name)).toEqual([
+    'name0',
+    'name3',
+    'choice',
+    'agree',
+  ]);
+  // Reading every field once per deleted page made deleting many pages of a long form slow.
+  const single = await build();
+  const singleFields = single.catalog.lookup(PDFName.of('AcroForm')).lookup(PDFName.of('Fields'));
+  const sizeOne = vi.spyOn(PDFArray.prototype, 'size');
+  deletePages(single, [1]);
+  const one = sizeOne.mock.contexts.filter((array) => array === singleFields).length;
+  sizeOne.mockRestore();
+  expect(walks).toBeLessThan(2 * one);
 });
