@@ -113,6 +113,10 @@ export const closeComposers = () => {
       allClosed = false;
     }
   }
+  // A message held for Undo is this account's too. Signing out is leaving,
+  // and leaving keeps the draft rather than posting it once the hold runs
+  // out -- with no session by then, or with whoever signed in next.
+  if (allClosed) for (const held of [...pendingDrafts.values()]) held.cancelHold?.();
   return allClosed;
 };
 
