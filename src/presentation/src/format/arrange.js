@@ -300,11 +300,11 @@ export function selectionPaneContent(ctx) {
     window.addEventListener("pointercancel", up);
   }
   const items = ctx.items();
+  // A list of rows, each a name to select by (pressed while selected) and
+  // a visibility switch: two controls a row, so not a listbox of options.
   const list = el("ul", {
     class: "selection-list",
-    role: "listbox",
     "aria-label": "Objects on this slide",
-    "aria-multiselectable": "true",
   });
   const top = items.filter((item) => !item.depth);
   const neighbor = (item, step) => top[top.indexOf(item) + step];
@@ -314,6 +314,7 @@ export function selectionPaneContent(ctx) {
       {
         type: "button",
         class: "selection-name",
+        "aria-pressed": String(item.selected),
         title:
           "Double-click or press F2 to rename. Alt+Up and Alt+Down reorder.",
         onclick: (e) =>
@@ -340,9 +341,10 @@ export function selectionPaneContent(ctx) {
     const row = el(
       "li",
       {
-        role: "option",
-        "aria-selected": String(item.selected),
-        class: item.hidden ? "hidden-object" : "",
+        class:
+          [item.selected && "selected", item.hidden && "hidden-object"]
+            .filter(Boolean)
+            .join(" ") || null,
         style: item.depth ? `padding-left:${item.depth * 16}px` : null,
         "data-depth": item.depth || null,
         "data-id": item.id,

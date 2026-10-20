@@ -2,6 +2,7 @@
 // rotation and the Size and Rotation dialog, Regroup, aligning to the slide,
 // Replace Fonts, Paste Special, Repeat, and the Format Object shortcut.
 import { test, expect } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import {
   P,
   addShape,
@@ -52,6 +53,33 @@ test("the Selection Pane renames, hides and shows all, and reorders", async ({
     expect.stringMatching(/^Rectangle/),
   ]);
   expect(shapes.some((s) => P.isShapeHidden(s))).toBe(false);
+});
+
+test("the Selection Pane takes the keyboard, marks the selection, and gives the keyboard back", async ({
+  page,
+}) => {
+  await start(page);
+  await addShape(page, "Rectangle");
+  await addShape(page, "Circle");
+  await tab(page, "Shape Format");
+  await (await command(page, "selection-pane")).click();
+  const pane = page.getByRole("complementary", { name: "Selection" });
+  const circle = pane.getByRole("button", { name: /^Circle/ });
+  const rectangle = pane.getByRole("button", { name: /^Rectangle/ });
+  // The selected object's row has the focus, and shows it is selected.
+  await expect(circle).toBeFocused();
+  await expect(circle).toHaveAttribute("aria-pressed", "true");
+  await expect(rectangle).toHaveAttribute("aria-pressed", "false");
+  await rectangle.click();
+  await expect(rectangle).toHaveAttribute("aria-pressed", "true");
+  await expect(circle).toHaveAttribute("aria-pressed", "false");
+  const { violations } = await new AxeBuilder({ page })
+    .include(".selection-pane")
+    .analyze();
+  expect(violations).toEqual([]);
+  await pane.getByRole("button", { name: "Close Selection Pane" }).click();
+  await expect(pane).toHaveCount(0);
+  await expect(page.locator("#main")).toBeFocused();
 });
 
 test("rotate, the Size and Rotation dialog, Regroup and aligning to the slide", async ({

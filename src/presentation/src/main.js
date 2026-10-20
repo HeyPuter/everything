@@ -4772,8 +4772,12 @@ function selectionPaneOpen() {
 }
 function toggleSelectionPane() {
   if (selectionPaneOpen()) {
+    // Closed from within, the keyboard goes back to the slide rather than
+    // being dropped onto the page.
+    const within = selectionPane.contains(document.activeElement);
     selectionPane.remove();
     selectionPane = null;
+    if (within) workspace()?.focus({ preventScroll: true });
     return;
   }
   selectionPane = el("aside", {
@@ -4784,6 +4788,11 @@ function toggleSelectionPane() {
   document.querySelector(".editor-body")?.append(selectionPane);
   renderSelectionPane();
   syncToolbar();
+  // The keyboard follows into the pane, on the selected object's row.
+  (
+    selectionPane.querySelector('.selection-name[aria-pressed="true"]') ||
+    selectionPane
+  ).focus({ preventScroll: true });
 }
 function renderSelectionPane() {
   if (!selectionPaneOpen() || !doc) return;

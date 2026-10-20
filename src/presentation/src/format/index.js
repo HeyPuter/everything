@@ -1537,11 +1537,14 @@ export function createFormatTools(ctx) {
       content.key === paneKey &&
       container.querySelector(".selection-list, .helper")
     ) {
-      for (const li of container.querySelectorAll("li[data-id]"))
-        li.setAttribute(
-          "aria-selected",
-          String(chosen.has(Number(li.dataset.id))),
+      for (const li of container.querySelectorAll("li[data-id]")) {
+        const on = chosen.has(Number(li.dataset.id));
+        li.classList.toggle("selected", on);
+        li.querySelector(".selection-name")?.setAttribute(
+          "aria-pressed",
+          String(on),
         );
+      }
       return;
     }
     paneKey = content.key;

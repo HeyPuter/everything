@@ -740,7 +740,7 @@
   align-items: center;
   border-radius: 4px;
 }
-.selection-list li[aria-selected="true"] {
+.selection-list li.selected {
   background: var(--chrome-selected);
 }
 .selection-list li.hidden-object .selection-name {
