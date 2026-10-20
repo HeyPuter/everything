@@ -32,4 +32,15 @@ describe('list semantics', () => {
     expect(rows()[1].getAttribute('aria-selected')).toBe('true');
     expect(rows()[0].getAttribute('aria-selected')).toBe('false');
   });
+
+  it('keeps the tab stop on the row Back returns to', async () => {
+    await mount();
+    const row = rows()[3];
+    row.focus();
+    row.click();
+    await settle(400);
+    root.querySelector('[aria-label="Back to list"]').click();
+    expect(document.activeElement).toBe(row);
+    expect(rows().filter((other) => other.tabIndex === 0)).toEqual([row]);
+  });
 });

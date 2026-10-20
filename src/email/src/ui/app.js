@@ -3260,7 +3260,13 @@ export function renderApp(root, ctx) {
     clear(msgScroll);
     if (opened?.row) {
       opened.row.setAttribute('aria-selected', String(selected.has(opened)));
-      if (focusRow) opened.row.focus();
+      if (focusRow) {
+        // The row the keyboard comes back to is the list's one tab stop;
+        // left on whichever row had it before, Shift+Tab from here jumped to
+        // the top of the list.
+        for (const row of visibleRows()) row.tabIndex = row === opened.row ? 0 : -1;
+        opened.row.focus();
+      }
     }
     opened = null;
   };
