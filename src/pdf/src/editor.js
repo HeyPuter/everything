@@ -9390,6 +9390,10 @@ export function createEditor({
       `${entry.kind} deleted.`,
       'annotate',
     );
+    // The deleted comment or its Delete button held the focus; keep it on the page, as
+    // deleting a markup does.
+    if (!destroyed && document.activeElement === document.body)
+      overlay.focus({ preventScroll: true });
   }
   /** The selected comment's text, look, replies, and review status in the properties panel. */
   function showAnnotationProperties(entry) {

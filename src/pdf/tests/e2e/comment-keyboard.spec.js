@@ -58,5 +58,7 @@ test('Delete removes a clicked comment', async ({ page }) => {
   await page.keyboard.press('Delete');
   await settled(page);
   await expect(target).toHaveCount(0);
+  // The keyboard focus stays on the page, as it does when a markup is deleted.
+  await expect(page.locator('.drawing-overlay')).toBeFocused();
   expect(await savedRectangles(page)).toEqual([]);
 });
