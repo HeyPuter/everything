@@ -293,7 +293,10 @@ test('placing a shape from the keyboard uses the chosen type', async ({ page }) 
   expect(paths[0].kind).toBe('shape');
 });
 
-test('check marks and crosses are placed with a click or sized with a drag', async ({ page }) => {
+test('check marks and crosses are placed with a click or sized with a drag', async ({
+  page,
+  isMobile,
+}) => {
   await mockPuter(page);
   await page.goto('/#library');
   const doc = await PDFDocument.create();
@@ -303,7 +306,7 @@ test('check marks and crosses are placed with a click or sized with a drag', asy
   const type = page.getByLabel('Shape type', { exact: true });
   await type.selectOption('check');
   await expect(page.locator('.tool-hint')).toHaveText(
-    'Click to place a check mark, or drag to size it. Hold Shift for a square box.',
+    `${isMobile ? 'Tap' : 'Click'} to place a check mark, or drag to size it. Hold Shift for a square box.`,
   );
   // A click, not a drag: the mark takes its fixed size around the point.
   await drag(page, { x: 100, y: 300 }, { x: 100, y: 300 });

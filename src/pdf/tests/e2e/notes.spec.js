@@ -28,6 +28,7 @@ const settled = (page) => expect(page.locator('.editor')).toHaveAttribute('aria-
 
 test('the Note tool leaves a sticky note that can be read, edited, recolored, and deleted', async ({
   page,
+  isMobile,
 }) => {
   await mockPuter(page);
   await page.goto('/#library');
@@ -35,7 +36,10 @@ test('the Note tool leaves a sticky note that can be read, edited, recolored, an
   doc.addPage([400, 400]);
   await openPdf(page, doc);
   await page.getByRole('button', { name: 'Note', exact: true }).click();
-  await expect(page.locator('.tool-hint')).toContainText('Click where the note should go');
+  // A touch screen is tapped, and its hint says so.
+  await expect(page.locator('.tool-hint')).toContainText(
+    `${isMobile ? 'Tap' : 'Click'} where the note should go`,
+  );
   const box = await page.locator('.drawing-overlay').boundingBox();
   await page.mouse.click(box.x + box.width * 0.25, box.y + box.height * 0.25);
   const editor = page.getByRole('group', { name: 'New note' });

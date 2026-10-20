@@ -1297,10 +1297,20 @@ export function createEditor({
     true,
   );
   const accessibleText = el('div', { class: 'sr-only', role: 'region', 'aria-label': 'Page text' });
+  // A touch screen is tapped, not clicked (a double tap edits text as a double click does), so
+  // the hints use its words there.
+  const touchScreen = window.matchMedia?.('(hover: none) and (pointer: coarse)');
+  const forPointer = (text) =>
+    touchScreen?.matches
+      ? text
+          .replace(/double-click/g, 'double-tap')
+          .replace(/\bClick\b/g, 'Tap')
+          .replace(/\bclick\b/g, 'tap')
+      : text;
   const hint = el(
     'span',
     { class: 'tool-hint' },
-    'Click to select, drag to move, or double-click text to edit.',
+    forPointer('Click to select, drag to move, or double-click text to edit.'),
   );
   const colorInput = el('input', {
     type: 'color',
@@ -1493,8 +1503,10 @@ export function createEditor({
     ellipse: 'Drag to draw an ellipse. Hold Shift for a circle.',
     line: 'Drag to draw a line. Hold Shift to snap to 45 degrees.',
     arrow: 'Drag from the tail to the tip of the arrow. Hold Shift to snap to 45 degrees.',
-    check: 'Click to place a check mark, or drag to size it. Hold Shift for a square box.',
-    cross: 'Click to place a cross, or drag to size it. Hold Shift for a square box.',
+    check: forPointer(
+      'Click to place a check mark, or drag to size it. Hold Shift for a square box.',
+    ),
+    cross: forPointer('Click to place a cross, or drag to size it. Hold Shift for a square box.'),
   };
   /** Marks placed with a click, in points. */
   const MARK_SIZE = 14;
@@ -1610,7 +1622,9 @@ export function createEditor({
   const measureHint = () =>
     measureMode.value === 'distance'
       ? 'Drag to measure a distance.'
-      : `Click each corner of the ${measureMode.value === 'area' ? 'area' : 'path'}; double-click or press Enter to finish, Escape to start over.`;
+      : forPointer(
+          `Click each corner of the ${measureMode.value === 'area' ? 'area' : 'path'}; double-click or press Enter to finish, Escape to start over.`,
+        );
   // Text markup: a highlight, an underline, or a strikethrough, each with its usual color.
   const MARKUP_COLORS = { highlight: '#f2c438', underline: '#2d9d5c', strikeout: '#dc3c3c' };
   const markupKind = el(
@@ -3233,6 +3247,7 @@ export function createEditor({
       field:
         'Drag a box where the field goes. Drag fields to move them; double-click one for its properties.',
     }[tool];
+    hint.textContent = forPointer(hint.textContent);
     syncStyleButtons();
     if (redacting()) {
       hint.textContent =

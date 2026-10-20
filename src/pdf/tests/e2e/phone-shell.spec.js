@@ -144,3 +144,17 @@ test('the accessibility report shows each problem in full in the narrow panel', 
     );
   expect(cut).toEqual([]);
 });
+
+test('the hints speak of taps on a touch screen, and a double tap edits text', async ({ page }) => {
+  await openPdf(page, await pages(1));
+  await expect(page.locator('.tool-hint')).toHaveText(
+    'Tap to select, drag to move, or double-tap text to edit.',
+  );
+  const words = page.getByRole('button', { name: 'Edit text: Page 1 words', exact: true });
+  const box = await words.boundingBox();
+  const x = box.x + 8,
+    y = box.y + box.height / 2;
+  await page.touchscreen.tap(x, y);
+  await page.touchscreen.tap(x, y);
+  await expect(page.locator('.page-text-input, .text-line-input').first()).toBeVisible();
+});
