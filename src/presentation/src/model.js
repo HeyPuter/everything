@@ -2012,6 +2012,14 @@ export class History {
     this.bytes = next;
     this.future = [];
   }
+  // Take the latest snapshot back out, as though its edit had not been made:
+  // `pres` is as it was before that edit.
+  drop(pres) {
+    if (!this.past.length) return;
+    this.presentation = pres;
+    this.bytes = this.past.pop();
+    this.future = [];
+  }
   async undo() {
     if (!this.past.length) return null;
     // These snapshots come from our own serializer, rather than file imports.

@@ -2278,10 +2278,11 @@ function scheduleSave(delay) {
 }
 // `onError` hears an edit that failed, in place of the error toast;
 // `onApplied(before, after)` hears the history's snapshots on either side of
-// an edit that was recorded.
+// an edit that was recorded. `takesBack` is the snapshot of an edit this one
+// undoes: while it is still the latest, both leave the history.
 function mutate(
   fn,
-  { coalesce = null, onError = fail, onApplied = null } = {},
+  { coalesce = null, onError = fail, onApplied = null, takesBack = null } = {},
 ) {
   if (!doc || readOnlyDocument()) return Promise.resolve(false);
   if (review.blocksEdits()) {
@@ -2325,7 +2326,9 @@ function mutate(
           lastCoalesce?.key === coalesce &&
           Date.now() - lastCoalesce.time < COALESCE_WINDOW;
         const before = history.bytes;
-        if (merge) await history.amend(doc.pres, theme);
+        if (takesBack && history.bytes === takesBack && history.past.length)
+          history.drop(doc.pres);
+        else if (merge) await history.amend(doc.pres, theme);
         else await history.capture(doc.pres, theme);
         onApplied?.(before, history.bytes);
         lastCoalesce = coalesce ? { key: coalesce, time: Date.now() } : null;
@@ -6076,7 +6079,7 @@ async function placeDrawn(tool, at) {
   ribbon?.select("shape-format");
   if (isText) {
     const obj = currentShape();
-    if (obj) editText(obj);
+    if (obj) editText(obj, null, { inserted: history.bytes });
   }
 }
 // The ribbon's command surface: what tabs.js may call.
@@ -7895,7 +7898,7 @@ function redo() {
 function restoreHistory(direction, steps = 1) {
   // Text still open in the canvas editor is committed first, so the step
   // undone is the typing rather than the edit before it.
-  richEditor?.close();
+  richEditor?.close({ keep: true });
   pendingMutations++;
   const active = doc;
   const action = mutationTail
@@ -10263,7 +10266,9 @@ async function editDiagramText(target) {
     document.querySelector(`.object-hit[data-shape-id="${id}"]`)?.focus();
 }
 
-function editText(target, event = null) {
+// `inserted` is the history's snapshot of the insert that drew the object,
+// for a text box opened for typing as it is drawn.
+function editText(target, event = null, { inserted = null } = {}) {
   if (readOnlyDocument()) return;
   if (review.blocksEdits()) return review.blockedEdit();
   const i = shapeIndex(target);
@@ -10788,6 +10793,9 @@ function editText(target, event = null) {
   // the presentation's own history steps.
   function undoWithin() {
     if (stepHistory(undoSteps, redoSteps)) return;
+    // The box stays for the undo to find: a text box just drawn goes with
+    // its insert.
+    keepEmpty = true;
     finish(false);
     undo();
   }
@@ -10949,7 +10957,8 @@ function editText(target, event = null) {
         : isOn(base, key);
     return result;
   }
-  let cancelled = false;
+  let cancelled = false,
+    keepEmpty = false;
   const finish = (cancel) => {
     cancelled = cancel;
     input.blur();
@@ -11079,8 +11088,10 @@ function editText(target, event = null) {
       ".ribbon, .ribbon-gallery-panel, .ribbon-fold-panel, #inspector, .menu, .menubar, .mobile-only, .review-pane, .format-dialog",
     );
   let closed = false;
-  function close() {
+  // `keep` leaves an emptied box in place for an undo to find.
+  function close({ keep = false } = {}) {
     if (closed) return;
+    if (keep) keepEmpty = true;
     closed = true;
     document.removeEventListener("focusin", elsewhere);
     document.removeEventListener("pointerdown", elsewhere);
@@ -11089,12 +11100,28 @@ function editText(target, event = null) {
     input.remove();
     if (richEditor?.input === input) richEditor = null;
     syncToolbar();
+    const live = !cancelled && doc === owner && doc.pres === pres;
+    // A text box left with no text and nothing to draw goes, as it would
+    // otherwise stay an invisible object; one just drawn goes with its
+    // insert, so no undo step is left behind for it.
     if (
-      !cancelled &&
-      doc === owner &&
-      doc.pres === pres &&
-      serialize(next, blocks) !== initial
-    )
+      live &&
+      !keepEmpty &&
+      !next.some((run) => run.text) &&
+      emptyFrame(obj)
+    ) {
+      const id = P.getShapeId(obj);
+      mutateSlide(
+        P.getShapeSlide(obj),
+        (target) => {
+          const shape = P.findShapeById(target, id);
+          if (!shape || !removeAnyShape(target, shape)) return SKIP_MUTATION;
+          if (P.getSlidePartName(slide()) === P.getSlidePartName(target))
+            selectIds([...selectionIds()].filter((other) => other !== id));
+        },
+        { takesBack: inserted },
+      );
+    } else if (live && serialize(next, blocks) !== initial)
       mutateShape(obj, (obj) => {
         withTextBody(obj);
         const paragraphs = runParagraphs(next);
@@ -11223,6 +11250,17 @@ function sharedEditorKey(e) {
     return false;
   return !/^([abcdiuvxyz]|Arrow.*|Page.*|Home|End|Enter|Escape|Backspace|Delete)$/i.test(
     e.key,
+  );
+}
+// A text box of the slide's own with no fill and no outline: with no text,
+// nothing of it shows.
+function emptyFrame(obj) {
+  if (!P.isShapeTextBox(obj) || P.isShapePlaceholder(obj)) return false;
+  if (groupParents(P.getShapeSlide(obj)).has(P.getShapeId(obj))) return false;
+  const unpainted = (paint) => ["none", "inherit"].includes(paint?.kind);
+  return (
+    unpainted(P.getShapeFillEffective(doc.pres, obj)) &&
+    unpainted(P.getShapeStrokeEffective(doc.pres, obj))
   );
 }
 const editorFor = (obj) =>

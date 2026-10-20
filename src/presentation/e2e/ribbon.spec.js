@@ -147,6 +147,59 @@ test("a dragged rectangle takes the dragged size and a clicked text box opens fo
   );
 });
 
+// A text box left without text stayed as an invisible object that still
+// took clicks. It goes, as in PowerPoint; one just drawn takes its insert's
+// undo step with it.
+test("a text box left without text goes, and a fresh one leaves no undo step", async ({
+  page,
+}) => {
+  await start(page);
+  const hits = page.locator(".object-hit");
+  const before = await hits.count();
+  await rectangle(page, [100, 40], [400, 190]);
+  await expect(hits).toHaveCount(before + 1);
+  await tab(page, "Insert");
+  await command(page, "insert-text-box");
+  const box = await slideBox(page);
+  const k = await scale(page);
+  await page.mouse.click(box.x + 200 * k, box.y + 220 * k);
+  await expect(page.locator(".inline-editor")).toBeFocused();
+  await expect(hits).toHaveCount(before + 2);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".inline-editor")).toHaveCount(0);
+  await expect(hits).toHaveCount(before + 1);
+  // The next undo takes back the rectangle, not an insert nobody can see.
+  await page.keyboard.press(`${mod}+z`);
+  await expect(hits).toHaveCount(before);
+  await page.keyboard.press(`${mod}+Shift+z`);
+  await expect(hits).toHaveCount(before + 1);
+  // Undo from inside a fresh box takes back its insert, and only that.
+  await tab(page, "Insert");
+  await command(page, "insert-text-box");
+  await page.mouse.click(box.x + 200 * k, box.y + 220 * k);
+  await expect(page.locator(".inline-editor")).toBeFocused();
+  await page.keyboard.press(`${mod}+z`);
+  await expect(page.locator(".inline-editor")).toHaveCount(0);
+  await expect(hits).toHaveCount(before + 1);
+  // A box whose text is all deleted goes too, and undo brings it back.
+  await textBox(page, "Kept", [200, 220]);
+  await expect(hits).toHaveCount(before + 2);
+  await hits.last().dblclick();
+  await expect(page.locator(".inline-editor")).toBeFocused();
+  await page.keyboard.press(`${mod}+a`);
+  await page.keyboard.press("Delete");
+  await page.keyboard.press("Escape");
+  await expect(hits).toHaveCount(before + 1);
+  await page.keyboard.press(`${mod}+z`);
+  await expect(hits).toHaveCount(before + 2);
+  const { p } = await download(page);
+  expect(
+    P.getSlideShapes(P.getSlides(p)[0]).some(
+      (s) => P.getShapeText(s) === "Kept",
+    ),
+  ).toBe(true);
+});
+
 test("font, size, styles, case and spacing apply to the selected text box", async ({
   page,
 }) => {
