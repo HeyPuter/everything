@@ -3,7 +3,7 @@
 // rehearsed timings and recorded narration.
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
-import { P, parseDeck } from "../src/model.js";
+import { P, createDeck, parseDeck, text } from "../src/model.js";
 
 test.setTimeout(120_000);
 // A fake camera and microphone for the recording studio.
@@ -423,4 +423,58 @@ test("ending a show before the browser hands over the camera lets it go", async 
   expect(
     await page.evaluate(() => window.tracks.map((t) => t.readyState)),
   ).toEqual(["ended", "ended", "ended"]);
+});
+
+test("switching to a custom show asks about the ink first", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  for (let i = 0; i < 3; i++)
+    text(
+      i ? P.addBlankSlide(pres) : P.getSlides(pres)[0],
+      `Slide ${i + 1}`,
+      1,
+      1,
+      8,
+      2,
+    );
+  const slides = P.getSlides(pres);
+  P.setCustomShows(pres, [{ name: "Short", slides: [slides[2], slides[1]] }]);
+  await page.route("https://js.puter.com/v2/", (r) =>
+    r.fulfill({
+      contentType: "application/javascript",
+      body: 'window.puter={env:"web",auth:{isSignedIn:async()=>false},ui:{onLaunchedWithItems:()=>{}}};',
+    }),
+  );
+  await page.goto("/#/home");
+  const choose = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await choose
+  ).setFiles({
+    name: "Custom.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  await expect(page.locator(".slide-image")).toBeVisible();
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const d = show(page);
+  await page.keyboard.press("Control+p");
+  const box = await d.locator(".presenter-frame").boundingBox();
+  await page.mouse.move(box.x + 100, box.y + 100);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 300, box.y + 160, { steps: 6 });
+  await page.mouse.up();
+  await page.keyboard.press("Escape");
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, {
+    button: "right",
+  });
+  await page.getByRole("menuitem", { name: "Custom Show" }).click();
+  await page.getByRole("menuitem", { name: "Short" }).click();
+  const prompt = page.getByRole("dialog", { name: "Keep your ink?" });
+  await expect(prompt).toBeVisible();
+  await expect(d).toHaveCount(0);
+  await prompt.getByRole("button", { name: "Discard", exact: true }).click();
+  await expect(d.locator(".presenter-counter")).toHaveText("1 / 2");
 });

@@ -251,6 +251,7 @@ export function createShowFeatures(ctx) {
   }
 
   // ---- The session beside a running show ---------------------------------
+  let afterLastShow = Promise.resolve();
   function session(show) {
     return createShowSession(
       {
@@ -259,11 +260,13 @@ export function createShowFeatures(ctx) {
         customShows,
         isNarration: (shape) => isNarration(P, shape),
         title: () => ctx.doc()?.name,
-        playCustomShow: (id, running) => {
+        playCustomShow: async (id, running) => {
           running.close();
+          // The ended show's questions (keep ink?) come first.
+          await afterLastShow;
           ctx.present({ customShow: id, from: "beginning" });
         },
-        afterShow,
+        afterShow: (result) => (afterLastShow = afterShow(result)),
       },
       show,
     );
