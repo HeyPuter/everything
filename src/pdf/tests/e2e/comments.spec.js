@@ -243,6 +243,44 @@ test('a locked highlight chosen in the Comments tab opens its page without edit 
   await expect(page.getByRole('button', { name: 'Delete highlight', exact: true })).toHaveCount(0);
 });
 
+test('a comment chosen in the Comments tab is brought into view on its page', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([400, 1400]);
+  doc.addPage([400, 1400]).drawText('Words near the end', { x: 40, y: 60, size: 18, font });
+  addHighlight(doc, 1, {
+    quads: [rectQuad({ x: 40, y: 54, width: 160, height: 20 })],
+    hex: '#ffff00',
+  });
+  addNote(doc, 1, { x: 300, y: 40, text: 'Last remark', author: 'Ada' });
+  await openPdf(page, doc);
+  const tabs = await showSidebar(page);
+  await tabs.getByRole('tab', { name: /Comments/ }).click();
+  const list = page.getByRole('group', { name: 'Comments' });
+  const workspace = page.locator('.workspace');
+  const inView = async (locator) => {
+    const [box, view] = await Promise.all([locator.boundingBox(), workspace.boundingBox()]);
+    return !!box && box.y >= view.y && box.y + box.height <= view.y + view.height;
+  };
+  await list.getByRole('button', { name: /^Highlight on page 2/ }).click();
+  await expect(page.locator('.page-caption')).toHaveText('Page 2 of 2');
+  await settled(page);
+  const highlight = page.locator('.highlight-target').first();
+  await expect.poll(() => inView(highlight)).toBe(true);
+  // The page stays current while the highlight is selected, though it is scrolled away.
+  await workspace.evaluate((node) => (node.scrollTop = 0));
+  // A narrow panel closed over the page when the highlight was chosen.
+  await showSidebar(page);
+  await list.getByRole('button', { name: /^Note on page 2/ }).click();
+  await expect(page.getByRole('textbox', { name: 'Note text', exact: true })).toHaveValue(
+    'Last remark',
+  );
+  await expect.poll(() => inView(page.locator('.note-target').first())).toBe(true);
+  await expect(page.locator('.page-caption')).toHaveText('Page 2 of 2');
+});
+
 test.describe('narrow side panel', () => {
   test.use({ viewport: { width: 390, height: 800 } });
   test('choosing a page or a comment by keyboard hands focus to what it opens', async ({

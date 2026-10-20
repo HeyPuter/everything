@@ -33,9 +33,9 @@ const toHex = (color) =>
 
 /**
  * Every comment on every page, in page order: page index, PDF.js id, kind, text, author, date,
- * and color. One comment past MAX_COMMENTS is collected and no more, so a caller can tell a
- * full list from one that was cut rather than report a total that is short; `isCurrent` can
- * cancel a stale run between pages.
+ * color, and rectangle. One comment past MAX_COMMENTS is collected and no more, so a caller can
+ * tell a full list from one that was cut rather than report a total that is short; `isCurrent`
+ * can cancel a stale run between pages.
  */
 export async function collectComments(pdf, { isCurrent = () => true } = {}) {
   const limit = MAX_COMMENTS + 1;
@@ -66,6 +66,7 @@ export async function collectComments(pdf, { isCurrent = () => true } = {}) {
         author: String(a.titleObj?.str ?? a.title ?? '').trim(),
         date: parsePdfDate(a.modificationDate) || parsePdfDate(a.creationDate),
         hex: toHex(a.color),
+        rect: a.rect ? Array.from(a.rect) : null,
       });
       if (comments.length >= limit) break;
     }

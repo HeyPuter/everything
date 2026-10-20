@@ -702,6 +702,7 @@ export function createEditor({
         // Text boxes, shapes, and other drawn comments are selected in their own layer.
         kind: comment.reveal || 'annotation',
         page: comment.page,
+        rect: comment.rect,
         focusFrom,
         noteOrdinal,
       });
@@ -959,6 +960,25 @@ export function createEditor({
     const pending = revealComment;
     revealComment = null;
     if (!pending || pending.page !== pageIndex || tool !== 'select') return;
+    await selectComment(pending);
+    // The page opens at its top, or stays where it was scrolled; the comment itself can be
+    // further down, or out to the side at a high zoom.
+    if (pending.rect && !destroyed && pageIndex === pending.page && viewport) {
+      const [x1, y1] = viewport.convertToViewportPoint(pending.rect[0], pending.rect[1]);
+      const [x2, y2] = viewport.convertToViewportPoint(pending.rect[2], pending.rect[3]);
+      const sheet = paper.getBoundingClientRect();
+      revealBox({
+        left: sheet.left + Math.min(x1, x2),
+        right: sheet.left + Math.max(x1, x2),
+        top: sheet.top + Math.min(y1, y2),
+        bottom: sheet.top + Math.max(y1, y2),
+        width: Math.abs(x2 - x1),
+        height: Math.abs(y2 - y1),
+      });
+      stack.quiet();
+    }
+  }
+  async function selectComment(pending) {
     const id = editorAnnotationId(pending.id);
     if (pending.kind === 'annotation') return annotationLayer.focus(id);
     const entry =
@@ -11311,9 +11331,13 @@ export function createEditor({
   function revealCurrentMatch() {
     const mark = textContainer.querySelector('.search-hit-current');
     if (!mark) return;
-    const box = mark.getBoundingClientRect(),
-      view = workspace.getBoundingClientRect();
+    const box = mark.getBoundingClientRect();
     if (!box.width && !box.height) return;
+    revealBox(box);
+  }
+  /** Scroll the workspace to center a box (client coordinates) that is not fully in view. */
+  function revealBox(box) {
+    const view = workspace.getBoundingClientRect();
     if (box.top < view.top || box.bottom > view.bottom)
       workspace.scrollTop += box.top - view.top - (view.height - box.height) / 2;
     if (box.left < view.left || box.right > view.right)
