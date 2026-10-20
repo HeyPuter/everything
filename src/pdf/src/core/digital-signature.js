@@ -988,6 +988,13 @@ function objectRoles(doc) {
   if (formDict instanceof PDFDict) {
     add(formDict.get(name('Fields')), 'fields-array');
     reachable(context, formDict.get(name('DR')), roles, 'form-resources', stop);
+    // The resource dictionaries themselves: entries may be added to them (formChanges).
+    const resources = formDict.get(name('DR'));
+    add(resources, 'form-resources-dict');
+    const resourceDict = context.lookup(resources);
+    if (resourceDict instanceof PDFDict)
+      for (const [, value] of resourceDict.entries()) add(value, 'form-resources-dict');
+    reachable(context, formDict.get(name('XFA')), roles, 'xfa', stop);
     const visit = (ref, parent, depth) => {
       const dict = context.lookup(ref);
       if (!(dict instanceof PDFDict) || depth > 32) return;
@@ -1116,6 +1123,77 @@ const annotRefs = (context, page) => {
     : [];
 };
 
+/** What may change in the AcroForm dictionary itself (its fields are classified one by one). */
+const FORM_KEYS_SIGNING = new Set(['Fields', 'SigFlags', 'DR']);
+/**
+ * Changes to the form dictionary: removed fields, replaced resources, and new settings such
+ * as XFA or a default appearance, which change how fields show without filling them in.
+ * Filling may set NeedAppearances and add resources (a font for the text typed).
+ */
+function formChanges(oldDoc, finalDoc, note, { formOk, otherOk }) {
+  const formOf = (doc) => doc.context.lookup(doc.catalog.get(name('AcroForm')));
+  const before = formOf(oldDoc),
+    after = formOf(finalDoc);
+  if (!(before instanceof PDFDict)) {
+    // A first signature creates the form; only what signing writes is expected.
+    if (!(after instanceof PDFDict)) return;
+    const other = after
+      .keys()
+      .map((key) => key.decodeText())
+      .filter((key) => !FORM_KEYS_SIGNING.has(key) && key !== 'DA');
+    if (other.length) note(otherOk, `The form's settings were changed (${other.join(', ')}).`);
+    return;
+  }
+  if (!(after instanceof PDFDict)) {
+    note(otherOk, 'The form was removed.');
+    return;
+  }
+  const fieldNumbers = (doc, form) => {
+    const fields = doc.context.lookup(form.get(name('Fields')));
+    return fields instanceof PDFArray
+      ? fields
+          .asArray()
+          .filter((ref) => ref instanceof PDFRef)
+          .map((ref) => ref.objectNumber)
+      : [];
+  };
+  const kept = new Set(fieldNumbers(finalDoc, after));
+  if (fieldNumbers(oldDoc, before).some((number) => !kept.has(number)))
+    note(otherOk, 'A form field was removed.');
+  // Resources by category and name, as references or serialized values.
+  const resourceEntries = (doc, form) => {
+    const entries = new Map();
+    const resources = doc.context.lookup(form.get(name('DR')));
+    if (!(resources instanceof PDFDict)) return entries;
+    for (const [category, value] of resources.entries()) {
+      const group = doc.context.lookup(value);
+      if (group instanceof PDFDict)
+        for (const [key, entry] of group.entries())
+          entries.set(
+            `${category.decodeText()}/${key.decodeText()}`,
+            entry instanceof PDFRef ? `ref ${entry.objectNumber}` : serialized(entry),
+          );
+      else entries.set(category.decodeText(), serialized(group));
+    }
+    return entries;
+  };
+  const resourcesNow = resourceEntries(finalDoc, after);
+  for (const [key, value] of resourceEntries(oldDoc, before))
+    if (resourcesNow.get(key) !== value) {
+      note(otherOk, "The form's fonts or other resources were changed.");
+      break;
+    }
+  const settings = [];
+  for (const key of changedKeys(before, after)) {
+    if (FORM_KEYS_SIGNING.has(key)) continue;
+    if (key === 'NeedAppearances') note(formOk, 'The form asks viewers to redraw its fields.');
+    else if (key === 'XFA' && before.has(name('XFA')) && after.has(name('XFA')))
+      note(formOk, "The form's XFA data was updated.");
+    else settings.push(key);
+  }
+  if (settings.length) note(otherOk, `The form's settings were changed (${settings.join(', ')}).`);
+}
+
 /**
  * Classify the changes made after a signature. `level` is the DocMDP permission (1: none,
  * 2: form filling and signing, 3: also annotations) or 'approval' for a signature with no
@@ -1148,6 +1226,7 @@ function classifyChanges(
     }
     return false;
   };
+  formChanges(oldDoc, finalDoc, note, { formOk, otherOk: level === 'approval' });
   for (const change of changes) {
     const { roles, after, before, added } = change;
     const dict = after instanceof PDFDict ? after : after instanceof PDFStream ? after.dict : null;
@@ -1245,7 +1324,18 @@ function classifyChanges(
       note(annotsOk, added ? 'An annotation was added.' : 'An annotation was changed.');
       continue;
     }
-    if (roles.has('appearance') || roles.has('form-resources')) {
+    if (roles.has('form-resources-dict')) continue;
+    if (roles.has('form-resources')) {
+      // Fonts the fields' drawings share: changing one changes text already drawn.
+      if (!added) note(level === 'approval', "The form's fonts or other resources were changed.");
+      continue;
+    }
+    if (roles.has('xfa')) {
+      // Filling in a form that also has XFA updates its XFA data.
+      if (!added) note(formOk, "The form's XFA data was updated.");
+      continue;
+    }
+    if (roles.has('appearance')) {
       if (!added) note(formOk, 'An appearance was updated.');
       continue;
     }
