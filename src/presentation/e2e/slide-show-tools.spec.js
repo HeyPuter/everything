@@ -392,3 +392,35 @@ test("recording narration with the camera, a live camera, and clearing it", asyn
     ).toBe(true);
   }
 });
+
+test("ending a show before the browser hands over the camera lets it go", async ({
+  page,
+}) => {
+  // The browser takes a while to answer for the devices.
+  await page.addInitScript(() => {
+    const media = navigator.mediaDevices;
+    const ask = media.getUserMedia.bind(media);
+    window.tracks = [];
+    media.getUserMedia = async (want) => {
+      await new Promise((r) => setTimeout(r, 1500));
+      const stream = await ask(want);
+      window.tracks.push(...stream.getTracks());
+      return stream;
+    };
+  });
+  await story(page);
+  await tab(page, "Record");
+  await (await command(page, "Live Camera", "Camera")).click();
+  await (await command(page, "From Beginning", "Record")).click();
+  const d = show(page);
+  await expect(d.getByRole("toolbar", { name: "Recording" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(d).toBeHidden();
+  // The studio's camera and microphone and the slide's live camera.
+  await expect
+    .poll(() => page.evaluate(() => window.tracks.length), { timeout: 10_000 })
+    .toBe(3);
+  expect(
+    await page.evaluate(() => window.tracks.map((t) => t.readyState)),
+  ).toEqual(["ended", "ended", "ended"]);
+});

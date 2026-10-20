@@ -1,6 +1,6 @@
 // Slide show and recording helpers: narrations and
 // live cameras stored on slides, timings, and narrated video timelines.
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { P, createDeck } from "../src/model.js";
 import {
   addNarration,
@@ -13,6 +13,7 @@ import {
 import {
   addCameraShape,
   cameraShapeKind,
+  createCameraSource,
   isCameraShape,
 } from "../src/show/camera.js";
 import { showTimeline } from "../src/export/transition-frames.js";
@@ -135,6 +136,26 @@ describe("live cameras", () => {
       y: 20,
       w: 300,
     });
+  });
+});
+
+describe("the show's camera", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("lets the camera go when the show stopped while the browser asked", async () => {
+    let answer;
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        getUserMedia: () => new Promise((resolve) => (answer = resolve)),
+      },
+    });
+    const track = { stop: vi.fn() };
+    const source = createCameraSource();
+    const asked = source.camera();
+    source.stop();
+    answer({ getTracks: () => [track] });
+    expect(await asked).toBe(null);
+    expect(track.stop).toHaveBeenCalled();
+    expect(source.stream).toBe(null);
   });
 });
 

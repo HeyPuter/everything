@@ -77,14 +77,22 @@ export function createCameraSource() {
     async camera() {
       if (stream) return stream;
       if (failure) return null;
-      pending ??= get({ video: true }).then(
-        (s) => (stream = s),
+      if (pending) return pending;
+      const asked = (pending = get({ video: true }).then(
+        (s) => {
+          // Stopped while the browser asked: let the camera go.
+          if (pending !== asked) {
+            s.getTracks().forEach((t) => t.stop());
+            return null;
+          }
+          return (stream = s);
+        },
         (error) => {
-          failure = error;
+          if (pending === asked) failure = error;
           return null;
         },
-      );
-      return pending;
+      ));
+      return asked;
     },
     get failure() {
       return failure;

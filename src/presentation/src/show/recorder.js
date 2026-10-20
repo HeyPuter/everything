@@ -186,7 +186,11 @@ export function createRecordingStudio(ctx, session) {
   }
 
   // ---- Devices -------------------------------------------------------------
+  // Bumped by each request for devices and by dispose(), so a request the
+  // browser answers late lets its devices go.
+  let asking = 0;
   async function acquire() {
+    const ticket = ++asking;
     stream?.getTracks().forEach((t) => t.stop());
     stream = null;
     const wantVideo = !!showPrefs.cameraOn;
@@ -199,8 +203,9 @@ export function createRecordingStudio(ctx, session) {
       return null;
     }
     const constraints = (id) => (id ? { deviceId: { ideal: id } } : true);
+    let got = null;
     try {
-      stream = await media.getUserMedia({
+      got = await media.getUserMedia({
         audio: wantAudio ? constraints(showPrefs.micId) : false,
         video: wantVideo
           ? showPrefs.cameraId
@@ -213,16 +218,21 @@ export function createRecordingStudio(ctx, session) {
       // records a narration.
       if (wantVideo && wantAudio)
         try {
-          stream = await media.getUserMedia({
+          got = await media.getUserMedia({
             audio: constraints(showPrefs.micId),
           });
           say("The camera is not available; recording sound only.");
         } catch {}
-      if (!stream) {
+      if (!got) {
         say("Allow the camera and microphone to record.");
         return null;
       }
     }
+    if (ticket !== asking) {
+      got.getTracks().forEach((t) => t.stop());
+      return null;
+    }
+    stream = got;
     if (stream.getVideoTracks().length) {
       preview.srcObject = stream;
       preview.play().catch(() => {});
@@ -450,7 +460,6 @@ export function createRecordingStudio(ctx, session) {
   acquire();
 
   return {
-    ownsCamera: true,
     shown(i) {
       const moving = i !== current;
       ended = false;
@@ -492,6 +501,7 @@ export function createRecordingStudio(ctx, session) {
       return false;
     },
     dispose() {
+      asking++;
       finish();
       state = "idle";
       clearInterval(tick);

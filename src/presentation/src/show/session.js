@@ -1277,7 +1277,7 @@ export function createShowSession(ctx, show) {
       mirror?.dispose();
       consoleView?.dispose();
       cleanups.forEach((f) => f());
-      if (!studio?.ownsCamera) cameras.stop();
+      cameras.stop();
       ctx.afterShow?.(result);
     },
   };
