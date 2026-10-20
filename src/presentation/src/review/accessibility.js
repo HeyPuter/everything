@@ -646,16 +646,24 @@ export function createAccessibility(env, host) {
     render: renderOrder,
   });
 
+  // The status bar asks on every selection change and keystroke, but the
+  // answer changes only with the deck: it is worked out once per revision.
+  let status = { pres: null, revision: -1, text: "" };
   return {
     issues,
     open: () => host.open("accessibility"),
     openReadingOrder: () => host.open("readingOrder"),
     statusText: () => {
+      const pres = env.pres();
+      const revision = env.revision();
+      if (status.pres === pres && status.revision === revision)
+        return status.text;
       const list = issues();
-      if (!list.length) return "Accessibility: Good to go";
-      if (list.some((i) => i.severity !== "tip"))
-        return "Accessibility: Investigate";
-      return "Accessibility: Good to go";
+      const text = list.some((i) => i.severity !== "tip")
+        ? "Accessibility: Investigate"
+        : "Accessibility: Good to go";
+      status = { pres, revision, text };
+      return text;
     },
   };
 }

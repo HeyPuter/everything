@@ -485,4 +485,20 @@ test.describe("a new presentation", () => {
     await expect(pane).toContainText("Empty placeholder (2)");
     await expect(pane).not.toContainText("Missing slide title");
   });
+  test("the status follows each edit and its undo", async ({ page }) => {
+    await stub(page);
+    await page.goto("/");
+    const status = page.locator("#status-accessibility");
+    await expect(status).toHaveText("Accessibility: Good to go");
+    // Without its title placeholder the slide has no title.
+    await page.locator("#slide-canvas .object-hit").first().click();
+    await page.keyboard.press("Delete");
+    await expect(page.locator("#slide-canvas .object-hit")).toHaveCount(1);
+    await expect(status).toHaveText("Accessibility: Investigate");
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+z" : "Control+z",
+    );
+    await expect(page.locator("#slide-canvas .object-hit")).toHaveCount(2);
+    await expect(status).toHaveText("Accessibility: Good to go");
+  });
 });

@@ -2327,6 +2327,9 @@ function mutate(
         onApplied?.(before, history.bytes);
         lastCoalesce = coalesce ? { key: coalesce, time: Date.now() } : null;
         revision++;
+        // What is worked out once per revision (the accessibility status)
+        // catches up with the edit.
+        syncToolbar();
         await persistDraft().catch(warnStorage);
         updateHistoryButtons();
         scheduleSave();
