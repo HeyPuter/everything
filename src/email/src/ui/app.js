@@ -849,6 +849,14 @@ export function renderApp(root, ctx) {
     else menuBtn.focus();
   };
 
+  // Listeners on the document, the window and media queries outlive the
+  // shell: signing out renders the gate over the same root. Each one stood
+  // down when the shell had gone, but went on holding all of it -- every
+  // listing, the header index, the last search -- about 11 MB per sign-out.
+  // This signal removes them when the shell leaves the page.
+  const shellListeners = new AbortController();
+  const listening = { signal: shellListeners.signal };
+
   // Growing past the breakpoint turns the drawer back into a static rail, so
   // an open drawer has to be folded away or the page would stay inert with
   // no scrim left to dismiss it.
@@ -856,7 +864,7 @@ export function renderApp(root, ctx) {
     if (!frame.isConnected) return;
     if (!e.matches) setNavOpen(false);
     syncMenuBtn();
-  });
+  }, listening);
 
   menuBtn.addEventListener('click', () => {
     if (mobile()) {
@@ -4664,7 +4672,7 @@ export function renderApp(root, ctx) {
     }
   };
 
-  document.addEventListener('keydown', onShortcut);
+  document.addEventListener('keydown', onShortcut, listening);
 
   // -- loading ---------------------------------------------------------------------
 
@@ -5169,6 +5177,7 @@ export function renderApp(root, ctx) {
     if (frame.isConnected) return;
     observer.disconnect();
     originState.flush();
+    shellListeners.abort();
     searchController?.abort();
     historyController?.abort();
     indexQueue.length = 0;
@@ -5208,14 +5217,14 @@ export function renderApp(root, ctx) {
       startWatching();
       syncInbox();
       pullFlags();
-    });
+    }, listening);
     window.addEventListener('online', () => {
       if (!frame.isConnected) return;
       startWatching();
       syncInbox();
-    });
+    }, listening);
     // Offline, every check is a failure waiting to happen.
-    window.addEventListener('offline', stopPolling);
+    window.addEventListener('offline', stopPolling, listening);
     listEl.addEventListener('scroll', () => {
       if (pendingNew && listEl.scrollTop <= 8 && !frame.classList.contains('reading')) clearNewMail();
     }, { passive: true });
