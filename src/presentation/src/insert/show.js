@@ -406,12 +406,15 @@ export function createShowExtras(ctx, show) {
     setTimeout(() => autoplay.forEach((p) => p.play()), 50);
   }
 
-  /** The slide to go to instead of `i`; null when the step was used up. */
-  function navigate(i, from, { backward = false } = {}) {
+  /** The slide to go to instead of `i`; null when the step was used up.
+   * `step` is "click" or "auto" (the show's timer) for a plain advance and
+   * unset for a jump to a slide. */
+  function navigate(i, from, { step } = {}) {
     if (selfJump) return i;
-    if (!backward && i === from + 1) {
-      // The next click plays media waiting in the click sequence.
-      const waiting = pendingMedia.shift();
+    if (step && i === from + 1) {
+      // The next click plays media waiting in the click sequence; the
+      // timer and jumps move on without it.
+      const waiting = step === "click" && pendingMedia.shift();
       if (waiting) {
         waiting.play();
         return null;

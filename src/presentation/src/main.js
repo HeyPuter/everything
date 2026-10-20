@@ -15143,7 +15143,7 @@ async function present(options = {}) {
       );
       if (i >= 0) show(i);
       else toast("That slide is hidden or was removed.");
-    } else if (link.kind === "nextSlide") show(n + 1);
+    } else if (link.kind === "nextSlide") show(n + 1, { step: "click" });
     else if (link.kind === "prevSlide") showPrevious();
     else if (link.kind === "firstSlide") show(0);
     else if (link.kind === "lastSlide") show(all.length - 1);
@@ -15216,17 +15216,17 @@ async function present(options = {}) {
   // Once a timed slide's time is up, its remaining click steps play one
   // after another before the show moves on.
   let timeUp = false;
-  function advance() {
+  function advance(auto = false) {
     if (!ended && animator?.next()) {
       session?.stepped(1);
       if (timeUp) advanceClock.select(0, animator.played);
       return;
     }
-    show(n + 1);
+    show(n + 1, { step: auto ? "auto" : "click" });
   }
   const advanceClock = createSlideAdvanceClock(() => {
     timeUp = true;
-    advance();
+    advance(true);
   });
   const pauseButton = iconButton(
     "Pause automatic advance",
@@ -15285,8 +15285,10 @@ async function present(options = {}) {
     playing?.cancel();
     playing = null;
   }
-  function show(i, { backward = false } = {}) {
-    const redirected = ended ? i : showInserted.navigate(i, n, { backward });
+  // `step` marks a plain advance ("click", or "auto" from the timer), as
+  // opposed to a jump to a slide.
+  function show(i, { backward = false, step } = {}) {
+    const redirected = ended ? i : showInserted.navigate(i, n, { step });
     if (redirected === null) return;
     i = redirected;
     timeUp = false;
