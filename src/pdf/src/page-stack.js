@@ -104,8 +104,14 @@ export function createPageStack({
     }
   }
 
+  let laidOutZoom = null,
+    zoomChanged = false;
   function layout() {
     const zoom = getZoom();
+    if (zoom !== laidOutZoom) {
+      laidOutZoom = zoom;
+      zoomChanged = true;
+    }
     slots.forEach((slot, i) => {
       const { width, height } = slotSize(i);
       slot.style.width = `${width}px`;
@@ -356,6 +362,12 @@ export function createPageStack({
     quiet,
     /** Follow a scroll that arrived while the editor was busy. */
     recheck() {
+      // Pictures that stay near the view through a zoom never cross the observers' margins,
+      // so they are redrawn here, where the view has settled at the new zoom.
+      if (zoomChanged) {
+        zoomChanged = false;
+        refresh();
+      }
       if (pendingFollow && continuous) follow();
     },
     destroy() {

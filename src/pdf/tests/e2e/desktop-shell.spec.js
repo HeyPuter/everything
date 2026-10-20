@@ -156,6 +156,32 @@ test('pages scroll continuously and the page in view becomes the current page', 
   expect(top).toBeLessThan(40);
 });
 
+test('pages already in view are drawn again at a new zoom', async ({ page }) => {
+  await openPdf(page, await numberedPdf(6));
+  const zoom = page.getByLabel('Zoom', { exact: true });
+  await zoom.selectOption('0.5');
+  await settled(page);
+  // Neighbours stay near the view through the zoom; their pictures must not be left stretched.
+  await zoom.selectOption('0.75');
+  await settled(page);
+  const sharp = () =>
+    page.evaluate(() => {
+      const view = document.querySelector('.workspace').getBoundingClientRect();
+      return [...document.querySelectorAll('.page-slot:not(:has(.paper))')]
+        .filter((slot) => {
+          const box = slot.getBoundingClientRect();
+          return box.bottom > view.top && box.top < view.bottom;
+        })
+        .map((slot) => [
+          slot.dataset.page,
+          slot.querySelector('.page-image').width ===
+            Math.floor(slot.offsetWidth * window.devicePixelRatio),
+        ]);
+    });
+  await expect.poll(async () => (await sharp()).length).toBeGreaterThan(0);
+  await expect.poll(async () => (await sharp()).every(([, ok]) => ok)).toBe(true);
+});
+
 test('single page display shows one page at a time', async ({ page }) => {
   await openPdf(page, await numberedPdf(3));
   await page.getByRole('menuitem', { name: 'View', exact: true }).click();
