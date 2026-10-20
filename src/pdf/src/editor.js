@@ -2787,7 +2787,11 @@ export function createEditor({
     return Math.max(0, Math.min(pageCount - 1, Number.isFinite(index) ? Math.floor(index) : 0));
   }
   function navigateBy(direction) {
-    return navigate(clampPageIndex(pendingNavigation?.index ?? pageIndex) + direction);
+    const from = clampPageIndex(pendingNavigation?.index ?? pageIndex);
+    // Side by side, the next or previous page is the first of the next or previous pair; the
+    // other page of the pair on view is already in sight.
+    if (stack.twoUp) return navigate(Math.max(0, (Math.floor(from / 2) + direction) * 2));
+    return navigate(from + direction);
   }
   async function navigate(index, comment = null, { scroll = true } = {}) {
     if (destroyed || !pageCount) return false;

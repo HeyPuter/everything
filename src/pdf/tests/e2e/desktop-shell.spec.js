@@ -264,6 +264,42 @@ test('in two-page scrolling, the right-hand page stays current while its row is 
   await page.evaluate(() => localStorage.removeItem('pdf-editor:page-display'));
 });
 
+for (const display of ['Two-page', 'Two-page scrolling'])
+  test(`${display} turns a pair of pages at a time`, async ({ page }) => {
+    await openPdf(page, await numberedPdf(5));
+    await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Page display' }).click();
+    await page.getByRole('menuitemcheckbox', { name: display, exact: true }).click();
+    await expect(page.locator('.page-stack')).toHaveClass(/two-up/);
+    await settled(page);
+    const caption = page.locator('.page-caption');
+    const atTop = (index) =>
+      page.evaluate((index) => {
+        const slot = document.querySelector(`.page-slot[data-page="${index}"]`);
+        const top =
+          slot.getBoundingClientRect().top -
+          document.querySelector('.workspace').getBoundingClientRect().top;
+        return !slot.hidden && top >= 0 && top < 40;
+      }, index);
+    await page.getByRole('button', { name: 'Next page', exact: true }).click();
+    await expect(caption).toHaveText('Page 3 of 5');
+    await expect.poll(() => atTop(2)).toBe(true);
+    await page.keyboard.press('Alt+ArrowRight');
+    await expect(caption).toHaveText('Page 5 of 5');
+    await expect(page.getByRole('button', { name: 'Next page', exact: true })).toBeDisabled();
+    // From the right-hand page of a pair, back is the pair before.
+    await page.getByRole('button', { name: 'Previous page', exact: true }).click();
+    await expect(caption).toHaveText('Page 3 of 5');
+    const right = await page.locator('.page-slot[data-page="3"]').boundingBox();
+    await page.mouse.click(right.x + 50, right.y + 50);
+    await expect(caption).toHaveText('Page 4 of 5');
+    await settled(page);
+    await page.getByRole('button', { name: 'Previous page', exact: true }).click();
+    await expect(caption).toHaveText('Page 1 of 5');
+    await expect.poll(() => atTop(0)).toBe(true);
+    await page.evaluate(() => localStorage.removeItem('pdf-editor:page-display'));
+  });
+
 test('Organize pages selects, turns, moves, and deletes several pages', async ({ page }) => {
   await openPdf(page, await numberedPdf(4));
   await page.getByRole('button', { name: 'Tools', exact: true }).click();
