@@ -63,6 +63,30 @@ describe('attachMenu', () => {
     expect(document.querySelectorAll('.menu-sep')).toHaveLength(1);
   });
 
+  it('is named after its button, and groups the items under each caption', () => {
+    attachMenu(button, () => [
+      { header: 'Theme' },
+      { label: 'Light', checked: true, onSelect: () => {} },
+      { label: 'Dark', checked: false, onSelect: () => {} },
+      { header: 'Density' },
+      { label: 'Comfortable', checked: true, onSelect: () => {} },
+      { separator: true },
+      { label: 'Sign out', onSelect: () => {} },
+    ]);
+    open();
+    const menu = document.querySelector('.menu');
+    expect(menu.getAttribute('aria-label')).toBe('Settings');
+    const groups = [...menu.querySelectorAll('[role="group"]')];
+    const name = (group) => document.getElementById(group.getAttribute('aria-labelledby')).textContent;
+    expect(groups.map(name)).toEqual(['Theme', 'Density']);
+    // One checked choice per group, not three in one set.
+    expect(groups.map((group) => group.querySelectorAll('[aria-checked="true"]').length)).toEqual([1, 1]);
+    // What follows a separator belongs to no caption.
+    expect(items().at(-1).closest('[role="group"]')).toBeNull();
+    // The arrow keys still reach every item.
+    expect(items()).toHaveLength(4);
+  });
+
   it('runs the item, closes, and gives focus back to the trigger', () => {
     let ran = 0;
     attachMenu(button, () => [{ label: 'One', onSelect: () => { ran++; } }]);

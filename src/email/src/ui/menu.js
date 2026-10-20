@@ -1,4 +1,4 @@
-import { el, append } from './dom.js';
+import { el } from './dom.js';
 import { icon } from './icons.js';
 
 /**
@@ -22,6 +22,7 @@ const MARGIN = 8;
 // The least a menu is ever shortened to, so a cramped corner still shows a
 // few items rather than a sliver.
 const MIN_HEIGHT = 120;
+let headerIds = 0;
 
 /**
  * The box a menu can be seen in: the viewport, narrowed by every ancestor
@@ -125,10 +126,13 @@ export function attachMenu(button, buildItems, { align = 'end' } = {}) {
   };
 
   const open = () => {
-    popup = el('div.menu', { role: 'menu', 'data-align': align });
-    append(popup, buildItems().filter(Boolean).map((item) => {
-      if (item.separator) return el('div.menu-sep', { role: 'separator' });
-      if (item.header) return el('div.menu-header', {}, item.header);
+    // Named after the button that opens it: a menu with no name was read as
+    // just "menu".
+    popup = el('div.menu', {
+      role: 'menu', 'data-align': align,
+      'aria-label': button.getAttribute('aria-label') || button.textContent.trim() || null,
+    });
+    const itemNode = (item) => {
       const node = el('button.menu-item', {
         type: 'button',
         role: item.checked === undefined ? 'menuitem'
@@ -142,7 +146,25 @@ export function attachMenu(button, buildItems, { align = 'end' } = {}) {
       );
       if (item.danger) node.classList.add('danger');
       return node;
-    }));
+    };
+    // A caption names the items under it, up to the next separator or
+    // caption, as a group. Loose in the menu, the radios of Theme, Density
+    // and Undo send were one set of choices with three of them checked, and
+    // each caption was stray text between items.
+    let group = null;
+    for (const item of buildItems().filter(Boolean)) {
+      if (item.separator) {
+        group = null;
+        popup.append(el('div.menu-sep', { role: 'separator' }));
+      } else if (item.header) {
+        const id = `menu-header-${++headerIds}`;
+        group = el('div.menu-group', { role: 'group', 'aria-labelledby': id },
+          el('div.menu-header', { id, role: 'presentation' }, item.header));
+        popup.append(group);
+      } else {
+        (group ?? popup).append(itemNode(item));
+      }
+    }
 
     // Focus that leaves the popup for somewhere else on the page -- by any
     // route other than Tab, which is answered above -- takes the menu with it.
