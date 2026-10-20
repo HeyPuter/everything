@@ -657,6 +657,9 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
   // correct even if other messages arrived in between.
   const insert = (message) => {
     removed.delete(message.name);
+    // Already listed again under an entry of its own: that one stands.
+    const held = messages.findIndex(sameFile(message));
+    if (held !== -1) return held;
     known.set(message.name, message);
     const key = (m) => `${m.day}/${m.name}`;
     const place = (list) => {
@@ -668,7 +671,7 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
     const index = place(messages);
     loaded.add(message.name);
     noteNewest();
-    if (catalog && !catalog.includes(message)) {
+    if (catalog && !catalog.some(sameFile(message))) {
       if (place(catalog) < catalogNext) catalogNext++;
     }
     return index;

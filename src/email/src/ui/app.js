@@ -1963,6 +1963,15 @@ export function renderApp(root, ctx) {
    * correct even if other mail arrived in between.
    */
   const grow = (unit, back) => {
+    if (view().box === back[0]?.box && !searching()) {
+      // A listing made while the undo was in flight may already show these
+      // files, as rows of its own; putting this one back as well listed the
+      // conversation twice.
+      const shown = new Set(units.filter((other) => other !== unit)
+        .flatMap((other) => other.messages.map((message) => message.name)));
+      back = back.filter((message) => !shown.has(message.name));
+      if (!back.length) return;
+    }
     Object.assign(unit, makeThread([...unit.messages, ...back]));
     track(unit);
     if (units.includes(unit)) {
