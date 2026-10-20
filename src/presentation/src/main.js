@@ -14478,7 +14478,13 @@ function copyObjects({ cut = false } = {}) {
   if (!written)
     navigator.clipboard?.writeText?.(clipboard.text).catch(() => {});
   stampSystemClipboard();
-  if (cut) deleteObject();
+  if (cut) cutSelection();
+}
+// A cut object leaves its place empty, so the first paste on its slide
+// puts it back where it was.
+function cutSelection() {
+  clipboard.pastes.set(clipboard.origin, 0);
+  deleteObject();
 }
 // Menus cannot see a paste event and read the clipboard directly; a token in
 // a web custom format is the only kind that survives that trip.
@@ -14528,7 +14534,7 @@ document.addEventListener("cut", (e) => {
     return;
   if (copySelection()) {
     writeClipboardData(e);
-    deleteObject();
+    cutSelection();
   }
 });
 document.addEventListener("paste", (e) => {

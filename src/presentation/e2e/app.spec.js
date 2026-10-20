@@ -10253,6 +10253,31 @@ test("objects can be cut, copied, and pasted across slides and presentations", a
   expect(P.getSlideText(P.getSlides(loaded)[0])).toContain("Make room for");
 });
 
+// A paste after a cut on the same slide stepped aside as though the
+// original were still there.
+test("an object cut and pasted on its own slide goes back where it was", async ({
+  page,
+}) => {
+  await story(page);
+  const objects = page.locator(".object-hit");
+  const count = await objects.count();
+  const title = page.locator('[data-object="1"]');
+  await title.click();
+  const original = await placement(title);
+  await page.keyboard.press("Control+x");
+  await expect(objects).toHaveCount(count - 1);
+  await page.keyboard.press("Control+v");
+  await expect(objects).toHaveCount(count);
+  const pasted = page.locator(".object-hit.selected");
+  expect(await placement(pasted)).toEqual(original);
+  // A second paste steps aside from the first.
+  await page.keyboard.press("Control+v");
+  await expect(objects).toHaveCount(count + 1);
+  const [left, top] = await placement(pasted);
+  expect(left).toBeGreaterThan(original[0]);
+  expect(top).toBeGreaterThan(original[1]);
+});
+
 test("pasting an image or text from another app inserts a picture or a text box", async ({
   page,
 }) => {
