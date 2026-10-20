@@ -4940,12 +4940,9 @@ function applyColor(kind, value) {
     if (!obj || !canEditText(obj)) return;
     if (kind === "textOutline") {
       // An outline on the text is drawn with a line round each letter.
-      return mutateShape(obj, (obj) =>
-        P.setShapeTextOutline?.(
-          obj,
-          value ? { color: value, widthEmu: P.pt(0.75) } : null,
-        ),
-      );
+      return applyTextFormat(obj, {
+        outline: value ? { color: value, widthEmu: P.pt(0.75) } : null,
+      });
     }
     return applyTextFormat(obj, {
       [kind === "text" ? "color" : "highlight"]: value,
@@ -6150,7 +6147,7 @@ function ribbonApi() {
     lastColor,
     applyLastColor,
     colorMenu,
-    canTextOutline: () => !!P.setShapeTextOutline,
+    canTextOutline: () => true,
     // Paragraph
     canList: () => {
       const obj = textTarget();

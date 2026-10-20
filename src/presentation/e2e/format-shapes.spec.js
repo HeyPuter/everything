@@ -202,3 +202,30 @@ test("Merge Shapes: union, fragment and subtract", async ({ page }) => {
   expect(shapes).toHaveLength(1);
   expect(P.getShapeName(shapes[0])).toMatch(/^Rectangle/);
 });
+
+test("Text Outline on Shape Format outlines the letters, and No Outline removes it", async ({
+  page,
+}) => {
+  await start(page);
+  await menu(page, "Insert", "Text box");
+  await page.locator(".object-hit").first().dblclick();
+  await page.keyboard.type("Outlined");
+  await page.keyboard.press("Escape");
+  await tab(page, "Shape Format");
+  await (await command(page, "text-outline")).click();
+  let { slideXml } = await download(page);
+  expect(slideXml()).toMatch(
+    /<a:rPr[^>]*><a:ln w="9525"><a:solidFill><a:schemeClr val="tx1"\/><\/a:solidFill><\/a:ln>/,
+  );
+
+  await page.locator(".object-hit").first().click();
+  await tab(page, "Shape Format");
+  await page
+    .locator(".ribbon-panel:not([hidden])")
+    .getByRole("button", { name: "Text outline colors" })
+    .click();
+  await page.getByRole("menuitem", { name: "No Outline" }).click();
+  ({ slideXml } = await download(page));
+  expect(slideXml()).toContain("Outlined");
+  expect(slideXml()).not.toContain("<a:ln");
+});
