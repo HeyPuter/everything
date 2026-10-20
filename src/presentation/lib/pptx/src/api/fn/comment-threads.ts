@@ -413,8 +413,14 @@ export const getSlideCommentThreads = (
   slide: SlideData,
 ): ReadonlyArray<CommentThreadInfo> => {
   const pkg = slide[INTERNAL_PACKAGE];
-  const people = new Map(readModernAuthors(pkg).map((a) => [a.id, a]));
-  const modern = readModernThreads(slide, people);
+  // The authors list is read only for a slide with modern comments: reading
+  // it re-parses the presentation's relationships, one per slide.
+  const modern = modernRel(slide)
+    ? readModernThreads(
+        slide,
+        new Map(readModernAuthors(pkg).map((a) => [a.id, a])),
+      )
+    : [];
   let legacyComments: ReturnType<typeof getSlideComments> = [];
   try {
     legacyComments = getSlideComments(slide);
