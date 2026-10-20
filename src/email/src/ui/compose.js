@@ -822,7 +822,7 @@ export function openCompose({
   // already in them and are both written above it; everything else is written
   // from the end of what is there.
   const writesAbove = !draft && Boolean(start.body || start.html);
-  const focusMessage = () => (writesAbove ? editor.focusStart() : editor.focusEnd());
+  const focusMessage = () => (writesAbove ? editor.focusStart() : editor.focusOwnEnd());
 
   // -- autosave --------------------------------------------------------------
 
@@ -1472,8 +1472,9 @@ export function openCompose({
     // it unchanged has nothing to write.
     stored = true;
     lastSaved = JSON.stringify(currentDraft());
-    // Carry on where the draft left off.
-    editor.focusEnd();
+    // Carry on where the draft left off: the end of the writer's own text,
+    // which in a reply or a forward is above the signature and the quote.
+    editor.focusOwnEnd();
   } else if (prefill.kind === 'forward') {
     // A forward has no recipient yet, and that is the first thing to fill in.
     to.input.focus();

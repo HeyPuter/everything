@@ -197,11 +197,11 @@ export function createEditor({ label = 'Message', placeholder = '', onInput, onF
     } catch { /* the body no longer holds that much text */ }
   };
 
-  const caretTo = (start) => {
+  const caretTo = (start, within = body) => {
     body.focus({ preventScroll: true });
     try {
       const range = document.createRange();
-      range.selectNodeContents(body);
+      range.selectNodeContents(within);
       range.collapse(start);
       const selection = document.getSelection?.();
       selection?.removeAllRanges();
@@ -714,5 +714,25 @@ export function createEditor({ label = 'Message', placeholder = '', onInput, onF
 
     focusStart: () => caretTo(true),
     focusEnd: () => caretTo(false),
+
+    /**
+     * The end of what the writer wrote, which in a resumed reply or forward
+     * is above the signature and the message being answered: at the end of
+     * the whole body, carrying on typing went in under sixty lines of quote.
+     * What ends the writer's part is a signature separator (`-- `), the
+     * forwarded-message header, or an attribution line followed by a quote
+     * -- not any quote, since the Quote button makes those in the writer's
+     * own text too. Without any of them, it is the end of the body.
+     */
+    focusOwnEnd() {
+      const blocks = [...body.children];
+      const line = (block) => block.textContent.replace(/\u00a0/g, ' ').trim();
+      const tail = blocks.findIndex((block, index) => line(block) === '--'
+        || /^-{10} Forwarded message -{10}$/.test(line(block))
+        || (/ wrote:$/.test(line(block)) && blocks[index + 1]?.tagName === 'BLOCKQUOTE'));
+      if (tail < 0) return caretTo(false);
+      const own = blocks.slice(0, tail).reverse().find((block) => line(block));
+      return own ? caretTo(false, own) : caretTo(true);
+    },
   };
 }
