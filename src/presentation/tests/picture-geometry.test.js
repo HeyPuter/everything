@@ -293,3 +293,23 @@ describe("picture and inherited geometry", () => {
         expect(after[name]).toEqual(data);
   });
 });
+
+describe("picture data in the preview", () => {
+  it("embeds each picture's bytes once", () => {
+    const pres = createDeck("blank");
+    const png = Uint8Array.from(
+      atob(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==",
+      ),
+      (c) => c.charCodeAt(0),
+    );
+    P.addSlideImage(P.getSlides(pres)[0], png, {
+      x: 0,
+      y: 0,
+      w: P.inches(2),
+      h: P.inches(2),
+    });
+    const svg = svgOf(pres);
+    expect(svg.split("data:image/png;base64,")).toHaveLength(2);
+  });
+});

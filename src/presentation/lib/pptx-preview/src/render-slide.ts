@@ -706,7 +706,7 @@ const renderPicture = (
       const mirrorX = fillMode.mirror === "x" || fillMode.mirror === "xy";
       const mirrorY = fillMode.mirror === "y" || fillMode.mirror === "xy";
       const cell = (fx: boolean, fy: boolean, dx: number, dy: number) =>
-        `<image x="${E(dx)}" y="${E(dy)}" width="${E(tw)}" height="${E(th)}" href="${dataUrl}" xlink:href="${dataUrl}" preserveAspectRatio="none"${fx || fy ? ` transform="translate(${E(fx ? 2 * dx + tw : 0)} ${E(fy ? 2 * dy + th : 0)}) scale(${fx ? -1 : 1} ${fy ? -1 : 1})"` : ""}${filterAttr}/>`;
+        `<image x="${E(dx)}" y="${E(dy)}" width="${E(tw)}" height="${E(th)}" href="${dataUrl}" preserveAspectRatio="none"${fx || fy ? ` transform="translate(${E(fx ? 2 * dx + tw : 0)} ${E(fy ? 2 * dy + th : 0)}) scale(${fx ? -1 : 1} ${fy ? -1 : 1})"` : ""}${filterAttr}/>`;
       const patternId = mintId();
       const pw = tw * (mirrorX ? 2 : 1),
         ph = th * (mirrorY ? 2 : 1);
@@ -753,7 +753,7 @@ const renderPicture = (
       // A union clip would discard shading and the alpha at face overlaps.
       const imageId = mintId();
       const definitions = [
-        `<defs><image id="${imageId}" x="${E(imgX)}" y="${E(imgY)}" width="${E(imgW)}" height="${E(imgH)}" href="${dataUrl}" xlink:href="${dataUrl}" preserveAspectRatio="none"${filterAttr}${opacityAttr}/></defs>`,
+        `<defs><image id="${imageId}" x="${E(imgX)}" y="${E(imgY)}" width="${E(imgW)}" height="${E(imgH)}" href="${dataUrl}" preserveAspectRatio="none"${filterAttr}${opacityAttr}/></defs>`,
       ];
       const faces: string[] = [];
       const shades = new Map<string, ReturnType<typeof geometryFillShade>>();
@@ -791,7 +791,7 @@ const renderPicture = (
       }
       return `${clipDef}${outlinePaint?.defs ?? ""}${definitions.join("")}<g${transform}>${faces.join("")}${outline}</g><g${transform}>${textOverlay}</g>`;
     }
-    return `${clipDef}${outlinePaint?.defs ?? ""}<g${fallback}${transform}${clipAttr}><image x="${E(imgX)}" y="${E(imgY)}" width="${E(imgW)}" height="${E(imgH)}" href="${dataUrl}" xlink:href="${dataUrl}" preserveAspectRatio="none"${filterAttr}${opacityAttr}/></g>${outline ? `<g${transform}>${outline}</g>` : ""}<g${transform}>${textOverlay}</g>`;
+    return `${clipDef}${outlinePaint?.defs ?? ""}<g${fallback}${transform}${clipAttr}><image x="${E(imgX)}" y="${E(imgY)}" width="${E(imgW)}" height="${E(imgH)}" href="${dataUrl}" preserveAspectRatio="none"${filterAttr}${opacityAttr}/></g>${outline ? `<g${transform}>${outline}</g>` : ""}<g${transform}>${textOverlay}</g>`;
   }
   // B14 — external r:link pictures don't ship bytes in the package.
   // Surface the URL in the placeholder so users can see where the
@@ -12710,7 +12710,7 @@ const backgroundPictureSvg = (
     transparency > 0
       ? ` opacity="${Math.max(0, 1 - transparency).toFixed(3)}"`
       : "";
-  const href = `href="${dataUrl}" xlink:href="${dataUrl}"`;
+  const href = `href="${dataUrl}"`;
   const size = fill?.tile ? readImagePixelSize(bytes) : null;
   if (fill?.tile && size) {
     const t = fill.tile;

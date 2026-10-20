@@ -1122,7 +1122,7 @@ const emitPlacements = (placements: Placement[]): string => {
         // Sit the square bullet on the text baseline (bottom edge at the
         // baseline), matching where the glyph's ink would land.
         parts.push(
-          `<image x="${fmt(line.bullet.x + dx)}" y="${fmt(baselineY - b.sizePx)}" width="${fmt(b.sizePx)}" height="${fmt(b.sizePx)}" href="${b.imageHref}" xlink:href="${b.imageHref}" preserveAspectRatio="xMidYMid meet"/>`,
+          `<image x="${fmt(line.bullet.x + dx)}" y="${fmt(baselineY - b.sizePx)}" width="${fmt(b.sizePx)}" height="${fmt(b.sizePx)}" href="${b.imageHref}" preserveAspectRatio="xMidYMid meet"/>`,
         );
       } else {
         parts.push(
