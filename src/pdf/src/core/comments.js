@@ -11,7 +11,8 @@ export const COMMENT_KINDS = {
   Highlight: { label: 'Highlight', icon: 'Highlighter', reveal: 'highlight' },
   Underline: { label: 'Underline', icon: 'Underline', reveal: 'highlight' },
   StrikeOut: { label: 'Strikethrough', icon: 'Strikethrough', reveal: 'highlight' },
-  Squiggly: { label: 'Squiggly underline', icon: 'Underline', reveal: 'highlight' },
+  // Selected among the drawn comments: the highlight tools redraw only their own three kinds.
+  Squiggly: { label: 'Squiggly underline', icon: 'Underline', reveal: null },
   FreeText: { label: 'Text box', icon: 'Type', reveal: null },
   Ink: { label: 'Drawing', icon: 'Pencil', reveal: null },
   Square: { label: 'Rectangle', icon: 'Square', reveal: null },

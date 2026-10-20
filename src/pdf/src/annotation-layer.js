@@ -1,4 +1,5 @@
 import { el } from './lib/ui.js';
+import { annotationAccepts } from './core/annotations.js';
 
 /**
  * Comments drawn as annotations (text boxes, callouts, shapes, pencil drawings, stamps) as
@@ -20,7 +21,11 @@ export const ANNOTATION_KINDS = new Set([
   'Stamp',
   'Caret',
   'FileAttachment',
+  'Squiggly',
 ]);
+/** Whether a comment can be dragged or nudged: a squiggly underline stays on its words. */
+const movable = (entry) =>
+  !entry.locked && !entry.readOnly && annotationAccepts(entry.subtype, 'rect');
 
 export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
   const root = el('div', { class: 'annotation-targets' });
@@ -91,7 +96,7 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
             // Preventing the default also prevents focus; the selected comment takes it, as
             // a desktop editor's does, for the arrow keys, Delete, and Escape.
             node.focus({ preventScroll: true });
-            if (entry.locked || entry.readOnly) return;
+            if (!movable(entry)) return;
             drag = { entry, node, id: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
             node.setPointerCapture(e.pointerId);
           },
@@ -125,7 +130,7 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
             } else if (e.key === 'Escape') {
               e.preventDefault();
               select(null);
-            } else if (e.key.startsWith('Arrow') && !entry.locked && !entry.readOnly) {
+            } else if (e.key.startsWith('Arrow') && movable(entry)) {
               e.preventDefault();
               const step = e.shiftKey ? 10 : 1;
               const dx = { ArrowLeft: -step, ArrowRight: step }[e.key] || 0,
@@ -140,6 +145,8 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
           },
         });
         place(node, screenBox(entry.rect));
+        // Only a comment that can move offers the move pointer.
+        if (!movable(entry)) node.style.cursor = 'pointer';
         if (entry.id === selected) node.classList.add('is-selected');
         return node;
       }),
