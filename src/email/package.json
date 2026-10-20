@@ -4,6 +4,7 @@
   "description": "A fast, private email client for your Puter account",
   "type": "module",
   "private": true,
+  "license": "AGPL-3.0-only",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
