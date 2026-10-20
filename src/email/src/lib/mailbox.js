@@ -469,14 +469,14 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
     } catch (e) {
       if (gen !== generation) return [];
       if (isMissingDirectory(e)) answered = true;
-      // Two different situations arrive as the same error, and the error
-      // shape cannot tell them apart: there is no `objects` folder yet (a
+      // Two different situations: there is no `objects` folder yet (a
       // mailbox nothing has been delivered to), or the read itself failed.
       // Keeping the previous listing is right for both -- on a first open
-      // there is nothing to keep, so an untouched mailbox still reads as
-      // empty, and on a re-open a blip no longer looks like the mail has
-      // been deleted. `listError` lets the caller say so out loud.
-      listError = e;
+      // there is nothing to keep, and on a re-open a blip does not look like
+      // the mail has been deleted. Only the failed read is an error the
+      // caller has to say out loud and offer to retry: a missing folder is
+      // an empty mailbox, the same distinction the catalog makes.
+      listError = isMissingDirectory(e) ? null : e;
       return [];
     }
     if (gen !== generation) return [];

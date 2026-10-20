@@ -3071,6 +3071,18 @@ export function renderApp(root, ctx) {
         drafts: ['pencil', 'No drafts.',
           'A message you close before sending is kept here, on this device, until you send or discard it.'],
       };
+      if (mailbox().listError) {
+        // Nothing is listed because the listing failed. "No mail yet" was a
+        // claim about mail this view could not read, with nothing to press,
+        // and nothing retried it.
+        listEl.append(el('div.center', { role: 'alert' },
+          el('span.center-icon', { html: icon('alert', 28, 1.4) }),
+          el('p', {}, 'Could not load this folder.'),
+          el('p.center-note', {}, String(mailbox().listError?.message ?? mailbox().listError)),
+          el('button.btn.btn-small', { type: 'button', onclick: () => refresh() }, 'Retry')));
+        syncSelection();
+        return;
+      }
       const [iconName, title, note] = EMPTY[folder] ?? [];
       listEl.append(iconName
         ? el('div.center', {},
@@ -4723,7 +4735,8 @@ export function renderApp(root, ctx) {
     // read every row was going to cost anyway, and the index keeps it.
     if (threadable()) await readHeads(box.messages, { active });
     if (!active()) return false;
-    listed.add(box.box);
+    // A folder that could not be read at all is listed again when next opened.
+    if (!box.listError || box.messages.length) listed.add(box.box);
     // A listing that could not be read leaves the previous one in place, so
     // there is still something to render; the caller reports the failure.
     // Both paths carry the selection across the rebuild themselves: a
@@ -4939,6 +4952,13 @@ export function renderApp(root, ctx) {
     if (ctx.sample || !frame.isConnected) return;
     if (syncing) {
       syncAgain = true;
+      return;
+    }
+    // The inbox could not be read at all. A check now is the next try at
+    // reading it, and what it finds is the folder, not new mail.
+    if (boxes.inbox.listError && !boxes.inbox.messages.length) {
+      if (view().box === 'inbox' && !searching()) loadFolder();
+      else outdate('inbox');
       return;
     }
     syncing = true;
@@ -5277,14 +5297,14 @@ export function renderApp(root, ctx) {
       btn.setAttribute('aria-busy', 'false');
     }
     // Confirming a refresh that did not happen is worse than saying nothing:
-    // the rows on screen would be the ones from before. A failure with
-    // nothing listed is left alone, because it cannot be told apart from a
-    // mailbox whose objects folder has not been created yet -- the common
-    // case on a new account, which the empty panel already explains.
-    const stale = !ok && box.messages.length > 0;
+    // the rows on screen would be the ones from before. A mailbox whose
+    // objects folder has not been created yet -- a new account -- is not a
+    // failure, and lists as empty.
     toast(
-      stale ? 'Could not refresh. Showing the last messages loaded.' : `${label} refreshed.`,
-      { iconName: stale ? 'alert' : 'refresh' },
+      ok ? `${label} refreshed.`
+        : box.messages.length ? 'Could not refresh. Showing the last messages loaded.'
+          : `Could not load ${label}.`,
+      { iconName: ok ? 'refresh' : 'alert' },
     );
   };
   refreshBtn.addEventListener('click', () => {
