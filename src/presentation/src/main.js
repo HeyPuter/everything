@@ -1639,6 +1639,7 @@ function libraryFileMenu(e, f) {
             deletingDrafts.add(f.id);
             try {
               await drafts.deleteDraft(f.id);
+              libraryMeta(requestOwner).forget(f);
             } finally {
               deletingDrafts.delete(f.id);
             }
@@ -1647,6 +1648,8 @@ function libraryFileMenu(e, f) {
               if (accountVersion !== accountRequest) return;
               const path = f.path;
               await cloud.deleteFile(path);
+              // A file saved under the name later is another presentation.
+              libraryMeta(requestOwner).forget(f);
               for (const pending of pendingCloudOpens) {
                 if (
                   pending.owner === requestOwner &&

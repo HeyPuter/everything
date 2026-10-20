@@ -152,4 +152,31 @@ describe("what the library remembers", () => {
     expect(mine.togglePin({ id: "draft-1" })).toBe(true);
     expect(mine.togglePin({ id: "draft-1" })).toBe(false);
   });
+  it("keeps a recovery draft's pin apart from its file's", async () => {
+    const { libraryMeta } = await import("../src/start/library-meta.js");
+    const mine = libraryMeta("me");
+    const file = { kind: "cloud", path: "/me/Decks/A.pptx" };
+    const draft = { kind: "draft", id: "d1", path: "/me/Decks/A.pptx" };
+    mine.togglePin(file);
+    mine.noteOpened(file, 1000);
+    expect(mine.isPinned(draft)).toBe(false);
+    expect(mine.openedAt(draft)).toBeNull();
+    mine.togglePin(draft);
+    mine.forget(file);
+    expect(mine.isPinned(file)).toBe(false);
+    expect(mine.isPinned(draft)).toBe(true);
+  });
+  it("reads a draft pinned under its bare id before", async () => {
+    store.set(
+      "presentation.library.v1",
+      JSON.stringify({ me: { pins: ["d2"], opened: { d2: 500 } } }),
+    );
+    const { libraryMeta } = await import("../src/start/library-meta.js");
+    const mine = libraryMeta("me");
+    const draft = { kind: "draft", id: "d2", path: null };
+    expect(mine.isPinned(draft)).toBe(true);
+    expect(mine.openedAt(draft)).toBe(500);
+    expect(mine.togglePin(draft)).toBe(false);
+    expect(mine.isPinned(draft)).toBe(false);
+  });
 });
