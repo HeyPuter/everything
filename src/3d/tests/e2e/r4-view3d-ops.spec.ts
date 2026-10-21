@@ -130,3 +130,23 @@ test('ruler_add with Ctrl snaps the ends to vertices', async ({ page }) => {
   expect(len).toBeCloseTo(2, 4);
   await expectNoErrors(errors);
 });
+
+test('bpy.context.space_data exposes the 3D viewport settings', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  const r = await page.evaluate(async () => {
+    const { runJavaScript } = await import('/src/scripting/runner.ts' as string);
+    return runJavaScript(`
+      const sd = bpy.context.space_data;
+      if (sd.type !== 'VIEW_3D') throw new Error('type ' + sd.type);
+      sd.shading.type = 'WIREFRAME';
+      sd.overlay.show_face_orientation = true;
+      sd.lens = 35;
+      sd.region_3d.view_location = [1, 2, 3];
+      sd.region_3d.view_perspective = 'ORTHO';
+    `);
+  });
+  expect(r.ok).toBe(true);
+  expect(await view(page, '[v.shading.type, v.overlay.show_face_orientation, v.nav.lens, v.nav.pivot.toArray(), v.nav.ortho]')).toEqual(['WIREFRAME', true, 35, [1, 2, 3], true]);
+  await expectNoErrors(errors);
+});

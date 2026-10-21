@@ -6,3 +6,4 @@ import './datagizmos';
 import './viewops';
 import './camdraw';
 import './objdisplay';
+import './bpyspace';
