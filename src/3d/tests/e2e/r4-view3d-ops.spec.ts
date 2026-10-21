@@ -185,13 +185,17 @@ test('annotate line, polygon and eraser tools', async ({ page }) => {
   s = await strokes();
   expect(s.length).toBe(2);
   expect(s[1].points.length).toBe(9);
-  // the eraser removes what it passes over
+  // the eraser cuts the polygon where it passes over its top corner: two pieces remain, the line is untouched
   await run(page, 'wm.tool_set_by_id', { name: 'builtin.annotate_eraser' });
   await page.mouse.move(c.x - 2, c.y - 162);
   await page.mouse.down();
   await page.mouse.move(c.x + 2, c.y - 158, { steps: 3 });
   await page.mouse.up();
-  expect((await strokes()).length).toBe(1);
+  s = await strokes();
+  expect(s.length).toBe(3);
+  expect(s[0].points.length).toBe(6);
+  // each piece keeps one corner and ends where the eraser cut it
+  expect(s.slice(1).map((x) => x.points.length)).toEqual([6, 6]);
   await expectNoErrors(errors);
 });
 
