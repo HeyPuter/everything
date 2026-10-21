@@ -847,7 +847,10 @@ export function createEditor({
     let reports = [];
     if (hasFields) {
       const { verifySignatures } = await import('./core/digital-signature.js');
-      reports = await verifySignatures(signedBytes());
+      // An encrypted file's text strings (reason, field names) need the password it opened with.
+      reports = await verifySignatures(signedBytes(), {
+        password: initialProtection?.permissions || initialProtection?.open || '',
+      });
       if (token !== signatureCheck || destroyed) return;
     }
     signatureReports = reports;

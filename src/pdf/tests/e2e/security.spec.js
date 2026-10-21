@@ -2,7 +2,8 @@ import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { PDFDocument, PDFName } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
-import { PasswordError, unlockPdf } from '../../src/core/security.js';
+import { PasswordError, protectPdf, unlockPdf } from '../../src/core/security.js';
+import { createSelfSignedId, signPdf } from '../../src/core/digital-signature.js';
 
 const PUTER_MOCK = `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username:'test-user'}), signIn: async () => {}, signOut: async () => {} }, fs: { readdir: async () => [], write: async () => ({}) }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`;
 async function mockPuter(page) {
@@ -253,6 +254,31 @@ for (const name of ['aes-256', 'aes-256-r5', 'rc4-128'])
     expect(reader.encryption.security.P & 0x4).toBe(0);
     expect((await unlockPdf(bytes, 'owner')).owner).toBe(true);
   });
+
+test('the Signatures panel reads the reason and field of a signed PDF opened with its password', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  doc.addPage([300, 300]);
+  const id = await createSelfSignedId({ name: 'Ada Lovelace' });
+  const signed = await signPdf(await doc.save(), id, {
+    fieldName: 'Approval',
+    reason: 'Approved by finance',
+    rect: { x: 20, y: 20, width: 200, height: 50 },
+  });
+  // Its strings are encrypted, the signature value is not.
+  const locked = await protectPdf(signed, { open: 'user', permissions: 'owner' });
+  await chooseFile(page, Buffer.from(locked));
+  const dialog = passwordDialog(page);
+  await dialog.getByLabel('Password', { exact: true }).fill('user');
+  await dialog.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await page.getByRole('tab', { name: 'Signatures' }).click();
+  const panel = page.getByRole('tabpanel', { name: 'Signatures' });
+  await expect(panel.locator('dd')).toContainText(['Approved by finance', 'Approval']);
+});
 
 test('protects a PDF with an open password, marks it unsaved, and removes the password again', async ({
   page,
