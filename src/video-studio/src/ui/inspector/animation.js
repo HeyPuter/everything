@@ -38,6 +38,11 @@ function motionPreview(button, demo, kind, id) {
   let t0 = 0;
   const CYCLE = 1600;
   const frame = (now) => {
+    // A tile replaced while hovered never gets pointerleave.
+    if (!demo.isConnected) {
+      raf = 0;
+      return;
+    }
     const ms = (now - t0) % CYCLE;
     const clip = { duration: 1.4e6, animIn: null, animOut: null, animLoop: null };
     if (kind === 'in') clip.animIn = { id, duration: 0.9e6 };

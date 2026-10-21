@@ -246,6 +246,11 @@ export function animatePreview(canvas, kind, id) {
   if (!e) return () => {};
   const ctx2d = canvas.getContext('2d');
   const frame = (now) => {
+    // A tile replaced while hovered never gets pointerleave.
+    if (!canvas.isConnected) {
+      raf = 0;
+      return;
+    }
     if (!start) start = now;
     const t = (now - start) / 1000;
     let layers;
@@ -257,7 +262,12 @@ export function animatePreview(canvas, kind, id) {
     raf = requestAnimationFrame(frame);
   };
   raf = requestAnimationFrame(frame);
-  return () => cancelAnimationFrame(raf);
+  const stop = () => {
+    cancelAnimationFrame(raf);
+    raf = 0;
+  };
+  stop.running = () => raf !== 0;
+  return stop;
 }
 
 /** Wire hover/focus animation on a tile whose preview canvas is inside. */
@@ -265,7 +275,7 @@ export function hoverAnimate(tileEl, kind, id) {
   if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   let stop = null;
   const on = () => {
-    if (stop) return;
+    if (stop?.running?.()) return;
     const c = tileEl.querySelector('canvas');
     if (c) stop = animatePreview(c, kind, id);
   };

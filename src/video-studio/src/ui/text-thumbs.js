@@ -68,6 +68,11 @@ export function hoverAnimateLook(host, canvas, look, animId, kind, opts = {}) {
   let k = null;
   const period = kind === 'loop' ? 1.6 : 1.3;
   const frame = (now) => {
+    // A tile replaced while hovered never gets pointerleave.
+    if (!canvas.isConnected) {
+      raf = 0;
+      return;
+    }
     if (!start) start = now;
     const t = ((now - start) / 1000) % (period + 0.4);
     const p = Math.min(1, t / period);

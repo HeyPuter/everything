@@ -86,6 +86,11 @@ function hoverPlay(tileEl, tpl) {
   let raf = 0;
   let start = 0;
   const frame = (now) => {
+    // A tile replaced while hovered never gets pointerleave.
+    if (!tileEl.isConnected) {
+      raf = 0;
+      return;
+    }
     start ||= now;
     const t = ((now - start) / 1000) % (tpl.duration + 0.3);
     const c = tileEl.querySelector('canvas');
