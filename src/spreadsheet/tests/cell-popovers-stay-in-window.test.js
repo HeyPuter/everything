@@ -10,6 +10,7 @@ import { Doc } from '../src/lib/doc.js';
 // window, as the input message does: the link's slides left, and the note goes to the cell's left, or under it
 // where there is no room on either side.
 const widths = { 'note-pop': 260, 'link-pop': 340 };
+const heights = { 'link-pop': 36, 'note-pop': 100, 'prompt-pop': 60 };
 let view;
 beforeEach(() => {
   vi.useFakeTimers(); vi.stubGlobal('Blob', NodeBlob);
@@ -19,7 +20,7 @@ beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 800 });
   Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 400 });
   Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get() { return widths[this.className.split(' ')[0]] || 0; } });
-  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get() { return this.className.startsWith('link-pop') ? 36 : 0; } });
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get() { return heights[this.className.split(' ')[0]] || 0; } });
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ measureText: text => ({ width: text.length * 7 }), font: '' });
   localStorage.clear(); document.body.replaceChildren();
 });
@@ -84,4 +85,20 @@ it('goes out of sight with its cell when the sheet is scrolled away from it', as
   viewport.scrollLeft = 3000; viewport.dispatchEvent(new Event('scroll')); await vi.advanceTimersByTimeAsync(50);
   expect(viewport.scrollLeft).toBe(3000);
   for (const name of ['note-pop', 'prompt-pop']) expect(at(pop(name))[0]).toBeLessThan(1000);
+});
+
+// Near the window's foot a note ran out of sight below it, and an input message or a link under the cell did too.
+it('rises at the window\'s foot: a note beside the cell slides up, an input message goes above the cell', async () => {
+  const { pop } = await mount();
+  const wb = view.doc.wb, id = wb.activeSheetId;
+  wb.setNote(id, 17, 1, 'A note at the foot of the window.');
+  wb.addValidation(id, { range: { r1: 17, c1: 1, r2: 17, c2: 1 }, type: 'whole', min: 1, max: 9, prompt: 'One to nine' });
+  view.goTo('B18'); await vi.advanceTimersByTimeAsync(50);
+  const cell = cellBox();
+  expect(cell.top + cell.height).toBeLessThanOrEqual(400);
+  expect(cell.top + cell.height + 4 + 60).toBeGreaterThan(400);
+  const [, noteY] = at(pop('note-pop'));
+  expect(noteY + 100).toBeLessThanOrEqual(400);
+  const [, promptY] = at(pop('prompt-pop'));
+  expect(promptY + 60).toBeLessThanOrEqual(cell.top);
 });

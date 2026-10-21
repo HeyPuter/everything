@@ -3107,13 +3107,22 @@ export function createGrid(opts) {
         // not cover the cell. A cell scrolled out of sight takes them with it, rather than leaving them over others.
         const left = frozenCell ? rowHeaderW : view.sl;
         const right = left + view.vw - p.el.offsetWidth - 4;
-        const cellLeft = x - p.dx;
+        const cellLeft = x - p.dx, cellTop = y - p.dy;
+        let under = p.el !== notePop;
         if (cellLeft + p.box.width > left && cellLeft < left + view.vw) {
           if (p.el === notePop && x > right) {
             if (cellLeft - p.el.offsetWidth - 6 >= left) x = cellLeft - p.el.offsetWidth - 6;
-            else y += p.box.height + 4 + [promptPop, linkPop].filter((pop) => !pop.hidden).reduce((h, pop) => h + pop.offsetHeight + 4, 0);
+            else { y += p.box.height + 4 + [promptPop, linkPop].filter((pop) => !pop.hidden).reduce((h, pop) => h + pop.offsetHeight + 4, 0); under = true; }
           }
           x = Math.max(left, Math.min(x, right));
+        }
+        // At the window's foot they rise: a note beside the cell slides up, and one under it goes above the cell
+        // where there is room there.
+        const top = frozenCell ? colHeaderH : view.st;
+        const bottom = top + view.vh - p.el.offsetHeight - 4;
+        if (cellTop + p.box.height > top && cellTop < top + view.vh && y > bottom) {
+          const above = cellTop - p.el.offsetHeight - 4;
+          y = under && above >= top ? above : Math.max(top, bottom);
         }
       }
       p.el.classList.toggle('offscreen', off);
