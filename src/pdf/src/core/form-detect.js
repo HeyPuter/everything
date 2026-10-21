@@ -16,6 +16,7 @@ import {
 import { inspectPaths, pathColorHex } from './path-edit.js';
 import { decode, matrix, pageSource, parseContent } from './text-edit.js';
 import { annotationsOf } from './structure.js';
+import { visibleBox } from './document.js';
 
 const name = PDFName.of;
 const get = (dict, key) => dict?.lookup?.(name(key));
@@ -548,6 +549,7 @@ function widgetRects(doc, page) {
 export function detectFormFields(doc, pageIndex, { textContent } = {}) {
   const page = doc.getPage(pageIndex);
   const { width: pageWidth } = page.getMediaBox?.() ?? { width: 612 };
+  const shown = visibleBox(page);
   let items;
   try {
     items = textContent ? fromTextContent(textContent) : extractText(doc, page);
@@ -645,8 +647,13 @@ export function detectFormFields(doc, pageIndex, { textContent } = {}) {
     const left = leftLabel(rule.x0, rule.y - 2, rule.y + 14, 80);
     const below = left ? null : labelBelow(rule.x0, rule.x1, rule.y - rule.width / 2);
     const above = left || below ? null : labelAbove(rule.x0, rule.x1, top + 14);
-    // A long line with no label beside or under it separates sections.
-    if (!left && !below && length > 0.6 * pageWidth) continue;
+    // A long line with no label beside or under it separates sections; near the top or
+    // bottom of the page it sets off the header or footer, whatever is printed by it.
+    if (length > 0.6 * pageWidth) {
+      if (!left && !below) continue;
+      const height = (rule.y - shown.y) / shown.height;
+      if (height < 0.1 || height > 0.9) continue;
+    }
     const height = headroom(rule.x0, rule.x1, top, Math.max(14, (left?.size ?? 10) * 1.6));
     if (height < 8) continue;
     const label = left ?? below ?? above;
@@ -771,6 +778,8 @@ export function detectFormFields(doc, pageIndex, { textContent } = {}) {
   const accepted = [];
   for (const candidate of candidates.sort((a, b) => b.confidence - a.confidence)) {
     const { rect } = candidate;
+    // Marks outside the page as it is shown (printer's marks past the crop box) are no fields.
+    if (overlap(shown, rect) < 0.5 * area(rect)) continue;
     if (taken.some((widget) => overlap(widget, rect) > 0)) continue;
     if (
       accepted.some(

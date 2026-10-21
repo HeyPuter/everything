@@ -945,6 +945,33 @@ it('takes dark banners for decoration, not for fields, and shaded boxes for fiel
   ]);
 });
 
+it('takes header and footer rules and marks outside the page for no fields', async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([612, 792]);
+  page.setCropBox(36, 36, 540, 720);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const text = (value, x, y, size = 11) => page.drawText(value, { x, y, size, font });
+  const line = (x0, x1, y) =>
+    page.drawLine({ start: { x: x0, y }, end: { x: x1, y }, thickness: 0.75 });
+  text('Annual Report 2025', 50, 735, 14);
+  line(50, 562, 725);
+  text('Page 1', 290, 50, 9);
+  line(50, 562, 62);
+  // Printer's marks past the crop box.
+  text('Job 42', 5, 10, 8);
+  line(40, 200, 8);
+  page.drawRectangle({ x: 560, y: 300, width: 40, height: 20, borderWidth: 1 });
+  // A form's own lines, a long one with its label under it among them.
+  text('Name', 60, 600);
+  line(100, 300, 598);
+  line(50, 562, 400);
+  text('Signature of applicant', 50, 388, 9);
+  expect(detectFormFields(doc, 0).map(({ name }) => name)).toEqual([
+    'Name',
+    'Signature of applicant',
+  ]);
+});
+
 it('fills created fields with the existing fill tool', async () => {
   await mockTextFont();
   const doc = await blank();
