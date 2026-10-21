@@ -1176,10 +1176,12 @@ export function createGrid(opts) {
     ensureOffsets();
     const s = sheet();
     const { st, sl, vh, vw } = view;
+    // A view reaching past the last line ends at the last line with a size: the lines after it are hidden, and rows
+    // hidden from under a list to the sheet's end were a million lines walked on every frame.
     const r0 = Math.max(0, rowOffsets.indexAt(st) - BUFFER);
-    const r1 = Math.min(s.rows - 1, rowOffsets.indexAt(st + vh) + BUFFER);
+    const r1 = Math.min(s.rows - 1, rowOffsets.indexAt(Math.min(st + vh, rowOffsets.total() - 1)) + BUFFER);
     const c0 = Math.max(0, colOffsets.indexAt(sl) - BUFFER);
-    const c1 = Math.min(s.cols - 1, colOffsets.indexAt(sl + vw) + BUFFER);
+    const c1 = Math.min(s.cols - 1, colOffsets.indexAt(Math.min(sl + vw, colOffsets.total() - 1)) + BUFFER);
     return { r0, r1, c0, c1 };
   }
 
