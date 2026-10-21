@@ -684,6 +684,9 @@ function strokeRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
           ),
         ]
       : null,
+    m !== 'LINE' && m !== 'ANCHORED' && m !== 'CURVE'
+      ? numberField({ id: `${p}-isamp`, label: 'Input Samples', value: b.input_samples ?? 1, min: 1, max: 64, int: true, tip: 'Average this many pointer positions to steady the stroke', set: (x) => ((b.input_samples = Math.round(x)), changed()) })
+      : null,
     m === 'AIRBRUSH' ? numberField({ id: `${p}-rate`, label: 'Rate', value: b.rate ?? 0.1, min: 0.0001, max: 10, precision: 3, unit: 'time', tip: 'Interval between airbrush dabs (seconds)', set: (x) => ((b.rate = x), changed()) }) : null,
     m !== 'LINE' && m !== 'ANCHORED' ? checkbox(`${p}-stab`, 'Stabilize Stroke', !!b.use_smooth_stroke, (x) => ((b.use_smooth_stroke = x), changed()), { tip: 'Let the brush trail behind the pointer for smoother lines (Shift S)' }) : null,
     b.use_smooth_stroke && m !== 'LINE' && m !== 'ANCHORED'

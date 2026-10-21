@@ -49,6 +49,8 @@ export interface StrokeSettings {
   use_pressure_jitter?: boolean;
   /** pen pressure scales the spacing */
   use_pressure_spacing?: boolean;
+  /** average this many pointer samples to steady the stroke */
+  input_samples?: number;
 }
 
 export interface StrokeHandler {
@@ -207,6 +209,21 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
     return { ...pos };
   };
   let last = { x: p0.x, y: p0.y };
+  // input samples: the stroke follows the mean of the last few pointer positions
+  const nSamples = Math.max(1, Math.min(64, Math.round(st.input_samples ?? 1)));
+  const recent: { x: number; y: number }[] = [{ x: p0.x, y: p0.y }];
+  const average = (q: { x: number; y: number }) => {
+    if (nSamples <= 1) return q;
+    recent.push({ x: q.x, y: q.y });
+    if (recent.length > nSamples) recent.shift();
+    let x = 0,
+      y = 0;
+    for (const r of recent) {
+      x += r.x;
+      y += r.y;
+    }
+    return { x: x / recent.length, y: y / recent.length };
+  };
   let firstDone = false;
   if (method === 'LINE' || method === 'ANCHORED') {
     lineState.view = v;
@@ -275,7 +292,7 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
         last = q;
         continue;
       }
-      spaced(follow(q), lastPressure);
+      spaced(follow(average(q)), lastPressure);
     }
     if (method === 'ANCHORED' && lineState.b) {
       handler.dab({ x: p0.x, y: p0.y, pressure: lastPressure, first: !firstDone, radiusPx: lineState.anchorR, restore: firstDone });

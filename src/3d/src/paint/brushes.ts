@@ -72,6 +72,8 @@ export interface PaintBrush extends BrushData, StencilSettings {
   use_pressure_jitter?: boolean;
   /** pen pressure scales the dab spacing */
   use_pressure_spacing?: boolean;
+  /** pointer samples averaged per stroke point */
+  input_samples?: number;
   /** front-face falloff: fade out vertices turning away from the view */
   use_frontface_falloff?: boolean;
   falloff_angle?: number;
