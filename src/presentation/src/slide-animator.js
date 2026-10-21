@@ -10,6 +10,7 @@
 //
 // The returned animator:
 //   steps          the number of click steps on the slide
+//   step           the click steps played so far
 //   start()        shows the slide's opening state (objects that enter later
 //                  are hidden) and plays what runs before the first click
 //   next()         plays the next click step; false when none is left, so
@@ -35,6 +36,7 @@ import "./animations/animations.css";
 
 const NONE = {
   steps: 0,
+  step: 0,
   triggers: [],
   start() {},
   next: () => false,
@@ -93,6 +95,9 @@ export function createSlideAnimator({
   };
   return {
     steps: player.steps,
+    get step() {
+      return player.step;
+    },
     triggers: player.triggers,
     start() {
       activate();

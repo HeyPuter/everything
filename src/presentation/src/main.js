@@ -15656,8 +15656,14 @@ async function present(options = {}) {
   // Once a timed slide's time is up, its remaining click steps play one
   // after another before the show moves on.
   let timeUp = false;
+  // Previous takes back the first slide's builds, and goes no further.
+  function syncPrevious() {
+    previous.disabled = n === 0 && !showTiming.loop && !animator?.step;
+    if (previous.disabled && document.activeElement === previous) image.focus();
+  }
   function advance(auto = false) {
     if (!ended && animator?.next()) {
+      syncPrevious();
       session?.stepped(1);
       if (timeUp) advanceClock.select(0, animator.played);
       return;
@@ -15707,6 +15713,7 @@ async function present(options = {}) {
   }
   function showPrevious() {
     if (!ended && animator?.previous()) {
+      syncPrevious();
       session?.stepped(-1);
       // Stepping back starts the slide's time over.
       if (timeUp) {
@@ -15717,6 +15724,9 @@ async function present(options = {}) {
       }
       return;
     }
+    // Before the first slide there is nothing to go back to: the slide
+    // stays as it opened, its builds still to come.
+    if (!ended && n === 0 && !showTiming.loop) return;
     show(ended ? n : n - 1, { backward: true });
   }
   // The transition playing over the frame (see src/transitions/player.js).
@@ -15829,7 +15839,7 @@ async function present(options = {}) {
     counter.textContent = reading
       ? `Slide ${n + 1} of ${all.length}`
       : `${n + 1} / ${all.length}`;
-    previous.disabled = n === 0 && !showTiming.loop;
+    syncPrevious();
     next.disabled = false;
     const text = P.getSlideNotes(all[n]) || "";
     notesText.textContent = text || "No notes for this slide.";

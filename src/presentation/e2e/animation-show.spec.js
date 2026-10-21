@@ -103,6 +103,29 @@ test("the slide show plays click steps before moving to the next slide", async (
   await expect.poll(() => visibleLayers(page)).toEqual([false, true, true]);
 });
 
+test("going back on the first slide takes back its builds and goes no further", async ({
+  page,
+}) => {
+  await load(page, animatedDeck());
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const counter = page.locator(".presenter-counter");
+  const previous = page.getByRole("button", { name: "Previous slide" });
+  await expect.poll(() => visibleLayers(page)).toEqual([false, false, false]);
+  await expect(previous).toBeDisabled();
+  // Nothing before the first slide: its builds stay to come.
+  await page.keyboard.press("ArrowLeft");
+  await expect(counter).toHaveText("1 / 2");
+  await expect.poll(() => visibleLayers(page)).toEqual([false, false, false]);
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => visibleLayers(page)).toEqual([true, false, false]);
+  // The button takes back the build just played.
+  await expect(previous).toBeEnabled();
+  await previous.click();
+  await expect.poll(() => visibleLayers(page)).toEqual([false, false, false]);
+  await expect(previous).toBeDisabled();
+  await expect(counter).toHaveText("1 / 2");
+});
+
 test("a timed advance plays the slide's remaining click steps first", async ({
   page,
 }) => {
