@@ -94,7 +94,10 @@ export class TaskPanes {
       list,
     );
     this.app.editor.flush();
+    // A slower earlier search (another scope or filter) must not win.
+    const token = (this.tagsToken = {});
     let items = await this.app.store.collectTags(this.scopeValue());
+    if (token !== this.tagsToken) return;
     if (o.openOnly) items = items.filter((t) => TAG_BY_ID.get(t.tag)?.kind === 'check' && !t.done);
     this.lastTags = items;
     list.removeAttribute('aria-busy');

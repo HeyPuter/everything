@@ -268,6 +268,24 @@ describe('App shell', () => {
     app.editor.setZoom(before);
   });
 
+  it('keeps the Tags Summary for the scope chosen last when an earlier search finishes later', async () => {
+    const section = store.section(app.state.sectionId);
+    store.createPage(section.id, { title: 'Tagged', outlines: [{ id: 'o1', x: 0, y: 0, html: '<p><span class="nt-tag" data-tag="todo" data-done="false" contenteditable="false"></span>Buy milk</p>' }] });
+    const orig = store.collectTags.bind(store);
+    store.collectTags = async (scope) => {
+      const r = await orig(scope);
+      await tick(scope.startsWith('page') ? 5 : 60);
+      return r;
+    };
+    app.runCommand('findTags');
+    const scope = app.taskPanes.el.querySelector('select[aria-label="Search"]');
+    scope.value = 'page';
+    scope.dispatchEvent(new Event('change'));
+    await tick(120);
+    expect(app.taskPanes.lastTags).toHaveLength(0);
+    expect(app.taskPanes.el.querySelectorAll('[role="listitem"]')).toHaveLength(0);
+  });
+
   it('follows a page link pasted into the address bar of the open app', async () => {
     const first = app.state.pageId;
     app.newPage({ title: 'Second' });
