@@ -179,13 +179,19 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
   function colorMenu(sheet, anchor, x, y) {
     // Compared with the swatches in their lower case: a colour from a file may be spelt in upper case.
     const current = sheet.color ? String(sheet.color).toLowerCase() : null;
+    // A grouped sheet's colour goes to every sheet of the group, as Excel colours all the selected tabs.
+    const paint = (hex) => {
+      menu.close();
+      const ids = ctx.wb.isSheetGrouped(sheet.id) ? ctx.wb.sheetGroup : [sheet.id];
+      ctx.wb.transaction('Sheet color', () => { for (const id of ids) ctx.wb.setSheetColor(id, hex); });
+    };
     const swatches = el('div.swatches', { role: 'group', 'aria-label': 'Tab colors', 'data-cols': 6 },
-      el('button.swatch.none', { type: 'button', role: 'menuitemradio', 'aria-checked': String(!current), 'aria-label': 'No color', title: 'No color', onclick: () => { menu.close(); ctx.wb.setSheetColor(sheet.id, null); } }),
+      el('button.swatch.none', { type: 'button', role: 'menuitemradio', 'aria-checked': String(!current), 'aria-label': 'No color', title: 'No color', onclick: () => paint(null) }),
       ...TAB_COLORS.map((hex) => el('button.swatch', {
         type: 'button', role: 'menuitemradio', 'aria-checked': String(current === hex), 'aria-label': colorLabel(hex), title: colorLabel(hex), style: { background: hex },
-        onclick: () => { menu.close(); ctx.wb.setSheetColor(sheet.id, hex); },
+        onclick: () => paint(hex),
       })));
-    const extra = customColorRows({ current, label: 'tab color', onPick: (hex) => { menu.close(); ctx.wb.setSheetColor(sheet.id, hex); } });
+    const extra = customColorRows({ current, label: 'tab color', onPick: paint });
     const menu = openMenu({ anchor, x, y, label: 'Tab color', items: [{ custom: swatches }, ...extra.map((custom) => ({ custom }))] });
     swatches.querySelector('[aria-checked="true"]')?.focus();
   }
