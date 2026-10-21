@@ -627,6 +627,19 @@ p:has(> .nt-tag[data-done="true"]) {
   .outline::before {
     display: none;
   }
+  /* Tags are masked backgrounds, and highlights, tag shading and table
+     shading are backgrounds too: print them even when the browser leaves
+     background graphics out, or they vanish from the paper. */
+  .outline-body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* Find on Page marks are not part of the note. */
+  ::highlight(nt-find),
+  ::highlight(nt-find-current) {
+    background-color: transparent;
+    color: inherit;
+  }
 }
 
 /* Dark pages show black ink light so it stays readable. */
