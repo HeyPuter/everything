@@ -136,7 +136,8 @@ export class CollabClient extends EventTarget {
 
   async send() {
     if (this.sending || this.closed || !this.outbox.size) return;
-    this.sending = true;
+    let done;
+    this.sending = new Promise(resolve => { done = resolve; });
     // A room that limits the size of a request takes the queue in batches under it, in order.
     const limit = this.transport.maxUpdate || Infinity, size = item => Math.ceil(item.update.length / 3) * 4;
     const items = [];
@@ -164,7 +165,8 @@ export class CollabClient extends EventTarget {
         setTimeout(() => this.scheduleSend(0), 500 * 2 ** this.retry);
       }
     } finally {
-      this.sending = false;
+      this.sending = null;
+      done();
       if (this.outbox.size && this.status === 'online') this.scheduleSend(this.sendDelay);
       this.dispatchEvent(new CustomEvent('status', { detail: { status: this.status, pending: this.outbox.size } }));
     }
@@ -203,7 +205,13 @@ export class CollabClient extends EventTarget {
 
   async close(reason = null) {
     if (this.closed) return;
-    if (!reason) await this.send().catch(() => {});
+    // Changes the room does not have yet go first, those queued behind a batch still on its way included,
+    // batch after batch while the room takes them.
+    for (let left = Infinity; !reason && this.outbox.size && this.outbox.size < left;) {
+      left = this.outbox.size;
+      await this.sending;
+      await this.send().catch(() => {});
+    }
     this.closed = true;
     clearTimeout(this.sendTimer);
     try { await this.transport.leave?.(); } catch { /* best effort */ }
