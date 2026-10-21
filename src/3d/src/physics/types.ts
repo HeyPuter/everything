@@ -105,6 +105,8 @@ export interface CollisionSettingsX extends CollisionSettings {
   stickiness?: number;
   damping_random?: number;
   friction_random?: number;
+  /** cloth and soft bodies are pushed out along the collider's normals */
+  use_normal?: boolean;
 }
 
 export interface ClothSettings {

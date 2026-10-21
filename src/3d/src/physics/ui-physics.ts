@@ -177,10 +177,12 @@ function collisionPanels(ob: ObjectPhysics): Child[] {
         num(c, 'friction_random', 'Randomize', { min: 0, max: 1, slider: true }),
       ], { sub: true }),
       panel('ph-col-cloth', 'Softbody & Cloth', () => [
-        num(c, 'thickness_outer', 'Thickness Outer', { min: 0.001, max: 1, unit: 'distance' }),
         num(c, 'damping', 'Damping', { min: 0, max: 1, slider: true }),
+        num(c, 'thickness_outer', 'Thickness Outer', { min: 0.001, max: 1, unit: 'distance' }),
+        num(c, 'thickness_inner', 'Inner', { min: 0.001, max: 1, unit: 'distance', tip: 'How far behind a single sided surface points are still pushed out' }),
         num(c, 'cloth_friction', 'Friction', { min: 0, max: 80 }),
         bool(c, 'use_culling', 'Single Sided'),
+        bool(c as never, 'use_normal', 'Override Normals', { tip: 'Push cloth and soft bodies out along the surface normals' }),
       ], { sub: true }),
     ]),
   ];

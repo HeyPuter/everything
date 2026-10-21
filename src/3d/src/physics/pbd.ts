@@ -671,11 +671,14 @@ export function stepFrame(
             const s = (px - hit.cx) * hit.nx + (py - hit.cy) * hit.ny + (pz - hit.cz) * hit.nz;
             const sPrev = (ox - hit.cx) * hit.nx + (oy - hit.cy) * hit.ny + (oz - hit.cz) * hit.nz;
             const side = cs.use_culling ? 1 : sPrev >= 0 ? 1 : -1;
-            if (hit.dist < th && !(cs.use_culling && sPrev < -th)) {
+            // single sided: points further behind than the inner thickness pass through
+            const inner = Math.max(th, (cs as { thickness_inner?: number }).thickness_inner ?? th);
+            if (hit.dist < (cs.use_culling && s < 0 ? inner : th) && !(cs.use_culling && sPrev < -inner)) {
               let dx = hit.nx * side,
                 dy = hit.ny * side,
                 dz = hit.nz * side;
-              if (hit.dist > 1e-6 && s * side > 0) {
+              // override normals: always push along the surface normal
+              if (hit.dist > 1e-6 && s * side > 0 && !(cs as { use_normal?: boolean }).use_normal) {
                 dx = (px - hit.cx) / hit.dist;
                 dy = (py - hit.cy) / hit.dist;
                 dz = (pz - hit.cz) / hit.dist;
