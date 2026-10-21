@@ -7,8 +7,11 @@ import { wallAxis } from './model.js';
 import { isView } from './doc.js';
 
 /** Point-valued fields of elements. */
-const POINT_FIELDS = ['a', 'b', 'at', 'origin', 'line', 'tagAt'];
-const POLY_FIELDS = ['boundary', 'path'];
+const POINT_FIELDS = ['a', 'b', 'at', 'origin', 'line', 'tagAt', 'c', 'leader'];
+const POLY_FIELDS = ['boundary', 'path', 'leaders'];
+
+/** Kinds whose `rotation` (degrees) turns with them. */
+const ROTATING = new Set(['component', 'column', 'text', 'group', 'symbol', 'detailItem']);
 
 // Deleting ----------------------------------------------------------------------------
 
@@ -68,12 +71,25 @@ export function transformPatch(el, xf) {
     if (el.dir) patch.dir = norm(sub(xf.point(add(el.line, el.dir)), xf.point(el.line)));
   }
   const deg = ((xf.angle || 0) * 180) / Math.PI;
-  if (el.kind === 'component' || el.kind === 'column' || el.kind === 'text' || el.kind === 'group') {
+  if (ROTATING.has(el.kind)) {
     let r = +el.rotation || 0;
     if (xf.mirror) r = xf.mirrorAngle(r);
     else r += deg;
     patch.rotation = normalizeDeg(r);
   }
+  // Angles in radians: arcs and angular dimensions keep their sweep, which a mirror reverses.
+  const rad = (a) => (xf.mirror ? (xf.mirrorAngle((a * 180) / Math.PI) * Math.PI) / 180 : a + (xf.angle || 0));
+  if (el.kind === 'detailArc' || el.kind === 'angularDim') {
+    if (xf.mirror) {
+      patch.a0 = rad(el.a1);
+      patch.a1 = rad(el.a0);
+      while (patch.a1 <= patch.a0) patch.a1 += Math.PI * 2;
+    } else {
+      patch.a0 = rad(el.a0);
+      patch.a1 = rad(el.a1);
+    }
+  }
+  if (el.kind === 'radialDim') patch.angle = rad(+el.angle || 0);
   if (el.kind === 'elevation') {
     const look = [Math.cos(el.look), Math.sin(el.look)];
     const p0 = xf.point(el.origin);

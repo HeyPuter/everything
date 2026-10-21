@@ -41,6 +41,7 @@ import {
 import { deleteElements } from './core/ops.js';
 import { PlaceGroupTool, GroupMemberTool } from './editor/groups.js';
 import { CurtainGridTool } from './editor/curtain.js';
+import { AngularDimTool, RadialDimTool, SpotTool, InsulationTool, DetailItemTool, ArcTool, SymbolTool, LegendTool } from './editor/annotate.js';
 
 const tool = (Cls, opts = {}) => (app, args) => app.startTool(Cls, { ...opts, ...(args || {}) });
 const hasSel = (app) => app.selection.size > 0;
@@ -136,12 +137,32 @@ export const COMMANDS = {
   grid: { label: 'Grid', icon: 'grid', keys: 'GR', run: tool(LineTool, { kind: 'grid' }) },
 
   // Annotate
-  dimension: { label: 'Aligned Dimension', icon: 'dimAligned', keys: 'DI', run: tool(DimensionTool) },
+  dimension: { label: 'Aligned Dimension', icon: 'dimAligned', keys: 'DI', run: tool(DimensionTool, { linear: false }), desc: 'Dimension between parallel references, measured square to them' },
+  dimLinear: { label: 'Linear Dimension', icon: 'dimension', run: tool(DimensionTool, { linear: true }), desc: 'Horizontal or vertical dimension between points' },
+  dimAngular: { label: 'Angular Dimension', icon: 'dimAngular', run: tool(AngularDimTool), desc: 'Angle between two lines, walls or edges' },
+  dimRadial: { label: 'Radial Dimension', icon: 'dimRadial', run: tool(RadialDimTool), desc: 'Radius of a circle, arc or round column' },
+  dimDiameter: { label: 'Diameter Dimension', icon: 'dimDiameter', run: tool(RadialDimTool, { diameter: true }), desc: 'Diameter of a circle, arc or round column' },
+  spotElevation: { label: 'Spot Elevation', icon: 'spotElevation', run: tool(SpotTool, { mode: 'elevation' }), desc: 'Elevation of a point: the floor or roof under it in plans, its height in elevations and sections' },
+  spotCoordinate: { label: 'Spot Coordinate', icon: 'spotCoordinate', run: tool(SpotTool, { mode: 'coordinate' }), desc: 'North and east coordinates of a point, from the project base point' },
+  spotSlope: { label: 'Spot Slope', icon: 'spotSlope', run: tool(SpotTool, { mode: 'slope' }), desc: 'Slope arrow and angle of a roof face' },
   text: { label: 'Text', icon: 'text', keys: 'TX', run: tool(TextTool) },
+  findReplace: { label: 'Find/Replace', icon: 'findReplace', run: (app) => app.findReplaceDialog(), desc: 'Find and replace words in the text notes of every view' },
   detailLine: { label: 'Detail Line', icon: 'detailLine', keys: 'DL', run: tool(LineTool, { kind: 'detailLine' }) },
+  detailArc: { label: 'Detail Arc', icon: 'arc', run: tool(ArcTool), desc: 'Circles and arcs drawn in the view' },
   region: { label: 'Filled Region', icon: 'boundary', keys: 'FR', run: tool(SketchTool, { kind: 'region' }), desc: 'Sketch a hatched or solid area in the view' },
+  detailItem: { label: 'Detail Component', icon: 'detailItem', run: tool(DetailItemTool), desc: 'Place 2D construction details: lumber, steel sections, block, brick, break lines' },
+  revisionCloud: { label: 'Revision Cloud', icon: 'revisionCloud', keys: 'RC', run: tool(SketchTool, { kind: 'revisionCloud' }), desc: 'Mark what changed in a revision' },
+  revisions: { label: 'Revisions', icon: 'revisions', run: (app) => app.revisionsDialog(), desc: 'Number, date and issue the revisions of the drawings' },
+  insulation: { label: 'Insulation', icon: 'insulation', run: tool(InsulationTool), desc: 'Batt insulation symbol along a line' },
   tag: { label: 'Tag by Category', icon: 'tag', keys: 'TG', run: tool(TagTool) },
   tagAll: { label: 'Tag All Not Tagged', icon: 'tagAll', run: (app) => tagAll(app) },
+  tagMaterial: { label: 'Material Tag', icon: 'materialTag', run: tool(TagTool, { show: 'material' }), desc: 'Label the material of a wall, floor, roof or other element' },
+  keynote: { label: 'Keynote', icon: 'keynote', run: tool(TagTool, { show: 'keynote' }), desc: 'Tag elements with the keynote of their type' },
+  colorLegend: { label: 'Color Fill Legend', icon: 'colorLegend', run: tool(LegendTool), desc: 'A legend of the room colors in a plan' },
+  symbol: { label: 'Symbol', icon: 'northArrow', run: tool(SymbolTool), desc: 'North arrows, graphic scales and other symbols' },
+  northArrow: { label: 'North Arrow', icon: 'northArrow', run: tool(SymbolTool, { family: 'north' }) },
+  scaleBar: { label: 'Graphic Scale', icon: 'scaleBar', run: tool(SymbolTool, { family: 'scale' }) },
+  spanDirection: { label: 'Span Direction', icon: 'spanDirection', run: tool(SymbolTool, { family: 'span' }), desc: 'Show which way a floor or deck spans' },
 
   // Modify
   move: { label: 'Move', icon: 'move', keys: 'MV', enabled: hasSel, run: tool(MoveTool) },

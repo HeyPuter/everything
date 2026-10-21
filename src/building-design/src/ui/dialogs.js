@@ -10,6 +10,7 @@ import { COMMANDS } from '../commands.js';
 import { CATEGORIES, KIND_LABEL, typeThickness, FAMILY_BY_KIND } from '../core/catalog.js';
 import { TYPE_PARAMS, AREA_SCHEMES, schemeLabel } from '../core/props.js';
 import { AreaSolver } from '../core/rooms.js';
+import { newRevision, revisionsInOrder } from '../core/revisions.js';
 import { formatLength, parseLength, MM_PER_FOOT } from '../core/units.js';
 import { uniqueName, deleteElements } from '../core/ops.js';
 import { planView } from '../core/template.js';
@@ -602,6 +603,143 @@ export function areaPlanDialog(app) {
             }
           });
           if (last) app.openView(last.id);
+        },
+      },
+    ],
+  });
+}
+
+// Revisions and text ---------------------------------------------------------------------------------
+
+export function revisionsDialog(app) {
+  const doc = app.doc;
+  const body = h('div.rev-dlg');
+  const render = () => {
+    clear(body);
+    const revs = revisionsInOrder(doc);
+    const table = h('table.rev-table', h('thead', h('tr', h('th', 'No.'), h('th', 'Date'), h('th', 'Description'), h('th', 'Issued to'), h('th', 'Issued by'), h('th', 'Issued'), h('th', h('span.sr-only', 'Delete')))));
+    const tbody = h('tbody');
+    for (const r of revs) {
+      const cell = (key, attrs = {}) => {
+        const inp = h('input.input.sm', { type: 'text', value: r[key] ?? '', 'aria-label': `${key} of revision ${r.number}`, ...attrs });
+        inp.addEventListener('change', () => app.commit('Edit revision', () => doc.update(r.id, { [key]: inp.value })));
+        return h('td', inp);
+      };
+      const issued = h('input', { type: 'checkbox', checked: !!r.issued, 'aria-label': `Revision ${r.number} issued` });
+      issued.addEventListener('change', () => app.commit('Issue revision', () => doc.update(r.id, { issued: issued.checked })));
+      const clouds = doc.all('revisionCloud').filter((c) => c.revisionId === r.id).length;
+      tbody.append(
+        h(
+          'tr',
+          cell('number', { style: { width: '4em' } }),
+          cell('date', { style: { width: '8.5em' } }),
+          cell('description'),
+          cell('issuedTo'),
+          cell('issuedBy'),
+          h('td.center', issued),
+          h(
+            'td',
+            h(
+              'button.icon-btn.sm',
+              {
+                type: 'button',
+                'aria-label': `Delete revision ${r.number}`,
+                'data-tip': clouds ? `Used by ${clouds} cloud${clouds === 1 ? '' : 's'}` : 'Delete',
+                disabled: r.issued,
+                onClick: () => {
+                  app.commit('Delete revision', () => {
+                    for (const c of doc.all('revisionCloud')) if (c.revisionId === r.id) doc.update(c.id, { revisionId: null });
+                    doc.remove(r.id);
+                  });
+                  render();
+                },
+              },
+              icon('trash', 14),
+            ),
+          ),
+        ),
+      );
+    }
+    table.append(tbody);
+    body.append(
+      revs.length ? table : h('p.props-empty', 'No revisions yet. Add one, then draw revision clouds around what changed.'),
+      h('div.inline', { style: { marginTop: '8px' } }, h('button.btn.sm', { type: 'button', onClick: () => (app.commit('Add revision', () => doc.add(newRevision(doc))), render()) }, icon('plus', 14), 'Add revision')),
+      h('p.field-hint', 'Issued revisions are locked. Sheets list the revisions clouded on them, or in the views placed on them.'),
+    );
+  };
+  render();
+  return openDialog({ title: 'Revisions', body, size: 'lg', actions: [{ label: 'Close', primary: true, value: null }] });
+}
+
+export function findReplaceDialog(app) {
+  const doc = app.doc;
+  const find = h('input.input', { type: 'text', 'aria-label': 'Find' });
+  const repl = h('input.input', { type: 'text', 'aria-label': 'Replace with' });
+  const matchCase = h('input', { type: 'checkbox' });
+  const whole = h('input', { type: 'checkbox' });
+  const list = h('ul.find-list', { 'aria-label': 'Matches' });
+  const count = h('p.field-hint', { role: 'status' });
+  const regex = () => {
+    const q = find.value;
+    if (!q) return null;
+    const esc = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(whole.checked ? `\\b${esc}\\b` : esc, matchCase.checked ? 'g' : 'gi');
+  };
+  const matches = () => {
+    const re = regex();
+    if (!re) return [];
+    return doc.all('text').filter((t) => {
+      re.lastIndex = 0;
+      return re.test(t.text || '');
+    });
+  };
+  const render = () => {
+    clear(list);
+    const ms = matches();
+    count.textContent = find.value ? `${ms.length} text note${ms.length === 1 ? '' : 's'} match.` : 'Type to search the text notes of every view.';
+    for (const t of ms.slice(0, 200)) {
+      const v = doc.get(t.viewId);
+      list.append(
+        h(
+          'li',
+          h(
+            'button.find-item',
+            {
+              type: 'button',
+              onClick: () => {
+                if (v) app.openView(v.id);
+                app.select([t.id]);
+                app.vc?.zoomExtents?.(true, new Set([t.id]));
+              },
+            },
+            h('span.find-text', String(t.text).split('\n')[0]),
+            h('span.find-view', v ? v.name : ''),
+          ),
+        ),
+      );
+    }
+  };
+  for (const el of [find, matchCase, whole]) el.addEventListener('input', render);
+  matchCase.addEventListener('change', render);
+  whole.addEventListener('change', render);
+  render();
+  return openDialog({
+    title: 'Find and Replace',
+    body: h('div', field('Find', find), field('Replace with', repl), h('div.inline', h('label.check', matchCase, 'Match case'), h('label.check', whole, 'Whole words')), count, list),
+    size: 'md',
+    actions: [
+      { label: 'Close', value: null },
+      {
+        label: 'Replace All',
+        primary: true,
+        onClick: () => {
+          const re = regex();
+          const ms = matches();
+          if (!re || !ms.length) return false;
+          app.commit('Replace text', () => ms.forEach((t) => doc.update(t.id, { text: String(t.text).replace(re, repl.value) })));
+          toast(`Replaced text in ${ms.length} note${ms.length === 1 ? '' : 's'}.`, { kind: 'success' });
+          render();
+          return false;
         },
       },
     ],

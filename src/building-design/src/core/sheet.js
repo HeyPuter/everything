@@ -8,6 +8,7 @@ import { PlanBuilder, W, INK, BG } from './plan.js';
 import { SHEET_SIZES } from './props.js';
 import { bboxUnion } from './geom.js';
 import { scaleLabel } from './units.js';
+import { revisionsOnSheet } from './revisions.js';
 
 export function sheetSize(sheet) {
   return SHEET_SIZES.find((s) => s.id === sheet.size) || SHEET_SIZES[2];
@@ -77,6 +78,22 @@ export function titleBlock(doc, sheet) {
     b.text([x0 + 3, y + r.h - 3.2], r.label, { size: 1.8, align: 'left', baseline: 'middle', color: INK(150) });
     b.text([x0 + 3, y + r.h * 0.42], r.value || '', { size: r.size, align: 'left', baseline: 'middle', bold: r.size > 3.5 });
   }
+  // Revisions clouded on this sheet, newest at the bottom, just above the sheet name.
+  const revs = revisionsOnSheet(doc, sheet).slice(-8);
+  if (revs.length) {
+    const rh = 6;
+    const top = m + 62 + (revs.length + 1) * rh + 6;
+    const cx = [x0 + 3, x0 + 14, x0 + strip - 26];
+    b.line([x0, top], [w - m, top], W.medium);
+    b.text([x0 + 3, top - 3], 'REVISIONS', { size: 1.8, align: 'left', color: INK(150) });
+    revs.forEach((r, i) => {
+      const yy = top - rh * (i + 1) - 3;
+      b.line([x0, yy - rh / 2], [w - m, yy - rh / 2], W.thin, 0, INK(90));
+      b.text([cx[0], yy], String(r.number ?? r.seq), { size: 2.2, align: 'left', bold: true });
+      b.text([cx[1], yy], clip(r.description || '', Math.floor((strip - 42) / 1.4)), { size: 2.2, align: 'left' });
+      b.text([cx[2], yy], r.date || '', { size: 2, align: 'left' });
+    });
+  }
   // Sheet name and number at the bottom of the strip.
   const nb = m + 34;
   b.line([x0, nb], [w - m, nb], W.medium);
@@ -86,6 +103,10 @@ export function titleBlock(doc, sheet) {
   b.text([x0 + 3, m + 30], 'SHEET', { size: 1.8, align: 'left', color: INK(150) });
   b.text([x0 + strip / 2, m + 15], sheet.number || '', { size: 10, bold: true });
   return { builder: b, area: { x0: m + 5, y0: m + 5, x1: x0 - 5, y1: H - m - 5 } };
+}
+
+function clip(s, n) {
+  return s.length > n ? `${s.slice(0, Math.max(1, n - 1))}…` : s;
 }
 
 /**

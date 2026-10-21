@@ -5,6 +5,7 @@
  */
 import { PlanBuilder, W, BG, INK, planGraphics, sectionFrame, REF_PLANE } from './plan.js';
 import { formatLength } from './units.js';
+import { categoryOf } from './catalog.js';
 import { sub, dot, norm, lineIntersect } from './geom.js';
 
 /**
@@ -63,7 +64,7 @@ export function elevationAnnotations(doc, view, frame, range, walls) {
   const out = [];
   const scale = +view.scale || 100;
   const P = (mm) => mm * scale;
-  const pc = { doc, view, scale, units: doc.units, walls, detail: view.detail || 'medium', cutZ: 0, bottomZ: 0, topZ: 0, ceiling: false };
+  const pc = { doc, view, scale, units: doc.units, walls, detail: view.detail || 'medium', cutZ: 0, bottomZ: 0, topZ: 0, ceiling: false, elevationView: true };
   const pad = P(12);
   const u0 = (frame.u0 ?? range.u0) - pad;
   const u1 = (frame.u1 ?? range.u1) + pad;
@@ -140,7 +141,7 @@ export function elevationAnnotations(doc, view, frame, range, walls) {
   }
   for (const el of doc.items.values()) {
     if (el.viewId !== view.id) continue;
-    if (view.hiddenCats?.includes(catOf(el.kind))) continue;
+    if (view.hiddenCats?.includes(categoryOf(el, doc))) continue;
     const g = planGraphics(pc, el);
     if (g) out.push({ id: el.id, kind: el.kind, g });
   }
@@ -265,8 +266,4 @@ function clipU(loop, u0, u1) {
     return res;
   };
   return clip(clip(loop, (u) => u - u0), (u) => u1 - u);
-}
-
-function catOf(kind) {
-  return { dimension: 'dimensions', text: 'text', tag: 'tags', detailLine: 'lines' }[kind] || kind;
 }

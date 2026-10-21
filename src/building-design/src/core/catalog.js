@@ -71,6 +71,10 @@ export const CATEGORIES = [
   { id: 'text', label: 'Text Notes', model: false },
   { id: 'tags', label: 'Tags', model: false },
   { id: 'lines', label: 'Detail Lines', model: false },
+  { id: 'detailItems', label: 'Detail Items', model: false },
+  { id: 'revisionClouds', label: 'Revision Clouds', model: false },
+  { id: 'genericAnnotations', label: 'Symbols', model: false },
+  { id: 'colorLegends', label: 'Color Fill Legends', model: false },
   { id: 'markers', label: 'View Markers', model: false },
 ];
 
@@ -100,6 +104,15 @@ const KIND_CATEGORY = {
   ramp: 'ramps',
   area: 'areas',
   areaBoundary: 'areaBoundaries',
+  angularDim: 'dimensions',
+  radialDim: 'dimensions',
+  spot: 'dimensions',
+  revisionCloud: 'revisionClouds',
+  insulation: 'detailItems',
+  detailItem: 'detailItems',
+  detailArc: 'lines',
+  symbol: 'genericAnnotations',
+  colorLegend: 'colorLegends',
 };
 
 /** Category of an element (components take theirs from the type). */
@@ -137,6 +150,16 @@ export const KIND_LABEL = {
   area: 'Area',
   areaBoundary: 'Area Boundary',
   group: 'Model Group',
+  angularDim: 'Angular Dimension',
+  radialDim: 'Radial Dimension',
+  spot: 'Spot Dimension',
+  revisionCloud: 'Revision Cloud',
+  revision: 'Revision',
+  insulation: 'Insulation',
+  detailItem: 'Detail Item',
+  detailArc: 'Detail Arc',
+  symbol: 'Symbol',
+  colorLegend: 'Color Fill Legend',
 };
 
 export const TYPE_KIND = {

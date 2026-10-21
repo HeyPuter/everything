@@ -1652,6 +1652,12 @@ export class App {
   areaPlanDialog() {
     return dialogs.areaPlanDialog(this);
   }
+  revisionsDialog() {
+    return dialogs.revisionsDialog(this);
+  }
+  findReplaceDialog() {
+    return dialogs.findReplaceDialog(this);
+  }
   newScheduleDialog(category) {
     return dialogs.newScheduleDialog(this, category);
   }

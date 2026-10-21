@@ -12,6 +12,7 @@ import { roofGeometry } from './build3d.js';
 import { area as polyArea, perimeter, dist } from './geom.js';
 import { scaleOptions } from './units.js';
 import { STAIR_SHAPES } from './stairs.js';
+import { DETAIL_FAMILIES, radialTarget } from './annotate.js';
 
 export const GROUPS = ['Constraints', 'Construction', 'Graphics', 'Underlay', 'Text', 'Dimensions', 'Structural', 'Identity Data', 'Extents', 'Camera', 'Other'];
 
@@ -200,7 +201,20 @@ const INSTANCE = {
       ],
     }),
   ],
-  tag: [P('leader', 'Leader Line', 'Graphics', 'bool'), ro('target', 'Tags', 'Other', (el, c) => describe(c.doc, c.doc.get(el.targetId)), 'text')],
+  tag: [
+    P('show', 'Shows', 'Graphics', 'select', {
+      get: (el) => el.show || 'mark',
+      options: () => [
+        { value: 'mark', label: 'Mark' },
+        { value: 'type', label: 'Type' },
+        { value: 'material', label: 'Material' },
+        { value: 'keynote', label: 'Keynote' },
+        { value: 'name', label: 'Name' },
+      ],
+    }),
+    P('leader', 'Leader Line', 'Graphics', 'bool'),
+    ro('target', 'Tags', 'Other', (el, c) => describe(c.doc, c.doc.get(el.targetId)), 'text'),
+  ],
   region: [
     P('pattern', 'Fill Pattern', 'Graphics', 'select', {
       options: () => ['diag', 'cross', 'concrete', 'insulation', 'brick', 'wood', 'earth', 'solid', 'none'].map((v) => ({ value: v, label: v === 'none' ? 'Gray tone' : v[0].toUpperCase() + v.slice(1) })),
@@ -244,6 +258,23 @@ const INSTANCE = {
     comments,
   ],
   areaBoundary: [ro('scheme', 'Area Scheme', 'Identity Data', (el) => schemeLabel(el.scheme), 'text'), ro('length', 'Length', 'Dimensions', (el) => dist(el.a, el.b))],
+  angularDim: [ro('angle', 'Angle', 'Dimensions', (el) => `${Math.round(((((el.a1 - el.a0) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) * (18000 / Math.PI)) / 100}°`, 'text'), len('r', 'Arc Radius', 'Graphics')],
+  radialDim: [P('diameter', 'Show Diameter', 'Graphics', 'bool'), ro('value', 'Value', 'Dimensions', (el, c) => radialTarget(c.doc, el).r * (el.diameter ? 2 : 1))],
+  spot: [ro('mode', 'Type', 'Identity Data', (el) => ({ elevation: 'Spot Elevation', coordinate: 'Spot Coordinate', slope: 'Spot Slope' })[el.mode] || '', 'text')],
+  revisionCloud: [
+    P('revisionId', 'Revision', 'Identity Data', 'select', { options: (c) => c.doc.all('revision').sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)).map((r) => ({ value: r.id, label: `${r.number ?? r.seq}: ${r.description || ''}` })) }),
+    P('showTag', 'Show Revision Tag', 'Graphics', 'bool', { get: (el) => el.showTag !== false }),
+  ],
+  insulation: [len('width', 'Insulation Width', 'Dimensions'), ro('length', 'Length', 'Dimensions', (el) => dist(el.a, el.b))],
+  detailItem: [
+    P('family', 'Component', 'Identity Data', 'select', { options: () => DETAIL_FAMILIES }),
+    len('w', 'Width', 'Dimensions'),
+    len('h', 'Height', 'Dimensions'),
+    P('rotation', 'Rotation', 'Graphics', 'angle'),
+  ],
+  detailArc: [len('r', 'Radius', 'Dimensions'), P('style', 'Line Style', 'Graphics', 'select', { options: () => LINE_STYLES })],
+  symbol: [P('rotation', 'Rotation', 'Graphics', 'angle'), P('size', 'Size', 'Graphics', 'number', { get: (el) => +el.size || 1 })],
+  colorLegend: [ro('by', 'Colors By', 'Graphics', (el, c) => ROOM_FILL_LABEL[c.doc.get(el.viewId)?.roomFillBy || 'name'], 'text')],
   group: [
     ro('level', 'Reference Level', 'Constraints', (el, c) => c.doc.get(el.levelId)?.name ?? '', 'text'),
     P('rotation', 'Rotation', 'Constraints', 'angle', { ro: () => true }),
@@ -254,6 +285,8 @@ const INSTANCE = {
 };
 
 export const LINE_STYLES = ['thin', 'medium', 'wide', 'dashed', 'hidden', 'center'].map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) }));
+
+const ROOM_FILL_LABEL = { name: 'Name', department: 'Department', occupant: 'Occupant', floorFinish: 'Floor Finish', number: 'Number' };
 
 export const AREA_SCHEMES = [
   { value: 'gross', label: 'Gross Building' },
@@ -298,6 +331,7 @@ const VIEW = {
     viewDetail,
     vis,
     P('roomFill', 'Room Color Fill', 'Graphics', 'bool'),
+    P('roomFillBy', 'Color Scheme', 'Graphics', 'select', { get: (el) => el.roomFillBy || 'name', options: () => Object.entries(ROOM_FILL_LABEL).map(([value, label]) => ({ value, label: `Rooms by ${label}` })) }),
     P('underlay', 'Underlay', 'Underlay', 'select', {
       get: (el) => el.underlay || '',
       set: (el, v) => ({ underlay: v || null }),
@@ -399,6 +433,11 @@ export const TYPE_PARAMS = {
   railingType: [len('height', 'Rail Height', 'Dimensions'), len('spacing', 'Baluster Spacing', 'Dimensions'), len('rail', 'Rail Size', 'Dimensions'), P('glass', 'Glass Panels', 'Construction', 'bool'), MAT('materialId', 'Material')],
   componentType: [len('width', 'Width', 'Dimensions'), len('depth', 'Depth', 'Dimensions'), len('height', 'Height', 'Dimensions'), len('elevation', 'Default Elevation', 'Dimensions'), ro('category', 'Category', 'Identity Data', (t) => t.category, 'text'), P('mark', 'Type Mark', 'Identity Data', 'text')],
 };
+
+// Every model type can carry a keynote, shown by keynote tags.
+for (const k of ['wallType', 'floorType', 'roofType', 'ceilingType', 'doorType', 'windowType', 'columnType', 'beamType', 'stairType', 'rampType', 'railingType', 'componentType']) {
+  TYPE_PARAMS[k].push(P('keynote', 'Keynote', 'Identity Data', 'text'));
+}
 
 export function instanceParams(el) {
   if (VIEW[el.kind]) return VIEW[el.kind];

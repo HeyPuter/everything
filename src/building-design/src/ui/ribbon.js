@@ -239,7 +239,7 @@ export class Ribbon {
       const cur = this.current(it);
       const d = this.def(cur.cmd);
       if (!d) return;
-      const label = d.label;
+      const label = it.label || d.label;
       if (!it.variants) {
         const main = h('button.rb-lg', { type: 'button', 'aria-label': label, ...commandTip(d, label), onClick: () => this.app.run(cur.cmd) }, icon(d.icon, 28), h('span.rb-lg-label', label));
         this.buttons.push({ btn: main, cmd: cur.cmd });

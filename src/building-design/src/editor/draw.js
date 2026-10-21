@@ -41,6 +41,7 @@ import { newId, isPlanView, PLAN_VIEW_KINDS } from '../core/doc.js';
 export const ANNOTATION_VIEWS = [...PLAN_VIEW_KINDS, 'elevation', 'section'];
 import { STAIR_SHAPES } from '../core/stairs.js';
 import { LINE_STYLES } from '../core/props.js';
+import { newRevision } from '../core/revisions.js';
 import { MM_PER_FOOT } from '../core/units.js';
 
 export const REGION_PATTERNS = [
@@ -786,11 +787,11 @@ export class LineTool extends Tool {
 
 export class SketchTool extends Tool {
   get placingKind() {
-    return this.kind === 'shaft' || this.kind === 'region' || this.kind === 'vopening' ? null : this.kind;
+    return ['shaft', 'region', 'vopening', 'revisionCloud'].includes(this.kind) ? null : this.kind;
   }
 
   get viewKinds() {
-    return this.kind === 'region' ? [...ANNOTATION_VIEWS, 'sheet'] : PLAN_VIEW_KINDS;
+    return this.kind === 'region' || this.kind === 'revisionCloud' ? [...ANNOTATION_VIEWS, 'sheet'] : PLAN_VIEW_KINDS;
   }
 
   constructor(app, opts) {
@@ -801,7 +802,7 @@ export class SketchTool extends Tool {
     this.pts = el ? (el.boundary || el.path || []).slice() : [];
     this.closed = !!el && this.kind !== 'railing';
     this.cursor = null;
-    const defaults = { mode: this.kind === 'railing' || this.kind === 'region' ? 'polygon' : this.kind === 'shaft' || this.kind === 'vopening' ? 'rect' : this.kind === 'roof' ? 'pickWalls' : this.kind === 'ceiling' ? 'pickRoom' : 'pickWalls', slope: 30, overhang: app.doc.units.system === 'imperial' ? 24 * 25.4 : 600, offset: this.kind === 'ceiling' ? (app.doc.units.system === 'imperial' ? 8 * MM_PER_FOOT : 2700) : 0 };
+    const defaults = { mode: this.kind === 'railing' || this.kind === 'region' || this.kind === 'revisionCloud' ? 'polygon' :this.kind === 'shaft' || this.kind === 'vopening' ? 'rect' : this.kind === 'roof' ? 'pickWalls' : this.kind === 'ceiling' ? 'pickRoom' : 'pickWalls', slope: 30, overhang: app.doc.units.system === 'imperial' ? 24 * 25.4 : 600, offset: this.kind === 'ceiling' ? (app.doc.units.system === 'imperial' ? 8 * MM_PER_FOOT : 2700) : 0 };
     this.o = app.toolOptions(`sketch-${this.kind}`, defaults);
     if (this.editId) this.o.mode = 'polygon';
     this.hostId = opts.hostId || null;
@@ -811,6 +812,7 @@ export class SketchTool extends Tool {
     if (this.kind === 'shaft') return 'Shaft Opening';
     if (this.kind === 'vopening') return 'Opening in Floor, Roof or Ceiling';
     if (this.kind === 'region') return 'Filled Region';
+    if (this.kind === 'revisionCloud') return 'Revision Cloud';
     const n = { floor: 'Floor', ceiling: 'Ceiling', roof: 'Roof', railing: 'Railing' }[this.kind];
     return this.editId ? `Edit ${n} Boundary` : `Create ${n} ${this.kind === 'railing' ? 'Path' : 'Boundary'}`;
   }
@@ -861,6 +863,14 @@ export class SketchTool extends Tool {
       s.value = o.pattern || 'diag';
       s.addEventListener('change', () => (o.pattern = s.value));
       out.push(h('div.ob-group', h('label', 'Pattern'), s));
+    }
+    if (this.kind === 'revisionCloud') {
+      const revs = this.doc.all('revision').sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+      const s = h('select.input.sm', { 'aria-label': 'Revision' }, ...(revs.length ? revs.map((r) => h('option', { value: r.id }, `${r.number ?? r.seq}: ${r.description || 'Revision'}`)) : [h('option', { value: '' }, 'New revision')]));
+      if (!revs.some((r) => r.id === o.revisionId)) o.revisionId = revs.at(-1)?.id || '';
+      s.value = o.revisionId || '';
+      s.addEventListener('change', () => (o.revisionId = s.value));
+      out.push(h('div.ob-group', h('label', 'Revision'), s), h('button.btn.sm', { type: 'button', onClick: () => this.app.run('revisions') }, 'Revisions...'));
     }
     out.push(finishCancel(this));
     return out;
@@ -995,6 +1005,16 @@ export class SketchTool extends Tool {
     if (this.kind === 'region') {
       const view = this.vc.view;
       this.app.commit('Filled region', () => this.doc.add({ kind: 'region', viewId: view.id, boundary: pts, holes: [], pattern: this.o.pattern || 'diag', outline: true }));
+      return this.app.cancelTool();
+    }
+    if (this.kind === 'revisionCloud') {
+      const view = this.vc.view;
+      this.app.commit('Revision cloud', () => {
+        let rev = this.doc.get(this.o.revisionId);
+        if (rev?.kind !== 'revision') rev = this.doc.add(newRevision(this.doc));
+        this.o.revisionId = rev.id;
+        this.doc.add({ kind: 'revisionCloud', viewId: view.id, boundary: pts, revisionId: rev.id });
+      });
       return this.app.cancelTool();
     }
     const type = this.app.currentType(this.kind);
@@ -1505,17 +1525,56 @@ export class DimensionTool extends Tool {
   }
 
   get title() {
-    return 'Aligned Dimension';
+    return this.linear ? 'Linear Dimension' : 'Aligned Dimension';
   }
 
   get viewKinds() {
     return ANNOTATION_VIEWS;
   }
 
+  get linear() {
+    return this.app.toolOptions('dimension', { mode: this.opts.linear ? 'linear' : 'aligned' }).mode === 'linear';
+  }
+
   get prompt() {
     if (!this.refs.length) return 'Click a wall face, centerline, grid or point to start the dimension';
     if (this.refs.length === 1) return 'Click the next reference';
-    return 'Click more references, or click an empty spot to place the dimension line';
+    return this.linear ? 'Click more references, or click where the dimension goes: above or below for horizontal, to the side for vertical' : 'Click more references, or click an empty spot to place the dimension line';
+  }
+
+  options() {
+    const o = this.app.toolOptions('dimension', { mode: this.opts.linear ? 'linear' : 'aligned' });
+    return [
+      segmented(
+        [
+          { value: 'aligned', label: 'Aligned', icon: 'dimAligned' },
+          { value: 'linear', label: 'Linear', icon: 'dimension' },
+        ],
+        o.mode,
+        (v) => {
+          o.mode = v;
+          this.refs = [];
+          this.dir = null;
+          this.app.renderOptions();
+          this.app.setPrompt(this.prompt);
+        },
+        'Dimension type',
+      ),
+    ];
+  }
+
+  /** Linear dimensions measure along x or y, whichever way the line is pulled. */
+  linearDir(p) {
+    const pts = this.refs.map((r) => r.at);
+    const x0 = Math.min(...pts.map((q) => q[0]));
+    const x1 = Math.max(...pts.map((q) => q[0]));
+    const y0 = Math.min(...pts.map((q) => q[1]));
+    const y1 = Math.max(...pts.map((q) => q[1]));
+    if (x1 - x0 < 1) return [0, 1];
+    if (y1 - y0 < 1) return [1, 0];
+    const ox = p[0] < x0 ? x0 - p[0] : p[0] > x1 ? p[0] - x1 : 0;
+    const oy = p[1] < y0 ? y0 - p[1] : p[1] > y1 ? p[1] - y1 : 0;
+    return oy >= ox ? [1, 0] : [0, 1];
   }
 
   refFromSnap(ev) {
@@ -1564,7 +1623,7 @@ export class DimensionTool extends Tool {
 
   place(p) {
     const refs = this.refs.map(({ at, id, ref }) => (id ? { at, id, ref } : { at }));
-    const dir = this.dir;
+    const dir = this.linear ? this.linearDir(p) : this.dir;
     this.app.commit('Dimension', () => this.doc.add({ kind: 'dimension', viewId: this.vc.view.id, refs, dir, line: p }));
     this.refs = [];
     this.dir = null;
@@ -1598,7 +1657,7 @@ export class DimensionTool extends Tool {
   drawOverlay(ctx, vc, vp) {
     if (this.refs.length >= 1 && this.cursor) {
       const refs = this.refs.map(({ at, id, ref }) => (id ? { at, id, ref } : { at }));
-      let dir = this.dir;
+      let dir = this.linear && refs.length >= 2 ? this.linearDir(this.cursor) : this.dir;
       if (!dir && this.snapRes?.point) {
         const d = sub(this.snapRes.point, refs[0].at);
         if (len(d) > 1) dir = norm(d);
@@ -1627,12 +1686,22 @@ export class TextTool extends Tool {
   }
 
   get prompt() {
+    const o = this.app.toolOptions('text', { size: 2.5, leader: false });
+    if (o.leader) return this.tip ? 'Click where the text goes' : 'Click where the leader points';
     return 'Click to place text';
   }
 
   down(ev) {
     if (!ev.p) return;
+    const o = this.app.toolOptions('text', { size: 2.5, leader: false });
+    if (o.leader && !this.tip) {
+      this.tip = this.snap(ev) || ev.p;
+      this.app.setPrompt(this.prompt);
+      return;
+    }
     const at = ev.p;
+    const tip = this.tip;
+    this.tip = null;
     const viewId = this.vc.view.id;
     this.openInput(ev.x, ev.y, {
       label: 'Text',
@@ -1640,35 +1709,93 @@ export class TextTool extends Tool {
       onSubmit: (v) => {
         const text = v.trim();
         if (!text) return true;
-        const o = this.app.toolOptions('text', { size: 2.5 });
-        this.app.commit('Text', () => this.doc.add({ kind: 'text', viewId, at, text, size: o.size, rotation: 0, align: 'left' }));
+        this.app.commit('Text', () => this.doc.add({ kind: 'text', viewId, at, text, size: o.size, rotation: 0, align: 'left', leaders: tip ? [tip] : [] }));
+        this.app.setPrompt(this.prompt);
         return true;
       },
+      onCancel: () => this.app.setPrompt(this.prompt),
     });
   }
 
+  move(ev) {
+    this.cursor = ev.p;
+    if (this.tip) this.app.requestRender();
+  }
+
+  cancel() {
+    if (this.tip) {
+      this.tip = null;
+      this.app.setPrompt(this.prompt);
+      return false;
+    }
+    return true;
+  }
+
+  drawOverlay(ctx, vc, vp) {
+    if (this.tip && this.cursor) strokeModel(ctx, [this.tip, this.cursor], (p) => vc.modelToScreen(p), vp.theme.preview, 1.5);
+    this.drawSnap(ctx, vc, vp);
+  }
+
   options() {
-    const o = this.app.toolOptions('text', { size: 2.5 });
+    const o = this.app.toolOptions('text', { size: 2.5, leader: false });
     const s = h('select.input.sm', { 'aria-label': 'Text size' }, ...[1.8, 2.5, 3.5, 5, 7].map((v) => h('option', { value: v }, `${v} mm`)));
     s.value = String(o.size);
     s.addEventListener('change', () => (o.size = +s.value));
-    return [h('div.ob-group', h('label', 'Size on paper'), s)];
+    const lead = h('input', { type: 'checkbox', checked: !!o.leader });
+    lead.addEventListener('change', () => {
+      o.leader = lead.checked;
+      this.tip = null;
+      this.app.setPrompt(this.prompt);
+    });
+    return [h('div.ob-group', h('label', 'Size on paper'), s), h('label.ob-group', lead, h('span.ob-label', 'Leader with arrow'))];
   }
 }
 
+export const TAG_SHOW = [
+  { value: 'mark', label: 'Mark' },
+  { value: 'type', label: 'Type' },
+  { value: 'material', label: 'Material' },
+  { value: 'keynote', label: 'Keynote' },
+  { value: 'name', label: 'Name' },
+];
+
+const TAGGABLE = ['door', 'window', 'wall', 'component', 'column', 'floor', 'roof', 'ceiling', 'beam', 'stair', 'ramp', 'railing', 'room', 'area'];
+
 export class TagTool extends Tool {
   get title() {
-    return 'Tag by Category';
+    return { material: 'Material Tag', keynote: 'Keynote', type: 'Type Tag' }[this.show] || 'Tag by Category';
+  }
+
+  get viewKinds() {
+    return PLAN_VIEW_KINDS;
+  }
+
+  get o() {
+    return this.app.toolOptions(`tag-${this.opts.show || 'category'}`, { show: this.opts.show || 'mark', leader: this.opts.show === 'material' });
+  }
+
+  get show() {
+    return this.o.show;
   }
 
   get prompt() {
-    return 'Click a door, window, wall or room to tag it';
+    return this.show === 'material' ? 'Click a wall, floor, roof or other element to tag its material' : 'Click an element to tag it';
+  }
+
+  options() {
+    const o = this.o;
+    const s = h('select.input.sm', { 'aria-label': 'Tag shows' }, ...TAG_SHOW.map((v) => h('option', { value: v.value }, v.label)));
+    s.value = o.show;
+    s.addEventListener('change', () => (o.show = s.value));
+    const lead = h('input', { type: 'checkbox', checked: !!o.leader });
+    lead.addEventListener('change', () => (o.leader = lead.checked));
+    return [h('div.ob-group', h('label', 'Shows'), s), h('label.ob-group', lead, h('span.ob-label', 'Leader'))];
   }
 
   target(ev) {
     for (const id of this.vc.hitTest(ev.x, ev.y)) {
       const el = this.doc.get(id);
-      if (el && ['door', 'window', 'wall', 'room', 'component', 'column'].includes(el.kind)) return el;
+      if (el && TAGGABLE.includes(el.kind)) return el;
     }
     return null;
   }
@@ -1681,16 +1808,17 @@ export class TagTool extends Tool {
   down(ev) {
     const t = this.target(ev);
     if (!t) return;
-    if (t.kind === 'room') {
-      this.app.toast('Rooms show their name, number and area automatically. Drag the room tag to move it.');
+    if ((t.kind === 'room' || t.kind === 'area') && this.show === 'mark') {
+      this.app.toast('Rooms and areas show their name, number and area automatically. Use Tag Room to move the label.');
       return;
     }
-    this.app.commit('Tag', () => addTag(this.app, t, this.vc.view));
+    const o = this.o;
+    this.app.commit(this.title, () => addTag(this.app, t, this.vc.view, { show: o.show, leader: o.leader, at: o.show === 'material' || o.leader ? add(ev.p, [6 * (+this.vc.view.scale || 100), 4 * (+this.vc.view.scale || 100)]) : null }));
   }
 }
 
 /** Add a tag for an element in a view, offset from its anchor. */
-export function addTag(app, el, view) {
+export function addTag(app, el, view, { show = 'mark', leader = false, at: place = null } = {}) {
   const doc = app.doc;
   let at = tagAnchor(doc, el);
   if (!at) return null;
@@ -1704,10 +1832,10 @@ export function addTag(app, el, view) {
     const ax = wallAxis(doc, el);
     at = add(at, scale(ax.n, ax.half + 5 * (+view.scale || 100)));
   }
-  if (el.kind === 'door' || el.kind === 'window') {
+  if ((el.kind === 'door' || el.kind === 'window') && show === 'mark') {
     if (!el.mark) doc.update(el.id, { mark: nextMark(doc, el.kind) });
   }
-  return doc.add({ kind: 'tag', viewId: view.id, targetId: el.id, at, leader: false });
+  return doc.add({ kind: 'tag', viewId: view.id, targetId: el.id, at: place || at, leader: !!leader, show });
 }
 
 /** Tag every untagged door and window visible in the view. */

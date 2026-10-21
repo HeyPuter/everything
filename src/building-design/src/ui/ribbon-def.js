@@ -108,10 +108,56 @@ export const RIBBON = [
     id: 'annotate',
     label: 'Annotate',
     panels: [
-      { title: 'Dimension', items: [{ cmd: 'dimension', size: 'lg' }, { cmd: 'measure', size: 'lg' }] },
-      { title: 'Detail', items: [{ cmd: 'detailLine', size: 'lg' }, { cmd: 'region', size: 'lg' }] },
-      { title: 'Text', items: [{ cmd: 'text', size: 'lg' }] },
-      { title: 'Tag', items: [{ cmd: 'tag', size: 'lg' }, { cmd: 'tagAll', size: 'lg' }] },
+      {
+        title: 'Dimension',
+        items: [
+          { cmd: 'dimension', size: 'lg', label: 'Aligned' },
+          { cmd: 'dimLinear', size: 'lg', label: 'Linear' },
+          { cmd: 'dimAngular', size: 'lg', label: 'Angular' },
+          { cmd: 'dimRadial', size: 'lg', label: 'Radial' },
+          { cmd: 'dimDiameter', size: 'lg', label: 'Diameter' },
+          { cmd: 'spotElevation', size: 'lg' },
+          { cmd: 'spotCoordinate', size: 'lg' },
+          { cmd: 'spotSlope', size: 'lg' },
+        ],
+      },
+      {
+        title: 'Detail',
+        items: [
+          { cmd: 'detailLine', size: 'lg' },
+          { cmd: 'detailArc', size: 'lg' },
+          { cmd: 'region', size: 'lg', label: 'Region' },
+          { cmd: 'detailItem', size: 'lg', label: 'Component' },
+          { cmd: 'revisionCloud', size: 'lg' },
+          { cmd: 'insulation', size: 'lg' },
+        ],
+      },
+      { title: 'Text', items: [{ cmd: 'text', size: 'lg' }, { cmd: 'findReplace', size: 'lg', label: 'Find and Replace' }] },
+      {
+        title: 'Tag',
+        items: [
+          { cmd: 'tag', size: 'lg' },
+          { cmd: 'tagAll', size: 'lg', label: 'Tag All' },
+          { cmd: 'tagMaterial', size: 'lg' },
+          { cmd: 'keynote', size: 'lg' },
+          { cmd: 'tagRoom', size: 'lg' },
+        ],
+      },
+      { title: 'Color Fill', items: [{ cmd: 'colorLegend', size: 'lg' }] },
+      {
+        title: 'Symbol',
+        items: [
+          {
+            cmd: 'northArrow',
+            size: 'lg',
+            variants: [
+              { cmd: 'northArrow', label: 'North Arrow' },
+              { cmd: 'scaleBar', label: 'Graphic Scale' },
+            ],
+          },
+          { cmd: 'spanDirection', size: 'lg' },
+        ],
+      },
     ],
   },
   {
@@ -130,7 +176,7 @@ export const RIBBON = [
           { cmd: 'schedule', size: 'lg' },
         ],
       },
-      { title: 'Sheet Composition', items: [{ cmd: 'sheet', size: 'lg' }, { cmd: 'placeView', size: 'lg' }] },
+      { title: 'Sheet Composition', items: [{ cmd: 'sheet', size: 'lg' }, { cmd: 'placeView', size: 'lg' }, { cmd: 'revisions', size: 'lg' }] },
       { title: 'Windows', items: [{ cmd: 'closeInactive' }, { cmd: 'toggleProps' }, { cmd: 'toggleBrowser' }] },
       { title: 'Navigate', items: [{ cmd: 'zoomFit' }, { cmd: 'zoomRegion' }, { cmd: 'sectionBox' }] },
     ],
@@ -162,6 +208,9 @@ export const RIBBON = [
     ],
   },
 ];
+
+// Every static tab starts with the Modify (select) button, so selecting is one click from anywhere.
+for (const tab of RIBBON) if (tab.panels[0]?.title !== 'Select') tab.panels.unshift({ title: 'Select', items: [{ cmd: 'modify', size: 'lg' }] });
 
 export function MODIFY_PANEL() {
   return {

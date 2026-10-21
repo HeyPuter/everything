@@ -140,7 +140,8 @@ export class SelectTool extends Tool {
 
   beginMove(d) {
     const sel = [...expandGroups(this.doc, this.app.selection)].map((id) => this.doc.get(id)).filter((el) => el && !el.pinned && el.kind !== 'level' && el.id !== 'project');
-    if (!sel.length || !this.vc.is2D) {
+    // Elevations and sections can move their own annotations, not the model.
+    if (!sel.length || (!this.vc.is2D && !sel.every((el) => el.viewId))) {
       d.kind = 'none';
       return;
     }

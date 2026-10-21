@@ -4,7 +4,8 @@
  * (called inside a live transaction with the snapped pointer point) or a
  * click handler.
  */
-import { add, sub, scale, perp, mid, dot, eq } from '../core/geom.js';
+import { add, sub, scale, perp, mid, dot, eq, dist, angleOf } from '../core/geom.js';
+import { radialTarget } from '../core/annotate.js';
 import { wallAxis, openingSize, rampLayout } from '../core/model.js';
 import { sectionFrame } from '../core/plan.js';
 import { dimensionGeometry } from '../core/plan.js';
@@ -20,10 +21,73 @@ function wallsEndingAt(doc, p, except) {
   return out;
 }
 
+/** Grips of view annotations; the same in plans, elevations and sections. */
+function annotationGrips(doc, el, out) {
+  const end = (key, title = 'Drag end') => out.push({ at: el[key], shape: 'circle', title, exclude: [el.id], drag: (p) => doc.update(el.id, { [key]: p }) });
+  switch (el.kind) {
+    case 'spot':
+      end('at', 'Drag the measured point');
+      if (el.leader) end('leader', 'Drag the label');
+      break;
+    case 'insulation':
+      end('a');
+      end('b');
+      break;
+    case 'angularDim': {
+      let a1 = el.a1;
+      while (a1 < el.a0) a1 += Math.PI * 2;
+      const am = (el.a0 + a1) / 2;
+      out.push({ at: add(el.c, scale([Math.cos(am), Math.sin(am)], el.r)), shape: 'diamond', title: 'Drag the arc', exclude: [el.id], drag: (p) => doc.update(el.id, { r: Math.max(10, dist(el.c, p)) }) });
+      break;
+    }
+    case 'radialDim': {
+      const { c, r } = radialTarget(doc, el);
+      out.push({ at: add(c, scale([Math.cos(el.angle || 0), Math.sin(el.angle || 0)], r)), shape: 'diamond', title: 'Drag around the circle', noSnap: true, drag: (p) => doc.update(el.id, { angle: angleOf(sub(p, c)) }) });
+      break;
+    }
+    case 'detailArc':
+      out.push({ at: add(el.c, scale([Math.cos(el.a0 ?? 0), Math.sin(el.a0 ?? 0)], el.r)), shape: 'diamond', title: 'Drag the radius', exclude: [el.id], drag: (p) => doc.update(el.id, { r: Math.max(1, dist(el.c, p)) }) });
+      break;
+    case 'revisionCloud':
+      (el.boundary || []).forEach((v, i) =>
+        out.push({
+          at: v,
+          shape: 'square',
+          title: 'Drag vertex',
+          exclude: [el.id],
+          drag: (p) => {
+            const b = el.boundary.slice();
+            b[i] = p;
+            doc.update(el.id, { boundary: b });
+          },
+        }),
+      );
+      break;
+    case 'text':
+      (el.leaders || []).forEach((tip, i) =>
+        out.push({
+          at: tip,
+          shape: 'circle',
+          title: 'Drag the leader',
+          exclude: [el.id],
+          drag: (p) => {
+            const l = el.leaders.slice();
+            l[i] = p;
+            doc.update(el.id, { leaders: l });
+          },
+        }),
+      );
+      break;
+    default:
+      break;
+  }
+}
+
 export function gripsFor(app, el, vc) {
   const doc = app.doc;
   const out = [];
   if (!el) return out;
+  if (el.viewId) annotationGrips(doc, el, out);
   if (vc.is2D) {
     switch (el.kind) {
       case 'wall': {

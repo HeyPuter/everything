@@ -17,6 +17,7 @@ import { buildFamily } from './families.js';
 import { Frame } from './mesh.js';
 import { categoryOf } from './catalog.js';
 import { formatDimension, formatArea } from './units.js';
+import { annotationGraphics, arrowHead, leaderStart } from './annotate.js';
 
 export const INK = (a = 255) => [-1, -1, -1, a];
 export const BG = [-2, -2, -2, 255];
@@ -226,7 +227,7 @@ export function planGraphics(pc, el) {
       }
       break;
     default:
-      return null;
+      if (!annotationGraphics(pc, el, b)) return null;
   }
   return b.empty ? null : b;
 }
@@ -713,6 +714,11 @@ function planComponent(pc, el, b) {
 
 // Rooms ------------------------------------------------------------------------------------------
 
+/** Fill colour for a room value (name, department...), stable across sessions. */
+export function roomColorFor(value) {
+  return roomColor(value);
+}
+
 function roomColor(name) {
   let h = 0;
   for (const ch of String(name || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -736,7 +742,7 @@ function planRoom(pc, el, b) {
   const region = pc.rooms.room(el);
   const at = el.tagAt || el.at;
   if (region) {
-    if (pc.view.roomFill) b.fill(region.outer, region.holes, roomColor(el.name));
+    if (pc.view.roomFill) b.fill(region.outer, region.holes, roomColor(String(el[pc.view.roomFillBy || 'name'] || '(none)')));
     b.pick(region.outer);
   } else {
     const s = P(pc, 1.5);
@@ -875,14 +881,41 @@ function drawText(pc, el, b) {
     [x0, hgt / 2],
   ].map((p) => add(el.at, rotate(p, rot)));
   b.pick(corners);
+  for (const tip of el.leaders || []) {
+    const start = leaderStart(el, tip, w, hgt);
+    if (dist(start, tip) < sz) continue;
+    // A short horizontal shoulder off the text, then the leader to the tip.
+    const shoulder = add(start, rotate([Math.sign(rotate(sub(tip, el.at), -rot)[0] - x0 - w / 2) * sz * 0.8, 0], rot));
+    b.line(start, shoulder, W.thin);
+    b.line(shoulder, tip, W.thin);
+    arrowHead(b, tip, sub(tip, shoulder), P(pc, 2));
+  }
 }
 
-export function tagText(doc, target) {
+/** The main material of an element: the core layer of layered types, else the type's material. */
+export function materialOf(doc, el) {
+  const type = doc.get(el?.typeId);
+  if (!type) return null;
+  if (type.layers?.length) {
+    const core = type.layers.find((l) => l.function === 'structure') || type.layers[0];
+    return doc.get(core.materialId) ?? null;
+  }
+  return doc.get(type.materialId || type.panelMaterialId || type.frameMaterialId) ?? null;
+}
+
+/** Text of a tag. show: 'mark' (default) | 'type' | 'material' | 'keynote' | 'name'. */
+export function tagText(doc, target, show = 'mark') {
   if (!target) return '?';
+  const type = doc.get(target.typeId);
+  if (show === 'type') return type?.mark || type?.name || '?';
+  if (show === 'material') return materialOf(doc, target)?.name || '?';
+  if (show === 'keynote') return target.keynote || type?.keynote || '?';
+  if (show === 'name') return target.name || type?.name || '?';
   if (target.kind === 'door' || target.kind === 'window') return target.mark || '?';
   if (target.kind === 'room') return target.number || target.name || '?';
-  if (target.kind === 'wall') return doc.get(target.typeId)?.mark || '?';
-  return target.mark || doc.get(target.typeId)?.mark || '?';
+  if (target.kind === 'area') return target.name || '?';
+  if (target.kind === 'wall') return type?.mark || '?';
+  return target.mark || type?.mark || '?';
 }
 
 /** Anchor point of a tag's target in plan. */
@@ -903,12 +936,33 @@ export function tagAnchor(doc, target) {
 function drawTag(pc, el, b) {
   const target = pc.doc.get(el.targetId);
   if (!target) return;
-  const text = tagText(pc.doc, target);
+  const show = el.show || 'mark';
+  const text = tagText(pc.doc, target, show);
   const sz = P(pc, 2.5);
   const at = el.at;
+  if (show === 'material') {
+    // Material tags are plain text on a leader.
+    b.text(at, text, { size: sz, align: 'left', mask: true });
+    const w = sz * 0.6 * text.length;
+    const anchor = tagAnchor(pc.doc, target);
+    if (anchor && dist(anchor, at) > sz) {
+      const start = add(at, [anchor[0] < at[0] ? -sz * 0.3 : w + sz * 0.3, 0]);
+      b.line(start, anchor, W.thin);
+      arrowHead(b, anchor, sub(anchor, start), P(pc, 2));
+    }
+    b.pick([add(at, [-sz * 0.3, -sz * 0.7]), add(at, [w + sz * 0.3, -sz * 0.7]), add(at, [w + sz * 0.3, sz * 0.7]), add(at, [-sz * 0.3, sz * 0.7])]);
+    return;
+  }
   const r = Math.max(sz * 0.95, sz * 0.36 * text.length + sz * 0.4);
   let outline;
-  if (target.kind === 'door') outline = arcPoints(at, r, 0, Math.PI * 2, Math.PI / 16).slice(0, -1);
+  if (show === 'keynote' || show === 'type' || show === 'name')
+    outline = [
+      [at[0] - r * 1.1, at[1] - sz * 0.9],
+      [at[0] + r * 1.1, at[1] - sz * 0.9],
+      [at[0] + r * 1.1, at[1] + sz * 0.9],
+      [at[0] - r * 1.1, at[1] + sz * 0.9],
+    ];
+  else if (target.kind === 'door') outline = arcPoints(at, r, 0, Math.PI * 2, Math.PI / 16).slice(0, -1);
   else if (target.kind === 'window')
     outline = [0, 1, 2, 3, 4, 5].map((i) => {
       const a = (i * Math.PI) / 3;
@@ -934,7 +988,7 @@ function drawTag(pc, el, b) {
   b.pick(outline);
 }
 
-const LINE_STYLE = { thin: [W.thin, 0], medium: [W.medium, 0], wide: [W.heavy, 0], dashed: [W.thin, 1], hidden: [W.thin, 2], center: [W.thin, 3] };
+export const LINE_STYLE = { thin: [W.thin, 0], medium: [W.medium, 0], wide: [W.heavy, 0], dashed: [W.thin, 1], hidden: [W.thin, 2], center: [W.thin, 3] };
 
 function drawDetailLine(el, b) {
   const [w, d] = LINE_STYLE[el.style] || LINE_STYLE.thin;

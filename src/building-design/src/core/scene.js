@@ -14,9 +14,10 @@ import { RoomSolver, AreaSolver } from './rooms.js';
 import { build3D } from './build3d.js';
 import { planGraphics, planContext, columnOutline, hiddenInView } from './plan.js';
 import { hostedBy } from './model.js';
+import { ANNOTATION_KINDS } from './annotate.js';
 
 export const MODEL_KINDS = ['wall', 'floor', 'ceiling', 'roof', 'door', 'window', 'column', 'beam', 'stair', 'ramp', 'railing', 'component', 'modelLine'];
-export const PLAN_KINDS = [...MODEL_KINDS, 'room', 'roomSeparator', 'area', 'areaBoundary', 'grid', 'refPlane', 'region', 'dimension', 'text', 'tag', 'detailLine', 'section', 'elevation'];
+export const PLAN_KINDS = [...MODEL_KINDS, 'room', 'roomSeparator', 'area', 'areaBoundary', 'grid', 'refPlane', 'region', 'dimension', 'text', 'tag', 'detailLine', ...ANNOTATION_KINDS, 'section', 'elevation'];
 
 const LEVEL_SCOPED = new Set(['wall', 'roomSeparator', 'column', 'room', 'floor', 'ceiling', 'roof', 'stair', 'ramp', 'railing', 'component', 'beam', 'modelLine', 'area', 'areaBoundary']);
 
@@ -182,6 +183,10 @@ export class Scene {
       const t = doc.get(el.targetId);
       d.push(t, t && doc.get(t.hostId), t && doc.get(t.typeId), t?.kind === 'room' ? this.rooms.room(t) : t?.kind === 'area' ? this.areas.area(t) : null);
     } else if (el.kind === 'stair') d.push(doc.levelAbove(el.levelId));
+    else if (el.kind === 'radialDim') d.push(doc.get(el.targetId), doc.get(doc.get(el.targetId)?.typeId));
+    else if (el.kind === 'revisionCloud') d.push(doc.get(el.revisionId));
+    // These read other elements of the model: redraw them after any change.
+    else if (el.kind === 'spot' || el.kind === 'colorLegend') d.push(this.version, doc.get('project'));
     void pc;
     return d;
   }

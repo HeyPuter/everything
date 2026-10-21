@@ -57,9 +57,16 @@ export function snapFeatures(scene, el) {
     case 'detailLine':
     case 'roomSeparator':
     case 'beam':
+    case 'detailArc': {
+      P(el.c, 'center');
+      const full = Math.abs((el.a1 ?? Math.PI * 2) - (el.a0 ?? 0)) >= Math.PI * 2 - 1e-6;
+      if (!full) for (const a of [el.a0, el.a1]) P([el.c[0] + Math.cos(a) * el.r, el.c[1] + Math.sin(a) * el.r]);
+      break;
+    }
     case 'refPlane':
     case 'modelLine':
     case 'areaBoundary':
+    case 'insulation':
       P(el.a);
       P(el.b);
       P(mid(el.a, el.b), 'midpoint');
