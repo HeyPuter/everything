@@ -37,6 +37,8 @@ export interface SeqEditorLike {
   pickStrip(clientX: number, clientY: number): Strip | null;
   /** strips flagged as overlapping during a transform (drawn red) */
   invalid: Set<Strip>;
+  /** frames a transform snapped to (drawn as lines while it runs) */
+  snapLines: number[];
   showSeconds: boolean;
 }
 

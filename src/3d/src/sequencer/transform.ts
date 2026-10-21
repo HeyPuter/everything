@@ -158,8 +158,13 @@ export function startSlide(ed: SeqEditorLike, x0: number, y0: number, opts: Slid
       }
       const targetsF = snapTargets([...others], new Set(), { current: ts.snap_to_current_frame ? app.doc.scene.frame_current : undefined, markers: ts.snap_to_markers ? markers : [], ignoreMuted: ts.snap_ignore_muted, ignoreSound: ts.snap_ignore_sound });
       const d = snapOffset(edges, targetsF, ts.snap_distance / Math.max(1e-6, ed.ppf));
-      if (d !== null) df += d;
-    }
+      if (d !== null) {
+        df += d;
+        // edges that landed on a target
+        const set = new Set(targetsF);
+        ed.snapLines = edges.map((x) => x + d).filter((x) => set.has(x));
+      } else ed.snapLines = [];
+    } else ed.snapLines = [];
     st.df = df;
     st.dc = dc;
     for (const [s, o] of orig) {
@@ -214,11 +219,13 @@ export function startSlide(ed: SeqEditorLike, x0: number, y0: number, opts: Slid
       for (const [s, o] of orig) restore(s, o);
       afterEdit();
       ed.invalid.clear();
+      ed.snapLines = [];
       opts.onCancel?.();
       app.changed('doc');
     },
     finish() {
       ed.invalid.clear();
+      ed.snapLines = [];
       if (!handleMode) resolveOverlap(list, targets, ts.overlap_mode);
       afterEdit();
       restartPlayback();

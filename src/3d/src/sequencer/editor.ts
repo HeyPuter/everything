@@ -100,6 +100,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   showOffsets = false;
   splitRatio = 0.55;
   invalid = new Set<Strip>();
+  snapLines: number[] = [];
   private hoverStrip: Strip | null = null;
   private hoverHandle: 'LEFT' | 'RIGHT' | null = null;
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
@@ -843,6 +844,20 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       g.moveTo(rx, RULER_H);
       g.lineTo(rx, H);
       g.stroke();
+      g.restore();
+    }
+    // snap indicator: the frames a running transform snapped to
+    if (this.snapLines.length && app.modal) {
+      g.save();
+      g.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+      g.lineWidth = 1;
+      for (const f of this.snapLines) {
+        const sx = Math.round(this.fx(f)) + 0.5;
+        g.beginPath();
+        g.moveTo(sx, RULER_H);
+        g.lineTo(sx, H);
+        g.stroke();
+      }
       g.restore();
     }
     // playhead

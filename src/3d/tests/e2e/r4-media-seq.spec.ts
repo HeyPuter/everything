@@ -121,3 +121,37 @@ test('sequencer preview: Transform tool moves from inside the frame and scales f
   expect(t2.scale_x).toBeGreaterThan(0.55);
   await expectNoErrors(errors);
 });
+
+test('sequencer: moving a strip shows where it snaps', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const U = (p: string) => performance.getEntriesByType('resource').map((e) => e.name).find((n) => n.includes(p)) ?? p;
+    const { shell } = await import(U('/src/ui/shell.ts'));
+    const { workspaceTemplates } = await import(U('/src/ui/screen.ts'));
+    shell.addWorkspace(workspaceTemplates.find((t: any) => t.create().name === 'Video Editing').create());
+    const app = (window as any).app;
+    app.run('sequencer.effect_strip_add', { type: 'COLOR', frame_start: 1, channel: 1, length: 20 }, { invoke: false });
+    app.run('sequencer.effect_strip_add', { type: 'COLOR', frame_start: 40, channel: 2, length: 20 }, { invoke: false });
+    app.run('sequencer.select_all', { action: 'DESELECT' });
+    const s = app.doc.scene.sequence_editor.strips[1];
+    s.select = true;
+    app.doc.scene.tool_settings.use_snap_sequencer = true;
+  });
+  const tl = page.locator('.seq-main').last();
+  await tl.hover();
+  await page.keyboard.press('Home');
+  const ppf = await page.evaluate(() => (window as any).app.hoverArea.editor.ppf);
+  const b = (await tl.boundingBox())!;
+  const x = b.x + b.width / 2,
+    y = b.y + b.height / 2;
+  await page.mouse.move(x, y);
+  await page.keyboard.press('g');
+  // 40 → 21: one frame from the end of the first strip, which it snaps to
+  await page.mouse.move(x - ppf * 19, y, { steps: 5 });
+  const lines = await page.evaluate(() => (window as any).app.hoverArea.editor.snapLines);
+  expect(lines).toEqual([21]);
+  await page.mouse.click(x - ppf * 19, y);
+  expect(await page.evaluate(() => (window as any).app.doc.scene.sequence_editor.strips[1].frame_start)).toBe(21);
+  expect(await page.evaluate(() => (window as any).app.hoverArea.editor.snapLines)).toEqual([]);
+  await expectNoErrors(errors);
+});
