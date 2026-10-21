@@ -11,7 +11,8 @@
  *
  * A clip still being generated when the user presses Stop is not thrown
  * away (it has been paid for): it lands in the media library when it is
- * done, and a toast says so.
+ * done, and a toast says so. When its editor was left meanwhile (close()),
+ * it goes into that project: the editor open on it again, else its saved file.
  *
  * Every call resolves to { ok, content, changed, entry, target }: content is
  * what the model is told, entry the undo step it made (or null), target the
@@ -57,8 +58,11 @@ export async function framePicture(ctx, t) {
   return { blob, width: c.width, height: c.height };
 }
 
+/** The runners of open editors by project id, for results that finish after their editor was left. */
+const openRunners = new Map();
+
 /**
- * createAiToolRunner(ctx, services) -> { run(name, args, control), videoSeconds(name, args) }
+ * createAiToolRunner(ctx, services) -> { run(name, args, control), videoSeconds(name, args), close() }
  * services replace the slow or paid steps (tests): generateVideo(opts),
  * generateImage(prompt, opts), editPicture(picture, instruction),
  * synthesize(text, voice), picture(clip, time), frame(time), editDeps (for
@@ -80,6 +84,10 @@ export function createAiToolRunner(ctx, services = {}) {
     ...services,
   };
   const edits = createAssistantRunner(ctx, svc.editDeps);
+  const project = { id: store.project.id, name: store.project.name };
+  let closed = false;
+  const self = { add: (asset) => actions.registerAsset(asset) };
+  if (project.id) openRunners.set(project.id, self);
 
   // ---- Clips and pictures ----------------------------------------------------
 
@@ -240,9 +248,30 @@ export function createAiToolRunner(ctx, services = {}) {
 
   /** Made but stopped: the asset goes into the media library only, said so. */
   function keepMade(asset, what) {
+    if (closed) {
+      keepLeft(asset, what);
+      return { skipped: true };
+    }
     actions.registerAsset(asset);
     toast(`The ${what} you stopped has finished. It is in your media.`, { kind: 'success', duration: 6000 });
     return { skipped: true };
+  }
+
+  /** Made after the editor was left: into the editor open on the project again, else into its saved file. */
+  async function keepLeft(asset, what) {
+    try {
+      const open = openRunners.get(project.id);
+      if (open) open.add(asset);
+      else {
+        const saved = await ctx.library.openProject(project.id);
+        saved.assets[asset.id] = asset;
+        await ctx.library.saveProject(saved);
+      }
+      toast(`The ${what} you were making for ${project.name} has finished. It is in that project's media.`, { kind: 'success', duration: 8000 });
+    } catch (err) {
+      console.error(err);
+      toast(`The ${what} you were making for ${project.name} has finished, but it couldn't be added to the project.`, { kind: 'error' });
+    }
   }
 
   // Generated after a Stop: kept in the media library, said so.
@@ -384,7 +413,7 @@ export function createAiToolRunner(ctx, services = {}) {
       const style = IMAGE_STYLES.some((x) => x.id === a.style) ? a.style : 'none';
       const made = await generating(control, 'Generating the picture', () => svc.generateImage(prompt, { aspect, style, model: svc.imageModel(), testMode: svc.testMode() }), async (r) => {
         const asset = await importMade(new File([r.blob], imageFileName(prompt), { type: r.blob.type || 'image/png' }), 'ai-image').catch(() => null);
-        if (asset) actions.registerAsset(asset);
+        if (asset) keepMade(asset, 'picture');
       });
       if (!made) return { skipped: true };
       const asset = await importMade(new File([made.blob], imageFileName(prompt, (made.blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg')), { type: made.blob.type || 'image/png' }), 'ai-image');
@@ -480,7 +509,16 @@ export function createAiToolRunner(ctx, services = {}) {
     }
   }
 
-  return { run, videoSeconds };
+  return {
+    run,
+    videoSeconds,
+    /** The editor is being left: what is still being made goes into the project when it is done. */
+    close() {
+      closed = true;
+      project.name = store.project.name || project.name;
+      if (openRunners.get(project.id) === self) openRunners.delete(project.id);
+    },
+  };
 }
 
 const VIDEO_PAUSE = new Set(['animate_image', 'extend_clip', 'generate_transition', 'edit_image']);

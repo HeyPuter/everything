@@ -1008,6 +1008,7 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
     },
     dispose() {
       destroyed = true;
+      runner.close();
       agent.reset();
       offs.forEach((f) => f?.());
       globalThis.removeEventListener?.('resize', onResize);
