@@ -1007,6 +1007,26 @@ describe('comment exchange', () => {
     await expect(importXfdf(doc, '<!DOCTYPE x><xfdf/>')).rejects.toThrow('could not be read');
   });
 
+  it('takes the text of comments that carry only rich text', async () => {
+    const doc = await blank();
+    const body = (paragraphs) =>
+      `<contents-richtext><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:23.8.0" xfa:spec="2.0.2">${paragraphs}</body></contents-richtext>`;
+    const xfdf = `<?xml version="1.0" encoding="UTF-8"?>
+<xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve">
+<annots>
+<square color="#FF0000" flags="print" name="sq-1" page="0" rect="100,100,200,180" title="Ada" width="1">${body('<p dir="ltr"><span style="font-size:10.0pt">Check </span><span style="font-weight:bold">this</span></p><p dir="ltr">and that</p>')}</square>
+<text flags="print,nozoom,norotate" inreplyto="sq-1" name="r-1" page="0" rect="100,160,120,180" title="Grace">${body('<p>Fixed<br/>now</p>')}</text>
+<freetext flags="print" name="ft-1" page="0" rect="300,600,500,650" width="0">${body('\n<p dir="ltr">Hello</p>\n')}<defaultappearance>/Helv 12 Tf 0 g</defaultappearance></freetext>
+</annots>
+</xfdf>`;
+    expect(await importXfdf(doc, xfdf)).toMatchObject({ imported: 3 });
+    const [square, freetext] = listAnnotations(doc, 0);
+    expect(square.contents).toBe('Check this\nand that');
+    expect(square.replies.map((r) => r.contents)).toEqual(['Fixed\nnow']);
+    expect(freetext.contents).toBe('Hello');
+    expect(await paintedText(await doc.save())).toEqual(['Hello']);
+  });
+
   it('summarizes comments per page with authors, dates, types, status and replies', async () => {
     const doc = await everything();
     const summary = exportCommentSummary(doc);
