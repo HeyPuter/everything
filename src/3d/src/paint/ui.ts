@@ -178,7 +178,7 @@ function radiusField(b: PaintBrush, id: string, label = 'Size') {
     value: b.radius * 2,
     min: 2,
     max: 4000,
-    int: true,
+    step: 2,
     unit: 'pixel',
     tip: 'Diameter of the brush in pixels (F)',
     set: (x) => ((b.radius = Math.max(1, Math.round(x / 2))), changed()),
@@ -384,20 +384,13 @@ export function toolHeaderSettings(mode: BrushMode): Child {
   parts.push(symmetryToggles('th'));
   if (mode === 'SCULPT') {
     const ts = app.doc.scene.tool_settings.sculpt;
+    // Dyntopo: on/off, settings in the popover next to it
     parts.push(
       h(
-        'button',
-        {
-          key: 'th-dyntopo',
-          class: { 'hdr-toggle': true, on: !!ts.use_dyntopo },
-          'data-tip': 'Dyntopo\nAdd and remove triangles under the brush (click to toggle, right-click for settings)',
-          onclick: () => app.run('sculpt.dynamic_topology_toggle'),
-          oncontextmenu: (e: MouseEvent) => {
-            e.preventDefault();
-            openPopover(e.currentTarget as HTMLElement, () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, 'Dyntopo'), ...dyntopoSettings('pop-dt')), { width: 240 });
-          },
-        },
-        icon('dyntopo'),
+        'div',
+        { key: 'th-dyntopo', class: 'th-dyntopo', style: { display: 'flex', alignItems: 'center', flex: 'none' } },
+        checkbox('th-dt-on', 'Dyntopo', !!ts.use_dyntopo, () => app.run('sculpt.dynamic_topology_toggle'), { tip: 'Dyntopo\nAdd and remove triangles under the brush as you sculpt' }),
+        popButton('th-p-dyntopo', '', 'Dyntopo', () => dyntopoSettings('pop-dt'), 240),
       ),
     );
     parts.push(popButton('th-p-remesh', 'Remesh', 'Remesh', () => remeshRows()));
