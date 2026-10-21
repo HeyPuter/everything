@@ -39,6 +39,10 @@ export interface ExplodeOptions {
   /** faces whose average weight is below this stay in place (with `weights`) */
   protect: number;
   weights: Float32Array | null;
+  /** split faces whose corners belong to different particles along their edges */
+  cutEdges?: boolean;
+  /** particle age (0..1) per particle: written to the UVs as (age, 0.5) when given */
+  ages?: Float32Array | null;
 }
 
 /**
@@ -52,6 +56,32 @@ export function explodeFaces(m: EvalMesh, emit: Float32Array, pos: Float32Array,
   const q = n ? new PointQuery(emit) : null;
   const P = m.positions;
   const c = new Vector3();
+  const tmp = new Vector3();
+  // nearest particle of every vertex (for cutting faces between particles)
+  const vpart = o.cutEdges && q ? new Int32Array(P.length / 3).map((_, v) => q.nearest(tmp.set(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]))?.index ?? -1) : null;
+  /** offset, scale and visibility of particle i */
+  const motion = (i: number) => {
+    if (i < 0) return { dx: 0, dy: 0, dz: 0, scale: 1, show: true, age: 0 };
+    const st = state[i];
+    if ((st === 0 && !o.unborn) || (st === 1 && !o.alive) || (st === 2 && !o.dead)) return null;
+    if (st === 0) return { dx: 0, dy: 0, dz: 0, scale: 1, show: true, age: 0 };
+    return { dx: pos[i * 3] - emit[i * 3], dy: pos[i * 3 + 1] - emit[i * 3 + 1], dz: pos[i * 3 + 2] - emit[i * 3 + 2], scale: o.useSize ? sizes[i] : 1, show: true, age: o.ages ? o.ages[i] : 0 };
+  };
+  const addPiece = (corners: { x: number; y: number; z: number; v: number; uv: [number, number]; col?: number[] }[], f: number, mv: NonNullable<ReturnType<typeof motion>>, center: Vector3, seams: number[] | undefined, sharp: number[] | undefined) => {
+    const verts: number[] = [];
+    for (const k of corners) {
+      const x = center.x + (k.x - center.x) * mv.scale + mv.dx,
+        y = center.y + (k.y - center.y) * mv.scale + mv.dy,
+        z = center.z + (k.z - center.z) * mv.scale + mv.dz;
+      verts.push(b.addVert(x, y, z, k.v >= 0 ? (m.origIndex?.[k.v] ?? k.v) : -1, k.v >= 0 ? weightsOf(m, k.v) : undefined));
+    }
+    const uvs = o.ages ? corners.flatMap(() => [mv.age, 0.5]) : corners.flatMap((k) => k.uv);
+    b.addFace(verts, uvs, m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0, {
+      colors: m.colors ? corners.flatMap((k) => k.col ?? [1, 1, 1, 1]) : undefined,
+      seams,
+      sharp,
+    });
+  };
   for (let f = 0; f < nf; f++) {
     const s = m.offsets[f],
       e = m.offsets[f + 1];
@@ -65,36 +95,40 @@ export function explodeFaces(m: EvalMesh, emit: Float32Array, pos: Float32Array,
     }
     c.multiplyScalar(1 / (e - s));
     if (o.weights) w /= e - s;
-    let dx = 0,
-      dy = 0,
-      dz = 0,
-      scale = 1;
     const fixed = !!o.weights && w < o.protect;
-    const hit = !fixed && q ? q.nearest(c) : null;
-    if (hit) {
-      const i = hit.index;
-      const st = state[i];
-      if ((st === 0 && !o.unborn) || (st === 1 && !o.alive) || (st === 2 && !o.dead)) continue;
-      if (st !== 0) {
-        dx = pos[i * 3] - emit[i * 3];
-        dy = pos[i * 3 + 1] - emit[i * 3 + 1];
-        dz = pos[i * 3 + 2] - emit[i * 3 + 2];
-        if (o.useSize) scale = sizes[i];
-      }
-    }
-    const verts: number[] = [];
-    for (let k = s; k < e; k++) {
+    const corner = (k: number) => {
       const v = m.indices[k];
-      const x = c.x + (P[v * 3] - c.x) * scale + dx,
-        y = c.y + (P[v * 3 + 1] - c.y) * scale + dy,
-        z = c.z + (P[v * 3 + 2] - c.z) * scale + dz;
-      verts.push(b.addVert(x, y, z, m.origIndex?.[v] ?? v, weightsOf(m, v)));
+      return { x: P[v * 3], y: P[v * 3 + 1], z: P[v * 3 + 2], v, uv: [m.uvs[k * 2] ?? 0, m.uvs[k * 2 + 1] ?? 0] as [number, number], col: m.colors ? Array.from(m.colors.subarray(k * 4, k * 4 + 4)) : undefined };
+    };
+    const parts = vpart && !fixed ? Array.from({ length: e - s }, (_, k) => vpart[m.indices[s + k]]) : null;
+    if (parts && parts.some((x) => x !== parts[0])) {
+      // cut: one piece per corner (the corner, its edge midpoints and the face centre) following
+      // the corner's particle
+      const cs = Array.from({ length: e - s }, (_, k) => corner(s + k));
+      const cnt = cs.length;
+      const mid = (a: (typeof cs)[number], bb: (typeof cs)[number]) => ({ x: (a.x + bb.x) / 2, y: (a.y + bb.y) / 2, z: (a.z + bb.z) / 2, v: -1, uv: [(a.uv[0] + bb.uv[0]) / 2, (a.uv[1] + bb.uv[1]) / 2] as [number, number], col: a.col && bb.col ? a.col.map((x, i) => (x + bb.col![i]) / 2) : undefined });
+      const cuv: [number, number] = [cs.reduce((t, k) => t + k.uv[0], 0) / cnt, cs.reduce((t, k) => t + k.uv[1], 0) / cnt];
+      const cc = { x: c.x, y: c.y, z: c.z, v: -1, uv: cuv, col: cs[0].col };
+      for (let k = 0; k < cnt; k++) {
+        const mv = motion(parts[k]);
+        if (!mv) continue;
+        const prev = cs[(k + cnt - 1) % cnt],
+          next = cs[(k + 1) % cnt];
+        addPiece([cs[k], mid(cs[k], next), cc, mid(prev, cs[k])], f, mv, c, undefined, undefined);
+      }
+      continue;
     }
-    b.addFace(verts, Array.from(m.uvs.subarray(s * 2, e * 2)), m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0, {
-      colors: m.colors ? Array.from(m.colors.subarray(s * 4, e * 4)) : undefined,
-      seams: m.seams ? Array.from(m.seams.subarray(s, e)) : undefined,
-      sharp: m.sharp ? Array.from(m.sharp.subarray(s, e)) : undefined,
-    });
+    const hit = !fixed && q ? (parts ? { index: parts[0] } : q.nearest(c)) : null;
+    const mv = motion(hit ? hit.index : -1);
+    if (!mv) continue;
+    addPiece(
+      Array.from({ length: e - s }, (_, k) => corner(s + k)),
+      f,
+      mv,
+      c,
+      m.seams ? Array.from(m.seams.subarray(s, e)) : undefined,
+      m.sharp ? Array.from(m.sharp.subarray(s, e)) : undefined,
+    );
   }
   return b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle, instances: m.instances });
 }
@@ -130,6 +164,12 @@ function explodeMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalM
   }
   let weights = groupWeights(m, str(mod, 'vertex_group'));
   if (weights && bool(mod, 'invert_vertex_group')) weights = Float32Array.from(weights, (x) => 1 - x);
+  // particle age per particle, for the Particle UV option
+  let ages: Float32Array | null = null;
+  if (str(mod, 'particle_uv')) {
+    ages = new Float32Array(n);
+    for (let i = 0; i < n; i++) ages[i] = Math.max(0, Math.min(1, (res.at - res.birth[i]) / Math.max(1e-6, res.life[i])));
+  }
   return explodeFaces(m, emit, pos, res.frame.state, sizesOf(s, psys, n), {
     unborn: bool(mod, 'show_unborn', true),
     alive: bool(mod, 'show_alive', true),
@@ -137,6 +177,8 @@ function explodeMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalM
     useSize: bool(mod, 'use_size'),
     protect: num(mod, 'protect', 0),
     weights,
+    cutEdges: bool(mod, 'use_edge_cut'),
+    ages,
   });
 }
 

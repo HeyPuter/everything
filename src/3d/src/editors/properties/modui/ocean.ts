@@ -1,7 +1,7 @@
 // Panel of the Ocean modifier.
 import { h } from '../../../ui/h';
 import { num, bool, enumProp, splitRow } from '../../../ui/props';
-import { enumRow } from '../../../ui/widgets';
+import { enumRow, opButton } from '../../../ui/widgets';
 import type { ModifierBase, ObjectData } from '../../../data/types';
 import { modifierFields, modifierExtraUI } from '../stack';
 import { sub, headerCheck, touch } from './kit';
@@ -63,6 +63,20 @@ modifierExtraUI.OCEAN = (ob, m) => {
       jonswap ? num(r, 'sharpen_peak_jonswap', 'Sharpen Peak', { min: 0, max: 1, slider: true }) : null,
       jonswap ? num(r, 'fetch_jonswap', 'Fetch', { min: 0 }) : null,
     ]),
-    sub(m, 'foam', 'Foam', () => [num(r, 'foam_coverage', 'Coverage', { disabled: !r.use_foam }), h('div', { class: 'mod-note' }, 'Foam is written to the vertex colors.')], { header: headerCheck(m, 'use_foam', 'Foam') }),
+    sub(m, 'foam', 'Foam', () => [num(r, 'foam_coverage', 'Coverage', { disabled: !r.use_foam }), h('div', { class: 'mod-note' }, r.use_spray ? 'Foam is written to the alpha of the color attribute.' : 'Foam is written to the color attribute.')], { header: headerCheck(m, 'use_foam', 'Foam') }),
+    sub(m, 'spray', 'Spray', () => [bool(r, 'invert_spray', 'Invert', { disabled: !r.use_spray, tip: 'Point the spray vectors the other way' }), h('div', { class: 'mod-note' }, 'Spray directions (where the waves push together) are written to the red and green of the color attribute.')], { header: headerCheck(m, 'use_spray', 'Spray'), closed: true }),
+    sub(m, 'bake', 'Bake', () => {
+      const cached = !!r.is_cached;
+      return [
+        num(r, 'frame_start', 'Frame Start', { int: true, disabled: cached }),
+        num(r, 'frame_end', 'End', { int: true, min: (r.frame_start as number) ?? 1, disabled: cached }),
+        num(r, 'bake_foam_fade', 'Foam Fade', { min: 0, max: 1, slider: true, disabled: cached || !r.use_foam, tip: 'How much of the previous frame\'s foam stays (foam builds up over time in a bake)' }),
+        h(
+          'div',
+          { class: 'row-aligned', style: { padding: '2px 8px' } },
+          cached ? opButton('object.ocean_bake', 'Delete Bake', { modifier: m.name, free: true }) : opButton('object.ocean_bake', 'Bake', { modifier: m.name, free: false }, { tip: 'Bake the ocean for the frame range' }),
+        ),
+      ];
+    }, { closed: true }),
   ];
 };

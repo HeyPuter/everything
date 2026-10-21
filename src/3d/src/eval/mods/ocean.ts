@@ -111,6 +111,9 @@ export interface OceanParams {
   sharpen: number;
   foam: boolean;
   coverage: number;
+  /** spray directions (where the surface is pushed together most) */
+  spray?: boolean;
+  invertSpray?: boolean;
 }
 
 export interface OceanField {
@@ -119,6 +122,8 @@ export interface OceanField {
   dx: Float64Array;
   dy: Float64Array;
   foam: Float64Array | null;
+  /** spray vectors (x, y per cell) */
+  spray?: Float64Array | null;
 }
 
 /** Spectrum energy for wave vector (kx, ky). */
@@ -197,7 +202,7 @@ export function oceanField(p: OceanParams): OceanField {
     xi = new Float64Array(n * n),
     yr = new Float64Array(n * n),
     yi = new Float64Array(n * n);
-  const foam = p.foam;
+  const foam = p.foam || !!p.spray;
   const jxx = foam ? [new Float64Array(n * n), new Float64Array(n * n)] : null,
     jyy = foam ? [new Float64Array(n * n), new Float64Array(n * n)] : null,
     jxy = foam ? [new Float64Array(n * n), new Float64Array(n * n)] : null;
@@ -236,22 +241,41 @@ export function oceanField(p: OceanParams): OceanField {
   ifft2(xr, xi, n);
   ifft2(yr, yi, n);
   let foamField: Float64Array | null = null;
+  let sprayField: Float64Array | null = null;
   if (jxx && jyy && jxy) {
     ifft2(jxx[0], jxx[1], n);
     ifft2(jyy[0], jyy[1], n);
     ifft2(jxy[0], jxy[1], n);
-    foamField = new Float64Array(n * n);
+    if (p.foam) foamField = new Float64Array(n * n);
+    if (p.spray) sprayField = new Float64Array(n * n * 2);
     for (let id = 0; id < n * n; id++) {
-      const J = (1 + p.chop * jxx[0][id]) * (1 + p.chop * jyy[0][id]) - p.chop * p.chop * jxy[0][id] * jxy[0][id];
+      const a = 1 + p.chop * jxx[0][id],
+        d = 1 + p.chop * jyy[0][id],
+        b = p.chop * jxy[0][id];
+      const J = a * d - b * b;
       // folding (J < 1) makes foam; coverage shifts the threshold
-      foamField[id] = Math.max(0, Math.min(1, (1 - J) + p.coverage));
+      if (foamField) foamField[id] = Math.max(0, Math.min(1, (1 - J) + p.coverage));
+      if (sprayField) {
+        // direction of the strongest compression: eigenvector of the smaller eigenvalue
+        const lmin = (a + d) / 2 - Math.sqrt(((a - d) / 2) ** 2 + b * b);
+        let ex = b,
+          ey = lmin - a;
+        if (Math.abs(ex) + Math.abs(ey) < 1e-12) {
+          ex = lmin - d;
+          ey = b;
+        }
+        const l = Math.hypot(ex, ey) || 1;
+        const amount = Math.max(0, 1 - lmin) * (p.invertSpray ? -1 : 1);
+        sprayField[id * 2] = (ex / l) * amount;
+        sprayField[id * 2 + 1] = (ey / l) * amount;
+      }
     }
   }
   for (let id = 0; id < n * n; id++) {
     xr[id] *= p.chop;
     yr[id] *= p.chop;
   }
-  return { n, h: hr, dx: xr, dy: yr, foam: foamField };
+  return { n, h: hr, dx: xr, dy: yr, foam: foamField, spray: sprayField };
 }
 
 /** Bilinear lookup of a periodic n×n field at (u, v) in grid units. */
@@ -265,6 +289,20 @@ function sample(f: Float64Array, n: number, u: number, v: number): number {
     c = ((y0 % n) + n) % n,
     d = (c + 1) % n;
   return (f[c * n + a] * (1 - fx) + f[c * n + b] * fx) * (1 - fy) + (f[d * n + a] * (1 - fx) + f[d * n + b] * fx) * fy;
+}
+
+/** Bilinear lookup of one component of a periodic 2-vector field. */
+function sampleVec(f: Float64Array, n: number, u: number, v: number, c: number): number {
+  const x0 = Math.floor(u),
+    y0 = Math.floor(v);
+  const fx = u - x0,
+    fy = v - y0;
+  const a = ((x0 % n) + n) % n,
+    b = (a + 1) % n,
+    cc = ((y0 % n) + n) % n,
+    d = (cc + 1) % n;
+  const at = (i: number) => f[i * 2 + c];
+  return (at(cc * n + a) * (1 - fx) + at(cc * n + b) * fx) * (1 - fy) + (at(d * n + a) * (1 - fx) + at(d * n + b) * fx) * fy;
 }
 
 export function oceanParams(mod: ModifierBase, render: boolean): OceanParams {
@@ -290,19 +328,66 @@ export function oceanParams(mod: ModifierBase, render: boolean): OceanParams {
     sharpen: num(mod, 'sharpen_peak_jonswap', 0),
     foam: bool(mod, 'use_foam'),
     coverage: num(mod, 'foam_coverage', 0),
+    spray: bool(mod, 'use_spray'),
+    invertSpray: bool(mod, 'invert_spray'),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Baked oceans: fields per frame, with foam that builds up and fades over time
+
+export interface OceanBake {
+  /** settings the bake was made with */
+  key: string;
+  start: number;
+  end: number;
+  frames: Map<number, OceanField>;
+}
+
+/** Baked fields per `${object id}:${modifier id}` (memory only). */
+export const oceanBakes = new Map<string, OceanBake>();
+
+/** Settings that change the baked fields. */
+export function oceanBakeKey(mod: ModifierBase, render: boolean): string {
+  const p = oceanParams(mod, render);
+  return JSON.stringify({ ...p, time: 0, fade: num(mod, 'bake_foam_fade', 0.98) });
+}
+
+/**
+ * Bake the fields for frames `start..end`; `paramsAt(f)` gives the settings at frame f (animated
+ * time and so on). Foam accumulates: each frame keeps `fade` of the previous frame's foam.
+ */
+export function bakeOcean(paramsAt: (f: number) => OceanParams, start: number, end: number, fade: number, key: string): OceanBake {
+  const frames = new Map<number, OceanField>();
+  let prev: Float64Array | null = null;
+  for (let f = start; f <= end; f++) {
+    const fld = oceanField(paramsAt(f));
+    if (fld.foam) {
+      if (prev && prev.length === fld.foam.length) for (let i = 0; i < fld.foam.length; i++) fld.foam[i] = Math.min(1, Math.max(fld.foam[i], prev[i] * fade));
+      prev = fld.foam;
+    }
+    frames.set(f, fld);
+  }
+  return { key, start, end, frames };
 }
 
 function oceanMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
   const p = oceanParams(mod, ctx.render);
-  const f = oceanField(p);
+  const bake = bool(mod, 'is_cached') ? oceanBakes.get(`${ctx.ob.id}:${mod.id}`) : undefined;
+  const fr = bake ? Math.min(Math.max(Math.round(ctx.frame), bake.start), bake.end) : 0;
+  const f = (bake && bake.frames.get(fr)) || oceanField(p);
   const size = num(mod, 'size', 1);
   const span = p.L * size;
   const toGrid = f.n / span; // world units → field cells
   const smooth = bool(mod, 'use_normals') ? 1 : 0;
+  const hasColor = !!f.foam || !!f.spray;
   const foamColor = (u: number, v: number) => {
     const x = f.foam ? sample(f.foam, f.n, u, v) : 0;
-    return [x, x, x, 1];
+    if (!f.spray) return [x, x, x, 1];
+    // spray vectors in RGB, foam (when on) in alpha
+    const sx = sampleVec(f.spray, f.n, u, v, 0),
+      sy = sampleVec(f.spray, f.n, u, v, 1);
+    return [sx, sy, 0, f.foam ? x : 1];
   };
   if (str(mod, 'geometry_mode', 'GENERATE') === 'DISPLACE') {
     const P = m.positions;
@@ -315,7 +400,7 @@ function oceanMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMes
       out[i + 2] = P[i + 2] + sample(f.h, f.n, u, v);
     }
     let colors = m.colors;
-    if (f.foam) {
+    if (hasColor) {
       colors = new Float32Array(m.indices.length * 4);
       for (let c = 0; c < m.indices.length; c++) colors.set(foamColor(P[m.indices[c] * 3] * toGrid, P[m.indices[c] * 3 + 1] * toGrid), c * 4);
     }
@@ -327,7 +412,7 @@ function oceanMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMes
     ry = Math.max(1, Math.round(num(mod, 'repeat_y', 1)));
   const cx = cells * rx,
     cy = cells * ry;
-  const b = new MeshBuilder(0, !!f.foam);
+  const b = new MeshBuilder(0, hasColor);
   const ids = new Int32Array((cx + 1) * (cy + 1));
   const foamV: number[][] = [];
   for (let j = 0; j <= cy; j++)
@@ -337,7 +422,7 @@ function oceanMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMes
       const u = (i / cells) * f.n,
         v = (j / cells) * f.n;
       ids[j * (cx + 1) + i] = b.addVert(x + sample(f.dx, f.n, u, v), y + sample(f.dy, f.n, u, v), sample(f.h, f.n, u, v), -1);
-      if (f.foam) foamV.push(foamColor(u, v));
+      if (hasColor) foamV.push(foamColor(u, v));
     }
   for (let j = 0; j < cy; j++)
     for (let i = 0; i < cx; i++) {
@@ -350,7 +435,7 @@ function oceanMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMes
         uv,
         smooth,
         0,
-        f.foam ? { colors: vs.flatMap((k) => foamV[k]) } : undefined,
+        hasColor ? { colors: vs.flatMap((k) => foamV[k]) } : undefined,
       );
     }
   return b.build({ vertex_groups: m.vertex_groups, weights: undefined });
@@ -387,8 +472,21 @@ export const oceanModifiers: ModifierType[] = [
       use_foam: false,
       foam_coverage: 0,
       foam_layer_name: '',
+      use_spray: false,
+      invert_spray: false,
+      spray_layer_name: '',
+      frame_start: 1,
+      frame_end: 250,
+      bake_foam_fade: 0.98,
+      is_cached: false,
+      filepath: '',
     }),
     apply: oceanMod,
+    timeDependent: (m) => !!(m as unknown as { is_cached?: boolean }).is_cached,
+    signature: (m, c) => {
+      const b = oceanBakes.get(`${c.ob.id}:${m.id}`);
+      return (m as unknown as { is_cached?: boolean }).is_cached && b ? `bake:${b.frames.size}:${Math.round(c.frame)}` : '';
+    },
   },
 ];
 
