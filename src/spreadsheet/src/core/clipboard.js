@@ -139,8 +139,8 @@ function cellCss(s, value, noWrap, clipboard, indentUnit) {
     const edge = borderCss(descriptor);
     // Excel's HTML border weights are .5/1/1.5pt, not screen CSS widths.
     // In particular, its HTML paste reads 1px as medium (and 2px as thick).
-    const width = clipboard ? descriptor.bs === 'medium' ? '1pt'
-      : ['thick', 'double'].includes(descriptor.bs) ? '1.5pt' : '0.5pt' : edge.width;
+    const width = clipboard ? edge.width === '2px' ? '1pt'
+      : edge.width === '3px' ? '1.5pt' : '0.5pt' : edge.width;
     out.push(`border-${side}:${s[key] ? `${width} ${edge.style} ${HEX_COLOR.test(edge.color) ? edge.color : '#000000'}` : 'none'}`);
   }
   return out.join(';');

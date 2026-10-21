@@ -5,7 +5,7 @@ import { fontColorInPalette } from './font-color.js';
 import { fillColorInPalette } from './fill-color.js';
 import { normalizeNativeFill, nativeFillXml, nativeFillMatchesPaint, nativeFillRecordXml, nativeFillPalette, nativeFillIsNone, nativeFillXmlIdentity } from './native-fill.js';
 /** Native SpreadsheetML styles, shared by cells and whole-row/column defaults. */
-import { styleToNumFmt, HORIZONTAL_ALIGNS } from './format.js';
+import { styleToNumFmt, HORIZONTAL_ALIGNS, XLSX_BORDER_STYLES } from './format.js';
 import { xlsxAttr, xlsxElements } from './xlsx-styles.js';
 import { normalFontStyle } from './normal-font.js';
 import { writeNativeNormalStyle } from './native-normal-style.js';
@@ -103,7 +103,7 @@ function borderXml(s, differential = false) {
     if (differential && !Object.hasOwn(s, key)) continue;
     if (!differential && ['bh', 'bv'].includes(key) && !s[key]) continue;
     const edge = s[`${key}Border`] || s;
-    const style = ['thin', 'medium', 'thick', 'dashed', 'dotted', 'double'].includes(edge.bs) ? edge.bs : 'thin';
+    const style = XLSX_BORDER_STYLES.includes(edge.bs) ? edge.bs : 'thin';
     body += s[key] ? xmlTag(side, { style }, color(edge.bc) || xmlTag('color', { auto: 1 })) : xmlTag(side);
   }
   return xmlTag('border', {}, body);

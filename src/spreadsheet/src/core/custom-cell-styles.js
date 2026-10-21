@@ -14,7 +14,7 @@
  */
 
 import { CELL_STYLES } from './cellstyles.js';
-import { NUMBER_FORMAT_KEYS, AUTOMATIC_FORMAT, fontName } from './format.js';
+import { NUMBER_FORMAT_KEYS, AUTOMATIC_FORMAT, fontName, XLSX_BORDER_STYLES } from './format.js';
 import { themedCellStyles } from './workbook-theme.js';
 
 export const STYLE_PARTS = [['number', 'Number'], ['alignment', 'Alignment'], ['font', 'Font'], ['border', 'Border'], ['fill', 'Fill'], ['protection', 'Protection']];
@@ -30,7 +30,6 @@ export const PART_KEYS = {
   border: [],
 };
 const SIDES = [['top', 'bt'], ['bottom', 'bb'], ['left', 'bl'], ['right', 'br']];
-const BORDER_STYLES = ['thin', 'medium', 'thick', 'dashed', 'dotted', 'double'];
 const MAX_STYLES = 500;
 const MAX_NAME = 255;
 
@@ -60,7 +59,7 @@ export function normalizeCustomStyle(raw) {
   if (parts.border) {
     for (const b of Array.isArray(raw.borders) ? raw.borders : []) {
       if (!b || !SIDES.some(([side]) => side === b.side) || borders.some((o) => o.side === b.side)) continue;
-      borders.push({ side: b.side, style: BORDER_STYLES.includes(b.style) ? b.style : 'thin', color: hexColor(b.color) });
+      borders.push({ side: b.side, style: XLSX_BORDER_STYLES.includes(b.style) ? b.style : 'thin', color: hexColor(b.color) });
     }
   }
   const builtin = typeof raw.builtin === 'string' && CELL_STYLES.some((s) => s.key === raw.builtin) ? raw.builtin : null;
@@ -99,7 +98,7 @@ export function edgesOfStyle(s = {}) {
   for (const [side, flag] of SIDES) {
     if (!s[flag]) continue;
     const pen = s[`${flag}Border`] || s;
-    out.push({ side, style: BORDER_STYLES.includes(pen.bs) ? pen.bs : 'thin', color: hexColor(pen.bc) });
+    out.push({ side, style: XLSX_BORDER_STYLES.includes(pen.bs) ? pen.bs : 'thin', color: hexColor(pen.bc) });
   }
   return out;
 }

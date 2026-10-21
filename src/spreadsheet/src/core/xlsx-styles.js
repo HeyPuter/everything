@@ -6,7 +6,7 @@ import { normalizeFontColor, tintRgb, INDEXED_COLORS } from './font-color.js';
 import { normalizeFillColor } from './fill-color.js';
 import { readNativeFillResources } from './native-fill.js';
 /** Formatting the XLSX reader leaves in styles.xml: fills, borders and differential styles. */
-import { fontKeyFor, numFmtToStyle, HORIZONTAL_ALIGNS } from './format.js';
+import { fontKeyFor, numFmtToStyle, HORIZONTAL_ALIGNS, XLSX_BORDER_STYLES } from './format.js';
 import { normalizeCellStyles, edgesOfStyle, presetByLabel } from './custom-cell-styles.js';
 import { readFontTheme, resolveThemeFont } from './font-theme.js';
 import { normalizeNormalFont } from './normal-font.js';
@@ -59,7 +59,7 @@ function borders(xml, themes) {
     const tag = element(xml, side), style = attr(tag, 'style');
     if (!style || style === 'none') continue;
     out[key] = true;
-    out.bs = ['thin', 'medium', 'thick', 'dashed', 'dotted', 'double'].includes(style) ? style : 'thin';
+    out.bs = XLSX_BORDER_STYLES.includes(style) ? style : 'thin';
     const color = xlsxColor(element(tag, 'color'), themes);
     if (color) out.bc = color;
     edges[key] = { bs: out.bs, bc: color };

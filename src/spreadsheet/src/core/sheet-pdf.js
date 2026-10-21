@@ -10,7 +10,7 @@
  * small), in the Windows-1252 character set: a character outside it is written as "?".
  */
 import { cellKey } from './cell.js';
-import { defaultAlign, layoutAlign } from './format.js';
+import { defaultAlign, layoutAlign, borderCss } from './format.js';
 import { fontColorCss } from './font-color.js';
 import { fillColorCss } from './fill-color.js';
 import { normalizePrintSettings } from './print-settings.js';
@@ -223,7 +223,7 @@ function sheetPages(wb, sheetId, { range = null, title = '' } = {}) {
           for (const [side, edge] of SIDES) {
             if (!st[side]) continue;
             const pen = st[`${side}Border`] || st;
-            const lw = (pen.bs === 'medium' ? 1.5 : pen.bs === 'thick' || pen.bs === 'double' ? 2.25 : 0.75) * scale;
+            const lw = parseFloat(borderCss(pen).width) * 0.75 * scale;
             const color = rgb(fontColorCss(pen.bc)) || '0 0 0';
             const seg = edge === 'top' ? [x0, yTop, x1, yTop] : edge === 'bottom' ? [x0, yBot, x1, yBot] : edge === 'left' ? [x0, yTop, x0, yBot] : [x1, yTop, x1, yBot];
             borders.push(`q ${color} RG ${num(lw)} w ${seg.slice(0, 2).map(num).join(' ')} m ${seg.slice(2).map(num).join(' ')} l S Q`);

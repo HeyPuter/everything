@@ -1,5 +1,5 @@
 import { normalizeFontColor, DEFAULT_FONT_COLOR } from './font-color.js';
-import { fontName, fontKeyFor, styleToNumFmt, numFmtToStyle, NUMBER_FORMAT_KEYS } from './format.js';
+import { fontName, fontKeyFor, styleToNumFmt, numFmtToStyle, NUMBER_FORMAT_KEYS, XLSX_BORDER_STYLES } from './format.js';
 import { BORDER_STYLE_KEYS } from './style-values.js';
 import { normalizeFillColor } from './fill-color.js';
 import { nativeFillProjection } from './native-fill.js';
@@ -29,7 +29,7 @@ export function xlsxBorderProjection(style = {}) {
     out[side] = !!style[side];
     const edge = style[`${side}Border`] || style;
     out[`${side}Border`] = style[side] ? {
-      bs: ['thin', 'medium', 'thick', 'dashed', 'dotted', 'double'].includes(edge.bs) ? edge.bs : 'thin',
+      bs: XLSX_BORDER_STYLES.includes(edge.bs) ? edge.bs : 'thin',
       bc: xlsxSolidColor(edge.bc) || '#000000',
     } : null;
   }

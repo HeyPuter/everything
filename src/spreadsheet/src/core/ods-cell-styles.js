@@ -3,7 +3,7 @@
  * carries, written from this app's cell style and read back into one. LibreOffice and other readers see
  * them; this app's own .ods files also keep the exact style in their settings, which wins on reading.
  */
-import { fontName, fontKeyFor, layoutAlign } from './format.js';
+import { fontName, fontKeyFor, layoutAlign, borderCss, XLSX_BORDER_STYLES } from './format.js';
 
 const HEX = /^#[\da-f]{6}$/i;
 /** A color as #rrggbb: a hex, or a palette reference by its resolved RGB. Automatic ink and No fill are none. */
@@ -20,8 +20,10 @@ const SIDES = [['bt', 'top'], ['bb', 'bottom'], ['bl', 'left'], ['br', 'right']]
 function borderValue(style, side) {
   if (!style[side]) return null;
   const edge = style[`${side}Border`] && typeof style[`${side}Border`] === 'object' ? style[`${side}Border`] : style;
-  const bs = BORDER_WIDTH[edge.bs] ? edge.bs : 'thin';
-  const line = bs === 'dashed' || bs === 'dotted' || bs === 'double' ? bs : 'solid';
+  // Excel's other lines (a hairline, dash-dot, medium dashed) go as the line they are drawn as, at their weight.
+  const other = !BORDER_WIDTH[edge.bs] && XLSX_BORDER_STYLES.includes(edge.bs) ? borderCss(edge) : null;
+  const bs = other ? (other.width === '2px' ? 'medium' : 'thin') : BORDER_WIDTH[edge.bs] ? edge.bs : 'thin';
+  const line = other ? other.style : bs === 'dashed' || bs === 'dotted' || bs === 'double' ? bs : 'solid';
   return `${BORDER_WIDTH[bs]} ${line} ${hexOf(edge.bc) || '#000000'}`;
 }
 
