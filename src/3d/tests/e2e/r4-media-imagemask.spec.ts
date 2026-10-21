@@ -189,3 +189,28 @@ test('mask: the frame strip of the Mask mode scrubs frames', async ({ page }) =>
   expect(await page.evaluate(() => (window as any).app.doc.scene.frame_current)).toBe(51);
   await expectNoErrors(errors);
 });
+
+test('image editor: text stored in a PNG shows as metadata', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const U = (p: string) => performance.getEntriesByType('resource').map((e) => e.name).find((n) => n.includes(p)) ?? p;
+    const { shell } = await import(U('/src/ui/shell.ts'));
+    const { pngWithText } = await import(U('/src/render/final/stamp.ts'));
+    const app = (window as any).app;
+    const c = document.createElement('canvas');
+    c.width = c.height = 16;
+    c.getContext('2d')!.fillRect(0, 0, 8, 8);
+    const png = new Uint8Array(await (await new Promise<Blob>((r) => c.toBlob((b) => r(b!), 'image/png'))).arrayBuffer());
+    const bytes = pngWithText(png, [['Camera', 'Shot Cam'], ['Frame', '42']]);
+    app.doc.images.IMmeta = { id: 'IMmeta', name: 'meta.png', mime: 'image/png', bytes, width: 16, height: 16, source: 'FILE', colorspace: 'sRGB' };
+    const area = shell.screen.areas.find((a: any) => a.type === 'VIEW_3D');
+    area.setType('IMAGE_EDITOR');
+    area.editor.showImage('IMmeta');
+    area.editor.showSidebar = true;
+    area.editor.sidebarTab = 'Image';
+    area.editor.drawUI();
+  });
+  await expect(page.locator('.ie-meta').first()).toContainText('Camera: Shot Cam | Frame: 42');
+  await expect(page.locator('.ie-sidebar .panel-header', { hasText: 'Metadata' }).first()).toBeVisible();
+  await expectNoErrors(errors);
+});

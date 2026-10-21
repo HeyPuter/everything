@@ -14,7 +14,7 @@ import type { ImageData as Img } from '../../data/types';
 import { renderResult, passToRGBA8, samplePixel, encodeRGBA8, canvasBytes, download, toBW, EXT, virtualImages, onVirtualImageChange, PASS_ORDER, passLabel, type PassName, type ChannelMode, type FileFormat, type RenderResult } from './result';
 import { renderSize } from './units';
 import { LOOKS, displayPixel } from './colormanage';
-import { pngWithText } from './stamp';
+import { pngWithText, pngText } from './stamp';
 import { num } from '../../ui/props';
 import { modifiedImages, type View2D } from './imageops';
 import { scopesPanel } from './scopes';
@@ -666,6 +666,11 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
     } else if (this.imageId === RENDER_RESULT) {
       // the empty result draws its own hint
     } else if (this.imageId && virtualImages.has(this.imageId)) info.push(h('div', { class: 'ie-meta', key: 'meta' }, `${virtualImages.get(this.imageId)!.label} is empty`));
+    else if (this.showMetadata && this.overlays.show_overlays && !this.maskEditing()) {
+      // text stored in the image file (e.g. renders saved with metadata)
+      const meta = this.imageMetadata();
+      if (meta.length) info.push(h('div', { class: 'ie-meta', key: 'meta' }, meta.map(([k, v]) => `${k}: ${v}`).join(' | ')));
+    }
     const paint = this.paintMode();
     const mask = this.maskEditing();
     patch(this.ui, [
@@ -1343,6 +1348,9 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
           ),
         ]),
         isTiled(img) ? this.udimPanel(img) : null,
+        this.imageMetadata().length
+          ? panel('ie-file-meta', 'Metadata', () => this.imageMetadata().map(([k, v]) => h('div', { key: k }, splitRow(k, h('span', { class: 'ie-value', title: v }, v)))), { closed: true })
+          : null,
         img.source === 'GENERATED'
           ? panel('ie-gen', 'Generated', () => [
               splitRow('X', numberField({ id: `ie-gx-${img.id}`, value: img.width, int: true, min: 1, max: 16384, unit: 'pixel', set: (v, f) => ((img.width = v), f && set('Image Size'), app.changed('doc')) })),
@@ -1377,6 +1385,17 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
         tabs.map((t) => h('button', { key: t, class: { 'sb-tab': true, on: t === tab }, onclick: () => ((this.sidebarTab = t), this.drawUI()) }, t)),
       ),
     );
+  }
+
+  /** Text entries stored in the shown PNG file. */
+  imageMetadata(): [string, string][] {
+    const img = this.image;
+    if (!img?.bytes?.length || !/png/i.test(img.mime)) return [];
+    try {
+      return pngText(img.bytes);
+    } catch {
+      return [];
+    }
   }
 
   /** Sidebar ▸ Tool: the active tool and its settings. */
