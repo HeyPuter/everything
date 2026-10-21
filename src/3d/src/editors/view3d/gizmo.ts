@@ -96,17 +96,17 @@ export function transformGizmo(v: View3D): VNode | null {
   if (show.move) {
     basis = orientationBasis(gizmoOrientation('move'));
     for (let i = 0; i < 3; i++) {
-      const e = axisEnd(i, kind === 'transform' ? 1.15 : 1);
+      // with the combined Transform tool the move handles are arrow heads outside the rotation rings
+      const e = axisEnd(i, kind === 'transform' ? 1.4 : 1);
       const dx = e.x - x,
         dy = e.y - y,
         l = Math.hypot(dx, dy);
       if (l < 4) continue;
       const ux = dx / l,
         uy = dy / l;
-      parts.push(
-        h('line', { x1: x + ux * 14, y1: y + uy * 14, x2: e.x, y2: e.y, stroke: COLORS[i], 'stroke-width': 2.2, 'data-gizmo': `move:${i}`, class: 'gz' }),
-        h('path', { d: `M${e.x + ux * 12} ${e.y + uy * 12} L${e.x - uy * 5} ${e.y + ux * 5} L${e.x + uy * 5} ${e.y - ux * 5}Z`, fill: COLORS[i], 'data-gizmo': `move:${i}`, class: 'gz' }),
-      );
+      if (kind !== 'transform') parts.push(h('line', { x1: x + ux * 14, y1: y + uy * 14, x2: e.x, y2: e.y, stroke: COLORS[i], 'stroke-width': 2.2, 'data-gizmo': `move:${i}`, class: 'gz' }));
+      parts.push(h('path', { d: `M${e.x + ux * 12} ${e.y + uy * 12} L${e.x - uy * 5} ${e.y + ux * 5} L${e.x + uy * 5} ${e.y - ux * 5}Z`, fill: COLORS[i], 'data-gizmo': `move:${i}`, class: 'gz' }));
+      if (kind === 'transform') continue;
       // plane handles: small squares away from the centre, in the plane of the other two axes
       const ua = new Vector3(...[0, 1, 2].map((k) => (k === (i + 1) % 3 ? 1 : 0))).applyMatrix3(basis).normalize(),
         va = new Vector3(...[0, 1, 2].map((k) => (k === (i + 2) % 3 ? 1 : 0))).applyMatrix3(basis).normalize();
@@ -126,7 +126,7 @@ export function transformGizmo(v: View3D): VNode | null {
       if (l < 4) continue;
       const ux = dx / l,
         uy = dy / l;
-      if (kind === 'scale') parts.push(h('line', { x1: x + ux * 14, y1: y + uy * 14, x2: e.x, y2: e.y, stroke: COLORS[i], 'stroke-width': 1.8, 'data-gizmo': `scale:${i}`, class: 'gz' }));
+      parts.push(h('line', { x1: x + ux * 14, y1: y + uy * 14, x2: e.x, y2: e.y, stroke: COLORS[i], 'stroke-width': 1.8, 'data-gizmo': `scale:${i}`, class: 'gz' }));
       parts.push(h('rect', { x: e.x - 5, y: e.y - 5, width: 10, height: 10, fill: COLORS[i], 'data-gizmo': `scale:${i}`, class: 'gz' }));
       if (kind === 'scale') {
         // plane handles scale along the two other axes
