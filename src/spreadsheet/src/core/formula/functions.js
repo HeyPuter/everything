@@ -7085,7 +7085,10 @@ function incompleteBeta(x, a, b, xc = 1 - x, preserveSubnormal = false) {
       c = 1 + num / c; if (Math.abs(c) < 1e-300) c = 1e-300;
       d = 1 / d;
       h *= d * c;
-      num = (-(aa + m) * (aa + bb + m) * xx) / ((aa + m2) * (aa + m2 + 1));
+      const den = (aa + m2) * (aa + m2 + 1);
+      // Past a shape of 1E+154 both products overflow, and Infinity / Infinity left every later term NaN, which
+      // never converged: =BETA.DIST(0.5,1E+160,0.5,TRUE) ran on towards a limit of 1E+55 terms. Taken as two ratios there.
+      num = Number.isFinite(den) ? (-(aa + m) * (aa + bb + m) * xx) / den : -((aa + m) / (aa + m2)) * ((aa + bb + m) / (aa + m2 + 1)) * xx;
       d = 1 + num * d; if (Math.abs(d) < 1e-300) d = 1e-300;
       c = 1 + num / c; if (Math.abs(c) < 1e-300) c = 1e-300;
       d = 1 / d;
