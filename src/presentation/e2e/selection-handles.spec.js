@@ -251,3 +251,33 @@ test("enlarged capture regions resize on empty canvas while visible grips and ne
     page.getByRole("textbox", { name: "Edit text", exact: true }),
   ).toBeVisible();
 });
+
+// The dashed outline around several objects took a turned one's upright
+// box, so it cut across a tall turned bar instead of enclosing it.
+test("the outline around several objects encloses a turned one as the slide shows it", async ({
+  page,
+}) => {
+  await start(page);
+  const source = fixture(1, 1);
+  const bar = P.addSlideShape(P.getSlides(source)[0], {
+    preset: "rect",
+    x: P.inches(5),
+    y: P.inches(3),
+    w: P.inches(4),
+    h: P.inches(0.5),
+  });
+  P.setShapeRotation(bar, 90);
+  await load(page, source, 2);
+  const turned = page.locator(".object-hit").nth(1);
+  await turned.click({ modifiers: ["Shift"] });
+  const outline = page.locator(".selection-box.multi");
+  await expect(outline).toHaveCount(1);
+  const box = await outline.boundingBox();
+  const shown = await turned.evaluate((el) => {
+    const b = el.getBoundingClientRect();
+    return { x: b.x, y: b.y, width: b.width, height: b.height };
+  });
+  expect(box.y).toBeLessThanOrEqual(shown.y + 1);
+  expect(box.y + box.height).toBeGreaterThanOrEqual(shown.y + shown.height - 1);
+  expect(box.x + box.width).toBeLessThanOrEqual(shown.x + shown.width + 1);
+});

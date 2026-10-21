@@ -9083,10 +9083,15 @@ function pruneSelection() {
     if (!present.has(id) || (primary && P.getShapeId(primary) === id))
       extras.delete(id);
 }
-// Several selected objects share one dashed outline around them all.
+// Several selected objects share one dashed outline around them all, a
+// turned one where the slide shows it.
 function multiBox(size) {
+  const parents = groupParents(slide());
   const bounds = selectedShapes()
-    .map((s) => slideBounds(doc.pres, s))
+    .map((s) => {
+      const b = slideBounds(doc.pres, s, parents);
+      return b && turnedBounds(b, slideRotation(s, parents));
+    })
     .filter(Boolean);
   const box = el("div", {
     class: "selection-box multi",
