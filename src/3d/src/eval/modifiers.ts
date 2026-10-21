@@ -1116,6 +1116,25 @@ function wireframe(m: EvalMesh, mod: ModifierBase): EvalMesh {
       inv = bool(mod, 'invert_vertex_group');
     for (let v = 0; v < nv; v++) scale[v] = f + (1 - f) * (inv ? 1 - gw[v] : gw[v]);
   }
+  // relative: the thickness scales with the mean length of the edges around each vertex
+  if (bool(mod, 'use_relative_offset')) {
+    const et0 = edgeTopology(m);
+    const len = new Float64Array(nv),
+      cnt = new Uint32Array(nv);
+    for (let e = 0; e < et0.count; e++) {
+      const a = et0.verts[e * 2],
+        c = et0.verts[e * 2 + 1];
+      const l = Math.hypot(P[a * 3] - P[c * 3], P[a * 3 + 1] - P[c * 3 + 1], P[a * 3 + 2] - P[c * 3 + 2]);
+      len[a] += l;
+      len[c] += l;
+      cnt[a]++;
+      cnt[c]++;
+    }
+    for (let v = 0; v < nv; v++) if (cnt[v]) scale[v] *= len[v] / cnt[v];
+  }
+  // crease: the edges running from each corner's inset point to the tube's top / bottom vertices
+  const cw = bool(mod, 'use_crease') ? num(mod, 'crease_weight', 1) : 0;
+  const cx = cw ? { creases: [0, cw, 0, cw] } : undefined;
   const even = bool(mod, 'use_even_offset', true);
   const replace = bool(mod, 'use_replace', true);
   const matOff = Math.round(num(mod, 'material_offset', 0));
@@ -1176,15 +1195,15 @@ function wireframe(m: EvalMesh, mod: ModifierBase): EvalMesh {
         c = m.indices[s + ((i + 1) % k)];
       const ia = inset[i],
         ic = inset[(i + 1) % k];
-      b.addFace([ia, ic, bot[c], bot[a]], undefined, smooth, mat);
-      b.addFace([ic, ia, top[a], top[c]], undefined, smooth, mat);
+      b.addFace([ia, ic, bot[c], bot[a]], undefined, smooth, mat, cx);
+      b.addFace([ic, ia, top[a], top[c]], undefined, smooth, mat, cx);
       if (et) {
         const edge = et.cornerEdge[s + i];
         if (et.faceOffsets[edge + 1] - et.faceOffsets[edge] === 1) {
           const oa = outer[i],
             oc = outer[(i + 1) % k];
-          b.addFace([oc, oa, bot[a], bot[c]], undefined, smooth, mat);
-          b.addFace([oa, oc, top[c], top[a]], undefined, smooth, mat);
+          b.addFace([oc, oa, bot[a], bot[c]], undefined, smooth, mat, cx);
+          b.addFace([oa, oc, top[c], top[a]], undefined, smooth, mat, cx);
         }
       }
     }
@@ -2152,7 +2171,7 @@ export const modifierTypes: Record<string, ModifierType> = {
   },
   TRIANGULATE: { type: 'TRIANGULATE', label: 'Triangulate', category: 'GENERATE', icon: 'mod_triangulate', defaults: base({ quad_method: 'SHORTEST_DIAGONAL', ngon_method: 'BEAUTY', min_vertices: 4, keep_custom_normals: false }), apply: triangulateMeshMod },
   WELD: { type: 'WELD', label: 'Weld', category: 'GENERATE', icon: 'automerge_off', defaults: base({ merge_threshold: 0.001, mode: 'ALL', loose_edges: false, vertex_group: '', invert_vertex_group: false }), apply: weldMod },
-  WIREFRAME: { type: 'WIREFRAME', label: 'Wireframe', category: 'GENERATE', icon: 'mod_wireframe', defaults: base({ thickness: 0.02, offset: 0, use_replace: true, use_boundary: false, use_even_offset: true, material_offset: 0, vertex_group: '', invert_vertex_group: false, thickness_vertex_group: 0 }), apply: wireframe },
+  WIREFRAME: { type: 'WIREFRAME', label: 'Wireframe', category: 'GENERATE', icon: 'mod_wireframe', defaults: base({ thickness: 0.02, offset: 0, use_replace: true, use_boundary: false, use_even_offset: true, material_offset: 0, vertex_group: '', invert_vertex_group: false, thickness_vertex_group: 0, use_relative_offset: false, use_crease: false, crease_weight: 1 }), apply: wireframe },
   // Deform
   ARMATURE: { type: 'ARMATURE', label: 'Armature', category: 'DEFORM', icon: 'mod_armature', deformOnly: true, defaults: base({ object: null, use_vertex_groups: true, use_bone_envelopes: false, use_deform_preserve_volume: false, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: armatureMod },
   CAST: { type: 'CAST', label: 'Cast', category: 'DEFORM', icon: 'mod_cast', deformOnly: true, defaults: base({ cast_type: 'SPHERE', factor: 0.5, radius: 0, size: 0, use_radius_as_size: true, object: null, use_x: true, use_y: true, use_z: true, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: cast },

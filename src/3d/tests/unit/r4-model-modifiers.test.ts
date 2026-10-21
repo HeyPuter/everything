@@ -44,3 +44,37 @@ describe('Triangulate keeps edge data', () => {
     }
   });
 });
+
+import wireFx from '../fixtures/r4_wireframe.json';
+
+describe('Wireframe: relative offset and crease edges (recorded)', () => {
+  const src = buildMesh([0, 0, 0, 2, 0, 0, 2, 1, 0, 0, 1, 0, 3, 0.5, 0], [{ verts: [0, 1, 2, 3] }, { verts: [1, 4, 2] }]) as EvalMesh;
+  const run = (rel: boolean, cr: boolean) => {
+    const t = modifierTypes.WIREFRAME;
+    return t.apply(src, { ...t.defaults(), thickness: 0.1, use_relative_offset: rel, use_crease: cr, crease_weight: 0.7 } as never, {} as ModifierContext);
+  };
+  const key = (p: ArrayLike<number>) => Array.from(p).map((x) => (Math.round(x * 1000) / 1000 + 0).toFixed(3)).join(',');
+  it.each([false, true])('relative %s: same vertex positions', (rel) => {
+    const out = run(rel, false);
+    const ref = (wireFx as Any)[`${rel ? 'True' : 'False'}False`].v as number[][];
+    const ours = new Set(Array.from({ length: out.positions.length / 3 }, (_, i) => key(out.positions.subarray(i * 3, i * 3 + 3))));
+    for (const p of ref) expect(ours.has(key(p)), key(p)).toBe(true);
+  });
+  it('crease edges: inset point to tube top / bottom', () => {
+    const out = run(false, true);
+    const ref = (wireFx as Any).FalseTrue;
+    const refSet = new Set<string>();
+    ref.e.forEach((e: number[], i: number) => ref.crease[i] > 0 && refSet.add([key(ref.v[e[0]]), key(ref.v[e[1]])].sort().join('|')));
+    const ours = new Set<string>();
+    for (let f = 0; f + 1 < out.offsets.length; f++)
+      for (let c = out.offsets[f]; c < out.offsets[f + 1]; c++) {
+        if (!(out.creases![c] > 0)) continue;
+        expect(out.creases![c]).toBeCloseTo(0.7, 5);
+        const n = c + 1 < out.offsets[f + 1] ? c + 1 : out.offsets[f];
+        const pa = out.positions.subarray(out.indices[c] * 3, out.indices[c] * 3 + 3),
+          pb = out.positions.subarray(out.indices[n] * 3, out.indices[n] * 3 + 3);
+        ours.add([key(pa), key(pb)].sort().join('|'));
+      }
+    expect([...ours].sort()).toEqual([...refSet].sort());
+  });
+});
