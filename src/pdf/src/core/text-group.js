@@ -106,7 +106,7 @@ function occurrence(doc, index, run, range = null) {
     resources = doc.getPage(index).node.Resources();
   const path = [];
   for (const original of run.path) {
-    const c = parseContent(source).find((c) => c.start === original.start);
+    const c = parseContent(source, { inlineImages: true }).find((c) => c.start === original.start);
     if (c?.op !== 'Do') throw new Error('The text changed. Select it again.');
     const form = get(get(resources, 'XObject'), c.args[0].value);
     path.push({
@@ -118,7 +118,7 @@ function occurrence(doc, index, run, range = null) {
     source = decode(form);
     resources = get(form.dict, 'Resources') || resources;
   }
-  const commands = parseContent(source);
+  const commands = parseContent(source, { inlineImages: true });
   const command = commands.find((c) => c.start === run.start && c.end === run.end);
   if (!command || JSON.stringify(command.args) !== JSON.stringify(run.args))
     throw new Error('The text changed. Select it again.');

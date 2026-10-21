@@ -81,7 +81,7 @@ export function inspectImages(doc, index, { unmeasuredResources } = {}) {
         currentPath = [];
       const stack = [],
         marked = [];
-      for (const command of parseContent(source)) {
+      for (const command of parseContent(source, { inlineImages: true })) {
         const a = command.args.map((t) => t.value);
         switch (command.op) {
           case 'q':

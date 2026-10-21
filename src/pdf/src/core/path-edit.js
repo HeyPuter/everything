@@ -61,7 +61,7 @@ export function inspectPaths(doc, index) {
         eligible = true;
       const stack = [],
         marked = [];
-      for (const command of parseContent(source)) {
+      for (const command of parseContent(source, { inlineImages: true })) {
         const op = command.op,
           a = command.args.map((t) => t.value);
         if (pathOps.has(op)) {

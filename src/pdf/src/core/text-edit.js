@@ -1,5 +1,6 @@
 import {
   PDFArray,
+  PDFContext,
   PDFName,
   PDFNumber,
   PDFRawStream,
@@ -28,9 +29,152 @@ const whitespace = (c) => /[\x00\t\n\f\r ]/.test(c);
 const delimiter = (c) => !c || whitespace(c) || '()<>[]{}/%'.includes(c);
 const unsupported = () => new Error('This text uses a PDF structure that cannot yet be edited.');
 
-/** Tokenize objects, not regular-expression matches: strings may contain PDF operators. */
-export function parseContent(source) {
-  let pos = 0;
+// Every content stream operator, for checking that what follows a guessed inline image end reads
+// as content; EI and ID are left out, as they only belong inside an inline image.
+const OPERATORS = new Set(
+  `b B b* B* BDC BI BMC BT BX c cm CS cs d d0 d1 Do DP EMC ET EX f F f* G g gs h i j J K k l m M MP
+  n q Q re RG rg ri s S SC sc SCN scn sh T* Tc Td TD Tf Tj TJ TL Tm Tr Ts Tw Tz v w W W* y ' "`.split(
+    /\s+/,
+  ),
+);
+const INLINE_KEYS = {
+  BPC: 'BitsPerComponent',
+  CS: 'ColorSpace',
+  D: 'Decode',
+  DP: 'DecodeParms',
+  F: 'Filter',
+  H: 'Height',
+  I: 'Interpolate',
+  IM: 'ImageMask',
+  L: 'Length',
+  W: 'Width',
+};
+const INLINE_FILTERS = {
+  AHx: 'ASCIIHexDecode',
+  A85: 'ASCII85Decode',
+  LZW: 'LZWDecode',
+  Fl: 'FlateDecode',
+  RL: 'RunLengthDecode',
+  CCF: 'CCITTFaxDecode',
+  DCT: 'DCTDecode',
+};
+const COMPONENTS = {
+  G: 1,
+  DeviceGray: 1,
+  I: 1,
+  Indexed: 1,
+  RGB: 3,
+  DeviceRGB: 3,
+  CMYK: 4,
+  DeviceCMYK: 4,
+};
+function inflatedLength(data) {
+  try {
+    const dict = PDFContext.create().obj({ Filter: 'FlateDecode' });
+    return decodePDFRawStream(
+      PDFRawStream.of(
+        dict,
+        Uint8Array.from(data, (c) => c.charCodeAt(0)),
+      ),
+    ).decode().length;
+  } catch {
+    return -1;
+  }
+}
+/**
+ * Where an inline image's data ends, and the EI after it. Only an end the image itself fixes is
+ * taken: its stated length, the size of unfiltered samples, or a filter's own end of data. Data
+ * that does not say where it stops is accepted only up to the first EI at which it is complete
+ * and after which the rest of the stream reads as content (`rest`); anything else is refused.
+ */
+function inlineImageEnd(source, entries, dataStart, readRest) {
+  const value = (key) => entries.get(key)?.value;
+  const closing = (dataEnd) => {
+    const match = /^[\x00\t\n\f\r ]*EI(?=$|[\x00\t\n\f\r ])/.exec(
+      source.slice(dataEnd, dataEnd + 64),
+    );
+    if (dataEnd > source.length || !match) throw unsupported();
+    return { dataEnd, end: dataEnd + match[0].length };
+  };
+  const length = value('Length');
+  if (length !== undefined) {
+    if (!Number.isInteger(length) || length < 0) throw unsupported();
+    return closing(dataStart + length);
+  }
+  const filter = entries.get('Filter');
+  const filters = (filter?.type === 'array' ? filter.value : filter ? [filter] : []).map((t) =>
+    t.type === 'name' ? INLINE_FILTERS[t.value] || t.value : null,
+  );
+  const mask = value('ImageMask') === 'true';
+  const space = entries.get('ColorSpace');
+  const components = mask
+    ? 1
+    : COMPONENTS[space?.type === 'array' ? space.value[0]?.value : space?.value];
+  const [width, height, bits] = ['Width', 'Height', 'BitsPerComponent'].map(value);
+  const size =
+    [width, height].every((n) => Number.isInteger(n) && n > 0) &&
+    components &&
+    [1, 2, 4, 8, 16].includes(mask ? 1 : bits)
+      ? height * Math.ceil((width * components * (mask ? 1 : bits)) / 8)
+      : null;
+  const [first] = filters;
+  if (!filters.length) {
+    if (!size) throw unsupported();
+    return closing(dataStart + size);
+  }
+  if (first === 'ASCIIHexDecode') {
+    const end = source.indexOf('>', dataStart);
+    if (end < 0 || !/^[0-9a-f\x00\t\n\f\r ]*$/i.test(source.slice(dataStart, end)))
+      throw unsupported();
+    return closing(end + 1);
+  }
+  if (first === 'ASCII85Decode') {
+    const end = source.indexOf('~>', dataStart);
+    if (end < 0 || !/^[!-uz\x00\t\n\f\r ]*$/.test(source.slice(dataStart, end)))
+      throw unsupported();
+    return closing(end + 2);
+  }
+  if (first === 'RunLengthDecode') {
+    for (let at = dataStart; at < source.length;) {
+      const n = source.charCodeAt(at);
+      if (n === 128) return closing(at + 1);
+      at += n < 128 ? n + 2 : 2;
+    }
+    throw unsupported();
+  }
+  // JPEG data ends with its end-of-image marker, which its coded data cannot contain; Flate data
+  // stops short of the image's samples when it is cut early.
+  const complete =
+    first === 'DCTDecode'
+      ? (data) => data.replace(/[\x00\t\n\f\r ]+$/, '').endsWith('\xff\xd9')
+      : first === 'FlateDecode' && filters.length === 1 && !entries.has('DecodeParms') && size
+        ? (data) => inflatedLength(data) >= size
+        : null;
+  if (!complete) throw unsupported();
+  const candidates = /[\x00\t\n\f\r ]EI(?=$|[\x00\t\n\f\r ])/g;
+  candidates.lastIndex = dataStart;
+  for (let match = candidates.exec(source); match; match = candidates.exec(source)) {
+    if (!complete(source.slice(dataStart, match.index))) continue;
+    try {
+      return { dataEnd: match.index, end: match.index + 3, rest: readRest(match.index + 3) };
+    } catch {
+      // The rest does not read as content, so this EI is part of the data.
+    }
+  }
+  throw unsupported();
+}
+
+/**
+ * Tokenize objects, not regular-expression matches: strings may contain PDF operators. With
+ * `inlineImages`, each inline image is one BI command spanning its header, data and EI, whose
+ * bytes are never read as commands; without it, a stream with one is refused.
+ */
+export function parseContent(
+  source,
+  { inlineImages = false, from = 0, strict: known = false } = {},
+) {
+  let strict = known;
+  let pos = from;
   const skip = () => {
     while (pos < source.length) {
       if (whitespace(source[pos])) pos++;
@@ -113,8 +257,46 @@ export function parseContent(source) {
     if (pos >= source.length) break;
     const t = token();
     if (t.type === 'word' && !['true', 'false', 'null'].includes(t.value)) {
-      // Inline image data is binary and must never be interpreted as text commands.
-      if (t.value === 'BI') throw unsupported();
+      if (strict && !OPERATORS.has(t.value)) throw unsupported();
+      if (t.value === 'BI') {
+        // Inline image data is binary and must never be interpreted as text commands.
+        if (!inlineImages || args.length) throw unsupported();
+        const entries = new Map();
+        while (true) {
+          skip();
+          if (pos >= source.length) throw unsupported();
+          const key = token();
+          if (key.type === 'word' && key.value === 'ID') break;
+          skip();
+          const value = pos < source.length ? token() : null;
+          if (
+            key.type !== 'name' ||
+            !value ||
+            (value.type === 'word' && !['true', 'false', 'null'].includes(value.value))
+          )
+            throw unsupported();
+          entries.set(INLINE_KEYS[key.value] || key.value, value);
+        }
+        // A single white-space character separates ID from the data.
+        if (!whitespace(source[pos] || '')) throw unsupported();
+        const dataStart = pos + 1;
+        const image = inlineImageEnd(source, entries, dataStart, (at) =>
+          parseContent(source, { inlineImages, from: at, strict: true }),
+        );
+        operations.push({
+          op: 'BI',
+          args: [],
+          start: t.start,
+          end: image.end,
+          inline: { dataStart, dataEnd: image.dataEnd },
+        });
+        if (image.rest) return operations.concat(image.rest);
+        pos = image.end;
+        // A wrong end would leave picture bytes to read as commands. They seldom spell only
+        // operators, and never a lone EI, so what follows must.
+        strict = true;
+        continue;
+      }
       operations.push({ op: t.value, args, start: args[0]?.start ?? t.start, end: t.end });
       args = [];
     } else args.push(t);
@@ -271,7 +453,7 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
       wrapper = null;
     const stack = [],
       marked = [];
-    const commands = parseContent(source);
+    const commands = parseContent(source, { inlineImages: true });
     for (const [at, command] of commands.entries()) {
       const { op, args } = command;
       const a = args.map((t) => t.value);
@@ -820,7 +1002,9 @@ async function editRuns(doc, index, edits) {
   const rebuildLevel = (source, resources, depth) => {
     const copy = cloneResources(doc, resources);
     if (depth < path.length) {
-      const call = parseContent(source).find((c) => c.start === path[depth].start);
+      const call = parseContent(source, { inlineImages: true }).find(
+        (c) => c.start === path[depth].start,
+      );
       if (call?.op !== 'Do') throw unsupported();
       const form = get(get(resources, 'XObject'), call.args[0].value);
       if (!form) throw unsupported();
@@ -845,7 +1029,7 @@ async function editRuns(doc, index, edits) {
         resources: copy,
       };
     }
-    const commands = parseContent(source);
+    const commands = parseContent(source, { inlineImages: true });
     // Later runs first, so the earlier ones keep their positions in the source.
     const changes = [...prepared]
       .sort((a, b) => b.run.start - a.run.start)
