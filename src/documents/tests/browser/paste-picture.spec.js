@@ -35,3 +35,22 @@ test('a pasted screenshot or copied picture is inserted at the caret', async ({ 
     expect(await pictures(page)).toBe(1);
   } finally { await context.close(); }
 });
+
+test('a picture dropped on the page is inserted where it lands', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('Alpha bravo\nCharlie');
+  const box = await page.locator('canvas.canvas-page').first().boundingBox();
+  const at = await page.evaluate(() => { const e = window.__docs.current.view.engine, line = e.selectionLayout.lines[0]; return { x: line.stops.find(s => s.offset === 6).x * e.zoom, y: (line.y + line.height / 2) * e.zoom }; });
+  const accepted = await page.locator('canvas.canvas-page').first().evaluate((canvas, { x, y, bytes }) => {
+    const data = new DataTransfer(); data.items.add(new File([new Uint8Array(bytes)], 'image.png', { type: 'image/png' }));
+    const point = { dataTransfer: data, clientX: x, clientY: y, bubbles: true, cancelable: true };
+    const over = new DragEvent('dragover', point), drop = new DragEvent('drop', point);
+    canvas.dispatchEvent(over); canvas.dispatchEvent(drop);
+    return over.defaultPrevented && drop.defaultPrevented;
+  }, { x: box.x + at.x, y: box.y + at.y, bytes: png });
+  expect(accepted).toBe(true);
+  await expect.poll(() => pictures(page)).toBe(1);
+  await expect(input(page)).toHaveValue('Alpha ￼bravo\nCharlie');
+  await expect(page.getByText('Drop pictures on the page to insert them')).toHaveCount(0);
+});

@@ -61,6 +61,7 @@ import { createReferences } from './references.js';
 import { createMailings } from './mailings.js';
 import { createDocumentViews } from './document-views.js';
 import { createInsert } from './insert-tab.js';
+import { imageFilesFrom } from '../lib/images.js';
 import { createDraw } from './draw-tab.js';
 import { createPictures } from './pictures.js';
 import { createEditingCommands } from './home-editing-commands.js';
@@ -775,6 +776,19 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const baseExtendTab = editorCommands.extendTab;
   editorCommands.extendTab = (id, kit) => [...(baseExtendTab?.(id, kit) || []), ...review.extendTab(id, kit), ...references.extendTab(id, kit)];
   editorCommands.readAloudActive = () => review.commands.readAloudActive();
+  // A picture dropped on the pages goes in where it lands, as Insert > Pictures puts it in. Other files
+  // (a document to open) go on to the window's own drop handling.
+  const pictureDrop = e => !!engine && !failed && !pkg.readOnly && !engine.viewOnly && [...(e.dataTransfer?.items || [])].some(item => item.kind === 'file' && /^image\//i.test(item.type));
+  host.addEventListener('dragover', e => { if (pictureDrop(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+  host.addEventListener('drop', async e => {
+    const files = pictureDrop(e) ? imageFilesFrom(e.dataTransfer) : [];
+    if (!files.length) return;
+    e.preventDefault();
+    const editor = engine;
+    editor.finishComposition();
+    editor.model.select(editor.point(e)); editor.syncInput();
+    for (const file of files) if (engine === editor && !destroyed) await editorCommands.insertPictureFile(file);
+  });
 
   /* ---- Application chrome: menu bar, File view, title bar, status bar, keyboard ---- */
   // Feature modules add menu-bar entries and document context-menu entries the way they add ribbon groups.
