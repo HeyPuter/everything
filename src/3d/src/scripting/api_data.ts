@@ -512,6 +512,15 @@ class GPStrokes extends PropCollection<unknown> {
         },
         enumerable: true,
       },
+      softness: {
+        get: () => d().softness?.[si] ?? 0,
+        set: (v: unknown) => {
+          const list = toStrokes(d());
+          list[si] = { ...list[si], softness: Math.max(0, Math.min(1, Number(v))) };
+          writeDrawing(gpOf(self.gpId), self.di, fromStrokes(list));
+        },
+        enumerable: true,
+      },
       hide_stroke: {
         get: () => ((d().stroke_type?.[si] ?? 0) === 2),
         set: (v: unknown) => {
