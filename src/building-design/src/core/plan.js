@@ -23,6 +23,7 @@ import { annotationGraphics, arrowHead, leaderStart } from './annotate.js';
 import { planSpace } from './spaces.js';
 import { planBasePoint } from './coords.js';
 import { planSweep } from './sweeps.js';
+import { planScopeBox } from './scopebox.js';
 
 export const INK = (a = 255) => [-1, -1, -1, a];
 export const BG = [-2, -2, -2, 255];
@@ -187,6 +188,9 @@ export function planGraphics(pc, el) {
       break;
     case 'wallSweep':
       planSweep(pc, el, b);
+      break;
+    case 'scopeBox':
+      planScopeBox(pc, el, b);
       break;
     case 'roomSeparator':
       if (el.levelId === pc.view.levelId) b.line(el.a, el.b, W.thin, 0, null);

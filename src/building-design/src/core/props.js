@@ -314,6 +314,7 @@ const INSTANCE = {
     ro('heating', 'Heating Load (estimate, W)', 'Energy Analysis', (el, c) => Math.round(spaceLoads(el, c.scene?.rooms.room(el))?.heating || 0), 'text'),
   ],
   zone: [P('name', 'Name', 'Identity Data', 'text')],
+  scopeBox: [P('name', 'Name', 'Identity Data', 'text'), len('z0', 'Bottom Elevation', 'Extents'), len('z1', 'Top Elevation', 'Extents'), ro('views', 'Views Using It', 'Identity Data', (el, c) => String(c.doc.filter((v) => v.scopeBoxId === el.id).length), 'text')],
   wallSweep: [
     len('z', 'Offset From Wall Base', 'Constraints'),
     P('side', 'Face', 'Constraints', 'select', { get: (el) => el.side || 'exterior', options: () => [{ value: 'exterior', label: 'Exterior' }, { value: 'interior', label: 'Interior' }] }),
@@ -632,7 +633,7 @@ const WS_VIEWS = new Set(['plan', 'ceilingPlan', 'areaPlan', 'view3d', 'elevatio
 
 /** Workset of an element, and per-view workset settings, once worksets are on. */
 export function worksetParams(doc, el) {
-  const out = optionParams(doc, el);
+  const out = [...optionParams(doc, el), ...scopeParams(doc, el)];
   if (!worksharingOn(doc)) return out;
   if (WS_VIEWS.has(el.kind))
     return [
@@ -648,6 +649,12 @@ export function worksetParams(doc, el) {
     ];
   if (!worksetable(doc, el)) return out;
   return [...out, P('worksetId', 'Workset', 'Identity Data', 'select', { get: (e, c) => worksetOf(c.doc, e)?.id ?? '', options: (c) => worksets(c.doc).map((w) => ({ value: w.id, label: w.name })) })];
+}
+
+/** The scope box a plan or 3D view takes its crop region or section box from. */
+function scopeParams(doc, el) {
+  if (!doc.count('scopeBox') || !['plan', 'ceilingPlan', 'areaPlan', 'view3d'].includes(el.kind)) return [];
+  return [P('scopeBoxId', 'Scope Box', 'Extents', 'select', { get: (v) => v.scopeBoxId || '', set: (v, val) => ({ scopeBoxId: val || null }), options: (c) => [{ value: '', label: 'None' }, ...c.doc.all('scopeBox').map((s) => ({ value: s.id, label: s.name }))] })];
 }
 
 /** Design option of an element, and the options a view shows, once there are option sets. */

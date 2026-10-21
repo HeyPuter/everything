@@ -359,7 +359,8 @@ function commentsParam() {
 
 export function pluralLabel(kind) {
   const l = KIND_LABEL[kind] || VIEW_LABEL[kind] || kind || 'Elements';
-  if (l.endsWith('y') && !l.endsWith('ay')) return `${l.slice(0, -1)}ies`;
+  if (l.endsWith('y') && !/[aeiou]y$/.test(l)) return `${l.slice(0, -1)}ies`;
+  if (/(x|ch|sh)$/.test(l)) return `${l}es`;
   if (l.endsWith('s')) return l;
   return `${l}s`;
 }

@@ -57,6 +57,7 @@ import { Settings } from './settings.js';
 import { SyncManager } from './io/sync.js';
 import { solveConstraints } from './core/constraints.js';
 import { applyGlobals } from './core/globals.js';
+import { applyScopeBoxes } from './core/scopebox.js';
 import { worksharingOn, worksetable, worksets, defaultWorkset, DATUM_KINDS } from './core/worksets.js';
 import { setEditingOption, editingOption, optionable, optionLabel, optionSets, optionsOf } from './core/designopts.js';
 
@@ -173,7 +174,7 @@ export class App {
       (item) => (!item.worksetId && worksharingOn(doc) && worksetable(doc, item) ? { worksetId: DATUM_KINDS.has(item.kind) ? worksets(doc).find((w) => w.shared)?.id ?? this.activeWorkset()?.id : this.activeWorkset()?.id } : null),
     ];
     // Dimension constraints follow every edit.
-    doc.solver = (drivers) => new Set([...applyGlobals(doc, drivers), ...solveConstraints(doc, this.scene?.walls, drivers)]);
+    doc.solver = (drivers) => new Set([...applyGlobals(doc, drivers), ...solveConstraints(doc, this.scene?.walls, drivers), ...applyScopeBoxes(doc, drivers)]);
     this.doc = doc;
     this.file = file;
     this.docId = file?.recoveryId || newId('doc');

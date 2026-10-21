@@ -52,6 +52,7 @@ import * as dopts from './ui/designopts.js';
 import { WallSweepTool } from './editor/sweep.js';
 import * as curtainedit from './ui/curtainedit.js';
 import * as renderui from './ui/render.js';
+import { ScopeBoxTool } from './editor/scopebox.js';
 import * as sunui from './ui/sun.js';
 import * as analyze from './ui/analyze.js';
 import * as globalsui from './ui/globals.js';
@@ -381,6 +382,7 @@ export const COMMANDS = {
     },
     desc: 'Cast shadows from the sun at the project location, date and time',
   },
+  scopeBox: { label: 'Scope Box', icon: 'scopeBox', run: tool(ScopeBoxTool), desc: 'Named extents that views can crop to; the views follow when it changes' },
   render: { label: 'Render', icon: 'render', run: (app) => renderui.renderDialog(app), enabled: (app) => app.activeView?.kind === 'view3d', desc: 'A presentation image of the 3D view with materials, sun, shadows and sky' },
   sunSettings: { label: 'Sun Settings', icon: 'sun-l', run: (app) => sunui.sunSettingsDialog(app), desc: 'Project location, north angle, date and time for shadows' },
   designOptions: { label: 'Design Options', icon: 'designOptions', keys: 'DO', run: (app) => dopts.designOptionsDialog(app), desc: 'Explore alternatives for part of the design in one project' },

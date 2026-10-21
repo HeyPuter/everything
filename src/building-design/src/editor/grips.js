@@ -184,6 +184,10 @@ export function gripsFor(app, el, vc) {
         out.push({ at: el.a, shape: 'circle', title: 'Drag start', exclude: [el.id], drag: (p) => doc.update(el.id, { a: p, b: add(p, sub(el.b, el.a)) }) });
         out.push({ at: rampLayout(doc, el).end, shape: 'circle', title: 'Drag to turn the ramp', exclude: [el.id], drag: (p) => doc.update(el.id, { b: p }) });
         break;
+      case 'scopeBox':
+        for (const [kx, ky] of [['x0', 'y0'], ['x1', 'y0'], ['x1', 'y1'], ['x0', 'y1']])
+          out.push({ at: [el[kx], el[ky]], shape: 'square', title: 'Drag corner', exclude: [el.id], drag: (p) => doc.update(el.id, { [kx]: p[0], [ky]: p[1] }) });
+        break;
       case 'propertyLine':
       case 'mass':
         (el.boundary || []).forEach((v, i) =>

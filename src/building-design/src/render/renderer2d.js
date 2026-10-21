@@ -21,6 +21,7 @@ export const KIND_Z = {
   image: 0,
   space: 0,
   wallSweep: 7,
+  scopeBox: 9,
   floor: 0,
   ceiling: 0,
   footing: 1,

@@ -79,6 +79,7 @@ export const CATEGORIES = [
   { id: 'wallSweeps', label: 'Wall Sweeps and Reveals', model: true },
   { id: 'spaces', label: 'Spaces', model: false },
   { id: 'siteCoordinates', label: 'Project Base Point and Survey Point', model: false },
+  { id: 'scopeBoxes', label: 'Scope Boxes', model: false },
   { id: 'propertyLines', label: 'Property Lines', model: false },
   { id: 'rooms', label: 'Rooms', model: false },
   { id: 'roomSeparators', label: 'Room Separation Lines', model: false },
@@ -151,6 +152,7 @@ const KIND_CATEGORY = {
   space: 'spaces',
   treadNumbers: 'tags',
   basePoint: 'siteCoordinates',
+  scopeBox: 'scopeBoxes',
   wallSweep: 'wallSweeps',
 };
 
@@ -214,6 +216,7 @@ export const KIND_LABEL = {
   link: 'Linked Project',
   treadNumbers: 'Tread Numbers',
   basePoint: 'Base Point',
+  scopeBox: 'Scope Box',
   wallSweep: 'Wall Sweep',
   space: 'Space',
   zone: 'Zone',
