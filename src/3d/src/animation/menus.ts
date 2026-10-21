@@ -237,45 +237,6 @@ export function previewRangeMenu(setSelected: string): MenuItem[] {
   ];
 }
 
-export function viewMenuCommon(p: Prefix, ed: AnimEditor): MenuItem[] {
-  return [
-    { label: 'Show Seconds', checked: ed.showSeconds, op: 'anim.show_seconds_toggle', shortcut: 'Ctrl T' },
-    { label: 'Only Show Errors', checked: ed.onlyErrors, action: () => ((ed.onlyErrors = !ed.onlyErrors), ed.refresh()) },
-    {
-      label: 'Show Sliders',
-      checked: ed.showSliders,
-      action: () => {
-        ed.showSliders = !ed.showSliders;
-        // make room for the value fields next to the channel names
-        if (ed.showSliders) ed.chWidth = Math.max(ed.chWidth, 300);
-        ed.refresh();
-      },
-    },
-    { label: 'Auto-Merge Keyframes', checked: ed.autoMerge, action: () => ((ed.autoMerge = !ed.autoMerge), app.changed('ui')) },
-    { label: 'Multi-Word Match Search', checked: ed.multiWordSearch, action: () => ((ed.multiWordSearch = !ed.multiWordSearch), ed.refresh()) },
-    { separator: true },
-    { label: 'Frame Selected', op: `${p}.view_selected`, shortcut: 'Numpad .' },
-    { label: 'Frame All', op: `${p}.view_all`, shortcut: 'Home' },
-    { label: 'Frame Scene Range', op: 'anim.scene_range_frame' },
-    { label: 'Go to Current Frame', op: `${p}.view_frame`, shortcut: 'Numpad 0' },
-    ...(p === 'graph' ? [{ separator: true }, { label: 'Local View', op: 'graph.local_view', shortcut: '/' }, { label: 'Create Ghost Curves', op: 'graph.ghost_curves_create' }, { label: 'Clear Ghost Curves', op: 'graph.ghost_curves_clear' }] : []),
-    { separator: true },
-    ...previewRangeMenu(`${p}.previewrange_set`),
-    { separator: true },
-    {
-      label: p === 'action' ? 'Toggle Graph Editor' : 'Toggle Dope Sheet',
-      op: 'anim.switch_editor',
-      props: { type: p === 'action' ? 'GRAPH' : 'DOPESHEET' },
-      shortcut: 'Ctrl Tab',
-    },
-    {
-      label: ed.area.screen.maximized === ed.area ? 'Back to Previous' : 'Maximize Area',
-      op: 'screen.screen_full_area',
-      shortcut: 'Ctrl Space',
-    },
-  ];
-}
-
 function settingMenu(op: string, graph: boolean): MenuItem[] {
   const items: MenuItem[] = [
     { label: 'Mute', op, props: { type: 'MUTE' } },
