@@ -933,6 +933,18 @@ it('detects the fields of a flat form, with or without PDF.js text', async () =>
   expect(detectFormFields(target, 0)).toEqual([]);
 });
 
+it('takes dark banners for decoration, not for fields, and shaded boxes for fields', async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([612, 792]);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  page.drawRectangle({ x: 50, y: 680, width: 512, height: 40, color: rgb(0.1, 0.2, 0.5) });
+  page.drawText('Comments', { x: 50, y: 606, size: 11, font });
+  page.drawRectangle({ x: 120, y: 600, width: 300, height: 22, color: rgb(0.92, 0.92, 0.95) });
+  expect(detectFormFields(doc, 0).map(({ type, name }) => [type, name])).toEqual([
+    ['text', 'Comments'],
+  ]);
+});
+
 it('fills created fields with the existing fill tool', async () => {
   await mockTextFont();
   const doc = await blank();

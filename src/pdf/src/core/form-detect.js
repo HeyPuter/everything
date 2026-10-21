@@ -696,6 +696,8 @@ export function detectFormFields(doc, pageIndex, { textContent } = {}) {
     }
     if (box.width < 30 || box.height < 10 || box.height > 220 || box.width > 0.95 * pageWidth)
       continue;
+    // Dark filled boxes are banners and bars; nothing written in them could be read.
+    if (box.filled && box.fill < 0.6) continue;
     // A frame around other boxes, lines or blanks groups them; it is not a field itself.
     const frames = (other) =>
       other !== box &&
