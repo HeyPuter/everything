@@ -746,7 +746,7 @@ function solidify(m: EvalMesh, mod: ModifierBase): EvalMesh {
   const rim = bool(mod, 'use_rim', true),
     rimOnly = bool(mod, 'use_rim_only');
   const flip = bool(mod, 'use_flip_normals');
-  const vn = vertexNormals(m);
+  const vn = bool(mod, 'use_quality_normals') ? qualityNormals(m) : vertexNormals(m);
   const P = m.positions,
     nv = P.length / 3;
   const groups = m.weights?.length ?? 0;
@@ -767,23 +767,31 @@ function solidify(m: EvalMesh, mod: ModifierBase): EvalMesh {
     }
   }
   if (even) {
-    // even thickness: scale by 1/cos(angle) between vertex normal and adjacent face normals
-    const vf = vertexFaces(m);
+    // even thickness: the mean of 1/cos(face normal, vertex normal) over the faces around a vertex,
+    // each face weighted by its turning angle at the corner (pi minus the corner angle)
+    const sum = new Float64Array(nv),
+      wsum = new Float64Array(nv);
     const n: [number, number, number] = [0, 0, 0];
-    for (let v = 0; v < nv; v++) {
-      let sum = 0,
-        k = 0;
-      for (let i = vf.offsets[v]; i < vf.offsets[v + 1]; i++) {
-        const f = vf.faces[i];
-        polyNormal(P, m.indices.subarray(m.offsets[f], m.offsets[f + 1]), n);
-        sum += Math.max(0.2, n[0] * vn[v * 3] + n[1] * vn[v * 3 + 1] + n[2] * vn[v * 3 + 2]);
-        k++;
+    for (let f = 0; f + 1 < m.offsets.length; f++) {
+      const s0 = m.offsets[f],
+        e0 = m.offsets[f + 1];
+      polyNormal(P, m.indices.subarray(s0, e0), n);
+      for (let k = s0; k < e0; k++) {
+        const v = m.indices[k],
+          vp = m.indices[k > s0 ? k - 1 : e0 - 1],
+          vx = m.indices[k + 1 < e0 ? k + 1 : s0];
+        const ang = cornerAngle(P, vp, v, vx);
+        const w = Math.PI - ang;
+        const d = n[0] * vn[v * 3] + n[1] * vn[v * 3 + 1] + n[2] * vn[v * 3 + 2];
+        sum[v] += w / Math.max(0.05, d);
+        wsum[v] += w;
       }
-      if (k) scale[v] /= sum / k;
     }
+    for (let v = 0; v < nv; v++) if (wsum[v] > 0) scale[v] *= sum[v] / wsum[v];
   }
   const clamp = num(mod, 'thickness_clamp', 0);
   if (clamp > 0) {
+    // the offset never exceeds the shortest edge at the vertex divided by the clamp factor
     const et = edgeTopology(m);
     const minLen = new Float32Array(nv).fill(Infinity);
     for (let e = 0; e < et.count; e++) {
@@ -793,7 +801,10 @@ function solidify(m: EvalMesh, mod: ModifierBase): EvalMesh {
       minLen[x] = Math.min(minLen[x], l);
       minLen[y] = Math.min(minLen[y], l);
     }
-    for (let v = 0; v < nv; v++) if (Number.isFinite(minLen[v]) && Math.abs(t * scale[v]) > minLen[v] * clamp) scale[v] = (Math.sign(scale[v]) * minLen[v] * clamp) / Math.abs(t || 1);
+    for (let v = 0; v < nv; v++) {
+      const limit = minLen[v] / clamp;
+      if (Number.isFinite(limit) && Math.abs(t * scale[v]) > limit) scale[v] = (Math.sign(scale[v]) * limit) / Math.abs(t || 1);
+    }
   }
   const shellG = (m.vertex_groups ?? []).findIndex((g) => g.name === str(mod, 'shell_vertex_group') && !!g.name);
   const rimG = (m.vertex_groups ?? []).findIndex((g) => g.name === str(mod, 'rim_vertex_group') && !!g.name);
@@ -843,6 +854,70 @@ function solidify(m: EvalMesh, mod: ModifierBase): EvalMesh {
     }
   }
   return b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle });
+}
+
+/** Angle at vertex v between the edges to a and b. */
+function cornerAngle(P: ArrayLike<number>, a: number, v: number, b: number): number {
+  const ax = P[a * 3] - P[v * 3],
+    ay = P[a * 3 + 1] - P[v * 3 + 1],
+    az = P[a * 3 + 2] - P[v * 3 + 2];
+  const bx = P[b * 3] - P[v * 3],
+    by = P[b * 3 + 1] - P[v * 3 + 1],
+    bz = P[b * 3 + 2] - P[v * 3 + 2];
+  const l = Math.hypot(ax, ay, az) * Math.hypot(bx, by, bz);
+  return l > 0 ? Math.acos(Math.max(-1, Math.min(1, (ax * bx + ay * by + az * bz) / l))) : 0;
+}
+
+/**
+ * High quality vertex normals for Solidify: the direction that is equally far from the planes of all
+ * faces around the vertex (least squares with the minimum-norm solution: two faces give their bisector).
+ */
+function qualityNormals(m: EvalMesh): Float32Array {
+  const P = m.positions,
+    nv = P.length / 3;
+  const M = new Float64Array(nv * 6),
+    R = new Float64Array(nv * 3);
+  const n: [number, number, number] = [0, 0, 0];
+  for (let f = 0; f + 1 < m.offsets.length; f++) {
+    polyNormal(P, m.indices.subarray(m.offsets[f], m.offsets[f + 1]), n);
+    for (let c = m.offsets[f]; c < m.offsets[f + 1]; c++) {
+      const v = m.indices[c];
+      const o = v * 6;
+      M[o] += n[0] * n[0];
+      M[o + 1] += n[0] * n[1];
+      M[o + 2] += n[0] * n[2];
+      M[o + 3] += n[1] * n[1];
+      M[o + 4] += n[1] * n[2];
+      M[o + 5] += n[2] * n[2];
+      R[v * 3] += n[0];
+      R[v * 3 + 1] += n[1];
+      R[v * 3 + 2] += n[2];
+    }
+  }
+  const out = vertexNormals(m);
+  for (let v = 0; v < nv; v++) {
+    const o = v * 6;
+    // Tikhonov-regularised normal equations approximate the pseudo-inverse
+    const eps = 1e-7 * (M[o] + M[o + 3] + M[o + 5] || 1);
+    const A = [
+      [M[o] + eps, M[o + 1], M[o + 2]],
+      [M[o + 1], M[o + 3] + eps, M[o + 4]],
+      [M[o + 2], M[o + 4], M[o + 5] + eps],
+    ];
+    const r = [R[v * 3], R[v * 3 + 1], R[v * 3 + 2]];
+    const det = A[0][0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1]) - A[0][1] * (A[1][0] * A[2][2] - A[1][2] * A[2][0]) + A[0][2] * (A[1][0] * A[2][1] - A[1][1] * A[2][0]);
+    if (!(Math.abs(det) > 1e-30)) continue;
+    const solve = (col: number) => {
+      const B = A.map((row, i) => row.map((x, j) => (j === col ? r[i] : x)));
+      return (B[0][0] * (B[1][1] * B[2][2] - B[1][2] * B[2][1]) - B[0][1] * (B[1][0] * B[2][2] - B[1][2] * B[2][0]) + B[0][2] * (B[1][0] * B[2][1] - B[1][1] * B[2][0])) / det;
+    };
+    const x = solve(0),
+      y = solve(1),
+      z = solve(2);
+    const l = Math.hypot(x, y, z);
+    if (l > 1e-12 && Number.isFinite(l)) out.set([x / l, y / l, z / l], v * 3);
+  }
+  return out;
 }
 
 /** Split a quad into two triangles (local corner indices) by the chosen rule. */
@@ -2174,7 +2249,7 @@ export const modifierTypes: Record<string, ModifierType> = {
   WIREFRAME: { type: 'WIREFRAME', label: 'Wireframe', category: 'GENERATE', icon: 'mod_wireframe', defaults: base({ thickness: 0.02, offset: 0, use_replace: true, use_boundary: false, use_even_offset: true, material_offset: 0, vertex_group: '', invert_vertex_group: false, thickness_vertex_group: 0, use_relative_offset: false, use_crease: false, crease_weight: 1 }), apply: wireframe },
   // Deform
   ARMATURE: { type: 'ARMATURE', label: 'Armature', category: 'DEFORM', icon: 'mod_armature', deformOnly: true, defaults: base({ object: null, use_vertex_groups: true, use_bone_envelopes: false, use_deform_preserve_volume: false, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: armatureMod },
-  CAST: { type: 'CAST', label: 'Cast', category: 'DEFORM', icon: 'mod_cast', deformOnly: true, defaults: base({ cast_type: 'SPHERE', factor: 0.5, radius: 0, size: 0, use_radius_as_size: true, object: null, use_x: true, use_y: true, use_z: true, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: cast },
+  CAST: { type: 'CAST', label: 'Cast', category: 'DEFORM', icon: 'mod_cast', deformOnly: true, defaults: base({ cast_type: 'SPHERE', factor: 0.5, radius: 0, size: 0, use_radius_as_size: true, object: null, use_transform: false, use_x: true, use_y: true, use_z: true, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: cast },
   CURVE: { type: 'CURVE', label: 'Curve', category: 'DEFORM', icon: 'mod_curve', deformOnly: true, defaults: base({ object: null, deform_axis: 'POS_X', vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: curveMod },
   DISPLACE: {
     type: 'DISPLACE',
@@ -2182,7 +2257,7 @@ export const modifierTypes: Record<string, ModifierType> = {
     category: 'DEFORM',
     icon: 'mod_displace',
     deformOnly: true,
-    defaults: base({ strength: 1, mid_level: 0.5, direction: 'NORMAL', space: 'LOCAL', texture_coords: 'LOCAL', texture_coords_object: null, vertex_group: '', invert_vertex_group: false, texture: null }),
+    defaults: base({ strength: 1, mid_level: 0.5, direction: 'NORMAL', space: 'LOCAL', texture_coords: 'LOCAL', texture_coords_object: null, uv_layer: '', vertex_group: '', invert_vertex_group: false, texture: null }),
     deps: (m) => [m.texture_coords_object as string],
     apply: displace,
   },
@@ -2200,7 +2275,7 @@ export const modifierTypes: Record<string, ModifierType> = {
     apply: shrinkwrapMod,
   },
   SIMPLE_DEFORM: { type: 'SIMPLE_DEFORM', label: 'Simple Deform', category: 'DEFORM', icon: 'mod_simpledeform', deformOnly: true, defaults: base({ deform_method: 'TWIST', angle: (45 * Math.PI) / 180, factor: 0.785398, deform_axis: 'Z', origin: null, limits: [0, 1], lock_x: false, lock_y: false, lock_z: false, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.origin as string], apply: simpleDeform },
-  SMOOTH: { type: 'SMOOTH', label: 'Smooth', category: 'DEFORM', icon: 'mod_smooth', deformOnly: true, defaults: base({ factor: 0.5, iterations: 1, use_x: true, use_y: true, use_z: true, vertex_group: '' }), apply: smoothMesh },
+  SMOOTH: { type: 'SMOOTH', label: 'Smooth', category: 'DEFORM', icon: 'mod_smooth', deformOnly: true, defaults: base({ factor: 0.5, iterations: 1, use_x: true, use_y: true, use_z: true, vertex_group: '', invert_vertex_group: false }), apply: smoothMesh },
   WARP: { type: 'WARP', label: 'Warp', category: 'DEFORM', icon: 'mod_warp', deformOnly: true, defaults: base({ object_from: null, bone_from: '', object_to: null, bone_to: '', strength: 1, falloff_type: 'SMOOTH', falloff_radius: 1, use_volume_preserve: false, texture: null, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object_from as string, m.object_to as string], apply: warpMod },
   WAVE: {
     type: 'WAVE',

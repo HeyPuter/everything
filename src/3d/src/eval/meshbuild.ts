@@ -129,16 +129,31 @@ export function cloneWithPositions(m: EvalMesh, positions: Float32Array): EvalMe
   return { ...m, positions };
 }
 
+/** Vertex normals: the face normals around each vertex weighted by the corner angles. */
 export function vertexNormals(m: EvalMesh): Float32Array {
   const out = new Float32Array(m.positions.length);
   const n: [number, number, number] = [0, 0, 0];
+  const P = m.positions;
   for (let f = 0; f < m.offsets.length - 1; f++) {
-    polyNormal(m.positions, m.indices.subarray(m.offsets[f], m.offsets[f + 1]), n);
-    for (let c = m.offsets[f]; c < m.offsets[f + 1]; c++) {
-      const v = m.indices[c] * 3;
-      out[v] += n[0];
-      out[v + 1] += n[1];
-      out[v + 2] += n[2];
+    const s = m.offsets[f],
+      e = m.offsets[f + 1];
+    polyNormal(P, m.indices.subarray(s, e), n);
+    for (let c = s; c < e; c++) {
+      const v = m.indices[c] * 3,
+        p = m.indices[c > s ? c - 1 : e - 1] * 3,
+        q = m.indices[c + 1 < e ? c + 1 : s] * 3;
+      const ax = P[p] - P[v],
+        ay = P[p + 1] - P[v + 1],
+        az = P[p + 2] - P[v + 2];
+      const bx = P[q] - P[v],
+        by = P[q + 1] - P[v + 1],
+        bz = P[q + 2] - P[v + 2];
+      const la = Math.hypot(ax, ay, az),
+        lb = Math.hypot(bx, by, bz);
+      const w = la > 0 && lb > 0 ? Math.acos(Math.max(-1, Math.min(1, (ax * bx + ay * by + az * bz) / (la * lb)))) : 0;
+      out[v] += n[0] * w;
+      out[v + 1] += n[1] * w;
+      out[v + 2] += n[2] * w;
     }
   }
   for (let i = 0; i < out.length; i += 3) {
