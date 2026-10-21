@@ -386,8 +386,8 @@ export function toolHeaderSettings(mode: BrushMode): Child {
     parts.push(field(110, blendMenu(b, 'th-blend', mode === 'TEXTURE_PAINT' ? TEX_BLENDS : BLENDS)));
   }
   if (mode === 'WEIGHT_PAINT' && b.sculpt_tool === 'DRAW') parts.push(field(140, weightField('th-w')));
-  if (!(mode === 'TEXTURE_PAINT' && b.sculpt_tool === 'FILL')) parts.push(field(150, sizeField(b, 'th-r')));
-  parts.push(field(150, strengthRow(b, 'th-s')));
+  if (!(mode === 'TEXTURE_PAINT' && b.sculpt_tool === 'FILL')) parts.push(field(176, sizeField(b, 'th-r')));
+  parts.push(field(176, strengthRow(b, 'th-s')));
   if (mode === 'WEIGHT_PAINT' && b.sculpt_tool === 'DRAW') parts.push(field(100, blendMenu(b, 'th-wblend', BLENDS)));
   if (mode === 'SCULPT') parts.push(directionToggle(b));
   parts.push(popButton('th-p-brush', 'Brush', 'Brush Settings', () => [...mainRows(b, mode, 'thp'), ...advancedRows(b, mode, 'thp')]));
@@ -528,8 +528,8 @@ function mainRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
   const rows: Child[] = [];
   if (paintsColor(mode, b)) rows.push(row('Blend', blendMenu(b, `${p}-blend`, mode === 'TEXTURE_PAINT' ? TEX_BLENDS : BLENDS)));
   if (mode === 'WEIGHT_PAINT') {
-    rows.push(weightField(`${p}-w`));
     if (b.sculpt_tool === 'DRAW') rows.push(row('Blend', blendMenu(b, `${p}-wblend`, BLENDS)));
+    rows.push(weightField(`${p}-w`));
   }
   if (!(mode === 'TEXTURE_PAINT' && b.sculpt_tool === 'FILL')) {
     rows.push(sizeField(b, `${p}-r`));
