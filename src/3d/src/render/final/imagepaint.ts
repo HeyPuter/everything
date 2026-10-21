@@ -8,6 +8,7 @@ import { imageCanvas, imageTexture } from '../images';
 import { activeBrush, ensureBrushes, type PaintBrush } from '../../paint/brushes';
 import { blendColor, cachedCurveTable, falloff, linearToSrgb, type BlendMode, type Falloff } from '../../paint/math';
 import { commitImage } from '../../paint/tpaint';
+import { gradientAt, strokeGradientT, usesGradient } from '../../paint/gradient';
 import { colorJitterOn, colorJitterer, seededRandom, type ColorJitter } from '../../paint/paintmath';
 import { runStroke, type StrokeView } from '../../paint/stroke';
 import { dabMaskAt, dabTextureColor, dabTextureAt, maskTextureActive, textureActive } from '../../paint/brushtex';
@@ -243,7 +244,13 @@ export function imagePaintStroke(host: PaintHost, img: Img, e: PointerEvent): bo
   const lin = invert && tool !== 'CLONE' ? up.secondary_color : up.color;
   const color = [linearToSrgb(lin[0]), linearToSrgb(lin[1]), linearToSrgb(lin[2])];
   const jit = colorJitterOn(up as ColorJitter) ? colorJitterer(up as ColorJitter, seededRandom((Date.now() ^ (Math.random() * 1e9)) >>> 0)) : null;
+  let strokeDist = 0;
+  let prevDab: { x: number; y: number } | null = null;
   const dabColor = (pressure: number) => {
+    if (usesGradient(b) && tool === 'DRAW') {
+      const g = gradientAt(b, strokeGradientT(b, pressure, strokeDist));
+      return [linearToSrgb(g[0]), linearToSrgb(g[1]), linearToSrgb(g[2])];
+    }
     if (!jit) return color;
     const c = jit(lin, pressure);
     return [linearToSrgb(c[0]), linearToSrgb(c[1]), linearToSrgb(c[2])];
@@ -301,6 +308,8 @@ export function imagePaintStroke(host: PaintHost, img: Img, e: PointerEvent): bo
         mark(w, 0, 0, w.W - 1, w.H - 1);
       }
       const [ix, iy] = host.toImage(d.x, d.y);
+      if (prevDab) strokeDist += Math.hypot(d.x - prevDab.x, d.y - prevDab.y);
+      prevDab = { x: d.x, y: d.y };
       const radius = Math.max(0.5, ((d.radiusPx ?? b.radius) * (d.sizeFactor ?? 1)) / host.zoom);
       const place = { cx: d.x, cy: d.y, radiusPx: (d.radiusPx ?? b.radius) * (d.sizeFactor ?? 1), index: dabIndex++, viewH };
       const colorAt = tool === 'DRAW' && textureActive(b) ? dabTextureColor(b, place) : null;
