@@ -154,6 +154,7 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
             new Uint8Array(await chosen.arrayBuffer()),
             filePassword.value,
           );
+          if (!dialog.open) return;
           result = { identity, summary: describeIdentity(identity) };
         } else {
           if (!name.value.trim()) return fail('Enter the name to sign with.');
@@ -166,6 +167,8 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
             keyType: keyType.value,
           });
           const p12 = await exportPkcs12(identity, newPassword.value);
+          // Making a key takes a moment; a dialog cancelled meanwhile wants no ID file.
+          if (!dialog.open) return;
           download(
             new Blob([p12], { type: 'application/x-pkcs12' }),
             `${name.value.trim().replace(/[\\/:*?"<>|]+/g, ' ')} digital ID.p12`,
@@ -174,7 +177,7 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
         }
         dialog.close();
       } catch (error) {
-        fail(errorText(error));
+        if (dialog.open) fail(errorText(error));
       } finally {
         submit.disabled = false;
       }
