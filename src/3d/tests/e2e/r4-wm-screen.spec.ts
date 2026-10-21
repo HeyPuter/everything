@@ -159,3 +159,22 @@ test('quad view: dragging the middle edge moves both halves of the line', async 
   expect(b2[3].height).toBeCloseTo(b1[3].height - 30, -1);
   await expectNoErrors(errors);
 });
+
+test('scripts read and change the active workspace', async ({ page }) => {
+  const errors = await openApp(page);
+  const out = await page.evaluate(async () => {
+    const { runJavaScript } = await import('/src/scripting/runner.ts' as string);
+    const r = runJavaScript(`
+      const ws = bpy.context.workspace;
+      window.__o = [ws.name, ws.object_mode, ws.use_pin_scene];
+      ws.object_mode = 'SCULPT';
+      ws.use_pin_scene = true;
+      ws.name = 'Main';
+      window.__o.push(bpy.context.workspace.name, bpy.context.workspace.object_mode, bpy.context.workspace.use_pin_scene);
+    `);
+    return r.ok ? (window as any).__o : r.error;
+  });
+  expect(out).toEqual(['Layout', 'OBJECT', false, 'Main', 'SCULPT', true]);
+  await expect(page.locator('.ws-tab.on')).toHaveText('Main');
+  await expectNoErrors(errors);
+});
