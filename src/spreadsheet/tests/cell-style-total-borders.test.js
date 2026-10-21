@@ -35,3 +35,22 @@ it('gives a Total cell a thin top and a double bottom', async () => {
   for (const c of [1, 2, 3]) expect(pen(wb, id, 4, c)).toMatchObject({ bt: 'thin', bb: 'double' });
   expect(wb.styleAt(id, 4, 1).bold).toBe(true);
 });
+
+// A built-in style drew its edges round the selected block as a whole: Input outlined a block of input cells
+// instead of boxing each one, and Heading underlined only the last of two heading rows. A cell style is each
+// cell's format, as Excel applies it and as this app already applied a modified built-in: every cell gets the edges.
+it('gives every cell of the range a built-in style\'s edges', async () => {
+  const doc = new Doc({ name: 'Input' }); const wb = doc.wb; const id = wb.activeSheetId;
+  wb.applyStyle(id, { r1: 1, c1: 1, r2: 1, c2: 1 }, { bt: true, bb: true });
+  view = editorView({ doc, goHome: vi.fn(), openPath: vi.fn(), newDoc: vi.fn(), templateDoc: vi.fn(), importFile: vi.fn() });
+  document.body.append(view.el); await vi.advanceTimersByTimeAsync(1);
+  view.goTo('B2:C3');
+  view.run('cellStyle', 'input');
+  for (const [r, c] of [[1, 1], [1, 2], [2, 1], [2, 2]]) expect(pen(wb, id, r, c)).toEqual({ bt: 'thin', bb: 'thin', bl: 'thin', br: 'thin' });
+  view.goTo('E2:F3');
+  view.run('cellStyle', 'heading');
+  for (const [r, c] of [[1, 4], [1, 5], [2, 4], [2, 5]]) expect(pen(wb, id, r, c).bb).toBe('medium');
+  view.goTo('B2:C3');
+  view.run('cellStyle', 'good');
+  expect(pen(wb, id, 1, 1)).toEqual({ bt: 'thin', bb: 'thin', bl: 'thin', br: 'thin' });
+});

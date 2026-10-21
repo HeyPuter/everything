@@ -1850,7 +1850,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // number format and alignment behind.
         const preset = own ? { label: own.name, ...stylePatch(own) }
           : arg === 'normal' && builtIn ? (({ patch, borders }) => ({ ...builtIn, patch: { ...patch, cellStyle: null }, borders }))(stylePatch(styleFromPreset(builtIn)))
-            : builtIn && { ...builtIn, patch: { ...builtIn.patch, cellStyle: builtIn.label } };
+            // A style is each cell's format, so its edges go round every cell of the range, as a modified built-in's
+            // and Excel's do: Input boxes each input cell and Heading underlines each heading row, not the block.
+            : builtIn && { ...builtIn, patch: { ...builtIn.patch, cellStyle: builtIn.label }, borders: builtIn.borders?.length ? stylePatch(styleFromPreset(builtIn)).borders : [] };
         if (!preset) return;
         // What Normal resets takes the sheet's default look (its font, size and vertical alignment) rather than
         // none: a bare null masks the default, so the cell drew in the grid's fallback font, vertically centred.
