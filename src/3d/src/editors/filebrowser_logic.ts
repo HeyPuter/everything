@@ -92,3 +92,12 @@ export function formatSize(n: number | undefined): string {
   if (n < 1024 ** 3) return `${(n / 1024 / 1024).toFixed(1)} MiB`;
   return `${(n / 1024 ** 3).toFixed(2)} GiB`;
 }
+
+/** Move an entry of a list (bookmarks) up, down, to the top or bottom; returns its new index. */
+export function moveInList<T>(list: T[], i: number, dir: 'TOP' | 'UP' | 'DOWN' | 'BOTTOM'): number {
+  if (i < 0 || i >= list.length) return i;
+  const j = dir === 'TOP' ? 0 : dir === 'BOTTOM' ? list.length - 1 : dir === 'UP' ? Math.max(0, i - 1) : Math.min(list.length - 1, i + 1);
+  const [x] = list.splice(i, 1);
+  list.splice(j, 0, x);
+  return j;
+}

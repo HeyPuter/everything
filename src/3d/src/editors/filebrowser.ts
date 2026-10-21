@@ -17,7 +17,7 @@ import { imageFromFile } from '../ops/imageobjects';
 import { newText } from '../data/defaults';
 import { registerIcons } from '../ui/icons';
 import { kvGet, kvSet } from '../io/session';
-import { category as categoryOf, sortEntries, filterEntries, walkIndex, uniqueEntryName, formatSize, type Category, type SortBy } from './filebrowser_logic';
+import { category as categoryOf, sortEntries, filterEntries, walkIndex, uniqueEntryName, formatSize, moveInList, type Category, type SortBy } from './filebrowser_logic';
 import './filebrowser.css';
 
 registerIcons({
@@ -356,6 +356,66 @@ export class FileBrowser implements Editor {
     if (v === 'LIST_VERTICAL' && this.items.some((i) => i.kind === 'file' && i.mtime === undefined)) void this.loadDetails();
     this.draw();
     this.area.drawHeader();
+  }
+
+  /** Column titles of the vertical list; clicking one sorts by it (again: reverses). */
+  private columnHeader(): Child {
+    const col = (by: SortBy, label: string, cls: string) =>
+      h(
+        'button',
+        {
+          key: `col-${by}`,
+          class: { 'fb-col': true, [cls]: true, on: this.sortBy === by },
+          'data-sort': by,
+          'data-tip': `Sort by ${label}\nClick again to reverse the order`,
+          onclick: () => app.run('file.sort_column_ui_context', { column: by }, { area: this.area }),
+        },
+        label,
+        this.sortBy === by ? icon(this.sortReverse ? 'triangle_up' : 'triangle_down', 'tiny') : null,
+      );
+    return h('div', { key: 'fb-cols', class: 'fb-cols' }, col('ALPHA', 'Name', 'fb-col-name'), col('SIZE', 'Size', 'fb-col-size'), col('TIME', 'Date Modified', 'fb-col-date'));
+  }
+
+  /** Sort by a column: a new column sorts ascending, the current one flips the order. */
+  sortColumn(by: SortBy) {
+    if (this.sortBy === by) this.sortReverse = !this.sortReverse;
+    else {
+      this.sortReverse = false;
+      this.setSort(by);
+      return;
+    }
+    this.draw();
+  }
+
+  /** The item at a client point. */
+  itemAt(x: number, y: number): Item | null {
+    const el = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('.fb-item');
+    if (!el || !this.main.contains(el)) return null;
+    return this.shown().find((i) => i.name === el.dataset.name) ?? null;
+  }
+
+  /** Select the item at a client point (extend toggles, fill selects the range from the active one). */
+  selectAt(x: number, y: number, o: { extend?: boolean; fill?: boolean; open?: boolean; deselectAll?: boolean }) {
+    const it = this.itemAt(x, y);
+    if (!it) {
+      if (o.deselectAll) {
+        this.selected.clear();
+        this.draw();
+      }
+      return false;
+    }
+    this.click(it, { shiftKey: !!o.fill, ctrlKey: !!o.extend && !o.fill, metaKey: false } as MouseEvent);
+    if (o.open) void this.activate(it);
+    return true;
+  }
+
+  /** Open the item at a client point (double click). */
+  executeAt(x: number, y: number) {
+    const it = this.itemAt(x, y);
+    if (!it) return false;
+    this.selectOnly(it.name);
+    void this.activate(it);
+    return true;
   }
 
   setSort(s: SortBy) {
@@ -883,9 +943,12 @@ export class FileBrowser implements Editor {
       'button',
       {
         key: `${kind}:${p.name}:${bookmarks.indexOf(p)}:${recentDirs.indexOf(p)}`,
-        class: { 'fb-side-item': true, on },
+        class: { 'fb-side-item': true, on, active: kind === 'bookmark' && bookmarks.indexOf(p) === activeBookmark },
         'data-tip': p.name,
-        onclick: () => void this.openRoot(p.handle),
+        onclick: () => {
+          if (kind === 'bookmark') activeBookmark = bookmarks.indexOf(p);
+          void this.openRoot(p.handle);
+        },
         oncontextmenu: (e: MouseEvent) => {
           e.preventDefault();
           e.stopPropagation();
@@ -927,6 +990,7 @@ export class FileBrowser implements Editor {
       body = h(
         'div',
         { class: `fb-items ${cls}`, role: 'listbox', 'aria-multiselectable': 'true', style: { '--fb-thumb': `${this.thumbSize}px` } },
+        this.view === 'LIST_VERTICAL' && shown.length ? this.columnHeader() : null,
         this.status ? h('div', { class: 'fb-empty-small' }, this.status) : null,
         !this.status && !shown.length ? h('div', { class: 'fb-empty-small' }, this.items.length ? 'No files match the filter' : 'This folder is empty') : null,
         shown.map((it) => {
@@ -984,19 +1048,21 @@ async function copyFolder(src: DirHandle, parent: DirHandle, name: string) {
   }
 }
 
+/** Bookmark the bookmark operators act on (clicked last). */
+let activeBookmark = -1;
+
 function bookmarkMenu(p: Place): MenuItem[] {
-  const move = (to: 'TOP' | 'BOTTOM') => () => {
-    bookmarks.splice(bookmarks.indexOf(p), 1);
-    if (to === 'TOP') bookmarks.unshift(p);
-    else bookmarks.push(p);
-    saveBookmarks();
-    redrawAll();
-  };
+  activeBookmark = bookmarks.indexOf(p);
+  const i = activeBookmark;
   return [
-    { label: 'Remove Bookmark', icon: 'x', action: () => (bookmarks.splice(bookmarks.indexOf(p), 1), saveBookmarks(), redrawAll()) },
+    { label: 'Delete Bookmark', icon: 'x', op: 'file.bookmark_delete', props: { index: i } },
     { separator: true },
-    { label: 'Move to Top', action: move('TOP') },
-    { label: 'Move to Bottom', action: move('BOTTOM') },
+    { label: 'Move to Top', icon: 'tria_left_bar', op: 'file.bookmark_move', props: { direction: 'TOP' }, disabled: i === 0 },
+    { label: 'Move Up', icon: 'triangle_up', op: 'file.bookmark_move', props: { direction: 'UP' }, disabled: i === 0 },
+    { label: 'Move Down', icon: 'triangle_down', op: 'file.bookmark_move', props: { direction: 'DOWN' }, disabled: i === bookmarks.length - 1 },
+    { label: 'Move to Bottom', icon: 'tria_right_bar', op: 'file.bookmark_move', props: { direction: 'BOTTOM' }, disabled: i === bookmarks.length - 1 },
+    { separator: true },
+    { label: 'Cleanup Bookmarks', op: 'file.bookmark_cleanup' },
   ];
 }
 
@@ -1097,6 +1163,125 @@ registerOperators([
       return 'CANCELLED';
     },
     exec: (ctx, p) => void fbOf(ctx)!.saveProjectHere(String(p.filename || '') || undefined),
+  },
+  {
+    idname: 'file.bookmark_delete',
+    label: 'Delete Bookmark',
+    description: 'Remove a bookmark (index -1: the active one)',
+    undo: false,
+    props: [{ id: 'index', label: 'Index', type: 'int', default: -1, min: -1 }],
+    poll: () => bookmarks.length > 0,
+    exec: (_ctx, p) => {
+      const i = Number(p.index) >= 0 ? Number(p.index) : activeBookmark;
+      if (i < 0 || i >= bookmarks.length) return 'CANCELLED';
+      bookmarks.splice(i, 1);
+      activeBookmark = Math.min(activeBookmark, bookmarks.length - 1);
+      saveBookmarks();
+      redrawAll();
+    },
+  },
+  {
+    idname: 'file.bookmark_move',
+    label: 'Move Bookmark',
+    description: 'Move the active bookmark up, down, to the top or to the bottom of the list',
+    undo: false,
+    props: [{ id: 'direction', label: 'Direction', type: 'enum', default: 'UP', items: [['TOP', 'Top', 'Top of the list'], ['UP', 'Up'], ['DOWN', 'Down'], ['BOTTOM', 'Bottom', 'Bottom of the list']] }],
+    poll: () => activeBookmark >= 0 && activeBookmark < bookmarks.length,
+    exec: (_ctx, p) => {
+      activeBookmark = moveInList(bookmarks, activeBookmark, p.direction as 'UP');
+      saveBookmarks();
+      redrawAll();
+    },
+  },
+  {
+    idname: 'file.bookmark_cleanup',
+    label: 'Cleanup Bookmarks',
+    description: 'Remove bookmarks of folders that are gone or bookmarked twice',
+    undo: false,
+    poll: () => bookmarks.length > 0,
+    exec: () => {
+      void (async () => {
+        const keep: Place[] = [];
+        for (const b of bookmarks) {
+          let dup = false;
+          for (const k of keep) if (await sameEntry(k.handle, b.handle)) dup = true;
+          let gone = false;
+          try {
+            // a folder that was deleted fails to list
+            const it = b.handle.values()[Symbol.asyncIterator]();
+            await it.next();
+          } catch (e) {
+            gone = (e as Error)?.name === 'NotFoundError';
+          }
+          if (!dup && !gone) keep.push(b);
+        }
+        const n = bookmarks.length - keep.length;
+        bookmarks = keep;
+        activeBookmark = Math.min(activeBookmark, bookmarks.length - 1);
+        saveBookmarks();
+        redrawAll();
+        app.report('INFO', n ? `Removed ${n} bookmark${n === 1 ? '' : 's'}` : 'All bookmarks are valid');
+      })();
+    },
+  },
+  {
+    idname: 'file.select_bookmark',
+    label: 'Select Directory',
+    description: 'Go to a bookmarked or recent folder by name',
+    undo: false,
+    props: [{ id: 'dir', label: 'Directory', type: 'string', default: '' }],
+    poll: (ctx) => !!fbOf(ctx),
+    exec: (ctx, p) => {
+      const name = String(p.dir);
+      const place = bookmarks.find((b) => b.name === name) ?? recentDirs.find((b) => b.name === name);
+      const root = place?.handle ?? roots.find((r) => r.name === name) ?? (name === 'Browser Storage' ? opfs : null);
+      if (!root) {
+        app.report('WARNING', `No bookmark named "${name}"`);
+        return 'CANCELLED';
+      }
+      if (place && bookmarks.includes(place)) activeBookmark = bookmarks.indexOf(place);
+      void fbOf(ctx)!.openRoot(root);
+    },
+  },
+  { idname: 'file.hidedot', label: 'Toggle Hide Dot Files', description: 'Show or hide files and folders whose name starts with a dot', undo: false, poll: (ctx) => !!fbOf(ctx), exec: (ctx) => fbOf(ctx)!.toggleHidden() },
+  {
+    idname: 'file.sort_column_ui_context',
+    label: 'Sort from Column',
+    description: 'Sort the files by a column of the list; the current column reverses the order',
+    undo: false,
+    props: [{ id: 'column', label: 'Column', type: 'enum', default: 'ALPHA', items: [['ALPHA', 'Name'], ['EXTENSION', 'Extension'], ['TIME', 'Modified Date'], ['SIZE', 'Size']] }],
+    poll: (ctx) => !!fbOf(ctx),
+    exec: (ctx, p) => fbOf(ctx)!.sortColumn(p.column as SortBy),
+  },
+  {
+    idname: 'file.select',
+    label: 'Select',
+    description: 'Select the file under the pointer (extend toggles, fill selects a range, open opens it)',
+    undo: false,
+    props: [
+      { id: 'extend', label: 'Extend', type: 'bool', default: false },
+      { id: 'fill', label: 'Fill', type: 'bool', default: false },
+      { id: 'open', label: 'Open', type: 'bool', default: true },
+      { id: 'deselect_all', label: 'Deselect On Nothing', type: 'bool', default: false },
+      { id: 'mouse_x', label: 'Mouse X', type: 'int', default: 0, hidden: true },
+      { id: 'mouse_y', label: 'Mouse Y', type: 'int', default: 0, hidden: true },
+    ],
+    poll: (ctx) => !!fbOf(ctx),
+    exec: (ctx, p) => {
+      const pt = p.mouse_x || p.mouse_y ? { x: Number(p.mouse_x), y: Number(p.mouse_y) } : (ctx.event ?? app.pointer);
+      return fbOf(ctx)!.selectAt(pt.x, pt.y, { extend: !!p.extend, fill: !!p.fill, open: !!p.open, deselectAll: !!p.deselect_all }) ? 'FINISHED' : 'CANCELLED';
+    },
+  },
+  {
+    idname: 'file.mouse_execute',
+    label: 'Execute File',
+    description: 'Open the file under the pointer (or enter the folder)',
+    undo: false,
+    poll: (ctx) => !!fbOf(ctx),
+    exec: (ctx) => {
+      const pt = ctx.event ?? app.pointer;
+      return fbOf(ctx)!.executeAt(pt.x, pt.y) ? 'FINISHED' : 'CANCELLED';
+    },
   },
   { idname: 'file.bookmark_add', label: 'Add Bookmark', description: 'Bookmark the current folder', undo: false, poll: withDir, exec: (ctx) => void fbOf(ctx)!.addBookmark() },
   {
