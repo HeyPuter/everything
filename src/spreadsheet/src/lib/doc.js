@@ -1068,11 +1068,20 @@ export class Doc extends EventTarget {
         this._versioning = versioning;
       }
       this.lastSaved = Date.now();
+      this._retryDelay = 0;
       this.wb.markClean();
       this._setStatus('saved');
       return true;
     } catch (e) {
       this._setStatus(client.status.state === 'offline' ? 'offline' : 'error', e?.message || 'Could not save');
+      // The owner's file is still to be written: leaving writes it (or says it cannot), and it is tried again after a
+      // pause that grows while it keeps failing (a full drive, say), as a file's autosave is.
+      if (this.isOwner && autoSaveEnabled() && !session.signedOut && !client.halted && !client.closed) {
+        this._retryDelay = Math.min(this._retryDelay ? this._retryDelay * 2 : RETRY_MS, RETRY_MAX_MS);
+        clearTimeout(this._timer);
+        this._timer = setTimeout(() => this.save({ auto: true }).catch(() => {}), this._retryDelay);
+        this._sharedFileDue = true;
+      }
       if (auto) return false;
       throw e;
     }
