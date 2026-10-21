@@ -24,7 +24,7 @@ describe('filters', () => {
     const f = add({ kind: 'viewFilter', name: 'Demo', categories: ['walls'], rules: [{ param: 'comments', op: 'equals', value: 'demo' }] });
     const view = { kind: 'plan', overrides: { walls: { color: '#00ff00' } }, filters: [{ id: f.id, visible: true, override: { color: '#ff0000', weight: 5, halftone: true } }] };
     const g = viewGraphics(doc, view, doc.get(w.id));
-    expect(g).toEqual({ hidden: false, color: '#ff0000', weight: 5, halftone: true });
+    expect(g).toEqual({ hidden: false, color: '#ff0000', weight: 5, halftone: true, transparency: 0 });
     expect(hiddenByFilters(doc, { filters: [{ id: f.id, visible: false }] }, doc.get(w.id))).toBe(true);
     const b = new PlanBuilder();
     b.line([0, 0], [1, 0], 1);
