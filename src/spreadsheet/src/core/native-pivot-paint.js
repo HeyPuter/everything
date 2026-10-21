@@ -54,8 +54,6 @@ export function readNativePivotPaint(xml, themes, { numberFormats = {} } = {}) {
   const name = one(one(clean, 'font'), 'name');
   if (name) name.setAttribute('val', decodeXlsxString(name.getAttribute('val') || ''));
   const out = readXlsxDifferentialStyle(standaloneModelXml(clean), themes);
-  // A double or accounting underline is kept by name, as a cell keeps it.
-  if (UNDERLINE_KINDS.includes(underlineKind) && underline) out.underline = underlineKind;
   if (border?.hasAttribute('outline')) out.borderOutline = ['1', 'true'].includes(border.getAttribute('outline').trim());
   const size = one(font, 'sz');
   if (size) {

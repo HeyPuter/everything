@@ -131,6 +131,8 @@ export function readXlsxDifferentialStyle(dxf, themes) {
   }
   const underline = element(font, 'u'), underlineType = attr(underline, 'val')?.trim() || 'single';
   if (underline && ['single', 'none'].includes(underlineType)) out.underline = underlineType !== 'none';
+  // A double or accounting underline keeps its name, as a cell's does.
+  else if (underline && ['double', 'singleAccounting', 'doubleAccounting'].includes(underlineType)) out.underline = underlineType;
   const scheme = attr(element(font, 'scheme'), 'val');
   const family = fontKeyFor(resolveThemeFont(attr(element(font, 'name'), 'val'), scheme, themes?.fontTheme), { literal: true });
   if (family) out.font = family;
