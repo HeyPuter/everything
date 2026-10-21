@@ -129,3 +129,18 @@ describe('shutter curve', () => {
     expect(shutterCurvePoints('ROOT')[1][1]).toBeGreaterThan(shutterCurvePoints('SHARP')[1][1]);
   });
 });
+
+describe('output colour management', () => {
+  it('saved images follow the scene unless overridden; a result’s own view wins', async () => {
+    const { outputView, outputViewSettings } = await import('../../src/render/final/outputview');
+    const r = defaultRender();
+    expect(outputView(r)).toBe(r);
+    r.image_color_management = 'OVERRIDE';
+    const vs = outputViewSettings(r);
+    expect(vs.view_transform).toBe(r.view_transform);
+    vs.view_transform = 'STANDARD';
+    expect(outputView(r).view_transform).toBe('STANDARD');
+    const own = { view_transform: 'RAW' as const, exposure: 0, gamma: 1 };
+    expect(outputView(r, own)).toBe(own);
+  });
+});

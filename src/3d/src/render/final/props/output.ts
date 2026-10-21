@@ -2,12 +2,14 @@
 import { h, type Child } from '../../../ui/h';
 import { app } from '../../../app/app';
 import { registerTab } from '../../../editors/properties/properties';
-import { panel, enumMenu, numberField, textField, checkbox, opButton } from '../../../ui/widgets';
+import { panel, enumMenu, enumRow, numberField, textField, checkbox, opButton } from '../../../ui/widgets';
 import { num, bool, enumProp, colorProp, splitRow, textProp } from '../../../ui/props';
 import type { RenderSettings } from '../../../data/types';
 import { renderSettings, changed, headerToggle, sub } from './common';
 import { FPS_PRESETS, fpsPreset, fpsFromPreset } from '../units';
 import { stereoscopyPanel, viewsSubPanel } from './stereo';
+import { outputViewSettings } from '../outputview';
+import { LOOKS } from '../colormanage';
 
 let customFps = false;
 
@@ -93,7 +95,50 @@ function outputPanel(r: RenderSettings): Child {
     fmt !== 'PNG' ? num(r, 'quality', 'Quality', { int: true, unit: 'percentage', min: 0, max: 100, slider: true, tip: fmt === 'WEBM' ? 'Video quality (bitrate)' : 'Compression quality of lossy formats' }) : null,
     fmt === 'PNG' ? h('div', { class: 'prop-note' }, 'Animations are saved as a ZIP of numbered PNG files; the metadata below is stored in each file.') : fmt === 'WEBM' ? h('div', { class: 'prop-note' }, 'Animations are saved as a WebM video.') : null,
     viewsSubPanel(r),
+    outputColorPanel(r),
   ]);
+}
+
+const VIEWS: [string, string][] = [
+  ['STANDARD', 'Standard'],
+  ['KHRONOS_PBR_NEUTRAL', 'Khronos PBR Neutral'],
+  ['AGX', 'AgX'],
+  ['FILMIC', 'Filmic'],
+  ['RAW', 'Raw'],
+];
+
+/** Output ▸ Output ▸ Color Management: saved images use the scene's view or their own. */
+function outputColorPanel(r: RenderSettings): Child {
+  const mode = r.image_color_management ?? 'FOLLOW_SCENE';
+  return sub(
+    'out-output-cm',
+    'Color Management',
+    () => {
+      const rows: Child[] = [
+        h(
+          'div',
+          { class: 'enum-tabs' },
+          enumRow('out-cm-mode', [{ value: 'FOLLOW_SCENE', label: 'Follow Scene' }, { value: 'OVERRIDE', label: 'Override' }], mode, (v) => {
+            r.image_color_management = v as typeof mode;
+            if (v === 'OVERRIDE') outputViewSettings(r);
+            changed('Output Color Management');
+          }),
+        ),
+      ];
+      if (mode === 'OVERRIDE') {
+        const vs = outputViewSettings(r);
+        const looks = LOOKS[vs.view_transform] ? Object.keys(LOOKS[vs.view_transform]) : [];
+        rows.push(
+          enumProp(vs, 'view_transform', 'View Transform', VIEWS, { onChange: () => (vs.look = LOOKS[vs.view_transform]?.[vs.look ?? ''] ? vs.look : 'None'), tip: 'View transform of the saved images' }),
+          enumProp(vs as unknown as Record<string, unknown>, 'look' as never, 'Look', [['None', 'None'], ...looks.map((l) => [l, l.replace(/^AgX - /, '')] as [string, string])], { disabled: !looks.length }),
+          num(vs, 'exposure', 'Exposure', { min: -32, max: 32, softMin: -10, softMax: 10 }),
+          num(vs, 'gamma', 'Gamma', { min: 0, max: 5 }),
+        );
+      } else rows.push(h('div', { class: 'prop-note' }, 'Saved images use the scene’s Color Management.'));
+      return rows;
+    },
+    { closed: true },
+  );
 }
 
 function metadataPanel(r: RenderSettings): Child {

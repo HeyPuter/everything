@@ -26,6 +26,7 @@ import { h } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { curveTable, type ViewSettings } from './colormanage';
 import { renderViews, multiview, stereoResult, viewFileName, type RenderViewPlan } from './stereo';
+import { outputView } from './outputview';
 import { viewCamera } from './stereocamera';
 import type { RenderSettings } from '../../data/types';
 import { passesFromGuide } from './passes';
@@ -887,7 +888,7 @@ export async function startRender(o: RenderOptions): Promise<boolean> {
       renderResult.touch();
       progress(true);
       if (o.animation) {
-        const view = out.view ?? doc.scene.render;
+        const view = outputView(doc.scene.render, out.view);
         // stereo output combines the eyes into one image
         const combined = result.views && multiview(r).image_views_format === 'STEREO_3D' ? stereoResult(result) : null;
         if (video) {

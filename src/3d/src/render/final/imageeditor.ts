@@ -14,6 +14,7 @@ import type { ImageData as Img } from '../../data/types';
 import { renderResult, passToRGBA8, samplePixel, encodeRGBA8, canvasBytes, download, toBW, EXT, virtualImages, onVirtualImageChange, PASS_ORDER, passLabel, type PassName, type ChannelMode, type FileFormat, type RenderResult } from './result';
 import { stereoResult } from './stereo';
 import { stereoDisplay } from './stereoops';
+import { outputView } from './outputview';
 import { renderSize } from './units';
 import { LOOKS, displayPixel } from './colormanage';
 import { pngWithText } from './stamp';
@@ -911,7 +912,9 @@ export class ImageEditor implements Editor, View2D {
     const r = this.result;
     if (r) {
       const alpha = colorMode === 'RGBA' && format !== 'JPEG';
-      let px = passToRGBA8(r, this.pass, this.channel === 'Z' ? 'Z' : this.channel === 'ALPHA' ? 'ALPHA' : 'COLOR_ALPHA', sceneView(r), { keepAlpha: alpha && r.filmTransparent, dither: app.doc.scene.render.dither_intensity });
+      // render results are written with the output's colour management (Output ▸ Color Management)
+      const view = this.imageId === RENDER_RESULT ? outputView(app.doc.scene.render, r.view) : sceneView(r);
+      let px = passToRGBA8(r, this.pass, this.channel === 'Z' ? 'Z' : this.channel === 'ALPHA' ? 'ALPHA' : 'COLOR_ALPHA', view, { keepAlpha: alpha && r.filmTransparent, dither: app.doc.scene.render.dither_intensity });
       if (colorMode === 'BW') px = toBW(px);
       const bytes = await encodeRGBA8(px, r.width, r.height, format, { alpha, quality });
       return format === 'PNG' && r.metadata?.length && this.pass === 'Combined' ? pngWithText(bytes, r.metadata.map((f) => [f.key, f.value])) : bytes;

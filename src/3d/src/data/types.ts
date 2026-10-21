@@ -6,6 +6,7 @@
 
 import type { RealtimeRenderSettings, RealtimeLightSettings, RealtimeMaterialSettings, RealtimeWorldSettings, LightProbeSettings } from '../render/realtime/types';
 import type { MultiviewSettings, CameraStereoData } from '../render/final/stereo';
+import type { OutputViewSettings } from '../render/final/outputview';
 export type ID = string;
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
@@ -1054,7 +1055,7 @@ export interface CollectionData {
 
 export type RenderEngine = 'RASTER' | 'PATHTRACE' | 'SOLID';
 
-export interface RenderSettings extends RealtimeRenderSettings, MultiviewSettings {
+export interface RenderSettings extends RealtimeRenderSettings, MultiviewSettings, OutputViewSettings {
   engine: RenderEngine;
   /** Render ▸ Curves: strand shape in the realtime engine and its subdivisions */
   hair_type?: 'STRAND' | 'STRIP' | 'CYLINDER';
