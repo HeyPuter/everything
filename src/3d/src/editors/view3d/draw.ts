@@ -28,6 +28,7 @@ import {
   FrontSide,
   DoubleSide,
   PerspectiveCamera,
+  ShaderMaterial,
   CanvasTexture,
   BackSide,
   SRGBColorSpace,
@@ -123,13 +124,42 @@ const fsScene = new Scene();
 fsScene.add(fsQuad);
 const fsCam = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
+/** Round object origin dots with a dark rim (size in CSS pixels, scaled by the device pixel ratio). */
+function originDotMaterial(color: number, size: number) {
+  return new ShaderMaterial({
+    uniforms: { uColor: { value: new Color(color) }, uSize: { value: size }, uDpr: { value: 1 } },
+    vertexShader: /* glsl */ `
+      uniform float uSize;
+      uniform float uDpr;
+      void main() {
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = uSize * uDpr;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      uniform float uSize;
+      uniform float uDpr;
+      void main() {
+        float r = length(gl_PointCoord - 0.5) * 2.0;
+        if (r > 1.0) discard;
+        float rim = 1.0 - 1.6 / (uSize * uDpr);
+        vec3 c = r > rim ? vec3(0.0) : uColor;
+        gl_FragColor = vec4(c, r > rim ? 0.75 : 1.0);
+        #include <colorspace_fragment>
+      }
+    `,
+    depthTest: false,
+    transparent: true,
+  });
+}
 const originGeo = new BufferGeometry();
-const originPts = new Points(originGeo, new PointsMaterial({ size: 6, sizeAttenuation: false, color: 0xfca41d, depthTest: false, transparent: true }));
+const originPts = new Points(originGeo, originDotMaterial(0xfca41d, 8));
 originPts.renderOrder = 10;
 const originGeoSel = new BufferGeometry();
-const originPtsSel = new Points(originGeoSel, new PointsMaterial({ size: 6, sizeAttenuation: false, color: 0xe16003, depthTest: false, transparent: true }));
+const originPtsSel = new Points(originGeoSel, originDotMaterial(0xe16003, 8));
 const originGeoAll = new BufferGeometry();
-const originPtsAll = new Points(originGeoAll, new PointsMaterial({ size: 5, sizeAttenuation: false, color: 0xbbbcbe, depthTest: false, transparent: true }));
+const originPtsAll = new Points(originGeoAll, originDotMaterial(0xbbbcbe, 7));
 // relationship lines: dashed in screen space, hidden behind surfaces
 const relLines = new LineSegments(new BufferGeometry(), dashedLineMaterial);
 const originScene = new Scene();
@@ -656,6 +686,10 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
     originGeoAll.setAttribute('position', new Float32BufferAttribute(all, 3));
     dashedSegments(relLines.geometry, rel);
     syncDashViewport(r, ctx.engine.dpr);
+    // theme colours and the pixel ratio for the dot size
+    (originPts.material as ShaderMaterial).uniforms.uColor.value.copy(theme.active);
+    (originPtsSel.material as ShaderMaterial).uniforms.uColor.value.copy(theme.selected);
+    for (const p of [originPts, originPtsSel, originPtsAll]) (p.material as ShaderMaterial).uniforms.uDpr.value = ctx.engine.dpr;
     originScene.updateMatrixWorld(true);
     r.render(originScene, camera);
   }
