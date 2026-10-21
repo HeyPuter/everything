@@ -8,6 +8,7 @@ import './nodes/utilities';
 import './nodes/textures';
 import './nodes/imagetex';
 import './nodes/gnmisc';
+import './nodes/cluster';
 import './nodes/output';
 import './nodes/vieweritems';
 import './nodes/gnfields';
