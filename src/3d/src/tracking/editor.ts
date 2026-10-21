@@ -19,6 +19,7 @@ import {
   markerAt,
   markerExact,
   sceneToClipFrame,
+  clipToSceneFrame,
   tobj,
   normalizeTracking,
   type MovieClipData,
@@ -703,12 +704,42 @@ export class ClipEditor implements Editor {
     }
   }
 
+  /** Horizontal extent of the frame strip at the bottom of the clip view. */
+  private scrubRange(w: number) {
+    return { x0: this.showToolbar ? 230 : 0, x1: w - (this.showSidebar ? 290 : 0) };
+  }
+
+  /** Whether a local point is on the frame strip (it scrubs frames). */
+  scrubStripAt(x: number, y: number) {
+    const { w, h: hh } = this.viewSize();
+    const { x0, x1 } = this.scrubRange(w);
+    return y >= hh - 14 && x >= x0 && x <= x1;
+  }
+
+  /** Drag along the frame strip to change the frame. */
+  private scrubStrip(e: PointerEvent) {
+    e.preventDefault();
+    const c = this.clip!;
+    const n = Math.max(1, c.frame_duration);
+    const go = (ev: { clientX: number }) => {
+      const { w } = this.viewSize();
+      const { x0, x1 } = this.scrubRange(w);
+      const x = this.local({ clientX: ev.clientX, clientY: 0 }).x;
+      const cf = Math.max(1, Math.min(n, Math.floor(1 + ((x - x0) / Math.max(1, x1 - x0)) * n)));
+      const f = clipToSceneFrame(c, cf);
+      if (f !== app.doc.scene.frame_current) app.setFrame(f);
+    };
+    go(e);
+    const up = () => (removeEventListener('pointermove', go), removeEventListener('pointerup', up));
+    addEventListener('pointermove', go);
+    addEventListener('pointerup', up);
+  }
+
   private drawCacheLine(ctx: CanvasRenderingContext2D, w: number, hh: number) {
     const c = this.clip!;
     const src = readySource(c);
     const n = Math.max(1, c.frame_duration);
-    const x0 = this.showToolbar ? 230 : 0,
-      x1 = w - (this.showSidebar ? 290 : 0);
+    const { x0, x1 } = this.scrubRange(w);
     const y = hh - 8;
     const fx = (f: number) => x0 + ((f - 1) / n) * (x1 - x0);
     ctx.fillStyle = 'rgba(0, 0, 0,0.4)';
@@ -1036,6 +1067,7 @@ export class ClipEditor implements Editor {
       return;
     }
     if (e.button !== 0) return;
+    if (this.view === 'CLIP' && this.clip && this.overlays.show_cache && this.scrubStripAt(start.x, start.y)) return this.scrubStrip(e);
     if (this.view === 'CLIP' && this.mode === 'MASK') {
       e.preventDefault();
       if (!hostMask(this)) return;

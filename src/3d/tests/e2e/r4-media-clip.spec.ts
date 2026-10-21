@@ -89,3 +89,24 @@ test('clip: the Annotation toolbar tab draws notes on the clip; Esc stops the to
   expect(await page.evaluate(() => (window as any).app.hoverArea.editor.annotateTool)).toBe(null);
   await expectNoErrors(errors);
 });
+
+test('clip: dragging along the frame strip at the bottom scrubs frames', async ({ page }) => {
+  const { errors, box } = await trackingWorkspace(page);
+  const r = await page.evaluate(() => {
+    const ed = (window as any).app.hoverArea.editor;
+    ed.showToolbar = false;
+    ed.showSidebar = false;
+    ed.drawUI();
+    ed.draw();
+    const b = ed.el.getBoundingClientRect();
+    return { x: b.left, y: b.top, w: b.width, h: b.height };
+  });
+  await page.mouse.move(r.x + r.w * 0.5, r.y + r.h - 5);
+  await page.mouse.down();
+  await page.mouse.move(r.x + r.w * 0.75, r.y + r.h - 5, { steps: 3 });
+  await page.mouse.up();
+  // 40 frames over the strip: three quarters along is frame 31
+  expect(await page.evaluate(() => (window as any).app.doc.scene.frame_current)).toBe(31);
+  void box;
+  await expectNoErrors(errors);
+});
