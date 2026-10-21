@@ -111,6 +111,43 @@ describe("ink strokes", () => {
     expect(samples[0]).toMatchObject({ x: 0, y: 0 });
     expect(samples.at(-1).x).toBeCloseTo(500000, -1);
   });
+  it("lie where a turned or flipped stroke is drawn", () => {
+    const pres = createDeck("blank");
+    const slide = P.getSlides(pres)[0];
+    // Left to right along y = 2 000 000, from x = 1 000 000 to 3 000 000.
+    const flat = Array.from({ length: 21 }, (_, i) => ({
+      x: 1000000 + i * 100000,
+      y: 2000000 + (i % 2) * 1000,
+    }));
+    const ink = addInkStroke(P, slide, flat, red);
+    const b = P.getShapeBounds(ink);
+    const cx = b.x + b.w / 2,
+      cy = b.y + b.h / 2;
+    P.setShapeRotation(ink, 90);
+    // Turned a quarter clockwise about its centre: top to bottom.
+    for (const pts of [strokePoints(P, ink), strokeSamples(P, ink, 4)]) {
+      for (const p of pts) expect(Math.abs(p.x - cx)).toBeLessThan(2000);
+      expect(pts[0].y).toBeCloseTo(cy - b.w / 2, -3);
+      expect(pts.at(-1).y).toBeCloseTo(cy + b.w / 2, -3);
+    }
+    const box = inkBounds(P, [ink]);
+    expect(box.h).toBeGreaterThan(b.w);
+    expect(box.w).toBeLessThan(b.w / 10);
+    P.setShapeRotation(ink, 0);
+    P.setShapeFlip(ink, { horizontal: true, vertical: false });
+    // Flipped: right to left.
+    expect(strokePoints(P, ink)[0].x).toBeCloseTo(3000000, -3);
+    // A stroke redrawn through slide points is neither turned nor flipped,
+    // so it lies on them.
+    P.setShapeRotation(ink, 45);
+    setStrokeGeometry(P, ink, [
+      { x: 0, y: 0 },
+      { x: 500000, y: 500000 },
+    ]);
+    expect(P.getShapeRotation(ink)).toBe(0);
+    expect(P.getShapeFlip(ink)?.horizontal).toBeFalsy();
+    expect(strokePoints(P, ink)[0]).toMatchObject({ x: 0, y: 0 });
+  });
 });
 
 describe("recognised shapes", () => {

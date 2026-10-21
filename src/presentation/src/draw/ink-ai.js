@@ -18,13 +18,16 @@ export function inkBounds(P, shapes) {
     x1 = -Infinity,
     y1 = -Infinity;
   for (const s of shapes) {
-    const b = P.getShapeBounds(s);
-    if (!b) continue;
+    // The line as it lies on the slide, which a turned stroke's box is not.
+    const pts = strokeSamples(P, s, 6);
+    if (!pts.length) continue;
     const pad = (strokeStyle(P, s).width || 0) / 2;
-    x0 = Math.min(x0, b.x - pad);
-    y0 = Math.min(y0, b.y - pad);
-    x1 = Math.max(x1, b.x + b.w + pad);
-    y1 = Math.max(y1, b.y + b.h + pad);
+    for (const p of pts) {
+      x0 = Math.min(x0, p.x - pad);
+      y0 = Math.min(y0, p.y - pad);
+      x1 = Math.max(x1, p.x + pad);
+      y1 = Math.max(y1, p.y + pad);
+    }
   }
   return Number.isFinite(x0) ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
 }

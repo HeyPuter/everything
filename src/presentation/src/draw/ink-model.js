@@ -107,8 +107,12 @@ export function addInkStroke(
 }
 
 /** Redraws a stroke through new points (slide EMUs): one smooth path, its
- * box fitted to them. */
+ * box fitted to them, neither turned nor flipped. */
 export function setStrokeGeometry(P, shape, points, tolerance = 1) {
+  if (P.getShapeRotation?.(shape)) P.setShapeRotation(shape, 0);
+  const flip = P.getShapeFlip?.(shape);
+  if (flip?.horizontal || flip?.vertical)
+    P.setShapeFlip(shape, { horizontal: false, vertical: false });
   const kept = simplifyIndices(points, tolerance).map((i) => points[i]);
   if (kept.length === 1) kept.push({ x: kept[0].x + tolerance, y: kept[0].y });
   const box = bounds(kept);
@@ -143,22 +147,47 @@ function strokePath(P, shape) {
   return { b, path };
 }
 
+// Where a point within the stroke's box lands on the slide: a stroke turned
+// or flipped since it was drawn is drawn so about its box's centre (flipped
+// first, then turned clockwise).
+function placement(P, shape, b) {
+  const turn = P.getShapeRotation?.(shape) || 0;
+  let flip = null;
+  try {
+    flip = P.getShapeFlip?.(shape);
+  } catch {}
+  const fx = !!flip?.horizontal,
+    fy = !!flip?.vertical;
+  if (!turn && !fx && !fy) return (p) => p;
+  const cx = b.x + b.w / 2,
+    cy = b.y + b.h / 2;
+  const a = (turn * Math.PI) / 180,
+    cos = Math.cos(a),
+    sin = Math.sin(a);
+  return (p) => {
+    const dx = fx ? cx - p.x : p.x - cx,
+      dy = fy ? cy - p.y : p.y - cy;
+    return { ...p, x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos };
+  };
+}
+
 /** A stroke's on-curve points on the slide, in drawing order. */
 export function strokePoints(P, shape) {
   const found = strokePath(P, shape);
   if (!found) return [];
   const { b, path } = found;
+  const place = placement(P, shape, b);
   if (!path)
     return [
       { x: b.x, y: b.y },
       { x: b.x + b.w, y: b.y + b.h },
-    ];
+    ].map(place);
   const sx = b.w / (path.w || b.w || 1),
     sy = b.h / (path.h || b.h || 1);
   const out = [];
   for (const c of path.commands) {
     const pt = c.pt || c.pts?.at(-1);
-    if (pt) out.push({ x: b.x + pt.x * sx, y: b.y + pt.y * sy });
+    if (pt) out.push(place({ x: b.x + pt.x * sx, y: b.y + pt.y * sy }));
   }
   return out;
 }
@@ -170,13 +199,16 @@ export function strokeSamples(P, shape, steps = 8) {
   if (!found?.path)
     return strokePoints(P, shape).map((p, i) => ({ ...p, at: i, f: 0 }));
   const { b, path } = found;
+  const place = placement(P, shape, b);
   const sx = b.w / (path.w || b.w || 1),
     sy = b.h / (path.h || b.h || 1);
-  return sampleCommands(path.commands, steps).map((p) => ({
-    ...p,
-    x: b.x + p.x * sx,
-    y: b.y + p.y * sy,
-  }));
+  return sampleCommands(path.commands, steps).map((p) =>
+    place({
+      ...p,
+      x: b.x + p.x * sx,
+      y: b.y + p.y * sy,
+    }),
+  );
 }
 
 /** How a stroke is drawn: colour (#RRGGBB), opacity, and width in EMUs. */
