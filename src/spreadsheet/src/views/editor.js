@@ -2875,9 +2875,16 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'insertFunctionDialog': openInsertFunctionDialog(ctx, { onPick: (name) => run('functionArgs', name) }); return;
       case 'functionArgs': {
         // Function Arguments for a function picked from a category or Insert Function. Mid-entry the
-        // function goes in at the caret instead, so the formula being typed is not replaced.
-        const name = String(arg || '').toUpperCase();
+        // function goes in at the caret instead, so the formula being typed is not replaced; Ctrl+A after a
+        // function's name in it ({ name, start, end }) opens the dialog, whose call takes that name's place.
+        const at = arg && typeof arg === 'object' ? arg : null;
+        const name = String((at ? at.name : arg) || '').toUpperCase();
         if (!FUNCTION_NAMES.includes(name)) return;
+        if (grid.editing && at) {
+          rememberFunction(name);
+          openFunctionArgumentsDialog(ctx, name, { apply: (call) => { if (grid.editing) grid.insertText(call, at); } });
+          return;
+        }
         if (grid.editing) { insertFunction(name); return; }
         if (refusedByProtection('enter a formula')) return;
         rememberFunction(name);

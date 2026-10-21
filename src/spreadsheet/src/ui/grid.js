@@ -5564,7 +5564,8 @@ export function createGrid(opts) {
     // Ctrl+A after a function's name opens Function Arguments for it; Ctrl+Shift+A writes its argument names in.
     if (isMod(e) && !e.altKey && key.toLowerCase() === 'a' && String(input.value).startsWith('=')) {
       const before = input.value.slice(0, input.selectionStart);
-      const name = /([A-Za-z][A-Za-z0-9._]*)\(?$/.exec(before)?.[1]?.toUpperCase();
+      const typed = /([A-Za-z][A-Za-z0-9._]*)\(?$/.exec(before);
+      const name = typed?.[1]?.toUpperCase();
       if (name && FUNCTIONS[name]) {
         e.preventDefault();
         if (e.shiftKey) {
@@ -5577,7 +5578,12 @@ export function createGrid(opts) {
           input.value = next;
           input.setSelectionRange(a + open.length, a + open.length + args.length);
           setEditText(next, { fromEditor: input === editor });
-        } else { cancelEdit({ discard: false }); opts.onCommand?.('functionArgs', name); }
+        } else {
+          // The entry stays open: the call the dialog builds takes the place of the name (and of a parenthesis typed
+          // after it, with its closing one), the rest of the formula kept around it.
+          const end = before.endsWith('(') && input.value[before.length] === ')' ? before.length + 1 : before.length;
+          opts.onCommand?.('functionArgs', { name, start: typed.index, end });
+        }
         return;
       }
     }
@@ -6541,13 +6547,13 @@ export function createGrid(opts) {
     cancelEdit,
     insertRef,
     acceptsRef,
-    insertText(text) {
+    insertText(text, range = null) {
       // Insert at the caret of the current edit (in the cell or the formula bar, whichever is
-      // being typed in), or start one with the text.
+      // being typed in), or in place of its text from `range.start` to `range.end`, or start one with the text.
       if (!edit) { beginEdit({ text, mode: 'inplace' }); return; }
       const input = editInput();
-      const a = input.selectionStart ?? input.value.length;
-      const b = input.selectionEnd ?? a;
+      const a = range ? range.start : input.selectionStart ?? input.value.length;
+      const b = range ? range.end : input.selectionEnd ?? a;
       const next = `${input.value.slice(0, a)}${text}${input.value.slice(b)}`;
       input.value = next;
       input.setSelectionRange(a + text.length, a + text.length);
