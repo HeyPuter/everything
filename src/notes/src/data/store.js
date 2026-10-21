@@ -1085,6 +1085,7 @@ export class Store extends Emitter {
     const entry = this.timers.get(path);
     if (entry) clearTimeout(entry.t);
     this.timers.delete(path);
+    this.failed.delete(path);
     this.updateStatus();
   }
 
@@ -1094,7 +1095,11 @@ export class Store extends Emitter {
     this.timers.delete(path);
     clearTimeout(entry.t);
     const value = entry.getter();
-    if (value === null || value === undefined) return this.updateStatus();
+    if (value === null || value === undefined) {
+      // Nothing left to save (deleted meanwhile): a failure of it is moot.
+      this.failed.delete(path);
+      return this.updateStatus();
+    }
     let snapshot = JSON.parse(JSON.stringify(value));
     // Writes to one path run one at a time, in order.
     const prev = this.writers.get(path) || Promise.resolve();

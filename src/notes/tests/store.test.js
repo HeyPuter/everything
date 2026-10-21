@@ -219,6 +219,25 @@ describe('Store: saving', () => {
   });
 });
 
+describe('Store: saving after a failure', () => {
+  it('stops reporting a failed save once what it was saving is deleted', async () => {
+    const backend = memoryBackend();
+    const store = new Store(backend, { saveDelay: 0 });
+    await store.load();
+    const nb = store.createNotebook('Scratch');
+    const page = store.createPage(store.createSection(nb.id).id, { title: 'Draft' });
+    backend.failNext = 100;
+    await store.flush();
+    expect(store.status).toBe('error');
+    backend.failNext = 0;
+    const entry = store.deleteNotebook(nb.id);
+    await store.purge(entry.id);
+    await store.flush();
+    expect(store.findPage(page.id)).toBeNull();
+    expect(store.status).toBe('saved');
+  });
+});
+
 describe('helpers', () => {
   it('normalizeLevels clamps orphaned subpages', () => {
     expect(normalizeLevels([{ level: 2 }, { level: 2 }, { level: 0 }, { level: 2 }]).map((p) => p.level)).toEqual([0, 1, 0, 1]);
