@@ -625,6 +625,53 @@ describe('editing', () => {
     expect(Array.from(view.data.slice(i, i + 3))).toEqual([0, 0, 255]);
   });
 
+  it('moves a comment from another editor with the drawing it came with', async () => {
+    // A dimension line as Acrobat's Measure tool draws it: its caption is in its appearance.
+    const doc = await blank();
+    const font = doc.embedStandardFont('Helvetica');
+    const drawing = doc.context.register(
+      doc.context.stream(
+        '0 0 1 RG 1 w 100 100 m 300 100 l S BT /F1 10 Tf 180 106 Td (2.78 in) Tj ET',
+        {
+          Type: 'XObject',
+          Subtype: 'Form',
+          BBox: [90, 90, 310, 120],
+          Resources: { Font: { F1: font.ref } },
+        },
+      ),
+    );
+    const line = doc.context.register(
+      doc.context.obj({
+        Type: 'Annot',
+        Subtype: 'Line',
+        Rect: [90, 90, 310, 120],
+        L: [100, 100, 300, 100],
+        C: [0, 0, 1],
+        IT: 'LineDimension',
+        Cap: true,
+        Contents: PDFString.of('2.78 in'),
+        AP: { N: drawing },
+      }),
+    );
+    doc.getPage(0).node.set(PDFName.of('Annots'), doc.context.obj([line]));
+    const [entry] = listAnnotations(doc, 0);
+    await editAnnotation(doc, 0, entry.id, {
+      rect: { ...entry.rect, x: entry.rect.x + 50, y: entry.rect.y + 200 },
+    });
+    expect(listAnnotations(doc, 0)[0]).toMatchObject({
+      rect: { x: 140, y: 290, width: 220, height: 30 },
+      points: [
+        { x: 150, y: 300 },
+        { x: 350, y: 300 },
+      ],
+    });
+    const bytes = await doc.save();
+    expect(await paintedText(bytes)).toEqual(['2.78 in']);
+    const view = await render(bytes);
+    expect(view.count({ x: 140, y: 290, width: 220, height: 30 })).toMatchObject({ outside: 0 });
+    expect(view.count({ x: 140, y: 290, width: 220, height: 30 }).inside).toBeGreaterThan(100);
+  });
+
   it('edits annotations from other writers and respects their locks', async () => {
     const doc = await blank();
     const page = doc.getPage(0);

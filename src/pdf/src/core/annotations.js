@@ -712,6 +712,32 @@ export async function editAnnotation(doc, page, id, changes = {}) {
   dict.set(name('M'), PDFString.of(pdfDate()));
   if (!properties.length && subtype !== 'FreeText') return idAt(page, position);
 
+  // A move keeps the comment's own drawing, which readers place at its new Rect. Redrawing it
+  // would lose what this editor cannot draw again: another editor's fonts and rich text, or
+  // the caption and leader lines of a measurement.
+  if (properties.length === 1 && changes.rect && !textChanged && dict.lookup(name('AP'))) {
+    const from = rectOf(dict),
+      to = rectArg(changes.rect);
+    const same = (a, b) => Math.abs(a - b) < 1e-6;
+    if (from && same(to[2] - to[0], from[2] - from[0]) && same(to[3] - to[1], from[3] - from[1])) {
+      const [dx, dy] = [to[0] - from[0], to[1] - from[1]];
+      const shift = (flat) =>
+        flatPoints(pointsOf(flat).map(({ x, y }) => ({ x: x + dx, y: y + dy })));
+      for (const key of ['L', 'Vertices', 'CL']) {
+        const flat = numbers(dict.lookup(name(key)));
+        if (flat?.length && flat.every(Number.isFinite))
+          dict.set(name(key), doc.context.obj(shift(flat)));
+      }
+      if (subtype === 'Ink')
+        dict.set(
+          name('InkList'),
+          doc.context.obj(inkStrokes(dict).map((s) => shift(flatPoints(s)))),
+        );
+      dict.set(name('Rect'), doc.context.obj(to));
+      return idAt(page, position);
+    }
+  }
+
   let box = ['Square', 'Circle', 'FreeText'].includes(subtype) ? innerBox(dict) : null;
   const style = subtype === 'FreeText' ? freeTextStyle(dict) : null;
   const rotation = dict.lookup(name('Rotate'))?.asNumber?.() ?? 0;
