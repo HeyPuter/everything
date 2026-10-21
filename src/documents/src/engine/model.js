@@ -277,6 +277,18 @@ function clearRevisions(paragraphs, start, end) {
   eachRevisionTarget(paragraphs, start, end, ({ run, mark }) => { if (!mark) delete run.revision; });
   for (const p of paragraphs) if (p.runs.length > 1) p.runs = normalize(p.runs);
 }
+/**
+ * The changes of the paragraphs that reach [start, end], including the mark just before it. Only their
+ * parts within [start, end] are exact; listing the whole document's on each tracked edit made Replace
+ * All with Track Changes on take minutes on a long document.
+ */
+function nearbyRevisionRanges(paragraphs, start, end) {
+  let first = 0, at = 0;
+  while (first < paragraphs.length - 1 && at + paragraphLength(paragraphs[first]) + 1 < start) at += paragraphLength(paragraphs[first++]) + 1;
+  let last = first;
+  for (let position = at + paragraphLength(paragraphs[first]) + 1; last < paragraphs.length - 1 && position <= end; position += paragraphLength(paragraphs[last]) + 1) last++;
+  return revisionRanges(paragraphs.slice(first, last + 1)).map(r => ({ ...r, start: r.start + at, end: r.end + at }));
+}
 function normalize(runs) {
   const result = [];
   for (const run of runs) {
@@ -1863,10 +1875,25 @@ export class TextDocument {
   trackedReplaceMatches(matches, text) {
     // Replacing text that is already marked deleted can change nothing; keep history exact then.
     const before = this.snapshot(); let count = 0;
+    // Each match lies within one paragraph. Without fields, controls or note marks, which reach across
+    // paragraphs, it is edited in a view of the model holding only that paragraph: a tracked edit makes
+    // several passes over its document, and making them over the whole document for every match made
+    // Replace All on a long document take minutes.
+    const local = !this.hasContentControls && !this.hasBlockControls && !this.hasPlainTextControls && !this.hasBodyFields && !this.hasNoteMarks && !this.hasMacroButtons;
+    const starts = []; let offset = 0;
+    if (local) for (const p of this.paragraphs) { starts.push(offset); offset += paragraphLength(p) + 1; }
     for (const m of [...matches].reverse()) {
-      this.selection = { anchor: m.start, focus: m.end };
-      this.typingFormat = {}; this.typingStyle = null; this.typingDirectCleared = false;
-      if (this.replace(text, { checkpoint: false })) count++;
+      // Text put back after the author deleted it is found as a move anywhere in the document.
+      const view = local && (!text || !this.lastTrackedDeletion) ? Object.create(this) : null, model = view || this, at = view ? starts[m.paragraph] : 0;
+      if (view) view.paragraphs = [this.paragraphs[m.paragraph]];
+      model.selection = { anchor: m.start - at, focus: m.end - at };
+      model.typingFormat = {}; model.typingStyle = null; model.typingDirectCleared = false;
+      if (model.replace(text, { checkpoint: false })) count++;
+      if (view) {
+        this.paragraphs[m.paragraph] = view.paragraphs[0];
+        this.selection = { anchor: view.selection.anchor + at, focus: view.selection.focus + at };
+        this.lastTrackedDeletion = view.lastTrackedDeletion;
+      }
     }
     if (!count) { this.selection = before.selection; return 0; }
     this.history.push(before);
@@ -1914,14 +1941,15 @@ export class TextDocument {
         // The author's own pending insertions simply disappear; other text is marked
         // deleted (another reviewer's insertion keeps its insertion beneath the deletion).
         const me = this.revisionAuthor || 'Author';
-        const removals = revisionRanges(this.paragraphs).filter(r => r.type === 'ins' && r.author === me && r.start < end && r.end > start)
+        const removals = nearbyRevisionRanges(this.paragraphs, start, end).filter(r => r.type === 'ins' && r.author === me && r.start < end && r.end > start)
           .map(r => [Math.max(start, r.start), Math.min(end, r.end)]);
         const deletion = deletionRevision = this.newRevision('del');
         // A paragraph mark that ends a table cell (or sits before or after a table) cannot be deleted.
-        const boundaries = new Set(this.paragraphs.filter((p, i) => (p.cellId || '') !== (this.paragraphs[i + 1]?.cellId || '')).map(p => p.id));
+        let boundaries;
+        const boundary = paragraph => (boundaries ||= new Set(this.paragraphs.filter((p, i) => (p.cellId || '') !== (this.paragraphs[i + 1]?.cellId || '')).map(p => p.id))).has(paragraph.id);
         const mark = revision => !revision ? { ...deletion } : revision.type === 'ins' && revision.author !== me ? { ...deletion, inserted: { author: revision.author, date: revision.date } } : revision;
         eachRevisionTarget(this.paragraphs, start, end, ({ paragraph, run, mark: isMark }) => {
-          if (isMark) { if (!boundaries.has(paragraph.id)) paragraph.markRevision = mark(paragraph.markRevision); }
+          if (isMark) { if (!boundary(paragraph)) paragraph.markRevision = mark(paragraph.markRevision); }
           else run.revision = mark(run.revision);
         });
         for (const [a, b] of removals.reverse()) {
@@ -1936,7 +1964,7 @@ export class TextDocument {
         // Typing that continues the author's own insertion from moments ago extends it, so one burst of
         // typing is one change even when it crosses a clock second.
         const me = this.revisionAuthor || 'Author', now = Date.now();
-        const continued = revisionRanges(this.paragraphs).find(r => r.type === 'ins' && !r.move && r.author === me && r.end === insertAt && now - Date.parse(r.date) < 60000);
+        const continued = nearbyRevisionRanges(this.paragraphs, insertAt, insertAt).find(r => r.type === 'ins' && !r.move && r.author === me && r.end === insertAt && now - Date.parse(r.date) < 60000);
         const length = documentLength(this.paragraphs);
         this.replaceUntracked(text, { ...rest, checkpoint: false });
         const inserted = documentLength(this.paragraphs) - length, insertion = this.newRevision('ins');

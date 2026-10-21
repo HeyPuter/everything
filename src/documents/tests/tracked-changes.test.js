@@ -367,3 +367,17 @@ describe('Accept All and Reject All on a long reviewed document', () => {
     expect(doc.bookmarks.map(b => doc.text.slice(b.start, b.end))).toEqual(Array(2000).fill('text'));
   }, 90000);
 });
+
+it('replaces thousands of matches with Track Changes on in linear time', () => {
+  const pkg = createDocx(Array.from({ length: 2000 }, (_, i) => paragraph(`Clause ${i}: the Company shall notify the Company's agent.`)));
+  const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets, { trackChanges: true });
+  doc.revisionAuthor = 'Me';
+  const started = performance.now();
+  expect(doc.replaceMatches('Company', 'Contractor', { matchCase: true }, true)).toBe(4000);
+  // Every match listed and walked the whole document's changes, so this took over a minute.
+  expect(performance.now() - started).toBeLessThan(15000);
+  expect(doc.revisions).toHaveLength(8000);
+  expect(doc.revisions.slice(0, 2).map(r => [r.type, doc.text.slice(r.start, r.end)])).toEqual([['del', 'Company'], ['ins', 'Contractor']]);
+  doc.resolveRevisions(true);
+  expect(doc.paragraphs[1999].runs.map(r => r.text).join('')).toBe("Clause 1999: the Contractor shall notify the Contractor's agent.");
+}, 120000);
