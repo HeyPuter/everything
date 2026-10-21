@@ -120,3 +120,29 @@ test('viewport display: slice, grid display and vectors draw without errors', as
   await expect(page.locator('[data-panel="ph-fl-grid"] .fs-ramp')).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('adaptive domain from its subpanel header; force field Z direction and radial falloff', async ({ page }) => {
+  const errors = await openApp(page);
+  const id = await smokeDomain(page, 'REPLAY');
+  const adaptive = page.locator('[data-panel="ph-fl-adaptive"]');
+  await expect(adaptive).toBeVisible();
+  await adaptive.locator('> .panel-header input[type="checkbox"], > .panel-header .checkbox').first().click();
+  expect(await page.evaluate((id) => (window as unknown as { app: AppLike }).app.doc.objects[id].modifiers.find((x: { type: string }) => x.type === 'FLUID').domain_settings.use_adaptive_domain, id)).toBe(true);
+  // a tube force field on the default cube shows its Radial subpanel
+  await page.evaluate(() => {
+    const a = (window as unknown as { app: AppLike }).app;
+    const cube = Object.values(a.doc.objects).find((o: { name: string }) => o.name === 'Cube') as { select: boolean };
+    for (const o of Object.values(a.doc.objects) as { select: boolean }[]) o.select = false;
+    cube.select = true;
+    (a as unknown as { activeObject: unknown }).activeObject = cube;
+    a.run('object.forcefield_toggle');
+    (a.activeObject as unknown as { field: { falloff_type: string } }).field.falloff_type = 'TUBE';
+    a.changed('doc');
+  });
+  const falloff = page.locator('[data-panel="ph-field-falloff"]');
+  if (!(await page.locator('[data-panel="ph-field-radial"]').isVisible())) await falloff.locator('> .panel-header').first().click();
+  await expect(page.locator('[data-panel="ph-field-radial"]')).toBeVisible();
+  await expect(falloff.getByText('Z Direction')).toBeVisible();
+  await expect(page.locator('[data-panel="ph-field"]').getByText('Wind Factor')).toBeVisible();
+  await expectNoErrors(errors);
+});
