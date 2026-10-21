@@ -3353,9 +3353,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'useName': {
-        // Use in Formula: mid-entry the name goes in at the caret; otherwise an entry starts with it.
+        // Use in Formula: mid-entry the name goes in at the caret; otherwise an entry starts with it. An entry with
+        // nothing typed yet starts a formula with it, as a function picked there does.
         if (!arg) return;
-        if (grid.editing) { grid.insertText(String(arg)); grid.focusEditor(); return; }
+        if (grid.editing) { grid.insertText(`${grid.editState?.text ? '' : '='}${arg}`); grid.focusEditor(); return; }
         if (refusedByProtection('enter a formula')) return;
         grid.beginEdit({ text: `=${arg}`, mode: 'inplace' });
         return;
