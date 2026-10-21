@@ -284,7 +284,7 @@ function chartXml(X, wb, sheet, ch) {
         + (rangeLabels?.position || labels?.position ? val('dLblPos', rangeLabels?.position || labels.position) : '')
         + val('showVal', Number(ch.labels && (labels ? labels.show : true))) + showRange);
     }
-    if (ch.trendline && !circular && ['column', 'bar', 'line', 'area', 'scatter'].includes(type)) body += tag('c:trendline', {}, val('trendlineType', 'linear'));
+    if (ch.trendline && !circular && ['column', 'bar', 'line', 'area', 'scatter', 'bubble'].includes(type)) body += tag('c:trendline', {}, val('trendlineType', 'linear'));
     if (bubble) for (const error of bubble.errors || []) body += tag('c:errBars', {},
       val('errDir', error.axis) + val('errBarType', error.direction) + val('errValType', error.type)
       + val('noEndCap', Number(!error.caps)) + (error.type === 'stdErr' ? '' : val('val', error.value))

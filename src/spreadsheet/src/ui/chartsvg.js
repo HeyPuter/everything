@@ -1686,6 +1686,7 @@ function renderStyledCartesian(data, chart, width, height) {
           : ` M ${f(x1 - 3)} ${f(y1)} H ${f(x1 + 3)} M ${f(x2 - 3)} ${f(y2)} H ${f(x2 + 3)}`;
         parts.push(`<path class="chart-error-bar" data-axis="${e.axis}" d="M ${f(x1)} ${f(y1)} L ${f(x2)} ${f(y2)}${caps}" fill="none" stroke="${e.color}" stroke-width="${e.width}"/>`);
       }
+      if (chart.trendline) trendline(s, color, sy);
       return;
     }
     const columnIndex = layered ? columnIndices.indexOf(j) : j < columnCount ? j : -1;
