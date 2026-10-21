@@ -515,7 +515,7 @@ function addFeather(ed: MaskHost, m: MaskData, e: PointerEvent): boolean {
 }
 
 /** Ctrl Alt drag: lasso selection of points. */
-function lassoSelect(ed: MaskHost, m: MaskData, e: PointerEvent, mode: 'ADD' | 'SUB'): boolean {
+export function lassoSelect(ed: MaskHost, m: MaskData, e: PointerEvent, mode: 'SET' | 'ADD' | 'SUB'): boolean {
   const p0 = ed.local(e);
   const pts: V[] = [[p0.x, p0.y]];
   track(
@@ -529,6 +529,7 @@ function lassoSelect(ed: MaskHost, m: MaskData, e: PointerEvent, mode: 'ADD' | '
     (_ev, moved) => {
       ed.shapeOverlay = null;
       if (moved && pts.length > 2) selectWhere(ed, m, (x, y) => inPolygon(x, y, pts), mode);
+      else if (!moved && mode === 'SET') deselectAll(m);
       refresh(ed);
       ed.drawUI();
       app.pushUndo('Lasso Select');
@@ -548,7 +549,7 @@ function inPolygon(x: number, y: number, poly: V[]) {
 }
 
 /** Click on empty space deselects; dragging draws a selection box. */
-function boxOrDeselect(ed: MaskHost, m: MaskData, e: PointerEvent) {
+export function boxOrDeselect(ed: MaskHost, m: MaskData, e: PointerEvent) {
   const p0 = ed.local(e);
   track(
     e,
@@ -584,4 +585,23 @@ export function selectWhere(ed: MaskHost, m: MaskData, test: (x: number, y: numb
     const [x, y] = m2s(ed, shown(E, point).co);
     if (test(x, y)) point.select = mode !== 'SUB';
   }
+}
+
+/** Circle select while the button is held (Select Circle tool): Ctrl / `mode` SUB deselects. */
+export function circleSelectDrag(ed: MaskHost, m: MaskData, e: PointerEvent, mode: 'SET' | 'ADD' | 'SUB', radius: number) {
+  if (mode === 'SET') deselectAll(m);
+  const paint = mode === 'SUB' ? 'SUB' : 'ADD';
+  const at = (ev: { clientX: number; clientY: number }) => {
+    const p = ed.local(ev);
+    ed.shapeOverlay = { kind: 'circle', x: p.x, y: p.y, r: radius };
+    selectWhere(ed, m, (x, y) => Math.hypot(x - p.x, y - p.y) <= radius, paint);
+    refresh(ed);
+  };
+  at(e);
+  track(e, at, () => {
+    ed.shapeOverlay = null;
+    refresh(ed);
+    ed.drawUI();
+    app.pushUndo('Circle Select');
+  });
 }

@@ -14,11 +14,26 @@ import { pointInPolygon } from '../sequencer/selection';
 
 type V = [number, number];
 
-/** The hovered clip editor when it edits a mask. */
-type MaskEditorLike = MaskHost & { mode: string; view: string; area: { drawHeader(): void }; cursor: [number, number]; pivot: 'MEDIAN_POINT' | 'BOUNDING_BOX_CENTER' | 'CURSOR' };
+/** An editor that edits a mask: the clip editor in mask mode or the image editor in Mask mode. */
+export type MaskEditorLike = MaskHost & { cursor: [number, number]; pivot: 'MEDIAN_POINT' | 'BOUNDING_BOX_CENTER' | 'CURSOR'; redrawHeader(): void };
+
+/** Editors other than the clip editor that can edit masks expose `maskEditing()` (duck typed). */
+interface MaskModeEditor {
+  maskEditing(): boolean;
+}
+const isMaskModeEditor = (ed: unknown): ed is MaskModeEditor & MaskEditorLike => !!ed && typeof (ed as MaskModeEditor).maskEditing === 'function';
+
+/** The hovered (or active) image editor that can edit masks, whatever its mode. */
+export function hoveredMaskModeEditor(): (MaskModeEditor & MaskEditorLike & { setMaskMode(): void }) | null {
+  const ed = (app.hoverArea ?? app.activeArea)?.editor;
+  return isMaskModeEditor(ed) ? (ed as MaskModeEditor & MaskEditorLike & { setMaskMode(): void }) : null;
+}
+
 export function maskEditor(): MaskEditorLike | null {
-  const ed = currentClipEditor() as unknown as MaskEditorLike | null;
-  return ed && ed.mode === 'MASK' && ed.view === 'CLIP' ? ed : null;
+  const other = hoveredMaskModeEditor();
+  if (other) return other.maskEditing() ? other : null;
+  const ed = currentClipEditor();
+  return ed && ed.mode === 'MASK' && ed.view === 'CLIP' ? (ed as unknown as MaskEditorLike) : null;
 }
 const editing = () => !!maskEditor() && !!hostMask(maskEditor()!);
 const curMask = () => hostMask(maskEditor()!)!;
@@ -51,11 +66,12 @@ const ops: Operator[] = [
   {
     idname: 'mask.new',
     label: 'New Mask',
-    description: 'Create a new mask and edit it in the clip editor',
+    description: 'Create a new mask and edit it in the clip or image editor',
     props: [{ id: 'name', label: 'Name', type: 'string', default: 'Mask' }],
-    poll: () => !!currentClipEditor(),
+    poll: () => !!hoveredMaskModeEditor() || !!currentClipEditor(),
     exec: (_c, p) => {
-      const ed = currentClipEditor() as unknown as MaskHost & { mode: string };
+      const other = hoveredMaskModeEditor();
+      const ed = (other ?? currentClipEditor()) as unknown as MaskHost & { mode?: string };
       const id = uid('MA');
       const names = new Set(Object.values(maskTable(app.doc)).map((m) => m.name));
       let name = (p.name as string) || 'Mask';
@@ -66,7 +82,8 @@ const ops: Operator[] = [
       m.frame_end = sc.frame_end;
       maskTable(app.doc)[id] = m;
       ed.maskId = id;
-      ed.mode = 'MASK';
+      if (other) other.setMaskMode();
+      else ed.mode = 'MASK';
       ed.draw();
       ed.drawUI();
     },
@@ -777,7 +794,8 @@ export function transformPoints(orig: PointSnap[], mode: Mode, value: number[], 
   }
 }
 
-export function startTransform(mode: Mode): boolean {
+/** Modal transform of the selected points; `release` (tool drags) confirms when the button is released. */
+export function startTransform(mode: Mode, release = false, from?: { clientX: number; clientY: number }): boolean {
   const ed = maskEditor();
   if (!ed) return false;
   const m = hostMask(ed)!;
@@ -786,7 +804,7 @@ export function startTransform(mode: Mode): boolean {
   const aspect = aspectOf(ed);
   const orig = snapPoints(pts);
   const [cx, cy] = pivotOf(ed, orig);
-  const sp0 = ed.local({ clientX: app.pointer.x, clientY: app.pointer.y });
+  const sp0 = ed.local(from ?? { clientX: app.pointer.x, clientY: app.pointer.y });
   const start = s2m(ed, sp0.x, sp0.y);
   const st = { text: '', axis: null as 'X' | 'Y' | null, value: [0, 0] as number[] };
   let last: V = start;
@@ -826,6 +844,7 @@ export function startTransform(mode: Mode): boolean {
       apply();
     },
     onPointerDown: (e) => (e.button === 0 ? 'FINISHED' : e.button === 2 ? 'CANCELLED' : undefined),
+    onPointerUp: (e) => (release && e.button === 0 ? 'FINISHED' : undefined),
     onKey(e) {
       if (e.type !== 'keydown') return true;
       if (e.key === 'Escape') return 'CANCELLED';

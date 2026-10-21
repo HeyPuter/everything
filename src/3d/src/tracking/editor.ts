@@ -1317,6 +1317,10 @@ export class ClipEditor implements Editor {
     );
   }
 
+  redrawHeader() {
+    this.area.drawHeader();
+  }
+
   setMode(m: 'TRACKING' | 'MASK') {
     if (m === this.mode) return;
     this.mode = m;

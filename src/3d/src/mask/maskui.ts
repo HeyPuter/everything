@@ -15,7 +15,7 @@ interface Host {
   maskId: string | null;
   draw(): void;
   drawUI(): void;
-  area: { drawHeader(): void };
+  redrawHeader(): void;
 }
 
 const SELECT_MODES = [
@@ -141,7 +141,7 @@ export function maskBrowse(ed: Host): Child {
     ed.maskId = id;
     ed.draw();
     ed.drawUI();
-    ed.area.drawHeader();
+    ed.redrawHeader();
     app.changed('ui');
   };
   return h(
