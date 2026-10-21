@@ -145,3 +145,17 @@ test('NLA: strip modifiers tab adds a modifier to the active strip', async ({ pa
   await expect(nla.locator('.anim-mod')).toHaveCount(1);
   await expectNoErrors(errors);
 });
+
+test('frames: Alt + wheel steps the current frame', async ({ page }) => {
+  const errors = await openApp(page);
+  const box = (await page.locator('.view3d').first().boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const before = await page.evaluate(() => (window as any).app.doc.scene.frame_current); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.keyboard.down('Alt');
+  await page.mouse.wheel(0, 100);
+  await page.mouse.wheel(0, 100);
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up('Alt');
+  await expect.poll(() => page.evaluate(() => (window as any).app.doc.scene.frame_current)).toBe(before + 1); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await expectNoErrors(errors);
+});

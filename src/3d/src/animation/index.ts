@@ -18,3 +18,4 @@ import './slotops';
 import './nlamods';
 import './clickops';
 import './animutils';
+import './framewheel';
