@@ -47,6 +47,43 @@
   display: none;
 }
 
+/* Top tabs and the More button that holds the ones that don't fit. */
+.insp-tabs-bar {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-width: 0;
+}
+
+.top-tabs .insp-tab[hidden],
+.insp-tabs-more[hidden] {
+  display: none;
+}
+
+/* Measured at their natural width to decide what fits. */
+.insp-tabs-bar.is-measuring .insp-tab {
+  flex: none;
+}
+
+.insp-tabs-more {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  color: var(--text-2);
+  transition: color var(--t-fast);
+}
+
+.insp-tabs-more:hover,
+.insp-tabs-more[aria-expanded='true'] {
+  color: var(--text);
+}
+
+.insp-tabs-more:focus-visible {
+  outline-offset: -3px;
+}
+
 .top-tabs .insp-tab {
   position: relative;
   padding: 0 8px;

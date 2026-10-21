@@ -10,7 +10,8 @@ import { icon } from '../../lib/icons.js';
 import { US } from '../../lib/time.js';
 import { findClip } from '../../model/timeline.js';
 import { valueAt, keyIndexAt, baseValue } from '../../model/keyframes.js';
-import { sliderField, colorField, switchField, section } from '../controls.js';
+import { sliderField, colorField, switchField, section, fitTabs } from '../controls.js';
+import { menuButton } from '../menu.js';
 
 let seq = 0;
 export const uidFor = (p) => `insp-${p}-${++seq}`;
@@ -255,12 +256,16 @@ export function row(label, control, { id } = {}) {
 /**
  * Tabs with tab panels. items: [{ id, label }]. render(id) builds the panel
  * content. Returns { list, panel, select(id), current }.
+ * more: tabs that don't fit the row go into a More menu (the selected one
+ * stays in the row); then put el (the row with the button) on the page and
+ * call fit() when its width changes.
  */
-export function tabSet({ label, items, value, onChange, className = '' }) {
+export function tabSet({ label, items, value, onChange, className = '', more = false }) {
   const base = uidFor('tabs');
   const panel = h('div.insp-tabpanel', { role: 'tabpanel', id: `${base}-panel`, tabindex: '-1' });
   const list = h(`div.insp-tabs${className ? '.' + className : ''}`, { role: 'tablist', 'aria-label': label });
   let current = items.some((i) => i.id === value) ? value : items[0]?.id;
+  let selected = null;
   const btns = items.map((it) => {
     const b = h('button.insp-tab', { type: 'button', role: 'tab', id: `${base}-${it.id}`, 'aria-controls': `${base}-panel`, 'aria-selected': String(it.id === current), tabindex: it.id === current ? '0' : '-1', dataset: { tab: it.id } }, it.label);
     b.addEventListener('click', () => {
@@ -278,33 +283,69 @@ export function tabSet({ label, items, value, onChange, className = '' }) {
       b.tabIndex = on ? 0 : -1;
     });
     const b = btns.find((x) => x.dataset.tab === id);
-    if (b) panel.setAttribute('aria-labelledby', b.id);
+    if (b) {
+      panel.setAttribute('aria-labelledby', b.id);
+      selected?.(b);
+    }
   };
+  // Arrow keys move between the tabs on show (the rest are in More).
   list.addEventListener('keydown', (e) => {
-    const i = btns.indexOf(document.activeElement);
+    const shown = btns.filter((b) => !b.hidden);
+    const i = shown.indexOf(document.activeElement);
     if (i < 0) return;
     let j = -1;
-    if (e.key === 'ArrowRight') j = (i + 1) % btns.length;
-    if (e.key === 'ArrowLeft') j = (i - 1 + btns.length) % btns.length;
+    if (e.key === 'ArrowRight') j = (i + 1) % shown.length;
+    if (e.key === 'ArrowLeft') j = (i - 1 + shown.length) % shown.length;
     if (e.key === 'Home') j = 0;
-    if (e.key === 'End') j = btns.length - 1;
+    if (e.key === 'End') j = shown.length - 1;
     if (j >= 0) {
       e.preventDefault();
       e.stopPropagation();
-      btns[j].focus();
-      btns[j].click();
+      shown[j].focus();
+      shown[j].click();
     }
   });
   list.append(...btns);
   select(current);
-  return {
+  const set = {
     list,
+    el: list,
     panel,
     select,
+    fit() {},
     get current() {
       return current;
     },
   };
+  if (!more) return set;
+
+  const moreBtn = h('button.insp-tabs-more', { type: 'button', 'aria-label': 'More tabs', 'data-tip': 'More tabs', hidden: true }, icon('more', 16));
+  const bar = h('div.insp-tabs-bar', list, moreBtn);
+  let overflow = [];
+  menuButton(moreBtn, () => overflow.map((it) => ({ label: it.label, onSelect: () => {
+    btns[items.indexOf(it)].click();
+    btns[items.indexOf(it)].focus();
+  } })), { label: 'More tabs', align: 'end' });
+  const fit = () => {
+    const avail = bar.clientWidth;
+    if (avail <= 0) return;
+    bar.classList.add('is-measuring');
+    btns.forEach((b) => (b.hidden = false));
+    moreBtn.hidden = false;
+    const widths = btns.map((b) => b.getBoundingClientRect().width);
+    const gap = parseFloat(getComputedStyle(list).columnGap) || 0;
+    const moreW = moreBtn.getBoundingClientRect().width;
+    bar.classList.remove('is-measuring');
+    const shown = fitTabs(widths, avail, moreW + gap, items.findIndex((it) => it.id === current), gap);
+    btns.forEach((b, i) => (b.hidden = !shown.includes(i)));
+    overflow = items.filter((_, i) => !shown.includes(i));
+    moreBtn.hidden = !overflow.length;
+  };
+  // A tab picked from More takes a place in the row.
+  selected = (b) => b.hidden && fit();
+  set.el = bar;
+  set.fit = fit;
+  return set;
 }
 
 /**

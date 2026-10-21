@@ -7,7 +7,7 @@
  */
 import { h } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
-import { tabs } from '../controls.js';
+import { tabs, fitTabs } from '../controls.js';
 import { menuButton } from '../menu.js';
 import { prefs, setPref } from '../prefs.js';
 import { mediaTab } from './media.js';
@@ -22,6 +22,8 @@ import { captionsTab } from './captions.js';
 import { templatesTab } from './templates.js';
 import { avatarsTab } from './avatars.js';
 
+export { fitTabs };
+
 export const ASSET_TABS = [
   { id: 'media', label: 'Media', icon: 'film', make: mediaTab },
   { id: 'audio', label: 'Audio', icon: 'music', make: audioTab },
@@ -35,31 +37,6 @@ export const ASSET_TABS = [
   { id: 'adjust', label: 'Color', icon: 'adjust', make: adjustTab },
   { id: 'templates', label: 'Templates', icon: 'template', make: templatesTab },
 ];
-
-/**
- * Indexes of the tabs to show in a row avail px wide: as many as fit in
- * order, with room kept for the More button (moreW) when some don't. The
- * active tab always shows, taking the last place when it would not fit.
- */
-export function fitTabs(widths, avail, moreW, active = 0, gap = 0) {
-  const total = widths.reduce((a, w) => a + w, 0) + gap * Math.max(0, widths.length - 1);
-  if (total <= avail + 0.5) return widths.map((_, i) => i);
-  const room = avail - moreW;
-  const shown = [];
-  let used = 0;
-  for (let i = 0; i < widths.length; i++) {
-    const w = widths[i] + (shown.length ? gap : 0);
-    if (used + w > room + 0.5) break;
-    shown.push(i);
-    used += w;
-  }
-  if (active >= 0 && !shown.includes(active)) {
-    // Drop tabs from the end until the active one fits.
-    while (shown.length && used + widths[active] + gap > room + 0.5) used -= widths[shown.pop()] + (shown.length ? gap : 0);
-    shown.push(active);
-  }
-  return shown;
-}
 
 export function createAssetsPanel(ctx) {
   const made = new Map();

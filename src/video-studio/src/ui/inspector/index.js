@@ -155,6 +155,7 @@ export function createInspector(ctx) {
     const ts = tabSet({
       label: 'Clip properties',
       className: 'top-tabs',
+      more: true,
       items,
       value: state.tabs[type],
       onChange: (id) => {
@@ -170,7 +171,8 @@ export function createInspector(ctx) {
       maskEdit.refresh();
     };
     const head = h('span.insp-clip-icon', { 'aria-hidden': 'true' }, icon(clip.multicam ? 'multicam' : TYPE_ICONS[type] || 'film', 14));
-    headTabs.replaceChildren(head, ts.list);
+    headTabs.replaceChildren(head, ts.el);
+    ts.fit();
     setTitle(clipLabel(store.project, clip), { hidden: true });
     body.replaceChildren(lockNote, ts.panel);
     show(ts.current);
@@ -185,6 +187,7 @@ export function createInspector(ctx) {
     return {
       update,
       tick: () => view.scope.tick(),
+      fit: ts.fit,
       selectTab(id, { force = false } = {}) {
         if (!ids.includes(id) || (ts.current === id && !force)) return;
         ts.select(id);
@@ -212,6 +215,11 @@ export function createInspector(ctx) {
   }
 
   sync();
+  // Top tabs that don't fit the panel go into a More menu.
+  const fit = () => current?.fit?.();
+  if (typeof ResizeObserver === 'function') new ResizeObserver(fit).observe(headTabs);
+  // Label widths change once the UI font has loaded.
+  document.fonts?.ready?.then(fit);
   const offs = [
     store.on('select', sync),
     store.on('change', sync),
@@ -222,6 +230,8 @@ export function createInspector(ctx) {
 
   return {
     el,
+    /** Re-fit the top tabs (the panel was resized). */
+    relayout: fit,
     /** Show a top tab of the selected clip (e.g. 'clipfx' after adding an effect to it). */
     showTab(id) {
       sync();

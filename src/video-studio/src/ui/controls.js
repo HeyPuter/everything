@@ -239,6 +239,31 @@ export function section(title, children, { open = true, actions = null } = {}) {
   return h('section.prop-section', h('div.section-head', h('h3.section-title', btn), actions), body);
 }
 
+/**
+ * Indexes of the tabs to show in a row avail px wide: as many as fit in
+ * order, with room kept for the More button (moreW) when some don't. The
+ * active tab always shows, taking the last place when it would not fit.
+ */
+export function fitTabs(widths, avail, moreW, active = 0, gap = 0) {
+  const total = widths.reduce((a, w) => a + w, 0) + gap * Math.max(0, widths.length - 1);
+  if (total <= avail + 0.5) return widths.map((_, i) => i);
+  const room = avail - moreW;
+  const shown = [];
+  let used = 0;
+  for (let i = 0; i < widths.length; i++) {
+    const w = widths[i] + (shown.length ? gap : 0);
+    if (used + w > room + 0.5) break;
+    shown.push(i);
+    used += w;
+  }
+  if (active >= 0 && !shown.includes(active)) {
+    // Drop tabs from the end until the active one fits.
+    while (shown.length && used + widths[active] + gap > room + 0.5) used -= widths[shown.pop()] + (shown.length ? gap : 0);
+    shown.push(active);
+  }
+  return shown;
+}
+
 /** Tab list with roving focus; returns { el, select(id) }. */
 export function tabs({ label, items, value, onChange, className = '' }) {
   const list = h(`div.tablist${className ? '.' + className : ''}`, { role: 'tablist', 'aria-label': label });

@@ -7,6 +7,7 @@ import { gainToDb, dbToGain } from '../src/ui/inspector/audio.js';
 import { speedToPos, posToSpeed } from '../src/ui/inspector/speed.js';
 import * as T from '../src/model/timeline.js';
 import { US } from '../src/lib/time.js';
+import { closeMenus } from '../src/ui/menu.js';
 
 // jsdom has no canvas; previews fall back to blank tiles.
 HTMLCanvasElement.prototype.getContext = () => null;
@@ -120,6 +121,50 @@ describe('inspector layout', () => {
     env.store.select(env.adj.id);
     drag(range('Contrast'), [10, 30]);
     expect(clip(env.adj.id).adjust.contrast).toBe(30);
+  });
+});
+
+describe('top tabs that do not fit', () => {
+  afterEach(() => closeMenus());
+
+  /** Fake layout: the tab row is rowW wide and each tab 50 px (jsdom has no layout). */
+  function layout(rowW) {
+    const bar = env.el.querySelector('.insp-tabs-bar');
+    Object.defineProperty(bar, 'clientWidth', { configurable: true, get: () => rowW });
+    for (const b of env.el.querySelectorAll('.top-tabs .insp-tab, .insp-tabs-more')) b.getBoundingClientRect = () => ({ width: 50, height: 30 });
+    env.insp.relayout();
+  }
+  const shown = () => [...env.el.querySelectorAll('.top-tabs [role=tab]')].filter((t) => !t.hidden).map((t) => t.textContent);
+  const more = () => env.el.querySelector('.insp-tabs-more');
+
+  it('go into a More menu, and a tab picked there joins the row', () => {
+    env.store.select(env.v1.id);
+    layout(1000);
+    expect(shown()).toEqual(['Video', 'Audio', 'Speed', 'Animation', 'Effects', 'Style', 'Color']);
+    expect(more().hidden).toBe(true);
+    layout(260);
+    expect(shown()).toEqual(['Video', 'Audio', 'Speed', 'Animation']);
+    expect(more().hidden).toBe(false);
+    expect(more().getAttribute('aria-haspopup')).toBe('menu');
+    more().click();
+    const items = [...document.querySelectorAll('.menu [role^=menuitem]')];
+    expect(items.map((i) => i.textContent)).toEqual(['Effects', 'Style', 'Color']);
+    items.at(-1).click();
+    expect(shown()).toEqual(['Video', 'Audio', 'Speed', 'Color']);
+    expect(tab('Color').getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(tab('Color'));
+    expect(field('Exposure')).toBeTruthy();
+    // Arrow keys move between the tabs on show.
+    tab('Color').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(document.activeElement).toBe(tab('Video'));
+  });
+
+  it('keeps a tab opened from elsewhere in the row', () => {
+    env.store.select(env.v1.id);
+    layout(260);
+    env.insp.showTab('stylize');
+    expect(shown()).toContain('Style');
+    expect(tab('Style').getAttribute('aria-selected')).toBe('true');
   });
 });
 
