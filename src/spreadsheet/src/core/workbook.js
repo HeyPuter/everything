@@ -139,6 +139,10 @@ export const MAX_STORED_ROW_HEIGHT = 546;
 const HISTORY_LIMIT = 200;
 // A structural undo step holds snapshots of the sheets it changed; the oldest steps go once those hold more cells than this in all.
 const SNAPSHOT_CELLS = 1_000_000;
+// A snapshot lists each hidden row and column by number, about an eighth of what a cell weighs: rows hidden from under
+// a list to the sheet's end (a million of them) went into every structural step at 8 MB a time, unweighed, so two
+// hundred steps of history could hold gigabytes.
+const hiddenLinesWeight = (n) => Math.ceil(n / 8);
 // The changes kept on record, newest last, for a listener asking what changed since a version it knows (see changesSince).
 const CHANGE_LOG = 256;
 // Formulas that read other files or the web; a file from elsewhere may not run them until the user allows it.
@@ -1353,7 +1357,7 @@ export class Workbook extends EventTarget {
       if (!touched.has(s.id)) continue;
       const json = { ...sheetShapeJSON(s, { live: true }), cells: Object.fromEntries([...s.cells].map(([k, c]) => [k, cloneCell(c)])) };
       sheets.set(s.id, json);
-      cells += s.cells.size + s.styleResets.length + s.ignoredErrors.length + nativeSparklineSize(s.sparklineGroups);
+      cells += s.cells.size + s.styleResets.length + s.ignoredErrors.length + nativeSparklineSize(s.sparklineGroups) + hiddenLinesWeight(s.hiddenRows.size + s.hiddenCols.size);
     }
     return { externalWorkbooks: this.externalWorkbooks, dataModel: this.dataModel, nativePivots: this.nativePivots, order: this.sheets.map(sheetListEntry), activeSheetId: this.activeSheetId, names: this.names.map((n) => ({ ...n })), customViews: this.customViews, sheets, touched, cells };
   }
@@ -1423,7 +1427,8 @@ export class Workbook extends EventTarget {
         cellsJSON[cap.keys[i]] = cell;
       }
       sheets.set(id, { ...cap.shape, cells: cellsJSON });
-      cells += cap.cells.length + (cap.shape.styleResets?.length || 0) + (cap.shape.ignoredErrors?.length || 0) + nativeSparklineSize(cap.shape.sparklineGroups);
+      cells += cap.cells.length + (cap.shape.styleResets?.length || 0) + (cap.shape.ignoredErrors?.length || 0) + nativeSparklineSize(cap.shape.sparklineGroups)
+        + hiddenLinesWeight(cap.shape.hiddenRows.length + cap.shape.hiddenCols.length);
     }
     return { externalWorkbooks: capture.externalWorkbooks, dataModel: capture.dataModel, nativePivots: capture.nativePivots, order: capture.order, activeSheetId: capture.activeSheetId, names: capture.names, customViews: capture.customViews, sheets, touched, cells };
   }
