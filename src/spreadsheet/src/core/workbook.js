@@ -6246,6 +6246,9 @@ export class Workbook extends EventTarget {
         .map((m) => (insideBand(m) ? adjust(m) : m))
         .filter((m) => m[hi] >= m[lo] && (m.r1 !== m.r2 || m.c1 !== m.c2));
       sheet.protectedRanges = sheet.protectedRanges.map((p) => (insideBand(p.range) ? { ...p, range: adjust(p.range) } : p)).filter((p) => p.range[hi] >= p.range[lo]);
+      // A print area the band holds follows its cells as a reference does, so the rows pushed down stay printed (one whose
+      // cells are all deleted goes). Print titles and page breaks belong to whole lines, which a shift within a band leaves.
+      if (sheet.printSettings?.areas.length) sheet.printSettings = normalizePrintSettings({ ...sheet.printSettings, areas: sheet.printSettings.areas.map((m) => (insideBand(m) ? adjust(m) : m)) });
       mapScenarioCells(sheet, (m) => (insideBand(m) ? adjust(m) : m));
       this._mapAdvancedFilters(sheet.id, (m) => (insideBand(m) ? adjust(m) : m));
       this._mapWatches(sheetId, (r, c) => {
