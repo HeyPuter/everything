@@ -11100,8 +11100,14 @@ export function createEditor({
         author: details.author || '',
         onProgress: (finished, total) => {
           bar.value = total ? finished / total : 0;
+          // The steps are the pages, then any slide pictures, then writing the file.
+          const count = pages.length;
           progress.textContent =
-            finished < total ? `Page ${finished + 1} of ${total}…` : 'Writing the file…';
+            finished < count
+              ? `Page ${finished + 1} of ${count}…`
+              : finished < total - 1
+                ? `Drawing slide ${finished - count + 1} of ${count}…`
+                : 'Writing the file…';
         },
         renderPage: async (index, scale = 2) =>
           new Uint8Array(
