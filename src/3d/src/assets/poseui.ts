@@ -7,7 +7,7 @@ import { icon } from '../ui/icons';
 import { openMenu } from '../ui/menu';
 import { numberField, panel } from '../ui/widgets';
 import { sidebarTabs } from '../editors/view3d/sidebar';
-import { libraries, listAssets, libraryDoc, assetRef, libraryInfo, type AssetEntry } from './library';
+import { libraries, listAssets, libraryDoc, assetRef, libraryInfo, LOCAL, type AssetEntry } from './library';
 import { isPoseAction } from './poselib';
 
 let blend = 1;
@@ -33,6 +33,26 @@ function poseLibrary(): Child {
       'div',
       { class: 'pl-row' },
       h('button', { class: 'btn pl-create', onclick: () => app.run('poselib.create_pose_asset') }, icon('add'), 'Create Pose Asset'),
+      h(
+        'button',
+        {
+          class: 'btn pl-more',
+          'data-tip': 'More pose library operations',
+          onpointerdown: (e: PointerEvent) => {
+            e.preventDefault();
+            openMenu(
+              [
+                { label: 'Copy Pose as Asset', op: 'poselib.copy_as_asset' },
+                { label: 'Paste as New Asset', op: 'poselib.paste_asset', disabled: !app.poll('poselib.paste_asset') },
+                { separator: true },
+                { label: 'Restore Previous Action', op: 'poselib.restore_previous_action', disabled: !app.poll('poselib.restore_previous_action') },
+              ],
+              e.currentTarget as HTMLElement,
+            );
+          },
+        },
+        icon('down_arrow_hlt'),
+      ),
     ),
     numberField({ id: 'pl-blend', label: 'Blend', value: blend, min: 0, max: 1, unit: 'none', precision: 2, set: (v) => ((blend = v), app.changed('ui')) }),
     h('label', { class: 'text-field pl-search' }, icon('viewzoom'), h('input', { value: search, placeholder: 'Search poses', spellcheck: 'false', oninput: (e: Event) => ((search = (e.target as HTMLInputElement).value), app.changed('ui')), onkeydown: (e: KeyboardEvent) => e.stopPropagation() })),
@@ -57,6 +77,8 @@ function poseLibrary(): Child {
                     [
                       { label: 'Apply Pose', op: 'poselib.apply_pose_asset', props: { asset: ref, blend_factor: 1 } },
                       { label: `Blend Pose (${Math.round(blend * 100)}%)`, op: 'poselib.apply_pose_asset', props: { asset: ref, blend_factor: blend } },
+                      { label: 'Apply Pose Flipped', action: () => app.run('poselib.blend_pose_asset', { asset: ref, blend_factor: 1, flipped: true }, { invoke: false }) },
+                      { label: 'Blend Pose Interactively', op: 'poselib.blend_pose_asset', props: { asset: ref, blend_factor: 0 } },
                       { separator: true },
                       { label: 'Select Pose Bones', op: 'poselib.pose_asset_select_bones', props: { asset: ref, select: true } },
                       { label: 'Deselect Pose Bones', op: 'poselib.pose_asset_select_bones', props: { asset: ref, select: false } },
@@ -72,6 +94,7 @@ function poseLibrary(): Child {
                               ],
                             },
                             { label: 'Delete Pose Asset', icon: 'trash', op: 'poselib.asset_delete', props: { asset: ref } },
+                            ...(e.library === LOCAL ? [{ label: 'Edit Pose Asset', op: 'poselib.edit_pose_asset', props: { asset: ref } }] : []),
                           ]
                         : []),
                     ],

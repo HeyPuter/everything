@@ -128,6 +128,10 @@ function applySlide(mode: SlideMode, p: SlideProps): number {
 
 /** Readout of the running in-between slider, drawn over the 3D viewport. */
 let sliderReadout: { label: string; value: number; extra: string } | null = null;
+/** Show (or hide, with null) the slider readout for another modal pose tool (pose asset blending). */
+export function setPoseSliderReadout(r: { label: string; value: number; extra: string } | null) {
+  sliderReadout = r;
+}
 
 editModeHooks.svg.push((v) => {
   if (!sliderReadout || !app.modal) return null;

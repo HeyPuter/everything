@@ -27,6 +27,8 @@ import './armature/collections';
 import './armature/menus';
 import './armature/scripting';
 import './armature/posetools';
+import './armature/moreops';
+import './armature/poselibops';
 import './lattice/lattice';
 import './curve/curve';
 import './curve/ops-more';

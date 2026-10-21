@@ -109,15 +109,9 @@ editModeHooks.pick.push((v, x, y, o) => {
     // Ctrl+click: select the bones on the hierarchy path from the active bone
     const ev = window.event as PointerEvent | undefined;
     const act = a.arm.bones.find((b) => b.name === a.arm.active_bone);
-    if (ev?.ctrlKey && !ev.shiftKey && hit && act && act !== hit.bone) {
-      const path = bonePath(a.arm, act, hit.bone);
-      if (path.length) {
-        for (const b of path) b.select = b.select_head = b.select_tail = true;
-        a.arm.active_bone = hit.bone.name;
-        app.pushUndo('Pick Shortest Path');
-        app.changed('select', 'doc');
-        return true;
-      }
+    if (ev?.ctrlKey && !ev.shiftKey && hit && act && act !== hit.bone && bonePath(a.arm, act, hit.bone).length) {
+      app.run('armature.shortest_path_pick', {}, { event: { x: ev.clientX, y: ev.clientY } });
+      return true;
     }
     if (!o.extend) for (const b of a.arm.bones) b.select = b.select_head = b.select_tail = false;
     if (hit) {
