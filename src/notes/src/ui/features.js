@@ -439,11 +439,16 @@ export function equationDialog(app, span) {
   const range = currentRange()?.cloneRange();
   const input = h('textarea.input.mono', { id: 'eq-input', rows: 3, spellcheck: 'false', 'aria-describedby': 'eq-hint' });
   input.value = span?.dataset.tex || '';
+  const error = h('p.field-error', { role: 'alert' });
   const preview = h('div.eq-preview', { 'aria-live': 'polite', 'aria-label': 'Preview' });
   const update = debounce(async () => {
     preview.innerHTML = input.value.trim() ? await renderMath(input.value, true) : '<span class="field-hint">The preview appears here.</span>';
   }, 120);
   input.addEventListener('input', update);
+  input.addEventListener('input', () => {
+    error.textContent = '';
+    input.removeAttribute('aria-invalid');
+  });
   update();
   const snippets = h('div.eq-snippets', { role: 'group', 'aria-label': 'Insert structure or symbol' }, SNIPPETS.map(([tex, label]) => {
     const b = h('button.btn.small', { type: 'button', title: label, 'aria-label': label });
@@ -460,7 +465,7 @@ export function equationDialog(app, span) {
     title: span ? 'Edit Equation' : 'Insert Equation',
     width: 560,
     body: h('div',
-      h('div.field', h('label.field-label', { for: 'eq-input' }, 'Equation (LaTeX)'), input, h('p.field-hint', { id: 'eq-hint' }, 'For example: E = mc^2 or \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}')),
+      h('div.field', h('label.field-label', { for: 'eq-input' }, 'Equation (LaTeX)'), input, error, h('p.field-hint', { id: 'eq-hint' }, 'For example: E = mc^2 or \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}')),
       snippets,
       h('div.field', h('span.field-label', 'Preview'), preview),
     ),
@@ -468,7 +473,13 @@ export function equationDialog(app, span) {
       { label: 'Cancel' },
       { label: span ? 'Update' : 'Insert', primary: true, run: async () => {
         const tex = input.value.trim();
-        if (!tex) return;
+        if (!tex) {
+          // Like the Link dialog: say what's missing and keep the dialog open.
+          error.textContent = 'Enter an equation.';
+          input.setAttribute('aria-invalid', 'true');
+          input.focus();
+          return false;
+        }
         if (span) {
           span.dataset.tex = tex;
           span.setAttribute('aria-label', `Equation: ${tex}`);

@@ -140,3 +140,23 @@ describe('dictation', () => {
     expect(app.dictation.active).toBe(false);
   });
 });
+
+describe('equation dialog', () => {
+  const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
+
+  it('keeps the dialog open with an error when the equation is cleared', async () => {
+    const el = app.editor.createOutlineAt(100, 200, '<p><span class="nt-math" data-tex="x^2" contenteditable="false"></span></p>');
+    const span = el.querySelector('.nt-math');
+    app.equationDialog(span);
+    const input = document.getElementById('eq-input');
+    expect(input.value).toBe('x^2');
+    input.value = '  ';
+    input.closest('dialog').querySelector('.btn.primary').click();
+    await tick(10);
+    const dialog = document.querySelector('dialog[open]');
+    expect(dialog).toBeTruthy();
+    expect(dialog.querySelector('.field-error').textContent).toBe('Enter an equation.');
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(span.dataset.tex).toBe('x^2');
+  });
+});
