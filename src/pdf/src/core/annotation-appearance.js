@@ -619,12 +619,12 @@ function drawCaret(doc, dict) {
 }
 
 /** A squiggly underline: a zigzag along the foot of each quad. */
-function drawSquiggly(doc, dict) {
+function drawSquiggly(doc, dict, unit = 1) {
   const flat = numbers(dict.lookup(name('QuadPoints')));
   if (!flat?.length || flat.length % 8 || !flat.every(Number.isFinite))
     throw new Error('Select text or an area to mark.');
   const color = colorOf(dict, 'C') ?? [1, 0, 0];
-  const ops = ['1 j', ...strokeSetup(color, 1, null)];
+  const ops = ['1 j', ...strokeSetup(color, 1 / unit, null)];
   const reach = [];
   for (let i = 0; i < flat.length; i += 8) {
     const [x1, y1, x2, y2, x3, y3, x4, y4] = flat.slice(i, i + 8);
@@ -633,8 +633,8 @@ function drawSquiggly(doc, dict) {
       { x: x3, y: y3 },
       { x: x4, y: y4 },
     ].sort((a, b) => a.x - b.x);
-    const height = Math.hypot(x1 - x3, y1 - y3) || 10;
-    const amplitude = Math.max(1, height * 0.08),
+    const height = Math.hypot(x1 - x3, y1 - y3) || 10 / unit;
+    const amplitude = Math.max(1 / unit, height * 0.08),
       step = amplitude * 2;
     const length = Math.hypot(foot[1].x - foot[0].x, foot[1].y - foot[0].y);
     if (!length) continue;
@@ -652,7 +652,7 @@ function drawSquiggly(doc, dict) {
     ops.push(polyPath(zig, false), 'S');
   }
   if (!reach.length) throw new Error('The selection has no area.');
-  install(doc, dict, boundsOf(reach, 1), ops);
+  install(doc, dict, boundsOf(reach, 1 / unit), ops);
 }
 
 const helveticaFonts = new WeakMap();
@@ -957,7 +957,7 @@ export function drawAppearance(doc, page, dict, { box } = {}) {
     case 'Caret':
       return drawCaret(doc, dict);
     case 'Squiggly':
-      return drawSquiggly(doc, dict);
+      return drawSquiggly(doc, dict, unit);
     case 'Stamp':
       return drawStamp(doc, dict);
     case 'Text':

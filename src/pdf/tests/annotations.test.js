@@ -1003,6 +1003,37 @@ describe('pages with large units', () => {
     const [a, b] = [await render(await plain.save()), await render(await large.save())];
     expect(difference(signature(b, 48, 48), signature(a, 48, 48))).toBeLessThan(0.02);
   });
+  it('redraws a recolored squiggly underline at its size in points', async () => {
+    const views = [],
+      rects = [];
+    for (const unit of [1, 10]) {
+      const doc = await blank(1, [612 / unit, 792 / unit]);
+      doc.getPage(0).node.set(PDFName.of('UserUnit'), PDFNumber.of(unit));
+      // Another editor's squiggly under a line of 12 point text.
+      const quad = [100, 412, 300, 412, 100, 400, 300, 400].map((v) => v / unit);
+      const squiggly = doc.context.register(
+        doc.context.obj({
+          Type: 'Annot',
+          Subtype: 'Squiggly',
+          Rect: [100 / unit, 400 / unit, 300 / unit, 412 / unit],
+          QuadPoints: quad,
+          C: [1, 0, 0],
+          F: 4,
+        }),
+      );
+      doc.getPage(0).node.set(PDFName.of('Annots'), doc.context.obj([squiggly]));
+      await editAnnotation(doc, 0, listAnnotations(doc, 0)[0].id, { color: '#0000ff' });
+      const { rect } = listAnnotations(doc, 0)[0];
+      rects.push([rect.x, rect.y, rect.width, rect.height].map((v) => Math.round(v * unit)));
+      views.push(await render(await doc.save()));
+    }
+    expect(rects[1]).toEqual(rects[0]);
+    // The same zigzag, to the pixel.
+    const [a, b] = views.map((view) => view.inkBox());
+    for (const key of ['x0', 'y0', 'x1', 'y1'])
+      expect(Math.abs(a[key] - b[key])).toBeLessThanOrEqual(1);
+    expect(difference(signature(views[1], 48, 8), signature(views[0], 48, 8))).toBeLessThan(0.1);
+  });
 });
 
 describe('comment exchange', () => {
