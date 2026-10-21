@@ -4,3 +4,4 @@ import './selectops';
 import './lightdraw';
 import './datagizmos';
 import './viewops';
+import './camdraw';

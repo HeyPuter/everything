@@ -101,6 +101,9 @@ export function cameraPanels(o: ObjectData, ca: CameraData): Child {
       'Viewport Display',
       () => [
         num(ca, 'display_size', 'Size', { unit: 'distance', min: 0.01, max: 1000 }),
+        bool(ca, 'show_limits', 'Limits', { tip: 'Show the clipping range (and the focus distance) along the camera axis' }),
+        bool(ca as typeof ca & { show_mist?: boolean }, 'show_mist', 'Mist', { tip: 'Show the world mist range along the camera axis' }),
+        bool(ca as typeof ca & { show_sensor?: boolean }, 'show_sensor', 'Sensor', { tip: 'Show the sensor area in camera view' }),
         bool(ca, 'show_name', 'Name', { tip: 'Show the camera name in camera view' }),
         splitRow('Passepartout', checkbox('ca-pp', '', ca.show_passepartout, (v) => ((ca.show_passepartout = v), changed('Passepartout')))),
         num(ca, 'passepartout_alpha', 'Opacity', { min: 0, max: 1, slider: true, disabled: !ca.show_passepartout }),
