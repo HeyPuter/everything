@@ -6,6 +6,7 @@ import { MAX_FORMAT_CODE_LENGTH } from './numfmt.js';
 
 const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const edges = [['bl', 'left'], ['br', 'right'], ['bt', 'top'], ['bb', 'bottom'], ['bv', 'vertical'], ['bh', 'horizontal']];
+const UNDERLINE_KINDS = ['double', 'singleAccounting', 'doubleAccounting'];
 const keys = new Set(['bold', 'italic', 'strike', 'underline', 'font', 'scheme', 'size', 'color', 'bg', 'fmt', 'code',
   'align', 'valign', 'wrap', 'shrink', 'indent', 'rot', 'borderOutline', 'bs', 'bc', ...edges.flatMap(([key]) => [key, `${key}Border`])]);
 const fail = reason => { throw new Error(`Cannot write native pivot paint: ${reason}`); };
@@ -26,6 +27,8 @@ export function writeNativePivotPaint(style, { numberFormatId = null, palette = 
   const has = key => Object.hasOwn(style, key);
   let font = '', number = '', fill = '', border = '';
   for (const [key, tag] of [['bold', 'b'], ['italic', 'i'], ['strike', 'strike'], ['underline', 'u']]) if (has(key)) {
+    // A double or accounting underline is named, as a cell's is; a single one is the bare element.
+    if (key === 'underline' && UNDERLINE_KINDS.includes(style.underline)) { font += xmlTag(tag, { val: style.underline }); continue; }
     if (typeof style[key] !== 'boolean') fail(key);
     font += style[key] ? xmlTag(tag) : xmlTag(tag, { val: tag === 'u' ? 'none' : 0 });
   }

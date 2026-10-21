@@ -4,6 +4,7 @@ import { parseModelXml, modelChildren, standaloneModelXml } from './data-model-m
 import { readXlsxDifferentialStyle, xlsxColor, xlsxTextRotation } from './xlsx-styles.js';
 import { forEachRangeRecordAt } from './range-records.js';
 import { layerDifferentialStyle, cloneStyle } from './style-values.js';
+const UNDERLINE_KINDS = ['double', 'singleAccounting', 'doubleAccounting'];
 const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const sides = { left: 'bl', right: 'br', top: 'bt', bottom: 'bb', horizontal: 'bh', vertical: 'bv' };
 const fail = message => { throw new Error(`Invalid pivot paint: ${message}`); };
@@ -26,8 +27,8 @@ export function readNativePivotPaint(xml, themes, { numberFormats = {} } = {}) {
   for (const name of ['b', 'i', 'strike', 'u', 'name', 'color', 'sz', 'scheme']) allowed(one(font, name), []);
   const scheme = one(font, 'scheme');
   if (scheme && !['major', 'minor', 'none'].includes(scheme.getAttribute('val'))) fail('font scheme');
-  const underline = one(font, 'u');
-  if (underline && !['single', 'none'].includes(underline.getAttribute('val')?.trim() || 'single')) throw new Error('Pivot extended underline paint is not implemented');
+  const underline = one(font, 'u'), underlineKind = underline?.getAttribute('val')?.trim() || 'single';
+  if (underline && !['single', 'none', ...UNDERLINE_KINDS].includes(underlineKind)) throw new Error('Pivot extended underline paint is not implemented');
   const fill = one(root, 'fill'); allowed(fill, ['patternFill']);
   const pattern = one(fill, 'patternFill'); allowed(pattern, ['fgColor', 'bgColor']);
   if (pattern && !['', 'none', 'solid'].includes(pattern.getAttribute('patternType') || '')) throw new Error('Pivot pattern-fill paint is not implemented');
@@ -53,6 +54,8 @@ export function readNativePivotPaint(xml, themes, { numberFormats = {} } = {}) {
   const name = one(one(clean, 'font'), 'name');
   if (name) name.setAttribute('val', decodeXlsxString(name.getAttribute('val') || ''));
   const out = readXlsxDifferentialStyle(standaloneModelXml(clean), themes);
+  // A double or accounting underline is kept by name, as a cell keeps it.
+  if (UNDERLINE_KINDS.includes(underlineKind) && underline) out.underline = underlineKind;
   if (border?.hasAttribute('outline')) out.borderOutline = ['1', 'true'].includes(border.getAttribute('outline').trim());
   const size = one(font, 'sz');
   if (size) {

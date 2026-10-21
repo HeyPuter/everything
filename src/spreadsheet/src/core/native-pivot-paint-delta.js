@@ -5,6 +5,8 @@ import { writeNativePivotPaint } from './native-pivot-paint-xml.js';
 import { normalizeNativeFill, nativeFillPaintKind } from './native-fill.js';
 
 const flags = new Set(['bold', 'italic', 'underline', 'strike', 'wrap', 'shrink']);
+// A double or accounting underline is kept by name, as a cell keeps it.
+const UNDERLINE_KINDS = ['double', 'singleAccounting', 'doubleAccounting'];
 const edges = ['bl', 'br', 'bt', 'bb', 'bv', 'bh'];
 const edgeKeys = new Set(edges.flatMap(key => [key, `${key}Border`]));
 const numberKeys = new Set(NUMBER_FORMAT_KEYS);
@@ -45,7 +47,7 @@ export function nativePivotPaintDelta(after, changedKeys, { defaultFont = null, 
     if (key === 'bs' || key === 'bc') { sharedPen = true; continue; }
     const value = after[key];
     if (flags.has(key)) {
-      if (value != null && typeof value !== 'boolean') fail(key);
+      if (value != null && typeof value !== 'boolean' && !(key === 'underline' && UNDERLINE_KINDS.includes(value))) fail(key);
       out[key] = value ?? false;
     } else if (key === 'bg') out.bg = value ?? 'transparent';
     else if (key === 'color') out.color = value ?? 'windowtext';

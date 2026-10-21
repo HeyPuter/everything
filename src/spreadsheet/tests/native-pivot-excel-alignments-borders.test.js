@@ -56,3 +56,12 @@ it('pastes such formats onto a PivotTable', () => {
   expect(pasteNativePivotStyles(wb, 'report', source, 5, 4, data)).toBe(true);
   expect(paint(wb, 6, 5)).toMatchObject({ align: 'centerContinuous', bb: true, bbBorder: { bs: 'dashDotDot' } });
 });
+
+// A cell's double or accounting underline is kept by name, and a PivotTable's formats refused it the same way.
+it.each(['double', 'singleAccounting', 'doubleAccounting'])('pastes a %s underline onto a PivotTable and keeps it through a save', async (underline) => {
+  let wb = fixture();
+  expect(pasteNativePivotStyles(wb, 'report', [[{ s: { font: 'arial', size: 16, underline } }]], 5, 4, data)).toBe(true);
+  expect(paint(wb, 6, 5)).toMatchObject({ underline });
+  wb = await nativeRoundTrip(wb);
+  expect(paint(wb, 5, 4)).toMatchObject({ underline });
+});

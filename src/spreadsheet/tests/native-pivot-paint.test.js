@@ -44,7 +44,7 @@ it('retains theme font identity and resolves border tint without reading comment
   expect(paint.btBorder.bc).not.toBe('#123456');
 });
 it.each([
-  '<fill><gradientFill/></fill>', '<font><shadow/></font>', '<font><u val="double"/></font>',
+  '<fill><gradientFill/></fill>', '<font><shadow/></font>', '<font><u val="wavy"/></font>',
   '<alignment horizontal="start"/>', '<border><left style="wavy"/></border>', '<border diagonalUp="1"/>',
   '<border outline="0"><horizontal/></border>', '<extLst/>', '<font><other xmlns="urn:extension"/></font>',
 ])('refuses unimplemented differential effects %s', body => {
