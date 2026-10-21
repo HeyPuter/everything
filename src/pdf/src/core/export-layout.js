@@ -553,6 +553,7 @@ export async function readPage(pdf, page, { images, signal } = {}) {
       symbolic: font.symbolic,
       color: (mode === 1 || mode === 5 ? run?.stroke : run?.fill) || '000000',
       invisible: mode === 3 || mode === 7,
+      rtl: item.dir === 'rtl',
       underline: false,
       strike: false,
     };
@@ -802,12 +803,16 @@ function finishChunk(chunk) {
   const letters = chunk.spans.filter((span) => span.text.trim().length === 1).length;
   const spaced = chunk.spans.length >= 4 && letters >= chunk.spans.length * 0.7;
   const letterGap = spaced ? median(gaps) : 0;
-  for (let k = 0; k < chunk.spans.length; k++) {
-    const span = chunk.spans[k];
+  // Words of right-to-left text, drawn one by one, read from the rightmost.
+  const length = (spans) => spans.reduce((sum, span) => sum + span.text.trim().length, 0);
+  const rtl = length(chunk.spans.filter((span) => span.rtl)) * 2 > length(chunk.spans);
+  const order = rtl ? [...chunk.spans].reverse() : chunk.spans;
+  for (let k = 0; k < order.length; k++) {
+    const span = order[k];
     let piece = span.text.replace(/\s+/g, ' ');
-    const previous = chunk.spans[k - 1];
+    const previous = order[k - 1];
     if (previous) {
-      const gap = span.x0 - previous.x1;
+      const gap = rtl ? previous.x0 - span.x1 : span.x0 - previous.x1;
       if (
         gap - letterGap > 0.12 * Math.min(span.size, previous.size) &&
         !/\s$/.test(text) &&
