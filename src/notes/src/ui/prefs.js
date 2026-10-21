@@ -59,6 +59,10 @@ export function applyTheme(theme = getTheme()) {
   const root = document.documentElement;
   root.dataset.theme = theme;
   root.dataset.themeResolved = resolvedTheme(theme);
+  // The browser's toolbar and an installed app's title bar follow the
+  // app's theme, not only the system's (index.html has one per scheme).
+  const bar = root.dataset.themeResolved === 'dark' ? '#1c1c1c' : '#f5f5f5';
+  for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.setAttribute('content', bar);
   for (const fn of themeListeners) fn(root.dataset.themeResolved);
 }
 

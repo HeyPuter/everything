@@ -160,3 +160,15 @@ describe('export', () => {
     expect(await blob.text()).toBe('# Trip\n\nPack\n\nGo\n');
   });
 });
+
+describe('theme', () => {
+  afterEach(() => setTheme('system'));
+
+  it('tints the browser toolbar with the app theme, not only the system one', () => {
+    document.head.innerHTML = '<meta name="theme-color" content="#f5f5f5" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#1c1c1c" media="(prefers-color-scheme: dark)">';
+    setTheme('dark');
+    expect([...document.querySelectorAll('meta[name="theme-color"]')].map((m) => m.content)).toEqual(['#1c1c1c', '#1c1c1c']);
+    setTheme('light');
+    expect([...document.querySelectorAll('meta[name="theme-color"]')].map((m) => m.content)).toEqual(['#f5f5f5', '#f5f5f5']);
+  });
+});
