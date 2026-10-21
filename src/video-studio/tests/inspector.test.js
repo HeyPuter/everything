@@ -722,6 +722,31 @@ describe('number boxes', () => {
     expect(clip(env.v1.id).opacity).toBe(1);
   });
 
+  it('typing the value shown still applies it where that changes something', () => {
+    env.store.update('Opacity', (p) => {
+      T.findClip(p, env.v1.id).clip.opacity = 0.5;
+      T.findClip(p, env.img.id).clip.opacity = 0.8;
+    }, { structural: false });
+    // Several clips: the box shows the first one's value.
+    env.store.select([env.v1.id, env.img.id]);
+    expect(field('Opacity').querySelector('.num-input').value).toBe('50');
+    typeEnter('Opacity', 50);
+    expect(clip(env.img.id).opacity).toBe(0.5);
+    // Between keys: typing the value shown adds a key there.
+    env.store.update('Keys', (p) => {
+      T.findClip(p, env.v1.id).clip.keyframes = { opacity: [{ t: 0, v: 0, ease: 'linear' }, { t: 2 * US, v: 1, ease: 'linear' }] };
+    }, { structural: false });
+    env.store.select(env.v1.id);
+    env.store.seek(1 * US);
+    expect(field('Opacity').querySelector('.num-input').value).toBe('50');
+    typeEnter('Opacity', 50);
+    expect(clip(env.v1.id).keyframes.opacity).toHaveLength(3);
+    // On that key now, the same value again is no edit.
+    const steps = env.store.history.undoStack.length;
+    typeEnter('Opacity', 50);
+    expect(env.store.history.undoStack.length).toBe(steps);
+  });
+
   it('arrow keys keep values typed past the slider', () => {
     env.store.select(env.v1.id);
     const num = typeEnter('Scale', 1000);

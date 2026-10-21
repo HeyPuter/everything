@@ -154,6 +154,12 @@ export function slider(view, { label, min, max, step = 1, unit = '', decimals, g
     value: get(c),
     onInput: (v, final) => set(v, final),
     read: () => (view.clip ? get(view.clip) : undefined),
+    // The value shown, typed again, changes nothing, unless the prop has keys
+    // elsewhere (it adds one at the playhead).
+    unchanged: (v) => {
+      const clip = view.clip;
+      return Boolean(clip) && get(clip) === v && (!prop || view.keyState(prop) !== 'some');
+    },
     keyframe: prop
       ? {
         onToggle: () => view.actions.toggleKeyframe(view.id, prop),

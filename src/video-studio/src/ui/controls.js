@@ -21,10 +21,12 @@ function pct(input) {
  *  onInput(value, final)  final is true on change/commit (end of drag, Enter)
  *  read() -> the value now stored, shown after a typed or stepped value
  *    (the setter may limit it further)
+ *  unchanged(v) -> true when committing v would change nothing, so a typed
+ *    or stepped value is skipped (no undo step); without it, always commits
  *  keyframe: { onToggle, onPrev, onNext } shows the diamond button group
  * The number box keeps to the slider's range unless setLimits() widens it.
  */
-export function sliderField({ label, min = 0, max = 100, step = 1, value = 0, unit = '', decimals, onInput, read, keyframe, resetTo, wide = false }) {
+export function sliderField({ label, min = 0, max = 100, step = 1, value = 0, unit = '', decimals, onInput, read, unchanged, keyframe, resetTo, wide = false }) {
   const id = nextId('sl');
   const dec = decimals ?? (step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0);
   const range = h('input', { type: 'range', id, min, max, step, value, 'aria-label': label });
@@ -50,11 +52,11 @@ export function sliderField({ label, min = 0, max = 100, step = 1, value = 0, un
     pct(range);
   };
   /**
-   * Commit a value from the number box, then show what was stored. The same
-   * value again (Enter, an arrow at the end of the range) is no edit.
+   * Commit a value from the number box, then show what was stored. A value
+   * that changes nothing (Enter again, an arrow at the end of the range) is no edit.
    */
   const commit = (v) => {
-    if (v !== last) emit(v, true);
+    if (!unchanged?.(v)) emit(v, true);
     const stored = read?.();
     if (Number.isFinite(stored)) last = stored;
     show(last);
