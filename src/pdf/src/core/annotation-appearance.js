@@ -23,6 +23,7 @@ import { ensureMarkupAppearance } from './highlight.js';
 import { ensureNoteAppearance } from './notes.js';
 import { smoothStroke } from './signature.js';
 import { parseContent } from './text-edit.js';
+import { pageUserUnit } from './structure.js';
 
 export const name = PDFName.of;
 /** Content-stream numbers: three decimals, never exponents, never -0. */
@@ -748,7 +749,7 @@ export function richText(value, { fontSize, color, align, family }) {
  * its CL points from the anchor to the box, with the LE ending at the anchor. The text wraps
  * inside the box and reads upright on a page turned by the annotation's Rotate.
  */
-async function drawFreeText(doc, dict, box, style = freeTextStyle(dict)) {
+async function drawFreeText(doc, dict, box, style = freeTextStyle(dict), unit = 1) {
   const value = text(dict, 'Contents').replace(/\t/g, '    ');
   const rotation = [90, 180, 270].includes(dict.lookup(name('Rotate'))?.asNumber?.())
     ? dict.lookup(name('Rotate')).asNumber()
@@ -791,7 +792,8 @@ async function drawFreeText(doc, dict, box, style = freeTextStyle(dict)) {
     );
   }
   const frame = uprightFrame(box, rotation);
-  const pad = (border ? width : 0) + 2;
+  // Two points of space inside the frame, however large the page's units.
+  const pad = (border ? width : 0) + 2 / unit;
   const inner = frame.width - 2 * pad;
   const lines = inner > 0 ? wrapText(font, fontSize, value, inner) : [];
   const leading = fontSize * 1.2,
@@ -926,7 +928,13 @@ export const DRAWABLE = new Set([
  */
 export async function refreshAppearance(doc, page, dict, { box, style } = {}) {
   if (dict.lookup(name('Subtype')) === name('FreeText'))
-    return drawFreeText(doc, dict, box ?? innerBox(dict), style);
+    return drawFreeText(
+      doc,
+      dict,
+      box ?? innerBox(dict),
+      style ?? freeTextStyle(dict),
+      page ? pageUserUnit(page) : 1,
+    );
   return drawAppearance(doc, page, dict, { box });
 }
 export function drawAppearance(doc, page, dict, { box } = {}) {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
-import { PDFDocument, PDFName, PDFString, degrees } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFNumber, PDFString, degrees } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from '@napi-rs/canvas';
 import {
@@ -166,6 +166,26 @@ const subtypesOf = (doc, index = 0) =>
 const near = (a, b, tolerance = 0.01) => a.every((value, i) => Math.abs(value - b[i]) <= tolerance);
 
 describe('text boxes', () => {
+  it('reads the same on a page whose units are larger than points', async () => {
+    // Letter paper in units of ten points, as large drawings are made, beside plain Letter.
+    const views = [];
+    for (const unit of [1, 10]) {
+      const doc = await blank(1, [612 / unit, 792 / unit]);
+      doc.getPage(0).node.set(PDFName.of('UserUnit'), PDFNumber.of(unit));
+      const rect = { x: 100 / unit, y: 400 / unit, width: 160 / unit, height: 16 / unit };
+      await addTextBox(doc, 0, {
+        rect,
+        text: 'Measured',
+        fontSize: 10 / unit,
+        borderColor: null,
+        borderWidth: 0,
+      });
+      views.push((await render(await doc.save())).count(rect));
+    }
+    expect(views[0].inside).toBeGreaterThan(100);
+    expect(views[1].inside).toBeGreaterThan(views[0].inside * 0.8);
+    expect(views[1].outside).toBe(0);
+  });
   it('writes a FreeText with DA, DS, RC and an appearance that wraps its text in the box', async () => {
     const doc = await blank();
     const rect = { x: 100, y: 500, width: 160, height: 90 };

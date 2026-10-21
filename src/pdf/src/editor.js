@@ -9508,7 +9508,7 @@ export function createEditor({
             y: (Math.min(...ys) + Math.max(...ys)) / 2,
           };
     const fontSize = 9 / viewport.userUnit;
-    const labelWidth = label.length * fontSize * 0.6 + 8,
+    const labelWidth = label.length * fontSize * 0.6 + 8 / viewport.userUnit,
       labelHeight = fontSize * 1.6;
     // The label sits centered just above the middle, as the page reads, turned or not.
     const [cx, cy] = viewport.convertToViewportPoint(center.x, center.y);
@@ -9524,7 +9524,7 @@ export function createEditor({
           kind: kind === 'area' ? 'polygon' : kind === 'distance' ? 'line' : 'polyline',
           points,
           color: toolColors.comment,
-          width: 1,
+          width: 1 / viewport.userUnit,
           author,
           text: label,
         });
@@ -9704,9 +9704,10 @@ export function createEditor({
       entry.subtype === 'FreeText' &&
       el('input', {
         type: 'number',
-        // The sizes a text box takes; the field reports any other value itself.
-        min: 1,
-        max: 288,
+        // The sizes a text box takes, 1 to 288 points in the page's own units; the field
+        // reports any other value itself.
+        min: 1 / viewport.userUnit,
+        max: 288 / viewport.userUnit,
         step: 'any',
         required: true,
         value: entry.fontSize || 12,

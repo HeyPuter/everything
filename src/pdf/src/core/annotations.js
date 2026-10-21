@@ -15,6 +15,7 @@ import {
   annotationList,
   annotationsOf,
   pageRotation,
+  pageUserUnit,
   removeAnnotationThread,
 } from './structure.js';
 import { editNote, listNotes, parsePdfDate } from './notes.js';
@@ -105,8 +106,9 @@ function opacityArg(opacity) {
     throw new Error('Choose an opacity from 0 to 1.');
   return opacity;
 }
-function fontSizeArg(size) {
-  if (!finite(size) || size < 1 || size > 288)
+/** A font size in page units, which on a page with a UserUnit are larger than points. */
+function fontSizeArg(size, unit = 1) {
+  if (!finite(size) || size * unit < 1 - 1e-9 || size * unit > 288 + 1e-9)
     throw new Error('Choose a font size from 1 to 288 points.');
   return size;
 }
@@ -174,17 +176,20 @@ const idAt = (page, position) => annotationsOf(page).get(position).toString();
 // ---------------------------------------------------------------------------------------------
 // Text boxes and callouts
 
-function textBoxStyle({
-  fontSize = 12,
-  color = '#000000',
-  fill = null,
-  borderColor = '#e5322d',
-  borderWidth = 1,
-  dash = null,
-  align = 'left',
-}) {
+function textBoxStyle(
+  page,
+  {
+    fontSize = 12,
+    color = '#000000',
+    fill = null,
+    borderColor = '#e5322d',
+    borderWidth = 1,
+    dash = null,
+    align = 'left',
+  },
+) {
   return {
-    fontSize: fontSizeArg(fontSize),
+    fontSize: fontSizeArg(fontSize, pageUserUnit(page)),
     color: hexToRgb(color, 'text color'),
     fill: optionalRgb(fill, 'fill color'),
     borderColor: optionalRgb(borderColor, 'border color'),
@@ -217,7 +222,7 @@ export async function addTextBox(doc, page, options = {}) {
   setOpacity(dict, options.opacity);
   await refreshAppearance(doc, page, dict, {
     box,
-    style: textBoxStyle(options),
+    style: textBoxStyle(page, options),
   });
   return register(doc, page, dict);
 }
@@ -273,7 +278,7 @@ export async function addCallout(doc, page, options = {}) {
   setOpacity(dict, options.opacity);
   await refreshAppearance(doc, page, dict, {
     box,
-    style: textBoxStyle(options),
+    style: textBoxStyle(page, options),
   });
   return register(doc, page, dict);
 }
@@ -778,7 +783,8 @@ export async function editAnnotation(doc, page, id, changes = {}) {
     }
     if (changes.width !== undefined) style.width = widthArg(changes.width);
     if (changes.dash !== undefined) style.dash = dashArg(changes.dash);
-    if (changes.fontSize !== undefined) style.fontSize = fontSizeArg(changes.fontSize);
+    if (changes.fontSize !== undefined)
+      style.fontSize = fontSizeArg(changes.fontSize, pageUserUnit(page));
     if (changes.align !== undefined) style.align = alignArg(changes.align);
   } else {
     if (changes.color !== undefined) {
