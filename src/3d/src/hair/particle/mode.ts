@@ -17,6 +17,7 @@ import { proportionalWeights } from '../../modes/proportional';
 import type { DocumentData, ObjectData } from '../../data/types';
 import type { EditedHair, ObjectPhysics, ParticleSettingsX, ParticleSystemX } from '../../physics/types';
 import { evaluateHair, settingsOf, systemOf } from '../../physics/particles';
+import { hairEditing } from '../../physics/particleops';
 import { rng } from '../data';
 import { combine } from '../select';
 import { deleteKeys, deleteStrands, editedFromStrands, keyCount, keyStrands, mirrorStrands, rekey, removeDoubles, selectedStrands, strandCount, subdivideKeys, unifyLength } from './keys';
@@ -120,6 +121,9 @@ export function buildEditedHair(ob: ObjectData, psys: ParticleSystemX, s: Partic
   const hair = evaluateHair(ob, m, psys, { ...s, child_type: 'NONE' }, mesh, 0);
   return editedFromStrands(hair.points, hair.segments + 1, hair.parents);
 }
+
+// the hair connect / disconnect operators build edited keys the same way
+hairEditing.fromGenerated = buildEditedHair;
 
 modeHandlers.PARTICLE_EDIT = {
   enter(ob) {

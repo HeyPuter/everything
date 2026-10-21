@@ -17,6 +17,8 @@ export interface RigidBodyWorldX extends RigidBodyWorld {
   effector_weights_types?: Record<string, number>;
   /** effector weight for gravity (effector_weights.gravity) */
   effector_weights_gravity?: number;
+  /** resolve overlaps without adding energy */
+  use_split_impulse?: boolean;
 }
 
 export interface RigidBodyX extends RigidBodyData {
@@ -25,6 +27,12 @@ export interface RigidBodyX extends RigidBodyData {
   collision_collections?: boolean[];
   /** start the simulation asleep (needs deactivation) */
   use_start_deactivated?: boolean;
+  /** speeds below which a body goes to sleep */
+  deactivate_linear_velocity?: number;
+  deactivate_angular_velocity?: number;
+  /** mesh the collision shape comes from, and whether it follows the deforming mesh */
+  mesh_source?: 'BASE' | 'DEFORM' | 'FINAL';
+  use_deform?: boolean;
 }
 
 export interface RigidBodyConstraintData {
@@ -45,6 +53,9 @@ export interface RigidBodyConstraintData {
   /** the joint breaks when its bodies receive more than this impulse in one step */
   use_breaking?: boolean;
   breaking_threshold?: number;
+  /** solve this constraint with more iterations than the world uses */
+  use_override_solver_iterations?: boolean;
+  solver_iterations?: number;
   [key: string]: unknown;
 }
 
@@ -67,6 +78,22 @@ export interface ForceFieldX extends ForceField {
   distance_min?: number;
   /** wind/force: apply to particles/cloth/soft bodies/rigid bodies */
   apply_to_location?: boolean;
+  /** only the positive / negative Z side of the field acts */
+  z_direction?: 'BOTH' | 'POSITIVE' | 'NEGATIVE';
+  /** inverse square falloff (gravitation) */
+  use_gravity_falloff?: boolean;
+  /** collision objects block the field */
+  use_absorption?: boolean;
+  /** how much surfaces only catch the part of the force across them */
+  wind_factor?: number;
+  /** tube / cone falloff across the axis (distance, or angle in degrees for cones) */
+  radial_falloff?: number;
+  use_radial_min?: boolean;
+  radial_min?: number;
+  use_radial_max?: boolean;
+  radial_max?: number;
+  /** turbulence noise fixed in world space */
+  use_global_coords?: boolean;
 }
 
 export interface CollisionSettingsX extends CollisionSettings {
@@ -78,6 +105,8 @@ export interface CollisionSettingsX extends CollisionSettings {
   stickiness?: number;
   damping_random?: number;
   friction_random?: number;
+  /** cloth and soft bodies are pushed out along the collider's normals */
+  use_normal?: boolean;
 }
 
 export interface ClothSettings {
@@ -128,6 +157,8 @@ export interface ClothSettings {
   shear_stiffness_max?: number;
   vertex_group_bending?: string;
   bending_stiffness_max?: number;
+  /** the rest shape follows the animated / deformed mesh */
+  use_dynamic_mesh?: boolean;
 }
 
 export interface ClothCollisionSettings {
@@ -139,6 +170,12 @@ export interface ClothCollisionSettings {
   use_self_collision: boolean;
   self_distance_min: number;
   self_friction: number;
+  /** most speed a collision may give a vertex (0: no limit) */
+  impulse_clamp?: number;
+  self_impulse_clamp?: number;
+  /** only vertices of these groups collide (with objects / with each other) */
+  vertex_group_object_collisions?: string;
+  vertex_group_self_collisions?: string;
 }
 
 export interface ClothModifier extends ModifierBase {
@@ -179,6 +216,25 @@ export interface SoftBodySettings {
   /** self collision between the soft body's own vertices */
   use_self_collision?: boolean;
   self_ball_size?: number;
+  /** only colliders in this collection */
+  collision_collection?: string | null;
+  /** vertex group scaling the mass of each vertex */
+  vertex_group_mass?: string;
+  /** vertex group scaling the edge spring stiffness */
+  vertex_group_spring?: string;
+  /** diagonal springs across quads */
+  use_stiff_quads?: boolean;
+  shear?: number;
+  /** self collision ball size: manual, or from the average / shortest / longest edge */
+  collision_type?: 'MANUAL' | 'AVERAGE' | 'MINIMAL' | 'MAXIMAL';
+  ball_stiff?: number;
+  ball_damp?: number;
+  /** solver steps per frame (range, automatic within it) */
+  step_min?: number;
+  step_max?: number;
+  use_auto_step?: boolean;
+  /** velocity lost on contact with colliders (%) */
+  choke?: number;
 }
 
 export interface SoftBodyModifier extends ModifierBase {
@@ -196,6 +252,10 @@ export interface ParticleSettingsX extends ParticleSettings {
   effector_weights_types?: Record<string, number>;
   /** render as collection */
   instance_collection?: string | null;
+  /** use the counts of `instance_weights` to pick collection objects */
+  use_collection_count?: boolean;
+  instance_weights?: { object: string; name: string; count: number }[];
+  active_instanceweight_index?: number;
   use_collection_pick_random?: boolean;
   use_whole_collection?: boolean;
   /** render as lines */
@@ -225,15 +285,83 @@ export interface ParticleSettingsX extends ParticleSettings {
   /** only objects in this collection deflect the particles */
   collision_collection?: string | null;
   object_factor?: number;
-  display_method?: 'RENDER' | 'DOT' | 'NONE';
+  display_method?: 'RENDER' | 'DOT' | 'CIRC' | 'CROSS' | 'AXIS' | 'NONE';
   display_size?: number;
   use_dead?: boolean;
   material_slot?: number;
   use_scale_instance?: boolean;
   child_radius?: number;
   timestep_substeps?: number;
+  /** seconds of simulation per frame */
+  timestep?: number;
+  /** how positions and velocities are advanced each step */
+  integrator?: 'EULER' | 'VERLET' | 'MIDPOINT' | 'RK4';
   effector_weights_all?: number;
   use_collision?: boolean;
+  // --- emission distribution
+  distribution?: 'JIT' | 'RAND' | 'GRID';
+  use_emit_random?: boolean;
+  use_even_distribution?: boolean;
+  userjit?: number;
+  jitter_factor?: number;
+  grid_resolution?: number;
+  grid_random?: number;
+  hexagonal_grid?: boolean;
+  invert_grid?: boolean;
+  // --- children
+  child_percent?: number;
+  child_roundness?: number;
+  child_length?: number;
+  child_length_threshold?: number;
+  child_seed?: number;
+  virtual_parents?: number;
+  clump_shape?: number;
+  use_clump_noise?: boolean;
+  clump_noise_size?: number;
+  kink?: 'NO' | 'CURL' | 'RADIAL' | 'WAVE' | 'BRAID' | 'SPIRAL';
+  kink_amplitude?: number;
+  kink_amplitude_clump?: number;
+  kink_amplitude_random?: number;
+  kink_frequency?: number;
+  kink_shape?: number;
+  kink_flat?: number;
+  kink_axis?: 'X' | 'Y' | 'Z';
+  kink_axis_random?: number;
+  child_parting_factor?: number;
+  child_parting_min?: number;
+  child_parting_max?: number;
+  roughness_1_size?: number;
+  roughness_endpoint?: number;
+  roughness_end_shape?: number;
+  roughness_2?: number;
+  roughness_2_size?: number;
+  roughness_2_threshold?: number;
+  // --- paths and display
+  display_step?: number;
+  render_step?: number;
+  use_hair_bspline?: boolean;
+  color_maximum?: number;
+  show_unborn?: boolean;
+  use_parent_particles?: boolean;
+  use_absolute_path_time?: boolean;
+  path_start?: number;
+  path_end?: number;
+  length_random?: number;
+  /** particles act as force fields on other simulations */
+  force_field_1?: ForceFieldX | null;
+  force_field_2?: ForceFieldX | null;
+  use_self_effect?: boolean;
+  /** particles that act as fields (0: all) */
+  effector_amount?: number;
+  /** instances keep their object's world offset / rotation */
+  use_global_instance?: boolean;
+  use_rotation_instance?: boolean;
+  // --- hair shape (strand thickness in renders)
+  root_radius?: number;
+  tip_radius?: number;
+  radius_scale?: number;
+  shape?: number;
+  use_close_tip?: boolean;
 }
 
 /** Hand-edited hair (Particle Edit mode): keys per strand in the emitter's object space. */
@@ -263,6 +391,15 @@ export interface ParticleSystemX extends ParticleSystem {
   invert_vertex_group_size?: boolean;
   vertex_group_velocity?: string;
   invert_vertex_group_velocity?: boolean;
+  /** connected edited hair: roots bound to emitter triangles (follows deformation) */
+  hair_binding?: import('./hairbind').HairBinding | null;
+  /** the hair was disconnected from the emitter on purpose */
+  hair_disconnected?: boolean;
+  /** keyed targets / boid relations (other particle systems) */
+  targets?: import('./keyed').KeyedTarget[];
+  active_particle_target_index?: number;
+  /** keyed: use the targets' own times and durations */
+  use_keyed_timing?: boolean;
   /** hair dynamics: strands simulated like cloth chains */
   use_hair_dynamics?: boolean;
   hair_dynamics?: HairDynamicsSettings;
@@ -279,10 +416,40 @@ export interface HairDynamicsSettings {
   collision_distance: number;
   effector_weights_gravity: number;
   effector_weights_all: number;
+  /** random stiffness per strand */
+  bending_random?: number;
+  /** volume: strands share their motion within cells, and keep a target density */
+  internal_friction?: number;
+  voxel_cell_size?: number;
+  density_target?: number;
+  density_strength?: number;
+  collision_quality?: number;
+  /** most velocity a collision may add in one frame (0: no limit) */
+  impulse_clamp?: number;
+  collision_collection?: string | null;
 }
 
 export function defaultHairDynamics(): HairDynamicsSettings {
-  return { quality: 5, pin_stiffness: 0, mass: 0.3, bending_stiffness: 0.5, bending_damping: 0.5, air_damping: 1, use_collision: true, collision_distance: 0.005, effector_weights_gravity: 1, effector_weights_all: 1 };
+  return {
+    quality: 5,
+    pin_stiffness: 0,
+    mass: 0.3,
+    bending_stiffness: 0.5,
+    bending_damping: 0.5,
+    air_damping: 1,
+    use_collision: true,
+    collision_distance: 0.005,
+    effector_weights_gravity: 1,
+    effector_weights_all: 1,
+    bending_random: 0,
+    internal_friction: 0,
+    voxel_cell_size: 0.1,
+    density_target: 0,
+    density_strength: 0,
+    collision_quality: 2,
+    impulse_clamp: 0,
+    collision_collection: null,
+  };
 }
 
 export interface ObjectPhysics extends ObjectData {
@@ -310,6 +477,10 @@ export function defaultRigidBody(type: 'ACTIVE' | 'PASSIVE'): RigidBodyX {
     linear_damping: 0.04,
     angular_damping: 0.1,
     use_deactivation: false,
+    deactivate_linear_velocity: 0.4,
+    deactivate_angular_velocity: 0.5,
+    mesh_source: 'DEFORM',
+    use_deform: false,
   };
 }
 
@@ -380,6 +551,17 @@ export function defaultField(type: ForceFieldX['type']): ForceFieldX {
     guide_free: 0.1,
     use_guide_path_add: false,
     guide_clump_amount: 0,
+    apply_to_location: true,
+    z_direction: 'BOTH',
+    use_gravity_falloff: false,
+    use_absorption: false,
+    wind_factor: 1,
+    radial_falloff: 0,
+    use_radial_min: false,
+    radial_min: 0,
+    use_radial_max: false,
+    radial_max: 0,
+    use_global_coords: false,
   };
 }
 
@@ -465,6 +647,18 @@ export function defaultSoftBodySettings(): SoftBodySettings {
     spring_length: 0,
     use_self_collision: false,
     self_ball_size: 0.1,
+    collision_collection: null,
+    vertex_group_mass: '',
+    vertex_group_spring: '',
+    use_stiff_quads: false,
+    shear: 1,
+    collision_type: 'AVERAGE',
+    ball_stiff: 1,
+    ball_damp: 0.5,
+    step_min: 10,
+    step_max: 300,
+    use_auto_step: true,
+    choke: 3,
   };
 }
 
@@ -499,7 +693,6 @@ export function defaultParticleSettings(id: string, name: string): ParticleSetti
     use_rotations: false,
     angular_velocity_factor: 0,
     seed: 0,
-    display_color: [0.9, 0.9, 0.9],
     display_method: 'RENDER',
     display_size: 0.05,
     use_dead: false,
@@ -511,6 +704,8 @@ export function defaultParticleSettings(id: string, name: string): ParticleSetti
     roughness_1: 0,
     physics_type: 'NEWTON',
     timestep_substeps: 2,
+    timestep: 0.04,
+    integrator: 'MIDPOINT',
     use_collision: true,
     users: 1,
     display_percentage: 100,
@@ -534,6 +729,64 @@ export function defaultParticleSettings(id: string, name: string): ParticleSetti
     instance_collection: null,
     use_whole_collection: false,
     use_collection_pick_random: false,
+    distribution: 'JIT',
+    use_emit_random: true,
+    use_even_distribution: true,
+    userjit: 0,
+    jitter_factor: 1,
+    grid_resolution: 10,
+    grid_random: 0,
+    hexagonal_grid: false,
+    invert_grid: false,
+    child_percent: 10,
+    child_roundness: 0,
+    child_length: 1,
+    child_length_threshold: 0,
+    child_seed: 0,
+    virtual_parents: 0,
+    clump_shape: 0,
+    use_clump_noise: false,
+    clump_noise_size: 1,
+    kink: 'NO',
+    kink_amplitude: 0.2,
+    kink_amplitude_clump: 1,
+    kink_amplitude_random: 0,
+    kink_frequency: 2,
+    kink_shape: 0,
+    kink_flat: 0,
+    kink_axis: 'Z',
+    kink_axis_random: 0,
+    child_parting_factor: 0,
+    child_parting_min: 0,
+    child_parting_max: 0,
+    roughness_1_size: 1,
+    roughness_endpoint: 0,
+    roughness_end_shape: 1,
+    roughness_2: 0,
+    roughness_2_size: 1,
+    roughness_2_threshold: 0,
+    display_step: 2,
+    render_step: 3,
+    use_hair_bspline: false,
+    display_color: 'MATERIAL',
+    color_maximum: 1,
+    show_unborn: false,
+    use_parent_particles: false,
+    use_absolute_path_time: false,
+    path_start: 0,
+    path_end: 1,
+    length_random: 0,
+    use_global_instance: false,
+    use_rotation_instance: false,
+    force_field_1: null,
+    force_field_2: null,
+    use_self_effect: false,
+    effector_amount: 0,
+    root_radius: 1,
+    tip_radius: 0,
+    radius_scale: 0.01,
+    shape: 0,
+    use_close_tip: true,
   };
 }
 

@@ -323,6 +323,18 @@ export interface PBDParams {
   aero?: { factor: number; lift: boolean } | null;
   /** plasticity: springs take on part of their stretch permanently (per frame fraction) */
   plastic?: number;
+  /** per-vertex mass multipliers (mass vertex group) */
+  massScale?: ArrayLike<number> | null;
+  /** share of the velocity lost by vertices touching a collider (soft body choke) */
+  choke?: number;
+  /** self collision push strength 0..1 (soft body ball stiffness) */
+  selfStiffness?: number;
+  /** most a collision may move a vertex per second (0: no limit), for colliders / self collision */
+  impulseClamp?: number;
+  selfImpulseClamp?: number;
+  /** vertices taking part in collisions (weight > 0), for colliders / self collision */
+  collideWeights?: ArrayLike<number> | null;
+  selfWeights?: ArrayLike<number> | null;
 }
 
 export function initState(world: Float32Array): PBDState {
@@ -436,12 +448,14 @@ export function stepFrame(
   const baseW = P.mass > 0 ? 1 / P.mass : 0;
   for (let i = 0; i < n; i++) {
     const pin = P.pin ? P.pin[i] * P.pinStiffness : 0;
-    w[i] = pin >= 0.999 ? 0 : baseW * (1 - Math.min(1, pin));
+    const ms = P.massScale ? Math.max(0.01, P.massScale[i] ?? 1) : 1;
+    w[i] = pin >= 0.999 ? 0 : (baseW / ms) * (1 - Math.min(1, pin));
   }
   const lambda = new Float64Array(topo.a.length);
   const normals = new Float64Array(x.length);
   const f = new Float64Array(3);
-  const useNormals = effectors.some((e) => e.field.type === 'WIND') || !!(P.aero && P.aero.factor > 0);
+  // surfaces catch forces with a wind factor (wind fields by default)
+  const useNormals = effectors.some((e) => ((e.field as { wind_factor?: number }).wind_factor ?? (e.field.type === 'WIND' ? 1 : 0)) > 0) || !!(P.aero && P.aero.factor > 0);
   if (useNormals) vertexNormals(x, topo.tris, normals);
   const nrm: [number, number, number] = [0, 0, 1];
   const thick = P.collision?.distance ?? 0;
@@ -638,10 +652,14 @@ export function stepFrame(
       for (let pass = 0; pass < Math.max(1, P.collision.quality); pass++)
         for (let i = 0; i < n; i++) {
           if (w[i] === 0) continue;
+          if (P.collideWeights && !((P.collideWeights[i] ?? 0) > 0)) continue;
           const k = i * 3;
           let px = p[k],
             py = p[k + 1],
             pz = p[k + 2];
+          const p0x = px,
+            p0y = py,
+            p0z = pz;
           const ox = x[k],
             oy = x[k + 1],
             oz = x[k + 2];
@@ -663,11 +681,14 @@ export function stepFrame(
             const s = (px - hit.cx) * hit.nx + (py - hit.cy) * hit.ny + (pz - hit.cz) * hit.nz;
             const sPrev = (ox - hit.cx) * hit.nx + (oy - hit.cy) * hit.ny + (oz - hit.cz) * hit.nz;
             const side = cs.use_culling ? 1 : sPrev >= 0 ? 1 : -1;
-            if (hit.dist < th && !(cs.use_culling && sPrev < -th)) {
+            // single sided: points further behind than the inner thickness pass through
+            const inner = Math.max(th, (cs as { thickness_inner?: number }).thickness_inner ?? th);
+            if (hit.dist < (cs.use_culling && s < 0 ? inner : th) && !(cs.use_culling && sPrev < -inner)) {
               let dx = hit.nx * side,
                 dy = hit.ny * side,
                 dz = hit.nz * side;
-              if (hit.dist > 1e-6 && s * side > 0) {
+              // override normals: always push along the surface normal
+              if (hit.dist > 1e-6 && s * side > 0 && !(cs as { use_normal?: boolean }).use_normal) {
                 dx = (px - hit.cx) / hit.dist;
                 dy = (py - hit.cy) / hit.dist;
                 dz = (pz - hit.cz) / hit.dist;
@@ -688,13 +709,46 @@ export function stepFrame(
               collided[i] = 1;
             }
           }
+          // impulse clamping: a collision moves a vertex by at most this speed
+          if (P.impulseClamp && P.impulseClamp > 0) {
+            const cx = px - p0x,
+              cy = py - p0y,
+              cz = pz - p0z;
+            const cl = Math.hypot(cx, cy, cz),
+              mx = P.impulseClamp * h;
+            if (cl > mx) {
+              px = p0x + (cx / cl) * mx;
+              py = p0y + (cy / cl) * mx;
+              pz = p0z + (cz / cl) * mx;
+            }
+          }
           p[k] = px;
           p[k + 1] = py;
           p[k + 2] = pz;
         }
     }
     // 5. self collision (vertex-vertex)
-    if (P.self && P.self.distance > 0) selfCollide(p, x, w, P.self.distance, P.self.friction, restShape ?? targets1);
+    if (P.self && P.self.distance > 0) {
+      const before = P.selfImpulseClamp ? Float64Array.from(p) : null;
+      // vertices outside the self collision group do not collide with each other
+      const ws = P.selfWeights ? Float64Array.from(w, (x, i) => ((P.selfWeights![i] ?? 0) > 0 ? x : 0)) : w;
+      selfCollide(p, x, ws, P.self.distance, P.self.friction, restShape ?? targets1, P.selfStiffness ?? 1);
+      if (before) {
+        const mx = P.selfImpulseClamp! * h;
+        for (let i = 0; i < n; i++) {
+          const k = i * 3;
+          const cx = p[k] - before[k],
+            cy = p[k + 1] - before[k + 1],
+            cz = p[k + 2] - before[k + 2];
+          const cl = Math.hypot(cx, cy, cz);
+          if (cl > mx) {
+            p[k] = before[k] + (cx / cl) * mx;
+            p[k + 1] = before[k + 1] + (cy / cl) * mx;
+            p[k + 2] = before[k + 2] + (cz / cl) * mx;
+          }
+        }
+      }
+    }
     // 6. velocities
     for (let i = 0; i < n * 3; i++) {
       v[i] = (p[i] - x[i]) / h;
@@ -707,7 +761,7 @@ export function stepFrame(
           // reuse the collider damping of the nearest surface
           const k = i * 3;
           if (closestSurface(colliders, x[k], x[k + 1], x[k + 2], thick + 0.1, hit)) {
-            const d = Math.min(1, Math.max(0, hit.collider!.settings.damping ?? 0));
+            const d = Math.min(1, Math.max(0, hit.collider!.settings.damping ?? 0) + Math.max(0, P.choke ?? 0));
             v[k] *= 1 - d;
             v[k + 1] *= 1 - d;
             v[k + 2] *= 1 - d;
@@ -775,7 +829,7 @@ export function stepFrame(
   }
 }
 
-function selfCollide(p: Float64Array, x: Float64Array, w: Float64Array, dist: number, friction: number, rest: ArrayLike<number>) {
+function selfCollide(p: Float64Array, x: Float64Array, w: Float64Array, dist: number, friction: number, rest: ArrayLike<number>, stiffness = 1) {
   const n = w.length;
   const cell = dist * 2;
   const grid = new Map<number, number[]>();
@@ -808,7 +862,7 @@ function selfCollide(p: Float64Array, x: Float64Array, w: Float64Array, dist: nu
             // neighbours that are close at rest are not colliding
             const rd = Math.hypot(rest[i * 3] - rest[j * 3], rest[i * 3 + 1] - rest[j * 3 + 1], rest[i * 3 + 2] - rest[j * 3 + 2]);
             if (rd < dist * 2) continue;
-            const corr = (dist - d) / ws;
+            const corr = ((dist - d) / ws) * Math.max(0, Math.min(1, stiffness));
             const nx = dx / d,
               ny = dy / d,
               nz = dz / d;

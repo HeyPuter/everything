@@ -1,7 +1,7 @@
 // Panels of the Explode and Particle Instance modifiers.
 import { h } from '../../../ui/h';
 import { num, bool, splitRow } from '../../../ui/props';
-import { enumRow } from '../../../ui/widgets';
+import { enumRow, enumMenu, opButton } from '../../../ui/widgets';
 import { app } from '../../../app/app';
 import { modifierFields, modifierExtraUI } from '../stack';
 import { vgroupRow, sub, objRow, boolToggles, touch } from './kit';
@@ -18,12 +18,21 @@ modifierFields.EXPLODE = [];
 modifierExtraUI.EXPLODE = (ob, m) => {
   const r = m as Rec;
   const hasParticles = ob.modifiers.some((x) => x.type === 'PARTICLE_SYSTEM');
+  const me = ob.data ? app.doc.meshes[ob.data] : undefined;
+  const uvName = me && me.uvs.length ? me.uv_map_name || 'UVMap' : '';
   return [
     hasParticles ? null : h('div', { class: 'mod-note' }, 'Add a particle system above this modifier: its particles carry the faces.'),
+    splitRow(
+      'Particle UV',
+      enumMenu(`${m.id}.particle_uv`, [{ value: '', label: '—' }, ...(uvName ? [{ value: uvName, label: uvName, icon: 'uv' }] : [])], String(r.particle_uv ?? ''), (v) => ((r.particle_uv = v), touch('Set Particle UV'))),
+    ),
+    r.particle_uv ? h('div', { class: 'mod-note' }, 'The UV map holds the particle age (U from 0 at birth to 1 at death).') : null,
     boolToggles(m, 'Show', SHOW),
+    bool(r, 'use_edge_cut', 'Cut Edges', { tip: 'Split faces between the particles their corners belong to' }),
     bool(r, 'use_size', 'Size'),
     vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
     r.vertex_group ? num(r, 'protect', 'Protect', { min: 0, max: 1, slider: true }) : null,
+    h('div', { class: 'row-aligned', style: { padding: '2px 8px' } }, opButton('object.explode_refresh', 'Refresh', { modifier: m.name }, { tip: 'Simulate the particles again' })),
   ];
 };
 

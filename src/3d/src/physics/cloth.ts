@@ -4,7 +4,7 @@ import { registerModifier } from '../eval/modifiers';
 import { groupWeights } from '../eval/meshbuild';
 import type { DocumentData } from '../data/types';
 import type { EvalMesh } from '../eval/types';
-import { runMeshSim, meshSimSignature, simDeps, fps, gravityOf, type MeshSimSetup } from './meshsim';
+import { runMeshSim, meshSimSignature, simDeps, gravityOf, type MeshSimSetup } from './meshsim';
 import { physicsDoc } from './state';
 import {
   defaultClothCollision,
@@ -14,6 +14,12 @@ import {
   type ClothModifier,
   type SoftBodyModifier,
 } from './types';
+
+/**
+ * Simulated seconds per frame of cloth, soft bodies and hair dynamics (at speed 1). It does not
+ * depend on the frame rate, so these simulations keep their timing when the scene's rate changes.
+ */
+export const MESH_SIM_FRAME_TIME = Math.sqrt(0.001);
 
 /** Stiffness (settings units) → XPBD compliance. 0 disables the constraint. */
 export const compliance = (k: number, scale = 1000) => (k > 0 ? 1 / (k * scale) : 1e6);
@@ -35,6 +41,7 @@ export function clothSetup(m: ClothModifier, mesh: EvalMesh, doc: DocumentData):
   return {
     shear: true,
     bend: true,
+    dynamicMesh: !!s.use_dynamic_mesh,
     collide: c.use_collision,
     collection: c.collection ?? null,
     sewing: !!s.use_sewing_springs,
@@ -49,7 +56,7 @@ export function clothSetup(m: ClothModifier, mesh: EvalMesh, doc: DocumentData):
         }
       : null,
     params: {
-      dt: (s.time_scale || 0) / fps(doc),
+      dt: (s.time_scale || 0) * MESH_SIM_FRAME_TIME,
       substeps: quality,
       iterations: 6,
       gravity: gravityOf(doc, s.effector_weights_gravity * s.effector_weights_all),
@@ -64,6 +71,10 @@ export function clothSetup(m: ClothModifier, mesh: EvalMesh, doc: DocumentData):
       fieldWeight: s.effector_weights_all,
       collision: c.use_collision ? { distance: c.distance_min, quality: Math.max(1, Math.round(c.collision_quality)) } : null,
       self: c.use_self_collision ? { distance: c.self_distance_min, friction: c.self_friction } : null,
+      impulseClamp: c.impulse_clamp ?? 0,
+      selfImpulseClamp: c.self_impulse_clamp ?? 0,
+      collideWeights: c.vertex_group_object_collisions ? groupWeights(mesh, c.vertex_group_object_collisions) : null,
+      selfWeights: c.vertex_group_self_collisions ? groupWeights(mesh, c.vertex_group_self_collisions) : null,
       restScale: 1 - Math.min(0.99, Math.max(-1, s.shrink_min)),
       internalCompliance: [compliance(s.internal_tension_stiffness ?? 15), compliance(s.internal_compression_stiffness ?? 15)],
       // sewing force 0 = as strong as possible
@@ -91,18 +102,46 @@ export function softBodySetup(m: SoftBodyModifier, mesh: EvalMesh, doc: Document
   const quality = Math.max(1, Math.round(s.quality));
   // goal weight 1 means fully pinned (goal strength max = no dynamics)
   const pin = goal ? goal.map((g) => (g >= 0.999 ? 1 : 0)) : null;
+  // self collision ball size: fixed, or a factor of the edge lengths
+  let selfDist = Math.max(0.001, s.self_ball_size ?? 0.1);
+  if (s.use_self_collision && (s.collision_type ?? 'AVERAGE') !== 'MANUAL') {
+    let lo = Infinity,
+      hi = 0,
+      sum = 0,
+      cnt = 0;
+    for (let f = 0; f < mesh.offsets.length - 1; f++)
+      for (let c = mesh.offsets[f]; c < mesh.offsets[f + 1]; c++) {
+        const a = mesh.indices[c] * 3,
+          b = mesh.indices[c + 1 < mesh.offsets[f + 1] ? c + 1 : mesh.offsets[f]] * 3;
+        const l = Math.hypot(mesh.positions[a] - mesh.positions[b], mesh.positions[a + 1] - mesh.positions[b + 1], mesh.positions[a + 2] - mesh.positions[b + 2]);
+        lo = Math.min(lo, l);
+        hi = Math.max(hi, l);
+        sum += l;
+        cnt++;
+      }
+    const edge = !cnt ? 0.1 : s.collision_type === 'MINIMAL' ? lo : s.collision_type === 'MAXIMAL' ? hi : sum / cnt;
+    selfDist = Math.max(0.001, edge * Math.max(0.001, s.self_ball_size ?? 0.1));
+  }
+  // solver steps: the quality, kept within the step range when automatic
+  const steps = s.use_auto_step === false ? Math.max(1, Math.round((s.step_min ?? 10) / 2)) : quality;
+  const massW = groupWeights(mesh, s.vertex_group_mass);
+  const springW = groupWeights(mesh, s.vertex_group_spring);
   return {
-    shear: s.use_edges,
+    // diagonal springs across quads only with Stiff Quads
+    shear: s.use_edges && !!s.use_stiff_quads,
     bend: s.use_edges && s.bend > 0,
     collide: s.use_collision,
+    collection: s.collision_collection ?? null,
     useRestShape: s.use_shape_match,
+    // the spring group scales the edge stiffness (unweighted edges keep none)
+    springScale: s.use_edges && springW ? springW : null,
     params: {
-      dt: (s.speed || 0) / fps(doc),
-      substeps: quality,
+      dt: (s.speed || 0) * MESH_SIM_FRAME_TIME,
+      substeps: steps,
       iterations: 4,
       gravity: gravityOf(doc, s.effector_weights_gravity * s.effector_weights_all),
       airDamping: s.friction,
-      compliance: s.use_edges ? [compliance(s.pull, 200), compliance(s.push, 200), compliance(s.pull, 200), compliance(s.bend, 200)] : [1e6, 1e6, 1e6, 1e6],
+      compliance: s.use_edges ? [compliance(s.pull, 200), compliance(s.push, 200), compliance(Math.min(0.999, s.shear ?? 1), 200), compliance(s.bend, 200)] : [1e6, 1e6, 1e6, 1e6],
       damping: [s.damping * 10, s.damping * 10, s.damping * 10, s.damping * 10],
       mass: Math.max(1e-4, s.mass),
       pin,
@@ -111,7 +150,10 @@ export function softBodySetup(m: SoftBodyModifier, mesh: EvalMesh, doc: Document
       shapeMatch: s.use_shape_match ? s.shape_stiffness : 0,
       fieldWeight: s.effector_weights_all,
       collision: s.use_collision ? { distance: s.ball_size, quality: 1 } : null,
-      self: s.use_self_collision ? { distance: Math.max(0.001, s.self_ball_size ?? 0.1), friction: 1 } : null,
+      self: s.use_self_collision ? { distance: selfDist, friction: Math.max(0, s.ball_damp ?? 0.5) * 2 } : null,
+      selfStiffness: s.ball_stiff ?? 1,
+      massScale: massW ? Float32Array.from(massW, (x) => Math.max(0.01, x)) : null,
+      choke: Math.max(0, Math.min(100, s.choke ?? 3)) / 100,
       // spring length in percent of the rest length (0 keeps the rest length)
       restScale: s.spring_length ? Math.max(0.01, s.spring_length / 100) : 1,
       aero: s.aero ? { factor: s.aero, lift: s.aerodynamics_type === 'LIFT_FORCE' } : null,

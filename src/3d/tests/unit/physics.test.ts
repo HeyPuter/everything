@@ -254,6 +254,8 @@ describe('particles', () => {
     ps.hair_length = 0.5;
     ps.hair_step = 4;
     ps.render_type = 'PATH';
+    // no path subdivision: one line per segment
+    (ps as { display_step?: number }).display_step = 0;
     const g = new Depsgraph(doc);
     evalAt(g, doc, 1);
     const d = particleDraw.get(key)!;

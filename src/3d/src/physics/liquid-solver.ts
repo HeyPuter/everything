@@ -11,6 +11,8 @@ export interface LiquidGrid {
   /** particles: positions (grid units) and velocities (cells/s) */
   px: Float32Array;
   pv: Float32Array;
+  /** affine velocity (3×3, row major) per particle for APIC transfers (allocated on first use) */
+  pc?: Float32Array | null;
   count: number;
   /** 1 = solid cell (effector) */
   solid: Uint8Array;
@@ -39,6 +41,10 @@ export interface LiquidParams {
   accel?: Float32Array | null;
   /** kinematic viscosity in cells² per second (0: none) */
   viscosity?: number;
+  /** affine particle-in-cell transfers (keep rotation, less noise than FLIP) */
+  apic?: boolean;
+  /** guide velocities (xyz + weight per cell) the grid is pulled towards */
+  guide?: { field: Float32Array; weight: number; factor: number } | null;
 }
 
 export function newLiquidGrid(nx: number, ny: number, nz: number, capacity = 1024): LiquidGrid {
@@ -56,6 +62,11 @@ export function addParticle(g: LiquidGrid, x: number, y: number, z: number, vx: 
     npv.set(g.pv);
     g.px = npx;
     g.pv = npv;
+    if (g.pc) {
+      const npc = new Float32Array(cap * 3);
+      npc.set(g.pc);
+      g.pc = npc;
+    }
   }
   const i = g.count * 3;
   g.px[i] = x;
@@ -64,6 +75,7 @@ export function addParticle(g: LiquidGrid, x: number, y: number, z: number, vx: 
   g.pv[i] = vx;
   g.pv[i + 1] = vy;
   g.pv[i + 2] = vz;
+  if (g.pc) g.pc.fill(0, g.count * 9, g.count * 9 + 9);
   g.count++;
 }
 
@@ -76,6 +88,7 @@ export function removeParticles(g: LiquidGrid, drop: (x: number, y: number, z: n
     if (o !== i) {
       g.px.copyWithin(o * 3, a, a + 3);
       g.pv.copyWithin(o * 3, a, a + 3);
+      if (g.pc) g.pc.copyWithin(o * 9, i * 9, i * 9 + 9);
     }
     o++;
   }
@@ -107,8 +120,9 @@ export function sampleField(a: Float32Array, g: LiquidGrid, x: number, y: number
   return (c00 * (1 - fy) + c10 * fy) * (1 - fz) + (c01 * (1 - fy) + c11 * fy) * fz;
 }
 
-function particlesToGrid(g: LiquidGrid) {
+function particlesToGrid(g: LiquidGrid, apic = false) {
   const { nx, ny, nz, u, v, w, weight, liquid } = g;
+  const C = apic ? g.pc : null;
   u.fill(0);
   v.fill(0);
   w.fill(0);
@@ -132,9 +146,22 @@ function particlesToGrid(g: LiquidGrid) {
       if (i < 0 || j < 0 || k < 0 || i >= nx || j >= ny || k >= nz) continue;
       const wt = (c & 1 ? fx : 1 - fx) * ((c >> 1) & 1 ? fy : 1 - fy) * ((c >> 2) & 1 ? fz : 1 - fz);
       const o = i + j * nx + k * nx * ny;
-      u[o] += g.pv[a] * wt;
-      v[o] += g.pv[a + 1] * wt;
-      w[o] += g.pv[a + 2] * wt;
+      let pu = g.pv[a],
+        pvv = g.pv[a + 1],
+        pw = g.pv[a + 2];
+      if (C) {
+        // affine part: velocity at the cell centre from the particle's velocity gradient
+        const dx = i + 0.5 - g.px[a],
+          dy = j + 0.5 - g.px[a + 1],
+          dz = k + 0.5 - g.px[a + 2];
+        const q = p * 9;
+        pu += C[q] * dx + C[q + 1] * dy + C[q + 2] * dz;
+        pvv += C[q + 3] * dx + C[q + 4] * dy + C[q + 5] * dz;
+        pw += C[q + 6] * dx + C[q + 7] * dy + C[q + 8] * dz;
+      }
+      u[o] += pu * wt;
+      v[o] += pvv * wt;
+      w[o] += pw * wt;
       weight[o] += wt;
     }
     const ci = clampi(Math.floor(g.px[a]), nx),
@@ -287,7 +314,12 @@ function project(g: LiquidGrid, P: LiquidParams) {
 /** One time step of the liquid. */
 export function stepLiquid(g: LiquidGrid, P: LiquidParams) {
   if (!g.count) return;
-  particlesToGrid(g);
+  if (P.apic && (!g.pc || g.pc.length < (g.px.length / 3) * 9)) {
+    const pc = new Float32Array((g.px.length / 3) * 9);
+    if (g.pc) pc.set(g.pc.subarray(0, Math.min(g.pc.length, pc.length)));
+    g.pc = pc;
+  }
+  particlesToGrid(g, !!P.apic);
   const n = g.nx * g.ny * g.nz;
   // grow the velocity field one cell into the air so particles near the surface sample sensible values
   extrapolate(g);
@@ -301,6 +333,18 @@ export function stepLiquid(g: LiquidGrid, P: LiquidParams) {
     g.w[o] += (P.gravity[2] + (A ? A[o * 3 + 2] : 0)) * P.dt;
   }
   if (P.viscosity && P.viscosity > 0) diffuse(g, P.viscosity * P.dt);
+  if (P.guide) {
+    const G = P.guide.field;
+    const rate = 1 - Math.exp(-Math.max(0, P.guide.weight) * 5 * P.dt);
+    for (let o = 0; o < n; o++) {
+      const gw = G[o * 4 + 3];
+      if (gw <= 0 || !g.liquid[o]) continue;
+      const t = rate * Math.min(1, gw);
+      g.u[o] += (G[o * 4] * P.guide.factor - g.u[o]) * t;
+      g.v[o] += (G[o * 4 + 1] * P.guide.factor - g.v[o]) * t;
+      g.w[o] += (G[o * 4 + 2] * P.guide.factor - g.w[o]) * t;
+    }
+  }
   enforceBoundaries(g, P);
   project(g, P);
   enforceBoundaries(g, P);
@@ -317,6 +361,22 @@ export function stepLiquid(g: LiquidGrid, P: LiquidParams) {
     const du = nu - sampleField(g.uOld, g, x, y, z),
       dv = nv - sampleField(g.vOld, g, x, y, z),
       dw = nw - sampleField(g.wOld, g, x, y, z);
+    if (P.apic && g.pc) {
+      // APIC: new velocity from the grid plus its local gradient (finite differences of the field)
+      g.pv[a] = nu;
+      g.pv[a + 1] = nv;
+      g.pv[a + 2] = nw;
+      const q = p * 9;
+      const h = 0.5;
+      const fields = [g.u, g.v, g.w];
+      for (let r = 0; r < 3; r++) {
+        const F = fields[r];
+        g.pc[q + r * 3] = (sampleField(F, g, x + h, y, z) - sampleField(F, g, x - h, y, z)) / (2 * h);
+        g.pc[q + r * 3 + 1] = (sampleField(F, g, x, y + h, z) - sampleField(F, g, x, y - h, z)) / (2 * h);
+        g.pc[q + r * 3 + 2] = (sampleField(F, g, x, y, z + h) - sampleField(F, g, x, y, z - h)) / (2 * h);
+      }
+      continue;
+    }
     g.pv[a] = P.flip * (g.pv[a] + du) + (1 - P.flip) * nu;
     g.pv[a + 1] = P.flip * (g.pv[a + 1] + dv) + (1 - P.flip) * nv;
     g.pv[a + 2] = P.flip * (g.pv[a + 2] + dw) + (1 - P.flip) * nw;

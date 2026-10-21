@@ -34,9 +34,17 @@ function deflect(ed: EditedHair, s: Surface, dist: number, strands: number[]) {
 
 let seed = 1;
 
-export function startParticleStroke(v: View3D, e: PointerEvent, tool: string, invert: boolean) {
+/** A brush stroke on the edited hair: `dab` applies the tool at a region position, `end` finishes. */
+export interface ParticleStrokeSession {
+  dab(d: { x: number; y: number; pressure: number }): void;
+  update(): void;
+  end(): void;
+  cancel(): void;
+}
+
+export function particleStrokeSession(v: View3D, tool: string, invert: boolean): ParticleStrokeSession | null {
   const a = activePE();
-  if (!a) return;
+  if (!a) return null;
   const { psys, ob } = a;
   const pe = peSettings(app.doc);
   const b = peBrush(app.doc, tool);
@@ -44,7 +52,7 @@ export function startParticleStroke(v: View3D, e: PointerEvent, tool: string, in
   let ed: EditedHair = { ...before, co: before.co.slice(), weight: before.weight.slice() };
   psys.edited_hair = ed;
   const w = app.graph.get(ob.id)?.world.clone();
-  if (!w) return;
+  if (!w) return null;
   const mesh = app.graph.get(ob.id)?.mesh;
   const surface = mesh && mesh.indices.length ? Surface.of(mesh) : null;
   const proj = (): Projector => projectorFor(v, w);
@@ -64,80 +72,79 @@ export function startParticleStroke(v: View3D, e: PointerEvent, tool: string, in
   };
   const rootNormals = tool === 'builtin.particle_puff' ? normals() : null;
 
-  runStroke(v, e, {
-    spacing: () => (tool === 'builtin.particle_add' ? 50 : 0),
-    radiusPx: () => b.size,
-    settings: () => ({ stroke_method: 'SPACE' }),
-    dab: (d) => {
-      const strands = { positions: ed.co, offsets: ed.key_offsets };
-      const bp: BrushParams = { x: d.x, y: d.y, radius: b.size, strength: b.strength * d.pressure, falloff: 'SMOOTH', mask: keyMask(ed, tipOnly) };
-      const dx = prev ? d.x - prev.x : 0,
-        dy = prev ? d.y - prev.y : 0;
-      const at = prev ? { ...bp, x: prev.x, y: prev.y } : bp;
-      prev = { x: d.x, y: d.y };
-      let touched: number[] = [];
-      switch (tool) {
-        case 'builtin.particle_comb':
-          touched = combDab(strands, proj(), { ...at, strength: Math.min(1, at.strength * 2) }, dx, dy, pe.use_preserve_length ? lengths : segmentLengths(strands));
-          if (!pe.use_preserve_length) lengths = segmentLengths(strands);
-          break;
-        case 'builtin.particle_smooth':
-          touched = smoothDab(strands, proj(), bp);
-          if (pe.use_preserve_length) for (const s of touched) restoreLengths(ed.co, ed.key_offsets[s], ed.key_offsets[s + 1], lengths);
-          break;
-        case 'builtin.particle_length': {
-          const grow = (b.length_mode ?? 'GROW') === 'GROW' ? !invert : invert;
-          touched = growShrinkDab(strands, proj(), bp, grow, { uniform: true, rate: 0.04 });
-          if (touched.length) lengths = segmentLengths(strands);
-          break;
-        }
-        case 'builtin.particle_puff':
-          if (rootNormals) {
-            const add = (b.puff_mode ?? 'ADD') === 'ADD' ? !invert : invert;
-            touched = puffDab(strands, proj(), bp, rootNormals, lengths, !add);
-          }
-          break;
-        case 'builtin.particle_weight': {
-          // the brush strength is the weight painted
-          const p = proj();
-          const S = new Float64Array(3);
-          const mask = bp.mask!;
-          for (let k = 0; k < keyCount(ed); k++) {
-            if (!mask[k]) continue;
-            p.toScreen(ed.co[k * 3], ed.co[k * 3 + 1], ed.co[k * 3 + 2], S);
-            const dd = Math.hypot(S[0] - d.x, S[1] - d.y);
-            if (dd >= b.size) continue;
-            const f = falloff(dd / b.size);
-            ed.weight[k] += ((invert ? 0 : b.strength) - ed.weight[k]) * f;
-            changed = true;
-          }
-          break;
-        }
-        case 'builtin.particle_cut': {
-          const cut = cutDab(ed, proj(), bp);
-          if (cut) {
-            ed = psys.edited_hair = cut;
-            lengths = segmentLengths({ positions: ed.co, offsets: ed.key_offsets });
-            changed = true;
-          }
-          break;
-        }
-        case 'builtin.particle_add': {
-          if (!surface) break;
-          const made = addHairs(v, ob, ed, surface, d.x, d.y, b, pe, rand);
-          if (made) {
-            ed = psys.edited_hair = made;
-            lengths = segmentLengths({ positions: ed.co, offsets: ed.key_offsets });
-            changed = true;
-          }
-          break;
-        }
+  const dab = (d: { x: number; y: number; pressure: number }) => {
+    const strands = { positions: ed.co, offsets: ed.key_offsets };
+    const bp: BrushParams = { x: d.x, y: d.y, radius: b.size, strength: b.strength * d.pressure, falloff: 'SMOOTH', mask: keyMask(ed, tipOnly) };
+    const dx = prev ? d.x - prev.x : 0,
+      dy = prev ? d.y - prev.y : 0;
+    const at = prev ? { ...bp, x: prev.x, y: prev.y } : bp;
+    prev = { x: d.x, y: d.y };
+    let touched: number[] = [];
+    switch (tool) {
+      case 'builtin.particle_comb':
+        touched = combDab(strands, proj(), { ...at, strength: Math.min(1, at.strength * 2) }, dx, dy, pe.use_preserve_length ? lengths : segmentLengths(strands));
+        if (!pe.use_preserve_length) lengths = segmentLengths(strands);
+        break;
+      case 'builtin.particle_smooth':
+        touched = smoothDab(strands, proj(), bp);
+        if (pe.use_preserve_length) for (const s of touched) restoreLengths(ed.co, ed.key_offsets[s], ed.key_offsets[s + 1], lengths);
+        break;
+      case 'builtin.particle_length': {
+        const grow = (b.length_mode ?? 'GROW') === 'GROW' ? !invert : invert;
+        touched = growShrinkDab(strands, proj(), bp, grow, { uniform: true, rate: 0.04 });
+        if (touched.length) lengths = segmentLengths(strands);
+        break;
       }
-      if (touched.length) {
-        changed = true;
-        if (surface && pe.use_emitter_deflect) deflect(ed, surface, pe.emitter_distance, touched);
+      case 'builtin.particle_puff':
+        if (rootNormals) {
+          const add = (b.puff_mode ?? 'ADD') === 'ADD' ? !invert : invert;
+          touched = puffDab(strands, proj(), bp, rootNormals, lengths, !add);
+        }
+        break;
+      case 'builtin.particle_weight': {
+        // the brush strength is the weight painted
+        const p = proj();
+        const S = new Float64Array(3);
+        const mask = bp.mask!;
+        for (let k = 0; k < keyCount(ed); k++) {
+          if (!mask[k]) continue;
+          p.toScreen(ed.co[k * 3], ed.co[k * 3 + 1], ed.co[k * 3 + 2], S);
+          const dd = Math.hypot(S[0] - d.x, S[1] - d.y);
+          if (dd >= b.size) continue;
+          const f = falloff(dd / b.size);
+          ed.weight[k] += ((invert ? 0 : b.strength) - ed.weight[k]) * f;
+          changed = true;
+        }
+        break;
       }
-    },
+      case 'builtin.particle_cut': {
+        const cut = cutDab(ed, proj(), bp);
+        if (cut) {
+          ed = psys.edited_hair = cut;
+          lengths = segmentLengths({ positions: ed.co, offsets: ed.key_offsets });
+          changed = true;
+        }
+        break;
+      }
+      case 'builtin.particle_add': {
+        if (!surface) break;
+        const made = addHairs(v, ob, ed, surface, d.x, d.y, b, pe, rand);
+        if (made) {
+          ed = psys.edited_hair = made;
+          lengths = segmentLengths({ positions: ed.co, offsets: ed.key_offsets });
+          changed = true;
+        }
+        break;
+      }
+    }
+    if (touched.length) {
+      changed = true;
+      if (surface && pe.use_emitter_deflect) deflect(ed, surface, pe.emitter_distance, touched);
+    }
+  };
+
+  return {
+    dab,
     update: () => {
       if (!changed) return;
       ed = psys.edited_hair = { ...ed, co: ed.co.slice(), weight: ed.weight.slice() };
@@ -151,6 +158,21 @@ export function startParticleStroke(v: View3D, e: PointerEvent, tool: string, in
       setEd(psys, before);
       app.changed('doc');
     },
+  };
+}
+
+export function startParticleStroke(v: View3D, e: PointerEvent, tool: string, invert: boolean) {
+  const st = particleStrokeSession(v, tool, invert);
+  if (!st) return;
+  const b = peBrush(app.doc, tool);
+  runStroke(v, e, {
+    spacing: () => (tool === 'builtin.particle_add' ? 50 : 0),
+    radiusPx: () => b.size,
+    settings: () => ({ stroke_method: 'SPACE' }),
+    dab: (d) => st.dab(d),
+    update: () => st.update(),
+    end: () => st.end(),
+    cancel: () => st.cancel(),
   });
 }
 

@@ -4,11 +4,12 @@
 // (point, line, plane, surface or every vertex) decides where distances are measured from.
 import { Matrix4, Vector3 } from 'three';
 import type { DocumentData, ObjectData } from '../data/types';
-import { hash32, motionKey, worldAt, type SimContext } from './common';
+import { caches, hash32, motionKey, worldAt, type FrameCache, type SimContext } from './common';
 import type { ForceFieldX } from './types';
 import { meshSignature } from '../eval/depsgraph';
 import type { EvalMesh } from '../eval/types';
 import { closestOnTriangle, meshTriangles } from '../eval/geomquery';
+import { buildColliders, newHit, segmentHit, type ColliderMesh } from './colliders';
 
 export interface Effector {
   id: string;
@@ -28,7 +29,11 @@ export interface Effector {
   points?: Float32Array;
   /** world-space triangles of the field mesh (surface shape) */
   tris?: Uint32Array;
+  /** collision objects that absorb the field */
+  blockers?: ColliderMesh[];
 }
+
+const absorbHit = newHit();
 
 export function fieldObjects(doc: DocumentData): ObjectData[] {
   const out: ObjectData[] = [];
@@ -39,9 +44,28 @@ export function fieldObjects(doc: DocumentData): ObjectData[] {
   return out;
 }
 
+/** Particle systems whose particles act as force fields (Force Field Settings of their settings). */
+export function particleFieldSystems(doc: DocumentData): { ob: ObjectData; modId: string; s: Record<string, unknown>; fields: ForceFieldX[] }[] {
+  const out: { ob: ObjectData; modId: string; s: Record<string, unknown>; fields: ForceFieldX[] }[] = [];
+  for (const id of doc.object_order) {
+    const ob = doc.objects[id];
+    if (!ob || ob.hide_viewport) continue;
+    for (const ps of ob.particle_systems as { id?: string; settings: string }[]) {
+      const s = doc.particles[ps.settings] as unknown as Record<string, unknown> | undefined;
+      if (!s || s.type === 'HAIR') continue;
+      const fields = [s.force_field_1, s.force_field_2].filter((f): f is ForceFieldX => !!f && typeof f === 'object' && (f as ForceFieldX).type !== 'NONE');
+      if (!fields.length) continue;
+      const m = ob.modifiers.find((x) => x.type === 'PARTICLE_SYSTEM' && x.particle_system === ps.id);
+      if (m) out.push({ ob, modId: m.id, s, fields });
+    }
+  }
+  return out;
+}
+
 /** Settings + motion signature of all fields (part of simulation cache hashes). */
 export function fieldsKey(doc: DocumentData, refFrame: number): string {
-  return fieldObjects(doc)
+  const parts = particleFieldSystems(doc).map((p) => `P:${p.ob.id}:${JSON.stringify(p.fields)}:${p.s.effector_amount}:${p.s.use_self_effect}:${p.s.count}:${p.s.frame_start}:${p.s.frame_end}:${p.s.lifetime}:${motionKey(doc, p.ob, refFrame)}`);
+  return parts.join('|') + fieldObjects(doc)
     .map((ob) => {
       let k = `${ob.id}:${JSON.stringify(ob.field)}:${motionKey(doc, ob, refFrame)}`;
       // guides follow their curve, surface/point fields their mesh
@@ -55,6 +79,9 @@ export function fieldsKey(doc: DocumentData, refFrame: number): string {
 
 export function collectEffectors(ctx: SimContext, frame: number, exclude?: string): Effector[] {
   const out: Effector[] = [];
+  // collision objects absorbing fields (built once when any field asks for them)
+  let blockers: ColliderMesh[] | null = null;
+  const absorbers = () => (blockers ??= buildColliders(ctx, Math.round(frame), exclude ?? '', 0));
   for (const ob of fieldObjects(ctx.doc)) {
     if (ob.id === exclude) continue;
     const m = worldAt(ctx, ob, frame);
@@ -63,6 +90,7 @@ export function collectEffectors(ctx: SimContext, frame: number, exclude?: strin
     const scale = z.length() || 1;
     z.normalize();
     const eff: Effector = { id: ob.id, field: ob.field as ForceFieldX, px: e[12], py: e[13], pz: e[14], ax: z.x, ay: z.y, az: z.z, inv: m.clone().invert(), scale, world: m };
+    if ((ob.field as ForceFieldX).use_absorption) eff.blockers = absorbers().filter((c) => c.id !== ob.id);
     const shape = (ob.field as ForceFieldX).shape;
     const me = ob.type === 'MESH' && ob.data ? ctx.doc.meshes[ob.data] : undefined;
     if ((shape === 'SURFACE' || shape === 'POINTS') && me) {
@@ -79,6 +107,24 @@ export function collectEffectors(ctx: SimContext, frame: number, exclude?: strin
       if (shape === 'SURFACE') eff.tris = meshTriangles({ positions: W, offsets: me.offsets, indices: me.indices } as EvalMesh);
     }
     out.push(eff);
+  }
+  // particles acting as force fields (their own system only feels them with Self Effect)
+  for (const p of particleFieldSystems(ctx.doc)) {
+    if (p.ob.id === exclude && !p.s.use_self_effect) continue;
+    const c = caches.get(`PARTICLES:${p.ob.id}:${p.modId}`) as FrameCache<{ pos: Float32Array; state: Uint8Array }> | undefined;
+    const fr = c?.frames.get(Math.round(frame)) ?? c?.nearest(Math.round(frame));
+    if (!fr) continue;
+    const amount = Math.max(0, Math.round((p.s.effector_amount as number) ?? 0));
+    const n = fr.state.length;
+    const step = amount > 0 ? Math.max(1, Math.floor(n / amount)) : 1;
+    let used = 0;
+    for (let i = 0; i < n; i += step) {
+      if (fr.state[i] !== 1) continue;
+      if (amount > 0 && used >= amount) break;
+      used++;
+      const m = new Matrix4().makeTranslation(fr.pos[i * 3], fr.pos[i * 3 + 1], fr.pos[i * 3 + 2]);
+      for (const f of p.fields) out.push({ id: p.ob.id, field: f, px: fr.pos[i * 3], py: fr.pos[i * 3 + 1], pz: fr.pos[i * 3 + 2], ax: 0, ay: 0, az: 1, inv: m.clone().invert(), scale: 1, world: m });
+    }
   }
   return out;
 }
@@ -110,15 +156,27 @@ export function valueNoise(x: number, y: number, z: number, seed: number, ch: nu
 }
 
 function falloff(f: ForceFieldX, dist: number, radial: number, axial: number): number {
-  if (f.use_max_distance && (f.distance_max ?? 0) > 0 && dist > f.distance_max!) return 0;
-  if (f.use_min_distance && dist < (f.distance_min ?? 0)) return 0;
-  const power = f.falloff_power ?? 0;
-  if (power <= 0) return 1;
-  let r = dist;
-  if (f.falloff_type === 'TUBE') r = radial;
-  else if (f.falloff_type === 'CONE') r = dist * (1 + Math.max(0, radial / Math.max(1e-6, Math.abs(axial))));
+  // Z direction: only one side of the field object acts
+  if (f.z_direction === 'POSITIVE' && axial < 0) return 0;
+  if (f.z_direction === 'NEGATIVE' && axial > 0) return 0;
+  const tubeOrCone = f.falloff_type === 'TUBE' || f.falloff_type === 'CONE';
+  // along the axis for tubes and cones (the main falloff), everywhere for spheres
+  const main = tubeOrCone ? Math.abs(axial) : dist;
+  if (f.use_max_distance && (f.distance_max ?? 0) > 0 && main > f.distance_max!) return 0;
+  if (f.use_min_distance && main < (f.distance_min ?? 0)) return 0;
+  // gravitation: inverse square of the distance
+  const power = f.use_gravity_falloff ? 2 : (f.falloff_power ?? 0);
+  let k = power > 0 ? 1 / Math.pow(Math.max(main, 0.1), power) : 1;
+  if (tubeOrCone) {
+    // radial (tube: distance from the axis) or angular (cone: angle from the axis, degrees) falloff
+    const r = f.falloff_type === 'TUBE' ? radial : (Math.atan2(radial, Math.abs(axial)) * 180) / Math.PI;
+    if (f.use_radial_max && r > (f.radial_max ?? 0)) return 0;
+    if (f.use_radial_min && r < (f.radial_min ?? 0)) return 0;
+    const rp = f.radial_falloff ?? 0;
+    if (rp > 0) k *= 1 / Math.pow(Math.max(f.falloff_type === 'TUBE' ? r : r / 45, 0.1), rp);
+  }
   // 1 / r^power, limited near the field origin to keep the integration stable
-  return 1 / Math.pow(Math.max(r, 0.1), power);
+  return k;
 }
 
 const _p = new Vector3(),
@@ -295,9 +353,13 @@ export function effectorForce(
           const size = Math.max(1e-3, f.size ?? 1);
           const seed = f.seed ?? 1;
           const t = time * 0.05;
-          fx = valueNoise(x / size + t, y / size, z / size, seed, 0) * S * fo * 2;
-          fy = valueNoise(x / size, y / size + t, z / size, seed, 1) * S * fo * 2;
-          fz = valueNoise(x / size, y / size, z / size + t, seed, 2) * S * fo * 2;
+          // noise in world space (global) or moving with the field object
+          const qx = f.use_global_coords ? x : x - e.px,
+            qy = f.use_global_coords ? y : y - e.py,
+            qz = f.use_global_coords ? z : z - e.pz;
+          fx = valueNoise(qx / size + t, qy / size, qz / size, seed, 0) * S * fo * 2;
+          fy = valueNoise(qx / size, qy / size + t, qz / size, seed, 1) * S * fo * 2;
+          fz = valueNoise(qx / size, qy / size, qz / size + t, seed, 2) * S * fo * 2;
           break;
         }
         case 'DRAG': {
@@ -320,13 +382,19 @@ export function effectorForce(
         fy += valueNoise(x * 2, y * 2 + time * 0.3, z * 2, seed, 4) * nz;
         fz += valueNoise(x * 2, y * 2, z * 2 + time * 0.3, seed, 5) * nz;
       }
-      // surfaces (cloth) catch wind like a sail: only the normal component pushes
-      if (normal && f.type === 'WIND') {
+      // surfaces (cloth) catch the force like a sail: the wind factor removes the part along them
+      const wf = f.wind_factor ?? (f.type === 'WIND' ? 1 : 0);
+      if (normal && wf > 0) {
         const d = fx * normal[0] + fy * normal[1] + fz * normal[2];
-        fx = normal[0] * d;
-        fy = normal[1] * d;
-        fz = normal[2] * d;
+        const k = Math.min(1, wf);
+        fx = fx * (1 - k) + normal[0] * d * k;
+        fy = fy * (1 - k) + normal[1] * d * k;
+        fz = fz * (1 - k) + normal[2] * d * k;
       }
+      // collision objects between the field and the point absorb it
+      if (f.use_absorption && e.blockers?.length && segmentHit(e.blockers, x, y, z, ox, oy, oz, absorbHit)) continue;
+      // Affect ▸ Location off: the field does not push (it only turns things)
+      if (f.apply_to_location === false) continue;
       // flow: the field becomes a target air velocity instead of a constant force
       if (f.flow > 0 && (f.type === 'FORCE' || f.type === 'WIND' || f.type === 'VORTEX')) {
         fx = f.flow * (fx - vx);

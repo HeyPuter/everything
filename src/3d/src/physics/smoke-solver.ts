@@ -36,7 +36,11 @@ export interface GasParams {
   burningRate: number;
   flameSmoke: number;
   flameMaxTemp: number;
+  /** lowest temperature of burning fuel (flames heat between this and the maximum) */
+  flameIgnition?: number;
+  /** dissolve rate per second; linear dissolving removes a fixed amount instead of a fraction */
   dissolve: number;
+  dissolveLinear?: boolean;
   heatDecay: number;
   pressureIterations: number;
   /** closed borders: -x +x -y +y -z +z */
@@ -243,7 +247,8 @@ export function stepGas(g: GasGrid, P: GasParams) {
       const burn = f * rate;
       g.fuel[o] = f - burn;
       g.flame[o] = Math.min(1, Math.max(g.flame[o] * 0.5, f));
-      g.heat[o] = Math.max(g.heat[o], Math.min(P.flameMaxTemp, g.heat[o] + burn * P.flameMaxTemp * 4));
+      const ign = Math.min(P.flameMaxTemp, P.flameIgnition ?? 0);
+      g.heat[o] = Math.max(g.heat[o], ign + (P.flameMaxTemp - ign) * Math.min(1, g.flame[o]), Math.min(P.flameMaxTemp, g.heat[o] + burn * P.flameMaxTemp * 4));
       g.density[o] += burn * P.flameSmoke;
     }
   }
@@ -279,10 +284,12 @@ export function stepGas(g: GasGrid, P: GasParams) {
     swap(g, 'flame', 'tmp');
   }
   // dissipation
-  const keep = Math.max(0, 1 - P.dissolve * dt);
+  const keep = P.dissolveLinear ? 1 : Math.max(0, 1 - P.dissolve * dt);
+  const sub = P.dissolveLinear ? P.dissolve * dt : 0;
   const cool = Math.max(0, 1 - P.heatDecay * dt);
   for (let o = 0; o < n; o++) {
     if (keep < 1) g.density[o] *= keep;
+    if (sub > 0) g.density[o] = Math.max(0, g.density[o] - sub);
     g.heat[o] *= cool;
     if (g.density[o] < 1e-5) g.density[o] = 0;
   }

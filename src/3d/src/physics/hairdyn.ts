@@ -5,13 +5,13 @@ import { Matrix4, Vector3 } from 'three';
 import type { ModifierBase, ObjectData } from '../data/types';
 import type { ModifierContext } from '../eval/types';
 import type { Depsgraph } from '../eval/depsgraph';
-import { arrayChecksum, frameOf, getCache, motionKey, outOfTime, strHash, worldAt, type FrameCache, type SimContext } from './common';
+import { arrayChecksum, frameOf, getCache, motionKey, outOfTime, rand01, strHash, worldAt, type FrameCache, type SimContext } from './common';
 import { collectEffectors, fieldsKey } from './fields';
 import { buildColliders, collidersKey } from './colliders';
 import { initState, stepFrame, KIND_STRUCT, KIND_BEND, type PBDParams, type PBDState, type Topology } from './pbd';
 import { fps, gravityOf } from './meshsim';
-import { compliance } from './cloth';
-import { valueNoise } from './fields';
+import { compliance, MESH_SIM_FRAME_TIME } from './cloth';
+import { childStrands } from './children';
 import { defaultHairDynamics, defaultPointCache, type ParticleSettingsX, type ParticleSystemX } from './types';
 import type { HairResult } from './particles';
 
@@ -58,6 +58,90 @@ function toWorld(local: Float32Array, m: Matrix4): Float32Array {
   return out;
 }
 
+/** Bending compliance per constraint with a random stiffness factor per strand. */
+function bendCompliance(topo: Topology, d: { bending_stiffness: number; bending_random?: number }, strands: number, per: number): Float32Array {
+  const out = new Float32Array(topo.a.length);
+  for (let c = 0; c < topo.a.length; c++) {
+    if (topo.kind[c] !== KIND_BEND) {
+      out[c] = 1e-7;
+      continue;
+    }
+    const strand = Math.floor(topo.a[c] / per);
+    const r = 1 - Math.max(0, Math.min(1, d.bending_random ?? 0)) * rand01(strand, 7, 0, 501);
+    out[c] = compliance(d.bending_stiffness * r);
+  }
+  void strands;
+  return out;
+}
+
+/**
+ * Hair volume: strands moving through the same cell share their velocity (internal friction),
+ * and crowded cells push their points apart towards the target density.
+ */
+export function hairVolume(st: PBDState, strands: number, per: number, d: { internal_friction?: number; voxel_cell_size?: number; density_target?: number; density_strength?: number }, dt: number) {
+  const friction = Math.max(0, d.internal_friction ?? 0),
+    strength = Math.max(0, d.density_strength ?? 0);
+  if (!friction && !strength) return;
+  const cell = Math.max(1e-3, d.voxel_cell_size ?? 0.1);
+  const x = st.x,
+    v = st.v;
+  const n = strands * per;
+  const cells = new Map<string, { n: number; vx: number; vy: number; vz: number; cx: number; cy: number; cz: number }>();
+  const keyOf = (i: number) => `${Math.floor(x[i * 3] / cell)},${Math.floor(x[i * 3 + 1] / cell)},${Math.floor(x[i * 3 + 2] / cell)}`;
+  for (let i = 0; i < n; i++) {
+    if (i % per === 0) continue;
+    const k = keyOf(i);
+    let c = cells.get(k);
+    if (!c) cells.set(k, (c = { n: 0, vx: 0, vy: 0, vz: 0, cx: 0, cy: 0, cz: 0 }));
+    c.n++;
+    c.vx += v[i * 3];
+    c.vy += v[i * 3 + 1];
+    c.vz += v[i * 3 + 2];
+    c.cx += x[i * 3];
+    c.cy += x[i * 3 + 1];
+    c.cz += x[i * 3 + 2];
+  }
+  const vol = cell * cell * cell;
+  const t = 1 - Math.exp(-friction * dt * 10);
+  for (let i = 0; i < n; i++) {
+    if (i % per === 0) continue;
+    const c = cells.get(keyOf(i))!;
+    if (friction && c.n > 1) {
+      v[i * 3] += (c.vx / c.n - v[i * 3]) * t;
+      v[i * 3 + 1] += (c.vy / c.n - v[i * 3 + 1]) * t;
+      v[i * 3 + 2] += (c.vz / c.n - v[i * 3 + 2]) * t;
+    }
+    // density in points per cubic metre against the target (points per cell volume)
+    const target = Math.max(0, d.density_target ?? 1);
+    if (strength && c.n / vol > target && c.n > 1) {
+      const ex = x[i * 3] - c.cx / c.n,
+        ey = x[i * 3 + 1] - c.cy / c.n,
+        ez = x[i * 3 + 2] - c.cz / c.n;
+      const l = Math.hypot(ex, ey, ez) || 1;
+      const push = Math.min(1, strength) * cell * 0.05 * Math.min(4, c.n / vol / Math.max(1e-6, target) - 1);
+      x[i * 3] += (ex / l) * push;
+      x[i * 3 + 1] += (ey / l) * push;
+      x[i * 3 + 2] += (ez / l) * push;
+    }
+  }
+}
+
+/** Limit the velocity change of every point in one frame (collision impulse clamp). */
+function clampImpulses(st: PBDState, before: Float64Array, max: number) {
+  const v = st.v;
+  for (let i = 0; i < v.length; i += 3) {
+    const dx = v[i] - before[i],
+      dy = v[i + 1] - before[i + 1],
+      dz = v[i + 2] - before[i + 2];
+    const l = Math.hypot(dx, dy, dz);
+    if (l <= max) continue;
+    const f = max / l;
+    v[i] = before[i] + dx * f;
+    v[i + 1] = before[i + 1] + dy * f;
+    v[i + 2] = before[i + 2] + dz * f;
+  }
+}
+
 /** The hair with simulated parent strands (and children rebuilt around them), or null when not simulated. */
 export function hairWithDynamics(ob: ObjectData, m: ModifierBase, psys: ParticleSystemX, s: ParticleSettingsX, hair: HairResult, ctx: ModifierContext): HairResult | null {
   if (ctx.editMode || !hair.parents) return null;
@@ -93,12 +177,15 @@ export function hairWithDynamics(ob: ObjectData, m: ModifierBase, psys: Particle
     for (let i = 0; i < hair.parents; i++) pin[i * per] = 1;
     const goal = d.pin_stiffness > 0 ? { weights: new Float32Array(nParentPts).fill(1), spring: Math.min(0.999, d.pin_stiffness), friction: 0 } : null;
     const P: PBDParams = {
-      dt: 1 / fps(doc),
+      dt: MESH_SIM_FRAME_TIME,
       substeps: Math.max(1, Math.round(d.quality)),
       iterations: 4,
       gravity: gravityOf(doc, d.effector_weights_gravity * d.effector_weights_all),
       airDamping: d.air_damping,
       compliance: [1e-7, 1e-7, 1e-7, compliance(d.bending_stiffness)],
+      // random stiffness per strand
+      stretchCompliance: d.bending_random ? bendCompliance(cache.live!.topo, d, hair.parents, per) : null,
+      compressCompliance: null,
       damping: [0, 0, 0, d.bending_damping],
       mass: Math.max(1e-4, d.mass),
       pin,
@@ -106,19 +193,23 @@ export function hairWithDynamics(ob: ObjectData, m: ModifierBase, psys: Particle
       goal,
       shapeMatch: 0,
       fieldWeight: d.effector_weights_all,
-      collision: d.use_collision ? { distance: d.collision_distance, quality: 1 } : null,
+      collision: d.use_collision ? { distance: d.collision_distance, quality: Math.max(1, Math.round(d.collision_quality ?? 1)) } : null,
       self: null,
       restScale: 1,
     };
     const live = cache.live!;
+    if (P.stretchCompliance) P.compressCompliance = P.stretchCompliance;
     while (cache.last < ft) {
       if (cache.last > pc.frame_start && outOfTime()) break;
       const k = cache.last + 1;
       const t0 = toWorld(rest, worldAt(sctx, ob, k - 1)),
         t1 = toWorld(rest, worldAt(sctx, ob, k));
       const effs = collectEffectors(sctx, k - 1, ob.id);
-      const cols = d.use_collision ? buildColliders(sctx, k, ob.id, d.collision_distance + 0.1) : [];
+      const cols = d.use_collision ? buildColliders(sctx, k, ob.id, d.collision_distance + 0.1, d.collision_collection ?? null) : [];
+      const vBefore = d.impulse_clamp ? Float64Array.from(live.state.v) : null;
       stepFrame(live.state, live.topo, P, t0, t1, effs, cols, k);
+      hairVolume(live.state, hair.parents, per, d, MESH_SIM_FRAME_TIME);
+      if (vBefore) clampImpulses(live.state, vBefore, d.impulse_clamp!);
       cache.frames.set(k, Float32Array.from(live.state.x));
       cache.last = k;
     }
@@ -130,33 +221,6 @@ export function hairWithDynamics(ob: ObjectData, m: ModifierBase, psys: Particle
   const inv = (ev ? ev.world.clone() : new Matrix4()).invert();
   const points = new Float32Array(hair.points.length);
   points.set(toWorld(out, inv));
-  if (hair.children) {
-    const C = hair.children;
-    let w = nParentPts * 3;
-    for (let c = 0; c < C.length; c += 5) {
-      const pi = C[c],
-        ox = C[c + 1],
-        oy = C[c + 2],
-        oz = C[c + 3],
-        cs = C[c + 4];
-      for (let k = 0; k <= seg; k++) {
-        const u = k / seg;
-        const clump = 1 - (s.clump_factor ?? 0) * u;
-        const q = (pi * per + k) * 3;
-        let x = points[q] + ox * clump,
-          y = points[q + 1] + oy * clump,
-          z = points[q + 2] + oz * clump;
-        const r = (s.roughness_1 ?? 0) * u * s.hair_length;
-        if (r) {
-          x += valueNoise(x * 4, y * 4, z * 4, cs, 0) * r;
-          y += valueNoise(x * 4, y * 4, z * 4, cs, 1) * r;
-          z += valueNoise(x * 4, y * 4, z * 4, cs, 2) * r;
-        }
-        points[w++] = x;
-        points[w++] = y;
-        points[w++] = z;
-      }
-    }
-  }
+  if (hair.childDesc && hair.childSettings) points.set(childStrands(points.subarray(0, nParentPts * 3), per, hair.childDesc, hair.childSettings), nParentPts * 3);
   return { ...hair, points };
 }

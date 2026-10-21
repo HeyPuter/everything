@@ -17,6 +17,7 @@ import {
   RGFormat,
   UnsignedByteType,
   LinearFilter,
+  NearestFilter,
   Vector3,
   FrontSide,
   BackSide,
@@ -27,24 +28,39 @@ import { viewportExtensions } from '../editors/view3d/hooks';
 import { renderContext } from '../render/context';
 import { particleDraw, type ParticleDraw } from './particles';
 import { smokeDraw, type SmokeDraw } from './fluid';
+import { replacesVolume } from './fluidoverlay';
 
 const pointMaterial = () =>
   new ShaderMaterial({
-    uniforms: { uColor: { value: new Color(1, 1, 1) }, uHalfH: { value: 400 } },
+    uniforms: { uColor: { value: new Color(1, 1, 1) }, uHalfH: { value: 400 }, uShape: { value: 0 }, uUseColors: { value: 0 } },
     vertexShader: /* glsl */ `
       attribute float psize;
+      attribute vec3 pcolor;
       uniform float uHalfH;
+      varying vec3 vColor;
       void main() {
+        vColor = pcolor;
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * mv;
         gl_PointSize = clamp(psize * projectionMatrix[1][1] * uHalfH / max(gl_Position.w, 1e-4), 2.0, 64.0);
       }`,
     fragmentShader: /* glsl */ `
       uniform vec3 uColor;
+      uniform float uShape, uUseColors;
+      varying vec3 vColor;
       void main() {
         vec2 d = gl_PointCoord - 0.5;
-        if (dot(d, d) > 0.25) discard;
-        gl_FragColor = vec4(uColor, 1.0);
+        float r2 = dot(d, d);
+        if (uShape < 0.5) {
+          if (r2 > 0.25) discard;
+        } else if (uShape < 1.5) {
+          // circle outline
+          if (r2 > 0.25 || r2 < 0.12) discard;
+        } else {
+          // cross
+          if (abs(d.x) > 0.08 && abs(d.y) > 0.08) discard;
+        }
+        gl_FragColor = vec4(uUseColors > 0.5 ? vColor : uColor, 1.0);
       }`,
   });
 
@@ -66,12 +82,18 @@ function build(d: ParticleDraw): Points | LineSegments {
   if (d.points) {
     g.setAttribute('position', new BufferAttribute(d.points, 3));
     g.setAttribute('psize', new BufferAttribute(d.sizes ?? new Float32Array(d.points.length / 3).fill(0.05), 1));
-    const p = new Points(g, pointMaterial());
+    g.setAttribute('pcolor', new BufferAttribute(d.colors && d.colors.length === d.points.length ? d.colors : new Float32Array(d.points.length), 3));
+    const mat = pointMaterial();
+    mat.uniforms.uShape.value = d.shape === 'CIRCLE' ? 1 : d.shape === 'CROSS' ? 2 : 0;
+    mat.uniforms.uUseColors.value = d.colors && d.colors.length === d.points.length ? 1 : 0;
+    const p = new Points(g, mat);
     p.frustumCulled = false;
     return p;
   }
   g.setAttribute('position', new BufferAttribute(d.lines ?? new Float32Array(0), 3));
-  const l = new LineSegments(g, new LineBasicMaterial({ color: 0xffffff }));
+  const lineColors = !!d.colors && !!d.lines && d.colors.length === d.lines.length;
+  if (lineColors) g.setAttribute('color', new BufferAttribute(d.colors!, 3));
+  const l = new LineSegments(g, new LineBasicMaterial({ color: 0xffffff, vertexColors: lineColors }));
   l.frustumCulled = false;
   return l;
 }
@@ -100,7 +122,7 @@ function sync(localView: Set<string> | null) {
     else e.obj.matrixWorld.copy(IDENT);
     const c = new Color().setRGB(d.color[0], d.color[1], d.color[2]);
     if (e.obj instanceof Points) (e.obj.material as ShaderMaterial).uniforms.uColor.value.copy(c);
-    else (e.obj.material as LineBasicMaterial).color.copy(c);
+    else if (!(e.obj.material as LineBasicMaterial).vertexColors) (e.obj.material as LineBasicMaterial).color.copy(c);
   }
   for (const [key, e] of entries)
     if (!seen.has(key)) {
@@ -128,6 +150,9 @@ const volumeMaterial = () =>
       uColor: { value: new Color() },
       uDensity: { value: 1 },
       uFire: { value: 1 },
+      uRes: { value: new Vector3(1, 1, 1) },
+      uCubic: { value: 0 },
+      uSteps: { value: 0 },
     },
     transparent: true,
     depthWrite: false,
@@ -142,8 +167,31 @@ const volumeMaterial = () =>
       precision highp sampler3D;
       uniform sampler3D uTex;
       uniform vec3 uCam, uBMin, uBMax, uColor;
-      uniform float uDensity, uFire;
+      uniform float uDensity, uFire, uCubic, uSteps;
+      uniform vec3 uRes;
       varying vec3 vLocal;
+      // cubic B-spline filtering from eight linear fetches (smooth display of coarse grids)
+      vec2 sampleGrid(vec3 uvw) {
+        if (uCubic < 0.5) return texture(uTex, uvw).rg;
+        vec3 coord = uvw * uRes - 0.5;
+        vec3 i = floor(coord);
+        vec3 f = coord - i;
+        vec3 f2 = f * f, f3 = f2 * f;
+        vec3 w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;
+        vec3 w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
+        vec3 w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0;
+        vec3 w3 = f3 / 6.0;
+        vec3 g0 = w0 + w1, g1 = w2 + w3;
+        vec3 h0 = (i - 0.5 + w1 / g0) / uRes;
+        vec3 h1 = (i + 1.5 + w3 / g1) / uRes;
+        vec2 t000 = texture(uTex, vec3(h0.x, h0.y, h0.z)).rg, t100 = texture(uTex, vec3(h1.x, h0.y, h0.z)).rg;
+        vec2 t010 = texture(uTex, vec3(h0.x, h1.y, h0.z)).rg, t110 = texture(uTex, vec3(h1.x, h1.y, h0.z)).rg;
+        vec2 t001 = texture(uTex, vec3(h0.x, h0.y, h1.z)).rg, t101 = texture(uTex, vec3(h1.x, h0.y, h1.z)).rg;
+        vec2 t011 = texture(uTex, vec3(h0.x, h1.y, h1.z)).rg, t111 = texture(uTex, vec3(h1.x, h1.y, h1.z)).rg;
+        vec2 a = mix(mix(t100, t000, g0.x), mix(t110, t010, g0.x), g1.y);
+        vec2 b = mix(mix(t101, t001, g0.x), mix(t111, t011, g0.x), g1.y);
+        return mix(b, a, g0.z);
+      }
       void main() {
         vec3 dir = normalize(vLocal - uCam);
         vec3 inv = 1.0 / dir;
@@ -153,15 +201,18 @@ const volumeMaterial = () =>
         float b = min(min(tmax.x, tmax.y), tmax.z);
         if (a >= b) discard;
         vec3 size = uBMax - uBMin;
-        float stepLen = length(size) / 160.0;
+        // samples per cell ("slice per voxel"), limited to 512 samples along the ray
+        vec3 cell = size / uRes;
+        float stepLen = uSteps > 0.0 ? min(min(cell.x, cell.y), cell.z) / uSteps : length(size) / 160.0;
+        stepLen = max(stepLen, (b - a) / 512.0);
         float T = 1.0;
         vec3 col = vec3(0.0);
         float jitter = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
-        for (int i = 0; i < 200; i++) {
+        for (int i = 0; i < 512; i++) {
           float t = a + (float(i) + jitter) * stepLen;
           if (t > b || T < 0.01) break;
           vec3 uvw = (uCam + dir * t - uBMin) / size;
-          vec2 s = texture(uTex, uvw).rg;
+          vec2 s = sampleGrid(uvw);
           float alpha = 1.0 - exp(-s.r * uDensity * stepLen);
           // cheap self shadowing: denser smoke above is darker below
           float shade = 0.55 + 0.45 * (1.0 - texture(uTex, uvw + vec3(0.0, 0.0, 0.06)).r);
@@ -179,6 +230,15 @@ interface VolumeEntry {
   data: SmokeDraw;
   mesh: Mesh;
   tex: Data3DTexture;
+  /** wire box of the adaptive domain region */
+  box?: LineSegments;
+}
+
+/** Edges of an axis-aligned box. */
+function boxEdges(a: number[], b: number[]): Float32Array {
+  const c = (i: number) => [i & 1 ? b[0] : a[0], i & 2 ? b[1] : a[1], i & 4 ? b[2] : a[2]];
+  const e = [0, 1, 2, 3, 4, 5, 6, 7, 0, 2, 1, 3, 4, 6, 5, 7, 0, 4, 1, 5, 2, 6, 3, 7];
+  return new Float32Array(e.flatMap((i) => c(i)));
 }
 const volumes = new Map<string, VolumeEntry>();
 const _cam = new Vector3();
@@ -191,6 +251,7 @@ function syncVolumes(localView: Set<string> | null, camera: Camera) {
     seen.add(key);
     let e = volumes.get(key);
     if (e && (e.data.nx !== d.nx || e.data.ny !== d.ny || e.data.nz !== d.nz || e.data.bmin.join() !== d.bmin.join() || e.data.bmax.join() !== d.bmax.join())) {
+      if (e.box) scene.remove(e.box);
       scene.remove(e.mesh);
       e.mesh.geometry.dispose();
       e.tex.dispose();
@@ -222,6 +283,14 @@ function syncVolumes(localView: Set<string> | null, camera: Camera) {
     }
     const mat = e.mesh.material as ShaderMaterial;
     const u = mat.uniforms;
+    const filter = d.interpolation === 'CLOSEST' ? NearestFilter : LinearFilter;
+    if (e.tex.minFilter !== filter) {
+      e.tex.minFilter = e.tex.magFilter = filter;
+      e.tex.needsUpdate = true;
+    }
+    u.uRes.value.set(d.nx, d.ny, d.nz);
+    u.uCubic.value = d.interpolation === 'CUBIC' ? 1 : 0;
+    u.uSteps.value = d.slicePerVoxel ?? 0;
     u.uTex.value = e.tex;
     u.uBMin.value.set(...d.bmin);
     u.uBMax.value.set(...d.bmax);
@@ -237,17 +306,37 @@ function syncVolumes(localView: Set<string> | null, camera: Camera) {
     const inside = _cam.x > d.bmin[0] && _cam.x < d.bmax[0] && _cam.y > d.bmin[1] && _cam.y < d.bmax[1] && _cam.z > d.bmin[2] && _cam.z < d.bmax[2];
     mat.side = inside ? BackSide : FrontSide;
     mat.depthTest = !inside;
-    e.mesh.visible = true;
+    // a slice or color-ramp view of the domain replaces the smoke volume
+    e.mesh.visible = !replacesVolume(d.settings);
+    // adaptive domains show the region being simulated
+    if (d.window && d.coarse) {
+      const [i0, j0, k0, i1, j1, k1] = d.window;
+      const cs = [0, 1, 2].map((a) => (d.bmax[a] - d.bmin[a]) / d.coarse![a]);
+      const pts = boxEdges([d.bmin[0] + i0 * cs[0], d.bmin[1] + j0 * cs[1], d.bmin[2] + k0 * cs[2]], [d.bmin[0] + i1 * cs[0], d.bmin[1] + j1 * cs[1], d.bmin[2] + k1 * cs[2]]);
+      if (!e.box) {
+        e.box = new LineSegments(new BufferGeometry(), new LineBasicMaterial({ color: 0xe0802a }));
+        e.box.matrixAutoUpdate = false;
+        e.box.frustumCulled = false;
+        scene.add(e.box);
+      }
+      e.box.geometry.setAttribute('position', new BufferAttribute(pts, 3));
+      e.box.matrixWorld.copy(ev.world);
+      e.box.visible = true;
+    } else if (e.box) e.box.visible = false;
   }
   for (const [key, e] of volumes)
     if (!seen.has(key)) {
       if (!smokeDraw.has(key)) {
         scene.remove(e.mesh);
+        if (e.box) scene.remove(e.box);
         e.mesh.geometry.dispose();
         e.tex.dispose();
         (e.mesh.material as ShaderMaterial).dispose();
         volumes.delete(key);
-      } else e.mesh.visible = false;
+      } else {
+        e.mesh.visible = false;
+        if (e.box) e.box.visible = false;
+      }
     }
 }
 

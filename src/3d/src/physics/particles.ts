@@ -10,12 +10,12 @@ import { meshSignature } from '../eval/depsgraph';
 import { registerModifier } from '../eval/modifiers';
 import { arrayChecksum, frameOf, getCache, motionKey, outOfTime, rand01, strHash, worldAt, type FrameCache, type SimContext } from './common';
 import { applyGuides, guidesOf, newGuideState, type GuideState } from './guides';
-import { boidAccelerations, clampSpeed, defaultBoidSettings, ruleObjects, type BoidSettings } from './boids';
+import { activeBoidState, boidAccelerations, boidDamage, defaultBoidSettings, ruleObjects, type BoidOthers, type BoidSettings } from './boids';
 import { defaultParticleFluid, relaxFluid, type ParticleFluidSettings } from './sph';
-import { keyedPosition, keyedTargetPositions, type KeyedTarget } from './keyed';
-import { collectEffectors, effectorForce, fieldsKey, valueNoise } from './fields';
+import { keyedPosition, keyedPositionTimed, keyedTargetPositions, psysTargets, targetParticles } from './keyed';
+import { collectEffectors, effectorForce, fieldsKey } from './fields';
 import { buildColliders, collidersKey, segmentHit, newHit } from './colliders';
-import { MeshSampler, newSample, valueAt, type Sample } from './sampling';
+import { MeshSampler, distributionKey, newSample, planSamples, valueAt, type Sample } from './sampling';
 import { groupWeights } from '../eval/meshbuild';
 import { hairDynKey, hairWithDynamics } from './hairdyn';
 import { physicsDoc } from './state';
@@ -23,6 +23,9 @@ import { localMatrix as localMatrixOf } from '../eval/transform';
 import { fps, gravityOf, simDeps } from './meshsim';
 import { defaultParticleSettings, defaultPointCache, type CollisionSettingsX, type ParticleSettingsX, type ParticleSystemX } from './types';
 import { simplifyChildParticles } from '../eval/simplify';
+import { boundKeys } from './hairbind';
+import { smoothStrands } from './hairpaths';
+import { childSettings, childStrands, describeChildren, type ChildDesc, type ChildSettings } from './children';
 
 export interface ParticleDraw {
   objectId: string;
@@ -34,10 +37,17 @@ export interface ParticleDraw {
   lines: Float32Array | null;
   color: [number, number, number];
   count: number;
+  /** per point (or line vertex) colours, rgb */
+  colors?: Float32Array | null;
+  /** point shape */
+  shape?: 'DISC' | 'CIRCLE' | 'CROSS';
 }
 
 /** Latest evaluated draw data per `${object id}:${modifier id}` (viewport evaluation only). */
 export const particleDraw = new Map<string, ParticleDraw>();
+
+/** Hair paths for the render engines per `${object id}:${modifier id}` (latest evaluation). */
+export const hairRenderData = new Map<string, { objectId: string; points: Float32Array; per: number; first: number; settings: ParticleSettingsX; materialSlot: number }>();
 
 export function settingsOf(doc: DocumentData, psys: ParticleSystemX): ParticleSettingsX | null {
   const s = doc.particles[psys.settings] as ParticleSettingsX | undefined;
@@ -69,6 +79,8 @@ const SIM_KEYS: (keyof ParticleSettingsX)[] = [
   'damping',
   'physics_type',
   'timestep_substeps',
+  'timestep',
+  'integrator',
   'use_collision',
   'seed',
   'boids',
@@ -81,6 +93,15 @@ const SIM_KEYS: (keyof ParticleSettingsX)[] = [
   'use_size_deflect',
   'use_die_on_collision',
   'collision_collection',
+  'distribution',
+  'use_emit_random',
+  'use_even_distribution',
+  'userjit',
+  'jitter_factor',
+  'grid_resolution',
+  'grid_random',
+  'hexagonal_grid',
+  'invert_grid',
 ];
 
 /** Weights of one of the particle system's vertex groups (inverted when asked), or null. */
@@ -124,13 +145,15 @@ function simHash(doc: DocumentData, ob: ObjectData, m: ModifierBase, psys: Parti
     s.use_size_deflect ? JSON.stringify([s.particle_size, s.size_random]) : '',
   ];
   // keyed targets and boid rule objects take part in the motion
-  if (s.physics_type === 'KEYED')
-    for (const t of s.keyed_targets ?? []) {
+  const targets = psysTargets(psys, s);
+  parts.push(JSON.stringify(targets), String(!!psys.use_keyed_timing));
+  if (s.physics_type === 'KEYED' || s.physics_type === 'BOIDS')
+    for (const t of targets) {
       const o = t.object ? doc.objects[t.object] : undefined;
       if (o) parts.push(`${o.id}:${JSON.stringify(o.particle_systems)}:${JSON.stringify(o.particle_systems.map((p) => doc.particles[p.settings]))}:${motionKey(doc, o, pc.frame_start)}`);
     }
   if (s.physics_type === 'BOIDS')
-    for (const r of s.boids?.rules ?? []) {
+    for (const r of s.boids ? activeBoidState(s.boids).rules : []) {
       const o = r.object ? doc.objects[r.object] : undefined;
       if (o) parts.push(`${o.id}:${motionKey(doc, o, pc.frame_start)}`);
     }
@@ -144,6 +167,8 @@ interface PFrame {
   pos: Float32Array;
   /** 0 unborn, 1 alive, 2 dead (killed or expired) */
   state: Uint8Array;
+  /** boids walking on the ground */
+  land?: Uint8Array;
 }
 
 interface PLive {
@@ -159,6 +184,11 @@ interface PLive {
   /** per particle size and velocity factors from vertex groups */
   sizeMul: Float32Array | null;
   velMul: Float32Array | null;
+  /** boids: health left and whether each walks on the ground (allocated on first use) */
+  health?: Float32Array;
+  land?: Uint8Array;
+  /** surface normal under walking boids */
+  landNormal?: Float32Array;
 }
 
 export interface EmitterResult {
@@ -166,6 +196,8 @@ export interface EmitterResult {
   birth: Float32Array;
   life: Float32Array;
   prev: PFrame | undefined;
+  /** the frame before `prev` (boid banking) */
+  prev2?: PFrame | undefined;
   /** emission samples (object space) */
   samples: Sample[] | null;
   /** frame of `frame` */
@@ -174,8 +206,20 @@ export interface EmitterResult {
   sizeMul: Float32Array | null;
 }
 
+/** Number of particles: the count, or the grid's points for grid distributions. */
+export function particleCount(s: ParticleSettingsX, mesh: EvalMesh, psys: ParticleSystemX | undefined, seed: number): number {
+  if (s.distribution !== 'GRID' || s.emit_from === 'VERT') return Math.max(0, Math.floor(s.count));
+  const key = `${distributionKey(s as never)}:${mesh.positions.length}:${arrayChecksum(mesh.positions)}`;
+  const hit = gridCounts.get(mesh.positions);
+  if (hit && hit.key === key) return hit.n;
+  const n = planSamples(new MeshSampler(mesh, psys ? psysGroup(mesh, psys, 'density') : null), s as never, seed, 0).length;
+  gridCounts.set(mesh.positions, { key, n });
+  return n;
+}
+const gridCounts = new WeakMap<Float32Array, { key: string; n: number }>();
+
 function initLive(s: ParticleSettingsX, seed: number, mesh: EvalMesh, psys?: ParticleSystemX): PLive {
-  const n = Math.max(0, Math.floor(s.count));
+  const n = particleCount(s, mesh, psys, seed);
   const birth = new Float32Array(n),
     life = new Float32Array(n);
   const span = s.frame_end - s.frame_start;
@@ -186,11 +230,12 @@ function initLive(s: ParticleSettingsX, seed: number, mesh: EvalMesh, psys?: Par
   const samples: Sample[] = [];
   const sizeMul = sizeW ? new Float32Array(n) : null,
     velMul = velW ? new Float32Array(n) : null;
+  const plan = planSamples(sampler, s as never, seed, n);
   for (let i = 0; i < n; i++) {
     birth[i] = s.frame_start + (n > 0 ? (span * i) / n : 0);
     life[i] = Math.max(1, s.lifetime * (1 - s.lifetime_random * rand01(seed, i, 1)));
-    const sm = newSample();
-    if (!sampler.sample(s.emit_from, seed, i, sm)) {
+    const sm = plan[i] ?? newSample();
+    if (!plan[i] || Number.isNaN(sm.px)) {
       // nothing to emit from (e.g. a density group without weights): never born
       sm.px = sm.py = sm.pz = 0;
       birth[i] = Infinity;
@@ -248,9 +293,10 @@ function spawn(L: PLive, s: ParticleSettingsX, seed: number, i: number, A: Matri
 }
 
 /** Advance the emitter from frame k-1 to k. */
-export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: number, A: Matrix4, B: Matrix4, ctx: SimContext, ob: ObjectData, timeScale = 1) {
+export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: number, A: Matrix4, B: Matrix4, ctx: SimContext, ob: ObjectData, timeScale = 1, psys?: ParticleSystemX) {
   const n = L.state.length;
-  const fpsv = fps(ctx.doc);
+  // particle time runs at `timestep` seconds per frame (independent of the frame rate)
+  const fpsv = s.timestep && s.timestep > 0 ? 1 / s.timestep : fps(ctx.doc);
   const sub = Math.max(1, Math.round(s.timestep_substeps ?? 1));
   const dtf = 1 / sub; // frames per substep
   const dt = (dtf / fpsv) * timeScale;
@@ -258,12 +304,46 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
   const effs = collectEffectors(ctx, k - 1, ob.id);
   const cols = s.use_collision !== false && s.physics_type !== 'NO' ? buildColliders(ctx, k, ob.id, 0.05, s.collision_collection ?? null) : [];
   const invMass = 1 / Math.max(1e-4, s.mass);
+  const integrator = s.integrator ?? 'MIDPOINT';
+  const fTypes = (s as { effector_weights_types?: Record<string, number> }).effector_weights_types ?? null;
+  const fa = [0, 0, 0];
+  /** position / velocity dependent accelerations: force fields and air drag */
+  const accelAt = (x: number, y: number, z: number, u: number, v: number, w: number, t: number) => {
+    fa[0] = fa[1] = fa[2] = 0;
+    if (effs.length) effectorForce(effs, x, y, z, u, v, w, t, fa, s.effector_weights_all ?? 1, null, fTypes);
+    const out = [fa[0] * invMass, fa[1] * invMass, fa[2] * invMass];
+    if (s.drag_factor) {
+      const sp = Math.hypot(u, v, w);
+      out[0] -= u * sp * s.drag_factor;
+      out[1] -= v * sp * s.drag_factor;
+      out[2] -= w * sp * s.drag_factor;
+    }
+    return out;
+  };
   const f = [0, 0, 0];
   const damp = Math.pow(1 - Math.min(1, Math.max(0, s.damping ?? 0)), dtf);
   const boids = s.physics_type === 'BOIDS' ? ({ ...defaultBoidSettings(), ...(s.boids ?? {}) } as BoidSettings) : null;
   const fluid = s.physics_type === 'FLUID' ? ({ ...defaultParticleFluid(), ...(s.fluid ?? {}) } as ParticleFluidSettings) : null;
-  const keyed = s.physics_type === 'KEYED' ? keyedTargetPositions(ctx.doc, s.keyed_targets ?? [], k) : null;
+  const targets = psysTargets(psys, s);
+  const keyed = s.physics_type === 'KEYED' ? keyedTargetPositions(ctx.doc, targets, k) : null;
+  const keyedTimes = keyed && psys?.use_keyed_timing ? targets.filter((_, q) => keyed[q]).map((t) => [t.time ?? 0, t.duration ?? 0] as [number, number]) : null;
   const boidAcc = boids ? new Float32Array(n * 3) : null;
+  // boids: other systems' boids (friends / enemies), health and walking on the ground
+  const others: BoidOthers[] = [];
+  if (boids) {
+    for (const t of targets) {
+      if ((t.alliance ?? 'NEUTRAL') === 'NEUTRAL') continue;
+      const tp = targetParticles(ctx.doc, t, k - 1);
+      if (!tp) continue;
+      const tb = (tp.settings?.boids ?? null) as BoidSettings | null;
+      others.push({ pos: tp.pos, alive: tp.alive, alliance: t.alliance!, strength: tb?.strength ?? 0.1, accuracy: tb?.accuracy ?? 1 });
+    }
+    if (!L.health || L.health.length !== n) L.health = new Float32Array(n).fill(Math.max(1e-6, boids.health ?? 1));
+    if (!L.land || L.land.length !== n) L.land = new Uint8Array(n);
+    // boids that cannot fly start on the ground
+    if (boids.use_flight === false && boids.use_land) L.land.fill(1);
+  }
+  const contact = boids && boids.use_land ? new Uint8Array(n) : null;
   const prevPos = fluid ? new Float32Array(n * 3) : null;
   const alive = (i: number) => L.state[i] === 1;
   const objects = boids ? ruleObjects(ctx.doc, boids, (id, fr) => {
@@ -275,7 +355,8 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
       t1 = t0 + dtf;
     for (const c of cols) c.setTime((ss + 1) / sub);
     L.step++;
-    if (boids && boidAcc) boidAccelerations(boids, L.pos, L.vel, alive, n, objects!, cols, (i, ch) => rand01(seed, i, L.step, 60 + ch), boidAcc);
+    if (boids && boidAcc) boidAccelerations(boids, L.pos, L.vel, alive, n, objects!, cols, (i, ch) => rand01(seed, i, L.step, 60 + ch), boidAcc, { land: boids.use_land ? L.land : null, others, health: L.health });
+    if (contact) contact.fill(0);
     if (prevPos) prevPos.set(L.pos);
     for (let i = 0; i < n; i++) {
       let st = L.state[i];
@@ -297,7 +378,11 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
           const sm = L.samples[i];
           const start = new V3(sm.px, sm.py, sm.pz).applyMatrix4(B);
           const out = [0, 0, 0];
-          keyedPosition([start.x, start.y, start.z], keyed, i, (t1 - b) / Math.max(1e-6, L.life[i]), s.keyed_loops ?? 1, out);
+          if (keyedTimes) {
+            const pts: [number, number, number][] = [[start.x, start.y, start.z]];
+            for (const T of keyed) if (T && T.length) pts.push([T[(i % (T.length / 3)) * 3], T[(i % (T.length / 3)) * 3 + 1], T[(i % (T.length / 3)) * 3 + 2]]);
+            keyedPositionTimed(pts, [0, ...keyedTimes.map((x) => x[0])], [0, ...keyedTimes.map((x) => x[1])], t1 - b, out);
+          } else keyedPosition([start.x, start.y, start.z], keyed, i, (t1 - b) / Math.max(1e-6, L.life[i]), s.keyed_loops ?? 1, out);
           const j = i * 3;
           L.vel[j] = (out[0] - L.pos[j]) * fpsv;
           L.vel[j + 1] = (out[1] - L.pos[j + 1]) * fpsv;
@@ -321,9 +406,32 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
       f[0] = f[1] = f[2] = 0;
       if (effs.length) effectorForce(effs, px, py, pz, vx, vy, vz, t1, f, s.effector_weights_all ?? 1, null, (s as { effector_weights_types?: Record<string, number> }).effector_weights_types ?? null);
       // flying boids steer by their rules instead of falling
-      let ax = (boidAcc ? boidAcc[i * 3] : g[0]) + f[0] * invMass,
-        ay = (boidAcc ? boidAcc[i * 3 + 1] : g[1]) + f[1] * invMass,
-        az = (boidAcc ? boidAcc[i * 3 + 2] : g[2]) + f[2] * invMass;
+      // walking boids keep feeling gravity (climbing ones are held to their surface instead)
+      const walking = !!boids && !!L.land?.[i];
+      const grav = walking && !boids!.use_climb ? 1 : 0;
+      let ax = (boidAcc ? boidAcc[i * 3] + g[0] * grav : g[0]) + f[0] * invMass,
+        ay = (boidAcc ? boidAcc[i * 3 + 1] + g[1] * grav : g[1]) + f[1] * invMass,
+        az = (boidAcc ? boidAcc[i * 3 + 2] + g[2] * grav : g[2]) + f[2] * invMass;
+      if (walking && boidAcc) {
+        const gl = Math.hypot(g[0], g[1], g[2]) || 1;
+        const up = -(boidAcc[i * 3] * g[0] + boidAcc[i * 3 + 1] * g[1] + boidAcc[i * 3 + 2] * g[2]) / gl;
+        const want = Math.max(1e-3, (boids!.land_acc_max ?? 0.5) * (boids!.land_speed_max ?? 5) * 4);
+        if (boids!.use_flight !== false && up > want * 0.5) {
+          // take off when the rules pull strongly upwards
+          L.land![i] = 0;
+        } else if ((boids!.land_jump_speed ?? 0) > 0 && up > want * 0.5 && contact?.[i] !== 0) {
+          vx -= (g[0] / gl) * boids!.land_jump_speed!;
+          vy -= (g[1] / gl) * boids!.land_jump_speed!;
+          vz -= (g[2] / gl) * boids!.land_jump_speed!;
+        }
+        if (boids!.use_climb && L.landNormal) {
+          // stick to the surface being climbed
+          const sf = boids!.land_stick_force ?? 1;
+          ax -= L.landNormal[j] * sf * gl;
+          ay -= L.landNormal[j + 1] * sf * gl;
+          az -= L.landNormal[j + 2] * sf * gl;
+        }
+      }
       if (s.drag_factor) {
         const sp = Math.hypot(vx, vy, vz);
         ax -= vx * sp * s.drag_factor;
@@ -336,19 +444,59 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
         ay += (rand01(seed, i, L.step, 41) * 2 - 1) * bf;
         az += (rand01(seed, i, L.step, 42) * 2 - 1) * bf;
       }
-      vx = (vx + ax * h) * damp;
-      vy = (vy + ay * h) * damp;
-      vz = (vz + az * h) * damp;
+      const v0x = vx,
+        v0y = vy,
+        v0z = vz;
+      // the position change over the step, by integrator
+      let dpx: number, dpy: number, dpz: number;
+      if (integrator === 'RK4' && !boids && (effs.length || s.drag_factor)) {
+        // fourth order: forces sampled at the start, twice in the middle and at the end of the step
+        const a0 = accelAt(px, py, pz, v0x, v0y, v0z, t1);
+        // the part of the acceleration that does not depend on position or velocity
+        const constA = [ax - a0[0], ay - a0[1], az - a0[2]];
+        const acc = (x: number, y: number, z: number, u: number, v: number, w: number) => {
+          const a = accelAt(x, y, z, u, v, w, t1);
+          return [a[0] + constA[0], a[1] + constA[1], a[2] + constA[2]];
+        };
+        const k1v = [ax, ay, az],
+          k1x = [v0x, v0y, v0z];
+        const k2x = [v0x + (k1v[0] * h) / 2, v0y + (k1v[1] * h) / 2, v0z + (k1v[2] * h) / 2];
+        const k2v = acc(px + (k1x[0] * h) / 2, py + (k1x[1] * h) / 2, pz + (k1x[2] * h) / 2, k2x[0], k2x[1], k2x[2]);
+        const k3x = [v0x + (k2v[0] * h) / 2, v0y + (k2v[1] * h) / 2, v0z + (k2v[2] * h) / 2];
+        const k3v = acc(px + (k2x[0] * h) / 2, py + (k2x[1] * h) / 2, pz + (k2x[2] * h) / 2, k3x[0], k3x[1], k3x[2]);
+        const k4x = [v0x + k3v[0] * h, v0y + k3v[1] * h, v0z + k3v[2] * h];
+        const k4v = acc(px + k3x[0] * h, py + k3x[1] * h, pz + k3x[2] * h, k4x[0], k4x[1], k4x[2]);
+        vx = (v0x + ((k1v[0] + 2 * k2v[0] + 2 * k3v[0] + k4v[0]) * h) / 6) * damp;
+        vy = (v0y + ((k1v[1] + 2 * k2v[1] + 2 * k3v[1] + k4v[1]) * h) / 6) * damp;
+        vz = (v0z + ((k1v[2] + 2 * k2v[2] + 2 * k3v[2] + k4v[2]) * h) / 6) * damp;
+        dpx = ((k1x[0] + 2 * k2x[0] + 2 * k3x[0] + k4x[0]) * h) / 6;
+        dpy = ((k1x[1] + 2 * k2x[1] + 2 * k3x[1] + k4x[1]) * h) / 6;
+        dpz = ((k1x[2] + 2 * k2x[2] + 2 * k3x[2] + k4x[2]) * h) / 6;
+      } else {
+        vx = (vx + ax * h) * damp;
+        vy = (vy + ay * h) * damp;
+        vz = (vz + az * h) * damp;
+        // Euler moves with the old velocity, Midpoint (and RK4 under constant forces) with the
+        // average, Verlet with the new one
+        const wOld = integrator === 'EULER' ? 1 : integrator === 'VERLET' ? 0 : 0.5;
+        dpx = (v0x * wOld + vx * (1 - wOld)) * h;
+        dpy = (v0y * wOld + vy * (1 - wOld)) * h;
+        dpz = (v0z * wOld + vz * (1 - wOld)) * h;
+      }
       if (boids) {
         const sp = Math.hypot(vx, vy, vz);
-        const t = sp > boids.air_speed_max ? boids.air_speed_max / sp : sp > 1e-9 && sp < boids.air_speed_min ? boids.air_speed_min / sp : 1;
+        const onLand = !!L.land?.[i];
+        const max = onLand ? (boids.land_speed_max ?? 5) : boids.air_speed_max;
+        // the minimum flying speed is a share of the maximum
+        const min = onLand ? 0 : boids.air_speed_min * boids.air_speed_max;
+        const t = sp > max && !(onLand && vz < -max) ? max / sp : sp > 1e-9 && sp < min ? min / sp : 1;
         vx *= t;
         vy *= t;
         vz *= t;
       }
-      let nx = px + vx * h,
-        ny = py + vy * h,
-        nz = pz + vz * h;
+      let nx = px + (boids ? vx * h : dpx),
+        ny = py + (boids ? vy * h : dpy),
+        nz = pz + (boids ? vz * h : dpz);
       // collisions: bounce off the first surface crossed during the step
       for (let bounce = 0; bounce < 2 && cols.length; bounce++) {
         // size deflection: the particle's radius keeps it off the surface
@@ -359,6 +507,16 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
         if (cs.use_particle_kill || s.use_die_on_collision) {
           L.state[i] = 2;
           break;
+        }
+        if (contact && boids) {
+          // boids touching a surface walk on it
+          contact[i] = 1;
+          L.land![i] = 1;
+          L.landNormal ??= new Float32Array(n * 3);
+          const sd = (L.pos[j] - hit.cx) * hit.nx + (L.pos[j + 1] - hit.cy) * hit.ny + (L.pos[j + 2] - hit.cz) * hit.nz >= 0 ? 1 : -1;
+          L.landNormal[j] = hit.nx * sd;
+          L.landNormal[j + 1] = hit.ny * sd;
+          L.landNormal[j + 2] = hit.nz * sd;
         }
         const side = (L.pos[j] - hit.cx) * hit.nx + (L.pos[j + 1] - hit.cy) * hit.ny + (L.pos[j + 2] - hit.cz) * hit.nz >= 0 ? 1 : -1;
         const nnx = hit.nx * side,
@@ -402,6 +560,12 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
       L.vel[j + 2] = vz;
     }
     if (fluid && prevPos) relaxFluid(fluid, L.pos, L.vel, prevPos, alive, n, dt);
+    if (boids && L.health && others.length) {
+      boidDamage(boids, L.pos, alive, n, others, dt, L.health);
+      for (let i = 0; i < n; i++) if (L.state[i] === 1 && L.health[i] <= 0) L.state[i] = 2;
+    }
+    // boids that walked off their surface fall (and fly again when they may)
+    if (contact && L.land && boids && boids.use_flight !== false) for (let i = 0; i < n; i++) if (L.land[i] && !contact[i] && ss === sub - 1) L.land[i] = 0;
   }
   // curve guides lead particles along their curves
   if (s.physics_type !== 'NO') {
@@ -421,7 +585,7 @@ export function evaluateEmitter(ob: ObjectData, m: ModifierBase, psys: ParticleS
   cache.baked = pc.is_baked;
   const seed = hashSeed(psys.seed, s.seed ?? 0);
   const hash = simHash(doc, ob, m, psys, s, mesh, ctx.source);
-  const count = Math.max(0, Math.floor(s.count));
+  const count = particleCount(s, mesh, psys, seed);
   const usable = pc.is_baked && cache.frames.size > 0 && cache.frames.values().next().value?.state.length === count;
   if (!usable && cache.hash !== hash) cache.reset(hash);
   const f = Math.min(Math.max(frameOf(ctx.graph), pc.frame_start), pc.frame_end);
@@ -445,8 +609,8 @@ export function evaluateEmitter(ob: ObjectData, m: ModifierBase, psys: ParticleS
     while (cache.last < f) {
       if (cache.last > pc.frame_start && outOfTime()) break;
       const k = cache.last + 1;
-      stepParticles(L, s, seed, k, worldAt(sctx, ob, k - 1), worldAt(sctx, ob, k), sctx, ob);
-      cache.frames.set(k, { pos: L.pos.slice(), state: L.state.slice() });
+      stepParticles(L, s, seed, k, worldAt(sctx, ob, k - 1), worldAt(sctx, ob, k), sctx, ob, 1, psys);
+      cache.frames.set(k, { pos: L.pos.slice(), state: L.state.slice(), land: L.land ? L.land.slice() : undefined });
       cache.last = k;
     }
   }
@@ -454,7 +618,7 @@ export function evaluateEmitter(ob: ObjectData, m: ModifierBase, psys: ParticleS
   if (!frame) return null;
   const birth = cache.live?.birth ?? initLive(s, seed, mesh, psys).birth;
   const life = cache.live?.life ?? new Float32Array(count).fill(s.lifetime);
-  return { frame, birth, life, prev: cache.frames.get(f - 1), samples: cache.live?.samples ?? null, at: f, sizeMul: cache.live?.sizeMul ?? null };
+  return { frame, birth, life, prev: cache.frames.get(f - 1), prev2: cache.frames.get(f - 2), samples: cache.live?.samples ?? null, at: f, sizeMul: cache.live?.sizeMul ?? null };
 }
 
 const hashSeed = (a: number, b: number) => (Math.imul(a | 0, 2654435761) ^ (b | 0)) >>> 0;
@@ -468,9 +632,13 @@ export interface HairResult {
   segments: number;
   strands: number;
   parents: number;
-  /** per child: parent index, offset x y z and its noise seed (to rebuild children around moved parents) */
-  children?: Float32Array;
+  /** how the children are made (to rebuild them around moved parents) */
+  childDesc?: ChildDesc;
+  childSettings?: ChildSettings;
 }
+
+/** Settings the child strands depend on. */
+const CHILD_KEYS = ['child_type', 'child_nbr', 'child_percent', 'rendered_child_count', 'child_radius', 'child_roundness', 'child_length', 'child_length_threshold', 'child_seed', 'virtual_parents', 'clump_factor', 'clump_shape', 'use_clump_noise', 'clump_noise_size', 'kink', 'kink_amplitude', 'kink_amplitude_clump', 'kink_amplitude_random', 'kink_frequency', 'kink_shape', 'kink_flat', 'kink_axis', 'kink_axis_random', 'child_parting_factor', 'child_parting_min', 'child_parting_max', 'roughness_1', 'roughness_1_size', 'roughness_endpoint', 'roughness_end_shape', 'roughness_2', 'roughness_2_size', 'roughness_2_threshold'];
 
 const hairCache = new Map<string, { hash: string; result: HairResult }>();
 
@@ -511,15 +679,16 @@ export function resampleKeys(co: ArrayLike<number>, a: number, b: number, n: num
  * Edit mode, otherwise they are generated on the mesh (density / length vertex groups apply).
  * Children follow their parent's path.
  */
-export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSystemX, s: ParticleSettingsX, mesh: EvalMesh, childFactor = 1): HairResult {
+export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSystemX, s: ParticleSettingsX, mesh: EvalMesh, childFactor = 1, render = false): HairResult {
   const key = particleCacheKey(ob, m);
   const ed = psys.edited_hair ?? null;
   const hash = strHash(
     [
-      JSON.stringify([s.count, s.emit_from, s.normal_factor, s.object_align_factor, s.factor_random, s.hair_length, s.hair_step, s.child_type, s.rendered_child_count, s.child_radius, s.clump_factor, s.roughness_1, s.seed, childFactor]),
+      JSON.stringify([s.count, s.emit_from, s.normal_factor, s.object_align_factor, s.factor_random, s.hair_length, s.hair_step, s.seed, childFactor, render, CHILD_KEYS.map((k) => (s as unknown as Record<string, unknown>)[k])]),
+      distributionKey(s),
       psys.seed,
       ed
-        ? `E${ed.key_offsets.length}:${arrayChecksum(ed.co)}:${arrayChecksum(ed.hide)}`
+        ? `E${ed.key_offsets.length}:${arrayChecksum(ed.co)}:${arrayChecksum(ed.hide)}:${psys.hair_binding ? `B${psys.hair_binding.tri.length}:${arrayChecksum(mesh.positions)}` : ''}`
         : [JSON.stringify([psys.vertex_group_density, psys.invert_vertex_group_density, psys.vertex_group_length, psys.invert_vertex_group_length]), mesh.weights ? mesh.weights.map((w) => arrayChecksum(w)).join(',') : '', mesh.positions.length, arrayChecksum(mesh.positions), arrayChecksum(mesh.indices)].join('#'),
     ].join('#'),
   );
@@ -528,26 +697,31 @@ export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSyst
   const seed = hashSeed(psys.seed, s.seed ?? 0);
   const seg = Math.max(1, Math.round(s.hair_step ?? 5));
   const per = seg + 1;
-  const children = s.child_type === 'SIMPLE' ? Math.max(0, Math.round((s.rendered_child_count ?? 0) * childFactor)) : 0;
+  // children per parent: the display amount in the viewport, the render amount in renders
+  const perParent = render ? (s.rendered_child_count ?? 100) : ((s as { child_percent?: number }).child_percent ?? s.child_nbr ?? 10);
+  const children = s.child_type === 'SIMPLE' || s.child_type === 'INTERPOLATED' ? Math.max(0, Math.round(perParent * childFactor)) : 0;
   const parentPts: number[] = [];
   let parents = 0;
   if (ed) {
     const tmp = new Float32Array(per * 3);
     const nk = ed.key_offsets.length - 1;
+    // connected hair moves with the emitter surface
+    const keys = (psys.hair_binding && boundKeys(ed, psys.hair_binding, mesh.positions)) || ed.co;
     for (let i = 0; i < nk; i++) {
       if (ed.hide[i]) continue;
-      resampleKeys(ed.co, ed.key_offsets[i], ed.key_offsets[i + 1], per, tmp, 0);
+      resampleKeys(keys, ed.key_offsets[i], ed.key_offsets[i + 1], per, tmp, 0);
       for (let k = 0; k < tmp.length; k++) parentPts.push(tmp[k]);
       parents++;
     }
   } else {
-    const n = Math.max(0, Math.floor(s.count));
     const sampler = new MeshSampler(mesh, psysGroup(mesh, psys, 'density'));
+    const n = particleCount(s, mesh, psys, seed);
+    const plan = planSamples(sampler, s as never, seed, n);
     const lengthW = psysGroup(mesh, psys, 'length');
-    const sm = newSample();
     const dir = new Vector3();
-    for (let i = 0; i < n; i++) {
-      if (!sampler.sample(s.emit_from, seed, i, sm)) continue;
+    for (let i = 0; i < plan.length; i++) {
+      const sm = plan[i];
+      if (Number.isNaN(sm.px)) continue;
       dir.set(sm.nx, sm.ny, sm.nz).multiplyScalar(s.normal_factor);
       dir.add(new Vector3(...s.object_align_factor));
       if (s.factor_random) dir.add(new Vector3(rand01(seed, i, 30) * 2 - 1, rand01(seed, i, 31) * 2 - 1, rand01(seed, i, 32) * 2 - 1).multiplyScalar(s.factor_random));
@@ -561,51 +735,20 @@ export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSyst
       parents++;
     }
   }
-  const total = parents * (1 + children);
-  const pts = new Float32Array(total * per * 3);
-  pts.set(parentPts);
-  let w = parentPts.length;
-  const d = new Vector3(),
-    tan = new Vector3(),
-    bit = new Vector3(),
-    up = new Vector3();
-  const childInfo: number[] = [];
-  for (let i = 0; i < parents && children; i++) {
-    const b = i * per * 3;
-    d.set(pts[b + 3] - pts[b], pts[b + 4] - pts[b + 1], pts[b + 5] - pts[b + 2]);
-    if (d.lengthSq() < 1e-16) d.set(0, 0, 1);
-    d.normalize();
-    let len = 0;
-    for (let k = 1; k <= seg; k++) len += Math.hypot(pts[b + k * 3] - pts[b + k * 3 - 3], pts[b + k * 3 + 1] - pts[b + k * 3 - 2], pts[b + k * 3 + 2] - pts[b + k * 3 - 1]);
-    up.set(Math.abs(d.z) < 0.9 ? 0 : 1, 0, Math.abs(d.z) < 0.9 ? 1 : 0);
-    tan.crossVectors(d, up).normalize();
-    bit.crossVectors(d, tan).normalize();
-    for (let c = 0; c < children; c++) {
-      const ang = rand01(seed, i, c, 60) * Math.PI * 2;
-      const rad = Math.sqrt(rand01(seed, i, c, 61)) * (s.child_radius ?? 0.2);
-      const ox = tan.x * Math.cos(ang) * rad + bit.x * Math.sin(ang) * rad;
-      const oy = tan.y * Math.cos(ang) * rad + bit.y * Math.sin(ang) * rad;
-      const oz = tan.z * Math.cos(ang) * rad + bit.z * Math.sin(ang) * rad;
-      childInfo.push(i, ox, oy, oz, seed + c);
-      for (let k = 0; k <= seg; k++) {
-        const u = k / seg;
-        const clump = 1 - (s.clump_factor ?? 0) * u;
-        let x = pts[b + k * 3] + ox * clump,
-          y = pts[b + k * 3 + 1] + oy * clump,
-          z = pts[b + k * 3 + 2] + oz * clump;
-        const r = (s.roughness_1 ?? 0) * u * len;
-        if (r) {
-          x += valueNoise(x * 4, y * 4, z * 4, seed + c, 0) * r;
-          y += valueNoise(x * 4, y * 4, z * 4, seed + c, 1) * r;
-          z += valueNoise(x * 4, y * 4, z * 4, seed + c, 2) * r;
-        }
-        pts[w++] = x;
-        pts[w++] = y;
-        pts[w++] = z;
-      }
-    }
+  const parentArr = Float32Array.from(parentPts);
+  let childPts: Float32Array | null = null;
+  let childDesc: ChildDesc | undefined;
+  let childCfg: ChildSettings | undefined;
+  if (children && parents) {
+    childCfg = childSettings(s as unknown as Record<string, unknown>, children);
+    childDesc = describeChildren(parentArr, per, parents, childCfg, seed, childCfg.type === 'INTERPOLATED' ? new MeshSampler(mesh, psysGroup(mesh, psys, 'density')) : null);
+    childPts = childStrands(parentArr, per, childDesc, childCfg);
   }
-  const result: HairResult = { points: w === pts.length ? pts : pts.slice(0, w), segments: seg, strands: w / 3 / per, parents, children: childInfo.length ? Float32Array.from(childInfo) : undefined };
+  const pts = new Float32Array(parentArr.length + (childPts?.length ?? 0));
+  pts.set(parentArr);
+  if (childPts) pts.set(childPts, parentArr.length);
+  const w = pts.length;
+  const result: HairResult = { points: pts, segments: seg, strands: w / 3 / per, parents, childDesc, childSettings: childCfg };
   hairCache.set(key, { hash, result });
   return result;
 }
@@ -625,10 +768,22 @@ function materialColor(doc: DocumentData, ob: ObjectData, slot: number): [number
   return ma ? [ma.diffuse_color[0], ma.diffuse_color[1], ma.diffuse_color[2]] : null;
 }
 
-function instanceMatrix(owner: Matrix4, pos: Vector3, rot: Quaternion, size: number, inst: ObjectData | undefined, useScale: boolean) {
+function instanceMatrix(owner: Matrix4, pos: Vector3, rot: Quaternion, size: number, inst: ObjectData | undefined, useScale: boolean, opts: { global?: boolean; rotation?: boolean; world?: Matrix4 | null } = {}) {
   const sc = new Vector3(size, size, size);
   if (inst && useScale) sc.multiply(new Vector3(...inst.scale));
-  return new Matrix4().copy(owner).invert().multiply(new Matrix4().compose(pos, rot, sc)).toArray();
+  let q = rot;
+  let p = pos;
+  if (inst && opts.world && (opts.rotation || opts.global)) {
+    const wp = new Vector3(),
+      wq = new Quaternion(),
+      ws = new Vector3();
+    opts.world.decompose(wp, wq, ws);
+    // keep the instance object's own rotation (on top of the particle's)
+    if (opts.rotation) q = rot.clone().multiply(wq);
+    // keep its offset from the world origin
+    if (opts.global) p = pos.clone().add(wp);
+  }
+  return new Matrix4().copy(owner).invert().multiply(new Matrix4().compose(p, q, sc)).toArray();
 }
 
 const X = new Vector3(1, 0, 0);
@@ -675,6 +830,70 @@ function particleRotation(s: ParticleSettingsX, seed: number, i: number, vel: Ve
   return q;
 }
 
+/**
+ * Orientation of a boid: X along its flight direction (pitch scales how far it tilts up / down)
+ * and rolled into turns by the sideways acceleration times the banking factor.
+ */
+function boidOrientation(b: BoidSettings, i: number, f: PFrame, f1: PFrame | undefined, f2: PFrame | undefined, g: [number, number, number]): Quaternion {
+  const q = new Quaternion();
+  if (!f1) return q;
+  const v = new Vector3(f.pos[i * 3] - f1.pos[i * 3], f.pos[i * 3 + 1] - f1.pos[i * 3 + 1], f.pos[i * 3 + 2] - f1.pos[i * 3 + 2]);
+  if (v.lengthSq() < 1e-14) return q;
+  const up = new Vector3(-g[0], -g[1], -g[2]);
+  if (up.lengthSq() < 1e-12) up.set(0, 0, 1);
+  up.normalize();
+  // pitch: keep this share of the vertical part of the direction
+  const vert = up.clone().multiplyScalar(v.dot(up));
+  const dir = v.clone().sub(vert).add(vert.multiplyScalar(Math.max(0, Math.min(2, b.pitch ?? 1)))).normalize();
+  q.setFromUnitVectors(X, dir);
+  if (f2 && (b.bank ?? 0) > 0) {
+    const v0 = new Vector3(f1.pos[i * 3] - f2.pos[i * 3], f1.pos[i * 3 + 1] - f2.pos[i * 3 + 1], f1.pos[i * 3 + 2] - f2.pos[i * 3 + 2]);
+    const acc = v.clone().sub(v0);
+    const side = new Vector3().crossVectors(up, dir).normalize();
+    // roll angle from the sideways acceleration relative to the speed
+    const lateral = acc.dot(side) / Math.max(1e-6, v.length());
+    const roll = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, -lateral * (b.bank ?? 1) * 4));
+    q.multiply(new Quaternion().setFromAxisAngle(X, roll));
+  }
+  return q;
+}
+
+/**
+ * Keep the [start, end] part of every strand (shares of its length, or frames of a hair 'growing'
+ * over the frame range with absolute path time), shortened at random by the random length.
+ */
+function trimStrands(pts: Float32Array, per: number, s: ParticleSettingsX, seed: number) {
+  const n = pts.length / (per * 3);
+  const span = Math.max(1, (s.frame_end ?? 200) - (s.frame_start ?? 1));
+  let a = s.path_start ?? 0,
+    b = s.path_end ?? 1;
+  if (s.use_absolute_path_time) {
+    a = (a - (s.frame_start ?? 1)) / span;
+    b = (b - (s.frame_start ?? 1)) / span;
+  }
+  a = Math.max(0, Math.min(1, a));
+  b = Math.max(a, Math.min(1, b));
+  const src = new Float32Array(per * 3);
+  const cum = new Float32Array(per);
+  for (let i = 0; i < n; i++) {
+    const o = i * per * 3;
+    src.set(pts.subarray(o, o + per * 3));
+    cum[0] = 0;
+    for (let k = 1; k < per; k++) cum[k] = cum[k - 1] + Math.hypot(src[k * 3] - src[k * 3 - 3], src[k * 3 + 1] - src[k * 3 - 2], src[k * 3 + 2] - src[k * 3 - 1]);
+    const L = cum[per - 1];
+    const bb = b * (1 - (s.length_random ?? 0) * rand01(seed, i, 95));
+    const t0 = Math.min(a, bb) * L,
+      t1 = bb * L;
+    let j = 0;
+    for (let k = 0; k < per; k++) {
+      const t = t0 + ((t1 - t0) * k) / Math.max(1, per - 1);
+      while (j < per - 2 && cum[j + 1] < t) j++;
+      const q = Math.max(0, Math.min(1, (t - cum[j]) / (cum[j + 1] - cum[j] || 1)));
+      for (let c = 0; c < 3; c++) pts[o + k * 3 + c] = src[j * 3 + c] + (src[(j + 1) * 3 + c] - src[j * 3 + c]) * q;
+    }
+  }
+}
+
 /** Objects of a collection (recursively, by name) for collection instancing. */
 function collectionObjects(doc: DocumentData, cid: string | null | undefined, depth = 0): ObjectData[] {
   const c = cid ? doc.collections[cid] : undefined;
@@ -692,20 +911,30 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
   const s = psys ? settingsOf(doc, psys) : null;
   if (!psys || !s || ctx.editMode) {
     if (!ctx.render) particleDraw.delete(key);
+    hairRenderData.delete(key);
     return mesh;
   }
+  if (s.type !== 'HAIR') hairRenderData.delete(key);
   const owner = (ctx.graph as Depsgraph).get(ob.id)?.world ?? new Matrix4();
   const show = ctx.render ? 'RENDER' : s.display_method ?? 'RENDER';
   const color = materialColor(doc, ob, s.material_slot ?? 1) ?? [0.9, 0.9, 0.9];
   const inst = s.render_type === 'OBJECT' && s.instance_object ? doc.objects[s.instance_object] : undefined;
   const coll = s.render_type === 'COLLECTION' ? collectionObjects(doc, s.instance_collection).filter((o) => o.id !== ob.id) : [];
   const wantInstances = show === 'RENDER' && ((!!inst && inst.id !== ob.id) || coll.length > 0);
-  const wantPoints = show === 'DOT' || (show === 'RENDER' && s.render_type === 'HALO');
+  const instWorld = inst && (s.use_global_instance || s.use_rotation_instance) ? ((ctx.graph as Depsgraph).get(inst.id)?.world ?? null) : null;
+  // Use Count: each listed collection object appears `count` times in the picking order
+  const picks: ObjectData[] = [];
+  if (s.use_collection_count && !s.use_whole_collection)
+    for (const w of s.instance_weights ?? []) {
+      const o = coll.find((x) => x.id === w.object);
+      if (o) for (let c = 0; c < Math.max(0, Math.round(w.count)); c++) picks.push(o);
+    }
+  const wantPoints = show === 'DOT' || show === 'CIRC' || show === 'CROSS' || (show === 'RENDER' && s.render_type === 'HALO');
   const wantLines = show === 'RENDER' && s.render_type === 'LINE';
   /** instance(s) of one particle: the object, a picked collection object, or the whole collection */
   const pushInstances = (out: GeometryInstance[], ow: Matrix4, pos: Vector3, rot: Quaternion, size: number, i: number, seed: number) => {
     if (inst) {
-      out.push({ objectId: inst.id, matrix: instanceMatrix(ow, pos, rot, size, inst, s.use_scale_instance !== false) });
+      out.push({ objectId: inst.id, matrix: instanceMatrix(ow, pos, rot, size, inst, s.use_scale_instance !== false, { global: !!s.use_global_instance, rotation: !!s.use_rotation_instance, world: instWorld }) });
       return;
     }
     if (!coll.length) return;
@@ -718,27 +947,42 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
       }
       return;
     }
-    const o = s.use_collection_pick_random ? coll[Math.floor(rand01(seed, i, 80) * coll.length) % coll.length] : coll[i % coll.length];
-    out.push({ objectId: o.id, matrix: instanceMatrix(ow, pos, rot, size, o, s.use_scale_instance !== false) });
+    const list = picks.length ? picks : coll;
+    const o = s.use_collection_pick_random ? list[Math.floor(rand01(seed, i, 80) * list.length) % list.length] : list[i % list.length];
+    out.push({ objectId: o.id, matrix: instanceMatrix(ow, pos, rot, size, o, s.use_scale_instance !== false, { global: !!s.use_global_instance, rotation: !!s.use_rotation_instance, world: s.use_global_instance || s.use_rotation_instance ? ((ctx.graph as Depsgraph).get(o.id)?.world ?? null) : null }) });
   };
   const instances: GeometryInstance[] = [];
   let draw: ParticleDraw | null = null;
   if (s.type === 'HAIR') {
-    let hair = evaluateHair(ob, m, psys, s, mesh, simplifyChildParticles(doc, ctx.render));
+    let hair = evaluateHair(ob, m, psys, s, mesh, simplifyChildParticles(doc, ctx.render), ctx.render);
     if (psys.use_hair_dynamics) hair = hairWithDynamics(ob, m, psys, s, hair, ctx) ?? hair;
     const per = hair.segments + 1;
     const hpct = ctx.render ? 100 : (s.display_percentage ?? 100);
     const hvis = (i: number) => hpct >= 100 || rand01(psys.seed, i, 90) * 100 < hpct;
+    // paths: subdivided (and smoothed with B-Spline) by the display / render steps
+    const path = smoothStrands(hair.points, per, ctx.render ? (s.render_step ?? 3) : (s.display_step ?? 2), !!s.use_hair_bspline);
+    // Timing: show only part of each strand (start / end, random shortening)
+    if ((s.path_start ?? 0) > 0 || (s.path_end ?? 1) < 1 || (s.length_random ?? 0) > 0) {
+      if (path.points === hair.points) path.points = path.points.slice();
+      trimStrands(path.points, path.per, s, psys.seed);
+    }
+    const pper = path.per,
+      pseg = pper - 1;
+    if (s.render_type === 'PATH') {
+      // strands for the render engines (tubes); parents are left out when children show
+      const first = hair.childDesc && !s.use_parent_particles ? hair.parents : 0;
+      hairRenderData.set(key, { objectId: ob.id, points: path.points, per: pper, first, settings: s, materialSlot: s.material_slot ?? 1 });
+    } else hairRenderData.delete(key);
     if (show !== 'NONE' && (s.render_type === 'PATH' || show === 'DOT' || !wantInstances)) {
       let shown = 0;
       for (let i = 0; i < hair.strands; i++) if (hvis(i)) shown++;
-      const lines = new Float32Array(shown * hair.segments * 6);
+      const lines = new Float32Array(shown * pseg * 6);
       let w = 0;
       for (let i = 0; i < hair.strands; i++) {
         if (!hvis(i)) continue;
-        for (let k = 0; k < hair.segments; k++) {
-          const a = (i * per + k) * 3;
-          lines.set(hair.points.subarray(a, a + 6), w);
+        for (let k = 0; k < pseg; k++) {
+          const a = (i * pper + k) * 3;
+          lines.set(path.points.subarray(a, a + 6), w);
           w += 6;
         }
       }
@@ -766,7 +1010,44 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
       const seed = hashSeed(psys.seed, s.seed ?? 0);
       // the viewport may show only a share of the particles
       const pct = ctx.render ? 100 : (s.display_percentage ?? 100);
-      const vis = (i: number) => (frame.state[i] === 1 || (showDead && frame.state[i] === 2)) && (pct >= 100 || rand01(seed, i, 90) * 100 < pct);
+      const showUnborn = !!s.show_unborn;
+      const vis = (i: number) => (frame.state[i] === 1 || (showDead && frame.state[i] === 2) || (showUnborn && frame.state[i] === 0 && Number.isFinite(res.birth[i]))) && (pct >= 100 || rand01(seed, i, 90) * 100 < pct);
+      // unborn particles wait at their emission point
+      const unbornAt = (i: number, out: Float32Array | Vector3, o = 0) => {
+        const sm = res.samples?.[i];
+        const v = new Vector3(sm?.px ?? 0, sm?.py ?? 0, sm?.pz ?? 0).applyMatrix4(owner);
+        if (out instanceof Vector3) out.copy(v);
+        else {
+          out[o] = v.x;
+          out[o + 1] = v.y;
+          out[o + 2] = v.z;
+        }
+      };
+      const posOf = (i: number, out: Float32Array, o: number) => {
+        if (frame.state[i] === 0) unbornAt(i, out, o);
+        else out.set(frame.pos.subarray(i * 3, i * 3 + 3), o);
+      };
+      // viewport colours by speed or acceleration (blue → red up to the colour maximum)
+      const colorMode = ctx.render ? 'MATERIAL' : (s.display_color ?? 'MATERIAL');
+      const fpsC = s.timestep && s.timestep > 0 ? 1 / s.timestep : fps(doc);
+      const ramp = (t: number, out: Float32Array, o: number) => {
+        const x = Math.max(0, Math.min(1, t));
+        out[o] = Math.min(1, x * 2);
+        out[o + 1] = 1 - Math.abs(x - 0.5) * 2;
+        out[o + 2] = Math.min(1, (1 - x) * 2);
+      };
+      const colorOf = (i: number, out: Float32Array, o: number) => {
+        const cmax = Math.max(0.01, s.color_maximum ?? 1);
+        if (colorMode === 'VELOCITY' && res.prev) {
+          const v = Math.hypot(frame.pos[i * 3] - res.prev.pos[i * 3], frame.pos[i * 3 + 1] - res.prev.pos[i * 3 + 1], frame.pos[i * 3 + 2] - res.prev.pos[i * 3 + 2]) * fpsC;
+          ramp(v / (cmax * 10), out, o);
+        } else if (colorMode === 'ACCELERATION' && res.prev && res.prev2) {
+          let a = 0;
+          for (let c = 0; c < 3; c++) a += (frame.pos[i * 3 + c] - 2 * res.prev.pos[i * 3 + c] + res.prev2.pos[i * 3 + c]) ** 2;
+          ramp((Math.sqrt(a) * fpsC * fpsC) / (cmax * 10), out, o);
+        } else if (colorMode === 'NONE') out.set([1, 1, 1], o);
+        else out.set(color, o);
+      };
       let count = 0;
       for (let i = 0; i < n; i++) if (vis(i)) count++;
       // simple children: copies of every parent at fixed random offsets within the child radius
@@ -783,22 +1064,55 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
         const total = count * (1 + nChild);
         const pts = new Float32Array(total * 3),
           sizes = new Float32Array(total);
+        const cols = colorMode !== 'MATERIAL' ? new Float32Array(total * 3) : null;
         const off = new Vector3();
         let w = 0;
         for (let i = 0; i < n; i++) {
           if (!vis(i)) continue;
-          const size = show === 'DOT' ? s.display_size ?? 0.05 : s.particle_size * (1 - s.size_random * rand01(seed, i, 2)) * (res.sizeMul ? res.sizeMul[i] : 1);
-          pts.set(frame.pos.subarray(i * 3, i * 3 + 3), w * 3);
+          const size = show !== 'RENDER' ? s.display_size ?? 0.05 : s.particle_size * (1 - s.size_random * rand01(seed, i, 2)) * (res.sizeMul ? res.sizeMul[i] : 1);
+          posOf(i, pts, w * 3);
+          if (cols) colorOf(i, cols, w * 3);
+          const px = pts[w * 3],
+            py = pts[w * 3 + 1],
+            pz = pts[w * 3 + 2];
           sizes[w++] = size;
           for (let c = 0; c < nChild; c++) {
             childOffset(i, c, off);
-            pts[w * 3] = frame.pos[i * 3] + off.x;
-            pts[w * 3 + 1] = frame.pos[i * 3 + 1] + off.y;
-            pts[w * 3 + 2] = frame.pos[i * 3 + 2] + off.z;
-            sizes[w++] = show === 'DOT' ? size : size * childSize(i, c);
+            pts[w * 3] = px + off.x;
+            pts[w * 3 + 1] = py + off.y;
+            pts[w * 3 + 2] = pz + off.z;
+            if (cols) colorOf(i, cols, w * 3);
+            sizes[w++] = show !== 'RENDER' ? size : size * childSize(i, c);
           }
         }
-        draw = { objectId: ob.id, space: 'WORLD', points: pts, sizes, lines: null, color, count: total };
+        draw = { objectId: ob.id, space: 'WORLD', points: pts, sizes, lines: null, color, count: total, colors: cols, shape: show === 'CIRC' ? 'CIRCLE' : show === 'CROSS' ? 'CROSS' : 'DISC' };
+      }
+      if (show === 'AXIS') {
+        // three short axis lines per particle, oriented like the particle
+        const lines = new Float32Array(count * 18),
+          cols = new Float32Array(count * 18);
+        const ax = [new Vector3(), new Vector3(), new Vector3()];
+        const pv = new Float32Array(3);
+        let w = 0;
+        const fpsv = fps(doc);
+        for (let i = 0; i < n; i++) {
+          if (!vis(i)) continue;
+          posOf(i, pv, 0);
+          let vel: Vector3 | null = null;
+          if (res.prev && frame.state[i] === 1) vel = new Vector3(frame.pos[i * 3] - res.prev.pos[i * 3], frame.pos[i * 3 + 1] - res.prev.pos[i * 3 + 1], frame.pos[i * 3 + 2] - res.prev.pos[i * 3 + 2]);
+          const q = particleRotation({ ...s, use_rotations: true }, seed, i, vel, null, owner, Math.max(0, (res.at - res.birth[i]) / fpsv));
+          const L = s.display_size ?? 0.05;
+          ax[0].set(L, 0, 0).applyQuaternion(q);
+          ax[1].set(0, L, 0).applyQuaternion(q);
+          ax[2].set(0, 0, L).applyQuaternion(q);
+          for (let a = 0; a < 3; a++) {
+            lines.set([pv[0], pv[1], pv[2], pv[0] + ax[a].x, pv[1] + ax[a].y, pv[2] + ax[a].z], w);
+            const c = a === 0 ? [1, 0.2, 0.2] : a === 1 ? [0.3, 1, 0.3] : [0.3, 0.5, 1];
+            cols.set([...c, ...c], w);
+            w += 6;
+          }
+        }
+        draw = { objectId: ob.id, space: 'WORLD', points: null, sizes: null, lines, color, count, colors: cols };
       }
       if (wantLines) {
         // a line per particle along its direction of travel
@@ -839,16 +1153,22 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
         const fpsv = fps(doc);
         for (let i = 0; i < n; i++) {
           if (!vis(i)) continue;
-          p.set(frame.pos[i * 3], frame.pos[i * 3 + 1], frame.pos[i * 3 + 2]);
+          if (frame.state[i] === 0) unbornAt(i, p);
+          else p.set(frame.pos[i * 3], frame.pos[i * 3 + 1], frame.pos[i * 3 + 2]);
           let vel: Vector3 | null = null;
-          if (res.prev) {
+          if (res.prev && frame.state[i] !== 0) {
             d.set(p.x - res.prev.pos[i * 3], p.y - res.prev.pos[i * 3 + 1], p.z - res.prev.pos[i * 3 + 2]);
             vel = d;
           }
           const sm = res.samples?.[i];
           const normal = sm ? nrm.set(sm.nx, sm.ny, sm.nz).transformDirection(owner) : null;
-          const q = particleRotation(s, seed, i, vel, normal, owner, Math.max(0, (res.at - res.birth[i]) / fpsv));
           const size = s.particle_size * (1 - s.size_random * rand01(seed, i, 2)) * (res.sizeMul ? res.sizeMul[i] : 1);
+          let q: Quaternion;
+          if (s.physics_type === 'BOIDS' && s.boids) {
+            q = boidOrientation(s.boids, i, frame, res.prev, res.prev2, gravityOf(doc, 1));
+            // walking boids stand on the ground instead of sinking into it
+            if (frame.land?.[i] && s.boids.height) p.z += size * s.boids.height * 0.5;
+          } else q = particleRotation(s, seed, i, vel, normal, owner, Math.max(0, (res.at - res.birth[i]) / fpsv));
           pushInstances(instances, owner, p, q, size, i, seed);
           for (let c = 0; c < nChild; c++) {
             const cp = childOffset(i, c, new Vector3()).add(p);

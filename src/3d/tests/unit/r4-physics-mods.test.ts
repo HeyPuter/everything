@@ -1,0 +1,160 @@
+// @vitest-environment happy-dom
+import { describe, expect, it } from 'vitest';
+import { newMeshData } from '../../src/data/defaults';
+import * as prim from '../../src/mesh/primitives';
+import { bakeOcean, oceanField, oceanParams } from '../../src/eval/mods/ocean';
+import { explodeFaces } from '../../src/eval/mods/particles';
+import { modifierTypes } from '../../src/eval/modifiers';
+import '../../src/eval/mods/index';
+import type { EvalMesh } from '../../src/eval/types';
+
+const mesh = (a: ReturnType<typeof prim.cube>) => newMeshData('m', a) as unknown as EvalMesh;
+const opts = { unborn: true, alive: true, dead: true, useSize: false, protect: 0, weights: null };
+
+describe('Ocean', () => {
+  const defaults = () => modifierTypes.OCEAN.defaults() as Record<string, unknown>;
+  it('spray vectors point where the surface is pushed together', () => {
+    const p = oceanParams({ ...defaults(), use_spray: true, choppiness: 2, wind_velocity: 40 } as never, false);
+    const f = oceanField(p);
+    expect(f.spray).toBeTruthy();
+    expect(f.spray!.length).toBe(f.n * f.n * 2);
+    let nonzero = 0;
+    for (let i = 0; i < f.spray!.length; i++) if (Math.abs(f.spray![i]) > 1e-6) nonzero++;
+    expect(nonzero).toBeGreaterThan(f.n);
+    const inv = oceanField({ ...p, invertSpray: true });
+    expect(inv.spray![0]).toBeCloseTo(-f.spray![0], 6);
+  });
+
+  it('a bake keeps foam that fades over time', () => {
+    const base = oceanParams({ ...defaults(), use_foam: true, choppiness: 2, wind_velocity: 40 } as never, false);
+    const live = bakeOcean((f) => ({ ...base, time: f / 24 }), 1, 6, 0, 'k');
+    const kept = bakeOcean((f) => ({ ...base, time: f / 24 }), 1, 6, 0.95, 'k');
+    expect(kept.frames.size).toBe(6);
+    const sum = (a: Float64Array) => a.reduce((t, x) => t + x, 0);
+    // with fading foam the last frame holds at least the foam of the plain field
+    expect(sum(kept.frames.get(6)!.foam!)).toBeGreaterThan(sum(live.frames.get(6)!.foam!));
+  });
+});
+
+describe('Explode cut edges', () => {
+  it('splits a face whose corners belong to different particles', () => {
+    // one quad from x = -1 to 1; particles at its left and right edges
+    const quad = mesh(prim.grid(1, 1, 2));
+    const emit = Float32Array.from([-1, 0, 0, 1, 0, 0]);
+    const pos = Float32Array.from([-1, 0, 2, 1, 0, 0]);
+    const whole = explodeFaces(quad, emit, pos, Uint8Array.from([1, 1]), Float32Array.from([1, 1]), opts);
+    expect(whole.offsets.length - 1).toBe(1);
+    const cut = explodeFaces(quad, emit, pos, Uint8Array.from([1, 1]), Float32Array.from([1, 1]), { ...opts, cutEdges: true });
+    // a piece per corner; the left pieces rose with their particle
+    expect(cut.offsets.length - 1).toBe(4);
+    let up = 0;
+    for (let f = 0; f < 4; f++) if (cut.positions[cut.indices[cut.offsets[f]] * 3 + 2] > 1) up++;
+    expect(up).toBe(2);
+  });
+
+  it('writes the particle age to the UVs', () => {
+    const quad = mesh(prim.grid(1, 1, 2));
+    const out = explodeFaces(quad, Float32Array.from([0, 0, 0]), Float32Array.from([0, 0, 1]), Uint8Array.from([1]), Float32Array.from([1]), { ...opts, ages: Float32Array.from([0.25]) });
+    expect(out.uvs[0]).toBeCloseTo(0.25, 6);
+    expect(out.uvs[1]).toBeCloseTo(0.5, 6);
+  });
+});
+
+describe('Dynamic Paint image sequences', () => {
+  it('texel samples cover the UV islands and interpolate vertex values', async () => {
+    const { texelSamples, interpolate, outputPixels, surfaceOutputs } = await import('../../src/physics/dpimage');
+    // one quad covering the lower-left quarter of the UV square
+    const quad = { positions: new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]), offsets: new Uint32Array([0, 4]), indices: new Uint32Array([0, 1, 2, 3]), uvs: new Float32Array([0, 0, 0.5, 0, 0.5, 0.5, 0, 0.5]) };
+    const t = texelSamples(quad, 16)!;
+    expect(t.pix.length).toBe(64);
+    // positions follow the UVs: texel (7, 7) sits near the far corner
+    const P = interpolate(t, quad.positions, 3);
+    const i = Array.from(t.pix).indexOf(7 * 16 + 7);
+    expect(P[i * 3]).toBeCloseTo(15 / 16, 5);
+    // grid neighbours, borders at the island edge
+    expect(t.border[Array.from(t.pix).indexOf(3 * 16 + 3)]).toBe(0);
+    expect(t.border[Array.from(t.pix).indexOf(0)]).toBe(1);
+    // paint state → pixels, with padding around the island
+    const st = new Float32Array(64 * 5);
+    for (let k = 0; k < 64; k++) st.set([1, 0, 0, 1, 0.5], k * 5);
+    const px = outputPixels(t, st, 'paintmap');
+    expect(px[(3 * 16 + 3) * 4]).toBe(255);
+    expect(px[(3 * 16 + 9) * 4]).toBe(255);
+    expect(px[(3 * 16 + 12) * 4]).toBe(0);
+    const wet = outputPixels(t, st, 'wetmap');
+    expect(wet[(3 * 16 + 3) * 4]).toBe(128);
+    expect(surfaceOutputs({ name: 'S', surface_type: 'PAINT', use_output_a: true, use_output_b: false, output_name_a: '', output_name_b: '' }).map((o) => o.name)).toEqual(['dp_paintmap']);
+  });
+});
+
+describe('soft body settings', () => {
+  it('map to the solver: stiff quads, self collision ball size, mass and spring groups, choke', async () => {
+    const { softBodySetup } = await import('../../src/physics/cloth');
+    const { defaultSoftBodySettings } = await import('../../src/physics/types');
+    const { emptyDocument } = await import('../../src/data/defaults');
+    const doc = emptyDocument();
+    const m = mesh(prim.grid(2, 2, 2));
+    const w = new Float32Array(m.positions.length / 3).fill(0.5);
+    const em = { ...m, vertex_groups: [{ name: 'M' }], weights: [w] } as EvalMesh;
+    const mod = (over: Record<string, unknown>) => ({ settings: { ...defaultSoftBodySettings(), ...over }, point_cache: { frame_start: 1, frame_end: 10, is_baked: false } }) as never;
+    expect(softBodySetup(mod({}), em, doc).shear).toBe(false);
+    expect(softBodySetup(mod({ use_stiff_quads: true }), em, doc).shear).toBe(true);
+    // self collision: 0.5 × the average edge (1 m) = 0.5 m; manual keeps the value
+    const avg = softBodySetup(mod({ use_self_collision: true, collision_type: 'AVERAGE', self_ball_size: 0.5 }), em, doc).params.self!.distance;
+    expect(avg).toBeCloseTo(0.5, 5);
+    expect(softBodySetup(mod({ use_self_collision: true, collision_type: 'MANUAL', self_ball_size: 0.2 }), em, doc).params.self!.distance).toBeCloseTo(0.2, 5);
+    const st = softBodySetup(mod({ vertex_group_mass: 'M', vertex_group_spring: 'M', choke: 20 }), em, doc);
+    expect(st.params.massScale![0]).toBeCloseTo(0.5, 5);
+    expect(st.springScale).toBe(w);
+    expect(st.params.choke).toBeCloseTo(0.2, 5);
+  });
+});
+
+describe('multiple point caches', () => {
+  it('switching caches swaps their frames and settings', async () => {
+    const { switchCache, cacheList } = await import('../../src/physics/ptcaches');
+    const { getCache } = await import('../../src/physics/common');
+    const holder: Record<string, unknown> = { point_cache: { frame_start: 1, frame_end: 50, is_baked: false } };
+    const c = getCache<Float32Array, unknown>('TEST:cache');
+    c.hash = 'h1';
+    c.frames.set(1, new Float32Array([1]));
+    c.frames.set(2, new Float32Array([2]));
+    c.last = 2;
+    const owner = { key: 'TEST:cache', label: 'T', pc: holder.point_cache as never, holder };
+    const list = cacheList(holder);
+    list.push({ frame_start: 10, frame_end: 20, is_baked: false, name: 'Cache.001' });
+    switchCache(owner, 1);
+    expect(holder.point_cache_index).toBe(1);
+    expect((holder.point_cache as { frame_start: number }).frame_start).toBe(10);
+    expect(c.frames.size).toBe(0);
+    switchCache(owner, 0);
+    expect(c.frames.size).toBe(2);
+    expect(c.hash).toBe('h1');
+    expect((holder.point_cache as { frame_end: number }).frame_end).toBe(50);
+  });
+});
+
+describe('force field options', () => {
+  it('Z direction, tube radial limits, gravitation and Affect Location', async () => {
+    const { effectorForce } = await import('../../src/physics/fields');
+    const { defaultField } = await import('../../src/physics/types');
+    const { Matrix4 } = await import('three');
+    const eff = (over: Record<string, unknown>) => [{ id: 'f', field: { ...defaultField('FORCE'), ...over } as never, px: 0, py: 0, pz: 0, ax: 0, ay: 0, az: 1, inv: new Matrix4(), scale: 1, world: new Matrix4() }];
+    const force = (over: Record<string, unknown>, p: [number, number, number]) => {
+      const out = [0, 0, 0];
+      effectorForce(eff(over), p[0], p[1], p[2], 0, 0, 0, 1, out);
+      return out;
+    };
+    expect(force({}, [0, 0, 1])[2]).toBeGreaterThan(0);
+    expect(force({ z_direction: 'NEGATIVE' }, [0, 0, 1])[2]).toBe(0);
+    expect(force({ z_direction: 'NEGATIVE' }, [0, 0, -1])[2]).toBeLessThan(0);
+    // tube with a radial maximum: nothing beyond 0.5 from the axis
+    expect(force({ falloff_type: 'TUBE', use_radial_max: true, radial_max: 0.5 }, [1, 0, 0.1])[0]).toBe(0);
+    expect(force({ falloff_type: 'TUBE', use_radial_max: true, radial_max: 0.5 }, [0.3, 0, 0.1])[0]).toBeGreaterThan(0);
+    // gravitation: four times weaker at twice the distance
+    const near = force({ use_gravity_falloff: true }, [1, 0, 0])[0],
+      far = force({ use_gravity_falloff: true }, [2, 0, 0])[0];
+    expect(near / far).toBeCloseTo(4, 3);
+    expect(force({ apply_to_location: false }, [1, 0, 0])[0]).toBe(0);
+  });
+});

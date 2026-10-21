@@ -7,6 +7,7 @@ import { uiList } from '../editors/properties/uilist';
 import type { ObjectData } from '../data/types';
 import { changed, note, subHeading, cachePanel } from './ui-common';
 import { defaultBrush, defaultSurface, dpCacheKey, type DPBrush, type DPSurface, type DynamicPaintModifier } from './dynpaint';
+import { surfaceOutputs } from './dpimage';
 
 function fill<T extends object>(target: T, defaults: T): T {
   const t = target as Record<string, unknown>;
@@ -57,7 +58,9 @@ function surfacePanels(ob: ObjectData, m: DynamicPaintModifier): Child[] {
     panel('dp-surface', 'Surface', () => [
       d ? note('The surface is baked: delete the bake to change settings') : null,
       bool(sf as never, 'is_active', 'Active', { tip: 'Enable this surface' }),
-      splitRow('Format', h('span', { class: 'prop-note' }, 'Vertex')),
+      enumProp(sf, 'surface_format', 'Format', [['VERTEX', 'Vertex'], ['IMAGE', 'Image Sequence']], { disabled: d, tip: 'Paint per vertex, or per texel of the UV map into images' }),
+      sf.surface_format === 'IMAGE' ? num(sf, 'image_resolution', 'Resolution', { int: true, min: 16, max: 4096, softMax: 2048, disabled: d, tip: 'Pixels per side of the output images' }) : null,
+      sf.surface_format === 'IMAGE' && !me?.uvs.length ? note('Image sequences need a UV map on the canvas mesh', 'error') : null,
       enumProp(sf, 'surface_type', 'Type', [['PAINT', 'Paint'], ['DISPLACE', 'Displace'], ['WAVE', 'Waves'], ['WEIGHT', 'Weight']], {
         disabled: d,
         onChange: () => {
@@ -118,7 +121,23 @@ function surfacePanels(ob: ObjectData, m: DynamicPaintModifier): Child[] {
       ], { closed: true }),
     );
   }
-  if (T === 'PAINT' || T === 'WEIGHT') {
+  if (sf.surface_format === 'IMAGE') {
+    out.push(
+      panel('dp-output', 'Output', () => {
+        const outs = surfaceOutputs(sf);
+        const row = (key: 'output_name_a' | 'output_name_b', use: 'use_output_a' | 'use_output_b', label: string) => [
+          T === 'PAINT' ? h('div', { class: 'split-row check' }, h('div', { class: 'sr-label' }), h('div', { class: 'sr-value' }, checkbox(`dp-${use}-${sf.id}`, label, sf[use] !== false, (v) => ((sf[use] = v), changed(`Toggle ${label}`)))), h('span', { class: 'decorator-space' })) : null,
+          textProp(sf as never, key, T === 'PAINT' ? 'Image Name' : label, { disabled: T === 'PAINT' && sf[use] === false }),
+        ];
+        return [
+          note('Baking writes the maps to images of these names; they then follow the current frame'),
+          T === 'PAINT' ? [row('output_name_a', 'use_output_a', 'Paintmaps'), row('output_name_b', 'use_output_b', 'Wetmaps')] : row('output_name_a', 'use_output_a', T === 'DISPLACE' ? 'Displacement Image' : T === 'WAVE' ? 'Waves Image' : 'Weight Image'),
+          h('div', { class: 'prop-note' }, `Images: ${outs.map((o) => o.name).join(', ') || '—'}`),
+          h('div', { class: 'row-aligned', style: { padding: '2px 8px' } }, opButton('dpaint.bake', 'Bake Image Sequence', {}, { tip: 'Simulate the whole frame range and write the images' })),
+        ];
+      }),
+    );
+  } else if (T === 'PAINT' || T === 'WEIGHT') {
     const layerRow = (key: 'output_name_a' | 'output_name_b', use: 'use_output_a' | 'use_output_b', label: string, output: 'A' | 'B') => {
       const name = sf[key];
       const exists = T === 'WEIGHT' ? !!me?.vertex_groups.some((g) => g.name === name) : !!me?.color_attributes.some((c) => c.name === name);
