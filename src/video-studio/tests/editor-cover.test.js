@@ -74,10 +74,39 @@ describe('project cover', () => {
       await editor.saveCover();
       expect(renderStill).not.toHaveBeenCalled();
       player.playing = false;
-      await vi.advanceTimersByTimeAsync(4000);
+      await vi.advanceTimersByTimeAsync(8100);
       expect(renderStill).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('waits for editing to pause, then saves once', async () => {
+    vi.useFakeTimers();
+    try {
+      for (let i = 0; i < 5; i++) {
+        editor._scheduleCover(); // an edit
+        await vi.advanceTimersByTimeAsync(3000); // still editing
+      }
+      expect(renderStill).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(5100);
+      expect(renderStill).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(renderStill).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('saves a waiting cover when the tab is hidden, and nothing when none waits', async () => {
+    const hidden = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    document.dispatchEvent(new Event('visibilitychange'));
+    await settle();
+    expect(renderStill).not.toHaveBeenCalled();
+    editor._scheduleCover(); // an edit
+    document.dispatchEvent(new Event('visibilitychange'));
+    await settle();
+    expect(renderStill).toHaveBeenCalledTimes(1);
+    hidden.mockRestore();
   });
 });

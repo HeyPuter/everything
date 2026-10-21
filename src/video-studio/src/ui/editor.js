@@ -39,6 +39,19 @@ const PANEL_LIMITS = { left: [240, 720], right: [260, 640] };
 const MIN_PLAYER = 280;
 const RESIZERS = 8;
 
+/** The gallery cover is saved this long after the last edit (then when the browser is idle). */
+const COVER_DELAY = 8000;
+
+/** Run fn when the browser is idle (soon after, at the latest). Returns { cancel }. */
+function whenIdle(fn) {
+  if (typeof requestIdleCallback === 'function') {
+    const id = requestIdleCallback(fn, { timeout: 4000 });
+    return { cancel: () => cancelIdleCallback(id) };
+  }
+  const id = setTimeout(fn, 0);
+  return { cancel: () => clearTimeout(id) };
+}
+
 /**
  * Side panel widths that fit in `room` px together. Wider panels give up their
  * extra width in proportion; neither goes below its minimum.
@@ -200,7 +213,13 @@ export class Editor {
     document.title = `${project.name} - Video Studio`;
     store.on('change', () => (document.title = `${store.project.name} - Video Studio`));
     this._coverTimer = null;
+    this._coverIdle = null;
     store.on('change', () => this._scheduleCover());
+    // Leaving the tab (or closing it): save a cover still waiting now.
+    this._onHidden = () => {
+      if (document.visibilityState === 'hidden' && this._coverDue) this.saveCover();
+    };
+    document.addEventListener('visibilitychange', this._onHidden);
     this._watchProxies();
     // Media whose file is gone would just show black: say so and offer to relink.
     ctx.actions.checkMissingMedia?.({ notify: true });
@@ -364,9 +383,28 @@ export class Editor {
     });
   }
 
+  /**
+   * Save the cover once editing pauses. It renders the frame on its own (a
+   * few milliseconds with a graphics card, much more without), so it waits
+   * for a quiet moment and then for the browser to be idle.
+   */
   _scheduleCover() {
+    this._cancelCover();
+    this._coverDue = true;
+    this._coverTimer = setTimeout(() => {
+      this._coverTimer = null;
+      this._coverIdle = whenIdle(() => {
+        this._coverIdle = null;
+        this.saveCover();
+      });
+    }, COVER_DELAY);
+  }
+
+  _cancelCover() {
     clearTimeout(this._coverTimer);
-    this._coverTimer = setTimeout(() => this.saveCover(), 4000);
+    this._coverTimer = null;
+    this._coverIdle?.cancel();
+    this._coverIdle = null;
   }
 
   /**
@@ -381,6 +419,8 @@ export class Editor {
       this._scheduleCover();
       return;
     }
+    this._cancelCover();
+    this._coverDue = false;
     try {
       const t = store.project.cover?.time ?? Math.min(store.duration - 1, 1_000_000);
       const { renderStill } = await import('../engine/exporter.js');
@@ -515,7 +555,8 @@ export class Editor {
     this.ctx.history?.dispose?.();
     this.ctx.review?.dispose?.();
     this.ctx.assistant?.dispose?.();
-    clearTimeout(this._coverTimer);
+    this._cancelCover();
+    document.removeEventListener('visibilitychange', this._onHidden);
     document.removeEventListener('keydown', this._onKey);
     window.removeEventListener('beforeunload', this._onUnload);
     this.saver.dispose();
