@@ -80,7 +80,8 @@ function highlightSection(view) {
     announce('Key words highlighted');
   });
   const clear = h('button.btn.small.ghost', { type: 'button' }, 'Clear');
-  clear.addEventListener('click', () => setMarks('Clear highlights', () => []));
+  // The button turns off once nothing is highlighted; focus goes to Pick key words.
+  clear.addEventListener('click', () => keepFocus(() => setMarks('Clear highlights', () => []), () => pick));
   const tint = color(view, {
     label: 'Highlight color',
     get: (c) => c.style.highlightColor,

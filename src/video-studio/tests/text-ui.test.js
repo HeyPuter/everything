@@ -120,6 +120,17 @@ describe('text details', () => {
     expect(normalizeClip(structuredClone(clip())).keyframes[COLOR_KEYS[2]]).toHaveLength(2);
   });
 
+  it('clearing highlights keeps keyboard focus in the section', () => {
+    env.el.querySelectorAll('.section-toggle[aria-expanded=false]').forEach((x) => x.click());
+    env.el.querySelector('.mark-chip').click();
+    const clear = button('Clear');
+    clear.focus();
+    clear.click();
+    expect(clip().marks).toBeUndefined();
+    expect(clear.disabled).toBe(true);
+    expect(document.activeElement).toBe(button('Pick key words'));
+  });
+
   it('removing the only color key keeps its color', () => {
     env.store.seek(2 * US);
     button('Add keyframe for color').click();

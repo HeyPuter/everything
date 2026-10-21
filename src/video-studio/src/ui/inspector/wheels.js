@@ -7,7 +7,7 @@
 import { h } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { WHEELS, wheelVector, wheelHue, neutralWheel } from '../../model/color.js';
-import { slider, uidFor } from './common.js';
+import { slider, uidFor, keepFocus } from './common.js';
 import { gradeSection, editGrade } from './color-common.js';
 
 const wheelOf = (clip, id) => clip?.grade?.wheels?.[id] || neutralWheel();
@@ -113,7 +113,8 @@ function wheelCard(view, def) {
 
   const vals = ['R', 'G', 'B'].map((c) => h(`span.wheel-val.${c.toLowerCase()}`));
   const reset = h('button.icon-btn.small', { type: 'button', 'aria-label': `Reset ${label}`, 'data-tip': 'Reset' }, icon('rotateLeft', 13));
-  reset.addEventListener('click', () => set(neutralWheel(), true, 'reset'));
+  // The button turns off once the wheel is neutral; focus goes to the wheel.
+  reset.addEventListener('click', () => keepFocus(() => set(neutralWheel(), true, 'reset'), () => disk));
 
   const paint = () => {
     const w = wheelOf(view.clip, def.id);

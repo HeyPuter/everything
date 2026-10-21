@@ -236,3 +236,40 @@ describe('presets and the Color assets tab', () => {
     expect(c.grade).toEqual({ hsl: { red: { h: 5, s: 0, l: 0 } } });
   });
 });
+
+describe('reset buttons and keyboard focus', () => {
+  const press = (b) => {
+    b.focus();
+    b.click();
+  };
+
+  it('a wheel reset moves focus to its wheel', () => {
+    tab('Wheels').click();
+    const [shadows] = env.el.querySelectorAll('.wheel-disk');
+    key(shadows, 'ArrowRight', { shiftKey: true });
+    const reset = env.el.querySelector('.wheel-card .icon-btn');
+    press(reset);
+    expect(reset.disabled).toBe(true);
+    expect(document.activeElement).toBe(shadows);
+  });
+
+  it('an HSL range reset moves focus to the range', () => {
+    tab('HSL').click();
+    env.el.querySelector('.hsl-swatch[data-id=blue]').click();
+    drag(range('Saturation'), [-20]);
+    const reset = env.el.querySelector('.hsl-foot .btn');
+    press(reset);
+    expect(reset.disabled).toBe(true);
+    expect(document.activeElement).toBe(env.el.querySelector('.hsl-swatch[data-id=blue]'));
+  });
+
+  it('a curve reset moves focus to the curve', () => {
+    tab('Curves').click();
+    const canvas = env.el.querySelector('.curve-canvas');
+    key(canvas, '+');
+    const reset = env.el.querySelector('.curve-head .icon-btn');
+    press(reset);
+    expect(reset.disabled).toBe(true);
+    expect(document.activeElement).toBe(canvas);
+  });
+});

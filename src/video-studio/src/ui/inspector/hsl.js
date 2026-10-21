@@ -6,7 +6,7 @@
 import { h, announce } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { HSL_RANGES, hsvToRgb, nearestHslRange } from '../../model/color.js';
-import { slider } from './common.js';
+import { slider, keepFocus } from './common.js';
 import { gradeSection, editGrade } from './color-common.js';
 import { pickFromPlayer } from '../color-tools.js';
 
@@ -89,10 +89,11 @@ export function hslTab(view, state = {}) {
     }, { key: `hsl-${current}-${f.key}`, final }),
   }));
   const resetRange = h('button.btn.small.ghost', { type: 'button' }, icon('rotateLeft', 14), h('span.hsl-reset-label'));
-  resetRange.addEventListener('click', () => editGrade(view, `Reset ${range().label.toLowerCase()}`, (g) => {
+  // The button turns off once the range is reset; focus goes to the range.
+  resetRange.addEventListener('click', () => keepFocus(() => editGrade(view, `Reset ${range().label.toLowerCase()}`, (g) => {
     if (!g.hsl[current]) return false;
     delete g.hsl[current];
-  }));
+  }), () => swatches.find((b) => b.dataset.id === current)));
 
   function paint() {
     const r = range();

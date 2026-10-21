@@ -8,7 +8,7 @@
 import { h } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { CURVE_CHANNELS, monotoneCurve, isIdentityCurve } from '../../model/color.js';
-import { uidFor } from './common.js';
+import { uidFor, keepFocus } from './common.js';
 import { gradeSection, editGrade } from './color-common.js';
 
 const IDENTITY = [[0, 0], [1, 1]];
@@ -47,13 +47,14 @@ export function curvesTab(view, state = {}) {
     chBtns[j].focus();
   });
   const resetCurve = h('button.icon-btn.small', { type: 'button', 'aria-label': 'Reset this curve', 'data-tip': 'Reset this curve' }, icon('rotateLeft', 14));
-  resetCurve.addEventListener('click', () => {
+  // The button turns off once the curve is straight; focus goes to the curve.
+  resetCurve.addEventListener('click', () => keepFocus(() => {
     editGrade(view, `Reset ${channel().label.toLowerCase()} curve`, (g) => {
       if (!g.curves[ch]) return false;
       delete g.curves[ch];
     });
     sel = -1;
-  });
+  }, () => canvas));
 
   // Editor.
   const helpId = uidFor('curve-help');
