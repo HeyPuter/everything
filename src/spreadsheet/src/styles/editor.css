@@ -558,6 +558,10 @@
    "Sum: 60". They are laid out from the right (each takes an order counting down to the Sum, so the reading order
    stays the bar's), and those that wrap past the one line are out of sight. */
 .status-right { flex-direction: row-reverse; flex-wrap: wrap; max-height: 1lh; }
+/* The same on the left, from its start: the rows a filter shows read "1,028 of 1,199 rows shown" or not at all.
+   One that has a line to itself and still does not fit ends in an ellipsis, rather than a cut-off figure. */
+.status-left { flex-wrap: wrap; max-height: 1lh; }
+.status-left > .status-item, .status-right > .status-item { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .status-item { white-space: nowrap; font-weight: 600; }
 .status-item .muted { font-weight: 500; }
 
