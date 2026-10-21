@@ -138,6 +138,9 @@ export function advancedFilter(wb, sheetId, { list, criteria = null, copyTo = nu
     if (!row.some((v) => v != null && v !== '')) break;
     for (let k = 0; k < columns.length; k++) entries.push({ r, c: copyTo.range.c1 + k, cell: null });
   }
+  // A protected destination refuses the copy: said so, rather than reporting records copied that were not.
+  const box = { r1: copyTo.range.r1, c1: copyTo.range.c1, r2: entries.reduce((last, e) => Math.max(last, e.r), copyTo.range.r1), c2: copyTo.range.c1 + columns.length - 1 };
+  if (wb.lockedIn(dest, box)) return { error: 'The copy-to range is protected. Choose another place, or unprotect it first' };
   wb.setCells(dest, entries, 'Advanced filter');
   return { copied: rows.length, columns: columns.length };
 }
