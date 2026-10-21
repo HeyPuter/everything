@@ -269,3 +269,22 @@ test('a save that Puter refuses says why, and the next save can still go through
   await saveNew.click();
   await expect(page.locator('.save-status')).toHaveText('Saved to Puter');
 });
+
+test('saving to another folder that Puter refuses says why rather than calling it cancelled', async ({
+  page,
+}) => {
+  await desktop(page);
+  await rotate(page);
+  await page.evaluate(() => {
+    window.puter.ui.showSaveFilePicker = async () => {
+      throw {
+        error: { code: 'storage_limit_reached', message: 'Storage capacity limit reached.' },
+      };
+    };
+  });
+  await page.keyboard.press('ControlOrMeta+Shift+S');
+  await expect(page.locator('#toast')).toHaveText(
+    'Puter could not save report.pdf: Storage capacity limit reached.',
+  );
+  await expect(page.locator('.save-status')).toHaveText('Unsaved changes');
+});

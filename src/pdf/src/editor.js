@@ -6335,8 +6335,9 @@ export function createEditor({
         if (!destroyed && token === saveGeneration && path === savedPath) remote = info;
       })
       .catch((e) => {
+        // A refusal says why; only a rejection without any reason reads as a cancel.
         if (!destroyed && token === saveGeneration)
-          toast(e?.message || 'Save cancelled.', { error: true });
+          toast(reasonOf(e) ? saveFailure(e).message : 'Save cancelled.', { error: true });
       });
   }
   /* ---------- Menus ---------- */
