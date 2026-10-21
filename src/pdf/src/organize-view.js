@@ -12,7 +12,15 @@ import { openMenu } from './lib/menu.js';
  */
 const SIZES = [110, 150, 200, 260];
 
-export function createOrganizeView({ getPdf, getRevision, currentIndex, can, isBusy, actions }) {
+export function createOrganizeView({
+  getPdf,
+  getRevision,
+  getLayers = () => undefined,
+  currentIndex,
+  can,
+  isBusy,
+  actions,
+}) {
   let selected = new Set();
   let anchor = null; // the tile a Shift range starts from
   let size = 1;
@@ -387,6 +395,8 @@ export function createOrganizeView({ getPdf, getRevision, currentIndex, can, isB
               canvasContext: canvas.getContext('2d'),
               viewport: view,
               transform: ratio === 1 ? null : [ratio, 0, 0, ratio, 0, 0],
+              // Layers hidden in the Layers panel stay hidden here, as on the pages.
+              optionalContentConfigPromise: getLayers(),
             }).promise;
             if (index !== currentIndex()) page.cleanup();
           } catch {

@@ -234,3 +234,59 @@ test('a layer switch keeps the focus when an Undo redraws the Layers panel', asy
   await expect(layer).toBeFocused();
   await expect(layer).not.toBeChecked();
 });
+
+test('a layer hidden in the Layers panel stays hidden in Organize pages', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({
+      contentType: 'application/javascript',
+      body: `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username: 'test-user'}) }, fs: { readdir: async () => [] }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`,
+    }),
+  );
+  // A page covered in black, all of it on one layer.
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([400, 400]);
+  const ctx = doc.context,
+    n = PDFName.of;
+  const ink = ctx.register(ctx.obj({ Type: 'OCG', Name: PDFString.of('Ink') }));
+  doc.catalog.set(n('OCProperties'), ctx.obj({ OCGs: [ink], D: { ON: [ink] } }));
+  sheet.node.Resources().set(n('Properties'), ctx.obj({ ink }));
+  sheet.node.set(
+    n('Contents'),
+    ctx.register(ctx.stream('/OC /ink BDC 0 0 0 rg 0 0 400 400 re f EMC')),
+  );
+  await page.goto('/#library');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'ink.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  const tabs = page.getByRole('tablist', { name: 'Side panel' });
+  if (!(await tabs.isVisible()))
+    await page.getByRole('button', { name: 'Toggle pages panel', exact: true }).click();
+  await tabs.getByRole('tab', { name: 'Layers' }).click();
+  await page.getByRole('checkbox', { name: 'Ink', exact: true }).uncheck();
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const tile = page.getByRole('option', { name: 'Page 1', exact: true }).locator('canvas');
+  // The middle of the drawn tile is the white page, not the hidden layer's black.
+  await expect
+    .poll(() =>
+      tile.evaluate((canvas) => {
+        if (!canvas.width) return null;
+        const [r, g, b, a] = canvas
+          .getContext('2d')
+          .getImageData(canvas.width / 2, canvas.height / 2, 1, 1).data;
+        return a ? r + g + b : null;
+      }),
+    )
+    .toBeGreaterThan(700);
+});
