@@ -64,6 +64,9 @@ export async function stopSharing(doc) {
   const client = doc.collab;
   await doc.save();
   await client.request({ op: 'stop' });
+  // The room is closed now, by this person: this browser stops asking it, rather than learn of it as of a room
+  // someone else closed on it while the workbook opens again as the file.
+  client.halt();
   if (doc.path) await globalThis.puter?.kv?.del?.(fileKey({ path: doc.path, uid: doc.uid })).catch?.(() => {});
 }
 
