@@ -98,7 +98,7 @@ class LightRenderMixin {
     return la ? temperatureColor(la.temperature ?? 6500) : [1, 1, 1];
   }
 }
-for (const key of ['use_temperature', 'temperature', 'exposure', 'normalize'] as const) {
+for (const key of ['use_temperature', 'temperature', 'exposure', 'normalize', 'spread'] as const) {
   Object.defineProperty(LightRenderMixin.prototype, key, {
     configurable: true,
     enumerable: true,
@@ -112,7 +112,7 @@ for (const key of ['use_temperature', 'temperature', 'exposure', 'normalize'] as
       const la = app.doc.lights[this.__id];
       if (!la) return;
       ensureLightColorDefaults(la);
-      (la as unknown as Raw)[key] = typeof la[key] === 'boolean' ? !!v : key === 'temperature' ? Math.max(800, Math.min(20000, Number(v))) : Number(v);
+      (la as unknown as Raw)[key] = typeof la[key] === 'boolean' ? !!v : key === 'temperature' ? Math.max(800, Math.min(20000, Number(v))) : key === 'spread' ? Math.max(0, Math.min(Math.PI, Number(v))) : Number(v);
       touched();
     },
   });

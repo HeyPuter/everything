@@ -35,4 +35,5 @@ export function ensureLightColorDefaults(la: LightData) {
   la.temperature ??= 6500;
   la.exposure ??= 0;
   la.normalize ??= true;
+  la.spread ??= Math.PI;
 }

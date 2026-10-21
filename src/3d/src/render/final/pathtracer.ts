@@ -116,6 +116,26 @@ export function patchLightLinking(src: string): string | null {
     // link group and indirect-only flag are packed above the shading flags of each material
     int ptMatFlags( uint m ) { return int( texelFetch1D( materials, m * uint( MATERIAL_PIXELS ) + 14u ).b + 0.5 ); }
     bool ptIndirectOnly( uint m ) { return ( ( ptMatFlags( m ) >> 3 ) & 1 ) != 0; }
+    // area light spread: cosine of the half angle per light (below -1: emits into the whole hemisphere)
+    uniform float ptSpread[ ${PT_LINK_LIGHTS} ];
+    float ptSpreadAt( int li, vec3 dirToLight ) {
+      if ( li < 0 || li >= ${PT_LINK_LIGHTS} ) return 1.0;
+      float c = ptSpread[ li ];
+      if ( c < - 1.5 ) return 1.0;
+      Light ptL = readLightInfo( lights.tex, uint( li ) );
+      if ( ptL.type != RECT_AREA_LIGHT_TYPE && ptL.type != CIRC_AREA_LIGHT_TYPE ) return 1.0;
+      // emission angle against the cone's half angle (soft edge), with the power kept: the light
+      // that would leave outside the cone is concentrated inside it
+      float theta = acos( clamp( dot( dirToLight, normalize( cross( ptL.u, ptL.v ) ) ), -1.0, 1.0 ) );
+      float half_ = acos( clamp( c, -1.0, 1.0 ) );
+      float w = max( 0.005, 0.04 * half_ );
+      float s = sin( half_ );
+      return ( 1.0 - smoothstep( half_ - w, half_ + w, theta ) ) / max( s * s, 1e-4 );
+    }
+    bool ptSpreadHit( int li, inout LightRecord rec ) {
+      rec.emission *= ptSpreadAt( li, rec.direction );
+      return true;
+    }
     // channel 0: does the light light material m, 1: does material m block the light
     bool ptLinkTest( int light, uint m, int ch ) {
       if ( ptLinkOn == 0 || light < 0 || light >= ${PT_LINK_LIGHTS} ) return true;
@@ -137,6 +157,7 @@ export function patchLightLinking(src: string): string | null {
      LightRecord lightRec = randomLightSample( lights.tex, iesProfiles, lights.count, rayOrigin, ptR );
      int ptLi = min( int( ptR.x * float( lights.count ) ), int( lights.count ) - 1 );
      if ( ! ptLinkTest( ptLi, ptCurMat, 0 ) ) lightRec.pdf = 0.0;
+     lightRec.emission *= ptSpreadAt( ptLi, lightRec.direction );
      ptCurLight = ptLi;`,
   );
   const envBranch = /\} else if \( envMapInfo\.totalSum != 0\.0 && environmentIntensity != 0\.0 \) \{/;
@@ -164,7 +185,7 @@ export function patchLightLinking(src: string): string | null {
   );
   const hit = 'intersectLightAtIndex( lights.tex, ray.origin, ray.direction, i, lightRec ) &&';
   if (!body.includes(hit)) return null;
-  body = body.replace(hit, `${hit} ptLinkTest( int( i ), ptCurMat, 0 ) &&`);
+  body = body.replace(hit, `${hit} ptLinkTest( int( i ), ptCurMat, 0 ) && ptSpreadHit( int( i ), lightRec ) &&`);
   return head + body;
 }
 
@@ -246,6 +267,7 @@ export class PathTracerCore {
     if (linked) {
       mat.uniforms.ptLinkOn = { value: 0 };
       mat.uniforms.ptLinkL = { value: new Float32Array(PT_LINK_LIGHTS * 2) };
+      mat.uniforms.ptSpread = { value: new Float32Array(PT_LINK_LIGHTS).fill(-2) };
       mat.fragmentShader = linked;
       mat.needsUpdate = true;
       this.linkPatched = true;
@@ -397,6 +419,14 @@ export class PathTracerCore {
     const u = this.inner.material.uniforms;
     const mats = ((this.pt as unknown as { _materials?: Material[] })._materials ?? []) as Material[];
     const lights = tracerLights(rs.scene);
+    // area light spread
+    const spread = u.ptSpread.value as Float32Array;
+    spread.fill(-2);
+    lights.forEach((l, i) => {
+      const a = l.userData.spread as number | undefined;
+      if (i < PT_LINK_LIGHTS && a !== undefined && a < Math.PI - 1e-4) spread[i] = Math.cos(Math.max(0, a) / 2);
+    });
+    const spreadKey = Array.from(spread.subarray(0, lights.length)).join(',');
     let d = pathTracerLinkHook.data && rs.vis ? pathTracerLinkHook.data(rs, lights, mats) : null;
     // lights with Cast Shadow off: nothing blocks them
     const noShadow = lights.map((l) => !!l.userData.noShadow);
@@ -410,7 +440,7 @@ export class PathTracerCore {
         if (off) d!.lights[i * 4 + 1] = 0;
       });
     }
-    const key = d && d.on ? `${Array.from(d.lights).join(',')}|${mats.length}` : '';
+    const key = (d && d.on ? `${Array.from(d.lights).join(',')}|${mats.length}` : '') + `|${spreadKey}`;
     if (key === this.linkKey) return;
     this.linkKey = key;
     u.ptLinkOn.value = d?.on ? 1 : 0;

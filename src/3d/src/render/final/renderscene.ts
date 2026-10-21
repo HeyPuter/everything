@@ -354,6 +354,9 @@ export class RenderScene {
     // path tracer: Cast Shadow off lets light through every surface
     if (L.userData.noShadow !== !la.use_shadow) changed = true;
     L.userData.noShadow = !la.use_shadow;
+    const spread = la.type === 'AREA' ? (la.spread ?? Math.PI) : Math.PI;
+    if (L.userData.spread !== spread) changed = true;
+    L.userData.spread = spread;
     // realtime: Custom Distance fades the light out at the cutoff distance; otherwise the light
     // reaches as far as it is brighter than the render's light threshold
     const cutoff = this.mode !== 'raster' ? 0 : la.use_custom_distance ? Math.max(0, la.cutoff_distance ?? 40) : la.type === 'SUN' || la.type === 'AREA' ? 0 : lightRange(intensity, this.lightThreshold);

@@ -315,6 +315,8 @@ export interface LightData extends RealtimeLightSettings {
   exposure?: number;
   /** area lights: keep the total power when the size changes (off: power per square metre) */
   normalize?: boolean;
+  /** area lights: angle of the cone the light emits into (π = the whole hemisphere) */
+  spread?: number;
   users?: number;
 }
 

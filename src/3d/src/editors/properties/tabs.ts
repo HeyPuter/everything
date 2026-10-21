@@ -487,6 +487,7 @@ function lightData(o: ObjectData, la: LightData): Child {
             enumProp(la, 'shape', 'Shape', [['SQUARE', 'Square'], ['RECTANGLE', 'Rectangle'], ['DISK', 'Disk'], ['ELLIPSE', 'Ellipse']]),
             num(la, 'size', la.shape === 'RECTANGLE' || la.shape === 'ELLIPSE' ? 'Size X' : 'Size', { unit: 'distance', min: 0 }),
             la.shape === 'RECTANGLE' || la.shape === 'ELLIPSE' ? num(la, 'size_y', 'Y', { unit: 'distance', min: 0 }) : null,
+            app.doc.scene.render.engine === 'PATHTRACE' ? num((la.spread ??= Math.PI, la), 'spread', 'Spread', { unit: 'angle', min: 0, max: Math.PI, tip: 'Angle of the cone the light emits into: smaller values give a focused, directional light (path tracer)' }) : null,
           ]
         : null,
       la.type === 'SPOT' ? panel('la-spot', 'Beam Shape', () => [num(la, 'spot_size', 'Spot Size', { unit: 'angle', min: (1 * Math.PI) / 180, max: Math.PI }), num(la, 'spot_blend', 'Blend', { min: 0, max: 1, slider: true }), bool(la, 'show_cone', 'Show Cone')], { sub: true }) : null,
