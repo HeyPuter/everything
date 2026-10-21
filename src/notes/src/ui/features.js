@@ -562,6 +562,11 @@ export function moveDialog(app, kind, id) {
   filter.addEventListener('input', debounce(render, 100));
   render();
   const name = kind === 'page' ? store.findPage(id)?.meta.title || 'Untitled Page' : store.findNode(id)?.node.name;
+  const copyFailed = (err) => {
+    console.error(err);
+    toast(`Couldn't copy "${name}". Check your connection and try again.`, { kind: 'error' });
+    return 'failed';
+  };
   const act = async (copy) => {
     if (!target) {
       toast(kind === 'page' ? 'Pick a section.' : 'Pick a notebook or section group.');
@@ -569,16 +574,17 @@ export function moveDialog(app, kind, id) {
     }
     if (kind === 'page') {
       if (copy) {
-        const meta = await store.copyPage(id, { sectionId: target.sectionId });
+        if ((await store.copyPage(id, { sectionId: target.sectionId }).catch(copyFailed)) === 'failed') return false;
         toast(`Copied "${name}"`);
-        void meta;
       } else {
         store.movePage(id, { sectionId: target.sectionId, level: 0 });
         app.openPage(id);
         toast(`Moved "${name}"`);
       }
     } else if (copy) {
-      if (!(await store.copySection(id, target))) {
+      const done = await store.copySection(id, target).catch(copyFailed);
+      if (done === 'failed') return false;
+      if (!done) {
         toast("Couldn't copy that section.", { kind: 'error' });
         return false;
       }

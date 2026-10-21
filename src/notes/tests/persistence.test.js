@@ -94,3 +94,18 @@ describe('Changes from another device', () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('Copying while offline', () => {
+  it('says so when Duplicate Page cannot read the page', async () => {
+    const { app, store, backend } = await mount();
+    const meta = store.createPage(app.state.sectionId, { title: 'Recipes' });
+    await store.flush();
+    store.pages.delete(meta.id); // not loaded yet in this session
+    backend.failNext = 1;
+    app.pageMenu(meta, { x: 10, y: 10 });
+    const item = [...document.querySelectorAll('[role="menuitem"]')].find((b) => b.textContent.includes('Duplicate Page'));
+    item.click();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(toasts()).toContain('Couldn\'t duplicate "Recipes". Check your connection and try again.');
+  });
+});

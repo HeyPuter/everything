@@ -887,7 +887,13 @@ export class App {
       { label: meta.collapsed ? 'Expand Subpages' : 'Collapse Subpages', icon: meta.collapsed ? 'expand' : 'collapse', disabled: !(f.section.pages[f.index + 1] && (f.section.pages[f.index + 1].level || 0) > level), run: () => this.store.togglePageCollapsed(meta.id) },
       { type: 'sep' },
       { label: 'Move or Copy...', icon: 'folderOpen', run: () => this.moveDialog('page', meta.id) },
-      { label: 'Duplicate Page', icon: 'copy', run: async () => { const m = await this.store.copyPage(meta.id); if (m) this.openPage(m.id); } },
+      { label: 'Duplicate Page', icon: 'copy', run: async () => {
+        const m = await this.store.copyPage(meta.id).catch((err) => {
+          console.error(err);
+          toast(`Couldn't duplicate "${meta.title || 'Untitled Page'}". Check your connection and try again.`, { kind: 'error' });
+        });
+        if (m) this.openPage(m.id);
+      } },
       { label: 'Copy Link to Page', icon: 'link', run: () => this.copyLink('page', meta.id) },
       { type: 'sep' },
       { label: 'Delete Page', icon: 'trash', danger: true, shortcut: 'Delete', run: () => this.deletePage(meta.id) },

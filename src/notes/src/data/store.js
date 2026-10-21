@@ -408,8 +408,11 @@ export class Store extends Emitter {
     delete copy.sealed;
     const copiedPages = [];
     if (target === f.notebook) copy.name = `${f.node.name} (copy)`;
-    for (const meta of f.node.pages) {
-      const page = await this.loadPage(meta.id);
+    // Load every page first: a failed load then leaves no half-made copy behind.
+    const sources = [];
+    for (const meta of f.node.pages) sources.push(await this.loadPage(meta.id));
+    for (const [i, meta] of f.node.pages.entries()) {
+      const page = sources[i];
       const newId = uid('p');
       const dup = { ...structuredClone(page), id: newId };
       this.pages.set(newId, dup);

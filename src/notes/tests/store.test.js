@@ -181,6 +181,28 @@ describe('Store: pages', () => {
     expect(store.backend.files.has(`published/${a.id}.json`)).toBe(false);
   });
 
+  it('leaves nothing behind when copying a section fails part way', async () => {
+    const a = store.createPage(section.id, { title: 'First' });
+    const b = store.createPage(section.id, { title: 'Second' });
+    await store.flush();
+    store.pages.delete(a.id);
+    store.pages.delete(b.id);
+    const backend = store.backend;
+    const files = backend.files.size;
+    const read = backend.readJSON;
+    backend.readJSON = async (path) => {
+      await new Promise((r) => setTimeout(r, 5));
+      if (path === `pages/${b.id}.json`) throw new Error('Simulated network failure');
+      return read(path);
+    };
+    const sections = [...store.sectionsOf(store.notebooks[0])].length;
+    await expect(store.copySection(section.id)).rejects.toThrow();
+    backend.readJSON = read;
+    await store.flush();
+    expect([...store.sectionsOf(store.notebooks[0])].length).toBe(sections);
+    expect(backend.files.size).toBe(files);
+  });
+
   it('copies a page next to the original', async () => {
     const a = store.createPage(section.id, { title: 'Plan' });
     store.createPage(section.id, { title: 'Other' });
