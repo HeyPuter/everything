@@ -5,7 +5,7 @@ import { fontColorInPalette } from './font-color.js';
 import { fillColorInPalette } from './fill-color.js';
 import { normalizeNativeFill, nativeFillXml, nativeFillMatchesPaint, nativeFillRecordXml, nativeFillPalette, nativeFillIsNone, nativeFillXmlIdentity } from './native-fill.js';
 /** Native SpreadsheetML styles, shared by cells and whole-row/column defaults. */
-import { styleToNumFmt } from './format.js';
+import { styleToNumFmt, HORIZONTAL_ALIGNS } from './format.js';
 import { xlsxAttr, xlsxElements } from './xlsx-styles.js';
 import { normalFontStyle } from './normal-font.js';
 import { writeNativeNormalStyle } from './native-normal-style.js';
@@ -111,7 +111,7 @@ function borderXml(s, differential = false) {
 
 function alignmentXml(s) {
   const attrs = {};
-  if (['left', 'center', 'right'].includes(s.align)) attrs.horizontal = s.align;
+  if (HORIZONTAL_ALIGNS.includes(s.align)) attrs.horizontal = s.align;
   // The grid centers unformatted content vertically; Excel's default is bottom.
   attrs.vertical = { top: 'top', middle: 'center', bottom: 'bottom' }[s.valign] || 'center';
   if (s.wrap) attrs.wrapText = 1;

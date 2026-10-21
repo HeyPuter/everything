@@ -51,7 +51,7 @@ import { isComposing, el, clamp, isMod, IS_MAC } from './dom.js';
 import { cellName, cellKey, rangeName, normalizeRange, parseRange, parseCellRef, colIndex } from '../core/cell.js';
 import { splitAtCell, dropSplit } from '../core/split-panes.js';
 import { RTL_LEAD } from '../core/bidi.js';
-import { formatValue, formatGeneral, localeInfo, defaultAlign, editText, fontStack, borderCss, errorHelp, indentWidth, dateTimeKind } from '../core/format.js';
+import { formatValue, formatGeneral, localeInfo, defaultAlign, layoutAlign, editText, fontStack, borderCss, errorHelp, indentWidth, dateTimeKind } from '../core/format.js';
 import { extractRefs, refToText, quoteSheet, MAX_ROW, MAX_COL } from '../core/refs.js';
 import { tokenize } from '../core/formula/tokenizer.js';
 import { inString, signatureFor } from '../core/formula/hints.js';
@@ -166,7 +166,7 @@ export function createGrid(opts) {
     }
     return measuredIndentUnit;
   }
-  const cellIndent = (value, style) => style?.indent && (style.align || defaultAlign(value)) !== 'center' ? indentWidth(value, style, indentUnit()) : 0;
+  const cellIndent = (value, style) => style?.indent && (layoutAlign(style.align) || defaultAlign(value)) !== 'center' ? indentWidth(value, style, indentUnit()) : 0;
 
   let sheetId = opts.sheetId;
   const perSheet = new Map(); // sheetId → { sel, extras, scrollLeft, scrollTop }
@@ -1472,7 +1472,7 @@ export function createGrid(opts) {
     // Context order have it. The alignment classes name the box's start and end, so an alignment
     // that is set is mapped to the side it names.
     const rtl = !asFormula && typeof value === 'string' && RTL_LEAD.test(text);
-    const align = asFormula ? 'left' : st?.align || (rtl ? 'right' : defaultAlign(value));
+    const align = asFormula ? 'left' : layoutAlign(st?.align) || (rtl ? 'right' : defaultAlign(value));
     if (rtl) node.setAttribute('dir', 'rtl');
     node.classList.add((rtl ? align === 'left' : align === 'right') ? 'ar' : align === 'center' ? 'ac' : 'al');
     const cf = s.rules.length || s.tables.length ? wb.conditionalStyle(s.id, r, c, value) : null;
@@ -1753,7 +1753,7 @@ export function createGrid(opts) {
         const value = cell?.f != null ? wb.getValue(s.id, r, c) : cell?.v ?? wb.spillAt(s.id, r, c)?.value;
         if (typeof value !== 'string') return null;
         // Right of the window only text facing left runs into it: right-aligned or centred, or right-to-left text given no alignment.
-        if (dir > 0 && st?.align !== 'right' && st?.align !== 'center' && (st?.align || !RTL_LEAD.test(value))) return null;
+        if (dir > 0 && !['right', 'center'].includes(layoutAlign(st?.align)) && (st?.align || !RTL_LEAD.test(value))) return null;
         return { r, c };
       }
       return null;
@@ -3420,7 +3420,7 @@ export function createGrid(opts) {
     editor.style.fontStyle = st?.italic ? 'italic' : '';
     // Text is typed in the direction its first letter gives (dir=auto), aligned to its end unless the cell says otherwise; a formula reads left to right.
     editor.setAttribute('dir', formula ? 'ltr' : 'auto');
-    const align = st?.align || (typeof cell?.v === 'number' && cell.f == null ? 'right' : 'start');
+    const align = layoutAlign(st?.align) || (typeof cell?.v === 'number' && cell.f == null ? 'right' : 'start');
     editor.style.textAlign = formula ? 'left' : align;
     const indent = !formula ? cellIndent(cell?.v, st) * zoom : 0;
     const inset = indent + CELL_TEXT_INSET * zoom;

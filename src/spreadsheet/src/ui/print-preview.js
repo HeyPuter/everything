@@ -12,7 +12,7 @@ import { printPaperBox, expandPrintText, splitPrintSections, printPageText, shee
 import { printBands, printTitleBands } from './print-pagination.js';
 import { fillColorCss } from '../core/fill-color.js';
 import { fontColorCss } from '../core/font-color.js';
-import { fontStack, fontKeyFor, borderCss, getLocale, defaultAlign, formatValue } from '../core/format.js';
+import { fontStack, fontKeyFor, borderCss, getLocale, defaultAlign, layoutAlign, formatValue } from '../core/format.js';
 import { readsRightToLeft } from '../core/bidi.js';
 import { cellLayoutText, wrapLines } from '../core/textfit.js';
 import { codeColor } from '../core/numfmt.js';
@@ -398,7 +398,7 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
         : cf?.fmt != null ? formatValue(value, conditionalNumberFormat(st, cf)) : wb.getDisplay(shown, sr, sc);
       if (text) {
         // With no alignment of its own, as the print sets it: logical values and errors centred, text written right to left at the right.
-        const align = st.align || (typeof value === 'string' && readsRightToLeft(text) ? 'right' : defaultAlign(value));
+        const align = layoutAlign(st.align) || (typeof value === 'string' && readsRightToLeft(text) ? 'right' : defaultAlign(value));
         // Text runs on over the empty cells beside it, as it prints: rightward from the left, leftward from the right, both
         // ways from the centre. A number, a merged block, wrapped or clipped text keeps to its own cell.
         let jl = j, jr = j;

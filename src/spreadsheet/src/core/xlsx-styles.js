@@ -6,7 +6,7 @@ import { normalizeFontColor, tintRgb, INDEXED_COLORS } from './font-color.js';
 import { normalizeFillColor } from './fill-color.js';
 import { readNativeFillResources } from './native-fill.js';
 /** Formatting the XLSX reader leaves in styles.xml: fills, borders and differential styles. */
-import { fontKeyFor, numFmtToStyle } from './format.js';
+import { fontKeyFor, numFmtToStyle, HORIZONTAL_ALIGNS } from './format.js';
 import { normalizeCellStyles, edgesOfStyle, presetByLabel } from './custom-cell-styles.js';
 import { readFontTheme, resolveThemeFont } from './font-theme.js';
 import { normalizeNormalFont } from './normal-font.js';
@@ -82,7 +82,7 @@ export function xlsxTextRotation(value) {
 export function xlsxAlignment(alignment) {
   if (!alignment) return null;
   const out = {};
-  if (['left', 'center', 'right'].includes(alignment.horizontal)) out.align = alignment.horizontal;
+  if (HORIZONTAL_ALIGNS.includes(alignment.horizontal)) out.align = alignment.horizontal;
   if (['top', 'center', 'bottom'].includes(alignment.vertical)) out.valign = alignment.vertical === 'center' ? 'middle' : alignment.vertical;
   else out.valign = 'bottom';
   if (alignment.wrapText) out.wrap = true;

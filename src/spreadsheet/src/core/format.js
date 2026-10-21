@@ -1226,6 +1226,15 @@ export function hasDecimalPlaces(style) {
   return fmt !== 'custom' || stepCodeDecimals(style.code, 1) != null;
 }
 
+/**
+ * Excel's horizontal alignments past left, center and right, each with the side it is laid out against here:
+ * Center Across Selection and Distributed centre a line in its cell, Justify and Fill set it from the left.
+ */
+const ALIGN_LAYOUT = { centerContinuous: 'center', distributed: 'center', justify: 'left', fill: 'left' };
+export const HORIZONTAL_ALIGNS = ['left', 'center', 'right', ...Object.keys(ALIGN_LAYOUT)];
+/** The side a cell's horizontal alignment sets its text against on screen and on paper. */
+export const layoutAlign = (align) => ALIGN_LAYOUT[align] || align;
+
 /** Alignment a value gets when the style does not force one. */
 export function defaultAlign(value) {
   if (typeof value === 'number') return 'right';

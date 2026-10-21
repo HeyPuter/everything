@@ -36,7 +36,7 @@ import { legacyCommentText } from './comments.js';
 
 import { Workbook, DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_STORED_COL_WIDTH, MAX_STORED_ROW_HEIGHT, safeSheetName, MAX_ROWS, MAX_COLS } from './workbook.js';
 import { cellKey, cellName, parseKey, MAX_TEXT, parseCellRef, parseRange } from './cell.js';
-import { styleToNumFmt, numFmtToStyle, formatValue, dateTimeKind, fontKeyFor, ymdToSerial, NUMBER_FORMAT_KEYS } from './format.js';
+import { styleToNumFmt, numFmtToStyle, formatValue, dateTimeKind, fontKeyFor, ymdToSerial, NUMBER_FORMAT_KEYS, HORIZONTAL_ALIGNS } from './format.js';
 import { readXlsxStyles, xlsxAlignment, xlsxColumnPixels, xlsxColor, xlsxAttr, xlsxLayoutDigitWidth, xlsxWidthFromPixels } from './xlsx-styles.js';
 import { importXlsxScrollControls } from './xlsx-scroll-controls.js';
 import { readXlsxCharts } from './xlsx-charts.js';
@@ -177,7 +177,7 @@ export function stripExtension(name) {
 
 /* ---------- Export ---------- */
 
-const META_ENUMS = { scheme: ['major', 'minor', 'none'], align: ['left', 'center', 'right'], valign: ['top', 'middle', 'bottom'] };
+const META_ENUMS = { scheme: ['major', 'minor', 'none'], align: HORIZONTAL_ALIGNS, valign: ['top', 'middle', 'bottom'] };
 const META_NUMBERS = ['size', 'indent', 'dec', 'rot'];
 /** Metadata colors are hex or validated native references; alignments, sizes
  * and format codes retain their existing limits. */

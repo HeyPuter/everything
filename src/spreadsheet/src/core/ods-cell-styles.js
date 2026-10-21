@@ -3,7 +3,7 @@
  * carries, written from this app's cell style and read back into one. LibreOffice and other readers see
  * them; this app's own .ods files also keep the exact style in their settings, which wins on reading.
  */
-import { fontName, fontKeyFor } from './format.js';
+import { fontName, fontKeyFor, layoutAlign } from './format.js';
 
 const HEX = /^#[\da-f]{6}$/i;
 /** A color as #rrggbb: a hex, or a palette reference by its resolved RGB. Automatic ink and No fill are none. */
@@ -47,10 +47,12 @@ export function odsCellStyleProperties(style) {
   if (style.shrink) cell['style:shrink-to-fit'] = 'true';
   if (['top', 'middle', 'bottom'].includes(style.valign)) cell['style:vertical-align'] = style.valign;
   if (Number.isFinite(style.rot) && style.rot !== 0 && Math.abs(style.rot) <= 90) cell['style:rotation-angle'] = String(style.rot < 0 ? 360 + style.rot : style.rot);
-  if (['left', 'center', 'right'].includes(style.align)) {
+  // Justify is the paragraph's own; Excel's Center Across Selection, Distributed and Fill go as the side they are laid out against.
+  const align = style.align === 'justify' ? 'justify' : layoutAlign(style.align);
+  if (['left', 'center', 'right', 'justify'].includes(align)) {
     // Without a fixed source LibreOffice aligns by the value's type and ignores fo:text-align.
     cell['style:text-align-source'] = 'fix';
-    paragraph['fo:text-align'] = { left: 'start', center: 'center', right: 'end' }[style.align];
+    paragraph['fo:text-align'] = { left: 'start', center: 'center', right: 'end', justify: 'justify' }[align];
   }
   Object.assign(text, textAttributes(style));
   return element('table-cell-properties', cell) + element('paragraph-properties', paragraph) + element('text-properties', text);
@@ -172,7 +174,7 @@ export function odsCellStyle(props) {
     if (rot != null) s.rot = Math.round(rot);
   }
   if (String(props['text-align-source'] ?? 'fix').toLowerCase() !== 'value-type') {
-    const align = { start: 'left', left: 'left', center: 'center', end: 'right', right: 'right' }[String(props['text-align'] ?? '').toLowerCase()];
+    const align = { start: 'left', left: 'left', center: 'center', end: 'right', right: 'right', justify: 'justify' }[String(props['text-align'] ?? '').toLowerCase()];
     if (align) s.align = align;
   }
   return Object.keys(s).length ? s : null;
