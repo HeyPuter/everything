@@ -7285,6 +7285,9 @@ function tTailByQuadrature(t, df) {
   const upper = Math.min(Math.sqrt(df / 99), 45);
   const logDensity = (u) => -((df + 1) / 2) * Math.log1p((u * u) / df);
   const beyond = 0.5 * incompleteBeta(df / (df + upper * upper), df / 2, 0.5, (upper * upper) / (df + upper * upper)).p;
+  // From 45 deviations out the tail is below the doubles; integrating up to a far t, as T.DIST(3000000,1E15)
+  // asked, took steps by the square of the distance and never finished.
+  if (t >= upper) return beyond;
   const body = integrateBell(logDensity, 0, 1, 0, t);
   const rest = integrateBell(logDensity, 0, 1, t, Math.min(upper, Math.max(10, t + 10)));
   // Half the mass lies above zero: scale (body + rest) + beyond = 1/2.
