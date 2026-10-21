@@ -800,7 +800,7 @@ function showHome({ accountRefresh = false } = {}) {
             day: 'numeric',
             year: 'numeric',
           })
-        : 'Recently';
+        : 'Unknown';
       list.append(
         el(
           'div',

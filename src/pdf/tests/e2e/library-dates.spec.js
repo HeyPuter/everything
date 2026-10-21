@@ -49,3 +49,23 @@ test('last-modified order agrees with displayed dates across seconds and millise
   await page.getByRole('searchbox', { name: 'Search PDFs', exact: true }).fill('Newest');
   await expect(page.locator('.file-open')).toHaveText(['Newest seconds.pdf']);
 });
+
+test('a PDF without a modified date says so and is listed after the dated ones', async ({
+  page,
+}) => {
+  const listed = [{ name: 'Undated.pdf', size: 500 }, ...files.slice(0, 2)];
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({
+      contentType: 'application/javascript',
+      body: `window.puter = { env:'web', auth:{isSignedIn:()=>true,getUser:async()=>({username:'test-user'})}, fs:{readdir:async()=>${JSON.stringify(listed)}}, ui:{onLaunchedWithItems:()=>{},onItemsOpened:()=>{}} };`,
+    }),
+  );
+  await page.goto('/#library');
+  // Last modified puts it last, so its date must not claim it is the newest.
+  await expect(page.locator('.file-open')).toHaveText([
+    'Newest seconds.pdf',
+    'Old milliseconds.pdf',
+    'Undated.pdf',
+  ]);
+  await expect(page.locator('.file-date')).toHaveText([/2026/, /2024/, 'Unknown']);
+});
