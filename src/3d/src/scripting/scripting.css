@@ -333,7 +333,7 @@ body.no-tooltips .tooltip {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 4px 6px 6px;
-  font: var(--pc-fs) / 1.35 var(--mono);
+  font: var(--pc-fs) / 1.2 var(--mono);
   font-variant-ligatures: none;
   font-feature-settings: 'liga' 0, 'calt' 0;
   display: flex;
