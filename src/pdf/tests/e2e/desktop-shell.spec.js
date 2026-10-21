@@ -821,6 +821,39 @@ test('the Signatures panel leaves out the revision of a signature it cannot plac
   await expect(panel.locator('dd')).not.toContainText(['null']);
 });
 
+test('declining to edit a signed PDF does not report that it has no watermarks', async ({
+  page,
+}) => {
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Use a certificate', exact: true }).click();
+  await pane.getByRole('button', { name: /Digitally sign/ }).click();
+  await page.getByRole('button', { name: 'Place at page center' }).click();
+  const chooser = page.getByRole('dialog', { name: 'Choose a digital ID' });
+  await chooser.getByLabel('Create a new digital ID').check();
+  await chooser.getByLabel('Name', { exact: true }).fill('Ada Lovelace');
+  await chooser.getByLabel('Email').fill('ada@example.com');
+  await chooser.getByLabel('Password for the ID file').fill('secret-123');
+  await chooser.getByRole('button', { name: 'Continue' }).click();
+  await page
+    .getByRole('dialog', { name: 'Sign with a certificate' })
+    .getByRole('button', { name: 'Sign', exact: true })
+    .click();
+  await settled(page);
+  await expect(page.locator('.signature-bar')).toContainText('Signed');
+  await pane.getByRole('button', { name: 'Back to all tools' }).click();
+  await pane.getByRole('button', { name: 'Edit a PDF', exact: true }).click();
+  await page.locator('#toast').evaluate((node) => (node.textContent = ''));
+  await pane.getByRole('button', { name: 'Remove watermarks', exact: true }).click();
+  const warning = page.getByRole('dialog', { name: 'Edit a signed PDF?' });
+  await warning.getByRole('button', { name: 'Cancel' }).click();
+  await settled(page);
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300)));
+  await expect(page.locator('#toast')).not.toContainText('no watermarks');
+});
+
 test('Find text and redact removes the matched words from the saved file', async ({ page }) => {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);

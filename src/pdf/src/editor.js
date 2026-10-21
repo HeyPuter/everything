@@ -10274,11 +10274,13 @@ export function createEditor({
   /** Take out headers, footers, page numbers, or watermarks on every page. */
   async function removeMarks(kinds) {
     const { removePageMarks } = await import('./core/page-mark-removal.js');
-    let removed = 0;
+    let removed = null;
     await mutate((doc) => {
       removed = removePageMarks(doc, doc.getPageIndices(), kinds);
       return removed ? undefined : false;
     }, null);
+    // The PDF was not looked at when the edit was declined (a signed PDF asks first).
+    if (removed === null || destroyed) return;
     const watermarks = kinds.includes('Watermark');
     toast(
       removed
