@@ -431,15 +431,8 @@ test("timers and slide-number jumps move past click-sequence media", async ({
   await expect(counter(page)).toHaveText("3 / 3");
 });
 
-test("media that starts by itself stays silent once the show has left its slide", async ({
-  page,
-}) => {
-  const pres = deck([
-    { effect: "none" },
-    { effect: "none" },
-    { effect: "none" },
-  ]);
-  // A second of silence, looping, set to start with its slide.
+// A second of silence, looping, set to start with its slide.
+function addLoopingSound(slide) {
   const wav = new Uint8Array(44 + 8000);
   const view = new DataView(wav.buffer);
   const tag = (at, s) =>
@@ -458,12 +451,15 @@ test("media that starts by itself stays silent once the show has left its slide"
   view.setUint32(40, 8000, true);
   wav.fill(128, 44);
   P.addSlideMedia(
-    P.getSlides(pres)[1],
+    slide,
     { kind: "audio", data: wav, contentType: "audio/wav" },
     { x: 914400, y: 914400, w: 914400, h: 914400 },
     { start: "automatically", loop: true },
   );
-  // Every media element asked to play, kept after it leaves the page.
+}
+// Every media element asked to play, kept after it leaves the page; the
+// count of those still playing.
+async function trackMedia(page) {
   await page.addInitScript(() => {
     const play = HTMLMediaElement.prototype.play;
     window.played = [];
@@ -472,8 +468,20 @@ test("media that starts by itself stays silent once the show has left its slide"
       return play.call(this);
     };
   });
-  const sounding = () =>
+  return () =>
     page.evaluate(() => window.played.filter((m) => !m.paused).length);
+}
+
+test("media that starts by itself stays silent once the show has left its slide", async ({
+  page,
+}) => {
+  const pres = deck([
+    { effect: "none" },
+    { effect: "none" },
+    { effect: "none" },
+  ]);
+  addLoopingSound(P.getSlides(pres)[1]);
+  const sounding = await trackMedia(page);
   await load(page, pres);
   // Passing the slide before its sound starts.
   await page.keyboard.press("ArrowRight");
@@ -491,6 +499,25 @@ test("media that starts by itself stays silent once the show has left its slide"
   await page.keyboard.press("Escape");
   await expect(page.locator("dialog.presenter")).toHaveCount(0);
   await page.clock.runFor(200);
+  expect(await sounding()).toBe(0);
+});
+
+test("a zoom still growing when the show ends opens nothing", async ({
+  page,
+}) => {
+  const pres = deck([{ effect: "none" }, { effect: "none" }]);
+  const [first, second] = P.getSlides(pres);
+  const zoom = text(first, "Zoom", 3, 2, 3, 2);
+  P.setShapeClickAction(zoom, { kind: "slide", slide: second });
+  P.setShapeObjectData(zoom, { type: "zoom", kind: "slide", duration: 1000 });
+  addLoopingSound(second);
+  const sounding = await trackMedia(page);
+  await load(page, pres);
+  await page.getByRole("button", { name: "Zoom to slide 2" }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("dialog.presenter")).toHaveCount(0);
+  // Past the zoom's end, and past the sound's start had it opened.
+  await page.clock.runFor(1500);
   expect(await sounding()).toBe(0);
 });
 

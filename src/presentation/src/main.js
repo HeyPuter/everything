@@ -15741,6 +15741,8 @@ async function present(options = {}) {
   // `step` marks a plain advance ("click", or "auto" from the timer), as
   // opposed to a jump to a slide.
   function show(i, { backward = false, step } = {}) {
+    // A zoom finishing after the show has ended goes nowhere.
+    if (!d.isConnected) return;
     const redirected = ended ? i : showInserted.navigate(i, n, { step });
     if (redirected === null) return;
     i = redirected;
