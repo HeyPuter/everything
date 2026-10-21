@@ -1666,7 +1666,10 @@ function renderStyledCartesian(data, chart, width, height) {
     const color = seriesColor(chart, j), line = lineStyle(j), runs = [];
     const valueY = secondary && j === series.length - 1 ? sy2 : sy;
     if (bubble) {
-      const st = bubble.series[j], labels = st?.labels;
+      // Labels turned on here (Add Chart Element ▸ Data Labels) rather than read from a file name each bubble's
+      // y value in its centre, as the file then saves them.
+      const st = bubble.series[j], labels = st?.labels
+        || { value: true, size: false, category: false, series: false, style: a.valueLabels?.[j]?.style || a.yStyle, position: 'ctr', points: [] };
       const hidden = new Set(labels?.points.filter(p => p.hidden).map(p => p.index));
       const every = Math.max(1, Math.ceil(n * series.length / MARK_BUDGET));
       bubbles[j].forEach(({ x, y, size, i }) => {
@@ -1675,7 +1678,7 @@ function renderStyledCartesian(data, chart, width, height) {
         parts.push(`<circle class="chart-bubble" cx="${f(sx(x))}" cy="${f(sy(y))}" r="${f(r)}" fill="${bubblePaint[j]}" stroke="${st?.stroke || 'none'}" stroke-width="${st?.strokeWidth ?? 1}" data-el="series" data-series="${j}" data-point="${i}"${effectAttr(a, `series:${j}`)}><title>${esc(`${s.name}: (${tipText(x, data.xStyle)}, ${tipText(y, chartPointStyle(s, i))}), size ${tipText(s.sizes[i], chartPointStyle(s, i, null, 'sizePointStyles'))}`)}</title></circle>`);
         if (chart.labels && labels && !hidden.has(i)) {
           const values = [labels.series && s.name, labels.category && tipText(x, data.xStyle), labels.value && formatValue(y, chartPointStyle(s, i)), labels.size && formatValue(s.sizes[i], chartPointStyle(s, i, null, 'sizePointStyles'))].filter(v => v !== false);
-          if (values.length && x >= xMin && x <= xMax && y >= scale.min && y <= scale.max) bubbleLabels.push({ value: values.join(', '), x: sx(x), y: sy(y), r, labels });
+          if (values.length && x >= xMin && x <= xMax && y >= scale.min && y <= scale.max) bubbleLabels.push({ value: values.join(', '), x: sx(x), y: sy(y), r, labels, ...(st?.labels ? {} : { ink: inkOn(color) }) });
         }
       });
       for (const e of errors[j]) {
@@ -1814,7 +1817,9 @@ function renderStyledCartesian(data, chart, width, height) {
   // Interior tick labels remain readable over bars, areas and other marks.
   parts.push(axisLabels.join(''), outsideLabels.join(''));
   for (const l of bubbleLabels) {
-    const st = l.labels.style, pos = l.labels.position;
+    // A label of the app's own that fits in its bubble takes the ink that reads on the bubble's colour.
+    const base = l.labels.style, pos = l.labels.position;
+    const st = l.ink && axisTextWidth(l.value, base) + 4 <= 2 * l.r ? { ...base, color: l.ink } : base;
     label(l.value, l.x + (pos === 'l' ? -l.r - 4 : pos === 'r' ? l.r + 4 : 0), l.y + (pos === 't' ? -l.r - 4 : pos === 'b' ? l.r + st.size : st.size * .35),
       st, pos === 'l' ? 'end' : pos === 'r' ? 'start' : 'middle', 'class="chart-data-label"');
   }
