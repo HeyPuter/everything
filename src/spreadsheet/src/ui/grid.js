@@ -5628,9 +5628,17 @@ export function createGrid(opts) {
         return;
       }
     }
-    // F2 switches between Enter mode (the arrows leave the cell) and Edit mode (they move the caret), as in Excel.
+    // F2 switches between Enter mode (the arrows leave the cell) and Edit mode (they move the caret), as in Excel;
+    // from Point mode (a reference just picked) it goes to Edit mode, the reference left where it is.
     if (key === 'F2' && !e.shiftKey && !e.altKey && !isMod(e)) {
       e.preventDefault();
+      if (edit.refInsert) {
+        edit.refInsert = null;
+        edit.point = null;
+        edit.mode = 'inplace';
+        opts.onEdit?.({ editing: true, text: edit.text, r: edit.r, c: edit.c });
+        return;
+      }
       setEditMode(edit.mode === 'type' ? 'inplace' : 'type');
       return;
     }
