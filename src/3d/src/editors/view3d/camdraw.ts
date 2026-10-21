@@ -6,7 +6,7 @@ import { h } from '../../ui/h';
 import { app } from '../../app/app';
 import { renderContext } from '../../render/context';
 import { sceneSyncHooks, type SyncedObject } from '../../render/scene';
-import { drawHooks, type DrawView } from './draw';
+import { drawHooks } from './draw';
 import { editModeHooks } from './hooks';
 import type { CameraData } from '../../data/types';
 
