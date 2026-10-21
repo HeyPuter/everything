@@ -1106,7 +1106,10 @@ export function createEditor({
           retainScale: true,
         }),
       )(),
-    onDelete: (entry) => safe(() => removeAnnotation(entry))(),
+    onDelete: (entry) => {
+      // Without permission to comment, the Delete button is disabled; the key matches it.
+      if (access().annotate) safe(() => removeAnnotation(entry))();
+    },
   });
   // Prepare a form: the fields of the page as boxes to place, move, size, and open.
   let preparing = false,

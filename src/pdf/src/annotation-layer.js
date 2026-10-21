@@ -126,7 +126,8 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
           onkeydown: (e) => {
             if (e.key === 'Delete' || e.key === 'Backspace') {
               e.preventDefault();
-              onDelete(entry);
+              // As the disabled Delete button says, a locked comment stays.
+              if (!entry.locked && !entry.readOnly) onDelete(entry);
             } else if (e.key === 'Escape') {
               e.preventDefault();
               select(null);

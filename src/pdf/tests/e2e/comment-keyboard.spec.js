@@ -1,15 +1,19 @@
 import { test, expect } from '@playwright/test';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFNumber } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
 import { addShapeAnnotation, listAnnotations } from '../../src/core/annotations.js';
 
 const settled = (page) => expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
 
-async function openWithRectangle(page) {
+async function openWithRectangle(page, flags = null) {
   await page.route('https://js.puter.com/**', (route) => route.abort());
   const doc = await PDFDocument.create();
   doc.addPage([400, 500]);
   addShapeAnnotation(doc, 0, { kind: 'square', rect: { x: 100, y: 300, width: 80, height: 60 } });
+  if (flags !== null)
+    doc.context
+      .lookup(doc.getPage(0).node.Annots().get(0))
+      .set(PDFName.of('F'), PDFNumber.of(flags));
   await page.goto('/#library');
   const chooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: /^Open a PDF/ }).click();
@@ -62,3 +66,25 @@ test('Delete removes a clicked comment', async ({ page }) => {
   await expect(page.locator('.drawing-overlay')).toBeFocused();
   expect(await savedRectangles(page)).toEqual([]);
 });
+
+// A locked or read-only comment offers no Delete button, and the key does nothing either,
+// rather than failing with an error.
+for (const [label, flags] of [
+  ['locked', 4 | 128],
+  ['read-only', 4 | 64],
+])
+  test(`Delete leaves a ${label} comment without an error`, async ({ page }) => {
+    const target = await openWithRectangle(page, flags);
+    await target.click();
+    await expect(
+      page
+        .getByRole('complementary', { name: 'Selection properties' })
+        .getByRole('button', { name: 'Delete' }),
+    ).toBeDisabled();
+    await page.keyboard.press('Delete');
+    await page.keyboard.press('Backspace');
+    await settled(page);
+    await expect(page.locator('#toast')).toBeHidden();
+    await expect(target).toHaveCount(1);
+    await expect(target).toBeFocused();
+  });
