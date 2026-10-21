@@ -10,7 +10,7 @@ import { bytesToBase64, decompose, pointWattsToCandela, WATTS_TO_LUMENS } from '
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Json = any;
 
-export type ImageEncoder = (img: ImageData) => Promise<{ bytes: Uint8Array; mime: string } | null>;
+export type ImageEncoder = (img: ImageData) => { bytes: Uint8Array; mime: string } | null;
 
 export interface GltfWriteOptions {
   format: 'GLB' | 'GLTF_EMBEDDED';
@@ -28,7 +28,7 @@ export interface GltfWriteOptions {
    * Combine separate roughness / metallic images into one glTF metallicRoughness texture
    * (G = roughness, B = metallic). Browser-only (decodes through a canvas).
    */
-  packMetallicRoughness?: (rough: { img: ImageData; channel: string } | null, metal: { img: ImageData; channel: string } | null) => Promise<Uint8Array | null>;
+  packMetallicRoughness?: (rough: { img: ImageData; channel: string } | null, metal: { img: ImageData; channel: string } | null) => Uint8Array | null;
 }
 
 const D_YUP = new Matrix4().set(1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1); // doc (x,y,z) → glTF (x, z, -y)
@@ -64,7 +64,7 @@ class BinWriter {
   }
 }
 
-export async function writeGltf(scene: ExportScene, opts: GltfWriteOptions): Promise<{ bytes: Uint8Array | string; warnings: string[] }> {
+export function writeGltf(scene: ExportScene, opts: GltfWriteOptions): { bytes: Uint8Array | string; warnings: string[] } {
   const warnings = [...scene.warnings];
   const D = opts.yUp === false ? new Matrix4() : D_YUP.clone();
   const Dinv = D.clone().invert();
@@ -105,14 +105,14 @@ export async function writeGltf(scene: ExportScene, opts: GltfWriteOptions): Pro
   const imageIndex = new Map<string, number>();
   const samplerIndex = new Map<string, number>();
   const textureIndex = new Map<string, number>();
-  const imageFor = async (id: string): Promise<number | null> => {
+  const imageFor = (id: string): number | null => {
     if (imageIndex.has(id)) return imageIndex.get(id)!;
     const img = scene.doc.images[id];
     if (!img) return null;
     let bytes = img.bytes,
       mime = img.mime;
     if (!bytes || (mime !== 'image/png' && mime !== 'image/jpeg' && mime !== 'image/webp')) {
-      const enc = opts.encodeImage ? await opts.encodeImage(img) : null;
+      const enc = opts.encodeImage ? opts.encodeImage(img) : null;
       if (!enc) {
         warnings.push(`Image "${img.name}" could not be encoded and was not exported`);
         imageIndex.set(id, -1);
@@ -129,9 +129,9 @@ export async function writeGltf(scene: ExportScene, opts: GltfWriteOptions): Pro
     imageIndex.set(id, images.length - 1);
     return images.length - 1;
   };
-  const textureFor = async (ref: ExportTexRef | undefined): Promise<Json | undefined> => {
+  const textureFor = (ref: ExportTexRef | undefined): Json | undefined => {
     if (!ref) return undefined;
-    const im = await imageFor(ref.imageId);
+    const im = imageFor(ref.imageId);
     if (im === null || im < 0) return undefined;
     const wrap = ref.extension === 'EXTEND' || ref.extension === 'CLIP' ? 33071 : ref.extension === 'MIRROR' ? 33648 : 10497;
     const filt = ref.interpolation === 'Closest' ? 9728 : 9729;
@@ -159,13 +159,13 @@ export async function writeGltf(scene: ExportScene, opts: GltfWriteOptions): Pro
   const materialIndex = new Map<string, number>();
   for (const [id, m] of scene.materials) {
     materialIndex.set(id, materials.length);
-    materials.push(await materialJson(m));
+    materials.push(materialJson(m));
   }
-  async function materialJson(m: ExportMaterial): Promise<Json> {
+  function materialJson(m: ExportMaterial): Json {
     const pbr: Json = {};
     const bc = m.baseColor;
     if (bc.some((v, i) => v !== 1 || i > 3)) pbr.baseColorFactor = bc.map((v) => clamp01(v));
-    const bct = await textureFor(m.baseColorTex);
+    const bct = textureFor(m.baseColorTex);
     if (bct) pbr.baseColorTexture = bct;
     pbr.metallicFactor = clamp01(m.metallic);
     pbr.roughnessFactor = clamp01(m.roughness);
@@ -173,13 +173,13 @@ export async function writeGltf(scene: ExportScene, opts: GltfWriteOptions): Pro
       const same = m.metallicTex && m.roughnessTex && m.metallicTex.imageId === m.roughnessTex.imageId && m.metallicTex.channel === 'B' && m.roughnessTex.channel === 'G';
       const single = !m.metallicTex ? m.roughnessTex!.channel === 'G' : !m.roughnessTex ? m.metallicTex.channel === 'B' : false;
       if (same || single) {
-        const t = await textureFor((m.metallicTex ?? m.roughnessTex)!);
+        const t = textureFor((m.metallicTex ?? m.roughnessTex)!);
         if (t) pbr.metallicRoughnessTexture = t;
         if (!m.metallicTex) pbr.metallicFactor = clamp01(m.metallic);
         if (!m.roughnessTex) pbr.roughnessFactor = clamp01(m.roughness);
       } else {
         const pick = (r?: ExportTexRef) => (r && scene.doc.images[r.imageId] ? { img: scene.doc.images[r.imageId], channel: r.channel ?? 'R' } : null);
-        const packed = opts.packMetallicRoughness ? await opts.packMetallicRoughness(pick(m.roughnessTex), pick(m.metallicTex)) : null;
+        const packed = opts.packMetallicRoughness ? opts.packMetallicRoughness(pick(m.roughnessTex), pick(m.metallicTex)) : null;
         if (packed) {
           const im: Json = { name: `${m.name}_metallicRoughness`, mimeType: 'image/png' };
           if (opts.format === 'GLB') im.bufferView = bin.add(packed);
@@ -199,7 +199,7 @@ export async function writeGltf(scene: ExportScene, opts: GltfWriteOptions): Pro
       }
     }
     const out: Json = { name: m.name, pbrMetallicRoughness: pbr };
-    const nt = await textureFor(m.normalTex);
+    const nt = textureFor(m.normalTex);
     if (nt) {
       if (m.normalTex!.strength !== undefined && m.normalTex!.strength !== 1) nt.scale = m.normalTex!.strength;
       out.normalTexture = nt;
@@ -212,7 +212,7 @@ export async function writeGltf(scene: ExportScene, opts: GltfWriteOptions): Pro
         out.emissiveFactor = m.emissive.map((v) => (v * s) / peak);
         out.extensions = { ...(out.extensions ?? {}), KHR_materials_emissive_strength: { emissiveStrength: peak } };
       } else out.emissiveFactor = m.emissive.map((v) => clamp01(v * s));
-      const et = await textureFor(m.emissiveTex);
+      const et = textureFor(m.emissiveTex);
       if (et) out.emissiveTexture = et;
     }
     if (m.alphaMode === 'BLEND') out.alphaMode = 'BLEND';
@@ -226,7 +226,7 @@ export async function writeGltf(scene: ExportScene, opts: GltfWriteOptions): Pro
     if (m.transmission) {
       used.add('KHR_materials_transmission');
       ext.KHR_materials_transmission = { transmissionFactor: clamp01(m.transmission) };
-      const tt = await textureFor(m.transmissionTex);
+      const tt = textureFor(m.transmissionTex);
       if (tt) ext.KHR_materials_transmission.transmissionTexture = tt;
     }
     if (m.ior !== undefined && Math.abs(m.ior - 1.5) > 1e-6) {

@@ -58,7 +58,7 @@ const ascii = (b: Uint8Array, start: number, end: number) => {
 };
 
 export function parseHeader(b: Uint8Array): BlendHeader {
-  if (b.length < 12 || ascii(b, 0, 7) !== 'BLENDER') throw new BlendError('Not a Blender file (missing "BLENDER" signature)');
+  if (b.length < 12 || ascii(b, 0, 7) !== 'BLENDER') throw new BlendError('Not a .blend file (missing its file signature)');
   const c7 = String.fromCharCode(b[7]);
   if (c7 === '_' || c7 === '-') {
     // classic: BLENDER + ptr('_' 4 / '-' 8) + endian('v' little / 'V' big) + 3-digit version

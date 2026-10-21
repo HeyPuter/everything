@@ -1,8 +1,15 @@
 // .blend → DocumentData conversion. Both apps are Z-up, metres and radians, so transforms and
 // geometry are copied without axis changes.
 import { Quaternion, Vector3 } from 'three';
-import type { RenderSettings, ArmatureData, Bone, CameraData, CollectionData, CurveData, DocumentData, ID, ImageData, LatticeData, LightData, MaterialData, ObjectData, ObjectType, PoseBone, RotationMode, Spline, WorldData, BezierPoint, HandleType, AnimData } from '../../data/types';
-import { emptyDocument, newArmature, newCamera, newCollection, newCurve, newLight, newMaterial, newObject, newWorld, uid } from '../../data/defaults';
+import type { RenderSettings, ArmatureData, Bone, CameraData, CollectionData, CurveData, DocumentData, ID, ImageData, LatticeData, LightData, MaterialData, ObjectData, ObjectType, PoseBone, RotationMode, Spline, WorldData, BezierPoint, HandleType, AnimData, SceneData } from '../../data/types';
+import { defaultScene, emptyDocument, newArmature, newCamera, newCollection, newCurve, newLight, newMaterial, newObject, newWorld, uid } from '../../data/defaults';
+import { activateScene, ensureSceneIds } from '../../scenes/scenes';
+import { convertHairCurves, convertPointCloud, convertVolume } from './geometry';
+import { convertFreestyle, convertLineRender } from './lines';
+import { convertGPStyle, convertGreasePencil } from './greasepencil';
+import { convertSequencer, type SceneRefs } from './sequencer';
+import { convertGroupTree } from './nodes';
+import { getNodeType } from '../../nodes/registry';
 import { resolve } from '../../data/rna';
 import { BlendFile, BlendError, type BStruct } from './reader';
 import { Warnings, finite, mat4, vec3, type Ctx } from './context';
@@ -31,7 +38,7 @@ const ROT_MODES: Record<number, RotationMode> = { [-1]: 'AXIS_ANGLE', 0: 'QUATER
 const EMPTY_DRAW: ObjectData['empty_display_type'][] = ['PLAIN_AXES', 'ARROWS', 'PLAIN_AXES', 'CIRCLE', 'SINGLE_ARROW', 'CUBE', 'SPHERE', 'CONE', 'IMAGE'];
 const HANDLE_TYPES: HandleType[] = ['FREE', 'AUTO', 'VECTOR', 'ALIGNED', 'AUTO'];
 const COLOR_TAGS: CollectionData['color_tag'][] = ['COLOR_01', 'COLOR_02', 'COLOR_03', 'COLOR_04', 'COLOR_05', 'COLOR_06', 'COLOR_07', 'COLOR_08'];
-const OB_TYPE_NAMES: Record<number, string> = { 3: 'Surface', 5: 'Metaball', 9: 'Grease Pencil (legacy)', 12: 'Speaker', 13: 'Light Probe', 26: 'Curves (hair)', 27: 'Point Cloud', 28: 'Volume', 30: 'Grease Pencil' };
+const OB_TYPE_NAMES: Record<number, string> = { 3: 'Surface', 5: 'Metaball', 12: 'Speaker', 13: 'Light Probe', 26: 'Grease Pencil (legacy)', 27: 'Curves (hair)', 28: 'Point Cloud', 29: 'Volume', 30: 'Grease Pencil' };
 
 /** Parse and convert a .blend file. Throws BlendError on unreadable files. */
 export async function readBlend(bytes: Uint8Array): Promise<BlendImport> {
@@ -74,7 +81,7 @@ function rollFromMatrix(head: number[], tail: number[], m: number[] | null, fall
 
 export function convertBlend(f: BlendFile): BlendImport {
   const version = f.header.version;
-  if (version < 250) throw new BlendError(`Blender ${Math.floor(version / 100)}.${version % 100} files are too old (2.50 or newer required)`);
+  if (version < 250) throw new BlendError(`.blend files of version ${Math.floor(version / 100)}.${version % 100} are too old (2.50 or newer required)`);
   const warn = new Warnings();
   const doc = emptyDocument();
   const defaultWorld = doc.scene.world;
@@ -88,7 +95,8 @@ export function convertBlend(f: BlendFile): BlendImport {
   const glob = f.ids('GLOB')[0];
   const cur = glob?.ref('curscene');
   const sc = (cur && scenes.find((s) => s.offset === cur.offset)) ?? scenes[0];
-  if (scenes.length > 1) warn.add('Only the active scene was imported; other scenes skipped', scenes.filter((s) => s !== sc).map((s) => s.idName).join(', '));
+  // the other scenes become inactive scenes of the document (objects and collections are shared)
+  const otherScenes = scenes.filter((s) => s !== sc);
   if (f.ids('LI').length) warn.add('Linked library data is not available (only local data imported)', f.ids('LI').map((l) => l.idName).join(', '));
 
   const ctx: Ctx = {
@@ -140,7 +148,7 @@ export function convertBlend(f: BlendFile): BlendImport {
       ids.set(im.offset, '');
       return null; // viewer / render result images are runtime-only
     } else {
-      warn.add('External image files are not embedded (pack them in Blender: File ▸ External Data ▸ Pack Resources)', `${img.name}${filepath ? ` (${filepath})` : ''}`);
+      warn.add('External image files are not embedded (pack them into the .blend file before saving it, or use File ▸ External Data ▸ Find Missing Files)', `${img.name}${filepath ? ` (${filepath})` : ''}`);
     }
     doc.images[id] = img;
     ids.set(im.offset, id);
@@ -182,6 +190,7 @@ export function convertBlend(f: BlendFile): BlendImport {
     } else {
       mat.blend_method = (({ 0: 'OPAQUE', 3: 'CLIP', 4: 'HASHED', 5: 'BLEND' }) as Record<number, MaterialData['blend_method']>)[ma.num('blend_method')] ?? 'OPAQUE';
     }
+    convertGPStyle(ma, ctx, mat);
     doc.materials[mat.id] = mat;
     if (ma.ref('adt')) warn.add('Material animation not imported', mat.name);
     return mat.id;
@@ -447,6 +456,18 @@ export function convertBlend(f: BlendFile): BlendImport {
       case 25:
         type = 'ARMATURE';
         break;
+      case 27:
+        type = 'CURVES';
+        break;
+      case 28:
+        type = 'POINTCLOUD';
+        break;
+      case 29:
+        type = 'VOLUME';
+        break;
+      case 30:
+        type = 'GREASEPENCIL';
+        break;
       case 0:
         break;
       default:
@@ -484,6 +505,22 @@ export function convertBlend(f: BlendFile): BlendImport {
         const lt = convertLattice(d);
         doc.lattices[lt.id] = lt;
         id = lt.id;
+      } else if (type === 'POINTCLOUD' && d.type === 'PointCloud') {
+        const pc = convertPointCloud(d, ctx);
+        (doc.pointclouds ??= {})[pc.id] = pc;
+        id = pc.id;
+      } else if (type === 'CURVES' && d.type === 'Curves') {
+        const cv = convertHairCurves(d, ctx);
+        (doc.hair_curves ??= {})[cv.id] = cv;
+        id = cv.id;
+      } else if (type === 'GREASEPENCIL' && d.type === 'GreasePencil') {
+        const gp = convertGreasePencil(d, ctx);
+        (doc.grease_pencils ??= {})[gp.id] = gp;
+        id = gp.id;
+      } else if (type === 'VOLUME' && d.type === 'Volume') {
+        const vo = convertVolume(d, ctx);
+        (doc.volumes ??= {})[vo.id] = vo;
+        id = vo.id;
       }
       if (id) dataCache.set(d.offset, id);
     }
@@ -597,7 +634,6 @@ export function convertBlend(f: BlendFile): BlendImport {
   }
 
   // ---------------------------------------------------------------- collection tree
-  const master = sc.ref('master_collection');
   const objectsToConvert: BStruct[] = [];
   const objSeen = new Set<number>();
   const addObject = (ob: BStruct | null) => {
@@ -608,11 +644,14 @@ export function convertBlend(f: BlendFile): BlendImport {
   };
   const collectionMembers = new Map<ID, BStruct[]>();
   const colStructs: BStruct[] = [];
-  const convertCollection = (c: BStruct, isMaster: boolean, depth: number): ID => {
+  /** masters of inactive scenes (not in doc.collections until their scene is activated) */
+  const masters = new Map<ID, CollectionData>();
+  const collectionData = (id: ID) => doc.collections[id] ?? masters.get(id);
+  const convertCollection = (c: BStruct, isMaster: boolean | CollectionData, depth: number): ID => {
     const done = ids.get(c.offset);
     if (done) return done;
     let data: CollectionData;
-    if (isMaster) data = doc.collections[doc.scene.collection];
+    if (isMaster) data = isMaster === true ? doc.collections[doc.scene.collection] : isMaster;
     else {
       data = newCollection(c.idName);
       doc.collections[data.id] = data;
@@ -648,6 +687,7 @@ export function convertBlend(f: BlendFile): BlendImport {
     return data.id;
   };
   const masterId = doc.scene.collection;
+  const master = sc.ref('master_collection');
   if (master) convertCollection(master, true, 0);
   else {
     // pre-2.80 files: objects listed by Scene.base
@@ -664,6 +704,18 @@ export function convertBlend(f: BlendFile): BlendImport {
       }
     }
     collectionMembers.set(col.id, obs);
+  }
+  // inactive scenes: their own master collections (child collections and objects are shared)
+  const otherRecords: { st: BStruct; scene: SceneData }[] = [];
+  for (const st of otherScenes) {
+    const m = st.ref('master_collection');
+    if (!m) continue;
+    const md = newCollection('Scene Collection');
+    masters.set(md.id, md);
+    const scene = defaultScene(md.id, doc.scene.world ?? '');
+    scene.name = st.idName;
+    convertCollection(m, md, 0);
+    otherRecords.push({ st, scene });
   }
   // objects referenced from instanced collections not linked to the scene, and light / shadow
   // linking collections
@@ -695,7 +747,7 @@ export function convertBlend(f: BlendFile): BlendImport {
     }
   }
   for (const [cid, obs] of collectionMembers) {
-    const c = doc.collections[cid];
+    const c = collectionData(cid)!;
     for (const ob of obs) {
       const id = objectIds.get(ob.offset);
       if (id && doc.objects[id] && !c.objects.includes(id)) c.objects.push(id);
@@ -719,121 +771,161 @@ export function convertBlend(f: BlendFile): BlendImport {
     }
   }
 
-  // ---------------------------------------------------------------- view layer
-  const viewLayers = sc.list('view_layers', 1000);
-  const curVl = glob?.ref('cur_view_layer');
-  const vl = (curVl && viewLayers.find((v) => v.offset === curVl.offset)) ?? viewLayers[0];
-  // every view layer: its name, Use for Rendering and per-collection flags (the active one is live)
-  const layerFlagsOf = (layer: BStruct) => {
-    const out: Record<string, { exclude?: boolean; hide?: boolean; holdout?: boolean; indirect_only?: boolean }> = {};
-    const walk = (lc: BStruct, depth: number) => {
-      const cs = lc.ref('collection');
-      const cid = cs ? ids.get(cs.offset) : undefined;
-      if (cid && cid !== masterId) {
-        const fl = lc.num('flag');
-        const f = { exclude: (fl & 16) !== 0, holdout: (fl & 32) !== 0, indirect_only: (fl & 64) !== 0, hide: (fl & 128) !== 0 };
-        out[cid] = Object.fromEntries(Object.entries(f).filter(([, v]) => v));
-      }
-      if (depth < 256) for (const c of lc.list('layer_collections', 100_000)) walk(c, depth + 1);
+  const sceneRefs: SceneRefs = { sceneId: () => null };
+  /** View layers and settings of a scene, written into the active scene record (doc.scene). */
+  function applySceneSettings(sc: BStruct) {
+    // ---------------------------------------------------------------- view layer
+    const viewLayers = sc.list('view_layers', 1000);
+    const curVl = glob?.ref('cur_view_layer');
+    const vl = (curVl && viewLayers.find((v) => v.offset === curVl.offset)) ?? viewLayers[0];
+    // every view layer: its name, Use for Rendering and per-collection flags (the active one is live)
+    const layerFlagsOf = (layer: BStruct) => {
+      const out: Record<string, { exclude?: boolean; hide?: boolean; holdout?: boolean; indirect_only?: boolean }> = {};
+      const walk = (lc: BStruct, depth: number) => {
+        const cs = lc.ref('collection');
+        const cid = cs ? ids.get(cs.offset) : undefined;
+        if (cid && cid !== doc.scene.collection) {
+          const fl = lc.num('flag');
+          const f = { exclude: (fl & 16) !== 0, holdout: (fl & 32) !== 0, indirect_only: (fl & 64) !== 0, hide: (fl & 128) !== 0 };
+          out[cid] = Object.fromEntries(Object.entries(f).filter(([, v]) => v));
+        }
+        if (depth < 256) for (const c of lc.list('layer_collections', 100_000)) walk(c, depth + 1);
+      };
+      for (const lc of layer.list('layer_collections', 100_000)) walk(lc, 0);
+      return out;
     };
-    for (const lc of layer.list('layer_collections', 100_000)) walk(lc, 0);
-    return out;
-  };
-  if (viewLayers.length) {
-    doc.scene.view_layers = viewLayers.map((l) => {
-      const groups = l.list('lightgroups', 1000).map((g) => ({ name: g.str('name') })).filter((g) => g.name);
-      return groups.length ? { name: l.str('name') || 'ViewLayer', lightgroups: groups } : { name: l.str('name') || 'ViewLayer' };
-    });
-    doc.scene.active_view_layer = Math.max(0, viewLayers.indexOf(vl!));
-    viewLayers.forEach((l, i) => {
-      if (l === vl) return;
-      const render: Partial<RenderSettings> = { use_view_layer: (l.num('flag') & 1) !== 0 };
-      doc.scene.view_layers![i].stored = { render, collections: layerFlagsOf(l) };
-    });
-  }
-  if (vl) {
-    for (const [cid, f] of Object.entries(layerFlagsOf(vl))) {
-      const c = doc.collections[cid];
-      c.exclude = !!f.exclude;
-      c.hide = !!f.hide;
-      if (f.holdout) c.holdout = true;
-      if (f.indirect_only) c.indirect_only = true;
+    if (viewLayers.length) {
+      doc.scene.view_layers = viewLayers.map((l) => {
+        const groups = l.list('lightgroups', 1000).map((g) => ({ name: g.str('name') })).filter((g) => g.name);
+        return groups.length ? { name: l.str('name') || 'ViewLayer', lightgroups: groups } : { name: l.str('name') || 'ViewLayer' };
+      });
+      doc.scene.active_view_layer = Math.max(0, viewLayers.indexOf(vl!));
+      viewLayers.forEach((l, i) => {
+        if (l === vl) return;
+        const render: Partial<RenderSettings> = { use_view_layer: (l.num('flag') & 1) !== 0 };
+        const lineSettings = convertFreestyle(l, ctx);
+        if (lineSettings) render.freestyle_settings = lineSettings;
+        doc.scene.view_layers![i].stored = { render, collections: layerFlagsOf(l) };
+      });
     }
-    doc.scene.render.use_view_layer = (vl.num('flag') & 1) !== 0;
-    for (const b of vl.list('object_bases', 1_000_000)) {
-      const id = ctx.objectRef(b.ref('object'));
-      if (!id || !doc.objects[id]) continue;
-      const fl = b.num('flag');
-      doc.objects[id].hide = (fl & 256) !== 0;
-      doc.objects[id].select = (fl & 1) !== 0;
+    if (vl) {
+      const lineSettings = convertFreestyle(vl, ctx);
+      if (lineSettings) doc.scene.render.freestyle_settings = lineSettings;
+      for (const [cid, f] of Object.entries(layerFlagsOf(vl))) {
+        const c = doc.collections[cid];
+        c.exclude = !!f.exclude;
+        c.hide = !!f.hide;
+        if (f.holdout) c.holdout = true;
+        if (f.indirect_only) c.indirect_only = true;
+      }
+      doc.scene.render.use_view_layer = (vl.num('flag') & 1) !== 0;
+      for (const b of vl.list('object_bases', 1_000_000)) {
+        const id = ctx.objectRef(b.ref('object'));
+        if (!id || !doc.objects[id]) continue;
+        const fl = b.num('flag');
+        doc.objects[id].hide = (fl & 256) !== 0;
+        doc.objects[id].select = (fl & 1) !== 0;
+      }
+      const act = vl.ref('basact')?.ref('object');
+      doc.scene.active_object = act ? ctx.objectRef(act) : null;
     }
-    const act = vl.ref('basact')?.ref('object');
-    doc.scene.active_object = act ? ctx.objectRef(act) : null;
+
+    // ---------------------------------------------------------------- scene settings
+    const s = doc.scene;
+    s.name = sc.idName;
+    const r = sc.sub('r');
+    if (r) {
+      s.frame_start = r.num('sfra');
+      s.frame_end = r.num('efra');
+      s.frame_step = r.num('frame_step') || 1;
+      s.frame_current = r.num('cfra');
+      s.render.fps = r.num('frs_sec') || 24;
+      s.render.fps_base = r.num('frs_sec_base') || 1;
+      s.render.resolution_x = r.num('xsch');
+      s.render.resolution_y = r.num('ysch');
+      s.render.resolution_percentage = r.num('size') || 100;
+      s.render.pixel_aspect_x = r.num('xasp') || 1;
+      s.render.pixel_aspect_y = r.num('yasp') || 1;
+      s.render.film_transparent = r.num('alphamode') === 1;
+      convertLineRender(r, s.render);
+      const engine = r.str('engine');
+      s.render.engine = engine === 'CYCLES' ? 'PATHTRACE' : engine === 'BLENDER_WORKBENCH' ? 'SOLID' : 'RASTER';
+      const ps = r.num('psfra'),
+        pe = r.num('pefra');
+      if (pe > ps) {
+        s.frame_preview_start = ps;
+        s.frame_preview_end = pe;
+      }
+    }
+    const vs = sc.sub('view_settings');
+    if (vs) {
+      const vt = vs.str('view_transform');
+      const map: Record<string, NonNullable<typeof s.render.view_transform>> = { AgX: 'AGX', Filmic: 'FILMIC', Standard: 'STANDARD', 'Khronos PBR Neutral': 'KHRONOS_PBR_NEUTRAL', Raw: 'RAW' };
+      if (map[vt]) s.render.view_transform = map[vt];
+      else if (vt) warn.add('View transform not supported', vt);
+      s.render.exposure = vs.num('exposure');
+      s.render.gamma = vs.num('gamma') || 1;
+      const look = vs.str('look');
+      if (look) s.render.look = look.replace(/^(AgX|Filmic) - /, '') || 'None';
+    }
+    importBakeSettings(sc, s.render, ctx);
+    const cursor = sc.sub('cursor');
+    if (cursor) s.cursor = { location: vec3(cursor, 'location'), rotation_euler: vec3(cursor, 'rotation_euler') };
+    const unit = sc.sub('unit');
+    if (unit) {
+      s.unit_settings.system = (['NONE', 'METRIC', 'IMPERIAL'] as const)[unit.num('system')] ?? 'METRIC';
+      s.unit_settings.scale_length = unit.num('scale_length') || 1;
+      s.unit_settings.system_rotation = unit.num('system_rotation') === 1 ? 'RADIANS' : 'DEGREES';
+    }
+    const phys = sc.sub('physics_settings');
+    if (phys) {
+      s.gravity = vec3(phys, 'gravity', [0, 0, -9.81]);
+      s.use_gravity = (phys.num('flag') & 1) !== 0;
+    }
+    s.timeline_markers = sc.list('markers', 100_000).map((m) => ({ name: m.str('name'), frame: m.num('frame'), select: (m.num('flag') & 1) !== 0, camera: ctx.objectRef(m.ref('camera')) }));
+    s.camera = ctx.objectRef(sc.ref('camera'));
+    const wo = sc.ref('world');
+    if (wo && wo.type === 'World') s.world = convertWorld(wo);
+    else s.world = defaultWorld;
+    if (sc.ref('rigidbody_world')) warn.add('Rigid body world not imported');
+    const seq = convertSequencer(sc, ctx, sceneRefs);
+    if (seq) doc.scene.sequence_editor = seq;
+    // compositing: 5.x keeps a node group, older files an embedded tree
+    const comp = sc.ref('compositing_node_group') ?? (sc.num('use_nodes') ? sc.ref('nodetree') : null);
+    if (comp) {
+      const unknown = [...new Set(comp.list('nodes', 100_000).map((n) => n.str('idname')).filter((t) => !/^(NodeGroupInput|NodeGroupOutput|NodeFrame|NodeReroute|CompositorNodeGroup|NodeGroup)$/.test(t) && !getNodeType(t)?.treeTypes.includes('COMPOSITOR')))];
+      if (unknown.length) warn.add('Compositor node trees with unsupported nodes not imported', `${sc.idName} (${unknown.join(', ')})`);
+      else {
+        const gid = convertGroupTree(comp, 'COMPOSITOR', ctx);
+        if (gid) {
+          const g = doc.node_groups[gid];
+          if (g && !sc.ref('compositing_node_group')) g.name = `${sc.idName} Compositing`;
+          doc.scene.compositing_node_group = gid;
+          doc.scene.use_nodes = true;
+        }
+      }
+    }
+    if (sc.ref('adt')) warn.add('Scene animation not imported');
   }
 
-  // ---------------------------------------------------------------- scene settings
-  const s = doc.scene;
-  s.name = sc.idName;
-  const r = sc.sub('r');
-  if (r) {
-    s.frame_start = r.num('sfra');
-    s.frame_end = r.num('efra');
-    s.frame_step = r.num('frame_step') || 1;
-    s.frame_current = r.num('cfra');
-    s.render.fps = r.num('frs_sec') || 24;
-    s.render.fps_base = r.num('frs_sec_base') || 1;
-    s.render.resolution_x = r.num('xsch');
-    s.render.resolution_y = r.num('ysch');
-    s.render.resolution_percentage = r.num('size') || 100;
-    s.render.pixel_aspect_x = r.num('xasp') || 1;
-    s.render.pixel_aspect_y = r.num('yasp') || 1;
-    s.render.film_transparent = r.num('alphamode') === 1;
-    const engine = r.str('engine');
-    s.render.engine = engine === 'CYCLES' ? 'PATHTRACE' : engine === 'BLENDER_WORKBENCH' ? 'SOLID' : 'RASTER';
-    const ps = r.num('psfra'),
-      pe = r.num('pefra');
-    if (pe > ps) {
-      s.frame_preview_start = ps;
-      s.frame_preview_end = pe;
-    }
+  // inactive scenes first (each is activated while its settings are written), then the main one
+  ensureSceneIds(doc);
+  const mainId = doc.scene.id!;
+  const sceneIds = new Map<number, ID>([[sc.offset, mainId]]);
+  for (const r of otherRecords) {
+    r.scene.id = uid('sc');
+    sceneIds.set(r.st.offset, r.scene.id);
   }
-  const vs = sc.sub('view_settings');
-  if (vs) {
-    const vt = vs.str('view_transform');
-    const map: Record<string, NonNullable<typeof s.render.view_transform>> = { AgX: 'AGX', Filmic: 'FILMIC', Standard: 'STANDARD', 'Khronos PBR Neutral': 'KHRONOS_PBR_NEUTRAL', Raw: 'RAW' };
-    if (map[vt]) s.render.view_transform = map[vt];
-    else if (vt) warn.add('View transform not supported', vt);
-    s.render.exposure = vs.num('exposure');
-    s.render.gamma = vs.num('gamma') || 1;
-    const look = vs.str('look');
-    if (look) s.render.look = look.replace(/^(AgX|Filmic) - /, '') || 'None';
+  sceneRefs.sceneId = (x) => (x ? sceneIds.get(x.offset) ?? null : null);
+  for (const { st, scene } of otherRecords) {
+    (doc.scenes ??= {})[scene.id!] = { ...scene, master_collection: masters.get(scene.collection) };
+    activateScene(doc, scene.id!);
+    applySceneSettings(st);
+    activateScene(doc, mainId);
   }
-  importBakeSettings(sc, s.render, ctx);
-  const cursor = sc.sub('cursor');
-  if (cursor) s.cursor = { location: vec3(cursor, 'location'), rotation_euler: vec3(cursor, 'rotation_euler') };
-  const unit = sc.sub('unit');
-  if (unit) {
-    s.unit_settings.system = (['NONE', 'METRIC', 'IMPERIAL'] as const)[unit.num('system')] ?? 'METRIC';
-    s.unit_settings.scale_length = unit.num('scale_length') || 1;
-    s.unit_settings.system_rotation = unit.num('system_rotation') === 1 ? 'RADIANS' : 'DEGREES';
-  }
-  const phys = sc.sub('physics_settings');
-  if (phys) {
-    s.gravity = vec3(phys, 'gravity', [0, 0, -9.81]);
-    s.use_gravity = (phys.num('flag') & 1) !== 0;
-  }
-  s.timeline_markers = sc.list('markers', 100_000).map((m) => ({ name: m.str('name'), frame: m.num('frame'), select: (m.num('flag') & 1) !== 0, camera: ctx.objectRef(m.ref('camera')) }));
-  s.camera = ctx.objectRef(sc.ref('camera'));
-  const wo = sc.ref('world');
-  if (wo && wo.type === 'World') {
-    s.world = convertWorld(wo);
-    if (defaultWorld && s.world !== defaultWorld) delete doc.worlds[defaultWorld];
-  } else s.world = defaultWorld;
-  if (sc.ref('rigidbody_world')) warn.add('Rigid body world not imported');
-  const ed = sc.ref('ed');
-  if (ed && (ed.list('seqbase', 1).length || ed.list('strips', 1).length)) warn.add('Video sequencer strips not imported');
-  if ((sc.num('use_nodes') && sc.ref('nodetree')) || sc.ref('compositing_node_group')) warn.add('Compositor node tree not imported');
-  if (sc.ref('adt')) warn.add('Scene animation not imported');
+  applySceneSettings(sc);
+  // the default world goes when no scene uses it
+  if (defaultWorld && ![doc.scene, ...Object.values(doc.scenes ?? {})].some((x) => x.world === defaultWorld)) delete doc.worlds[defaultWorld];
 
   // ---------------------------------------------------------------- validate animation paths
   for (const o of Object.values(doc.objects)) {

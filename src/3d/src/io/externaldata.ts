@@ -3,7 +3,6 @@
 // unpack the images stored in the project into a zip download.
 import { app, registerOperators } from '../app/app';
 import type { ImageData } from '../data/types';
-import type { MenuItem } from '../ui/menu';
 import { download } from './native';
 import { ZipWriter } from '../render/final/zip';
 
@@ -25,18 +24,6 @@ export function matchMissing(missing: ImageData[], files: { name: string }[]): M
     if (i !== undefined) out.set(im, i);
   }
   return out;
-}
-
-export function externalDataMenu(): MenuItem[] {
-  return [
-    { label: 'Unpack Resources', op: 'file.unpack_all' },
-    { separator: true },
-    { label: 'Pack Linked Libraries', op: 'file.pack_libraries' },
-    { label: 'Unpack Linked Libraries', op: 'file.unpack_libraries' },
-    { separator: true },
-    { label: 'Report Missing Files', op: 'file.report_missing_files' },
-    { label: 'Find Missing Files…', op: 'file.find_missing_files' },
-  ];
 }
 
 registerOperators([
@@ -93,6 +80,7 @@ registerOperators([
     idname: 'file.unpack_all',
     label: 'Unpack Resources',
     description: 'Save the images stored in the project as files (one zip download)',
+    props: [{ id: 'method', label: 'Method', type: 'enum', default: 'USE_LOCAL', items: [['USE_LOCAL', 'Use Local File'], ['WRITE_LOCAL', 'Write Local File'], ['USE_ORIGINAL', 'Use Original File'], ['WRITE_ORIGINAL', 'Write Original File']], hidden: true }],
     undo: false,
     poll: (ctx) => Object.values(ctx.doc.images).some((im) => im.bytes?.length),
     exec: (ctx) => {

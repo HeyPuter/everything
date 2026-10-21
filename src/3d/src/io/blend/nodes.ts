@@ -232,7 +232,7 @@ export function convertGroup(gt: BStruct, parentType: NodeTreeData['type'], ctx:
   stack.add(gt.offset);
   const tree = convertNodeTree(gt, parentType === 'WORLD' ? 'SHADER' : parentType, ctx, stack);
   stack.delete(gt.offset);
-  // interface from the group input/output nodes' sockets (stable across Blender versions)
+  // interface from the group input/output nodes' sockets (stable across file versions)
   const iface: NonNullable<NodeTreeData['interface']> = [];
   for (const n of gt.list('nodes', 100_000)) {
     const idn = n.str('idname');

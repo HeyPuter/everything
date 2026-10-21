@@ -15,7 +15,7 @@ import { assistantOpen } from '../assistant';
 import { renderContext } from '../render/context';
 import { shell, type Shell } from './shell';
 import './topbar.css';
-import { externalDataMenu } from '../io/externaldata';
+import { externalDataMenu, previewsMenu } from '../io/fileops';
 import { quickSetupBody, quickSetupPending, splashArt } from './quicksetup';
 
 /** File ▸ New entries (application templates, e.g. 2D Animation); modules append to it. */
@@ -67,9 +67,11 @@ export function fileMenu(): MenuItem[] {
     { separator: true },
     { label: 'Link…', icon: 'link', op: 'wm.link' },
     { label: 'Append…', icon: 'append_blend', op: 'wm.append' },
+    { label: 'Data Previews', submenu: previewsMenu },
     { separator: true },
     { label: 'Import', icon: 'import', submenu: importMenu },
     { label: 'Export', icon: 'export', submenu: exportMenu },
+    { label: 'Export All Collections', op: 'wm.collection_export_all' },
     { separator: true },
     { label: 'External Data', submenu: externalDataMenu },
     { label: 'Clean Up', submenu: () => [{ label: 'Purge Unused Data…', op: 'outliner.orphans_purge' }, { label: 'Manage Unused Data…', op: 'outliner.orphans_manage' }] },

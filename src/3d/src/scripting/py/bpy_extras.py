@@ -1,4 +1,4 @@
-"""``bpy_extras`` subset: ``object_utils.world_to_camera_view``."""
+"""``bpy_extras`` subset: ``object_utils.world_to_camera_view`` and the ``anim_utils`` channelbag helpers."""
 
 import types
 
@@ -25,3 +25,23 @@ def world_to_camera_view(scene, obj, coord):
 
 object_utils = types.ModuleType("bpy_extras.object_utils")
 object_utils.world_to_camera_view = world_to_camera_view
+
+
+def action_get_channelbag_for_slot(action, slot):
+    """The channelbag (F-curves) of an action's slot, or None."""
+    if action is None:
+        return None
+    for layer in action.layers:
+        for strip in layer.strips:
+            return strip.channelbag(slot)
+    return None
+
+
+def action_ensure_channelbag_for_slot(action, slot):
+    """Like action_get_channelbag_for_slot: every action here has its channelbag already."""
+    return action_get_channelbag_for_slot(action, slot)
+
+
+anim_utils = types.ModuleType("bpy_extras.anim_utils")
+anim_utils.action_get_channelbag_for_slot = action_get_channelbag_for_slot
+anim_utils.action_ensure_channelbag_for_slot = action_ensure_channelbag_for_slot

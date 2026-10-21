@@ -42,6 +42,7 @@ import { getValue } from '../data/rna';
 import { driverAdd, driverRemove } from './driverapi';
 import { uiState } from '../app/prefs';
 import { scriptFile, scriptFileNames } from './files';
+import { NODE_TYPE_ENUM } from './nodetypes.gen';
 import { Matrix, Vector, mathutils } from './mathutils';
 import { allSockets, getNodeType, nodeSockets, nodeTypes, socketDefault } from '../nodes/registry';
 import { ctxOf, makeNode } from '../nodes/tree';
@@ -71,6 +72,8 @@ import {
   structHooks,
   mixin,
   assignField,
+  setRotationMode,
+  scriptOnlyData,
   type Raw,
 } from './rna';
 
@@ -296,6 +299,43 @@ idFactory.wrap = wrapId;
 export class ObjectStruct extends IDStruct {
   private get ob() {
     return this.__raw as unknown as ObjectData;
+  }
+  get rotation_mode() {
+    return this.ob.rotation_mode;
+  }
+  /**
+   * The evaluated geometry as a new mesh (modifiers applied) that is not part of bpy.data;
+   * free it with to_mesh_clear().
+   */
+  to_mesh(_preserve_all_data_layers = false, _depsgraph?: unknown) {
+    ensureEvaluated();
+    const ob = this.ob;
+    const ev = app.graph.get(ob.id)?.mesh;
+    const base = ob.type === 'MESH' && ob.data ? app.doc.meshes[ob.data] : undefined;
+    if (!ev && !base) throw pyError('RuntimeError', `Object "${ob.name}" has no geometry`);
+    const src = (ev ?? base)!;
+    const id = `me_tmp${ob.id}`;
+    const me = newMeshData(ob.name, {
+      positions: new Float32Array(src.positions),
+      offsets: new Uint32Array(src.offsets),
+      indices: new Uint32Array(src.indices),
+      uvs: new Float32Array(src.uvs),
+      normals: new Float32Array(src.normals),
+    });
+    me.id = id;
+    if (src.smooth) me.smooth = new Uint8Array(src.smooth);
+    if (src.material_index) me.material_index = new Uint16Array(src.material_index);
+    me.materials = base ? [...base.materials] : [];
+    (scriptOnlyData.meshes ??= {})[id] = me as unknown as Raw;
+    return wrapId('meshes', id);
+  }
+  to_mesh_clear() {
+    const tmp = scriptOnlyData.meshes;
+    if (tmp) delete tmp[`me_tmp${this.ob.id}`];
+  }
+  /** changing the mode converts the rotation into the new representation */
+  set rotation_mode(v: string) {
+    setRotationMode(this.__raw, String(v));
   }
   get type() {
     return this.ob.type;
@@ -1245,8 +1285,31 @@ function nodeLabel(type: string) {
   );
 }
 
+/** RNA class names of node sockets by their data type. */
+const SOCKET_CLASS: Record<string, string> = {
+  VALUE: 'NodeSocketFloat',
+  FLOAT: 'NodeSocketFloat',
+  RGBA: 'NodeSocketColor',
+  VECTOR: 'NodeSocketVector',
+  SHADER: 'NodeSocketShader',
+  INT: 'NodeSocketInt',
+  BOOLEAN: 'NodeSocketBool',
+  STRING: 'NodeSocketString',
+  GEOMETRY: 'NodeSocketGeometry',
+  ROTATION: 'NodeSocketRotation',
+  MATRIX: 'NodeSocketMatrix',
+  OBJECT: 'NodeSocketObject',
+  COLLECTION: 'NodeSocketCollection',
+  IMAGE: 'NodeSocketImage',
+  MATERIAL: 'NodeSocketMaterial',
+  TEXTURE: 'NodeSocketTexture',
+  MENU: 'NodeSocketMenu',
+  BUNDLE: 'NodeSocketBundle',
+  CLOSURE: 'NodeSocketClosure',
+};
+
 function nodeTypeEnum(bl: string) {
-  return nodeLabel(bl).toUpperCase().replace(/\s+/g, '_');
+  return NODE_TYPE_ENUM[bl] ?? nodeLabel(bl).toUpperCase().replace(/\s+/g, '_');
 }
 
 class NodeTreeStruct extends Struct {
@@ -1826,11 +1889,13 @@ class SocketsCollection extends PropCollection<unknown> {
     const fallback = () => (d ? socketDefault(d) : ((SOCKET_DEFAULTS[self.node().type]?.[id] as unknown) ?? null));
     return {
       __kind: 'struct',
-      __type: this.output ? 'NodeSocketOutput' : 'NodeSocketInput',
+      // the socket class name scripts see (type(sock).__name__), from the socket's data type
+      __type: SOCKET_CLASS[d?.type ?? 'VALUE'] ?? 'NodeSocket',
       __socket: { node: this.nid, name: id, output: this.output, tree: this.getTree },
       name,
       identifier: id,
-      type: d?.type ?? 'VALUE',
+      // float sockets report VALUE, as in the desktop API
+      type: !d?.type || d.type === 'FLOAT' ? 'VALUE' : d.type,
       is_output: this.output,
       enabled,
       get node() {
@@ -1976,6 +2041,15 @@ class WorldStruct extends IDStruct {
 class NodeGroupStruct extends IDStruct {
   override __hidden() {
     return TREE_HIDDEN;
+  }
+  /** Python's bpy.data.node_groups.new() gives an empty group (no nodes, links or sockets), as on the desktop. */
+  _script_empty() {
+    const ng = tableOf(app.doc, 'node_groups')[this.__id] as unknown as { tree: NodeTreeData } | undefined;
+    if (!ng) return;
+    ng.tree.nodes = [];
+    ng.tree.links = [];
+    ng.tree.interface = [];
+    touched();
   }
   get nodes() {
     const id = this.__id;
@@ -2434,7 +2508,10 @@ class IDCollection extends PropCollection<unknown> {
         return this.add(newWorld(name || 'World'));
       case 'curves': {
         const cu = newCurve(name || 'Curve');
-        if (String(rest[0] ?? 'CURVE').toUpperCase() === 'FONT') cu.body = 'Text';
+        if (String(rest[0] ?? 'CURVE').toUpperCase() === 'FONT') {
+          // the settings a text object starts with (as Add ▸ Text)
+          Object.assign(cu, { body: 'Text', dimensions: '2D', fill_mode: 'BOTH', size: 1, align_x: 'LEFT', align_y: 'TOP_BASELINE', space_line: 1, space_character: 1, space_word: 1, offset_x: 0, offset_y: 0, shear: 0 });
+        }
         return this.add(cu);
       }
       case 'armatures':
@@ -2915,11 +2992,16 @@ export const opHooks = {
   run: (fn: () => OpResult): OpResult => fn(),
 };
 
+/** Operators whose `modifier` property holds the modifier's id (scripts pass its name). */
+const MODIFIER_BY_ID = new Set(['object.modifier_move_to_index', 'object.modifier_copy', 'object.modifier_copy_to_selected', 'object.modifier_apply']);
+
 /** Run an operator from a script: `{'FINISHED'}` / `{'CANCELLED'}`, raises on poll failure or errors. */
 export function callOperator(idname: string, props: Record<string, unknown> = {}, execContext: ExecContext = 'EXEC_DEFAULT'): 'FINISHED' | 'CANCELLED' | 'RUNNING_MODAL' | 'PASS_THROUGH' {
   const op = operators.get(idname);
   if (!op) throw pyError('AttributeError', `Calling operator "bpy.ops.${idname}" error, could not be found`);
   const invoke = String(execContext).startsWith('INVOKE');
+  // operators see the scene as the script left it (visibility, selection, transforms)
+  ensureEvaluated();
   if (!app.poll(idname)) throw pyError('RuntimeError', `Operator bpy.ops.${idname}.poll() failed, context is incorrect`);
   const plain: Record<string, unknown> = {};
   // macro operators (duplicate_move, extrude_region_move…) take their parts' settings as
@@ -2929,6 +3011,14 @@ export function callOperator(idname: string, props: Record<string, unknown> = {}
     const m = /^([A-Z0-9]+)_OT_(\w+)$/.exec(k);
     if (m) parts.push([`${m[1].toLowerCase()}.${m[2]}`, (v ?? {}) as Record<string, unknown>]);
     else plain[k] = toPlain(v);
+  }
+  // scripts name modifiers by their name; these operators keep the modifier's id
+  if (MODIFIER_BY_ID.has(idname) && typeof plain.modifier === 'string') {
+    const ob = app.activeObject;
+    if (ob && !ob.modifiers.some((m) => m.id === plain.modifier)) {
+      const m = ob.modifiers.find((x) => x.name === plain.modifier);
+      if (m) plain.modifier = m.id;
+    }
   }
   // rotation/value props given as Euler etc. are plain arrays now
   const before = app.reports.length;
@@ -3038,11 +3128,14 @@ export const bpy: Record<string, unknown> = {
     get binary_path() {
       return '';
     },
+    /** temporary folder of the session file store (files there are never downloaded) */
+    tempdir: '/tmp/',
     background: false,
     toString: () => '<bpy.app>',
   },
   path: {
-    abspath: (p: string) => p,
+    abspath: (p: string) => (String(p).startsWith('//') ? `/project/${String(p).slice(2)}` : p),
+    relpath: (p: string) => (String(p).startsWith('/project/') ? `//${String(p).slice(9)}` : p),
     basename: (p: string) => String(p).split(/[\\/]/).pop() ?? '',
     display_name: (p: string) =>
       String(p)

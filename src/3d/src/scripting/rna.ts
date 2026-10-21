@@ -6,6 +6,9 @@ import { app } from '../app/app';
 import { cow } from '../data/cow';
 import type { DocumentData } from '../data/types';
 import { Vector, VecBase, Euler, Quaternion, Color, Matrix, type EulerOrder } from './mathutils';
+import { Euler as TEuler } from 'three';
+import type { RotationMode, Vec3, Vec4 } from '../data/types';
+import { compatibleEuler, rotationQuaternion, threeOrder } from '../eval/transform';
 
 export type Raw = Record<string, unknown>;
 
@@ -95,8 +98,22 @@ export const ID_TABLES: [keyof DocumentData, string][] = [
 ];
 
 const EMPTY: Record<string, Raw> = Object.freeze({}) as Record<string, Raw>;
+/**
+ * Data-blocks that exist only for scripts (e.g. the meshes `Object.to_mesh()` returns): found by
+ * id like the document's own, but not listed in bpy.data and never saved.
+ */
+export const scriptOnlyData: Record<string, Record<string, Raw>> = {};
+
 export function tableOf(doc: DocumentData, kind: string): Record<string, Raw> {
-  return (doc as unknown as Record<string, Record<string, Raw> | undefined>)[kind] ?? EMPTY;
+  const t = (doc as unknown as Record<string, Record<string, Raw> | undefined>)[kind] ?? EMPTY;
+  const extra = scriptOnlyData[kind];
+  if (!extra) return t;
+  for (const _k in extra)
+    return new Proxy(t, {
+      get: (target, p) => (typeof p === 'string' && !(p in target) && p in extra ? extra[p] : (target as Record<string | symbol, unknown>)[p]),
+      has: (target, p) => p in target || (typeof p === 'string' && p in extra),
+    });
+  return t;
 }
 
 /** Find the table holding an id string (ids are globally unique). */
@@ -299,6 +316,30 @@ function writeIndex(getRaw: () => Raw | null | undefined, key: string, i: number
   const cur = raw[key];
   if (ArrayBuffer.isView(cur)) (cow(raw, key) as unknown as number[])[i] = x;
   else (cur as number[])[i] = x;
+  touched();
+}
+
+/**
+ * Switch an object's / pose bone's rotation mode the way the property does in the desktop API:
+ * the current rotation is converted into the new representation (so the pose does not change).
+ */
+export function setRotationMode(raw: Raw, mode: string) {
+  const MODES = ['XYZ', 'XZY', 'YXZ', 'YZX', 'ZXY', 'ZYX', 'QUATERNION', 'AXIS_ANGLE'];
+  if (!MODES.includes(mode)) throw pyError('TypeError', `bpy_struct: item.attr = val: enum "${mode}" not found in (${MODES.map((m) => `'${m}'`).join(', ')})`);
+  const old = String(raw.rotation_mode ?? 'XYZ');
+  if (old === mode) return;
+  const q = rotationQuaternion(old as RotationMode, (raw.rotation_euler ?? [0, 0, 0]) as Vec3, (raw.rotation_quaternion ?? [1, 0, 0, 0]) as Vec4, (raw.rotation_axis_angle ?? [0, 0, 1, 0]) as Vec4);
+  if (mode === 'QUATERNION') raw.rotation_quaternion = [q.w, q.x, q.y, q.z];
+  else if (mode === 'AXIS_ANGLE') {
+    const w = Math.max(-1, Math.min(1, q.w));
+    const angle = 2 * Math.acos(w);
+    const s = Math.sqrt(Math.max(0, 1 - w * w));
+    raw.rotation_axis_angle = s < 1e-8 ? [0, 0, 1, 0] : [angle, q.x / s, q.y / s, q.z / s];
+  } else {
+    const e = new TEuler().setFromQuaternion(q, threeOrder(mode as RotationMode));
+    raw.rotation_euler = compatibleEuler([e.x, e.y, e.z], (raw.rotation_euler ?? [0, 0, 0]) as Vec3);
+  }
+  raw.rotation_mode = mode;
   touched();
 }
 

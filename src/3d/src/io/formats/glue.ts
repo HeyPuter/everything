@@ -2,47 +2,17 @@
 // options dialogs, committing IR into the open document and reporting warnings.
 import { app } from '../../app/app';
 import type { ImageData } from '../../data/types';
-import { registerFormat } from '../files';
-import { imageCanvas } from '../../render/images';
+import { imageCanvas, imageReady } from '../../render/images';
+import { encodePngRgba } from './pngsync';
 import { activeCollection, setMode } from '../../ops/object';
+import { newCollection } from '../../data/defaults';
+import { uniqueName } from './common';
 import { commitScene, type CommitOptions } from './to-document';
 import type { IRScene } from './ir';
 import { buildExportScene, type ExportOptions, type ExportScene } from './scene-builder';
-import { optionsDialog, type FormatOption } from './ui';
+import type { FormatOption } from './ui';
 
-export interface FormatDef {
-  id: string;
-  label: string;
-  extensions: string[];
-  description?: string;
-  importOptions?: FormatOption[];
-  exportOptions?: FormatOption[];
-  /** import a picked file into the current document */
-  importFile?: (file: File, options: Record<string, unknown>) => Promise<void>;
-  /** produce the exported file */
-  exportFile?: (options: Record<string, unknown> & { selectedOnly: boolean }) => Promise<{ bytes: Uint8Array | string; mime: string; ext: string }>;
-}
-
-export function defineFormat(def: FormatDef) {
-  registerFormat({
-    id: def.id,
-    label: def.label,
-    extensions: def.extensions,
-    description: def.description,
-    import: def.importFile
-      ? async (file: File) => {
-          const opts = await optionsDialog(`Import ${def.label}`, `${def.id}:import`, def.importOptions ?? [], 'Import', file.name);
-          await def.importFile!(file, opts);
-        }
-      : undefined,
-    export: def.exportFile
-      ? async ({ selectedOnly }) => {
-          const opts = await optionsDialog(`Export ${def.label}`, `${def.id}:export`, def.exportOptions ?? [], 'Export', selectedOnly ? 'Selected objects only' : 'All objects in the scene');
-          return def.exportFile!({ ...opts, selectedOnly });
-        }
-      : undefined,
-  });
-}
+export { defineFormat, type FormatDef, type ExportFile, type ExportTarget, type ImportSource } from './formatops';
 
 /** Commit an IR scene into the open document (one undo step is pushed by the caller). */
 export function commitToApp(ir: IRScene, opts: CommitOptions = {}) {
@@ -55,6 +25,15 @@ export function commitToApp(ir: IRScene, opts: CommitOptions = {}) {
   return res;
 }
 
+/** A new collection (child of the active one) that an import goes into ("Create Collection"). */
+export function importCollection(name: string): string {
+  const doc = app.doc;
+  const c = newCollection(uniqueName(doc, name || 'Import', 'collections'));
+  doc.collections[c.id] = c;
+  doc.collections[activeCollection(doc)]?.children.push(c.id);
+  return c.id;
+}
+
 export function exportSceneFromApp(opts: ExportOptions): ExportScene {
   return buildExportScene(app.doc, opts, app.graph);
 }
@@ -63,16 +42,27 @@ export function reportWarnings(warnings: string[]) {
   for (const w of [...new Set(warnings)]) app.report('WARNING', w);
 }
 
-/** Encode an image's current pixels as PNG through a canvas (generated/painted images). */
-export async function encodeImagePng(img: ImageData): Promise<{ bytes: Uint8Array; mime: string } | null> {
+/** Pixels of an image's canvas (null when it is not decoded yet). */
+function canvasPixels(img: ImageData): globalThis.ImageData | null {
+  if (img.bytes?.length && !imageReady(img)) return null;
+  const c = imageCanvas(img);
+  return c.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, c.width, c.height);
+}
+
+/**
+ * Encode an image as PNG synchronously (exports run inside script calls). Images whose pixels
+ * are not decoded yet pass their stored PNG/JPEG file through unchanged.
+ */
+export function encodeImagePng(img: ImageData): { bytes: Uint8Array; mime: string } | null {
+  if (!img) return null;
   try {
-    const canvas = imageCanvas(img);
-    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
-    if (!blob) return null;
-    return { bytes: new Uint8Array(await blob.arrayBuffer()), mime: 'image/png' };
+    const px = canvasPixels(img);
+    if (px) return { bytes: encodePngRgba(px.width, px.height, px.data, px.width * px.height > 4e6 ? 1 : 6), mime: 'image/png' };
+    if (img.bytes?.length && /png|jpe?g/i.test(img.mime)) return { bytes: img.bytes, mime: img.mime };
   } catch {
-    return null;
+    // canvas unavailable
   }
+  return null;
 }
 
 export async function readFileBytes(file: File) {
@@ -82,42 +72,26 @@ export async function readFileBytes(file: File) {
 export const APPLY_MODIFIERS: FormatOption = { id: 'apply_modifiers', label: 'Apply Modifiers', type: 'bool', default: true, description: 'Export the evaluated mesh (viewport modifier settings)' };
 
 /** Pack roughness (→ G) and metallic (→ B) image channels into one PNG (glTF layout). */
-export async function packMetallicRoughnessPng(rough: { img: ImageData; channel: string } | null, metal: { img: ImageData; channel: string } | null): Promise<Uint8Array | null> {
+export function packMetallicRoughnessPng(rough: { img: ImageData; channel: string } | null, metal: { img: ImageData; channel: string } | null): Uint8Array | null {
   try {
-    const decode = async (img: ImageData) => {
-      if (img.bytes) return await createImageBitmap(new Blob([img.bytes as Uint8Array<ArrayBuffer>], { type: img.mime }));
-      return await createImageBitmap(imageCanvas(img));
-    };
-    const r = rough ? await decode(rough.img) : null,
-      m = metal ? await decode(metal.img) : null;
+    const r = rough ? canvasPixels(rough.img) : null,
+      m = metal ? canvasPixels(metal.img) : null;
+    if ((rough && !r) || (metal && !m)) return null;
     const w = Math.max(r?.width ?? 1, m?.width ?? 1),
       h = Math.max(r?.height ?? 1, m?.height ?? 1);
-    const read = (bmp: ImageBitmap | null) => {
-      if (!bmp) return null;
-      const c = document.createElement('canvas');
-      c.width = w;
-      c.height = h;
-      const ctx = c.getContext('2d')!;
-      ctx.drawImage(bmp, 0, 0, w, h);
-      return ctx.getImageData(0, 0, w, h).data;
-    };
-    const rp = read(r),
-      mp = read(m);
+    // nearest sampling when the two images differ in size
+    const sample = (px: globalThis.ImageData, x: number, y: number, c: number) => px.data[(Math.min(px.height - 1, Math.floor((y * px.height) / h)) * px.width + Math.min(px.width - 1, Math.floor((x * px.width) / w))) * 4 + c];
     const ch = (c: string) => (c === 'G' ? 1 : c === 'B' ? 2 : c === 'A' ? 3 : 0);
-    const out = document.createElement('canvas');
-    out.width = w;
-    out.height = h;
-    const octx = out.getContext('2d')!;
-    const data = octx.createImageData(w, h);
-    for (let i = 0; i < w * h; i++) {
-      data.data[i * 4] = 255;
-      data.data[i * 4 + 1] = rp ? rp[i * 4 + ch(rough!.channel)] : 255;
-      data.data[i * 4 + 2] = mp ? mp[i * 4 + ch(metal!.channel)] : 255;
-      data.data[i * 4 + 3] = 255;
-    }
-    octx.putImageData(data, 0, 0);
-    const blob = await new Promise<Blob | null>((res) => out.toBlob(res, 'image/png'));
-    return blob ? new Uint8Array(await blob.arrayBuffer()) : null;
+    const out = new Uint8Array(w * h * 4);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        out[i] = 255;
+        out[i + 1] = r ? sample(r, x, y, ch(rough!.channel)) : 255;
+        out[i + 2] = m ? sample(m, x, y, ch(metal!.channel)) : 255;
+        out[i + 3] = 255;
+      }
+    return encodePngRgba(w, h, out);
   } catch {
     return null;
   }

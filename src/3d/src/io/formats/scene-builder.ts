@@ -27,6 +27,8 @@ export interface ExportOptions {
   includeHidden?: boolean;
   /** object types to export (default all) */
   types?: ObjectData['type'][];
+  /** export exactly these objects (a collection exporter), whatever their visibility */
+  objectIds?: Set<string>;
 }
 
 export interface ExportColorLayer {
@@ -121,7 +123,9 @@ export function buildExportScene(doc: DocumentData, opts: ExportOptions = {}, gr
   const exported = new Set<string>();
   for (const ob of candidates) {
     const vis = inScene.has(ob.id);
-    if (!vis && !(opts.includeHidden !== false && isLinked(doc, ob.id))) continue;
+    if (opts.objectIds) {
+      if (!opts.objectIds.has(ob.id)) continue;
+    } else if (!vis && !(opts.includeHidden !== false && isLinked(doc, ob.id))) continue;
     if (opts.includeHidden === false && (ob.hide || ob.hide_viewport)) continue;
     if (opts.selectedOnly && !ob.select) continue;
     if (opts.types && !opts.types.includes(ob.type)) continue;

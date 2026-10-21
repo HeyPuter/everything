@@ -1,4 +1,4 @@
-// Blender (.blend) import: File ▸ Open replaces the document, File ▸ Import appends the
+// .blend import: File ▸ Open replaces the document, File ▸ Import appends the
 // scene's objects and collections into the current scene.
 import { app } from '../../app/app';
 import { registerFormat } from '../files';
@@ -18,21 +18,21 @@ function reportWarnings(file: File, r: BlendImport) {
 
 registerFormat({
   id: 'blend',
-  label: 'Blender File (.blend)',
+  label: 'Blend File (.blend)',
   extensions: ['.blend'],
-  description: 'Import scenes saved by Blender 2.80–5.x (meshes, materials, lights, cameras, curves, armatures, modifiers, constraints, animation)',
+  description: 'Scenes saved in .blend files of versions 2.80–5.x (meshes, materials, lights, cameras, curves, armatures, modifiers, constraints, animation)',
   async open(file) {
     // the whole file is converted before the current document is touched
     const r = await load(file);
     app.setDocument(r.doc);
     app.filename = file.name.replace(/\.blend\d*$/i, '.p3d');
     const extra = reportWarnings(file, r);
-    app.report('INFO', `Opened "${file.name}" (Blender ${r.version}, scene "${r.sceneName}", ${r.stats.objects} objects)${extra}`);
+    app.report('INFO', `Opened "${file.name}" (file version ${r.version}, scene "${r.sceneName}", ${r.stats.objects} objects)${extra}`);
   },
   async import(file) {
     const r = await load(file);
     const added = appendBlend(app.doc, r);
     const extra = reportWarnings(file, r);
-    app.report('INFO', `Appended ${added.length} objects from "${file.name}" (Blender ${r.version})${extra}`);
+    app.report('INFO', `Appended ${added.length} objects from "${file.name}" (file version ${r.version})${extra}`);
   },
 });

@@ -33,7 +33,7 @@ export interface Ctx {
   f: BlendFile;
   doc: DocumentData;
   warn: Warnings;
-  /** Blender version as number, e.g. 502 */
+  /** file format version as a number, e.g. 502 */
   version: number;
   /** converted ID blocks: struct file offset → document id */
   ids: Map<number, ID>;

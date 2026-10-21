@@ -1,4 +1,4 @@
-// Animation conversion: actions (legacy F-curve lists and Blender 4.4+/5.x layered, slotted
+// Animation conversion: actions (legacy F-curve lists and 4.4+/5.x layered, slotted
 // actions whose keys live in channelbags), NLA tracks and drivers.
 import { compileExpr } from '../../anim/driverexpr';
 import type { ActionData, AnimData, Driver, DriverVariable, FCurve, FModifier, Interpolation, Keyframe, KeyHandleType, NlaStrip, NlaTrack } from '../../data/types';
@@ -157,7 +157,7 @@ export function convertAction(act: BStruct, slotHandle: number, ctx: Ctx, prefix
   const fs = act.num('frame_start'),
     fe = act.num('frame_end');
   if (act.num('flag') & (1 << 12) && fe > fs) action.frame_range = [fs, fe];
-  // de-duplicate names when one Blender action becomes several (slots / prefixes)
+  // de-duplicate names when one stored action becomes several (slots / prefixes)
   const taken = new Set(Object.values(ctx.doc.actions).map((a) => a.name));
   if (taken.has(action.name)) {
     let i = 1;

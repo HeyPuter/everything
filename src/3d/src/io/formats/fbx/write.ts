@@ -18,14 +18,14 @@ export interface FbxWriteOptions {
   embedTextures?: boolean;
   animation?: boolean;
   /** encoder for images without file bytes */
-  encodeImage?: (img: ImageData) => Promise<{ bytes: Uint8Array; mime: string } | null>;
+  encodeImage?: (img: ImageData) => { bytes: Uint8Array; mime: string } | null;
   creator?: string;
 }
 
 const KTIME = 46186158000;
 const R2D = 180 / Math.PI;
 
-export async function writeFbx(scene: ExportScene, opts: FbxWriteOptions = {}): Promise<{ bytes: Uint8Array; warnings: string[] }> {
+export function writeFbx(scene: ExportScene, opts: FbxWriteOptions = {}): { bytes: Uint8Array; warnings: string[] } {
   const warnings = [...scene.warnings];
   const axis = axisConversion(opts.forward ?? '-Z', opts.up ?? 'Y');
   if (!axis) throw new Error('Forward and Up axes must be different');
@@ -99,22 +99,22 @@ export async function writeFbx(scene: ExportScene, opts: FbxWriteOptions = {}): 
   const videoIds = new Map<string, P>();
   const textureNodes = new Map<string, P>();
   const encodeCache = new Map<string, { bytes: Uint8Array; mime: string } | null>();
-  const imageData = async (imageId: string) => {
+  const imageData = (imageId: string) => {
     if (encodeCache.has(imageId)) return encodeCache.get(imageId)!;
     const img = scene.doc.images[imageId];
     let r: { bytes: Uint8Array; mime: string } | null = img?.bytes ? { bytes: img.bytes, mime: img.mime } : null;
-    if (!r && img && opts.encodeImage) r = await opts.encodeImage(img);
+    if (!r && img && opts.encodeImage) r = opts.encodeImage(img);
     encodeCache.set(imageId, r);
     return r;
   };
-  const textureFor = async (ref: ExportTexRef | undefined, usage: string): Promise<P | null> => {
+  const textureFor = (ref: ExportTexRef | undefined, usage: string): P | null => {
     if (!ref) return null;
     const img = scene.doc.images[ref.imageId];
     if (!img) return null;
     const key = `${ref.imageId}|${JSON.stringify([ref.offset, ref.scale, ref.rotation])}`;
     let tid = textureNodes.get(key);
     if (tid) return tid;
-    const data = await imageData(ref.imageId);
+    const data = imageData(ref.imageId);
     const fname = baseName(img.filepath || '') || `${img.name.replace(/\.(png|jpe?g|webp)$/i, '')}${data ? extOfMime(data.mime) : '.png'}`;
     let vid = videoIds.get(ref.imageId);
     if (!vid) {
@@ -176,7 +176,7 @@ export async function writeFbx(scene: ExportScene, opts: FbxWriteOptions = {}): 
       [m.roughnessTex, 'ShininessExponent', 'roughness'],
     ];
     for (const [ref, prop, usage] of links) {
-      const t = await textureFor(ref, usage);
+      const t = textureFor(ref, usage);
       if (t) op(t, pid, prop);
     }
   }

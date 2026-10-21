@@ -359,7 +359,8 @@ export function readGltf(bytes: Uint8Array, opts: GltfReadOptions = {}): IRScene
       uvs: anyUv ? percorner(uv, 2) : undefined,
       normals: anyNormals ? percorner(nrm, 3) : undefined,
       materialIndex: Uint16Array.from(matIndex),
-      materials: slots,
+      // primitives without a material leave the mesh without slots (not one empty slot)
+      materials: slots.length === 1 && slots[0] < 0 ? [] : slots,
       colors: anyColor ? [{ name: 'Color', domain: 'POINT', data: Float32Array.from(col) }] : undefined,
       looseEdges: loose || undefined,
     };
