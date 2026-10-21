@@ -3068,6 +3068,19 @@ async function slideSizeDialog(preset = null) {
               P.setShapeRunFormat(obj, pi, ri, { size: scaleText(size) });
           }
       }
+      // Comments stay by the content they were left on.
+      const threads = P.getSlideCommentThreads(s);
+      if (threads.some((t) => t.pos))
+        P.setSlideCommentThreads(
+          s,
+          threads.map((t) => ({
+            ...t,
+            pos: t.pos && {
+              x: Math.round(t.pos.x * k + dx),
+              y: Math.round(t.pos.y * k + dy),
+            },
+          })),
+        );
     }
     stretchTemplates();
   });

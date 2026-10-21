@@ -294,6 +294,49 @@ test("a comment on a deleted object stays put, off any new object", async ({
   await expect(anchor).toContainText("Rectangle");
 });
 
+// A change of slide size that scales the content moves the comments with it;
+// they stayed at their old places, off the content or past the slide's edge.
+test("comments move with the content when the slide size changes", async ({
+  page,
+}) => {
+  await stub(page);
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  P.addSlideShape(slide, {
+    preset: "rect",
+    x: 10668000,
+    y: 914400,
+    w: 914400,
+    h: 914400,
+  });
+  P.setSlideCommentThreads(slide, [
+    {
+      author: { name: "Grace" },
+      text: "Check this corner",
+      pos: { x: 11582400, y: 914400 },
+    },
+  ]);
+  await open(page, pres);
+  const menu = page.getByRole("menuitem", { name: "File", exact: true });
+  if (await menu.isVisible()) await menu.click();
+  else await page.getByRole("button", { name: /File options/ }).click();
+  await page.getByRole("menuitem", { name: "Slide size" }).click();
+  const dialog = page.getByRole("dialog", { name: "Slide size" });
+  await dialog
+    .getByRole("combobox", { name: "Slide size" })
+    .selectOption("4:3");
+  await dialog.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(page.locator(".zoom-control > span")).toHaveText("4:3");
+  const { pres: saved } = await download(page);
+  const [thread] = P.getSlideCommentThreads(P.getSlides(saved)[0]);
+  // Scaled by 3/4 and centered: 3/8 of the old height lower down.
+  expect(thread.text).toBe("Check this corner");
+  expect(thread.pos).toEqual({
+    x: Math.round(11582400 * 0.75),
+    y: Math.round(914400 * 0.75 + 6858000 / 8),
+  });
+});
+
 test("accessibility: issues with fixes, reading order, and the status bar", async ({
   page,
 }) => {
