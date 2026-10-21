@@ -906,7 +906,10 @@ registerOperators([
           return 'CANCELLED';
         }
         const T = new Matrix4().makeTranslation(ob.location[0], ob.location[1], ob.location[2]);
-        const R = new Matrix4().makeRotationFromQuaternion(new Quaternion().setFromRotationMatrix(localMatrix(ob)));
+        // the rotation part of the local matrix (decomposed: the matrix also carries the scale)
+        const rq = new Quaternion();
+        localMatrix(ob).decompose(new Vector3(), rq, new Vector3());
+        const R = new Matrix4().makeRotationFromQuaternion(rq);
         const S = new Matrix4().makeScale(ob.scale[0], ob.scale[1], ob.scale[2]);
         const m = new Matrix4();
         if (p.location) m.premultiply(new Matrix4());

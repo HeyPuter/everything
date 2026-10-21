@@ -126,3 +126,20 @@ describe('object add / parent numerics', () => {
     expect(worldPos(c).toArray().map((v) => +v.toFixed(4) + 0)).toEqual([-1, 0.5, 0]);
   });
 });
+
+describe('apply object transform', () => {
+  it('keeps world vertex positions for rotated, non-uniformly scaled objects', () => {
+    run('mesh.primitive_cube_add', { location: [1, 2, 3], rotation: [0.3, 0.2, 0.1] });
+    const ob = app.activeObject!;
+    ob.scale = [2, 1, 0.5];
+    select(ob);
+    const world = (i: number) => {
+      const P = app.doc.meshes[ob.data!].positions;
+      return new Vector3(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]).applyMatrix4(app.graph.get(ob.id)!.world);
+    };
+    const before = [0, 3, 7].map(world);
+    run('object.transform_apply', { location: true, rotation: true, scale: true });
+    expect(ob.scale).toEqual([1, 1, 1]);
+    [0, 3, 7].map(world).forEach((p, k) => expect(p.distanceTo(before[k])).toBeLessThan(1e-5));
+  });
+});
