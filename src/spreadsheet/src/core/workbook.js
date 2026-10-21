@@ -668,6 +668,27 @@ function rectCandidates(list, r, rectOf) {
   return out;
 }
 const ownRect = (item) => item;
+/**
+ * Which of a list of ranges overlap a given one, found through bands of rows rather than by testing every one
+ * (merging across thousands of rows asks once per row). Indexes into the list, in order.
+ */
+function rectFinder(list) {
+  const bands = new Map();
+  const tall = []; // ranges over many bands are tested every time
+  list.forEach((g, i) => {
+    const b1 = Math.floor(g.r1 / RECT_BAND), b2 = Math.floor(g.r2 / RECT_BAND);
+    if (b2 - b1 > 64) { tall.push(i); return; }
+    for (let b = b1; b <= b2; b++) { const at = bands.get(b); if (at) at.push(i); else bands.set(b, [i]); }
+  });
+  const overlaps = (g, n) => !(g.r2 < n.r1 || g.r1 > n.r2 || g.c2 < n.c1 || g.c1 > n.c2);
+  return (n) => {
+    const b1 = Math.floor(n.r1 / RECT_BAND), b2 = Math.floor(n.r2 / RECT_BAND);
+    if (b2 - b1 > 64) return list.flatMap((g, i) => (overlaps(g, n) ? [i] : []));
+    const found = new Set(tall.filter((i) => overlaps(list[i], n)));
+    for (let b = b1; b <= b2; b++) for (const i of bands.get(b) || []) if (overlaps(list[i], n)) found.add(i);
+    return [...found].sort((a, b) => a - b);
+  };
+}
 const itemRange = (item) => item.range;
 
 /** The rows and columns a sheet's cells may occupy: the grid's limits, or the sheet's own size when a file brought a larger one. */
@@ -11398,38 +11419,60 @@ export class Workbook extends EventTarget {
    * that did not count them itself can still say what the merge cost.
    */
   mergeCells(sheetId, range) {
+    return this.mergeBlocks(sheetId, [range])[0];
+  }
+
+  /**
+   * Merge several blocks in one step (Merge Across, Merge Down): each as mergeCells merges it, in order, a later
+   * block replacing an earlier one it overlaps, with the sheet's merges set once at the end. One at a time, every
+   * block copied every merge on the sheet into its own undo record, so merging across 5,000 rows took half a
+   * second and 20,000 held the page for minutes. Whether each block was merged, in the order given.
+   */
+  mergeBlocks(sheetId, ranges) {
     const sheet = this.sheet(sheetId);
-    if (!sheet) return false;
-    if (this._gridLocked(sheet)) return false;
-    const n = normalizeRange(range);
-    const array = this._fixedArrays(sheet).overlapping(n).next().value;
-    if (array) { this._arrayRefused(sheet, array, 'overlap'); return false; }
-    if (n.r1 === n.r2 && n.c1 === n.c2) return false;
-    if ((n.r2 - n.r1 + 1) * (n.c2 - n.c1 + 1) > 20000) return false;
-    // A table's header and data cells cannot be merged: each column keeps its own name and each
-    // row its own cells. The totals row is a footer whose label may span columns.
-    if (sheet.tables.some((t) => !(n.r2 < t.range.r1 || n.r1 > tableRows(t).dataEnd || n.c2 < t.range.c1 || n.c1 > t.range.c2))) return false;
-    // Replacing an overlapping merge also changes cells outside the new range.
-    if ([n, ...this.mergesIn(sheetId, n)].some((g) => this.lockedIn(sheetId, g))) return false;
-    this.transaction('Merge cells', () => {
-      const entries = [];
-      for (let r = n.r1; r <= n.r2; r++) {
-        for (let c = n.c1; c <= n.c2; c++) {
-          if (r === n.r1 && c === n.c1) continue;
-          const prev = sheet.cells.get(cellKey(r, c));
-          if (prev && (prev.v != null || prev.f != null)) entries.push({ r, c, cell: { v: null, f: null, s: prev.s } });
-        }
-      }
-      // A merged block shows its top-left cell alone, so every other value and formula in it is cleared.
-      // Said here, once they are, so every door hears it — a script, a template, an import, a menu entry —
-      // and not only the one caller that counts the cells itself beforehand. A batch merging several blocks
-      // announces the last of them, as a batch does for every kind of change (see _announce).
-      const dropped = entries.length ? this.setCells(sheetId, entries, 'Merge cells') : 0;
-      if (dropped) this._announce('merged-values-dropped', sheetId, { range: { ...n }, count: dropped });
-      const kept = sheet.merges.filter((m) => m.r2 < n.r1 || m.r1 > n.r2 || m.c2 < n.c1 || m.c1 > n.c2);
-      this._setMerges(sheet, [...kept, { ...n }], 'Merge cells');
+    if (!sheet || this._gridLocked(sheet)) return ranges.map(() => false);
+    const existing = rectFinder(sheet.merges);
+    const blocks = [];
+    const merged = ranges.map((range) => {
+      const n = normalizeRange(range);
+      const array = this._fixedArrays(sheet).overlapping(n).next().value;
+      if (array) { this._arrayRefused(sheet, array, 'overlap'); return false; }
+      if (n.r1 === n.r2 && n.c1 === n.c2) return false;
+      if ((n.r2 - n.r1 + 1) * (n.c2 - n.c1 + 1) > 20000) return false;
+      // A table's header and data cells cannot be merged: each column keeps its own name and each
+      // row its own cells. The totals row is a footer whose label may span columns.
+      if (sheet.tables.some((t) => !(n.r2 < t.range.r1 || n.r1 > tableRows(t).dataEnd || n.c2 < t.range.c1 || n.c1 > t.range.c2))) return false;
+      // Replacing an overlapping merge also changes cells outside the new range. (A merge an earlier block
+      // replaced was checked with that block, and a block merged before this one was checked itself.)
+      if ([n, ...existing(n).map((i) => sheet.merges[i])].some((g) => this.lockedIn(sheetId, g))) return false;
+      blocks.push(n);
+      return true;
     });
-    return true;
+    if (!blocks.length) return merged;
+    this.transaction('Merge cells', () => {
+      for (const n of blocks) {
+        const entries = [];
+        for (let r = n.r1; r <= n.r2; r++) {
+          for (let c = n.c1; c <= n.c2; c++) {
+            if (r === n.r1 && c === n.c1) continue;
+            const prev = sheet.cells.get(cellKey(r, c));
+            if (prev && (prev.v != null || prev.f != null)) entries.push({ r, c, cell: { v: null, f: null, s: prev.s } });
+          }
+        }
+        // A merged block shows its top-left cell alone, so every other value and formula in it is cleared.
+        // Said here, once they are, so every door hears it — a script, a template, an import, a menu entry —
+        // and not only the one caller that counts the cells itself beforehand. A batch merging several blocks
+        // announces the last of them, as a batch does for every kind of change (see _announce).
+        const dropped = entries.length ? this.setCells(sheetId, entries, 'Merge cells') : 0;
+        if (dropped) this._announce('merged-values-dropped', sheetId, { range: { ...n }, count: dropped });
+      }
+      // Each block replaces the merges it overlaps: those on the sheet, and those of the blocks before it.
+      const later = rectFinder(blocks);
+      const replaced = new Set(blocks.flatMap((n) => existing(n)));
+      const kept = sheet.merges.filter((m, i) => !replaced.has(i));
+      this._setMerges(sheet, [...kept, ...blocks.filter((n, k) => !later(n).some((j) => j > k)).map((n) => ({ ...n }))], 'Merge cells');
+    });
+    return merged;
   }
 
   /** Split every merge that touches the range. */

@@ -185,6 +185,22 @@ export function installSheetGroups(Workbook) {
     };
   }
 
+  // Merge Across and Merge Down merge many blocks in one step: each goes on to the other sheets where the active sheet
+  // merged it, as it did when every block was a mergeCells of its own.
+  const mergeBlocks = proto.mergeBlocks;
+  proto.mergeBlocks = function (sheetId, ranges) {
+    const others = this._groupTargets(sheetId);
+    if (!others) return mergeBlocks.call(this, sheetId, ranges);
+    const locked = others.map((id) => this.sheet(id)).find((sheet) => sheet?.protected);
+    if (locked) { this._locked(locked); return ranges.map(() => false); }
+    return this.transaction(groupLabel('mergeCells'), () => this._withoutGroup(() => {
+      const merged = mergeBlocks.call(this, sheetId, ranges);
+      const blocks = ranges.filter((_, i) => merged[i]);
+      if (blocks.length) for (const id of others) mergeBlocks.call(this, id, blocks);
+      return merged;
+    }));
+  };
+
   for (const name of GROUP_REPLAYED) {
     const original = proto[name];
     if (typeof original !== 'function') throw new Error(`sheet groups: no Workbook.${name}`);

@@ -1761,7 +1761,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         let refused = 0;
         wb.transaction(cmd === 'mergeAcross' ? 'Merge horizontally' : 'Merge vertically', () => {
           wb.unmergeCells(sheetId, range);
-          for (const b of blocks) if (wb.mergeCells(sheetId, b) === false) refused++;
+          refused = wb.mergeBlocks(sheetId, blocks).filter((done) => !done).length;
         });
         if (refused === blocks.length) { if (!(wb.sheetGroup || [sheetId]).some((id) => wb.isProtected(id))) toast(mergeRefusal(range), { icon: 'info', duration: 3500 }); }
         else if (cleared) toast(`Merged. Only the first value of each ${cmd === 'mergeAcross' ? 'row' : 'column'} was kept (${cleared} cleared)`, { icon: 'merge', duration: 4000 });
