@@ -652,7 +652,12 @@ export function normalizeProject(raw) {
   const transcriptWords = tw
     .filter((w) => w && typeof w.text === 'string' && w.text.trim() && Number.isFinite(Number(w.start)) && Number.isFinite(Number(w.end)))
     .slice(0, 200_000)
-    .map((w) => ({ text: w.text.trim().slice(0, 80), start: Math.max(0, int(w.start)), end: Math.max(0, int(w.end)) }))
+    .map((w) => {
+      const out = { text: w.text.trim().slice(0, 80), start: Math.max(0, int(w.start)), end: Math.max(0, int(w.end)) };
+      // The media the word was heard in (media/transcript.js anchorWords).
+      if (str(w.a) && !unsafeKey(w.a) && Number.isFinite(Number(w.s)) && Number.isFinite(Number(w.e))) Object.assign(out, { a: str(w.a).slice(0, 64), s: Math.max(0, int(w.s)), e: Math.max(0, int(w.e)) });
+      return out;
+    })
     .sort((a, b) => a.start - b.start);
   const r = raw.range;
   const range = r && Number.isFinite(Number(r.in)) && Number.isFinite(Number(r.out)) && int(r.out) > int(r.in) ? { in: Math.max(0, int(r.in)), out: int(r.out) } : null;

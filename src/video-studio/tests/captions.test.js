@@ -8,7 +8,7 @@ import { captionsTab } from '../src/ui/panels/captions.js';
 import { EditorStore } from '../src/model/store.js';
 import { createActions } from '../src/ui/actions.js';
 import { setPref } from '../src/ui/prefs.js';
-import { fixture, clip, onMain } from './helpers.js';
+import { fixture, clip, onMain, s } from './helpers.js';
 import { createProject } from '../src/model/project.js';
 import { TEXT_PRESETS } from '../src/model/catalog.js';
 
@@ -212,6 +212,38 @@ describe('Generate captions in the Captions tab', () => {
     expect(mixdown).toHaveBeenCalled();
     expect(gen.disabled).toBe(false);
     err.mockRestore();
+    tab.dispose?.();
+  });
+});
+
+describe('Transcript in the Captions tab', () => {
+  afterEach(() => {
+    delete globalThis.puter;
+    delete globalThis.__vsFakeTranscript;
+    document.body.replaceChildren();
+  });
+
+  it('keeps words on their media after a timeline edit', async () => {
+    setPref('captionOpts', {});
+    globalThis.puter = { ai: {} };
+    globalThis.__vsFakeTranscript = async () => [W('Hello', 0.5, 1), W('there', 4.5, 5)];
+    const p = fixture();
+    const [first] = onMain(p, clip('video', 0, 4), clip('video', 4, 4, { in: s(4) }));
+    const store = new EditorStore(p);
+    const ctx = { store, player: null, library: { backend: { kind: 'puter' } }, account: {} };
+    ctx.actions = createActions(ctx);
+    const tab = captionsTab(ctx);
+    document.body.append(tab.el);
+    [...tab.el.querySelectorAll('.asset-cat')].find((b) => b.textContent === 'Transcript').click();
+    [...tab.el.querySelectorAll('button')].find((b) => b.textContent === 'Transcribe').click();
+    await vi.waitFor(() => expect(tab.el.querySelectorAll('.tr-word')).toHaveLength(2));
+    store.select(first.id);
+    ctx.actions.deleteSelected();
+    const words = [...tab.el.querySelectorAll('.tr-word')];
+    expect(words.map((w) => w.textContent)).toEqual(['there']);
+    words[0].dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1 }));
+    words[0].dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+    expect(store.time).toBe(s(0.5));
     tab.dispose?.();
   });
 });

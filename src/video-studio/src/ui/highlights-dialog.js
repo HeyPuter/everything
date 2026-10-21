@@ -14,6 +14,7 @@ import { openDialog, toast } from './dialog.js';
 import { prefs, setPref } from './prefs.js';
 import { LANGUAGES, STT_RATE, mixdown, transcribeMix, errorMessage } from '../media/transcribe.js';
 import { HIGHLIGHT_COUNTS, HIGHLIGHT_LENGTHS, findHighlights, highlightProject, highlightCompound, wordsInClip } from '../media/highlights.js';
+import { transcriptWords } from '../media/transcript.js';
 import { SCRIPT_CAPTION_STYLES } from '../media/script-video.js';
 import { reframeSize, reframePlan, applyReframePlan } from './smart-actions.js';
 import { aiReady, needAiDialog } from './script-video.js';
@@ -31,7 +32,7 @@ export function highlightSource(project, selectedIds = []) {
 
 /** Clip-local timed words (µs) for a clip: from the project transcript when it covers the clip, else transcribed. */
 async function clipWords(ctx, clip, { language, signal, onStatus }) {
-  const reuse = wordsInClip(ctx.store.project.transcript?.words, clip);
+  const reuse = wordsInClip(transcriptWords(ctx.store.project), clip);
   if (reuse.length >= 20) return { words: reuse, reused: true };
   // Only this clip, from 0, at full volume, so the words line up with the clip.
   const project = ctx.store.project;
@@ -79,7 +80,7 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
   const field = (label, control) => h('label.aic-field', h('span.aic-label', label), control);
 
   // ---- Options -------------------------------------------------------------------
-  const reuse = wordsInClip(store.project.transcript?.words, clip).length >= 20;
+  const reuse = wordsInClip(transcriptWords(store.project), clip).length >= 20;
   const optionsEl = h('div.aic-step',
     h('p.dialog-text', `Finds the moments in ${asset?.name || 'this clip'} (${clock(clip.duration)}) that work best on their own, so you can turn them into short clips.`),
     h('div.aic-grid',

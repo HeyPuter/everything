@@ -5,6 +5,85 @@
  */
 import { US } from '../lib/time.js';
 import { marksForNamed } from '../model/text-marks.js';
+import { MIN_CLIP, clipEnd, sourceTimeAt } from '../model/timeline.js';
+import { localAtSource, sourceSpan } from '../model/speed-curve.js';
+import { audibleClips } from '../engine/scene.js';
+
+// ---- Words that follow their media -----------------------------------------
+//
+// A transcript word remembers the media it was heard in: asset a, source
+// times s..e (µs). Its place on the timeline is worked out from the clips now
+// playing that part of the asset, so the transcript stays right through any
+// edit (trims, moves, ripple deletes, speed changes), and words whose media
+// was cut drop out. start/end keep the timeline times from when it was heard;
+// words without an anchor (older projects) are used as they are.
+
+/** Audible clips that can carry speech, base track first. */
+function speechClips(project) {
+  return audibleClips(project)
+    .filter(({ clip }) => !clip.freeze && clip.assetId)
+    .sort((x, y) => Number(Boolean(y.track.main)) - Number(Boolean(x.track.main)))
+    .map(({ clip }) => clip);
+}
+
+/** Anchor timeline words (µs) to the media heard under them in project. */
+export function anchorWords(project, words) {
+  const clips = speechClips(project);
+  return words.map((w) => {
+    const mid = (w.start + w.end) / 2;
+    const c = clips.find((x) => x.start <= mid && mid < clipEnd(x));
+    if (!c) return w;
+    return { ...w, a: c.assetId, s: Math.round(sourceTimeAt(c, w.start)), e: Math.round(sourceTimeAt(c, w.end)) };
+  });
+}
+
+const placeCache = new WeakMap(); // words array -> { key, out }
+
+/**
+ * The transcript's words where they now play on the timeline, sorted by
+ * time: [{ text, start, end }] in µs. Words whose media is no longer on the
+ * timeline are left out; media that plays twice gives its words twice.
+ */
+export function transcriptWords(project) {
+  const words = project?.transcript?.words;
+  if (!words?.length) return [];
+  if (!words.some((w) => w.a)) return words;
+  const clips = speechClips(project);
+  const key = clips.map((c) => `${c.assetId}:${c.start}:${c.duration}:${c.in}:${c.speed}:${c.speedCurve ? JSON.stringify(c.speedCurve) : ''}`).join('|');
+  const hit = placeCache.get(words);
+  if (hit?.key === key) return hit.out;
+  const byAsset = new Map();
+  for (const c of clips) {
+    if (!byAsset.has(c.assetId)) byAsset.set(c.assetId, []);
+    byAsset.get(c.assetId).push(c);
+  }
+  const placed = [];
+  for (const w of words) {
+    if (!w.a) {
+      placed.push({ text: w.text, start: w.start, end: w.end });
+      continue;
+    }
+    const mid = (w.s + w.e) / 2;
+    for (const c of byAsset.get(w.a) || []) {
+      const span = sourceSpan(c);
+      if (mid < c.in || mid >= c.in + span) continue;
+      const at = (src) => c.start + Math.round(localAtSource(c, Math.min(span, Math.max(0, src - c.in))));
+      const start = at(w.s);
+      placed.push({ text: w.text, start, end: Math.max(start, at(w.e)), a: w.a, s: w.s });
+    }
+  }
+  placed.sort((x, y) => x.start - y.start);
+  // The same words heard twice at once (two copies of a clip) show once.
+  const out = [];
+  for (const w of placed) {
+    let dup = false;
+    for (let i = out.length - 1; w.a && !dup && i >= 0 && out[i].start > w.start - MIN_CLIP; i--) dup = out[i].a === w.a && out[i].s === w.s;
+    if (!dup) out.push(w);
+  }
+  const clean = out.map(({ text, start, end }) => ({ text, start, end }));
+  placeCache.set(words, { key, out: clean });
+  return clean;
+}
 
 /** Hesitation sounds per language (lowercase, without punctuation). */
 export const FILLERS = {

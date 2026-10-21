@@ -8,7 +8,7 @@ import { icon } from '../../lib/icons.js';
 import { emptyState } from './common.js';
 import { toast } from '../dialog.js';
 import { aiAvailable } from '../../media/tts.js';
-import { parseJsonArray, transcriptText } from '../../media/transcript.js';
+import { parseJsonArray, transcriptText, transcriptWords } from '../../media/transcript.js';
 import { errorMessage } from '../../media/transcribe.js';
 
 export const WRITE_KINDS = [
@@ -52,7 +52,7 @@ export function textAiPanel(ctx, { chat = (p) => puter.ai.chat(p) } = {}) {
 
   async function run() {
     if (busy) return;
-    const transcript = useTranscript.checked ? transcriptText(store.project.transcript?.words || []) : '';
+    const transcript = useTranscript.checked ? transcriptText(transcriptWords(store.project)) : '';
     if (!topic.value.trim() && !transcript) {
       toast('Describe the video first, or use its transcript.', { kind: 'info' });
       topic.focus();
@@ -99,7 +99,7 @@ export function textAiPanel(ctx, { chat = (p) => puter.ai.chat(p) } = {}) {
   );
   return {
     get el() {
-      transcriptRow.hidden = !store.project.transcript?.words?.length;
+      transcriptRow.hidden = !transcriptWords(store.project).length;
       if (!aiAvailable(ctx) && !ctx.textAiChat) {
         const btn = ctx.account?.onSignIn ? h('button.btn.primary', { type: 'button', onclick: () => ctx.account.onSignIn() }, icon('cloud', 16), 'Sign in to Puter') : null;
         return emptyState('user', 'Sign in to write with AI', 'Writing suggestions come from Puter AI, so they need a Puter account.', btn);

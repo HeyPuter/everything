@@ -1171,9 +1171,10 @@ export function removeRange(project, a, b, { close = true } = {}) {
       else delete project.range;
     }
     if (project.transcript?.words) {
+      // Words anchored to their media (a) follow it on their own (media/transcript.js).
       project.transcript.words = project.transcript.words
-        .filter((w) => w.end <= lo || w.start >= hi)
-        .map((w) => (w.start >= hi ? { ...w, start: w.start - span, end: w.end - span } : w));
+        .filter((w) => w.a || w.end <= lo || w.start >= hi)
+        .map((w) => (!w.a && w.start >= hi ? { ...w, start: w.start - span, end: w.end - span } : w));
     }
   }
   return changed;

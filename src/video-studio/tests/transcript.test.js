@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { findFillers, findPauses, rangesForWords, removalOrder, wordAt, transcriptText, parseJsonArray, translateLines } from '../src/media/transcript.js';
-import { removeRange, mainTrack, addClip } from '../src/model/timeline.js';
+import { findFillers, findPauses, rangesForWords, removalOrder, wordAt, transcriptText, parseJsonArray, translateLines, anchorWords, transcriptWords } from '../src/media/transcript.js';
+import { removeRange, mainTrack, addClip, setSpeed } from '../src/model/timeline.js';
+import { EditorStore } from '../src/model/store.js';
+import { createActions } from '../src/ui/actions.js';
+import { removeRanges } from '../src/ui/panels/transcript.js';
 import { normalizeProject } from '../src/model/project.js';
 import { fixture, clip, onMain, s, noOverlaps } from './helpers.js';
 
@@ -121,5 +124,61 @@ describe('removeRange', () => {
     p.transcript = { language: 'en', words: [{ text: ' hi ', start: 5, end: 9 }, { text: '', start: 1, end: 2 }, { text: 'x', start: 'a', end: 1 }] };
     const n = normalizeProject(JSON.parse(JSON.stringify(p)));
     expect(n.transcript).toEqual({ language: 'en', words: [{ text: 'hi', start: 5, end: 9 }] });
+  });
+});
+
+describe('transcript words follow their media', () => {
+  // Two 4 s clips of one recording; the words were heard at these timeline times.
+  function talk() {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 4), clip('video', 4, 4, { in: s(4) }));
+    const heard = W([['alpha', 0.5, 1], ['beta', 1.5, 2], ['gamma', 4.5, 5], ['delta', 5.5, 6]]);
+    p.transcript = { language: 'en', words: anchorWords(p, heard) };
+    return { p, a, b };
+  }
+  const placed = (p) => transcriptWords(p).map((w) => `${w.text}@${w.start / 1e6}`);
+
+  it('anchors each word to the media and source time under it', () => {
+    const { p } = talk();
+    expect(p.transcript.words[2]).toMatchObject({ text: 'gamma', a: 'vid', s: s(4.5), e: s(5) });
+    expect(placed(p)).toEqual(['alpha@0.5', 'beta@1.5', 'gamma@4.5', 'delta@5.5']);
+  });
+
+  it('follows a ripple delete, so cutting a word cuts that word', () => {
+    const { p, a } = talk();
+    const store = new EditorStore(p);
+    const ctx = { store, player: null, library: {} };
+    ctx.actions = createActions(ctx);
+    store.select(a.id);
+    ctx.actions.deleteSelected();
+    expect(placed(store.project)).toEqual(['gamma@0.5', 'delta@1.5']);
+    removeRanges(store, rangesForWords(transcriptWords(store.project), [0]), 'Cut word');
+    expect(placed(store.project)).toEqual(['delta@0.88']);
+    expect(mainTrack(store.project).clips.map((c) => [c.start / 1e6, c.duration / 1e6, c.in / 1e6])).toEqual([[0, 0.44, 4], [0.44, 2.94, 5.06]]);
+  });
+
+  it('follows moves, trims and speed changes', () => {
+    const { p, a, b } = talk();
+    // Swap the clips, then play the second half twice as fast.
+    b.start = 0;
+    a.start = s(4);
+    mainTrack(p).clips.reverse();
+    expect(placed(p)).toEqual(['gamma@0.5', 'delta@1.5', 'alpha@4.5', 'beta@5.5']);
+    setSpeed(p, a.id, 2);
+    expect(placed(p)).toEqual(['gamma@0.5', 'delta@1.5', 'alpha@4.25', 'beta@4.75']);
+    a.in = s(1);
+    a.duration = s(1);
+    expect(placed(p)).toEqual(['gamma@0.5', 'delta@1.5', 'beta@4.25']);
+  });
+
+  it('survives saving and keeps older transcripts as they were', () => {
+    const { p } = talk();
+    const n = normalizeProject(JSON.parse(JSON.stringify(p)));
+    expect(n.transcript.words[3]).toEqual({ text: 'delta', start: s(5.5), end: s(6), a: 'vid', s: s(5.5), e: s(6) });
+    const old = fixture();
+    onMain(old, clip('video', 0, 8));
+    old.transcript = { language: 'en', words: W([['hi', 1, 2]]) };
+    removeRange(old, s(0), s(0.5));
+    expect(transcriptWords(old)).toEqual(W([['hi', 0.5, 1.5]]));
   });
 });

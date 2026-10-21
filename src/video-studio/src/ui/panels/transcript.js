@@ -12,7 +12,7 @@ import { selectField, segmented } from '../controls.js';
 import { toast, confirmDialog } from '../dialog.js';
 import { showMenu } from '../menu.js';
 import { LANGUAGES, STT_RATE, mixdown, transcribeMix, clipsForScope, errorMessage, groupWords } from '../../media/transcribe.js';
-import { findFillers, findPauses, rangesForWords, removalOrder, wordAt, transcriptText } from '../../media/transcript.js';
+import { findFillers, findPauses, rangesForWords, removalOrder, wordAt, transcriptText, anchorWords, transcriptWords } from '../../media/transcript.js';
 import { aiAvailable } from '../../media/tts.js';
 import * as T from '../../model/timeline.js';
 
@@ -46,7 +46,7 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
   let wordEls = [];
   let current = -1;
 
-  const words = () => store.project.transcript?.words || [];
+  const words = () => transcriptWords(store.project);
   const selRange = () => (anchor < 0 || focus < 0 ? null : [Math.min(anchor, focus), Math.max(anchor, focus)]);
 
   // ---- Empty state: transcribe ----------------------------------------------
@@ -85,7 +85,9 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
         return;
       }
       store.update('Transcribe', (p) => {
-        p.transcript = { language: opts.language, words: w.map((x) => ({ text: x.text, start: Math.round(x.start * US), end: Math.round(x.end * US) })) };
+        const timed = w.map((x) => ({ text: x.text, start: Math.round(x.start * US), end: Math.round(x.end * US) }));
+        // Anchored to the media heard, so later edits move the words with it.
+        p.transcript = { language: opts.language, words: anchorWords(snap, timed) };
       }, { structural: false });
       announce(`Transcript ready, ${w.length} words`);
     } catch (err) {
@@ -297,18 +299,20 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
   }
 
   const el = h('div.tr-panel');
-  let sig = '';
+  let shown = null;
+  let shownLang = null;
   function sync() {
     const w = words();
-    const s = `${w.length}:${w[0]?.start}:${w.at(-1)?.end}:${store.project.transcript?.language}`;
     if (!w.length) {
-      sig = '';
+      shown = null;
       el.replaceChildren(aiAvailable(ctx) || (import.meta.env.DEV && globalThis.__vsFakeTranscript) ? emptyEl : needAi());
       return;
     }
     if (el.firstChild !== viewEl) el.replaceChildren(viewEl);
-    if (s !== sig) {
-      sig = s;
+    // words() keeps its array while the words stay where they are.
+    if (w !== shown || store.project.transcript?.language !== shownLang) {
+      shown = w;
+      shownLang = store.project.transcript?.language;
       render();
     }
   }
