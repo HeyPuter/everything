@@ -24,20 +24,24 @@ import {
 afterEach(() => vi.unstubAllGlobals());
 describe("Puter storage boundary", () => {
   it("checks import size before reading bytes while allowing full downloads", async () => {
-    const blob = new Blob([new Uint8Array(41 * 1024 * 1024)]);
-    const readBytes = vi.spyOn(blob, "arrayBuffer");
+    // Only the reported size matters; the bytes stay small.
+    const sized = (size) => ({
+      size,
+      arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
+    });
+    const blob = sized(201 * 1024 * 1024);
     const read = vi.fn().mockResolvedValue(blob);
     vi.stubGlobal("puter", { fs: { read } });
     await expect(readFile("/large.pptx", { importing: true })).rejects.toThrow(
-      "Please choose a PPTX file smaller than 40 MB.",
+      "Please choose a PPTX file smaller than 200 MB.",
     );
-    expect(readBytes).not.toHaveBeenCalled();
-    expect((await readFile("/large.pptx")).byteLength).toBe(blob.size);
-    expect(readBytes).toHaveBeenCalledOnce();
-    read.mockResolvedValue(blob.slice(0, 40 * 1024 * 1024));
-    expect(
-      (await readFile("/limit.pptx", { importing: true })).byteLength,
-    ).toBe(40 * 1024 * 1024);
+    expect(blob.arrayBuffer).not.toHaveBeenCalled();
+    expect((await readFile("/large.pptx")).byteLength).toBe(8);
+    expect(blob.arrayBuffer).toHaveBeenCalledOnce();
+    const limit = sized(200 * 1024 * 1024);
+    read.mockResolvedValue(limit);
+    await readFile("/limit.pptx", { importing: true });
+    expect(limit.arrayBuffer).toHaveBeenCalledOnce();
   });
   it("writes actual PPTX blobs to FS with non-destructive first-save options", async () => {
     const write = vi

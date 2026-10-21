@@ -1954,9 +1954,14 @@ export function preview(pres, slide, layer = null, { prompts = false } = {}) {
 export async function prepareDeckFonts(pres, options) {
   if (await preparePresentationFonts(pres, options)) measureText.clear();
 }
+// A presentation is held to the 200 MB its archive may unpack to, so one
+// made here with photos or a video (each up to 150 MB) opens again once
+// saved; a font is held to less.
+const IMPORT_LIMIT_MB = { PPTX: 200, font: 40 };
 export function validateImportSize(size, kind = "PPTX") {
-  if (size > 40 * 1024 * 1024)
-    throw new Error(`Please choose a ${kind} file smaller than 40 MB.`);
+  const limit = IMPORT_LIMIT_MB[kind] ?? IMPORT_LIMIT_MB.PPTX;
+  if (size > limit * 1024 * 1024)
+    throw new Error(`Please choose a ${kind} file smaller than ${limit} MB.`);
 }
 export async function parseDeck(bytes, options = {}) {
   validateImportSize(bytes.byteLength);

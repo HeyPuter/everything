@@ -248,14 +248,13 @@ describe("undo history", () => {
     expect(P.getSlideText(P.getSlides(undone)[0])).toContain(original);
     expect(h.state).toBe("studio");
   });
-  it("restores locally generated history larger than the import limit", async () => {
+  it("restores locally generated history of a large presentation", async () => {
     const pres = createLargeDeck();
     const slide = P.getSlides(pres)[0];
     const history = new History();
     await history.reset(pres, "studio");
     const originalNotes = P.getSlideNotes(slide);
     expect(history.bytes.byteLength).toBeGreaterThan(40 * 1024 * 1024);
-    await expect(parseDeck(history.bytes)).rejects.toThrow("40 MB");
     P.setSlideNotes(slide, "New notes");
     await history.capture(pres, "clay");
     const undone = await history.undo();
@@ -429,6 +428,12 @@ describe("file validation", () => {
       await expect(parseDeck(bytes)).rejects.toThrow("valid PPTX");
     },
   );
+  it("opens again a presentation made here with photos past 40 MB", async () => {
+    const bytes = await P.savePresentation(createLargeDeck());
+    expect(bytes.byteLength).toBeGreaterThan(40 * 1024 * 1024);
+    const loaded = await parseDeck(bytes);
+    expect(P.getSlideShapes(P.getSlides(loaded)[0])).toHaveLength(4);
+  }, 15000);
   it("rejects invalid archives", async () => {
     await expect(parseDeck(new Uint8Array([1, 2, 3]))).rejects.toThrow(
       "valid PPTX",

@@ -767,7 +767,9 @@ test("an oversized cloud import is rejected before its blob is copied into memor
     .getByRole("button", { name: "The big idea A clear, considered story" })
     .click();
   await page.evaluate(() => {
-    const blob = new Blob([new Uint8Array(41 * 1024 * 1024)]);
+    // Only the reported size matters; the bytes stay small.
+    const blob = new Blob([new Uint8Array(8)]);
+    Object.defineProperty(blob, "size", { value: 201 * 1024 * 1024 });
     const read = blob.arrayBuffer.bind(blob);
     window.__bufferReads = 0;
     blob.arrayBuffer = () => {
@@ -785,7 +787,7 @@ test("an oversized cloud import is rejected before its blob is copied into memor
     .getByRole("menuitem", { name: "Open from Puter", exact: true })
     .click();
   await expect(page.locator("#toast")).toHaveText(
-    "Please choose a PPTX file smaller than 40 MB.",
+    "Please choose a PPTX file smaller than 200 MB.",
   );
   expect(await page.evaluate(() => window.__bufferReads)).toBe(0);
   await expect(page).toHaveTitle("The big idea | Presentation");
@@ -1080,7 +1082,7 @@ for (const title of ["The big idea", "Plan.pptx"]) {
   });
 }
 
-test("a locally saved presentation larger than the import limit can be recovered and downloaded", async ({
+test("a large locally saved presentation can be recovered and downloaded", async ({
   page,
 }) => {
   test.setTimeout(60000);
