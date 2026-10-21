@@ -157,7 +157,8 @@ export async function addWatermark(
   const alpha = Number(opacity);
   if (!(alpha > 0 && alpha <= 1)) throw new Error('Choose an opacity between 1% and 100%.');
   const pages = uniquePages(indices);
-  const font = await embedFont(doc);
+  // Korean text takes the Korean face, as it does in the Text tool.
+  const font = await embedFont(doc, 'regular', label);
   assertSupportedText(font, label);
   const ink = textInk(font, label, 1);
   const unitWidth = ink.right - ink.left;
@@ -262,8 +263,13 @@ export async function addHeaderFooter(
     if (String(slots[slot]).trim().length > MAX_HEADER_TEXT)
       throw new Error(`Keep each header or footer under ${MAX_HEADER_TEXT} characters.`);
   const pages = uniquePages(indices);
-  const font = await embedFont(doc);
   const total = doc.getPageCount();
+  // Korean text, typed or from the title or file name, takes the Korean face.
+  const font = await embedFont(
+    doc,
+    'regular',
+    used.map((slot) => fillTokens(slots[slot], { page: 1, pages: total, title, file })).join(' '),
+  );
   const placements = [];
   for (const [order, index] of pages.entries()) {
     const page = doc.getPage(index);

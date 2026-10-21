@@ -144,3 +144,23 @@ it.each(['regular', 'bold'])(
     expect(difference).toBe(0);
   },
 );
+
+it('writes Korean watermarks, headers, and footers in the Korean face', async () => {
+  serveFonts();
+  const { addWatermark, addHeaderFooter } = await import('../src/core/page-marks.js');
+  const doc = await PDFDocument.create();
+  doc.addPage([500, 400]);
+  await addWatermark(doc, [0], { text: '대외비' });
+  await addHeaderFooter(doc, [0], {
+    slots: { topLeft: '{title}', bottomCenter: '{page} 쪽' },
+    title: '회의록',
+  });
+  const task = pdfjs.getDocument({ data: await doc.save(), useSystemFonts: false });
+  tasks.push(task);
+  const content = await (await (await task.promise).getPage(1)).getTextContent();
+  expect(content.items.map((item) => item.str).filter((text) => text.trim())).toEqual([
+    '대외비',
+    '회의록',
+    '1 쪽',
+  ]);
+});
