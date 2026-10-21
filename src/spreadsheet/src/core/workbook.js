@@ -5320,8 +5320,12 @@ export class Workbook extends EventTarget {
       if (c2 >= MAX_COL) c2 = Math.min(c2, bounds.c2);
     }
     if (r2 <= r1 || c2 < c1) return 0;
+    // A row hidden by hand or under a collapsed outline stays where it is, as a sort leaves it: the shown rows
+    // change places among themselves. Shuffled in, a hidden row's record came into view and a shown one vanished.
+    const places = [];
+    for (let r = r1; r <= r2; r++) if (!sheet.hiddenRows.has(r)) places.push(r);
     const rows = [];
-    for (let r = r1; r <= r2; r++) {
+    for (const r of places) {
       const cells = [];
       for (let c = c1; c <= c2; c++) cells.push(cloneCell(sheet.cells.get(cellKey(r, c))));
       rows.push({ r, cells });
@@ -5334,7 +5338,7 @@ export class Workbook extends EventTarget {
     const notes = [];
     let moved = 0;
     rows.forEach((row, i) => {
-      const r = r1 + i;
+      const r = places[i];
       if (row.r !== r) moved++;
       row.cells.forEach((cell, j) => {
         const c = c1 + j;
@@ -5347,13 +5351,13 @@ export class Workbook extends EventTarget {
     });
     if (moved) {
       this.transaction('Randomize range', () => {
+        const movedRows = new Map(rows.map((row, i) => [row.r, places[i]]));
         if (sheet.styleResets.length) {
-          const movedRows = new Map(rows.map((row, i) => [row.r, r1 + i]));
-          this._setStyleResets(sheet, permuteStyleResets(sheet.styleResets, trimmed, 'row', (r) => movedRows.get(r)), 'Randomize range');
+          this._setStyleResets(sheet, permuteStyleResets(sheet.styleResets, trimmed, 'row', (r) => movedRows.get(r) ?? r), 'Randomize range');
         }
         this.setCells(sheetId, entries, 'Randomize range');
         this._moveNotes(sheetId, notes);
-        permuteComments(this, sheetId, trimmed, 'row', new Map(rows.map((row, i) => [row.r, r1 + i])));
+        permuteComments(this, sheetId, trimmed, 'row', (r) => movedRows.get(r) ?? r);
         this._refilterRearranged(sheet, { r1, r2 }, 'Randomize range');
       });
     }
