@@ -14,13 +14,14 @@ import { appOption } from '../lib/app-options.js';
 import { openMenu } from './menu.js';
 import { toast } from './toast.js';
 import { attachMentionPicker, closeMentionPickers } from './mention-picker.js';
-import { cellName, cellKey } from '../core/cell.js';
+import { cellName, cellKey, parseKey } from '../core/cell.js';
 import * as S from '../core/selection.js';
 import {
   getThread, addComment, replyToThread, editThreadItem, deleteThreadItem, setThreadResolved, adjacentThread,
   deleteThreadsWhere, threadCells, authorInitials, lastThreadItem, setThreadAssignee, MAX_COMMENT_TEXT,
 } from '../core/comments.js';
 import { findMentions, mentionRuns, mentionedPeople } from '../core/mentions.js';
+import { mapLine } from '../collab/ops.js';
 
 export const COMMENT_COMMANDS = new Set(['newComment', 'replyComment', 'deleteComment', 'prevComment', 'nextComment', 'toggleComments', 'showComment']);
 
@@ -240,6 +241,8 @@ export function createComments(ctx, host) {
       const assign = assignOption(area, pick);
       const send = () => {
         if (!area.value.trim()) return;
+        // The cell as it is now: someone else's rows or columns may have moved it since the card opened (see follow).
+        const { r, c } = card;
         const text = area.value, assignTo = assign.person();
         if (postComment(sheetId, r, c, text, pick.picked, assignTo, false)) {
           card.mode = 'pinned'; card.draft = ''; card.picked = [];
@@ -537,6 +540,34 @@ export function createComments(ctx, host) {
           selectCell(sheetId, next.r, next.c);
           return;
         }
+      }
+    },
+    /**
+     * Someone else inserted, deleted or moved rows or columns (`ops`, a shared workbook's, as they landed here): the card
+     * and the boxes being written in follow their cells, so that a comment is posted where it was begun and a reply or an
+     * edit is found again when its thread is redrawn. Called before the workbook announces the change.
+     */
+    follow(ops) {
+      const lines = ops.filter((op) => op.axis);
+      if (!lines.length) return;
+      const moved = (sheetId, key) => {
+        let { r, c } = parseKey(key);
+        for (const op of lines) {
+          r = mapLine(op, sheetId, 'row', r);
+          c = mapLine(op, sheetId, 'col', c);
+          if (r < 0 || c < 0) return key; // gone with its line: the thread goes too, and a comment being begun stays put
+        }
+        return cellKey(r, c);
+      };
+      const rekey = (container, sheetId) => { for (const node of container.querySelectorAll('.cmt-thread[data-cell]')) node.dataset.cell = moved(sheetId, node.dataset.cell); };
+      if (card) {
+        ({ r: card.r, c: card.c } = parseKey(moved(card.sheetId, cellKey(card.r, card.c))));
+        rekey(card.node, card.sheetId);
+      }
+      const g = grid();
+      if (g && !pane.hidden) {
+        rekey(list, g.sheetId);
+        if (paneEditing.key) paneEditing.key = moved(g.sheetId, paneEditing.key);
       }
     },
     /** Clear Comments and Notes, and Clear All: the threads in the selection go too. */

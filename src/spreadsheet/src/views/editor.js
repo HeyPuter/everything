@@ -5968,6 +5968,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const act = map({ r1: grid.active.r, c1: grid.active.c, r2: grid.active.r, c2: grid.active.c });
     grid.setRanges(ranges, { r: act.r1, c: act.c1 });
   };
+  // A comment being written follows its cell too, before the workbook announces the change and the card is redrawn.
+  const onRoomIncoming = (e) => comments.follow(e.detail?.moved || []);
   const onRoomOnline = () => room?.resume();
   const onRoomVisible = () => { if (document.visibilityState === 'visible') room?.resume(); };
 
@@ -6451,6 +6453,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   if (room) {
     room.addEventListener('people', showPeople);
     room.addEventListener('remote', onRoomRemote);
+    room.replica.addEventListener('incoming', onRoomIncoming);
     room.addEventListener('status', refreshStatus);
     room.addEventListener('refused', onRoomRefused);
     room.addEventListener('role', onRoomRole);
@@ -6754,6 +6757,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         clearTimeout(flagTimer);
         room.removeEventListener('people', showPeople);
         room.removeEventListener('remote', onRoomRemote);
+        room.replica.removeEventListener('incoming', onRoomIncoming);
         room.removeEventListener('status', refreshStatus);
         room.removeEventListener('refused', onRoomRefused);
         room.removeEventListener('role', onRoomRole);

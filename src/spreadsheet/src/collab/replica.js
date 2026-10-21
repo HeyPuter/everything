@@ -74,8 +74,9 @@ export class Replica extends EventTarget {
   /**
    * `wb` is the workbook at revision `rev` of the room. `readOnly` (a viewer) takes back every local edit at once.
    * Events: 'local' (a change was made here; send it), 'refused' (an edit a viewer cannot make), 'remote'
-   * (someone else's change was applied), 'incoming' ({ ops }: someone else's operations, just applied, before the
-   * workbook announces them or anything is calculated), 'history' (what Undo and Redo would do changed).
+   * (someone else's change was applied), 'incoming' ({ ops, moved }: someone else's operations, just applied, before the
+   * workbook announces them or anything is calculated, and their structural ones as they landed here), 'history' (what
+   * Undo and Redo would do changed).
    */
   constructor(wb, { rev = 0, readOnly = false } = {}) {
     super();
@@ -554,7 +555,7 @@ export class Replica extends EventTarget {
         this.rev = rec.rev;
       }
       if (rolled) this._replay();
-      if (incoming.length) this.dispatchEvent(new CustomEvent('incoming', { detail: { ops: incoming } }));
+      if (incoming.length) this.dispatchEvent(new CustomEvent('incoming', { detail: { ops: incoming, moved } }));
     });
     // Read again in full only when rows, columns or sheets moved: a long workbook's shadow takes a while to build,
     // and someone else's edit arriving while this person's own is on its way is the usual case while both type.
