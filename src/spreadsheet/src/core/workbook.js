@@ -9015,6 +9015,8 @@ export class Workbook extends EventTarget {
    */
   *_rangeValues(sheet, range) {
     const inside = (r, c) => r >= range.r1 && r <= range.r2 && c >= range.c1 && c <= range.c2;
+    // A scan under way (see _scanRange) learns whether the range holds a formula from the walk itself.
+    const probe = this._scanProbe;
     const bounds = this._cellBounds(sheet);
     const { r1, c1 } = range;
     const r2 = Math.min(range.r2, bounds.r2);
@@ -9024,6 +9026,7 @@ export class Workbook extends EventTarget {
         for (let r = r1; r <= r2; r++) {
           for (let c = c1; c <= c2; c++) {
             const cell = sheet.cells.get(cellKey(r, c));
+            if (cell?.f != null && probe) probe.formula = true;
             if (cell && (cell.v != null || cell.f != null)) yield this._compute(sheet, r, c);
           }
         }
@@ -9031,7 +9034,9 @@ export class Workbook extends EventTarget {
         for (const [key, cell] of sheet.cells) {
           if (cell.v == null && cell.f == null) continue;
           const { r, c } = parseKey(key);
-          if (r >= r1 && r <= r2 && c >= c1 && c <= c2) yield this._compute(sheet, r, c);
+          if (r < r1 || r > r2 || c < c1 || c > c2) continue;
+          if (cell.f != null && probe) probe.formula = true;
+          yield this._compute(sheet, r, c);
         }
       }
     }
@@ -9059,11 +9064,14 @@ export class Workbook extends EventTarget {
       kept.version = this.version; // weighed up to here, so a later lookup weighs only what comes after
       value = kept.value;
     } else {
-      value = scan();
+      // Every scan reads the whole of `range`, so it notes on the way whether a formula is there, rather than
+      // the range being walked a second time after every edit to find out. A sheet where an array spills is never plain.
+      const outer = this._scanProbe, probe = this._scanProbe = { formula: false };
+      try { value = scan(); } finally { this._scanProbe = outer; }
       // One entry per rule range per sheet, so the record stays as small as the book's rules; a book that
       // somehow names more ranges than that starts it again rather than letting it grow without end.
       if (this._scanCache.size > 1024) this._scanCache.clear();
-      this._scanCache.set(key, { version: this.version, constant: this._rangeIsConstant(sheet, range), value });
+      this._scanCache.set(key, { version: this.version, constant: !probe.formula && !this._ensureSpills(sheet).anchors.size, value });
     }
     this._statsCache.set(key, value);
     return value;
@@ -9078,27 +9086,6 @@ export class Workbook extends EventTarget {
     // whose box was not recorded, and any formula written on it, whose result may spill into the range.
     return changes.every((e) => e.type === 'layout' || (e.type === 'cells' && (e.sheetId !== sheet.id
       || (!e.formula && !!e.box && (e.box.r2 < range.r1 || e.box.r1 > range.r2 || e.box.c2 < range.c1 || e.box.c1 > range.c2)))));
-  }
-
-  /** Whether `range` holds nothing but plain values, on a sheet where no array formula spills. */
-  _rangeIsConstant(sheet, range) {
-    if (this._ensureSpills(sheet).anchors.size) return false;
-    const bounds = this._cellBounds(sheet);
-    const { r1, c1 } = range;
-    const r2 = Math.min(range.r2, bounds.r2);
-    const c2 = Math.min(range.c2, bounds.c2);
-    if (r2 < r1 || c2 < c1) return true;
-    // Read by coordinate or off the store's own entries, whichever is the smaller walk, as _rangeValues is.
-    if ((r2 - r1 + 1) * (c2 - c1 + 1) < sheet.cells.size) {
-      for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) if (sheet.cells.get(cellKey(r, c))?.f != null) return false;
-      return true;
-    }
-    for (const [key, cell] of sheet.cells) {
-      if (cell.f == null) continue;
-      const { r, c } = parseKey(key);
-      if (r >= r1 && r <= r2 && c >= c1 && c <= c2) return false;
-    }
-    return true;
   }
 
   /** Min and max of the numbers in a range, kept until a change could have reached them. */
