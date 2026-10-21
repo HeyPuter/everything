@@ -71,8 +71,8 @@ function conditionRule(value, base, corner, dxfId, convert) {
       const type = { 'contains-text': 'containsText', 'not-contains-text': 'notContainsText', 'begins-with': 'beginsWith', 'ends-with': 'endsWith' }[name];
       return `<cfRule type="${type}" dxfId="${dxfId}" text="${escape(needle)}"/>`;
     }
-    if ((name === 'top-elements' || name === 'bottom-elements') && args.length === 1 && /^\d+$/.test(args[0])) {
-      return `<cfRule type="top10" dxfId="${dxfId}" rank="${Number(args[0])}"${name === 'bottom-elements' ? ' bottom="1"' : ''}/>`;
+    if (/^(top|bottom)-(elements|percent)$/.test(name) && args.length === 1 && /^\d+$/.test(args[0])) {
+      return `<cfRule type="top10" dxfId="${dxfId}" rank="${Number(args[0])}"${name.startsWith('bottom') ? ' bottom="1"' : ''}${name.endsWith('percent') ? ' percent="1"' : ''}/>`;
     }
     return null;
   }

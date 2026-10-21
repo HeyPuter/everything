@@ -255,8 +255,10 @@ export function matchesRule(rule, value, ctx = {}) {
     const v = typeof value === 'number' ? value : null;
     const sorted = ctx.numbers || [];
     if (v === null || n < 1 || !sorted.length) return false;
-    if (t === 'top') return v >= sorted[Math.min(n, sorted.length) - 1];
-    return v <= sorted[Math.max(0, sorted.length - Math.min(n, sorted.length))];
+    // Top 10% ranks a share of the numbers: rounded down, but never fewer than one, as Excel counts it.
+    const count = rule.percent ? Math.max(1, Math.floor(sorted.length * n / 100)) : n;
+    if (t === 'top') return v >= sorted[Math.min(count, sorted.length) - 1];
+    return v <= sorted[Math.max(0, sorted.length - Math.min(count, sorted.length))];
   }
   if (t === 'contains' || t === 'notContains' || t === 'beginsWith' || t === 'endsWith') {
     const hay = shownText(value).toLowerCase();
@@ -353,7 +355,7 @@ export function describeRule(rule) {
   if (rule.type === 'scale') return rule.mid ? 'Three-color scale' : 'Color scale';
   if (rule.type === 'icons') return `Icon set: ${(NATIVE_ICON_SETS[rule.iconSet] || ICON_SETS[rule.set] || ICON_SETS.arrows).label}`;
   if (rule.type === 'date') return `Date is ${(DATE_PERIODS.find((p) => p.value === rule.value)?.label || rule.value).toLowerCase()}`;
-  if (rule.type === 'top' || rule.type === 'bottom') return `${rule.type === 'top' ? 'Top' : 'Bottom'} ${rule.value}`;
+  if (rule.type === 'top' || rule.type === 'bottom') return `${rule.type === 'top' ? 'Top' : 'Bottom'} ${rule.value}${rule.percent ? '%' : ''}`;
   if (t.args === 1) return `${t.label} ${rule.value}`;
   return t.label;
 }

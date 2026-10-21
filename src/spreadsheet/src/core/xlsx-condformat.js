@@ -109,11 +109,11 @@ export function readXlsxConditionalFormats(xml, styles, themes, definedNames, { 
           : `${type === 'beginsWith' ? 'LEFT' : 'RIGHT'}(${cell},LEN(${literal}))=${literal}`;
         rule = { type: 'formula', value };
       }
-      else if (type === 'top10' && !['1', 'true'].includes(attr(source, 'percent'))) {
-        // Top/Bottom N items rank the numbers of the whole sqref, ties included, as the app's own rules do.
-        const rank = Number(attr(source, 'rank') ?? 10);
-        if (Number.isInteger(rank) && rank >= 1) rule = { type: ['1', 'true'].includes(attr(source, 'bottom')) ? 'bottom' : 'top', value: rank,
-          ...(ranges.length > 1 ? { statisticsRange: duplicateSourceFormula(ranges) } : {}) };
+      else if (type === 'top10') {
+        // Top/Bottom N items (or N percent of them) rank the numbers of the whole sqref, ties included, as the app's own rules do.
+        const rank = Number(attr(source, 'rank') ?? 10), percent = ['1', 'true'].includes(attr(source, 'percent'));
+        if (Number.isInteger(rank) && rank >= 1 && (!percent || rank <= 100)) rule = { type: ['1', 'true'].includes(attr(source, 'bottom')) ? 'bottom' : 'top', value: rank,
+          ...(percent ? { percent: true } : {}), ...(ranges.length > 1 ? { statisticsRange: duplicateSourceFormula(ranges) } : {}) };
       }
       else if (type === 'aboveAverage' && attr(source, 'stdDev') == null) {
         // Above or below the average of the sqref's numbers; text and blank cells are never painted.
