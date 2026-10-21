@@ -7,7 +7,10 @@ import type { RenderSettings } from '../../data/types';
 import { bounceSettings } from './units';
 import { filterGLSL, filterTable, type PixelFilter } from './filter';
 import { applySssUniforms, applyVolumeUniforms, patchVolumeShader, ptVolumeSets, volumeUniforms } from './ptvolume';
-import type { Data3DTexture } from 'three';
+import { patchIntegrator, integratorUniforms, applyIntegrator, seedOffset } from './ptintegrator';
+import { integratorValues, adaptiveCheckpoints, updateAdaptiveMask } from './ptsettings';
+import { AlwaysStencilFunc, DataTexture, NearestFilter, NotEqualStencilFunc, RedFormat, ReplaceStencilOp, ShaderMaterial, UnsignedByteType, type Data3DTexture } from 'three';
+import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 
 interface Inner {
   _pathTracer: {
@@ -31,6 +34,21 @@ interface PtMaterial {
   uniforms: Record<string, { value: unknown }>;
   needsUpdate: boolean;
 }
+
+/** Writes stencil 1 where the adaptive mask marks converged pixels (they are skipped then). */
+const maskFill = new ShaderMaterial({
+  colorWrite: false,
+  depthTest: false,
+  depthWrite: false,
+  stencilWrite: true,
+  stencilRef: 1,
+  stencilFunc: AlwaysStencilFunc,
+  stencilZPass: ReplaceStencilOp,
+  uniforms: { tMask: { value: null } },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+  fragmentShader: /* glsl */ `uniform sampler2D tMask; varying vec2 vUv; void main() { if (texture2D(tMask, vUv).r < 0.5) discard; gl_FragColor = vec4(0.0); }`,
+});
+const maskQuad = new FullScreenQuad(maskFill);
 
 /**
  * Extend the path tracing shader with our film and light path settings: a pixel filter
@@ -227,6 +245,133 @@ export class PathTracerCore {
       mat.needsUpdate = true;
       this.linkPatched = true;
     }
+    // integrator options: adaptive sampling, bounce kinds, caustics, fast GI, transparent glass
+    const integ = patchIntegrator(mat.fragmentShader);
+    if (integ) {
+      this.integ = integratorUniforms();
+      Object.assign(mat.uniforms, this.integ);
+      mat.fragmentShader = integ;
+      mat.needsUpdate = true;
+    } else console.warn('Path tracer: integrator options unavailable (unexpected shader layout)');
+    // a fixed seed gives the same noise pattern for the same settings (Sampling ▸ Advanced ▸ Seed):
+    // stable sample sequences, and blue noise offsets generated from a fixed seed
+    (this.pt as unknown as { stableNoise: boolean }).stableNoise = true;
+    const blue = (mat.uniforms.stratifiedOffsetTexture?.value ?? null) as { update?: () => void } | null;
+    if (blue?.update) {
+      const random = Math.random;
+      let st = 0x2545f491;
+      Math.random = () => {
+        st = (Math.imul(st, 1103515245) + 12345) >>> 0;
+        return st / 4294967296;
+      };
+      try {
+        blue.update();
+      } finally {
+        Math.random = random;
+      }
+    }
+    // adaptive sampling skips converged pixels with the stencil test
+    const prim = (this.inner as unknown as { _primaryTarget: WebGLRenderTarget })._primaryTarget;
+    prim.stencilBuffer = true;
+    prim.depthBuffer = true;
+    prim.dispose();
+  }
+
+  private integ: ReturnType<typeof integratorUniforms> | null = null;
+  private integKey = '';
+  private seed = 0;
+  private adaptive: { threshold: number; min: number; checkpoints: number[]; half: Float32Array | null; mask: Uint8Array | null; active: number } | null = null;
+  private adaptiveKey = '';
+
+  /** Pixels still sampling (adaptive sampling), as a fraction of the image; 1 without it. */
+  activeFraction = 1;
+
+  /** Noise pattern seed; takes effect on the next reset. */
+  setSeed(seed: number) {
+    if (seed === this.seed) return;
+    this.seed = seed;
+    this.reset();
+  }
+
+  /**
+   * Adaptive sampling: from `min` samples on (then at each doubling) pixels whose estimated noise
+   * is below `threshold` stop sampling. Pass null to sample every pixel.
+   */
+  setAdaptive(a: { threshold: number; min: number; max: number } | null) {
+    const key = a ? `${a.threshold}|${a.min}|${a.max}` : '';
+    if (key === this.adaptiveKey) return;
+    this.adaptiveKey = key;
+    this.adaptive = a && this.integ ? { threshold: a.threshold, min: a.min, checkpoints: adaptiveCheckpoints(Math.max(2, a.min), a.max), half: null, mask: null, active: 0 } : null;
+    this.reset();
+  }
+
+  private resetAdaptive() {
+    this.activeFraction = 1;
+    if (!this.integ) return;
+    const m = this.inner.material as unknown as ShaderMaterial;
+    m.stencilWrite = false;
+    if (this.adaptive) {
+      this.adaptive.half = null;
+      this.adaptive.mask = null;
+    }
+  }
+
+  /** Read the accumulated image (RGBA floats, bottom row first). */
+  private readImage(): Float32Array {
+    const w = this.width,
+      h = this.height;
+    const out = new Float32Array(w * h * 4);
+    this.renderer.readRenderTargetPixels(this.inner.target as unknown as WebGLRenderTarget, 0, 0, w, h, out);
+    return out;
+  }
+
+  /** Mark converged pixels in the stencil of the accumulation target and skip them from now on. */
+  private writeMask(mask: Uint8Array, w: number, h: number) {
+    const tex = new DataTexture(mask, w, h, RedFormat, UnsignedByteType);
+    tex.minFilter = tex.magFilter = NearestFilter;
+    tex.unpackAlignment = 1;
+    tex.needsUpdate = true;
+    const r = this.renderer;
+    const prev = r.getRenderTarget();
+    const scissor = r.getScissorTest();
+    const prim = (this.inner as unknown as { _primaryTarget: WebGLRenderTarget })._primaryTarget;
+    r.setScissorTest(false);
+    r.setRenderTarget(prim);
+    r.clear(false, false, true);
+    maskFill.uniforms.tMask.value = tex;
+    maskQuad.render(r);
+    r.setRenderTarget(prev);
+    r.setScissorTest(scissor);
+    tex.dispose();
+    const m = this.inner.material as unknown as ShaderMaterial;
+    m.stencilWrite = true;
+    m.stencilRef = 1;
+    m.stencilFunc = NotEqualStencilFunc;
+    m.stencilWriteMask = 0;
+  }
+
+  /** Convergence test at checkpoints: half-way snapshot, then the mask. */
+  private adaptiveStep() {
+    const a = this.adaptive;
+    if (!a || !this.integ) return;
+    const n = this.samples;
+    const w = this.width,
+      h = this.height;
+    // snapshots: half of the first checkpoint, then every checkpoint (half of the next one)
+    if (n === Math.max(1, Math.floor(a.checkpoints[0] / 2)) && !a.checkpoints.includes(n)) {
+      a.half = this.readImage();
+      return;
+    }
+    if (!a.checkpoints.includes(n)) return;
+    const cur = this.readImage();
+    if (a.half && a.half.length === cur.length) {
+      if (!a.mask || a.mask.length !== w * h) a.mask = new Uint8Array(w * h);
+      a.active = updateAdaptiveMask(a.mask, cur, a.half, w, h, a.threshold);
+      this.activeFraction = a.active / (w * h);
+      this.writeMask(a.mask, w, h);
+    }
+    // this checkpoint's image is the half-way point of the next one
+    a.half = cur;
   }
 
   private linkPatched = false;
@@ -299,13 +444,27 @@ export class PathTracerCore {
     this.inner.tiles.set(x, y);
   }
 
-  applySettings(r: RenderSettings) {
-    const b = bounceSettings(r);
+  applySettings(r: RenderSettings, viewport = false) {
     let reset = false;
-    if (this.pt.bounces !== b.bounces || this.pt.transmissiveBounces !== b.transmissive) {
-      this.pt.bounces = b.bounces;
-      this.pt.transmissiveBounces = b.transmissive;
-      reset = true;
+    if (this.integ) {
+      const v = integratorValues(r, viewport);
+      if (this.pt.bounces !== v.total || this.pt.transmissiveBounces !== v.transmissive) {
+        this.pt.bounces = v.total;
+        this.pt.transmissiveBounces = v.transmissive;
+        reset = true;
+      }
+      const key = applyIntegrator(this.integ, v);
+      if (key !== this.integKey) {
+        this.integKey = key;
+        reset = true;
+      }
+    } else {
+      const b = bounceSettings(r);
+      if (this.pt.bounces !== b.bounces || this.pt.transmissiveBounces !== b.transmissive) {
+        this.pt.bounces = b.bounces;
+        this.pt.transmissiveBounces = b.transmissive;
+        reset = true;
+      }
     }
     const glossy = Math.max(0, r.blur_glossy ?? 1) / 4;
     if (this.pt.filterGlossyFactor !== glossy) {
@@ -393,6 +552,12 @@ export class PathTracerCore {
   reset() {
     this.pt.reset();
     this.inner.reset();
+    // stable noise restarts the sequence: offset it by the seed
+    const m = this.inner.material as unknown as { seed: number; stratifiedTexture?: { generator?: { seed: number } } };
+    m.seed = this.seed * 7919;
+    if (this.integ) this.integ.ptSeedOff.value.set(...seedOffset(this.seed));
+    if (m.stratifiedTexture?.generator) m.stratifiedTexture.generator.seed = (this.seed * 2654435761) % 0x80000000;
+    this.resetAdaptive();
   }
 
   /** Render one sample pass (one tile when tiled). */
@@ -402,8 +567,10 @@ export class PathTracerCore {
     this.inner.alpha = this.inner.material.backgroundAlpha !== 1 || !ext;
     const scissor = r.getScissorTest();
     r.setScissorTest(false);
+    const before = this.inner.samples;
     this.inner.update();
     r.setScissorTest(scissor);
+    if (this.adaptive && this.inner.samples !== before && Number.isInteger(this.inner.samples)) this.adaptiveStep();
   }
 
   dispose() {

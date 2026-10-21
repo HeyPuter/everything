@@ -7,6 +7,7 @@ import { LOOKS } from '../colormanage';
 import type { RenderSettings } from '../../../data/types';
 import { renderSettings, changed, headerToggle, sub } from './common';
 import { curveWidget } from './curvewidget';
+import { pathTraceMainPanels } from './pathtrace';
 import { ensureRealtimeDefaults, samplingShadowsPanel, samplingAdvancedPanel, raytracingPanel, volumesPanel, bloomPanel } from '../../realtime/props';
 
 export const ENGINES = [
@@ -183,48 +184,13 @@ function motionBlurPanel(r: RenderSettings): Child {
 export const pathTraceExtraPanels: ((r: RenderSettings) => Child)[] = [];
 
 function pathTracePanels(r: RenderSettings): Child {
+  const main = pathTraceMainPanels(r);
   return [
-    panel('rs-sampling', 'Sampling', () => [
-      sub('rs-samp-vp', 'Viewport', () => [num(r, 'preview_samples', 'Max Samples', { int: true, min: 1, max: 65536, tip: 'Samples of the Rendered viewport' }), bool(r, 'preview_denoising', 'Denoise', { tip: 'Denoise the Rendered viewport' })]),
-      sub('rs-samp-render', 'Render', () => [
-        num(r, 'samples', 'Max Samples', { int: true, min: 1, max: 65536, tip: 'Samples per pixel of final renders' }),
-        num(r, 'time_limit', 'Time Limit', { unit: 'time', min: 0, softMax: 3600, tip: 'Stop sampling after this time (0 for no limit)' }),
-        bool(r, 'use_denoising', 'Denoise', { tip: 'Denoise final renders' }),
-      ]),
-    ]),
-    panel(
-      'rs-lightpaths',
-      'Light Paths',
-      () => [
-        sub('rs-lp-bounces', 'Max Bounces', () => [
-          num(r, 'max_bounces', 'Total', { int: true, min: 0, max: 1024, softMax: 64, tip: 'Total number of light bounces' }),
-          num(r, 'diffuse_bounces' as never, 'Diffuse', { int: true, min: 0, max: 1024, softMax: 64 }),
-          num(r, 'glossy_bounces' as never, 'Glossy', { int: true, min: 0, max: 1024, softMax: 64 }),
-          num(r, 'transmission_bounces' as never, 'Transmission', { int: true, min: 0, max: 1024, softMax: 64 }),
-        ]),
-        sub('rs-lp-clamp', 'Clamping', () => [
-          num(r, 'sample_clamp_direct', 'Direct Light', { min: 0, softMax: 100, tip: 'Limit the brightness of direct light samples to reduce noise (0 disables)' }),
-          num(r, 'sample_clamp_indirect', 'Indirect Light', { min: 0, softMax: 100, tip: 'Limit the brightness of bounced light samples to reduce fireflies (0 disables)' }),
-        ]),
-        sub('rs-lp-caustics', 'Caustics', () => [num(r, 'blur_glossy', 'Filter Glossy', { min: 0, max: 10, tip: 'Blur glossy reflections seen after rough bounces to reduce caustic noise' })], { closed: true }),
-      ],
-      { closed: true },
-    ),
+    main.sampling,
+    main.lightPaths,
     simplifyPanel(r),
     motionBlurPanel(r),
-    panel(
-      'rs-film',
-      'Film',
-      () => [
-        num(r, 'film_exposure', 'Exposure', { min: 0, softMax: 10, tip: 'Image brightness scale' }),
-        sub('rs-film-filter', 'Pixel Filter', () => [
-          enumProp(r, 'pixel_filter_type' as never, 'Type', [['BOX', 'Box'], ['GAUSSIAN', 'Gaussian'], ['BLACKMAN_HARRIS', 'Blackman-Harris']], { tip: 'Shape of the anti-aliasing filter' }),
-          num(r, 'filter_width', 'Width', { min: 0.01, max: 10, precision: 2, disabled: r.pixel_filter_type === 'BOX', tip: 'Width (pixels) of the anti-aliasing filter' }),
-        ]),
-        sub('rs-film-transparent', 'Transparent', () => h('div', { class: 'prop-note' }, 'The world background renders transparent (it still lights the scene).'), { header: headerToggle(r, 'film_transparent', 'Transparent'), closed: true }),
-      ],
-      { closed: true },
-    ),
+    main.film,
     panel(
       'rs-perf',
       'Performance',

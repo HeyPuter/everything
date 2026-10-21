@@ -1038,6 +1038,8 @@ export type RenderEngine = 'RASTER' | 'PATHTRACE' | 'SOLID';
 
 export interface RenderSettings extends RealtimeRenderSettings {
   engine: RenderEngine;
+  /** path tracer options (src/render/final/ptsettings.ts) */
+  cycles?: import('../render/final/ptsettings').PathTraceSettings;
   /** texture baking (src/bake/settings.ts) */
   bake?: import('../bake/settings').BakeSettings;
   bake_type?: import('../bake/settings').BakeType;

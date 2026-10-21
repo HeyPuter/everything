@@ -6,6 +6,7 @@ import { RenderScene, type BuildOptions } from './renderscene';
 import { RasterRenderer, Accumulator, effectsFrom } from './raster';
 import { PathTracerCore } from './pathtracer';
 import { Denoiser } from './denoise';
+import { ptSettings, adaptiveMinSamples, noiseSeed, denoiseOptions } from './ptsettings';
 import { floatTarget, normalDepthMaterial, renderOverride, renderAlbedo } from './gbuffer';
 import { renderCamera, viewportCameraForAspect, jitterProjection, cameraDof, apertureSample, apertureJitter, regionRect, cropProjection, type PixelRect } from './camera';
 import { renderSize, frameList, jitter, halton, shutterOffset, formatTime, frameFileName, filmTransparent, tileCount, expandRegion } from './units';
@@ -305,13 +306,23 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
       rs.build(app, buildOptions(src, 'pathtrace'));
       guideScene = rs;
       const core = (finalCore ??= new PathTracerCore(renderer));
-      core.applySettings(r);
+      core.applySettings(r, src.kind !== 'final');
       core.setSize(W, H);
       core.setTiles(...tileCount(r, W, H));
       core.sync(rs, camera, Math.random());
       core.reset();
       // a view layer can override the scene's sample count
       maxSamples = Math.max(1, src.kind === 'final' ? activeViewLayer(doc.scene).samples || r.samples : r.preview_samples);
+      {
+        // adaptive sampling and the noise seed
+        const c = ptSettings(r);
+        const fin = src.kind === 'final';
+        const on = fin ? c.use_adaptive_sampling : c.use_preview_adaptive_sampling;
+        const threshold = fin ? c.adaptive_threshold : c.preview_adaptive_threshold;
+        core.setAdaptive(on && threshold > 0 ? { threshold, min: adaptiveMinSamples(threshold, fin ? c.adaptive_min_samples : c.preview_adaptive_min_samples), max: maxSamples } : null);
+        core.setSeed(noiseSeed(r, doc.scene.frame_current));
+        core.reset();
+      }
       const timeLimit = src.kind === 'final' ? Math.max(0, r.time_limit ?? 0) : 0;
       const exposure = r.film_exposure ?? 1;
       const scale = (buf: Float32Array) => {
@@ -352,9 +363,9 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
           core.sync(rs, camera, Math.random());
           core.reset();
         }
-        while (core.samples < target) {
+        while (core.samples < target && core.activeFraction > 0) {
           check();
-          for (let i = 0; i < batch && core.samples < target; i++) core.sample();
+          for (let i = 0; i < batch && core.samples < target && core.activeFraction > 0; i++) core.sample();
           job!.sample = done + core.samples;
           const now = performance.now();
           if (timeLimit > 0 && (now - traceStart) / 1000 >= timeLimit * ((sl + 1) / slices) && core.samples > 0) {
@@ -395,7 +406,7 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
         renderer.shadowMap.enabled = false;
         renderOverride(renderer, rs.scene, camera, guide, normalDepthMaterial);
         renderAlbedo(renderer, rs.scene, camera, albedo);
-        denoiser.run(renderer, source.texture, guide.texture, albedo.texture, W, H, samples);
+        denoiser.run(renderer, source.texture, guide.texture, albedo.texture, W, H, samples, denoiseOptions(r, src.kind !== 'final'));
         resultRT = denoiser.out!;
         guide.dispose();
         albedo.dispose();

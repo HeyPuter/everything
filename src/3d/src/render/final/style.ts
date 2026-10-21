@@ -1,5 +1,8 @@
 // Styles for the Image Editor, render window and viewport render status (injected once).
 const css = /* css */ `
+.sr-value.rs-checknum { display: flex; align-items: center; gap: 4px; }
+.sr-value.rs-checknum > .checkbox { flex: none; }
+.sr-value.rs-checknum > .num-field { flex: 1; min-width: 0; }
 .ie-root { position: absolute; inset: 0; outline: none; overflow: hidden; background: #2d2e30; }
 .ie-canvas { position: absolute; left: 0; top: 0; touch-action: none; }
 .ie-ui { position: absolute; inset: 0; pointer-events: none; }
