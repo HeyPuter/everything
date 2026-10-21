@@ -4,13 +4,14 @@ import { isFavorite, toggleFavorite, setFavorite, favoriteIds, onFavoritesChange
 import { tabLayout, tileGrid, tile, categoryIds } from '../src/ui/panels/common.js';
 import { prefs, setPref } from '../src/ui/prefs.js';
 import { mediaTab, assetFacts } from '../src/ui/panels/media.js';
+import { filtersTab } from '../src/ui/panels/filters.js';
 import { EditorStore } from '../src/model/store.js';
 import { createActions } from '../src/ui/actions.js';
 import { createBin, moveAssets } from '../src/model/bins.js';
 import { allClips, mainTrack } from '../src/model/timeline.js';
 import { makeClip } from '../src/model/project.js';
 import { createCompound } from '../src/model/compound.js';
-import { fixture } from './helpers.js';
+import { fixture, clip } from './helpers.js';
 import { Emitter } from '../src/lib/emitter.js';
 
 const KEY = 'video-studio:prefs';
@@ -283,5 +284,33 @@ describe('media tab', () => {
     const [other] = await acts.importFiles([new File(['x'], 'b.png', { type: 'image/png' })], { folder: 'missing' });
     expect(other.folder).toBeUndefined();
     void actions;
+  });
+});
+
+describe('filters tab', () => {
+  it('shows the filter just applied or undone on the selected clip', () => {
+    const p = fixture();
+    const v = clip('video', 0, 5);
+    mainTrack(p).clips.push(v);
+    const store = new EditorStore(p);
+    const ctx = { store };
+    ctx.actions = createActions(ctx);
+    const tab = filtersTab(ctx);
+    document.body.append(tab.el);
+    store.select(v.id);
+    const tileFor = (label) => tab.el.querySelector(`.tile[aria-label="${label}"]`);
+    const pressed = () => [...tab.el.querySelectorAll('.tile[aria-pressed=true]')].map((t) => t.getAttribute('aria-label'));
+    const vivid = 'Apply Vivid filter to clip';
+    tileFor(vivid).focus();
+    tileFor(vivid).click();
+    expect(store.selected.clip.filter.id).toBe('vivid');
+    expect(pressed()).toEqual([vivid]);
+    expect(tileFor('Remove filter from clip')).toBeTruthy();
+    // Keyboard focus stays on the tile.
+    expect(document.activeElement).toBe(tileFor(vivid));
+    store.undo();
+    expect(pressed()).toEqual([]);
+    expect(tileFor('Remove filter from clip')).toBe(null);
+    tab.dispose();
   });
 });
