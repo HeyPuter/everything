@@ -95,3 +95,31 @@ describe('UV packing groups', () => {
     expect(groups.map((g) => g.length).sort()).toEqual([1, 2]);
   });
 });
+
+describe('UV shortest path fill', () => {
+  it('selects the region between two corners of a grid', async () => {
+    const { shortestVertFill, shortestVertPath } = await import('../../src/editors/uv/uvselect');
+    const prim = await import('../../src/mesh/primitives');
+    const me = newMeshData('G', prim.grid(4, 4, 2));
+    me.select_vert = new Uint8Array(me.positions.length / 3).fill(1);
+    const t = new UVTopo(layer(me));
+    // UV vertices at two opposite corners of a 2 × 2 cell block
+    const at = (u: number, v: number) => {
+      let best = -1,
+        bd = Infinity;
+      for (let id = 0; id < t.vertCount; id++) {
+        const [x, y] = t.vertUV(id);
+        const d = Math.hypot(x - u, y - v);
+        if (d < bd) ((bd = d), (best = id));
+      }
+      return best;
+    };
+    const a = at(0, 0),
+      b = at(0.5, 0.5);
+    const path = shortestVertPath(t, a, b, true);
+    const fill = shortestVertFill(t, a, b, true);
+    expect(path.length).toBe(5);
+    // the 3 × 3 block of grid vertices between them
+    expect(fill.length).toBe(9);
+  });
+});

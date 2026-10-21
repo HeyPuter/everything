@@ -1519,7 +1519,7 @@ export class UVEditor implements Editor, UVView, View2D, Annotate2DHost {
     if (!loc) return;
     if (event.alt && event.ctrl) app.run('uv.select_edge_ring', { extend: event.shift, location: loc }, { invoke: false, area });
     else if (event.alt) app.run('uv.select_loop', { extend: event.shift, location: loc }, { invoke: false, area });
-    else if (event.ctrl) app.run('uv.shortest_path_pick', { location: loc }, { invoke: false, area });
+    else if (event.ctrl) app.run('uv.shortest_path_pick', { location: loc, use_fill: event.shift }, { invoke: false, area });
     else app.run('uv.select', { location: loc, toggle: event.shift, deselect_all: !event.shift }, { invoke: false, area });
   }
 
