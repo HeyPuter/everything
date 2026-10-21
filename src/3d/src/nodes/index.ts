@@ -6,6 +6,7 @@ import './shader/material';
 import './shader/world';
 import './shader/extraui';
 import './shader/constants';
+import './shader/sharedutil';
 import './editor/nodes.css';
 import './editor/ops';
 import './editor/commands';

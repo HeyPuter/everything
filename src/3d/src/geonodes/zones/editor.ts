@@ -137,10 +137,16 @@ function repairPairs(tree: NodeTreeData): boolean {
   return any;
 }
 
+/** Trees that can hold zones: geometry and shader node groups, materials and worlds. */
 function geometryTrees(): NodeTreeData[] {
-  return Object.values(app.doc.node_groups)
-    .map((g) => g.tree)
-    .filter((t) => t.type === 'GEOMETRY');
+  const doc = app.doc;
+  return [
+    ...Object.values(doc.node_groups)
+      .map((g) => g.tree)
+      .filter((t) => t.type === 'GEOMETRY' || t.type === 'SHADER'),
+    ...Object.values(doc.materials).map((m) => m.tree),
+    ...Object.values(doc.worlds ?? {}).map((w) => w.tree),
+  ].filter((t): t is NodeTreeData => !!t);
 }
 
 /** Drop simulation caches and bakes of objects or modifiers that no longer exist. */
@@ -267,14 +273,16 @@ function drawZones(ed: NodeEditor, g: CanvasRenderingContext2D) {
 }
 
 function installZoneDrawing() {
-  const p = providers.get('GEOMETRY');
-  if (!p || (p as { zonesInstalled?: boolean }).zonesInstalled) return;
-  (p as { zonesInstalled?: boolean }).zonesInstalled = true;
-  const prev = p.drawBackdrop;
-  p.drawBackdrop = (ed, g, W, H) => {
-    prev?.(ed, g, W, H);
-    drawZones(ed as NodeEditor, g);
-  };
+  for (const id of ['GEOMETRY', 'SHADER']) {
+    const p = providers.get(id);
+    if (!p || (p as { zonesInstalled?: boolean }).zonesInstalled) continue;
+    (p as { zonesInstalled?: boolean }).zonesInstalled = true;
+    const prev = p.drawBackdrop;
+    p.drawBackdrop = (ed, g, W, H) => {
+      prev?.(ed, g, W, H);
+      drawZones(ed as NodeEditor, g);
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -113,6 +113,10 @@ export function runPixelNode(x: NodeCtx, gen: NodeGenerator, opts: { domain?: Do
       const s = findSocket(x.node, id, false, x.ctx);
       return s ? inputValue(x.node, s) : null;
     },
+    staticValue: (id) => {
+      const s = findSocket(x.node, id, false, x.ctx);
+      return s ? inputValue(x.node, s) : null;
+    },
     prop: (id) => propValue(x.node, id),
     str: (id) => String(propValue(x.node, id) ?? ''),
     out: (id, type, expr) => {

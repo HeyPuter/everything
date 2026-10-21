@@ -182,7 +182,32 @@ interface Scope {
   /** outer group node context (for Group Input nodes) */
   outer?: { scope: Scope; node: NodeData };
   groupStack: string[];
+  /** outputs replaced by loop variables inside repeat zone bodies (node id → outputs) */
+  overrides?: Map<string, Outputs>;
 }
+
+/** Repeat zone node types (shared with geometry nodes). */
+export const REPEAT_INPUT_TYPE = 'GeometryNodeRepeatInput';
+export const REPEAT_OUTPUT_TYPE = 'GeometryNodeRepeatOutput';
+/** Upper bound of repeat zone iterations in shaders. */
+export const MAX_SHADER_ITERATIONS = 4096;
+
+interface RepeatItem {
+  id: number;
+  name: string;
+  socket_type: string;
+}
+function repeatItems(n: NodeData): RepeatItem[] {
+  const raw = n.props.repeat_items;
+  if (typeof raw !== 'string' || !raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? (v as RepeatItem[]) : [];
+  } catch {
+    return [];
+  }
+}
+const SHADER_ITEM_TYPES = new Set(['FLOAT', 'INT', 'BOOLEAN', 'VECTOR', 'RGBA', 'ROTATION']);
 
 type Outputs = Map<string, { expr: string; type: GType }>;
 
@@ -198,6 +223,8 @@ export interface NodeGen {
   linked(id: string): boolean;
   /** raw stored value of an unlinked input (for feature flags) */
   value(id: string): SocketValue;
+  /** compile-time value of an input: followed through reroutes, Menu nodes and group inputs */
+  staticValue(id: string): SocketValue;
   prop(id: string): SocketValue;
   str(id: string): string;
   out(id: string, type: GType, expr: string): void;
@@ -298,8 +325,59 @@ export class Codegen {
     return st.valid && !st.inactive;
   }
 
+  /**
+   * Value of an input known while compiling (menus): the unlinked value, or the value of the
+   * constant / group input it is linked to.
+   */
+  staticValue(scope: Scope, node: NodeData, id: string, depth = 0): SocketValue {
+    const link = scope.tree.links.find((l) => l.to_node === node.id && l.to_socket === id && !l.is_muted);
+    const sctx = this.socketCtx(scope);
+    if (!link || depth > 32) {
+      const s = findSocket(node, id, false, sctx);
+      return s ? inputValue(node, s) : null;
+    }
+    const from = scope.tree.nodes.find((n) => n.id === link.from_node);
+    if (!from) return null;
+    if (from.type === 'NodeReroute') return this.staticValue(scope, from, 'Input', depth + 1);
+    if (from.type === 'FunctionNodeInputMenu') return (from.props.value as SocketValue) ?? null;
+    if (from.type === 'NodeGroupInput') {
+      if (scope.outer) return this.staticValue(scope.outer.scope, scope.outer.node, link.from_socket, depth + 1);
+      const s = interfaceSockets(scope.tree, 'INPUT').find((x) => x.identifier === link.from_socket);
+      return s ? socketDefault(s) : null;
+    }
+    return null;
+  }
+
+  /** Repeat zone: a loop whose body is generated with the zone input replaced by loop variables. */
+  private genRepeat(scope: Scope, output: NodeData, outs: Outputs) {
+    const input = scope.tree.nodes.find((n) => n.type === REPEAT_INPUT_TYPE && n.props.paired_output === output.id);
+    const items = repeatItems(output).filter((it) => SHADER_ITEM_TYPES.has(it.socket_type));
+    if (!input) {
+      this.errors.push(`${output.name}: the repeat zone has no input node`);
+      return;
+    }
+    const tid = (it: RepeatItem) => `Item_${it.id}`;
+    const types = items.map((it) => glslType(it.socket_type as SocketType));
+    const vars = items.map((it, k) => this.declare(types[k], this.inputExpr(scope, input, tid(it), types[k])));
+    const count = this.declare('float', this.inputExpr(scope, input, 'Iterations', 'float'));
+    const i = this.newVar('i');
+    this.lines.push(`for (int ${i} = 0; ${i} < ${MAX_SHADER_ITERATIONS}; ${i}++) {`, `if (float(${i}) >= ${count}) break;`);
+    const inner: Outputs = new Map();
+    inner.set('Iteration', { expr: `float(${i})`, type: 'float' });
+    items.forEach((it, k) => inner.set(tid(it), { expr: vars[k], type: types[k] }));
+    const overrides = new Map(scope.overrides ?? []);
+    overrides.set(input.id, inner);
+    const body: Scope = { ...scope, prefix: `${scope.prefix}/rep${this.vars++}`, overrides };
+    const next = items.map((it, k) => this.declare(types[k], this.inputExpr(body, output, tid(it), types[k], vars[k])));
+    items.forEach((_, k) => this.lines.push(`${vars[k]} = ${next[k]};`));
+    this.lines.push('}');
+    items.forEach((it, k) => outs.set(tid(it), { expr: vars[k], type: types[k] }));
+  }
+
   /** Generate (once) the code for a node and return its output expressions. */
   nodeOutputs(scope: Scope, node: NodeData): Outputs | undefined {
+    const over = scope.overrides?.get(node.id);
+    if (over) return over;
     const key = `${scope.prefix}|${node.id}`;
     const hit = this.cache.get(key);
     if (hit) return hit;
@@ -337,6 +415,16 @@ export class Codegen {
       }
     } else if (def?.dynamicSockets && node.props.node_tree !== undefined) {
       this.genGroup(scope, node, outs);
+    } else if (node.type === REPEAT_OUTPUT_TYPE) {
+      this.genRepeat(scope, node, outs);
+    } else if (node.type === REPEAT_INPUT_TYPE) {
+      // used outside its zone (no loop variables): the initial values pass through
+      outs.set('Iteration', { expr: '0.0', type: 'float' });
+      for (const s of sockets.outputs)
+        if (s.identifier.startsWith('Item_')) {
+          const t = glslType(s.type);
+          outs.set(s.identifier, { expr: this.declare(t, this.inputExpr(scope, node, s.identifier, t)), type: t });
+        }
     } else {
       const gen = nodeGenerators[def?.idname ?? node.type];
       if (!gen) {
@@ -406,6 +494,7 @@ export class Codegen {
         const s = findSocket(node, id, false, self.socketCtx(scope));
         return s ? inputValue(node, s) : null;
       },
+      staticValue: (id) => self.staticValue(scope, node, id),
       prop: (id) => propValue(node, id),
       str: (id) => String(propValue(node, id) ?? ''),
       out: (id, type, expr) => {
