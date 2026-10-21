@@ -520,6 +520,20 @@ function shadingPopover(v: View3D): Child {
       h('div', { class: 'row-split' }, checkbox('s-outline', 'Outline', s.show_object_outline, set('show_object_outline')), colorSwatch('s-outc', s.object_outline_color ?? [0, 0, 0], (c) => set('object_outline_color')(c.slice(0, 3)))),
       checkbox('s-spec', 'Specular Lighting', s.show_specular_highlight, set('show_specular_highlight')),
       h('div', { class: 'row-split' }, checkbox('s-xray', 'X-Ray', s.show_xray, set('show_xray')), numberField({ id: 's-xa', value: s.xray_alpha, min: 0, max: 1, slider: true, set: (x) => set('xray_alpha')(x) })),
+      h('div', { class: 'row-split' }, checkbox('s-shadow', 'Shadow', s.show_shadows, set('show_shadows'), { tip: 'Shadow\nObjects cast shadows from a fixed light direction' }), numberField({ id: 's-shadow-i', value: s.shadow_intensity ?? 0.5, min: 0, max: 1, slider: true, disabled: !s.show_shadows, tip: 'Shadow\nDarkness of the shadows', set: (x) => set('shadow_intensity')(x) })),
+      s.show_shadows
+        ? h(
+            'div',
+            { class: 'ov-scale-row sh-dir-row' },
+            ...([0, 1, 2] as const).map((i) =>
+              numberField({ id: `s-ldir-${i}`, label: 'XYZ'[i], value: (s.light_direction ?? [0.5774, -0.5774, 0.5774])[i], min: -1, max: 1, slider: true, tip: 'Light Direction\nDirection the shadow light comes from', set: (x) => {
+                const d = [...(s.light_direction ?? [0.5774, -0.5774, 0.5774])] as [number, number, number];
+                d[i] = x;
+                set('light_direction')(d);
+              } }),
+            ),
+          )
+        : null,
       checkbox('s-cavity', 'Cavity', s.show_cavity, set('show_cavity'), { tip: 'Cavity\nLighten convex edges and darken creases' }),
       s.show_cavity
         ? h(

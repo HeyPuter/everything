@@ -86,3 +86,6 @@
 .v3d-svg .ob-axis-label {
   font: 600 10px var(--font);
 }
+.ov-scale-row.sh-dir-row {
+  grid-template-columns: 1fr 1fr 1fr;
+}

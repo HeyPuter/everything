@@ -48,6 +48,7 @@ import { drawObjectOutlines } from './objoutline';
 import { thresholdEdges } from './wirethreshold';
 import { dashedLineMaterial, dashedSegments, syncDashViewport } from './dashline';
 import { drawCavity } from './cavity';
+import { drawSolidShadow } from './solidshadow';
 
 export interface DrawView {
   nav: NavCamera;
@@ -420,6 +421,8 @@ export function drawViewport(app: App, ctx: RenderContext, view: DrawView, x: nu
     const afterScene = runPassHooks('SCENE', view, camera);
     renderWithInFront(r, ctx, scene, camera, true);
     // Solid shading ▸ Cavity
+    // Solid shading ▸ Shadow
+    if (sh.type === 'SOLID' && sh.show_shadows) drawSolidShadow(r, ctx, scene, camera, { x, y, w, h }, sh.light_direction ?? [0.5774, -0.5774, 0.5774], sh.shadow_intensity ?? 0.5);
     if (sh.type === 'SOLID' && sh.show_cavity) drawCavity(r, scene, camera, { x, y, w, h }, engine.dpr, sh.cavity_ridge_factor ?? 1, sh.cavity_valley_factor ?? 1);
     afterScene();
     for (const hdn of hiddenForScene) hdn.o.visible = hdn.v;
